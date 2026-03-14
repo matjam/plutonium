@@ -1,5 +1,5 @@
 # Build output
-/pluto
+/pluto.bin
 /cmd/pluto/pluto
 
 # Go test cache
