@@ -359,6 +359,19 @@ func (w *Writer) Write(out io.Writer) error {
 	return nil
 }
 
+// TextBytes returns the current .text section bytes (for offset calculation).
+func (w *Writer) TextBytes() []byte { return w.text }
+
+// SymbolIndex looks up a symbol by name. Returns -1 if not found.
+func (w *Writer) SymbolIndex(name string) int {
+	for i, s := range w.syms {
+		if s.name == name {
+			return i
+		}
+	}
+	return -1
+}
+
 // --- Helpers ---
 
 func elfSymInfo(bind elf.SymBind, typ elf.SymType) byte {
