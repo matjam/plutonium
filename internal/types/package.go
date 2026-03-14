@@ -23,6 +23,9 @@ func (p *Package) Name() string { return p.name }
 // Scope returns the package scope.
 func (p *Package) Scope() *Scope { return p.scope }
 
+// Files returns the AST files belonging to this package.
+func (p *Package) Files() []*ast.File { return p.files }
+
 // Scope is a declaration scope with typed objects.
 type Scope struct {
 	parent  *Scope
