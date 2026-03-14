@@ -157,6 +157,28 @@ func (c *checker) resolveFuncType(e *ast.FuncType) *Signature {
 	return &Signature{params: params, results: results}
 }
 
+// resolveTypeParamConstraint resolves a type parameter constraint expression.
+// Constraints may be a single type (e.g., int32) or a union (int32 | int64).
+// The constraint is stored but not enforced in v0.1.
+func (c *checker) resolveTypeParamConstraint(expr ast.Expr) Type {
+	if expr == nil {
+		return nil
+	}
+	switch e := expr.(type) {
+	case *ast.BinaryExpr:
+		if e.Op == token.OR {
+			// Union constraint: T int32 | int64
+			left := c.resolveTypeParamConstraint(e.X)
+			right := c.resolveTypeParamConstraint(e.Y)
+			return &Union{terms: []Type{left, right}}
+		}
+	case *ast.Ident:
+		// Simple type name like int32
+		return c.resolveIdentType(e)
+	}
+	return c.resolveType(expr)
+}
+
 // typeBaseName returns the base name of a type for embedded field naming.
 func typeBaseName(t Type) string {
 	switch t := t.(type) {

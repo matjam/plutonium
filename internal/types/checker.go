@@ -154,6 +154,20 @@ func (c *checker) checkFuncDecl(d *ast.FuncDecl) {
 	c.scope = NewScope(c.pkg.scope)
 	defer func() { c.scope = prevScope }()
 
+	// Add type parameters to scope so that T resolves inside the function
+	if d.Type.TypeParams != nil {
+		for _, field := range d.Type.TypeParams.List {
+			// The constraint is a union or ident — resolve it
+			constraint := c.resolveTypeParamConstraint(field.Type)
+			for _, name := range field.Names {
+				tp := &TypeParam{name: name.Name, constraint: constraint}
+				obj := &Object{Kind: TypObj, Name: name.Name, Type: tp, Pos: name.Pos()}
+				c.scope.Insert(obj)
+				c.info.Defs[name] = obj
+			}
+		}
+	}
+
 	// Add receiver to scope
 	if d.Recv != nil {
 		for _, field := range d.Recv.List {
