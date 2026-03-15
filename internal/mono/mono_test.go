@@ -118,3 +118,66 @@ func use() { _ = Identity[int32](42) }
 		}
 	}
 }
+
+func TestConstGenericParam(t *testing.T) {
+	result := monoOK(t, `
+package main
+func fixed[N int]() int64 { return N }
+func use() { _ = fixed[8]() }
+`)
+	// Should produce fixed__8 and use
+	names := make(map[string]bool)
+	for _, fn := range result.Functions {
+		names[fn.Name] = true
+	}
+	if !names["fixed__8"] {
+		t.Errorf("expected fixed__8 in output, got functions: %v", names)
+	}
+	if !names["use"] {
+		t.Error("expected use in output")
+	}
+	// The original generic fixed should NOT be in output
+	if names["fixed"] {
+		t.Error("original generic fixed should not be in output")
+	}
+}
+
+func TestConstGenericBodySubstitution(t *testing.T) {
+	result := monoOK(t, `
+package main
+func fixed[N int]() int64 { return N }
+func use() { _ = fixed[8]() }
+`)
+	// Find the fixed__8 function
+	var fixedDecl *ast.FuncDecl
+	for _, fn := range result.Functions {
+		if fn.Name == "fixed__8" {
+			fixedDecl = fn.Decl
+			break
+		}
+	}
+	if fixedDecl == nil {
+		t.Fatal("fixed__8 not found in output")
+	}
+	// The body should contain a return statement with BasicLit "8", not Ident "N"
+	if fixedDecl.Body == nil || len(fixedDecl.Body.List) == 0 {
+		t.Fatal("fixed__8 has no body statements")
+	}
+	retStmt, ok := fixedDecl.Body.List[0].(*ast.ReturnStmt)
+	if !ok {
+		t.Fatalf("expected ReturnStmt, got %T", fixedDecl.Body.List[0])
+	}
+	if len(retStmt.Results) != 1 {
+		t.Fatalf("expected 1 return result, got %d", len(retStmt.Results))
+	}
+	lit, ok := retStmt.Results[0].(*ast.BasicLit)
+	if !ok {
+		t.Fatalf("expected return value to be *ast.BasicLit, got %T", retStmt.Results[0])
+	}
+	if lit.Value != "8" {
+		t.Errorf("expected return value %q, got %q", "8", lit.Value)
+	}
+	if lit.Kind != token.INT {
+		t.Errorf("expected token.INT, got %v", lit.Kind)
+	}
+}

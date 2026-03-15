@@ -185,6 +185,8 @@ func typeArgName(expr ast.Expr) string {
 		return e.Name
 	case *ast.StarExpr:
 		return "*" + typeArgName(e.X)
+	case *ast.BasicLit:
+		return e.Value
 	}
 	return ""
 }
@@ -245,6 +247,22 @@ func cloneFieldList(fl *ast.FieldList, subst map[string]string) *ast.FieldList {
 	return newFL
 }
 
+// isIntLiteral reports whether s looks like an integer literal (e.g. "8", "256", "0xff").
+func isIntLiteral(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			// Allow hex prefix and digits
+			if r != 'x' && r != 'X' && !(r >= 'a' && r <= 'f') && !(r >= 'A' && r <= 'F') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func substituteType(expr ast.Expr, subst map[string]string) ast.Expr {
 	switch e := expr.(type) {
 	case *ast.Ident:
@@ -263,6 +281,98 @@ func substituteType(expr ast.Expr, subst map[string]string) ast.Expr {
 	return expr
 }
 
+// substituteExpr replaces identifiers in expression positions with their
+// substitutions. For const generic parameters (integer literals), the
+// identifier is replaced with a BasicLit node.
+func substituteExpr(expr ast.Expr, subst map[string]string) ast.Expr {
+	if expr == nil {
+		return nil
+	}
+	switch e := expr.(type) {
+	case *ast.Ident:
+		if replacement, ok := subst[e.Name]; ok {
+			if isIntLiteral(replacement) {
+				return &ast.BasicLit{
+					ValuePos: e.NamePos,
+					Kind:     token.INT,
+					Value:    replacement,
+				}
+			}
+			return &ast.Ident{NamePos: e.NamePos, Name: replacement}
+		}
+		return e
+	case *ast.BasicLit:
+		return e
+	case *ast.BinaryExpr:
+		return &ast.BinaryExpr{
+			X:     substituteExpr(e.X, subst),
+			OpPos: e.OpPos,
+			Op:    e.Op,
+			Y:     substituteExpr(e.Y, subst),
+		}
+	case *ast.UnaryExpr:
+		return &ast.UnaryExpr{
+			OpPos: e.OpPos,
+			Op:    e.Op,
+			X:     substituteExpr(e.X, subst),
+		}
+	case *ast.ParenExpr:
+		return &ast.ParenExpr{
+			Lparen: e.Lparen,
+			X:      substituteExpr(e.X, subst),
+			Rparen: e.Rparen,
+		}
+	case *ast.CallExpr:
+		args := make([]ast.Expr, len(e.Args))
+		for i, a := range e.Args {
+			args[i] = substituteExpr(a, subst)
+		}
+		return &ast.CallExpr{
+			Fun:      substituteExpr(e.Fun, subst),
+			Lparen:   e.Lparen,
+			Args:     args,
+			Ellipsis: e.Ellipsis,
+			Rparen:   e.Rparen,
+		}
+	case *ast.IndexExpr:
+		return &ast.IndexExpr{
+			X:      substituteExpr(e.X, subst),
+			Lbrack: e.Lbrack,
+			Index:  substituteExpr(e.Index, subst),
+			Rbrack: e.Rbrack,
+		}
+	case *ast.SelectorExpr:
+		return &ast.SelectorExpr{
+			X:   substituteExpr(e.X, subst),
+			Sel: e.Sel,
+		}
+	case *ast.StarExpr:
+		return &ast.StarExpr{
+			Star: e.Star,
+			X:    substituteExpr(e.X, subst),
+		}
+	case *ast.CompositeLit:
+		elts := make([]ast.Expr, len(e.Elts))
+		for i, elt := range e.Elts {
+			elts[i] = substituteExpr(elt, subst)
+		}
+		return &ast.CompositeLit{
+			Type:       e.Type,
+			Lbrace:     e.Lbrace,
+			Elts:       elts,
+			Rbrace:     e.Rbrace,
+			Incomplete: e.Incomplete,
+		}
+	case *ast.KeyValueExpr:
+		return &ast.KeyValueExpr{
+			Key:   substituteExpr(e.Key, subst),
+			Colon: e.Colon,
+			Value: substituteExpr(e.Value, subst),
+		}
+	}
+	return expr
+}
+
 func cloneBlock(block *ast.BlockStmt, subst map[string]string) *ast.BlockStmt {
 	if block == nil {
 		return nil
@@ -275,8 +385,87 @@ func cloneBlock(block *ast.BlockStmt, subst map[string]string) *ast.BlockStmt {
 }
 
 func cloneStmt(stmt ast.Stmt, subst map[string]string) ast.Stmt {
-	// For v0.1: return as-is (full cloning needed for complex cases)
-	// This is sufficient for the test cases
+	if stmt == nil {
+		return nil
+	}
+	switch s := stmt.(type) {
+	case *ast.ReturnStmt:
+		results := make([]ast.Expr, len(s.Results))
+		for i, r := range s.Results {
+			results[i] = substituteExpr(r, subst)
+		}
+		return &ast.ReturnStmt{Return: s.Return, Results: results}
+	case *ast.ExprStmt:
+		return &ast.ExprStmt{X: substituteExpr(s.X, subst)}
+	case *ast.AssignStmt:
+		lhs := make([]ast.Expr, len(s.Lhs))
+		for i, l := range s.Lhs {
+			lhs[i] = substituteExpr(l, subst)
+		}
+		rhs := make([]ast.Expr, len(s.Rhs))
+		for i, r := range s.Rhs {
+			rhs[i] = substituteExpr(r, subst)
+		}
+		return &ast.AssignStmt{
+			Lhs:    lhs,
+			TokPos: s.TokPos,
+			Tok:    s.Tok,
+			Rhs:    rhs,
+		}
+	case *ast.IfStmt:
+		return &ast.IfStmt{
+			If:   s.If,
+			Init: cloneStmt(s.Init, subst),
+			Cond: substituteExpr(s.Cond, subst),
+			Body: cloneBlock(s.Body, subst),
+			Else: cloneStmt(s.Else, subst),
+		}
+	case *ast.ForStmt:
+		return &ast.ForStmt{
+			For:  s.For,
+			Init: cloneStmt(s.Init, subst),
+			Cond: substituteExpr(s.Cond, subst),
+			Post: cloneStmt(s.Post, subst),
+			Body: cloneBlock(s.Body, subst),
+		}
+	case *ast.BlockStmt:
+		return cloneBlock(s, subst)
+	case *ast.IncDecStmt:
+		return &ast.IncDecStmt{
+			X:      substituteExpr(s.X, subst),
+			TokPos: s.TokPos,
+			Tok:    s.Tok,
+		}
+	case *ast.DeclStmt:
+		return s // declaration statements don't need expression substitution for now
+	case *ast.BranchStmt:
+		return s
+	case *ast.EmptyStmt:
+		return s
+	case *ast.SwitchStmt:
+		return &ast.SwitchStmt{
+			Switch: s.Switch,
+			Init:   cloneStmt(s.Init, subst),
+			Tag:    substituteExpr(s.Tag, subst),
+			Body:   cloneBlock(s.Body, subst),
+		}
+	case *ast.CaseClause:
+		list := make([]ast.Expr, len(s.List))
+		for i, e := range s.List {
+			list[i] = substituteExpr(e, subst)
+		}
+		body := make([]ast.Stmt, len(s.Body))
+		for i, st := range s.Body {
+			body[i] = cloneStmt(st, subst)
+		}
+		return &ast.CaseClause{
+			Case:  s.Case,
+			List:  list,
+			Colon: s.Colon,
+			Body:  body,
+		}
+	}
+	// Fallback for unhandled statement types
 	return stmt
 }
 
