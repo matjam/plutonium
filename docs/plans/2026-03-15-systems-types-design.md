@@ -77,6 +77,27 @@ register. Each field access compiles to one AND/OR/shift sequence. For
 array-backed types (`packed [N]byte`), the compiler generates multi-byte
 mask/shift sequences for fields that span byte boundaries.
 
+### Misaligned access codegen
+
+Packed structs produce misaligned field accesses. The codegen must never
+emit a faulting instruction regardless of target architecture:
+
+- **x86_64**: Misaligned MOV works in hardware (small throughput penalty
+  on cache line splits). Single MOV instruction, no decomposition needed.
+- **Strict-alignment architectures** (some ARM modes, RISC-V, MIPS):
+  Misaligned word loads/stores fault. The codegen must decompose into
+  byte-level loads with shift/OR to reconstruct the value, and byte-level
+  stores with shift/mask to write it. For example, a `uint32` load at
+  offset 3 on a strict-alignment target becomes 4 byte loads + 3 shifts
+  + 3 ORs.
+- **Configurable-alignment architectures** (ARM with UAL bit): The
+  compiler can emit a single LDR/STR if the runtime alignment mode is
+  known. Otherwise, it must use the safe byte-level decomposition.
+
+The backend selects the strategy based on the target triple. This is a
+code quality concern, not a correctness concern — the output is always
+correct, just potentially slower on strict-alignment targets.
+
 ### Packing rules
 
 Packed types have **zero implicit padding**. Fields are laid out
