@@ -77,6 +77,63 @@ register. Each field access compiles to one AND/OR/shift sequence. For
 array-backed types (`packed [N]byte`), the compiler generates multi-byte
 mask/shift sequences for fields that span byte boundaries.
 
+### Packing rules
+
+Packed types have **zero implicit padding**. Fields are laid out
+contiguously in declaration order with no gaps.
+
+**Byte-level fields** (standard types like `uint32`, `uint8`) occupy their
+natural size but are NOT padded to their natural alignment. A `uint32`
+after a `uint8` starts at the very next byte, not the next 4-byte boundary:
+
+```
+type Header packed {
+    version uint8     // 1 byte at offset 0
+    flags   uint8     // 1 byte at offset 1
+    length  uint32    // 4 bytes at offset 2 (misaligned — intentional)
+}
+// sizeof(Header) = 6 bytes
+
+type Packet packed {
+    hdr     Header    // 6 bytes at offset 0
+    seq     uint32    // 4 bytes at offset 6 (misaligned — intentional)
+}
+// sizeof(Packet) = 10 bytes
+```
+
+**Bit-level fields** (`bits[T, N]` and `bits { ... }`) occupy exactly N
+bits. Byte-level and bit-level fields can be mixed in the same packed type.
+
+**Explicit alignment** via `aligned[T, N]` forces padding before a field
+to reach N-byte alignment:
+
+```
+type AlignedPacket packed {
+    hdr     Header              // 6 bytes at offset 0
+    seq     aligned[uint32, 4]  // 4 bytes at offset 8 (2 bytes padding inserted)
+}
+// sizeof(AlignedPacket) = 12 bytes
+```
+
+**Embedded packed structs** inherit tight packing. Using `aligned` on an
+embedded struct aligns the struct's starting position but does NOT add
+alignment to fields within it — those remain packed. This is likely a
+mistake and should produce a lint warning:
+
+```
+type Outer packed {
+    x uint8
+    y aligned[Header, 4]  // ⚠ lint: aligned struct inside packed —
+}                          //   aligns Header's start but fields within
+                           //   Header are still tightly packed. If you
+                           //   want aligned fields, align them individually.
+```
+
+**Backing storage padding**: for `packed uint32 { ... }`, unused bits at
+the end are implicit padding to fill the backing type. For `packed { ... }`
+without a backing type, the struct is exactly as large as its fields with
+no trailing padding.
+
 ## 2. `bits[V]` — bit-addressing view
 
 ### Problem
