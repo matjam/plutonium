@@ -269,9 +269,10 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 
 	case ir.OpMul:
 		if len(instr.Args) == 2 {
+			// Always move first arg to R11 to prevent RAX clobbering.
 			a := cg.regFor(instr.Args[0])
-			if a == encoder.RAX {
-				cg.emit(encoder.EncMOV_RR(encoder.R11, encoder.RAX, encoder.W64))
+			if a != encoder.R11 {
+				cg.emit(encoder.EncMOV_RR(encoder.R11, a, encoder.W64))
 				a = encoder.R11
 			}
 			b := cg.regFor(instr.Args[1])
@@ -336,19 +337,21 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 
 	case ir.OpDiv:
 		if len(instr.Args) >= 2 {
-			// Move dividend to RAX
+			// Load dividend to R11 first to prevent RAX clobbering by divisor load
 			dividend := cg.regFor(instr.Args[0])
-			if dividend != encoder.RAX {
-				cg.emit(encoder.EncMOV_RR(encoder.RAX, dividend, encoder.W64))
+			if dividend != encoder.R11 {
+				cg.emit(encoder.EncMOV_RR(encoder.R11, dividend, encoder.W64))
 			}
-			// Sign-extend RAX into RDX:RAX (CQO)
-			cg.emit([]byte{0x48, 0x99})
-			// Move divisor to a register (not RAX or RDX)
+			// Load divisor (may use RAX — that's safe now)
 			divisor := cg.regFor(instr.Args[1])
 			if divisor == encoder.RAX || divisor == encoder.RDX {
 				cg.emit(encoder.EncMOV_RR(encoder.RCX, divisor, encoder.W64))
 				divisor = encoder.RCX
 			}
+			// Move dividend from R11 to RAX for IDIV
+			cg.emit(encoder.EncMOV_RR(encoder.RAX, encoder.R11, encoder.W64))
+			// Sign-extend RAX into RDX:RAX (CQO)
+			cg.emit([]byte{0x48, 0x99})
 			// IDIV divisor: RAX=quotient, RDX=remainder
 			// Encoding: REX.W + F7 /7 modrm(11, 7, rm)
 			cg.emit([]byte{
@@ -361,19 +364,21 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 
 	case ir.OpRem:
 		if len(instr.Args) >= 2 {
-			// Move dividend to RAX
+			// Load dividend to R11 first to prevent RAX clobbering by divisor load
 			dividend := cg.regFor(instr.Args[0])
-			if dividend != encoder.RAX {
-				cg.emit(encoder.EncMOV_RR(encoder.RAX, dividend, encoder.W64))
+			if dividend != encoder.R11 {
+				cg.emit(encoder.EncMOV_RR(encoder.R11, dividend, encoder.W64))
 			}
-			// Sign-extend RAX into RDX:RAX (CQO)
-			cg.emit([]byte{0x48, 0x99})
-			// Move divisor to a register (not RAX or RDX)
+			// Load divisor (may use RAX — that's safe now)
 			divisor := cg.regFor(instr.Args[1])
 			if divisor == encoder.RAX || divisor == encoder.RDX {
 				cg.emit(encoder.EncMOV_RR(encoder.RCX, divisor, encoder.W64))
 				divisor = encoder.RCX
 			}
+			// Move dividend from R11 to RAX for IDIV
+			cg.emit(encoder.EncMOV_RR(encoder.RAX, encoder.R11, encoder.W64))
+			// Sign-extend RAX into RDX:RAX (CQO)
+			cg.emit([]byte{0x48, 0x99})
 			// IDIV divisor: RAX=quotient, RDX=remainder
 			cg.emit([]byte{
 				0x48 | (boolToByte(divisor.IsExtended()) & 0x01),
@@ -386,9 +391,10 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 
 	case ir.OpShl:
 		if len(instr.Args) >= 2 {
+			// Always move first arg to R11 to prevent RAX clobbering.
 			val := cg.regFor(instr.Args[0])
-			if val == encoder.RAX {
-				cg.emit(encoder.EncMOV_RR(encoder.R11, encoder.RAX, encoder.W64))
+			if val != encoder.R11 {
+				cg.emit(encoder.EncMOV_RR(encoder.R11, val, encoder.W64))
 				val = encoder.R11
 			}
 			shift := cg.regFor(instr.Args[1])
@@ -401,9 +407,10 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 
 	case ir.OpShr:
 		if len(instr.Args) >= 2 {
+			// Always move first arg to R11 to prevent RAX clobbering.
 			val := cg.regFor(instr.Args[0])
-			if val == encoder.RAX {
-				cg.emit(encoder.EncMOV_RR(encoder.R11, encoder.RAX, encoder.W64))
+			if val != encoder.R11 {
+				cg.emit(encoder.EncMOV_RR(encoder.R11, val, encoder.W64))
 				val = encoder.R11
 			}
 			shift := cg.regFor(instr.Args[1])
@@ -416,9 +423,10 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 
 	case ir.OpGEP:
 		if len(instr.Args) >= 2 {
+			// Always move first arg to R11 to prevent RAX clobbering.
 			base := cg.regFor(instr.Args[0])
-			if base == encoder.RAX {
-				cg.emit(encoder.EncMOV_RR(encoder.R11, encoder.RAX, encoder.W64))
+			if base != encoder.R11 {
+				cg.emit(encoder.EncMOV_RR(encoder.R11, base, encoder.W64))
 				base = encoder.R11
 			}
 			index := cg.regFor(instr.Args[1])
@@ -440,9 +448,10 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 	case ir.OpInsertField:
 		// Store value to struct field
 		if len(instr.Args) >= 2 {
+			// Always move first arg to R11 to prevent RAX clobbering.
 			base := cg.regFor(instr.Args[0])
-			if base == encoder.RAX {
-				cg.emit(encoder.EncMOV_RR(encoder.R11, encoder.RAX, encoder.W64))
+			if base != encoder.R11 {
+				cg.emit(encoder.EncMOV_RR(encoder.R11, base, encoder.W64))
 				base = encoder.R11
 			}
 			val := cg.regFor(instr.Args[1])
@@ -452,10 +461,25 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 		}
 
 	case ir.OpBitcast, ir.OpExtend, ir.OpTruncate:
-		// Simplified: just move
+		// Load the source value and store to the result's location.
+		// When the source is a constant and the result has an allocated
+		// register, load directly into that register to avoid clobbering
+		// RAX (which regFor would otherwise use for all constants).
 		if len(instr.Args) == 1 && instr.Result != nil {
-			reg := cg.regFor(instr.Args[0])
-			cg.storeResult(instr.Result, reg)
+			arg := instr.Args[0]
+			if arg.Kind == ir.ValConst {
+				if dstReg, ok := cg.alloc.Reg[instr.Result.ID]; ok {
+					cg.emit(encoder.EncMOV_RI(dstReg, arg.IntVal, widthFor(arg.Type)))
+					// Already in the right register — no storeResult needed.
+				} else {
+					// Spilled result: load into RAX, then store to spill slot
+					reg := cg.regFor(arg)
+					cg.storeResult(instr.Result, reg)
+				}
+			} else {
+				reg := cg.regFor(arg)
+				cg.storeResult(instr.Result, reg)
+			}
 		}
 	}
 }
@@ -464,10 +488,13 @@ func (cg *codeGen) compileALU(instr *ir.Instruction) {
 	if len(instr.Args) < 2 {
 		return
 	}
+	// Always move first arg to R11 before loading the second arg.
+	// This prevents the second regFor() call from clobbering the first
+	// value (regFor loads constants/spills into RAX, and the register
+	// allocator may also have assigned the first value to RAX).
 	a := cg.regFor(instr.Args[0])
-	if a == encoder.RAX {
-		// Move to a temp register so second regFor doesn't clobber it
-		cg.emit(encoder.EncMOV_RR(encoder.R11, encoder.RAX, encoder.W64))
+	if a != encoder.R11 {
+		cg.emit(encoder.EncMOV_RR(encoder.R11, a, encoder.W64))
 		a = encoder.R11
 	}
 	b := cg.regFor(instr.Args[1])
@@ -491,9 +518,11 @@ func (cg *codeGen) compileCmp(instr *ir.Instruction) {
 	if len(instr.Args) < 2 {
 		return
 	}
+	// Always move first arg to R11 before loading the second arg.
+	// Same clobbering prevention as compileALU.
 	a := cg.regFor(instr.Args[0])
-	if a == encoder.RAX {
-		cg.emit(encoder.EncMOV_RR(encoder.R11, encoder.RAX, encoder.W64))
+	if a != encoder.R11 {
+		cg.emit(encoder.EncMOV_RR(encoder.R11, a, encoder.W64))
 		a = encoder.R11
 	}
 	b := cg.regFor(instr.Args[1])

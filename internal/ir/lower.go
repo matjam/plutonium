@@ -2,6 +2,7 @@ package ir
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/matjam/plutonium/internal/ast"
 	"github.com/matjam/plutonium/internal/mono"
@@ -838,6 +839,40 @@ func (l *lowerer) lowerCallExpr(e *ast.CallExpr) *Value {
 		}
 	}
 
+	// Handle generic instantiation calls: Max[int64](args...)
+	// The AST represents this as CallExpr{Fun: IndexExpr{X: Ident("Max"), Index: Ident("int64")}}
+	if idxExpr, ok := e.Fun.(*ast.IndexExpr); ok {
+		if funcIdent, ok := idxExpr.X.(*ast.Ident); ok {
+			// Construct the mangled name: Max__int64
+			typeArgName := ""
+			if typeIdent, ok := idxExpr.Index.(*ast.Ident); ok {
+				typeArgName = typeIdent.Name
+			}
+			mangledName := funcIdent.Name + "__" + typeArgName
+
+			// Lower arguments
+			var args []*Value
+			for _, arg := range e.Args {
+				v := l.lowerExprValue(arg)
+				args = append(args, v)
+			}
+
+			// Look up the monomorphized function
+			fn := l.allFuncs[mangledName]
+			if fn == nil {
+				// Try without mangling (maybe not generic)
+				fn = l.allFuncs[funcIdent.Name]
+			}
+			if fn == nil {
+				// Create external reference
+				fn = &Function{Name: mangledName, RetType: I64, nextID: 1}
+				l.allFuncs[mangledName] = fn
+			}
+
+			return l.bb.Call(fn, fn.RetType, args...)
+		}
+	}
+
 	// Handle SelectorExpr calls: pkg.Func(args)
 	if sel, ok := e.Fun.(*ast.SelectorExpr); ok {
 		if pkgIdent, ok := sel.X.(*ast.Ident); ok {
@@ -874,6 +909,24 @@ func (l *lowerer) lowerCallExpr(e *ast.CallExpr) *Value {
 
 	// Look up callee function by name
 	if ident, ok := e.Fun.(*ast.Ident); ok {
+		// First try exact match
+		if fn := l.allFuncs[ident.Name]; fn != nil {
+			return l.bb.Call(fn, fn.RetType, args...)
+		}
+		// For intra-package calls in dependency packages: the current
+		// function has a qualified name like "fmt.Println" and the call
+		// uses the unqualified name "write". Derive the package prefix
+		// from the current function and try a qualified lookup.
+		if l.fn != nil && l.fn.Name != "" {
+			if dotIdx := strings.LastIndex(l.fn.Name, "."); dotIdx >= 0 {
+				pkgPrefix := l.fn.Name[:dotIdx+1]
+				qualifiedName := pkgPrefix + ident.Name
+				if fn := l.allFuncs[qualifiedName]; fn != nil {
+					return l.bb.Call(fn, fn.RetType, args...)
+				}
+			}
+		}
+		// Legacy fallback: scan pkg functions
 		for _, fn := range l.pkg.Functions {
 			if fn.Name == ident.Name {
 				return l.bb.Call(fn, fn.RetType, args...)
