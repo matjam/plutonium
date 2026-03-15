@@ -1,31 +1,33 @@
-//pu:build linux && amd64
+# Plutonium syscall stubs for Linux x86_64
+# Assembled with: as --64 -o syscall_linux_amd64.o syscall_linux_amd64.s
+#
+#pu:build linux && amd64
 
-// func Syscall(num, a1, a2, a3 uintptr) (r1, r2, err uintptr)
-TEXT ·Syscall(SB),NOSPLIT,$0-56
-    MOVQ num+0(FP),  AX
-    MOVQ a1+8(FP),   DI
-    MOVQ a2+16(FP),  SI
-    MOVQ a3+24(FP),  DX
-    XORQ R10, R10
-    XORQ R8, R8
-    XORQ R9, R9
-    SYSCALL
-    MOVQ AX, r1+32(FP)
-    MOVQ DX, r2+40(FP)
-    MOVQ $0, err+48(FP)
-    RET
+.text
+.globl syscall.Syscall
+.type syscall.Syscall, @function
+syscall.Syscall:
+    # Arguments: rdi=num, rsi=a1, rdx=a2, rcx=a3
+    # Linux syscall convention: rax=num, rdi=a1, rsi=a2, rdx=a3
+    movq %rdi, %rax       # syscall number
+    movq %rsi, %rdi       # arg1
+    movq %rdx, %rsi       # arg2
+    movq %rcx, %rdx       # arg3
+    syscall
+    # Return: rax=r1 (already in rax)
+    ret
 
-// func Syscall6(num, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2, err uintptr)
-TEXT ·Syscall6(SB),NOSPLIT,$0-80
-    MOVQ num+0(FP),  AX
-    MOVQ a1+8(FP),   DI
-    MOVQ a2+16(FP),  SI
-    MOVQ a3+24(FP),  DX
-    MOVQ a4+32(FP),  R10
-    MOVQ a5+40(FP),  R8
-    MOVQ a6+48(FP),  R9
-    SYSCALL
-    MOVQ AX, r1+56(FP)
-    MOVQ DX, r2+64(FP)
-    MOVQ $0, err+72(FP)
-    RET
+.globl syscall.Syscall6
+.type syscall.Syscall6, @function
+syscall.Syscall6:
+    # Arguments: rdi=num, rsi=a1, rdx=a2, rcx=a3, r8=a4, r9=a5
+    #   6th arg is on stack at 8(%rsp) due to calling convention
+    movq %rdi, %rax       # syscall number
+    movq %rsi, %rdi       # arg1
+    movq %rdx, %rsi       # arg2
+    movq %rcx, %rdx       # arg3
+    movq %r8, %r10        # arg4 (note: syscall uses r10 not rcx)
+    movq %r9, %r8         # arg5
+    movq 8(%rsp), %r9     # arg6 from stack
+    syscall
+    ret

@@ -11,19 +11,33 @@ import (
 // Lower converts a monomorphization result into a Plutonium IR Program.
 func Lower(result *mono.Result, fset *token.FileSet) (*Program, error) {
 	l := &lowerer{
-		fset: fset,
-		prog: &Program{},
+		fset:     fset,
+		prog:     &Program{},
+		allFuncs: make(map[string]*Function),
 	}
 
 	pkg := &IRPackage{Name: "main"}
 	l.pkg = pkg
 
+	// Pass 1: Create all function shells (name + return type) so that
+	// forward references and cross-function calls can be resolved.
 	for _, fe := range result.Functions {
-		fn, err := l.lowerFunc(fe)
-		if err != nil {
-			return nil, fmt.Errorf("lowering %s: %w", fe.Name, err)
+		retType := l.lowerReturnType(fe.Decl.Type)
+		fn := &Function{
+			Name:    fe.Name,
+			RetType: retType,
+			nextID:  1,
 		}
 		pkg.Functions = append(pkg.Functions, fn)
+		l.allFuncs[fe.Name] = fn
+	}
+
+	// Pass 2: Lower function bodies into the pre-created shells.
+	for i, fe := range result.Functions {
+		fn := pkg.Functions[i]
+		if err := l.lowerFuncBody(fe, fn); err != nil {
+			return nil, fmt.Errorf("lowering %s: %w", fe.Name, err)
+		}
 	}
 
 	l.prog.Packages = append(l.prog.Packages, pkg)
@@ -36,34 +50,28 @@ type lowerer struct {
 	pkg      *IRPackage
 	fn       *Function
 	bb       *BasicBlock
-	env      map[string]*Value // name → alloca slot
-	retSlots []*Value          // return value slots (for multiple returns)
+	env      map[string]*Value    // name → alloca slot
+	retSlots []*Value             // return value slots (for multiple returns)
+	allFuncs map[string]*Function // all known functions by qualified name
 }
 
-func (l *lowerer) lowerFunc(fe *mono.FuncEntry) (*Function, error) {
+// lowerFuncBody lowers the body of a function into a pre-created Function shell.
+func (l *lowerer) lowerFuncBody(fe *mono.FuncEntry, fn *Function) error {
 	d := fe.Decl
 
-	// Determine return type
-	retType := l.lowerReturnType(d.Type)
-
-	fn := &Function{
-		Name:    fe.Name,
-		RetType: retType,
-		nextID:  1,
-	}
-
-	// If it's an assembly stub (no body), just record the declaration
+	// If it's an assembly stub (no body), nothing to lower
 	if d.Body == nil {
-		return fn, nil
+		return nil
 	}
 
 	// Create child lowerer for this function
 	fl := &lowerer{
-		fset: l.fset,
-		prog: l.prog,
-		pkg:  l.pkg,
-		fn:   fn,
-		env:  make(map[string]*Value),
+		fset:     l.fset,
+		prog:     l.prog,
+		pkg:      l.pkg,
+		fn:       fn,
+		env:      make(map[string]*Value),
+		allFuncs: l.allFuncs,
 	}
 
 	entry := fn.NewBlock("entry")
@@ -99,6 +107,7 @@ func (l *lowerer) lowerFunc(fe *mono.FuncEntry) (*Function, error) {
 	fl.lowerBlock(d.Body)
 
 	// If the last block has no terminator, add RetVoid or Unreachable
+	retType := fn.RetType
 	if fl.bb.Term == nil {
 		if retType == nil || retType.Kind == TyVoid {
 			fl.bb.RetVoid()
@@ -107,7 +116,7 @@ func (l *lowerer) lowerFunc(fe *mono.FuncEntry) (*Function, error) {
 		}
 	}
 
-	return fn, nil
+	return nil
 }
 
 func (l *lowerer) lowerReturnType(ft *ast.FuncType) *Type {
@@ -177,6 +186,8 @@ func (l *lowerer) lowerIdentType(name string) *Type {
 		return F64
 	case "rune":
 		return I32
+	case "error":
+		return I64 // interface type represented as i64 pointer
 	}
 	return I32 // fallback for named types
 }
@@ -626,12 +637,82 @@ func (l *lowerer) lowerBasicLit(e *ast.BasicLit) *Value {
 	case token.FLOAT:
 		return &Value{Kind: ValConst, Type: F64}
 	case token.STRING:
-		// String constant — for v0.1 return a pointer placeholder
-		return ConstInt(UPtr, 0)
+		lit := l.internString(e.Value)
+		// Return a value referencing the string data.
+		// The string is a pointer to the .rodata symbol.
+		v := &Value{
+			ID:     l.fn.nextID,
+			Kind:   ValGlobal,
+			Type:   PtrTo(U8),
+			Name:   fmt.Sprintf(".str.%d", lit.ID),
+			IntVal: int64(len(lit.Data)),
+		}
+		l.fn.nextID++
+		return v
 	case token.CHAR:
 		return ConstInt(I32, 0)
 	}
 	return ConstInt(I32, 0)
+}
+
+// internString strips quotes, resolves escape sequences, and interns the
+// resulting string into the package's string table.
+func (l *lowerer) internString(s string) *StringLit {
+	// Strip quotes from the literal value
+	unquoted := s
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		unquoted = s[1 : len(s)-1]
+	}
+	// Handle escape sequences
+	unquoted = unescapeString(unquoted)
+
+	// Check if already interned
+	for _, lit := range l.pkg.Strings {
+		if string(lit.Data) == unquoted {
+			return lit
+		}
+	}
+
+	lit := &StringLit{
+		ID:   len(l.pkg.Strings),
+		Data: []byte(unquoted),
+	}
+	l.pkg.Strings = append(l.pkg.Strings, lit)
+	return lit
+}
+
+// unescapeString handles basic escape sequences: \n, \t, \r, \\, \", \0.
+func unescapeString(s string) string {
+	var b []byte
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			switch s[i+1] {
+			case 'n':
+				b = append(b, '\n')
+				i++
+			case 't':
+				b = append(b, '\t')
+				i++
+			case 'r':
+				b = append(b, '\r')
+				i++
+			case '\\':
+				b = append(b, '\\')
+				i++
+			case '"':
+				b = append(b, '"')
+				i++
+			case '0':
+				b = append(b, 0)
+				i++
+			default:
+				b = append(b, s[i])
+			}
+		} else {
+			b = append(b, s[i])
+		}
+	}
+	return string(b)
 }
 
 func (l *lowerer) lowerIdent(e *ast.Ident) *Value {
@@ -757,6 +838,33 @@ func (l *lowerer) lowerCallExpr(e *ast.CallExpr) *Value {
 		}
 	}
 
+	// Handle SelectorExpr calls: pkg.Func(args)
+	if sel, ok := e.Fun.(*ast.SelectorExpr); ok {
+		if pkgIdent, ok := sel.X.(*ast.Ident); ok {
+			qualifiedName := pkgIdent.Name + "." + sel.Sel.Name
+
+			// Lower arguments
+			var args []*Value
+			for _, arg := range e.Args {
+				v := l.lowerExprValue(arg)
+				args = append(args, v)
+			}
+
+			// Look up in known functions
+			fn := l.allFuncs[qualifiedName]
+			if fn == nil {
+				// Create external function declaration (forward reference)
+				fn = &Function{
+					Name:    qualifiedName,
+					RetType: I64, // default; would be better with type info
+				}
+				l.allFuncs[qualifiedName] = fn
+			}
+
+			return l.bb.Call(fn, fn.RetType, args...)
+		}
+	}
+
 	// Regular function call — evaluate all args first
 	var args []*Value
 	for _, arg := range e.Args {
@@ -793,6 +901,21 @@ func (l *lowerer) lowerIndexExpr(e *ast.IndexExpr) *Value {
 }
 
 func (l *lowerer) lowerSelectorExpr(e *ast.SelectorExpr) *Value {
+	// Check if X is a package name (not a local variable)
+	if ident, ok := e.X.(*ast.Ident); ok {
+		if _, isLocal := l.env[ident.Name]; !isLocal {
+			// Treat as package-qualified reference (constant or global)
+			qualifiedName := ident.Name + "." + e.Sel.Name
+			// Look up in allFuncs for function references
+			if fn, ok := l.allFuncs[qualifiedName]; ok {
+				return &Value{Kind: ValFunc, Type: I64, Name: fn.Name}
+			}
+			// For package-level constants/variables, return a placeholder
+			return ConstInt(I64, 0)
+		}
+	}
+
+	// Struct field access
 	base := l.lowerExprValue(e.X)
 	if base == nil {
 		return ConstInt(I32, 0)

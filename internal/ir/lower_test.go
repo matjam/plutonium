@@ -121,3 +121,50 @@ func swap(a, b int32) (int32, int32) { return b, a }
 		t.Fatal("no function or blocks")
 	}
 }
+
+func TestLowerStringLiteral(t *testing.T) {
+	prog := lowerOK(t, `
+package main
+func foo() {
+	msg := "hello\n"
+	_ = msg
+}
+`)
+	pkg := prog.Packages[0]
+	if len(pkg.Strings) == 0 {
+		t.Error("expected at least one string literal in .rodata")
+	}
+	if len(pkg.Strings) > 0 {
+		if string(pkg.Strings[0].Data) != "hello\n" {
+			t.Errorf("got string data %q, want %q", string(pkg.Strings[0].Data), "hello\n")
+		}
+	}
+}
+
+func TestLowerCrossPackageCall(t *testing.T) {
+	// A function that calls another function by name
+	prog := lowerOK(t, `
+package main
+
+func foo() int32 {
+    return bar()
+}
+
+func bar() int32 {
+    return 42
+}
+`)
+	// Check that the call was emitted in foo
+	fn := prog.Packages[0].Functions[0] // foo
+	foundCall := false
+	for _, bb := range fn.Blocks {
+		for _, instr := range bb.Instrs {
+			if instr.Op == ir.OpCall {
+				foundCall = true
+			}
+		}
+	}
+	if !foundCall {
+		t.Error("expected Call instruction in foo()")
+	}
+}

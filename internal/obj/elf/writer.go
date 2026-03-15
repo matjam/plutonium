@@ -362,6 +362,9 @@ func (w *Writer) Write(out io.Writer) error {
 // TextBytes returns the current .text section bytes (for offset calculation).
 func (w *Writer) TextBytes() []byte { return w.text }
 
+// RODataBytes returns the current .rodata section bytes (for offset calculation).
+func (w *Writer) RODataBytes() []byte { return w.rodata }
+
 // SymbolIndex looks up a symbol by name. Returns -1 if not found.
 func (w *Writer) SymbolIndex(name string) int {
 	for i, s := range w.syms {

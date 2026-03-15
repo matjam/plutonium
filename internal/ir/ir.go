@@ -280,11 +280,18 @@ type Program struct {
 	Packages []*IRPackage
 }
 
+// StringLit is a string literal stored in .rodata.
+type StringLit struct {
+	ID   int
+	Data []byte // raw bytes (without quotes, escape sequences resolved)
+}
+
 // IRPackage groups functions and globals.
 type IRPackage struct {
 	Name      string
 	Functions []*Function
 	Globals   []*Global
+	Strings   []*StringLit // string literals for .rodata
 }
 
 // Global is a package-level variable.

@@ -153,6 +153,17 @@ func compileFiles(sourceFiles []string, outputFile string, cfg *config.Config) e
 		}
 	}
 
+	// Emit string literals to .rodata
+	for _, irPkg := range prog.Packages {
+		for _, lit := range irPkg.Strings {
+			symName := fmt.Sprintf(".str.%d", lit.ID)
+			offset := uint64(len(writer.RODataBytes()))
+			writer.AddSymbol(symName, elfwriter.SectionROData, offset, uint64(len(lit.Data)),
+				elfwriter.SymBindLocal, elfwriter.SymTypeObject)
+			writer.AddRODataBytes(lit.Data)
+		}
+	}
+
 	// Write output
 	f, err := os.Create(outputFile)
 	if err != nil {
@@ -167,31 +178,10 @@ func compileFiles(sourceFiles []string, outputFile string, cfg *config.Config) e
 	return writer.Write(f)
 }
 
-// resolveLoadConfig builds a LoadConfig for import resolution.
-// It determines the stdlib root from the PLUTONIUM_ROOT environment variable,
-// the compiler's own binary location, or a fallback relative path.
+// resolveLoadConfig builds a LoadConfig for import resolution using the
+// shared resolveStdlibRoot helper.
 func resolveLoadConfig(cfg *config.Config, fset *token.FileSet) *types.LoadConfig {
-	stdlibRoot := os.Getenv("PLUTONIUM_ROOT")
-	if stdlibRoot != "" {
-		stdlibRoot = filepath.Join(stdlibRoot, "pluto")
-	} else {
-		// Try relative to the compiler binary
-		exe, err := os.Executable()
-		if err == nil {
-			exeDir := filepath.Dir(exe)
-			candidate := filepath.Join(exeDir, "..", "pluto")
-			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
-				stdlibRoot = candidate
-			}
-		}
-		// Fallback: try current working directory parent
-		if stdlibRoot == "" {
-			if info, err := os.Stat("pluto"); err == nil && info.IsDir() {
-				stdlibRoot = "pluto"
-			}
-		}
-	}
-
+	stdlibRoot := resolveStdlibRoot()
 	if stdlibRoot == "" {
 		// No stdlib found — imports will fail at load time with a clear error
 		return nil

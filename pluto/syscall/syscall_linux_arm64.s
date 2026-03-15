@@ -1,35 +1,33 @@
+// Plutonium syscall stubs for Linux aarch64
+// Assembled with: as -o syscall_linux_arm64.o syscall_linux_arm64.s
+//
 //pu:build linux && arm64
 
-// func Syscall(num, a1, a2, a3 uintptr) (r1, r2, err uintptr)
-// aarch64 Linux syscall convention:
-//   x8  = syscall number
-//   x0-x5 = arguments
-//   x0  = return value
-TEXT ·Syscall(SB),NOSPLIT,$0-56
-    MOVD num+0(FP),  R8
-    MOVD a1+8(FP),   R0
-    MOVD a2+16(FP),  R1
-    MOVD a3+24(FP),  R2
-    MOVD $0, R3
-    MOVD $0, R4
-    MOVD $0, R5
-    SVC $0
-    MOVD R0, r1+32(FP)
-    MOVD $0, r2+40(FP)
-    MOVD $0, err+48(FP)
-    RET
+.text
+.globl syscall.Syscall
+.type syscall.Syscall, %function
+syscall.Syscall:
+    // Arguments: x0=num, x1=a1, x2=a2, x3=a3
+    // Linux syscall convention: x8=num, x0-x5=args
+    mov x8, x0            // syscall number
+    mov x0, x1            // arg1
+    mov x1, x2            // arg2
+    mov x2, x3            // arg3
+    svc #0
+    // Return: x0=r1 (already in x0)
+    ret
 
-// func Syscall6(num, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2, err uintptr)
-TEXT ·Syscall6(SB),NOSPLIT,$0-80
-    MOVD num+0(FP),  R8
-    MOVD a1+8(FP),   R0
-    MOVD a2+16(FP),  R1
-    MOVD a3+24(FP),  R2
-    MOVD a4+32(FP),  R3
-    MOVD a5+40(FP),  R4
-    MOVD a6+48(FP),  R5
-    SVC $0
-    MOVD R0, r1+56(FP)
-    MOVD $0, r2+64(FP)
-    MOVD $0, err+72(FP)
-    RET
+.globl syscall.Syscall6
+.type syscall.Syscall6, %function
+syscall.Syscall6:
+    // Arguments: x0=num, x1=a1, x2=a2, x3=a3, x4=a4, x5=a5, x6=a6
+    //   7th arg is on stack at [sp] due to calling convention
+    mov x8, x0            // syscall number
+    mov x0, x1            // arg1
+    mov x1, x2            // arg2
+    mov x2, x3            // arg3
+    mov x3, x4            // arg4
+    mov x4, x5            // arg5
+    ldr x5, [sp]          // arg6 from stack
+    svc #0
+    ret
