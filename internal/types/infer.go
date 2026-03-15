@@ -274,6 +274,24 @@ func (c *checker) checkCallExpr(e *ast.CallExpr) Type {
 }
 
 func (c *checker) checkSelectorExpr(e *ast.SelectorExpr) Type {
+	// Handle unsafe package selectors before general expression checking
+	if ident, ok := e.X.(*ast.Ident); ok && ident.Name == "unsafe" {
+		// Verify "unsafe" is in scope (i.e., was imported)
+		obj := c.currentScope().Lookup("unsafe")
+		if obj != nil && obj.Kind == PkgObj {
+			c.info.Uses[ident] = obj
+			switch e.Sel.Name {
+			case "Pointer":
+				return Typ[UnsafePointer]
+			case "Sizeof", "Alignof", "Offsetof":
+				// These are pseudo-builtin functions; their call returns uintptr.
+				// Return uintptr here — the call site in checkCallExpr handles
+				// Basic types as type conversions, which works for uintptr.
+				return Typ[Uintptr]
+			}
+		}
+	}
+
 	xt := c.checkExpr(e.X)
 	if xt == nil {
 		return Typ[Invalid]

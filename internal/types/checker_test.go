@@ -197,3 +197,27 @@ import "reflect"
 func foo() { _ = reflect.TypeOf(nil) }
 `)
 }
+
+func TestUnsafePointer(t *testing.T) {
+	checkOK(t, `
+package main
+
+import "unsafe"
+
+func ptrToUintptr(p *int32) uintptr {
+	return uintptr(unsafe.Pointer(p))
+}
+`)
+}
+
+func TestUnsafeSizeof(t *testing.T) {
+	checkOK(t, `
+package main
+
+import "unsafe"
+
+func sizeOfInt32() uintptr {
+	return unsafe.Sizeof(int32(0))
+}
+`)
+}

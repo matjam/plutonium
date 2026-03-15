@@ -93,7 +93,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	}
 
 	// Link
-	return linkObject(objFile, outputFile, cfg)
+	return linkObject([]string{objFile}, outputFile, cfg)
 }
 
 // collectSources finds .pu files from the given paths, applying build tag filtering.
@@ -152,8 +152,10 @@ func extractDirectives(src string) []string {
 }
 
 // linkObject invokes the system linker to produce the final output.
-func linkObject(objFile, outputFile string, cfg *config.Config) error {
+func linkObject(objFiles []string, outputFile string, cfg *config.Config) error {
 	var ldArgs []string
+
+	ldArgs = append(ldArgs, "-static", "-nostdlib", "-e", "_start")
 
 	switch cfg.Format {
 	case config.FormatBinary:
@@ -165,7 +167,8 @@ func linkObject(objFile, outputFile string, cfg *config.Config) error {
 		}
 	}
 
-	ldArgs = append(ldArgs, "-o", outputFile, objFile)
+	ldArgs = append(ldArgs, "-o", outputFile)
+	ldArgs = append(ldArgs, objFiles...)
 
 	if cfg.Verbose {
 		fmt.Printf("linking: ld %s\n", strings.Join(ldArgs, " "))

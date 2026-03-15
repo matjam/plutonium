@@ -54,6 +54,16 @@ func (c *checker) resolveType(expr ast.Expr) Type {
 		return &Pointer{base: base}
 
 	case *ast.SelectorExpr:
+		// Check for unsafe.Pointer and other unsafe pseudo-types
+		if ident, ok := e.X.(*ast.Ident); ok && ident.Name == "unsafe" {
+			switch e.Sel.Name {
+			case "Pointer":
+				return Typ[UnsafePointer]
+			case "Sizeof", "Alignof", "Offsetof":
+				// These are builtin functions returning uintptr; handled in infer.go
+				return Typ[Uintptr]
+			}
+		}
 		// Qualified type like pkg.Type — simplified for v0.1
 		// We just return invalid without error since package resolution is limited
 		return Typ[Invalid]

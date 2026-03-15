@@ -56,7 +56,7 @@ func Check(pkgPath string, fset *token.FileSet, files []*ast.File, info *Info) (
 		chk.collectFileDecls(file, pkg.scope)
 	}
 
-	// Phase 2: check forbidden imports
+	// Phase 2: check forbidden imports and register pseudo-packages
 	for _, file := range files {
 		for _, imp := range file.Imports {
 			path := imp.Path.Value
@@ -66,6 +66,12 @@ func Check(pkgPath string, fset *token.FileSet, files []*ast.File, info *Info) (
 			}
 			if path == "reflect" {
 				chk.errorf(imp.Path.Pos(), "import of 'reflect' is forbidden in Plutonium (requires runtime metadata)")
+			}
+			if path == "unsafe" {
+				// Register "unsafe" as a pseudo-package in the package scope
+				// so that unsafe.Pointer, unsafe.Sizeof, etc. resolve correctly.
+				obj := &Object{Kind: PkgObj, Name: "unsafe", Pos: imp.Path.Pos()}
+				pkg.scope.Insert(obj)
 			}
 		}
 	}
