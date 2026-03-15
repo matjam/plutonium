@@ -84,6 +84,16 @@ func init() {
 		Universe.Insert(&Object{Kind: BuiltinObj, Name: b.name, Type: bi})
 	}
 
+	// The built-in error interface
+	errorInterface := &Interface{
+		methods: []*Func{
+			{name: "Error", sig: &Signature{
+				results: []*Var{{name: "_", typ: Typ[String]}},
+			}},
+		},
+	}
+	Universe.Insert(&Object{Kind: TypObj, Name: "error", Type: errorInterface})
+
 	// Add "any" as alias for interface{} — rejected during type checking
 	Universe.Insert(&Object{Kind: TypObj, Name: "any", Type: &Interface{}})
 }

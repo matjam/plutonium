@@ -164,6 +164,30 @@ func compileFiles(sourceFiles []string, outputFile string, cfg *config.Config) e
 		}
 	}
 
+	// Synthesize _start: call main, then exit(0)
+	startCode := synthesizeStart()
+	startOffset := uint64(len(writer.TextBytes()))
+	writer.AddSymbol("_start", elfwriter.SectionText, startOffset, uint64(len(startCode)),
+		elfwriter.SymBindGlobal, elfwriter.SymTypeFunc)
+	writer.AddTextBytes(startCode)
+
+	// Add relocation for the CALL main instruction within _start.
+	// Layout of synthesizeStart():
+	//   xor ebp, ebp     = 2 bytes  (offset 0)
+	//   and rsp, -16     = 4 bytes  (offset 2)
+	//   call main        = 5 bytes  (offset 6: E8 xx xx xx xx)
+	//   The rel32 operand is at offset 7, instruction ends at offset 11.
+	const callMainRelOffset = 7
+	mainSymIdx := writer.SymbolIndex("main")
+	if mainSymIdx < 0 {
+		// main is not yet defined — add as undefined (linker will resolve)
+		mainSymIdx = writer.AddSymbol("main", elfwriter.SectionUndef, 0, 0,
+			elfwriter.SymBindGlobal, elfwriter.SymTypeFunc)
+	}
+	writer.AddRelocation(elfwriter.SectionText,
+		startOffset+callMainRelOffset, mainSymIdx,
+		elfwriter.RelocPC32, -4)
+
 	// Write output
 	f, err := os.Create(outputFile)
 	if err != nil {
@@ -192,4 +216,30 @@ func resolveLoadConfig(cfg *config.Config, fset *token.FileSet) *types.LoadConfi
 		Tags:       cfg.Tags,
 		Fset:       fset,
 	}
+}
+
+// synthesizeStart generates machine code for the _start entry point.
+//
+//	_start:
+//	  xor ebp, ebp       ; clear frame pointer (ABI requirement)
+//	  and rsp, -16       ; align stack to 16 bytes
+//	  call main          ; call main() — needs relocation
+//	  mov rdi, rax       ; exit code = main's return value
+//	  mov rax, 231       ; SYS_EXIT_GROUP
+//	  syscall
+func synthesizeStart() []byte {
+	var code []byte
+	// xor ebp, ebp (31 ED) — zeros RBP, standard ABI
+	code = append(code, 0x31, 0xED)
+	// and rsp, -16 (48 83 E4 F0) — align stack
+	code = append(code, 0x48, 0x83, 0xE4, 0xF0)
+	// call main — E8 00 00 00 00 (placeholder, needs relocation)
+	code = append(code, 0xE8, 0x00, 0x00, 0x00, 0x00)
+	// mov rdi, rax (48 89 C7) — pass return value as exit code
+	code = append(code, 0x48, 0x89, 0xC7)
+	// mov rax, 231 (48 C7 C0 E7 00 00 00) — SYS_EXIT_GROUP
+	code = append(code, 0x48, 0xC7, 0xC0, 0xE7, 0x00, 0x00, 0x00)
+	// syscall (0F 05)
+	code = append(code, 0x0F, 0x05)
+	return code
 }

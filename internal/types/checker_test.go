@@ -546,3 +546,13 @@ func TestImportResolution_PackageCache(t *testing.T) {
 		t.Error("expected same package instance from cache")
 	}
 }
+
+func TestErrorType(t *testing.T) {
+	checkOK(t, `
+package main
+
+func mayFail() error {
+    return nil
+}
+`)
+}
