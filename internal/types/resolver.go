@@ -64,8 +64,15 @@ func (c *checker) resolveType(expr ast.Expr) Type {
 				return Typ[Uintptr]
 			}
 		}
-		// Qualified type like pkg.Type — simplified for v0.1
-		// We just return invalid without error since package resolution is limited
+		// Check imported packages for qualified type names (e.g. pkg.Type)
+		if xIdent, ok := e.X.(*ast.Ident); ok {
+			if pkg, ok := c.imports[xIdent.Name]; ok {
+				obj := pkg.Scope().LookupLocal(e.Sel.Name)
+				if obj != nil && obj.Kind == TypObj {
+					return obj.Type
+				}
+			}
+		}
 		return Typ[Invalid]
 
 	case *ast.IndexExpr:

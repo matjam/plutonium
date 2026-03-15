@@ -31,7 +31,7 @@ func TestHelloPipelineEndToEnd(t *testing.T) {
 	}
 
 	// Type check
-	pkg, err := types.Check("main", fset, []*ast.File{f}, nil)
+	pkg, err := types.Check("main", fset, []*ast.File{f}, nil, nil)
 	if err != nil {
 		t.Fatalf("type check error: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestInvalidProgramsRejected(t *testing.T) {
 				// Parser rejection is also valid
 				return
 			}
-			pkg, typeErr := types.Check("test", fset, []*ast.File{f}, nil)
+			pkg, typeErr := types.Check("test", fset, []*ast.File{f}, nil, nil)
 			if typeErr != nil {
 				return
 			}

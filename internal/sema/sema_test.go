@@ -18,7 +18,7 @@ func validate(t *testing.T, src string) error {
 		// parser already caught it
 		return err
 	}
-	pkg, err := types.Check("test", fset, []*ast.File{f}, nil)
+	pkg, err := types.Check("test", fset, []*ast.File{f}, nil, nil)
 	if err != nil {
 		return err
 	}

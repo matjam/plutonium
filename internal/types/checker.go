@@ -29,15 +29,17 @@ func NewInfo() *Info {
 // Check type-checks a package consisting of the given files.
 // fset is used for position information.
 // info may be nil; if non-nil, it is populated with type information.
+// loadCfg may be nil; if non-nil, imported packages are resolved and loaded.
 // Returns the package and any type errors.
-func Check(pkgPath string, fset *token.FileSet, files []*ast.File, info *Info) (*Package, error) {
+func Check(pkgPath string, fset *token.FileSet, files []*ast.File, info *Info, loadCfg *LoadConfig) (*Package, error) {
 	if info == nil {
 		info = NewInfo()
 	}
 	chk := &checker{
-		fset:   fset,
-		info:   info,
-		errors: nil,
+		fset:    fset,
+		info:    info,
+		errors:  nil,
+		loadCfg: loadCfg,
 	}
 
 	pkg := &Package{
@@ -56,7 +58,7 @@ func Check(pkgPath string, fset *token.FileSet, files []*ast.File, info *Info) (
 		chk.collectFileDecls(file, pkg.scope)
 	}
 
-	// Phase 2: check forbidden imports and register pseudo-packages
+	// Phase 2: check forbidden imports, register pseudo-packages, and load imported packages
 	for _, file := range files {
 		for _, imp := range file.Imports {
 			path := imp.Path.Value
@@ -66,12 +68,48 @@ func Check(pkgPath string, fset *token.FileSet, files []*ast.File, info *Info) (
 			}
 			if path == "reflect" {
 				chk.errorf(imp.Path.Pos(), "import of 'reflect' is forbidden in Plutonium (requires runtime metadata)")
+				continue
 			}
 			if path == "unsafe" {
 				// Register "unsafe" as a pseudo-package in the package scope
 				// so that unsafe.Pointer, unsafe.Sizeof, etc. resolve correctly.
 				obj := &Object{Kind: PkgObj, Name: "unsafe", Pos: imp.Path.Pos()}
 				pkg.scope.Insert(obj)
+				continue
+			}
+
+			// Determine the local name for the import
+			localName := ""
+			if imp.Name != nil {
+				localName = imp.Name.Name
+			}
+			if localName == "_" {
+				// Blank import — skip loading
+				continue
+			}
+
+			// Load the package if we have a load config
+			if chk.loadCfg != nil {
+				importedPkg, err := LoadPackage(path, chk.loadCfg)
+				if err != nil {
+					chk.errorf(imp.Path.Pos(), "cannot import %q: %v", path, err)
+					continue
+				}
+				if localName == "" {
+					localName = importedPkg.Name()
+				}
+				// Create a package object in scope
+				pkgObj := &Object{
+					Kind: PkgObj,
+					Name: localName,
+					Pos:  imp.Path.Pos(),
+				}
+				pkg.scope.Insert(pkgObj)
+				// Store the imported package for selector resolution
+				if chk.imports == nil {
+					chk.imports = make(map[string]*Package)
+				}
+				chk.imports[localName] = importedPkg
 			}
 		}
 	}
@@ -89,11 +127,13 @@ func Check(pkgPath string, fset *token.FileSet, files []*ast.File, info *Info) (
 
 // checker holds the state for a single type-checking pass.
 type checker struct {
-	fset   *token.FileSet
-	pkg    *Package
-	info   *Info
-	errors errorList
-	scope  *Scope // current scope (nil = use package scope)
+	fset    *token.FileSet
+	pkg     *Package
+	info    *Info
+	errors  errorList
+	scope   *Scope // current scope (nil = use package scope)
+	loadCfg *LoadConfig
+	imports map[string]*Package // imported packages keyed by local name
 }
 
 func (c *checker) errorf(pos token.Pos, format string, args ...interface{}) {

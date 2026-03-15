@@ -292,6 +292,25 @@ func (c *checker) checkSelectorExpr(e *ast.SelectorExpr) Type {
 		}
 	}
 
+	// Check if X is a package identifier for an imported package
+	if ident, ok := e.X.(*ast.Ident); ok {
+		if pkg, ok := c.imports[ident.Name]; ok {
+			// Mark the package ident as used
+			pkgObj := c.currentScope().Lookup(ident.Name)
+			if pkgObj != nil {
+				c.info.Uses[ident] = pkgObj
+			}
+			// Look up the selector in the imported package's scope
+			obj := pkg.Scope().LookupLocal(e.Sel.Name)
+			if obj == nil {
+				c.errorf(e.Sel.Pos(), "%s.%s not found in package", ident.Name, e.Sel.Name)
+				return Typ[Invalid]
+			}
+			c.info.Uses[e.Sel] = obj
+			return obj.Type
+		}
+	}
+
 	xt := c.checkExpr(e.X)
 	if xt == nil {
 		return Typ[Invalid]
@@ -323,8 +342,6 @@ func (c *checker) checkSelectorExpr(e *ast.SelectorExpr) Type {
 		}
 	}
 
-	// Package selector — for imported packages we don't fully resolve
-	// Return Invalid but don't error (import resolution is limited in v0.1)
 	return Typ[Invalid]
 }
 

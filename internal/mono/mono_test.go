@@ -17,7 +17,7 @@ func monoOK(t *testing.T, src string) *mono.Result {
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	pkg, err := types.Check("test", fset, []*ast.File{f}, nil)
+	pkg, err := types.Check("test", fset, []*ast.File{f}, nil, nil)
 	if err != nil {
 		t.Fatalf("type error: %v", err)
 	}
