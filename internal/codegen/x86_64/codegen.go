@@ -71,7 +71,16 @@ func (cg *codeGen) layoutStackFrame() {
 	for _, bb := range cg.fn.Blocks {
 		for _, instr := range bb.Instrs {
 			if instr.Op == ir.OpAlloca && instr.Result != nil {
-				offset -= 8 // 8 bytes per slot (64-bit)
+				// Determine size from AllocType
+				slotSize := int32(8)
+				if instr.AllocType != nil {
+					sz := ir.SizeOf(instr.AllocType)
+					if sz > 0 {
+						// Round up to 8-byte alignment
+						slotSize = int32((sz + 7) &^ 7)
+					}
+				}
+				offset -= slotSize
 				cg.stackSlots[instr.Result.ID] = offset
 			}
 		}
@@ -183,6 +192,21 @@ func (cg *codeGen) regFor(v *ir.Value) encoder.Reg {
 		return encoder.RAX
 	}
 
+	// Global symbol references (e.g., string literals in .rodata).
+	// Load the address via RIP-relative LEA with a relocation.
+	if v.Kind == ir.ValGlobal {
+		// LEA RAX, [RIP + disp32]  →  48 8D 05 xx xx xx xx
+		relocOff := cg.offset() + 3 // offset of the disp32
+		cg.emit([]byte{0x48, 0x8D, 0x05, 0x00, 0x00, 0x00, 0x00})
+		cg.relocs = append(cg.relocs, codegen.Reloc{
+			Offset: relocOff,
+			Symbol: v.Name,
+			Addend: -4, // standard PC32
+			Type:   codegen.RelocPC32,
+		})
+		return encoder.RAX
+	}
+
 	// Stack slots (alloca results) — return address via LEA
 	if off, ok := cg.stackSlots[v.ID]; ok {
 		mem := encoder.MemOp{Base: encoder.RBP, Index: encoder.NoReg, Disp: off, Width: encoder.W64}
@@ -195,9 +219,9 @@ func (cg *codeGen) regFor(v *ir.Value) encoder.Reg {
 		return reg
 	}
 
-	// Spilled values
+	// Spilled values — always load as W64 to avoid partial register issues
 	if off, ok := cg.alloc.Spill[v.ID]; ok {
-		mem := encoder.MemOp{Base: encoder.RBP, Index: encoder.NoReg, Disp: int32(off), Width: widthFor(v.Type)}
+		mem := encoder.MemOp{Base: encoder.RBP, Index: encoder.NoReg, Disp: int32(off), Width: encoder.W64}
 		cg.emit(encoder.EncMOV_RM(encoder.RAX, mem))
 		return encoder.RAX
 	}
@@ -221,7 +245,8 @@ func (cg *codeGen) storeResult(result *ir.Value, reg encoder.Reg) {
 		return
 	}
 	if off, ok := cg.alloc.Spill[result.ID]; ok {
-		mem := encoder.MemOp{Base: encoder.RBP, Index: encoder.NoReg, Disp: int32(off), Width: widthFor(result.Type)}
+		// Always use W64 for spill stores to preserve zero-extended values
+		mem := encoder.MemOp{Base: encoder.RBP, Index: encoder.NoReg, Disp: int32(off), Width: encoder.W64}
 		cg.emit(encoder.EncMOV_MR(mem, reg))
 	}
 }
@@ -269,13 +294,7 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 
 	case ir.OpMul:
 		if len(instr.Args) == 2 {
-			// Always move first arg to R11 to prevent RAX clobbering.
-			a := cg.regFor(instr.Args[0])
-			if a != encoder.R11 {
-				cg.emit(encoder.EncMOV_RR(encoder.R11, a, encoder.W64))
-				a = encoder.R11
-			}
-			b := cg.regFor(instr.Args[1])
+			a, b := cg.stageBinaryArgs(instr.Args[0], instr.Args[1])
 			cg.emit(encoder.EncIMUL_RR(a, b, encoder.W64))
 			cg.storeResult(instr.Result, a)
 		}
@@ -297,8 +316,13 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 				cg.emit(encoder.EncMOV_RM(encoder.RAX, mem))
 			} else {
 				ptrReg := cg.regFor(ptr)
-				mem := encoder.MemOp{Base: ptrReg, Index: encoder.NoReg, Disp: 0, Width: widthFor(instr.Result.Type)}
+				w := widthFor(instr.Result.Type)
+				mem := encoder.MemOp{Base: ptrReg, Index: encoder.NoReg, Disp: 0, Width: w}
 				cg.emit(encoder.EncMOV_RM(encoder.RAX, mem))
+				// Zero-extend sub-64-bit loads to prevent garbage in upper bits
+				if w < encoder.W64 {
+					cg.emit(encoder.EncMOVZX(encoder.RAX, encoder.RAX, w, encoder.W64))
+				}
 			}
 			cg.storeResult(instr.Result, encoder.RAX)
 		}
@@ -337,102 +361,65 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 
 	case ir.OpDiv:
 		if len(instr.Args) >= 2 {
-			// Load dividend to R11 first to prevent RAX clobbering by divisor load
-			dividend := cg.regFor(instr.Args[0])
-			if dividend != encoder.R11 {
-				cg.emit(encoder.EncMOV_RR(encoder.R11, dividend, encoder.W64))
-			}
-			// Load divisor (may use RAX — that's safe now)
-			divisor := cg.regFor(instr.Args[1])
-			if divisor == encoder.RAX || divisor == encoder.RDX {
-				cg.emit(encoder.EncMOV_RR(encoder.RCX, divisor, encoder.W64))
-				divisor = encoder.RCX
-			}
-			// Move dividend from R11 to RAX for IDIV
-			cg.emit(encoder.EncMOV_RR(encoder.RAX, encoder.R11, encoder.W64))
+			a, b := cg.stageBinaryArgs(instr.Args[0], instr.Args[1])
+			// a=R11 (dividend), b=RAX (divisor)
+			// Move divisor to RCX to free RAX for dividend
+			cg.emit(encoder.EncMOV_RR(encoder.RCX, b, encoder.W64))
+			// Move dividend to RAX
+			cg.emit(encoder.EncMOV_RR(encoder.RAX, a, encoder.W64))
 			// Sign-extend RAX into RDX:RAX (CQO)
 			cg.emit([]byte{0x48, 0x99})
-			// IDIV divisor: RAX=quotient, RDX=remainder
-			// Encoding: REX.W + F7 /7 modrm(11, 7, rm)
-			cg.emit([]byte{
-				0x48 | (boolToByte(divisor.IsExtended()) & 0x01),
-				0xF7,
-				0xF8 | divisor.Low3(), // modrm(11, 7, rm) = 11_111_rm
-			})
+			// IDIV RCX: RAX=quotient, RDX=remainder
+			cg.emit([]byte{0x48, 0xF7, 0xF9}) // REX.W IDIV RCX
 			cg.storeResult(instr.Result, encoder.RAX)
 		}
 
 	case ir.OpRem:
 		if len(instr.Args) >= 2 {
-			// Load dividend to R11 first to prevent RAX clobbering by divisor load
-			dividend := cg.regFor(instr.Args[0])
-			if dividend != encoder.R11 {
-				cg.emit(encoder.EncMOV_RR(encoder.R11, dividend, encoder.W64))
-			}
-			// Load divisor (may use RAX — that's safe now)
-			divisor := cg.regFor(instr.Args[1])
-			if divisor == encoder.RAX || divisor == encoder.RDX {
-				cg.emit(encoder.EncMOV_RR(encoder.RCX, divisor, encoder.W64))
-				divisor = encoder.RCX
-			}
-			// Move dividend from R11 to RAX for IDIV
-			cg.emit(encoder.EncMOV_RR(encoder.RAX, encoder.R11, encoder.W64))
-			// Sign-extend RAX into RDX:RAX (CQO)
-			cg.emit([]byte{0x48, 0x99})
-			// IDIV divisor: RAX=quotient, RDX=remainder
-			cg.emit([]byte{
-				0x48 | (boolToByte(divisor.IsExtended()) & 0x01),
-				0xF7,
-				0xF8 | divisor.Low3(),
-			})
-			// Result is remainder in RDX
+			a, b := cg.stageBinaryArgs(instr.Args[0], instr.Args[1])
+			cg.emit(encoder.EncMOV_RR(encoder.RCX, b, encoder.W64))
+			cg.emit(encoder.EncMOV_RR(encoder.RAX, a, encoder.W64))
+			cg.emit([]byte{0x48, 0x99})       // CQO
+			cg.emit([]byte{0x48, 0xF7, 0xF9}) // REX.W IDIV RCX
 			cg.storeResult(instr.Result, encoder.RDX)
 		}
 
 	case ir.OpShl:
 		if len(instr.Args) >= 2 {
-			// Always move first arg to R11 to prevent RAX clobbering.
-			val := cg.regFor(instr.Args[0])
-			if val != encoder.R11 {
-				cg.emit(encoder.EncMOV_RR(encoder.R11, val, encoder.W64))
-				val = encoder.R11
-			}
-			shift := cg.regFor(instr.Args[1])
-			if shift != encoder.RCX {
-				cg.emit(encoder.EncMOV_RR(encoder.RCX, shift, encoder.W64))
-			}
-			cg.emit(encoder.EncSHL_RCL(val, encoder.W64))
-			cg.storeResult(instr.Result, val)
+			a, b := cg.stageBinaryArgs(instr.Args[0], instr.Args[1])
+			// b (shift count) must be in RCX
+			cg.emit(encoder.EncMOV_RR(encoder.RCX, b, encoder.W64))
+			cg.emit(encoder.EncSHL_RCL(a, encoder.W64))
+			cg.storeResult(instr.Result, a)
 		}
 
 	case ir.OpShr:
 		if len(instr.Args) >= 2 {
-			// Always move first arg to R11 to prevent RAX clobbering.
-			val := cg.regFor(instr.Args[0])
-			if val != encoder.R11 {
-				cg.emit(encoder.EncMOV_RR(encoder.R11, val, encoder.W64))
-				val = encoder.R11
-			}
-			shift := cg.regFor(instr.Args[1])
-			if shift != encoder.RCX {
-				cg.emit(encoder.EncMOV_RR(encoder.RCX, shift, encoder.W64))
-			}
-			cg.emit(encoder.EncSHR_RCL(val, encoder.W64))
-			cg.storeResult(instr.Result, val)
+			a, b := cg.stageBinaryArgs(instr.Args[0], instr.Args[1])
+			cg.emit(encoder.EncMOV_RR(encoder.RCX, b, encoder.W64))
+			cg.emit(encoder.EncSHR_RCL(a, encoder.W64))
+			cg.storeResult(instr.Result, a)
 		}
 
 	case ir.OpGEP:
 		if len(instr.Args) >= 2 {
-			// Always move first arg to R11 to prevent RAX clobbering.
-			base := cg.regFor(instr.Args[0])
-			if base != encoder.R11 {
-				cg.emit(encoder.EncMOV_RR(encoder.R11, base, encoder.W64))
-				base = encoder.R11
+			elemSize := instr.ElemSize
+			if elemSize == 0 {
+				elemSize = 8
 			}
-			index := cg.regFor(instr.Args[1])
-			// LEA result, [base + index*8] using SIB
-			mem := encoder.MemOp{Base: base, Index: index, Scale: 8, Disp: 0, Width: encoder.W64}
-			cg.emit(encoder.EncLEA(encoder.RAX, mem))
+			base, index := cg.stageBinaryArgs(instr.Args[0], instr.Args[1])
+
+			// SIB only supports scales 1,2,4,8. For other sizes, multiply explicitly.
+			switch elemSize {
+			case 1, 2, 4, 8:
+				mem := encoder.MemOp{Base: base, Index: index, Scale: byte(elemSize), Disp: 0, Width: encoder.W64}
+				cg.emit(encoder.EncLEA(encoder.RAX, mem))
+			default:
+				// result = base + index * elemSize
+				cg.emit(encoder.EncMOV_RI(encoder.RAX, elemSize, encoder.W64))
+				cg.emit(encoder.EncIMUL_RR(encoder.RAX, index, encoder.W64))
+				cg.emit(encoder.EncADD_RR(encoder.RAX, base, encoder.W64))
+			}
 			cg.storeResult(instr.Result, encoder.RAX)
 		}
 
@@ -448,13 +435,7 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 	case ir.OpInsertField:
 		// Store value to struct field
 		if len(instr.Args) >= 2 {
-			// Always move first arg to R11 to prevent RAX clobbering.
-			base := cg.regFor(instr.Args[0])
-			if base != encoder.R11 {
-				cg.emit(encoder.EncMOV_RR(encoder.R11, base, encoder.W64))
-				base = encoder.R11
-			}
-			val := cg.regFor(instr.Args[1])
+			base, val := cg.stageBinaryArgs(instr.Args[0], instr.Args[1])
 			offset := int32(instr.FieldIdx * 8)
 			mem := encoder.MemOp{Base: base, Index: encoder.NoReg, Disp: offset, Width: encoder.W64}
 			cg.emit(encoder.EncMOV_MR(mem, val))
@@ -484,20 +465,29 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 	}
 }
 
+// stageBinaryArgs safely evaluates two operands for a binary operation,
+// returning them in R11 and a second register. Uses PUSH/POP to prevent
+// the second regFor() from clobbering the first operand's register.
+func (cg *codeGen) stageBinaryArgs(arg0, arg1 *ir.Value) (encoder.Reg, encoder.Reg) {
+	// Evaluate arg0, save to stack
+	src0 := cg.regFor(arg0)
+	cg.emit(encoder.EncPUSH(src0))
+	// Evaluate arg1 (may clobber the register src0 was in)
+	src1 := cg.regFor(arg1)
+	cg.emit(encoder.EncPUSH(src1))
+	// Pop into safe registers: b=RAX (from arg1), a=R11 (from arg0)
+	cg.emit(encoder.EncPOP(encoder.RAX))
+	cg.emit(encoder.EncPOP(encoder.R11))
+	return encoder.R11, encoder.RAX
+}
+
 func (cg *codeGen) compileALU(instr *ir.Instruction) {
 	if len(instr.Args) < 2 {
 		return
 	}
-	// Always move first arg to R11 before loading the second arg.
-	// This prevents the second regFor() call from clobbering the first
-	// value (regFor loads constants/spills into RAX, and the register
-	// allocator may also have assigned the first value to RAX).
-	a := cg.regFor(instr.Args[0])
-	if a != encoder.R11 {
-		cg.emit(encoder.EncMOV_RR(encoder.R11, a, encoder.W64))
-		a = encoder.R11
-	}
-	b := cg.regFor(instr.Args[1])
+	// Stage both operands to prevent register clobbering.
+	// regFor may return a register that the other operand is allocated to.
+	a, b := cg.stageBinaryArgs(instr.Args[0], instr.Args[1])
 
 	switch instr.Op {
 	case ir.OpAdd:
@@ -518,14 +508,7 @@ func (cg *codeGen) compileCmp(instr *ir.Instruction) {
 	if len(instr.Args) < 2 {
 		return
 	}
-	// Always move first arg to R11 before loading the second arg.
-	// Same clobbering prevention as compileALU.
-	a := cg.regFor(instr.Args[0])
-	if a != encoder.R11 {
-		cg.emit(encoder.EncMOV_RR(encoder.R11, a, encoder.W64))
-		a = encoder.R11
-	}
-	b := cg.regFor(instr.Args[1])
+	a, b := cg.stageBinaryArgs(instr.Args[0], instr.Args[1])
 	cg.emit(encoder.EncCMP_RR(a, b, encoder.W64))
 
 	// Set result byte via SETcc
@@ -563,14 +546,38 @@ func (cg *codeGen) compileCmp(instr *ir.Instruction) {
 func (cg *codeGen) compileCall(instr *ir.Instruction) {
 	// System V AMD64 ABI: args in RDI, RSI, RDX, RCX, R8, R9
 	argRegs := []encoder.Reg{encoder.RDI, encoder.RSI, encoder.RDX, encoder.RCX, encoder.R8, encoder.R9}
-	for i, arg := range instr.Args {
-		if i >= len(argRegs) {
-			break // TODO: stack args
+
+	nArgs := len(instr.Args)
+	if nArgs > len(argRegs) {
+		nArgs = len(argRegs)
+	}
+
+	// Phase 1: Evaluate all args into R11 (scratch) then push onto stack.
+	// Using SUB/MOV instead of PUSH to avoid potential stack alignment issues.
+	if nArgs > 0 {
+		// Reserve stack space for staging args
+		stagingSize := int32(nArgs * 8)
+		stagingSize = (stagingSize + 15) &^ 15 // 16-byte align
+		cg.emit(encoder.EncSUB_RI(encoder.RSP, stagingSize, encoder.W64))
+
+		for i := 0; i < nArgs; i++ {
+			src := cg.regFor(instr.Args[i])
+			// Save to staging area: [RSP + i*8]
+			if src != encoder.R11 {
+				cg.emit(encoder.EncMOV_RR(encoder.R11, src, encoder.W64))
+			}
+			mem := encoder.MemOp{Base: encoder.RSP, Index: encoder.NoReg, Disp: int32(i * 8), Width: encoder.W64}
+			cg.emit(encoder.EncMOV_MR(mem, encoder.R11))
 		}
-		src := cg.regFor(arg)
-		if src != argRegs[i] {
-			cg.emit(encoder.EncMOV_RR(argRegs[i], src, encoder.W64))
+
+		// Phase 2: Load from staging area into ABI registers.
+		for i := 0; i < nArgs; i++ {
+			mem := encoder.MemOp{Base: encoder.RSP, Index: encoder.NoReg, Disp: int32(i * 8), Width: encoder.W64}
+			cg.emit(encoder.EncMOV_RM(argRegs[i], mem))
 		}
+
+		// Release staging area
+		cg.emit(encoder.EncADD_RI(encoder.RSP, stagingSize, encoder.W64))
 	}
 
 	if instr.Callee != nil {

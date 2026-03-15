@@ -78,10 +78,15 @@ func (bb *BasicBlock) Cmp(cmp CmpOp, typ *Type, a, b *Value) *Value {
 	return result
 }
 
-// GEP emits a get-element-pointer instruction.
+// GEP emits a get-element-pointer instruction with 8-byte element size.
 func (bb *BasicBlock) GEP(ptr *Value, indices []*Value) *Value {
+	return bb.GEPSized(ptr, indices, 8)
+}
+
+// GEPSized emits a get-element-pointer instruction with a specified element size.
+func (bb *BasicBlock) GEPSized(ptr *Value, indices []*Value, elemSize int64) *Value {
 	result := bb.fn.newValue(ptr.Type)
-	instr := &Instruction{Op: OpGEP, Result: result, Args: append([]*Value{ptr}, indices...)}
+	instr := &Instruction{Op: OpGEP, Result: result, Args: append([]*Value{ptr}, indices...), ElemSize: elemSize}
 	bb.Instrs = append(bb.Instrs, instr)
 	return result
 }

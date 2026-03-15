@@ -280,6 +280,16 @@ func (x *PointerType) Pos() token.Pos { return x.Star }
 func (x *PointerType) End() token.Pos { return x.X.End() }
 func (x *PointerType) exprNode()      {}
 
+// Ellipsis represents a variadic parameter type "...T".
+type Ellipsis struct {
+	Ellipsis token.Pos // position of "..."
+	Elt      Expr      // element type (e.g., any)
+}
+
+func (x *Ellipsis) Pos() token.Pos { return x.Ellipsis }
+func (x *Ellipsis) End() token.Pos { return x.Elt.End() }
+func (x *Ellipsis) exprNode()      {}
+
 // ----------------------------------------------------------------------------
 // Field and FieldList
 

@@ -168,6 +168,18 @@ func compileFiles(sourceFiles []string, outputFile string, cfg *config.Config) e
 	backend := x86.New()
 	writer := elfwriter.NewWriter()
 
+	// Emit string literals to .rodata FIRST so that symbol references
+	// from function code can find them (avoids duplicate undefined symbols).
+	for _, irPkg := range prog.Packages {
+		for _, lit := range irPkg.Strings {
+			symName := fmt.Sprintf(".str.%d", lit.ID)
+			offset := uint64(len(writer.RODataBytes()))
+			writer.AddSymbol(symName, elfwriter.SectionROData, offset, uint64(len(lit.Data)),
+				elfwriter.SymBindGlobal, elfwriter.SymTypeObject)
+			writer.AddRODataBytes(lit.Data)
+		}
+	}
+
 	for _, irPkg := range prog.Packages {
 		for _, fn := range irPkg.Functions {
 			// Skip assembly stubs — they have no blocks because their
@@ -196,17 +208,6 @@ func compileFiles(sourceFiles []string, outputFile string, cfg *config.Config) e
 				writer.AddRelocation(elfwriter.SectionText, offset+uint64(reloc.Offset),
 					symIdx, elfwriter.RelocPC32, reloc.Addend)
 			}
-		}
-	}
-
-	// Emit string literals to .rodata
-	for _, irPkg := range prog.Packages {
-		for _, lit := range irPkg.Strings {
-			symName := fmt.Sprintf(".str.%d", lit.ID)
-			offset := uint64(len(writer.RODataBytes()))
-			writer.AddSymbol(symName, elfwriter.SectionROData, offset, uint64(len(lit.Data)),
-				elfwriter.SymBindLocal, elfwriter.SymTypeObject)
-			writer.AddRODataBytes(lit.Data)
 		}
 	}
 

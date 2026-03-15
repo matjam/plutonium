@@ -94,8 +94,9 @@ func init() {
 	}
 	Universe.Insert(&Object{Kind: TypObj, Name: "error", Type: errorInterface})
 
-	// Add "any" as alias for interface{} — rejected during type checking
-	Universe.Insert(&Object{Kind: TypObj, Name: "any", Type: &Interface{}})
+	// Add "any" — a built-in tagged fat pointer type {typeID uint64, data uint64}
+	// for type-safe value erasure. NOT the empty interface.
+	Universe.Insert(&Object{Kind: TypObj, Name: "any", Type: &AnyType{}})
 }
 
 // BuiltinID identifies a built-in function.

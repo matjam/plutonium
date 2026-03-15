@@ -168,6 +168,9 @@ func Walk(v Visitor, node Node) {
 	case *PointerType:
 		Walk(v, n.X)
 
+	case *Ellipsis:
+		Walk(v, n.Elt)
+
 	// FieldList and Field
 	case *FieldList:
 		for _, f := range n.List {

@@ -81,18 +81,16 @@ func (c *checker) resolveType(expr ast.Expr) Type {
 
 	case *ast.ParenExpr:
 		return c.resolveType(e.X)
+
+	case *ast.Ellipsis:
+		// ...T → resolve element type (used in variadic param context)
+		return c.resolveType(e.Elt)
 	}
 
 	return Typ[Invalid]
 }
 
 func (c *checker) resolveIdentType(e *ast.Ident) Type {
-	// Explicitly reject "any"
-	if e.Name == "any" {
-		c.errorf(e.Pos(), "'any' (empty interface) is not permitted in Plutonium")
-		return Typ[Invalid]
-	}
-
 	obj := c.currentScope().Lookup(e.Name)
 	if obj == nil {
 		c.errorf(e.Pos(), "undefined type: %s", e.Name)
@@ -146,8 +144,24 @@ func (c *checker) resolveInterfaceType(e *ast.InterfaceType) *Interface {
 
 func (c *checker) resolveFuncType(e *ast.FuncType) *Signature {
 	var params []*Var
+	var variadic bool
 	if e.Params != nil {
 		for _, field := range e.Params.List {
+			// Check if this is a variadic parameter (...T)
+			if ell, ok := field.Type.(*ast.Ellipsis); ok {
+				variadic = true
+				// The variadic element type becomes a slice param
+				elemType := c.resolveType(ell.Elt)
+				sliceType := &Slice{elem: elemType}
+				if len(field.Names) == 0 {
+					params = append(params, &Var{name: "_", typ: sliceType})
+				} else {
+					for _, name := range field.Names {
+						params = append(params, &Var{name: name.Name, typ: sliceType})
+					}
+				}
+				continue
+			}
 			typ := c.resolveType(field.Type)
 			if len(field.Names) == 0 {
 				params = append(params, &Var{name: "_", typ: typ})
@@ -171,7 +185,7 @@ func (c *checker) resolveFuncType(e *ast.FuncType) *Signature {
 			}
 		}
 	}
-	return &Signature{params: params, results: results}
+	return &Signature{params: params, results: results, variadic: variadic}
 }
 
 // resolveTypeParamConstraint resolves a type parameter constraint expression.

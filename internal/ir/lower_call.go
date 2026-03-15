@@ -1,0 +1,287 @@
+package ir
+
+import (
+	"strings"
+
+	"github.com/matjam/plutonium/internal/ast"
+)
+
+// --- Call expression lowering ---
+
+func (l *lowerer) lowerCallExpr(e *ast.CallExpr) *Value {
+	// Handle type conversions: int32(x), uint64(p), etc.
+	if ident, ok := e.Fun.(*ast.Ident); ok {
+		if isTypeName(ident.Name) {
+			toType := l.lowerIdentType(ident.Name)
+			if len(e.Args) == 1 {
+				val := l.lowerExprValue(e.Args[0])
+				if val != nil {
+					fromType := val.Type
+					if fromType == nil {
+						fromType = I32
+					}
+					return l.bb.Convert(OpBitcast, fromType, toType, val)
+				}
+				return ConstInt(toType, 0)
+			}
+		}
+	}
+
+	// Handle len() builtin
+	if ident, ok := e.Fun.(*ast.Ident); ok && ident.Name == "len" {
+		if len(e.Args) == 1 {
+			return l.lowerLen(e.Args[0])
+		}
+	}
+
+	// Handle generic instantiation calls: Max[int64](args...)
+	if idxExpr, ok := e.Fun.(*ast.IndexExpr); ok {
+		if funcIdent, ok := idxExpr.X.(*ast.Ident); ok {
+			typeArgName := ""
+			if typeIdent, ok := idxExpr.Index.(*ast.Ident); ok {
+				typeArgName = typeIdent.Name
+			}
+			mangledName := funcIdent.Name + "__" + typeArgName
+
+			var args []*Value
+			for _, arg := range e.Args {
+				v := l.lowerExprValue(arg)
+				args = append(args, v)
+			}
+
+			fn := l.allFuncs[mangledName]
+			if fn == nil {
+				fn = l.allFuncs[funcIdent.Name]
+			}
+			if fn == nil {
+				fn = &Function{Name: mangledName, RetType: I64, nextID: 1}
+				l.allFuncs[mangledName] = fn
+			}
+
+			return l.bb.Call(fn, fn.RetType, args...)
+		}
+	}
+
+	// Handle SelectorExpr calls: pkg.Func(args)
+	if sel, ok := e.Fun.(*ast.SelectorExpr); ok {
+		if pkgIdent, ok := sel.X.(*ast.Ident); ok {
+			qualifiedName := pkgIdent.Name + "." + sel.Sel.Name
+
+			fn := l.allFuncs[qualifiedName]
+			if fn == nil {
+				fn = &Function{
+					Name:    qualifiedName,
+					RetType: I64,
+				}
+				l.allFuncs[qualifiedName] = fn
+			}
+
+			// Check if the callee is variadic
+			if info, ok := l.variadicInfo[qualifiedName]; ok {
+				return l.lowerVariadicCall(fn, e, info)
+			}
+
+			// Non-variadic: lower arguments normally
+			var args []*Value
+			for _, arg := range e.Args {
+				v := l.lowerExprValue(arg)
+				args = append(args, v)
+			}
+
+			return l.bb.Call(fn, fn.RetType, args...)
+		}
+	}
+
+	// Look up callee function by name
+	if ident, ok := e.Fun.(*ast.Ident); ok {
+		var callee *Function
+		var calleeName string
+
+		if fn := l.allFuncs[ident.Name]; fn != nil {
+			callee = fn
+			calleeName = ident.Name
+		} else if l.fn != nil && l.fn.Name != "" {
+			if dotIdx := strings.LastIndex(l.fn.Name, "."); dotIdx >= 0 {
+				pkgPrefix := l.fn.Name[:dotIdx+1]
+				qualifiedName := pkgPrefix + ident.Name
+				if fn := l.allFuncs[qualifiedName]; fn != nil {
+					callee = fn
+					calleeName = qualifiedName
+				}
+			}
+		}
+		if callee == nil {
+			for _, fn := range l.pkg.Functions {
+				if fn.Name == ident.Name {
+					callee = fn
+					calleeName = ident.Name
+					break
+				}
+			}
+		}
+
+		if callee != nil {
+			if info, ok := l.variadicInfo[calleeName]; ok {
+				return l.lowerVariadicCall(callee, e, info)
+			}
+			var args []*Value
+			for _, arg := range e.Args {
+				v := l.lowerExprValue(arg)
+				args = append(args, v)
+			}
+			return l.bb.Call(callee, callee.RetType, args...)
+		}
+	}
+
+	// Fallback
+	for _, arg := range e.Args {
+		l.lowerExprValue(arg)
+	}
+	return ConstInt(I32, 0)
+}
+
+// --- len() builtin ---
+
+// lowerLen handles the len() builtin for strings and slices.
+func (l *lowerer) lowerLen(arg ast.Expr) *Value {
+	// For identifiers, check for decomposed string/slice __len companion
+	if ident, ok := arg.(*ast.Ident); ok {
+		if lenSlot, ok := l.env[ident.Name+"__len"]; ok {
+			return l.bb.Load(I64, lenSlot)
+		}
+	}
+	// Fallback: string literal — length is in IntVal
+	val := l.lowerExprValue(arg)
+	if val != nil && val.Kind == ValGlobal && val.IntVal > 0 {
+		return ConstInt(I64, val.IntVal)
+	}
+	return ConstInt(I64, 0)
+}
+
+// --- Argument expansion ---
+
+// expandStringArg evaluates an expression and appends it to the args slice.
+// If the expression is a string (literal or decomposed variable), it expands
+// into (ptr, len) — two separate arguments.
+func (l *lowerer) expandStringArg(expr ast.Expr, args *[]*Value) {
+	// Check if argument is a decomposed string variable (has __len but NOT __cap)
+	if ident, ok := expr.(*ast.Ident); ok {
+		_, hasLen := l.env[ident.Name+"__len"]
+		_, hasCap := l.env[ident.Name+"__cap"]
+		if hasLen && !hasCap {
+			// Decomposed string (not slice): pass ptr and len as separate args
+			ptrSlot := l.env[ident.Name]
+			ptr := l.bb.Load(PtrTo(U8), ptrSlot)
+			lenSlot := l.env[ident.Name+"__len"]
+			length := l.bb.Load(I64, lenSlot)
+			*args = append(*args, ptr, length)
+			return
+		}
+	}
+
+	val := l.lowerExprValue(expr)
+	if val == nil {
+		*args = append(*args, ConstInt(I64, 0))
+		return
+	}
+
+	// String literal: expand into (ptr, len)
+	if val.Kind == ValGlobal && val.Type != nil && val.Type.Kind == TyPtr &&
+		val.Type.Elem != nil && val.Type.Elem.Kind == TyU8 && val.IntVal > 0 {
+		*args = append(*args, val, ConstInt(I64, val.IntVal))
+		return
+	}
+
+	*args = append(*args, val)
+}
+
+// --- Variadic call lowering ---
+
+// lowerVariadicCall handles calling a variadic function. It:
+// 1. Evaluates fixed arguments (expanding multi-word types)
+// 2. Packs variadic args into any structs {typeID, data}
+// 3. Allocates a stack array of any values
+// 4. Builds a slice header (ptr, len, cap)
+// 5. Passes fixed args + slice ptr + slice len + slice cap
+func (l *lowerer) lowerVariadicCall(fn *Function, e *ast.CallExpr, info *variadicFuncInfo) *Value {
+	// Evaluate fixed arguments, expanding multi-word types
+	var fixedArgs []*Value
+	for i := 0; i < info.fixedParams && i < len(e.Args); i++ {
+		// Check if this fixed param is a string type
+		if i < len(info.fixedParamTypes) && info.fixedParamTypes[i] != nil &&
+			info.fixedParamTypes[i].Kind == TyString {
+			l.expandStringArg(e.Args[i], &fixedArgs)
+		} else {
+			v := l.lowerExprValue(e.Args[i])
+			fixedArgs = append(fixedArgs, v)
+		}
+	}
+
+	// Evaluate variadic arguments
+	type argWithType struct {
+		val    *Value
+		irType *Type
+	}
+	var varArgs []argWithType
+	for i := info.fixedParams; i < len(e.Args); i++ {
+		v := l.lowerExprValue(e.Args[i])
+		typ := I64
+		if v != nil && v.Type != nil {
+			typ = v.Type
+		}
+		varArgs = append(varArgs, argWithType{val: v, irType: typ})
+	}
+
+	nVariadic := int64(len(varArgs))
+
+	if nVariadic == 0 {
+		nullPtr := ConstInt(I64, 0)
+		zeroLen := ConstInt(I64, 0)
+		zeroCap := ConstInt(I64, 0)
+		allArgs := append(fixedArgs, nullPtr, zeroLen, zeroCap)
+		return l.bb.Call(fn, fn.RetType, allArgs...)
+	}
+
+	// Allocate stack array of [N]any — each any is 16 bytes (2 x i64)
+	arrayType := ArrayOf(nVariadic, Any)
+	arraySlot := l.bb.Alloca(arrayType)
+
+	// Pack each variadic argument into its any slot
+	for i, va := range varArgs {
+		typeID := AnyTypeIDFor(va.irType)
+
+		var dataVal *Value
+		if va.irType.Kind == TyString || (va.irType.Kind == TyPtr && va.irType.Elem != nil && va.irType.Elem.Kind == TyU8) {
+			if va.val != nil && va.val.Kind == ValGlobal {
+				hdrSlot := l.bb.Alloca(Str)
+				l.bb.InsertField(I64, hdrSlot, 0, va.val)
+				lenVal := ConstInt(I64, va.val.IntVal)
+				l.bb.InsertField(I64, hdrSlot, 1, lenVal)
+				dataVal = hdrSlot
+			} else if va.val != nil {
+				dataVal = va.val
+			} else {
+				dataVal = ConstInt(I64, 0)
+			}
+		} else {
+			if va.val != nil {
+				dataVal = va.val
+			} else {
+				dataVal = ConstInt(I64, 0)
+			}
+		}
+
+		offset := int64(i) * 16
+		typeIDConst := ConstInt(I64, typeID)
+
+		l.bb.InsertField(I64, arraySlot, int(offset/8), typeIDConst)
+		l.bb.InsertField(I64, arraySlot, int(offset/8)+1, dataVal)
+	}
+
+	slicePtr := arraySlot
+	sliceLen := ConstInt(I64, nVariadic)
+	sliceCap := ConstInt(I64, nVariadic)
+
+	allArgs := append(fixedArgs, slicePtr, sliceLen, sliceCap)
+	return l.bb.Call(fn, fn.RetType, allArgs...)
+}

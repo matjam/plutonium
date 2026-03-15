@@ -24,6 +24,8 @@ const (
 	TyStruct // fields
 	TyFunc   // function type
 	TyVoid   // no value
+	TyAny    // tagged union { typeID uint64, data uint64 } = 16 bytes
+	TyString // fat pointer { ptr *byte, len int64 } = 16 bytes
 )
 
 // Type represents an IR type.
@@ -71,6 +73,12 @@ func (t *Type) String() string {
 		return "[]" + t.Elem.String()
 	case TyVoid:
 		return "void"
+	case TyAny:
+		return "any"
+	case TyString:
+		return "string"
+	case TyStruct:
+		return "struct"
 	}
 	return "unknown"
 }
@@ -89,8 +97,98 @@ var (
 	F32  = &Type{Kind: TyF32}
 	F64  = &Type{Kind: TyF64}
 	Void = &Type{Kind: TyVoid}
-	UPtr = &Type{Kind: TyU64} // uintptr = u64 on 64-bit
+	UPtr = &Type{Kind: TyU64}    // uintptr = u64 on 64-bit
+	Any  = &Type{Kind: TyAny}    // { typeID u64, data u64 } = 16 bytes
+	Str  = &Type{Kind: TyString} // { ptr *u8, len i64 } = 16 bytes
 )
+
+// AnyTypeID constants for the `any` tagged union.
+// These are compile-time-assigned, stable across compilations.
+const (
+	AnyTypeIDNil     int64 = 0
+	AnyTypeIDBool    int64 = 1
+	AnyTypeIDInt8    int64 = 2
+	AnyTypeIDInt16   int64 = 3
+	AnyTypeIDInt32   int64 = 4
+	AnyTypeIDInt64   int64 = 5 // also int
+	AnyTypeIDUint8   int64 = 6 // also byte
+	AnyTypeIDUint16  int64 = 7
+	AnyTypeIDUint32  int64 = 8
+	AnyTypeIDUint64  int64 = 9 // also uint, uintptr
+	AnyTypeIDFloat32 int64 = 10
+	AnyTypeIDFloat64 int64 = 11
+	AnyTypeIDPointer int64 = 12
+	AnyTypeIDString  int64 = 13
+)
+
+// AnyTypeIDFor returns the any type ID for a given IR type.
+func AnyTypeIDFor(t *Type) int64 {
+	if t == nil {
+		return AnyTypeIDNil
+	}
+	switch t.Kind {
+	case TyBool:
+		return AnyTypeIDBool
+	case TyI8:
+		return AnyTypeIDInt8
+	case TyI16:
+		return AnyTypeIDInt16
+	case TyI32:
+		return AnyTypeIDInt32
+	case TyI64:
+		return AnyTypeIDInt64
+	case TyU8:
+		return AnyTypeIDUint8
+	case TyU16:
+		return AnyTypeIDUint16
+	case TyU32:
+		return AnyTypeIDUint32
+	case TyU64:
+		return AnyTypeIDUint64
+	case TyF32:
+		return AnyTypeIDFloat32
+	case TyF64:
+		return AnyTypeIDFloat64
+	case TyPtr:
+		return AnyTypeIDPointer
+	case TyString:
+		return AnyTypeIDString
+	default:
+		return AnyTypeIDNil
+	}
+}
+
+// SizeOf returns the size in bytes of an IR type on a 64-bit platform.
+func SizeOf(t *Type) int64 {
+	if t == nil {
+		return 0
+	}
+	switch t.Kind {
+	case TyBool, TyI8, TyU8:
+		return 1
+	case TyI16, TyU16:
+		return 2
+	case TyI32, TyU32, TyF32:
+		return 4
+	case TyI64, TyU64, TyF64, TyPtr:
+		return 8
+	case TyAny:
+		return 16 // typeID(8) + data(8)
+	case TyString:
+		return 16 // ptr(8) + len(8)
+	case TySlice:
+		return 24 // ptr(8) + len(8) + cap(8)
+	case TyArray:
+		if t.Elem != nil {
+			return t.Len * SizeOf(t.Elem)
+		}
+		return 0
+	case TyStruct:
+		return int64(len(t.Fields)) * 8 // all fields 8-byte aligned in v0.1
+	default:
+		return 8
+	}
+}
 
 // PtrTo returns a pointer type to elem.
 func PtrTo(elem *Type) *Type { return &Type{Kind: TyPtr, Elem: elem} }
@@ -229,6 +327,8 @@ type Instruction struct {
 	AllocType *Type
 	// For OpExtractField / OpInsertField / OpGEP:
 	FieldIdx int
+	// For OpGEP: element size in bytes (0 means default=8)
+	ElemSize int64
 	// For OpAsm:
 	AsmTemplate    string
 	AsmConstraints string

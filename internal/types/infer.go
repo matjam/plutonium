@@ -116,12 +116,6 @@ func (c *checker) checkIdent(e *ast.Ident) Type {
 		return Typ[Invalid]
 	}
 
-	// Reject 'any' type usage explicitly
-	if e.Name == "any" {
-		c.errorf(e.Pos(), "'any' (empty interface) is not permitted in Plutonium")
-		return Typ[Invalid]
-	}
-
 	obj := c.currentScope().Lookup(e.Name)
 	if obj == nil {
 		c.errorf(e.Pos(), "undefined: %s", e.Name)

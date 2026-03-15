@@ -714,6 +714,16 @@ func (p *parser) parseParameterList() []*ast.Field {
 			break
 		}
 
+		// Handle unnamed variadic: ...T (no name before ellipsis)
+		if p.tok == token.ELLIPSIS {
+			ellipsisPos := p.pos
+			p.next() // consume '...'
+			elt := p.parseType()
+			typ := &ast.Ellipsis{Ellipsis: ellipsisPos, Elt: elt}
+			fields = append(fields, &ast.Field{Type: typ})
+			break // variadic must be last param
+		}
+
 		if p.tok != token.IDENT {
 			// Non-ident type at start (e.g., *T, []T, func(...))
 			typ := p.parseType()
@@ -777,7 +787,14 @@ func (p *parser) parseParameterList() []*ast.Field {
 		}
 
 		// Now decide: are idents names or types?
-		if p.tok == token.IDENT || (p.isTypeStart() && p.tok != token.RPAREN) {
+		if p.tok == token.ELLIPSIS {
+			// Variadic parameter: name ...T
+			ellipsisPos := p.pos
+			p.next() // consume '...'
+			elt := p.parseType()
+			typ := &ast.Ellipsis{Ellipsis: ellipsisPos, Elt: elt}
+			fields = append(fields, &ast.Field{Names: idents, Type: typ})
+		} else if p.tok == token.IDENT || (p.isTypeStart() && p.tok != token.RPAREN) {
 			// There's a type following → idents are names (or idents plus type)
 			// But if the only token is IDENT and we have one ident, ambiguous.
 			// Actually: if p.tok is IDENT, that IDENT is the type.

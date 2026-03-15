@@ -157,6 +157,15 @@ func (t *TypeParam) Underlying() Type { return t.constraint }
 func (t *TypeParam) String() string   { return t.name }
 func (t *TypeParam) Constraint() Type { return t.constraint }
 
+// AnyType represents the built-in `any` type — a tagged fat pointer
+// { typeID uint64, data uint64 } for type-safe value erasure without
+// reflection. This is NOT the empty interface; it's a concrete 16-byte type.
+type AnyType struct{}
+
+func (t *AnyType) typeNode()        {}
+func (t *AnyType) Underlying() Type { return t }
+func (t *AnyType) String() string   { return "any" }
+
 // Union represents a type union constraint (int32 | int64).
 type Union struct {
 	terms []Type

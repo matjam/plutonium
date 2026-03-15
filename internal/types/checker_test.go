@@ -165,8 +165,9 @@ func foo() []int32 { return make([]int32, 10) }
 	}
 }
 
-func TestRejectAny(t *testing.T) {
-	checkErr(t, `
+func TestAcceptAny(t *testing.T) {
+	// any is now a built-in tagged fat pointer type, not the empty interface
+	checkOK(t, `
 package main
 var x any
 `)

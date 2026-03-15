@@ -139,10 +139,37 @@ func (w *Writer) Write(out io.Writer) error {
 		".shstrtab",
 	})
 
-	strtab := []byte{0} // null terminator at start
-	symNameOffsets := make([]uint32, len(w.syms))
+	// --- Sort symbols: locals first, then globals (ELF requirement) ---
+	// Build a sorted order: local symbols first, then global/weak.
+	sortedOrder := make([]int, len(w.syms))
+	idx := 0
 	for i, s := range w.syms {
-		symNameOffsets[i] = uint32(len(strtab))
+		if s.bind == elf.STB_LOCAL {
+			sortedOrder[idx] = i
+			idx++
+		}
+	}
+	numLocal := idx
+	for i, s := range w.syms {
+		if s.bind != elf.STB_LOCAL {
+			sortedOrder[idx] = i
+			idx++
+			_ = s
+		}
+	}
+
+	// Build reverse mapping: original index → new sorted position
+	oldToNew := make([]int, len(w.syms))
+	for newIdx, oldIdx := range sortedOrder {
+		oldToNew[oldIdx] = newIdx
+	}
+
+	strtab := []byte{0} // null terminator at start
+	// Build string table in sorted order
+	symNameOffsets := make([]uint32, len(w.syms))
+	for _, origIdx := range sortedOrder {
+		s := w.syms[origIdx]
+		symNameOffsets[origIdx] = uint32(len(strtab))
 		strtab = append(strtab, []byte(s.name)...)
 		strtab = append(strtab, 0)
 	}
@@ -169,12 +196,13 @@ func (w *Writer) Write(out io.Writer) error {
 	}
 
 	symtabIdx := make([]int, len(w.syms)) // our sym idx → ELF symtab index
-	for i, s := range w.syms {
+	for _, origIdx := range sortedOrder {
+		s := w.syms[origIdx]
 		elfIdx := len(symtab) / sym64Size
-		symtabIdx[i] = elfIdx
+		symtabIdx[origIdx] = elfIdx
 
 		sym := make([]byte, sym64Size)
-		le.PutUint32(sym[0:4], symNameOffsets[i])       // st_name
+		le.PutUint32(sym[0:4], symNameOffsets[origIdx]) // st_name
 		sym[4] = elfSymInfo(s.bind, s.typ)              // st_info
 		sym[5] = 0                                      // st_other
 		le.PutUint16(sym[6:8], sectionIndex(s.section)) // st_shndx
@@ -182,6 +210,9 @@ func (w *Writer) Write(out io.Writer) error {
 		le.PutUint64(sym[16:24], s.size)                // st_size
 		symtab = append(symtab, sym...)
 	}
+
+	// sh_info for .symtab = index of first global symbol (+1 for null sym at idx 0)
+	firstGlobal := numLocal + 1 // +1 for null symbol
 
 	// --- Build .rela.text ---
 	// Rela64: offset(8), info(8), addend(8) = 24 bytes
@@ -335,7 +366,7 @@ func (w *Writer) Write(out io.Writer) error {
 		// 5: .symtab — link=.strtab(6), info=first global sym index
 		writeSH(".symtab", elf.SHT_SYMTAB,
 			0,
-			symtabOff, uint64(len(symtab)), 6, uint64(firstGlobalIdx(w.syms)), 8, sym64Size),
+			symtabOff, uint64(len(symtab)), 6, uint64(firstGlobal), 8, sym64Size),
 		// 6: .strtab
 		writeSH(".strtab", elf.SHT_STRTAB,
 			0,
@@ -403,14 +434,4 @@ func shstrtabSectionOffsets(shstrtab []byte) map[string]uint32 {
 		i = j + 1
 	}
 	return m
-}
-
-func firstGlobalIdx(syms []symbol) int {
-	// +1 for the null symbol at index 0
-	for i, s := range syms {
-		if s.bind == elf.STB_GLOBAL {
-			return i + 1
-		}
-	}
-	return len(syms) + 1
 }
