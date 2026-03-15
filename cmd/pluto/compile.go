@@ -111,13 +111,54 @@ func compileFiles(sourceFiles []string, outputFile string, cfg *config.Config) e
 		return err
 	}
 
-	// Monomorphize
+	// Collect transitive dependencies from the user's parsed AST.
+	stdlibRoot := resolveStdlibRoot()
+	var deps []importedPackage
+	if stdlibRoot != "" {
+		deps, err = collectDependencies(files, stdlibRoot, cfg.Tags, fset)
+		if err != nil {
+			return fmt.Errorf("resolving dependencies: %w", err)
+		}
+	}
+
+	// Monomorphize the user's package.
 	monoResult, err := mono.Monomorphize(pkg, fset)
 	if err != nil {
 		return err
 	}
 
-	// Lower to IR
+	// Track already-added function names to avoid duplicates.
+	addedFuncs := make(map[string]bool)
+	for _, fe := range monoResult.Functions {
+		addedFuncs[fe.Name] = true
+	}
+
+	// Monomorphize each dependency package and merge its functions
+	// into the single mono result. Functions are prefixed with the
+	// package name (e.g. "syscall.Syscall") to match the qualified
+	// names the IR lowerer emits for cross-package calls.
+	for _, dep := range deps {
+		depPkg := types.GetCachedPackage(dep.ImportPath)
+		if depPkg == nil {
+			continue
+		}
+		depMono, monoErr := mono.Monomorphize(depPkg, fset)
+		if monoErr != nil {
+			return fmt.Errorf("monomorphizing %s: %w", dep.ImportPath, monoErr)
+		}
+		pkgName := depPkg.Name()
+		for _, fe := range depMono.Functions {
+			qualifiedName := pkgName + "." + fe.Name
+			if addedFuncs[qualifiedName] {
+				continue
+			}
+			addedFuncs[qualifiedName] = true
+			fe.Name = qualifiedName
+			monoResult.Functions = append(monoResult.Functions, fe)
+		}
+	}
+
+	// Lower ALL functions to IR together (single compilation unit).
 	prog, err := ir.Lower(monoResult, fset)
 	if err != nil {
 		return err

@@ -162,6 +162,12 @@ func extractBuildDirectives(src string) []string {
 	return dirs
 }
 
+// GetCachedPackage returns a previously loaded package from cache, or nil.
+// After Check returns, all transitively-loaded packages are in the cache.
+func GetCachedPackage(importPath string) *Package {
+	return packageCache[importPath]
+}
+
 // ResetPackageCache clears the package cache. Useful for tests.
 func ResetPackageCache() {
 	packageCache = make(map[string]*Package)

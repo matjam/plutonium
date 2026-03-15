@@ -9,8 +9,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/matjam/plutonium/internal/ast"
 	"github.com/matjam/plutonium/internal/buildtag"
 	"github.com/matjam/plutonium/internal/config"
+	"github.com/matjam/plutonium/internal/parser"
+	"github.com/matjam/plutonium/internal/token"
 )
 
 var buildCmd = &cobra.Command{
@@ -94,26 +97,51 @@ func runBuild(cmd *cobra.Command, args []string) error {
 
 	objFiles := []string{objFile}
 
-	// Collect and assemble .s files from stdlib directories.
-	// Scan the pluto stdlib root (if found) for assembly stubs that match
-	// current build tags.
+	// Collect and assemble .s files from dependency directories.
+	// First, discover transitive dependencies so we know which stdlib
+	// directories contain assembly stubs that need assembling.
 	stdlibRoot := resolveStdlibRoot()
 	if stdlibRoot != "" {
-		asmDirs := []string{
-			filepath.Join(stdlibRoot, "syscall"),
-		}
-		for _, dir := range asmDirs {
-			if _, err := os.Stat(dir); err != nil {
+		// Parse the user's source files to discover dependency directories.
+		fset := token.NewFileSet()
+		var parsedFiles []*ast.File
+		for _, sf := range sourceFiles {
+			src, readErr := os.ReadFile(sf)
+			if readErr != nil {
 				continue
 			}
-			asmFiles, err := collectAssemblyFiles(dir, cfg)
-			if err != nil {
-				return fmt.Errorf("collecting assembly files from %s: %w", dir, err)
+			f, parseErr := parser.ParseFile(fset, sf, src, 0)
+			if parseErr != nil {
+				continue
+			}
+			parsedFiles = append(parsedFiles, f)
+		}
+
+		deps, depErr := collectDependencies(parsedFiles, stdlibRoot, cfg.Tags, fset)
+		if depErr != nil && verbose {
+			fmt.Printf("warning: dependency resolution for assembly: %v\n", depErr)
+		}
+
+		// Build a deduplicated set of directories to scan for .s files.
+		asmDirSet := make(map[string]bool)
+		// Always include the syscall dir as a fallback.
+		asmDirSet[filepath.Join(stdlibRoot, "syscall")] = true
+		for _, dep := range deps {
+			asmDirSet[dep.Dir] = true
+		}
+
+		for dir := range asmDirSet {
+			if _, statErr := os.Stat(dir); statErr != nil {
+				continue
+			}
+			asmFiles, asmErr := collectAssemblyFiles(dir, cfg)
+			if asmErr != nil {
+				return fmt.Errorf("collecting assembly files from %s: %w", dir, asmErr)
 			}
 			for _, sf := range asmFiles {
-				oFile, err := assembleFile(sf, cfg)
-				if err != nil {
-					return err
+				oFile, asmFileErr := assembleFile(sf, cfg)
+				if asmFileErr != nil {
+					return asmFileErr
 				}
 				objFiles = append(objFiles, oFile)
 			}
