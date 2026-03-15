@@ -30,12 +30,13 @@ const (
 
 // Type represents an IR type.
 type Type struct {
-	Kind   TypeKind
-	Elem   *Type   // for TyPtr, TyArray, TySlice
-	Len    int64   // for TyArray
-	Fields []*Type // for TyStruct
-	Params []*Type // for TyFunc
-	Return *Type   // for TyFunc
+	Kind       TypeKind
+	Elem       *Type    // for TyPtr, TyArray, TySlice
+	Len        int64    // for TyArray
+	Fields     []*Type  // for TyStruct
+	FieldNames []string // for TyStruct: parallel to Fields
+	Params     []*Type  // for TyFunc
+	Return     *Type    // for TyFunc
 }
 
 func (t *Type) String() string {

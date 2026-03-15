@@ -168,3 +168,77 @@ func bar() int32 {
 		t.Error("expected Call instruction in foo()")
 	}
 }
+
+func TestLowerStructFieldAccess(t *testing.T) {
+	prog := lowerOK(t, `
+package main
+
+type Point struct {
+	X int32
+	Y int32
+	Z int32
+}
+
+func getY() int32 {
+	p := Point{X: 10, Y: 20, Z: 30}
+	return p.Y
+}
+
+func getZ() int32 {
+	p := Point{X: 10, Y: 20, Z: 30}
+	return p.Z
+}
+`)
+	pkg := prog.Packages[0]
+
+	// Find getY function
+	var getYFn, getZFn *ir.Function
+	for _, fn := range pkg.Functions {
+		switch fn.Name {
+		case "getY":
+			getYFn = fn
+		case "getZ":
+			getZFn = fn
+		}
+	}
+	if getYFn == nil {
+		t.Fatal("getY function not found")
+	}
+	if getZFn == nil {
+		t.Fatal("getZ function not found")
+	}
+
+	// Check that getY produces an ExtractField with FieldIdx=1 (Y is the second field)
+	foundExtractY := false
+	for _, bb := range getYFn.Blocks {
+		for _, instr := range bb.Instrs {
+			if instr.Op == ir.OpExtractField {
+				if instr.FieldIdx == 1 {
+					foundExtractY = true
+				} else {
+					t.Errorf("getY: ExtractField has FieldIdx=%d, want 1", instr.FieldIdx)
+				}
+			}
+		}
+	}
+	if !foundExtractY {
+		t.Error("getY: expected ExtractField instruction with FieldIdx=1")
+	}
+
+	// Check that getZ produces an ExtractField with FieldIdx=2 (Z is the third field)
+	foundExtractZ := false
+	for _, bb := range getZFn.Blocks {
+		for _, instr := range bb.Instrs {
+			if instr.Op == ir.OpExtractField {
+				if instr.FieldIdx == 2 {
+					foundExtractZ = true
+				} else {
+					t.Errorf("getZ: ExtractField has FieldIdx=%d, want 2", instr.FieldIdx)
+				}
+			}
+		}
+	}
+	if !foundExtractZ {
+		t.Error("getZ: expected ExtractField instruction with FieldIdx=2")
+	}
+}

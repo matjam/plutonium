@@ -259,8 +259,24 @@ func (l *lowerer) lowerSelectorExpr(e *ast.SelectorExpr) *Value {
 	if base == nil {
 		return ConstInt(I32, 0)
 	}
-	// Field access — extract field by index (simplified: always index 0)
-	return l.bb.ExtractField(I32, base, 0)
+
+	// Resolve field name to index using the struct type info
+	fieldIdx := 0
+	fieldType := I32
+	if ident, ok := e.X.(*ast.Ident); ok {
+		if stype, ok := l.structTypes[ident.Name]; ok && stype.Kind == TyStruct {
+			for i, name := range stype.FieldNames {
+				if name == e.Sel.Name {
+					fieldIdx = i
+					if i < len(stype.Fields) {
+						fieldType = stype.Fields[i]
+					}
+					break
+				}
+			}
+		}
+	}
+	return l.bb.ExtractField(fieldType, base, fieldIdx)
 }
 
 func (l *lowerer) lowerCompositeLit(e *ast.CompositeLit) *Value {
@@ -271,6 +287,89 @@ func (l *lowerer) lowerCompositeLit(e *ast.CompositeLit) *Value {
 	} else {
 		typ = I32
 	}
+
+	// If the type is still I32 (fallback from an unresolved named type)
+	// but we have key-value elements, build the struct type from the elements
+	// and populate the fields in a single pass to avoid double evaluation.
+	if typ == I32 && len(e.Elts) > 0 {
+		if _, ok := e.Elts[0].(*ast.KeyValueExpr); ok {
+			// First pass: determine field names and types without emitting IR
+			var fields []*Type
+			var fieldNames []string
+			for _, elt := range e.Elts {
+				kv, ok := elt.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				if ident, ok := kv.Key.(*ast.Ident); ok {
+					fieldNames = append(fieldNames, ident.Name)
+				}
+				// Infer type from the value expression without lowering
+				fields = append(fields, l.inferExprType(kv.Value))
+			}
+			typ = &Type{Kind: TyStruct, Fields: fields, FieldNames: fieldNames}
+		}
+	}
+
 	slot := l.bb.Alloca(typ)
+
+	// Populate struct fields from key-value elements
+	if typ.Kind == TyStruct && len(e.Elts) > 0 {
+		for i, elt := range e.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			// Find the field index by name
+			fieldIdx := i
+			if ident, ok := kv.Key.(*ast.Ident); ok {
+				for j, name := range typ.FieldNames {
+					if name == ident.Name {
+						fieldIdx = j
+						break
+					}
+				}
+			}
+			val := l.lowerExprValue(kv.Value)
+			if val != nil {
+				ft := I32
+				if fieldIdx < len(typ.Fields) {
+					ft = typ.Fields[fieldIdx]
+				}
+				l.bb.InsertField(ft, slot, fieldIdx, val)
+			}
+		}
+	}
+
 	return slot
+}
+
+// inferExprType infers the IR type of an expression without emitting instructions.
+// Used during struct type construction to avoid double-lowering values.
+func (l *lowerer) inferExprType(expr ast.Expr) *Type {
+	switch e := expr.(type) {
+	case *ast.BasicLit:
+		switch e.Kind {
+		case token.INT:
+			return I64
+		case token.FLOAT:
+			return F64
+		case token.STRING:
+			return PtrTo(U8)
+		case token.CHAR:
+			return I32
+		}
+	case *ast.Ident:
+		if slot, ok := l.env[e.Name]; ok && slot.Type != nil {
+			return slot.Type
+		}
+	case *ast.CallExpr:
+		// Type conversions like int32(x)
+		if ident, ok := e.Fun.(*ast.Ident); ok {
+			if isTypeName(ident.Name) {
+				return l.lowerIdentType(ident.Name)
+			}
+		}
+	}
+	return I32
 }

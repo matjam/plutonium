@@ -79,6 +79,7 @@ type lowerer struct {
 	fn           *Function
 	bb           *BasicBlock
 	env          map[string]*Value            // name → alloca slot
+	structTypes  map[string]*Type             // name → struct IR type (for field name resolution)
 	retSlots     []*Value                     // return value slots (for multiple returns)
 	allFuncs     map[string]*Function         // all known functions by qualified name
 	variadicInfo map[string]*variadicFuncInfo // function name → variadic info
@@ -106,6 +107,7 @@ func (l *lowerer) lowerFuncBody(fe *mono.FuncEntry, fn *Function) error {
 		pkg:          l.pkg,
 		fn:           fn,
 		env:          make(map[string]*Value),
+		structTypes:  make(map[string]*Type),
 		allFuncs:     l.allFuncs,
 		variadicInfo: l.variadicInfo,
 	}
@@ -232,6 +234,25 @@ func (l *lowerer) lowerType(expr ast.Expr) *Type {
 		// ...T in parameter → slice of T (at IR level)
 		elem := l.lowerType(e.Elt)
 		return SliceOf(elem)
+	case *ast.StructType:
+		var fields []*Type
+		var fieldNames []string
+		if e.Fields != nil {
+			for _, f := range e.Fields.List {
+				ft := l.lowerType(f.Type)
+				if len(f.Names) == 0 {
+					// Embedded/anonymous field
+					fields = append(fields, ft)
+					fieldNames = append(fieldNames, "")
+				} else {
+					for _, name := range f.Names {
+						fields = append(fields, ft)
+						fieldNames = append(fieldNames, name.Name)
+					}
+				}
+			}
+		}
+		return &Type{Kind: TyStruct, Fields: fields, FieldNames: fieldNames}
 	}
 	return I32 // fallback
 }

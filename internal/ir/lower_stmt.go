@@ -109,6 +109,10 @@ func (l *lowerer) lowerAssign(s *ast.AssignStmt) {
 				l.bb.Store(typ, rhs, slot)
 			}
 			l.env[ident.Name] = slot
+			// Track struct types for field access resolution
+			if typ.Kind == TyStruct && len(typ.FieldNames) > 0 {
+				l.structTypes[ident.Name] = typ
+			}
 		}
 	} else {
 		// Regular assignment (=, +=, etc.)
