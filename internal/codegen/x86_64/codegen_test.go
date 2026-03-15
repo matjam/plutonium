@@ -67,6 +67,61 @@ func TestCompileIfBranch(t *testing.T) {
 	}
 }
 
+func TestCompileDiv(t *testing.T) {
+	fn := ir.NewFunction("div", nil, ir.I64)
+	entry := fn.NewBlock("entry")
+	a := fn.NewParam("a", ir.I64)
+	b := fn.NewParam("b", ir.I64)
+	q := entry.BinOp(ir.OpDiv, ir.I64, a, b)
+	entry.Ret(ir.I64, q)
+
+	backend := x86.New()
+	mf, err := backend.CompileFunction(fn)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if len(mf.Code) == 0 {
+		t.Error("expected non-empty code")
+	}
+}
+
+func TestCompileShift(t *testing.T) {
+	fn := ir.NewFunction("shl", nil, ir.I64)
+	entry := fn.NewBlock("entry")
+	a := fn.NewParam("a", ir.I64)
+	b := fn.NewParam("b", ir.I64)
+	r := entry.BinOp(ir.OpShl, ir.I64, a, b)
+	entry.Ret(ir.I64, r)
+
+	backend := x86.New()
+	mf, err := backend.CompileFunction(fn)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if len(mf.Code) == 0 {
+		t.Error("expected non-empty code")
+	}
+}
+
+func TestCompileGEP(t *testing.T) {
+	fn := ir.NewFunction("gep_test", nil, ir.I64)
+	entry := fn.NewBlock("entry")
+	base := fn.NewParam("base", ir.PtrTo(ir.I64))
+	idx := fn.NewParam("idx", ir.I64)
+	ptr := entry.GEP(base, []*ir.Value{idx})
+	val := entry.Load(ir.I64, ptr)
+	entry.Ret(ir.I64, val)
+
+	backend := x86.New()
+	mf, err := backend.CompileFunction(fn)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	if len(mf.Code) == 0 {
+		t.Error("expected non-empty code")
+	}
+}
+
 func TestBackendMetadata(t *testing.T) {
 	b := x86.New()
 	if b.Name() != "x86_64" {

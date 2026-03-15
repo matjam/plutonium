@@ -8,13 +8,12 @@ import (
 )
 
 // Open opens a file.
-// On x86_64 Linux, open(2) is available directly (syscall 2).
-func Open(name string, flags int, perm uint32) (int, error) {
-	nameBytes := []byte(name)
-	nameBytes = append(nameBytes, 0) // null-terminate
+// name must be a null-terminated byte slice (the caller is responsible for this).
+// To open "foo.txt": var name = [8]byte{'f','o','o','.','t','x','t', 0}
+func Open(name []byte, flags int, perm uint32) (int, error) {
 	fd, _, errno := syscall.Syscall(
 		syscall.SYS_OPEN,
-		uintptr(unsafe.Pointer(&nameBytes[0])),
+		uintptr(unsafe.Pointer(&name[0])),
 		uintptr(flags),
 		uintptr(perm),
 	)

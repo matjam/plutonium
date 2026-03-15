@@ -108,6 +108,12 @@ func (bb *BasicBlock) ExtractField(typ *Type, base *Value, idx int) *Value {
 	return result
 }
 
+// InsertField stores a value into a struct field.
+func (bb *BasicBlock) InsertField(typ *Type, base *Value, idx int, val *Value) {
+	instr := &Instruction{Op: OpInsertField, Args: []*Value{base, val}, FieldIdx: idx}
+	bb.Instrs = append(bb.Instrs, instr)
+}
+
 // --- Terminators ---
 
 // Ret terminates the block with a return value.

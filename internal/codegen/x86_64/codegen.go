@@ -139,6 +139,13 @@ func (cg *codeGen) storeResult(result *ir.Value, reg encoder.Reg) {
 	}
 }
 
+func boolToByte(b bool) byte {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func widthFor(t *ir.Type) encoder.Width {
 	if t == nil {
 		return encoder.W64
@@ -192,6 +199,119 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 
 	case ir.OpCall:
 		cg.compileCall(instr)
+
+	case ir.OpDiv:
+		if len(instr.Args) >= 2 {
+			// Move dividend to RAX
+			dividend := cg.regFor(instr.Args[0])
+			if dividend != encoder.RAX {
+				cg.emit(encoder.EncMOV_RR(encoder.RAX, dividend, encoder.W64))
+			}
+			// Sign-extend RAX into RDX:RAX (CQO)
+			cg.emit([]byte{0x48, 0x99})
+			// Move divisor to a register (not RAX or RDX)
+			divisor := cg.regFor(instr.Args[1])
+			if divisor == encoder.RAX || divisor == encoder.RDX {
+				cg.emit(encoder.EncMOV_RR(encoder.RCX, divisor, encoder.W64))
+				divisor = encoder.RCX
+			}
+			// IDIV divisor: RAX=quotient, RDX=remainder
+			// Encoding: REX.W + F7 /7 modrm(11, 7, rm)
+			cg.emit([]byte{
+				0x48 | (boolToByte(divisor.IsExtended()) & 0x01),
+				0xF7,
+				0xF8 | divisor.Low3(), // modrm(11, 7, rm) = 11_111_rm
+			})
+			cg.storeResult(instr.Result, encoder.RAX)
+		}
+
+	case ir.OpRem:
+		if len(instr.Args) >= 2 {
+			// Move dividend to RAX
+			dividend := cg.regFor(instr.Args[0])
+			if dividend != encoder.RAX {
+				cg.emit(encoder.EncMOV_RR(encoder.RAX, dividend, encoder.W64))
+			}
+			// Sign-extend RAX into RDX:RAX (CQO)
+			cg.emit([]byte{0x48, 0x99})
+			// Move divisor to a register (not RAX or RDX)
+			divisor := cg.regFor(instr.Args[1])
+			if divisor == encoder.RAX || divisor == encoder.RDX {
+				cg.emit(encoder.EncMOV_RR(encoder.RCX, divisor, encoder.W64))
+				divisor = encoder.RCX
+			}
+			// IDIV divisor: RAX=quotient, RDX=remainder
+			cg.emit([]byte{
+				0x48 | (boolToByte(divisor.IsExtended()) & 0x01),
+				0xF7,
+				0xF8 | divisor.Low3(),
+			})
+			// Result is remainder in RDX
+			cg.storeResult(instr.Result, encoder.RDX)
+		}
+
+	case ir.OpShl:
+		if len(instr.Args) >= 2 {
+			val := cg.regFor(instr.Args[0])
+			shift := cg.regFor(instr.Args[1])
+			if shift != encoder.RCX {
+				cg.emit(encoder.EncMOV_RR(encoder.RCX, shift, encoder.W64))
+			}
+			cg.emit(encoder.EncSHL_RCL(val, encoder.W64))
+			cg.storeResult(instr.Result, val)
+		}
+
+	case ir.OpShr:
+		if len(instr.Args) >= 2 {
+			val := cg.regFor(instr.Args[0])
+			shift := cg.regFor(instr.Args[1])
+			if shift != encoder.RCX {
+				cg.emit(encoder.EncMOV_RR(encoder.RCX, shift, encoder.W64))
+			}
+			cg.emit(encoder.EncSHR_RCL(val, encoder.W64))
+			cg.storeResult(instr.Result, val)
+		}
+
+	case ir.OpGEP:
+		if len(instr.Args) >= 2 {
+			base := cg.regFor(instr.Args[0])
+			index := cg.regFor(instr.Args[1])
+			// Simple case: base + index * 8 (pointer-sized elements)
+			if index != encoder.RCX {
+				// LEA result, [base + index*8] using SIB
+				mem := encoder.MemOp{Base: base, Index: index, Scale: 8, Disp: 0, Width: encoder.W64}
+				cg.emit(encoder.EncLEA(encoder.RAX, mem))
+				cg.storeResult(instr.Result, encoder.RAX)
+			} else {
+				// RCX can still be used as SIB index, but use ADD as fallback
+				result := base
+				if base == encoder.RAX {
+					result = encoder.R11
+					cg.emit(encoder.EncMOV_RR(result, base, encoder.W64))
+				}
+				cg.emit(encoder.EncADD_RR(result, index, encoder.W64))
+				cg.storeResult(instr.Result, result)
+			}
+		}
+
+	case ir.OpExtractField:
+		if len(instr.Args) >= 1 {
+			base := cg.regFor(instr.Args[0])
+			offset := int32(instr.FieldIdx * 8) // 8-byte aligned fields
+			mem := encoder.MemOp{Base: base, Disp: offset, Width: encoder.W64}
+			cg.emit(encoder.EncMOV_RM(encoder.RAX, mem))
+			cg.storeResult(instr.Result, encoder.RAX)
+		}
+
+	case ir.OpInsertField:
+		// Store value to struct field
+		if len(instr.Args) >= 2 {
+			base := cg.regFor(instr.Args[0])
+			val := cg.regFor(instr.Args[1])
+			offset := int32(instr.FieldIdx * 8)
+			mem := encoder.MemOp{Base: base, Disp: offset, Width: encoder.W64}
+			cg.emit(encoder.EncMOV_MR(mem, val))
+		}
 
 	case ir.OpBitcast, ir.OpExtend, ir.OpTruncate:
 		// Simplified: just move

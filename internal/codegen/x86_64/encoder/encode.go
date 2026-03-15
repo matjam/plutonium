@@ -229,6 +229,11 @@ func EncXOR_RR(dst, src Reg, w Width) []byte {
 	return encALU_RR(0x31, 0x30, dst, src, w)
 }
 
+// EncAND_RI encodes AND reg, imm32.
+func EncAND_RI(dst Reg, imm int32, w Width) []byte {
+	return encALU_RI(0x81, 4, dst, imm, w)
+}
+
 // EncSHL_RCL encodes SHL dst, CL.
 func EncSHL_RCL(dst Reg, w Width) []byte {
 	return encShift(0xD3, 4, dst, w)
