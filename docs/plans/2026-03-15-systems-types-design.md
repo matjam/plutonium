@@ -77,6 +77,36 @@ register. Each field access compiles to one AND/OR/shift sequence. For
 array-backed types (`packed [N]byte`), the compiler generates multi-byte
 mask/shift sequences for fields that span byte boundaries.
 
+### Endianness
+
+Packed types default to native endianness (the target CPU's byte order).
+An explicit `be` (big-endian) or `le` (little-endian) annotation overrides
+the byte order:
+
+```
+type ControlReg packed uint32 { ... }        // native endian (default)
+type TCPHeader packed be { ... }             // big-endian (network order)
+type PCICmd packed le uint16 { ... }         // little-endian
+type DiskBlock packed le [512]byte { ... }   // little-endian, 512-byte block
+```
+
+The annotation goes after `packed` (before the backing type or `[]T`).
+
+**Codegen**: When the annotation doesn't match native endianness, the
+compiler inserts `BSWAP` on load/store of the backing value. For
+integer-backed types this is a single instruction. For byte-backed types,
+each multi-byte field is byte-swapped individually on access.
+
+**Bit-level fields**: `bits[T, N]` numbering is always LSB-first within
+the logical (post-swap) integer value. The byte swap happens at the
+memory boundary, not the register level. This matches hardware datasheets
+which define bit positions in logical register order.
+
+**Cost**: Zero overhead when the annotation matches native endianness
+(the common case for hardware registers). One `BSWAP` per access when
+it doesn't match (the network protocol case). The compiler can elide
+redundant swaps when multiple fields are accessed from the same load.
+
 ### Misaligned access codegen
 
 Packed structs produce misaligned field accesses. The codegen must never
