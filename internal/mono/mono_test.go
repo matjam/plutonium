@@ -76,6 +76,36 @@ func useMax() {
 	}
 }
 
+func TestMethodQualifiedName(t *testing.T) {
+	result := monoOK(t, `
+package main
+
+type Counter struct {
+	Value int32
+}
+
+func (c *Counter) Inc() {
+	c.Value = c.Value + 1
+}
+
+func main() {
+	c := Counter{Value: 0}
+	_ = c
+}
+`)
+	names := make(map[string]bool)
+	for _, fn := range result.Functions {
+		names[fn.Name] = true
+	}
+	if !names["Counter.Inc"] {
+		t.Errorf("expected Counter.Inc in output, got functions: %v", names)
+	}
+	// The bare name "Inc" should NOT be present
+	if names["Inc"] {
+		t.Error("method should be named Counter.Inc, not Inc")
+	}
+}
+
 func TestNoTypeParamsAfterMono(t *testing.T) {
 	result := monoOK(t, `
 package main

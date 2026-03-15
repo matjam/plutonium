@@ -290,3 +290,197 @@ func getY() int32 {
 		t.Error("getY: expected ExtractField instruction with FieldIdx=1")
 	}
 }
+
+func TestLowerMethodReceiverAsParam(t *testing.T) {
+	prog := lowerOK(t, `
+package main
+
+type Counter struct {
+	Value int32
+}
+
+func (c *Counter) Inc() {
+	c.Value = c.Value + 1
+}
+
+func main() {
+	c := Counter{Value: 0}
+	_ = c
+}
+`)
+	pkg := prog.Packages[0]
+
+	// Find the Counter.Inc function
+	var incFn *ir.Function
+	for _, fn := range pkg.Functions {
+		if fn.Name == "Counter.Inc" {
+			incFn = fn
+			break
+		}
+	}
+	if incFn == nil {
+		var names []string
+		for _, fn := range pkg.Functions {
+			names = append(names, fn.Name)
+		}
+		t.Fatalf("Counter.Inc function not found, got: %v", names)
+	}
+
+	// The receiver should be the first parameter (pointer to Counter)
+	if len(incFn.Params) == 0 {
+		t.Fatal("Counter.Inc has no params, expected receiver as first param")
+	}
+	recvParam := incFn.Params[0]
+	if recvParam.Name != "c" {
+		t.Errorf("first param name = %q, want %q", recvParam.Name, "c")
+	}
+	if recvParam.Type == nil || recvParam.Type.Kind != ir.TyPtr {
+		t.Errorf("first param should be a pointer type (receiver), got %v", recvParam.Type)
+	}
+}
+
+func TestLowerMethodReceiverFieldAccess(t *testing.T) {
+	// Verify that within a method body, the receiver's struct fields can be accessed
+	prog := lowerOK(t, `
+package main
+
+type Counter struct {
+	Value int32
+}
+
+func (c *Counter) GetValue() int32 {
+	return c.Value
+}
+
+func main() {
+	c := Counter{Value: 42}
+	_ = c
+}
+`)
+	pkg := prog.Packages[0]
+
+	// Find the Counter.GetValue function
+	var getFn *ir.Function
+	for _, fn := range pkg.Functions {
+		if fn.Name == "Counter.GetValue" {
+			getFn = fn
+			break
+		}
+	}
+	if getFn == nil {
+		var names []string
+		for _, fn := range pkg.Functions {
+			names = append(names, fn.Name)
+		}
+		t.Fatalf("Counter.GetValue function not found, got: %v", names)
+	}
+
+	// The method body should contain an ExtractField (or Load + GEP) to access c.Value
+	// Since c is a pointer receiver, we expect the body to dereference c and extract field 0
+	foundFieldAccess := false
+	for _, bb := range getFn.Blocks {
+		for _, instr := range bb.Instrs {
+			if instr.Op == ir.OpExtractField {
+				foundFieldAccess = true
+			}
+		}
+	}
+	if !foundFieldAccess {
+		t.Error("Counter.GetValue: expected field access instruction for c.Value")
+	}
+}
+
+func TestLowerMethodValueReceiver(t *testing.T) {
+	prog := lowerOK(t, `
+package main
+
+type Point struct {
+	X int32
+	Y int32
+}
+
+func (p Point) Sum() int32 {
+	return p.X + p.Y
+}
+
+func main() {
+	p := Point{X: 3, Y: 4}
+	_ = p
+}
+`)
+	pkg := prog.Packages[0]
+
+	// Find the Point.Sum function
+	var sumFn *ir.Function
+	for _, fn := range pkg.Functions {
+		if fn.Name == "Point.Sum" {
+			sumFn = fn
+			break
+		}
+	}
+	if sumFn == nil {
+		var names []string
+		for _, fn := range pkg.Functions {
+			names = append(names, fn.Name)
+		}
+		t.Fatalf("Point.Sum function not found, got: %v", names)
+	}
+
+	// The receiver should be the first parameter
+	if len(sumFn.Params) == 0 {
+		t.Fatal("Point.Sum has no params, expected receiver as first param")
+	}
+	recvParam := sumFn.Params[0]
+	if recvParam.Name != "p" {
+		t.Errorf("first param name = %q, want %q", recvParam.Name, "p")
+	}
+}
+
+func TestLowerMethodCall(t *testing.T) {
+	prog := lowerOK(t, `
+package main
+
+type Counter struct {
+	Value int32
+}
+
+func (c *Counter) Inc() {
+	c.Value = c.Value + 1
+}
+
+func main() {
+	c := Counter{Value: 0}
+	c.Inc()
+}
+`)
+	pkg := prog.Packages[0]
+
+	// Find the main function
+	var mainFn *ir.Function
+	for _, fn := range pkg.Functions {
+		if fn.Name == "main" {
+			mainFn = fn
+			break
+		}
+	}
+	if mainFn == nil {
+		t.Fatal("main function not found")
+	}
+
+	// Check that main contains a call to Counter.Inc
+	foundCall := false
+	for _, bb := range mainFn.Blocks {
+		for _, instr := range bb.Instrs {
+			if instr.Op == ir.OpCall && instr.Callee != nil && instr.Callee.Name == "Counter.Inc" {
+				foundCall = true
+				// The call should have at least one arg (the receiver)
+				if len(instr.Args) == 0 {
+					t.Error("method call to Counter.Inc should have receiver as first arg")
+				}
+			}
+		}
+	}
+	if !foundCall {
+		t.Error("expected call to Counter.Inc in main()")
+	}
+}

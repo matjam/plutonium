@@ -23,6 +23,7 @@ type FuncEntry struct {
 // Result is the output of monomorphization: a flat list of concrete functions.
 type Result struct {
 	Functions []*FuncEntry
+	Files     []*ast.File // AST files for type declaration lookup
 }
 
 // Monomorphize takes a type-checked package and returns a Result with all
@@ -58,8 +59,15 @@ func Monomorphize(pkg *types.Package, fset *token.FileSet) (*Result, error) {
 
 	// Pass 3: add concrete functions to result
 	for _, fd := range concreteFuncs {
+		name := fd.Name.Name
+		// Methods: qualify with receiver type name (e.g. Counter.Inc)
+		if fd.Recv != nil && len(fd.Recv.List) > 0 {
+			if typeName := receiverTypeName(fd.Recv.List[0].Type); typeName != "" {
+				name = typeName + "." + fd.Name.Name
+			}
+		}
 		m.result.Functions = append(m.result.Functions, &FuncEntry{
-			Name: fd.Name.Name,
+			Name: name,
 			Decl: fd,
 		})
 	}
@@ -73,6 +81,9 @@ func Monomorphize(pkg *types.Package, fset *token.FileSet) (*Result, error) {
 	}
 
 	_ = genericFuncs // used for lookup by name
+
+	// Include AST files for type declaration lookup by downstream passes.
+	m.result.Files = pkg.Files()
 
 	return m.result, nil
 }
@@ -151,6 +162,20 @@ func (m *monomorphizer) findGenericFunc(name string) *ast.FuncDecl {
 		}
 	}
 	return nil
+}
+
+// receiverTypeName extracts the base type name from a receiver type expression.
+// It handles both *T (pointer receiver) and T (value receiver).
+func receiverTypeName(expr ast.Expr) string {
+	switch e := expr.(type) {
+	case *ast.Ident:
+		return e.Name
+	case *ast.StarExpr:
+		return receiverTypeName(e.X)
+	case *ast.PointerType:
+		return receiverTypeName(e.X)
+	}
+	return ""
 }
 
 // typeArgName extracts a string name from a type argument expression.

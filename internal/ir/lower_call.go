@@ -62,10 +62,16 @@ func (l *lowerer) lowerCallExpr(e *ast.CallExpr) *Value {
 		}
 	}
 
-	// Handle SelectorExpr calls: pkg.Func(args)
+	// Handle SelectorExpr calls: pkg.Func(args) or receiver.Method(args)
 	if sel, ok := e.Fun.(*ast.SelectorExpr); ok {
-		if pkgIdent, ok := sel.X.(*ast.Ident); ok {
-			qualifiedName := pkgIdent.Name + "." + sel.Sel.Name
+		if ident, ok := sel.X.(*ast.Ident); ok {
+			// Check if the identifier is a local variable (method call)
+			// vs. a package name (package-qualified call).
+			if _, isLocal := l.env[ident.Name]; isLocal {
+				return l.lowerMethodCall(ident, sel.Sel.Name, e)
+			}
+
+			qualifiedName := ident.Name + "." + sel.Sel.Name
 
 			fn := l.allFuncs[qualifiedName]
 			if fn == nil {
@@ -138,6 +144,87 @@ func (l *lowerer) lowerCallExpr(e *ast.CallExpr) *Value {
 		l.lowerExprValue(arg)
 	}
 	return ConstInt(I32, 0)
+}
+
+// --- Method call lowering ---
+
+// lowerMethodCall handles a call like c.Inc() where c is a local variable.
+// It resolves the method name to TypeName.MethodName, prepends the receiver
+// as the first argument, and emits the call.
+func (l *lowerer) lowerMethodCall(recv *ast.Ident, methodName string, e *ast.CallExpr) *Value {
+	// Look up the receiver's struct type to determine the qualified method name.
+	recvTypeName := ""
+	isPointerRecv := false
+
+	if stype, ok := l.structTypes[recv.Name]; ok {
+		// The struct type is tracked — use FieldNames source to get the type name.
+		// We need to find the type name from the allFuncs registry.
+		// Try to find a matching method in allFuncs.
+		for fnName := range l.allFuncs {
+			// Check for "TypeName.methodName" pattern
+			dotIdx := strings.LastIndex(fnName, ".")
+			if dotIdx < 0 {
+				continue
+			}
+			if fnName[dotIdx+1:] == methodName {
+				recvTypeName = fnName[:dotIdx]
+				break
+			}
+			_ = stype
+		}
+	}
+
+	// If we couldn't resolve from structTypes, scan allFuncs for any match
+	if recvTypeName == "" {
+		for fnName := range l.allFuncs {
+			dotIdx := strings.LastIndex(fnName, ".")
+			if dotIdx < 0 {
+				continue
+			}
+			if fnName[dotIdx+1:] == methodName {
+				recvTypeName = fnName[:dotIdx]
+				break
+			}
+		}
+	}
+
+	qualifiedName := recvTypeName + "." + methodName
+	fn := l.allFuncs[qualifiedName]
+	if fn == nil {
+		// Fallback: create a stub
+		fn = &Function{Name: qualifiedName, RetType: I64}
+		l.allFuncs[qualifiedName] = fn
+	}
+
+	// Build args: receiver first, then call args
+	var args []*Value
+
+	// Get the receiver value. For pointer receivers, pass the address (&c).
+	// For value receivers, pass the value directly.
+	// Check if the method function's first param is a pointer type.
+	if len(fn.Params) > 0 && fn.Params[0].Type != nil && fn.Params[0].Type.Kind == TyPtr {
+		isPointerRecv = true
+	}
+
+	if isPointerRecv {
+		// Pass address of the receiver variable
+		slot := l.env[recv.Name]
+		if slot != nil {
+			args = append(args, slot)
+		}
+	} else {
+		// Pass the receiver value
+		val := l.lowerExprValue(recv)
+		args = append(args, val)
+	}
+
+	// Append regular arguments
+	for _, arg := range e.Args {
+		v := l.lowerExprValue(arg)
+		args = append(args, v)
+	}
+
+	return l.bb.Call(fn, fn.RetType, args...)
 }
 
 // --- len() builtin ---

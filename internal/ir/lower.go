@@ -15,10 +15,29 @@ func Lower(result *mono.Result, fset *token.FileSet) (*Program, error) {
 		prog:         &Program{},
 		allFuncs:     make(map[string]*Function),
 		variadicInfo: make(map[string]*variadicFuncInfo),
+		namedTypes:   make(map[string]*Type),
 	}
 
 	pkg := &IRPackage{Name: "main"}
 	l.pkg = pkg
+
+	// Pass 0: Scan type declarations to build named type map.
+	for _, file := range result.Files {
+		for _, decl := range file.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok {
+					continue
+				}
+				irType := l.lowerType(ts.Type)
+				l.namedTypes[ts.Name.Name] = irType
+			}
+		}
+	}
 
 	// Pass 1: Create all function shells (name + return type) so that
 	// forward references and cross-function calls can be resolved.
@@ -80,6 +99,7 @@ type lowerer struct {
 	bb           *BasicBlock
 	env          map[string]*Value            // name → alloca slot
 	structTypes  map[string]*Type             // name → struct IR type (for field name resolution)
+	namedTypes   map[string]*Type             // type name → IR struct type (from type declarations)
 	retSlots     []*Value                     // return value slots (for multiple returns)
 	allFuncs     map[string]*Function         // all known functions by qualified name
 	variadicInfo map[string]*variadicFuncInfo // function name → variadic info
@@ -108,12 +128,27 @@ func (l *lowerer) lowerFuncBody(fe *mono.FuncEntry, fn *Function) error {
 		fn:           fn,
 		env:          make(map[string]*Value),
 		structTypes:  make(map[string]*Type),
+		namedTypes:   l.namedTypes,
 		allFuncs:     l.allFuncs,
 		variadicInfo: l.variadicInfo,
 	}
 
 	entry := fn.NewBlock("entry")
 	fl.bb = entry
+
+	// Add receiver as first parameter (for methods).
+	if d.Recv != nil {
+		for _, field := range d.Recv.List {
+			paramType := fl.lowerType(field.Type)
+			for _, name := range field.Names {
+				fl.lowerParam(entry, fn, name.Name, paramType)
+				// Track struct type for field access on the receiver
+				if paramType.Kind == TyPtr && paramType.Elem != nil && paramType.Elem.Kind == TyStruct {
+					fl.structTypes[name.Name] = paramType.Elem
+				}
+			}
+		}
+	}
 
 	// Add parameters to env — alloca a slot for each param.
 	// Multi-word types (string, slice) are decomposed into separate params.
@@ -295,6 +330,12 @@ func (l *lowerer) lowerIdentType(name string) *Type {
 		return Str // fat pointer { ptr *byte, len int64 }
 	case "any":
 		return Any // tagged union { typeID uint64, data uint64 }
+	}
+	// Check named types (from type declarations)
+	if l.namedTypes != nil {
+		if t, ok := l.namedTypes[name]; ok {
+			return t
+		}
 	}
 	return I32 // fallback for named types
 }
