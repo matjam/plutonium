@@ -260,7 +260,11 @@ func (l *lowerer) lowerSelectorExpr(e *ast.SelectorExpr) *Value {
 		return ConstInt(I32, 0)
 	}
 
-	// Resolve field name to index using the struct type info
+	// Resolve field name to index using the struct type info.
+	// NOTE(v0.1): If the struct type is not tracked in structTypes (e.g. the variable
+	// was assigned through a code path we don't yet handle), fieldIdx defaults to 0.
+	// This is an intentional fallback for the v0.1 compiler — full named type resolution
+	// will replace this with proper error reporting in a future task.
 	fieldIdx := 0
 	fieldType := I32
 	if ident, ok := e.X.(*ast.Ident); ok {
@@ -291,22 +295,27 @@ func (l *lowerer) lowerCompositeLit(e *ast.CompositeLit) *Value {
 	// If the type is still I32 (fallback from an unresolved named type)
 	// but we have key-value elements, build the struct type from the elements
 	// and populate the fields in a single pass to avoid double evaluation.
+	// Each element is checked individually — only KeyValue pairs with an Ident
+	// key contribute to the struct type, keeping Fields and FieldNames in sync.
 	if typ == I32 && len(e.Elts) > 0 {
-		if _, ok := e.Elts[0].(*ast.KeyValueExpr); ok {
-			// First pass: determine field names and types without emitting IR
-			var fields []*Type
-			var fieldNames []string
-			for _, elt := range e.Elts {
-				kv, ok := elt.(*ast.KeyValueExpr)
-				if !ok {
-					continue
-				}
-				if ident, ok := kv.Key.(*ast.Ident); ok {
-					fieldNames = append(fieldNames, ident.Name)
-				}
-				// Infer type from the value expression without lowering
-				fields = append(fields, l.inferExprType(kv.Value))
+		var fields []*Type
+		var fieldNames []string
+		hasKV := false
+		for _, elt := range e.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
 			}
+			ident, ok := kv.Key.(*ast.Ident)
+			if !ok {
+				continue
+			}
+			hasKV = true
+			fieldNames = append(fieldNames, ident.Name)
+			// Infer type from the value expression without lowering
+			fields = append(fields, l.inferExprType(kv.Value))
+		}
+		if hasKV {
 			typ = &Type{Kind: TyStruct, Fields: fields, FieldNames: fieldNames}
 		}
 	}

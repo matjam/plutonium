@@ -242,3 +242,51 @@ func getZ() int32 {
 		t.Error("getZ: expected ExtractField instruction with FieldIdx=2")
 	}
 }
+
+func TestLowerStructFieldAccessRegularAssign(t *testing.T) {
+	prog := lowerOK(t, `
+package main
+
+type Point struct {
+	X int32
+	Y int32
+}
+
+func getY() int32 {
+	var p Point
+	p = Point{X: 1, Y: 2}
+	return p.Y
+}
+`)
+	pkg := prog.Packages[0]
+
+	var getYFn *ir.Function
+	for _, fn := range pkg.Functions {
+		if fn.Name == "getY" {
+			getYFn = fn
+			break
+		}
+	}
+	if getYFn == nil {
+		t.Fatal("getY function not found")
+	}
+
+	// Check that getY produces an ExtractField with FieldIdx=1 (Y is the second field).
+	// This tests that struct types are tracked through regular assignment (=),
+	// not just short variable declaration (:=).
+	foundExtractY := false
+	for _, bb := range getYFn.Blocks {
+		for _, instr := range bb.Instrs {
+			if instr.Op == ir.OpExtractField {
+				if instr.FieldIdx == 1 {
+					foundExtractY = true
+				} else {
+					t.Errorf("getY: ExtractField has FieldIdx=%d, want 1", instr.FieldIdx)
+				}
+			}
+		}
+	}
+	if !foundExtractY {
+		t.Error("getY: expected ExtractField instruction with FieldIdx=1")
+	}
+}

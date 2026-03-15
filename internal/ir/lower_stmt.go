@@ -182,6 +182,10 @@ func (l *lowerer) storeLHS(expr ast.Expr, val *Value) {
 			typ = I32
 		}
 		l.bb.Store(typ, val, slot)
+		// Track struct types for field access resolution on regular assignment
+		if typ.Kind == TyStruct && len(typ.FieldNames) > 0 {
+			l.structTypes[e.Name] = typ
+		}
 	case *ast.StarExpr:
 		ptr := l.lowerExprValue(e.X)
 		if ptr != nil {
@@ -390,7 +394,14 @@ func (l *lowerer) lowerDeclStmt(s *ast.DeclStmt) {
 			if i < len(vs.Values) {
 				val := l.lowerExprValue(vs.Values[i])
 				if val != nil {
-					l.bb.Store(typ, val, slot)
+					storeType := typ
+					// If the value has a more specific type (e.g. struct from composite lit),
+					// prefer it for both the store and struct type tracking.
+					if val.Type != nil && val.Type.Kind == TyStruct && len(val.Type.FieldNames) > 0 {
+						storeType = val.Type
+						l.structTypes[name.Name] = val.Type
+					}
+					l.bb.Store(storeType, val, slot)
 				}
 			}
 			l.env[name.Name] = slot
