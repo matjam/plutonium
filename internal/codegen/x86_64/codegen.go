@@ -42,10 +42,13 @@ type codeGen struct {
 	alloc  *regalloc.Allocation
 	code   []byte
 	relocs []codegen.Reloc
-	// Map basic block label → code offset (for branch patching)
+	// Map basic block label -> code offset (for branch patching)
 	blockOffsets map[string]int
 	// Pending forward references: [(code offset of imm32, target block label)]
 	fwdRefs []fwdRef
+	// Stack frame layout for alloca slots
+	stackSlots map[int]int32 // IR Value ID -> RBP offset (negative)
+	frameSize  int32         // total frame size for locals (alloca slots)
 }
 
 type fwdRef struct {
@@ -60,18 +63,83 @@ func (cg *codeGen) emit(b []byte) {
 
 func (cg *codeGen) offset() int { return len(cg.code) }
 
+// layoutStackFrame scans all instructions for OpAlloca and assigns each
+// a stack slot as a negative offset from RBP.
+func (cg *codeGen) layoutStackFrame() {
+	cg.stackSlots = make(map[int]int32)
+	offset := int32(0)
+	for _, bb := range cg.fn.Blocks {
+		for _, instr := range bb.Instrs {
+			if instr.Op == ir.OpAlloca && instr.Result != nil {
+				offset -= 8 // 8 bytes per slot (64-bit)
+				cg.stackSlots[instr.Result.ID] = offset
+			}
+		}
+	}
+	cg.frameSize = -offset // total positive size
+	// Align to 16 bytes
+	cg.frameSize = (cg.frameSize + 15) &^ 15
+}
+
+// System V AMD64 ABI parameter registers.
+var abiParamRegs = []encoder.Reg{
+	encoder.RDI, encoder.RSI, encoder.RDX, encoder.RCX, encoder.R8, encoder.R9,
+}
+
+// emitParamSetup moves function parameters from their ABI registers to
+// their alloca stack slots. The IR pattern for each param is:
+//
+//	param = fn.NewParam(...)
+//	slot  = alloca type
+//	store param -> slot
+//
+// We find the store instruction that stores each param into an alloca
+// slot and emit MOV [RBP+off], abi_reg.
+func (cg *codeGen) emitParamSetup() {
+	for i, param := range cg.fn.Params {
+		if i >= len(abiParamRegs) {
+			break // TODO: stack-passed params
+		}
+		// Find the store instruction that stores this param to an alloca slot
+		for _, bb := range cg.fn.Blocks {
+			for _, instr := range bb.Instrs {
+				if instr.Op == ir.OpStore && len(instr.Args) >= 2 {
+					if instr.Args[0].ID == param.ID && instr.Args[0].Kind == ir.ValParam {
+						// The store target (Args[1]) should be an alloca slot
+						if off, ok := cg.stackSlots[instr.Args[1].ID]; ok {
+							mem := encoder.MemOp{Base: encoder.RBP, Index: encoder.NoReg, Disp: off, Width: encoder.W64}
+							cg.emit(encoder.EncMOV_MR(mem, abiParamRegs[i]))
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
 func (cg *codeGen) compile() ([]byte, []codegen.Reloc, error) {
 	cg.blockOffsets = make(map[string]int)
 	cg.fwdRefs = nil
 
+	// Layout stack frame FIRST — scan for alloca instructions
+	cg.layoutStackFrame()
+
 	// Function prologue
 	cg.emit(encoder.EncPUSH(encoder.RBP))
 	cg.emit(encoder.EncMOV_RR(encoder.RBP, encoder.RSP, encoder.W64))
+
+	// Allocate stack space for locals (alloca slots) AND register spills
+	totalStack := cg.frameSize
 	if cg.alloc.StackSize > 0 {
-		// Align stack to 16 bytes
-		stackSize := (cg.alloc.StackSize + 15) &^ 15
-		cg.emit(encoder.EncSUB_RI(encoder.RSP, int32(stackSize), encoder.W64))
+		totalStack += int32(cg.alloc.StackSize)
 	}
+	if totalStack > 0 {
+		totalStack = (totalStack + 15) &^ 15 // 16-byte align
+		cg.emit(encoder.EncSUB_RI(encoder.RSP, totalStack, encoder.W64))
+	}
+
+	// Move ABI params to their stack slots
+	cg.emitParamSetup()
 
 	// Compile each basic block
 	for _, bb := range cg.fn.Blocks {
@@ -108,23 +176,42 @@ func (cg *codeGen) regFor(v *ir.Value) encoder.Reg {
 	if v == nil {
 		return encoder.RAX
 	}
+
+	// Constants: load immediate into RAX
 	if v.Kind == ir.ValConst {
-		// Load constant into RAX
 		cg.emit(encoder.EncMOV_RI(encoder.RAX, v.IntVal, widthFor(v.Type)))
 		return encoder.RAX
 	}
+
+	// Stack slots (alloca results) — return address via LEA
+	if off, ok := cg.stackSlots[v.ID]; ok {
+		mem := encoder.MemOp{Base: encoder.RBP, Index: encoder.NoReg, Disp: off, Width: encoder.W64}
+		cg.emit(encoder.EncLEA(encoder.RAX, mem))
+		return encoder.RAX
+	}
+
+	// Register-allocated values
 	if reg, ok := cg.alloc.Reg[v.ID]; ok {
 		return reg
 	}
-	// Spilled: load from stack
-	off := cg.alloc.Spill[v.ID]
-	mem := encoder.MemOp{Base: encoder.RBP, Disp: int32(off), Width: widthFor(v.Type)}
-	cg.emit(encoder.EncMOV_RM(encoder.RAX, mem))
+
+	// Spilled values
+	if off, ok := cg.alloc.Spill[v.ID]; ok {
+		mem := encoder.MemOp{Base: encoder.RBP, Index: encoder.NoReg, Disp: int32(off), Width: widthFor(v.Type)}
+		cg.emit(encoder.EncMOV_RM(encoder.RAX, mem))
+		return encoder.RAX
+	}
+
 	return encoder.RAX
 }
 
 func (cg *codeGen) storeResult(result *ir.Value, reg encoder.Reg) {
 	if result == nil {
+		return
+	}
+	// Don't store results for alloca values — they are stack addresses,
+	// not computational values that need register/spill storage.
+	if _, ok := cg.stackSlots[result.ID]; ok {
 		return
 	}
 	if dstReg, ok := cg.alloc.Reg[result.ID]; ok {
@@ -134,7 +221,7 @@ func (cg *codeGen) storeResult(result *ir.Value, reg encoder.Reg) {
 		return
 	}
 	if off, ok := cg.alloc.Spill[result.ID]; ok {
-		mem := encoder.MemOp{Base: encoder.RBP, Disp: int32(off), Width: widthFor(result.Type)}
+		mem := encoder.MemOp{Base: encoder.RBP, Index: encoder.NoReg, Disp: int32(off), Width: widthFor(result.Type)}
 		cg.emit(encoder.EncMOV_MR(mem, reg))
 	}
 }
@@ -161,6 +248,20 @@ func widthFor(t *ir.Type) encoder.Width {
 	return encoder.W64
 }
 
+// isParamStore returns true if the instruction is a store of a param value
+// into an alloca slot. These are handled by emitParamSetup and should be
+// skipped during normal instruction compilation.
+func (cg *codeGen) isParamStore(instr *ir.Instruction) bool {
+	if instr.Op != ir.OpStore || len(instr.Args) < 2 {
+		return false
+	}
+	if instr.Args[0].Kind != ir.ValParam {
+		return false
+	}
+	_, isSlot := cg.stackSlots[instr.Args[1].ID]
+	return isSlot
+}
+
 func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 	switch instr.Op {
 	case ir.OpAdd, ir.OpSub, ir.OpAnd, ir.OpOr, ir.OpXor:
@@ -169,6 +270,10 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 	case ir.OpMul:
 		if len(instr.Args) == 2 {
 			a := cg.regFor(instr.Args[0])
+			if a == encoder.RAX {
+				cg.emit(encoder.EncMOV_RR(encoder.R11, encoder.RAX, encoder.W64))
+				a = encoder.R11
+			}
 			b := cg.regFor(instr.Args[1])
 			cg.emit(encoder.EncIMUL_RR(a, b, encoder.W64))
 			cg.storeResult(instr.Result, a)
@@ -178,23 +283,52 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 		cg.compileCmp(instr)
 
 	case ir.OpAlloca:
-		// Already handled in prologue via StackSize — just record offset
-		// The result value will be in alloc.Spill
+		// Handled by layoutStackFrame — nothing to emit.
+		// The result value is tracked in stackSlots.
 
 	case ir.OpLoad:
 		if len(instr.Args) == 1 {
-			src := cg.regFor(instr.Args[0])
-			mem := encoder.MemOp{Base: src, Disp: 0, Width: widthFor(instr.Result.Type)}
-			cg.emit(encoder.EncMOV_RM(encoder.RAX, mem))
+			ptr := instr.Args[0]
+
+			// Check if ptr is a stack slot (alloca)
+			if off, ok := cg.stackSlots[ptr.ID]; ok {
+				mem := encoder.MemOp{Base: encoder.RBP, Index: encoder.NoReg, Disp: off, Width: encoder.W64}
+				cg.emit(encoder.EncMOV_RM(encoder.RAX, mem))
+			} else {
+				ptrReg := cg.regFor(ptr)
+				mem := encoder.MemOp{Base: ptrReg, Index: encoder.NoReg, Disp: 0, Width: widthFor(instr.Result.Type)}
+				cg.emit(encoder.EncMOV_RM(encoder.RAX, mem))
+			}
 			cg.storeResult(instr.Result, encoder.RAX)
 		}
 
 	case ir.OpStore:
 		if len(instr.Args) == 2 {
-			val := cg.regFor(instr.Args[0])
-			ptr := cg.regFor(instr.Args[1])
-			mem := encoder.MemOp{Base: ptr, Disp: 0}
-			cg.emit(encoder.EncMOV_MR(mem, val))
+			// Skip stores that are param->alloca (handled by emitParamSetup)
+			if cg.isParamStore(instr) {
+				break
+			}
+
+			val := instr.Args[0]
+			ptr := instr.Args[1]
+
+			// Check if ptr is a stack slot (alloca)
+			if off, ok := cg.stackSlots[ptr.ID]; ok {
+				valReg := cg.regFor(val)
+				mem := encoder.MemOp{Base: encoder.RBP, Index: encoder.NoReg, Disp: off, Width: encoder.W64}
+				cg.emit(encoder.EncMOV_MR(mem, valReg))
+			} else {
+				// ptr is a register containing a memory address
+				// Load value first into R11 to avoid RAX clobbering
+				valReg := cg.regFor(val)
+				if valReg == encoder.RAX {
+					cg.emit(encoder.EncMOV_RR(encoder.R11, encoder.RAX, encoder.W64))
+					valReg = encoder.R11
+				}
+				ptrReg := cg.regFor(ptr)
+				mem := encoder.MemOp{Base: ptrReg, Index: encoder.NoReg, Disp: 0, Width: encoder.W64}
+				cg.emit(encoder.EncMOV_MR(mem, valReg))
+			}
 		}
 
 	case ir.OpCall:
@@ -253,6 +387,10 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 	case ir.OpShl:
 		if len(instr.Args) >= 2 {
 			val := cg.regFor(instr.Args[0])
+			if val == encoder.RAX {
+				cg.emit(encoder.EncMOV_RR(encoder.R11, encoder.RAX, encoder.W64))
+				val = encoder.R11
+			}
 			shift := cg.regFor(instr.Args[1])
 			if shift != encoder.RCX {
 				cg.emit(encoder.EncMOV_RR(encoder.RCX, shift, encoder.W64))
@@ -264,6 +402,10 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 	case ir.OpShr:
 		if len(instr.Args) >= 2 {
 			val := cg.regFor(instr.Args[0])
+			if val == encoder.RAX {
+				cg.emit(encoder.EncMOV_RR(encoder.R11, encoder.RAX, encoder.W64))
+				val = encoder.R11
+			}
 			shift := cg.regFor(instr.Args[1])
 			if shift != encoder.RCX {
 				cg.emit(encoder.EncMOV_RR(encoder.RCX, shift, encoder.W64))
@@ -275,30 +417,22 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 	case ir.OpGEP:
 		if len(instr.Args) >= 2 {
 			base := cg.regFor(instr.Args[0])
-			index := cg.regFor(instr.Args[1])
-			// Simple case: base + index * 8 (pointer-sized elements)
-			if index != encoder.RCX {
-				// LEA result, [base + index*8] using SIB
-				mem := encoder.MemOp{Base: base, Index: index, Scale: 8, Disp: 0, Width: encoder.W64}
-				cg.emit(encoder.EncLEA(encoder.RAX, mem))
-				cg.storeResult(instr.Result, encoder.RAX)
-			} else {
-				// RCX can still be used as SIB index, but use ADD as fallback
-				result := base
-				if base == encoder.RAX {
-					result = encoder.R11
-					cg.emit(encoder.EncMOV_RR(result, base, encoder.W64))
-				}
-				cg.emit(encoder.EncADD_RR(result, index, encoder.W64))
-				cg.storeResult(instr.Result, result)
+			if base == encoder.RAX {
+				cg.emit(encoder.EncMOV_RR(encoder.R11, encoder.RAX, encoder.W64))
+				base = encoder.R11
 			}
+			index := cg.regFor(instr.Args[1])
+			// LEA result, [base + index*8] using SIB
+			mem := encoder.MemOp{Base: base, Index: index, Scale: 8, Disp: 0, Width: encoder.W64}
+			cg.emit(encoder.EncLEA(encoder.RAX, mem))
+			cg.storeResult(instr.Result, encoder.RAX)
 		}
 
 	case ir.OpExtractField:
 		if len(instr.Args) >= 1 {
 			base := cg.regFor(instr.Args[0])
 			offset := int32(instr.FieldIdx * 8) // 8-byte aligned fields
-			mem := encoder.MemOp{Base: base, Disp: offset, Width: encoder.W64}
+			mem := encoder.MemOp{Base: base, Index: encoder.NoReg, Disp: offset, Width: encoder.W64}
 			cg.emit(encoder.EncMOV_RM(encoder.RAX, mem))
 			cg.storeResult(instr.Result, encoder.RAX)
 		}
@@ -307,9 +441,13 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 		// Store value to struct field
 		if len(instr.Args) >= 2 {
 			base := cg.regFor(instr.Args[0])
+			if base == encoder.RAX {
+				cg.emit(encoder.EncMOV_RR(encoder.R11, encoder.RAX, encoder.W64))
+				base = encoder.R11
+			}
 			val := cg.regFor(instr.Args[1])
 			offset := int32(instr.FieldIdx * 8)
-			mem := encoder.MemOp{Base: base, Disp: offset, Width: encoder.W64}
+			mem := encoder.MemOp{Base: base, Index: encoder.NoReg, Disp: offset, Width: encoder.W64}
 			cg.emit(encoder.EncMOV_MR(mem, val))
 		}
 
@@ -327,6 +465,11 @@ func (cg *codeGen) compileALU(instr *ir.Instruction) {
 		return
 	}
 	a := cg.regFor(instr.Args[0])
+	if a == encoder.RAX {
+		// Move to a temp register so second regFor doesn't clobber it
+		cg.emit(encoder.EncMOV_RR(encoder.R11, encoder.RAX, encoder.W64))
+		a = encoder.R11
+	}
 	b := cg.regFor(instr.Args[1])
 
 	switch instr.Op {
@@ -349,6 +492,10 @@ func (cg *codeGen) compileCmp(instr *ir.Instruction) {
 		return
 	}
 	a := cg.regFor(instr.Args[0])
+	if a == encoder.RAX {
+		cg.emit(encoder.EncMOV_RR(encoder.R11, encoder.RAX, encoder.W64))
+		a = encoder.R11
+	}
 	b := cg.regFor(instr.Args[1])
 	cg.emit(encoder.EncCMP_RR(a, b, encoder.W64))
 
@@ -398,14 +545,13 @@ func (cg *codeGen) compileCall(instr *ir.Instruction) {
 	}
 
 	if instr.Callee != nil {
-		// Emit CALL with a placeholder offset — add relocation
+		// Emit CALL with a placeholder offset -- add relocation
 		relocOff := cg.offset() + 1 // offset of the 4-byte relative offset
 		cg.emit(encoder.EncCALL_REL32(0))
-		instrEnd := cg.offset()
 		cg.relocs = append(cg.relocs, codegen.Reloc{
 			Offset: relocOff,
 			Symbol: instr.Callee.Name,
-			Addend: int64(-instrEnd), // rel = sym_addr - (call_end)
+			Addend: -4, // standard PC32: S + A - P, A = -4 to account for 4-byte field
 			Type:   codegen.RelocPC32,
 		})
 	}
@@ -477,9 +623,7 @@ func (cg *codeGen) compileTerm(term *ir.Terminator) {
 }
 
 func (cg *codeGen) emitEpilogue() {
-	if cg.alloc.StackSize > 0 {
-		stackSize := (cg.alloc.StackSize + 15) &^ 15
-		cg.emit(encoder.EncADD_RI(encoder.RSP, int32(stackSize), encoder.W64))
-	}
+	// Restore RSP from RBP — always correct regardless of stack size
+	cg.emit(encoder.EncMOV_RR(encoder.RSP, encoder.RBP, encoder.W64))
 	cg.emit(encoder.EncPOP(encoder.RBP))
 }
