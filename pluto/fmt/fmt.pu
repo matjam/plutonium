@@ -1,80 +1,56 @@
+//pu:build linux
+
 package fmt
 
-import "pluto/io"
+// write performs a raw write(2) syscall.
+// Implemented in assembly (write_linux_amd64.s).
+func write(fd int64, ptr *byte, len int64) int64
 
-// Itoa converts an integer to its decimal string representation.
-// Writes the result to the provided byte slice.
-// Returns the number of bytes written.
-func Itoa(n int64, buf []byte) int {
+// Prints writes len bytes starting at ptr to stdout.
+func Prints(ptr *byte, len int64) {
+	write(1, ptr, len)
+}
+
+// Println writes a newline character to stdout.
+func Println() {
+	var nl byte
+	nl = byte(10)
+	write(1, &nl, 1)
+}
+
+// PrintByte writes a single byte to stdout.
+func PrintByte(b byte) {
+	write(1, &b, 1)
+}
+
+// PrintDigit writes a single decimal digit (0-9) to stdout.
+func PrintDigit(d int64) {
+	var ch byte
+	ch = byte(48 + d)
+	write(1, &ch, 1)
+}
+
+// printIntRec recursively prints decimal digits of n (most significant first).
+// Precondition: n > 0.
+func printIntRec(n int64) {
 	if n == 0 {
-		if len(buf) > 0 {
-			buf[0] = '0'
-			return 1
-		}
-		return 0
+		return
 	}
-
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-
-	// Write digits in reverse
-	i := len(buf) - 1
-	pos := i
-	for n > 0 && i >= 0 {
-		buf[i] = byte('0' + n%10)
-		n /= 10
-		i--
-	}
-	if neg && i >= 0 {
-		buf[i] = '-'
-		i--
-	}
-
-	// Reverse the written digits in place
-	start := i + 1
-	end := pos
-	for start < end {
-		buf[start], buf[end] = buf[end], buf[start]
-		start++
-		end--
-	}
-
-	return pos - i
+	printIntRec(n / 10)
+	PrintDigit(n % 10)
 }
 
-// Fprint writes a string to w without allocating.
-func Fprint(w io.Writer, s string) (int, error) {
-	return w.Write([]byte(s))
-}
-
-// Fprintln writes a string followed by a newline to w.
-func Fprintln(w io.Writer, s string) (int, error) {
-	n1, err := w.Write([]byte(s))
-	if err != nil {
-		return n1, err
+// PrintInt writes an integer in decimal to stdout.
+func PrintInt(n int64) {
+	if n == 0 {
+		PrintDigit(0)
+		return
 	}
-	n2, err := w.Write([]byte{'\n'})
-	return n1 + n2, err
-}
-
-// FprintInt writes an integer in decimal to w.
-func FprintInt(w io.Writer, n int64) (int, error) {
-	var buf [24]byte
-	count := Itoa(n, buf[:])
-	return w.Write(buf[:count])
-}
-
-// FprintHex writes an integer in hex (0x...) to w.
-func FprintHex(w io.Writer, n uint64) (int, error) {
-	const hexChars = "0123456789abcdef"
-	var buf [18]byte // "0x" + 16 hex digits
-	buf[0] = '0'
-	buf[1] = 'x'
-	for i := 17; i >= 2; i-- {
-		buf[i] = hexChars[n&0xF]
-		n >>= 4
+	if n < 0 {
+		var minus byte
+		minus = byte(45)
+		write(1, &minus, 1)
+		n = 0 - n
 	}
-	return w.Write(buf[:])
+	printIntRec(n)
 }

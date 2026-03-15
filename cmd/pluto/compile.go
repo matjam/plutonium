@@ -170,6 +170,11 @@ func compileFiles(sourceFiles []string, outputFile string, cfg *config.Config) e
 
 	for _, irPkg := range prog.Packages {
 		for _, fn := range irPkg.Functions {
+			// Skip assembly stubs — they have no blocks because their
+			// implementation lives in a .s file that gets linked in.
+			if len(fn.Blocks) == 0 {
+				continue
+			}
 			mf, err := backend.CompileFunction(fn)
 			if err != nil {
 				return fmt.Errorf("compiling %s: %w", fn.Name, err)

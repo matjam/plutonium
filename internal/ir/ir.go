@@ -268,11 +268,12 @@ type BasicBlock struct {
 
 // Function is a compiled IR function.
 type Function struct {
-	Name    string
-	Params  []*Value
-	RetType *Type
-	Blocks  []*BasicBlock
-	nextID  int
+	Name        string
+	Params      []*Value
+	RetType     *Type
+	Blocks      []*BasicBlock
+	nextID      int
+	nextBlockID int
 }
 
 // Program is the top-level IR container.

@@ -1,5 +1,7 @@
 package ir
 
+import "fmt"
+
 // NewFunction creates a new IR function.
 func NewFunction(name string, params []*Value, retType *Type) *Function {
 	fn := &Function{
@@ -20,8 +22,11 @@ func (fn *Function) NewParam(name string, typ *Type) *Value {
 }
 
 // NewBlock creates a new basic block in the function.
+// Labels are made unique by appending a numeric suffix.
 func (fn *Function) NewBlock(label string) *BasicBlock {
-	bb := &BasicBlock{Label: label, fn: fn}
+	uniqueLabel := fmt.Sprintf("%s.%d", label, fn.nextBlockID)
+	fn.nextBlockID++
+	bb := &BasicBlock{Label: uniqueLabel, fn: fn}
 	fn.Blocks = append(fn.Blocks, bb)
 	return bb
 }

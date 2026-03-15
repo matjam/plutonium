@@ -1,0 +1,21 @@
+package main
+
+import "pluto/fmt"
+
+// First Plutonium program that writes to stdout!
+//
+// Build: pluto build -o hello examples/07-hello/main.pu
+// Run:   ./hello
+// Expected output:
+//   42
+//   0
+//
+// Exit code: 0
+
+func main() int64 {
+	fmt.PrintInt(42)
+	fmt.Println()
+	fmt.PrintInt(0)
+	fmt.Println()
+	return 0
+}
