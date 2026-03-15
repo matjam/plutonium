@@ -44,6 +44,8 @@ func runCompile(cmd *cobra.Command, args []string) error {
 	cfg.Verbose = verbose
 	cfg.Target = targetTriple
 	cfg.Arch, cfg.OS = config.ParseTarget(targetTriple)
+	// Derive base tags from target triple, then layer extra tags on top.
+	cfg.Tags = config.DeriveTagsFromTarget(cfg.Arch, cfg.OS)
 	for _, tag := range tagList {
 		cfg.Tags[tag] = true
 	}

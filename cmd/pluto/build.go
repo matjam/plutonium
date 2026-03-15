@@ -47,6 +47,8 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	cfg.Verbose = verbose
 	cfg.LinkerScript = ldscript
 	cfg.OutputFile = outputFile
+	// Derive base tags from the target triple, then layer any extra tags on top.
+	cfg.Tags = config.DeriveTagsFromTarget(cfg.Arch, cfg.OS)
 	for _, tag := range tagList {
 		cfg.Tags[tag] = true
 	}
@@ -55,6 +57,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	case "freestanding":
 		cfg.Mode = config.ModeFreestanding
 		cfg.Tags["freestanding"] = true
+		cfg.Tags["none"] = true
 	default:
 		cfg.Mode = config.ModeHosted
 	}

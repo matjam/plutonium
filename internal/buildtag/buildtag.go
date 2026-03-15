@@ -150,11 +150,18 @@ func FileMatches(filename string, directives []string, tags map[string]bool) (bo
 	return true, nil
 }
 
-// knownTags are recognized OS and architecture tags for filename suffix matching.
+// knownTagSet contains recognized OS and architecture tags for filename suffix
+// matching. Architecture tags use the Plutonium/Go convention (amd64, arm64),
+// not the LLVM triple convention (x86_64, aarch64).
 var knownTagSet = map[string]bool{
+	// Architectures
 	"amd64": true, "arm64": true, "386": true, "arm": true,
 	"riscv64": true, "mips64": true,
+	// Operating systems
 	"linux": true, "darwin": true, "windows": true, "freebsd": true,
+	// Bare-metal / no OS
+	"none": true,
+	// Broad freestanding flag (set automatically when os=none, or explicitly)
 	"freestanding": true,
 }
 
