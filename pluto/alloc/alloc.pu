@@ -200,18 +200,27 @@ func slabFree(ptr *byte, size int64) {
 // --- Public API ---
 
 // newRaw allocates size bytes of zeroed memory and returns a pointer
-// to the allocated region. Uses the slab allocator for sizes <= 2048
-// and mmap for larger allocations.
-// Implemented as an ABI-compliant wrapper in assembly (mem_linux_amd64.s)
-// that saves/restores callee-saved registers around slabAlloc, since
-// the v0.1 compiler does not emit callee-save code.
+// to the allocated region, with an 8-byte refcount header prepended.
+// The returned pointer is offset +8 from the real allocation; the
+// refcount at ptr-8 is initialized to 1.
+// Implemented as an ABI-compliant wrapper in assembly (mem_linux_amd64.s).
 func newRaw(size int64) *byte
 
-// freeRaw releases memory at ptr of given size. The memory must have
-// been previously allocated by newRaw with the same size.
-// Implemented as an ABI-compliant wrapper in assembly (mem_linux_amd64.s)
-// that saves/restores callee-saved registers around slabFree.
+// freeRaw releases memory at ptr of given size. Adjusts ptr back by 8
+// and size up by 8 to account for the refcount header.
+// Implemented as an ABI-compliant wrapper in assembly (mem_linux_amd64.s).
 func freeRaw(ptr *byte, size int64)
+
+// incRef increments the refcount at ptr-8.
+// Called when a heap-owned pointer is copied to another variable.
+// Implemented in assembly (mem_linux_amd64.s).
+func incRef(ptr *byte)
+
+// decRef decrements the refcount at ptr-8. If it reaches zero,
+// the allocation is freed via slabFree. Otherwise, the count is
+// stored back and no deallocation occurs.
+// Implemented in assembly (mem_linux_amd64.s).
+func decRef(ptr *byte, size int64)
 
 // New allocates zeroed memory for a value of type T and returns a *T.
 // This is a compiler intrinsic — the compiler replaces New[T]() with
@@ -221,6 +230,6 @@ func New[T any]() *T
 
 // Free releases memory previously allocated by New.
 // This is a compiler intrinsic — the compiler replaces Free(ptr) with
-// a call to freeRaw(ptr, sizeof(T)) where T is inferred from the pointer type.
+// a call to decRef(ptr, sizeof(T)) where T is inferred from the pointer type.
 // The stub declaration allows the type checker to resolve alloc.Free.
 func Free(ptr *byte)

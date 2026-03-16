@@ -116,6 +116,16 @@ func (l *lowerer) lowerAssign(s *ast.AssignStmt) {
 				}
 			}
 
+			// Check if RHS is a heap-owned variable (pointer copy → refcount increment)
+			var copyFromHeapOwned *heapOwnedInfo
+			if i < len(s.Rhs) {
+				if rhsIdent, ok := s.Rhs[i].(*ast.Ident); ok {
+					if info, ok := l.heapOwned[rhsIdent.Name]; ok {
+						copyFromHeapOwned = info
+					}
+				}
+			}
+
 			var rhs *Value
 			if i < len(s.Rhs) {
 				rhs = l.lowerExprValue(s.Rhs[i])
@@ -142,6 +152,23 @@ func (l *lowerer) lowerAssign(s *ast.AssignStmt) {
 					slot:     slot,
 					size:     allocSize,
 					typeName: allocTypeName,
+				}
+			}
+
+			// If this is a copy of a heap-owned pointer, emit incRef
+			// and track the new variable as heap-owned too.
+			if copyFromHeapOwned != nil {
+				incRefFn := l.allFuncs["alloc.incRef"]
+				if incRefFn == nil {
+					incRefFn = &Function{Name: "alloc.incRef", RetType: Void, nextID: 1}
+					l.allFuncs["alloc.incRef"] = incRefFn
+				}
+				ptr := l.bb.Load(typ, slot)
+				l.bb.Call(incRefFn, Void, ptr)
+				l.heapOwned[ident.Name] = &heapOwnedInfo{
+					slot:     slot,
+					size:     copyFromHeapOwned.size,
+					typeName: copyFromHeapOwned.typeName,
 				}
 			}
 		}
@@ -636,19 +663,20 @@ func (l *lowerer) returnedVarNames(results []ast.Expr) map[string]bool {
 	return names
 }
 
-// emitRAIIFrees emits alloc.freeRaw calls for all heap-owned variables
-// that are not being returned. If a type has a Drop() method, it is
-// called before freeing.
+// emitRAIIFrees emits alloc.decRef calls for all heap-owned variables
+// that are not being returned. decRef decrements the refcount and only
+// frees when it hits zero. If a type has a Drop() method, it is
+// called before decrementing.
 func (l *lowerer) emitRAIIFrees(returned map[string]bool) {
 	if len(l.heapOwned) == 0 {
 		return
 	}
 
-	// Get or create the alloc.freeRaw function reference
-	freeRawFn := l.allFuncs["alloc.freeRaw"]
-	if freeRawFn == nil {
-		freeRawFn = &Function{Name: "alloc.freeRaw", RetType: Void, nextID: 1}
-		l.allFuncs["alloc.freeRaw"] = freeRawFn
+	// Get or create the alloc.decRef function reference
+	decRefFn := l.allFuncs["alloc.decRef"]
+	if decRefFn == nil {
+		decRefFn = &Function{Name: "alloc.decRef", RetType: Void, nextID: 1}
+		l.allFuncs["alloc.decRef"] = decRefFn
 	}
 
 	for varName, info := range l.heapOwned {
@@ -660,7 +688,7 @@ func (l *lowerer) emitRAIIFrees(returned map[string]bool) {
 		// Load the pointer from the alloca slot
 		ptr := l.bb.Load(info.slot.Type, info.slot)
 
-		// If the type has a Drop() method, call it before freeing
+		// If the type has a Drop() method, call it before decrementing
 		if info.typeName != "" {
 			dropName := info.typeName + ".Drop"
 			if dropFn, ok := l.allFuncs[dropName]; ok {
@@ -668,8 +696,8 @@ func (l *lowerer) emitRAIIFrees(returned map[string]bool) {
 			}
 		}
 
-		// Emit alloc.freeRaw(ptr, size)
+		// Emit alloc.decRef(ptr, size)
 		sizeVal := ConstInt(I64, info.size)
-		l.bb.Call(freeRawFn, Void, ptr, sizeVal)
+		l.bb.Call(decRefFn, Void, ptr, sizeVal)
 	}
 }

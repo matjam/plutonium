@@ -789,7 +789,7 @@ func main() int64 {
 }
 
 func TestLowerRAIIAutoFree(t *testing.T) {
-	// alloc.New[int64]() should emit an automatic freeRaw call at function exit
+	// alloc.New[int64]() should emit an automatic decRef call at function exit
 	prog := lowerWithImports(t, `
 package main
 import "pluto/alloc"
@@ -812,17 +812,17 @@ func useAndFree() {
 		t.Fatal("useAndFree function not found")
 	}
 
-	// Should contain a call to alloc.freeRaw (auto-inserted by RAII)
-	foundFreeRaw := false
+	// Should contain a call to alloc.decRef (auto-inserted by RAII refcounting)
+	foundDecRef := false
 	for _, bb := range fn.Blocks {
 		for _, instr := range bb.Instrs {
-			if instr.Op == ir.OpCall && instr.Callee != nil && instr.Callee.Name == "alloc.freeRaw" {
-				foundFreeRaw = true
+			if instr.Op == ir.OpCall && instr.Callee != nil && instr.Callee.Name == "alloc.decRef" {
+				foundDecRef = true
 			}
 		}
 	}
-	if !foundFreeRaw {
-		t.Error("expected auto-inserted call to alloc.freeRaw for heap-owned variable")
+	if !foundDecRef {
+		t.Error("expected auto-inserted call to alloc.decRef for heap-owned variable")
 	}
 }
 
@@ -851,11 +851,11 @@ func createAndReturn() *int64 {
 		t.Fatal("createAndReturn function not found")
 	}
 
-	// Should NOT contain a call to alloc.freeRaw (ownership transfers via return)
+	// Should NOT contain a call to alloc.decRef (ownership transfers via return)
 	for _, bb := range fn.Blocks {
 		for _, instr := range bb.Instrs {
-			if instr.Op == ir.OpCall && instr.Callee != nil && instr.Callee.Name == "alloc.freeRaw" {
-				t.Error("should NOT insert freeRaw when variable is returned (ownership transfer)")
+			if instr.Op == ir.OpCall && instr.Callee != nil && instr.Callee.Name == "alloc.decRef" {
+				t.Error("should NOT insert decRef when variable is returned (ownership transfer)")
 			}
 		}
 	}
@@ -887,17 +887,17 @@ func multiAlloc() {
 		t.Fatal("multiAlloc function not found")
 	}
 
-	// Should contain exactly 2 calls to alloc.freeRaw (one for each allocation)
-	freeCount := 0
+	// Should contain exactly 2 calls to alloc.decRef (one for each allocation)
+	decRefCount := 0
 	for _, bb := range fn.Blocks {
 		for _, instr := range bb.Instrs {
-			if instr.Op == ir.OpCall && instr.Callee != nil && instr.Callee.Name == "alloc.freeRaw" {
-				freeCount++
+			if instr.Op == ir.OpCall && instr.Callee != nil && instr.Callee.Name == "alloc.decRef" {
+				decRefCount++
 			}
 		}
 	}
-	if freeCount != 2 {
-		t.Errorf("expected 2 auto-inserted freeRaw calls, got %d", freeCount)
+	if decRefCount != 2 {
+		t.Errorf("expected 2 auto-inserted decRef calls, got %d", decRefCount)
 	}
 }
 
@@ -929,17 +929,119 @@ func earlyReturn(flag int64) int64 {
 		t.Fatal("earlyReturn function not found")
 	}
 
-	// Should contain freeRaw calls on all return paths
-	freeCount := 0
+	// Should contain decRef calls on all return paths
+	decRefCount := 0
 	for _, bb := range fn.Blocks {
 		for _, instr := range bb.Instrs {
-			if instr.Op == ir.OpCall && instr.Callee != nil && instr.Callee.Name == "alloc.freeRaw" {
-				freeCount++
+			if instr.Op == ir.OpCall && instr.Callee != nil && instr.Callee.Name == "alloc.decRef" {
+				decRefCount++
 			}
 		}
 	}
-	// There are at least 2 return paths (if-then and fallthrough), each should free
-	if freeCount < 2 {
-		t.Errorf("expected at least 2 freeRaw calls (one per return path), got %d", freeCount)
+	// There are at least 2 return paths (if-then and fallthrough), each should decRef
+	if decRefCount < 2 {
+		t.Errorf("expected at least 2 decRef calls (one per return path), got %d", decRefCount)
+	}
+}
+
+func TestLowerRefCountIncOnCopy(t *testing.T) {
+	// When a heap-owned pointer is copied to another variable (b := a),
+	// the compiler should emit alloc.incRef and track b as heap-owned too.
+	prog := lowerWithImports(t, `
+package main
+import "pluto/alloc"
+
+func shared() {
+	a := alloc.New[int64]()
+	*a = 42
+	b := a
+	_ = *b
+}
+`)
+	pkg := prog.Packages[0]
+
+	var fn *ir.Function
+	for _, f := range pkg.Functions {
+		if f.Name == "shared" {
+			fn = f
+			break
+		}
+	}
+	if fn == nil {
+		t.Fatal("shared function not found")
+	}
+
+	// Should contain a call to alloc.incRef (refcount increment on copy)
+	foundIncRef := false
+	for _, bb := range fn.Blocks {
+		for _, instr := range bb.Instrs {
+			if instr.Op == ir.OpCall && instr.Callee != nil && instr.Callee.Name == "alloc.incRef" {
+				foundIncRef = true
+			}
+		}
+	}
+	if !foundIncRef {
+		t.Error("expected call to alloc.incRef when heap-owned pointer is copied")
+	}
+
+	// Should contain exactly 2 decRef calls (one for a, one for b)
+	decRefCount := 0
+	for _, bb := range fn.Blocks {
+		for _, instr := range bb.Instrs {
+			if instr.Op == ir.OpCall && instr.Callee != nil && instr.Callee.Name == "alloc.decRef" {
+				decRefCount++
+			}
+		}
+	}
+	if decRefCount != 2 {
+		t.Errorf("expected 2 decRef calls (one for a, one for b), got %d", decRefCount)
+	}
+}
+
+func TestLowerRefCountExplicitFree(t *testing.T) {
+	// Explicit alloc.Free should emit decRef instead of freeRaw
+	prog := lowerWithImports(t, `
+package main
+import "pluto/alloc"
+
+func explicitFree() {
+	ptr := alloc.New[int64]()
+	*ptr = 42
+	alloc.Free(ptr)
+}
+`)
+	pkg := prog.Packages[0]
+
+	var fn *ir.Function
+	for _, f := range pkg.Functions {
+		if f.Name == "explicitFree" {
+			fn = f
+			break
+		}
+	}
+	if fn == nil {
+		t.Fatal("explicitFree function not found")
+	}
+
+	// Should contain a call to alloc.decRef (not alloc.freeRaw)
+	foundDecRef := false
+	foundFreeRaw := false
+	for _, bb := range fn.Blocks {
+		for _, instr := range bb.Instrs {
+			if instr.Op == ir.OpCall && instr.Callee != nil {
+				if instr.Callee.Name == "alloc.decRef" {
+					foundDecRef = true
+				}
+				if instr.Callee.Name == "alloc.freeRaw" {
+					foundFreeRaw = true
+				}
+			}
+		}
+	}
+	if !foundDecRef {
+		t.Error("expected alloc.Free to emit alloc.decRef")
+	}
+	if foundFreeRaw {
+		t.Error("alloc.Free should NOT emit alloc.freeRaw (should use decRef)")
 	}
 }

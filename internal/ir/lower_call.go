@@ -502,17 +502,17 @@ func (l *lowerer) lowerAllocGenericCall(funcName string, typeArg ast.Expr, e *as
 }
 
 // lowerAllocSimpleCall handles non-generic alloc intrinsics:
-//   - alloc.Free(ptr) → infers sizeof(T) from ptr's *T type, calls alloc.freeRaw(ptr, sizeof(T))
+//   - alloc.Free(ptr) → infers sizeof(T) from ptr's *T type, calls alloc.decRef(ptr, sizeof(T))
 func (l *lowerer) lowerAllocSimpleCall(funcName string, e *ast.CallExpr) *Value {
 	switch funcName {
 	case "Free":
-		// alloc.Free(ptr) — free sizeof(T) bytes
+		// alloc.Free(ptr) — decrement refcount, free if zero
 		if len(e.Args) != 1 {
 			return ConstInt(I64, 0)
 		}
 
 		// If the argument is a heap-owned variable, remove it from RAII
-		// tracking to prevent double-free.
+		// tracking to prevent double-decRef.
 		if ident, ok := e.Args[0].(*ast.Ident); ok {
 			delete(l.heapOwned, ident.Name)
 		}
@@ -528,11 +528,11 @@ func (l *lowerer) lowerAllocSimpleCall(funcName string, e *ast.CallExpr) *Value 
 			size = SizeOf(ptr.Type.Elem)
 		}
 
-		// Call alloc.freeRaw(ptr, size)
-		fn := l.allFuncs["alloc.freeRaw"]
+		// Call alloc.decRef(ptr, size)
+		fn := l.allFuncs["alloc.decRef"]
 		if fn == nil {
-			fn = &Function{Name: "alloc.freeRaw", RetType: Void, nextID: 1}
-			l.allFuncs["alloc.freeRaw"] = fn
+			fn = &Function{Name: "alloc.decRef", RetType: Void, nextID: 1}
+			l.allFuncs["alloc.decRef"] = fn
 		}
 
 		sizeVal := ConstInt(I64, size)
