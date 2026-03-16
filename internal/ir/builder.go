@@ -56,9 +56,25 @@ func (bb *BasicBlock) Load(typ *Type, ptr *Value) *Value {
 	return result
 }
 
+// LoadBSwap loads a value from a pointer, optionally byte-swapping the result.
+// When bswap is true, the codegen emits BSWAP immediately after the load.
+func (bb *BasicBlock) LoadBSwap(typ *Type, ptr *Value, bswap bool) *Value {
+	result := bb.fn.newValue(typ)
+	instr := &Instruction{Op: OpLoad, Result: result, Args: []*Value{ptr}, NeedsBSwap: bswap}
+	bb.Instrs = append(bb.Instrs, instr)
+	return result
+}
+
 // Store stores a value to a pointer (no result).
 func (bb *BasicBlock) Store(typ *Type, val, ptr *Value) {
 	instr := &Instruction{Op: OpStore, Args: []*Value{val, ptr}}
+	bb.Instrs = append(bb.Instrs, instr)
+}
+
+// StoreBSwap stores a value to a pointer, optionally byte-swapping before the store.
+// When bswap is true, the codegen emits BSWAP on the value before storing.
+func (bb *BasicBlock) StoreBSwap(typ *Type, val, ptr *Value, bswap bool) {
+	instr := &Instruction{Op: OpStore, Args: []*Value{val, ptr}, NeedsBSwap: bswap}
 	bb.Instrs = append(bb.Instrs, instr)
 }
 
@@ -122,6 +138,14 @@ func (bb *BasicBlock) ExtractField(typ *Type, base *Value, idx int) *Value {
 func (bb *BasicBlock) InsertField(typ *Type, base *Value, idx int, val *Value) {
 	instr := &Instruction{Op: OpInsertField, Args: []*Value{base, val}, FieldIdx: idx}
 	bb.Instrs = append(bb.Instrs, instr)
+}
+
+// BSwap emits a byte-swap instruction (endianness conversion).
+func (bb *BasicBlock) BSwap(typ *Type, val *Value) *Value {
+	result := bb.fn.newValue(typ)
+	instr := &Instruction{Op: OpBSwap, Result: result, Args: []*Value{val}}
+	bb.Instrs = append(bb.Instrs, instr)
+	return result
 }
 
 // --- Terminators ---

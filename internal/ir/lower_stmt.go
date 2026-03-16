@@ -155,6 +155,14 @@ func (l *lowerer) loadLHS(expr ast.Expr) *Value {
 			return l.bb.Load(ptr.Type, ptr)
 		}
 	case *ast.SelectorExpr:
+		// Handle packed group field read for compound assignment: reg.flags.ENABLE
+		if sel, ok := e.X.(*ast.SelectorExpr); ok {
+			if ident, ok := sel.X.(*ast.Ident); ok {
+				if pinfo, ok := l.packedVars[ident.Name]; ok {
+					return l.lowerPackedGroupFieldRead(ident.Name, sel.Sel.Name, e.Sel.Name, pinfo)
+				}
+			}
+		}
 		// Handle packed field read for compound assignment
 		if ident, ok := e.X.(*ast.Ident); ok {
 			if pinfo, ok := l.packedVars[ident.Name]; ok {
@@ -204,6 +212,15 @@ func (l *lowerer) storeLHS(expr ast.Expr, val *Value) {
 			l.bb.Store(typ, val, ptr)
 		}
 	case *ast.SelectorExpr:
+		// Check for packed group field write: reg.flags.ENABLE = true
+		if sel, ok := e.X.(*ast.SelectorExpr); ok {
+			if ident, ok := sel.X.(*ast.Ident); ok {
+				if pinfo, ok := l.packedVars[ident.Name]; ok {
+					l.lowerPackedGroupFieldWrite(ident.Name, sel.Sel.Name, e.Sel.Name, val, pinfo)
+					return
+				}
+			}
+		}
 		// Check for packed type field write
 		if ident, ok := e.X.(*ast.Ident); ok {
 			if pinfo, ok := l.packedVars[ident.Name]; ok {

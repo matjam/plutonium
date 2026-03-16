@@ -92,6 +92,10 @@ func (c *checker) resolveType(expr ast.Expr) Type {
 	case *ast.BitsType:
 		// BitsType in isolation — resolve just the access type
 		return c.resolveType(e.AccessType)
+
+	case *ast.BitsGroupType:
+		// BitsGroupType in isolation — a group of 1-bit bools
+		return Typ[Bool]
 	}
 
 	return Typ[Invalid]
@@ -220,6 +224,17 @@ func (c *checker) resolveTypeParamConstraint(expr ast.Expr) Type {
 func (c *checker) resolvePackedType(e *ast.PackedType) *Packed {
 	backing := c.resolveType(e.BackingType)
 
+	// Map AST endianness to types endianness
+	var endian Endianness
+	switch e.ByteOrder {
+	case ast.EndianBig:
+		endian = EndianBig
+	case ast.EndianLittle:
+		endian = EndianLittle
+	default:
+		endian = EndianNative
+	}
+
 	// Determine the backing type's bit width
 	backingBits := 0
 	if bt, ok := backing.(*Basic); ok {
@@ -239,32 +254,48 @@ func (c *checker) resolvePackedType(e *ast.PackedType) *Packed {
 	bitOffset := 0
 	if e.Fields != nil {
 		for _, field := range e.Fields.List {
-			bt, ok := field.Type.(*ast.BitsType)
-			if !ok {
-				c.errorf(field.Pos(), "packed type fields must use bits[T, N] type")
-				continue
-			}
-			accessType := c.resolveType(bt.AccessType)
+			switch ft := field.Type.(type) {
+			case *ast.BitsType:
+				accessType := c.resolveType(ft.AccessType)
 
-			// Parse the bit width from the literal
-			width := 0
-			if lit, ok := bt.Width.(*ast.BasicLit); ok {
-				fmt.Sscanf(lit.Value, "%d", &width)
-			}
+				// Parse the bit width from the literal
+				width := 0
+				if lit, ok := ft.Width.(*ast.BasicLit); ok {
+					fmt.Sscanf(lit.Value, "%d", &width)
+				}
 
-			if width <= 0 {
-				c.errorf(bt.Width.Pos(), "bit width must be a positive integer")
-				continue
-			}
+				if width <= 0 {
+					c.errorf(ft.Width.Pos(), "bit width must be a positive integer")
+					continue
+				}
 
-			for _, name := range field.Names {
-				fields = append(fields, &BitField{
-					name:       name.Name,
-					accessType: accessType,
-					width:      width,
-					offset:     bitOffset,
-				})
-				bitOffset += width
+				for _, name := range field.Names {
+					fields = append(fields, &BitField{
+						name:       name.Name,
+						accessType: accessType,
+						width:      width,
+						offset:     bitOffset,
+					})
+					bitOffset += width
+				}
+			case *ast.BitsGroupType:
+				// bits { FLAG_A, FLAG_B, ... } — each sub-field is 1-bit bool
+				groupName := ""
+				if len(field.Names) > 0 {
+					groupName = field.Names[0].Name
+				}
+				for _, subName := range ft.Names {
+					fields = append(fields, &BitField{
+						name:       subName.Name,
+						accessType: Typ[Bool],
+						width:      1,
+						offset:     bitOffset,
+						groupName:  groupName,
+					})
+					bitOffset++
+				}
+			default:
+				c.errorf(field.Pos(), "packed type fields must use bits[T, N] or bits { ... } type")
 			}
 		}
 	}
@@ -274,9 +305,10 @@ func (c *checker) resolvePackedType(e *ast.PackedType) *Packed {
 	}
 
 	return &Packed{
-		backing:   backing,
-		fields:    fields,
-		totalBits: bitOffset,
+		backing:    backing,
+		fields:     fields,
+		totalBits:  bitOffset,
+		endianness: endian,
 	}
 }
 

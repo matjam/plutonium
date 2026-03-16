@@ -261,10 +261,21 @@ func (l *lowerer) lowerSelectorExpr(e *ast.SelectorExpr) *Value {
 		}
 	}
 
-	// Check for packed type field access
+	// Check for packed type field access (direct field: reg.mode)
 	if ident, ok := e.X.(*ast.Ident); ok {
 		if pinfo, ok := l.packedVars[ident.Name]; ok {
 			return l.lowerPackedFieldRead(ident.Name, e.Sel.Name, pinfo)
+		}
+	}
+
+	// Check for double-selector packed group access: reg.flags.ENABLE
+	// e.X is SelectorExpr{X: reg, Sel: flags}, e.Sel is ENABLE
+	if sel, ok := e.X.(*ast.SelectorExpr); ok {
+		if ident, ok := sel.X.(*ast.Ident); ok {
+			if pinfo, ok := l.packedVars[ident.Name]; ok {
+				// sel.Sel.Name is the group name, e.Sel.Name is the sub-field
+				return l.lowerPackedGroupFieldRead(ident.Name, sel.Sel.Name, e.Sel.Name, pinfo)
+			}
 		}
 	}
 
@@ -299,6 +310,7 @@ func (l *lowerer) lowerSelectorExpr(e *ast.SelectorExpr) *Value {
 
 // lowerPackedFieldRead generates IR to read a bitfield from a packed variable.
 // Read: (backing >> bitOffset) & ((1 << width) - 1)
+// If the packed type has a byte-swap annotation, the load is marked with NeedsBSwap.
 func (l *lowerer) lowerPackedFieldRead(varName, fieldName string, pinfo *packedTypeInfo) *Value {
 	// Find the field
 	for _, f := range pinfo.fields {
@@ -309,7 +321,7 @@ func (l *lowerer) lowerPackedFieldRead(varName, fieldName string, pinfo *packedT
 				return ConstInt(I64, 0)
 			}
 			backingType := pinfo.backingType
-			backing := l.bb.Load(backingType, slot)
+			backing := l.bb.LoadBSwap(backingType, slot, pinfo.needsBSwap)
 
 			// Shift right by offset
 			if f.offset > 0 {
@@ -328,8 +340,72 @@ func (l *lowerer) lowerPackedFieldRead(varName, fieldName string, pinfo *packedT
 	return ConstInt(I64, 0)
 }
 
+// lowerPackedGroupFieldRead generates IR to read a sub-field within a bits group.
+// It finds the sub-field by matching both the group name and the sub-field name.
+func (l *lowerer) lowerPackedGroupFieldRead(varName, groupName, subFieldName string, pinfo *packedTypeInfo) *Value {
+	for _, f := range pinfo.fields {
+		if f.groupName == groupName && f.name == subFieldName {
+			slot := l.env[varName]
+			if slot == nil {
+				return ConstInt(I64, 0)
+			}
+			backingType := pinfo.backingType
+			backing := l.bb.LoadBSwap(backingType, slot, pinfo.needsBSwap)
+
+			if f.offset > 0 {
+				shiftAmt := ConstInt(backingType, int64(f.offset))
+				backing = l.bb.BinOp(OpShr, backingType, backing, shiftAmt)
+			}
+
+			mask := int64((1 << f.width) - 1)
+			maskVal := ConstInt(backingType, mask)
+			result := l.bb.BinOp(OpAnd, backingType, backing, maskVal)
+
+			return result
+		}
+	}
+	return ConstInt(I64, 0)
+}
+
+// lowerPackedGroupFieldWrite generates IR to write a sub-field within a bits group.
+func (l *lowerer) lowerPackedGroupFieldWrite(varName, groupName, subFieldName string, val *Value, pinfo *packedTypeInfo) {
+	for _, f := range pinfo.fields {
+		if f.groupName == groupName && f.name == subFieldName {
+			slot := l.env[varName]
+			if slot == nil {
+				return
+			}
+			backingType := pinfo.backingType
+
+			backing := l.bb.LoadBSwap(backingType, slot, pinfo.needsBSwap)
+
+			mask := int64((1 << f.width) - 1)
+			maskVal := ConstInt(backingType, mask)
+			maskedVal := l.bb.BinOp(OpAnd, backingType, val, maskVal)
+
+			var shiftedVal *Value
+			if f.offset > 0 {
+				shiftAmt := ConstInt(backingType, int64(f.offset))
+				shiftedVal = l.bb.BinOp(OpShl, backingType, maskedVal, shiftAmt)
+			} else {
+				shiftedVal = maskedVal
+			}
+
+			clearMask := int64(^(mask << f.offset))
+			clearMaskVal := ConstInt(backingType, clearMask)
+			cleared := l.bb.BinOp(OpAnd, backingType, backing, clearMaskVal)
+
+			result := l.bb.BinOp(OpOr, backingType, cleared, shiftedVal)
+
+			l.bb.StoreBSwap(backingType, result, slot, pinfo.needsBSwap)
+			return
+		}
+	}
+}
+
 // lowerPackedFieldWrite generates IR to write a bitfield in a packed variable.
 // Write: backing = (backing & ~(mask << offset)) | ((val & mask) << offset)
+// If the packed type has a byte-swap annotation, LoadBSwap/StoreBSwap handle it.
 func (l *lowerer) lowerPackedFieldWrite(varName, fieldName string, val *Value, pinfo *packedTypeInfo) {
 	for _, f := range pinfo.fields {
 		if f.name == fieldName {
@@ -339,8 +415,8 @@ func (l *lowerer) lowerPackedFieldWrite(varName, fieldName string, val *Value, p
 			}
 			backingType := pinfo.backingType
 
-			// Load current backing value
-			backing := l.bb.Load(backingType, slot)
+			// Load current backing value (with BSWAP if needed)
+			backing := l.bb.LoadBSwap(backingType, slot, pinfo.needsBSwap)
 
 			// Mask the value to width bits: val & mask
 			mask := int64((1 << f.width) - 1)
@@ -364,8 +440,8 @@ func (l *lowerer) lowerPackedFieldWrite(varName, fieldName string, val *Value, p
 			// Combine: cleared | shiftedVal
 			result := l.bb.BinOp(OpOr, backingType, cleared, shiftedVal)
 
-			// Store back
-			l.bb.Store(backingType, result, slot)
+			// Store back (with BSWAP if needed)
+			l.bb.StoreBSwap(backingType, result, slot, pinfo.needsBSwap)
 			return
 		}
 	}

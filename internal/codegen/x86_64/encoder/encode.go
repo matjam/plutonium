@@ -402,6 +402,35 @@ func EncXOR_RR_zero(reg Reg) []byte {
 	return out
 }
 
+// EncBSWAP encodes BSWAP reg for byte-order reversal.
+// For W32: 0F C8+rd. For W64: REX.W 0F C8+rd.
+// For W16: use ROR reg16, 8 (66 C1 C8+rd 08).
+func EncBSWAP(reg Reg, w Width) []byte {
+	var out []byte
+	switch w {
+	case W64:
+		out = append(out, rex(true, false, false, reg.IsExtended()))
+		out = append(out, 0x0F, 0xC8+reg.Low3())
+	case W32:
+		if reg.IsExtended() {
+			out = append(out, rex(false, false, false, true))
+		}
+		out = append(out, 0x0F, 0xC8+reg.Low3())
+	case W16:
+		// ROR reg16, 8: operand-size prefix + C1 /1 ib
+		out = append(out, 0x66) // operand-size prefix for 16-bit
+		if reg.IsExtended() {
+			out = append(out, rex(false, false, false, true))
+		}
+		out = append(out, 0xC1)
+		out = append(out, modrm(3, 1, reg.Low3())) // /1 = ROR
+		out = append(out, 8)                       // rotate by 8 bits
+	default:
+		// W8: no-op (single byte has no byte order)
+	}
+	return out
+}
+
 // --- Internal helpers ---
 
 func encALU_RR(op64, op8 byte, dst, src Reg, w Width) []byte {

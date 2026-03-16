@@ -294,6 +294,9 @@ const (
 	// Call
 	OpCall
 
+	// Byte swap (endianness conversion)
+	OpBSwap
+
 	// Inline assembly
 	OpAsm
 )
@@ -336,6 +339,8 @@ type Instruction struct {
 	// For conversions:
 	FromType *Type
 	ToType   *Type
+	// For packed loads/stores with endianness conversion:
+	NeedsBSwap bool
 }
 
 // TermKind identifies the kind of basic block terminator.

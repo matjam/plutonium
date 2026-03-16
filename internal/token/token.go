@@ -110,6 +110,8 @@ const (
 	// Systems programming keywords
 	PACKED // packed
 	BITS   // bits
+	BE     // be
+	LE     // le
 
 	forbidden_beg
 	// Forbidden keywords — valid Go keywords that Plutonium does not support.
@@ -212,6 +214,8 @@ var tokens = [...]string{
 
 	PACKED: "packed",
 	BITS:   "bits",
+	BE:     "be",
+	LE:     "le",
 
 	CHAN:   "chan",
 	GO:     "go",

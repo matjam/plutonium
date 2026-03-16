@@ -694,9 +694,19 @@ func (p *parser) parseTypeSpec() *ast.TypeSpec {
 	return &ast.TypeSpec{Name: name, TypeParams: typeParams, Assign: assign, Type: typ}
 }
 
-// parsePackedType parses: packed BackingType { field1 bits[T, N]; field2 bits[T, N]; ... }
+// parsePackedType parses: packed [be|le] BackingType { field1 bits[T, N]; field2 bits[T, N]; ... }
 func (p *parser) parsePackedType() *ast.PackedType {
 	pos := p.expect(token.PACKED)
+
+	// Check for optional endianness annotation (be or le)
+	byteOrder := ast.EndianNative
+	if p.tok == token.BE {
+		byteOrder = ast.EndianBig
+		p.next()
+	} else if p.tok == token.LE {
+		byteOrder = ast.EndianLittle
+		p.next()
+	}
 
 	// Parse backing type (e.g., uint32)
 	backingType := p.parseType()
@@ -711,6 +721,7 @@ func (p *parser) parsePackedType() *ast.PackedType {
 
 	return &ast.PackedType{
 		Packed:      pos,
+		ByteOrder:   byteOrder,
 		BackingType: backingType,
 		Fields: &ast.FieldList{
 			Opening: lbrace,
@@ -720,14 +731,14 @@ func (p *parser) parsePackedType() *ast.PackedType {
 	}
 }
 
-// parsePackedFieldDecl parses a field in a packed type: name bits[T, N]
+// parsePackedFieldDecl parses a field in a packed type: name bits[T, N] or name bits { ... }
 func (p *parser) parsePackedFieldDecl() *ast.Field {
 	name := p.parseIdent()
 
-	// Expect bits[T, N]
+	// Expect bits[T, N] or bits { FLAG_A, FLAG_B, ... }
 	var typ ast.Expr
 	if p.tok == token.BITS {
-		typ = p.parseBitsType()
+		typ = p.parseBitsTypeOrGroup()
 	} else {
 		// Fallback: try parsing a regular type for forward compat
 		typ = p.parseType()
@@ -735,6 +746,65 @@ func (p *parser) parsePackedFieldDecl() *ast.Field {
 
 	p.expectSemi()
 	return &ast.Field{Names: []*ast.Ident{name}, Type: typ}
+}
+
+// parseBitsTypeOrGroup decides whether we have bits[T, N] or bits { ... }.
+func (p *parser) parseBitsTypeOrGroup() ast.Expr {
+	// Peek: if bits is followed by '{', parse a group; else parse bits[T, N]
+	if p.tok == token.BITS {
+		// Save position — we need to check what follows 'bits'
+		bitsPos := p.pos
+		p.next() // consume 'bits'
+
+		if p.tok == token.LBRACE {
+			return p.parseBitsGroup(bitsPos)
+		}
+		// Otherwise it's bits[T, N] — expect '['
+		p.expect(token.LBRACK)
+
+		// Parse access type T
+		accessType := p.parseType()
+
+		// Expect comma
+		p.expect(token.COMMA)
+
+		// Parse bit width N (integer literal)
+		width := p.parseExpr()
+
+		// Expect closing bracket
+		rbrack := p.expect(token.RBRACK)
+
+		return &ast.BitsType{
+			Bits:       bitsPos,
+			AccessType: accessType,
+			Width:      width,
+			Rbrack:     rbrack,
+		}
+	}
+	return p.parseType()
+}
+
+// parseBitsGroup parses: { FLAG_A, FLAG_B, ... } or { FLAG_A\n FLAG_B\n ... }
+// bitsPos is the position of the already-consumed 'bits' keyword.
+func (p *parser) parseBitsGroup(bitsPos token.Pos) *ast.BitsGroupType {
+	lbrace := p.expect(token.LBRACE)
+	var names []*ast.Ident
+	for p.tok != token.RBRACE && p.tok != token.EOF {
+		names = append(names, p.parseIdent())
+		// Accept comma or semicolon (newline) as separator
+		if p.tok == token.COMMA {
+			p.next()
+		} else if p.tok == token.SEMICOLON {
+			p.next()
+		}
+	}
+	rbrace := p.expect(token.RBRACE)
+	return &ast.BitsGroupType{
+		Bits:   bitsPos,
+		Lbrace: lbrace,
+		Names:  names,
+		Rbrace: rbrace,
+	}
 }
 
 // parseBitsType parses: bits[T, N]

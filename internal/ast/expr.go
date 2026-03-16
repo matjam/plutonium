@@ -280,9 +280,19 @@ func (x *PointerType) Pos() token.Pos { return x.Star }
 func (x *PointerType) End() token.Pos { return x.X.End() }
 func (x *PointerType) exprNode()      {}
 
-// PackedType represents a packed type: packed BackingType { fields }
+// Endianness specifies the byte order for a packed type.
+type Endianness int
+
+const (
+	EndianNative Endianness = iota // no annotation — native byte order
+	EndianBig                      // be — big-endian
+	EndianLittle                   // le — little-endian
+)
+
+// PackedType represents a packed type: packed [be|le] BackingType { fields }
 type PackedType struct {
 	Packed      token.Pos  // position of "packed" keyword
+	ByteOrder   Endianness // endianness annotation (EndianNative if none)
 	BackingType Expr       // backing storage type (e.g., uint32)
 	Fields      *FieldList // list of bitfield declarations
 }
@@ -302,6 +312,19 @@ type BitsType struct {
 func (x *BitsType) Pos() token.Pos { return x.Bits }
 func (x *BitsType) End() token.Pos { return x.Rbrack + 1 }
 func (x *BitsType) exprNode()      {}
+
+// BitsGroupType represents a bits { FLAG_A, FLAG_B, ... } named flag group
+// in a packed type. Each identifier is a 1-bit boolean sub-field.
+type BitsGroupType struct {
+	Bits   token.Pos // position of "bits" keyword
+	Lbrace token.Pos // position of "{"
+	Names  []*Ident  // sub-field identifiers
+	Rbrace token.Pos // position of "}"
+}
+
+func (x *BitsGroupType) Pos() token.Pos { return x.Bits }
+func (x *BitsGroupType) End() token.Pos { return x.Rbrace + 1 }
+func (x *BitsGroupType) exprNode()      {}
 
 // Ellipsis represents a variadic parameter type "...T".
 type Ellipsis struct {

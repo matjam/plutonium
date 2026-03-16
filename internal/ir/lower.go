@@ -296,6 +296,9 @@ func (l *lowerer) lowerType(expr ast.Expr) *Type {
 		return l.lowerPackedType(e)
 	case *ast.BitsType:
 		return l.lowerType(e.AccessType)
+	case *ast.BitsGroupType:
+		// A bits group is internally Bool — individual 1-bit fields
+		return Bool
 	}
 	return I32 // fallback
 }
@@ -304,44 +307,69 @@ func (l *lowerer) lowerType(expr ast.Expr) *Type {
 type packedTypeInfo struct {
 	backingType *Type
 	fields      []packedFieldInfo
+	needsBSwap  bool // true if endianness mismatches native (x86_64 = LE)
 }
 
 type packedFieldInfo struct {
 	name       string
-	width      int   // bit width
-	offset     int   // bit offset from LSB
-	accessType *Type // IR type for reading/writing this field
+	width      int    // bit width
+	offset     int    // bit offset from LSB
+	accessType *Type  // IR type for reading/writing this field
+	groupName  string // non-empty if part of a bits { ... } group
 }
 
 func (l *lowerer) lowerPackedType(e *ast.PackedType) *Type {
 	backingType := l.lowerType(e.BackingType)
 
+	// Determine if byte-swap is needed. x86_64 is little-endian,
+	// so only big-endian annotations require BSWAP.
+	needsBSwap := e.ByteOrder == ast.EndianBig
+
 	// Build packed type info for field access
-	info := &packedTypeInfo{backingType: backingType}
+	info := &packedTypeInfo{backingType: backingType, needsBSwap: needsBSwap}
 	bitOffset := 0
 	var fieldNames []string
 
 	if e.Fields != nil {
 		for _, f := range e.Fields.List {
-			bt, ok := f.Type.(*ast.BitsType)
-			if !ok {
-				continue
-			}
-			width := 0
-			if lit, ok := bt.Width.(*ast.BasicLit); ok {
-				fmt.Sscanf(lit.Value, "%d", &width)
-			}
-			accessType := l.lowerType(bt.AccessType)
+			switch ft := f.Type.(type) {
+			case *ast.BitsType:
+				width := 0
+				if lit, ok := ft.Width.(*ast.BasicLit); ok {
+					fmt.Sscanf(lit.Value, "%d", &width)
+				}
+				accessType := l.lowerType(ft.AccessType)
 
-			for _, name := range f.Names {
-				info.fields = append(info.fields, packedFieldInfo{
-					name:       name.Name,
-					width:      width,
-					offset:     bitOffset,
-					accessType: accessType,
-				})
-				fieldNames = append(fieldNames, name.Name)
-				bitOffset += width
+				for _, name := range f.Names {
+					info.fields = append(info.fields, packedFieldInfo{
+						name:       name.Name,
+						width:      width,
+						offset:     bitOffset,
+						accessType: accessType,
+					})
+					fieldNames = append(fieldNames, name.Name)
+					bitOffset += width
+				}
+			case *ast.BitsGroupType:
+				// bits { FLAG_A, FLAG_B, ... } — each sub-field is 1-bit bool
+				groupName := ""
+				if len(f.Names) > 0 {
+					groupName = f.Names[0].Name
+				}
+				// The group name itself is a "field" for namespace purposes
+				if groupName != "" {
+					fieldNames = append(fieldNames, groupName)
+				}
+				for _, subName := range ft.Names {
+					info.fields = append(info.fields, packedFieldInfo{
+						name:       subName.Name,
+						width:      1,
+						offset:     bitOffset,
+						accessType: Bool,
+						groupName:  groupName,
+					})
+					bitOffset++
+				}
 			}
 		}
 	}

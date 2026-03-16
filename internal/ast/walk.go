@@ -182,6 +182,11 @@ func Walk(v Visitor, node Node) {
 			Walk(v, n.Width)
 		}
 
+	case *BitsGroupType:
+		for _, name := range n.Names {
+			Walk(v, name)
+		}
+
 	case *Ellipsis:
 		Walk(v, n.Elt)
 

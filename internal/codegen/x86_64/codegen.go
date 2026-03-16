@@ -324,6 +324,11 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 					cg.emit(encoder.EncMOVZX(encoder.RAX, encoder.RAX, w, encoder.W64))
 				}
 			}
+			// If byte-swap is needed, emit BSWAP immediately after the load
+			if instr.NeedsBSwap && instr.Result != nil {
+				w := widthFor(instr.Result.Type)
+				cg.emit(encoder.EncBSWAP(encoder.RAX, w))
+			}
 			cg.storeResult(instr.Result, encoder.RAX)
 		}
 
@@ -340,6 +345,19 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 			// Check if ptr is a stack slot (alloca)
 			if off, ok := cg.stackSlots[ptr.ID]; ok {
 				valReg := cg.regFor(val)
+				// If byte-swap is needed, emit BSWAP before the store
+				if instr.NeedsBSwap {
+					if valReg != encoder.RAX {
+						cg.emit(encoder.EncMOV_RR(encoder.RAX, valReg, encoder.W64))
+						valReg = encoder.RAX
+					}
+					// Determine width from the AllocType of the target slot
+					w := encoder.W64
+					if val.Type != nil {
+						w = widthFor(val.Type)
+					}
+					cg.emit(encoder.EncBSWAP(valReg, w))
+				}
 				mem := encoder.MemOp{Base: encoder.RBP, Index: encoder.NoReg, Disp: off, Width: encoder.W64}
 				cg.emit(encoder.EncMOV_MR(mem, valReg))
 			} else {
@@ -349,6 +367,16 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 				if valReg == encoder.RAX {
 					cg.emit(encoder.EncMOV_RR(encoder.R11, encoder.RAX, encoder.W64))
 					valReg = encoder.R11
+				}
+				// If byte-swap is needed for non-stack stores
+				if instr.NeedsBSwap {
+					cg.emit(encoder.EncMOV_RR(encoder.RAX, valReg, encoder.W64))
+					w := encoder.W64
+					if val.Type != nil {
+						w = widthFor(val.Type)
+					}
+					cg.emit(encoder.EncBSWAP(encoder.RAX, w))
+					valReg = encoder.RAX
 				}
 				ptrReg := cg.regFor(ptr)
 				mem := encoder.MemOp{Base: ptrReg, Index: encoder.NoReg, Disp: 0, Width: encoder.W64}
@@ -439,6 +467,17 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 			offset := int32(instr.FieldIdx * 8)
 			mem := encoder.MemOp{Base: base, Index: encoder.NoReg, Disp: offset, Width: encoder.W64}
 			cg.emit(encoder.EncMOV_MR(mem, val))
+		}
+
+	case ir.OpBSwap:
+		if len(instr.Args) == 1 && instr.Result != nil {
+			src := cg.regFor(instr.Args[0])
+			if src != encoder.RAX {
+				cg.emit(encoder.EncMOV_RR(encoder.RAX, src, encoder.W64))
+			}
+			w := widthFor(instr.Result.Type)
+			cg.emit(encoder.EncBSWAP(encoder.RAX, w))
+			cg.storeResult(instr.Result, encoder.RAX)
 		}
 
 	case ir.OpBitcast, ir.OpExtend, ir.OpTruncate:
