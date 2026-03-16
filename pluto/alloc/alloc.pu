@@ -12,17 +12,33 @@ func mmap(size int64) *byte
 // Implemented in assembly (alloc_linux_amd64.s).
 func munmap(ptr *byte, size int64)
 
+// slabAlloc allocates at least size bytes of zeroed memory from the slab
+// allocator. For sizes <= 2048, uses power-of-2 size class free lists and
+// zeroes the slot before returning. For sizes > 2048, falls through to
+// mmap directly (kernel zeroes pages).
+// Implemented in assembly (slab_linux_amd64.s).
+func slabAlloc(size int64) *byte
+
+// slabFree returns a block to the slab allocator's free list.
+// For sizes > 2048, calls munmap directly.
+// Implemented in assembly (slab_linux_amd64.s).
+func slabFree(ptr *byte, size int64)
+
+// memzero zeroes size bytes starting at ptr.
+// Implemented in assembly (slab_linux_amd64.s).
+func memzero(ptr *byte, size int64)
+
 // newRaw allocates size bytes of zeroed memory and returns a pointer
-// to the allocated region. The memory is obtained from mmap and is
-// page-aligned, zeroed by the kernel.
+// to the allocated region. Uses the slab allocator for sizes <= 2048
+// and mmap for larger allocations.
 func newRaw(size int64) *byte {
-    return mmap(size)
+    return slabAlloc(size)
 }
 
 // freeRaw releases memory at ptr of given size. The memory must have
-// been previously allocated by newRaw (or mmap) with the same size.
+// been previously allocated by newRaw with the same size.
 func freeRaw(ptr *byte, size int64) {
-    munmap(ptr, size)
+    slabFree(ptr, size)
 }
 
 // New allocates zeroed memory for a value of type T and returns a *T.
