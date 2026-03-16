@@ -26,7 +26,10 @@ Every change must pass ALL of these before committing:
    go build -o /tmp/pluto ./cmd/pluto/
    for ex in examples/*/; do /tmp/pluto build -o /tmp/ex_test ./$ex && /tmp/ex_test; done
    ```
-3. **Coverage check**: `go test -cover ./...` — coverage must not decrease.
+3. **Lint**: `golangci-lint run ./...` — must report 0 issues.
+   Fix all errcheck, staticcheck, and unused warnings before committing.
+
+4. **Coverage check**: `go test -cover ./...` — coverage must not decrease.
    Current minimum coverage targets:
    - `internal/ir`: ≥55%
    - `internal/codegen/x86_64`: ≥44%
@@ -37,6 +40,6 @@ Every change must pass ALL of these before committing:
    If your change adds new code paths, add tests to maintain or improve
    coverage. Never merge code that drops a package below its current level.
 
-4. **No silent failures**: Grep for `ConstInt(I32, 0)` fallbacks and
+5. **No silent failures**: Grep for `ConstInt(I32, 0)` fallbacks and
    `// TODO` comments in new code. New features must not silently produce
    wrong code.
