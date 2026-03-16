@@ -203,12 +203,19 @@ func (l *lowerer) lowerAssign(s *ast.AssignStmt) {
 				// Compound assignment: +=, -=, etc.
 				lhsVal := l.loadLHS(lhs)
 				if lhsVal != nil && rhs != nil {
-					op := compoundOp(s.Tok)
 					typ := lhsVal.Type
 					if typ == nil {
 						typ = I32
 					}
-					rhs = l.bb.BinOp(op, typ, lhsVal, rhs)
+					if s.Tok == token.AND_NOT_ASSIGN {
+						// x &^= y  →  x = x & (^y)
+						allOnes := ConstInt(typ, -1)
+						notY := l.bb.BinOp(OpXor, typ, rhs, allOnes)
+						rhs = l.bb.BinOp(OpAnd, typ, lhsVal, notY)
+					} else {
+						op := compoundOp(s.Tok)
+						rhs = l.bb.BinOp(op, typ, lhsVal, rhs)
+					}
 				}
 			}
 			l.storeLHS(lhs, rhs)
@@ -462,15 +469,51 @@ func (l *lowerer) lowerFor(s *ast.ForStmt) {
 }
 
 func (l *lowerer) lowerRange(s *ast.RangeStmt) {
-	// Simplified: lower the range value, create loop blocks
-	rangeVal := l.lowerExprValue(s.X)
+	// Determine if the range expression is a decomposed string/slice
+	// (has a __len companion in the environment).
+	var basePtr *Value // pointer to the first element
+	var lenVal *Value  // number of elements
+	var elemSize int64 // size of each element in bytes
+	var elemType *Type // IR type of each element
 
-	// Get length
-	var lenVal *Value
-	if rangeVal != nil {
-		// For a slice, extract the len field
-		lenVal = l.bb.ExtractField(I64, rangeVal, 1)
-	} else {
+	isDecomposed := false
+	if ident, ok := s.X.(*ast.Ident); ok {
+		if lenSlot, hasLen := l.env[ident.Name+"__len"]; hasLen {
+			isDecomposed = true
+			// Decomposed string/slice: load ptr and len from separate slots
+			ptrSlot := l.env[ident.Name]
+			if ptrSlot != nil {
+				basePtr = l.bb.Load(PtrTo(U8), ptrSlot)
+			}
+			lenVal = l.bb.Load(I64, lenSlot)
+			// Determine element type from the pointer type
+			elemSize = 1 // default: byte (string)
+			elemType = U8
+			if ptrSlot != nil && ptrSlot.Type != nil && ptrSlot.Type.Kind == TyPtr && ptrSlot.Type.Elem != nil {
+				elemType = ptrSlot.Type.Elem
+				sz := SizeOf(elemType)
+				if sz > 0 {
+					elemSize = sz
+				}
+			}
+		}
+	}
+
+	if !isDecomposed {
+		// Non-decomposed: evaluate the range value as a struct/slice
+		rangeVal := l.lowerExprValue(s.X)
+		if rangeVal != nil {
+			// For a slice struct, extract ptr (field 0) and len (field 1)
+			basePtr = l.bb.ExtractField(PtrTo(U8), rangeVal, 0)
+			lenVal = l.bb.ExtractField(I64, rangeVal, 1)
+		} else {
+			lenVal = ConstInt(I64, 0)
+		}
+		elemSize = 8
+		elemType = I64
+	}
+
+	if lenVal == nil {
 		lenVal = ConstInt(I64, 0)
 	}
 
@@ -478,6 +521,7 @@ func (l *lowerer) lowerRange(s *ast.RangeStmt) {
 	idxSlot := l.bb.Alloca(I64)
 	l.bb.Store(I64, ConstInt(I64, 0), idxSlot)
 
+	postBlock := l.fn.NewBlock("range.post")
 	condBlock := l.fn.NewBlock("range.cond")
 	bodyBlock := l.fn.NewBlock("range.body")
 	exitBlock := l.fn.NewBlock("range.exit")
@@ -498,16 +542,34 @@ func (l *lowerer) lowerRange(s *ast.RangeStmt) {
 			l.env[keyIdent.Name] = keySlot
 		}
 	}
-	// Push loop context — continue goes to condBlock (range has no explicit post)
-	l.loopStack = append(l.loopStack, &loopContext{exitBlock: exitBlock, postBlock: condBlock})
+	// Bind value variable
+	if s.Value != nil {
+		if valIdent, ok := s.Value.(*ast.Ident); ok && valIdent.Name != "_" {
+			if basePtr != nil && elemType != nil {
+				// Compute address: basePtr + idx * elemSize
+				addr := l.bb.GEPSized(basePtr, []*Value{idx}, elemSize)
+				// Load the element value
+				elemVal := l.bb.Load(elemType, addr)
+				valSlot := l.bb.Alloca(elemType)
+				l.bb.Store(elemType, elemVal, valSlot)
+				l.env[valIdent.Name] = valSlot
+			}
+		}
+	}
+	// Push loop context — continue goes to postBlock
+	l.loopStack = append(l.loopStack, &loopContext{exitBlock: exitBlock, postBlock: postBlock})
 	l.lowerBlock(s.Body)
 	l.loopStack = l.loopStack[:len(l.loopStack)-1]
 	if l.bb.Term == nil {
-		// Increment index
-		newIdx := l.bb.BinOp(OpAdd, I64, idx, ConstInt(I64, 1))
-		l.bb.Store(I64, newIdx, idxSlot)
-		l.bb.Br(condBlock)
+		l.bb.Br(postBlock)
 	}
+
+	// Post block: increment index and loop back
+	l.bb = postBlock
+	postIdx := l.bb.Load(I64, idxSlot)
+	newIdx := l.bb.BinOp(OpAdd, I64, postIdx, ConstInt(I64, 1))
+	l.bb.Store(I64, newIdx, idxSlot)
+	l.bb.Br(condBlock)
 
 	l.bb = exitBlock
 }

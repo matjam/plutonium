@@ -11,6 +11,8 @@ func write(fd int64, ptr *byte, len int64) int64
 func anyElemPtr(base *byte, i int64) *byte
 func anyTypeID(ptr *byte) int64
 func anyData(ptr *byte) int64
+func ptrLoad(addr *byte) int64
+func ptrAdd(base *byte, offset int64) *byte
 
 // Prints writes len bytes starting at ptr to stdout.
 func Prints(ptr *byte, len int64) {
@@ -139,16 +141,19 @@ func Printf(format string, args ...any) {
 					PrintByte(byte(data))
 					argIdx = argIdx + 1
 				}
-			} else if verb == 115 {
-				// %s — string
-				if argIdx < argsLen {
-					ap := anyElemPtr(args, argIdx)
-					data := anyData(ap)
-					// data is a pointer to a string header {ptr, len}
-					// TODO: dereference string header for %s
-					_ = data
-					PrintByte(63)
-				}
+		} else if verb == 115 {
+			// %s — string
+			if argIdx < argsLen {
+				ap := anyElemPtr(args, argIdx)
+				hdrPtr := anyData(ap)
+				// hdrPtr is a pointer to a string header {ptr *byte, len int64}
+				// Read the string pointer (first 8 bytes of header)
+				strPtr := ptrLoad(hdrPtr)
+				// Read the string length (second 8 bytes of header)
+				strLen := ptrLoad(ptrAdd(hdrPtr, 8))
+				Prints(strPtr, strLen)
+				argIdx = argIdx + 1
+			}
 			} else if verb == 112 {
 				// %p — pointer in hex with 0x prefix
 				if argIdx < argsLen {

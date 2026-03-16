@@ -35,3 +35,20 @@ fmt.anyTypeID:
 fmt.anyData:
     movq 8(%rdi), %rax  # rax = *(int64*)(ptr + 8)
     ret
+
+# fmt.ptrLoad(addr *byte) int64
+# Reads 8 bytes (a 64-bit value) at the given address.
+# Used to dereference pointers stored in memory (e.g., string headers).
+.globl fmt.ptrLoad
+.type fmt.ptrLoad, @function
+fmt.ptrLoad:
+    movq (%rdi), %rax   # rax = *(int64*)addr
+    ret
+
+# fmt.ptrAdd(base *byte, offset int64) *byte
+# Returns base + offset. Pointer arithmetic helper.
+.globl fmt.ptrAdd
+.type fmt.ptrAdd, @function
+fmt.ptrAdd:
+    leaq (%rdi,%rsi), %rax  # rax = base + offset
+    ret

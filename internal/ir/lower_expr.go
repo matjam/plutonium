@@ -2,6 +2,8 @@ package ir
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/matjam/plutonium/internal/ast"
 	"github.com/matjam/plutonium/internal/token"
@@ -61,11 +63,12 @@ func (l *lowerer) lowerExprValue(expr ast.Expr) *Value {
 func (l *lowerer) lowerBasicLit(e *ast.BasicLit) *Value {
 	switch e.Kind {
 	case token.INT:
-		var n int64
-		fmt.Sscanf(e.Value, "%d", &n)
+		cleaned := strings.ReplaceAll(e.Value, "_", "")
+		n, _ := strconv.ParseInt(cleaned, 0, 64)
 		return ConstInt(I64, n)
 	case token.FLOAT:
-		return &Value{Kind: ValConst, Type: F64}
+		f, _ := strconv.ParseFloat(e.Value, 64)
+		return &Value{Kind: ValConst, Type: F64, FloatVal: f}
 	case token.STRING:
 		lit := l.internString(e.Value)
 		// Return a value referencing the string data.
@@ -80,6 +83,32 @@ func (l *lowerer) lowerBasicLit(e *ast.BasicLit) *Value {
 		l.fn.nextID++
 		return v
 	case token.CHAR:
+		s := e.Value
+		if len(s) >= 2 && s[0] == '\'' && s[len(s)-1] == '\'' {
+			inner := s[1 : len(s)-1]
+			var ch rune
+			if len(inner) >= 2 && inner[0] == '\\' {
+				switch inner[1] {
+				case 'n':
+					ch = '\n'
+				case 't':
+					ch = '\t'
+				case 'r':
+					ch = '\r'
+				case '\\':
+					ch = '\\'
+				case '\'':
+					ch = '\''
+				case '0':
+					ch = 0
+				default:
+					ch = rune(inner[1])
+				}
+			} else if len(inner) >= 1 {
+				ch = rune(inner[0])
+			}
+			return ConstInt(I32, int64(ch))
+		}
 		return ConstInt(I32, 0)
 	}
 	return ConstInt(I32, 0)
@@ -114,6 +143,11 @@ func (l *lowerer) lowerIdent(e *ast.Ident) *Value {
 }
 
 func (l *lowerer) lowerBinaryExpr(e *ast.BinaryExpr) *Value {
+	// Short-circuit operators must be handled before evaluating RHS
+	if e.Op == token.LAND || e.Op == token.LOR {
+		return l.lowerShortCircuit(e)
+	}
+
 	x := l.lowerExprValue(e.X)
 	y := l.lowerExprValue(e.Y)
 	if x == nil || y == nil {
@@ -124,6 +158,9 @@ func (l *lowerer) lowerBinaryExpr(e *ast.BinaryExpr) *Value {
 	if typ == nil {
 		typ = I32
 	}
+
+	// Check if operands are unsigned for comparison/division
+	isUnsigned := typ.Kind == TyU8 || typ.Kind == TyU16 || typ.Kind == TyU32 || typ.Kind == TyU64
 
 	switch e.Op {
 	case token.ADD:
@@ -146,25 +183,78 @@ func (l *lowerer) lowerBinaryExpr(e *ast.BinaryExpr) *Value {
 		return l.bb.BinOp(OpShl, typ, x, y)
 	case token.SHR:
 		return l.bb.BinOp(OpShr, typ, x, y)
+	case token.AND_NOT:
+		// x &^ y = x & (^y) = x & (y ^ -1)
+		allOnes := ConstInt(typ, -1)
+		notY := l.bb.BinOp(OpXor, typ, y, allOnes)
+		return l.bb.BinOp(OpAnd, typ, x, notY)
 	case token.EQL:
 		return l.bb.Cmp(CmpEQ, typ, x, y)
 	case token.NEQ:
 		return l.bb.Cmp(CmpNE, typ, x, y)
 	case token.LSS:
+		if isUnsigned {
+			return l.bb.Cmp(CmpULT, typ, x, y)
+		}
 		return l.bb.Cmp(CmpLT, typ, x, y)
 	case token.LEQ:
+		if isUnsigned {
+			return l.bb.Cmp(CmpULE, typ, x, y)
+		}
 		return l.bb.Cmp(CmpLE, typ, x, y)
 	case token.GTR:
+		if isUnsigned {
+			return l.bb.Cmp(CmpUGT, typ, x, y)
+		}
 		return l.bb.Cmp(CmpGT, typ, x, y)
 	case token.GEQ:
+		if isUnsigned {
+			return l.bb.Cmp(CmpUGE, typ, x, y)
+		}
 		return l.bb.Cmp(CmpGE, typ, x, y)
-	case token.LAND:
-		// Short-circuit AND — for now just AND the bool values
-		return l.bb.BinOp(OpAnd, Bool, x, y)
-	case token.LOR:
-		return l.bb.BinOp(OpOr, Bool, x, y)
 	}
 	return ConstInt(I32, 0)
+}
+
+// lowerShortCircuit implements short-circuit evaluation for && and ||.
+//
+// For a && b: evaluate a; if false, result is false (skip b).
+// For a || b: evaluate a; if true, result is true (skip b).
+func (l *lowerer) lowerShortCircuit(e *ast.BinaryExpr) *Value {
+	// Allocate a result slot
+	resultSlot := l.bb.Alloca(Bool)
+
+	// Evaluate LHS
+	a := l.lowerExprValue(e.X)
+	if a == nil {
+		return ConstInt(I32, 0)
+	}
+	l.bb.Store(Bool, a, resultSlot)
+
+	evalBBlock := l.fn.NewBlock("sc.evalb")
+	mergeBlock := l.fn.NewBlock("sc.merge")
+
+	if e.Op == token.LAND {
+		// &&: if a is false (0), skip b; if true, evaluate b
+		l.bb.CondBr(a, evalBBlock, mergeBlock)
+	} else {
+		// ||: if a is true (nonzero), skip b; if false, evaluate b
+		l.bb.CondBr(a, mergeBlock, evalBBlock)
+	}
+
+	// Evaluate RHS in evalBBlock
+	l.bb = evalBBlock
+	b := l.lowerExprValue(e.Y)
+	if b != nil {
+		l.bb.Store(Bool, b, resultSlot)
+	}
+	if l.bb.Term == nil {
+		l.bb.Br(mergeBlock)
+	}
+
+	// Merge: load result
+	l.bb = mergeBlock
+	return l.bb.Load(Bool, resultSlot)
 }
 
 func (l *lowerer) lowerUnaryExpr(e *ast.UnaryExpr) *Value {

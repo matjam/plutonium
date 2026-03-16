@@ -138,6 +138,29 @@ func (cg *codeGen) emitParamSetup() {
 	}
 }
 
+// calleeSavedRegs lists the callee-saved registers in the System V AMD64 ABI.
+// If any of these are used by the register allocator, the function prologue
+// must save them and the epilogue must restore them.
+var calleeSavedRegs = []encoder.Reg{
+	encoder.RBX, encoder.R12, encoder.R13, encoder.R14, encoder.R15,
+}
+
+// usedCalleeSaved returns the list of callee-saved registers that the
+// register allocator assigned to values in this function.
+func (cg *codeGen) usedCalleeSaved() []encoder.Reg {
+	used := make(map[encoder.Reg]bool)
+	for _, reg := range cg.alloc.Reg {
+		used[reg] = true
+	}
+	var result []encoder.Reg
+	for _, r := range calleeSavedRegs {
+		if used[r] {
+			result = append(result, r)
+		}
+	}
+	return result
+}
+
 func (cg *codeGen) compile() ([]byte, []codegen.Reloc, error) {
 	cg.blockOffsets = make(map[string]int)
 	cg.fwdRefs = nil
@@ -145,17 +168,44 @@ func (cg *codeGen) compile() ([]byte, []codegen.Reloc, error) {
 	// Layout stack frame FIRST — scan for alloca instructions
 	cg.layoutStackFrame()
 
+	// Determine which callee-saved registers need preserving
+	savedRegs := cg.usedCalleeSaved()
+
 	// Function prologue
 	cg.emit(encoder.EncPUSH(encoder.RBP))
 	cg.emit(encoder.EncMOV_RR(encoder.RBP, encoder.RSP, encoder.W64))
 
-	// Allocate stack space for locals (alloca slots) AND register spills
+	// Save callee-saved registers that were used
+	for _, r := range savedRegs {
+		cg.emit(encoder.EncPUSH(r))
+	}
+
+	// Allocate stack space for locals (alloca slots) AND register spills.
+	// Account for callee-saved pushes in alignment: each PUSH RBP + N saved
+	// regs means (1 + N) pushes before SUB RSP. We need the final RSP to be
+	// 16-byte aligned. The CALL that got us here pushed a return address (8 bytes),
+	// then PUSH RBP (8 bytes) + N saved regs (N*8 bytes) = (2+N)*8 bytes on stack.
+	// If (2+N) is odd, RSP is already 16-byte aligned before SUB; if even, it's off by 8.
 	totalStack := cg.frameSize
 	if cg.alloc.StackSize > 0 {
 		totalStack += int32(cg.alloc.StackSize)
 	}
 	if totalStack > 0 {
-		totalStack = (totalStack + 15) &^ 15 // 16-byte align
+		totalStack = (totalStack + 15) &^ 15 // 16-byte align the frame size
+		// Adjust for alignment: (return addr + RBP + saved regs) pushes
+		// If the number of pushes (1 for RBP + len(savedRegs)) is even,
+		// RSP is misaligned by 8; add 8 to compensate.
+		numPushes := 1 + len(savedRegs) // RBP + callee-saved
+		// After CALL: RSP is 8-mod-16. After numPushes pushes: RSP is (8 + numPushes*8) mod 16
+		// We want (RSP - totalStack) to be 16-byte aligned.
+		// RSP after pushes = original - 8 (call) - numPushes*8
+		// If numPushes is odd: RSP mod 16 == 0, so totalStack must be multiple of 16 (already is)
+		// If numPushes is even: RSP mod 16 == 8, so totalStack must be 8 mod 16
+		if numPushes%2 == 0 && totalStack%16 == 0 {
+			totalStack += 8
+		} else if numPushes%2 != 0 && totalStack%16 != 0 {
+			totalStack = (totalStack + 15) &^ 15
+		}
 		cg.emit(encoder.EncSUB_RI(encoder.RSP, totalStack, encoder.W64))
 	}
 
@@ -268,6 +318,26 @@ func boolToByte(b bool) byte {
 		return 1
 	}
 	return 0
+}
+
+// isUnsignedType returns true if the IR type is an unsigned integer type.
+func isUnsignedType(t *ir.Type) bool {
+	if t == nil {
+		return false
+	}
+	return t.Kind == ir.TyU8 || t.Kind == ir.TyU16 || t.Kind == ir.TyU32 || t.Kind == ir.TyU64
+}
+
+// instrIsUnsigned checks if a division/modulo instruction operates on unsigned types.
+// It checks the result type first, then falls back to the first argument's type.
+func instrIsUnsigned(instr *ir.Instruction) bool {
+	if instr.Result != nil && isUnsignedType(instr.Result.Type) {
+		return true
+	}
+	if len(instr.Args) > 0 && instr.Args[0] != nil && isUnsignedType(instr.Args[0].Type) {
+		return true
+	}
+	return false
 }
 
 func widthFor(t *ir.Type) encoder.Width {
@@ -415,10 +485,16 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 			cg.emit(encoder.EncMOV_RR(encoder.RCX, b, encoder.W64))
 			// Move dividend to RAX
 			cg.emit(encoder.EncMOV_RR(encoder.RAX, a, encoder.W64))
-			// Sign-extend RAX into RDX:RAX (CQO)
-			cg.emit([]byte{0x48, 0x99})
-			// IDIV RCX: RAX=quotient, RDX=remainder
-			cg.emit([]byte{0x48, 0xF7, 0xF9}) // REX.W IDIV RCX
+			if instrIsUnsigned(instr) {
+				// Unsigned division: zero-extend RDX (XOR RDX, RDX) then DIV
+				cg.emit(encoder.EncXOR_RR_zero(encoder.RDX))
+				// DIV RCX: REX.W F7 /6 modrm(11, 6, RCX=1)
+				cg.emit([]byte{0x48, 0xF7, 0xF1}) // REX.W DIV RCX
+			} else {
+				// Signed division: sign-extend RAX into RDX:RAX (CQO) then IDIV
+				cg.emit([]byte{0x48, 0x99})       // CQO
+				cg.emit([]byte{0x48, 0xF7, 0xF9}) // REX.W IDIV RCX
+			}
 			cg.storeResult(instr.Result, encoder.RAX)
 		}
 
@@ -427,8 +503,15 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 			a, b := cg.stageBinaryArgs(instr.Args[0], instr.Args[1])
 			cg.emit(encoder.EncMOV_RR(encoder.RCX, b, encoder.W64))
 			cg.emit(encoder.EncMOV_RR(encoder.RAX, a, encoder.W64))
-			cg.emit([]byte{0x48, 0x99})       // CQO
-			cg.emit([]byte{0x48, 0xF7, 0xF9}) // REX.W IDIV RCX
+			if instrIsUnsigned(instr) {
+				// Unsigned remainder: zero-extend RDX then DIV
+				cg.emit(encoder.EncXOR_RR_zero(encoder.RDX))
+				cg.emit([]byte{0x48, 0xF7, 0xF1}) // REX.W DIV RCX
+			} else {
+				// Signed remainder: CQO then IDIV
+				cg.emit([]byte{0x48, 0x99})       // CQO
+				cg.emit([]byte{0x48, 0xF7, 0xF9}) // REX.W IDIV RCX
+			}
 			cg.storeResult(instr.Result, encoder.RDX)
 		}
 
@@ -586,9 +669,13 @@ func (cg *codeGen) compileCmp(instr *ir.Instruction) {
 	case ir.CmpGE:
 		setOp = 0x9D // SETGE
 	case ir.CmpULT:
-		setOp = 0x92 // SETB
+		setOp = 0x92 // SETB (below, unsigned <)
+	case ir.CmpULE:
+		setOp = 0x96 // SETBE (below or equal, unsigned <=)
 	case ir.CmpUGT:
-		setOp = 0x97 // SETA
+		setOp = 0x97 // SETA (above, unsigned >)
+	case ir.CmpUGE:
+		setOp = 0x93 // SETNB / SETAE (not below, unsigned >=)
 	default:
 		setOp = 0x94
 	}
@@ -718,7 +805,44 @@ func (cg *codeGen) compileTerm(term *ir.Terminator) {
 }
 
 func (cg *codeGen) emitEpilogue() {
-	// Restore RSP from RBP — always correct regardless of stack size
-	cg.emit(encoder.EncMOV_RR(encoder.RSP, encoder.RBP, encoder.W64))
+	// Restore callee-saved registers in reverse order.
+	// We use MOV RSP, RBP first to unwind the local frame, then
+	// POP saved regs (which sit between the locals and the saved RBP).
+	// Actually, the saved regs are between RBP and the locals:
+	//   [RBP] -> old RBP
+	//   [RBP-8] -> first saved reg
+	//   [RBP-16] -> second saved reg
+	//   ...
+	//   [RBP-N*8] -> last saved reg
+	//   [RBP-N*8-frameSize] -> locals start
+	// So to restore: set RSP to RBP - N*8 (just past saved regs), then POP each.
+	// Simpler: MOV RSP, RBP undoes everything including saved regs, then we'd need
+	// to re-push... No. The correct approach: undo locals first, pop saved regs, then
+	// pop RBP.
+	//
+	// Stack layout (growing down):
+	//   [higher addr]  return addr
+	//                  old RBP      <- RBP points here
+	//                  saved_reg_0  <- RBP - 8
+	//                  saved_reg_1  <- RBP - 16
+	//                  ...
+	//                  locals/spills <- SUB RSP, totalStack from here
+	//   [lower addr]   current RSP
+	//
+	// Epilogue: LEA RSP, [RBP - N*8]  then POP saved regs in reverse, then POP RBP.
+	savedRegs := cg.usedCalleeSaved()
+	if len(savedRegs) > 0 {
+		// Point RSP just below the saved registers
+		offset := int32(-len(savedRegs) * 8)
+		mem := encoder.MemOp{Base: encoder.RBP, Index: encoder.NoReg, Disp: offset, Width: encoder.W64}
+		cg.emit(encoder.EncLEA(encoder.RSP, mem))
+		// Pop in reverse order
+		for i := len(savedRegs) - 1; i >= 0; i-- {
+			cg.emit(encoder.EncPOP(savedRegs[i]))
+		}
+	} else {
+		// No saved regs — simple restore
+		cg.emit(encoder.EncMOV_RR(encoder.RSP, encoder.RBP, encoder.W64))
+	}
 	cg.emit(encoder.EncPOP(encoder.RBP))
 }

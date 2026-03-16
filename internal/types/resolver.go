@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/matjam/plutonium/internal/ast"
 	"github.com/matjam/plutonium/internal/token"
@@ -29,8 +30,12 @@ func (c *checker) resolveType(expr ast.Expr) Type {
 			// slice []T
 			return &Slice{elem: elem}
 		}
-		// array [N]T — constant eval deferred for v0.1
-		return &Array{len: 0, elem: elem}
+		// array [N]T — parse literal length
+		var arrLen int64
+		if lit, ok := e.Len.(*ast.BasicLit); ok && lit.Kind == token.INT {
+			arrLen, _ = strconv.ParseInt(lit.Value, 0, 64)
+		}
+		return &Array{len: arrLen, elem: elem}
 
 	case *ast.StructType:
 		return c.resolveStructType(e)
