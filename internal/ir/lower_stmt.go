@@ -7,9 +7,6 @@ import (
 	"github.com/matjam/plutonium/internal/token"
 )
 
-// Ensure fmt is used (referenced in aligned type parsing).
-var _ = fmt.Sscanf
-
 // --- Statement lowering ---
 
 func (l *lowerer) lowerBlock(block *ast.BlockStmt) {
