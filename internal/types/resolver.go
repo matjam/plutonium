@@ -96,6 +96,35 @@ func (c *checker) resolveType(expr ast.Expr) Type {
 	case *ast.BitsGroupType:
 		// BitsGroupType in isolation — a group of 1-bit bools
 		return Typ[Bool]
+
+	case *ast.VolatileType:
+		elem := c.resolveType(e.Elem)
+		// volatile[T] — T must be a scalar type (reject structs, arrays, slices)
+		if elem != nil {
+			switch elem.(type) {
+			case *Struct, *Array, *Slice:
+				c.errorf(e.Volatile, "volatile[T] requires a scalar type; %s is not scalar", elem.String())
+				return Typ[Invalid]
+			}
+		}
+		return &Volatile{elem: elem}
+
+	case *ast.AlignedType:
+		elem := c.resolveType(e.Elem)
+		// Parse the alignment constant
+		alignment := 0
+		if lit, ok := e.Alignment.(*ast.BasicLit); ok {
+			fmt.Sscanf(lit.Value, "%d", &alignment)
+		}
+		if alignment <= 0 {
+			c.errorf(e.Alignment.Pos(), "alignment must be a positive integer")
+			return Typ[Invalid]
+		}
+		if alignment&(alignment-1) != 0 {
+			c.errorf(e.Alignment.Pos(), "alignment %d must be a power of 2", alignment)
+			return Typ[Invalid]
+		}
+		return &Aligned{elem: elem, alignment: alignment}
 	}
 
 	return Typ[Invalid]

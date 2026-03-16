@@ -250,7 +250,8 @@ func (p *parser) isTypeStart() bool {
 	switch p.tok {
 	case token.IDENT, token.MUL, token.LBRACK, token.STRUCT,
 		token.INTERFACE, token.FUNC, token.MAP, token.CHAN,
-		token.LPAREN, token.PACKED, token.BITS:
+		token.LPAREN, token.PACKED, token.BITS,
+		token.VOLATILE, token.ALIGNED:
 		return true
 	}
 	return false
@@ -268,6 +269,10 @@ func (p *parser) parseType() ast.Expr {
 		return p.parsePackedType()
 	case token.BITS:
 		return p.parseBitsType()
+	case token.VOLATILE:
+		return p.parseVolatileType()
+	case token.ALIGNED:
+		return p.parseAlignedType()
 	case token.INTERFACE:
 		return p.parseInterfaceType()
 	case token.FUNC:
@@ -829,6 +834,37 @@ func (p *parser) parseBitsType() *ast.BitsType {
 		AccessType: accessType,
 		Width:      width,
 		Rbrack:     rbrack,
+	}
+}
+
+// parseVolatileType parses: volatile[T]
+func (p *parser) parseVolatileType() *ast.VolatileType {
+	pos := p.expect(token.VOLATILE)
+	lbrack := p.expect(token.LBRACK)
+	elem := p.parseType()
+	rbrack := p.expect(token.RBRACK)
+	return &ast.VolatileType{
+		Volatile: pos,
+		Lbrack:   lbrack,
+		Elem:     elem,
+		Rbrack:   rbrack,
+	}
+}
+
+// parseAlignedType parses: aligned[T, N]
+func (p *parser) parseAlignedType() *ast.AlignedType {
+	pos := p.expect(token.ALIGNED)
+	lbrack := p.expect(token.LBRACK)
+	elem := p.parseType()
+	p.expect(token.COMMA)
+	alignment := p.parseExpr()
+	rbrack := p.expect(token.RBRACK)
+	return &ast.AlignedType{
+		Aligned:   pos,
+		Lbrack:    lbrack,
+		Elem:      elem,
+		Alignment: alignment,
+		Rbrack:    rbrack,
 	}
 }
 

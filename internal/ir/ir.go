@@ -18,14 +18,15 @@ const (
 	TyU64
 	TyF32
 	TyF64
-	TyPtr    // pointer to Elem
-	TyArray  // [Len]Elem
-	TySlice  // { ptr *Elem, len i64, cap i64 }
-	TyStruct // fields
-	TyFunc   // function type
-	TyVoid   // no value
-	TyAny    // tagged union { typeID uint64, data uint64 } = 16 bytes
-	TyString // fat pointer { ptr *byte, len int64 } = 16 bytes
+	TyPtr      // pointer to Elem
+	TyArray    // [Len]Elem
+	TySlice    // { ptr *Elem, len i64, cap i64 }
+	TyStruct   // fields
+	TyFunc     // function type
+	TyVoid     // no value
+	TyAny      // tagged union { typeID uint64, data uint64 } = 16 bytes
+	TyString   // fat pointer { ptr *byte, len int64 } = 16 bytes
+	TyVolatile // volatile wrapper — loads/stores must not be elided/reordered
 )
 
 // Type represents an IR type.
@@ -80,6 +81,8 @@ func (t *Type) String() string {
 		return "string"
 	case TyStruct:
 		return "struct"
+	case TyVolatile:
+		return "volatile[" + t.Elem.String() + "]"
 	}
 	return "unknown"
 }
@@ -186,6 +189,11 @@ func SizeOf(t *Type) int64 {
 		return 0
 	case TyStruct:
 		return int64(len(t.Fields)) * 8 // all fields 8-byte aligned in v0.1
+	case TyVolatile:
+		if t.Elem != nil {
+			return SizeOf(t.Elem)
+		}
+		return 8
 	default:
 		return 8
 	}
@@ -341,6 +349,10 @@ type Instruction struct {
 	ToType   *Type
 	// For packed loads/stores with endianness conversion:
 	NeedsBSwap bool
+	// For volatile loads/stores — must not be elided, coalesced, or reordered:
+	IsVolatile bool
+	// For OpAlloca: explicit alignment override (0 = default)
+	AllocAlign int
 }
 
 // TermKind identifies the kind of basic block terminator.

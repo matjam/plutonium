@@ -108,10 +108,12 @@ const (
 	VAR
 
 	// Systems programming keywords
-	PACKED // packed
-	BITS   // bits
-	BE     // be
-	LE     // le
+	PACKED   // packed
+	BITS     // bits
+	BE       // be
+	LE       // le
+	VOLATILE // volatile
+	ALIGNED  // aligned
 
 	forbidden_beg
 	// Forbidden keywords — valid Go keywords that Plutonium does not support.
@@ -212,10 +214,12 @@ var tokens = [...]string{
 	TYPE:        "type",
 	VAR:         "var",
 
-	PACKED: "packed",
-	BITS:   "bits",
-	BE:     "be",
-	LE:     "le",
+	PACKED:   "packed",
+	BITS:     "bits",
+	BE:       "be",
+	LE:       "le",
+	VOLATILE: "volatile",
+	ALIGNED:  "aligned",
 
 	CHAN:   "chan",
 	GO:     "go",

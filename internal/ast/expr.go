@@ -326,6 +326,34 @@ func (x *BitsGroupType) Pos() token.Pos { return x.Bits }
 func (x *BitsGroupType) End() token.Pos { return x.Rbrace + 1 }
 func (x *BitsGroupType) exprNode()      {}
 
+// VolatileType represents a volatile[T] type wrapper.
+// Every load/store through a volatile variable produces exactly one
+// memory access in program order, with no coalescing or elision.
+type VolatileType struct {
+	Volatile token.Pos // position of "volatile" keyword
+	Lbrack   token.Pos // position of "["
+	Elem     Expr      // element type T (must be scalar)
+	Rbrack   token.Pos // position of "]"
+}
+
+func (x *VolatileType) Pos() token.Pos { return x.Volatile }
+func (x *VolatileType) End() token.Pos { return x.Rbrack + 1 }
+func (x *VolatileType) exprNode()      {}
+
+// AlignedType represents an aligned[T, N] type wrapper.
+// N must be a power of 2 and guarantees N-byte alignment.
+type AlignedType struct {
+	Aligned   token.Pos // position of "aligned" keyword
+	Lbrack    token.Pos // position of "["
+	Elem      Expr      // element type T
+	Alignment Expr      // alignment N (integer literal, must be power of 2)
+	Rbrack    token.Pos // position of "]"
+}
+
+func (x *AlignedType) Pos() token.Pos { return x.Aligned }
+func (x *AlignedType) End() token.Pos { return x.Rbrack + 1 }
+func (x *AlignedType) exprNode()      {}
+
 // Ellipsis represents a variadic parameter type "...T".
 type Ellipsis struct {
 	Ellipsis token.Pos // position of "..."

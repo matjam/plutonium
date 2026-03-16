@@ -197,7 +197,13 @@ func (l *lowerer) storeLHS(expr ast.Expr, val *Value) {
 		if typ == nil {
 			typ = I32
 		}
-		l.bb.Store(typ, val, slot)
+		// For volatile variables, mark the store so it must not be
+		// elided, coalesced, or reordered by any future optimizer.
+		if l.volatileVars[e.Name] {
+			l.bb.StoreVolatile(typ, val, slot)
+		} else {
+			l.bb.Store(typ, val, slot)
+		}
 		// Track struct types for field access resolution on regular assignment
 		if typ.Kind == TyStruct && len(typ.FieldNames) > 0 {
 			l.structTypes[e.Name] = typ
@@ -453,6 +459,18 @@ func (l *lowerer) lowerDeclStmt(s *ast.DeclStmt) {
 				l.bb.Store(backingType, ConstInt(backingType, 0), slot)
 				l.env[name.Name] = slot
 				l.packedVars[name.Name] = pinfo
+				continue
+			}
+
+			// Check if this is a volatile type — allocate the element type
+			// and track the variable as volatile for load/store marking.
+			if typ.Kind == TyVolatile && typ.Elem != nil {
+				elemType := typ.Elem
+				slot := l.bb.Alloca(elemType)
+				// Zero-initialize
+				l.bb.Store(elemType, ConstInt(elemType, 0), slot)
+				l.env[name.Name] = slot
+				l.volatileVars[name.Name] = true
 				continue
 			}
 

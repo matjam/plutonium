@@ -307,6 +307,10 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 		// The result value is tracked in stackSlots.
 
 	case ir.OpLoad:
+		// NOTE: volatile loads (instr.IsVolatile) are codegen-identical to
+		// regular loads on x86_64 — MOV is naturally ordered for MMIO.
+		// The IsVolatile flag ensures no future optimizer elides or reorders
+		// these accesses. For v0.1, this is a no-op.
 		if len(instr.Args) == 1 {
 			ptr := instr.Args[0]
 
@@ -333,6 +337,10 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 		}
 
 	case ir.OpStore:
+		// NOTE: volatile stores (instr.IsVolatile) are codegen-identical to
+		// regular stores on x86_64 — MOV is naturally ordered for MMIO.
+		// The IsVolatile flag ensures no future optimizer elides or reorders
+		// these accesses. For v0.1, this is a no-op.
 		if len(instr.Args) == 2 {
 			// Skip stores that are param->alloca (handled by emitParamSetup)
 			if cg.isParamStore(instr) {

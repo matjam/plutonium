@@ -187,6 +187,19 @@ func Walk(v Visitor, node Node) {
 			Walk(v, name)
 		}
 
+	case *VolatileType:
+		if n.Elem != nil {
+			Walk(v, n.Elem)
+		}
+
+	case *AlignedType:
+		if n.Elem != nil {
+			Walk(v, n.Elem)
+		}
+		if n.Alignment != nil {
+			Walk(v, n.Alignment)
+		}
+
 	case *Ellipsis:
 		Walk(v, n.Elt)
 

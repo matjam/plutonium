@@ -102,6 +102,7 @@ type lowerer struct {
 	namedTypes   map[string]*Type             // type name → IR struct type (from type declarations)
 	packedTypes  map[*Type]*packedTypeInfo    // IR type → packed type metadata
 	packedVars   map[string]*packedTypeInfo   // variable name → packed type metadata
+	volatileVars map[string]bool              // variable name → true if volatile
 	retSlots     []*Value                     // return value slots (for multiple returns)
 	allFuncs     map[string]*Function         // all known functions by qualified name
 	variadicInfo map[string]*variadicFuncInfo // function name → variadic info
@@ -133,6 +134,7 @@ func (l *lowerer) lowerFuncBody(fe *mono.FuncEntry, fn *Function) error {
 		namedTypes:   l.namedTypes,
 		packedTypes:  l.packedTypes,
 		packedVars:   make(map[string]*packedTypeInfo),
+		volatileVars: make(map[string]bool),
 		allFuncs:     l.allFuncs,
 		variadicInfo: l.variadicInfo,
 	}
@@ -299,6 +301,13 @@ func (l *lowerer) lowerType(expr ast.Expr) *Type {
 	case *ast.BitsGroupType:
 		// A bits group is internally Bool — individual 1-bit fields
 		return Bool
+	case *ast.VolatileType:
+		elem := l.lowerType(e.Elem)
+		return &Type{Kind: TyVolatile, Elem: elem}
+	case *ast.AlignedType:
+		// aligned[T, N] lowers to the same IR type as T, but with
+		// alignment metadata on the alloca (handled in lowerDeclStmt).
+		return l.lowerType(e.Elem)
 	}
 	return I32 // fallback
 }

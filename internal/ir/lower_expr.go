@@ -105,6 +105,11 @@ func (l *lowerer) lowerIdent(e *ast.Ident) *Value {
 	if typ == nil {
 		typ = I32
 	}
+	// For volatile variables, mark the load instruction so it must not be
+	// elided, coalesced, or reordered by any future optimizer.
+	if l.volatileVars[e.Name] {
+		return l.bb.LoadVolatile(typ, slot)
+	}
 	return l.bb.Load(typ, slot)
 }
 

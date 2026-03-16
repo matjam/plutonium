@@ -56,6 +56,22 @@ func (bb *BasicBlock) Load(typ *Type, ptr *Value) *Value {
 	return result
 }
 
+// LoadVolatile loads a value from a pointer, marking the load as volatile.
+// Volatile loads must not be elided, coalesced, or reordered by any optimizer.
+func (bb *BasicBlock) LoadVolatile(typ *Type, ptr *Value) *Value {
+	result := bb.fn.newValue(typ)
+	instr := &Instruction{Op: OpLoad, Result: result, Args: []*Value{ptr}, IsVolatile: true}
+	bb.Instrs = append(bb.Instrs, instr)
+	return result
+}
+
+// StoreVolatile stores a value to a pointer, marking the store as volatile.
+// Volatile stores must not be elided, coalesced, or reordered by any optimizer.
+func (bb *BasicBlock) StoreVolatile(typ *Type, val, ptr *Value) {
+	instr := &Instruction{Op: OpStore, Args: []*Value{val, ptr}, IsVolatile: true}
+	bb.Instrs = append(bb.Instrs, instr)
+}
+
 // LoadBSwap loads a value from a pointer, optionally byte-swapping the result.
 // When bswap is true, the codegen emits BSWAP immediately after the load.
 func (bb *BasicBlock) LoadBSwap(typ *Type, ptr *Value, bswap bool) *Value {

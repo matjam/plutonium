@@ -207,6 +207,33 @@ func (f *BitField) Width() int        { return f.width }
 func (f *BitField) Offset() int       { return f.offset }
 func (f *BitField) GroupName() string { return f.groupName }
 
+// Volatile is a type wrapper guaranteeing every read/write produces exactly
+// one load/store instruction in program order, with no coalescing or elision.
+// T must be a scalar type.
+type Volatile struct {
+	elem Type
+}
+
+func (t *Volatile) typeNode()        {}
+func (t *Volatile) Underlying() Type { return t }
+func (t *Volatile) Elem() Type       { return t.elem }
+func (t *Volatile) String() string   { return "volatile[" + t.elem.String() + "]" }
+
+// Aligned is a type wrapper guaranteeing N-byte alignment.
+// N must be a power of 2.
+type Aligned struct {
+	elem      Type
+	alignment int
+}
+
+func (t *Aligned) typeNode()        {}
+func (t *Aligned) Underlying() Type { return t }
+func (t *Aligned) Elem() Type       { return t.elem }
+func (t *Aligned) Alignment() int   { return t.alignment }
+func (t *Aligned) String() string {
+	return fmt.Sprintf("aligned[%s, %d]", t.elem.String(), t.alignment)
+}
+
 // Union represents a type union constraint (int32 | int64).
 type Union struct {
 	terms []Type
