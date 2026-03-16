@@ -566,9 +566,10 @@ func encMem(op64, op8 byte, reg Reg, mem MemOp) []byte {
 		out = append(out, modrm(mod, reg.Low3(), mem.Base.Low3()))
 	}
 
-	if mod == 1 {
+	switch mod {
+	case 1:
 		out = append(out, byte(int8(mem.Disp)))
-	} else if mod == 2 {
+	case 2:
 		out = appendInt32(out, mem.Disp)
 	}
 

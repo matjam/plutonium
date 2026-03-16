@@ -126,7 +126,7 @@ func (c *checker) resolveType(expr ast.Expr) Type {
 		// Parse the alignment constant
 		alignment := 0
 		if lit, ok := e.Alignment.(*ast.BasicLit); ok {
-			fmt.Sscanf(lit.Value, "%d", &alignment)
+			alignment, _ = strconv.Atoi(lit.Value)
 		}
 		if alignment <= 0 {
 			c.errorf(e.Alignment.Pos(), "alignment must be a positive integer")
@@ -143,7 +143,7 @@ func (c *checker) resolveType(expr ast.Expr) Type {
 		// Parse the capacity constant
 		capacity := 0
 		if lit, ok := e.Size.(*ast.BasicLit); ok {
-			fmt.Sscanf(lit.Value, "%d", &capacity)
+			capacity, _ = strconv.Atoi(lit.Value)
 		}
 		if capacity <= 0 {
 			c.errorf(e.Size.Pos(), "ring capacity must be a positive integer")
@@ -319,7 +319,7 @@ func (c *checker) resolvePackedType(e *ast.PackedType) *Packed {
 				// Parse the bit width from the literal
 				width := 0
 				if lit, ok := ft.Width.(*ast.BasicLit); ok {
-					fmt.Sscanf(lit.Value, "%d", &width)
+					width, _ = strconv.Atoi(lit.Value)
 				}
 
 				if width <= 0 {

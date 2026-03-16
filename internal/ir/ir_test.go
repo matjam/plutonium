@@ -33,7 +33,7 @@ func TestAlloca(t *testing.T) {
 	entry := fn.NewBlock("entry")
 	slot := entry.Alloca(ir.I32)
 	if slot == nil {
-		t.Error("expected non-nil alloca value")
+		t.Fatal("expected non-nil alloca value")
 	}
 	if slot.Type.Kind != ir.TyI32 {
 		t.Errorf("expected alloca type I32, got %v", slot.Type.Kind)

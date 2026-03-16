@@ -313,13 +313,6 @@ func (cg *codeGen) storeResult(result *ir.Value, reg encoder.Reg) {
 	}
 }
 
-func boolToByte(b bool) byte {
-	if b {
-		return 1
-	}
-	return 0
-}
-
 // isUnsignedType returns true if the IR type is an unsigned integer type.
 func isUnsignedType(t *ir.Type) bool {
 	if t == nil {

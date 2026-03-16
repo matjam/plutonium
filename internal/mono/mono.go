@@ -6,7 +6,6 @@
 package mono
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/matjam/plutonium/internal/ast"
@@ -255,7 +254,7 @@ func isIntLiteral(s string) bool {
 	for _, r := range s {
 		if r < '0' || r > '9' {
 			// Allow hex prefix and digits
-			if r != 'x' && r != 'X' && !(r >= 'a' && r <= 'f') && !(r >= 'A' && r <= 'F') {
+			if r != 'x' && r != 'X' && (r < 'a' || r > 'f') && (r < 'A' || r > 'F') {
 				return false
 			}
 		}
@@ -467,9 +466,4 @@ func cloneStmt(stmt ast.Stmt, subst map[string]string) ast.Stmt {
 	}
 	// Fallback for unhandled statement types
 	return stmt
-}
-
-// mangledFuncName returns the mangled name for a generic instantiation.
-func mangledFuncName(funcName, typeArg string) string {
-	return fmt.Sprintf("%s__%s", funcName, sanitize(typeArg))
 }

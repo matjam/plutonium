@@ -26,9 +26,9 @@ func (d *Diag) Errorf(pos token.Pos, format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	if pos.IsValid() {
 		p := d.fset.Position(pos)
-		fmt.Fprintf(d.w, "%s: error: %s\n", p, msg)
+		_, _ = fmt.Fprintf(d.w, "%s: error: %s\n", p, msg)
 	} else {
-		fmt.Fprintf(d.w, "error: %s\n", msg)
+		_, _ = fmt.Fprintf(d.w, "error: %s\n", msg)
 	}
 }
 
@@ -38,9 +38,9 @@ func (d *Diag) Warnf(pos token.Pos, format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 	if pos.IsValid() {
 		p := d.fset.Position(pos)
-		fmt.Fprintf(d.w, "%s: warning: %s\n", p, msg)
+		_, _ = fmt.Fprintf(d.w, "%s: warning: %s\n", p, msg)
 	} else {
-		fmt.Fprintf(d.w, "warning: %s\n", msg)
+		_, _ = fmt.Fprintf(d.w, "warning: %s\n", msg)
 	}
 }
 

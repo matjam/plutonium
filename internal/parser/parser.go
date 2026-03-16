@@ -126,15 +126,6 @@ var declStart = map[token.Token]bool{
 	token.VAR:   true,
 }
 
-var exprEnd = map[token.Token]bool{
-	token.COMMA:     true,
-	token.COLON:     true,
-	token.SEMICOLON: true,
-	token.RPAREN:    true,
-	token.RBRACK:    true,
-	token.RBRACE:    true,
-}
-
 // operatorPrecedence returns the binary operator precedence for a token.
 // Returns 0 for non-binary operators.
 // Precedences match Go's:
@@ -379,7 +370,8 @@ func (p *parser) parseFieldDecl() *ast.Field {
 	var names []*ast.Ident
 	var typ ast.Expr
 
-	if p.tok == token.IDENT {
+	switch p.tok {
+	case token.IDENT:
 		// Collect all identifiers before the type.
 		first := p.parseIdent()
 		names = append(names, first)
@@ -401,10 +393,10 @@ func (p *parser) parseFieldDecl() *ast.Field {
 				names = names[:len(names)-1]
 			}
 		}
-	} else if p.tok == token.MUL {
+	case token.MUL:
 		// Embedded pointer type: *T
 		typ = p.parsePointerType()
-	} else {
+	default:
 		typ = p.parseType()
 	}
 
@@ -638,9 +630,10 @@ func (p *parser) parseSpec(tok token.Token) ast.Spec {
 
 func (p *parser) parseImportSpec() *ast.ImportSpec {
 	var name *ast.Ident
-	if p.tok == token.IDENT {
+	switch p.tok {
+	case token.IDENT:
 		name = p.parseIdent()
-	} else if p.tok == token.PERIOD {
+	case token.PERIOD:
 		name = &ast.Ident{NamePos: p.pos, Name: "."}
 		p.next()
 	}
@@ -707,10 +700,11 @@ func (p *parser) parsePackedType() *ast.PackedType {
 
 	// Check for optional endianness annotation (be or le)
 	byteOrder := ast.EndianNative
-	if p.tok == token.BE {
+	switch p.tok {
+	case token.BE:
 		byteOrder = ast.EndianBig
 		p.next()
-	} else if p.tok == token.LE {
+	case token.LE:
 		byteOrder = ast.EndianLittle
 		p.next()
 	}
@@ -799,9 +793,8 @@ func (p *parser) parseBitsGroup(bitsPos token.Pos) *ast.BitsGroupType {
 	for p.tok != token.RBRACE && p.tok != token.EOF {
 		names = append(names, p.parseIdent())
 		// Accept comma or semicolon (newline) as separator
-		if p.tok == token.COMMA {
-			p.next()
-		} else if p.tok == token.SEMICOLON {
+		switch p.tok {
+		case token.COMMA, token.SEMICOLON:
 			p.next()
 		}
 	}
@@ -937,11 +930,7 @@ func (p *parser) parseParameters() *ast.FieldList {
 func (p *parser) parseParameterList() []*ast.Field {
 	var fields []*ast.Field
 
-	for {
-		if p.tok == token.RPAREN || p.tok == token.EOF {
-			break
-		}
-
+	for p.tok != token.RPAREN && p.tok != token.EOF {
 		// Handle unnamed variadic: ...T (no name before ellipsis)
 		if p.tok == token.ELLIPSIS {
 			ellipsisPos := p.pos
@@ -1098,9 +1087,10 @@ func (p *parser) parseStmt() ast.Stmt {
 			p.next()
 			depth := 1
 			for depth > 0 && p.tok != token.EOF {
-				if p.tok == token.LBRACE {
+				switch p.tok {
+				case token.LBRACE:
 					depth++
-				} else if p.tok == token.RBRACE {
+				case token.RBRACE:
 					depth--
 				}
 				p.next()
@@ -1185,10 +1175,11 @@ func (p *parser) parseIfStmt() *ast.IfStmt {
 
 	x := p.parseExprListNoCompositelit()
 
-	if p.tok == token.DEFINE || p.tok == token.ASSIGN ||
-		p.tok == token.ADD_ASSIGN || p.tok == token.SUB_ASSIGN ||
-		p.tok == token.MUL_ASSIGN || p.tok == token.QUO_ASSIGN ||
-		p.tok == token.REM_ASSIGN {
+	switch p.tok {
+	case token.DEFINE, token.ASSIGN,
+		token.ADD_ASSIGN, token.SUB_ASSIGN,
+		token.MUL_ASSIGN, token.QUO_ASSIGN,
+		token.REM_ASSIGN:
 		// init stmt = assignment
 		tokPos := p.pos
 		tok := p.tok
@@ -1197,14 +1188,14 @@ func (p *parser) parseIfStmt() *ast.IfStmt {
 		init = &ast.AssignStmt{Lhs: x, TokPos: tokPos, Tok: tok, Rhs: rhs}
 		p.expect(token.SEMICOLON)
 		cond = p.parseExpr()
-	} else if p.tok == token.SEMICOLON {
+	case token.SEMICOLON:
 		// init stmt = expr stmt
 		if len(x) > 0 {
 			init = &ast.ExprStmt{X: x[0]}
 		}
 		p.next()
 		cond = p.parseExprNoCompositelit()
-	} else {
+	default:
 		// just a condition
 		if len(x) == 1 {
 			cond = x[0]
@@ -1367,7 +1358,8 @@ func (p *parser) parseSwitchStmt() ast.Stmt {
 		// Could be: switch tag {} or switch init; tag {} or switch init; {}
 		// Disable composite lits to avoid ambiguity with {
 		x := p.parseExprListNoCompositelit()
-		if p.tok == token.DEFINE || p.tok == token.ASSIGN {
+		switch p.tok {
+		case token.DEFINE, token.ASSIGN:
 			tokPos := p.pos
 			tok := p.tok
 			p.next()
@@ -1379,7 +1371,7 @@ func (p *parser) parseSwitchStmt() ast.Stmt {
 					tag = p.parseExprNoCompositelit()
 				}
 			}
-		} else if p.tok == token.SEMICOLON {
+		case token.SEMICOLON:
 			if len(x) > 0 {
 				init = &ast.ExprStmt{X: x[0]}
 			}
@@ -1387,7 +1379,7 @@ func (p *parser) parseSwitchStmt() ast.Stmt {
 			if p.tok != token.LBRACE {
 				tag = p.parseExprNoCompositelit()
 			}
-		} else {
+		default:
 			if len(x) == 1 {
 				tag = x[0]
 			}

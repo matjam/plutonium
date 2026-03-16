@@ -240,7 +240,7 @@ func compileFiles(sourceFiles []string, outputFile string, cfg *config.Config) e
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", outputFile, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if cfg.Verbose {
 		fmt.Printf("writing %s\n", outputFile)

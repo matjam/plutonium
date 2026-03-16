@@ -1,7 +1,7 @@
 package ir
 
 import (
-	"fmt"
+	"strconv"
 
 	"github.com/matjam/plutonium/internal/ast"
 	"github.com/matjam/plutonium/internal/token"
@@ -612,12 +612,10 @@ func (l *lowerer) lowerDeclStmt(s *ast.DeclStmt) {
 					elemType := l.lowerType(rt.Elem)
 					var capacity int64
 					if lit, ok := rt.Size.(*ast.BasicLit); ok {
-						fmt.Sscanf(lit.Value, "%d", &capacity)
+						capacity, _ = strconv.ParseInt(lit.Value, 10, 64)
 					}
-					// Validate power of 2
-					if capacity <= 0 || (capacity&(capacity-1)) != 0 {
-						// Not a power of 2 — for v0.1, just continue
-					}
+					// TODO(v0.2): validate power-of-2 capacity and report diagnostic
+					_ = capacity <= 0 || (capacity&(capacity-1)) != 0
 					// Allocate head, tail as separate u64 slots
 					headSlot := l.bb.Alloca(U64)
 					l.bb.Store(U64, ConstInt(U64, 0), headSlot)
@@ -678,7 +676,7 @@ func (l *lowerer) lowerDeclStmt(s *ast.DeclStmt) {
 			if vs.Type != nil {
 				if at, ok := vs.Type.(*ast.AlignedType); ok {
 					if lit, ok := at.Alignment.(*ast.BasicLit); ok {
-						fmt.Sscanf(lit.Value, "%d", &allocAlign)
+						allocAlign, _ = strconv.Atoi(lit.Value)
 					}
 				}
 			}

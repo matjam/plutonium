@@ -7,11 +7,10 @@ import (
 
 // Package represents a type-checked Plutonium package.
 type Package struct {
-	path    string
-	name    string
-	scope   *Scope
-	files   []*ast.File
-	imports []*Package
+	path  string
+	name  string
+	scope *Scope
+	files []*ast.File
 }
 
 // Path returns the package import path.

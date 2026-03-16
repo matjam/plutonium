@@ -363,7 +363,7 @@ func (l *lowerer) lowerType(expr ast.Expr) *Type {
 		elemType := l.lowerType(e.Elem)
 		var capacity int64
 		if lit, ok := e.Size.(*ast.BasicLit); ok {
-			fmt.Sscanf(lit.Value, "%d", &capacity)
+			capacity, _ = strconv.ParseInt(lit.Value, 10, 64)
 		}
 		dataType := ArrayOf(capacity, elemType)
 		return &Type{
@@ -413,7 +413,7 @@ func (l *lowerer) lowerPackedType(e *ast.PackedType) *Type {
 			case *ast.BitsType:
 				width := 0
 				if lit, ok := ft.Width.(*ast.BasicLit); ok {
-					fmt.Sscanf(lit.Value, "%d", &width)
+					width, _ = strconv.Atoi(lit.Value)
 				}
 				accessType := l.lowerType(ft.AccessType)
 
