@@ -282,6 +282,16 @@ func (c *checker) checkSelectorExpr(e *ast.SelectorExpr) Type {
 				// Return uintptr here — the call site in checkCallExpr handles
 				// Basic types as type conversions, which works for uintptr.
 				return Typ[Uintptr]
+			case "As", "From":
+				// unsafe.As[T](ptr) and unsafe.From[T](ptr) are generic no-op casts.
+				// Return unsafe.Pointer for the function reference.
+				return Typ[UnsafePointer]
+			case "FromUintptr":
+				// unsafe.FromUintptr(n) — returns unsafe.Pointer
+				return Typ[UnsafePointer]
+			case "ToUintptr":
+				// unsafe.ToUintptr(p) — returns uintptr
+				return Typ[Uintptr]
 			}
 		}
 	}

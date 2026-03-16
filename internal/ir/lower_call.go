@@ -34,8 +34,16 @@ func (l *lowerer) lowerCallExpr(e *ast.CallExpr) *Value {
 		}
 	}
 
-	// Handle generic instantiation calls: Max[int64](args...)
+	// Handle generic instantiation calls: Max[int64](args...) or
+	// unsafe.Sizeof[T](), unsafe.As[T](ptr), etc.
 	if idxExpr, ok := e.Fun.(*ast.IndexExpr); ok {
+		// Check for unsafe package intrinsics: unsafe.Sizeof[T](), unsafe.As[T](ptr), etc.
+		if sel, ok := idxExpr.X.(*ast.SelectorExpr); ok {
+			if pkgIdent, ok := sel.X.(*ast.Ident); ok && pkgIdent.Name == "unsafe" {
+				return l.lowerUnsafeGenericCall(sel.Sel.Name, idxExpr.Index, e)
+			}
+		}
+
 		if funcIdent, ok := idxExpr.X.(*ast.Ident); ok {
 			typeArgName := ""
 			if typeIdent, ok := idxExpr.Index.(*ast.Ident); ok {
@@ -65,6 +73,12 @@ func (l *lowerer) lowerCallExpr(e *ast.CallExpr) *Value {
 	// Handle SelectorExpr calls: pkg.Func(args) or receiver.Method(args)
 	if sel, ok := e.Fun.(*ast.SelectorExpr); ok {
 		if ident, ok := sel.X.(*ast.Ident); ok {
+			// Handle unsafe package non-generic intrinsics:
+			// unsafe.FromUintptr(n) and unsafe.ToUintptr(p)
+			if ident.Name == "unsafe" {
+				return l.lowerUnsafeSimpleCall(sel.Sel.Name, e)
+			}
+
 			// Check if the identifier is a local variable (method call)
 			// vs. a package name (package-qualified call).
 			if _, isLocal := l.env[ident.Name]; isLocal {
@@ -371,4 +385,71 @@ func (l *lowerer) lowerVariadicCall(fn *Function, e *ast.CallExpr, info *variadi
 
 	allArgs := append(fixedArgs, slicePtr, sliceLen, sliceCap)
 	return l.bb.Call(fn, fn.RetType, allArgs...)
+}
+
+// --- unsafe package intrinsics ---
+
+// lowerUnsafeGenericCall handles generic unsafe intrinsics:
+//   - unsafe.Sizeof[T]()  → compile-time integer constant (size in bytes)
+//   - unsafe.Alignof[T]() → compile-time integer constant (alignment in bytes)
+//   - unsafe.As[T](ptr)   → no-op cast: unsafe.Pointer → *T (same register)
+//   - unsafe.From[T](ptr) → no-op cast: *T → unsafe.Pointer (same register)
+func (l *lowerer) lowerUnsafeGenericCall(funcName string, typeArg ast.Expr, e *ast.CallExpr) *Value {
+	switch funcName {
+	case "Sizeof":
+		irType := l.lowerType(typeArg)
+		return ConstInt(I64, SizeOf(irType))
+
+	case "Alignof":
+		irType := l.lowerType(typeArg)
+		// Natural alignment: same as size for scalars, capped at 8 for x86_64
+		align := SizeOf(irType)
+		if align > 8 {
+			align = 8
+		}
+		return ConstInt(I64, align)
+
+	case "As":
+		// unsafe.As[T](ptr) — no-op cast: return the argument unchanged.
+		// unsafe.Pointer and *T are both 8-byte pointers on 64-bit.
+		if len(e.Args) == 1 {
+			return l.lowerExprValue(e.Args[0])
+		}
+		return ConstInt(I64, 0)
+
+	case "From":
+		// unsafe.From[T](ptr) — no-op cast: return the argument unchanged.
+		// *T and unsafe.Pointer are both 8-byte pointers on 64-bit.
+		if len(e.Args) == 1 {
+			return l.lowerExprValue(e.Args[0])
+		}
+		return ConstInt(I64, 0)
+	}
+
+	// Unknown unsafe generic function — fall through
+	return ConstInt(I64, 0)
+}
+
+// lowerUnsafeSimpleCall handles non-generic unsafe intrinsics:
+//   - unsafe.FromUintptr(n)  → no-op: uintptr → unsafe.Pointer (same register)
+//   - unsafe.ToUintptr(p)    → no-op: unsafe.Pointer → uintptr (same register)
+func (l *lowerer) lowerUnsafeSimpleCall(funcName string, e *ast.CallExpr) *Value {
+	switch funcName {
+	case "FromUintptr":
+		// uintptr → unsafe.Pointer — no-op (both 8 bytes on 64-bit)
+		if len(e.Args) == 1 {
+			return l.lowerExprValue(e.Args[0])
+		}
+		return ConstInt(I64, 0)
+
+	case "ToUintptr":
+		// unsafe.Pointer → uintptr — no-op (both 8 bytes on 64-bit)
+		if len(e.Args) == 1 {
+			return l.lowerExprValue(e.Args[0])
+		}
+		return ConstInt(I64, 0)
+	}
+
+	// Unknown unsafe simple function — fall through
+	return ConstInt(I64, 0)
 }

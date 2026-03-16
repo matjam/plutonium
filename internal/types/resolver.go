@@ -62,6 +62,13 @@ func (c *checker) resolveType(expr ast.Expr) Type {
 			case "Sizeof", "Alignof", "Offsetof":
 				// These are builtin functions returning uintptr; handled in infer.go
 				return Typ[Uintptr]
+			case "As", "From":
+				// Generic no-op casts — return unsafe.Pointer for now
+				return Typ[UnsafePointer]
+			case "FromUintptr":
+				return Typ[UnsafePointer]
+			case "ToUintptr":
+				return Typ[Uintptr]
 			}
 		}
 		// Check imported packages for qualified type names (e.g. pkg.Type)
