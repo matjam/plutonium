@@ -38,9 +38,13 @@ func (l *lowerer) lowerCallExpr(e *ast.CallExpr) *Value {
 	// unsafe.Sizeof[T](), unsafe.As[T](ptr), etc.
 	if idxExpr, ok := e.Fun.(*ast.IndexExpr); ok {
 		// Check for unsafe package intrinsics: unsafe.Sizeof[T](), unsafe.As[T](ptr), etc.
+		// Also check for alloc package generics: alloc.New[T]().
 		if sel, ok := idxExpr.X.(*ast.SelectorExpr); ok {
 			if pkgIdent, ok := sel.X.(*ast.Ident); ok && pkgIdent.Name == "unsafe" {
 				return l.lowerUnsafeGenericCall(sel.Sel.Name, idxExpr.Index, e)
+			}
+			if pkgIdent, ok := sel.X.(*ast.Ident); ok && pkgIdent.Name == "alloc" {
+				return l.lowerAllocGenericCall(sel.Sel.Name, idxExpr.Index, e)
 			}
 		}
 
@@ -77,6 +81,12 @@ func (l *lowerer) lowerCallExpr(e *ast.CallExpr) *Value {
 			// unsafe.FromUintptr(n) and unsafe.ToUintptr(p)
 			if ident.Name == "unsafe" {
 				return l.lowerUnsafeSimpleCall(sel.Sel.Name, e)
+			}
+
+			// Handle alloc package non-generic intrinsics:
+			// alloc.Free(ptr)
+			if ident.Name == "alloc" {
+				return l.lowerAllocSimpleCall(sel.Sel.Name, e)
 			}
 
 			// Check if the identifier is a local variable (method call)
@@ -451,5 +461,69 @@ func (l *lowerer) lowerUnsafeSimpleCall(funcName string, e *ast.CallExpr) *Value
 	}
 
 	// Unknown unsafe simple function — fall through
+	return ConstInt(I64, 0)
+}
+
+// --- alloc package intrinsics ---
+
+// lowerAllocGenericCall handles generic alloc intrinsics:
+//   - alloc.New[T]() → calls alloc.newRaw(sizeof(T)), returns *T
+func (l *lowerer) lowerAllocGenericCall(funcName string, typeArg ast.Expr, e *ast.CallExpr) *Value {
+	switch funcName {
+	case "New":
+		// alloc.New[T]() — allocate sizeof(T) bytes and return *T
+		irType := l.lowerType(typeArg)
+		size := SizeOf(irType)
+
+		// Call alloc.newRaw(size)
+		fn := l.allFuncs["alloc.newRaw"]
+		if fn == nil {
+			fn = &Function{Name: "alloc.newRaw", RetType: PtrTo(U8), nextID: 1}
+			l.allFuncs["alloc.newRaw"] = fn
+		}
+
+		sizeVal := ConstInt(I64, size)
+		result := l.bb.Call(fn, PtrTo(irType), sizeVal)
+		return result
+	}
+
+	// Unknown alloc generic function — fall through
+	return ConstInt(I64, 0)
+}
+
+// lowerAllocSimpleCall handles non-generic alloc intrinsics:
+//   - alloc.Free(ptr) → infers sizeof(T) from ptr's *T type, calls alloc.freeRaw(ptr, sizeof(T))
+func (l *lowerer) lowerAllocSimpleCall(funcName string, e *ast.CallExpr) *Value {
+	switch funcName {
+	case "Free":
+		// alloc.Free(ptr) — free sizeof(T) bytes
+		if len(e.Args) != 1 {
+			return ConstInt(I64, 0)
+		}
+
+		ptr := l.lowerExprValue(e.Args[0])
+		if ptr == nil {
+			return ConstInt(I64, 0)
+		}
+
+		// Infer size from the pointer's element type
+		size := int64(8) // default to 8 bytes (int64-sized)
+		if ptr.Type != nil && ptr.Type.Kind == TyPtr && ptr.Type.Elem != nil {
+			size = SizeOf(ptr.Type.Elem)
+		}
+
+		// Call alloc.freeRaw(ptr, size)
+		fn := l.allFuncs["alloc.freeRaw"]
+		if fn == nil {
+			fn = &Function{Name: "alloc.freeRaw", RetType: Void, nextID: 1}
+			l.allFuncs["alloc.freeRaw"] = fn
+		}
+
+		sizeVal := ConstInt(I64, size)
+		l.bb.Call(fn, Void, ptr, sizeVal)
+		return ConstInt(I64, 0) // Free returns nothing
+	}
+
+	// Unknown alloc simple function — fall through
 	return ConstInt(I64, 0)
 }

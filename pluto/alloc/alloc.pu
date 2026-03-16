@@ -1,0 +1,38 @@
+//pu:build linux
+
+package alloc
+
+// mmap allocates size bytes of zeroed, read-write memory via the Linux
+// mmap(2) syscall. Returns a pointer to the allocated region.
+// Implemented in assembly (alloc_linux_amd64.s).
+func mmap(size int64) *byte
+
+// munmap releases size bytes of memory starting at ptr via the Linux
+// munmap(2) syscall.
+// Implemented in assembly (alloc_linux_amd64.s).
+func munmap(ptr *byte, size int64)
+
+// newRaw allocates size bytes of zeroed memory and returns a pointer
+// to the allocated region. The memory is obtained from mmap and is
+// page-aligned, zeroed by the kernel.
+func newRaw(size int64) *byte {
+    return mmap(size)
+}
+
+// freeRaw releases memory at ptr of given size. The memory must have
+// been previously allocated by newRaw (or mmap) with the same size.
+func freeRaw(ptr *byte, size int64) {
+    munmap(ptr, size)
+}
+
+// New allocates zeroed memory for a value of type T and returns a *T.
+// This is a compiler intrinsic — the compiler replaces New[T]() with
+// a call to newRaw(sizeof(T)) and casts the result to *T.
+// The stub declaration allows the type checker to resolve alloc.New.
+func New[T any]() *T
+
+// Free releases memory previously allocated by New.
+// This is a compiler intrinsic — the compiler replaces Free(ptr) with
+// a call to freeRaw(ptr, sizeof(T)) where T is inferred from the pointer type.
+// The stub declaration allows the type checker to resolve alloc.Free.
+func Free(ptr *byte)

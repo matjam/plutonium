@@ -1,0 +1,28 @@
+package main
+
+import "pluto/fmt"
+import "pluto/alloc"
+
+// Demonstrates heap allocation via the alloc package.
+//
+// Build: pluto build -o /tmp/alloc_test ./examples/11-alloc/
+// Run:   /tmp/alloc_test
+// Expected output:
+//   heap value=42
+//   heap value2=99
+
+func main() int64 {
+    // Allocate an int64 on the heap
+    ptr := alloc.New[int64]()
+    *ptr = 42
+    fmt.Printf("heap value=%d\n", *ptr)
+    alloc.Free(ptr)
+
+    // Allocate another
+    ptr2 := alloc.New[int64]()
+    *ptr2 = 99
+    fmt.Printf("heap value2=%d\n", *ptr2)
+    alloc.Free(ptr2)
+
+    return 0
+}
