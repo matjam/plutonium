@@ -85,6 +85,13 @@ func (c *checker) resolveType(expr ast.Expr) Type {
 	case *ast.Ellipsis:
 		// ...T → resolve element type (used in variadic param context)
 		return c.resolveType(e.Elt)
+
+	case *ast.PackedType:
+		return c.resolvePackedType(e)
+
+	case *ast.BitsType:
+		// BitsType in isolation — resolve just the access type
+		return c.resolveType(e.AccessType)
 	}
 
 	return Typ[Invalid]
@@ -208,6 +215,69 @@ func (c *checker) resolveTypeParamConstraint(expr ast.Expr) Type {
 		return c.resolveIdentType(e)
 	}
 	return c.resolveType(expr)
+}
+
+func (c *checker) resolvePackedType(e *ast.PackedType) *Packed {
+	backing := c.resolveType(e.BackingType)
+
+	// Determine the backing type's bit width
+	backingBits := 0
+	if bt, ok := backing.(*Basic); ok {
+		switch bt.kind {
+		case Uint8, Int8, Byte:
+			backingBits = 8
+		case Uint16, Int16:
+			backingBits = 16
+		case Uint32, Int32, Rune:
+			backingBits = 32
+		case Uint64, Int64, Int, Uint, Uintptr:
+			backingBits = 64
+		}
+	}
+
+	var fields []*BitField
+	bitOffset := 0
+	if e.Fields != nil {
+		for _, field := range e.Fields.List {
+			bt, ok := field.Type.(*ast.BitsType)
+			if !ok {
+				c.errorf(field.Pos(), "packed type fields must use bits[T, N] type")
+				continue
+			}
+			accessType := c.resolveType(bt.AccessType)
+
+			// Parse the bit width from the literal
+			width := 0
+			if lit, ok := bt.Width.(*ast.BasicLit); ok {
+				fmt.Sscanf(lit.Value, "%d", &width)
+			}
+
+			if width <= 0 {
+				c.errorf(bt.Width.Pos(), "bit width must be a positive integer")
+				continue
+			}
+
+			for _, name := range field.Names {
+				fields = append(fields, &BitField{
+					name:       name.Name,
+					accessType: accessType,
+					width:      width,
+					offset:     bitOffset,
+				})
+				bitOffset += width
+			}
+		}
+	}
+
+	if backingBits > 0 && bitOffset > backingBits {
+		c.errorf(e.Packed, "packed type fields use %d bits, exceeds backing type's %d bits", bitOffset, backingBits)
+	}
+
+	return &Packed{
+		backing:   backing,
+		fields:    fields,
+		totalBits: bitOffset,
+	}
 }
 
 // typeBaseName returns the base name of a type for embedded field naming.

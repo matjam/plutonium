@@ -336,6 +336,15 @@ func (c *checker) checkSelectorExpr(e *ast.SelectorExpr) Type {
 		}
 	}
 
+	// Look up field in packed type
+	if pt, ok := underlying.(*Packed); ok {
+		for _, f := range pt.fields {
+			if f.name == e.Sel.Name {
+				return f.accessType
+			}
+		}
+	}
+
 	return Typ[Invalid]
 }
 

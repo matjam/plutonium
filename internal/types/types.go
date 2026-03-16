@@ -166,6 +166,34 @@ func (t *AnyType) typeNode()        {}
 func (t *AnyType) Underlying() Type { return t }
 func (t *AnyType) String() string   { return "any" }
 
+// Packed represents a packed bitfield type.
+type Packed struct {
+	backing   Type        // the backing storage type (e.g., Basic for uint32)
+	fields    []*BitField // field definitions
+	totalBits int         // sum of all field widths
+}
+
+func (t *Packed) typeNode()             {}
+func (t *Packed) Underlying() Type      { return t }
+func (t *Packed) String() string        { return "packed{...}" }
+func (t *Packed) Backing() Type         { return t.backing }
+func (t *Packed) NumFields() int        { return len(t.fields) }
+func (t *Packed) Field(i int) *BitField { return t.fields[i] }
+func (t *Packed) TotalBits() int        { return t.totalBits }
+
+// BitField represents a single field in a packed type.
+type BitField struct {
+	name       string
+	accessType Type // the T in bits[T, N]
+	width      int  // the N in bits[T, N]
+	offset     int  // computed: bit offset from LSB
+}
+
+func (f *BitField) Name() string     { return f.name }
+func (f *BitField) AccessType() Type { return f.accessType }
+func (f *BitField) Width() int       { return f.width }
+func (f *BitField) Offset() int      { return f.offset }
+
 // Union represents a type union constraint (int32 | int64).
 type Union struct {
 	terms []Type

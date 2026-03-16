@@ -168,6 +168,20 @@ func Walk(v Visitor, node Node) {
 	case *PointerType:
 		Walk(v, n.X)
 
+	case *PackedType:
+		if n.BackingType != nil {
+			Walk(v, n.BackingType)
+		}
+		Walk(v, n.Fields)
+
+	case *BitsType:
+		if n.AccessType != nil {
+			Walk(v, n.AccessType)
+		}
+		if n.Width != nil {
+			Walk(v, n.Width)
+		}
+
 	case *Ellipsis:
 		Walk(v, n.Elt)
 

@@ -1,0 +1,52 @@
+package main
+
+import "pluto/fmt"
+
+// Test of packed types with bitfield access.
+//
+// Build: pluto build -o packed_test ./examples/09-packed/
+// Run:   ./packed_test
+// Expected output:
+//   mode=5
+//   enable=1
+//   priority=7
+//   mode=3
+//   enable=0
+//   priority=2
+//   mode=1
+//   priority=5
+
+type ControlReg packed uint32 {
+	mode     bits[uint, 4]
+	enable   bits[bool, 1]
+	priority bits[uint, 3]
+}
+
+func main() int64 {
+	var reg ControlReg
+	reg.mode = 5
+	reg.enable = true
+	reg.priority = 7
+
+	fmt.Printf("mode=%d\n", reg.mode)
+	fmt.Printf("enable=%d\n", reg.enable)
+	fmt.Printf("priority=%d\n", reg.priority)
+
+	// Overwrite fields — verify masking and non-interference
+	reg.mode = 3
+	reg.enable = false
+	reg.priority = 2
+
+	fmt.Printf("mode=%d\n", reg.mode)
+	fmt.Printf("enable=%d\n", reg.enable)
+	fmt.Printf("priority=%d\n", reg.priority)
+
+	// Test overflow wrapping: 17 in 4 bits = 17 & 0xF = 1
+	reg.mode = 17
+	// Test overflow: 13 in 3 bits = 13 & 0x7 = 5
+	reg.priority = 13
+
+	fmt.Printf("mode=%d\n", reg.mode)
+	fmt.Printf("priority=%d\n", reg.priority)
+	return 0
+}

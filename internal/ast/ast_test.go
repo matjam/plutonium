@@ -29,6 +29,8 @@ func TestNodeInterfaces(t *testing.T) {
 	var _ ast.Expr = (*ast.FuncType)(nil)
 	var _ ast.Expr = (*ast.InterfaceType)(nil)
 	var _ ast.Expr = (*ast.PointerType)(nil)
+	var _ ast.Expr = (*ast.PackedType)(nil)
+	var _ ast.Expr = (*ast.BitsType)(nil)
 	var _ ast.Stmt = (*ast.ReturnStmt)(nil)
 	var _ ast.Stmt = (*ast.BlockStmt)(nil)
 	var _ ast.Stmt = (*ast.IfStmt)(nil)

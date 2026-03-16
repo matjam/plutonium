@@ -314,3 +314,58 @@ package main
 var m map[string]int32
 `)
 }
+
+// --- Packed types ---
+
+func TestParsePackedType(t *testing.T) {
+	parseOK(t, `
+package main
+
+type ControlReg packed uint32 {
+	mode     bits[uint, 4]
+	enable   bits[bool, 1]
+	priority bits[uint, 3]
+}
+`)
+}
+
+func TestParsePackedTypeUint8(t *testing.T) {
+	parseOK(t, `
+package main
+
+type Flags packed uint8 {
+	a bits[bool, 1]
+	b bits[bool, 1]
+	c bits[uint, 6]
+}
+`)
+}
+
+func TestParsePackedTypeUint64(t *testing.T) {
+	parseOK(t, `
+package main
+
+type BigReg packed uint64 {
+	low  bits[uint, 32]
+	high bits[uint, 32]
+}
+`)
+}
+
+func TestParsePackedVarDecl(t *testing.T) {
+	parseOK(t, `
+package main
+
+type R packed uint32 {
+	x bits[uint, 8]
+	y bits[uint, 8]
+}
+
+func main() int64 {
+	var r R
+	r.x = 42
+	r.y = 99
+	return 0
+}
+`)
+}

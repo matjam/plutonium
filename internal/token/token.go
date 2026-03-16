@@ -107,6 +107,10 @@ const (
 	TYPE
 	VAR
 
+	// Systems programming keywords
+	PACKED // packed
+	BITS   // bits
+
 	forbidden_beg
 	// Forbidden keywords — valid Go keywords that Plutonium does not support.
 	// They are still recognized so the lexer/parser can produce helpful errors.
@@ -205,6 +209,9 @@ var tokens = [...]string{
 	SWITCH:      "switch",
 	TYPE:        "type",
 	VAR:         "var",
+
+	PACKED: "packed",
+	BITS:   "bits",
 
 	CHAN:   "chan",
 	GO:     "go",

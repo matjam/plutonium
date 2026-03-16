@@ -100,6 +100,8 @@ type lowerer struct {
 	env          map[string]*Value            // name → alloca slot
 	structTypes  map[string]*Type             // name → struct IR type (for field name resolution)
 	namedTypes   map[string]*Type             // type name → IR struct type (from type declarations)
+	packedTypes  map[*Type]*packedTypeInfo    // IR type → packed type metadata
+	packedVars   map[string]*packedTypeInfo   // variable name → packed type metadata
 	retSlots     []*Value                     // return value slots (for multiple returns)
 	allFuncs     map[string]*Function         // all known functions by qualified name
 	variadicInfo map[string]*variadicFuncInfo // function name → variadic info
@@ -129,6 +131,8 @@ func (l *lowerer) lowerFuncBody(fe *mono.FuncEntry, fn *Function) error {
 		env:          make(map[string]*Value),
 		structTypes:  make(map[string]*Type),
 		namedTypes:   l.namedTypes,
+		packedTypes:  l.packedTypes,
+		packedVars:   make(map[string]*packedTypeInfo),
 		allFuncs:     l.allFuncs,
 		variadicInfo: l.variadicInfo,
 	}
@@ -288,8 +292,75 @@ func (l *lowerer) lowerType(expr ast.Expr) *Type {
 			}
 		}
 		return &Type{Kind: TyStruct, Fields: fields, FieldNames: fieldNames}
+	case *ast.PackedType:
+		return l.lowerPackedType(e)
+	case *ast.BitsType:
+		return l.lowerType(e.AccessType)
 	}
 	return I32 // fallback
+}
+
+// packedTypeInfo stores metadata about a packed type for field access codegen.
+type packedTypeInfo struct {
+	backingType *Type
+	fields      []packedFieldInfo
+}
+
+type packedFieldInfo struct {
+	name       string
+	width      int   // bit width
+	offset     int   // bit offset from LSB
+	accessType *Type // IR type for reading/writing this field
+}
+
+func (l *lowerer) lowerPackedType(e *ast.PackedType) *Type {
+	backingType := l.lowerType(e.BackingType)
+
+	// Build packed type info for field access
+	info := &packedTypeInfo{backingType: backingType}
+	bitOffset := 0
+	var fieldNames []string
+
+	if e.Fields != nil {
+		for _, f := range e.Fields.List {
+			bt, ok := f.Type.(*ast.BitsType)
+			if !ok {
+				continue
+			}
+			width := 0
+			if lit, ok := bt.Width.(*ast.BasicLit); ok {
+				fmt.Sscanf(lit.Value, "%d", &width)
+			}
+			accessType := l.lowerType(bt.AccessType)
+
+			for _, name := range f.Names {
+				info.fields = append(info.fields, packedFieldInfo{
+					name:       name.Name,
+					width:      width,
+					offset:     bitOffset,
+					accessType: accessType,
+				})
+				fieldNames = append(fieldNames, name.Name)
+				bitOffset += width
+			}
+		}
+	}
+
+	// Store the packed type info in the lowerer for later field access
+	// Use a struct type with the same field names but the backing type as the only "real" storage
+	irType := &Type{
+		Kind:       TyStruct,
+		Fields:     []*Type{backingType},
+		FieldNames: fieldNames,
+	}
+
+	// Store packed info keyed by the IR type pointer
+	if l.packedTypes == nil {
+		l.packedTypes = make(map[*Type]*packedTypeInfo)
+	}
+	l.packedTypes[irType] = info
+
+	return irType
 }
 
 func (l *lowerer) lowerIdentType(name string) *Type {

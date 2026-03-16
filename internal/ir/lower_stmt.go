@@ -154,6 +154,14 @@ func (l *lowerer) loadLHS(expr ast.Expr) *Value {
 		if ptr != nil && ptr.Type != nil {
 			return l.bb.Load(ptr.Type, ptr)
 		}
+	case *ast.SelectorExpr:
+		// Handle packed field read for compound assignment
+		if ident, ok := e.X.(*ast.Ident); ok {
+			if pinfo, ok := l.packedVars[ident.Name]; ok {
+				return l.lowerPackedFieldRead(ident.Name, e.Sel.Name, pinfo)
+			}
+		}
+		return l.lowerSelectorExpr(e)
 	}
 	return nil
 }
@@ -195,6 +203,35 @@ func (l *lowerer) storeLHS(expr ast.Expr, val *Value) {
 			}
 			l.bb.Store(typ, val, ptr)
 		}
+	case *ast.SelectorExpr:
+		// Check for packed type field write
+		if ident, ok := e.X.(*ast.Ident); ok {
+			if pinfo, ok := l.packedVars[ident.Name]; ok {
+				l.lowerPackedFieldWrite(ident.Name, e.Sel.Name, val, pinfo)
+				return
+			}
+		}
+		// Regular struct field store
+		base := l.lowerExprValue(e.X)
+		if base == nil {
+			return
+		}
+		fieldIdx := 0
+		if ident, ok := e.X.(*ast.Ident); ok {
+			if stype, ok := l.structTypes[ident.Name]; ok && stype.Kind == TyStruct {
+				for i, name := range stype.FieldNames {
+					if name == e.Sel.Name {
+						fieldIdx = i
+						break
+					}
+				}
+			}
+		}
+		fieldType := val.Type
+		if fieldType == nil {
+			fieldType = I32
+		}
+		l.bb.InsertField(fieldType, base, fieldIdx, val)
 	}
 }
 
@@ -390,6 +427,18 @@ func (l *lowerer) lowerDeclStmt(s *ast.DeclStmt) {
 			} else {
 				typ = I32
 			}
+
+			// Check if this is a packed type — allocate backing type and register packed info
+			if pinfo, ok := l.packedTypes[typ]; ok {
+				backingType := pinfo.backingType
+				slot := l.bb.Alloca(backingType)
+				// Zero-initialize the backing value
+				l.bb.Store(backingType, ConstInt(backingType, 0), slot)
+				l.env[name.Name] = slot
+				l.packedVars[name.Name] = pinfo
+				continue
+			}
+
 			slot := l.bb.Alloca(typ)
 			if i < len(vs.Values) {
 				val := l.lowerExprValue(vs.Values[i])

@@ -250,7 +250,7 @@ func (p *parser) isTypeStart() bool {
 	switch p.tok {
 	case token.IDENT, token.MUL, token.LBRACK, token.STRUCT,
 		token.INTERFACE, token.FUNC, token.MAP, token.CHAN,
-		token.LPAREN:
+		token.LPAREN, token.PACKED, token.BITS:
 		return true
 	}
 	return false
@@ -264,6 +264,10 @@ func (p *parser) parseType() ast.Expr {
 		return p.parseArrayOrSliceType()
 	case token.STRUCT:
 		return p.parseStructType()
+	case token.PACKED:
+		return p.parsePackedType()
+	case token.BITS:
+		return p.parseBitsType()
 	case token.INTERFACE:
 		return p.parseInterfaceType()
 	case token.FUNC:
@@ -671,6 +675,13 @@ func (p *parser) parseTypeSpec() *ast.TypeSpec {
 		typeParams = p.parseTypeParams()
 	}
 
+	// Check for packed type: type Name packed BackingType { ... }
+	if p.tok == token.PACKED {
+		typ := p.parsePackedType()
+		p.expectSemi()
+		return &ast.TypeSpec{Name: name, TypeParams: typeParams, Type: typ}
+	}
+
 	// optional type alias
 	var assign token.Pos
 	if p.tok == token.ASSIGN {
@@ -681,6 +692,74 @@ func (p *parser) parseTypeSpec() *ast.TypeSpec {
 	typ := p.parseType()
 	p.expectSemi()
 	return &ast.TypeSpec{Name: name, TypeParams: typeParams, Assign: assign, Type: typ}
+}
+
+// parsePackedType parses: packed BackingType { field1 bits[T, N]; field2 bits[T, N]; ... }
+func (p *parser) parsePackedType() *ast.PackedType {
+	pos := p.expect(token.PACKED)
+
+	// Parse backing type (e.g., uint32)
+	backingType := p.parseType()
+
+	// Parse field list
+	lbrace := p.expect(token.LBRACE)
+	var fields []*ast.Field
+	for p.tok != token.RBRACE && p.tok != token.EOF {
+		fields = append(fields, p.parsePackedFieldDecl())
+	}
+	rbrace := p.expect(token.RBRACE)
+
+	return &ast.PackedType{
+		Packed:      pos,
+		BackingType: backingType,
+		Fields: &ast.FieldList{
+			Opening: lbrace,
+			List:    fields,
+			Closing: rbrace,
+		},
+	}
+}
+
+// parsePackedFieldDecl parses a field in a packed type: name bits[T, N]
+func (p *parser) parsePackedFieldDecl() *ast.Field {
+	name := p.parseIdent()
+
+	// Expect bits[T, N]
+	var typ ast.Expr
+	if p.tok == token.BITS {
+		typ = p.parseBitsType()
+	} else {
+		// Fallback: try parsing a regular type for forward compat
+		typ = p.parseType()
+	}
+
+	p.expectSemi()
+	return &ast.Field{Names: []*ast.Ident{name}, Type: typ}
+}
+
+// parseBitsType parses: bits[T, N]
+func (p *parser) parseBitsType() *ast.BitsType {
+	pos := p.expect(token.BITS)
+	p.expect(token.LBRACK)
+
+	// Parse access type T
+	accessType := p.parseType()
+
+	// Expect comma
+	p.expect(token.COMMA)
+
+	// Parse bit width N (integer literal)
+	width := p.parseExpr()
+
+	// Expect closing bracket
+	rbrack := p.expect(token.RBRACK)
+
+	return &ast.BitsType{
+		Bits:       pos,
+		AccessType: accessType,
+		Width:      width,
+		Rbrack:     rbrack,
+	}
 }
 
 // ----------------------------------------------------------------------------

@@ -89,6 +89,13 @@ func (l *lowerer) lowerIdent(e *ast.Ident) *Value {
 	if e.Name == "_" {
 		return nil
 	}
+	// Handle boolean constants
+	if e.Name == "true" {
+		return ConstInt(I64, 1)
+	}
+	if e.Name == "false" {
+		return ConstInt(I64, 0)
+	}
 	slot := l.env[e.Name]
 	if slot == nil {
 		return ConstInt(I32, 0) // undefined, return 0
@@ -254,6 +261,13 @@ func (l *lowerer) lowerSelectorExpr(e *ast.SelectorExpr) *Value {
 		}
 	}
 
+	// Check for packed type field access
+	if ident, ok := e.X.(*ast.Ident); ok {
+		if pinfo, ok := l.packedVars[ident.Name]; ok {
+			return l.lowerPackedFieldRead(ident.Name, e.Sel.Name, pinfo)
+		}
+	}
+
 	// Struct field access
 	base := l.lowerExprValue(e.X)
 	if base == nil {
@@ -281,6 +295,80 @@ func (l *lowerer) lowerSelectorExpr(e *ast.SelectorExpr) *Value {
 		}
 	}
 	return l.bb.ExtractField(fieldType, base, fieldIdx)
+}
+
+// lowerPackedFieldRead generates IR to read a bitfield from a packed variable.
+// Read: (backing >> bitOffset) & ((1 << width) - 1)
+func (l *lowerer) lowerPackedFieldRead(varName, fieldName string, pinfo *packedTypeInfo) *Value {
+	// Find the field
+	for _, f := range pinfo.fields {
+		if f.name == fieldName {
+			// Load the backing value from the alloca slot
+			slot := l.env[varName]
+			if slot == nil {
+				return ConstInt(I64, 0)
+			}
+			backingType := pinfo.backingType
+			backing := l.bb.Load(backingType, slot)
+
+			// Shift right by offset
+			if f.offset > 0 {
+				shiftAmt := ConstInt(backingType, int64(f.offset))
+				backing = l.bb.BinOp(OpShr, backingType, backing, shiftAmt)
+			}
+
+			// Mask to width bits: & ((1 << width) - 1)
+			mask := int64((1 << f.width) - 1)
+			maskVal := ConstInt(backingType, mask)
+			result := l.bb.BinOp(OpAnd, backingType, backing, maskVal)
+
+			return result
+		}
+	}
+	return ConstInt(I64, 0)
+}
+
+// lowerPackedFieldWrite generates IR to write a bitfield in a packed variable.
+// Write: backing = (backing & ~(mask << offset)) | ((val & mask) << offset)
+func (l *lowerer) lowerPackedFieldWrite(varName, fieldName string, val *Value, pinfo *packedTypeInfo) {
+	for _, f := range pinfo.fields {
+		if f.name == fieldName {
+			slot := l.env[varName]
+			if slot == nil {
+				return
+			}
+			backingType := pinfo.backingType
+
+			// Load current backing value
+			backing := l.bb.Load(backingType, slot)
+
+			// Mask the value to width bits: val & mask
+			mask := int64((1 << f.width) - 1)
+			maskVal := ConstInt(backingType, mask)
+			maskedVal := l.bb.BinOp(OpAnd, backingType, val, maskVal)
+
+			// Shift the masked value left by offset: maskedVal << offset
+			var shiftedVal *Value
+			if f.offset > 0 {
+				shiftAmt := ConstInt(backingType, int64(f.offset))
+				shiftedVal = l.bb.BinOp(OpShl, backingType, maskedVal, shiftAmt)
+			} else {
+				shiftedVal = maskedVal
+			}
+
+			// Clear the target bits in backing: backing & ~(mask << offset)
+			clearMask := int64(^(mask << f.offset))
+			clearMaskVal := ConstInt(backingType, clearMask)
+			cleared := l.bb.BinOp(OpAnd, backingType, backing, clearMaskVal)
+
+			// Combine: cleared | shiftedVal
+			result := l.bb.BinOp(OpOr, backingType, cleared, shiftedVal)
+
+			// Store back
+			l.bb.Store(backingType, result, slot)
+			return
+		}
+	}
 }
 
 func (l *lowerer) lowerCompositeLit(e *ast.CompositeLit) *Value {

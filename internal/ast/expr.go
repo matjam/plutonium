@@ -280,6 +280,29 @@ func (x *PointerType) Pos() token.Pos { return x.Star }
 func (x *PointerType) End() token.Pos { return x.X.End() }
 func (x *PointerType) exprNode()      {}
 
+// PackedType represents a packed type: packed BackingType { fields }
+type PackedType struct {
+	Packed      token.Pos  // position of "packed" keyword
+	BackingType Expr       // backing storage type (e.g., uint32)
+	Fields      *FieldList // list of bitfield declarations
+}
+
+func (x *PackedType) Pos() token.Pos { return x.Packed }
+func (x *PackedType) End() token.Pos { return x.Fields.End() }
+func (x *PackedType) exprNode()      {}
+
+// BitsType represents a bits[T, N] field type in a packed struct.
+type BitsType struct {
+	Bits       token.Pos // position of "bits" keyword
+	AccessType Expr      // the T in bits[T, N] (access type)
+	Width      Expr      // the N in bits[T, N] (bit width, BasicLit INT)
+	Rbrack     token.Pos // position of closing "]"
+}
+
+func (x *BitsType) Pos() token.Pos { return x.Bits }
+func (x *BitsType) End() token.Pos { return x.Rbrack + 1 }
+func (x *BitsType) exprNode()      {}
+
 // Ellipsis represents a variadic parameter type "...T".
 type Ellipsis struct {
 	Ellipsis token.Pos // position of "..."

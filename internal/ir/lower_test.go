@@ -484,3 +484,66 @@ func main() {
 		t.Error("expected call to Counter.Inc in main()")
 	}
 }
+
+func TestLowerPackedType(t *testing.T) {
+	prog := lowerOK(t, `
+package main
+
+type R packed uint32 {
+	x bits[uint, 4]
+	y bits[uint, 4]
+}
+
+func main() int64 {
+	var r R
+	r.x = 5
+	r.y = 10
+	a := r.x
+	b := r.y
+	_ = a
+	_ = b
+	return 0
+}
+`)
+	fn := prog.Packages[0].Functions[0] // main
+	if fn.Name != "main" {
+		t.Fatalf("expected main, got %s", fn.Name)
+	}
+
+	// The packed type should generate shift/mask operations, not ExtractField/InsertField
+	for _, bb := range fn.Blocks {
+		for _, instr := range bb.Instrs {
+			if instr.Op == ir.OpExtractField || instr.Op == ir.OpInsertField {
+				t.Error("packed type should use shift/mask, not ExtractField/InsertField")
+			}
+		}
+	}
+
+	// Verify shift and mask operations are present
+	foundShr := false
+	foundAnd := false
+	foundOr := false
+	for _, bb := range fn.Blocks {
+		for _, instr := range bb.Instrs {
+			switch instr.Op {
+			case ir.OpShr:
+				foundShr = true
+			case ir.OpAnd:
+				foundAnd = true
+			case ir.OpOr:
+				foundOr = true
+			}
+		}
+	}
+	if !foundAnd {
+		t.Error("expected AND instruction for bitfield masking")
+	}
+	if !foundOr {
+		t.Error("expected OR instruction for bitfield insertion")
+	}
+	// SHR is optional (offset=0 fields don't need shift for read)
+	// But y has offset=4, so it should use SHR
+	if !foundShr {
+		t.Error("expected SHR instruction for bitfield extraction of y at offset 4")
+	}
+}
