@@ -1,9 +1,14 @@
 package ir
 
 import (
+	"fmt"
+
 	"github.com/matjam/plutonium/internal/ast"
 	"github.com/matjam/plutonium/internal/token"
 )
+
+// Ensure fmt is used (referenced in aligned type parsing).
+var _ = fmt.Sscanf
 
 // --- Statement lowering ---
 
@@ -474,7 +479,19 @@ func (l *lowerer) lowerDeclStmt(s *ast.DeclStmt) {
 				continue
 			}
 
-			slot := l.bb.Alloca(typ)
+			// Check if the AST type is aligned[T, N] — allocate with
+			// explicit alignment metadata so the codegen rounds up the
+			// stack offset to meet the alignment requirement.
+			var allocAlign int
+			if vs.Type != nil {
+				if at, ok := vs.Type.(*ast.AlignedType); ok {
+					if lit, ok := at.Alignment.(*ast.BasicLit); ok {
+						fmt.Sscanf(lit.Value, "%d", &allocAlign)
+					}
+				}
+			}
+
+			slot := l.bb.AllocaAligned(typ, allocAlign)
 			if i < len(vs.Values) {
 				val := l.lowerExprValue(vs.Values[i])
 				if val != nil {

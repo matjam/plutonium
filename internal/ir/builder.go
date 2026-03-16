@@ -48,6 +48,15 @@ func (bb *BasicBlock) Alloca(typ *Type) *Value {
 	return result
 }
 
+// AllocaAligned allocates a stack slot of the given type with explicit
+// alignment. If align is 0 or ≤ 8, default alignment is used.
+func (bb *BasicBlock) AllocaAligned(typ *Type, align int) *Value {
+	result := bb.fn.newValue(typ)
+	instr := &Instruction{Op: OpAlloca, Result: result, AllocType: typ, AllocAlign: align}
+	bb.Instrs = append(bb.Instrs, instr)
+	return result
+}
+
 // Load loads a value from a pointer.
 func (bb *BasicBlock) Load(typ *Type, ptr *Value) *Value {
 	result := bb.fn.newValue(typ)

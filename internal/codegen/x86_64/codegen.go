@@ -65,6 +65,8 @@ func (cg *codeGen) offset() int { return len(cg.code) }
 
 // layoutStackFrame scans all instructions for OpAlloca and assigns each
 // a stack slot as a negative offset from RBP.
+// When an alloca has AllocAlign > 8, the stack offset is rounded to meet
+// the alignment requirement (e.g., aligned[T, 4096] gets a 4096-aligned slot).
 func (cg *codeGen) layoutStackFrame() {
 	cg.stackSlots = make(map[int]int32)
 	offset := int32(0)
@@ -80,7 +82,17 @@ func (cg *codeGen) layoutStackFrame() {
 						slotSize = int32((sz + 7) &^ 7)
 					}
 				}
+				// If the alloca has explicit alignment > 8, round offset
+				// to meet the alignment requirement.
+				align := int32(8)
+				if instr.AllocAlign > 8 {
+					align = int32(instr.AllocAlign)
+				}
 				offset -= slotSize
+				if align > 8 {
+					// Round down (more negative) to the next alignment boundary
+					offset = -((-offset + align - 1) &^ (align - 1))
+				}
 				cg.stackSlots[instr.Result.ID] = offset
 			}
 		}
