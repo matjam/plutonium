@@ -61,6 +61,7 @@ func (l *lowerer) lowerStmt(stmt ast.Stmt) {
 
 func (l *lowerer) lowerReturn(s *ast.ReturnStmt) {
 	if len(s.Results) == 0 {
+		l.emitRAIIFrees(nil)
 		l.bb.RetVoid()
 		return
 	}
@@ -70,6 +71,10 @@ func (l *lowerer) lowerReturn(s *ast.ReturnStmt) {
 		if retType == nil {
 			retType = I32
 		}
+		// Determine which heap-owned variables are being returned
+		// so we skip freeing them (ownership transfers to caller).
+		returned := l.returnedVarNames(s.Results)
+		l.emitRAIIFrees(returned)
 		l.bb.Ret(retType, val)
 		return
 	}
@@ -84,6 +89,8 @@ func (l *lowerer) lowerReturn(s *ast.ReturnStmt) {
 			l.bb.Store(slotType, val, l.retSlots[i])
 		}
 	}
+	returned := l.returnedVarNames(s.Results)
+	l.emitRAIIFrees(returned)
 	l.bb.RetVoid()
 }
 
@@ -95,6 +102,20 @@ func (l *lowerer) lowerAssign(s *ast.AssignStmt) {
 			if !ok || ident.Name == "_" {
 				continue
 			}
+
+			// Check if RHS is alloc.New[T]() — track for RAII auto-free
+			var allocTypeName string
+			var allocSize int64
+			if i < len(s.Rhs) {
+				if typeArg, ok := isAllocNewCall(s.Rhs[i]); ok {
+					irType := l.lowerType(typeArg)
+					allocSize = SizeOf(irType)
+					if typeIdent, ok := typeArg.(*ast.Ident); ok {
+						allocTypeName = typeIdent.Name
+					}
+				}
+			}
+
 			var rhs *Value
 			if i < len(s.Rhs) {
 				rhs = l.lowerExprValue(s.Rhs[i])
@@ -114,6 +135,14 @@ func (l *lowerer) lowerAssign(s *ast.AssignStmt) {
 			// Track struct types for field access resolution
 			if typ.Kind == TyStruct && len(typ.FieldNames) > 0 {
 				l.structTypes[ident.Name] = typ
+			}
+			// Record heap ownership for RAII auto-free
+			if allocSize > 0 {
+				l.heapOwned[ident.Name] = &heapOwnedInfo{
+					slot:     slot,
+					size:     allocSize,
+					typeName: allocTypeName,
+				}
 			}
 		}
 	} else {
@@ -557,5 +586,90 @@ func (l *lowerer) lowerDeclStmt(s *ast.DeclStmt) {
 			}
 			l.env[name.Name] = slot
 		}
+	}
+}
+
+// --- RAII auto-free support ---
+
+// isAllocNewCall checks if an expression is an alloc.New[T]() call.
+// Returns the type argument expression and true if it is, otherwise nil and false.
+func isAllocNewCall(expr ast.Expr) (ast.Expr, bool) {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return nil, false
+	}
+	// alloc.New[T]() is parsed as CallExpr with Fun = IndexExpr{X: SelectorExpr{X: "alloc", Sel: "New"}, Index: T}
+	idxExpr, ok := call.Fun.(*ast.IndexExpr)
+	if !ok {
+		return nil, false
+	}
+	sel, ok := idxExpr.X.(*ast.SelectorExpr)
+	if !ok {
+		return nil, false
+	}
+	pkgIdent, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return nil, false
+	}
+	if pkgIdent.Name == "alloc" && sel.Sel.Name == "New" {
+		return idxExpr.Index, true
+	}
+	return nil, false
+}
+
+// returnedVarNames extracts variable names from return expressions.
+// Used to determine which heap-owned variables are being returned
+// (ownership transfer — don't free those).
+func (l *lowerer) returnedVarNames(results []ast.Expr) map[string]bool {
+	if len(l.heapOwned) == 0 {
+		return nil
+	}
+	names := make(map[string]bool)
+	for _, expr := range results {
+		switch e := expr.(type) {
+		case *ast.Ident:
+			if _, ok := l.heapOwned[e.Name]; ok {
+				names[e.Name] = true
+			}
+		}
+	}
+	return names
+}
+
+// emitRAIIFrees emits alloc.freeRaw calls for all heap-owned variables
+// that are not being returned. If a type has a Drop() method, it is
+// called before freeing.
+func (l *lowerer) emitRAIIFrees(returned map[string]bool) {
+	if len(l.heapOwned) == 0 {
+		return
+	}
+
+	// Get or create the alloc.freeRaw function reference
+	freeRawFn := l.allFuncs["alloc.freeRaw"]
+	if freeRawFn == nil {
+		freeRawFn = &Function{Name: "alloc.freeRaw", RetType: Void, nextID: 1}
+		l.allFuncs["alloc.freeRaw"] = freeRawFn
+	}
+
+	for varName, info := range l.heapOwned {
+		// Skip variables whose ownership is being transferred (returned)
+		if returned != nil && returned[varName] {
+			continue
+		}
+
+		// Load the pointer from the alloca slot
+		ptr := l.bb.Load(info.slot.Type, info.slot)
+
+		// If the type has a Drop() method, call it before freeing
+		if info.typeName != "" {
+			dropName := info.typeName + ".Drop"
+			if dropFn, ok := l.allFuncs[dropName]; ok {
+				l.bb.Call(dropFn, Void, ptr)
+			}
+		}
+
+		// Emit alloc.freeRaw(ptr, size)
+		sizeVal := ConstInt(I64, info.size)
+		l.bb.Call(freeRawFn, Void, ptr, sizeVal)
 	}
 }

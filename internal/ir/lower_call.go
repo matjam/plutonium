@@ -511,6 +511,12 @@ func (l *lowerer) lowerAllocSimpleCall(funcName string, e *ast.CallExpr) *Value 
 			return ConstInt(I64, 0)
 		}
 
+		// If the argument is a heap-owned variable, remove it from RAII
+		// tracking to prevent double-free.
+		if ident, ok := e.Args[0].(*ast.Ident); ok {
+			delete(l.heapOwned, ident.Name)
+		}
+
 		ptr := l.lowerExprValue(e.Args[0])
 		if ptr == nil {
 			return ConstInt(I64, 0)

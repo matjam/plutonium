@@ -1,6 +1,8 @@
 package ir_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/matjam/plutonium/internal/ast"
@@ -31,6 +33,59 @@ func lowerOK(t *testing.T, src string) *ir.Program {
 		t.Fatalf("lower: %v", err)
 	}
 	return prog
+}
+
+// lowerWithImports is like lowerOK but provides a LoadConfig so that
+// stdlib imports (like "pluto/alloc") can be resolved.
+func lowerWithImports(t *testing.T, src string) *ir.Program {
+	t.Helper()
+	root := testStdlibRoot()
+	if root == "" {
+		t.Skip("pluto stdlib not found")
+	}
+	t.Cleanup(types.ResetPackageCache)
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "test.pu", []byte(src), 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	loadCfg := &types.LoadConfig{
+		StdlibRoot: root,
+		Tags:       map[string]bool{"amd64": true, "linux": true},
+		Fset:       fset,
+	}
+	pkg, err := types.Check("test", fset, []*ast.File{f}, nil, loadCfg)
+	if err != nil {
+		t.Fatalf("types: %v", err)
+	}
+	result, err := mono.Monomorphize(pkg, fset)
+	if err != nil {
+		t.Fatalf("mono: %v", err)
+	}
+	prog, err := ir.Lower(result, fset)
+	if err != nil {
+		t.Fatalf("lower: %v", err)
+	}
+	return prog
+}
+
+// testStdlibRoot locates the pluto stdlib directory relative to the test.
+func testStdlibRoot() string {
+	candidates := []string{
+		filepath.Join("..", "..", "pluto"),
+		filepath.Join("..", "..", "..", "pluto"),
+	}
+	for _, c := range candidates {
+		abs, err := filepath.Abs(c)
+		if err != nil {
+			continue
+		}
+		if info, err := os.Stat(abs); err == nil && info.IsDir() {
+			return abs
+		}
+	}
+	return ""
 }
 
 func TestLowerSimpleFunc(t *testing.T) {
@@ -730,5 +785,161 @@ func main() int64 {
 	}
 	if !foundCondBr {
 		t.Error("expected conditional branch for PopCount loop")
+	}
+}
+
+func TestLowerRAIIAutoFree(t *testing.T) {
+	// alloc.New[int64]() should emit an automatic freeRaw call at function exit
+	prog := lowerWithImports(t, `
+package main
+import "pluto/alloc"
+
+func useAndFree() {
+	ptr := alloc.New[int64]()
+	*ptr = 42
+}
+`)
+	pkg := prog.Packages[0]
+
+	var fn *ir.Function
+	for _, f := range pkg.Functions {
+		if f.Name == "useAndFree" {
+			fn = f
+			break
+		}
+	}
+	if fn == nil {
+		t.Fatal("useAndFree function not found")
+	}
+
+	// Should contain a call to alloc.freeRaw (auto-inserted by RAII)
+	foundFreeRaw := false
+	for _, bb := range fn.Blocks {
+		for _, instr := range bb.Instrs {
+			if instr.Op == ir.OpCall && instr.Callee != nil && instr.Callee.Name == "alloc.freeRaw" {
+				foundFreeRaw = true
+			}
+		}
+	}
+	if !foundFreeRaw {
+		t.Error("expected auto-inserted call to alloc.freeRaw for heap-owned variable")
+	}
+}
+
+func TestLowerRAIINoFreeOnReturn(t *testing.T) {
+	// When a heap-owned variable is returned, it should NOT be freed (ownership transfer)
+	prog := lowerWithImports(t, `
+package main
+import "pluto/alloc"
+
+func createAndReturn() *int64 {
+	ptr := alloc.New[int64]()
+	*ptr = 99
+	return ptr
+}
+`)
+	pkg := prog.Packages[0]
+
+	var fn *ir.Function
+	for _, f := range pkg.Functions {
+		if f.Name == "createAndReturn" {
+			fn = f
+			break
+		}
+	}
+	if fn == nil {
+		t.Fatal("createAndReturn function not found")
+	}
+
+	// Should NOT contain a call to alloc.freeRaw (ownership transfers via return)
+	for _, bb := range fn.Blocks {
+		for _, instr := range bb.Instrs {
+			if instr.Op == ir.OpCall && instr.Callee != nil && instr.Callee.Name == "alloc.freeRaw" {
+				t.Error("should NOT insert freeRaw when variable is returned (ownership transfer)")
+			}
+		}
+	}
+}
+
+func TestLowerRAIIMultipleAllocs(t *testing.T) {
+	// Multiple heap allocations in the same scope should all be freed
+	prog := lowerWithImports(t, `
+package main
+import "pluto/alloc"
+
+func multiAlloc() {
+	a := alloc.New[int64]()
+	b := alloc.New[int64]()
+	*a = 10
+	*b = 20
+}
+`)
+	pkg := prog.Packages[0]
+
+	var fn *ir.Function
+	for _, f := range pkg.Functions {
+		if f.Name == "multiAlloc" {
+			fn = f
+			break
+		}
+	}
+	if fn == nil {
+		t.Fatal("multiAlloc function not found")
+	}
+
+	// Should contain exactly 2 calls to alloc.freeRaw (one for each allocation)
+	freeCount := 0
+	for _, bb := range fn.Blocks {
+		for _, instr := range bb.Instrs {
+			if instr.Op == ir.OpCall && instr.Callee != nil && instr.Callee.Name == "alloc.freeRaw" {
+				freeCount++
+			}
+		}
+	}
+	if freeCount != 2 {
+		t.Errorf("expected 2 auto-inserted freeRaw calls, got %d", freeCount)
+	}
+}
+
+func TestLowerRAIIEarlyReturn(t *testing.T) {
+	// An early return should free heap-owned variables that aren't returned
+	prog := lowerWithImports(t, `
+package main
+import "pluto/alloc"
+
+func earlyReturn(flag int64) int64 {
+	ptr := alloc.New[int64]()
+	*ptr = 42
+	if flag > 0 {
+		return *ptr
+	}
+	return 0
+}
+`)
+	pkg := prog.Packages[0]
+
+	var fn *ir.Function
+	for _, f := range pkg.Functions {
+		if f.Name == "earlyReturn" {
+			fn = f
+			break
+		}
+	}
+	if fn == nil {
+		t.Fatal("earlyReturn function not found")
+	}
+
+	// Should contain freeRaw calls on all return paths
+	freeCount := 0
+	for _, bb := range fn.Blocks {
+		for _, instr := range bb.Instrs {
+			if instr.Op == ir.OpCall && instr.Callee != nil && instr.Callee.Name == "alloc.freeRaw" {
+				freeCount++
+			}
+		}
+	}
+	// There are at least 2 return paths (if-then and fallthrough), each should free
+	if freeCount < 2 {
+		t.Errorf("expected at least 2 freeRaw calls (one per return path), got %d", freeCount)
 	}
 }

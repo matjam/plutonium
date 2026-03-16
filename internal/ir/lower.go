@@ -105,6 +105,7 @@ type lowerer struct {
 	volatileVars map[string]bool              // variable name → true if volatile
 	ringVars     map[string]*ringTypeInfo     // variable name → ring type metadata
 	bitsAliases  map[string]*bitsLensInfo     // bits lens variable name → lens metadata
+	heapOwned    map[string]*heapOwnedInfo    // variable name → heap allocation info (RAII)
 	retSlots     []*Value                     // return value slots (for multiple returns)
 	allFuncs     map[string]*Function         // all known functions by qualified name
 	variadicInfo map[string]*variadicFuncInfo // function name → variadic info
@@ -124,6 +125,14 @@ type ringTypeInfo struct {
 type bitsLensInfo struct {
 	targetVar  string // name of the underlying variable V
 	targetType *Type  // IR type of V (must be integer type)
+}
+
+// heapOwnedInfo tracks a local variable that owns a heap allocation
+// (from alloc.New[T]()). Used by RAII auto-free to emit freeRaw at scope exit.
+type heapOwnedInfo struct {
+	slot     *Value // the alloca slot holding the pointer
+	size     int64  // sizeof(T) for the allocation
+	typeName string // for Drop method lookup
 }
 
 // variadicFuncInfo stores metadata about a variadic function declaration.
@@ -155,6 +164,7 @@ func (l *lowerer) lowerFuncBody(fe *mono.FuncEntry, fn *Function) error {
 		volatileVars: make(map[string]bool),
 		ringVars:     make(map[string]*ringTypeInfo),
 		bitsAliases:  make(map[string]*bitsLensInfo),
+		heapOwned:    make(map[string]*heapOwnedInfo),
 		allFuncs:     l.allFuncs,
 		variadicInfo: l.variadicInfo,
 	}
@@ -202,9 +212,11 @@ func (l *lowerer) lowerFuncBody(fe *mono.FuncEntry, fn *Function) error {
 	// Lower the body
 	fl.lowerBlock(d.Body)
 
-	// If the last block has no terminator, add RetVoid or Unreachable
+	// If the last block has no terminator, add RetVoid or Unreachable.
+	// Before terminating, emit RAII auto-free for any heap-owned variables.
 	retType := fn.RetType
 	if fl.bb.Term == nil {
+		fl.emitRAIIFrees(nil) // no returned values at implicit exit
 		if retType == nil || retType.Kind == TyVoid {
 			fl.bb.RetVoid()
 		} else {
