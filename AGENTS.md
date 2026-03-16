@@ -15,3 +15,28 @@ under `internal/`, and the stdlib as `.pu` source files under `pluto/`.
 - Run all tests: `go test ./...`
 - Build an example: `/tmp/pluto build -o /tmp/example ./examples/07-hello/`
 - Run: `/tmp/example`
+
+## Verification Checklist (before considering work complete)
+
+Every change must pass ALL of these before committing:
+
+1. **Unit tests**: `go test -count=1 ./...` — all packages must pass
+2. **Examples**: Build and run ALL examples — every one must produce correct output:
+   ```
+   go build -o /tmp/pluto ./cmd/pluto/
+   for ex in examples/*/; do /tmp/pluto build -o /tmp/ex_test ./$ex && /tmp/ex_test; done
+   ```
+3. **Coverage check**: `go test -cover ./...` — coverage must not decrease.
+   Current minimum coverage targets:
+   - `internal/ir`: ≥55%
+   - `internal/codegen/x86_64`: ≥44%
+   - `internal/parser`: ≥63%
+   - `internal/types`: ≥52%
+   - `internal/mono`: ≥61%
+   
+   If your change adds new code paths, add tests to maintain or improve
+   coverage. Never merge code that drops a package below its current level.
+
+4. **No silent failures**: Grep for `ConstInt(I32, 0)` fallbacks and
+   `// TODO` comments in new code. New features must not silently produce
+   wrong code.
