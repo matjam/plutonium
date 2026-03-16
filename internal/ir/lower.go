@@ -2,6 +2,7 @@ package ir
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/matjam/plutonium/internal/ast"
 	"github.com/matjam/plutonium/internal/mono"
@@ -91,6 +92,12 @@ func Lower(result *mono.Result, fset *token.FileSet) (*Program, error) {
 	return l.prog, nil
 }
 
+// loopContext tracks the break/continue targets for a loop.
+type loopContext struct {
+	exitBlock *BasicBlock // where break jumps to
+	postBlock *BasicBlock // where continue jumps to (post or cond)
+}
+
 type lowerer struct {
 	fset         *token.FileSet
 	prog         *Program
@@ -109,6 +116,8 @@ type lowerer struct {
 	retSlots     []*Value                     // return value slots (for multiple returns)
 	allFuncs     map[string]*Function         // all known functions by qualified name
 	variadicInfo map[string]*variadicFuncInfo // function name → variadic info
+	loopStack    []*loopContext               // stack of enclosing loop contexts for break/continue
+	deferStack   []*ast.CallExpr              // stack of deferred calls (LIFO order at return)
 }
 
 // ringTypeInfo stores metadata about a ring[T, N] variable.
@@ -167,6 +176,8 @@ func (l *lowerer) lowerFuncBody(fe *mono.FuncEntry, fn *Function) error {
 		heapOwned:    make(map[string]*heapOwnedInfo),
 		allFuncs:     l.allFuncs,
 		variadicInfo: l.variadicInfo,
+		loopStack:    nil, // fresh per function
+		deferStack:   nil, // fresh per function
 	}
 
 	entry := fn.NewBlock("entry")
@@ -213,9 +224,10 @@ func (l *lowerer) lowerFuncBody(fe *mono.FuncEntry, fn *Function) error {
 	fl.lowerBlock(d.Body)
 
 	// If the last block has no terminator, add RetVoid or Unreachable.
-	// Before terminating, emit RAII auto-free for any heap-owned variables.
+	// Before terminating, emit deferred calls, then RAII auto-free.
 	retType := fn.RetType
 	if fl.bb.Term == nil {
+		fl.emitDefers()
 		fl.emitRAIIFrees(nil) // no returned values at implicit exit
 		if retType == nil || retType.Kind == TyVoid {
 			fl.bb.RetVoid()
@@ -299,7 +311,11 @@ func (l *lowerer) lowerType(expr ast.Expr) *Type {
 		if e.Len == nil {
 			return SliceOf(elem)
 		}
-		return ArrayOf(0, elem) // TODO: eval constant length
+		n := int64(0)
+		if lit, ok := e.Len.(*ast.BasicLit); ok && lit.Kind == token.INT {
+			n, _ = strconv.ParseInt(lit.Value, 0, 64)
+		}
+		return ArrayOf(n, elem)
 	case *ast.PointerType:
 		elem := l.lowerType(e.X)
 		return PtrTo(elem)

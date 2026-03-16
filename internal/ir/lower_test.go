@@ -3,6 +3,7 @@ package ir_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/matjam/plutonium/internal/ast"
@@ -1043,5 +1044,246 @@ func explicitFree() {
 	}
 	if foundFreeRaw {
 		t.Error("alloc.Free should NOT emit alloc.freeRaw (should use decRef)")
+	}
+}
+
+func TestLowerBreakContinue(t *testing.T) {
+	prog := lowerOK(t, `
+package main
+
+func breakLoop() int32 {
+	s := int32(0)
+	for i := int32(0); i < 100; i++ {
+		if i > 5 {
+			break
+		}
+		s += i
+	}
+	return s
+}
+
+func continueLoop() int32 {
+	s := int32(0)
+	for i := int32(0); i < 10; i++ {
+		if i == 3 {
+			continue
+		}
+		s += i
+	}
+	return s
+}
+`)
+	pkg := prog.Packages[0]
+
+	// Find the breakLoop function — break should generate a Br to the exit block
+	var breakFn *ir.Function
+	for _, fn := range pkg.Functions {
+		if fn.Name == "breakLoop" {
+			breakFn = fn
+			break
+		}
+	}
+	if breakFn == nil {
+		t.Fatal("breakLoop function not found")
+	}
+
+	// There should be a block that branches to for.exit (the break target)
+	// Look for a Br terminator pointing to a block with label starting with "for.exit"
+	foundBreakBr := false
+	for _, bb := range breakFn.Blocks {
+		if bb.Term != nil && bb.Term.Kind == ir.TermBr && bb.Term.Then != nil {
+			if strings.HasPrefix(bb.Term.Then.Label, "for.exit") &&
+				!strings.HasPrefix(bb.Label, "for.post") &&
+				!strings.HasPrefix(bb.Label, "for.cond") {
+				foundBreakBr = true
+			}
+		}
+	}
+	if !foundBreakBr {
+		t.Error("breakLoop: expected a branch to for.exit from the break statement")
+	}
+
+	// Find the continueLoop function — continue should generate a Br to the post block
+	var contFn *ir.Function
+	for _, fn := range pkg.Functions {
+		if fn.Name == "continueLoop" {
+			contFn = fn
+			break
+		}
+	}
+	if contFn == nil {
+		t.Fatal("continueLoop function not found")
+	}
+
+	// There should be a block that branches to for.post (the continue target)
+	foundContBr := false
+	for _, bb := range contFn.Blocks {
+		if bb.Term != nil && bb.Term.Kind == ir.TermBr && bb.Term.Then != nil {
+			if strings.HasPrefix(bb.Term.Then.Label, "for.post") &&
+				!strings.HasPrefix(bb.Label, "for.body") &&
+				!strings.HasPrefix(bb.Label, "for.cond") {
+				foundContBr = true
+			}
+		}
+	}
+	if !foundContBr {
+		t.Error("continueLoop: expected a branch to for.post from the continue statement")
+	}
+}
+
+func TestLowerSwitch(t *testing.T) {
+	prog := lowerOK(t, `
+package main
+
+func classify(x int32) int32 {
+	switch x {
+	case 1:
+		return 10
+	case 2:
+		return 20
+	case 3:
+		return 30
+	default:
+		return 0
+	}
+}
+`)
+	pkg := prog.Packages[0]
+
+	var fn *ir.Function
+	for _, f := range pkg.Functions {
+		if f.Name == "classify" {
+			fn = f
+			break
+		}
+	}
+	if fn == nil {
+		t.Fatal("classify function not found")
+	}
+
+	// Switch should produce CmpEQ comparisons for each case
+	cmpCount := 0
+	for _, bb := range fn.Blocks {
+		for _, instr := range bb.Instrs {
+			if instr.Op == ir.OpCmp {
+				cmpCount++
+			}
+		}
+	}
+	if cmpCount < 3 {
+		t.Errorf("expected at least 3 CmpEQ instructions for switch cases, got %d", cmpCount)
+	}
+
+	// Should have blocks labeled switch.case.N and switch.merge.N
+	foundCaseBlock := false
+	foundMergeBlock := false
+	for _, bb := range fn.Blocks {
+		if strings.HasPrefix(bb.Label, "switch.case") {
+			foundCaseBlock = true
+		}
+		if strings.HasPrefix(bb.Label, "switch.merge") {
+			foundMergeBlock = true
+		}
+	}
+	if !foundCaseBlock {
+		t.Error("expected switch.case block")
+	}
+	if !foundMergeBlock {
+		t.Error("expected switch.merge block")
+	}
+}
+
+func TestLowerDefer(t *testing.T) {
+	prog := lowerOK(t, `
+package main
+
+func cleanup() {}
+
+func useDefer() int32 {
+	defer cleanup()
+	return 42
+}
+`)
+	pkg := prog.Packages[0]
+
+	var fn *ir.Function
+	for _, f := range pkg.Functions {
+		if f.Name == "useDefer" {
+			fn = f
+			break
+		}
+	}
+	if fn == nil {
+		t.Fatal("useDefer function not found")
+	}
+
+	// The deferred cleanup() call should appear before the return
+	foundDeferCall := false
+	for _, bb := range fn.Blocks {
+		for _, instr := range bb.Instrs {
+			if instr.Op == ir.OpCall && instr.Callee != nil && instr.Callee.Name == "cleanup" {
+				foundDeferCall = true
+			}
+		}
+	}
+	if !foundDeferCall {
+		t.Error("expected deferred call to cleanup() to be emitted before return")
+	}
+}
+
+func TestLowerDeferLIFO(t *testing.T) {
+	prog := lowerOK(t, `
+package main
+
+func first() {}
+func second() {}
+
+func useTwoDefers() {
+	defer first()
+	defer second()
+}
+`)
+	pkg := prog.Packages[0]
+
+	var fn *ir.Function
+	for _, f := range pkg.Functions {
+		if f.Name == "useTwoDefers" {
+			fn = f
+			break
+		}
+	}
+	if fn == nil {
+		t.Fatal("useTwoDefers function not found")
+	}
+
+	// Both deferred calls should be present, and second() should come
+	// before first() (LIFO order). Collect call order from the block.
+	var callOrder []string
+	for _, bb := range fn.Blocks {
+		for _, instr := range bb.Instrs {
+			if instr.Op == ir.OpCall && instr.Callee != nil {
+				callOrder = append(callOrder, instr.Callee.Name)
+			}
+		}
+	}
+	if len(callOrder) < 2 {
+		t.Fatalf("expected at least 2 deferred calls, got %d: %v", len(callOrder), callOrder)
+	}
+	// LIFO: second should be called before first
+	secondIdx := -1
+	firstIdx := -1
+	for i, name := range callOrder {
+		if name == "second" && secondIdx == -1 {
+			secondIdx = i
+		}
+		if name == "first" && firstIdx == -1 {
+			firstIdx = i
+		}
+	}
+	if secondIdx == -1 || firstIdx == -1 {
+		t.Fatalf("expected both first and second calls, got: %v", callOrder)
+	}
+	if secondIdx > firstIdx {
+		t.Errorf("defer LIFO order violated: second() at index %d, first() at index %d; expected second before first", secondIdx, firstIdx)
 	}
 }

@@ -46,10 +46,26 @@ func (l *lowerer) lowerStmt(stmt ast.Stmt) {
 		l.lowerDeclStmt(s)
 
 	case *ast.BranchStmt:
-		// break/continue/goto — TODO for now skip
+		if len(l.loopStack) > 0 {
+			ctx := l.loopStack[len(l.loopStack)-1]
+			switch s.Tok {
+			case token.BREAK:
+				l.bb.Br(ctx.exitBlock)
+			case token.CONTINUE:
+				l.bb.Br(ctx.postBlock)
+			}
+		}
 
 	case *ast.DeferStmt:
-		// defer — TODO for now skip
+		if s.Call != nil {
+			l.deferStack = append(l.deferStack, s.Call)
+		}
+
+	case *ast.SwitchStmt:
+		l.lowerSwitch(s)
+
+	case *ast.CaseClause:
+		// Handled inside lowerSwitch; no-op here.
 
 	case *ast.EmptyStmt:
 		// nothing
@@ -61,6 +77,7 @@ func (l *lowerer) lowerStmt(stmt ast.Stmt) {
 
 func (l *lowerer) lowerReturn(s *ast.ReturnStmt) {
 	if len(s.Results) == 0 {
+		l.emitDefers()
 		l.emitRAIIFrees(nil)
 		l.bb.RetVoid()
 		return
@@ -74,6 +91,7 @@ func (l *lowerer) lowerReturn(s *ast.ReturnStmt) {
 		// Determine which heap-owned variables are being returned
 		// so we skip freeing them (ownership transfers to caller).
 		returned := l.returnedVarNames(s.Results)
+		l.emitDefers()
 		l.emitRAIIFrees(returned)
 		l.bb.Ret(retType, val)
 		return
@@ -90,6 +108,7 @@ func (l *lowerer) lowerReturn(s *ast.ReturnStmt) {
 		}
 	}
 	returned := l.returnedVarNames(s.Results)
+	l.emitDefers()
 	l.emitRAIIFrees(returned)
 	l.bb.RetVoid()
 }
@@ -421,9 +440,11 @@ func (l *lowerer) lowerFor(s *ast.ForStmt) {
 		l.bb.Br(bodyBlock) // infinite loop
 	}
 
-	// Body
+	// Body — push loop context so break/continue resolve correctly
 	l.bb = bodyBlock
+	l.loopStack = append(l.loopStack, &loopContext{exitBlock: exitBlock, postBlock: postBlock})
 	l.lowerBlock(s.Body)
+	l.loopStack = l.loopStack[:len(l.loopStack)-1]
 	if l.bb.Term == nil {
 		l.bb.Br(postBlock)
 	}
@@ -477,7 +498,10 @@ func (l *lowerer) lowerRange(s *ast.RangeStmt) {
 			l.env[keyIdent.Name] = keySlot
 		}
 	}
+	// Push loop context — continue goes to condBlock (range has no explicit post)
+	l.loopStack = append(l.loopStack, &loopContext{exitBlock: exitBlock, postBlock: condBlock})
 	l.lowerBlock(s.Body)
+	l.loopStack = l.loopStack[:len(l.loopStack)-1]
 	if l.bb.Term == nil {
 		// Increment index
 		newIdx := l.bb.BinOp(OpAdd, I64, idx, ConstInt(I64, 1))
@@ -700,4 +724,98 @@ func (l *lowerer) emitRAIIFrees(returned map[string]bool) {
 		sizeVal := ConstInt(I64, info.size)
 		l.bb.Call(decRefFn, Void, ptr, sizeVal)
 	}
+}
+
+// emitDefers emits deferred calls in LIFO order (last defer runs first).
+func (l *lowerer) emitDefers() {
+	for i := len(l.deferStack) - 1; i >= 0; i-- {
+		l.lowerExprValue(l.deferStack[i])
+	}
+}
+
+// lowerSwitch lowers a switch statement as a chain of if-else comparisons.
+func (l *lowerer) lowerSwitch(s *ast.SwitchStmt) {
+	if s.Init != nil {
+		l.lowerStmt(s.Init)
+	}
+
+	// Evaluate tag once
+	var tag *Value
+	if s.Tag != nil {
+		tag = l.lowerExprValue(s.Tag)
+	}
+
+	mergeBlock := l.fn.NewBlock("switch.merge")
+
+	// Collect case clauses from the body
+	if s.Body == nil {
+		l.bb.Br(mergeBlock)
+		l.bb = mergeBlock
+		return
+	}
+	body := s.Body
+
+	var defaultClause *ast.CaseClause
+	for _, stmt := range body.List {
+		cc, ok := stmt.(*ast.CaseClause)
+		if !ok {
+			continue
+		}
+		if cc.List == nil {
+			// default case
+			defaultClause = cc
+			continue
+		}
+
+		// Create blocks for this case
+		caseBody := l.fn.NewBlock("switch.case")
+		nextCase := l.fn.NewBlock("switch.next")
+
+		// Compare tag to each case value (OR them together)
+		for i, expr := range cc.List {
+			val := l.lowerExprValue(expr)
+			tagType := I32
+			if tag != nil && tag.Type != nil {
+				tagType = tag.Type
+			}
+			cmp := l.bb.Cmp(CmpEQ, tagType, tag, val)
+			if i == len(cc.List)-1 {
+				l.bb.CondBr(cmp, caseBody, nextCase)
+			} else {
+				// Multiple values in one case: if match, go to body
+				matchBlock := l.fn.NewBlock("switch.match")
+				l.bb.CondBr(cmp, caseBody, matchBlock)
+				l.bb = matchBlock
+			}
+		}
+
+		// Lower case body
+		l.bb = caseBody
+		for _, bodyStmt := range cc.Body {
+			l.lowerStmt(bodyStmt)
+			if l.bb.Term != nil {
+				break
+			}
+		}
+		if l.bb.Term == nil {
+			l.bb.Br(mergeBlock) // implicit break (no fallthrough)
+		}
+
+		l.bb = nextCase
+	}
+
+	// Default case
+	if defaultClause != nil {
+		for _, bodyStmt := range defaultClause.Body {
+			l.lowerStmt(bodyStmt)
+			if l.bb.Term != nil {
+				break
+			}
+		}
+	}
+	if l.bb.Term == nil {
+		l.bb.Br(mergeBlock)
+	}
+
+	l.bb = mergeBlock
 }
