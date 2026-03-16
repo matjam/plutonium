@@ -31,11 +31,11 @@ Every change must pass ALL of these before committing:
 
 4. **Coverage check**: `go test -cover ./...` — coverage must not decrease.
    Current minimum coverage targets:
-   - `internal/ir`: ≥55%
-   - `internal/codegen/x86_64`: ≥44%
+   - `internal/ir`: ≥73%
+   - `internal/codegen/x86_64`: ≥88%
    - `internal/parser`: ≥63%
    - `internal/types`: ≥52%
-   - `internal/mono`: ≥61%
+   - `internal/mono`: ≥62%
    
    If your change adds new code paths, add tests to maintain or improve
    coverage. Never merge code that drops a package below its current level.
