@@ -103,9 +103,27 @@ type lowerer struct {
 	packedTypes  map[*Type]*packedTypeInfo    // IR type → packed type metadata
 	packedVars   map[string]*packedTypeInfo   // variable name → packed type metadata
 	volatileVars map[string]bool              // variable name → true if volatile
+	ringVars     map[string]*ringTypeInfo     // variable name → ring type metadata
+	bitsAliases  map[string]*bitsLensInfo     // bits lens variable name → lens metadata
 	retSlots     []*Value                     // return value slots (for multiple returns)
 	allFuncs     map[string]*Function         // all known functions by qualified name
 	variadicInfo map[string]*variadicFuncInfo // function name → variadic info
+}
+
+// ringTypeInfo stores metadata about a ring[T, N] variable.
+type ringTypeInfo struct {
+	elemType *Type  // IR type for element T
+	capacity int64  // N (must be power of 2)
+	mask     int64  // N - 1 (used for AND-masking)
+	headSlot *Value // alloca for head counter (uint64)
+	tailSlot *Value // alloca for tail counter (uint64)
+	dataSlot *Value // alloca for data array ([N]T)
+}
+
+// bitsLensInfo stores metadata about a bits[V] lens variable.
+type bitsLensInfo struct {
+	targetVar  string // name of the underlying variable V
+	targetType *Type  // IR type of V (must be integer type)
 }
 
 // variadicFuncInfo stores metadata about a variadic function declaration.
@@ -135,6 +153,8 @@ func (l *lowerer) lowerFuncBody(fe *mono.FuncEntry, fn *Function) error {
 		packedTypes:  l.packedTypes,
 		packedVars:   make(map[string]*packedTypeInfo),
 		volatileVars: make(map[string]bool),
+		ringVars:     make(map[string]*ringTypeInfo),
+		bitsAliases:  make(map[string]*bitsLensInfo),
 		allFuncs:     l.allFuncs,
 		variadicInfo: l.variadicInfo,
 	}
@@ -308,6 +328,26 @@ func (l *lowerer) lowerType(expr ast.Expr) *Type {
 		// aligned[T, N] lowers to the same IR type as T, but with
 		// alignment metadata on the alloca (handled in lowerDeclStmt).
 		return l.lowerType(e.Elem)
+	case *ast.RingType:
+		// ring[T, N] lowers to a struct { head u64, tail u64, data [N]T }
+		// The actual layout is managed in lowerDeclStmt; here we return
+		// a struct type for the ring buffer.
+		elemType := l.lowerType(e.Elem)
+		var capacity int64
+		if lit, ok := e.Size.(*ast.BasicLit); ok {
+			fmt.Sscanf(lit.Value, "%d", &capacity)
+		}
+		dataType := ArrayOf(capacity, elemType)
+		return &Type{
+			Kind:       TyStruct,
+			Fields:     []*Type{U64, U64, dataType},
+			FieldNames: []string{"head", "tail", "data"},
+		}
+	case *ast.BitsLensType:
+		// bits[V] is a zero-cost lens — it has no storage of its own.
+		// We return U64 as a placeholder; the actual behavior is handled
+		// in lowerDeclStmt which records the alias.
+		return U64
 	}
 	return I32 // fallback
 }

@@ -547,3 +547,188 @@ func main() int64 {
 		t.Error("expected SHR instruction for bitfield extraction of y at offset 4")
 	}
 }
+
+func TestLowerRingType(t *testing.T) {
+	prog := lowerOK(t, `
+package main
+
+func main() int64 {
+	var r ring[int64, 8]
+	r.Push(10)
+	r.Push(20)
+	n := r.Len()
+	_ = n
+	val := r.Pop()
+	_ = val
+	empty := r.Empty()
+	_ = empty
+	full := r.Full()
+	_ = full
+	r.Reset()
+	return 0
+}
+`)
+	fn := prog.Packages[0].Functions[0]
+	if fn.Name != "main" {
+		t.Fatalf("expected main, got %s", fn.Name)
+	}
+
+	// ring[T, N] should generate:
+	// - Alloca for the ring struct
+	// - InsertField for head/tail initialization
+	// - Sub operations for Len (head - tail)
+	// - Cmp operations for Empty/Full checks
+	// - GEP + Store for Push (data array access)
+	// - GEP + Load for Pop (data array access)
+	foundAlloca := false
+	foundSub := false
+	foundCmp := false
+	foundGEP := false
+	for _, bb := range fn.Blocks {
+		for _, instr := range bb.Instrs {
+			switch instr.Op {
+			case ir.OpAlloca:
+				foundAlloca = true
+			case ir.OpSub:
+				foundSub = true
+			case ir.OpCmp:
+				foundCmp = true
+			case ir.OpGEP:
+				foundGEP = true
+			}
+		}
+	}
+	if !foundAlloca {
+		t.Error("expected Alloca for ring buffer struct")
+	}
+	if !foundSub {
+		t.Error("expected Sub for ring Len/Full (head - tail)")
+	}
+	if !foundCmp {
+		t.Error("expected Cmp for ring Empty/Full checks")
+	}
+	if !foundGEP {
+		t.Error("expected GEP for ring Push/Pop data array access")
+	}
+}
+
+func TestLowerRingPushPop(t *testing.T) {
+	prog := lowerOK(t, `
+package main
+
+func main() int64 {
+	var r ring[int64, 4]
+	r.Push(42)
+	val := r.Pop()
+	_ = val
+	return 0
+}
+`)
+	fn := prog.Packages[0].Functions[0]
+
+	// Should have conditional branches for Push (full check) and Pop (empty check)
+	branchCount := 0
+	for _, bb := range fn.Blocks {
+		if bb.Term != nil && bb.Term.Kind == ir.TermCondBr {
+			branchCount++
+		}
+	}
+	if branchCount < 2 {
+		t.Errorf("expected at least 2 conditional branches (push full-check + pop empty-check), got %d", branchCount)
+	}
+}
+
+func TestLowerBitsLens(t *testing.T) {
+	prog := lowerOK(t, `
+package main
+
+func main() int64 {
+	var flags uint64
+	var b bits[flags]
+	b.Set(0)
+	b.Set(3)
+	b.Clear(3)
+	t := b.Test(7)
+	_ = t
+	b.Toggle(0)
+	return 0
+}
+`)
+	fn := prog.Packages[0].Functions[0]
+	if fn.Name != "main" {
+		t.Fatalf("expected main, got %s", fn.Name)
+	}
+
+	// bits[V] should generate:
+	// - Shl operations (1 << n for mask creation)
+	// - Or operations (Set: V |= mask)
+	// - And operations (Clear: V &= ^mask, Test: (V>>n) & 1)
+	// - Xor operations (Clear's ^mask, Toggle: V ^= mask)
+	// - Shr operations (Test: V >> n)
+	foundShl := false
+	foundOr := false
+	foundAnd := false
+	foundXor := false
+	foundShr := false
+	for _, bb := range fn.Blocks {
+		for _, instr := range bb.Instrs {
+			switch instr.Op {
+			case ir.OpShl:
+				foundShl = true
+			case ir.OpOr:
+				foundOr = true
+			case ir.OpAnd:
+				foundAnd = true
+			case ir.OpXor:
+				foundXor = true
+			case ir.OpShr:
+				foundShr = true
+			}
+		}
+	}
+	if !foundShl {
+		t.Error("expected SHL for bit mask creation (1 << n)")
+	}
+	if !foundOr {
+		t.Error("expected OR for Set operation")
+	}
+	if !foundAnd {
+		t.Error("expected AND for Clear/Test operations")
+	}
+	if !foundXor {
+		t.Error("expected XOR for Clear's ^mask or Toggle")
+	}
+	if !foundShr {
+		t.Error("expected SHR for Test operation (V >> n)")
+	}
+}
+
+func TestLowerBitsPopCount(t *testing.T) {
+	prog := lowerOK(t, `
+package main
+
+func main() int64 {
+	var flags uint64
+	var b bits[flags]
+	b.Set(0)
+	b.Set(1)
+	b.Set(2)
+	n := b.PopCount()
+	_ = n
+	return 0
+}
+`)
+	fn := prog.Packages[0].Functions[0]
+
+	// PopCount generates a loop (Brian Kernighan's algorithm),
+	// which means we should see at least one conditional branch for the loop.
+	foundCondBr := false
+	for _, bb := range fn.Blocks {
+		if bb.Term != nil && bb.Term.Kind == ir.TermCondBr {
+			foundCondBr = true
+		}
+	}
+	if !foundCondBr {
+		t.Error("expected conditional branch for PopCount loop")
+	}
+}

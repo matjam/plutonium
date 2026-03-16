@@ -354,6 +354,34 @@ func (x *AlignedType) Pos() token.Pos { return x.Aligned }
 func (x *AlignedType) End() token.Pos { return x.Rbrack + 1 }
 func (x *AlignedType) exprNode()      {}
 
+// RingType represents a ring[T, N] lock-free ring buffer type.
+// T is the element type and N is the buffer capacity (must be power of 2).
+type RingType struct {
+	Ring   token.Pos // position of "ring" keyword
+	Lbrack token.Pos // position of "["
+	Elem   Expr      // element type T
+	Size   Expr      // buffer capacity N (integer literal, must be power of 2)
+	Rbrack token.Pos // position of "]"
+}
+
+func (x *RingType) Pos() token.Pos { return x.Ring }
+func (x *RingType) End() token.Pos { return x.Rbrack + 1 }
+func (x *RingType) exprNode()      {}
+
+// BitsLensType represents a bits[V] zero-cost bit-addressing lens.
+// V is the name of the variable being aliased. The lens provides
+// Set/Clear/Test/Toggle/PopCount methods that operate on V's storage.
+type BitsLensType struct {
+	Bits   token.Pos // position of "bits" keyword
+	Lbrack token.Pos // position of "["
+	Target *Ident    // the variable being aliased
+	Rbrack token.Pos // position of "]"
+}
+
+func (x *BitsLensType) Pos() token.Pos { return x.Bits }
+func (x *BitsLensType) End() token.Pos { return x.Rbrack + 1 }
+func (x *BitsLensType) exprNode()      {}
+
 // Ellipsis represents a variadic parameter type "...T".
 type Ellipsis struct {
 	Ellipsis token.Pos // position of "..."

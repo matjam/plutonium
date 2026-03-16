@@ -234,6 +234,22 @@ func (t *Aligned) String() string {
 	return fmt.Sprintf("aligned[%s, %d]", t.elem.String(), t.alignment)
 }
 
+// Ring represents a ring[T, N] lock-free ring buffer type.
+// T is the element type and N is the buffer capacity (must be a power of 2).
+// Layout: { head uint64, tail uint64, data [N]T }
+type Ring struct {
+	elem     Type
+	capacity int
+}
+
+func (t *Ring) typeNode()        {}
+func (t *Ring) Underlying() Type { return t }
+func (t *Ring) Elem() Type       { return t.elem }
+func (t *Ring) Capacity() int    { return t.capacity }
+func (t *Ring) String() string {
+	return fmt.Sprintf("ring[%s, %d]", t.elem.String(), t.capacity)
+}
+
 // Union represents a type union constraint (int32 | int64).
 type Union struct {
 	terms []Type

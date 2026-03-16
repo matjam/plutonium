@@ -200,6 +200,19 @@ func Walk(v Visitor, node Node) {
 			Walk(v, n.Alignment)
 		}
 
+	case *RingType:
+		if n.Elem != nil {
+			Walk(v, n.Elem)
+		}
+		if n.Size != nil {
+			Walk(v, n.Size)
+		}
+
+	case *BitsLensType:
+		if n.Target != nil {
+			Walk(v, n.Target)
+		}
+
 	case *Ellipsis:
 		Walk(v, n.Elt)
 

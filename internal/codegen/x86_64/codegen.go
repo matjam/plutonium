@@ -381,26 +381,26 @@ func (cg *codeGen) compileInstr(instr *ir.Instruction) {
 				mem := encoder.MemOp{Base: encoder.RBP, Index: encoder.NoReg, Disp: off, Width: encoder.W64}
 				cg.emit(encoder.EncMOV_MR(mem, valReg))
 			} else {
-				// ptr is a register containing a memory address
-				// Load value first into R11 to avoid RAX clobbering
+				// ptr is a register containing a memory address.
+				// Use PUSH/POP staging (like stageBinaryArgs) to prevent
+				// the second regFor from clobbering the first operand.
 				valReg := cg.regFor(val)
-				if valReg == encoder.RAX {
-					cg.emit(encoder.EncMOV_RR(encoder.R11, encoder.RAX, encoder.W64))
-					valReg = encoder.R11
-				}
+				cg.emit(encoder.EncPUSH(valReg))
+				ptrReg := cg.regFor(ptr)
+				cg.emit(encoder.EncPUSH(ptrReg))
+				// Pop ptr into R11, val into RAX
+				cg.emit(encoder.EncPOP(encoder.R11))
+				cg.emit(encoder.EncPOP(encoder.RAX))
 				// If byte-swap is needed for non-stack stores
 				if instr.NeedsBSwap {
-					cg.emit(encoder.EncMOV_RR(encoder.RAX, valReg, encoder.W64))
 					w := encoder.W64
 					if val.Type != nil {
 						w = widthFor(val.Type)
 					}
 					cg.emit(encoder.EncBSWAP(encoder.RAX, w))
-					valReg = encoder.RAX
 				}
-				ptrReg := cg.regFor(ptr)
-				mem := encoder.MemOp{Base: ptrReg, Index: encoder.NoReg, Disp: 0, Width: encoder.W64}
-				cg.emit(encoder.EncMOV_MR(mem, valReg))
+				mem := encoder.MemOp{Base: encoder.R11, Index: encoder.NoReg, Disp: 0, Width: encoder.W64}
+				cg.emit(encoder.EncMOV_MR(mem, encoder.RAX))
 			}
 		}
 

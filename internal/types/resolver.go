@@ -132,6 +132,23 @@ func (c *checker) resolveType(expr ast.Expr) Type {
 			return Typ[Invalid]
 		}
 		return &Aligned{elem: elem, alignment: alignment}
+
+	case *ast.RingType:
+		elem := c.resolveType(e.Elem)
+		// Parse the capacity constant
+		capacity := 0
+		if lit, ok := e.Size.(*ast.BasicLit); ok {
+			fmt.Sscanf(lit.Value, "%d", &capacity)
+		}
+		if capacity <= 0 {
+			c.errorf(e.Size.Pos(), "ring capacity must be a positive integer")
+			return Typ[Invalid]
+		}
+		if capacity&(capacity-1) != 0 {
+			c.errorf(e.Size.Pos(), "ring capacity %d must be a power of 2", capacity)
+			return Typ[Invalid]
+		}
+		return &Ring{elem: elem, capacity: capacity}
 	}
 
 	return Typ[Invalid]

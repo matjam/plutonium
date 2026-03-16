@@ -251,7 +251,7 @@ func (p *parser) isTypeStart() bool {
 	case token.IDENT, token.MUL, token.LBRACK, token.STRUCT,
 		token.INTERFACE, token.FUNC, token.MAP, token.CHAN,
 		token.LPAREN, token.PACKED, token.BITS,
-		token.VOLATILE, token.ALIGNED:
+		token.VOLATILE, token.ALIGNED, token.RING:
 		return true
 	}
 	return false
@@ -273,6 +273,8 @@ func (p *parser) parseType() ast.Expr {
 		return p.parseVolatileType()
 	case token.ALIGNED:
 		return p.parseAlignedType()
+	case token.RING:
+		return p.parseRingType()
 	case token.INTERFACE:
 		return p.parseInterfaceType()
 	case token.FUNC:
@@ -812,15 +814,39 @@ func (p *parser) parseBitsGroup(bitsPos token.Pos) *ast.BitsGroupType {
 	}
 }
 
-// parseBitsType parses: bits[T, N]
-func (p *parser) parseBitsType() *ast.BitsType {
+// parseBitsType parses: bits[T, N] (bitfield) or bits[V] (lens).
+// If there is a single identifier and no comma, it's a lens: bits[varName].
+// If there is a comma, it's a bitfield: bits[T, N].
+func (p *parser) parseBitsType() ast.Expr {
 	pos := p.expect(token.BITS)
-	p.expect(token.LBRACK)
+	lbrack := p.expect(token.LBRACK)
 
-	// Parse access type T
-	accessType := p.parseType()
+	// Parse the first argument. Could be a type (T) or a variable name (V).
+	first := p.parseType()
 
-	// Expect comma
+	// If no comma follows, this is a bits lens: bits[varName]
+	if p.tok == token.RBRACK {
+		rbrack := p.expect(token.RBRACK)
+		// Extract the identifier from the first argument
+		if ident, ok := first.(*ast.Ident); ok {
+			return &ast.BitsLensType{
+				Bits:   pos,
+				Lbrack: lbrack,
+				Target: ident,
+				Rbrack: rbrack,
+			}
+		}
+		// Fallback: not a valid lens target
+		p.error(pos, "bits lens requires a variable name, e.g. bits[flags]")
+		return &ast.BitsType{
+			Bits:       pos,
+			AccessType: first,
+			Width:      &ast.BasicLit{ValuePos: pos, Kind: token.INT, Value: "0"},
+			Rbrack:     rbrack,
+		}
+	}
+
+	// Expect comma → bitfield: bits[T, N]
 	p.expect(token.COMMA)
 
 	// Parse bit width N (integer literal)
@@ -831,9 +857,26 @@ func (p *parser) parseBitsType() *ast.BitsType {
 
 	return &ast.BitsType{
 		Bits:       pos,
-		AccessType: accessType,
+		AccessType: first,
 		Width:      width,
 		Rbrack:     rbrack,
+	}
+}
+
+// parseRingType parses: ring[T, N]
+func (p *parser) parseRingType() *ast.RingType {
+	pos := p.expect(token.RING)
+	lbrack := p.expect(token.LBRACK)
+	elem := p.parseType()
+	p.expect(token.COMMA)
+	size := p.parseExpr()
+	rbrack := p.expect(token.RBRACK)
+	return &ast.RingType{
+		Ring:   pos,
+		Lbrack: lbrack,
+		Elem:   elem,
+		Size:   size,
+		Rbrack: rbrack,
 	}
 }
 

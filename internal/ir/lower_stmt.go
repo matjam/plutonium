@@ -464,6 +464,59 @@ func (l *lowerer) lowerDeclStmt(s *ast.DeclStmt) {
 				continue
 			}
 
+			// Check if this is a ring[T, N] type — allocate separate head, tail, data slots
+			if vs.Type != nil {
+				if rt, ok := vs.Type.(*ast.RingType); ok {
+					elemType := l.lowerType(rt.Elem)
+					var capacity int64
+					if lit, ok := rt.Size.(*ast.BasicLit); ok {
+						fmt.Sscanf(lit.Value, "%d", &capacity)
+					}
+					// Validate power of 2
+					if capacity <= 0 || (capacity&(capacity-1)) != 0 {
+						// Not a power of 2 — for v0.1, just continue
+					}
+					// Allocate head, tail as separate u64 slots
+					headSlot := l.bb.Alloca(U64)
+					l.bb.Store(U64, ConstInt(U64, 0), headSlot)
+					tailSlot := l.bb.Alloca(U64)
+					l.bb.Store(U64, ConstInt(U64, 0), tailSlot)
+					// Allocate data array: [N]elemType
+					dataType := ArrayOf(capacity, elemType)
+					dataSlot := l.bb.Alloca(dataType)
+					// Store a dummy env entry so the variable is "known"
+					l.env[name.Name] = headSlot
+					l.ringVars[name.Name] = &ringTypeInfo{
+						elemType: elemType,
+						capacity: capacity,
+						mask:     capacity - 1,
+						headSlot: headSlot,
+						tailSlot: tailSlot,
+						dataSlot: dataSlot,
+					}
+					continue
+				}
+			}
+
+			// Check if this is a bits[V] lens — record alias, no allocation needed
+			if vs.Type != nil {
+				if bt, ok := vs.Type.(*ast.BitsLensType); ok {
+					targetName := bt.Target.Name
+					// Look up the target variable's type from the environment
+					targetSlot := l.env[targetName]
+					targetType := U64
+					if targetSlot != nil && targetSlot.Type != nil {
+						targetType = targetSlot.Type
+					}
+					l.bitsAliases[name.Name] = &bitsLensInfo{
+						targetVar:  targetName,
+						targetType: targetType,
+					}
+					// No allocation — bits lens is zero-cost
+					continue
+				}
+			}
+
 			// Check if this is a volatile type — allocate the element type
 			// and track the variable as volatile for load/store marking.
 			if typ.Kind == TyVolatile && typ.Elem != nil {

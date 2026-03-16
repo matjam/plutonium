@@ -369,3 +369,38 @@ func main() int64 {
 }
 `)
 }
+
+func TestParseRingType(t *testing.T) {
+	parseOK(t, `
+package main
+
+func main() int64 {
+	var r ring[int64, 8]
+	r.Push(10)
+	r.Push(20)
+	val := r.Pop()
+	n := r.Len()
+	_ = val
+	_ = n
+	return 0
+}
+`)
+}
+
+func TestParseBitsLensType(t *testing.T) {
+	parseOK(t, `
+package main
+
+func main() int64 {
+	var flags uint64
+	var b bits[flags]
+	b.Set(0)
+	b.Set(3)
+	b.Clear(3)
+	t := b.Test(7)
+	b.Toggle(0)
+	_ = t
+	return 0
+}
+`)
+}

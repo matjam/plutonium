@@ -114,6 +114,7 @@ const (
 	LE       // le
 	VOLATILE // volatile
 	ALIGNED  // aligned
+	RING     // ring
 
 	forbidden_beg
 	// Forbidden keywords — valid Go keywords that Plutonium does not support.
@@ -220,6 +221,7 @@ var tokens = [...]string{
 	LE:       "le",
 	VOLATILE: "volatile",
 	ALIGNED:  "aligned",
+	RING:     "ring",
 
 	CHAN:   "chan",
 	GO:     "go",

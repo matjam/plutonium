@@ -89,6 +89,16 @@ func (l *lowerer) lowerCallExpr(e *ast.CallExpr) *Value {
 				return l.lowerAllocSimpleCall(sel.Sel.Name, e)
 			}
 
+			// Check for ring method calls: r.Push(val), r.Pop(), etc.
+			if rinfo, ok := l.ringVars[ident.Name]; ok {
+				return l.lowerRingMethodCall(ident.Name, sel.Sel.Name, e, rinfo)
+			}
+
+			// Check for bits lens method calls: b.Set(3), b.Clear(3), etc.
+			if binfo, ok := l.bitsAliases[ident.Name]; ok {
+				return l.lowerBitsLensMethodCall(ident.Name, sel.Sel.Name, e, binfo)
+			}
+
 			// Check if the identifier is a local variable (method call)
 			// vs. a package name (package-qualified call).
 			if _, isLocal := l.env[ident.Name]; isLocal {
@@ -525,5 +535,257 @@ func (l *lowerer) lowerAllocSimpleCall(funcName string, e *ast.CallExpr) *Value 
 	}
 
 	// Unknown alloc simple function — fall through
+	return ConstInt(I64, 0)
+}
+
+// --- ring[T, N] method calls ---
+
+// lowerRingMethodCall handles method calls on ring[T, N] variables:
+//   - r.Push(val) → store val at data[head & mask], increment head; returns bool (1=success, 0=full)
+//   - r.Pop()     → load data[tail & mask], increment tail; returns val (0 if empty)
+//   - r.Peek()    → load data[tail & mask] without consuming; returns val (0 if empty)
+//   - r.Len()     → head - tail
+//   - r.Full()    → (head - tail) == capacity
+//   - r.Empty()   → head == tail
+//   - r.Reset()   → head = tail = 0
+//
+// Memory layout (flat byte array):
+//
+//	bytes  0-7:  head (uint64)
+//	bytes  8-15: tail (uint64)
+//	bytes 16+:   data[N] (N elements of T)
+func (l *lowerer) lowerRingMethodCall(varName, method string, e *ast.CallExpr, rinfo *ringTypeInfo) *Value {
+	headSlot := rinfo.headSlot
+	tailSlot := rinfo.tailSlot
+	dataSlot := rinfo.dataSlot
+
+	if headSlot == nil || tailSlot == nil || dataSlot == nil {
+		return ConstInt(I64, 0)
+	}
+
+	// Simple load/store for head and tail (direct stack slot access)
+	loadHead := func() *Value {
+		return l.bb.Load(U64, headSlot)
+	}
+	loadTail := func() *Value {
+		return l.bb.Load(U64, tailSlot)
+	}
+	storeHead := func(v *Value) {
+		l.bb.Store(U64, v, headSlot)
+	}
+	storeTail := func(v *Value) {
+		l.bb.Store(U64, v, tailSlot)
+	}
+	// Helper: get pointer to data[idx] using GEP on the data array slot
+	elemSize := SizeOf(rinfo.elemType)
+	dataElemPtr := func(idx *Value) *Value {
+		return l.bb.GEPSized(dataSlot, []*Value{idx}, elemSize)
+	}
+
+	maskVal := ConstInt(U64, rinfo.mask)
+	capVal := ConstInt(U64, rinfo.capacity)
+
+	switch method {
+	case "Push":
+		// Push with full-check: if head-tail==N return 0; else store and return 1
+		if len(e.Args) < 1 {
+			return ConstInt(I64, 0)
+		}
+		val := l.lowerExprValue(e.Args[0])
+
+		// Result slot for the return value (1=success, 0=full)
+		resultSlot := l.bb.Alloca(I64)
+		l.bb.Store(I64, ConstInt(I64, 0), resultSlot)
+
+		head := loadHead()
+		tail := loadTail()
+		diff := l.bb.BinOp(OpSub, U64, head, tail)
+		isFull := l.bb.Cmp(CmpEQ, U64, diff, capVal)
+
+		pushBlock := l.fn.NewBlock("ring.push")
+		pushDone := l.fn.NewBlock("ring.push.done")
+		l.bb.CondBr(isFull, pushDone, pushBlock)
+
+		// Push body: store val, increment head, set result=1
+		l.bb = pushBlock
+		headForIdx := l.bb.Load(U64, headSlot)
+		idx := l.bb.BinOp(OpAnd, U64, headForIdx, maskVal)
+		elemPtr := dataElemPtr(idx)
+		l.bb.Store(rinfo.elemType, val, elemPtr)
+		// Reload head after the store to avoid register clobbering
+		headForInc := l.bb.Load(U64, headSlot)
+		newHead := l.bb.BinOp(OpAdd, U64, headForInc, ConstInt(U64, 1))
+		storeHead(newHead)
+		l.bb.Store(I64, ConstInt(I64, 1), resultSlot)
+		l.bb.Br(pushDone)
+
+		l.bb = pushDone
+		return l.bb.Load(I64, resultSlot)
+
+	case "Pop":
+		// Pop with empty-check: if head==tail return 0; else load, increment tail, return val
+		resultSlot := l.bb.Alloca(rinfo.elemType)
+		l.bb.Store(rinfo.elemType, ConstInt(rinfo.elemType, 0), resultSlot)
+
+		head := loadHead()
+		tail := loadTail()
+		isEmpty := l.bb.Cmp(CmpEQ, U64, head, tail)
+
+		popBlock := l.fn.NewBlock("ring.pop")
+		popDone := l.fn.NewBlock("ring.pop.done")
+		l.bb.CondBr(isEmpty, popDone, popBlock)
+
+		// Pop body: load val, increment tail
+		l.bb = popBlock
+		tailForIdx := l.bb.Load(U64, tailSlot)
+		idx := l.bb.BinOp(OpAnd, U64, tailForIdx, maskVal)
+		elemPtr := dataElemPtr(idx)
+		val := l.bb.Load(rinfo.elemType, elemPtr)
+		l.bb.Store(rinfo.elemType, val, resultSlot)
+		// Reload tail after the load/store to avoid register clobbering
+		tailForInc := l.bb.Load(U64, tailSlot)
+		newTail := l.bb.BinOp(OpAdd, U64, tailForInc, ConstInt(U64, 1))
+		storeTail(newTail)
+		l.bb.Br(popDone)
+
+		l.bb = popDone
+		return l.bb.Load(rinfo.elemType, resultSlot)
+
+	case "Peek":
+		// Simplified v0.1: no empty check (caller uses Empty() if needed)
+		// val = data[tail & mask]; return val (don't increment tail)
+		tail := loadTail()
+		idx := l.bb.BinOp(OpAnd, U64, tail, maskVal)
+		elemPtr := dataElemPtr(idx)
+		return l.bb.Load(rinfo.elemType, elemPtr)
+
+	case "Len":
+		head := loadHead()
+		tail := loadTail()
+		return l.bb.BinOp(OpSub, U64, head, tail)
+
+	case "Full":
+		head := loadHead()
+		tail := loadTail()
+		diff := l.bb.BinOp(OpSub, U64, head, tail)
+		return l.bb.Cmp(CmpEQ, U64, diff, capVal)
+
+	case "Empty":
+		head := loadHead()
+		tail := loadTail()
+		return l.bb.Cmp(CmpEQ, U64, head, tail)
+
+	case "Reset":
+		storeHead(ConstInt(U64, 0))
+		storeTail(ConstInt(U64, 0))
+		return ConstInt(I64, 0)
+	}
+
+	return ConstInt(I64, 0)
+}
+
+// --- bits[V] lens method calls ---
+
+// lowerBitsLensMethodCall handles method calls on bits[V] lens variables:
+//   - b.Set(n)      → V |= (1 << n)
+//   - b.Clear(n)    → V &= ^(1 << n)
+//   - b.Test(n)     → (V >> n) & 1
+//   - b.Toggle(n)   → V ^= (1 << n)
+//   - b.PopCount()  → popcount(V) (software fallback)
+func (l *lowerer) lowerBitsLensMethodCall(lensName, method string, e *ast.CallExpr, binfo *bitsLensInfo) *Value {
+	targetSlot := l.env[binfo.targetVar]
+	if targetSlot == nil {
+		return ConstInt(I64, 0)
+	}
+	targetType := binfo.targetType
+
+	switch method {
+	case "Set":
+		// V |= (1 << n)
+		if len(e.Args) < 1 {
+			return ConstInt(I64, 0)
+		}
+		n := l.lowerExprValue(e.Args[0])
+		current := l.bb.Load(targetType, targetSlot)
+		one := ConstInt(targetType, 1)
+		mask := l.bb.BinOp(OpShl, targetType, one, n)
+		result := l.bb.BinOp(OpOr, targetType, current, mask)
+		l.bb.Store(targetType, result, targetSlot)
+		return ConstInt(I64, 0)
+
+	case "Clear":
+		// V &= ^(1 << n)
+		if len(e.Args) < 1 {
+			return ConstInt(I64, 0)
+		}
+		n := l.lowerExprValue(e.Args[0])
+		current := l.bb.Load(targetType, targetSlot)
+		one := ConstInt(targetType, 1)
+		mask := l.bb.BinOp(OpShl, targetType, one, n)
+		invMask := l.bb.BinOp(OpXor, targetType, mask, ConstInt(targetType, -1))
+		result := l.bb.BinOp(OpAnd, targetType, current, invMask)
+		l.bb.Store(targetType, result, targetSlot)
+		return ConstInt(I64, 0)
+
+	case "Test":
+		// (V >> n) & 1
+		if len(e.Args) < 1 {
+			return ConstInt(I64, 0)
+		}
+		n := l.lowerExprValue(e.Args[0])
+		current := l.bb.Load(targetType, targetSlot)
+		shifted := l.bb.BinOp(OpShr, targetType, current, n)
+		return l.bb.BinOp(OpAnd, targetType, shifted, ConstInt(targetType, 1))
+
+	case "Toggle":
+		// V ^= (1 << n)
+		if len(e.Args) < 1 {
+			return ConstInt(I64, 0)
+		}
+		n := l.lowerExprValue(e.Args[0])
+		current := l.bb.Load(targetType, targetSlot)
+		one := ConstInt(targetType, 1)
+		mask := l.bb.BinOp(OpShl, targetType, one, n)
+		result := l.bb.BinOp(OpXor, targetType, current, mask)
+		l.bb.Store(targetType, result, targetSlot)
+		return ConstInt(I64, 0)
+
+	case "PopCount":
+		// Software popcount using Brian Kernighan's algorithm:
+		// count = 0; while (v) { v &= v-1; count++; }
+		// For v0.1, we'll generate a loop.
+		current := l.bb.Load(targetType, targetSlot)
+		countSlot := l.bb.Alloca(U64)
+		l.bb.Store(U64, ConstInt(U64, 0), countSlot)
+		tempSlot := l.bb.Alloca(targetType)
+		l.bb.Store(targetType, current, tempSlot)
+
+		condBlock := l.fn.NewBlock("popcount.cond")
+		bodyBlock := l.fn.NewBlock("popcount.body")
+		exitBlock := l.fn.NewBlock("popcount.exit")
+
+		l.bb.Br(condBlock)
+
+		// Condition: temp != 0
+		l.bb = condBlock
+		temp := l.bb.Load(targetType, tempSlot)
+		isNonZero := l.bb.Cmp(CmpNE, targetType, temp, ConstInt(targetType, 0))
+		l.bb.CondBr(isNonZero, bodyBlock, exitBlock)
+
+		// Body: temp &= temp - 1; count++
+		l.bb = bodyBlock
+		temp2 := l.bb.Load(targetType, tempSlot)
+		minus1 := l.bb.BinOp(OpSub, targetType, temp2, ConstInt(targetType, 1))
+		newTemp := l.bb.BinOp(OpAnd, targetType, temp2, minus1)
+		l.bb.Store(targetType, newTemp, tempSlot)
+		cnt := l.bb.Load(U64, countSlot)
+		newCnt := l.bb.BinOp(OpAdd, U64, cnt, ConstInt(U64, 1))
+		l.bb.Store(U64, newCnt, countSlot)
+		l.bb.Br(condBlock)
+
+		l.bb = exitBlock
+		return l.bb.Load(U64, countSlot)
+	}
+
 	return ConstInt(I64, 0)
 }
