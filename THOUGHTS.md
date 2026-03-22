@@ -1,0 +1,2 @@
+- probably want to get this self hosting ASAP.
+- specific types that would be useful for systems dev
