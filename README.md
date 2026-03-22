@@ -2,9 +2,57 @@
 
 Plutonium is a kernel-safe subset of Go designed for systems software. It compiles `.pu` source files to relocatable ELF object files, targeting code that cannot depend on a managed runtime: OS kernels, drivers, allocators, schedulers, and bare-metal firmware.
 
+This project was mostly coded using Claude Code's Opus model.
+
+## Why?
+
+Go is one of the most ergonomic systems languages ever designed. Clear syntax, fast compilation, great tooling. But it makes a hard trade-off: the runtime. Goroutines need a scheduler. The GC needs stop-the-world pauses. Strings and slices allocate behind your back. That runtime is the reason you can't write a page fault handler, a network driver, or a boot loader in Go.
+
+Rust solves this problem, but at a cost: borrow checkers, lifetime annotations, trait bounds, turbofish syntax. It's a powerful language, but it's not a *readable* language -- not in the way Go is. If you've spent years writing Go, switching to Rust feels like trading clarity for control.
+
+Plutonium asks: what if you didn't have to choose?
+
+Take Go's syntax and strip out everything that needs a runtime. No GC, no scheduler, no implicit heap allocation. Then add the things systems programmers actually need: packed bitfield types for hardware registers, volatile loads and stores for MMIO, built-in ring buffers, explicit allocation with automatic reference counting, and direct syscall access. The result reads like Go but compiles like C -- a static binary with no libc, no runtime, just your code and the kernel.
+
+The goal is a language suitable for:
+
+- **Kernel development.** Address hardware directly -- packed types with bit-level field layouts, endianness control, volatile I/O. No wrangling required to avoid the runtime because there is no runtime.
+- **Predictable real-time code.** No GC pauses, no scheduler preemption, no hidden allocations. If you need a tight timing loop -- game engines, audio processing, control systems -- the compiler won't surprise you.
+- **Firmware and bare-metal.** Freestanding build mode, `_start` entry point, static ELF binaries with no dependencies. Just your code on the metal.
+- **Userspace systems programs.** Not everything needs a runtime. CLI tools, daemons, embedded databases -- if you want small, predictable binaries that don't carry a GC, Plutonium compiles those too.
+
+Is the compiler optimizing? No, not yet -- it produces correct but unoptimized code. Will it eventually? Probably. Right now the focus is on getting the semantics right. Performance comes after correctness.
+
+Honestly, this started as an experiment -- kicking ideas around with Claude to see if an AI-assisted compiler for a Go-without-the-runtime language could actually work. Surprisingly, it does.
+
 ## Status
 
-**v0.1 — in active development.** The full compilation pipeline (parse → type-check → sema → monomorphize → IR → x86_64 codegen → ELF .o) is functional. Linking to a runnable binary requires the `pluto/os` package to be self-hosted, which is the v0.2 milestone.
+**v0.1 -- in active development.** The full compilation pipeline (parse -> type-check -> sema -> monomorphize -> IR -> x86_64 codegen -> ELF .o) is functional. Programs compile and run. 18 working examples cover arithmetic, control flow, pointers, generics, printf, packed bitfields, heap allocation, ring buffers, RAII auto-free, and reference counting.
+
+## What Plutonium Keeps From Go
+
+- Package system, imports, visibility rules (`Exported` vs `unexported`)
+- Functions, methods (value and pointer receivers), closures
+- Structs, embedding, arrays, slices, pointers
+- `for`, `if/else`, `switch/case`, `defer`, `:=` short declarations
+- Generics with type constraints (monomorphized at compile time)
+- Familiar `fmt.Printf` with `%d`, `%x`, `%s`, `%c`, `%p`
+
+Interfaces are partially supported today (compile-time dispatch for non-empty interfaces). Full structural interface support -- Go's implicit satisfaction model where types implement interfaces by convention, not declaration -- is a major goal. The `any` type and related semantics will likely evolve as that work progresses.
+
+## What Plutonium Adds
+
+| Feature | Description |
+|---|---|
+| `packed` types | Bit-level field layout for hardware registers with endianness control |
+| `volatile[T]` | Every read/write is exactly one load/store, never elided or reordered |
+| `aligned[T, N]` | Guarantees N-byte alignment for DMA buffers, SIMD, page tables |
+| `ring[T, N]` | Built-in lock-free ring buffer with compiler-inlined Push/Pop/Len |
+| `bits[V]` lens | Zero-cost bit-addressing over existing variables (Set/Clear/Test/Toggle) |
+| `alloc.New[T]()` | Explicit heap allocation via slab allocator with auto reference counting |
+| RAII auto-free | Compiler inserts `decRef` at scope exit; no manual free required |
+| `any` tagged union | 16-byte `{typeID, data}` struct for type-safe variadic arguments |
+| `unsafe` package | `Sizeof`, `Alignof`, pointer casts -- typed, not opaque |
 
 ## What Plutonium Rejects
 
@@ -16,12 +64,52 @@ The compiler enforces kernel safety at compile time:
 | `chan T` | No scheduler |
 | `select {}` | No scheduler |
 | `map[K]V` | Requires GC; use `pluto/hash` |
-| `new(T)` | No implicit heap allocation |
-| `make([]T, n)` | No implicit heap allocation |
-| `interface{}` / `any` | No runtime type metadata |
+| `new(T)` | No implicit heap allocation; use `alloc.New[T]()` |
+| `make([]T, n)` | No implicit heap allocation; use explicit allocators |
+| `interface{}` | No runtime type metadata yet; full structural interfaces are planned |
 | `panic(...)` | No runtime unwinder |
 | `recover()` | No runtime unwinder |
 | `import "reflect"` | Requires runtime metadata |
+
+## Example
+
+```go
+package main
+
+import "pluto/fmt"
+
+type ControlReg packed uint32 {
+    mode     bits[uint, 4]
+    enable   bits[bool, 1]
+    priority bits[uint, 3]
+}
+
+func fib(n int64) int64 {
+    a := int64(0)
+    b := int64(1)
+    for i := int64(2); i <= n; i++ {
+        next := a + b
+        a = b
+        b = next
+    }
+    return b
+}
+
+func main() int64 {
+    // Hardware register with bit-level field access
+    var reg ControlReg
+    reg.mode = 5
+    reg.enable = true
+    reg.priority = 7
+    fmt.Printf("mode=%d enable=%d priority=%d\n", reg.mode, reg.enable, reg.priority)
+
+    // Familiar Go-style code
+    for i := int64(1); i <= 5; i++ {
+        fmt.Printf("fib(%d) = %d\n", i, fib(i))
+    }
+    return 0
+}
+```
 
 ## Building the Compiler
 
@@ -34,38 +122,17 @@ go build -o pluto ./cmd/pluto/
 ## Usage
 
 ```bash
+# Build a package to a linked binary
+pluto build -o output ./path/to/package/
+
 # Compile a single source file to an object file
 pluto compile -o main.o main.pu
 
 # Compile with build tags
 pluto compile --tags freestanding -o kernel.o kernel.pu
 
-# Compile a package directory
-pluto build -o output.o ./path/to/package
-
 # Print version
 pluto version
-```
-
-## Example Program
-
-```go
-package main
-
-func main() {
-    msg := "hello, plutonium\n"
-    writeString(1, msg)
-    exit(0)
-}
-
-func writeString(fd int64, s string) {
-    _ = fd
-    _ = s
-}
-
-func exit(code int64) {
-    _ = code
-}
 ```
 
 ## Project Structure
@@ -90,17 +157,19 @@ internal/
   token/            # Token types and file position tracking
   types/            # Type checker and type system
 pluto/              # Standard library (.pu source)
+  alloc/            # Slab allocator with reference counting
   bytes/            # Byte slice utilities
-  fmt/              # Formatted output
-  io/               # I/O primitives
-  mem/              # Arena allocator
+  fmt/              # Formatted output (Printf, PrintInt, Println)
+  io/               # I/O primitives (Reader, Writer interfaces)
+  mem/              # Arena bump-pointer allocator
   os/               # OS interface (write, exit)
-  strings/          # String utilities
+  strings/          # String utilities (Len, Equal, Contains, TrimSpace)
   syscall/          # Raw Linux syscall wrappers
 docs/
   spec/
     language.md     # Language specification
     abi.md          # x86_64 ABI and calling convention
+examples/           # 18 working examples (exit through strings)
 testdata/
   programs/hello/   # End-to-end pipeline test
   invalid/          # Programs that must be rejected
