@@ -15,6 +15,7 @@ const (
 	kStruct
 	kPtr
 	kIface
+	kFloat
 )
 
 // A typ is a type the generator can produce. Types are canonical: two
@@ -47,7 +48,7 @@ func (t *typ) String() string {
 	return t.name
 }
 
-func (t *typ) scalar() bool { return t.kind == kInt || t.kind == kBool }
+func (t *typ) scalar() bool { return t.kind == kInt || t.kind == kBool || t.kind == kFloat }
 
 // ref reports whether a value of t refers to memory it does not hold.
 func (t *typ) ref() bool { return t.kind == kSlice || t.kind == kPtr }
@@ -89,7 +90,9 @@ var (
 		tUint,
 		{kind: kInt, name: "uintptr", bits: 64},
 	}
-	tUint64 = &typ{kind: kInt, name: "uint64", bits: 64}
+	tUint64  = &typ{kind: kInt, name: "uint64", bits: 64}
+	tFloat64 = &typ{kind: kFloat, name: "float64", bits: 64}
+	tFloat32 = &typ{kind: kFloat, name: "float32", bits: 32}
 )
 
 // unsignedTypes returns the unsigned integer types.

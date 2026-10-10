@@ -133,6 +133,8 @@ func Generate(seed int64, opt Options) string {
 		g.types[t.String()] = t
 	}
 	g.types["bool"] = tBool
+	g.types["float64"] = tFloat64
+	g.types["float32"] = tFloat32
 	return g.program(seed)
 }
 
@@ -161,6 +163,7 @@ func (g *gen) program(seed int64) string {
 	}
 
 	var funcs strings.Builder
+	funcs.WriteString(f2iFunc)
 	if g.chance(3) {
 		out.WriteString("type Ifc interface {\n\tGet(x int) int\n}\n\ntype N int32\n\n")
 		g.ifc = &typ{kind: kIface, name: "Ifc"}
@@ -236,6 +239,9 @@ func (g *gen) randElem() *typ {
 	if len(g.structs) > 0 && g.chance(5) {
 		return g.structs[g.r.Intn(len(g.structs))]
 	}
+	if g.chance(10) {
+		return g.randFloat()
+	}
 	return g.concreteInt()
 }
 
@@ -243,8 +249,10 @@ func (g *gen) randElem() *typ {
 // refs set also a slice or pointer.
 func (g *gen) randType(refs bool) *typ {
 	switch n := g.r.Intn(100); {
-	case n < 52:
+	case n < 47:
 		return g.randInt()
+	case n < 52:
+		return g.randFloat()
 	case n < 60:
 		return tBool
 	case n < 72:
@@ -275,8 +283,10 @@ func (g *gen) newStruct() *typ {
 	for i, n := 0, 2+g.r.Intn(6); i < n; i++ {
 		var ft *typ
 		switch k := g.r.Intn(20); {
-		case k < 14:
+		case k < 13:
 			ft = g.concreteInt()
+		case k < 14:
+			ft = g.randFloat()
 		case k < 16:
 			ft = tBool
 		case k < 19:
@@ -323,6 +333,9 @@ func (g *gen) constant(t *typ) string {
 			return "true"
 		}
 		return "false"
+	}
+	if t.kind == kFloat {
+		return g.floatConst(t, false)
 	}
 	if t.signed {
 		return strconv.FormatInt(g.signedConst(t), 10)
@@ -436,6 +449,9 @@ func (g *gen) pop() {
 			g.line("if %s {", v.name)
 			g.line("\t%s++", h.name)
 			g.line("}")
+			h.used = true
+		case v.t.kind == kFloat && h != nil && g.canWriteRoot(h):
+			g.line("%s = %s*31 + uint64(%s)", h.name, h.name, toInt(v.name, v.t))
 			h.used = true
 		default:
 			g.line("_ = %s", v.name)
@@ -735,6 +751,11 @@ func (g *gen) intExpr(t *typ, d int, nc bool) expr {
 		}
 		return expr{s: fn + "(" + strings.Join(args, ", ") + ")"}
 	case k < 94:
+		if g.chance(5) {
+			// From a float, through the range check.
+			u := g.randFloat()
+			return expr{s: t.String() + "(" + toInt(g.floatExpr(u, d-1, true).s, u) + ")"}
+		}
 		u := g.randInt()
 		return expr{s: t.String() + "(" + g.intExpr(u, d-1, true).s + ")"}
 	default:
@@ -878,6 +899,9 @@ func (g *gen) boolExpr(d int, nc bool) expr {
 }
 
 func (g *gen) compare(d int) expr {
+	if g.chance(6) {
+		return g.floatCompare(d)
+	}
 	t := g.randInt()
 	a := g.intExpr(t, d-1, false)
 	b := g.intExpr(t, d-1, a.c)
@@ -921,8 +945,11 @@ func (g *gen) boolLeaf(d int, nc bool) expr {
 
 // scalarExpr returns an expression of scalar type t.
 func (g *gen) scalarExpr(t *typ, d int, nc bool) expr {
-	if t.kind == kBool {
+	switch t.kind {
+	case kBool:
 		return g.boolExpr(d, nc)
+	case kFloat:
+		return g.floatExpr(t, d, nc)
 	}
 	return g.intExpr(t, d, nc)
 }
@@ -931,7 +958,7 @@ func (g *gen) scalarExpr(t *typ, d int, nc bool) expr {
 // gives untyped constants their type.
 func (g *gen) value(t *typ, d int) string {
 	switch t.kind {
-	case kInt, kBool:
+	case kInt, kBool, kFloat:
 		return g.scalarExpr(t, d, false).s
 	case kSlice:
 		s, _, _ := g.sliceExpr(t.elem, 1)
@@ -1510,6 +1537,8 @@ func leafOf(p string, t *typ) string {
 	switch t.kind {
 	case kInt:
 		return "int64(" + p + ")"
+	case kFloat:
+		return toInt(p, t)
 	case kStruct:
 		for _, f := range t.fields {
 			if l := leafOf(p+"."+f.name, f.t); l != "0" {
@@ -1658,6 +1687,8 @@ func (g *gen) printLeaves(p string, t *typ) {
 		switch t.kind {
 		case kInt, kBool:
 			leaves = append(leaves, p)
+		case kFloat:
+			leaves = append(leaves, toInt(p, t))
 		case kStruct:
 			for _, f := range t.fields {
 				walk(p+"."+f.name, f.t)
@@ -1721,7 +1752,7 @@ func (g *gen) addr(elem *typ) (string, bool) {
 // initializers.
 func (g *gen) constLiteral(t *typ) string {
 	switch t.kind {
-	case kInt, kBool:
+	case kInt, kBool, kFloat:
 		return g.constant(t)
 	case kArray:
 		var parts []string
@@ -2342,7 +2373,7 @@ func (g *gen) declStmt() {
 	// The initialiser may read the variable this one hides.
 	v := &variable{name: g.shadowName(), t: t}
 	switch t.kind {
-	case kInt, kBool:
+	case kInt, kBool, kFloat:
 		switch g.r.Intn(5) {
 		case 0:
 			g.line("var %s %s", v.name, t)
@@ -2374,16 +2405,25 @@ func (g *gen) declStmt() {
 
 func (g *gen) assignStmt() bool {
 	var t *typ
-	if g.chance(6) {
+	switch {
+	case g.chance(6):
 		t = g.randType(false)
-	} else if g.chance(8) {
+	case g.chance(8):
 		t = tBool
-	} else {
+	case g.chance(8):
+		t = g.randFloat()
+	default:
 		t = g.randInt()
 	}
 	p := g.place(t, true)
 	if p == "" {
 		return false
+	}
+	if t.kind == kFloat && g.chance(2) {
+		op := []string{"+=", "-=", "*=", "/="}[g.r.Intn(4)]
+		e := g.floatExpr(t, 2, op == "/=")
+		g.line("%s %s %s", p, op, e.s)
+		return true
 	}
 	if t.kind != kInt {
 		g.line("%s = %s", p, g.value(t, 3))
@@ -2435,8 +2475,11 @@ func (g *gen) ifStmt() {
 // turns into a conditional move.
 func (g *gen) diamond() {
 	t := g.randInt()
-	if g.chance(6) {
+	switch g.r.Intn(6) {
+	case 0:
 		t = tBool
+	case 1:
+		t = g.randFloat()
 	}
 	v := &variable{name: g.name("v"), t: t}
 	if g.chance(2) {
@@ -2455,7 +2498,7 @@ func (g *gen) diamond() {
 	g.declare(v)
 	if g.chance(3) {
 		v.used = true
-		g.line("println(%q, %s)", v.name, v.name)
+		g.line("println(%q, %s)", v.name, leafOrBool(v.name, t))
 	}
 }
 
@@ -2463,8 +2506,13 @@ func (g *gen) printStmt() {
 	var args []string
 	for i, n := 0, 1+g.r.Intn(4); i < n; i++ {
 		t := g.randInt()
-		if g.chance(5) {
+		switch g.r.Intn(6) {
+		case 0:
 			t = tBool
+		case 1:
+			u := g.randFloat()
+			args = append(args, toInt(g.floatExpr(u, 3, false).s, u))
+			continue
 		}
 		args = append(args, typed(g.scalarExpr(t, 3, false), t))
 	}
