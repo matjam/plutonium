@@ -7,9 +7,7 @@ package fmt
 // hexadecimal: %!v(float64=0x4020000000000000).
 func (p *printer) printFloatBits(bits uint64, bitSize int, verb rune) {
 	p.writeString("%!")
-	var b [4]byte
-	n := encodeRune(b[:], verb)
-	p.writeBytes(b[:n])
+	p.writeRune(verb)
 	if bitSize == 32 {
 		p.writeString("(float32=0x")
 	} else {
