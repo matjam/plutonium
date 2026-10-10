@@ -59,7 +59,7 @@ func TestRun(t *testing.T) {
 // goPackages are the pluto/... packages that programs in testdata/run may
 // import and that Go runs as its package of the same path without the
 // pluto/ prefix.
-var goPackages = []string{"cmp", "fmt", "slices", "unicode"}
+var goPackages = []string{"cmp", "container/heap", "fmt", "slices", "unicode"}
 
 // runWithGo runs a test program with the Go toolchain and returns what it
 // writes to standard error (println's destination).
