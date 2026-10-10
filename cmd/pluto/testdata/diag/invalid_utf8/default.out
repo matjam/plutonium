@@ -1,0 +1,17 @@
+$DIR/main.p:5:15: string literal "\x7fELF\xff" is not valid UTF-8; use a []byte for binary data
+    Every string in Plutonium holds valid UTF-8 text, so a string literal whose
+    escapes spell out bytes that are not valid UTF-8 is an error. Here the
+    escapes make a byte or a sequence of bytes that does not encode a character.
+    Binary data belongs in a []byte or a byte array, which may hold any bytes.
+    To write the character itself, use its \u escape or type it.
+    Go strings may hold any bytes. Plutonium guarantees that a string is text,
+    so that ranging over it, slicing it between runes and the library's rune
+    functions never meet broken encodings, and so that ASCII strings can be
+    recognized once and taken fast paths for.
+    Keep binary data in bytes:
+        magic := []byte{0x7f, 'E', 'L', 'F'}
+    (see "Strings" in the Plutonium spec, section 6.10)
+    (run "pluto explain E2010" for a longer explanation)
+
+$DIR/main.p:9:21: string literal "\xed\xa0\x80" is not valid UTF-8; use a []byte for binary data
+    (explained above; run "pluto explain E2010" for more)

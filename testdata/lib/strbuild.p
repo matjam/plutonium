@@ -2,8 +2,8 @@ package main
 
 // The library functions that build strings (language spec section 6.10),
 // with Go's behaviour: run with Go's fmt, strings and strconv (and without
-// the Builder's Free, which Go's does not need) this program prints the
-// same.
+// the Builder's Free and errors.Free, which Go does not need) this program
+// prints the same.
 
 import (
 	"pluto/errors"
@@ -72,4 +72,6 @@ func main() {
 	fmt.Println(err, errors.Unwrap(err))
 	msg := err.Error()
 	fmt.Println(msg[:6], len(msg))
+	errors.Free(err) // msg keeps the message
+	fmt.Println(msg)
 }

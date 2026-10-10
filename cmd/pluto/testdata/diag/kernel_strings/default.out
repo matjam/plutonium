@@ -1,0 +1,43 @@
+$DIR/main.p:38:6: joined allocates (it is marked //pu:alloc), which kernel code may only call from a function marked //pu:alloc
+    The function called is marked //pu:alloc: it allocates, for example because
+    it builds strings. In kernel mode a function that is not marked //pu:alloc
+    may not call one, so that code that must not allocate (an interrupt handler,
+    code holding a spin lock) cannot do it by accident through a call.
+    Mark the calling function //pu:alloc too, if it runs where the allocator may
+    be used, or use a function that writes into a buffer you provide, such as
+    strconv.AppendInt or fmt.Bprintf.
+    In Go any function may allocate. A kernel needs to know which code may, so
+    Plutonium makes allocation visible in the declarations of kernel code.
+    Format into a buffer instead:
+        var buf [32]byte
+        msg := fmt.Bprintf(buf[:0], "irq %d", n)
+    (see "Allocation in kernel mode" in the Plutonium spec, section 12.7)
+    (run "pluto explain E2544" for a longer explanation)
+
+$DIR/main.p:9:9: string concatenation allocates, which kernel code may only do in a function marked //pu:alloc
+    This string operation makes a new string, and a new string needs memory from
+    the current allocator: s + t, string(b) for a byte or rune slice, string(r)
+    for a rune that is not a constant, []byte(s) and []rune(s). Kernel code may
+    run where allocating is not allowed (in an interrupt handler, before the
+    allocator exists, with a lock held), so in kernel mode it may build strings
+    only in functions that say they allocate.
+    Mark the function //pu:alloc if it runs where the allocator may be used.
+    Otherwise work on bytes in a buffer you own, for example with fmt.Bprintf or
+    strconv.AppendInt, and keep string operations that do not allocate:
+    literals, comparison, slicing, indexing and len.
+    Go allocates new strings on the garbage-collected heap. Plutonium counts
+    them and frees each one when its last copy goes, but the allocation itself
+    still needs an allocator, which a kernel only has in some places.
+    Mark a function that may allocate:
+        //pu:alloc
+        func describe(dev *Device) string {
+            return dev.name + ": " + dev.state.String()
+        }
+    (see "Allocation in kernel mode" in the Plutonium spec, section 12.7)
+    (run "pluto explain E2543" for a longer explanation)
+
+$DIR/main.p:13:9: conversion to string allocates, which kernel code may only do in a function marked //pu:alloc
+    (explained above; run "pluto explain E2543" for more)
+
+$DIR/main.p:17:9: Sprintf allocates (it is marked //pu:alloc), which kernel code may only call from a function marked //pu:alloc
+    (explained above; run "pluto explain E2544" for more)

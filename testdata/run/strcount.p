@@ -150,11 +150,13 @@ func main() {
 	c += "!"
 	println(b, c)
 
-	// Conversions.
-	bs := []byte(b)
+	// Conversions. (The slices that []byte(s) and []rune(s) make are
+	// tested in testdata/lib/strutf8.p, which frees them.)
+	var barr [16]byte
+	bs := barr[:copy(barr[:], b)]
 	bs[0] = 'X'
 	println(string(bs), string(bs[1:4]))
-	rs := []rune("héllo, wörld")
+	rs := [...]rune{'h', 'é', 'l', 'l', 'o', ',', ' ', 'w', 'ö', 'r', 'l', 'd'}
 	println(len(rs), string(rs[7:]), string(rs[1]))
 	for _, r := range "añb" {
 		println(string(r) + string(r))
@@ -224,7 +226,8 @@ func main() {
 
 	// Deferred calls and pointers.
 	println(deferred())
-	pa := new(pair)
+	var pv pair
+	pa := &pv
 	pa.k = a + "k"
 	pa.v = pa.k + "v"
 	*pa = pair{pa.v, pa.k}

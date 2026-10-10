@@ -57,6 +57,7 @@ func (s *fnState) popCleanup(e *cleanupEntry) {
 	if s.b != nil {
 		s.releaseEntry(e)
 	}
+	s.closeHolds(e.slots)
 	s.cleanups = s.cleanups[:len(s.cleanups)-1]
 }
 
@@ -75,7 +76,11 @@ func (s *fnState) releaseSlots(slots []countedSlot, zero bool) {
 			continue
 		}
 		p := s.offPtr(c.base, c.off)
+		from := len(s.callLog)
 		s.releaseAt(p, c.T)
+		if c.tmp != nil {
+			s.noteRelease(c.tmp, from)
+		}
 		if zero {
 			s.zero(p, s.l.sizeof(c.T))
 		}

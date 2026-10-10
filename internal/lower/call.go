@@ -417,6 +417,7 @@ func (s *fnState) callValue(c callee, flat []*ssa.Value, results []*ssa.Type) *s
 		call.AddArg(a)
 	}
 	call.AddArg(s.mem())
+	s.callLog = append(s.callLog, call) // for string holds (strcount.go)
 	call.Call = &ssa.CallInfo{ABI: ssa.ABIInternal, Results: results, NoReturn: c.noReturn}
 	return call
 }

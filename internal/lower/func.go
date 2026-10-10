@@ -63,6 +63,13 @@ type fnState struct {
 	// bytewise is set in functions marked //pu:bytewise, whose string
 	// slice expressions are not checked for rune boundaries.
 	bytewise bool
+
+	// Count elision (strelide.go): every call emitted, in order, and the
+	// references held to keep borrowed strings alive across calls.
+	callLog     []*ssa.Value
+	strHolds    []*holdRec
+	holdOf      map[*ownedTemp]*holdRec
+	tempRelease map[*ssa.Value]bool // releases of statement temporaries
 }
 
 type blockState struct {
@@ -301,6 +308,9 @@ func (l *Lowerer) newFnState(job *funcJob) *fnState {
 		vars:      map[*types2.Var]*ssa.Value{},
 		labels:    map[*types2.Label]*labelInfo{},
 		ownedVars: map[*types2.Var]bool{},
+
+		holdOf:      map[*ownedTemp]*holdRec{},
+		tempRelease: map[*ssa.Value]bool{},
 	}
 	if job.pkg != nil {
 		s.info = job.pkg.Info
@@ -382,6 +392,7 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 		s.popCleanup(root)
 	}
 	s.finishEntry()
+	s.recordHolds()
 
 	for _, b := range f.Blocks {
 		s.seal(b)

@@ -391,7 +391,10 @@ func runesFromString(p *byte, n int) (*rune, int) {
 
 // checkRuneBounds panics unless lo and hi, bounds of a slice of the n
 // bytes at p already checked against n, are each at the start of a rune or
-// at n. The compiler calls it for strings whose flags do not say ASCII.
+// at n. The compiler calls it for strings whose flags do not say ASCII. It
+// is not inlined, so that a panic's trace starts at the slice expression.
+//
+//pu:noinline
 func checkRuneBounds(p *byte, n, lo, hi int) {
 	if lo < n && *(*byte)(unsafe.Add(unsafe.Pointer(p), lo))&0xC0 == 0x80 {
 		panicSliceRune(lo)

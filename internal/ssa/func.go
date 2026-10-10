@@ -356,6 +356,16 @@ type CallInfo struct {
 	NoReturn bool
 }
 
+// A StrHold is a reference a function takes, for the duration of a
+// statement, to a string it borrowed from memory that a call could change:
+// the calls that take it (Retains, to pluto/rt.strRetain) and drop it
+// (Releases, to pluto/rt.strRelease), and every other call made while it
+// is held (Covered). If none of the covered calls can release a string,
+// the reference protects nothing and all of its calls may be removed.
+type StrHold struct {
+	Retains, Releases, Covered []*Value
+}
+
 // Pragma flags on a function.
 type Pragma uint16
 
@@ -416,6 +426,11 @@ type Func struct {
 	// ParamOnStack forces parameters to the stack, as CallInfo.OnStack does
 	// for calls (ABIC functions only; nil otherwise).
 	ParamOnStack []bool
+
+	// StrHolds lists the references lowering took to keep a borrowed string
+	// alive across calls that might release it (internal/lower/strcount.go);
+	// opt.ElideStringHolds removes those whose calls cannot.
+	StrHolds []StrHold
 
 	Blocks []*Block
 	Entry  *Block

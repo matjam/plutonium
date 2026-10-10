@@ -284,8 +284,11 @@ func (s *fnState) hold(v value) value {
 	}
 	tmp := s.temp(v.T, "held")
 	s.move(tmp, v.v, s.l.sizeof(v.T))
+	from := len(s.callLog)
 	s.retainAt(tmp, v.T)
-	return s.ownTemp(tmp, v.T)
+	held := s.ownTemp(tmp, v.T)
+	s.startHold(held.tmp, from) // the optimiser may remove it (strelide.go)
+	return held
 }
 
 // holdOwned is hold, except that a stable borrow is retained too: the
