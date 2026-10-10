@@ -1,0 +1,4 @@
+3
+panic: union variant: main.State holds Idle, not Busy
+    main.busy ($FILE:9)
+    main.main ($FILE:14)

@@ -319,6 +319,8 @@ func (l *Lowerer) cCheckType(T types2.Type, top bool) error {
 		return fmt.Errorf("func value %s has no C equivalent (it points at a closure record, not code)", T)
 	case *types2.Map, *types2.Chan, *types2.Tuple:
 		return fmt.Errorf("%s has no C equivalent", T)
+	case *types2.TaggedUnion:
+		return fmt.Errorf("union %s has no C equivalent (its layout is not part of the ABI); pass a struct of a tag and the payload", T)
 	case *types2.Array:
 		if top {
 			return fmt.Errorf("array %s cannot be passed to or from C by value; pass a pointer or wrap it in a struct", T)

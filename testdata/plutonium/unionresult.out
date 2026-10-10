@@ -1,0 +1,16 @@
+written through a Result
+wrote 25 bytes
+read from fd 99: bad file descriptor
+-1 0 true
+interrupted, retrying
+interrupted, retrying
+readRetry: 42 true
+1 -1
+5 -7
+nested 3
+a 1 false
+b 0 true
+collected 2 1 2
+collect failed: no such file or directory
+true false true
+16 24 2

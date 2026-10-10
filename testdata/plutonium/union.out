@@ -1,0 +1,27 @@
+nic: ready, irq 11, base 0xfeb00000, after 3 probes
+disk: failed (input/output error) after 2 probes
+uart: probing
+probing off probing
+true false true true true
+asserted attempt 7
+ready? false
+irq 1
+busy: ready
+busy: probing
+idle: off
+missing
+temp 21.5
+count -3
+mode High
+state probing
+large -2 12
+7 105 0
+total area 21
+an any holding a Shape of area 6
+true false
+75 10
+missing
+temp 1.25
+op +
+sum 3
+24 8 4 56

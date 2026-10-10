@@ -125,6 +125,7 @@ const (
 	KindPacked        = 27
 	KindRing          = 28
 	KindOwned         = 29
+	KindUnion         = 30
 )
 
 // TypeInfo describes the dynamic type of an empty interface value: its kind,
@@ -211,6 +212,34 @@ func panicAssert(have, want *typeDesc) {
 }
 
 // panicValue implements panic(v).
+// panicUnion reports a failed assertion u.(U.V) on a union value: union
+// holds the variant have (empty if not known), not want.
+func panicUnion(union, have, want string) {
+	printString("panic: union variant: ")
+	printString(union)
+	if have == "" {
+		printString(" does not hold ")
+	} else {
+		printString(" holds ")
+		printString(have)
+		printString(", not ")
+	}
+	printString(want)
+	printNewline()
+	fatal()
+}
+
+// panicUnionTag reports a union value whose tag names none of its
+// variants, which only unsafe code or memory corruption can make.
+func panicUnionTag(union string, tag int64) {
+	printString("panic: invalid tag ")
+	printInt(tag)
+	printString(" in a value of union ")
+	printString(union)
+	printNewline()
+	fatal()
+}
+
 func panicValue(v any) {
 	printString("panic: ")
 	switch x := v.(type) {

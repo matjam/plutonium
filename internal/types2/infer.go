@@ -581,6 +581,13 @@ func (w *tpWalker) isParameterized(typ Type) (res bool) {
 	case *Wrapper:
 		return w.isParameterized(t.elem)
 
+	case *TaggedUnion:
+		for _, v := range t.variants {
+			if w.isParameterized(v.typ) {
+				return true
+			}
+		}
+
 	case *Struct:
 		return w.varList(t.fields)
 
@@ -739,6 +746,11 @@ func (w *cycleFinder) typ(typ Type) {
 
 	case *Wrapper:
 		w.typ(t.elem)
+
+	case *TaggedUnion:
+		for _, v := range t.variants {
+			w.typ(v.typ)
+		}
 
 	case *Struct:
 		w.varList(t.fields)

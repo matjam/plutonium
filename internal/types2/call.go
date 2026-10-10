@@ -829,13 +829,16 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 	//
 	// See go.dev/issue/57522 for more details.
 	if wantType {
-		check.errorf(e.Sel, NotAType, "%s is not a type", ast.Expr(e))
+		if x.mode() != typexpr || !check.variantNotAType(x, e) {
+			check.errorf(e.Sel, NotAType, "%s is not a type", ast.Expr(e))
+		}
 		goto Error
 	}
 
-	// Plutonium: E.Member selects a member of enum type E. A member takes
-	// precedence over a method expression of the same name.
-	if x.mode() == typexpr && check.enumSelector(x, e) {
+	// Plutonium: E.Member selects a member of enum type E, and U.V a variant
+	// of union type U. Both take precedence over a method expression of the
+	// same name.
+	if x.mode() == typexpr && (check.enumSelector(x, e) || check.unionSelector(x, e)) {
 		if !x.isValid() {
 			goto Error
 		}
@@ -873,6 +876,8 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 		var why string
 		if en := EnumOf(x.typ()); en != nil && en.lookup(sel) != nil {
 			why = check.sprintf("%s is a member of enum %s: write %s.%s", sel, en.obj.name, en.obj.name, sel)
+		} else if hint := check.variantHint(x, sel); hint != "" {
+			why = hint
 		} else if isInterfacePtr(x.typ()) {
 			why = check.interfacePtrError(x.typ())
 		} else {

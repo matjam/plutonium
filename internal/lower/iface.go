@@ -72,6 +72,7 @@ const (
 	kindPacked
 	kindRing
 	kindOwned
+	kindUnion
 )
 
 type descInfo struct {
@@ -286,6 +287,8 @@ func kindOf(T types2.Type) byte {
 		return kindStruct
 	case *types2.Packed:
 		return kindPacked
+	case *types2.TaggedUnion:
+		return kindUnion
 	case *types2.Wrapper:
 		if u.Kind() == types2.WrapRing {
 			return kindRing
@@ -592,6 +595,9 @@ func (l *Lowerer) ifaceMethodValueWrapper(I types2.Type, fn *types2.Func) *ssa.S
 // typeAssert lowers x.(T). With commaOk it returns the value and a bool;
 // otherwise a failed assertion panics.
 func (s *fnState) typeAssert(e *ast.TypeAssertExpr, commaOk bool) (value, *ssa.Value) {
+	if types2.UnionVariants(s.typeOf(e.X)) != nil {
+		return s.unionAssert(e, commaOk)
+	}
 	iv := s.expr(e.X)
 	I := s.typeOf(e.X)
 	T := s.subst(s.info.Types[e.Type].Type)

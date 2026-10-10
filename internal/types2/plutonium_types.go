@@ -139,6 +139,11 @@ type Packed struct {
 	fields  []*PackedField
 	bits    int64 // total storage size in bits (a multiple of 8)
 	align   int64 // alignment in bytes
+
+	// Plutonium packed unions: the variants, selected by the value of the
+	// one field in fields (the tag). Each variant's payload is a packed
+	// type with the same storage holding the tag and the variant's fields.
+	variants []*Variant
 }
 
 // A PackedField is one field of a packed type.
@@ -192,51 +197,90 @@ func (p *Packed) lookupField(name string) int {
 
 // packedType type-checks a packed type literal and computes its layout.
 func (check *Checker) packedType(e *ast.PackedType) Type {
-	p := &Packed{order: e.Order, align: 1}
-
-	var limit int64 = -1 // bits available, or -1 when sized from the fields
-	if e.Backing != nil {
-		p.backing = check.varType(e.Backing)
-		switch u := p.backing.Underlying().(type) {
-		case *Basic:
-			if !isInteger(u) {
-				check.errorf(e.Backing, InvalidTypeArg, "packed backing type %s must be an integer or byte array", p.backing)
-				return Typ[Invalid]
-			}
-			limit = check.conf.sizeof(p.backing) * 8
-			p.align = check.conf.alignof(p.backing)
-		case *Array:
-			if !isByte(u.elem) {
-				check.errorf(e.Backing, InvalidTypeArg, "packed backing array %s must be an array of bytes", p.backing)
-				return Typ[Invalid]
-			}
-			limit = u.len * 8
-		case *Slice:
-			if !isByte(u.elem) {
-				check.errorf(e.Backing, InvalidTypeArg, "packed backing type %s must be []byte", p.backing)
-				return Typ[Invalid]
-			}
-			p.backing = nil // []byte means "size it from the fields"
-		default:
-			if isValid(p.backing) {
-				check.errorf(e.Backing, InvalidTypeArg, "packed backing type %s must be an integer or byte array", p.backing)
-			}
-			return Typ[Invalid]
-		}
+	p, limit, ok := check.packedBacking(e.Order, e.Backing)
+	if !ok {
+		return Typ[Invalid]
 	}
-
 	var fset objset
-	var offset int64
+	offset := check.packedFields(p, &fset, e.Fields.List, 0)
+	if !check.packedSize(p, e, offset, limit) {
+		return Typ[Invalid]
+	}
+	return p
+}
+
+// packedBacking starts a packed type with the given byte order and backing
+// type (or none), and returns it with the number of bits the backing holds
+// (-1 when the type is sized from its fields). It reports false after an
+// error.
+func (check *Checker) packedBacking(order ast.Endianness, backing ast.Expr) (p *Packed, limit int64, ok bool) {
+	p = &Packed{order: order, align: 1}
+	limit = -1
+	if backing == nil {
+		return p, limit, true
+	}
+	p.backing = check.varType(backing)
+	switch u := p.backing.Underlying().(type) {
+	case *Basic:
+		if !isInteger(u) {
+			check.errorf(backing, InvalidTypeArg, "packed backing type %s must be an integer or byte array", p.backing)
+			return nil, 0, false
+		}
+		limit = check.conf.sizeof(p.backing) * 8
+		p.align = check.conf.alignof(p.backing)
+	case *Array:
+		if !isByte(u.elem) {
+			check.errorf(backing, InvalidTypeArg, "packed backing array %s must be an array of bytes", p.backing)
+			return nil, 0, false
+		}
+		limit = u.len * 8
+	case *Slice:
+		if !isByte(u.elem) {
+			check.errorf(backing, InvalidTypeArg, "packed backing type %s must be []byte", p.backing)
+			return nil, 0, false
+		}
+		p.backing = nil // []byte means "size it from the fields"
+	default:
+		if isValid(p.backing) {
+			check.errorf(backing, InvalidTypeArg, "packed backing type %s must be an integer or byte array", p.backing)
+		}
+		return nil, 0, false
+	}
+	return p, limit, true
+}
+
+// packedSize checks that the fields of p, which end at bit offset, fit its
+// backing (limit bits, or -1 to size p from its fields), and sets p's size.
+func (check *Checker) packedSize(p *Packed, at positioner, offset, limit int64) bool {
+	switch {
+	case limit >= 0:
+		if offset > limit {
+			check.errorf(at, InvalidTypeArg, "packed fields need %d bits but the backing type %s holds %d", offset, p.backing, limit)
+			return false
+		}
+		p.bits = limit
+	default:
+		p.bits = (offset + 7) &^ 7
+	}
+	if p.bits%(p.align*8) != 0 {
+		p.bits = (p.bits + p.align*8 - 1) &^ (p.align*8 - 1)
+	}
+	return true
+}
+
+// packedFields lays out the fields of list in p, starting at bit offset, and
+// returns the offset after them. Field names are declared in fset.
+func (check *Checker) packedFields(p *Packed, fset *objset, list []*ast.Field, offset int64) int64 {
 	add := func(ident *ast.Ident, typ Type, width int64, isBits bool) {
 		fld := NewField(ident.Pos(), check.pkg, ident.Name, typ, false)
-		if ident.Name == "_" || check.declareInSet(&fset, ident.Pos(), fld) {
+		if ident.Name == "_" || check.declareInSet(fset, ident.Pos(), fld) {
 			check.recordDef(ident, fld)
 			p.fields = append(p.fields, &PackedField{obj: fld, offset: offset, width: width, isBits: isBits})
 		}
 		offset += width
 	}
 
-	for _, f := range e.Fields.List {
+	for _, f := range list {
 		switch ft := f.Type.(type) {
 		case *ast.BitsGroup:
 			// A flag group is a field whose type is a packed type of one-bit
@@ -272,21 +316,7 @@ func (check *Checker) packedType(e *ast.PackedType) Type {
 			}
 		}
 	}
-
-	switch {
-	case limit >= 0:
-		if offset > limit {
-			check.errorf(e, InvalidTypeArg, "packed fields need %d bits but the backing type %s holds %d", offset, p.backing, limit)
-			return Typ[Invalid]
-		}
-		p.bits = limit
-	default:
-		p.bits = (offset + 7) &^ 7
-	}
-	if p.bits%(p.align*8) != 0 {
-		p.bits = (p.bits + p.align*8 - 1) &^ (p.align*8 - 1)
-	}
-	return p
+	return offset
 }
 
 // packedFieldType resolves the type of one packed field and returns the type

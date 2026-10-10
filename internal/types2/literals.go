@@ -109,7 +109,26 @@ func (check *Checker) compositeLit(x *operand, e *ast.CompositeLit, hint Type) {
 	var typ, base Type
 	var isElem bool // true if composite literal is an element of an enclosing composite literal
 
+	// Plutonium: U.V{...} is a literal of variant V's payload that makes a
+	// value of union type U.
+	var union Type
+	var variant *Variant
+	if e.Type != nil {
+		if U, v, ok := check.variantLiteralType(e.Type); ok {
+			if v == nil {
+				check.useLitElts(e)
+				x.invalidate()
+				return
+			}
+			union, variant = U, v
+		}
+	}
+
 	switch {
+	case variant != nil:
+		typ = variant.typ
+		base = typ
+
 	case e.Type != nil:
 		// composite literal type present - use it
 		// [...]T array types may only appear with composite literals.
@@ -180,7 +199,19 @@ func (check *Checker) compositeLit(x *operand, e *ast.CompositeLit, hint Type) {
 		x.invalidate()
 		return
 
+	case *TaggedUnion:
+		check.useLitElts(e)
+		check.unionLiteralError(e, typ)
+		x.invalidate()
+		return
+
 	case *Packed:
+		if utyp.IsUnion() {
+			check.useLitElts(e)
+			check.unionLiteralError(e, typ)
+			x.invalidate()
+			return
+		}
 		// Packed literals name their fields: field order says nothing
 		// about layout a reader can check, so positional values are not
 		// allowed.
@@ -201,6 +232,9 @@ func (check *Checker) compositeLit(x *operand, e *ast.CompositeLit, hint Type) {
 			i := utyp.lookupField(key.Name)
 			if i < 0 || key.Name == "_" {
 				check.errorf(kv.Key, MissingLitField, "unknown field %s in packed literal of type %s", key.Name, base)
+				continue
+			}
+			if variant != nil && !check.packedVariantKey(key, variant) {
 				continue
 			}
 			fld := utyp.fields[i].obj
@@ -398,6 +432,20 @@ func (check *Checker) compositeLit(x *operand, e *ast.CompositeLit, hint Type) {
 
 	x.mode_ = value
 	x.typ_ = typ
+	if union != nil {
+		x.typ_ = union
+	}
+}
+
+// useLitElts evaluates the elements of a composite literal that is in
+// error, so that they count as used.
+func (check *Checker) useLitElts(e *ast.CompositeLit) {
+	for _, elt := range e.Elts {
+		if kv, _ := elt.(*ast.KeyValueExpr); kv != nil {
+			elt = kv.Value
+		}
+		check.use(elt)
+	}
 }
 
 // indexedElts checks the elements (elts) of an array or slice composite literal

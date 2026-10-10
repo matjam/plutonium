@@ -129,6 +129,20 @@ func (l *Lowerer) appendLeaves(out *[]leaf, T types2.Type, base int64) bool {
 		if u.Kind() == types2.WrapAligned || u.Kind() == types2.WrapVolatile {
 			return l.appendLeaves(out, u.Elem(), base)
 		}
+	case *types2.TaggedUnion:
+		// A union is its words, each an integer leaf whatever the payload
+		// holds (abi.md section 1): the tag, padding and payload bits are
+		// copied without interpreting them.
+		size := l.sizeof(T)
+		for off := int64(0); off < size; {
+			n := int64(8)
+			for n > size-off {
+				n /= 2
+			}
+			*out = append(*out, leaf{base + off, ssa.IntType(n)})
+			off += n
+		}
+		return len(*out) <= 16
 	}
 	return false
 }
