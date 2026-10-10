@@ -56,6 +56,13 @@ func ForLevel(level int) *Pipeline {
 		p.add(Pass{"simplifycfg2", SimplifyCFG})
 		// Simplify the selects branchelim made.
 		p.add(Pass{"simplify3", Simplify})
+		p.add(Pass{"memopt", MemOpt})
+		// Constant indexes folded since the first SROA, and accesses
+		// memopt removed, can make more slots splittable.
+		p.add(Pass{"sroa2", SROA})
+		p.add(Pass{"mem2reg2", Mem2Reg})
+		p.add(Pass{"simplify4", Simplify})
+		p.add(Pass{"cse2", CSE})
 		p.add(Pass{"loopidiom", LoopIdiom})
 		p.add(Pass{"deadcode2", ssa.DeadCode})
 	}

@@ -366,3 +366,74 @@ func main() {
 		t.Errorf("f: want no spills\n%s", asm)
 	}
 }
+
+func TestMemOpt(t *testing.T) {
+	const src = `package main
+
+type P struct {
+	x, y, m float64
+	n       int64
+}
+
+var ps [8]P
+
+//pu:noinline
+func update(n int) {
+	for i := 0; i < n; i++ {
+		p := ps[i]
+		p.x += p.y * p.m
+		p.n++
+		ps[i] = p
+	}
+}
+
+//pu:noinline
+func forward(p *P, k float64) float64 {
+	p.x = k
+	p.n = 3
+	p.y = 1
+	p.y = 2
+	return p.x * p.y
+}
+
+//pu:noinline
+func slots(k int64) int64 {
+	var a, b [2]int64
+	a[0] = k
+	b[0] = k + 1
+	a[1] = b[0]
+	return a[0] + a[1] + b[1]
+}
+
+//pu:noinline
+func merge(p *P) float64 {
+	a := p.x
+	p.y = 3
+	return a * p.x
+}
+
+func main() {
+	update(8)
+	var p P
+	println(int64(forward(&p, 2)), slots(1), int64(merge(&p)))
+}
+`
+	// The second p.x is the first: the store to p.y cannot change it.
+	if asm := listFunc(t, src, "main.merge"); strings.Count(asm, "(%rdi)") != 2 {
+		t.Errorf("merge: want one load and one store\n%s", asm)
+	}
+	// p.y and p.m are stored back unchanged.
+	if asm := listFunc(t, src, "main.update"); strings.Count(asm, ", main.ps") != 2 {
+		t.Errorf("update: want two stores (x and n)\n%s", asm)
+	}
+	// p.x is forwarded past the store to p.n, and the first store to p.y
+	// is dead.
+	asm := listFunc(t, src, "main.forward")
+	if strings.Count(asm, "(%rdi)") != 3 || strings.Contains(asm, "(%rdi), %xmm") {
+		t.Errorf("forward: want three stores and no loads\n%s", asm)
+	}
+	// Constant indexes split the arrays once folded.
+	if asm := listFunc(t, src, "main.slots"); strings.Contains(asm, "rsp") {
+		t.Errorf("slots: want the arrays in registers\n%s", asm)
+	}
+}
