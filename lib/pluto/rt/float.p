@@ -317,6 +317,15 @@ type pmHiLo struct {
 // pow10Min is the power of ten in pow10Tab[0].
 const pow10Min = -348
 
+// Pow10 returns the 128-bit mantissa of 10**p, p in [-348, 347], scaled so
+// that the high bit is set, as hi<<64 - lo (Go's internal/strconv pow10Tab).
+// pluto/strconv uses it to parse floats, so that the program has one copy
+// of the table.
+func Pow10(p int) (hi, lo uint64) {
+	e := &pow10Tab[p-pow10Min]
+	return e.hi, e.lo
+}
+
 // pow10Tab holds 128-bit mantissas of 10**pow10Min through 10**347, scaled
 // so the high bit is always set (Go's internal/strconv/pow10tab.go).
 var pow10Tab = [...]pmHiLo{

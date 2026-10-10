@@ -1,0 +1,11 @@
+ok Atof 315
+ok AtofLong 6
+ok AtofRandom 20000
+ok RoundTrip 2
+ok RoundTrip32 2145532
+ok IncorrectBitSize
+ok Trailing 1903
+ok Ftoa 147
+ok FtoaPowersOfTwo 2098
+ok NumError
+all ok
