@@ -158,6 +158,16 @@ func raise(p *Panic) {
 		n--
 	}
 	if n > 0 {
+		// The message is the program's printed text, valid UTF-8, except
+		// that it may be cut in the middle of a rune at msgBufSize: make
+		// such bytes '?' so that the string holds valid UTF-8.
+		for i := 0; i < n; {
+			r, size := decodeRune(&msgBuf[0], n, i)
+			if r == 0xFFFD && size == 1 {
+				msgBuf[i] = '?'
+			}
+			i += size
+		}
 		p.Message = unsafe.String(&msgBuf[0], n)
 	}
 	p.CPU = cpuNumber()

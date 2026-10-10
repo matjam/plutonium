@@ -708,8 +708,23 @@ func Args() []string { return CommandLine.Args() }
 // NArg returns the number of arguments after the flags.
 func NArg() int { return CommandLine.NArg() }
 
-// Arg returns argument i after the flags, or "".
+// Arg returns argument i after the flags, or "". An argument is any bytes
+// but NUL, and a string holds only valid UTF-8 (language spec section 6.10),
+// so a command-line argument that is not valid UTF-8 (a file name, say)
+// comes back with U+FFFD for each invalid byte; ArgBytes returns it exactly.
 func Arg(i int) string { return CommandLine.Arg(i) }
+
+// ArgBytes returns the exact bytes of argument i after the flags, or nil. It
+// is a view of the process's arguments (os.ArgBytes), valid for the life of
+// the program; do not modify it. It is meaningful only when the command
+// line was parsed by Parse, which takes the arguments from the process, and
+// returns nil before that.
+func ArgBytes(i int) []byte {
+	if i < 0 || i >= CommandLine.NArg() || CommandLine.osArgs.Len() == 0 {
+		return nil
+	}
+	return os.ArgBytes(os.NArgs() - CommandLine.NArg() + i)
+}
 
 // NFlag returns the number of command-line flags that have been set.
 func NFlag() int { return CommandLine.NFlag() }

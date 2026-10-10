@@ -29,6 +29,8 @@ func build(n int, reuse string, fill func(dst []byte) []byte) string {
 	p, ctl := rt.NewStringBuffer(n, alloc.Default())
 	out := fill(unsafe.Slice(p, n)[:0])
 	s := reuse
+	// Compared and dropped: a path built from valid strings (cut only at
+	// slashes), so valid UTF-8 anyway.
 	if unsafe.String(unsafe.SliceData(out), len(out)) != reuse {
 		// The bytes are a path built from valid strings, cut only at
 		// slashes: valid UTF-8.

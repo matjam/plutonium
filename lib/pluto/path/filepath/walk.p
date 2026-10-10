@@ -3,6 +3,7 @@ package filepath
 import (
 	"pluto/errors"
 	"pluto/os"
+	"pluto/unicode/utf8"
 	"unsafe"
 )
 
@@ -17,20 +18,64 @@ var SkipAll = errors.New("skip everything and stop the walk")
 // Go: with err != nil when a directory could not be read (a second call
 // for that directory) or root could not be stat'ed. path and d are views
 // valid only during the call.
+//
+// A file name need not be valid UTF-8, but a string must be, so path has
+// each invalid byte replaced by U+FFFD (language spec section 6.10), and so
+// has d.Name(). Such a path cannot be opened; d.RawName() and
+// WalkDirBytes give the exact bytes.
 type WalkDirFunc func(path string, d *os.DirEntry, err error) error
+
+// A WalkDirBytesFunc is a WalkDirFunc whose path is the exact bytes of the
+// path, a view valid only during the call.
+type WalkDirBytesFunc func(path []byte, d *os.DirEntry, err error) error
+
+// walker holds the function a walk calls: fs for WalkDir, fb for
+// WalkDirBytes.
+type walker struct {
+	fs WalkDirFunc
+	fb WalkDirBytesFunc
+}
+
+// call passes path to the function.
+func (w *walker) call(path []byte, d *os.DirEntry, err error) error {
+	if w.fb != nil {
+		return w.fb(path, d, err)
+	}
+	if utf8.Valid(path) {
+		// Checked just now; the view lasts for the call, as documented.
+		return w.fs(unsafe.String(unsafe.SliceData(path), len(path)), d, err)
+	}
+	return w.fs(string(path), d, err) // a copy, with U+FFFD for invalid bytes
+}
 
 // WalkDir walks the tree rooted at root in lexical order, calling fn for
 // each file and directory, root included, as Go's WalkDir does. It does not
 // follow symbolic links. Paths are built in a 4096-byte buffer; a longer
 // one is reported to fn as ENAMETOOLONG.
 func WalkDir(root string, fn WalkDirFunc) error {
-	info, err := os.Lstat(root)
+	w := walker{fs: fn}
+	dir := Dir(root)
+	return walkRoot(&w, strBytes(root), strBytes(dir))
+}
+
+// WalkDirBytes is WalkDir for a root that is bytes, calling fn with the
+// exact bytes of each path, so that it walks trees whose names are not
+// valid UTF-8 and the paths can be opened with the Bytes functions of
+// pluto/os.
+func WalkDirBytes(root []byte, fn WalkDirBytesFunc) error {
+	w := walker{fb: fn}
+	return walkRoot(&w, root, dirBytes(root))
+}
+
+// walkRoot walks the tree at root, whose directory part is dir.
+func walkRoot(w *walker, root []byte, dir []byte) error {
+	info, err := os.LstatBytes(root)
 	var d os.DirEntry
 	if err == nil {
-		d = os.FileInfoToDirEntry(Dir(root), info)
-		err = walkDir(root, &d, fn)
+		d = os.FileInfoToDirEntryBytes(dir, info)
+		err = walkDir(w, root, &d)
 	} else {
-		err = report(fn, root, nil, err)
+		err = w.report(root, nil, err)
 	}
 	if err == SkipDir || err == SkipAll {
 		return nil
@@ -38,17 +83,33 @@ func WalkDir(root string, fn WalkDirFunc) error {
 	return err
 }
 
-func walkDir(path string, d *os.DirEntry, fn WalkDirFunc) error {
-	if err := fn(path, d, nil); err != nil || !d.IsDir() {
+// dirBytes returns the directory part of path, as Dir does, without
+// cleaning it.
+func dirBytes(path []byte) []byte {
+	i := len(path) - 1
+	for i >= 0 && path[i] != '/' {
+		i--
+	}
+	if i < 0 {
+		return strBytes(".")
+	}
+	if i == 0 {
+		return path[:1]
+	}
+	return path[:i]
+}
+
+func walkDir(w *walker, path []byte, d *os.DirEntry) error {
+	if err := w.call(path, d, nil); err != nil || !d.IsDir() {
 		if err == SkipDir && d.IsDir() {
 			err = nil // skip this directory
 		}
 		return err
 	}
-	ents, err := os.ReadDir(path)
+	ents, err := os.ReadDirBytes(path)
 	if err != nil {
 		// A second call, to report the error.
-		err = report(fn, path, d, err)
+		err = w.report(path, d, err)
 		if err != nil {
 			if err == SkipDir && d.IsDir() {
 				err = nil
@@ -59,19 +120,19 @@ func walkDir(path string, d *os.DirEntry, fn WalkDirFunc) error {
 	defer ents.Drop()
 	var buf [4096]byte
 	for _, e := range ents.Entries() {
-		if len(path)+1+len(e.Name()) > len(buf) {
-			if err := report(fn, path, &e, os.NewPathError("walk", e.Name(), errNameTooLong)); err != nil {
+		raw := e.RawName()
+		if len(path)+1+len(raw) > len(buf) {
+			if err := w.report(path, &e, os.NewPathErrorBytes("walk", raw, errNameTooLong)); err != nil {
 				return err
 			}
 			continue
 		}
-		b := append(buf[:0], path...)
+		child := append(buf[:0], path...)
 		if len(path) > 0 && path[len(path)-1] != '/' {
-			b = append(b, '/')
+			child = append(child, '/')
 		}
-		b = append(b, e.Name()...)
-		child := unsafe.String(unsafe.SliceData(b), len(b))
-		if err := walkDir(child, &e, fn); err != nil {
+		child = append(child, raw...)
+		if err := walkDir(w, child, &e); err != nil {
 			if err == SkipDir {
 				break
 			}
@@ -83,10 +144,10 @@ func walkDir(path string, d *os.DirEntry, fn WalkDirFunc) error {
 
 var errNameTooLong = errors.New("file name too long")
 
-// report passes an allocated error to fn and frees it unless fn returns it
-// (or wraps it, which the caller then frees with the wrapper).
-func report(fn WalkDirFunc, path string, d *os.DirEntry, err error) error {
-	r := fn(path, d, err)
+// report passes an allocated error to the function and frees it unless it
+// returns it (or wraps it, which the caller then frees with the wrapper).
+func (w *walker) report(path []byte, d *os.DirEntry, err error) error {
+	r := w.call(path, d, err)
 	if r == nil || r == SkipDir || r == SkipAll {
 		errors.Free(err)
 	}

@@ -262,6 +262,7 @@ func IndexRune(s string, r rune) int {
 	default:
 		var buf [utf8.UTFMax]byte
 		n := utf8.EncodeRune(buf[:], r)
+		// EncodeRune of a valid rune: valid UTF-8.
 		return Index(s, unsafe.String(&buf[0], n))
 	}
 }

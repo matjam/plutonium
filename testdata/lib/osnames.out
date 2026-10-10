@@ -1,0 +1,49 @@
+entries 6
+entry a��.txt raw 61e2822e747874 valid true dir false
+entry plain.txt raw 706c61696e2e747874 valid true dir false
+entry sub� raw 73756280 valid true dir true
+entry � raw c3 valid true dir false
+entry é.txt raw c3a92e747874 valid true dir false
+entry �.txt raw ff2e747874 valid true dir false
+info true false true
+info true false true
+info true true true
+info true false true
+info true false true
+info true false true
+sub entries 1
+entry �.txt raw ff2e747874 valid true dir false
+sub info 0
+read file 0 name valid true
+file stat 6 false
+open missing true true
+error path valid true open
+error text: true
+lossy name finds nothing true
+StatBytes 6 true 11
+LstatBytes 6 true true
+ReadFileBytes rewritten
+mode -rw-r-----
+old name gone true
+new name there true
+Getwd valid true lossy is longer true
+raw ends with y true raw has 0xfd true lossy has 0xfd false
+AppendAbs ends with /x/y/w true exact true
+Abs valid true ends with /x/y/w true
+Readlink valid true 4
+AppendReadlink 74ff
+ReadlinkBytes 74ff
+Readlink of a file fails true
+target too long for the buffer true
+WalkDir visited 13
+WalkDirBytes visited 13 opened 7
+ArgBytes(0) matches Arg(0) true true
+ArgBytes out of range true true
+ArgsBytes true
+GetenvBytes matches Getenv true
+LookupEnvBytes unset false
+EnvironBytes true
+TempDirBytes true
+removed true
+RemoveAllBytes removed the tree true
+all gone true

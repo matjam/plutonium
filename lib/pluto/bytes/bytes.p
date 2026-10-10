@@ -12,7 +12,11 @@ import (
 	"unsafe"
 )
 
-// str views b as a string without copying.
+// str views b as a string without copying. The bytes need not be valid
+// UTF-8 (a []byte is any bytes), so the view is used only inside this
+// package, to share the searching and comparing code of pluto/strings,
+// which reads invalid bytes as U+FFFD runes of one byte, as Go's do; it is
+// never returned, stored or handed to code that expects a valid string.
 func str(b []byte) string {
 	if len(b) == 0 {
 		return ""

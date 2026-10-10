@@ -293,50 +293,137 @@ func NArgs() int {
 	return n
 }
 
-// Arg returns command-line argument i (Arg(0) is the program name).
-func Arg(i int) string {
+// Arg returns command-line argument i (Arg(0) is the program name). An
+// argument is any bytes but NUL, so it need not be valid UTF-8; a string
+// must be (language spec section 6.10), so Arg replaces each invalid byte
+// with U+FFFD, as string(b) does. ArgBytes returns the exact bytes.
+func Arg(i int) string { return lossyView(ArgBytes(i)) }
+
+// ArgBytes returns the exact bytes of command-line argument i (ArgBytes(0)
+// is the program name), or nil if there is no such argument. The result is
+// a view of the process's argument memory, valid for the life of the
+// program; do not modify it.
+func ArgBytes(i int) []byte {
 	n, argv := rt.Args()
 	if i < 0 || i >= n {
-		return ""
+		return nil
 	}
-	p := *(**byte)(unsafe.Add(argv, i*8))
-	return cstring(p)
+	return cbytes(*(**byte)(unsafe.Add(argv, i*8)))
 }
 
-// Getenv returns the value of the environment variable key, or "".
+// Getenv returns the value of the environment variable key, or "". The
+// value is made a valid string as Arg makes arguments (invalid bytes become
+// U+FFFD); GetenvBytes returns the exact bytes.
 func Getenv(key string) string {
+	v, _ := lookupEnv(strBytes(key))
+	return lossyView(v)
+}
+
+// GetenvBytes returns the exact bytes of the value of the environment
+// variable named key, or nil. Like ArgBytes, the result is a view of the
+// process's environment, valid for the life of the program.
+func GetenvBytes(key []byte) []byte {
+	v, _ := lookupEnv(key)
+	return v
+}
+
+// LookupEnvBytes is GetenvBytes that also reports whether the variable is
+// set, which tells an empty value from an unset variable.
+func LookupEnvBytes(key []byte) ([]byte, bool) { return lookupEnv(key) }
+
+// lookupEnv finds the value of the variable named key in the environment.
+func lookupEnv(key []byte) ([]byte, bool) {
 	env := rt.Environ()
 	for i := 0; ; i++ {
 		p := *(**byte)(unsafe.Add(env, i*8))
 		if p == nil {
-			return ""
+			return nil, false
 		}
-		kv := cstring(p)
-		if len(kv) > len(key) && kv[len(key)] == '=' && kv[:len(key)] == key {
-			return kv[len(key)+1:]
+		kv := cbytes(p)
+		if len(kv) > len(key) && kv[len(key)] == '=' && bytesEqual(kv[:len(key)], key) {
+			return kv[len(key)+1:], true
 		}
 	}
 }
 
-// cstring returns a NUL-terminated C string from the process's arguments or
-// environment, which live as long as the program. If it is valid UTF-8 the
-// string views it, uncounted; otherwise it is a copy with U+FFFD for each
-// invalid byte, as string(b) makes, since a string must hold valid UTF-8.
-func cstring(p *byte) string {
+// bytesEqual reports whether a and b hold the same bytes. (pluto/bytes
+// imports this package's dependencies, so os cannot use it.)
+func bytesEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// strBytes views a string's bytes. The caller must not modify them.
+func strBytes(s string) []byte {
+	if len(s) == 0 {
+		return nil
+	}
+	return unsafe.Slice(unsafe.StringData(s), len(s))
+}
+
+// cbytes returns the bytes, without the NUL, of a C string in the process's
+// arguments or environment, which live as long as the program.
+func cbytes(p *byte) []byte {
 	n := 0
 	for *(*byte)(unsafe.Add(unsafe.Pointer(p), n)) != 0 {
 		n++
 	}
-	valid, ascii := rt.ValidUTF8(p, n)
-	if !valid {
-		return rt.StringFromBytes(p, n, alloc.Default())
+	if n == 0 {
+		return nil
 	}
-	return rt.MakeString(p, n, 0, ascii)
+	return unsafe.Slice(p, n)
+}
+
+// lossyView returns b as a string. If b is valid UTF-8 the string is an
+// uncounted view of b, which must outlive it and not change; otherwise it
+// is a counted copy with U+FFFD for each invalid byte, as string(b) makes,
+// since a string must hold valid UTF-8. Every os function that turns bytes
+// from the system (a name, a path, an argument, a variable) into a string
+// does so through here, through lossyCopy or through string(b).
+func lossyView(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	valid, ascii := rt.ValidUTF8(&b[0], len(b))
+	if !valid {
+		return rt.StringFromBytes(&b[0], len(b), alloc.Default())
+	}
+	return rt.MakeString(&b[0], len(b), 0, ascii)
+}
+
+// lossyCopy returns b as a counted string from a, with U+FFFD for each
+// invalid byte.
+func lossyCopy(b []byte, a alloc.Allocator) string {
+	if len(b) == 0 {
+		return ""
+	}
+	return rt.StringFromBytes(&b[0], len(b), a)
 }
 
 // Open opens a file for reading, allocating as OpenFile does.
 func Open(name string, a alloc.Allocator = alloc.Default()) (*File, error) {
 	return OpenFile(name, syscall.O_RDONLY, 0, a)
+}
+
+// OpenBytes is Open for a file name that is bytes, which need not be valid
+// UTF-8 (language spec section 6.10). A name on Linux is any bytes but NUL
+// and a string can hold only valid UTF-8, so a file named "\xff.txt" can
+// be opened only this way. The core operations of this package that take a
+// path have a Bytes form like this one (OpenFileBytes, CreateBytes,
+// StatBytes, LstatBytes, ReadDirBytes, ReadlinkBytes, ReadFileBytes,
+// WriteFileBytes, MkdirBytes, MkdirAllBytes, RemoveBytes, RemoveAllBytes,
+// RenameBytes, ChmodBytes, ChdirBytes). The error it reports and the File's
+// Name hold the path with each invalid byte replaced by U+FFFD; the caller
+// still has the exact bytes.
+func OpenBytes(name []byte, a alloc.Allocator = alloc.Default()) (*File, error) {
+	return OpenFileBytes(name, syscall.O_RDONLY, 0, a)
 }
 
 // Create creates or truncates a file for writing, allocating as OpenFile
@@ -345,23 +432,46 @@ func Create(name string, a alloc.Allocator = alloc.Default()) (*File, error) {
 	return OpenFile(name, syscall.O_WRONLY|syscall.O_CREAT|syscall.O_TRUNC, 0o644, a)
 }
 
+// CreateBytes is Create for a name that is bytes (see OpenBytes).
+func CreateBytes(name []byte, a alloc.Allocator = alloc.Default()) (*File, error) {
+	return OpenFileBytes(name, syscall.O_WRONLY|syscall.O_CREAT|syscall.O_TRUNC, 0o644, a)
+}
+
 // OpenFile opens a file with the given flags and permissions. The File, or
 // on failure the *PathError, is allocated from a, by default the default
 // allocator; free the File with alloc.Free after Close, and the error with
 // errors.Free.
 func OpenFile(name string, flags int, perm uint32, a alloc.Allocator = alloc.Default()) (*File, error) {
-	var path [4096]byte
-	if len(name) >= len(path) {
-		return nil, NewPathError("open", name, syscall.ENAMETOOLONG, a)
+	f, err := openFile(strBytes(name), name, flags, perm, a)
+	if f != nil {
+		f.name = name
 	}
-	copy(path[:], name)
-	fd, err := syscall.Open(path[:len(name)+1], flags|syscall.O_CLOEXEC, perm)
+	return f, err
+}
+
+// OpenFileBytes is OpenFile for a name that is bytes (see OpenBytes).
+func OpenFileBytes(name []byte, flags int, perm uint32, a alloc.Allocator = alloc.Default()) (*File, error) {
+	f, err := openFile(name, "", flags, perm, a)
+	if f != nil {
+		f.name = lossyCopy(name, a)
+	}
+	return f, err
+}
+
+// openFile opens name, which sname is the string form of (or "" if the
+// caller has only bytes), and returns a File without its name.
+func openFile(name []byte, sname string, flags int, perm uint32, a alloc.Allocator) (*File, error) {
+	var buf [maxPath]byte
+	path, err := cpathBytes(name, &buf)
 	if err != nil {
-		return nil, NewPathError("open", name, err, a)
+		return nil, newPathError("open", name, sname, err, a)
+	}
+	fd, err := syscall.Open(path, flags|syscall.O_CLOEXEC, perm)
+	if err != nil {
+		return nil, newPathError("open", name, sname, err, a)
 	}
 	f := alloc.New[File](a)
 	f.fd = fd
-	f.name = name
 	return f, nil
 }
 
@@ -423,4 +533,21 @@ func NewPathError(op, path string, err error, a alloc.Allocator = alloc.Default(
 	e.Err = err
 	e.a = a
 	return e
+}
+
+// NewPathErrorBytes is NewPathError for a path that is bytes. The error
+// holds the path as a string, with each invalid byte replaced by U+FFFD
+// (a copy from a, which the error keeps).
+func NewPathErrorBytes(op string, path []byte, err error, a alloc.Allocator = alloc.Default()) *PathError {
+	return NewPathError(op, lossyCopy(path, a), err, a)
+}
+
+// newPathError makes the error for an operation on name, whose string form
+// sname is "" if the caller has only bytes. A string path is kept (or
+// copied) as NewPathError does; bytes are copied with lossy replacement.
+func newPathError(op string, name []byte, sname string, err error, a alloc.Allocator) *PathError {
+	if sname == "" && len(name) > 0 {
+		sname = lossyCopy(name, a)
+	}
+	return NewPathError(op, sname, err, a)
 }

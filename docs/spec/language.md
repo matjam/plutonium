@@ -2318,7 +2318,8 @@ each string stored; the roadmap (item 55) records what it measured.
   checking them. Such a string is not counted (its control word has no buffer, and its flags say the
   bytes may be non-ASCII); it is a view of that memory, which must outlive every copy of it, as for any
   view (section 6.3). If the bytes are not valid UTF-8, the behaviour of the string functions and of
-  `range` on it is undefined. `unsafe.StringData(s)` returns the address of the first byte.
+  `range` on it is undefined. `unsafe.StringData(s)` returns the address of the first byte. The library
+  never uses it on bytes from the operating system (section 13.1).
 
 **Conversions.** `[]byte(s)` and `[]rune(s)` copy into memory from the current allocator, exactly as
 `make([]byte, len(s))` would allocate it, and return what `make` returns (section 4.2): today a slice,
@@ -2972,11 +2973,11 @@ hold, and most have a `Clone`.
 | `pluto/container` | the constraints of the indexing interface (section 6.7): `Indexable`, `Reader`, `Lookup`, `Sized` |
 | `pluto/container/heap` | Go's `container/heap` (`Init`, `Push`, `Pop`, `Remove`, `Fix` over a `heap.Interface`), and `Heap[T]`, a min-heap in a `vec.Vec` ordered by a less function, without boxing elements in `any` |
 | `pluto/io` | `Reader`, `Writer`, buffered I/O |
-| `pluto/os` | files (`os.File`, an owner that closes on drop), `Stat`, whole-file reads and writes, directories (`ReadDir` returns a `DirEntries` owner), removal, renaming, temporary directories, the working directory, pipes, processes, arguments, environment, exit (hosted) |
+| `pluto/os` | files (`os.File`, an owner that closes on drop), `Stat`, whole-file reads and writes, directories (`ReadDir` returns a `DirEntries` owner), removal, renaming, `Readlink`, temporary directories, the working directory, pipes, processes, arguments, environment, exit (hosted). Names and paths come back as strings with invalid bytes replaced, next to exact bytes (`DirEntry.RawName`, `ArgBytes`, `AppendWd`), and each core operation has a `Bytes` form that takes a `[]byte` path (`OpenBytes`, `StatBytes`, `RemoveBytes`, ...); see "Names from the operating system" below |
 | `pluto/os/exec` | running commands: `Cmd` (an owner), pipes copied inside `Wait`, `ExitError` in the data word (hosted) |
-| `pluto/path/filepath` | slash-separated paths: substrings (`Base`, `Ext`, `Split`), `Join`, `Clean`, `Dir`, `Rel` and `Abs` returning strings, with `Append` forms that write into a caller's buffer, `Match`, `WalkDir` |
+| `pluto/path/filepath` | slash-separated paths: substrings (`Base`, `Ext`, `Split`), `Join`, `Clean`, `Dir`, `Rel` and `Abs` returning strings, with `Append` forms that write into a caller's buffer, `Match`, `WalkDir` (paths as strings with invalid bytes replaced) and `WalkDirBytes` (the exact bytes) |
 | `pluto/time` | `Duration`, `Time` in UTC with a monotonic reading, `Now`, `Since`; `Sleep`, `Timer`, `Ticker`, `After`, `Tick` and `AfterFunc` over the scheduler's timers (section 4.7) |
-| `pluto/flag` | command-line flags; a `FlagSet` owns its flags and their variables |
+| `pluto/flag` | command-line flags; a `FlagSet` owns its flags and their variables; `flag.Arg` is a string with invalid bytes replaced, `flag.ArgBytes` the exact bytes |
 | `pluto/syscall` | raw Linux system calls (hosted) |
 | `pluto/strconv` | `Itoa`, `FormatInt`, `FormatFloat`, `Quote` returning strings, with `Append` forms that write into a caller's buffer; `ParseUint`, `ParseInt`, `Atoi`, `ParseFloat` (decimal and hexadecimal, any rounding case, exact as Go's), `PutUint`, `IsPrint`, `CanBackquote`; a failed parse returns `ErrSyntax` or `ErrRange` itself, and `NewNumError` makes Go's `*NumError` from an allocator when a caller wants one |
 | `pluto/strings`, `pluto/bytes` | `strings.Builder`, which builds a string in a buffer it shares with the result (section 6.10); searching, comparison, case conversion, `Join`, `Repeat`, `Replace`, `FromUTF8`; Go 1.24's iterators `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq`, `FieldsFuncSeq` |
@@ -2995,6 +2996,47 @@ hold, and most have a `Clone`.
 | `pluto/errors` | `New` (a static error per call site), `Is`, `As`, `AsType`, `Unwrap`, `Join`, `Free` (section 14) |
 
 `pluto/os` and `pluto/syscall` are not available in freestanding builds.
+
+### 13.1 Names from the operating system
+
+A string holds only valid UTF-8 (section 6.10), but the system does not promise it: a Linux file name is
+any bytes except NUL and `/`, and so is a symbolic link's target, the working directory, a command-line
+argument and an environment variable. The library therefore follows one rule:
+
+**Bytes that the operating system hands back become a `string` only through validation, which replaces each
+byte that does not begin a valid UTF-8 sequence with U+FFFD, as `string(b)` does.** A name that is valid
+UTF-8 comes back as it is; no other string is made from external bytes without being checked. The
+conversion is lossy, as Rust's `to_string_lossy`. Two different files can give the same string, and a lossy
+name does not name the file it came from, so it must not be used to open, rename or remove that file.
+
+The exact bytes stay available next to every string that can be lossy:
+
+| String | Exact bytes |
+|---|---|
+| `DirEntry.Name`, `FileInfo.Name` of an entry | `DirEntry.RawName() []byte` |
+| `os.Readlink(name)` | `os.AppendReadlink(dst, name)`, `os.ReadlinkBytes(dst, name)` |
+| `os.Getwd()`, `filepath.Abs` | `os.AppendWd(dst)`, `filepath.AppendAbs(dst, path)` |
+| `os.Arg(i)`, `os.Args()`, `flag.Arg(i)` | `os.ArgBytes(i)`, `os.ArgsBytes()`, `flag.ArgBytes(i)` |
+| `os.Getenv`, `os.LookupEnv`, `os.Environ()`, `os.TempDir()` | `os.GetenvBytes`, `os.LookupEnvBytes`, `os.EnvironBytes()`, `os.TempDirBytes()` |
+| the `path` of `filepath.WalkDir` | `filepath.WalkDirBytes`, whose function takes `path []byte` |
+| `os.MkdirTemp`, `exec.LookPath` | `os.AppendMkdirTemp`, `exec.AppendLookPath` |
+| `PathError.Path`, `File.Name` | none: the caller has the bytes it passed |
+
+The views (`RawName`, `ArgBytes`, `GetenvBytes`) are valid as long as what they view: the `DirEntries`
+that holds the entry, or the life of the program for the process's arguments and environment.
+
+The core operations on a path have a form that takes the path as a `[]byte`, named by the suffix `Bytes`:
+`OpenBytes`, `OpenFileBytes`, `CreateBytes`, `StatBytes`, `LstatBytes`, `ReadDirBytes`, `ReadlinkBytes`,
+`ReadFileBytes`, `WriteFileBytes`, `MkdirBytes`, `MkdirAllBytes`, `RemoveBytes`, `RemoveAllBytes`,
+`RenameBytes`, `ChmodBytes` and `ChdirBytes`. A program that must handle any file writes `os.OpenBytes(e.RawName())`
+(joined to the directory) where it would write `os.Open(e.Name())`. The string forms remain the normal API.
+`ReadDir` sorts by the exact bytes of the names, as Go's does; `os/exec` passes the process's environment
+to a child unchanged. The runtime's own reads of the environment (`PLUTO_MAXPROCS`, `PLUTO_DEBUGALLOC`)
+ignore a value that is not valid UTF-8, and the trace table the compiler writes has file names made valid.
+
+`unsafe.String` stays in the library only where the bytes are valid by construction (literals, ASCII
+formatting output, text the library validated or built from valid strings) or are used inside a package as
+bytes and not returned as a string; each use has a comment that says which.
 
 ## 14. Errors
 

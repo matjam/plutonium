@@ -104,7 +104,10 @@ var acceptRanges = [16]acceptRange{
 	4: {locb, 0x8F},
 }
 
-// str views p as a string without copying.
+// str views p as a string without copying. The bytes need not be valid
+// UTF-8: it is the point of Valid to find that out, so the view is read by
+// ValidString and the functions here that decode a rune, which treat
+// invalid bytes as errors, and goes no further.
 func str(p []byte) string {
 	if len(p) == 0 {
 		return ""

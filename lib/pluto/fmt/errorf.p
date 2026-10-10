@@ -180,7 +180,9 @@ func sanitize(text []byte) int {
 }
 
 // Error returns the message. It is a view of the ErrorBuf's storage, not a
-// copy: like the error itself it is valid until the next Errorf.
+// copy: like the error itself it is valid until the next Errorf. The text is
+// valid UTF-8: sanitize made every byte of it so, and cut it short rather
+// than leave half a rune.
 func (b *ErrorBuf) Error() string { return unsafe.String(&b.text[0], b.n) }
 
 // Unwrap returns the error wrapped by the last Errorf's %w operand.

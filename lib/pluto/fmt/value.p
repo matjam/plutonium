@@ -222,6 +222,10 @@ func (p *printer) fmtBytes(v []byte, verb rune, typeName string, t *rt.Type, ptr
 		}
 		p.writeByte(']')
 	case 's', 'q', 'x', 'X':
+		// A view of the bytes for the printer to quote, hex-encode or write;
+		// it is not stored or returned, and the printer reads invalid UTF-8
+		// as U+FFFD (the result is a string only through rt.StringFromBytes,
+		// which replaces invalid bytes).
 		p.printString(unsafe.String(unsafe.SliceData(v), len(v)), verb)
 	default:
 		p.printKind(t, ptr, verb, 0, false)
@@ -235,6 +239,7 @@ func (p *printer) printList(t *rt.Type, data unsafe.Pointer, n int, isNil bool, 
 	switch verb {
 	case 's', 'q', 'x', 'X':
 		if et.Kind() == rt.KindUint8 {
+			// A view of the bytes, as for []byte above.
 			p.printString(unsafe.String((*byte)(data), n), verb)
 			return
 		}

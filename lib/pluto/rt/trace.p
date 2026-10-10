@@ -335,6 +335,8 @@ func traceString(tab unsafe.Pointer, off uint32) string {
 	if n == 0 {
 		return ""
 	}
+	// The compiler wrote the table with valid UTF-8 only: file names are
+	// made valid and cut at a rune boundary (internal/debuginfo/trace.go).
 	return unsafe.String((*byte)(unsafe.Add(p, 2)), n)
 }
 

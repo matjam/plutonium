@@ -2,6 +2,8 @@ package debuginfo
 
 import (
 	"debug/elf"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/matjam/plutonium/internal/arch/amd64"
 	"github.com/matjam/plutonium/internal/objfile"
@@ -56,8 +58,16 @@ func (t *Table) WriteTraceTable(obj *objfile.Object, empty bool) {
 		}
 		off := uint32(len(strs.b))
 		strIndex[s] = off
-		strs.u16(uint16(min(len(s), 0xffff)))
-		strs.b = append(strs.b, s[:min(len(s), 0xffff)]...)
+		// The runtime views these as strings (rt.traceString), which hold
+		// valid UTF-8 (language spec section 6.10). A file name on disk is
+		// any bytes, so replace invalid ones, and cut at a rune boundary.
+		t := strings.ToValidUTF8(s, "\uFFFD")
+		n := min(len(t), 0xffff)
+		for n > 0 && n < len(t) && !utf8.RuneStart(t[n]) {
+			n--
+		}
+		strs.u16(uint16(n))
+		strs.b = append(strs.b, t[:n]...)
 		return off
 	}
 
