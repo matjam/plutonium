@@ -16,15 +16,16 @@ type Hasher interface {
 // DefaultSeed is the seed maps use unless given one.
 const DefaultSeed = 0x2d358dccaa6c78a5
 
-// How a Map hashes its keys, chosen once when the Map is initialised.
-const (
-	hashNone   = iota // not initialised
-	hashWord          // integer, pointer, bool: hash the key's bytes as an integer
-	hashFloat         // float32 or float64
-	hashString        // string
-	hashHasher        // the key implements Hasher
-	hashFunc          // a function given to InitFunc
-)
+// A hashMethod says how a Map hashes its keys, chosen once when the Map is
+// initialised.
+type hashMethod enum {
+	none   // not initialised
+	word   // integer, pointer, bool: hash the key's bytes as an integer
+	float  // float32 or float64
+	str    // string
+	hasher // the key implements Hasher
+	custom // a function given to InitFunc
+}
 
 // Slot metadata. A full slot stores 0x80 | the top 7 bits of its hash so
 // most mismatches are rejected without comparing keys.
@@ -58,8 +59,8 @@ type Map[K comparable, V any] struct {
 	limit int // grow when n reaches limit
 	a     alloc.Allocator
 	seed  uint64
-	how   uint8
-	ksize uintptr // key size, for hashWord
+	how   hashMethod
+	ksize uintptr // key size, for hashMethod.word and float
 	fn    func(K) uint64
 }
 
@@ -83,20 +84,20 @@ func (m *Map[K, V]) InitSeed(a alloc.Allocator, capacity int, seed uint64) {
 	m.setup(a, seed)
 	var zero K
 	if _, ok := any(zero).(Hasher); ok {
-		m.how = hashHasher
+		m.how = hashMethod.hasher
 	} else {
 		kind, size, _, _ := rt.TypeInfo(any(zero))
 		switch kind {
 		case rt.KindBool, rt.KindInt, rt.KindInt8, rt.KindInt16, rt.KindInt32, rt.KindInt64,
 			rt.KindUint, rt.KindUint8, rt.KindUint16, rt.KindUint32, rt.KindUint64, rt.KindUintptr,
 			rt.KindPointer, rt.KindUnsafePointer:
-			m.how = hashWord
+			m.how = hashMethod.word
 			m.ksize = size
 		case rt.KindFloat32, rt.KindFloat64:
-			m.how = hashFloat
+			m.how = hashMethod.float
 			m.ksize = size
 		case rt.KindString:
-			m.how = hashString
+			m.how = hashMethod.str
 		default:
 			panic("hash: key type has no default hash function; use Map.InitFunc")
 		}
@@ -109,7 +110,7 @@ func (m *Map[K, V]) InitSeed(a alloc.Allocator, capacity int, seed uint64) {
 // not be a closure that outlives its frame.
 func (m *Map[K, V]) InitFunc(a alloc.Allocator, capacity int, hash func(K) uint64) {
 	m.setup(a, DefaultSeed)
-	m.how = hashFunc
+	m.how = hashMethod.custom
 	m.fn = hash
 	m.reserve(capacity)
 }
@@ -139,10 +140,11 @@ func (m *Map[K, V]) reserve(capacity int) {
 	}
 }
 
-// hash returns the hash of k.
+// hash returns the hash of k. The switch lists every hashMethod, so adding
+// one without handling it here is a compile error.
 func (m *Map[K, V]) hash(k K) uint64 {
 	switch m.how {
-	case hashWord:
+	case word:
 		p := unsafe.Pointer(&k)
 		var x uint64
 		switch m.ksize {
@@ -156,18 +158,19 @@ func (m *Map[K, V]) hash(k K) uint64 {
 			x = *(*uint64)(p)
 		}
 		return Uint64(x, m.seed)
-	case hashFloat:
+	case float:
 		p := unsafe.Pointer(&k)
 		if m.ksize == 4 {
 			return Float64(float64(*(*float32)(p)), m.seed)
 		}
 		return Float64(*(*float64)(p), m.seed)
-	case hashString:
+	case str:
 		return String(*(*string)(unsafe.Pointer(&k)), m.seed)
-	case hashHasher:
+	case hasher:
 		return any(k).(Hasher).Hash(m.seed)
-	case hashFunc:
+	case custom:
 		return m.fn(k)
+	case none:
 	}
 	panic("hash: Map used before Init")
 }
@@ -233,7 +236,7 @@ func (m *Map[K, V]) Upsert(k K) (p *V, inserted bool) {
 // slot returns the value slot for k, inserting k if needed.
 func (m *Map[K, V]) slot(k K) *V {
 	if m.n >= m.limit {
-		if m.how == hashNone {
+		if m.how == hashMethod.none {
 			panic("hash: Set on a Map without an allocator (use NewMap or Init)")
 		}
 		size := 2 * len(m.slots)
