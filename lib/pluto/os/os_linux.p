@@ -1,11 +1,30 @@
 // Package os provides files, arguments and process control for hosted
 // programs.
+//
+// Errors follow pluto/errors. Opening a file reports a *PathError that
+// records the operation and the path; it comes from the same allocator as
+// the File (the default allocator, or the one given to OpenFileIn). Reads,
+// writes and Close report the syscall.Errno alone, so that the I/O path
+// never allocates; Read reports io.EOF at the end of input.
 package os
 
 import (
+	"pluto/alloc"
+	"pluto/internal/oserror"
+	"pluto/io"
 	"pluto/rt"
 	"pluto/syscall"
 	"unsafe"
+)
+
+// Portable errors. A syscall.Errno matches them with errors.Is, as does any
+// error that wraps one: errors.Is(err, os.ErrNotExist) is true for ENOENT.
+var (
+	ErrInvalid    = oserror.ErrInvalid    // invalid argument
+	ErrPermission = oserror.ErrPermission // permission denied
+	ErrExist      = oserror.ErrExist      // file already exists
+	ErrNotExist   = oserror.ErrNotExist   // file does not exist
+	ErrClosed     = oserror.ErrClosed     // file already closed
 )
 
 // A File is an open file descriptor.
@@ -59,7 +78,7 @@ func (f *File) Read(p []byte) (int, error) {
 			continue
 		}
 		if err == nil && n == 0 && len(p) > 0 {
-			return 0, eof
+			return 0, io.EOF
 		}
 		return n, err
 	}
@@ -68,15 +87,8 @@ func (f *File) Read(p []byte) (int, error) {
 // Close closes the file.
 func (f *File) Close() error { return syscall.Close(f.fd) }
 
-// eof mirrors io.EOF without importing io (io depends on nothing hosted).
-var eof = &eofError{}
-
-type eofError struct{}
-
-func (*eofError) Error() string { return "EOF" }
-
-// IsEOF reports whether err marks the end of input.
-func IsEOF(err error) bool { return err == error(eof) }
+// IsEOF reports whether err is io.EOF.
+func IsEOF(err error) bool { return err == io.EOF }
 
 // Exit ends the process with the given status. Deferred calls do not run.
 //
@@ -134,20 +146,110 @@ func Create(name string) (*File, error) {
 	return OpenFile(name, syscall.O_WRONLY|syscall.O_CREAT|syscall.O_TRUNC, 0o644)
 }
 
-// OpenFile opens a file with the given flags and permissions. The File is
-// allocated from the default allocator; free it with alloc.Free after Close.
+// OpenFile opens a file with the given flags and permissions. The File, or
+// on failure the *PathError, is allocated from the default allocator; free
+// the File with alloc.Free after Close, and the error with errors.Free.
 func OpenFile(name string, flags int, perm uint32) (*File, error) {
+	return OpenFileIn(alloc.Default(), name, flags, perm)
+}
+
+// OpenFileIn is OpenFile with the File or the *PathError allocated from a.
+func OpenFileIn(a alloc.Allocator, name string, flags int, perm uint32) (*File, error) {
 	var path [4096]byte
 	if len(name) >= len(path) {
-		return nil, syscall.EINVAL
+		return nil, NewPathErrorIn(a, "open", name, syscall.ENAMETOOLONG)
 	}
 	copy(path[:], name)
 	fd, err := syscall.Open(path[:len(name)+1], flags, perm)
 	if err != nil {
-		return nil, err
+		return nil, NewPathErrorIn(a, "open", name, err)
 	}
-	f := new(File)
+	f := alloc.NewIn[File](a)
 	f.fd = fd
 	f.name = name
 	return f, nil
+}
+
+// PathError records an error and the operation and file path that caused
+// it.
+//
+// Its message, "op path: err", is formatted once, when the error is made,
+// into the same block of memory as the PathError, and Op and Path view that
+// copy; so the error stays valid however long the caller's path string
+// lives. Make one with NewPathError or NewPathErrorIn, and release it with
+// errors.Free (or by resetting the arena it came from).
+type PathError struct {
+	Op   string
+	Path string
+	Err  error
+
+	msg  string
+	a    alloc.Allocator // allocator that owns the PathError, or nil
+	size uintptr
+}
+
+// Error returns "op path: err". A PathError not made by NewPathError has no
+// stored message and reports Err's message.
+func (e *PathError) Error() string {
+	if e.msg != "" {
+		return e.msg
+	}
+	if e.Err != nil {
+		return e.Err.Error()
+	}
+	return e.Op
+}
+
+// Unwrap returns the underlying error.
+func (e *PathError) Unwrap() error { return e.Err }
+
+// Timeout reports whether this error represents a timeout.
+func (e *PathError) Timeout() bool {
+	t, ok := e.Err.(interface{ Timeout() bool })
+	return ok && t.Timeout()
+}
+
+// Free returns the PathError's memory to the allocator it came from. It
+// does not free Err; errors.Free frees the whole chain.
+func (e *PathError) Free() {
+	if e.a == nil {
+		return
+	}
+	var hdr PathError
+	e.a.Free(unsafe.Pointer(e), e.size, unsafe.Alignof(hdr))
+}
+
+// NewPathError returns a PathError allocated from the default allocator.
+func NewPathError(op, path string, err error) *PathError {
+	return NewPathErrorIn(alloc.Default(), op, path, err)
+}
+
+// NewPathErrorIn returns a PathError for op on path failing with err, with
+// its message, "op path: err", allocated from a in one block.
+func NewPathErrorIn(a alloc.Allocator, op, path string, err error) *PathError {
+	var hdr PathError
+	errMsg := ""
+	if err != nil {
+		errMsg = err.Error()
+	}
+	n := len(op) + 1 + len(path) + 2 + len(errMsg)
+	off := unsafe.Sizeof(hdr)
+	total := off + uintptr(n)
+	p := alloc.Raw(a, total, unsafe.Alignof(hdr))
+	text := unsafe.Slice((*byte)(unsafe.Add(p, off)), n)
+	k := copy(text, op)
+	text[k] = ' '
+	k++
+	k += copy(text[k:], path)
+	text[k], text[k+1] = ':', ' '
+	copy(text[k+2:], errMsg)
+	msg := unsafe.String(unsafe.SliceData(text), n)
+	e := (*PathError)(p)
+	e.Op = msg[:len(op)]
+	e.Path = msg[len(op)+1 : len(op)+1+len(path)]
+	e.Err = err
+	e.msg = msg
+	e.a = a
+	e.size = total
+	return e
 }

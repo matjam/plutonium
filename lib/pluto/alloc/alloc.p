@@ -77,6 +77,13 @@ func freeAt[T any](a Allocator, p *T, pc uintptr) {
 	}
 }
 
+// Raw allocates size zeroed bytes aligned to align from a, for code that
+// lays out a variable-sized object itself. Like New, it panics if a is nil
+// or out of memory. Return the memory with a.Free(p, size, align).
+func Raw(a Allocator, size, align uintptr) unsafe.Pointer {
+	return must(a, size, align, rt.CallerPC())
+}
+
 // must allocates for the call that returns to pc (see rt.AllocSite and
 // rt.TrackSites).
 func must(a Allocator, size, align, pc uintptr) unsafe.Pointer {

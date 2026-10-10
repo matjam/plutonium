@@ -78,7 +78,7 @@ func funcSize(f *ssa.Func) int {
 		for _, v := range b.Values {
 			switch v.Op {
 			case ssa.OpConst, ssa.OpConstFloat, ssa.OpPhi, ssa.OpCopy, ssa.OpArg, ssa.OpInitMem,
-				ssa.OpSlotAddr, ssa.OpSymAddr, ssa.OpOffPtr, ssa.OpSelectN, ssa.OpVarDef:
+				ssa.OpSlotAddr, ssa.OpSymAddr, ssa.OpOffPtr, ssa.OpSelectN, ssa.OpVarDef, ssa.OpVolatileRead:
 				continue
 			case ssa.OpCall, ssa.OpCallInd:
 				n += 5

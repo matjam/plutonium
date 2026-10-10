@@ -1,0 +1,42 @@
+sentinel: empty input true false
+is: true false false true
+errno: no such file or directory | no such file or directory | 13 | "resource temporarily unavailable"
+errno name: ENOENT ECONNREFUSED true
+errno unknown: unknown error
+errno is: true true true true false true
+errno temp: true true false
+open: open /nonexistent/pluto.conf: no such file or directory
+path error: op=open path=/nonexistent/pluto.conf err=no such file or directory errno=true
+open is: true true false
+unwrap: true true
+parse "": 1:0: empty input
+  at 1 0 false true
+parse "(a)\n(b)": <nil>
+parse "(a\n (b\n  (c)))": 3:3: nesting too deep
+  at 3 3 true false
+startup: startup: load config: open /nonexistent/app.conf: no such file or directory
+startup is: true true false
+startup as: true open /nonexistent/app.conf
+startup errno: ENOENT 2
+chain length: 4 allocations: 3 live: true
+after free live: 0
+multi: both: empty input and input/output error
+multi is: true true false true
+joined:
+nesting too deep
+both: empty input and input/output error
+read timed out
+joined is: true true false
+joined as: true read timed out
+join nil: true
+after free live: 0 allocations: 5
+plain: code 42 true
+printf: %!w(error)|656d70747920696e707574|696E7075742F6F7574707574206572726F72
+errorbuf: device sda: input/output error true true
+errorbuf long: 200
+custom is: true false
+uncomparable: false false
+readfull: 3 unexpected EOF true
+readfull: 0 EOF true
+atoi: invalid syntax true
+atoi: value out of range true

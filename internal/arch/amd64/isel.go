@@ -21,6 +21,7 @@ type isel struct {
 	cur    *MBlock
 	vregs  []Reg // by SSA value ID; NoReg if not yet materialised
 	fused  []bool
+	folded []bool // loads folded into their user as a memory operand
 	loops  *ssa.LoopNest
 }
 
@@ -40,6 +41,7 @@ func Select(f *ssa.Func) (*MFunc, error) {
 		blocks: make([]*MBlock, f.NumBlocks()),
 		vregs:  make([]Reg, f.NumValues()),
 		fused:  make([]bool, f.NumValues()),
+		folded: make([]bool, f.NumValues()),
 		loops:  f.Loops(),
 	}
 	for i := range s.vregs {
@@ -221,6 +223,66 @@ func (s *isel) markFused() {
 			s.fused[v.ID] = true
 		}
 	}
+	s.markFoldedLoads()
+}
+
+// markFoldedLoads finds loads used only by an ALU operation later in their
+// block, with no memory write in between, and folds them into it as its
+// memory operand. Commutative operations may take the load on either side.
+func (s *isel) markFoldedLoads() {
+	for _, b := range s.f.Blocks {
+		// Loads since the last memory write, which may move down to here.
+		loadAfter := map[*ssa.Value]bool{}
+		for _, v := range b.Values {
+			if v.Op.HasMemResult() || v.Op.IsCall() {
+				clear(loadAfter)
+				continue
+			}
+			if v.Op == ssa.OpLoad && !v.IsVolatile() && v.Uses == 1 {
+				loadAfter[v] = true
+				continue
+			}
+			if !foldsLoad(v) || s.fused[v.ID] || s.fused[v.Args[0].ID] || s.fused[v.Args[1].ID] {
+				continue
+			}
+			for j, a := range v.Args {
+				if j == 0 && !v.Op.IsCommutative() || a == v.Args[1-j] {
+					continue
+				}
+				if loadAfter[a] && a.Type.Same(v.Type) {
+					s.folded[a.ID] = true
+					break
+				}
+			}
+		}
+	}
+}
+
+// foldsLoad reports whether v can take a memory operand.
+func foldsLoad(v *ssa.Value) bool {
+	switch v.Op {
+	case ssa.OpAdd, ssa.OpSub, ssa.OpAnd, ssa.OpOr, ssa.OpXor:
+		return true
+	case ssa.OpFAdd, ssa.OpFSub, ssa.OpFMul, ssa.OpFDiv:
+		return true
+	}
+	return false
+}
+
+// aluArgs returns v's first operand and its second as an instruction
+// source, swapping them when a commutative v folded its first.
+func (s *isel) aluArgs(v *ssa.Value) (*ssa.Value, Operand) {
+	x, y := v.Args[0], v.Args[1]
+	if s.folded[x.ID] {
+		x, y = y, x
+	}
+	if s.folded[y.ID] {
+		return x, MemOp(s.addr(y.Args[0]))
+	}
+	if y.Type.IsFloat() {
+		return x, s.floatOperand(y)
+	}
+	return x, s.operand(y)
 }
 
 // scaledIndex returns x and scale when v is x*scale for an address scale
@@ -565,12 +627,12 @@ func (s *isel) def(v *ssa.Value) Reg {
 }
 
 func (s *isel) value(v *ssa.Value) error {
-	if isLazy(v) || s.fused[v.ID] {
+	if isLazy(v) || s.fused[v.ID] || s.folded[v.ID] {
 		return nil
 	}
 	size := sizeOf(v.Type)
 	switch v.Op {
-	case ssa.OpPhi, ssa.OpInitMem, ssa.OpVarDef, ssa.OpArg, ssa.OpClosurePtr, ssa.OpReturnAddr, ssa.OpUnreachableValue:
+	case ssa.OpPhi, ssa.OpInitMem, ssa.OpVarDef, ssa.OpVolatileRead, ssa.OpArg, ssa.OpClosurePtr, ssa.OpReturnAddr, ssa.OpUnreachableValue:
 		// Handled elsewhere or produce no code.
 		if v.Op == ssa.OpUnreachableValue && !v.Type.IsMem() {
 			r := s.def(v)
@@ -592,9 +654,10 @@ func (s *isel) value(v *ssa.Value) error {
 			break
 		}
 		op := map[ssa.Op]MOp{ssa.OpAdd: MADD, ssa.OpSub: MSUB, ssa.OpAnd: MAND, ssa.OpOr: MOR, ssa.OpXor: MXOR}[v.Op]
+		x, src := s.aluArgs(v)
 		d := s.def(v)
-		s.copyReg(d, s.reg(v.Args[0]), size)
-		s.emit(&MInst{Op: op, Size: size, Dst: RegOp(d), Src: s.operand(v.Args[1])})
+		s.copyReg(d, s.reg(x), size)
+		s.emit(&MInst{Op: op, Size: size, Dst: RegOp(d), Src: src})
 
 	case ssa.OpAndNot:
 		d := s.def(v)
@@ -651,9 +714,10 @@ func (s *isel) value(v *ssa.Value) error {
 
 	case ssa.OpFAdd, ssa.OpFSub, ssa.OpFMul, ssa.OpFDiv:
 		op := map[ssa.Op]MOp{ssa.OpFAdd: MADDSF, ssa.OpFSub: MSUBSF, ssa.OpFMul: MMULSF, ssa.OpFDiv: MDIVSF}[v.Op]
+		x, src := s.aluArgs(v)
 		d := s.def(v)
-		s.copyReg(d, s.reg(v.Args[0]), size)
-		s.emit(&MInst{Op: op, Size: size, Dst: RegOp(d), Src: s.floatOperand(v.Args[1])})
+		s.copyReg(d, s.reg(x), size)
+		s.emit(&MInst{Op: op, Size: size, Dst: RegOp(d), Src: src})
 	case ssa.OpFNeg, ssa.OpFAbs:
 		d := s.def(v)
 		s.copyReg(d, s.reg(v.Args[0]), size)

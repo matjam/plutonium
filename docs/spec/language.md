@@ -27,6 +27,7 @@ version: every Go feature up to 1.27 that is not removed or changed below is par
 10. [The unsafe package](#10-the-unsafe-package)
 11. [Build modes and targets](#11-build-modes-and-targets)
 12. [Standard library](#12-standard-library)
+13. [Errors](#13-errors)
 
 ## 1. Goals
 
@@ -73,7 +74,7 @@ Each of these is a compile error that names the construct and the reason.
 | Removed | Reason | Use instead |
 |---|---|---|
 | `map[K]V`, `delete` | needs a garbage-collected hash table | `pluto/hash` |
-| `recover` | needs an unwinder; `panic` aborts (section 7) | return errors |
+| `recover` | needs an unwinder; `panic` aborts (section 7) | return errors (section 13) |
 | `import "reflect"` | needs runtime type metadata | type switches, generics |
 | `complex64`, `complex128`, `complex`, `real`, `imag` | rarely useful in systems code; keeps the backend small | a struct of two floats |
 | runtime string concatenation (`s + t` where either is not a constant) | allocates | `pluto/strings.Builder` with an allocator |
@@ -125,6 +126,11 @@ assertions, type switches. An interface value is two words: a pointer to a stati
 Returning an interface that holds such a frame copy, or storing it in a package-level variable, is a
 compile error where the compiler can see it. To keep a large value in an interface beyond the current
 function, store a pointer to it instead.
+
+The initializer of a package-level variable is the exception: it runs once, and its results must outlive
+package initialization, so a conversion there copies the value into static storage instead of a frame.
+`var ErrBad error = parseError{line: 1}` and `var names any = []string{"a", "b"}` are valid. The same
+holds for `&T{...}` and slice literals in package-level initializers, which also get static storage.
 
 Type descriptors exist only for types that are converted to an interface. Besides identifying the type,
 a descriptor records its size, alignment and kind, and its element type and length or its field offsets
@@ -204,6 +210,24 @@ from an allocator given as the final argument: `make(chan Msg, 16, arena)`.
 A channel value is a reference counted like `synced[T]` (section 5.6), since a channel always has
 several users: copying it counts a reference, and when the last reference goes away the channel and its
 buffer are freed. Values still buffered at that point are discarded without running `Drop`.
+
+### 4.9 Memory model
+
+The memory model is Go's, specified with Plutonium's changes in [memory-model.md](memory-model.md). In
+brief:
+
+- `go` statements, channel operations, `pluto/sync` locks, `WaitGroup` and `Once`, and
+  `pluto/sync/atomic` operations synchronise exactly as in Go. Atomics are sequentially consistent.
+- A data race is a bug but not undefined behaviour. A racy read of a naturally aligned value of at most a
+  word observes some value that was written to it; larger values (strings, slices, interfaces, structs)
+  may tear. The compiler may not assume that a program has no races.
+- A packed value is a single memory location: writing one field rewrites its neighbours, so two
+  puroutines writing different fields of one packed value race.
+- `volatile[T]` accesses are never removed, merged or reordered with one another, and atomic operations
+  are compiler barriers. Volatile accesses do not synchronise between processors, but they are enough
+  for an interrupt handler and the code it interrupts on the same processor to share data.
+- Any scheduler, including a kernel's own (section 4.7), must make starting a puroutine and readying a
+  parked one synchronising operations, so that these rules hold however puroutines are scheduled.
 
 ## 5. What Plutonium adds
 
@@ -395,8 +419,9 @@ lengths := names.Map(func(s string) int { return len(s) }) // U inferred
 
 Such methods are instantiated for each set of type arguments used, like generic functions. They are
 called directly and never through an interface: a method with its own type parameters does not count
-towards implementing an interface, and an interface cannot declare one. This is the restriction that lets
-Plutonium allow them where Go does not, since every instantiation is visible to the compiler.
+towards implementing an interface, and an interface cannot declare one. Plutonium follows Go 1.27 here:
+the rules are Go's, and since every instantiation is visible to the compiler, each is an ordinary
+function in the output.
 
 As with a generic function, a method value `x.M` or method expression `T.M` of such a method must be
 instantiated, either explicitly (`names.Map[int]`) or from the function type it is assigned to.
@@ -532,8 +557,10 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | `//pu:extern name` | body-less function | the function is the external symbol `name` (C ABI) |
 | `//pu:export name` | function | also export the function under the symbol `name` |
 | `//pu:section name` | function or package variable | place it in the named section |
-| `//pu:interrupt` | function | an x86-64 interrupt handler: saves all registers, returns with `iretq` |
+| `//pu:interrupt` | function | an x86-64 interrupt handler: saves all registers, returns with `iretq` (planned, section 11.4) |
 | `//pu:noreturn` | function | the function never returns (lets the optimiser drop code after calls) |
+| `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (proposed, section 11.3) |
+| `//pu:percpu` | package variable | one copy per processor, addressed through `GS` (proposed, section 11.5) |
 
 ## 9. Assembly and C
 
@@ -543,9 +570,13 @@ A function declared without a body is implemented outside Plutonium.
   assembler. The symbol of a Plutonium function is its import path and name, `"pluto/syscall.Syscall"`,
   quoted in assembly because of the slash. Methods are `"path.Type.Method"` (value receiver) and
   `"path.(*Type).Method"` (pointer receiver).
-- **C**: with `//pu:extern name`, the function is the C symbol `name`. Plutonium uses the System V AMD64
-  calling convention everywhere, so C code compiled separately, such as the reference Lua interpreter,
-  links in directly. `//pu:export name` makes a Plutonium function callable from C under `name`.
+- **C**: with `//pu:extern name`, the function is the C symbol `name`, called with the System V AMD64
+  calling convention, so C code compiled separately, such as the reference Lua interpreter, links in
+  directly. `//pu:export name` makes a Plutonium function callable from C under `name`. Calls between
+  Plutonium functions use an internal convention that agrees with System V for scalar arguments and up to
+  two scalar results, and passes strings, slices, interfaces and small structs in registers (abi.md
+  section 9). Until the compiler classifies aggregates the System V way, `//pu:extern` and `//pu:export`
+  functions are limited to scalar parameters and at most two scalar results.
 
 ```go
 //pu:extern lua_pushinteger
@@ -563,16 +594,135 @@ imports `unsafe`, so such code is easy to find.
 
 ## 11. Build modes and targets
 
+### 11.1 Modes
+
+The mode is chosen with `--mode`; by default it follows the target (`hosted` for `x86_64-linux`,
+`freestanding` for `x86_64-none`).
+
 | Mode | Meaning | Tags set |
 |---|---|---|
-| `hosted` (default) | a Linux program: `_start` sets up arguments and calls `main` | `linux`, `hosted` |
+| `hosted` | a Linux program: `_start` sets up arguments and calls `main` | `linux`, `hosted` |
 | `freestanding` | no operating system; the program provides its entry point and linker script | `freestanding`, `none` |
+| `kernel` (proposed) | `freestanding`, plus code generation for ring 0 (section 11.2) | `freestanding`, `none`, `kernel` |
 
 Targets are named by triples: `x86_64-linux` (default) and `x86_64-none`; `aarch64-linux` and
 `aarch64-none` are planned. The architecture tag (`amd64`, `arm64`) is always set.
 
-Output formats are ELF executables (default), flat binaries (`-format binary`) and PE32+ for UEFI
-(`-format pe32+`).
+Output formats are ELF executables (default) and flat binaries (`--format binary`). PE32+ for UEFI
+(`--format pe32+`) is planned; it needs position-independent code (abi.md section 7).
+
+### 11.2 Kernel mode
+
+**Status: proposed.** `pluto build --target x86_64-none --mode kernel` builds code that can run in ring 0
+with interrupts enabled and no vector state saved on entry. It differs from `freestanding` in three ways,
+specified in [abi.md section 10](abi.md#10-kernel-mode):
+
+- **No red zone.** Plutonium code never stores below the stack pointer in any mode (the backend
+  subtracts from RSP before using stack memory, and leaf functions without stack slots have no frame), so
+  nothing changes for Plutonium code. Assembly and C linked into a kernel must not use the red zone
+  either.
+- **No floating point** (section 11.3).
+- **Kernel code model.** The image is linked in the top 2 GiB of the address space. The compiler's
+  addressing (RIP-relative symbol addresses, and absolute sign-extended 32-bit displacements for
+  `sym+disp32(,index,scale)`) is correct there without change; the kernel's linker script places the
+  image.
+
+Kernel mode also enables `//pu:interrupt`, `pluto/arch/x86` (section 11.4) and per-CPU variables
+(section 11.5). `pluto/os` and `pluto/syscall` are unavailable, as in every freestanding build.
+
+### 11.3 Floating point in kernel mode
+
+An interrupt or system call that enters the kernel does not save the SSE and x87 registers, so kernel code
+must not touch them. In kernel mode, any floating-point operation (arithmetic, comparison, conversion,
+a float constant, passing or returning a float, converting a float to an interface) in a function the
+program uses is a compile error. Copying a float-typed field as part of a struct is allowed, since it uses
+integer registers. Because the compiler only generates the functions a program reaches, a float function
+in an imported package that the kernel never calls costs nothing, and the standard library keeps its
+float code behind `//pu:build !kernel`.
+
+A function marked `//pu:fpu` may use floats in kernel mode. Whoever calls it must have saved the
+interrupted context's vector state and enabled the unit (`x86.FPUBegin` and `x86.FPUEnd`); the compiler
+does not check this. Soft-float was rejected: it would put an IEEE-754 library in every kernel and hide a
+large cost behind ordinary arithmetic, for code that hardly ever wants floats.
+
+### 11.4 `pluto/arch/x86`
+
+**Status: proposed.** The package `pluto/arch/x86` gives access to the instructions a kernel needs. Every
+function in it is expanded inline to the instruction or short sequence it names, is never removed even if
+its result is unused, and is a compiler barrier: no memory access is moved across it (see the memory
+model). The full table, with expansions, is in [abi.md section 10.5](abi.md#105-plutoarchx86-intrinsics).
+
+```go
+package x86
+
+func Cli()
+func Sti()
+func StiHlt()                     // sti; hlt with no gap for an interrupt
+func Hlt()
+func Pause()
+func SaveFlagsCli() uint64
+func RestoreFlags(f uint64)
+
+func Inb(port uint16) uint8
+func Inw(port uint16) uint16
+func Inl(port uint16) uint32
+func Outb(port uint16, v uint8)
+func Outw(port uint16, v uint16)
+func Outl(port uint16, v uint32)
+
+func Rdmsr(msr uint32) uint64
+func Wrmsr(msr uint32, v uint64)
+
+func ReadCR0() uint64
+func ReadCR2() uint64
+func ReadCR3() uint64
+func ReadCR4() uint64
+func WriteCR0(v uint64)
+func WriteCR3(v uint64)
+func WriteCR4(v uint64)
+func Invlpg(addr uintptr)
+
+func Lgdt(p *DescriptorTablePointer)
+func Lidt(p *DescriptorTablePointer)
+func Ltr(sel uint16)
+
+func Cpuid(leaf, subleaf uint32) (eax, ebx, ecx, edx uint32)
+func Rdtsc() uint64
+func Rdtscp() (tsc uint64, aux uint32)
+
+func Swapgs()
+func ReadGSBase() uintptr
+func WriteGSBase(v uintptr)
+func GSLoad64(off uintptr) uint64
+func GSLoad32(off uintptr) uint32
+func GSStore64(off uintptr, v uint64)
+func GSStore32(off uintptr, v uint32)
+
+func FPUBegin(area *FPUState)
+func FPUEnd(area *FPUState)
+
+func HandlerAddr(h any) uintptr   // h must name a //pu:interrupt function; for building the IDT
+```
+
+`//pu:interrupt` handlers (planned) take a `*x86.InterruptFrame`, and an error code for the exceptions
+that push one; abi.md section 10.4 gives the entry and exit sequence.
+
+### 11.5 Per-CPU variables
+
+**Status: proposed.** A package-level variable marked `//pu:percpu` has one copy per processor:
+
+```go
+//pu:percpu
+var current *Thread
+```
+
+The compiler places it in the `.percpu` section, which the kernel links at address 0 so that each
+variable's address is its offset in a per-CPU block, and accesses it relative to the `GS` base, which the
+kernel points at the current processor's block. A word-sized access is a single instruction. `&v` is a
+pointer into the current processor's copy. Only constant initialisers are allowed, and `//pu:percpu` is
+a compile error outside kernel mode. Code that reads and then writes a per-CPU variable must not migrate
+to another processor in between, so it runs with preemption or interrupts disabled. Details are in
+[abi.md section 10.6](abi.md#106-per-cpu-variables-proposed).
 
 ## 12. Standard library
 
@@ -582,7 +732,7 @@ Output formats are ELF executables (default), flat binaries (`-format binary`) a
 | `pluto/sync` | `Mutex`, `RWMutex`, `WaitGroup`, `Once` over the scheduler |
 | `pluto/alloc` | allocators, the default allocator, `New`/`Free`/`Owned`/`Shared`/`Synced` |
 | `pluto/alloc/debug` | the checking allocator (section 6.3) |
-| `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf` into a caller's buffer, `Println`; integer, float, string, pointer verbs with width, precision and flags |
+| `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf` into a caller's buffer, `Println`; integer, float, string, pointer verbs with width, precision and flags; `Errorf` with an allocator and `ErrorBuf` (section 13) |
 | `pluto/io` | `Reader`, `Writer`, buffered I/O |
 | `pluto/os` | files, arguments, environment, exit (hosted) |
 | `pluto/syscall` | raw Linux system calls (hosted) |
@@ -594,5 +744,88 @@ Output formats are ELF executables (default), flat binaries (`-format binary`) a
 | `pluto/sort` | sorting without allocation |
 | `pluto/sync/atomic` | atomic integers and pointers |
 | `pluto/unicode/utf8` | UTF-8 encoding and decoding |
+| `pluto/testing` | tests and benchmarks for `pluto test` (hosted) |
+| `pluto/errors` | `New` for sentinels, `Is`, `As`, `AsType`, `Unwrap`, `Join`, `Free` (section 13) |
 
 `pluto/os` and `pluto/syscall` are not available in freestanding builds.
+
+## 13. Errors
+
+Errors are values of the predeclared `error` interface, handled as in Go: a function returns an `error`
+last, `nil` means success, and callers write `if err != nil { return err }`. `pluto/errors` provides
+`Is`, `As`, `Unwrap` and `Join` with Go's semantics, and `fmt.Errorf` wraps with `%w`. Since `panic`
+aborts (section 7), errors are the only way to recover from a failure.
+
+What differs from Go is where an error lives. An `error` is an interface, so an error value larger than a
+word would be boxed in the converting function's frame (section 4.4), and Plutonium never allocates
+implicitly (section 6). The rule that follows is:
+
+**An error returned from a function is either a value that fits in a word, or a pointer to storage that
+outlives the function.** That storage is one of:
+
+| Storage | Used for | Example |
+|---|---|---|
+| the interface's data word | error codes | `syscall.Errno`, a kernel's own code type |
+| static storage | sentinel errors | `var ErrNotFound = errors.New("not found")` in a package-level variable |
+| a field of a longer-lived object | errors with context that belong to an owner | a parser that returns `&p.err`; `fmt.ErrorBuf` |
+| memory from an allocator | errors with context that travel up the stack | `*os.PathError`, `fmt.Errorf`, `errors.Join` |
+
+Returning a struct as an `error`, or a pointer to a local variable or composite literal, breaks the rule:
+the first is a compile error (section 4.4), and the second leaves a dangling pointer.
+
+### 13.1 Sentinels
+
+`errors.New(text)` returns a distinct error each time it is called, held in static storage that package
+`errors` reserves (512 errors). It is meant for package-level variables, whose initializers run once:
+
+```go
+var ErrNotFound = errors.New("not found")
+```
+
+`text` must be a constant or other static string. `errors.New` panics when its storage runs out, which
+happens only if a program calls it repeatedly at run time; such code should declare a package-level
+sentinel or use `fmt.Errorf`. A sentinel may also be written as a static literal,
+`var ErrClosed = &errors.Text{Msg: "file already closed"}`, and a package-level initializer may convert
+a struct to `error` directly, since its box is static (section 4.4).
+
+### 13.2 Error codes
+
+A named integer type with an `Error() string` method fits in the data word, so it can be returned from
+anywhere and costs nothing. `syscall.Errno` is the standard one: its `Error` returns Linux's message for
+the code, `Name` its symbol (`"ENOENT"`), and its `Is` method makes `errors.Is(err, os.ErrNotExist)`,
+`os.ErrExist`, `os.ErrPermission` and `errors.ErrUnsupported` match the corresponding codes.
+
+### 13.3 Errors with context
+
+An error that records context (a path, a line and column) needs storage for it. Its message is formatted
+when the error is made, into that storage, because `Error()` must return a string and cannot concatenate
+one at run time.
+
+- **Allocated.** `fmt.Errorf(format, args...)` allocates the error and its message in one block from the
+  default allocator; `fmt.ErrorfIn(a, format, args...)` uses `a`. `errors.Join`/`JoinIn` and
+  `os.NewPathError`/`NewPathErrorIn` work the same way, and so do `os.Open`, `os.Create` and `os.OpenFile`
+  when they fail. Such an error has a `Free()` method. `errors.Free(err)` releases every allocated error
+  in `err`'s tree and skips the others; a wrapper owns the errors it wraps, so free only the outermost
+  one. Code that runs under an arena (`defer alloc.Use(&a).Restore()`) needs no `Free`.
+- **Owned.** An object that performs operations (a parser, a device, a connection) keeps its last error in
+  a field and returns a pointer to it. The error is valid while the object lives and until its next
+  error. `fmt.ErrorBuf` is such a field: `buf.Errorf(format, args...)` formats into its 200-byte buffer,
+  wraps the first `%w` operand, and returns the buffer as the error.
+
+### 13.4 Wrapping, `Is` and `As`
+
+`fmt.Errorf` and `ErrorBuf.Errorf` accept `%w`, which formats an error operand like `%v` and wraps it.
+With one `%w` the result has `Unwrap() error`; with several, `Unwrap() []error`. `%w` in any other
+formatting function prints `%!w(error)`.
+
+`errors.Is(err, target)` reports whether any error in `err`'s tree equals `target` or has an
+`Is(error) bool` method that reports true; it compares with `==` only when `target`'s dynamic type is
+comparable. `errors.As` is generic, `func As[E any](err error, target *E) bool`, so the Go spelling
+`errors.As(err, &perr)` works without reflection, with `E` inferred from `target`.
+`errors.AsType[E error](err) (E, bool)` is Go 1.26's form.
+
+### 13.5 Differences in the standard library
+
+`os.File.Read`, `Write` and `Close` report a bare `syscall.Errno` (and `io.EOF`), not a `*PathError`, so
+that I/O does not allocate. `strconv` reports `ErrSyntax` and `ErrRange` without Go's `*NumError`. An
+`Errno` the table does not know reports `"unknown error"`.

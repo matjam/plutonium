@@ -1,0 +1,73 @@
+// Packed types in every form the parser accepts.
+
+package hw
+
+// A control register.
+type ControlReg packed uint32 {
+	mode     bits[uint, 4] // operating mode
+	enable   bits[bool, 1] // set to start
+	priority bits[uint, 3]
+	_        bits[uint, 24]
+}
+
+type NetHeader packed be [20]byte {
+	ihl     bits[uint8, 4]
+	version bits[uint8, 4]
+	tos     uint8
+	length  uint16
+}
+
+type Block packed le [512]byte {
+	magic uint32
+	seq   aligned[uint32, 4]
+	pad   [3]uint8
+}
+
+type Status packed uint32 {
+	flags bits {
+		ENABLE
+		READY
+
+		ERROR // set on failure
+		OVERFLOW
+	}
+	inline bits { A B C }
+	commas bits { X Y Z }
+	split  bits {
+		P Q
+		R S
+	}
+	none bits {}
+	mode bits[uint, 4]
+}
+
+type Header packed {
+	version   uint8
+	kind, sub uint8
+	length    uint32
+}
+
+type Wire packed be []byte {
+	a, b bits[uint8, 4]
+}
+
+type Empty packed {}
+
+type Small packed uint8 { v bits[uint8, 8] }
+
+type Native packed { a, b uint8 }
+
+var x packed { a, b uint8 }
+
+var y = ControlReg{mode: 5, enable: true}
+
+func f(raw uint32) uint32 {
+	reg := ControlReg(raw)
+	reg.enable = true
+	var local packed uint16 {
+		lo bits[uint8, 8]
+		hi bits[uint8, 8]
+	}
+	local.lo = 1
+	return uint32(reg) + uint32(local.hi)
+}

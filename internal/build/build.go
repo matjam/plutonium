@@ -46,6 +46,21 @@ type Config struct {
 
 // Build compiles and links a program.
 func Build(cfg *Config) error {
+	lcfg, err := loadConfig(cfg)
+	if err != nil {
+		return err
+	}
+	prog, err := load.Load(lcfg, cfg.Dir)
+	if err != nil {
+		return err
+	}
+	return buildProgram(cfg, prog)
+}
+
+var sizes = types2.SizesFor("gc", "amd64")
+
+// loadConfig returns the package loader's configuration for a build.
+func loadConfig(cfg *Config) (*load.Config, error) {
 	tags := map[string]bool{"amd64": true}
 	if cfg.Freestanding {
 		tags["none"] = true
@@ -62,19 +77,19 @@ func Build(cfg *Config) error {
 	case "":
 	case "debug":
 		if cfg.Freestanding {
-			return fmt.Errorf("-alloc=debug needs a hosted build; a freestanding program installs the debug allocator itself with alloc.SetDefault(debug.New(...))")
+			return nil, fmt.Errorf("-alloc=debug needs a hosted build; a freestanding program installs the debug allocator itself with alloc.SetDefault(debug.New(...))")
 		}
 		tags["allocdebug"] = true
 		tags["allocsites"] = true
 		preload = append(preload, "pluto/alloc/debug")
 	default:
-		return fmt.Errorf("unknown allocator %q (supported: debug)", cfg.Alloc)
+		return nil, fmt.Errorf("unknown allocator %q (supported: debug)", cfg.Alloc)
 	}
-	sizes := types2.SizesFor("gc", "amd64")
-	prog, err := load.Load(&load.Config{Tags: tags, Stdlib: cfg.Stdlib, Sizes: sizes, Preload: preload}, cfg.Dir)
-	if err != nil {
-		return err
-	}
+	return &load.Config{Tags: tags, Stdlib: cfg.Stdlib, Sizes: sizes, Preload: preload}, nil
+}
+
+// buildProgram compiles and links a loaded program.
+func buildProgram(cfg *Config, prog *load.Program) error {
 	sp, err := lower.Lower(&lower.Config{Freestanding: cfg.Freestanding, Sizes: sizes}, prog)
 	if err != nil {
 		return err
