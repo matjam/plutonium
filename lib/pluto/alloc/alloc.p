@@ -42,21 +42,25 @@ func (r Restore) Restore() { SetDefault(r.prev) }
 // New allocates a zeroed T from the default allocator.
 func New[T any]() *T {
 	var zero T
-	return (*T)(must(Default(), unsafe.Sizeof(zero), unsafe.Alignof(zero)))
+	return (*T)(must(Default(), unsafe.Sizeof(zero), unsafe.Alignof(zero), rt.CallerPC()))
 }
 
 // NewIn allocates a zeroed T from a.
 func NewIn[T any](a Allocator) *T {
 	var zero T
-	return (*T)(must(a, unsafe.Sizeof(zero), unsafe.Alignof(zero)))
+	return (*T)(must(a, unsafe.Sizeof(zero), unsafe.Alignof(zero), rt.CallerPC()))
 }
 
 // Free returns p, allocated by New, to the default allocator. If T has a
 // Drop method it is called first.
-func Free[T any](p *T) { FreeIn(Default(), p) }
+func Free[T any](p *T) { freeAt(Default(), p, rt.CallerPC()) }
 
 // FreeIn returns p, allocated from a, to a.
-func FreeIn[T any](a Allocator, p *T) {
+func FreeIn[T any](a Allocator, p *T) { freeAt(a, p, rt.CallerPC()) }
+
+// freeAt frees p for the call that returns to pc, which it publishes
+// through rt.AllocSite while the allocator runs (if rt.TrackSites).
+func freeAt[T any](a Allocator, p *T, pc uintptr) {
 	if p == nil {
 		return
 	}
@@ -64,21 +68,45 @@ func FreeIn[T any](a Allocator, p *T) {
 		d.Drop()
 	}
 	var zero T
+	if rt.TrackSites {
+		rt.SetAllocSite(pc)
+	}
 	a.Free(unsafe.Pointer(p), unsafe.Sizeof(zero), unsafe.Alignof(zero))
+	if rt.TrackSites {
+		rt.SetAllocSite(0)
+	}
 }
 
-func must(a Allocator, size, align uintptr) unsafe.Pointer {
+// must allocates for the call that returns to pc (see rt.AllocSite and
+// rt.TrackSites).
+func must(a Allocator, size, align, pc uintptr) unsafe.Pointer {
 	if a == nil {
 		panic("no allocator: call alloc.SetDefault before allocating")
 	}
 	if size == 0 {
 		size = 1
 	}
+	if rt.TrackSites {
+		rt.SetAllocSite(pc)
+	}
 	p := a.Alloc(size, align)
+	if rt.TrackSites {
+		rt.SetAllocSite(0)
+	}
 	if p == nil {
 		panic("out of memory")
 	}
 	return p
+}
+
+// ReportLeaks prints the allocations the default allocator still holds, if
+// it keeps track of them (the debug allocator, pluto/alloc/debug, does), and
+// returns how many there are. Other allocators print nothing and report 0.
+func ReportLeaks() int {
+	if r, ok := Default().(interface{ ReportLeaks() int }); ok {
+		return r.ReportLeaks()
+	}
+	return 0
 }
 
 // ----------------------------------------------------------------------------

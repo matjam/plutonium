@@ -38,6 +38,10 @@ type Config struct {
 	Verbose      bool
 	KeepWork     bool // keep the temporary directory
 	CompileOnly  bool // write the object file to Output and stop
+	// Alloc selects the default allocator of a hosted program: "" for the
+	// slab allocator, "debug" for the checking allocator in
+	// pluto/alloc/debug (settings from $PLUTO_DEBUGALLOC at run time).
+	Alloc string
 }
 
 // Build compiles and links a program.
@@ -53,8 +57,21 @@ func Build(cfg *Config) error {
 	for _, t := range cfg.Tags {
 		tags[t] = true
 	}
+	var preload []string
+	switch cfg.Alloc {
+	case "":
+	case "debug":
+		if cfg.Freestanding {
+			return fmt.Errorf("-alloc=debug needs a hosted build; a freestanding program installs the debug allocator itself with alloc.SetDefault(debug.New(...))")
+		}
+		tags["allocdebug"] = true
+		tags["allocsites"] = true
+		preload = append(preload, "pluto/alloc/debug")
+	default:
+		return fmt.Errorf("unknown allocator %q (supported: debug)", cfg.Alloc)
+	}
 	sizes := types2.SizesFor("gc", "amd64")
-	prog, err := load.Load(&load.Config{Tags: tags, Stdlib: cfg.Stdlib, Sizes: sizes}, cfg.Dir)
+	prog, err := load.Load(&load.Config{Tags: tags, Stdlib: cfg.Stdlib, Sizes: sizes, Preload: preload}, cfg.Dir)
 	if err != nil {
 		return err
 	}

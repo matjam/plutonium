@@ -39,4 +39,32 @@ _start:
 	syscall
 	ret
 
+# sigtramp is the SIGSEGV handler. The kernel enters it as a call with
+# (signo, siginfo, ucontext) in %rdi, %rsi, %rdx, so it passes straight on
+# to sigfault.
+	.type sigtramp, @function
+sigtramp:
+	jmp	"pluto/rt.sigfault"
+
+# sigreturn is the signal restorer: a handler that returns lands here.
+	.type sigreturn, @function
+sigreturn:
+	movl	$15, %eax	# rt_sigreturn
+	syscall
+	ud2
+
+# sigtrampAddr() uintptr
+	.globl "pluto/rt.sigtrampAddr"
+	.type "pluto/rt.sigtrampAddr", @function
+"pluto/rt.sigtrampAddr":
+	leaq	sigtramp(%rip), %rax
+	ret
+
+# sigreturnAddr() uintptr
+	.globl "pluto/rt.sigreturnAddr"
+	.type "pluto/rt.sigreturnAddr", @function
+"pluto/rt.sigreturnAddr":
+	leaq	sigreturn(%rip), %rax
+	ret
+
 	.section .note.GNU-stack,"",@progbits

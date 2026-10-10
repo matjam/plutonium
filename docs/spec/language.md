@@ -468,6 +468,29 @@ func kernelMain(info *BootInfo) {
 The slab allocator takes its pages from an `alloc.PageProvider`, so a kernel can reuse it on top of its own
 physical page allocator.
 
+### 6.3 The debug allocator
+
+Raw pointers are unchecked, so overflows, use after free and double frees are possible. The debug
+allocator, `pluto/alloc/debug`, catches them deterministically. `pluto build --alloc=debug` makes it the
+default allocator of a hosted program without code changes (settings come from `PLUTO_DEBUGALLOC`), and
+`alloc.SetDefault(debug.New(debug.DefaultOptions()))` installs it explicitly, in freestanding builds over
+the kernel's page provider.
+
+- Each allocation ends right before a guard page that is inaccessible, so an overrun faults at once
+  (`underflow` puts the guard page before it instead). Bytes of its pages it does not use hold canaries,
+  checked when it is freed. Past a cap on guard pages, or for small allocations if asked, allocations sit
+  between canaries instead.
+- Freed memory is poisoned (`0xDD`), made inaccessible where it has pages of its own, and held in a
+  bounded first-in, first-out quarantine before reuse, so stale pointers fault or read poison.
+- A side table of every allocation catches double frees, frees with the wrong size or alignment, and
+  frees of pointers that were never allocated.
+- At exit, and on demand with `alloc.ReportLeaks()`, it lists the allocations still live, with the call
+  site that made each one.
+
+Memory it returns is zeroed, like any allocator's. Every error stops the program as a panic does. It is
+not yet safe for concurrent use; its state sits behind one lock that becomes a real mutex when puroutines
+run in parallel. [debug-allocator.md](debug-allocator.md) has the details.
+
 ## 7. Runtime faults and panic
 
 The following stop the program through the same path as `panic`:
@@ -488,7 +511,9 @@ freestanding builds the compiler calls the function registered with `rt.SetPanic
 handler disables interrupts and halts the processor.
 
 Dereferencing a nil pointer is not checked by the compiler; it faults in hardware wherever address zero is
-unmapped, which is true in hosted builds and should be arranged by kernels.
+unmapped, which is true in hosted builds and should be arranged by kernels. Heap misuse through raw
+pointers is not checked either, except by the debug allocator (section 6.3), which reports it through
+the same path.
 
 Bounds checks can be removed from a function with `//pu:nobounds`, for code that has been proven correct
 and must be as fast as possible. The optimiser removes most bounds checks by itself.
@@ -556,6 +581,7 @@ Output formats are ELF executables (default), flat binaries (`-format binary`) a
 | `pluto/rt` | panic hook, program entry, memory copy and compare primitives the compiler calls, the scheduler interface, `Go`, `Yield` |
 | `pluto/sync` | `Mutex`, `RWMutex`, `WaitGroup`, `Once` over the scheduler |
 | `pluto/alloc` | allocators, the default allocator, `New`/`Free`/`Owned`/`Shared`/`Synced` |
+| `pluto/alloc/debug` | the checking allocator (section 6.3) |
 | `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf` into a caller's buffer, `Println`; integer, float, string, pointer verbs with width, precision and flags |
 | `pluto/io` | `Reader`, `Writer`, buffered I/O |
 | `pluto/os` | files, arguments, environment, exit (hosted) |

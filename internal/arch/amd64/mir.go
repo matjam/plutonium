@@ -178,6 +178,9 @@ type Mem struct {
 	ArgOff  int64
 	// OutArg addresses the outgoing argument area at offset Disp from RSP.
 	OutArg bool
+	// RIP addresses Disp bytes past the end of the instruction, with no
+	// symbol (Base and Index are NoReg).
+	RIP bool
 }
 
 // An Operand is a register, immediate or memory reference.
@@ -313,6 +316,9 @@ func (o Operand) format(size int) string {
 func (m Mem) String() string {
 	var sb strings.Builder
 	switch {
+	case m.RIP:
+		fmt.Fprintf(&sb, "%d(%%rip)", m.Disp)
+		return sb.String()
 	case m.Sym != nil:
 		fmt.Fprintf(&sb, "%s", m.Sym.Name)
 		if m.Disp != 0 {

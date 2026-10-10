@@ -223,7 +223,13 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 				valMap[gv] = mem
 				continue
 			}
-			nv := nb.NewValue(gv.Op, gv.Type)
+			op := gv.Op
+			if op == ssa.OpReturnAddr {
+				// g's return address would have pointed just past
+				// this call, which is where g's code now is.
+				op = ssa.OpCodeAddr
+			}
+			nv := nb.NewValue(op, gv.Type)
 			nv.AuxInt = gv.AuxInt
 			nv.Aux = gv.Aux
 			if s, ok := gv.Aux.(*ssa.Slot); ok {

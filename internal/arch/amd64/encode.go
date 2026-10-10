@@ -136,6 +136,11 @@ func (e *encoder) emitInsn(in insn) {
 		return
 	}
 	m := in.rm.mem
+	if m.RIP {
+		e.byte(0x05 | regEnc<<3)
+		e.imm(m.Disp, 4)
+		return
+	}
 	if m.Sym != nil && m.Base == NoReg && m.Index == NoReg {
 		// RIP-relative: disp32 relative to the end of the instruction.
 		e.byte(0x05 | regEnc<<3)

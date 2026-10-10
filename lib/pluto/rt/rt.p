@@ -459,15 +459,28 @@ func alloc(size, align uintptr) unsafe.Pointer {
 	if defaultAllocator == nil {
 		panicMessage("no allocator: call alloc.SetDefault before allocating", "", "", "", "")
 	}
-	return allocWith(defaultAllocator, size, align)
+	return allocAt(defaultAllocator, size, align, CallerPC())
 }
 
 // allocWith implements new and make with an explicit allocator.
 func allocWith(a Allocator, size, align uintptr) unsafe.Pointer {
+	return allocAt(a, size, align, CallerPC())
+}
+
+// allocAt allocates for the new or make whose call returns to pc,
+// publishing pc through AllocSite while the allocator runs if TrackSites
+// is set.
+func allocAt(a Allocator, size, align, pc uintptr) unsafe.Pointer {
 	if size == 0 {
 		size = 1
 	}
+	if TrackSites {
+		allocSite = pc
+	}
 	p := a.Alloc(size, align)
+	if TrackSites {
+		allocSite = 0
+	}
 	if p == nil {
 		panicMessage("out of memory", "", "", "", "")
 	}

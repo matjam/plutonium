@@ -53,6 +53,12 @@ var intrinsics = map[string]intrinsicFn{
 	"pluto/bits.RotateLeft32": func(s *fnState, args []*ssa.Value, _ []types2.Type) []*ssa.Value {
 		return []*ssa.Value{s.newValue(ssa.OpRotl, ssa.TI32, args[0], args[1])}
 	},
+	// The return address of the function making the call. When that
+	// function is inlined, the inliner turns it into the address of the
+	// inlined code, where the call would have returned.
+	"pluto/rt.CallerPC": func(s *fnState, _ []*ssa.Value, results []types2.Type) []*ssa.Value {
+		return []*ssa.Value{s.newValue(ssa.OpReturnAddr, s.l.scalarType(results[0]))}
+	},
 	"pluto/bits.Mul64": func(s *fnState, args []*ssa.Value, _ []types2.Type) []*ssa.Value {
 		hi := s.newValue(ssa.OpMulHiu, ssa.TI64, args[0], args[1])
 		lo := s.newValue(ssa.OpMul, ssa.TI64, args[0], args[1])
