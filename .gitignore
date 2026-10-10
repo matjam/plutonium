@@ -9,6 +9,9 @@
 !testdata/run/*.out
 !testdata/lib/*.out
 
+# Agent worktrees
+/.claude/worktrees/
+
 # Editor artifacts
 .idea/
 .vscode/
