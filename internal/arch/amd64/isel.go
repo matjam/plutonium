@@ -22,6 +22,7 @@ type isel struct {
 	cur    *MBlock
 	vregs  []Reg // by SSA value ID; NoReg if not yet materialised
 	fused  []bool
+	folded []bool // loads folded into their user as a memory operand
 	loops  *ssa.LoopNest
 
 	// Source position of the value being selected, given to every
@@ -37,6 +38,9 @@ func Select(f *ssa.Func) (*MFunc, error) {
 	mf.Pos = f.Pos
 	mf.Slots = append(mf.Slots, f.Slots...)
 	mf.interrupt = f.Pragmas&ssa.PragmaInterrupt != 0
+	// Lowering checks a handler's signature: a frame pointer, then
+	// optionally the error code.
+	mf.errCode = mf.interrupt && len(f.Params) == 2
 	for _, s := range f.Slots {
 		mf.maxAlign = max(mf.maxAlign, s.Align)
 	}
@@ -47,6 +51,7 @@ func Select(f *ssa.Func) (*MFunc, error) {
 		blocks: make([]*MBlock, f.NumBlocks()),
 		vregs:  make([]Reg, f.NumValues()),
 		fused:  make([]bool, f.NumValues()),
+		folded: make([]bool, f.NumValues()),
 		loops:  f.Loops(),
 	}
 	for i := range s.vregs {
@@ -92,6 +97,13 @@ func Select(f *ssa.Func) (*MFunc, error) {
 		for _, v := range b.Values {
 			if v.Pos.IsValid() && !isLazy(v) && v.Op != ssa.OpPhi {
 				s.pos, s.inl = v.Pos, v.Inl
+			}
+			for _, a := range v.Args {
+				// An instruction that does a folded load faults where the
+				// load would have, so it takes the load's position.
+				if s.folded[a.ID] && a.Pos.IsValid() {
+					s.pos, s.inl = a.Pos, a.Inl
+				}
 			}
 			if err := s.value(v); err != nil {
 				return nil, err
@@ -255,6 +267,66 @@ func (s *isel) markFused() {
 			s.fused[v.ID] = true
 		}
 	}
+	s.markFoldedLoads()
+}
+
+// markFoldedLoads finds loads used only by an ALU operation later in their
+// block, with no memory write in between, and folds them into it as its
+// memory operand. Commutative operations may take the load on either side.
+func (s *isel) markFoldedLoads() {
+	for _, b := range s.f.Blocks {
+		// Loads since the last memory write, which may move down to here.
+		loadAfter := map[*ssa.Value]bool{}
+		for _, v := range b.Values {
+			if v.Op.HasMemResult() || v.Op.IsCall() {
+				clear(loadAfter)
+				continue
+			}
+			if v.Op == ssa.OpLoad && !v.IsVolatile() && v.Uses == 1 {
+				loadAfter[v] = true
+				continue
+			}
+			if !foldsLoad(v) || s.fused[v.ID] || s.fused[v.Args[0].ID] || s.fused[v.Args[1].ID] {
+				continue
+			}
+			for j, a := range v.Args {
+				if j == 0 && !v.Op.IsCommutative() || a == v.Args[1-j] {
+					continue
+				}
+				if loadAfter[a] && a.Type.Same(v.Type) {
+					s.folded[a.ID] = true
+					break
+				}
+			}
+		}
+	}
+}
+
+// foldsLoad reports whether v can take a memory operand.
+func foldsLoad(v *ssa.Value) bool {
+	switch v.Op {
+	case ssa.OpAdd, ssa.OpSub, ssa.OpAnd, ssa.OpOr, ssa.OpXor:
+		return true
+	case ssa.OpFAdd, ssa.OpFSub, ssa.OpFMul, ssa.OpFDiv:
+		return true
+	}
+	return false
+}
+
+// aluArgs returns v's first operand and its second as an instruction
+// source, swapping them when a commutative v folded its first.
+func (s *isel) aluArgs(v *ssa.Value) (*ssa.Value, Operand) {
+	x, y := v.Args[0], v.Args[1]
+	if s.folded[x.ID] {
+		x, y = y, x
+	}
+	if s.folded[y.ID] {
+		return x, MemOp(s.addr(y.Args[0]))
+	}
+	if y.Type.IsFloat() {
+		return x, s.floatOperand(y)
+	}
+	return x, s.operand(y)
 }
 
 // scaledIndex returns x and scale when v is x*scale for an address scale
@@ -526,7 +598,11 @@ func abiLocs(types []*ssa.Type, intRegs, floatRegs []Reg, onStack []bool) ([]abi
 // entry copies the incoming arguments out of their ABI registers before
 // anything can clobber them.
 func (s *isel) entry() {
-	locs, _ := abiLocs(s.f.Params, intArgRegs, floatArgRegs, nil)
+	if s.mf.interrupt {
+		s.interruptEntry()
+		return
+	}
+	locs, _ := abiLocs(s.f.Params, intArgRegs, floatArgRegs, s.f.ParamOnStack)
 	var defs []Reg
 	for _, l := range locs {
 		if l.reg != NoReg {
@@ -552,6 +628,33 @@ func (s *isel) entry() {
 				s.copyReg(r, closureReg, 8)
 				s.vregs[v.ID] = r
 			}
+		}
+	}
+}
+
+// interruptEntry gives an interrupt handler its parameters. Nothing arrives
+// in registers: the CPU has pushed the interrupt frame (RIP, CS, RFLAGS, RSP,
+// SS) and, for some exceptions, an error code below it. Parameter 0 is the
+// frame's address and parameter 1 the error code. ArgOff is measured from
+// the stack pointer on entry, where there is no return address.
+func (s *isel) interruptEntry() {
+	frameOff := int64(0)
+	if s.mf.errCode {
+		frameOff = 8
+	}
+	for _, b := range s.f.Blocks {
+		for _, v := range b.Values {
+			if v.Op != ssa.OpArg {
+				continue
+			}
+			r := s.newReg(v.Type)
+			if v.AuxInt == 0 {
+				m := Mem{Base: NoReg, Index: NoReg, ArgSlot: true, ArgOff: frameOff}
+				s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(r), Src: MemOp(m)})
+			} else {
+				s.load(r, Mem{Base: NoReg, Index: NoReg, ArgSlot: true}, v.Type)
+			}
+			s.vregs[v.ID] = r
 		}
 	}
 }
@@ -593,12 +696,12 @@ func (s *isel) def(v *ssa.Value) Reg {
 }
 
 func (s *isel) value(v *ssa.Value) error {
-	if isLazy(v) || s.fused[v.ID] {
+	if isLazy(v) || s.fused[v.ID] || s.folded[v.ID] {
 		return nil
 	}
 	size := sizeOf(v.Type)
 	switch v.Op {
-	case ssa.OpPhi, ssa.OpInitMem, ssa.OpVarDef, ssa.OpArg, ssa.OpClosurePtr, ssa.OpUnreachableValue:
+	case ssa.OpPhi, ssa.OpInitMem, ssa.OpVarDef, ssa.OpVolatileRead, ssa.OpArg, ssa.OpClosurePtr, ssa.OpUnreachableValue:
 		// Handled elsewhere or produce no code.
 		if v.Op == ssa.OpUnreachableValue && !v.Type.IsMem() {
 			r := s.def(v)
@@ -617,9 +720,10 @@ func (s *isel) value(v *ssa.Value) error {
 			break
 		}
 		op := map[ssa.Op]MOp{ssa.OpAdd: MADD, ssa.OpSub: MSUB, ssa.OpAnd: MAND, ssa.OpOr: MOR, ssa.OpXor: MXOR}[v.Op]
+		x, src := s.aluArgs(v)
 		d := s.def(v)
-		s.copyReg(d, s.reg(v.Args[0]), size)
-		s.emit(&MInst{Op: op, Size: size, Dst: RegOp(d), Src: s.operand(v.Args[1])})
+		s.copyReg(d, s.reg(x), size)
+		s.emit(&MInst{Op: op, Size: size, Dst: RegOp(d), Src: src})
 
 	case ssa.OpAndNot:
 		d := s.def(v)
@@ -676,9 +780,10 @@ func (s *isel) value(v *ssa.Value) error {
 
 	case ssa.OpFAdd, ssa.OpFSub, ssa.OpFMul, ssa.OpFDiv:
 		op := map[ssa.Op]MOp{ssa.OpFAdd: MADDSF, ssa.OpFSub: MSUBSF, ssa.OpFMul: MMULSF, ssa.OpFDiv: MDIVSF}[v.Op]
+		x, src := s.aluArgs(v)
 		d := s.def(v)
-		s.copyReg(d, s.reg(v.Args[0]), size)
-		s.emit(&MInst{Op: op, Size: size, Dst: RegOp(d), Src: s.floatOperand(v.Args[1])})
+		s.copyReg(d, s.reg(x), size)
+		s.emit(&MInst{Op: op, Size: size, Dst: RegOp(d), Src: src})
 	case ssa.OpFNeg, ssa.OpFAbs:
 		d := s.def(v)
 		s.copyReg(d, s.reg(v.Args[0]), size)
@@ -1273,7 +1378,11 @@ func (s *isel) terminator(b *ssa.Block) error {
 		for i, r := range results {
 			types[i] = r.Type
 		}
-		locs, _ := abiLocs(types, intResultRegs, floatResultRegs, nil)
+		resRegsInt, resRegsFloat := intResultRegs, floatResultRegs
+		if s.f.ABI == ssa.ABIC {
+			resRegsInt, resRegsFloat = intResultRegs[:2], floatResultRegs[:2]
+		}
+		locs, _ := abiLocs(types, resRegsInt, resRegsFloat, nil)
 		srcs := make([]Reg, len(results))
 		for i, r := range results {
 			srcs[i] = s.reg(r)

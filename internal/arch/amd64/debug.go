@@ -12,9 +12,9 @@ import (
 type frameRole uint8
 
 const (
-	frameBody frameRole = iota
-	framePrologue
-	frameEpilogue
+	roleBody frameRole = iota
+	rolePrologue
+	roleEpilogue
 )
 
 // A FuncDebug describes a compiled function for debuggers and for the
@@ -108,7 +108,14 @@ func funcDebug(f *MFunc, insts []*MInst, starts []int, size int) *FuncDebug {
 		}
 	}
 	d.Lines = lineTable(insts, starts)
-	d.CFI, d.PrologueEnd = frameStates(insts, starts, size)
+	// The return address (for an interrupt handler, the interrupted RIP)
+	// is just above the stack pointer on entry, unless the CPU pushed an
+	// error code below it.
+	entry := int64(8)
+	if f.errCode {
+		entry = 16
+	}
+	d.CFI, d.PrologueEnd = frameStates(insts, starts, size, entry)
 	return d
 }
 
@@ -154,11 +161,12 @@ func lineTable(insts []*MInst, starts []int) []LineEntry {
 }
 
 // frameStates follows the prologue and epilogues and returns the frame
-// state at each offset where it changes, and the end of the prologue.
-func frameStates(insts []*MInst, starts []int, size int) ([]FrameState, int) {
+// state at each offset where it changes, and the end of the prologue. entry
+// is the distance from RSP to the CFA on entry.
+func frameStates(insts []*MInst, starts []int, size int, entry int64) ([]FrameState, int) {
 	// rsp is the distance from RSP up to the CFA, while it is known.
-	cur := FrameState{CFAReg: RSP, CFAOff: 8}
-	rsp := int64(8)
+	cur := FrameState{CFAReg: RSP, CFAOff: entry}
+	rsp := entry
 	body := cur // the state inside the body, restored after each return
 	states := []FrameState{cur}
 	prologueEnd := 0
@@ -183,7 +191,7 @@ func frameStates(insts []*MInst, starts []int, size int) ([]FrameState, int) {
 		}
 	}
 	for i, in := range insts {
-		if in.frame == frameBody {
+		if in.frame == roleBody {
 			continue
 		}
 		switch {
@@ -227,7 +235,7 @@ func frameStates(insts []*MInst, starts []int, size int) ([]FrameState, int) {
 			if cur.CFAReg == RSP {
 				cur.CFAOff = rsp
 			}
-		case in.Op == MRET:
+		case in.Op == MRET || in.Op == MIRETQ:
 			// Code after a return is reached by a jump from the body.
 			cur = body
 			cur.Saved = append([]RegSave(nil), body.Saved...)
@@ -236,7 +244,7 @@ func frameStates(insts []*MInst, starts []int, size int) ([]FrameState, int) {
 			continue
 		}
 		record(end(i))
-		if in.frame == framePrologue {
+		if in.frame == rolePrologue {
 			body = cur
 			body.Saved = append([]RegSave(nil), cur.Saved...)
 			prologueEnd = end(i)

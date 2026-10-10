@@ -120,6 +120,36 @@ func TestFrameStatesFramePointer(t *testing.T) {
 	}
 }
 
+// TestFrameStatesInterrupt follows an interrupt handler whose CPU frame
+// has an error code: the interrupted RIP is 16 bytes above RSP on entry,
+// and the epilogue drops the error code before iretq.
+func TestFrameStatesInterrupt(t *testing.T) {
+	b0 := &MBlock{ID: 0}
+	b0.Insts = []*MInst{{Op: MCALL, Sym: &ssa.Sym{Name: "callee"}}, {Op: MEPILOGUE}}
+	f := &MFunc{Blocks: []*MBlock{b0}, usedSaved: []Reg{RAX, RCX}, frameSize: 8, interrupt: true, errCode: true}
+	insertFrame(f)
+	code, err := encodeFunc(f, f.Blocks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// push rax (1); push rcx (1); sub rsp, 8 (4); cld (1); call (5);
+	// add rsp, 8 (4); pop rcx (1); pop rax (1); add rsp, 8 (4); iretq.
+	saves := map[Reg]int64{RAX: -24, RCX: -32}
+	checkStates(t, code.Debug.CFI, []cfa{
+		{0, RSP, 16, nil},
+		{1, RSP, 24, map[Reg]int64{RAX: -24}},
+		{2, RSP, 32, saves},
+		{6, RSP, 40, saves},
+		{16, RSP, 32, saves},
+		{17, RSP, 24, map[Reg]int64{RAX: -24}},
+		{18, RSP, 16, nil},
+		{22, RSP, 8, nil},
+	})
+	if code.Debug.PrologueEnd != 7 || !code.Debug.Interrupt {
+		t.Errorf("frame %+v", code.Debug)
+	}
+}
+
 // TestLineTableAfterRelaxation checks that positions follow the code when
 // a branch before them is shortened, and that instructions without a
 // position take the next one's.

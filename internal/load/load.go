@@ -39,13 +39,17 @@ type Package struct {
 	Path     string // import path
 	Dir      string // directory, for messages
 	Files    []*ast.File
-	AsmFiles []AsmFile // .s files selected by build tags
+	Tests    []*ast.File // the _test.p files among Files, for the package under test in LoadTest
+	AsmFiles []AsmFile   // .s files selected by build tags
+	CFiles   []AsmFile   // .c files selected by build tags, compiled with the system C compiler
+	ObjFiles []AsmFile   // .o files selected by file name tags, linked as they are
 	Types    *types2.Package
 	Info     *types2.Info
 	Imports  []*Package
 }
 
-// An AsmFile is an assembly source file belonging to a package.
+// An AsmFile is a file in a package that is not Plutonium source: assembly,
+// C, or an object file.
 type AsmFile struct {
 	Name string // for messages
 	Src  []byte
@@ -64,39 +68,15 @@ func Load(cfg *Config, dir string) (*Program, error) {
 	if err != nil {
 		return nil, err
 	}
-	l := &loader{
-		cfg:      cfg,
-		fset:     token.NewFileSet(),
-		packages: map[string]*Package{},
-		loading:  map[string]bool{},
-	}
+	l := newLoader(cfg)
 	l.modRoot, l.modPath, err = findModule(absDir)
 	if err != nil {
 		return nil, err
 	}
-	// The runtime is part of every program: the compiler calls into it for
-	// panics, memory copies and allocation, and it holds the entry point.
-	// Loading it first puts it (and its imports) first in initialisation order.
-	// pluto/alloc installs the default allocator in hosted builds.
-	for _, p := range []string{"pluto/rt", "pluto/alloc"} {
-		src, dir, err := l.resolve(p)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := l.load(p, src, dir); err != nil {
-			return nil, err
-		}
+	if err := l.loadRuntime(); err != nil {
+		return nil, err
 	}
-
-	mainPath := "main"
-	if l.modRoot != "" {
-		rel, err := filepath.Rel(l.modRoot, absDir)
-		if err != nil {
-			return nil, err
-		}
-		mainPath = path.Join(l.modPath, filepath.ToSlash(rel))
-	}
-	main, err := l.load(mainPath, osDir(absDir), absDir)
+	main, err := l.load(l.dirPath(absDir), osDir(absDir), absDir)
 	if err != nil {
 		return nil, err
 	}
@@ -106,14 +86,124 @@ func Load(cfg *Config, dir string) (*Program, error) {
 	return &Program{Fset: l.fset, Main: main, Packages: l.order}, nil
 }
 
+// TestMainFile is the file name of the main package that LoadTest
+// generates, as it appears in positions and messages.
+const TestMainFile = "_testmain.p"
+
+// LoadTest loads a package together with its _test.p files, then a main
+// package for testing it: gen receives the loaded package and returns the
+// source of that main package, which may import the package under test by
+// its Path. The program's Main is the generated package.
+//
+// target is a directory, or the import path of a standard library package
+// (one under pluto/). A package directory outside any module is imported
+// under the name of its directory.
+func LoadTest(cfg *Config, target string, gen func(*token.FileSet, *Package) ([]byte, error)) (*Program, error) {
+	l := newLoader(cfg)
+	var (
+		src        source
+		dir, ipath string
+	)
+	if isStdPath(target) {
+		var err error
+		src, dir, err = l.resolve(target)
+		if err != nil {
+			return nil, err
+		}
+		ipath = target
+	} else {
+		absDir, err := filepath.Abs(target)
+		if err != nil {
+			return nil, err
+		}
+		if st, err := os.Stat(absDir); err != nil || !st.IsDir() {
+			return nil, fmt.Errorf("%s: not a package directory", target)
+		}
+		l.modRoot, l.modPath, err = findModule(absDir)
+		if err != nil {
+			return nil, err
+		}
+		src, dir, ipath = osDir(absDir), absDir, l.dirPath(absDir)
+		if l.modRoot == "" {
+			ipath = filepath.Base(absDir)
+			if isStdPath(ipath) || ipath == "main" {
+				return nil, fmt.Errorf("%s: a package outside a module cannot be tested from a directory named %q", target, ipath)
+			}
+		}
+	}
+	l.testPath = ipath
+	if err := l.loadRuntime(); err != nil {
+		return nil, err
+	}
+	pkg, err := l.load(ipath, src, dir)
+	if err != nil {
+		return nil, err
+	}
+	if pkg.Types.Name() == "main" {
+		return nil, fmt.Errorf("%s: testing a main package is not supported; move the code under test into a package of its own", target)
+	}
+	mainSrc, err := gen(l.fset, pkg)
+	if err != nil {
+		return nil, err
+	}
+	main, err := l.load("main", memDir{TestMainFile: mainSrc}, TestMainFile)
+	if err != nil {
+		return nil, err
+	}
+	return &Program{Fset: l.fset, Main: main, Packages: l.order}, nil
+}
+
+func isStdPath(p string) bool { return p == "pluto" || strings.HasPrefix(p, "pluto/") }
+
 type loader struct {
 	cfg      *Config
 	fset     *token.FileSet
 	modRoot  string // directory holding pluto.mod, or ""
 	modPath  string
+	testPath string // import path of the package whose _test.p files are included
 	packages map[string]*Package
 	loading  map[string]bool
 	order    []*Package
+}
+
+func newLoader(cfg *Config) *loader {
+	return &loader{
+		cfg:      cfg,
+		fset:     token.NewFileSet(),
+		packages: map[string]*Package{},
+		loading:  map[string]bool{},
+	}
+}
+
+// loadRuntime loads the packages that are part of every program. The
+// compiler calls into the runtime for panics, memory copies and
+// allocation, and it holds the entry point. Loading it first puts it (and
+// its imports) first in initialisation order. pluto/alloc installs the
+// default allocator in hosted builds.
+func (l *loader) loadRuntime() error {
+	for _, p := range []string{"pluto/rt", "pluto/alloc"} {
+		src, dir, err := l.resolve(p)
+		if err != nil {
+			return err
+		}
+		if _, err := l.load(p, src, dir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// dirPath returns the import path of the package in absDir: its path in
+// the module, or "main" without one.
+func (l *loader) dirPath(absDir string) string {
+	if l.modRoot == "" {
+		return "main"
+	}
+	rel, err := filepath.Rel(l.modRoot, absDir)
+	if err != nil {
+		return "main"
+	}
+	return path.Join(l.modPath, filepath.ToSlash(rel))
 }
 
 // source abstracts where a package's files come from.
@@ -137,6 +227,35 @@ type fsDir struct {
 func (d fsDir) list() ([]fs.DirEntry, error)     { return fs.ReadDir(d.fsys, d.dir) }
 func (d fsDir) read(name string) ([]byte, error) { return fs.ReadFile(d.fsys, path.Join(d.dir, name)) }
 func (d fsDir) name(file string) string          { return "$PLUTOROOT/" + path.Join(d.dir, file) }
+
+// memDir is a package held in memory: file name to contents.
+type memDir map[string][]byte
+
+func (d memDir) list() ([]fs.DirEntry, error) {
+	var list []fs.DirEntry
+	for name := range d {
+		list = append(list, memEntry(name))
+	}
+	slices.SortFunc(list, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
+	return list, nil
+}
+
+func (d memDir) read(name string) ([]byte, error) {
+	if src, ok := d[name]; ok {
+		return src, nil
+	}
+	return nil, fs.ErrNotExist
+}
+
+func (d memDir) name(file string) string { return file }
+
+// memEntry is a regular file in a memDir.
+type memEntry string
+
+func (e memEntry) Name() string               { return string(e) }
+func (e memEntry) IsDir() bool                { return false }
+func (e memEntry) Type() fs.FileMode          { return 0 }
+func (e memEntry) Info() (fs.FileInfo, error) { return nil, fs.ErrInvalid }
 
 // resolve maps an import path to its source.
 func (l *loader) resolve(importPath string) (source, string, error) {
@@ -190,6 +309,12 @@ func (l *loader) load(importPath string, src source, dir string) (*Package, erro
 	}
 	sort.Strings(paths)
 	for _, p := range paths {
+		// A loaded package needs no resolving. This also lets a test main
+		// import a package under test that lies outside any module.
+		if dep := l.packages[p]; dep != nil {
+			pkg.Imports = append(pkg.Imports, dep)
+			continue
+		}
 		isrc, idir, err := l.resolve(p)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", importPath, err)
@@ -246,11 +371,13 @@ func (l *loader) parse(pkg *Package, src source) error {
 	var errs []error
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || strings.HasSuffix(name, "_test.p") {
+		isTest := strings.HasSuffix(name, "_test.p")
+		if e.IsDir() || isTest && pkg.Path != l.testPath {
 			continue
 		}
-		isAsm := strings.HasSuffix(name, ".s")
-		if !isAsm && !strings.HasSuffix(name, ".p") {
+		ext := path.Ext(name)
+		isAsm := ext == ".s"
+		if ext != ".s" && ext != ".p" && ext != ".c" && ext != ".o" {
 			continue
 		}
 		if !l.nameMatches(name) {
@@ -259,6 +386,10 @@ func (l *loader) parse(pkg *Package, src source) error {
 		data, err := src.read(name)
 		if err != nil {
 			return err
+		}
+		if ext == ".o" {
+			pkg.ObjFiles = append(pkg.ObjFiles, AsmFile{Name: src.name(name), Src: data})
+			continue
 		}
 		ok, err := l.constraintMatches(data, isAsm)
 		if err != nil {
@@ -272,18 +403,31 @@ func (l *loader) parse(pkg *Package, src source) error {
 			pkg.AsmFiles = append(pkg.AsmFiles, AsmFile{Name: src.name(name), Src: data})
 			continue
 		}
+		if ext == ".c" {
+			pkg.CFiles = append(pkg.CFiles, AsmFile{Name: src.name(name), Src: data})
+			continue
+		}
 		f, err := parser.ParseFile(l.fset, src.name(name), data, parser.ParseComments)
 		if err != nil {
 			errs = append(errs, err)
 			continue
 		}
 		pkg.Files = append(pkg.Files, f)
+		if isTest {
+			pkg.Tests = append(pkg.Tests, f)
+		}
 	}
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
 	if len(pkg.Files) == 0 {
 		return fmt.Errorf("package %q: no Plutonium source files for this build", pkg.Path)
+	}
+	for _, f := range pkg.Tests {
+		if n := f.Name.Name; strings.HasSuffix(n, "_test") {
+			return fmt.Errorf("%s: package %s: external test packages are not supported; declare the test in package %s",
+				l.fset.File(f.Pos()).Name(), n, strings.TrimSuffix(n, "_test"))
+		}
 	}
 	name := pkg.Files[0].Name.Name
 	for _, f := range pkg.Files[1:] {
@@ -300,9 +444,11 @@ var knownSuffixTags = map[string]bool{
 	"linux": true, "none": true,
 }
 
-// nameMatches applies file name suffix rules: name_tag.p and name_os_arch.p.
+// nameMatches applies file name suffix rules: name_tag.p and name_os_arch.p,
+// and the same before _test.p.
 func (l *loader) nameMatches(name string) bool {
-	base := strings.TrimSuffix(strings.TrimSuffix(name, ".p"), ".s")
+	base := strings.TrimSuffix(name, path.Ext(name))
+	base = strings.TrimSuffix(base, "_test")
 	parts := strings.Split(base, "_")
 	n := len(parts)
 	for i := n - 1; i >= 1 && i >= n-2; i-- {

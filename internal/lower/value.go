@@ -56,6 +56,13 @@ func unwrap(T types2.Type) types2.Type {
 	}
 }
 
+// markVolatileLoad makes ld volatile and threads it into the memory chain,
+// so that no later access merges with it or moves above it.
+func (s *fnState) markVolatileLoad(ld *ssa.Value) {
+	ld.AuxInt |= ssa.MemVolatile
+	s.setMem(s.newValue(ssa.OpVolatileRead, ssa.TMem, ld, s.mem()))
+}
+
 // loadLV reads an lvalue.
 func (s *fnState) loadLV(lv lvalue) value {
 	if lv.bits != nil {
@@ -65,7 +72,7 @@ func (s *fnState) loadLV(lv lvalue) value {
 	if t := s.l.scalarType(T); t != nil {
 		ld := s.load(t, lv.ptr)
 		if isVolatile(lv.T) {
-			ld.AuxInt |= ssa.MemVolatile
+			s.markVolatileLoad(ld)
 		}
 		if p, ok := T.Underlying().(*types2.Packed); ok && needsSwap(p) {
 			ld = s.newValue(ssa.OpBswap, t, ld)

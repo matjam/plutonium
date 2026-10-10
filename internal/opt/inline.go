@@ -78,7 +78,7 @@ func funcSize(f *ssa.Func) int {
 		for _, v := range b.Values {
 			switch v.Op {
 			case ssa.OpConst, ssa.OpConstFloat, ssa.OpPhi, ssa.OpCopy, ssa.OpArg, ssa.OpInitMem,
-				ssa.OpSlotAddr, ssa.OpSymAddr, ssa.OpOffPtr, ssa.OpSelectN, ssa.OpVarDef:
+				ssa.OpSlotAddr, ssa.OpSymAddr, ssa.OpOffPtr, ssa.OpSelectN, ssa.OpVarDef, ssa.OpVolatileRead:
 				continue
 			case ssa.OpCall, ssa.OpCallInd:
 				n += 5
@@ -111,6 +111,11 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 				}
 				g := funcs[v.Aux.(*ssa.Sym)]
 				if g == nil || g == f || sameSCC[g] && inCycle[g] {
+					continue
+				}
+				if v.Call.ABI != g.ABI {
+					// A C call to a Plutonium function: its arguments
+					// are laid out for a different convention.
 					continue
 				}
 				if !shouldInline(g, sizes[g]) {

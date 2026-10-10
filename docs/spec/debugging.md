@@ -247,3 +247,6 @@ shows no change beyond its noise.
 - Alternate signal stacks for threads other than the main one, so that a puroutine worker thread's stack
   overflow is reported too.
 - A sorted function index in the trace table, for in-process sampling profilers.
+- Call frame information for `//pu:interrupt` handlers describes the interrupted RIP (and the error
+  code's slot) but not the interrupted RSP, which the CPU saved in its frame; a debugger attached to a
+  kernel stops its backtrace at the handler.

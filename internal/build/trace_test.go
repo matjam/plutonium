@@ -14,10 +14,10 @@ import (
 	"github.com/matjam/plutonium/internal/build"
 )
 
-// buildDir copies the files of srcDir (or the single file src, as main.p)
-// to a temporary directory, builds it with cfg's settings and runs it. It
-// returns the directory, the program's combined output and its status.
-func buildDir(t *testing.T, files map[string][]byte, cfg build.Config) (string, string, int) {
+// buildFiles writes files to a temporary directory, builds it with cfg's
+// settings and runs it. It returns the directory, the program's combined
+// output and its status.
+func buildFiles(t *testing.T, files map[string][]byte, cfg build.Config) (string, string, int) {
 	t.Helper()
 	dir := t.TempDir()
 	for name, data := range files {
@@ -76,7 +76,7 @@ func TestTraces(t *testing.T) {
 		}
 		for _, level := range []int{0, 2} {
 			t.Run(name+"/O"+string(rune('0'+level)), func(t *testing.T) {
-				dir, got, status := buildDir(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: level})
+				dir, got, status := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: level})
 				if status != 2 {
 					t.Errorf("exit status %d, want 2", status)
 				}
@@ -97,13 +97,13 @@ func TestTraceStripped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir, out, status := buildDir(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: 2, Strip: true})
+	dir, out, status := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: 2, Strip: true})
 	if status != 2 || !strings.Contains(out, "    main.level3 ("+filepath.Join(dir, "main.p")+":4)\n") {
 		t.Errorf("status %d, output:\n%s", status, out)
 	}
 
 	// -trace=false: the message alone.
-	_, out, status = buildDir(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: 2, NoTrace: true})
+	_, out, status = buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: 2, NoTrace: true})
 	if want := "7\npanic: runtime error: index out of range [4] with length 4\n"; status != 2 || out != want {
 		t.Errorf("-trace=false: status %d, output:\n%s", status, out)
 	}
@@ -117,7 +117,7 @@ func TestTraceStackOverflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, level := range []int{0, 2} {
-		dir, got, status := buildDir(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: level})
+		dir, got, status := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: level})
 		if status != 2 {
 			t.Errorf("O%d: exit status %d, want 2", level, status)
 		}
@@ -153,7 +153,7 @@ func TestTraceFreestanding(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, level := range []int{0, 2} {
-		dir, got, status := buildDir(t, files, build.Config{OptLevel: level, Freestanding: true})
+		dir, got, status := buildFiles(t, files, build.Config{OptLevel: level, Freestanding: true})
 		if status != 3 {
 			t.Errorf("O%d: exit status %d, want 3 (from the panic handler)", level, status)
 		}

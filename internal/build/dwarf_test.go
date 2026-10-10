@@ -236,7 +236,7 @@ func TestDWARFInlined(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir, _, _ := buildDir(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: 2})
+	dir, _, _ := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: 2})
 	f, err := elf.Open(filepath.Join(dir, "prog"))
 	if err != nil {
 		t.Fatal(err)
@@ -416,7 +416,7 @@ func TestGDB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir, _, _ := buildDir(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: 2})
+	dir, _, _ := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: 2})
 	file := filepath.Join(dir, "main.p")
 	out, err := exec.Command(gdb, "-nx", "-batch", "-iex", "set debuginfod enabled off",
 		"-ex", "break main.p:4", "-ex", "run", "-ex", "bt", filepath.Join(dir, "prog")).CombinedOutput()

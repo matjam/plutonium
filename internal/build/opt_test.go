@@ -230,6 +230,81 @@ func main() {
 	}
 }
 
+func TestVolatileReadOrders(t *testing.T) {
+	const src = `package main
+
+var buf [8]uint32
+var status volatile[uint32]
+
+//pu:noinline
+func poll() uint32 {
+	x := buf[3]
+	for status&1 == 0 {
+	}
+	return x + buf[3]
+}
+
+//pu:noinline
+func twice(p *volatile[uint32]) uint32 { return *p + *p }
+
+func main() {
+	status = 1
+	println(poll(), twice(&status))
+}
+`
+	// The plain read after the polling loop must read memory again.
+	if asm := listFunc(t, src, "main.poll"); strings.Count(asm, "main.buf+12") != 2 {
+		t.Errorf("poll: want buf[3] read before and after the loop\n%s", asm)
+	}
+	if asm := listFunc(t, src, "main.twice"); strings.Count(asm, "(%rdi)") != 2 {
+		t.Errorf("twice: want two volatile reads\n%s", asm)
+	}
+}
+
+func TestBoolSelect(t *testing.T) {
+	const src = `package main
+
+//pu:noinline
+func isSpace(c byte) bool { return c == ' ' || c == '\n' || c == '\t' || c == '\r' }
+
+func main() { println(isSpace(' ')) }
+`
+	// The branch-free chain ORs the tests instead of selecting with cmov.
+	asm := listFunc(t, src, "main.isSpace")
+	if strings.Contains(asm, "cmov") || strings.Count(asm, "or1") != 3 {
+		t.Errorf("isSpace: want three ORs\n%s", asm)
+	}
+}
+
+func TestLoadFold(t *testing.T) {
+	const src = `package main
+
+//pu:noinline
+func f(p, q *[4]int64) int64 {
+	a := p[1]
+	q[1] = 100
+	return a + q[2]
+}
+
+//pu:noinline
+func g(p *[2]float64) float64 { return p[0] * p[1] }
+
+func main() {
+	var a [4]int64
+	var b [2]float64
+	println(f(&a, &a), int64(g(&b)))
+}
+`
+	// q[2] folds into the add; p[1] is loaded before the store.
+	asm := listFunc(t, src, "main.f")
+	if !strings.Contains(asm, "add8 16(") || strings.Index(asm, "8(%rdi), %rax") > strings.Index(asm, "$100") {
+		t.Errorf("f: want q[2] folded and p[1] loaded first\n%s", asm)
+	}
+	if asm := listFunc(t, src, "main.g"); !strings.Contains(asm, "muls8 (") && !strings.Contains(asm, "muls8 8(") {
+		t.Errorf("g: want a load folded into the multiply\n%s", asm)
+	}
+}
+
 func TestRotate(t *testing.T) {
 	const src = `package main
 

@@ -57,6 +57,17 @@ type Config struct {
 
 // Build compiles and links a program.
 func Build(cfg *Config) error {
+	prog, err := load.Load(loadConfig(cfg), cfg.Dir)
+	if err != nil {
+		return err
+	}
+	return buildProgram(cfg, prog)
+}
+
+var sizes = types2.SizesFor("gc", "amd64")
+
+// loadConfig returns the package loader's configuration for a build.
+func loadConfig(cfg *Config) *load.Config {
 	tags := map[string]bool{"amd64": true}
 	if cfg.Freestanding {
 		tags["none"] = true
@@ -68,11 +79,11 @@ func Build(cfg *Config) error {
 	for _, t := range cfg.Tags {
 		tags[t] = true
 	}
-	sizes := types2.SizesFor("gc", "amd64")
-	prog, err := load.Load(&load.Config{Tags: tags, Stdlib: cfg.Stdlib, Sizes: sizes}, cfg.Dir)
-	if err != nil {
-		return err
-	}
+	return &load.Config{Tags: tags, Stdlib: cfg.Stdlib, Sizes: sizes}
+}
+
+// buildProgram compiles and links a loaded program.
+func buildProgram(cfg *Config, prog *load.Program) error {
 	sp, err := lower.Lower(&lower.Config{Freestanding: cfg.Freestanding, Sizes: sizes}, prog)
 	if err != nil {
 		return err
@@ -124,6 +135,11 @@ func Build(cfg *Config) error {
 			}
 			objs = append(objs, o)
 		}
+		cobjs, err := compileC(cfg, work, p)
+		if err != nil {
+			return err
+		}
+		objs = append(objs, cobjs...)
 	}
 
 	args := []string{"-static", "-nostdlib", "-z", "noexecstack", "-o", cfg.Output}
@@ -140,6 +156,48 @@ func Build(cfg *Config) error {
 	}
 	args = append(args, objs...)
 	return run(cfg, "ld", args...)
+}
+
+// compileC compiles a package's .c files with the system C compiler ($CC,
+// or cc) and copies its .o files into the work directory, returning the
+// objects to link. Programs link without libc, so C code is compiled
+// freestanding and without a stack protector (which needs libc and TLS);
+// freestanding builds also turn off the red zone, which an interrupt taken
+// on the same stack would overwrite (abi.md section 10.1).
+func compileC(cfg *Config, work string, p *load.Package) ([]string, error) {
+	var objs []string
+	prefix := filepath.Join(work, strings.ReplaceAll(p.Path, "/", "_"))
+	for i, c := range p.CFiles {
+		src := fmt.Sprintf("%s_c%d.c", prefix, i)
+		if err := os.WriteFile(src, c.Src, 0o644); err != nil {
+			return nil, err
+		}
+		o := strings.TrimSuffix(src, ".c") + ".o"
+		args := []string{"-c", "-O2", "-ffreestanding", "-fno-stack-protector"}
+		if cfg.Freestanding {
+			args = append(args, "-mno-red-zone")
+		}
+		if st, err := os.Stat(p.Dir); err == nil && st.IsDir() {
+			args = append(args, "-I", p.Dir) // headers next to the source
+		}
+		args = append(args, "-o", o, src)
+		cc := strings.Fields(os.Getenv("CC"))
+		if len(cc) == 0 {
+			cc = []string{"cc"}
+		}
+		if err := run(cfg, cc[0], append(cc[1:], args...)...); err != nil {
+			return nil, fmt.Errorf("compiling %s: %w", c.Name, err)
+		}
+		objs = append(objs, o)
+	}
+	for i, obj := range p.ObjFiles {
+		o := fmt.Sprintf("%s_o%d.o", prefix, i)
+		if err := os.WriteFile(o, obj.Src, 0o644); err != nil {
+			return nil, err
+		}
+		objs = append(objs, o)
+	}
+	return objs, nil
 }
 
 func run(cfg *Config, name string, args ...string) error {

@@ -331,6 +331,10 @@ type Func struct {
 	// pos is the position given to new values (see SetPos).
 	pos token.Pos
 
+	// ParamOnStack forces parameters to the stack, as CallInfo.OnStack does
+	// for calls (ABIC functions only; nil otherwise).
+	ParamOnStack []bool
+
 	Blocks []*Block
 	Entry  *Block
 	Slots  []*Slot

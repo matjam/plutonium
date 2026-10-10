@@ -60,7 +60,7 @@ func (s *fnState) storageWord(lv lvalue) (word *ssa.Value, t *ssa.Type, shift in
 	if st := s.l.scalarType(ref.packed); st != nil {
 		ld := s.load(st, lv.ptr)
 		if isVolatile(lv.T) {
-			ld.AuxInt |= ssa.MemVolatile
+			s.markVolatileLoad(ld)
 		}
 		if needsSwap(ref.packed) {
 			ld = s.newValue(ssa.OpBswap, st, ld)

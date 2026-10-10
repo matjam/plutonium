@@ -31,6 +31,18 @@ compiler binary. Set `PLUTOROOT=$PWD/lib` to use the working tree instead.
 - Build and run a program: `PLUTOROOT=$PWD/lib /tmp/pluto run ./examples/07-hello/`
 - Listing / SSA dumps: `pluto build -S - ./dir`, `pluto build --ssa=main.main ./dir`
 - Check SSA invariants after every pass: `PLUTO_SSACHECK=1 go test ./internal/build/`
+- Format Plutonium source (gofmt's rules plus the Plutonium syntax):
+  `pluto fmt -l <paths>` lists files that differ, `-w` rewrites them, `-d`
+  shows a diff. The formatter is `internal/syntax/printer` and
+  `internal/syntax/format`, forks of go/printer and go/format; plain Go must
+  format exactly as gofmt formats it (`TestSameAsGoFormat`).
+- Run Plutonium tests: `PLUTOROOT=$PWD/lib /tmp/pluto test pluto/strings pluto/sort`,
+  or a directory (`pluto test ./lib/pluto/strings`, which uses that tree as
+  the standard library), or `./...`. Flags: `-run`, `-bench`, `-v`, `-count`,
+  `-O`. Tests are `func TestXxx(t *testing.T)` in `*_test.p` files of the
+  package itself, using `pluto/testing`; the loader leaves `_test.p` files out
+  of every other build. `internal/build/test.go` generates the test main;
+  `cmd/pluto/test.go` runs it and prints go test's format.
 
 End-to-end tests live in `internal/build`:
 - `testdata/run/*.p` are programs in the common subset of Go and Plutonium. Their
@@ -69,6 +81,9 @@ Every change must pass ALL of these before committing:
    - `internal/load`: ≥71%
    - `internal/objfile`: ≥95%
    - `internal/syntax/parser`: ≥70%
+   - `internal/syntax/printer`: ≥94%
+   - `internal/syntax/format`: ≥91%
+   - `internal/diff`: ≥98%
    - `internal/types2`: ≥56%
 
    New code paths need tests: a `testdata/run` program for language features,
