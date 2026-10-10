@@ -16,6 +16,7 @@ mode High
 state probing
 large -2 12
 7 105 0
+V256(5) Temp(2.5) Mode(Low) Missing State(ready)
 total area 21
 an any holding a Shape of area 6
 true false
@@ -24,4 +25,5 @@ missing
 temp 1.25
 op +
 sum 3
+2 probing true false
 24 8 4 56

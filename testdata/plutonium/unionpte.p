@@ -146,5 +146,5 @@ func main() {
 	if v, ok := f.entry.(Msg.Push); ok {
 		fmt.Println("frame", f.seq, v.value)
 	}
-	fmt.Println(unsafe.Sizeof(PTE(0)), unsafe.Sizeof(Desc(0)), unsafe.Sizeof(Msg.Pop{}),unsafe.Sizeof(f))
+	fmt.Println(unsafe.Sizeof(PTE(0)), unsafe.Sizeof(Desc(0)), unsafe.Sizeof(Msg.Pop{}), unsafe.Sizeof(f))
 }

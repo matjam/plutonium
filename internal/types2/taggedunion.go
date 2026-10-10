@@ -560,15 +560,12 @@ func (check *Checker) variantVisible(e ast.Expr, v *Variant, U Type) bool {
 	return false
 }
 
-// variantHint explains a selector x.sel on a union value or type that does
-// not name a field or method, or returns "".
+// variantHint explains a selector x.sel on a union value that names a
+// variant rather than a field or method, or returns "". (On the union's
+// type, unionSelector handles x.sel.)
 func (check *Checker) variantHint(x *operand, sel string) string {
-	v := lookupVariant(unionVariants(x.typ()), sel)
-	if v == nil {
+	if lookupVariant(unionVariants(x.typ()), sel) == nil {
 		return ""
-	}
-	if x.mode() == typexpr {
-		return check.sprintf("%s is a variant of union %s, not a type", sel, x.typ())
 	}
 	return check.sprintf("%s is a variant of union %s, not a field: read it in a type switch on %s (case %s:), or construct one with %s.%s", sel, x.typ(), x.expr, sel, x.typ(), sel)
 }

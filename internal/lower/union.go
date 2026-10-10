@@ -376,7 +376,7 @@ func (s *fnState) variantName(T types2.Type, ul *unionLayout, u value) []*ssa.Va
 
 // variantNames returns the table of a union type's variant names.
 func (l *Lowerer) variantNames(T types2.Type, names []string) *ssa.Sym {
-	key := "variants:" + typeString(T)
+	key := "variantnames:" + typeString(T)
 	if sym := l.funcs[key]; sym != nil {
 		return sym
 	}

@@ -169,6 +169,12 @@ func use(st DeviceState, r Result[int], pte PTE, d Desc) (int, error) {
 	return n, nil
 }
 
+// Unions with identical variants convert explicitly.
+type A union { X int; Y }
+type B union { X int; Y }
+
+func conv(a A) B { return B(a) }
+
 func last(o Option[int]) int {
 	switch v := o.(type) {
 	case Some:
@@ -203,8 +209,8 @@ func last(o Option[int]) int {
 			}
 		}
 	}
-	if defs != 18 {
-		t.Errorf("%d variant definitions, want 18", defs)
+	if defs != 22 {
+		t.Errorf("%d variant definitions, want 22", defs)
 	}
 	if s := pkg.Scope().Lookup("DeviceState").Type().Underlying().String(); s != "union{Off; Probing struct{attempt int}; Ready struct{irq uint8; base uintptr}; Failed test.Errno}" {
 		t.Errorf("DeviceState underlying = %s", s)

@@ -103,6 +103,15 @@ func (o Option[T]) Or(def T) T {
 	return def
 }
 
+// Lift wraps each value in an Option, through the variant's constructor
+// used as a function value.
+func Lift[T any](xs []T, out []Option[T]) {
+	f := Option[T].Some
+	for i, x := range xs {
+		out[i] = f(x)
+	}
+}
+
 // Collect gathers the values of the Ok results, or returns the first error.
 func Collect[T any](rs []Result[T], out []T) Result[[]T] {
 	n := 0
@@ -121,6 +130,14 @@ func Collect[T any](rs []Result[T], out []T) Result[[]T] {
 type Pair[K comparable, V any] struct {
 	k K
 	v V
+}
+
+// Interface payloads print as the value they hold.
+type Outcome union {
+	Good
+	Bad  error
+	Any  any
+	Pair Pair[string, int]
 }
 
 func main() {
@@ -170,6 +187,18 @@ func main() {
 		fmt.Println("collect failed:", v.Error())
 	case Ok:
 		fmt.Println("unexpected", len(v))
+	}
+
+	var opts [2]Option[string]
+	Lift([]string{"p", "q"}, opts[:])
+	fmt.Println(opts[0], opts[1])
+
+	// fmt prints a union without a String method as its variant and payload.
+	fmt.Println(Result[int].Ok(5), Result[int].Err(syscall.ENOENT), Option[string].None, Option[string].Some("hi"))
+	fmt.Printf("%v %d %x\n", nested, Option[uint8].Some(200), Option[uint8].Some(200))
+	var boom error = syscall.EBADF
+	for _, o := range []Outcome{Outcome.Good, Outcome.Bad(boom), Outcome.Bad(nil), Outcome.Any(3), Outcome.Pair(Pair[string, int]{"k", 1})} {
+		fmt.Println(o)
 	}
 
 	// Comparison of generic unions.
