@@ -13,6 +13,17 @@ import (
 func setGS(base uintptr)
 func write(p unsafe.Pointer, n int)
 
+//pu:noreturn
+func exit(code int)
+
+// onPanic reports a panic on standard error and exits with status 2.
+//
+//pu:panic
+func onPanic(p *rt.Panic) {
+	p.Print(rt.Console{})
+	exit(2)
+}
+
 type pair struct {
 	a, b int32
 }

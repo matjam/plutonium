@@ -126,11 +126,11 @@ const (
 	OpAddPtr // arg0 + arg1 (arg1 an integer)
 
 	// Memory.
-	OpLoad   // load Type from arg0; arg1 is memory. AuxInt&MemVolatile for volatile.
-	OpStore  // store arg1 (type in Aux as *Type) to arg0; arg2 is memory; result memory
-	OpZero   // zero AuxInt bytes at arg0; arg1 memory; result memory
-	OpMove   // copy AuxInt bytes from arg1 to arg0; arg2 memory; result memory
-	OpFill   // set arg2 bytes (an i64, not negative) at arg0 to byte arg1; arg3 memory; result memory
+	OpLoad  // load Type from arg0; arg1 is memory. AuxInt&MemVolatile for volatile.
+	OpStore // store arg1 (type in Aux as *Type) to arg0; arg2 is memory; result memory
+	OpZero  // zero AuxInt bytes at arg0; arg1 memory; result memory
+	OpMove  // copy AuxInt bytes from arg1 to arg0; arg2 memory; result memory
+	OpFill  // set arg2 bytes (an i64, not negative) at arg0 to byte arg1; arg3 memory; result memory
 	// OpVolatileRead orders volatile load arg0, which read memory arg1: its
 	// result memory follows the load, so later loads and stores neither
 	// merge with it nor move above it. It emits no code.
@@ -243,14 +243,14 @@ var opTable = [opTableSize]OpInfo{
 	OpOffPtr: {Name: "OffPtr", Args: 1},
 	OpAddPtr: {Name: "AddPtr", Args: 2},
 
-	OpLoad:   {Name: "Load", Args: 2, Flags: fMemArg},
-	OpStore:  {Name: "Store", Args: 3, Flags: fMemArg | fMemResult},
-	OpZero:   {Name: "Zero", Args: 2, Flags: fMemArg | fMemResult},
-	OpMove:   {Name: "Move", Args: 3, Flags: fMemArg | fMemResult},
-	OpFill:   {Name: "Fill", Args: 4, Flags: fMemArg | fMemResult},
+	OpLoad:  {Name: "Load", Args: 2, Flags: fMemArg},
+	OpStore: {Name: "Store", Args: 3, Flags: fMemArg | fMemResult},
+	OpZero:  {Name: "Zero", Args: 2, Flags: fMemArg | fMemResult},
+	OpMove:  {Name: "Move", Args: 3, Flags: fMemArg | fMemResult},
+	OpFill:  {Name: "Fill", Args: 4, Flags: fMemArg | fMemResult},
 
 	OpVolatileRead: {Name: "VolatileRead", Args: 2, Flags: fMemArg | fMemResult},
-	OpVarDef: {Name: "VarDef", Args: 1, Flags: fMemArg | fMemResult},
+	OpVarDef:       {Name: "VarDef", Args: 1, Flags: fMemArg | fMemResult},
 
 	OpIntrinsic: {Name: "Intrinsic", Args: -1, Flags: fMemArg | fMemResult | fSideEffect | fNoCSE},
 

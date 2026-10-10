@@ -1,8 +1,8 @@
 # Sum types: a proposal
 
 **Date:** 2026-10-09
-**Status:** proposal, for the user to decide. Nothing here is part of the language yet, and none of it is
-in `docs/spec/language.md`.
+**Status:** option A accepted and implemented; specified in language spec section 5.10. Section 9 lists
+where the implementation differs from the text below.
 
 ## 1. The problem
 
@@ -338,3 +338,34 @@ pieces a union reuses: selecting a member through the type (`types2.Checker.enum
 case clauses (`enumCaseName`), and the missing-cases error (`missingCases`). The enum design resolves bare
 case names as "the member wins over any declaration in scope" rather than this proposal's "only when the
 name is not shadowed" (enums design section 3.4 gives the reason); unions should follow the same rule.
+
+## 9. As implemented
+
+Option A is implemented as described above, with unqualified case names resolved as for enums (the
+variant wins) and in-place update deferred, with these differences. Each needs the user's sign-off.
+
+1. **A variant is not a type.** Section 2 makes `U.V` a type whose underlying type is the payload, and
+   section 3 binds `s` to that variant type in `case U.V:`. The examples cannot work that way: `r !=
+   syscall.EINTR` and `return r` in the system call example compare and return a `Result[int].Err`, which
+   is a different type from `syscall.Errno` and has none of its methods; and a variant type whose
+   underlying type is a type parameter (`Ok T`) is the `type X[T any] T` that Go forbids, because its
+   operations cannot be known. So `U.V` is not a type: `U.V(x)` and `U.V{...}` make a `U` directly, a
+   variant without a payload is the value `U.V`, `U.V` alone is a `func(P) U`, and the clause variable
+   (and an assertion's result) has the payload type itself. `var x U.V` is an error that says so.
+2. **Construction is a call, not a conversion.** `U.V(x)` requires `x` to be assignable to the payload
+   type, as a function argument would, rather than convertible to it.
+3. **An exhaustive switch is terminating.** A type switch on an ordinary union that names every variant
+   needs no `default` to end a function; a tag naming no variant (only possible with `unsafe`) panics.
+   Without this every such function would need an unreachable `panic` after the switch.
+4. **union is not a keyword.** It is recognised only as the type of a type declaration followed by `{`,
+   and after `packed`, so Go code using `union` as an identifier (common in set and interval code,
+   including this compiler's own `opt` package, translated into `selfhost/`) still compiles. Unions can
+   only be the type of a type definition anyway, as enums can.
+5. **Packed unions have exactly one tag field,** a bool, integer or enum bit field, and a variant's
+   payload is a packed type holding the tag and the variant's fields. `U.V(payload)` keeps the payload's
+   tag when it is one of the variant's values, and a literal `U.V{...}` sets the tag itself.
+6. **Owner payloads are rejected.** Section 5 describes dropping owner payloads; with no ownership
+   checker on `main` yet, a payload holding `owned`, `shared` or `synced` is a compile error that says
+   it waits for ownership (language spec section 5.10).
+7. **fmt** prints a union without a `String` method as `Variant(payload)` from its type descriptor, which
+   carries the variant names and payload descriptors (abi.md section 5).

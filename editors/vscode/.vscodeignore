@@ -1,6 +1,6 @@
 *.go
 *.vsix
-scripts/**
 test/**
 .gitignore
 .vscodeignore
+package-lock.json

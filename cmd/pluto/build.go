@@ -179,7 +179,7 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 		Strip:        strip,
 		NoTrace:      !trace,
 		NoTrimPath:   !trimpath,
-		Alloc:       allocator,
+		Alloc:        allocator,
 	}
 	if root := os.Getenv("PLUTOROOT"); root != "" {
 		if abs, err := filepath.Abs(root); err == nil {

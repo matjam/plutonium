@@ -41,6 +41,12 @@ const (
 	InterruptSig      Code = "E2571" // a handler with the wrong parameters or results
 	HandlerAddrArg    Code = "E2572" // x86.HandlerAddr of something other than a handler
 	InterruptHandlerV Code = "E2573" // a handler called, or used as a value
+	NoPanicHandler    Code = "E2580" // a freestanding or kernel build without a //pu:panic function
+	DupPanicHandler   Code = "E2581" // more than one //pu:panic function
+	PanicHandlerDecl  Code = "E2582" // a //pu:panic function that cannot be the panic handler
+	PanicHandlerRet   Code = "E2583" // a panic handler that can return
+	ContextWaits      Code = "E2584" // an interrupt handler or the panic handler can reach code that waits
+	ContextSpawns     Code = "E2585" // an interrupt handler or the panic handler can reach a go statement
 )
 
 // Finding and loading packages.
@@ -67,14 +73,14 @@ const (
 
 // Assembling, compiling C, and linking.
 const (
-	UndefinedSymbol   Code = "E5001" // the linker found no definition of a symbol
-	RelocOverflow     Code = "E5002" // an address does not fit the code model
-	MultipleDefs      Code = "E5003" // two definitions of one symbol
-	AssemblerError    Code = "E5004" // the assembler rejected a .s file
-	CCompilerError    Code = "E5005" // the C compiler rejected a .c file
-	LinkFailed        Code = "E5006" // any other linker failure
-	PerCPUNotAtZero   Code = "E5007" // a kernel image whose .percpu section is not at address 0
-	ToolNotFound      Code = "E5008" // as, ld or cc is not installed
+	UndefinedSymbol Code = "E5001" // the linker found no definition of a symbol
+	RelocOverflow   Code = "E5002" // an address does not fit the code model
+	MultipleDefs    Code = "E5003" // two definitions of one symbol
+	AssemblerError  Code = "E5004" // the assembler rejected a .s file
+	CCompilerError  Code = "E5005" // the C compiler rejected a .c file
+	LinkFailed      Code = "E5006" // any other linker failure
+	PerCPUNotAtZero Code = "E5007" // a kernel image whose .percpu section is not at address 0
+	ToolNotFound    Code = "E5008" // as, ld or cc is not installed
 )
 
 // Ownership and lifetimes: E3000-E3999, reserved for the ownership and

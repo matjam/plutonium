@@ -11,10 +11,10 @@ import (
 type RelocType uint8
 
 const (
-	RelPC32  RelocType = iota // R_X86_64_PC32: S + A - P
-	RelPLT32                  // R_X86_64_PLT32 (calls)
-	Rel64                     // R_X86_64_64: S + A
-	RelAbs32S                 // R_X86_64_32S: S + A, sign-extended 32 bits
+	RelPC32   RelocType = iota // R_X86_64_PC32: S + A - P
+	RelPLT32                   // R_X86_64_PLT32 (calls)
+	Rel64                      // R_X86_64_64: S + A
+	RelAbs32S                  // R_X86_64_32S: S + A, sign-extended 32 bits
 )
 
 // A Reloc is a relocation in emitted code.
