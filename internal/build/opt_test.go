@@ -261,6 +261,21 @@ func main() {
 	}
 }
 
+func TestBoolSelect(t *testing.T) {
+	const src = `package main
+
+//pu:noinline
+func isSpace(c byte) bool { return c == ' ' || c == '\n' || c == '\t' || c == '\r' }
+
+func main() { println(isSpace(' ')) }
+`
+	// The branch-free chain ORs the tests instead of selecting with cmov.
+	asm := listFunc(t, src, "main.isSpace")
+	if strings.Contains(asm, "cmov") || strings.Count(asm, "or1") != 3 {
+		t.Errorf("isSpace: want three ORs\n%s", asm)
+	}
+}
+
 func TestLoadFold(t *testing.T) {
 	const src = `package main
 
