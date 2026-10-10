@@ -8,9 +8,20 @@
 //     AppendString to format one into a buffer.
 //   - ParseDuration reports one of three static errors rather than an error
 //     that quotes its input.
-//   - Sleep blocks the calling thread (there are no timers yet).
+//   - NewTimer, NewTicker and AfterFunc take an optional allocator, and the
+//     Timer or Ticker they return is freed with alloc.Free, which stops it
+//     and frees its channel. After and Tick allocate one that is never
+//     freed.
+//   - AfterFunc's function must not capture variables, as with a go
+//     statement: it runs on a puroutine of its own after the caller's
+//     frame may be gone.
 //
-// Now, Since, Until and Sleep exist in hosted builds only (time_linux.p).
+// Sleep and the timers park puroutines on the scheduler's timers (rt.Timer,
+// rt.ParkUntil): a sleeping puroutine holds no thread. They work in hosted
+// builds and in freestanding ones whose scheduler provides a clock (abi.md
+// section 12.9). Now, Since and Until read the wall clock and exist in
+// hosted builds only (time_linux.p); in freestanding builds the times that
+// timers send carry only the scheduler's clock.
 package time
 
 import "pluto/errors"

@@ -278,7 +278,9 @@ constructor is compiled where it is made instead: the arguments are stored in fr
 caller's frame, and the literal's closure is built in that frame and captures them there. The result is
 an ordinary closure of the caller, valid while the caller runs, and `for i, x := range v.All()` costs no
 allocation. Each call site has its own variables: a call in a loop reuses them on every iteration, as a
-function literal in a loop does. A closure constructor can only be called directly; using it as a func
+function literal in a loop does. The closure's code is the literal's, compiled once for the constructor, so a
+stack trace names its frame after the constructor (`main.Count.func1`, `pluto/vec.(*Vec).All[int].func1`)
+wherever it was called. A closure constructor can only be called directly; using it as a func
 value or a method value, or calling it through an interface, is a compile error (E2543), since there is no
 caller's frame to build the closure in.
 
@@ -370,15 +372,50 @@ made with `clone(2)` without a C library. Each worker has its own run queue, and
 half the queue of a busy one, so load spreads across processors without any work by the program. A
 monitor thread preempts a puroutine that has run for 10 ms by sending its thread a signal, and hands the
 processor of a worker blocked in a system call (`rt.EnterSyscall`, which `pluto/os` file I/O uses) to
-another worker. Waits for I/O go through one epoll poller: `os.Pipe`'s descriptors are non-blocking,
-and a puroutine that reads an empty pipe or writes a full one parks there (`rt.PollWait`). When every
-puroutine waits for another and nothing waits for I/O or a system call, the program stops with "fatal
-error: all puroutines are asleep - deadlock!" and status 2, as in Go.
+another worker. Waits for I/O go through one epoll poller, on Go's design: a non-blocking descriptor
+(`os.Pipe`'s, or one given to `os.NewFile`, such as a socket made with `SOCK_NONBLOCK`) has a poller
+record (`rt.PollDesc`) with its own queue of puroutines waiting to read and another of those waiting to
+write, so a read and a write can wait on one socket at once, and an event wakes everything waiting for
+it. A puroutine that reads an empty pipe or writes a full one parks there. `Close` on the `os.File`
+wakes every waiter, whose `Read` or `Write` then reports `os.ErrClosed`, and so does any later use of the
+file; the descriptor itself is closed when the last operation in progress on it returns, so that the
+number is not reused under a running call. When every puroutine waits for another and nothing waits
+for I/O, a system call or an armed timer, the program stops with "fatal error: all puroutines are
+asleep - deadlock!" and status 2, as in Go.
+
+A hosted program catches `SIGPIPE` at startup, with a handler that does nothing (so a program it starts
+with `os/exec` gets the default action back), and follows Go's rule: a write to a pipe or socket with no
+reader fails with `EPIPE`, except that a write to standard output or standard error (descriptors 1 and 2)
+that fails with `EPIPE` ends the program as if by the signal, so that `prog | head` stops `prog` as it
+would a C program (`rt.DieFromSigpipe`).
 
 A kernel implements the backend over its own per-CPU run queues and calls `rt.Preempt()` from its timer
 interrupt handler; the runtime keeps the current task in a per-CPU slot and masks interrupts while it
 holds its own locks, so interrupt handlers may make non-blocking channel operations and call
 `rt.Ready`. `testdata/kernel/sched` is such a kernel, booted under QEMU by the compiler's tests.
+
+**Timers.** `time.Sleep` parks the puroutine until a deadline, so its processor runs other puroutines
+and a program whose puroutines all sleep uses no processor time. `time.Timer`, `time.Ticker`,
+`time.After` and `time.Tick` deliver the time on a channel, so a `select` waits for a timer like any
+other case (section 4.8), and `time.AfterFunc` starts a function on a puroutine of its own when its
+timer expires. Underneath is the runtime's mechanism: a monotonic clock, `rt.Now()`; timers,
+`rt.Timer`, which call a function when their deadline passes and never allocate; and `rt.ParkUntil`,
+`rt.Park` with a deadline (abi.md section 12.9). The hosted backend keeps the timers of each processor
+in a heap of its own, run by the workers between puroutines and, while they sleep, by the poller. A
+kernel's backend provides the clock and the hardware: a `Now` method, and an `ArmTimer` method that
+arranges for `rt.RunTimers()` to be called, typically from the timer interrupt, once a deadline has
+passed. Both are optional, so a kernel that never sleeps needs neither; a program that uses timers with
+a backend that lacks them fails to build. Arming and stopping a timer, and `rt.RunTimers`, never block
+and may be used in interrupt handlers; sleeping and `rt.ParkUntil` are `//pu:blocking`.
+
+The `time` API follows Go's where the language allows. Timers and tickers come from an allocator
+(`time.NewTimer(d, a)`, with the default allocator if none is given) and are freed with `alloc.Free`,
+which stops them and frees their channels; `time.After` and `time.Tick` allocate a timer that is never
+freed, so a loop should use `NewTimer` and `Reset`. As in Go 1.23, a timer's channel holds no stale
+value once `Stop` or `Reset` has returned. `time.AfterFunc(d, f)` cannot run `f` where timers fire (an
+interrupt handler, in a kernel), so expired timers are queued for one puroutine of `pluto/time`'s,
+which starts each function with a `go` statement; like a function passed to `go`, `f` must not capture
+variables, and `AfterFunc` panics if its closure record lies in the caller's stack.
 
 **The sendable rule.** Values that cross between puroutines, as `go` arguments or channel elements, must
 be safe to use from several processors at once. A type is **sendable** unless it contains, directly or in
@@ -440,6 +477,20 @@ memory of `new`. When counting lands, `FreeChan` goes away.
 The operations that may wait (a send or receive, a `range` over a channel, a `select` without a
 `default` case) call runtime functions marked `//pu:blocking`; a `select` with a `default` case and
 `close`, `len` and `cap` never wait, so interrupt handlers may use them (section 12.6).
+
+Timeouts are channels too: `time.After(d)` and a `time.Timer`'s `C` receive the time once the timer
+expires, so a `select` that waits for a value or a deadline has a case for each (section 4.7).
+
+```go
+t := time.NewTimer(100 * time.Millisecond)
+select {
+case v := <-results:
+	use(v)
+case <-t.C:
+	println("timed out")
+}
+alloc.Free(t) // stops the timer and frees its channel
+```
 
 The element type must be sendable (section 4.7). Sending an owner moves it: after `ch <- b`, `b` holds
 nothing, and the receiver of `v := <-ch` owns it. In a `select`, the value of a send case is evaluated on
@@ -640,10 +691,45 @@ var dma  aligned[[2048]byte, 64]
 | `Cap() int` | `N` |
 | `Full() bool`, `Empty() bool` | |
 | `Reset()` | empties the ring |
+| `All() iter.Seq2[int, T]` | an iterator over the index and value of each element, oldest first |
+| `Values() iter.Seq[T]` | an iterator over the values, oldest first |
 
 All methods have pointer receivers and are expanded inline. A ring is not safe for concurrent use; a
 single-producer, single-consumer queue between an interrupt handler and a task can be built from
 `volatile` indexes.
+
+`All` and `Values` are iterators for `for` loops over functions (section 4.10), and work like those of
+`vec.Vec` (section 13). The ring has no storage of its own to return them from, so, like a closure
+constructor (section 4.5), a call of one builds its closure in the caller's frame, where it holds the
+address of the ring; they can only be called, not used as a method value or called through an interface
+(E2543). Their results have the type `func(yield func(int, T) bool)` and `func(yield func(T) bool)`, which
+are assignable to `iter.Seq2[int, T]` and `iter.Seq[T]`.
+
+```go
+var r ring[int, 4]
+r.Push(10)
+r.Push(20)
+for i, x := range r.All() { // 0 10, then 1 20
+	fmt.Println(i, x)
+}
+for i, x := range r { ... } // the same: a ring ranges over its All method (section 6.7)
+```
+
+Since `All` has a pointer receiver, `range r` needs an addressable ring or a pointer to one.
+
+The loop reads the ring as it goes, so the body may call `Push`, `Pop` and `Reset`. The loop keeps a position
+among the elements ever pushed (the ring counts them, from the last `Reset`), starting at the oldest element
+when the loop starts. On each step:
+
+- If the body popped the element at the position, the loop moves on to the oldest element left.
+- If the position has reached the end, nothing more has been pushed and the loop ends. Elements the body
+  pushed are visited, as long as it finds room for them.
+- Otherwise the loop yields the element, and the position moves on.
+
+The index `All` yields is the element's place in the ring when it is yielded, so 0 is the oldest element
+now: a body that pops each element as it is visited sees index 0 every time. A body that calls `Reset` should leave the loop: the position
+then counts the pushes since the reset, so the loop ends, or goes on from where it was among the elements
+pushed after the reset.
 
 ### 5.5 `packed` types
 
@@ -1488,8 +1574,8 @@ an addressable `x` or a pointer (E2459); its form is `All() F`, with no paramete
 variadic parameter, where `F` is a function type that range accepts, such as `iter.Seq[V]` or
 `iter.Seq2[K, V]` (E2458). The iteration variables follow `F`, so `vec.Vec[T]`, whose `All` returns
 `iter.Seq2[int, T]`, ranges like a slice, `hash.Map[K, V]` like a map (in its table's order, section 13),
-and `hash.Set[K]` over its elements. A struct, or a type with an `Index` method, that has no `All` is a
-compile error (E2456).
+and `hash.Set[K]` over its elements. A `ring[T, N]` ranges over its built-in `All` (section 5.4). A struct,
+or a type with an `Index` method, that has no `All` is a compile error (E2456).
 
 ```go
 for i, x := range v { ... }  // v.All(): index and element
@@ -2473,7 +2559,7 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | Directive | Applies to | Meaning |
 |---|---|---|
 | `//pu:build expr` | file | include the file only when `expr` holds |
-| `//pu:inline` | function | inline calls to this function whatever its size, as long as the caller stays within its growth limit (four times its own size, at least 5,000 and at most 20,000 IR values) |
+| `//pu:inline` | function | at `-O2`, inline calls to this function whatever its size, as long as the caller stays within its growth limit (four times its own size, at least 5,000 and at most 20,000 IR values); recursive calls, calls on paths that panic, calls through func values and calls of a function that never returns stay out of line. `pluto build --inlinenotes` prints `file:line:col: note: call to F marked //pu:inline was not inlined: reason` for each call in the program's own packages that stays out of line |
 | `//pu:noinline` | function | never inline it |
 | `//pu:nobounds` | function | omit bounds checks in its body |
 | `//pu:extern name` | body-less function | the function is the external symbol `name` (C ABI) |
@@ -2707,7 +2793,8 @@ the processor stops. So nothing an interrupt handler can reach, and nothing the 
 - allocate from an allocator that may wait (below).
 
 Operations that do not wait are allowed: `select` with `default`, `TryLock`, readying a parked
-puroutine, atomics, and spin locks that disable interrupts while held. To hand work to normal code, a
+puroutine, arming, stopping and running the runtime's timers (`rt.Timer`, `rt.RunTimers`), atomics, and
+spin locks that disable interrupts while held. To hand work to normal code, a
 handler sends without waiting:
 
 ```go
@@ -2773,20 +2860,22 @@ hold, and most have a `Clone`.
 
 | Package | Contents |
 |---|---|
-| `pluto/rt` | panic hook, program entry, memory copy and compare primitives the compiler calls, the scheduler contract (`Scheduler`, `Task`, `Switch`, `Park`, `Ready`, `Preempt`), `Go`, `Yield`, the hosted scheduler |
+| `pluto/rt` | panic hook, program entry, memory copy and compare primitives the compiler calls, the scheduler contract (`Scheduler`, `Task`, `Switch`, `Park`, `Ready`, `Preempt`), timers (`Now`, `Timer`, `ParkUntil`, `RunTimers`), `Go`, `Yield`, the hosted scheduler |
 | `pluto/sync` | `Mutex`, `RWMutex`, `WaitGroup` (with `Go`), `Once`, `Cond` over the scheduler; the operations that park are `//pu:blocking` |
 | `pluto/alloc` | allocators, the default allocator, `Use`/`Restore`, `Owned`/`Shared`/`Synced`, and the unchecked layer `Raw`/`New`/`Free` (section 7.1) |
 | `pluto/alloc/debug` | the checking allocator (section 7.3) |
 | `pluto/arena` | bump allocators; freeing into one does nothing, and `Reset` reclaims everything (section 6.6) |
 | `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf` returning a `strings.Buf`, `Bprintf` into a caller's buffer, `Println`; integer, float, string, pointer verbs with width, precision and flags; arrays, slices, structs, pointers, interfaces and enums with `%v`, `%+v` and `%#v` as Go prints them, read from type descriptors (section 4.4), and containers through `fmt.Mapper` (`hash.Map` prints as `map[k:v]` with sorted keys) and `fmt.Lister` (`vec.Vec` prints as a slice); all formatting goes through a fixed buffer and never allocates; `Errorf` and `ErrorBuf` (section 14) |
 | `pluto/container` | the constraints of the indexing interface (section 6.7): `Indexable`, `Reader`, `Lookup`, `Sized` |
+| `pluto/container/heap` | Go's `container/heap` (`Init`, `Push`, `Pop`, `Remove`, `Fix` over a `heap.Interface`), and `Heap[T]`, a min-heap in a `vec.Vec` ordered by a less function, without boxing elements in `any` |
 | `pluto/io` | `Reader`, `Writer`, buffered I/O |
 | `pluto/os` | files (`os.File`, an owner that closes on drop), `Stat`, whole-file reads and writes, directories (`ReadDir` returns a `DirEntries` owner), removal, renaming, temporary directories, the working directory, pipes, processes, arguments, environment, exit (hosted) |
 | `pluto/os/exec` | running commands: `Cmd` (an owner), pipes copied inside `Wait`, `ExitError` in the data word (hosted) |
 | `pluto/path/filepath` | slash-separated paths: views (`Base`, `Dir`, `Ext`, `Split`) and `Append` forms (`AppendJoin`, `AppendClean`, `AppendRel`, `AppendAbs`), `Match`, `WalkDir` |
-| `pluto/time` | `Duration`, `Time` in UTC with a monotonic reading, `Now`, `Since`, `Sleep` |
+| `pluto/time` | `Duration`, `Time` in UTC with a monotonic reading, `Now`, `Since`; `Sleep`, `Timer`, `Ticker`, `After`, `Tick` and `AfterFunc` over the scheduler's timers (section 4.7) |
 | `pluto/flag` | command-line flags; a `FlagSet` owns its flags and their variables |
 | `pluto/syscall` | raw Linux system calls (hosted) |
+| `pluto/strconv` | `ParseUint`, `ParseInt`, `Atoi`, `ParseFloat` (decimal and hexadecimal, any rounding case, exact as Go's), `AppendInt`, `AppendUint`, `AppendFloat`, `PutUint`, `IsPrint`, `CanBackquote`; a failed parse returns `ErrSyntax` or `ErrRange` itself, and `NewNumError` makes Go's `*NumError` from an allocator when a caller wants one |
 | `pluto/strings`, `pluto/bytes` | `strings.Buf`, an owning string buffer (section 6.6); searching, comparison; Go 1.24's iterators `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq`, `FieldsFuncSeq` |
 | `pluto/iter` | `Seq` and `Seq2` (section 4.10), and adaptors that allocate nothing: `Filter`, `Map`, `Limit`, `Concat` (each with a `2` form), `Enumerate`, `Keys`, `Values`, `Reduce`, `Count`, `Fill`. Go's `Pull` needs a coroutine per iterator and has no equivalent |
 | `pluto/bits` | bit operations (section 5.8) |
@@ -2794,7 +2883,10 @@ hold, and most have a `Clone`.
 | `pluto/hash` | `Map[K, V]` and `Set[K]`, owners that record their allocator; `All`, `Keys` and `Values` iterate in table order, the same for the same changes and seed |
 | `pluto/vec` | `Vec[T]`, a growable owner that records its allocator; `All`, `Values` and `Backward` iterate it, reading it as they go so the body may change it |
 | `pluto/sort` | sorting without allocation |
+| `pluto/cmp` | Go's `cmp`: `Ordered`, `Less`, `Compare`, `Or` |
+| `pluto/slices` | Go's `slices`: `Sort`, `SortFunc`, `SortStableFunc` (pdqsort and in-place merge sort, three-way comparison functions), `BinarySearch`, `Index`, `Contains`, `Equal`, `Compare`, `Max`, `Min`, `IsSorted`, `Reverse`, `Compact`, `Clip`, and the iterators `All`, `Values`, `Backward`, `Chunk`; `Insert`, `Delete`, `Replace` and `AppendSeq` work within the slice's capacity, and `Clone`, `Concat`, `Repeat`, `Collect`, `Sorted`, `SortedFunc`, `SortedStableFunc` (each with an `In` form taking an allocator) return a `vec.Vec` |
 | `pluto/sync/atomic` | atomic integers and pointers |
+| `pluto/unicode` | Go's `unicode` with Go 1.27's Unicode 17.0.0 tables (generated by `tools/mkunicode`): `IsLetter`, `IsDigit`, `IsSpace`, `IsUpper`, `IsLower`, `IsPunct`, `IsPrint`, `IsGraphic`, `ToUpper`, `ToLower`, `ToTitle`, `SimpleFold`, `Is` and `In` over `RangeTable`s; a variable for each category, script and property table, and no maps from names to tables |
 | `pluto/unicode/utf8` | UTF-8 encoding and decoding |
 | `pluto/testing` | tests and benchmarks for `pluto test` (hosted) |
 | `pluto/errors` | `New` (a static error per call site), `Is`, `As`, `AsType`, `Unwrap`, `Join`, `Free` (section 14) |
@@ -2894,8 +2986,8 @@ comparable. `errors.As` is generic, `func As[E any](err error, target *E) bool`,
 
 ### 14.5 Differences in the standard library
 
-`os.File.Read`, `Write` and `Close` report a bare `syscall.Errno` (and `io.EOF`), not a `*PathError`, so
-that I/O does not allocate. `strconv` reports `ErrSyntax` and `ErrRange` without Go's `*NumError`. An
+`os.File.Read`, `Write` and `Close` report a bare `syscall.Errno` (and `io.EOF`, and `os.ErrClosed` for a
+closed file), not a `*PathError`, so that I/O does not allocate. `strconv` reports `ErrSyntax` and `ErrRange` without Go's `*NumError`. An
 `Errno` the table does not know reports `"unknown error"`.
 
 ### 14.6 Allocated errors and ownership (approved; not implemented yet)

@@ -3,7 +3,6 @@
 package time
 
 import (
-	"pluto/rt"
 	"pluto/syscall"
 	"unsafe"
 )
@@ -39,23 +38,13 @@ func Since(t Time) Duration { return Now().Sub(t) }
 // Until returns the duration until t: t.Sub(Now()).
 func Until(t Time) Duration { return t.Sub(Now()) }
 
-// Sleep pauses the calling thread for at least d. A negative or zero d
-// returns at once. The sleep is announced to the scheduler
-// (rt.EnterSyscall), which hands the worker's processor to another worker
-// meanwhile, so other puroutines keep running.
-func Sleep(d Duration) {
-	if d <= 0 {
-		return
-	}
-	req := timespec{sec: int64(d / Second), nsec: int64(d % Second)}
-	for {
-		var rem timespec
-		rt.EnterSyscall()
-		r := syscall.Syscall(syscall.SYS_NANOSLEEP, uintptr(unsafe.Pointer(&req)), uintptr(unsafe.Pointer(&rem)), 0)
-		rt.ExitSyscall()
-		if int64(r) != -int64(syscall.EINTR) {
-			return
-		}
-		req = rem
-	}
+// fireTime returns the time a timer sends when it fires: the wall clock
+// now, with the monotonic reading mono that fired it (the same clock as
+// Now's).
+func fireTime(mono int64) Time {
+	wall := clock(clockRealtime)
+	t := Unix(wall.sec, wall.nsec)
+	t.hasMono = true
+	t.mono = mono
+	return t
 }

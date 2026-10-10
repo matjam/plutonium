@@ -290,7 +290,9 @@ func builtinRangeable(u Type) bool {
 	switch u := u.(type) {
 	case *Basic:
 		return isString(u) || isInteger(u)
-	case *Array, *Slice, *Map, *Chan, *Signature, *Wrapper:
+	case *Wrapper:
+		return u.kind != WrapRing // a ring ranges over its All method
+	case *Array, *Slice, *Map, *Chan, *Signature:
 		return true
 	case *Pointer:
 		_, ok := u.base.Underlying().(*Array)

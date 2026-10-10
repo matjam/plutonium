@@ -151,8 +151,9 @@ func main() {
 	for _, want := range []string{
 		"main.p:10:2: onPanic is the panic handler, so it must not wait",
 		"onPanic calls os.Stderr.WriteString (main.p:10), which calls f.Write",
-		"which may be os.poller.waitIO, which calls rt.PollWait",
-		"f.poll.waitIO calls through an interface, so it counts as calling the waitIO method of every type the program converts to os.ioWaiter.",
+		"which calls f.poll.Wait",
+		"which may be rt.(*PollDesc).Wait, which may wait.",
+		"f.poll.Wait calls through an interface, so it counts as calling the Wait method of every type the program converts to os.ioWaiter.",
 		"The path goes through an os.File.",
 		"Write to rt.Console{} instead of os.Stderr in a panic or interrupt handler; os.File writes may wait for the poller: p.Print(rt.Console{})",
 	} {

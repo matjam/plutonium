@@ -25,11 +25,20 @@ type ProgramPass struct {
 // function passes listed before and after them.
 type Pipeline struct {
 	steps []step
+
+	// For InlineNotes (inlinenotes.go): the inliner's reasons, set by
+	// ReportInlining, whether it ran, and the notes Run collected.
+	why     map[*ssa.Value]string
+	inlined bool
+	notes   []InlineNote
 }
 
 type step struct {
 	fn   *Pass
 	prog *ProgramPass
+	// inline marks the inliner's step, which Run gives the pipeline's
+	// record of reasons for InlineNotes.
+	inline bool
 }
 
 // ForLevel returns the passes for an optimisation level.
@@ -49,7 +58,7 @@ func ForLevel(level int) *Pipeline {
 		// Before inlining, so that copies inlined into callers carry the
 		// loop rather than the recursion.
 		p.add(Pass{"tailrec", TailRec})
-		p.addProgram(ProgramPass{"inline", Inline})
+		p.steps = append(p.steps, step{prog: &ProgramPass{"inline", Inline}, inline: true})
 		p.add(Pass{"prove", Prove})
 		p.add(Pass{"simplify2", Simplify})
 		// After prove, which removes the bounds checks that would give a
@@ -80,8 +89,6 @@ func ForLevel(level int) *Pipeline {
 
 func (p *Pipeline) add(pass Pass) { p.steps = append(p.steps, step{fn: &pass}) }
 
-func (p *Pipeline) addProgram(pass ProgramPass) { p.steps = append(p.steps, step{prog: &pass}) }
-
 // checkSSA, when set by the PLUTO_SSACHECK environment variable, verifies
 // every function after every pass.
 var checkSSA = os.Getenv("PLUTO_SSACHECK") != ""
@@ -106,7 +113,12 @@ func (p *Pipeline) Run(prog *ssa.Program, after func(pass string, f *ssa.Func)) 
 	}
 	for _, st := range p.steps {
 		if st.prog != nil {
-			st.prog.Run(prog)
+			if st.inline {
+				inline(prog, p.why)
+				p.inlined = true
+			} else {
+				st.prog.Run(prog)
+			}
 			if checkSSA {
 				for _, f := range prog.Funcs {
 					if err := verify(f); err != nil {
@@ -127,6 +139,9 @@ func (p *Pipeline) Run(prog *ssa.Program, after func(pass string, f *ssa.Func)) 
 				after(st.fn.Name, f)
 			}
 		}
+	}
+	if p.why != nil {
+		p.notes = collectInlineNotes(prog, p.why, p.inlined)
 	}
 	return nil
 }

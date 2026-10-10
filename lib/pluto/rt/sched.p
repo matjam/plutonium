@@ -544,6 +544,14 @@ func Go(f func(), size uintptr, a Allocator = DefaultAllocator()) {
 	spawn(rec, nil, 0, 1, StackRequest{Size: size, Alloc: a})
 }
 
+// CheckGoFunc panics as a go statement does if f's closure record lies in
+// the calling task's stack, for a library that starts f on a puroutine
+// later from another one (time.AfterFunc): a function literal that
+// captures variables, or a method value, made in the caller's frame.
+func CheckGoFunc(f func()) {
+	checkGoFunc(*(*unsafe.Pointer)(unsafe.Pointer(&f)))
+}
+
 // spawnGo implements the go statement: fn is the closure record of a
 // compiler-generated function that takes the address of the argument
 // block, args, which is copied onto the new task's stack. bound is the

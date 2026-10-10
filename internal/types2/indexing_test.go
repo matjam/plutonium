@@ -126,6 +126,8 @@ func TestRangesByMethod(t *testing.T) {
 		{types2.Typ[types2.Float64], true},
 		{types2.NewPointer(types2.NewStruct(nil, nil)), true},
 		{types2.NewStruct(nil, nil), true},
+		{types2.NewWrapper(types2.WrapRing, types2.Typ[types2.Int], 4), true},
+		{types2.NewWrapper(types2.WrapVolatile, types2.Typ[types2.Int], 0), false},
 	}
 	for _, c := range cases {
 		if got := types2.RangesByMethod(c.T); got != c.want {

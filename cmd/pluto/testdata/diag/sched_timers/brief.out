@@ -1,0 +1,1 @@
+$DIR/main.p:20:5: this program uses timers (time.Sleep, a time.Timer or Ticker, rt.ParkUntil or rt.Now), so its scheduler must provide a clock and a timer, and sched of type main.noClock has no method Now or ArmTimer (abi.md section 12.9)

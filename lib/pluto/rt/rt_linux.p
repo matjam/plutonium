@@ -126,10 +126,12 @@ const (
 	sigBUS  = 7
 	sigFPE  = 8
 	sigSEGV = 11
+	sigPIPE = 13
 
 	saSiginfo  = 0x4
 	saOnstack  = 0x08000000
 	saRestorer = 0x04000000
+	saRestart  = 0x10000000
 )
 
 // signalPCs stores the addresses of sigpanic and of the signal restorer
@@ -165,6 +167,36 @@ func installFaultHandlers() {
 	for _, sig := range [...]uintptr{sigSEGV, sigBUS, sigFPE, sigILL} {
 		syscall6(sysRtSigaction, sig, uintptr(unsafe.Pointer(&sa)), 0, 8, 0, 0)
 	}
+	// SIGPIPE is caught by a handler that does nothing, as in Go, so that
+	// a write to a pipe with no reader fails with EPIPE instead of ending
+	// the process. A handler rather than SIG_IGN: a handled signal goes
+	// back to its default in a program started with exec, while an ignored
+	// one stays ignored.
+	h := sigpipe
+	sa = sigactionT{
+		handler:  *(*uintptr)(*(*unsafe.Pointer)(unsafe.Pointer(&h))),
+		flags:    saSiginfo | saOnstack | saRestorer | saRestart,
+		restorer: pcs[1],
+	}
+	syscall6(sysRtSigaction, sigPIPE, uintptr(unsafe.Pointer(&sa)), 0, 8, 0, 0)
+}
+
+// sigpipe is the SIGPIPE handler. It returns, and the write that raised
+// the signal reports EPIPE.
+func sigpipe(sig int32, info, ctx unsafe.Pointer) {}
+
+// DieFromSigpipe ends the program as if SIGPIPE had its default action:
+// the process is killed by the signal, which its parent sees as a death by
+// SIGPIPE. pluto/os calls it when a write to standard output or standard
+// error fails with EPIPE, as Go's os package does; a write to any other
+// descriptor reports the error.
+//
+//pu:noreturn
+func DieFromSigpipe() {
+	sa := sigactionT{} // SIG_DFL
+	syscall6(sysRtSigaction, sigPIPE, uintptr(unsafe.Pointer(&sa)), 0, 8, 0, 0)
+	syscall3(sysTgkill, uintptr(syscall3(sysGetpid, 0, 0, 0)), uintptr(selfID()), sigPIPE)
+	exit(2) // not reached: the signal is delivered on return from tgkill
 }
 
 // sigpanic is the fault handler, called by the kernel with the signal

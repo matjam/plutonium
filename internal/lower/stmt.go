@@ -1032,7 +1032,7 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 						targs = s.methodTypeArgs(fn, se, s.typeOf(se.X))
 						def = &defaultsOf{fn, targs}
 					}
-					sym, full := s.l.methodFunc(fn, targs, w)
+					sym, full := s.l.methodFunc(fn, targs, w, se.Sel.Pos(), "deferred")
 					sig := s.subst(funTV.Type).(*types2.Signature)
 					args := s.saveValues(s.callArgs(call, sig, def))
 					site := &callSite{desc: types2.ExprString(call.Fun), recv: types2.ExprString(se.X)}

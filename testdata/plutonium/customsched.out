@@ -1,4 +1,7 @@
 sum of squares 385
 one zero
 b 7
-spawned 6 freed 6 switched true
+woke in order 1 2 3
+select timed out
+timers armed true elapsed true
+spawned 9 freed 9 switched true

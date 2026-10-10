@@ -56,6 +56,11 @@ func TestRun(t *testing.T) {
 	}
 }
 
+// goPackages are the pluto/... packages that programs in testdata/run may
+// import and that Go runs as its package of the same path without the
+// pluto/ prefix.
+var goPackages = []string{"cmp", "container/heap", "fmt", "slices", "unicode"}
+
 // runWithGo runs a test program with the Go toolchain and returns what it
 // writes to standard error (println's destination).
 func runWithGo(t *testing.T, file string) (string, error) {
@@ -64,8 +69,12 @@ func runWithGo(t *testing.T, file string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// pluto/fmt is Plutonium's fmt: Go runs the program with its own.
-	src = []byte(strings.ReplaceAll(string(src), `"pluto/fmt"`, `"fmt"`))
+	// pluto/fmt is Plutonium's fmt: Go runs the program with its own. The
+	// other packages listed are the Plutonium ports of Go packages with
+	// the same API, for the part a program in the common subset can use.
+	for _, pkg := range goPackages {
+		src = []byte(strings.ReplaceAll(string(src), `"pluto/`+pkg+`"`, `"`+pkg+`"`))
+	}
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), src, 0o644); err != nil {
 		return "", err
 	}

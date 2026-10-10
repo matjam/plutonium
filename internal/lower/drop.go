@@ -98,7 +98,7 @@ func (s *fnState) dropFields(ptr *ssa.Value, T types2.Type) {
 	}
 	if m := dropMethod(T); m != nil {
 		targs := s.recvTypeArgs(T)
-		target, full := s.l.methodFunc(m, targs, nil)
+		target, full := s.l.methodFunc(m, targs, nil, token.NoPos, "")
 		var recv value
 		if _, byPtr := full.Recv().Type().(*types2.Pointer); byPtr {
 			recv = scalarValue(ptr, types2.NewPointer(T))

@@ -4,7 +4,10 @@
 // GS, a FIFO run queue, an idle loop that halts, and preemption from the
 // PIT timer interrupt. Puroutines, channels, select and pluto/sync run on
 // it; the timer handler sends on a channel with a non-blocking select.
-// Output goes to the first serial port.
+// The PIT's tick count is the scheduler's clock (Now), and the handler
+// runs the runtime's timers when the deadline given to ArmTimer has
+// passed, so time.Sleep, time.After and tickers work too. Output goes to
+// the first serial port.
 package main
 
 import (
@@ -12,6 +15,7 @@ import (
 	"pluto/arch/x86"
 	"pluto/rt"
 	"pluto/sync"
+	"pluto/time"
 	"unsafe"
 )
 
@@ -122,6 +126,14 @@ func (kernelSched) Yield(t *rt.Task) { switchFrom(t) }
 
 func (kernelSched) InInterrupt() bool { return cpu.inIRQ > 0 }
 
+// Now is the scheduler's clock: the PIT ticks once a millisecond.
+func (kernelSched) Now() int64 { return int64(ticks) * 1000000 }
+
+// ArmTimer records when the runtime's earliest timer is due; the timer
+// handler runs the timers once it has passed. It runs with interrupts
+// disabled.
+func (kernelSched) ArmTimer(deadline int64) { timerDue = deadline }
+
 // switchFrom runs the next task, or the idle loop, in place of t.
 func switchFrom(t *rt.Task) {
 	if next := pop(); next != nil {
@@ -185,6 +197,7 @@ var (
 	ticks     volatile[uint64]
 	tickCh    chan uint64
 	tickSends volatile[uint64]
+	timerDue  volatile[int64] = rt.NoDeadline
 )
 
 //pu:interrupt
@@ -198,6 +211,10 @@ func timer(f *x86.InterruptFrame) {
 			tickSends = tickSends + 1
 		default:
 		}
+	}
+	if int64(ticks)*1000000 >= timerDue {
+		timerDue = rt.NoDeadline
+		rt.RunTimers() // gives the next deadline to ArmTimer
 	}
 	cpu.inIRQ--
 	rt.Preempt() // runs another task; returns when this one is resumed
@@ -260,6 +277,12 @@ func spin(done chan<- bool) {
 
 func set() { flag = 1 }
 
+// sleepy sleeps i times 5ms: started in reverse, they wake in order.
+func sleepy(i int, woke chan<- int) {
+	time.Sleep(time.Duration(i) * 5 * time.Millisecond)
+	woke <- i
+}
+
 func main() int64 {
 	rt.SetConsole(serialWrite)
 	setupPerCPU()
@@ -305,6 +328,29 @@ func main() int64 {
 	case v := <-b:
 		println("b", v)
 	}
+
+	// Timers on the PIT clock.
+	start := rt.Now()
+	time.Sleep(20 * time.Millisecond)
+	println("slept", rt.Now()-start >= 20000000)
+	woke := make(chan int, 3)
+	for i := 3; i >= 1; i-- {
+		go sleepy(i, woke)
+	}
+	println("woke in order", <-woke, <-woke, <-woke)
+	select {
+	case v := <-a:
+		println("a", v)
+	case <-time.After(10 * time.Millisecond):
+		println("select timed out")
+	}
+	tk := time.NewTicker(2 * time.Millisecond)
+	t1 := <-tk.C
+	t2 := <-tk.C
+	t3 := <-tk.C
+	tk.Stop()
+	alloc.Free(tk)
+	println("ticker", t2.Sub(t1) >= 2*time.Millisecond, t3.After(t2))
 	x86.Cli()
 	println("done")
 	return 0

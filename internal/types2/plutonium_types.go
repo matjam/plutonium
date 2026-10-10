@@ -53,7 +53,13 @@ type Wrapper struct {
 
 // RingMethods lists the built-in methods of ring[T, N] in the order
 // ringMethod indexes them. The compiler expands calls to them inline.
-var RingMethods = [...]string{"Push", "Pop", "Peek", "Len", "Cap", "Full", "Empty", "Reset"}
+//
+// All and Values return iterators, closures of the caller's frame built where
+// they are called (language spec section 5.4), so they can only be called.
+var RingMethods = [...]string{"Push", "Pop", "Peek", "Len", "Cap", "Full", "Empty", "Reset", "All", "Values"}
+
+// IsRingIterator reports whether the ring method name returns an iterator.
+func IsRingIterator(name string) bool { return name == "All" || name == "Values" }
 
 // ringMethod returns the index and object of a ring method, or nil.
 // The methods have pointer receivers, so calling one needs an addressable
@@ -67,15 +73,24 @@ func (w *Wrapper) ringMethod(name string, foldCase bool) (int, *Func) {
 		sig := func(params, results []*Var) *Signature {
 			return NewSignatureType(recv, nil, nil, NewTuple(params...), NewTuple(results...), false)
 		}
+		// seq is func(yield func(params...) bool), the type of an iter.Seq
+		// or iter.Seq2 (which it is assignable to).
+		seq := func(yieldParams ...*Var) *Var {
+			yield := NewSignatureType(nil, nil, nil, NewTuple(yieldParams...), NewTuple(boolean("")), false)
+			f := NewSignatureType(nil, nil, nil, NewTuple(NewParam(nopos, nil, "yield", yield)), nil, false)
+			return NewParam(nopos, nil, "", f)
+		}
 		sigs := map[string]*Signature{
-			"Push":  sig([]*Var{elem("v")}, []*Var{boolean("")}),
-			"Pop":   sig(nil, []*Var{elem("v"), boolean("ok")}),
-			"Peek":  sig(nil, []*Var{elem("v"), boolean("ok")}),
-			"Len":   sig(nil, []*Var{integer}),
-			"Cap":   sig(nil, []*Var{integer}),
-			"Full":  sig(nil, []*Var{boolean("")}),
-			"Empty": sig(nil, []*Var{boolean("")}),
-			"Reset": sig(nil, nil),
+			"Push":   sig([]*Var{elem("v")}, []*Var{boolean("")}),
+			"Pop":    sig(nil, []*Var{elem("v"), boolean("ok")}),
+			"Peek":   sig(nil, []*Var{elem("v"), boolean("ok")}),
+			"Len":    sig(nil, []*Var{integer}),
+			"Cap":    sig(nil, []*Var{integer}),
+			"Full":   sig(nil, []*Var{boolean("")}),
+			"Empty":  sig(nil, []*Var{boolean("")}),
+			"Reset":  sig(nil, nil),
+			"All":    sig(nil, []*Var{seq(integer, elem(""))}),
+			"Values": sig(nil, []*Var{seq(elem(""))}),
 		}
 		for _, m := range RingMethods {
 			f := NewFunc(nopos, nil, m, sigs[m])
