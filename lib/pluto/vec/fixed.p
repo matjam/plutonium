@@ -37,9 +37,9 @@ type Fixed[T any] struct {
 }
 
 // NewFixed returns an empty Fixed that stores its elements in storage, up
-// to cap(storage) of them. What storage holds is overwritten.
+// to len(storage) of them. What storage holds is overwritten.
 func NewFixed[T any](storage []T) Fixed[T] {
-	return Fixed[T]{data: storage[:0]}
+	return Fixed[T]{data: storage[:0:len(storage)]}
 }
 
 // Push appends x if there is room, and otherwise drops it and records the

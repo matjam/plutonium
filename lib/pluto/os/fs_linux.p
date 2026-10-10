@@ -96,32 +96,33 @@ func (m FileMode) Type() FileMode { return m & ModeType }
 // "drwxr-xr-x" or "-rw-r--r--", in a new string.
 func (m FileMode) String() string {
 	var buf [32]byte
-	return string(m.AppendString(buf[:0]))
+	b := vec.NewFixed(buf[:])
+	m.AppendString(&b)
+	return string(b.Slice())
 }
 
-// AppendString appends m as String formats it and returns the extended
-// buffer; it allocates nothing.
-func (m FileMode) AppendString(dst []byte) []byte {
+// AppendString appends m as String formats it to dst, a *vec.Vec[byte]
+// (which grows) or a *vec.Fixed[byte] (which keeps what fits).
+func (m FileMode) AppendString[D vec.Appender[byte]](dst D) {
 	const str = "dalTLDpSugct?"
 	typed := false
 	for i, c := range str {
 		if m&(1<<uint(32-1-i)) != 0 {
-			dst = append(dst, byte(c))
+			dst.Push(byte(c))
 			typed = true
 		}
 	}
 	if !typed {
-		dst = append(dst, '-')
+		dst.Push('-')
 	}
 	const rwx = "rwxrwxrwx"
 	for i, c := range rwx {
 		if m&(1<<uint(9-1-i)) != 0 {
-			dst = append(dst, byte(c))
+			dst.Push(byte(c))
 		} else {
-			dst = append(dst, '-')
+			dst.Push('-')
 		}
 	}
-	return dst
 }
 
 // modeFromStat converts the st_mode of a stat.
@@ -664,43 +665,69 @@ func isDots(name []byte) bool {
 // for the exact bytes). A failure is a *PathError from a.
 func Readlink(name string, a alloc.Allocator = alloc.Default()) (string, error) {
 	var buf [maxPath]byte
-	b, err := readlink(buf[:0], strBytes(name), name, a)
+	n, err := readlink(&buf, strBytes(name), name, a)
 	if err != nil {
 		return "", err
 	}
-	return lossyCopy(b, a), nil
+	return lossyCopy(buf[:n], a), nil
 }
 
 // AppendReadlink appends the exact bytes of the target of the symbolic link
-// name to dst, within its capacity, and allocates only for an error. A
-// target that does not fit is ENAMETOOLONG; maxPath (4096) bytes always
-// suffice.
-func AppendReadlink(dst []byte, name string, a alloc.Allocator = alloc.Default()) ([]byte, error) {
-	return readlink(dst, strBytes(name), name, a)
+// name to dst, a *vec.Vec[byte] (which grows) or a *vec.Fixed[byte], and
+// allocates only for an error or to grow a Vec. A target that does not fit
+// in a Fixed is ENAMETOOLONG, and dst is left as it was; maxPath (4096)
+// bytes always suffice.
+func AppendReadlink[D vec.Appender[byte]](dst D, name string, a alloc.Allocator = alloc.Default()) error {
+	return appendReadlink(dst, strBytes(name), name, a)
 }
 
 // ReadlinkBytes is AppendReadlink for a name that is bytes (see
 // OpenBytes).
-func ReadlinkBytes(dst []byte, name []byte, a alloc.Allocator = alloc.Default()) ([]byte, error) {
-	return readlink(dst, name, "", a)
+func ReadlinkBytes[D vec.Appender[byte]](dst D, name []byte, a alloc.Allocator = alloc.Default()) error {
+	return appendReadlink(dst, name, "", a)
 }
 
-func readlink(dst []byte, name []byte, sname string, a alloc.Allocator) ([]byte, error) {
+func appendReadlink[D vec.Appender[byte]](dst D, name []byte, sname string, a alloc.Allocator) error {
 	var buf [maxPath]byte
-	p, err := cpathBytes(name, &buf)
+	n, err := readlink(&buf, name, sname, a)
 	if err != nil {
-		return dst, newPathError("readlink", name, sname, err, a)
+		return err
 	}
-	room := dst[len(dst):cap(dst)]
-	n, err := syscall.Readlinkat(syscall.AT_FDCWD, p, room)
+	if !appendAll(dst, buf[:n]) {
+		return newPathError("readlink", name, sname, syscall.ENAMETOOLONG, a)
+	}
+	return nil
+}
+
+// readlink reads the target of the symbolic link name into buf and returns
+// its length.
+func readlink(buf *[maxPath]byte, name []byte, sname string, a alloc.Allocator) (int, error) {
+	var pbuf [maxPath]byte
+	p, err := cpathBytes(name, &pbuf)
 	if err != nil {
-		return dst, newPathError("readlink", name, sname, err, a)
+		return 0, newPathError("readlink", name, sname, err, a)
 	}
-	if n >= len(room) {
+	n, err := syscall.Readlinkat(syscall.AT_FDCWD, p, buf[:])
+	if err != nil {
+		return 0, newPathError("readlink", name, sname, err, a)
+	}
+	if n >= len(buf) {
 		// The kernel cuts a longer target to fit: it may be truncated.
-		return dst, newPathError("readlink", name, sname, syscall.ENAMETOOLONG, a)
+		return 0, newPathError("readlink", name, sname, syscall.ENAMETOOLONG, a)
 	}
-	return dst[:len(dst)+n], nil
+	return n, nil
+}
+
+// appendAll appends b to dst whole, or reports false and leaves dst as it
+// was if a bounded dst cannot hold all of it: a path must not be cut.
+func appendAll[D vec.Appender[byte]](dst D, b []byte) bool {
+	n := dst.Len()
+	dst.Append(b...)
+	if dst.Len()-n < len(b) {
+		dst.Truncate(n)
+		return false
+	}
+	return true
 }
 
 // Getwd returns the working directory, a new string from the current
@@ -709,23 +736,36 @@ func readlink(dst []byte, name []byte, sname string, a alloc.Allocator) ([]byte,
 // returns the exact bytes.
 func Getwd() (string, error) {
 	var buf [maxPath]byte
-	b, err := AppendWd(buf[:0])
+	n, err := getwd(&buf)
 	if err != nil {
 		return "", err
 	}
-	return string(b), nil
+	return string(buf[:n]), nil
 }
 
-// AppendWd appends the exact bytes of the working directory to dst, within
-// its capacity, and allocates nothing. It fails with ERANGE if the room
-// left is too short; maxPath bytes always suffice.
-func AppendWd(dst []byte) ([]byte, error) {
-	room := dst[len(dst):cap(dst)]
-	n, err := syscall.Getcwd(room)
+// AppendWd appends the exact bytes of the working directory to dst, a
+// *vec.Vec[byte] (which grows) or a *vec.Fixed[byte], and allocates only to
+// grow a Vec. It fails with ERANGE, leaving dst as it was, if the name does
+// not fit in a Fixed; maxPath bytes always suffice.
+func AppendWd[D vec.Appender[byte]](dst D) error {
+	var buf [maxPath]byte
+	n, err := getwd(&buf)
 	if err != nil {
-		return dst, err
+		return err
 	}
-	return dst[:len(dst)+n-1], nil
+	if !appendAll(dst, buf[:n]) {
+		return syscall.ERANGE
+	}
+	return nil
+}
+
+// getwd reads the working directory into buf and returns its length.
+func getwd(buf *[maxPath]byte) (int, error) {
+	n, err := syscall.Getcwd(buf[:])
+	if err != nil {
+		return 0, err
+	}
+	return n - 1, nil
 }
 
 // Chdir changes the working directory.
@@ -780,19 +820,20 @@ func TempDirBytes() []byte {
 // exact bytes).
 func MkdirTemp(dir, pattern string, a alloc.Allocator = alloc.Default()) (string, error) {
 	var buf [maxPath]byte
-	b, err := AppendMkdirTemp(buf[:0], dir, pattern, a)
-	if err != nil {
+	b := vec.NewFixed(buf[:])
+	if err := AppendMkdirTemp(&b, dir, pattern, a); err != nil {
 		return "", err
 	}
-	return rt.StringFromBytes(unsafe.SliceData(b), len(b), a), nil
+	return rt.StringFromBytes(&buf[0], b.Len(), a), nil
 }
 
-// AppendMkdirTemp is MkdirTemp building the path in dst, within its
-// capacity, instead of a new string: it allocates only for an error. The
-// path is the exact bytes, which differ from a string only when dir is ""
-// and $TMPDIR is not valid UTF-8.
-func AppendMkdirTemp(dst []byte, dir, pattern string, a alloc.Allocator = alloc.Default()) ([]byte, error) {
-	buf := dst[len(dst):cap(dst)]
+// AppendMkdirTemp is MkdirTemp appending the path to dst, a *vec.Vec[byte]
+// (which grows) or a *vec.Fixed[byte], instead of making a new string: it
+// allocates only for an error or to grow a Vec. A path that does not fit in
+// a Fixed is ENAMETOOLONG, before anything is created, and dst is left as
+// it was. The path is the exact bytes, which differ from a string only when
+// dir is "" and $TMPDIR is not valid UTF-8.
+func AppendMkdirTemp[D vec.Appender[byte]](dst D, dir, pattern string, a alloc.Allocator = alloc.Default()) error {
 	dirb := strBytes(dir)
 	if dir == "" {
 		dirb = TempDirBytes()
@@ -800,12 +841,15 @@ func AppendMkdirTemp(dst []byte, dir, pattern string, a alloc.Allocator = alloc.
 	prefix, suffix := pattern, ""
 	for i := len(pattern) - 1; i >= 0; i-- {
 		if pattern[i] == '/' {
-			return dst, NewPathError("mkdirtemp", pattern, ErrPatternHasSeparator, a)
+			return NewPathError("mkdirtemp", pattern, ErrPatternHasSeparator, a)
 		}
 		if pattern[i] == '*' {
 			prefix, suffix = pattern[:i], pattern[i+1:]
 			break
 		}
+	}
+	if len(dirb)+1+len(prefix)+20+len(suffix) > maxPath {
+		return NewPathErrorBytes("mkdirtemp", dirb, syscall.ENAMETOOLONG, a)
 	}
 	for try := 0; try < 10000; try++ {
 		var rnd [8]byte
@@ -814,33 +858,38 @@ func AppendMkdirTemp(dst []byte, dir, pattern string, a alloc.Allocator = alloc.
 		for _, b := range rnd {
 			r = r<<8 | uint64(b)
 		}
-		name := buf[:0]
-		if cap(name) < len(dirb)+1+len(prefix)+20+len(suffix) {
-			return dst, NewPathErrorBytes("mkdirtemp", dirb, syscall.ENAMETOOLONG, a)
-		}
-		name = append(name, dirb...)
+		var nbuf [maxPath]byte
+		nf := vec.NewFixed(nbuf[:])
+		nf.Append(dirb...)
 		if len(dirb) > 0 && dirb[len(dirb)-1] != '/' {
-			name = append(name, '/')
+			nf.Push('/')
 		}
-		name = append(name, prefix...)
+		vec.AppendString(&nf, prefix)
 		for r > 0 {
-			name = append(name, byte('0'+r%10))
+			nf.Push(byte('0' + r%10))
 			r /= 10
 		}
-		name = append(name, suffix...)
+		vec.AppendString(&nf, suffix)
+		name := nf.Slice()
+		// The path goes into dst before the directory is made, so that a
+		// path that does not fit is reported before anything exists.
+		if !appendAll(dst, name) {
+			return NewPathErrorBytes("mkdirtemp", dirb, syscall.ENAMETOOLONG, a)
+		}
 		var pb [maxPath]byte
 		p, err := cpathBytes(name, &pb)
 		if err == nil {
 			err = syscall.Mkdirat(syscall.AT_FDCWD, p, 0o700)
 		}
 		if err == nil {
-			return dst[:len(dst)+len(name)], nil
+			return nil
 		}
+		dst.Truncate(dst.Len() - len(name))
 		if err != syscall.EEXIST {
-			return dst, NewPathErrorBytes("mkdirtemp", name, err, a)
+			return NewPathErrorBytes("mkdirtemp", name, err, a)
 		}
 	}
-	return dst, NewPathErrorBytes("mkdirtemp", dirb, syscall.EEXIST, a)
+	return NewPathErrorBytes("mkdirtemp", dirb, syscall.EEXIST, a)
 }
 
 // ErrPatternHasSeparator is reported by MkdirTemp for a pattern with a "/".

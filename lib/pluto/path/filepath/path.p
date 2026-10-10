@@ -5,14 +5,16 @@
 // return substrings of it. Join, Clean, Dir, Abs and Rel return strings as
 // Go's do, allocated from the current allocator only when the result is
 // not already a substring of an argument; their Append forms (AppendJoin,
-// AppendClean, AppendDir, AppendAbs, AppendRel) write into a caller's
-// buffer and never allocate, for kernel code and hot paths.
+// AppendClean, AppendDir, AppendAbs, AppendRel) append to a *vec.Vec[byte],
+// which grows, or a *vec.Fixed[byte], which never allocates, for kernel
+// code and hot paths.
 package filepath
 
 import (
 	"pluto/errors"
 	"pluto/os"
 	"pluto/unicode/utf8"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -92,17 +94,19 @@ func Dir(path string) string {
 }
 
 // AppendDir appends Go's Dir of path, the cleaned directory part, to dst.
-func AppendDir(dst []byte, path string) []byte {
+func AppendDir[D vec.Appender[byte]](dst D, path string) {
 	dir, _ := Split(path)
-	return AppendClean(dst, dir)
+	AppendClean(dst, dir)
 }
 
 // AppendClean appends the shortest path equivalent to path by lexical
 // processing (Go's Clean) to dst: it removes repeated slashes, "."
 // elements, and ".." elements with the element before them, and ".."
 // right after the root; an empty result is ".".
-func AppendClean(dst []byte, path string) []byte {
-	return appendClean(dst, strBytes(path))
+func AppendClean[D vec.Appender[byte]](dst D, path string) {
+	c := newCleaner(dst)
+	c.add(strBytes(path))
+	c.done()
 }
 
 // strBytes views a string's bytes. The caller must not modify them.
@@ -113,142 +117,144 @@ func strBytes(s string) []byte {
 	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
 
-// appendClean is AppendClean for a path that is bytes. Cleaning looks only
-// at '/' and '.', so it works on any bytes, valid UTF-8 or not, and can be
-// done in place: it never writes ahead of what it reads.
-func appendClean(dst []byte, path []byte) []byte {
-	start := len(dst)
+// A cleaner appends the clean form of a path to dst as the path's parts
+// are added, so that a path joined from several parts is cleaned without
+// being built first. Cleaning looks only at '/' and '.', so it works on
+// any bytes, valid UTF-8 or not.
+type cleaner[D vec.Appender[byte]] struct {
+	dst    D
+	start  int  // dst.Len() before the path
+	dotdot int  // length of the written path that ".." may not back over
+	rooted bool // the path starts with '/'
+	begun  bool // a non-empty part has been added
+}
+
+func newCleaner[D vec.Appender[byte]](dst D) cleaner[D] {
+	return cleaner[D]{dst: dst, start: dst.Len()}
+}
+
+// add adds the next part of the path; parts are joined with '/'.
+func (c *cleaner[D]) add(path []byte) {
 	if len(path) == 0 {
-		return append(dst, '.')
+		return
 	}
-	rooted := path[0] == '/'
-	n := len(path)
-	r, dotdot := 0, 0 // read index; where ".." may no longer back up
-	if rooted {
-		dst = append(dst, '/')
-		r, dotdot = 1, 1
-	}
-	for r < n {
-		switch {
-		case path[r] == '/':
-			r++ // empty element
-		case path[r] == '.' && (r+1 == n || path[r+1] == '/'):
-			r++ // "."
-		case path[r] == '.' && path[r+1] == '.' && (r+2 == n || path[r+2] == '/'):
-			r += 2 // ".."
-			w := len(dst) - start
-			switch {
-			case w > dotdot:
-				// Back up to the previous separator.
-				w--
-				for w > dotdot && dst[start+w] != '/' {
-					w--
-				}
-				dst = dst[:start+w]
-			case !rooted:
-				// Cannot back up: keep the "..".
-				if w > 0 {
-					dst = append(dst, '/')
-				}
-				dst = append(dst, '.', '.')
-				dotdot = len(dst) - start
-			}
-		default:
-			// A real element: add a separator if needed, then copy it.
-			if rooted && len(dst)-start != 1 || !rooted && len(dst)-start != 0 {
-				dst = append(dst, '/')
-			}
-			for ; r < n && path[r] != '/'; r++ {
-				dst = append(dst, path[r])
-			}
+	if !c.begun {
+		c.begun = true
+		if path[0] == '/' {
+			c.rooted = true
+			c.dst.Push('/')
+			c.dotdot = 1
 		}
 	}
-	if len(dst) == start {
-		dst = append(dst, '.')
+	n := len(path)
+	for r := 0; r < n; {
+		if path[r] == '/' {
+			r++ // empty element
+			continue
+		}
+		e := r
+		for e < n && path[e] != '/' {
+			e++
+		}
+		c.element(path[r:e])
+		r = e
 	}
-	return dst
+}
+
+// element adds one element of the path, which has no '/'.
+func (c *cleaner[D]) element(el []byte) {
+	switch {
+	case len(el) == 1 && el[0] == '.':
+	case len(el) == 2 && el[0] == '.' && el[1] == '.':
+		w := c.dst.Len() - c.start
+		switch {
+		case w > c.dotdot:
+			// Back up to the previous separator.
+			b := c.dst.Slice()
+			w--
+			for w > c.dotdot && b[c.start+w] != '/' {
+				w--
+			}
+			c.dst.Truncate(c.start + w)
+		case !c.rooted:
+			// Cannot back up: keep the "..".
+			if w > 0 {
+				c.dst.Push('/')
+			}
+			c.dst.Append('.', '.')
+			c.dotdot = c.dst.Len() - c.start
+		}
+	default:
+		// A real element: add a separator if needed, then copy it.
+		w := c.dst.Len() - c.start
+		if c.rooted && w != 1 || !c.rooted && w != 0 {
+			c.dst.Push('/')
+		}
+		c.dst.Append(el...)
+	}
+}
+
+// done finishes the path: an empty one is ".".
+func (c *cleaner[D]) done() {
+	if c.dst.Len() == c.start {
+		c.dst.Push('.')
+	}
 }
 
 // AppendJoin joins the non-empty elements with slashes, cleans the result
 // (as Go's Join does) and appends it to dst. With no non-empty element it
 // appends nothing.
-func AppendJoin(dst []byte, elem ...string) []byte {
-	var buf [4096]byte
-	joined := buf[:0]
+func AppendJoin[D vec.Appender[byte]](dst D, elem ...string) {
+	c := newCleaner(dst)
 	for _, e := range elem {
-		if e == "" {
-			continue
-		}
-		if len(joined) > 0 {
-			if len(joined) == cap(joined) {
-				return appendJoinSlow(dst, elem)
-			}
-			joined = append(joined, '/')
-		}
-		if len(joined)+len(e) > cap(joined) {
-			return appendJoinSlow(dst, elem)
-		}
-		joined = append(joined, e...)
+		c.add(strBytes(e))
 	}
-	if len(joined) == 0 {
-		return dst
+	if c.begun {
+		c.done()
 	}
-	// The elements are strings, valid UTF-8, joined by slashes: valid.
-	return AppendClean(dst, unsafe.String(&joined[0], len(joined)))
-}
-
-// appendJoinSlow joins elements too long for AppendJoin's buffer by
-// cleaning each element's contribution in turn, at the end of dst.
-func appendJoinSlow(dst []byte, elem []string) []byte {
-	start := len(dst)
-	for _, e := range elem {
-		if e == "" {
-			continue
-		}
-		if len(dst) > start {
-			dst = append(dst, '/')
-		}
-		dst = append(dst, e...)
-	}
-	// Clean in place: AppendClean never writes ahead of what it reads, so
-	// cleaning the joined text onto its own start is safe.
-	return appendClean(dst[:start], dst[start:])
 }
 
 // AppendAbs appends an absolute, clean form of path to dst: path joined to
 // the working directory if it is relative. The working directory is taken
 // as its exact bytes (os.AppendWd), so the result is exact even if the
 // directory's name is not valid UTF-8.
-func AppendAbs(dst []byte, path string) ([]byte, error) {
+func AppendAbs[D vec.Appender[byte]](dst D, path string) error {
 	if IsAbs(path) {
-		return AppendClean(dst, path), nil
+		AppendClean(dst, path)
+		return nil
 	}
 	var wd [4096]byte
-	cwd, err := os.AppendWd(wd[:0])
-	if err != nil {
-		return dst, err
+	cwd := vec.NewFixed(wd[:])
+	if err := os.AppendWd(&cwd); err != nil {
+		return err
 	}
-	// Build "cwd/path" at the end of dst, then clean it in place.
-	start := len(dst)
-	dst = append(dst, cwd...)
-	dst = append(dst, '/')
-	dst = append(dst, path...)
-	return appendClean(dst[:start], dst[start:]), nil
+	c := newCleaner(dst)
+	c.add(cwd.Slice())
+	c.add(strBytes(path))
+	c.done()
+	return nil
 }
 
 // AppendRel appends a relative path that is lexically equivalent to targ
 // when joined to base (Go's Rel) to dst. It fails if targ cannot be made
-// relative to base, such as when one is absolute and the other is not.
-func AppendRel(dst []byte, basepath, targpath string) ([]byte, error) {
+// relative to base, such as when one is absolute and the other is not, and
+// if either cleaned path is longer than 4096 bytes.
+func AppendRel[D vec.Appender[byte]](dst D, basepath, targpath string) error {
 	var bb, tb [4096]byte
-	baseb := AppendClean(bb[:0], basepath)
-	targb := AppendClean(tb[:0], targpath)
+	baseb := vec.NewFixed(bb[:])
+	targb := vec.NewFixed(tb[:])
+	AppendClean(&baseb, basepath)
+	AppendClean(&targb, targpath)
+	if baseb.Truncated() || targb.Truncated() {
+		return errNameTooLong
+	}
 	// Cleaned copies of strings, valid UTF-8 (cleaning only drops whole
 	// elements and slashes).
-	base := unsafe.String(&baseb[0], len(baseb))
-	targ := unsafe.String(&targb[0], len(targb))
+	base := unsafe.String(&bb[0], baseb.Len())
+	targ := unsafe.String(&tb[0], targb.Len())
 	if targ == base {
-		return append(dst, '.'), nil
+		dst.Push('.')
+		return nil
 	}
 	if base == "." {
 		base = ""
@@ -256,7 +262,7 @@ func AppendRel(dst []byte, basepath, targpath string) ([]byte, error) {
 	baseSlashed := len(base) > 0 && base[0] == '/'
 	targSlashed := len(targ) > 0 && targ[0] == '/'
 	if baseSlashed != targSlashed {
-		return dst, errRel
+		return errRel
 	}
 	bl := len(base)
 	tl := len(targ)
@@ -281,7 +287,7 @@ func AppendRel(dst []byte, basepath, targpath string) ([]byte, error) {
 		t0 = ti
 	}
 	if base[b0:bi] == ".." {
-		return dst, errRel
+		return errRel
 	}
 	if b0 != bl {
 		seps := 0
@@ -290,17 +296,18 @@ func AppendRel(dst []byte, basepath, targpath string) ([]byte, error) {
 				seps++
 			}
 		}
-		dst = append(dst, '.', '.')
+		dst.Append('.', '.')
 		for i := 0; i < seps; i++ {
-			dst = append(dst, '/', '.', '.')
+			dst.Append('/', '.', '.')
 		}
 		if t0 != tl {
-			dst = append(dst, '/')
-			dst = append(dst, targ[t0:]...)
+			dst.Push('/')
+			vec.AppendString(dst, targ[t0:])
 		}
-		return dst, nil
+		return nil
 	}
-	return append(dst, targ[t0:]...), nil
+	vec.AppendString(dst, targ[t0:])
+	return nil
 }
 
 // Match reports whether name matches the shell pattern (Go's Match):

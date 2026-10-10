@@ -6,7 +6,7 @@
 "he" true
 "" false
 true true true false [10 20 30] false
-"0123456789" 16
+"0123" 4 true
 6 10 10 10 10 
 item=0;item=12345;item=24690;item=37035;item=49380;
 0 51

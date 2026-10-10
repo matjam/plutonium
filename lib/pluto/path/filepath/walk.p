@@ -4,6 +4,7 @@ import (
 	"pluto/errors"
 	"pluto/os"
 	"pluto/unicode/utf8"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -127,11 +128,13 @@ func walkDir(w *walker, path []byte, d *os.DirEntry) error {
 			}
 			continue
 		}
-		child := append(buf[:0], path...)
+		cf := vec.NewFixed(buf[:])
+		cf.Append(path...)
 		if len(path) > 0 && path[len(path)-1] != '/' {
-			child = append(child, '/')
+			cf.Push('/')
 		}
-		child = append(child, raw...)
+		cf.Append(raw...)
+		child := cf.Slice()
 		if err := walkDir(w, child, &e); err != nil {
 			if err == SkipDir {
 				break

@@ -16,6 +16,7 @@ import (
 	"pluto/os/exec"
 	"pluto/path/filepath"
 	"pluto/unicode/utf8"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -38,9 +39,11 @@ func hex(b []byte) {
 
 // join returns dir/name in buf.
 func join(buf []byte, dir string, name []byte) []byte {
-	b := append(buf[:0], dir...)
-	b = append(b, '/')
-	return append(b, name...)
+	b := vec.NewFixed(buf)
+	vec.AppendString(&b, dir)
+	b.Push('/')
+	b.Append(name...)
+	return b.Slice()
 }
 
 // The names: none is a string, since none of the invalid ones can be.
@@ -162,21 +165,26 @@ func main() {
 	println("new name there", err == nil)
 
 	// MkdirAllBytes and ChdirBytes, Getwd and AppendWd, filepath.Abs.
-	deep := join(pb[:], dir, nDir[:])
-	deep = append(deep, "/x/y"...)
+	df := vec.NewFixed(pb[:])
+	df.Append(join(qb[:], dir, nDir[:])...)
+	vec.AppendString(&df, "/x/y")
+	deep := df.Slice()
 	check("MkdirAllBytes", os.MkdirAllBytes(deep, 0o755))
 	var wb, home [4096]byte
-	h, err := os.AppendWd(home[:0])
-	check("AppendWd", err)
+	hf := vec.NewFixed(home[:])
+	check("AppendWd", os.AppendWd(&hf))
+	h := hf.Slice()
 	check("ChdirBytes", os.ChdirBytes(deep))
 	wd, err := os.Getwd()
 	check("Getwd", err)
-	raw, err := os.AppendWd(wb[:0])
-	check("AppendWd 2", err)
+	rf := vec.NewFixed(wb[:])
+	check("AppendWd 2", os.AppendWd(&rf))
+	raw := rf.Slice()
 	println("Getwd valid", utf8.ValidString(wd), "lossy is longer", len(wd) > len(raw))
 	println("raw ends with y", raw[len(raw)-1] == 'y', "raw has 0xfd", rawHas(raw, 0xfd), "lossy has 0xfd", rawHas([]byte(wd), 0xfd))
-	abs, err := filepath.AppendAbs(wb[:0], "z/../w")
-	check("AppendAbs", err)
+	af := vec.NewFixed(wb[:])
+	check("AppendAbs", filepath.AppendAbs(&af, "z/../w"))
+	abs := af.Slice()
 	println("AppendAbs ends with /x/y/w", suffix(abs, "/x/y/w"), "exact", rawHas(abs, 0xfd))
 	s, err := filepath.Abs("w")
 	check("Abs", err)
@@ -195,21 +203,25 @@ func main() {
 	check("Readlink", err)
 	println("Readlink valid", utf8.ValidString(target), len(target))
 	var lb [64]byte
-	rawt, err := os.AppendReadlink(lb[:0], dir+"/link")
-	check("AppendReadlink", err)
+	rawt := vec.NewFixed(lb[:])
+	check("AppendReadlink", os.AppendReadlink(&rawt, dir+"/link"))
 	print("AppendReadlink ")
-	hex(rawt)
+	hex(rawt.Slice())
 	println()
-	rawt, err = os.ReadlinkBytes(lb[:0], append(append(pb[:0], dir...), "/link"...))
-	check("ReadlinkBytes", err)
+	rawt.Reset()
+	lp := vec.NewFixed(pb[:])
+	vec.AppendString(&lp, dir)
+	vec.AppendString(&lp, "/link")
+	check("ReadlinkBytes", os.ReadlinkBytes(&rawt, lp.Slice()))
 	print("ReadlinkBytes ")
-	hex(rawt)
+	hex(rawt.Slice())
 	println()
 	_, err = os.Readlink(dir + "/plain.txt")
 	println("Readlink of a file fails", err != nil)
 	errors.Free(err)
-	_, err = os.AppendReadlink(lb[:0:2], dir+"/link")
-	println("target too long for the buffer", err != nil)
+	short := vec.NewFixed(lb[:1])
+	err = os.AppendReadlink(&short, dir+"/link")
+	println("target too long for the buffer", err != nil, short.Len())
 	errors.Free(err)
 
 	// Walking: WalkDir gives valid paths, WalkDirBytes the exact ones, which

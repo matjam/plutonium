@@ -72,11 +72,11 @@ func main() {
 	}
 	fmt.Println(g.Slice(), g.Truncated())
 
-	// The storage's capacity is the room, whatever its length.
+	// The storage's length is the room, whatever its capacity.
 	var big [16]byte
 	h := vec.NewFixed(big[:4])
 	vec.AppendString(&h, "0123456789")
-	fmt.Printf("%q %d\n", h.Slice(), h.Cap())
+	fmt.Printf("%q %d %t\n", h.Slice(), h.Cap(), h.Truncated())
 
 	// The same generic code writes into a Vec, which grows, and a Fixed.
 	v := vec.New[byte]()

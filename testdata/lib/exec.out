@@ -19,6 +19,7 @@ bad path: true
 lookpath sh true true
 lookpath relative true true
 append lookpath sh true true
+append lookpath too long true 0
 wait before start true
 run true start again true
 output with stdout true

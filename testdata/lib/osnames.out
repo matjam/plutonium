@@ -34,7 +34,7 @@ Readlink valid true 4
 AppendReadlink 74ff
 ReadlinkBytes 74ff
 Readlink of a file fails true
-target too long for the buffer true
+target too long for the buffer true 0
 WalkDir visited 13
 WalkDirBytes visited 13 opened 7
 ArgBytes(0) matches Arg(0) true true
