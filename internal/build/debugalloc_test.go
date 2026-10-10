@@ -392,6 +392,50 @@ func main() {
 	}
 }
 
+// TestCallerPC checks the code for rt.CallerPC: a load of the return
+// address in a function of its own, the address of the code where it is
+// inlined, and the interrupted RIP in an interrupt handler.
+func TestCallerPC(t *testing.T) {
+	const src = `package main
+
+import (
+	"pluto/arch/x86"
+	"pluto/rt"
+)
+
+var last uintptr
+
+//pu:noinline
+func where() uintptr { return rt.CallerPC() }
+
+func here() uintptr { return rt.CallerPC() }
+
+//pu:interrupt
+func handler(f *x86.InterruptFrame) { last = rt.CallerPC() }
+
+func main() {
+	a, b := where(), where()
+	c, d := here(), here()
+	println(a != 0, a != b, c != 0, c != d, x86.HandlerAddr(handler) != 0)
+}
+`
+	for _, level := range []int{0, 2} {
+		got, status := compileAndRun(t, src, level)
+		if status != 0 || got != "true true true true true\n" {
+			t.Errorf("-O%d: status %d, output %q", level, status, got)
+		}
+	}
+	if where := listFunc(t, src, "main.where"); !strings.Contains(where, "(%rsp), %") {
+		t.Errorf("where does not load its return address:\n%s", where)
+	}
+	if main := listFunc(t, src, "main.main"); !strings.Contains(main, "0(%rip), %") {
+		t.Errorf("inlined CallerPC does not take the code address:\n%s", main)
+	}
+	if handler := listFunc(t, src, "main.handler"); !strings.Contains(handler, "(%rsp), %") {
+		t.Errorf("handler does not load the interrupted RIP:\n%s", handler)
+	}
+}
+
 // funcAt returns the name of the function symbol in prog containing pc.
 func funcAt(t *testing.T, prog string, pc uint64) string {
 	t.Helper()

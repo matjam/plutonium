@@ -179,11 +179,11 @@ func sigreturnAddr() uintptr
 //pu:export
 func sigfault(sig int, info, ctx unsafe.Pointer) {
 	const (
-		siAddr   = 16       // siginfo_t.si_addr
-		ucGregs  = 40       // ucontext_t.uc_mcontext.gregs
-		regRIP   = 16       // REG_RIP
-		regErr   = 19       // REG_ERR: the page fault error code
-		pfWrite  = 0x2      // error code bit: the access was a write
+		siAddr   = 16  // siginfo_t.si_addr
+		ucGregs  = 40  // ucontext_t.uc_mcontext.gregs
+		regRIP   = 16  // REG_RIP
+		regErr   = 19  // REG_ERR: the page fault error code
+		pfWrite  = 0x2 // error code bit: the access was a write
 		wordSize = uintptr(8)
 	)
 	addr := *(*uintptr)(unsafe.Add(info, siAddr))

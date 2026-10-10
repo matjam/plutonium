@@ -609,6 +609,14 @@ func (s *isel) interruptEntry() {
 	}
 	for _, b := range s.f.Blocks {
 		for _, v := range b.Values {
+			if v.Op == ssa.OpReturnAddr {
+				// The handler returns to the interrupted RIP, the
+				// first word of the frame.
+				r := s.newReg(v.Type)
+				s.load(r, Mem{Base: NoReg, Index: NoReg, ArgSlot: true, ArgOff: frameOff}, v.Type)
+				s.vregs[v.ID] = r
+				continue
+			}
 			if v.Op != ssa.OpArg {
 				continue
 			}
