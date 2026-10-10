@@ -145,6 +145,97 @@ func schedHook(d *ast.FuncDecl) (method string, mode hookMode, ok bool) {
 	return "", hookRequired, false
 }
 
+// A lateHook is a body-less runtime function marked
+// //pu:schedlate direct parked (rt.Sleep). Whether the program starts the
+// scheduler is known only once every function it reaches has been lowered,
+// so the hook gets its body then: a call of direct, a function that needs
+// no scheduler, if the program does not start one, otherwise a call of
+// parked. A program that sleeps and does nothing else with puroutines,
+// channels or timers thus links no scheduler thread (language spec section
+// 4.7).
+type lateHook struct {
+	sym            *ssa.Sym
+	sig            *types2.Signature
+	direct, parked *types2.Func
+}
+
+// lateHookNames returns the names of the functions a //pu:schedlate
+// declaration chooses between.
+func lateHookNames(d *ast.FuncDecl) (direct, parked string, ok bool) {
+	for _, dir := range directives(d.Doc) {
+		if rest, found := strings.CutPrefix(dir, "schedlate "); found {
+			if f := strings.Fields(rest); len(f) == 2 {
+				return f[0], f[1], true
+			}
+		}
+	}
+	return "", "", false
+}
+
+// lateHookSym returns the symbol of the hook fn, whose body is chosen by
+// resolveLateHooks (at once, if that has run).
+func (l *Lowerer) lateHookSym(fn *types2.Func, direct, parked string) *ssa.Sym {
+	name := funcSymName(fn, nil)
+	if sym := l.funcs[name]; sym != nil {
+		return sym
+	}
+	sym := l.out.Sym(name, ssa.SymFunc)
+	l.funcs[name] = sym
+	h := &lateHook{sym: sym, sig: fn.Type().(*types2.Signature), direct: l.rtFunc(direct), parked: l.rtFunc(parked)}
+	if l.lateDone {
+		l.queueLateHook(h)
+	} else {
+		l.late = append(l.late, h)
+	}
+	return sym
+}
+
+// startsScheduler reports whether the lowered program starts the
+// scheduler: it reaches rt.startTasks, from a go statement, a blocking
+// channel operation or wait, a timer, or the poller.
+func (l *Lowerer) startsScheduler() bool {
+	return l.funcs[funcSymName(l.rtFunc("startTasks"), nil)] != nil
+}
+
+// resolveLateHooks gives the pending late hooks their bodies, once the
+// queue of functions is empty, and reports whether there were any. The
+// direct functions are for the default hosted backend only: a program that
+// binds its own scheduler, as a kernel does, gets the parked ones, which
+// use that scheduler's clock and timers.
+func (l *Lowerer) resolveLateHooks() bool {
+	if len(l.late) == 0 {
+		return false
+	}
+	l.lateDirect = l.sched != nil && l.sched.v.Pkg().Path() == "pluto/rt" && !l.startsScheduler()
+	l.lateDone = true
+	late := l.late
+	l.late = nil
+	for _, h := range late {
+		l.queueLateHook(h)
+	}
+	return true
+}
+
+func (l *Lowerer) queueLateHook(h *lateHook) {
+	target := h.parked
+	if l.lateDirect {
+		target = h.direct
+	}
+	l.queue = append(l.queue, &funcJob{sym: h.sym, sig: h.sig, build: func(s *fnState) {
+		in := s.incomingArgs(h.sig)
+		res := s.emitCall(callee{sym: l.funcSym(target, nil)}, h.sig, nil, in, token.NoPos)
+		s.returnValues(res)
+	}})
+}
+
+// checkLateHooks reports a compiler failure: a hook bound to a function
+// that needs no scheduler in a program that, as it turned out, starts one.
+func (l *Lowerer) checkLateHooks() {
+	if l.lateDirect && l.startsScheduler() {
+		l.internalf(l.prog.Main.Files[0].Package, "a call chosen to avoid the scheduler reaches it")
+	}
+}
+
 // schedMethod returns the method of the bound scheduler b named name, and
 // the path to it through embedded fields, or nil.
 func schedMethod(b *schedBinding, name string) (*types2.Func, []int) {

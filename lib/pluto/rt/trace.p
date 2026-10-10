@@ -38,6 +38,28 @@ func Traceback(pc, sp, bp uintptr) {
 	traceback(Console{}, pc, sp, bp, true, false)
 }
 
+// TraceTask writes to w the stack trace of t, a task that is not running,
+// one frame per line, innermost first, in the format of Panic.PrintTrace;
+// the frames of package rt that park it are left out. It starts from the
+// state Switch saved in t's context: below the saved stack pointer lie
+// RFLAGS and the callee-saved registers, then the return address into the
+// code that called swapcontext (ctx_amd64.s). It reads the trace table and
+// the stack and allocates nothing, so a panic handler or a deadlock report
+// can use it for every task. t must be switched out (parked, runnable or
+// yielded), and its stack must stay as it is meanwhile. A task that was
+// preempted asynchronously has the preemption stub's frame at the top,
+// where the walk stops; one that has not run yet has no frames. Like
+// Panic.PrintTrace, it is generic in the type of w.
+func TraceTask[W Writer](t *Task, w W) {
+	sp := t.ctx.sp
+	if sp == 0 {
+		return
+	}
+	bp := *(*uintptr)(unsafe.Pointer(sp + 48))
+	pc := *(*uintptr)(unsafe.Pointer(sp + 56))
+	traceback(w, pc, sp+64, bp, false, true)
+}
+
 // traceback prints to w the stack walked from pc, sp and bp. exact says pc
 // is the faulting instruction rather than a return address. skipRuntime
 // omits the innermost frames of package rt, which belong to the panic
@@ -77,12 +99,7 @@ func traceback[W Writer](w W, pc, sp, bp uintptr, exact, skipRuntime bool) {
 			// The bottom of the main thread's or a puroutine's stack.
 			return
 		}
-		if skipRuntime && hasPrefix(name, "pluto/rt.") {
-			// part of the panic
-		} else {
-			skipRuntime = false
-			printFrame(w, tab, fn, name, look)
-		}
+		skipRuntime = printFrame(w, tab, fn, name, look, skipRuntime)
 		flags := *(*uint8)(unsafe.Add(fn, 23))
 		if flags&traceFlagInterrupt != 0 {
 			return // an interrupt frame has no caller to return to
@@ -169,20 +186,38 @@ func findFunc(tab unsafe.Pointer, pc uintptr) unsafe.Pointer {
 
 // printFrame prints the frames at pc in function fn: one for each inlined
 // call it is in, innermost first, then fn itself, named name.
-func printFrame[W Writer](w W, tab, fn unsafe.Pointer, name string, pc uintptr) {
-	file, line := printInlined(w, tab, fn, pc, 0)
+//
+// skip says the frames so far belong to the panic or to the parking of a
+// task (package rt), which a trace leaves out: a function of package rt is
+// not printed, and nor are calls of package rt inlined into the function.
+// It reports whether the next frame is still to be skipped.
+func printFrame[W Writer](w W, tab, fn unsafe.Pointer, name string, pc uintptr, skip bool) bool {
+	if skip && hasPrefix(name, "pluto/rt.") {
+		return true
+	}
+	file, line := printInlined(w, tab, fn, pc, 0, skip)
 	printLocation(w, name, file, line)
+	return false
 }
 
 // printInlined prints a frame for each inlined call the code at pc in fn is
 // in, innermost first, up to and including inline site last (1-based within
 // fn; 0 for all of them). It returns the file and line in the code the last
 // one printed was inlined into.
-func printInlined[W Writer](w W, tab, fn unsafe.Pointer, pc uintptr, last int) (string, int) {
+//
+// With skip set, inlined calls of package rt are not printed, up to the
+// first call that is not (see printFrame).
+func printInlined[W Writer](w W, tab, fn unsafe.Pointer, pc uintptr, last int, skip bool) (string, int) {
 	file, line, inl := findLine(tab, fn, pc-*(*uintptr)(fn))
 	for inl != 0 {
 		site := inlineSite(tab, fn, inl)
-		printLocation(w, traceString(tab, *(*uint32)(unsafe.Add(site, 4))), file, line)
+		name := traceString(tab, *(*uint32)(unsafe.Add(site, 4)))
+		if skip && hasPrefix(name, "pluto/rt.") {
+			// part of the panic or the parking
+		} else {
+			skip = false
+			printLocation(w, name, file, line)
+		}
 		file = traceString(tab, *(*uint32)(unsafe.Add(site, 8)))
 		line = int(*(*uint32)(unsafe.Add(site, 12)))
 		if inl == last {
@@ -202,7 +237,7 @@ func printInlinedMain[W Writer](w W, tab, fn unsafe.Pointer, pc uintptr) {
 	for inl != 0 {
 		site := inlineSite(tab, fn, inl)
 		if strequal(traceString(tab, *(*uint32)(unsafe.Add(site, 4))), "main.main") {
-			printInlined(w, tab, fn, pc, inl)
+			printInlined(w, tab, fn, pc, inl, false)
 			return
 		}
 		inl = int(*(*uint32)(site))

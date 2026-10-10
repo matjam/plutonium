@@ -71,7 +71,7 @@ func (m *Mutex) lockSlow() {
 			m.q.push(rt.Pinned(&w))
 		}
 		m.mu.Unlock()
-		rt.Park()
+		rt.ParkReason(rt.WaitMutex)
 		front = true
 	}
 }
@@ -124,7 +124,7 @@ type sema struct {
 }
 
 //pu:blocking
-func (s *sema) acquire() {
+func (s *sema) acquire(r rt.WaitReason) {
 	s.mu.Lock()
 	if s.n > 0 {
 		s.n--
@@ -135,7 +135,7 @@ func (s *sema) acquire() {
 	w.t = self()
 	s.q.push(rt.Pinned(&w)) // popped before this puroutine is readied
 	s.mu.Unlock()
-	rt.Park()
+	rt.ParkReason(r)
 }
 
 func (s *sema) release() {

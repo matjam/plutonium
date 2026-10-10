@@ -299,6 +299,31 @@ func schedArmTimer(deadline int64)
 // kernel provides one); a kernel's scheduler provides it as its Now method.
 func Now() int64 { return schedNow() }
 
+// Sleep pauses the running code for at least ns nanoseconds; ns must be
+// positive. The compiler gives it one of two bodies, once it knows what the
+// whole program does (internal/lower/sched.go). A program that never
+// starts the scheduler (no go statement, no blocking channel operation or
+// pluto/sync wait, no timer, no ParkUntil) and has the default hosted
+// backend sleeps in sleepDirect: its only thread waits in the kernel, and
+// no monitor or poller thread exists. Any other program sleeps in
+// sleepParked, so that the processor runs other puroutines meanwhile.
+//
+//pu:schedlate sleepDirect sleepParked
+func Sleep(ns int64)
+
+// sleepParked parks the running task until ns nanoseconds have passed on
+// the Now clock.
+func sleepParked(ns int64) {
+	now := Now()
+	end := now + ns
+	if end <= now {
+		end = NoDeadline - 1
+	}
+	for Now() < end {
+		ParkUntil(end)
+	}
+}
+
 // A parkTimer is the timer of one ParkUntil, in the parking task's frame.
 type parkTimer struct {
 	tm    Timer
@@ -347,7 +372,7 @@ func ParkUntil(deadline int64) bool {
 	pp := Pinned(&pt)
 	pp.tm.Init(parkTimeout, unsafe.Pointer(pp))
 	pp.tm.Reset(deadline, 0)
-	Park()
+	ParkReason(WaitSleep)
 	if cas32(&pt.state, 0, 2) {
 		// Readied before the deadline: the timer's function, if it is
 		// running, finds the park settled. Stop waits for it, since pt

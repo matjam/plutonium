@@ -85,6 +85,8 @@ type Task struct {
 	insyscall bool    // between EnterSyscall and ExitSyscall (hosted)
 	allocSite uintptr // see AllocSite
 
+	waitReason WaitReason // what the task last parked for (Task.WaitReason)
+
 	// Link and Data are the backend's: a run-queue link and a word for its
 	// own use. The runtime never touches them.
 	Link *Task
@@ -399,6 +401,73 @@ func Pinned[T any](p *T) *T {
 	return (*T)(unsafe.Pointer(uintptr(unsafe.Pointer(p))))
 }
 
+// A WaitReason says what a parked task waits for. Traces of parked tasks
+// show it, as Go does in "goroutine 5 [chan receive]:" (TraceTask).
+type WaitReason uint8
+
+const (
+	WaitUnknown        WaitReason = iota // parked with Park: "waiting"
+	WaitChanReceive                      // "chan receive"
+	WaitChanSend                         // "chan send"
+	WaitChanReceiveNil                   // "chan receive (nil chan)"
+	WaitChanSendNil                      // "chan send (nil chan)"
+	WaitSelect                           // "select"
+	WaitSelectNoCases                    // "select (no cases)"
+	WaitMutex                            // "sync.Mutex.Lock"
+	WaitRWMutexRead                      // "sync.RWMutex.RLock"
+	WaitRWMutexWrite                     // "sync.RWMutex.Lock"
+	WaitWaitGroup                        // "sync.WaitGroup.Wait"
+	WaitCond                             // "sync.Cond.Wait"
+	WaitSleep                            // "sleep"
+	WaitIO                               // "IO wait"
+	WaitSystem                           // "system": a runtime helper, left out of deadlock reports
+)
+
+// String returns the reason as a trace prints it.
+func (r WaitReason) String() string {
+	switch r {
+	case WaitChanReceive:
+		return "chan receive"
+	case WaitChanSend:
+		return "chan send"
+	case WaitChanReceiveNil:
+		return "chan receive (nil chan)"
+	case WaitChanSendNil:
+		return "chan send (nil chan)"
+	case WaitSelect:
+		return "select"
+	case WaitSelectNoCases:
+		return "select (no cases)"
+	case WaitMutex:
+		return "sync.Mutex.Lock"
+	case WaitRWMutexRead:
+		return "sync.RWMutex.RLock"
+	case WaitRWMutexWrite:
+		return "sync.RWMutex.Lock"
+	case WaitWaitGroup:
+		return "sync.WaitGroup.Wait"
+	case WaitCond:
+		return "sync.Cond.Wait"
+	case WaitSleep:
+		return "sleep"
+	case WaitIO:
+		return "IO wait"
+	case WaitSystem:
+		return "system"
+	}
+	return "waiting"
+}
+
+// WaitReason returns what t last parked for. It is meaningful while t is
+// parked.
+func (t *Task) WaitReason() WaitReason { return t.waitReason }
+
+// Parked reports whether t is switched out in Park (or ParkReason), waiting
+// for Ready: its state is saved, so TraceTask can describe it, until
+// something readies it. It is false for a task that is running or runnable,
+// and for one whose Ready has come but which has not run again.
+func (t *Task) Parked() bool { return load32(&t.wake) == wakeParked }
+
 // Park suspends the running task until Ready is called for it. Each Ready
 // matches one Park and grants a permit: if Ready comes first (from another
 // processor, between the moment the task made itself known to its waker
@@ -406,7 +475,16 @@ func Pinned[T any](p *T) *T {
 // Park panics if preemption is disabled.
 //
 //pu:blocking
-func Park() {
+func Park() { park(WaitUnknown) }
+
+// ParkReason is Park for a task that can say what it waits for, which
+// traces of parked tasks show.
+//
+//pu:blocking
+func ParkReason(r WaitReason) { park(r) }
+
+//pu:blocking
+func park(r WaitReason) {
 	startTasks()
 	t := current()
 	if t == nil {
@@ -416,6 +494,7 @@ func Park() {
 		panicMessage("blocking with preemption disabled", "", "", "", "")
 	}
 	checkBlocking()
+	t.waitReason = r
 	inc32(&t.locks)
 	if cas32(&t.wake, wakePending, wakeNone) {
 		dec32(&t.locks)

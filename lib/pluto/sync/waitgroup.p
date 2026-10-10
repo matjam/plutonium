@@ -67,7 +67,7 @@ func (wg *WaitGroup) Wait() {
 	w.t = self()
 	wg.q.push(rt.Pinned(&w)) // popped before this puroutine is readied
 	wg.mu.Unlock()
-	rt.Park()
+	rt.ParkReason(rt.WaitWaitGroup)
 }
 
 // Once performs one action exactly once.
@@ -126,7 +126,7 @@ func (c *Cond) Wait() {
 	c.q.push(rt.Pinned(&w)) // popped before this puroutine is readied
 	c.mu.Unlock()
 	c.L.Unlock()
-	rt.Park()
+	rt.ParkReason(rt.WaitCond)
 	c.L.Lock()
 }
 

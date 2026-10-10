@@ -8,8 +8,9 @@ abi.md section 12.8 maps the names used below to the implemented ones (`Start` i
 `Resched` are `Park` and `Yield`, and so on). Timers are implemented as abi.md section 12.9 describes,
 with one change from this note: the runtime keeps the timers, so a backend provides only a clock (`Now`)
 and a timer (`ArmTimer`, serviced with `rt.RunTimers`), both optional, instead of `BlockUntil`;
-`rt.ParkUntil` is built on them. `rt.TraceTask` is not implemented yet. The rest of this note is the
-proposal as written.
+`rt.ParkUntil` is built on them. `rt.TraceTask` is implemented, as the generic
+`rt.TraceTask[W Writer](t *Task, w W)` of `Panic.PrintTrace` rather than with a `func(line []byte)`
+(debugging.md section 5). The rest of this note is the proposal as written.
 
 Plutonium provides puroutines, channels, `select` and `pluto/sync` as language and runtime mechanism, and
 a scheduler only for hosted Linux. A freestanding program that uses them, such as a kernel, supplies the

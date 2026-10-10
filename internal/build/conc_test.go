@@ -316,7 +316,7 @@ func main() {
 	println("fair", na > 8000 && nb > 8000)
 }
 `},
-		{name: "deadlock", status: 2, want: "fatal error: all puroutines are asleep - deadlock!\n", src: `package main
+		{name: "deadlock", status: 2, want: "fatal error: all puroutines are asleep - deadlock!\n\npuroutine 1 [chan receive]:\n", src: `package main
 
 func main() {
 	c := make(chan int)

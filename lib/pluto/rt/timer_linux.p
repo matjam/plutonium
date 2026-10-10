@@ -20,6 +20,9 @@ const (
 	sysEventfd2    = 290
 	sysEpollPwait2 = 441
 
+	sysClockNanosleep = 230
+	timerAbstime      = 1 // clock_nanosleep: the time is absolute
+
 	efdNonblock    = 0x800
 	efdCloexec     = 0x80000
 	clockMonotonic = 1
@@ -34,6 +37,21 @@ func (*hostedSched) Now() int64 { return nanotime() }
 // processors' heaps itself, and never uses the shared heap that ArmTimer
 // serves.
 func (*hostedSched) ArmTimer(deadline int64) {}
+
+// sleepDirect waits ns nanoseconds on the calling thread with
+// clock_nanosleep, until an absolute time on the monotonic clock, so that a
+// signal that interrupts it does not lengthen the wait. It is the body of
+// Sleep in a program that never starts the scheduler.
+func sleepDirect(ns int64) {
+	end := nanotime() + ns
+	if end <= ns {
+		end = NoDeadline - 1
+	}
+	for nanotime() < end {
+		ts := timespec{sec: end / 1000000000, nsec: end % 1000000000}
+		syscall6(sysClockNanosleep, clockMonotonic, timerAbstime, uintptr(unsafe.Pointer(&ts)), 0, 0, 0)
+	}
+}
 
 // timerStart starts what running timers needs, before a timer is armed:
 // the scheduler, and with the hosted backend the poller thread.

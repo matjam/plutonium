@@ -1,6 +1,9 @@
 package sync
 
-import "pluto/sync/atomic"
+import (
+	"pluto/rt"
+	"pluto/sync/atomic"
+)
 
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style
@@ -30,7 +33,7 @@ type RWMutex struct {
 func (rw *RWMutex) RLock() {
 	if atomic.AddInt32(&rw.readerCount, 1) < 0 {
 		// A writer is pending: wait for it.
-		rw.readerSem.acquire()
+		rw.readerSem.acquire(rt.WaitRWMutexRead)
 	}
 }
 
@@ -74,7 +77,7 @@ func (rw *RWMutex) Lock() {
 	r := atomic.AddInt32(&rw.readerCount, -rwmutexMaxReaders) + rwmutexMaxReaders
 	// Wait for the readers that hold the lock.
 	if r != 0 && atomic.AddInt32(&rw.readerWait, r) != 0 {
-		rw.writerSem.acquire()
+		rw.writerSem.acquire(rt.WaitRWMutexWrite)
 	}
 }
 

@@ -390,7 +390,7 @@ func main() {
 	println("received", <-c)
 }
 `},
-		{name: "deadlockafter", status: 2, want: "fatal error: all puroutines are asleep - deadlock!\n", src: `package main
+		{name: "deadlockafter", status: 2, want: "fatal error: all puroutines are asleep - deadlock!\n\npuroutine 1 [chan receive]:\n", src: `package main
 
 import "pluto/time"
 
@@ -402,7 +402,7 @@ func main() {
 	<-c
 }
 `},
-		{name: "deadlockstopped", status: 2, want: "fatal error: all puroutines are asleep - deadlock!\n", src: `package main
+		{name: "deadlockstopped", status: 2, want: "fatal error: all puroutines are asleep - deadlock!\n\npuroutine 1 [chan receive]:\n", src: `package main
 
 import "pluto/time"
 
