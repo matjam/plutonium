@@ -5,13 +5,14 @@ import (
 	"pluto/errors"
 	"pluto/rt"
 	"pluto/unicode/utf8"
+	"pluto/vec"
 	"unsafe"
 )
 
 // The functions that make new strings. Each allocates one buffer of the
 // exact size from the current allocator, alloc.Default(), and returns its
 // argument itself when the result would be equal to it. The Append forms in
-// append.p write into a caller's slice instead.
+// append.p write into a destination the caller declares instead.
 
 // ErrInvalidUTF8 is the error FromUTF8 returns for bytes that are not valid
 // UTF-8.
@@ -20,7 +21,7 @@ var ErrInvalidUTF8 = errors.New("strings: invalid UTF-8")
 // newBuf is a new string buffer being filled: its bytes so far, and the
 // reference to it.
 type newBuf struct {
-	b   []byte
+	b   vec.Fixed[byte]
 	ctl uintptr
 }
 
@@ -31,13 +32,13 @@ func allocBuf(n int) newBuf {
 		panic("strings: no allocator: call alloc.SetDefault before building strings")
 	}
 	p, ctl := rt.NewStringBuffer(n, a)
-	return newBuf{b: unsafe.Slice(p, n)[:0], ctl: ctl}
+	return newBuf{b: vec.NewFixed(unsafe.Slice(p, n)), ctl: ctl}
 }
 
 // done returns the string of the bytes written, which must be valid UTF-8,
 // and drops the buffer's own reference: the string holds the only one.
 func (nb *newBuf) done(ascii bool) string {
-	s := rt.MakeString(unsafe.SliceData(nb.b), len(nb.b), nb.ctl, ascii)
+	s := rt.MakeString(unsafe.SliceData(nb.b.Slice()), nb.b.Len(), nb.ctl, ascii)
 	rt.ReleaseString(nb.ctl)
 	return s
 }
@@ -49,7 +50,7 @@ func Clone(s string) string {
 		return ""
 	}
 	nb := allocBuf(len(s))
-	nb.b = append(nb.b, s...)
+	vec.AppendString(&nb.b, s)
 	return nb.done(rt.KnownASCII(s))
 }
 
@@ -78,9 +79,7 @@ func Repeat(s string, count int) string {
 		panic("strings: Repeat output length overflow")
 	}
 	nb := allocBuf(len(s) * count)
-	for i := 0; i < count; i++ {
-		nb.b = append(nb.b, s...)
-	}
+	AppendRepeat(&nb.b, s, count)
 	return nb.done(rt.KnownASCII(s))
 }
 
@@ -103,7 +102,7 @@ func Join(elems []string, sep string) string {
 		return ""
 	}
 	nb := allocBuf(n)
-	nb.b = AppendJoin(nb.b, elems, sep)
+	AppendJoin(&nb.b, elems, sep)
 	return nb.done(ascii)
 }
 
@@ -128,7 +127,7 @@ func Replace(s, old, new string, n int) string {
 		return ""
 	}
 	nb := allocBuf(size)
-	nb.b = AppendReplace(nb.b, s, old, new, n)
+	AppendReplace(&nb.b, s, old, new, n)
 	return nb.done(rt.KnownASCII(s) && rt.KnownASCII(new))
 }
 
@@ -148,7 +147,7 @@ func ToUpper(s string) string {
 		return s
 	}
 	nb := allocBuf(len(s))
-	nb.b = AppendUpper(nb.b, s)
+	AppendUpper(&nb.b, s)
 	return nb.done(rt.KnownASCII(s))
 }
 
@@ -164,7 +163,7 @@ func ToLower(s string) string {
 		return s
 	}
 	nb := allocBuf(len(s))
-	nb.b = AppendLower(nb.b, s)
+	AppendLower(&nb.b, s)
 	return nb.done(rt.KnownASCII(s))
 }
 

@@ -1871,7 +1871,7 @@ func handle(req *Request) error {
 	a := arena.New(mem[:])              // a views mem; both live in handle's frame
 	fields := vec.New[Field](&a)        // allocates in the arena; holds a view of a
 	parseFields(req.body, &fields)
-	reply := strings.NewBuilder(nil)
+	var reply strings.Builder
 	reply.Init(&a)                      // the builder grows in the arena
 	for i := 0; i < fields.Len(); i++ {
 		f := fields.Ptr(i)

@@ -22,11 +22,10 @@ import (
 //	b.WriteString(name)
 //	greeting := b.String()
 //
-// A Builder from NewBuilder writes into the caller's buffer and never
-// allocates unless Init gives it an allocator: without one, a write that
-// does not fit in the buffer's capacity panics, as append does, and String
-// copies the bytes into a new string from the default allocator, since the
-// caller's buffer may change. A Builder must not be copied after first use.
+// A Builder must not be copied after first use. To build text in a
+// caller's array without allocating, use a vec.Fixed[byte] and the Append
+// functions (strconv.AppendInt, fmt.Appendf, vec.AppendString), then
+// string(f.Slice()).
 //
 // The bytes written need not be valid UTF-8 one at a time, but String
 // replaces each byte that does not begin a valid UTF-8 sequence with U+FFFD,
@@ -35,7 +34,6 @@ type Builder struct {
 	buf   []byte          // the bytes so far, within the buffer
 	ctl   uintptr         // reference to the counted buffer, or 0
 	a     alloc.Allocator // allocator that grows the buffer, or nil
-	fixed bool            // NewBuilder: grow only with an allocator from Init
 
 	// String has shared buf[:len(buf)] with a string, so those bytes must
 	// not change: a reset starts a new buffer.
@@ -44,13 +42,6 @@ type Builder struct {
 	// and nonASCII says whether a byte >= 0x80 is among it.
 	valid    int
 	nonASCII bool
-}
-
-// NewBuilder returns a Builder that writes into buf, starting empty. It
-// never allocates to grow: writes beyond cap(buf) panic, unless Init gives
-// it an allocator to grow from.
-func NewBuilder(buf []byte) Builder {
-	return Builder{buf: buf[:0], fixed: true}
 }
 
 // Init sets the allocator the Builder grows from, by default the default
@@ -68,17 +59,16 @@ func (b *Builder) Init(a alloc.Allocator = alloc.Default()) {
 }
 
 // String returns the accumulated string. It shares the Builder's buffer
-// rather than copying it, unless the buffer is the caller's (NewBuilder) or
-// the bytes are not valid UTF-8; either way the string stays valid after
-// the Builder changes or is freed.
+// rather than copying it, unless the bytes are not valid UTF-8; either way
+// the string stays valid after the Builder changes or is freed.
 func (b *Builder) String() string {
 	n := len(b.buf)
 	if n == 0 {
 		return ""
 	}
 	b.check()
-	if b.valid < n || b.ctl == 0 {
-		// Not valid UTF-8, or a buffer nobody counts: a copy.
+	if b.valid < n {
+		// Not valid UTF-8: a copy with U+FFFD in place of the bad bytes.
 		a := b.a
 		if a == nil {
 			a = alloc.Default()
@@ -132,7 +122,7 @@ func (b *Builder) Reset() {
 
 // Free drops the Builder's reference to its buffer and leaves it empty with
 // no buffer; strings made with String keep the buffer alive. It keeps its
-// allocator for later writes. A caller-provided buffer is not freed.
+// allocator for later writes.
 func (b *Builder) Free() {
 	if b.ctl != 0 {
 		rt.ReleaseString(b.ctl)
@@ -140,7 +130,6 @@ func (b *Builder) Free() {
 	b.buf, b.ctl = nil, 0
 	b.shared = false
 	b.valid, b.nonASCII = 0, false
-	b.fixed = false
 }
 
 // Drop releases the Builder's buffer, as Free does: the owner's release
@@ -159,13 +148,9 @@ func (b *Builder) Grow(n int) {
 }
 
 // grow makes room for n more bytes or panics if the Builder cannot grow. A
-// Builder without an allocator takes the default allocator here, unless it
-// writes into a caller's buffer.
+// Builder without an allocator takes the default allocator here.
 func (b *Builder) grow(n int) {
 	if b.a == nil {
-		if b.fixed {
-			panic("strings.Builder: out of room in the buffer passed to NewBuilder (call Init to let it grow)")
-		}
 		b.a = alloc.Default()
 		if b.a == nil {
 			panic("strings.Builder: no allocator: call alloc.SetDefault or Init before writing")
@@ -192,26 +177,29 @@ func (b *Builder) realloc(c int) {
 	}
 	b.buf, b.ctl = nb, ctl
 	b.shared = false
-	b.fixed = false
 }
 
 // Write appends the contents of p to b's buffer. It always returns len(p),
 // nil, so Builder implements io.Writer.
 func (b *Builder) Write(p []byte) (int, error) {
-	if cap(b.buf)-len(b.buf) < len(p) {
+	n := len(b.buf)
+	if cap(b.buf)-n < len(p) {
 		b.grow(len(p))
 	}
-	b.buf = append(b.buf, p...)
+	b.buf = b.buf[:n+len(p)]
+	copy(b.buf[n:], p)
 	return len(p), nil
 }
 
 // WriteByte appends the byte c to b's buffer. The returned error is always
 // nil.
 func (b *Builder) WriteByte(c byte) error {
-	if len(b.buf) == cap(b.buf) {
+	n := len(b.buf)
+	if n == cap(b.buf) {
 		b.grow(1)
 	}
-	b.buf = append(b.buf, c)
+	b.buf = b.buf[:n+1]
+	b.buf[n] = c
 	return nil
 }
 
@@ -236,11 +224,13 @@ func (b *Builder) WriteRune(r rune) (int, error) {
 // length of s and a nil error. A string is valid UTF-8, so when the bytes
 // before it are, the check that String makes skips it.
 func (b *Builder) WriteString(s string) (int, error) {
-	if cap(b.buf)-len(b.buf) < len(s) {
+	n := len(b.buf)
+	if cap(b.buf)-n < len(s) {
 		b.grow(len(s))
 	}
-	whole := b.valid == len(b.buf)
-	b.buf = append(b.buf, s...)
+	whole := b.valid == n
+	b.buf = b.buf[:n+len(s)]
+	copy(b.buf[n:], s)
 	if whole {
 		b.valid = len(b.buf)
 		b.nonASCII = b.nonASCII || !rt.KnownASCII(s)

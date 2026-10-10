@@ -3,6 +3,8 @@ package main
 import (
 	"pluto/fmt"
 	"pluto/strings"
+	"pluto/unicode/utf8"
+	"pluto/vec"
 )
 
 func isComma(r rune) bool { return r == ',' || r == ';' }
@@ -69,26 +71,28 @@ func main() {
 		}
 		show("fiter", buf[:k])
 	}
-	out := make([]byte, 0, 256)
-	out = strings.AppendUpper(out, "Hello, World! héllo ")
-	out = strings.AppendLower(out, "Hello, World! HÉLLO ")
-	out = strings.AppendRepeat(out, "ab", 3)
-	out = append(out, ' ')
-	out = strings.AppendJoin(out, []string{"x", "y", "z"}, ", ")
-	out = append(out, ' ')
-	out = strings.AppendReplace(out, "oink oink oink", "k", "ky", 2)
-	out = append(out, ' ')
-	out = strings.AppendReplace(out, "oink oink oink", "oink", "moo", -1)
-	out = append(out, ' ')
-	out = strings.AppendReplace(out, "abc", "", "-", -1)
-	fmt.Printf("%s\n", out)
+	var outMem [256]byte
+	out := vec.NewFixed(outMem[:])
+	strings.AppendUpper(&out, "Hello, World! héllo ")
+	strings.AppendLower(&out, "Hello, World! HÉLLO ")
+	strings.AppendRepeat(&out, "ab", 3)
+	out.Push(' ')
+	strings.AppendJoin(&out, []string{"x", "y", "z"}, ", ")
+	out.Push(' ')
+	strings.AppendReplace(&out, "oink oink oink", "k", "ky", 2)
+	out.Push(' ')
+	strings.AppendReplace(&out, "oink oink oink", "oink", "moo", -1)
+	out.Push(' ')
+	strings.AppendReplace(&out, "abc", "", "-", -1)
+	fmt.Printf("%s\n", out.Slice())
 
+	// Text in a caller's array: a vec.Fixed, which never allocates.
 	var mem [8]byte
-	b := strings.NewBuilder(mem[:])
-	b.WriteString("hi")
-	b.WriteByte(' ')
-	b.WriteRune('é')
-	fmt.Printf("%s %d %d\n", b.String(), b.Len(), b.Cap())
+	b := vec.NewFixed(mem[:])
+	vec.AppendString(&b, "hi")
+	b.Push(' ')
+	utf8.AppendRune(&b, 'é')
+	fmt.Printf("%s %d %d\n", string(b.Slice()), b.Len(), b.Cap())
 
 	var g strings.Builder
 	g.Grow(4)
@@ -105,13 +109,12 @@ func main() {
 	fmt.Printf("%d\n", g.Len())
 
 	// The zero Builder grows from the default allocator without Init or
-	// Grow, and a NewBuilder buffer grows once Init gives it an allocator.
+	// Grow, and from the allocator Init gives it.
 	var z strings.Builder
 	z.WriteString("implicit")
 	fmt.Printf("%s %d\n", z.String(), z.Len())
 	z.Free()
-	var small [2]byte
-	f := strings.NewBuilder(small[:])
+	var f strings.Builder
 	f.Init()
 	f.WriteString("grown past 2")
 	fmt.Printf("%s %d\n", f.String(), f.Len())

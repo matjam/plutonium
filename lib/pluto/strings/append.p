@@ -1,68 +1,69 @@
 package strings
 
-import "pluto/unicode/utf8"
+import (
+	"pluto/unicode/utf8"
+	"pluto/vec"
+)
 
-// AppendUpper appends s with all ASCII letters mapped to upper case and
-// returns the extended buffer. Other bytes, including non-ASCII UTF-8, are
-// copied unchanged. Like append, it needs room in dst's capacity.
-func AppendUpper(dst []byte, s string) []byte {
+// The Append forms of the functions that make new strings. Each appends to
+// dst, a *vec.Vec[byte] (which grows from its allocator) or a
+// *vec.Fixed[byte] (which keeps what fits in the caller's array and never
+// allocates), and updates it in place.
+
+// AppendUpper appends s to dst with all ASCII letters mapped to upper case.
+// Other bytes, including non-ASCII UTF-8, are copied unchanged.
+func AppendUpper[D vec.Appender[byte]](dst D, s string) {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		if 'a' <= c && c <= 'z' {
 			c -= 'a' - 'A'
 		}
-		dst = append(dst, c)
+		dst.Push(c)
 	}
-	return dst
 }
 
-// AppendLower appends s with all ASCII letters mapped to lower case and
-// returns the extended buffer. Other bytes, including non-ASCII UTF-8, are
-// copied unchanged. Like append, it needs room in dst's capacity.
-func AppendLower(dst []byte, s string) []byte {
+// AppendLower appends s to dst with all ASCII letters mapped to lower case.
+// Other bytes, including non-ASCII UTF-8, are copied unchanged.
+func AppendLower[D vec.Appender[byte]](dst D, s string) {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		if 'A' <= c && c <= 'Z' {
 			c += 'a' - 'A'
 		}
-		dst = append(dst, c)
+		dst.Push(c)
 	}
-	return dst
 }
 
-// AppendRepeat appends count copies of s to dst and returns the extended
-// buffer. It panics if count is negative.
-func AppendRepeat(dst []byte, s string, count int) []byte {
+// AppendRepeat appends count copies of s to dst. It panics if count is
+// negative.
+func AppendRepeat[D vec.Appender[byte]](dst D, s string, count int) {
 	if count < 0 {
 		panic("strings: negative Repeat count")
 	}
 	for i := 0; i < count; i++ {
-		dst = append(dst, s...)
+		vec.AppendString(dst, s)
 	}
-	return dst
 }
 
-// AppendJoin appends the elements of elems separated by sep to dst and
-// returns the extended buffer.
-func AppendJoin(dst []byte, elems []string, sep string) []byte {
+// AppendJoin appends the elements of elems separated by sep to dst.
+func AppendJoin[D vec.Appender[byte]](dst D, elems []string, sep string) {
 	for i, e := range elems {
 		if i > 0 {
-			dst = append(dst, sep...)
+			vec.AppendString(dst, sep)
 		}
-		dst = append(dst, e...)
+		vec.AppendString(dst, e)
 	}
-	return dst
 }
 
 // AppendReplace appends s to dst with the first n non-overlapping instances
-// of old replaced by new, and returns the extended buffer. If old is empty,
-// it matches at the beginning of the string and after each UTF-8 sequence,
-// yielding up to k+1 replacements for a k-rune string. If n < 0, there is
-// no limit on the number of replacements. It is Go's Replace, appending
-// instead of allocating.
-func AppendReplace(dst []byte, s, old, new string, n int) []byte {
+// of old replaced by new. If old is empty, it matches at the beginning of
+// the string and after each UTF-8 sequence, yielding up to k+1 replacements
+// for a k-rune string. If n < 0, there is no limit on the number of
+// replacements. It is Go's Replace, appending instead of allocating.
+func AppendReplace[D vec.Appender[byte]](dst D, s, old, new string, n int) {
 	if old == new || n == 0 {
-		return append(dst, s...)
+		vec.AppendString(dst, s)
+		return
 	}
 	start := 0
 	for i := 0; i != n; i++ {
@@ -82,9 +83,9 @@ func AppendReplace(dst []byte, s, old, new string, n int) []byte {
 			}
 			j += k
 		}
-		dst = append(dst, s[start:j]...)
-		dst = append(dst, new...)
+		vec.AppendString(dst, s[start:j])
+		vec.AppendString(dst, new)
 		start = j + len(old)
 	}
-	return append(dst, s[start:]...)
+	vec.AppendString(dst, s[start:])
 }

@@ -533,7 +533,7 @@ func TestCompletion(t *testing.T) {
 		{"enum members", body("_ = shapes.Color."), "shapes.Color.", []string{"Red", "Green", "Blue"}, nil},
 		{"scope", body("_ = st"), "_ = st", []string{"strings"}, []string{"shapes"}},
 		{"locals and keywords", body("x := b"), "x := b", []string{"b", "break", "bool"}, nil},
-		{"value of a call", body("_ = strings.NewBuilder(nil)."), "NewBuilder(nil).", []string{"String"}, nil},
+		{"value of a call", body("_ = strings.FieldsIter(\"a\")."), "FieldsIter(\"a\").", []string{"Next"}, nil},
 		{"in a comment", body("// strings."), "// strings.", nil, []string{"HasPrefix"}},
 		{"in a string", body("_ = \"strings."), "\"strings.", nil, []string{"HasPrefix"}},
 	} {
