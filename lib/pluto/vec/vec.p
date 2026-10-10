@@ -1,7 +1,8 @@
-// Package vec provides Vec, a growable slice that records its allocator.
+// Package vec provides Vec, a growable slice that records its allocator,
+// and Fixed, a bounded vector over storage the caller provides.
 //
-// Plutonium's append works only within a slice's capacity, because a slice
-// does not know where its memory came from. A Vec does: when it runs out of
+// A Plutonium slice cannot grow, because it does not know where its memory
+// came from (language spec section 4.3). A Vec does: when it runs out of
 // room it allocates a buffer twice as large from its allocator, copies the
 // elements and frees the old buffer.
 //
@@ -18,7 +19,7 @@
 //
 // A Vec must not be copied after first use; pass a *Vec. Slices returned by
 // Slice and pointers returned by Ptr are invalidated by any call that grows
-// the Vec (Push, Append, Insert, Reserve) and by Free.
+// the Vec (Push, Append, Insert, Replace, Reserve) and by Free.
 package vec
 
 import (
@@ -54,6 +55,21 @@ func WithCapacity[T any](n int, a alloc.Allocator = alloc.Default()) Vec[T] {
 	return v
 }
 
+// Make returns a Vec of n zero elements that allocates from a (by default
+// the default allocator): the form of Go's make([]T, n). For Go's
+// make([]T, 0, c), use WithCapacity.
+func Make[T any](n int, a alloc.Allocator = alloc.Default()) Vec[T] {
+	if n < 0 {
+		panic("vec: negative Make length")
+	}
+	v := Vec[T]{a: a}
+	if n > 0 {
+		v.realloc(n)
+		v.data = v.data[:n] // allocators return zeroed memory
+	}
+	return v
+}
+
 // Init sets the allocator of a zero Vec: a, by default the default
 // allocator. It panics if v already holds storage from another allocator.
 func (v *Vec[T]) Init(a alloc.Allocator = alloc.Default()) {
@@ -73,8 +89,8 @@ func (v *Vec[T]) Len() int { return len(v.data) }
 func (v *Vec[T]) Cap() int { return cap(v.data) }
 
 // Slice returns the elements as a slice. It is a view of v's storage, valid
-// until v grows or is freed. Its capacity is its length, so append on it
-// cannot write past the elements.
+// until v grows or is freed. Its capacity is its length, so reslicing it
+// cannot reach past the elements.
 func (v *Vec[T]) Slice() []T { return v.data[:len(v.data):len(v.data)] }
 
 // At returns element i. It panics if i is out of range.
@@ -117,18 +133,22 @@ func (v *Vec[T]) Last() (T, bool) {
 
 // Push appends x.
 func (v *Vec[T]) Push(x T) {
-	if len(v.data) == cap(v.data) {
+	n := len(v.data)
+	if n == cap(v.data) {
 		v.grow(1)
 	}
-	v.data = append(v.data, x)
+	v.data = v.data[:n+1]
+	v.data[n] = x
 }
 
 // Append appends the elements of xs. xs must not be a view of v itself.
 func (v *Vec[T]) Append(xs ...T) {
-	if cap(v.data)-len(v.data) < len(xs) {
+	n := len(v.data)
+	if cap(v.data)-n < len(xs) {
 		v.grow(len(xs))
 	}
-	v.data = append(v.data, xs...)
+	v.data = v.data[:n+len(xs)]
+	copy(v.data[n:], xs)
 }
 
 // Pop removes and returns the last element. It returns the zero T and false
@@ -145,19 +165,47 @@ func (v *Vec[T]) Pop() (T, bool) {
 	return x, true
 }
 
-// Insert inserts x at index i, shifting later elements up. It panics if i
-// is not in [0, Len()].
-func (v *Vec[T]) Insert(i int, x T) {
+// Insert inserts the values xs at index i, shifting later elements up and
+// growing as needed (Go's slices.Insert). It panics if i is not in
+// [0, Len()]. xs must not be a view of v itself.
+func (v *Vec[T]) Insert(i int, xs ...T) {
 	n := len(v.data)
 	if i < 0 || i > n {
 		panic("vec: Insert index out of range")
 	}
-	if n == cap(v.data) {
-		v.grow(1)
+	m := len(xs)
+	if m == 0 {
+		return
 	}
-	v.data = v.data[:n+1]
-	copy(v.data[i+1:], v.data[i:n])
-	v.data[i] = x
+	if cap(v.data)-n < m {
+		v.grow(m)
+	}
+	v.data = v.data[:n+m]
+	copy(v.data[i+m:], v.data[i:n])
+	copy(v.data[i:], xs)
+}
+
+// Replace replaces the elements v[i:j] with the values xs, shifting later
+// elements and growing as needed (Go's slices.Replace). It panics if
+// v[i:j] is not a valid range of v. xs must not be a view of v itself.
+func (v *Vec[T]) Replace(i, j int, xs ...T) {
+	n := len(v.data)
+	if i < 0 || j < i || j > n {
+		panic("vec: Replace range out of range")
+	}
+	m := n - (j - i) + len(xs)
+	if m > n {
+		if cap(v.data) < m {
+			v.grow(m - n)
+		}
+		v.data = v.data[:m]
+	}
+	copy(v.data[i+len(xs):], v.data[j:n])
+	copy(v.data[i:], xs)
+	if m < n {
+		clear(v.data[m:n])
+		v.data = v.data[:m]
+	}
 }
 
 // Remove removes and returns element i, shifting later elements down. It
@@ -229,7 +277,7 @@ func (v *Vec[T]) Drop() { v.Free() }
 // are copied as values.
 func (v *Vec[T]) Clone(a alloc.Allocator = alloc.Default()) Vec[T] {
 	out := WithCapacity[T](len(v.data), a)
-	out.data = append(out.data, v.data...)
+	out.Append(v.data...)
 	return out
 }
 
@@ -239,7 +287,7 @@ func (v *Vec[T]) Clone(a alloc.Allocator = alloc.Default()) Vec[T] {
 func (v *Vec[T]) Map[U any](f func(T) U, a alloc.Allocator = alloc.Default()) Vec[U] {
 	out := WithCapacity[U](len(v.data), a)
 	for _, x := range v.data {
-		out.data = append(out.data, f(x))
+		out.Push(f(x))
 	}
 	return out
 }
