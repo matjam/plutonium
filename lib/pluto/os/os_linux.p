@@ -282,8 +282,6 @@ func (f *File) Close() error {
 func IsEOF(err error) bool { return err == io.EOF }
 
 // Exit ends the process with the given status. Deferred calls do not run.
-//
-//pu:noreturn
 func Exit(code int) { rt.Exit(code) }
 
 // NArgs returns the number of command-line arguments, including the

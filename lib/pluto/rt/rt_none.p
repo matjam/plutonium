@@ -40,13 +40,9 @@ func signalName(sig int) string { return "" }
 
 // otherPanicking stops a processor that panics while another handles a
 // panic.
-//
-//pu:noreturn
 func otherPanicking() { halt() }
 
 // lastResort stops the processor after a panic inside the panic handler,
 // or while a panic's message was being written: it disables interrupts
 // and halts, without touching memory or devices.
-//
-//pu:noreturn
 func lastResort() { halt() }

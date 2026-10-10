@@ -695,7 +695,7 @@ func init() {
 		},
 		&Entry{
 			Code: PanicHandlerRet, Name: "PanicHandlerRet",
-			Text:    "A panic stops the program: it does not unwind, so there is nothing for the panic handler to return to. Every path through it must end in an endless loop or in a call of a function that never returns: one marked //pu:noreturn, such as os.Exit, or one whose every path ends the same way. A call through a func value or an interface, and recursion, count as returning.",
+			Text:    "A panic stops the program: it does not unwind, so there is nothing for the panic handler to return to. Every path through it must end in an endless loop or in a call of a function that never returns, such as os.Exit, or a function whose every path ends the same way. A call through a func value or an interface, and recursion, count as returning.",
 			Why:     whyPanicHandler,
 			Fix:     &Fix{Intro: "End the handler by halting", Code: "for {\n\tx86.Cli()\n\tx86.Hlt()\n}"},
 			Spec:    pspec("8.1", "Panics in freestanding programs"),

@@ -454,8 +454,6 @@ func (s *fnState) applyPragmas(doc *ast.CommentGroup) {
 			s.f.Pragmas |= ssa.PragmaNoInline
 		case "nobounds":
 			s.f.Pragmas |= ssa.PragmaNoBounds
-		case "noreturn":
-			s.f.Pragmas |= ssa.PragmaNoReturn
 		case "interrupt":
 			s.f.Pragmas |= ssa.PragmaInterrupt
 		case "nosimd":

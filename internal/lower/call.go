@@ -115,18 +115,6 @@ func (s *fnState) isFuncInstance(x ast.Expr) bool {
 	return ok
 }
 
-// isNoReturn reports whether a declared function carries //pu:noreturn.
-func (l *Lowerer) isNoReturn(fn *types2.Func) bool {
-	if d := l.decls[fn.Origin()]; d != nil {
-		for _, dir := range directives(d.decl.Doc) {
-			if dir == "noreturn" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // An argSource is one argument of a call: an expression still to be
 // evaluated, or a value already computed (one result of f(g()) where g
 // returns several).

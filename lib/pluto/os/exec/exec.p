@@ -341,8 +341,6 @@ var devNullPath = [...]byte{'/', 'd', 'e', 'v', '/', 'n', 'u', 'l', 'l', 0}
 
 // child runs in the new process: it sets up the standard streams and the
 // working directory and executes the program. It must not allocate.
-//
-//pu:noreturn
 func child(path []byte, argv, envp unsafe.Pointer, dir []byte, fds [3]int, errfd int) {
 	// Move descriptors that sit on 0-2 out of the way first, so that
 	// installing one stream cannot close another's source.
@@ -378,8 +376,6 @@ func child(path []byte, argv, envp unsafe.Pointer, dir []byte, fds [3]int, errfd
 const fcntlDupfdCloexec = 1030 // F_DUPFD_CLOEXEC
 
 // childFail reports err to the parent through fd and exits.
-//
-//pu:noreturn
 func childFail(fd int, err error) {
 	code := uint32(syscall.EINVAL)
 	if e, ok := err.(syscall.Errno); ok {

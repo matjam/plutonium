@@ -136,8 +136,6 @@ func captureBytes(p unsafe.Pointer, n int) {
 // fatal raises the panic whose message the caller has written, with the
 // stack trace starting in the caller (whose runtime frames it leaves out).
 // v is the value passed to panic, if any.
-//
-//pu:noreturn
 func fatal(v any) {
 	var p Panic
 	p.Value = v
@@ -149,8 +147,6 @@ func fatal(v any) {
 }
 
 // raise finishes p and calls the panic handler.
-//
-//pu:noreturn
 func raise(p *Panic) {
 	capturing = false
 	n := msgLen
@@ -190,8 +186,6 @@ func raise(p *Panic) {
 // If the caller has started the panic's message with BeginPanic (as
 // debug.DescribeFault does for a fault in the debug allocator's heap),
 // that is the message; otherwise the runtime describes the fault.
-//
-//pu:noreturn
 func PanicFault(kind FaultKind, addr, pc, sp, bp uintptr) {
 	BeginPanic()
 	if msgLen == 0 {
@@ -231,8 +225,6 @@ func describeFault(kind FaultKind, addr, sp uintptr) {
 // Abort stops the program the way a panic does, after the caller has
 // written the panic's message following BeginPanic. The stack trace starts
 // at the caller of Abort. Without BeginPanic the message is "abort".
-//
-//pu:noreturn
 func Abort() {
 	BeginPanic()
 	if msgLen == 0 {

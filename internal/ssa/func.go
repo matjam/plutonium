@@ -387,7 +387,6 @@ const (
 	PragmaInline Pragma = 1 << iota
 	PragmaNoInline
 	PragmaNoBounds
-	PragmaNoReturn
 	PragmaInterrupt
 	// PragmaNoSIMD (//pu:nosimd) keeps the optimiser from introducing
 	// vector instructions the function's own code does not ask for.

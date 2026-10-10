@@ -81,8 +81,6 @@ func readyAll(w *waiter) {
 }
 
 // fail stops the program with a sync error, as Go's runtime does.
-//
-//pu:noreturn
 func fail(msg string) {
 	panic(msg)
 }

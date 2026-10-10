@@ -2535,10 +2535,10 @@ func onPanic(p *rt.Panic) {
 - **Its declaration.** A plain function with a body, not a method, not generic, not also
   `//pu:interrupt`, declared `func name(p *rt.Panic)`.
 - **It never returns.** A panic has nothing to return to. The compiler checks that every path through the
-  handler ends in an endless loop or in a call of a function that never returns: one marked
-  `//pu:noreturn` (`os.Exit`, an assembly halt routine), or one whose every path ends that way, which the
-  compiler infers. A call that the compiler cannot see through (through a func value or interface, or
-  into recursion) counts as returning.
+  handler ends in an endless loop or in a call of a function that never returns (`os.Exit`, `rt.Abort`,
+  a function of the program's own whose every path ends that way), which the compiler works out from
+  the functions' bodies (section 13). A call that the compiler cannot see through (through a func value
+  or interface, or into recursion) counts as returning.
 - **A direct call.** The runtime's panic path calls the handler directly; nothing is registered at run
   time, so it works from the first instruction of the program, before any initialisation.
 - **It must not wait.** The handler runs on top of whatever panicked, possibly an interrupt handler or
@@ -2645,9 +2645,9 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | `//pu:export name` | function | also export the function under the symbol `name` |
 | `//pu:section name` | function or package variable | place it in the named section |
 | `//pu:interrupt` | function | an x86-64 interrupt handler: saves every register it may change, returns with `iretq` (section 12.4) |
-| `//pu:noreturn` | function | the function never returns (lets the optimiser drop code after calls) |
+| `//pu:noreturn` | body-less function | the assembly or C function never returns (lets the optimiser drop code after calls). A function with a body needs no directive: the compiler finds that it never returns when it has no return statement and its body ends in a terminating statement (Go's definition), counting a call of a function that never returns as one, so a panic, an endless loop and a call of `os.Exit` all count, through any number of calls |
 | `//pu:panic` | function | the program's panic handler, `func(p *rt.Panic)`; exactly one in freestanding and kernel builds (section 8.1) |
-| `//pu:blocking` | function (with or without a body) | calling it may wait (park the caller); interrupt handlers and the panic handler must not reach it (section 12.6) |
+| `//pu:blocking` | function (with or without a body) | kernel code and assembly: calling it may wait in a way the compiler cannot see (a kernel's spinning lock, a routine that halts until an interrupt); interrupt handlers and the panic handler must not reach it. Waits the compiler can see need no directive: it follows calls into the runtime's `park` (section 12.6) |
 | `//pu:scheduler` | package variable | the program's scheduler backend, of a type implementing `rt.Scheduler`; at most one in a program, replacing the hosted one (section 4.7) |
 | `//pu:nosimd` | function | the optimiser adds no vector instructions to it (implied by `//pu:interrupt`, and by kernel mode outside `//pu:fpu` functions) |
 | `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (section 12.3) |

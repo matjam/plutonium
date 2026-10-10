@@ -138,8 +138,7 @@ func (l *Lowerer) shortPos(pos token.Pos) string {
 
 // checkPanicHandler checks that the panic handler cannot return: every
 // path through it must end in an endless loop or in a call of a function
-// that never returns, either marked //pu:noreturn or itself ending every
-// path that way.
+// that never returns (noreturn.go), or itself ending every path that way.
 func (l *Lowerer) checkPanicHandler() {
 	if l.panicFn == nil {
 		return
@@ -161,8 +160,8 @@ func (l *Lowerer) checkPanicHandler() {
 	l.report(pos, &diag.Diagnostic{Code: diag.PanicHandlerRet,
 		Msg: fmt.Sprintf("%s is the panic handler, so it must never return", name),
 		Text: "A panic stops the program: it does not unwind, so there is nothing for the handler to return to. " +
-			"Every path through it must end in an endless loop, or in a call of a function that never returns: " +
-			"one marked //pu:noreturn, or one whose every path ends the same way. " +
+			"Every path through it must end in an endless loop, or in a call of a function that never returns, " +
+			"such as os.Exit, or a function whose every path ends the same way. " +
 			"A call through a func value or an interface, and recursion, count as returning.\n" +
 			name + " can return here (" + l.shortPos(pos) + ").",
 		Fix: &diag.Fix{Intro: "End it by halting", Code: "for {\n\tx86.Cli()\n\tx86.Hlt()\n}"}})
