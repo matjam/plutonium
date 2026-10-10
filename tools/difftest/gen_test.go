@@ -92,6 +92,18 @@ func TestReduceHelpers(t *testing.T) {
 	if len(mutations(src)) == 0 {
 		t.Fatal("no mutations")
 	}
+	// Removing a declaration takes the blank use repair added with it.
+	out, ok = repair("package main\n\nfunc main() {\n\t_ = x\n}\n")
+	if !ok || strings.Contains(out, "_ = x") {
+		t.Fatalf("blank use not dropped (%v):\n%s", ok, out)
+	}
+	lit := "package main\n\ntype S struct {\n\ta int\n\tb bool\n}\n\nvar g = [3]int{1, 2, 3}\n\nfunc main() { println(g[0], S{}.a) }\n"
+	if got := dropElt(lit, 0, 1); !strings.Contains(got, "[3]int{1, 3}") {
+		t.Fatalf("dropElt:\n%s", got)
+	}
+	if got := dropField(lit, 1); strings.Contains(got, "b bool") {
+		t.Fatalf("dropField:\n%s", got)
+	}
 }
 
 func numbered(src string) string {

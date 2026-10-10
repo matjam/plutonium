@@ -48,37 +48,47 @@ func (rd *reducer) reduce(src string) string {
 func (rd *reducer) removePass(src string) string {
 	n := len(removable(mustParse(src)))
 	removed := map[int]bool{}
+	best := src
+	// try removes the items in add as well, keeping the result if it is
+	// smaller (repair may put back what was removed) and still fails.
+	try := func(add ...int) {
+		set := map[int]bool{}
+		for k := range removed {
+			set[k] = true
+		}
+		added := false
+		for _, k := range add {
+			if k < n && !set[k] {
+				set[k] = true
+				added = true
+			}
+		}
+		if !added {
+			return
+		}
+		cand, ok := repair(removeItems(src, set))
+		if ok && len(cand) < len(best) && rd.interesting(cand) {
+			removed, best = set, cand
+			rd.logf("reduce: removed %d of %d items (%d tests)", len(removed), n, rd.tests)
+		}
+	}
 	for chunk := max(n/2, 1); ; chunk /= 2 {
 		for i := 0; i < n; i += chunk {
-			try := map[int]bool{}
-			for k := range removed {
-				try[k] = true
+			var add []int
+			for k := i; k < i+chunk; k++ {
+				add = append(add, k)
 			}
-			added := false
-			for k := i; k < i+chunk && k < n; k++ {
-				if !try[k] {
-					try[k] = true
-					added = true
-				}
-			}
-			if !added {
-				continue
-			}
-			cand, ok := repair(removeItems(src, try))
-			if ok && rd.interesting(cand) {
-				removed = try
-				rd.logf("reduce: removed %d of %d items (%d tests)", len(removed), n, rd.tests)
-			}
+			try(add...)
 		}
 		if chunk == 1 {
 			break
 		}
 	}
-	if len(removed) == 0 {
-		return src
+	// A declaration and the use repair added for it go together.
+	for i := 0; i+1 < n; i++ {
+		try(i, i+1)
 	}
-	out, _ := repair(removeItems(src, removed))
-	return out
+	return best
 }
 
 // mutatePass tries structural simplifications one at a time.
@@ -163,6 +173,9 @@ func repair(src string) (string, bool) {
 				fixed = insertUse(f, e.Pos, name) || fixed
 			case strings.HasPrefix(e.Msg, "label ") && strings.HasSuffix(e.Msg, "defined and not used"):
 				fixed = dropLabel(f, e.Pos) || fixed
+			case strings.HasPrefix(e.Msg, "undefined: "):
+				// A use that repair added for a declaration now gone.
+				fixed = dropBlankUse(f, e.Pos) || fixed
 			default:
 				return src, false
 			}
@@ -235,6 +248,34 @@ func insertUse(f *ast.File, pos token.Pos, name string) bool {
 				n.Body.List = append([]ast.Stmt{use}, n.Body.List...)
 				done = true
 			}
+		}
+		return !done
+	})
+	return done
+}
+
+// dropBlankUse deletes the statement "_ = x" whose x is at pos.
+func dropBlankUse(f *ast.File, pos token.Pos) bool {
+	done := false
+	fix := func(list []ast.Stmt) []ast.Stmt {
+		for i, s := range list {
+			a, ok := s.(*ast.AssignStmt)
+			if !ok || len(a.Lhs) != 1 || len(a.Rhs) != 1 || a.Rhs[0].Pos() != pos {
+				continue
+			}
+			if id, ok := a.Lhs[0].(*ast.Ident); ok && id.Name == "_" {
+				done = true
+				return append(list[:i:i], list[i+1:]...)
+			}
+		}
+		return list
+	}
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.BlockStmt:
+			n.List = fix(n.List)
+		case *ast.CaseClause:
+			n.Body = fix(n.Body)
 		}
 		return !done
 	})
@@ -374,6 +415,36 @@ func mutations(src string) []func() string {
 				}
 			case *ast.ForStmt, *ast.RangeStmt, *ast.BlockStmt, *ast.LabeledStmt:
 				out = append(out, func() string { return spliceStmt(src, k, 0) })
+			case *ast.AssignStmt:
+				if len(s.Rhs) == 1 {
+					if _, ok := s.Rhs[0].(*ast.CallExpr); ok {
+						out = append(out, func() string { return spliceStmt(src, k, 3) })
+					}
+				}
+			}
+		}
+		return true
+	})
+	// Struct fields: drop one.
+	nfield := 0
+	ast.Inspect(mustParse(src), func(n ast.Node) bool {
+		if st, ok := n.(*ast.StructType); ok {
+			for range st.Fields.List {
+				k := nfield
+				nfield++
+				out = append(out, func() string { return dropField(src, k) })
+			}
+		}
+		return true
+	})
+	// Composite literal elements: drop one.
+	nlit := 0
+	ast.Inspect(mustParse(src), func(n ast.Node) bool {
+		if cl, ok := n.(*ast.CompositeLit); ok {
+			k := nlit
+			nlit++
+			for j := range cl.Elts {
+				out = append(out, func() string { return dropElt(src, k, j) })
 			}
 		}
 		return true
@@ -439,6 +510,9 @@ func spliceStmt(src string, k, variant int) string {
 				out = append(out, s.Body.List...)
 			case *ast.BlockStmt:
 				out = append(out, s.List...)
+			case *ast.AssignStmt:
+				// Keep only the call on the right.
+				out = append(out, &ast.ExprStmt{X: s.Rhs[0]})
 			default:
 				out = append(out, s)
 			}
@@ -451,6 +525,46 @@ func spliceStmt(src string, k, variant int) string {
 			n.List = splice(n.List)
 		case *ast.CaseClause:
 			n.Body = splice(n.Body)
+		}
+		return true
+	})
+	return render(fset, f)
+}
+
+// dropField removes the k-th field declaration of all struct types.
+func dropField(src string, k int) string {
+	fset, f, err := parse(src)
+	if err != nil {
+		return src
+	}
+	n := 0
+	ast.Inspect(f, func(node ast.Node) bool {
+		if st, ok := node.(*ast.StructType); ok {
+			l := st.Fields.List
+			if k >= n && k < n+len(l) {
+				j := k - n
+				st.Fields.List = append(l[:j:j], l[j+1:]...)
+			}
+			n += len(l)
+		}
+		return true
+	})
+	return render(fset, f)
+}
+
+// dropElt removes element j of the k-th composite literal.
+func dropElt(src string, k, j int) string {
+	fset, f, err := parse(src)
+	if err != nil {
+		return src
+	}
+	n := 0
+	ast.Inspect(f, func(node ast.Node) bool {
+		if cl, ok := node.(*ast.CompositeLit); ok {
+			if n == k && j < len(cl.Elts) {
+				cl.Elts = append(cl.Elts[:j:j], cl.Elts[j+1:]...)
+			}
+			n++
 		}
 		return true
 	})

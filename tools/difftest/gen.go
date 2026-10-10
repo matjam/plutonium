@@ -81,6 +81,7 @@ type ctx struct {
 	minWriteLevel int  // variables of enclosing functions below this level are read-only
 	isMain        bool // main, which does not return early so that all output appears
 	tparam        *typ // the type parameter of a generic function
+	named         bool // the results are named, so a bare return is allowed
 	mult          int64
 	cost          int64
 	budget        int64
@@ -105,6 +106,7 @@ type gen struct {
 	ranged  map[*variable]bool
 
 	globalText strings.Builder
+	strs       []str // package-level strings
 
 	// The interface Ifc { Get(int) int }, the named integer type N, and
 	// the types that implement Ifc, if the program has them.
@@ -449,12 +451,47 @@ func (g *gen) declare(v *variable) *variable {
 	return v
 }
 
+// visible returns the variables in scope, innermost first, leaving out
+// those hidden by an inner variable of the same name.
 func (g *gen) visible() []*variable {
 	var out []*variable
+	seen := map[string]bool{}
 	for s := g.sc; s != nil; s = s.parent {
-		out = append(out, s.vars...)
+		for _, v := range s.vars {
+			if !seen[v.name] {
+				out = append(out, v)
+			}
+		}
+		for _, v := range s.vars {
+			seen[v.name] = true
+		}
 	}
 	return out
+}
+
+// shadowName returns the name of a variable declared in an enclosing
+// block, for a new variable to hide, or a fresh name.
+func (g *gen) shadowName() string {
+	if g.sc != nil && g.sc.parent != nil && g.chance(6) {
+		var cands []string
+		for s := g.sc.parent; s != nil; s = s.parent {
+			for _, v := range s.vars {
+				if v.closure == nil && v != g.cx.hash {
+					cands = append(cands, v.name)
+				}
+			}
+		}
+		here := map[string]bool{}
+		for _, v := range g.sc.vars {
+			here[v.name] = true
+		}
+		if len(cands) > 0 {
+			if n := cands[g.r.Intn(len(cands))]; !here[n] {
+				return n
+			}
+		}
+	}
+	return g.name("v")
 }
 
 func (g *gen) canWriteRoot(v *variable) bool {
@@ -1316,12 +1353,24 @@ func (g *gen) function(i int) *fnInfo {
 	case 3:
 		g.line("//pu:inline")
 	}
+	// Named results, which deferred closures may change after a return.
+	var named []*variable
+	if !rec && g.chance(4) {
+		for _, t := range f.results {
+			named = append(named, g.declare(&variable{name: g.name("res"), t: t, used: true}))
+		}
+		g.cx.named = true
+	}
 	var res []string
-	for _, t := range f.results {
-		res = append(res, t.String())
+	for i, t := range f.results {
+		if named != nil {
+			res = append(res, named[i].name+" "+t.String())
+		} else {
+			res = append(res, t.String())
+		}
 	}
 	resStr := strings.Join(res, ", ")
-	if len(res) > 1 {
+	if len(res) > 1 || named != nil {
 		resStr = "(" + resStr + ")"
 	}
 	switch {
@@ -1341,11 +1390,18 @@ func (g *gen) function(i int) *fnInfo {
 		g.line("\treturn %s", g.returnValues())
 		g.line("}")
 	}
+	if named != nil || g.chance(6) {
+		g.stmts(1 + g.r.Intn(2))
+		g.deferStmt(named)
+	}
 	g.stmts(2 + g.r.Intn(5))
 	var ret string
-	if rec {
+	switch {
+	case rec:
 		ret = g.selfCall(f)
-	} else {
+	case named != nil && g.chance(2):
+		// A bare return of the named results.
+	default:
 		ret = g.returnValues()
 	}
 	g.useAll()
@@ -1361,6 +1417,34 @@ func (g *gen) function(i int) *fnInfo {
 	}
 	f.text = strings.Join(g.lines, "\n") + "\n"
 	return f
+}
+
+// deferStmt defers a println, whose arguments are evaluated now, and a
+// closure that runs after the return statement has set the named
+// results and may change them.
+func (g *gen) deferStmt(named []*variable) {
+	t := g.concreteInt()
+	g.line("defer println(\"deferred\", %s)", typed(g.intExpr(t, 2, false), t))
+	if named == nil {
+		return
+	}
+	g.line("defer func() {")
+	for _, r := range named {
+		switch r.t.kind {
+		case kInt:
+			if r.t.param {
+				g.line("\t%s = %s*3 + 1", r.name, r.name)
+			} else {
+				g.line("\t%s = %s*3 + %s", r.name, r.name, g.constant(r.t))
+			}
+			g.line("\tprintln(\"defer sees\", %s)", r.name)
+		case kBool:
+			g.line("\t%s = !%s", r.name, r.name)
+		default:
+			g.line("\tprintln(\"defer sees\", %s)", leafOf(r.name, r.t))
+		}
+	}
+	g.line("}()")
 }
 
 // maxRecDepth bounds the depth argument of recursive functions.
@@ -1685,7 +1769,7 @@ func (g *gen) stmt() bool {
 	g.addCost(1)
 	deep := g.cx.depth >= maxDepth
 	for {
-		switch k := g.r.Intn(136); {
+		switch k := g.r.Intn(139); {
 		case k < 20:
 			g.declStmt()
 			return false
@@ -1784,11 +1868,91 @@ func (g *gen) stmt() bool {
 			if g.ifaceStmt() {
 				return false
 			}
-		default:
+		case k < 136:
 			g.floatStmt()
+			return false
+		default:
+			g.stringStmt()
 			return false
 		}
 	}
+}
+
+// A str is a package-level string variable and its contents.
+type str struct {
+	name string
+	val  string
+}
+
+// randString returns a short string of ASCII, multi-byte UTF-8 and
+// invalid bytes.
+func (g *gen) randString() string {
+	pieces := []string{"a", "b", "z", "0", " ", "é", "ü", "日本", "€", "\xff", "\xc3", "\xe2\x82", "𝄞", "\x00", "ab", "xyz"}
+	var b strings.Builder
+	for i, n := 0, g.r.Intn(8); i < n; i++ {
+		b.WriteString(pieces[g.r.Intn(len(pieces))])
+	}
+	return b.String()
+}
+
+func (g *gen) stringVar() str {
+	if len(g.strs) == 0 || (len(g.strs) < 6 && g.chance(3)) {
+		s := str{name: g.name("s"), val: g.randString()}
+		fmt.Fprintf(&g.globalText, "var %s = %s\n", s.name, strconv.Quote(s.val))
+		g.strs = append(g.strs, s)
+	}
+	return g.strs[g.r.Intn(len(g.strs))]
+}
+
+// stringStmt reads strings: lengths, bytes, slices, comparisons, a byte
+// loop, a rune loop and a switch.
+func (g *gen) stringStmt() {
+	s := g.stringVar()
+	t := g.stringVar()
+	n := len(s.val)
+	acc := g.name("acc")
+	g.line("{")
+	g.indent++
+	sub := s.name
+	if n > 0 {
+		lo := g.r.Intn(n + 1)
+		hi := lo + g.r.Intn(n-lo+1)
+		sub = fmt.Sprintf("%s[%d:%d]", s.name, lo, hi)
+		g.line("println(len(%s), %s[%d], len(%s))", s.name, s.name, g.r.Intn(n), sub)
+	}
+	lit := strconv.Quote(g.randString())
+	g.line("println(%s == %s, %s < %s, %s >= %s, %s != %s)", sub, t.name, s.name, t.name, sub, lit, t.name, lit)
+	g.line("%s := 0", acc)
+	switch g.r.Intn(3) {
+	case 0:
+		g.line("for i := 0; i < len(%s); i++ {", s.name)
+		g.line("\t%s = %s*7 + int(%s[i])", acc, acc, s.name)
+		g.line("}")
+	case 1:
+		g.line("for i, r := range %s {", sub)
+		g.line("\t%s = %s*7 + i + int(r)", acc, acc)
+		g.line("}")
+	default:
+		g.line("for _, r := range %s {", t.name)
+		g.line("\tif r >= 0x80 {")
+		g.line("\t\t%s++", acc)
+		g.line("\t}")
+		g.line("}")
+	}
+	g.line("println(%q, %s)", acc, acc)
+	g.line("switch %s {", sub)
+	g.line("case %s:", strconv.Quote(t.val))
+	g.line("\tprintln(\"is t\")")
+	if lit != strconv.Quote(t.val) {
+		g.line("case %s:", lit)
+		g.line("\tprintln(\"is lit\")")
+	}
+	g.line("default:")
+	g.line("\tprintln(\"neither\")")
+	g.line("}")
+	g.indent--
+	g.line("}")
+	g.addCost(int64(4 * (n + len(t.val) + 4)))
 }
 
 // floatStmt computes with floating-point values that are exact (sums of
@@ -2175,7 +2339,8 @@ func (g *gen) maybeNil() bool {
 
 func (g *gen) declStmt() {
 	t := g.randType(true)
-	v := &variable{name: g.name("v"), t: t}
+	// The initialiser may read the variable this one hides.
+	v := &variable{name: g.shadowName(), t: t}
 	switch t.kind {
 	case kInt, kBool:
 		switch g.r.Intn(5) {

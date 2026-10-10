@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -33,6 +34,7 @@ func main() {
 	work := flag.String("work", "", "scratch directory (default: a new temporary directory)")
 	show := flag.Bool("print", false, "print the program for -seed and exit")
 	rangeWrites := flag.Bool("rangewrites", false, "let loops write to the array they range over")
+	file := flag.String("file", "", "check (and with -reduce, reduce) this program instead of generating")
 	flag.Parse()
 
 	opt := Options{RangeWrites: *rangeWrites}
@@ -65,6 +67,10 @@ func main() {
 		}
 	}
 	r := &runner{pu: *pu, plutoDir: filepath.Join(root, "lib"), work: *work, runLimit: runTimeout}
+
+	if *file != "" {
+		os.Exit(checkFile(r, *file, *outDir, *doReduce, cleanup))
+	}
 
 	var (
 		mu      sync.Mutex
@@ -147,6 +153,44 @@ func countFailing(m map[string][]int64) int {
 func firstN(s []int64, n int) []int64 {
 	sort.Slice(s, func(i, j int) bool { return s[i] < s[j] })
 	return s[:min(n, len(s))]
+}
+
+// checkFile checks one existing program, prints its report and, with
+// reduce, reduces it. It returns the exit status.
+func checkFile(r *runner, path, outDir string, reduce bool, cleanup func()) int {
+	defer cleanup()
+	src, err := os.ReadFile(path)
+	if err != nil {
+		log.Print(err)
+		return 2
+	}
+	v := r.check(string(src), "")
+	switch {
+	case v.genBug != "":
+		fmt.Println("not a valid test program:", v.genBug)
+		return 2
+	case !v.failed():
+		fmt.Println("no difference")
+		return 0
+	}
+	fmt.Print(v.report())
+	if reduce {
+		dir := outDir
+		if dir == "" {
+			dir = filepath.Dir(path)
+		}
+		rr := *r
+		rr.runLimit = 2 * time.Second
+		rd := &reducer{r: &rr, sig: v.signature(), logf: log.Printf}
+		small := rd.reduce(string(src))
+		out := filepath.Join(dir, strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))+".reduced.go")
+		if err := os.WriteFile(out, []byte(small), 0o644); err != nil {
+			log.Print(err)
+			return 2
+		}
+		fmt.Printf("reduced in %d tests: %s\n", rd.tests, out)
+	}
+	return 1
 }
 
 // save writes a failing program and its report, and with reduce also a
