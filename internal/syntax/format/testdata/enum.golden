@@ -1,0 +1,58 @@
+// Enum types in every form the parser accepts.
+
+package gfx
+
+// A Color is a primary colour.
+type Color enum {
+	Red
+	Green
+	Blue
+}
+
+type Errno enum uint16 {
+	OK     = 0
+	EPERM      // operation not permitted
+	ENOENT     // no such file
+	EIO    = 5 // I/O error
+
+	// Documented member.
+	ENXIO
+	E2BIG = 7
+}
+
+type Order enum { Less = -1; Equal; Greater }
+
+type Dir enum {
+	North
+	East
+	South
+	West
+}
+
+type Bits enum uint8 {
+	low  = 1<<0 - 1
+	high = 1 << 7
+}
+
+type One enum { Only }
+
+type (
+	Small enum { A; B }
+	Mode  enum int32 {
+		Off
+		On = 10 // trailing comment
+	}
+)
+
+func f(c Color) string {
+	switch c {
+	case Red:
+		return "r"
+	case Color.Green, Blue:
+		return "gb"
+	}
+	for x := range Color {
+		_ = x
+	}
+	return Color.Red.String()
+}

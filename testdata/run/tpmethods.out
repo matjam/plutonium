@@ -1,0 +1,28 @@
+a
+P1 Pn 2
+neg I
+inner
+inner
+pinner 10
+pinner>10 20
+pinner 10
+empty vec
+ptr
+P1 Pn
+mv P1 I
+boxed 42
+3
+dump x
+dump y
+first x
+dump P1
+first Pn
+I
+5
+small
+small
+big
+4 6
+6
+if Pn
+9

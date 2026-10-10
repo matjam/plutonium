@@ -113,6 +113,11 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 				if g == nil || g == f || sameSCC[g] && inCycle[g] {
 					continue
 				}
+				if f.NoSSE && !g.NoSSE {
+					// g may use the FPU (//pu:fpu); its body must not
+					// end up in a function that has no FPU state.
+					continue
+				}
 				if v.Call.ABI != g.ABI {
 					// A C call to a Plutonium function: its arguments
 					// are laid out for a different convention.
@@ -135,7 +140,7 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 			inlineCall(f, v, g)
 			changed = true
 			if checkSSA {
-				if err := f.Verify(); err != nil {
+				if err := verify(f); err != nil {
 					panic("after inlining " + g.Name + " into " + f.Name + ": " + err.Error())
 				}
 			}
@@ -187,7 +192,7 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 	}
 	after.Values = append(after.Values, rest...)
 	after.Likely = b.Likely
-	after.Pos = b.Pos
+	after.CopyPos(b)
 	after.SetControl(b.Controls...)
 	b.SetControl()
 	for len(b.Succs) > 0 {
@@ -203,15 +208,17 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 	for _, s := range g.Slots {
 		ns := f.NewSlot(s.Name, s.Size, s.Align)
 		ns.Leaves = s.Leaves
+		ns.Pads = s.Pads
 		slotMap[s] = ns
 	}
 
 	// Copy g's blocks and values.
+	inl := f.AddInline(v, g)
 	blockMap := map[*ssa.Block]*ssa.Block{}
 	for _, gb := range g.Blocks {
 		nb := f.NewBlock(gb.Kind)
 		nb.Likely = gb.Likely
-		nb.Pos = gb.Pos
+		nb.Pos, nb.Inl = gb.Pos, inl.Map(gb.Inl)
 		blockMap[gb] = nb
 	}
 	valMap := map[*ssa.Value]*ssa.Value{}
@@ -228,7 +235,13 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 				valMap[gv] = mem
 				continue
 			}
-			nv := nb.NewValue(gv.Op, gv.Type)
+			op := gv.Op
+			if op == ssa.OpReturnAddr {
+				// g's return address would have pointed just past
+				// this call, which is where g's code now is.
+				op = ssa.OpCodeAddr
+			}
+			nv := nb.NewValue(op, gv.Type)
 			nv.AuxInt = gv.AuxInt
 			nv.Aux = gv.Aux
 			if s, ok := gv.Aux.(*ssa.Slot); ok {
@@ -238,7 +251,14 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 				c := *gv.Call
 				nv.Call = &c
 			}
-			nv.Pos = gv.Pos
+			nv.Pos, nv.Inl = gv.Pos, inl.Map(gv.Inl)
+			if op == ssa.OpCodeAddr && gv.Op == ssa.OpReturnAddr {
+				// It stands for a return address, which names the call:
+				// give it the call's position, so that the address minus
+				// one symbolises to the line of the call in f rather than
+				// to a line of g.
+				nv.CopyPos(v)
+			}
 			valMap[gv] = nv
 		}
 	}

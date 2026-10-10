@@ -12,7 +12,29 @@ Rust solves this problem, but at a cost: borrow checkers, lifetime annotations, 
 
 Plutonium asks: what if you didn't have to choose?
 
-Take Go's syntax and strip out everything that needs a runtime. No GC, no scheduler, no implicit heap allocation. Then add the things systems programmers actually need: packed bitfield types for hardware registers, volatile loads and stores for MMIO, built-in ring buffers, explicit allocation with automatic reference counting, and direct syscall access. The result reads like Go but compiles like C -- a static binary with no libc, no runtime, just your code and the kernel.
+Take Go's syntax and strip out everything that needs a runtime. No GC, no scheduler, no implicit heap allocation. Then add the things systems programmers need: packed bitfield types for hardware registers, volatile loads and stores for MMIO, built-in ring buffers, ownership you can read from the types, and direct syscall access. The result reads like Go but compiles like C: a static binary with no libc, no runtime, just your code and the kernel.
+
+## Ownership
+
+Every type is a **value** (copied, as in Go), a **view** (`string`, `[]T`, `*T`: looks at memory someone else owns, never frees it), or an **owner** (declared with `owner`, such as `vec.Vec[T]`, `hash.Map[K, V]`, `strings.Buf`, `os.File`, `owned[T]`: moves on assignment and frees what it holds when it goes out of scope). Sharing is opt-in by type, with `shared[T]`, `synced[T]` and `weak[...]`.
+
+| You want to | Use | Cost |
+|---|---|---|
+| let a function use it for a while | view | free |
+| give it to exactly one new owner | move | free |
+| let several places keep it | shared/synced | count update |
+
+```go
+func render(items []Item) strings.Buf {
+	var b strings.Buf
+	for i := range items {
+		fmt.Fprintf(&b, "%s: %d\n", items[i].name, items[i].count)
+	}
+	return b // moves the buffer to the caller, which frees it when done
+}
+```
+
+See section 6 of the [language specification](docs/spec/language.md) for the rules, and for the compile errors, which explain each rule in plain words with fixes.
 
 The goal is a language suitable for:
 
@@ -48,9 +70,12 @@ Interfaces are partially supported today (compile-time dispatch for non-empty in
 | `volatile[T]` | Every read/write is exactly one load/store, never elided or reordered |
 | `aligned[T, N]` | Guarantees N-byte alignment for DMA buffers, SIMD, page tables |
 | `ring[T, N]` | Built-in lock-free ring buffer with compiler-inlined Push/Pop/Len |
+| `enum` types | Scoped members (`Color.Red`), exhaustive switches, checked conversions, generated `String` |
+| Default parameter values | `func New[T any](a Allocator = Default()) *T`; callers may omit trailing defaulted arguments |
+| `new(T, a)`, `make([]T, n, a)` | `new` and `make` allocate from the default allocator or one passed last |
 | `bits[V]` lens | Zero-cost bit-addressing over existing variables (Set/Clear/Test/Toggle) |
-| `alloc.New[T]()` | Explicit heap allocation via slab allocator with auto reference counting |
-| RAII auto-free | Compiler inserts `decRef` at scope exit; no manual free required |
+| `owner` types | Values that move instead of copying and are dropped automatically at the end of their scope |
+| `owned[T]`, `shared[T]`, `synced[T]`, `weak[P]` | A heap box, single-puroutine and atomic reference counts, and weak back references |
 | `any` tagged union | 16-byte `{typeID, data}` struct for type-safe variadic arguments |
 | `unsafe` package | `Sizeof`, `Alignof`, pointer casts -- typed, not opaque |
 
@@ -64,8 +89,6 @@ The compiler enforces kernel safety at compile time:
 | `chan T` | No scheduler |
 | `select {}` | No scheduler |
 | `map[K]V` | Requires GC; use `pluto/hash` |
-| `new(T)` | No implicit heap allocation; use `alloc.New[T]()` |
-| `make([]T, n)` | No implicit heap allocation; use explicit allocators |
 | `interface{}` | No runtime type metadata yet; full structural interfaces are planned |
 | `panic(...)` | No runtime unwinder |
 | `recover()` | No runtime unwinder |
@@ -149,7 +172,7 @@ pluto version
 
 `pluto fmt [-l] [-w] [-d] [path ...]` formats Plutonium source exactly as
 gofmt formats Go, including the Plutonium-only syntax (packed types, bits
-groups, type constructors such as `volatile[T]` and `ring[T, N]`), and
+groups, enum types, type constructors such as `volatile[T]` and `ring[T, N]`), and
 normalises `//pu:build` lines like `//go:build`. A directory is walked for
 `.p` files; with no paths, or `-`, it formats standard input. `-l` lists files
 that differ, `-w` rewrites them, `-d` prints a unified diff (and exits with

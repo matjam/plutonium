@@ -42,7 +42,7 @@ func verifyStep(f *ssa.Func, step string) {
 	if !checkSSA {
 		return
 	}
-	if err := f.Verify(); err != nil {
+	if err := verify(f); err != nil {
 		panic("after " + step + ": " + err.Error())
 	}
 }

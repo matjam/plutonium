@@ -52,11 +52,24 @@ func ForLevel(level int) *Pipeline {
 		p.addProgram(ProgramPass{"inline", Inline})
 		p.add(Pass{"prove", Prove})
 		p.add(Pass{"simplify2", Simplify})
+		// After prove, which removes the bounds checks that would give a
+		// loop more than one exit.
+		p.add(Pass{"unroll", Unroll})
 		p.add(Pass{"branchelim", BranchElim})
 		p.add(Pass{"simplifycfg2", SimplifyCFG})
 		// Simplify the selects branchelim made.
 		p.add(Pass{"simplify3", Simplify})
+		// After branchelim, which turns || and && chains into Or and And.
+		p.add(Pass{"bittest", BitTest})
+		p.add(Pass{"memopt", MemOpt})
+		// Constant indexes folded since the first SROA, and accesses
+		// memopt removed, can make more slots splittable.
+		p.add(Pass{"sroa2", SROA})
+		p.add(Pass{"mem2reg2", Mem2Reg})
+		p.add(Pass{"simplify4", Simplify})
+		p.add(Pass{"cse2", CSE})
 		p.add(Pass{"loopidiom", LoopIdiom})
+		p.add(Pass{"vectorize", Vectorize})
 		p.add(Pass{"deadcode2", ssa.DeadCode})
 	}
 	return p
@@ -70,15 +83,30 @@ func (p *Pipeline) addProgram(pass ProgramPass) { p.steps = append(p.steps, step
 // every function after every pass.
 var checkSSA = os.Getenv("PLUTO_SSACHECK") != ""
 
+// verify checks f's invariants and its source positions.
+func verify(f *ssa.Func) error {
+	if err := f.Verify(); err != nil {
+		return err
+	}
+	return f.VerifyPos()
+}
+
 // Run applies the pipeline. after, if non-nil, is called after each
 // function pass with the pass name.
 func (p *Pipeline) Run(prog *ssa.Program, after func(pass string, f *ssa.Func)) error {
+	if checkSSA {
+		for _, f := range prog.Funcs {
+			if err := verify(f); err != nil {
+				return fmt.Errorf("before optimisation: %w", err)
+			}
+		}
+	}
 	for _, st := range p.steps {
 		if st.prog != nil {
 			st.prog.Run(prog)
 			if checkSSA {
 				for _, f := range prog.Funcs {
-					if err := f.Verify(); err != nil {
+					if err := verify(f); err != nil {
 						return fmt.Errorf("after %s: %w", st.prog.Name, err)
 					}
 				}
@@ -88,7 +116,7 @@ func (p *Pipeline) Run(prog *ssa.Program, after func(pass string, f *ssa.Func)) 
 		for _, f := range prog.Funcs {
 			st.fn.Run(f)
 			if checkSSA {
-				if err := f.Verify(); err != nil {
+				if err := verify(f); err != nil {
 					return fmt.Errorf("after %s: %w", st.fn.Name, err)
 				}
 			}

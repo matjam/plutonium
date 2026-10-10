@@ -108,7 +108,8 @@ func layoutFrame(f *MFunc) {
 				m := Mem{Base: NoReg, Index: NoReg, Slot: in.Slot}
 				resolve(&m)
 				if f.classOf(in.Src.Reg) == ClassXMM {
-					*in = MInst{Op: MMOVSF, Size: 8, Dst: MemOp(m), Src: in.Src}
+					// Size 16 spills a whole vector (movupd).
+					*in = MInst{Op: MMOVSF, Size: max(in.Size, 8), Dst: MemOp(m), Src: in.Src}
 				} else {
 					*in = MInst{Op: MMOV, Size: 8, Dst: MemOp(m), Src: in.Src}
 				}
@@ -117,7 +118,7 @@ func layoutFrame(f *MFunc) {
 				m := Mem{Base: NoReg, Index: NoReg, Slot: in.Slot}
 				resolve(&m)
 				if f.classOf(in.Dst.Reg) == ClassXMM {
-					*in = MInst{Op: MMOVSF, Size: 8, Dst: in.Dst, Src: MemOp(m)}
+					*in = MInst{Op: MMOVSF, Size: max(in.Size, 8), Dst: in.Dst, Src: MemOp(m)}
 				} else {
 					*in = MInst{Op: MMOV, Size: 8, Dst: in.Dst, Src: MemOp(m)}
 				}
@@ -240,13 +241,20 @@ func frameEpilogue(f *MFunc) []*MInst {
 // insertFrame adds the prologue and expands each epilogue pseudo-op.
 func insertFrame(f *MFunc) {
 	entry := f.Blocks[0]
-	entry.Insts = append(prologue(f), entry.Insts...)
+	pro := prologue(f)
+	for _, in := range pro {
+		in.frame, in.Pos = rolePrologue, f.Pos
+	}
+	entry.Insts = append(pro, entry.Insts...)
 	for _, b := range f.Blocks {
 		var out []*MInst
 		for _, in := range b.Insts {
 			switch in.Op {
 			case MEPILOGUE:
-				out = append(out, epilogue(f)...)
+				for _, e := range epilogue(f) {
+					e.frame, e.Pos, e.Inl = roleEpilogue, in.Pos, in.Inl
+					out = append(out, e)
+				}
 			case MDEF, MUSE:
 				// no code
 			default:

@@ -1,0 +1,15 @@
+closure s
+deferred s
+closure even
+deferred odd
+me odd
+iface odd
+each 1 u
+each 2 u
+eachp 1 odd
+eachp 2 even
+named abc
+named de
+lens 2 3
+chained
+x y w

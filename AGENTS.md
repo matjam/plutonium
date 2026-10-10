@@ -52,6 +52,10 @@ End-to-end tests live in `internal/build`:
   Go cannot regenerate their output). Check a new or changed `.out` against Go
   running the same program with its imports pointed at Go's packages, or by
   hand for Plutonium-only APIs.
+- `testdata/trace/*.p` panic; their `.out` files hold the expected message and stack trace, with
+  `$FILE` for the program's path and `PC` for code addresses. Each runs at -O0 and -O2 and must print the
+  same trace at both. DWARF output is checked by `internal/build/dwarf_test.go` (see
+  `docs/spec/debugging.md`).
 - `examples/*/main.p` are checked against `examples/*/expected` (first line
   `exit N` for a non-zero exit status).
 

@@ -43,7 +43,7 @@ Sizes and alignments follow Go's gc compiler on amd64. `int`, `uint`, `uintptr` 
 | `int16`, `uint16` | 2 | 2 | |
 | `int32`, `uint32`, `float32`, `rune` | 4 | 4 | |
 | `int64`, `uint64`, `int`, `uint`, `uintptr`, `float64` | 8 | 8 | |
-| `*T`, `unsafe.Pointer`, `owned[T]`, `shared[T]`, `synced[T]` | 8 | 8 | address |
+| `*T`, `unsafe.Pointer`, `owned[T]`, `shared[T]`, `synced[T]`, `weak[P]` | 8 | 8 | address |
 | func value | 8 | 8 | address of a closure record (section 4) |
 | `string` | 16 | 8 | `{ptr *byte, len int}` |
 | `[]T` | 24 | 8 | `{ptr *T, len int, cap int}` |
@@ -54,15 +54,19 @@ Sizes and alignments follow Go's gc compiler on amd64. `int`, `uint`, `uintptr` 
 | `aligned[T, N]` | size(T) rounded up to N | N | as `T` |
 | `ring[T, N]` | 16 + N × size(T) | max(8, align(T)) | `{head, tail uint64; buf [N]T}` |
 | packed type | its backing, or its field width rounded up to bytes | backing's | bit-exact, language spec section 5.5 |
+| enum type | its underlying integer's | its underlying integer's | the member's value, language spec section 5.9 |
 | `chan T` (planned) | 8 | 8 | address of the channel object |
 
-`owned[T]`, `shared[T]` and `synced[T]` point at the object. The allocation behind them begins with a
-hidden header word recording its allocator (and, for the counted kinds, the count) at a negative offset
-from the object (planned with the move checker).
+`owned[T]`, `shared[T]`, `synced[T]` and `weak[P]` point at the object. The allocation behind them begins
+with a hidden header at a negative offset from the object: one word recording its allocator for
+`owned[T]`, and for the counted kinds the allocator, the strong count and the weak count (language spec
+section 5.6; planned with the move checker). Owner types declared with `owner` (language spec section
+6.4) have the layout of their underlying type; ownership adds no bytes.
 
-Package-level variables are in `.data` (constant initialiser, written into the image), `.bss` (no
-initialiser, or one computed by the package initialiser) or the section named by `//pu:section`. Read-only data (string bytes, type descriptors,
-itabs, closure records) is in `.rodata`.
+Package-level variables are in `.data` (constant initialiser, written into the image; this includes
+arrays and structs whose elements are constants), `.bss` (no initialiser, or one computed by the package
+initialiser), `.percpu` (`//pu:percpu`, section 10.6) or the section named by `//pu:section`. Read-only
+data (string bytes, type descriptors, itabs, closure records) is in `.rodata`.
 
 ## 2. Registers
 
@@ -82,7 +86,9 @@ The direction flag is clear on entry to and exit from every function, as in Syst
 `rep movsb` and `rep stosb` for block copies and clears, which rely on it.
 
 The backend targets baseline x86-64 (SSE2). Integers and pointers live in general-purpose registers;
-floats live in XMM registers and use scalar SSE instructions. Memory copies and clears never use XMM
+floats live in XMM registers and use scalar SSE instructions, except in loops the optimiser vectorises,
+which compute two `float64` lanes at once with SSE2 packed doubles (each lane exactly as the scalar code
+would). Packed values never cross a call or a function boundary. Memory copies and clears never use XMM
 registers: they are sequences of 1 to 8 byte `MOV`s through a general-purpose register up to 64 bytes, and
 `rep movsb` / `rep stosb` above that.
 
@@ -238,8 +244,10 @@ RBP.
 subtracts from RSP first, and a leaf without a frame uses only registers. This holds in every build
 mode, which is why kernel mode needs no change to frame layout (section 10.1).
 
-There are no unwind tables and no frame-pointer chain today, so a debugger or a stack trace cannot walk
-Plutonium frames. Unwind information is planned with the debugging work (see the roadmap).
+The prologue pushes the saved registers in the order RBX, RBP, R12, R13, R14, R15. There is no
+frame-pointer chain: debuggers walk these frames with the DWARF call frame information in
+`.debug_frame`, and the runtime's stack traces with the compiler's trace table, both of which describe
+every prologue and epilogue (see [debugging.md](debugging.md)).
 
 ## 7. Code model and relocations
 
@@ -271,7 +279,7 @@ anywhere) is not supported; it needs a mode that never emits `R_X86_64_32S` and 
 16-byte, 16-aligned read-only objects in `.rodata`, addressed RIP-relative. Each is named
 `pluto.const.<hi><lo>` after its bits in hexadecimal, so identical constants from different functions
 are emitted once. Integer constants are immediates. The pool exists only for float code, so kernel-mode
-programs (no floats, section 10.2) have none.
+functions without `//pu:fpu` (no floats, section 10.2) never use it.
 
 ## 8. Symbols and sections
 
@@ -294,6 +302,7 @@ programs (no floats, section 10.2) have none.
 | string data | `.str.N` (local) |
 | static object (a `&T{}` in a package initialiser) | `.static.N` (local) |
 | float constant | `pluto.const.<hex>` |
+| per-CPU block's self word (offset 0 of `.percpu`) | `pluto.percpu.self` |
 
 Symbols contain `/`, `*`, `(`, `[` and `·`, so assembly quotes them: `"pluto/syscall.Syscall"`.
 A `//pu:extern name` function refers to the symbol `name`; a body-less function without it refers to its
@@ -389,8 +398,8 @@ copies.
 
 ## 10. Kernel mode
 
-Kernel mode (`--mode kernel`, language spec section 11.2) is a freestanding build with these differences
-in generated code. **Status: proposed.**
+Kernel mode (`--mode kernel`, language spec section 12.2) is a freestanding build with these differences
+in generated code. It sets the build tags `freestanding`, `none` and `kernel`.
 
 ### 10.1 No red zone
 
@@ -403,21 +412,44 @@ taken without a stack switch pushes its frame directly below the interrupted RSP
 Kernel-mode code uses only general-purpose registers, so an interrupt or system call entry need not save
 vector state.
 
-- Any operation on `float32` or `float64` values (arithmetic, conversion to or from integers,
-  comparisons, float constants, float parameters or results) in a function compiled in kernel mode is a
-  compile error: `float64 arithmetic is not allowed in kernel mode (no FPU state is saved)`. Floats may
-  still appear in types, and copying a float-typed value as bits is allowed, since it uses integer
-  registers.
+- Any operation on `float32` or `float64` values (arithmetic, comparisons, conversion to or from
+  integers or between float sizes, float constants, float parameters, results and call arguments, and
+  converting a float to an interface) in a function compiled in kernel mode without `//pu:fpu` is a
+  compile error, reported once per function at the first such use, for example `float64 arithmetic is not
+  allowed in kernel mode (no FPU state is saved; mark the function //pu:fpu to use floats)`. Parameters,
+  results and arguments are judged after flattening (section 3.1): a float leaf passed in an XMM register
+  is an error, a struct passed by reference is not. Floats may still appear in types, and copying a
+  float-typed value as bits is allowed: the backend keeps such values (loads, stores, phis, copies and the
+  zero constants that scalar replacement makes) in general-purpose registers.
 - The check applies to functions the program uses. Lowering only compiles functions that are reachable
-  from the program's roots, so an unused float function in an imported package costs nothing; standard
-  library packages put their float code under `//pu:build !kernel`, so `fmt`, `strconv` and `math` remain
-  usable for integers and strings.
-- Block copies and clears already avoid XMM registers (section 2); kernel mode keeps it so. There is no
-  constant pool (section 7). Float values passed to an interface in kernel mode are a compile error like
-  any other float operation.
-- A function marked `//pu:fpu` may use floats in kernel mode. Its callers must have saved the vector
-  state and enabled the FPU (with `x86.FPUBegin`/`x86.FPUEnd`, section 10.5); the compiler does not check
-  this.
+  from the program's roots, so an unused float function in an imported package costs nothing. Package
+  variables initialised with constants, including arrays and structs of them, are written into the image
+  rather than by the package initialiser, so importing `pluto/math` adds no float code. `pluto/fmt`
+  passes floats as bits and keeps its float formatting under `//pu:build !kernel`; a kernel build prints a
+  float argument as `%!v(float64=0x...)`.
+- Block copies and clears avoid XMM registers in every mode (section 2: `MOV` through a general-purpose
+  register up to 64 bytes, `rep movsb`/`rep stosb` above), so kernel mode needs no change there. There is
+  no constant pool (section 7).
+- A function marked `//pu:fpu` may use floats in kernel mode, as may the function literals inside it. Its
+  callers must have saved the vector state and enabled the FPU (with `x86.FPUBegin`/`x86.FPUEnd`, section
+  10.5); the compiler does not check this.
+
+**The `NoSSE` property.** Lowering marks every function compiled in kernel mode without `//pu:fpu` with
+`ssa.Func.NoSSE`. It is the contract between the passes:
+
+- lowering rejects float operations in such a function, as above;
+- no optimisation pass may introduce float or vector operations into a `NoSSE` function. A vectoriser
+  must skip `NoSSE` functions entirely (block copies, clears and fills included). The loop vectoriser
+  (`opt.Vectorize`) asks `ssa.Func.MayVectorize`, which is false for `NoSSE` functions and for those
+  marked `//pu:nosimd` (`ssa.PragmaNoSIMD`) or `//pu:interrupt`. `//pu:fpu` functions may be vectorised:
+  `FPUBegin` saves the whole vector state;
+- the inliner never inlines a function without `NoSSE` (a `//pu:fpu` function) into one with it, so FPU
+  code stays in functions the caller has to bracket with `FPUBegin`/`FPUEnd`. It may inline in the other
+  direction;
+- the backend (`internal/arch/amd64`) gives float-typed values general-purpose registers, refuses any
+  operation that needs SSE with an error naming the function, and after instruction selection rejects any
+  instruction that is an SSE instruction or names an XMM register. A `NoSSE` function therefore cannot be
+  emitted with vector instructions, whatever the earlier passes did.
 
 Soft-float was considered and rejected: it would add an IEEE-754 library to every kernel, hide a large
 cost behind ordinary arithmetic, and still be the wrong answer for the rare kernel code that wants floats,
@@ -426,10 +458,27 @@ which is better served by `//pu:fpu` regions that use the real unit.
 ### 10.3 Kernel code model
 
 The image is linked in the top 2 GiB (`0xFFFFFFFF80000000` and up) by the kernel's linker script.
-Relocations are as in section 7: RIP-relative for symbol addresses, `R_X86_64_32S` for indexed globals,
-`R_X86_64_64` for pointers in data. The compiler emits nothing that assumes the low 2 GiB. With
-`--emit-relocs` a boot loader can slide the image within the top 2 GiB (KASLR); sliding outside it needs
-position-independent code (section 7).
+Relocations are as in section 7: RIP-relative for symbol addresses, `R_X86_64_32S` for indexed globals and
+per-CPU variables (section 10.6), `R_X86_64_64` for pointers in data. The compiler emits nothing that
+assumes the low 2 GiB. With `--emit-relocs` a boot loader can slide the image within the top 2 GiB
+(KASLR); sliding outside it needs position-independent code (section 7).
+
+`--ldscript` names the kernel's own script. Without it, kernel builds link with a default script
+(`build.KernelLinkerScript` in `internal/build/kernel.go`, with `-z max-page-size=0x1000`):
+
+| Output section | Virtual address | Load (physical) address | Holds |
+|---|---|---|---|
+| `.boot` | `0x100000` | `0x100000` | input sections `.multiboot` (first), `.boot`, `.boot.*`: a multiboot header and the code that runs before paging maps the kernel high |
+| `.text`, `.rodata`, `.data` | physical + `0xFFFFFFFF80000000`, from the next 4 KiB boundary | after `.boot` | the kernel |
+| `.percpu` | `0` | after `.data`, 64-aligned | the per-CPU image (section 10.6) |
+| `.bss` | physical + `0xFFFFFFFF80000000` | after `.percpu` (not loaded) | zeroed data |
+
+It defines `__kernel_phys_start`, `__kernel_load_end` (the physical end of the loaded image),
+`__kernel_phys_end` (after `.bss`), `__bss_start`, `__bss_end`, `__percpu_image` (the virtual address of
+the per-CPU image), `__percpu_load` (its physical address) and `__percpu_size`; the entry symbol is
+`_start`, which the kernel provides. The ELF output has a `PT_LOAD` segment at virtual address 0 for
+`.percpu`, as Linux's `vmlinux` once did, so it is meant for loaders that load by physical address
+(multiboot, or `--format binary`). `testdata/kernel/smoke` boots a kernel linked this way.
 
 ### 10.4 Interrupt handlers
 
@@ -471,13 +520,20 @@ The compiler generates the entry and exit:
    also saves every caller-saved register (RAX, RCX, RDX, RSI, RDI, R8 to R11), since the callee may
    change them; callees preserve the callee-saved ones. It then allocates the frame, padded so that RSP
    is 16-byte aligned at every call, and executes `cld`.
-3. The prologue saves, with `movups` into the frame, the XMM registers the handler changes: the ones
-   its own code uses, and all of XMM0 to XMM15 if it makes a call, because any Plutonium, C or assembly
-   callee may use them. A handler that neither calls nor uses floats touches no vector register. Saving
-   XMM registers needs SSE enabled (CR4.OSFXSR); a kernel that leaves SSE off must keep its handlers free
-   of calls and floats until kernel mode (section 10.2) removes floats from the whole program. x87, AVX
-   upper halves and MXCSR are not saved: Plutonium code does not change them, and legacy SSE instructions
-   leave the upper halves of the YMM registers alone.
+3. Outside kernel mode, the prologue saves, with `movups` into the frame, the XMM registers the handler
+   changes: the ones its own code uses, and all of XMM0 to XMM15 if it makes a call, because any
+   Plutonium, C or assembly callee may use them. A handler that neither calls nor uses floats touches no
+   vector register. Saving XMM registers needs SSE enabled (CR4.OSFXSR). x87, AVX upper halves and MXCSR
+   are not saved: Plutonium code does not change them, and legacy SSE instructions leave the upper halves
+   of the YMM registers alone.
+
+   In kernel mode a handler without `//pu:fpu` saves no XMM registers, even when it makes calls. It is
+   `NoSSE` (section 10.2), and so is every function it can reach without `//pu:fpu`; a `//pu:fpu`
+   function may only be called between `x86.FPUBegin` and `x86.FPUEnd`, which save and restore the
+   interrupted state themselves. So nothing the handler runs changes a vector register except inside such
+   a bracket. Assembly and C code called from a kernel-mode handler must likewise leave the vector
+   registers alone (`-mgeneral-regs-only` for C) or bracket its use. A `//pu:fpu` handler saves the XMM
+   registers it uses, and all sixteen if it calls, as outside kernel mode; it needs SSE enabled.
 4. The handler's parameters are the frame's address (the saved RIP, `8(%rsp)` on entry when there is an
    error code, `(%rsp)` otherwise) and the error code (`(%rsp)` on entry). They are not passed in
    registers.
@@ -492,50 +548,63 @@ function is a compile error. `//pu:export name` on a handler gives its code a se
 assembly stubs that refer to it.
 
 The handler may call ordinary functions: they run on a 16-byte aligned stack with the direction flag
-clear, as section 2 requires, and every register they may change is restored before `iretq`. In kernel
-mode (planned) floats are rejected everywhere outside `//pu:fpu` functions, so handlers will save no
-vector registers there.
+clear, as section 2 requires, and every register they may change is restored before `iretq`.
 
 ### 10.5 `pluto/arch/x86` intrinsics
 
-Each function in `pluto/arch/x86` is expanded inline to the instructions shown. Every one of them is a
-compiler barrier (memory model section 5.2) and is never removed, even when its result is unused. Each
-also has an assembly body for when its address is taken. Privileged instructions fault outside ring 0.
+Each function in `pluto/arch/x86` is expanded inline to the instructions shown. Lowering turns a call
+into one `ssa.OpIntrinsic` (named, for example, `x86.Cli`), which takes the current memory state and
+produces the next one, as a call does: no load or store is moved, merged or removed across it, so every
+intrinsic is a compiler barrier (memory model section 5.2). It has side effects, so it is never removed,
+even when its result is unused, and never merged with another. The backend expands it with the fixed
+registers the instructions need. Each function except `HandlerAddr` also has an assembly body
+(`x86_amd64.s`) for when it is called through a func value. Privileged instructions fault outside ring 0.
+Encodings are tested against GNU as.
 
 | Function | Expansion |
 |---|---|
 | `Cli()`, `Sti()`, `Hlt()`, `Pause()` | `cli`, `sti`, `hlt`, `pause` |
-| `StiHlt()` | `sti; hlt` adjacent, so an interrupt cannot arrive between them |
-| `SaveFlagsCli() uint64` | `pushfq; pop %rax; cli` |
-| `RestoreFlags(f uint64)` | `push %rdi; popfq` |
-| `Inb(port uint16) uint8`, `Inw(port uint16) uint16`, `Inl(port uint16) uint32` | `in %dx, %al/%ax/%eax` |
-| `Outb(port uint16, v uint8)`, `Outw(port uint16, v uint16)`, `Outl(port uint16, v uint32)` | `out %al/%ax/%eax, %dx` |
+| `StiHlt()` | `sti; hlt` as one machine instruction of the backend, so nothing is scheduled between them and an interrupt cannot arrive in between |
+| `SaveFlagsCli() uint64` | `pushfq; pop r; cli` |
+| `RestoreFlags(f uint64)` | `push r; popfq` |
+| `Inb(port uint16) uint8`, `Inw(port uint16) uint16`, `Inl(port uint16) uint32` | `in %dx, %al/%ax/%eax`, or `in $port` for a constant port below 256 |
+| `Outb(port uint16, v uint8)`, `Outw(port uint16, v uint16)`, `Outl(port uint16, v uint32)` | `out %al/%ax/%eax, %dx`, or `out ..., $port` for a constant port below 256 |
 | `Rdmsr(msr uint32) uint64` | `rdmsr`, EDX:EAX combined |
-| `Wrmsr(msr uint32, v uint64)` | `wrmsr` |
-| `ReadCR0() uint64`, `ReadCR2() uint64`, `ReadCR3() uint64`, `ReadCR4() uint64` | `mov %crN, %rax` |
-| `WriteCR0(v uint64)`, `WriteCR3(v uint64)`, `WriteCR4(v uint64)` | `mov %rdi, %crN` |
-| `Invlpg(addr uintptr)` | `invlpg (%rdi)` |
-| `Lgdt(p *DescriptorTablePointer)`, `Lidt(p *DescriptorTablePointer)` | `lgdt (%rdi)`, `lidt (%rdi)` |
-| `Ltr(sel uint16)` | `ltr %di` |
-| `Cpuid(leaf, subleaf uint32) (eax, ebx, ecx, edx uint32)` | `cpuid` (results in RAX, RDX, RCX, RSI per section 3.3) |
+| `Wrmsr(msr uint32, v uint64)` | `wrmsr`, with `v` split into EDX:EAX |
+| `ReadCR0() uint64`, `ReadCR2() uint64`, `ReadCR3() uint64`, `ReadCR4() uint64` | `mov %crN, r` |
+| `WriteCR0(v uint64)`, `WriteCR3(v uint64)`, `WriteCR4(v uint64)` | `mov r, %crN` |
+| `Invlpg(addr uintptr)` | `invlpg (r)` |
+| `Lgdt(p *DescriptorTablePointer)`, `Lidt(p *DescriptorTablePointer)` | `lgdt`, `lidt` of `*p`, with `p`'s address folded into the operand |
+| `Ltr(sel uint16)` | `ltr r16` |
+| `Cpuid(leaf, subleaf uint32) (eax, ebx, ecx, edx uint32)` | `cpuid` (the function saves RBX, which it changes) |
 | `Rdtsc() uint64`, `Rdtscp() (tsc uint64, aux uint32)` | `rdtsc`, `rdtscp` |
 | `Swapgs()` | `swapgs` |
-| `ReadGSBase() uintptr`, `WriteGSBase(v uintptr)` | `rdmsr`/`wrmsr` of `IA32_GS_BASE` (or `rdgsbase`/`wrgsbase` with `--cpu` support for FSGSBASE) |
-| `GSLoad64(off uintptr) uint64`, `GSLoad32`, `GSStore64(off uintptr, v uint64)`, `GSStore32` | `mov %gs:(%rdi), ...` |
-| `FPUBegin(area *FPUState)`, `FPUEnd(area *FPUState)` | `fxsave`/`fxrstor` (or `xsave`/`xrstor`), with `clts` |
-| `HandlerAddr(h any) uintptr` | `lea handler(%rip), %rax`; `h` must name a `//pu:interrupt` function, checked at compile time (implemented, with `InterruptFrame`; the rest of this table is proposed) |
+| `ReadGSBase() uintptr`, `WriteGSBase(v uintptr)` | `rdmsr`/`wrmsr` of `IA32_GS_BASE` (`GSBaseMSR`) |
+| `GSLoad64(off uintptr) uint64`, `GSLoad32`, `GSStore64(off uintptr, v uint64)`, `GSStore32` | `mov %gs:(r), ...`, or `%gs:off` for a constant offset |
+| `FPUBegin(area *FPUState)` | `clts; fxsave64 (area)` |
+| `FPUEnd(area *FPUState)` | `fxrstor64 (area)` |
+| `HandlerAddr(h any) uintptr` | `lea handler(%rip), r`; `h` must name a `//pu:interrupt` function, checked at compile time. A plain address, so it orders nothing; through a func value it panics |
 
 ```go
 type DescriptorTablePointer packed [10]byte {
 	limit uint16
 	base  uint64
 }
+
+func NewDescriptorTablePointer(base uintptr, size int) DescriptorTablePointer
+
+type FPUState aligned[[512]byte, 16]
 ```
+
+`FPUBegin` leaves the FPU in the interrupted context's state (its MXCSR and x87 control word included);
+it does not enable SSE, which the kernel does once by setting CR4.OSFXSR and CR4.OSXMMEXCPT. A
+`//pu:fpu` function called from a function without it must run between `FPUBegin` and `FPUEnd` on the
+same area. `rdgsbase`/`wrgsbase` (FSGSBASE) are not used; there is no `--cpu` option yet.
 
 `pluto/arch/x86` is available on amd64 in every build mode; only `Pause`, `Cpuid`, `Rdtsc` and `Rdtscp`
 are useful outside ring 0.
 
-### 10.6 Per-CPU variables (proposed)
+### 10.6 Per-CPU variables
 
 A package-level variable marked `//pu:percpu` has one copy per processor:
 
@@ -547,20 +616,44 @@ var current *Thread
 var runQueue RunQueue
 ```
 
-- The compiler places such variables in the section `.percpu`, which the kernel's linker script links
-  at virtual address 0 (with a load address elsewhere), so each symbol's address is its offset in the
-  per-CPU block. The kernel allocates one block per processor, copies the section's initial contents
-  into it, and points `GS` base at it.
-- The first word of every block holds the block's own address (`pluto.percpu.self`, reserved by the
-  compiler at offset 0).
-- A read or write of a per-CPU variable of at most 8 bytes compiles to one `GS`-relative `MOV` using the
-  symbol's offset as `disp32` (`R_X86_64_32S`), and so cannot be split by an interrupt on the same
-  processor. Larger values are accessed through their address.
-- `&v` yields `%gs:0` (the self pointer) plus the offset: an ordinary pointer into the current
-  processor's copy, which stays valid after a migration but then refers to the old processor's copy.
-- Per-CPU variables may not be initialised by code that runs in the package initialiser (they have no
-  processor yet); only constant initialisers are allowed.
-- In hosted builds `//pu:percpu` is a compile error.
+- The compiler places such variables in the section `.percpu` (`SHT_PROGBITS`, writable, holding their
+  initial values), which the kernel's linker script links at virtual address 0 with a load address
+  elsewhere, so each symbol's address is its offset in the per-CPU block. The default kernel script does
+  this (section 10.3).
+- The first word of every block holds the block's own address. The compiler reserves it as
+  `pluto.percpu.self`, emitted first in `.percpu` of the Plutonium object; `pluto build` links that
+  object first, so a script with `*(.percpu)` puts it at offset 0. After linking an ELF kernel, the build
+  checks that `pluto.percpu.self` is at address 0 and fails otherwise.
+- A load or store of a per-CPU variable, a field or an element of one, compiles to one `GS`-relative
+  instruction with the symbol's offset as an absolute `disp32` (`mov %gs:sym+off, r`, or
+  `%gs:sym(,%idx,scale)` for a variable index, relocated with `R_X86_64_32S`), and so cannot be split by
+  an interrupt on the same processor. A load used once by an arithmetic instruction is folded into it
+  (`add %gs:sym, r`), which reads it once; a read-modify-write such as `v++` is a separate load and store.
+  Copies and clears above 64 bytes take the address as below.
+- Taking the address (`&v`, slicing an array variable, calling a pointer method) reads the self word at
+  that point and adds the offset (`mov %gs:pluto.percpu.self, r; lea sym(r), r`): an ordinary pointer into
+  the current processor's copy, which keeps referring to that copy after GS changes (a migration, or
+  `Swapgs`).
+- Only constant initialisers are allowed (constants, and arrays and structs of them): the package
+  initialiser runs once, before any processor has its own block, so it could only initialise one copy.
+  Anything else is a compile error, as is `//pu:percpu` together with `//pu:section`.
+- Outside kernel mode `//pu:percpu` is a compile error.
+
+**Setting up GS.** The kernel gives each processor its block and points GS at it, before that processor
+touches a per-CPU variable:
+
+1. allocate a block of `__percpu_size` bytes (rounded up to the alignment the kernel wants) per
+   processor;
+2. copy `__percpu_size` bytes from `__percpu_image` (the initial image, mapped with the rest of the
+   kernel) into it;
+3. store the block's own address in its first word (`pluto.percpu.self`);
+4. load the block's address into the GS base: `x86.WriteGSBase(block)` (`wrmsr` of `IA32_GS_BASE`) on
+   that processor. A kernel that enters from user space with `swapgs` keeps the block's address in
+   `IA32_KERNEL_GS_BASE` (`x86.Wrmsr(x86.KernelGSBaseMSR, block)`) while user code runs, and swaps it in
+   on entry.
+
+`testdata/kernel/smoke` does this for two blocks under QEMU, and `testdata/kernel/gsuser` does the same as
+a Linux process, setting the GS base with `arch_prctl(ARCH_SET_GS)`.
 
 Code that reads and then writes a per-CPU variable, or uses its address, must not migrate in between:
 it runs with preemption disabled (memory model section 6.4).

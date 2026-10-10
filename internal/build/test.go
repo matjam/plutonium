@@ -52,7 +52,11 @@ func BuildTest(cfg *Config, target string, opts *TestOptions) (*TestBinary, erro
 		return nil, err
 	}
 	bin := &TestBinary{}
-	prog, err := load.LoadTest(loadConfig(cfg), target, func(fset *token.FileSet, pkg *load.Package) ([]byte, error) {
+	lcfg, err := loadConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	prog, err := load.LoadTest(lcfg, target, func(fset *token.FileSet, pkg *load.Package) ([]byte, error) {
 		bin.Path = pkg.Path
 		if len(pkg.Tests) == 0 {
 			return nil, ErrNoTestFiles

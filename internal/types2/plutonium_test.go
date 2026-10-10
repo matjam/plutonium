@@ -107,6 +107,24 @@ func f() int64 {
 `)
 }
 
+// TestComplexInConstraints checks that complex types may still name type
+// set terms, as constraints shared with Go code do, and that untyped
+// complex constants with a real value convert as in Go.
+func TestComplexInConstraints(t *testing.T) {
+	mustCheck(t, `package p
+
+type Number interface {
+	~int | ~float64 | ~complex64 | ~complex128
+}
+
+func Sq[T Number](x T) T { return x * x }
+
+var a = Sq(3)
+var b float64 = 2 + 0i
+var c = real(1 + 2i)
+`)
+}
+
 func TestForbiddenConstructs(t *testing.T) {
 	cases := []struct{ name, src, want string }{
 		{"map", "package p\nvar m map[int]int", "map types are not permitted"},
@@ -114,6 +132,11 @@ func TestForbiddenConstructs(t *testing.T) {
 		{"go", "package p\nfunc f() {}\nfunc g() { go f() }", "go statements are not permitted"},
 		{"select", "package p\nfunc g() { select {} }", "select statements are not permitted"},
 		{"reflect", "package p\nimport \"reflect\"\nvar _ = reflect.TypeOf", "import of reflect is not permitted"},
+		{"recover", "package p\nfunc f() { defer func() { _ = recover() }() }", "recover is not permitted"},
+		{"complex variable", "package p\nfunc f(c complex128) complex128 { return c * c }", "complex numbers are not permitted"},
+		{"complex constant", "package p\nfunc f() { x := 2i; _ = x }", "complex numbers are not permitted"},
+		{"complex type argument", "package p\nfunc id[T any](x T) T { return x }\nvar _ = id(2i)", "complex numbers are not permitted"},
+		{"complex conversion", "package p\nvar f float64\nvar _ = complex(f, f)", "complex numbers are not permitted"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) { mustFail(t, c.src, c.want) })
@@ -219,13 +242,31 @@ func use(u *UART) uint8 {
 	}
 }
 
+// TestVolatileTypeParam checks that volatile[T] accepts a type parameter
+// whose type set holds only types volatile accepts.
+func TestVolatileTypeParam(t *testing.T) {
+	mustCheck(t, `package p
+
+type Dev[T ~uint8 | ~uint32 | *int] struct{ reg volatile[T] }
+
+func (d *Dev[T]) Set(v T) T {
+	d.reg = v
+	return d.reg
+}
+`)
+}
+
 func TestPlutoniumTypeErrors(t *testing.T) {
 	cases := []struct{ name, src, want string }{
 		{"bits too wide", "package p\ntype R packed uint8 { a bits[uint8, 9] }", "uint8 holds only 8 bits"},
 		{"backing too small", "package p\ntype R packed uint8 { a bits[uint, 5]; b bits[uint, 4] }", "need 9 bits"},
 		{"ring not power of two", "package p\nvar r ring[int, 6]", "not a power of two"},
 		{"volatile struct", "package p\ntype S struct{ a int }\nvar v volatile[S]", "must be an integer, bool or pointer"},
+		{"volatile any type parameter", "package p\ntype D[T any] struct{ v volatile[T] }", "must be an integer, bool or pointer"},
+		{"volatile mixed type parameter", "package p\ntype D[T ~int | ~float64] struct{ v volatile[T] }", "must be an integer, bool or pointer"},
 		{"positional packed literal", "package p\ntype R packed uint8 { a bits[uint, 4] }\nvar r = R{1}", "must be field: value"},
+		{"ring literal with elements", "package p\nvar r = ring[int, 4]{1, 2}", "ring literal must be empty: ring[int, 4]{}"},
+		{"owned literal", "package p\nvar o = owned[int]{}", "invalid composite literal type owned[int]"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) { mustFail(t, c.src, c.want) })

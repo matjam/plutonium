@@ -40,6 +40,16 @@ func TestExamples(t *testing.T) {
 			if got != wantOut {
 				t.Errorf("output differs\n--- got ---\n%s--- want ---\n%s", got, wantOut)
 			}
+
+			// With the debug allocator as the default allocator the
+			// output is the same: the example misuses no memory.
+			got, status = runDebugAlloc(t, buildDebugAlloc(t, string(src), 2), "leaks=off")
+			if status != wantStatus {
+				t.Errorf("--alloc=debug: exit status %d, want %d", status, wantStatus)
+			}
+			if got != wantOut {
+				t.Errorf("--alloc=debug: output differs\n--- got ---\n%s--- want ---\n%s", got, wantOut)
+			}
 		})
 	}
 }

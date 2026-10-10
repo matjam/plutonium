@@ -1,7 +1,6 @@
 package amd64
 
 import (
-	"container/heap"
 	"fmt"
 	"math"
 	"sort"
@@ -49,7 +48,7 @@ func expandPCopies(f *MFunc) {
 					// Every destination is still needed as a source: a cycle.
 					// Save one destination's value and redirect its readers.
 					m := pending[0]
-					t := f.newVReg(f.classOf(m.dst))
+					t := f.newVRegLike(m.dst)
 					out = append(out, &MInst{Op: MCOPY, Size: 8, Dst: RegOp(t), Src: RegOp(m.dst)})
 					for j := range pending {
 						if pending[j].src == m.dst {
@@ -531,33 +530,58 @@ func (a *allocator) conservative(nodes []Reg) bool {
 
 func (a *allocator) addWorklistMove(m *MInst) {
 	a.worklistMoves[m] = true
-	heap.Push(&a.pending, a.moveOrder[m])
+	a.pending.push(a.moveOrder[m])
 }
 
 // firstMove returns the worklist move that comes first in program order,
 // which keeps allocation deterministic.
 func (a *allocator) firstMove() *MInst {
-	for a.pending.Len() > 0 {
+	for len(a.pending) > 0 {
 		if m := a.moves[a.pending[0]]; a.worklistMoves[m] {
 			return m
 		}
-		heap.Pop(&a.pending)
+		a.pending.pop()
 	}
 	return nil
 }
 
-// intHeap is a min-heap of ints for container/heap.
+// intHeap is a binary min-heap of ints.
 type intHeap []int
 
-func (h intHeap) Len() int           { return len(h) }
-func (h intHeap) Less(i, j int) bool { return h[i] < h[j] }
-func (h intHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h *intHeap) Push(x any)        { *h = append(*h, x.(int)) }
-func (h *intHeap) Pop() any {
-	old := *h
-	x := old[len(old)-1]
-	*h = old[:len(old)-1]
-	return x
+func (h *intHeap) push(x int) {
+	*h = append(*h, x)
+	s := *h
+	for i := len(s) - 1; i > 0; {
+		p := (i - 1) / 2
+		if s[p] <= s[i] {
+			break
+		}
+		s[p], s[i] = s[i], s[p]
+		i = p
+	}
+}
+
+// pop removes the smallest element.
+func (h *intHeap) pop() {
+	s := *h
+	n := len(s) - 1
+	s[0] = s[n]
+	s = s[:n]
+	for i := 0; ; {
+		c := 2*i + 1
+		if c >= n {
+			break
+		}
+		if c+1 < n && s[c+1] < s[c] {
+			c++
+		}
+		if s[i] <= s[c] {
+			break
+		}
+		s[i], s[c] = s[c], s[i]
+		i = c
+	}
+	*h = s
 }
 
 func (a *allocator) coalesce() {
@@ -705,7 +729,8 @@ func (a *allocator) rewrite(spillTemps map[Reg]bool) {
 	f := a.f
 	slots := map[Reg]*ssa.Slot{}
 	for _, r := range a.spilled {
-		slots[r] = f.newSlot(fmt.Sprintf("spill%d", r-FirstVirtual), 8, 8)
+		n := int64(f.spillSize(r))
+		slots[r] = f.newSlot(fmt.Sprintf("spill%d", r-FirstVirtual), n, n)
 	}
 	var buf []Reg
 	for _, b := range f.Blocks {
@@ -717,10 +742,10 @@ func (a *allocator) rewrite(spillTemps map[Reg]bool) {
 			for _, r := range buf {
 				slot, spilled := slots[r]
 				if _, done := reload[r]; spilled && !done {
-					t := f.newVReg(a.class)
+					t := f.newVRegLike(r)
 					spillTemps[t] = true
 					reload[r] = t
-					out = append(out, &MInst{Op: MRELOAD, Size: 8, Dst: RegOp(t), Slot: slot})
+					out = append(out, &MInst{Op: MRELOAD, Size: f.spillSize(r), Dst: RegOp(t), Slot: slot})
 				}
 			}
 			buf = in.Defs(buf[:0])
@@ -729,7 +754,7 @@ func (a *allocator) rewrite(spillTemps map[Reg]bool) {
 				if _, ok := slots[r]; ok {
 					t, reused := reload[r]
 					if !reused {
-						t = f.newVReg(a.class)
+						t = f.newVRegLike(r)
 						spillTemps[t] = true
 					}
 					store[r] = t
@@ -745,8 +770,13 @@ func (a *allocator) rewrite(spillTemps map[Reg]bool) {
 				return r
 			})
 			out = append(out, in)
-			for r, t := range store {
-				out = append(out, &MInst{Op: MSPILL, Size: 8, Src: RegOp(t), Slot: slots[r]})
+			// buf still holds the defs; walk them rather than the map so
+			// the stores come out in a fixed order.
+			for _, r := range buf {
+				if t, ok := store[r]; ok {
+					out = append(out, &MInst{Op: MSPILL, Size: f.spillSize(r), Src: RegOp(t), Slot: slots[r]})
+					delete(store, r)
+				}
 			}
 		}
 		b.Insts = out
@@ -792,7 +822,14 @@ func applyColors(f *MFunc, color map[Reg]Reg) {
 			switch {
 			case !used[r] || r == RSP:
 			case r.PhysClass() == ClassXMM:
-				f.savedXMM = append(f.savedXMM, r)
+				// A NoSSE handler (kernel mode without //pu:fpu) uses no
+				// XMM register, and neither does anything it calls: non-fpu
+				// functions are NoSSE too, and calling a //pu:fpu function
+				// needs FPUBegin/FPUEnd around it (abi.md section 10.4).
+				// The registers marked here are only call clobbers.
+				if !f.noSSE {
+					f.savedXMM = append(f.savedXMM, r)
+				}
 			default:
 				f.usedSaved = append(f.usedSaved, r)
 			}

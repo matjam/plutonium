@@ -53,6 +53,12 @@ var intrinsics = map[string]intrinsicFn{
 	"pluto/bits.RotateLeft32": func(s *fnState, args []*ssa.Value, _ []types2.Type) []*ssa.Value {
 		return []*ssa.Value{s.newValue(ssa.OpRotl, ssa.TI32, args[0], args[1])}
 	},
+	// The return address of the function making the call. When that
+	// function is inlined, the inliner turns it into the address of the
+	// inlined code, where the call would have returned.
+	"pluto/rt.CallerPC": func(s *fnState, _ []*ssa.Value, results []types2.Type) []*ssa.Value {
+		return []*ssa.Value{s.newValue(ssa.OpReturnAddr, s.l.scalarType(results[0]))}
+	},
 	"pluto/bits.Mul64": func(s *fnState, args []*ssa.Value, _ []types2.Type) []*ssa.Value {
 		hi := s.newValue(ssa.OpMulHiu, ssa.TI64, args[0], args[1])
 		lo := s.newValue(ssa.OpMul, ssa.TI64, args[0], args[1])
@@ -60,7 +66,49 @@ var intrinsics = map[string]intrinsicFn{
 	},
 }
 
+// x86Path is the import path of the x86 intrinsics package.
+const x86Path = "pluto/arch/x86"
+
+func init() {
+	// Every function of pluto/arch/x86 except HandlerAddr (see
+	// handlerAddr) is one OpIntrinsic named after it.
+	for _, name := range []string{
+		"Cli", "Sti", "StiHlt", "Hlt", "Pause", "SaveFlagsCli", "RestoreFlags",
+		"Inb", "Inw", "Inl", "Outb", "Outw", "Outl",
+		"Rdmsr", "Wrmsr",
+		"ReadCR0", "ReadCR2", "ReadCR3", "ReadCR4", "WriteCR0", "WriteCR3", "WriteCR4", "Invlpg",
+		"Lgdt", "Lidt", "Ltr",
+		"Cpuid", "Rdtsc", "Rdtscp",
+		"Swapgs", "ReadGSBase", "WriteGSBase", "GSLoad64", "GSLoad32", "GSStore64", "GSStore32",
+		"FPUBegin", "FPUEnd",
+	} {
+		intrinsics[x86Path+"."+name] = machine("x86." + name)
+	}
+}
+
+// machine returns an intrinsic that expands to the named machine
+// instruction sequence: an OpIntrinsic, which orders memory as a call
+// does, so that it is a compiler barrier.
+func machine(name string) intrinsicFn {
+	return func(s *fnState, args []*ssa.Value, results []types2.Type) []*ssa.Value {
+		types := []*ssa.Type{ssa.TMem}
+		for _, r := range results {
+			types = append(types, s.l.scalarType(r))
+		}
+		v := s.newValue(ssa.OpIntrinsic, ssa.TupleOf(types...), args...)
+		v.AddArg(s.mem())
+		v.Aux = ssa.Intrinsic(name)
+		s.setMem(s.selectN(v, 0, ssa.TMem))
+		out := make([]*ssa.Value, len(results))
+		for i := range results {
+			out[i] = s.selectN(v, i+1, types[i+1])
+		}
+		return out
+	}
+}
+
 // intrinsic lowers a call to an intrinsic function, if fn is one.
+// x86.HandlerAddr is handled by handlerAddr (interrupt.go).
 func (s *fnState) intrinsic(fn *types2.Func, e *ast.CallExpr) ([]value, bool) {
 	if fn.Pkg() == nil {
 		return nil, false

@@ -11,6 +11,10 @@ import (
 
 // expr lowers an expression to a value.
 func (s *fnState) expr(e ast.Expr) value {
+	if p := e.Pos(); p.IsValid() {
+		defer s.f.SetPos(s.f.SetPos(p))
+	}
+	defer s.at(e.Pos())()
 	tv := s.info.Types[e]
 	if tv.Value != nil {
 		return s.constValue(tv.Value, s.typeOf(e), e)
@@ -318,6 +322,9 @@ func (s *fnState) panicUnless(cond *ssa.Value, pos token.Pos, raise func()) {
 	s.seal(fail)
 	s.startBlock(fail)
 	fail.Pos = pos
+	if pos.IsValid() {
+		defer s.f.SetPos(s.f.SetPos(pos))
+	}
 	raise()
 	s.seal(cont)
 	s.startBlock(cont)
@@ -442,9 +449,11 @@ func (s *fnState) selector(e *ast.SelectorExpr, T types2.Type) value {
 	case types2.MethodVal:
 		return scalarValue(s.methodValue(e, sel), T)
 	case types2.MethodExpr:
-		fn := sel.Obj().(*types2.Func)
-		targs := s.withMethodTypeArgs(fn, e.Sel, s.recvTypeArgs(sel.Recv()))
-		return scalarValue(s.funcValue(fn, targs, e.Pos()), T)
+		sym := s.methodExpr(e, sel, T.Underlying().(*types2.Signature))
+		if sym == nil {
+			return s.zeroValue(T)
+		}
+		return scalarValue(s.symAddr(s.l.closureRecord(sym)), T)
 	}
 	return s.zeroValue(T)
 }
@@ -496,7 +505,7 @@ func isAddressable(e ast.Expr, info *types2.Info) bool {
 func (s *fnState) unary(e *ast.UnaryExpr, T types2.Type) value {
 	switch e.Op {
 	case token.AND:
-		return scalarValue(s.lv(e.X).ptr, T)
+		return scalarValue(s.absAddr(s.lv(e.X).ptr), T)
 	case token.ADD:
 		return s.expr(e.X)
 	case token.SUB:
@@ -822,22 +831,53 @@ func (s *fnState) equal(x, y value, T types2.Type, pos token.Pos) *ssa.Value {
 		if isPlainBytes(et) {
 			return s.callRuntime("memequal", []*ssa.Type{ssa.TBool}, []*ssa.Value{x.v, y.v, s.constInt(ssa.TI64, u.Len()*esize)})[0]
 		}
-		// Elements whose bytes do not decide equality (structs with
-		// padding, floats, strings, interfaces): compare them in a loop.
-		res := s.tempSize(1, 1, "arrayeq")
-		s.store(ssa.TBool, res, s.constBool(true))
-		s.countedLoop(s.constInt(ssa.TI64, u.Len()), nil, func(i *ssa.Value) {
-			fx := s.loadFrom(s.elemAddr(x.v, i, et), et)
-			fy := s.loadFrom(s.elemAddr(y.v, i, et), et)
-			ne := s.newValue(ssa.OpNot, ssa.TBool, s.equal(fx, fy, et, pos))
-			s.ifThen(ne, func() { s.store(ssa.TBool, res, s.constBool(false)) })
-		})
-		return s.load(ssa.TBool, res)
+		return s.equalArrayLoop(x.v, y.v, u.Len(), et, pos)
 	case *types2.Packed, *types2.Wrapper:
 		return s.callRuntime("memequal", []*ssa.Type{ssa.TBool}, []*ssa.Value{x.v, y.v, s.constInt(ssa.TI64, s.l.sizeof(T))})[0]
 	}
 	s.l.errorf(pos, "lower: cannot compare values of type %s", T)
 	return s.constBool(false)
+}
+
+// equalArrayLoop compares the arrays of n elements of type et at x and y
+// in a loop that stops at the first unequal element.
+func (s *fnState) equalArrayLoop(x, y *ssa.Value, n int64, et types2.Type, pos token.Pos) *ssa.Value {
+	res := s.temp(types2.Typ[types2.Bool], "eq")
+	s.store(ssa.TBool, res, s.constBool(true))
+	idx := s.temp(types2.Typ[types2.Int], "i")
+	s.store(ssa.TI64, idx, s.constInt(ssa.TI64, 0))
+	head := s.newBlock(ssa.BlockInvalid)
+	body := s.newBlock(ssa.BlockInvalid)
+	next := s.newBlock(ssa.BlockInvalid)
+	differ := s.newBlock(ssa.BlockInvalid)
+	done := s.newBlock(ssa.BlockInvalid)
+	s.endPlain(head)
+
+	s.startBlock(head)
+	i := s.load(ssa.TI64, idx)
+	s.endIf(s.newValue(ssa.OpLess, ssa.TBool, i, s.constInt(ssa.TI64, n)), body, done)
+
+	s.seal(body)
+	s.startBlock(body)
+	i = s.load(ssa.TI64, idx)
+	ex := s.loadFrom(s.elemAddr(x, i, et), et)
+	ey := s.loadFrom(s.elemAddr(y, i, et), et)
+	s.endIf(s.equal(ex, ey, et, pos), next, differ)
+
+	s.seal(next)
+	s.startBlock(next)
+	s.store(ssa.TI64, idx, s.newValue(ssa.OpAdd, ssa.TI64, i, s.constInt(ssa.TI64, 1)))
+	s.endPlain(head)
+	s.seal(head)
+
+	s.seal(differ)
+	s.startBlock(differ)
+	s.store(ssa.TBool, res, s.constBool(false))
+	s.endPlain(done)
+
+	s.seal(done)
+	s.startBlock(done)
+	return s.load(ssa.TBool, res)
 }
 
 // isPlainBytes reports whether equality of T values is equality of their bytes.
@@ -900,7 +940,7 @@ func (s *fnState) sliceExpr(e *ast.SliceExpr, T types2.Type) value {
 		base, length, capacity = s.sliceParts(sl)
 		elem = u.Elem()
 	case *types2.Array:
-		base = s.lv(e.X).ptr
+		base = s.absAddr(s.lv(e.X).ptr)
 		length = s.constInt(ssa.TI64, u.Len())
 		capacity = length
 		elem = u.Elem()
@@ -1028,6 +1068,11 @@ func (s *fnState) compositeLit(e *ast.CompositeLit, T types2.Type) value {
 			}
 		}
 		return s.loadLV(lv)
+
+	case *types2.Wrapper:
+		if u.Kind() == types2.WrapRing && len(e.Elts) == 0 {
+			return s.zeroValue(T) // ring[T, N]{}: the empty ring
+		}
 	}
 	s.l.errorf(e.Pos(), "lower: unsupported composite literal of type %s", T)
 	return s.zeroValue(T)
@@ -1088,6 +1133,16 @@ func unpackIndex(e ast.Expr) indexed {
 		return indexed{e.X, nil}
 	}
 	return indexed{}
+}
+
+// staticFuncIdent is identOf for a callee, except that it returns nil for
+// a method selection (x.m or T.m), which names a method rather than a
+// function that can be called directly.
+func staticFuncIdent(e ast.Expr, info *types2.Info) *ast.Ident {
+	if se, ok := ast.Unparen(e).(*ast.SelectorExpr); ok && info.Selections[se] != nil {
+		return nil
+	}
+	return identOf(e)
 }
 
 func identOf(e ast.Expr) *ast.Ident {

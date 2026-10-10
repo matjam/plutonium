@@ -9,7 +9,9 @@
 //     AppendJoin) and, like append, need room in its capacity;
 //   - Split and Fields fill a caller's []string (SplitInto, FieldsInto) or
 //     are walked with an iterator (SplitIter, FieldsIter);
-//   - a Builder writes into a caller's buffer or one from an allocator.
+//   - a Builder writes into a caller's buffer or one from an allocator,
+//     which it gets once: from Init, or from alloc.Default() when it
+//     first grows.
 //
 // There are no Unicode tables yet: white space follows unicode.IsSpace
 // exactly, but case mapping and case folding (AppendUpper, AppendLower,

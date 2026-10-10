@@ -1,0 +1,33 @@
+eval c=1
+initial 102
+early 42 41
+6
+eval c=2
+5
+eval b=10
+eval c=3
+14
+5
+15
+35
+1 2
+7 8
+none/4
+x/4
+y/9
+42
+20
+101
+8 1 16 5
+0 true 2
+12
+112
+1112
+12 1
+14 20 3
+2
+eval c=4
+3004
+direct 51
+deferred 41
+calls 51

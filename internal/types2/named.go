@@ -124,6 +124,10 @@ type Named struct {
 	// accessed.
 	methods []*Func
 
+	// Plutonium: the members of an enum type, or nil. The underlying type
+	// of an enum is its integer type.
+	enum *Enum
+
 	// loader may be provided to lazily load type parameters, underlying type, methods, and delayed functions
 	loader func(*Named) ([]*TypeParam, Type, []*Func, []func())
 }

@@ -222,7 +222,11 @@ func (check *Checker) callExpr(x *operand, call *ast.CallExpr) exprKind {
 						break
 					}
 				}
-				check.conversion(x, T)
+				if en := EnumOf(T); en != nil && !Identical(x.typ(), T) {
+					check.enumConversion(x, T, en, call)
+				} else {
+					check.conversion(x, T)
+				}
 			}
 		default:
 			check.use(call.Args...)
@@ -310,6 +314,7 @@ func (check *Checker) callExpr(x *operand, call *ast.CallExpr) exprKind {
 	// evaluate arguments
 	args, atargs := check.genericExprList(call.Args)
 	sig = check.arguments(call, sig, targs, xlist, args, atargs)
+	check.errorsNewCall(call, args)
 
 	if wasGeneric && sig.TypeParams().Len() == 0 {
 		// Update the recorded type of call.Fun to its instantiated type.
@@ -526,6 +531,14 @@ func (check *Checker) arguments(call *ast.CallExpr, sig *Signature, targs []Type
 			return
 		}
 		// standard_func(a, b, c)
+		// Plutonium: a call to a declared function may omit any suffix of
+		// its defaulted parameters (language spec section 5.1); check the
+		// arguments against the parameters they fill.
+		if nargs < npars && nargs >= npars-len(check.calleeDefaults(call)) {
+			sigParams = NewTuple(sig.params.vars[:nargs]...) // possibly nil!
+			adjusted = true
+			npars = nargs
+		}
 	}
 
 	// check argument count
@@ -770,6 +783,7 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 					x.typ_ = x.typ().(*Pointer).base
 				}
 			case *Func:
+				check.noteFunc(e.Sel, exp)
 				x.mode_ = funcMode
 				x.typ_ = exp.typ
 				if pkg.cgo && strings.HasPrefix(exp.name, "_Cmacro_") {
@@ -819,6 +833,15 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 		goto Error
 	}
 
+	// Plutonium: E.Member selects a member of enum type E. A member takes
+	// precedence over a method expression of the same name.
+	if x.mode() == typexpr && check.enumSelector(x, e) {
+		if !x.isValid() {
+			goto Error
+		}
+		return
+	}
+
 	// Additionally, if x.typ is a pointer type, selecting implicitly dereferences the value, meaning
 	// its base type must also be complete.
 	if p, ok := x.typ().Underlying().(*Pointer); ok && !check.isComplete(p.base) {
@@ -848,7 +871,9 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 		}
 
 		var why string
-		if isInterfacePtr(x.typ()) {
+		if en := EnumOf(x.typ()); en != nil && en.lookup(sel) != nil {
+			why = check.sprintf("%s is a member of enum %s: write %s.%s", sel, en.obj.name, en.obj.name, sel)
+		} else if isInterfacePtr(x.typ()) {
 			why = check.interfacePtrError(x.typ())
 		} else {
 			alt, _, _ := lookupFieldOrMethod(x.typ(), x.mode() == variable, check.pkg, sel, true)
@@ -925,6 +950,7 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 			// TODO(gri) If we needed to take into account the receiver's
 			// addressability, should we report the type &(x.typ) instead?
 			check.recordSelection(e, MethodVal, x.typ(), obj, index, indirect)
+			check.noteFunc(e.Sel, obj)
 
 			// TODO(gri) The verification pass below is disabled for now because
 			//           method sets don't match method lookup in some cases.

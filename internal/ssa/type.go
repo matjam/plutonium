@@ -28,6 +28,7 @@ const (
 	KPtr               // pointer
 	KTuple             // multiple results (calls); elements in Elems
 	KFlags             // condition flags (backend only)
+	KVec               // a vector of Elems (all the same scalar type) in one register
 )
 
 // A Type is an SSA value type.
@@ -50,6 +51,11 @@ var (
 	TF64   = &Type{Kind: KFloat, Size: 8}
 	TPtr   = &Type{Kind: KPtr, Size: 8}
 	TFlags = &Type{Kind: KFlags}
+
+	// TF64x2 is two float64 lanes, lane 0 in the low half (an SSE2 packed
+	// double). Float arithmetic, loads and stores of this type act on each
+	// lane exactly as the scalar operation does.
+	TF64x2 = &Type{Kind: KVec, Size: 16, Elems: []*Type{TF64, TF64}}
 )
 
 // IntType returns the integer type of the given size in bytes.
@@ -91,6 +97,11 @@ func (t *Type) IsBool() bool  { return t.Kind == KBool }
 func (t *Type) IsTuple() bool { return t.Kind == KTuple }
 func (t *Type) IsVoid() bool  { return t.Kind == KVoid }
 func (t *Type) IsFlags() bool { return t.Kind == KFlags }
+func (t *Type) IsVec() bool   { return t.Kind == KVec }
+
+// IsFloatOrVec reports whether t is a float or a vector of floats, the
+// types float arithmetic is defined on.
+func (t *Type) IsFloatOrVec() bool { return t.IsFloat() || t.IsVec() && t.Elems[0].IsFloat() }
 func (t *Type) IsScalar() bool {
 	return t.Kind == KBool || t.Kind == KInt || t.Kind == KFloat || t.Kind == KPtr
 }
@@ -107,7 +118,7 @@ func (t *Type) Same(u *Type) bool {
 	if t.Kind != u.Kind || t.Size != u.Size {
 		return false
 	}
-	if t.Kind == KTuple {
+	if t.Kind == KTuple || t.Kind == KVec {
 		if len(t.Elems) != len(u.Elems) {
 			return false
 		}
@@ -136,6 +147,8 @@ func (t *Type) String() string {
 		return "ptr"
 	case KFlags:
 		return "flags"
+	case KVec:
+		return fmt.Sprintf("%sx%d", t.Elems[0], len(t.Elems))
 	case KTuple:
 		s := "("
 		for i, e := range t.Elems {

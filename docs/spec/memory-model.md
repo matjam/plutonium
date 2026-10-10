@@ -91,7 +91,8 @@ A `for v := range ch` loop is a sequence of receives.
 
 A channel is reference counted with an atomic count (language spec section 4.8). The release of the last
 reference is synchronised before the channel's memory is freed, so freeing never races with a puroutine
-that still held a reference.
+that still held a reference. Owners still buffered at that point are dropped after that release and before
+the memory is freed, on the puroutine that released the last reference.
 
 ### 3.4 `pluto/sync`
 
@@ -142,15 +143,33 @@ which channel and lock implementations build on:
   processor or another, observes its own earlier writes and every write that happened before its
   suspension, exactly as if it had not been suspended.
 
-### 3.7 Owned and counted pointers
+### 3.7 Owners and counted references
 
-`owned[T]` moves are ordinary writes; passing one to another puroutine needs one of the synchronising
-operations above (a `go` statement or a channel send usually is that operation).
+Moving an owner (language spec section 6.4), whether `owned[T]`, a library owner such as `vec.Vec[T]` or a
+program's own `owner` type, is an ordinary write of its bytes. Handing an owner to another puroutine needs
+one of the synchronising operations above; the `go` statement or channel send that moves it is that
+operation, so the receiver observes everything the sender wrote to the owner and to the memory it owns.
+Dropping an owner is ordinary code (its `Drop` method, then its fields) run by the puroutine that holds it.
 
-`synced[T]` counts references atomically. Every decrement of the count is a release, and the decrement
-that reaches zero is an acquire, as in Rust's `Arc`: every use of the object through any reference
-happens before its `Drop` method runs and before its memory is freed. `shared[T]`'s count is not atomic,
-which is why it cannot cross puroutines (language spec section 4.7).
+`synced[T]` counts references atomically:
+
+- Every decrement of the strong count is a release, and the decrement that reaches zero is also an
+  acquire, as in Rust's `Arc`. Every use of the object through any reference therefore happens before its
+  `Drop` method runs. `Drop` runs on whichever puroutine releases the last strong reference, and must not
+  assume a particular one.
+- The weak count of a `weak[synced[T]]` follows the same rule. The memory is freed when both counts have
+  reached zero; the release that brings the second one to zero is synchronised before the free, so freeing
+  never races with an `Upgrade` or a `Drop` still in progress.
+- `Upgrade` is an atomic read-modify-write of the strong count that fails, without changing it, once the
+  count has reached zero; a successful one can never resurrect an object whose `Drop` has started. Like
+  other atomic operations it synchronises only through the count: the fields of `T` that change are
+  protected by a lock or atomics, as section 1 advises.
+- Increments (copying a reference) are atomic but need no ordering of their own: the puroutine that copies
+  already holds a reference.
+
+`shared[T]` and `weak[shared[T]]` counts are not atomic, which is why they cannot cross puroutines
+(language spec section 4.7). Allocated errors under the proposal of language spec section 14.6 are
+`synced` objects and follow these rules.
 
 ### 3.8 Allocators
 
@@ -171,7 +190,7 @@ limited consequences below and no others.
 ### 4.2 Word-sized and smaller locations
 
 A plain read of a naturally aligned location of at most 8 bytes (every integer, float, boolean, pointer,
-`uintptr`, `unsafe.Pointer`, func value, `owned`/`shared`/`synced` pointer, and packed value of 1, 2, 4
+`uintptr`, `unsafe.Pointer`, func value, `owned`/`shared`/`synced`/`weak` reference, and packed value of 1, 2, 4
 or 8 bytes) observes the value of some single write to that location that it may observe under section 2
 rules. It never observes a mixture of bits from different writes, and never a value nobody wrote.
 
@@ -276,7 +295,7 @@ only the compiler can make the handler see the interrupted code's accesses out o
 - Plain accesses to such data race with the handler, with the consequences of section 4.
 - Disabling interrupts (`x86.Cli`, `x86.SaveFlagsCli`) acts like acquiring a lock that every handler on
   that processor holds while it runs; re-enabling them (`x86.Sti`, `x86.RestoreFlags`) acts like
-  releasing it. Both are compiler barriers (language spec section 11.4). Plain accesses between them are
+  releasing it. Both are compiler barriers (language spec section 12.4). Plain accesses between them are
   not observed by handlers on that processor until interrupts are enabled again.
 - An interrupt handler's entry is synchronised after every operation of the interrupted code that came
   before the interrupted instruction, and its `iretq` is synchronised before every operation that comes
@@ -309,7 +328,7 @@ rely on them for section 3. Concretely, a kernel scheduler must:
 2. **Order park and ready.** The ready operation must be synchronised before the parked puroutine
    resumes, again through the run queue's lock or atomics.
 3. **Switch context completely.** A context switch saves and restores the full register state (and FPU
-   state, for code allowed to use it, section 11.3 of the language spec) and is a compiler barrier. A
+   state, for code allowed to use it, section 12.3 of the language spec) and is a compiler barrier. A
    puroutine that migrates to another processor must observe its own earlier writes: the run-queue
    release/acquire pair provides this, and a scheduler that hands puroutines over by other means needs a
    full fence on the way.
@@ -322,11 +341,13 @@ A scheduler that meets these rules gives puroutines the same memory model as the
 
 ### 6.4 Per-CPU data
 
-Per-CPU variables (proposed, `//pu:percpu`, language spec section 11.5) are ordinary locations, one copy
-per processor. A puroutine that can be preempted and migrated may read one processor's copy and write
+Per-CPU variables (`//pu:percpu`, language spec section 12.5) are ordinary locations, one copy per
+processor. A puroutine that can be preempted and migrated may read one processor's copy and write
 another's; such sequences must run with preemption (or interrupts) disabled. A single word-sized per-CPU
-access compiles to one `GS`-relative instruction and is therefore atomic with respect to interrupts on
-the same processor.
+load or store compiles to one `GS`-relative instruction and is therefore atomic with respect to interrupts
+on the same processor. Changing the GS base (`x86.WriteGSBase`, `x86.Swapgs`, a call) is a compiler
+barrier like every `pluto/arch/x86` intrinsic, so no per-CPU access moves across it; a pointer taken with
+`&v` before the change still refers to the copy it was taken from.
 
 ## 7. Differences from Go
 
@@ -338,7 +359,7 @@ the same processor.
 | Struct fields | separate locations | the same |
 | Packed fields | n/a | the whole packed value is one location (section 4.3) |
 | Volatile | n/a | ordered by the compiler; not synchronising between processors |
-| Finalizers, GC | `runtime.SetFinalizer` synchronises | none; `synced[T]` drop ordering instead (section 3.7) |
+| Finalizers, GC | `runtime.SetFinalizer` synchronises | none; owners are dropped by the puroutine that holds them, and `synced[T]` and weak references have the drop ordering of section 3.7 |
 | Interrupt handlers | n/a | section 6.1 |
 | Scheduler | built in | any scheduler must meet section 3.6 |
 | `Fence` | not provided | `atomic.Fence`, sequentially consistent, `MFENCE` |

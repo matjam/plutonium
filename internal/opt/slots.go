@@ -17,15 +17,6 @@ type slotAccess struct {
 	isSrc bool // for Move: the slot is the source
 }
 
-// otherArg returns the index of a Move's other address argument: the
-// source when the slot is the destination, and the other way round.
-func (a slotAccess) otherArg() int {
-	if a.isSrc {
-		return 0
-	}
-	return 1
-}
-
 // slotInfo collects how a slot is used.
 type slotInfo struct {
 	slot     *ssa.Slot

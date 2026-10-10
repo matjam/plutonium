@@ -1,66 +1,44 @@
+// Comparison of arrays too large to unroll whose elements are not plain
+// bytes (strings, floats, structs, interfaces, arrays), directly, through
+// comparable type parameters and inside interfaces.
 package main
 
-// Comparison of arrays longer than eight elements whose equality is not
-// equality of their bytes: structs with padding, floats (where -0 equals
-// +0 and NaN equals nothing) and nested arrays of such. Found by
-// tools/difftest: these were rejected as not supported.
-
-type padded struct {
-	a int8
-	b int64
-	c bool
+type P struct {
+	s string
+	f float64
 }
 
-type withFloat struct {
-	x float64
-	n int16
+func Eq[T comparable](a, b T) bool { return a == b }
+
+func Index[T comparable](xs []T, v T) int {
+	for i, x := range xs {
+		if x == v {
+			return i
+		}
+	}
+	return -1
 }
-
-var gz int32
-
-//pu:noinline
-func eqPadded(x, y [12]padded) bool { return x == y }
-
-//pu:noinline
-func eqFloat(x, y *[9]withFloat) bool { return *x == *y }
-
-//pu:noinline
-func neFloats(x, y [10]float32) bool { return x != y }
 
 func main() {
-	var p, q [12]padded
-	println(eqPadded(p, q))
-	p[11].c = true
-	println(eqPadded(p, q))
-	q[11].c = true
-	q[3] = padded{a: -1, b: 1 << 40}
-	p[3] = q[3]
-	println(eqPadded(p, q), p == q, p != q)
-
-	z := float64(gz)
-	var f, g [9]withFloat
-	f[8].x = z
-	g[8].x = -z
-	println(eqFloat(&f, &g)) // -0 == +0
-	f[0].x = z / z
-	g[0].x = f[0].x
-	println(eqFloat(&f, &g), eqFloat(&f, &f)) // NaN != NaN
-	f[0].x, g[0].x = 1.5, 1.5
-	f[4].n = 7
-	println(eqFloat(&f, &g))
-	g[4].n = 7
-	println(eqFloat(&f, &g))
-
-	var a, b [10]float32
-	a[9] = float32(z)
-	b[9] = -float32(z)
-	println(neFloats(a, b), a == b)
-	b[2] = 1
-	println(neFloats(a, b), a == b)
-
-	var m, n [3][9]padded
-	n[2][8].b = 5
-	println(m == n)
-	m[2][8].b = 5
-	println(m == n)
+	var a, b [12]string
+	println(Eq(a, b), a == b)
+	b[11] = "x"
+	println(Eq(a, b), a != b)
+	a[11] = "x"
+	println(Eq(a, b))
+	var f1, f2 [9]float64
+	f2[0] = -0.0
+	println(f1 == f2, Eq(f1, f2))
+	var p1, p2 [10]P
+	p2[5].s = "q"
+	println(p1 == p2, Eq(p1, p1))
+	var i1, i2 [20]any
+	i1[3], i2[3] = 1, 1
+	println(i1 == i2, Eq(i1, i2))
+	grid := [][9]string{{}, {"a"}, {8: "z"}}
+	println(Index(grid, [9]string{8: "z"}), Index(grid, [9]string{"b"}))
+	var big1, big2 [3][10]string
+	big2[2][9] = "w"
+	println(big1 == big2, Eq(big1, big1))
+	println(Eq[any](a, b), Eq[any](big1, big2), Eq[any](p1, p1))
 }

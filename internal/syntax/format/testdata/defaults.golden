@@ -1,0 +1,33 @@
+package alloc
+
+// Default parameter values (language spec section 5.1).
+
+func New[T any](a Allocator = Default()) *T {
+	return nil
+}
+
+func Free[T any](p *T, a Allocator = Default()) {}
+
+func Grow(n int, factor int = 2, limit int = 1 << 20, name string = "grow") {}
+
+func OpenFile(name string, flags int, perm uint32 = 0o644, a Allocator = Default()) {}
+
+// A default that spans lines keeps its layout.
+func Configure(
+	name string,
+	opts Options = Options{Size: 64, Align: 8},
+	a Allocator = Default(),
+) {
+}
+
+func Unnamed(int = 3) {}
+
+func (v *Vec[T]) Map[U any](f func(T) U, a Allocator = Default()) Vec[U] {
+	return Vec[U]{}
+}
+
+func calls() {
+	_ = New[int]()
+	Grow(10)
+	Grow(10, 3)
+}

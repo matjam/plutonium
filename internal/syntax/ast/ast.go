@@ -204,6 +204,13 @@ type Field struct {
 	Type    Expr          // field/method/parameter type; or nil
 	Tag     *BasicLit     // field tag; or nil
 	Comment *CommentGroup // line comments; or nil
+
+	// Plutonium: a parameter's default value, as in "a Allocator =
+	// Default()" (language spec section 5.1). Assign is the position of
+	// the "=", and Default is nil for a parameter without one. The parser
+	// records defaults in parameter lists only, one parameter per field.
+	Assign  token.Pos
+	Default Expr
 }
 
 func (f *Field) Pos() token.Pos {
@@ -217,6 +224,9 @@ func (f *Field) Pos() token.Pos {
 }
 
 func (f *Field) End() token.Pos {
+	if f.Default != nil {
+		return f.Default.End()
+	}
 	if f.Tag != nil {
 		return f.Tag.End()
 	}
@@ -632,6 +642,39 @@ func (x *BitsGroup) End() token.Pos  { return x.Rbrace + 1 }
 
 func (*PackedType) exprNode() {}
 func (*BitsGroup) exprNode()  {}
+
+// An EnumType node represents a Plutonium enum type:
+//
+//	enum [Base] { Name [= Value]; ... }
+type EnumType struct {
+	Enum    token.Pos     // position of "enum" keyword
+	Base    Expr          // explicit underlying integer type; or nil
+	Lbrace  token.Pos     // position of "{"
+	Members []*EnumMember // members in declaration order
+	Rbrace  token.Pos     // position of "}"
+}
+
+// An EnumMember is one member of an enum type: a name and an optional
+// constant value.
+type EnumMember struct {
+	Doc     *CommentGroup // associated documentation; or nil
+	Name    *Ident        // member name
+	Assign  token.Pos     // position of "=", if any
+	Value   Expr          // explicit value; or nil
+	Comment *CommentGroup // line comments; or nil
+}
+
+func (x *EnumType) Pos() token.Pos { return x.Enum }
+func (x *EnumType) End() token.Pos { return x.Rbrace + 1 }
+func (*EnumType) exprNode()        {}
+
+func (m *EnumMember) Pos() token.Pos { return m.Name.Pos() }
+func (m *EnumMember) End() token.Pos {
+	if m.Value != nil {
+		return m.Value.End()
+	}
+	return m.Name.End()
+}
 
 // ----------------------------------------------------------------------------
 // Convenience functions for Idents

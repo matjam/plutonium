@@ -3,6 +3,8 @@ package ssa
 import (
 	"fmt"
 	"strings"
+
+	"github.com/matjam/plutonium/internal/syntax/token"
 )
 
 // Verify checks the function's structural invariants and returns an error
@@ -184,6 +186,46 @@ func (f *Func) Verify() error {
 	return nil
 }
 
+// VerifyPos checks that every source position in the function belongs to
+// the code its inline site says it came from: a value or block with no
+// inline site has a position in the function itself, and one with a site
+// has a position in the inlined function. A pass that copies a position
+// without its inline site fails this check, which otherwise shows only as
+// a stack trace or debugger frame that leaves out an inlined call.
+// Positions in functions with no known extent (synthesized ones) are not
+// checked. The optimiser runs it under PLUTO_SSACHECK.
+func (f *Func) VerifyPos() error {
+	var errs []string
+	check := func(what string, pos token.Pos, inl int32) {
+		if inl < 0 || int(inl) > len(f.Inlines) {
+			errs = append(errs, fmt.Sprintf("%s: inline site %d out of range (%d sites)", what, inl, len(f.Inlines)))
+			return
+		}
+		if !pos.IsValid() {
+			return
+		}
+		start, end, in := f.Pos, f.End, f.Name
+		if inl > 0 {
+			s := f.Inlines[inl-1]
+			start, end, in = s.Start, s.End, s.Func
+		}
+		if !end.IsValid() || start <= pos && pos <= end {
+			return
+		}
+		errs = append(errs, fmt.Sprintf("%s: position %d (inline site %d) is outside %s [%d, %d]", what, pos, inl, in, start, end))
+	}
+	for _, b := range f.Blocks {
+		check(b.String(), b.Pos, b.Inl)
+		for _, v := range b.Values {
+			check(v.String()+" ("+v.Op.String()+")", v.Pos, v.Inl)
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("ssa: %s has misplaced positions:\n  %s\n%s", f.Name, strings.Join(errs, "\n  "), f)
+	}
+	return nil
+}
+
 // verifyTypes checks the types of generic ops.
 func (f *Func) verifyTypes(v *Value, fail func(string, ...any)) {
 	if v.Op >= OpGenericEnd {
@@ -210,8 +252,20 @@ func (f *Func) verifyTypes(v *Value, fail func(string, ...any)) {
 			fail("%s: bad shift types", v.LongString())
 		}
 	case OpFAdd, OpFSub, OpFMul, OpFDiv:
-		if !v.Type.IsFloat() || !argType(0).Same(v.Type) || !argType(1).Same(v.Type) {
+		if !v.Type.IsFloatOrVec() || !argType(0).Same(v.Type) || !argType(1).Same(v.Type) {
 			fail("%s: %s needs matching float operands", v.LongString(), v.Op)
+		}
+	case OpFNeg, OpFSqrt, OpFAbs:
+		if !v.Type.IsFloatOrVec() || !argType(0).Same(v.Type) {
+			fail("%s: %s needs a matching float operand", v.LongString(), v.Op)
+		}
+	case OpVPack:
+		if !v.Type.IsVec() || !argType(0).Same(v.Type.Elems[0]) || !argType(1).Same(v.Type.Elems[1]) {
+			fail("%s: bad pack types", v.LongString())
+		}
+	case OpVLane:
+		if t := argType(0); !t.IsVec() || v.AuxInt < 0 || v.AuxInt >= int64(len(t.Elems)) || !v.Type.Same(t.Elems[v.AuxInt]) {
+			fail("%s: bad lane", v.LongString())
 		}
 	case OpEq, OpNe, OpLess, OpLeq, OpLessu, OpLequ:
 		if !v.Type.IsBool() || !argType(0).Same(argType(1)) || !argType(0).IsScalar() || argType(0).IsFloat() {
@@ -222,7 +276,7 @@ func (f *Func) verifyTypes(v *Value, fail func(string, ...any)) {
 			fail("%s: bad float comparison types", v.LongString())
 		}
 	case OpLoad:
-		if !argType(0).IsPtr() || !v.Type.IsScalar() {
+		if !argType(0).IsPtr() || !v.Type.IsScalar() && !v.Type.IsVec() {
 			fail("%s: bad load types", v.LongString())
 		}
 	case OpStore:
@@ -237,6 +291,10 @@ func (f *Func) verifyTypes(v *Value, fail func(string, ...any)) {
 	case OpOffPtr, OpAddPtr, OpSlotAddr, OpSymAddr, OpFuncAddr:
 		if !v.Type.IsPtr() {
 			fail("%s: address op must produce a pointer", v.LongString())
+		}
+	case OpReturnAddr, OpCodeAddr:
+		if v.Type.Size != 8 || v.Type.IsFloat() {
+			fail("%s: return address must be a word", v.LongString())
 		}
 	case OpPhi, OpCopy:
 		for _, a := range v.Args {
