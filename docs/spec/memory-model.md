@@ -244,13 +244,9 @@ The compiler must not:
    widened, are performed with exactly one access of their own width, and are never reordered with
    respect to each other. No other memory access is moved across a volatile access in either direction
    (language spec section 5.2). In particular, a plain read that follows a volatile read in program order
-   must not be satisfied by a value read before the volatile read.
-
-   **Known gap:** the compiler does not yet meet the last sentence. A volatile load does not start a new
-   memory state, so CSE merges two plain loads of the same location on either side of a volatile
-   polling loop (verified with `pluto build -S` on a loop that spins on a `volatile[uint32]` status
-   register between two reads of a buffer). The fix is to make volatile loads produce a memory state, as
-   stores do; it is listed in [the roadmap](../roadmap.md).
+   must not be satisfied by a value read before the volatile read. The compiler meets this by giving
+   every volatile load a new memory state (a `VolatileRead` in the SSA), as stores have, so later
+   accesses depend on it.
 6. **Assume race freedom.** The compiler may not, for example, conclude that a pointer cannot be nil
    because another puroutine would have to race to make it nil, or turn a racy read into undefined
    behaviour of any kind.

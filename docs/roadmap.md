@@ -17,9 +17,8 @@ tooling, platforms and libraries.
 
 ## Wrong code and silent failures
 
-1. **Volatile loads order plain loads** (planned): a volatile load does not start a new memory state, so
-   CSE merges plain loads across a volatile polling loop; make volatile loads produce memory
-   (memory-model.md section 5.2).
+1. **Volatile loads order plain loads** (done): each volatile load now starts a new memory state, so
+   plain loads on either side of a volatile polling loop stay separate (memory-model.md section 5.2).
 2. **Interface boxes in package initialisers** (planned): `var x any = "s"` boxes the string in the init
    function's frame and leaves a dangling pointer (seen in `-S` output, including `pluto/alloc.Pages`);
    give such boxes static storage as `&T{}` already gets, or reject them.

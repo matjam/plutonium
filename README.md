@@ -125,15 +125,84 @@ go build -o pluto ./cmd/pluto/
 # Build a package to a linked binary
 pluto build -o output ./path/to/package/
 
-# Compile a single source file to an object file
-pluto compile -o main.o main.pu
+# Write the object file instead of linking, with build tags
+pluto build -c --tags freestanding -o kernel.o ./kernel/
 
-# Compile with build tags
-pluto compile --tags freestanding -o kernel.o kernel.pu
+# Build a hosted program and run it
+pluto run ./path/to/package/ -- args...
+
+# Format source files the way gofmt formats Go
+pluto fmt -l .            # list files whose formatting differs
+pluto fmt -w ./lib/       # rewrite them in place
+pluto fmt -d main.p       # show the changes as a diff
+
+# Run tests and benchmarks
+pluto test ./mypkg/
+pluto test -v -run 'TestParse/empty' ./mypkg/
+pluto test -run '^$' -bench . -count 3 ./...
 
 # Print version
 pluto version
 ```
+
+### pluto fmt
+
+`pluto fmt [-l] [-w] [-d] [path ...]` formats Plutonium source exactly as
+gofmt formats Go, including the Plutonium-only syntax (packed types, bits
+groups, type constructors such as `volatile[T]` and `ring[T, N]`), and
+normalises `//pu:build` lines like `//go:build`. A directory is walked for
+`.p` files; with no paths, or `-`, it formats standard input. `-l` lists files
+that differ, `-w` rewrites them, `-d` prints a unified diff (and exits with
+status 1 if there was one). Syntax errors exit with status 2.
+
+### pluto test
+
+Tests live in `*_test.p` files in the package they test, and use
+`pluto/testing`:
+
+```go
+package strings
+
+import "pluto/testing"
+
+func TestIndex(t *testing.T) {
+	if got := Index("chicken", "ken"); got != 4 {
+		t.Errorf("Index = %d, want 4", got)
+	}
+	t.Run("empty", func(t *testing.T) {
+		if Index("", "") != 0 {
+			t.Fatal("empty string not found in itself")
+		}
+	})
+}
+
+func BenchmarkIndex(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		Index("chicken", "ken")
+	}
+}
+```
+
+`pluto test [-run regexp] [-bench regexp] [-v] [-count n] [-O level] [packages]`
+builds one test binary per package (the package's files plus its `_test.p`
+files, and a generated `main`), runs it, and prints the results as `go test`
+does: `--- FAIL: TestX`, `ok  pkg 0.01s`, `FAIL`. The exit status is 1 if a
+package fails to build or a test fails. Packages are directories, standard
+library paths (`pluto/strings`), or either followed by `/...`. Benchmarks run
+only with `-bench`. Below the top level, `-run` patterns are literal text with
+optional `^` and `$` anchors.
+
+`testing.T` has `Error`, `Errorf`, `Fatal`, `Fatalf`, `Log`, `Logf`, `Fail`,
+`FailNow`, `Failed`, `Skip`, `Skipf`, `SkipNow`, `Helper`, `Name` and `Run`;
+`testing.B` adds `N`, `ResetTimer`, `StartTimer`, `StopTimer` and
+`ReportAllocs`. Messages are formatted with `pluto/fmt` into fixed buffers,
+so testing allocates nothing; they carry no file:line prefix. Since `panic`
+aborts, a test that panics ends the binary: each test is announced before it
+runs, and `pluto test` reports the panic as a failure of that test. `FailNow`
+returns to the test runner directly, so the test function's deferred calls do
+not run. Tests must be in the package itself; external `_test` packages are
+not supported, and a package that `pluto/testing` depends on (such as
+`pluto/fmt`) cannot be tested this way.
 
 ## Project Structure
 

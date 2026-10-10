@@ -42,6 +42,17 @@ type Config struct {
 
 // Build compiles and links a program.
 func Build(cfg *Config) error {
+	prog, err := load.Load(loadConfig(cfg), cfg.Dir)
+	if err != nil {
+		return err
+	}
+	return buildProgram(cfg, prog)
+}
+
+var sizes = types2.SizesFor("gc", "amd64")
+
+// loadConfig returns the package loader's configuration for a build.
+func loadConfig(cfg *Config) *load.Config {
 	tags := map[string]bool{"amd64": true}
 	if cfg.Freestanding {
 		tags["none"] = true
@@ -53,11 +64,11 @@ func Build(cfg *Config) error {
 	for _, t := range cfg.Tags {
 		tags[t] = true
 	}
-	sizes := types2.SizesFor("gc", "amd64")
-	prog, err := load.Load(&load.Config{Tags: tags, Stdlib: cfg.Stdlib, Sizes: sizes}, cfg.Dir)
-	if err != nil {
-		return err
-	}
+	return &load.Config{Tags: tags, Stdlib: cfg.Stdlib, Sizes: sizes}
+}
+
+// buildProgram compiles and links a loaded program.
+func buildProgram(cfg *Config, prog *load.Program) error {
 	sp, err := lower.Lower(&lower.Config{Freestanding: cfg.Freestanding, Sizes: sizes}, prog)
 	if err != nil {
 		return err
