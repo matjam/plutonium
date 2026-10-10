@@ -189,7 +189,7 @@ func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature, def *defaults
 			out = append(out, s.zeroValue(sliceT))
 		} else {
 			arrT := types2.NewArray(et, int64(len(extra)))
-			arr := s.temp(arrT, "varargs")
+			arr := s.lastingTemp(arrT, "varargs")
 			esize := s.l.sizeof(et)
 			for i, a := range extra {
 				s.storeTo(s.offPtr(arr, int64(i)*esize), as(a, et), et)

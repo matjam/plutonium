@@ -162,7 +162,27 @@ func switchInBody(seq Seq[int]) int {
 	return out
 }
 
+func Concat[V any](seqs ...Seq[V]) Seq[V] {
+	return func(yield func(V) bool) {
+		for _, seq := range seqs {
+			for v := range seq {
+				if !yield(v) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// Iterators made during package initialisation outlive it.
+var evens = Values([]int{2, 4, 6})
+var both = Concat(evens, Values([]int{1, 3}))
+
 func main() {
+	for v := range both {
+		print(v, " ")
+	}
+	println(Sum(evens))
 	println(Sum(Values([]int{1, 2, 3, 4})), Sum(Values([]float64{0.5, 0.25})) == 0.75)
 	v, ok := First(Values([]string{"apple", "banana", "cherry"}), func(s string) bool { return s[0] == 'b' })
 	println(v, ok)

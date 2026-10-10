@@ -138,7 +138,7 @@ func (s *fnState) expandCtor(c *ctorInfo, targs []types2.Type, recv *value, args
 	vals = append(vals, args...)
 	for i, p := range params {
 		PT := s.subst(p.Type())
-		addr := s.temp(PT, varName(p))
+		addr := s.lastingTemp(PT, varName(p))
 		s.storeTo(addr, vals[i], PT)
 		s.vars[p] = addr
 	}
@@ -156,6 +156,16 @@ func (s *fnState) expandCtor(c *ctorInfo, targs []types2.Type, recv *value, args
 	}
 	s.pkg, s.info, s.tmap = pkg, info, tmap
 	return scalarValue(rec, T)
+}
+
+// lastingTemp returns storage for a T that the value being built keeps: a
+// slot in this frame, or static storage during package initialisation,
+// whose values outlive the init function.
+func (s *fnState) lastingTemp(T types2.Type, name string) *ssa.Value {
+	if s.staticLits {
+		return s.symAddr(s.l.staticObject(T))
+	}
+	return s.temp(T, name)
 }
 
 // checkNotCtor reports a closure constructor used other than by a call.

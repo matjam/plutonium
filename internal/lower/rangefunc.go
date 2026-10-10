@@ -199,13 +199,21 @@ func (s *fnState) staticCallee(x ast.Expr) (callee, bool) {
 }
 
 // closureRecord builds a closure record in this frame for the function sym
-// with the given captured addresses.
+// with the given captured addresses; or, during package initialisation,
+// in static storage, since the closure may be kept in a package variable
+// (a closure constructor's result, whose captures are static too).
 func (s *fnState) closureRecord(sym *ssa.Sym, caps []*ssa.Value) *ssa.Value {
-	rec := s.tempSize(int64(8*(1+len(caps))), 8, "closure")
-	slot := rec.Aux.(*ssa.Slot)
-	slot.Closure = true
-	for i := 0; i <= len(caps); i++ {
-		slot.Leaves = append(slot.Leaves, ssa.Leaf{Off: int64(8 * i), Type: ssa.TPtr})
+	size := int64(8 * (1 + len(caps)))
+	var rec *ssa.Value
+	if s.staticLits {
+		rec = s.symAddr(s.l.staticBytes(size, 8))
+	} else {
+		rec = s.tempSize(size, 8, "closure")
+		slot := rec.Aux.(*ssa.Slot)
+		slot.Closure = true
+		for i := 0; i <= len(caps); i++ {
+			slot.Leaves = append(slot.Leaves, ssa.Leaf{Off: int64(8 * i), Type: ssa.TPtr})
+		}
 	}
 	s.store(ssa.TPtr, rec, s.funcAddr(sym))
 	for i, c := range caps {
