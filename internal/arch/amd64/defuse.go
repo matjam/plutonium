@@ -50,6 +50,16 @@ func (in *MInst) Defs(out []Reg) []Reg {
 	return append(out, in.ImplicitDefs...)
 }
 
+// zeroIdiom reports whether the instruction clears its destination by
+// combining it with itself, which does not depend on its old value.
+func (in *MInst) zeroIdiom() bool {
+	switch in.Op {
+	case MXORPS, MXOR, MSUB:
+		return in.Dst.Kind == OpdReg && in.Src.Kind == OpdReg && in.Dst.Reg == in.Src.Reg
+	}
+	return false
+}
+
 // Uses appends the registers the instruction reads.
 func (in *MInst) Uses(out []Reg) []Reg {
 	switch in.Op {
@@ -59,6 +69,9 @@ func (in *MInst) Uses(out []Reg) []Reg {
 		return append(out, in.Src.Reg)
 	case MRELOAD:
 		return out
+	}
+	if in.zeroIdiom() {
+		return append(out, in.ImplicitUses...)
 	}
 	switch in.Src.Kind {
 	case OpdReg:

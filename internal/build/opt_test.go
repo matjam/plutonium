@@ -137,3 +137,34 @@ func main() {
 		t.Errorf("f: want no stack traffic\n%s", asm)
 	}
 }
+
+func TestZeroIdiomNotLive(t *testing.T) {
+	const src = `package main
+
+var ps [8][7]float64
+
+//pu:noinline
+func f(z float64) {
+	for i := range ps {
+		p := &ps[i]
+		a, b, c, d, e, g, h := p[0], p[1], p[2], p[3], p[4], p[5], p[6]
+		x := d*0.5 - e*z
+		y := e*z - c*0.5
+		w := c*z - d*z
+		a, b, c = (a+x)*h, (b+y)*h, (c+w)*h
+		p[0], p[1], p[2], p[3], p[4], p[5], p[6] = a*0.0+b, b*0.0+c, c*0.0+a, d*0.0+g, e*0.0+a, g*0.0+b, h*0.0+c
+	}
+}
+
+func main() {
+	ps[1][0] = 2
+	f(1)
+	println(int64(ps[1][2] * 100))
+}
+`
+	// xorps r, r clears r without reading it. Treating it as a use keeps
+	// each zero live back to the function entry and forces spills.
+	if asm := listFunc(t, src, "main.f"); strings.Contains(asm, "rsp") {
+		t.Errorf("f: want no spills\n%s", asm)
+	}
+}
