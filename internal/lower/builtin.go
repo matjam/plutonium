@@ -77,33 +77,35 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		return one(scalarValue(r, T))
 
 	case "new":
-		// new(T) is zeroed; new(expr) holds expr's value. Either may name
-		// an allocator last.
+		// new(T) or new(v), either with an optional allocator. new(v)
+		// evaluates v before the allocator, then stores it in the new
+		// variable.
 		elem := unwrap(T).Underlying().(*types2.Pointer).Elem()
-		var init value
-		if !s.info.Types[e.Args[0]].IsType() {
-			init = s.materialize(s.exprAs(e.Args[0], elem))
+		var v value
+		isValue := !s.info.Types[e.Args[0]].IsType()
+		if isValue {
+			v = s.materialize(s.exprAs(e.Args[0], elem))
 		}
 		ptr := s.allocate(s.constInt(ssa.TI64, s.l.sizeof(elem)), s.l.alignof(elem), e.Args[1:])
-		if init.T != nil {
-			s.storeTo(ptr, init, elem)
+		if isValue {
+			s.storeTo(ptr, v, elem)
 		}
 		return one(scalarValue(ptr, T))
 
 	case "make":
-		if _, ok := unwrap(T).Underlying().(*types2.Slice); !ok {
-			// The checker rejects channel and map types; this is where
-			// make(chan T, n, a) will allocate once channels exist.
+		st, isSlice := unwrap(T).Underlying().(*types2.Slice)
+		if !isSlice {
+			// The checker rejects channel and map types. Channels (roadmap
+			// item 15) will allocate here, from the optional final
+			// allocator as slices do: make(chan T, n, a).
 			s.l.errorf(e.Pos(), "lower: make of %s is not supported", T)
 			return nil
 		}
-		st := unwrap(T).Underlying().(*types2.Slice)
 		et := s.subst(st.Elem())
 		n := s.indexValue(e.Args[1])
 		c := n
 		rest := e.Args[2:]
-		// The checker tells an allocator from a capacity by its type.
-		if len(rest) > 0 && isIntegerType(s.typeOf(rest[0])) {
+		if len(rest) > 0 && isIntegerType(unwrap(s.typeOf(rest[0]))) {
 			c = s.indexValue(rest[0])
 			rest = rest[1:]
 		}
@@ -250,9 +252,8 @@ func (s *fnState) minMax(isMin bool, a, b *ssa.Value, T types2.Type) *ssa.Value 
 func (s *fnState) allocate(size *ssa.Value, align int64, extra []ast.Expr) *ssa.Value {
 	alignV := s.constInt(ssa.TI64, align)
 	if len(extra) > 0 {
-		// Any value with the allocator methods will do: convert it to the
-		// runtime's interface.
-		a := s.exprAs(extra[0], s.l.rtType("Allocator"))
+		allocT := s.l.rtFunc("allocWith").Type().(*types2.Signature).Params().At(0).Type()
+		a := s.exprAs(extra[0], allocT)
 		parts := s.leafValues(a, []leaf{{0, ssa.TPtr}, {8, ssa.TPtr}})
 		return s.callRuntime("allocWith", []*ssa.Type{ssa.TPtr}, parts, []*ssa.Value{size, alignV})[0]
 	}

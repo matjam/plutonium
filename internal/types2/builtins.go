@@ -554,40 +554,50 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 			// any other type was excluded above
 			panic("unreachable")
 		}
-
-		// Plutonium: a final argument that is not an integer is the
-		// allocator to allocate from (spec section 4.2). The channel form
-		// make(chan T, n, a) is handled here too, for when channel types
-		// are supported.
-		operands := make([]*operand, len(argList)-1)
-		for i, arg := range argList[1:] {
-			operands[i] = new(operand)
-			check.expr(nil, operands[i], arg)
+		// Plutonium: making a slice takes an optional final allocator
+		// argument, told from a capacity by its type (spec section 4.2).
+		// Channels take one too (spec 4.8, make(chan T, n, a)); channel
+		// types are rejected until they exist (roadmap item 15), and
+		// supporting them means treating *Chan like *Slice here and
+		// allocating in lower's make.
+		max := min + 1
+		_, isSlice := u.(*Slice)
+		if isSlice {
+			max++
 		}
-		var allocArg *operand
-		if n := len(operands); n > 0 && !isSizeOperand(operands[n-1]) {
-			allocArg = operands[n-1]
-			operands = operands[:n-1]
-		}
-		if nsize := len(operands) + 1; nsize < min || min+1 < nsize {
-			check.errorf(call, WrongArgCount, invalidOp+"%v expects %d or %d arguments and an optional allocator; found %d", call, min, min+1, nargs)
+		if nargs < min || max < nargs {
+			if isSlice {
+				check.errorf(call, WrongArgCount, invalidOp+"%v expects %d or %d arguments and an optional allocator; found %d", call, min, min+1, nargs)
+			} else {
+				check.errorf(call, WrongArgCount, invalidOp+"%v expects %d or %d arguments; found %d", call, min, min+1, nargs)
+			}
 			return
+		}
+
+		ops := make([]*operand, nargs-1)
+		for i, arg := range argList[1:] {
+			ops[i] = new(operand)
+			check.expr(nil, ops[i], arg)
+		}
+		var allocT Type
+		if isSlice && nargs > min && (nargs == max || !isCapacity(ops[len(ops)-1])) {
+			if allocT = check.allocatorArg(ops[len(ops)-1], "make"); allocT == nil {
+				return
+			}
+			ops = ops[:len(ops)-1]
 		}
 
 		types := []Type{T}
 		var sizes []int64 // constant integer arguments, if any
-		for _, x := range operands {
-			typ, size := check.sizeArg(x) // ok to continue with typ == Typ[Invalid]
+		for _, op := range ops {
+			typ, size := check.indexOperand(op, -1) // ok to continue with typ == Typ[Invalid]
 			types = append(types, typ)
 			if size >= 0 {
 				sizes = append(sizes, size)
 			}
 		}
-		if allocArg != nil {
-			if !check.allocatorArg(allocArg, "make") {
-				return
-			}
-			types = append(types, allocArg.typ())
+		if allocT != nil {
+			types = append(types, allocT)
 		}
 		if len(sizes) == 2 && sizes[0] > sizes[1] {
 			check.error(argList[1], SwappedMakeArgs, invalidArg+"length and capacity swapped")
@@ -666,10 +676,11 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 
 	case _New:
 		// new(T) or new(expr)
-		// Plutonium: either may be followed by an allocator (spec 4.2).
+		// Plutonium: either form may be followed by an allocator (spec
+		// section 4.2); the first operand being a type tells them apart.
 		// (no argument evaluated yet)
 		if nargs > 2 {
-			check.errorf(argList[2], WrongArgCount, invalidOp+"too many arguments for %v (expected a type or value and an optional allocator, found %d arguments)", call, nargs)
+			check.errorf(argErrPos(call), WrongArgCount, invalidOp+"too many arguments for %v (expected 1 and an optional allocator, found %d)", call, nargs)
 			return
 		}
 		arg := argList[0]
@@ -700,10 +711,11 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 		if nargs == 2 {
 			var a operand
 			check.expr(nil, &a, argList[1])
-			if !check.allocatorArg(&a, "new") {
+			allocT := check.allocatorArg(&a, "new")
+			if allocT == nil {
 				return
 			}
-			params = append(params, a.typ())
+			params = append(params, allocT)
 		}
 		x.mode_ = value
 		x.typ_ = NewPointer(T)

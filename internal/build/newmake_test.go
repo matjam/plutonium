@@ -94,19 +94,22 @@ func main() int64 {
 	}
 }
 
-// TestNoAllocator checks that new and make panic with "no allocator" when
-// there is none to allocate from (language spec sections 6.2 and 7): the
-// default allocator has not been set, as in a freestanding program before
-// alloc.SetDefault, or the explicit allocator is nil.
+// TestNoAllocator checks that new and make panic when there is nothing to
+// allocate from (language spec sections 6.2 and 7): with "no allocator"
+// when the default allocator has not been set, as in a freestanding program
+// before alloc.SetDefault, and with a message of its own when the explicit
+// allocator is nil.
 func TestNoAllocator(t *testing.T) {
-	cases := []struct{ name, body string }{
-		{"new without a default", "alloc.SetDefault(nil)\n\t_ = new(int)"},
-		{"make without a default", "alloc.SetDefault(nil)\n\t_ = make([]int, 3)"},
-		{"new with a nil allocator", "var a alloc.Allocator\n\t_ = new(int, a)"},
-		{"make with a nil allocator", "_ = make([]byte, 1, 8, nil)"},
+	const noDefault = "panic: no allocator: call alloc.SetDefault before allocating\n"
+	const nilArg = "panic: nil allocator passed to new or make\n"
+	cases := []struct{ name, body, want string }{
+		{"new without a default", "alloc.SetDefault(nil)\n\t_ = new(int)", noDefault},
+		{"make without a default", "alloc.SetDefault(nil)\n\t_ = make([]int, 3)", noDefault},
+		{"new with a nil allocator", "var a alloc.Allocator\n\t_ = new(int, a)", nilArg},
+		{"make with a nil allocator", "_ = make([]byte, 1, 8, nil)", nilArg},
 	}
-	const want = "panic: no allocator: call alloc.SetDefault before allocating\n"
 	for _, c := range cases {
+		want := c.want
 		t.Run(c.name, func(t *testing.T) {
 			src := "package main\n\nimport \"pluto/alloc\"\n\nvar _ alloc.Allocator\n\nfunc main() {\n\t" + c.body + "\n\tprintln(\"unreachable\")\n}\n"
 			out, status := compileAndRun(t, src, 0)

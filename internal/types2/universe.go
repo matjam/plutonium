@@ -193,7 +193,7 @@ var predeclaredFuncs = [...]struct {
 	// To disable max/min, remove the next two lines.
 	_Max:     {"max", 1, true, expression},
 	_Min:     {"min", 1, true, expression},
-	_New:     {"new", 1, true, expression}, // Plutonium: new(T, allocator)
+	_New:     {"new", 1, true, expression}, // Plutonium: optional allocator
 	_Panic:   {"panic", 1, false, statement},
 	_Print:   {"print", 0, true, statement},
 	_Println: {"println", 0, true, statement},

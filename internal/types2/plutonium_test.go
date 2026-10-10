@@ -321,3 +321,131 @@ type S struct {
 		t.Errorf("Alignof(S) = %d, want 8", got)
 	}
 }
+
+// rtSrc stands in for pluto/rt: the checker needs only its Allocator type.
+const rtSrc = `package rt
+
+import "unsafe"
+
+type Allocator interface {
+	Alloc(size, align uintptr) unsafe.Pointer
+	Free(p unsafe.Pointer, size, align uintptr)
+}
+`
+
+// withRT is an importer that knows unsafe and a stub pluto/rt.
+type withRT struct{ rt *types2.Package }
+
+func (w withRT) Import(path string) (*types2.Package, error) {
+	if path == "pluto/rt" {
+		return w.rt, nil
+	}
+	return unsafeOnly{}.Import(path)
+}
+
+// checkWithRT type-checks src with pluto/rt available.
+func checkWithRT(t *testing.T, src string) (*types2.Info, error) {
+	t.Helper()
+	fset := token.NewFileSet()
+	parse := func(name, src string) *ast.File {
+		f, err := parser.ParseFile(fset, name, src, 0)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		return f
+	}
+	rt, err := (&types2.Config{Importer: unsafeOnly{}}).Check("pluto/rt", fset, []*ast.File{parse("rt.p", rtSrc)}, nil)
+	if err != nil {
+		t.Fatalf("pluto/rt: %v", err)
+	}
+	info := &types2.Info{
+		Types: make(map[ast.Expr]types2.TypeAndValue),
+		Uses:  make(map[*ast.Ident]types2.Object),
+	}
+	conf := types2.Config{Importer: withRT{rt}}
+	_, err = conf.Check("test", fset, []*ast.File{parse("test.p", src)}, info)
+	return info, err
+}
+
+func TestAllocatorArguments(t *testing.T) {
+	info, err := checkWithRT(t, `package p
+
+import (
+	"pluto/rt"
+	"unsafe"
+)
+
+type arena struct{}
+
+func (*arena) Alloc(size, align uintptr) unsafe.Pointer { return nil }
+func (*arena) Free(p unsafe.Pointer, size, align uintptr) {}
+
+type T struct{ a, b int }
+
+const c int8 = 3
+
+func f(a rt.Allocator, ar *arena, v T) {
+	var p1 *T = new(T, a)
+	var p2 *T = new(T, ar)
+	var p3 *T = new(v, a)
+	var p4 *T = new(T{1, 2}, ar)
+	var p5 *int = new(42, a)
+	var p6 *int8 = new(c, a)
+	var s1 []int = make([]int, 2, a)
+	var s2 []int = make([]int, 2, 4, ar)
+	var s3 []byte = make([]byte, 2, 4.0)
+	var s4 []byte = make([]byte, 2, c)
+	_, _, _, _, _, _, _, _, _, _ = p1, p2, p3, p4, p5, p6, s1, s2, s3, s4
+}
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The recorded signatures carry the allocator as a final parameter.
+	sigs := map[string]int{}
+	for e, tv := range info.Types {
+		id, ok := e.(*ast.Ident)
+		if !ok || (id.Name != "new" && id.Name != "make") {
+			continue
+		}
+		sig, ok := tv.Type.(*types2.Signature)
+		if !ok {
+			continue
+		}
+		key := fmt.Sprintf("%s/%d", id.Name, sig.Params().Len())
+		if n := sig.Params().Len(); n > 0 && sig.Params().At(n-1).Type().String() == "pluto/rt.Allocator" {
+			key += "/alloc"
+		}
+		sigs[key]++
+	}
+	want := map[string]int{"new/2/alloc": 6, "make/3/alloc": 1, "make/4/alloc": 1, "make/3": 2}
+	for k, n := range want {
+		if sigs[k] != n {
+			t.Errorf("%s: %d calls recorded, want %d (all: %v)", k, sigs[k], n, sigs)
+		}
+	}
+}
+
+func TestAllocatorArgumentErrors(t *testing.T) {
+	const decls = "package p\nimport \"pluto/rt\"\nvar a rt.Allocator\ntype T struct{ x int }\n"
+	cases := []struct{ name, body, want string }{
+		{"new not an allocator", "var _ = new(T, 3)", "cannot use 3"},
+		{"new value not an allocator", "var _ = new(T{}, \"x\")", "allocator argument to new"},
+		{"new too many", "var _ = new(T, a, a)", "expected 1 and an optional allocator, found 3"},
+		{"new untyped nil", "var _ = new(nil, a)", "use of untyped nil"},
+		{"make not an allocator", "var _ = make([]int, 2, \"x\")", "allocator argument to make"},
+		{"make cap then non-allocator", "var _ = make([]int, 2, 3, 4)", "allocator argument to make"},
+		{"make too many", "var _ = make([]int, 1, 2, a, a)", "expects 2 or 3 arguments and an optional allocator; found 5"},
+		{"make bad capacity before allocator", "var _ = make([]int, 1, \"x\", a)", "cannot convert \"x\""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := checkWithRT(t, decls+c.body)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("error %v does not contain %q", err, c.want)
+			}
+		})
+	}
+	// Without pluto/rt there is no allocator type to check against.
+	mustFail(t, "package p\ntype T struct{}\nvar x int\nvar _ = new(T, x)", "needs package pluto/rt")
+}

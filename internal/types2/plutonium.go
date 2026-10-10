@@ -48,6 +48,51 @@ func Subst(ctxt *Context, t Type, tparams []*TypeParam, targs []Type) Type {
 	return (*Checker)(nil).subst(nopos, t, makeSubstMap(tparams, targs), nil, ctxt)
 }
 
+// allocatorType returns pluto/rt.Allocator, the type of the optional final
+// argument of new and make (language spec section 4.2), or nil if package
+// pluto/rt cannot be found.
+func (check *Checker) allocatorType() Type {
+	rt := check.pkg
+	if rt.path != "pluto/rt" {
+		if check.conf.Importer == nil {
+			return nil
+		}
+		var err error
+		if rt, err = check.conf.Importer.Import("pluto/rt"); err != nil || rt == nil {
+			return nil
+		}
+	}
+	if tn, ok := rt.scope.Lookup("Allocator").(*TypeName); ok {
+		return tn.typ
+	}
+	return nil
+}
+
+// allocatorArg checks x, the allocator argument of the built-in what (new
+// or make): it must be assignable to pluto/rt.Allocator. It returns that
+// type, or nil after reporting an error.
+func (check *Checker) allocatorArg(x *operand, what string) Type {
+	if !x.isValid() {
+		return nil
+	}
+	T := check.allocatorType()
+	if T == nil {
+		check.errorf(x, InvalidCall, invalidOp+"%s with an allocator argument needs package pluto/rt", what)
+		return nil
+	}
+	check.assignment(x, T, "allocator argument to "+what)
+	if !x.isValid() {
+		return nil
+	}
+	return T
+}
+
+// isCapacity reports whether x, a final argument of make, is a capacity
+// rather than an allocator: an integer or an untyped numeric constant.
+func isCapacity(x *operand) bool {
+	return !x.isValid() || allInteger(x.typ()) || isUntypedNumeric(x.typ())
+}
+
 // isMainStatus reports whether a result list is a single unnamed int64,
 // the exit status main may return.
 func isMainStatus(results *ast.FieldList) bool {

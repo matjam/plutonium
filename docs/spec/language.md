@@ -93,27 +93,29 @@ time.
 
 ### 4.2 `new` and `make` allocate from an allocator
 
-`new(T)`, `new(expr)` and `make([]T, len)` / `make([]T, len, cap)` allocate from the current allocator
+`new(T)`, `new(v)` and `make([]T, len)` / `make([]T, len, cap)` allocate from the current allocator
 (section 6). Each accepts an optional final allocator argument:
 
 ```go
 n := new(Node)                  // current allocator
 m := new(Node, arena)           // explicit allocator
-k := new(42, arena)             // a *int holding 42
+k := new(Node{val: 1}, arena)   // a new variable holding a value
 buf := make([]byte, 4096)       // current allocator
 big := make([]byte, 0, 4096)    // length and capacity
 tmp := make([]byte, 64, scratch) // length and allocator
 all := make([]byte, 0, 64, scratch)
 ```
 
-The checker tells an allocator from a capacity by its type: a final argument of integer type, or an
-untyped numeric constant, is a length or capacity, and any other final argument is the allocator. The
-allocator may be any value whose type has the methods of `alloc.Allocator` (`Alloc(size, align uintptr)
-unsafe.Pointer` and `Free(p unsafe.Pointer, size, align uintptr)`), such as `&arena`; it need not be an
-`alloc.Allocator` interface value. Memory from `new(T)` and `make` is zeroed, and `new(expr)` holds
-`expr`'s value. It is not freed automatically; free it with `alloc.Free` or use `owned[T]` (section 5.6).
-With no allocator, because none was given and no default is set, or because the one given is nil, the
-allocation panics with "no allocator" (section 6.2).
+As in Go 1.26, `new(v)` allocates a variable of `v`'s type (an untyped constant takes its default type) and
+stores `v` in it; `new(T{...})` is how a composite literal outlives its frame. Whether the first operand is a
+type decides between `new(T, a)` and `new(v, a)`; `v` is evaluated before the allocator. The allocator is
+any value assignable to `alloc.Allocator`, such as `&arena`, and the checker tells it from a capacity by
+its type: a final argument of `make` is a capacity if it is an integer or untyped numeric constant and an
+allocator otherwise (with four arguments the last is always the allocator). Memory from `new(T)` and
+`make` is zeroed; none of it is freed automatically; free it with `alloc.Free` or use `owned[T]` (section
+5.6). With no allocator argument and no default allocator set, as in a freestanding program before
+`alloc.SetDefault`, the allocation panics with "no allocator" (section 6.2); a nil allocator argument
+panics too.
 
 ### 4.3 `append` works within capacity
 
