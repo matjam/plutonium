@@ -135,7 +135,7 @@ func funcSize(f *ssa.Func) int {
 	for _, b := range f.Blocks {
 		for _, v := range b.Values {
 			switch v.Op {
-			case ssa.OpConst, ssa.OpConstFloat, ssa.OpPhi, ssa.OpCopy, ssa.OpArg, ssa.OpInitMem,
+			case ssa.OpConst, ssa.OpConstFloat, ssa.OpPhi, ssa.OpCopy, ssa.OpRegion, ssa.OpArg, ssa.OpInitMem,
 				ssa.OpSlotAddr, ssa.OpSymAddr, ssa.OpOffPtr, ssa.OpSelectN, ssa.OpVarDef, ssa.OpVolatileRead:
 				continue
 			case ssa.OpCall, ssa.OpCallInd:
@@ -177,6 +177,9 @@ func inlineInto(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], sizes *hash.M
 	// calls through the closures it was given direct in the next (a loop
 	// over a function: first its iterator, then the loop body).
 	for rounds := 0; rounds < maxInlineRounds; rounds++ {
+		if SplitRegions(f) {
+			changed = true
+		}
 		if ForwardClosureLoads(f) {
 			changed = true
 		}
@@ -335,6 +338,7 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 		ns.Leaves = s.Leaves
 		ns.Pads = s.Pads
 		ns.Closure = s.Closure
+		ns.Parts = s.Parts
 		slotMap.Set(s, ns)
 	}
 
@@ -361,7 +365,13 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 		for _, gv := range gb.Values {
 			switch gv.Op {
 			case ssa.OpArg:
-				valMap.Set(gv, args[gv.AuxInt])
+				a := args[gv.AuxInt]
+				if a.Op == ssa.OpRegion {
+					// The region is no longer passed to a call: the
+					// inlined body's accesses mark its parts.
+					a = a.Args[0]
+				}
+				valMap.Set(gv, a)
 				continue
 			case ssa.OpInitMem:
 				valMap.Set(gv, mem)

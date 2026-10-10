@@ -154,6 +154,7 @@ const (
 	OpSelectN          // element AuxInt of tuple arg0
 	OpPhi              // one argument per predecessor, in predecessor order
 	OpCopy             // arg0, removed by copyelim
+	OpRegion           // arg0, a closure region passed to a call: a copy that marks it (Slot.Parts)
 	OpUnreachableValue // placeholder for a value on a path that cannot execute
 
 	OpGenericEnd
@@ -261,6 +262,7 @@ var opTable = [opTableSize]OpInfo{
 	OpSelectN:          {Name: "SelectN", Args: 1},
 	OpPhi:              {Name: "Phi", Args: -1},
 	OpCopy:             {Name: "Copy", Args: 1},
+	OpRegion:           {Name: "Region", Args: 1},
 	OpUnreachableValue: {Name: "Unreachable", Args: 0},
 
 	OpGenericEnd: {Name: "GenericEnd"},

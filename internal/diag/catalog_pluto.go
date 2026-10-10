@@ -552,15 +552,6 @@ func init() {
 			Example: "newErr := errors.New",
 		},
 		&Entry{
-			Code: ClosureCtorValue, Name: "ClosureCtorValue",
-			Text:    "This function's body returns a function literal that captures the function's parameters, such as an iterator constructor (func Count(n int) iter.Seq[int] { return func(yield func(int) bool) { ... } }). A closure may not outlive the frame it captures from, so Plutonium builds such a closure in the caller's frame: each call is compiled where it is made, with the parameters as variables of the caller. That needs a caller, so the function can only be called directly. Taking it as a func value or a method value, or calling it through an interface, has no caller's frame to build the closure in.\nCall it directly, or wrap the call in a function that returns something other than the closure.",
-			Why:     "In Go the captured parameters move to the heap and the closure can be returned. Plutonium never moves a variable to the heap, and building the closure in the caller's frame costs no allocation.",
-			Fix:     &Fix{Intro: "Call it where the iterator is used", Code: "for i := range Count(3) {\n\t...\n}"},
-			Spec:    pspec("4.5", "Closures do not outlive their frame"),
-			Example: "f := Count\nfor i := range f(3) {\n\t...\n}",
-			Fixed:   "for i := range Count(3) {\n\t...\n}",
-		},
-		&Entry{
 			Code: PerCPUInit, Name: "PerCPUInit",
 			Text: "A per-CPU variable can only be initialized with a constant. Package initialization runs before any processor has its per-CPU block, so there is nowhere to store a value computed at run time. Set the variable at run time on each processor instead.",
 			Spec: pspec("12.5", "Per-CPU variables"),
@@ -648,12 +639,27 @@ func init() {
 		},
 		&Entry{
 			Code: ClosureReturned, Name: "ClosureReturned",
-			Text: "A function literal that uses variables of the function around it, and a method value such as c.handle, are closure records: the code to run, with where each captured variable is or a copy of the receiver. The record is built in the frame of the function that makes it, and that frame is reclaimed when the function returns. This function returns such a record, directly or inside a variable, a struct, an interface or the result of a call, so the caller would get a pointer into a frame that no longer exists.\n" +
-				"A closure constructor, a function whose whole body is return func(...) {...}, is the exception: each call builds the closure in the caller's frame.",
-			Why:     "Go moves the captured variables and the closure to the heap. Plutonium never allocates behind the program's back, so the record stays in the frame that made it.",
-			Fix:     &Fix{Intro: "Return a value that carries its own state instead, such as a struct with a method", Code: "type Counter struct{ total int }\n\nfunc (c *Counter) Add(n int) int {\n\tc.total += n\n\treturn c.total\n}"},
+			Text: "A function literal that uses variables of the function around it, and a method value such as c.handle, are closure records: the code to run, with where each captured variable is or a copy of the receiver. A function that returns one builds it, and the variables it captures, in a region of memory its caller provides, so the closure lives as long as the caller's frame. That works when the function itself makes the closure and returns it as a func, in an interface, or in a struct or array result.\n" +
+				"This function returns a closure record that cannot be built there: one made by a function literal nested in it or by the body of a range-over-func loop, which are functions of their own whose frames are gone when they return, or one its results hold only through a pointer, for which its callers provide no region.",
+			Why:     "Go moves the captured variables and the closure to the heap. Plutonium never allocates behind the program's back, so the record lives in a frame: the maker's, or the region its caller provides.",
+			Fix:     &Fix{Intro: "Make the closure in the function that returns it, and return it by value", Code: "func counter() func() int {\n\tn := 0\n\treturn func() int {\n\t\tn++\n\t\treturn n\n\t}\n}"},
 			Spec:    pspec("4.5", "Closures do not outlive their frame"),
-			Example: "func counter() func(int) int {\n\ttotal := 0\n\treturn func(n int) int {\n\t\ttotal += n\n\t\treturn total\n\t}\n}",
+			Example: "func newHandler() *Handler {\n\th := new(Handler)\n\tcount := 0\n\th.serve = func() { count++ }\n\treturn h\n}",
+		},
+		&Entry{
+			Code: ClosureRegionLoop, Name: "ClosureRegionLoop",
+			Text:    "A function that returns a closure builds it in a region its caller provides. For a call in a loop that region is part of the caller's frame, and every iteration's call uses the same region, so the closure one iteration gets is overwritten by the next iteration's call. Keeping it past the iteration, in a variable declared outside the loop or in memory reached through a pointer, would leave it changing underneath.\nUse the closure within the iteration, or declare the variable that holds it inside the loop.",
+			Why:     "Go allocates each closure on the heap. Plutonium builds it in the caller's frame, which has room for one closure per call site.",
+			Fix:     &Fix{Intro: "Use the closure within the iteration", Code: "for _, n := range sizes {\n\tnext := counterFrom(n)\n\tprintln(next(), next())\n}"},
+			Spec:    pspec("4.5", "Closures do not outlive their frame"),
+			Example: "var all []func() int\nfor _, n := range sizes {\n\tall = append(all, counterFrom(n))\n}",
+		},
+		&Entry{
+			Code: ClosureRegionCycle, Name: "ClosureRegionCycle",
+			Text:    "A function that returns a closure builds it in a region its caller provides, and that region holds the regions of the calls whose closures the function returns in turn. When the function returns the closures of a call that can reach the same function again, directly or through other functions, or through a func value or an interface whose implementations do, its region would have to hold itself. No fixed size fits, so the caller could not reserve it.\nBuild the closures in a loop instead of by recursion, or keep their state in a value the caller owns, such as a struct with a method.",
+			Why:     "Go allocates each closure on the heap, however deep the recursion. Plutonium builds closures in frames, whose sizes are fixed when compiling.",
+			Spec:    pspec("4.5", "Closures do not outlive their frame"),
+			Example: "func chain(n int) func() int {\n\tif n == 0 {\n\t\treturn func() int { return 0 }\n\t}\n\tnext := chain(n - 1)\n\treturn func() int { return n + next() }\n}",
 		},
 		&Entry{
 			Code: NoPanicHandler, Name: "NoPanicHandler",

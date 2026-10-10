@@ -902,7 +902,7 @@ func (s *isel) value(v *ssa.Value) error {
 	case ssa.OpCodeAddr:
 		s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(s.def(v)), Src: MemOp(Mem{Base: NoReg, Index: NoReg, RIP: true})})
 
-	case ssa.OpCopy:
+	case ssa.OpCopy, ssa.OpRegion:
 		if v.Type.IsMem() {
 			return nil
 		}

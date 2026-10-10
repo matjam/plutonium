@@ -1,0 +1,5 @@
+0
+1
+panic: CountChecked: n must be positive
+    main.CountChecked (./main.p:8)
+    main.main (./main.p:23)

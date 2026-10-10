@@ -9,12 +9,13 @@ import (
 	"github.com/matjam/plutonium/internal/build"
 )
 
-// TestCtorClosureNames checks that the closure a closure constructor builds
-// is named after the constructor, not the function that calls it, in the
-// symbol table and in DWARF, and that the calls of one constructor share the
-// closure's code: one symbol each for Count and for each instance of Bag's
-// All, none named after main or after the other callers.
-func TestCtorClosureNames(t *testing.T) {
+// TestReturnedClosureNames checks that the closure a function returns is
+// named after that function, not the one that calls it and provides the
+// region the closure is built in, in the symbol table and in DWARF, and
+// that the calls of one function share the closure's code: one symbol each
+// for Count and for each instance of Bag's All, none named after main or
+// after the other callers.
+func TestReturnedClosureNames(t *testing.T) {
 	const src = `package main
 
 type Bag[T any] struct{ items []T }

@@ -16,11 +16,7 @@ func Foo[T Constraint[T]]() T {
 	t = func() T {
 		return t
 	}
-	// Plutonium: t's closure record is in Foo's frame, so Foo cannot
-	// return it (language spec section 4.5).
-	t()
-	var zero T
-	return zero
+	return t
 }
 
 func main() {

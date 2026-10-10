@@ -1,0 +1,4 @@
+$DIR/main.p:49:10: chain cannot return the closures of this call: the call reaches chain again, so its region would have no fixed size
+$DIR/main.p:57:11: even cannot return the closures of this call: the call reaches even again, so its region would have no fixed size
+$DIR/main.p:17:10: cannot keep the closure counterFrom(n) returns past this iteration of the loop: it is stored in last, declared outside the loop (main.p:15)
+$DIR/main.p:29:9: cannot keep the closure counterFrom(n) returns past this iteration of the loop: it is stored in b, declared outside the loop (main.p:27)

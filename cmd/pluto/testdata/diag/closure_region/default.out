@@ -1,0 +1,59 @@
+$DIR/main.p:49:10: chain cannot return the closures of this call: the call reaches chain again, so its region would have no fixed size
+    A function that returns a closure builds it in a region its caller provides,
+    and the region holds the regions of the calls whose closures it returns in
+    turn (spec section 4.5). chain returns closures that hold those of this
+    call, and the call can reach chain again, directly, through other functions,
+    or through a func value or an interface, so its region would have to hold
+    itself.
+    Build the closures in a loop instead of by recursion, or keep their state in
+    a value the caller owns, such as a struct with a method.
+    Go allocates each closure on the heap, however deep the recursion. Plutonium
+    builds closures in frames, whose sizes are fixed when compiling.
+    (see "Closures do not outlive their frame" in the Plutonium spec, section
+    4.5)
+    (run "pluto explain E3102" for a longer explanation)
+
+$DIR/main.p:57:11: even cannot return the closures of this call: the call reaches even again, so its region would have no fixed size
+    A function that returns a closure builds it in a region its caller provides,
+    and the region holds the regions of the calls whose closures it returns in
+    turn (spec section 4.5). even returns closures that hold those of this call,
+    and the call can reach even again, directly, through other functions, or
+    through a func value or an interface, so its region would have to hold
+    itself.
+    Build the closures in a loop instead of by recursion, or keep their state in
+    a value the caller owns, such as a struct with a method.
+    Go allocates each closure on the heap, however deep the recursion. Plutonium
+    builds closures in frames, whose sizes are fixed when compiling.
+    (see "Closures do not outlive their frame" in the Plutonium spec, section
+    4.5)
+    (run "pluto explain E3102" for a longer explanation)
+
+$DIR/main.p:17:10: cannot keep the closure counterFrom(n) returns past this iteration of the loop: it is stored in last, declared outside the loop (main.p:15)
+    A function that returns a closure builds it in a region its caller provides
+    (spec section 4.5). The region of a call in a loop is part of this frame,
+    and the call uses the same region on every iteration, so the closure
+    counterFrom(n) returns on one iteration is overwritten on the next. Keeping
+    it past the iteration, in last, declared outside the loop (main.p:15), would
+    leave it changing under you.
+    Use the closure within the iteration, or declare the variable that holds it
+    inside the loop.
+    Go allocates each closure on the heap. Plutonium builds it in the caller's
+    frame, which has room for one closure per call site.
+    (see "Closures do not outlive their frame" in the Plutonium spec, section
+    4.5)
+    (run "pluto explain E3101" for a longer explanation)
+
+$DIR/main.p:29:9: cannot keep the closure counterFrom(n) returns past this iteration of the loop: it is stored in b, declared outside the loop (main.p:27)
+    A function that returns a closure builds it in a region its caller provides
+    (spec section 4.5). The region of a call in a loop is part of this frame,
+    and the call uses the same region on every iteration, so the closure
+    counterFrom(n) returns on one iteration is overwritten on the next. Keeping
+    it past the iteration, in b, declared outside the loop (main.p:27), would
+    leave it changing under you.
+    Use the closure within the iteration, or declare the variable that holds it
+    inside the loop.
+    Go allocates each closure on the heap. Plutonium builds it in the caller's
+    frame, which has room for one closure per call site.
+    (see "Closures do not outlive their frame" in the Plutonium spec, section
+    4.5)
+    (run "pluto explain E3101" for a longer explanation)

@@ -48,9 +48,10 @@ func main() {
 	}
 }
 
-// TestRingIterErrors checks that a ring's iterator methods can only be
-// called: like a closure constructor's, their closure is built in the
-// caller's frame.
+// TestRingIterErrors checks the uses of a ring's iterator methods the
+// compiler rejects. Method values, method expressions and calls through an
+// interface are allowed: the iterator's closure is built in the region the
+// caller provides (testdata/lib/ringitervalue.p).
 func TestRingIterErrors(t *testing.T) {
 	const decls = `package main
 
@@ -58,48 +59,7 @@ type Seq interface{ All() func(func(int, int) bool) }
 
 func use(int) {}
 `
-	const want = "All returns a closure that captures its parameters"
 	cases := []struct{ name, src, want string }{
-		{"method value", `
-func main() {
-	var r ring[int, 4]
-	f := r.All
-	for i := range f() {
-		use(i)
-	}
-}
-`, want},
-		{"method expression", `
-func main() {
-	var r ring[int, 4]
-	f := (*ring[int, 4]).All
-	for i := range f(&r) {
-		use(i)
-	}
-}
-`, want},
-		{"deferred", `
-func main() {
-	var r ring[int, 4]
-	defer r.All()
-}
-`, "not deferred"},
-		{"started with go", `
-var r ring[int, 4]
-
-func main() {
-	go r.All()
-}
-`, "not started with go"},
-		{"interface method", `
-func main() {
-	var r ring[int, 4]
-	var s Seq = &r
-	for i := range s.All() {
-		use(i)
-	}
-}
-`, "not called through an interface"},
 		{"range over a ring that is not addressable", `
 func mk() ring[int, 4] {
 	var r ring[int, 4]
@@ -112,13 +72,6 @@ func main() {
 	}
 }
 `, "method All of ring[int, 4] has a pointer receiver"},
-		{"values as method value", `
-func main() {
-	var r ring[int, 4]
-	f := r.Values
-	_ = f
-}
-`, "Values returns a closure that captures its parameters"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

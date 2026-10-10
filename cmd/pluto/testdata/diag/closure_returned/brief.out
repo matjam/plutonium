@@ -1,12 +1,5 @@
-$DIR/main.p:96:9: cannot return arr: it holds the function literal at main.p:95, which uses n, a local variable of Alias
-$DIR/main.p:105:9: cannot return h: it holds the function literal at main.p:104, which uses n, a local variable of Stored
-$DIR/main.p:113:9: cannot return g: it holds the function literal at main.p:112, which uses n, a local variable of Setter
-$DIR/main.p:14:9: cannot return the function literal: it uses n, a local variable of CountChecked
-$DIR/main.p:32:9: cannot return f: it holds the function literal at main.p:25, which uses n, a local variable of Var
-$DIR/main.p:43:9: cannot return h: it holds the function literal at main.p:42, which uses n, a local variable of Field
-$DIR/main.p:49:9: cannot return the function literal: it uses total, a local variable of Any
-$DIR/main.p:58:9: cannot return the method value c.get: its closure record is in Method's frame
-$DIR/main.p:65:9: cannot return pass(...): it holds the function literal at main.p:65, which uses n, a local variable of Through
-$DIR/main.p:75:9: cannot return Const(m): Const builds its closure in Built's frame
-$DIR/main.p:81:2: cannot return f: it holds the function literal at main.p:80, which uses n, a local variable of Named
-$DIR/main.p:88:9: cannot return h: it holds the function literal at main.p:87, which uses n, a local variable of Ptr
+$DIR/main.p:17:9: cannot return h: it holds the function literal at main.p:16, which uses n, a local variable of Ptr
+$DIR/main.p:43:9: cannot return h: it holds the method value b.get (main.p:42), whose closure record is in PtrMethod's frame
+$DIR/main.p:51:9: cannot return g: it holds the function literal at main.p:49, which uses n, a local variable of Nested
+$DIR/main.p:57:10: cannot return the function literal: it uses x, a local variable of FromLoop
+$DIR/main.p:32:9: cannot return h: it holds a closure that counter() (main.p:31) builds in PtrCall's frame

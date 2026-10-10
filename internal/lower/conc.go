@@ -110,7 +110,7 @@ func (s *fnState) goFuncCall(e *ast.CallExpr, fun ast.Expr) {
 		return
 	}
 	g := calledFunc(s.info, e)
-	if g == nil || s.l.closureCtor(g) != nil {
+	if g == nil {
 		return
 	}
 	var targs []types2.Type
@@ -158,6 +158,15 @@ func (s *fnState) frameClosure(e ast.Expr, depth int) string {
 		if v, ok := s.info.Uses[e].(*types2.Var); ok {
 			if init := s.onlyValue(v); init != nil {
 				return s.frameClosure(init, depth+1)
+			}
+		}
+	case *ast.CallExpr:
+		// A function that builds the closures it returns in the region
+		// this frame provides (regions.go).
+		if g := calledFunc(s.info, e); g != nil && regionSig(g.Type().(*types2.Signature)) {
+			f := &closureFlow{l: s.l, info: s.info, tmap: s.tmap, ts: s}
+			if _, targs := f.callee(e); s.l.closureSummary(g, targs).builds {
+				return fmt.Sprintf("the closure %s returns (%s), built in this frame", shortExpr(e), s.l.shortPos(e.Pos()))
 			}
 		}
 	}

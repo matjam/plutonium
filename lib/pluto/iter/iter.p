@@ -17,12 +17,11 @@
 //
 //	for i := range Count(3) { ... }
 //
-// A function like Count, whose body returns a function literal that
-// captures its parameters, is a closure constructor (language spec section
-// 4.5): each call builds the closure in the caller's frame, so the
-// iterator is valid while the caller runs and costs no allocation. Such a
-// function can only be called directly, not used as a func value. Every
-// adaptor below is one.
+// A function like Count builds the closure it returns, and the variables
+// the closure captures, in a region of memory its caller provides
+// (language spec section 4.5), so the iterator is valid while the caller
+// runs and costs no allocation. Every adaptor below works this way, and like
+// any function can be called directly or through a func value.
 //
 // Go's Pull and Pull2, which turn an iterator into a pair of next and stop
 // functions, need a coroutine for each iterator; Plutonium has none. Write

@@ -1,0 +1,13 @@
+method value 0 0
+method value 1 10
+method value 2 20
+method expression 0
+method expression 10
+method expression 20
+interface 0 0
+interface 1 10
+interface 2 20
+returned 0
+returned 10
+returned 20
+done

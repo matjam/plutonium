@@ -116,20 +116,10 @@ func SortedStableFuncIn[E any](a alloc.Allocator, seq iter.Seq[E], cmp func(E, E
 // If s is empty, the sequence is empty: there is no empty slice in the sequence.
 // Chunk panics if n is less than 1.
 func Chunk[Slice ~[]E, E any](s Slice, n int) iter.Seq[Slice] {
-	// A closure constructor is a single return (language spec section 4.5),
-	// so the check on n is made by the argument of the call.
-	return chunk(s, positive(n))
-}
-
-// positive returns n, and panics if n is less than 1.
-func positive(n int) int {
 	if n < 1 {
 		panic("cannot be less than 1")
 	}
-	return n
-}
 
-func chunk[Slice ~[]E, E any](s Slice, n int) iter.Seq[Slice] {
 	return func(yield func(Slice) bool) {
 		for i := 0; i < len(s); i += n {
 			// Clamp the last chunk to the slice bound as necessary.

@@ -89,10 +89,6 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 			}
 			targs := s.instanceArgs(id)
 			sig := s.subst(s.info.Types[e.Fun].Type).(*types2.Signature)
-			if c := s.l.closureCtor(fn); c != nil {
-				args := s.callArgs(e, sig, &defaultsOf{fn, targs})
-				return []value{s.expandCtor(c, targs, nil, args, s.typeOf(e), e.Pos())}
-			}
 			sym := s.l.funcSym(fn, targs)
 			args := s.callArgs(e, sig, &defaultsOf{fn, targs})
 			site := &callSite{desc: types2.ExprString(e.Fun)}
@@ -157,6 +153,12 @@ type defaultsOf struct {
 // have default values; their defaults are evaluated after the explicit
 // arguments.
 func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature, def *defaultsOf) []value {
+	args := s.lowerArgs(e, sig, def)
+	s.callAt = e // for callRegion
+	return args
+}
+
+func (s *fnState) lowerArgs(e *ast.CallExpr, sig *types2.Signature, def *defaultsOf) []value {
 	params := sig.Params()
 	n := params.Len()
 	args := s.argSources(e.Args)
@@ -319,6 +321,9 @@ func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []
 		}
 		flat = append(flat, sretBuf)
 	}
+	if abi.region {
+		flat = append(flat, s.callRegion(c, sig, pos))
+	}
 	all := args
 	if recv != nil {
 		all = append([]value{*recv}, args...)
@@ -451,10 +456,14 @@ func (l *Lowerer) rtFunc(name string) *types2.Func {
 // returns its scalar results.
 func (s *fnState) callRuntime(name string, results []*ssa.Type, argGroups ...[]*ssa.Value) []*ssa.Value {
 	var flat []*ssa.Value
+	fn := s.l.rtFunc(name)
+	sym := s.l.funcSym(fn, nil)
+	if sig := fn.Type().(*types2.Signature); regionSig(sig) {
+		flat = append(flat, s.callRegion(callee{sym: sym}, sig, token.NoPos))
+	}
 	for _, g := range argGroups {
 		flat = append(flat, g...)
 	}
-	sym := s.l.funcSym(s.l.rtFunc(name), nil)
 	call := s.callValue(callee{sym: sym}, flat, results)
 	call.Call.Implicit = true
 	s.setMem(s.newValue(ssa.OpSelectN, ssa.TMem, call))
@@ -507,10 +516,6 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 		return s.ifaceCall(recv, recv.T, fn, sig, args, e.Pos(), desc)
 	}
 	targs := s.methodTypeArgs(fn, se, recvT)
-	if c := s.l.closureCtor(fn); c != nil {
-		args := s.callArgs(e, sig, &defaultsOf{fn, targs})
-		return []value{s.expandCtor(c, targs, &recv, args, s.typeOf(e), e.Pos())}
-	}
 	sym := s.l.funcSym(fn, targs)
 	full := s.l.methodSig(fn, targs)
 	recv = s.hold(recv)
@@ -753,7 +758,6 @@ func (s *fnState) funcValue(fn *types2.Func, targs []types2.Type, pos token.Pos)
 	if fn.Pkg() != nil && fn.Pkg().Path() == "pluto/rt" && countIntrinsics[fn.Name()] {
 		s.l.errorf(pos, diag.NotYetSupported, "rt.%s is expanded inline by the compiler and cannot be used as a func value", fn.Name())
 	}
-	s.l.checkNotCtor(fn, pos, "used as a func value")
 	sym := s.l.funcSym(fn, targs)
 	s.checkNotHandler(sym, pos, "used as a func value")
 	if s.l.isCFunc(sym) {
@@ -789,6 +793,12 @@ func (s *fnState) closureWith(lit *ast.FuncLit, captures []*types2.Var, sym *ssa
 	for i, v := range captures {
 		addrs[i] = s.varLV(v, lit).ptr
 	}
+	if s.regionNodes[lit] {
+		// Returned: built in the region the caller provides (regions.go).
+		rec := s.regionRecord(int64(8*(1+len(addrs))), true)
+		s.storeRecord(rec, sym, addrs)
+		return rec
+	}
 	return s.closureRecord(sym, addrs)
 }
 
@@ -801,27 +811,6 @@ func (s *fnState) closureFunc(lit *ast.FuncLit, captures []*types2.Var) *ssa.Sym
 	s.l.funcValues[sym] = sig
 	s.l.queue = append(s.l.queue, &funcJob{
 		sym: sym, pkg: s.pkg, lit: lit, sig: sig, tmap: s.tmap, captures: captures, parent: s,
-	})
-	return sym
-}
-
-// ctorClosureFunc queues the function of the literal that closure
-// constructor c returns, instantiated with targs, and names it after the
-// constructor (main.Count.func1, pkg.(*Vec).All[int].func1), as Go names the
-// closure the constructor would have returned. The function does not depend
-// on the call that builds the closure, only on the constructor and its type
-// arguments, so every call shares it.
-func (s *fnState) ctorClosureFunc(c *ctorInfo, targs []types2.Type, lit *ast.FuncLit, captures []*types2.Var) *ssa.Sym {
-	name := funcSymName(c.decl.obj, targs) + ".func1"
-	if sym := s.l.funcs[name]; sym != nil {
-		return sym
-	}
-	sym := s.l.out.Sym(name, ssa.SymFunc)
-	s.l.funcs[name] = sym
-	sig := s.subst(s.info.Types[lit].Type).(*types2.Signature)
-	s.l.funcValues[sym] = sig
-	s.l.queue = append(s.l.queue, &funcJob{
-		sym: sym, pkg: s.pkg, lit: lit, sig: sig, tmap: s.tmap, captures: captures, ctor: c.decl,
 	})
 	return sym
 }
@@ -860,8 +849,9 @@ func (s *fnState) capturedVars(lit *ast.FuncLit) []*types2.Var {
 // holding a wrapper's code pointer and a copy of the receiver.
 func (s *fnState) methodValue(se *ast.SelectorExpr, sel *types2.Selection) *ssa.Value {
 	recvT := s.typeOf(se.X)
+	inRegion := s.regionNodes[se]
 	if isInterface(recvT) {
-		return s.ifaceMethodValue(s.expr(se.X), sel.Obj().(*types2.Func))
+		return s.ifaceMethodValue(s.expr(se.X), sel.Obj().(*types2.Func), inRegion)
 	}
 	fn, path, ok := s.selectedMethod(se, sel)
 	if !ok {
@@ -870,19 +860,25 @@ func (s *fnState) methodValue(se *ast.SelectorExpr, sel *types2.Selection) *ssa.
 	recv := s.methodReceiver(se.X, fn, path)
 	if isIfaceMethod(fn) {
 		// A method promoted from an embedded interface field.
-		return s.ifaceMethodValue(recv, fn)
+		return s.ifaceMethodValue(recv, fn, inRegion)
 	}
 	var targs []types2.Type
 	w := s.ringOf(fn)
 	if w == nil {
 		targs = s.methodTypeArgs(fn, se, recvT)
-		s.l.checkNotCtor(fn, se.Sel.Pos(), "used as a method value")
 	}
 	wrapper := s.l.boundMethodWrapper(s.l.methodFunc(fn, targs, w, se.Sel.Pos(), "used as a method value"))
 	size := 8 + s.l.sizeof(recv.T)
-	rec := s.methodValueRecord((size + 7) &^ 7)
+	rec := s.methodValueRecord((size+7)&^7, inRegion)
 	s.store(ssa.TPtr, rec, s.funcAddr(wrapper))
 	if s.l.counted(recv.T) {
+		if inRegion {
+			// The region keeps the copy, released by its drop function
+			// (regions.go); the caller dropped what it held before.
+			s.regionCountedAt(8, recv.T)
+			s.storeCounted(lvalue{ptr: s.offPtr(rec, 8), T: recv.T}, recv, true)
+			return rec
+		}
 		// The record keeps a copy of the receiver until the function
 		// returns (or for ever, in a package initialiser).
 		if !s.staticLits {
@@ -898,7 +894,11 @@ func (s *fnState) methodValue(se *ast.SelectorExpr, sel *types2.Selection) *ssa.
 // methodValueRecord returns storage for the closure record of a method
 // value: in this frame, or in static storage during package
 // initialisation, whose values outlive the init function.
-func (s *fnState) methodValueRecord(size int64) *ssa.Value {
+func (s *fnState) methodValueRecord(size int64, inRegion bool) *ssa.Value {
+	if inRegion {
+		// Returned: built in the region the caller provides (regions.go).
+		return s.regionRecord(size, false)
+	}
 	if s.staticLits {
 		return s.symAddr(s.l.staticBytes(size, 8))
 	}
@@ -907,10 +907,10 @@ func (s *fnState) methodValueRecord(size int64) *ssa.Value {
 
 // ifaceMethodValue lowers the method value iv.fn of an interface value: a
 // closure record holding a wrapper's code pointer and the interface value.
-func (s *fnState) ifaceMethodValue(iv value, fn *types2.Func) *ssa.Value {
+func (s *fnState) ifaceMethodValue(iv value, fn *types2.Func, inRegion bool) *ssa.Value {
 	iv = s.materialize(iv)
 	wrapper := s.l.ifaceMethodValueWrapper(iv.T, fn)
-	rec := s.methodValueRecord(24)
+	rec := s.methodValueRecord(24, inRegion)
 	s.store(ssa.TPtr, rec, s.funcAddr(wrapper))
 	s.move(s.offPtr(rec, 8), iv.v, 16)
 	return rec
@@ -952,6 +952,10 @@ func (s *fnState) incomingArgs(sig *types2.Signature) []value {
 		s.sret = s.newValue(ssa.OpArg, ssa.TPtr)
 		idx++
 	}
+	if s.abi.region {
+		s.regionArg(idx)
+		idx++
+	}
 	var out []value
 	for _, p := range s.abi.params {
 		if p.byRef {
@@ -987,4 +991,19 @@ func (s *fnState) returnValues(res []value) {
 		s.results = append(s.results, addr)
 	}
 	s.emitReturn(token.NoPos)
+}
+
+// lastingTemp returns storage for a T that the value being built keeps: a
+// slot in this frame, or static storage during package initialisation,
+// whose values outlive the init function, or, for the arguments of a defer
+// statement in a range-over-func loop body, a slot in the frame that runs
+// the deferred call (lastingFrame).
+func (s *fnState) lastingTemp(T types2.Type, name string) *ssa.Value {
+	if s.staticLits {
+		return s.symAddr(s.l.staticObject(T))
+	}
+	if o := s.lastingFrame; o != nil && o != s {
+		return s.outerPtr(o.temp(T, name), o)
+	}
+	return s.temp(T, name)
 }

@@ -572,12 +572,6 @@ func (l *Lowerer) ringMethodFunc(fn *types2.Func, w *types2.Wrapper, pos token.P
 	ptr := types2.NewPointer(w)
 	obj, _, _ := types2.LookupFieldOrMethod(ptr, false, nil, fn.Name())
 	full := obj.(*types2.Func).Type().(*types2.Signature)
-	if types2.IsRingIterator(fn.Name()) {
-		// The iterator's closure is built in the caller's frame, as a closure
-		// constructor's is: there is no frame for a func value to build it in.
-		l.ctorValueError(fn.Name(), pos, what)
-		return l.out.Sym("builtin.ring."+fn.Name()+"·error", ssa.SymFunc), full
-	}
 	name := fmt.Sprintf("builtin.(*ring[%s,%d]).%s", typeString(w.Elem()), w.N(), fn.Name())
 	if sym := l.funcs[name]; sym != nil {
 		return sym, full
@@ -586,6 +580,16 @@ func (l *Lowerer) ringMethodFunc(fn *types2.Func, w *types2.Wrapper, pos token.P
 	l.funcs[name] = sym
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: full, build: func(s *fnState) {
 		in := s.incomingArgs(full)
+		if types2.IsRingIterator(fn.Name()) {
+			// The iterator's closure record, in the region the caller
+			// provides (regions.go).
+			T := full.Results().At(0).Type()
+			iter := l.ringIterFunc(fn.Name(), w, T.Underlying().(*types2.Signature))
+			rec := s.regionRecord(16, true)
+			s.storeRecord(rec, iter, []*ssa.Value{in[0].v})
+			s.returnValues([]value{scalarValue(rec, T)})
+			return
+		}
 		s.returnValues(s.ringOp(fn.Name(), in[0].v, w, in[1:], token.NoPos))
 	}})
 	return sym, full
@@ -613,9 +617,9 @@ func (s *fnState) ringIterator(name string, w *types2.Wrapper, p *ssa.Value, T t
 
 // ringIterFunc returns the function of the iterator that ring method name
 // (All or Values) of ring type w returns, of func type sig. The iterator is
-// a closure record in the caller's frame holding the code pointer and the
-// address of the ring, so a call of All or Values builds it where it is
-// made, as a closure constructor's call does (language spec section 5.4).
+// a closure record holding the code pointer and the address of the ring,
+// built where All or Values is called, or, when ringMethodFunc's function
+// is called, in the region its caller provides (language spec section 5.4).
 //
 // The loop reads the ring as it goes. It keeps a position in the ring's
 // push count: each step skips to the oldest element if the body popped the

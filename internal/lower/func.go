@@ -27,6 +27,18 @@ type fnState struct {
 	results []*ssa.Value               // addresses of the result variables
 	ctx     *ssa.Value                 // closure record pointer, for closures
 
+	// Closure regions (regions.go): the region the caller provides, its
+	// layout, and what goes in it: the records of these literals and
+	// method values, these variables, and the regions of these calls.
+	regionPtr    *ssa.Value
+	region       *regionLayout
+	regionNodes  map[ast.Node]bool
+	regionVars   map[*types2.Var]bool
+	regionCalls  map[*ast.CallExpr]bool
+	callAt       *ast.CallExpr // the call whose arguments were just lowered
+	regionLocals []regionLocal // the regions this function reserved
+	resultRegion []bool        // which result variables are in the region
+
 	targets []*target // enclosing breakable statements, innermost last
 	labels  map[*types2.Label]*labelInfo
 
@@ -330,6 +342,10 @@ func (l *Lowerer) newFnState(job *funcJob) *fnState {
 
 		holdOf:      map[*ownedTemp]*holdRec{},
 		tempRelease: map[*ssa.Value]bool{},
+
+		regionNodes: map[ast.Node]bool{},
+		regionVars:  map[*types2.Var]bool{},
+		regionCalls: map[*ast.CallExpr]bool{},
 	}
 	if job.pkg != nil {
 		s.info = job.pkg.Info
@@ -339,9 +355,6 @@ func (l *Lowerer) newFnState(job *funcJob) *fnState {
 	f.NoSSE = l.cfg.Kernel
 	if job.parent != nil {
 		f.NoSSE = job.parent.f.NoSSE
-	}
-	if job.ctor != nil {
-		f.NoSSE = l.cfg.Kernel && !hasDirective(job.ctor.decl.Doc, "fpu")
 	}
 	for range f.Blocks {
 		s.blocks = append(s.blocks, &blockState{})
@@ -365,7 +378,6 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 		f.Pos, f.End = job.decl.Pos(), job.decl.End()
 		s.applyPragmas(job.decl.Doc)
 		s.checkStackDirective(job.decl.Doc)
-		l.checkCtorBody(job)
 	} else if job.lit != nil {
 		f.Pos, f.End = job.lit.Pos(), job.lit.End()
 	} else {
@@ -400,9 +412,9 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 			body = job.lit.Body
 		}
 		l.bodies[job.sym] = funcBody{body: body, info: s.info}
-		l.checkClosureReturns(job)
 		s.varFacts = analyzeVars(body, s.info)
 		s.labelScopes = labelBlocks(body, s.info)
+		s.planClosures()
 		s.bindParams()
 		if hasDefer(body) {
 			s.deferBits = s.temp(types2.Typ[types2.Uint64], "deferbits")
@@ -420,6 +432,7 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 	}
 	s.finishEntry()
 	s.recordHolds()
+	s.endRegion()
 
 	for _, b := range f.Blocks {
 		s.seal(b)
@@ -470,6 +483,10 @@ func (s *fnState) bindParams() {
 	if s.abi.sret {
 		s.sret = nextArg(ssa.TPtr)
 	}
+	if s.abi.region {
+		s.regionArg(argIdx)
+		argIdx++
+	}
 	if s.job.lit != nil {
 		s.ctx = s.newValue(ssa.OpClosurePtr, ssa.TPtr)
 	}
@@ -484,6 +501,17 @@ func (s *fnState) bindParams() {
 		v := paramVars[i]
 		if p.byRef {
 			ptr := nextArg(ssa.TPtr)
+			if v != nil && s.regionVars[v] {
+				// The caller's copy does not outlive the caller: the
+				// region keeps a copy, and references, of its own.
+				addr := s.regionVar(p.typ)
+				s.move(addr, ptr, s.l.sizeof(p.typ))
+				if s.l.counted(p.typ) {
+					s.retainAt(addr, p.typ)
+				}
+				s.vars[v] = addr
+				continue
+			}
 			if v != nil {
 				s.vars[v] = ptr
 				if s.l.counted(p.typ) && s.ownsParam(v) {
@@ -494,6 +522,19 @@ func (s *fnState) bindParams() {
 					s.ownedParams = append(s.ownedParams, countedSlot{base: ptr, T: p.typ})
 				}
 			}
+			continue
+		}
+		if v != nil && s.regionVars[v] {
+			// Captured by a closure the function returns: the region keeps
+			// the parameter, and references of its own (regions.go).
+			addr := s.regionVar(p.typ)
+			for _, lf := range p.leaves {
+				s.store(lf.t, s.offPtr(addr, lf.off), nextArg(lf.t))
+			}
+			if s.l.counted(p.typ) {
+				s.retainAt(addr, p.typ)
+			}
+			s.vars[v] = addr
 			continue
 		}
 		addr := s.temp(p.typ, varName(v))
@@ -512,8 +553,15 @@ func (s *fnState) bindParams() {
 
 	// Result variables, named or not, live in slots so that return
 	// statements and deferred closures can update them.
+	s.resultRegion = make([]bool, len(s.abi.results))
 	for i, p := range s.abi.results {
-		addr := s.temp(p.typ, "result")
+		var addr *ssa.Value
+		if v := sig.results[i]; v != nil && s.regionVars[v] {
+			addr = s.regionVar(p.typ)
+			s.resultRegion[i] = true
+		} else {
+			addr = s.temp(p.typ, "result")
+		}
 		s.zero(addr, s.l.sizeof(p.typ))
 		s.results = append(s.results, addr)
 		if v := sig.results[i]; v != nil && v.Name() != "" && v.Name() != "_" {
@@ -574,6 +622,13 @@ func (s *fnState) emitReturn(pos token.Pos) {
 	// Deferred calls may use the function's variables, so they are
 	// released only now.
 	s.releaseForReturn()
+	for i, inRegion := range s.resultRegion {
+		// A result variable in the region keeps its references; the
+		// caller gets references of its own.
+		if T := s.abi.results[i].typ; inRegion && s.l.counted(T) {
+			s.retainAt(s.results[i], T)
+		}
+	}
 	ret := s.b
 	ret.Kind = ssa.BlockRet
 	ret.Pos = pos

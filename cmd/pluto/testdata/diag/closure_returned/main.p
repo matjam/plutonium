@@ -1,129 +1,70 @@
 package main
 
-// Each function returns a closure record made in its own frame, which is
-// reclaimed when it returns (spec sections 4.5 and 6.3).
+// Each function returns a closure record that cannot be built in the region
+// its caller provides (spec section 4.5), so it would outlive its frame.
 
 type Seq func(yield func(int) bool)
-
-// A check before the literal makes this an ordinary function, not a
-// closure constructor.
-func CountChecked(n int) Seq {
-	if n < 1 {
-		panic("CountChecked: n must be positive")
-	}
-	return func(yield func(int) bool) {
-		for i := 0; i < n; i++ {
-			if !yield(i) {
-				return
-			}
-		}
-	}
-}
-
-// Through a local variable.
-func Var(n int) Seq {
-	f := func(yield func(int) bool) {
-		for i := 0; i < n; i++ {
-			if !yield(i) {
-				return
-			}
-		}
-	}
-	return f
-}
 
 type holder struct {
 	f func() int
 }
 
-// In a struct field.
-func Field(n int) holder {
-	var h holder
-	h.f = func() int { return n }
-	return h
-}
-
-// In an interface.
-func Any(n int) any {
-	total := n * 2
-	return func() int { return total }
-}
-
-type counter struct{ n int }
-
-func (c *counter) get() int { return c.n }
-
-// A method value.
-func Method(c *counter) func() int {
-	return c.get
-}
-
-func pass(f func() int) func() int { return f }
-
-// Through a call that returns its argument.
-func Through(n int) func() int {
-	return pass(func() int { return n })
-}
-
-func Const(n int) func() int {
-	return func() int { return n }
-}
-
-// The closure a closure constructor builds in this frame.
-func Built(n int) func() int {
-	m := n + 1
-	return Const(m)
-}
-
-// A named result.
-func Named(n int) (f func() int) {
-	f = func() int { return n }
-	return
-}
-
-// Through memory on the heap.
+// Through memory on the heap: the result holds the closure only through a
+// pointer, so the caller provides no region.
 func Ptr(n int) *holder {
 	h := new(holder)
 	h.f = func() int { return n }
 	return h
 }
 
-// Through a slice of a local array.
-func Alias(n int) [1]func() int {
-	var arr [1]func() int
-	s := arr[:]
-	s[0] = func() int { return n }
-	return arr
+func counter() func() int {
+	n := 0
+	return func() int {
+		n++
+		return n
+	}
 }
 
-func put(h *holder, f func() int) { h.f = f }
-
-// Stored by a function it calls.
-func Stored(n int) holder {
-	var h holder
-	put(&h, func() int { return n })
+// The same, for the closure of a call.
+func PtrCall() *holder {
+	h := new(holder)
+	h.f = counter()
 	return h
 }
 
-// Stored by another literal.
-func Setter(n int) func() int {
+type box struct{ n int }
+
+func (b *box) get() int { return b.n }
+
+// A method value, through a pointer.
+func PtrMethod(b *box) *holder {
+	h := new(holder)
+	h.f = b.get
+	return h
+}
+
+// Made by a function literal nested in the function.
+func Nested(n int) func() int {
 	var g func() int
-	set := func(f func() int) { g = f }
-	set(func() int { return n })
+	build := func() { g = func() int { return n } }
+	build()
 	return g
 }
 
+// Made in the body of a range-over-func loop, a function of its own.
+func FromLoop(seq Seq) func() int {
+	for x := range seq {
+		return func() int { return x }
+	}
+	return nil
+}
+
+func one(yield func(int) bool) { yield(1) }
+
 func main() {
-	Alias(1)
-	Stored(1)
-	Setter(1)
-	CountChecked(1)
-	Var(1)
-	Field(1)
-	Any(1)
-	Method(&counter{})
-	Through(1)
-	Built(1)
-	Named(1)
 	Ptr(1)
+	PtrCall()
+	PtrMethod(&box{})
+	Nested(1)
+	FromLoop(one)
 }

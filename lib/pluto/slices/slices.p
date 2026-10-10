@@ -20,9 +20,9 @@
 //   - AppendSeq, like append, must fit in the slice's capacity; Collect is
 //     the way to gather values of unknown number.
 //   - Grow is vec.Vec's Reserve.
-//   - The iterators All, Values, Backward and Chunk are closure constructors
-//     (pluto/iter): they are called directly, in a range loop or as an
-//     argument, and build no allocation.
+//   - The iterators All, Values, Backward and Chunk build their closures in
+//     the region their caller provides (pluto/iter), so they allocate
+//     nothing.
 //
 // Everything else, including Sort and SortFunc (pattern-defeating quicksort)
 // and SortStableFunc (insertion sort and symmetric merges, without extra

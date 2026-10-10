@@ -114,10 +114,6 @@ func (s *fnState) containerCall(r *containerRef, name string, args []value) []va
 	}
 	targs := s.containerTypeArgs(fn, r.base.T)
 	full := s.l.methodSig(fn, targs)
-	if c := s.l.closureCtor(fn); c != nil {
-		// An iterator method such as All, expanded here (ctor.go).
-		return []value{s.expandCtor(c, targs, &recv, args, full.Results().At(0).Type(), pos)}
-	}
 	sym := s.l.funcSym(fn, targs)
 	site := &callSite{desc: desc, recv: types2.ExprString(r.x)}
 	return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn), site: site}, full, &recv, args, pos)
