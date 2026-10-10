@@ -449,21 +449,11 @@ func (s *fnState) selector(e *ast.SelectorExpr, T types2.Type) value {
 	case types2.MethodVal:
 		return scalarValue(s.methodValue(e, sel), T)
 	case types2.MethodExpr:
-		fn := sel.Obj().(*types2.Func)
-		targs := s.withMethodTypeArgs(fn, e.Sel, s.recvTypeArgs(sel.Recv()))
-		if len(sel.Index()) > 1 {
-			s.l.errorf(e.Pos(), "method expression %s of a promoted method is not supported yet", e.Sel.Name)
+		sym := s.methodExpr(e, sel, T.Underlying().(*types2.Signature))
+		if sym == nil {
 			return s.zeroValue(T)
 		}
-		_, exprPtr := sel.Recv().Underlying().(*types2.Pointer)
-		_, methPtr := fn.Type().(*types2.Signature).Recv().Type().(*types2.Pointer)
-		if exprPtr && !methPtr {
-			// (*T).M of a value method takes a *T: call M with *p.
-			sig := s.subst(T).Underlying().(*types2.Signature)
-			wrapper := s.l.derefMethodWrapper(fn, targs, sig)
-			return scalarValue(s.symAddr(s.l.closureRecord(wrapper)), T)
-		}
-		return scalarValue(s.funcValue(fn, targs, e.Pos()), T)
+		return scalarValue(s.symAddr(s.l.closureRecord(sym)), T)
 	}
 	return s.zeroValue(T)
 }
@@ -841,13 +831,53 @@ func (s *fnState) equal(x, y value, T types2.Type, pos token.Pos) *ssa.Value {
 		if isPlainBytes(et) {
 			return s.callRuntime("memequal", []*ssa.Type{ssa.TBool}, []*ssa.Value{x.v, y.v, s.constInt(ssa.TI64, u.Len()*esize)})[0]
 		}
-		s.l.errorf(pos, "lower: comparison of large arrays of %s is not supported yet", et)
-		return s.constBool(false)
+		return s.equalArrayLoop(x.v, y.v, u.Len(), et, pos)
 	case *types2.Packed, *types2.Wrapper:
 		return s.callRuntime("memequal", []*ssa.Type{ssa.TBool}, []*ssa.Value{x.v, y.v, s.constInt(ssa.TI64, s.l.sizeof(T))})[0]
 	}
 	s.l.errorf(pos, "lower: cannot compare values of type %s", T)
 	return s.constBool(false)
+}
+
+// equalArrayLoop compares the arrays of n elements of type et at x and y
+// in a loop that stops at the first unequal element.
+func (s *fnState) equalArrayLoop(x, y *ssa.Value, n int64, et types2.Type, pos token.Pos) *ssa.Value {
+	res := s.temp(types2.Typ[types2.Bool], "eq")
+	s.store(ssa.TBool, res, s.constBool(true))
+	idx := s.temp(types2.Typ[types2.Int], "i")
+	s.store(ssa.TI64, idx, s.constInt(ssa.TI64, 0))
+	head := s.newBlock(ssa.BlockInvalid)
+	body := s.newBlock(ssa.BlockInvalid)
+	next := s.newBlock(ssa.BlockInvalid)
+	differ := s.newBlock(ssa.BlockInvalid)
+	done := s.newBlock(ssa.BlockInvalid)
+	s.endPlain(head)
+
+	s.startBlock(head)
+	i := s.load(ssa.TI64, idx)
+	s.endIf(s.newValue(ssa.OpLess, ssa.TBool, i, s.constInt(ssa.TI64, n)), body, done)
+
+	s.seal(body)
+	s.startBlock(body)
+	i = s.load(ssa.TI64, idx)
+	ex := s.loadFrom(s.elemAddr(x, i, et), et)
+	ey := s.loadFrom(s.elemAddr(y, i, et), et)
+	s.endIf(s.equal(ex, ey, et, pos), next, differ)
+
+	s.seal(next)
+	s.startBlock(next)
+	s.store(ssa.TI64, idx, s.newValue(ssa.OpAdd, ssa.TI64, i, s.constInt(ssa.TI64, 1)))
+	s.endPlain(head)
+	s.seal(head)
+
+	s.seal(differ)
+	s.startBlock(differ)
+	s.store(ssa.TBool, res, s.constBool(false))
+	s.endPlain(done)
+
+	s.seal(done)
+	s.startBlock(done)
+	return s.load(ssa.TBool, res)
 }
 
 // isPlainBytes reports whether equality of T values is equality of their bytes.
@@ -1103,6 +1133,16 @@ func unpackIndex(e ast.Expr) indexed {
 		return indexed{e.X, nil}
 	}
 	return indexed{}
+}
+
+// staticFuncIdent is identOf for a callee, except that it returns nil for
+// a method selection (x.m or T.m), which names a method rather than a
+// function that can be called directly.
+func staticFuncIdent(e ast.Expr, info *types2.Info) *ast.Ident {
+	if se, ok := ast.Unparen(e).(*ast.SelectorExpr); ok && info.Selections[se] != nil {
+		return nil
+	}
+	return identOf(e)
 }
 
 func identOf(e ast.Expr) *ast.Ident {

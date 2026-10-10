@@ -169,6 +169,10 @@ type Checker struct {
 	// aligned wrapper on its operand instead of unwrapping it.
 	keepWrapper bool
 
+	// Plutonium: positions of values of complex type, reported together
+	// once checking is done (see reportComplex).
+	complexAt []token.Pos
+
 	// Plutonium: the expression multiExpr is evaluating in a two-value
 	// (comma-ok) context, or nil. A non-constant conversion to an enum
 	// type is valid only as that expression.
@@ -484,6 +488,9 @@ func (check *Checker) checkFiles(files []*ast.File) {
 
 	print("== recordUntyped ==")
 	check.recordUntyped()
+
+	print("== reportComplex ==")
+	check.reportComplex()
 
 	if check.firstErr == nil {
 		// TODO(mdempsky): Ensure monomorph is safe when errors exist.

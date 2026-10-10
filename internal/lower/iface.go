@@ -473,7 +473,19 @@ func (l *Lowerer) itabAdapter(T types2.Type, m *types2.Func) *ssa.Sym {
 		l.errs = append(l.errs, fmt.Errorf("lower: %s has no method %s", T, m.Name()))
 		return sym
 	}
-	msig := fn.Type().(*types2.Signature)
+	if isIfaceMethod(fn) {
+		// Promoted from an embedded interface field: call through it.
+		sig := fn.Type().(*types2.Signature)
+		plain := types2.NewSignatureType(nil, nil, nil, sig.Params(), sig.Results(), sig.Variadic())
+		adapter := adapterSignature(plain)
+		l.queue = append(l.queue, &funcJob{sym: sym, sig: adapter, build: func(s *fnState) {
+			in := s.incomingArgs(adapter)
+			iface := recvBase(T, index)
+			iv := s.receiverFromData(in[0].v, T, index, iface)
+			s.returnValues(s.ifaceCall(iv, iface, fn, plain, in[1:], token.NoPos))
+		}})
+		return sym
+	}
 	// The method's signature as seen through T (instantiated receiver).
 	var targs []types2.Type
 	if n, ok := types2.Unalias(derefType(recvBase(T, index))).(*types2.Named); ok && n.TypeArgs() != nil {
@@ -481,11 +493,9 @@ func (l *Lowerer) itabAdapter(T types2.Type, m *types2.Func) *ssa.Sym {
 			targs = append(targs, n.TypeArgs().At(i))
 		}
 	}
-	full := l.methodSig(fn, targs)
+	target, full := l.methodFunc(fn, targs, ringMethodRing(fn, func(t types2.Type) types2.Type { return t }))
 	plain := types2.NewSignatureType(nil, nil, nil, full.Params(), full.Results(), full.Variadic())
 	adapter := adapterSignature(plain)
-	_ = msig
-	target := l.funcSym(fn, targs)
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: adapter, build: func(s *fnState) {
 		in := s.incomingArgs(adapter)
 		data := in[0].v
@@ -557,6 +567,14 @@ func (l *Lowerer) ifaceMethodValueWrapper(I types2.Type, fn *types2.Func) *ssa.S
 	}
 	sym := l.out.Sym(name, ssa.SymFunc)
 	l.funcs[name] = sym
+	// I's own method has the signature as instantiated in I, which fn,
+	// selected in generic code, may not.
+	iface := I.Underlying().(*types2.Interface)
+	for i := 0; i < iface.NumMethods(); i++ {
+		if m := iface.Method(i); m.Name() == fn.Name() && m.Pkg() == fn.Pkg() {
+			fn = m
+		}
+	}
 	sig := fn.Type().(*types2.Signature)
 	plain := types2.NewSignatureType(nil, nil, nil, sig.Params(), sig.Results(), sig.Variadic())
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: plain, build: func(s *fnState) {
@@ -631,8 +649,12 @@ func (s *fnState) assertTo(iv value, I, T types2.Type, commaOk bool, pos token.P
 // typeMatches tests whether an interface table denotes concrete type T.
 func (s *fnState) typeMatches(tab *ssa.Value, I, T types2.Type) *ssa.Value {
 	var want *ssa.Value
-	if I.Underlying().(*types2.Interface).Empty() {
+	iface := I.Underlying().(*types2.Interface)
+	if iface.Empty() {
 		want = s.symAddr(s.l.types.desc(T))
+	} else if !types2.Implements(T, iface) {
+		// Possible in generic code: an I never holds a T.
+		return s.constBool(false)
 	} else {
 		want = s.symAddr(s.l.types.itab(T, I))
 	}

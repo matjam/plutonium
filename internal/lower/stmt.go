@@ -447,15 +447,32 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 	case *types2.Array, *types2.Pointer, *types2.Slice:
 		var base, n *ssa.Value
 		var et types2.Type
+		// As in Go, a range over an array or a pointer to one with no
+		// value variable needs only the constant length and does not
+		// evaluate the range expression, unless the expression calls
+		// a function (then its length is not a constant).
+		hasValue := st.Value != nil
+		if id, ok := st.Value.(*ast.Ident); ok && id.Name == "_" {
+			hasValue = false
+		}
+		if _, isSlice := u.(*types2.Slice); !isSlice && !hasValue && s.callsFunction(st.X) {
+			s.expr(st.X)
+		}
 		switch u := u.(type) {
 		case *types2.Array:
-			// Arrays are ranged over in place (see the spec).
-			base = s.lv(st.X).ptr
+			// The range expression is evaluated once, before the loop,
+			// so the loop sees a copy of the array.
+			if hasValue {
+				base = s.temp(xt, "range")
+				s.storeTo(base, s.expr(st.X), xt)
+			}
 			n = s.constInt(ssa.TI64, u.Len())
 			et = s.subst(u.Elem())
 		case *types2.Pointer:
 			arr := unwrap(u.Elem()).Underlying().(*types2.Array)
-			base = s.scalar(st.X)
+			if hasValue {
+				base = s.scalar(st.X)
+			}
 			n = s.constInt(ssa.TI64, arr.Len())
 			et = s.subst(arr.Elem())
 		case *types2.Slice:
@@ -479,6 +496,21 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 		return
 	}
 	s.l.errorf(st.Pos(), "lower: cannot range over %s", xt)
+}
+
+// callsFunction reports whether e contains a function call (a conversion
+// or a call of a built-in folded to a constant is not one).
+func (s *fnState) callsFunction(e ast.Expr) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok {
+			if tv := s.info.Types[call]; tv.Value == nil && !s.info.Types[call.Fun].IsType() {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
 }
 
 // rangeString iterates over the runes of a string.
@@ -558,12 +590,17 @@ func (s *fnState) switchStmt(st *ast.SwitchStmt, label *types2.Label) {
 			if st.Tag == nil {
 				s.cond(e, bodies[i], next)
 			} else {
-				ev := s.exprAs(e, tagT)
+				// An interface compares with a concrete value as an
+				// interface, whichever side it is on.
+				eT := s.typeOf(e)
 				var eq *ssa.Value
-				if isInterface(tagT) && !isInterface(s.typeOf(e)) {
-					eq = s.equal(tag, s.toInterface(s.expr(e), s.typeOf(e), tagT), tagT, e.Pos())
-				} else {
-					eq = s.equal(tag, ev, tagT, e.Pos())
+				switch {
+				case isInterface(tagT) && !isInterface(eT):
+					eq = s.equal(tag, s.toInterface(s.expr(e), eT, tagT), tagT, e.Pos())
+				case !isInterface(tagT) && isInterface(eT):
+					eq = s.equal(s.toInterface(tag, tagT, eT), s.expr(e), eT, e.Pos())
+				default:
+					eq = s.equal(tag, s.exprAs(e, tagT), tagT, e.Pos())
 				}
 				s.endIf(eq, bodies[i], next)
 			}
@@ -629,12 +666,12 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 		for _, e := range cc.List {
 			next := s.newBlock(ssa.BlockInvalid)
 			tv := s.info.Types[e]
+			T := s.subst(tv.Type)
 			var match *ssa.Value
 			switch {
 			case tv.IsNil():
 				match = s.newValue(ssa.OpEq, ssa.TBool, tab, s.constInt(ssa.TPtr, 0))
-			case isInterface(tv.Type):
-				T := s.subst(tv.Type)
+			case isInterface(T):
 				if T.Underlying().(*types2.Interface).Empty() {
 					match = s.newValue(ssa.OpNe, ssa.TBool, tab, s.constInt(ssa.TPtr, 0))
 				} else {
@@ -643,7 +680,7 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 					match = s.newValue(ssa.OpNe, ssa.TBool, itab, s.constInt(ssa.TPtr, 0))
 				}
 			default:
-				match = s.typeMatches(tab, I, s.subst(tv.Type))
+				match = s.typeMatches(tab, I, T)
 			}
 			s.endIf(match, bodies[i], next)
 			s.seal(next)
@@ -830,25 +867,36 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 	default:
 		fun := ast.Unparen(call.Fun)
 		if se, ok := fun.(*ast.SelectorExpr); ok {
-			if sel := s.info.Selections[se]; sel != nil && sel.Kind() == types2.MethodVal && !isInterface(s.typeOf(se.X)) && ringOf(s.typeOf(se.X), sel) == nil {
-				fn := sel.Obj().(*types2.Func)
-				recv := s.saveValue(s.methodReceiver(se.X, sel))
-				targs := s.methodTypeArgs(fn, se, s.typeOf(se.X))
-				sym := s.l.funcSym(fn, targs)
-				full := s.l.methodSig(fn, targs)
-				sig := s.subst(funTV.Type).(*types2.Signature)
-				args := s.saveValues(s.callArgs(call, sig, &defaultsOf{fn, targs}))
-				run = func(s *fnState) {
-					r := s.loadFrom(recv.v, recv.T)
-					s.emitCall(callee{sym: sym}, full, &r, s.loadValues(args), call.Pos())
+			if sel := s.info.Selections[se]; sel != nil && sel.Kind() == types2.MethodVal && !isInterface(s.typeOf(se.X)) {
+				fn, path, ok := s.selectedMethod(se, sel)
+				if !ok {
+					return
 				}
-				break
+				// A method promoted from an embedded interface is deferred
+				// as a method value, below.
+				if !isIfaceMethod(fn) {
+					recv := s.saveValue(s.methodReceiver(se.X, fn, path))
+					var targs []types2.Type
+					var def *defaultsOf
+					w := s.ringOf(fn)
+					if w == nil {
+						targs = s.methodTypeArgs(fn, se, s.typeOf(se.X))
+						def = &defaultsOf{fn, targs}
+					}
+					sym, full := s.l.methodFunc(fn, targs, w)
+					sig := s.subst(funTV.Type).(*types2.Signature)
+					args := s.saveValues(s.callArgs(call, sig, def))
+					run = func(s *fnState) {
+						r := s.loadFrom(recv.v, recv.T)
+						s.emitCall(callee{sym: sym}, full, &r, s.loadValues(args), call.Pos())
+					}
+				}
 			}
 		}
 		if run != nil {
 			break
 		}
-		if id := identOf(fun); id != nil {
+		if id := staticFuncIdent(fun, s.info); id != nil {
 			if fn, ok := s.info.Uses[id].(*types2.Func); ok {
 				if s.l.errorsNewValue(fn, call.Pos(), "deferred") {
 					return

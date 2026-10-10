@@ -80,9 +80,14 @@ func (l *Lowerer) lowerGlobals() {
 
 // staticObject allocates an anonymous static object of type T.
 func (l *Lowerer) staticObject(T types2.Type) *ssa.Sym {
+	return l.staticBytes(l.sizeof(T), l.alignof(T))
+}
+
+// staticBytes allocates an anonymous static object of the given size.
+func (l *Lowerer) staticBytes(size, align int64) *ssa.Sym {
 	sym := l.out.Sym(fmt.Sprintf(".static.%d", l.statics), ssa.SymData)
 	l.statics++
-	l.out.Data = append(l.out.Data, &ssa.Data{Sym: sym, Size: max(l.sizeof(T), 1), Align: l.alignof(T), Local: true})
+	l.out.Data = append(l.out.Data, &ssa.Data{Sym: sym, Size: max(size, 1), Align: align, Local: true})
 	return sym
 }
 

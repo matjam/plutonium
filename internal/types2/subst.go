@@ -84,6 +84,10 @@ type subster struct {
 	check     *Checker // nil if called via Instantiate
 	expanding *Named   // if non-nil, the instance that is being expanded
 	ctxt      *Context
+
+	// Plutonium: if set, called for each named type without type
+	// parameters; a non-nil result replaces it (see SubstLocal).
+	local func(*Named) Type
 }
 
 func (subst *subster) typ(typ Type) Type {
@@ -101,6 +105,14 @@ func (subst *subster) typ(typ Type) Type {
 		orig := t.Origin()
 		n := orig.TypeParams().Len()
 		if n == 0 {
+			if subst.local != nil {
+				// Plutonium: an alias declared in a generic function
+				// may stand for a type that mentions its type
+				// parameters; an instance needs the aliased type.
+				if u := subst.typ(Unalias(t)); u != Unalias(t) {
+					return u
+				}
+			}
 			return t // type is not parameterized
 		}
 
@@ -327,6 +339,11 @@ func (subst *subster) typ(typ Type) Type {
 		orig := t.Origin()
 		n := orig.TypeParams().Len()
 		if n == 0 {
+			if subst.local != nil {
+				if r := subst.local(t); r != nil {
+					return r
+				}
+			}
 			return t // type is not parameterized
 		}
 

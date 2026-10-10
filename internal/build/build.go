@@ -75,8 +75,26 @@ func Build(cfg *Config) error {
 
 var sizes = types2.SizesFor("gc", "amd64")
 
+// Check reports a setting of cfg that no build accepts, such as an unknown
+// allocator or one that needs a hosted build.
+func (cfg *Config) Check() error {
+	switch cfg.Alloc {
+	case "":
+	case "debug":
+		if cfg.Freestanding || cfg.Kernel {
+			return fmt.Errorf("--alloc=debug needs a hosted build; a freestanding program installs the debug allocator itself with alloc.SetDefault(debug.New(...))")
+		}
+	default:
+		return fmt.Errorf("unknown allocator %q (supported: debug)", cfg.Alloc)
+	}
+	return nil
+}
+
 // loadConfig returns the package loader's configuration for a build.
 func loadConfig(cfg *Config) (*load.Config, error) {
+	if err := cfg.Check(); err != nil {
+		return nil, err
+	}
 	tags := map[string]bool{"amd64": true}
 	if cfg.Freestanding || cfg.Kernel {
 		tags["none"] = true
@@ -92,17 +110,10 @@ func loadConfig(cfg *Config) (*load.Config, error) {
 		tags[t] = true
 	}
 	var preload []string
-	switch cfg.Alloc {
-	case "":
-	case "debug":
-		if cfg.Freestanding || cfg.Kernel {
-			return nil, fmt.Errorf("--alloc=debug needs a hosted build; a freestanding program installs the debug allocator itself with alloc.SetDefault(debug.New(...))")
-		}
+	if cfg.Alloc == "debug" {
 		tags["allocdebug"] = true
 		tags["allocsites"] = true
 		preload = append(preload, "pluto/alloc/debug")
-	default:
-		return nil, fmt.Errorf("unknown allocator %q (supported: debug)", cfg.Alloc)
 	}
 	return &load.Config{Tags: tags, Stdlib: cfg.Stdlib, Sizes: sizes, Preload: preload}, nil
 }
@@ -247,7 +258,7 @@ func run(cfg *Config, name string, args ...string) error {
 	cmd.Stderr = &stderr
 	cmd.Stdout = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s: %v\n%s", name, err, stderr.String())
+		return fmt.Errorf("running %s failed: %v\n%s", name, err, strings.TrimRight(stderr.String(), "\n"))
 	}
 	return nil
 }

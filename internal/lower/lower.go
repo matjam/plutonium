@@ -68,6 +68,9 @@ type Lowerer struct {
 	perCPUSelfSym  *ssa.Sym                   // pluto.percpu.self, once a per-CPU variable exists
 	types          *typeTable
 
+	// instances of types declared in generic functions (typeMap.local)
+	localTypes map[localKey]*types2.Named
+
 	errs []error
 }
 
@@ -96,8 +99,20 @@ type funcJob struct {
 }
 
 // Lower lowers a loaded program.
-func Lower(cfg *Config, prog *load.Program) (*ssa.Program, error) {
-	l := &Lowerer{
+func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
+	var l *Lowerer
+	defer func() {
+		// Lowering carries on after an error with placeholder values, which
+		// later code may trip over. Such a crash is a consequence of the
+		// errors already reported, so report those instead.
+		if r := recover(); r != nil {
+			if l == nil || len(l.errs) == 0 {
+				panic(r)
+			}
+			err = joinErrors(l.errs)
+		}
+	}()
+	l = &Lowerer{
 		cfg:            cfg,
 		prog:           prog,
 		fset:           prog.Fset,
@@ -110,6 +125,7 @@ func Lower(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 		globals:        map[*types2.Var]*ssa.Sym{},
 		strs:           map[string]*ssa.Sym{},
 		closureRecords: map[*ssa.Sym]*ssa.Sym{},
+		localTypes:     map[localKey]*types2.Named{},
 		errorSites:     map[*ast.CallExpr]*ssa.Sym{},
 		exports:        map[*ssa.Sym][]string{},
 		interruptSyms:  map[*ssa.Sym]bool{},
@@ -186,7 +202,8 @@ func pkgPath(pkg *types2.Package) string {
 }
 
 // typeString formats a type for symbol names: fully qualified by import
-// path, with types declared in functions told apart by position.
+// path, with types declared in functions (and their instances in generic
+// functions, see typeMap.local) told apart by position.
 func typeString(T types2.Type) string {
 	return types2.SymbolString(T, func(p *types2.Package) string { return p.Path() })
 }
@@ -361,6 +378,16 @@ type typeMap struct {
 	l       *Lowerer
 	tparams []*types2.TypeParam
 	targs   []types2.Type
+
+	// The source range of the generic function: types declared in it
+	// are instantiated with it (see local).
+	start, end token.Pos
+}
+
+// A localKey names an instance of a type declared in a generic function.
+type localKey struct {
+	obj   *types2.TypeName
+	targs string
 }
 
 func newTypeMap(l *Lowerer, fn *types2.Func, targs []types2.Type) *typeMap {
@@ -379,14 +406,41 @@ func newTypeMap(l *Lowerer, fn *types2.Func, targs []types2.Type) *typeMap {
 	if len(tps) != len(targs) {
 		panic(fmt.Sprintf("lower: %s has %d type parameters, got %d type arguments", fn, len(tps), len(targs)))
 	}
-	return &typeMap{l: l, tparams: tps, targs: targs}
+	m := &typeMap{l: l, tparams: tps, targs: targs}
+	if d := l.decls[fn.Origin()]; d != nil {
+		m.start, m.end = d.decl.Pos(), d.decl.End()
+	}
+	return m
 }
 
 func (m *typeMap) subst(T types2.Type) types2.Type {
 	if m == nil || T == nil {
 		return T
 	}
-	return types2.Subst(m.l.ctxt, T, m.tparams, m.targs)
+	return types2.SubstLocal(m.l.ctxt, T, m.tparams, m.targs, m.local)
+}
+
+// local instantiates a type declared inside the generic function, which
+// may mention the function's type parameters: each instance of the
+// function has its own copy of the type, as in Go. It returns nil for any
+// other named type.
+func (m *typeMap) local(t *types2.Named) types2.Type {
+	obj := t.Obj()
+	if obj.Pos() < m.start || obj.Pos() >= m.end || obj.Pkg() == nil || obj.Parent() == obj.Pkg().Scope() {
+		return nil
+	}
+	key := localKey{obj, typeList(m.targs)}
+	if n := m.l.localTypes[key]; n != nil {
+		return n
+	}
+	// The instance keeps the declaration's position, so localSuffix
+	// still tells it apart from types of the same name elsewhere; the
+	// type arguments in its name tell the instances apart.
+	tn := types2.NewTypeName(obj.Pos(), obj.Pkg(), obj.Name()+"["+key.targs+"]", nil)
+	n := types2.NewNamed(tn, nil, nil)
+	m.l.localTypes[key] = n
+	n.SetUnderlying(m.subst(t.Underlying()))
+	return n
 }
 
 // ----------------------------------------------------------------------------

@@ -9,19 +9,13 @@ import (
 // and enum misuse, stop the build with an error rather than producing code.
 func TestUnsupportedErrors(t *testing.T) {
 	cases := []struct{ name, src, want string }{
-		{"promoted method expression", `package main
-
-type In struct{ n int }
-
-func (i In) Get() int { return i.n }
-
-type Out struct{ In }
+		{"deferred copy", `package main
 
 func main() {
-	f := Out.Get
-	_ = f
+	var a, b [2]int
+	defer copy(a[:], b[:])
 }
-`, "method expression Get of a promoted method is not supported yet"},
+`, "defer of builtin copy is not supported"},
 		{"non-exhaustive enum switch", `package main
 
 type Color enum { Red; Green; Blue }

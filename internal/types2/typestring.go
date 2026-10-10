@@ -80,12 +80,17 @@ type typeWriter struct {
 
 // SymbolString is like [TypeString] but gives every type declared inside a
 // function a suffix made from its position, so that two local types with
-// the same name in different functions have different strings. Compilers
-// use it to name symbols such as type descriptors.
+// the same name in different functions have different strings, and leaves
+// out the names of function parameters and results, which are not part of
+// a type's identity. Compilers use it to name symbols such as type
+// descriptors. A named type made outside any scope (as a compiler does for
+// an instance of a type declared in a generic function, see SubstLocal)
+// counts as declared in a function.
 func SymbolString(typ Type, qf Qualifier) string {
 	var buf bytes.Buffer
 	w := newTypeWriter(&buf, qf)
 	w.localSuffix = true
+	w.paramNames = false
 	w.typ(typ)
 	return buf.String()
 }
@@ -489,9 +494,22 @@ func (w *typeWriter) tParamList(list []*TypeParam) {
 func (w *typeWriter) typeName(obj *TypeName) {
 	w.string(packagePrefix(obj.pkg, w.qf))
 	w.string(obj.name)
-	if w.localSuffix && obj.pkg != nil && obj.parent != nil && obj.parent != obj.pkg.scope {
+	if w.localSuffix && isLocalTypeName(obj) {
 		w.string("·" + strconv.Itoa(int(obj.pos)))
 	}
+}
+
+// isLocalTypeName reports whether obj names a type declared in a function,
+// or made outside any scope. An instance of a generic type has a type name
+// of its own, outside any scope; its origin's is the declared one.
+func isLocalTypeName(obj *TypeName) bool {
+	switch t := obj.typ.(type) {
+	case *Named:
+		obj = t.Origin().obj
+	case *Alias:
+		obj = t.Origin().obj
+	}
+	return obj.pkg != nil && obj.parent != obj.pkg.scope
 }
 
 func (w *typeWriter) tuple(tup *Tuple, variadic bool) {

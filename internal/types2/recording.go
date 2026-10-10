@@ -59,6 +59,7 @@ func (check *Checker) recordTypeAndValue(x ast.Expr, mode operandMode, typ Type,
 	if mode == invalid {
 		return // omit
 	}
+	check.checkComplexValue(x, mode, typ)
 	if mode == constant_ {
 		assert(val != nil)
 		// We check allBasic(typ, IsConstType) here as constant expressions may be
@@ -130,6 +131,7 @@ func (check *Checker) recordInstance(expr ast.Expr, targs []Type, typ Type) {
 	ident := instantiatedIdent(expr)
 	assert(ident != nil)
 	assert(typ != nil)
+	check.checkComplexTypeArgs(expr, targs)
 	if m := check.Instances; m != nil {
 		// If this is an instance of a method value/expression, replace the
 		// receiver for the Signature stored in Instances (go.dev/issue/79657).

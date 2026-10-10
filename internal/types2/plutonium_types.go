@@ -496,7 +496,11 @@ func (check *Checker) wrapperType(ix *indexedExpr) Type {
 
 // isVolatileElem reports whether T can be wrapped in volatile: a scalar
 // that one load or store instruction moves.
+// A type parameter qualifies if every type in its type set does.
 func isVolatileElem(T Type) bool {
+	if tp, ok := Unalias(T).(*TypeParam); ok {
+		return tp.typeset(func(_, u Type) bool { return u != nil && isVolatileElem(u) })
+	}
 	switch u := T.Underlying().(type) {
 	case *Basic:
 		return u.info&(IsInteger|IsBoolean) != 0 || u.kind == UnsafePointer
