@@ -15,11 +15,13 @@ import (
 	"strings"
 
 	"github.com/matjam/plutonium/internal/arch/amd64"
+	"github.com/matjam/plutonium/internal/debuginfo"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/lower"
 	"github.com/matjam/plutonium/internal/objfile"
 	"github.com/matjam/plutonium/internal/opt"
 	"github.com/matjam/plutonium/internal/ssa"
+	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
 )
 
@@ -28,6 +30,7 @@ type Config struct {
 	Dir          string // main package directory
 	Output       string // output file
 	Freestanding bool
+	Kernel       bool     // --mode kernel: freestanding, ring 0, no FPU (implies Freestanding)
 	Tags         []string // extra build tags
 	OptLevel     int      // 0 = none, 1 = basic, 2 = full
 	LinkerScript string
@@ -38,11 +41,32 @@ type Config struct {
 	Verbose      bool
 	KeepWork     bool // keep the temporary directory
 	CompileOnly  bool // write the object file to Output and stop
+
+	// NoDWARF omits the DWARF debugging sections (pluto build -g=false).
+	NoDWARF bool
+	// Strip omits DWARF and the symbol table (pluto build -s). Panics still
+	// print symbolised stack traces, which use a table of their own.
+	Strip bool
+	// NoTrace leaves the trace table empty (pluto build --trace=false), for
+	// images that cannot spare its size: panics then print no stack trace.
+	NoTrace bool
+	// StdlibDir, if set, is the directory Stdlib was read from; debugging
+	// information names standard library files under it rather than
+	// $PLUTOROOT.
+	StdlibDir string
+	// Alloc selects the default allocator of a hosted program: "" for the
+	// slab allocator, "debug" for the checking allocator in
+	// pluto/alloc/debug (settings from $PLUTO_DEBUGALLOC at run time).
+	Alloc string
 }
 
 // Build compiles and links a program.
 func Build(cfg *Config) error {
-	prog, err := load.Load(loadConfig(cfg), cfg.Dir)
+	lcfg, err := loadConfig(cfg)
+	if err != nil {
+		return err
+	}
+	prog, err := load.Load(lcfg, cfg.Dir)
 	if err != nil {
 		return err
 	}
@@ -52,11 +76,14 @@ func Build(cfg *Config) error {
 var sizes = types2.SizesFor("gc", "amd64")
 
 // loadConfig returns the package loader's configuration for a build.
-func loadConfig(cfg *Config) *load.Config {
+func loadConfig(cfg *Config) (*load.Config, error) {
 	tags := map[string]bool{"amd64": true}
-	if cfg.Freestanding {
+	if cfg.Freestanding || cfg.Kernel {
 		tags["none"] = true
 		tags["freestanding"] = true
+		if cfg.Kernel {
+			tags["kernel"] = true
+		}
 	} else {
 		tags["linux"] = true
 		tags["hosted"] = true
@@ -64,12 +91,25 @@ func loadConfig(cfg *Config) *load.Config {
 	for _, t := range cfg.Tags {
 		tags[t] = true
 	}
-	return &load.Config{Tags: tags, Stdlib: cfg.Stdlib, Sizes: sizes}
+	var preload []string
+	switch cfg.Alloc {
+	case "":
+	case "debug":
+		if cfg.Freestanding || cfg.Kernel {
+			return nil, fmt.Errorf("--alloc=debug needs a hosted build; a freestanding program installs the debug allocator itself with alloc.SetDefault(debug.New(...))")
+		}
+		tags["allocdebug"] = true
+		tags["allocsites"] = true
+		preload = append(preload, "pluto/alloc/debug")
+	default:
+		return nil, fmt.Errorf("unknown allocator %q (supported: debug)", cfg.Alloc)
+	}
+	return &load.Config{Tags: tags, Stdlib: cfg.Stdlib, Sizes: sizes, Preload: preload}, nil
 }
 
 // buildProgram compiles and links a loaded program.
 func buildProgram(cfg *Config, prog *load.Program) error {
-	sp, err := lower.Lower(&lower.Config{Freestanding: cfg.Freestanding, Sizes: sizes}, prog)
+	sp, err := lower.Lower(&lower.Config{Freestanding: cfg.Freestanding || cfg.Kernel, Kernel: cfg.Kernel, Sizes: sizes}, prog)
 	if err != nil {
 		return err
 	}
@@ -77,7 +117,7 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 		return err
 	}
 
-	obj, err := emitObject(cfg, sp)
+	obj, err := emitObject(cfg, sp, prog.Fset)
 	if err != nil {
 		return err
 	}
@@ -128,16 +168,32 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 	}
 
 	args := []string{"-static", "-nostdlib", "-z", "noexecstack", "-o", cfg.Output}
-	if cfg.LinkerScript != "" {
+	if cfg.Strip {
+		args = append(args, "-s")
+	}
+	switch {
+	case cfg.LinkerScript != "":
 		args = append(args, "-T", cfg.LinkerScript)
-	} else {
+	case cfg.Kernel:
+		script := filepath.Join(work, "kernel.ld")
+		if err := os.WriteFile(script, []byte(KernelLinkerScript), 0o644); err != nil {
+			return err
+		}
+		args = append(args, "-z", "max-page-size=0x1000", "-T", script)
+	default:
 		args = append(args, "-e", "_start")
 	}
 	if cfg.Format == "binary" {
 		args = append(args, "--oformat=binary")
 	}
 	args = append(args, objs...)
-	return run(cfg, "ld", args...)
+	if err := run(cfg, "ld", args...); err != nil {
+		return err
+	}
+	if cfg.Kernel && cfg.Format != "binary" {
+		return checkPerCPU(cfg.Output)
+	}
+	return nil
 }
 
 // compileC compiles a package's .c files with the system C compiler ($CC,
@@ -207,10 +263,19 @@ func optimize(cfg *Config, p *ssa.Program) error {
 }
 
 // emitObject generates code for every function and lays out the data.
-func emitObject(cfg *Config, p *ssa.Program) (*objfile.Object, error) {
+func emitObject(cfg *Config, p *ssa.Program, fset *token.FileSet) (*objfile.Object, error) {
 	obj := objfile.New()
 	text := obj.Section(".text", elf.SHT_PROGBITS, elf.SHF_ALLOC|elf.SHF_EXECINSTR, 16)
 	obj.Section(".note.GNU-stack", elf.SHT_PROGBITS, 0, 1)
+	dbg := debuginfo.New(fset)
+	if cfg.StdlibDir != "" {
+		dbg.FileName = func(name string) string {
+			if rest, ok := strings.CutPrefix(name, "$PLUTOROOT/"); ok {
+				return filepath.Join(cfg.StdlibDir, rest)
+			}
+			return name
+		}
+	}
 
 	var rodata *objfile.Section
 	constDone := map[string]bool{}
@@ -235,6 +300,8 @@ func emitObject(cfg *Config, p *ssa.Program) (*objfile.Object, error) {
 		off := sec.Append(code.Bytes, 16)
 		obj.Define(&objfile.Symbol{Name: f.Sym.Name, Section: sec, Value: off, Size: uint64(len(code.Bytes)),
 			Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC})
+		dbg.Add(&debuginfo.Func{Sym: f.Sym.Name, Pkg: f.Pkg, Pos: f.Pos, Size: len(code.Bytes),
+			Debug: code.Debug, Inlines: f.Inlines})
 		for _, name := range f.Exports {
 			obj.Define(&objfile.Symbol{Name: name, Section: sec, Value: off, Size: uint64(len(code.Bytes)),
 				Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC})
@@ -267,8 +334,25 @@ func emitObject(cfg *Config, p *ssa.Program) (*objfile.Object, error) {
 		}
 	}
 
+	dbg.WriteTraceTable(obj, cfg.NoTrace)
+	if !cfg.NoDWARF && !cfg.Strip {
+		dir, err := filepath.Abs(cfg.Dir)
+		if err != nil {
+			return nil, err
+		}
+		dbg.WriteDWARF(obj, dir)
+	}
+
 	data := append([]*ssa.Data(nil), p.Data...)
-	sort.SliceStable(data, func(i, j int) bool { return data[i].Sym.Name < data[j].Sym.Name })
+	// The per-CPU block's self word goes first, at offset 0 of .percpu
+	// (abi.md section 10.6).
+	key := func(d *ssa.Data) string {
+		if d.Sym.Name == perCPUSelf {
+			return ""
+		}
+		return d.Sym.Name
+	}
+	sort.SliceStable(data, func(i, j int) bool { return key(data[i]) < key(data[j]) })
 	for _, d := range data {
 		var sec *objfile.Section
 		switch {

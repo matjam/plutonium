@@ -8,7 +8,6 @@ package types2
 // checker can treat them as ordinary Go.
 
 import (
-	"bytes"
 	"slices"
 	"strconv"
 
@@ -68,19 +67,6 @@ func SubstLocal(ctxt *Context, t Type, tparams []*TypeParam, targs []Type, local
 	}
 	s := subster{pos: nopos, smap: makeSubstMap(tparams, targs), ctxt: ctxt, local: local}
 	return s.typ(t)
-}
-
-// TypeStringSuffixed is TypeString for telling types apart: it leaves out
-// the names of function parameters and results, which are not part of a
-// type's identity, and writes suffix(obj) after the name of each named type,
-// so that types of the same name declared in different functions differ.
-func TypeStringSuffixed(t Type, qf Qualifier, suffix func(*TypeName) string) string {
-	var buf bytes.Buffer
-	w := newTypeWriter(&buf, qf)
-	w.paramNames = false
-	w.nameSuffix = suffix
-	w.typ(t)
-	return buf.String()
 }
 
 // allocatorType returns pluto/rt.Allocator, the type of the optional final
@@ -199,6 +185,24 @@ func (check *Checker) reportComplex() {
 		}
 	}
 	check.complexAt = nil
+}
+
+// IsErrorsNew reports whether fn is pluto/errors.New, which the compiler
+// evaluates at each call site to a static error (language spec section
+// 13.1).
+func IsErrorsNew(fn *Func) bool {
+	return fn != nil && fn.name == "New" && fn.pkg != nil && fn.pkg.path == "pluto/errors"
+}
+
+// errorsNewCall checks a call of errors.New: its message must be a
+// constant, since the error it makes is static.
+func (check *Checker) errorsNewCall(call *ast.CallExpr, args []*operand) {
+	if !IsErrorsNew(check.calleeFunc(call)) || len(args) != 1 || !args[0].isValid() {
+		return
+	}
+	if args[0].mode() != constant_ {
+		check.errorf(args[0], InvalidCall, "errors.New needs a constant message, since each call site makes one static error; use fmt.Errorf to build a message at run time")
+	}
 }
 
 // forbiddenImports lists import paths Plutonium rejects, with the reason.

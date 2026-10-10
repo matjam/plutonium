@@ -101,15 +101,21 @@ n := new(Node)                  // current allocator
 m := new(Node, arena)           // explicit allocator
 k := new(Node{val: 1}, arena)   // a new variable holding a value
 buf := make([]byte, 4096)       // current allocator
-tmp := make([]byte, 0, 64, scratch)
+big := make([]byte, 0, 4096)    // length and capacity
+tmp := make([]byte, 64, scratch) // length and allocator
+all := make([]byte, 0, 64, scratch)
 ```
 
 As in Go 1.26, `new(v)` allocates a variable of `v`'s type (an untyped constant takes its default type) and
 stores `v` in it; `new(T{...})` is how a composite literal outlives its frame. Whether the first operand is a
 type decides between `new(T, a)` and `new(v, a)`; `v` is evaluated before the allocator. The allocator is
-any value assignable to `alloc.Allocator`, and a final argument of `make` is a capacity if it is an integer
-or untyped numeric constant and an allocator otherwise. Memory from `new(T)` and `make` is zeroed; none of
-it is freed automatically; free it with `alloc.Free` or use `owned[T]` (section 5.6). A nil allocator panics.
+any value assignable to `alloc.Allocator`, such as `&arena`, and the checker tells it from a capacity by
+its type: a final argument of `make` is a capacity if it is an integer or untyped numeric constant and an
+allocator otherwise (with four arguments the last is always the allocator). Memory from `new(T)` and
+`make` is zeroed; none of it is freed automatically; free it with `alloc.Free` or use `owned[T]` (section
+5.6). With no allocator argument and no default allocator set, as in a freestanding program before
+`alloc.SetDefault`, the allocation panics with "no allocator" (section 6.2); a nil allocator argument
+panics too.
 
 ### 4.3 `append` works within capacity
 
@@ -249,9 +255,53 @@ n := alloc.New[Node]()          // a = alloc.Default(), evaluated now
 m := alloc.New[Node](arena)
 ```
 
-A default may refer to package-level names visible where the function is declared, but not to other
-parameters. Variadic functions cannot have defaults. Function types do not record defaults: a function
-value is called with all of its arguments.
+The rules in full:
+
+- **Declaration.** A defaulted parameter is written `name T = expr` (or `T = expr` in a list of unnamed
+  parameters), with a type of its own: `a, b int = 1` is an error. Once a parameter has a default, every
+  later parameter must have one. Defaults are allowed only in function and method
+  declarations: not on receivers or results, and not in function types, function literals or interface
+  methods.
+- **Scope.** A default is checked where the function is declared: it may use the names of that package,
+  exported or not, the imports of that file, and the type parameters of the function and of its receiver
+  type. It may not refer to the function's parameters or receiver; a parameter name inside a default is an
+  error even where a package-level name of the same spelling exists. The default must be assignable to
+  the parameter's type.
+- **Evaluation.** Each call that omits a defaulted parameter evaluates its default after all explicit
+  arguments, left to right, as if the expression were written at the call site (its temporaries live in
+  the caller's frame) but with its names resolved in the callee's declaration. A call from another
+  package may therefore run the callee's unexported helpers. For `defer`, the defaults are evaluated
+  with the other arguments when the `defer` statement runs. The package-level variables a default uses
+  are dependencies of the function for initialisation order, as those its body uses are.
+- **Which calls.** Defaults apply to calls that name a declared function or method directly: `f(x)`,
+  `pkg.F(x)`, `F[T](x)` and `v.M(x)`, including promoted methods and methods with type parameters.
+  Function types do not record defaults, so a function value, method value or method expression has all
+  of the parameters: after `g := pkg.F` or `m := v.M`, `g` and `m` are called with every argument, as in
+  C++ and Kotlin. Interface methods cannot declare defaults, and a call through an interface passes every
+  argument; a method with defaults implements an interface method with the same parameter types, since
+  defaults are not part of the signature and signature identity ignores them.
+- **Generics.** A default may use type parameters, as `Default()` in `New[T]` could use `T`; it is
+  evaluated with the type arguments of the instance called. Omitted parameters take no part in type
+  inference, so a type parameter that appears only in omitted parameters must be given explicitly.
+- **Multiple values.** In `f(g())`, where `g` returns k values and `f` has more parameters, the k values
+  fill the first k parameters and the rest take their defaults, provided they all have one.
+- **Variadic functions** cannot have defaults: a defaulted parameter after `...T` could never be given
+  explicitly, since an argument after the variadic ones cannot be told apart from them, and a defaulted
+  parameter before it would have to be given whenever any variadic argument is. The variadic
+  constructors of the standard library (`fmt.Errorf`, `errors.Join`) therefore allocate from
+  `alloc.Default()`, which `alloc.Use` replaces for a region of code.
+
+```go
+func Grow(n int, factor int = 2, limit int = 1 << 20) int
+
+Grow(10)        // factor = 2, limit = 1 << 20
+Grow(10, 3)     // limit = 1 << 20
+g := Grow       // g has type func(int, int, int) int
+g(10, 2, 64)    // a function value takes every argument
+
+func (v *Vec[T]) Map[U any](f func(T) U, a alloc.Allocator = alloc.Default()) Vec[U]
+func Errorf(format string, args ...any, a alloc.Allocator = alloc.Default()) error // error: variadic
+```
 
 ### 5.2 `volatile[T]`
 
@@ -439,6 +489,82 @@ pointer: `bits.Set(&flags, 3)`, `bits.Clear`, `bits.Toggle`, `bits.Test`, `bits.
 `bits.Insert`. The compiler expands them to single instructions where the target has one. These replace
 the March draft's `bits[V]` lens type.
 
+### 5.9 Enums
+
+An enum type is a closed set of named integer constants of its own type. `enum` is a keyword.
+
+```
+EnumType   = "enum" [ Type ] "{" { EnumMember ";" } "}" .
+EnumMember = identifier [ "=" Expression ] .
+```
+
+```go
+type Color enum {
+	Red
+	Green
+	Blue
+}
+
+type Errno enum uint16 {
+	OK     = 0
+	EPERM               // 1
+	ENOENT              // 2
+	EIO    = 5
+}
+```
+
+An enum type may only be the type of a type definition: not an alias, not generic, and not written
+anywhere else. The design rationale is in
+[2026-10-09-enums-design.md](../plans/2026-10-09-enums-design.md).
+
+**Type and values.** An enum is a defined type whose underlying type is an integer type: the type after
+`enum` (which must be an integer type), or else the smallest of `uint8` to `uint64` that holds every
+member, or of `int8` to `int64` if a member is negative. The first member is 0 unless given a value; a
+member without a value is one more than the previous member. A value is a constant integer expression,
+evaluated in the scope enclosing the declaration; it must be representable in the underlying type and may
+not refer to the enum being declared. Two members may not share a name or a value, `_` is not a member
+name, and **one member must have the value 0**: it is the zero value of the type.
+
+**Names.** A member is selected through its type, `Color.Red` (also `pkg.Color.Red`, or through an alias);
+it is a typed constant of type `Color`. Members enter no scope. Unexported members are not visible in
+other packages. On a type name a member takes precedence over a method of the same name.
+
+**Switches.** In an expression switch whose tag has enum type `E`, a case expression that is a single
+identifier naming a member of `E` denotes that member, whatever else the name denotes in scope:
+`case Red, Green:`. Bare member names are not accepted anywhere else. A switch on an enum value that has no
+`default` case must list every member among its constant case values; otherwise it is a compile error
+naming the missing members.
+
+**Operations.** Enum values compare with `==`, `!=`, `<`, `<=`, `>`, `>=`. Arithmetic, bitwise operators,
+`++`, `--` and shifting an enum value are errors; an enum value may be a shift count or an index. An
+untyped constant does not convert implicitly to an enum: `var c Color = 1` and `c == 1` are errors.
+
+**Conversions.**
+
+- `E(c)` for an integer constant `c` is valid if `c` is a member's value, and gives that member.
+- For a non-constant integer `n`, `E(n)` is valid only in the comma-ok form `v, ok := E(n)` (or `=`, or
+  `var v, ok = E(n)`): `ok` reports whether `n` equals a member's value, and `v` is that member, or the
+  zero value if `ok` is false. Floats and other non-integer types do not convert to an enum.
+- An enum converts to any integer or floating-point type as its underlying integer does.
+
+**Generated operations.**
+
+| Form | Meaning |
+|---|---|
+| `x.String()` | the member's name, or `"E(?)"` for a value that is not a member; generated unless `E` declares `String` |
+| `len(E)` | the number of members, an untyped integer constant |
+| `for v := range E` | each member in declaration order; one iteration variable |
+
+**Other types.** An enum value is an integer everywhere else: it is stored like its underlying type,
+held directly in an interface's data word, satisfies constraints by its underlying type (`~uint8`), and
+may be `volatile` or `aligned`. A packed field of enum type (section 5.5) is a bit field as wide as the
+members need (unsigned, or two's complement if a member is negative); `f bits[E, N]` gives a wider
+field. Values that are not members can arise only through `unsafe`, packed values converted from raw
+bits, and generic code operating on the underlying type; such a value matches no case of a switch.
+`type F E` declares an ordinary integer type with `E`'s underlying type and no members.
+
+Enums do not provide bit-flag sets; packed `bits` groups do that.
+
 ## 6. Memory and allocation
 
 Plutonium never allocates heap memory unless the program asks: through `new`, `make`, the `pluto/alloc`
@@ -462,6 +588,7 @@ func Use(a Allocator) (restore func())  // replaces it until restore is called
 
 func New[T any](a Allocator = Default()) *T
 func Free[T any](p *T, a Allocator = Default())   // calls p.Drop() first if T has one
+func Raw(size, align uintptr, a Allocator = Default()) unsafe.Pointer
 func Owned[T any](a Allocator = Default()) owned[T]
 func Shared[T any](a Allocator = Default()) shared[T]
 func Synced[T any](a Allocator = Default()) synced[T]
@@ -498,6 +625,29 @@ func kernelMain(info *BootInfo) {
 The slab allocator takes its pages from an `alloc.PageProvider`, so a kernel can reuse it on top of its own
 physical page allocator.
 
+### 6.3 The debug allocator
+
+Raw pointers are unchecked, so overflows, use after free and double frees are possible. The debug
+allocator, `pluto/alloc/debug`, catches them deterministically. `pluto build --alloc=debug` makes it the
+default allocator of a hosted program without code changes (settings come from `PLUTO_DEBUGALLOC`), and
+`alloc.SetDefault(debug.New(debug.DefaultOptions()))` installs it explicitly, in freestanding builds over
+the kernel's page provider.
+
+- Each allocation ends right before a guard page that is inaccessible, so an overrun faults at once
+  (`underflow` puts the guard page before it instead). Bytes of its pages it does not use hold canaries,
+  checked when it is freed. Past a cap on guard pages, or for small allocations if asked, allocations sit
+  between canaries instead.
+- Freed memory is poisoned (`0xDD`), made inaccessible where it has pages of its own, and held in a
+  bounded first-in, first-out quarantine before reuse, so stale pointers fault or read poison.
+- A side table of every allocation catches double frees, frees with the wrong size or alignment, and
+  frees of pointers that were never allocated.
+- At exit, and on demand with `alloc.ReportLeaks()`, it lists the allocations still live, with the call
+  site that made each one.
+
+Memory it returns is zeroed, like any allocator's. Every error stops the program as a panic does. It is
+not yet safe for concurrent use; its state sits behind one lock that becomes a real mutex when puroutines
+run in parallel. [debug-allocator.md](debug-allocator.md) has the details.
+
 ## 7. Runtime faults and panic
 
 The following stop the program through the same path as `panic`:
@@ -512,13 +662,21 @@ The following stop the program through the same path as `panic`:
 - overflowing a puroutine's stack (the guard page faults),
 - `panic(v)`.
 
-Panicking prints `panic: ` followed by the value (and, for faults, what failed and where) and stops. It
-does not unwind and deferred functions do not run. In hosted builds the process exits with status 2. In
-freestanding builds the compiler calls the function registered with `rt.SetPanicHandler`; the default
-handler disables interrupts and halts the processor.
+Panicking prints `panic: ` followed by the value (and, for faults, what failed and where), then a stack
+trace with the function, file and line of each frame, and stops. It does not unwind and deferred functions
+do not run. In hosted builds the process exits with status 2. In freestanding builds the compiler calls
+the function registered with `rt.SetPanicHandler`; the default handler disables interrupts and halts the
+processor.
 
 Dereferencing a nil pointer is not checked by the compiler; it faults in hardware wherever address zero is
-unmapped, which is true in hosted builds and should be arranged by kernels.
+unmapped, which is true in hosted builds and should be arranged by kernels. In hosted builds the runtime
+reports such faults, and stack overflows, like a panic, with a trace from the faulting instruction. Heap
+misuse through raw pointers is not checked either, except by the debug allocator (section 6.3), which
+reports it through the same path: a fault in its heap is described by the allocator first, then the
+trace follows.
+
+Stack traces and DWARF debugging information (`-g`, on by default; `-s` strips it) are described in
+[debugging.md](debugging.md); the debug allocator in [debug-allocator.md](debug-allocator.md).
 
 Bounds checks can be removed from a function with `//pu:nobounds`, for code that has been proven correct
 and must be as fast as possible. The optimiser removes most bounds checks by itself.
@@ -539,8 +697,8 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | `//pu:section name` | function or package variable | place it in the named section |
 | `//pu:interrupt` | function | an x86-64 interrupt handler: saves every register it may change, returns with `iretq` (section 11.4) |
 | `//pu:noreturn` | function | the function never returns (lets the optimiser drop code after calls) |
-| `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (proposed, section 11.3) |
-| `//pu:percpu` | package variable | one copy per processor, addressed through `GS` (proposed, section 11.5) |
+| `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (section 11.3) |
+| `//pu:percpu` | package variable | one copy per processor, addressed through `GS`; kernel mode only (section 11.5) |
 
 ## 9. Assembly and C
 
@@ -586,7 +744,7 @@ The mode is chosen with `--mode`; by default it follows the target (`hosted` for
 |---|---|---|
 | `hosted` | a Linux program: `_start` sets up arguments and calls `main` | `linux`, `hosted` |
 | `freestanding` | no operating system; the program provides its entry point and linker script | `freestanding`, `none` |
-| `kernel` (proposed) | `freestanding`, plus code generation for ring 0 (section 11.2) | `freestanding`, `none`, `kernel` |
+| `kernel` | `freestanding`, plus code generation for ring 0 (section 11.2) | `freestanding`, `none`, `kernel` |
 
 Targets are named by triples: `x86_64-linux` (default) and `x86_64-none`; `aarch64-linux` and
 `aarch64-none` are planned. The architecture tag (`amd64`, `arm64`) is always set.
@@ -596,9 +754,9 @@ Output formats are ELF executables (default) and flat binaries (`--format binary
 
 ### 11.2 Kernel mode
 
-**Status: proposed.** `pluto build --target x86_64-none --mode kernel` builds code that can run in ring 0
-with interrupts enabled and no vector state saved on entry. It differs from `freestanding` in three ways,
-specified in [abi.md section 10](abi.md#10-kernel-mode):
+`pluto build --target x86_64-none --mode kernel` builds code that can run in ring 0 with interrupts
+enabled and no vector state saved on entry. It differs from `freestanding` in three ways, specified in
+[abi.md section 10](abi.md#10-kernel-mode):
 
 - **No red zone.** Plutonium code never stores below the stack pointer in any mode (the backend
   subtracts from RSP before using stack memory, and leaf functions without stack slots have no frame), so
@@ -607,30 +765,39 @@ specified in [abi.md section 10](abi.md#10-kernel-mode):
 - **No floating point** (section 11.3).
 - **Kernel code model.** The image is linked in the top 2 GiB of the address space. The compiler's
   addressing (RIP-relative symbol addresses, and absolute sign-extended 32-bit displacements for
-  `sym+disp32(,index,scale)`) is correct there without change; the kernel's linker script places the
-  image.
+  `sym+disp32(,index,scale)`) is correct there without change. Without `--ldscript`, the build links with
+  a default kernel linker script (abi.md section 10.3) that places the image at 1 MiB physical and
+  `0xFFFFFFFF80100000` virtual.
 
-Kernel mode also enables `pluto/arch/x86` intrinsics (section 11.4) and per-CPU variables (section
-11.5). `//pu:interrupt` handlers already work in every mode. `pluto/os` and `pluto/syscall` are unavailable, as in every freestanding build.
+Kernel mode also enables per-CPU variables (section 11.5). `pluto/arch/x86` (section 11.4) and
+`//pu:interrupt` handlers work in every mode; in kernel mode a handler without `//pu:fpu` saves no vector
+registers. `pluto/os` and `pluto/syscall` are unavailable, as in every freestanding build. `pluto run`
+refuses kernel builds.
 
 ### 11.3 Floating point in kernel mode
 
 An interrupt or system call that enters the kernel does not save the SSE and x87 registers, so kernel code
 must not touch them. In kernel mode, any floating-point operation (arithmetic, comparison, conversion,
 a float constant, passing or returning a float, converting a float to an interface) in a function the
-program uses is a compile error. Copying a float-typed field as part of a struct is allowed, since it uses
-integer registers. Because the compiler only generates the functions a program reaches, a float function
-in an imported package that the kernel never calls costs nothing, and the standard library keeps its
-float code behind `//pu:build !kernel`.
+program uses is a compile error. "Passing" counts at the level of the calling convention: a struct
+parameter whose float fields would travel in XMM registers (one of at most four leaves, abi.md section 3)
+is an error, while one passed by reference is not. Float types may still appear, and copying float-typed
+values (whole structs, fields, array elements, zero values) is allowed, since it uses integer registers.
+Because the compiler only generates the functions a program reaches, a float function in an imported
+package that the kernel never calls costs nothing, and the standard library keeps its float code behind
+`//pu:build !kernel` (in `pluto/fmt`, a float argument prints as its bits in kernel builds). Package-level
+arrays and structs initialised with constants, such as `pluto/math`'s coefficient tables, are written into
+the image, so importing such a package adds no float code to package initialisation.
 
-A function marked `//pu:fpu` may use floats in kernel mode. Whoever calls it must have saved the
-interrupted context's vector state and enabled the unit (`x86.FPUBegin` and `x86.FPUEnd`); the compiler
-does not check this. Soft-float was rejected: it would put an IEEE-754 library in every kernel and hide a
-large cost behind ordinary arithmetic, for code that hardly ever wants floats.
+A function marked `//pu:fpu` may use floats in kernel mode, and so may the function literals inside it.
+Whoever calls it must have saved the interrupted context's vector state and enabled the unit
+(`x86.FPUBegin` and `x86.FPUEnd`); the compiler does not check this, but it never inlines a `//pu:fpu`
+function into one without it. Soft-float was rejected: it would put an IEEE-754 library in every kernel
+and hide a large cost behind ordinary arithmetic, for code that hardly ever wants floats.
 
 ### 11.4 `pluto/arch/x86`
 
-**Status: proposed.** The package `pluto/arch/x86` gives access to the instructions a kernel needs. Every
+The package `pluto/arch/x86` gives access to the instructions a kernel needs. Every
 function in it is expanded inline to the instruction or short sequence it names, is never removed even if
 its result is unused, and is a compiler barrier: no memory access is moved across it (see the memory
 model). The full table, with expansions, is in [abi.md section 10.5](abi.md#105-plutoarchx86-intrinsics).
@@ -685,15 +852,23 @@ func FPUBegin(area *FPUState)
 func FPUEnd(area *FPUState)
 
 func HandlerAddr(h any) uintptr   // h must name a //pu:interrupt function; for building the IDT
+
+func NewDescriptorTablePointer(base uintptr, size int) DescriptorTablePointer
+
+const GSBaseMSR = 0xC0000101       // IA32_GS_BASE
+const KernelGSBaseMSR = 0xC0000102 // IA32_KERNEL_GS_BASE, exchanged by Swapgs
+
+type DescriptorTablePointer packed [10]byte { limit uint16; base uint64 }
+type FPUState aligned[[512]byte, 16] // the FXSAVE area
+type InterruptFrame struct { RIP, CS, RFLAGS, RSP, SS uint64 }
 ```
 
 `//pu:interrupt` handlers take a `*x86.InterruptFrame`, and an error code for the exceptions that push
-one; abi.md section 10.4 gives the rules and the entry and exit sequence. `InterruptFrame` and
-`HandlerAddr` exist today; the other functions above are proposed.
+one; abi.md section 10.4 gives the rules and the entry and exit sequence.
 
 ### 11.5 Per-CPU variables
 
-**Status: proposed.** A package-level variable marked `//pu:percpu` has one copy per processor:
+A package-level variable marked `//pu:percpu` has one copy per processor:
 
 ```go
 //pu:percpu
@@ -703,10 +878,11 @@ var current *Thread
 The compiler places it in the `.percpu` section, which the kernel links at address 0 so that each
 variable's address is its offset in a per-CPU block, and accesses it relative to the `GS` base, which the
 kernel points at the current processor's block. A word-sized access is a single instruction. `&v` is a
-pointer into the current processor's copy. Only constant initialisers are allowed, and `//pu:percpu` is
-a compile error outside kernel mode. Code that reads and then writes a per-CPU variable must not migrate
-to another processor in between, so it runs with preemption or interrupts disabled. Details are in
-[abi.md section 10.6](abi.md#106-per-cpu-variables-proposed).
+pointer into the current processor's copy at the time it is taken, and keeps pointing there if GS
+changes. Only constant initialisers are allowed, and `//pu:percpu` is a compile error outside kernel
+mode. Code that reads and then writes a per-CPU variable must not migrate to another processor in
+between, so it runs with preemption or interrupts disabled. Details, including how a kernel sets up each
+processor's block, are in [abi.md section 10.6](abi.md#106-per-cpu-variables).
 
 ## 12. Standard library
 
@@ -715,7 +891,8 @@ to another processor in between, so it runs with preemption or interrupts disabl
 | `pluto/rt` | panic hook, program entry, memory copy and compare primitives the compiler calls, the scheduler interface, `Go`, `Yield` |
 | `pluto/sync` | `Mutex`, `RWMutex`, `WaitGroup`, `Once` over the scheduler |
 | `pluto/alloc` | allocators, the default allocator, `New`/`Free`/`Owned`/`Shared`/`Synced` |
-| `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf` into a caller's buffer, `Println`; integer, float, string, pointer verbs with width, precision and flags; `Errorf` with an allocator and `ErrorBuf` (section 13) |
+| `pluto/alloc/debug` | the checking allocator (section 6.3) |
+| `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf` into a caller's buffer, `Println`; integer, float, string, pointer verbs with width, precision and flags; `Errorf` and `ErrorBuf` (section 13) |
 | `pluto/io` | `Reader`, `Writer`, buffered I/O |
 | `pluto/os` | files, arguments, environment, exit (hosted) |
 | `pluto/syscall` | raw Linux system calls (hosted) |
@@ -728,7 +905,7 @@ to another processor in between, so it runs with preemption or interrupts disabl
 | `pluto/sync/atomic` | atomic integers and pointers |
 | `pluto/unicode/utf8` | UTF-8 encoding and decoding |
 | `pluto/testing` | tests and benchmarks for `pluto test` (hosted) |
-| `pluto/errors` | `New` for sentinels, `Is`, `As`, `AsType`, `Unwrap`, `Join`, `Free` (section 13) |
+| `pluto/errors` | `New` (a static error per call site), `Is`, `As`, `AsType`, `Unwrap`, `Join`, `Free` (section 13) |
 
 `pluto/os` and `pluto/syscall` are not available in freestanding builds.
 
@@ -749,27 +926,40 @@ outlives the function.** That storage is one of:
 | Storage | Used for | Example |
 |---|---|---|
 | the interface's data word | error codes | `syscall.Errno`, a kernel's own code type |
-| static storage | sentinel errors | `var ErrNotFound = errors.New("not found")` in a package-level variable |
+| static storage | sentinel errors and fixed messages | `var ErrNotFound = errors.New("not found")`; `return errors.New("bad header")` |
 | a field of a longer-lived object | errors with context that belong to an owner | a parser that returns `&p.err`; `fmt.ErrorBuf` |
 | memory from an allocator | errors with context that travel up the stack | `*os.PathError`, `fmt.Errorf`, `errors.Join` |
 
 Returning a struct as an `error`, or a pointer to a local variable or composite literal, breaks the rule:
 the first is a compile error (section 4.4), and the second leaves a dangling pointer.
 
-### 13.1 Sentinels
+### 13.1 Sentinels and `errors.New`
 
-`errors.New(text)` returns a distinct error each time it is called, held in static storage that package
-`errors` reserves (512 errors). It is meant for package-level variables, whose initializers run once:
+`errors.New(text)` works anywhere, as in Go: in a package-level variable and inside a function.
 
 ```go
 var ErrNotFound = errors.New("not found")
+
+func parseHeader(b []byte) error {
+	if len(b) < 4 {
+		return errors.New("short header")
+	}
+	...
+}
 ```
 
-`text` must be a constant or other static string. `errors.New` panics when its storage runs out, which
-happens only if a program calls it repeatedly at run time; such code should declare a package-level
-sentinel or use `fmt.Errorf`. A sentinel may also be written as a static literal,
-`var ErrClosed = &errors.Text{Msg: "file already closed"}`, and a package-level initializer may convert
-a struct to `error` directly, since its box is static (section 4.4).
+`text` must be a constant; any other argument is a compile error that points to `fmt.Errorf`. The
+compiler evaluates each call to the address of a static, read-only `errors.Text{Msg: text}` that belongs
+to the call site, so `errors.New` never allocates and never runs out. The same call site always returns
+the same error, however often it runs and in every instance of a generic function; different call sites
+return different errors, even with equal messages, so two packages' sentinels never compare equal.
+(Go returns a new error from every evaluation; no correct program can tell, except by comparing two
+results of one call site.) Since its result belongs to a call site, `errors.New` must be called
+directly: taking its value (`f := errors.New`) or deferring it is a compile error.
+
+A sentinel may also be written as a static literal, `var ErrClosed = &errors.Text{Msg: "file already
+closed"}`, and a package-level initializer may convert a struct to `error` directly, since its box is
+static (section 4.4).
 
 ### 13.2 Error codes
 
@@ -785,9 +975,10 @@ when the error is made, into that storage, because `Error()` must return a strin
 one at run time.
 
 - **Allocated.** `fmt.Errorf(format, args...)` allocates the error and its message in one block from the
-  default allocator; `fmt.ErrorfIn(a, format, args...)` uses `a`. `errors.Join`/`JoinIn` and
-  `os.NewPathError`/`NewPathErrorIn` work the same way, and so do `os.Open`, `os.Create` and `os.OpenFile`
-  when they fail. Such an error has a `Free()` method. `errors.Free(err)` releases every allocated error
+  default allocator, and so does `errors.Join`; both are variadic, so they cannot take a defaulted
+  allocator (section 5.1), and `alloc.Use` installs another allocator around them.
+  `os.NewPathError(op, path, err, a = alloc.Default())` allocates from its last argument, and so do
+  `os.Open`, `os.Create` and `os.OpenFile` when they fail. Such an error has a `Free()` method. `errors.Free(err)` releases every allocated error
   in `err`'s tree and skips the others; a wrapper owns the errors it wraps, so free only the outermost
   one. Code that runs under an arena (`defer alloc.Use(&a).Restore()`) needs no `Free`.
 - **Owned.** An object that performs operations (a parser, a device, a connection) keeps its last error in

@@ -8,7 +8,7 @@
 // %v prints basic values, errors (Error) and Stringers (String). Other
 // structured values print as their type name in braces, since Plutonium has
 // no reflection. %s, %q, %x and %X apply to an error's message. %w is
-// accepted only by Errorf, ErrorfIn and ErrorBuf.Errorf (see errorf.p),
+// accepted only by Errorf and ErrorBuf.Errorf (see errorf.p),
 // where it prints the error like %v and wraps it.
 package fmt
 
@@ -325,65 +325,6 @@ func encodeRune(b []byte, r rune) int {
 }
 
 // ----------------------------------------------------------------------------
-// Floats
-
-func (p *printer) printFloat(f float64, bitSize int, verb rune) {
-	var buf [800]byte
-	prec := -1
-	if p.hasPrec {
-		prec = p.prec
-	}
-	var fmtc byte
-	switch verb {
-	case 'v':
-		fmtc = 'g'
-	case 'e', 'E', 'f', 'g', 'G', 'x', 'X', 'b':
-		fmtc = byte(verb)
-	case 'F':
-		fmtc = 'f'
-	default:
-		p.badVerb(verb, "float")
-		return
-	}
-	if (fmtc == 'e' || fmtc == 'E' || fmtc == 'f') && prec < 0 {
-		prec = 6
-	}
-	out := strconv.AppendFloat(buf[:1], f, fmtc, prec, bitSize)
-	// Sign handling: AppendFloat writes '-' for negatives; add + or space.
-	start := 1
-	if out[1] != '-' && out[1] != '+' {
-		switch {
-		case p.plus:
-			out[0] = '+'
-			start = 0
-		case p.space:
-			out[0] = ' '
-			start = 0
-		}
-	} else if out[1] == '+' && !p.plus {
-		start = 2 // +Inf without the + flag
-	}
-	body := out[start:]
-	if p.zero && p.hasWid && !p.minus && len(body) < p.wid && body[len(body)-1] != 'f' && body[len(body)-1] != 'N' {
-		// Zero padding goes after the sign.
-		signLen := 0
-		if body[0] == '-' || body[0] == '+' || body[0] == ' ' {
-			signLen = 1
-		}
-		var padded [900]byte
-		k := copy(padded[:], body[:signLen])
-		for z := 0; z < p.wid-len(body); z++ {
-			padded[k] = '0'
-			k++
-		}
-		k += copy(padded[k:], body[signLen:])
-		p.writeBytes(padded[:k])
-		return
-	}
-	p.field(body)
-}
-
-// ----------------------------------------------------------------------------
 // Strings
 
 func (p *printer) printString(s string, verb rune) {
@@ -511,9 +452,11 @@ func (p *printer) printArg(arg any, verb rune) {
 	case uintptr:
 		p.printNumber(uint64(v), false, verb)
 	case float32:
-		p.printFloat(float64(v), 32, verb)
+		// Floats pass as bits, which kernel builds can move without the
+		// FPU (float.p, float_kernel.p).
+		p.printFloatBits(uint64(*(*uint32)(unsafe.Pointer(&v))), 32, verb)
 	case float64:
-		p.printFloat(v, 64, verb)
+		p.printFloatBits(*(*uint64)(unsafe.Pointer(&v)), 64, verb)
 	case string:
 		p.printString(v, verb)
 	case []byte:
@@ -563,10 +506,9 @@ func (p *printer) printOther(arg any, verb rune) {
 	case rt.KindBool:
 		p.printBool(word != 0, verb)
 	case rt.KindFloat64:
-		p.printFloat(*(*float64)(unsafe.Pointer(&word)), 64, verb)
+		p.printFloatBits(word, 64, verb)
 	case rt.KindFloat32:
-		w32 := uint32(word)
-		p.printFloat(float64(*(*float32)(unsafe.Pointer(&w32))), 32, verb)
+		p.printFloatBits(uint64(uint32(word)), 32, verb)
 	case rt.KindString:
 		p.printString(*(*string)(data), verb)
 	case rt.KindPointer, rt.KindUnsafePointer, rt.KindFunc, rt.KindOwned:

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/constant"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/matjam/plutonium/internal/load"
@@ -32,7 +33,7 @@ func (l *Lowerer) globalSym(v *types2.Var) *ssa.Sym {
 func (l *Lowerer) lowerGlobals() {
 	for _, p := range l.prog.Packages {
 		static := map[*types2.Var]bool{}
-		sections := globalSections(p)
+		sections, percpu := globalSections(p)
 		scope := p.Types.Scope()
 		for _, name := range scope.Names() {
 			v, ok := scope.Lookup(name).(*types2.Var)
@@ -46,15 +47,31 @@ func (l *Lowerer) lowerGlobals() {
 				d.Size = 1
 			}
 			l.out.Data = append(l.out.Data, d)
-			// Static initialisation from a constant.
+			if _, ok := percpu[v]; ok {
+				l.perCPUVar(v, d, percpu[v])
+			}
+			// Static initialisation from a constant, or from a literal
+			// array or struct made of constants.
+			hasInit := false
 			for _, init := range p.Info.InitOrder {
+				hasInit = hasInit || slices.Contains(init.Lhs, v)
 				if len(init.Lhs) == 1 && init.Lhs[0] == v {
 					if tv := p.Info.Types[init.Rhs]; tv.Value != nil {
 						if l.staticConst(d, tv.Value, T) {
 							static[v] = true
 						}
+					} else if _, ok := ast.Unparen(init.Rhs).(*ast.CompositeLit); ok {
+						d.Bytes = make([]byte, d.Size)
+						if l.staticValue(p, d, init.Rhs, T, 0) {
+							static[v] = true
+						} else {
+							d.Bytes, d.Relocs = nil, nil
+						}
 					}
 				}
+			}
+			if sym.PerCPU && hasInit && !static[v] {
+				l.errorf(percpu[v], "per-CPU variable %s must have a constant initialiser: package initialisation runs before any processor has a per-CPU block", v.Name())
 			}
 		}
 		l.queueInit(p, static)
@@ -74,9 +91,74 @@ func (l *Lowerer) staticBytes(size, align int64) *ssa.Sym {
 	return sym
 }
 
-// globalSections reads //pu:section directives on package-level variables.
-func globalSections(p *load.Package) map[*types2.Var]string {
+// perCPUSection holds //pu:percpu variables; the kernel's linker script
+// links it at address 0.
+const perCPUSection = ".percpu"
+
+// perCPUSelf is the word at offset 0 of every per-CPU block, holding the
+// block's own address, which taking a per-CPU variable's address needs.
+const perCPUSelf = "pluto.percpu.self"
+
+// perCPUVar makes package variable v, with data d, a per-CPU variable.
+func (l *Lowerer) perCPUVar(v *types2.Var, d *ssa.Data, pos token.Pos) {
+	switch {
+	case !l.cfg.Kernel:
+		l.errorf(pos, "//pu:percpu variable %s needs --mode kernel", v.Name())
+		return
+	case d.Section != "":
+		l.errorf(pos, "//pu:percpu variable %s cannot also have //pu:section", v.Name())
+		return
+	}
+	d.Sym.PerCPU = true
+	d.Section = perCPUSection
+	if l.perCPUSelfSym == nil {
+		// The self word comes first: emitObject places it at the start
+		// of .percpu, so it is at offset 0 when this object is linked
+		// first (as pluto build does).
+		self := l.out.Sym(perCPUSelf, ssa.SymData)
+		self.PerCPU = true
+		l.perCPUSelfSym = self
+		l.out.Data = append(l.out.Data, &ssa.Data{Sym: self, Size: 8, Align: 8, Section: perCPUSection})
+	}
+}
+
+// absAddr turns p, if it addresses a per-CPU variable (OpSymAddr of a
+// per-CPU symbol, under constant or indexed offsets), into an ordinary
+// pointer into the current processor's copy: the block's self word, read
+// from %gs:0 now, plus the variable's offset. Lowering calls it wherever an
+// address becomes a value (&v, slicing, a pointer receiver), so the
+// pointer keeps referring to this processor's copy after GS changes, as
+// abi.md section 10.6 says; direct accesses keep the GS-relative form.
+func (s *fnState) absAddr(p *ssa.Value) *ssa.Value {
+	switch p.Op {
+	case ssa.OpSymAddr:
+		sym := p.Aux.(*ssa.Sym)
+		if !sym.PerCPU {
+			return p
+		}
+		self := s.load(ssa.TPtr, s.symAddr(s.l.perCPUSelfSym))
+		off := s.f.Entry.NewValue(ssa.OpPerCPUOffset, ssa.TI64)
+		off.Aux = sym
+		s.hoistEntry(off)
+		return s.newValue(ssa.OpAddPtr, ssa.TPtr, self, off)
+	case ssa.OpOffPtr:
+		if base := s.absAddr(p.Args[0]); base != p.Args[0] {
+			return s.offPtr(base, p.AuxInt)
+		}
+	case ssa.OpAddPtr:
+		if base := s.absAddr(p.Args[0]); base != p.Args[0] {
+			return s.newValue(ssa.OpAddPtr, ssa.TPtr, base, p.Args[1])
+		}
+	}
+	return p
+}
+
+// globalSections reads //pu:section and //pu:percpu directives on
+// package-level variables. percpu maps each per-CPU variable to the
+// position of its declaration.
+func globalSections(p *load.Package) (map[*types2.Var]string, map[*types2.Var]token.Pos) {
 	out := map[*types2.Var]string{}
+	percpu := map[*types2.Var]token.Pos{}
 	for _, f := range p.Files {
 		for _, d := range f.Decls {
 			gd, ok := d.(*ast.GenDecl)
@@ -90,18 +172,25 @@ func globalSections(p *load.Package) map[*types2.Var]string {
 					doc = gd.Doc
 				}
 				for _, dir := range directives(doc) {
-					if name, ok := strings.CutPrefix(dir, "section "); ok {
-						for _, n := range vs.Names {
-							if v, ok := p.Info.Defs[n].(*types2.Var); ok {
-								out[v] = strings.TrimSpace(name)
-							}
+					name, isSection := strings.CutPrefix(dir, "section ")
+					if !isSection && dir != "percpu" {
+						continue
+					}
+					for _, n := range vs.Names {
+						v, ok := p.Info.Defs[n].(*types2.Var)
+						switch {
+						case !ok:
+						case isSection:
+							out[v] = strings.TrimSpace(name)
+						default:
+							percpu[v] = n.Pos()
 						}
 					}
 				}
 			}
 		}
 	}
-	return out
+	return out, percpu
 }
 
 // staticConst fills d with constant c of type T, if T is a scalar or string.
@@ -147,6 +236,77 @@ func (l *Lowerer) staticConst(d *ssa.Data, c constant.Value, T types2.Type) bool
 	return true
 }
 
+// staticValue writes the value of e, of type T, into d.Bytes at offset
+// off, reporting whether e is a constant or a literal array or struct
+// whose elements are, recursively, such values. Elements a literal leaves
+// out stay zero.
+func (l *Lowerer) staticValue(p *load.Package, d *ssa.Data, e ast.Expr, T types2.Type, off int64) bool {
+	T = unwrap(T)
+	if tv := p.Info.Types[e]; tv.Value != nil {
+		var c ssa.Data
+		if !l.staticConst(&c, tv.Value, T) {
+			return false
+		}
+		copy(d.Bytes[off:], c.Bytes)
+		for _, r := range c.Relocs {
+			r.Off += off
+			d.Relocs = append(d.Relocs, r)
+		}
+		return true
+	}
+	lit, ok := ast.Unparen(e).(*ast.CompositeLit)
+	if !ok {
+		return false
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Array:
+		et := u.Elem()
+		size := l.sizeof(et)
+		var i int64
+		for _, elt := range lit.Elts {
+			val := elt
+			if kv, ok := elt.(*ast.KeyValueExpr); ok {
+				if i, ok = constIndex(p.Info, kv.Key); !ok {
+					return false
+				}
+				val = kv.Value
+			}
+			if !l.staticValue(p, d, val, et, off+i*size) {
+				return false
+			}
+			i++
+		}
+		return true
+	case *types2.Struct:
+		fields := make([]*types2.Var, u.NumFields())
+		for i := range fields {
+			fields[i] = u.Field(i)
+		}
+		offs := l.sizes.Offsetsof(fields)
+		for i, elt := range lit.Elts {
+			idx, val := i, elt
+			if kv, ok := elt.(*ast.KeyValueExpr); ok {
+				key, _ := kv.Key.(*ast.Ident)
+				idx = -1
+				for j, f := range fields {
+					if key != nil && f.Name() == key.Name {
+						idx = j
+					}
+				}
+				if idx < 0 {
+					return false
+				}
+				val = kv.Value
+			}
+			if !l.staticValue(p, d, val, fields[idx].Type(), off+offs[idx]) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 // initSymName names a package's synthesized initialisation function. User
 // init functions are named path.init.0, path.init.1, ... so they cannot
 // clash with it or with each other.
@@ -171,6 +331,10 @@ func (l *Lowerer) queueInit(p *load.Package, static map[*types2.Var]bool) {
 		s.staticLits = true
 		for _, init := range p.Info.InitOrder {
 			if len(init.Lhs) == 1 && static[init.Lhs[0]] {
+				continue
+			}
+			if len(init.Lhs) == 1 && init.Lhs[0].Name() == "_" && p.Info.Types[init.Rhs].Value != nil {
+				// var _ = constant has no effect.
 				continue
 			}
 			if len(init.Lhs) == 1 {

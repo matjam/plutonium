@@ -265,6 +265,8 @@ func TestPlutoniumTypeErrors(t *testing.T) {
 		{"volatile any type parameter", "package p\ntype D[T any] struct{ v volatile[T] }", "must be an integer, bool or pointer"},
 		{"volatile mixed type parameter", "package p\ntype D[T ~int | ~float64] struct{ v volatile[T] }", "must be an integer, bool or pointer"},
 		{"positional packed literal", "package p\ntype R packed uint8 { a bits[uint, 4] }\nvar r = R{1}", "must be field: value"},
+		{"ring literal with elements", "package p\nvar r = ring[int, 4]{1, 2}", "ring literal must be empty: ring[int, 4]{}"},
+		{"owned literal", "package p\nvar o = owned[int]{}", "invalid composite literal type owned[int]"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) { mustFail(t, c.src, c.want) })

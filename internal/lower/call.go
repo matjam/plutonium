@@ -56,7 +56,7 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 				if sym == nil {
 					return nil
 				}
-				args := s.callArgs(e, sig)
+				args := s.callArgs(e, sig, nil)
 				return s.emitCall(callee{sym: sym}, sig, nil, args, e.Pos())
 			}
 		}
@@ -68,13 +68,16 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 			if fn.Pkg() != nil && fn.Pkg().Path()+"."+fn.Name() == handlerAddrFunc {
 				return []value{s.handlerAddr(e, s.typeOf(e))}
 			}
+			if types2.IsErrorsNew(fn) {
+				return s.errorsNew(e, fn)
+			}
 			if res, ok := s.intrinsic(fn, e); ok {
 				return res
 			}
 			targs := s.instanceArgs(id)
 			sig := s.subst(s.info.Types[e.Fun].Type).(*types2.Signature)
 			sym := s.l.funcSym(fn, targs)
-			args := s.callArgs(e, sig)
+			args := s.callArgs(e, sig, &defaultsOf{fn, targs})
 			return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn)}, sig, nil, args, e.Pos())
 		}
 	}
@@ -82,7 +85,7 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 	// A call through a func value.
 	fv := s.scalar(e.Fun)
 	sig := s.typeOf(e.Fun).Underlying().(*types2.Signature)
-	args := s.callArgs(e, sig)
+	args := s.callArgs(e, sig, nil)
 	code := s.load(ssa.TPtr, fv)
 	return s.emitCall(callee{code: code, ctx: fv}, sig, nil, args, e.Pos())
 }
@@ -133,9 +136,20 @@ func (s *fnState) argSources(args []ast.Expr) []argSource {
 	return out
 }
 
+// defaultsOf identifies the declared function a call names, and the type
+// arguments of the instance it calls, so that the call can evaluate the
+// default values of the parameters it omits.
+type defaultsOf struct {
+	fn    *types2.Func
+	targs []types2.Type
+}
+
 // callArgs evaluates a call's arguments in order, packing variadic
-// arguments into a slice whose backing array lives in this frame.
-func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature) []value {
+// arguments into a slice whose backing array lives in this frame. A call
+// that names its callee (def is not nil) may omit trailing parameters that
+// have default values; their defaults are evaluated after the explicit
+// arguments.
+func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature, def *defaultsOf) []value {
 	params := sig.Params()
 	n := params.Len()
 	args := s.argSources(e.Args)
@@ -153,6 +167,15 @@ func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature) []value {
 	}
 	for i := 0; i < fixed && i < len(args); i++ {
 		out = append(out, s.materialize(as(args[i], s.subst(params.At(i).Type()))))
+	}
+	if !sig.Variadic() && len(args) < n {
+		if def == nil {
+			s.l.errorf(e.Pos(), "lower: call has %d arguments, signature has %d parameters", len(args), n)
+			return out
+		}
+		for i := len(args); i < n; i++ {
+			out = append(out, s.defaultArg(def, i, n, s.subst(params.At(i).Type()), e))
+		}
 	}
 	if sig.Variadic() && !e.Ellipsis.IsValid() {
 		sliceT := s.subst(params.At(n - 1).Type())
@@ -172,6 +195,32 @@ func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature) []value {
 		}
 	}
 	return out
+}
+
+// defaultArg evaluates the default value of parameter i (of n) of the
+// callee def names, converted to the parameter type T. The default is
+// lowered here, in the caller's frame, as if it were written at the call
+// site; but its names were resolved in the callee's declaration, so it is
+// lowered with the callee package's type information and the callee
+// instance's type arguments. That lets it use the callee package's
+// unexported names and the callee's type parameters.
+func (s *fnState) defaultArg(def *defaultsOf, i, n int, T types2.Type, e *ast.CallExpr) value {
+	fn := def.fn.Origin()
+	defs := fn.Defaults()
+	k := i - (n - len(defs))
+	d := s.l.decls[fn]
+	if k < 0 || d == nil {
+		s.l.errorf(e.Pos(), "lower: no argument for parameter %d of %s", i+1, fn.Name())
+		return s.zeroValue(T)
+	}
+	pkg, info, tmap := s.pkg, s.info, s.tmap
+	s.pkg, s.info, s.tmap = d.pkg, d.pkg.Info, nil
+	if len(def.targs) > 0 {
+		s.tmap = newTypeMap(s.l, fn, def.targs)
+	}
+	v := s.materialize(s.exprAs(defs[k], T))
+	s.pkg, s.info, s.tmap = pkg, info, tmap
+	return v
 }
 
 // emitCall emits a call and returns its results as values.
@@ -229,7 +278,9 @@ func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []
 	}
 
 	call := s.callValue(c, flat, abi.flatResults)
-	call.Pos = pos
+	if pos.IsValid() {
+		call.Pos = pos
+	}
 	s.endCall(call, c.noReturn)
 
 	var out []value
@@ -282,6 +333,9 @@ func (s *fnState) selectN(call *ssa.Value, i int, t *ssa.Type) *ssa.Value {
 
 // callValue emits the call op itself.
 func (s *fnState) callValue(c callee, flat []*ssa.Value, results []*ssa.Type) *ssa.Value {
+	if s.f.NoSSE {
+		s.checkFloatCall(flat, results)
+	}
 	rt := ssa.TupleOf(append([]*ssa.Type{ssa.TMem}, results...)...)
 	var call *ssa.Value
 	if c.sym != nil {
@@ -352,7 +406,7 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 	// Interface method calls.
 	if isInterface(recvT) && len(sel.Index()) == 1 {
 		iv := s.expr(se.X)
-		args := s.callArgs(e, sig)
+		args := s.callArgs(e, sig, nil)
 		return s.ifaceCall(iv, recvT, fn, sig, args, e.Pos())
 	}
 
@@ -367,13 +421,13 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 	recv := s.methodReceiver(se.X, fn, path)
 	if isIfaceMethod(fn) {
 		// A method promoted from an embedded interface field.
-		args := s.callArgs(e, sig)
+		args := s.callArgs(e, sig, nil)
 		return s.ifaceCall(recv, recv.T, fn, sig, args, e.Pos())
 	}
 	targs := s.methodTypeArgs(fn, se, recvT)
 	sym := s.l.funcSym(fn, targs)
 	full := s.l.methodSig(fn, targs)
-	args := s.callArgs(e, sig)
+	args := s.callArgs(e, sig, &defaultsOf{fn, targs})
 	return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn)}, full, &recv, args, e.Pos())
 }
 
@@ -488,7 +542,7 @@ func (s *fnState) receiverAt(cur lvalue, wantPtr bool, path []int) value {
 		}
 	}
 	if wantPtr {
-		return scalarValue(cur.ptr, types2.NewPointer(cur.T))
+		return scalarValue(s.absAddr(cur.ptr), types2.NewPointer(cur.T))
 	}
 	return s.loadLV(cur)
 }
@@ -596,6 +650,7 @@ func (l *Lowerer) methodExprThunk(R types2.Type, fn *types2.Func, path []int, ta
 // funcValue returns a func value for a declared function: the address of a
 // static closure record holding its code pointer.
 func (s *fnState) funcValue(fn *types2.Func, targs []types2.Type, pos token.Pos) *ssa.Value {
+	s.l.errorsNewValue(fn, pos, "used as a func value")
 	sym := s.l.funcSym(fn, targs)
 	s.checkNotHandler(sym, pos, "used as a func value")
 	if s.l.isCFunc(sym) {
@@ -741,6 +796,7 @@ func (l *Lowerer) boundMethodWrapper(target *ssa.Sym, full *types2.Signature) *s
 	}})
 	return sym
 }
+
 
 // incomingArgs rebuilds a synthesized function's parameters as values.
 func (s *fnState) incomingArgs(sig *types2.Signature) []value {

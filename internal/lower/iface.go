@@ -319,6 +319,9 @@ func (s *fnState) toInterface(v value, from, I types2.Type) value {
 			from = types2.Typ[types2.Int]
 		}
 	}
+	if t := s.l.scalarType(from); t != nil && t.IsFloat() && s.f.NoSSE {
+		s.floatError(t, "conversion to an interface")
+	}
 	var tab *ssa.Value
 	if I.Underlying().(*types2.Interface).Empty() {
 		tab = s.symAddr(s.l.types.desc(from))

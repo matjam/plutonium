@@ -71,6 +71,12 @@ func init() {
 }
 
 func (check *Checker) op(m opPredicates, x *operand, op token.Token) bool {
+	// Plutonium: an enum value is one of its members, and no arithmetic or
+	// bitwise operation is guaranteed to give another member.
+	if isEnum(x.typ()) && op != token.LAND && op != token.LOR && op != token.NOT {
+		check.errorf(x, UndefinedOp, invalidOp+"operator %s not defined on %s (enum values only compare; convert to an integer for arithmetic)", op, x)
+		return false
+	}
 	if pred := m[op]; pred != nil {
 		if !pred(x.typ()) {
 			check.errorf(x, UndefinedOp, invalidOp+"operator %s not defined on %s", op, x)
@@ -402,6 +408,12 @@ func (check *Checker) implicitTypeAndValue(x *operand, target Type) (Type, const
 		return nil, nil, InvalidUntypedConversion
 	}
 
+	// Plutonium: an untyped constant is not a member; name one (E.Member)
+	// or convert (E(1)).
+	if isEnum(target) {
+		return nil, nil, InvalidUntypedConversion
+	}
+
 	switch u := target.Underlying().(type) {
 	case *Basic:
 		if x.mode() == constant_ {
@@ -626,6 +638,12 @@ func (check *Checker) shift(x, y *operand, e ast.Expr, op token.Token) {
 		xval = constant.ToInt(x.val)
 	}
 
+	if isEnum(x.typ()) {
+		check.errorf(x, InvalidShiftOperand, invalidOp+"shifted operand %s is an enum value (convert it to an integer first)", x)
+		x.invalidate()
+		return
+	}
+
 	if allInteger(x.typ()) || isUntyped(x.typ()) && xval != nil && xval.Kind() == constant.Int {
 		// The lhs is of integer type or an untyped constant representable
 		// as an integer. Nothing to do.
@@ -798,6 +816,18 @@ func (check *Checker) binary(x *operand, e ast.Expr, lhs, rhs ast.Expr, op token
 	if isShift(op) {
 		check.shift(x, &y, e, op)
 		return
+	}
+
+	// Plutonium: only comparisons apply to enum values. Reject the operator
+	// before an untyped operand is converted to the enum type.
+	if !isComparison(op) {
+		for _, z := range []*operand{x, &y} {
+			if isEnum(z.typ()) {
+				check.errorf(z, UndefinedOp, invalidOp+"operator %s not defined on %s (enum values only compare; convert to an integer for arithmetic)", op, z)
+				x.invalidate()
+				return
+			}
+		}
 	}
 
 	check.matchTypes(x, &y)
@@ -1300,7 +1330,13 @@ func (check *Checker) genericExpr(x *operand, e ast.Expr, hint Type) {
 // If an error occurred, list[0] is not valid.
 func (check *Checker) multiExpr(e ast.Expr, allowCommaOk bool) (list []*operand, commaOk bool) {
 	var x operand
+	saved := check.commaOkExpr
+	check.commaOkExpr = nil
+	if allowCommaOk {
+		check.commaOkExpr = ast.Unparen(e)
+	}
 	check.rawExpr(nil, &x, e, nil, false)
+	check.commaOkExpr = saved
 	check.exclude(&x, 1<<novalue|1<<builtin|1<<typexpr)
 
 	if t, ok := x.typ().(*Tuple); ok && x.isValid() {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -9,9 +10,12 @@ import (
 
 // times matches the durations in test output, and benchResult the
 // iteration count and time of a benchmark, which vary from run to run.
+// stdlibLine matches the line numbers of standard library frames in a
+// panic's stack trace, which change whenever pluto/testing does.
 var (
 	times       = regexp.MustCompile(`\d+\.\d+s`)
 	benchResult = regexp.MustCompile(`(?m)^(Benchmark\w+)\t *\d+\t *[0-9.]+ ns/op$`)
+	stdlibLine  = regexp.MustCompile(`(\(\$PLUTOROOT/[^:]+):\d+\)`)
 )
 
 // pluto runs "pluto test" with args and returns its normalised standard
@@ -25,10 +29,26 @@ func plutoTest(t *testing.T, args ...string) (string, int) {
 		t.Logf("stderr:\n%s", stderr.String())
 	}
 	out := benchResult.ReplaceAllString(stdout.String(), "$1\tN\tT ns/op")
+	if wd, err := os.Getwd(); err == nil {
+		out = strings.ReplaceAll(out, wd, "$DIR")
+	}
+	out = stdlibLine.ReplaceAllString(out, "$1:N)")
 	return times.ReplaceAllString(out, "T"), code
 }
 
 const calc = "testdata/testpkg/calc"
+
+// crashTrace is the stack trace of testdata/testpkg/crash's panic, through
+// the test runner.
+const crashTrace = `    example.com/testpkg/crash.Div ($DIR/testdata/testpkg/crash/crash.p:5)
+    example.com/testpkg/crash.TestPanics.func1 ($DIR/testdata/testpkg/crash/crash_test.p:11)
+    pluto/testing.(*T).run ($PLUTOROOT/pluto/testing/testing.p:N)
+    pluto/testing.(*T).Run ($PLUTOROOT/pluto/testing/testing.p:N)
+    example.com/testpkg/crash.TestPanics ($DIR/testdata/testpkg/crash/crash_test.p:8)
+    pluto/testing.(*T).run ($PLUTOROOT/pluto/testing/testing.p:N)
+    pluto/testing.(*M).Test ($PLUTOROOT/pluto/testing/testing.p:N)
+    main.main (_testmain.p:15)
+`
 
 // TestPlutoTest runs pluto test on a fixture package with a passing test,
 // a failing test, subtests (passing, failing with Fatalf, and skipped) and
@@ -141,7 +161,7 @@ ok  	example.com/testpkg/calc	T
         dividing by zero
         test binary died (exit status 2) while TestPanics/divide was running; later tests did not run
 panic: runtime error: integer divide by zero
-FAIL
+` + crashTrace + `FAIL
 FAIL	example.com/testpkg/crash	T
 FAIL
 `,
@@ -159,7 +179,7 @@ FAIL
 --- FAIL: TestPanics (T)
     --- FAIL: TestPanics/divide (T)
 panic: runtime error: integer divide by zero
-FAIL
+` + crashTrace + `FAIL
 FAIL	example.com/testpkg/crash	T
 FAIL
 `,

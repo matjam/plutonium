@@ -24,8 +24,12 @@ func (s *fnState) ensureBlock() {
 }
 
 func (s *fnState) stmt(st ast.Stmt) {
+	defer s.at(st.Pos())()
 	if _, isLabel := st.(*ast.LabeledStmt); !isLabel {
 		s.ensureBlock()
+	}
+	if p := st.Pos(); p.IsValid() {
+		s.f.SetPos(p)
 	}
 	switch st := st.(type) {
 	case *ast.EmptyStmt:
@@ -127,10 +131,14 @@ func (s *fnState) declStmt(d *ast.GenDecl) {
 }
 
 // multiValue lowers an expression producing n values: a call, or a comma-ok
-// form (type assertion).
+// form (type assertion, conversion to an enum type).
 func (s *fnState) multiValue(e ast.Expr, n int) []value {
 	switch x := ast.Unparen(e).(type) {
 	case *ast.CallExpr:
+		if s.isEnumConversion(x) {
+			v, ok := s.enumConversion(x)
+			return []value{v, scalarValue(ok, types2.Typ[types2.Bool])}
+		}
 		res := s.callResults(x)
 		for i := range res {
 			res[i] = s.materialize(res[i])
@@ -406,6 +414,10 @@ func (s *fnState) rangeVar(st *ast.RangeStmt, e ast.Expr) *lvalue {
 }
 
 func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
+	if s.info.Types[st.X].IsType() {
+		s.rangeEnum(st, label) // range E over an enum type's members
+		return
+	}
 	xt := unwrap(s.typeOf(st.X))
 	assign := func(lv *lvalue, v value) {
 		if lv != nil {
@@ -833,13 +845,15 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 				if !isIfaceMethod(fn) {
 					recv := s.saveValue(s.methodReceiver(se.X, fn, path))
 					var targs []types2.Type
+					var def *defaultsOf
 					w := s.ringOf(fn)
 					if w == nil {
 						targs = s.methodTypeArgs(fn, se, s.typeOf(se.X))
+						def = &defaultsOf{fn, targs}
 					}
 					sym, full := s.l.methodFunc(fn, targs, w)
 					sig := s.subst(funTV.Type).(*types2.Signature)
-					args := s.saveValues(s.callArgs(call, sig))
+					args := s.saveValues(s.callArgs(call, sig, def))
 					run = func(s *fnState) {
 						r := s.loadFrom(recv.v, recv.T)
 						s.emitCall(callee{sym: sym}, full, &r, s.loadValues(args), call.Pos())
@@ -852,9 +866,13 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 		}
 		if id := staticFuncIdent(fun, s.info); id != nil {
 			if fn, ok := s.info.Uses[id].(*types2.Func); ok {
-				sym := s.l.funcSym(fn, s.instanceArgs(id))
+				if s.l.errorsNewValue(fn, call.Pos(), "deferred") {
+					return
+				}
+				targs := s.instanceArgs(id)
+				sym := s.l.funcSym(fn, targs)
 				sig := s.subst(funTV.Type).(*types2.Signature)
-				args := s.saveValues(s.callArgs(call, sig))
+				args := s.saveValues(s.callArgs(call, sig, &defaultsOf{fn, targs}))
 				run = func(s *fnState) { s.emitCall(callee{sym: sym}, sig, nil, s.loadValues(args), call.Pos()) }
 				break
 			}
@@ -862,7 +880,7 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 		// Any other callee: evaluate the func value now.
 		sig := s.typeOf(call.Fun).Underlying().(*types2.Signature)
 		fv := s.saveValue(scalarValue(s.scalar(call.Fun), s.typeOf(call.Fun)))
-		args := s.saveValues(s.callArgs(call, sig))
+		args := s.saveValues(s.callArgs(call, sig, nil))
 		run = func(s *fnState) {
 			f := s.loadFrom(fv.v, fv.T).v
 			s.emitCall(callee{code: s.load(ssa.TPtr, f), ctx: f}, sig, nil, s.loadValues(args), call.Pos())

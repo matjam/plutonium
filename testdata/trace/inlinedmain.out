@@ -1,0 +1,3 @@
+panic: too big
+    main.check ($FILE:9)
+    main.main ($FILE:15)

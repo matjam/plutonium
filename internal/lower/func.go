@@ -38,6 +38,13 @@ type fnState struct {
 	// staticLits makes &T{...} allocate static storage: set while lowering
 	// package initialisation, whose objects outlive the init function.
 	staticLits bool
+
+	// pos is the expression or statement being lowered, for errors
+	// found below the AST (float operations in kernel mode).
+	pos token.Pos
+	// floatReported is set once a kernel-mode float error has been
+	// reported for this function.
+	floatReported bool
 }
 
 type blockState struct {
@@ -169,6 +176,9 @@ func (s *fnState) seal(b *ssa.Block) {
 // Values
 
 func (s *fnState) newValue(op ssa.Op, t *ssa.Type, args ...*ssa.Value) *ssa.Value {
+	if s.f.NoSSE {
+		s.checkFloatOp(op, t, args)
+	}
 	return s.b.NewValue(op, t, args...)
 }
 
@@ -272,6 +282,12 @@ func (l *Lowerer) newFnState(job *funcJob) *fnState {
 	if job.pkg != nil {
 		s.info = job.pkg.Info
 	}
+	// In kernel mode only //pu:fpu functions, and the closures inside
+	// them, may use the FPU (applyPragmas clears NoSSE for those).
+	f.NoSSE = l.cfg.Kernel
+	if job.parent != nil {
+		f.NoSSE = job.parent.f.NoSSE
+	}
 	for range f.Blocks {
 		s.blocks = append(s.blocks, &blockState{})
 	}
@@ -295,6 +311,17 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 		s.applyPragmas(job.decl.Doc)
 	} else if job.lit != nil {
 		f.Pos = job.lit.Pos()
+	}
+	if job.pkg != nil {
+		f.Pkg = job.pkg.Path
+	}
+	// Values take the position of the code being lowered: the function's
+	// declaration for its setup, then each statement and expression.
+	f.SetPos(f.Pos)
+	defer f.SetPos(token.NoPos)
+	s.pos = f.Pos
+	if f.NoSSE {
+		s.checkFloatSignature()
 	}
 
 	if job.build != nil {
@@ -350,6 +377,8 @@ func (s *fnState) applyPragmas(doc *ast.CommentGroup) {
 			s.f.Pragmas |= ssa.PragmaNoReturn
 		case "interrupt":
 			s.f.Pragmas |= ssa.PragmaInterrupt
+		case "fpu":
+			s.f.NoSSE = false
 		}
 	}
 }
@@ -451,6 +480,9 @@ func varName(v *types2.Var) string {
 
 // emitReturn runs deferred calls and returns the result variables.
 func (s *fnState) emitReturn(pos token.Pos) {
+	if pos.IsValid() {
+		s.f.SetPos(pos)
+	}
 	s.runDefers()
 	ret := s.b
 	ret.Kind = ssa.BlockRet
