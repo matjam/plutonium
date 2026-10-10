@@ -5,6 +5,7 @@ package build
 import (
 	"bytes"
 	"debug/elf"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/matjam/plutonium/internal/arch/amd64"
 	"github.com/matjam/plutonium/internal/debuginfo"
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/lower"
 	"github.com/matjam/plutonium/internal/objfile"
@@ -131,12 +133,12 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 		return err
 	}
 	if err := optimize(cfg, sp); err != nil {
-		return err
+		return internal(err)
 	}
 
 	obj, err := emitObject(cfg, sp, prog)
 	if err != nil {
-		return err
+		return internal(err)
 	}
 
 	work, err := os.MkdirTemp("", "pluto-build-")
@@ -175,8 +177,8 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 				return err
 			}
 			o := strings.TrimSuffix(src, ".s") + ".o"
-			if err := runIn(cfg, work, "as", "--64", "-o", o, src); err != nil {
-				return fmt.Errorf("assembling %s: %w", a.Name, err)
+			if err := runIn(cfg, work, map[string]string{src: a.Name}, "as", "--64", "-o", o, src); err != nil {
+				return prefixed("assembling "+a.Name, err)
 			}
 			objs = append(objs, filepath.Join(work, o))
 		}
@@ -209,7 +211,7 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 		args = append(args, "--oformat=binary")
 	}
 	args = append(args, objs...)
-	if err := run(cfg, "ld", args...); err != nil {
+	if err := run(cfg, nil, "ld", args...); err != nil {
 		return err
 	}
 	if cfg.Kernel && cfg.Format != "binary" {
@@ -247,8 +249,8 @@ func compileC(cfg *Config, work string, p *load.Package) ([]string, error) {
 		if len(cc) == 0 {
 			cc = []string{"cc"}
 		}
-		if err := runIn(cfg, work, cc[0], append(cc[1:], args...)...); err != nil {
-			return nil, fmt.Errorf("compiling %s: %w", c.Name, err)
+		if err := runIn(cfg, work, map[string]string{src: c.Name}, cc[0], append(cc[1:], args...)...); err != nil {
+			return nil, prefixed("compiling "+c.Name, err)
 		}
 		objs = append(objs, filepath.Join(work, o))
 	}
@@ -262,12 +264,16 @@ func compileC(cfg *Config, work string, p *load.Package) ([]string, error) {
 	return objs, nil
 }
 
-func run(cfg *Config, name string, args ...string) error {
-	return runIn(cfg, "", name, args...)
+// run runs an external tool in the current directory, like runIn.
+func run(cfg *Config, rename map[string]string, name string, args ...string) error {
+	return runIn(cfg, "", rename, name, args...)
 }
 
-// runIn runs a command in directory dir ("" for the current one).
-func runIn(cfg *Config, dir, name string, args ...string) error {
+// runIn runs an external tool in directory dir ("" for the current one).
+// If it fails, the error is a diagnostic that explains the common
+// failures; rename maps the temporary file names the tool saw to the names
+// the user knows, for its messages.
+func runIn(cfg *Config, dir string, rename map[string]string, name string, args ...string) error {
 	if cfg.Verbose {
 		if dir != "" {
 			fmt.Fprintf(os.Stderr, "cd %s && ", dir)
@@ -280,9 +286,31 @@ func runIn(cfg *Config, dir, name string, args ...string) error {
 	cmd.Stderr = &stderr
 	cmd.Stdout = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("running %s failed: %v\n%s", name, err, strings.TrimRight(stderr.String(), "\n"))
+		return diag.FromTool(name, err, stderr.String(), rename)
 	}
 	return nil
+}
+
+// prefixed returns err with prefix and ": " before its message, keeping
+// its code if it is a diagnostic.
+func prefixed(prefix string, err error) error {
+	var d *diag.Diagnostic
+	if errors.As(err, &d) {
+		c := *d
+		c.Msg = prefix + ": " + d.Msg
+		return &c
+	}
+	return fmt.Errorf("%s: %w", prefix, err)
+}
+
+// internal turns an error from the compiler's later stages, which all mean
+// a bug in the compiler, into a diagnostic.
+func internal(err error) error {
+	var d *diag.Diagnostic
+	if err == nil || errors.As(err, &d) {
+		return err
+	}
+	return &diag.Diagnostic{Code: diag.InternalError, Msg: "internal compiler error: " + err.Error()}
 }
 
 // optimize runs the SSA pipeline over every function.

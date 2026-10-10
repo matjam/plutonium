@@ -645,6 +645,9 @@ var runQueue RunQueue
   initialiser runs once, before any processor has its own block, so it could only initialise one copy.
   Anything else is a compile error, as is `//pu:percpu` together with `//pu:section`.
 - Outside kernel mode `//pu:percpu` is a compile error.
+- The runtime has one per-CPU variable of its own, the processor's number that `rt.SetCPU` records and
+  panics report (language spec section 8.1), so every kernel-mode image has a `.percpu` section and its
+  linker script must place it as below.
 
 **Setting up GS.** The kernel gives each processor its block and points GS at it, before that processor
 touches a per-CPU variable:

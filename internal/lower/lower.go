@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
@@ -34,14 +35,6 @@ type Config struct {
 	Kernel bool
 	Sizes  types2.Sizes
 }
-
-// An Error is a lowering error at a source position.
-type Error struct {
-	Pos token.Position
-	Msg string
-}
-
-func (e *Error) Error() string { return fmt.Sprintf("%s: %s", e.Pos, e.Msg) }
 
 // A Lowerer lowers one program.
 type Lowerer struct {
@@ -83,7 +76,7 @@ type Lowerer struct {
 	// instances of types declared in generic functions (typeMap.local)
 	localTypes map[localKey]*types2.Named
 
-	errs []error
+	errs diag.List
 }
 
 // funcDecl locates a function's source.
@@ -121,7 +114,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 			if l == nil || len(l.errs) == 0 {
 				panic(r)
 			}
-			err = joinErrors(l.errs)
+			err = l.errs
 		}
 	}()
 	l = &Lowerer{
@@ -187,30 +180,38 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		l.checkContexts()
 	}
 	if len(l.errs) > 0 {
-		return nil, joinErrors(l.errs)
+		return nil, l.errs
 	}
 	sort.Slice(l.out.Funcs, func(i, j int) bool { return l.out.Funcs[i].Name < l.out.Funcs[j].Name })
 	return l.out, nil
 }
 
-func (l *Lowerer) errorf(pos token.Pos, format string, args ...any) {
-	l.errs = append(l.errs, &Error{Pos: l.fset.Position(pos), Msg: fmt.Sprintf(format, args...)})
+// errorf reports an error in the program at pos. code says what kind of
+// error it is; internal/diag explains it.
+func (l *Lowerer) errorf(pos token.Pos, code diag.Code, format string, args ...any) {
+	l.report(pos, &diag.Diagnostic{Code: code, Msg: fmt.Sprintf(format, args...)})
 }
 
-type errorList []error
-
-func (e errorList) Error() string {
-	var sb strings.Builder
-	for i, err := range e {
-		if i > 0 {
-			sb.WriteByte('\n')
-		}
-		sb.WriteString(err.Error())
+// report reports d at pos, for an error with an explanation of its own
+// (d.Text and d.Fix).
+func (l *Lowerer) report(pos token.Pos, d *diag.Diagnostic) {
+	if pos.IsValid() {
+		d.Pos = l.fset.Position(pos)
 	}
-	return sb.String()
+	l.errs = append(l.errs, d)
 }
 
-func joinErrors(errs []error) error { return errorList(errs) }
+// internalf reports a failure of the compiler itself: a construct the type
+// checker accepted that lowering does not expect.
+func (l *Lowerer) internalf(pos token.Pos, format string, args ...any) {
+	l.errorf(pos, diag.InternalError, "internal compiler error: "+format, args...)
+}
+
+// unsupportedf reports a valid construct that the compiler cannot compile
+// yet.
+func (l *Lowerer) unsupportedf(pos token.Pos, format string, args ...any) {
+	l.errorf(pos, diag.NotYetSupported, format, args...)
+}
 
 // ----------------------------------------------------------------------------
 // Symbols
@@ -345,7 +346,7 @@ func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 		l.interruptSyms[sym] = true
 	}
 	if d == nil {
-		l.errs = append(l.errs, fmt.Errorf("lower: no source for function %s", name))
+		l.internalf(token.NoPos, "no source for function %s", name)
 		return sym
 	}
 	sig := fn.Type().(*types2.Signature)
@@ -382,7 +383,7 @@ func (l *Lowerer) lowerExports() {
 						continue
 					}
 					if sig := fn.Type().(*types2.Signature); sig.TypeParams() != nil || sig.RecvTypeParams() != nil {
-						l.errorf(fd.Pos(), "cannot export generic function %s", fn.Name())
+						l.errorf(fd.Pos(), diag.GenericExport, "cannot export generic function %s", fn.Name())
 						continue
 					}
 					sym := l.funcSym(fn, nil)

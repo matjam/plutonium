@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/lower"
 )
@@ -46,9 +47,17 @@ func lowerModeError(t *testing.T, src string, m mode) string {
 		t.Fatalf("load: %v", err)
 	}
 	if _, err := lower.Lower(cfg, prog); err != nil {
-		return err.Error()
+		var b strings.Builder
+		diag.Print(&b, err, false)
+		return b.String()
 	}
 	return ""
+}
+
+// containsText reports whether text contains want, with any run of white
+// space in either counting as one space, so that wrapping does not matter.
+func containsText(text, want string) bool {
+	return strings.Contains(strings.Join(strings.Fields(text), " "), strings.Join(strings.Fields(want), " "))
 }
 
 // kernelHeader starts the kernel-mode test programs.
@@ -69,7 +78,8 @@ func TestPanicHandlerDecl(t *testing.T) {
 			"kernel: no panic handler is defined\n",
 			"    A kernel build has no operating system to report a crash to",
 			"        //pu:panic\n        func onPanic(p *rt.Panic) { ... }\n",
-			`(see "Panics in freestanding programs" in the language spec)`}},
+			`(see "Panics in freestanding programs" in the Plutonium spec, section 8.1)`,
+			`(run "pluto explain E2580" for a longer explanation)`}},
 		{"freestanding without", freestanding, "func main() {}\n", []string{
 			"freestanding: no panic handler is defined\n    A freestanding build has no operating system"}},
 		{"hosted without", hosted, "func main() {}\n", nil},
@@ -103,7 +113,7 @@ func TestPanicHandlerDecl(t *testing.T) {
 				t.Fatalf("compiled; want an error containing %q", c.want)
 			}
 			for _, w := range c.want {
-				if !strings.Contains(got, w) {
+				if !containsText(got, w) {
 					t.Errorf("error does not contain %q:\n%s", w, got)
 				}
 			}
@@ -122,7 +132,7 @@ func TestPanicHandlerNoReturn(t *testing.T) {
 		{"falls off", "//pu:panic\nfunc onPanic(p *rt.Panic) {\n\tx86.Hlt()\n}\n\n", []string{
 			"main.p:14:1: " + returns,
 			"    A panic stops the program: it does not unwind",
-			"onPanic can return here.\n"}},
+			"onPanic can return here (main.p:14).\n"}},
 		{"one branch", "//pu:panic\nfunc onPanic(p *rt.Panic) {\n\tif p.CPU == 0 {\n\t\tfor {\n\t\t}\n\t}\n}\n\n", []string{
 			"main.p:17:1: " + returns}},
 		{"return statement", "//pu:panic\nfunc onPanic(p *rt.Panic) {\n\tfor {\n\t\tif p.CPU > 1 {\n\t\t\treturn\n\t\t}\n\t}\n}\n\n", []string{
@@ -148,7 +158,7 @@ func TestPanicHandlerNoReturn(t *testing.T) {
 				t.Fatalf("compiled; want an error containing %q", c.want)
 			}
 			for _, w := range c.want {
-				if !strings.Contains(got, w) {
+				if !containsText(got, w) {
 					t.Errorf("error does not contain %q:\n%s", w, got)
 				}
 			}

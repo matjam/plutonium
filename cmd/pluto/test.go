@@ -43,6 +43,8 @@ Flags:
   -v             print every test's name, result and log
   -count n       run each test and benchmark n times
   -O level       optimisation level: 0, 1 or 2 (default 2)
+  -brief         print each build error on one line, without its
+                 explanation (default from $PLUTO_BRIEF)
 
 The exit status is 1 if any package fails to build or any test fails.`,
 	DisableFlagParsing: true,
@@ -74,6 +76,7 @@ func runTests(args []string, stdout, stderr io.Writer) int {
 	flags.BoolVar(&opts.Verbose, "v", false, "verbose output")
 	flags.IntVar(&opts.Count, "count", 1, "run each test and benchmark `n` times")
 	optLevel := flags.Int("O", 2, "optimisation `level`")
+	flags.BoolVar(&briefErrors, "brief", briefErrors, briefUsage)
 	trimpath := flags.Bool("trimpath", true, "record source paths relative to the module root and the standard library")
 	if err := flags.Parse(args); err != nil {
 		return 2

@@ -43,7 +43,7 @@ func (check *Checker) rangeStmt(inner stmtContext, rangeStmt *ast.RangeStmt, noN
 	} else {
 		check.expr(nil, &x, rangeVar)
 		if x.isValid() && isEnum(x.typ()) {
-			check.errorf(&x, InvalidRangeExpr, "cannot range over %s: range over the enum type instead (for v := range %s)", &x, x.typ())
+			check.errorf(&x, RangeOverEnumValue, "cannot range over %s: range over the enum type instead (for v := range %s)", &x, x.typ())
 			x.invalidate()
 		}
 	}

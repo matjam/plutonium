@@ -1,0 +1,16 @@
+$DIR/main.p:5:34: float64 constant is not allowed in kernel mode (no FPU state is saved; mark the function //pu:fpu to use floats)
+    The function scale uses floating point here (float64 constant), and this is
+    a kernel-mode build, where only functions marked //pu:fpu may use floating
+    point. When an interrupt or system call enters the kernel, the processor
+    does not save the floating-point registers, so kernel code that used them
+    would corrupt the values of the program it interrupted.
+    Copying a struct with float fields is allowed, since that uses only integer
+    registers.
+    Go has no kernel mode. Plutonium rejects floats here, rather than emulate
+    them in software, so that no hidden cost or library ends up in the kernel.
+    Mark the function, and have its callers save the floating-point state with
+    x86.FPUBegin and x86.FPUEnd:
+        //pu:fpu
+        func scale(...)
+    (see "Floating point in kernel mode" in the Plutonium spec, section 11.3)
+    (run "pluto explain E2520" for a longer explanation)

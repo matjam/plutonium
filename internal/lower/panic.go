@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -22,7 +23,6 @@ import (
 const (
 	panicHook      = "callPanicHandler" // in pluto/rt
 	defaultHandler = "defaultPanic"     // in pluto/rt, hosted builds only
-	panicSeeAlso   = `(see "Panics in freestanding programs" in the language spec)`
 )
 
 // findPanicHandler finds the program's panic handler and checks its
@@ -54,24 +54,21 @@ func (l *Lowerer) findPanicHandler() {
 	case len(found) > 1:
 		first := found[0]
 		for _, d := range found[1:] {
-			l.errorf(d.decl.Name.Pos(), "%s is a second panic handler\n"+
-				"    A program has exactly one panic handler, and %s (%s) is already\n"+
-				"    marked //pu:panic. Remove //pu:panic from all but one of them.\n"+
-				"    %s",
-				d.obj.Name(), first.obj.Name(), l.shortPos(first.decl.Name.Pos()), panicSeeAlso)
+			l.report(d.decl.Name.Pos(), &diag.Diagnostic{Code: diag.DupPanicHandler,
+				Msg: fmt.Sprintf("%s is a second panic handler", d.obj.Name()),
+				Text: fmt.Sprintf("A program has exactly one panic handler, and %s (%s) is already marked //pu:panic. "+
+					"Remove //pu:panic from all but one of them.", first.obj.Name(), l.shortPos(first.decl.Name.Pos()))})
 		}
 	case l.cfg.Freestanding:
 		mode, what := "freestanding", "A freestanding build"
 		if l.cfg.Kernel {
 			mode, what = "kernel", "A kernel build"
 		}
-		l.errs = append(l.errs, fmt.Errorf("%s: no panic handler is defined\n"+
-			"    %s has no operating system to report a crash to, so the\n"+
-			"    program itself must say what happens when it panics (print to a serial\n"+
-			"    port or screen, then halt). Mark one function with //pu:panic:\n"+
-			"        //pu:panic\n"+
-			"        func onPanic(p *rt.Panic) { ... }\n"+
-			"    %s", mode, what, panicSeeAlso))
+		l.report(token.NoPos, &diag.Diagnostic{Code: diag.NoPanicHandler,
+			Msg: mode + ": no panic handler is defined",
+			Text: what + " has no operating system to report a crash to, so the program itself must say " +
+				"what happens when it panics (print to a serial port or screen, then halt).",
+			Fix: &diag.Fix{Intro: "Mark one function with //pu:panic", Code: "//pu:panic\nfunc onPanic(p *rt.Panic) { ... }"}})
 	default:
 		l.panicFn = l.rtFunc(defaultHandler)
 	}
@@ -96,12 +93,12 @@ func (l *Lowerer) checkPanicDecl(fd *ast.FuncDecl, fn *types2.Func) bool {
 	default:
 		return true
 	}
-	l.errorf(fd.Name.Pos(), "%s cannot be the panic handler: %s\n"+
-		"    The runtime calls the panic handler, the function marked //pu:panic,\n"+
-		"    with a description of the panic, and never expects it to return. It\n"+
-		"    is a plain function with a body, declared\n"+
-		"        func %s(p *rt.Panic)\n"+
-		"    %s", name, why, name, panicSeeAlso)
+	l.report(fd.Name.Pos(), &diag.Diagnostic{Code: diag.PanicHandlerDecl,
+		Msg: fmt.Sprintf("%s cannot be the panic handler: %s", name, why),
+		Text: "The runtime calls the panic handler, the function marked //pu:panic, with a description of the " +
+			"panic, and never expects it to return. It is a plain function with a body, not a method, not " +
+			"generic and not also an interrupt handler, that takes a *rt.Panic and returns nothing.",
+		Fix: &diag.Fix{Intro: "Declare it", Code: "//pu:panic\nfunc " + name + "(p *rt.Panic) { ... }"}})
 	return false
 }
 
@@ -161,13 +158,14 @@ func (l *Lowerer) checkPanicHandler() {
 		pos = funcs[sym].Pos
 	}
 	name := l.panicFn.Name()
-	l.errorf(pos, "%s is the panic handler, so it must never return\n"+
-		"    A panic stops the program: it does not unwind, so there is nothing for\n"+
-		"    the handler to return to. Every path through it must end in an endless\n"+
-		"    loop, such as for { x86.Hlt() }, or in a call of a function that never\n"+
-		"    returns: one marked //pu:noreturn, or one whose every path ends the\n"+
-		"    same way. %s can return here.\n"+
-		"    %s", name, name, panicSeeAlso)
+	l.report(pos, &diag.Diagnostic{Code: diag.PanicHandlerRet,
+		Msg: fmt.Sprintf("%s is the panic handler, so it must never return", name),
+		Text: "A panic stops the program: it does not unwind, so there is nothing for the handler to return to. " +
+			"Every path through it must end in an endless loop, or in a call of a function that never returns: " +
+			"one marked //pu:noreturn, or one whose every path ends the same way. " +
+			"A call through a func value or an interface, and recursion, count as returning.\n" +
+			name + " can return here (" + l.shortPos(pos) + ").",
+		Fix: &diag.Fix{Intro: "End it by halting", Code: "for {\n\tx86.Cli()\n\tx86.Hlt()\n}"}})
 }
 
 // funcsBySym maps the symbol of every lowered function to its code.

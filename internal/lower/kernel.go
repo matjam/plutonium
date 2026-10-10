@@ -1,6 +1,9 @@
 package lower
 
 import (
+	"fmt"
+
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/token"
 )
@@ -37,7 +40,15 @@ func (s *fnState) floatErrorAt(pos token.Pos, t *ssa.Type, what string) {
 	if t != nil && t.Size == 4 {
 		name = "float32"
 	}
-	s.l.errorf(pos, "%s %s is not allowed in kernel mode (no FPU state is saved; mark the function //pu:fpu to use floats)", name, what)
+	d := &diag.Diagnostic{Code: diag.KernelFloat,
+		Msg: fmt.Sprintf("%s %s is not allowed in kernel mode (no FPU state is saved; mark the function //pu:fpu to use floats)", name, what)}
+	if s.job != nil && s.job.decl != nil {
+		fn := s.job.decl.Name.Name
+		d.Text = fmt.Sprintf("The function %s uses floating point here (%s %s), and this is a kernel-mode build, where only functions marked //pu:fpu may use floating point. When an interrupt or system call enters the kernel, the processor does not save the floating-point registers, so kernel code that used them would corrupt the values of the program it interrupted.\nCopying a struct with float fields is allowed, since that uses only integer registers.", fn, name, what)
+		d.Fix = &diag.Fix{Intro: "Mark the function, and have its callers save the floating-point state with x86.FPUBegin and x86.FPUEnd",
+			Code: "//pu:fpu\nfunc " + fn + "(...)"}
+	}
+	s.l.report(pos, d)
 }
 
 // checkFloatOp reports op if it computes with floats.

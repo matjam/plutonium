@@ -1,0 +1,7 @@
+$DIR/main.p:8:3: expected '}', found 'EOF'
+    The file ended while a block was still open. The { on line 5 has no matching
+    }, so the parser reached the end of the file looking for it. Add the missing
+    } where the block should end; the mistake is somewhere between line 5 and
+    the end of the file.
+    (see "Blocks" in the Go spec; Plutonium follows Go here)
+    (run "pluto explain E1002" for a longer explanation)

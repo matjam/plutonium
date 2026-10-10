@@ -1907,16 +1907,24 @@ The runtime guards the handler:
   (`cli` then `hlt` in a loop), touching no memory or device; in hosted builds the runtime writes `fatal:
   panic while handling a panic` to standard error with a raw system call and exits with status 2.
 
-Errors name the rule they break and say what to do; for example, a kernel without a handler:
+Errors name the rule they break and say what to do. Their codes are E2580 (no handler), E2581 (a second
+handler), E2582 (a declaration that cannot be the handler) and E2583 (a handler that can return); for
+example, a kernel without a handler:
 
 ```
 kernel: no panic handler is defined
-    A kernel build has no operating system to report a crash to, so the
-    program itself must say what happens when it panics (print to a serial
-    port or screen, then halt). Mark one function with //pu:panic:
+    A kernel build has no operating system to report a crash to, so the program
+    itself must say what happens when it panics (print to a serial port or
+    screen, then halt).
+    A kernel has no operating system to fall back on when it panics, so
+    Plutonium makes the program choose what happens at compile time, and checks
+    the choice: the runtime calls the handler directly, with nothing to
+    register, so it works from the first instruction.
+    Mark one function with //pu:panic:
         //pu:panic
         func onPanic(p *rt.Panic) { ... }
-    (see "Panics in freestanding programs" in the language spec)
+    (see "Panics in freestanding programs" in the Plutonium spec, section 8.1)
+    (run "pluto explain E2580" for a longer explanation)
 ```
 
 ## 9. Directives
@@ -2162,15 +2170,20 @@ an operation above, naming each call on the way:
 
 ```
 irq.p:5:3: keyboard is an interrupt handler, so it must not wait
-    Interrupt handlers run on top of whatever code the CPU was executing. If
-    a handler waits, for a lock or for room in a channel, the interrupted
-    code can never resume to release it, and the CPU stops.
-    keyboard calls readConfig (irq.p:5), which waits on cfgMutex
-    (config.p:22).
+    Interrupt handlers run on top of whatever code the CPU was executing. If a
+    handler waits, for a lock or for room in a channel, the interrupted code can
+    never resume to release it, and the CPU stops.
+    keyboard calls readConfig (irq.p:5), which waits on cfgMutex (config.p:22).
+    A kernel that waits in an interrupt handler hangs, often only under load and
+    far from the cause, so Plutonium checks the whole program at compile time
+    instead.
     To hand work to normal code, use a non-blocking send:
         select { case work <- item: default: }
-    (see "Interrupts" in the language spec)
+    (see "Interrupts" in the Plutonium spec, section 12.6)
+    (run "pluto explain E2584" for a longer explanation)
 ```
+
+A go statement on the path is reported the same way, as E2585 ("so it must not start a puroutine").
 
 - **What is followed.** Direct calls, method calls, deferred calls and the calls the compiler adds for
   `new`, `make`, interface conversions and panics. It does not enter a `//pu:blocking` function, and a

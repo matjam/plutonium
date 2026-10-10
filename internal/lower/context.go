@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -369,16 +370,14 @@ func (l *Lowerer) reportContext(g *callGraph, root *ssa.Sym, isPanic bool, n *ct
 	name := displayName(root)
 	path := name + " " + strings.Join(phrases, ", which ") + "."
 
-	var b strings.Builder
 	role := "is an interrupt handler"
 	if isPanic {
 		role = "is the panic handler"
 	}
-	verb := "wait"
+	code, verb := diag.ContextWaits, "wait"
 	if kind == opSpawn {
-		verb = "start a puroutine"
+		code, verb = diag.ContextSpawns, "start a puroutine"
 	}
-	fmt.Fprintf(&b, "%s %s, so it must not %s\n", name, role, verb)
 	var why string
 	switch {
 	case !isPanic && kind == opWait:
@@ -399,20 +398,18 @@ func (l *Lowerer) reportContext(g *callGraph, root *ssa.Sym, isPanic bool, n *ct
 			"that panicked holds a lock. Starting a puroutine allocates and takes the " +
 			"scheduler's locks, which the code that panicked may hold."
 	}
-	wrap(&b, why)
-	wrap(&b, path)
+	text := why + "\n" + path
 	if indirect != nil {
-		wrap(&b, indirectNote(indirect))
+		text += "\n" + indirectNote(indirect)
 	}
+	d := &diag.Diagnostic{Code: code, Msg: fmt.Sprintf("%s %s, so it must not %s", name, role, verb)}
 	if isPanic {
-		wrap(&b, "Report the panic with code that does not wait: write to the console or a device directly, then halt.")
-		b.WriteString("    " + panicSeeAlso)
+		text += "\nReport the panic with code that does not wait: write to the console or a device directly, then halt."
 	} else {
-		b.WriteString("    To hand work to normal code, use a non-blocking send:\n")
-		b.WriteString("        select { case work <- item: default: }\n")
-		b.WriteString(`    (see "Interrupts" in the language spec)`)
+		d.Fix = &diag.Fix{Intro: "To hand work to normal code, use a non-blocking send", Code: "select { case work <- item: default: }"}
 	}
-	l.errorf(pos, "%s", b.String())
+	d.Text = text
+	l.report(pos, d)
 }
 
 // hopPhrase describes one call of a path, following "which": "calls
@@ -451,17 +448,4 @@ func indirectNote(h *hop) string {
 	}
 	return fmt.Sprintf("%s calls through a func value, so it counts as calling every function "+
 		"of type %s whose value the program takes.", h.site.desc, types2.TypeString(h.site.fsig, qual))
-}
-
-// wrap writes text to b as indented lines of at most 76 columns.
-func wrap(b *strings.Builder, text string) {
-	line := "   "
-	for _, w := range strings.Fields(text) {
-		if len(line)+1+len(w) > 76 && len(line) > 3 {
-			b.WriteString(line + "\n")
-			line = "   "
-		}
-		line += " " + w
-	}
-	b.WriteString(line + "\n")
 }

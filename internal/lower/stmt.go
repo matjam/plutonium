@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -77,7 +78,7 @@ func (s *fnState) stmt(st ast.Stmt) {
 	case *ast.DeferStmt:
 		s.deferStmt(st)
 	default:
-		s.l.errorf(st.Pos(), "lower: unsupported statement %T", st)
+		s.l.unsupportedf(st.Pos(), "unsupported statement %T", st)
 	}
 }
 
@@ -148,7 +149,7 @@ func (s *fnState) multiValue(e ast.Expr, n int) []value {
 		v, ok := s.typeAssert(x, true)
 		return []value{s.materialize(v), scalarValue(ok, types2.Typ[types2.Bool])}
 	}
-	s.l.errorf(e.Pos(), "lower: expression does not produce %d values", n)
+	s.l.internalf(e.Pos(), "expression does not produce %d values", n)
 	out := make([]value, n)
 	for i := range out {
 		out[i] = s.zeroValue(types2.Typ[types2.Int])
@@ -492,10 +493,10 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 		return
 
 	case *types2.Signature:
-		s.l.errorf(st.Pos(), "range over functions is not supported yet")
+		s.l.unsupportedf(st.Pos(), "range over functions is not supported yet")
 		return
 	}
-	s.l.errorf(st.Pos(), "lower: cannot range over %s", xt)
+	s.l.unsupportedf(st.Pos(), "cannot range over %s", xt)
 }
 
 // callsFunction reports whether e contains a function call (a conversion
@@ -770,7 +771,7 @@ func (s *fnState) branchStmt(st *ast.BranchStmt) {
 		s.endPlain(t.breakTo)
 		return
 	}
-	s.l.errorf(st.Pos(), "lower: no target for %s", st.Tok)
+	s.l.internalf(st.Pos(), "no target for %s", st.Tok)
 }
 
 func (s *fnState) returnStmt(st *ast.ReturnStmt) {
@@ -817,11 +818,11 @@ func hasDefer(body *ast.BlockStmt) bool {
 // records the call to run at every return.
 func (s *fnState) deferStmt(st *ast.DeferStmt) {
 	if s.loopDepth > 0 {
-		s.l.errorf(st.Pos(), "defer inside a loop is not supported in Plutonium (it would need unbounded stack); move the loop body into a function")
+		s.l.errorf(st.Pos(), diag.DeferInLoop, "defer inside a loop is not supported in Plutonium (it would need unbounded stack); move the loop body into a function")
 		return
 	}
 	if len(s.defers) >= 64 {
-		s.l.errorf(st.Pos(), "too many defer statements in one function (at most 64)")
+		s.l.errorf(st.Pos(), diag.TooManyDefers, "too many defer statements in one function (at most 64)")
 		return
 	}
 	bit := len(s.defers)
@@ -861,7 +862,7 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 				s.startBlock(dead)
 			}
 		default:
-			s.l.errorf(st.Pos(), "defer of builtin %s is not supported", name)
+			s.l.errorf(st.Pos(), diag.DeferBuiltin, "defer of builtin %s is not supported", name)
 			return
 		}
 	default:

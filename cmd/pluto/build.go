@@ -107,6 +107,7 @@ func init() {
 		c.Flags().Bool("trace", true, "emit the table panics use to print stack traces (--trace=false to omit it)")
 		c.Flags().Bool("trimpath", true, "record source paths relative to the module root and the standard library (--trimpath=false for absolute paths)")
 		c.Flags().String("alloc", "", "default allocator: debug for the checking allocator (hosted builds; tune with $PLUTO_DEBUGALLOC)")
+		c.Flags().Bool("brief", false, briefUsage)
 	}
 	rootCmd.AddCommand(buildCmd, runCmd)
 }
