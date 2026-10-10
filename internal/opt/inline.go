@@ -118,6 +118,11 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 					// end up in a function that has no FPU state.
 					continue
 				}
+				if v.Call.ABI != g.ABI {
+					// A C call to a Plutonium function: its arguments
+					// are laid out for a different convention.
+					continue
+				}
 				if !shouldInline(g, sizes[g]) {
 					continue
 				}

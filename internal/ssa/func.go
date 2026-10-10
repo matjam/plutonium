@@ -327,6 +327,10 @@ type Func struct {
 	// need an XMM register.
 	NoSSE bool
 
+	// ParamOnStack forces parameters to the stack, as CallInfo.OnStack does
+	// for calls (ABIC functions only; nil otherwise).
+	ParamOnStack []bool
+
 	Blocks []*Block
 	Entry  *Block
 	Slots  []*Slot

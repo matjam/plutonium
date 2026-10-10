@@ -61,6 +61,8 @@ type Lowerer struct {
 	strs           map[string]*ssa.Sym
 	closureRecords map[*ssa.Sym]*ssa.Sym // static closure record per function used as a value
 	exports        map[*ssa.Sym][]string // extra symbol names from //pu:export
+	interruptSyms  map[*ssa.Sym]bool     // //pu:interrupt functions
+	cfuncs         map[*ssa.Sym]bool     // //pu:extern symbols, called with the C convention
 	statics        int                   // anonymous static objects created
 	types          *typeTable
 
@@ -107,6 +109,8 @@ func Lower(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 		strs:           map[string]*ssa.Sym{},
 		closureRecords: map[*ssa.Sym]*ssa.Sym{},
 		exports:        map[*ssa.Sym][]string{},
+		interruptSyms:  map[*ssa.Sym]bool{},
+		cfuncs:         map[*ssa.Sym]bool{},
 	}
 	l.types = newTypeTable(l)
 	if l.sizes == nil {
@@ -127,6 +131,8 @@ func Lower(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 
 	l.lowerGlobals()
 	l.lowerEntry()
+	l.checkInterrupts()
+	l.checkCDecls()
 	l.lowerExports()
 	for {
 		for len(l.queue) > 0 && len(l.errs) < 50 {
@@ -266,7 +272,9 @@ func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 	d := l.decls[fn]
 	if d != nil && d.decl.Body == nil {
 		if name, ok := externName(d.decl); ok {
-			return l.out.Sym(name, ssa.SymExtern)
+			sym := l.out.Sym(name, ssa.SymExtern)
+			l.cfuncs[sym] = true
+			return sym
 		}
 		return l.out.Sym(funcSymName(fn, targs), ssa.SymExtern)
 	}
@@ -276,6 +284,9 @@ func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 	}
 	sym := l.out.Sym(name, ssa.SymFunc)
 	l.funcs[name] = sym
+	if d != nil && hasDirective(d.decl.Doc, "interrupt") {
+		l.interruptSyms[sym] = true
+	}
 	if d == nil {
 		l.errs = append(l.errs, fmt.Errorf("lower: no source for function %s", name))
 		return sym
@@ -313,13 +324,13 @@ func (l *Lowerer) lowerExports() {
 					if fn == nil {
 						continue
 					}
-					if fn.Type().(*types2.Signature).TypeParams() != nil {
+					if sig := fn.Type().(*types2.Signature); sig.TypeParams() != nil || sig.RecvTypeParams() != nil {
 						l.errorf(fd.Pos(), "cannot export generic function %s", fn.Name())
 						continue
 					}
 					sym := l.funcSym(fn, nil)
 					if name = strings.TrimSpace(name); name != "" && name != sym.Name {
-						l.exports[sym] = append(l.exports[sym], name)
+						l.cExport(fd, fn, sym, name)
 					}
 				}
 			}

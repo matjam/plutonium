@@ -7,7 +7,9 @@
 //
 // %v prints basic values, errors (Error) and Stringers (String). Other
 // structured values print as their type name in braces, since Plutonium has
-// no reflection.
+// no reflection. %s, %q, %x and %X apply to an error's message. %w is
+// accepted only by Errorf, ErrorfIn and ErrorBuf.Errorf (see errorf.p),
+// where it prints the error like %v and wraps it.
 package fmt
 
 import (
@@ -33,6 +35,10 @@ type printer struct {
 	written int
 	err     error
 
+	count    bool    // only count the output (the first pass of Errorf)
+	wrapErrs bool    // %w is allowed (Errorf)
+	wrapped  []error // the %w operands, within the slice's capacity
+
 	// current directive
 	plus, minus, sharp, space, zero bool
 	wid, prec                       int
@@ -43,7 +49,9 @@ func (p *printer) flush() {
 	if p.n == 0 {
 		return
 	}
-	if p.w != nil {
+	if p.count {
+		p.written += p.n
+	} else if p.w != nil {
 		if p.err == nil {
 			m, err := p.w.Write(p.buf[:p.n])
 			p.written += m
@@ -515,9 +523,19 @@ func (p *printer) printArg(arg any, verb rune) {
 			p.badVerb(verb, "[]byte")
 		}
 	case error:
-		if verb == 'v' || verb == 's' || verb == 'q' {
+		switch verb {
+		case 'w':
+			if !p.wrapErrs {
+				p.badVerb(verb, "error")
+				return
+			}
+			if len(p.wrapped) < cap(p.wrapped) {
+				p.wrapped = append(p.wrapped, v)
+			}
+			p.printString(v.Error(), 'v')
+		case 'v', 's', 'q', 'x', 'X':
 			p.printString(v.Error(), verb)
-		} else {
+		default:
 			p.printOther(arg, verb)
 		}
 	case Stringer:

@@ -56,52 +56,8 @@ const (
 	AT_FDCWD = -100
 )
 
-// An Errno is a Linux error number.
-type Errno uintptr
-
-func (e Errno) Error() string {
-	switch e {
-	case ENOENT:
-		return "no such file or directory"
-	case EBADF:
-		return "bad file descriptor"
-	case EACCES:
-		return "permission denied"
-	case EEXIST:
-		return "file exists"
-	case EINVAL:
-		return "invalid argument"
-	case ENOMEM:
-		return "out of memory"
-	case EISDIR:
-		return "is a directory"
-	case ENOTDIR:
-		return "not a directory"
-	case EINTR:
-		return "interrupted system call"
-	case EAGAIN:
-		return "resource temporarily unavailable"
-	}
-	return "system call error"
-}
-
-// Error numbers.
-const (
-	EPERM   Errno = 1
-	ENOENT  Errno = 2
-	EINTR   Errno = 4
-	EIO     Errno = 5
-	EBADF   Errno = 9
-	EAGAIN  Errno = 11
-	ENOMEM  Errno = 12
-	EACCES  Errno = 13
-	EEXIST  Errno = 17
-	ENOTDIR Errno = 20
-	EISDIR  Errno = 21
-	EINVAL  Errno = 22
-)
-
-// result splits a raw system call result into a value and an error.
+// result splits a raw system call result into a value and an error. The
+// error is an Errno, which fits in the interface's data word.
 func result(r uintptr) (int, error) {
 	if r > ^uintptr(4095) {
 		return -1, Errno(-r)

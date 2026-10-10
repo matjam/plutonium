@@ -64,8 +64,8 @@ var intrinsics = map[string]intrinsicFn{
 const x86Path = "pluto/arch/x86"
 
 func init() {
-	// Every function of pluto/arch/x86 except HandlerAddr (handled in
-	// intrinsic) is one OpIntrinsic named after it.
+	// Every function of pluto/arch/x86 except HandlerAddr (see
+	// handlerAddr) is one OpIntrinsic named after it.
 	for _, name := range []string{
 		"Cli", "Sti", "StiHlt", "Hlt", "Pause", "SaveFlagsCli", "RestoreFlags",
 		"Inb", "Inw", "Inl", "Outb", "Outw", "Outl",
@@ -101,48 +101,11 @@ func machine(name string) intrinsicFn {
 	}
 }
 
-// handlerAddr lowers x86.HandlerAddr(h): the address of the
-// //pu:interrupt function h names.
-func (s *fnState) handlerAddr(e *ast.CallExpr) []value {
-	uintptrT := types2.Typ[types2.Uintptr]
-	var fn *types2.Func
-	if len(e.Args) == 1 {
-		if id := identOf(ast.Unparen(e.Args[0])); id != nil {
-			fn, _ = s.info.Uses[id].(*types2.Func)
-		}
-	}
-	d := s.l.decls[fn]
-	if fn == nil || d == nil || !hasDirective(d.decl.Doc, "interrupt") {
-		s.l.errorf(e.Pos(), "x86.HandlerAddr needs the name of a //pu:interrupt function")
-		return []value{scalarValue(s.constInt(ssa.TI64, 0), uintptrT)}
-	}
-	addr := s.funcAddr(s.l.funcSym(fn, nil))
-	return []value{scalarValue(s.newValue(ssa.OpBitcast, ssa.TI64, addr), uintptrT)}
-}
-
-// hasDirective reports whether a doc comment holds //pu:name.
-func hasDirective(doc *ast.CommentGroup, name string) bool {
-	for _, d := range directives(doc) {
-		if d == name {
-			return true
-		}
-	}
-	return false
-}
-
-// isIntrinsicOnly reports whether fn can only be called directly, never
-// used as a value.
-func isIntrinsicOnly(fn *types2.Func) bool {
-	return fn.Pkg() != nil && fn.Pkg().Path() == x86Path && fn.Name() == "HandlerAddr"
-}
-
 // intrinsic lowers a call to an intrinsic function, if fn is one.
+// x86.HandlerAddr is handled by handlerAddr (interrupt.go).
 func (s *fnState) intrinsic(fn *types2.Func, e *ast.CallExpr) ([]value, bool) {
 	if fn.Pkg() == nil {
 		return nil, false
-	}
-	if isIntrinsicOnly(fn) {
-		return s.handlerAddr(e), true
 	}
 	impl := intrinsics[fn.Pkg().Path()+"."+fn.Name()]
 	if impl == nil {

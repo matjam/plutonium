@@ -36,6 +36,9 @@ func Select(f *ssa.Func) (*MFunc, error) {
 	mf.Sym = f.Sym
 	mf.Slots = append(mf.Slots, f.Slots...)
 	mf.interrupt = f.Pragmas&ssa.PragmaInterrupt != 0
+	// Lowering checks a handler's signature: a frame pointer, then
+	// optionally the error code.
+	mf.errCode = mf.interrupt && len(f.Params) == 2
 	for _, s := range f.Slots {
 		mf.maxAlign = max(mf.maxAlign, s.Align)
 	}
@@ -577,7 +580,11 @@ func abiLocs(types []*ssa.Type, intRegs, floatRegs []Reg, onStack []bool) ([]abi
 // entry copies the incoming arguments out of their ABI registers before
 // anything can clobber them.
 func (s *isel) entry() {
-	locs, _ := abiLocs(s.f.Params, intArgRegs, floatArgRegs, nil)
+	if s.mf.interrupt {
+		s.interruptEntry()
+		return
+	}
+	locs, _ := abiLocs(s.f.Params, intArgRegs, floatArgRegs, s.f.ParamOnStack)
 	var defs []Reg
 	for _, l := range locs {
 		if l.reg != NoReg {
@@ -603,6 +610,33 @@ func (s *isel) entry() {
 				s.copyReg(r, closureReg, 8)
 				s.vregs[v.ID] = r
 			}
+		}
+	}
+}
+
+// interruptEntry gives an interrupt handler its parameters. Nothing arrives
+// in registers: the CPU has pushed the interrupt frame (RIP, CS, RFLAGS, RSP,
+// SS) and, for some exceptions, an error code below it. Parameter 0 is the
+// frame's address and parameter 1 the error code. ArgOff is measured from
+// the stack pointer on entry, where there is no return address.
+func (s *isel) interruptEntry() {
+	frameOff := int64(0)
+	if s.mf.errCode {
+		frameOff = 8
+	}
+	for _, b := range s.f.Blocks {
+		for _, v := range b.Values {
+			if v.Op != ssa.OpArg {
+				continue
+			}
+			r := s.newReg(v.Type)
+			if v.AuxInt == 0 {
+				m := Mem{Base: NoReg, Index: NoReg, ArgSlot: true, ArgOff: frameOff}
+				s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(r), Src: MemOp(m)})
+			} else {
+				s.load(r, Mem{Base: NoReg, Index: NoReg, ArgSlot: true}, v.Type)
+			}
+			s.vregs[v.ID] = r
 		}
 	}
 }
@@ -1331,7 +1365,11 @@ func (s *isel) terminator(b *ssa.Block) error {
 		for i, r := range results {
 			types[i] = r.Type
 		}
-		locs, _ := abiLocs(types, intResultRegs, floatResultRegs, nil)
+		resRegsInt, resRegsFloat := intResultRegs, floatResultRegs
+		if s.f.ABI == ssa.ABIC {
+			resRegsInt, resRegsFloat = intResultRegs[:2], floatResultRegs[:2]
+		}
+		locs, _ := abiLocs(types, resRegsInt, resRegsFloat, nil)
 		srcs := make([]Reg, len(results))
 		for i, r := range results {
 			srcs[i] = s.reg(r)

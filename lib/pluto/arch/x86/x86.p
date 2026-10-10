@@ -26,8 +26,10 @@ func NewDescriptorTablePointer(base uintptr, size int) DescriptorTablePointer {
 	return DescriptorTablePointer{limit: uint16(size - 1), base: uint64(base)}
 }
 
-// An InterruptFrame is what the processor pushes on an interrupt or
-// exception, as //pu:interrupt handlers receive it (abi.md section 10.4).
+// InterruptFrame is what the CPU pushes when it delivers an interrupt or
+// exception, lowest address first. A //pu:interrupt handler receives a
+// pointer to it; changes to it take effect when the handler returns
+// (abi.md section 10.4).
 type InterruptFrame struct {
 	RIP, CS, RFLAGS, RSP, SS uint64
 }
@@ -161,7 +163,9 @@ func FPUBegin(area *FPUState)
 // FPUEnd restores the state FPUBegin saved (fxrstor64).
 func FPUEnd(area *FPUState)
 
-// HandlerAddr returns the address of a //pu:interrupt handler, for an IDT
-// entry. h must name the handler directly; the compiler checks this, so
-// HandlerAddr cannot be called through a func value.
-func HandlerAddr(h any) uintptr
+// HandlerAddr returns the entry address of the //pu:interrupt function h,
+// for an IDT gate. The compiler expands it; h must name a handler, and
+// anything else is a compile error. Through a func value it panics.
+func HandlerAddr(h any) uintptr {
+	panic("x86.HandlerAddr must be called with a //pu:interrupt function")
+}

@@ -54,6 +54,9 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 	// Static calls of declared functions.
 	if id := identOf(fun); id != nil {
 		if fn, ok := s.info.Uses[id].(*types2.Func); ok {
+			if fn.Pkg() != nil && fn.Pkg().Path()+"."+fn.Name() == handlerAddrFunc {
+				return []value{s.handlerAddr(e, s.typeOf(e))}
+			}
 			if res, ok := s.intrinsic(fn, e); ok {
 				return res
 			}
@@ -162,6 +165,15 @@ func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature) []value {
 
 // emitCall emits a call and returns its results as values.
 func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []value, pos token.Pos) []value {
+	if c.sym != nil {
+		s.checkNotHandler(c.sym, pos, "called")
+		if s.l.isCFunc(c.sym) {
+			// An unsupported signature was reported at its declaration.
+			if cs, err := s.l.cSignature(sig); err == nil && !cs.internal {
+				return s.emitCCall(c, cs, recv, args, pos)
+			}
+		}
+	}
 	abi := s.l.lowerSig(sig)
 	var flat []*ssa.Value
 	var sretBuf *ssa.Value
@@ -207,18 +219,7 @@ func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []
 
 	call := s.callValue(c, flat, abi.flatResults)
 	call.Pos = pos
-	s.setMem(s.newValue(ssa.OpSelectN, ssa.TMem, call))
-	if c.noReturn {
-		call.Call.NoReturn = true
-		s.b.Kind = ssa.BlockExit
-		s.b.SetControl(s.mem())
-		s.b = nil
-		// Code after a call that does not return is unreachable; give it
-		// a block so lowering can continue harmlessly.
-		dead := s.newBlock(ssa.BlockInvalid)
-		s.seal(dead)
-		s.startBlock(dead)
-	}
+	s.endCall(call, c.noReturn)
 
 	var out []value
 	if abi.sret {
@@ -243,6 +244,23 @@ func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []
 		out = append(out, aggValue(tmp, p.typ))
 	}
 	return out
+}
+
+// endCall records the memory state after call and, if the callee never
+// returns, ends the block there.
+func (s *fnState) endCall(call *ssa.Value, noReturn bool) {
+	s.setMem(s.newValue(ssa.OpSelectN, ssa.TMem, call))
+	if noReturn {
+		call.Call.NoReturn = true
+		s.b.Kind = ssa.BlockExit
+		s.b.SetControl(s.mem())
+		s.b = nil
+		// Code after a call that does not return is unreachable; give it
+		// a block so lowering can continue harmlessly.
+		dead := s.newBlock(ssa.BlockInvalid)
+		s.seal(dead)
+		s.startBlock(dead)
+	}
 }
 
 func (s *fnState) selectN(call *ssa.Value, i int, t *ssa.Type) *ssa.Value {
@@ -447,11 +465,16 @@ func ringOf(recvT types2.Type, sel *types2.Selection) *types2.Wrapper {
 
 // funcValue returns a func value for a declared function: the address of a
 // static closure record holding its code pointer.
-func (s *fnState) funcValue(fn *types2.Func, targs []types2.Type) *ssa.Value {
-	if isIntrinsicOnly(fn) {
-		s.l.errorf(s.pos, "%s.%s must be called directly", fn.Pkg().Name(), fn.Name())
-	}
+func (s *fnState) funcValue(fn *types2.Func, targs []types2.Type, pos token.Pos) *ssa.Value {
 	sym := s.l.funcSym(fn, targs)
+	s.checkNotHandler(sym, pos, "used as a func value")
+	if s.l.isCFunc(sym) {
+		// Func values use the internal ABI; a C function whose signature
+		// needs translating is reached through a thunk.
+		if cs, err := s.l.cSignature(fn.Type().(*types2.Signature)); err == nil && !cs.internal {
+			sym = s.l.cThunk(fn, sym)
+		}
+	}
 	return s.symAddr(s.l.closureRecord(sym))
 }
 

@@ -350,6 +350,13 @@ func (s *fnState) dataWord(v value, T types2.Type) *ssa.Value {
 		}
 		return s.newValue(ssa.OpBitcast, ssa.TPtr, x)
 	}
+	if s.staticLits {
+		// During package initialisation the interface value outlives the
+		// init function, so the box gets static storage, like &T{...}.
+		box := s.symAddr(s.l.staticObject(T))
+		s.storeTo(box, v, T)
+		return box
+	}
 	// Box the value in this frame.
 	box := s.temp(T, "box")
 	s.storeTo(box, v, T)
