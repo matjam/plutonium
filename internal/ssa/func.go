@@ -365,6 +365,9 @@ type CallInfo struct {
 	Variadic bool   // C variadic call: the backend sets AL to the number of vector registers used
 	OnStack  []bool // per argument: force to the stack (C memory-class aggregates)
 	NoReturn bool
+	// Implicit marks a call the compiler made up, into the runtime, rather
+	// than one written in the source (string counting, bounds failures).
+	Implicit bool
 }
 
 // A StrHold is a reference a function takes, for the duration of a

@@ -188,6 +188,36 @@ func TestBuildFailures(t *testing.T) {
 	checkOutput(t, out, status, 1, false, "main.p:5:22: float64 arithmetic is not allowed in kernel mode")
 }
 
+// TestInlineNotesFlag checks that pluto run --inlinenotes prints a note for
+// a //pu:inline call left out of line, and nothing for the standard
+// library, and that the program still runs.
+func TestInlineNotesFlag(t *testing.T) {
+	dir := writeProgram(t, `package main
+
+//pu:inline
+func fail(n int) {
+	println("failing", n)
+	panic("fail")
+}
+
+//pu:noinline
+func get() int { return 3 }
+
+func main() {
+	if n := get(); n > 2 {
+		println(n)
+		return
+	}
+	fail(1)
+}
+`)
+	out, status := runPluto(t, dir, "run", "--inlinenotes", ".")
+	want := filepath.Join(dir, "main.p") + ":17:2: note: call to main.fail marked //pu:inline was not inlined: it never returns\n3\n"
+	if status != 0 || out != want {
+		t.Errorf("exit status %d, output:\n%s\nwant 0 and:\n%s", status, out, want)
+	}
+}
+
 // TestRunExitStatus checks that pluto run exits with the program's status.
 func TestRunExitStatus(t *testing.T) {
 	dir := writeProgram(t, "package main\n\nfunc main() int64 { return 3 }\n")

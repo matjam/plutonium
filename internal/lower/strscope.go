@@ -277,9 +277,10 @@ func analyzeVars(body ast.Node, info *types2.Info) map[*types2.Var]*varFacts {
 			}
 		case *ast.RangeStmt:
 			if tv, ok := info.Types[n.X]; ok && tv.Type != nil {
-				if _, isFunc := tv.Type.Underlying().(*types2.Signature); isFunc {
-					// The body of a range over a function is a yield
-					// function that reaches the variables around it.
+				if _, isFunc := tv.Type.Underlying().(*types2.Signature); isFunc || types2.RangesByMethod(tv.Type) {
+					// The body of a range over a function, or over a
+					// container's All method, is a yield function that
+					// reaches the variables around it.
 					bodies = append(bodies, n)
 				}
 			}

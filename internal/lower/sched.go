@@ -112,24 +112,53 @@ func schedulerVars(p *load.Package) []schedBinding {
 	return out
 }
 
-// schedHook returns the method a //pu:schedhook declaration calls and
-// whether the backend may lack it.
-func schedHook(d *ast.FuncDecl) (method string, optional, ok bool) {
+// How a //pu:schedhook declaration treats a backend without the method.
+type hookMode int
+
+const (
+	hookRequired hookMode = iota // a method of rt.Scheduler: every backend has it
+	hookOptional                 // the hook does nothing, or returns zero values
+	hookTimers                   // a timer method: a build error if the program reaches the hook
+)
+
+// schedHook returns the method a //pu:schedhook declaration calls and what
+// happens if the backend lacks it ("optional" or "timers" after the name).
+func schedHook(d *ast.FuncDecl) (method string, mode hookMode, ok bool) {
 	for _, dir := range directives(d.Doc) {
 		if rest, found := strings.CutPrefix(dir, "schedhook "); found {
 			f := strings.Fields(rest)
 			if len(f) == 0 {
-				return "", false, false
+				return "", hookRequired, false
 			}
-			return f[0], len(f) > 1 && f[1] == "optional", true
+			mode := hookRequired
+			if len(f) > 1 {
+				switch f[1] {
+				case "optional":
+					mode = hookOptional
+				case "timers":
+					mode = hookTimers
+				}
+			}
+			return f[0], mode, true
 		}
 	}
-	return "", false, false
+	return "", hookRequired, false
+}
+
+// schedMethod returns the method of the bound scheduler b named name, and
+// the path to it through embedded fields, or nil.
+func schedMethod(b *schedBinding, name string) (*types2.Func, []int) {
+	if b == nil {
+		return nil, nil
+	}
+	obj, index, _ := types2.LookupFieldOrMethod(b.v.Type(), true, b.v.Pkg(), name)
+	m, _ := obj.(*types2.Func)
+	return m, index
 }
 
 // schedHookSym returns the function implementing the runtime hook fn,
 // which calls method of the bound scheduler.
-func (l *Lowerer) schedHookSym(fn *types2.Func, method string, optional bool) *ssa.Sym {
+func (l *Lowerer) schedHookSym(fn *types2.Func, method string, mode hookMode) *ssa.Sym {
 	name := funcSymName(fn, nil)
 	if sym := l.funcs[name]; sym != nil {
 		return sym
@@ -137,21 +166,28 @@ func (l *Lowerer) schedHookSym(fn *types2.Func, method string, optional bool) *s
 	sym := l.out.Sym(name, ssa.SymFunc)
 	l.funcs[name] = sym
 	sig := fn.Type().(*types2.Signature)
-	if l.sched == nil && !optional && !l.schedMissing {
+	if l.sched == nil && mode != hookOptional && !l.schedMissing {
 		l.schedMissing = true
 		l.errorf(l.prog.Main.Files[0].Package, diag.NoScheduler, "this program starts puroutines, uses channels or waits in pluto/sync, so it needs a scheduler, and none is bound: "+
 			"mark a package-level variable whose type implements rt.Scheduler with //pu:scheduler (language spec section 4.7; hosted builds bind one by default)")
 	}
+	if b := l.sched; b != nil && mode == hookTimers && !l.schedNoTimers {
+		var missing []string
+		for _, want := range []string{"Now", "ArmTimer"} {
+			if m, _ := schedMethod(b, want); m == nil {
+				missing = append(missing, want)
+			}
+		}
+		if len(missing) > 0 {
+			l.schedNoTimers = true
+			l.errorf(b.pos, diag.SchedulerTimers, "this program uses timers (time.Sleep, a time.Timer or Ticker, rt.ParkUntil or rt.Now), so its scheduler must provide a clock and a timer, and %s of type %s has no method %s (abi.md section 12.9)",
+				b.v.Name(), b.v.Type(), strings.Join(missing, " or "))
+		}
+	}
 	b := l.sched
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: sig, build: func(s *fnState) {
 		in := s.incomingArgs(sig)
-		var m *types2.Func
-		var path []int
-		if b != nil {
-			obj, index, _ := types2.LookupFieldOrMethod(b.v.Type(), true, b.v.Pkg(), method)
-			m, _ = obj.(*types2.Func)
-			path = index
-		}
+		m, path := schedMethod(b, method)
 		if m == nil {
 			// An optional method the backend lacks, or a build that has
 			// already failed: return the zero values.

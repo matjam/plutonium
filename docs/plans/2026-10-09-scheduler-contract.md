@@ -5,8 +5,11 @@
 recommendations of section 8, including link-time binding with `//pu:scheduler`, and all ten changes of
 section 7. The implemented contract is specified in abi.md section 12 and language spec section 4.7;
 abi.md section 12.8 maps the names used below to the implemented ones (`Start` is `Spawn`, `Block` and
-`Resched` are `Park` and `Yield`, and so on). Timers (`BlockUntil`, `Now`, `ParkUntil`) and
-`rt.TraceTask` are not implemented yet. The rest of this note is the proposal as written.
+`Resched` are `Park` and `Yield`, and so on). Timers are implemented as abi.md section 12.9 describes,
+with one change from this note: the runtime keeps the timers, so a backend provides only a clock (`Now`)
+and a timer (`ArmTimer`, serviced with `rt.RunTimers`), both optional, instead of `BlockUntil`;
+`rt.ParkUntil` is built on them. `rt.TraceTask` is not implemented yet. The rest of this note is the
+proposal as written.
 
 Plutonium provides puroutines, channels, `select` and `pluto/sync` as language and runtime mechanism, and
 a scheduler only for hosted Linux. A freestanding program that uses them, such as a kernel, supplies the

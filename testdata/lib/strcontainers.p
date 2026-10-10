@@ -117,4 +117,33 @@ func main() {
 	r.Push("kept")
 	z, _ := r.Pop()
 	fmt.Println(z, r.Empty())
+
+	// Range over a ring's iterator, popping what the body is given: the
+	// element is held for the call.
+	for i := 0; i < 4; i++ {
+		r.Push(name(i + 10))
+	}
+	seen := ""
+	for s := range r.Values() {
+		popped, _ := r.Pop()
+		seen += s + "=" + popped + " "
+	}
+	fmt.Println("ring range:", seen, r.Len())
+	r.Reset()
+
+	// Range over a container through its All method, keeping a string
+	// from the loop and replacing elements as it goes.
+	for i := 0; i < 4; i++ {
+		words.Push(name(i))
+	}
+	last = ""
+	for i, w := range words {
+		words.Set(i, w+"!")
+		last = w
+		if i == 2 {
+			break
+		}
+	}
+	fmt.Println("vec range:", last, words.At(0), words.At(2), words.At(3))
+	words.Free()
 }

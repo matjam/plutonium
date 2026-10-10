@@ -38,7 +38,6 @@ const (
 
 	archSetFS = 0x1002
 	sigURG    = 23
-	saRestart = 0x10000000
 
 	futexWaitPrivate = 128
 	futexWakePrivate = 129
@@ -93,6 +92,7 @@ type p struct {
 	link        *p
 	stacks      [pStackCacheMax]unsafe.Pointer // cached stacks (allocStack)
 	nstacks     int
+	timers      timerHeap // timers armed by puroutines running here
 
 	// sysmon's view of the P.
 	smSchedtick   uint32
@@ -189,6 +189,8 @@ func startHosted() {
 	for i := 0; i < n; i++ {
 		pp := (*p)(mustMmap(unsafe.Sizeof(p{})))
 		pp.id = uint32(i)
+		pp.timers.next = NoDeadline
+		pp.timers.armed = NoDeadline
 		hs.allp[i] = pp
 	}
 	m0.self = &m0
@@ -368,6 +370,8 @@ func findRunnable(mp *m) *Task {
 			stopm(mp)
 			continue
 		}
+		// Expired timers ready their puroutines onto this P's queue.
+		runTimersOf(pp, 0)
 		if g := runqget(pp); g != nil {
 			resetSpinning(mp)
 			return g
@@ -386,6 +390,15 @@ func findRunnable(mp *m) *Task {
 			if !mp.spinning {
 				mp.spinning = true
 				xadd32(&hs.nmspinning, 1)
+			}
+			// Run the expired timers of the other Ps, whose workers are
+			// busy or asleep, as Go's stealing workers do: their
+			// puroutines come to this P.
+			if runOtherTimers(pp) {
+				if g := runqget(pp); g != nil {
+					resetSpinning(mp)
+					return g
+				}
 			}
 			// Look for a while (some tens of microseconds) before going
 			// to sleep: work that arrives soon is taken without a futex
@@ -526,10 +539,11 @@ func stopm(mp *m) {
 
 // checkDead stops the program when no puroutine can ever run again: every
 // worker is asleep (a worker in a system call is not: the call may
-// return), nothing waits in the poller and no queue holds a puroutine.
-// Called with hs.lock held.
+// return), nothing waits in the poller, no timer is armed (its function
+// may wake a puroutine, or send on a channel one waits on) and no queue
+// holds a puroutine. Called with hs.lock held.
 func checkDead() {
-	if hs.mcount-hs.nmidle > 0 || load32(&hs.pollWaiting) != 0 || workAvailable() {
+	if hs.mcount-hs.nmidle > 0 || load32(&hs.pollWaiting) != 0 || load32(&activeTimers) != 0 || workAvailable() {
 		return
 	}
 	printString("fatal error: all puroutines are asleep - deadlock!\n")
@@ -888,6 +902,11 @@ var poller struct {
 	lock    Lock
 	started bool
 	fd      int
+
+	// Timers (timer_linux.p).
+	startedFlag uint32 // started, read without the lock
+	wakefd      int    // an eventfd in the epoll set, written to wake the poller early
+	until       uint64 // the deadline the poller sleeps until, or NoDeadline while it looks for one
 }
 
 type pollWaiter struct {
@@ -934,10 +953,21 @@ func PollWait(fd int, write bool) bool {
 }
 
 func startPoller() {
+	if load32(&poller.startedFlag) != 0 {
+		return
+	}
 	poller.lock.Lock()
 	if !poller.started {
 		poller.fd = int(syscall3(sysEpollCreate1, epollCloexec, 0, 0))
+		// The eventfd wakes the poller when a timer earlier than its
+		// deadline is armed (timerEarlier). Its events carry no waiter.
+		poller.wakefd = int(syscall3(sysEventfd2, 0, efdCloexec|efdNonblock, 0))
+		var ev [12]byte
+		*(*uint32)(unsafe.Pointer(&ev[0])) = epollIn
+		syscall6(sysEpollCtl, uintptr(poller.fd), epollCtlAdd, uintptr(poller.wakefd), uintptr(unsafe.Pointer(&ev[0])), 0, 0)
+		store64(&poller.until, uint64(NoDeadline))
 		poller.started = true
+		store32(&poller.startedFlag, 1)
 		newThread(pollerMain, nil, false)
 	}
 	poller.lock.Unlock()
@@ -947,9 +977,14 @@ func pollerMain(mp *m) {
 	mp.tid = int(syscall3(sysGettid, 0, 0, 0))
 	var evs [64 * 12]byte
 	for {
-		n := int(syscall6(sysEpollWait, uintptr(poller.fd), uintptr(unsafe.Pointer(&evs[0])), 64, ^uintptr(0), 0, 0))
+		n := pollerWait(&evs, pollTimers())
 		for i := 0; i < n; i++ {
 			w := (*pollWaiter)(unsafe.Pointer(*(*uintptr)(unsafe.Pointer(&evs[i*12+4]))))
+			if w == nil {
+				var buf [8]byte
+				syscall3(sysRead, uintptr(poller.wakefd), uintptr(unsafe.Pointer(&buf[0])), 8)
+				continue
+			}
 			Ready(w.g)
 			xadd32(&hs.pollWaiting, -1)
 		}
@@ -1013,7 +1048,7 @@ type timespec struct {
 
 func nanotime() int64 {
 	var ts timespec
-	syscall3(sysClockGettime, 1, uintptr(unsafe.Pointer(&ts)), 0) // CLOCK_MONOTONIC
+	clockGettime(clockMonotonic, &ts) // through the vDSO (timer_linux.p)
 	return ts.sec*1000000000 + ts.nsec
 }
 

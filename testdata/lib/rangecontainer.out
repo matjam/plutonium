@@ -1,0 +1,21 @@
+v 0 0
+v 1 1
+v 2 4
+v 3 9
+v 4 16
+ 0 1 2 3 4
+total 30
+n 5
+assigned 0 0
+assigned 2 4
+after 3 9
+v[4] 17
+m one 1
+m three 3
+m two 2
+keys 3
+found two
+set 7
+ 3 2 1
+sum vec 35 sum map 6
+count 4

@@ -4,8 +4,8 @@ $DIR/main.p:13:2: onPanic is the panic handler, so it must not wait
     waits for a lock or a channel, it may wait for code that can never run
     again, and the program hangs instead of reporting the panic.
     onPanic calls os.Stderr.WriteString (main.p:13), which calls f.Write
-    (os_linux.p:119), which calls f.poll.waitIO (os_linux.p:104), which may be
-    os.poller.waitIO, which calls rt.PollWait (os_linux.p:58), which may wait.
+    (os_linux.p:128), which calls f.poll.waitIO (os_linux.p:107), which may be
+    os.poller.waitIO, which calls rt.PollWait (os_linux.p:61), which may wait.
     f.poll.waitIO calls through an interface, so it counts as calling the waitIO
     method of every type the program converts to os.ioWaiter.
     The path goes through an os.File. Writing to a file waits for the poller

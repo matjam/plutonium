@@ -108,9 +108,17 @@ func (s *fnState) containerCall(r *containerRef, name string, args []value) []va
 		// Promoted from an embedded interface field.
 		return s.ifaceCall(recv, recv.T, fn, sig, args, pos, desc)
 	}
+	if w := s.ringOf(fn); w != nil && types2.IsRingIterator(name) {
+		// A ring's iterator, built here (builtin.go).
+		return []value{s.ringIterator(name, w, recv.v, fn.Signature().Results().At(0).Type())}
+	}
 	targs := s.containerTypeArgs(fn, r.base.T)
-	sym := s.l.funcSym(fn, targs)
 	full := s.l.methodSig(fn, targs)
+	if c := s.l.closureCtor(fn); c != nil {
+		// An iterator method such as All, expanded here (ctor.go).
+		return []value{s.expandCtor(c, targs, &recv, args, full.Results().At(0).Type(), pos)}
+	}
+	sym := s.l.funcSym(fn, targs)
 	site := &callSite{desc: desc, recv: types2.ExprString(r.x)}
 	return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn), site: site}, full, &recv, args, pos)
 }

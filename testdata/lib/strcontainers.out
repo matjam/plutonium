@@ -8,3 +8,5 @@ set 7 true false
 item-99/tag
 item-0 item-1 2
 kept true
+ring range: item-10=item-10 item-11=item-11 item-12=item-12 item-13=item-13  0
+vec range: item-2 item-0! item-2! item-3

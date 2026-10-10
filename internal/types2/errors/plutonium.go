@@ -158,11 +158,18 @@ const (
 	// ContainerElemAssign: an assignment to a field or element of x[k]
 	// where x is a container.
 	ContainerElemAssign
-	// RangeOverContainer: a range over a container.
+	// RangeOverContainer: a range over a container, or another struct or
+	// pointer to one, that has no All method.
 	RangeOverContainer
 	// UnaddressableContainer: an index expression on a container that is
 	// not addressable, whose method has a pointer receiver.
 	UnaddressableContainer
+	// BadRangeMethod: a range over a container whose All method is not
+	// of the form All() followed by an iterator type.
+	BadRangeMethod
+	// UnaddressableRange: a range over a container that is not
+	// addressable, whose All method has a pointer receiver.
+	UnaddressableRange
 )
 
 // Unions.

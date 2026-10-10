@@ -151,9 +151,36 @@ func (s *fnState) rangeFuncStmt(st *ast.RangeStmt, label *types2.Label, sig *typ
 	// The range expression is evaluated once, before the loop.
 	c, ok := s.staticCallee(st.X)
 	if !ok {
-		fv := s.scalar(st.X)
-		c = callee{code: s.load(ssa.TPtr, fv), ctx: fv}
+		c = s.closureCallee(s.scalar(st.X))
 	}
+	s.rangeOver(st, label, sig, c)
+}
+
+// rangeContainer lowers a range over a container: over the iterator its
+// All method returns (language spec section 6.7). The checker accepted
+// the loop only if All has the form All() func(yield func(...) bool).
+func (s *fnState) rangeContainer(st *ast.RangeStmt, label *types2.Label) {
+	r := s.container(st.X, st.X)
+	res := s.containerCall(r, types2.RangeMethodName, nil)
+	if len(res) != 1 {
+		s.l.internalf(st.Pos(), "range over %s", r.T)
+		return
+	}
+	sig, ok := unwrap(res[0].T).Underlying().(*types2.Signature)
+	if !ok {
+		s.l.internalf(st.Pos(), "%s.%s returns %s", r.T, types2.RangeMethodName, res[0].T)
+		return
+	}
+	s.rangeOver(st, label, sig, s.closureCallee(s.materialize(res[0]).v))
+}
+
+// closureCallee returns the callee for a call through the func value fv.
+func (s *fnState) closureCallee(fv *ssa.Value) callee {
+	return callee{code: s.load(ssa.TPtr, fv), ctx: fv}
+}
+
+// rangeOver lowers the loop st over the function c, of signature sig.
+func (s *fnState) rangeOver(st *ast.RangeStmt, label *types2.Label, sig *types2.Signature, c callee) {
 	yieldT := s.subst(sig.Params().At(0).Type())
 	ySig := yieldT.Underlying().(*types2.Signature)
 

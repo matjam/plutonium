@@ -12,10 +12,23 @@
 //		}
 //	}
 //
+// A range over a container ranges over the iterator its All method
+// returns; Iterable allows it on a type parameter:
+//
+//	func Sum[C container.Iterable[K, int], K any](c C) int {
+//		n := 0
+//		for _, v := range c {
+//			n += v
+//		}
+//		return n
+//	}
+//
 // vec.Vec[T] and hash.Map[K, V] declare these methods on pointer
 // receivers, so their pointers satisfy the constraints:
 // Count(&counts, words).
 package container
+
+import "pluto/iter"
 
 // Indexable is a container whose elements can be read and assigned with
 // x[k] and x[k] = v.
@@ -38,4 +51,10 @@ type Lookup[K, V any] interface {
 // Sized is a container with a length, len(x).
 type Sized interface {
 	Len() int
+}
+
+// Iterable is a container that can be ranged over, for k, v := range x,
+// which ranges over x.All().
+type Iterable[K, V any] interface {
+	All() iter.Seq2[K, V]
 }

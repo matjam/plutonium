@@ -473,6 +473,10 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 		s.rangeEnum(st, label) // range E over an enum type's members
 		return
 	}
+	if tv := s.info.Types[st.X]; tv.Type != nil && types2.RangesByMethod(tv.Type) {
+		s.rangeContainer(st, label)
+		return
+	}
 	xt := unwrap(s.typeOf(st.X))
 	assign := func(lv *lvalue, v value) {
 		if lv != nil {
@@ -1048,7 +1052,7 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 						targs = s.methodTypeArgs(fn, se, s.typeOf(se.X))
 						def = &defaultsOf{fn, targs}
 					}
-					sym, full := s.l.methodFunc(fn, targs, w)
+					sym, full := s.l.methodFunc(fn, targs, w, se.Sel.Pos(), "deferred")
 					sig := s.subst(funTV.Type).(*types2.Signature)
 					args := s.saveValues(s.callArgs(call, sig, def))
 					site := &callSite{desc: types2.ExprString(call.Fun), recv: types2.ExprString(se.X)}

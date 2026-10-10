@@ -60,6 +60,7 @@ const (
 	BadScheduler       Code = "E2592" // a //pu:scheduler variable that cannot be the scheduler, or two of them
 	NoScheduler        Code = "E2593" // a program that needs a scheduler and binds none
 	GoFrameClosure     Code = "E2594" // go of, or with an argument that is, a closure whose record is in the frame
+	SchedulerTimers    Code = "E2595" // a program that uses timers with a scheduler that has no Now or ArmTimer
 )
 
 // Finding and loading packages.

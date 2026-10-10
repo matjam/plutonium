@@ -1,7 +1,9 @@
 // A program that binds its own scheduler backend with //pu:scheduler,
 // replacing the hosted one: a single processor with a FIFO run queue, as a
-// small kernel's would be (without the timer). Puroutines, channels,
-// select and pluto/sync run on it unchanged.
+// small kernel's would be. Puroutines, channels, select and pluto/sync run
+// on it unchanged. Its clock is CLOCK_MONOTONIC, and its idle loop sleeps
+// until the deadline the runtime gave ArmTimer, then runs the timers, so
+// time.Sleep and time.After work on the runtime's shared timer heap.
 
 package main
 
@@ -10,6 +12,8 @@ import (
 	"pluto/os"
 	"pluto/rt"
 	"pluto/sync"
+	"pluto/syscall"
+	"pluto/time"
 	"unsafe"
 )
 
@@ -27,10 +31,12 @@ type roundRobin struct {
 	spawned    int
 	freed      int
 	switches   int
+	due        int64 // the earliest timer's deadline
+	armed      int
 }
 
 //pu:scheduler
-var sched roundRobin
+var sched = roundRobin{due: rt.NoDeadline}
 
 var idleStack [16 << 10]byte
 
@@ -39,14 +45,24 @@ func (s *roundRobin) Init() {
 	rt.MakeContext(&s.idle, unsafe.Pointer(&idleStack[0]), uintptr(len(idleStack)), idleLoop)
 }
 
-// idleLoop runs whatever is runnable; with nothing left, every puroutine
-// waits for another.
+// idleLoop runs whatever is runnable. With nothing to run, it sleeps until
+// the earliest timer is due and runs the timers; with no timer either,
+// every puroutine waits for another.
 func idleLoop() {
 	for {
 		t := sched.pop()
 		if t == nil {
-			println("deadlock")
-			os.Exit(3)
+			if sched.due == rt.NoDeadline {
+				println("deadlock")
+				os.Exit(3)
+			}
+			if wait := sched.due - sched.Now(); wait > 0 {
+				ts := timespec{wait / 1000000000, wait % 1000000000}
+				syscall.Syscall(syscall.SYS_NANOSLEEP, uintptr(unsafe.Pointer(&ts)), 0, 0)
+			}
+			sched.due = rt.NoDeadline
+			rt.RunTimers() // calls ArmTimer with the next deadline
+			continue
 		}
 		sched.switches++
 		rt.Switch(&sched.idle, t.Context())
@@ -68,6 +84,21 @@ func (s *roundRobin) FreeTask(t *rt.Task) {
 	r := (*rrTask)(unsafe.Pointer(t))
 	r.alloc.Free(r.mem, r.size, 16)
 	s.freed++
+}
+
+type timespec struct{ sec, nsec int64 }
+
+// Now reads CLOCK_MONOTONIC.
+func (s *roundRobin) Now() int64 {
+	var ts timespec
+	syscall.Syscall(syscall.SYS_CLOCK_GETTIME, 1, uintptr(unsafe.Pointer(&ts)), 0)
+	return ts.sec*1000000000 + ts.nsec
+}
+
+// ArmTimer records when the earliest timer is due, for the idle loop.
+func (s *roundRobin) ArmTimer(deadline int64) {
+	s.due = deadline
+	s.armed++
 }
 
 func (s *roundRobin) Spawn(t *rt.Task) { s.push(t) }
@@ -165,10 +196,32 @@ func main() {
 	case v := <-b:
 		println("b", v)
 	}
+	// Timers: the idle loop sleeps until each is due.
+	start := rt.Now()
+	woke := make(chan int, 3)
+	for i := 3; i >= 1; i-- {
+		go sleepy(i, woke)
+	}
+	println("woke in order", <-woke, <-woke, <-woke)
+	select {
+	case v := <-a:
+		println("a", v)
+	case <-time.After(5 * time.Millisecond):
+		println("select timed out")
+	}
+	println("timers armed", sched.armed > 0, "elapsed", rt.Now()-start >= 20000000)
+
 	alloc.FreeChan(in)
 	alloc.FreeChan(out)
 	alloc.FreeChan(names)
 	alloc.FreeChan(a)
 	alloc.FreeChan(b)
+	alloc.FreeChan(woke)
 	println("spawned", sched.spawned, "freed", sched.freed, "switched", sched.switches > 10)
+}
+
+// sleepy sleeps i times 5ms: started in reverse, they wake in order.
+func sleepy(i int, woke chan<- int) {
+	time.Sleep(time.Duration(i) * 5 * time.Millisecond)
+	woke <- i
 }

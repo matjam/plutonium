@@ -467,6 +467,7 @@ func (s *fnState) callRuntime(name string, results []*ssa.Type, argGroups ...[]*
 	}
 	sym := s.l.funcSym(s.l.rtFunc(name), nil)
 	call := s.callValue(callee{sym: sym}, flat, results)
+	call.Call.Implicit = true
 	s.setMem(s.newValue(ssa.OpSelectN, ssa.TMem, call))
 	out := make([]*ssa.Value, len(results))
 	for i, t := range results {
@@ -704,7 +705,7 @@ func (s *fnState) methodExpr(e *ast.SelectorExpr, sel *types2.Selection, sig *ty
 		}
 		targs = s.withMethodTypeArgs(fn, e.Sel, targs)
 	}
-	target, full := s.l.methodFunc(fn, targs, w)
+	target, full := s.l.methodFunc(fn, targs, w, e.Sel.Pos(), "used as a method expression")
 	if len(path) == 1 && types2.Identical(full.Recv().Type(), R) {
 		return target
 	}
@@ -714,9 +715,11 @@ func (s *fnState) methodExpr(e *ast.SelectorExpr, sel *types2.Selection, sig *ty
 // methodFunc returns the function implementing method fn instantiated with
 // targs, and its signature with the receiver. w is fn's ring type if fn is
 // a built-in ring method, or nil.
-func (l *Lowerer) methodFunc(fn *types2.Func, targs []types2.Type, w *types2.Wrapper) (*ssa.Sym, *types2.Signature) {
+// pos and what describe the use for the error reported when fn is a ring
+// iterator method, which can only be called.
+func (l *Lowerer) methodFunc(fn *types2.Func, targs []types2.Type, w *types2.Wrapper, pos token.Pos, what string) (*ssa.Sym, *types2.Signature) {
 	if w != nil {
-		return l.ringMethodFunc(fn, w)
+		return l.ringMethodFunc(fn, w, pos, what)
 	}
 	return l.funcSym(fn, targs), l.methodSig(fn, targs)
 }
@@ -785,7 +788,12 @@ func (s *fnState) funcValue(fn *types2.Func, targs []types2.Type, pos token.Pos)
 // the code pointer followed by the address of each captured variable.
 func (s *fnState) closure(lit *ast.FuncLit) *ssa.Value {
 	captures := s.capturedVars(lit)
-	sym := s.closureFunc(lit, captures)
+	return s.closureWith(lit, captures, s.closureFunc(lit, captures))
+}
+
+// closureWith builds the closure record of literal lit, whose function is
+// sym and whose captured variables are captures.
+func (s *fnState) closureWith(lit *ast.FuncLit, captures []*types2.Var, sym *ssa.Sym) *ssa.Value {
 	if len(captures) == 0 {
 		return s.symAddr(s.l.closureRecord(sym))
 	}
@@ -805,6 +813,27 @@ func (s *fnState) closureFunc(lit *ast.FuncLit, captures []*types2.Var) *ssa.Sym
 	s.l.funcValues[sym] = sig
 	s.l.queue = append(s.l.queue, &funcJob{
 		sym: sym, pkg: s.pkg, lit: lit, sig: sig, tmap: s.tmap, captures: captures, parent: s,
+	})
+	return sym
+}
+
+// ctorClosureFunc queues the function of the literal that closure
+// constructor c returns, instantiated with targs, and names it after the
+// constructor (main.Count.func1, pkg.(*Vec).All[int].func1), as Go names the
+// closure the constructor would have returned. The function does not depend
+// on the call that builds the closure, only on the constructor and its type
+// arguments, so every call shares it.
+func (s *fnState) ctorClosureFunc(c *ctorInfo, targs []types2.Type, lit *ast.FuncLit, captures []*types2.Var) *ssa.Sym {
+	name := funcSymName(c.decl.obj, targs) + ".func1"
+	if sym := s.l.funcs[name]; sym != nil {
+		return sym
+	}
+	sym := s.l.out.Sym(name, ssa.SymFunc)
+	s.l.funcs[name] = sym
+	sig := s.subst(s.info.Types[lit].Type).(*types2.Signature)
+	s.l.funcValues[sym] = sig
+	s.l.queue = append(s.l.queue, &funcJob{
+		sym: sym, pkg: s.pkg, lit: lit, sig: sig, tmap: s.tmap, captures: captures, ctor: c.decl,
 	})
 	return sym
 }
@@ -861,7 +890,7 @@ func (s *fnState) methodValue(se *ast.SelectorExpr, sel *types2.Selection) *ssa.
 		targs = s.methodTypeArgs(fn, se, recvT)
 		s.l.checkNotCtor(fn, se.Sel.Pos(), "used as a method value")
 	}
-	wrapper := s.l.boundMethodWrapper(s.l.methodFunc(fn, targs, w))
+	wrapper := s.l.boundMethodWrapper(s.l.methodFunc(fn, targs, w, se.Sel.Pos(), "used as a method value"))
 	size := 8 + s.l.sizeof(recv.T)
 	rec := s.methodValueRecord((size + 7) &^ 7)
 	s.store(ssa.TPtr, rec, s.funcAddr(wrapper))

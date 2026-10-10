@@ -34,6 +34,9 @@ var (
 // in the scheduler's poller until the descriptor is ready, and on any
 // other the system call is announced to the scheduler (rt.EnterSyscall),
 // which hands the worker's processor to another worker if the call blocks.
+//
+// As in Go, a write to a pipe with no reader reports syscall.EPIPE, except
+// on descriptors 1 and 2, where it ends the program with SIGPIPE.
 type File struct {
 	fd   int
 	name string
@@ -103,6 +106,12 @@ func (f *File) Write(p []byte) (int, error) {
 			if err == syscall.EAGAIN && f.poll != nil {
 				f.poll.waitIO(f.fd, true)
 				continue
+			}
+			if err == syscall.EPIPE && (f.fd == 1 || f.fd == 2) {
+				// As in Go: a broken pipe on standard output or standard
+				// error ends the program with SIGPIPE; any other
+				// descriptor reports EPIPE.
+				rt.DieFromSigpipe()
 			}
 			return n, err
 		}

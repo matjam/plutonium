@@ -383,6 +383,8 @@ functions without `//pu:fpu` (no floats, section 10.2) never use it.
 | generic instance | `path.Name[T1,T2]`, type arguments package-qualified by import path |
 | method of a generic type instance | `pluto/vec.(*Vec).Push[int]`: the receiver's type arguments, then the method's own, in the brackets |
 | function literal | `<enclosing symbol>.func<N>` |
+| the closure of a closure constructor (language spec section 4.5) | `<constructor symbol>.func1`, e.g. `main.Count.func1` or `pluto/vec.(*Vec).All[int].func1`: named after the constructor, not the caller that builds it, and shared by every call |
+| the closure of a `ring` iterator (section 5.4) | `builtin.(*ring[T,N]).All.func1`, or `.Values.func1` |
 | go statement thunk (section 12.6) | `<enclosing symbol>.go<N>` |
 | bound method wrapper | `<method symbol>-fm` |
 | static closure record | `<function symbol>·f` |
@@ -782,8 +784,9 @@ Linux system calls use their own convention, implemented in assembly in `pluto/s
 ## 12. Puroutines and the scheduler
 
 How puroutines are represented and switched, and what a scheduler backend implements (language spec
-section 4.7). The runtime side is `lib/pluto/rt/sched.p`, `chan.p` and `ctx_amd64.s`; the hosted backend
-is `sched_linux.p`; `testdata/kernel/sched` and `testdata/plutonium/customsched.p` are complete small
+section 4.7). The runtime side is `lib/pluto/rt/sched.p`, `chan.p`, `timer.p` and `ctx_amd64.s`; the
+hosted backend is `sched_linux.p` and `timer_linux.p`; `testdata/kernel/sched` and
+`testdata/plutonium/customsched.p` are complete small
 backends. The design is in [the scheduler contract](../plans/2026-10-09-scheduler-contract.md); where
 its working names differ, the names here are the implemented ones (section 12.8).
 
@@ -897,6 +900,8 @@ type Scheduler interface {
 
 Optional methods, called if the type has them: `Init()`, once before the first task operation, and
 `InInterrupt() bool`, which lets the runtime refuse operations that would park in interrupt context.
+Two more, `Now() int64` and `ArmTimer(deadline int64)`, give the runtime a clock and a timer (section
+12.9); a program that uses timers needs both, and a build whose scheduler lacks either fails with E2595.
 The backend is bound with `//pu:scheduler` (language spec section 4.7): the compiler gives each of the
 runtime's hooks (`schedNewTask`, `schedPark` and the rest, declared with `//pu:schedhook` in `sched.p`)
 a body that calls the bound variable's method directly.
@@ -955,9 +960,11 @@ A blocked operation's waiting record (`sudog`) lives in the waiting task's frame
 | processors (P) | one per CPU, or `$PLUTO_MAXPROCS`: a 256-entry lock-free run queue that its worker pushes to and pops from and idle workers steal half of, and a cache of free stacks; a global queue behind a lock takes the overflow and tasks readied by threads without a P |
 | workers (m) | threads made with `clone(2)` (`CLONE_VM`, `CLONE_FS`, `CLONE_FILES`, `CLONE_SIGHAND`, `CLONE_THREAD`, `CLONE_SYSVSEM`, `CLONE_SETTLS` with the worker record as FS base), each with a 256 KiB scheduling stack and a 32 KiB alternate signal stack; idle workers sleep on a futex |
 | monitor | a thread that preempts a task after 10 ms (`SIGURG`) and hands the P of a worker that has been in a system call (`rt.EnterSyscall` to `rt.ExitSyscall`) for 20 µs, when other work waits, to another worker |
-| poller | a thread blocked in `epoll_wait`; `rt.PollWait(fd, write)` arms one-shot interest and parks |
+| poller | a thread blocked in `epoll_wait`; `rt.PollWait(fd, write)` arms one-shot interest and parks. While timers are armed it waits at most until the earliest deadline of every P (`epoll_pwait2`, or `epoll_wait` in milliseconds rounded up before Linux 5.11), then runs the expired timers itself; an eventfd in the epoll set wakes it when an earlier timer is armed |
+| timers | a heap per P (section 12.9), which its worker runs each time it looks for a puroutine; a spinning worker runs the expired timers of the other Ps too, and their puroutines come to its own P. `rt.Now` reads `CLOCK_MONOTONIC` through the vDSO's `__vdso_clock_gettime` (found from `AT_SYSINFO_EHDR`), or with the system call if there is none |
 | stacks | a guard page, the stack, then the backend's task record, from the requested allocator; stacks of the default size from the program-wide default allocator are cached rather than unmapped |
-| deadlock | when every worker is idle and nothing waits in the poller or a system call: "fatal error: all puroutines are asleep - deadlock!", status 2 |
+| deadlock | when every worker is idle, nothing waits in the poller or a system call and no timer is armed: "fatal error: all puroutines are asleep - deadlock!", status 2. The poller checks again after it runs timers, since a timer that fires may leave nothing to wake |
+| `SIGPIPE` | caught at startup (every hosted program, not only those that start puroutines) by a handler that returns, so a write to a pipe with no reader fails with `EPIPE`; `pluto/os` calls `rt.DieFromSigpipe` (default action, then `tgkill` of the calling thread) for `EPIPE` on descriptors 1 and 2 |
 
 The program's thread becomes the first worker when the first task operation runs (`Init`); the main
 task keeps running on the original stack, and the worker's scheduling loop gets a stack of its own.
@@ -972,5 +979,57 @@ task keeps running on the original stack, and the worker's scheduling loop gets 
 | `rt.Switch(from, to *Task)` | `rt.Switch(from, to *Context)`, which also serves idle and scheduling loops |
 | `rt.InitStack` | done by the runtime between `NewTask` and `Spawn` |
 | `DisablePreempt`, `EnablePreempt` | `rt.DisablePreemption`, `rt.EnablePreemption` |
-| `BlockUntil`, `Now`, `ParkUntil` | not yet: timers are planned with `time` (roadmap item 45) |
+| `BlockUntil(deadline)` | none: the runtime keeps the timers, and `rt.ParkUntil` is `Park` with a runtime timer that readies the task (section 12.9); a backend provides only `Now` and `ArmTimer` |
+| `Now()` | `Now()`, an optional method, needed by programs that use timers; `rt.Now()` calls it |
+| `ParkUntil(deadline)` | `rt.ParkUntil(deadline) bool`, true when readied, false on timeout |
 | `rt.StackOverflow`, `rt.TraceTask` | not yet; a kernel reports an overflow with `rt.PanicFault` |
+
+### 12.9 Timers
+
+The runtime implements timers on the backend's clock. `rt.Now()` is the clock: monotonic nanoseconds,
+the same on every processor, from the backend's `Now` method. An `rt.Timer` calls a function once its
+deadline has passed, and again every period if it has one:
+
+```go
+func (t *Timer) Init(f func(arg unsafe.Pointer, now int64), arg unsafe.Pointer)
+func (t *Timer) Reset(when, period int64) bool // arm; reports whether it was armed
+func (t *Timer) Stop() bool                    // disarm; reports whether it was armed
+func ParkUntil(deadline int64) bool            // Park, or false once deadline has passed
+func RunTimers()                               // run the expired timers of the shared heap
+const NoDeadline int64 = 1<<63 - 1
+```
+
+A `Timer` is a node of an intrusive pairing heap (child, sibling and back links in the record), so arming,
+stopping and firing never allocate. Each heap has a runtime lock, and a timer's function runs with it
+held: `Stop` therefore waits for a function that is running, and once it returns the function's memory
+may be freed. A timer's function runs wherever timers run (a hosted worker between puroutines, the
+hosted poller thread, or a kernel's timer interrupt), so it must not block, allocate or use timers; when
+an interrupt handler calls `rt.RunTimers`, the interrupt-context check (language spec section 12.6)
+follows the call into every function of type `func(unsafe.Pointer, int64)` the program takes. The
+library's functions ready a parked task (`ParkUntil`), send on a channel without waiting (`time.Timer`,
+`time.Ticker`) or queue an `AfterFunc` for a puroutine that starts it.
+
+`ParkUntil(deadline)` arms a timer in its frame whose function readies the task, and parks. A ready and
+the timeout race on a word in the frame, and the loser does nothing: the timer's function readies the
+task only if no other `Ready` came first. A `Ready` that loses to the timeout still grants its permit,
+so a caller that put the task on a waker's list removes it, and if the waker already took it, consumes
+that wakeup with `Park`. A permit granted before the call is consumed at once (true).
+
+**Kernels.** A backend that keeps no heaps of its own shares the runtime's one heap and provides two
+methods:
+
+| Method | Called | Must |
+|---|---|---|
+| `Now() int64` | by `rt.Now`, on any processor, in any context | return monotonic nanoseconds, the same on every processor; never block |
+| `ArmTimer(deadline int64)` | when the heap's earliest deadline becomes earlier than the last one given, with the heap's lock held (interrupts disabled in kernel mode) | arrange for `rt.RunTimers()` to be called once `Now()` has reached `deadline`; not call `RunTimers` itself, block or allocate |
+
+`rt.RunTimers()` runs the expired timers and gives the next deadline to `ArmTimer`. It never blocks and
+may be called from an interrupt handler: a kernel calls it from its timer interrupt once the armed deadline
+has passed (or on every tick, which costs a lock and a comparison), and with a tickless timer reprograms
+the hardware in `ArmTimer`. `Timer.Reset` and `Timer.Stop` take only runtime locks, so they work in
+interrupt context too. `testdata/kernel/sched` counts PIT ticks as its clock and runs the timers from
+the PIT handler; `testdata/plutonium/customsched.p` sleeps in its idle loop until the armed deadline.
+
+**Hosted.** The built-in backend keeps a heap per P instead (section 12.7): a timer goes into the heap of
+the P that arms it, and stays there until it fires or is stopped, whichever worker runs the heap. Its
+`ArmTimer` does nothing.

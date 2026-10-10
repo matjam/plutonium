@@ -26,10 +26,5 @@ func main() {
 	n, ok := t["b"]
 	_, _ = n, ok
 
-	m := hash.NewMap[string, int](0)
-	defer m.Free()
-	for k := range m {
-		_ = k
-	}
 	_ = load()["a"]
 }

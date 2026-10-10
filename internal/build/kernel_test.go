@@ -29,6 +29,10 @@ func TestKernelScheduler(t *testing.T) {
 		"spinner preempted by the timer\n" +
 		"ticks from the interrupt handler true true true\n" +
 		"b 42\n" +
+		"slept true\n" +
+		"woke in order 1 2 3\n" +
+		"select timed out\n" +
+		"ticker true true\n" +
 		"done\n"
 	for _, level := range []int{0, 2} {
 		t.Run("O"+string(rune('0'+level)), func(t *testing.T) {

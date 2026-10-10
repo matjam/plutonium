@@ -346,6 +346,9 @@ func (l *Lowerer) newFnState(job *funcJob) *fnState {
 		s.allocOK = job.parent.allocOK
 		s.bytewise = job.parent.bytewise
 	}
+	if job.ctor != nil {
+		f.NoSSE = l.cfg.Kernel && !hasDirective(job.ctor.decl.Doc, "fpu")
+	}
 	for range f.Blocks {
 		s.blocks = append(s.blocks, &blockState{})
 	}

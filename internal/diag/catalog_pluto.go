@@ -342,9 +342,24 @@ func init() {
 		},
 		&Entry{
 			Code: CheckerCode(typerr.RangeOverContainer), Name: "RangeOverContainer",
-			Text: "A for range loop over a container will call an iterator method once Plutonium supports ranging over functions. Until then, loop over the indexes, or over a view of the elements.",
-			Fix:  &Fix{Intro: "Loop over the indexes, or a slice view", Code: "for i := 0; i < len(v); i++ {\n\tuse(v[i])\n}\nfor _, x := range v.Slice() {\n\tuse(x)\n}"},
+			Text: "A for range loop over a value that is not a string, integer, array, slice, map, channel or function calls the value's All method and ranges over the iterator it returns, an iter.Seq or iter.Seq2. This type has no All method.\nGive the type an All method that returns an iterator, or range over one of its other iterators.",
+			Why:  "Library containers such as vec.Vec and hash.Map are structs, not built-in types, so the loop asks them for an iterator by name. vec.Vec and hash.Map have All, so they range like Go's slices and maps.",
+			Fix:  &Fix{Intro: "Add an All method", Code: "func (t *T) All() iter.Seq2[string, int] {\n\treturn func(yield func(string, int) bool) {\n\t\t// call yield for each key and value\n\t}\n}"},
 			Spec: pspec("6.7", "Indexing library containers"),
+		},
+		&Entry{
+			Code: CheckerCode(typerr.BadRangeMethod), Name: "BadRangeMethod",
+			Text:    "A for range loop over a container calls its All method, which must take no arguments and return an iterator: a function of the form func(yield func(K, V) bool), such as iter.Seq[V] or iter.Seq2[K, V]. This type's All method has another form.",
+			Spec:    pspec("6.7", "Indexing library containers"),
+			Example: "func (l *List) All() []int\n\nfor x := range l { ... }",
+			Fixed:   "func (l *List) All() iter.Seq[int]\n\nfor x := range l { ... }",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.UnaddressableRange), Name: "UnaddressableRange",
+			Text:    "A for range loop over a container calls its All method. That method has a pointer receiver, so the loop needs the address of the container. Here the container is a value that has no address, such as the result of a function call.\nStore the container in a variable first, or range over a pointer to it.",
+			Fix:     &Fix{Intro: "Store it in a variable first", Code: "m := load()\nfor k, v := range m {\n\tuse(k, v)\n}"},
+			Spec:    pspec("6.7", "Indexing library containers"),
+			Example: "for k, v := range load() { ... }",
 		},
 		&Entry{
 			Code: CheckerCode(typerr.UnaddressableContainer), Name: "UnaddressableContainer",
@@ -631,6 +646,13 @@ func init() {
 			Text: "This program starts puroutines, uses channels or waits in pluto/sync, so it needs a scheduler, and none is bound. Hosted builds bind one by default; a freestanding program, such as a kernel, provides its own: a package-level variable marked //pu:scheduler whose type implements rt.Scheduler.",
 			Why:  "Plutonium carries a scheduler only in programs that ask for one, and a kernel supplies its own, so a freestanding program must say which.",
 			Fix:  &Fix{Intro: "Bind the kernel's scheduler", Code: "//pu:scheduler\nvar scheduler kernelScheduler"},
+			Spec: pspec("4.7", "go starts a puroutine"),
+		},
+		&Entry{
+			Code: SchedulerTimers, Name: "SchedulerTimers",
+			Text: "Timers need two things from the scheduler: a clock, its Now method, which returns monotonic nanoseconds, and a way to be called back, its ArmTimer method, which asks for rt.RunTimers to be called once a deadline has passed. This program uses timers (time.Sleep, a time.Timer or Ticker, rt.ParkUntil or rt.Now), and the bound scheduler lacks one of them.",
+			Why:  "The scheduler contract keeps timers optional, so a kernel that never sleeps needs no clock. A program that does sleep must get its clock from the kernel, because only the kernel knows which timer hardware it drives.",
+			Fix:  &Fix{Intro: "Give the scheduler a clock, and run the timers from the timer interrupt", Code: "func (kernelSched) Now() int64 { return int64(ticks) * 1000000 }\n\nfunc (kernelSched) ArmTimer(deadline int64) { next = deadline }\n\n// in the timer interrupt handler:\nif kernelSched{}.Now() >= next {\n\trt.RunTimers()\n}"},
 			Spec: pspec("4.7", "go starts a puroutine"),
 		},
 		&Entry{

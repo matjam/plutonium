@@ -159,7 +159,8 @@ func (s *fnState) expandCtor(c *ctorInfo, targs []types2.Type, recv *value, args
 	var rec *ssa.Value
 	switch x := c.result.(type) {
 	case *ast.FuncLit:
-		rec = s.closure(x)
+		captures := s.capturedVars(x)
+		rec = s.closureWith(x, captures, s.ctorClosureFunc(c, targs, x, captures))
 	case *ast.CallExpr:
 		rec = s.callExpr(x).v
 	}
@@ -192,7 +193,13 @@ func (l *Lowerer) checkNotCtor(fn *types2.Func, pos token.Pos, what string) {
 		return
 	}
 	l.ctorMisused[fn.Origin()] = true
-	l.errorf(pos, diag.ClosureCtorValue, "%s returns a closure that captures its parameters, which is built in its caller's frame; it can only be called directly, not %s", fn.Name(), what)
+	l.ctorValueError(fn.Name(), pos, what)
+}
+
+// ctorValueError reports the closure constructor name used other than by a
+// call.
+func (l *Lowerer) ctorValueError(name string, pos token.Pos, what string) {
+	l.errorf(pos, diag.ClosureCtorValue, "%s returns a closure that captures its parameters, which is built in its caller's frame; it can only be called directly, not %s", name, what)
 }
 
 // checkCtorBody reports a closure constructor whose body is being lowered
