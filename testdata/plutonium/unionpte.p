@@ -107,7 +107,7 @@ func main() {
 	for i, raw := range table {
 		pte := PTE(raw) // converting from the raw word never fails
 		addr, swapped := translate(pte)
-		fmt.Printf("%d: %#018x present=%v addr=%#x swapped=%v\n", i, raw, pte.present, addr, swapped)
+		fmt.Printf("%d: %#016x present=%v addr=%#x swapped=%v\n", i, raw, pte.present, addr, swapped)
 	}
 
 	p := protect(PTE(table[0]))

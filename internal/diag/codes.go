@@ -40,6 +40,7 @@ const (
 	PerCPUInit        Code = "E2550" // a per-CPU variable with a non-constant initialiser
 	PerCPUMode        Code = "E2551" // //pu:percpu outside kernel mode
 	PerCPUSection     Code = "E2552" // //pu:percpu with //pu:section
+	StackDirective    Code = "E2560" // a malformed //pu:stack, or one not on main in a hosted build
 	InterruptDecl     Code = "E2570" // a //pu:interrupt function that cannot be a handler
 	InterruptSig      Code = "E2571" // a handler with the wrong parameters or results
 	HandlerAddrArg    Code = "E2572" // x86.HandlerAddr of something other than a handler

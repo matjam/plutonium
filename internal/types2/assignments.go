@@ -209,7 +209,10 @@ func (check *Checker) lhsVar(lhs ast.Expr) Type {
 	}
 
 	var x operand
+	saved := check.lhsExpr
+	check.lhsExpr = ast.Unparen(lhs)
 	check.expr(nil, &x, lhs)
+	check.lhsExpr = saved
 
 	if v != nil {
 		check.usedVars[v] = v_used // restore v.used
@@ -227,6 +230,10 @@ func (check *Checker) lhsVar(lhs ast.Expr) Type {
 	case variable, mapindex:
 		// ok
 	default:
+		if part := check.containerPart(x.expr); part != nil {
+			check.errorf(&x, ContainerElemAssign, "cannot assign to %s: %s is a copy returned by the Index method of %s", x.expr, part, check.containerOf(part))
+			return Typ[Invalid]
+		}
 		if sel, ok := x.expr.(*ast.SelectorExpr); ok {
 			var op operand
 			check.expr(nil, &op, sel.X)

@@ -12,6 +12,7 @@ import (
 	"selfhost/compat"
 	"selfhost/internal/arch/amd64"
 	"selfhost/internal/ssa"
+	"selfhost/pu"
 )
 
 func main() {
@@ -134,11 +135,11 @@ func caller(p *ssa.Program) *ssa.Func {
 	x := e.NewValueI(ssa.OpArg, ssa.TI64, 0)
 	tup := ssa.TupleOf(ssa.TMem, ssa.TI64)
 	c1 := e.NewValueA(ssa.OpCall, tup, p.Sym("demo.abs", ssa.SymFunc), x, mem)
-	c1.Call = new(ssa.CallInfo{Results: compat.Clone([]*ssa.Type{ssa.TI64})})
+	c1.Call = pu.New(ssa.CallInfo{Results: compat.Clone([]*ssa.Type{ssa.TI64})})
 	m1 := e.NewValueI(ssa.OpSelectN, ssa.TMem, 0, c1)
 	r1 := e.NewValueI(ssa.OpSelectN, ssa.TI64, 1, c1)
 	c2 := e.NewValueA(ssa.OpCall, tup, p.Sym("demo.sum", ssa.SymFunc), r1, m1)
-	c2.Call = new(ssa.CallInfo{Results: compat.Clone([]*ssa.Type{ssa.TI64})})
+	c2.Call = pu.New(ssa.CallInfo{Results: compat.Clone([]*ssa.Type{ssa.TI64})})
 	m2 := e.NewValueI(ssa.OpSelectN, ssa.TMem, 0, c2)
 	r2 := e.NewValueI(ssa.OpSelectN, ssa.TI64, 1, c2)
 	s := e.NewValue(ssa.OpAdd, ssa.TI64, r1, r2)

@@ -156,6 +156,54 @@ func Mul64(x, y uint64) (hi, lo uint64) {
 	return
 }
 
+// Div64 returns the quotient and remainder of (hi, lo) divided by y:
+// quo = (hi, lo)/y, rem = (hi, lo)%y, with the dividend's high bits in hi.
+// It panics if y is zero (division by zero) or y <= hi (the quotient
+// overflows 64 bits). It is Go's math/bits.Div64.
+func Div64(hi, lo, y uint64) (quo, rem uint64) {
+	if y == 0 {
+		panic("runtime error: integer divide by zero")
+	}
+	if y <= hi {
+		panic("runtime error: integer overflow")
+	}
+	if hi == 0 {
+		return lo / y, lo % y
+	}
+	s := uint(LeadingZeros64(y))
+	y <<= s
+	const (
+		two32  = 1 << 32
+		mask32 = two32 - 1
+	)
+	yn1 := y >> 32
+	yn0 := y & mask32
+	un32 := hi<<s | lo>>(64-s)
+	un10 := lo << s
+	un1 := un10 >> 32
+	un0 := un10 & mask32
+	q1 := un32 / yn1
+	rhat := un32 - q1*yn1
+	for q1 >= two32 || q1*yn0 > two32*rhat+un1 {
+		q1--
+		rhat += yn1
+		if rhat >= two32 {
+			break
+		}
+	}
+	un21 := un32*two32 + un1 - q1*y
+	q0 := un21 / yn1
+	rhat = un21 - q0*yn1
+	for q0 >= two32 || q0*yn0 > two32*rhat+un0 {
+		q0--
+		rhat += yn1
+		if rhat >= two32 {
+			break
+		}
+	}
+	return q1*two32 + q0, (un21*two32 + un0 - q0*y) >> s
+}
+
 // ----------------------------------------------------------------------------
 // In-place bit manipulation
 

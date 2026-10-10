@@ -6,6 +6,15 @@ issues:
   max-same-issues: 0
 
 linters:
+  settings:
+    errcheck:
+      # internal/pu.Buf mirrors strings.Builder, whose writes never fail and
+      # which errcheck already exempts.
+      exclude-functions:
+        - (*github.com/matjam/plutonium/internal/pu.Buf).Write
+        - (*github.com/matjam/plutonium/internal/pu.Buf).WriteByte
+        - (*github.com/matjam/plutonium/internal/pu.Buf).WriteRune
+        - (*github.com/matjam/plutonium/internal/pu.Buf).WriteString
   exclusions:
     rules:
       # internal/types2 is forked from go/types, which dot-imports its error

@@ -6,6 +6,7 @@ import (
 	"pluto/fmt"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
+	"selfhost/pu"
 )
 
 // RelocType is an x86-64 ELF relocation type.
@@ -543,9 +544,9 @@ func (e *encoder) encode(in *MInst) {
 		e.byte(0xF3, 0x90)
 	case MSAVEFLAGS:
 		e.byte(0x9C) // pushfq
-		e.encode(new(MInst{Op: MPOP, Dst: in.Dst}))
+		e.encode(pu.New(MInst{Op: MPOP, Dst: in.Dst}))
 	case MRESTOREFLAGS:
-		e.encode(new(MInst{Op: MPUSH, Src: in.Src}))
+		e.encode(pu.New(MInst{Op: MPUSH, Src: in.Src}))
 		e.byte(0x9D) // popfq
 	case MIN, MOUT:
 		e.byte(sizePrefix(size)...)

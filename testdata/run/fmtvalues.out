@@ -1,0 +1,43 @@
+5|5|5
+0x5|2.5|-3
+{0  [] <nil> <nil> <nil> 0 0}
+{A:0 b: C:[] D:<nil> E:<nil> F:<nil> G:0 H:0}
+main.T{A:0, b:"", C:[]int(nil), D:(*main.T)(nil), E:interface {}(nil), F:error(nil), G:0, H:0x0}
+&main.T{A:1, b:"", C:[]int{1, 2}, D:(*main.T)(nil), E:interface {}(nil), F:error(nil), G:0, H:0x0}
+{red 2 [red green]} {C:other c:0 P:[other other]} main.W{C:0, c:0, P:[2]main.Color{0, 0}}
+{{1 2} [{3 4} {5 6}] <nil> s true}
+{{1 2} [{3 4} {5 6}] <nil> s true}
+{In:{X:1 Y:2} Ins:[{X:3 Y:4} {X:5 Y:6}] P:<nil> S:s B:true}
+main.outer{In:main.inner{X:1, Y:2}, Ins:[]main.inner{main.inner{X:3, Y:4}, main.inner{X:5, Y:6}}, P:(*main.inner)(nil), S:"s", B:true}
+&{1 2} &[{3 4} {5 6}] &[7 8]
+&{1 2} &{X:3 Y:4} &main.inner{X:5, Y:6}
+[{1 2}] main.named{}
+[1 2 3] [a b c] [true false]
+[] [] []
+[]int(nil) []string{} [2]bool{true, false}
+[1 2] [1 2] 6869 6869 AB "a\"b"
+[]byte{0x1, 0x2} []byte(nil) [2]uint8{0x1, 0x2}
+[65 66] [65 66] AB
+[a ff] 0AFF [10]
+["a" "b\n"] [[1] [2 3]]
+[2][]int{[]int{1}, []int(nil)}
+[    1     2]|{1    2   }|[00003]|
+[1.5 2]|[  1.50]|[-1]
+main.Pair[int,string] struct { A int } []interface {} struct {} *main.outer
+[]uint8 int32 [3]*main.inner func(int) string
+main.Pair[int,string]{K:1, V:"x"}
+struct { A int; B []string }{A:1, B:[]string(nil)}
+<nil> <nil> (*main.T)(nil)
+[<nil>] {<nil>}
+[]interface {}{1, "a", interface {}(nil), 2.5, 1}
+[1 a <nil> 2.5 red]
+[%!s(int=1) a]|{0 %!d(string=) [] 0 <nil> <nil> %!d(float64=0) 0}
+{-1 -2 3} {<nil>}
+[<nil> boom] {Err:bad}
+struct { E error }{E:error(nil)}
+<nil> 1
+{Val:2 Next:<nil>}
+{1 2} {3 4}x[5]
+red [red green other] {green 0 [other other]}
+2 green [red]
+%!!(int=0)|%!z(string=s)|%!d(MISSING)

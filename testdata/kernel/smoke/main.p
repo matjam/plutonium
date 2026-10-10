@@ -3,7 +3,7 @@
 // instruction anywhere would fault), prints over the first serial port
 // with x86.Outb (println and pluto/fmt), sets up two per-CPU blocks from the .percpu image and
 // switches between them with WriteGSBase and Swapgs, then enables SSE for
-// one //pu:fpu call bracketed by FPUBegin and FPUEnd.
+// //pu:fpu calls bracketed by FPUBegin and FPUEnd.
 package main
 
 import (
@@ -63,7 +63,11 @@ func initBlock(i int) uintptr {
 
 type vec struct{ X, Y float64 }
 
+type pair struct{ A, B int32 }
+
 var v = vec{1.5, 2}
+
+var half float32 = 0.5
 
 var fpuState x86.FPUState
 
@@ -82,11 +86,24 @@ func describe(p *vec, buf []byte) []byte {
 	return fmt.Bprintf(buf, "fmt float %v\n", p.X)
 }
 
+// show prints floats with println, which in kernel builds writes their
+// bits.
+//
+//pu:fpu
+//pu:noinline
+func show(p *vec) {
+	println("println float", p.X, half)
+}
+
 func main() int64 {
 	rt.SetConsole(serialWrite)
 	println("hello from kernel mode")
 	var buf [64]byte
 	out := fmt.Bprintf(buf[:0], "fmt %d %s %#x %v\n", -42, "works", 255, true)
+	serialWrite(unsafe.Pointer(&out[0]), len(out))
+	// Composite values; kernel builds leave field names out of type
+	// descriptors, so %+v prints none.
+	out = fmt.Bprintf(buf[:0], "fmt %v %+v %v\n", pair{1, -2}, pair{3, 4}, []pair{{5, 6}})
 	serialWrite(unsafe.Pointer(&out[0]), len(out))
 
 	b0, b1 := initBlock(0), initBlock(1)
@@ -117,5 +134,8 @@ func main() int64 {
 	x86.FPUEnd(&fpuState)
 	serialWrite(unsafe.Pointer(&out[0]), len(out))
 	println("fpu result bits", *(*uint64)(unsafe.Pointer(&v.X)))
+	x86.FPUBegin(&fpuState)
+	show(&v)
+	x86.FPUEnd(&fpuState)
 	return 0
 }

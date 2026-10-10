@@ -6,6 +6,7 @@ import (
 	"pluto/fmt"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
+	"selfhost/pu"
 )
 
 // gsBaseMSR is IA32_GS_BASE.
@@ -24,20 +25,20 @@ func (s *isel) intrinsic(v *ssa.Value) error {
 	for _, t := range v.Type.Elems[1:] {
 		results = compat.Append(results, s.newReg(t))
 	}
-	in := func(op MOp) *MInst { return s.emit(new(MInst{Op: op})) }
+	in := func(op MOp) *MInst { return s.emit(pu.New(MInst{Op: op})) }
 	// msr64 combines EDX:EAX into results[0].
 	msr64 := func() {
 		hi := s.mf.newVReg(ClassGP)
 		s.copyReg(results[0], RAX, 8)
 		s.copyReg(hi, RDX, 8)
-		s.emit(new(MInst{Op: MSHL, Size: 8, Dst: RegOp(hi), Src: ImmOp(32)}))
-		s.emit(new(MInst{Op: MOR, Size: 8, Dst: RegOp(results[0]), Src: RegOp(hi)}))
+		s.emit(pu.New(MInst{Op: MSHL, Size: 8, Dst: RegOp(hi), Src: ImmOp(32)}))
+		s.emit(pu.New(MInst{Op: MOR, Size: 8, Dst: RegOp(results[0]), Src: RegOp(hi)}))
 	}
 	// splitEDXEAX puts the 64-bit value r in EDX:EAX.
 	splitEDXEAX := func(r Reg) {
 		hi := s.mf.newVReg(ClassGP)
 		s.copyReg(hi, r, 8)
-		s.emit(new(MInst{Op: MSHR, Size: 8, Dst: RegOp(hi), Src: ImmOp(32)}))
+		s.emit(pu.New(MInst{Op: MSHR, Size: 8, Dst: RegOp(hi), Src: ImmOp(32)}))
 		s.copyReg(RAX, r, 8)
 		s.copyReg(RDX, hi, 8)
 	}
@@ -55,17 +56,17 @@ func (s *isel) intrinsic(v *ssa.Value) error {
 	case "x86.Swapgs":
 		in(MSWAPGS)
 	case "x86.SaveFlagsCli":
-		s.emit(new(MInst{Op: MSAVEFLAGS, Size: 8, Dst: RegOp(results[0])}))
+		s.emit(pu.New(MInst{Op: MSAVEFLAGS, Size: 8, Dst: RegOp(results[0])}))
 		in(MCLI)
 	case "x86.RestoreFlags":
-		s.emit(new(MInst{Op: MRESTOREFLAGS, Size: 8, Src: RegOp(s.reg(args[0]))}))
+		s.emit(pu.New(MInst{Op: MRESTOREFLAGS, Size: 8, Src: RegOp(s.reg(args[0]))}))
 
 	case "x86.Inb", "x86.Inw", "x86.Inl":
 		size := sizeOf(v.Type.Elems[1])
 		port := s.port(args[0])
-		s.emit(new(MInst{Op: MIN, Size: size, Src: port, ImplicitUses: portUses(port), ImplicitDefs: compat.Clone([]Reg{RAX})}))
+		s.emit(pu.New(MInst{Op: MIN, Size: size, Src: port, ImplicitUses: portUses(port), ImplicitDefs: compat.Clone([]Reg{RAX})}))
 		if size < 4 {
-			s.emit(new(MInst{Op: MMOVZX, Size: 4, SrcSize: size, Dst: RegOp(results[0]), Src: RegOp(RAX)}))
+			s.emit(pu.New(MInst{Op: MMOVZX, Size: 4, SrcSize: size, Dst: RegOp(results[0]), Src: RegOp(RAX)}))
 		} else {
 			s.copyReg(results[0], RAX, 4)
 		}
@@ -74,69 +75,69 @@ func (s *isel) intrinsic(v *ssa.Value) error {
 		val := s.reg(args[1])
 		port := s.port(args[0])
 		s.copyReg(RAX, val, 8)
-		s.emit(new(MInst{Op: MOUT, Size: size, Src: port, ImplicitUses: compat.Append(portUses(port), RAX)}))
+		s.emit(pu.New(MInst{Op: MOUT, Size: size, Src: port, ImplicitUses: compat.Append(portUses(port), RAX)}))
 
 	case "x86.Rdmsr":
 		s.copyReg(RCX, s.reg(args[0]), 8)
-		s.emit(new(MInst{Op: MRDMSR, ImplicitUses: compat.Clone([]Reg{RCX}), ImplicitDefs: compat.Clone([]Reg{RAX, RDX})}))
+		s.emit(pu.New(MInst{Op: MRDMSR, ImplicitUses: compat.Clone([]Reg{RCX}), ImplicitDefs: compat.Clone([]Reg{RAX, RDX})}))
 		msr64()
 	case "x86.Wrmsr":
 		msr, val := s.reg(args[0]), s.reg(args[1])
 		splitEDXEAX(val)
 		s.copyReg(RCX, msr, 8)
-		s.emit(new(MInst{Op: MWRMSR, ImplicitUses: compat.Clone([]Reg{RCX, RAX, RDX})}))
+		s.emit(pu.New(MInst{Op: MWRMSR, ImplicitUses: compat.Clone([]Reg{RCX, RAX, RDX})}))
 	case "x86.ReadGSBase":
 		s.loadConst(RCX, gsBaseMSR, 4)
-		s.emit(new(MInst{Op: MRDMSR, ImplicitUses: compat.Clone([]Reg{RCX}), ImplicitDefs: compat.Clone([]Reg{RAX, RDX})}))
+		s.emit(pu.New(MInst{Op: MRDMSR, ImplicitUses: compat.Clone([]Reg{RCX}), ImplicitDefs: compat.Clone([]Reg{RAX, RDX})}))
 		msr64()
 	case "x86.WriteGSBase":
 		splitEDXEAX(s.reg(args[0]))
 		s.loadConst(RCX, gsBaseMSR, 4)
-		s.emit(new(MInst{Op: MWRMSR, ImplicitUses: compat.Clone([]Reg{RCX, RAX, RDX})}))
+		s.emit(pu.New(MInst{Op: MWRMSR, ImplicitUses: compat.Clone([]Reg{RCX, RAX, RDX})}))
 
 	case "x86.ReadCR0", "x86.ReadCR2", "x86.ReadCR3", "x86.ReadCR4":
 		n := int64(name[len(name)-1] - '0')
-		s.emit(new(MInst{Op: MRDCR, Size: 8, Imm: n, Dst: RegOp(results[0])}))
+		s.emit(pu.New(MInst{Op: MRDCR, Size: 8, Imm: n, Dst: RegOp(results[0])}))
 	case "x86.WriteCR0", "x86.WriteCR3", "x86.WriteCR4":
 		n := int64(name[len(name)-1] - '0')
-		s.emit(new(MInst{Op: MWRCR, Size: 8, Imm: n, Src: RegOp(s.reg(args[0]))}))
+		s.emit(pu.New(MInst{Op: MWRCR, Size: 8, Imm: n, Src: RegOp(s.reg(args[0]))}))
 	case "x86.Invlpg":
-		s.emit(new(MInst{Op: MINVLPG, Src: MemOp(BaseMem(s.reg(args[0]), 0))}))
+		s.emit(pu.New(MInst{Op: MINVLPG, Src: MemOp(BaseMem(s.reg(args[0]), 0))}))
 	case "x86.Lgdt":
-		s.emit(new(MInst{Op: MLGDT, Src: MemOp(s.addr(args[0]))}))
+		s.emit(pu.New(MInst{Op: MLGDT, Src: MemOp(s.addr(args[0]))}))
 	case "x86.Lidt":
-		s.emit(new(MInst{Op: MLIDT, Src: MemOp(s.addr(args[0]))}))
+		s.emit(pu.New(MInst{Op: MLIDT, Src: MemOp(s.addr(args[0]))}))
 	case "x86.Ltr":
-		s.emit(new(MInst{Op: MLTR, Size: 2, Src: RegOp(s.reg(args[0]))}))
+		s.emit(pu.New(MInst{Op: MLTR, Size: 2, Src: RegOp(s.reg(args[0]))}))
 
 	case "x86.Cpuid":
 		leaf, sub := s.reg(args[0]), s.reg(args[1])
 		s.copyReg(RAX, leaf, 8)
 		s.copyReg(RCX, sub, 8)
-		s.emit(new(MInst{Op: MCPUID, ImplicitUses: compat.Clone([]Reg{RAX, RCX}), ImplicitDefs: compat.Clone([]Reg{RAX, RBX, RCX, RDX})}))
+		s.emit(pu.New(MInst{Op: MCPUID, ImplicitUses: compat.Clone([]Reg{RAX, RCX}), ImplicitDefs: compat.Clone([]Reg{RAX, RBX, RCX, RDX})}))
 		for i, r := range []Reg{RAX, RBX, RCX, RDX} {
 			s.copyReg(results[i], r, 4)
 		}
 	case "x86.Rdtsc":
-		s.emit(new(MInst{Op: MRDTSC, ImplicitDefs: compat.Clone([]Reg{RAX, RDX})}))
+		s.emit(pu.New(MInst{Op: MRDTSC, ImplicitDefs: compat.Clone([]Reg{RAX, RDX})}))
 		msr64()
 	case "x86.Rdtscp":
-		s.emit(new(MInst{Op: MRDTSCP, ImplicitDefs: compat.Clone([]Reg{RAX, RCX, RDX})}))
+		s.emit(pu.New(MInst{Op: MRDTSCP, ImplicitDefs: compat.Clone([]Reg{RAX, RCX, RDX})}))
 		s.copyReg(results[1], RCX, 4)
 		msr64()
 
 	case "x86.GSLoad64", "x86.GSLoad32":
 		size := sizeOf(v.Type.Elems[1])
-		s.emit(new(MInst{Op: MMOV, Size: size, Dst: RegOp(results[0]), Src: MemOp(s.gsMem(args[0]))}))
+		s.emit(pu.New(MInst{Op: MMOV, Size: size, Dst: RegOp(results[0]), Src: MemOp(s.gsMem(args[0]))}))
 	case "x86.GSStore64", "x86.GSStore32":
 		m := s.gsMem(args[0])
-		s.emit(new(MInst{Op: MMOV, Size: sizeOf(args[1].Type), Dst: MemOp(m), Src: s.operand(args[1])}))
+		s.emit(pu.New(MInst{Op: MMOV, Size: sizeOf(args[1].Type), Dst: MemOp(m), Src: s.operand(args[1])}))
 
 	case "x86.FPUBegin":
 		in(MCLTS)
-		s.emit(new(MInst{Op: MFXSAVE, Src: MemOp(s.addr(args[0]))}))
+		s.emit(pu.New(MInst{Op: MFXSAVE, Src: MemOp(s.addr(args[0]))}))
 	case "x86.FPUEnd":
-		s.emit(new(MInst{Op: MFXRSTOR, Src: MemOp(s.addr(args[0]))}))
+		s.emit(pu.New(MInst{Op: MFXRSTOR, Src: MemOp(s.addr(args[0]))}))
 
 	default:
 		return fmt.Errorf("amd64: unknown intrinsic %q", name)

@@ -13,6 +13,18 @@ _start:
 	call	"pluto/rt.start"
 	ud2
 
+# runOnStack(top uintptr): switch to the stack whose highest address is top
+# and run the program there; mainOnStack never returns. RBP is cleared so
+# that nothing walks past the new stack's first frame.
+	.globl "pluto/rt.runOnStack"
+	.type "pluto/rt.runOnStack", @function
+"pluto/rt.runOnStack":
+	movq	%rdi, %rsp
+	andq	$-16, %rsp
+	xorl	%ebp, %ebp
+	call	"pluto/rt.mainOnStack"
+	ud2
+
 # syscall3(num, a1, a2, a3 uintptr) uintptr
 	.globl "pluto/rt.syscall3"
 	.type "pluto/rt.syscall3", @function

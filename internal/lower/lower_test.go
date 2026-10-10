@@ -184,3 +184,35 @@ func main() {
 		t.Error("no slot has padding; the test no longer exercises pads")
 	}
 }
+
+// TestDropUnusedGlobals checks that unexported package variables nothing
+// reads are left out (pluto/rt's float table, when nothing prints a float),
+// while exported ones and ones that reached code reads stay.
+func TestDropUnusedGlobals(t *testing.T) {
+	prog := lowerSource(t, `package main
+
+var table = [4]uint64{1, 2, 3, 4}
+
+var read = [2]int{5, 6}
+
+var Exported = [2]int{7, 8}
+
+func unused() uint64 { return table[1] }
+
+func main() { println(read[1]) }
+`)
+	have := map[string]bool{}
+	for _, d := range prog.Data {
+		have[d.Sym.Name] = true
+	}
+	for name, want := range map[string]bool{
+		"main.table":        false,
+		"main.read":         true,
+		"main.Exported":     true,
+		"pluto/rt.pow10Tab": false,
+	} {
+		if have[name] != want {
+			t.Errorf("%s emitted: %v, want %v", name, have[name], want)
+		}
+	}
+}

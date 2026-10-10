@@ -6,6 +6,7 @@ import (
 	"pluto/hash"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
+	"selfhost/pu"
 )
 
 // Unroll fully unrolls loops that run a small constant number of times,
@@ -139,7 +140,7 @@ func unrollLoop(f *ssa.Func, l *ssa.Loop, limit int) bool {
 				nv.AuxInt, nv.Aux = v.AuxInt, v.Aux
 				nv.CopyPos(v)
 				if v.Call != nil {
-					c := new(*v.Call)
+					c := pu.New(*v.Call)
 					nv.Call = c
 				}
 				maps[k].Set(v, nv)

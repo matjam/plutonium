@@ -36,7 +36,7 @@ func (p *printer) printFloat(f float64, bitSize int, verb rune) {
 	case 'F':
 		fmtc = 'f'
 	default:
-		p.badVerb(verb, "float")
+		p.badVerb(verb)
 		return
 	}
 	if (fmtc == 'e' || fmtc == 'E' || fmtc == 'f') && prec < 0 {
@@ -74,5 +74,5 @@ func (p *printer) printFloat(f float64, bitSize int, verb rune) {
 		p.writeBytes(padded[:k])
 		return
 	}
-	p.field(body)
+	p.fieldNoZero(body)
 }

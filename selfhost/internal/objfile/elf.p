@@ -10,6 +10,7 @@ import (
 	"pluto/sort"
 	"selfhost/compat"
 	"selfhost/elf"
+	"selfhost/pu"
 )
 
 // A Section is an output section.
@@ -50,7 +51,7 @@ type Object struct {
 }
 
 // New returns an empty object.
-func New() *Object { return new(Object{syms: compat.NewMap[string, *Symbol](0)}) }
+func New() *Object { return pu.New(Object{syms: compat.NewMap[string, *Symbol](0)}) }
 
 // Section returns the named section, creating it with the given attributes.
 func (o *Object) Section(name string, typ elf.SectionType, flags elf.SectionFlag, align uint64) *Section {
@@ -62,7 +63,7 @@ func (o *Object) Section(name string, typ elf.SectionType, flags elf.SectionFlag
 			return s
 		}
 	}
-	s := new(Section{Name: name, Type: typ, Flags: flags, Align: align})
+	s := pu.New(Section{Name: name, Type: typ, Flags: flags, Align: align})
 	o.Sections = compat.Append(o.Sections, s)
 	return s
 }
@@ -112,7 +113,7 @@ func (o *Object) Define(sym *Symbol) {
 // Reference ensures a symbol exists, undefined if not defined later.
 func (o *Object) Reference(name string) {
 	if _, ok := compat.MapGet(o.syms, name); !ok {
-		o.syms.Set(name, new(Symbol{Name: name, Bind: elf.STB_GLOBAL, Type: elf.STT_NOTYPE}))
+		o.syms.Set(name, pu.New(Symbol{Name: name, Bind: elf.STB_GLOBAL, Type: elf.STT_NOTYPE}))
 		o.order = compat.Append(o.order, name)
 	}
 }
@@ -154,7 +155,7 @@ func (o *Object) Write(w io.Writer) error {
 		return compat.MapAt(o.syms, a).Bind == elf.STB_LOCAL && compat.MapAt(o.syms, b).Bind != elf.STB_LOCAL
 	})
 	symIndex := compat.NewMap[string, int](0)
-	symtab := new(compat.Buffer)
+	symtab := pu.Alloc[compat.Buffer]()
 	symtab.Write(make([]byte, 24)) // null symbol
 	firstGlobal := 1
 	for i, n := range names {
@@ -204,7 +205,7 @@ func (o *Object) Write(w io.Writer) error {
 		if len(s.Relocs) == 0 {
 			continue
 		}
-		buf := new(compat.Buffer)
+		buf := pu.Alloc[compat.Buffer]()
 		for _, r := range s.Relocs {
 			idx, ok := compat.MapGet(symIndex, r.Sym)
 			if !ok {
@@ -266,7 +267,7 @@ func (o *Object) Write(w io.Writer) error {
 		Shnum:     uint16(len(headers)),
 		Shstrndx:  uint16(shstrIndex),
 	}
-	out := new(compat.Buffer)
+	out := pu.Alloc[compat.Buffer]()
 	_ = goWriteLEHeader64Ptr(out, &hdr)
 	for i := range headers {
 		h := headers[i].hdr

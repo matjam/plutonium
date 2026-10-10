@@ -173,10 +173,25 @@ type Checker struct {
 	// once checking is done (see reportComplex).
 	complexAt []token.Pos
 
+	// Plutonium: current nesting of expressions and type expressions, and
+	// whether nesting too deep has been reported (see enter).
+	nesting   int
+	nestingAt bool
+
 	// Plutonium: the expression multiExpr is evaluating in a two-value
 	// (comma-ok) context, or nil. A non-constant conversion to an enum
 	// type is valid only as that expression.
 	commaOkExpr ast.Expr
+
+	// Plutonium: the expression lhsVar is evaluating as the target of an
+	// assignment, or nil. An index expression on a container is a call of
+	// SetIndex there and of Index elsewhere (see containerIndex).
+	lhsExpr ast.Expr
+
+	// Plutonium: index expressions that call a container's indexing
+	// methods, so that taking their address or assigning to a part of one
+	// can be explained (see indexing.go).
+	containerIndexes map[ast.Expr]Type // to the container's type
 
 	// Plutonium: type switches on union values that name every variant
 	// (or cover every tag value of a packed union) without a default

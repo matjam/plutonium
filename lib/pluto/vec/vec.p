@@ -13,6 +13,9 @@
 //	for _, x := range v.Slice() { ... }
 //	for i, x := range v.All() { ... } // reads v as it goes
 //
+// v[i], v[i] = x and len(v) work as on a slice, through the methods Index,
+// SetIndex and Len (language spec section 6.7).
+//
 // A Vec must not be copied after first use; pass a *Vec. Slices returned by
 // Slice and pointers returned by Ptr are invalidated by any call that grows
 // the Vec (Push, Append, Insert, Reserve) and by Free.
@@ -25,8 +28,12 @@ import (
 )
 
 // A Vec is a growable sequence of T whose storage comes from an allocator.
-// The zero Vec is empty and has no allocator: it can be read but must be
-// given one with Init before it can grow.
+// The zero Vec is empty and ready to use: unless Init gives it an allocator
+// first, it takes the default allocator the first time it grows.
+//
+// A Vec owns its storage, so it is an owner (language spec section 6.4):
+// Drop releases it. Declaring the type owner is a one-line change once the
+// keyword lands (roadmap item 51).
 type Vec[T any] struct {
 	data []T
 	a    alloc.Allocator
@@ -75,7 +82,26 @@ func (v *Vec[T]) At(i int) T { return v.data[i] }
 // Set sets element i to x. It panics if i is out of range.
 func (v *Vec[T]) Set(i int, x T) { v.data[i] = x }
 
+// Index returns element i; it is what v[i] calls (language spec section
+// 6.7). It panics if i is out of range.
+func (v *Vec[T]) Index(i int) T { return v.data[i] }
+
+// SetIndex sets element i to x; it is what v[i] = x calls. It panics if i
+// is out of range.
+func (v *Vec[T]) SetIndex(i int, x T) { v.data[i] = x }
+
+// FmtList returns a pointer to the first element and the number of
+// elements, so that pluto/fmt prints v like a slice (fmt.Lister).
+func (v *Vec[T]) FmtList() (any, int) {
+	if len(v.data) == 0 {
+		return nil, 0
+	}
+	return &v.data[0], len(v.data)
+}
+
 // Ptr returns a pointer to element i, valid until v grows or is freed.
+// &v[i] is not allowed, since v[i] is a copy; Ptr is the way to change an
+// element in place.
 func (v *Vec[T]) Ptr(i int) *T { return &v.data[i] }
 
 // Last returns the last element and true, or the zero T and false if v is
@@ -189,6 +215,19 @@ func (v *Vec[T]) Free() {
 	v.data = nil
 }
 
+// Drop returns v's storage to its allocator and leaves v empty: the owner's
+// release (Free under its spec name).
+func (v *Vec[T]) Drop() { v.Free() }
+
+// Clone returns an independent copy of v, allocating from a (by default
+// the default allocator), with capacity for exactly its elements. Elements
+// are copied as values.
+func (v *Vec[T]) Clone(a alloc.Allocator = alloc.Default()) Vec[T] {
+	out := WithCapacity[T](len(v.data), a)
+	out.data = append(out.data, v.data...)
+	return out
+}
+
 // Map returns a new Vec, allocating from a (by default the default
 // allocator), that holds f applied to each element of v in order. v is
 // unchanged.
@@ -274,7 +313,10 @@ func (v *Vec[T]) grow(n int) {
 // realloc moves the elements into new storage of capacity c.
 func (v *Vec[T]) realloc(c int) {
 	if v.a == nil {
-		panic("vec: Vec has no allocator (create it with vec.New or call Init)")
+		v.a = alloc.Default()
+		if v.a == nil {
+			panic("vec: no allocator (call alloc.SetDefault, or give the Vec one with Init)")
+		}
 	}
 	var zero T
 	p := v.a.Alloc(storageSize[T](c), unsafe.Alignof(zero))

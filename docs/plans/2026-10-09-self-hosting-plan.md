@@ -254,9 +254,9 @@ is ever freed individually. `selfhost/compat` holds the few functions that need 
 | `sort.Slice(x, func(i, j int) bool { ... x[i] ... x[j] ... })` | `sort.SortFunc(x, func(a, b T) bool { ... a ... b ... })` | same pdqsort as Go, so ties come out in the same order; verified |
 | `binary.Write(w, binary.LittleEndian, &x)` | `goWriteLE<T>(w, &x)` | generated field-by-field encoder |
 | `binary.LittleEndian.PutUint32(b, v)` | `compat.PutUint32(b, v)` | |
-| `&T{...}` that escapes | `new(T{...})` | per Go's escape analysis (3.3); Go 1.26's `new` of a value, from the current allocator |
+| `&T{...}` that escapes | `pu.New(T{...})` | per Go's escape analysis (3.3); `selfhost/pu.New` copies the value into the phase arena (the current allocator). go2pu emitted `new(T{...})` until `new` was to return `owned[T]` (section 11) |
 | `[]T{...}` that escapes | `compat.Clone([]T{...})` | per Go's escape analysis |
-| `x` moved to heap | `x := new(e)`; uses `(*x)`; `&x` is `x` | parameters copied in at the top of the body |
+| `x` moved to heap | `x := pu.New(e)` (or `pu.Alloc[T]()` without a value); uses `(*x)`; `&x` is `x` | parameters copied in at the top of the body |
 | `debug/elf`, `internal/...` imports | `selfhost/elf`, `selfhost/internal/...` | |
 
 An example, from `internal/objfile` (the Go source, then go2pu's output, unedited):
@@ -315,7 +315,8 @@ Plutonium puts composite literals, their addresses and every local in the frame 
 Go moves to the heap whatever escape analysis cannot prove stays in the frame. go2pu runs
 `go build -gcflags='-m -l'` on each package and allocates exactly what Go moves:
 
-- `&T{...}` reported as escaping becomes `new(T{...})`, which allocates from the current allocator;
+- `&T{...}` reported as escaping becomes `pu.New(T{...})`, which allocates from the current allocator
+  (the phase arena);
 - a slice literal reported as escaping becomes `compat.Clone(...)`;
 - a variable reported as "moved to heap" becomes a pointer to an allocation;
 - a capturing function literal reported as escaping is flagged for hand-fixing (section 3.6).
@@ -755,19 +756,19 @@ all covered by gaps 6 and 9 (`errors.Join` arrived with the errors design).
 
 Sizes are in lines written or changed, not in time.
 
-| Phase | Work | Size | Kind | Risk | Needs first |
-|---|---|---:|---|---|---|
-| 0 | Escape errors for frame addresses (roadmap item 5); determinism fixes; direct single-pointer structs; itab lookup | 1,000-1,500 compiler | compiler | medium | - |
-| 1 | Library: growable arenas, OS layer, `strconv` quoting and `ParseFloat`, `unicode` predicates, slices/heap/streaming hash, strings with allocators | 6,000 | library, half mechanical | low | - |
-| 2 | Back end: `ssa`, `opt`, `amd64`, `objfile` (**done** in the prototype, differential at `-O0`/`-O2`); port their Go tests; per-function arenas in `ssa` | 9,356 translated, ~300 by hand | mechanical | low | arenas |
-| 3 | SSA reader; mixed pipeline (Go front end, Plutonium back end) on the whole test corpus | 400 | hand | low | 2 |
-| 4 | Syntax: `token`, `scanner`, `ast`, `parser` (`recover` in the parser, `FileSet` without `sync`, iterators, drop `ast/print.go`) | 8,377 translated, ~400 by hand | mechanical | low | 1 |
-| 5 | `lower` (closure conversion for `funcJob`, intrinsics table, constants) | 5,766 translated, ~400 by hand | mechanical plus conversion | medium | constant package, go2pu closure conversion |
-| 6 | Constant package | 2,500-3,500 | hand | medium | - |
-| 7 | `types2` (constants, `later` conversion, sync stubs, iterators, hashing) | 26,772 translated, 300-500 by hand | mechanical plus conversion | high (size, recursion depth, performance) | 5, 6, itab lookup |
-| 8 | `load`, `build`, `cmd/pluto`; stage 1, 2, 3 on Linux; bootstrap check in CI; cutover | 1,900 by hand | hand | medium | 1, 7 |
-| 9 | PlutoniumOS: target and OS layer, integrated assembler and linker, cross-built seed, on-system rebuild | 5,000+ | hand | high | 8, kernel system calls |
-| later | Formatter (`printer`, `format`, `diff`, `tabwriter`, `go/doc/comment`); idiomatic cleanup replacing compat; performance | 4,534 translated + 2,100 library | mixed | low | 8 |
+| Phase | Work | Size | Kind | Risk | Needs first | Status |
+|---|---|---:|---|---|---|---|
+| 0 | Escape errors for frame addresses (roadmap item 5); determinism fixes; direct single-pointer structs; itab lookup | 1,000-1,500 compiler | compiler | medium | - | direct single-pointer structs, hashed itab lookup, `//pu:stack` and the type checker's nesting limit done (roadmap item 54) |
+| 1 | Library: growable arenas, OS layer, `strconv` quoting and `ParseFloat`, `unicode` predicates, slices/heap/streaming hash, strings with allocators | 6,000 | library, half mechanical | low | - | growable arenas (`arena.Chunked`), the OS layer (`os`, `os/exec`, `path/filepath`, `time`, `flag`) and the `pu` mirror package with its go2pu mapping (section 11) done (roadmap items 52 and 54); `strconv` quoting and `ParseFloat`, `unicode`, slices/heap/streaming hash, and migrating the compiler to `pu` remain |
+| 2 | Back end: `ssa`, `opt`, `amd64`, `objfile` (**done** in the prototype, differential at `-O0`/`-O2`); port their Go tests; per-function arenas in `ssa` | 9,356 translated, ~300 by hand | mechanical | low | arenas | prototype done |
+| 3 | SSA reader; mixed pipeline (Go front end, Plutonium back end) on the whole test corpus | 400 | hand | low | 2 | not started |
+| 4 | Syntax: `token`, `scanner`, `ast`, `parser` (`recover` in the parser, `FileSet` without `sync`, iterators, drop `ast/print.go`) | 8,377 translated, ~400 by hand | mechanical | low | 1 | not started |
+| 5 | `lower` (closure conversion for `funcJob`, intrinsics table, constants) | 5,766 translated, ~400 by hand | mechanical plus conversion | medium | constant package, go2pu closure conversion | not started |
+| 6 | Constant package | 2,500-3,500 | hand | medium | - | done in Go (`internal/constant`, 2,800 lines, differential against go/constant; roadmap item 54); its translation waits for `strconv` quoting |
+| 7 | `types2` (constants, `later` conversion, sync stubs, iterators, hashing) | 26,772 translated, 300-500 by hand | mechanical plus conversion | high (size, recursion depth, performance) | 5, 6, itab lookup | not started |
+| 8 | `load`, `build`, `cmd/pluto`; stage 1, 2, 3 on Linux; bootstrap check in CI; cutover | 1,900 by hand | hand | medium | 1, 7 | not started |
+| 9 | PlutoniumOS: target and OS layer, integrated assembler and linker, cross-built seed, on-system rebuild | 5,000+ | hand | high | 8, kernel system calls | not started |
+| later | Formatter (`printer`, `format`, `diff`, `tabwriter`, `go/doc/comment`); idiomatic cleanup replacing compat; performance | 4,534 translated + 2,100 library | mixed | low | 8 | not started |
 
 Roadmap items that must land first: item 5 (escape errors) before any hand-written compiler code; item 11
 (the errors design) has landed and the port follows it; item 43 (debug allocator) to check
@@ -897,6 +898,31 @@ The methods are the Plutonium ones, with the same names and signatures (`Get`, `
 translation are the same text with a different import. In Go, `Drop` does nothing. Each type embeds a
 `noCopy` marker so that `go vet`'s copylocks check reports copies, which are the Go spelling of a use after
 move; `Clone` is the explicit copy in both languages.
+
+**Status (done, roadmap item 52).** `internal/pu` exists with the names above plus `NewVec`,
+`VecWithCapacity`, `NewMap`, `NewSet` and the iterators `MapIter` and `SetIter`; `pu.Map` holds its
+values behind pointers so that `Ptr` and `Upsert` can return them as `hash.Map`'s do. What the translation
+maps to today, where the library is not yet at the end state:
+
+- `pu.Buf` becomes `strings.Builder` (zero value usable, `Drop` added); it becomes `strings.Buf` with
+  roadmap item 51 by changing one entry of go2pu's table. `pu.Sprintf` becomes `selfhost/pu.Sprintf`,
+  which returns a `strings.Builder`: `pluto/fmt` cannot return a `pluto/strings` type yet without an
+  import cycle through the tests of `pluto/strings` (roadmap item 47).
+- `pu.New(v)` becomes `selfhost/pu.New(v)`, which copies `v` into memory from the default allocator,
+  the phase arena by the driver's convention. The library's spelling, `a.New[T]()` (added to
+  `arena.Arena` and `arena.Chunked`), names its arena, which the translated code does not have at hand.
+- The library gained what the mirror needs: zero `vec.Vec` and `hash.Map` values that take the default
+  allocator when they first grow, `Map.At`, `Clone` on `Vec`, `Map` and `Set`, and `Drop` on each.
+
+go2pu's own allocations follow: an escaping `&T{...}`, and a variable Go moves to the heap, now become
+`pu.New(...)` (`pu.Alloc[T]()` for a variable without a value) instead of `new(...)`, so the checked-in
+translations no longer depend on what `new` returns.
+
+`TestPuMirrorsLibrary` (go2pu) checks that every name and method of `internal/pu` exists in the library
+under its mapped name; the `pudemo` demo, translated with no notes, prints the same output from Go and
+from Plutonium at `-O0` and `-O2`. The compiler's own code has not moved to `pu` yet (section 11.2). The
+lint configuration exempts `pu.Buf`'s writes from errcheck, as errcheck exempts `strings.Builder`'s;
+`fmt.Fprintf(&buf, ...)` into a `pu.Buf` needs its results discarded explicitly.
 
 ### 11.2 Migration
 

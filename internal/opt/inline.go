@@ -1,6 +1,8 @@
 package opt
 
 import (
+	"sort"
+
 	"github.com/matjam/plutonium/internal/ssa"
 )
 
@@ -20,8 +22,28 @@ const inlineBudget = 80
 // function: the copy replaces the original rather than adding to it.
 const singleUseBudget = 600
 
-// maxCallerSize stops inlining into a caller that has grown this large.
-const maxCallerSize = 20000
+// Each caller has a growth budget: inlining into it stops once it would
+// grow past growthFactor times its size before inlining, or growthMin
+// values for a small one, and never past maxCallerSize. This applies to
+// //pu:inline callees and to calls through closures too. Without it, a
+// function making many calls to inlinable functions grows without bound,
+// and register allocation, which is superlinear in the size of a function,
+// comes to dominate the compile. The values were chosen by measurement:
+// none of the benchmarks reaches the budget, and an inline-heavy fuzzer
+// program that grew functions from 1,000 to 20,000 values compiles in a
+// tenth of the time.
+//
+// A caller's size before inlining counts the closures used once that it
+// makes (the bodies of its loops over functions, say), since they are
+// part of its source: inlining them moves code rather than copying it.
+const (
+	growthFactor  = 4
+	growthMin     = 5000
+	maxCallerSize = 20000
+)
+
+// callSize is what funcSize counts for a call, which inlining replaces.
+const callSize = 6
 
 // Inline runs the inliner over a program, then cleans up each function it
 // changed.
@@ -115,6 +137,23 @@ func funcSize(f *ssa.Func) int {
 	return n
 }
 
+// sourceSize is f's size before inlining for its growth budget: its own
+// size and that of each closure used once that it makes.
+func sourceSize(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]int, refs map[*ssa.Sym]int) int {
+	n := funcSize(f)
+	for _, b := range f.Blocks {
+		for _, v := range b.Values {
+			if v.Op != ssa.OpFuncAddr || refs[v.Aux.(*ssa.Sym)] != 1 {
+				continue
+			}
+			if g := funcs[v.Aux.(*ssa.Sym)]; g != nil && g != f {
+				n += sizes[g]
+			}
+		}
+	}
+	return n
+}
+
 // inlineInto inlines eligible calls in f, reporting whether it changed f.
 func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]int, inCycle map[*ssa.Func]bool, scc []*ssa.Func, refs map[*ssa.Sym]int) bool {
 	changed := false
@@ -122,6 +161,7 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 	for _, g := range scc {
 		sameSCC[g] = true
 	}
+	limit := min(maxCallerSize, max(growthMin, growthFactor*sourceSize(f, funcs, sizes, refs)))
 	// Each round can expose more: a closure inlined in one round makes the
 	// calls through the closures it was given direct in the next (a loop
 	// over a function: first its iterator, then the loop body).
@@ -170,12 +210,21 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 		if len(sites) == 0 {
 			break
 		}
+		// Smallest callees first, so that when the budget runs out the
+		// calls left are the ones that would have cost the most to copy.
+		// The size is kept up to date by adding each callee's size
+		// rather than recounting, which would be quadratic.
+		sort.SliceStable(sites, func(i, j int) bool {
+			return sizes[callTarget(sites[i], funcs)] < sizes[callTarget(sites[j], funcs)]
+		})
+		size := funcSize(f)
 		for _, v := range sites {
-			if funcSize(f) > maxCallerSize {
-				return changed
-			}
 			g := callTarget(v, funcs)
+			if size+sizes[g]-callSize > limit {
+				continue
+			}
 			inlineCall(f, v, g)
+			size += sizes[g] - callSize
 			changed = true
 			if checkSSA {
 				if err := verify(f); err != nil {
