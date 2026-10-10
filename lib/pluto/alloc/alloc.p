@@ -59,26 +59,23 @@ func (r *Restore) Drop() {
 // be an owner: the memory itself has no owner until the caller gives it one
 // (language spec section 6.6).
 func New[T owner any](a Allocator = Default()) *T {
-	var zero T
-	return (*T)(must(a, unsafe.Sizeof(zero), unsafe.Alignof(zero), rt.CallerPC()))
+	var p *T // only for its element's size: Sizeof does not evaluate *p
+	return (*T)(must(a, unsafe.Sizeof(*p), unsafe.Alignof(*p), rt.CallerPC()))
 }
 
 // Free returns p, allocated by New, to the allocator it came from: a, by
-// default the default allocator. If T has a Drop method it is called first.
-// The call's site is published through rt.AllocSite while the allocator
-// runs (if rt.TrackSites).
+// default the default allocator. If T is an owner, *p is dropped first
+// (its Drop method, then its fields). The call's site is published through
+// rt.AllocSite while the allocator runs (if rt.TrackSites).
 func Free[T owner any](p *T, a Allocator = Default()) {
 	if p == nil {
 		return
 	}
-	if d, ok := any(p).(interface{ Drop() }); ok {
-		d.Drop()
-	}
-	var zero T
+	unsafe.Drop(p)
 	if rt.TrackSites {
 		rt.SetAllocSite(rt.CallerPC())
 	}
-	a.Free(unsafe.Pointer(p), unsafe.Sizeof(zero), unsafe.Alignof(zero))
+	a.Free(unsafe.Pointer(p), unsafe.Sizeof(*p), unsafe.Alignof(*p))
 	if rt.TrackSites {
 		rt.SetAllocSite(0)
 	}

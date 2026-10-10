@@ -15,6 +15,7 @@ The compiler is written in Go. Pipeline:
 | scanner, parser, AST (forked from Go) | `internal/syntax/...` |
 | type checker (forked go/types + Plutonium types) | `internal/types2` |
 | package loading, build tags, `pluto.mod` | `internal/load` |
+| move checker for owners (language spec 6.4) | `internal/moves` |
 | stack escape analysis (language spec 6.3) | `internal/escape` |
 | typed AST to SSA | `internal/lower` |
 | SSA IR, verifier, basic passes | `internal/ssa` |
@@ -127,6 +128,7 @@ Every change must pass ALL of these before committing:
    - `internal/diff`: ≥98%
    - `internal/types2`: ≥56%
    - `internal/escape`: ≥90%
+   - `internal/moves`: ≥80%
    - `internal/lsp`: ≥85%
 
    New code paths need tests: a `testdata/run` program for language features,

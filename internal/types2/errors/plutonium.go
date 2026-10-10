@@ -156,6 +156,9 @@ const (
 	OwnerTypeArg
 	// BadTakeArg: take with an argument that is not a pointer.
 	BadTakeArg
+	// BadUnsafeDropArg: unsafe.Drop with an argument that is not a
+	// pointer.
+	BadUnsafeDropArg
 )
 
 // The indexing interface: index expressions on library containers.

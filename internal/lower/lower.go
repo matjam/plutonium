@@ -58,6 +58,7 @@ type Lowerer struct {
 
 	funcs          map[string]*ssa.Sym // instantiated functions by symbol name
 	queue          []*funcJob
+	dropNeeds      map[string]bool // whether destroying a value of a type runs code, by type (drop.go)
 	globals        map[*types2.Var]*ssa.Sym
 	strs           map[string]*ssa.Sym
 	closureRecords map[*ssa.Sym]*ssa.Sym      // static closure record per function used as a value
@@ -136,6 +137,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		pkgOf:          map[*types2.Package]*load.Package{},
 		decls:          map[*types2.Func]*funcDecl{},
 		funcs:          map[string]*ssa.Sym{},
+		dropNeeds:      map[string]bool{},
 		globals:        map[*types2.Var]*ssa.Sym{},
 		strs:           map[string]*ssa.Sym{},
 		closureRecords: map[*ssa.Sym]*ssa.Sym{},

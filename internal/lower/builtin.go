@@ -64,6 +64,12 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		s.callRuntime("memmove", nil, []*ssa.Value{s.checked(dp), s.checked(sp), bytes})
 		return one(scalarValue(n, T))
 
+	case "Drop":
+		// unsafe.Drop(p): the drop glue of *p.
+		p := s.expr(e.Args[0])
+		s.dropAt(s.checked(p.v), pointerElem(s.typeOf(e.Args[0])))
+		return nil
+
 	case "take":
 		// take(p): the value at p, which then holds the zero value
 		// (language spec section 6.4).

@@ -169,6 +169,7 @@ const (
 	_SliceData
 	_String
 	_StringData
+	_Drop // Plutonium: unsafe.Drop(p) destroys *p (the unchecked layer)
 
 	// testing support
 	_Assert
@@ -210,6 +211,7 @@ var predeclaredFuncs = [...]struct {
 	_SliceData:  {"SliceData", 1, false, expression},
 	_String:     {"String", 2, false, expression},
 	_StringData: {"StringData", 1, false, expression},
+	_Drop:       {"Drop", 1, false, statement},
 
 	_Assert: {"assert", 1, false, statement},
 	_Trace:  {"trace", 0, true, statement},

@@ -21,6 +21,7 @@ import (
 	"github.com/matjam/plutonium/internal/escape"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/lower"
+	"github.com/matjam/plutonium/internal/moves"
 	"github.com/matjam/plutonium/internal/objfile"
 	"github.com/matjam/plutonium/internal/opt"
 	"github.com/matjam/plutonium/internal/ssa"
@@ -170,7 +171,7 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 	if err != nil {
 		return err
 	}
-	if err := escape.Check(prog); err != nil {
+	if err := checkLifetimes(prog); err != nil {
 		return err
 	}
 	if err := optimize(cfg, sp); err != nil {
@@ -346,6 +347,20 @@ func prefixed(prefix string, err error) error {
 
 // internal turns an error from the compiler's later stages, which all mean
 // a bug in the compiler, into a diagnostic.
+// checkLifetimes runs the move checker and the escape analysis (language
+// spec sections 6.3 and 6.4) and returns their errors together.
+func checkLifetimes(prog *load.Program) error {
+	var all diag.List
+	for _, err := range []error{moves.Check(prog), escape.Check(prog)} {
+		if l, ok := err.(diag.List); ok {
+			all = append(all, l...)
+		} else if err != nil {
+			return err
+		}
+	}
+	return all.Err()
+}
+
 func internal(err error) error {
 	var d *diag.Diagnostic
 	if err == nil || errors.As(err, &d) {

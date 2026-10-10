@@ -820,6 +820,21 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 			check.recordBuiltinType(call.Fun, makeSig(elem, NewPointer(elem)))
 		}
 
+	case _Drop:
+		// unsafe.Drop(p *T)
+		// Plutonium: destroys *p as the end of its owner's life would (its
+		// Drop method, then its fields). For the unchecked layer, such as
+		// alloc.Free: nothing stops *p from being used or dropped again.
+		p, ok := x.typ().Underlying().(*Pointer)
+		if !ok {
+			check.errorf(x, BadUnsafeDropArg, invalidArg+"unsafe.Drop needs a pointer to the value to destroy, not %s", x)
+			return
+		}
+		x.mode_ = novalue
+		if check.recordTypes() {
+			check.recordBuiltinType(call.Fun, makeSig(nil, NewPointer(p.base)))
+		}
+
 	case _Add:
 		// unsafe.Add(ptr unsafe.Pointer, len IntegerType) unsafe.Pointer
 		check.verifyVersionf(call.Fun, go1_17, "unsafe.Add")

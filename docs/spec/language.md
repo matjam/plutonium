@@ -2319,6 +2319,10 @@ without Go's restrictions that exist only for the garbage collector. Every packa
 imports `unsafe`, so such code is easy to find. An `unsafe.Pointer` is a view (section 6.3); one made from
 a `uintptr` is assumed to point outside every frame and to memory nobody in the program frees.
 
+Plutonium adds `unsafe.Drop(p *T)`, which destroys `*p` as the end of its owner's life would: `T`'s `Drop`
+method, then its fields (section 6.4). It is what the unchecked layer (`alloc.Free`, a container dropping
+its elements) is written with; nothing stops `*p` from being used or dropped again afterwards.
+
 ## 12. Build modes and targets
 
 ### 12.1 Modes

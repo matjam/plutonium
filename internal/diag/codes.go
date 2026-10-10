@@ -97,6 +97,22 @@ const (
 	BadResultHolds  Code = "E3007" // a //pu:resultholds directive that does not match the function
 )
 
+// The move checker (internal/moves).
+const (
+	UseAfterMove     Code = "E3101" // a variable used after its owner moved out
+	UseMaybeMoved    Code = "E3102" // a variable used where it may have been moved
+	MoveOutOfPlace   Code = "E3103" // an owner moved out of a field, element, pointer or package variable
+	RangeCopiesOwner Code = "E3104" // a range loop that copies owner elements
+	MoveCaptured     Code = "E3105" // a captured owner moved inside a function literal
+	CopyOwners       Code = "E3106" // copy, or append(s, t...), of owner elements
+	DropThroughView  Code = "E3107" // Drop called other than on an owner variable
+	OwnerFromLender  Code = "E3108" // an owner asserted out of an ordinary interface
+	IndexOwner       Code = "E3109" // x[k] read from a container of owners
+	VariadicOwners   Code = "E3110" // owners passed as variadic arguments
+	DeferInnerOwner  Code = "E3111" // a deferred call using an owner of an inner block
+	SliceLitOwners   Code = "E3112" // a slice literal with owner elements
+)
+
 // Errors in the compiler itself.
 const (
 	InternalError Code = "E9001" // a bug in the compiler

@@ -1,0 +1,417 @@
+// Package moves checks that owners are used as owners: a value of an owner
+// type (language spec section 6.4) moves when it is assigned, passed,
+// returned, sent or stored, and the variable it left holds nothing until it
+// is given a new value. Using such a variable is an error, as is moving an
+// owner out of anything but a whole variable, copying owners with copy or
+// a range loop, dropping one through a view, or taking one out of an
+// interface that only lends it.
+//
+// The check follows each function's control flow. A variable's state at a
+// point is live, moved, or moved on some paths only; where paths meet the
+// states join, and a loop is walked until the states at its head stop
+// changing. Every error is explained with the line of the move that caused
+// it (spec section 6.9). Dropping what is left at the end of a scope is the
+// business of lowering.
+package moves
+
+import (
+	"sort"
+
+	"github.com/matjam/plutonium/internal/diag"
+	"github.com/matjam/plutonium/internal/load"
+	"github.com/matjam/plutonium/internal/syntax/ast"
+	"github.com/matjam/plutonium/internal/syntax/token"
+	"github.com/matjam/plutonium/internal/types2"
+)
+
+// Check runs the move checker over a loaded program and returns its errors
+// as a diag.List, or nil.
+func Check(prog *load.Program) error {
+	c := &checker{
+		fset:       prog.Fset,
+		types:      map[ast.Expr]types2.TypeAndValue{},
+		uses:       map[*ast.Ident]types2.Object{},
+		defs:       map[*ast.Ident]types2.Object{},
+		selections: map[*ast.SelectorExpr]*types2.Selection{},
+		implicits:  map[ast.Node]types2.Object{},
+		seen:       map[string]bool{},
+	}
+	for _, p := range prog.Packages {
+		for k, v := range p.Info.Types {
+			c.types[k] = v
+		}
+		for k, v := range p.Info.Uses {
+			c.uses[k] = v
+		}
+		for k, v := range p.Info.Defs {
+			c.defs[k] = v
+		}
+		for k, v := range p.Info.Selections {
+			c.selections[k] = v
+		}
+		for k, v := range p.Info.Implicits {
+			c.implicits[k] = v
+		}
+	}
+	for _, p := range prog.Packages {
+		c.pkg = p.Types
+		for _, file := range p.Files {
+			for _, d := range file.Decls {
+				switch d := d.(type) {
+				case *ast.FuncDecl:
+					if d.Body != nil {
+						var sig *types2.Signature
+						if obj, ok := c.defs[d.Name].(*types2.Func); ok {
+							sig, _ = obj.Type().(*types2.Signature)
+						}
+						c.checkFunc(d.Type, d.Recv, d.Body, sig)
+					}
+				case *ast.GenDecl:
+					c.checkPackageVars(d)
+				}
+			}
+		}
+	}
+	sort.SliceStable(c.errs, func(i, j int) bool {
+		pi, pj := c.errs[i].Pos, c.errs[j].Pos
+		if pi.Filename != pj.Filename {
+			return pi.Filename < pj.Filename
+		}
+		if pi.Line != pj.Line {
+			return pi.Line < pj.Line
+		}
+		return pi.Column < pj.Column
+	})
+	return c.errs.Err()
+}
+
+type checker struct {
+	fset       *token.FileSet
+	types      map[ast.Expr]types2.TypeAndValue
+	uses       map[*ast.Ident]types2.Object
+	defs       map[*ast.Ident]types2.Object
+	selections map[*ast.SelectorExpr]*types2.Selection
+	implicits  map[ast.Node]types2.Object
+	pkg        *types2.Package // the package being checked, for type names
+
+	errs diag.List
+	seen map[string]bool
+}
+
+// report records an error once per position and code.
+func (c *checker) report(d *diag.Diagnostic) {
+	k := d.Pos.String() + string(d.Code)
+	if c.seen[k] {
+		return
+	}
+	c.seen[k] = true
+	c.errs = append(c.errs, d)
+}
+
+func (c *checker) typeOf(e ast.Expr) types2.Type {
+	if e == nil {
+		return nil
+	}
+	if tv, ok := c.types[e]; ok && tv.Type != nil {
+		return tv.Type
+	}
+	if id, ok := e.(*ast.Ident); ok {
+		if obj := c.objOf(id); obj != nil {
+			return obj.Type()
+		}
+	}
+	return nil
+}
+
+func (c *checker) objOf(id *ast.Ident) types2.Object {
+	if obj := c.uses[id]; obj != nil {
+		return obj
+	}
+	return c.defs[id]
+}
+
+// isOwner reports whether values of T move.
+func isOwner(T types2.Type) bool { return T != nil && types2.IsOwner(T) }
+
+func isGlobal(v *types2.Var) bool {
+	return v.Pkg() != nil && v.Parent() == v.Pkg().Scope()
+}
+
+// checkPackageVars checks the initialisers of package variables: moving an
+// owner out of another package variable is the only error possible there.
+func (c *checker) checkPackageVars(d *ast.GenDecl) {
+	if d.Tok != token.VAR {
+		return
+	}
+	f := &fn{c: c, report: true, env: env{}, vars: map[*types2.Var]bool{}, heads: map[ast.Node]env{}}
+	for _, s := range d.Specs {
+		vs := s.(*ast.ValueSpec)
+		for i, val := range vs.Values {
+			var T types2.Type
+			if len(vs.Values) == len(vs.Names) {
+				if v, ok := c.defs[vs.Names[i]].(*types2.Var); ok {
+					T = v.Type()
+				}
+			}
+			f.consume(val, T, move{kind: mvAssign, to: vs.Names[min(i, len(vs.Names)-1)].Name})
+		}
+	}
+}
+
+// ----------------------------------------------------------------------------
+// States
+
+// A state is what a variable holds at a point of the program.
+type state uint8
+
+const (
+	live  state = iota // a value (the zero value counts)
+	moved              // nothing: the value moved away on every path here
+	maybe              // nothing on some paths here
+)
+
+// A moveKind says how a value left a variable, for messages.
+type moveKind uint8
+
+const (
+	mvAssign      moveKind = iota // n := m, n = m
+	mvArg                         // passed by value
+	mvRecv                        // the receiver of a method with a value receiver
+	mvReturn                      // returned
+	mvSend                        // sent on a channel
+	mvGo                          // passed to a go statement
+	mvStore                       // stored in a field, element or composite literal
+	mvDrop                        // m.Drop()
+	mvConv                        // converted to another owner type
+	mvMethodValue                 // bound into a method value
+	mvAppend                      // appended to a slice
+)
+
+// A move records where and how a variable's value left it.
+type move struct {
+	pos  token.Pos
+	kind moveKind
+	to   string      // the receiving variable, place, channel or function
+	typ  types2.Type // mvArg: the parameter type; mvRecv: the receiver type
+	loop bool        // carried around a loop from a previous iteration
+}
+
+type vstate struct {
+	st state
+	mv *move
+}
+
+// An env maps the variables that do not hold a value to their state; a
+// variable not in it is live. A nil env is a point that cannot be reached.
+type env map[*types2.Var]vstate
+
+func (e env) clone() env {
+	if e == nil {
+		return nil
+	}
+	out := make(env, len(e))
+	for k, v := range e {
+		out[k] = v
+	}
+	return out
+}
+
+// join merges the states of two paths.
+func join(a, b env) env {
+	if a == nil {
+		return b.clone()
+	}
+	if b == nil {
+		return a.clone()
+	}
+	out := env{}
+	for v, sa := range a {
+		sb, ok := b[v]
+		switch {
+		case !ok:
+			out[v] = vstate{maybe, sa.mv}
+		case sa.st == moved && sb.st == moved:
+			out[v] = sa
+		default:
+			mv := sa.mv
+			if sa.st == maybe && sa.mv != nil && sa.mv.loop {
+				mv = sa.mv
+			} else if sb.st == maybe && sb.mv != nil && sb.mv.loop {
+				mv = sb.mv
+			}
+			out[v] = vstate{maybe, mv}
+		}
+	}
+	for v, sb := range b {
+		if _, ok := a[v]; !ok {
+			out[v] = vstate{maybe, sb.mv}
+		}
+	}
+	return out
+}
+
+func envEqual(a, b env) bool {
+	if (a == nil) != (b == nil) || len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if u, ok := b[k]; !ok || u.st != v.st {
+			return false
+		}
+	}
+	return true
+}
+
+// ----------------------------------------------------------------------------
+// Functions
+
+// A fn is the walk of one function body, or of a function literal's body.
+type fn struct {
+	c      *checker
+	sig    *types2.Signature
+	report bool // the final walk: report errors
+	env    env
+
+	// vars are the variables of this body (parameters, results, locals),
+	// as opposed to variables of an enclosing function that a literal
+	// captures.
+	vars    map[*types2.Var]bool
+	results []*types2.Var // named results
+
+	// heads holds, for each loop and label, the states that reach it from
+	// later in the body (back edges, gotos), from the previous walk.
+	heads   map[ast.Node]env
+	changed bool
+
+	targets []*target
+	// blocks are the blocks being walked, innermost last, for deferred
+	// calls that use owners of inner blocks.
+	blocks  []*ast.BlockStmt
+	declIn  map[*types2.Var]*ast.BlockStmt
+	topBody *ast.BlockStmt
+}
+
+// A target is a statement that break or continue may leave.
+type target struct {
+	label  string
+	isLoop bool
+	breaks env
+	conts  env
+}
+
+// checkFunc checks a function body with signature sig.
+func (c *checker) checkFunc(ft *ast.FuncType, recv *ast.FieldList, body *ast.BlockStmt, sig *types2.Signature) {
+	f := &fn{c: c, sig: sig, vars: map[*types2.Var]bool{}, heads: map[ast.Node]env{}, declIn: map[*types2.Var]*ast.BlockStmt{}, topBody: body}
+	// The function's own variables: parameters, results, and everything
+	// declared in its body outside nested literals.
+	for _, l := range []*ast.FieldList{recv, ft.Params, ft.Results} {
+		if l == nil {
+			continue
+		}
+		for _, field := range l.List {
+			for _, name := range field.Names {
+				if v, ok := c.defs[name].(*types2.Var); ok {
+					f.vars[v] = true
+					if l == ft.Results {
+						f.results = append(f.results, v)
+					}
+				}
+			}
+		}
+	}
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.Ident:
+			if v, ok := c.defs[n].(*types2.Var); ok {
+				f.vars[v] = true
+			}
+		case *ast.CaseClause:
+			if v, ok := c.implicits[n].(*types2.Var); ok {
+				f.vars[v] = true
+			}
+		}
+		return true
+	})
+	for i := 0; i < 50; i++ {
+		f.changed = false
+		f.walk(body)
+		if !f.changed {
+			break
+		}
+	}
+	f.report = true
+	f.walk(body)
+}
+
+func (f *fn) walk(body *ast.BlockStmt) {
+	f.env = env{}
+	f.targets = nil
+	f.blocks = nil
+	f.block(body)
+}
+
+// note merges a state reaching a loop head or label from later in the body.
+func (f *fn) note(n ast.Node, e env) {
+	if e == nil {
+		return
+	}
+	j := join(f.heads[n], e)
+	if f.heads[n] == nil {
+		j = e.clone()
+	}
+	if !envEqual(j, f.heads[n]) {
+		f.heads[n] = j
+		f.changed = true
+	}
+}
+
+// ----------------------------------------------------------------------------
+// Variables
+
+// varOf returns the local variable an identifier names, or nil.
+func (f *fn) varOf(id *ast.Ident) *types2.Var {
+	v, ok := f.c.objOf(id).(*types2.Var)
+	if !ok || v.IsField() || isGlobal(v) {
+		return nil
+	}
+	return v
+}
+
+// captured reports whether v belongs to a function around this literal.
+func (f *fn) captured(v *types2.Var) bool { return !f.vars[v] }
+
+// use checks that v holds a value at id.
+func (f *fn) use(id *ast.Ident, v *types2.Var) {
+	if f.env == nil || f.captured(v) || !isOwner(v.Type()) {
+		return
+	}
+	s, ok := f.env[v]
+	if !ok || !f.report {
+		return
+	}
+	f.c.report(f.c.useDiag(id, v, s))
+}
+
+// moveVar moves v's value out at id.
+func (f *fn) moveVar(id *ast.Ident, v *types2.Var, mv move) {
+	if f.captured(v) {
+		if f.report {
+			f.c.report(f.c.capturedDiag(id, v))
+		}
+		return
+	}
+	f.use(id, v)
+	if f.env != nil {
+		mv.pos = id.Pos()
+		f.env[v] = vstate{moved, &mv}
+	}
+}
+
+// assignVar gives v a value.
+func (f *fn) assignVar(v *types2.Var) {
+	if f.env != nil {
+		delete(f.env, v)
+	}
+}
