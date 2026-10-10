@@ -298,7 +298,7 @@ func (check *Checker) typInternal(e0 ast.Expr, def *TypeName) (T Type) {
 		return Typ[Invalid]
 
 	case *ast.BitsGroup:
-		check.error(e, InvalidSyntaxTree, "bits group outside a packed type")
+		check.error(e, BadBitField, "bits group outside a packed type")
 		return Typ[Invalid]
 
 	case *ast.ParenExpr:
@@ -363,7 +363,7 @@ func (check *Checker) typInternal(e0 ast.Expr, def *TypeName) (T Type) {
 		return typ
 
 	case *ast.MapType:
-		check.forbidden(e, "map types are", "maps need a garbage-collected hash table; use pluto/hash")
+		check.forbidden(e, MapNotPermitted, "map types are", "maps need a garbage-collected hash table; use pluto/hash")
 		typ := new(Map)
 		typ.key = check.varType(e.Key)
 		typ.elem = check.varType(e.Value)
@@ -387,7 +387,7 @@ func (check *Checker) typInternal(e0 ast.Expr, def *TypeName) (T Type) {
 		return typ
 
 	case *ast.ChanType:
-		check.forbidden(e, "channel types are", "channels need a scheduler")
+		check.forbidden(e, ChanNotPermitted, "channel types are", "channels need a scheduler")
 		typ := new(Chan)
 
 		dir := SendRecv

@@ -1,0 +1,39 @@
+$DIR/main.p:4:9: runtime string concatenation is not permitted in Plutonium (it allocates); use pluto/strings.Builder
+    Joining strings with + makes a new string, and that needs memory. Plutonium
+    only allows + on strings whose values are constants, which the compiler
+    joins while compiling.
+    To build a string at run time, use pluto/strings.Builder, which takes an
+    allocator, or format into a buffer of your own with fmt.Bprintf.
+    In Go the result of + is allocated and later freed by the garbage collector.
+    Plutonium has no garbage collector and never allocates behind the program's
+    back.
+    Use a Builder:
+        var b strings.Builder
+        defer b.Free()
+        b.WriteString("hello, ")
+        b.WriteString(name)
+        greeting := b.String()
+    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (run "pluto explain E2541" for a longer explanation)
+
+$DIR/main.p:9:3: defer inside a loop is not supported in Plutonium (it would need unbounded stack); move the loop body into a function
+    A defer statement inside a loop would add a deferred call on every
+    iteration, and each needs room in the function's stack frame until it
+    returns. Plutonium gives every deferred call a fixed slot in the frame, so
+    the number must be known when compiling.
+    Move the loop body into a function of its own; its defer then runs at the
+    end of each iteration.
+    Go stores such deferred calls on the heap. Plutonium never allocates behind
+    the program's back, and kernel stacks are small and fixed.
+    Move the body into a function:
+        for _, name := range names {
+            process(name)
+        }
+
+        func process(name string) {
+            f := open(name)
+            defer f.Close()
+            ...
+        }
+    (see "Defer statements" in the Go spec; Plutonium adds this limit)
+    (run "pluto explain E2530" for a longer explanation)

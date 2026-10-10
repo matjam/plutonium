@@ -17,9 +17,13 @@ import (
 
 // forbidden reports a construct that Plutonium does not support. reason
 // says why, in a few words, and is appended to the message.
-func (check *Checker) forbidden(at positioner, what, reason string) {
-	check.errorf(at, UnsupportedFeature, "%s not permitted in Plutonium (%s)", what, reason)
+func (check *Checker) forbidden(at positioner, code Code, what, reason string) {
+	check.errorf(at, code, "%s not permitted in Plutonium (%s)", what, reason)
 }
+
+// Code returns the error's code, which says what kind of error it is
+// (internal/types2/errors).
+func (err Error) Code() Code { return err.go116code }
 
 // unwrapTransparent gives a variable or value of type volatile[T] or
 // aligned[T, N] the type T. The storage keeps its wrapper type; lowering finds
@@ -98,7 +102,7 @@ func (check *Checker) allocatorArg(x *operand, what string) Type {
 	}
 	T := check.allocatorType()
 	if T == nil {
-		check.errorf(x, InvalidCall, invalidOp+"%s with an allocator argument needs package pluto/rt", what)
+		check.errorf(x, MissingAllocatorType, invalidOp+"%s with an allocator argument needs package pluto/rt", what)
 		return nil
 	}
 	check.assignment(x, T, "allocator argument to "+what)
@@ -181,7 +185,7 @@ func (check *Checker) reportComplex() {
 		}
 		if !seen[key] {
 			seen[key] = true
-			check.forbidden(atPos(pos), "complex numbers are", complexReason)
+			check.forbidden(atPos(pos), ComplexNotPermitted, "complex numbers are", complexReason)
 		}
 	}
 	check.complexAt = nil
@@ -201,7 +205,7 @@ func (check *Checker) errorsNewCall(call *ast.CallExpr, args []*operand) {
 		return
 	}
 	if args[0].mode() != constant_ {
-		check.errorf(args[0], InvalidCall, "errors.New needs a constant message, since each call site makes one static error; use fmt.Errorf to build a message at run time")
+		check.errorf(args[0], ErrorsNewNotConstant, "errors.New needs a constant message, since each call site makes one static error; use fmt.Errorf to build a message at run time")
 	}
 }
 
@@ -213,7 +217,7 @@ var forbiddenImports = map[string]string{
 // checkImportPath reports a forbidden import and returns false.
 func (check *Checker) checkImportPath(spec *ast.ImportSpec, path string) bool {
 	if reason, bad := forbiddenImports[path]; bad {
-		check.forbidden(spec.Path, "import of "+path+" is", reason)
+		check.forbidden(spec.Path, ReflectNotPermitted, "import of "+path+" is", reason)
 		return false
 	}
 	return true

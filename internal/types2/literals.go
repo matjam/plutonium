@@ -192,7 +192,7 @@ func (check *Checker) compositeLit(x *operand, e *ast.CompositeLit, hint Type) {
 			check.use(e)
 		}
 		if utyp.kind == WrapRing {
-			check.errorf(e.Elts[0], InvalidLit, "ring literal must be empty: %s{}", typ)
+			check.errorf(e.Elts[0], RingLiteralNotEmpty, "ring literal must be empty: %s{}", typ)
 		} else {
 			check.errorf(e, InvalidLit, "invalid composite literal type %s", typ)
 		}
@@ -220,13 +220,13 @@ func (check *Checker) compositeLit(x *operand, e *ast.CompositeLit, hint Type) {
 			kv, _ := elt.(*ast.KeyValueExpr)
 			if kv == nil {
 				check.genericExpr(x, elt, nil)
-				check.error(elt, InvalidLitField, "packed literal elements must be field: value")
+				check.error(elt, BadPackedLiteral, "packed literal elements must be field: value")
 				continue
 			}
 			check.genericExpr(x, kv.Value, nil)
 			key, _ := kv.Key.(*ast.Ident)
 			if key == nil {
-				check.errorf(kv, InvalidLitField, "invalid field name %s in packed literal", kv.Key)
+				check.errorf(kv, BadPackedLiteral, "invalid field name %s in packed literal", kv.Key)
 				continue
 			}
 			i := utyp.lookupField(key.Name)

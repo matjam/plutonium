@@ -173,7 +173,7 @@ func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature, def *defaults
 	}
 	if !sig.Variadic() && len(args) < n {
 		if def == nil {
-			s.l.errorf(e.Pos(), "lower: call has %d arguments, signature has %d parameters", len(args), n)
+			s.l.internalf(e.Pos(), "call has %d arguments, signature has %d parameters", len(args), n)
 			return out
 		}
 		for i := len(args); i < n; i++ {
@@ -213,7 +213,7 @@ func (s *fnState) defaultArg(def *defaultsOf, i, n int, T types2.Type, e *ast.Ca
 	k := i - (n - len(defs))
 	d := s.l.decls[fn]
 	if k < 0 || d == nil {
-		s.l.errorf(e.Pos(), "lower: no argument for parameter %d of %s", i+1, fn.Name())
+		s.l.internalf(e.Pos(), "no argument for parameter %d of %s", i+1, fn.Name())
 		return s.zeroValue(T)
 	}
 	pkg, info, tmap := s.pkg, s.info, s.tmap
@@ -298,7 +298,7 @@ func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []
 		all = append([]value{*recv}, args...)
 	}
 	if len(all) != len(abi.params) {
-		s.l.errorf(pos, "lower: call has %d arguments, signature has %d parameters", len(all), len(abi.params))
+		s.l.internalf(pos, "call has %d arguments, signature has %d parameters", len(all), len(abi.params))
 		return nil
 	}
 	for i, p := range abi.params {
@@ -489,7 +489,7 @@ func (s *fnState) withMethodTypeArgs(fn *types2.Func, id *ast.Ident, rtargs []ty
 	}
 	own := s.instanceArgs(id)
 	if len(own) != n {
-		s.l.errorf(id.Pos(), "lower: method %s is not instantiated", fn.Name())
+		s.l.internalf(id.Pos(), "method %s is not instantiated", fn.Name())
 		return rtargs
 	}
 	return append(append([]types2.Type(nil), rtargs...), own...)
@@ -524,7 +524,7 @@ func (s *fnState) selectedMethod(se *ast.SelectorExpr, sel *types2.Selection) (*
 	obj, index, _ := types2.LookupFieldOrMethod(T, false, fn.Pkg(), fn.Name())
 	m, ok := obj.(*types2.Func)
 	if !ok {
-		s.l.errorf(se.Sel.Pos(), "lower: %s has no method %s", T, fn.Name())
+		s.l.internalf(se.Sel.Pos(), "%s has no method %s", T, fn.Name())
 		return nil, nil, false
 	}
 	return m, index, true
@@ -615,7 +615,7 @@ func (s *fnState) methodExpr(e *ast.SelectorExpr, sel *types2.Selection, sig *ty
 		obj, index, _ := types2.LookupFieldOrMethod(R, false, fn.Pkg(), fn.Name())
 		m, ok := obj.(*types2.Func)
 		if !ok {
-			s.l.errorf(e.Sel.Pos(), "lower: %s has no method %s", R, fn.Name())
+			s.l.internalf(e.Sel.Pos(), "%s has no method %s", R, fn.Name())
 			return nil
 		}
 		fn, path = m, index

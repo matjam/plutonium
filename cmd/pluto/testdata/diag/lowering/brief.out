@@ -1,0 +1,2 @@
+$DIR/main.p:4:9: runtime string concatenation is not permitted in Plutonium (it allocates); use pluto/strings.Builder
+$DIR/main.p:9:3: defer inside a loop is not supported in Plutonium (it would need unbounded stack); move the loop body into a function

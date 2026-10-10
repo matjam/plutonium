@@ -3,6 +3,8 @@ package build
 import (
 	"debug/elf"
 	"fmt"
+
+	"github.com/matjam/plutonium/internal/diag"
 )
 
 // perCPUSelf is the symbol of the word at offset 0 of every per-CPU block.
@@ -24,7 +26,8 @@ func checkPerCPU(path string) error {
 	}
 	for _, s := range syms {
 		if s.Name == perCPUSelf && s.Value != 0 {
-			return fmt.Errorf("%s: %s is at %#x: the linker script must link section .percpu at address 0, with the Plutonium object first (abi.md section 10.6)", path, perCPUSelf, s.Value)
+			return &diag.Diagnostic{Code: diag.PerCPUNotAtZero,
+				Msg: fmt.Sprintf("%s: %s is at %#x: the linker script must link section .percpu at address 0, with the Plutonium object first (abi.md section 10.6)", path, perCPUSelf, s.Value)}
 		}
 	}
 	return nil

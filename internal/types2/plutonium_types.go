@@ -223,26 +223,26 @@ func (check *Checker) packedBacking(order ast.Endianness, backing ast.Expr) (p *
 	switch u := p.backing.Underlying().(type) {
 	case *Basic:
 		if !isInteger(u) {
-			check.errorf(backing, InvalidTypeArg, "packed backing type %s must be an integer or byte array", p.backing)
+			check.errorf(backing, BadPackedBacking, "packed backing type %s must be an integer or byte array", p.backing)
 			return nil, 0, false
 		}
 		limit = check.conf.sizeof(p.backing) * 8
 		p.align = check.conf.alignof(p.backing)
 	case *Array:
 		if !isByte(u.elem) {
-			check.errorf(backing, InvalidTypeArg, "packed backing array %s must be an array of bytes", p.backing)
+			check.errorf(backing, BadPackedBacking, "packed backing array %s must be an array of bytes", p.backing)
 			return nil, 0, false
 		}
 		limit = u.len * 8
 	case *Slice:
 		if !isByte(u.elem) {
-			check.errorf(backing, InvalidTypeArg, "packed backing type %s must be []byte", p.backing)
+			check.errorf(backing, BadPackedBacking, "packed backing type %s must be []byte", p.backing)
 			return nil, 0, false
 		}
 		p.backing = nil // []byte means "size it from the fields"
 	default:
 		if isValid(p.backing) {
-			check.errorf(backing, InvalidTypeArg, "packed backing type %s must be an integer or byte array", p.backing)
+			check.errorf(backing, BadPackedBacking, "packed backing type %s must be an integer or byte array", p.backing)
 		}
 		return nil, 0, false
 	}
@@ -255,7 +255,7 @@ func (check *Checker) packedSize(p *Packed, at positioner, offset, limit int64) 
 	switch {
 	case limit >= 0:
 		if offset > limit {
-			check.errorf(at, InvalidTypeArg, "packed fields need %d bits but the backing type %s holds %d", offset, p.backing, limit)
+			check.errorf(at, PackedTooLarge, "packed fields need %d bits but the backing type %s holds %d", offset, p.backing, limit)
 			return false
 		}
 		p.bits = limit
@@ -328,7 +328,7 @@ func (check *Checker) packedFieldType(e ast.Expr) (typ Type, width int64, isBits
 	if ix, ok := e.(*ast.IndexListExpr); ok {
 		if id, ok := ix.X.(*ast.Ident); ok && id.Name == "bits" {
 			if len(ix.Indices) != 2 {
-				check.error(e, WrongTypeArgCount, "bits takes a type and a width: bits[T, N]")
+				check.error(e, BadBitField, "bits takes a type and a width: bits[T, N]")
 				return nil, 0, false
 			}
 			typ = check.varType(ix.Indices[0])
@@ -342,22 +342,22 @@ func (check *Checker) packedFieldType(e ast.Expr) (typ Type, width int64, isBits
 			switch {
 			case isBoolean(typ):
 				if n != 1 {
-					check.errorf(ix.Indices[1], InvalidTypeArg, "bits[bool, %d]: a bool field is one bit wide", n)
+					check.errorf(ix.Indices[1], BadBitField, "bits[bool, %d]: a bool field is one bit wide", n)
 					return nil, 0, false
 				}
 			case isInteger(typ):
 				if max := check.conf.sizeof(typ) * 8; n > max {
-					check.errorf(ix.Indices[1], InvalidTypeArg, "bits[%s, %d]: %s holds only %d bits", typ, n, typ, max)
+					check.errorf(ix.Indices[1], BadBitField, "bits[%s, %d]: %s holds only %d bits", typ, n, typ, max)
 					return nil, 0, false
 				}
 				if en := EnumOf(typ); en != nil {
 					if need := enumBitWidth(en, typ); n < need {
-						check.errorf(ix.Indices[1], InvalidTypeArg, "bits[%s, %d]: enum %s needs %d bits", typ, n, typ, need)
+						check.errorf(ix.Indices[1], BadBitField, "bits[%s, %d]: enum %s needs %d bits", typ, n, typ, need)
 						return nil, 0, false
 					}
 				}
 			default:
-				check.errorf(ix.Indices[0], InvalidTypeArg, "bit field type %s must be an integer or bool", typ)
+				check.errorf(ix.Indices[0], BadBitField, "bit field type %s must be an integer or bool", typ)
 				return nil, 0, false
 			}
 			return typ, n, true
@@ -377,7 +377,7 @@ func (check *Checker) packedFieldType(e ast.Expr) (typ Type, width int64, isBits
 		elem = w.elem
 	}
 	if !isPackable(elem) {
-		check.errorf(e, InvalidTypeArg, "packed field type %s must be an integer, bool, float, packed type or array of those", elem)
+		check.errorf(e, BadPackedField, "packed field type %s must be an integer, bool, float, packed type or array of those", elem)
 		return nil, 0, false
 	}
 	if p, ok := elem.Underlying().(*Packed); ok {
@@ -484,9 +484,9 @@ func (check *Checker) wrapperType(ix *indexedExpr) Type {
 	}
 	if len(ix.indices) != want {
 		if want == 1 {
-			check.errorf(ix.orig, WrongTypeArgCount, "%s takes one type argument: %s[T]", kind, kind)
+			check.errorf(ix.orig, WrongWrapperArgs, "%s takes one type argument: %s[T]", kind, kind)
 		} else {
-			check.errorf(ix.orig, WrongTypeArgCount, "%s takes a type and a constant: %s[T, N]", kind, kind)
+			check.errorf(ix.orig, WrongWrapperArgs, "%s takes a type and a constant: %s[T, N]", kind, kind)
 		}
 		return Typ[Invalid]
 	}
@@ -507,7 +507,7 @@ func (check *Checker) wrapperType(ix *indexedExpr) Type {
 			if kind == WrapRing {
 				what = "capacity"
 			}
-			check.errorf(ix.indices[1], InvalidArrayLen, "%s %s %d is not a power of two", kind, what, n)
+			check.errorf(ix.indices[1], NotPowerOfTwo, "%s %s %d is not a power of two", kind, what, n)
 			return Typ[Invalid]
 		}
 	}
@@ -516,7 +516,7 @@ func (check *Checker) wrapperType(ix *indexedExpr) Type {
 	case WrapVolatile:
 		check.later(func() {
 			if !isVolatileElem(elem) {
-				check.errorf(ix.indices[0], InvalidTypeArg, "volatile element type %s must be an integer, bool or pointer", elem)
+				check.errorf(ix.indices[0], BadVolatileElem, "volatile element type %s must be an integer, bool or pointer", elem)
 			}
 		})
 	}
@@ -549,7 +549,7 @@ func (check *Checker) positiveConst(e ast.Expr, what string) int64 {
 	check.expr(nil, &x, e)
 	if x.mode() != constant_ {
 		if x.isValid() {
-			check.errorf(&x, InvalidArrayLen, "%s argument %s must be a constant", what, &x)
+			check.errorf(&x, BadWrapperSize, "%s argument %s must be a constant", what, &x)
 		}
 		return 0
 	}
@@ -560,6 +560,6 @@ func (check *Checker) positiveConst(e ast.Expr, what string) int64 {
 			}
 		}
 	}
-	check.errorf(&x, InvalidArrayLen, "%s argument %s must be a positive integer", what, &x)
+	check.errorf(&x, BadWrapperSize, "%s argument %s must be a positive integer", what, &x)
 	return 0
 }
