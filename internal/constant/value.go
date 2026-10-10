@@ -1,0 +1,1038 @@
+// Package constant implements the values of untyped constants and their
+// operations, with go/constant's API and results, for the Plutonium
+// compiler.
+//
+// It replaces go/constant and math/big so that the type checker can be
+// translated to Plutonium (self-hosting plan, section 5.3). go/constant's
+// Value is an interface whose implementations are structs holding *big.Int,
+// *big.Rat and *big.Float; here a Value is a struct, copied like a number,
+// and the arbitrary-precision arithmetic is this package's own (nat, bigInt,
+// rat, bigFloat), written to give bit-for-bit the results math/big gives.
+// The differential tests check that against go/constant.
+//
+// The differences from go/constant:
+//
+//   - Value is a struct, not an interface. Its zero value is Unknown, and
+//     the methods Kind, String and ExactString work as go/constant's.
+//   - There are no complex constants (Plutonium has no complex numbers):
+//     MakeFromLiteral returns Unknown for imaginary literals, and MakeImag,
+//     ToComplex and complex operands do not exist. Real returns its
+//     argument and Imag returns 0, for numeric values.
+//   - Operators are internal/syntax/token tokens, which have go/token's
+//     values, rather than go/token's.
+//   - Make and Val, which deal in math/big types, are omitted.
+//   - String concatenation builds the string at once rather than lazily.
+package constant
+
+import (
+	"math"
+	"math/bits"
+	"strconv"
+	"unicode/utf8"
+
+	"github.com/matjam/plutonium/internal/syntax/token"
+)
+
+// Kind specifies the kind of value represented by a Value.
+type Kind int
+
+// The kinds of values.
+const (
+	Unknown Kind = iota
+	Bool
+	String
+	Int
+	Float
+	Complex // never produced; kept so that Kind values match go/constant's
+)
+
+var kindNames = [...]string{"Unknown", "Bool", "String", "Int", "Float", "Complex"}
+
+func (k Kind) String() string {
+	if k >= 0 && int(k) < len(kindNames) {
+		return kindNames[k]
+	}
+	return "Kind(" + itoa(int64(k)) + ")"
+}
+
+// A Value represents the value of a Go constant. The zero Value is
+// Unknown.
+type Value struct {
+	kind Kind
+	rep  rep
+	i    int64  // Bool (0 or 1); Int with repInt64
+	s    string // String
+	n    *num   // Int with repInt, Float
+}
+
+// rep says how a numeric value is held; it mirrors go/constant's int64Val,
+// intVal, ratVal and floatVal.
+type rep uint8
+
+const (
+	repInt64 rep = iota // Int that fits in int64: i
+	repInt              // larger Int: n.i
+	repRat              // Float that is an exact fraction: n.r
+	repFloat            // Float that is not: n.f
+)
+
+type num struct {
+	i bigInt
+	r rat
+	f bigFloat
+}
+
+// Kind returns the value kind.
+func (x Value) Kind() Kind { return x.kind }
+
+// maxExp bounds the size of fractions, as in go/constant.
+const maxExp = 4 << 10
+
+func smallInt(x nat) bool { return x.bitLen() < maxExp }
+
+func smallFloat64(x float64) bool {
+	if math.IsInf(x, 0) {
+		return false
+	}
+	_, e := math.Frexp(x)
+	return -maxExp < e && e < maxExp
+}
+
+func smallFloat(x *bigFloat) bool {
+	if x.form == inf {
+		return false
+	}
+	e := 0
+	if x.form == finite {
+		e = int(x.exp)
+	}
+	return -maxExp < e && e < maxExp
+}
+
+func int64Val(x int64) Value { return Value{kind: Int, rep: repInt64, i: x} }
+
+func makeInt(x bigInt) Value {
+	if x.isInt64() {
+		return int64Val(x.int64())
+	}
+	return Value{kind: Int, rep: repInt, n: &num{i: x}}
+}
+
+func ratVal(x rat) Value { return Value{kind: Float, rep: repRat, n: &num{r: x}} }
+
+func makeRat(x rat) Value {
+	if smallInt(x.a.abs) && smallInt(x.b) {
+		return ratVal(x)
+	}
+	return floatVal(floatRat(x, floatPrec))
+}
+
+func floatVal(f bigFloat) Value { return Value{kind: Float, rep: repFloat, n: &num{f: f}} }
+
+func makeFloat(x bigFloat) Value {
+	if x.form == zero {
+		return floatVal(newFloat()) // no -0
+	}
+	if x.form == inf {
+		return Value{}
+	}
+	return floatVal(x)
+}
+
+// bigOf returns an Int value as a bigInt.
+func (x Value) bigOf() bigInt {
+	if x.rep == repInt64 {
+		return int64ToInt(x.i)
+	}
+	return x.n.i
+}
+
+// ratOf returns an Int value, or a Float held as a fraction, as a rat.
+func (x Value) ratOf() rat {
+	switch x.rep {
+	case repInt64, repInt:
+		return ratInt(x.bigOf())
+	}
+	return x.n.r
+}
+
+// floatOf returns a numeric value as a bigFloat of the constants'
+// precision.
+func (x Value) floatOf() bigFloat {
+	switch x.rep {
+	case repInt64:
+		return floatInt64(x.i, floatPrec)
+	case repInt:
+		return floatInt(x.n.i, floatPrec)
+	case repRat:
+		return floatRat(x.n.r, floatPrec)
+	}
+	return x.n.f
+}
+
+// ----------------------------------------------------------------------------
+// Factories
+
+// MakeUnknown returns the Unknown value.
+func MakeUnknown() Value { return Value{} }
+
+// MakeBool returns the Bool value for b.
+func MakeBool(b bool) Value {
+	if b {
+		return Value{kind: Bool, i: 1}
+	}
+	return Value{kind: Bool}
+}
+
+// MakeString returns the String value for s.
+func MakeString(s string) Value { return Value{kind: String, s: s} }
+
+// MakeInt64 returns the Int value for x.
+func MakeInt64(x int64) Value { return int64Val(x) }
+
+// MakeUint64 returns the Int value for x.
+func MakeUint64(x uint64) Value {
+	if x < 1<<63 {
+		return int64Val(int64(x))
+	}
+	return Value{kind: Int, rep: repInt, n: &num{i: bigInt{abs: natUint64(x)}}}
+}
+
+// MakeFloat64 returns the Float value for x. If x is -0.0, the result is
+// 0.0; if x is not finite, the result is Unknown.
+func MakeFloat64(x float64) Value {
+	if math.IsInf(x, 0) || math.IsNaN(x) {
+		return Value{}
+	}
+	if smallFloat64(x) {
+		return ratVal(ratFloat64(x + 0))
+	}
+	// Unreachable for float64 (its exponents are small), as in go/constant.
+	return floatVal(floatRat(ratFloat64(x+0), floatPrec))
+}
+
+// MakeFromLiteral returns the integer, floating-point, character or string
+// value of a Go literal. tok must be token.INT, token.FLOAT, token.IMAG,
+// token.CHAR or token.STRING, and zero must be 0. An invalid literal, and
+// any imaginary literal, gives Unknown.
+func MakeFromLiteral(lit string, tok token.Token, zero uint) Value {
+	if zero != 0 {
+		panic("MakeFromLiteral called with non-zero last argument")
+	}
+	switch tok {
+	case token.INT:
+		if x, err := strconv.ParseInt(lit, 0, 64); err == nil {
+			return int64Val(x)
+		}
+		if x, ok := intFromString(lit); ok {
+			return Value{kind: Int, rep: repInt, n: &num{i: x}}
+		}
+	case token.FLOAT:
+		if x, ok := floatFromLiteral(lit); ok {
+			return x
+		}
+	case token.IMAG:
+		// Plutonium has no complex numbers.
+	case token.CHAR:
+		if n := len(lit); n >= 2 {
+			if code, _, _, err := strconv.UnquoteChar(lit[1:n-1], '\''); err == nil {
+				return MakeInt64(int64(code))
+			}
+		}
+	case token.STRING:
+		if s, err := strconv.Unquote(lit); err == nil {
+			return MakeString(s)
+		}
+	default:
+		panic("constant: " + tok.String() + " is not a valid token")
+	}
+	return Value{}
+}
+
+func floatFromLiteral(lit string) (Value, bool) {
+	f, ok := floatFromString(lit, floatPrec)
+	if !ok {
+		return Value{}, false
+	}
+	if smallFloat(&f) {
+		if f.form == zero {
+			// The literal may underflow to 0 with a huge negative
+			// exponent that would take forever to parse as a fraction.
+			lit = "0"
+		}
+		if r, ok := ratFromString(lit); ok {
+			return ratVal(r), true
+		}
+	}
+	return makeFloat(f), true
+}
+
+// ----------------------------------------------------------------------------
+// Accessors
+//
+// For Unknown arguments the result is the zero value of the result type,
+// except for Sign, which returns 1.
+
+// BoolVal returns the Go boolean value of x, which must be a Bool or an
+// Unknown. If x is Unknown, the result is false.
+func BoolVal(x Value) bool {
+	switch x.kind {
+	case Bool:
+		return x.i != 0
+	case Unknown:
+		return false
+	}
+	panic("constant: " + x.String() + " not a Bool")
+}
+
+// StringVal returns the Go string value of x, which must be a String or
+// an Unknown. If x is Unknown, the result is "".
+func StringVal(x Value) string {
+	switch x.kind {
+	case String:
+		return x.s
+	case Unknown:
+		return ""
+	}
+	panic("constant: " + x.String() + " not a String")
+}
+
+// Int64Val returns the Go int64 value of x and whether the result is exact;
+// x must be an Int or an Unknown.
+func Int64Val(x Value) (int64, bool) {
+	switch x.kind {
+	case Int:
+		if x.rep == repInt64 {
+			return x.i, true
+		}
+		return x.n.i.int64(), false
+	case Unknown:
+		return 0, false
+	}
+	panic("constant: " + x.String() + " not an Int")
+}
+
+// Uint64Val returns the Go uint64 value of x and whether the result is
+// exact; x must be an Int or an Unknown.
+func Uint64Val(x Value) (uint64, bool) {
+	switch x.kind {
+	case Int:
+		if x.rep == repInt64 {
+			return uint64(x.i), x.i >= 0
+		}
+		return x.n.i.uint64(), x.n.i.isUint64()
+	case Unknown:
+		return 0, false
+	}
+	panic("constant: " + x.String() + " not an Int")
+}
+
+// Float32Val is like Float64Val but for float32 instead of float64.
+func Float32Val(x Value) (float32, bool) {
+	switch x.kind {
+	case Int, Float:
+		switch x.rep {
+		case repInt64:
+			f := float32(x.i)
+			return f, int64(f) == x.i
+		case repInt:
+			fl := floatInt(x.n.i, floatPrec)
+			f, acc := fl.toFloat(false)
+			return float32(f), acc == exact
+		case repRat:
+			return x.n.r.float32()
+		}
+		f, acc := x.n.f.toFloat(false)
+		return float32(f), acc == exact
+	case Unknown:
+		return 0, false
+	}
+	panic("constant: " + x.String() + " not a Float")
+}
+
+// Float64Val returns the nearest Go float64 value of x and whether the
+// result is exact; x must be numeric or an Unknown. Values too close to 0
+// underflow to 0 with x's sign.
+func Float64Val(x Value) (float64, bool) {
+	switch x.kind {
+	case Int, Float:
+		switch x.rep {
+		case repInt64:
+			f := float64(x.i)
+			return f, int64(f) == x.i
+		case repInt:
+			fl := floatInt(x.n.i, floatPrec)
+			f, acc := fl.toFloat(true)
+			return f, acc == exact
+		case repRat:
+			return x.n.r.float64()
+		}
+		f, acc := x.n.f.toFloat(true)
+		return f, acc == exact
+	case Unknown:
+		return 0, false
+	}
+	panic("constant: " + x.String() + " not a Float")
+}
+
+// StringLen returns the length of x if x is a String, or 0 if x is
+// Unknown.
+func StringLen(x Value) int64 {
+	switch x.kind {
+	case String:
+		return int64(len(x.s))
+	case Unknown:
+		return 0
+	}
+	panic("constant: " + x.String() + " not a String")
+}
+
+// BitLen returns the number of bits required to represent the absolute
+// value of x; x must be an Int or an Unknown.
+func BitLen(x Value) int {
+	switch x.kind {
+	case Int:
+		if x.rep == repInt64 {
+			u := uint64(x.i)
+			if x.i < 0 {
+				u = uint64(-x.i)
+			}
+			return 64 - bits.LeadingZeros64(u)
+		}
+		return x.n.i.abs.bitLen()
+	case Unknown:
+		return 0
+	}
+	panic("constant: " + x.String() + " not an Int")
+}
+
+// Sign returns -1, 0 or 1 as x < 0, x == 0 or x > 0; x must be numeric or
+// Unknown, for which the result is 1.
+func Sign(x Value) int {
+	switch x.kind {
+	case Int, Float:
+		switch x.rep {
+		case repInt64:
+			switch {
+			case x.i < 0:
+				return -1
+			case x.i > 0:
+				return 1
+			}
+			return 0
+		case repInt:
+			return x.n.i.sign()
+		case repRat:
+			return x.n.r.sign()
+		}
+		return x.n.f.sign()
+	case Unknown:
+		return 1 // avoid spurious division by zero errors
+	}
+	panic("constant: " + x.String() + " not numeric")
+}
+
+// Bytes returns the bytes of the absolute value of x in little-endian
+// order; x must be an Int.
+func Bytes(x Value) []byte {
+	if x.kind != Int {
+		panic("constant: " + x.String() + " not an Int")
+	}
+	words := x.bigOf().abs
+	out := make([]byte, len(words)*8)
+	i := 0
+	for _, w := range words {
+		for j := 0; j < 8; j++ {
+			out[i] = byte(w)
+			w >>= 8
+			i++
+		}
+	}
+	for i > 0 && out[i-1] == 0 {
+		i--
+	}
+	return out[:i]
+}
+
+// MakeFromBytes returns the Int value of a little-endian byte slice.
+func MakeFromBytes(b []byte) Value {
+	words := make(nat, (len(b)+7)/8)
+	for i, c := range b {
+		words[i/8] |= uint64(c) << (8 * uint(i%8))
+	}
+	return makeInt(bigInt{abs: words.norm()})
+}
+
+// Num returns the numerator of x; x must be Int, Float or Unknown. The
+// result is Unknown if x is Unknown or too large or small to be a
+// fraction.
+func Num(x Value) Value {
+	switch x.kind {
+	case Int:
+		return x
+	case Float:
+		switch x.rep {
+		case repRat:
+			return makeInt(x.n.r.a)
+		case repFloat:
+			if smallFloat(&x.n.f) {
+				return makeInt(x.n.f.toRat().a)
+			}
+		}
+		return Value{}
+	case Unknown:
+		return Value{}
+	}
+	panic("constant: " + x.String() + " not Int or Float")
+}
+
+// Denom returns the denominator of x; x must be Int, Float or Unknown. The
+// result is Unknown if x is Unknown or too large or small to be a
+// fraction.
+func Denom(x Value) Value {
+	switch x.kind {
+	case Int:
+		return int64Val(1)
+	case Float:
+		switch x.rep {
+		case repRat:
+			return makeInt(bigInt{abs: x.n.r.b})
+		case repFloat:
+			if smallFloat(&x.n.f) {
+				return makeInt(bigInt{abs: x.n.f.toRat().b})
+			}
+		}
+		return Value{}
+	case Unknown:
+		return Value{}
+	}
+	panic("constant: " + x.String() + " not Int or Float")
+}
+
+// Real returns the real part of x, which must be numeric or Unknown: x
+// itself, since there are no complex constants.
+func Real(x Value) Value {
+	switch x.kind {
+	case Unknown, Int, Float:
+		return x
+	}
+	panic("constant: " + x.String() + " not numeric")
+}
+
+// Imag returns the imaginary part of x, which must be numeric or Unknown:
+// 0 for a number, Unknown for Unknown.
+func Imag(x Value) Value {
+	switch x.kind {
+	case Unknown:
+		return x
+	case Int, Float:
+		return int64Val(0)
+	}
+	panic("constant: " + x.String() + " not numeric")
+}
+
+// ----------------------------------------------------------------------------
+// Conversions
+
+// ToInt converts x to an Int value if x is representable as an Int.
+// Otherwise it returns an Unknown.
+func ToInt(x Value) Value {
+	switch x.kind {
+	case Int:
+		return x
+	case Float:
+		if x.rep == repRat {
+			if x.n.r.isInt() {
+				return makeInt(x.n.r.a)
+			}
+			return Value{}
+		}
+		f := &x.n.f
+		if smallFloat(f) {
+			if i, acc := f.toInt(); acc == exact {
+				return makeInt(i)
+			}
+			// If rounding a little gives an integer, assume x is not one
+			// only because of rounding errors in earlier operations.
+			const delta = 4
+			t := bigFloat{prec: floatPrec - delta, mode: toZero}.set(f)
+			if i, acc := t.toInt(); acc == exact {
+				return makeInt(i)
+			}
+			t = bigFloat{prec: floatPrec - delta, mode: awayFromZero}.set(f)
+			if i, acc := t.toInt(); acc == exact {
+				return makeInt(i)
+			}
+		}
+	}
+	return Value{}
+}
+
+// ToFloat converts x to a Float value if x is representable as a Float.
+// Otherwise it returns an Unknown.
+func ToFloat(x Value) Value {
+	switch x.kind {
+	case Int:
+		if x.rep == repInt64 {
+			return ratVal(ratInt(int64ToInt(x.i)))
+		}
+		if smallInt(x.n.i.abs) {
+			return ratVal(ratInt(x.n.i))
+		}
+		return floatVal(floatInt(x.n.i, floatPrec))
+	case Float:
+		return x
+	}
+	return Value{}
+}
+
+// ----------------------------------------------------------------------------
+// Strings
+
+// String returns a short, quoted (human-readable) form of the value. For
+// numeric values the result may be an approximation; for String values it
+// may be shortened. Use ExactString for an exact form.
+func (x Value) String() string {
+	switch x.kind {
+	case Unknown:
+		return "unknown"
+	case Bool:
+		if x.i != 0 {
+			return "true"
+		}
+		return "false"
+	case String:
+		const maxLen = 72
+		s := strconv.Quote(x.s)
+		if utf8.RuneCountInString(s) > maxLen {
+			i := 0
+			for n := 0; n < maxLen-3; n++ {
+				_, size := utf8.DecodeRuneInString(s[i:])
+				i += size
+			}
+			s = s[:i] + "..."
+		}
+		return s
+	}
+	switch x.rep {
+	case repInt64:
+		return itoa(x.i)
+	case repInt:
+		return x.n.i.String()
+	case repRat:
+		f := floatRat(x.n.r, floatPrec)
+		return floatString(&f)
+	}
+	return floatString(&x.n.f)
+}
+
+// floatString returns a decimal approximation of f, as go/constant's
+// floatVal.String does.
+func floatString(f *bigFloat) string {
+	if f.form == inf {
+		if f.neg {
+			return "-Inf"
+		}
+		return "+Inf"
+	}
+	// Use exact formatting if f is in float64 range: it does not underflow
+	// to 0 or overflow to infinity.
+	if x, _ := f.toFloat(true); f.sign() == 0 == (x == 0) && !math.IsInf(x, 0) {
+		s := strconv.AppendFloat(nil, x, 'g', 6, 64)
+		if !f.isInt() && indexByte(s, '.') < 0 {
+			// f is not an integer, but its text does not show it.
+			s = strconv.AppendFloat(nil, x, 'g', -1, 64)
+		}
+		return string(s)
+	}
+	// Out of float64 range: an approximate conversion to decimal.
+	mant := *f
+	exp := 0
+	if f.form == finite {
+		exp = int(f.exp)
+		mant.exp = 0
+	}
+	m, _ := mant.toFloat(true)
+	d := float64(exp) * (math.Ln2 / math.Ln10)
+	e := int64(d)
+	m *= math.Pow(10, d-float64(e))
+	switch am := math.Abs(m); {
+	case am < 1-0.5e-6:
+		m *= 10
+		e--
+	case am >= 10:
+		m /= 10
+		e++
+	}
+	s := strconv.AppendFloat(nil, m, 'g', 6, 64)
+	s = append(s, 'e')
+	if e >= 0 {
+		s = append(s, '+')
+	}
+	return string(strconv.AppendInt(s, e, 10))
+}
+
+func indexByte(s []byte, c byte) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == c {
+			return i
+		}
+	}
+	return -1
+}
+
+// ExactString returns an exact, quoted (human-readable) form of the value.
+// For a String value, StringVal gives the unquoted string.
+func (x Value) ExactString() string {
+	switch x.kind {
+	case String:
+		return strconv.Quote(x.s)
+	case Int, Float:
+		switch x.rep {
+		case repRat:
+			if x.n.r.isInt() {
+				return x.n.r.a.String()
+			}
+			return x.n.r.String()
+		case repFloat:
+			return x.n.f.textP()
+		}
+	}
+	return x.String()
+}
+
+// ----------------------------------------------------------------------------
+// Operations
+
+func is32bit(x int64) bool { return -1<<31 <= x && x <= 1<<31-1 }
+func is63bit(x int64) bool { return -1<<62 <= x && x <= 1<<62-1 }
+
+// UnaryOp returns the result of the unary expression op y. The operation
+// must be defined for the operand. If prec > 0 it specifies the ^ (xor)
+// result size in bits. If y is Unknown, the result is Unknown.
+func UnaryOp(op token.Token, y Value, prec uint) Value {
+	switch op {
+	case token.ADD:
+		switch y.kind {
+		case Unknown, Int, Float:
+			return y
+		}
+	case token.SUB:
+		switch y.kind {
+		case Unknown:
+			return y
+		case Int:
+			if y.rep == repInt64 {
+				if z := -y.i; z != y.i {
+					return int64Val(z)
+				}
+			}
+			return makeInt(y.bigOf().neg_())
+		case Float:
+			if y.rep == repRat {
+				return makeRat(y.n.r.neg())
+			}
+			return makeFloat(y.n.f.negate())
+		}
+	case token.XOR:
+		switch y.kind {
+		case Unknown:
+			return y
+		case Int:
+			z := y.bigOf().not()
+			// For unsigned types the result is negative and so "too
+			// large": limit it to the type's precision.
+			if prec > 0 {
+				z = z.andNot(int64ToInt(-1).lsh(prec))
+			}
+			return makeInt(z)
+		}
+	case token.NOT:
+		switch y.kind {
+		case Unknown:
+			return y
+		case Bool:
+			return MakeBool(y.i == 0)
+		}
+	}
+	panic("constant: invalid unary operation " + op.String() + y.String())
+}
+
+// ord orders the representations for match.
+func ord(x Value) int {
+	switch x.kind {
+	case Unknown:
+		return 0
+	case Bool, String:
+		return 1
+	case Int:
+		if x.rep == repInt64 {
+			return 2
+		}
+		return 3
+	case Float:
+		if x.rep == repRat {
+			return 4
+		}
+		return 5
+	}
+	return -1
+}
+
+// match returns x and y in the representation of the more complex of the
+// two. If one is Unknown, both results are that value.
+func match(x, y Value) (Value, Value) {
+	switch ox, oy := ord(x), ord(y); {
+	case ox < oy:
+		x, y = match0(x, y)
+	case ox > oy:
+		y, x = match0(y, x)
+	}
+	return x, y
+}
+
+// match0 must only be called by match; ord(x) < ord(y).
+func match0(x, y Value) (Value, Value) {
+	switch ord(y) {
+	case 3: // big Int
+		if ord(x) == 2 {
+			return Value{kind: Int, rep: repInt, n: &num{i: int64ToInt(x.i)}}, y
+		}
+	case 4: // fraction
+		if ord(x) == 2 || ord(x) == 3 {
+			return ratVal(x.ratOf()), y
+		}
+	case 5: // float
+		if ord(x) >= 2 && ord(x) <= 4 {
+			return floatVal(x.floatOf()), y
+		}
+	}
+	// Force unknown and invalid values into the "x position" in callers.
+	return x, x
+}
+
+// BinaryOp returns the result of the binary expression x op y. The
+// operation must be defined for the operands. If one of the operands is
+// Unknown, the result is Unknown. BinaryOp does not handle comparisons or
+// shifts; use Compare or Shift instead.
+//
+// To force integer division of Int operands, use op == token.QUO_ASSIGN
+// instead of token.QUO; the result is guaranteed to be Int in this case.
+// Division by zero leads to a run-time panic.
+func BinaryOp(x_ Value, op token.Token, y_ Value) Value {
+	x, y := match(x_, y_)
+	switch x.kind {
+	case Unknown:
+		return x
+	case Bool:
+		switch op {
+		case token.LAND:
+			return MakeBool(x.i != 0 && y.i != 0)
+		case token.LOR:
+			return MakeBool(x.i != 0 || y.i != 0)
+		}
+	case String:
+		if op == token.ADD {
+			return MakeString(x.s + y.s)
+		}
+	case Int:
+		if x.rep == repInt64 {
+			if v, ok := int64Op(x.i, op, y.i); ok {
+				return v
+			}
+			break
+		}
+		a, b := x.n.i, y.n.i
+		switch op {
+		case token.ADD:
+			return makeInt(a.add(b))
+		case token.SUB:
+			return makeInt(a.sub(b))
+		case token.MUL:
+			return makeInt(a.mul(b))
+		case token.QUO:
+			if len(b.abs) == 0 {
+				panic("division by zero")
+			}
+			return makeRat(makeFrac(intOf(a.neg != b.neg, a.abs), b.abs))
+		case token.QUO_ASSIGN:
+			q, _ := a.quoRem(b)
+			return makeInt(q)
+		case token.REM:
+			_, r := a.quoRem(b)
+			return makeInt(r)
+		case token.AND:
+			return makeInt(a.and(b))
+		case token.OR:
+			return makeInt(a.or(b))
+		case token.XOR:
+			return makeInt(a.xor(b))
+		case token.AND_NOT:
+			return makeInt(a.andNot(b))
+		}
+	case Float:
+		if x.rep == repRat {
+			a, b := x.n.r, y.n.r
+			switch op {
+			case token.ADD:
+				return makeRat(a.add(b))
+			case token.SUB:
+				return makeRat(a.sub(b))
+			case token.MUL:
+				return makeRat(a.mul(b))
+			case token.QUO:
+				return makeRat(a.quo(b))
+			}
+			break
+		}
+		a, b := &x.n.f, &y.n.f
+		switch op {
+		case token.ADD:
+			return makeFloat(newFloat().add(a, b))
+		case token.SUB:
+			return makeFloat(newFloat().sub(a, b))
+		case token.MUL:
+			return makeFloat(newFloat().mul(a, b))
+		case token.QUO:
+			return makeFloat(newFloat().quo(a, b))
+		}
+	}
+	panic("constant: invalid binary operation " + x_.String() + " " + op.String() + " " + y_.String())
+}
+
+// int64Op computes a op b for Int values that fit in int64, going to big
+// integers where the result might not.
+func int64Op(a int64, op token.Token, b int64) (Value, bool) {
+	var c int64
+	switch op {
+	case token.ADD:
+		if !is63bit(a) || !is63bit(b) {
+			return makeInt(int64ToInt(a).add(int64ToInt(b))), true
+		}
+		c = a + b
+	case token.SUB:
+		if !is63bit(a) || !is63bit(b) {
+			return makeInt(int64ToInt(a).sub(int64ToInt(b))), true
+		}
+		c = a - b
+	case token.MUL:
+		if !is32bit(a) || !is32bit(b) {
+			return makeInt(int64ToInt(a).mul(int64ToInt(b))), true
+		}
+		c = a * b
+	case token.QUO:
+		if b == 0 {
+			panic("division by zero")
+		}
+		n, d := int64ToInt(a), int64ToInt(b)
+		return makeRat(makeFrac(intOf(n.neg != d.neg, n.abs), d.abs)), true
+	case token.QUO_ASSIGN:
+		c = a / b
+	case token.REM:
+		c = a % b
+	case token.AND:
+		c = a & b
+	case token.OR:
+		c = a | b
+	case token.XOR:
+		c = a ^ b
+	case token.AND_NOT:
+		c = a &^ b
+	default:
+		return Value{}, false
+	}
+	return int64Val(c), true
+}
+
+// Shift returns the result of the shift expression x op s with op ==
+// token.SHL or token.SHR (<< or >>). x must be an Int or an Unknown. If x
+// is Unknown, the result is x.
+func Shift(x Value, op token.Token, s uint) Value {
+	switch x.kind {
+	case Unknown:
+		return x
+	case Int:
+		if s == 0 {
+			return x
+		}
+		switch op {
+		case token.SHL:
+			return makeInt(x.bigOf().lsh(s))
+		case token.SHR:
+			if x.rep == repInt64 {
+				return int64Val(x.i >> s)
+			}
+			return makeInt(x.n.i.rsh(s))
+		}
+	}
+	panic("constant: invalid shift " + x.String() + " " + op.String() + " " + string(appendUint(nil, uint64(s), 0)))
+}
+
+func cmpZero(x int, op token.Token) bool {
+	switch op {
+	case token.EQL:
+		return x == 0
+	case token.NEQ:
+		return x != 0
+	case token.LSS:
+		return x < 0
+	case token.LEQ:
+		return x <= 0
+	case token.GTR:
+		return x > 0
+	case token.GEQ:
+		return x >= 0
+	}
+	panic("constant: invalid comparison " + itoa(int64(x)) + " " + op.String() + " 0")
+}
+
+// Compare returns the result of the comparison x op y. The comparison must
+// be defined for the operands. If one of the operands is Unknown, the
+// result is false.
+func Compare(x_ Value, op token.Token, y_ Value) bool {
+	x, y := match(x_, y_)
+	switch x.kind {
+	case Unknown:
+		return false
+	case Bool:
+		switch op {
+		case token.EQL:
+			return x.i == y.i
+		case token.NEQ:
+			return x.i != y.i
+		}
+	case String:
+		switch op {
+		case token.EQL:
+			return x.s == y.s
+		case token.NEQ:
+			return x.s != y.s
+		case token.LSS:
+			return x.s < y.s
+		case token.LEQ:
+			return x.s <= y.s
+		case token.GTR:
+			return x.s > y.s
+		case token.GEQ:
+			return x.s >= y.s
+		}
+	case Int:
+		if x.rep == repInt64 {
+			c := 0
+			switch {
+			case x.i < y.i:
+				c = -1
+			case x.i > y.i:
+				c = 1
+			}
+			return cmpZero(c, op)
+		}
+		return cmpZero(x.n.i.cmp(y.n.i), op)
+	case Float:
+		if x.rep == repRat {
+			return cmpZero(x.n.r.cmp(y.n.r), op)
+		}
+		return cmpZero(x.n.f.cmp(&y.n.f), op)
+	}
+	panic("constant: invalid comparison " + x_.String() + " " + op.String() + " " + y_.String())
+}

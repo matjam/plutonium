@@ -248,3 +248,11 @@ later takes the next free number and is listed in the section where it belongs.
       `flag` package tests. What is left for item 51: `os.File` returned by value as an owner (today
       `*File` from an allocator, freed with `alloc.Free`), and text results as `strings.Buf` where
       functions now append to caller buffers.
+    - Constant package (done): `internal/constant`, written in Go for go2pu to translate, has
+      go/constant's API with a value-typed `Value` (zero value Unknown) and its own arbitrary-precision
+      integers, exact fractions and 512-bit floats with math/big's rounding, so its results are
+      go/constant's bit for bit; complex constants are dropped. `TestDifferential` compares 10,000
+      random constant expressions against go/constant, and the literal tables of go/constant's tests
+      are checked the same way. `pluto/bits.Div64` was added for its translation, which go2pu
+      produces with three notes left (`strconv.Quote`, `Unquote` and `UnquoteChar`, the strconv
+      quoting work of phase 1). Switching `types2` and `lower` from go/constant is phase 7.
