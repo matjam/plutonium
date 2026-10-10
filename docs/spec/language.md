@@ -565,5 +565,6 @@ Output formats are ELF executables (default), flat binaries (`-format binary`) a
 | `pluto/sort` | sorting without allocation |
 | `pluto/sync/atomic` | atomic integers and pointers |
 | `pluto/unicode/utf8` | UTF-8 encoding and decoding |
+| `pluto/testing` | tests and benchmarks for `pluto test` (hosted) |
 
 `pluto/os` and `pluto/syscall` are not available in freestanding builds.

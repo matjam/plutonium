@@ -1,0 +1,66 @@
+//pu:build linux && amd64
+
+// Plutonium type constructors, allocation forms and directives.
+package kernel
+
+import (
+	"pluto/alloc"
+	"pluto/fmt"
+	"unsafe"
+)
+
+type UART struct {
+	data   volatile[uint8]
+	status volatile[uint8]
+	ctrl   volatile[ControlReg]
+}
+
+var pml4 aligned[[512]uint64, 4096]
+var dma aligned[[2048]byte, 64]
+var queue ring[int, 16]
+
+type Tree struct {
+	left, right owned[Tree]
+	key         int
+	refs        shared[Node]
+	peer        synced[Node]
+}
+
+//pu:inline
+func put(u *UART, b uint8) {
+	for u.status&0x20 == 0 {
+	}
+	u.data = b
+}
+
+//pu:extern lua_pushinteger
+func pushInteger(L *State, n int64)
+
+//pu:interrupt
+//pu:section .text.irq
+func timer() {
+	lapic := (*volatile[uint32])(unsafe.Pointer(uintptr(0xFEE000B0)))
+	*lapic = 0
+}
+
+func build(depth int, arena alloc.Allocator) owned[Tree] {
+	t := alloc.Owned[Tree]()
+	n := new(Node, arena)
+	buf := make([]byte, 0, 64, arena)
+	ch := make(chan int, 16, arena)
+	_, _, _ = n, buf, ch
+	if depth > 0 {
+		t.left = build(depth-1, arena)
+	}
+	return t
+}
+
+func use[T any](x T) {
+	switch any(x).(type) {
+	case int:
+		fmt.Printf("%d\n", x)
+	}
+	var r ring[T, 8]
+	r.Push(x)
+	go func(n int) { work(n) }(1)
+}
