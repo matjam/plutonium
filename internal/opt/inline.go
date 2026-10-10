@@ -1,6 +1,7 @@
 package opt
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/matjam/plutonium/internal/ssa"
@@ -48,6 +49,13 @@ const callSize = 6
 // Inline runs the inliner over a program, then cleans up each function it
 // changed.
 func Inline(p *ssa.Program) {
+	inline(p, nil)
+}
+
+// inline is Inline. If why is not nil, it records in it why each call to
+// a //pu:inline function was left out of line, the last time the call was
+// considered (inlinenotes.go).
+func inline(p *ssa.Program, why map[*ssa.Value]string) {
 	funcs := map[*ssa.Sym]*ssa.Func{}
 	for _, f := range p.Funcs {
 		funcs[f.Sym] = f
@@ -86,7 +94,7 @@ func Inline(p *ssa.Program) {
 	sizes := map[*ssa.Func]int{}
 	for _, scc := range sccs { // callees first
 		for _, f := range scc {
-			if inlineInto(f, funcs, sizes, inCycle, scc, refs) {
+			if inlineInto(f, funcs, sizes, inCycle, scc, refs, why) {
 				cleanup(f)
 			}
 			sizes[f] = funcSize(f)
@@ -155,7 +163,7 @@ func sourceSize(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 }
 
 // inlineInto inlines eligible calls in f, reporting whether it changed f.
-func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]int, inCycle map[*ssa.Func]bool, scc []*ssa.Func, refs map[*ssa.Sym]int) bool {
+func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]int, inCycle map[*ssa.Func]bool, scc []*ssa.Func, refs map[*ssa.Sym]int, why map[*ssa.Value]string) bool {
 	changed := false
 	sameSCC := map[*ssa.Func]bool{}
 	for _, g := range scc {
@@ -165,7 +173,7 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 	// Each round can expose more: a closure inlined in one round makes the
 	// calls through the closures it was given direct in the next (a loop
 	// over a function: first its iterator, then the loop body).
-	for rounds := 0; rounds < 8; rounds++ {
+	for rounds := 0; rounds < maxInlineRounds; rounds++ {
 		if ForwardClosureLoads(f) {
 			changed = true
 		}
@@ -175,21 +183,28 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 		for _, b := range f.Blocks {
 			if doomed[b.ID] {
 				// A panic path: inlining here only grows the code.
+				noteBlock(why, b, funcs, "the call is on a path that panics")
 				continue
 			}
 			for _, v := range b.Values {
 				g := callTarget(v, funcs)
-				if g == nil || g == f || sameSCC[g] && inCycle[g] {
+				if g == nil {
+					continue
+				}
+				if g == f || sameSCC[g] && inCycle[g] {
+					note(why, v, g, "the call is recursive")
 					continue
 				}
 				if f.NoSSE && !g.NoSSE {
 					// g may use the FPU (//pu:fpu); its body must not
 					// end up in a function that has no FPU state.
+					note(why, v, g, "it may use the FPU, and the caller may not")
 					continue
 				}
 				if v.Call.ABI != g.ABI {
 					// A C call to a Plutonium function: its arguments
 					// are laid out for a different convention.
+					note(why, v, g, "the call uses another calling convention")
 					continue
 				}
 				candidates = append(candidates, v)
@@ -205,6 +220,8 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 			}
 			if shouldInline(g, sizes[g], budget) {
 				sites = append(sites, v)
+			} else {
+				note(why, v, g, notInlinable(g))
 			}
 		}
 		if len(sites) == 0 {
@@ -221,6 +238,9 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 		for _, v := range sites {
 			g := callTarget(v, funcs)
 			if size+sizes[g]-callSize > limit {
+				if why != nil {
+					note(why, v, g, fmt.Sprintf("%s would grow past its limit of %d values", f.Name, limit))
+				}
 				continue
 			}
 			inlineCall(f, v, g)

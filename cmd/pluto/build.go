@@ -100,6 +100,7 @@ func init() {
 		c.Flags().IntP("opt", "O", 2, "optimisation level: 0, 1 or 2")
 		c.Flags().StringP("asm", "S", "", "write a machine code listing to this file (- for stdout)")
 		c.Flags().String("ssa", "", "dump the SSA of this function (or all) after each pass")
+		c.Flags().Bool("inlinenotes", false, "print a note for each call to a //pu:inline function that was not inlined, and why")
 		c.Flags().Bool("work", false, "keep the temporary work directory")
 		c.Flags().BoolP("compile", "c", false, "write the object file instead of linking")
 		c.Flags().BoolP("debug", "g", true, "emit DWARF debugging information (-g=false to omit it)")
@@ -129,6 +130,7 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 	optLevel, _ := f.GetInt("opt")
 	asm, _ := f.GetString("asm")
 	ssaDump, _ := f.GetString("ssa")
+	inlineNotes, _ := f.GetBool("inlinenotes")
 	work, _ := f.GetBool("work")
 	compileOnly, _ := f.GetBool("compile")
 	debug, _ := f.GetBool("debug")
@@ -189,6 +191,9 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 		NoTrimPath:   !trimpath,
 		Alloc:        allocator,
 		FieldNames:   fieldNames,
+	}
+	if inlineNotes {
+		cfg.InlineNotes = os.Stderr
 	}
 	if root := os.Getenv("PLUTOROOT"); root != "" {
 		if abs, err := filepath.Abs(root); err == nil {

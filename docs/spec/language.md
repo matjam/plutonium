@@ -2354,7 +2354,7 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | Directive | Applies to | Meaning |
 |---|---|---|
 | `//pu:build expr` | file | include the file only when `expr` holds |
-| `//pu:inline` | function | inline calls to this function whatever its size, as long as the caller stays within its growth limit (four times its own size, at least 5,000 and at most 20,000 IR values) |
+| `//pu:inline` | function | at `-O2`, inline calls to this function whatever its size, as long as the caller stays within its growth limit (four times its own size, at least 5,000 and at most 20,000 IR values); recursive calls, calls on paths that panic, calls through func values and calls of a function that never returns stay out of line. `pluto build --inlinenotes` prints `file:line:col: note: call to F marked //pu:inline was not inlined: reason` for each call in the program's own packages that stays out of line |
 | `//pu:noinline` | function | never inline it |
 | `//pu:nobounds` | function | omit bounds checks in its body |
 | `//pu:extern name` | body-less function | the function is the external symbol `name` (C ABI) |

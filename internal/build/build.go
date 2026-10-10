@@ -38,6 +38,7 @@ type Config struct {
 	Format       string    // "elf" (default) or "binary"
 	Listing      io.Writer // if set, receives the machine code listing
 	SSADump      string    // function name (or "all") whose SSA is dumped to stderr after each pass
+	InlineNotes  io.Writer // if set, receives a note for each //pu:inline call left out of line (--inlinenotes)
 	Stdlib       fs.FS
 	Verbose      bool
 	KeepWork     bool // keep the temporary directory
@@ -145,7 +146,7 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 	if err != nil {
 		return err
 	}
-	if err := optimize(cfg, sp); err != nil {
+	if err := optimize(cfg, sp, prog); err != nil {
 		return internal(err)
 	}
 
@@ -332,13 +333,43 @@ func internal(err error) error {
 }
 
 // optimize runs the SSA pipeline over every function.
-func optimize(cfg *Config, p *ssa.Program) error {
+func optimize(cfg *Config, p *ssa.Program, prog *load.Program) error {
 	pipeline := opt.ForLevel(cfg.OptLevel)
-	return pipeline.Run(p, func(pass string, f *ssa.Func) {
+	if cfg.InlineNotes != nil {
+		pipeline.ReportInlining()
+	}
+	err := pipeline.Run(p, func(pass string, f *ssa.Func) {
 		if cfg.SSADump != "" && (cfg.SSADump == "all" || cfg.SSADump == f.Name) {
 			fmt.Fprintf(os.Stderr, "--- after %s ---\n%s", pass, f)
 		}
 	})
+	if err != nil || cfg.InlineNotes == nil {
+		return err
+	}
+	return writeInlineNotes(cfg.InlineNotes, pipeline.InlineNotes(), prog)
+}
+
+// writeInlineNotes writes a note for each call to a //pu:inline function
+// that was left out of line, and each func value of one, in the program's
+// own packages: the standard library's are left out, as go build -m
+// reports only the packages it is asked to build.
+func writeInlineNotes(w io.Writer, notes []opt.InlineNote, prog *load.Program) error {
+	for _, n := range notes {
+		pos := prog.Fset.Position(n.Pos)
+		if pos.Filename == "" || strings.HasPrefix(pos.Filename, load.StdPrefix) {
+			continue
+		}
+		var err error
+		if n.FuncValue {
+			_, err = fmt.Fprintf(w, "%s: note: %s marked //pu:inline is used as a func value: %s\n", pos, n.Callee, n.Reason)
+		} else {
+			_, err = fmt.Fprintf(w, "%s: note: call to %s marked //pu:inline was not inlined: %s\n", pos, n.Callee, n.Reason)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // emitObject generates code for every function and lays out the data.
