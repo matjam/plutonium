@@ -66,6 +66,22 @@ type Config struct {
 	// slab allocator, "debug" for the checking allocator in
 	// pluto/alloc/debug (settings from $PLUTO_DEBUGALLOC at run time).
 	Alloc string
+	// FieldNames says whether type descriptors record struct field names,
+	// which %+v and %#v print (pluto build --fieldnames): "" for the
+	// default (on, except in kernel mode), "on" or "off".
+	FieldNames string
+}
+
+// fieldNames reports whether the build keeps field names in type
+// descriptors.
+func (cfg *Config) fieldNames() bool {
+	switch cfg.FieldNames {
+	case "on":
+		return true
+	case "off":
+		return false
+	}
+	return !cfg.Kernel
 }
 
 // Build compiles and links a program.
@@ -95,6 +111,11 @@ func (cfg *Config) Check() error {
 	default:
 		return fmt.Errorf("unknown allocator %q (supported: debug)", cfg.Alloc)
 	}
+	switch cfg.FieldNames {
+	case "", "on", "off":
+	default:
+		return fmt.Errorf("unknown --fieldnames setting %q (supported: on, off)", cfg.FieldNames)
+	}
 	return nil
 }
 
@@ -115,7 +136,12 @@ func loadConfig(cfg *Config) (*load.Config, error) {
 
 // buildProgram compiles and links a loaded program.
 func buildProgram(cfg *Config, prog *load.Program) error {
-	sp, err := lower.Lower(&lower.Config{Freestanding: cfg.Freestanding || cfg.Kernel, Kernel: cfg.Kernel, Sizes: sizes}, prog)
+	sp, err := lower.Lower(&lower.Config{
+		Freestanding: cfg.Freestanding || cfg.Kernel,
+		Kernel:       cfg.Kernel,
+		Sizes:        sizes,
+		NoFieldNames: !cfg.fieldNames(),
+	}, prog)
 	if err != nil {
 		return err
 	}
