@@ -184,6 +184,10 @@ func (b *Block) RemoveSucc(i int) {
 	b.Succs = b.Succs[:n]
 }
 
+// RemovePred removes predecessor i of b and the matching phi arguments,
+// leaving the predecessor's successor edge for the caller to redirect.
+func (b *Block) RemovePred(i int) { b.removePred(i) }
+
 // removePred removes predecessor i of b and the matching phi arguments.
 func (b *Block) removePred(i int) {
 	n := len(b.Preds) - 1

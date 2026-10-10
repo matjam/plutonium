@@ -15,6 +15,11 @@ import (
 // ordinary call site.
 const inlineBudget = 80
 
+// singleUseBudget is the largest callee inlined at the only call site of a
+// closure made in one place in the program, such as a loop body over a
+// function: the copy replaces the original rather than adding to it.
+const singleUseBudget = 600
+
 // maxCallerSize stops inlining into a caller that has grown this large.
 const maxCallerSize = 20000
 
@@ -36,10 +41,30 @@ func Inline(p *ssa.Program) {
 			inCycle[scc[0]] = true
 		}
 	}
+	// The functions referred to once in the whole program (closures,
+	// mostly, such as the bodies of loops over functions): inlining such
+	// a function at its only call site does not duplicate it.
+	// A function called statically is not counted as used once.
+	refs := map[*ssa.Sym]int{}
+	for _, f := range p.Funcs {
+		for _, b := range f.Blocks {
+			for _, v := range b.Values {
+				switch v.Op {
+				case ssa.OpFuncAddr:
+					refs[v.Aux.(*ssa.Sym)]++
+				case ssa.OpCall:
+					refs[v.Aux.(*ssa.Sym)] += 2
+				}
+			}
+		}
+		if len(f.Exports) > 0 {
+			refs[f.Sym] += 2
+		}
+	}
 	sizes := map[*ssa.Func]int{}
 	for _, scc := range sccs { // callees first
 		for _, f := range scc {
-			if inlineInto(f, funcs, sizes, inCycle, scc) {
+			if inlineInto(f, funcs, sizes, inCycle, scc, refs) {
 				cleanup(f)
 			}
 			sizes[f] = funcSize(f)
@@ -91,14 +116,21 @@ func funcSize(f *ssa.Func) int {
 }
 
 // inlineInto inlines eligible calls in f, reporting whether it changed f.
-func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]int, inCycle map[*ssa.Func]bool, scc []*ssa.Func) bool {
+func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]int, inCycle map[*ssa.Func]bool, scc []*ssa.Func, refs map[*ssa.Sym]int) bool {
 	changed := false
 	sameSCC := map[*ssa.Func]bool{}
 	for _, g := range scc {
 		sameSCC[g] = true
 	}
-	for rounds := 0; rounds < 4; rounds++ {
-		var sites []*ssa.Value
+	// Each round can expose more: a closure inlined in one round makes the
+	// calls through the closures it was given direct in the next (a loop
+	// over a function: first its iterator, then the loop body).
+	for rounds := 0; rounds < 8; rounds++ {
+		if ForwardClosureLoads(f) {
+			changed = true
+		}
+		var candidates []*ssa.Value
+		calls := map[*ssa.Func]int{}
 		doomed := ssa.DoomedBlocks(f)
 		for _, b := range f.Blocks {
 			if doomed[b.ID] {
@@ -106,10 +138,7 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 				continue
 			}
 			for _, v := range b.Values {
-				if v.Op != ssa.OpCall {
-					continue
-				}
-				g := funcs[v.Aux.(*ssa.Sym)]
+				g := callTarget(v, funcs)
 				if g == nil || g == f || sameSCC[g] && inCycle[g] {
 					continue
 				}
@@ -123,9 +152,18 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 					// are laid out for a different convention.
 					continue
 				}
-				if !shouldInline(g, sizes[g]) {
-					continue
-				}
+				candidates = append(candidates, v)
+				calls[g]++
+			}
+		}
+		var sites []*ssa.Value
+		for _, v := range candidates {
+			g := callTarget(v, funcs)
+			budget := inlineBudget
+			if refs[g.Sym] == 1 && calls[g] == 1 {
+				budget = singleUseBudget
+			}
+			if shouldInline(g, sizes[g], budget) {
 				sites = append(sites, v)
 			}
 		}
@@ -136,7 +174,7 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 			if funcSize(f) > maxCallerSize {
 				return changed
 			}
-			g := funcs[v.Aux.(*ssa.Sym)]
+			g := callTarget(v, funcs)
 			inlineCall(f, v, g)
 			changed = true
 			if checkSSA {
@@ -149,6 +187,21 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 	return changed
 }
 
+// callTarget returns the function a call calls, if it is known and
+// compiled with the program: the target of a static call, or of a call
+// through a closure whose code pointer is known.
+func callTarget(v *ssa.Value, funcs map[*ssa.Sym]*ssa.Func) *ssa.Func {
+	switch v.Op {
+	case ssa.OpCall:
+		return funcs[v.Aux.(*ssa.Sym)]
+	case ssa.OpCallInd:
+		if sym := closureCallee(v); sym != nil {
+			return funcs[sym]
+		}
+	}
+	return nil
+}
+
 // returns reports whether g has a return block.
 func returns(g *ssa.Func) bool {
 	for _, b := range g.Blocks {
@@ -159,7 +212,7 @@ func returns(g *ssa.Func) bool {
 	return false
 }
 
-func shouldInline(g *ssa.Func, size int) bool {
+func shouldInline(g *ssa.Func, size, budget int) bool {
 	switch {
 	case g.Pragmas&ssa.PragmaNoInline != 0, g.Pragmas&ssa.PragmaInterrupt != 0:
 		return false
@@ -171,7 +224,7 @@ func shouldInline(g *ssa.Func, size int) bool {
 	case len(g.Exports) > 0:
 		// Exported functions are still inlinable; their symbol stays too.
 	}
-	return size <= inlineBudget
+	return size <= budget
 }
 
 // inlineCall replaces call v in f with a copy of g's body.
@@ -209,6 +262,7 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 		ns := f.NewSlot(s.Name, s.Size, s.Align)
 		ns.Leaves = s.Leaves
 		ns.Pads = s.Pads
+		ns.Closure = s.Closure
 		slotMap[s] = ns
 	}
 
@@ -224,6 +278,12 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 	valMap := map[*ssa.Value]*ssa.Value{}
 	args := v.Args[:len(v.Args)-1]
 	mem := v.Args[len(v.Args)-1]
+	var ctx *ssa.Value
+	if v.Op == ssa.OpCallInd {
+		// A call through a closure: the code pointer, then the record.
+		ctx = args[1]
+		args = args[2:]
+	}
 	for _, gb := range g.Blocks {
 		nb := blockMap[gb]
 		for _, gv := range gb.Values {
@@ -234,6 +294,11 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 			case ssa.OpInitMem:
 				valMap[gv] = mem
 				continue
+			case ssa.OpClosurePtr:
+				if ctx != nil {
+					valMap[gv] = ctx
+					continue
+				}
 			}
 			op := gv.Op
 			if op == ssa.OpReturnAddr {
@@ -387,7 +452,10 @@ func callGraphSCCs(p *ssa.Program, funcs map[*ssa.Sym]*ssa.Func) [][]*ssa.Func {
 		onStack[f] = true
 		for _, b := range f.Blocks {
 			for _, v := range b.Values {
-				if v.Op != ssa.OpCall {
+				// A function whose address f takes may be called
+				// through a closure f makes: count it as a callee, so
+				// that it is optimised before f.
+				if v.Op != ssa.OpCall && v.Op != ssa.OpFuncAddr {
 					continue
 				}
 				g := funcs[v.Aux.(*ssa.Sym)]

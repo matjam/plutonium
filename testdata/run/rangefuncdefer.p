@@ -168,6 +168,56 @@ func deferSwitch(k int) {
 	save(0)
 }
 
+func deferNestedBlocks(k int) {
+	defer save(-1)
+	for i := range yield4 {
+		if i == 2 {
+			{
+				defer save(i + k)
+				if k > 0 {
+					save(100)
+				}
+			}
+			for j := 0; j < 2; j++ {
+				if j == k {
+					return
+				}
+			}
+			return
+		}
+	}
+}
+
+func deferPanicPath(k int) {
+	defer save(-1)
+	for i := range yield4 {
+		if i == 1 {
+			defer save(i * 1000)
+			if k < 0 {
+				panic("negative")
+			}
+			break
+		}
+	}
+}
+
+func deferLabelled(k int) {
+	defer save(-1)
+	for i := range yield4 {
+		if i == 3 {
+			defer save(i)
+		inner:
+			switch {
+			case k == 0:
+				break inner
+			default:
+				save(k)
+			}
+			return
+		}
+	}
+}
+
 type counter struct{ n int }
 
 func (c *counter) add(k int) { c.n += k }
@@ -209,4 +259,14 @@ func main() {
 	deferSwitch(3)
 	show("switch 3")
 	println(deferMethod())
+	deferNestedBlocks(0)
+	show("nested blocks 0")
+	deferNestedBlocks(5)
+	show("nested blocks 5")
+	deferPanicPath(1)
+	show("panic path")
+	deferLabelled(0)
+	show("labelled 0")
+	deferLabelled(4)
+	show("labelled 4")
 }

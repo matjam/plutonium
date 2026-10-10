@@ -12,3 +12,8 @@ if/else 2: 6 -1
 switch 2: 2 -1
 switch 3: 3 -1
 1
+nested blocks 0: 2 -1
+nested blocks 5: 100 7 -1
+panic path: 1000 -1
+labelled 0: 3 -1
+labelled 4: 4 3 -1
