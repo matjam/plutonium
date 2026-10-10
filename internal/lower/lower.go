@@ -34,6 +34,9 @@ type Config struct {
 	// //pu:fpu may not use floating point, and //pu:percpu is allowed.
 	Kernel bool
 	Sizes  types2.Sizes
+	// NoFieldNames leaves the field names out of type descriptors, so %+v
+	// prints struct fields without them (pluto build --fieldnames=false).
+	NoFieldNames bool
 }
 
 // A Lowerer lowers one program.
@@ -185,6 +188,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 	if len(l.errs) > 0 {
 		return nil, l.errs
 	}
+	l.dropUnusedGlobals()
 	sort.Slice(l.out.Funcs, func(i, j int) bool { return l.out.Funcs[i].Name < l.out.Funcs[j].Name })
 	return l.out, nil
 }

@@ -164,7 +164,7 @@ func OpenFile(name string, flags int, perm uint32, a alloc.Allocator = alloc.Def
 		return nil, NewPathError("open", name, syscall.ENAMETOOLONG, a)
 	}
 	copy(path[:], name)
-	fd, err := syscall.Open(path[:len(name)+1], flags, perm)
+	fd, err := syscall.Open(path[:len(name)+1], flags|syscall.O_CLOEXEC, perm)
 	if err != nil {
 		return nil, NewPathError("open", name, err, a)
 	}

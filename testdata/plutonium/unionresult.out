@@ -19,6 +19,6 @@ Good
 Bad(bad file descriptor)
 Bad(<nil>)
 Any(3)
-Pair({main.Pair[string, int]})
+Pair({k 1})
 true false true
 16 32 2

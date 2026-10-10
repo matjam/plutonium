@@ -64,5 +64,6 @@ func main() {
 	var buf [8]byte
 	binary.BigEndian.PutUint32(buf[:], 1)
 	r := []rune("é")
-	fmt.Println(x, <-ch, fail(), safe(), len(r), os.Args[0] != "", complex(1, 2))
+	host, _ := os.Hostname()
+	fmt.Println(x, <-ch, fail(), safe(), len(r), host != "", complex(1, 2))
 }

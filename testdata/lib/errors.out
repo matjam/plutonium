@@ -31,7 +31,7 @@ joined as: true read timed out
 join nil: true
 after free live: 0 allocations: 10
 plain: code 42 true
-printf: %!w(error)|656d70747920696e707574|696E7075742F6F7574707574206572726F72
+printf: %!w(*errors.Text=&{empty input})|656d70747920696e707574|696E7075742F6F7574707574206572726F72
 errorbuf: device sda: input/output error true true
 errorbuf long: 200
 custom is: true false

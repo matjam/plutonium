@@ -145,6 +145,10 @@ func (b *Builder) Free() {
 	b.fixed = false
 }
 
+// Drop releases the Builder's buffer, as Free does: the owner's release
+// under its spec name (strings.Buf, roadmap item 51).
+func (b *Builder) Drop() { b.Free() }
+
 // Grow makes room for at least n more bytes, growing the buffer from the
 // Builder's allocator if it has to (see Init). It panics if n is negative.
 func (b *Builder) Grow(n int) {

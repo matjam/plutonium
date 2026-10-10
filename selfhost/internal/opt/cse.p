@@ -6,6 +6,7 @@ import (
 	"pluto/fmt"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
+	"selfhost/pu"
 )
 
 // CSE replaces each value with an equivalent value that dominates it.
@@ -70,7 +71,7 @@ func cseable(v *ssa.Value) bool {
 }
 
 func cseKey(v *ssa.Value) string {
-	sb := new(compat.Builder)
+	sb := pu.Alloc[compat.Builder]()
 	fmt.Fprintf(sb, "%d|%s|%d|", v.Op, v.Type, v.AuxInt)
 	if v.Aux != nil {
 		fmt.Fprintf(sb, "%p|", v.Aux)

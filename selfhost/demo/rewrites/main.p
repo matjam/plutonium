@@ -12,6 +12,7 @@ import (
 	"pluto/io"
 	"pluto/sort"
 	"selfhost/compat"
+	"selfhost/pu"
 )
 
 type node struct {
@@ -43,7 +44,7 @@ var errBase = errors.New("base")
 
 // newNode returns a pointer to a composite literal, which Go moves to the
 // heap and Plutonium would leave in the frame.
-func newNode(name string) *node { return new(node{name: name}) }
+func newNode(name string) *node { return pu.New(node{name: name}) }
 
 // pair returns a slice literal, likewise.
 func pair(a, b int) []int { return compat.Clone([]int{a, b}) }
@@ -143,7 +144,7 @@ func maps() {
 		compat.Pair[string, point]{"x", point{1, 0}},
 	)
 	ptrs := compat.MapOf[string, *point](
-		compat.Pair[string, *point]{"p", new(point{2, 3})},
+		compat.Pair[string, *point]{"p", pu.New(point{2, 3})},
 	)
 	nested := compat.MapOf[string, *hash.Map[string, bool]](
 		compat.Pair[string, *hash.Map[string, bool]]{"outer", compat.MapOf[string, bool](
@@ -169,7 +170,7 @@ func stringsAndBytes() {
 	bs = compat.AppendString(bs, " tail")
 	fmt.Println(compat.String(bs))
 
-	sb := new(compat.Builder)
+	sb := pu.Alloc[compat.Builder]()
 	for i := 0; i < 3; i++ {
 		fmt.Fprintf(sb, "[%d]", i)
 	}
@@ -208,7 +209,7 @@ func sorting() {
 
 func encoding() {
 	h := header{Magic: [4]byte{'P', 'U', 'O', 'B'}, Count: 0x0102, Flags: 7, Size: 0x1122334455667788, Words: [2]uint32{1, 0xAABBCCDD}}
-	buf := new(compat.Buffer)
+	buf := pu.Alloc[compat.Buffer]()
 	_ = goWriteLEheaderPtr(buf, &h)
 	var tail [8]byte
 	compat.PutUint32(tail[:], 0xDEADBEEF)
@@ -229,12 +230,12 @@ type holder struct {
 // keep takes the addresses of a parameter and of locals, which Go moves to
 // the heap; the translation allocates them.
 func keep(gon int) *holder {
-	n := new(gon)
+	n := pu.New(gon)
 
-	v := new(point{(*n), (*n)})
-	s := new(string)
+	v := pu.New(point{(*n), (*n)})
+	s := pu.Alloc[string]()
 	var w int = 7
-	h := new(holder{p: n, q: v, r: s})
+	h := pu.New(holder{p: n, q: v, r: s})
 	(*n)++
 	v.x += w
 	(*s) = "kept"

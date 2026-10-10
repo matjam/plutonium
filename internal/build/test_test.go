@@ -18,7 +18,7 @@ import (
 // pluto/testing is also compiled under PLUTO_SSACHECK. cmd/pluto tests the
 // command's output.
 func TestBuildTest(t *testing.T) {
-	for _, pkg := range []string{"pluto/strings", "pluto/sort"} {
+	for _, pkg := range []string{"pluto/strings", "pluto/sort", "pluto/path/filepath", "pluto/flag"} {
 		for _, level := range []int{0, 2} {
 			t.Run(pkg+"/O"+string(rune('0'+level)), func(t *testing.T) {
 				out := filepath.Join(t.TempDir(), "test")

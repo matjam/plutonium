@@ -1,0 +1,24 @@
+temp has prefix true true
+dir mode -rwx------ true
+dir mode string drwx------
+read: hello, files
+stat a.txt 13 false true true true
+big 100000 100000 231 231
+file stat big.bin 100000
+entry a.txt false
+entry big.bin false
+entry c true
+entry x true
+info a.txt 13
+old name gone true
+chmod true
+mkdir over file true mkdir true true
+remove missing true
+remove non-empty dir fails true
+readdir of a file false true
+chdir true
+relative read 4
+all gone true
+lookup unset true false
+environ true true
+args 1 true

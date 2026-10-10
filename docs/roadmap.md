@@ -1,6 +1,6 @@
 # Plutonium roadmap
 
-**Updated:** 2026-10-09
+**Updated:** 2026-10-10
 
 Every known gap between the specification ([language.md](spec/language.md),
 [memory-model.md](spec/memory-model.md), [abi.md](spec/abi.md)) and the compiler and standard library,
@@ -128,8 +128,10 @@ later takes the next free number and is listed in the section where it belongs.
     the same way and waits for item 15.
 22. **Range over func and iterators** (planned): `for x := range f` is rejected with "range over
     functions is not supported yet".
-23. **Richer type descriptors** (planned): element types, lengths, field offsets, types and names, so `fmt`
-    can print composite values and `hash` can hash them generically.
+23. **Richer type descriptors** (done; abi.md section 5): element types, lengths, field offsets, types and
+    names, the `*T` descriptor for types with pointer methods, and Go's `reflect` type names, emitted for
+    converted types and the types they are made of, read through `rt.Type`. Field names follow
+    `--fieldnames` (off by default in kernel mode). Generic hashing in `hash` can now be built on them.
 24. **Compile-time type-switch folding** (planned): `switch any(x).(type)` on a type parameter decided per
     instantiation, as language spec section 4.4 promises.
 25. **Enums and sum types** (done): enums (language spec section 5.9,
@@ -155,10 +157,11 @@ later takes the next free number and is listed in the section where it belongs.
     pairs removed at last use, `Drop` at zero strong count and the free at zero weak count, the atomic
     forms for `synced` with the ordering of memory-model.md section 3.7, `weak[P]` conversion and
     `Upgrade`, and the sendable rule of section 4.7 (no `shared` or `weak[shared]` across puroutines).
-49. **Indexing interface** (planned; language spec section 6.7): `m[k]`, `v[i]`, `v[i] = x` and `len(v)`
-    on library containers through methods such as `Index`, `SetIndex` and `Len`, so that `vec.Vec` and
-    `hash.Map` read like Go's built-in slices and maps while staying owners. The method names, compound
-    assignment (`m[k] += 1`) and `&v[i]` are still to be designed.
+49. **Indexing interface** (done; language spec section 6.7): `x[k]`, `x[k] = v`, `v, ok := x[k]`,
+    `x[k] op= v` and `len(x)` on types that are not built-in indexable call `Index`, `SetIndex`,
+    `IndexOk` and `Len`; `vec.Vec` and `hash.Map` have them, and `pluto/container` declares the
+    constraints for generic code. `&x[k]` and assigning to a part of `x[k]` are explained errors
+    (containers return pointers from `Ptr`). Range over a container waits for item 22.
 50. **Ownership proposals awaiting sign-off** (proposed):
     - `new` returns `owned[T]` and `make([]T, ...)` returns `vec.Vec[T]`, with `a.New[T]()` and
       `a.Slice[T](n)` for arena-owned views (language spec section 4.2);
@@ -192,8 +195,11 @@ later takes the next free number and is listed in the section where it belongs.
 
 ## Standard library
 
-40. **`fmt` `%v` for composite types** (planned): structs, arrays, slices and pointers to them print as
-    `{TypeName}` today; needs item 23.
+40. **`fmt` `%v` for composite types** (done): arrays, slices, structs, pointers, interfaces, enums and
+    `[]byte` print as Go prints them with `%v`, `%+v`, `%#v`, `Print` and `Println`, including Go's
+    `%!verb(type=value)`; `hash.Map` prints as a map with sorted keys and `vec.Vec` as a slice, through
+    `fmt.Mapper` and `fmt.Lister`. Checked against Go by `testdata/run/fmtvalues.p`. Not yet Go's: `%+q`
+    and `%#q` quoting, width on quoted strings, and union values (item 25).
 41. **Symbolised stack traces on panic** (done): the compiler's trace table, walked by the panic path
     and the hosted fault handler, usable in kernels (`rt.Traceback`); inlined calls are frames of their
     own. Files are named relative to the module root and the standard library, so builds are
@@ -209,20 +215,85 @@ later takes the next free number and is listed in the section where it belongs.
     function and line. Heap faults go through the runtime's single fault handler, which prints the
     allocator's diagnosis and then the stack trace. Not yet safe for concurrent use (one lock, a no-op
     until puroutines run in parallel).
-44. **`println` of floats matching Go** (planned): `rt.printFloat` prints six fixed decimals; Go prints
-    `+1.500000e+000` style.
-45. **`time`** (planned): monotonic and wall clocks, durations, timers over the scheduler.
+44. **`println` of floats matching Go** (done): `print` and `println` write the shortest form that reads
+    back to the same value, in strconv's `g` format, as Go's runtime does (`1.5`, `1e+21`, `-0`), for
+    float32 at float32 precision. The digits come from Go's unrounded scaling, with integer arithmetic
+    and a fixed buffer. Kernel builds print the bits, as `pluto/fmt` does.
+45. **`time`** (in progress): `pluto/time` has `Duration` (with `AppendString` and `ParseDuration`),
+    `Time` in UTC with a monotonic reading, the calendar, `Now`, `Since`, `Until` and a thread-blocking
+    `Sleep` (item 54). Time zones, layout-based formatting and timers over the scheduler remain.
 46. **`net`** (planned, hosted): sockets over the epoll poller of item 14.
 47. **`fmt.Sprintf` returns a `strings.Buf`** (planned): settled by the ownership model (language spec
     section 6.6). `Sprintf` allocates and returns a `strings.Buf`; `Bprintf` keeps formatting into a
-    caller's buffer, as the library already does. Needs item 51.
+    caller's buffer, as the library already does. Needs item 51, and a way around an import cycle:
+    `pluto/fmt` cannot import `pluto/strings` while the tests of `pluto/strings` import
+    `pluto/testing`, which imports `pluto/fmt` (external test packages, `package strings_test`, would
+    do it). Until then `selfhost/pu.Sprintf` returns a `strings.Builder` for translated code (item 52).
 51. **Owner types in the library** (planned; language spec sections 6.4 and 6.6): declare `vec.Vec`,
     `hash.Map`, `hash.Set`, `strings.Builder` and growable arenas `owner`, and turn their `Free` methods
     into `Drop`; add `strings.Buf`, the owning string buffer (`NewBuf(a)`, a zero value that allocates
     on first write, `String()` and `Bytes()` views, `Clone`), with `strings.Builder` merged into it; make
     `os.File` an owner returned by value from `Open`, `Create` and `OpenFile` that closes on drop; add
-    `Clone` to `Vec`, `Map` and `Buf`.
-52. **The `pu` mirror package for self-hosting** (planned): a Go package `pu` with `Map`, `Vec`, `Buf` and
-    the other library owners, mirroring the Plutonium API, which the compiler's Go sources migrate to so
-    that go2pu translates them one to one. Specified as an amendment in
-    [the self-hosting plan](plans/2026-10-09-self-hosting-plan.md), section 11.
+    `Clone` to `Vec`, `Map` and `Buf`. Done ahead of the keyword (item 52): `Drop` on `vec.Vec`,
+    `hash.Map`, `hash.Set` and `strings.Builder` (beside `Free`), `Clone` on `Vec`, `Map` and `Set`,
+    `Map.At`, zero `Vec`s and `Map`s that take the default allocator when they first grow, and the
+    arenas' `New[T]()` and `Slice[T](n)` of section 4.2. `arena.Chunked` (item 54) already releases through `Drop`;
+    declaring it `owner` is a one-line change to its type declaration, as it is for `os.DirEntries`,
+    `exec.Cmd` and `flag.FlagSet` (item 54). Converting the OS layer: `Open`, `Create`, `OpenFile` and
+    `Pipe` return `os.File` by value; `Getwd`, `MkdirTemp`, `exec.LookPath` and the `filepath`
+    `Append` functions gain forms returning a `strings.Buf`.
+52. **The `pu` mirror package for self-hosting** (done; migrating the compiler to it is not started): a
+    Go package `pu` with `Map`, `Vec`, `Buf` and the other library owners, mirroring the Plutonium API,
+    which the compiler's Go sources migrate to so that go2pu translates them one to one. Specified as an
+    amendment in [the self-hosting plan](plans/2026-10-09-self-hosting-plan.md), section 11.
+    `internal/pu` has `Vec`, `Map`, `Set`, their iterators, `Buf`, `Sprintf` and `New`, each with a
+    `noCopy` marker so that go vet reports copies (Go's use after move). go2pu maps each name to
+    `vec.Vec`, `hash.Map`, `hash.Set`, `hash.Iter`, `hash.SetIter` and `strings.Builder` (`strings.Buf` once
+    it exists), `Sprintf` to `selfhost/pu.Sprintf` (until item 47), and `New` to `selfhost/pu.New`, which allocates in the phase arena (the
+    default allocator the driver installs): under the accepted `new` proposal `new(T)` returns
+    `owned[T]`, which a `*T` field cannot hold, so arena allocation is written `pu.New` in Go.
+    `TestPuMirrorsLibrary` checks every name and method against the library; the `pudemo` demo prints
+    the same output from Go and from its translation at `-O0` and `-O2`. go2pu's translation of escaping
+    `&T{...}` and of variables Go moves to the heap emits `pu.New` too, instead of `new`.
+54. **Self-hosting prerequisites** (in progress): the compiler and library work of phases 0 and 1 of
+    [the self-hosting plan](plans/2026-10-09-self-hosting-plan.md) (section 8).
+    - Single-pointer structs in an interface's data word (done): a struct with one field, or an array of
+      length 1, that is a single pointer is direct, as in Go (language spec section 4.4,
+      `types2.PointerShaped`), so an error wrapping one pointer can be returned. Tested by
+      `testdata/run/directstruct.p` and unit tests in `types2` and `lower`.
+    - Itab lookup (done): `rt.findItab`, behind conversions between non-empty interfaces and assertions
+      to interface types, probes a hash table the compiler lays out (abi.md section 5) instead of
+      scanning every itab. Tested by `testdata/run/itablookup.p` and `lower.TestItabTable`.
+    - Large stack for the compiler (done): `//pu:stack 256M` on `func main` makes the hosted runtime
+      reserve a lazily mapped stack with a 1 MiB guard region and run the program on it (language spec
+      section 9); `rt.StackLeft`, `rt.StackBounds` and `rt.SetStackBounds` report what remains. The type
+      checker stops at `Config.MaxNesting` levels of nested expressions and types (default 100,000, the
+      parser's limit) and calls `Config.StackCheck`, the hook the self-hosted compiler points at
+      `rt.StackLeft`, every 16 levels. Tested by `testdata/lib/mainstack.p`, `build.TestMainStack*` and
+      `types2.TestNestingLimit`.
+    - Growable arenas (done): `arena.Chunked` takes chunks from a parent allocator, keeps standard chunks
+      for reuse across `Reset` and `Release(Mark())`, returns oversized ones at once, frees everything
+      on `Drop` (spares alone on `Trim`), can poison released memory, and is an `alloc.Allocator`. It is
+      an owner by convention until the `owner` keyword lands (item 51). Tested by
+      `testdata/lib/chunked.p` and `build.TestChunkedMisuse`.
+    - OS and process layer (done, Linux): `pluto/os` gains `Stat`/`Lstat`/`File.Stat` (a `FileInfo`
+      struct with Go's method names), `ReadFile` (a `vec.Vec[byte]`), `WriteFile`, `ReadDir` (a
+      `DirEntries` owner, sorted), `Mkdir`, `MkdirAll`, `Remove`, `RemoveAll`, `Rename`, `Chmod`,
+      `Getwd` and `MkdirTemp` into caller buffers, `Chdir`, `TempDir`, `Pipe`, `LookupEnv`,
+      `Environ`, `Args`, `Process` and `ProcessState`; files open with `O_CLOEXEC`. `pluto/os/exec`
+      runs commands with fork and execve, connecting each stream to `/dev/null`, a file, or a pipe
+      that `Wait` copies with `poll`; `ExitError` is a word. `pluto/path/filepath`, `pluto/time`
+      (item 45), `pluto/flag` and `io.ReadAll` complete it. Errors are `syscall.Errno` and
+      `*os.PathError`. Tested by `testdata/lib/osfs.p`, `exec.p` and `time.p` and the `filepath` and
+      `flag` package tests. What is left for item 51: `os.File` returned by value as an owner (today
+      `*File` from an allocator, freed with `alloc.Free`), and text results as `strings.Buf` where
+      functions now append to caller buffers. When allocated errors become counted (section 14.6,
+      accepted), the `errors.Free` calls in `os.ReadDir` and `filepath.WalkDir` go away.
+    - Constant package (done): `internal/constant`, written in Go for go2pu to translate, has
+      go/constant's API with a value-typed `Value` (zero value Unknown) and its own arbitrary-precision
+      integers, exact fractions and 512-bit floats with math/big's rounding, so its results are
+      go/constant's bit for bit; complex constants are dropped. `TestDifferential` compares 10,000
+      random constant expressions against go/constant, and the literal tables of go/constant's tests
+      are checked the same way. `pluto/bits.Div64` was added for its translation, which go2pu
+      produces with three notes left (`strconv.Quote`, `Unquote` and `UnquoteChar`, the strconv
+      quoting work of phase 1). Switching `types2` and `lower` from go/constant is phase 7.

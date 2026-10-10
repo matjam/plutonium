@@ -19,10 +19,10 @@ func init() {
 			Code: CheckerCode(typerr.MapNotPermitted), Name: "MapNotPermitted",
 			Text:    "Plutonium has no built-in map type. A Go map grows by allocating memory behind the program's back, and the old memory is freed by the garbage collector.\nUse a hash map from pluto/hash, which takes an allocator, so you can see and control where its memory comes from.",
 			Why:     whyNoGC,
-			Fix:     &Fix{Intro: "To use a hash map", Code: "import \"pluto/hash\"\n\nm := hash.NewMap[string, int](0)\ndefer m.Free()\nm.Set(\"a\", 1)"},
+			Fix:     &Fix{Intro: "To use a hash map", Code: "import \"pluto/hash\"\n\nm := hash.NewMap[string, int](0)\ndefer m.Free()\nm[\"a\"] = 1"},
 			Spec:    pspec("3", "What Plutonium removes from Go"),
 			Example: "counts := map[string]int{}\ncounts[\"a\"]++",
-			Fixed:   "counts := hash.NewMap[string, int](0)\ndefer counts.Free()\np, _ := counts.Upsert(\"a\")\n*p++",
+			Fixed:   "counts := hash.NewMap[string, int](0)\ndefer counts.Free()\ncounts[\"a\"]++",
 		},
 		&Entry{
 			Code: CheckerCode(typerr.ChanNotPermitted), Name: "ChanNotPermitted",
@@ -297,6 +297,59 @@ func init() {
 			Spec: pspec("5.9", "Enums"),
 		},
 
+		// The indexing interface.
+		&Entry{
+			Code: CheckerCode(typerr.MissingIndexMethod), Name: "MissingIndexMethod",
+			Text: "Library containers such as vec.Vec and hash.Map are indexed through methods. x[k] calls x.Index(k), x[k] = v calls x.SetIndex(k, v), and v, ok := x[k] calls x.IndexOk(k). The container's type does not have the method this use of x[k] needs.\nAdd the method to the type, or call another of its methods directly.",
+			Why:  "Go builds maps and slices into the language. In Plutonium they are library types that own their memory, so the index syntax is lent to them through methods.",
+			Fix:  &Fix{Intro: "To support v, ok := x[k], add", Code: "func (m *Table) IndexOk(k string) (int, bool) {\n\t...\n}"},
+			Spec: pspec("6.7", "Indexing library containers"),
+		},
+		&Entry{
+			Code: CheckerCode(typerr.BadIndexMethod), Name: "BadIndexMethod",
+			Text:    "The indexing methods have fixed forms, so that x[k] can be turned into a call: Index(k K) V, SetIndex(k K, v V) and IndexOk(k K) (V, bool). They may not have type parameters of their own or be variadic.",
+			Spec:    pspec("6.7", "Indexing library containers"),
+			Example: "func (v *Vec) Index(i int) (int, error)",
+			Fixed:   "func (v *Vec) Index(i int) int",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.IndexMethodMismatch), Name: "IndexMethodMismatch",
+			Text:    "The indexing methods of one type must agree: Index, SetIndex and IndexOk take the same key type K, and use the same element type V. Otherwise x[k] would have a different type depending on whether it is read or assigned, and x[k] += 1 could not read and write the same element.",
+			Spec:    pspec("6.7", "Indexing library containers"),
+			Example: "func (m *M) Index(k string) int\nfunc (m *M) SetIndex(k string, v int64)",
+			Fixed:   "func (m *M) Index(k string) int\nfunc (m *M) SetIndex(k string, v int)",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.ContainerIndexAddress), Name: "ContainerIndexAddress",
+			Text:    "x[k] on a container calls its Index method, which returns a copy of the element. A copy has no address that would stay valid, and a pointer to the element itself would be invalidated as soon as the container grows or rehashes and moves its elements.\nCall a method that returns the pointer explicitly, such as vec.Vec.Ptr or hash.Map.Ptr. Its documentation says how long the pointer is valid.",
+			Why:     "&s[i] on a slice is safe because a slice never moves its elements. A container that grows does, so Plutonium makes the pointer an explicit method call rather than give it the same syntax as the safe case.",
+			Fix:     &Fix{Intro: "Ask for the pointer by name", Code: "p := v.Ptr(i)\np.count++"},
+			Spec:    pspec("6.7", "Indexing library containers"),
+			Example: "p := &v[i]",
+			Fixed:   "p := v.Ptr(i)",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.ContainerElemAssign), Name: "ContainerElemAssign",
+			Text:    "x[k] on a container is a copy that its Index method returns, so assigning to a field or element of it would change only the copy. This is the same rule as Go's for map elements.\nRead the element, change it, and store it back with x[k] = v, or change it in place through a pointer from a method such as Ptr.",
+			Fix:     &Fix{Intro: "Store the changed element back", Code: "p := v[i]\np.x = 1\nv[i] = p"},
+			Spec:    pspec("6.7", "Indexing library containers"),
+			Example: "v[i].x = 1",
+			Fixed:   "v.Ptr(i).x = 1",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.RangeOverContainer), Name: "RangeOverContainer",
+			Text: "A for range loop over a container will call an iterator method once Plutonium supports ranging over functions. Until then, loop over the indexes, or over a view of the elements.",
+			Fix:  &Fix{Intro: "Loop over the indexes, or a slice view", Code: "for i := 0; i < len(v); i++ {\n\tuse(v[i])\n}\nfor _, x := range v.Slice() {\n\tuse(x)\n}"},
+			Spec: pspec("6.7", "Indexing library containers"),
+		},
+		&Entry{
+			Code: CheckerCode(typerr.UnaddressableContainer), Name: "UnaddressableContainer",
+			Text:    "The container's indexing method has a pointer receiver, so x[k] needs the address of x. Here x is a value that has no address, such as the result of a function call.\nStore the container in a variable first, or index through a pointer to it.",
+			Fix:     &Fix{Intro: "Store it in a variable first", Code: "m := load()\nv := m[\"key\"]"},
+			Spec:    pspec("6.7", "Indexing library containers"),
+			Example: "v := load()[\"key\"]",
+		},
+
 		// Unions.
 		&Entry{
 			Code: CheckerCode(typerr.MisplacedUnion), Name: "MisplacedUnion",
@@ -492,6 +545,12 @@ func init() {
 			Code: PerCPUSection, Name: "PerCPUSection",
 			Text: "A per-CPU variable always lives in the .percpu section, so it cannot also be placed in another section with //pu:section.",
 			Spec: pspec("12.5", "Per-CPU variables"),
+		},
+		&Entry{
+			Code: StackDirective, Name: "StackDirective",
+			Text: "//pu:stack sets the size of the stack a hosted program runs on: the runtime reserves that much address space before main starts. It belongs on func main in package main, and takes a size in bytes, with an optional K, M or G suffix, from 64K to 64G. A freestanding program sets up its own stack, so the directive has nothing to act on there.",
+			Fix:  &Fix{Intro: "Put it on main", Code: "//pu:stack 256M\nfunc main() { ... }"},
+			Spec: pspec("9", "Directives"),
 		},
 		&Entry{
 			Code: InterruptDecl, Name: "InterruptDecl",

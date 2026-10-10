@@ -43,6 +43,6 @@ $DIR/main.p:24:12: map types are not permitted in Plutonium (maps need a garbage
 
         m := hash.NewMap[string, int](0)
         defer m.Free()
-        m.Set("a", 1)
+        m["a"] = 1
     (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
     (run "pluto explain E2001" for a longer explanation)

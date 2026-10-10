@@ -6,6 +6,7 @@ import (
 	"pluto/sort"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
+	"selfhost/pu"
 )
 
 // Frame layout, without a frame pointer (the usual case):
@@ -159,19 +160,19 @@ func prologue(f *MFunc) []*MInst {
 func framePrologue(f *MFunc) []*MInst {
 	var out []*MInst
 	if f.frameFP {
-		out = compat.Append(out, new(MInst{Op: MPUSH, Size: 8, Src: RegOp(RBP)}), new(MInst{Op: MMOV, Size: 8, Dst: RegOp(RBP), Src: RegOp(RSP)}))
+		out = compat.Append(out, pu.New(MInst{Op: MPUSH, Size: 8, Src: RegOp(RBP)}), pu.New(MInst{Op: MMOV, Size: 8, Dst: RegOp(RBP), Src: RegOp(RSP)}))
 	}
 	for _, r := range f.usedSaved {
 		if f.frameFP && r == RBP {
 			continue
 		}
-		out = compat.Append(out, new(MInst{Op: MPUSH, Size: 8, Src: RegOp(r)}))
+		out = compat.Append(out, pu.New(MInst{Op: MPUSH, Size: 8, Src: RegOp(r)}))
 	}
 	if f.frameFP {
-		out = compat.Append(out, new(MInst{Op: MAND, Size: 8, Dst: RegOp(RSP), Src: ImmOp(-f.maxAlign)}))
+		out = compat.Append(out, pu.New(MInst{Op: MAND, Size: 8, Dst: RegOp(RSP), Src: ImmOp(-f.maxAlign)}))
 	}
 	if f.frameSize > 0 {
-		out = compat.Append(out, new(MInst{Op: MSUB, Size: 8, Dst: RegOp(RSP), Src: ImmOp(f.frameSize)}))
+		out = compat.Append(out, pu.New(MInst{Op: MSUB, Size: 8, Dst: RegOp(RSP), Src: ImmOp(f.frameSize)}))
 	}
 	return out
 }
@@ -182,9 +183,9 @@ func framePrologue(f *MFunc) []*MInst {
 // flag, which the interrupted code may have set.
 func interruptPrologue(f *MFunc) []*MInst {
 	out := framePrologue(f)
-	out = compat.Append(out, new(MInst{Op: MCLD}))
+	out = compat.Append(out, pu.New(MInst{Op: MCLD}))
 	for i, r := range f.savedXMM {
-		out = compat.Append(out, new(MInst{Op: MMOVUPS, Dst: MemOp(xmmSaveMem(f, i)), Src: RegOp(r)}))
+		out = compat.Append(out, pu.New(MInst{Op: MMOVUPS, Dst: MemOp(xmmSaveMem(f, i)), Src: RegOp(r)}))
 	}
 	return out
 }
@@ -197,18 +198,18 @@ func xmmSaveMem(f *MFunc, i int) Mem {
 // epilogue returns the instructions that tear the frame down and return.
 func epilogue(f *MFunc) []*MInst {
 	if !f.interrupt {
-		return compat.Append(frameEpilogue(f), new(MInst{Op: MRET}))
+		return compat.Append(frameEpilogue(f), pu.New(MInst{Op: MRET}))
 	}
 	var out []*MInst
 	for i, r := range f.savedXMM {
-		out = compat.Append(out, new(MInst{Op: MMOVUPS, Dst: RegOp(r), Src: MemOp(xmmSaveMem(f, i))}))
+		out = compat.Append(out, pu.New(MInst{Op: MMOVUPS, Dst: RegOp(r), Src: MemOp(xmmSaveMem(f, i))}))
 	}
 	out = compat.Append(out, frameEpilogue(f)...)
 	if f.errCode {
 		// The error code is not part of the frame iretq pops.
-		out = compat.Append(out, new(MInst{Op: MADD, Size: 8, Dst: RegOp(RSP), Src: ImmOp(8)}))
+		out = compat.Append(out, pu.New(MInst{Op: MADD, Size: 8, Dst: RegOp(RSP), Src: ImmOp(8)}))
 	}
-	return compat.Append(out, new(MInst{Op: MIRETQ}))
+	return compat.Append(out, pu.New(MInst{Op: MIRETQ}))
 }
 
 // frameEpilogue frees the frame and restores the saved registers.
@@ -222,18 +223,18 @@ func frameEpilogue(f *MFunc) []*MInst {
 				n++
 			}
 		}
-		out = compat.Append(out, new(MInst{Op: MLEA, Size: 8, Dst: RegOp(RSP), Src: MemOp(BaseMem(RBP, int64(-8*n)))}))
+		out = compat.Append(out, pu.New(MInst{Op: MLEA, Size: 8, Dst: RegOp(RSP), Src: MemOp(BaseMem(RBP, int64(-8*n)))}))
 	} else if f.frameSize > 0 {
-		out = compat.Append(out, new(MInst{Op: MADD, Size: 8, Dst: RegOp(RSP), Src: ImmOp(f.frameSize)}))
+		out = compat.Append(out, pu.New(MInst{Op: MADD, Size: 8, Dst: RegOp(RSP), Src: ImmOp(f.frameSize)}))
 	}
 	for i := len(saved) - 1; i >= 0; i-- {
 		if f.frameFP && saved[i] == RBP {
 			continue
 		}
-		out = compat.Append(out, new(MInst{Op: MPOP, Size: 8, Dst: RegOp(saved[i])}))
+		out = compat.Append(out, pu.New(MInst{Op: MPOP, Size: 8, Dst: RegOp(saved[i])}))
 	}
 	if f.frameFP {
-		out = compat.Append(out, new(MInst{Op: MPOP, Size: 8, Dst: RegOp(RBP)}))
+		out = compat.Append(out, pu.New(MInst{Op: MPOP, Size: 8, Dst: RegOp(RBP)}))
 	}
 	return out
 }

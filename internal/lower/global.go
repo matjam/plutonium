@@ -79,6 +79,49 @@ func (l *Lowerer) lowerGlobals() {
 	}
 }
 
+// dropUnusedGlobals removes the unexported package variables that no
+// generated function, other data or assembly or C source refers to, so a
+// table that only unreached code reads (pluto/rt's powers of ten for float
+// printing) costs nothing. Functions are generated only when reached, so
+// this leaves a variable exactly when its readers were left out.
+func (l *Lowerer) dropUnusedGlobals() {
+	used := map[*ssa.Sym]bool{}
+	for _, f := range l.out.Funcs {
+		for _, b := range f.Blocks {
+			for _, v := range b.Values {
+				if s, ok := v.Aux.(*ssa.Sym); ok {
+					used[s] = true
+				}
+			}
+		}
+	}
+	for _, d := range l.out.Data {
+		for _, r := range d.Relocs {
+			used[r.Sym] = true
+		}
+	}
+	var foreign []string // assembly and C, which may name any symbol
+	for _, p := range l.prog.Packages {
+		for _, a := range p.AsmFiles {
+			foreign = append(foreign, string(a.Src))
+		}
+		for _, c := range p.CFiles {
+			foreign = append(foreign, string(c.Src))
+		}
+	}
+	unused := map[*ssa.Sym]bool{}
+	for v, sym := range l.globals {
+		if v.Exported() || used[sym] || sym.PerCPU {
+			continue
+		}
+		if slices.ContainsFunc(foreign, func(src string) bool { return strings.Contains(src, sym.Name) }) {
+			continue
+		}
+		unused[sym] = true
+	}
+	l.out.Data = slices.DeleteFunc(l.out.Data, func(d *ssa.Data) bool { return unused[d.Sym] && d.Section == "" })
+}
+
 // staticObject allocates an anonymous static object of type T.
 func (l *Lowerer) staticObject(T types2.Type) *ssa.Sym {
 	return l.staticBytes(l.sizeof(T), l.alignof(T))
@@ -373,6 +416,17 @@ func (l *Lowerer) lowerEntry() {
 	l.queue = append(l.queue, &funcJob{sym: l.out.Sym("pluto.itabtable", ssa.SymFunc), sig: ptrSig, build: func(s *fnState) {
 		addr := s.symAddr(l.out.Sym("pluto.itabs", ssa.SymData))
 		s.returnValues([]value{scalarValue(addr, types2.Typ[types2.UnsafePointer])})
+	}})
+	// pluto.mainstack returns the size of the stack main runs on, from
+	// main's //pu:stack directive, or 0 for the stack the system gave the
+	// process. The hosted runtime reserves the stack before calling
+	// pluto.main.
+	stack := l.mainStackSize(mainFn)
+	uptr := types2.Typ[types2.Uintptr]
+	sizeSig := types2.NewSignatureType(nil, nil, nil, nil,
+		types2.NewTuple(types2.NewParam(token.NoPos, nil, "", uptr)), false)
+	l.queue = append(l.queue, &funcJob{sym: l.out.Sym("pluto.mainstack", ssa.SymFunc), sig: sizeSig, build: func(s *fnState) {
+		s.returnValues([]value{scalarValue(s.constInt(ssa.TI64, int64(stack)), uptr)})
 	}})
 
 	sym := l.out.Sym("pluto.main", ssa.SymFunc)

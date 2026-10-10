@@ -282,6 +282,9 @@ func (s *fnState) declareVar(obj *types2.Var) *ssa.Value {
 // indexLV returns the element an index expression on an array, pointer to
 // array or slice denotes, after a bounds check.
 func (s *fnState) indexLV(e *ast.IndexExpr) lvalue {
+	if s.isContainerIndex(e) {
+		return s.containerLV(e)
+	}
 	xt := s.typeOf(e.X)
 	u := unwrap(xt).Underlying()
 	if p, ok := u.(*types2.Pointer); ok {
@@ -524,8 +527,8 @@ func isAddressable(e ast.Expr, info *types2.Info) bool {
 		}
 	case *ast.IndexExpr:
 		t := info.Types[e.X].Type
-		if t == nil {
-			return false
+		if t == nil || types2.IndexesByMethod(t) {
+			return false // an element of a container is a copy (indexing.go)
 		}
 		switch u := t.Underlying().(type) {
 		case *types2.Slice, *types2.Pointer:

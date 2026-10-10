@@ -6,6 +6,7 @@ import (
 	"pluto/hash"
 	"pluto/sort"
 	"selfhost/compat"
+	"selfhost/pu"
 )
 
 // A Program is everything the backend emits: functions and data.
@@ -17,7 +18,7 @@ type Program struct {
 
 // NewProgram returns an empty program.
 func NewProgram() *Program {
-	return new(Program{syms: compat.NewMap[string, *Sym](0)})
+	return pu.New(Program{syms: compat.NewMap[string, *Sym](0)})
 }
 
 // Sym returns the symbol with the given name, creating it if needed.
@@ -30,7 +31,7 @@ func (p *Program) Sym(name string, kind SymKind) *Sym {
 		}
 		return s
 	}
-	s := new(Sym{Name: name, Kind: kind})
+	s := pu.New(Sym{Name: name, Kind: kind})
 	p.syms.Set(name, s)
 	return s
 }

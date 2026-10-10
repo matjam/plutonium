@@ -217,8 +217,7 @@ Written correctly:
 
     counts := hash.NewMap[string, int](0)
     defer counts.Free()
-    p, _ := counts.Upsert("a")
-    *p++
+    counts["a"]++
 
 See "What Plutonium removes from Go" in the Plutonium spec, section 3.
 `

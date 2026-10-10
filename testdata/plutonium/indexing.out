@@ -1,0 +1,18 @@
+missing: 0 0
+a b c: 11 3 -3 3
+comma-ok a: 11 true
+comma-ok z: 0 false
+if b: 3
+var c: -3 true
+once: 2 22 1
+pointer: 20 5
+count: 3 1
+lookup y: 1
+lookup nope: false
+vec: 100 7 9 4 16
+total: 136
+points: 1 30 34
+reader: zero
+grid: 5 7 0 9
+board: b 9 9
+grid pointer: -1
