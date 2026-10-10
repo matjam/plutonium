@@ -53,7 +53,8 @@ var pcPattern = regexp.MustCompile(`pc=0x[0-9a-f]+`)
 
 // TestTraces runs each program in testdata/trace, which panics, and checks
 // the message and stack trace it prints against the .out file next to it,
-// where $FILE stands for the program's path and PC for a code address.
+// where PC stands for a code address. The program is main.p of a package
+// outside any module, so its frames name ./main.p wherever it was built.
 // Traces must be the same at -O0 and -O2: inlined calls are reported as
 // frames of their own.
 func TestTraces(t *testing.T) {
@@ -76,14 +77,13 @@ func TestTraces(t *testing.T) {
 		}
 		for _, level := range []int{0, 2} {
 			t.Run(name+"/O"+string(rune('0'+level)), func(t *testing.T) {
-				dir, got, status := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: level})
+				_, got, status := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: level})
 				if status != 2 {
 					t.Errorf("exit status %d, want 2", status)
 				}
 				got = pcPattern.ReplaceAllString(got, "pc=PC")
-				w := strings.ReplaceAll(string(want), "$FILE", filepath.Join(dir, "main.p"))
-				if got != w {
-					t.Errorf("output differs\n--- got ---\n%s--- want ---\n%s", got, w)
+				if got != string(want) {
+					t.Errorf("output differs\n--- got ---\n%s--- want ---\n%s", got, want)
 				}
 			})
 		}
@@ -97,9 +97,15 @@ func TestTraceStripped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir, out, status := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: 2, Strip: true})
-	if status != 2 || !strings.Contains(out, "    main.level3 ("+filepath.Join(dir, "main.p")+":4)\n") {
+	_, out, status := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: 2, Strip: true})
+	if status != 2 || !strings.Contains(out, "    main.level3 (./main.p:4)\n") {
 		t.Errorf("status %d, output:\n%s", status, out)
+	}
+
+	// --trimpath=false: the program's absolute path.
+	dir, out, status := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: 2, NoTrimPath: true})
+	if status != 2 || !strings.Contains(out, "    main.level3 ("+filepath.Join(dir, "main.p")+":4)\n") {
+		t.Errorf("--trimpath=false: status %d, output:\n%s", status, out)
 	}
 
 	// -trace=false: the message alone.
@@ -117,12 +123,12 @@ func TestTraceStackOverflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, level := range []int{0, 2} {
-		dir, got, status := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: level})
+		_, got, status := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: level})
 		if status != 2 {
 			t.Errorf("O%d: exit status %d, want 2", level, status)
 		}
 		lines := strings.Split(strings.TrimSuffix(got, "\n"), "\n")
-		frame := "    main.recurse (" + filepath.Join(dir, "main.p") + ":"
+		frame := "    main.recurse (./main.p:"
 		ok := len(lines) == 2+64+1 &&
 			lines[0] == "panic: runtime error: stack overflow" &&
 			strings.HasPrefix(lines[1], "[signal SIGSEGV") &&
@@ -153,13 +159,12 @@ func TestTraceFreestanding(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, level := range []int{0, 2} {
-		dir, got, status := buildFiles(t, files, build.Config{OptLevel: level, Freestanding: true})
+		_, got, status := buildFiles(t, files, build.Config{OptLevel: level, Freestanding: true})
 		if status != 3 {
 			t.Errorf("O%d: exit status %d, want 3 (from the panic handler)", level, status)
 		}
-		w := strings.ReplaceAll(string(want), "$FILE", filepath.Join(dir, "main.p"))
-		if got != w {
-			t.Errorf("O%d: output differs\n--- got ---\n%s--- want ---\n%s", level, got, w)
+		if got != string(want) {
+			t.Errorf("O%d: output differs\n--- got ---\n%s--- want ---\n%s", level, got, want)
 		}
 	}
 }
