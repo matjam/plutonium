@@ -21,22 +21,73 @@ func (f *Func) Verify() error {
 		fail("entry block missing or has predecessors")
 	}
 
-	inFunc := compat.NewMap[*Block, bool](len(f.Blocks))
+	// Blocks and values are looked up by ID: this runs after every pass
+	// under PLUTO_SSACHECK, and maps keyed by pointer made it slow.
+	blocks := make([]*Block, f.NumBlocks())
+	inFunc := func(b *Block) bool {
+		return b != nil && b.ID >= 0 && b.ID < len(blocks) && blocks[b.ID] == b
+	}
 	for _, b := range f.Blocks {
-		if compat.MapAt(inFunc, b) {
+		switch {
+		case inFunc(b):
 			fail("%s listed twice", b)
+		case b.ID < 0 || b.ID >= len(blocks):
+			fail("%s: ID out of range (%d blocks)", b, len(blocks))
+		case blocks[b.ID] != nil:
+			fail("%s: ID shared with another block", b)
+		default:
+			blocks[b.ID] = b
 		}
-		inFunc.Set(b, true)
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("ssa: %s is invalid:\n  %s\n%s", f.Name, compat.Join(errs, "\n  "), f)
 	}
 
-	where := compat.NewMap[*Value, *Block](0)
-	uses := compat.NewMap[*Value, int32](0)
+	// vals[id] is the value with that ID listed in a block, and where[id]
+	// and pos[id] that block and its index there.
+	n := f.NumValues()
+	vals := make([]*Value, n)
+	where := make([]*Block, n)
+	pos := make([]int32, n)
+	uses := make([]int32, n)
+	listed := func(v *Value) bool {
+		return v.ID >= 0 && v.ID < n && vals[v.ID] == v
+	}
+	for _, b := range f.Blocks {
+		for i, v := range b.Values {
+			switch {
+			case listed(v):
+				fail("%s appears in %s and %s", v, where[v.ID], b)
+			case v.ID < 0 || v.ID >= n:
+				fail("%s: ID out of range (%d values)", v, n)
+			case vals[v.ID] != nil:
+				fail("%s: ID shared with another value", v)
+			default:
+				vals[v.ID], where[v.ID], pos[v.ID] = v, b, int32(i)
+			}
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("ssa: %s is invalid:\n  %s\n%s", f.Name, compat.Join(errs, "\n  "), f)
+	}
+	whereOf := func(v *Value) *Block {
+		if listed(v) {
+			return where[v.ID]
+		}
+		return nil
+	}
+	use := func(v *Value) {
+		if listed(v) {
+			uses[v.ID]++
+		}
+	}
+
 	for _, b := range f.Blocks {
 		if b.Func != f {
 			fail("%s belongs to another function", b)
 		}
 		for i, e := range b.Succs {
-			if !compat.MapAt(inFunc, e.B) {
+			if !inFunc(e.B) {
 				fail("%s -> %s: successor not in function", b, e.B)
 				continue
 			}
@@ -45,7 +96,7 @@ func (f *Func) Verify() error {
 			}
 		}
 		for i, e := range b.Preds {
-			if !compat.MapAt(inFunc, e.B) {
+			if !inFunc(e.B) {
 				fail("%s <- %s: predecessor not in function", b, e.B)
 				continue
 			}
@@ -81,10 +132,6 @@ func (f *Func) Verify() error {
 
 		seenNonPhi := false
 		for _, v := range b.Values {
-			if compat.MapAt(where, v) != nil {
-				fail("%s appears in %s and %s", v, compat.MapAt(where, v), b)
-			}
-			where.Set(v, b)
 			if v.Block != b {
 				fail("%s is in %s but says %s", v, b, v.Block)
 			}
@@ -109,30 +156,24 @@ func (f *Func) Verify() error {
 					fail("%s: nil argument", v)
 					continue
 				}
-				*compat.MapSlot(uses, a)++
+				use(a)
 			}
 			f.verifyTypes(v, fail)
 		}
 		for _, c := range b.Controls {
-			*compat.MapSlot(uses, c)++
+			use(c)
 		}
 	}
 
 	// Every argument must be defined in the function and dominate its use.
 	d := f.Dom()
-	pos := compat.NewMap[*Value, int](0)
-	for _, b := range f.Blocks {
-		for i, v := range b.Values {
-			pos.Set(v, i)
-		}
-	}
 	dominates := func(def *Value, useBlock *Block, useIdx int) bool {
-		db := compat.MapAt(where, def)
+		db := whereOf(def)
 		if db == nil {
 			return false
 		}
 		if db == useBlock {
-			return compat.MapAt(pos, def) < useIdx
+			return int(pos[def.ID]) < useIdx
 		}
 		return d.Dominates(db, useBlock)
 	}
@@ -145,7 +186,7 @@ func (f *Func) Verify() error {
 				if a == nil {
 					continue
 				}
-				if compat.MapAt(where, a) == nil {
+				if whereOf(a) == nil {
 					fail("%s: argument %s not in function", v, a)
 					continue
 				}
@@ -162,7 +203,7 @@ func (f *Func) Verify() error {
 			}
 		}
 		for _, c := range b.Controls {
-			if compat.MapAt(where, c) == nil {
+			if whereOf(c) == nil {
 				fail("%s: control %s not in function", b, c)
 			} else if !dominates(c, b, len(b.Values)) {
 				fail("%s: control %s does not dominate the block end", b, c)
@@ -170,20 +211,9 @@ func (f *Func) Verify() error {
 		}
 	}
 
-	{
-		goIt1 := compat.MapIter(uses)
-		for v, n, goOk2 := goIt1.Next(); goOk2; v, n, goOk2 = goIt1.Next() {
-			if v.Uses != n {
-				fail("%s: use count %d, counted %d", v, v.Uses, n)
-			}
-		}
-	}
-	{
-		goIt3 := compat.MapIter(where)
-		for v, _, goOk4 := goIt3.Next(); goOk4; v, _, goOk4 = goIt3.Next() {
-			if _, used := compat.MapGet(uses, v); !used && v.Uses != 0 {
-				fail("%s: use count %d, counted 0", v, v.Uses)
-			}
+	for id, v := range vals {
+		if v != nil && v.Uses != uses[id] {
+			fail("%s: use count %d, counted %d", v, v.Uses, uses[id])
 		}
 	}
 
@@ -203,9 +233,11 @@ func (f *Func) Verify() error {
 // checked. The optimiser runs it under PLUTO_SSACHECK.
 func (f *Func) VerifyPos() error {
 	var errs []string
-	check := func(what string, pos token.Pos, inl int32) {
+	// what names the block or value, and is called only on an error:
+	// formatting every value made this check slow.
+	check := func(what func() string, pos token.Pos, inl int32) {
 		if inl < 0 || int(inl) > len(f.Inlines) {
-			errs = compat.Append(errs, compat.Sprintf("%s: inline site %d out of range (%d sites)", what, inl, len(f.Inlines)))
+			errs = compat.Append(errs, compat.Sprintf("%s: inline site %d out of range (%d sites)", what(), inl, len(f.Inlines)))
 			return
 		}
 		if !pos.IsValid() {
@@ -219,12 +251,12 @@ func (f *Func) VerifyPos() error {
 		if !end.IsValid() || start <= pos && pos <= end {
 			return
 		}
-		errs = compat.Append(errs, compat.Sprintf("%s: position %d (inline site %d) is outside %s [%d, %d]", what, pos, inl, in, start, end))
+		errs = compat.Append(errs, compat.Sprintf("%s: position %d (inline site %d) is outside %s [%d, %d]", what(), pos, inl, in, start, end))
 	}
 	for _, b := range f.Blocks {
-		check(b.String(), b.Pos, b.Inl)
+		check(b.String, b.Pos, b.Inl)
 		for _, v := range b.Values {
-			check(compat.Concat(v.String(), " (", v.Op.String(), ")"), v.Pos, v.Inl)
+			check(func() string { return compat.Concat(v.String(), " (", v.Op.String(), ")") }, v.Pos, v.Inl)
 		}
 	}
 	if len(errs) > 0 {

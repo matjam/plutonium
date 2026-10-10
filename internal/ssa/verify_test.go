@@ -77,3 +77,56 @@ func TestVerifyPos(t *testing.T) {
 		t.Errorf("function without an extent: %v", err)
 	}
 }
+
+// TestVerify checks that Verify reports values and blocks listed twice,
+// arguments from another function, wrong use counts and arguments that do
+// not dominate their uses.
+func TestVerify(t *testing.T) {
+	build := func() (*Func, *Block, *Value, *Value) {
+		f := NewFunc("f")
+		b := f.Entry
+		b.Kind = BlockPlain
+		mem := b.NewValue(OpInitMem, TMem)
+		x := b.NewValue(OpConst, TI64)
+		c := f.NewBlock(BlockRet)
+		b.AddEdgeTo(c)
+		c.NewValue(OpAdd, TI64, x, x)
+		c.SetControl(mem)
+		return f, c, mem, x
+	}
+	if f, _, _, _ := build(); f.Verify() != nil {
+		t.Fatal(f.Verify())
+	}
+	for _, tc := range []struct {
+		name string
+		set  func(f *Func, c *Block, mem, x *Value)
+		want string
+	}{
+		{"value listed twice", func(f *Func, c *Block, mem, x *Value) {
+			c.Values = append(c.Values, c.Values[0])
+		}, "appears in"},
+		{"block listed twice", func(f *Func, c *Block, mem, x *Value) {
+			f.Blocks = append(f.Blocks, c)
+		}, "listed twice"},
+		{"argument from another function", func(f *Func, c *Block, mem, x *Value) {
+			g := NewFunc("g")
+			y := g.Entry.NewValue(OpConst, TI64)
+			c.Values[0].SetArg(1, y)
+		}, "not in function"},
+		{"use count", func(f *Func, c *Block, mem, x *Value) {
+			x.Uses++
+		}, "use count 3, counted 2"},
+		{"use before definition", func(f *Func, c *Block, mem, x *Value) {
+			c.NewValue(OpNeg, TI64, x)
+			c.Values[0], c.Values[1] = c.Values[1], c.Values[0]
+			c.Values[0].SetArg(0, c.Values[1])
+		}, "does not dominate its use"},
+	} {
+		f, c, mem, x := build()
+		tc.set(f, c, mem, x)
+		err := f.Verify()
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: got %v, want an error containing %q", tc.name, err, tc.want)
+		}
+	}
+}

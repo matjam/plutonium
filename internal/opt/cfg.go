@@ -9,36 +9,50 @@ import "github.com/matjam/plutonium/internal/ssa"
 func SimplifyCFG(f *ssa.Func) {
 	for changed := true; changed; {
 		changed = false
+		step := false
 		for _, b := range f.Blocks {
 			if foldConstBranch(b) {
-				changed = true
+				step = true
 			}
 		}
-		if changed {
+		if step {
 			f.RemoveDeadBlocks()
+			verifyStep(f, "foldConstBranch")
+			changed = true
 		}
-		verifyStep(f, "foldConstBranch")
+		step = false
 		for _, b := range f.Blocks {
 			if mergeIntoPred(f, b) {
-				changed = true
+				step = true
 				break // f.Blocks changed
 			}
 		}
-		verifyStep(f, "mergeIntoPred")
+		if step {
+			verifyStep(f, "mergeIntoPred")
+			changed = true
+		}
+		step = false
 		for _, b := range f.Blocks {
 			if skipEmpty(f, b) {
-				changed = true
+				step = true
 				break
 			}
 		}
-		verifyStep(f, "skipEmpty")
+		if step {
+			verifyStep(f, "skipEmpty")
+			changed = true
+		}
+		step = false
 		for _, b := range f.Blocks {
 			if threadPhiBranch(f, b) {
-				changed = true
+				step = true
 				break
 			}
 		}
-		verifyStep(f, "threadPhiBranch")
+		if step {
+			verifyStep(f, "threadPhiBranch")
+			changed = true
+		}
 		f.RemoveDeadBlocks()
 	}
 	ssa.CopyElim(f)
