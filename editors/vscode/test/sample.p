@@ -182,11 +182,11 @@ func (v *Vec[T]) Map[U any](fn func(T) U, a alloc.Allocator = alloc.Default()) V
 //  ^^^^^ support.function.builtin
     b := make([]byte, 0, 64, a)
 //       ^^^^ support.function.builtin
-    b = append(b, 'a', '\n', '\x41')
-//      ^^^^^^ support.function.builtin
-//                ^^^ string.quoted.single.rune
-//                      ^^ constant.character.escape
-//                            ^^^^ constant.character.escape
+    n := copy(b, []byte{'a', '\n', '\x41'})
+//       ^^^^ support.function.builtin
+//                      ^^^ string.quoted.single.rune
+//                            ^^ constant.character.escape
+//                                  ^^^^ constant.character.escape
     s := "tab\there %d %-5.2f\q"
 //           ^^ constant.character.escape
 //                  ^^ constant.other.placeholder

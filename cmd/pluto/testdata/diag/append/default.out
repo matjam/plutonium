@@ -1,0 +1,155 @@
+$DIR/main.p:10:6: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
+    Plutonium has no append. In Go, append grows a slice by allocating a larger
+    array behind the program's back, and the garbage collector frees the old
+    one. A Plutonium slice is a view of an array that something else owns, so it
+    cannot grow.
+    Use a vec.Vec from pluto/vec, which owns its array and grows it from an
+    allocator. To fill a slice's spare capacity without growing it, slice it
+    longer and assign, or use copy.
+    Plutonium has no garbage collector and never allocates memory unless the
+    program asks for it in the code, so that every cost is visible and the same
+    code can run inside a kernel.
+    Keep s in a vec.Vec[int], which grows from an allocator:
+        import "pluto/vec"
+
+        s := vec.New[int]()
+        defer s.Free()
+        s.Push(1)
+    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (run "pluto explain E2013" for a longer explanation)
+
+$DIR/main.p:11:6: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
+    Plutonium has no append. In Go, append grows a slice by allocating a larger
+    array behind the program's back, and the garbage collector frees the old
+    one. A Plutonium slice is a view of an array that something else owns, so it
+    cannot grow.
+    Use a vec.Vec from pluto/vec, which owns its array and grows it from an
+    allocator. To fill a slice's spare capacity without growing it, slice it
+    longer and assign, or use copy.
+    Plutonium has no garbage collector and never allocates memory unless the
+    program asks for it in the code, so that every cost is visible and the same
+    code can run inside a kernel.
+    Keep s in a vec.Vec[int], which grows from an allocator:
+        import "pluto/vec"
+
+        s := vec.New[int]()
+        defer s.Free()
+        s.Append(2, 3)
+    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (run "pluto explain E2013" for a longer explanation)
+
+$DIR/main.p:13:6: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
+    Plutonium has no append. In Go, append grows a slice by allocating a larger
+    array behind the program's back, and the garbage collector frees the old
+    one. A Plutonium slice is a view of an array that something else owns, so it
+    cannot grow.
+    Use a vec.Vec from pluto/vec, which owns its array and grows it from an
+    allocator. To fill a slice's spare capacity without growing it, slice it
+    longer and assign, or use copy.
+    Plutonium has no garbage collector and never allocates memory unless the
+    program asks for it in the code, so that every cost is visible and the same
+    code can run inside a kernel.
+    Keep b in a vec.Vec[byte], which grows, and append the string's bytes with
+    vec.AppendString:
+        import "pluto/vec"
+
+        b := vec.New[byte]()
+        defer b.Free()
+        vec.AppendString(&b, "yz")
+    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (run "pluto explain E2013" for a longer explanation)
+
+$DIR/main.p:14:7: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
+    Plutonium has no append. In Go, append grows a slice by allocating a larger
+    array behind the program's back, and the garbage collector frees the old
+    one. A Plutonium slice is a view of an array that something else owns, so it
+    cannot grow.
+    Use a vec.Vec from pluto/vec, which owns its array and grows it from an
+    allocator. To fill a slice's spare capacity without growing it, slice it
+    longer and assign, or use copy.
+    Plutonium has no garbage collector and never allocates memory unless the
+    program asks for it in the code, so that every cost is visible and the same
+    code can run inside a kernel.
+    To copy a slice into new storage, use slices.Clone, which returns a vec.Vec
+    that owns the copy:
+        import "pluto/slices"
+
+        c := slices.Clone(s)
+        defer c.Free()
+    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (run "pluto explain E2013" for a longer explanation)
+
+$DIR/main.p:15:7: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
+    Plutonium has no append. In Go, append grows a slice by allocating a larger
+    array behind the program's back, and the garbage collector frees the old
+    one. A Plutonium slice is a view of an array that something else owns, so it
+    cannot grow.
+    Use a vec.Vec from pluto/vec, which owns its array and grows it from an
+    allocator. To fill a slice's spare capacity without growing it, slice it
+    longer and assign, or use copy.
+    Plutonium has no garbage collector and never allocates memory unless the
+    program asks for it in the code, so that every cost is visible and the same
+    code can run inside a kernel.
+    To join two slices into new storage, use slices.Concat, which returns a
+    vec.Vec that owns the result:
+        import "pluto/slices"
+
+        d := slices.Concat(s, c)
+        defer d.Free()
+    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (run "pluto explain E2013" for a longer explanation)
+
+$DIR/main.p:16:6: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
+    Plutonium has no append. In Go, append grows a slice by allocating a larger
+    array behind the program's back, and the garbage collector frees the old
+    one. A Plutonium slice is a view of an array that something else owns, so it
+    cannot grow.
+    Use a vec.Vec from pluto/vec, which owns its array and grows it from an
+    allocator. To fill a slice's spare capacity without growing it, slice it
+    longer and assign, or use copy.
+    Plutonium has no garbage collector and never allocates memory unless the
+    program asks for it in the code, so that every cost is visible and the same
+    code can run inside a kernel.
+    To delete elements from a slice in place, use slices.Delete:
+        import "pluto/slices"
+
+        s = slices.Delete(s, 1, 2)
+    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (run "pluto explain E2013" for a longer explanation)
+
+$DIR/main.p:18:9: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
+    Plutonium has no append. In Go, append grows a slice by allocating a larger
+    array behind the program's back, and the garbage collector frees the old
+    one. A Plutonium slice is a view of an array that something else owns, so it
+    cannot grow.
+    Use a vec.Vec from pluto/vec, which owns its array and grows it from an
+    allocator. To fill a slice's spare capacity without growing it, slice it
+    longer and assign, or use copy.
+    Plutonium has no garbage collector and never allocates memory unless the
+    program asks for it in the code, so that every cost is visible and the same
+    code can run inside a kernel.
+    To fill buf without allocating, use a vec.Fixed over it, which keeps what
+    fits:
+        import "pluto/vec"
+
+        b := vec.NewFixed(buf[:])
+        b.Append('a', 'b')
+        // b.Slice() holds the elements; b.Truncated() reports what did not fit
+    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (run "pluto explain E2013" for a longer explanation)
+
+$DIR/main.p:20:12: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
+    Plutonium has no append. In Go, append grows a slice by allocating a larger
+    array behind the program's back, and the garbage collector frees the old
+    one. A Plutonium slice is a view of an array that something else owns, so it
+    cannot grow.
+    Use a vec.Vec from pluto/vec, which owns its array and grows it from an
+    allocator. To fill a slice's spare capacity without growing it, slice it
+    longer and assign, or use copy.
+    Plutonium has no garbage collector and never allocates memory unless the
+    program asks for it in the code, so that every cost is visible and the same
+    code can run inside a kernel.
+    Make l.items a vec.Vec[int], which grows from an allocator:
+        l.items.Push(4)
+    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (run "pluto explain E2013" for a longer explanation)

@@ -26,7 +26,7 @@ const grammarFile = "syntaxes/plutonium.tmLanguage.json"
 // removed lists the predeclared names that types2 still defines but that
 // Plutonium rejects (language spec section 3); the grammar must not
 // highlight them as builtins.
-var removed = []string{"complex", "complex64", "complex128", "real", "imag", "delete", "recover"}
+var removed = []string{"complex", "complex64", "complex128", "real", "imag", "delete", "recover", "append"}
 
 // plutoniumBuiltins lists predeclared functions the grammar must highlight
 // even before the checker defines them.

@@ -82,6 +82,7 @@ func init() {
 		typerr.MismatchedTypes:        explainMismatched,
 		typerr.UndefinedOp:            explainUndefinedOp,
 		typerr.CannotInferTypeArgs:    explainInfer,
+		typerr.AppendNotPermitted:     explainAppend,
 	}
 }
 
@@ -955,3 +956,136 @@ func explainUndefinedOp(s *spec) {
 // Closest returns the candidate most like name, if one is close enough to
 // be a likely misspelling, and "" otherwise.
 func Closest(name string, candidates []string) string { return closest(name, candidates) }
+
+// ----------------------------------------------------------------------------
+// append
+
+// explainAppend replaces the catalog's fix for append with the Plutonium
+// form of the idiom the call is: growing a variable (Push or Append on a
+// vec.Vec), appending a string's bytes (vec.AppendString), copying
+// (slices.Clone), concatenating (slices.Concat), deleting a range
+// (slices.Delete), or filling a local array (vec.Fixed).
+func explainAppend(s *spec) {
+	var call *ast.CallExpr
+	for _, n := range s.path {
+		if c, ok := n.(*ast.CallExpr); ok && c.Fun.Pos() == s.pos {
+			call = c
+			break
+		}
+	}
+	if call == nil || len(call.Args) == 0 {
+		return
+	}
+	// A fix of its own needs the text with it (Explanation takes both
+	// from the catalog when the text is empty).
+	if e := Lookup(s.d.Code); e != nil && s.d.Text == "" {
+		s.d.Text = e.Text
+	}
+	x := call.Args[0]
+	xs := types2.ExprString(x)
+	rest := call.Args[1:]
+	dots := call.Ellipsis.IsValid()
+	elem := "T"
+	if sl, ok := s.typeOf(x).Underlying().(*types2.Slice); ok {
+		elem = s.str(sl.Elem())
+	}
+	var args []string
+	for _, a := range rest {
+		args = append(args, types2.ExprString(a))
+	}
+	list := strings.Join(args, ", ")
+	// The variable the result goes to, if the call is the right side of an
+	// assignment of one.
+	lhs := ""
+	if as, ok := find[*ast.AssignStmt](s); ok && len(as.Lhs) == 1 && len(as.Rhs) == 1 && as.Rhs[0] == ast.Expr(call) {
+		lhs = types2.ExprString(as.Lhs[0])
+	}
+	result := lhs
+	if result == "" || result == xs || result == "_" {
+		result = "c"
+	}
+
+	// append(s[:i], s[j:]...): deleting s[i:j].
+	if lo, ok := x.(*ast.SliceExpr); ok && dots && len(rest) == 1 && lo.Low == nil && lo.High != nil && lo.Max == nil {
+		if hi, ok := rest[0].(*ast.SliceExpr); ok && hi.Low != nil && hi.High == nil &&
+			types2.ExprString(hi.X) == types2.ExprString(lo.X) {
+			base := types2.ExprString(lo.X)
+			s.d.Fix = &Fix{Intro: "To delete elements from a slice in place, use slices.Delete",
+				Code: fmt.Sprintf("import \"pluto/slices\"\n\n%s = slices.Delete(%s, %s, %s)", base, base,
+					types2.ExprString(lo.High), types2.ExprString(hi.Low))}
+			return
+		}
+	}
+	// append(buf[:0], ...) of an array: filling the array.
+	if sl, ok := x.(*ast.SliceExpr); ok && sl.Low == nil && isZero(sl.High) && sl.Max == nil {
+		if _, ok := s.typeOf(sl.X).Underlying().(*types2.Array); ok {
+			arr := types2.ExprString(sl.X)
+			add := "b.Push(" + list + ")"
+			if len(rest) != 1 || dots {
+				add = "b.Append(" + list + dotsText(dots) + ")"
+			}
+			if dots && len(rest) == 1 && isKind(s.typeOf(rest[0]), types2.IsString) {
+				add = "vec.AppendString(&b, " + list + ")"
+			}
+			s.d.Fix = &Fix{Intro: fmt.Sprintf("To fill %s without allocating, use a vec.Fixed over it, which keeps what fits", arr),
+				Code: fmt.Sprintf("import \"pluto/vec\"\n\nb := vec.NewFixed(%s[:])\n%s\n// b.Slice() holds the elements; b.Truncated() reports what did not fit", arr, add)}
+			return
+		}
+	}
+	// append([]T(nil), s...) and append([]T{}, s...): copying.
+	if dots && len(rest) == 1 && isEmptySlice(x) {
+		s.d.Fix = &Fix{Intro: "To copy a slice into new storage, use slices.Clone, which returns a vec.Vec that owns the copy",
+			Code: fmt.Sprintf("import \"pluto/slices\"\n\n%s := slices.Clone(%s)\ndefer %s.Free()", result, list, result)}
+		return
+	}
+	// append(b, s...) with a string s.
+	if dots && len(rest) == 1 && isKind(s.typeOf(rest[0]), types2.IsString) {
+		s.d.Fix = &Fix{Intro: fmt.Sprintf("Keep %s in a vec.Vec[byte], which grows, and append the string's bytes with vec.AppendString", xs),
+			Code: fmt.Sprintf("import \"pluto/vec\"\n\n%s := vec.New[byte]()\ndefer %s.Free()\nvec.AppendString(&%s, %s)", xs, xs, xs, list)}
+		return
+	}
+	// x = append(x, ...): growing x.
+	if lhs != xs && dots && len(rest) == 1 {
+		s.d.Fix = &Fix{Intro: "To join two slices into new storage, use slices.Concat, which returns a vec.Vec that owns the result",
+			Code: fmt.Sprintf("import \"pluto/slices\"\n\n%s := slices.Concat(%s, %s)\ndefer %s.Free()", result, xs, list, result)}
+		return
+	}
+	add := fmt.Sprintf("%s.Push(%s)", xs, list)
+	if len(rest) != 1 || dots {
+		add = fmt.Sprintf("%s.Append(%s%s)", xs, list, dotsText(dots))
+	}
+	if _, ok := x.(*ast.Ident); !ok {
+		s.d.Fix = &Fix{Intro: fmt.Sprintf("Make %s a vec.Vec[%s], which grows from an allocator", xs, elem), Code: add}
+		return
+	}
+	s.d.Fix = &Fix{Intro: fmt.Sprintf("Keep %s in a vec.Vec[%s], which grows from an allocator", xs, elem),
+		Code: fmt.Sprintf("import \"pluto/vec\"\n\n%s := vec.New[%s]()\ndefer %s.Free()\n%s", xs, elem, xs, add)}
+}
+
+func dotsText(dots bool) string {
+	if dots {
+		return "..."
+	}
+	return ""
+}
+
+// isZero reports whether e is the literal 0.
+func isZero(e ast.Expr) bool {
+	lit, ok := e.(*ast.BasicLit)
+	return ok && lit.Value == "0"
+}
+
+// isEmptySlice reports whether e is []T(nil) or []T{}.
+func isEmptySlice(e ast.Expr) bool {
+	switch e := e.(type) {
+	case *ast.CallExpr:
+		if _, ok := e.Fun.(*ast.ArrayType); ok && len(e.Args) == 1 {
+			id, ok := e.Args[0].(*ast.Ident)
+			return ok && id.Name == "nil"
+		}
+	case *ast.CompositeLit:
+		_, ok := e.Type.(*ast.ArrayType)
+		return ok && len(e.Elts) == 0
+	}
+	return false
+}

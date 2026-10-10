@@ -43,6 +43,9 @@ const (
 	// InvalidUTF8String: a string literal that is not valid UTF-8, which
 	// no string may hold.
 	InvalidUTF8String
+	// AppendNotPermitted: a call of append, which in Go grows a slice by
+	// allocating behind the program's back; a Plutonium slice cannot grow.
+	AppendNotPermitted
 )
 
 // Packed types, bit fields, volatile, aligned and ring.

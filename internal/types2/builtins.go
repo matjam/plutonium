@@ -94,66 +94,19 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 
 	switch id {
 	case _Append:
-		// append(s S, x ...E) S, where E is the element type of S
-		// spec: "The variadic function append appends zero or more values x to
-		// a slice s of type S and returns the resulting slice, also of type S.
-		// The values x are passed to a parameter of type ...E where E is the
-		// element type of S and the respective parameter passing rules apply.
-		// As a special case, append also accepts a first argument assignable
-		// to type []byte with a second argument of string type followed by ... .
-		// This form appends the bytes of the string."
-
-		// In either case, the first argument must be a slice; in particular it
-		// cannot be the predeclared nil value. Note that nil is not excluded by
-		// the assignability requirement alone for the special case (go.dev/issue/76220).
-		// spec: "If S is a type parameter, all types in its type set
-		// must have the same underlying slice type []E."
-		E, err := sliceElem(x)
-		if err != nil {
-			check.errorf(x, InvalidAppend, "invalid append: %s", err.format(check))
+		// Plutonium: a slice is a view of an array something else owns,
+		// so it cannot grow (language spec section 3). append stays
+		// predeclared so that a call names it; the result keeps the first
+		// argument's type, so that the rest of the code checks as it would.
+		check.forbidden(call.Fun, AppendNotPermitted, "append is", "a slice cannot grow; use pluto/vec")
+		if _, err := sliceElem(x); err != nil {
 			return
-		}
-
-		// Handle append(bytes, y...) special case, where
-		// the type set of y is {string} or {string, []byte}.
-		var sig *Signature
-		if nargs == 2 && hasDots(call) {
-			if ok, _ := x.assignableTo(check, NewSlice(universeByte), nil); ok {
-				y := args[1]
-				hasString := false
-				for _, u := range typeset(y.typ()) {
-					if s, _ := u.(*Slice); s != nil && Identical(s.elem, universeByte) {
-						// typeset ⊇ {[]byte}
-					} else if u != nil && isString(u) {
-						// typeset ⊇ {string}
-						hasString = true
-					} else {
-						y = nil
-						break
-					}
-				}
-				if y != nil && hasString {
-					// setting the signature also signals that we're done
-					sig = makeSig(x.typ(), x.typ(), y.typ())
-					sig.variadic = true
-				}
-			}
-		}
-
-		// general case
-		if sig == nil {
-			// check arguments by creating custom signature
-			sig = makeSig(x.typ(), x.typ(), NewSlice(E)) // []E required for variadic signature
-			sig.variadic = true
-			check.arguments(call, sig, nil, nil, args, nil) // discard result (we know the result type)
-			// ok to continue even if check.arguments reported errors
-		}
-
-		if check.recordTypes() {
-			check.recordBuiltinType(call.Fun, sig)
 		}
 		x.mode_ = value
 		// x.typ is unchanged
+		if check.recordTypes() {
+			check.recordBuiltinType(call.Fun, makeSig(x.typ(), x.typ()))
+		}
 
 	case _Cap, _Len:
 		// cap(x)

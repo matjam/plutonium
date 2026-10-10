@@ -1,0 +1,8 @@
+$DIR/main.p:10:6: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
+$DIR/main.p:11:6: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
+$DIR/main.p:13:6: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
+$DIR/main.p:14:7: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
+$DIR/main.p:15:7: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
+$DIR/main.p:16:6: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
+$DIR/main.p:18:9: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
+$DIR/main.p:20:12: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)

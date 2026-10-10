@@ -126,3 +126,35 @@ func TestInterruptContext(t *testing.T) {
 		})
 	}
 }
+
+// TestInterruptContextInstantiation checks that the walk judges each
+// instantiation of a generic function on its own (plan for removing
+// append, decision 9): strconv.AppendInt into a vec.Fixed never allocates,
+// so an interrupt handler may call it while other code appends to a
+// vec.Vec, which grows from an allocator that waits.
+func TestInterruptContextInstantiation(t *testing.T) {
+	const decls = "type slowAlloc struct{}\n\n" +
+		"func (slowAlloc) Alloc(size, align uintptr) unsafe.Pointer {\n\twait()\n\treturn nil\n}\n\n" +
+		"func (slowAlloc) Free(p unsafe.Pointer, size, align uintptr) {}\n\n" +
+		"func init() {\n\talloc.SetDefault(slowAlloc{})\n\tlogNum(1)\n}\n\n" +
+		"func logNum(n int) {\n\tv := vec.New[byte]()\n\tstrconv.AppendInt(&v, int64(n), 10)\n\tv.Free()\n}\n\n"
+	cases := []struct{ name, body, want string }{
+		{"fixed", "\tvar mem [24]byte\n\tb := vec.NewFixed(mem[:])\n\tstrconv.AppendInt(&b, 7, 10)\n", ""},
+		{"vec", "\tv := vec.New[byte]()\n\tstrconv.AppendInt(&v, 7, 10)\n\tv.Free()\n",
+			"keyboard is an interrupt handler, so it must not wait"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			src := "package main\n\nimport (\n\t\"pluto/alloc\"\n\t\"pluto/arch/x86\"\n\t\"pluto/rt\"\n\t\"pluto/strconv\"\n\t\"pluto/vec\"\n\t\"unsafe\"\n)\n\n" +
+				goodHandler + contextDecls + decls +
+				"//pu:interrupt\nfunc keyboard(f *x86.InterruptFrame) {\n" + c.body + "}\n"
+			got := lowerModeError(t, src, kernel)
+			if c.want == "" && got != "" {
+				t.Fatalf("unexpected error:\n%s", got)
+			}
+			if c.want != "" && !containsText(got, c.want) {
+				t.Fatalf("error does not contain %q:\n%s", c.want, got)
+			}
+		})
+	}
+}

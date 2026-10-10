@@ -632,7 +632,7 @@
 
     "builtin-functions": {
       "name": "support.function.builtin.plutonium",
-      "match": "\\b(?:append|cap|clear|close|copy|len|make|max|min|new|panic|print|println|take)\\b(?=\\s*\\()"
+      "match": "\\b(?:cap|clear|close|copy|len|make|max|min|new|panic|print|println|take)\\b(?=\\s*\\()"
     },
 
     "unsafe": {

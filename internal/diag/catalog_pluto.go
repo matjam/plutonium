@@ -93,6 +93,19 @@ func init() {
 			Example: "const magic = \"\\x7fELF\\xff\"",
 			Fixed:   "var magic = [4]byte{0x7f, 'E', 'L', 0xff}",
 		},
+		&Entry{
+			Code: CheckerCode(typerr.AppendNotPermitted), Name: "AppendNotPermitted",
+			Text: "Plutonium has no append. In Go, append grows a slice by allocating a larger array behind " +
+				"the program's back, and the garbage collector frees the old one. A Plutonium slice is a view " +
+				"of an array that something else owns, so it cannot grow.\n" +
+				"Use a vec.Vec from pluto/vec, which owns its array and grows it from an allocator. " +
+				"To fill a slice's spare capacity without growing it, slice it longer and assign, or use copy.",
+			Why:     whyNoGC,
+			Fix:     &Fix{Intro: "To build a sequence that grows", Code: "import \"pluto/vec\"\n\nv := vec.New[int]()\ndefer v.Free()\nv.Push(1)\nv.Append(2, 3)"},
+			Spec:    pspec("3", "What Plutonium removes from Go"),
+			Example: "var s []int\ns = append(s, 1)\ns = append(s, 2, 3)",
+			Fixed:   "s := vec.New[int]()\ndefer s.Free()\ns.Push(1)\ns.Append(2, 3)",
+		},
 
 		// Packed types and wrappers.
 		&Entry{
