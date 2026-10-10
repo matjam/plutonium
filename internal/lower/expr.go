@@ -822,8 +822,17 @@ func (s *fnState) equal(x, y value, T types2.Type, pos token.Pos) *ssa.Value {
 		if isPlainBytes(et) {
 			return s.callRuntime("memequal", []*ssa.Type{ssa.TBool}, []*ssa.Value{x.v, y.v, s.constInt(ssa.TI64, u.Len()*esize)})[0]
 		}
-		s.l.errorf(pos, "lower: comparison of large arrays of %s is not supported yet", et)
-		return s.constBool(false)
+		// Elements whose bytes do not decide equality (structs with
+		// padding, floats, strings, interfaces): compare them in a loop.
+		res := s.tempSize(1, 1, "arrayeq")
+		s.store(ssa.TBool, res, s.constBool(true))
+		s.countedLoop(s.constInt(ssa.TI64, u.Len()), nil, func(i *ssa.Value) {
+			fx := s.loadFrom(s.elemAddr(x.v, i, et), et)
+			fy := s.loadFrom(s.elemAddr(y.v, i, et), et)
+			ne := s.newValue(ssa.OpNot, ssa.TBool, s.equal(fx, fy, et, pos))
+			s.ifThen(ne, func() { s.store(ssa.TBool, res, s.constBool(false)) })
+		})
+		return s.load(ssa.TBool, res)
 	case *types2.Packed, *types2.Wrapper:
 		return s.callRuntime("memequal", []*ssa.Type{ssa.TBool}, []*ssa.Value{x.v, y.v, s.constInt(ssa.TI64, s.l.sizeof(T))})[0]
 	}
