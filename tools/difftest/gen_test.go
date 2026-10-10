@@ -30,6 +30,14 @@ func TestGenerateTypeChecks(t *testing.T) {
 	for seed := int64(1); seed <= n; seed++ {
 		for _, opt := range []Options{{}, {RangeWrites: true}} {
 			src := Generate(seed, opt)
+			if len(src) > 64<<10 {
+				t.Errorf("seed %d: program is %d bytes", seed, len(src))
+			}
+			for i, l := range strings.Split(src, "\n") {
+				if len(l) > 8000 {
+					t.Errorf("seed %d: line %d is %d bytes: %.300s", seed, i+1, len(l), l)
+				}
+			}
 			errs, err := typeErrors(src)
 			if err != nil {
 				t.Fatalf("seed %d: parse: %v", seed, err)

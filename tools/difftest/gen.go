@@ -104,7 +104,8 @@ type gen struct {
 	globalText strings.Builder
 
 	loopStart int // index of the line where the loop being generated starts
-	callDepth int // calls being generated inside other calls' arguments
+	callDepth  int // calls being generated inside other calls' arguments
+	indexDepth int // index expressions being generated inside index expressions
 }
 
 // Generate returns a program in the common subset of Go and Plutonium.
@@ -543,8 +544,15 @@ func (g *gen) index(n int, sl *variable) string {
 			shifted = append(shifted, fmt.Sprintf("(%s - %d)", v.name, v.lo))
 		}
 	}
+	// Index expressions inside index expressions stay simple.
+	g.indexDepth++
+	defer func() { g.indexDepth-- }()
+	choices := 9
+	if g.indexDepth > 1 {
+		choices = 5
+	}
 	for {
-		switch g.r.Intn(9) {
+		switch g.r.Intn(choices) {
 		case 0, 1:
 			return strconv.Itoa(g.r.Intn(n))
 		case 2, 3:
@@ -604,7 +612,9 @@ func (g *gen) intExpr(t *typ, d int, nc bool) expr {
 	if d <= 0 || g.chance(4) {
 		return g.intLeaf(t, nc)
 	}
-	switch k := g.r.Intn(100); {
+	switch k := g.r.Intn(106); {
+	case k >= 100:
+		return g.rotate(t, d)
 	case k < 35:
 		ops := []string{"+", "-", "*", "&", "|", "^", "&^", "+", "-", "*"}
 		a := g.intExpr(t, d-1, false)
@@ -655,6 +665,31 @@ func (g *gen) intExpr(t *typ, d int, nc bool) expr {
 			return expr{s: c}
 		}
 		return g.intLeaf(t, nc)
+	}
+}
+
+// rotate returns a rotation written with shifts, or something that looks
+// like one but is not (an arithmetic right shift, a count that does not
+// add up to the width, an unmasked variable count).
+func (g *gen) rotate(t *typ, d int) expr {
+	x := g.intExpr(t, d-1, true).s
+	w := t.bits
+	op := []string{"|", "^", "+"}[g.r.Intn(3)]
+	switch g.r.Intn(4) {
+	case 0:
+		c := g.r.Intn(w + 1)
+		return expr{s: fmt.Sprintf("((%s << %d) %s (%s >> %d))", x, c, op, x, w-c)}
+	case 1:
+		c := g.r.Intn(w + 1)
+		return expr{s: fmt.Sprintf("((%s >> %d) %s (%s << %d))", x, c, op, x, max(w-c+g.r.Intn(3)-1, 0))}
+	case 2:
+		k := g.intExpr(g.randInt(), 1, true).s
+		return expr{s: fmt.Sprintf("((%s << (uint(%s) & %d)) %s (%s >> ((%d - uint(%s)) & %d)))", x, k, w-1, op, x, w, k, w-1)}
+	default:
+		us := unsignedTypes()
+		u := us[g.r.Intn(len(us))]
+		k := g.intExpr(u, 1, true).s
+		return expr{s: fmt.Sprintf("((%s << %s) %s (%s >> (%d - %s)))", x, k, op, x, w, k)}
 	}
 }
 
@@ -827,6 +862,13 @@ func (g *gen) value(t *typ, d int) string {
 	case 3:
 		return t.String() + "{}"
 	}
+	if d <= 0 {
+		// Nested literals multiply; stop at a variable or the zero value.
+		if p := g.place(t, false); p != "" {
+			return p
+		}
+		return t.String() + "{}"
+	}
 	return g.literal(t, d)
 }
 
@@ -834,9 +876,10 @@ func (g *gen) literal(t *typ, d int) string {
 	var parts []string
 	switch t.kind {
 	case kArray:
-		if g.chance(3) && t.n > 1 {
+		if t.n > 4 || (g.chance(3) && t.n > 1) {
+			// Keyed, with a few elements set.
 			for i := 0; i < t.n; i++ {
-				if g.chance(2) {
+				if g.r.Intn(t.n) < 3 {
 					parts = append(parts, fmt.Sprintf("%d: %s", i, g.value(t.elem, d-1)))
 				}
 			}
@@ -1036,7 +1079,11 @@ func (g *gen) args(params []*typ, slices []int) string {
 			args = append(args, s)
 			continue
 		}
-		args = append(args, g.value(p, 2))
+		d := 2
+		if !p.scalar() || g.callDepth > 0 {
+			d = 1
+		}
+		args = append(args, g.value(p, d))
 	}
 	return strings.Join(args, ", ")
 }
@@ -1352,7 +1399,7 @@ func (g *gen) stmt() bool {
 	g.addCost(1)
 	deep := g.cx.depth >= maxDepth
 	for {
-		switch k := g.r.Intn(100); {
+		switch k := g.r.Intn(120); {
 		case k < 20:
 			g.declStmt()
 			return false
@@ -1411,7 +1458,7 @@ func (g *gen) stmt() bool {
 				g.line("}")
 				return false
 			}
-		default:
+		case k < 100:
 			if g.cx.depth > 0 && g.chance(8) {
 				switch {
 				case len(g.cx.loops) > 0 && (g.chance(2) || g.cx.isMain):
@@ -1423,8 +1470,302 @@ func (g *gen) stmt() bool {
 				}
 				return true
 			}
+		case k < 106:
+			if !deep {
+				g.facts()
+				return false
+			}
+		case k < 112:
+			if g.guardedLoad() {
+				return false
+			}
+		case k < 116:
+			if !deep && g.fillLoop() {
+				return false
+			}
+		case k < 118:
+			if g.maybeNil() {
+				return false
+			}
+		default:
+			if !deep && g.kernel() {
+				return false
+			}
 		}
 	}
+}
+
+// kernel emits one of a few classic loops over an array or slice of
+// integers: the shapes bounds-check elimination and induction variable
+// analysis are written for.
+func (g *gen) kernel() bool {
+	var cands []*variable
+	for _, v := range g.visible() {
+		if v.t == nil || g.ranged[v] || (v.t.kind != kSlice && v.t.kind != kArray) || v.t.elem.kind != kInt {
+			continue
+		}
+		if (v.t.kind == kSlice && g.canWriteElems(v)) || (v.t.kind == kArray && g.canWriteRoot(v)) {
+			cands = append(cands, v)
+		}
+	}
+	if len(cands) == 0 {
+		return false
+	}
+	s := cands[g.r.Intn(len(cands))]
+	n := s.sliceLen + 4
+	if s.t.kind == kArray {
+		n = s.t.n
+	}
+	if g.cx.mult*int64(n*n) > 4000 {
+		return false
+	}
+	s.used = true
+	g.addCost(int64(n * n))
+	et := s.t.elem
+	S := s.name
+	h := g.cx.hash
+	acc := g.name("acc")
+	i, j, x := g.name("i"), g.name("j"), g.name("x")
+	g.line("{")
+	g.indent++
+	switch g.r.Intn(8) {
+	case 0:
+		// Sum over a prefix whose length is clamped to the length.
+		g.line("%s := min(%s, len(%s))", x, g.intExpr(tInt, 2, true).s, S)
+		g.line("var %s %s", acc, et)
+		g.line("for %s := 0; %s < %s; %s++ {", i, i, x, i)
+		g.line("\t%s += %s[%s] * %s[%s-1-%s]", acc, S, i, S, x, i)
+		g.line("}")
+		g.line("println(%q, %s, %s)", acc, acc, x)
+	case 1:
+		// Reverse in place.
+		g.line("for %s, %s := 0, len(%s)-1; %s < %s; %s, %s = %s+1, %s-1 {", i, j, S, i, j, i, j, i, j)
+		g.line("\t%s[%s], %s[%s] = %s[%s], %s[%s]", S, i, S, j, S, j, S, i)
+		g.line("}")
+	case 2:
+		// Binary search after an insertion sort.
+		g.insertionSort(S, i, j, x)
+		g.line("%s, %s := 0, len(%s)", i, j, S)
+		g.line("%s := %s", x, typed(g.intExpr(et, 1, false), et))
+		g.line("for %s < %s {", i, j)
+		g.line("\tm := int(uint(%s+%s) >> 1)", i, j)
+		g.line("\tif %s[m] < %s {", S, x)
+		g.line("\t\t%s = m + 1", i)
+		g.line("\t} else {")
+		g.line("\t\t%s = m", j)
+		g.line("\t}")
+		g.line("}")
+		g.line("println(\"search\", %s, %s)", i, x)
+	case 3:
+		// Prefix sums.
+		g.line("for %s := 1; %s < len(%s); %s++ {", i, i, S, i)
+		g.line("\t%s[%s] += %s[%s-1]", S, i, S, i)
+		g.line("}")
+	case 4:
+		// Count and select, which becomes conditional moves.
+		g.line("%s := %s", x, typed(g.intExpr(et, 1, false), et))
+		g.line("%s, %s := 0, 0", acc, j)
+		g.line("for %s, v := range %s {", i, S)
+		g.line("\tif v > %s {", x)
+		g.line("\t\t%s++", acc)
+		g.line("\t}")
+		g.line("\tif v < %s[%s] {", S, j)
+		g.line("\t\t%s = %s", j, i)
+		g.line("\t}")
+		g.line("}")
+		g.line("println(%q, %s, %s)", acc, acc, j)
+	case 5:
+		g.insertionSort(S, i, j, x)
+	case 6:
+		// A stride-2 walk reading pairs, and a walk down from the end.
+		g.line("var %s %s", acc, et)
+		g.line("for %s := 1; %s < len(%s); %s += 2 {", i, i, S, i)
+		g.line("\t%s ^= %s[%s-1] - %s[%s]", acc, S, i, S, i)
+		g.line("}")
+		g.line("for %s := len(%s); %s > 0; %s-- {", i, S, i, i)
+		g.line("\t%s = %s*3 + %s[%s-1]", acc, acc, S, i)
+		g.line("}")
+		g.line("println(%q, %s)", acc, acc)
+	default:
+		// Shift elements left by a variable distance.
+		g.line("%s := int(uint(%s) %% uint(len(%s)))", x, g.intExpr(g.randInt(), 1, true).s, S)
+		g.line("for %s := %s; %s < len(%s); %s++ {", i, x, i, S, i)
+		g.line("\t%s[%s-%s] = %s[%s]", S, i, x, S, i)
+		g.line("}")
+	}
+	if h != nil && g.canWriteRoot(h) {
+		g.line("for _, v := range %s {", S)
+		g.line("\t%s = %s*31 + uint64(v)", h.name, h.name)
+		g.line("}")
+	}
+	g.indent--
+	g.line("}")
+	return true
+}
+
+func (g *gen) insertionSort(s, i, j, x string) {
+	g.line("for %s := 1; %s < len(%s); %s++ {", i, i, s, i)
+	g.line("\t%s := %s[%s]", x, s, i)
+	g.line("\t%s := %s - 1", j, i)
+	g.line("\tfor %s >= 0 && %s[%s] > %s {", j, s, j, x)
+	g.line("\t\t%s[%s+1] = %s[%s]", s, j, s, j)
+	g.line("\t\t%s--", j)
+	g.line("\t}")
+	g.line("\t%s[%s+1] = %s", s, j, x)
+	g.line("}")
+}
+
+// facts compares related values in nested conditions, so that the
+// prove pass can use one comparison to decide another. The offsets
+// reach the ends of the type's range.
+func (g *gen) facts() {
+	t := g.randInt()
+	a := g.place(t, false)
+	b := g.intExpr(t, 1, true).s
+	off := func() string {
+		if g.chance(3) {
+			return ""
+		}
+		if t.signed {
+			return fmt.Sprintf(" + %d", g.r.Intn(5)-2)
+		}
+		return fmt.Sprintf(" + %d", g.r.Intn(3))
+	}
+	ops := []string{"<", "<=", ">", ">=", "==", "!="}
+	op := func() string { return ops[g.r.Intn(len(ops))] }
+	g.line("if %s %s %s%s {", a, op(), b, off())
+	g.indent++
+	for i, n := 0, 1+g.r.Intn(2); i < n; i++ {
+		c := []string{a, b, a + off(), b + off(), g.constant(t)}
+		x, y := c[g.r.Intn(len(c))], c[g.r.Intn(len(c))]
+		if x == y {
+			y = b
+		}
+		if g.chance(2) && !strings.Contains(x+y, " + ") {
+			g.line("println(%s %s %s, %s %s %s)", x, op(), y, a, op(), b)
+			continue
+		}
+		g.line("if %s %s %s {", x, op(), y)
+		g.line("\tprintln(%q, %s)", g.name("t"), typed(expr{s: a}, t))
+		g.line("} else {")
+		g.line("\tprintln(%q, %s)", g.name("f"), typed(expr{s: b}, t))
+		g.line("}")
+	}
+	g.indent--
+	g.line("} else if %s %s %s {", b, op(), a)
+	g.line("\tprintln(%s %s %s)", a, op(), b)
+	g.line("}")
+}
+
+// guardedLoad reads an element or divides only under a condition that
+// makes it safe, the shape branch elimination must not speculate.
+func (g *gen) guardedLoad() bool {
+	var cands []*variable
+	for _, v := range g.visible() {
+		if v.t != nil && (v.t.kind == kSlice || v.t.kind == kArray) && v.t.elem.kind == kInt {
+			cands = append(cands, v)
+		}
+	}
+	t := g.randInt()
+	k := g.name("k")
+	r := &variable{name: g.name("v"), t: t}
+	switch {
+	case len(cands) > 0 && g.chance(3):
+		s := cands[g.r.Intn(len(cands))]
+		s.used = true
+		r.t = s.t.elem
+		g.line("%s := %s", k, g.intExpr(tInt, 2, true).s)
+		g.line("%s := %s", r.name, typed(expr{s: g.constant(r.t), c: true}, r.t))
+		if g.chance(2) {
+			g.line("if %s >= 0 && %s < len(%s) {", k, k, s.name)
+		} else {
+			g.line("if uint(%s) < uint(len(%s)) {", k, s.name)
+		}
+		g.line("\t%s = %s[%s]", r.name, s.name, k)
+		g.line("}")
+	case g.chance(2):
+		g.line("%s := %s", k, g.intExpr(t, 2, true).s)
+		g.line("%s := %s", r.name, typed(g.intExpr(t, 1, false), t))
+		cond := fmt.Sprintf("%s != 0", k)
+		if t.signed {
+			cond += fmt.Sprintf(" && %s != -1", k)
+		}
+		g.line("if %s {", cond)
+		op := "/"
+		if g.chance(2) {
+			op = "%"
+		}
+		g.line("\t%s = %s %s %s", r.name, g.intExpr(t, 1, true).s, op, k)
+		g.line("}")
+	default:
+		return false
+	}
+	g.declare(r)
+	return true
+}
+
+// fillLoop stores the same value into a range of an array or slice, the
+// loop the optimiser turns into a block fill.
+func (g *gen) fillLoop() bool {
+	var cands []*variable
+	for _, v := range g.visible() {
+		if v.t == nil || g.ranged[v] || (v.t.kind != kSlice && v.t.kind != kArray) {
+			continue
+		}
+		if v.t.elem.kind != kInt {
+			continue
+		}
+		if (v.t.kind == kSlice && g.canWriteElems(v)) || (v.t.kind == kArray && g.canWriteRoot(v)) {
+			cands = append(cands, v)
+		}
+	}
+	if len(cands) == 0 {
+		return false
+	}
+	s := cands[g.r.Intn(len(cands))]
+	s.used = true
+	val := g.constant(s.t.elem)
+	if g.chance(2) {
+		val = g.intExpr(s.t.elem, 1, true).s
+	}
+	n := s.sliceLen
+	if s.t.kind == kArray {
+		n = s.t.n
+	}
+	i := g.name("i")
+	switch g.r.Intn(3) {
+	case 0:
+		g.line("for %s := range %s {", i, s.name)
+	case 1:
+		lo := g.r.Intn(n)
+		hi := lo + g.r.Intn(n-lo+1)
+		g.line("for %s := %d; %s < %d; %s++ {", i, lo, i, hi, i)
+	default:
+		g.line("for %s := 0; %s < len(%s); %s++ {", i, i, s.name, i)
+	}
+	g.line("\t%s[%s] = %s", s.name, i, val)
+	g.line("}")
+	g.addCost(int64(n) + 4)
+	return true
+}
+
+// maybeNil loads through a pointer that is nil on some paths, guarded by
+// a nil check.
+func (g *gen) maybeNil() bool {
+	t := g.randInt()
+	p := g.name("q")
+	g.line("var %s *%s", p, t)
+	g.line("if %s {", g.boolExpr(2, true).s)
+	a, _ := g.addr(t)
+	g.line("\t%s = %s", p, a)
+	g.line("}")
+	r := &variable{name: g.name("v"), t: t}
+	g.line("%s := %s", r.name, typed(expr{s: g.constant(t), c: true}, t))
+	g.line("if %s != nil {", p)
+	g.line("\t%s = *%s", r.name, p)
+	g.line("}")
+	g.declare(r)
+	return true
 }
 
 func (g *gen) declStmt() {
