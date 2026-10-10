@@ -71,6 +71,7 @@ Interfaces are partially supported today (compile-time dispatch for non-empty in
 | `aligned[T, N]` | Guarantees N-byte alignment for DMA buffers, SIMD, page tables |
 | `ring[T, N]` | Built-in lock-free ring buffer with compiler-inlined Push/Pop/Len |
 | `enum` types | Scoped members (`Color.Red`), exhaustive switches, checked conversions, generated `String` |
+| `union` types | Tagged unions with named variants (`Result[T]`, device states), exhaustive type switches, packed unions for page-table entries |
 | Default parameter values | `func New[T any](a Allocator = Default()) *T`; callers may omit trailing defaulted arguments |
 | `new(T, a)`, `make([]T, n, a)` | `new` and `make` allocate from the default allocator or one passed last |
 | `bits[V]` lens | Zero-cost bit-addressing over existing variables (Set/Clear/Test/Toggle) |
