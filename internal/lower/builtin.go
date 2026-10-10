@@ -231,6 +231,19 @@ func (s *fnState) minMax(isMin bool, a, b *ssa.Value, T types2.Type) *ssa.Value 
 			better = s.newValue(ssa.OpFLess, ssa.TBool, b, a)
 		}
 		s.ifThen(better, func() { s.store(t, res, a) })
+		// Equal operands differ only if they are zeros of different
+		// signs: min is -0 if either is, max is +0 if either is. ORing
+		// (for min) or ANDing (for max) the bits gives that, and leaves
+		// any other pair of equal values unchanged.
+		s.ifThen(s.newValue(ssa.OpFEq, ssa.TBool, a, b), func() {
+			it := ssa.IntType(t.Size)
+			op := ssa.OpOr
+			if !isMin {
+				op = ssa.OpAnd
+			}
+			bits := s.newValue(op, it, s.newValue(ssa.OpBitcast, it, a), s.newValue(ssa.OpBitcast, it, b))
+			s.store(t, res, s.newValue(ssa.OpBitcast, t, bits))
+		})
 		s.ifThen(s.newValue(ssa.OpFNe, ssa.TBool, a, a), func() { s.store(t, res, a) })
 		s.ifThen(s.newValue(ssa.OpFNe, ssa.TBool, b, b), func() { s.store(t, res, b) })
 		return s.load(t, res)
