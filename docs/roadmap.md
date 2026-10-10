@@ -27,12 +27,14 @@ later takes the next free number and is listed in the section where it belongs.
    sequence of abi.md section 10.4 (item 9).
 4. **`//pu:extern` and `//pu:export` with aggregates** (done): calls and entry points now follow System V
    (item 12), and signatures with no C equivalent are compile errors.
-5. **Escape errors for frame views** (planned): returning `&x`, a slice of a local array, an interface
+5. **Escape errors for frame views** (done): returning `&x`, a slice of a local array, an interface
    holding a frame copy or a closure with captures, or storing one in a package variable, on the heap or
-   through a caller's pointer, or passing it to a function that keeps it, must be a compile error
-   (language spec sections 4.4, 4.5 and 6.3), with the explanatory messages of section 6.9. Returning a
-   closure record (a capturing literal, a method value, a constructor's closure) is checked (E3100,
-   section 4.5); nothing else is yet. This is the compile-time half of "a view may not outlive what it looks at" (item 20).
+   through a caller's pointer, passing it to a function that keeps it, to a `go` statement or on a
+   channel, or keeping a view of a loop's variables past the iteration, is a compile error (language spec
+   sections 4.4, 4.5 and 6.3), with the explanatory messages of section 6.9: E3100 for a returned
+   closure record (lowering), E3001 to E3008 for the rest (`internal/escape`, a whole-program analysis
+   without annotations; docs/plans/2026-10-09-memory-safety-design.md section 4). This is the
+   compile-time half of "a view may not outlive what it looks at" (item 20).
 
 ## Kernel enablement
 
@@ -134,8 +136,14 @@ later takes the next free number and is listed in the section where it belongs.
 ## Language
 
 19. **Methods with type parameters** (done): merged on 2026-10-09; method values must be instantiated.
-20. **Ownership: owners, moves and views** (planned; language spec section 6). Today `owned`, `shared`
-    and `synced` exist in the checker and nothing else does. The work:
+20. **Ownership: owners, moves and views** (in progress; language spec section 6;
+    docs/plans/2026-10-09-memory-safety-design.md). Done: `owner` types and constraints, the move checker
+    (`internal/moves`, E3301 to E3312), automatic drops on every path sharing the cleanup stack of counted
+    strings, `take`, `unsafe.Drop`, and generation checks as an opt-in prototype (`--gencheck`). Before
+    generation checks become the default for hosted builds: loop-invariant hoisting of the checks, a
+    second measurement, and generation tags in `alloc.SyncSlab` (the prototype tags only the
+    single-threaded `Slab`). Not yet: dropping `owned`, `shared`, `synced`, owning interfaces and owner
+    unions; per-arena epochs for arena views (decision D4). The original list:
     - `owner` in type definitions and in type parameter constraints, with the placement rules of section
       6.4 (structs with owner fields must be declared `owner`; `Drop` only on owners; never inferred);
     - the move checker: moves on assignment, passing, return, send, `go`, field stores and owning

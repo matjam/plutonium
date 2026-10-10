@@ -2,8 +2,8 @@
 
 **Date:** 2026-10-09 (updated 2026-10-10)
 **Status:** sections 4 and 6.1 to 6.3 are implemented and enforced; section 5 is a measured prototype
-behind `pluto build --gencheck`, off by default; sections 6.4, 7 and 8 are proposals. Section 12 lists
-the decisions that need sign-off.
+behind `pluto build --gencheck`, off by default; sections 6.4, 7 and 8 are designs not yet implemented.
+The decisions of section 12 were signed off on 2026-10-10.
 
 ## 1. The goal
 
@@ -38,16 +38,25 @@ code*:
 - the unchecked allocation layer: `alloc.Raw`, `alloc.New`, `alloc.Free` and an `Allocator`'s methods
   called directly;
 - functions without a body (assembly, `//pu:extern`) and the directives that make promises the
-  compiler takes on trust: `//pu:noescape`, `//pu:resultholds`, `//pu:nobounds` and the proposed
-  `//pu:nochecks` (section 10);
+  compiler takes on trust: `//pu:noescape` (on functions without a body only), `//pu:resultholds` (in
+  the standard library only: E3008 elsewhere), `//pu:nobounds` and `//pu:nochecks` (section 10);
+- `rt.Pinned`, which hides a pointer from the escape analysis (the runtime's wait queues and timers,
+  `sync.WaitGroup.Go` until scoped puroutines land).
+
+**No annotations for derivable facts.** Ordinary hosted code needs no annotations and no knowledge of how
+the checks work: the escape analysis, the move checker, heap-only fields, sendability and (section 7)
+the locks that guard data are all inferred. The directives above exist because they state what the
+compiler cannot see (code outside Plutonium, a promise about a result's `Drop`, or an explicit request to
+remove checks), and precision directives are for kernel code. Error messages explain in the program's
+own terms.
 - `volatile[T]` at a fixed address, `pluto/arch/x86`, and memory made from an integer (device
   registers, DMA buffers).
 
 **Marking.** Unsafe code is visible without a new keyword: every use above is either an import of
 `unsafe` or `pluto/arch/x86`, a call into `pluto/alloc`'s unchecked functions, or a `//pu:` directive.
-That is how Go marks it too. I propose one addition: `pluto vet -unsafe` lists, per package, the
-functions that use unsafe code and the safe functions that call them, so that a reviewer can audit the
-unsafe surface (decision D1). A function that wraps unsafe code in a safe interface, as `vec.Vec` and
+That is how Go marks it too. One addition (decision D1, decided): `pluto vet -unsafe` lists, per package,
+the functions that use unsafe code and the safe functions that call them, so that a reviewer can audit
+the unsafe surface. It is not implemented yet. A function that wraps unsafe code in a safe interface, as `vec.Vec` and
 `hash.Map` do, is responsible for upholding the invariants that make it safe, exactly as in Rust.
 
 The standard library is where most unsafe code lives: allocators, containers, `fmt`'s type-descriptor
@@ -117,12 +126,13 @@ before optimization:
   hold `p`.
 - *Messages.* Every error names the expression, what it points into and where that was declared, why the
   place outlives it (with the callee chain, file and line of each step, for a call), and fixes as code
-  (codes E3001 to E3007, spec section 6.9).
+  (codes E3001 to E3008, spec section 6.9).
 
 **What it found.** Turning the check on found real dangling pointers in the tree: test programs that
 returned `&T{...}` or stored frame pointers in package variables, `fmt`'s printer keeping the address of
-the value being printed in a field, `os.File` keeping a view of a path in the caller's buffer (now `File`
-owns a copy of its name), `os.DirEntry.Info` returning a `FileInfo` that viewed a local buffer, the
+the value being printed in a field, `os.File` keeping a view of a path in the caller's buffer (a name
+made with `unsafe.String`; `OpenFile` and `NewPathError` now keep a counted copy through
+`rt.KeepString`), `os.DirEntry.Info` returning a `FileInfo` that viewed a local buffer, the
 self-hosting translations passing variadic argument arrays to functions that keep them, and Go code whose
 closures keep loop variables. Each is fixed in the tree.
 
@@ -153,8 +163,8 @@ allocator remove tags without checking.
 again: a stale pointer can then never match by accident. The cost is one slot lost per 65535 reuses.
 
 **Arenas.** Arena allocations are untagged in the prototype: an arena frees everything at once, and views
-of arena memory are checked only by the arena's own discipline. A design that covers them gives each
-arena an epoch in its chunk headers, bumped by `Reset`, with the same tag check (decision D4).
+of arena memory are checked only by the arena's own discipline. Decided (D4): each arena gets an epoch in
+its chunk headers, bumped by `Reset`, with the same tag check. It is a follow-up, not implemented.
 
 **Measurements.** Hosted x86-64, `bench/run.go` programs built with and without `--gencheck`, minimum of
 five runs, instructions and cycles counted with `perf_event_open`:
@@ -175,9 +185,12 @@ align chunks. The main remaining costs are checks inside loops that a loop-invar
 (the base pointer does not change; only a call can free), and binarytrees' per-node checks, which a
 "checked once per function entry for pointers loaded from a non-escaping owner" rule would cut further.
 
-**Recommendation (decision D3).** Keep generation checks as an opt-in build mode until loop hoisting
-lands, then measure again and decide whether to make them the default for hosted builds. They are not
-needed for memory the compiler can prove: values in owners never freed early, and the frame (section 4).
+**Decided (D3).** Generation checks stay an opt-in build mode. They become the default for hosted builds
+once three things are done: loop-invariant hoisting of the checks (the next optimizer task), a second
+measurement, and generation tags in `alloc.SyncSlab`. The prototype tags only `alloc.Slab`, which is not
+safe for concurrent use, so a `--gencheck` build uses `Slab` as the default allocator and may allocate
+from one puroutine only. The checks are not needed for memory the compiler can prove: values in owners
+never freed early, and the frame (section 4).
 
 ## 6. Ownership: owners, moves, drops, sharing
 
@@ -201,8 +214,11 @@ Lowering destroys owners where their scope ends, on every path: end of block, `r
 calls), `break`, `continue`, `goto`. Assigning to a place holding an owner drops the old value first.
 Temporaries are dropped at the end of their statement. A move clears its source variable, which serves as
 the drop flag: dropping the zero value does nothing, which every `Drop` must allow (spec section 6.4).
-Dropping runs the type's drop glue: its `Drop` method, then its fields in order. `x.Drop()` and
-`defer x.Drop()` run the whole glue and clear `x`. Measured on the benchmarks that use library owners
+Dropping runs the type's drop glue: its `Drop` method, then its fields in order, releasing the counted
+strings among them. `x.Drop()` and `defer x.Drop()` run the whole glue and clear `x`. Owners and counted
+strings share one cleanup stack in lowering (`internal/lower/strscope.go`): an owner variable, temporary
+or parameter is a slot whose release runs the drop glue. An owner type is never counted itself: it moves
+instead of being copied, so its strings move with it. Measured on the benchmarks that use library owners
 (strings, fasta-lcg), the drops are within run-to-run noise.
 
 The library types that own memory are declared owners: `vec.Vec`, `hash.Map`, `hash.Set`,
@@ -227,9 +243,8 @@ go2pu's output, and is the next step.
 - `weak[P]`: a pointer to the same allocation and a weak count; `Upgrade` increments the strong count if
   it is not zero.
 - Count elision: the move checker already knows each variable's last use; a copy that is the source's
-  last use is a move and needs no count update (spec rule 4 of section 6.5). The same machinery serves
-  the counted strings being implemented separately: their drop glue decrements at the places this work
-  drops owners.
+  last use is a move and needs no count update (spec rule 4 of section 6.5). Counted strings, which
+  landed separately, already release at the places this work drops owners (section 6.2).
 - Cycles of strong references are never freed; structures with back pointers use `weak` (examples in
   section 9). A cycle collector is not proposed: it would reintroduce unpredictable pauses.
 
@@ -240,19 +255,24 @@ Spec section 4.7 already defines **sendable**: values, owners (moved, so the sen
 sending frame may not. Sendability is inferred structurally from the type, never declared. Three gaps
 remain, and I propose closing them as follows:
 
-1. **Views of heap memory** (`*T`, `[]T`) are sendable today and "not checked for races". Proposal
-   (decision D5): a view is sendable only if what it points to is immutable for the rest of the program
-   (a string literal, a package variable never written after initialization, which the compiler can see)
-   or reached through a `synced[T]`. Otherwise share memory by moving an owner or through `synced[T]`.
+1. **Views of heap memory** (`*T`, `[]T`) are sendable today and "not checked for races". Decided (D5):
+   a view crosses to an unscoped puroutine only if what it points to is immutable for the rest of the
+   program (a string literal, a package variable never written after initialization, which the compiler
+   can see) or reached through a `synced[T]`. Otherwise share memory by moving an owner or through
+   `synced[T]`. Scoped puroutines (`sync.WaitGroup` as a scope, docs/plans/2026-10-10-scoped-puroutines.md)
+   relax this for puroutines the frame waits for.
 2. **`synced[T]` contents.** Mutation through a `synced[T]` is allowed only on fields whose type is a
-   `pluto/sync` or `pluto/sync/atomic` type, or inside a method whose receiver holds a `sync.Mutex` it
-   locks (the compiler checks the lock is held with the same flow analysis as the move checker, the way
-   Clang's thread-safety analysis does, with a `//pu:guardedby mu` field annotation). This is Rust's
-   `Arc<T>` plus `Mutex<T>`, without lifetimes.
+   `pluto/sync` or `pluto/sync/atomic` type, or on data guarded by a mutex. Decided (D7): which mutex
+   guards which data is inferred from the `Lock`/`Unlock` flow, with no annotation: a field or variable
+   that every access in the program reaches with the same mutex held is guarded by it, and an access
+   without it is an error that names the accesses that do hold it. One implementation serves this and
+   the scoped-puroutines design (its section 4), with the flow analysis of the move checker, as Clang's
+   thread-safety analysis does but without its annotations. This is Rust's `Arc<T>` plus `Mutex<T>`,
+   without lifetimes.
 3. **Package variables.** A package variable written after package initialization by code reachable
-   from more than one puroutine must have a `pluto/sync/atomic` type or be `//pu:guardedby` a mutex. The
-   compiler knows which functions a `go` statement can reach (the same call graph as section 4) and which
-   variables they write.
+   from more than one puroutine must have a `pluto/sync/atomic` type or be guarded by a mutex as
+   inferred in item 2. The compiler knows which functions a `go` statement can reach (the same call
+   graph as section 4) and which variables they write.
 
 With these, safe code has no data races: every piece of memory is either owned by one puroutine (moved
 there), immutable, atomic, or guarded.
@@ -406,9 +426,11 @@ with interrupted code is `volatile` word-sized or atomic, so it cannot tear (sec
 | Generation checks | run time, prototype | 1.0x to 1.8x, about 1.05x geometric mean in cycles | build flag (section 5) |
 | Reference counts | run time, proposal | an add per copy, a sub and test per drop; atomic for `synced` | none; choose `shared` or a view |
 
-I propose `//pu:nochecks` on a function to remove bounds and generation checks together, counting as
-unsafe code (section 2), and no switch for the compile-time checks, which cost nothing at run time
-(decision D6).
+Decided (D6): `//pu:nochecks` on a function removes bounds and generation checks together and counts as
+unsafe code (section 2); there is no switch for the compile-time checks, which cost nothing at run time.
+It is a directive, against the rule of no annotations, because it states no fact the compiler could
+derive: it is the programmer's explicit request to trade checks for speed in one function, after
+measuring, and it marks that function for the `pluto vet -unsafe` audit. Not implemented yet.
 
 ## 11. Known holes
 
@@ -436,19 +458,28 @@ unsafe code (section 2), and no switch for the compile-time checks, which cost n
 11. A puroutine started with packed variadic arguments gets its own copy of their array; the escape
     analysis accepts this only when the started function is known statically and does not keep the
     slice itself. Through a func value or interface method, the array is treated as frame memory.
-12. `rt.Pinned` hides a pointer from the escape analysis. The runtime's wait queues use it for records
-    in a parked puroutine's frame; any other use is unchecked.
+12. `rt.Pinned` hides a pointer from the escape analysis. The runtime's wait queues and timers use it
+    for records in a parked puroutine's frame, and `sync.WaitGroup.Go` for the WaitGroup until scoped
+    puroutines check that its frame waits; any other use is unchecked.
+13. A string made with `unsafe.String` is a view, checked like any other, but the library code that
+    keeps strings (`rt.KeepString`) copies a string nobody counts at run time, which the analysis cannot
+    see; it relies on `rt.Pinned` for that. `KeepString` also copies string literals, which costs an
+    allocation per `os.OpenFile` with a literal name.
+14. A string built while a local arena is the current allocator records the arena in its buffer and must
+    not outlive it (spec section 6.10); the escape analysis does not check this.
 
-## 12. Decisions for sign-off
+## 12. Decisions (signed off 2026-10-10)
 
-| # | Decision | Options | Recommendation |
+Every decision was taken as recommended, with D7 changed to lock inference without annotations.
+
+| # | Decision | Options | Outcome |
 |---|---|---|---|
 | D1 | How unsafe code is marked | (a) as now: imports and directives, plus `pluto vet -unsafe` to list it; (b) an `unsafe` block or function keyword | (a): it is Go's model, and the audit list gives what a keyword would |
 | D2 | Drop flags | (a) clear the moved-from variable (implemented); (b) separate flag bits per variable, as Rust | (a): simpler, and the optimizer removes dead clears; requires `Drop` to accept the zero value, which the spec already demands |
-| D3 | Generation checks by default | (a) opt-in flag; (b) default for hosted builds; (c) default everywhere | (a) now, (b) after loop hoisting and a second measurement |
-| D4 | Arena views | (a) unchecked (prototype); (b) per-arena epoch in the tag | (b), with the same check sequence |
+| D3 | Generation checks by default | (a) opt-in flag; (b) default for hosted builds; (c) default everywhere | (a) now, (b) after loop hoisting, a second measurement and `SyncSlab` support |
+| D4 | Arena views | (a) unchecked (prototype); (b) per-arena epoch in the tag | (b), with the same check sequence; a follow-up |
 | D5 | Heap views across puroutines | (a) allowed, unchecked (current spec); (b) only immutable or through `synced` | (b), it closes the last race and tearing hole in safe code |
 | D6 | Turning checks off | (a) `//pu:nobounds` only; (b) add `//pu:nochecks` for bounds and generations | (b), counted as unsafe |
-| D7 | Guarded data | (a) only atomics in `synced[T]`; (b) atomics plus `//pu:guardedby mu` checked by flow analysis | (b) |
+| D7 | Guarded data | (a) only atomics in `synced[T]`; (b) atomics plus `//pu:guardedby mu` checked by flow analysis; (c) atomics plus locks inferred from `Lock`/`Unlock` flow | (c), shared with scoped puroutines; no `//pu:guardedby` |
 | D8 | Heap-only field inference | (a) keep (implemented); (b) require an annotation instead | (a): it needs no annotation and is what makes arenas usable |
-| D9 | `string` | counted, immutable value (approved; implemented on another branch) | as approved: `unsafe.String` stays a view |
+| D9 | `string` | counted, immutable value (implemented) | as approved: `unsafe.String` stays a view |
