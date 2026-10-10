@@ -66,6 +66,18 @@ later takes the next free number and is listed in the section where it belongs.
     same table; specified in [debugging.md](spec/debugging.md) and
     [debug-allocator.md](spec/debug-allocator.md). Implementation items 41 to 43; what remains is listed
     there and in debugging.md section 8.
+53. **Compile-time panic handler, `//pu:panic`** (done): one `func(p *rt.Panic)` per program, required in
+    freestanding and kernel builds, linked as a direct call from the runtime's panic path, checked never
+    to return (with inferred no-return functions); `rt.Panic` carries the message, value, fault and CPU
+    and prints its trace without allocating; one panic at a time with a last resort for nested panics
+    (language spec section 8.1). Replaces `rt.SetPanicHandler`. Tested under QEMU
+    (`testdata/kernel/panic`: explicit panic, bounds error, page fault in an interrupt handler, nested
+    panic) and hosted. Hosted panics report CPU 0 until hosted programs have worker threads (item 14).
+54. **Interrupt context cannot block** (done): a whole-program check from every `//pu:interrupt` handler
+    and the panic handler against blocking channel operations, `go`, `//pu:blocking` functions and
+    allocators that may wait, conservative through interfaces and func values (language spec section
+    12.6). Channel operations and `go` are found in the source; until items 14 to 16 land they are
+    tested on the scan alone, and `pluto/sync` must mark its parking operations `//pu:blocking`.
 
 ## Concurrency
 

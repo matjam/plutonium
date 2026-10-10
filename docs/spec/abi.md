@@ -548,7 +548,14 @@ function is a compile error. `//pu:export name` on a handler gives its code a se
 assembly stubs that refer to it.
 
 The handler may call ordinary functions: they run on a 16-byte aligned stack with the direction flag
-clear, as section 2 requires, and every register they may change is restored before `iretq`.
+clear, as section 2 requires, and every register they may change is restored before `iretq`. Nothing it
+can reach may wait or start a puroutine: no blocking channel operation, no call of a `//pu:blocking`
+function, no `go` statement, no allocator that may wait. The compiler checks this over the whole program
+(language spec section 12.6), and the same for the panic handler, which can run on top of a handler.
+
+A panic inside a handler, or a fault an exception handler reports with `rt.PanicFault`, goes to the
+program's `//pu:panic` handler (language spec section 8.1), with a stack trace that starts at the
+faulting instruction and ends at the handler's frame.
 
 ### 10.5 `pluto/arch/x86` intrinsics
 
