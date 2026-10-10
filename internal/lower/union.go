@@ -25,6 +25,7 @@ type unionLayout struct {
 	T       types2.Type // the union type
 	u       *types2.TaggedUnion
 	tag     *ssa.Type // TI8 or TI16
+	word    *ssa.Type // the union's first leaf, which holds the tag (layout.go)
 	payload int64     // offset of the payload
 }
 
@@ -41,7 +42,11 @@ func (l *Lowerer) unionLayoutOf(T types2.Type, pos token.Pos) *unionLayout {
 			break
 		}
 	}
-	return &unionLayout{T: T, u: u, tag: ssa.IntType(tagSize), payload: off}
+	word := int64(8)
+	for word > off {
+		word /= 2
+	}
+	return &unionLayout{T: T, u: u, tag: ssa.IntType(tagSize), word: ssa.IntType(word), payload: off}
 }
 
 // ownerPointerIn reports whether a value of T holds an owned, shared or
@@ -100,7 +105,9 @@ func (s *fnState) makeVariant(T types2.Type, v *types2.Variant, payload value, p
 	ul := s.l.unionLayoutOf(T, pos)
 	tmp := s.temp(T, "union")
 	s.zero(tmp, s.l.sizeof(T))
-	s.store(ul.tag, tmp, s.constInt(ul.tag, int64(v.Index())))
+	// The tag is written as the whole first leaf, zero-extended over the
+	// padding before the payload, so that the union can live in registers.
+	s.store(ul.word, tmp, s.constInt(ul.word, int64(v.Index())))
 	if P := payloadType(T, v); v.HasPayload() && s.l.sizeof(P) > 0 {
 		s.storeTo(s.offPtr(tmp, ul.payload), payload, P)
 	}
@@ -183,9 +190,14 @@ func (l *Lowerer) variantFunc(U types2.Type, v *types2.Variant) *ssa.Sym {
 // ----------------------------------------------------------------------------
 // Selection
 
-// unionTag returns the tag of an ordinary union value.
+// unionTag returns the tag of an ordinary union value, read as its first
+// leaf so that a union in registers needs no memory.
 func (s *fnState) unionTag(ul *unionLayout, u value) *ssa.Value {
-	return s.load(ul.tag, u.v)
+	w := s.load(ul.word, u.v)
+	if ul.word.Size > ul.tag.Size {
+		w = s.newValue(ssa.OpTrunc, ul.tag, w)
+	}
+	return w
 }
 
 // unionPayload reads the payload of variant v from an ordinary union value.

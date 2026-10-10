@@ -123,7 +123,7 @@ booleans, pointers and floats, each with its offset in the value.
 | array of more than 4 elements | none: held in memory |
 | `volatile[T]`, `aligned[T, N]` | those of `T` |
 | packed type of 1, 2, 4 or 8 bytes | 1 integer |
-| union | its bytes as integers: 8-byte words, then a 4-, 2- and 1-byte piece for what remains; none (held in memory) for more than 16 |
+| union | integers whatever the payload holds: the bytes before the payload (the tag and padding), then the payload's bytes, each as 8-byte words and then a 4-, 2- and 1-byte piece for what remains; none (held in memory) for more than 16. `union { Ok int; Err int }` is two leaves, the tag word and the payload |
 | `ring[T, N]`, other packed types | none: held in memory |
 
 A value **fits in registers** when it has between 1 and 4 leaves (`maxRegLeaves` in

@@ -130,21 +130,31 @@ func (l *Lowerer) appendLeaves(out *[]leaf, T types2.Type, base int64) bool {
 			return l.appendLeaves(out, u.Elem(), base)
 		}
 	case *types2.TaggedUnion:
-		// A union is its words, each an integer leaf whatever the payload
-		// holds (abi.md section 1): the tag, padding and payload bits are
-		// copied without interpreting them.
-		size := l.sizeof(T)
-		for off := int64(0); off < size; {
-			n := int64(8)
-			for n > size-off {
-				n /= 2
-			}
-			*out = append(*out, leaf{base + off, ssa.IntType(n)})
-			off += n
-		}
+		// A union is integer leaves whatever its payload holds (abi.md
+		// section 3.1): the bytes before the payload, then the payload's
+		// bytes, each split into words and then smaller pieces. The tag is
+		// the first leaf, and a word-sized payload is one leaf, so scalar
+		// replacement can keep such a union in registers.
+		_, off := types2.UnionLayout(l.sizes, u)
+		appendIntLeaves(out, base, 0, off)
+		appendIntLeaves(out, base, off, l.sizeof(T))
 		return len(*out) <= 16
 	}
 	return false
+}
+
+// appendIntLeaves appends integer leaves covering the bytes [from, to) of
+// a value at base: 8-byte words, then a 4-, 2- and 1-byte piece for what
+// remains.
+func appendIntLeaves(out *[]leaf, base, from, to int64) {
+	for off := from; off < to; {
+		n := int64(8)
+		for n > to-off {
+			n /= 2
+		}
+		*out = append(*out, leaf{base + off, ssa.IntType(n)})
+		off += n
+	}
 }
 
 // appendPads appends the padding ranges of a T at base: the gaps between
