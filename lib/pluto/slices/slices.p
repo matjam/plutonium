@@ -11,13 +11,18 @@
 //   - Insert and Replace work within the slice's capacity, as append does,
 //     and panic when the result would not fit. To grow a sequence, keep it in
 //     a vec.Vec.
-//   - Clone, Concat and Repeat return a vec.Vec, which owns the new storage,
-//     allocated from an allocator: by default the default allocator, or the
-//     one passed to CloneIn, ConcatIn and RepeatIn. Use v.Slice() for the
-//     elements as a slice, and v.Free() when done.
+//   - Clone, Concat, Repeat, Collect, Sorted, SortedFunc and SortedStableFunc
+//     return a vec.Vec, which owns the new storage, allocated from an
+//     allocator: by default the default allocator, or the one passed to
+//     CloneIn, ConcatIn, RepeatIn, CollectIn, SortedIn, SortedFuncIn and
+//     SortedStableFuncIn. Use v.Slice() for the elements as a slice, and
+//     v.Free() when done.
+//   - AppendSeq, like append, must fit in the slice's capacity; Collect is
+//     the way to gather values of unknown number.
 //   - Grow is vec.Vec's Reserve.
-//   - The iterator functions (All, Values, Backward, Collect, Sorted, ...)
-//     need range over functions, which Plutonium does not have yet.
+//   - The iterators All, Values, Backward and Chunk are closure constructors
+//     (pluto/iter): they are called directly, in a range loop or as an
+//     argument, and build no allocation.
 //
 // Everything else, including Sort and SortFunc (pattern-defeating quicksort)
 // and SortStableFunc (insertion sort and symmetric merges, without extra

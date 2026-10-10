@@ -141,4 +141,28 @@ func main() {
 	fmt.Println(slices.Max([]int{3, 9, 2}), slices.Min([]string{"b", "a", "c"}),
 		slices.MaxFunc([]pair{{1, 0}, {3, 1}, {3, 2}}, cmpPair), slices.MinFunc([]pair{{2, 0}, {1, 1}, {1, 2}}, cmpPair))
 	fmt.Println(cmp.Compare(1, 2), cmp.Compare("b", "a"), cmp.Less(1.5, 2.5), cmp.Or(0, 0, 5, 6), cmp.Or("", "x"))
+
+	// The iterators.
+	words := []string{"a", "bb", "ccc", "dd", "e"}
+	for i, w := range slices.All(words) {
+		fmt.Println("All", i, w)
+	}
+	for i, w := range slices.Backward(words) {
+		if i == 1 {
+			break
+		}
+		fmt.Println("Backward", i, w)
+	}
+	total := 0
+	for w := range slices.Values(words) {
+		total += len(w)
+	}
+	fmt.Println("Values", total)
+	for c := range slices.Chunk(words, 2) {
+		fmt.Println("Chunk", c, len(c), cap(c))
+	}
+	grown := make([]int, 0, 16)
+	grown = slices.AppendSeq(grown, slices.Values([]int{4, 5, 6}))
+	grown = slices.AppendSeq(grown, slices.Values([]int{7}))
+	fmt.Println("AppendSeq", grown, cap(grown))
 }

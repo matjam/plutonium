@@ -324,3 +324,16 @@ true false 1 -1 0
 [1 3 1 4 42] 5
 9 a {3 1} {1 1}
 -1 1 true 5 x
+All 0 a
+All 1 bb
+All 2 ccc
+All 3 dd
+All 4 e
+Backward 4 e
+Backward 3 dd
+Backward 2 ccc
+Values 9
+Chunk [a bb] 2 2
+Chunk [ccc dd] 2 2
+Chunk [e] 1 1
+AppendSeq [4 5 6 7] 16
