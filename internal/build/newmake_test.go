@@ -1,0 +1,118 @@
+package build_test
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+	"time"
+
+	plutonium "github.com/matjam/plutonium"
+	"github.com/matjam/plutonium/internal/build"
+)
+
+// TestFreestandingNoAllocator boots a freestanding program under QEMU that
+// calls new before alloc.SetDefault: it must panic with "no allocator"
+// (language spec section 6.2). The boot code and linker script are those of
+// testdata/kernel/irq; the program's panic handler leaves QEMU through the
+// isa-debug-exit device with status 3.
+func TestFreestandingNoAllocator(t *testing.T) {
+	qemu, err := exec.LookPath("qemu-system-x86_64")
+	if err != nil {
+		t.Skip("qemu-system-x86_64 is not installed")
+	}
+	const src = `package main
+
+import (
+	"pluto/rt"
+	"unsafe"
+)
+
+// Implemented in boot_amd64.s.
+func outb(port uint16, v uint8)
+
+func serialWrite(p unsafe.Pointer, n int) {
+	for i := 0; i < n; i++ {
+		outb(0x3F8, *(*uint8)(unsafe.Add(p, i)))
+	}
+}
+
+func exit() { outb(0xF4, 1) }
+
+type node struct{ next *node }
+
+func main() int64 {
+	rt.SetConsole(serialWrite)
+	rt.SetPanicHandler(exit)
+	println("before")
+	n := new(node)
+	println("unreachable", n)
+	return 0
+}
+`
+	irq := filepath.Join("..", "..", "testdata", "kernel", "irq")
+	dir := t.TempDir()
+	for _, name := range []string{"boot_amd64.s", "kernel.ld"} {
+		data, err := os.ReadFile(filepath.Join(irq, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.p"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	image := filepath.Join(dir, "kernel.bin")
+	cfg := &build.Config{
+		Dir: dir, Output: image, Stdlib: plutonium.Stdlib(),
+		Freestanding: true, LinkerScript: filepath.Join(dir, "kernel.ld"), Format: "binary",
+	}
+	if err := build.Build(cfg); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, qemu, "-kernel", image, "-serial", "stdio", "-display", "none",
+		"-monitor", "none", "-no-reboot", "-m", "64M",
+		"-device", "isa-debug-exit,iobase=0xf4,iosize=0x04")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 3 {
+		t.Fatalf("qemu: %v (want exit status 3)\nserial: %s\nstderr: %s", err, stdout.String(), stderr.String())
+	}
+	const want = "before\npanic: no allocator: call alloc.SetDefault before allocating\n"
+	if got := stdout.String(); got != want {
+		t.Errorf("serial output %q, want %q", got, want)
+	}
+}
+
+// TestNoAllocator checks that new and make panic with "no allocator" when
+// there is none to allocate from (language spec sections 6.2 and 7): the
+// default allocator has not been set, as in a freestanding program before
+// alloc.SetDefault, or the explicit allocator is nil.
+func TestNoAllocator(t *testing.T) {
+	cases := []struct{ name, body string }{
+		{"new without a default", "alloc.SetDefault(nil)\n\t_ = new(int)"},
+		{"make without a default", "alloc.SetDefault(nil)\n\t_ = make([]int, 3)"},
+		{"new with a nil allocator", "var a alloc.Allocator\n\t_ = new(int, a)"},
+		{"make with a nil allocator", "_ = make([]byte, 1, 8, nil)"},
+	}
+	const want = "panic: no allocator: call alloc.SetDefault before allocating\n"
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			src := "package main\n\nimport \"pluto/alloc\"\n\nvar _ alloc.Allocator\n\nfunc main() {\n\t" + c.body + "\n\tprintln(\"unreachable\")\n}\n"
+			out, status := compileAndRun(t, src, 0)
+			if status != 2 || out != want {
+				t.Errorf("exit status %d, output %q; want 2, %q", status, out, want)
+			}
+		})
+	}
+}

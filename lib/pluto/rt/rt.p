@@ -464,14 +464,14 @@ func SetDefaultAllocator(a Allocator) { defaultAllocator = a }
 
 // alloc implements new and make without an explicit allocator.
 func alloc(size, align uintptr) unsafe.Pointer {
-	if defaultAllocator == nil {
-		panicMessage("no allocator: call alloc.SetDefault before allocating", "", "", "", "")
-	}
 	return allocWith(defaultAllocator, size, align)
 }
 
 // allocWith implements new and make with an explicit allocator.
 func allocWith(a Allocator, size, align uintptr) unsafe.Pointer {
+	if a == nil {
+		panicMessage("no allocator: call alloc.SetDefault before allocating", "", "", "", "")
+	}
 	if size == 0 {
 		size = 1
 	}

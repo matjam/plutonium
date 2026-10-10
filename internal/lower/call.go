@@ -348,6 +348,18 @@ func (l *Lowerer) rtFunc(name string) *types2.Func {
 	panic(fmt.Sprintf("lower: pluto/rt.%s is missing", name))
 }
 
+// rtType returns the named type of package pluto/rt.
+func (l *Lowerer) rtType(name string) types2.Type {
+	for _, p := range l.prog.Packages {
+		if p.Path == "pluto/rt" {
+			if tn, ok := p.Types.Scope().Lookup(name).(*types2.TypeName); ok {
+				return tn.Type()
+			}
+		}
+	}
+	panic(fmt.Sprintf("lower: pluto/rt.%s is missing", name))
+}
+
 // callRuntime calls pluto/rt.name with already-flattened scalar arguments and
 // returns its scalar results.
 func (s *fnState) callRuntime(name string, results []*ssa.Type, argGroups ...[]*ssa.Value) []*ssa.Value {
