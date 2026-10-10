@@ -169,6 +169,10 @@ type Checker struct {
 	// aligned wrapper on its operand instead of unwrapping it.
 	keepWrapper bool
 
+	// Plutonium: positions of values of complex type, reported together
+	// once checking is done (see reportComplex).
+	complexAt []token.Pos
+
 	// debugging
 	posStack []positioner // stack of source positions seen; used for panic tracing
 	indent   int          // indentation for tracing
@@ -470,6 +474,9 @@ func (check *Checker) checkFiles(files []*ast.File) {
 
 	print("== recordUntyped ==")
 	check.recordUntyped()
+
+	print("== reportComplex ==")
+	check.reportComplex()
 
 	if check.firstErr == nil {
 		// TODO(mdempsky): Ensure monomorph is safe when errors exist.

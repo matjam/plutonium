@@ -8,6 +8,9 @@ package types2
 // checker can treat them as ordinary Go.
 
 import (
+	"slices"
+	"strconv"
+
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	. "github.com/matjam/plutonium/internal/types2/errors"
 )
@@ -101,6 +104,69 @@ func isMainStatus(results *ast.FieldList) bool {
 	}
 	id, ok := results.List[0].Type.(*ast.Ident)
 	return ok && id.Name == "int64"
+}
+
+// complexReason is why complex numbers are not part of Plutonium.
+const complexReason = "they are rarely useful in systems code; use a struct of two floats"
+
+// checkComplexValue notes a value of complex type, to be reported by
+// reportComplex. Complex types may still appear in type expressions such
+// as the type sets of constraints shared with Go code; what Plutonium
+// rejects is any value of such a type, whether written directly, converted
+// from an untyped complex constant or produced by instantiating a generic
+// function.
+func (check *Checker) checkComplexValue(x ast.Expr, mode operandMode, typ Type) {
+	switch mode {
+	case invalid, novalue, builtin, typexpr:
+		return
+	}
+	if isComplexValueType(typ) {
+		check.complexAt = append(check.complexAt, x.Pos())
+	}
+}
+
+// checkComplexTypeArgs notes an instantiation with a complex type argument,
+// which would make values of a complex type.
+func (check *Checker) checkComplexTypeArgs(at positioner, targs []Type) {
+	for _, t := range targs {
+		if isComplexValueType(t) {
+			check.complexAt = append(check.complexAt, at.Pos())
+			return
+		}
+	}
+}
+
+// isComplexValueType reports whether typ is a typed complex type.
+func isComplexValueType(typ Type) bool {
+	b, ok := Unalias(typ).Underlying().(*Basic)
+	return ok && b.info&IsComplex != 0 && b.info&IsUntyped == 0
+}
+
+// reportComplex reports the complex values noted while checking, once per
+// source line (an expression and its operands are one mistake), at the
+// first such position on the line. It runs after the untyped expressions
+// have their final types.
+func (check *Checker) reportComplex() {
+	for x, info := range check.untyped {
+		check.checkComplexValue(x, info.mode, info.typ)
+	}
+	if len(check.complexAt) == 0 {
+		return
+	}
+	slices.Sort(check.complexAt)
+	seen := map[string]bool{}
+	for _, pos := range check.complexAt {
+		key := strconv.Itoa(int(pos))
+		if check.fset != nil {
+			p := check.fset.Position(pos)
+			key = p.Filename + ":" + strconv.Itoa(p.Line)
+		}
+		if !seen[key] {
+			seen[key] = true
+			check.forbidden(atPos(pos), "complex numbers are", complexReason)
+		}
+	}
+	check.complexAt = nil
 }
 
 // forbiddenImports lists import paths Plutonium rejects, with the reason.
