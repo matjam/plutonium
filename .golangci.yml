@@ -1,0 +1,16 @@
+version: "2"
+
+issues:
+  # Report every issue rather than the first few per linter.
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+linters:
+  exclusions:
+    rules:
+      # internal/types2 is forked from go/types, which dot-imports its error
+      # codes package everywhere; qualifying hundreds of codes would only make
+      # the fork harder to compare with upstream.
+      - path: internal/types2/
+        linters: [staticcheck]
+        text: "ST1001:"

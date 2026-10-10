@@ -193,7 +193,7 @@ func collectSources(args []string, cfg *config.Config) ([]string, error) {
 					continue
 				}
 				name := e.Name()
-				if !strings.HasSuffix(name, ".pu") {
+				if !strings.HasSuffix(name, ".p") {
 					continue
 				}
 				path := filepath.Join(arg, name)
@@ -211,7 +211,7 @@ func collectSources(args []string, cfg *config.Config) ([]string, error) {
 					sources = append(sources, path)
 				}
 			}
-		} else if strings.HasSuffix(arg, ".pu") {
+		} else if strings.HasSuffix(arg, ".p") {
 			sources = append(sources, arg)
 		}
 	}

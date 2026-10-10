@@ -1,0 +1,3 @@
+# Plutonium source. GitHub Linguist maps .p to OpenEdge ABL by default; until
+# Plutonium is a known language, highlight it as Go, whose syntax it shares.
+*.p linguist-language=Go

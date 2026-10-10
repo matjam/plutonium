@@ -39,7 +39,7 @@ var r = ControlReg{}
 var x packed { a, b uint8 }
 `
 	fset := token.NewFileSet()
-	f, err := ParseFile(fset, "packed.pu", src, 0)
+	f, err := ParseFile(fset, "packed.p", src, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,25 +132,25 @@ end:
 }
 `
 	fset := token.NewFileSet()
-	if _, err := ParseFile(fset, "go.pu", src, 0); err != nil {
+	if _, err := ParseFile(fset, "go.p", src, 0); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// TestParseRepoSources parses every .pu file shipped in the repository.
+// TestParseRepoSources parses every .p file shipped in the repository.
 func TestParseRepoSources(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
 	var files []string
 	for _, dir := range []string{"pluto", "examples", "testdata"} {
 		_ = filepath.WalkDir(filepath.Join(root, dir), func(path string, d fs.DirEntry, err error) error {
-			if err == nil && !d.IsDir() && strings.HasSuffix(path, ".pu") && !strings.Contains(path, "invalid") {
+			if err == nil && !d.IsDir() && strings.HasSuffix(path, ".p") &&!strings.Contains(path, "invalid") {
 				files = append(files, path)
 			}
 			return nil
 		})
 	}
 	if len(files) == 0 {
-		t.Skip("no .pu files found")
+		t.Skip("no .p files found")
 	}
 	for _, path := range files {
 		src, err := os.ReadFile(path)

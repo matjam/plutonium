@@ -114,7 +114,7 @@ func findSourceFilesDeps(dir string, tags map[string]bool) ([]string, error) {
 	}
 	var sources []string
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".pu") {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".p") {
 			continue
 		}
 		path := filepath.Join(dir, e.Name())

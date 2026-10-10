@@ -1,6 +1,6 @@
 module github.com/matjam/plutonium
 
-go 1.26.1
+go 1.27.1
 
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect

@@ -127,7 +127,7 @@ func findSourceFiles(dir string, tags map[string]bool) ([]string, error) {
 			continue
 		}
 		name := e.Name()
-		if !strings.HasSuffix(name, ".pu") {
+		if !strings.HasSuffix(name, ".p") {
 			continue
 		}
 		path := filepath.Join(dir, name)
