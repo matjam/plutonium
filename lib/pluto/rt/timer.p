@@ -348,8 +348,6 @@ func parkTimeout(arg unsafe.Pointer, now int64) {
 // task with a waker removes it under the waker's lock, and if the waker had
 // already taken it, consumes that wakeup with Park. A deadline that has
 // passed returns false at once.
-//
-//pu:blocking
 func ParkUntil(deadline int64) bool {
 	startTasks()
 	t := current()

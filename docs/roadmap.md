@@ -78,9 +78,9 @@ later takes the next free number and is listed in the section where it belongs.
 55. **Interrupt context cannot block** (done): a whole-program check from every `//pu:interrupt` handler
     and the panic handler against blocking channel operations, `go`, `//pu:blocking` functions and
     allocators that may wait, conservative through interfaces and func values (language spec section
-    12.6). Channel operations and `go` are found in the source, and their lowering calls `//pu:blocking`
-    runtime entries, so the walk sees them through library code too; `pluto/sync` marks its parking
-    operations `//pu:blocking`, and the bound scheduler's `Wake` is checked as interrupt context.
+    12.6). Channel operations and `go` are found in the source, and the walk follows library code into
+    the runtime's `park` and `spawn`, so nothing else in the library is marked (`park` is the one
+    `//pu:blocking` function); the bound scheduler's `Wake` is checked as interrupt context.
 
 ## Concurrency
 

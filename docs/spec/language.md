@@ -399,7 +399,8 @@ kernel's backend provides the clock and the hardware: a `Now` method, and an `Ar
 arranges for `rt.RunTimers()` to be called, typically from the timer interrupt, once a deadline has
 passed. Both are optional, so a kernel that never sleeps needs neither; a program that uses timers with
 a backend that lacks them fails to build. Arming and stopping a timer, and `rt.RunTimers`, never block
-and may be used in interrupt handlers; sleeping and `rt.ParkUntil` are `//pu:blocking`.
+and may be used in interrupt handlers; sleeping and `rt.ParkUntil` park the caller, so interrupt handlers
+must not reach them (section 12.6).
 
 The `time` API follows Go's where the language allows. Timers and tickers come from an allocator
 (`time.NewTimer(d, a)`, with the default allocator if none is given) and are freed with `alloc.Free`,
@@ -471,7 +472,7 @@ channel afterwards, and freeing one that puroutines wait on panics. A channel ma
 memory of `new`. When counting lands, `FreeChan` goes away.
 
 The operations that may wait (a send or receive, a `range` over a channel, a `select` without a
-`default` case) call runtime functions marked `//pu:blocking`; a `select` with a `default` case and
+`default` case) call runtime functions that park the caller; a `select` with a `default` case and
 `close`, `len` and `cap` never wait, so interrupt handlers may use them (section 12.6).
 
 Timeouts are channels too: `time.After(d)` and a `time.Timer`'s `C` receive the time once the timer
@@ -2864,10 +2865,10 @@ the processor stops. So nothing an interrupt handler can reach, and nothing the 
 
 - send or receive on a channel, except as a case of a `select` with a `default` case; run a `select`
   without a `default` case; or range over a channel;
-- call a function marked `//pu:blocking`: those that park the caller, such as `pluto/sync`'s
-  `Mutex.Lock` and `WaitGroup.Wait` and the runtime's parking operations, and any function a program
-  marks;
-- start a puroutine (`go`), which allocates a stack and takes the scheduler's locks;
+- call a function that may park the caller, such as `pluto/sync`'s `Mutex.Lock` and `WaitGroup.Wait`,
+  `time.Sleep` or `rt.Park`, or a function a program marks `//pu:blocking` (below);
+- start a puroutine (`go`, `rt.Go`, `sync.WaitGroup.Go`), which allocates a stack and takes the
+  scheduler's locks;
 - allocate from an allocator that may wait (below).
 
 Operations that do not wait are allowed: `select` with `default`, `TryLock`, readying a parked
@@ -2904,8 +2905,15 @@ irq.p:5:3: keyboard is an interrupt handler, so it must not wait
 A go statement on the path is reported the same way, as E2585 ("so it must not start a puroutine").
 
 - **What is followed.** Direct calls, method calls, deferred calls and the calls the compiler adds for
-  `new`, `make`, interface conversions and panics. It does not enter a `//pu:blocking` function, and a
-  path from an interrupt handler stops at the panic handler, which is checked on its own.
+  `new`, `make`, interface conversions and panics, into the standard library as into the program's own
+  code. A path ends at the runtime's `park`, which every wait in the library ends in, at the runtime's
+  `spawn`, which starts every puroutine, and at a function marked `//pu:blocking`; a path from an
+  interrupt handler stops at the panic handler, which is checked on its own. The message names the path
+  as far as the call that enters the standard library (`keyboard calls readConfig (irq.p:5), which waits
+  on cfgMutex (config.p:22)`), not how the library goes on to wait.
+- **`//pu:blocking`** is for what the compiler cannot see: a kernel's own primitive that waits for
+  another processor (a lock that spins until it is released, a routine that halts until an interrupt),
+  and assembly or C that waits. The standard library marks only `park`.
 - **Calls through interfaces and func values** cannot be resolved exactly, so the compiler is
   conservative, using what it knows about the whole program. A call of method `m` through an interface
   type `I` may reach `m` of every type the program converts to `I`, whether directly, from another
@@ -2915,18 +2923,18 @@ A go statement on the path is reported the same way, as E2585 ("so it must not s
   through such a call. To make a handler's call exact, call the function directly.
 - **Allocation.** An allocator is not marked as a whole: `new` and `make` call the allocator's `Alloc`
   through the `alloc.Allocator` interface, and the check follows that call into every allocator the
-  program installs. An allocator whose `Alloc` or `Free` may wait, because it takes a `//pu:blocking`
-  lock (a slab cache refilled under a `sync.Mutex`), is reported like any other function that may wait;
-  one that uses a spin lock with interrupts disabled, or none, is allowed. So `//pu:blocking` belongs on
-  the primitives that park, and no allocator needs a marking of its own. (The alternative, forbidding all
+  program installs. An allocator whose `Alloc` or `Free` may wait, because it takes a lock that parks
+  (a slab cache refilled under a `sync.Mutex`), is reported like any other function that may wait; one
+  that uses a spin lock with interrupts disabled, or none, is allowed. So no allocator needs a marking of
+  its own. (The alternative, forbidding all
   allocation in interrupt context unless an allocator is marked safe, was rejected: it would forbid the
   common, safe case of a lock-free per-CPU cache, and the marking could be wrong without the compiler
   noticing.)
 - **Assembly and C** are not looked into: a body-less function counts as not waiting unless its
   declaration is marked `//pu:blocking`.
-- **Non-blocking channel operations** lower to runtime functions that are not marked `//pu:blocking`
-  (`selectnb`, `closechan`), so that a `select` with `default` stays allowed; the waiting forms call
-  ones that are (`chansend1`, `chanrecv1`, `chanrecv2`, `selectgo`, `spawnGo`).
+- **Non-blocking channel operations** lower to runtime functions that never reach `park` (`selectnb`,
+  `closechan`), so that a `select` with `default` stays allowed; the waiting forms call ones that do
+  (`chansend1`, `chanrecv1`, `chanrecv2`, `selectgo`).
 - **The scheduler's `Wake`.** `rt.Ready` calls the bound scheduler's `Wake` (section 4.7), and interrupt
   handlers may call `rt.Ready`, so `Wake` is checked as a root too, with the message "is the
   scheduler's Wake, which interrupt handlers reach through rt.Ready".
@@ -2966,7 +2974,7 @@ hold, and most have a `Clone`.
 | Package | Contents |
 |---|---|
 | `pluto/rt` | panic hook, program entry, memory copy and compare primitives the compiler calls, the scheduler contract (`Scheduler`, `Task`, `Switch`, `Park`, `Ready`, `Preempt`), timers (`Now`, `Timer`, `ParkUntil`, `RunTimers`), `Go`, `Yield`, the hosted scheduler |
-| `pluto/sync` | `Mutex`, `RWMutex`, `WaitGroup` (with `Go`), `Once`, `Cond` over the scheduler; the operations that park are `//pu:blocking` |
+| `pluto/sync` | `Mutex`, `RWMutex`, `WaitGroup` (with `Go`), `Once`, `Cond` over the scheduler; interrupt handlers must not reach the operations that park |
 | `pluto/alloc` | allocators, the default allocator, `Use`/`Restore`, `Owned`/`Shared`/`Synced`, and the unchecked layer `Raw`/`New`/`Free` (section 7.1) |
 | `pluto/alloc/debug` | the checking allocator (section 7.3) |
 | `pluto/arena` | bump allocators; freeing into one does nothing, and `Reset` reclaims everything (section 6.6) |

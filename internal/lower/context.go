@@ -20,12 +20,20 @@ import (
 // every //pu:interrupt handler and from the panic handler and reports the
 // first path to an operation that may wait or start a puroutine:
 //
-//   - a call of a function marked //pu:blocking (pluto/sync's Mutex.Lock
-//     and WaitGroup.Wait, the runtime's parking operations, and any
-//     function the program marks), which the walk does not enter;
+//   - a call of a function marked //pu:blocking, which the walk does not
+//     enter: the runtime's park, which every wait in the library ends in
+//     (pluto/sync's Mutex.Lock and WaitGroup.Wait, channel operations,
+//     sleeping, the poller), and any function the program marks, such as a
+//     kernel's own lock or an assembly routine that waits;
 //   - a channel send or receive outside a select with a default case, a
 //     select without one, or a range over a channel;
-//   - a go statement.
+//   - a go statement, or a call of the runtime's spawn, which every way of
+//     starting a puroutine ends in (rt.Go, sync.WaitGroup.Go).
+//
+// Whether a library function may wait is not marked on it: the walk goes
+// through it to the runtime operation it reaches. Messages name the path
+// only as far as the call that enters the standard library, which is where
+// the program's own code waits.
 //
 // Allocation is not special: new and make call the allocator through the
 // rt.Allocator interface, and the walk follows that call into every
@@ -230,7 +238,7 @@ func (g *callGraph) search(root, skip *ssa.Sym) (*ctxNode, *hop, *blockOp) {
 		}
 		for i := range g.callsOf(n.sym) {
 			h := &g.edges[n.sym][i]
-			if g.l.isBlocking(h.to) {
+			if g.l.isBlocking(h.to) || isSpawn(h.to) {
 				return n, h, nil
 			}
 			if h.to == skip || seen[h.to] {
@@ -322,6 +330,10 @@ func plainSig(sig *types2.Signature) *types2.Signature {
 	return types2.NewSignatureType(nil, nil, nil, types2.NewTuple(params...), sig.Results(), sig.Variadic())
 }
 
+// isSpawn reports whether sym is the runtime's spawn, which starts every
+// puroutine.
+func isSpawn(sym *ssa.Sym) bool { return sym.Name == "pluto/rt.spawn" }
+
 // isBlocking reports whether sym is a function marked //pu:blocking.
 func (l *Lowerer) isBlocking(sym *ssa.Sym) bool {
 	fn := l.symFuncs[sym]
@@ -379,6 +391,19 @@ func (l *Lowerer) reportContext(g *callGraph, root *ssa.Sym, rl ctxRole, n *ctxN
 		vis = append(vis, h)
 	}
 
+	kind := opWait
+	if op != nil {
+		kind = op.kind
+	} else if last != nil && isSpawn(last.to) {
+		kind = opSpawn
+	}
+	// The rest of the path inside the standard library is how the library
+	// waits, not where the program does: end at the call that enters it.
+	if k := libraryEntry(vis); k >= 0 && (k < len(vis)-1 || op != nil) {
+		vis = vis[:k+1]
+		op = nil
+		last = &vis[k]
+	}
 	var phrases []string
 	var indirect *hop
 	for i := range vis {
@@ -387,13 +412,11 @@ func (l *Lowerer) reportContext(g *callGraph, root *ssa.Sym, rl ctxRole, n *ctxN
 			indirect = h
 		}
 		final := last != nil && i == len(vis)-1
-		phrases = append(phrases, l.hopPhrase(h, final))
+		phrases = append(phrases, l.hopPhrase(h, final, kind))
 	}
-	kind := opWait
 	pos := token.NoPos
 	if op != nil {
 		phrases = append(phrases, fmt.Sprintf("%s (%s)", op.what, l.shortPos(op.pos)))
-		kind = op.kind
 		pos = op.pos
 	}
 	if len(vis) > 0 {
@@ -463,6 +486,25 @@ func (l *Lowerer) reportContext(g *callGraph, root *ssa.Sym, rl ctxRole, n *ctxN
 	l.report(pos, d)
 }
 
+// libraryEntry returns the index of the call in path that enters the
+// standard library from the program's own code and after which the path
+// stays in the library, or -1.
+func libraryEntry(path []hop) int {
+	k := -1
+	for i, h := range path {
+		switch {
+		case !isLibrary(h.to):
+			k = -1
+		case k < 0 && !isLibrary(h.from):
+			k = i
+		}
+	}
+	return k
+}
+
+// isLibrary reports whether sym is a function of the standard library.
+func isLibrary(sym *ssa.Sym) bool { return strings.HasPrefix(sym.Name, "pluto/") }
+
 // throughFile reports whether a path calls a method of pluto/os's File,
 // whose writes may wait for the poller.
 func throughFile(hops []hop) bool {
@@ -475,12 +517,13 @@ func throughFile(hops []hop) bool {
 }
 
 // hopPhrase describes one call of a path, following "which": "calls
-// readConfig (irq.p:5)". final marks the call of a //pu:blocking function.
-func (l *Lowerer) hopPhrase(h *hop, final bool) string {
+// readConfig (irq.p:5)". final marks the call that waits or starts a
+// puroutine (kind).
+func (l *Lowerer) hopPhrase(h *hop, final bool, kind opKind) string {
 	at := l.shortPos(h.pos)
 	var s string
 	switch {
-	case final && h.site != nil && h.site.recv != "" && !h.indirect():
+	case final && kind == opWait && h.site != nil && h.site.recv != "" && !h.indirect():
 		return fmt.Sprintf("waits on %s (%s)", h.site.recv, at)
 	case h.site == nil && (h.to.Name == "pluto/rt.alloc" || h.to.Name == "pluto/rt.allocWith"):
 		s = fmt.Sprintf("allocates (%s)", at)
@@ -491,7 +534,10 @@ func (l *Lowerer) hopPhrase(h *hop, final bool) string {
 	default:
 		s = fmt.Sprintf("calls %s (%s)", h.site.desc, at)
 	}
-	if final {
+	switch {
+	case final && kind == opSpawn:
+		s += ", which starts a puroutine"
+	case final:
 		s += ", which may wait"
 	}
 	return s

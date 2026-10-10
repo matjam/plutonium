@@ -458,8 +458,6 @@ func (s *fnState) applyPragmas(doc *ast.CommentGroup) {
 			s.f.Pragmas |= ssa.PragmaInterrupt
 		case "nosimd":
 			s.f.Pragmas |= ssa.PragmaNoSIMD
-		case "blocking":
-			s.f.Pragmas |= ssa.PragmaBlocking
 		case "fpu":
 			s.f.NoSSE = false
 		case "alloc":

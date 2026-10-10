@@ -5,9 +5,10 @@
 // They are built on the runtime's two scheduler operations, rt.Park and
 // rt.Ready, so they work on any scheduler, the hosted one or a kernel's. A
 // puroutine that has to wait parks; it never spins its processor for long.
-// The operations that may park are marked //pu:blocking and must not be
-// used in interrupt context; Unlock, TryLock, Signal, Broadcast, Add and
-// Done never park.
+// The operations that may park (Lock, RLock, Wait, Once.Do, WaitGroup.Go)
+// must not be used in interrupt context, which the compiler checks by
+// following the calls of interrupt handlers into rt.Park; Unlock, TryLock,
+// Signal, Broadcast, Add and Done never park.
 //
 // As in Go, none of these types may be copied after first use, and their
 // zero values are ready to use. A program that waits on a value in a frame
