@@ -7,6 +7,13 @@
 // (and captured its variables) is a named function that takes them as
 // arguments, the printing mode selected by os.Args and the unused
 // floating-point evaluator are left out, and the check prints its results.
+// The data races of the original are removed: the request counter seqno
+// and the channel-name counter, which every generator wrote without a lock,
+// are gone (requests carry 0; nothing read the names), and each generation
+// of split gets its own copy of the pair of output channels instead of
+// sharing one array that the next generation renames. A demand channel is
+// a value (its two channels) rather than a pointer to one, so nothing has
+// to own or free it.
 
 // Test concurrency primitives: power series.
 
@@ -39,46 +46,16 @@ func (u rat) eq(c rat) bool {
 type dch struct {
 	req chan int
 	dat chan rat
-	nam int
 }
 
-type dch2 [2]*dch
+type dch2 [2]dch
 
-var chnames string
-var chnameserial int
-var seqno int
-
-// Plutonium: new returns an owner, which would free the dch when mkdch
-// returns; the program never frees them, so they come from a pool.
-var dchPool [4096]dch
-var dchUsed int
-
-func mkdch() *dch {
-	c := chnameserial % len(chnames)
-	chnameserial++
-	if dchUsed == len(dchPool) {
-		panic("dch pool exhausted")
-	}
-	d := &dchPool[dchUsed]
-	dchUsed++
-	d.req = make(chan int)
-	d.dat = make(chan rat)
-	d.nam = c
-	return d
+func mkdch() dch {
+	return dch{req: make(chan int), dat: make(chan rat)}
 }
 
-var dch2Pool [1024]dch2
-var dch2Used int
-
-func mkdch2() *dch2 {
-	if dch2Used == len(dch2Pool) {
-		panic("dch2 pool exhausted")
-	}
-	d2 := &dch2Pool[dch2Used]
-	dch2Used++
-	d2[0] = mkdch()
-	d2[1] = mkdch()
-	return d2
+func mkdch2() dch2 {
+	return dch2{mkdch(), mkdch()}
 }
 
 // split reads a single demand channel and replicates its
@@ -95,7 +72,7 @@ func mkdch2() *dch2 {
 // a signal on the release-wait channel tells the next newer
 // generation to begin servicing out[1].
 
-func dosplit(in *dch, out *dch2, wait chan int) {
+func dosplit(in dch, out dch2, wait chan int) {
 	both := false // do not service both channels
 
 	select {
@@ -111,8 +88,7 @@ func dosplit(in *dch, out *dch2, wait chan int) {
 		}
 	}
 
-	seqno++
-	in.req <- seqno
+	in.req <- 0
 	release := make(chan int)
 	go dosplit(in, out, release)
 	dat := <-in.dat
@@ -125,26 +101,25 @@ func dosplit(in *dch, out *dch2, wait chan int) {
 	release <- 0
 }
 
-func split(in *dch, out *dch2) {
+func split(in dch, out dch2) {
 	release := make(chan int)
 	go dosplit(in, out, release)
 	release <- 0
 }
 
-func put(dat rat, out *dch) {
+func put(dat rat, out dch) {
 	<-out.req
 	out.dat <- dat
 }
 
-func get(in *dch) rat {
-	seqno++
-	in.req <- seqno
+func get(in dch) rat {
+	in.req <- 0
 	return <-in.dat
 }
 
 // Get one rat from each of n demand channels
 
-func getn(in []*dch) [2]rat {
+func getn(in []dch) [2]rat {
 	n := len(in)
 	if n != 2 {
 		panic("bad n in getn")
@@ -159,13 +134,12 @@ func getn(in []*dch) [2]rat {
 		dat[i] = nil
 	}
 	for n = 2 * n; n > 0; n-- {
-		seqno++
 
 		select {
-		case req[0] <- seqno:
+		case req[0] <- 0:
 			dat[0] = in[0].dat
 			req[0] = nil
-		case req[1] <- seqno:
+		case req[1] <- 0:
 			dat[1] = in[1].dat
 			req[1] = nil
 		case it = <-dat[0]:
@@ -181,34 +155,34 @@ func getn(in []*dch) [2]rat {
 
 // Get one rat from each of 2 demand channels
 
-func get2(in0 *dch, in1 *dch) [2]rat {
-	return getn([]*dch{in0, in1})
+func get2(in0 dch, in1 dch) [2]rat {
+	return getn([]dch{in0, in1})
 }
 
-func copy(in *dch, out *dch) {
+func copy(in dch, out dch) {
 	for {
 		<-out.req
 		out.dat <- get(in)
 	}
 }
 
-func repeat(dat rat, out *dch) {
+func repeat(dat rat, out dch) {
 	for {
 		put(dat, out)
 	}
 }
 
-type PS *dch    // power series
-type PS2 *[2]PS // pair of power series
+type PS = dch    // power series
+type PS2 = [2]PS // pair of power series
 
 var Ones PS
 var Twos PS
 
-func mkPS() *dch {
+func mkPS() dch {
 	return mkdch()
 }
 
-func mkPS2() *dch2 {
+func mkPS2() dch2 {
 	return mkdch2()
 }
 
@@ -314,7 +288,7 @@ func printn(U PS, n int) {
 
 // Make a pair of power series identical to a given power series
 
-func Split(U PS) *dch2 {
+func Split(U PS) dch2 {
 	UU := mkdch2()
 	go split(U, UU)
 	return UU
@@ -614,9 +588,6 @@ func monSubst(U PS, c0 rat, n int, Z PS) {
 }
 
 func Init() {
-	chnameserial = -1
-	seqno = 0
-	chnames = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 	zero = itor(0)
 	one = itor(1)
 	finis = i2tor(1, 0)

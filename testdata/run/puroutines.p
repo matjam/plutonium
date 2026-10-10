@@ -38,15 +38,18 @@ func (t T) show(done chan bool) {
 	done <- true
 }
 
+// bump only reads through its receiver: a view another task may use must
+// point to memory nothing changes while both can use it.
 func (t *T) bump(done chan bool) {
-	t.n++
-	println("pointer method", t.n)
+	println("pointer method", t.n+1)
 	done <- true
 }
 
 type shower interface{ show(done chan bool) }
 
 func two() (int, string) { return 7, "seven" }
+
+var fiveSix = []int{5, 6}
 
 var bothOut = make(chan string, 1)
 
@@ -71,9 +74,11 @@ func bigArg(b big, out chan int) {
 
 func gen[E any](v E, out chan E) { out <- v }
 
-var tBump, t9Show T
-
-var xsArr [2]int
+// Package variables, which the puroutines may outlive main's frame for,
+// set before any puroutine starts: another puroutine may use a view of
+// memory nothing changes.
+var tBump T
+var t9Show = T{9}
 
 func main() {
 	c := make(chan int)
@@ -103,10 +108,10 @@ func main() {
 	go vari(d)
 	println(<-d)
 	// Not []int{5, 6}: that array would be in main's frame, which the
-	// puroutine may outlive; a package variable lives on.
-	xs := xsArr[:]
-	xs[0], xs[1] = 5, 6
-	go vari(d, xs...)
+	// puroutine may outlive. Nor a slice main may still change: a view
+	// crosses to another puroutine only if what it points to cannot change
+	// while both use it, as a package variable nothing writes.
+	go vari(d, fiveSix...)
 	println(<-d)
 
 	bd := make(chan bool)
@@ -118,7 +123,6 @@ func main() {
 	<-bd
 	// Not T{9}: the interface would box it in main's frame.
 	t9 := &t9Show
-	t9.n = 9
 	var sh shower = t9
 	go sh.show(bd)
 	<-bd

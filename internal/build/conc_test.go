@@ -157,19 +157,22 @@ func TestConcurrency(t *testing.T) {
 	runConcCases(t, []concCase{
 		{name: "preempt", want: "preempted\n", src: `package main
 
-// spin has no calls in its loop: only preemption lets another puroutine
+import "pluto/sync/atomic"
+
+// spin never waits in its loop: only preemption lets another puroutine
 // run on its processor, and with one processor only that sets the flag.
-var flag volatile[int32]
+// The flag is atomic, since two puroutines use it.
+var flag atomic.Int32
 var spins volatile[int64]
 
 func spin(done chan bool) {
-	for flag == 0 {
+	for flag.Load() == 0 {
 		spins = spins + 1
 	}
 	done <- true
 }
 
-func set() { flag = 1 }
+func set() { flag.Store(1) }
 
 func main() {
 	done := make(chan bool)
@@ -214,14 +217,16 @@ func main() {
 `},
 		{name: "preemptmain", want: "main preempted\n", src: `package main
 
-var flag volatile[int32]
+import "pluto/sync/atomic"
 
-func set() { flag = 1 }
+var flag atomic.Int32
+
+func set() { flag.Store(1) }
 
 // The main puroutine spins too; the one it started must still run.
 func main() {
 	go set()
-	for flag == 0 {
+	for flag.Load() == 0 {
 	}
 	println("main preempted")
 }
@@ -578,7 +583,9 @@ func main() {
 		go work(i)
 	}
 	wg.Wait()
+	mu.Lock()
 	println("threads", ntids)
+	mu.Unlock()
 }
 `, build.Config{OptLevel: 2})
 	out, status := runConc(t, prog)
@@ -595,11 +602,12 @@ const parallelAllocProgram = `package main
 import (
 	"pluto/alloc"
 	"pluto/sync"
+	"pluto/sync/atomic"
 	"unsafe"
 )
 
 var wg sync.WaitGroup
-var bad [64]int
+var bad atomic.Int64 // every puroutine counts here
 
 func churn(id int) {
 	var live [32]unsafe.Pointer
@@ -614,7 +622,7 @@ func churn(id int) {
 			b := unsafe.Slice((*byte)(p), sizes[k])
 			for j := range b {
 				if b[j] != byte(id) {
-					bad[id]++
+					bad.Add(1)
 					break
 				}
 			}
@@ -627,7 +635,7 @@ func churn(id int) {
 		b := unsafe.Slice((*byte)(p), size)
 		for j := range b {
 			if b[j] != 0 {
-				bad[id]++
+				bad.Add(1)
 				break
 			}
 			b[j] = byte(id)
@@ -645,11 +653,7 @@ func main() {
 		go churn(i)
 	}
 	wg.Wait()
-	total := 0
-	for _, b := range bad {
-		total += b
-	}
-	println("corrupt blocks", total)
+	println("corrupt blocks", bad.Load())
 }
 `
 

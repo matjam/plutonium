@@ -76,9 +76,11 @@ func main() {
 	wg.Wait()
 	el := time.Since(start)
 	sorted := true
+	mu.Lock() // mu guards order
 	for i := range order {
 		sorted = sorted && order[i] == i
 	}
+	mu.Unlock()
 	println("in order", sorted)
 	println("concurrent", el >= 200*time.Millisecond && el < 2*time.Second)
 
@@ -208,13 +210,14 @@ func hammer(id int) {
 }
 
 func main() {
+	// Set before any puroutine starts, so that they may all read it.
+	shared = time.NewTimer(time.Hour)
 	wg.Add(8)
 	for i := 0; i < 8; i++ {
 		go churn(i)
 	}
 	wg.Wait()
 
-	shared = time.NewTimer(time.Hour)
 	wg.Add(4)
 	for i := 0; i < 4; i++ {
 		go hammer(i)

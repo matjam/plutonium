@@ -100,7 +100,9 @@ func inExpression() {
 	fmt.Println("not reached:", s)
 }
 
-var interfaceHalter halter
+// Set when it is declared: a view another puroutine uses must point to
+// memory nothing changes while both may use it.
+var interfaceHalter = halter{"interface"}
 
 func main() {
 	go direct()
@@ -110,7 +112,6 @@ func main() {
 	// Not halter{...}: the interface would box it in main's frame,
 	// which the puroutine may outlive; a package variable lives on.
 	h := &interfaceHalter
-	h.name = "interface"
 	go viaInterface(h)
 	fmt.Println(<-done)
 	go viaTypeParam(halter{"type parameter"})

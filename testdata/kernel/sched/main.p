@@ -15,6 +15,7 @@ import (
 	"pluto/arch/x86"
 	"pluto/rt"
 	"pluto/sync"
+	"pluto/sync/atomic"
 	"pluto/time"
 	"unsafe"
 )
@@ -279,16 +280,17 @@ func square(in <-chan int, out chan<- int) {
 	wg.Done()
 }
 
-var flag volatile[uint32]
+// flag is atomic: two puroutines use it.
+var flag atomic.Uint32
 
-// spin has no calls in its loop: only the timer's preemption lets set run.
+// spin never waits in its loop: only the timer's preemption lets set run.
 func spin(done chan<- bool) {
-	for flag == 0 {
+	for flag.Load() == 0 {
 	}
 	done <- true
 }
 
-func set() { flag = 1 }
+func set() { flag.Store(1) }
 
 // sleepy sleeps i times 5ms: started in reverse, they wake in order.
 func sleepy(i int, woke chan<- int) {

@@ -60,8 +60,9 @@ type File struct {
 	// calls into the types the program converts).
 	poll ioWaiter
 	// nonblock is set while the descriptor is in non-blocking mode and
-	// reads and writes wait in the poller; Fd clears it.
-	nonblock bool
+	// reads and writes wait in the poller; Fd clears it, possibly while
+	// another task reads or writes, so it is atomic.
+	nonblock atomic.Bool
 }
 
 const fdClosed = 1 << 31
@@ -135,11 +136,11 @@ var (
 // it is); the File's reads and writes then block their worker, announced
 // with rt.EnterSyscall, instead of parking in the poller.
 func (f *File) Fd() int {
-	if f.nonblock {
+	if f.nonblock.Load() {
 		if fl, err := syscall.Fcntl(f.fd, syscall.F_GETFL, 0); err == nil {
 			syscall.Fcntl(f.fd, syscall.F_SETFL, fl&^syscall.O_NONBLOCK)
 		}
-		f.nonblock = false
+		f.nonblock.Store(false)
 	}
 	return f.fd
 }
@@ -162,7 +163,7 @@ func (f *File) init(fd int, name string) {
 	f.name = name
 	if fl, err := syscall.Fcntl(fd, syscall.F_GETFL, 0); err == nil && fl&syscall.O_NONBLOCK != 0 {
 		f.poll = rt.PollOpen(fd)
-		f.nonblock = true
+		f.nonblock.Store(true)
 	}
 }
 
@@ -182,18 +183,18 @@ func (f *File) Write(p []byte) (int, error) {
 func (f *File) write(p []byte) (int, error) {
 	n := 0
 	for n < len(p) {
-		if !f.nonblock {
+		if !f.nonblock.Load() {
 			rt.EnterSyscall()
 		}
 		m, err := syscall.Write(f.fd, p[n:])
-		if !f.nonblock {
+		if !f.nonblock.Load() {
 			rt.ExitSyscall()
 		}
 		if err != nil {
 			if err == syscall.EINTR {
 				continue
 			}
-			if err == syscall.EAGAIN && f.nonblock {
+			if err == syscall.EAGAIN && f.nonblock.Load() {
 				if !f.waitIO(true) {
 					return n, ErrClosed
 				}
@@ -232,17 +233,17 @@ func (f *File) Read(p []byte) (int, error) {
 
 func (f *File) read(p []byte) (int, error) {
 	for {
-		if !f.nonblock {
+		if !f.nonblock.Load() {
 			rt.EnterSyscall()
 		}
 		n, err := syscall.Read(f.fd, p)
-		if !f.nonblock {
+		if !f.nonblock.Load() {
 			rt.ExitSyscall()
 		}
 		if err == syscall.EINTR {
 			continue
 		}
-		if err == syscall.EAGAIN && f.nonblock {
+		if err == syscall.EAGAIN && f.nonblock.Load() {
 			if !f.waitIO(false) {
 				return 0, ErrClosed
 			}

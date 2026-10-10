@@ -126,7 +126,10 @@ func main() {
 		go adder(10000)
 	}
 	wg.Wait()
+	// mu guards counter (every write holds it), so reads hold it too.
+	mu.Lock()
 	println("mutex counter", counter)
+	mu.Unlock()
 
 	if !mu.TryLock() {
 		println("TryLock failed on a free mutex")
@@ -143,7 +146,9 @@ func main() {
 	go writer(5000)
 	go writer(5000)
 	rwDone.Wait()
+	rw.RLock()
 	println("rwmutex", pair[0], pair[1], "torn reads", torn.Load(), "reads", reads.Load())
+	rw.RUnlock()
 	if !rw.TryRLock() {
 		println("TryRLock failed")
 	}

@@ -12,27 +12,36 @@ package main
 import (
 	"pluto/alloc"
 	"pluto/rt"
+	"pluto/sync"
 	"pluto/time"
 )
 
+// mu guards hits, which the puroutines holding a synced Server change.
 type Server owner struct {
 	name string
+	mu   sync.Mutex
 	hits int
 }
 
 func (s *Server) Drop() {
+	s.mu.Lock()
 	println("drop", s.name, s.hits)
+	s.mu.Unlock()
 	dropped <- true
 }
 
 func (s *Server) Serve() {
+	s.mu.Lock()
 	s.hits++
+	s.mu.Unlock()
 	println("serve", s.name)
 	served <- true
 }
 
 func (s *Server) Add(n int) {
+	s.mu.Lock()
 	s.hits += n
+	s.mu.Unlock()
 	println("add", s.name, n)
 	served <- true
 }

@@ -14,9 +14,9 @@ func TestTraceTask(t *testing.T) {
 	testguard.Parallel(t)
 	runConcCases(t, []concCase{
 		{name: "tracetask", want: `reason: chan receive
-    main.inner (./main.p:16)
-    main.blocked (./main.p:22)
-    main.main.go1 (./main.p:34)
+    main.inner (./main.p:14)
+    main.blocked (./main.p:19)
+    main.main.go1 (./main.p:31)
 reason: sleep
 `, src: `package main
 
@@ -25,10 +25,8 @@ import (
 	"pluto/time"
 )
 
-var (
-	parked  *rt.Task
-	sleeper *rt.Task
-)
+// Each puroutine sends its task record to main, which waits for both to
+// park.
 
 // inner and blocked are named in the trace of the puroutine parked in
 // inner, with the go statement's function at the bottom.
@@ -36,25 +34,24 @@ func inner(c chan int) {
 	<-c
 }
 
-func blocked(c chan int, ready chan bool) {
-	parked = rt.CurrentTask()
-	ready <- true
+func blocked(c chan int, ready chan *rt.Task) {
+	ready <- rt.CurrentTask()
 	inner(c)
 }
 
-func asleep(ready chan bool) {
-	sleeper = rt.CurrentTask()
-	ready <- true
+func asleep(ready chan *rt.Task) {
+	ready <- rt.CurrentTask()
 	time.Sleep(time.Hour)
 }
 
 func main() {
 	c := make(chan int)
-	ready := make(chan bool)
+	ready := make(chan *rt.Task)
+	sleeping := make(chan *rt.Task)
 	go blocked(c, ready)
-	go asleep(ready)
-	<-ready
-	<-ready
+	go asleep(sleeping)
+	parked := <-ready
+	sleeper := <-sleeping
 	for !parked.Parked() || !sleeper.Parked() {
 		rt.Yield()
 	}

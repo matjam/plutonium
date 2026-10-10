@@ -10,6 +10,7 @@ package main
 import (
 	"pluto/alloc"
 	"pluto/rt"
+	"pluto/sync"
 )
 
 type Res owner struct {
@@ -89,6 +90,7 @@ func parentName(n shared[Node]) string {
 
 // Counter is shared between tasks through synced references.
 type Counter owner struct {
+	mu   sync.Mutex // guards n: the tasks reach it through their references
 	n    int
 	done chan bool
 }
@@ -101,7 +103,9 @@ func (c *Counter) Drop() {
 }
 
 func bump(c synced[Counter], k int) {
-	c.n += k // the tasks take turns: each waits for the previous one
+	c.mu.Lock()
+	c.n += k
+	c.mu.Unlock()
 	done := c.done
 	c = nil // releases this task's reference before main goes on
 	done <- true
@@ -178,7 +182,9 @@ func main() {
 		go bump(c, i)
 		<-c.done
 	}
+	c.mu.Lock()
 	println("counter", c.n)
+	c.mu.Unlock()
 	c = nil // the last reference: drops the Counter
 
 	done := make(chan bool)

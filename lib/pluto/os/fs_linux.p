@@ -915,9 +915,11 @@ func Pipe(a alloc.Allocator = alloc.Default()) (r *File, w *File, err error) {
 		return nil, nil, NewPathError("pipe", "", err, a)
 	}
 	r = alloc.New[File](a)
-	r.fd, r.name, r.nonblock, r.poll = int(p[0]), "|0", true, rt.PollOpen(int(p[0]))
+	r.fd, r.name, r.poll = int(p[0]), "|0", rt.PollOpen(int(p[0]))
+	r.nonblock.Store(true)
 	w = alloc.New[File](a)
-	w.fd, w.name, w.nonblock, w.poll = int(p[1]), "|1", true, rt.PollOpen(int(p[1]))
+	w.fd, w.name, w.poll = int(p[1]), "|1", rt.PollOpen(int(p[1]))
+	w.nonblock.Store(true)
 	return r, w, nil
 }
 

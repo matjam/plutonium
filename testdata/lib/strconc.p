@@ -73,9 +73,10 @@ func sortStrings(s []string) {
 // Shared strings on several threads: counts are atomic once the scheduler
 // has started its workers.
 
-var shared string
-
-func copier(rounds int, done chan<- int) {
+// Each puroutine gets the string as an argument (a package variable that
+// main writes while they run would be a data race) and copies it over and
+// over, so the counts of one buffer change on several threads at once.
+func copier(shared string, rounds int, done chan<- int) {
 	n := 0
 	for i := 0; i < rounds; i++ {
 		s := shared
@@ -88,17 +89,16 @@ func copier(rounds int, done chan<- int) {
 }
 
 func sharedCounts() {
-	shared = heap("shared between puroutines")
+	shared := heap("shared between puroutines")
 	done := make(chan int)
 	for i := 0; i < 4; i++ {
-		go copier(20000, done)
+		go copier(shared, 20000, done)
 	}
 	total := 0
 	for i := 0; i < 4; i++ {
 		total += <-done
 	}
 	fmt.Println("shared:", total, shared)
-	shared = ""
 	alloc.FreeChan(done)
 }
 
