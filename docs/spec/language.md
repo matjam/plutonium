@@ -4,7 +4,8 @@
 **Date:** 2026-10-09
 
 Plutonium is a systems programming language with Go's syntax and most of Go's semantics, minus the parts
-that need a garbage collector, a scheduler or runtime type metadata. It is meant for operating system
+that need a garbage collector or reflection. Puroutines and channels run on a scheduler that only programs
+using them carry, and that a kernel supplies itself. It is meant for operating system
 kernels, drivers, boot code, allocators and other code that runs without a managed runtime. It is the
 language PlutoniumOS is written in.
 
@@ -30,8 +31,8 @@ version: every Go feature up to 1.27 that is not removed or changed below is par
 ## 1. Goals
 
 - Read like Go. A Go programmer should understand Plutonium code without a manual.
-- Compile like C: no garbage collector, no scheduler, no hidden allocation, no runtime the program did
-  not ask for.
+- Compile like C: no garbage collector, no hidden allocation, no runtime the program did not ask for. A
+  program that never starts a puroutine or makes a channel contains no scheduler.
 - Make the costs visible. Every allocation is a call you can see; every memory-mapped register access is
   marked in its type.
 - Give kernel code the tools it needs in the language: bit-exact layouts, volatile access, alignment
@@ -71,8 +72,6 @@ Each of these is a compile error that names the construct and the reason.
 
 | Removed | Reason | Use instead |
 |---|---|---|
-| `go` statements | needs a scheduler | the OS's threads or tasks |
-| `chan T`, `<-`, `select`, `close` | needs a scheduler | `ring[T, N]`, OS queues |
 | `map[K]V`, `delete` | needs a garbage-collected hash table | `pluto/hash` |
 | `recover` | needs an unwinder; `panic` aborts (section 7) | return errors |
 | `import "reflect"` | needs runtime type metadata | type switches, generics |
@@ -127,7 +126,13 @@ Returning an interface that holds such a frame copy, or storing it in a package-
 compile error where the compiler can see it. To keep a large value in an interface beyond the current
 function, store a pointer to it instead.
 
-Type descriptors exist only for types that are converted to an interface. There is no reflection.
+Type descriptors exist only for types that are converted to an interface. Besides identifying the type,
+a descriptor records its size, alignment and kind, and its element type and length or its field offsets
+and types, which is what generic printing, hashing and equality in the standard library use. Field names
+are included unless the build strips them. There is no reflection package.
+
+Inside generic code, `switch any(x).(type)` on a value of a type parameter is decided at compile time for
+each instantiation, so it costs nothing at run time.
 
 ### 4.5 Closures do not outlive their frame
 
@@ -146,6 +151,47 @@ A function literal that captures nothing is an ordinary function value and may b
 As in Go, signed and unsigned arithmetic wraps on overflow, shifts by at least the width of the operand
 yield 0 (or -1 for a negative signed value shifted right), and integer division by zero panics.
 `int`, `uint` and `uintptr` are 64 bits wide on all current targets.
+
+### 4.7 `go` starts a puroutine
+
+`go f(x, y)` starts a puroutine, a lightweight thread of execution scheduled by the program's
+scheduler. As in Go, the function value and arguments are evaluated and copied when the `go` statement
+runs.
+
+- Each puroutine has a fixed-size stack: stacks cannot grow or move, because nothing knows where the
+  pointers into them are. A guard page below the stack turns an overflow into a fault. The default size
+  is 64 KiB; `rt.Go(f, size)` starts a puroutine with an explicit stack size instead. For a
+  spawned function whose call graph has no recursion and no indirect calls, the compiler computes the
+  stack it needs and uses that instead; otherwise it uses the default, and `-stackreport` lists the
+  functions it could not size.
+- A function literal that captures variables cannot be started with `go`: its captures live in the
+  spawning frame, which may be gone before the puroutine runs (section 4.5). Pass the values as
+  arguments: `go func(n int) { work(n) }(n)`.
+- Scheduling is cooperative: a puroutine runs until it blocks on a channel, a lock or I/O, or calls
+  `rt.Yield()`. Preempting a puroutine that never blocks is up to the platform (for example a kernel's
+  timer interrupt).
+
+The scheduler sits behind an interface in `pluto/rt` with four operations: start a puroutine, park the
+current one, make a parked one runnable, and yield. Hosted builds get a scheduler that runs puroutines on
+a pool of OS threads. A freestanding program provides its own with `rt.SetScheduler` before its first
+`go` statement or channel operation; until then they panic with "no scheduler". A program that never uses
+`go` or channels contains none of this.
+
+Stacks come from the default allocator, or from `rt.Go(f, size, a)` with an explicit one, and are freed
+when the puroutine returns.
+
+### 4.8 Channels
+
+`chan T`, `<-chan T`, `chan<- T`, the send and receive operators, `select`, `close`, `len`, `cap` and
+`for v := range ch` work as in Go, on top of the scheduler (section 4.7). Sending on a closed channel and
+closing a closed or nil channel panic; receiving from a closed channel yields the zero value and `false`.
+
+`make(chan T)` and `make(chan T, n)` allocate the channel and its buffer from the current allocator, or
+from an allocator given as the final argument: `make(chan Msg, 16, arena)`.
+
+A channel value is a reference counted like `synced[T]` (section 5.6), since a channel always has
+several users: copying it counts a reference, and when the last reference goes away the channel and its
+buffer are freed. Values still buffered at that point are discarded without running `Drop`.
 
 ## 5. What Plutonium adds
 
@@ -324,7 +370,23 @@ pointer must not outlive the owner; the compiler does not check this.
 out of scope or being overwritten decrements it; at zero `Drop()` runs and the object is freed. Cycles
 are not collected.
 
-### 5.7 Standard bit operations
+### 5.7 Methods with type parameters
+
+A method may declare type parameters of its own, in addition to those of its receiver's type:
+
+```go
+func (v *Vec[T]) Map[U any](f func(T) U, a alloc.Allocator = alloc.Default()) Vec[U]
+
+lengths := names.Map[int](func(s string) int { return len(s) })
+lengths := names.Map(func(s string) int { return len(s) }) // U inferred
+```
+
+Such methods are instantiated for each set of type arguments used, like generic functions. They are
+called directly and never through an interface: a method with its own type parameters does not count
+towards implementing an interface, and an interface cannot declare one. This is the restriction that lets
+Plutonium allow them where Go does not, since every instantiation is visible to the compiler.
+
+### 5.8 Standard bit operations
 
 The `pluto/bits` package mirrors Go's `math/bits` (`OnesCount`, `LeadingZeros`, `TrailingZeros`,
 `RotateLeft`, `ReverseBytes`, `Len`, `Add64`, `Mul64` and so on) and adds bit manipulation through a
@@ -395,6 +457,9 @@ The following stop the program through the same path as `panic`:
 - a failed type assertion with a single result,
 - `append` beyond capacity,
 - an allocation with no allocator set,
+- a `go` statement or channel operation with no scheduler set,
+- sending on a closed channel, or closing a closed or nil channel,
+- overflowing a puroutine's stack (the guard page faults),
 - `panic(v)`.
 
 Panicking prints `panic: ` followed by the value (and, for faults, what failed and where) and stops. It
@@ -468,14 +533,15 @@ Output formats are ELF executables (default), flat binaries (`-format binary`) a
 
 | Package | Contents |
 |---|---|
-| `pluto/rt` | panic hook, program entry, memory copy and compare primitives the compiler calls |
+| `pluto/rt` | panic hook, program entry, memory copy and compare primitives the compiler calls, the scheduler interface, `Go`, `Yield` |
+| `pluto/sync` | `Mutex`, `RWMutex`, `WaitGroup`, `Once` over the scheduler |
 | `pluto/alloc` | allocators, the default allocator, `New`/`Free`/`Owned`/`Shared`/`Synced` |
 | `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf` into a caller's buffer, `Println`; integer, float, string, pointer verbs with width, precision and flags |
 | `pluto/io` | `Reader`, `Writer`, buffered I/O |
 | `pluto/os` | files, arguments, environment, exit (hosted) |
 | `pluto/syscall` | raw Linux system calls (hosted) |
 | `pluto/strings`, `pluto/bytes` | searching, comparison, `Builder` with an allocator |
-| `pluto/bits` | bit operations (section 5.7) |
+| `pluto/bits` | bit operations (section 5.8) |
 | `pluto/math` | floating-point functions |
 | `pluto/hash` | hash maps and sets with an allocator |
 | `pluto/vec` | growable `Vec[T]` with an allocator |
