@@ -87,7 +87,7 @@ type Lowerer struct {
 	sched          *schedBinding              // the //pu:scheduler variable, or nil
 	schedMissing   bool                       // the missing-scheduler error has been reported
 	schedNoTimers  bool                       // the scheduler-without-timers error has been reported
-	late           []*lateHook                // //pu:schedlate hooks waiting for their bodies (sched.go)
+	late           []*lateHook                // late hooks waiting for their bodies (sched.go)
 	lateDone       bool                       // the late hooks have been resolved
 	lateDirect     bool                       // ... to the functions that avoid the scheduler
 
@@ -388,10 +388,10 @@ func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 		}
 	}
 	if d != nil && d.decl.Body == nil {
-		if method, mode, ok := schedHook(d.decl); ok {
+		if method, mode, ok := schedHook(fn); ok {
 			return l.schedHookSym(fn, method, mode)
 		}
-		if direct, parked, ok := lateHookNames(d.decl); ok {
+		if direct, parked, ok := lateHookNames(fn); ok {
 			return l.lateHookSym(fn, direct, parked)
 		}
 		if name, ok := externName(d.decl); ok {

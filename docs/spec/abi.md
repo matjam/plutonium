@@ -903,8 +903,8 @@ Optional methods, called if the type has them: `Init()`, once before the first t
 Two more, `Now() int64` and `ArmTimer(deadline int64)`, give the runtime a clock and a timer (section
 12.9); a program that uses timers needs both, and a build whose scheduler lacks either fails with E2595.
 The backend is bound with `//pu:scheduler` (language spec section 4.7): the compiler gives each of the
-runtime's hooks (`schedNewTask`, `schedPark` and the rest, declared with `//pu:schedhook` in `sched.p`)
-a body that calls the bound variable's method directly.
+runtime's hooks (`schedNewTask`, `schedPark` and the rest, body-less functions of `sched.p` that the
+compiler knows by name) a body that calls the bound variable's method directly.
 
 The rules a backend follows (memory-model.md sections 3.6 and 6.3):
 
@@ -1035,9 +1035,9 @@ the PIT handler; `testdata/plutonium/customsched.p` sleeps in its idle loop unti
 the P that arms it, and stays there until it fires or is stopped, whichever worker runs the heap. Its
 `ArmTimer` does nothing.
 
-**Sleeping without a scheduler.** `rt.Sleep(ns)` is declared without a body and marked
-`//pu:schedlate sleepDirect sleepParked`. Lowering (`internal/lower/sched.go`) gives such a function its
-body after every other function has been lowered: a call of `sleepDirect` if the backend is the default
+**Sleeping without a scheduler.** `rt.Sleep(ns)` is declared without a body. Lowering
+(`internal/lower/sched.go`), which knows it by name, gives it its body after every other function has
+been lowered: a call of `sleepDirect` if the backend is the default
 hosted one (the `//pu:scheduler` variable of `pluto/rt`) and `rt.startTasks` was never reached, otherwise
 a call of `sleepParked`. `startTasks` is what a `go` statement, a blocking channel operation or `pluto/sync`
 wait (through `Park`), `ParkUntil`, an armed `Timer` and the poller all call before they use the

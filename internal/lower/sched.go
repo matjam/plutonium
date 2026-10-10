@@ -3,8 +3,8 @@ package lower
 // Link-time binding of the scheduler backend (language spec section 4.7,
 // abi.md section 12). A package-level variable marked //pu:scheduler, whose
 // type implements pluto/rt.Scheduler, is the program's backend. The runtime
-// declares body-less hooks marked //pu:schedhook (schedPark, schedWake and
-// the rest); lowering gives each a body that calls the bound variable's
+// declares body-less hooks (schedPark, schedWake and the rest, listed in
+// schedHooks); lowering gives each a body that calls the bound variable's
 // method of the same name directly. pluto/rt binds the hosted backend in
 // hosted builds; a program's own binding replaces it. A program that
 // reaches a hook with nothing bound fails to build.
@@ -112,7 +112,7 @@ func schedulerVars(p *load.Package) []schedBinding {
 	return out
 }
 
-// How a //pu:schedhook declaration treats a backend without the method.
+// How a scheduler hook treats a backend without the method.
 type hookMode int
 
 const (
@@ -121,32 +121,47 @@ const (
 	hookTimers                   // a timer method: a build error if the program reaches the hook
 )
 
-// schedHook returns the method a //pu:schedhook declaration calls and what
-// happens if the backend lacks it ("optional" or "timers" after the name).
-func schedHook(d *ast.FuncDecl) (method string, mode hookMode, ok bool) {
-	for _, dir := range directives(d.Doc) {
-		if rest, found := strings.CutPrefix(dir, "schedhook "); found {
-			f := strings.Fields(rest)
-			if len(f) == 0 {
-				return "", hookRequired, false
-			}
-			mode := hookRequired
-			if len(f) > 1 {
-				switch f[1] {
-				case "optional":
-					mode = hookOptional
-				case "timers":
-					mode = hookTimers
-				}
-			}
-			return f[0], mode, true
-		}
-	}
-	return "", hookRequired, false
+// A schedHookInfo is what a scheduler hook calls: the method of the bound
+// scheduler, and what happens if the backend lacks it.
+type schedHookInfo struct {
+	method string
+	mode   hookMode
 }
 
-// A lateHook is a body-less runtime function marked
-// //pu:schedlate direct parked (rt.Sleep). Whether the program starts the
+// schedHooks are pluto/rt's body-less scheduler hooks (sched.p, timer.p),
+// by name. The runtime and the compiler agree on them by name, as on the
+// panic hook (callPanicHandler) and the intrinsics. Yield is optional only
+// for the build check: runtime locks, which every program uses, may yield
+// when they release, but only once tasks have started, which needs the
+// other hooks.
+var schedHooks = map[string]schedHookInfo{
+	"schedNewTask":     {"NewTask", hookRequired},
+	"schedFreeTask":    {"FreeTask", hookRequired},
+	"schedSpawn":       {"Spawn", hookRequired},
+	"schedPark":        {"Park", hookRequired},
+	"schedWake":        {"Wake", hookRequired},
+	"schedYield":       {"Yield", hookOptional},
+	"schedInit":        {"Init", hookOptional},
+	"schedInInterrupt": {"InInterrupt", hookOptional},
+	"schedNow":         {"Now", hookTimers},
+	"schedArmTimer":    {"ArmTimer", hookTimers},
+}
+
+// isRuntime reports whether fn is declared in pluto/rt.
+func isRuntime(fn *types2.Func) bool { return fn.Pkg() != nil && fn.Pkg().Path() == "pluto/rt" }
+
+// schedHook returns the method the scheduler hook fn calls and what
+// happens if the backend lacks it, if fn is one.
+func schedHook(fn *types2.Func) (method string, mode hookMode, ok bool) {
+	h, ok := schedHooks[fn.Name()]
+	if !ok || !isRuntime(fn) {
+		return "", hookRequired, false
+	}
+	return h.method, h.mode, true
+}
+
+// A lateHook is a body-less runtime function listed in lateHooks
+// (rt.Sleep). Whether the program starts the
 // scheduler is known only once every function it reaches has been lowered,
 // so the hook gets its body then: a call of direct, a function that needs
 // no scheduler, if the program does not start one, otherwise a call of
@@ -159,17 +174,21 @@ type lateHook struct {
 	direct, parked *types2.Func
 }
 
-// lateHookNames returns the names of the functions a //pu:schedlate
-// declaration chooses between.
-func lateHookNames(d *ast.FuncDecl) (direct, parked string, ok bool) {
-	for _, dir := range directives(d.Doc) {
-		if rest, found := strings.CutPrefix(dir, "schedlate "); found {
-			if f := strings.Fields(rest); len(f) == 2 {
-				return f[0], f[1], true
-			}
-		}
+// lateHooks are pluto/rt's body-less functions whose body is chosen once
+// the whole program is lowered, by name: the function that needs no
+// scheduler, then the one that parks.
+var lateHooks = map[string][2]string{
+	"Sleep": {"sleepDirect", "sleepParked"},
+}
+
+// lateHookNames returns the names of the functions the late hook fn
+// chooses between, if fn is one.
+func lateHookNames(fn *types2.Func) (direct, parked string, ok bool) {
+	h, ok := lateHooks[fn.Name()]
+	if !ok || !isRuntime(fn) {
+		return "", "", false
 	}
-	return "", "", false
+	return h[0], h[1], true
 }
 
 // lateHookSym returns the symbol of the hook fn, whose body is chosen by

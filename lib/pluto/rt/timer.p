@@ -286,10 +286,11 @@ func RunTimers() {
 // ----------------------------------------------------------------------------
 // The clock and timed parking
 
-//pu:schedhook Now timers
+// The timer hooks (internal/lower/sched.go): a program that reaches one
+// with a scheduler that lacks the method fails to build.
+
 func schedNow() int64
 
-//pu:schedhook ArmTimer timers
 func schedArmTimer(deadline int64)
 
 // Now returns the reading of the scheduler's monotonic clock in
@@ -307,8 +308,6 @@ func Now() int64 { return schedNow() }
 // backend sleeps in sleepDirect: its only thread waits in the kernel, and
 // no monitor or poller thread exists. Any other program sleeps in
 // sleepParked, so that the processor runs other puroutines meanwhile.
-//
-//pu:schedlate sleepDirect sleepParked
 func Sleep(ns int64)
 
 // sleepParked parks the running task until ns nanoseconds have passed on

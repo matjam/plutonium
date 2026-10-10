@@ -41,7 +41,7 @@ code*:
   compiler takes on trust: `//pu:noescape` (on functions without a body only), `//pu:resultholds` (in
   the standard library only: E3008 elsewhere), `//pu:nobounds` and `//pu:nochecks` (section 10);
 - `rt.Pinned`, which hides a pointer from the escape analysis (the runtime's wait queues and timers,
-  `sync.WaitGroup.Go` until scoped puroutines land).
+  `sync.WaitGroup.Go`, whose frame-bound use `sync.Scope` will replace).
 
 **No annotations for derivable facts.** Ordinary hosted code needs no annotations and no knowledge of how
 the checks work: the escape analysis, the move checker, heap-only fields, sendability and (section 7)
@@ -259,8 +259,8 @@ remain, and I propose closing them as follows:
    a view crosses to an unscoped puroutine only if what it points to is immutable for the rest of the
    program (a string literal, a package variable never written after initialization, which the compiler
    can see) or reached through a `synced[T]`. Otherwise share memory by moving an owner or through
-   `synced[T]`. Scoped puroutines (`sync.WaitGroup` as a scope, docs/plans/2026-10-10-scoped-puroutines.md)
-   relax this for puroutines the frame waits for.
+   `synced[T]`. Scoped puroutines (the owner type `sync.Scope`, which joins its puroutines when it is
+   dropped; docs/plans/2026-10-10-scoped-puroutines.md) relax this for puroutines the frame waits for.
 2. **`synced[T]` contents.** Mutation through a `synced[T]` is allowed only on fields whose type is a
    `pluto/sync` or `pluto/sync/atomic` type, or on data guarded by a mutex. Decided (D7): which mutex
    guards which data is inferred from the `Lock`/`Unlock` flow, with no annotation: a field or variable
@@ -459,8 +459,8 @@ measuring, and it marks that function for the `pluto vet -unsafe` audit. Not imp
     analysis accepts this only when the started function is known statically and does not keep the
     slice itself. Through a func value or interface method, the array is treated as frame memory.
 12. `rt.Pinned` hides a pointer from the escape analysis. The runtime's wait queues and timers use it
-    for records in a parked puroutine's frame, and `sync.WaitGroup.Go` for the WaitGroup until scoped
-    puroutines check that its frame waits; any other use is unchecked.
+    for records in a parked puroutine's frame, and `sync.WaitGroup.Go` for the WaitGroup
+    (`sync.Scope` is the checked replacement for a WaitGroup in a frame); any other use is unchecked.
 13. A string made with `unsafe.String` is a view, checked like any other, but the library code that
     keeps strings (`rt.KeepString`) copies a string nobody counts at run time, which the analysis cannot
     see; it relies on `rt.Pinned` for that. `KeepString` also copies string literals, which costs an

@@ -46,9 +46,9 @@ func (wg *WaitGroup) Go(f func()) {
 	wg.Add(1)
 	// The puroutine uses wg until its Done, which a Wait on wg waits for:
 	// a WaitGroup in a frame that waits before returning outlives it.
-	// Checking that the frame does wait is the scoped-puroutines work
-	// (docs/plans/2026-10-10-scoped-puroutines.md); until then wg is
-	// hidden from the escape analysis (rt.Pinned).
+	// The compiler cannot check that the frame does wait, so wg is hidden
+	// from the escape analysis (rt.Pinned); sync.Scope is the checked form
+	// (docs/plans/2026-10-10-scoped-puroutines.md).
 	go runDone(rt.Pinned(wg), f)
 }
 

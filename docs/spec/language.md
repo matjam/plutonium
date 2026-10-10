@@ -419,8 +419,8 @@ scheduler (no `go` statement, no channel operation or `pluto/sync` wait that can
 `time.After`, `AfterFunc` or `rt.ParkUntil`) has no other puroutine to run, so there `Sleep` waits in
 the kernel on the program's only thread (`clock_nanosleep`), and the scheduler, monitor and poller
 threads are neither started nor linked. The compiler decides this once it has lowered the whole
-program, from whether the runtime's `startTasks` is reachable (`rt.Sleep`, a body-less function marked
-`//pu:schedlate`, takes the direct body or the parking one then); the default hosted backend is the
+program, from whether the runtime's `startTasks` is reachable (`rt.Sleep`, a body-less function the
+compiler knows by name, takes the direct body or the parking one then); the default hosted backend is the
 only one it applies to, so a program that binds its own scheduler, a kernel included, always parks.
 `time.Timer`, `time.Ticker`,
 `time.After` and `time.Tick` deliver the time on a channel, so a `select` waits for a timer like any
@@ -2762,6 +2762,15 @@ kernel: no panic handler is defined
 
 Directives are line comments starting with `//pu:` with no space, placed in the doc comment of the
 declaration they apply to (or at the top of the file for `//pu:build`).
+
+A directive states something the compiler cannot work out from the program: linkage, hardware state, a
+binding to the runtime, a body it cannot see, or an explicit request. Anything it can work out it infers
+instead (which functions never return, which may wait, which start puroutines with their func
+arguments, which string slices fall on rune boundaries), so using the language does not require
+knowing how the compiler works. Ordinary hosted code needs only the requests: `//pu:build`,
+`//pu:inline`, `//pu:noinline`, `//pu:stack`, and `//pu:extern` and `//pu:export` for C. The hardware and
+binding directives (`//pu:interrupt`, `//pu:panic`, `//pu:scheduler`, `//pu:percpu`, `//pu:fpu`,
+`//pu:blocking`) are for kernels.
 
 | Directive | Applies to | Meaning |
 |---|---|---|
