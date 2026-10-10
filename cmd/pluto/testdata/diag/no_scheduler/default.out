@@ -1,0 +1,12 @@
+$DIR/main.p:1:1: this program starts puroutines, uses channels or waits in pluto/sync, so it needs a scheduler, and none is bound: mark a package-level variable whose type implements rt.Scheduler with //pu:scheduler (language spec section 4.7; hosted builds bind one by default)
+    This program starts puroutines, uses channels or waits in pluto/sync, so it
+    needs a scheduler, and none is bound. Hosted builds bind one by default; a
+    freestanding program, such as a kernel, provides its own: a package-level
+    variable marked //pu:scheduler whose type implements rt.Scheduler.
+    Plutonium carries a scheduler only in programs that ask for one, and a
+    kernel supplies its own, so a freestanding program must say which.
+    Bind the kernel's scheduler:
+        //pu:scheduler
+        var scheduler kernelScheduler
+    (see "go starts a puroutine" in the Plutonium spec, section 4.7)
+    (run "pluto explain E2583" for a longer explanation)

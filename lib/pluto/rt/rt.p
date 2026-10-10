@@ -513,11 +513,11 @@ func allocAt(a Allocator, size, align, pc uintptr) unsafe.Pointer {
 		size = 1
 	}
 	if TrackSites {
-		allocSite = pc
+		SetAllocSite(pc)
 	}
 	p := a.Alloc(size, align)
 	if TrackSites {
-		allocSite = 0
+		SetAllocSite(0)
 	}
 	if p == nil {
 		panicMessage("out of memory", "", "", "", "")

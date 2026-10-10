@@ -82,7 +82,8 @@ type Task struct {
 	selectDone uint32
 	rand       uint64
 
-	insyscall bool // between EnterSyscall and ExitSyscall (hosted)
+	insyscall bool    // between EnterSyscall and ExitSyscall (hosted)
+	allocSite uintptr // see AllocSite
 
 	// Link and Data are the backend's: a run-queue link and a word for its
 	// own use. The runtime never touches them.

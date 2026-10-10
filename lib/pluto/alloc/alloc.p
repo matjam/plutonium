@@ -68,6 +68,19 @@ func Free[T any](p *T, a Allocator = Default()) {
 	}
 }
 
+// FreeChan frees a channel made by make(chan T, ...) and its buffer,
+// returning them to the allocator they came from, whatever the default is
+// now. No puroutine may use the channel afterwards, and none may be waiting
+// on it (FreeChan panics then); values still buffered are discarded.
+//
+// Channels are freed explicitly until the compiler counts channel
+// references (roadmap item 48, language spec section 4.8); then the last
+// reference frees the channel and FreeChan goes away. A channel made in an
+// arena needs no FreeChan.
+func FreeChan[T any](ch chan T) {
+	rt.FreeChan(*(*unsafe.Pointer)(unsafe.Pointer(&ch)))
+}
+
 // Raw allocates size zeroed bytes aligned to align from a (by default the
 // default allocator), for code that lays out a variable-sized object
 // itself. Like New, it panics if a is nil or out of memory. Return the

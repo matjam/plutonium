@@ -120,11 +120,11 @@ func FreeChan(p unsafe.Pointer) {
 	c.lock.Unlock()
 	a := c.alloc
 	if TrackSites {
-		allocSite = CallerPC()
+		SetAllocSite(CallerPC())
 	}
 	a.Free(p, c.memSize, c.memAlign)
 	if TrackSites {
-		allocSite = 0
+		SetAllocSite(0)
 	}
 }
 

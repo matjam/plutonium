@@ -252,8 +252,9 @@ func (d *Allocator) Alloc(size, align uintptr) unsafe.Pointer {
 	d.live++
 	d.liveBytes += size
 	d.insert(ri)
+	p := unsafe.Pointer(r.ptr) // r is invalid once unlocked: recs may grow
 	d.unlock()
-	return unsafe.Pointer(r.ptr)
+	return p
 }
 
 // wantGuard reports whether an allocation should get guard pages. At the

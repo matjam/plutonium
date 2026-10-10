@@ -508,10 +508,11 @@ func stopm(mp *m) {
 }
 
 // checkDead stops the program when no puroutine can ever run again: every
-// worker is asleep and nothing waits for I/O or a system call. Called with
-// hs.lock held.
+// worker is asleep (a worker in a system call is not: the call may
+// return), nothing waits in the poller and no queue holds a puroutine.
+// Called with hs.lock held.
 func checkDead() {
-	if hs.mcount-hs.nmidle-load32(&hs.nmsys) > 0 || load32(&hs.pollWaiting) != 0 || workAvailable() {
+	if hs.mcount-hs.nmidle > 0 || load32(&hs.pollWaiting) != 0 || workAvailable() {
 		return
 	}
 	printString("fatal error: all puroutines are asleep - deadlock!\n")

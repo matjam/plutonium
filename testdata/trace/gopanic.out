@@ -1,0 +1,6 @@
+6
+panic: runtime error: index out of range [3] with length 3
+puroutine 3:
+    main.level2 (./main.p:7)
+    main.worker (./main.p:11)
+    main.main.go2 (./main.p:20)

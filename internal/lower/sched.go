@@ -41,16 +41,14 @@ func (l *Lowerer) findScheduler() {
 			}
 		}
 	}
-	if len(own) > 1 {
-		for _, b := range own[1:] {
-			l.errorf(b.pos, diag.BadScheduler, "%s is a second //pu:scheduler variable; the first is %s at %s: a program binds one scheduler (language spec section 4.7)",
-				b.v.Name(), own[0].v.Name(), l.fset.Position(own[0].pos))
-		}
-		return
+	for _, b := range own[min(len(own), 1):] {
+		l.errorf(b.pos, diag.BadScheduler, "%s is a second //pu:scheduler variable; the first is %s at %s: a program binds one scheduler (language spec section 4.7)",
+			b.v.Name(), own[0].v.Name(), l.fset.Position(own[0].pos))
+		l.schedMissing = true // no "none is bound" on top
 	}
 	var b *schedBinding
 	switch {
-	case len(own) == 1:
+	case len(own) > 0:
 		b = &own[0]
 	case len(dflt) > 0:
 		b = &dflt[0]
@@ -58,8 +56,12 @@ func (l *Lowerer) findScheduler() {
 		return
 	}
 	T := b.v.Type()
+	bad := func(format string, args ...any) {
+		l.errorf(b.pos, diag.BadScheduler, format, args...)
+		l.schedMissing = true // no "none is bound" on top
+	}
 	if isInterface(T) {
-		l.errorf(b.pos, diag.BadScheduler, "//pu:scheduler variable %s has interface type %s; give it the backend's own type, so that the runtime calls its methods directly", b.v.Name(), T)
+		bad("//pu:scheduler variable %s has interface type %s; give it the backend's own type, so that the runtime calls its methods directly", b.v.Name(), T)
 		return
 	}
 	iface := l.rtType("Scheduler").Underlying().(*types2.Interface)
@@ -69,11 +71,11 @@ func (l *Lowerer) findScheduler() {
 		if m != nil {
 			name = m.Name()
 		}
-		l.errorf(b.pos, diag.BadScheduler, "//pu:scheduler variable %s of type %s does not implement rt.Scheduler (missing method %s)", b.v.Name(), T, name)
+		bad("//pu:scheduler variable %s of type %s does not implement rt.Scheduler (missing method %s)", b.v.Name(), T, name)
 		return
 	}
 	if n, ok := types2.Unalias(T).(*types2.Named); ok && n.TypeArgs().Len() > 0 {
-		l.errorf(b.pos, diag.BadScheduler, "//pu:scheduler variable %s has generic type %s, which is not supported", b.v.Name(), T)
+		bad("//pu:scheduler variable %s has generic type %s, which is not supported", b.v.Name(), T)
 		return
 	}
 	l.sched = b

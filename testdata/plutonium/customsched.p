@@ -1,0 +1,174 @@
+// A program that binds its own scheduler backend with //pu:scheduler,
+// replacing the hosted one: a single processor with a FIFO run queue, as a
+// small kernel's would be (without the timer). Puroutines, channels,
+// select and pluto/sync run on it unchanged.
+
+package main
+
+import (
+	"pluto/alloc"
+	"pluto/os"
+	"pluto/rt"
+	"pluto/sync"
+	"unsafe"
+)
+
+// rrTask is the backend's task record, with the runtime's Task at offset 0.
+type rrTask struct {
+	task  rt.Task
+	mem   unsafe.Pointer
+	size  uintptr
+	alloc alloc.Allocator
+}
+
+type roundRobin struct {
+	head, tail *rt.Task
+	idle       rt.Context
+	spawned    int
+	freed      int
+	switches   int
+}
+
+//pu:scheduler
+var sched roundRobin
+
+var idleStack [16 << 10]byte
+
+// Start runs once, before the first go statement or blocking operation.
+func (s *roundRobin) Start() {
+	rt.MakeContext(&s.idle, unsafe.Pointer(&idleStack[0]), uintptr(len(idleStack)), idleLoop)
+}
+
+// idleLoop runs whatever is runnable; with nothing left, every puroutine
+// waits for another.
+func idleLoop() {
+	for {
+		t := sched.pop()
+		if t == nil {
+			println("deadlock")
+			os.Exit(3)
+		}
+		sched.switches++
+		rt.Switch(&sched.idle, t.Context())
+	}
+}
+
+func (s *roundRobin) NewTask(req rt.StackRequest) *rt.Task {
+	head := (unsafe.Sizeof(rrTask{}) + 15) &^ 15
+	size := head + (req.Size+15)&^15
+	mem := alloc.Raw(size, 16, req.Alloc)
+	r := (*rrTask)(mem)
+	r.mem, r.size, r.alloc = mem, size, req.Alloc
+	r.task.SetStack(uintptr(mem)+head, uintptr(mem)+size)
+	s.spawned++
+	return &r.task
+}
+
+func (s *roundRobin) FreeTask(t *rt.Task) {
+	r := (*rrTask)(unsafe.Pointer(t))
+	r.alloc.Free(r.mem, r.size, 16)
+	s.freed++
+}
+
+func (s *roundRobin) Spawn(t *rt.Task) { s.push(t) }
+func (s *roundRobin) Wake(t *rt.Task)  { s.push(t) }
+func (s *roundRobin) Park(t *rt.Task)  { s.switchFrom(t) }
+func (s *roundRobin) Yield(t *rt.Task) { s.switchFrom(t) }
+
+// switchFrom gives the processor to the next runnable task, or to the idle
+// loop. The runtime finishes with t (requeues it, or frees it) once the
+// switch is complete.
+func (s *roundRobin) switchFrom(t *rt.Task) {
+	s.switches++
+	if next := s.pop(); next != nil {
+		rt.Switch(t.Context(), next.Context())
+		return
+	}
+	rt.Switch(t.Context(), &s.idle)
+}
+
+func (s *roundRobin) push(t *rt.Task) {
+	t.Link = nil
+	if s.tail != nil {
+		s.tail.Link = t
+	} else {
+		s.head = t
+	}
+	s.tail = t
+}
+
+func (s *roundRobin) pop() *rt.Task {
+	t := s.head
+	if t != nil {
+		s.head = t.Link
+		if s.head == nil {
+			s.tail = nil
+		}
+	}
+	return t
+}
+
+// The program.
+
+var wg sync.WaitGroup
+
+func square(in <-chan int, out chan<- int) {
+	for v := range in {
+		out <- v * v
+	}
+	wg.Done()
+}
+
+func ticker(id int, n int, out chan<- string) {
+	for i := 0; i < n; i++ {
+		rt.Yield()
+	}
+	if id == 0 {
+		out <- "zero"
+	} else {
+		out <- "one"
+	}
+}
+
+func main() {
+	in := make(chan int)
+	out := make(chan int, 10)
+	wg.Add(3)
+	for i := 0; i < 3; i++ {
+		go square(in, out)
+	}
+	for i := 1; i <= 10; i++ {
+		in <- i
+	}
+	close(in)
+	wg.Wait()
+	sum := 0
+	for i := 0; i < 10; i++ {
+		sum += <-out
+	}
+	println("sum of squares", sum)
+
+	// Yield interleaves: the puroutine that yields fewer times finishes
+	// first, whichever started first.
+	names := make(chan string, 2)
+	go ticker(0, 50, names)
+	go ticker(1, 5, names)
+	println(<-names, <-names)
+
+	// A select that waits on two channels.
+	a := make(chan int)
+	b := make(chan int)
+	go func(b chan int) { b <- 7 }(b)
+	select {
+	case v := <-a:
+		println("a", v)
+	case v := <-b:
+		println("b", v)
+	}
+	alloc.FreeChan(in)
+	alloc.FreeChan(out)
+	alloc.FreeChan(names)
+	alloc.FreeChan(a)
+	alloc.FreeChan(b)
+	println("spawned", sched.spawned, "freed", sched.freed, "switched", sched.switches > 10)
+}

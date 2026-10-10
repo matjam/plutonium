@@ -165,8 +165,12 @@ func (s *fnState) goStmt(st *ast.GoStmt) {
 		vals = append(vals, s.callArgs(call, sig, nil)...)
 		nlead = 1
 	}
+	var checkArgs []*ssa.Value // func value arguments, checked like the callee
 	for _, v := range vals[nlead:] {
 		s.checkSendable(v.T, call.Pos(), "go statement argument of type")
+		if _, isFunc := unwrap(v.T).Underlying().(*types2.Signature); isFunc && !v.addr {
+			checkArgs = append(checkArgs, v.v)
+		}
 	}
 
 	// Lay out the argument block.
@@ -226,8 +230,15 @@ func (s *fnState) goStmt(st *ast.GoStmt) {
 		ts.returnValues(nil)
 	}})
 
+	// A func value whose closure record is in this puroutine's stack (a
+	// literal that captures variables, a method value) would dangle in the
+	// new puroutine: checkGoFunc panics on one, for the function started
+	// and for every func-typed argument.
 	if checkFunc != nil {
 		s.callRuntime("checkGoFunc", nil, []*ssa.Value{checkFunc})
+	}
+	for _, f := range checkArgs {
+		s.callRuntime("checkGoFunc", nil, []*ssa.Value{f})
 	}
 	rec := s.symAddr(s.l.closureRecord(thunk))
 	// The last argument is the stack the call is proven to need; 0 until

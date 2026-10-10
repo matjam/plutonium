@@ -28,9 +28,24 @@ var (
 )
 
 // A File is an open file descriptor.
+//
+// A read or write that has to wait does not hold up other puroutines: on a
+// descriptor in non-blocking mode (a pipe from Pipe) the puroutine parks
+// in the scheduler's poller until the descriptor is ready, and on any
+// other the system call is announced to the scheduler (rt.EnterSyscall),
+// which hands the worker's processor to another worker if the call blocks.
 type File struct {
-	fd   int
-	name string
+	fd       int
+	name     string
+	nonblock bool // the descriptor is in non-blocking mode: wait in the poller
+}
+
+// wait parks until f is ready for reading or writing, after a non-blocking
+// call found it was not.
+func (f *File) wait(write bool) {
+	if !rt.PollWait(f.fd, write) {
+		rt.Yield() // no poller (a program's own scheduler): try again later
+	}
 }
 
 // Standard streams.
@@ -50,9 +65,19 @@ func (f *File) Name() string { return f.name }
 func (f *File) Write(p []byte) (int, error) {
 	n := 0
 	for n < len(p) {
+		if !f.nonblock {
+			rt.EnterSyscall()
+		}
 		m, err := syscall.Write(f.fd, p[n:])
+		if !f.nonblock {
+			rt.ExitSyscall()
+		}
 		if err != nil {
 			if err == syscall.EINTR {
+				continue
+			}
+			if err == syscall.EAGAIN && f.nonblock {
+				f.wait(true)
 				continue
 			}
 			return n, err
@@ -73,8 +98,18 @@ func (f *File) WriteString(s string) (int, error) {
 // Read reads up to len(p) bytes.
 func (f *File) Read(p []byte) (int, error) {
 	for {
+		if !f.nonblock {
+			rt.EnterSyscall()
+		}
 		n, err := syscall.Read(f.fd, p)
+		if !f.nonblock {
+			rt.ExitSyscall()
+		}
 		if err == syscall.EINTR {
+			continue
+		}
+		if err == syscall.EAGAIN && f.nonblock {
+			f.wait(false)
 			continue
 		}
 		if err == nil && n == 0 && len(p) > 0 {
@@ -86,6 +121,33 @@ func (f *File) Read(p []byte) (int, error) {
 
 // Close closes the file.
 func (f *File) Close() error { return syscall.Close(f.fd) }
+
+// Pipe returns a connected pair of Files, reading from r and writing to w,
+// allocated from a (by default the default allocator); free them with
+// alloc.Free after Close. Their descriptors are non-blocking: a puroutine
+// that reads an empty pipe, or writes a full one, parks in the scheduler's
+// poller and leaves its worker free for others.
+func Pipe(a alloc.Allocator = alloc.Default()) (r, w *File, err error) {
+	var fds [2]int32
+	const oNonblock, oCloexec = 0x800, 0x80000
+	if _, err := syscallResult(syscall.Syscall(syscall.SYS_PIPE2, uintptr(unsafe.Pointer(&fds[0])), oNonblock|oCloexec, 0)); err != nil {
+		return nil, nil, err
+	}
+	r = alloc.New[File](a)
+	r.fd, r.name, r.nonblock = int(fds[0]), "|0", true
+	w = alloc.New[File](a)
+	w.fd, w.name, w.nonblock = int(fds[1]), "|1", true
+	return r, w, nil
+}
+
+// syscallResult splits a raw system call result into a value and an
+// error.
+func syscallResult(r uintptr) (int, error) {
+	if r > ^uintptr(4095) {
+		return -1, syscall.Errno(-r)
+	}
+	return int(r), nil
+}
 
 // IsEOF reports whether err is io.EOF.
 func IsEOF(err error) bool { return err == io.EOF }
