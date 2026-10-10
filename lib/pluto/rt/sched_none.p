@@ -7,3 +7,12 @@ package rt
 
 // flushStackCache has nothing to do: backends own their stacks.
 func flushStackCache() {}
+
+// Timers use the shared heap, which the program runs with RunTimers when
+// its backend's ArmTimer deadline has passed (abi.md section 12.9).
+
+func timerStart() {}
+
+func timerHeapLocal() *timerHeap { return &globalTimers }
+
+func timerEarlier(h *timerHeap, when int64) { armGlobal(when) }

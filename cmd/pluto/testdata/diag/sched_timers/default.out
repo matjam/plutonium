@@ -1,0 +1,20 @@
+$DIR/main.p:20:5: this program uses timers (time.Sleep, a time.Timer or Ticker, rt.ParkUntil or rt.Now), so its scheduler must provide a clock and a timer, and sched of type main.noClock has no method Now or ArmTimer (abi.md section 12.9)
+    Timers need two things from the scheduler: a clock, its Now method, which
+    returns monotonic nanoseconds, and a way to be called back, its ArmTimer
+    method, which asks for rt.RunTimers to be called once a deadline has passed.
+    This program uses timers (time.Sleep, a time.Timer or Ticker, rt.ParkUntil
+    or rt.Now), and the bound scheduler lacks one of them.
+    The scheduler contract keeps timers optional, so a kernel that never sleeps
+    needs no clock. A program that does sleep must get its clock from the
+    kernel, because only the kernel knows which timer hardware it drives.
+    Give the scheduler a clock, and run the timers from the timer interrupt:
+        func (kernelSched) Now() int64 { return int64(ticks) * 1000000 }
+
+        func (kernelSched) ArmTimer(deadline int64) { next = deadline }
+
+        // in the timer interrupt handler:
+        if kernelSched{}.Now() >= next {
+            rt.RunTimers()
+        }
+    (see "go starts a puroutine" in the Plutonium spec, section 4.7)
+    (run "pluto explain E2595" for a longer explanation)
