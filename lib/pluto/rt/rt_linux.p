@@ -356,6 +356,10 @@ func SetExitHook(h func(code int) int) func(code int) int {
 	return prev
 }
 
+// printReentrant: a hosted print statement cannot be interrupted by code
+// that prints (rt.p, printBegin).
+const printReentrant = false
+
 // consoleWrite writes n bytes at p to standard error.
 func consoleWrite(p unsafe.Pointer, n int) {
 	for n > 0 {

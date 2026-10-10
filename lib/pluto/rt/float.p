@@ -38,6 +38,13 @@ func printFloat(bits uint64, bitSize int) {
 	printBytes(unsafe.Pointer(&buf[0]), n)
 }
 
+// stmtFloat is printFloat inside a print statement (rt.p).
+func stmtFloat(bits uint64, bitSize int) {
+	var buf [32]byte
+	n := formatFloat(&buf, bits, bitSize)
+	stmtBytes(unsafe.Pointer(&buf[0]), n)
+}
+
 // formatFloat writes the shortest 'g' form of the float to dst and
 // returns its length.
 func formatFloat(dst *[32]byte, b uint64, bitSize int) int {

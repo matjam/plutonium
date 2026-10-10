@@ -514,6 +514,132 @@ func printString(s string) {
 }
 
 // ----------------------------------------------------------------------------
+// print statements
+//
+// A print or println statement is atomic: tasks (and processors) that
+// print at the same time never mix their output within a line, as in Go.
+// The compiler gives a statement that would write more than once (anything
+// but print of one value) a call of printBegin first and of printEnd last,
+// and the statement's pieces are written by the stmt functions below
+// instead of the print functions above. printBegin takes the print lock;
+// the stmt functions append to a fixed buffer; printEnd writes the buffer
+// to the console in one call and releases the lock. A statement longer
+// than the buffer is written in several calls, still under the lock.
+// Nothing here allocates. The lock is a runtime Lock, which in kernel mode
+// also masks interrupts on the processor that holds it, so an interrupt
+// handler may print: it cannot find the lock held by the code it
+// interrupted. The console write happens with the lock held, so a console
+// must not wait for another task or for a lock of its own.
+//
+// The functions the panic machinery uses (printString and the others
+// above) take no lock and bypass the buffer, so that a panic can always
+// report itself.
+
+// stmtBufSize is the largest print statement written in a single call.
+const stmtBufSize = 512
+
+var (
+	stmtLock Lock
+	stmtBuf  [stmtBufSize]byte
+	stmtLen  int
+	// stmtOwner is 0, or one more than the selfID of the processor holding
+	// stmtLock; stmtNest counts the print statements that processor began
+	// while it was already in one (freestanding builds only, see printBegin).
+	stmtOwner uint64
+	stmtNest  int
+)
+
+// printBegin starts a print statement whose pieces the stmt functions
+// append to.
+func printBegin() {
+	if printReentrant && loadUint64(&stmtOwner) == selfID()+1 {
+		// A handler of a fault, an interrupt that does not mask others, or
+		// a panic prints in the middle of a statement of the code it
+		// interrupted, which holds the lock for good as far as the handler
+		// is concerned. Write what that statement has so far and print
+		// alongside it, without the lock.
+		stmtFlush()
+		stmtNest++
+		return
+	}
+	stmtLock.Lock()
+	if printReentrant {
+		casUint64(&stmtOwner, 0, selfID()+1)
+	}
+}
+
+// printEnd ends the print statement: it writes what is left in the buffer
+// and releases the lock.
+func printEnd() {
+	stmtFlush()
+	if stmtNest > 0 {
+		stmtNest--
+		return
+	}
+	if printReentrant {
+		casUint64(&stmtOwner, selfID()+1, 0)
+	}
+	stmtLock.Unlock()
+}
+
+// stmtFlush writes the buffered output.
+func stmtFlush() {
+	if n := stmtLen; n > 0 {
+		stmtLen = 0
+		consoleWrite(unsafe.Pointer(&stmtBuf[0]), n)
+	}
+}
+
+// stmtBytes appends n bytes at p to the statement's output, writing the
+// buffer first when they do not fit, and writing them directly when they
+// would not fit in an empty buffer.
+func stmtBytes(p unsafe.Pointer, n int) {
+	if n <= 0 {
+		return
+	}
+	if n > stmtBufSize-stmtLen {
+		stmtFlush()
+		if n >= stmtBufSize {
+			consoleWrite(p, n)
+			return
+		}
+	}
+	memmove(unsafe.Pointer(&stmtBuf[stmtLen]), p, n)
+	stmtLen += n
+}
+
+// stmtOut is a Writer that appends to the print statement in progress.
+type stmtOut struct{}
+
+func (stmtOut) Write(p []byte) (int, error) {
+	if len(p) > 0 {
+		stmtBytes(unsafe.Pointer(&p[0]), len(p))
+	}
+	return len(p), nil
+}
+
+func stmtString(s string) {
+	if len(s) > 0 {
+		stmtBytes(unsafe.Pointer(unsafe.StringData(s)), len(s))
+	}
+}
+
+func stmtSpace()   { stmtString(" ") }
+func stmtNewline() { stmtString("\n") }
+
+func stmtBool(b bool) {
+	if b {
+		stmtString("true")
+	} else {
+		stmtString("false")
+	}
+}
+
+func stmtInt(v int64)              { writeInt(stmtOut{}, v) }
+func stmtUint(v uint64)            { writeUint(stmtOut{}, v) }
+func stmtPointer(p unsafe.Pointer) { writePointer(stmtOut{}, uintptr(p)) }
+
+// ----------------------------------------------------------------------------
 // Memory
 
 func memmove(dst, src unsafe.Pointer, n int) {

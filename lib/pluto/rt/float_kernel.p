@@ -13,3 +13,13 @@ func printFloat(bits uint64, bitSize int) {
 	}
 	writePointer(Console{}, uintptr(bits)) // hexadecimal with 0x
 }
+
+// stmtFloat is printFloat inside a print statement (rt.p).
+func stmtFloat(bits uint64, bitSize int) {
+	if bitSize == 32 {
+		stmtString("float32=")
+	} else {
+		stmtString("float64=")
+	}
+	writePointer(stmtOut{}, uintptr(bits))
+}

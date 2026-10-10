@@ -13,6 +13,11 @@ import "unsafe"
 // the start (str.p).
 const atomicCountsAtStart = true
 
+// printReentrant says a print statement must detect that its processor is
+// already in one (rt.p, printBegin): a panic handler, which must work from
+// any state, may print after a fault inside the console write.
+const printReentrant = true
+
 var consoleWriter func(p unsafe.Pointer, n int)
 
 // SetConsole registers where print and println write, and Console.

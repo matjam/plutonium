@@ -91,21 +91,64 @@ func main() int64 {
 	big[15] = 1
 
 	useBlock(0)
-	println("cpu0", counter, hist[2], histAt(3), pr.b, flag, sum(big), saved[15])
+	print("cpu0 ")
+	print(counter)
+	sp()
+	print(hist[2])
+	sp()
+	print(histAt(3))
+	sp()
+	print(pr.b)
+	sp()
+	print(flag)
+	sp()
+	print(sum(big))
+	sp()
+	print(saved[15])
+	nl()
 	counter++
 	bump(&counter)
 	p := &hist[1]
 	*p = 42
 
 	useBlock(1)
-	println("cpu1", counter, hist[2], histAt(3), pr.b, flag, sum(big))
+	print("cpu1 ")
+	print(counter)
+	sp()
+	print(hist[2])
+	sp()
+	print(histAt(3))
+	sp()
+	print(pr.b)
+	sp()
+	print(flag)
+	sp()
+	print(sum(big))
+	nl()
 	off := uintptr(unsafe.Pointer(&counter)) - uintptr(unsafe.Pointer(&blocks[1]))
-	println("in block 1", off > 0 && off < 512)
+	print("in block 1 ")
+	print(off > 0 && off < 512)
+	nl()
 	// A pointer keeps referring to the copy it was taken from.
 	q := &counter
 	h := hist[:]
 
 	useBlock(0)
-	println("cpu0 again", counter, histAt(1), *q, h[2])
+	print("cpu0 again ")
+	print(counter)
+	sp()
+	print(histAt(1))
+	sp()
+	print(*q)
+	sp()
+	print(h[2])
+	nl()
 	return 0
 }
+
+// A print statement of several values takes the runtime's print lock, which
+// in kernel mode masks interrupts (cli), and this program runs as an
+// ordinary process, where cli faults. print of a single value writes
+// directly, so the lines are built from those.
+func sp() { print(" ") }
+func nl() { print("\n") }

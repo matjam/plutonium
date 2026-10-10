@@ -2907,6 +2907,15 @@ buffer of the runtime (1 KiB, longer messages are cut), and printing the trace r
 the stack (debugging.md section 5), so nothing allocates. Since a panic does not unwind, the stack the
 trace describes is still there while the handler runs, deferred calls having run below it (section 8.2).
 
+A `print` or `println` statement is atomic, as in Go: statements that run at the same time, on other
+puroutines or processors, never mix their output within a line. The statement's pieces go into a buffer
+of 512 bytes on the runtime, held under a runtime lock, and are written with one call when the statement
+ends (a longer statement is written in several calls, still under the lock). Nothing allocates. In
+kernel mode the lock also masks interrupts on its processor, so an interrupt handler may print, and a
+console function registered with `rt.SetConsole` runs with them masked and must not wait for another
+puroutine. A statement that prints a single value writes it at once, without the lock. The messages of a
+panic bypass the lock and the buffer, so that a panic can always report itself.
+
 Hardware faults reach the handler too. In hosted builds the runtime's signal handler does it. A kernel's
 exception handlers call
 

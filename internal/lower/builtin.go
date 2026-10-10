@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
@@ -164,15 +165,9 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 				nodes[i] = e
 			}
 		}
-		for i, v := range vals {
-			if i > 0 && b.Name() == "println" {
-				s.callRuntime("printSpace", nil)
-			}
-			s.printValue(v, unwrap(v.T), nodes[i])
-		}
-		if b.Name() == "println" {
-			s.callRuntime("printNewline", nil)
-		}
+		s.printStatement(b.Name() == "println", len(vals), func(i int, buffered bool) {
+			s.printValue(vals[i], unwrap(vals[i].T), nodes[i], buffered)
+		})
 		return nil
 
 	case "Sizeof", "Alignof", "Offsetof":
@@ -349,16 +344,55 @@ func (s *fnState) printOperand(a ast.Expr) value {
 	return s.exprAs(a, T)
 }
 
+// printStatement emits a print or println statement of n values, whose
+// i'th printOne prints. The statement is atomic: the output of concurrent
+// statements is never mixed within a line. One that writes more than once
+// (anything but print of a single value) takes the print lock between
+// printBegin and printEnd, and the runtime gathers its output in a buffer
+// that printEnd writes in one call when it fits (lib/pluto/rt, "print
+// statements").
+func (s *fnState) printStatement(ln bool, n int, printOne func(i int, buffered bool)) {
+	if n == 0 && !ln {
+		return
+	}
+	buffered := n > 1 || ln && n > 0
+	if buffered {
+		s.callRuntime("printBegin", nil)
+	}
+	for i := 0; i < n; i++ {
+		if i > 0 && ln {
+			s.callRuntime(printFunc("printSpace", buffered), nil)
+		}
+		printOne(i, buffered)
+	}
+	if ln {
+		s.callRuntime(printFunc("printNewline", buffered), nil)
+	}
+	if buffered {
+		s.callRuntime("printEnd", nil)
+	}
+}
+
+// printFunc names the runtime function that prints one piece of a print
+// statement: the one that writes at once, or, between printBegin and
+// printEnd, the one that appends to the statement's buffer.
+func printFunc(name string, buffered bool) string {
+	if buffered {
+		return "stmt" + strings.TrimPrefix(name, "print")
+	}
+	return name
+}
+
 // printValue prints one value for print or println.
-func (s *fnState) printValue(v value, T types2.Type, a ast.Node) {
+func (s *fnState) printValue(v value, T types2.Type, a ast.Node, buffered bool) {
 	switch u := T.Underlying().(type) {
 	case *types2.Basic:
 		info := u.Info()
 		switch {
 		case info&types2.IsString != 0:
-			s.callRuntime("printString", nil, s.stringLeaves(v))
+			s.callRuntime(printFunc("printString", buffered), nil, s.stringLeaves(v))
 		case info&types2.IsBoolean != 0:
-			s.callRuntime("printBool", nil, []*ssa.Value{v.v})
+			s.callRuntime(printFunc("printBool", buffered), nil, []*ssa.Value{v.v})
 		case info&types2.IsFloat != 0:
 			// The runtime takes the bits, so a float32 is formatted as
 			// one (shortest digits for its precision). In kernel mode,
@@ -372,23 +406,23 @@ func (s *fnState) printValue(v value, T types2.Type, a ast.Node) {
 			if size < 8 {
 				bits = s.newValue(ssa.OpZeroExt, ssa.TI64, bits)
 			}
-			s.callRuntime("printFloat", nil, []*ssa.Value{bits, s.constInt(ssa.TI64, 8*size)})
+			s.callRuntime(printFunc("printFloat", buffered), nil, []*ssa.Value{bits, s.constInt(ssa.TI64, 8*size)})
 		case info&types2.IsUnsigned != 0:
-			s.callRuntime("printUint", nil, []*ssa.Value{s.convertScalar(v.v, T, types2.Typ[types2.Uint64])})
+			s.callRuntime(printFunc("printUint", buffered), nil, []*ssa.Value{s.convertScalar(v.v, T, types2.Typ[types2.Uint64])})
 		case info&types2.IsInteger != 0:
-			s.callRuntime("printInt", nil, []*ssa.Value{s.convertScalar(v.v, T, types2.Typ[types2.Int64])})
+			s.callRuntime(printFunc("printInt", buffered), nil, []*ssa.Value{s.convertScalar(v.v, T, types2.Typ[types2.Int64])})
 		case u.Kind() == types2.UnsafePointer:
-			s.callRuntime("printPointer", nil, []*ssa.Value{v.v})
+			s.callRuntime(printFunc("printPointer", buffered), nil, []*ssa.Value{v.v})
 		}
 	case *types2.Pointer, *types2.Signature:
-		s.callRuntime("printPointer", nil, []*ssa.Value{v.v})
+		s.callRuntime(printFunc("printPointer", buffered), nil, []*ssa.Value{v.v})
 	case *types2.Wrapper:
 		if !u.IsBox() {
 			s.l.unsupportedf(a.Pos(), "cannot print a value of type %s", T)
 			break
 		}
 		// owned, shared, synced and weak print their address, as pointers do.
-		s.callRuntime("printPointer", nil, []*ssa.Value{s.wordOf(v)})
+		s.callRuntime(printFunc("printPointer", buffered), nil, []*ssa.Value{s.wordOf(v)})
 	default:
 		s.l.unsupportedf(a.Pos(), "cannot print a value of type %s", T)
 	}

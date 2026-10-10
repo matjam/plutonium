@@ -21,6 +21,7 @@ func walk(n *Node) int {
 	return sum
 }
 
+//pu:noinline
 func main() {
 	tail := Node{val: 2}
 	head := Node{next: &tail, val: 1}

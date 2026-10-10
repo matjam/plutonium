@@ -1089,16 +1089,9 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 				args[i] = s.saveValue(s.printOperand(a))
 			}
 			run = func(s *fnState, rec *ssa.Value) {
-				for i, a := range args {
-					if i > 0 && name == "println" {
-						s.callRuntime("printSpace", nil)
-					}
-					v := s.loadSaved(a, rec)
-					s.printValue(v, a.T, call)
-				}
-				if name == "println" {
-					s.callRuntime("printNewline", nil)
-				}
+				s.printStatement(name == "println", len(args), func(i int, buffered bool) {
+					s.printValue(s.loadSaved(args[i], rec), args[i].T, call, buffered)
+				})
 			}
 		case "close":
 			ch := s.saveValue(s.materialize(scalarValue(s.scalar(call.Args[0]), s.typeOf(call.Args[0]))))

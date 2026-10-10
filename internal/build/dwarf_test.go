@@ -51,7 +51,7 @@ func wide(n int) int {
 	}
 	return sum(buf[:]) * 2
 }
-
+//pu:noinline
 func main() {
 	var b big
 	println(fill(&b, 3) + wide(2))
@@ -538,7 +538,7 @@ func TestGDB(t *testing.T) {
 		frame := func(n int, fn string, line int) string {
 			return fmt.Sprintf(`#%d +(0x[0-9a-f]+ in )?%s \(\) at %s:%d\n`, n, regexp.QuoteMeta(fn), regexp.QuoteMeta(file), line)
 		}
-		want := regexp.MustCompile(frame(0, "main.value", 12) + frame(1, "main.walk", 18) + frame(2, "main.main", 27))
+		want := regexp.MustCompile(frame(0, "main.value", 12) + frame(1, "main.walk", 18) + frame(2, "main.main", 28))
 		if !strings.Contains(string(out), "SIGSEGV") || !want.Match(out) {
 			t.Errorf("O%d: gdb backtrace of a fault in inlined calls:\n%s", level, out)
 		}
