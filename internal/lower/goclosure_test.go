@@ -73,3 +73,108 @@ func TestGoFrameClosure(t *testing.T) {
 		})
 	}
 }
+
+// TestGoFuncCall checks calls of the library functions marked //pu:gofunc,
+// which start their func arguments on puroutines: the arguments the
+// compiler can tell are closure records in the frame are compile errors,
+// as in a go statement, and the rest are left to the run-time check.
+func TestGoFuncCall(t *testing.T) {
+	const code = `(run "pluto explain E2594"`
+	cases := []struct {
+		name, body string
+		want       string // a fragment of the error, or "" for none
+	}{
+		{"wait group literal", "var wg sync.WaitGroup\nn := 0\nwg.Go(func() { n++ })", "cannot pass a function literal that captures n"},
+		{"wait group local", "var wg sync.WaitGroup\nn := 0\nf := func() { n++ }\nwg.Go(f)", "cannot pass f to wg.Go, which starts a puroutine with it"},
+		{"pointer receiver", "wg := new(sync.WaitGroup)\nn := 0\nwg.Go(func() { n++ })", "to wg.Go, which starts a puroutine with it"},
+		{"method value", "var c counter\nvar wg sync.WaitGroup\nwg.Go(c.add)", "cannot pass the method value c.add"},
+		{"after func", "n := 0\ntime.AfterFunc(time.Second, func() { n++ })", "to time.AfterFunc, which starts a puroutine with it"},
+		{"rt go", "n := 0\nrt.Go(func() { n++ }, rt.MinStackSize)", "to rt.Go, which starts a puroutine with it"},
+
+		{"no captures", "var wg sync.WaitGroup\nwg.Go(func() {})\nwg.Wait()\ntime.AfterFunc(time.Second, func() {})", ""},
+		{"function", "var wg sync.WaitGroup\nwg.Go(run2)\nwg.Wait()", ""},
+		{"parameter", "start(func() {})", ""},
+		{"other function", "n := 0\nrun(func() { n++ })", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			src := "package main\n\nimport (\n\t\"pluto/rt\"\n\t\"pluto/sync\"\n\t\"pluto/time\"\n)\n\n" +
+				"type counter struct{ n int }\n\nfunc (c *counter) add() { c.n++ }\n\n" +
+				"func run(f func()) { f() }\n\nfunc run2() {}\n\n" +
+				"func start(f func()) {\n\tvar wg sync.WaitGroup\n\twg.Go(f)\n\twg.Wait()\n}\n\n" +
+				"var _ = rt.MinStackSize\n\nvar _ = time.Second\n\n" +
+				"func main() {\n\t" + strings.ReplaceAll(c.body, "\n", "\n\t") + "\n}\n"
+			got := lowerModeError(t, src, hosted)
+			if c.want == "" {
+				if got != "" {
+					t.Errorf("reported:\n%s", got)
+				}
+				return
+			}
+			if !containsText(got, c.want) || !strings.Contains(got, code) {
+				t.Errorf("got:\n%s\nwant a report containing %q", got, c.want)
+			}
+		})
+	}
+}
+
+// TestGoCapturingLiteralFix checks the fix suggested for a go statement
+// that starts a function literal capturing variables: the values are passed
+// as arguments, except a variable that holds a sync type, which would be
+// copied into a different one, so a pointer to it is passed. Types are
+// printed as the source writes them.
+func TestGoCapturingLiteralFix(t *testing.T) {
+	cases := []struct {
+		name, imports, body string
+		want, notWant       []string
+	}{
+		{
+			name:    "wait group",
+			imports: "\"pluto/sync\"",
+			body:    "var wg sync.WaitGroup\ngo func() { defer wg.Done() }()",
+			want:    []string{"wg has type sync.WaitGroup, which must not be copied", "wg := new(sync.WaitGroup); go func(wg *sync.WaitGroup) {...}(wg)"},
+			notWant: []string{"pluto/sync", "pass it as an argument"},
+		},
+		{
+			name:    "alias",
+			imports: "stdsync \"pluto/sync\"",
+			body:    "var mu stdsync.Mutex\ngo func() { mu.Lock() }()",
+			want:    []string{"mu has type stdsync.Mutex, which must not be copied", "mu := new(stdsync.Mutex)"},
+		},
+		{
+			name:    "struct holding a mutex",
+			imports: "\"pluto/sync\"",
+			body:    "var s struct{ mu sync.Mutex }\ngo func() { s.mu.Lock() }()",
+			want:    []string{"holds a value of type sync.Mutex and must not be copied", "allocate it with new and pass the pointer"},
+		},
+		{
+			name:    "atomic array",
+			imports: "\"pluto/sync/atomic\"",
+			body:    "var a [2]atomic.Int32\ngo func() { a[0].Add(1) }()",
+			want:    []string{"holds a value of type atomic.Int32 and must not be copied"},
+		},
+		{
+			name:    "copyable",
+			imports: "\"pluto/sync\"",
+			body:    "n := 1\nvar l sync.Locker\ngo func() { _ = n; _ = l }()",
+			want:    []string{"pass them as arguments instead: go func(n int, l sync.Locker) {...}(n, l)"},
+			notWant: []string{"new("},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			src := "package main\n\nimport " + c.imports + "\n\nfunc main() {\n\t" + strings.ReplaceAll(c.body, "\n", "\n\t") + "\n}\n"
+			got := lowerModeError(t, src, hosted)
+			for _, w := range c.want {
+				if !strings.Contains(got, w) {
+					t.Errorf("got:\n%s\nwant %q", got, w)
+				}
+			}
+			for _, w := range c.notWant {
+				if strings.Contains(got, w) {
+					t.Errorf("got:\n%s\nunwanted %q", got, w)
+				}
+			}
+		})
+	}
+}

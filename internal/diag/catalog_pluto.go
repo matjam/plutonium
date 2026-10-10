@@ -615,7 +615,7 @@ func init() {
 		},
 		&Entry{
 			Code: GoCapturingLiteral, Name: "GoCapturingLiteral",
-			Text:    "A function literal that uses variables of the function around it reaches them in that function's stack frame. A go statement may start it after that function has returned, when the frame is gone.\nPass the values the literal needs as arguments: they are copied when the go statement runs.",
+			Text:    "A function literal that uses variables of the function around it reaches them in that function's stack frame. A go statement may start it after that function has returned, when the frame is gone.\nPass the values the literal needs as arguments: they are copied when the go statement runs. Do not pass a Mutex, a WaitGroup or another sync type this way, since the copy is a different one: pass a pointer to it.",
 			Why:     "Go moves captured variables to the heap. Plutonium never allocates behind the program's back, so captured variables stay in their frame (spec section 4.5).",
 			Fix:     &Fix{Intro: "Pass the values as arguments", Code: "for i := 0; i < n; i++ {\n\tgo func(i int, out chan int) {\n\t\tout <- i * i\n\t}(i, out)\n}"},
 			Spec:    pspec("4.7", "go starts a puroutine"),
@@ -624,7 +624,8 @@ func init() {
 		&Entry{
 			Code: GoFrameClosure, Name: "GoFrameClosure",
 			Text: "A function literal that captures variables, and a method value such as c.handle, keep their closure record (the code to call, with the captured variables or a copy of the receiver) in the frame of the function that makes them. A func value points to that record. A go statement copies its function and arguments, but copying a func value copies only the pointer, so the puroutine may call through it after the frame is gone.\n" +
-				"The compiler reports this wherever it can tell: a capturing literal or a method value passed to go, or a local variable assigned only once, from one of them. Elsewhere the go statement checks when it runs, and panics.",
+				"The compiler reports this wherever it can tell: a capturing literal or a method value passed to go, or a local variable assigned only once, from one of them. Elsewhere the go statement checks when it runs, and panics.\n" +
+				"Library functions that start a puroutine with a func argument, such as sync.WaitGroup.Go and time.AfterFunc, follow the same rule and the compiler reports them the same way.",
 			Why:     "Go moves captured variables and the receivers of method values to the heap. Plutonium never allocates behind the program's back, so the record stays in its frame (spec section 4.5).",
 			Fix:     &Fix{Intro: "Pass the values the function needs, and start a function that takes them", Code: "go func(n int, out chan int) {\n\tout <- n * n\n}(n, out)"},
 			Spec:    pspec("4.7", "go starts a puroutine"),

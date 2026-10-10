@@ -46,6 +46,8 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 		fun = ix.X
 	}
 
+	s.goFuncCall(e, fun)
+
 	// Method calls, and constructions of union variants (U.V(payload)).
 	if se, ok := fun.(*ast.SelectorExpr); ok {
 		if v, ok := s.info.Uses[se.Sel].(*types2.Variant); ok {

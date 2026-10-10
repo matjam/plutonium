@@ -359,6 +359,24 @@ func main() {
 	run(func() { n++ })
 }
 `},
+		{name: "waitgroupgoclosure", status: 2, want: "panic: go of a function value that captures variables or binds a method value: its closure record lives in the starting frame; pass the values as arguments\n", src: `package main
+
+import "pluto/sync"
+
+// The compiler rejects a capturing literal passed to wg.Go where it can see
+// it (TestGoFuncCall); this one reaches Go through a parameter, so the
+// check when Go runs catches it.
+func start(wg *sync.WaitGroup, f func()) {
+	wg.Go(f)
+}
+
+func main() {
+	var wg sync.WaitGroup
+	n := 1
+	start(&wg, func() { n++ })
+	wg.Wait()
+}
+`},
 		{name: "allocuse", want: "while used 2\nafter 2 restored true\n", src: `package main
 
 import (

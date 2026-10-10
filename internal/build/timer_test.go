@@ -321,7 +321,10 @@ import "pluto/time"
 
 func main() {
 	n := 1
-	time.AfterFunc(time.Millisecond, func() { n++ })
+	// Assigned twice, so only the run-time check can tell (see TestGoFuncCall).
+	f := func() {}
+	f = func() { n++ }
+	time.AfterFunc(time.Millisecond, f)
 }
 `},
 		{name: "idle", want: "idle while sleeping true\n", src: `package main

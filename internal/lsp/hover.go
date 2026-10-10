@@ -255,6 +255,7 @@ var directives = map[string]string{
 	"section":   "place the function or package variable in the named section",
 	"interrupt": "an x86-64 interrupt handler: saves every register it may change and returns with iretq",
 	"noreturn":  "the function never returns, so code after calls to it is dropped",
+	"gofunc":    "the function starts the func values it is given on new puroutines, so a call that passes a capturing function literal is a compile error, as in a go statement",
 	"nosimd":    "the optimiser adds no vector instructions to the function",
 	"fpu":       "the function may use floating point in kernel mode; the caller has saved the FPU state",
 	"alloc":     "the function allocates: in kernel mode it may build strings, and only such functions may call it",
