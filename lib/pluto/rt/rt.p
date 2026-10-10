@@ -87,6 +87,52 @@ func ifaceEqual(xt unsafe.Pointer, xd unsafe.Pointer, yt unsafe.Pointer, yd unsa
 }
 
 // ----------------------------------------------------------------------------
+// Inspecting interface values. Plutonium has no reflection, but formatting
+// needs a value's kind, size and type name, which the descriptor holds.
+
+// Kind numbers, as in the compiler's type descriptors.
+const (
+	KindBool          = 1
+	KindInt           = 2
+	KindInt8          = 3
+	KindInt16         = 4
+	KindInt32         = 5
+	KindInt64         = 6
+	KindUint          = 7
+	KindUint8         = 8
+	KindUint16        = 9
+	KindUint32        = 10
+	KindUint64        = 11
+	KindUintptr       = 12
+	KindFloat32       = 13
+	KindFloat64       = 14
+	KindArray         = 17
+	KindFunc          = 19
+	KindInterface     = 20
+	KindPointer       = 22
+	KindSlice         = 23
+	KindString        = 24
+	KindStruct        = 25
+	KindUnsafePointer = 26
+	KindPacked        = 27
+	KindRing          = 28
+	KindOwned         = 29
+)
+
+// TypeInfo describes the dynamic type of an empty interface value: its kind,
+// size and name (all zero for nil), and its data word. For kinds whose
+// values fit in a word the data word is the value's bits; otherwise it
+// points at the value.
+func TypeInfo(v any) (kind uint8, size uintptr, name string, data unsafe.Pointer) {
+	words := (*[2]unsafe.Pointer)(unsafe.Pointer(&v))
+	t := (*typeDesc)(words[0])
+	if t == nil {
+		return 0, 0, "", nil
+	}
+	return t.kind, t.size, t.name, words[1]
+}
+
+// ----------------------------------------------------------------------------
 // Panics. Panicking prints a message and stops; it does not unwind.
 
 func panicIndex(i, n int) {

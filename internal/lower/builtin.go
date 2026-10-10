@@ -192,10 +192,25 @@ func (s *fnState) minMax(isMin bool, a, b *ssa.Value, T types2.Type) *ssa.Value 
 		s.l.errorf(0, "lower: min and max of strings are not supported yet")
 		return a
 	}
+	if a.Type.IsFloat() {
+		// Floats have no conditional move: use branches. A NaN operand
+		// gives NaN.
+		t := a.Type
+		res := s.tempSize(t.Size, t.Size, "minmax")
+		s.store(t, res, b)
+		var better *ssa.Value
+		if isMin {
+			better = s.newValue(ssa.OpFLess, ssa.TBool, a, b)
+		} else {
+			better = s.newValue(ssa.OpFLess, ssa.TBool, b, a)
+		}
+		s.ifThen(better, func() { s.store(t, res, a) })
+		s.ifThen(s.newValue(ssa.OpFNe, ssa.TBool, a, a), func() { s.store(t, res, a) })
+		s.ifThen(s.newValue(ssa.OpFNe, ssa.TBool, b, b), func() { s.store(t, res, b) })
+		return s.load(t, res)
+	}
 	var lt *ssa.Value
 	switch {
-	case a.Type.IsFloat():
-		lt = s.newValue(ssa.OpFLess, ssa.TBool, a, b)
 	case isUnsigned(T):
 		lt = s.newValue(ssa.OpLessu, ssa.TBool, a, b)
 	default:
@@ -206,14 +221,6 @@ func (s *fnState) minMax(isMin bool, a, b *ssa.Value, T types2.Type) *ssa.Value 
 		r = s.newValue(ssa.OpSelect, a.Type, lt, a, b)
 	} else {
 		r = s.newValue(ssa.OpSelect, a.Type, lt, b, a)
-	}
-	if a.Type.IsFloat() {
-		// If a is NaN, a < b is false and the select chose b (for min);
-		// return a NaN whenever either operand is NaN.
-		aNaN := s.newValue(ssa.OpFNe, ssa.TBool, a, a)
-		r = s.newValue(ssa.OpSelect, a.Type, aNaN, a, r)
-		bNaN := s.newValue(ssa.OpFNe, ssa.TBool, b, b)
-		r = s.newValue(ssa.OpSelect, a.Type, bNaN, b, r)
 	}
 	return r
 }
@@ -276,13 +283,24 @@ func (s *fnState) appendCheck(newLen, c *ssa.Value, e *ast.CallExpr) {
 
 // printArg prints one argument of print or println.
 func (s *fnState) printArg(a ast.Expr) {
+	v := s.printOperand(a)
+	s.printValue(v, v.T, a)
+}
+
+// printOperand evaluates an argument of print or println, giving untyped
+// constants their default type.
+func (s *fnState) printOperand(a ast.Expr) value {
 	T := unwrap(s.typeOf(a))
 	if tv := s.info.Types[a]; tv.Value != nil {
 		if b, ok := T.Underlying().(*types2.Basic); ok && b.Info()&types2.IsUntyped != 0 {
 			T = defaultType(tv.Value)
 		}
 	}
-	v := s.exprAs(a, T)
+	return s.exprAs(a, T)
+}
+
+// printValue prints one value for print or println.
+func (s *fnState) printValue(v value, T types2.Type, a ast.Node) {
 	switch u := T.Underlying().(type) {
 	case *types2.Basic:
 		info := u.Info()

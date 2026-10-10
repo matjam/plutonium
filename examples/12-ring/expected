@@ -1,0 +1,8 @@
+full at 50
+len=4 cap=4 full=true
+peek=10
+pop=10
+pop=20
+pop=30
+pop=40
+pop from empty: ok=false

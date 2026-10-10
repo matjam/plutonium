@@ -2,41 +2,21 @@ package main
 
 import "pluto/fmt"
 
-// First Plutonium program with stdout output.
-// Prints Fibonacci numbers to demonstrate working I/O.
-//
-// Build: pluto build -o hello ./examples/07-hello/main.pu
-// Run:   ./hello
-// Expected output:
-//   1
-//   1
-//   2
-//   3
-//   5
-//   8
-//   13
-//   21
-//   34
-//   55
+// Prints the first ten Fibonacci numbers.
 
-func fib(n int64) int64 {
+func fib(n int) int {
 	if n <= 1 {
 		return n
 	}
-	a := int64(0)
-	b := int64(1)
-	for i := int64(2); i <= n; i++ {
-		next := a + b
-		a = b
-		b = next
+	a, b := 0, 1
+	for i := 2; i <= n; i++ {
+		a, b = b, a+b
 	}
 	return b
 }
 
-func main() int64 {
-	for i := int64(1); i <= 10; i++ {
-		fmt.PrintInt(fib(i))
-		fmt.Println()
+func main() {
+	for i := 1; i <= 10; i++ {
+		fmt.Println(fib(i))
 	}
-	return 0
 }

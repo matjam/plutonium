@@ -77,6 +77,11 @@ func (check *Checker) conversion(x *operand, T Type) {
 			return true
 		})
 		x.mode_ = value // type parameters are not constants
+	case constArg && packedConstConvertible(x, T):
+		// Plutonium: an integer constant converts to a packed type held in
+		// an integer, giving a (non-constant) packed value.
+		ok = true
+		x.mode_ = value
 	case x.convertibleTo(check, T, &cause):
 		// non-constant conversion
 		ok = true

@@ -362,6 +362,21 @@ func packedStorageConvertible(check *Checker, p, s Type) bool {
 	return false
 }
 
+// packedConstConvertible reports whether integer constant x fits the
+// storage of packed type T (at most 64 bits).
+func packedConstConvertible(x *operand, T Type) bool {
+	p, ok := T.Underlying().(*Packed)
+	if !ok || p.bits > 64 || !isInteger(x.typ()) {
+		return false
+	}
+	v := constant.ToInt(x.val)
+	if v.Kind() != constant.Int || constant.Sign(v) < 0 {
+		return false
+	}
+	u, exact := constant.Uint64Val(v)
+	return exact && (p.bits == 64 || u < uint64(1)<<uint(p.bits))
+}
+
 // isPackable reports whether a value of T is plain bits that can sit at any
 // bit offset inside a packed type.
 func isPackable(T Type) bool {

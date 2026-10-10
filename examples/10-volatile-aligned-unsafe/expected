@@ -1,0 +1,5 @@
+sent=3 last=!
+reg=0xcafe
+page table aligned: true
+sizeof(UART)=2 sizeof(pageTable)=4096
+roundtrip=99

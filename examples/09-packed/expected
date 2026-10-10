@@ -1,0 +1,7 @@
+mode=5 enable=true priority=7 raw=0xf5
+mode=1 enable=false priority=5 raw=0xa1
+view mode=10 enable=true
+net version=2 flags=9
+ENABLE=true READY=false ERROR=true OVERFLOW=false raw=0x5
+header version=1 kind=7 length=0x1020304
+delta dx=-3 dy=12

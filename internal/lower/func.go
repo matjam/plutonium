@@ -34,6 +34,10 @@ type fnState struct {
 	deferBits *ssa.Value // address of the defer bitmask slot, created on first defer
 	loopDepth int
 	closures  int // counter for naming closures
+
+	// staticLits makes &T{...} allocate static storage: set while lowering
+	// package initialisation, whose objects outlive the init function.
+	staticLits bool
 }
 
 type blockState struct {
@@ -326,6 +330,7 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 		}
 	}
 	f.RemoveDeadBlocks()
+	f.Exports = l.exports[job.sym]
 	l.out.Funcs = append(l.out.Funcs, f)
 }
 

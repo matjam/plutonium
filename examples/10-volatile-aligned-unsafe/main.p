@@ -1,38 +1,47 @@
 package main
 
-import "pluto/fmt"
-import "unsafe"
+import (
+	"pluto/fmt"
+	"unsafe"
+)
 
-// Test of volatile[T], aligned[T, N], and unsafe package intrinsics.
-//
-// Build: pluto build -o volatile_test ./examples/10-volatile-aligned-unsafe/
-// Run:   ./volatile_test
-// Expected output:
-//   volatile=42
-//   sizeof(int64)=8
-//   sizeof(uint32)=4
-//   roundtrip=99
+// volatile[T] for device registers, aligned[T, N] for layout control, and
+// the unsafe package for raw memory.
 
-func main() int64 {
-    // volatile: demonstrate type acceptance
-    var v volatile[uint32]
-    v = 42
-    x := v
-    fmt.Printf("volatile=%d\n", x)
+// A fake device: in a kernel this would sit at a fixed physical address.
+type UART struct {
+	data   volatile[uint8]
+	status volatile[uint8]
+}
 
-    // unsafe.Sizeof
-    s := unsafe.Sizeof[int64]()
-    fmt.Printf("sizeof(int64)=%d\n", s)
+var pageTable aligned[[512]uint64, 4096]
 
-    s2 := unsafe.Sizeof[uint32]()
-    fmt.Printf("sizeof(uint32)=%d\n", s2)
+func send(u *UART, s string) int {
+	n := 0
+	for i := 0; i < len(s); i++ {
+		for u.status&0x20 == 0 {
+		}
+		u.data = s[i]
+		n++
+	}
+	return n
+}
 
-    // unsafe pointer round-trip
-    var val int64
-    val = 99
-    ptr := unsafe.From[int64](&val)
-    back := unsafe.As[int64](ptr)
-    fmt.Printf("roundtrip=%d\n", *back)
+func main() {
+	var dev UART
+	dev.status = 0x20 // transmitter ready
+	fmt.Printf("sent=%d last=%c\n", send(&dev, "hi!"), dev.data)
 
-    return 0
+	// A pointer to a volatile location, as a kernel builds for MMIO.
+	reg := (*volatile[uint32])(unsafe.Pointer(&pageTable[0]))
+	*reg = 0xCAFE
+	fmt.Printf("reg=%#x\n", *reg)
+
+	fmt.Printf("page table aligned: %t\n", uintptr(unsafe.Pointer(&pageTable))%4096 == 0)
+	fmt.Printf("sizeof(UART)=%d sizeof(pageTable)=%d\n", unsafe.Sizeof(dev), unsafe.Sizeof(pageTable))
+
+	var val int64 = 99
+	p := unsafe.Pointer(&val)
+	back := (*int64)(p)
+	fmt.Printf("roundtrip=%d\n", *back)
 }

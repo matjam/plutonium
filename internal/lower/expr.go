@@ -103,6 +103,15 @@ func (s *fnState) scalar(e ast.Expr) *ssa.Value {
 func (s *fnState) exprAs(e ast.Expr, T types2.Type) value {
 	tv := s.info.Types[e]
 	if tv.Value != nil {
+		if isInterface(T) {
+			// A constant becomes an interface value of its own type, or of
+			// its default type if untyped.
+			from := s.typeOf(e)
+			if b, ok := from.Underlying().(*types2.Basic); ok && b.Info()&types2.IsUntyped != 0 {
+				from = defaultType(tv.Value)
+			}
+			return s.toInterface(s.constValue(tv.Value, from, e), from, T)
+		}
 		return s.constValue(tv.Value, T, e)
 	}
 	v := s.expr(e)
@@ -173,6 +182,13 @@ func (s *fnState) lv(e ast.Expr) lvalue {
 		return s.indexLV(e)
 	case *ast.CompositeLit:
 		T := s.typeOf(e)
+		if s.staticLits {
+			// &T{...} during package initialisation: the object outlives
+			// the init function, so it gets static storage.
+			sym := s.l.staticObject(T)
+			s.storeTo(s.symAddr(sym), s.compositeLit(e, T), T)
+			return lvalue{ptr: s.symAddr(sym), T: T}
+		}
 		v := s.materialize(s.compositeLit(e, T))
 		if !v.addr {
 			tmp := s.temp(T, "lit")
@@ -329,6 +345,11 @@ func (s *fnState) selectorLV(e *ast.SelectorExpr) lvalue {
 // fieldPath follows a field index path, dereferencing embedded pointers.
 func (s *fnState) fieldPath(cur lvalue, path []int) lvalue {
 	for n, idx := range path {
+		if cur.bits != nil {
+			// A field of a packed field (a flag group or nested packed type).
+			cur = s.packedField(cur, cur.bits.T.Underlying().(*types2.Packed), idx)
+			continue
+		}
 		if n > 0 && isPointerLike(unwrap(cur.T)) {
 			cur = lvalue{ptr: s.loadLV(cur).v, T: pointerElem(unwrap(cur.T))}
 		}
@@ -555,6 +576,9 @@ func (s *fnState) arith(op token.Token, x, y *ssa.Value, T types2.Type, pos toke
 		default:
 			iop = ssa.OpMod
 		}
+		if !unsigned && (y.Op != ssa.OpConst || y.AuxInt == -1) {
+			return s.signedDiv(iop, x, y)
+		}
 	default:
 		s.l.errorf(pos, "lower: bad integer operator %s", op)
 		return x
@@ -565,6 +589,36 @@ func (s *fnState) arith(op token.Token, x, y *ssa.Value, T types2.Type, pos toke
 		t = ssa.TI64
 	}
 	return s.newValue(iop, t, x, y)
+}
+
+// signedDiv emits a signed division or remainder with Go's semantics for
+// a divisor of -1: x / -1 is -x (wrapping) and x % -1 is 0. The hardware
+// faults on MinInt / -1, so -1 takes a separate path.
+func (s *fnState) signedDiv(op ssa.Op, x, y *ssa.Value) *ssa.Value {
+	t := x.Type
+	res := s.tempSize(t.Size, t.Size, "div")
+	isNegOne := s.newValue(ssa.OpEq, ssa.TBool, y, s.constInt(t, -1))
+	neg := s.newBlock(ssa.BlockInvalid)
+	normal := s.newBlock(ssa.BlockInvalid)
+	done := s.newBlock(ssa.BlockInvalid)
+	b := s.b
+	s.endIf(isNegOne, neg, normal)
+	b.Likely = ssa.Unlikely
+	s.seal(neg)
+	s.startBlock(neg)
+	if op == ssa.OpDiv {
+		s.store(t, res, s.newValue(ssa.OpNeg, t, x))
+	} else {
+		s.store(t, res, s.constInt(t, 0))
+	}
+	s.endPlain(done)
+	s.seal(normal)
+	s.startBlock(normal)
+	s.store(t, res, s.newValue(op, t, x, y))
+	s.endPlain(done)
+	s.seal(done)
+	s.startBlock(done)
+	return s.load(t, res)
 }
 
 // divCheck panics on integer division by zero.
@@ -621,6 +675,24 @@ func (s *fnState) shortCircuit(e *ast.BinaryExpr) *ssa.Value {
 
 // compare lowers a comparison.
 func (s *fnState) compare(op token.Token, xe, ye ast.Expr, pos token.Pos) *ssa.Value {
+	// Comparison with nil tests the value's first word: the data pointer
+	// of a slice, the table of an interface, the pointer itself otherwise.
+	if s.info.Types[ye].IsNil() || s.info.Types[xe].IsNil() {
+		e := xe
+		if s.info.Types[xe].IsNil() {
+			e = ye
+		}
+		v := s.expr(e)
+		w := v.v
+		if v.addr {
+			w = s.load(ssa.TPtr, v.v)
+		}
+		eq := s.newValue(ssa.OpEq, ssa.TBool, w, s.constInt(ssa.TPtr, 0))
+		if op == token.NEQ {
+			return s.newValue(ssa.OpNot, ssa.TBool, eq)
+		}
+		return eq
+	}
 	xT := unwrap(s.typeOf(xe))
 	yT := unwrap(s.typeOf(ye))
 	// Compare in the type of the typed operand.
@@ -909,7 +981,14 @@ func (s *fnState) compositeLit(e *ast.CompositeLit, T types2.Type) value {
 		et := s.subst(u.Elem())
 		n := s.literalLen(e.Elts)
 		arrT := types2.NewArray(et, n)
-		arr := s.temp(arrT, "lit")
+		var arr *ssa.Value
+		if s.staticLits {
+			// During package initialisation the slice outlives the init
+			// function, so its backing array is static.
+			arr = s.symAddr(s.l.staticObject(arrT))
+		} else {
+			arr = s.temp(arrT, "lit")
+		}
 		s.zero(arr, s.l.sizeof(arrT))
 		s.fillElems(arr, e.Elts, et)
 		nv := s.constInt(ssa.TI64, n)

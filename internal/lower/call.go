@@ -308,11 +308,16 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 // methodSig returns a method's signature with its receiver, instantiated.
 func (l *Lowerer) methodSig(fn *types2.Func, targs []types2.Type) *types2.Signature {
 	sig := fn.Origin().Type().(*types2.Signature)
-	if len(targs) > 0 {
-		tm := newTypeMap(l, fn.Origin(), targs)
-		return tm.subst(sig).(*types2.Signature)
+	if len(targs) == 0 {
+		return sig
 	}
-	return sig
+	tm := newTypeMap(l, fn.Origin(), targs)
+	inst := tm.subst(sig).(*types2.Signature)
+	// Subst leaves the receiver alone (it would recurse through the
+	// receiver's own methods), so substitute it separately.
+	recv := sig.Recv()
+	r := types2.NewVar(recv.Pos(), recv.Pkg(), recv.Name(), tm.subst(recv.Type()))
+	return types2.NewSignatureType(r, nil, nil, inst.Params(), inst.Results(), inst.Variadic())
 }
 
 // methodReceiver evaluates the receiver of a method call or method value,

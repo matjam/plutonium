@@ -54,6 +54,8 @@ type Lowerer struct {
 	globals        map[*types2.Var]*ssa.Sym
 	strs           map[string]*ssa.Sym
 	closureRecords map[*ssa.Sym]*ssa.Sym // static closure record per function used as a value
+	exports        map[*ssa.Sym][]string // extra symbol names from //pu:export
+	statics        int                   // anonymous static objects created
 	types          *typeTable
 
 	errs []error
@@ -98,6 +100,7 @@ func Lower(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 		globals:        map[*types2.Var]*ssa.Sym{},
 		strs:           map[string]*ssa.Sym{},
 		closureRecords: map[*ssa.Sym]*ssa.Sym{},
+		exports:        map[*ssa.Sym][]string{},
 	}
 	l.types = newTypeTable(l)
 	if l.sizes == nil {
@@ -118,6 +121,7 @@ func Lower(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 
 	l.lowerGlobals()
 	l.lowerEntry()
+	l.lowerExports()
 	for {
 		for len(l.queue) > 0 && len(l.errs) < 50 {
 			job := l.queue[0]
@@ -260,10 +264,47 @@ func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 	var tm *typeMap
 	if len(targs) > 0 {
 		tm = newTypeMap(l, fn, targs)
-		sig = tm.subst(sig).(*types2.Signature)
+		if sig.Recv() != nil {
+			sig = l.methodSig(fn, targs)
+		} else {
+			sig = tm.subst(sig).(*types2.Signature)
+		}
 	}
 	l.queue = append(l.queue, &funcJob{sym: sym, pkg: d.pkg, decl: d.decl, sig: sig, tmap: tm})
 	return sym
+}
+
+// lowerExports queues every function marked //pu:export, which assembly or C
+// may call without any Plutonium code referring to it.
+func (l *Lowerer) lowerExports() {
+	for _, p := range l.prog.Packages {
+		for _, f := range p.Files {
+			for _, d := range f.Decls {
+				fd, ok := d.(*ast.FuncDecl)
+				if !ok || fd.Body == nil {
+					continue
+				}
+				for _, dir := range directives(fd.Doc) {
+					name, ok := strings.CutPrefix(dir, "export")
+					if !ok || name != "" && name[0] != ' ' {
+						continue
+					}
+					fn, _ := p.Info.Defs[fd.Name].(*types2.Func)
+					if fn == nil {
+						continue
+					}
+					if fn.Type().(*types2.Signature).TypeParams() != nil {
+						l.errorf(fd.Pos(), "cannot export generic function %s", fn.Name())
+						continue
+					}
+					sym := l.funcSym(fn, nil)
+					if name = strings.TrimSpace(name); name != "" && name != sym.Name {
+						l.exports[sym] = append(l.exports[sym], name)
+					}
+				}
+			}
+		}
+	}
 }
 
 // ----------------------------------------------------------------------------

@@ -2,18 +2,23 @@ package main
 
 import "pluto/fmt"
 
-func main() int64 {
-	var r ring[int64, 8]
-	r.Push(10)
-	r.Push(20)
-	r.Push(30)
-	n := r.Len()
-	fmt.Printf("len=%d\n", n)
-	v1 := r.Pop()
-	fmt.Printf("pop=%d\n", v1)
-	v2 := r.Pop()
-	fmt.Printf("pop=%d\n", v2)
-	n2 := r.Len()
-	fmt.Printf("len=%d\n", n2)
-	return 0
+// ring[T, N]: a fixed-capacity ring buffer stored inline.
+
+func main() {
+	var r ring[int64, 4]
+	for i := int64(1); i <= 5; i++ {
+		if !r.Push(i * 10) {
+			fmt.Printf("full at %d\n", i*10)
+		}
+	}
+	fmt.Printf("len=%d cap=%d full=%t\n", r.Len(), r.Cap(), r.Full())
+	if v, ok := r.Peek(); ok {
+		fmt.Printf("peek=%d\n", v)
+	}
+	for !r.Empty() {
+		v, _ := r.Pop()
+		fmt.Printf("pop=%d\n", v)
+	}
+	_, ok := r.Pop()
+	fmt.Printf("pop from empty: ok=%t\n", ok)
 }

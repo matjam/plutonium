@@ -782,9 +782,39 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 	funTV := s.info.Types[call.Fun]
 	switch {
 	case funTV.IsBuiltin():
-		// Builtins (print, panic, ...): evaluate nothing early beyond what
-		// a closure would; run the call as written at return.
-		run = func(s *fnState) { s.builtin(call) }
+		name := s.info.Uses[identOf(ast.Unparen(call.Fun))].Name()
+		switch name {
+		case "print", "println":
+			// Arguments are evaluated at the defer statement.
+			args := make([]value, len(call.Args))
+			for i, a := range call.Args {
+				args[i] = s.saveValue(s.printOperand(a))
+			}
+			run = func(s *fnState) {
+				for i, a := range args {
+					if i > 0 && name == "println" {
+						s.callRuntime("printSpace", nil)
+					}
+					v := s.loadFrom(a.v, a.T)
+					s.printValue(v, a.T, call)
+				}
+				if name == "println" {
+					s.callRuntime("printNewline", nil)
+				}
+			}
+		case "panic":
+			arg := s.saveValue(s.exprAs(call.Args[0], types2.NewInterfaceType(nil, nil)))
+			run = func(s *fnState) {
+				parts := s.leafValues(s.loadFrom(arg.v, arg.T), []leaf{{0, ssa.TPtr}, {8, ssa.TPtr}})
+				s.callRuntimeNoReturn("panicValue", parts...)
+				dead := s.newBlock(ssa.BlockInvalid)
+				s.seal(dead)
+				s.startBlock(dead)
+			}
+		default:
+			s.l.errorf(st.Pos(), "defer of builtin %s is not supported", name)
+			return
+		}
 	default:
 		fun := ast.Unparen(call.Fun)
 		if se, ok := fun.(*ast.SelectorExpr); ok {

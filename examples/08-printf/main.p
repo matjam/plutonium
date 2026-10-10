@@ -2,22 +2,16 @@ package main
 
 import "pluto/fmt"
 
-// Test of fmt.Printf — the `any` type, variadic arguments, and format strings.
-//
-// Build: pluto build -o printf_test ./examples/08-printf/
-// Run:   ./printf_test
-// Expected output:
-//   42
-//   hello 17
-//   x=2a
-//   A
-//   100%%
+// fmt.Printf with Go's verbs, flags, widths and precisions.
 
-func main() int64 {
+func main() {
 	fmt.Printf("%d\n", 42)
 	fmt.Printf("hello %d\n", 17)
-	fmt.Printf("x=%x\n", 42)
+	fmt.Printf("x=%x X=%X %#x\n", 42, 42, 42)
 	fmt.Printf("%c\n", 65)
 	fmt.Printf("%d%%\n", 100)
-	return 0
+	fmt.Printf("[%6d] [%-6d] [%06d] [%+d]\n", 42, 42, 42, 42)
+	fmt.Printf("%.2f %e %g %v\n", 3.14159, 1234.5678, 0.000123, 2.5)
+	fmt.Printf("%q %v %t %T\n", "quoted", "plain", true, 3.0)
+	fmt.Printf("%b %o %U\n", 5, 64, 0x1F600)
 }

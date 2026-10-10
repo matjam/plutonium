@@ -1,0 +1,5 @@
+hex=255 octal=15 binary=10 underscores=1000000
+char=65 newline=10 unicode=19990
+andnot=240 xor=6 shift=1024
+raw=C:\path escaped="tab\there"
+big=4611686018427387904 float=6.02e+23

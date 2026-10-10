@@ -27,6 +27,7 @@ func programMain() int64
 // start is called by _start with the initial stack pointer, which points at
 // argc, then the argv pointers, a nil, then the environment pointers.
 //
+//pu:export
 //pu:noreturn
 func start(sp unsafe.Pointer) {
 	argc = *(*int)(sp)

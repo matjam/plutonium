@@ -1,0 +1,9 @@
+flags=137
+flags=129
+bit7=true bit3=false
+flags=128
+extract=0x12
+insert=0xabcd12ff
+ones=8 tz=7 lz=63 len=8
+rotl=0x3 swap=0x44332211
+mul64 hi=1 lo=0xfffffffffffffffe

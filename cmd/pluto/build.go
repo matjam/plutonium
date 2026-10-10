@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,319 +11,151 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/matjam/plutonium/internal/ast"
-	"github.com/matjam/plutonium/internal/buildtag"
-	"github.com/matjam/plutonium/internal/config"
-	"github.com/matjam/plutonium/internal/parser"
-	"github.com/matjam/plutonium/internal/token"
+	plutonium "github.com/matjam/plutonium"
+	"github.com/matjam/plutonium/internal/build"
 )
 
 var buildCmd = &cobra.Command{
-	Use:   "build [packages]",
-	Short: "Compile and link Plutonium packages",
-	RunE:  runBuild,
+	Use:   "build [dir]",
+	Short: "Compile and link a Plutonium program",
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, err := buildConfig(cmd, args)
+		if err != nil {
+			return err
+		}
+		return build.Build(cfg)
+	},
+}
+
+var runCmd = &cobra.Command{
+	Use:   "run [dir] [-- args...]",
+	Short: "Build a hosted program and run it",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		var progArgs []string
+		if n := cmd.ArgsLenAtDash(); n >= 0 {
+			progArgs = args[n:]
+			args = args[:n]
+		}
+		cfg, err := buildConfig(cmd, args)
+		if err != nil {
+			return err
+		}
+		tmp, err := os.MkdirTemp("", "pluto-run-")
+		if err != nil {
+			return err
+		}
+		defer func() { _ = os.RemoveAll(tmp) }()
+		cfg.Output = filepath.Join(tmp, "prog")
+		if err := build.Build(cfg); err != nil {
+			return err
+		}
+		c := exec.Command(cfg.Output, progArgs...)
+		c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+		if err := c.Run(); err != nil {
+			if ee, ok := err.(*exec.ExitError); ok {
+				os.Exit(ee.ExitCode())
+			}
+			return err
+		}
+		return nil
+	},
 }
 
 func init() {
-	buildCmd.Flags().StringP("output", "o", "a.out", "output file")
-	buildCmd.Flags().String("target", "x86_64-linux", "target triple")
-	buildCmd.Flags().String("mode", "hosted", "build mode: hosted or freestanding")
-	buildCmd.Flags().StringSlice("tags", nil, "build tags")
-	buildCmd.Flags().String("ldscript", "", "linker script (freestanding mode)")
-	buildCmd.Flags().String("format", "elf", "output format: elf, binary, pe32+")
-	buildCmd.Flags().BoolP("verbose", "v", false, "verbose output")
-	buildCmd.Flags().StringP("opt", "O", "0", "optimization level: 0, 1, 2, s")
-	buildCmd.Flags().BoolP("asm", "S", false, "emit assembly instead of object files")
-	rootCmd.AddCommand(buildCmd)
+	for _, c := range []*cobra.Command{buildCmd, runCmd} {
+		c.Flags().StringP("output", "o", "a.out", "output file")
+		c.Flags().String("target", "x86_64-linux", "target triple: x86_64-linux or x86_64-none")
+		c.Flags().String("mode", "", "build mode: hosted or freestanding (default from the target)")
+		c.Flags().StringSlice("tags", nil, "additional build tags")
+		c.Flags().String("ldscript", "", "linker script")
+		c.Flags().String("format", "elf", "output format: elf or binary")
+		c.Flags().BoolP("verbose", "v", false, "print the assembler and linker commands")
+		c.Flags().IntP("opt", "O", 2, "optimisation level: 0, 1 or 2")
+		c.Flags().StringP("asm", "S", "", "write a machine code listing to this file (- for stdout)")
+		c.Flags().String("ssa", "", "dump the SSA of this function (or all) after each pass")
+		c.Flags().Bool("work", false, "keep the temporary work directory")
+		c.Flags().BoolP("compile", "c", false, "write the object file instead of linking")
+	}
+	rootCmd.AddCommand(buildCmd, runCmd)
 }
 
-func runBuild(cmd *cobra.Command, args []string) error {
-	outputFile, _ := cmd.Flags().GetString("output")
-	targetTriple, _ := cmd.Flags().GetString("target")
-	modeStr, _ := cmd.Flags().GetString("mode")
-	tagList, _ := cmd.Flags().GetStringSlice("tags")
-	ldscript, _ := cmd.Flags().GetString("ldscript")
-	formatStr, _ := cmd.Flags().GetString("format")
-	verbose, _ := cmd.Flags().GetBool("verbose")
-
-	cfg := config.DefaultConfig()
-	cfg.Target = targetTriple
-	cfg.Arch, cfg.OS = config.ParseTarget(targetTriple)
-	cfg.Verbose = verbose
-	cfg.LinkerScript = ldscript
-	cfg.OutputFile = outputFile
-	// Derive base tags from the target triple, then layer any extra tags on top.
-	cfg.Tags = config.DeriveTagsFromTarget(cfg.Arch, cfg.OS)
-	for _, tag := range tagList {
-		cfg.Tags[tag] = true
+func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
+	f := cmd.Flags()
+	dir := "."
+	if len(args) > 0 {
+		dir = args[0]
 	}
+	output, _ := f.GetString("output")
+	target, _ := f.GetString("target")
+	mode, _ := f.GetString("mode")
+	tags, _ := f.GetStringSlice("tags")
+	ldscript, _ := f.GetString("ldscript")
+	format, _ := f.GetString("format")
+	verbose, _ := f.GetBool("verbose")
+	optLevel, _ := f.GetInt("opt")
+	asm, _ := f.GetString("asm")
+	ssaDump, _ := f.GetString("ssa")
+	work, _ := f.GetBool("work")
+	compileOnly, _ := f.GetBool("compile")
 
-	switch strings.ToLower(modeStr) {
+	arch, osName, ok := strings.Cut(target, "-")
+	if !ok || arch != "x86_64" || (osName != "linux" && osName != "none") {
+		return nil, fmt.Errorf("unsupported target %q (supported: x86_64-linux, x86_64-none)", target)
+	}
+	freestanding := osName == "none"
+	switch mode {
+	case "":
 	case "freestanding":
-		cfg.Mode = config.ModeFreestanding
-		cfg.Tags["freestanding"] = true
-		cfg.Tags["none"] = true
+		freestanding = true
+	case "hosted":
+		if osName == "none" {
+			return nil, fmt.Errorf("hosted mode needs an operating system target")
+		}
+		freestanding = false
 	default:
-		cfg.Mode = config.ModeHosted
+		return nil, fmt.Errorf("unknown mode %q", mode)
+	}
+	if format != "elf" && format != "binary" {
+		return nil, fmt.Errorf("unsupported format %q (supported: elf, binary)", format)
 	}
 
-	switch strings.ToLower(formatStr) {
-	case "binary":
-		cfg.Format = config.FormatBinary
-	case "pe32+":
-		cfg.Format = config.FormatPE32Plus
+	cfg := &build.Config{
+		Dir:          dir,
+		Output:       output,
+		Freestanding: freestanding,
+		Tags:         tags,
+		OptLevel:     optLevel,
+		LinkerScript: ldscript,
+		Format:       format,
+		SSADump:      ssaDump,
+		Stdlib:       stdlib(),
+		Verbose:      verbose,
+		KeepWork:     work,
+		CompileOnly:  compileOnly,
+	}
+	switch asm {
+	case "":
+	case "-":
+		cfg.Listing = os.Stdout
 	default:
-		cfg.Format = config.FormatELF
-	}
-
-	// Collect .pu source files from args (directories or files)
-	sourceFiles, err := collectSources(args, cfg)
-	if err != nil {
-		return err
-	}
-	if len(sourceFiles) == 0 {
-		return fmt.Errorf("no .pu source files found")
-	}
-
-	if verbose {
-		fmt.Printf("compiling %d source files for target %s\n", len(sourceFiles), cfg.Target)
-	}
-
-	// Compile to a temp .o file
-	tmpDir := os.TempDir()
-	objFile := filepath.Join(tmpDir, "pluto_output.o")
-
-	if err := compileFiles(sourceFiles, objFile, cfg); err != nil {
-		return err
-	}
-
-	objFiles := []string{objFile}
-
-	// Collect and assemble .s files from dependency directories.
-	// First, discover transitive dependencies so we know which stdlib
-	// directories contain assembly stubs that need assembling.
-	stdlibRoot := resolveStdlibRoot()
-	if stdlibRoot != "" {
-		// Parse the user's source files to discover dependency directories.
-		fset := token.NewFileSet()
-		var parsedFiles []*ast.File
-		for _, sf := range sourceFiles {
-			src, readErr := os.ReadFile(sf)
-			if readErr != nil {
-				continue
-			}
-			f, parseErr := parser.ParseFile(fset, sf, src, 0)
-			if parseErr != nil {
-				continue
-			}
-			parsedFiles = append(parsedFiles, f)
-		}
-
-		deps, depErr := collectDependencies(parsedFiles, stdlibRoot, cfg.Tags, fset)
-		if depErr != nil && verbose {
-			fmt.Printf("warning: dependency resolution for assembly: %v\n", depErr)
-		}
-
-		// Build a deduplicated set of directories to scan for .s files.
-		asmDirSet := make(map[string]bool)
-		// Always include the syscall dir as a fallback.
-		asmDirSet[filepath.Join(stdlibRoot, "syscall")] = true
-		for _, dep := range deps {
-			asmDirSet[dep.Dir] = true
-		}
-
-		for dir := range asmDirSet {
-			if _, statErr := os.Stat(dir); statErr != nil {
-				continue
-			}
-			asmFiles, asmErr := collectAssemblyFiles(dir, cfg)
-			if asmErr != nil {
-				return fmt.Errorf("collecting assembly files from %s: %w", dir, asmErr)
-			}
-			for _, sf := range asmFiles {
-				oFile, asmFileErr := assembleFile(sf, cfg)
-				if asmFileErr != nil {
-					return asmFileErr
-				}
-				objFiles = append(objFiles, oFile)
-			}
-		}
-	}
-
-	// Link
-	return linkObject(objFiles, outputFile, cfg)
-}
-
-// resolveStdlibRoot locates the pluto stdlib directory. It checks
-// PLUTONIUM_ROOT, the compiler binary's parent, and the working directory.
-// Returns "" if no stdlib directory is found.
-func resolveStdlibRoot() string {
-	root := os.Getenv("PLUTONIUM_ROOT")
-	if root != "" {
-		return filepath.Join(root, "pluto")
-	}
-	// Try relative to the compiler binary
-	exe, err := os.Executable()
-	if err == nil {
-		candidate := filepath.Join(filepath.Dir(exe), "..", "pluto")
-		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
-			return candidate
-		}
-	}
-	// Fallback: try current working directory
-	if info, err := os.Stat("pluto"); err == nil && info.IsDir() {
-		return "pluto"
-	}
-	return ""
-}
-
-// collectSources finds .pu files from the given paths, applying build tag filtering.
-func collectSources(args []string, cfg *config.Config) ([]string, error) {
-	var sources []string
-	for _, arg := range args {
-		info, err := os.Stat(arg)
+		w, err := os.Create(asm)
 		if err != nil {
-			return nil, fmt.Errorf("stat %s: %w", arg, err)
+			return nil, err
 		}
-		if info.IsDir() {
-			entries, err := os.ReadDir(arg)
-			if err != nil {
-				return nil, fmt.Errorf("reading dir %s: %w", arg, err)
-			}
-			for _, e := range entries {
-				if e.IsDir() {
-					continue
-				}
-				name := e.Name()
-				if !strings.HasSuffix(name, ".p") {
-					continue
-				}
-				path := filepath.Join(arg, name)
-				// Read directives from file for build tag evaluation
-				src, err := os.ReadFile(path)
-				if err != nil {
-					return nil, err
-				}
-				directives := extractDirectives(string(src))
-				ok, err := buildtag.FileMatches(name, directives, cfg.Tags)
-				if err != nil {
-					return nil, err
-				}
-				if ok {
-					sources = append(sources, path)
-				}
-			}
-		} else if strings.HasSuffix(arg, ".p") {
-			sources = append(sources, arg)
-		}
+		cfg.Listing = w
+		cobra.OnFinalize(func() { _ = w.Close() })
 	}
-	return sources, nil
+	return cfg, nil
 }
 
-// extractDirectives pulls pu:build directive texts from source.
-// It recognises both //pu: (Plutonium source) and #pu: (GNU assembly) comment
-// styles so that .s files can carry build tags too.
-func extractDirectives(src string) []string {
-	var dirs []string
-	for _, line := range strings.Split(src, "\n") {
-		line = strings.TrimSpace(line)
-		switch {
-		case strings.HasPrefix(line, "//pu:"):
-			dirs = append(dirs, strings.TrimPrefix(line, "//"))
-		case strings.HasPrefix(line, "#pu:"):
-			dirs = append(dirs, strings.TrimPrefix(line, "#"))
-		}
+// stdlib returns the standard library: $PLUTOROOT if set (a directory
+// containing pluto/), otherwise the copy embedded in the compiler.
+func stdlib() fs.FS {
+	if root := os.Getenv("PLUTOROOT"); root != "" {
+		return os.DirFS(root)
 	}
-	return dirs
+	return plutonium.Stdlib()
 }
 
-// collectAssemblyFiles finds .s files in dir, filtered by build tags.
-func collectAssemblyFiles(dir string, cfg *config.Config) ([]string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	var asmFiles []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := e.Name()
-		if !strings.HasSuffix(name, ".s") {
-			continue
-		}
-		path := filepath.Join(dir, name)
-		// Read file for build tag directives
-		src, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		directives := extractDirectives(string(src))
-		ok, err := buildtag.FileMatches(name, directives, cfg.Tags)
-		if err != nil {
-			continue
-		}
-		if ok {
-			asmFiles = append(asmFiles, path)
-		}
-	}
-	return asmFiles, nil
-}
-
-// assembleFile assembles a .s file to a .o file using the system assembler.
-func assembleFile(sFile string, cfg *config.Config) (string, error) {
-	oFile := filepath.Join(os.TempDir(), filepath.Base(sFile)+".o")
-	var args []string
-	switch cfg.Arch {
-	case "x86_64":
-		args = []string{"--64", "-o", oFile, sFile}
-	case "aarch64":
-		args = []string{"-o", oFile, sFile}
-	default:
-		args = []string{"-o", oFile, sFile}
-	}
-
-	if cfg.Verbose {
-		fmt.Printf("assembling: as %s\n", strings.Join(args, " "))
-	}
-
-	cmd := exec.Command("as", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("assembling %s: %w", sFile, err)
-	}
-	return oFile, nil
-}
-
-// linkObject invokes the system linker to produce the final output.
-func linkObject(objFiles []string, outputFile string, cfg *config.Config) error {
-	var ldArgs []string
-
-	ldArgs = append(ldArgs, "-static", "-nostdlib", "-e", "_start")
-
-	switch cfg.Format {
-	case config.FormatBinary:
-		ldArgs = append(ldArgs, "-T", cfg.LinkerScript, "--oformat=binary")
-	default:
-		// ELF: standard link
-		if cfg.LinkerScript != "" {
-			ldArgs = append(ldArgs, "-T", cfg.LinkerScript)
-		}
-	}
-
-	ldArgs = append(ldArgs, "-o", outputFile)
-	ldArgs = append(ldArgs, objFiles...)
-
-	if cfg.Verbose {
-		fmt.Printf("linking: ld %s\n", strings.Join(ldArgs, " "))
-	}
-
-	ld := exec.Command("ld", ldArgs...)
-	ld.Stdout = os.Stdout
-	ld.Stderr = os.Stderr
-	if err := ld.Run(); err != nil {
-		return fmt.Errorf("linker error: %w", err)
-	}
-	return nil
-}
+var _ io.Writer = os.Stdout

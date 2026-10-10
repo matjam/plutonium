@@ -1,36 +1,34 @@
 # Plutonium Examples
 
-These examples compile to standalone x86_64 Linux binaries with no libc dependency.
-
-## Building
+Each directory is a complete program. They compile to static x86-64 Linux
+binaries with no libc.
 
 ```bash
-# Build the compiler first
-go build -o pluto ./cmd/pluto/
-
-# Build any example
-./pluto build -o <output> examples/<name>/main.pu
-
-# Run it
-./<output>
+go build -o pluto ./cmd/pluto
+./pluto run ./examples/07-hello
 ```
 
-## Examples
+Each example's `expected` file holds its exact output (and, on a first line
+`exit N`, its exit status); `go test ./internal/build -run TestExamples` checks
+them all.
 
-| Example | Description | Output |
-|---|---|---|
-| `01-exit` | Empty main, clean exit | exit 0 |
-| `02-arithmetic` | `add(20,1) * 2` — function calls + arithmetic | exit 42 |
-| `03-control-flow` | `for` loop sum + `if/else` branch | exit 55 |
-| `04-pointers` | `inc(&x)` — pointer dereference + store | exit 11 |
-| `05-fibonacci` | Iterative Fibonacci(10) | exit 55 |
-| `06-generics` | `Max[int64](42, 17)` — monomorphized generic | exit 42 |
-| `07-hello` | Fibonacci sequence printed to stdout | stdout: 1 1 2 3 5 8 13 21 34 55 |
-
-## How It Works
-
-Each binary is:
-- Statically linked, no shared libraries
-- No libc, no POSIX — direct Linux syscalls via inline assembly stubs
-- Entry point `_start` calls `main()`, passes return value to `SYS_EXIT_GROUP`
-- `pluto/fmt.PrintInt` writes decimal digits to stdout via `SYS_WRITE`
+| Example | Shows |
+|---|---|
+| `01-exit` | the smallest program |
+| `02-arithmetic` | calls and arithmetic; `main` returning an exit status |
+| `03-control-flow` | loops and branches |
+| `04-pointers` | pointers |
+| `05-fibonacci` | an iterative loop |
+| `06-generics` | a generic function |
+| `07-hello` | `fmt.Println` |
+| `08-printf` | `fmt.Printf` verbs, flags, widths, precision |
+| `09-packed` | `packed` types: bit fields, flag groups, byte order, signed fields |
+| `10-volatile-aligned-unsafe` | `volatile[T]`, `aligned[T, N]`, `unsafe` |
+| `11-alloc` | explicit allocation with `pluto/alloc`, `new` and `make` |
+| `12-ring` | `ring[T, N]` |
+| `13-bits` | `pluto/bits` |
+| `14-defer` | `defer`, `Drop` methods |
+| `15-interfaces` | interfaces, type switches, errors |
+| `16-control-flow` | `break`, `continue`, `switch`, `defer` |
+| `17-literals` | literals and bitwise operators |
+| `18-strings` | `%s` formatting |

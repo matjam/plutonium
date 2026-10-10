@@ -281,8 +281,9 @@ const (
 type Func struct {
 	Name    string
 	Sym     *Sym
-	Params  []*Type // flattened parameter types
-	Results []*Type // flattened result types
+	Exports []string // additional global symbol names (//pu:export)
+	Params  []*Type  // flattened parameter types
+	Results []*Type  // flattened result types
 	ABI     ABI
 	Pragmas Pragma
 	Section string

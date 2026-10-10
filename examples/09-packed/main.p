@@ -2,27 +2,7 @@ package main
 
 import "pluto/fmt"
 
-// Test of packed types with bitfield access, endianness, and flag groups.
-//
-// Build: pluto build -o packed_test ./examples/09-packed/
-// Run:   ./packed_test
-// Expected output:
-//   mode=5
-//   enable=1
-//   priority=7
-//   mode=3
-//   enable=0
-//   priority=2
-//   mode=1
-//   priority=5
-//   net_version=2
-//   net_flags=9
-//   ENABLE=1
-//   READY=0
-//   ERROR=1
-//   OVERFLOW=0
-//   ENABLE=0
-//   ERROR=0
+// Packed types: exact bit layouts for hardware registers and wire formats.
 
 type ControlReg packed uint32 {
 	mode     bits[uint, 4]
@@ -30,14 +10,15 @@ type ControlReg packed uint32 {
 	priority bits[uint, 3]
 }
 
-// Big-endian packed type — byte-swap is emitted on read/write
+// A big-endian header: stored byte-swapped, fields numbered from the
+// least significant bit of the logical value.
 type NetHeader packed be uint32 {
 	version  bits[uint, 4]
 	flags    bits[uint, 8]
 	reserved bits[uint, 20]
 }
 
-// Named flag group — bits { ... } sugar for multiple 1-bit bools
+// A group of named one-bit flags.
 type StatusReg packed uint32 {
 	flags bits {
 		ENABLE
@@ -48,64 +29,52 @@ type StatusReg packed uint32 {
 	mode bits[uint, 4]
 }
 
-func testControlReg() {
+// Byte-level fields at unaligned offsets.
+type Header packed {
+	version uint8
+	kind    uint8
+	length  uint32
+}
+
+// Signed bit fields read sign-extended.
+type Delta packed uint16 {
+	dx bits[int8, 5]
+	dy bits[int8, 5]
+}
+
+func main() {
 	var reg ControlReg
 	reg.mode = 5
 	reg.enable = true
 	reg.priority = 7
+	fmt.Printf("mode=%d enable=%t priority=%d raw=%#x\n", reg.mode, reg.enable, reg.priority, uint32(reg))
 
-	fmt.Printf("mode=%d\n", reg.mode)
-	fmt.Printf("enable=%d\n", reg.enable)
-	fmt.Printf("priority=%d\n", reg.priority)
-
-	// Overwrite fields — verify masking and non-interference
-	reg.mode = 3
+	// Writes keep only the field's bits.
+	reg.mode = 17     // 17 & 0xF = 1
+	reg.priority = 13 // 13 & 0x7 = 5
 	reg.enable = false
-	reg.priority = 2
+	fmt.Printf("mode=%d enable=%t priority=%d raw=%#x\n", reg.mode, reg.enable, reg.priority, uint32(reg))
 
-	fmt.Printf("mode=%d\n", reg.mode)
-	fmt.Printf("enable=%d\n", reg.enable)
-	fmt.Printf("priority=%d\n", reg.priority)
+	// A raw register value becomes a typed view by conversion.
+	view := ControlReg(0x1A)
+	fmt.Printf("view mode=%d enable=%t\n", view.mode, view.enable)
 
-	// Test overflow wrapping: 17 in 4 bits = 17 & 0xF = 1
-	reg.mode = 17
-	// Test overflow: 13 in 3 bits = 13 & 0x7 = 5
-	reg.priority = 13
-
-	fmt.Printf("mode=%d\n", reg.mode)
-	fmt.Printf("priority=%d\n", reg.priority)
-}
-
-func testNetHeader() {
 	var net NetHeader
 	net.version = 2
 	net.flags = 9
+	fmt.Printf("net version=%d flags=%d\n", net.version, net.flags)
 
-	fmt.Printf("net_version=%d\n", net.version)
-	fmt.Printf("net_flags=%d\n", net.flags)
-}
-
-func testStatusReg() {
 	var status StatusReg
 	status.flags.ENABLE = true
 	status.flags.ERROR = true
+	fmt.Printf("ENABLE=%t READY=%t ERROR=%t OVERFLOW=%t raw=%#x\n",
+		status.flags.ENABLE, status.flags.READY, status.flags.ERROR, status.flags.OVERFLOW, uint32(status))
 
-	fmt.Printf("ENABLE=%d\n", status.flags.ENABLE)
-	fmt.Printf("READY=%d\n", status.flags.READY)
-	fmt.Printf("ERROR=%d\n", status.flags.ERROR)
-	fmt.Printf("OVERFLOW=%d\n", status.flags.OVERFLOW)
+	h := Header{version: 1, kind: 7, length: 0x01020304}
+	fmt.Printf("header version=%d kind=%d length=%#x\n", h.version, h.kind, h.length)
 
-	// Clear flags
-	status.flags.ENABLE = false
-	status.flags.ERROR = false
-
-	fmt.Printf("ENABLE=%d\n", status.flags.ENABLE)
-	fmt.Printf("ERROR=%d\n", status.flags.ERROR)
-}
-
-func main() int64 {
-	testControlReg()
-	testNetHeader()
-	testStatusReg()
-	return 0
+	var d Delta
+	d.dx = -3
+	d.dy = 12
+	fmt.Printf("delta dx=%d dy=%d\n", d.dx, d.dy)
 }

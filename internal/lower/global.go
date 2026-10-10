@@ -2,6 +2,7 @@ package lower
 
 import (
 	"encoding/binary"
+	"fmt"
 	"go/constant"
 	"math"
 	"strings"
@@ -58,6 +59,14 @@ func (l *Lowerer) lowerGlobals() {
 		}
 		l.queueInit(p, static)
 	}
+}
+
+// staticObject allocates an anonymous static object of type T.
+func (l *Lowerer) staticObject(T types2.Type) *ssa.Sym {
+	sym := l.out.Sym(fmt.Sprintf(".static.%d", l.statics), ssa.SymData)
+	l.statics++
+	l.out.Data = append(l.out.Data, &ssa.Data{Sym: sym, Size: max(l.sizeof(T), 1), Align: l.alignof(T), Local: true})
+	return sym
 }
 
 // globalSections reads //pu:section directives on package-level variables.
@@ -133,24 +142,28 @@ func (l *Lowerer) staticConst(d *ssa.Data, c constant.Value, T types2.Type) bool
 	return true
 }
 
-func (l *Lowerer) initSymName(p *load.Package) string { return p.Path + ".init" }
+// initSymName names a package's synthesized initialisation function. User
+// init functions are named path.init.0, path.init.1, ... so they cannot
+// clash with it or with each other.
+func (l *Lowerer) initSymName(p *load.Package) string { return p.Path + ".init·pkg" }
 
 // queueInit queues the package's init function: dynamic variable
 // initialisation in dependency order, then the package's init functions.
 func (l *Lowerer) queueInit(p *load.Package, static map[*types2.Var]bool) {
 	sym := l.out.Sym(l.initSymName(p), ssa.SymFunc)
 	sig := types2.NewSignatureType(nil, nil, nil, nil, nil, false)
-	var inits []*types2.Func
+	var inits []*ssa.Sym
 	for _, f := range p.Files {
 		for _, d := range f.Decls {
-			if fd, ok := d.(*ast.FuncDecl); ok && fd.Name.Name == "init" && fd.Recv == nil {
-				if fn, ok := p.Info.Defs[fd.Name].(*types2.Func); ok {
-					inits = append(inits, fn)
-				}
+			if fd, ok := d.(*ast.FuncDecl); ok && fd.Name.Name == "init" && fd.Recv == nil && fd.Body != nil {
+				isym := l.out.Sym(fmt.Sprintf("%s.init.%d", p.Path, len(inits)), ssa.SymFunc)
+				inits = append(inits, isym)
+				l.queue = append(l.queue, &funcJob{sym: isym, pkg: p, decl: fd, sig: sig})
 			}
 		}
 	}
 	l.queue = append(l.queue, &funcJob{sym: sym, pkg: p, sig: sig, build: func(s *fnState) {
+		s.staticLits = true
 		for _, init := range p.Info.InitOrder {
 			if len(init.Lhs) == 1 && static[init.Lhs[0]] {
 				continue
@@ -170,8 +183,8 @@ func (l *Lowerer) queueInit(p *load.Package, static map[*types2.Var]bool) {
 				}
 			}
 		}
-		for _, fn := range inits {
-			s.emitCall(callee{sym: l.funcSym(fn, nil)}, sig, nil, nil, token.NoPos)
+		for _, isym := range inits {
+			s.emitCall(callee{sym: isym}, sig, nil, nil, token.NoPos)
 		}
 		s.emitReturn(token.NoPos)
 	}})

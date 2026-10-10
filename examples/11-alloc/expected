@@ -1,0 +1,4 @@
+heap value=42
+reused slot is zeroed: 0
+point=3,4
+buf=hello len=5 cap=16

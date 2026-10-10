@@ -278,15 +278,9 @@ func (s *fnState) convertScalar(v *ssa.Value, from, to types2.Type) *ssa.Value {
 			return s.newValue(ssa.OpSignExt, tt, v)
 		}
 	case ft.IsInt() && tt.IsFloat():
-		if fu {
-			return s.newValue(ssa.OpUintToFloat, tt, v)
-		}
-		return s.newValue(ssa.OpIntToFloat, tt, v)
+		return s.intToFloat(v, fu, tt)
 	case ft.IsFloat() && tt.IsInt():
-		if isUnsigned(to) {
-			return s.newValue(ssa.OpFloatToUint, tt, v)
-		}
-		return s.newValue(ssa.OpFloatToInt, tt, v)
+		return s.floatToInt(v, isUnsigned(to), tt)
 	case ft.IsFloat() && tt.IsFloat():
 		if ft.Size == tt.Size {
 			return v
@@ -297,6 +291,63 @@ func (s *fnState) convertScalar(v *ssa.Value, from, to types2.Type) *ssa.Value {
 		return s.newValue(ssa.OpBitcast, tt, v)
 	}
 	return v
+}
+
+// intToFloat converts an integer to a float using only conversions from
+// signed 32- and 64-bit integers, which is what the hardware provides.
+func (s *fnState) intToFloat(v *ssa.Value, unsigned bool, tt *ssa.Type) *ssa.Value {
+	switch {
+	case v.Type.Size < 4 && !unsigned:
+		v = s.newValue(ssa.OpSignExt, ssa.TI32, v)
+	case v.Type.Size < 8 && unsigned:
+		v = s.newValue(ssa.OpZeroExt, ssa.TI64, v)
+	case v.Type.Size == 8 && unsigned:
+		// Values with the top bit set: halve (keeping the low bit so the
+		// rounding is right), convert, double.
+		res := s.tempSize(tt.Size, tt.Size, "u2f")
+		neg := s.newValue(ssa.OpLess, ssa.TBool, v, s.constInt(ssa.TI64, 0))
+		big := s.newBlock(ssa.BlockInvalid)
+		small := s.newBlock(ssa.BlockInvalid)
+		done := s.newBlock(ssa.BlockInvalid)
+		s.endIf(neg, big, small)
+		s.seal(big)
+		s.startBlock(big)
+		half := s.newValue(ssa.OpShrL, ssa.TI64, v, s.constInt(ssa.TI64, 1))
+		low := s.newValue(ssa.OpAnd, ssa.TI64, v, s.constInt(ssa.TI64, 1))
+		f := s.newValue(ssa.OpIntToFloat, tt, s.newValue(ssa.OpOr, ssa.TI64, half, low))
+		s.store(tt, res, s.newValue(ssa.OpFAdd, tt, f, f))
+		s.endPlain(done)
+		s.seal(small)
+		s.startBlock(small)
+		s.store(tt, res, s.newValue(ssa.OpIntToFloat, tt, v))
+		s.endPlain(done)
+		s.seal(done)
+		s.startBlock(done)
+		return s.load(tt, res)
+	}
+	return s.newValue(ssa.OpIntToFloat, tt, v)
+}
+
+// floatToInt converts a float to an integer, truncating, using only the
+// hardware's conversions to signed 32- and 64-bit integers.
+func (s *fnState) floatToInt(v *ssa.Value, unsigned bool, tt *ssa.Type) *ssa.Value {
+	switch {
+	case tt.Size == 8 && unsigned:
+		// Values at or above 2^63 convert after subtracting 2^63.
+		limit := s.constFloat(v.Type, 1<<63)
+		lo := s.newValue(ssa.OpFloatToInt, ssa.TI64, v)
+		shifted := s.newValue(ssa.OpFloatToInt, ssa.TI64, s.newValue(ssa.OpFSub, v.Type, v, limit))
+		hi := s.newValue(ssa.OpXor, ssa.TI64, shifted, s.constInt(ssa.TI64, -1<<63))
+		small := s.newValue(ssa.OpFLess, ssa.TBool, v, limit)
+		return s.newValue(ssa.OpSelect, ssa.TI64, small, lo, hi)
+	case tt.Size == 8:
+		return s.newValue(ssa.OpFloatToInt, ssa.TI64, v)
+	case unsigned && tt.Size == 4:
+		return s.newValue(ssa.OpTrunc, tt, s.newValue(ssa.OpFloatToInt, ssa.TI64, v))
+	case tt.Size == 4:
+		return s.newValue(ssa.OpFloatToInt, ssa.TI32, v)
+	}
+	return s.newValue(ssa.OpTrunc, tt, s.newValue(ssa.OpFloatToInt, ssa.TI32, v))
 }
 
 func isUnsigned(T types2.Type) bool {
