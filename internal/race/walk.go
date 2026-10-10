@@ -1,0 +1,1536 @@
+package race
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/matjam/plutonium/internal/syntax/ast"
+	"github.com/matjam/plutonium/internal/syntax/token"
+	"github.com/matjam/plutonium/internal/types2"
+)
+
+// A state is what the flow analysis knows at a point of a function body.
+type state struct {
+	dead    bool     // unreachable
+	locks   lockset  // taken in this function and held on every path here
+	rel     released // locks the caller held that may have been released
+	spawned bool     // a task may have been started since entry
+	pubAll  bool     // every allocation may have been published (after a goto)
+	pub     map[ast.Node]bool
+}
+
+func (s *state) clone() *state {
+	c := *s
+	c.pub = map[ast.Node]bool{}
+	for k := range s.pub {
+		c.pub[k] = true
+	}
+	return &c
+}
+
+// join returns the state after either of two paths.
+func join(a, b *state) *state {
+	switch {
+	case a == nil || a.dead:
+		if b == nil {
+			return &state{dead: true}
+		}
+		return b.clone()
+	case b == nil || b.dead:
+		return a.clone()
+	}
+	out := a.clone()
+	out.locks = a.locks.meet(b.locks)
+	out.rel = a.rel.union(b.rel)
+	out.spawned = a.spawned || b.spawned
+	out.pubAll = a.pubAll || b.pubAll
+	for k := range b.pub {
+		out.pub[k] = true
+	}
+	return out
+}
+
+func (s *state) equal(t *state) bool {
+	if s.dead || t.dead {
+		return s.dead == t.dead
+	}
+	if !s.locks.equal(t.locks) || !s.rel.equal(t.rel) || s.spawned != t.spawned || s.pubAll != t.pubAll || len(s.pub) != len(t.pub) {
+		return false
+	}
+	for k := range s.pub {
+		if !t.pub[k] {
+			return false
+		}
+	}
+	return true
+}
+
+// A target is a statement that break or continue may leave.
+type target struct {
+	label  string
+	loop   bool
+	breaks *state
+	conts  *state
+}
+
+// A walker summarises one function.
+type walker struct {
+	a   *analyzer
+	fn  *function
+	u   *unit
+	sum *summary
+	st  *state
+
+	quiet      int // inside a loop's trial iterations: record nothing
+	loops      int // loop nesting, for spawns that may run more than once
+	targets    []*target
+	exit       *state
+	defers     []*ast.CallExpr
+	gotos      map[string]bool
+	depth      int               // nested applications of func-valued arguments
+	created    map[ast.Node]bool // allocations made by this function
+	lockedHere map[vpath]bool    // mutexes this function locks
+}
+
+func newWalker(a *analyzer, fn *function) *walker {
+	return &walker{a: a, fn: fn, u: fn.unit, sum: &summary{}, st: &state{pub: map[ast.Node]bool{}}}
+}
+
+func (w *walker) run() {
+	if w.fn.inits {
+		w.runInits()
+		return
+	}
+	for i, p := range w.fn.params {
+		w.setVar(p, origins{{vp: vpath{root: root{kind: rParam, idx: i}}}})
+	}
+	w.gotos = gotoTargets(w.fn.body)
+	w.block(w.fn.body)
+	w.finish()
+}
+
+// runInits walks a package's variable initialisers, then calls its init
+// functions.
+func (w *walker) runInits() {
+	for _, init := range w.fn.pkg.Info.InitOrder {
+		var vals []origins
+		if len(init.Lhs) == 1 {
+			vals = []origins{w.value(init.Rhs)}
+		} else {
+			vals = w.multi(init.Rhs, len(init.Lhs))
+		}
+		for i, v := range init.Lhs {
+			if v.Name() == "_" || i >= len(vals) {
+				continue
+			}
+			p := vpath{root: root{kind: rGlobal, v: v}}
+			w.store([]vpath{p}, vals[i], init.Rhs.Pos())
+			w.access(p, true, false, init.Rhs.Pos(), v.Type(), false, "")
+		}
+	}
+	for _, file := range w.fn.pkg.Files {
+		for _, d := range file.Decls {
+			if fd, ok := d.(*ast.FuncDecl); ok && fd.Name.Name == "init" && fd.Recv == nil {
+				if fn := w.a.funcs[w.a.defs[fd.Name].(*types2.Func)]; fn != nil {
+					_, w.st = w.apply(fn, nil, fd.Pos(), "init", w.st, nil)
+				}
+			}
+		}
+	}
+	w.sum.exitLocks, w.sum.exitRel = w.st.locks, w.st.rel
+}
+
+// runProgram walks the whole program: every package's initialisation in
+// order, then main.
+func (w *walker) runProgram() {
+	for _, init := range w.a.inits {
+		_, w.st = w.apply(init, nil, token.NoPos, init.name, w.st, nil)
+	}
+	if m := w.a.prog.Main; m != nil {
+		if obj, ok := m.Types.Scope().Lookup("main").(*types2.Func); ok {
+			if fn := w.a.funcs[obj]; fn != nil {
+				_, w.st = w.apply(fn, nil, token.NoPos, "main", w.st, nil)
+			}
+		}
+	}
+}
+
+// finish applies the deferred calls and records what the function leaves
+// held.
+func (w *walker) finish() {
+	w.exit = join(w.exit, w.st)
+	w.st = w.exit
+	if !w.st.dead {
+		for i := len(w.defers) - 1; i >= 0; i-- {
+			w.deferred(w.defers[i])
+		}
+	}
+	if w.st.dead {
+		w.sum.exitLocks, w.sum.exitRel = nil, released{}
+	} else {
+		w.sum.exitLocks, w.sum.exitRel = w.st.locks, w.st.rel
+	}
+	if w.fn.sig != nil {
+		res := w.fn.sig.Results()
+		for i := 0; i < res.Len(); i++ {
+			if v := res.At(i); v.Name() != "" {
+				w.sum.addResult(i, w.u.vars[v])
+			}
+		}
+	}
+}
+
+// deferred applies a deferred call where the function returns. A deferred
+// lock is not counted as held: it may not have been deferred on this path.
+func (w *walker) deferred(c *ast.CallExpr) {
+	if op, recv := w.lockOp(c); op != "" {
+		if op == "unlock" {
+			w.unlock(recv)
+		}
+		return
+	}
+	w.call(c)
+}
+
+// gotoTargets returns the labels goto statements in body jump to.
+func gotoTargets(body ast.Node) map[string]bool {
+	out := map[string]bool{}
+	if body == nil {
+		return out
+	}
+	ast.Inspect(body, func(n ast.Node) bool {
+		if _, ok := n.(*ast.FuncLit); ok {
+			return false
+		}
+		if b, ok := n.(*ast.BranchStmt); ok && b.Tok == token.GOTO {
+			out[b.Label.Name] = true
+		}
+		return true
+	})
+	return out
+}
+
+func (w *walker) setVar(v *types2.Var, o origins) {
+	if len(o) == 0 {
+		return
+	}
+	cur := w.u.vars[v]
+	if cur.addAll(o) {
+		w.u.vars[v] = cur
+		w.u.grew = true
+	}
+}
+
+// ----------------------------------------------------------------------------
+// Statements
+
+func (w *walker) block(b *ast.BlockStmt) {
+	if b == nil {
+		return
+	}
+	for _, st := range b.List {
+		w.stmt(st, "")
+	}
+}
+
+func (w *walker) stmt(st ast.Stmt, label string) {
+	switch st := st.(type) {
+	case nil, *ast.EmptyStmt, *ast.BadStmt:
+	case *ast.LabeledStmt:
+		if w.gotos[st.Label.Name] {
+			// A goto may arrive here from anywhere: assume the worst.
+			w.st = &state{locks: nil, rel: released{all: true}, spawned: true, pubAll: true, pub: map[ast.Node]bool{}}
+		}
+		w.stmt(st.Stmt, st.Label.Name)
+	case *ast.BranchStmt:
+		w.branch(st)
+	case *ast.ExprStmt:
+		w.value(st.X)
+	case *ast.DeclStmt:
+		w.declStmt(st)
+	case *ast.AssignStmt:
+		w.assignStmt(st)
+	case *ast.IncDecStmt:
+		w.readWrite(st.X, st.Pos())
+	case *ast.BlockStmt:
+		w.block(st)
+	case *ast.IfStmt:
+		w.stmt(st.Init, "")
+		tState, fState := w.cond(st.Cond)
+		w.st = tState
+		w.block(st.Body)
+		after := w.st
+		w.st = fState
+		w.stmt(st.Else, "")
+		w.st = join(after, w.st)
+	case *ast.ForStmt:
+		w.stmt(st.Init, "")
+		w.loop(label, func() *state {
+			if st.Cond == nil {
+				return &state{dead: true}
+			}
+			_, f := w.cond(st.Cond)
+			return f
+		}, func() { w.block(st.Body) }, func() { w.stmt(st.Post, "") })
+	case *ast.RangeStmt:
+		w.rangeStmt(st, label)
+	case *ast.SwitchStmt:
+		w.stmt(st.Init, "")
+		if st.Tag != nil {
+			w.value(st.Tag)
+		}
+		w.clauses(label, st.Body.List, true, func(c ast.Stmt) []ast.Stmt {
+			cc := c.(*ast.CaseClause)
+			for _, e := range cc.List {
+				w.value(e)
+			}
+			return cc.Body
+		})
+	case *ast.TypeSwitchStmt:
+		w.stmt(st.Init, "")
+		var x ast.Expr
+		switch as := st.Assign.(type) {
+		case *ast.AssignStmt:
+			x = as.Rhs[0].(*ast.TypeAssertExpr).X
+		case *ast.ExprStmt:
+			x = as.X.(*ast.TypeAssertExpr).X
+		}
+		xv := w.value(x)
+		w.clauses(label, st.Body.List, true, func(c ast.Stmt) []ast.Stmt {
+			cc := c.(*ast.CaseClause)
+			if v, ok := w.a.implicits[cc].(*types2.Var); ok {
+				w.setVar(v, xv)
+			}
+			return cc.Body
+		})
+	case *ast.SelectStmt:
+		w.clauses(label, st.Body.List, false, func(c ast.Stmt) []ast.Stmt {
+			cc := c.(*ast.CommClause)
+			if cc.Comm == nil {
+				return cc.Body
+			}
+			w.stmt(cc.Comm, "")
+			return cc.Body
+		})
+	case *ast.ReturnStmt:
+		w.returnStmt(st)
+	case *ast.DeferStmt:
+		w.defers = append(w.defers, st.Call)
+		// The arguments are evaluated now.
+		if op, _ := w.lockOp(st.Call); op == "" {
+			for _, arg := range st.Call.Args {
+				w.value(arg)
+			}
+		}
+	case *ast.GoStmt:
+		w.goStmt(st)
+	case *ast.SendStmt:
+		w.value(st.Chan)
+		v := w.value(st.Value)
+		var elem types2.Type
+		if ch, ok := w.typeOf(st.Chan).Underlying().(*types2.Chan); ok {
+			elem = ch.Elem()
+		}
+		w.conv(st.Value, elem)
+		w.cross(&crossing{pos: st.Arrow, what: "the value sent on " + exprText(st.Chan), typ: elem, vals: v, expr: st.Value})
+		w.publish(v)
+	default:
+		panic(fmt.Sprintf("race: unsupported statement %T", st))
+	}
+}
+
+func (w *walker) branch(st *ast.BranchStmt) {
+	switch st.Tok {
+	case token.BREAK, token.CONTINUE:
+		label := ""
+		if st.Label != nil {
+			label = st.Label.Name
+		}
+		for i := len(w.targets) - 1; i >= 0; i-- {
+			t := w.targets[i]
+			if label != "" && t.label != label {
+				continue
+			}
+			if st.Tok == token.CONTINUE {
+				if !t.loop {
+					continue
+				}
+				t.conts = join(t.conts, w.st)
+			} else {
+				t.breaks = join(t.breaks, w.st)
+			}
+			break
+		}
+		w.st = &state{dead: true}
+	case token.GOTO:
+		w.st = &state{dead: true}
+	case token.FALLTHROUGH:
+		// Handled by clauses.
+	}
+}
+
+// loop walks a loop. cond evaluates the condition and returns the state in
+// which the loop ends because of it; body and post walk the rest. The
+// iterations are tried quietly until the state at the top stops changing,
+// then walked once more to record.
+func (w *walker) loop(label string, cond func() *state, body, post func()) {
+	entry := w.st
+	try := func(record bool) (exit, back *state, t *target) {
+		if !record {
+			w.quiet++
+			defer func() { w.quiet-- }()
+		}
+		w.loops++
+		defer func() { w.loops-- }()
+		w.st = entry.clone()
+		exit = cond()
+		t = &target{label: label, loop: true}
+		w.targets = append(w.targets, t)
+		body()
+		w.targets = w.targets[:len(w.targets)-1]
+		w.st = join(w.st, t.conts)
+		post()
+		return exit, w.st, t
+	}
+	for i := 0; i < 4 && !entry.dead; i++ {
+		_, back, _ := try(false)
+		next := join(entry, back)
+		if next.equal(entry) {
+			break
+		}
+		entry = next
+	}
+	exit, _, t := try(true)
+	w.st = join(exit, t.breaks)
+}
+
+func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
+	xt := w.typeOf(st.X)
+	var key, val origins
+	if xt != nil && types2.RangesByMethod(xt) {
+		// A container: range over the iterator its All method returns.
+		it := w.methodCall(st.X, types2.RangeMethodName, nil, st.Pos())
+		w.callValue(it, loopBody(st), st.Pos(), nil, "the iterator of the range loop")
+	} else {
+		xv := w.value(st.X)
+		switch u := underlying(xt).(type) {
+		case *types2.Array:
+			if ps, ok := w.place(st.X); ok {
+				for _, p := range ps.ps {
+					w.access(p.extend("[]"), false, false, st.X.Pos(), u.Elem(), ps.sync, ps.key)
+				}
+				val = valuesAt(extendAll(ps.ps, "[]"))
+			} else {
+				val = xv
+			}
+		case *types2.Pointer:
+			if arr, ok := underlying(u.Elem()).(*types2.Array); ok {
+				ps := xv.derefOr("*", w.unknownFor(st.X))
+				for _, p := range ps {
+					w.access(p.extend("[]"), false, false, st.X.Pos(), arr.Elem(), false, "")
+				}
+				val = valuesAt(extendAll(ps, "[]"))
+			}
+		case *types2.Slice:
+			ps := xv.derefOr("%", w.unknownFor(st.X))
+			for _, p := range ps {
+				w.access(p, false, false, st.X.Pos(), u.Elem(), false, "")
+			}
+			val = valuesAt(ps)
+		case *types2.Signature:
+			// Range over a function: it is called with the loop body as
+			// its yield function, which runs here.
+			w.callValue(xv, loopBody(st), st.Pos(), nil, "the iterator of the range loop")
+		}
+	}
+	w.loop(label, func() *state {
+		exit := w.st.clone()
+		for _, kv := range []struct {
+			e ast.Expr
+			v origins
+		}{{st.Key, key}, {st.Value, val}} {
+			if kv.e == nil {
+				continue
+			}
+			if st.Tok == token.DEFINE {
+				if id, ok := kv.e.(*ast.Ident); ok {
+					if v, ok := w.a.defs[id].(*types2.Var); ok {
+						w.setVar(v, kv.v)
+					}
+				}
+				continue
+			}
+			if st.Tok == token.ASSIGN {
+				w.assignTo(kv.e, kv.v, st.Pos())
+			}
+		}
+		return exit
+	}, func() { w.block(st.Body) }, func() {})
+}
+
+// clauses walks the clauses of a switch or select. Without a default
+// clause a switch may run none of them.
+func (w *walker) clauses(label string, list []ast.Stmt, isSwitch bool, walk func(ast.Stmt) []ast.Stmt) {
+	entry := w.st
+	t := &target{label: label}
+	w.targets = append(w.targets, t)
+	var out *state
+	hasDefault := false
+	var carry *state // a fallthrough from the previous clause
+	for _, c := range list {
+		switch c := c.(type) {
+		case *ast.CaseClause:
+			if c.List == nil {
+				hasDefault = true
+			}
+		case *ast.CommClause:
+			if c.Comm == nil {
+				hasDefault = true
+			}
+		}
+		w.st = join(entry.clone(), carry)
+		body := walk(c)
+		for _, s := range body {
+			w.stmt(s, "")
+		}
+		carry = nil
+		if n := len(body); n > 0 {
+			if b, ok := body[n-1].(*ast.BranchStmt); ok && b.Tok == token.FALLTHROUGH {
+				carry = w.st
+				continue
+			}
+		}
+		out = join(out, w.st)
+	}
+	w.targets = w.targets[:len(w.targets)-1]
+	if isSwitch && !hasDefault {
+		out = join(out, entry)
+	}
+	if out == nil {
+		out = &state{dead: true} // select {}
+	}
+	w.st = join(out, t.breaks)
+}
+
+func (w *walker) returnStmt(st *ast.ReturnStmt) {
+	if w.fn.sig != nil && len(st.Results) > 0 {
+		res := w.fn.sig.Results()
+		var vals []origins
+		if len(st.Results) == 1 && res.Len() > 1 {
+			vals = w.multi(st.Results[0], res.Len())
+		} else {
+			for i, r := range st.Results {
+				vals = append(vals, w.value(r))
+				if i < res.Len() {
+					w.conv(r, res.At(i).Type())
+				}
+			}
+		}
+		for i, v := range vals {
+			w.sum.addResult(i, v)
+			if len(st.Results) == len(vals) && isNil(w.a, st.Results[i]) {
+				continue // nil is no memory at all: it does not decide
+			}
+			w.noteFreshResult(i, v)
+		}
+	}
+	w.exit = join(w.exit, w.st)
+	w.st = &state{dead: true}
+}
+
+func (w *walker) declStmt(st *ast.DeclStmt) {
+	gd, ok := st.Decl.(*ast.GenDecl)
+	if !ok || gd.Tok != token.VAR {
+		return
+	}
+	for _, spec := range gd.Specs {
+		vs := spec.(*ast.ValueSpec)
+		switch {
+		case len(vs.Values) == len(vs.Names):
+			for i, name := range vs.Names {
+				w.conv(vs.Values[i], w.typeOf(name))
+				w.assignTo(name, w.value(vs.Values[i]), vs.Values[i].Pos())
+			}
+		case len(vs.Values) == 1:
+			vals := w.multi(vs.Values[0], len(vs.Names))
+			for i, name := range vs.Names {
+				if i < len(vals) {
+					w.assignTo(name, vals[i], vs.Values[0].Pos())
+				}
+			}
+		}
+	}
+}
+
+func (w *walker) assignStmt(st *ast.AssignStmt) {
+	switch st.Tok {
+	case token.ASSIGN, token.DEFINE:
+	default:
+		// x op= y reads and writes x.
+		w.value(st.Rhs[0])
+		w.readWrite(st.Lhs[0], st.Pos())
+		return
+	}
+	if len(st.Lhs) == len(st.Rhs) {
+		vals := make([]origins, len(st.Rhs))
+		for i, r := range st.Rhs {
+			vals[i] = w.value(r)
+			w.conv(r, w.typeOf(st.Lhs[i]))
+		}
+		for i, l := range st.Lhs {
+			w.assignTo(l, vals[i], st.Pos())
+		}
+		return
+	}
+	vals := w.multi(st.Rhs[0], len(st.Lhs))
+	for i, l := range st.Lhs {
+		if i < len(vals) {
+			w.assignTo(l, vals[i], st.Pos())
+		}
+	}
+}
+
+// assignTo writes val to lhs.
+func (w *walker) assignTo(lhs ast.Expr, val origins, pos token.Pos) {
+	lhs = ast.Unparen(lhs)
+	if id, ok := lhs.(*ast.Ident); ok {
+		if id.Name == "_" {
+			return
+		}
+		if v, ok := w.a.objOf(id).(*types2.Var); ok && !isGlobal(v) {
+			w.setVar(v, val)
+			return
+		}
+	}
+	if ix, ok := lhs.(*ast.IndexExpr); ok && w.isContainerIndex(ix) {
+		w.value(ix.Index)
+		w.methodCall(ix.X, types2.SetIndexMethodName, []origins{nil, val}, pos)
+		return
+	}
+	ps, ok := w.place(lhs)
+	if !ok {
+		w.value(lhs)
+		return
+	}
+	T := w.typeOf(lhs)
+	for _, p := range ps.ps {
+		w.access(p, true, false, lhs.Pos(), T, ps.sync, ps.key)
+	}
+	if !ps.sync {
+		w.noteViewWrite(lhs, ps.ps, T)
+	}
+	w.store(ps.ps, val, pos)
+}
+
+// readWrite reads and writes e (x++, x += y).
+func (w *walker) readWrite(e ast.Expr, pos token.Pos) {
+	e = ast.Unparen(e)
+	if id, ok := e.(*ast.Ident); ok {
+		if v, ok := w.a.objOf(id).(*types2.Var); ok && !isGlobal(v) {
+			return
+		}
+	}
+	if ix, ok := e.(*ast.IndexExpr); ok && w.isContainerIndex(ix) {
+		w.value(ix.Index)
+		w.methodCall(ix.X, types2.IndexMethodName, []origins{nil}, pos)
+		w.methodCall(ix.X, types2.SetIndexMethodName, []origins{nil, nil}, pos)
+		return
+	}
+	ps, ok := w.place(e)
+	if !ok {
+		w.value(e)
+		return
+	}
+	T := w.typeOf(e)
+	for _, p := range ps.ps {
+		w.access(p, false, false, e.Pos(), T, ps.sync, ps.key)
+		w.access(p, true, false, e.Pos(), T, ps.sync, ps.key)
+	}
+	if !ps.sync {
+		w.noteViewWrite(e, ps.ps, T)
+	}
+}
+
+// store records that val is stored at places ps: in a local variable, its
+// origins grow; anywhere else, what val points to is published.
+func (w *walker) store(ps []vpath, val origins, pos token.Pos) {
+	for _, p := range ps {
+		if p.root.kind == rLocal && localPath(p.path) {
+			w.setVar(p.root.v, val.tagged2(fieldTag(p.path)))
+			continue
+		}
+		w.publish(val)
+	}
+}
+
+// localPath reports whether a path within a local variable stays in its
+// frame memory: only fields and array elements.
+func localPath(p string) bool {
+	return !strings.ContainsAny(p, "*%$&#")
+}
+
+// fieldTag returns the fields of a path, without array steps.
+func fieldTag(p string) string {
+	var b strings.Builder
+	for _, s := range steps(p) {
+		if strings.HasPrefix(s, ".") {
+			b.WriteString(s)
+		}
+	}
+	return b.String()
+}
+
+// tagged2 marks the origins as held at field path tag ("" for the whole
+// value).
+func (s origins) tagged2(tag string) origins {
+	if tag == "" {
+		return s
+	}
+	var out origins
+	for _, o := range s {
+		o.tag = tag + o.tag
+		if countSteps(o.tag) > maxSteps {
+			o.tag = ""
+		}
+		out.add(o)
+	}
+	return out
+}
+
+// publish records that memory allocated here, which val may point to, is
+// now reachable from somewhere else, so writes to it are no longer
+// initialising writes. Publishing what a parameter points to is recorded
+// for callers.
+func (w *walker) publish(val origins) {
+	for _, o := range val {
+		switch o.vp.root.kind {
+		case rFresh:
+			w.st.pub[o.vp.root.node] = true
+		case rParam:
+			if w.quiet == 0 {
+				w.sum.addPubParam(o.vp.root.idx)
+			} else {
+				w.sum.addPubParam(o.vp.root.idx)
+			}
+		}
+	}
+}
+
+// isNil reports whether e is the predeclared nil.
+func isNil(a *analyzer, e ast.Expr) bool {
+	id, ok := ast.Unparen(e).(*ast.Ident)
+	if !ok {
+		return false
+	}
+	_, isNil := a.objOf(id).(*types2.Nil)
+	return isNil
+}
+
+// noteFreshResult records whether result i returns memory this function
+// allocated and has not published: the caller gets it as its own.
+func (w *walker) noteFreshResult(i int, v origins) {
+	fresh := len(v) > 0 && !w.st.pubAll
+	for _, o := range v {
+		if o.vp.root.kind != rFresh || o.vp.path != "&" || !w.created[o.vp.root.node] || w.st.pub[o.vp.root.node] {
+			fresh = false
+		}
+	}
+	w.sum.noteFresh(i, fresh)
+}
+
+// cond evaluates a condition and returns the states where it is true and
+// false. A TryLock in the condition holds the lock where it succeeded.
+func (w *walker) cond(e ast.Expr) (t, f *state) {
+	neg := false
+	x := ast.Unparen(e)
+	for {
+		u, ok := x.(*ast.UnaryExpr)
+		if !ok || u.Op != token.NOT {
+			break
+		}
+		neg = !neg
+		x = ast.Unparen(u.X)
+	}
+	if c, ok := x.(*ast.CallExpr); ok {
+		if op, recv := w.lockOp(c); op == "trylock" || op == "tryrlock" {
+			ps := w.lockPlaces(recv)
+			w.syncUse(ps.ps, c.Pos())
+			held := w.st.clone()
+			if len(ps.ps) == 1 && !ps.sync {
+				held.locks = held.locks.with(ps.ps[0], op == "trylock")
+				w.noteLocked(ps.ps[0])
+			}
+			if neg {
+				return w.st.clone(), held
+			}
+			return held, w.st.clone()
+		}
+	}
+	w.value(e)
+	return w.st.clone(), w.st.clone()
+}
+
+// ----------------------------------------------------------------------------
+// Tasks and channels
+
+func (w *walker) goStmt(st *ast.GoStmt) {
+	c := st.Call
+	desc := "go " + exprText(c.Fun)
+	if tv := w.a.types[c.Fun]; tv.IsBuiltin() || tv.IsType() {
+		w.call(c)
+		return
+	}
+	t := w.target(c)
+	args := w.args(c, t.sig)
+	exprs := argExprs(c, t.sig)
+	var all []origins
+	if t.hasRecv {
+		all = append(all, t.recv)
+		RT := w.typeOf(t.recvExpr)
+		if wr, ok := underlying(RT).(*types2.Wrapper); ok && wr.IsPointer() {
+			// go p.M() on an owned or synced box hands the box itself to the
+			// task: it moves, or is counted (language spec section 4.7).
+		} else if t.static != nil && len(t.static.params) > 0 && t.static.sig.Recv() != nil {
+			RT = t.static.params[0].Type()
+		}
+		w.cross(&crossing{pos: st.Pos(), what: "the receiver " + exprText(t.recvExpr) + " of " + desc, typ: RT, vals: t.recv, expr: t.recvExpr})
+	}
+	n := t.sig.Params().Len()
+	packed := t.sig.Variadic() && !c.Ellipsis.IsValid() && n > 0
+	for i, a := range args {
+		var e ast.Expr
+		if i < len(exprs) {
+			e = exprs[i]
+		}
+		if packed && i == n-1 {
+			// Packed variadic arguments are copied into the new task's
+			// own array: each element crosses as a value.
+			elem := t.sig.Params().At(n - 1).Type().Underlying().(*types2.Slice).Elem()
+			for _, x := range c.Args[min(n-1, len(c.Args)):] {
+				w.quiet++
+				v := w.value(x)
+				w.quiet--
+				w.cross(&crossing{pos: st.Pos(), what: "the argument " + exprText(x) + " of " + desc, typ: elem, vals: v, expr: x})
+			}
+			continue
+		}
+		what := fmt.Sprintf("argument %d of %s", i+1, desc)
+		if e != nil {
+			what = "the argument " + exprText(e) + " of " + desc
+		}
+		var T types2.Type
+		if i < t.sig.Params().Len() {
+			T = t.sig.Params().At(i).Type()
+		}
+		w.cross(&crossing{pos: st.Pos(), what: what, typ: T, vals: a, expr: e})
+	}
+	all = append(all, args...)
+	for _, a := range all {
+		w.publish(a)
+	}
+	var roots origins
+	switch {
+	case t.static != nil:
+		roots = append(roots, t.static.asValue())
+	case t.method != "":
+		for _, f := range w.a.methodCandidates(t.method, t.sig) {
+			roots = append(roots, f.asValue())
+		}
+	default:
+		roots = t.fv
+		if len(roots) == 0 {
+			for _, f := range w.a.valueCandidates(t.sig, false) {
+				roots = append(roots, f.asValue())
+			}
+		}
+	}
+	w.spawn(&spawn{pos: st.Pos(), root: roots, args: all, multi: w.loops > 0 || !w.isMain(), desc: desc})
+}
+
+// isMain reports whether the function is the program's main, which runs
+// once.
+func (w *walker) isMain() bool {
+	return w.fn.obj != nil && w.fn.obj.Name() == "main" && w.fn.obj.Pkg() == w.a.prog.Main.Types && w.fn.decl.Recv == nil
+}
+
+func (w *walker) spawn(s *spawn) {
+	if w.quiet == 0 {
+		w.sum.addSpawn(s)
+	}
+	w.sum.maySpawn = true
+	w.st.spawned = true
+}
+
+func (w *walker) cross(c *crossing) {
+	c.fn = w.fn.name
+	if w.quiet == 0 {
+		w.sum.addCrossing(c)
+	}
+}
+
+func (f *function) asValue() origin {
+	if f.lit != nil {
+		return origin{vp: vpath{root: root{kind: rLit, node: f.lit}}}
+	}
+	return origin{vp: vpath{root: root{kind: rFunc, fn: f.obj}}}
+}
+
+// argExprs returns, for each parameter of sig, the argument expression a
+// call passes for it, or nil where several are packed into a variadic
+// parameter.
+func argExprs(e *ast.CallExpr, sig *types2.Signature) []ast.Expr {
+	n := sig.Params().Len()
+	out := make([]ast.Expr, n)
+	if len(e.Args) == 1 && n > 1 {
+		return out
+	}
+	variadic := sig.Variadic() && !e.Ellipsis.IsValid()
+	for i, a := range e.Args {
+		if i >= n || (variadic && i >= n-1) {
+			break
+		}
+		out[i] = a
+	}
+	return out
+}
+
+func exprText(e ast.Expr) string {
+	if e == nil {
+		return ""
+	}
+	return types2.ExprString(e)
+}
+
+// ----------------------------------------------------------------------------
+// Accesses
+
+// access records a use of place p of type T. Uses of frame memory and of
+// memory allocated by this function are not shared; uses inside a
+// synchronised type (inSync) are its own business.
+func (w *walker) access(p vpath, write, atomic bool, pos token.Pos, T types2.Type, inSync bool, key string) {
+	if inSync || w.quiet > 0 {
+		return
+	}
+	init := w.initializing(p, w.st)
+	if key != "" {
+		w.a.recordType(key, p, write, atomic, w.st.locks, pos, w.fn.name, init)
+	}
+	if init || !w.a.shareable(p) {
+		// Memory this function allocated and has not handed to anyone:
+		// no other task can reach it yet.
+		return
+	}
+	x := &access{place: p, write: write, atomic: atomic, locks: w.st.locks, rel: w.st.rel, pos: pos, pre: !w.st.spawned, tkey: key}
+	if !write && !atomic && isSyncType(T) {
+		// Reading a whole synchronised value copies it, as any read does.
+		x.atomic = false
+	}
+	w.sum.addAccess(x)
+}
+
+// initializing reports whether an access of place p in state st uses
+// memory this function allocated and has not yet stored, passed or
+// returned anywhere: no other task can reach it yet.
+func (w *walker) initializing(p vpath, st *state) bool {
+	if p.root.kind != rFresh || st.pubAll {
+		return false
+	}
+	n := p.root.node
+	path := p.path
+	if path != "" && (path[0] == '$' || path[0] == '*') {
+		// The object of a box allocated here.
+		path = path[stepEnd(path, 0):]
+	}
+	return w.created[n] && !st.pub[n] && !strings.ContainsAny(path, "*%$#")
+}
+
+// unknownFor returns the root of memory reached through x when the
+// analysis does not know where x points: named by x's variable, so that a
+// lock and a field reached through one variable compare.
+func (w *walker) unknownFor(x ast.Expr) root {
+	if id, ok := ast.Unparen(x).(*ast.Ident); ok {
+		if v, ok := w.a.objOf(id).(*types2.Var); ok && !isGlobal(v) {
+			return root{kind: rUnknown, v: v}
+		}
+	}
+	if x == nil {
+		return root{kind: rUnknown}
+	}
+	return root{kind: rUnknown, pos: x.Pos()}
+}
+
+// shareable reports whether a place may be used by several tasks: memory
+// reached from a package variable or a parameter, or a synced object's.
+func (a *analyzer) shareable(p vpath) bool {
+	if strings.Contains(p.path, "$") {
+		return true
+	}
+	switch p.root.kind {
+	case rGlobal:
+		return !a.runtimeVar(p.root.v)
+	case rParam:
+		return true
+	}
+	return false
+}
+
+// runtimeVar reports whether v belongs to the runtime, which implements
+// the tasks themselves (the scheduler, allocators, timers) and keeps its
+// own variables with preemption control, per-processor data and its own
+// locks, outside these rules (as its unsafe code is).
+func (a *analyzer) runtimeVar(v *types2.Var) bool {
+	if v.Pkg() == nil {
+		return false
+	}
+	p := v.Pkg().Path()
+	return p == "pluto/rt" || strings.HasPrefix(p, "pluto/rt/")
+}
+
+// syncUse records a use of a lock or other synchronised value through its
+// methods: an atomic access, which conflicts only with plain writes of it.
+func (w *walker) syncUse(ps []vpath, pos token.Pos) {
+	for _, p := range ps {
+		w.access(p, false, true, pos, nil, false, "")
+	}
+}
+
+// ----------------------------------------------------------------------------
+// Expressions
+
+func (w *walker) typeOf(e ast.Expr) types2.Type { return w.a.typeOf(e) }
+
+// underlying returns T's underlying type, looking through volatile and
+// aligned, which change how a value is stored but not what it is.
+func underlying(T types2.Type) types2.Type {
+	if T == nil {
+		return nil
+	}
+	for {
+		u := T.Underlying()
+		wr, ok := u.(*types2.Wrapper)
+		if !ok || (wr.Kind() != types2.WrapVolatile && wr.Kind() != types2.WrapAligned) {
+			return u
+		}
+		T = wr.Elem()
+	}
+}
+
+// derefStep returns the path step for the memory a value of type T points
+// to.
+func (w *walker) derefStep(T types2.Type) string {
+	switch u := underlying(T).(type) {
+	case *types2.Slice:
+		return "%"
+	case *types2.Wrapper:
+		if u.Kind() == types2.WrapSynced {
+			return "$" + itoa(w.a.typeID(u.Elem()))
+		}
+	}
+	return "*"
+}
+
+// pointerElem returns what a pointer-like type points to, or nil.
+func pointerElem(T types2.Type) types2.Type {
+	if T == nil {
+		return nil
+	}
+	switch u := underlying(T).(type) {
+	case *types2.Pointer:
+		return u.Elem()
+	case *types2.Wrapper:
+		if u.IsPointer() {
+			return u.Elem()
+		}
+	}
+	return nil
+}
+
+// value walks e and returns its origins.
+func (w *walker) value(e ast.Expr) origins {
+	if e == nil {
+		return nil
+	}
+	v := w.value1(e)
+	if T := w.typeOf(e); T != nil {
+		switch u := underlying(T).(type) {
+		case *types2.Chan:
+			// A channel is a handle to the runtime's memory, and a
+			// string's bytes never change: neither is a view.
+			return nil
+		case *types2.Basic:
+			if u.Kind() != types2.UnsafePointer {
+				return nil
+			}
+		}
+	}
+	return v
+}
+
+func (w *walker) value1(e ast.Expr) origins {
+	switch e := e.(type) {
+	case *ast.ParenExpr:
+		return w.value(e.X)
+	case *ast.Ident:
+		switch obj := w.a.objOf(e).(type) {
+		case *types2.Var:
+			if isGlobal(obj) {
+				p := vpath{root: root{kind: rGlobal, v: obj}}
+				w.access(p, false, false, e.Pos(), obj.Type(), false, "")
+				return origins{{vp: p}}
+			}
+			return w.u.vars[obj]
+		case *types2.Func:
+			if f := w.a.funcs[obj.Origin()]; f != nil {
+				return origins{f.asValue()}
+			}
+		}
+		return nil
+	case *ast.BasicLit:
+		return nil
+	case *ast.FuncLit:
+		if f := w.a.lits[e]; f != nil {
+			return origins{f.asValue()}
+		}
+		return nil
+	case *ast.CompositeLit:
+		return w.compLit(e)
+	case *ast.SelectorExpr:
+		sel := w.a.selections[e]
+		if sel == nil {
+			return w.value(e.Sel) // a qualified identifier
+		}
+		switch sel.Kind() {
+		case types2.FieldVal:
+			if ps, ok := w.place(e); ok {
+				T := w.typeOf(e)
+				for _, p := range ps.ps {
+					w.access(p, false, false, e.Pos(), T, ps.sync, ps.key)
+				}
+				return w.fieldValue(ps, e)
+			}
+			// A field of a value that is not addressable.
+			v := w.value(e.X)
+			T := w.typeOf(e.X)
+			for _, idx := range sel.Index() {
+				f := fieldOf(T, idx)
+				if f == nil {
+					break
+				}
+				v = v.field(f.Name())
+				T = f.Type()
+			}
+			return v
+		case types2.MethodVal:
+			return w.methodValue(e, sel)
+		case types2.MethodExpr:
+			if fn, ok := sel.Obj().(*types2.Func); ok {
+				if f := w.a.funcs[fn.Origin()]; f != nil {
+					return origins{f.asValue()}
+				}
+			}
+		}
+		return nil
+	case *ast.IndexExpr, *ast.IndexListExpr:
+		var x ast.Expr
+		var index []ast.Expr
+		if ix, ok := e.(*ast.IndexExpr); ok {
+			x, index = ix.X, []ast.Expr{ix.Index}
+		} else {
+			ix := e.(*ast.IndexListExpr)
+			x, index = ix.X, ix.Indices
+		}
+		if _, ok := w.typeOf(x).Underlying().(*types2.Signature); ok {
+			return w.value(x) // a generic function instantiated as a value
+		}
+		if ix, ok := e.(*ast.IndexExpr); ok && w.isContainerIndex(ix) {
+			w.value(ix.Index)
+			return w.methodCall(ix.X, types2.IndexMethodName, []origins{nil}, ix.Pos())
+		}
+		for _, i := range index {
+			w.value(i)
+		}
+		if ps, ok := w.place(e); ok {
+			T := w.typeOf(e)
+			for _, p := range ps.ps {
+				w.access(p, false, false, e.Pos(), T, ps.sync, ps.key)
+			}
+			return w.placeValue(ps.ps)
+		}
+		v := w.value(x)
+		if _, ok := underlying(w.typeOf(x)).(*types2.Basic); ok {
+			return nil // a byte of a string
+		}
+		return v
+	case *ast.SliceExpr:
+		for _, i := range []ast.Expr{e.Low, e.High, e.Max} {
+			w.value(i)
+		}
+		switch u := underlying(w.typeOf(e.X)).(type) {
+		case *types2.Array:
+			if ps, ok := w.place(e.X); ok {
+				return addrsOf(extendAll(ps.ps, "[]"))
+			}
+			return w.value(e.X)
+		case *types2.Pointer:
+			if _, ok := underlying(u.Elem()).(*types2.Array); ok {
+				return addrsOf(extendAll(w.value(e.X).derefOr("*", w.unknownFor(e.X)), "[]"))
+			}
+		}
+		return w.value(e.X)
+	case *ast.StarExpr:
+		ps, _ := w.place(e)
+		T := w.typeOf(e)
+		for _, p := range ps.ps {
+			w.access(p, false, false, e.Pos(), T, ps.sync, ps.key)
+		}
+		return w.placeValue(ps.ps)
+	case *ast.UnaryExpr:
+		switch e.Op {
+		case token.AND:
+			return w.addrOf(e.X)
+		case token.ARROW:
+			w.value(e.X)
+			return nil
+		}
+		w.value(e.X)
+		return nil
+	case *ast.BinaryExpr:
+		w.value(e.X)
+		w.value(e.Y)
+		return nil
+	case *ast.CallExpr:
+		res := w.call(e)
+		if len(res) == 0 {
+			return nil
+		}
+		return unionOrigins(res...)
+	case *ast.TypeAssertExpr:
+		return w.value(e.X)
+	case *ast.KeyValueExpr:
+		w.value(e.Key)
+		return w.value(e.Value)
+	case *ast.BadExpr, *ast.ArrayType, *ast.StructType, *ast.FuncType, *ast.InterfaceType,
+		*ast.MapType, *ast.ChanType, *ast.Ellipsis:
+		return nil
+	}
+	panic(fmt.Sprintf("race: unsupported expression %T", e))
+}
+
+// fieldValue returns the value of a field selection whose places are ps.
+// A view field of an owner that manages its memory with unsafe code points
+// into memory the owner owns: everything it reaches is one place, the
+// owner's.
+func (w *walker) fieldValue(ps places, e *ast.SelectorExpr) origins {
+	sel := w.a.selections[e]
+	idx := sel.Index()
+	T := w.typeOf(e.X)
+	for _, i := range idx[:len(idx)-1] {
+		if f := fieldOf(T, i); f != nil {
+			T = f.Type()
+		}
+	}
+	if w.a.ownsViews(T) && isView(w.typeOf(e)) {
+		var out origins
+		for _, p := range ps.ps {
+			out.add(origin{vp: p.extend("#").addr()})
+		}
+		return out
+	}
+	return w.placeValue(ps.ps)
+}
+
+// placeValue returns the origins of the values stored at places ps.
+func (w *walker) placeValue(ps []vpath) origins {
+	var out origins
+	for _, p := range ps {
+		if p.root.kind == rLocal && localPath(p.path) {
+			v := w.u.vars[p.root.v]
+			for _, s := range steps(p.path) {
+				if strings.HasPrefix(s, ".") {
+					v = v.field(s[1:])
+				}
+			}
+			out.addAll(v)
+			continue
+		}
+		out.add(origin{vp: p})
+	}
+	return out
+}
+
+func extendAll(ps []vpath, step string) []vpath {
+	out := make([]vpath, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, p.extend(step))
+	}
+	return out
+}
+
+// places is the result of finding where an lvalue is: the places it may
+// be, and whether it is inside a synchronised type.
+type places struct {
+	ps   []vpath
+	sync bool
+	key  string // "field:T.f": the first field after the last pointer followed, for the type rule
+}
+
+// place returns where an addressable expression is.
+func (w *walker) place(e ast.Expr) (places, bool) {
+	switch e := e.(type) {
+	case *ast.ParenExpr:
+		return w.place(e.X)
+	case *ast.Ident:
+		v, ok := w.a.objOf(e).(*types2.Var)
+		if !ok {
+			return places{}, false
+		}
+		if isGlobal(v) {
+			return places{ps: []vpath{{root: root{kind: rGlobal, v: v}}}}, true
+		}
+		return places{ps: []vpath{{root: root{kind: rLocal, v: v}}}}, true
+	case *ast.SelectorExpr:
+		sel := w.a.selections[e]
+		if sel == nil {
+			return w.place(e.Sel)
+		}
+		if sel.Kind() != types2.FieldVal {
+			return places{}, false
+		}
+		return w.fieldPlace(e.X, sel.Index())
+	case *ast.IndexExpr:
+		if w.isContainerIndex(e) {
+			return places{}, false
+		}
+		w.value(e.Index)
+		switch u := underlying(w.typeOf(e.X)).(type) {
+		case *types2.Array:
+			ps, ok := w.place(e.X)
+			if !ok {
+				return places{}, false
+			}
+			ps.ps = extendAll(ps.ps, "[]")
+			return ps, true
+		case *types2.Pointer:
+			if _, ok := underlying(u.Elem()).(*types2.Array); ok {
+				return places{ps: extendAll(w.value(e.X).derefOr("*", w.unknownFor(e.X)), "[]")}, true
+			}
+		case *types2.Slice:
+			return places{ps: w.value(e.X).derefOr("%", w.unknownFor(e.X))}, true
+		}
+		return places{}, false
+	case *ast.StarExpr:
+		return places{ps: w.value(e.X).derefOr(w.derefStep(w.typeOf(e.X)), w.unknownFor(e.X))}, true
+	case *ast.CompositeLit:
+		w.compLit(e)
+		return places{ps: []vpath{w.alloc(e)}}, true
+	}
+	return places{}, false
+}
+
+// fieldPlace follows a field selection's path from x.
+func (w *walker) fieldPlace(x ast.Expr, path []int) (places, bool) {
+	T := w.typeOf(x)
+	var cur places
+	if el := pointerElem(T); el != nil {
+		cur = places{ps: w.value(x).derefOr(w.derefStep(T), w.unknownFor(x))}
+		T = el
+	} else if ps, ok := w.place(x); ok {
+		cur = ps
+	} else {
+		return places{}, false
+	}
+	for i, idx := range path {
+		f := fieldOf(T, idx)
+		if f == nil {
+			return places{}, false
+		}
+		if isSyncType(T) {
+			cur.sync = true
+		}
+		if len(cur.ps) > 0 && objectBase(cur.ps[0]) == cur.ps[0] {
+			// The first field of the object a pointer led to.
+			S := T
+			if el := pointerElem(S); el != nil {
+				S = el
+			}
+			cur.key = "field:" + typeKey(S) + "." + f.Name()
+		}
+		cur.ps = extendAll(cur.ps, "."+f.Name())
+		T = f.Type()
+		if i < len(path)-1 {
+			if el := pointerElem(T); el != nil {
+				// An embedded pointer: load it.
+				cur.ps = w.placeValue(cur.ps).derefOr(w.derefStep(T), root{kind: rUnknown, pos: x.Pos(), idx: i})
+				T = el
+			}
+		}
+	}
+	return cur, true
+}
+
+// fieldOf returns field idx of struct type T (or of what T points to).
+func fieldOf(T types2.Type, idx int) *types2.Var {
+	if el := pointerElem(T); el != nil {
+		T = el
+	}
+	s, ok := underlying(T).(*types2.Struct)
+	if !ok || idx >= s.NumFields() {
+		return nil
+	}
+	return s.Field(idx)
+}
+
+// addrOf returns a pointer to e.
+func (w *walker) addrOf(e ast.Expr) origins {
+	e = ast.Unparen(e)
+	if cl, ok := e.(*ast.CompositeLit); ok {
+		w.compLit(cl)
+		return origins{{vp: w.alloc(cl).addr()}}
+	}
+	ps, ok := w.place(e)
+	if !ok {
+		w.value(e)
+		return nil
+	}
+	for _, p := range ps.ps {
+		if p.root.kind == rGlobal {
+			w.a.addrTaken(p.root.v)
+		}
+	}
+	return addrsOf(ps.ps)
+}
+
+func (a *analyzer) addrTaken(v *types2.Var) {
+	if a.addrGlobals == nil {
+		a.addrGlobals = map[*types2.Var]bool{}
+	}
+	a.addrGlobals[v] = true
+}
+
+// compLit walks a composite literal and returns its value's origins.
+func (w *walker) compLit(e *ast.CompositeLit) origins {
+	T := w.typeOf(e)
+	if el := pointerElem(T); el != nil {
+		T = el
+	}
+	var out origins
+	switch u := underlying(T).(type) {
+	case *types2.Struct:
+		for i, el := range e.Elts {
+			x := el
+			name := ""
+			if kv, ok := el.(*ast.KeyValueExpr); ok {
+				x = kv.Value
+				if id, ok := kv.Key.(*ast.Ident); ok {
+					name = id.Name
+				}
+			} else if i < u.NumFields() {
+				name = u.Field(i).Name()
+			}
+			v := w.value(x)
+			if name != "" {
+				out.addAll(v.tagged(name))
+				for j := 0; j < u.NumFields(); j++ {
+					if u.Field(j).Name() == name {
+						w.conv(x, u.Field(j).Type())
+					}
+				}
+			}
+		}
+		return out
+	case *types2.Slice:
+		// The elements are in memory of the literal's own.
+		site := w.alloc(e)
+		for _, el := range e.Elts {
+			w.value(el)
+		}
+		return origins{{vp: site.addr()}}
+	}
+	for _, el := range e.Elts {
+		out.addAll(w.value(el))
+	}
+	return out.untag()
+}
+
+// alloc records an allocation made here: memory nothing else can reach
+// until it is published.
+func (w *walker) alloc(n ast.Node) vpath {
+	if w.created == nil {
+		w.created = map[ast.Node]bool{}
+	}
+	w.created[n] = true
+	delete(w.st.pub, n)
+	return vpath{root: root{kind: rFresh, node: n}}
+}
+
+// methodValue evaluates x.M used as a value. The method may be called at
+// any time later, so what it does is counted here, with no locks held.
+func (w *walker) methodValue(e *ast.SelectorExpr, sel *types2.Selection) origins {
+	fn, _ := sel.Obj().(*types2.Func)
+	if fn == nil {
+		return nil
+	}
+	recv := w.value(e.X)
+	if r := fn.Type().(*types2.Signature).Recv(); r != nil && pointerElem(r.Type()) != nil && pointerElem(w.typeOf(e.X)) == nil {
+		recv = w.addrOf(e.X)
+	}
+	cands := []*function{w.a.funcs[fn.Origin()]}
+	if r := fn.Type().(*types2.Signature).Recv(); r != nil && isInterface(r.Type()) {
+		cands = w.a.methodCandidates(fn.Name(), fn.Type().(*types2.Signature))
+	}
+	free := &state{rel: released{all: true}, spawned: true, pub: map[ast.Node]bool{}}
+	var out origins
+	for _, f := range cands {
+		if f == nil {
+			continue
+		}
+		w.apply(f, []origins{recv}, e.Pos(), exprText(e), free, nil)
+		out.add(f.asValue())
+	}
+	return out
+}
+
+// multi evaluates an expression with several results.
+func (w *walker) multi(e ast.Expr, n int) []origins {
+	e = ast.Unparen(e)
+	switch e := e.(type) {
+	case *ast.CallExpr:
+		res := w.call(e)
+		for len(res) < n {
+			res = append(res, nil)
+		}
+		return res
+	case *ast.IndexExpr:
+		if w.isContainerIndex(e) {
+			w.value(e.Index)
+			r := w.methodCall(e.X, types2.IndexOkMethodName, []origins{nil}, e.Pos())
+			return []origins{r, nil}
+		}
+	}
+	v := w.value(e)
+	out := []origins{v}
+	for len(out) < n {
+		out = append(out, nil)
+	}
+	return out
+}
+
+func (w *walker) isContainerIndex(e *ast.IndexExpr) bool {
+	tv, ok := w.a.types[e.X]
+	return ok && tv.Type != nil && types2.IndexesByMethod(tv.Type)
+}
+
+// loopBody is the argument a range-over-func loop passes its iterator: the
+// loop body, walked where it is written, so calls of it add nothing.
+func loopBody(st *ast.RangeStmt) []origins {
+	return []origins{{{vp: vpath{root: root{kind: rLit, node: st}}}}}
+}
+
+// isView reports whether T is a pointer or a slice.
+func isView(T types2.Type) bool {
+	switch underlying(T).(type) {
+	case *types2.Pointer, *types2.Slice:
+		return true
+	}
+	return false
+}

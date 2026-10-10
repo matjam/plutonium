@@ -1,0 +1,3 @@
+$DIR/main.p:9:2: hits is written here with no lock that guards it, while another puroutine may use it
+$DIR/main.p:44:2: &counter is a view of Counter that may change while another puroutine uses it, so it cannot be passed to a new puroutine
+$DIR/main.p:48:10: count is read here without holding mu, which guards it

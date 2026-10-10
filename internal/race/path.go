@@ -1,0 +1,412 @@
+package race
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/matjam/plutonium/internal/syntax/ast"
+	"github.com/matjam/plutonium/internal/syntax/token"
+	"github.com/matjam/plutonium/internal/types2"
+)
+
+// Paths. A value or a place is a root followed by a path of steps:
+//
+//	.name  a field of a struct
+//	[]     an element of an array (all elements are one place)
+//	*      the memory a pointer points to
+//	%      the elements of a slice
+//	$N     the object a synced[T] refers to, T being the analyzer's type N
+//	&      the address of what the path before it names
+//	#      memory an owner owns through its views: the steps after it are
+//	       not told apart, and it stands for all of that memory
+//
+// A path that ends in & is a pointer to the place the path before it names;
+// any other path names the value stored at that place. Dereferencing a
+// pointer to P gives P; dereferencing the value at P gives P followed by *.
+// Places are compared by prefix: a write of a struct writes all its fields.
+
+// maxLoads and maxSteps bound a path; a longer one is cut short with #,
+// which stands for everything below it.
+const (
+	maxLoads = 3
+	maxSteps = 8
+)
+
+// A rootKind says what a path starts from.
+type rootKind uint8
+
+const (
+	rGlobal  rootKind = iota // a package variable
+	rParam                   // a parameter of the function being summarised (receiver first)
+	rLocal                   // a local variable: frame memory, used only as a lock base
+	rFresh                   // memory allocated at a site in this function
+	rFunc                    // a declared function used as a value
+	rLit                     // a function literal used as a value
+	rUnknown                 // memory a pointer the analysis cannot follow points to
+)
+
+// A root is where a path starts.
+type root struct {
+	kind rootKind
+	v    *types2.Var  // rGlobal, rLocal
+	idx  int          // rParam
+	node ast.Node     // rFresh: the allocation; rLit: the *ast.FuncLit
+	fn   *types2.Func // rFunc
+	pos  token.Pos    // rUnknown: where the pointer was used, when v is nil
+}
+
+// A vpath is a value or a place: a root and a path from it.
+type vpath struct {
+	root root
+	path string
+}
+
+func isDelim(c byte) bool {
+	return c == '.' || c == '*' || c == '%' || c == '[' || c == '&' || c == '$' || c == '#'
+}
+
+// steps splits a path into its steps.
+func steps(p string) []string {
+	var out []string
+	for i := 0; i < len(p); {
+		j := stepEnd(p, i)
+		out = append(out, p[i:j])
+		i = j
+	}
+	return out
+}
+
+// stepEnd returns where the step of p that starts at i ends.
+func stepEnd(p string, i int) int {
+	j := i + 1
+	switch p[i] {
+	case '.':
+		for j < len(p) && !isDelim(p[j]) {
+			j++
+		}
+	case '[':
+		j = i + 2
+	case '$':
+		for j < len(p) && p[j] >= '0' && p[j] <= '9' {
+			j++
+		}
+	}
+	return j
+}
+
+// countSteps returns how many steps p has.
+func countSteps(p string) int {
+	n := 0
+	for i := 0; i < len(p); i = stepEnd(p, i) {
+		n++
+	}
+	return n
+}
+
+func loads(p string) int {
+	return strings.Count(p, "*") + strings.Count(p, "%") + strings.Count(p, "$")
+}
+
+// extend appends a step to v's path, keeping it within the bounds.
+func (v vpath) extend(step string) vpath {
+	if strings.HasSuffix(v.path, "#") {
+		return v
+	}
+	if step == "*" || step == "%" || step[0] == '$' {
+		if strings.HasSuffix(v.path, "&") {
+			// The memory a pointer to P points to is P.
+			v.path = v.path[:len(v.path)-1]
+			return v
+		}
+	}
+	p := v.path + step
+	if loads(p) > maxLoads || countSteps(p) > maxSteps {
+		p = v.path + "#"
+	}
+	v.path = p
+	return v
+}
+
+// addr returns a pointer to the place v.
+func (v vpath) addr() vpath {
+	if strings.HasSuffix(v.path, "#") {
+		return v
+	}
+	v.path += "&"
+	return v
+}
+
+// isAddr reports whether v is a pointer to a place rather than a value.
+func (v vpath) isAddr() bool { return strings.HasSuffix(v.path, "&") }
+
+// key returns a string that identifies v.
+func (v vpath) key() string {
+	return v.root.key() + v.path
+}
+
+func (r root) key() string {
+	switch r.kind {
+	case rGlobal:
+		if r.v.Pkg() != nil {
+			return r.v.Pkg().Path() + "." + r.v.Name()
+		}
+		return r.v.Name()
+	case rParam:
+		return "param" + strconv.Itoa(r.idx)
+	case rLocal:
+		return "local(" + r.v.Name() + "@" + strconv.Itoa(int(r.v.Pos())) + ")"
+	case rFresh:
+		return "new@" + strconv.Itoa(int(r.node.Pos()))
+	case rFunc:
+		return "func " + r.fn.FullName()
+	case rLit:
+		return fmt.Sprintf("lit@%d", r.node.Pos())
+	case rUnknown:
+		if r.v != nil {
+			return fmt.Sprintf("unknown(%s@%d)", r.v.Name(), r.v.Pos())
+		}
+		return fmt.Sprintf("unknown@%d.%d", r.pos, r.idx)
+	}
+	return "?"
+}
+
+// stripOwned drops a trailing # for prefix comparisons.
+func stripOwned(p string) string { return strings.TrimSuffix(p, "#") }
+
+// overlaps reports whether places a and b share memory: one is within the
+// other.
+func overlaps(a, b vpath) bool {
+	if a.root != b.root {
+		return false
+	}
+	pa, pb := stripOwned(a.path), stripOwned(b.path)
+	return within(pa, pb) || within(pb, pa)
+}
+
+// within reports whether place q is part of place p's own storage: p's
+// path followed by fields and elements, without following a pointer.
+// Writing a pointer variable does not change the memory it points to.
+func within(p, q string) bool {
+	return prefixOf(p, q) && !strings.ContainsAny(q[len(p):], "*%$")
+}
+
+// prefixOf reports whether path p is a prefix of q on a step boundary.
+func prefixOf(p, q string) bool {
+	if !strings.HasPrefix(q, p) {
+		return false
+	}
+	return len(q) == len(p) || isDelim(q[len(p)])
+}
+
+// objectBase returns the part of place p that is the object holding its
+// first field after the last pointer followed: p up to that field.
+func objectBase(p vpath) vpath {
+	ss := steps(p.path)
+	last := -1
+	for i, s := range ss {
+		if s == "*" || s == "%" || s == "#" || s[0] == '$' {
+			last = i
+		}
+	}
+	n := 0
+	for i, s := range ss {
+		if i > last && s[0] == '.' {
+			break
+		}
+		n += len(s)
+	}
+	return vpath{root: p.root, path: p.path[:n]}
+}
+
+// substitute replaces the parameter roots of v with the caller's values
+// args (one per parameter, receiver first).
+func substitute(v vpath, args []origins) []vpath {
+	if v.root.kind != rParam {
+		return []vpath{v}
+	}
+	if v.root.idx >= len(args) {
+		return nil
+	}
+	var out []vpath
+	for _, a := range args[v.root.idx] {
+		out = append(out, a.vp.join(v.path))
+	}
+	return out
+}
+
+// join appends a path to v, step by step, normalizing &* and &%.
+func (v vpath) join(p string) vpath {
+	if p == "" {
+		return v
+	}
+	if !strings.HasSuffix(v.path, "&") && !strings.HasSuffix(v.path, "#") && !strings.Contains(p, "&") &&
+		loads(v.path)+loads(p) <= maxLoads && countSteps(v.path)+countSteps(p) <= maxSteps {
+		// Nothing to normalise or cut: the paths simply join.
+		v.path += p
+		return v
+	}
+	for i := 0; i < len(p); {
+		j := stepEnd(p, i)
+		if s := p[i:j]; s == "&" {
+			v = v.addr()
+		} else {
+			v = v.extend(s)
+		}
+		i = j
+	}
+	return v
+}
+
+// syncedSplit splits a place at its last $N: the reference the object was
+// reached through (a value), the object's type number, and the path within
+// the object. ok is false when the place is not within a synced object.
+func syncedSplit(v vpath) (base vpath, typ int, sub string, ok bool) {
+	i := strings.LastIndexByte(v.path, '$')
+	if i < 0 {
+		return vpath{}, 0, "", false
+	}
+	j := i + 1
+	for j < len(v.path) && v.path[j] >= '0' && v.path[j] <= '9' {
+		typ = typ*10 + int(v.path[j]-'0')
+		j++
+	}
+	base = vpath{root: v.root, path: v.path[:i]}
+	return base, typ, v.path[j:], true
+}
+
+// An origin is something a value may hold: a value path, and the field of a
+// struct value it is held in ("" for the whole value).
+type origin struct {
+	vp  vpath
+	tag string
+}
+
+// origins is a small set of origins.
+type origins []origin
+
+func (s origins) has(o origin) bool {
+	for _, x := range s {
+		if x == o {
+			return true
+		}
+	}
+	return false
+}
+
+// add adds o and reports whether it was new.
+func (s *origins) add(o origin) bool {
+	if s.has(o) {
+		return false
+	}
+	*s = append(*s, o)
+	return true
+}
+
+func (s *origins) addAll(t origins) bool {
+	grew := false
+	for _, o := range t {
+		if s.add(o) {
+			grew = true
+		}
+	}
+	return grew
+}
+
+func unionOrigins(sets ...origins) origins {
+	var out origins
+	for _, s := range sets {
+		out.addAll(s)
+	}
+	return out
+}
+
+// untag drops the field tags: the value as a whole.
+func (s origins) untag() origins {
+	var out origins
+	for _, o := range s {
+		o.tag = ""
+		out.add(o)
+	}
+	return out
+}
+
+// field returns the origins of field name of a struct value with origins s.
+func (s origins) field(name string) origins {
+	var out origins
+	step := "." + name
+	for _, o := range s {
+		switch {
+		case o.tag == "":
+			if o.vp.root.kind == rFunc || o.vp.root.kind == rLit {
+				continue
+			}
+			out.add(origin{vp: o.vp.extend(step)})
+		case prefixOf(step, o.tag):
+			o.tag = o.tag[len(step):]
+			out.add(o)
+		}
+	}
+	return out
+}
+
+// tagged marks every origin in s as held in field name of a struct value.
+func (s origins) tagged(name string) origins {
+	var out origins
+	for _, o := range s {
+		o.tag = "." + name + o.tag
+		if countSteps(o.tag) > maxSteps {
+			o.tag = ""
+		}
+		out.add(o)
+	}
+	return out
+}
+
+// derefOr returns the places that values with origins s point to, or a
+// place in unknown memory u when the analysis does not know where they
+// point.
+func (s origins) derefOr(step string, u root) []vpath {
+	if out := s.deref(step); len(out) > 0 {
+		return out
+	}
+	return []vpath{vpath{root: u}.extend(step)}
+}
+
+// deref returns the places that values with origins s point to.
+func (s origins) deref(step string) []vpath {
+	var out []vpath
+	seen := map[vpath]bool{}
+	for _, o := range s {
+		if o.vp.root.kind == rFunc || o.vp.root.kind == rLit {
+			continue
+		}
+		// A tagged origin is a pointer held in some field of a struct
+		// value; dereferencing the struct as a whole stands for any of
+		// them.
+		p := o.vp.extend(step)
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// valuesAt returns the origins of the values stored at places ps.
+func valuesAt(ps []vpath) origins {
+	var out origins
+	for _, p := range ps {
+		out.add(origin{vp: p})
+	}
+	return out
+}
+
+// addrsOf returns pointers to places ps.
+func addrsOf(ps []vpath) origins {
+	var out origins
+	for _, p := range ps {
+		out.add(origin{vp: p.addr()})
+	}
+	return out
+}

@@ -13,6 +13,9 @@ const whyOwners = "Go copies such values freely and its garbage collector frees 
 // whyFrame is why a view of the frame cannot outlive it.
 const whyFrame = "Go would move this memory to the heap, and its garbage collector would free it later. Plutonium has no garbage collector and never moves memory to the heap behind the program's back, so that every allocation is visible in the code."
 
+// whyRace is why Plutonium rejects data races at compile time.
+const whyRace = "Go leaves data races to a run-time detector that a program must be run under, and a racing Go program can see values half written. Plutonium puroutines run in parallel with no such detector, so safe code must be free of data races, and the compiler checks it from the program itself, with no annotations."
+
 func init() {
 	register(
 		&Entry{
@@ -60,6 +63,30 @@ func init() {
 			Spec:    pspec("4.5", "Closures do not outlive their frame"),
 			Example: "var first func() int\nfor i := 0; i < 3; i++ {\n\tif i == 0 {\n\t\tfirst = func() int { return i * 10 }\n\t}\n}",
 			Fixed:   "var first int\nfor i := 0; i < 3; i++ {\n\tif i == 0 {\n\t\tfirst = i * 10\n\t}\n}",
+		},
+		&Entry{
+			Code: RaceSendView, Name: "RaceSendView",
+			Text:    "A pointer or slice is handed to another puroutine, as an argument of a go statement or a value sent on a channel, but what it points to may change while both puroutines can use it. One puroutine could then read memory the other is writing, which is a data race.\nA view may cross to another puroutine only if what it points to cannot change while both may use it: a package variable that is not written once puroutines run, a struct type that no code changes through a pointer after making it, memory of a pluto/sync type, or the object of a synced[T]. Pass a copy of the value, move an owner such as a vec.Vec, or share the data through a synced[T] whose fields a lock guards.",
+			Why:     whyRace,
+			Spec:    pspec("6.11", "Data races"),
+			Example: "func bump(c *Counter, done chan bool) {\n\tc.n++\n\tdone <- true\n}\n\nc := new(Counter)\ngo bump(c, done)",
+			Fixed:   "func bump(n int, done chan int) {\n\tdone <- n + 1\n}\n\ngo bump(c.n, done)\nc.n = <-done",
+		},
+		&Entry{
+			Code: RaceNoLock, Name: "RaceNoLock",
+			Text:    "Data that several puroutines use is written without a lock that guards it: a package variable written by code more than one puroutine runs, or a field of a synced[T] object. Two puroutines could write it, or one write it while another reads it, at the same time.\nThe compiler infers which lock guards the data from the locks held where it is written: a sync.Mutex (or the write lock of a sync.RWMutex) that every write holds. Hold the same lock at every write and every read, or use an atomic type from pluto/sync/atomic.",
+			Why:     whyRace,
+			Spec:    pspec("6.11", "Data races"),
+			Example: "var hits int\n\nfunc handle() {\n\thits++\n}\n\n// started with go handle() from several places",
+			Fixed:   "var (\n\tmu   sync.Mutex\n\thits int\n)\n\nfunc handle() {\n\tmu.Lock()\n\thits++\n\tmu.Unlock()\n}",
+		},
+		&Entry{
+			Code: RaceUnguarded, Name: "RaceUnguarded",
+			Text:    "Data that several puroutines use is read without the lock that guards it. Every write to it holds the same lock, so the compiler infers that the lock guards it, and every read must hold it too: a read without it may run while a write is half done.\nHold the lock (a sync.RWMutex's RLock is enough) around the read. If the writes use atomic operations, read it with an atomic operation too.",
+			Why:     whyRace,
+			Spec:    pspec("6.11", "Data races"),
+			Example: "wg.Wait()\nprintln(counter)",
+			Fixed:   "wg.Wait()\nmu.Lock()\nn := counter\nmu.Unlock()\nprintln(n)",
 		},
 		&Entry{
 			Code: CheckerCode(typerr.DropNotOwner), Name: "DropNotOwner",

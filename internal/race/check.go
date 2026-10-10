@@ -1,0 +1,870 @@
+package race
+
+import (
+	"fmt"
+	"os"
+	"sort"
+	"strings"
+
+	"github.com/matjam/plutonium/internal/diag"
+	"github.com/matjam/plutonium/internal/load"
+	"github.com/matjam/plutonium/internal/syntax/ast"
+	"github.com/matjam/plutonium/internal/syntax/token"
+	"github.com/matjam/plutonium/internal/types2"
+)
+
+// maxGroups bounds the tasks followed from the program's start.
+const maxGroups = 2000
+
+// A group is one task of the program, or one go statement's tasks: the
+// accesses they make, with the locks held relative to the task's start.
+type group struct {
+	main     bool
+	multi    bool // several tasks may run this at once
+	pos      token.Pos
+	desc     string
+	accesses []*access
+}
+
+func (g *group) name(a *analyzer) string {
+	if g.main {
+		return "the main puroutine"
+	}
+	return fmt.Sprintf("the puroutine started by %s at %s", g.desc, a.short(g.pos))
+}
+
+// check runs the three rules over the whole program.
+func (a *analyzer) check() {
+	a.finishWrites()
+	prog := a.program.sum
+	mainG := &group{main: true}
+	for _, x := range a.expandAll(prog) {
+		if !x.pre {
+			mainG.accesses = append(mainG.accesses, x)
+		}
+	}
+	groups := []*group{mainG}
+	cross := append([]*crossing(nil), prog.cross...)
+
+	// Follow every task the program may start, and the tasks they start.
+	queue := append([]*spawn(nil), prog.spawns...)
+	seen := map[string]bool{}
+	tw := newWalker(a, a.program)
+	for len(queue) > 0 && len(groups) < maxGroups {
+		sp := queue[0]
+		queue = queue[1:]
+		for _, r := range sp.root {
+			f := a.rootFunc(r)
+			if f == nil {
+				continue
+			}
+			k := sp.key() + "|" + r.vp.key()
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			tw.sum = &summary{}
+			tw.apply(f, sp.args, sp.pos, f.name, &state{pub: map[ast.Node]bool{}, spawned: true}, nil)
+			pos, desc := a.userStart(sp)
+			g := &group{multi: sp.multi, pos: pos, desc: desc, accesses: a.expandAll(tw.sum)}
+			groups = append(groups, g)
+			cross = append(cross, tw.sum.cross...)
+			queue = append(queue, tw.sum.spawns...)
+		}
+	}
+	written := a.writtenAfterInit(groups)
+	a.checkCrossings(cross, written)
+	a.checkGlobals(groups)
+	a.checkSynced(groups)
+}
+
+// expandAll returns the accesses of a task whose summary is s: its own,
+// and those of every function it calls, each with the locks the task holds
+// there. Each function is followed once per context (its arguments, the
+// locks held at the call and whether a task has started).
+func (a *analyzer) expandAll(s *summary) []*access {
+	x := &expander{a: a, seen: map[expKey]bool{}, keys: map[accKey]bool{}}
+	for _, acc := range s.accesses {
+		x.emit(acc)
+	}
+	for _, e := range s.edges {
+		x.expand(e.f, e.args, compose(nil, released{}, e.locks), e.pre)
+	}
+	if debug {
+		perFn := map[*function]int{}
+		for k := range x.seen {
+			perFn[k.f]++
+		}
+		worst, n := "", 0
+		for f, c := range perFn {
+			if c > n {
+				worst, n = f.name, c
+			}
+		}
+		fmt.Fprintf(os.Stderr, "race: expanded %d contexts of %d functions, %d accesses; most: %s %d\n", len(x.seen), len(perFn), len(x.out), worst, n)
+	}
+	return x.out
+}
+
+// An expKey is a function followed in one context.
+type expKey struct {
+	f     *function
+	locks string
+	pre   bool
+	args  string
+}
+
+type expander struct {
+	a    *analyzer
+	seen map[expKey]bool
+	keys map[accKey]bool
+	out  []*access
+}
+
+func (x *expander) emit(acc *access) {
+	k := acc.key()
+	if x.keys[k] {
+		return
+	}
+	x.keys[k] = true
+	x.out = append(x.out, acc)
+}
+
+// expand adds the accesses f makes of package variables and synced
+// objects, called with env bound to its parameters, while the locks are
+// held, then follows its own calls.
+//
+// The locks are the task's: every lock held at that point, so what the
+// callers released no longer matters. The arguments matter only to name
+// locks reached through parameters; a function whose accesses and calls
+// name no such lock is followed once per set of locks held, whatever its
+// arguments.
+func (x *expander) expand(f *function, env []origins, locks lockset, pre bool) {
+	if !x.a.hasShared(f) {
+		return
+	}
+	needEnv := x.a.needsEnv(f)
+	if !needEnv {
+		env = nil
+	} else {
+		// Only the parameters that name locks, here or in the callees,
+		// matter: the others are left out, so that calls that differ in
+		// them share one expansion.
+		used := x.a.envParams(f)
+		trimmed := make([]origins, len(env))
+		for i := range env {
+			if used.has(i) {
+				trimmed[i] = lockRoots(env[i])
+			}
+		}
+		env = trimmed
+	}
+	locks = sharedLocks(locks)
+	k := expKey{f: f, pre: pre}
+	if len(locks) > 0 {
+		k.locks = locks.String()
+	}
+	if env != nil {
+		k.args = (&edge{args: env}).key()
+	}
+	if x.seen[k] {
+		return
+	}
+	x.seen[k] = true
+	s := f.sum
+	for _, acc := range s.accesses {
+		// What the parameters reach was instantiated where f was called.
+		if acc.place.root.kind == rParam || !x.a.shareable(acc.place) {
+			continue
+		}
+		x.emit(&access{
+			tkey:   acc.tkey,
+			place:  acc.place,
+			write:  acc.write,
+			atomic: acc.atomic,
+			locks:  compose(locks, substRel(acc.rel, env), substLocks(acc.locks, env)),
+			pos:    acc.pos,
+			pre:    pre && acc.pre,
+		})
+	}
+	for _, ce := range s.edges {
+		var args []origins
+		if needEnv {
+			for _, a := range ce.args {
+				var na origins
+				for _, o := range a {
+					for _, v := range substitute(o.vp, env) {
+						na.add(origin{vp: v, tag: o.tag})
+					}
+				}
+				args = append(args, na)
+			}
+		} else {
+			args = ce.args
+		}
+		x.expand(ce.f, args, compose(locks, substRel(ce.rel, env), substLocks(ce.locks, env)), pre && ce.pre)
+	}
+}
+
+// hasShared reports whether f, or a function it calls, uses a package
+// variable or a synced object other than through its parameters.
+func (a *analyzer) hasShared(f *function) bool {
+	return a.reachProp(f, a.sharedMemo, func(f *function) bool {
+		for _, acc := range f.sum.accesses {
+			if acc.place.root.kind != rParam && a.shareable(acc.place) {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// needsEnv reports whether f, or a function it calls, names a lock through
+// a parameter where it uses shared data.
+func (a *analyzer) needsEnv(f *function) bool {
+	return a.reachProp(f, a.envMemo, func(f *function) bool {
+		params := func(ls lockset, r released) bool {
+			for _, l := range ls {
+				if l.place.root.kind == rParam {
+					return true
+				}
+			}
+			for _, k := range r.keys {
+				if k.root.kind == rParam {
+					return true
+				}
+			}
+			return r.all
+		}
+		for _, acc := range f.sum.accesses {
+			if params(acc.locks, acc.rel) {
+				return true
+			}
+		}
+		for _, e := range f.sum.edges {
+			if params(e.locks, e.rel) {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// lockRoots keeps the origins through which a lock can guard what the
+// checks compare: package variables and synced objects. A lock in other
+// memory guards nothing a task shares, so which one it is does not matter.
+func lockRoots(o origins) origins {
+	var out origins
+	for _, x := range o {
+		if x.vp.root.kind == rGlobal || strings.Contains(x.vp.path, "$") {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
+// sharedLocks keeps the locks of ls that lockRoots would.
+func sharedLocks(ls lockset) lockset {
+	var out lockset
+	for _, l := range ls {
+		if l.place.root.kind == rGlobal || strings.Contains(l.place.path, "$") {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// envParams returns the parameters of f that name locks where f, or a
+// callee it passes them to, uses shared data.
+func (a *analyzer) envParams(f *function) bits {
+	if b, ok := a.envUsed[f]; ok {
+		return b
+	}
+	var b bits
+	a.envUsed[f] = b // a recursive call sees what is known so far
+	mark := func(ls lockset, r released) {
+		for _, l := range ls {
+			if l.place.root.kind == rParam {
+				b = b.with(l.place.root.idx)
+			}
+		}
+		for _, k := range r.keys {
+			if k.root.kind == rParam {
+				b = b.with(k.root.idx)
+			}
+		}
+	}
+	for _, acc := range f.sum.accesses {
+		mark(acc.locks, acc.rel)
+	}
+	for _, e := range f.sum.edges {
+		mark(e.locks, e.rel)
+		if !a.needsEnv(e.f) {
+			continue
+		}
+		used := a.envParams(e.f)
+		for i, arg := range e.args {
+			if !used.has(i) {
+				continue
+			}
+			for _, o := range arg {
+				if o.vp.root.kind == rParam {
+					b = b.with(o.vp.root.idx)
+				}
+			}
+		}
+	}
+	a.envUsed[f] = b
+	return b
+}
+
+// reachProp reports whether own holds of f or of a function its edges
+// reach, memoised in memo.
+func (a *analyzer) reachProp(f *function, memo map[*function]bool, own func(*function) bool) bool {
+	if v, ok := memo[f]; ok {
+		return v
+	}
+	// Mark the whole set reachable from f in one walk.
+	var order []*function
+	seen := map[*function]bool{f: true}
+	work := []*function{f}
+	found := false
+	for len(work) > 0 {
+		g := work[len(work)-1]
+		work = work[:len(work)-1]
+		if v, ok := memo[g]; ok {
+			found = found || v
+			continue
+		}
+		order = append(order, g)
+		if own(g) {
+			found = true
+		}
+		for _, e := range g.sum.edges {
+			if !seen[e.f] {
+				seen[e.f] = true
+				work = append(work, e.f)
+			}
+		}
+	}
+	if !found {
+		for _, g := range order {
+			memo[g] = false
+		}
+	}
+	memo[f] = found
+	return found
+}
+
+// userStart names where a task starts in the program's own code: the go
+// statement, or, for a task the standard library starts (WaitGroup.Go,
+// time.AfterFunc), the call of the library function that leads to it.
+func (a *analyzer) userStart(sp *spawn) (token.Pos, string) {
+	if !a.inStd(sp.pos) {
+		return sp.pos, sp.desc
+	}
+	for i := len(sp.via) - 1; i >= 0; i-- {
+		if f := sp.via[i]; f.pos.IsValid() && !a.inStd(f.pos) {
+			return f.pos, "a call of " + f.callee
+		}
+	}
+	return sp.pos, sp.desc
+}
+
+func (a *analyzer) inStd(p token.Pos) bool {
+	return strings.HasPrefix(a.fset.Position(p).Filename, load.StdPrefix)
+}
+
+// rootFunc returns the function a task runs, from its origin.
+func (a *analyzer) rootFunc(o origin) *function {
+	switch o.vp.root.kind {
+	case rFunc:
+		return a.funcs[o.vp.root.fn.Origin()]
+	case rLit:
+		if lit, ok := o.vp.root.node.(*ast.FuncLit); ok {
+			return a.lits[lit]
+		}
+	}
+	return nil
+}
+
+// writtenAfterInit returns a function that reports where a package
+// variable's place is written once tasks may run, or NoPos.
+func (a *analyzer) writtenAfterInit(groups []*group) func(vpath) token.Pos {
+	type wsite struct {
+		place vpath
+		pos   token.Pos
+	}
+	byVar := map[*types2.Var][]wsite{}
+	for _, g := range groups {
+		for _, x := range g.accesses {
+			if x.write && x.place.root.kind == rGlobal {
+				byVar[x.place.root.v] = append(byVar[x.place.root.v], wsite{x.place, x.pos})
+			}
+		}
+	}
+	return func(p vpath) token.Pos {
+		for _, s := range byVar[p.root.v] {
+			if overlaps(s.place, p) {
+				return s.pos
+			}
+		}
+		return token.NoPos
+	}
+}
+
+// checkCrossings applies the sendable rule to every value that crosses to
+// another task.
+func (a *analyzer) checkCrossings(cross []*crossing, written func(vpath) token.Pos) {
+	for _, c := range cross {
+		part := "it"
+		if c.expr != nil {
+			part = exprText(c.expr)
+		}
+		p := a.sendable(c.typ, c.vals, part, written)
+		if p == nil {
+			continue
+		}
+		a.add(fmt.Sprintf("send|%d", c.pos), a.sendError(c, p))
+	}
+}
+
+// An entry is an access by one group.
+type entry struct {
+	x *access
+	g *group
+}
+
+// conflict reports whether two accesses by groups may happen at once with
+// one of them writing, without both being atomic.
+func conflict(p, q entry) bool {
+	if !p.x.write && !q.x.write {
+		return false
+	}
+	if p.x.atomic && q.x.atomic {
+		return false
+	}
+	if p.g == q.g && !p.g.multi {
+		return false
+	}
+	return overlaps(p.x.place, q.x.place)
+}
+
+// guards returns the locks that may guard what an access writes: the
+// mutexes it holds for writing that are one object for the whole program
+// (package variables, not through pointers), keyed by place, and "atomic"
+// for an atomic operation. rel turns a lock within the same synced object
+// into a key relative to it.
+func guards(x *access, excl bool, rel func(lock) (string, bool)) map[string]bool {
+	out := map[string]bool{}
+	if x.atomic {
+		out["atomic"] = true
+	}
+	for _, l := range x.locks {
+		if excl && !l.excl {
+			continue
+		}
+		if k, ok := rel(l); ok {
+			out[k] = true
+		}
+	}
+	return out
+}
+
+// globalLock names a lock that is one object for the whole program.
+func globalLock(l lock) (string, bool) {
+	if l.place.root.kind == rGlobal && !strings.ContainsAny(l.place.path, "*%$#&") {
+		return l.place.key(), true
+	}
+	return "", false
+}
+
+func intersect(a, b map[string]bool) map[string]bool {
+	out := map[string]bool{}
+	for k := range a {
+		if b[k] {
+			out[k] = true
+		}
+	}
+	return out
+}
+
+// checkGlobals applies the package variable rule.
+func (a *analyzer) checkGlobals(groups []*group) {
+	byVar := map[*types2.Var][]entry{}
+	var vars []*types2.Var
+	for _, g := range groups {
+		for _, x := range g.accesses {
+			if x.place.root.kind != rGlobal || strings.Contains(x.place.path, "$") {
+				continue
+			}
+			v := x.place.root.v
+			if byVar[v] == nil {
+				vars = append(vars, v)
+			}
+			byVar[v] = append(byVar[v], entry{x, g})
+		}
+	}
+	sort.Slice(vars, func(i, j int) bool { return vars[i].Pos() < vars[j].Pos() })
+	for _, v := range vars {
+		a.checkPlaces(byVar[v], globalLock, func(x *access) string { return a.placeText(x.place) })
+	}
+}
+
+// checkSynced applies the guard rule to the objects of synced references:
+// any task holding a reference may use them, so every write conflicts
+// with every other access.
+func (a *analyzer) checkSynced(groups []*group) {
+	byType := map[int][]entry{}
+	var ids []int
+	for _, g := range groups {
+		for _, x := range g.accesses {
+			_, id, _, ok := syncedSplit(x.place)
+			if !ok {
+				continue
+			}
+			if byType[id] == nil {
+				ids = append(ids, id)
+			}
+			// Every access to a synced object may meet one by another
+			// task: count it as a task that runs several times.
+			byType[id] = append(byType[id], entry{x, &group{multi: true, pos: g.pos, desc: g.desc, main: g.main}})
+		}
+	}
+	sort.Ints(ids)
+	for _, id := range ids {
+		es := byType[id]
+		// Places within the object, relative to it, so that accesses
+		// through different references compare.
+		norm := make([]entry, len(es))
+		for i, e := range es {
+			_, _, sub, _ := syncedSplit(e.x.place)
+			x := *e.x
+			x.place = vpath{root: root{kind: rLocal, v: syncedVar}, path: fmt.Sprintf("$%d", id) + sub}
+			// Locks: those within the same object, relative to it; and
+			// package-level ones.
+			base, _, _, _ := syncedSplit(e.x.place)
+			prefix := base.path + fmt.Sprintf("$%d", id)
+			var ls lockset
+			for _, l := range e.x.locks {
+				if l.place.root == base.root && prefixOf(prefix, l.place.path) {
+					ls = ls.with(vpath{root: root{kind: rLocal, v: syncedVar}, path: fmt.Sprintf("$%d", id) + l.place.path[len(prefix):]}, l.excl)
+				} else if _, ok := globalLock(l); ok {
+					ls = ls.with(l.place, l.excl)
+				}
+			}
+			x.locks = ls
+			norm[i] = entry{&x, e.g}
+		}
+		a.checkPlaces(norm, func(l lock) (string, bool) {
+			if l.place.root.kind == rLocal && l.place.root.v == syncedVar {
+				return l.place.path, true
+			}
+			return globalLock(l)
+		}, func(x *access) string { return a.syncedText(id, x.place.path) })
+	}
+}
+
+// syncedVar stands for "the synced object" in relative places.
+var syncedVar = types2.NewVar(token.NoPos, nil, "the synced object", nil)
+
+// checkPlaces checks the accesses to one variable or synced type: every
+// access that may meet a write by another task must hold a lock that every
+// such write holds.
+func (a *analyzer) checkPlaces(es []entry, rel func(lock) (string, bool), text func(*access) string) {
+	for i, p := range es {
+		if !p.x.write {
+			continue
+		}
+		// The guard candidates of this write: what it and every write it
+		// may meet hold. A write in a task that may run several times
+		// meets itself.
+		pg := guards(p.x, true, rel)
+		g := pg
+		var conf []int
+		for j, q := range es {
+			if (i == j && !p.g.multi) || !conflict(p, q) {
+				continue
+			}
+			conf = append(conf, j)
+			if q.x.write {
+				g = intersect(g, guards(q.x, true, rel))
+			}
+		}
+		if len(conf) == 0 || len(g) > 0 {
+			continue
+		}
+		// Report the write that holds no lock if there is one, against
+		// an access it meets.
+		target, other := p, es[conf[0]]
+		for _, j := range conf {
+			q := es[j]
+			if !q.x.write {
+				continue
+			}
+			qg := guards(q.x, true, rel)
+			if len(intersect(pg, qg)) > 0 {
+				continue
+			}
+			if len(pg) > 0 && len(qg) == 0 {
+				target, other = q, p
+			} else {
+				other = q
+			}
+			break
+		}
+		a.add("nolock|"+text(p.x), a.noLockError(target, other, es, rel, text))
+		return
+	}
+	for i, p := range es {
+		if p.x.write {
+			continue
+		}
+		var writes []entry
+		var g map[string]bool
+		for j, q := range es {
+			if i == j || !q.x.write || !conflict(p, q) {
+				continue
+			}
+			writes = append(writes, q)
+			qg := guards(q.x, true, rel)
+			if g == nil {
+				g = qg
+			} else {
+				g = intersect(g, qg)
+			}
+		}
+		if len(writes) == 0 || len(g) == 0 {
+			continue
+		}
+		held := guards(p.x, false, rel)
+		if len(intersect(held, g)) == 0 {
+			a.add(fmt.Sprintf("read|%d", p.x.pos), a.unguardedError(p, writes, g, rel, text))
+		}
+	}
+}
+
+// ----------------------------------------------------------------------------
+// Messages
+
+// placeText writes a package variable's place as the program would.
+func (a *analyzer) placeText(p vpath) string {
+	name := p.root.v.Name()
+	if pkg := p.root.v.Pkg(); pkg != nil && a.prog.Main != nil && pkg != a.prog.Main.Types {
+		name = pkg.Name() + "." + name
+	}
+	return name + pathText(p.path)
+}
+
+// syncedText writes a place in a synced object.
+func (a *analyzer) syncedText(id int, path string) string {
+	T := a.typeIDs[id]
+	_, _, sub, _ := syncedSplit(vpath{path: path})
+	return "the field " + strings.TrimPrefix(pathText(sub), ".") + " of a synced[" + types2.TypeString(T, a.qualifier) + "]"
+}
+
+func pathText(p string) string {
+	var b strings.Builder
+	ss := steps(p)
+	for i, s := range ss {
+		switch {
+		case strings.HasPrefix(s, "."):
+			b.WriteString(s)
+		case s == "[]" || s == "%":
+			b.WriteString("[i]")
+		case s == "*" || s[0] == '$':
+			if i == len(ss)-1 {
+				return "*(" + b.String() + ")"
+			}
+		}
+	}
+	return b.String()
+}
+
+// lockText names a lock as the program would.
+func (a *analyzer) lockText(k string, rel func(lock) (string, bool), es []entry) string {
+	if k == "atomic" {
+		return "atomic operations"
+	}
+	for _, e := range es {
+		for _, l := range e.x.locks {
+			if lk, ok := rel(l); ok && lk == k {
+				if l.place.root.kind == rGlobal {
+					return a.placeText(l.place)
+				}
+				return strings.TrimPrefix(pathText(strings.TrimLeft(l.place.path, "$0123456789")), ".")
+			}
+		}
+	}
+	return k
+}
+
+// where describes an access: its position, and the call that leads to it
+// when it is in another function.
+func (a *analyzer) where(x *access) string {
+	return a.short(x.pos) + " in " + a.funcAt(x.pos)
+}
+
+func (a *analyzer) noLockError(p, other entry, es []entry, rel func(lock) (string, bool), text func(*access) string) *diag.Diagnostic {
+	place := text(p.x)
+	verb := "written"
+	d := diag.New(a.pos(p.x.pos), diag.RaceNoLock, "%s is %s here with no lock that guards it, while another puroutine may use it", place, verb)
+	held := guards(p.x, true, rel)
+	shared := guards(p.x, false, rel)
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s is %s at %s by %s", place, verb, a.where(p.x), p.g.name(a))
+	switch {
+	case len(held) == 0 && len(shared) > 0:
+		k := ""
+		for x := range shared {
+			k = x
+		}
+		fmt.Fprintf(&b, " while holding %s only for reading", a.lockText(k, rel, es))
+	case len(held) == 0:
+		b.WriteString(" with no lock held")
+	default:
+		var names []string
+		for k := range held {
+			names = append(names, a.lockText(k, rel, es))
+		}
+		sort.Strings(names)
+		fmt.Fprintf(&b, " holding %s", strings.Join(names, " and "))
+	}
+	ov := "uses"
+	if other.x.write {
+		ov = "writes"
+	}
+	if other.g == p.g {
+		fmt.Fprintf(&b, ", and another puroutine started there %s it at %s", ov, a.where(other.x))
+	} else {
+		fmt.Fprintf(&b, ", and %s %s it at %s", other.g.name(a), ov, a.where(other.x))
+	}
+	og := guards(other.x, true, rel)
+	if len(og) > 0 && other.x.write {
+		var names []string
+		for k := range og {
+			names = append(names, a.lockText(k, rel, es))
+		}
+		sort.Strings(names)
+		fmt.Fprintf(&b, " holding %s", strings.Join(names, " and "))
+	}
+	b.WriteString(". Two puroutines may run these at the same time, one of them writing, which is a data race: the other may see a value half written, or lose an update.")
+	b.WriteString("\nThe compiler infers which lock guards shared data from the locks held where it is written: a lock that every write holds. Here no one lock is held at every write.")
+	d.Text = b.String()
+	d.Fix = &diag.Fix{Intro: "Hold one sync.Mutex at every access, writes and reads (a sync.RWMutex's RLock is enough for reads)", Code: "mu.Lock()\n" + strings.TrimPrefix(exprLine(place), "") + "\nmu.Unlock()"}
+	d.More = []*diag.Fix{{Intro: "Or, for a number, use an atomic type from pluto/sync/atomic, such as atomic.Int64, and its methods at every access."}}
+	return d
+}
+
+// exprLine writes a statement that writes place, for fixes.
+func exprLine(place string) string {
+	if strings.HasPrefix(place, "the field") {
+		return "s.f = v"
+	}
+	return place + " = v"
+}
+
+func (a *analyzer) unguardedError(p entry, writes []entry, g map[string]bool, rel func(lock) (string, bool), text func(*access) string) *diag.Diagnostic {
+	place := text(p.x)
+	var names []string
+	for k := range g {
+		names = append(names, a.lockText(k, rel, writes))
+	}
+	sort.Strings(names)
+	guard := strings.Join(names, " or ")
+	var d *diag.Diagnostic
+	if g["atomic"] && len(g) == 1 {
+		d = diag.New(a.pos(p.x.pos), diag.RaceUnguarded, "%s is read here without an atomic operation, but other puroutines change it with atomic operations", place)
+	} else {
+		d = diag.New(a.pos(p.x.pos), diag.RaceUnguarded, "%s is read here without holding %s, which guards it", place, guard)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Every write to %s that another puroutine may run at the same time holds %s:", place, guard)
+	sort.Slice(writes, func(i, j int) bool { return writes[i].x.pos < writes[j].x.pos })
+	n := 0
+	seen := map[token.Pos]bool{}
+	for _, w := range writes {
+		if seen[w.x.pos] || n == 3 {
+			continue
+		}
+		seen[w.x.pos] = true
+		sep := ","
+		if n == 0 {
+			sep = ""
+		}
+		fmt.Fprintf(&b, "%s %s (%s)", sep, a.where(w.x), w.g.name(a))
+		n++
+	}
+	fmt.Fprintf(&b, ". So the compiler infers that %s guards %s, and every read must hold it too: a read without it may run while a write is half done.", guard, place)
+	fmt.Fprintf(&b, "\nHere %s reads it at %s", p.g.name(a), a.where(p.x))
+	if held := guards(p.x, false, rel); len(held) > 0 {
+		var hn []string
+		for k := range held {
+			hn = append(hn, a.lockText(k, rel, writes))
+		}
+		sort.Strings(hn)
+		fmt.Fprintf(&b, " holding only %s", strings.Join(hn, " and "))
+	} else {
+		b.WriteString(" with no lock held")
+	}
+	b.WriteString(".")
+	d.Text = b.String()
+	lockName := names[0]
+	if g["atomic"] {
+		d.Fix = &diag.Fix{Intro: "Read it with the atomic type's Load method, as the writes use atomic operations"}
+	} else {
+		d.Fix = &diag.Fix{Intro: "Hold the lock while reading", Code: lockName + ".Lock()\nv := " + strings.TrimPrefix(place, "") + "\n" + lockName + ".Unlock()"}
+	}
+	return d
+}
+
+func (a *analyzer) sendError(c *crossing, p *problem) *diag.Diagnostic {
+	elem := types2.TypeString(p.elem, a.qualifier)
+	var d *diag.Diagnostic
+	if c.expr != nil && p.part == exprText(c.expr) {
+		d = diag.New(a.pos(c.pos), diag.RaceSendView, "%s is a view of %s that may change while another puroutine uses it, so it cannot be %s", p.part, elem, crossVerb(c))
+	} else {
+		d = diag.New(a.pos(c.pos), diag.RaceSendView, "%s is a view of %s that may change while another puroutine uses it, so %s cannot be %s", p.part, elem, exprText(c.expr), crossVerb(c))
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s gives another puroutine %s, a %s: after this, both puroutines can reach the same %s.", capitalize(c.what), p.part, types2.TypeString(p.typ, a.qualifier), elem)
+	if p.glob != nil {
+		fmt.Fprintf(&b, " It points to the package variable %s, which is written at %s while puroutines run.", p.glob.Name(), a.short(p.gpos))
+	}
+	switch {
+	case p.why != "":
+		fmt.Fprintf(&b, " %s is not safe to use from two puroutines at once. %s", elem, p.why)
+	case p.write != nil:
+		fmt.Fprintf(&b, " A %s is changed through a pointer at %s (%s, in %s) without a lock of the same %s held, so the compiler cannot tell that this one stays the same while the other puroutine uses it.", elem, a.short(p.write.pos), p.write.expr, p.write.fn, elem)
+	case p.glob == nil:
+		fmt.Fprintf(&b, " Nothing shows that this %s stays the same while the other puroutine uses it.", elem)
+	}
+	b.WriteString("\nA view may cross to another puroutine only if what it points to cannot change while both may use it, or every change is synchronized: a package variable that is not written once puroutines run, a struct whose fields are never changed once it is shared or are used only under a lock of the same struct or atomically, memory of a pluto/sync type, or the object of a synced[T].")
+	d.Text = b.String()
+	d.Fix = &diag.Fix{Intro: "Pass a copy of the value instead of a pointer to it, or move an owner (such as a vec.Vec) to the puroutine so that only it has the memory."}
+	d.More = []*diag.Fix{{Intro: "To share changing data between puroutines, put it in a synced[T] and hold a sync.Mutex in it at every access, or use a package variable guarded by a lock."}}
+	return d
+}
+
+func crossVerb(c *crossing) string {
+	if strings.HasPrefix(c.what, "the value sent") {
+		return "sent on a channel"
+	}
+	return "passed to a new puroutine"
+}
+
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	var out []string
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}

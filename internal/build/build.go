@@ -24,6 +24,7 @@ import (
 	"github.com/matjam/plutonium/internal/moves"
 	"github.com/matjam/plutonium/internal/objfile"
 	"github.com/matjam/plutonium/internal/opt"
+	"github.com/matjam/plutonium/internal/race"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/types2"
 )
@@ -177,6 +178,10 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 		return err
 	}
 	if err := joinLifetimeErrors(moveErr, escape.Check(prog)); err != nil {
+		return err
+	}
+	// Data races, once every view is known to stay within its lifetime.
+	if err := race.Check(prog); err != nil {
 		return err
 	}
 	if err := optimize(cfg, sp, prog); err != nil {

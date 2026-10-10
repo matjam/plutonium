@@ -139,6 +139,14 @@ const (
 	SliceLitOwners   Code = "E3312" // a slice literal with owner elements
 )
 
+// Data races (internal/race): E3500-E3599. E3400-E3499 are kept for the
+// sharing check of scoped tasks.
+const (
+	RaceSendView  Code = "E3501" // a view of memory that may change crosses to another task
+	RaceNoLock    Code = "E3502" // shared data written by several tasks with no one lock held at every write
+	RaceUnguarded Code = "E3503" // shared data read without the lock that guards it
+)
+
 // Closures and their records (E3100-E3199).
 const (
 	ClosureReturned    Code = "E3100" // a function returns a closure record that cannot outlive its frame
