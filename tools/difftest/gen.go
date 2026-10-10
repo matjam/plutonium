@@ -39,7 +39,7 @@ type variable struct {
 	boundSlice *variable
 
 	sliceLen int  // slices: a lower bound on the length, at least 1
-	owned    bool // slices and pointers: the memory belongs to the declaring function
+	owned    bool // slices, pointers and closures: the memory belongs to (or a closure may view) the declaring function
 	sliced   bool // a slice of or pointer into this variable's memory exists
 
 	closure *closureInfo
@@ -61,6 +61,8 @@ type fnInfo struct {
 	pure    bool
 	cost    int64
 	text    string
+	ret     *closureInfo // the closure a maker returns
+	iter    *iterInfo    // the iterator an iterator maker returns
 }
 
 type scope struct {
@@ -79,7 +81,7 @@ type ctx struct {
 	results       []*typ
 	writeGlobal   bool // may write globals and memory it does not own
 	minWriteLevel int  // variables of enclosing functions below this level are read-only
-	isMain        bool // main, which does not return early so that all output appears
+	noReturn      bool // main, so that all output appears, and makers do not return early
 	tparam        *typ // the type parameter of a generic function
 	named         bool // the results are named, so a bare return is allowed
 	mult          int64
@@ -88,6 +90,7 @@ type ctx struct {
 	loops         []*loopInfo
 	hash          *variable
 	depth         int
+	viewFloor     int // views of the frames of functions below this level are hidden
 }
 
 type gen struct {
@@ -135,6 +138,7 @@ func Generate(seed int64, opt Options) string {
 	g.types["bool"] = tBool
 	g.types["float64"] = tFloat64
 	g.types["float32"] = tFloat32
+	g.types["string"] = tString
 	return g.program(seed)
 }
 
@@ -164,6 +168,7 @@ func (g *gen) program(seed int64) string {
 
 	var funcs strings.Builder
 	funcs.WriteString(f2iFunc)
+	funcs.WriteString(strFuncs)
 	if g.chance(3) {
 		out.WriteString("type Ifc interface {\n\tGet(x int) int\n}\n\ntype N int32\n\n")
 		g.ifc = &typ{kind: kIface, name: "Ifc"}
@@ -178,7 +183,15 @@ func (g *gen) program(seed int64) string {
 	}
 	for i, n := 0, 3+g.r.Intn(4); i < n; i++ {
 		g.nfuncs = i
-		f := g.function(i)
+		var f *fnInfo
+		switch {
+		case subset.ReturnedClosures && g.chance(4):
+			f = g.maker(i)
+		case subset.RangeFunc && g.chance(4):
+			f = g.iterMaker(i)
+		default:
+			f = g.function(i)
+		}
 		g.funcs = append(g.funcs, f)
 		funcs.WriteString(f.text)
 	}
@@ -242,6 +255,9 @@ func (g *gen) randElem() *typ {
 	if g.chance(10) {
 		return g.randFloat()
 	}
+	if g.chance(12) {
+		return tString
+	}
 	return g.concreteInt()
 }
 
@@ -249,8 +265,10 @@ func (g *gen) randElem() *typ {
 // refs set also a slice or pointer.
 func (g *gen) randType(refs bool) *typ {
 	switch n := g.r.Intn(100); {
-	case n < 47:
+	case n < 43:
 		return g.randInt()
+	case n < 47:
+		return tString
 	case n < 52:
 		return g.randFloat()
 	case n < 60:
@@ -282,14 +300,16 @@ func (g *gen) newStruct() *typ {
 	t := &typ{kind: kStruct, name: fmt.Sprintf("S%d", len(g.structs))}
 	for i, n := 0, 2+g.r.Intn(6); i < n; i++ {
 		var ft *typ
-		switch k := g.r.Intn(20); {
+		switch k := g.r.Intn(21); {
 		case k < 13:
 			ft = g.concreteInt()
 		case k < 14:
 			ft = g.randFloat()
-		case k < 16:
+		case k < 15:
+			ft = tString
+		case k < 17:
 			ft = tBool
-		case k < 19:
+		case k < 20:
 			ft = g.arrayOf(g.concreteInt(), 2+g.r.Intn(4))
 		default:
 			if len(g.structs) > 0 {
@@ -328,6 +348,9 @@ func reach(t, want *typ) bool {
 // Constants
 
 func (g *gen) constant(t *typ) string {
+	if t.kind == kString {
+		return g.randString().src
+	}
 	if t.kind == kBool {
 		if g.chance(2) {
 			return "true"
@@ -453,6 +476,9 @@ func (g *gen) pop() {
 		case v.t.kind == kFloat && h != nil && g.canWriteRoot(h):
 			g.line("%s = %s*31 + uint64(%s)", h.name, h.name, toInt(v.name, v.t))
 			h.used = true
+		case v.t.kind == kString && h != nil && g.canWriteRoot(h):
+			g.line("%s = %s*31 + uint64(len(%s))", h.name, h.name, v.name)
+			h.used = true
 		default:
 			g.line("_ = %s", v.name)
 		}
@@ -474,7 +500,7 @@ func (g *gen) visible() []*variable {
 	seen := map[string]bool{}
 	for s := g.sc; s != nil; s = s.parent {
 		for _, v := range s.vars {
-			if !seen[v.name] {
+			if !seen[v.name] && !g.hidden(v) {
 				out = append(out, v)
 			}
 		}
@@ -483,6 +509,12 @@ func (g *gen) visible() []*variable {
 		}
 	}
 	return out
+}
+
+// hidden reports whether v views the frame of a function that a closure
+// being generated outlives.
+func (g *gen) hidden(v *variable) bool {
+	return g.cx != nil && v.level < g.cx.viewFloor && v.owned && (v.closure != nil || v.t.ref())
 }
 
 // shadowName returns the name of a variable declared in an enclosing
@@ -866,6 +898,9 @@ func (g *gen) intLeaf(t *typ, nc bool) expr {
 				}
 			}
 		case 7:
+			if g.chance(3) && g.indexDepth == 0 {
+				return expr{s: t.String() + "(len(" + g.strPlace() + "))"}
+			}
 			for _, v := range g.visible() {
 				if v.t != nil && v.t.kind == kSlice && g.chance(2) {
 					v.used = true
@@ -908,6 +943,9 @@ func (g *gen) boolExpr(d int, nc bool) expr {
 func (g *gen) compare(d int) expr {
 	if g.chance(6) {
 		return g.floatCompare(d)
+	}
+	if g.chance(8) {
+		return g.strCompare()
 	}
 	t := g.randInt()
 	a := g.intExpr(t, d-1, false)
@@ -967,6 +1005,8 @@ func (g *gen) value(t *typ, d int) string {
 	switch t.kind {
 	case kInt, kBool, kFloat:
 		return g.scalarExpr(t, d, false).s
+	case kString:
+		return g.strExpr(d)
 	case kSlice:
 		s, _, _ := g.sliceExpr(t.elem, 1)
 		return s
@@ -1546,6 +1586,8 @@ func leafOf(p string, t *typ) string {
 		return "int64(" + p + ")"
 	case kFloat:
 		return toInt(p, t)
+	case kString:
+		return "int64(len(" + p + "))"
 	case kStruct:
 		for _, f := range t.fields {
 			if l := leafOf(p+"."+f.name, f.t); l != "0" {
@@ -1568,16 +1610,20 @@ func (g *gen) ifaceStmt() bool {
 		return g.anyStmt()
 	}
 	g.addCost(3 * fnBudget / 4) // at most three calls of Get
-	t := g.implementers[g.r.Intn(len(g.implementers))]
-	var val string
-	if t == g.named {
-		val = "N(" + g.intExpr(intTypes[2], 2, false).s + ")"
-	} else {
-		val = g.value(t, 1)
-	}
 	i := g.name("i")
-	g.line("var %s Ifc = %s", i, val)
+	g.line("var %s Ifc = %s", i, g.getReceiver())
 	g.line("println(%q, %s.Get(%s))", i, i, g.intExpr(tInt, 1, false).s)
+	if g.chance(3) && g.cx.cost+g.cx.mult*2*fnBudget/4 <= g.cx.budget {
+		// Method values of the interface and of a concrete value.
+		g.addCost(2 * fnBudget / 4)
+		m := g.name("m")
+		if g.chance(2) {
+			g.line("%s := %s.Get", m, i)
+		} else {
+			g.line("%s := %s.Get", m, g.getReceiver())
+		}
+		g.line("println(%q, %s(%s), %s(%d))", m, m, g.intExpr(tInt, 1, false).s, m, g.r.Intn(9)-4)
+	}
 	if g.chance(2) && g.assignStmt() {
 		g.line("println(%q, %s.Get(%d))", i, i, g.r.Intn(9)-4)
 	}
@@ -1606,18 +1652,33 @@ func (g *gen) ifaceStmt() bool {
 	return true
 }
 
+// getReceiver returns a value of a type that implements Ifc.
+func (g *gen) getReceiver() string {
+	t := g.implementers[g.r.Intn(len(g.implementers))]
+	if t == g.named {
+		return "N(" + g.intExpr(intTypes[2], 2, false).s + ")"
+	}
+	return g.value(t, 1)
+}
+
 // anyStmt switches on the dynamic type of an integer in an any.
 func (g *gen) anyStmt() bool {
 	t := g.randInt()
 	a, v := g.name("a"), g.name("v")
-	g.line("var %s any = %s", a, typed(g.intExpr(t, 2, false), t))
+	if g.chance(4) {
+		t = tString
+		g.line("var %s any = %s", a, g.strExpr(2))
+	} else {
+		g.line("var %s any = %s", a, typed(g.intExpr(t, 2, false), t))
+	}
 	g.line("switch %s := %s.(type) {", v, a)
+	cases := append(slices.Clip(intTypes), tString)
 	seen := map[*typ]bool{}
-	for _, k := range g.r.Perm(len(intTypes))[:1+g.r.Intn(4)] {
-		seen[intTypes[k]] = true
+	for _, k := range g.r.Perm(len(cases))[:1+g.r.Intn(4)] {
+		seen[cases[k]] = true
 	}
 	seen[t] = g.chance(2) || seen[t]
-	for _, u := range intTypes {
+	for _, u := range cases {
 		if seen[u] {
 			g.line("case %s:", u)
 			g.line("\tprintln(%q, %s)", u.name, v)
@@ -1647,7 +1708,7 @@ func (g *gen) returnValues() string {
 func (g *gen) mainFunc() string {
 	g.lines = nil
 	g.indent = 0
-	g.cx = &ctx{writeGlobal: true, mult: 1, budget: mainBudget, isMain: true}
+	g.cx = &ctx{writeGlobal: true, mult: 1, budget: mainBudget, noReturn: true}
 	g.push()
 	g.line("func main() {")
 	g.indent++
@@ -1666,6 +1727,16 @@ func (g *gen) mainFunc() string {
 	for _, v := range g.globals {
 		g.printLeaves(v.name, v.t)
 	}
+	// Release the strings globals hold, so that whatever the debug
+	// allocator finds live at exit has leaked.
+	for _, v := range g.globals {
+		switch {
+		case v.t == tString:
+			g.line("%s = \"\"", v.name)
+		case reach(v.t, tString):
+			g.line("%s = %s{}", v.name, v.t)
+		}
+	}
 	g.pop()
 	g.line("println(\"main\", %s)", h.name)
 	g.indent--
@@ -1674,7 +1745,26 @@ func (g *gen) mainFunc() string {
 }
 
 func (g *gen) callAndPrint(f *fnInfo) {
+	if f.iter != nil {
+		g.rangeAndPrint(f)
+		return
+	}
 	g.addCost(f.cost + 1)
+	if f.ret != nil {
+		// Call the returned closure a few times: its state persists.
+		c := g.name("c")
+		g.line("%s := %s", c, g.callText(f, nil))
+		g.declare(&variable{name: c, closure: f.ret, used: true})
+		var names []string
+		for k, n := 0, 1+g.r.Intn(3); k < n; k++ {
+			g.addCost(f.ret.cost + 1)
+			r := g.name("r")
+			g.line("%s := %s(%s)", r, c, g.args(f.ret.params, make([]int, len(f.ret.params))))
+			names = append(names, r)
+		}
+		g.line("println(%s)", strings.Join(names, ", "))
+		return
+	}
 	var names []string
 	for range f.results {
 		names = append(names, g.name("r"))
@@ -1692,7 +1782,7 @@ func (g *gen) printLeaves(p string, t *typ) {
 	var walk func(p string, t *typ)
 	walk = func(p string, t *typ) {
 		switch t.kind {
-		case kInt, kBool:
+		case kInt, kBool, kString:
 			leaves = append(leaves, p)
 		case kFloat:
 			leaves = append(leaves, toInt(p, t))
@@ -1759,7 +1849,7 @@ func (g *gen) addr(elem *typ) (string, bool) {
 // initializers.
 func (g *gen) constLiteral(t *typ) string {
 	switch t.kind {
-	case kInt, kBool, kFloat:
+	case kInt, kBool, kFloat, kString:
 		return g.constant(t)
 	case kArray:
 		var parts []string
@@ -1807,7 +1897,7 @@ func (g *gen) stmt() bool {
 	g.addCost(1)
 	deep := g.cx.depth >= maxDepth
 	for {
-		switch k := g.r.Intn(145); {
+		switch k := g.r.Intn(150); {
 		case k < 20:
 			g.declStmt()
 			return false
@@ -1858,7 +1948,7 @@ func (g *gen) stmt() bool {
 				return false
 			}
 		case k < 94:
-			if g.cx.depth > 0 && !g.cx.isMain {
+			if g.cx.depth > 0 && !g.cx.noReturn {
 				g.line("if %s {", g.boolExpr(2, true).s)
 				g.indent++
 				g.line("return %s", g.returnValues())
@@ -1869,9 +1959,9 @@ func (g *gen) stmt() bool {
 		case k < 100:
 			if g.cx.depth > 0 && g.chance(8) {
 				switch {
-				case len(g.cx.loops) > 0 && (g.chance(2) || g.cx.isMain):
+				case len(g.cx.loops) > 0 && (g.chance(2) || g.cx.noReturn):
 					g.line("break")
-				case g.cx.isMain:
+				case g.cx.noReturn:
 					continue
 				default:
 					g.line("return %s", g.returnValues())
@@ -1910,14 +2000,22 @@ func (g *gen) stmt() bool {
 			g.floatStmt()
 			return false
 		case k < 139:
-			g.stringStmt()
+			if g.chance(2) {
+				g.stringStmt()
+			} else {
+				g.strStmt()
+			}
 			return false
 		case k < 142:
 			g.aggStmt()
 			return false
-		default:
+		case k < 145:
 			g.aliasStmt()
 			return false
+		default:
+			if g.makerStmt() {
+				return false
+			}
 		}
 	}
 }
@@ -2015,7 +2113,7 @@ func (g *gen) aggStmt() {
 		case ptr == "" && p.s != a && p.s != b && g.chance(4):
 			ptr, ptrPath = g.name("q"), p.s
 			g.line("%s := &%s", ptr, p.s)
-		case p.t.scalar():
+		case p.t.leaf():
 			g.line("%s = %s", p.s, g.value(p.t, 1))
 		case g.chance(5):
 			// Clear part of it.
@@ -2081,21 +2179,58 @@ type str struct {
 	val  string
 }
 
-// randString returns a short string of ASCII, multi-byte UTF-8 and
-// invalid bytes.
-func (g *gen) randString() string {
-	pieces := []string{"a", "b", "z", "0", " ", "é", "ü", "日本", "€", "\xff", "\xc3", "\xe2\x82", "𝄞", "\x00", "ab", "xyz"}
-	var b strings.Builder
-	for i, n := 0, g.r.Intn(8); i < n; i++ {
-		b.WriteString(pieces[g.r.Intn(len(pieces))])
+// A strLit is a string literal: its contents and its spelling.
+type strLit struct {
+	val, src string
+}
+
+// strPieces are what string literals are made of: ASCII, the ends of
+// each UTF-8 encoding length, and escapes that spell valid UTF-8 bytewise.
+var strPieces = []strLit{
+	{"a", "a"}, {"b", "b"}, {"z", "z"}, {"0", "0"}, {" ", " "}, {"ab", "ab"}, {"xyz", "xyz"},
+	{"é", "é"}, {"é", `é`}, {"é", `\xc3\xa9`}, {"é", `\303\251`},
+	{"ü", "ü"}, {"日本", "日本"}, {"€", "€"}, {"€", `€`}, {"€", `\xe2\x82\xac`},
+	{"𝄞", "𝄞"}, {"𝄞", `\U0001d11e`}, {"𝄞", `\xf0\x9d\x84\x9e`},
+	{"\x00", `\x00`}, {"\x7f", `\x7f`}, {"\t", `\t`}, {"\"", `\"`}, {"\\", `\\`},
+	{"\u0080", `\u0080`}, {"߿", `߿`}, {"ࠀ", `ࠀ`}, {"￿", `￿`},
+	{"�", `�`}, {"\U00010000", `\U00010000`}, {"\U0010ffff", `\U0010ffff`},
+}
+
+// badPieces spell bytes that are not valid UTF-8.
+var badPieces = []strLit{{"\xff", `\xff`}, {"\xc3", `\xc3`}, {"\xe2\x82", `\xe2\x82`}, {"\x80", `\200`}}
+
+// randString returns a short string literal.
+func (g *gen) randString() strLit {
+	pieces := strPieces
+	if subset.InvalidUTF8 {
+		pieces = append(slices.Clip(pieces), badPieces...)
 	}
-	return b.String()
+	var val, src strings.Builder
+	for i, n := 0, g.r.Intn(8); i < n; i++ {
+		p := pieces[g.r.Intn(len(pieces))]
+		val.WriteString(p.val)
+		src.WriteString(p.src)
+	}
+	return strLit{val.String(), `"` + src.String() + `"`}
+}
+
+// sliceBounds returns the offsets of s a slice expression may use: the
+// starts of its runes and its length.
+func sliceBounds(s string) []int {
+	var out []int
+	for i := 0; i <= len(s); i++ {
+		if subset.ByteSlicing || i == len(s) || s[i]&0xc0 != 0x80 {
+			out = append(out, i)
+		}
+	}
+	return out
 }
 
 func (g *gen) stringVar() str {
 	if len(g.strs) == 0 || (len(g.strs) < 6 && g.chance(3)) {
-		s := str{name: g.name("s"), val: g.randString()}
-		fmt.Fprintf(&g.globalText, "var %s = %s\n", s.name, strconv.Quote(s.val))
+		lit := g.randString()
+		s := str{name: g.name("s"), val: lit.val}
+		fmt.Fprintf(&g.globalText, "var %s = %s\n", s.name, lit.src)
 		g.strs = append(g.strs, s)
 	}
 	return g.strs[g.r.Intn(len(g.strs))]
@@ -2112,15 +2247,16 @@ func (g *gen) stringStmt() {
 	g.indent++
 	sub := s.name
 	if n > 0 {
-		lo := g.r.Intn(n + 1)
-		hi := lo + g.r.Intn(n-lo+1)
-		sub = fmt.Sprintf("%s[%d:%d]", s.name, lo, hi)
+		b := sliceBounds(s.val)
+		lo := g.r.Intn(len(b))
+		hi := lo + g.r.Intn(len(b)-lo)
+		sub = fmt.Sprintf("%s[%d:%d]", s.name, b[lo], b[hi])
 		g.line("println(len(%s), %s[%d], len(%s))", s.name, s.name, g.r.Intn(n), sub)
 	}
-	lit := strconv.Quote(g.randString())
-	g.line("println(%s == %s, %s < %s, %s >= %s, %s != %s)", sub, t.name, s.name, t.name, sub, lit, t.name, lit)
+	lit := g.randString()
+	g.line("println(%s == %s, %s < %s, %s >= %s, %s != %s)", sub, t.name, s.name, t.name, sub, lit.src, t.name, lit.src)
 	g.line("%s := 0", acc)
-	switch g.r.Intn(3) {
+	switch g.r.Intn(4) {
 	case 0:
 		g.line("for i := 0; i < len(%s); i++ {", s.name)
 		g.line("\t%s = %s*7 + int(%s[i])", acc, acc, s.name)
@@ -2128,6 +2264,15 @@ func (g *gen) stringStmt() {
 	case 1:
 		g.line("for i, r := range %s {", sub)
 		g.line("\t%s = %s*7 + i + int(r)", acc, acc)
+		g.line("}")
+	case 2:
+		// The index of a range over a string is a rune start, so the
+		// slices are valid without a check the optimiser cannot remove.
+		g.line("for i := range %s {", s.name)
+		g.line("\tif %s[i:] < %s {", s.name, t.name)
+		g.line("\t\t%s++", acc)
+		g.line("\t}")
+		g.line("\t%s = %s*7 + len(%s[:i])", acc, acc, s.name)
 		g.line("}")
 	default:
 		g.line("for _, r := range %s {", t.name)
@@ -2140,8 +2285,8 @@ func (g *gen) stringStmt() {
 	g.line("switch %s {", sub)
 	g.line("case %s:", strconv.Quote(t.val))
 	g.line("\tprintln(\"is t\")")
-	if lit != strconv.Quote(t.val) {
-		g.line("case %s:", lit)
+	if lit.val != t.val {
+		g.line("case %s:", lit.src)
 		g.line("\tprintln(\"is lit\")")
 	}
 	g.line("default:")
@@ -2833,7 +2978,9 @@ func (g *gen) loop() {
 	case 3, 4:
 		g.rangeInt()
 	case 5, 6:
-		g.rangeArray()
+		if !g.chance(3) || !g.rangeFunc() {
+			g.rangeArray()
+		}
 	case 7:
 		g.lenLoop()
 	case 8:
@@ -3110,7 +3257,7 @@ func (g *gen) breakLoop() {
 func (g *gen) callStmt() bool {
 	var cands []*fnInfo
 	for _, f := range g.funcs[:g.nfuncs] {
-		if (f.pure || g.cx.writeGlobal) && g.cx.cost+g.cx.mult*(f.cost+1) <= g.cx.budget {
+		if f.ret == nil && f.iter == nil && (f.pure || g.cx.writeGlobal) && g.cx.cost+g.cx.mult*(f.cost+1) <= g.cx.budget {
 			cands = append(cands, f)
 		}
 	}
@@ -3171,57 +3318,10 @@ func (g *gen) callStmt() bool {
 
 func (g *gen) closure() {
 	ci := &closureInfo{pure: g.chance(2)}
-	if g.chance(5) {
-		ci.result = tBool
-	} else {
-		ci.result = g.randInt()
-	}
+	g.closureSig(ci, g.randInt)
 	name := g.name("c")
-	outer := g.cx
-	// A pure closure writes only its own variables; an impure one may
-	// also write whatever the enclosing function may.
-	inner := &ctx{
-		level:         outer.level + 1,
-		results:       []*typ{ci.result},
-		minWriteLevel: outer.level + 1,
-		writeGlobal:   !ci.pure && outer.writeGlobal,
-		mult:          1,
-		budget:        fnBudget / 4,
-		tparam:        outer.tparam,
-	}
-	if !ci.pure {
-		inner.minWriteLevel = outer.minWriteLevel
-	}
-	g.cx = inner
-	g.push()
-	var params []string
-	for i, n := 0, g.r.Intn(3); i < n; i++ {
-		t := g.randInt()
-		v := g.declare(&variable{name: g.name("a"), t: t, used: true})
-		ci.params = append(ci.params, t)
-		params = append(params, v.name+" "+t.String())
-	}
-	g.line("%s := func(%s) %s {", name, strings.Join(params, ", "), ci.result)
-	g.indent++
-	g.stmts(1 + g.r.Intn(3))
-	ret := g.returnValues()
-	g.useAll()
-	g.line("return %s", ret)
-	g.sc = g.sc.parent
-	g.indent--
-	g.line("}")
-	g.cx = outer
-	ci.cost = inner.cost + 1
-	v := g.declare(&variable{name: name, closure: ci})
-	// Call it a few times.
-	for i, n := 0, g.r.Intn(3); i < n; i++ {
-		if g.cx.cost+g.cx.mult*(ci.cost+1) > g.cx.budget || (!ci.pure && len(g.ranged) > 0) {
-			break
-		}
-		g.addCost(ci.cost + 1)
-		v.used = true
-		r := &variable{name: g.name("v"), t: ci.result}
-		g.line("%s := %s(%s)", r.name, name, g.args(ci.params, make([]int, len(ci.params))))
-		g.declare(r)
-	}
+	ci.cost = g.closureLit(ci, name+" := ", false)
+	// The literal's record is in this frame, and it may capture views of it.
+	g.declare(&variable{name: name, closure: ci, owned: true})
+	g.callClosure(name, ci)
 }

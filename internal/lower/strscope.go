@@ -103,14 +103,21 @@ func (s *fnState) releaseAbove(depth int) {
 	}
 }
 
-// releaseForReturn releases everything the function holds: every open
-// entry, the frame slots and the parameters it retained.
-func (s *fnState) releaseForReturn() {
+// releaseScopes releases, for a return, every open entry.
+func (s *fnState) releaseScopes() {
 	if s.b == nil {
 		return
 	}
 	for i := len(s.cleanups) - 1; i >= 0; i-- {
 		s.releaseSlots(s.cleanups[i].slots, false)
+	}
+}
+
+// releaseFrame releases, for a return, what the function holds as a whole:
+// the frame slots, the parameters it retained and the regions it reserved.
+func (s *fnState) releaseFrame() {
+	if s.b == nil {
+		return
 	}
 	s.releaseSlots(s.frameSlots, false)
 	s.releaseSlots(s.ownedParams, false)

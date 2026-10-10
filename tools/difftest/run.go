@@ -27,6 +27,7 @@ type runner struct {
 	plutoDir string // PLUTOROOT
 	work     string // scratch directory
 	runLimit time.Duration
+	puFlags  []string // more flags for Plutonium builds
 }
 
 // An outcome is what one toolchain did with a program.
@@ -128,6 +129,14 @@ func (r *runner) check(src string, wantSig string) *verdict {
 			return v
 		}
 	}
+	// A program outside the common subset is the generator's (or, while
+	// reducing, a mutation's) fault.
+	for i, o := range v.pu {
+		if l := leftSubset(o.output); v.bad[i] && l != "" {
+			v.genBug = "outside the common subset of Go and Plutonium: " + l
+			return v
+		}
+	}
 	// When every level agrees with the others but not with Go, Go itself
 	// may be wrong: ask it again without optimisation.
 	if wantSig == "" && v.agreeAgainstGo() {
@@ -158,7 +167,7 @@ func (r *runner) runGo(dir, src string, flags ...string) outcome {
 	if err := os.WriteFile(filepath.Join(gdir, "main.go"), []byte(src), 0o644); err != nil {
 		return outcome{class: "compile-error", output: err.Error()}
 	}
-	if err := os.WriteFile(filepath.Join(gdir, "go.mod"), []byte("module prog\n\ngo 1.22\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(gdir, "go.mod"), []byte("module prog\n\ngo 1.23\n"), 0o644); err != nil {
 		return outcome{class: "compile-error", output: err.Error()}
 	}
 	bin := filepath.Join(dir, "gobin")
@@ -180,7 +189,8 @@ func (r *runner) runPu(dir, src string, level int) outcome {
 	}
 	bin := filepath.Join(dir, fmt.Sprintf("bin%d", level))
 	env := []string{"PLUTOROOT=" + r.plutoDir}
-	out, err := r.command(buildTimeout, pdir, env, r.pu, "build", "-O", fmt.Sprint(level), "-o", bin, ".")
+	args := append([]string{"build", "-O", fmt.Sprint(level), "-o", bin}, r.puFlags...)
+	out, err := r.command(buildTimeout, pdir, env, r.pu, append(args, ".")...)
 	if err != nil {
 		var ee *exec.ExitError
 		switch {

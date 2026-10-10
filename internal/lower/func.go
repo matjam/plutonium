@@ -93,6 +93,7 @@ type fnState struct {
 	cleanups    []*cleanupEntry
 	frameSlots  []countedSlot
 	ownedParams []countedSlot
+	returns     []pendingReturn // returns whose ends wait for the frame slots
 	entryZeros  []countedSlot
 	entryEnd    *ssa.Block // the entry block, once the body has its own
 	bodyBlock   *ssa.Block
@@ -451,6 +452,7 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 		}
 		s.popCleanup(root)
 	}
+	s.finishReturns()
 	s.finishEntry()
 	s.recordHolds()
 	s.endRegion()
@@ -648,6 +650,15 @@ func varName(v *types2.Var) string {
 	return v.Name()
 }
 
+// A pendingReturn is the end of a return statement, built once the whole
+// body is lowered (finishReturns).
+type pendingReturn struct {
+	b       *ssa.Block
+	pos     token.Pos
+	results []*ssa.Value // the result variables it returns
+	gx      *ssa.Value   // its Goexit flag, if it may leave for Goexit
+}
+
 // emitReturn runs deferred calls and returns the result variables.
 func (s *fnState) emitReturn(pos token.Pos) { s.emitReturnFor(pos, false) }
 
@@ -667,16 +678,44 @@ func (s *fnState) emitReturnFor(pos token.Pos, goexit bool) {
 		s.runDeferList(s.defers, s.deferBitsAddr(), s.deferRec, gx)
 	}
 	// Deferred calls may use the function's variables, so they are
-	// released only now.
-	s.releaseForReturn()
+	// released only now: the variables in scope here, and then the frame
+	// slots, retained parameters and regions of the whole function. A slot
+	// lowered after this return can still be filled before it runs, in an
+	// earlier iteration of a loop around both or after a goto back, so the
+	// rest of the return waits until the body is lowered and every slot is
+	// known.
+	s.releaseScopes()
 	if s.b == nil {
 		return // a deferred call never returns
 	}
+	end := s.newBlock(ssa.BlockInvalid)
+	s.endPlain(end)
+	s.seal(end)
+	s.returns = append(s.returns, pendingReturn{b: end, pos: pos, results: s.results, gx: gx})
+}
+
+// finishReturns ends every return statement: it releases what the
+// function holds as a whole and returns the result variables.
+func (s *fnState) finishReturns() {
+	for _, r := range s.returns {
+		s.startBlock(r.b)
+		if r.pos.IsValid() {
+			s.f.SetPos(r.pos)
+		}
+		s.releaseFrame()
+		s.finishReturn(r)
+	}
+	s.returns = nil
+}
+
+// finishReturn returns r's result variables from the current block.
+func (s *fnState) finishReturn(r pendingReturn) {
+	pos, gx, results := r.pos, r.gx, r.results
 	for i, inRegion := range s.resultRegion {
 		// A result variable in the region keeps its references; the
 		// caller gets references of its own.
 		if T := s.abi.results[i].typ; inRegion && s.l.counted(T) {
-			s.retainAt(s.results[i], T)
+			s.retainAt(results[i], T)
 		}
 	}
 	if gx != nil {
@@ -686,14 +725,14 @@ func (s *fnState) emitReturnFor(pos token.Pos, goexit bool) {
 	if s.abi.sret {
 		for i, p := range s.abi.results {
 			off := s.resultOffset(i)
-			s.move(s.offPtr(s.sret, off), s.results[i], s.l.sizeof(p.typ))
+			s.move(s.offPtr(s.sret, off), results[i], s.l.sizeof(p.typ))
 		}
 		controls = append(controls, s.mem())
 	} else {
 		var leaves []*ssa.Value
 		for i, p := range s.abi.results {
 			for _, lf := range p.leaves {
-				leaves = append(leaves, s.load(lf.t, s.offPtr(s.results[i], lf.off)))
+				leaves = append(leaves, s.load(lf.t, s.offPtr(results[i], lf.off)))
 			}
 		}
 		controls = append(controls, s.mem())

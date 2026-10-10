@@ -1,11 +1,15 @@
 package main
 
 import (
+	"go/ast"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestGenerateDeterministic(t *testing.T) {
@@ -46,6 +50,36 @@ func TestGenerateTypeChecks(t *testing.T) {
 				t.Fatalf("seed %d: %v\n%s", seed, errs[0], numbered(src))
 			}
 		}
+	}
+}
+
+// TestGenerateSubset checks generated programs against the parts of the
+// common subset that can be seen in the source (subset.go).
+func TestGenerateSubset(t *testing.T) {
+	for seed := int64(1); seed <= 300; seed++ {
+		src := Generate(seed, Options{})
+		ast.Inspect(mustParse(src), func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.BasicLit:
+				if n.Kind != token.STRING {
+					break
+				}
+				s, err := strconv.Unquote(n.Value)
+				if err != nil {
+					t.Fatalf("seed %d: %s: %v", seed, n.Value, err)
+				}
+				if !subset.InvalidUTF8 && !utf8.ValidString(s) {
+					t.Fatalf("seed %d: string literal %s is not valid UTF-8", seed, n.Value)
+				}
+			case *ast.CallExpr:
+				if id, ok := n.Fun.(*ast.Ident); ok && (id.Name == "append" || id.Name == "make" || id.Name == "new") {
+					t.Fatalf("seed %d: calls %s", seed, id.Name)
+				}
+			case *ast.MapType, *ast.ChanType, *ast.GoStmt:
+				t.Fatalf("seed %d: has a %T", seed, n)
+			}
+			return true
+		})
 	}
 }
 
