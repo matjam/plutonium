@@ -50,8 +50,8 @@ tooling, platforms and libraries.
     parameters and results, hidden result pointers, several results as a struct, export wrappers and
     func-value thunks (abi.md section 9.1); `.c` and `.o` files in packages are linked (section 9.2).
     Tested against GCC and Clang. Strings, slices, interfaces, func values and C varargs are rejected.
-13. **Debugging** (in progress): specification of DWARF line tables and CFI, symbolised stack traces on
-    panic, and the debug allocator; owned by a dedicated design document. Implementation items 41 to 43.
+13. **Debugging** (in progress): DWARF line tables and CFI, symbolised stack traces on panic, and the
+    debug allocator; specified in [debugging.md](spec/debugging.md). Implementation items 41 to 43.
 
 ## Concurrency
 
@@ -120,9 +120,12 @@ tooling, platforms and libraries.
 
 40. **`fmt` `%v` for composite types** (planned): structs, arrays, slices and pointers to them print as
     `{TypeName}` today; needs item 23.
-41. **Symbolised stack traces on panic** (planned, design in item 13): a function table and unwind
-    information walked by the panic path, usable in kernels.
-42. **DWARF line tables and CFI** (planned, design in item 13): for `gdb` and `perf`.
+41. **Symbolised stack traces on panic** (done): the compiler's trace table, walked by the panic path
+    and the hosted fault handler, usable in kernels (`rt.Traceback`); inlined calls are frames of their
+    own. A per-thread alternate signal stack for puroutine worker threads remains.
+42. **DWARF line tables and CFI** (done): compile units, subprograms, inlined calls, line table and
+    `.debug_frame` for `gdb` and `perf` (`-g`, default on; `-s` strips). Variable and type information
+    remains.
 43. **Debug allocator** (planned, design in item 13): guard pages, poisoning of freed memory, a
     use-after-free quarantine and double-free detection.
 44. **`println` of floats matching Go** (planned): `rt.printFloat` prints six fixed decimals; Go prints

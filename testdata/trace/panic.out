@@ -1,0 +1,6 @@
+6
+panic: negative scale
+    main.(*rect).area ($FILE:11)
+    main.main.func1 ($FILE:24)
+    main.run ($FILE:17)
+    main.main ($FILE:23)

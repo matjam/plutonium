@@ -239,8 +239,10 @@ RBP.
 subtracts from RSP first, and a leaf without a frame uses only registers. This holds in every build
 mode, which is why kernel mode needs no change to frame layout (section 10.1).
 
-There are no unwind tables and no frame-pointer chain today, so a debugger or a stack trace cannot walk
-Plutonium frames. Unwind information is planned with the debugging work (see the roadmap).
+The prologue pushes the saved registers in the order RBX, RBP, R12, R13, R14, R15. There is no
+frame-pointer chain: debuggers walk these frames with the DWARF call frame information in
+`.debug_frame`, and the runtime's stack traces with the compiler's trace table, both of which describe
+every prologue and epilogue (see [debugging.md](debugging.md)).
 
 ## 7. Code model and relocations
 

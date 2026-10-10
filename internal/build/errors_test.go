@@ -1,6 +1,7 @@
 package build_test
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -69,8 +70,10 @@ func main() {
 	if status != 2 {
 		t.Fatalf("exit status %d, want 2; output:\n%s", status, out)
 	}
-	const want = "panic: errors.New: more than 512 errors; declare errors in package-level variables, or use fmt.Errorf\n"
-	if out != want {
-		t.Fatalf("output %q, want %q", out, want)
+	// The message, then the stack trace from errors.New to main.
+	const want = "panic: errors.New: more than 512 errors; declare errors in package-level variables, or use fmt.Errorf\n" +
+		"    pluto/errors.New ($PLUTOROOT/pluto/errors/errors.p:"
+	if !strings.HasPrefix(out, want) || !regexp.MustCompile(`\n    main\.main \([^)]*/main\.p:7\)\n$`).MatchString(out) {
+		t.Fatalf("output %q, want %q, a line, and main.main at main.p:7", out, want)
 	}
 }

@@ -215,6 +215,7 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 		blockMap[gb] = nb
 	}
 	valMap := map[*ssa.Value]*ssa.Value{}
+	inl := f.AddInline(v, g)
 	args := v.Args[:len(v.Args)-1]
 	mem := v.Args[len(v.Args)-1]
 	for _, gb := range g.Blocks {
@@ -238,7 +239,7 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 				c := *gv.Call
 				nv.Call = &c
 			}
-			nv.Pos = gv.Pos
+			nv.Pos, nv.Inl = gv.Pos, inl(gv.Inl)
 			valMap[gv] = nv
 		}
 	}

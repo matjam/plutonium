@@ -1,0 +1,6 @@
+152
+panic: runtime error: index out of range [9] with length 8
+    main.pick ($FILE:9)
+    main.pressure ($FILE:15)
+    main.wide ($FILE:25)
+    main.main ($FILE:30)

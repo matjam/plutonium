@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/matjam/plutonium/internal/ssa"
+	"github.com/matjam/plutonium/internal/syntax/token"
 )
 
 // isel selects machine instructions for one SSA function.
@@ -23,12 +24,18 @@ type isel struct {
 	fused  []bool
 	folded []bool // loads folded into their user as a memory operand
 	loops  *ssa.LoopNest
+
+	// Source position of the value being selected, given to every
+	// instruction emitted for it.
+	pos token.Pos
+	inl int32
 }
 
 // Select converts an SSA function into machine IR.
 func Select(f *ssa.Func) (*MFunc, error) {
 	mf := newMFunc(f.Name)
 	mf.Sym = f.Sym
+	mf.Pos = f.Pos
 	mf.Slots = append(mf.Slots, f.Slots...)
 	mf.interrupt = f.Pragmas&ssa.PragmaInterrupt != 0
 	// Lowering checks a handler's signature: a frame pointer, then
@@ -82,13 +89,33 @@ func Select(f *ssa.Func) (*MFunc, error) {
 	// phis, which get their registers up front).
 	for _, b := range f.ReversePostOrder() {
 		s.cur = s.blocks[b.ID]
+		s.pos, s.inl = blockPos(b)
 		if b == f.Entry {
+			s.pos, s.inl = f.Pos, 0
 			s.entry()
 		}
 		for _, v := range b.Values {
+			if v.Pos.IsValid() && !isLazy(v) && v.Op != ssa.OpPhi {
+				s.pos, s.inl = v.Pos, v.Inl
+			}
+			for _, a := range v.Args {
+				// An instruction that does a folded load faults where the
+				// load would have, so it takes the load's position.
+				if s.folded[a.ID] && a.Pos.IsValid() {
+					s.pos, s.inl = a.Pos, a.Inl
+				}
+			}
 			if err := s.value(v); err != nil {
 				return nil, err
 			}
+		}
+		for _, c := range b.Controls {
+			if c.Pos.IsValid() && !isLazy(c) && c.Op != ssa.OpPhi && !c.Type.IsMem() {
+				s.pos, s.inl = c.Pos, c.Inl
+			}
+		}
+		if b.Kind == ssa.BlockRet && b.Pos.IsValid() {
+			s.pos, s.inl = b.Pos, 0
 		}
 		if err := s.terminator(b); err != nil {
 			return nil, err
@@ -105,8 +132,22 @@ func classOfType(t *ssa.Type) RegClass {
 }
 
 func (s *isel) emit(in *MInst) *MInst {
+	if !in.Pos.IsValid() {
+		in.Pos, in.Inl = s.pos, s.inl
+	}
 	s.cur.Insts = append(s.cur.Insts, in)
 	return in
+}
+
+// blockPos returns the first source position in b, for the instructions
+// emitted before the first value that has one.
+func blockPos(b *ssa.Block) (token.Pos, int32) {
+	for _, v := range b.Values {
+		if v.Pos.IsValid() && !isLazy(v) && v.Op != ssa.OpPhi {
+			return v.Pos, v.Inl
+		}
+	}
+	return b.Pos, 0
 }
 
 func (s *isel) newReg(t *ssa.Type) Reg { return s.mf.newVReg(classOfType(t)) }

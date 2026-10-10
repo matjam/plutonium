@@ -18,6 +18,10 @@ type Value struct {
 	Block  *Block
 	Pos    token.Pos
 	Uses   int32 // number of uses as an argument or block control
+	// Inl, when nonzero, is the 1-based index in Block.Func.Inlines of the
+	// inlined call this value came from; Pos is then a position in the
+	// inlined function.
+	Inl int32
 
 	argStorage [3]*Value
 }
@@ -204,6 +208,9 @@ func (b *Block) NewValue(op Op, t *Type, args ...*Value) *Value {
 // NewValueBefore inserts a new value into b immediately before at.
 func (b *Block) NewValueBefore(at *Value, op Op, t *Type, args ...*Value) *Value {
 	v := b.Func.newValue(op, t, b)
+	if !v.Pos.IsValid() && at != nil {
+		v.Pos, v.Inl = at.Pos, at.Inl
+	}
 	for _, a := range args {
 		v.AddArg(a)
 	}
@@ -315,6 +322,14 @@ type Func struct {
 	Pragmas Pragma
 	Section string
 	Pos     token.Pos
+	Pkg     string // import path of the package that declares it, if any
+
+	// Inlines records the calls inlined into this function, so that a
+	// position in an inlined body can be traced back to its call site.
+	Inlines []InlineSite
+
+	// pos is the position given to new values (see SetPos).
+	pos token.Pos
 
 	// ParamOnStack forces parameters to the stack, as CallInfo.OnStack does
 	// for calls (ABIC functions only; nil otherwise).
@@ -341,8 +356,46 @@ func NewFunc(name string) *Func {
 	return f
 }
 
+// An InlineSite is a call that the inliner replaced with the callee's body.
+type InlineSite struct {
+	Parent int32     // 1-based index of the enclosing inlined call, or 0
+	Func   string    // the inlined function's name
+	Pos    token.Pos // position of the call
+}
+
+// SetPos sets the position given to values created from now on and returns
+// the previous one. Lowering sets it as it walks the source; passes that
+// leave it unset create values without a position, which the backend fills
+// in from the surrounding code.
+func (f *Func) SetPos(p token.Pos) token.Pos {
+	old := f.pos
+	f.pos = p
+	return old
+}
+
+// AddInline records that call, a call in f, is being replaced by the body of
+// g. It returns the function that maps a value's Inl in g to its Inl in f.
+func (f *Func) AddInline(call *Value, g *Func) func(inl int32) int32 {
+	base := int32(len(f.Inlines)) + 1 // index of the new site
+	f.Inlines = append(f.Inlines, InlineSite{Parent: call.Inl, Func: g.Name, Pos: call.Pos})
+	for _, s := range g.Inlines {
+		if s.Parent == 0 {
+			s.Parent = base
+		} else {
+			s.Parent += base
+		}
+		f.Inlines = append(f.Inlines, s)
+	}
+	return func(inl int32) int32 {
+		if inl == 0 {
+			return base
+		}
+		return inl + base
+	}
+}
+
 func (f *Func) newValue(op Op, t *Type, b *Block) *Value {
-	v := &Value{ID: f.nextValue, Op: op, Type: t, Block: b}
+	v := &Value{ID: f.nextValue, Op: op, Type: t, Block: b, Pos: f.pos}
 	v.Args = v.argStorage[:0]
 	f.nextValue++
 	return v

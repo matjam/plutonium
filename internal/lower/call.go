@@ -218,7 +218,9 @@ func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []
 	}
 
 	call := s.callValue(c, flat, abi.flatResults)
-	call.Pos = pos
+	if pos.IsValid() {
+		call.Pos = pos
+	}
 	s.endCall(call, c.noReturn)
 
 	var out []value

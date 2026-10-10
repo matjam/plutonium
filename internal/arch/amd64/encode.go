@@ -30,6 +30,7 @@ type encoder struct {
 	code   []byte
 	relocs []Reloc
 	fixups []fixup
+	marks  []int // instruction offsets that relax moves with the code
 	err    error
 }
 

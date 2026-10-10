@@ -9,6 +9,7 @@
 !testdata/run/*.out
 !testdata/lib/*.out
 !testdata/plutonium/*.out
+!testdata/trace/*.out
 
 # Agent worktrees
 /.claude/worktrees/

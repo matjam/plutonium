@@ -296,6 +296,13 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 	} else if job.lit != nil {
 		f.Pos = job.lit.Pos()
 	}
+	if job.pkg != nil {
+		f.Pkg = job.pkg.Path
+	}
+	// Values take the position of the code being lowered: the function's
+	// declaration for its setup, then each statement and expression.
+	f.SetPos(f.Pos)
+	defer f.SetPos(token.NoPos)
 
 	if job.build != nil {
 		job.build(s)
@@ -451,6 +458,9 @@ func varName(v *types2.Var) string {
 
 // emitReturn runs deferred calls and returns the result variables.
 func (s *fnState) emitReturn(pos token.Pos) {
+	if pos.IsValid() {
+		s.f.SetPos(pos)
+	}
 	s.runDefers()
 	ret := s.b
 	ret.Kind = ssa.BlockRet
