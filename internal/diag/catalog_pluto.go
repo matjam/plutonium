@@ -573,6 +573,15 @@ func init() {
 			Example: "for i := 0; i < n; i++ {\n\tgo func() {\n\t\tout <- i * i\n\t}()\n}",
 		},
 		&Entry{
+			Code: GoFrameClosure, Name: "GoFrameClosure",
+			Text: "A function literal that captures variables, and a method value such as c.handle, keep their closure record (the code to call, with the captured variables or a copy of the receiver) in the frame of the function that makes them. A func value points to that record. A go statement copies its function and arguments, but copying a func value copies only the pointer, so the puroutine may call through it after the frame is gone.\n" +
+				"The compiler reports this wherever it can tell: a capturing literal or a method value passed to go, or a local variable assigned only once, from one of them. Elsewhere the go statement checks when it runs, and panics.",
+			Why:     "Go moves captured variables and the receivers of method values to the heap. Plutonium never allocates behind the program's back, so the record stays in its frame (spec section 4.5).",
+			Fix:     &Fix{Intro: "Pass the values the function needs, and start a function that takes them", Code: "go func(n int, out chan int) {\n\tout <- n * n\n}(n, out)"},
+			Spec:    pspec("4.7", "go starts a puroutine"),
+			Example: "square := func() { out <- n * n }\ngo square()",
+		},
+		&Entry{
 			Code: GoBuiltin, Name: "GoBuiltin",
 			Text: "A go statement cannot start a built-in function such as println or close directly. Wrap it in a function and start that.",
 			Spec: pspec("4.7", "go starts a puroutine"),

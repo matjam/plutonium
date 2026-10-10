@@ -89,8 +89,9 @@ later takes the next free number and is listed in the section where it belongs.
     of a processor blocked in a system call (`os` file I/O, `time.Sleep`, `Process.Wait` and the waits
     of `os/exec`), an epoll poller for pipes from `os.Pipe` (`File.Fd` makes one blocking again, as in
     Go, so `os/exec` can hand it to a child), and deadlock detection (language spec section 4.7; abi.md
-    section 12). `rt.StackLeft` measures a puroutine's own stack. The sendable rules are checked (`shared[T]` never
-    crosses, frame views are rejected syntactically, closures in the current frame panic at the `go`).
+    section 12). `rt.StackLeft` measures a puroutine's own stack. The sendable rules are checked
+    (`shared[T]` never crosses, frame views are rejected syntactically, and closures in the current
+    frame are a compile error, E2594, where the compiler can tell, and panic at the `go` otherwise).
     Follow-ups: timers and `ParkUntil` with item 45; traces of parked puroutines (`rt.TraceTask`); one
     waiter per file in the poller, and closing a file does not wake it; a program that binds its own
     hosted backend runs on one thread; spawning costs about twice Go's.

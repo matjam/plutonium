@@ -49,6 +49,133 @@ func (s *fnState) checkSendable(T types2.Type, pos token.Pos, what string) {
 // ----------------------------------------------------------------------------
 // go statements
 
+// goFrameClosures reports the func values of a go statement that are known
+// to be closure records in this frame: the function started (fun, unless
+// it is a function literal, which goStmt checks, or a method call) and the
+// func-typed arguments. It reports whether there were any. Those it cannot
+// tell about are checked when the go statement runs.
+func (s *fnState) goFrameClosures(fun ast.Expr, args []ast.Expr) bool {
+	found := false
+	if id, ok := fun.(*ast.Ident); ok {
+		if what := s.frameClosure(id, 0); what != "" {
+			s.l.errorf(id.Pos(), diag.GoFrameClosure, "cannot start %s with go: it holds %s, whose closure record lives in the starting frame (spec section 4.7)", id.Name, what)
+			found = true
+		}
+	}
+	for _, a := range args {
+		if _, ok := s.typeOf(a).Underlying().(*types2.Signature); !ok {
+			continue
+		}
+		what := s.frameClosure(a, 0)
+		if what == "" {
+			continue
+		}
+		found = true
+		if id, ok := ast.Unparen(a).(*ast.Ident); ok {
+			s.l.errorf(a.Pos(), diag.GoFrameClosure, "cannot pass %s to a puroutine: it holds %s, whose closure record lives in the starting frame (spec section 4.7)", id.Name, what)
+		} else {
+			s.l.errorf(a.Pos(), diag.GoFrameClosure, "cannot pass %s to a puroutine: its closure record lives in the starting frame (spec section 4.7)", what)
+		}
+	}
+	return found
+}
+
+// frameClosure describes e if it is known to be a func value whose closure
+// record is in this frame, and returns "" otherwise: a function literal
+// that captures variables, a method value, or a local variable whose only
+// assignment is its declaration, from one of those. depth bounds the chain
+// of variables followed.
+func (s *fnState) frameClosure(e ast.Expr, depth int) string {
+	if s.staticLits || depth > 8 {
+		return ""
+	}
+	switch e := ast.Unparen(e).(type) {
+	case *ast.FuncLit:
+		if caps := s.capturedVars(e); len(caps) > 0 {
+			return fmt.Sprintf("a function literal that captures %s (%s)", caps[0].Name(), s.l.shortPos(e.Pos()))
+		}
+	case *ast.SelectorExpr:
+		if sel := s.info.Selections[e]; sel != nil && sel.Kind() == types2.MethodVal {
+			return "the method value " + types2.ExprString(e)
+		}
+	case *ast.Ident:
+		if v, ok := s.info.Uses[e].(*types2.Var); ok {
+			if init := s.onlyValue(v); init != nil {
+				return s.frameClosure(init, depth+1)
+			}
+		}
+	}
+	return ""
+}
+
+// onlyValue returns the initializer of v, a variable declared in the body
+// of the function being lowered, if that is the only value v ever holds:
+// nothing else assigns to v, and nothing takes its address or selects
+// through it (a method with a pointer receiver could change it). It
+// returns nil otherwise.
+func (s *fnState) onlyValue(v *types2.Var) ast.Expr {
+	var body *ast.BlockStmt
+	switch {
+	case s.job == nil:
+	case s.job.decl != nil:
+		body = s.job.decl.Body
+	case s.job.lit != nil:
+		body = s.job.lit.Body
+	}
+	if body == nil || v.Pos() < body.Pos() || v.Pos() >= body.End() {
+		return nil
+	}
+	var init ast.Expr
+	ok := true
+	uses := func(x ast.Expr) bool {
+		id, isID := ast.Unparen(x).(*ast.Ident)
+		return isID && s.info.Uses[id] == v
+	}
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.AssignStmt:
+			for i, lhs := range n.Lhs {
+				if id, isID := lhs.(*ast.Ident); isID && s.info.Defs[id] == v {
+					if len(n.Rhs) == len(n.Lhs) {
+						init = n.Rhs[i]
+					} else {
+						ok = false
+					}
+				} else if uses(lhs) {
+					ok = false
+				}
+			}
+		case *ast.ValueSpec:
+			for i, name := range n.Names {
+				if s.info.Defs[name] == v {
+					if len(n.Values) == len(n.Names) {
+						init = n.Values[i]
+					} else {
+						ok = false
+					}
+				}
+			}
+		case *ast.RangeStmt:
+			if n.Tok == token.ASSIGN && (uses(n.Key) || uses(n.Value)) {
+				ok = false
+			}
+		case *ast.UnaryExpr:
+			if n.Op == token.AND && uses(n.X) {
+				ok = false
+			}
+		case *ast.SelectorExpr:
+			if uses(n.X) {
+				ok = false
+			}
+		}
+		return ok
+	})
+	if !ok {
+		return nil
+	}
+	return init
+}
+
 // A goArg is a value a go statement evaluates in the starting frame and
 // copies into the new puroutine's argument block.
 type goArg struct {
@@ -75,6 +202,9 @@ func (s *fnState) goStmt(st *ast.GoStmt) {
 	funTV := s.info.Types[call.Fun]
 	if funTV.IsBuiltin() {
 		s.l.errorf(st.Pos(), diag.GoBuiltin, "go with the built-in %s is not supported; start a function that calls it", identOf(fun).Name)
+		return
+	}
+	if s.goFrameClosures(fun, call.Args) {
 		return
 	}
 

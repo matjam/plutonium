@@ -270,10 +270,14 @@ of the spawning frame cannot be passed at all (section 6.3), since the puroutine
   default or `rt.Go`'s size).
 - A function literal that captures variables cannot be started with `go`: its captures live in the
   spawning frame, which may be gone before the puroutine runs (section 4.5). Pass the values as
-  arguments: `go func(n int) { work(n) }(n)`. Starting such a literal directly is a compile error. A
-  func value whose closure record lies in the starting puroutine's stack (a capturing literal or a method
-  value that reached the `go` statement through a variable or parameter) panics when the `go` statement
-  runs, whether it is the function started or a func-typed argument, and so does `rt.Go` with one.
+  arguments: `go func(n int) { work(n) }(n)`. The same holds for a method value `x.M`, whose closure
+  record holds a copy of the receiver in the frame that made it. Wherever the compiler can tell that a
+  `go` statement's function, or one of its func-typed arguments, is such a closure, it is a compile
+  error: a capturing literal or a method value written in the `go` statement, or a local variable whose
+  only assignment is its declaration from one of them (directly or through other such variables). Any
+  other func value whose closure record lies in the starting puroutine's stack (one that reached the
+  `go` statement through a parameter, a field or a variable assigned more than once) panics when the
+  `go` statement runs, and so does `rt.Go` with one.
 - Puroutines run in parallel and are preempted: one that runs for a full time slice (10 ms in hosted
   builds) without blocking is suspended at whatever instruction it has reached and another runs in its
   place, even in a loop that makes no calls. Since there is no garbage collector, every instruction is a
