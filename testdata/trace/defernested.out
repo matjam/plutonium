@@ -1,0 +1,7 @@
+work deferred, n = 0
+closing
+panic: runtime error: integer divide by zero
+	panic: close failed
+    main.(*conn).Close (./main.p:13)
+    main.work (./main.p:20)
+    main.main (./main.p:26)

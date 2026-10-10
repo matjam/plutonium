@@ -460,8 +460,13 @@ func emitObject(cfg *Config, p *ssa.Program, prog *load.Program) (*objfile.Objec
 		off := sec.Append(code.Bytes, 16)
 		obj.Define(&objfile.Symbol{Name: f.Sym.Name, Section: sec, Value: off, Size: uint64(len(code.Bytes)),
 			Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC})
-		dbg.Add(&debuginfo.Func{Sym: f.Sym.Name, Pkg: f.Pkg, Pos: f.Pos, Size: len(code.Bytes),
-			Debug: code.Debug, Inlines: f.Inlines})
+		df := &debuginfo.Func{Sym: f.Sym.Name, Pkg: f.Pkg, Pos: f.Pos, Size: len(code.Bytes),
+			Debug: code.Debug, Inlines: f.Inlines}
+		if f.DeferRunner != nil {
+			// Frame layout has placed the record (amd64.Compile).
+			df.DeferRunner, df.DeferOff = f.DeferRunner.Name, f.DeferRecord.Offset
+		}
+		dbg.Add(df)
 		for _, name := range f.Exports {
 			obj.Define(&objfile.Symbol{Name: name, Section: sec, Value: off, Size: uint64(len(code.Bytes)),
 				Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC})

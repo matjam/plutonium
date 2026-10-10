@@ -51,8 +51,25 @@ _start:
 	syscall
 	ret
 
-# sigreturn is the signal restorer the kernel requires (SA_RESTORER). The
-# fault handler never returns, so it is never reached in practice.
+# faultResume is where a fault that runs deferred calls resumes once the
+# fault handler has returned (sigpanic): on the faulting task's stack,
+# 16-byte aligned below the red zone, it raises the panic sigpanic
+# described.
+	.type "pluto/rt.faultResume", @function
+"pluto/rt.faultResume":
+	call	"pluto/rt.raiseFault"
+	ud2
+
+# faultResumePC() uintptr: the address of faultResume.
+	.globl "pluto/rt.faultResumePC"
+	.type "pluto/rt.faultResumePC", @function
+"pluto/rt.faultResumePC":
+	leaq	"pluto/rt.faultResume"(%rip), %rax
+	ret
+
+# sigreturn is the signal restorer the kernel requires (SA_RESTORER): the
+# fault handler returns to it when the panic resumes on the task's stack
+# (faultResume), as the preemption signal's handler does.
 	.type "pluto/rt.sigreturn", @function
 "pluto/rt.sigreturn":
 	movl	$15, %eax

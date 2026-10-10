@@ -17,6 +17,9 @@ type callee struct {
 	ctx      *ssa.Value // indirect: closure record passed to the callee
 	noReturn bool
 	site     *callSite // the call as written, for the interrupt-context check
+	// deferred marks a deferred call, after which the caller does not
+	// check for rt.Goexit: it runs its remaining deferred calls first.
+	deferred bool
 }
 
 // callExpr lowers a call expression and returns its single result (or the
@@ -349,6 +352,9 @@ func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []
 		call.Pos = pos
 	}
 	s.endCall(call, c.noReturn)
+	if s.callMayGoexit(c, sig) {
+		s.checkGoexit(pos)
+	}
 
 	var out []value
 	if abi.sret {
@@ -760,6 +766,7 @@ func (l *Lowerer) methodExprThunk(R types2.Type, fn *types2.Func, path []int, ta
 	}
 	sym := l.out.Sym(name, ssa.SymFunc)
 	l.funcs[name] = sym
+	l.gxWrapped[sym] = fn
 	var rest []*types2.Var
 	for i := 1; i < sig.Params().Len(); i++ {
 		rest = append(rest, sig.Params().At(i))

@@ -22,4 +22,14 @@
 	movq	(%rdi), %rax
 	ret
 
+# callDeferRunner(runner, rec uintptr): calls the defer record runner at
+# code address runner, a func(rec unsafe.Pointer), with rec. A tail jump:
+# the runner returns to callDeferRunner's caller.
+	.globl "pluto/rt.callDeferRunner"
+	.type "pluto/rt.callDeferRunner", @function
+"pluto/rt.callDeferRunner":
+	movq	%rdi, %rax
+	movq	%rsi, %rdi
+	jmp	*%rax
+
 	.section .note.GNU-stack,"",@progbits

@@ -1,0 +1,5 @@
+worker took the lock
+worker finished
+panic: runtime error: index out of range [2] with length 2
+    main.update (./main.p:22)
+    main.main (./main.p:36)

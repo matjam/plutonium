@@ -18,15 +18,19 @@
 // fixed buffers on the stack (longer messages are cut short), and names
 // of subtests are built in a fixed buffer in each T.
 //
-// Plutonium has no unwinder, so FailNow, Fatal, Fatalf, SkipNow, Skip and
-// Skipf leave the test function by restoring the runner's frame: deferred
-// calls in the test function do not run. A test that panics ends the whole
-// test binary; pluto test reports it as a failure of that test.
+// FailNow, Fatal, Fatalf, SkipNow, Skip and Skipf end the test function
+// with rt.Goexit, as Go's do with runtime.Goexit: the deferred calls of the
+// test function and of every function it was in run, and their variables
+// are released, before the next test starts. The runner stops the exit
+// with rt.CatchGoexit, so tests run one after another on the task that
+// runs main. A test that panics ends the whole test binary, after running
+// its deferred calls; pluto test reports it as a failure of that test.
 package testing
 
 import (
 	"pluto/fmt"
 	"pluto/os"
+	"pluto/rt"
 	"pluto/syscall"
 	"unsafe"
 )
@@ -38,18 +42,6 @@ const (
 	benchTime = 1000000000 // nanoseconds a benchmark should run for
 	maxN      = 1000000000
 )
-
-// jmpbuf is the frame recorded by setjmp: the callee-saved registers, the
-// stack pointer and the return address.
-type jmpbuf struct {
-	regs [8]uintptr
-}
-
-//pu:noescape
-func setjmp(b *jmpbuf) int
-
-//pu:noescape
-func longjmp(b *jmpbuf)
 
 // M runs the tests and benchmarks of one package. pluto test generates
 // the main function that drives it.
@@ -201,9 +193,7 @@ type common struct {
 	depth   int
 	failed  bool
 	skipped bool
-	running bool // the test function is executing, so FailNow can jump
 	start   int64
-	jmp     jmpbuf
 }
 
 // setName sets c's name to its parent's name, a slash, and elem with
@@ -250,28 +240,23 @@ func (c *common) Fail() { c.failed = true }
 // Failed reports whether the test has failed.
 func (c *common) Failed() bool { return c.failed }
 
-// FailNow marks the test as failed and stops it. Later tests still run.
+// FailNow marks the test as failed and stops it with rt.Goexit: the
+// deferred calls of the test function, and of the functions it is in, run.
+// Later tests still run. FailNow must be called from the task running the
+// test, not from a task the test started, which it would end instead.
 func (c *common) FailNow() {
 	c.failed = true
-	c.exit()
+	rt.Goexit()
 }
 
-// SkipNow marks the test as skipped and stops it.
+// SkipNow marks the test as skipped and stops it as FailNow does.
 func (c *common) SkipNow() {
 	c.skipped = true
-	c.exit()
+	rt.Goexit()
 }
 
 // Skipped reports whether the test was skipped.
 func (c *common) Skipped() bool { return c.skipped }
-
-// exit leaves the test function and returns to its runner.
-func (c *common) exit() {
-	if c.running {
-		c.running = false
-		longjmp(&c.jmp)
-	}
-}
 
 // Helper marks the calling function as a test helper. Messages carry no
 // source position in Plutonium, so it has nothing to do.
@@ -401,11 +386,7 @@ type T struct {
 func (t *T) run(f func(*T)) {
 	fmt.Printf("=== RUN   %s\n", t.Name())
 	t.start = nanotime()
-	if setjmp(&t.jmp) == 0 {
-		t.running = true
-		f(t)
-	}
-	t.running = false
+	rt.CatchGoexit(func() { f(t) })
 	t.report()
 }
 
@@ -445,11 +426,7 @@ func (b *B) runN(f func(*B), n int) bool {
 	b.elapsed = 0
 	b.timerOn = false
 	b.StartTimer()
-	if setjmp(&b.jmp) == 0 {
-		b.running = true
-		f(b)
-	}
-	b.running = false
+	rt.CatchGoexit(func() { f(b) })
 	b.StopTimer()
 	return !b.failed && !b.skipped
 }

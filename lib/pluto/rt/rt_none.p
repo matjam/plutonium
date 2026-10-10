@@ -35,6 +35,11 @@ func consoleWrite(p unsafe.Pointer, n int) {
 // while another handles a panic goes to lastResort, which halts it.
 func selfID() uint64 { return uint64(cpuNumber()) }
 
+// deferOnPanic says a panic runs the panicking task's deferred calls
+// before the panic handler: not in freestanding builds, whose handler must
+// work from any state (language spec section 8.1).
+const deferOnPanic = false
+
 // signalName names a signal for Panic.Print: there are none.
 func signalName(sig int) string { return "" }
 
@@ -46,3 +51,7 @@ func otherPanicking() { halt() }
 // or while a panic's message was being written: it disables interrupts
 // and halts, without touching memory or devices.
 func lastResort() { halt() }
+
+// exit stops the program: a freestanding program has no system to return a
+// status to, so the processor halts.
+func exit(code int) { halt() }

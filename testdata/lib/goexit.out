@@ -1,0 +1,23 @@
+stop deferred: direct
+direct deferred
+direct
+stop deferred: func value
+func value
+stop deferred: interface
+Stop deferred: interface
+interface
+stop deferred: type parameter
+Stop deferred: type parameter
+type parameter
+range body 0
+range body 1
+stop deferred: range body
+iterator deferred
+range
+inDefer returns
+stop deferred: deferred
+runs after the deferred Goexit
+deferred Goexit
+stop deferred: in a result
+expression
+main returns

@@ -1,0 +1,10 @@
+returned normally
+deferred builtin, words = 3
+closed log
+closure sees n = 2
+deferred with n = 1
+flushed: hello world and 
+panic: runtime error: index out of range [16] with length 16
+    main.(*buffer).Write (./main.p:28)
+    main.fill (./main.p:46)
+    main.main (./main.p:61)

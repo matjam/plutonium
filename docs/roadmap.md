@@ -200,6 +200,16 @@ later takes the next free number and is listed in the section where it belongs.
     loop, so it runs at most once (language spec section 4.10).
 29. **`min`/`max` of strings and comparison of large arrays** (planned): rejected with "not supported
     yet".
+58. **Deferred calls on a panic, and `rt.Goexit`** (done; language spec sections 8.2 and 8.3;
+    false-friends audit F4 and F5): a hosted panic runs the panicking task's deferred calls, innermost
+    frame first, before the panic handler, from defer records the trace table lists (no unwinding, no
+    `recover`, owners not dropped); faults resume on the task's stack to run them; a panic in a deferred
+    call goes to the handler, which prints both. `rt.Goexit` ends a task after every frame has run its
+    deferred calls and released its variables, through the frames' own return paths, checked only after
+    calls that may reach it; `testing`'s `FailNow` family uses it, so a test's deferred calls run.
+    Freestanding and kernel builds are unchanged. Follow-ups: owner drops on `Goexit` come with item 20's
+    drops, which run on the same return paths; `sync.Scope`'s join on `Goexit` likewise (scoped-puroutines
+    D7).
 48. **Counted references and `weak[P]`** (planned; language spec sections 5.6 and 6.5): the allocation
     header (allocator, strong and weak counts), increments on copy and decrements on drop with matched
     pairs removed at last use, `Drop` at zero strong count and the free at zero weak count, the atomic

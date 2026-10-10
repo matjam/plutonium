@@ -456,8 +456,14 @@ thing is.
 4. **F4.** In hosted builds a panic runs the panicking puroutine's deferred calls before the handler
    prints it; no `recover`, no drops, other puroutines untouched; `p.RunDeferred()` for a program's own
    handler. Recommended. This amends "panic aborts" only in that deferred calls run.
+   **Implemented** (language spec section 8.2). The runtime runs the deferred calls before calling any
+   hosted handler, the program's own included, so `p.RunDeferred()` is not needed and does not exist.
 5. **F5.** Add `rt.Goexit`, which runs deferred calls and drops of every frame of the puroutine and ends
    it; run each test on its own puroutine; `FailNow` calls `Goexit`. Recommended.
+   **Implemented** (language spec section 8.3), with one change: tests still run one after another on
+   the task that runs main, and the runner stops the exit with `rt.CatchGoexit`. A task per test would
+   start the scheduler in every test binary and run tests on 64 KiB stacks (F8); what Go programmers
+   rely on, deferred calls and drops running when a test stops, holds either way.
 6. **F6, F7.** Channel counting before more concurrency work, then the channel owns its timer and
    `alloc.Free` of timers and `alloc.FreeChan` go away. Recommended.
 7. **F8.** Computed stack sizes where the call graph allows (roadmap item 18), and a 64 MiB lazily

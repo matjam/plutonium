@@ -24,6 +24,11 @@ type Func struct {
 	Size    int
 	Debug   *amd64.FuncDebug
 	Inlines []ssa.InlineSite
+	// DeferRunner, if set, is the runner of the function's defer record,
+	// which lies DeferOff bytes above the stack pointer in its frame
+	// (ssa.Func.DeferRecord).
+	DeferRunner string
+	DeferOff    int64
 }
 
 // A Table collects the compiled functions of a program.
