@@ -35,9 +35,12 @@ type encoder struct {
 
 // fixup is a branch whose rel32 must be patched once block offsets are known.
 type fixup struct {
+	start  int // offset of the instruction
 	at     int // offset of the rel32 field
 	end    int // offset just after the instruction
 	target *MBlock
+	jcc    bool
+	cond   Cond
 }
 
 func (e *encoder) byte(b ...byte) { e.code = append(e.code, b...) }
@@ -454,12 +457,14 @@ func (e *encoder) encode(in *MInst) {
 			e.emitInsn(insn{opcode: []byte{0xFF}, reg: NoReg, ext: 2, rm: rmOf(in.Src)})
 		}
 	case MJMP:
+		start := len(e.code)
 		e.byte(0xE9)
-		e.fixups = append(e.fixups, fixup{at: len(e.code), end: len(e.code) + 4, target: in.Target})
+		e.fixups = append(e.fixups, fixup{start: start, at: len(e.code), end: len(e.code) + 4, target: in.Target})
 		e.imm(0, 4)
 	case MJCC:
+		start := len(e.code)
 		e.byte(0x0F, 0x80+byte(in.Cond))
-		e.fixups = append(e.fixups, fixup{at: len(e.code), end: len(e.code) + 4, target: in.Target})
+		e.fixups = append(e.fixups, fixup{start: start, at: len(e.code), end: len(e.code) + 4, target: in.Target, jcc: true, cond: in.Cond})
 		e.imm(0, 4)
 	case MRET:
 		e.byte(0xC3)
