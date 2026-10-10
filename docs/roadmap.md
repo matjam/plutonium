@@ -233,7 +233,8 @@ later takes the next free number and is listed in the section where it belongs.
     default allocator the driver installs): under the accepted `new` proposal `new(T)` returns
     `owned[T]`, which a `*T` field cannot hold, so arena allocation is written `pu.New` in Go.
     `TestPuMirrorsLibrary` checks every name and method against the library; the `pudemo` demo prints
-    the same output from Go and from its translation at `-O0` and `-O2`.
+    the same output from Go and from its translation at `-O0` and `-O2`. go2pu's translation of escaping
+    `&T{...}` and of variables Go moves to the heap emits `pu.New` too, instead of `new`.
 54. **Self-hosting prerequisites** (in progress): the compiler and library work of phases 0 and 1 of
     [the self-hosting plan](plans/2026-10-09-self-hosting-plan.md) (section 8).
     - Single-pointer structs in an interface's data word (done): a struct with one field, or an array of

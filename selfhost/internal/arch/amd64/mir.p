@@ -8,6 +8,7 @@ import (
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 	"selfhost/internal/syntax/token"
+	"selfhost/pu"
 )
 
 // An MOp is a machine instruction kind. Most map to one x86-64 instruction;
@@ -430,7 +431,7 @@ type MFunc struct {
 }
 
 func newMFunc(name string) *MFunc {
-	return new(MFunc{Name: name, nextVReg: FirstVirtual, regClass: compat.NewMap[Reg, RegClass](0)})
+	return pu.New(MFunc{Name: name, nextVReg: FirstVirtual, regClass: compat.NewMap[Reg, RegClass](0)})
 }
 
 // newVReg allocates a virtual register.
@@ -477,7 +478,7 @@ func (f *MFunc) classOf(r Reg) RegClass {
 
 // newSlot adds a stack slot.
 func (f *MFunc) newSlot(name string, size, align int64) *ssa.Slot {
-	s := new(ssa.Slot{ID: 1<<20 + f.nextSlot, Name: name, Size: size, Align: align})
+	s := pu.New(ssa.Slot{ID: 1<<20 + f.nextSlot, Name: name, Size: size, Align: align})
 	f.nextSlot++
 	f.Slots = compat.Append(f.Slots, s)
 	return s
@@ -485,7 +486,7 @@ func (f *MFunc) newSlot(name string, size, align int64) *ssa.Slot {
 
 // String formats the function in an assembly-like syntax for -S output.
 func (f *MFunc) String() string {
-	sb := new(compat.Builder)
+	sb := pu.Alloc[compat.Builder]()
 	fmt.Fprintf(sb, "%s:\n", f.Name)
 	for _, b := range f.Blocks {
 		fmt.Fprintf(sb, "%s:\n", b)
@@ -509,7 +510,7 @@ func (o Operand) format(size int) string {
 }
 
 func (m Mem) String() string {
-	sb := new(compat.Builder)
+	sb := pu.Alloc[compat.Builder]()
 	if m.Seg == SegGS {
 		sb.WriteString("%gs:")
 		if m.Base == NoReg && m.Index == NoReg {

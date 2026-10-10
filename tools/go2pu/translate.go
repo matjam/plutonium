@@ -146,7 +146,15 @@ var puNames = map[string]puName{
 	"New":             {"$MOD/pu", "pu", "New"},
 }
 
+// puNew returns the allocation of a copy of the value expression e in the
+// phase arena: selfhost/pu.New(e). Under the accepted proposal new(e)
+// returns an owned[T], which the *T the Go code expects cannot hold.
+func (t *fileTr) puNew(e string) string {
+	return t.use(puPkg, "pu") + ".New(" + e + ")"
+}
+
 const (
+	puPkg     = "$MOD/pu"
 	compatPkg = "$MOD/compat"
 	hashPkg   = "pluto/hash"
 	ioPkg     = "pluto/io"

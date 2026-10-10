@@ -156,7 +156,7 @@ func main() {
 		}
 		root.add(child)
 	}
-	out := new(strings.Builder)
+	out := pu.Alloc[strings.Builder]()
 	walk(out, root, 0)
 	fmt.Print(out.String())
 	fmt.Println("buf", out.Len(), out.Cap() >= out.Len(), len(out.Bytes()))

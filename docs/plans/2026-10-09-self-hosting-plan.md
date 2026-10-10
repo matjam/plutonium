@@ -254,9 +254,9 @@ is ever freed individually. `selfhost/compat` holds the few functions that need 
 | `sort.Slice(x, func(i, j int) bool { ... x[i] ... x[j] ... })` | `sort.SortFunc(x, func(a, b T) bool { ... a ... b ... })` | same pdqsort as Go, so ties come out in the same order; verified |
 | `binary.Write(w, binary.LittleEndian, &x)` | `goWriteLE<T>(w, &x)` | generated field-by-field encoder |
 | `binary.LittleEndian.PutUint32(b, v)` | `compat.PutUint32(b, v)` | |
-| `&T{...}` that escapes | `new(T{...})` | per Go's escape analysis (3.3); Go 1.26's `new` of a value, from the current allocator |
+| `&T{...}` that escapes | `pu.New(T{...})` | per Go's escape analysis (3.3); `selfhost/pu.New` copies the value into the phase arena (the current allocator). go2pu emitted `new(T{...})` until `new` was to return `owned[T]` (section 11) |
 | `[]T{...}` that escapes | `compat.Clone([]T{...})` | per Go's escape analysis |
-| `x` moved to heap | `x := new(e)`; uses `(*x)`; `&x` is `x` | parameters copied in at the top of the body |
+| `x` moved to heap | `x := pu.New(e)` (or `pu.Alloc[T]()` without a value); uses `(*x)`; `&x` is `x` | parameters copied in at the top of the body |
 | `debug/elf`, `internal/...` imports | `selfhost/elf`, `selfhost/internal/...` | |
 
 An example, from `internal/objfile` (the Go source, then go2pu's output, unedited):
@@ -315,7 +315,8 @@ Plutonium puts composite literals, their addresses and every local in the frame 
 Go moves to the heap whatever escape analysis cannot prove stays in the frame. go2pu runs
 `go build -gcflags='-m -l'` on each package and allocates exactly what Go moves:
 
-- `&T{...}` reported as escaping becomes `new(T{...})`, which allocates from the current allocator;
+- `&T{...}` reported as escaping becomes `pu.New(T{...})`, which allocates from the current allocator
+  (the phase arena);
 - a slice literal reported as escaping becomes `compat.Clone(...)`;
 - a variable reported as "moved to heap" becomes a pointer to an allocation;
 - a capturing function literal reported as escaping is flagged for hand-fixing (section 3.6).
@@ -910,6 +911,10 @@ maps to today, where the library is not yet at the end state:
   `arena.Arena` and `arena.Chunked`), names its arena, which the translated code does not have at hand.
 - The library gained what the mirror needs: zero `vec.Vec` and `hash.Map` values that take the default
   allocator when they first grow, `Map.At`, `Clone` on `Vec`, `Map` and `Set`, and `Drop` on each.
+
+go2pu's own allocations follow: an escaping `&T{...}`, and a variable Go moves to the heap, now become
+`pu.New(...)` (`pu.Alloc[T]()` for a variable without a value) instead of `new(...)`, so the checked-in
+translations no longer depend on what `new` returns.
 
 `TestPuMirrorsLibrary` (go2pu) checks that every name and method of `internal/pu` exists in the library
 under its mapped name; the `pudemo` demo, translated with no notes, prints the same output from Go and

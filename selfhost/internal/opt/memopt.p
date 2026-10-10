@@ -6,6 +6,7 @@ import (
 	"pluto/hash"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
+	"selfhost/pu"
 )
 
 // MemOpt removes redundant memory operations by following the memory
@@ -70,7 +71,7 @@ type loadFinder struct {
 }
 
 func newLoadFinder(f *ssa.Func) *loadFinder {
-	lf := new(loadFinder{dom: f.Dom(), readers: compat.NewMap[*ssa.Value, []*ssa.Value](0), pos: make([]int, f.NumValues())})
+	lf := pu.New(loadFinder{dom: f.Dom(), readers: compat.NewMap[*ssa.Value, []*ssa.Value](0), pos: make([]int, f.NumValues())})
 	for _, b := range f.Blocks {
 		for i, v := range b.Values {
 			lf.pos[v.ID] = i

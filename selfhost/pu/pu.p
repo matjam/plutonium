@@ -32,3 +32,8 @@ func New[T any](v T) *T {
 	*p = v
 	return p
 }
+
+// Alloc returns a pointer to a new zero T in the phase arena, as New does.
+// go2pu uses it for a variable that Go's escape analysis moves to the heap
+// and that is declared without a value.
+func Alloc[T any]() *T { return alloc.New[T]() }

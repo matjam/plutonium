@@ -88,7 +88,7 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 		}
 		if lit, ok := ast.Unparen(n.X).(*ast.CompositeLit); ok && n.Op == token.AND &&
 			t.esc.has(t.fset, n.Pos(), "&", "escapes to heap") {
-			return "new(" + t.render(lit) + ")", true
+			return t.puNew(t.render(lit)), true
 		}
 	case *ast.FuncLit:
 		why := t.closureEscape(n)
@@ -408,7 +408,7 @@ func (t *fileTr) heapLiteral(n *ast.CompositeLit) (string, bool) {
 		if p, ok := T.Underlying().(*types.Pointer); ok {
 			T = p.Elem()
 		}
-		return fmt.Sprintf("new(%s%s)", t.typeText(T), t.splice(n)), true
+		return t.puNew(t.typeText(T) + t.splice(n)), true
 	}
 	// Go reports a slice literal at its opening brace.
 	if _, ok := T.Underlying().(*types.Slice); ok && t.esc.has(t.fset, n.Lbrace, "[]", "escapes to heap") {
