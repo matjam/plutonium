@@ -1,6 +1,9 @@
 package strconv
 
-import "pluto/unicode/utf8"
+import (
+	"pluto/rt"
+	"pluto/unicode/utf8"
+)
 
 // The classification of runes that quoting needs, from Go's
 // strconv/quote.go, with the tables in isprint.p. fmt quotes strings and
@@ -9,13 +12,11 @@ import "pluto/unicode/utf8"
 // CanBackquote reports whether the string s can be represented
 // unchanged as a single-line backquoted string without control
 // characters other than tab. fmt passes it views of byte slices, whose
-// bytes need not be valid UTF-8 (//pu:bytewise).
-//
-//pu:bytewise
+// bytes need not be valid UTF-8 (rt.SliceBytewise).
 func CanBackquote(s string) bool {
 	for len(s) > 0 {
 		r, wid := utf8.DecodeRuneInString(s)
-		s = s[wid:]
+		s = rt.SliceBytewise(s, wid, len(s))
 		if wid > 1 {
 			if r == 0xFEFF {
 				return false // BOMs are invisible and should not be quoted.

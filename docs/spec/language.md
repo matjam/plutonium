@@ -2315,7 +2315,14 @@ each string stored; the roadmap (item 55) records what it measured.
   invalid code points (surrogate halves, values above U+10FFFF, negative values) with U+FFFD, as in Go.
 - `s[i:j]` must start and end at the start of a rune (or at `len(s)`); otherwise it panics. The check
   reads the bytes at `i` and `j`, and the compiler leaves it out for an ASCII string and where it can
-  prove the bound is a rune boundary (offsets that `strings.Index` returns are).
+  prove the bound is a rune boundary: 0 and `len(s)`; a bound of an earlier slice of `s` that was
+  checked; an offset that advances by the width of the rune decoded there
+  (`_, w := utf8.DecodeRuneInString(s[i:]); i += w`, or the index of a `range` over `s`) or retreats by
+  the width of the rune before it (`utf8.DecodeLastRuneInString(s[:i])`); the index of a match that
+  `strings.Index`, `IndexRune`, `IndexFunc` and their relatives return, or `IndexByte` of an ASCII byte;
+  and, where the index is known not to be -1, the end of that match (`s[i+len(sep):]`). The library's
+  byte-level searching, which compares slices at offsets that need not be boundaries, slices with
+  `rt.SliceBytewise(s, i, j)`, which checks the bounds against `len(s)` only.
 - `len(s)` counts bytes, `s[i]` is a byte, `range` yields runes and comparison is bytewise, as in Go.
 - `unsafe.String(p, n)` is the escape hatch: it makes a string of `n` bytes at `p` without copying or
   checking them. Such a string is not counted (its control word has no buffer, and its flags say the

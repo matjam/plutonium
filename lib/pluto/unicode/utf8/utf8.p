@@ -197,8 +197,6 @@ func DecodeLastRune(p []byte) (r rune, size int) { return DecodeLastRuneInString
 
 // DecodeLastRuneInString is like DecodeLastRune but its input is a string.
 // It looks at bytes, which for DecodeLastRune need not be valid UTF-8.
-//
-//pu:bytewise
 func DecodeLastRuneInString(s string) (rune, int) {
 	end := len(s)
 	if end == 0 {
@@ -220,7 +218,7 @@ func DecodeLastRuneInString(s string) (rune, int) {
 	if start < 0 {
 		start = 0
 	}
-	r, size := DecodeRuneInString(s[start:end])
+	r, size := DecodeRuneInString(rt.SliceBytewise(s, start, end))
 	if start+size != end {
 		return RuneError, 1
 	}
@@ -306,8 +304,6 @@ func RuneCount(p []byte) int { return RuneCountInString(str(p)) }
 
 // RuneCountInString is like RuneCount but its input is a string. For a
 // string known to be ASCII it is len(s).
-//
-//pu:bytewise
 func RuneCountInString(s string) int {
 	if rt.KnownASCII(s) {
 		return len(s)
@@ -317,7 +313,7 @@ func RuneCountInString(s string) int {
 		if s[i] < RuneSelf {
 			i++
 		} else {
-			_, size := DecodeRuneInString(s[i:])
+			_, size := DecodeRuneInString(rt.SliceBytewise(s, i, len(s)))
 			i += size
 		}
 		n++

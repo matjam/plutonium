@@ -61,8 +61,15 @@ func ForLevel(level int) *Pipeline {
 		p.add(Pass{"simplify", Simplify})
 		p.add(Pass{"simplifycfg", SimplifyCFG})
 	}
+	if level == 1 {
+		p.add(Pass{"runebounds", RuneBounds})
+	}
 	if level >= 2 {
 		p.add(Pass{"cse", CSE})
+		// After CSE, which makes the lengths and offsets it compares one
+		// value each, and before inlining, which hides the calls it
+		// recognises.
+		p.add(Pass{"runebounds", RuneBounds})
 		p.add(Pass{"schedule", ssa.Schedule})
 		// Before inlining, so that copies inlined into callers carry the
 		// loop rather than the recursion.

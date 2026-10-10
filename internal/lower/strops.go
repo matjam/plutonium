@@ -171,6 +171,15 @@ func (s *fnState) countIntrinsic(fn *types2.Func, e *ast.CallExpr, id *ast.Ident
 		return nil, false
 	}
 	switch fn.Name() {
+	case "SliceBytewise":
+		// s[lo:hi] with its bounds checked but not that they are rune
+		// boundaries.
+		se := &ast.SliceExpr{X: e.Args[0], Low: e.Args[1], High: e.Args[2]}
+		was := s.bytewise
+		s.bytewise = true
+		v := s.sliceExpr(se, types2.Typ[types2.String])
+		s.bytewise = was
+		return []value{v}, true
 	case "StringControl", "KnownASCII":
 		// Read the control word without taking the argument's address.
 		ctl := s.stringCtl(s.exprAs(e.Args[0], types2.Typ[types2.String]))

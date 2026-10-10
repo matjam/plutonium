@@ -1,6 +1,9 @@
 package strings
 
-import "pluto/unicode/utf8"
+import (
+	"pluto/rt"
+	"pluto/unicode/utf8"
+)
 
 // asciiSpace marks the ASCII white space bytes.
 var asciiSpace = [256]uint8{'\t': 1, '\n': 1, '\v': 1, '\f': 1, '\r': 1, ' ': 1}
@@ -28,13 +31,11 @@ func IsSpace(r rune) bool {
 
 // The trimming functions work on bytes and are also used by the bytes
 // package on bytes that need not be valid UTF-8, so their slices are not
-// checked for rune boundaries (//pu:bytewise). Trimming whole runes from
+// checked for rune boundaries (rt.SliceBytewise). Trimming whole runes from
 // valid UTF-8 leaves whole runes.
 
 // TrimSpace returns a slice of the string s, with all leading and trailing
 // white space removed, as defined by Unicode.
-//
-//pu:bytewise
 func TrimSpace(s string) string {
 	// Fast path for ASCII: look for the first ASCII non-space byte.
 	start := 0
@@ -43,7 +44,7 @@ func TrimSpace(s string) string {
 		if c >= utf8.RuneSelf {
 			// If we run into a non-ASCII byte, fall back to the slower
 			// unicode-aware method on the remaining bytes.
-			return TrimFunc(s[start:], IsSpace)
+			return TrimFunc(rt.SliceBytewise(s, start, len(s)), IsSpace)
 		}
 		if asciiSpace[c] == 0 {
 			break
@@ -55,7 +56,7 @@ func TrimSpace(s string) string {
 	for ; stop > start; stop-- {
 		c := s[stop-1]
 		if c >= utf8.RuneSelf {
-			return TrimRightFunc(s[start:stop], IsSpace)
+			return TrimRightFunc(rt.SliceBytewise(s, start, stop), IsSpace)
 		}
 		if asciiSpace[c] == 0 {
 			break
@@ -64,34 +65,30 @@ func TrimSpace(s string) string {
 
 	// At this point s[start:stop] starts and ends with an ASCII non-space
 	// byte, so we're done.
-	return s[start:stop]
+	return rt.SliceBytewise(s, start, stop)
 }
 
 // TrimLeftFunc returns a slice of the string s with all leading Unicode code
 // points c satisfying f(c) removed.
-//
-//pu:bytewise
 func TrimLeftFunc(s string, f func(rune) bool) string {
 	i := indexFunc(s, f, false)
 	if i == -1 {
 		return ""
 	}
-	return s[i:]
+	return rt.SliceBytewise(s, i, len(s))
 }
 
 // TrimRightFunc returns a slice of the string s with all trailing Unicode
 // code points c satisfying f(c) removed.
-//
-//pu:bytewise
 func TrimRightFunc(s string, f func(rune) bool) string {
 	i := lastIndexFunc(s, f, false)
 	if i >= 0 && s[i] >= utf8.RuneSelf {
-		_, wid := utf8.DecodeRuneInString(s[i:])
+		_, wid := utf8.DecodeRuneInString(rt.SliceBytewise(s, i, len(s)))
 		i += wid
 	} else {
 		i++
 	}
-	return s[0:i]
+	return rt.SliceBytewise(s, 0, i)
 }
 
 // TrimFunc returns a slice of the string s with all leading and trailing
@@ -132,26 +129,23 @@ func TrimLeft(s, cutset string) string {
 	return trimLeftUnicode(s, cutset)
 }
 
-//pu:bytewise
 func trimLeftByte(s string, c byte) string {
 	for len(s) > 0 && s[0] == c {
-		s = s[1:]
+		s = rt.SliceBytewise(s, 1, len(s))
 	}
 	return s
 }
 
-//pu:bytewise
 func trimLeftASCII(s string, as *asciiSet) string {
 	for len(s) > 0 {
 		if !as.contains(s[0]) {
 			break
 		}
-		s = s[1:]
+		s = rt.SliceBytewise(s, 1, len(s))
 	}
 	return s
 }
 
-//pu:bytewise
 func trimLeftUnicode(s, cutset string) string {
 	for len(s) > 0 {
 		r, n := rune(s[0]), 1
@@ -161,7 +155,7 @@ func trimLeftUnicode(s, cutset string) string {
 		if !ContainsRune(cutset, r) {
 			break
 		}
-		s = s[n:]
+		s = rt.SliceBytewise(s, n, len(s))
 	}
 	return s
 }
@@ -183,26 +177,23 @@ func TrimRight(s, cutset string) string {
 	return trimRightUnicode(s, cutset)
 }
 
-//pu:bytewise
 func trimRightByte(s string, c byte) string {
 	for len(s) > 0 && s[len(s)-1] == c {
-		s = s[:len(s)-1]
+		s = rt.SliceBytewise(s, 0, len(s)-1)
 	}
 	return s
 }
 
-//pu:bytewise
 func trimRightASCII(s string, as *asciiSet) string {
 	for len(s) > 0 {
 		if !as.contains(s[len(s)-1]) {
 			break
 		}
-		s = s[:len(s)-1]
+		s = rt.SliceBytewise(s, 0, len(s)-1)
 	}
 	return s
 }
 
-//pu:bytewise
 func trimRightUnicode(s, cutset string) string {
 	for len(s) > 0 {
 		r, n := rune(s[len(s)-1]), 1
@@ -212,7 +203,7 @@ func trimRightUnicode(s, cutset string) string {
 		if !ContainsRune(cutset, r) {
 			break
 		}
-		s = s[:len(s)-n]
+		s = rt.SliceBytewise(s, 0, len(s)-n)
 	}
 	return s
 }
