@@ -168,6 +168,21 @@ func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []
 	if abi.sret {
 		size, align := s.l.sretSize(abi)
 		sretBuf = s.tempSize(size, align, "sret")
+		// Leaves let SROA split the buffer once the call is inlined. They
+		// must cover every result, so a result held in memory as a unit
+		// leaves the buffer unsplittable.
+		slot := sretBuf.Aux.(*ssa.Slot)
+		offs := s.l.resultOffsets(abi)
+		for i, p := range abi.results {
+			lfs := s.l.leaves(p.typ)
+			if lfs == nil && s.l.sizeof(p.typ) > 0 {
+				slot.Leaves = nil
+				break
+			}
+			for _, lf := range lfs {
+				slot.Leaves = append(slot.Leaves, ssa.Leaf{Off: offs[i] + lf.off, Type: lf.t})
+			}
+		}
 		flat = append(flat, sretBuf)
 	}
 	all := args

@@ -104,3 +104,36 @@ func TestProveBoundsChecks(t *testing.T) {
 		})
 	}
 }
+
+func TestInlinedResultSlot(t *testing.T) {
+	const src = `package main
+
+type P struct{ a, b, c, d, e float64 }
+
+var ps [8]P
+
+func step(p P, k float64) P {
+	p.a += p.b * k
+	p.c -= p.d * k
+	return p
+}
+
+//pu:noinline
+func f(k float64) {
+	for i := range ps {
+		ps[i] = step(ps[i], k)
+	}
+}
+
+func main() {
+	ps[1].b = 2
+	f(0.5)
+	println(int64(ps[1].a * 100))
+}
+`
+	// Once step is inlined its result buffer is split and promoted, so
+	// the loop works in registers and stores straight into ps.
+	if asm := listFunc(t, src, "main.f"); strings.Contains(asm, "rsp") {
+		t.Errorf("f: want no stack traffic\n%s", asm)
+	}
+}
