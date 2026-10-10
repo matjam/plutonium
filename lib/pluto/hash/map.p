@@ -2,6 +2,7 @@ package hash
 
 import (
 	"pluto/alloc"
+	"pluto/iter"
 	"pluto/rt"
 	"unsafe"
 )
@@ -357,8 +358,9 @@ func (m *Map[K, V]) resize(size int) {
 	m.limit = size / 4 * 3
 }
 
-// An Iter walks the entries of a Map in an unspecified order. The map must
-// not be modified during the walk, except by SetValue on the current entry.
+// An Iter walks the entries of a Map in the order All describes. The map
+// must not be modified during the walk, except through Value on the current
+// entry. Unlike All, an Iter can be advanced a step at a time from anywhere.
 type Iter[K comparable, V any] struct {
 	m *Map[K, V]
 	i int
@@ -389,6 +391,60 @@ func (it *Iter[K, V]) Next() (K, V, bool) {
 
 // Value returns a pointer to the value of the entry Next last returned.
 func (it *Iter[K, V]) Value() *V { return &it.m.slots[it.i-1].val }
+
+// All returns an iterator over m's keys and values:
+//
+//	for k, v := range m.All() { ... }
+//
+// Entries come in the order of their slots in the table. That order depends
+// on the keys' hashes, the table's size and the history of insertions and
+// deletions, not on the order the keys were added; it is the same every
+// time the map is walked without being changed in between, and the same in
+// every run of a program that makes the same changes with the same seed.
+// Iter, Keys and Values use the same order.
+//
+// The body may set the value of the current key. Adding or deleting keys
+// during the loop is safe but may move entries, which the loop then visits
+// twice or not at all.
+func (m *Map[K, V]) All() iter.Seq2[K, V] {
+	return func(yield func(K, V) bool) {
+		for i := 0; i < len(m.slots); i++ {
+			if m.meta[i] != metaEmpty && !yield(m.slots[i].key, m.slots[i].val) {
+				return
+			}
+		}
+	}
+}
+
+// Keys returns an iterator over m's keys, in the order All uses.
+func (m *Map[K, V]) Keys() iter.Seq[K] {
+	return func(yield func(K) bool) {
+		for i := 0; i < len(m.slots); i++ {
+			if m.meta[i] != metaEmpty && !yield(m.slots[i].key) {
+				return
+			}
+		}
+	}
+}
+
+// Values returns an iterator over m's values, in the order All uses.
+func (m *Map[K, V]) Values() iter.Seq[V] {
+	return func(yield func(V) bool) {
+		for i := 0; i < len(m.slots); i++ {
+			if m.meta[i] != metaEmpty && !yield(m.slots[i].val) {
+				return
+			}
+		}
+	}
+}
+
+// Insert adds the pairs of seq to m, replacing the values of keys already
+// present, as Go's maps.Insert.
+func (m *Map[K, V]) Insert(seq iter.Seq2[K, V]) {
+	for k, v := range seq {
+		m.Set(k, v)
+	}
+}
 
 // A Set is a set of K, a Map with no values.
 type Set[K comparable] struct {
@@ -439,6 +495,25 @@ type SetIter[K comparable] struct {
 
 // Iter returns an iterator over the set's elements.
 func (s *Set[K]) Iter() SetIter[K] { return SetIter[K]{s.m.Iter()} }
+
+// All returns an iterator over the set's elements, in the order of
+// Map.All.
+func (s *Set[K]) All() iter.Seq[K] {
+	return func(yield func(K) bool) {
+		for k := range s.m.Keys() {
+			if !yield(k) {
+				return
+			}
+		}
+	}
+}
+
+// Insert adds the values of seq to the set.
+func (s *Set[K]) Insert(seq iter.Seq[K]) {
+	for k := range seq {
+		s.Add(k)
+	}
+}
 
 // Next returns the next element, or false when there are no more.
 func (it *SetIter[K]) Next() (K, bool) {
