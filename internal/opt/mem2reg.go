@@ -43,6 +43,7 @@ func Mem2Reg(f *ssa.Func) {
 	// Phi placement.
 	phiSlot := map[*ssa.Value]*ssa.Slot{}
 	phiArgs := map[*ssa.Value][]*ssa.Value{}
+	var phis []*ssa.Value // creation order, for a deterministic fill below
 	for _, in := range promote {
 		s := in.slot
 		var work []*ssa.Block
@@ -65,6 +66,7 @@ func Mem2Reg(f *ssa.Func) {
 				phi := newPhiAtStart(y, types[s])
 				phiSlot[phi] = s
 				phiArgs[phi] = make([]*ssa.Value, len(y.Preds))
+				phis = append(phis, phi)
 				if !hasDef[y] {
 					hasDef[y] = true
 					work = append(work, y)
@@ -127,8 +129,8 @@ func Mem2Reg(f *ssa.Func) {
 	}
 	rename(f.Entry)
 
-	for phi, args := range phiArgs {
-		for _, a := range args {
+	for _, phi := range phis {
+		for _, a := range phiArgs[phi] {
 			if a == nil {
 				// Predecessor not reached by renaming (unreachable).
 				a = zeroConst(f, phi.Type)
