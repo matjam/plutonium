@@ -198,3 +198,9 @@ later takes the next free number and is listed in the section where it belongs.
     the other library owners, mirroring the Plutonium API, which the compiler's Go sources migrate to so
     that go2pu translates them one to one. Specified as an amendment in
     [the self-hosting plan](plans/2026-10-09-self-hosting-plan.md), section 11.
+53. **Self-hosting prerequisites** (in progress): the compiler and library work of phases 0 and 1 of
+    [the self-hosting plan](plans/2026-10-09-self-hosting-plan.md) (section 8).
+    - Single-pointer structs in an interface's data word (done): a struct with one field, or an array of
+      length 1, that is a single pointer is direct, as in Go (language spec section 4.4,
+      `types2.PointerShaped`), so an error wrapping one pointer can be returned. Tested by
+      `testdata/run/directstruct.p` and unit tests in `types2` and `lower`.

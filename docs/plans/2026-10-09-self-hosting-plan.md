@@ -744,19 +744,19 @@ all covered by gaps 6 and 9 (`errors.Join` arrived with the errors design).
 
 Sizes are in lines written or changed, not in time.
 
-| Phase | Work | Size | Kind | Risk | Needs first |
-|---|---|---:|---|---|---|
-| 0 | Escape errors for frame addresses (roadmap item 5); determinism fixes; direct single-pointer structs; itab lookup | 1,000-1,500 compiler | compiler | medium | - |
-| 1 | Library: growable arenas, OS layer, `strconv` quoting and `ParseFloat`, `unicode` predicates, slices/heap/streaming hash, strings with allocators | 6,000 | library, half mechanical | low | - |
-| 2 | Back end: `ssa`, `opt`, `amd64`, `objfile` (**done** in the prototype, differential at `-O0`/`-O2`); port their Go tests; per-function arenas in `ssa` | 9,356 translated, ~300 by hand | mechanical | low | arenas |
-| 3 | SSA reader; mixed pipeline (Go front end, Plutonium back end) on the whole test corpus | 400 | hand | low | 2 |
-| 4 | Syntax: `token`, `scanner`, `ast`, `parser` (`recover` in the parser, `FileSet` without `sync`, iterators, drop `ast/print.go`) | 8,377 translated, ~400 by hand | mechanical | low | 1 |
-| 5 | `lower` (closure conversion for `funcJob`, intrinsics table, constants) | 5,766 translated, ~400 by hand | mechanical plus conversion | medium | constant package, go2pu closure conversion |
-| 6 | Constant package | 2,500-3,500 | hand | medium | - |
-| 7 | `types2` (constants, `later` conversion, sync stubs, iterators, hashing) | 26,772 translated, 300-500 by hand | mechanical plus conversion | high (size, recursion depth, performance) | 5, 6, itab lookup |
-| 8 | `load`, `build`, `cmd/pluto`; stage 1, 2, 3 on Linux; bootstrap check in CI; cutover | 1,900 by hand | hand | medium | 1, 7 |
-| 9 | PlutoniumOS: target and OS layer, integrated assembler and linker, cross-built seed, on-system rebuild | 5,000+ | hand | high | 8, kernel system calls |
-| later | Formatter (`printer`, `format`, `diff`, `tabwriter`, `go/doc/comment`); idiomatic cleanup replacing compat; performance | 4,534 translated + 2,100 library | mixed | low | 8 |
+| Phase | Work | Size | Kind | Risk | Needs first | Status |
+|---|---|---:|---|---|---|---|
+| 0 | Escape errors for frame addresses (roadmap item 5); determinism fixes; direct single-pointer structs; itab lookup | 1,000-1,500 compiler | compiler | medium | - | direct single-pointer structs done (roadmap item 53) |
+| 1 | Library: growable arenas, OS layer, `strconv` quoting and `ParseFloat`, `unicode` predicates, slices/heap/streaming hash, strings with allocators | 6,000 | library, half mechanical | low | - | not started |
+| 2 | Back end: `ssa`, `opt`, `amd64`, `objfile` (**done** in the prototype, differential at `-O0`/`-O2`); port their Go tests; per-function arenas in `ssa` | 9,356 translated, ~300 by hand | mechanical | low | arenas | prototype done |
+| 3 | SSA reader; mixed pipeline (Go front end, Plutonium back end) on the whole test corpus | 400 | hand | low | 2 | not started |
+| 4 | Syntax: `token`, `scanner`, `ast`, `parser` (`recover` in the parser, `FileSet` without `sync`, iterators, drop `ast/print.go`) | 8,377 translated, ~400 by hand | mechanical | low | 1 | not started |
+| 5 | `lower` (closure conversion for `funcJob`, intrinsics table, constants) | 5,766 translated, ~400 by hand | mechanical plus conversion | medium | constant package, go2pu closure conversion | not started |
+| 6 | Constant package | 2,500-3,500 | hand | medium | - | not started |
+| 7 | `types2` (constants, `later` conversion, sync stubs, iterators, hashing) | 26,772 translated, 300-500 by hand | mechanical plus conversion | high (size, recursion depth, performance) | 5, 6, itab lookup | not started |
+| 8 | `load`, `build`, `cmd/pluto`; stage 1, 2, 3 on Linux; bootstrap check in CI; cutover | 1,900 by hand | hand | medium | 1, 7 | not started |
+| 9 | PlutoniumOS: target and OS layer, integrated assembler and linker, cross-built seed, on-system rebuild | 5,000+ | hand | high | 8, kernel system calls | not started |
+| later | Formatter (`printer`, `format`, `diff`, `tabwriter`, `go/doc/comment`); idiomatic cleanup replacing compat; performance | 4,534 translated + 2,100 library | mixed | low | 8 | not started |
 
 Roadmap items that must land first: item 5 (escape errors) before any hand-written compiler code; item 11
 (the errors design) has landed and the port follows it; item 43 (debug allocator) to check

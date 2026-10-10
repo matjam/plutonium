@@ -151,6 +151,12 @@ assertions, type switches. An interface value is two words: a pointer to a stati
 
 - A value that fits in a word (integers, floats, booleans, pointers, and `owned`/`shared`/`synced`/`weak`
   references) is stored in the data word.
+- As in Go, a struct with exactly one field, or an array of length 1, whose field or element is a single
+  pointer (a pointer, `unsafe.Pointer`, a function value, an `owned`/`shared`/`synced` reference, or
+  recursively another such struct or array) is stored in the data word too, as that pointer. An error type
+  that wraps one pointer, `type wrapErr struct{ d *detail }`, can therefore be returned as an `error`, and
+  two such interface values are equal when they hold the same pointer. A struct with one integer field
+  is not covered: it is boxed like any other struct.
 - A larger value (a string, slice, array or struct) is copied into a temporary in the stack frame of the
   function that performs the conversion, and the data word points at that copy. The interface value is
   valid until that function returns, exactly like a pointer to a local variable.
@@ -2059,7 +2065,7 @@ outlives the function.** That storage is one of:
 
 | Storage | Used for | Example |
 |---|---|---|
-| the interface's data word | error codes | `syscall.Errno`, a kernel's own code type |
+| the interface's data word | error codes, and structs wrapping one pointer (section 4.4) | `syscall.Errno`, a kernel's own code type, `struct{ d *detail }` |
 | static storage | sentinel errors and fixed messages | `var ErrNotFound = errors.New("not found")`; `return errors.New("bad header")` |
 | a field of a longer-lived object | errors with context that belong to an owner | a parser that returns `&p.err`; `fmt.ErrorBuf` |
 | memory from an allocator | errors with context that travel up the stack | `*os.PathError`, `fmt.Errorf`, `errors.Join` |

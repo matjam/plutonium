@@ -809,6 +809,28 @@ func direct(T types.Type) bool {
 		return u.Info()&types.IsString == 0
 	case *types.Pointer, *types.Signature, *types.Interface, *types.Map, *types.Chan:
 		return true
+	case *types.Struct:
+		// A struct that is a single pointer is held in the data word, as in
+		// Go (types2.PointerShaped).
+		return u.NumFields() == 1 && pointerShaped(u.Field(0).Type())
+	case *types.Array:
+		return u.Len() == 1 && pointerShaped(u.Elem())
+	}
+	return false
+}
+
+// pointerShaped mirrors types2.PointerShaped for go/types: a pointer, a func,
+// unsafe.Pointer, or a struct or array that is exactly one of those.
+func pointerShaped(T types.Type) bool {
+	switch u := T.Underlying().(type) {
+	case *types.Pointer, *types.Signature, *types.Map, *types.Chan:
+		return true
+	case *types.Basic:
+		return u.Kind() == types.UnsafePointer
+	case *types.Struct:
+		return u.NumFields() == 1 && pointerShaped(u.Field(0).Type())
+	case *types.Array:
+		return u.Len() == 1 && pointerShaped(u.Elem())
 	}
 	return false
 }

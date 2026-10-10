@@ -1,0 +1,12 @@
+clobber true
+open re lose 42
+nil error true
+coder 2 open
+assert open 2 true
+nested is not wrapErr
+type switch read 5
+equal true false true
+handle equal true false
+collected open
+collected read
+collected close

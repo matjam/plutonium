@@ -18,7 +18,8 @@ import (
 // other interfaces it is an itab, whose first word is the descriptor.
 //
 // A dynamic type is "direct" when its value fits in the data word (integers,
-// floats, booleans and pointers); the data word then holds the value's bits.
+// floats, booleans, pointers, and structs and arrays that are a single
+// pointer, types2.PointerShaped); the data word then holds the value's bits.
 // Otherwise the data word points at a copy of the value in the stack frame of
 // the function that made the interface value.
 //
@@ -105,10 +106,15 @@ func newTypeTable(l *Lowerer) *typeTable {
 	}
 }
 
-// isDirect reports whether a T fits in an interface's data word.
+// isDirect reports whether a T fits in an interface's data word: a scalar of
+// at most a word, or a struct or array that is a single pointer
+// (types2.PointerShaped), stored as that pointer.
 func (l *Lowerer) isDirect(T types2.Type) bool {
-	t := l.scalarType(unwrap(T))
-	return t != nil && t.Size <= 8
+	T = unwrap(T)
+	if t := l.scalarType(T); t != nil {
+		return t.Size <= 8
+	}
+	return types2.PointerShaped(T)
 }
 
 // desc returns the descriptor symbol of T.
@@ -339,6 +345,11 @@ func (s *fnState) toInterface(v value, from, I types2.Type) value {
 func (s *fnState) dataWord(v value, T types2.Type) *ssa.Value {
 	if s.l.isDirect(T) {
 		x := v.v
+		if v.addr {
+			// A struct or array holding one pointer: the pointer is the
+			// data word.
+			return s.load(ssa.TPtr, x)
+		}
 		switch {
 		case x.Type.IsPtr():
 			return x
@@ -368,6 +379,13 @@ func (s *fnState) fromDataWord(data *ssa.Value, T types2.Type) value {
 	T = unwrap(T)
 	if s.l.isDirect(T) {
 		t := s.l.scalarType(T)
+		if t == nil {
+			// A struct or array holding one pointer: rebuild it around the
+			// data word.
+			tmp := s.temp(T, "unbox")
+			s.store(ssa.TPtr, tmp, data)
+			return aggValue(tmp, T)
+		}
 		if t.IsPtr() {
 			return scalarValue(data, T)
 		}
