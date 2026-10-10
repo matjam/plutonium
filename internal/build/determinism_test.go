@@ -29,9 +29,12 @@ func TestDeterministic(t *testing.T) {
 		}
 		for _, level := range []int{0, 2} {
 			t.Run(name+"/O"+string(rune('0'+level)), func(t *testing.T) {
+				// One directory for every run: the trace table and DWARF
+				// record the source path, so identical input includes it.
+				dir := t.TempDir()
 				var firstAsm, firstObj []byte
 				for run := range runs {
-					asm, obj := compileObject(t, src, level)
+					asm, obj := compileObject(t, dir, src, level)
 					if run == 0 {
 						firstAsm, firstObj = asm, obj
 						if name == "spills" && !frameStore.Match(asm) {
@@ -51,11 +54,10 @@ func TestDeterministic(t *testing.T) {
 	}
 }
 
-// compileObject compiles src as a main package to an object file and
+// compileObject compiles src as a main package in dir to an object file and
 // returns its listing and the object's bytes.
-func compileObject(t *testing.T, src []byte, optLevel int) (asm, obj []byte) {
+func compileObject(t *testing.T, dir string, src []byte, optLevel int) (asm, obj []byte) {
 	t.Helper()
-	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "main.p"), src, 0o644); err != nil {
 		t.Fatal(err)
 	}
