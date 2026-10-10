@@ -440,6 +440,9 @@ type function struct {
 	// its caller's frame (regions.go).
 	builds bool
 	inits  bool // the initialisers of a package's variables
+	// tracked is the walker's computeTracked result for the function's
+	// body, kept for later passes.
+	tracked map[*types2.Var]bool
 }
 
 // keepsParam reports whether f keeps parameter idx's own pointer (not

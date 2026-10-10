@@ -1,6 +1,8 @@
 package escape
 
 import (
+	"sort"
+
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
@@ -174,8 +176,13 @@ func (w *walker) computeTracked(body ast.Node) {
 		w.tracked[v] = true
 		return true
 	})
-	for _, obj := range w.a.implicits {
-		if v, ok := obj.(*types2.Var); ok && !taken[v] && flowType(v.Type()) && v.Pos() >= body.Pos() && v.Pos() < body.End() {
+	vars := w.a.implicitVars
+	first := sort.Search(len(vars), func(i int) bool { return vars[i].Pos() >= body.Pos() })
+	for _, v := range vars[first:] {
+		if v.Pos() >= body.End() {
+			break
+		}
+		if !taken[v] && flowType(v.Type()) {
 			w.tracked[v] = true
 		}
 	}

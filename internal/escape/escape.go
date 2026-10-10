@@ -82,6 +82,10 @@ type analyzer struct {
 	selections map[*ast.SelectorExpr]*types2.Selection
 	implicits  map[ast.Node]types2.Object
 	instances  map[*ast.Ident]types2.Instance
+	// implicitVars are the variables among implicits (those of type
+	// switch clauses), by position, so that a function finds its own
+	// without looking at the whole program's.
+	implicitVars []*types2.Var
 
 	funcs  map[*types2.Func]*function // declared functions and methods, by origin
 	lits   map[*ast.FuncLit]*function
@@ -147,6 +151,9 @@ func newAnalyzer(prog *load.Program, userResultHolds bool) *analyzer {
 		}
 		for k, v := range p.Info.Implicits {
 			a.implicits[k] = v
+			if v, ok := v.(*types2.Var); ok {
+				a.implicitVars = append(a.implicitVars, v)
+			}
 		}
 		for k, v := range p.Info.Instances {
 			a.instances[k] = v
@@ -183,6 +190,7 @@ func newAnalyzer(prog *load.Program, userResultHolds bool) *analyzer {
 			}
 		}
 	}
+	sort.Slice(a.implicitVars, func(i, j int) bool { return a.implicitVars[i].Pos() < a.implicitVars[j].Pos() })
 	a.scanFields()
 	return a
 }

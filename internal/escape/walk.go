@@ -52,7 +52,13 @@ func newWalker(a *analyzer, f *function) *walker {
 	w.top = &scope{fn: f}
 	if f.decl != nil {
 		w.top.node = f.decl
-		w.computeTracked(f.decl)
+		// Which variables are tracked depends only on the source, so
+		// it is worked out once for all the passes over f.
+		if f.tracked == nil {
+			w.computeTracked(f.decl)
+			f.tracked = w.tracked
+		}
+		w.tracked = f.tracked
 		w.computeLoops(f.decl)
 	} else {
 		w.tracked = map[*types2.Var]bool{}
