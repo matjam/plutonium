@@ -201,6 +201,7 @@ func isDirective(c string) bool {
 type Field struct {
 	Doc     *CommentGroup // associated documentation; or nil
 	Names   []*Ident      // field/method/(type) parameter names; or nil
+	Owner   token.Pos     // position of "owner" before a type parameter's constraint ([T owner any]), if any
 	Type    Expr          // field/method/parameter type; or nil
 	Tag     *BasicLit     // field tag; or nil
 	Comment *CommentGroup // line comments; or nil
@@ -1012,6 +1013,7 @@ type (
 		Name       *Ident        // type name
 		TypeParams *FieldList    // type parameters; or nil
 		Assign     token.Pos     // position of '=', if any
+		Owner      token.Pos     // position of "owner" (type T owner ...), if any
 		Type       Expr          // *Ident, *ParenExpr, *SelectorExpr, *StarExpr, or any of the *XxxTypes
 		Comment    *CommentGroup // line comments; or nil
 	}

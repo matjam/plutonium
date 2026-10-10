@@ -39,8 +39,10 @@ func Use(a Allocator) Restore {
 // Restore reinstates the previous default allocator.
 func (r Restore) Restore() { SetDefault(r.prev) }
 
-// New allocates a zeroed T from a, by default the default allocator.
-func New[T any](a Allocator = Default()) *T {
+// New allocates a zeroed T from a, by default the default allocator. T may
+// be an owner: the memory itself has no owner until the caller gives it one
+// (language spec section 6.6).
+func New[T owner any](a Allocator = Default()) *T {
 	var zero T
 	return (*T)(must(a, unsafe.Sizeof(zero), unsafe.Alignof(zero), rt.CallerPC()))
 }
@@ -49,7 +51,7 @@ func New[T any](a Allocator = Default()) *T {
 // default the default allocator. If T has a Drop method it is called first.
 // The call's site is published through rt.AllocSite while the allocator
 // runs (if rt.TrackSites).
-func Free[T any](p *T, a Allocator = Default()) {
+func Free[T owner any](p *T, a Allocator = Default()) {
 	if p == nil {
 		return
 	}

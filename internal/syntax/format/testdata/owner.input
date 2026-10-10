@@ -1,0 +1,28 @@
+package owners
+
+import "unsafe"
+
+// Owners (language spec section 6.4).
+type File   owner   struct {
+	fd int32
+	open bool
+}
+
+func (f *File) Drop() {}
+
+type Frame owner uintptr
+type Pages owner [4]Frame
+type Raw owner unsafe.Pointer
+
+type (
+	Resource owner interface { Read(p []byte) (int, error) }
+	Conn owner struct { file File; name string }
+)
+
+type Vec[T owner any]   owner struct {
+	data []T
+}
+
+type Pair[K comparable, V owner any] owner struct { k K; v V }
+
+func Move[T, U owner any](a T, b U) (T, U) { return a, b }

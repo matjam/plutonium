@@ -508,6 +508,8 @@ func (check *Checker) typeDecl(obj *TypeName, tdecl *ast.TypeSpec) {
 		_ = !versionErr && check.isImportedConstraint(rhs) && check.verifyVersionf(tdecl.Type, go1_18, "using type constraint %s", rhs)
 	}).describef(obj, "validType(%s)", obj.Name())
 
+	check.ownerDecl(obj, tdecl)
+
 	// First type parameter, or nil.
 	var tparam0 *ast.Field
 	if tdecl.TypeParams.NumFields() > 0 {
@@ -572,6 +574,14 @@ func (check *Checker) typeDecl(obj *TypeName, tdecl *ast.TypeSpec) {
 	rhs = check.declaredType(tdecl.Type, obj)
 	assert(rhs != nil)
 	named.fromRHS = rhs
+	if s, ok := rhs.(*Struct); ok {
+		// The struct is this type's definition: its owner fields are
+		// checked against the type's own owner mark.
+		if check.ownerRHS == nil {
+			check.ownerRHS = map[*Struct]bool{}
+		}
+		check.ownerRHS[s] = true
+	}
 
 	// spec: "In a type definition the given type cannot be a type parameter."
 	// (See also go.dev/issue/45639.)
@@ -631,6 +641,7 @@ func (check *Checker) collectTypeParams(dst **TypeParamList, list *ast.FieldList
 		}
 		for i := range f.Names {
 			tparams[index+i].bound = bound
+			tparams[index+i].obj.ownerMark = f.Owner.IsValid() // [T owner any]
 		}
 		index += len(f.Names)
 	}

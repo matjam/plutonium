@@ -71,6 +71,7 @@ func (check *Checker) structType(styp *Struct, e *ast.StructType) {
 		styp.markComplete()
 		return
 	}
+	check.later(func() { check.checkUnnamedStruct(styp) })
 
 	// struct fields and tags
 	var fields []*Var

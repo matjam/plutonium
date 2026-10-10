@@ -133,6 +133,7 @@ const (
 	// go/constant unchanged.
 	PACKED
 	ENUM
+	OWNER
 	additional_end
 )
 
@@ -239,6 +240,7 @@ var tokens = [...]string{
 
 	PACKED: "packed",
 	ENUM:   "enum",
+	OWNER:  "owner",
 }
 
 // String returns the string corresponding to the token tok.
@@ -296,6 +298,7 @@ func init() {
 	}
 	keywords[tokens[PACKED]] = PACKED
 	keywords[tokens[ENUM]] = ENUM
+	keywords[tokens[OWNER]] = OWNER
 }
 
 // Lookup maps an identifier to its keyword token or [IDENT] (if not a keyword).
@@ -321,7 +324,7 @@ func (tok Token) IsOperator() bool {
 // IsKeyword returns true for tokens corresponding to keywords;
 // it returns false otherwise.
 func (tok Token) IsKeyword() bool {
-	return keyword_beg < tok && tok < keyword_end || tok == PACKED || tok == ENUM
+	return keyword_beg < tok && tok < keyword_end || tok == PACKED || tok == ENUM || tok == OWNER
 }
 
 // IsExported reports whether name starts with an upper-case letter.

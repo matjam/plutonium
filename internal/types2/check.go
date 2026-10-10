@@ -124,6 +124,7 @@ type Checker struct {
 	pkg  *Package
 	*Info
 	nextID  uint64                 // unique Id for type parameters (first valid Id is 1)
+	ownerRHS map[*Struct]bool      // struct types that define a named type (plutonium_owner.go)
 	objMap  map[Object]*declInfo   // maps package-level objects and (non-interface) methods to declaration info
 	objList []Object               // source-ordered keys of objMap
 	impMap  map[importKey]*Package // maps (import path, source directory) to (complete or fake) package
@@ -474,6 +475,8 @@ func (check *Checker) checkFiles(files []*ast.File) {
 
 	print("== processDelayed ==")
 	check.processDelayed(0) // incl. all functions
+
+	check.ownerMethods()
 
 	print("== cleanup ==")
 	check.cleanup()
