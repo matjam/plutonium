@@ -10,6 +10,7 @@
 const assert = require('assert');
 const Module = require('module');
 const path = require('path');
+const { createOutputChannel } = require('./fake-output');
 
 const pluto = process.argv[2];
 if (!pluto) {
@@ -84,7 +85,7 @@ const vscode = {
     },
   },
   window: {
-    createOutputChannel: () => ({ appendLine: (l) => outputLines.push(l), dispose() {} }),
+    createOutputChannel: (name, options) => createOutputChannel(name, options, outputLines),
     showErrorMessage: (m) => errorMessages.push(m),
     setStatusBarMessage: () => disposable,
   },
@@ -138,7 +139,8 @@ async function main() {
   assert.ok(list && list.length === 1, 'one diagnostic for the syntax error');
   assert.strictEqual(list[0].range.start.line, 2);
   assert.match(list[0].message, /expected '}'/);
-  assert.ok(outputLines.some((l) => l.includes('untitled:sample.p:3:')), 'the error is logged with the document name');
+  assert.ok(outputLines.some((l) => l.startsWith('error: ') && l.includes('untitled:sample.p:3:')),
+    'the error is logged, with the document name');
 
   // Editing the document clears the diagnostic.
   changeListener({ document: documentOf(''), contentChanges: [{}] });

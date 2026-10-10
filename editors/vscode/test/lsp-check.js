@@ -10,6 +10,7 @@
 const assert = require('assert');
 const Module = require('module');
 const path = require('path');
+const { createOutputChannel, isLogOutputChannel } = require('./fake-output');
 
 const settings = { plutoPath: '/opt/pluto/bin/pluto', useLanguageServer: true, target: 'x86_64-none', mode: 'kernel', tags: ['x'] };
 const disposable = { dispose() {} };
@@ -17,6 +18,7 @@ const commands = new Map();
 const messages = [];
 const contentProviders = new Map();
 const shown = [];
+const channels = [];
 let formatter = null;
 let configListener = null;
 let trustListener = null;
@@ -64,9 +66,13 @@ const vscode = {
     },
   },
   window: {
-    createOutputChannel: () => ({ appendLine() {}, show() {}, dispose() {} }),
-    showErrorMessage: (m) => {
-      messages.push(['error', m]);
+    createOutputChannel: (name, options) => {
+      const channel = createOutputChannel(name, options);
+      channels.push(channel);
+      return channel;
+    },
+    showErrorMessage: (m, ...buttons) => {
+      messages.push(['error', m, buttons]);
       return Promise.resolve(undefined);
     },
     showWarningMessage: (m) => {
@@ -83,18 +89,32 @@ const vscode = {
   },
 };
 
-// A stand-in LanguageClient that records what it was given.
+// A stand-in LanguageClient that records what it was given. Like
+// vscode-languageclient 10, it logs to the output channel with the
+// LogOutputChannel methods, and adds --stdio to the command's arguments
+// when the transport is TransportKind.stdio.
 const clients = [];
 let failStart = null;
 class LanguageClient {
   constructor(id, name, serverOptions, clientOptions) {
     Object.assign(this, { id, name, serverOptions, clientOptions, started: false, stopped: false });
     clients.push(this);
+    const channel = clientOptions.outputChannel;
+    if (!isLogOutputChannel(channel)) {
+      throw new TypeError('this.outputChannel.error is not a function');
+    }
+    this.traceLogLevel = channel.logLevel;
+    this.spawnArgs = [...(serverOptions.args || [])];
+    if (serverOptions.transport === languageclient.TransportKind.stdio) {
+      this.spawnArgs.push('--stdio');
+    }
   }
   start() {
     if (failStart) {
+      this.clientOptions.outputChannel.error(`${this.name} client: couldn't create connection to server.`);
       return Promise.reject(failStart);
     }
+    this.clientOptions.outputChannel.onDidChangeLogLevel(() => {});
     this.started = true;
     return Promise.resolve();
   }
@@ -105,7 +125,7 @@ class LanguageClient {
 }
 const languageclient = {
   LanguageClient,
-  TransportKind: { stdio: 0 },
+  TransportKind: { stdio: 0, ipc: 1, pipe: 2, socket: 3 },
   ErrorAction: { Continue: 1, Shutdown: 2 },
   CloseAction: { DoNotRestart: 1, Restart: 2 },
 };
@@ -131,7 +151,12 @@ async function main() {
   const c = clients[0];
   assert.ok(c.started);
   assert.strictEqual(c.serverOptions.command, settings.plutoPath);
-  assert.deepStrictEqual(c.serverOptions.args, ['lsp']);
+  assert.deepStrictEqual(c.spawnArgs, ['lsp'], 'pluto lsp is run with no other arguments, such as --stdio');
+  assert.strictEqual(channels.length, 1);
+  const output = channels[0];
+  assert.ok(isLogOutputChannel(output), 'the output is a LogOutputChannel');
+  assert.strictEqual(c.clientOptions.outputChannel, output);
+  assert.ok(output.lines.includes('info: Started /opt/pluto/bin/pluto lsp'));
   assert.deepStrictEqual(c.clientOptions.documentSelector, [{ scheme: 'file', language: 'plutonium' }]);
   assert.deepStrictEqual(c.clientOptions.initializationOptions, { target: 'x86_64-none', mode: 'kernel', tags: ['x'] });
   assert.strictEqual(c.clientOptions.synchronize.configurationSection, 'plutonium');
@@ -148,8 +173,27 @@ async function main() {
   await commands.get('plutonium.explainError')('not a code');
   assert.strictEqual(shown.length, 1, 'only error codes are explained');
 
-  // Errors on the connection do not stop the server.
-  assert.deepStrictEqual(c.clientOptions.errorHandler.error(new Error('x')), { action: languageclient.ErrorAction.Continue });
+  // Errors on the connection do not stop the server, and are logged
+  // without a notification.
+  assert.deepStrictEqual(c.clientOptions.errorHandler.error(new Error('x')),
+    { action: languageclient.ErrorAction.Continue, handled: true });
+
+  // The server's log reaches the output at its own level.
+  const logged = createOutputChannel('log', { log: true });
+  lsp.logServerLine(logged, 'time=2026-10-10T00:35:22.601-07:00 level=INFO msg=initialized mode=hosted');
+  lsp.logServerLine(logged, 'time=2026-10-10T00:35:22.601-07:00 level=WARN msg="bad notification parameters"');
+  lsp.logServerLine(logged, 'time=2026-10-10T00:35:22.601-07:00 level=ERROR msg="handler panicked"');
+  lsp.logServerLine(logged, 'time=2026-10-10T00:35:22.601-07:00 level=DEBUG msg=request');
+  lsp.logServerLine(logged, 'panic: runtime error');
+  assert.deepStrictEqual(logged.lines, [
+    'info: msg=initialized mode=hosted',
+    'warn: msg="bad notification parameters"',
+    'error: msg="handler panicked"',
+    'debug: msg=request',
+    'error: panic: runtime error',
+  ]);
+  assert.strictEqual(typeof c.clientOptions.stdioOptions.stdout, 'function');
+  assert.strictEqual(typeof c.clientOptions.stdioOptions.stderr, 'function');
 
   // Turning the server off stops it and brings the formatter back.
   settings.useLanguageServer = false;
@@ -183,18 +227,37 @@ async function main() {
   await trustListener();
   assert.strictEqual(clients.length, 5);
 
-  // A server that cannot start is reported.
+  // A plain OutputChannel cannot be handed to vscode-languageclient.
   await extension.deactivate();
-  failStart = Object.assign(new Error('spawn pluto ENOENT'), { code: 'ENOENT' });
-  const failing = new lsp.LanguageServer({ appendLine() {}, show() {} });
+  assert.throws(() => new LanguageClient('x', 'x', { command: 'pluto' }, { outputChannel: createOutputChannel('plain') }),
+    /outputChannel.error is not a function/);
+
+  // A server that cannot start is reported once, and the closed
+  // connection of a client that never started is not restarted.
+  // vscode-languageclient reports a command it cannot run as a string.
+  const log = () => createOutputChannel('Plutonium', { log: true });
+  failStart = 'Launching server using command pluto failed. Error: spawn pluto ENOENT';
+  const failingOutput = log();
+  const failing = new lsp.LanguageServer(failingOutput);
   await failing.start();
   assert.strictEqual(failing.running, false);
+  assert.strictEqual(messages.length, 1);
   assert.match(messages.pop()[1], /cannot start the language server: .* was not found/);
+  assert.ok(failingOutput.lines.some((l) => /^error: Cannot start the language server: .* was not found/.test(l)));
+  const res0 = await clients[clients.length - 1].clientOptions.errorHandler.closed();
+  assert.strictEqual(res0.action, languageclient.CloseAction.DoNotRestart);
+  assert.ok(res0.handled);
+  assert.strictEqual(messages.length, 0, 'no further message');
+  failStart = new Error('Server initialization failed.');
+  await failing.start();
+  assert.deepStrictEqual(messages.pop().slice(1), ['Plutonium: cannot start the language server: Server initialization failed.', ['Show Output']]);
   failStart = null;
 
-  // Crashes restart the server after doubling delays, until too many.
+  // Crashes restart the server after doubling delays, logged to the output
+  // without a notification, until too many: then one message says so.
   const delays = [];
-  const server = new lsp.LanguageServer({ appendLine() {}, show() {} }, {
+  const crashOutput = log();
+  const server = new lsp.LanguageServer(crashOutput, {
     setTimeout: (fn, ms) => {
       delays.push(ms);
       fn();
@@ -207,18 +270,48 @@ async function main() {
     const res = await closed();
     assert.strictEqual(res.action, languageclient.CloseAction.Restart);
     assert.ok(res.handled);
-    assert.strictEqual(messages.pop()[0], 'warning');
   }
+  assert.strictEqual(messages.length, 0, 'restarts are not notified');
   assert.deepStrictEqual(delays, [500, 1000, 2000, 4000, 8000]);
+  assert.deepStrictEqual(crashOutput.lines.filter((l) => l.startsWith('warn: ')), [
+    'warn: The language server stopped unexpectedly; restarting in 0.5s.',
+    'warn: The language server stopped unexpectedly; restarting in 1.0s.',
+    'warn: The language server stopped unexpectedly; restarting in 2.0s.',
+    'warn: The language server stopped unexpectedly; restarting in 4.0s.',
+    'warn: The language server stopped unexpectedly; restarting in 8.0s.',
+  ]);
   const res = await closed();
   assert.strictEqual(res.action, languageclient.CloseAction.DoNotRestart);
-  assert.strictEqual(messages.pop()[0], 'error');
+  assert.ok(res.handled);
+  assert.match(res.message, /crashed 6 times/);
+  assert.strictEqual(messages.length, 1, 'giving up is notified once');
+  const [kind, text, buttons] = messages.pop();
+  assert.strictEqual(kind, 'error');
+  assert.match(text, /crashed 6 times .* not restarted/);
+  assert.deepStrictEqual(buttons, ['Show Output', 'Restart']);
   assert.strictEqual(server.running, false);
+  assert.strictEqual((await closed()).action, languageclient.CloseAction.DoNotRestart, 'a client given up on stays stopped');
+  assert.strictEqual(messages.length, 0);
 
-  // A connection closed by stopping is not a crash.
-  await server.start();
+  // Restarting by hand starts afresh; a replaced client is not restarted.
+  await server.restart();
+  const replaced = clients[clients.length - 1];
+  await server.restart();
+  assert.strictEqual((await replaced.clientOptions.errorHandler.closed()).action, languageclient.CloseAction.DoNotRestart);
+  assert.strictEqual((await closed()).action, languageclient.CloseAction.Restart);
+
+  // A connection closed by stopping is not a crash, even while the restart
+  // waits.
   await server.stop();
   assert.strictEqual((await closed()).action, languageclient.CloseAction.DoNotRestart);
+  let wake = null;
+  const waiting = new lsp.LanguageServer(log(), { setTimeout: (fn) => { wake = fn; }, clearTimeout() {} });
+  await waiting.start();
+  const pending = closed();
+  await waiting.stop();
+  wake();
+  assert.strictEqual((await pending).action, languageclient.CloseAction.DoNotRestart);
+  assert.strictEqual(messages.length, 0);
 
   console.log('ok: language server client checks pass');
 }

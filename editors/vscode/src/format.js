@@ -20,7 +20,7 @@ function register(context, output) {
 
   async function provideDocumentFormattingEdits(document, _options, token) {
     if (!vscode.workspace.isTrusted) {
-      output.appendLine('pluto fmt: not run because the workspace is not trusted');
+      output.info('pluto fmt: not run because the workspace is not trusted');
       return [];
     }
     const text = document.getText();
@@ -39,14 +39,14 @@ function register(context, output) {
         return [];
       }
       if (err.code === 'ENOENT') {
-        output.appendLine(`pluto fmt: cannot run ${err.command}: not found. Install pluto or set plutonium.plutoPath.`);
+        output.error(`pluto fmt: cannot run ${err.command}: not found. Install pluto or set plutonium.plutoPath.`);
         if (!warnedMissing) {
           warnedMissing = true;
           vscode.window.showErrorMessage(
             `Plutonium: cannot format, ${err.command} was not found. Install pluto or set plutonium.plutoPath.`);
         }
       } else {
-        output.appendLine(`pluto fmt: ${err.message}`);
+        output.error(`pluto fmt: ${err.message}`);
       }
       return [];
     }
@@ -56,8 +56,7 @@ function register(context, output) {
     const name = document.uri.scheme === 'file' ? document.uri.fsPath : document.uri.toString();
     if (result.code !== 0) {
       const stderr = result.stderr.split(STDIN_NAME).join(name).trimEnd();
-      output.appendLine(`pluto fmt failed for ${name} (exit status ${result.code}):`);
-      output.appendLine(stderr);
+      output.error(`pluto fmt failed for ${name} (exit status ${result.code}):\n${stderr}`);
       diagnostics.set(document.uri, parseErrors(result.stderr));
       vscode.window.setStatusBarMessage('$(error) pluto fmt failed; see the Plutonium output', 5000);
       return [];
