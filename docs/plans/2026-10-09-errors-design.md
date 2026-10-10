@@ -3,16 +3,17 @@
 **Date:** 2026-10-09
 **Status:** library conventions implemented; 9.1 implemented, 9.2 with the memory-safety work, 9.3
 implemented (section 9). The `...In` functions this note describes have since become single functions
-with a defaulted allocator (spec 5.1); see section 10.
+with a defaulted allocator (spec 5.1); see section 10. Section 11 points to the proposed reconciliation
+with the ownership model (spec section 14.6), which awaits sign-off.
 
 ## 1. The problem
 
 `error` is an interface, and Go code builds error values in ways that Plutonium's rules do not allow:
 
 - `errors.New(s)` and `fmt.Errorf(...)` allocate on the garbage-collected heap. Plutonium has no hidden
-  allocation (spec section 6).
+  allocation (spec section 7; section 6 before the ownership section was added).
 - `return &PathError{Op: "open", Path: name, Err: e}` returns the address of a composite literal. In
-  Plutonium that literal is a temporary in the returning function's frame (spec section 6), so the
+  Plutonium that literal is a temporary in the returning function's frame (spec section 6.3), so the
   pointer dangles as soon as the function returns.
 - `return PathError{...}` as an `error` copies the struct into the converting function's frame (spec
   4.4), and returning such an interface is a compile error.
@@ -415,3 +416,17 @@ Default parameter values (spec 5.1) and 9.1 changed the library described above:
 - Tests: `testdata/lib/errorsnew.p` (identity per call site, distinct sites, package variables, returns,
   generics), `testdata/lib/allocdefaults.p` (which allocator each library function used), and
   `internal/build/errors_test.go` (a non-constant message, `errors.New` as a value or deferred).
+
+## 11. Reconciliation with the ownership model (proposal, needs sign-off)
+
+The ownership model (language spec section 6) requires every allocation to have an owner or an arena.
+The allocated errors of this design (section 4.3, item 2) have neither on the general heap: the `error`
+interface only looks at the block, and `errors.Free` must be called exactly once on the outermost error.
+Owners and views also change two details of this note: `error` is an ordinary interface, so an owner
+converted to `error` is only lent and cannot be returned, and `Free()` methods become `Drop()` methods
+on owner types.
+
+This design stays in force. Language spec section 14.6 proposes the reconciliation: allocated errors become
+`synced` objects, and copying or dropping an `error` counts them, so each is released exactly once,
+automatically, whether or not an arena is in use, and `errors.Free` goes away. It also records the two
+alternatives (an owning `error`, and allocated errors only in arenas) and why they are not recommended.
