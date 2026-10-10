@@ -19,7 +19,8 @@ func (a A[T]) F() {
 
 func main() {
 	var x A[[]int]
-	x.val = make([]int, 4)
+	var arr [4]int
+	x.val = arr[:]
 	_ = &x.val[3]
 	x.F()
 	var y A[[5]int]

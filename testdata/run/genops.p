@@ -191,7 +191,8 @@ func main() {
 	println(xs[0], xs[4], len(Window(xs, 1, 3)), cap(Window(xs, 1, 3)), Last(xs))
 	println(ArrLen([4]string{"a", "b", "c", "d"}))
 	arr := [3]int{5, 6, 7}
-	println(PtrArr(&arr), CapOf(make([]int, 2, 9)), CapOf(xs[1:]))
+	var nine [9]int
+	println(PtrArr(&arr), CapOf(nine[:2]), CapOf(xs[1:]))
 	println(Triangle(5), Triangle(IntID(30)))
 	b := Box(Point{1, 2})
 	p, ok := Unbox[Point](b)

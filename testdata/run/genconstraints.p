@@ -88,8 +88,8 @@ func main() {
 	ds := []Doc{{1}, {5}}
 	CloneAll(ds)
 	println(ds[0].rev, ds[1].rev)
-	out := make([]int64, 3)
-	ConvertAll(Doubler{10}, []int{1, 2, 3}, out)
+	var out [3]int64
+	ConvertAll(Doubler{10}, []int{1, 2, 3}, out[:])
 	println(out[0], out[2])
 	println(Twice(Box[int]{3}, func(x int) int { return x * x }), Twice[Box[string]](Box[string]{"ab"}, func(s string) string { return s[1:] }) == "")
 	println(SumAbs([]Neg{-3, 5, -10}))

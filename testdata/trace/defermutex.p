@@ -28,7 +28,7 @@ func main() {
 		<-done
 		println("worker finished")
 	}()
-	xs := make([]int, 2)
+	xs := []int{0, 0}
 	update(xs, 1)
 	mu.Lock()
 	go worker(done)

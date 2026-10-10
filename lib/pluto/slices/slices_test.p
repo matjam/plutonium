@@ -704,7 +704,9 @@ func (g *lcg) intn(n int) int {
 }
 
 func TestSortLargeRandom(t *testing.T) {
-	data := make([]int, 100000)
+	dv := vec.Make[int](100000)
+	defer dv.Free()
+	data := dv.Slice()
 	g := lcg{state: 7}
 	for i := range data {
 		data[i] = g.intn(100)
@@ -720,7 +722,8 @@ func TestSortLargeRandom(t *testing.T) {
 
 func TestSortPatterns(t *testing.T) {
 	for _, n := range [...]int{0, 1, 2, 3, 11, 12, 13, 50, 129, 1000} {
-		data := make([]int, n)
+		dv := vec.Make[int](n)
+		data := dv.Slice()
 		g := lcg{state: uint64(n) + 1}
 		for pattern := 0; pattern < 8; pattern++ {
 			for i := range data {
@@ -752,6 +755,7 @@ func TestSortPatterns(t *testing.T) {
 				t.Fatalf("SortFunc did not sort n=%d pattern=%d", n, pattern)
 			}
 		}
+		dv.Free()
 	}
 }
 
@@ -789,7 +793,9 @@ func initB(d []intPair) {
 
 func TestStability(t *testing.T) {
 	n, m := 10000, 100
-	data := make([]intPair, n)
+	dv := vec.Make[intPair](n)
+	defer dv.Free()
+	data := dv.Slice()
 	g := lcg{state: 3}
 
 	// random distribution

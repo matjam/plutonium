@@ -135,7 +135,7 @@ func getn(in []*dch) []rat {
 	}
 	req := new([2]chan int)
 	dat := new([2]chan rat)
-	out := make([]rat, 2)
+	out := new([2]rat)[:]
 	var i int
 	var it rat
 	for i = 0; i < n; i++ {
@@ -640,7 +640,8 @@ func main() {
 	check(Ones, one, 5, "Ones")
 	check(Add(Ones, Ones), itor(2), 0, "Add Ones Ones") // 1 1 1 1 1
 	check(Add(Ones, Twos), itor(3), 0, "Add Ones Twos") // 3 3 3 3 3
-	a := make([]rat, N)
+	var abuf [N]rat
+	a := abuf[:]
 	d := Diff(Ones)
 	for i := 0; i < N; i++ {
 		a[i] = itor(int64(i + 1))

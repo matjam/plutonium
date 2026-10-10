@@ -191,7 +191,8 @@ func recur1[T Integer](n T) T {
 }
 
 func recur2[T Integer](n T) T {
-	list := make([]T, n)
+	var buf [16]T
+	list := buf[:n]
 	for i, _ := range list {
 		list[i] = T(i + 1)
 	}

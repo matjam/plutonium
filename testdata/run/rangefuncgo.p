@@ -154,7 +154,8 @@ func TestNoVars() {
 // TestBreak1 should just work, with well-behaved iterators.
 // (The misbehaving iterator detector should not trigger.)
 func TestBreak1() {
-	result := make([]int, 0, 64)
+	var buf [64]int
+	result := buf[:0]
 	for _, x := range OfSliceIndex([]int{-1, -2, -3, -4}) {
 		if x == -4 {
 			break
@@ -173,7 +174,8 @@ func TestBreak1() {
 // TestBreak2 should just work, with well-behaved iterators.
 // (The misbehaving iterator detector should not trigger.)
 func TestBreak2() {
-	result := make([]int, 0, 64)
+	var buf [64]int
+	result := buf[:0]
 outer:
 	for _, x := range OfSliceIndex([]int{-1, -2, -3, -4}) {
 		for _, y := range OfSliceIndex([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}) {
@@ -194,7 +196,8 @@ outer:
 // TestContinue should just work, with well-behaved iterators.
 // (The misbehaving iterator detector should not trigger.)
 func TestContinue() {
-	result := make([]int, 0, 64)
+	var buf [64]int
+	result := buf[:0]
 outer:
 	for _, x := range OfSliceIndex([]int{-1, -2, -3, -4}) {
 		result = push(result, x)
@@ -216,7 +219,8 @@ outer:
 // TestBreak3 should just work, with well-behaved iterators.
 // (The misbehaving iterator detector should not trigger.)
 func TestBreak3() {
-	result := make([]int, 0, 64)
+	var buf [64]int
+	result := buf[:0]
 X:
 	for _, x := range OfSliceIndex([]int{100, 200, 300, 400}) {
 	Y:
@@ -248,7 +252,8 @@ X:
 // TestMultiCont0 tests multilevel continue with no bad iterators
 // (it should just work)
 func TestMultiCont0() {
-	result := make([]int, 0, 64)
+	var buf [64]int
+	result := buf[:0]
 
 W:
 	for _, w := range OfSliceIndex([]int{1000, 2000}) {
@@ -278,7 +283,8 @@ W:
 
 // MultiBreak0 is TestMultiBreak0 with good iterators: a multilevel break.
 func MultiBreak0() {
-	result := make([]int, 0, 64)
+	var buf [64]int
+	result := buf[:0]
 
 W:
 	for _, w := range Check2(OfSliceIndex([]int{1000, 2000})) {
@@ -343,8 +349,9 @@ func testReturn4(result []int) (_ []int, _ []int, err any) {
 }
 
 func TestReturns() {
-	expect("return1", []int{-1, 1, 2}, testReturn1(make([]int, 0, 64)))
-	r1, r2, err := testReturn4(make([]int, 0, 64))
+	var b1, b4 [64]int
+	expect("return1", []int{-1, 1, 2}, testReturn1(b1[:0]))
+	r1, r2, err := testReturn4(b4[:0])
 	expect("return4", []int{-1, 1, 2}, r1)
 	expect("return4", []int{-1, 1, 2}, r2)
 	if err != nil {
@@ -392,8 +399,9 @@ B:
 }
 
 func TestGoto() {
-	expect("gotoA1", []int{-1, 1, 2, -2, 1, 2, -3, 1, 2, -4}, testGotoA1(make([]int, 0, 64)))
-	expect("gotoB1", []int{-1, 1, 2, 999}, testGotoB1(make([]int, 0, 64)))
+	var ga, gb [64]int
+	expect("gotoA1", []int{-1, 1, 2, -2, 1, 2, -3, 1, 2, -4}, testGotoA1(ga[:0]))
+	expect("gotoB1", []int{-1, 1, 2, 999}, testGotoB1(gb[:0]))
 }
 
 // twice calls yield twice.

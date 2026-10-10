@@ -105,7 +105,8 @@ func main() {
 	println("handle equal", e2 == error(handle{&details[2]}), e2 == error(handle{&details[0]}))
 
 	// A slice of interfaces filled by a callee.
-	errs := make([]error, 0, 3)
+	var errArr [3]error
+	errs := errArr[:0]
 	for i := 0; i < 3; i++ {
 		errs = errs[:i+1]
 		errs[i] = fail(i)

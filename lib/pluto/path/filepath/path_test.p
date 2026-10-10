@@ -94,7 +94,8 @@ func TestJoin(t *testing.T) {
 		}
 	}
 	// A path longer than the stack buffer.
-	long := Join(Clean(string(make([]byte, 300))), "x/../y")
+	var zeros [300]byte
+	long := Join(Clean(string(zeros[:])), "x/../y")
 	if len(long) != 302 || long[300:] != "/y" {
 		t.Errorf("long Join: %d bytes, ends %q", len(long), long[len(long)-2:])
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"pluto/alloc"
 	"pluto/fmt"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -33,7 +34,10 @@ type big struct {
 	a, b, c, d, e, f, g int
 }
 
-var order []string
+var (
+	orderMem [4]string
+	order    []string
+)
 
 func trace(s string, v int) int {
 	order = order[:len(order)+1]
@@ -68,23 +72,24 @@ func main() {
 		r.a, r.b, r.s, *n, *s, w.a, w.s, g.a, g.g, c.calls, c.live)
 
 	// The value is evaluated before the allocator.
-	order = make([]string, 0, 4)
+	order = orderMem[:0]
 	t := new(trace("value", 5), tracedAlloc(c))
 	fmt.Printf("order: %d %s %s %d\n", len(order), order[0], order[1], *t)
 
-	// make with an allocator, with and without a capacity.
-	b1 := make([]int, 3, c)
-	b2 := make([]byte, 2, 8, a)
+	// vec.Make and vec.WithCapacity with an allocator.
+	b1 := vec.Make[int](3, c)
+	b2 := vec.WithCapacity[byte](8, a)
+	b2.Append(0, 0)
 	b1[2] = 11
-	fmt.Printf("make: %d %d %d %d %d calls=%d\n", len(b1), cap(b1), b1[2], len(b2), cap(b2), c.calls)
+	fmt.Printf("make: %d %d %d %d %d calls=%d\n", b1.Len(), b1.Cap(), b1[2], b2.Len(), b2.Cap(), c.calls)
 
-	// Without an allocator, new and make use the current default.
+	// Without an allocator, new and vec.Make use the current default.
 	d := &counting{inner: alloc.Default()}
 	restore := alloc.Use(d)
 	e := new(pair{s: "default"})
-	m := make([]int, 2)
+	m := vec.Make[int](2)
 	restore.Restore()
-	fmt.Printf("default: %q %d calls=%d other=%d\n", e.s, len(m), d.calls, c.calls)
+	fmt.Printf("default: %q %d calls=%d other=%d\n", e.s, m.Len(), d.calls, c.calls)
 
 	alloc.Free(p, a)
 	alloc.Free(q, a)

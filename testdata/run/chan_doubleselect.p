@@ -44,7 +44,8 @@ func mux(out chan<- int, in <-chan int, done chan<- bool) {
 
 // recver gets a steam of values from the four mux's and checks for duplicates.
 func recver(in <-chan int) int {
-	seen := make([]bool, iterations)
+	var seenArr [iterations]bool
+	seen := seenArr[:]
 	n := 0
 	for v := range in {
 		if seen[v] {

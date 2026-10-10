@@ -4,6 +4,7 @@ import (
 	"pluto/alloc"
 	"pluto/arena"
 	"pluto/fmt"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -57,13 +58,16 @@ func main() {
 	q := new(Node{key: 7}, c)
 	fmt.Println(*p, q.key, c.allocs, c.bytes)
 
-	// make with a length, a capacity and an allocator in each combination.
-	a := make([]int, 3)
-	b := make([]int, 2, 10)
-	d := make([]int, 4, c)
-	e := make([]int, 1, 6, c)
-	fmt.Println(len(a), cap(a), len(b), cap(b), len(d), cap(d), len(e), cap(e))
-	fmt.Println(sum(a), sum(b), sum(d), sum(e), c.allocs, c.bytes)
+	// vec.Make and vec.WithCapacity, Go's make([]T, n) and make([]T, n, c),
+	// with and without an allocator.
+	a := vec.Make[int](3)
+	b := vec.WithCapacity[int](10)
+	b.Append(0, 0)
+	d := vec.Make[int](4, c)
+	e := vec.WithCapacity[int](6, c)
+	e.Push(0)
+	fmt.Println(a.Len(), a.Cap(), b.Len(), b.Cap(), d.Len(), d.Cap(), e.Len(), e.Cap())
+	fmt.Println(sum(a.Slice()), sum(b.Slice()), sum(d.Slice()), sum(e.Slice()), c.allocs, c.bytes)
 
 	// Memory is zeroed, from an arena too.
 	var mem [256]byte
@@ -71,7 +75,7 @@ func main() {
 		mem[i] = 0xAA
 	}
 	ar := arena.New(mem[:])
-	z := make([]int64, 4, &ar)
+	z := vec.Make[int64](4, &ar)
 	w := new([3]uint8, &ar)
 	fmt.Println(z[0], z[3], w[0], w[2], ar.Used())
 
@@ -79,13 +83,21 @@ func main() {
 	var aa alloc.Allocator = c
 	var pool Pool = c
 	k := 5
-	f := make([]byte, 2, k, aa)
+	f := vec.WithCapacity[byte](k, aa)
+	f.Append(0, 0)
 	g := new(int32, pool)
-	fmt.Println(len(f), cap(f), *g, c.allocs)
+	fmt.Println(f.Len(), f.Cap(), *g, c.allocs)
 
 	// In a generic function the allocator and sizes keep their meaning.
 	h := makeIn[uint16](3, c)
-	fmt.Println(len(h), cap(h), c.allocs, c.bytes)
+	fmt.Println(h.Len(), h.Cap(), c.allocs, c.bytes)
 }
 
-func makeIn[T any](n int, a alloc.Allocator) []T { return make([]T, n, 2*n, a) }
+func makeIn[T any](n int, a alloc.Allocator) vec.Vec[T] {
+	v := vec.WithCapacity[T](2*n, a)
+	var zero T
+	for range n {
+		v.Push(zero)
+	}
+	return v
+}

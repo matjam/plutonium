@@ -37,7 +37,8 @@ func rnd(n int) int {
 }
 
 func main() {
-	h := IntHeap(make([]int, 0, 1000))
+	var hbuf [1000]int
+	h := IntHeap(hbuf[:0])
 	for i := 0; i < 40; i++ {
 		n := len(h)
 		h = h[:n+1]
@@ -65,7 +66,8 @@ func main() {
 	}
 	fmt.Println("after Fix", []int(h))
 
-	out := make([]int, 0, 64)
+	var obuf [64]int
+	out := obuf[:0]
 	for h.Len() > 0 {
 		n := len(out)
 		out = out[:n+1]

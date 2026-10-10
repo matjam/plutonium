@@ -1,5 +1,5 @@
 // Variadic and multi-result generic functions, mutual recursion, and the
-// built-ins through core types: composite literals, make, slicing, copy,
+// built-ins through core types: composite literals, slicing, copy,
 // clear, min and max (of strings too), len; arrays and structs of type
 // parameters compared; pointer methods through a *T constraint; named
 // results of type T changed by a deferred closure.
@@ -36,7 +36,7 @@ func Odd[T Number](n T) bool {
 	return Even(n - 1)
 }
 
-// Composite literals, make, slicing, copy, clear and min/max through core
+// Composite literals, slicing, copy, clear and min/max through core
 // types.
 func Lit[S ~[]E, E Number]() (int, E) {
 	s := S{1, 2, 3}
@@ -49,8 +49,8 @@ func StructLit[P ~struct{ X, Y int }](x int) P { return P{X: x, Y: x * 2} }
 
 func ArrLit[A ~[3]E, E any](e E) A { return A{2: e} }
 
-func Grow[S ~[]E, E any](n int, e E) S {
-	s := make(S, 0, n)
+func Grow[S ~[]E, E any](buf S, n int, e E) S {
+	s := buf[:0]
 	for i := 0; i < n; i++ {
 		s = s[:i+1]
 		s[i] = e
@@ -115,9 +115,11 @@ func main() {
 	println(p.X, p.Y)
 	a := ArrLit[[3]string]("z")
 	println(a[0] == "", a[2])
-	g := Grow[[]string](3, "g")
+	var gbuf [3]string
+	g := Grow[[]string](gbuf[:], 3, "g")
 	println(len(g), cap(g), g[2])
-	dst := make([]int, 2)
+	var dstArr [2]int
+	dst := dstArr[:]
 	println(Copy(dst, []int{9, 8, 7}), dst[1])
 	Clear(dst)
 	println(dst[0], dst[1])
@@ -129,7 +131,8 @@ func main() {
 	println(ArrEq([3]string{"a", "b", "c"}, 1, "x"))
 	println(ArrEq([3]int{1, 2, 3}, 0, 1))
 	println(WrapEq(1, 1), WrapEq("a", "b"), WrapEq(Point{1, 2}, Point{1, 2}))
-	cs := make([]C, 3)
+	var csArr [3]C
+	cs := csArr[:]
 	IncAll(cs)
 	IncAll(cs[1:])
 	println(cs[0].n, cs[1].n, cs[2].n)

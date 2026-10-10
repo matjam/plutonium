@@ -192,7 +192,9 @@ func TestSortedFunc(t *testing.T) {
 
 func TestSortedStableFunc(t *testing.T) {
 	n, m := 1000, 100
-	data := make([]intPair, n)
+	dv := vec.Make[intPair](n)
+	defer dv.Free()
+	data := dv.Slice()
 	g := lcg{state: 11}
 	for i := range data {
 		data[i].a = g.intn(m)
