@@ -246,7 +246,8 @@ func testPackage(t testTarget, opts *build.TestOptions, optLevel int, stdout, st
 		if bin != nil && bin.Path != "" {
 			name = bin.Path
 		}
-		say(stderr, "# %s\n%v\n", name, err)
+		say(stderr, "# %s\n", name)
+		printError(stderr, err)
 		say(stdout, "FAIL\t%s [build failed]\n", name)
 		return false
 	}
