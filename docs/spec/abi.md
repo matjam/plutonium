@@ -915,6 +915,7 @@ A blocked operation's waiting record (`sudog`) lives in the waiting task's frame
 | poller | a thread blocked in `epoll_wait`; `rt.PollWait(fd, write)` arms one-shot interest and parks |
 | stacks | a guard page, the stack, then the backend's task record, from the requested allocator; stacks of the default size from the program-wide default allocator are cached rather than unmapped |
 | deadlock | when every worker is idle and nothing waits in the poller or a system call: "fatal error: all puroutines are asleep - deadlock!", status 2 |
+| `SIGPIPE` | caught at startup (every hosted program, not only those that start puroutines) by a handler that returns, so a write to a pipe with no reader fails with `EPIPE`; `pluto/os` calls `rt.DieFromSigpipe` (default action, then `tgkill` of the calling thread) for `EPIPE` on descriptors 1 and 2 |
 
 The program's thread becomes the first worker when the first task operation runs (`Init`); the main
 task keeps running on the original stack, and the worker's scheduling loop gets a stack of its own.

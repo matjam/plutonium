@@ -341,6 +341,12 @@ and a puroutine that reads an empty pipe or writes a full one parks there (`rt.P
 puroutine waits for another and nothing waits for I/O or a system call, the program stops with "fatal
 error: all puroutines are asleep - deadlock!" and status 2, as in Go.
 
+A hosted program catches `SIGPIPE` at startup, with a handler that does nothing (so a program it starts
+with `os/exec` gets the default action back), and follows Go's rule: a write to a pipe or socket with no
+reader fails with `EPIPE`, except that a write to standard output or standard error (descriptors 1 and 2)
+that fails with `EPIPE` ends the program as if by the signal, so that `prog | head` stops `prog` as it
+would a C program (`rt.DieFromSigpipe`).
+
 A kernel implements the backend over its own per-CPU run queues and calls `rt.Preempt()` from its timer
 interrupt handler; the runtime keeps the current task in a per-CPU slot and masks interrupts while it
 holds its own locks, so interrupt handlers may make non-blocking channel operations and call
