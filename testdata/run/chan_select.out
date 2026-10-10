@@ -1,0 +1,4 @@
+select ok
+select4 ok 42
+select8 ok
+sendstmt ok

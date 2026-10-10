@@ -566,19 +566,18 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 			// any other type was excluded above
 			panic("unreachable")
 		}
-		// Plutonium: making a slice takes an optional final allocator
-		// argument, told from a capacity by its type (spec section 4.2).
-		// Channels take one too (spec 4.8, make(chan T, n, a)); channel
-		// types are rejected until they exist (roadmap item 15), and
-		// supporting them means treating *Chan like *Slice here and
-		// allocating in lower's make.
+		// Plutonium: making a slice or a channel takes an optional final
+		// allocator argument, told from a size by its type (spec sections
+		// 4.2 and 4.8): make([]T, n, c, a), make(chan T, n, a).
 		max := min + 1
 		_, isSlice := u.(*Slice)
-		if isSlice {
+		_, isChan := u.(*Chan)
+		takesAlloc := isSlice || isChan
+		if takesAlloc {
 			max++
 		}
 		if nargs < min || max < nargs {
-			if isSlice {
+			if takesAlloc {
 				check.errorf(call, WrongArgCount, invalidOp+"%v expects %d or %d arguments and an optional allocator; found %d", call, min, min+1, nargs)
 			} else {
 				check.errorf(call, WrongArgCount, invalidOp+"%v expects %d or %d arguments; found %d", call, min, min+1, nargs)
@@ -592,7 +591,7 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 			check.expr(nil, ops[i], arg)
 		}
 		var allocT Type
-		if isSlice && nargs > min && (nargs == max || !isCapacity(ops[len(ops)-1])) {
+		if takesAlloc && nargs > min && (nargs == max || !isCapacity(ops[len(ops)-1])) {
 			if allocT = check.allocatorArg(ops[len(ops)-1], "make"); allocT == nil {
 				return
 			}

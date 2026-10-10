@@ -359,6 +359,10 @@ const (
 	// PragmaNoSIMD (//pu:nosimd) keeps the optimiser from introducing
 	// vector instructions the function's own code does not ask for.
 	PragmaNoSIMD
+	// PragmaBlocking (//pu:blocking) marks a function that may park the
+	// running puroutine or block its thread, which interrupt context must
+	// not reach (language spec section 9).
+	PragmaBlocking
 )
 
 // MayVectorize reports whether optimisations may introduce vector

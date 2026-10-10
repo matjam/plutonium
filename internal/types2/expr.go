@@ -155,7 +155,6 @@ func (check *Checker) unary(x *operand, e *ast.UnaryExpr) {
 		return
 
 	case token.ARROW:
-		check.forbidden(x, "channel receive is", "channels need a scheduler")
 		// We cannot receive a value with an incomplete type; make sure it's complete.
 		if elem := check.chanElem(x, x, true); elem != nil && check.isComplete(elem) {
 			x.mode_ = commaok

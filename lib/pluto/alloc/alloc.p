@@ -26,18 +26,20 @@ type Restore struct {
 	prev Allocator
 }
 
-// Use makes a the default allocator until the returned Restore's Restore
-// method is called:
+// Use makes a the running puroutine's default allocator until the returned
+// Restore's Restore method is called:
 //
 //	defer alloc.Use(arena).Restore()
+//
+// The override belongs to the puroutine that calls Use: Default returns a
+// there and the program-wide default (SetDefault) everywhere else, and a
+// puroutine it starts begins with the program-wide default.
 func Use(a Allocator) Restore {
-	r := Restore{prev: Default()}
-	SetDefault(a)
-	return r
+	return Restore{prev: rt.UseAllocator(a)}
 }
 
 // Restore reinstates the previous default allocator.
-func (r Restore) Restore() { SetDefault(r.prev) }
+func (r Restore) Restore() { rt.UseAllocator(r.prev) }
 
 // New allocates a zeroed T from a, by default the default allocator.
 func New[T any](a Allocator = Default()) *T {

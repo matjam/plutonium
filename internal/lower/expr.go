@@ -519,6 +519,9 @@ func (s *fnState) unary(e *ast.UnaryExpr, T types2.Type) value {
 		return scalarValue(s.newValue(ssa.OpCom, x.Type, x), T)
 	case token.NOT:
 		return scalarValue(s.newValue(ssa.OpNot, ssa.TBool, s.scalar(e.X)), T)
+	case token.ARROW:
+		v, _ := s.recv(e, false)
+		return v
 	}
 	s.l.errorf(e.Pos(), "lower: unsupported unary operator %s", e.Op)
 	return s.zeroValue(T)

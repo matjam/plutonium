@@ -60,7 +60,7 @@ const (
 	_
 	_
 	kindArray
-	_
+	kindChan
 	kindFunc
 	kindInterface
 	_
@@ -276,6 +276,8 @@ func kindOf(T types2.Type) byte {
 		return kindArray
 	case *types2.Signature:
 		return kindFunc
+	case *types2.Chan:
+		return kindChan
 	case *types2.Interface:
 		return kindInterface
 	case *types2.Pointer:

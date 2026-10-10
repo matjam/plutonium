@@ -33,6 +33,7 @@ func programMain() int64
 //pu:noreturn
 func start(sp unsafe.Pointer) {
 	argc = *(*int)(sp)
+	bootTask.stackHi = uintptr(sp)
 	argv = unsafe.Add(sp, 8)
 	envp = unsafe.Add(sp, 8*(argc+2))
 	installFaultHandlers()
@@ -108,12 +109,14 @@ func sigpanic(sig int32, info, ctx unsafe.Pointer) {
 	sp := *(*uintptr)(unsafe.Add(ctx, 40+15*8))      // gregs[REG_RSP]
 	bp := *(*uintptr)(unsafe.Add(ctx, 40+10*8))      // gregs[REG_RBP]
 	errCode := *(*uintptr)(unsafe.Add(ctx, 40+19*8)) // gregs[REG_ERR]
+	panicBegin()
 	switch sig {
 	case sigSEGV, sigBUS:
 		if h := faultHandler; h != nil && h(addr, pc, errCode&pfWrite != 0) {
 			break // h printed the message
 		}
-		if addr < sp+4096 && addr+65536 > sp {
+		g := current()
+		if addr < sp+4096 && addr+65536 > sp || g != nil && g.stackLo != 0 && addr < g.stackLo && addr+pageSize >= g.stackLo {
 			// Just below the stack pointer: the stack ran into its guard.
 			printString("panic: runtime error: stack overflow\n")
 			break
@@ -173,6 +176,7 @@ func exit(code int) {
 //
 //pu:noreturn
 func Exit(code int) {
+	flushStackCache()
 	if h := exitHook; h != nil {
 		exitHook = nil
 		code = h(code)

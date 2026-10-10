@@ -136,6 +136,7 @@ type record struct {
 
 // An Allocator is the checking allocator. Create one with New.
 type Allocator struct {
+	mu    rt.Lock
 	opts  Options
 	pages alloc.PageProvider
 	prot  PageProtector // nil if pages cannot be protected
@@ -201,12 +202,13 @@ func New(opts Options) *Allocator {
 	return d
 }
 
-// lock and unlock guard the allocator's state. Puroutines do not run in
-// parallel yet, so they do nothing; once they do, a single lock here makes
-// the allocator safe for concurrent use. The fault handler and exit hook
-// must then take it too.
-func (d *Allocator) lock()   {}
-func (d *Allocator) unlock() {}
+// lock and unlock guard the allocator's state with one runtime lock, which
+// makes the allocator safe for concurrent use: the side table, the
+// quarantine and the block cache are reached only through it. The exit
+// hook takes it through CheckHeap and ReportLeaks; the fault handler tries
+// to (DescribeFault), since the faulting code may hold it.
+func (d *Allocator) lock()   { d.mu.Lock() }
+func (d *Allocator) unlock() { d.mu.Unlock() }
 
 // Alloc returns size zeroed bytes aligned to align (a power of two), or nil
 // if memory runs out.
@@ -717,49 +719,68 @@ func (d *Allocator) Stats() Stats {
 // kernel can call it from its page fault handler.
 func DescribeFault(addr, pc uintptr, write bool) bool {
 	for d := all; d != nil; d = d.next {
-		for i := 0; i < d.nrecs; i++ {
-			r := &d.recs[i]
-			if r.state == stateUnused || r.kind == kindCanary || addr < r.base || addr >= r.base+r.span {
-				continue
-			}
-			access := "read"
-			if write {
-				access = "write"
-			}
-			switch {
-			case r.state == stateFreed:
-				failHead("use after free: ")
-			case addr < r.ptr:
-				failHead("heap underflow: ")
-			default:
-				failHead("heap overflow: ")
-			}
-			print(access)
-			print(" at ")
-			printHex(addr)
-			print(", offset ")
-			if addr < r.ptr {
-				print("-")
-				printDec(r.ptr - addr)
-			} else {
-				printDec(addr - r.ptr)
-			}
-			print(" of the ")
-			printDec(r.size)
-			print("-byte allocation at ")
-			printHex(r.ptr)
-			print(" (allocation #")
-			printDec(uintptr(r.seq))
-			if r.state == stateFreed {
-				print(", freed")
-			}
-			print(")\n")
-			print("  faulting instruction at ")
-			rt.PrintPC(pc)
-			print("\n")
-			printRecordSites(r)
+		// The faulting code may hold the lock (a fault inside the
+		// allocator), so wait for it only a little, then read the table
+		// as it is: the program stops after this either way.
+		locked := false
+		for i := 0; i < 1000 && !locked; i++ {
+			locked = d.mu.TryLock()
+		}
+		found := d.describe(addr, pc, write)
+		if locked {
+			d.mu.Unlock()
+		}
+		if found {
 			return true
 		}
+	}
+	return false
+}
+
+// describe is DescribeFault for one allocator.
+func (d *Allocator) describe(addr, pc uintptr, write bool) bool {
+	for i := 0; i < d.nrecs; i++ {
+		r := &d.recs[i]
+		if r.state == stateUnused || r.kind == kindCanary || addr < r.base || addr >= r.base+r.span {
+			continue
+		}
+		access := "read"
+		if write {
+			access = "write"
+		}
+		switch {
+		case r.state == stateFreed:
+			failHead("use after free: ")
+		case addr < r.ptr:
+			failHead("heap underflow: ")
+		default:
+			failHead("heap overflow: ")
+		}
+		print(access)
+		print(" at ")
+		printHex(addr)
+		print(", offset ")
+		if addr < r.ptr {
+			print("-")
+			printDec(r.ptr - addr)
+		} else {
+			printDec(addr - r.ptr)
+		}
+		print(" of the ")
+		printDec(r.size)
+		print("-byte allocation at ")
+		printHex(r.ptr)
+		print(" (allocation #")
+		printDec(uintptr(r.seq))
+		if r.state == stateFreed {
+			print(", freed")
+		}
+		print(")\n")
+		print("  faulting instruction at ")
+		rt.PrintPC(pc)
+		print("\n")
+		printRecordSites(r)
+		return true
 	}
 	return false
 }

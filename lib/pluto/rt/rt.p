@@ -457,18 +457,44 @@ type Allocator interface {
 
 var defaultAllocator Allocator
 
-// DefaultAllocator returns the current default allocator, or nil.
-func DefaultAllocator() Allocator { return defaultAllocator }
+// DefaultAllocator returns the current default allocator: the running
+// puroutine's, if it installed one with UseAllocator, otherwise the
+// program-wide default. It returns nil if there is neither.
+func DefaultAllocator() Allocator {
+	if g := current(); g != nil && g.alloc != nil {
+		return g.alloc
+	}
+	return defaultAllocator
+}
 
-// SetDefaultAllocator replaces the default allocator.
+// SetDefaultAllocator replaces the program-wide default allocator.
 func SetDefaultAllocator(a Allocator) { defaultAllocator = a }
+
+// UseAllocator makes a the running puroutine's default allocator, in place
+// of the program-wide default, and returns the allocator it replaced
+// (nil if the puroutine had none of its own); UseAllocator(prev) restores
+// it. Other puroutines, including those this one starts, are not affected
+// (language spec section 7.1). Outside a puroutine (in a scheduler's own
+// context) it changes the program-wide default instead.
+func UseAllocator(a Allocator) Allocator {
+	g := current()
+	if g == nil {
+		prev := defaultAllocator
+		defaultAllocator = a
+		return prev
+	}
+	prev := g.alloc
+	g.alloc = a
+	return prev
+}
 
 // alloc implements new and make without an explicit allocator.
 func alloc(size, align uintptr) unsafe.Pointer {
-	if defaultAllocator == nil {
+	a := DefaultAllocator()
+	if a == nil {
 		panicMessage("no allocator: call alloc.SetDefault before allocating", "", "", "", "")
 	}
-	return allocAt(defaultAllocator, size, align, CallerPC())
+	return allocAt(a, size, align, CallerPC())
 }
 
 // allocWith implements new and make with an explicit allocator.

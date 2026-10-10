@@ -37,13 +37,39 @@ var tracing bool
 //
 //pu:noreturn
 func fatal() {
+	panicBegin()
 	if !tracing {
 		tracing = true
 		var fr [3]uintptr
 		callerFrame(&fr)
+		printPuroutine()
 		traceback(fr[0], fr[1], fr[2], false, true)
 	}
 	abort()
+}
+
+// panicOwner identifies the thread that is panicking (panicThread), or is
+// zero.
+var panicOwner uint64
+
+// panicBegin lets one thread at a time print a panic. A second panic on
+// the same thread (a fault while printing the first) carries on; one on
+// another thread waits for the first to stop the program.
+func panicBegin() {
+	me := uint64(panicThread())
+	for {
+		o := load64(&panicOwner)
+		if o == me {
+			return
+		}
+		if o != 0 {
+			otherPanic()
+		}
+		if cas64(&panicOwner, 0, me) {
+			DisablePreemption()
+			return
+		}
+	}
 }
 
 // Traceback prints the stack trace of the machine state pc, sp and bp (the
@@ -51,6 +77,7 @@ func fatal() {
 // faulting instruction. A kernel calls it from its exception handlers.
 func Traceback(pc, sp, bp uintptr) {
 	tracing = true
+	printPuroutine()
 	traceback(pc, sp, bp, true, false)
 }
 
@@ -78,8 +105,8 @@ func traceback(pc, sp, bp uintptr, exact, skipRuntime bool) {
 			printInlinedMain(tab, fn, look)
 			return
 		}
-		if name == "pluto/rt.start" {
-			return
+		if name == "pluto/rt.start" || name == "pluto/rt.goMain" {
+			return // the bottom of the main thread's or a puroutine's stack
 		}
 		if skipRuntime && hasPrefix(name, "pluto/rt.") {
 			// part of the panic

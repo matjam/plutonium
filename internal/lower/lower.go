@@ -67,6 +67,8 @@ type Lowerer struct {
 	errorSites     map[*ast.CallExpr]*ssa.Sym // static error of each errors.New call site
 	perCPUSelfSym  *ssa.Sym                   // pluto.percpu.self, once a per-CPU variable exists
 	types          *typeTable
+	sched          *schedBinding // the //pu:scheduler variable, or nil
+	schedMissing   bool          // the missing-scheduler error has been reported
 
 	// instances of types declared in generic functions (typeMap.local)
 	localTypes map[localKey]*types2.Named
@@ -148,6 +150,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		}
 	}
 
+	l.findScheduler()
 	l.lowerGlobals()
 	l.lowerEntry()
 	l.checkInterrupts()
@@ -302,6 +305,9 @@ func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 		}
 	}
 	if d != nil && d.decl.Body == nil {
+		if method, optional, ok := schedHook(d.decl); ok {
+			return l.schedHookSym(fn, method, optional)
+		}
 		if name, ok := externName(d.decl); ok {
 			sym := l.out.Sym(name, ssa.SymExtern)
 			l.cfuncs[sym] = true
