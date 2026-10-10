@@ -62,7 +62,7 @@ type printer struct {
 	written int
 	err     error
 
-	wrapErrs bool              // %w is allowed (Errorf)
+	wrapErrs bool             // %w is allowed (Errorf)
 	wrapped  vec.Fixed[error] // the %w operands, as many as fit
 
 	// current directive

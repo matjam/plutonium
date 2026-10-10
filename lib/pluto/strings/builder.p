@@ -31,9 +31,9 @@ import (
 // replaces each byte that does not begin a valid UTF-8 sequence with U+FFFD,
 // as string(b) does; it checks only the bytes written since the last call.
 type Builder struct {
-	buf   []byte          // the bytes so far, within the buffer
-	ctl   uintptr         // reference to the counted buffer, or 0
-	a     alloc.Allocator // allocator that grows the buffer, or nil
+	buf []byte          // the bytes so far, within the buffer
+	ctl uintptr         // reference to the counted buffer, or 0
+	a   alloc.Allocator // allocator that grows the buffer, or nil
 
 	// String has shared buf[:len(buf)] with a string, so those bytes must
 	// not change: a reset starts a new buffer.
