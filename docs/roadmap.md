@@ -19,9 +19,9 @@ tooling, platforms and libraries.
 
 1. **Volatile loads order plain loads** (done): each volatile load now starts a new memory state, so
    plain loads on either side of a volatile polling loop stay separate (memory-model.md section 5.2).
-2. **Interface boxes in package initialisers** (planned): `var x any = "s"` boxes the string in the init
-   function's frame and leaves a dangling pointer (seen in `-S` output, including `pluto/alloc.Pages`);
-   give such boxes static storage as `&T{}` already gets, or reject them.
+2. **Interface boxes in package initialisers** (done): `var x any = "s"` boxed the string in the init
+   function's frame and left a dangling pointer; such boxes now get static storage as `&T{}` does
+   (language spec section 4.4, `testdata/run/initboxes.p`).
 3. **`//pu:interrupt` compiles as an ordinary function** (done): handlers now get the entry and exit
    sequence of abi.md section 10.4 (item 9).
 4. **`//pu:extern` and `//pu:export` with aggregates** (done): calls and entry points now follow System V
