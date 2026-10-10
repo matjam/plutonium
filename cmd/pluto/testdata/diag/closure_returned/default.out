@@ -1,0 +1,230 @@
+$DIR/main.p:96:9: cannot return arr: it holds the function literal at main.p:95, which uses n, a local variable of Alias
+    A function literal that uses variables of the function around it refers to
+    those variables where they live, in Alias's frame (n is declared at
+    main.p:92). That frame is reclaimed when Alias returns.
+    Go moves the captured variables and the closure to the heap. Plutonium never
+    allocates behind the program's back, so the record stays in the frame that
+    made it.
+    Return a value that carries its own state instead, such as a struct with a
+    method:
+        type state struct {
+            n int
+        }
+
+        func (s *state) call() {
+            ... s.n ...
+        }
+    (see "Closures do not outlive their frame" in the Plutonium spec, section
+    4.5)
+    (run "pluto explain E3100" for a longer explanation)
+
+$DIR/main.p:105:9: cannot return h: it holds the function literal at main.p:104, which uses n, a local variable of Stored
+    A function literal that uses variables of the function around it refers to
+    those variables where they live, in Stored's frame (n is declared at
+    main.p:102). That frame is reclaimed when Stored returns.
+    Go moves the captured variables and the closure to the heap. Plutonium never
+    allocates behind the program's back, so the record stays in the frame that
+    made it.
+    Return a value that carries its own state instead, such as a struct with a
+    method:
+        type state struct {
+            n int
+        }
+
+        func (s *state) call() {
+            ... s.n ...
+        }
+    (see "Closures do not outlive their frame" in the Plutonium spec, section
+    4.5)
+    (run "pluto explain E3100" for a longer explanation)
+
+$DIR/main.p:113:9: cannot return g: it holds the function literal at main.p:112, which uses n, a local variable of Setter
+    A function literal that uses variables of the function around it refers to
+    those variables where they live, in Setter's frame (n is declared at
+    main.p:109). That frame is reclaimed when Setter returns.
+    Go moves the captured variables and the closure to the heap. Plutonium never
+    allocates behind the program's back, so the record stays in the frame that
+    made it.
+    Return a value that carries its own state instead, such as a struct with a
+    method:
+        type state struct {
+            n int
+        }
+
+        func (s *state) call() {
+            ... s.n ...
+        }
+    (see "Closures do not outlive their frame" in the Plutonium spec, section
+    4.5)
+    (run "pluto explain E3100" for a longer explanation)
+
+$DIR/main.p:14:9: cannot return the function literal: it uses n, a local variable of CountChecked
+    A function literal that uses variables of the function around it refers to
+    those variables where they live, in CountChecked's frame (n is declared at
+    main.p:10). That frame is reclaimed when CountChecked returns.
+    If CountChecked only checks its arguments and returns the literal, make the
+    literal its whole body, so that it is a closure constructor: each call then
+    builds the closure in the caller's frame (spec section 4.5). Checks can move
+    into the literal, or to the caller.
+    Go moves the captured variables and the closure to the heap. Plutonium never
+    allocates behind the program's back, so the record stays in the frame that
+    made it.
+    Return a value that carries its own state instead, such as a struct with a
+    method:
+        type state struct {
+            n int
+        }
+
+        func (s *state) call() {
+            ... s.n ...
+        }
+    (see "Closures do not outlive their frame" in the Plutonium spec, section
+    4.5)
+    (run "pluto explain E3100" for a longer explanation)
+
+$DIR/main.p:32:9: cannot return f: it holds the function literal at main.p:25, which uses n, a local variable of Var
+    A function literal that uses variables of the function around it refers to
+    those variables where they live, in Var's frame (n is declared at
+    main.p:24). That frame is reclaimed when Var returns.
+    Go moves the captured variables and the closure to the heap. Plutonium never
+    allocates behind the program's back, so the record stays in the frame that
+    made it.
+    Return a value that carries its own state instead, such as a struct with a
+    method:
+        type state struct {
+            n int
+        }
+
+        func (s *state) call() {
+            ... s.n ...
+        }
+    (see "Closures do not outlive their frame" in the Plutonium spec, section
+    4.5)
+    (run "pluto explain E3100" for a longer explanation)
+
+$DIR/main.p:43:9: cannot return h: it holds the function literal at main.p:42, which uses n, a local variable of Field
+    A function literal that uses variables of the function around it refers to
+    those variables where they live, in Field's frame (n is declared at
+    main.p:40). That frame is reclaimed when Field returns.
+    Go moves the captured variables and the closure to the heap. Plutonium never
+    allocates behind the program's back, so the record stays in the frame that
+    made it.
+    Return a value that carries its own state instead, such as a struct with a
+    method:
+        type state struct {
+            n int
+        }
+
+        func (s *state) call() {
+            ... s.n ...
+        }
+    (see "Closures do not outlive their frame" in the Plutonium spec, section
+    4.5)
+    (run "pluto explain E3100" for a longer explanation)
+
+$DIR/main.p:49:9: cannot return the function literal: it uses total, a local variable of Any
+    A function literal that uses variables of the function around it refers to
+    those variables where they live, in Any's frame (total is declared at
+    main.p:48). That frame is reclaimed when Any returns.
+    Go moves the captured variables and the closure to the heap. Plutonium never
+    allocates behind the program's back, so the record stays in the frame that
+    made it.
+    Return a value that carries its own state instead, such as a struct with a
+    method:
+        type state struct {
+            total int
+        }
+
+        func (s *state) call() {
+            ... s.total ...
+        }
+    (see "Closures do not outlive their frame" in the Plutonium spec, section
+    4.5)
+    (run "pluto explain E3100" for a longer explanation)
+
+$DIR/main.p:58:9: cannot return the method value c.get: its closure record is in Method's frame
+    A method value such as c.get is a closure record, holding the method to call
+    and a copy of the receiver, in the frame of the function that makes it: here
+    Method. That frame is reclaimed when Method returns, and the record with it.
+    Go moves the captured variables and the closure to the heap. Plutonium never
+    allocates behind the program's back, so the record stays in the frame that
+    made it.
+    Return the receiver and let the caller call the method, or return a method
+    expression, which takes the receiver as its first argument:
+        m := (*counter).get // m(x, ...) calls x.get(...)
+    (see "Closures do not outlive their frame" in the Plutonium spec, section
+    4.5)
+    (run "pluto explain E3100" for a longer explanation)
+
+$DIR/main.p:65:9: cannot return pass(...): it holds the function literal at main.p:65, which uses n, a local variable of Through
+    A function literal that uses variables of the function around it refers to
+    those variables where they live, in Through's frame (n is declared at
+    main.p:64). That frame is reclaimed when Through returns.
+    Go moves the captured variables and the closure to the heap. Plutonium never
+    allocates behind the program's back, so the record stays in the frame that
+    made it.
+    Return a value that carries its own state instead, such as a struct with a
+    method:
+        type state struct {
+            n int
+        }
+
+        func (s *state) call() {
+            ... s.n ...
+        }
+    (see "Closures do not outlive their frame" in the Plutonium spec, section
+    4.5)
+    (run "pluto explain E3100" for a longer explanation)
+
+$DIR/main.p:75:9: cannot return Const(m): Const builds its closure in Built's frame
+    Const is a closure constructor: each call is compiled where it is made, and
+    the closure it returns is built in the caller's frame, here Built's (spec
+    section 4.5). That frame is reclaimed when Built returns.
+    If Built's whole body is one return of a call of Const, Built is a closure
+    constructor too, and its callers build the closure instead.
+    Go moves the captured variables and the closure to the heap. Plutonium never
+    allocates behind the program's back, so the record stays in the frame that
+    made it.
+    (see "Closures do not outlive their frame" in the Plutonium spec, section
+    4.5)
+    (run "pluto explain E3100" for a longer explanation)
+
+$DIR/main.p:81:2: cannot return f: it holds the function literal at main.p:80, which uses n, a local variable of Named
+    A function literal that uses variables of the function around it refers to
+    those variables where they live, in Named's frame (n is declared at
+    main.p:79). That frame is reclaimed when Named returns.
+    Go moves the captured variables and the closure to the heap. Plutonium never
+    allocates behind the program's back, so the record stays in the frame that
+    made it.
+    Return a value that carries its own state instead, such as a struct with a
+    method:
+        type state struct {
+            n int
+        }
+
+        func (s *state) call() {
+            ... s.n ...
+        }
+    (see "Closures do not outlive their frame" in the Plutonium spec, section
+    4.5)
+    (run "pluto explain E3100" for a longer explanation)
+
+$DIR/main.p:88:9: cannot return h: it holds the function literal at main.p:87, which uses n, a local variable of Ptr
+    A function literal that uses variables of the function around it refers to
+    those variables where they live, in Ptr's frame (n is declared at
+    main.p:85). That frame is reclaimed when Ptr returns.
+    Go moves the captured variables and the closure to the heap. Plutonium never
+    allocates behind the program's back, so the record stays in the frame that
+    made it.
+    Return a value that carries its own state instead, such as a struct with a
+    method:
+        type state struct {
+            n int
+        }
+
+        func (s *state) call() {
+            ... s.n ...
+        }
+    (see "Closures do not outlive their frame" in the Plutonium spec, section
+    4.5)
+    (run "pluto explain E3100" for a longer explanation)

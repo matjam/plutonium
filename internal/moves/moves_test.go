@@ -80,7 +80,7 @@ func main() {
 }`, []string{"main.p:27:12: m was moved to n at line 26, so it can no longer be used here",
 		"Buf is an owner type: its values own what they hold and release it when they are dropped. Assigning an owner moves it instead of copying it",
 		"Since line 26, n owns it and m holds nothing.",
-		"n := m.Clone()", "n := &m", "E3101"}},
+		"n := m.Clone()", "n := &m", "E3301"}},
 
 	{"use after passing", `
 func main() {
@@ -110,7 +110,7 @@ func main() {
 		_ = take2(b)
 	}
 	_ = b.Len()
-}`, []string{"main.p:29:6: b may have been moved at line 27, so it cannot be used here", "E3102"}},
+}`, []string{"main.p:29:6: b may have been moved at line 27, so it cannot be used here", "E3302"}},
 
 	{"moved in the previous iteration", `
 func main() {
@@ -125,7 +125,7 @@ func main() {
 	c := Conn{}
 	b := c.buf
 	_ = b
-}`, []string{"cannot move c.buf out of c: c.buf is a field, not a variable", "v := take(&c.buf)", "v := &c.buf", "E3103"}},
+}`, []string{"cannot move c.buf out of c: c.buf is a field, not a variable", "v := take(&c.buf)", "v := &c.buf", "E3303"}},
 
 	{"move out of an element", `
 func main() {
@@ -154,41 +154,41 @@ func main() {
 	for _, b := range a {
 		_ = b.Len()
 	}
-}`, []string{"cannot copy the elements of a in a range loop: Buf is an owner type", "for i := range a {", "E3104"}},
+}`, []string{"cannot copy the elements of a in a range loop: Buf is an owner type", "for i := range a {", "E3304"}},
 
 	{"move inside a literal", `
 func main() {
 	b := Buf{}
 	f := func() { _ = take2(b) }
 	f()
-}`, []string{"cannot move b inside a function literal: the literal may run more than once, or never", "do := func(b Buf) { ... }", "E3105"}},
+}`, []string{"cannot move b inside a function literal: the literal may run more than once, or never", "do := func(b Buf) { ... }", "E3305"}},
 
 	{"copy owners", `
 func main() {
 	var a, c [2]Buf
 	copy(a[:], c[:])
-}`, []string{"cannot copy elements of type Buf: each element is an owner", "E3106"}},
+}`, []string{"cannot copy elements of type Buf: each element is an owner", "E3306"}},
 
 	{"drop through a pointer", `
 func main() {
 	f := File{}
 	p := &f
 	p.Drop()
-}`, []string{"cannot call p.Drop(): p is a *File, which only points at a File that something else owns", "E3107"}},
+}`, []string{"cannot call p.Drop(): p is a *File, which only points at a File that something else owns", "E3307"}},
 
 	{"assert an owner out of any", `
 func main() {
 	var x any
 	b := x.(Buf)
 	_ = b
-}`, []string{"cannot assert x to Buf: x is an any, which only lends the value it holds", "E3108"}},
+}`, []string{"cannot assert x to Buf: x is an any, which only lends the value it holds", "E3308"}},
 
 	{"owners as variadic arguments", `
 func all(bs ...Buf) {}
 func main() {
 	b := Buf{}
 	all(b)
-}`, []string{"cannot pass b to all as a variadic argument: Buf is an owner type", "E3110"}},
+}`, []string{"cannot pass b to all as a variadic argument: Buf is an owner type", "E3310"}},
 
 	{"deferred call uses an inner owner", `
 func main() {
@@ -197,14 +197,14 @@ func main() {
 		defer look2(&f)
 	}
 }
-func look2(f *File) {}`, []string{"the deferred call uses f, which is dropped at the end of its block", "E3111"}},
+func look2(f *File) {}`, []string{"the deferred call uses f, which is dropped at the end of its block", "E3311"}},
 
 	{"slice literal of owners", `
 func main() {
 	b := Buf{}
 	s := []Buf{b}
 	_ = s
-}`, []string{"a slice literal cannot hold owners: Buf is an owner type", "E3112"}},
+}`, []string{"a slice literal cannot hold owners: Buf is an owner type", "E3312"}},
 
 	{"index a container of owners", `
 type Bufs owner struct{ data [4]Buf }
@@ -213,7 +213,7 @@ func main() {
 	var v Bufs
 	b := v[0]
 	_ = b
-}`, []string{"cannot read v[0]: the elements of v are owners, and v[0] would be a copy", "p := v.Ptr(0)", "E3109"}},
+}`, []string{"cannot read v[0]: the elements of v are owners, and v[0] would be a copy", "p := v.Ptr(0)", "E3309"}},
 
 	{"named result moved before a bare return", `
 func f() (b Buf) {

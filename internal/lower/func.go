@@ -385,6 +385,7 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 		s.pushScope(true, f.Pos, f.End)
 		s.bindParams()
 		l.bodies[job.sym] = funcBody{body: body, info: s.info}
+		l.checkClosureReturns(job)
 		if hasDefer(body) {
 			s.deferBits = s.temp(types2.Typ[types2.Uint64], "deferbits")
 			s.store(ssa.TI64, s.deferBits, s.constInt(ssa.TI64, 0))

@@ -30,9 +30,12 @@ func header() []byte {
 	return buf[:]
 }
 
-func counter() func() int {
+// Returning the closure is E3100 (closure_returned); storing it is ours.
+var hook func() int
+
+func counter() {
 	total := 0
-	return func() int {
+	hook = func() int {
 		total++
 		return total
 	}
@@ -62,7 +65,7 @@ func loops() int {
 func main() {
 	_ = load()
 	_ = header()
-	_ = counter()
+	counter()
 	_ = parse()
 	keep()
 	_ = loops()

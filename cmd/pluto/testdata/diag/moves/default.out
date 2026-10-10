@@ -13,7 +13,7 @@ $DIR/main.p:25:10: m was moved to n at line 24, so it can no longer be used here
     If this is the last use of m, move it before line 24, where m still holds
     its value.
     (see "Owners" in the Plutonium spec, section 6.4)
-    (run "pluto explain E3101" for a longer explanation)
+    (run "pluto explain E3301" for a longer explanation)
 
 $DIR/main.p:31:10: b may have been moved at line 29, so it cannot be used here
     Buf is an owner type: its values own what they hold and release it when they
@@ -28,7 +28,7 @@ $DIR/main.p:31:10: b may have been moved at line 29, so it cannot be used here
     Use b before line 29, or give it a new value on the path that moves it:
         b = Buf{}
     (see "Owners" in the Plutonium spec, section 6.4)
-    (run "pluto explain E3102" for a longer explanation)
+    (run "pluto explain E3302" for a longer explanation)
 
 $DIR/main.p:34:10: cannot move t.left out of t: t.left is a field, not a variable
     Buf is an owner type, so taking t.left would move it. But t would still
@@ -44,7 +44,7 @@ $DIR/main.p:34:10: cannot move t.left out of t: t.left is a field, not a variabl
     To copy it:
         v := t.left.Clone()
     (see "Owners" in the Plutonium spec, section 6.4)
-    (run "pluto explain E3103" for a longer explanation)
+    (run "pluto explain E3303" for a longer explanation)
 
 $DIR/main.p:39:9: out was moved into flush (its parameter takes a Buf by value) at line 39 in the previous iteration of this loop
     Buf is an owner type: its values own what they hold and release it when they
@@ -65,7 +65,7 @@ $DIR/main.p:39:9: out was moved into flush (its parameter takes a Buf by value) 
     Or move a copy at line 39:
         out.Clone()
     (see "Owners" in the Plutonium spec, section 6.4)
-    (run "pluto explain E3102" for a longer explanation)
+    (run "pluto explain E3302" for a longer explanation)
 
 $DIR/main.p:43:23: cannot move c inside a function literal: the literal may run more than once, or never
     c is a variable of the function around the literal (declared at main.p:42),
@@ -81,4 +81,4 @@ $DIR/main.p:43:23: cannot move c inside a function literal: the literal may run 
         do(c)
     (see "Closures do not outlive their frame" in the Plutonium spec, section
     4.5)
-    (run "pluto explain E3105" for a longer explanation)
+    (run "pluto explain E3305" for a longer explanation)

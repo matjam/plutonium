@@ -1,7 +1,7 @@
 $DIR/main.p:25:9: cannot return &c, a pointer to a local variable
 $DIR/main.p:30:9: cannot return buf[:], a slice of buf, a local array
-$DIR/main.p:35:9: cannot return the function literal: it uses total, a local variable of counter
-$DIR/main.p:42:9: cannot return ParseError{...} as an interface: the interface would hold a copy of it in parse's frame
-$DIR/main.p:47:2: cannot store &c in package variable last, which outlives c
-$DIR/main.p:48:2: cannot pass &c to remember, which keeps it after returning
-$DIR/main.p:56:4: cannot keep f in first after this iteration: it uses i, which the loop at line 53 reuses in every iteration
+$DIR/main.p:38:2: cannot store the function literal in package variable hook, which outlives total
+$DIR/main.p:45:9: cannot return ParseError{...} as an interface: the interface would hold a copy of it in parse's frame
+$DIR/main.p:50:2: cannot store &c in package variable last, which outlives c
+$DIR/main.p:51:2: cannot pass &c to remember, which keeps it after returning
+$DIR/main.p:59:4: cannot keep f in first after this iteration: it uses i, which the loop at line 56 reuses in every iteration

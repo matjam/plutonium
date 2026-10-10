@@ -30,8 +30,9 @@ later takes the next free number and is listed in the section where it belongs.
 5. **Escape errors for frame views** (planned): returning `&x`, a slice of a local array, an interface
    holding a frame copy or a closure with captures, or storing one in a package variable, on the heap or
    through a caller's pointer, or passing it to a function that keeps it, must be a compile error
-   (language spec sections 4.4, 4.5 and 6.3), with the explanatory messages of section 6.9; today nothing
-   checks it. This is the compile-time half of "a view may not outlive what it looks at" (item 20).
+   (language spec sections 4.4, 4.5 and 6.3), with the explanatory messages of section 6.9. Returning a
+   closure record (a capturing literal, a method value, a constructor's closure) is checked (E3100,
+   section 4.5); nothing else is yet. This is the compile-time half of "a view may not outlive what it looks at" (item 20).
 
 ## Kernel enablement
 

@@ -225,6 +225,15 @@ therefore valid only while the enclosing function is running:
 
 A function literal that captures nothing is an ordinary function value and may be used anywhere.
 
+A capturing closure, like a method value, is a closure record in the frame of the function that makes it:
+the code to run, with where each captured variable is (or a copy of the receiver). The compiler reports
+every function that may return a record made in its own frame (E3100), whether it returns the closure
+directly or inside a variable, a struct, an array, an interface, memory reached through a pointer, or the
+result of a call that may return its argument. The check follows values through assignments and calls
+without regard to order, and assumes that a call through a func value or an interface may return
+anything passed to it, so it may reject a function that would never return the record at run time.
+Storing a record in a package-level variable or through a pointer is not checked yet (roadmap item 5).
+
 **Loop variables.** Go gives each iteration of a loop its own copies of the variables the loop declares,
 so a closure made in one iteration keeps seeing that iteration's values. Plutonium cannot: the copies would
 need memory for every iteration, and closures refer to variables where they live, in the frame, which has
@@ -2001,7 +2010,7 @@ srv.p:30:13: cannot pass &req to a go statement: the new puroutine may outlive r
 For a send the first line is `cannot send &req on ch: the receiver may outlive req`, with "the value sent
 here may be received after serve returns" as the explanation.
 
-**Returning a closure that captures variables** (E3001; keeping one past a loop iteration is E3006,
+**Returning a closure that captures variables** (E3100; keeping one past a loop iteration is E3006,
 section 4.5).
 
 ```
@@ -2014,6 +2023,14 @@ count.p:9:9: cannot return the function literal: it uses total, a local variable
         func (c *Counter) Add(n int) int { c.total += n; return c.total }
     (see "Ownership" in the language spec, section 6.3)
 ```
+
+When the closure is returned inside something else, the first line names what is returned and where the
+literal is: `cannot return h: it holds the function literal at count.p:12, which uses total, a local
+variable of counter`. A method value reads `cannot return the method value c.get: its closure record is
+in f's frame`, with "a method value is a closure record, holding the method to call and a copy of the
+receiver" as the explanation and a method expression (`(*Counter).Get`) as the fix. The closure a closure
+constructor builds in the function's frame reads `cannot return Count(m): Count builds its closure in
+f's frame`. These are E3100.
 
 **Returning an interface that holds a frame copy** (E3001)**, or lends an owner** *(planned)*.
 
@@ -2034,7 +2051,7 @@ variable`, the explanation is "converting an owner to an ordinary interface lend
 looks at b, and b is dropped when f returns", and the fixes are "return b itself" and "declare an owning
 interface (type Resource owner interface {...}) to move b into it".
 
-**Using a variable after it was moved** (E3101).
+**Using a variable after it was moved** (E3301).
 
 ```
 main.p:14:2: m was moved to n at line 12, so it can no longer be used here
@@ -2062,7 +2079,7 @@ analysis:
 - when the later use only looks at `m` and nothing between the two lines changes it: "This is m's last
   use. Move it before line 12 and no copy is needed:" followed by the reordered lines.
 
-**Using a variable that may have been moved** (E3102).
+**Using a variable that may have been moved** (E3302).
 
 ```
 main.p:20:5: b may have been moved at line 15, so it cannot be used here
@@ -2080,7 +2097,7 @@ main.p:20:5: b may have been moved at line 15, so it cannot be used here
 In a loop the first line is `b was moved to out at line 9 in the previous iteration of this loop`, and the
 fixes are "declare b inside the loop so that each iteration has its own" and "b.Clone()".
 
-**Moving out of a field, an element or through a pointer** (E3103; the range loop is E3104).
+**Moving out of a field, an element or through a pointer** (E3303; the range loop is E3304).
 
 ```
 tree.p:31:10: cannot move n.left out of n: n.left is a field, not a variable
@@ -2105,7 +2122,7 @@ owner type`, and the fix is
         }
 ```
 
-**Moving a captured variable inside a function literal** (E3105).
+**Moving a captured variable inside a function literal** (E3305).
 
 ```
 job.p:17:8: cannot move b inside a function literal: the literal may run more than once, or never
@@ -2144,7 +2161,7 @@ main.p:8:7: s would look at a temporary that is dropped at the end of this state
     (see "Ownership" in the language spec, section 6.4)
 ```
 
-**A deferred call that uses an owner from an inner block** (E3111).
+**A deferred call that uses an owner from an inner block** (E3311).
 
 ```
 main.p:11:9: the deferred call uses b, which is dropped at the end of its block (line 14)
@@ -2214,7 +2231,7 @@ For other kinds the first line names them (`owner cannot qualify a slice type`),
 slice is a view, and the fix is the same wrapper struct. `owner` outside a type definition reads `owner can
 only be used in a type definition: type T owner struct {...}`.
 
-**Calling `Drop` through a view** (E3107).
+**Calling `Drop` through a view** (E3307).
 
 ```
 pool.p:22:2: cannot call p.Drop(): p is a *File, which only points at a File that something else owns
@@ -2244,8 +2261,8 @@ main.p:10:12: cannot use strings.Buf as T in Fill: strings.Buf is an owner and T
     (see "Ownership" in the language spec, section 6.4)
 ```
 
-**Duplicating owners with `copy` or `append`** (E3106; owners as variadic arguments are E3110, in a slice
-literal E3112, and `x[k]` on a container of owners E3109).
+**Duplicating owners with `copy` or `append`** (E3306; owners as variadic arguments are E3310, in a slice
+literal E3312, and `x[k]` on a container of owners E3309).
 
 ```
 main.p:7:2: cannot copy elements of type strings.Buf: each element is an owner
@@ -2258,7 +2275,7 @@ main.p:7:2: cannot copy elements of type strings.Buf: each element is an owner
     (see "Ownership" in the language spec, section 6.4)
 ```
 
-**Taking an owner out of an ordinary interface** (E3108).
+**Taking an owner out of an ordinary interface** (E3308).
 
 ```
 main.p:19:7: cannot assert x to strings.Buf: x is an any, which only lends the value it holds

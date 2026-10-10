@@ -78,6 +78,11 @@ type Lowerer struct {
 	types          *typeTable
 	ctors          map[*types2.Func]*ctorInfo // closure constructors (ctor.go), nil for other functions
 	ctorMisused    map[*types2.Func]bool      // closure constructors already reported
+	flowSums       map[string]*flowSummary    // closureflow.go, by instance symbol name
+	flowStack      []string                   // summaries being computed
+	flowTent       []string                   // tentative summaries
+	flowMin        int                        // the outermost summary being computed that was read
+	flowReported   map[token.Pos]bool         // returned closure records already reported
 	sched          *schedBinding              // the //pu:scheduler variable, or nil
 	schedMissing   bool                       // the missing-scheduler error has been reported
 	schedNoTimers  bool                       // the scheduler-without-timers error has been reported
@@ -165,6 +170,8 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		closureRecords: map[*ssa.Sym]*ssa.Sym{},
 		ctors:          map[*types2.Func]*ctorInfo{},
 		ctorMisused:    map[*types2.Func]bool{},
+		flowSums:       map[string]*flowSummary{},
+		flowReported:   map[token.Pos]bool{},
 		localTypes:     map[localKey]*types2.Named{},
 		errorSites:     map[*ast.CallExpr]*ssa.Sym{},
 		exports:        map[*ssa.Sym][]string{},

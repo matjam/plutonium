@@ -193,7 +193,7 @@ some path (including a previous loop iteration), moves out of fields, elements, 
 variables (use `take(&place)`), range loops and `copy` that would duplicate owners, moves of captured
 variables inside function literals, `Drop` through a view, owners asserted out of ordinary interfaces,
 `x[k]` on a container of owners, owners as variadic arguments or in slice literals, and deferred calls
-using owners of inner blocks are compile errors, each explained (codes E3101 to E3112).
+using owners of inner blocks are compile errors, each explained (codes E3301 to E3312).
 
 ### 6.2 Drops (implemented)
 
@@ -298,7 +298,7 @@ func (l *List) Push(v int) {
 ```
 
 The list frees itself: dropping `l.head` drops each node's `next` in turn. `take` is the one new idea,
-and the compiler suggests it when `n.next = l.head` is written (E3103).
+and the compiler suggests it when `n.next = l.head` is written (E3303).
 
 **Tree with parent pointers.**
 

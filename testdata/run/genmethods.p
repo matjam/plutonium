@@ -178,9 +178,8 @@ func ViaValue[T, U any](w Wrapped[T], f func(T) U) U {
 // from Apply1's own parameter types.
 func Apply1[R any](f func(func(int) R) R, g func(int) R) R { return f(g) }
 
-// Applier makes a method value instantiated by the type it is assigned to
-// and calls it. (Returning it would be an error in Plutonium: the method
-// value's record, holding the receiver, lives in Applier's frame.)
+// Applier calls a method value instantiated by the type of the variable
+// that holds it.
 func Applier(c Counter, g func(int) bool) bool {
 	var f func(func(int) bool) bool = c.Apply
 	return f(g)

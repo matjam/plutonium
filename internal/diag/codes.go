@@ -96,9 +96,9 @@ const (
 )
 
 // Ownership and lifetimes: E3000-E3999. Views of a frame that outlive it
-// (internal/escape) are E3001-E3099; the ownership checks after type
-// checking are E3100-E3199; the type checker's own ownership errors are
-// in internal/types2/errors from E3200.
+// (internal/escape) are E3001-E3099; closures and their records are
+// E3100-E3199; the type checker's own ownership errors are in
+// internal/types2/errors from E3200; the move checker's are E3300-E3399.
 const (
 	ReturnFrameView Code = "E3001" // a function returns a view of its own frame
 	StoreFrameView  Code = "E3002" // a view of the frame stored where it outlives the frame
@@ -111,18 +111,23 @@ const (
 
 // The move checker (internal/moves).
 const (
-	UseAfterMove     Code = "E3101" // a variable used after its owner moved out
-	UseMaybeMoved    Code = "E3102" // a variable used where it may have been moved
-	MoveOutOfPlace   Code = "E3103" // an owner moved out of a field, element, pointer or package variable
-	RangeCopiesOwner Code = "E3104" // a range loop that copies owner elements
-	MoveCaptured     Code = "E3105" // a captured owner moved inside a function literal
-	CopyOwners       Code = "E3106" // copy, or append(s, t...), of owner elements
-	DropThroughView  Code = "E3107" // Drop called other than on an owner variable
-	OwnerFromLender  Code = "E3108" // an owner asserted out of an ordinary interface
-	IndexOwner       Code = "E3109" // x[k] read from a container of owners
-	VariadicOwners   Code = "E3110" // owners passed as variadic arguments
-	DeferInnerOwner  Code = "E3111" // a deferred call using an owner of an inner block
-	SliceLitOwners   Code = "E3112" // a slice literal with owner elements
+	UseAfterMove     Code = "E3301" // a variable used after its owner moved out
+	UseMaybeMoved    Code = "E3302" // a variable used where it may have been moved
+	MoveOutOfPlace   Code = "E3303" // an owner moved out of a field, element, pointer or package variable
+	RangeCopiesOwner Code = "E3304" // a range loop that copies owner elements
+	MoveCaptured     Code = "E3305" // a captured owner moved inside a function literal
+	CopyOwners       Code = "E3306" // copy, or append(s, t...), of owner elements
+	DropThroughView  Code = "E3307" // Drop called other than on an owner variable
+	OwnerFromLender  Code = "E3308" // an owner asserted out of an ordinary interface
+	IndexOwner       Code = "E3309" // x[k] read from a container of owners
+	VariadicOwners   Code = "E3310" // owners passed as variadic arguments
+	DeferInnerOwner  Code = "E3311" // a deferred call using an owner of an inner block
+	SliceLitOwners   Code = "E3312" // a slice literal with owner elements
+)
+
+// Closures and their records (E3100-E3199).
+const (
+	ClosureReturned Code = "E3100" // a function returns a closure record made in its frame
 )
 
 // Errors in the compiler itself.
