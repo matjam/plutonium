@@ -177,6 +177,84 @@ type I interface {
 	}
 }
 
+// TestParseDefaults checks that parameters may have default values, that
+// each defaulted parameter gets a field of its own, and that a default
+// shared by several names is rejected.
+func TestParseDefaults(t *testing.T) {
+	src := `package p
+
+func New[T any](a Allocator = Default()) *T
+
+func Grow(n, m int, factor int = 2, s []int = []int{1, 2}) {}
+
+func Unnamed(int, string = "x")
+
+var f = func(x int = 1) {}
+`
+	fset := token.NewFileSet()
+	f, err := ParseFile(fset, "ok.p", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type param struct {
+		names string
+		def   bool
+	}
+	describe := func(fl *ast.FieldList) []param {
+		var out []param
+		for _, fld := range fl.List {
+			var names []string
+			for _, n := range fld.Names {
+				names = append(names, n.Name)
+			}
+			if fld.Default != nil && !fld.Assign.IsValid() {
+				t.Errorf("default without the position of its '='")
+			}
+			out = append(out, param{strings.Join(names, ","), fld.Default != nil})
+		}
+		return out
+	}
+	cases := []struct {
+		decl int
+		want []param
+	}{
+		{0, []param{{"a", true}}},
+		{1, []param{{"n,m", false}, {"factor", true}, {"s", true}}},
+		{2, []param{{"", false}, {"", true}}},
+	}
+	for _, c := range cases {
+		fd := f.Decls[c.decl].(*ast.FuncDecl)
+		got := describe(fd.Type.Params)
+		if len(got) != len(c.want) {
+			t.Fatalf("%s: fields %v, want %v", fd.Name.Name, got, c.want)
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("%s: field %d is %v, want %v", fd.Name.Name, i, got[i], c.want[i])
+			}
+		}
+		if last := fd.Type.Params.List[len(fd.Type.Params.List)-1]; last.End() != last.Default.End() {
+			t.Errorf("%s: field ends at %d, want the end of its default", fd.Name.Name, last.End())
+		}
+	}
+	// The checker, not the parser, rejects defaults outside declarations.
+	lit := f.Decls[3].(*ast.GenDecl).Specs[0].(*ast.ValueSpec).Values[0].(*ast.FuncLit)
+	if lit.Type.Params.List[0].Default == nil {
+		t.Errorf("function literal parameter lost its default")
+	}
+
+	for _, bad := range []string{
+		"package p\n\nfunc f(a, b int = 1) {}\n",
+		"package p\n\nfunc f(a = 1, b int) {}\n",
+	} {
+		_, err := ParseFile(token.NewFileSet(), "bad.p", bad, 0)
+		const want = "a default value must follow a single parameter name and its type"
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: got error %v, want %q", bad, err, want)
+		}
+	}
+}
+
 // TestParseRepoSources parses every .p file shipped in the repository.
 func TestParseRepoSources(t *testing.T) {
 	root := filepath.Join("..", "..", "..")

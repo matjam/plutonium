@@ -57,6 +57,9 @@ func Walk(v Visitor, node Node) {
 		if n.Tag != nil {
 			Walk(v, n.Tag)
 		}
+		if n.Default != nil {
+			Walk(v, n.Default)
+		}
 		if n.Comment != nil {
 			Walk(v, n.Comment)
 		}
