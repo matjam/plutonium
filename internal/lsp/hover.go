@@ -258,6 +258,10 @@ var directives = map[string]string{
 	"nosimd":    "the optimiser adds no vector instructions to the function",
 	"fpu":       "the function may use floating point in kernel mode; the caller has saved the FPU state",
 	"percpu":    "one copy of the package variable per processor, addressed through GS (kernel mode only)",
+	"blocking":  "calling the function may wait in a way the compiler cannot see (a kernel's spinning lock, assembly that halts), so interrupt handlers and the panic handler must not reach it",
+	"panic":     "the program's panic handler, func(p *rt.Panic), which must never return",
+	"scheduler": "the package variable is the program's scheduler backend, replacing the hosted one",
+	"stack":     "run main on a stack of this size, which the hosted runtime reserves (hosted builds only)",
 }
 
 // directiveName returns the name of a //pu: directive comment.

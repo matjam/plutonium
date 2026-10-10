@@ -1,9 +1,11 @@
 # Plutonium Development Guidelines
 
 ## Branch Strategy
-- **Main branch:** `main` (no worktrees, develop directly on main)
-- Do NOT use git worktrees for this project
-- All development happens directly on the `main` branch
+- `main` is the only long-lived branch.
+- Agents may work in git worktrees under `.claude/worktrees/` (gitignored)
+  and push verified commits to `main` (`git push origin HEAD:main`) after
+  rebasing on `origin/main`.
+- Humans can commit on `main` directly.
 
 ## Project Overview
 Plutonium is a systems programming language: Go's syntax and most of its
@@ -60,6 +62,32 @@ End-to-end tests live in `internal/build`:
   `docs/spec/debugging.md`).
 - `examples/*/main.p` are checked against `examples/*/expected` (first line
   `exit N` for a non-zero exit status).
+
+## Directives
+
+Using the language should not need an understanding of how the compiler
+works. Ordinary hosted code needs no `//pu:` directives except explicit
+requests: build constraints (`//pu:build`), inlining (`//pu:inline`,
+`//pu:noinline`), a stack size (`//pu:stack`), and C linkage
+(`//pu:extern`, `//pu:export`). Hardware and binding directives
+(`//pu:interrupt`, `//pu:panic`, `//pu:scheduler`, `//pu:percpu`,
+`//pu:fpu`, `//pu:blocking`) are for kernels, where code must be precise
+about machine state.
+
+- A new directive is allowed only for a fact the compiler cannot derive:
+  linkage, hardware state, ABI bindings, a body it cannot see (assembly,
+  C), or an explicit request from the programmer.
+- Anything the compiler can work out from the program is inferred, not
+  annotated: which functions never return, which may wait, which start
+  puroutines with their arguments, which string slices are on rune
+  boundaries. If inference is not yet good enough, improve the compiler
+  (or the language) rather than adding a directive.
+- The runtime's contract with the compiler (scheduler hooks, the panic
+  hook, intrinsics) is by name in a compiler table, not by directive.
+- Diagnostics explain what the program did and how to fix it in its own
+  terms, without requiring knowledge of the implementation.
+- Update the table in `docs/spec/language.md` section 9 and the hover text
+  in `internal/lsp/hover.go` with any change.
 
 ## Diagnostics
 

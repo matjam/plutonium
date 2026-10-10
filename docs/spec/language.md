@@ -2643,6 +2643,15 @@ kernel: no panic handler is defined
 Directives are line comments starting with `//pu:` with no space, placed in the doc comment of the
 declaration they apply to (or at the top of the file for `//pu:build`).
 
+A directive states something the compiler cannot work out from the program: linkage, hardware state, a
+binding to the runtime, a body it cannot see, or an explicit request. Anything it can work out it infers
+instead (which functions never return, which may wait, which start puroutines with their func
+arguments, which string slices fall on rune boundaries), so using the language does not require
+knowing how the compiler works. Ordinary hosted code needs only the requests: `//pu:build`,
+`//pu:inline`, `//pu:noinline`, `//pu:stack`, and `//pu:extern` and `//pu:export` for C. The hardware and
+binding directives (`//pu:interrupt`, `//pu:panic`, `//pu:scheduler`, `//pu:percpu`, `//pu:fpu`,
+`//pu:blocking`) are for kernels.
+
 | Directive | Applies to | Meaning |
 |---|---|---|
 | `//pu:build expr` | file | include the file only when `expr` holds |
