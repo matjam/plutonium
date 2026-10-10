@@ -606,3 +606,29 @@ func main() {
 		t.Errorf("kernel: want scalar code under //pu:nosimd\n%s", asm)
 	}
 }
+
+// TestVectorizeKernelFPU checks that in kernel mode a //pu:fpu function,
+// whose caller has saved the vector state, is vectorised like any other.
+func TestVectorizeKernelFPU(t *testing.T) {
+	const src = `package main
+
+var a, b, c [64]float64
+
+//pu:fpu
+//pu:noinline
+func axpy() {
+	for i := 0; i < len(a); i++ {
+		c[i] = a[i]*2.5 + b[i]
+	}
+}
+
+func main() { axpy() }
+`
+	text, err := kernelCompile(t, src, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asm := funcListing(t, text, "main.axpy"); !strings.Contains(asm, "mulpd") {
+		t.Errorf("axpy: want packed code\n%s", asm)
+	}
+}
