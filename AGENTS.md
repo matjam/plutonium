@@ -19,6 +19,7 @@ The compiler is written in Go. Pipeline:
 | package loading, build tags, `pluto.mod` | `internal/load` |
 | move checker for owners (language spec 6.4) | `internal/moves` |
 | stack escape analysis (language spec 6.3) | `internal/escape` |
+| data race check (language spec 6.11) | `internal/race` |
 | typed AST to SSA | `internal/lower` |
 | SSA IR, verifier, basic passes | `internal/ssa` |
 | optimiser pipeline | `internal/opt` |
@@ -177,6 +178,7 @@ Every change must pass ALL of these before committing:
    - `internal/types2`: ≥56%
    - `internal/escape`: ≥90%
    - `internal/moves`: ≥80%
+   - `internal/race`: ≥90%
    - `internal/lsp`: ≥85%
 
    New code paths need tests: a `testdata/run` program for language features,
