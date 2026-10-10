@@ -21,6 +21,7 @@ func (f *fn) expr(e ast.Expr) {
 	case *ast.FuncLit:
 		f.funcLit(e)
 	case *ast.CompositeLit:
+		f.temp(e)
 		f.compLit(e)
 	case *ast.SelectorExpr:
 		f.selector(e)
@@ -45,8 +46,10 @@ func (f *fn) expr(e ast.Expr) {
 		f.expr(e.X)
 		f.expr(e.Y)
 	case *ast.CallExpr:
+		f.temp(e)
 		f.call(e, mvArg)
 	case *ast.TypeAssertExpr:
+		f.temp(e)
 		f.expr(e.X)
 		if e.Type != nil {
 			f.assertTo(e.X, f.c.typeOf(e.Type), e.Pos())
@@ -103,11 +106,25 @@ func (f *fn) consume(e ast.Expr, dst types2.Type, mv move) {
 			f.consume(x.Args[0], tv.Type, move{kind: mvConv, to: types2.TypeString(tv.Type, f.c.qualifier())})
 			return
 		}
+		f.consumed = x
 		f.expr(x)
 	default:
 		// A composite literal, a call's result, a type assertion: a value
-		// that nothing else holds.
+		// that nothing else holds, which moves where it goes.
+		f.consumed = ast.Unparen(e)
 		f.expr(e)
+	}
+}
+
+// temp records an owner value that e makes and nothing takes: lowering
+// drops it at the end of the statement.
+func (f *fn) temp(e ast.Expr) {
+	if f.consumed == e {
+		f.consumed = nil
+		return
+	}
+	if f.report && isOwner(f.c.typeOf(e)) {
+		f.c.info.Temps[e] = true
 	}
 }
 

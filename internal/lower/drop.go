@@ -37,7 +37,7 @@ func (l *Lowerer) needsDrop(T types2.Type) bool {
 		case *types2.Wrapper:
 			need = true // owned[T]: reported as unsupported where it is dropped
 		default:
-			need = dropMethod(T) != nil || types2.IsInterface(T)
+			need = dropMethod(T) != nil || types2.IsInterface(T) || types2.UnionVariants(T) != nil
 		}
 	}
 	l.dropNeeds[key] = need
@@ -81,6 +81,10 @@ func (s *fnState) dropAt(ptr *ssa.Value, T types2.Type) {
 	if !s.l.needsDrop(T) {
 		return
 	}
+	if why := s.l.cannotDrop(T, map[string]bool{}); why != "" {
+		s.l.unsupportedf(s.pos, "cannot drop a %s here: dropping %s is not implemented yet (language spec section 6.4)", typeString(T), why)
+		return
+	}
 	glue := s.l.dropGlue(T)
 	p := types2.NewVar(token.NoPos, nil, "p", types2.NewPointer(T))
 	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(p), nil, false)
@@ -89,6 +93,9 @@ func (s *fnState) dropAt(ptr *ssa.Value, T types2.Type) {
 
 // dropFields is the body of T's drop glue: Drop, then the parts.
 func (s *fnState) dropFields(ptr *ssa.Value, T types2.Type) {
+	if s.l.cannotDrop(T, map[string]bool{}) != "" {
+		return // reported where the value is dropped (dropAt)
+	}
 	if m := dropMethod(T); m != nil {
 		targs := s.recvTypeArgs(T)
 		target, full := s.l.methodFunc(m, targs, nil)
@@ -121,9 +128,34 @@ func (s *fnState) dropFields(ptr *ssa.Value, T types2.Type) {
 			off := s.newValue(ssa.OpMul, ssa.TI64, i, s.constInt(ssa.TI64, size))
 			s.dropAt(s.newValue(ssa.OpAddPtr, ssa.TPtr, ptr, off), u.Elem())
 		})
-	case *types2.Wrapper:
-		s.l.unsupportedf(s.pos, "dropping %s: owned, shared and synced references are not implemented yet", typeString(T))
-	case *types2.Interface:
-		s.l.unsupportedf(s.pos, "dropping %s: owning interfaces are not implemented yet", typeString(T))
 	}
+}
+
+// cannotDrop returns what the compiler cannot drop yet in a value of type
+// T, or "": owned, shared and synced references, owning interfaces and
+// owner unions.
+func (l *Lowerer) cannotDrop(T types2.Type, seen map[string]bool) string {
+	key := typeString(T)
+	if seen[key] || !l.needsDrop(T) {
+		return ""
+	}
+	seen[key] = true
+	if types2.UnionVariants(T) != nil {
+		return "owner unions"
+	}
+	switch u := unwrap(T).Underlying().(type) {
+	case *types2.Wrapper:
+		return "owned, shared and synced references"
+	case *types2.Interface:
+		return "owning interfaces"
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if why := l.cannotDrop(u.Field(i).Type(), seen); why != "" {
+				return why
+			}
+		}
+	case *types2.Array:
+		return l.cannotDrop(u.Elem(), seen)
+	}
+	return ""
 }

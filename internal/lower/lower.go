@@ -21,6 +21,7 @@ import (
 
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/load"
+	"github.com/matjam/plutonium/internal/moves"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -42,6 +43,10 @@ type Config struct {
 	// NoFieldNames leaves the field names out of type descriptors, so %+v
 	// prints struct fields without them (pluto build --fieldnames=false).
 	NoFieldNames bool
+	// Moves is the move checker's account of the program (where values
+	// move out of variables, which owner values are temporaries), which
+	// destroying owners needs. Nil runs the move checker.
+	Moves *moves.Info
 }
 
 // A Lowerer lowers one program.
@@ -59,6 +64,7 @@ type Lowerer struct {
 	funcs          map[string]*ssa.Sym // instantiated functions by symbol name
 	queue          []*funcJob
 	dropNeeds      map[string]bool // whether destroying a value of a type runs code, by type (drop.go)
+	moves          *moves.Info     // moves and temporaries (scope.go)
 	globals        map[*types2.Var]*ssa.Sym
 	strs           map[string]*ssa.Sym
 	closureRecords map[*ssa.Sym]*ssa.Sym      // static closure record per function used as a value
@@ -138,6 +144,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		decls:          map[*types2.Func]*funcDecl{},
 		funcs:          map[string]*ssa.Sym{},
 		dropNeeds:      map[string]bool{},
+		moves:          cfg.Moves,
 		globals:        map[*types2.Var]*ssa.Sym{},
 		strs:           map[string]*ssa.Sym{},
 		closureRecords: map[*ssa.Sym]*ssa.Sym{},
@@ -155,6 +162,11 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 	l.types = newTypeTable(l)
 	if l.sizes == nil {
 		l.sizes = types2.SizesFor("gc", "amd64")
+	}
+	if l.moves == nil {
+		// Its errors are the build's to report; lowering needs only the
+		// account of moves.
+		l.moves, _ = moves.Analyze(prog)
 	}
 	for _, p := range prog.Packages {
 		l.pkgOf[p.Types] = p

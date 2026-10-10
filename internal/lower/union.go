@@ -288,13 +288,15 @@ func (s *fnState) unionTypeSwitch(st *ast.TypeSwitchStmt, x ast.Expr, label *typ
 		s.invalidTag(T, u, ul, st.Pos())
 	}
 
-	s.targets = append(s.targets, &target{label: label, breakTo: done, isSwitch: true})
+	s.pushTarget(&target{label: label, breakTo: done, isSwitch: true})
 	for i, c := range clauses {
 		cc := c.(*ast.CaseClause)
 		s.seal(bodies[i])
 		s.startBlock(bodies[i])
 		if obj, ok := s.info.Implicits[cc].(*types2.Var); ok {
-			addr := s.declareVar(obj)
+			// The variable is a copy of the payload the union still holds,
+			// so it is not destroyed on its own.
+			addr := s.declareView(obj)
 			VT := s.subst(obj.Type())
 			if len(cc.List) == 1 {
 				s.storeTo(addr, s.payloadOf(T, u, s.variantOf(cc.List[0]), ul), VT)

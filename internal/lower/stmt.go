@@ -8,10 +8,16 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
+// stmtList lowers a block or a case clause: a scope of its own.
 func (s *fnState) stmtList(list []ast.Stmt) {
+	if len(list) == 0 {
+		return
+	}
+	s.pushScope(true, list[0].Pos(), list[len(list)-1].End())
 	for _, st := range list {
 		s.stmt(st)
 	}
+	s.popScope()
 }
 
 // ensureBlock gives unreachable code a block of its own, so that lowering can
@@ -32,11 +38,32 @@ func (s *fnState) stmt(st ast.Stmt) {
 	if p := st.Pos(); p.IsValid() {
 		s.f.SetPos(p)
 	}
+	// The statement's temporaries, and for a statement with a header, its
+	// variables, end with it (scope.go).
+	inner := st
+	if ls, ok := st.(*ast.LabeledStmt); ok {
+		inner = ls.Stmt
+	}
+	switch inner.(type) {
+	case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+		s.pushScope(true, st.Pos(), st.End())
+	default:
+		s.pushScope(false, st.Pos(), st.End())
+	}
+	s.scopes[len(s.scopes)-1].stmt = true
+	defer s.popScope()
 	switch st := st.(type) {
 	case *ast.EmptyStmt:
 	case *ast.ExprStmt:
 		if call, ok := ast.Unparen(st.X).(*ast.CallExpr); ok {
-			s.callResults(call)
+			// Results that are owners are temporaries.
+			for _, r := range s.callResults(call) {
+				if s.b != nil && r.T != nil && s.l.needsDrop(r.T) {
+					slot := s.temp(r.T, "drop")
+					s.storeTo(slot, r, r.T)
+					s.registerTemp(slot, r.T)
+				}
+			}
 		} else {
 			s.expr(st.X)
 		}
@@ -237,17 +264,57 @@ func (s *fnState) assignStmt(st *ast.AssignStmt) {
 		vals = s.multiValue(st.Rhs[0], len(st.Lhs))
 	}
 
+	// Assigning to a place that holds an owner destroys the old value
+	// first, unless the assignment only permutes places (a, b = b, a).
+	permutes := s.permutes(st)
 	for i, t := range targets {
 		switch {
 		case t.blank:
+			// A discarded owner from a call with several results.
+			if len(st.Rhs) != len(st.Lhs) && i < len(vals) && vals[i].T != nil && s.l.needsDrop(vals[i].T) {
+				slot := s.temp(vals[i].T, "drop")
+				s.storeTo(slot, vals[i], vals[i].T)
+				s.registerTemp(slot, vals[i].T)
+			}
 		case t.def != nil:
 			T := s.subst(t.def.Type())
 			addr := s.declareVar(t.def)
 			s.storeTo(addr, s.assignConvert(vals[i], T, st), T)
 		default:
+			if T := unwrap(t.lv.T); t.lv.elem == nil && t.lv.bits == nil && !permutes && s.l.needsDrop(T) {
+				s.dropAt(t.lv.ptr, T)
+			}
 			s.storeLV(*t.lv, s.assignConvert(vals[i], targetType(i), st))
 		}
 	}
+}
+
+// dropResult destroys what result i holds before a return replaces it: a
+// named result given an owner earlier. Results start clear.
+func (s *fnState) dropResult(i int) {
+	if T := s.abi.results[i].typ; s.l.needsDrop(T) {
+		s.dropAt(s.results[i], T)
+	}
+}
+
+// permutes reports whether an assignment's right-hand sides are its
+// left-hand sides in another order, which moves nothing in or out.
+func (s *fnState) permutes(st *ast.AssignStmt) bool {
+	if len(st.Lhs) < 2 || len(st.Lhs) != len(st.Rhs) {
+		return false
+	}
+	left := map[string]int{}
+	for _, l := range st.Lhs {
+		left[types2.ExprString(l)]++
+	}
+	for _, r := range st.Rhs {
+		k := types2.ExprString(r)
+		if left[k] == 0 {
+			return false
+		}
+		left[k]--
+	}
+	return true
 }
 
 func compoundOp(tok token.Token) token.Token {
@@ -352,7 +419,7 @@ func (s *fnState) forStmt(st *ast.ForStmt, label *types2.Label) {
 	}
 	s.seal(body)
 	s.startBlock(body)
-	s.targets = append(s.targets, &target{label: label, breakTo: done, contTo: post})
+	s.pushTarget(&target{label: label, breakTo: done, contTo: post})
 	s.loopDepth++
 	s.stmtList(st.Body.List)
 	s.loopDepth--
@@ -384,7 +451,7 @@ func (s *fnState) countedLoop(n *ssa.Value, label *types2.Label, body func(i *ss
 	s.endIf(s.newValue(ssa.OpLess, ssa.TBool, i, n), bodyB, done)
 	s.seal(bodyB)
 	s.startBlock(bodyB)
-	s.targets = append(s.targets, &target{label: label, breakTo: done, contTo: post})
+	s.pushTarget(&target{label: label, breakTo: done, contTo: post})
 	s.loopDepth++
 	body(s.load(ssa.TI64, idx))
 	s.loopDepth--
@@ -554,7 +621,7 @@ func (s *fnState) rangeString(st *ast.RangeStmt, label *types2.Label) {
 	if valLV != nil {
 		s.storeLV(*valLV, scalarValue(res[0], runeT))
 	}
-	s.targets = append(s.targets, &target{label: label, breakTo: done, contTo: post})
+	s.pushTarget(&target{label: label, breakTo: done, contTo: post})
 	s.loopDepth++
 	s.stmtList(st.Body.List)
 	s.loopDepth--
@@ -619,7 +686,7 @@ func (s *fnState) switchStmt(st *ast.SwitchStmt, label *types2.Label) {
 	}
 	s.endPlain(defaultBody)
 
-	s.targets = append(s.targets, &target{label: label, breakTo: done, isSwitch: true})
+	s.pushTarget(&target{label: label, breakTo: done, isSwitch: true})
 	for i, c := range clauses {
 		cc := c.(*ast.CaseClause)
 		s.seal(bodies[i])
@@ -702,11 +769,13 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 	}
 	s.endPlain(defaultBody)
 
-	s.targets = append(s.targets, &target{label: label, breakTo: done, isSwitch: true})
+	s.pushTarget(&target{label: label, breakTo: done, isSwitch: true})
 	for i, c := range clauses {
 		cc := c.(*ast.CaseClause)
 		s.seal(bodies[i])
 		s.startBlock(bodies[i])
+		// The clause's variable belongs to the clause.
+		s.pushScope(true, cc.Pos(), cc.End())
 		if v, ok := s.info.Implicits[cc].(*types2.Var); ok {
 			T := s.subst(v.Type())
 			addr := s.declareVar(v)
@@ -721,6 +790,7 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 			}
 		}
 		s.stmtList(cc.Body)
+		s.popScope()
 		s.endPlain(done)
 	}
 	s.targets = s.targets[:len(s.targets)-1]
@@ -763,6 +833,10 @@ func (s *fnState) branchStmt(st *ast.BranchStmt) {
 	}
 	switch st.Tok {
 	case token.GOTO:
+		// The scopes the jump leaves end (scope.go).
+		if label != nil {
+			s.gotoDrops(label.Pos())
+		}
 		s.endPlain(s.labelBlock(label))
 		return
 	case token.FALLTHROUGH:
@@ -777,9 +851,11 @@ func (s *fnState) branchStmt(st *ast.BranchStmt) {
 			if t.contTo == nil {
 				continue // switches are not continue targets
 			}
+			s.dropScopes(t.depth)
 			s.endPlain(t.contTo)
 			return
 		}
+		s.dropScopes(t.depth)
 		s.endPlain(t.breakTo)
 		return
 	}
@@ -795,12 +871,14 @@ func (s *fnState) returnStmt(st *ast.ReturnStmt) {
 			vals[i] = s.materialize(s.exprAs(e, s.abi.results[i].typ))
 		}
 		for i, v := range vals {
+			s.dropResult(i)
 			s.storeTo(s.results[i], v, s.abi.results[i].typ)
 		}
 	default: // return f() with several results
 		vals := s.multiValue(st.Results[0], len(s.results))
 		for i, v := range vals {
 			T := s.abi.results[i].typ
+			s.dropResult(i)
 			s.storeTo(s.results[i], s.assignConvert(v, T, st), T)
 		}
 	}
@@ -876,6 +954,16 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 		default:
 			s.l.errorf(st.Pos(), diag.DeferBuiltin, "defer of builtin %s is not supported", name)
 			return
+		}
+	case s.l.moves != nil && s.l.moves.DeferredDrops[call]:
+		// defer x.Drop() on an owner variable: when the function returns,
+		// x's whole drop glue runs and x is left clear, so that the end of
+		// its scope destroys nothing (language spec section 6.4).
+		lv := s.lv(ast.Unparen(call.Fun).(*ast.SelectorExpr).X)
+		T := unwrap(lv.T)
+		run = func(s *fnState) {
+			s.dropAt(lv.ptr, T)
+			s.zero(lv.ptr, s.l.sizeof(T))
 		}
 	default:
 		fun := ast.Unparen(call.Fun)

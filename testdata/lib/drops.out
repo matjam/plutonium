@@ -1,0 +1,45 @@
+drop 2
+after block
+consume 3
+drop 3
+drop 4
+end scopes 1
+drop 5
+drop 1
+--
+drop 10
+drop 11
+drop 12
+drop 20
+drop 21
+--
+drop 30
+early 31 30
+consume 31
+drop 31
+--
+drop 40
+temp 40
+drop 41
+drop 42
+drop 43
+eaten 43
+--
+drop 50
+after explicit
+pair drop 51 52
+drop 51
+drop 52
+--
+in deferred 60
+drop 60
+--
+took 70 0
+drop 70
+pair drop 0 71
+drop 71
+--
+drop 80
+drop 81
+-- main ends
+drop 30

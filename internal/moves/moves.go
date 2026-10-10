@@ -24,10 +24,31 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
+// Info is what lowering needs to know to destroy owners (spec section 6.4):
+// the uses of variables that move their value out, after which lowering
+// clears the variable so that dropping it at the end of its scope does
+// nothing, and the owner values an expression makes that nothing stores,
+// which are dropped at the end of their statement.
+type Info struct {
+	Moves map[*ast.Ident]bool
+	Temps map[ast.Expr]bool
+	// DeferredDrops are the deferred calls x.Drop() of owner variables:
+	// they drop x when the function returns.
+	DeferredDrops map[*ast.CallExpr]bool
+}
+
 // Check runs the move checker over a loaded program and returns its errors
 // as a diag.List, or nil.
 func Check(prog *load.Program) error {
+	_, err := Analyze(prog)
+	return err
+}
+
+// Analyze runs the move checker and returns what lowering needs, and the
+// errors as a diag.List, or nil.
+func Analyze(prog *load.Program) (*Info, error) {
 	c := &checker{
+		info:       &Info{Moves: map[*ast.Ident]bool{}, Temps: map[ast.Expr]bool{}, DeferredDrops: map[*ast.CallExpr]bool{}},
 		fset:       prog.Fset,
 		types:      map[ast.Expr]types2.TypeAndValue{},
 		uses:       map[*ast.Ident]types2.Object{},
@@ -82,10 +103,11 @@ func Check(prog *load.Program) error {
 		}
 		return pi.Column < pj.Column
 	})
-	return c.errs.Err()
+	return c.info, c.errs.Err()
 }
 
 type checker struct {
+	info       *Info
 	fset       *token.FileSet
 	types      map[ast.Expr]types2.TypeAndValue
 	uses       map[*ast.Ident]types2.Object
@@ -271,6 +293,9 @@ type fn struct {
 	sig    *types2.Signature
 	report bool // the final walk: report errors
 	env    env
+	// consumed is the expression consume is about to walk, whose owner
+	// value moves where it goes rather than being a temporary.
+	consumed ast.Expr
 
 	// vars are the variables of this body (parameters, results, locals),
 	// as opposed to variables of an enclosing function that a literal
@@ -406,6 +431,9 @@ func (f *fn) moveVar(id *ast.Ident, v *types2.Var, mv move) {
 	if f.env != nil {
 		mv.pos = id.Pos()
 		f.env[v] = vstate{moved, &mv}
+	}
+	if f.report {
+		f.c.info.Moves[id] = true
 	}
 }
 

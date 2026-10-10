@@ -21,6 +21,10 @@ func (s *fnState) expr(e ast.Expr) value {
 		return s.constValue(tv.Value, s.typeOf(e), e)
 	}
 	T := s.typeOf(e)
+	if s.isTemp(e) {
+		// An owner nothing takes: destroyed when the statement ends.
+		return s.loadFrom(s.tempSlot(e, T), T)
+	}
 
 	switch e := e.(type) {
 	case *ast.ParenExpr:
@@ -29,6 +33,9 @@ func (s *fnState) expr(e ast.Expr) value {
 	case *ast.Ident:
 		switch obj := s.info.Uses[e].(type) {
 		case *types2.Var:
+			if s.isMove(e) {
+				return s.movedOut(s.varLV(obj, e))
+			}
 			return s.loadLV(s.varLV(obj, e))
 		case *types2.Func:
 			return scalarValue(s.funcValue(obj, s.instanceArgs(e), e.Pos()), T)
@@ -239,8 +246,21 @@ func (s *fnState) varLV(obj *types2.Var, at ast.Node) lvalue {
 	return lvalue{ptr: addr, T: T}
 }
 
-// declareVar gives a local variable fresh, zeroed storage.
+// declareVar gives a local variable its storage. An owner is registered in
+// its scope, to be destroyed when the scope ends, and cleared here, so that
+// the scope never destroys a value it was not given (scope.go).
 func (s *fnState) declareVar(obj *types2.Var) *ssa.Value {
+	addr := s.declareView(obj)
+	if T := s.subst(obj.Type()); s.l.needsDrop(T) {
+		s.zero(addr, s.l.sizeof(T))
+		s.registerVar(addr, T)
+	}
+	return addr
+}
+
+// declareView gives a local variable storage that is never destroyed: a
+// copy of something another value still holds.
+func (s *fnState) declareView(obj *types2.Var) *ssa.Value {
 	T := s.subst(obj.Type())
 	addr := s.temp(T, obj.Name())
 	s.vars[obj] = addr

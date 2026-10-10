@@ -465,6 +465,9 @@ func (f *fn) deferStmt(st *ast.DeferStmt) {
 		// defer x.Drop() ends x's life when the function returns, after
 		// everything else has used it: here it only takes x's address.
 		f.use(id, v)
+		if f.report {
+			f.c.info.DeferredDrops[st.Call] = true
+		}
 	} else {
 		f.call(st.Call, mvArg)
 	}

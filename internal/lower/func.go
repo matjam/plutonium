@@ -39,6 +39,12 @@ type fnState struct {
 	// package initialisation, whose objects outlive the init function.
 	staticLits bool
 
+	// scopes are the scopes being lowered, innermost last, with the owners
+	// to destroy when each ends (scope.go); inTemp is the temporary being
+	// evaluated into its slot.
+	scopes []*dropScope
+	inTemp ast.Expr
+
 	// pos is the expression or statement being lowered, for errors
 	// found below the AST (float operations in kernel mode).
 	pos token.Pos
@@ -59,6 +65,13 @@ type target struct {
 	breakTo  *ssa.Block
 	contTo   *ssa.Block // nil for switch
 	isSwitch bool
+	depth    int // the scopes outside it, which break and continue stay in
+}
+
+// pushTarget starts a breakable statement inside the current scopes.
+func (s *fnState) pushTarget(t *target) {
+	t.depth = len(s.scopes)
+	s.targets = append(s.targets, t)
 }
 
 type labelInfo struct {
@@ -337,13 +350,16 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 	if job.build != nil {
 		job.build(s)
 	} else {
-		s.bindParams()
 		var body *ast.BlockStmt
 		if job.decl != nil {
 			body = job.decl.Body
 		} else {
 			body = job.lit.Body
 		}
+		// The parameters' scope: they are destroyed when the function
+		// returns (scope.go).
+		s.pushScope(true, f.Pos, f.End)
+		s.bindParams()
 		l.bodies[job.sym] = funcBody{body: body, info: s.info}
 		if hasDefer(body) {
 			s.deferBits = s.temp(types2.Typ[types2.Uint64], "deferbits")
@@ -355,6 +371,7 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 			// (the checker rejects missing returns otherwise).
 			s.emitReturn(body.Rbrace)
 		}
+		s.popScope()
 	}
 
 	for _, b := range f.Blocks {
@@ -436,6 +453,19 @@ func (s *fnState) bindParams() {
 		}
 	}
 
+	// Parameters that are owners belong to the function, which destroys
+	// them when it returns; a Drop method's receiver is the value being
+	// destroyed, whose fields the drop glue destroys after it.
+	dropRecv := s.job.decl != nil && s.job.decl.Recv != nil && s.job.decl.Name.Name == "Drop"
+	for i, v := range paramVars {
+		if v == nil || (i == 0 && sig.recv != nil && dropRecv) {
+			continue
+		}
+		if T := s.subst(v.Type()); s.l.needsDrop(T) {
+			s.registerVar(s.vars[v], T)
+		}
+	}
+
 	// Result variables, named or not, live in slots so that return
 	// statements and deferred closures can update them.
 	for i, p := range s.abi.results {
@@ -497,6 +527,9 @@ func (s *fnState) emitReturn(pos token.Pos) {
 		s.f.SetPos(pos)
 	}
 	s.runDefers()
+	// Every scope ends: the function's variables are destroyed after its
+	// deferred calls ran (language spec section 6.4).
+	s.dropScopes(0)
 	controls := []*ssa.Value{}
 	if s.abi.sret {
 		for i, p := range s.abi.results {

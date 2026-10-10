@@ -159,19 +159,23 @@ func loadConfig(cfg *Config) (*load.Config, error) {
 
 // buildProgram compiles and links a loaded program.
 func buildProgram(cfg *Config, prog *load.Program) error {
-	// Lowering reports the constructs Plutonium does not support; the
-	// escape analysis assumes a program without them.
+	// The move checker's account of moves tells lowering where owners are
+	// destroyed. Lowering reports the constructs Plutonium does not
+	// support; the escape analysis assumes a program without them. The
+	// errors of both lifetime checks are reported together.
+	info, moveErr := moves.Analyze(prog)
 	sp, err := lower.Lower(&lower.Config{
 		Freestanding: cfg.Freestanding || cfg.Kernel,
 		Kernel:       cfg.Kernel,
 		Sizes:        sizes,
 		NoFieldNames: !cfg.fieldNames(),
 		GenCheck:     cfg.genCheck(),
+		Moves:        info,
 	}, prog)
 	if err != nil {
 		return err
 	}
-	if err := checkLifetimes(prog); err != nil {
+	if err := joinLifetimeErrors(moveErr, escape.Check(prog)); err != nil {
 		return err
 	}
 	if err := optimize(cfg, sp); err != nil {
@@ -347,11 +351,11 @@ func prefixed(prefix string, err error) error {
 
 // internal turns an error from the compiler's later stages, which all mean
 // a bug in the compiler, into a diagnostic.
-// checkLifetimes runs the move checker and the escape analysis (language
-// spec sections 6.3 and 6.4) and returns their errors together.
-func checkLifetimes(prog *load.Program) error {
+// joinLifetimeErrors returns the errors of the move checker and the escape
+// analysis (language spec sections 6.3 and 6.4) as one list.
+func joinLifetimeErrors(errs ...error) error {
 	var all diag.List
-	for _, err := range []error{moves.Check(prog), escape.Check(prog)} {
+	for _, err := range errs {
 		if l, ok := err.(diag.List); ok {
 			all = append(all, l...)
 		} else if err != nil {

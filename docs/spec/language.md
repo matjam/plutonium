@@ -1134,8 +1134,9 @@ their chunks are declared `owner`.
 - converted to an owning interface (section 4.4);
 - dropped explicitly with `x.Drop()`.
 
-A move copies the owner's bytes and nothing else; the source is not touched at run time. The compiler
-tracks that the source no longer holds a value, and using it afterwards (reading it, calling a method,
+A move copies the owner's bytes and clears the source variable to the zero value, which serves as its drop
+flag: dropping the zero value does nothing (the optimizer removes the clearing store where nothing reads
+it). The compiler tracks that the source no longer holds a value, and using it afterwards (reading it, calling a method,
 taking its address) is a compile error. Assigning a new value to a moved-from variable makes it usable
 again. The error message names the move and its line, and suggests a fix based on how the variable is
 used afterwards: `Clone` when both copies are needed, a pointer when the later use only looks, reordering
@@ -1183,7 +1184,13 @@ end of each iteration for a variable declared in a loop body. In detail:
 - Parameters are dropped when the function returns, after its locals. Results are moved to the caller and
   not dropped; a bare `return` moves the named results.
 - A variable moved on some paths and not others is dropped only on the paths where it still holds a value
-  (the compiler keeps a flag where it cannot tell statically). Using it after such a point is an error.
+  (the move cleared it, so dropping it at the end of its scope does nothing). Using it after such a
+  point is an error.
+- Leaving a scope by `break`, `continue`, `return` or `goto` drops what the scopes it leaves hold. A
+  `goto` back to a label before a variable's declaration drops the variable first, since its declaration
+  runs again.
+- `defer x.Drop()` on an owner variable drops `x` (its `Drop`, then its fields) when the function
+  returns; `x` is not dropped again.
 - Deferred calls run before the function's own variables are dropped, so a deferred call may use them. A
   deferred call may not use an owner declared in an inner block, which is dropped when the block ends.
 - Dropping an owner runs its `Drop` method if it has one, then drops its fields in declaration order and
@@ -1195,9 +1202,15 @@ end of each iteration for a variable declared in a loop body. In detail:
   `for ... range`, a temporary lives until the whole statement ends; in the condition and post statement
   of a three-clause `for` it is dropped after each evaluation.
 - `panic` aborts without unwinding (section 8), so nothing is dropped; neither does `os.Exit`.
-- `x.Drop()` on an owner variable ends its life early: it counts as a move, and `x` is not dropped again.
-  Calling `Drop` in any other way (through a pointer, a method value or an ordinary interface) is a
-  compile error, since the real owner would drop the value a second time.
+- `x.Drop()` on an owner variable ends its life early: it drops `x` completely (its `Drop` method, then
+  its fields), counts as a move, and `x` is not dropped again. Calling `Drop` in any other way (through a
+  pointer, a method value or an ordinary interface) is a compile error, since the real owner would drop
+  the value a second time. Code that manages memory itself (an allocator, a container dropping its
+  elements, an arena's variables) drops a value through a pointer with `unsafe.Drop(p)` (section 11).
+- Values in memory from `alloc.New` or an arena are not dropped by the compiler: that memory has no
+  owner until the code that allocated it gives it one, and `alloc.Free` drops the value before freeing.
+- Owner unions, owning interfaces and `owned`/`shared`/`synced` references are not dropped yet: dropping a
+  variable of such a type is a compile error saying so.
 
 `Drop` cannot report failure. A type whose release can fail (a file whose last write is flushed on close)
 provides a method such as `Close() error` for callers that care; `Drop` then has nothing left to do.
