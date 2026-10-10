@@ -69,6 +69,9 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		return nil
 
 	case "min", "max":
+		if isString(unwrap(T)) {
+			return one(s.minMaxString(b.Name() == "min", e.Args, unwrap(T)))
+		}
 		vals := make([]*ssa.Value, len(e.Args))
 		for i, a := range e.Args {
 			vals[i] = s.exprAs(a, unwrap(T)).v
@@ -210,10 +213,6 @@ func (s *fnState) minInt(a, b *ssa.Value) *ssa.Value {
 // minMax returns min(a, b) or max(a, b) with Go's rules: for floats, a NaN
 // operand gives NaN.
 func (s *fnState) minMax(isMin bool, a, b *ssa.Value, T types2.Type) *ssa.Value {
-	if isString(T) {
-		s.l.errorf(0, "lower: min and max of strings are not supported yet")
-		return a
-	}
 	if a.Type.IsFloat() {
 		// Floats have no conditional move: use branches. A NaN operand
 		// gives NaN.
@@ -245,6 +244,27 @@ func (s *fnState) minMax(isMin bool, a, b *ssa.Value, T types2.Type) *ssa.Value 
 		r = s.newValue(ssa.OpSelect, a.Type, lt, b, a)
 	}
 	return r
+}
+
+// minMaxString returns min(args...) or max(args...) of strings of type T,
+// comparing with the runtime's strcmp; the first of equal strings wins.
+func (s *fnState) minMaxString(isMin bool, args []ast.Expr, T types2.Type) value {
+	res := s.temp(T, "minmax")
+	s.storeTo(res, s.exprAs(args[0], T), T)
+	for _, a := range args[1:] {
+		v := s.materialize(s.exprAs(a, T))
+		cur := s.loadFrom(res, T)
+		c := s.callRuntime("strcmp", []*ssa.Type{ssa.TI64}, s.stringLeaves(v), s.stringLeaves(cur))[0]
+		zero := s.constInt(ssa.TI64, 0)
+		var better *ssa.Value
+		if isMin {
+			better = s.newValue(ssa.OpLess, ssa.TBool, c, zero)
+		} else {
+			better = s.newValue(ssa.OpLess, ssa.TBool, zero, c)
+		}
+		s.ifThen(better, func() { s.storeTo(res, v, T) })
+	}
+	return s.loadFrom(res, T)
 }
 
 // allocate returns size zeroed bytes from the allocator given in extra (an

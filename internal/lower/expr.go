@@ -824,13 +824,53 @@ func (s *fnState) equal(x, y value, T types2.Type, pos token.Pos) *ssa.Value {
 		if isPlainBytes(et) {
 			return s.callRuntime("memequal", []*ssa.Type{ssa.TBool}, []*ssa.Value{x.v, y.v, s.constInt(ssa.TI64, u.Len()*esize)})[0]
 		}
-		s.l.errorf(pos, "lower: comparison of large arrays of %s is not supported yet", et)
-		return s.constBool(false)
+		return s.equalArrayLoop(x.v, y.v, u.Len(), et, pos)
 	case *types2.Packed, *types2.Wrapper:
 		return s.callRuntime("memequal", []*ssa.Type{ssa.TBool}, []*ssa.Value{x.v, y.v, s.constInt(ssa.TI64, s.l.sizeof(T))})[0]
 	}
 	s.l.errorf(pos, "lower: cannot compare values of type %s", T)
 	return s.constBool(false)
+}
+
+// equalArrayLoop compares the arrays of n elements of type et at x and y
+// in a loop that stops at the first unequal element.
+func (s *fnState) equalArrayLoop(x, y *ssa.Value, n int64, et types2.Type, pos token.Pos) *ssa.Value {
+	res := s.temp(types2.Typ[types2.Bool], "eq")
+	s.store(ssa.TBool, res, s.constBool(true))
+	idx := s.temp(types2.Typ[types2.Int], "i")
+	s.store(ssa.TI64, idx, s.constInt(ssa.TI64, 0))
+	head := s.newBlock(ssa.BlockInvalid)
+	body := s.newBlock(ssa.BlockInvalid)
+	next := s.newBlock(ssa.BlockInvalid)
+	differ := s.newBlock(ssa.BlockInvalid)
+	done := s.newBlock(ssa.BlockInvalid)
+	s.endPlain(head)
+
+	s.startBlock(head)
+	i := s.load(ssa.TI64, idx)
+	s.endIf(s.newValue(ssa.OpLess, ssa.TBool, i, s.constInt(ssa.TI64, n)), body, done)
+
+	s.seal(body)
+	s.startBlock(body)
+	i = s.load(ssa.TI64, idx)
+	ex := s.loadFrom(s.elemAddr(x, i, et), et)
+	ey := s.loadFrom(s.elemAddr(y, i, et), et)
+	s.endIf(s.equal(ex, ey, et, pos), next, differ)
+
+	s.seal(next)
+	s.startBlock(next)
+	s.store(ssa.TI64, idx, s.newValue(ssa.OpAdd, ssa.TI64, i, s.constInt(ssa.TI64, 1)))
+	s.endPlain(head)
+	s.seal(head)
+
+	s.seal(differ)
+	s.startBlock(differ)
+	s.store(ssa.TBool, res, s.constBool(false))
+	s.endPlain(done)
+
+	s.seal(done)
+	s.startBlock(done)
+	return s.load(ssa.TBool, res)
 }
 
 // isPlainBytes reports whether equality of T values is equality of their bytes.

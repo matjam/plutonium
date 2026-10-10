@@ -70,12 +70,14 @@ func SubstLocal(ctxt *Context, t Type, tparams []*TypeParam, targs []Type, local
 	return s.typ(t)
 }
 
-// TypeStringSuffixed is TypeString, with suffix(obj) written after the name
-// of each named type, so that types of the same name declared in different
-// functions can be told apart.
+// TypeStringSuffixed is TypeString for telling types apart: it leaves out
+// the names of function parameters and results, which are not part of a
+// type's identity, and writes suffix(obj) after the name of each named type,
+// so that types of the same name declared in different functions differ.
 func TypeStringSuffixed(t Type, qf Qualifier, suffix func(*TypeName) string) string {
 	var buf bytes.Buffer
 	w := newTypeWriter(&buf, qf)
+	w.paramNames = false
 	w.nameSuffix = suffix
 	w.typ(t)
 	return buf.String()
