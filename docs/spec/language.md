@@ -1,13 +1,34 @@
 # The Plutonium Language
 
 **Version:** 0.2 (draft)
-**Date:** 2026-10-09
+**Date:** 2026-10-10
 
-Plutonium is a systems programming language with Go's syntax and most of Go's semantics, minus the parts
-that need a garbage collector or reflection. Puroutines and channels run on a scheduler that only programs
-using them carry, and that a kernel supplies itself. It is meant for operating system
-kernels, drivers, boot code, allocators and other code that runs without a managed runtime. It is the
-language PlutoniumOS is written in.
+Plutonium is a systems programming language for operating system kernels, drivers, boot code, allocators
+and other code that runs without a managed runtime. It is the language PlutoniumOS is written in. It has
+no garbage collector. Puroutines and channels run on a scheduler that only programs using them carry, and
+that a kernel supplies itself.
+
+Four rules shape the language:
+
+- **Go-familiar, not Go-compatible.** Plutonium uses Go's syntax and idioms wherever they fit, so a Go
+  programmer can read Plutonium code without a manual. Compiling Go source unchanged is not a goal. Where
+  Go's meaning depends on a garbage collector, a growing stack or hidden allocation, Plutonium changes the
+  language, and Go code may need edits before it compiles.
+- **No false friends.** Where Plutonium behaves differently from Go in a way a Go programmer would not
+  expect, the difference is visible in the source: a different name, a different syntax, a different
+  type, or a compile error that explains it. Code that looks like Go and compiles does what Go would do.
+  Where the language does not meet this rule yet, the gap and its planned fix are listed in
+  [the false-friends audit](../plans/2026-10-10-go-false-friends.md).
+- **No annotations for ordinary code.** Ordinary code needs no annotations and no knowledge of how the
+  compiler works. What the compiler can work out for itself (what escapes, what moves, which functions
+  never return or may wait, which lock guards which data) it works out, and there is no `//pu:` directive
+  for such a fact. Directives state only what the compiler cannot see: linkage to assembly and C,
+  hardware state, bindings to the runtime, and explicit requests such as `//pu:inline` (section 9).
+- **Go as a test oracle.** Programs in the common subset of Go and Plutonium are kept as tests:
+  `internal/build/testdata/run` takes its expected output from Go, and `tools/difftest` runs generated
+  programs under both compilers and compares the results. The subset is how the compiler is checked
+  against Go's behavior. It is not a design constraint: a change that moves a program out of the subset
+  is judged on its own merits, and the program is rewritten or moved to the Plutonium-only tests.
 
 This document describes Plutonium as differences from Go. **Where this document is silent, the
 [Go language specification](https://go.dev/ref/spec) as of Go 1.27 applies.** Plutonium has one language
@@ -32,7 +53,8 @@ version: every Go feature up to 1.27 that is not removed or changed below is par
 
 ## 1. Goals
 
-- Read like Go. A Go programmer should understand Plutonium code without a manual.
+- Read like Go, and never mislead a Go reader: code that differs from Go looks different (the rules
+  above).
 - Compile like C: no garbage collector, no hidden allocation, no runtime the program did not ask for. A
   program that never starts a puroutine or makes a channel contains no scheduler.
 - Make the costs visible. Every allocation is a call you can see; every memory-mapped register access is
@@ -522,6 +544,9 @@ brief:
   for an interrupt handler and the code it interrupts on the same processor to share data.
 - Any scheduler, including a kernel's own (section 4.7), must make starting a puroutine and readying a
   parked one synchronising operations, so that these rules hold however puroutines are scheduled.
+- Moving an owner is an ordinary write; the `go` statement or channel send that hands it to another
+  puroutine is the synchronising operation. Every use of a `synced[T]` through any reference happens
+  before its `Drop` runs and its memory is freed.
 
 ### 4.10 Range over functions
 
@@ -566,9 +591,6 @@ Iterator constructors such as `items.All()` are closure constructors (section 4.
 allocates nothing. The optimiser inlines the iterator and then the loop body through their closures, so a
 loop over a simple iterator compiles to the loop the iterator runs: ranging over `v.All()` costs the same
 as ranging over `v.Slice()`.
-- Moving an owner is an ordinary write; the `go` statement or channel send that hands it to another
-  puroutine is the synchronising operation. Every use of a `synced[T]` through any reference happens
-  before its `Drop` runs and its memory is freed.
 
 ## 5. What Plutonium adds
 
