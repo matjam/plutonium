@@ -230,6 +230,35 @@ func main() {
 	}
 }
 
+func TestLoadFold(t *testing.T) {
+	const src = `package main
+
+//pu:noinline
+func f(p, q *[4]int64) int64 {
+	a := p[1]
+	q[1] = 100
+	return a + q[2]
+}
+
+//pu:noinline
+func g(p *[2]float64) float64 { return p[0] * p[1] }
+
+func main() {
+	var a [4]int64
+	var b [2]float64
+	println(f(&a, &a), int64(g(&b)))
+}
+`
+	// q[2] folds into the add; p[1] is loaded before the store.
+	asm := listFunc(t, src, "main.f")
+	if !strings.Contains(asm, "add8 16(") || strings.Index(asm, "8(%rdi), %rax") > strings.Index(asm, "$100") {
+		t.Errorf("f: want q[2] folded and p[1] loaded first\n%s", asm)
+	}
+	if asm := listFunc(t, src, "main.g"); !strings.Contains(asm, "muls8 (") && !strings.Contains(asm, "muls8 8(") {
+		t.Errorf("g: want a load folded into the multiply\n%s", asm)
+	}
+}
+
 func TestRotate(t *testing.T) {
 	const src = `package main
 
