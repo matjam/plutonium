@@ -181,6 +181,146 @@ func main() { println(fib(20), gcd(12, 18)) }
 	}
 }
 
+func TestFillAndCount(t *testing.T) {
+	const src = `package main
+
+var big [1000]bool
+
+//pu:noinline
+func fillAll() {
+	for i := 0; i < len(big); i++ {
+		big[i] = true
+	}
+}
+
+//pu:noinline
+func fillShort(n int) {
+	for i := 0; i < n; i++ {
+		big[i] = false
+	}
+}
+
+//pu:noinline
+func count() int {
+	n := 0
+	for i := 0; i < len(big); i++ {
+		if big[i] {
+			n++
+		}
+	}
+	return n
+}
+
+func main() {
+	fillAll()
+	fillShort(3)
+	println(count())
+}
+`
+	if asm := listFunc(t, src, "main.fillAll"); !strings.Contains(asm, "rep stosb") || strings.Contains(asm, "mov1") {
+		t.Errorf("fillAll: want one rep stosb\n%s", asm)
+	}
+	// A short or unknown length stays a loop.
+	if asm := listFunc(t, src, "main.fillShort"); strings.Contains(asm, "rep stosb") {
+		t.Errorf("fillShort: want a loop\n%s", asm)
+	}
+	// n += zext(big[i]): no branch or cmov in the loop.
+	if asm := listFunc(t, src, "main.count"); strings.Contains(asm, "cmov") || strings.Count(asm, "\tj") > 2 {
+		t.Errorf("count: want n += big[i]\n%s", asm)
+	}
+}
+
+func TestVolatileReadOrders(t *testing.T) {
+	const src = `package main
+
+var buf [8]uint32
+var status volatile[uint32]
+
+//pu:noinline
+func poll() uint32 {
+	x := buf[3]
+	for status&1 == 0 {
+	}
+	return x + buf[3]
+}
+
+//pu:noinline
+func twice(p *volatile[uint32]) uint32 { return *p + *p }
+
+func main() {
+	status = 1
+	println(poll(), twice(&status))
+}
+`
+	// The plain read after the polling loop must read memory again.
+	if asm := listFunc(t, src, "main.poll"); strings.Count(asm, "main.buf+12") != 2 {
+		t.Errorf("poll: want buf[3] read before and after the loop\n%s", asm)
+	}
+	if asm := listFunc(t, src, "main.twice"); strings.Count(asm, "(%rdi)") != 2 {
+		t.Errorf("twice: want two volatile reads\n%s", asm)
+	}
+}
+
+func TestLoadFold(t *testing.T) {
+	const src = `package main
+
+//pu:noinline
+func f(p, q *[4]int64) int64 {
+	a := p[1]
+	q[1] = 100
+	return a + q[2]
+}
+
+//pu:noinline
+func g(p *[2]float64) float64 { return p[0] * p[1] }
+
+func main() {
+	var a [4]int64
+	var b [2]float64
+	println(f(&a, &a), int64(g(&b)))
+}
+`
+	// q[2] folds into the add; p[1] is loaded before the store.
+	asm := listFunc(t, src, "main.f")
+	if !strings.Contains(asm, "add8 16(") || strings.Index(asm, "8(%rdi), %rax") > strings.Index(asm, "$100") {
+		t.Errorf("f: want q[2] folded and p[1] loaded first\n%s", asm)
+	}
+	if asm := listFunc(t, src, "main.g"); !strings.Contains(asm, "muls8 (") && !strings.Contains(asm, "muls8 8(") {
+		t.Errorf("g: want a load folded into the multiply\n%s", asm)
+	}
+}
+
+func TestRotate(t *testing.T) {
+	const src = `package main
+
+//pu:noinline
+func f(x uint32) uint32 { return (x >> 7) | (x << 25) ^ (x>>18 + x<<14) }
+
+func main() { println(f(5)) }
+`
+	asm := listFunc(t, src, "main.f")
+	if strings.Count(asm, "rol") != 2 || strings.Contains(asm, "shr") || strings.Contains(asm, "shl") {
+		t.Errorf("f: want two rotates\n%s", asm)
+	}
+}
+
+func TestSetccClearsFirst(t *testing.T) {
+	const src = `package main
+
+//pu:noinline
+func lt(a, b int) bool { return a < b }
+
+func main() { println(lt(1, 2)) }
+`
+	// setl writes one byte; clearing the register first breaks the
+	// dependency on its old value.
+	asm := listFunc(t, src, "main.lt")
+	i, j := strings.Index(asm, "mov4 $0"), strings.Index(asm, "setl")
+	if i < 0 || j < i {
+		t.Errorf("lt: want mov4 $0 before setl\n%s", asm)
+	}
+}
+
 func TestZeroIdiomNotLive(t *testing.T) {
 	const src = `package main
 

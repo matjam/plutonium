@@ -205,6 +205,24 @@ A channel value is a reference counted like `synced[T]` (section 5.6), since a c
 several users: copying it counts a reference, and when the last reference goes away the channel and its
 buffer are freed. Values still buffered at that point are discarded without running `Drop`.
 
+### 4.9 Memory model
+
+The memory model is Go's, specified with Plutonium's changes in [memory-model.md](memory-model.md). In
+brief:
+
+- `go` statements, channel operations, `pluto/sync` locks, `WaitGroup` and `Once`, and
+  `pluto/sync/atomic` operations synchronise exactly as in Go. Atomics are sequentially consistent.
+- A data race is a bug but not undefined behaviour. A racy read of a naturally aligned value of at most a
+  word observes some value that was written to it; larger values (strings, slices, interfaces, structs)
+  may tear. The compiler may not assume that a program has no races.
+- A packed value is a single memory location: writing one field rewrites its neighbours, so two
+  puroutines writing different fields of one packed value race.
+- `volatile[T]` accesses are never removed, merged or reordered with one another, and atomic operations
+  are compiler barriers. Volatile accesses do not synchronise between processors, but they are enough
+  for an interrupt handler and the code it interrupts on the same processor to share data.
+- Any scheduler, including a kernel's own (section 4.7), must make starting a puroutine and readying a
+  parked one synchronising operations, so that these rules hold however puroutines are scheduled.
+
 ## 5. What Plutonium adds
 
 ### 5.1 Default parameter values
@@ -395,8 +413,12 @@ lengths := names.Map(func(s string) int { return len(s) }) // U inferred
 
 Such methods are instantiated for each set of type arguments used, like generic functions. They are
 called directly and never through an interface: a method with its own type parameters does not count
-towards implementing an interface, and an interface cannot declare one. This is the restriction that lets
-Plutonium allow them where Go does not, since every instantiation is visible to the compiler.
+towards implementing an interface, and an interface cannot declare one. Plutonium follows Go 1.27 here:
+the rules are Go's, and since every instantiation is visible to the compiler, each is an ordinary
+function in the output.
+
+As with a generic function, a method value `x.M` or method expression `T.M` of such a method must be
+instantiated, either explicitly (`names.Map[int]`) or from the function type it is assigned to.
 
 ### 5.8 Standard bit operations
 
@@ -504,8 +526,10 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | `//pu:extern name` | body-less function | the function is the external symbol `name` (C ABI) |
 | `//pu:export name` | function | also export the function under the symbol `name` |
 | `//pu:section name` | function or package variable | place it in the named section |
-| `//pu:interrupt` | function | an x86-64 interrupt handler: saves all registers, returns with `iretq` |
+| `//pu:interrupt` | function | an x86-64 interrupt handler: saves all registers, returns with `iretq` (planned, section 11.4) |
 | `//pu:noreturn` | function | the function never returns (lets the optimiser drop code after calls) |
+| `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (proposed, section 11.3) |
+| `//pu:percpu` | package variable | one copy per processor, addressed through `GS` (proposed, section 11.5) |
 
 ## 9. Assembly and C
 
@@ -515,9 +539,13 @@ A function declared without a body is implemented outside Plutonium.
   assembler. The symbol of a Plutonium function is its import path and name, `"pluto/syscall.Syscall"`,
   quoted in assembly because of the slash. Methods are `"path.Type.Method"` (value receiver) and
   `"path.(*Type).Method"` (pointer receiver).
-- **C**: with `//pu:extern name`, the function is the C symbol `name`. Plutonium uses the System V AMD64
-  calling convention everywhere, so C code compiled separately, such as the reference Lua interpreter,
-  links in directly. `//pu:export name` makes a Plutonium function callable from C under `name`.
+- **C**: with `//pu:extern name`, the function is the C symbol `name`, called with the System V AMD64
+  calling convention, so C code compiled separately, such as the reference Lua interpreter, links in
+  directly. `//pu:export name` makes a Plutonium function callable from C under `name`. Calls between
+  Plutonium functions use an internal convention that agrees with System V for scalar arguments and up to
+  two scalar results, and passes strings, slices, interfaces and small structs in registers (abi.md
+  section 9). Until the compiler classifies aggregates the System V way, `//pu:extern` and `//pu:export`
+  functions are limited to scalar parameters and at most two scalar results.
 
 ```go
 //pu:extern lua_pushinteger
@@ -535,16 +563,135 @@ imports `unsafe`, so such code is easy to find.
 
 ## 11. Build modes and targets
 
+### 11.1 Modes
+
+The mode is chosen with `--mode`; by default it follows the target (`hosted` for `x86_64-linux`,
+`freestanding` for `x86_64-none`).
+
 | Mode | Meaning | Tags set |
 |---|---|---|
-| `hosted` (default) | a Linux program: `_start` sets up arguments and calls `main` | `linux`, `hosted` |
+| `hosted` | a Linux program: `_start` sets up arguments and calls `main` | `linux`, `hosted` |
 | `freestanding` | no operating system; the program provides its entry point and linker script | `freestanding`, `none` |
+| `kernel` (proposed) | `freestanding`, plus code generation for ring 0 (section 11.2) | `freestanding`, `none`, `kernel` |
 
 Targets are named by triples: `x86_64-linux` (default) and `x86_64-none`; `aarch64-linux` and
 `aarch64-none` are planned. The architecture tag (`amd64`, `arm64`) is always set.
 
-Output formats are ELF executables (default), flat binaries (`-format binary`) and PE32+ for UEFI
-(`-format pe32+`).
+Output formats are ELF executables (default) and flat binaries (`--format binary`). PE32+ for UEFI
+(`--format pe32+`) is planned; it needs position-independent code (abi.md section 7).
+
+### 11.2 Kernel mode
+
+**Status: proposed.** `pluto build --target x86_64-none --mode kernel` builds code that can run in ring 0
+with interrupts enabled and no vector state saved on entry. It differs from `freestanding` in three ways,
+specified in [abi.md section 10](abi.md#10-kernel-mode):
+
+- **No red zone.** Plutonium code never stores below the stack pointer in any mode (the backend
+  subtracts from RSP before using stack memory, and leaf functions without stack slots have no frame), so
+  nothing changes for Plutonium code. Assembly and C linked into a kernel must not use the red zone
+  either.
+- **No floating point** (section 11.3).
+- **Kernel code model.** The image is linked in the top 2 GiB of the address space. The compiler's
+  addressing (RIP-relative symbol addresses, and absolute sign-extended 32-bit displacements for
+  `sym+disp32(,index,scale)`) is correct there without change; the kernel's linker script places the
+  image.
+
+Kernel mode also enables `//pu:interrupt`, `pluto/arch/x86` (section 11.4) and per-CPU variables
+(section 11.5). `pluto/os` and `pluto/syscall` are unavailable, as in every freestanding build.
+
+### 11.3 Floating point in kernel mode
+
+An interrupt or system call that enters the kernel does not save the SSE and x87 registers, so kernel code
+must not touch them. In kernel mode, any floating-point operation (arithmetic, comparison, conversion,
+a float constant, passing or returning a float, converting a float to an interface) in a function the
+program uses is a compile error. Copying a float-typed field as part of a struct is allowed, since it uses
+integer registers. Because the compiler only generates the functions a program reaches, a float function
+in an imported package that the kernel never calls costs nothing, and the standard library keeps its
+float code behind `//pu:build !kernel`.
+
+A function marked `//pu:fpu` may use floats in kernel mode. Whoever calls it must have saved the
+interrupted context's vector state and enabled the unit (`x86.FPUBegin` and `x86.FPUEnd`); the compiler
+does not check this. Soft-float was rejected: it would put an IEEE-754 library in every kernel and hide a
+large cost behind ordinary arithmetic, for code that hardly ever wants floats.
+
+### 11.4 `pluto/arch/x86`
+
+**Status: proposed.** The package `pluto/arch/x86` gives access to the instructions a kernel needs. Every
+function in it is expanded inline to the instruction or short sequence it names, is never removed even if
+its result is unused, and is a compiler barrier: no memory access is moved across it (see the memory
+model). The full table, with expansions, is in [abi.md section 10.5](abi.md#105-plutoarchx86-intrinsics).
+
+```go
+package x86
+
+func Cli()
+func Sti()
+func StiHlt()                     // sti; hlt with no gap for an interrupt
+func Hlt()
+func Pause()
+func SaveFlagsCli() uint64
+func RestoreFlags(f uint64)
+
+func Inb(port uint16) uint8
+func Inw(port uint16) uint16
+func Inl(port uint16) uint32
+func Outb(port uint16, v uint8)
+func Outw(port uint16, v uint16)
+func Outl(port uint16, v uint32)
+
+func Rdmsr(msr uint32) uint64
+func Wrmsr(msr uint32, v uint64)
+
+func ReadCR0() uint64
+func ReadCR2() uint64
+func ReadCR3() uint64
+func ReadCR4() uint64
+func WriteCR0(v uint64)
+func WriteCR3(v uint64)
+func WriteCR4(v uint64)
+func Invlpg(addr uintptr)
+
+func Lgdt(p *DescriptorTablePointer)
+func Lidt(p *DescriptorTablePointer)
+func Ltr(sel uint16)
+
+func Cpuid(leaf, subleaf uint32) (eax, ebx, ecx, edx uint32)
+func Rdtsc() uint64
+func Rdtscp() (tsc uint64, aux uint32)
+
+func Swapgs()
+func ReadGSBase() uintptr
+func WriteGSBase(v uintptr)
+func GSLoad64(off uintptr) uint64
+func GSLoad32(off uintptr) uint32
+func GSStore64(off uintptr, v uint64)
+func GSStore32(off uintptr, v uint32)
+
+func FPUBegin(area *FPUState)
+func FPUEnd(area *FPUState)
+
+func HandlerAddr(h any) uintptr   // h must name a //pu:interrupt function; for building the IDT
+```
+
+`//pu:interrupt` handlers (planned) take a `*x86.InterruptFrame`, and an error code for the exceptions
+that push one; abi.md section 10.4 gives the entry and exit sequence.
+
+### 11.5 Per-CPU variables
+
+**Status: proposed.** A package-level variable marked `//pu:percpu` has one copy per processor:
+
+```go
+//pu:percpu
+var current *Thread
+```
+
+The compiler places it in the `.percpu` section, which the kernel links at address 0 so that each
+variable's address is its offset in a per-CPU block, and accesses it relative to the `GS` base, which the
+kernel points at the current processor's block. A word-sized access is a single instruction. `&v` is a
+pointer into the current processor's copy. Only constant initialisers are allowed, and `//pu:percpu` is
+a compile error outside kernel mode. Code that reads and then writes a per-CPU variable must not migrate
+to another processor in between, so it runs with preemption or interrupts disabled. Details are in
+[abi.md section 10.6](abi.md#106-per-cpu-variables-proposed).
 
 ## 12. Standard library
 

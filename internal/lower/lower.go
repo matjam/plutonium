@@ -8,7 +8,10 @@
 // Construction of Static Single Assignment Form", CC 2013).
 //
 // Generic functions are instantiated on demand: a call to F[int] queues F's
-// body to be lowered with its type parameters replaced by int.
+// body to be lowered with its type parameters replaced by int. Methods are
+// instantiated the same way, with the receiver type's arguments followed by
+// the method's own when it declares type parameters (v.Map[int] on a
+// Vec[string] lowers (*Vec).Map with T=string, U=int).
 package lower
 
 import (
@@ -176,7 +179,12 @@ func typeString(T types2.Type) string {
 }
 
 // funcSymName returns the symbol name of a function or method instance.
+// targs are the receiver type's arguments followed by the function's own.
+// They are listed after the name (pkg.F[int], pkg.(*Stack).Push[int]),
+// except that a method with type parameters of its own on a generic type
+// lists the receiver's arguments on the receiver: pkg.(*Vec[string]).Map[int].
 func funcSymName(fn *types2.Func, targs []types2.Type) string {
+	fn = fn.Origin()
 	var sb strings.Builder
 	sb.WriteString(pkgPath(fn.Pkg()))
 	sb.WriteByte('.')
@@ -192,6 +200,10 @@ func funcSymName(fn *types2.Func, targs []types2.Type) string {
 		if n, ok := types2.Unalias(rt).(*types2.Named); ok {
 			name = n.Obj().Name()
 		}
+		if nr := sig.RecvTypeParams().Len(); nr > 0 && sig.TypeParams().Len() > 0 && len(targs) >= nr {
+			name += "[" + typeList(targs[:nr]) + "]"
+			targs = targs[nr:]
+		}
 		if ptr {
 			sb.WriteString("(*" + name + ")")
 		} else {
@@ -201,14 +213,19 @@ func funcSymName(fn *types2.Func, targs []types2.Type) string {
 	}
 	sb.WriteString(fn.Name())
 	if len(targs) > 0 {
-		sb.WriteByte('[')
-		for i, t := range targs {
-			if i > 0 {
-				sb.WriteByte(',')
-			}
-			sb.WriteString(typeString(t))
+		sb.WriteString("[" + typeList(targs) + "]")
+	}
+	return sb.String()
+}
+
+// typeList formats type arguments for symbol names, separated by commas.
+func typeList(targs []types2.Type) string {
+	var sb strings.Builder
+	for i, t := range targs {
+		if i > 0 {
+			sb.WriteByte(',')
 		}
-		sb.WriteByte(']')
+		sb.WriteString(typeString(t))
 	}
 	return sb.String()
 }

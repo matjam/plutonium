@@ -2,6 +2,7 @@ package types2_test
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 
@@ -25,6 +26,7 @@ func checkSrc(t *testing.T, src string) (*types2.Package, *types2.Info, error) {
 		Defs:       make(map[*ast.Ident]types2.Object),
 		Uses:       make(map[*ast.Ident]types2.Object),
 		Selections: make(map[*ast.SelectorExpr]*types2.Selection),
+		Instances:  make(map[*ast.Ident]types2.Instance),
 	}
 	conf := types2.Config{Importer: unsafeOnly{}}
 	pkg, err := conf.Check("test", fset, []*ast.File{f}, info)
@@ -227,6 +229,77 @@ func TestPlutoniumTypeErrors(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) { mustFail(t, c.src, c.want) })
+	}
+}
+
+const genericMethodDecls = `package p
+
+type S struct{ x int }
+
+func (s S) Apply[U any](f func(int) U) U { return f(s.x) }
+
+func (s *S) Id[U any]() int { return s.x }
+
+type G[T any] struct{ v T }
+
+func (g G[T]) With[U any](u U) (T, U) { return g.v, u }
+
+type I interface{ Id() int }
+`
+
+func TestGenericMethods(t *testing.T) {
+	_, info := mustCheck(t, genericMethodDecls+`
+func f() {
+	var s S
+	_ = s.Apply[string](func(int) string { return "" })
+	_ = s.Apply(func(int) bool { return true })
+	_, _ = G[int]{}.With(1.5)
+	var h func(func(int) int) int = s.Apply
+	_ = h
+	m := (*S).Id[bool]
+	_ = m
+}
+`)
+	// Each instance records the method's own type arguments only.
+	want := map[string][]string{
+		"Apply": {"string", "bool", "int"},
+		"With":  {"float64"},
+		"Id":    {"bool"},
+	}
+	got := map[string][]string{}
+	for id, inst := range info.Instances {
+		if _, ok := want[id.Name]; !ok {
+			continue
+		}
+		for i := 0; i < inst.TypeArgs.Len(); i++ {
+			got[id.Name] = append(got[id.Name], inst.TypeArgs.At(i).String())
+		}
+	}
+	for name, w := range want {
+		g := got[name]
+		sort.Strings(g)
+		sort.Strings(w)
+		if strings.Join(g, ",") != strings.Join(w, ",") {
+			t.Errorf("%s: type arguments %v, want %v", name, g, w)
+		}
+	}
+}
+
+func TestGenericMethodErrors(t *testing.T) {
+	cases := []struct{ name, body, want string }{
+		{"implements", "var _ I = &S{}",
+			"*S does not implement I (method Id has type parameters, so it cannot implement an interface method)"},
+		{"assert", "func f(x I) { _ = x.(*S) }",
+			"impossible type assertion: x.(*S)\n\t*S does not implement I (method Id has type parameters"},
+		{"method value", "var _ = S{}.Apply", "cannot use generic method S{}.Apply without instantiation"},
+		{"method expression", "var _ = S.Apply", "cannot use generic method S.Apply without instantiation"},
+		{"pointer method expression", "var _ = (*S).Id", "cannot use generic method (*S).Id without instantiation"},
+		{"generic receiver", "var _ = G[int]{}.With", "cannot use generic method G[int]{}.With without instantiation"},
+		{"too many type arguments", "var _ = S{}.Apply[int, int]", "got 2 type arguments but want 1"},
+		{"cannot infer", "func f(s *S) { _ = s.Id() }", "cannot infer U"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) { mustFail(t, genericMethodDecls+c.body, c.want) })
 	}
 }
 

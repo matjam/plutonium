@@ -1,0 +1,43 @@
+apply 30 true
+apply string three
+scale 12 15 -21 44
+addn 6 16 16 16
+addn ptr 20 -20
+map 3 5 2 5
+map bool false true false
+map pair gamma 5
+fold 12 1525
+maptwice 3 true false true
+fold ptr alpha
+with x 42
+nest x x true
+count 3 0
+promoted 8 21 12 12
+promoted ptr 10 20 10
+generic fn 5 5
+convert 2 4
+sumwith 12 50
+wrap 3 wrapped
+method value 40 x 5
+assigned big
+ptr method value 21
+inferred value 5
+returned value true
+id 21 21
+type switch Counter false
+promoted value 36 5
+tagged 16 81 big
+deferred each
+deferred each
+deferred each
+deferred each
+deferred each
+deferred each
+wrapped 5 true
+ints 20 -1
+each 1200
+kind int string other other
+deref pointed
+method expr 42
+method expr ptr 2
+deferred 123
