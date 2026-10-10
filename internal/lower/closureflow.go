@@ -25,11 +25,17 @@ package lower
 //     taken, includes.
 //   - A call of a declared function uses its summary: which parameters may
 //     reach its results, which may be stored through which of its pointer
-//     parameters or through other pointers, and which func parameters it
-//     calls. Summaries are computed per instance of a generic function, by
-//     the same analysis. Any other call (through a func value or an
-//     interface) may return, and store through its arguments, anything
-//     passed to it and anything the callee captured.
+//     parameters or through other pointers (in package variables, or by
+//     code it passes them to), which func parameters it calls, and whether
+//     it may keep the closures it builds in its caller's region. In a
+//     summary a parameter stands for itself and for what it holds: what
+//     calling it returns and passes on. The summary covers the closures the
+//     function returns, which code outside may call with anything, so
+//     calling one of them later stores only what calls of it passed in.
+//     Summaries are computed per instance of a generic function, by the
+//     same analysis. Any other call (through a func value or an interface)
+//     may return, and store through its arguments, anything passed to it
+//     and anything the callee captured.
 //   - Nested function literals are analysed as part of the function: their
 //     assignments to its variables count, a literal's parameters may receive
 //     whatever is passed to a call it is passed to or called by, and what
@@ -150,7 +156,7 @@ type closureFlow struct {
 	called    bitset                  // parameters called as unknown code, whose state may be stored
 	storeTo   map[int]bitset          // values stored through each parameter
 	callArgs  map[int]bitset          // the parameters passed to calls of each func parameter
-	storeAny  bitset                  // values stored through pointers from elsewhere
+	storeAny  bitset                  // values kept where callers cannot see: through other pointers, in package variables, by unknown code
 	started   bitset                  // values a puroutine may be started with
 	changed   bool
 	foreign   []ast.Node // nested literals and range-over-func bodies (ownFrame)
@@ -162,9 +168,10 @@ type closureFlow struct {
 type flowSummary struct {
 	ret      bitset
 	store    map[int]bitset // the parameters stored through each parameter
-	storeAny bitset         // the parameters stored through other pointers
+	storeAny bitset         // the parameters stored through other pointers, in package variables or by unknown code
 	calls    bitset         // func parameters it calls, whose captured state may be stored
 	builds   bool           // it may build closures in the region its caller provides
+	keepsOwn bool           // and may store them, or what they hold, through pointers
 	callArgs map[int]bitset // the parameters it passes to calls of each func parameter
 	starts   bitset         // func parameters it may start puroutines with (gofunc)
 	all      bool           // unknown: every parameter does everything
@@ -208,10 +215,22 @@ func (f *closureFlow) run() {
 	for {
 		f.changed = false
 		ast.Inspect(f.body, f.visit)
+		// Code this analysis does not see may call the literals it can
+		// reach, with anything.
+		for _, lit := range f.lits(f.external()) {
+			f.addLitIn(lit, f.unknown())
+		}
 		if !f.changed {
 			return
 		}
 	}
+}
+
+// external returns the origins of what code outside this function may
+// reach: what it returns, and what it stores through pointers, with what
+// the closure records among them hold.
+func (f *closureFlow) external() bitset {
+	return f.closeOver(f.resultOrigins().or(f.pool).or(f.storeAny))
 }
 
 func (f *closureFlow) typeOf(e ast.Expr) types2.Type {
@@ -465,13 +484,21 @@ func (f *closureFlow) assign(lhs ast.Expr, m bitset) {
 		}
 		f.addPool(m)
 	} else if _, ok := ast.Unparen(lhs).(*ast.Ident); ok && v != nil {
-		b := f.ident[v]
-		if b.union(m) {
-			f.ident[v] = b
-			f.changed = true
-		}
+		f.addIdent(v, m)
+	}
+	if v != nil && isGlobal(v) && f.storeAny.union(m) {
+		// Other functions read package variables.
+		f.changed = true
 	}
 	f.addVar(v, m)
+}
+
+func (f *closureFlow) addIdent(v *types2.Var, m bitset) {
+	b := f.ident[v]
+	if b.union(m) {
+		f.ident[v] = b
+		f.changed = true
+	}
 }
 
 // isGlobal reports whether v is a package-level variable.
@@ -572,8 +599,12 @@ func (f *closureFlow) visit(n ast.Node) bool {
 		if sig != nil {
 			for i := 0; i < sig.Params().Len(); i++ {
 				if id := paramIdent(n, i); id != nil {
-					v, _ := f.info.Defs[id].(*types2.Var)
-					f.addVar(v, f.litIn[n])
+					if v, _ := f.info.Defs[id].(*types2.Var); v != nil && !f.litIn[n].empty() {
+						// What a call passes is assigned to the parameter
+						// itself: storing through it stores where that points.
+						f.addIdent(v, f.litIn[n])
+						f.addVar(v, f.litIn[n])
+					}
 				}
 			}
 		}
@@ -792,12 +823,14 @@ func (f *closureFlow) call(c *ast.CallExpr) bitset {
 	argStore := make([]bitset, len(args))
 	var anyStore bitset // through pointers the arguments do not reach
 	builds := true      // whether the callee may build closures in a region
+	keepsOwn := false   // and keep them anywhere
 	if g, targs := f.callee(c); g != nil {
 		if isGoFuncCheck(g) {
 			f.start(all)
 		}
 		sum := f.l.closureSummary(g, targs)
 		builds = sum.all || sum.builds
+		keepsOwn = sum.keepsOwn
 		if sum.all {
 			r := f.callFuncs(all, all.or(f.unknown()))
 			ret = all.or(r).or(f.state(all))
@@ -854,13 +887,15 @@ func (f *closureFlow) call(c *ast.CallExpr) bitset {
 					argStore[i].union(of(q))
 				}
 				if sum.calls.has(p) {
+					// What the callee does with what calling it returns
+					// or passes on is the parameter's, applied above.
 					in := f.unknown()
 					for _, q := range sum.callArgs[p].members() {
 						in.union(of(q))
 					}
 					r := f.callFuncs(masks[i], in)
 					ret.union(r)
-					store.union(r.or(f.state(masks[i])))
+					store.union(r.or(f.kept(masks[i])))
 					f.storeState(masks[i], in)
 				}
 			}
@@ -874,22 +909,35 @@ func (f *closureFlow) call(c *ast.CallExpr) bitset {
 		}
 	} else {
 		// Unknown code: it may return or store anything passed to it, and
-		// what the callee captured, and call any func value passed to it.
+		// call any func value passed to it with that and with what the
+		// callee captured, which it may also return. What it stores of
+		// what the callee captured is kept. A parameter called stands for
+		// what it returns and passes on, for the summary.
 		if recv != nil {
 			cm = masks[0]
 		}
 		st := f.state(cm.or(all))
-		r := f.callFuncs(all.or(cm).or(st), all.or(f.unknown()))
-		ret = all.or(st).or(r)
-		store = ret
-		f.storeState(cm.or(all), ret)
+		fs := all.or(cm).or(st)
+		r := f.callFuncs(fs, all.or(f.unknown()))
+		back := st.or(cm.from(0, len(f.params)))
+		for _, lit := range f.lits(fs) {
+			f.addLitIn(lit, back)
+		}
+		ret = all.or(back).or(r)
+		store = all.or(f.state(all)).or(f.kept(cm)).or(r)
+		f.storeState(cm.or(all), store)
 	}
 	if sig, ok := underlying(f.typeOf(c.Fun)).(*types2.Signature); ok && regionSig(sig) && builds {
 		// The callee builds the closures it returns in a region this
 		// frame provides.
 		ret.add(f.source(c))
+		if keepsOwn {
+			var b bitset
+			b.add(f.source(c))
+			f.keepAny(b)
+		}
 	}
-	f.addPool(anyStore)
+	f.keepAny(anyStore)
 	for i, a := range args {
 		m := argStore[i].or(store)
 		if m.empty() {
@@ -903,10 +951,17 @@ func (f *closureFlow) call(c *ast.CallExpr) bitset {
 			f.assign(&ast.StarExpr{X: a}, m)
 		}
 	}
-	if !store.empty() {
-		f.addPool(store)
-	}
+	f.keepAny(store)
 	return ret
+}
+
+// keepAny records that values with origins m may be stored through any
+// pointer: in the pool, and in the summary.
+func (f *closureFlow) keepAny(m bitset) {
+	f.addPool(m)
+	if f.storeAny.union(m) {
+		f.changed = true
+	}
 }
 
 // callFuncs records that the func values with origins m may be called with
@@ -956,11 +1011,22 @@ func (f *closureFlow) addLitIn(lit *ast.FuncLit, m bitset) {
 }
 
 // state returns the origins of what calling a func value with origins m
-// may store or return: what it captured. The function's own literals are left
-// out, since the analysis sees their bodies, and so are its parameters and
-// unknown functions, whose captured variables are in other frames; the
-// parameters are recorded as called, for the summary.
-func (f *closureFlow) state(m bitset) bitset {
+// may return, or pass to the func values it is given: what it captured.
+// The function's own literals are left out, since the analysis sees their
+// bodies, and so are its parameters and unknown functions, whose captured
+// variables are in other frames; the parameters are recorded as called, for
+// the summary.
+func (f *closureFlow) state(m bitset) bitset { return f.captured(m, false) }
+
+// kept returns the origins of what calling a func value with origins m may
+// store where this function cannot see: state, less the arguments of the
+// calls whose closures are among m. What a declared function's closures do
+// with its parameters is in its summary, which the call that made them
+// applied to the arguments; any other call already kept its arguments
+// anywhere. What calls of the closures stored in them is still kept.
+func (f *closureFlow) kept(m bitset) bitset { return f.captured(m, true) }
+
+func (f *closureFlow) captured(m bitset, kept bool) bitset {
 	if f.called.union(m.from(0, len(f.params))) {
 		f.changed = true
 	}
@@ -976,8 +1042,13 @@ func (f *closureFlow) state(m bitset) bitset {
 			out.union(f.srcState[i])
 		case *ast.CallExpr:
 			// The closures a call returns capture its arguments, and what
-			// calls of them stored.
+			// calls of them stored. Calling them may return the closures
+			// in their region too.
 			out.union(f.srcState[i])
+			if kept {
+				continue
+			}
+			out.add(i)
 			for _, a := range n.Args {
 				out.union(f.expr(a))
 			}
@@ -1198,7 +1269,30 @@ func (s *flowSummary) merge(f *closureFlow) bool {
 			grew = true
 		}
 	}
-	grew = s.storeAny.union(f.storeAny.from(0, np)) || grew
+	// A method value that code outside may call passes its receiver to a
+	// method this analysis does not see, which may keep it anywhere.
+	anyStore := f.storeAny
+	for _, i := range f.external().from(f.firstSrc(), -1).members() {
+		if n, ok := f.src[i-f.firstSrc()].(*ast.SelectorExpr); ok {
+			anyStore = anyStore.or(f.expr(n.X)).or(f.srcState[i])
+		}
+	}
+	grew = s.storeAny.union(anyStore.from(0, np)) || grew
+	// The closures it builds in its caller's region, and what they hold,
+	// kept where the caller cannot see.
+	if !s.keepsOwn {
+		stored := anyStore
+		for _, m := range f.storeTo {
+			stored = stored.or(m)
+		}
+		for _, i := range esc.from(f.firstSrc(), -1).members() {
+			if stored.has(i) {
+				s.keepsOwn = true
+				grew = true
+				break
+			}
+		}
+	}
 	grew = s.calls.union(f.called.from(0, np)) || grew
 	grew = s.starts.union(f.started.from(0, np)) || grew
 	for j, m := range f.callArgs {
@@ -1214,14 +1308,17 @@ func (s *flowSummary) merge(f *closureFlow) bool {
 // escaping returns the origins of what the function may return, with
 // what the closure records among them hold: the variables a literal
 // captures, the receiver a method value copies.
-func (f *closureFlow) escaping() bitset {
+func (f *closureFlow) escaping() bitset { return f.closeOver(f.resultOrigins()) }
+
+// resultOrigins returns the origins of what the function may return.
+func (f *closureFlow) resultOrigins() bitset {
 	var m bitset
 	for _, r := range f.returns() {
 		for _, x := range f.returned(r) {
 			m.union(x)
 		}
 	}
-	return f.closeOver(m)
+	return m
 }
 
 // closeOver adds to m the origins of what the closure records in m hold.

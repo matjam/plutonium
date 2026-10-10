@@ -364,7 +364,11 @@ regard to order, and reports what a region cannot hold:
   the same call made before, in the region the call is about to refill, a chain as long as the loop runs
   that no region of fixed size can hold. Compose a fixed number of them, or keep what each step needs in a
   slice and return one closure that applies every step. A function literal in a loop is built the same
-  way, one record per literal, reused on every iteration.
+  way, one record per literal, reused on every iteration. Composing closures within the iteration, and
+  passing them to functions that call or range over them, is allowed: the compiler follows what each
+  function does with the closures it is given, and what those closures do when called. A closure is kept
+  if any of them stores it, or what it holds, in a package-level variable or through a pointer, or passes
+  it to a func value or an interface.
 - A function that returns the closures of a call that can reach the same function again, directly, through
   other functions, or through a func value or interface whose implementations do, when any of them builds
   a closure: its region would have to hold itself, and no fixed size fits (E3102). Build the closures in a

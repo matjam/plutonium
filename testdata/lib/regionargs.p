@@ -3,11 +3,11 @@
 // when the call runs again, after its arguments are evaluated, so nothing
 // the call built in it on its previous run may reach those arguments; the
 // compiler rejects the programs where it could (E3101). These are the
-// shapes that stay legal: closures used within the iteration, results of
-// the previous run passed on as values (strings and the results of calling
-// the closures), method values, closures of other calls of the same loop,
-// a fixed number of compositions, and a slice of steps applied by one
-// closure. Run under the debug allocator, nothing leaks and nothing is used
+// shapes that stay legal: closures used within the iteration (composed,
+// and passed to functions that call them), results of the previous run
+// passed on as values (strings and the results of calling the closures),
+// method values, closures of other calls of the same loop, a fixed number
+// of compositions, and a slice of steps applied by one closure. Run under the debug allocator, nothing leaks and nothing is used
 // after it is freed.
 package main
 
@@ -90,6 +90,19 @@ func main() {
 			t += x
 		}
 		fmt.Println(n, evens, t)
+	}
+
+	// Composed twice, and passed to a function that ranges over it: what
+	// filter and sum do with the closures they are given is in their
+	// summaries, and neither keeps them.
+	for n := 1; n <= 4; n++ {
+		odd3 := filter(filter(count(n*5), func(x int) bool { return x%2 == 1 }), func(x int) bool { return x%3 != 0 })
+		t := 0
+		for x := range odd3 {
+			t += x
+		}
+		t += sum(filter(count(n), func(x int) bool { return x%2 == 0 }))
+		fmt.Println(n, t)
 	}
 
 	// A fixed number of compositions, and a slice of steps.
