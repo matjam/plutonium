@@ -10,8 +10,10 @@ const { runPluto } = require('./pluto');
 
 const STDIN_NAME = '<standard input>';
 
-// register adds the formatter and its diagnostics to context. Syntax errors
-// that stop pluto fmt are shown as diagnostics until the document changes.
+// register adds the formatter's diagnostics to context and returns a
+// controller whose setEnabled(on) registers or removes the formatter. Syntax
+// errors that stop pluto fmt are shown as diagnostics until the document
+// changes.
 function register(context, output) {
   const diagnostics = vscode.languages.createDiagnosticCollection('pluto fmt');
   let warnedMissing = false;
@@ -68,9 +70,24 @@ function register(context, output) {
     return [vscode.TextEdit.replace(all, result.stdout)];
   }
 
+  // The provider is registered only while the language server is off: the
+  // server formats with the same code, and two formatters for a language
+  // make VS Code ask which to use.
+  let registration = null;
+  function setEnabled(on) {
+    if (on && !registration) {
+      registration = vscode.languages.registerDocumentFormattingEditProvider(
+        { language: 'plutonium' }, { provideDocumentFormattingEdits });
+    } else if (!on && registration) {
+      registration.dispose();
+      registration = null;
+      diagnostics.clear();
+    }
+  }
+
   context.subscriptions.push(
     diagnostics,
-    vscode.languages.registerDocumentFormattingEditProvider({ language: 'plutonium' }, { provideDocumentFormattingEdits }),
+    { dispose: () => setEnabled(false) },
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.contentChanges.length > 0) {
         diagnostics.delete(e.document.uri);
@@ -78,6 +95,7 @@ function register(context, output) {
     }),
     vscode.workspace.onDidCloseTextDocument((d) => diagnostics.delete(d.uri)),
   );
+  return { setEnabled };
 }
 
 // workingDirectory returns the document's directory if it exists on disk,
