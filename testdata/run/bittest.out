@@ -1,0 +1,66 @@
+0 false true
+9 true false
+10 true false
+11 false true
+13 true false
+32 true false
+33 false true
+73 false true
+74 false true
+77 false true
+96 false true
+128 false true
+200 false true
+255 false true
+-128 false
+-1 false
+0 true
+1 false
+5 true
+63 true
+64 false
+127 false
+-9223372036854775808 false
+-64 false
+-1 false
+0 false
+1 true
+2 true
+40 true
+62 true
+63 false
+64 false
+65 false
+104 false
+1099511627776 false
+0 false false
+2 false false
+3 true true
+7 true true
+64 true false
+66 false false
+67 false true
+71 false false
+65535 false false
+0 false
+97 true
+98 false
+101 true
+105 true
+111 true
+117 true
+118 false
+65 false
+161 false
+255 false
+-128 false
+-57 false
+-56 true
+-55 false
+-6 true
+-1 true
+0 false
+1 false
+127 false
+true true false true true true false
+12 6

@@ -206,6 +206,9 @@ func (s *fnState) temp(T types2.Type, name string) *ssa.Value {
 	for _, lf := range s.l.leaves(T) {
 		slot.Leaves = append(slot.Leaves, ssa.Leaf{Off: lf.off, Type: lf.t})
 	}
+	if slot.Leaves != nil {
+		s.l.appendPads(&slot.Pads, T, 0)
+	}
 	return s.slotAddr(slot)
 }
 
@@ -377,6 +380,8 @@ func (s *fnState) applyPragmas(doc *ast.CommentGroup) {
 			s.f.Pragmas |= ssa.PragmaNoReturn
 		case "interrupt":
 			s.f.Pragmas |= ssa.PragmaInterrupt
+		case "nosimd":
+			s.f.Pragmas |= ssa.PragmaNoSIMD
 		case "fpu":
 			s.f.NoSSE = false
 		}

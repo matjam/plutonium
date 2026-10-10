@@ -51,7 +51,7 @@ func expandPCopies(f *MFunc) {
 					// Every destination is still needed as a source: a cycle.
 					// Save one destination's value and redirect its readers.
 					m := pending[0]
-					t := f.newVReg(f.classOf(m.dst))
+					t := f.newVRegLike(m.dst)
 					out = compat.Append(out, new(MInst{Op: MCOPY, Size: 8, Dst: RegOp(t), Src: RegOp(m.dst)}))
 					for j := range pending {
 						if pending[j].src == m.dst {
@@ -656,7 +656,8 @@ func (a *allocator) rewrite(spillTemps *hash.Map[Reg, bool]) {
 	f := a.f
 	slots := compat.NewMap[Reg, *ssa.Slot](0)
 	for _, r := range a.spilled {
-		slots.Set(r, f.newSlot(compat.Sprintf("spill%d", r-FirstVirtual), 8, 8))
+		n := int64(f.spillSize(r))
+		slots.Set(r, f.newSlot(compat.Sprintf("spill%d", r-FirstVirtual), n, n))
 	}
 	var buf []Reg
 	for _, b := range f.Blocks {
@@ -668,10 +669,10 @@ func (a *allocator) rewrite(spillTemps *hash.Map[Reg, bool]) {
 			for _, r := range buf {
 				slot, spilled := compat.MapGet(slots, r)
 				if _, done := compat.MapGet(reload, r); spilled && !done {
-					t := f.newVReg(a.class)
+					t := f.newVRegLike(r)
 					spillTemps.Set(t, true)
 					reload.Set(r, t)
-					out = compat.Append(out, new(MInst{Op: MRELOAD, Size: 8, Dst: RegOp(t), Slot: slot}))
+					out = compat.Append(out, new(MInst{Op: MRELOAD, Size: f.spillSize(r), Dst: RegOp(t), Slot: slot}))
 				}
 			}
 			buf = in.Defs(buf[:0])
@@ -680,7 +681,7 @@ func (a *allocator) rewrite(spillTemps *hash.Map[Reg, bool]) {
 				if _, ok := compat.MapGet(slots, r); ok {
 					t, reused := compat.MapGet(reload, r)
 					if !reused {
-						t = f.newVReg(a.class)
+						t = f.newVRegLike(r)
 						spillTemps.Set(t, true)
 					}
 					store.Set(r, t)
@@ -699,7 +700,7 @@ func (a *allocator) rewrite(spillTemps *hash.Map[Reg, bool]) {
 			{
 				goIt9 := compat.MapIter(store)
 				for r, t, goOk10 := goIt9.Next(); goOk10; r, t, goOk10 = goIt9.Next() {
-					out = compat.Append(out, new(MInst{Op: MSPILL, Size: 8, Src: RegOp(t), Slot: compat.MapAt(slots, r)}))
+					out = compat.Append(out, new(MInst{Op: MSPILL, Size: f.spillSize(r), Src: RegOp(t), Slot: compat.MapAt(slots, r)}))
 				}
 			}
 		}

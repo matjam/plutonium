@@ -31,6 +31,7 @@ const (
 	MIMUL // Dst = Dst * Src
 	MCMP  // flags = Dst - Src
 	MTEST // flags = Dst & Src
+	MBT   // CF = bit Src (mod the operand size) of Dst
 
 	// One-operand.
 	MNEG
@@ -74,6 +75,12 @@ const (
 	MCVTTF2SI // Dst(int, Size) = trunc(Src(float, SrcSize))
 	MCVTF2F   // Dst(float, Size) = Src(float, SrcSize)
 	MMOVQ     // move between a general register and an XMM register (Size 4 or 8)
+
+	// SSE2 packed doubles. MMOVSF, MADDSF, MSUBSF, MMULSF, MDIVSF and
+	// MSQRTSF with Size 16 are the packed forms (movupd, addpd, ...).
+	MUNPCKLPD // Dst = {Dst.lo, Src.lo}
+	MMOVHPD   // load: Dst.hi = [Src]; store: [Dst] = Src.hi
+	MPSHUFD   // Dst = the dwords of Src that Imm selects (two bits each)
 
 	// Control flow.
 	MJMP  // to Target
@@ -136,7 +143,7 @@ const (
 
 var mopNames = map[MOp]string{
 	MMOV: "mov", MMOVZX: "movzx", MMOVSX: "movsx", MLEA: "lea",
-	MADD: "add", MSUB: "sub", MAND: "and", MOR: "or", MXOR: "xor", MIMUL: "imul", MCMP: "cmp", MTEST: "test",
+	MADD: "add", MSUB: "sub", MAND: "and", MOR: "or", MXOR: "xor", MIMUL: "imul", MCMP: "cmp", MTEST: "test", MBT: "bt",
 	MNEG: "neg", MNOT: "not", MBSWAP: "bswap",
 	MSHL: "shl", MSHR: "shr", MSAR: "sar", MROL: "rol", MROR: "ror",
 	MDIV: "div", MIDIV: "idiv", MCQO: "cqo", MMUL1: "mul", MIMUL1: "imul1", MIMUL3: "imul3",
@@ -144,6 +151,7 @@ var mopNames = map[MOp]string{
 	MMOVSF: "movs", MADDSF: "adds", MSUBSF: "subs", MMULSF: "muls", MDIVSF: "divs", MSQRTSF: "sqrts",
 	MUCOMI: "ucomis", MXORPS: "xorps", MANDPS: "andps", MCVTSI2F: "cvtsi2s", MCVTTF2SI: "cvtts2si",
 	MCVTF2F: "cvts2s", MMOVQ: "movq",
+	MUNPCKLPD: "unpcklpd", MMOVHPD: "movhpd", MPSHUFD: "pshufd",
 	MJMP: "jmp", MJCC: "j", MCALL: "call", MRET: "ret", MUD2: "ud2",
 	MIRETQ: "iretq", MCLD: "cld", MMOVUPS: "movups",
 	MPUSH: "push", MPOP: "pop", MREPMOVSB: "rep movsb", MREPSTOSB: "rep stosb",
@@ -154,6 +162,12 @@ var mopNames = map[MOp]string{
 	MRDMSR: "rdmsr", MWRMSR: "wrmsr", MRDCR: "movfromcr", MWRCR: "movtocr", MINVLPG: "invlpg",
 	MLGDT: "lgdt", MLIDT: "lidt", MLTR: "ltr", MCPUID: "cpuid", MRDTSC: "rdtsc", MRDTSCP: "rdtscp",
 	MSWAPGS: "swapgs", MCLTS: "clts", MFXSAVE: "fxsave64", MFXRSTOR: "fxrstor64",
+}
+
+// packedNames names the Size 16 (packed double) forms of the scalar float
+// operations in listings.
+var packedNames = map[MOp]string{
+	MMOVSF: "movupd", MADDSF: "addpd", MSUBSF: "subpd", MMULSF: "mulpd", MDIVSF: "divpd", MSQRTSF: "sqrtpd",
 }
 
 func (op MOp) String() string {
@@ -312,11 +326,12 @@ type MFunc struct {
 
 	nextVReg  Reg
 	regClass  map[Reg]RegClass
-	frameFP   bool  // use RBP as a frame pointer (over-aligned slots)
-	maxAlign  int64 // largest slot alignment
-	outArgs   int64 // bytes of outgoing stack arguments
-	usedSaved []Reg // callee-saved registers the function changes (every changed GPR for interrupt handlers)
-	frameSize int64 // bytes below the saved registers, excluding them
+	wide      map[Reg]bool // XMM registers holding 16 bytes (vectors), spilled as such
+	frameFP   bool         // use RBP as a frame pointer (over-aligned slots)
+	maxAlign  int64        // largest slot alignment
+	outArgs   int64        // bytes of outgoing stack arguments
+	usedSaved []Reg        // callee-saved registers the function changes (every changed GPR for interrupt handlers)
+	frameSize int64        // bytes below the saved registers, excluding them
 
 	// Interrupt handlers (//pu:interrupt): errCode is set when the CPU
 	// pushes an error code; savedXMM lists the XMM registers the handler or
@@ -344,6 +359,32 @@ func (f *MFunc) newVReg(c RegClass) Reg {
 	f.nextVReg++
 	f.regClass[r] = c
 	return r
+}
+
+// newWideVReg allocates a virtual XMM register for a 16-byte vector.
+func (f *MFunc) newWideVReg() Reg {
+	r := f.newVReg(ClassXMM)
+	if f.wide == nil {
+		f.wide = map[Reg]bool{}
+	}
+	f.wide[r] = true
+	return r
+}
+
+// newVRegLike allocates a virtual register of r's class and width.
+func (f *MFunc) newVRegLike(r Reg) Reg {
+	if f.wide[r] {
+		return f.newWideVReg()
+	}
+	return f.newVReg(f.classOf(r))
+}
+
+// spillSize returns the bytes a spill of r stores.
+func (f *MFunc) spillSize(r Reg) uint8 {
+	if f.wide[r] {
+		return 16
+	}
+	return 8
 }
 
 // classOf returns the register class of any register.
@@ -503,6 +544,8 @@ func (in *MInst) String() string {
 		return fmt.Sprintf("imul $%d, %s, %s", in.Imm, in.Src.format(size), in.Dst.format(size))
 	case MLOADCONSTF:
 		return fmt.Sprintf("loadconstf $%#x, %s", in.Imm, in.Dst.format(size))
+	case MPSHUFD:
+		return fmt.Sprintf("pshufd $%#x, %s, %s", in.Imm, in.Src.format(size), in.Dst.format(size))
 	case MSAVEFLAGS:
 		return fmt.Sprintf("pushfq; pop %s", in.Dst.format(8))
 	case MRESTOREFLAGS:
@@ -536,6 +579,13 @@ func (in *MInst) String() string {
 	}
 	if in.Dst.Kind != OpdNone {
 		args = append(args, in.Dst.format(size))
+	}
+	if name, ok := packedNames[in.Op]; ok && in.Size == 16 {
+		return fmt.Sprintf("%s %s", name, strings.Join(args, ", "))
+	}
+	switch in.Op {
+	case MUNPCKLPD, MMOVHPD:
+		return fmt.Sprintf("%s %s", in.Op, strings.Join(args, ", "))
 	}
 	return fmt.Sprintf("%s%d %s", in.Op, in.Size, strings.Join(args, ", "))
 }

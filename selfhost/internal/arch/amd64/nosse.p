@@ -18,7 +18,12 @@ import (
 
 // needsSSE reports whether selecting v would need an XMM register.
 func needsSSE(v *ssa.Value) bool {
+	if v.Type.IsVec() {
+		return true
+	}
 	switch v.Op {
+	case ssa.OpVLane:
+		return true
 	case ssa.OpFAdd, ssa.OpFSub, ssa.OpFMul, ssa.OpFDiv, ssa.OpFNeg, ssa.OpFSqrt, ssa.OpFAbs,
 		ssa.OpFEq, ssa.OpFNe, ssa.OpFLess, ssa.OpFLeq,
 		ssa.OpIntToFloat, ssa.OpUintToFloat, ssa.OpFloatToInt, ssa.OpFloatToUint, ssa.OpFloatConv:
@@ -48,7 +53,8 @@ func needsSSE(v *ssa.Value) bool {
 func isSSEOp(op MOp) bool {
 	switch op {
 	case MMOVSF, MADDSF, MSUBSF, MMULSF, MDIVSF, MSQRTSF, MUCOMI, MXORPS, MANDPS,
-		MCVTSI2F, MCVTTF2SI, MCVTF2F, MMOVQ, MLOADCONSTF:
+		MCVTSI2F, MCVTTF2SI, MCVTF2F, MMOVQ, MLOADCONSTF,
+		MUNPCKLPD, MMOVHPD, MPSHUFD:
 		return true
 	}
 	return false

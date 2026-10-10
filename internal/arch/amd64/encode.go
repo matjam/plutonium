@@ -286,9 +286,14 @@ func (e *encoder) sse(prefix byte, op byte, w bool, reg Reg, rm rmOperand) {
 	e.emitInsn(insn{prefixes: pre, w: w, opcode: []byte{0x0F, op}, reg: reg, rm: rm})
 }
 
+// floatPrefix returns the prefix selecting single (4), double (8) or
+// packed double (16) forms of an SSE instruction.
 func floatPrefix(size uint8) byte {
-	if size == 4 {
+	switch size {
+	case 4:
 		return 0xF3
+	case 16:
+		return 0x66
 	}
 	return 0xF2
 }
@@ -338,6 +343,8 @@ func (e *encoder) encode(in *MInst) {
 			op = 0x84
 		}
 		e.emitInsn(insn{prefixes: sizePrefix(size), w: size == 8, opcode: []byte{op}, reg: in.Src.Reg, rm: rmOf(in.Dst), byteRegs: size == 1})
+	case MBT:
+		e.emitInsn(insn{prefixes: sizePrefix(size), w: size == 8, opcode: []byte{0x0F, 0xA3}, reg: in.Src.Reg, rm: rmOf(in.Dst)})
 	case MIMUL:
 		e.emitInsn(insn{prefixes: sizePrefix(size), w: size == 8, opcode: []byte{0x0F, 0xAF}, reg: in.Dst.Reg, rm: rmOf(in.Src)})
 	case MIMUL3:
@@ -439,6 +446,17 @@ func (e *encoder) encode(in *MInst) {
 			e.sse(0x66, 0x2E, false, in.Dst.Reg, rmOf(in.Src))
 		} else {
 			e.sse(0, 0x2E, false, in.Dst.Reg, rmOf(in.Src))
+		}
+	case MPSHUFD:
+		e.emitInsn(insn{prefixes: []byte{0x66}, opcode: []byte{0x0F, 0x70}, reg: in.Dst.Reg, rm: rmOf(in.Src), immSize: 1})
+		e.imm(in.Imm, 1)
+	case MUNPCKLPD:
+		e.sse(0x66, 0x14, false, in.Dst.Reg, rmOf(in.Src))
+	case MMOVHPD:
+		if in.Dst.Kind == OpdMem {
+			e.sse(0x66, 0x17, false, in.Src.Reg, rmMem(in.Dst.Mem))
+		} else {
+			e.sse(0x66, 0x16, false, in.Dst.Reg, rmMem(in.Src.Mem))
 		}
 	case MXORPS:
 		e.sse(0, 0x57, false, in.Dst.Reg, rmOf(in.Src))

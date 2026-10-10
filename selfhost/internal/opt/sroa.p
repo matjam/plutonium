@@ -9,7 +9,8 @@ import (
 
 // SROA (scalar replacement of aggregates) splits each stack slot holding an
 // aggregate into one slot per scalar leaf, when the slot's address does not
-// escape and every access lines up with its leaves. Block copies (Move) and
+// escape, its leaves and padding account for every byte (Slot.LeavesCover),
+// and every access lines up with its leaves. Block copies (Move) and
 // clears (Zero) of a split slot become per-leaf loads and stores. The
 // resulting scalar slots are then promoted to SSA values by mem2reg.
 func SROA(f *ssa.Func) {
@@ -22,6 +23,11 @@ func SROA(f *ssa.Func) {
 		for _, s := range compat.Append([]*ssa.Slot(nil), f.Slots...) {
 			in := compat.MapAt(infos, s)
 			if in == nil || in.escapes || compat.MapAt(dirty, s) || len(s.Leaves) < 2 && !singleLeafMismatch(s) {
+				continue
+			}
+			// Splitting keeps only the leaves, so they must account for
+			// every byte that is not padding.
+			if !s.LeavesCover() {
 				continue
 			}
 			if !accessesMatchLeaves(in) {
@@ -90,8 +96,13 @@ func accessesMatchLeaves(in *slotInfo) bool {
 					return false
 				}
 			}
-			if a.v.Op == ssa.OpMove && a.v.Args[0] == a.v.Args[1] {
-				return false
+			// A copy within the slot would read the parts it is writing.
+			if a.v.Op == ssa.OpMove {
+				d, _ := slotOf(a.v.Args[0])
+				s, _ := slotOf(a.v.Args[1])
+				if d == s {
+					return false
+				}
 			}
 		default:
 			return false

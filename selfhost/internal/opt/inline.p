@@ -212,6 +212,7 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 	for _, s := range g.Slots {
 		ns := f.NewSlot(s.Name, s.Size, s.Align)
 		ns.Leaves = s.Leaves
+		ns.Pads = s.Pads
 		slotMap.Set(s, ns)
 	}
 

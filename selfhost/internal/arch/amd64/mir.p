@@ -33,6 +33,7 @@ const (
 	MIMUL // Dst = Dst * Src
 	MCMP  // flags = Dst - Src
 	MTEST // flags = Dst & Src
+	MBT   // CF = bit Src (mod the operand size) of Dst
 
 	// One-operand.
 	MNEG
@@ -76,6 +77,12 @@ const (
 	MCVTTF2SI // Dst(int, Size) = trunc(Src(float, SrcSize))
 	MCVTF2F   // Dst(float, Size) = Src(float, SrcSize)
 	MMOVQ     // move between a general register and an XMM register (Size 4 or 8)
+
+	// SSE2 packed doubles. MMOVSF, MADDSF, MSUBSF, MMULSF, MDIVSF and
+	// MSQRTSF with Size 16 are the packed forms (movupd, addpd, ...).
+	MUNPCKLPD // Dst = {Dst.lo, Src.lo}
+	MMOVHPD   // load: Dst.hi = [Src]; store: [Dst] = Src.hi
+	MPSHUFD   // Dst = the dwords of Src that Imm selects (two bits each)
 
 	// Control flow.
 	MJMP  // to Target
@@ -149,6 +156,7 @@ var mopNames = compat.MapOf[MOp, string](
 	compat.Pair[MOp, string]{MIMUL, "imul"},
 	compat.Pair[MOp, string]{MCMP, "cmp"},
 	compat.Pair[MOp, string]{MTEST, "test"},
+	compat.Pair[MOp, string]{MBT, "bt"},
 	compat.Pair[MOp, string]{MNEG, "neg"},
 	compat.Pair[MOp, string]{MNOT, "not"},
 	compat.Pair[MOp, string]{MBSWAP, "bswap"},
@@ -181,6 +189,9 @@ var mopNames = compat.MapOf[MOp, string](
 	compat.Pair[MOp, string]{MCVTTF2SI, "cvtts2si"},
 	compat.Pair[MOp, string]{MCVTF2F, "cvts2s"},
 	compat.Pair[MOp, string]{MMOVQ, "movq"},
+	compat.Pair[MOp, string]{MUNPCKLPD, "unpcklpd"},
+	compat.Pair[MOp, string]{MMOVHPD, "movhpd"},
+	compat.Pair[MOp, string]{MPSHUFD, "pshufd"},
 	compat.Pair[MOp, string]{MJMP, "jmp"},
 	compat.Pair[MOp, string]{MJCC, "j"},
 	compat.Pair[MOp, string]{MCALL, "call"},
@@ -226,6 +237,17 @@ var mopNames = compat.MapOf[MOp, string](
 	compat.Pair[MOp, string]{MCLTS, "clts"},
 	compat.Pair[MOp, string]{MFXSAVE, "fxsave64"},
 	compat.Pair[MOp, string]{MFXRSTOR, "fxrstor64"},
+)
+
+// packedNames names the Size 16 (packed double) forms of the scalar float
+// operations in listings.
+var packedNames = compat.MapOf[MOp, string](
+	compat.Pair[MOp, string]{MMOVSF, "movupd"},
+	compat.Pair[MOp, string]{MADDSF, "addpd"},
+	compat.Pair[MOp, string]{MSUBSF, "subpd"},
+	compat.Pair[MOp, string]{MMULSF, "mulpd"},
+	compat.Pair[MOp, string]{MDIVSF, "divpd"},
+	compat.Pair[MOp, string]{MSQRTSF, "sqrtpd"},
 )
 
 func (op MOp) String() string {
@@ -384,11 +406,12 @@ type MFunc struct {
 
 	nextVReg  Reg
 	regClass  *hash.Map[Reg, RegClass]
-	frameFP   bool  // use RBP as a frame pointer (over-aligned slots)
-	maxAlign  int64 // largest slot alignment
-	outArgs   int64 // bytes of outgoing stack arguments
-	usedSaved []Reg // callee-saved registers the function changes (every changed GPR for interrupt handlers)
-	frameSize int64 // bytes below the saved registers, excluding them
+	wide      *hash.Map[Reg, bool] // XMM registers holding 16 bytes (vectors), spilled as such
+	frameFP   bool                 // use RBP as a frame pointer (over-aligned slots)
+	maxAlign  int64                // largest slot alignment
+	outArgs   int64                // bytes of outgoing stack arguments
+	usedSaved []Reg                // callee-saved registers the function changes (every changed GPR for interrupt handlers)
+	frameSize int64                // bytes below the saved registers, excluding them
 
 	// Interrupt handlers (//pu:interrupt): errCode is set when the CPU
 	// pushes an error code; savedXMM lists the XMM registers the handler or
@@ -416,6 +439,32 @@ func (f *MFunc) newVReg(c RegClass) Reg {
 	f.nextVReg++
 	f.regClass.Set(r, c)
 	return r
+}
+
+// newWideVReg allocates a virtual XMM register for a 16-byte vector.
+func (f *MFunc) newWideVReg() Reg {
+	r := f.newVReg(ClassXMM)
+	if f.wide == nil {
+		f.wide = compat.NewMap[Reg, bool](0)
+	}
+	f.wide.Set(r, true)
+	return r
+}
+
+// newVRegLike allocates a virtual register of r's class and width.
+func (f *MFunc) newVRegLike(r Reg) Reg {
+	if compat.MapAt(f.wide, r) {
+		return f.newWideVReg()
+	}
+	return f.newVReg(f.classOf(r))
+}
+
+// spillSize returns the bytes a spill of r stores.
+func (f *MFunc) spillSize(r Reg) uint8 {
+	if compat.MapAt(f.wide, r) {
+		return 16
+	}
+	return 8
 }
 
 // classOf returns the register class of any register.
@@ -575,6 +624,8 @@ func (in *MInst) String() string {
 		return compat.Sprintf("imul $%d, %s, %s", in.Imm, in.Src.format(size), in.Dst.format(size))
 	case MLOADCONSTF:
 		return compat.Sprintf("loadconstf $%#x, %s", in.Imm, in.Dst.format(size))
+	case MPSHUFD:
+		return compat.Sprintf("pshufd $%#x, %s, %s", in.Imm, in.Src.format(size), in.Dst.format(size))
 	case MSAVEFLAGS:
 		return compat.Sprintf("pushfq; pop %s", in.Dst.format(8))
 	case MRESTOREFLAGS:
@@ -612,6 +663,13 @@ func (in *MInst) String() string {
 	}
 	if in.Dst.Kind != OpdNone {
 		args = compat.Append(args, in.Dst.format(size))
+	}
+	if name, ok := compat.MapGet(packedNames, in.Op); ok && in.Size == 16 {
+		return compat.Sprintf("%s %s", name, compat.Join(args, ", "))
+	}
+	switch in.Op {
+	case MUNPCKLPD, MMOVHPD:
+		return compat.Sprintf("%s %s", in.Op, compat.Join(args, ", "))
 	}
 	return compat.Sprintf("%s%d %s", in.Op, in.Size, compat.Join(args, ", "))
 }

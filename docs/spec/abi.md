@@ -84,7 +84,9 @@ The direction flag is clear on entry to and exit from every function, as in Syst
 `rep movsb` and `rep stosb` for block copies and clears, which rely on it.
 
 The backend targets baseline x86-64 (SSE2). Integers and pointers live in general-purpose registers;
-floats live in XMM registers and use scalar SSE instructions. Memory copies and clears never use XMM
+floats live in XMM registers and use scalar SSE instructions, except in loops the optimiser vectorises,
+which compute two `float64` lanes at once with SSE2 packed doubles (each lane exactly as the scalar code
+would). Packed values never cross a call or a function boundary. Memory copies and clears never use XMM
 registers: they are sequences of 1 to 8 byte `MOV`s through a general-purpose register up to 64 bytes, and
 `rep movsb` / `rep stosb` above that.
 
@@ -435,7 +437,10 @@ vector state.
 
 - lowering rejects float operations in such a function, as above;
 - no optimisation pass may introduce float or vector operations into a `NoSSE` function. A vectoriser
-  must skip `NoSSE` functions entirely (block copies, clears and fills included);
+  must skip `NoSSE` functions entirely (block copies, clears and fills included). The loop vectoriser
+  (`opt.Vectorize`) asks `ssa.Func.MayVectorize`, which is false for `NoSSE` functions and for those
+  marked `//pu:nosimd` (`ssa.PragmaNoSIMD`) or `//pu:interrupt`. `//pu:fpu` functions may be vectorised:
+  `FPUBegin` saves the whole vector state;
 - the inliner never inlines a function without `NoSSE` (a `//pu:fpu` function) into one with it, so FPU
   code stays in functions the caller has to bracket with `FPUBegin`/`FPUEnd`. It may inline in the other
   direction;

@@ -116,6 +116,11 @@ const (
 	OpBswap // reverse byte order
 	OpRotl  // rotate left by arg1
 
+	// Vectors (see TF64x2). Float arithmetic, loads and stores also take
+	// vector types.
+	OpVPack // vector of arg0 (lane 0) and arg1 (lane 1)
+	OpVLane // lane AuxInt of vector arg0
+
 	// Pointers.
 	OpOffPtr // arg0 + AuxInt
 	OpAddPtr // arg0 + arg1 (arg1 an integer)
@@ -231,6 +236,9 @@ var opTable = [opTableSize]OpInfo{
 	OpClz:      {Name: "Clz", Args: 1},
 	OpBswap:    {Name: "Bswap", Args: 1},
 	OpRotl:     {Name: "Rotl", Args: 2},
+
+	OpVPack: {Name: "VPack", Args: 2},
+	OpVLane: {Name: "VLane", Args: 1},
 
 	OpOffPtr: {Name: "OffPtr", Args: 1},
 	OpAddPtr: {Name: "AddPtr", Args: 2},

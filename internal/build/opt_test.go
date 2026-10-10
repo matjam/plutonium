@@ -265,14 +265,48 @@ func TestBoolSelect(t *testing.T) {
 	const src = `package main
 
 //pu:noinline
-func isSpace(c byte) bool { return c == ' ' || c == '\n' || c == '\t' || c == '\r' }
+func isOdd(c byte) bool { return c == ' ' || c == 200 || c == '\t' || c == '\r' }
 
-func main() { println(isSpace(' ')) }
+func main() { println(isOdd(' ')) }
 `
 	// The branch-free chain ORs the tests instead of selecting with cmov.
-	asm := listFunc(t, src, "main.isSpace")
+	// (Its constants are too far apart for a bit test; see TestBitTest.)
+	asm := listFunc(t, src, "main.isOdd")
 	if strings.Contains(asm, "cmov") || strings.Count(asm, "or1") != 3 {
-		t.Errorf("isSpace: want three ORs\n%s", asm)
+		t.Errorf("isOdd: want three ORs\n%s", asm)
+	}
+}
+
+func TestBitTest(t *testing.T) {
+	const src = `package main
+
+//pu:noinline
+func isSpace(c byte) bool { return c == ' ' || c == '\n' || c == '\t' || c == '\r' }
+
+//pu:noinline
+func vowel(c byte) bool { return c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u' }
+
+//pu:noinline
+func two(x int) bool { return x == 3 || x == 4 }
+
+//pu:noinline
+func far(x uint16) bool { return x == 3 || x == 67 || x == 7 }
+
+func main() { println(isSpace(' '), vowel('a'), two(3), far(3)) }
+`
+	// One bt against a mask of the bits ' ', '\n', '\t' and '\r'.
+	asm := listFunc(t, src, "main.isSpace")
+	if !strings.Contains(asm, "bt8") || !strings.Contains(asm, "$4294977024") || strings.Contains(asm, "or1") {
+		t.Errorf("isSpace: want a bit test\n%s", asm)
+	}
+	// Offset by 'a', the smallest.
+	if asm := listFunc(t, src, "main.vowel"); !strings.Contains(asm, "bt8") || !strings.Contains(asm, "$-97") {
+		t.Errorf("vowel: want a bit test of c-'a'\n%s", asm)
+	}
+	for _, fn := range []string{"main.two", "main.far"} {
+		if asm := listFunc(t, src, fn); strings.Contains(asm, "bt8") {
+			t.Errorf("%s: want comparisons\n%s", fn, asm)
+		}
 	}
 }
 
@@ -364,5 +398,237 @@ func main() {
 	// each zero live back to the function entry and forces spills.
 	if asm := listFunc(t, src, "main.f"); strings.Contains(asm, "rsp") {
 		t.Errorf("f: want no spills\n%s", asm)
+	}
+}
+
+func TestMemOpt(t *testing.T) {
+	const src = `package main
+
+type P struct {
+	x, y, m float64
+	n       int64
+}
+
+var ps [8]P
+
+//pu:noinline
+func update(n int) {
+	for i := 0; i < n; i++ {
+		p := ps[i]
+		p.x += p.y * p.m
+		p.n++
+		ps[i] = p
+	}
+}
+
+//pu:noinline
+func forward(p *P, k float64) float64 {
+	p.x = k
+	p.n = 3
+	p.y = 1
+	p.y = 2
+	return p.x * p.y
+}
+
+//pu:noinline
+func slots(k int64) int64 {
+	var a, b [2]int64
+	a[0] = k
+	b[0] = k + 1
+	a[1] = b[0]
+	return a[0] + a[1] + b[1]
+}
+
+//pu:noinline
+func merge(p *P) float64 {
+	a := p.x
+	p.y = 3
+	return a * p.x
+}
+
+func main() {
+	update(8)
+	var p P
+	println(int64(forward(&p, 2)), slots(1), int64(merge(&p)))
+}
+`
+	// The second p.x is the first: the store to p.y cannot change it.
+	if asm := listFunc(t, src, "main.merge"); strings.Count(asm, "(%rdi)") != 2 {
+		t.Errorf("merge: want one load and one store\n%s", asm)
+	}
+	// p.y and p.m are stored back unchanged.
+	if asm := listFunc(t, src, "main.update"); strings.Count(asm, ", main.ps") != 2 {
+		t.Errorf("update: want two stores (x and n)\n%s", asm)
+	}
+	// p.x is forwarded past the store to p.n, and the first store to p.y
+	// is dead.
+	asm := listFunc(t, src, "main.forward")
+	if strings.Count(asm, "(%rdi)") != 3 || strings.Contains(asm, "(%rdi), %xmm") {
+		t.Errorf("forward: want three stores and no loads\n%s", asm)
+	}
+	// Constant indexes split the arrays once folded.
+	if asm := listFunc(t, src, "main.slots"); strings.Contains(asm, "rsp") {
+		t.Errorf("slots: want the arrays in registers\n%s", asm)
+	}
+}
+
+func TestUnroll(t *testing.T) {
+	const src = `package main
+
+type Body struct{ x, y, z, vx, vy, vz, m float64 }
+
+var bodies [5]Body
+
+//pu:noinline
+func pairs(dt float64) {
+	for i := 0; i < len(bodies); i++ {
+		bi := &bodies[i]
+		for j := i + 1; j < len(bodies); j++ {
+			bj := &bodies[j]
+			dx, dy, dz := bi.x-bj.x, bi.y-bj.y, bi.z-bj.z
+			mag := dt / (dx*dx + dy*dy + dz*dz)
+			bi.vx -= dx * bj.m * mag
+			bi.vy -= dy * bj.m * mag
+			bi.vz -= dz * bj.m * mag
+			bj.vx += dx * bi.m * mag
+			bj.vy += dy * bi.m * mag
+			bj.vz += dz * bi.m * mag
+		}
+	}
+}
+
+//pu:noinline
+func long() int {
+	s := 0
+	for i := 0; i < 17; i++ {
+		s += i * i
+	}
+	return s
+}
+
+//pu:noinline
+func calls() {
+	for i := 0; i < 4; i++ {
+		pairs(float64(i))
+	}
+}
+
+func main() {
+	pairs(0.01)
+	calls()
+	println(long(), int64(bodies[1].vx*1e9))
+}
+`
+	// The inner loop's bounds become constants once the outer loop is
+	// unrolled; then it is unrolled too. A velocity updated by nearby
+	// pairs stays in a register and is stored once, but values are not
+	// held in registers across the whole function, so nothing spills.
+	asm := listFunc(t, src, "main.pairs")
+	if strings.Contains(asm, "\tj") || strings.Contains(asm, "rsp") {
+		t.Errorf("pairs: want straight-line code without spills\n%s", asm)
+	}
+	if n := strings.Count(asm, ", main.bodies+"); n < 30 || n > 45 {
+		t.Errorf("pairs: %d stores, want 30 to 45 (one per update would be 60)\n%s", n, asm)
+	}
+	// Past the trip count limit, or calling out: loops stay.
+	for _, fn := range []string{"main.long", "main.calls"} {
+		if asm := listFunc(t, src, fn); !strings.Contains(asm, "\tjl") {
+			t.Errorf("%s: want a loop\n%s", fn, asm)
+		}
+	}
+}
+
+func TestVectorize(t *testing.T) {
+	const src = `package main
+
+type P struct{ x, y, vx, vy, m float64 }
+
+var ps [100]P
+var a, b, c [64]float64
+
+//pu:noinline
+func move(dt float64) {
+	for i := 0; i < len(ps); i++ {
+		p := &ps[i]
+		p.vx -= p.x * p.m * dt
+		p.vy -= p.y * p.m * dt
+		p.x += p.vx * dt
+		p.y += p.vy * dt
+	}
+}
+
+//pu:noinline
+func axpy(k float64) {
+	for i := 0; i < len(a); i++ {
+		c[i] = a[i]*k + b[i]
+	}
+}
+
+//pu:noinline
+func carried() {
+	for i := 1; i < len(a); i++ {
+		a[i] = a[i-1]*0.5 + a[i]
+	}
+}
+
+//pu:noinline
+//pu:nosimd
+func kernel(k float64) {
+	for i := 0; i < len(a); i++ {
+		c[i] = a[i]*k + b[i]
+	}
+}
+
+func main() {
+	move(0.1)
+	axpy(2)
+	carried()
+	kernel(2)
+	println(int64(ps[3].x + c[5] + a[7]))
+}
+`
+	// One field of two consecutive structs per register: movsd, movhpd.
+	asm := listFunc(t, src, "main.move")
+	if !strings.Contains(asm, "movhpd main.ps+") || !strings.Contains(asm, "mulpd") || !strings.Contains(asm, "add8 $2,") {
+		t.Errorf("move: want a loop over pairs of particles\n%s", asm)
+	}
+	// Contiguous arrays: 16-byte loads and stores, k broadcast once.
+	asm = listFunc(t, src, "main.axpy")
+	if !strings.Contains(asm, "movupd main.a(") || !strings.Contains(asm, "movupd %xmm") || strings.Count(asm, "unpcklpd") != 1 {
+		t.Errorf("axpy: want packed loads and stores\n%s", asm)
+	}
+	// Each iteration reads the one before: no vectors.
+	if asm := listFunc(t, src, "main.carried"); strings.Contains(asm, "pd ") {
+		t.Errorf("carried: want scalar code\n%s", asm)
+	}
+	// Code that may not touch the vector state stays scalar.
+	if asm := listFunc(t, src, "main.kernel"); strings.Contains(asm, "pd ") {
+		t.Errorf("kernel: want scalar code under //pu:nosimd\n%s", asm)
+	}
+}
+
+// TestVectorizeKernelFPU checks that in kernel mode a //pu:fpu function,
+// whose caller has saved the vector state, is vectorised like any other.
+func TestVectorizeKernelFPU(t *testing.T) {
+	const src = `package main
+
+var a, b, c [64]float64
+
+//pu:fpu
+//pu:noinline
+func axpy() {
+	for i := 0; i < len(a); i++ {
+		c[i] = a[i]*2.5 + b[i]
+	}
+}
+
+func main() { axpy() }
+`
+	text, err := kernelCompile(t, src, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asm := funcListing(t, text, "main.axpy"); !strings.Contains(asm, "mulpd") {
+		t.Errorf("axpy: want packed code\n%s", asm)
 	}
 }

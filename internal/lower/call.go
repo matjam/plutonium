@@ -242,17 +242,26 @@ func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []
 		sretBuf = s.tempSize(size, align, "sret")
 		// Leaves let SROA split the buffer once the call is inlined. They
 		// must cover every result, so a result held in memory as a unit
-		// leaves the buffer unsplittable.
+		// leaves the buffer unsplittable. The pads are the padding inside
+		// each result and the alignment gaps between them.
 		slot := sretBuf.Aux.(*ssa.Slot)
 		offs := s.l.resultOffsets(abi)
 		for i, p := range abi.results {
 			lfs := s.l.leaves(p.typ)
 			if lfs == nil && s.l.sizeof(p.typ) > 0 {
-				slot.Leaves = nil
+				slot.Leaves, slot.Pads = nil, nil
 				break
 			}
 			for _, lf := range lfs {
 				slot.Leaves = append(slot.Leaves, ssa.Leaf{Off: offs[i] + lf.off, Type: lf.t})
+			}
+			s.l.appendPads(&slot.Pads, p.typ, offs[i])
+			end := slot.Size
+			if i+1 < len(offs) {
+				end = offs[i+1]
+			}
+			if gap := offs[i] + s.l.sizeof(p.typ); end > gap {
+				slot.Pads = append(slot.Pads, ssa.Pad{Off: gap, Size: end - gap})
 			}
 		}
 		flat = append(flat, sretBuf)

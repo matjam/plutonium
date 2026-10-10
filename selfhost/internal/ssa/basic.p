@@ -149,26 +149,41 @@ func SplitCriticalEdges(f *Func) {
 
 // Schedule orders the values of each block: phis first, then every value
 // after its arguments, memory operations in memory-chain order, and the
-// original order otherwise.
+// original order otherwise. A load runs before the first write after its
+// memory state that may change the bytes it reads; it may follow writes
+// that cannot.
 func Schedule(f *Func) {
-	pos := make([]int, f.NumValues())
-	for _, b := range f.Blocks {
-		for i, v := range b.Values {
-			pos[v.ID] = i
-		}
-	}
 	for _, b := range f.Blocks {
 		inBlock := compat.NewMap[*Value, bool](len(b.Values))
 		for _, v := range b.Values {
 			inBlock.Set(v, true)
 		}
-		// readers[m] lists the values that read memory state m without
-		// producing a new one (loads). They must run before any operation
-		// that consumes m to produce the next state.
+		// consumers[m] lists the operations in b that consume memory
+		// state m to produce the next one.
+		consumers := compat.NewMap[*Value, []*Value](0)
+		for _, v := range b.Values {
+			if m := v.MemArg(); m != nil && v.Op.HasMemResult() {
+				consumers.Set(m, compat.Append(compat.MapAt(consumers, m), v))
+			}
+		}
+		// readers[w] lists the values that read memory without producing
+		// any (loads) and must run before write w.
 		readers := compat.NewMap[*Value, []*Value](0)
 		for _, v := range b.Values {
-			if m := v.MemArg(); m != nil && !v.Op.HasMemResult() {
-				readers.Set(m, compat.Append(compat.MapAt(readers, m), v))
+			m := v.MemArg()
+			if m == nil || v.Op.HasMemResult() {
+				continue
+			}
+			for steps := 0; ; steps++ {
+				cs := compat.MapAt(consumers, m)
+				if len(cs) == 1 && steps < 1000 && !mayClobber(cs[0], v) {
+					m = cs[0]
+					continue
+				}
+				for _, w := range cs {
+					readers.Set(w, compat.Append(compat.MapAt(readers, w), v))
+				}
+				break
 			}
 		}
 		done := compat.NewMap[*Value, bool](len(b.Values))
@@ -185,10 +200,8 @@ func Schedule(f *Func) {
 						visit(a)
 					}
 				}
-				if v.Op.HasMemResult() {
-					for _, r := range compat.MapAt(readers, v.MemArg()) {
-						visit(r)
-					}
+				for _, r := range compat.MapAt(readers, v) {
+					visit(r)
 				}
 			}
 			out = compat.Append(out, v)

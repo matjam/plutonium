@@ -133,6 +133,51 @@ func (l *Lowerer) appendLeaves(out *[]leaf, T types2.Type, base int64) bool {
 	return false
 }
 
+// appendPads appends the padding ranges of a T at base: the gaps between
+// struct fields and after the last one, and the tail of an aligned[T, N]
+// beyond its element. It works from the type's layout alone, not from its
+// leaves, so that SROA can check that the leaves account for every byte
+// that is not padding (see ssa.Slot.LeavesCover).
+func (l *Lowerer) appendPads(out *[]ssa.Pad, T types2.Type, base int64) {
+	pad := func(off, end int64) {
+		if end > off {
+			*out = append(*out, ssa.Pad{Off: off, Size: end - off})
+		}
+	}
+	if l.scalarType(T) != nil {
+		return
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Struct:
+		fields := make([]*types2.Var, u.NumFields())
+		for i := range fields {
+			fields[i] = u.Field(i)
+		}
+		offs := l.sizes.Offsetsof(fields)
+		for i, f := range fields {
+			l.appendPads(out, f.Type(), base+offs[i])
+			end := l.sizeof(T)
+			if i+1 < len(fields) {
+				end = offs[i+1]
+			}
+			pad(base+offs[i]+l.sizeof(f.Type()), base+end)
+		}
+		if len(fields) == 0 {
+			pad(base, base+l.sizeof(T))
+		}
+	case *types2.Array:
+		esize := l.sizeof(u.Elem())
+		for i := int64(0); i < u.Len(); i++ {
+			l.appendPads(out, u.Elem(), base+i*esize)
+		}
+	case *types2.Wrapper:
+		if u.Kind() == types2.WrapAligned || u.Kind() == types2.WrapVolatile {
+			l.appendPads(out, u.Elem(), base)
+			pad(base+l.sizeof(u.Elem()), base+l.sizeof(T))
+		}
+	}
+}
+
 // A param describes how one Plutonium-level parameter or result is passed.
 type param struct {
 	typ    types2.Type

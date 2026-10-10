@@ -251,6 +251,11 @@ type Slot struct {
 	// when every access matches a leaf.
 	Leaves []Leaf
 
+	// Pads are the byte ranges of the slot's type that hold no data: the
+	// padding between fields and after the last one. Lowering derives them
+	// from the type's layout, independently of the leaves.
+	Pads []Pad
+
 	// Offset is assigned by frame layout, relative to the frame base.
 	Offset int64
 }
@@ -261,6 +266,43 @@ func (s *Slot) String() string { return compat.Sprintf("%s#%d", s.Name, s.ID) }
 type Leaf struct {
 	Off  int64
 	Type *Type
+}
+
+// A Pad is a range of padding bytes in an aggregate.
+type Pad struct {
+	Off, Size int64
+}
+
+// LeavesCover reports whether the slot's leaves and pads tile it exactly:
+// every byte belongs to exactly one leaf or pad. A slot whose leaves miss
+// a byte holding data cannot be split into its leaves, since a block copy
+// through the split slot would lose that byte.
+func (s *Slot) LeavesCover() bool {
+	type span struct{ off, end int64 }
+	spans := make([]span, 0, len(s.Leaves)+len(s.Pads))
+	for _, l := range s.Leaves {
+		spans = compat.Append(spans, span{l.Off, l.Off + l.Type.Size})
+	}
+	for _, p := range s.Pads {
+		if p.Size <= 0 {
+			return false
+		}
+		spans = compat.Append(spans, span{p.Off, p.Off + p.Size})
+	}
+	// Insertion sort by offset: there are few spans.
+	for i := 1; i < len(spans); i++ {
+		for j := i; j > 0 && spans[j].off < spans[j-1].off; j-- {
+			spans[j], spans[j-1] = spans[j-1], spans[j]
+		}
+	}
+	var at int64
+	for _, sp := range spans {
+		if sp.off != at || sp.end <= sp.off {
+			return false
+		}
+		at = sp.end
+	}
+	return at == s.Size
 }
 
 // A SymKind classifies a symbol.
@@ -314,7 +356,18 @@ const (
 	PragmaNoBounds
 	PragmaNoReturn
 	PragmaInterrupt
+	// PragmaNoSIMD (//pu:nosimd) keeps the optimiser from introducing
+	// vector instructions the function's own code does not ask for.
+	PragmaNoSIMD
 )
+
+// MayVectorize reports whether optimisations may introduce vector
+// instructions into f: not into NoSSE functions (kernel mode), which may
+// not touch the SSE registers at all, interrupt handlers, or functions
+// marked //pu:nosimd.
+func (f *Func) MayVectorize() bool {
+	return !f.NoSSE && f.Pragmas&(PragmaNoSIMD|PragmaInterrupt) == 0
+}
 
 // A Func is a function in SSA form.
 type Func struct {

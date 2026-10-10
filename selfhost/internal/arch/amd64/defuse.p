@@ -24,9 +24,10 @@ func (in *MInst) readsDst() bool {
 	case MADD, MSUB, MAND, MOR, MXOR, MIMUL, MNEG, MNOT, MBSWAP,
 		MSHL, MSHR, MSAR, MROL, MROR, MCMOVCC,
 		MADDSF, MSUBSF, MMULSF, MDIVSF, MXORPS, MANDPS,
+		MUNPCKLPD, MMOVHPD, // MMOVHPD keeps the low lane
 		MSETCC: // keeps the upper bytes, which setcc clears beforehand
 		return true
-	case MCMP, MTEST, MUCOMI:
+	case MCMP, MTEST, MBT, MUCOMI:
 		return true // read only
 	}
 	return false
@@ -35,7 +36,7 @@ func (in *MInst) readsDst() bool {
 // writesDst reports whether the instruction writes its destination.
 func (in *MInst) writesDst() bool {
 	switch in.Op {
-	case MCMP, MTEST, MUCOMI, MPUSH, MJMP, MJCC, MCALL, MRET, MUD2, MEPILOGUE, MUSE:
+	case MCMP, MTEST, MBT, MUCOMI, MPUSH, MJMP, MJCC, MCALL, MRET, MUD2, MEPILOGUE, MUSE:
 		return false
 	}
 	return true
