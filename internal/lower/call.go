@@ -440,7 +440,7 @@ func (s *fnState) methodReceiver(x ast.Expr, sel *types2.Selection) value {
 		}
 	}
 	if wantPtr {
-		return scalarValue(cur.ptr, types2.NewPointer(cur.T))
+		return scalarValue(s.absAddr(cur.ptr), types2.NewPointer(cur.T))
 	}
 	return s.loadLV(cur)
 }

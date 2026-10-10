@@ -149,7 +149,8 @@ func (s *isel) copyReg(dst, src Reg, size uint8) {
 // at its definition.
 func isLazy(v *ssa.Value) bool {
 	switch v.Op {
-	case ssa.OpConst, ssa.OpConstFloat, ssa.OpSlotAddr, ssa.OpSymAddr, ssa.OpFuncAddr, ssa.OpOffPtr, ssa.OpAddPtr:
+	case ssa.OpConst, ssa.OpConstFloat, ssa.OpSlotAddr, ssa.OpSymAddr, ssa.OpFuncAddr, ssa.OpOffPtr, ssa.OpAddPtr,
+		ssa.OpPerCPUOffset:
 		return true
 	}
 	return false
@@ -423,6 +424,12 @@ func (s *isel) reg(v *ssa.Value) Reg {
 		r := s.newReg(ssa.TPtr)
 		s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(r), Src: MemOp(Mem{Base: NoReg, Index: NoReg, Sym: v.Aux.(*ssa.Sym)})})
 		return r
+	case ssa.OpPerCPUOffset:
+		// lea sym, r with an absolute disp32: the symbol's link-time
+		// value, its offset in the per-CPU block.
+		r := s.newReg(v.Type)
+		s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(r), Src: MemOp(Mem{Base: NoReg, Index: NoReg, Sym: v.Aux.(*ssa.Sym), Abs: true})})
+		return r
 	}
 	// Address arithmetic.
 	r := s.newReg(ssa.TPtr)
@@ -556,6 +563,14 @@ func (s *isel) addr(p *ssa.Value) Mem {
 		}
 	case ssa.OpAddPtr:
 		base, idx := p.Args[0], p.Args[1]
+		if idx.Op == ssa.OpPerCPUOffset && s.vregs[idx.ID] == NoReg {
+			// A per-CPU variable's address: base (the block) plus the
+			// symbol as an absolute displacement.
+			if m := s.addr(base); m.Sym == nil && m.Seg == SegNone && m.Slot == nil && !m.ArgSlot && !m.OutArg {
+				m.Sym = idx.Aux.(*ssa.Sym)
+				return m
+			}
+		}
 		if idx.Op == ssa.OpConst {
 			m := s.addr(base)
 			if fitsImm32(m.Disp + idx.AuxInt) {

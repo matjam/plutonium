@@ -2,11 +2,14 @@ package build_test
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
@@ -348,6 +351,59 @@ func TestKernelNoXMM(t *testing.T) {
 				t.Errorf("-O%d: object code uses XMM registers", level)
 			}
 		}
+	}
+}
+
+// TestKernelSmoke boots testdata/kernel/smoke, built with --mode kernel
+// and the default linker script, under QEMU. The kernel runs in the top 2
+// GiB with SSE disabled, prints over the serial port with x86.Outb, sets
+// up per-CPU blocks from the .percpu image and switches GS between them,
+// then enables SSE for one //pu:fpu call between FPUBegin and FPUEnd.
+func TestKernelSmoke(t *testing.T) {
+	qemu, err := exec.LookPath("qemu-system-x86_64")
+	if err != nil {
+		t.Skip("qemu-system-x86_64 is not installed")
+	}
+	dir := filepath.Join("..", "..", "testdata", "kernel", "smoke")
+	const want = "hello from kernel mode\n" +
+		"fmt -42 works 0xff true\n" +
+		"cpu0 initial -1 7 9\n" +
+		"cpu1 initial -1 0 true\n" +
+		"cpu0 again 0 11 1 true\n" +
+		"cpuid true sse off true\n" +
+		"fmt float %!v(float64=0x4020000000000000)\n" +
+		"fpu result bits 4620693217682128896\n" // 1.5*4 + 2 = 8.0
+	for _, level := range []int{0, 2} {
+		t.Run("O"+string(rune('0'+level)), func(t *testing.T) {
+			// The ELF image links with the per-CPU check; the flat binary
+			// is what QEMU's multiboot loader boots.
+			elfOut := filepath.Join(t.TempDir(), "kernel.elf")
+			cfg := &build.Config{Dir: dir, Output: elfOut, Stdlib: plutonium.Stdlib(), OptLevel: level, Kernel: true}
+			if err := build.Build(cfg); err != nil {
+				t.Fatalf("build ELF: %v", err)
+			}
+			image := filepath.Join(t.TempDir(), "kernel.bin")
+			cfg.Output, cfg.Format = image, "binary"
+			if err := build.Build(cfg); err != nil {
+				t.Fatalf("build: %v", err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, qemu, "-kernel", image, "-serial", "stdio", "-display", "none",
+				"-monitor", "none", "-no-reboot", "-m", "64M",
+				"-device", "isa-debug-exit,iobase=0xf4,iosize=0x04")
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+			err := cmd.Run()
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+				t.Fatalf("qemu: %v (want exit status 1)\nserial: %s\nstderr: %s", err, stdout.String(), stderr.String())
+			}
+			if got := stdout.String(); got != want {
+				t.Errorf("serial output differs\n--- got ---\n%s--- want ---\n%s", got, want)
+			}
+		})
 	}
 }
 

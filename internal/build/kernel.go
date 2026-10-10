@@ -44,7 +44,8 @@ func checkPerCPU(path string) error {
 //     kernel copies __percpu_size bytes from __percpu_image (the image's
 //     virtual address) into each processor's block.
 //
-// The script defines __kernel_phys_start, __kernel_phys_end, __bss_start,
+// The script defines __kernel_phys_start, __kernel_load_end (the physical
+// end of the loaded image) and __kernel_phys_end (after .bss), __bss_start,
 // __bss_end, __percpu_image, __percpu_load (its physical address) and
 // __percpu_size. The program provides _start.
 const KernelLinkerScript = `/* Plutonium default kernel linker script (abi.md section 10.3). */
@@ -86,6 +87,7 @@ SECTIONS
 	}
 	__percpu_size = SIZEOF(.percpu);
 	. = __percpu_image + __percpu_size;
+	__kernel_load_end = . - KERNEL_VMA;
 
 	. = ALIGN(4096);
 	.bss (NOLOAD) : AT(ADDR(.bss) - KERNEL_VMA) {

@@ -88,8 +88,11 @@ func main() int64 {
 	println("cpu1", counter, hist[2], histAt(3), pr.b, flag, sum(big))
 	off := uintptr(unsafe.Pointer(&counter)) - uintptr(unsafe.Pointer(&blocks[1]))
 	println("in block 1", off > 0 && off < 512)
+	// A pointer keeps referring to the copy it was taken from.
+	q := &counter
+	h := hist[:]
 
 	useBlock(0)
-	println("cpu0 again", counter, histAt(1))
+	println("cpu0 again", counter, histAt(1), *q, h[2])
 	return 0
 }

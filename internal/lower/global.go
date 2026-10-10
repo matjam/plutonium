@@ -106,15 +106,46 @@ func (l *Lowerer) perCPUVar(v *types2.Var, d *ssa.Data, pos token.Pos) {
 	}
 	d.Sym.PerCPU = true
 	d.Section = perCPUSection
-	if !l.perCPUSelfDone {
+	if l.perCPUSelfSym == nil {
 		// The self word comes first: emitObject places it at the start
 		// of .percpu, so it is at offset 0 when this object is linked
 		// first (as pluto build does).
-		l.perCPUSelfDone = true
 		self := l.out.Sym(perCPUSelf, ssa.SymData)
 		self.PerCPU = true
+		l.perCPUSelfSym = self
 		l.out.Data = append(l.out.Data, &ssa.Data{Sym: self, Size: 8, Align: 8, Section: perCPUSection})
 	}
+}
+
+// absAddr turns p, if it addresses a per-CPU variable (OpSymAddr of a
+// per-CPU symbol, under constant or indexed offsets), into an ordinary
+// pointer into the current processor's copy: the block's self word, read
+// from %gs:0 now, plus the variable's offset. Lowering calls it wherever an
+// address becomes a value (&v, slicing, a pointer receiver), so the
+// pointer keeps referring to this processor's copy after GS changes, as
+// abi.md section 10.6 says; direct accesses keep the GS-relative form.
+func (s *fnState) absAddr(p *ssa.Value) *ssa.Value {
+	switch p.Op {
+	case ssa.OpSymAddr:
+		sym := p.Aux.(*ssa.Sym)
+		if !sym.PerCPU {
+			return p
+		}
+		self := s.load(ssa.TPtr, s.symAddr(s.l.perCPUSelfSym))
+		off := s.f.Entry.NewValue(ssa.OpPerCPUOffset, ssa.TI64)
+		off.Aux = sym
+		s.hoistEntry(off)
+		return s.newValue(ssa.OpAddPtr, ssa.TPtr, self, off)
+	case ssa.OpOffPtr:
+		if base := s.absAddr(p.Args[0]); base != p.Args[0] {
+			return s.offPtr(base, p.AuxInt)
+		}
+	case ssa.OpAddPtr:
+		if base := s.absAddr(p.Args[0]); base != p.Args[0] {
+			return s.newValue(ssa.OpAddPtr, ssa.TPtr, base, p.Args[1])
+		}
+	}
+	return p
 }
 
 // globalSections reads //pu:section and //pu:percpu directives on

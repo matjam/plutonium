@@ -47,6 +47,11 @@ const (
 	OpSymAddr    // address of global symbol Aux (*Sym)
 	OpFuncAddr   // address of function Aux (*Sym), as a function value code pointer
 	OpClosurePtr // the closure context pointer the caller passed (internal ABI)
+	// OpPerCPUOffset is the link-time address of per-CPU symbol Aux (*Sym):
+	// its offset in a per-CPU block, as an i64. (OpSymAddr of a per-CPU
+	// symbol instead addresses the current processor's copy, GS-relative,
+	// at the moment of each access.)
+	OpPerCPUOffset
 
 	// Integer arithmetic. Operands and result share the type.
 	OpAdd
@@ -164,6 +169,8 @@ var opTable = [opTableSize]OpInfo{
 	OpSymAddr:    {Name: "SymAddr", Args: 0},
 	OpFuncAddr:   {Name: "FuncAddr", Args: 0},
 	OpClosurePtr: {Name: "ClosurePtr", Args: 0, Flags: fNoCSE},
+
+	OpPerCPUOffset: {Name: "PerCPUOffset", Args: 0},
 
 	OpAdd:    {Name: "Add", Args: 2, Flags: fCommutative},
 	OpSub:    {Name: "Sub", Args: 2},

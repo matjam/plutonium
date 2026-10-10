@@ -139,7 +139,7 @@ func (e *encoder) emitInsn(in insn) {
 		return
 	}
 	m := in.rm.mem
-	if m.Sym != nil && m.Base == NoReg && m.Index == NoReg && m.Seg == SegNone {
+	if m.Sym != nil && m.Base == NoReg && m.Index == NoReg && m.Seg == SegNone && !m.Abs {
 		// RIP-relative: disp32 relative to the end of the instruction.
 		e.byte(0x05 | regEnc<<3)
 		e.relocs = append(e.relocs, Reloc{Off: len(e.code), Sym: m.Sym, Type: RelPC32, Addend: m.Disp - 4 - int64(in.immSize)})

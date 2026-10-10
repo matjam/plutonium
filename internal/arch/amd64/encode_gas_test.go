@@ -214,6 +214,7 @@ func TestEncodeGS(t *testing.T) {
 		{&MInst{Op: MMOVZX, Size: 4, SrcSize: 1, Dst: RegOp(RAX), Src: gs(symMem(0, NoReg, 0))}, "movzbl %gs:pcpu, %eax"},
 		{&MInst{Op: MLEA, Size: 8, Dst: RegOp(RAX), Src: MemOp(Mem{Base: RAX, Index: NoReg, Sym: sym})}, "lea pcpu(%rax), %rax"},
 		{&MInst{Op: MLGDT, Src: gs(symMem(0, NoReg, 0))}, "lgdt %gs:pcpu"},
+		{&MInst{Op: MLEA, Size: 8, Dst: RegOp(RCX), Src: MemOp(Mem{Base: NoReg, Index: NoReg, Sym: sym, Abs: true})}, "lea pcpu, %rcx"},
 	}
 	checkAgainstGAS(t, cases)
 }

@@ -38,7 +38,7 @@ func TestPerCPUHosted(t *testing.T) {
 		const want = "cpu0 10 7 0 -3 true 120 0\n" +
 			"cpu1 120 9 4 0 false 1\n" +
 			"in block 1 true\n" +
-			"cpu0 again 111 42\n"
+			"cpu0 again 111 42 120 9\n"
 		if got := stderr.String(); got != want {
 			t.Errorf("-O%d: output\n%s\nwant\n%s", level, got, want)
 		}

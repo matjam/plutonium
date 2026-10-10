@@ -221,6 +221,9 @@ type Mem struct {
 	// disp32 (R_X86_64_32S), not RIP-relative: per-CPU variables are
 	// %gs:sym, where sym's address is its offset in the per-CPU block.
 	Seg Segment
+	// Abs makes a symbol with no base or index an absolute disp32
+	// (R_X86_64_32S) rather than RIP-relative.
+	Abs bool
 }
 
 // A Segment is a segment override prefix.
@@ -406,7 +409,9 @@ func (m Mem) String() string {
 			fmt.Fprintf(&sb, "%+d", m.Disp)
 		}
 		if m.Base == NoReg && m.Index == NoReg {
-			sb.WriteString("(%rip)")
+			if !m.Abs {
+				sb.WriteString("(%rip)")
+			}
 			return sb.String()
 		}
 		// Absolute address plus registers.
