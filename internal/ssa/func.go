@@ -275,6 +275,10 @@ const (
 type Sym struct {
 	Name string
 	Kind SymKind
+	// PerCPU marks a //pu:percpu variable: the symbol, in section
+	// .percpu linked at address 0, is the variable's offset in each
+	// processor's per-CPU block, and accesses are relative to GS.
+	PerCPU bool
 }
 
 func (s *Sym) String() string { return s.Name }
@@ -330,6 +334,17 @@ type Func struct {
 
 	// pos is the position given to new values (see SetPos).
 	pos token.Pos
+
+	// NoSSE forbids the function any SSE, x87 or other vector state: it
+	// runs where nothing saves those registers (kernel mode without
+	// //pu:fpu, abi.md section 10.2). Lowering rejects float operations in
+	// such a function; no pass may introduce float or vector operations
+	// into it (a vectoriser must leave it alone, and the inliner never
+	// inlines a function without NoSSE into one with it); and the backend
+	// keeps float-typed loads, stores, copies and zero constants in
+	// general-purpose registers and fails on anything else that would
+	// need an XMM register.
+	NoSSE bool
 
 	// ParamOnStack forces parameters to the stack, as CallInfo.OnStack does
 	// for calls (ABIC functions only; nil otherwise).

@@ -697,8 +697,8 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | `//pu:section name` | function or package variable | place it in the named section |
 | `//pu:interrupt` | function | an x86-64 interrupt handler: saves every register it may change, returns with `iretq` (section 11.4) |
 | `//pu:noreturn` | function | the function never returns (lets the optimiser drop code after calls) |
-| `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (proposed, section 11.3) |
-| `//pu:percpu` | package variable | one copy per processor, addressed through `GS` (proposed, section 11.5) |
+| `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (section 11.3) |
+| `//pu:percpu` | package variable | one copy per processor, addressed through `GS`; kernel mode only (section 11.5) |
 
 ## 9. Assembly and C
 
@@ -744,7 +744,7 @@ The mode is chosen with `--mode`; by default it follows the target (`hosted` for
 |---|---|---|
 | `hosted` | a Linux program: `_start` sets up arguments and calls `main` | `linux`, `hosted` |
 | `freestanding` | no operating system; the program provides its entry point and linker script | `freestanding`, `none` |
-| `kernel` (proposed) | `freestanding`, plus code generation for ring 0 (section 11.2) | `freestanding`, `none`, `kernel` |
+| `kernel` | `freestanding`, plus code generation for ring 0 (section 11.2) | `freestanding`, `none`, `kernel` |
 
 Targets are named by triples: `x86_64-linux` (default) and `x86_64-none`; `aarch64-linux` and
 `aarch64-none` are planned. The architecture tag (`amd64`, `arm64`) is always set.
@@ -754,9 +754,9 @@ Output formats are ELF executables (default) and flat binaries (`--format binary
 
 ### 11.2 Kernel mode
 
-**Status: proposed.** `pluto build --target x86_64-none --mode kernel` builds code that can run in ring 0
-with interrupts enabled and no vector state saved on entry. It differs from `freestanding` in three ways,
-specified in [abi.md section 10](abi.md#10-kernel-mode):
+`pluto build --target x86_64-none --mode kernel` builds code that can run in ring 0 with interrupts
+enabled and no vector state saved on entry. It differs from `freestanding` in three ways, specified in
+[abi.md section 10](abi.md#10-kernel-mode):
 
 - **No red zone.** Plutonium code never stores below the stack pointer in any mode (the backend
   subtracts from RSP before using stack memory, and leaf functions without stack slots have no frame), so
@@ -765,30 +765,39 @@ specified in [abi.md section 10](abi.md#10-kernel-mode):
 - **No floating point** (section 11.3).
 - **Kernel code model.** The image is linked in the top 2 GiB of the address space. The compiler's
   addressing (RIP-relative symbol addresses, and absolute sign-extended 32-bit displacements for
-  `sym+disp32(,index,scale)`) is correct there without change; the kernel's linker script places the
-  image.
+  `sym+disp32(,index,scale)`) is correct there without change. Without `--ldscript`, the build links with
+  a default kernel linker script (abi.md section 10.3) that places the image at 1 MiB physical and
+  `0xFFFFFFFF80100000` virtual.
 
-Kernel mode also enables `pluto/arch/x86` intrinsics (section 11.4) and per-CPU variables (section
-11.5). `//pu:interrupt` handlers already work in every mode. `pluto/os` and `pluto/syscall` are unavailable, as in every freestanding build.
+Kernel mode also enables per-CPU variables (section 11.5). `pluto/arch/x86` (section 11.4) and
+`//pu:interrupt` handlers work in every mode; in kernel mode a handler without `//pu:fpu` saves no vector
+registers. `pluto/os` and `pluto/syscall` are unavailable, as in every freestanding build. `pluto run`
+refuses kernel builds.
 
 ### 11.3 Floating point in kernel mode
 
 An interrupt or system call that enters the kernel does not save the SSE and x87 registers, so kernel code
 must not touch them. In kernel mode, any floating-point operation (arithmetic, comparison, conversion,
 a float constant, passing or returning a float, converting a float to an interface) in a function the
-program uses is a compile error. Copying a float-typed field as part of a struct is allowed, since it uses
-integer registers. Because the compiler only generates the functions a program reaches, a float function
-in an imported package that the kernel never calls costs nothing, and the standard library keeps its
-float code behind `//pu:build !kernel`.
+program uses is a compile error. "Passing" counts at the level of the calling convention: a struct
+parameter whose float fields would travel in XMM registers (one of at most four leaves, abi.md section 3)
+is an error, while one passed by reference is not. Float types may still appear, and copying float-typed
+values (whole structs, fields, array elements, zero values) is allowed, since it uses integer registers.
+Because the compiler only generates the functions a program reaches, a float function in an imported
+package that the kernel never calls costs nothing, and the standard library keeps its float code behind
+`//pu:build !kernel` (in `pluto/fmt`, a float argument prints as its bits in kernel builds). Package-level
+arrays and structs initialised with constants, such as `pluto/math`'s coefficient tables, are written into
+the image, so importing such a package adds no float code to package initialisation.
 
-A function marked `//pu:fpu` may use floats in kernel mode. Whoever calls it must have saved the
-interrupted context's vector state and enabled the unit (`x86.FPUBegin` and `x86.FPUEnd`); the compiler
-does not check this. Soft-float was rejected: it would put an IEEE-754 library in every kernel and hide a
-large cost behind ordinary arithmetic, for code that hardly ever wants floats.
+A function marked `//pu:fpu` may use floats in kernel mode, and so may the function literals inside it.
+Whoever calls it must have saved the interrupted context's vector state and enabled the unit
+(`x86.FPUBegin` and `x86.FPUEnd`); the compiler does not check this, but it never inlines a `//pu:fpu`
+function into one without it. Soft-float was rejected: it would put an IEEE-754 library in every kernel
+and hide a large cost behind ordinary arithmetic, for code that hardly ever wants floats.
 
 ### 11.4 `pluto/arch/x86`
 
-**Status: proposed.** The package `pluto/arch/x86` gives access to the instructions a kernel needs. Every
+The package `pluto/arch/x86` gives access to the instructions a kernel needs. Every
 function in it is expanded inline to the instruction or short sequence it names, is never removed even if
 its result is unused, and is a compiler barrier: no memory access is moved across it (see the memory
 model). The full table, with expansions, is in [abi.md section 10.5](abi.md#105-plutoarchx86-intrinsics).
@@ -843,15 +852,23 @@ func FPUBegin(area *FPUState)
 func FPUEnd(area *FPUState)
 
 func HandlerAddr(h any) uintptr   // h must name a //pu:interrupt function; for building the IDT
+
+func NewDescriptorTablePointer(base uintptr, size int) DescriptorTablePointer
+
+const GSBaseMSR = 0xC0000101       // IA32_GS_BASE
+const KernelGSBaseMSR = 0xC0000102 // IA32_KERNEL_GS_BASE, exchanged by Swapgs
+
+type DescriptorTablePointer packed [10]byte { limit uint16; base uint64 }
+type FPUState aligned[[512]byte, 16] // the FXSAVE area
+type InterruptFrame struct { RIP, CS, RFLAGS, RSP, SS uint64 }
 ```
 
 `//pu:interrupt` handlers take a `*x86.InterruptFrame`, and an error code for the exceptions that push
-one; abi.md section 10.4 gives the rules and the entry and exit sequence. `InterruptFrame` and
-`HandlerAddr` exist today; the other functions above are proposed.
+one; abi.md section 10.4 gives the rules and the entry and exit sequence.
 
 ### 11.5 Per-CPU variables
 
-**Status: proposed.** A package-level variable marked `//pu:percpu` has one copy per processor:
+A package-level variable marked `//pu:percpu` has one copy per processor:
 
 ```go
 //pu:percpu
@@ -861,10 +878,11 @@ var current *Thread
 The compiler places it in the `.percpu` section, which the kernel links at address 0 so that each
 variable's address is its offset in a per-CPU block, and accesses it relative to the `GS` base, which the
 kernel points at the current processor's block. A word-sized access is a single instruction. `&v` is a
-pointer into the current processor's copy. Only constant initialisers are allowed, and `//pu:percpu` is
-a compile error outside kernel mode. Code that reads and then writes a per-CPU variable must not migrate
-to another processor in between, so it runs with preemption or interrupts disabled. Details are in
-[abi.md section 10.6](abi.md#106-per-cpu-variables-proposed).
+pointer into the current processor's copy at the time it is taken, and keeps pointing there if GS
+changes. Only constant initialisers are allowed, and `//pu:percpu` is a compile error outside kernel
+mode. Code that reads and then writes a per-CPU variable must not migrate to another processor in
+between, so it runs with preemption or interrupts disabled. Details, including how a kernel sets up each
+processor's block, are in [abi.md section 10.6](abi.md#106-per-cpu-variables).
 
 ## 12. Standard library
 

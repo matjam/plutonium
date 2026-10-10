@@ -29,7 +29,10 @@ import (
 // Config controls lowering.
 type Config struct {
 	Freestanding bool
-	Sizes        types2.Sizes
+	// Kernel compiles for ring 0 (--mode kernel): functions not marked
+	// //pu:fpu may not use floating point, and //pu:percpu is allowed.
+	Kernel bool
+	Sizes  types2.Sizes
 }
 
 // An Error is a lowering error at a source position.
@@ -56,12 +59,13 @@ type Lowerer struct {
 	queue          []*funcJob
 	globals        map[*types2.Var]*ssa.Sym
 	strs           map[string]*ssa.Sym
-	closureRecords map[*ssa.Sym]*ssa.Sym // static closure record per function used as a value
-	exports        map[*ssa.Sym][]string // extra symbol names from //pu:export
-	interruptSyms  map[*ssa.Sym]bool     // //pu:interrupt functions
-	cfuncs         map[*ssa.Sym]bool     // //pu:extern symbols, called with the C convention
-	statics        int                   // anonymous static objects created
+	closureRecords map[*ssa.Sym]*ssa.Sym      // static closure record per function used as a value
+	exports        map[*ssa.Sym][]string      // extra symbol names from //pu:export
+	interruptSyms  map[*ssa.Sym]bool          // //pu:interrupt functions
+	cfuncs         map[*ssa.Sym]bool          // //pu:extern symbols, called with the C convention
+	statics        int                        // anonymous static objects created
 	errorSites     map[*ast.CallExpr]*ssa.Sym // static error of each errors.New call site
+	perCPUSelfSym  *ssa.Sym                   // pluto.percpu.self, once a per-CPU variable exists
 	types          *typeTable
 
 	errs []error

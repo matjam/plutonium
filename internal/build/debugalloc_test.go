@@ -583,14 +583,15 @@ func TestDebugAllocNeedsHosted(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tt := range []struct {
-		alloc        string
-		freestanding bool
-		want         string
+		alloc                string
+		freestanding, kernel bool
+		want                 string
 	}{
-		{"debug", true, "--alloc=debug needs a hosted build"},
-		{"fancy", false, `unknown allocator "fancy"`},
+		{"debug", true, false, "--alloc=debug needs a hosted build"},
+		{"debug", false, true, "--alloc=debug needs a hosted build"},
+		{"fancy", false, false, `unknown allocator "fancy"`},
 	} {
-		cfg := &build.Config{Dir: dir, Output: filepath.Join(dir, "prog"), Stdlib: plutonium.Stdlib(), Freestanding: tt.freestanding, Alloc: tt.alloc}
+		cfg := &build.Config{Dir: dir, Output: filepath.Join(dir, "prog"), Stdlib: plutonium.Stdlib(), Freestanding: tt.freestanding, Kernel: tt.kernel, Alloc: tt.alloc}
 		err := build.Build(cfg)
 		if err == nil || !strings.Contains(err.Error(), tt.want) {
 			t.Errorf("-alloc=%s: error %v, want %q", tt.alloc, err, tt.want)

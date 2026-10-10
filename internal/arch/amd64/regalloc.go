@@ -723,7 +723,14 @@ func applyColors(f *MFunc, color map[Reg]Reg) {
 			switch {
 			case !used[r] || r == RSP:
 			case r.PhysClass() == ClassXMM:
-				f.savedXMM = append(f.savedXMM, r)
+				// A NoSSE handler (kernel mode without //pu:fpu) uses no
+				// XMM register, and neither does anything it calls: non-fpu
+				// functions are NoSSE too, and calling a //pu:fpu function
+				// needs FPUBegin/FPUEnd around it (abi.md section 10.4).
+				// The registers marked here are only call clobbers.
+				if !f.noSSE {
+					f.savedXMM = append(f.savedXMM, r)
+				}
 			default:
 				f.usedSaved = append(f.usedSaved, r)
 			}

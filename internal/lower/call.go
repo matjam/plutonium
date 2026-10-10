@@ -322,6 +322,9 @@ func (s *fnState) selectN(call *ssa.Value, i int, t *ssa.Type) *ssa.Value {
 
 // callValue emits the call op itself.
 func (s *fnState) callValue(c callee, flat []*ssa.Value, results []*ssa.Type) *ssa.Value {
+	if s.f.NoSSE {
+		s.checkFloatCall(flat, results)
+	}
 	rt := ssa.TupleOf(append([]*ssa.Type{ssa.TMem}, results...)...)
 	var call *ssa.Value
 	if c.sym != nil {
@@ -488,7 +491,7 @@ func (s *fnState) methodReceiver(x ast.Expr, sel *types2.Selection) value {
 		}
 	}
 	if wantPtr {
-		return scalarValue(cur.ptr, types2.NewPointer(cur.T))
+		return scalarValue(s.absAddr(cur.ptr), types2.NewPointer(cur.T))
 	}
 	return s.loadLV(cur)
 }

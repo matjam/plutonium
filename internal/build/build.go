@@ -30,6 +30,7 @@ type Config struct {
 	Dir          string // main package directory
 	Output       string // output file
 	Freestanding bool
+	Kernel       bool     // --mode kernel: freestanding, ring 0, no FPU (implies Freestanding)
 	Tags         []string // extra build tags
 	OptLevel     int      // 0 = none, 1 = basic, 2 = full
 	LinkerScript string
@@ -77,9 +78,12 @@ var sizes = types2.SizesFor("gc", "amd64")
 // loadConfig returns the package loader's configuration for a build.
 func loadConfig(cfg *Config) (*load.Config, error) {
 	tags := map[string]bool{"amd64": true}
-	if cfg.Freestanding {
+	if cfg.Freestanding || cfg.Kernel {
 		tags["none"] = true
 		tags["freestanding"] = true
+		if cfg.Kernel {
+			tags["kernel"] = true
+		}
 	} else {
 		tags["linux"] = true
 		tags["hosted"] = true
@@ -91,7 +95,7 @@ func loadConfig(cfg *Config) (*load.Config, error) {
 	switch cfg.Alloc {
 	case "":
 	case "debug":
-		if cfg.Freestanding {
+		if cfg.Freestanding || cfg.Kernel {
 			return nil, fmt.Errorf("--alloc=debug needs a hosted build; a freestanding program installs the debug allocator itself with alloc.SetDefault(debug.New(...))")
 		}
 		tags["allocdebug"] = true
@@ -105,7 +109,7 @@ func loadConfig(cfg *Config) (*load.Config, error) {
 
 // buildProgram compiles and links a loaded program.
 func buildProgram(cfg *Config, prog *load.Program) error {
-	sp, err := lower.Lower(&lower.Config{Freestanding: cfg.Freestanding, Sizes: sizes}, prog)
+	sp, err := lower.Lower(&lower.Config{Freestanding: cfg.Freestanding || cfg.Kernel, Kernel: cfg.Kernel, Sizes: sizes}, prog)
 	if err != nil {
 		return err
 	}
@@ -167,16 +171,29 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 	if cfg.Strip {
 		args = append(args, "-s")
 	}
-	if cfg.LinkerScript != "" {
+	switch {
+	case cfg.LinkerScript != "":
 		args = append(args, "-T", cfg.LinkerScript)
-	} else {
+	case cfg.Kernel:
+		script := filepath.Join(work, "kernel.ld")
+		if err := os.WriteFile(script, []byte(KernelLinkerScript), 0o644); err != nil {
+			return err
+		}
+		args = append(args, "-z", "max-page-size=0x1000", "-T", script)
+	default:
 		args = append(args, "-e", "_start")
 	}
 	if cfg.Format == "binary" {
 		args = append(args, "--oformat=binary")
 	}
 	args = append(args, objs...)
-	return run(cfg, "ld", args...)
+	if err := run(cfg, "ld", args...); err != nil {
+		return err
+	}
+	if cfg.Kernel && cfg.Format != "binary" {
+		return checkPerCPU(cfg.Output)
+	}
+	return nil
 }
 
 // compileC compiles a package's .c files with the system C compiler ($CC,
@@ -327,7 +344,15 @@ func emitObject(cfg *Config, p *ssa.Program, fset *token.FileSet) (*objfile.Obje
 	}
 
 	data := append([]*ssa.Data(nil), p.Data...)
-	sort.SliceStable(data, func(i, j int) bool { return data[i].Sym.Name < data[j].Sym.Name })
+	// The per-CPU block's self word goes first, at offset 0 of .percpu
+	// (abi.md section 10.6).
+	key := func(d *ssa.Data) string {
+		if d.Sym.Name == perCPUSelf {
+			return ""
+		}
+		return d.Sym.Name
+	}
+	sort.SliceStable(data, func(i, j int) bool { return key(data[i]) < key(data[j]) })
 	for _, d := range data {
 		var sec *objfile.Section
 		switch {

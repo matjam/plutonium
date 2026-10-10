@@ -14,6 +14,7 @@ func (s *fnState) expr(e ast.Expr) value {
 	if p := e.Pos(); p.IsValid() {
 		defer s.f.SetPos(s.f.SetPos(p))
 	}
+	defer s.at(e.Pos())()
 	tv := s.info.Types[e]
 	if tv.Value != nil {
 		return s.constValue(tv.Value, s.typeOf(e), e)
@@ -514,7 +515,7 @@ func isAddressable(e ast.Expr, info *types2.Info) bool {
 func (s *fnState) unary(e *ast.UnaryExpr, T types2.Type) value {
 	switch e.Op {
 	case token.AND:
-		return scalarValue(s.lv(e.X).ptr, T)
+		return scalarValue(s.absAddr(s.lv(e.X).ptr), T)
 	case token.ADD:
 		return s.expr(e.X)
 	case token.SUB:
@@ -909,7 +910,7 @@ func (s *fnState) sliceExpr(e *ast.SliceExpr, T types2.Type) value {
 		base, length, capacity = s.sliceParts(sl)
 		elem = u.Elem()
 	case *types2.Array:
-		base = s.lv(e.X).ptr
+		base = s.absAddr(s.lv(e.X).ptr)
 		length = s.constInt(ssa.TI64, u.Len())
 		capacity = length
 		elem = u.Elem()
