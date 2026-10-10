@@ -81,7 +81,9 @@ The direction flag is clear on entry to and exit from every function, as in Syst
 `rep movsb` and `rep stosb` for block copies and clears, which rely on it.
 
 The backend targets baseline x86-64 (SSE2). Integers and pointers live in general-purpose registers;
-floats live in XMM registers and use scalar SSE instructions. Memory copies and clears never use XMM
+floats live in XMM registers and use scalar SSE instructions, except in loops the optimiser vectorises,
+which compute two `float64` lanes at once with SSE2 packed doubles (each lane exactly as the scalar code
+would). Packed values never cross a call or a function boundary. Memory copies and clears never use XMM
 registers: they are sequences of 1 to 8 byte `MOV`s through a general-purpose register up to 64 bytes, and
 `rep movsb` / `rep stosb` above that.
 
@@ -353,7 +355,9 @@ vector state.
   library packages put their float code under `//pu:build !kernel`, so `fmt`, `strconv` and `math` remain
   usable for integers and strings.
 - Block copies and clears already avoid XMM registers (section 2); kernel mode keeps it so. There is no
-  constant pool (section 7). Float values passed to an interface in kernel mode are a compile error like
+  constant pool (section 7). The optimiser adds no vector instructions to functions marked
+  `//pu:nosimd` (`ssa.PragmaNoSIMD`) or `//pu:interrupt`; kernel mode sets that pragma on every function
+  it compiles, `//pu:fpu` ones included, so the vectoriser never touches kernel code. Float values passed to an interface in kernel mode are a compile error like
   any other float operation.
 - A function marked `//pu:fpu` may use floats in kernel mode. Its callers must have saved the vector
   state and enabled the FPU (with `x86.FPUBegin`/`x86.FPUEnd`, section 10.5); the compiler does not check

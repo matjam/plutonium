@@ -534,6 +534,7 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | `//pu:section name` | function or package variable | place it in the named section |
 | `//pu:interrupt` | function | an x86-64 interrupt handler: saves all registers, returns with `iretq` (planned, section 11.4) |
 | `//pu:noreturn` | function | the function never returns (lets the optimiser drop code after calls) |
+| `//pu:nosimd` | function | the optimiser adds no vector instructions to it (implied by `//pu:interrupt` and, once it exists, kernel mode) |
 | `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (proposed, section 11.3) |
 | `//pu:percpu` | package variable | one copy per processor, addressed through `GS` (proposed, section 11.5) |
 

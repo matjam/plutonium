@@ -64,6 +64,7 @@ func ForLevel(level int) *Pipeline {
 		p.add(Pass{"simplify4", Simplify})
 		p.add(Pass{"cse2", CSE})
 		p.add(Pass{"loopidiom", LoopIdiom})
+		p.add(Pass{"vectorize", Vectorize})
 		p.add(Pass{"deadcode2", ssa.DeadCode})
 	}
 	return p

@@ -100,7 +100,8 @@ func layoutFrame(f *MFunc) {
 				m := Mem{Base: NoReg, Index: NoReg, Slot: in.Slot}
 				resolve(&m)
 				if f.classOf(in.Src.Reg) == ClassXMM {
-					*in = MInst{Op: MMOVSF, Size: 8, Dst: MemOp(m), Src: in.Src}
+					// Size 16 spills a whole vector (movupd).
+					*in = MInst{Op: MMOVSF, Size: max(in.Size, 8), Dst: MemOp(m), Src: in.Src}
 				} else {
 					*in = MInst{Op: MMOV, Size: 8, Dst: MemOp(m), Src: in.Src}
 				}
@@ -109,7 +110,7 @@ func layoutFrame(f *MFunc) {
 				m := Mem{Base: NoReg, Index: NoReg, Slot: in.Slot}
 				resolve(&m)
 				if f.classOf(in.Dst.Reg) == ClassXMM {
-					*in = MInst{Op: MMOVSF, Size: 8, Dst: in.Dst, Src: MemOp(m)}
+					*in = MInst{Op: MMOVSF, Size: max(in.Size, 8), Dst: in.Dst, Src: MemOp(m)}
 				} else {
 					*in = MInst{Op: MMOV, Size: 8, Dst: in.Dst, Src: MemOp(m)}
 				}

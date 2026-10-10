@@ -341,7 +341,18 @@ const (
 	PragmaNoBounds
 	PragmaNoReturn
 	PragmaInterrupt
+	// PragmaNoSIMD keeps the optimiser from introducing vector
+	// instructions the function's own code does not ask for: code that
+	// runs where the vector state is not saved (kernel mode, interrupt
+	// handlers) may not touch the SSE registers. The vectorisers skip
+	// functions with this pragma or PragmaInterrupt. Kernel mode sets it
+	// on every function it compiles.
+	PragmaNoSIMD
 )
+
+// MayVectorize reports whether optimisations may introduce vector
+// instructions into f.
+func (f *Func) MayVectorize() bool { return f.Pragmas&(PragmaNoSIMD|PragmaInterrupt) == 0 }
 
 // A Func is a function in SSA form.
 type Func struct {

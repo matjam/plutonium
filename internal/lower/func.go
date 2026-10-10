@@ -353,6 +353,8 @@ func (s *fnState) applyPragmas(doc *ast.CommentGroup) {
 			s.f.Pragmas |= ssa.PragmaNoReturn
 		case "interrupt":
 			s.f.Pragmas |= ssa.PragmaInterrupt
+		case "nosimd":
+			s.f.Pragmas |= ssa.PragmaNoSIMD
 		}
 	}
 }

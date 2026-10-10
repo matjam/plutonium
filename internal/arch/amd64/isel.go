@@ -69,7 +69,7 @@ func Select(f *ssa.Func) (*MFunc, error) {
 	for _, b := range f.Blocks {
 		for _, v := range b.Values {
 			if v.Op == ssa.OpPhi && !v.Type.IsMem() {
-				s.vregs[v.ID] = mf.newVReg(classOfType(v.Type))
+				s.vregs[v.ID] = s.newReg(v.Type)
 			}
 		}
 	}
@@ -95,7 +95,7 @@ func Select(f *ssa.Func) (*MFunc, error) {
 }
 
 func classOfType(t *ssa.Type) RegClass {
-	if t.IsFloat() {
+	if t.IsFloat() || t.IsVec() {
 		return ClassXMM
 	}
 	return ClassGP
@@ -106,7 +106,12 @@ func (s *isel) emit(in *MInst) *MInst {
 	return in
 }
 
-func (s *isel) newReg(t *ssa.Type) Reg { return s.mf.newVReg(classOfType(t)) }
+func (s *isel) newReg(t *ssa.Type) Reg {
+	if t.IsVec() {
+		return s.mf.newWideVReg()
+	}
+	return s.mf.newVReg(classOfType(t))
+}
 
 // sizeOf returns the machine operand size for a type: 1, 2, 4 or 8.
 func sizeOf(t *ssa.Type) uint8 {
@@ -130,8 +135,16 @@ func isLazy(v *ssa.Value) bool {
 	switch v.Op {
 	case ssa.OpConst, ssa.OpConstFloat, ssa.OpSlotAddr, ssa.OpSymAddr, ssa.OpFuncAddr, ssa.OpOffPtr, ssa.OpAddPtr:
 		return true
+	case ssa.OpVPack:
+		return isConstVec(v)
 	}
 	return false
+}
+
+// isConstVec reports whether vector v is built from constants, which go
+// in the constant pool.
+func isConstVec(v *ssa.Value) bool {
+	return v.Op == ssa.OpVPack && v.Args[0].Op == ssa.OpConstFloat && v.Args[1].Op == ssa.OpConstFloat
 }
 
 func isCompare(op ssa.Op) bool {
@@ -223,6 +236,17 @@ func (s *isel) markFused() {
 			s.fused[v.ID] = true
 		}
 	}
+	// A vector lane that is only stored is stored straight from the
+	// vector register (movsd for lane 0, movhpd for lane 1).
+	for _, b := range s.f.Blocks {
+		for _, v := range b.Values {
+			if v.Op == ssa.OpStore {
+				if x := v.Args[1]; x.Op == ssa.OpVLane && x.Uses == 1 && x != v.Args[0] && x.Type.Size == 8 {
+					s.fused[x.ID] = true
+				}
+			}
+		}
+	}
 	s.markFoldedLoads()
 }
 
@@ -242,6 +266,13 @@ func (s *isel) markFoldedLoads() {
 				loadAfter[v] = true
 				continue
 			}
+			// A float loaded into a vector's high lane: movhpd.
+			if v.Op == ssa.OpVPack && !isConstVec(v) {
+				if a := v.Args[1]; a != v.Args[0] && loadAfter[a] && a.Type.IsFloat() && a.Type.Size == 8 {
+					s.folded[a.ID] = true
+				}
+				continue
+			}
 			if !foldsLoad(v) || s.fused[v.ID] || s.fused[v.Args[0].ID] || s.fused[v.Args[1].ID] {
 				continue
 			}
@@ -258,8 +289,12 @@ func (s *isel) markFoldedLoads() {
 	}
 }
 
-// foldsLoad reports whether v can take a memory operand.
+// foldsLoad reports whether v can take a memory operand. Packed
+// operations cannot: their memory operands must be 16-byte aligned.
 func foldsLoad(v *ssa.Value) bool {
+	if v.Type.IsVec() {
+		return false
+	}
 	switch v.Op {
 	case ssa.OpAdd, ssa.OpSub, ssa.OpAnd, ssa.OpOr, ssa.OpXor:
 		return true
@@ -281,6 +316,12 @@ func (s *isel) aluArgs(v *ssa.Value) (*ssa.Value, Operand) {
 	}
 	if y.Type.IsFloat() {
 		return x, s.floatOperand(y)
+	}
+	if y.Type.IsVec() {
+		if isConstVec(y) && s.vregs[y.ID] == NoReg {
+			return x, MemOp(s.constMem(floatBits(y.Args[0]), floatBits(y.Args[1])))
+		}
+		return x, RegOp(s.reg(y))
 	}
 	return x, s.operand(y)
 }
@@ -391,6 +432,15 @@ func (s *isel) reg(v *ssa.Value) Reg {
 	case ssa.OpConstFloat:
 		r := s.newReg(v.Type)
 		s.loadFloatConst(r, v)
+		return r
+	case ssa.OpVPack:
+		r := s.newReg(v.Type)
+		lo, hi := floatBits(v.Args[0]), floatBits(v.Args[1])
+		if lo == 0 && hi == 0 {
+			s.emit(&MInst{Op: MXORPS, Size: 16, Dst: RegOp(r), Src: RegOp(r)})
+		} else {
+			s.emit(&MInst{Op: MMOVSF, Size: 16, Dst: RegOp(r), Src: MemOp(s.constMem(lo, hi))})
+		}
 		return r
 	case ssa.OpFuncAddr:
 		r := s.newReg(ssa.TPtr)
@@ -589,7 +639,7 @@ func (s *isel) copyRegTyped(dst, src Reg, t *ssa.Type) {
 }
 
 func (s *isel) load(r Reg, m Mem, t *ssa.Type) {
-	if t.IsFloat() {
+	if t.IsFloat() || t.IsVec() {
 		s.emit(&MInst{Op: MMOVSF, Size: sizeOf(t), Dst: RegOp(r), Src: MemOp(m)})
 		return
 	}
@@ -604,7 +654,16 @@ func (s *isel) load(r Reg, m Mem, t *ssa.Type) {
 }
 
 func (s *isel) store(m Mem, v *ssa.Value) {
-	if v.Type.IsFloat() {
+	if v.Op == ssa.OpVLane && s.fused[v.ID] {
+		x := s.reg(v.Args[0])
+		if v.AuxInt == 0 {
+			s.emit(&MInst{Op: MMOVSF, Size: 8, Dst: MemOp(m), Src: RegOp(x)})
+		} else {
+			s.emit(&MInst{Op: MMOVHPD, Size: 8, Dst: MemOp(m), Src: RegOp(x)})
+		}
+		return
+	}
+	if v.Type.IsFloat() || v.Type.IsVec() {
 		s.emit(&MInst{Op: MMOVSF, Size: sizeOf(v.Type), Dst: MemOp(m), Src: RegOp(s.reg(v))})
 		return
 	}
@@ -726,6 +785,25 @@ func (s *isel) value(v *ssa.Value) error {
 	case ssa.OpFSqrt:
 		d := s.def(v)
 		s.emit(&MInst{Op: MSQRTSF, Size: size, Dst: RegOp(d), Src: RegOp(s.reg(v.Args[0]))})
+
+	case ssa.OpVPack:
+		a, b := v.Args[0], v.Args[1]
+		d := s.def(v)
+		s.copyReg(d, s.reg(a), 16)
+		switch {
+		case b == a:
+			s.emit(&MInst{Op: MUNPCKLPD, Size: 16, Dst: RegOp(d), Src: RegOp(d)})
+		case s.folded[b.ID]:
+			s.emit(&MInst{Op: MMOVHPD, Size: 8, Dst: RegOp(d), Src: MemOp(s.addr(b.Args[0]))})
+		default:
+			s.emit(&MInst{Op: MUNPCKLPD, Size: 16, Dst: RegOp(d), Src: RegOp(s.reg(b))})
+		}
+	case ssa.OpVLane:
+		d := s.def(v)
+		s.copyReg(d, s.reg(v.Args[0]), 16)
+		if v.AuxInt == 1 {
+			s.emit(&MInst{Op: MUNPCKHPD, Size: 16, Dst: RegOp(d), Src: RegOp(d)})
+		}
 
 	case ssa.OpEq, ssa.OpNe, ssa.OpLess, ssa.OpLeq, ssa.OpLessu, ssa.OpLequ:
 		cond := s.intCompare(v)

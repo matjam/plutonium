@@ -437,3 +437,72 @@ func main() {
 		t.Errorf("slots: want the arrays in registers\n%s", asm)
 	}
 }
+
+func TestVectorize(t *testing.T) {
+	const src = `package main
+
+type P struct{ x, y, vx, vy, m float64 }
+
+var ps [100]P
+var a, b, c [64]float64
+
+//pu:noinline
+func move(dt float64) {
+	for i := 0; i < len(ps); i++ {
+		p := &ps[i]
+		p.vx -= p.x * p.m * dt
+		p.vy -= p.y * p.m * dt
+		p.x += p.vx * dt
+		p.y += p.vy * dt
+	}
+}
+
+//pu:noinline
+func axpy(k float64) {
+	for i := 0; i < len(a); i++ {
+		c[i] = a[i]*k + b[i]
+	}
+}
+
+//pu:noinline
+func carried() {
+	for i := 1; i < len(a); i++ {
+		a[i] = a[i-1]*0.5 + a[i]
+	}
+}
+
+//pu:noinline
+//pu:nosimd
+func kernel(k float64) {
+	for i := 0; i < len(a); i++ {
+		c[i] = a[i]*k + b[i]
+	}
+}
+
+func main() {
+	move(0.1)
+	axpy(2)
+	carried()
+	kernel(2)
+	println(int64(ps[3].x + c[5] + a[7]))
+}
+`
+	// One field of two consecutive structs per register: movsd, movhpd.
+	asm := listFunc(t, src, "main.move")
+	if !strings.Contains(asm, "movhpd main.ps+") || !strings.Contains(asm, "mulpd") || !strings.Contains(asm, "add8 $2,") {
+		t.Errorf("move: want a loop over pairs of particles\n%s", asm)
+	}
+	// Contiguous arrays: 16-byte loads and stores, k broadcast once.
+	asm = listFunc(t, src, "main.axpy")
+	if !strings.Contains(asm, "movupd main.a(") || !strings.Contains(asm, "movupd %xmm") || strings.Count(asm, "unpcklpd") != 1 {
+		t.Errorf("axpy: want packed loads and stores\n%s", asm)
+	}
+	// Each iteration reads the one before: no vectors.
+	if asm := listFunc(t, src, "main.carried"); strings.Contains(asm, "pd ") {
+		t.Errorf("carried: want scalar code\n%s", asm)
+	}
+	// Code that may not touch the vector state stays scalar.
+	if asm := listFunc(t, src, "main.kernel"); strings.Contains(asm, "pd ") {
+		t.Errorf("kernel: want scalar code under //pu:nosimd\n%s", asm)
+	}
+}
