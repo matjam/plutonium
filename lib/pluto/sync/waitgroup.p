@@ -67,7 +67,7 @@ func (wg *WaitGroup) Wait() {
 	w.t = self()
 	wg.q.push(&w)
 	wg.mu.Unlock()
-	rt.Park()
+	rt.ParkReason(rt.WaitWaitGroup)
 }
 
 // Once performs one action exactly once.
@@ -126,7 +126,7 @@ func (c *Cond) Wait() {
 	c.q.push(&w)
 	c.mu.Unlock()
 	c.L.Unlock()
-	rt.Park()
+	rt.ParkReason(rt.WaitCond)
 	c.L.Lock()
 }
 

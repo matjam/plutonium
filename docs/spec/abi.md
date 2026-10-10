@@ -963,7 +963,7 @@ A blocked operation's waiting record (`sudog`) lives in the waiting task's frame
 | poller | a thread blocked in `epoll_wait` on descriptors registered once, edge-triggered, for reading and writing. `rt.PollOpen(fd)` makes a `rt.PollDesc` (kept on a free list, never unmapped) holding a queue of read waiters, a queue of write waiters and a flag for each direction for an event that arrived with nobody waiting; `Wait(write)` parks until an event (registering the descriptor on the first wait), `Evict` wakes the waiters with `rt.PollClosed` and `Release` deregisters it. While timers are armed it waits at most until the earliest deadline of every P (`epoll_pwait2`, or `epoll_wait` in milliseconds rounded up before Linux 5.11), then runs the expired timers itself; an eventfd in the epoll set wakes it when an earlier timer is armed |
 | timers | a heap per P (section 12.9), which its worker runs each time it looks for a puroutine; a spinning worker runs the expired timers of the other Ps too, and their puroutines come to its own P. `rt.Now` reads `CLOCK_MONOTONIC` through the vDSO's `__vdso_clock_gettime` (found from `AT_SYSINFO_EHDR`), or with the system call if there is none |
 | stacks | a guard page, the stack, then the backend's task record, from the requested allocator; stacks of the default size from the program-wide default allocator are cached rather than unmapped |
-| deadlock | when every worker is idle, nothing waits in the poller or a system call and no timer is armed: "fatal error: all puroutines are asleep - deadlock!", status 2. The poller checks again after it runs timers, since a timer that fires may leave nothing to wake |
+| deadlock | when every worker is idle, nothing waits in the poller or a system call and no timer is armed: "fatal error: all puroutines are asleep - deadlock!", then each puroutine's number, wait reason and trace (`rt.TraceTask`; the backend keeps a list of its tasks in creation order for this, and `BootTask` comes first), status 2. The poller checks again after it runs timers, since a timer that fires may leave nothing to wake |
 | `SIGPIPE` | caught at startup (every hosted program, not only those that start puroutines) by a handler that returns, so a write to a pipe with no reader fails with `EPIPE`; `pluto/os` calls `rt.DieFromSigpipe` (default action, then `tgkill` of the calling thread) for `EPIPE` on descriptors 1 and 2 |
 
 The program's thread becomes the first worker when the first task operation runs (`Init`); the main
@@ -982,7 +982,8 @@ task keeps running on the original stack, and the worker's scheduling loop gets 
 | `BlockUntil(deadline)` | none: the runtime keeps the timers, and `rt.ParkUntil` is `Park` with a runtime timer that readies the task (section 12.9); a backend provides only `Now` and `ArmTimer` |
 | `Now()` | `Now()`, an optional method, needed by programs that use timers; `rt.Now()` calls it |
 | `ParkUntil(deadline)` | `rt.ParkUntil(deadline) bool`, true when readied, false on timeout |
-| `rt.StackOverflow`, `rt.TraceTask` | not yet; a kernel reports an overflow with `rt.PanicFault` |
+| `rt.TraceTask(t, w)` | `rt.TraceTask[W Writer](t *Task, w W)`: the trace of a switched-out task from `t.Context()`'s saved stack pointer (debugging.md section 5); `Task.Parked` and `Task.WaitReason` (set by `rt.ParkReason`) say whether and why it waits |
+| `rt.StackOverflow` | not yet; a kernel reports an overflow with `rt.PanicFault` |
 
 ### 12.9 Timers
 

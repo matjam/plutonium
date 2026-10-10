@@ -280,7 +280,7 @@ func panicSendClosed() {
 func chansend1(p, ep unsafe.Pointer) {
 	c := (*hchan)(p)
 	if c == nil {
-		parkForever()
+		parkForever(WaitChanSendNil)
 	}
 	c.lock.Lock()
 	if c.closed != 0 {
@@ -309,7 +309,7 @@ func sendWait(c *hchan, ep unsafe.Pointer) {
 	sg.c = c
 	c.sendq.enqueue(&sg)
 	c.lock.Unlock()
-	Park()
+	ParkReason(WaitChanSend)
 	if !sg.success {
 		panicSendClosed()
 	}
@@ -328,7 +328,7 @@ func chanrecv1(p, ep unsafe.Pointer) {
 func chanrecv2(p, ep unsafe.Pointer) bool {
 	c := (*hchan)(p)
 	if c == nil {
-		parkForever()
+		parkForever(WaitChanReceiveNil)
 	}
 	c.lock.Lock()
 	done, received, wake := tryRecv(c, ep)
@@ -353,17 +353,17 @@ func recvWait(c *hchan, ep unsafe.Pointer) bool {
 	sg.c = c
 	c.recvq.enqueue(&sg)
 	c.lock.Unlock()
-	Park()
+	ParkReason(WaitChanReceive)
 	return sg.success
 }
 
-// parkForever blocks the running puroutine for good: an operation on a nil
-// channel, or select {}.
+// parkForever blocks the running puroutine for good, for reason r: an
+// operation on a nil channel, or select {}.
 //
 //pu:blocking
-func parkForever() {
+func parkForever(r WaitReason) {
 	for {
-		Park()
+		ParkReason(r)
 	}
 }
 
@@ -439,7 +439,7 @@ func chancap(p unsafe.Pointer) int {
 //pu:blocking
 func selectgo(cases unsafe.Pointer, order *uint16, n int) (int, bool) {
 	if n == 0 {
-		parkForever()
+		parkForever(WaitSelectNoCases)
 	}
 	g := current()
 	scs := unsafe.Slice((*scase)(cases), n)
@@ -456,7 +456,7 @@ func selectgo(cases unsafe.Pointer, order *uint16, n int) (int, bool) {
 		return idx, ok
 	}
 	if norder == 0 {
-		parkForever()
+		parkForever(WaitSelectNoCases)
 	}
 	return selectWait(g, scs, lockorder, norder)
 }
@@ -589,7 +589,7 @@ func selectWait(g *Task, scs []scase, lockorder []uint16, norder int) (int, bool
 		}
 	}
 	selUnlock(scs, lockorder, norder)
-	Park()
+	ParkReason(WaitSelect)
 	selLock(scs, lockorder, norder)
 	won := (*sudog)(g.param)
 	idx := -1

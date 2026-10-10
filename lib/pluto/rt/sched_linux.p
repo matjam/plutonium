@@ -308,6 +308,15 @@ type hostedTask struct {
 	mem   unsafe.Pointer
 	total uintptr
 	alloc Allocator
+
+	// Every live task but BootTask is on a list in order of creation, for
+	// the report of a deadlock (allTasks.lock guards the links).
+	allPrev, allNext *hostedTask
+}
+
+var allTasks struct {
+	lock       Lock
+	head, tail *hostedTask
 }
 
 func (*hostedSched) NewTask(req StackRequest) *Task {
@@ -321,11 +330,32 @@ func (*hostedSched) NewTask(req StackRequest) *Task {
 	ht.total = total
 	ht.alloc = req.Alloc
 	ht.task.SetStack(uintptr(mem)+pageSize, uintptr(unsafe.Pointer(ht)))
+	allTasks.lock.Lock()
+	ht.allPrev = allTasks.tail
+	if allTasks.tail != nil {
+		allTasks.tail.allNext = ht
+	} else {
+		allTasks.head = ht
+	}
+	allTasks.tail = ht
+	allTasks.lock.Unlock()
 	return &ht.task
 }
 
 func (*hostedSched) FreeTask(t *Task) {
 	ht := (*hostedTask)(unsafe.Pointer(t))
+	allTasks.lock.Lock()
+	if ht.allPrev != nil {
+		ht.allPrev.allNext = ht.allNext
+	} else {
+		allTasks.head = ht.allNext
+	}
+	if ht.allNext != nil {
+		ht.allNext.allPrev = ht.allPrev
+	} else {
+		allTasks.tail = ht.allPrev
+	}
+	allTasks.lock.Unlock()
 	freeStack(ht.mem, ht.total, ht.alloc)
 }
 
@@ -547,7 +577,32 @@ func checkDead() {
 		return
 	}
 	printString("fatal error: all puroutines are asleep - deadlock!\n")
+	reportParked()
 	exit(2)
+}
+
+// reportParked prints each parked puroutine's wait and trace, as Go does
+// for a deadlock: its number, what it waits for, then its stack, innermost
+// frame first. BootTask, which runs main, comes first, then the others in
+// the order they were made; helpers of the runtime are left out. No task
+// is running, so none of the lists changes.
+func reportParked() {
+	reportTask(BootTask())
+	for ht := allTasks.head; ht != nil; ht = ht.allNext {
+		reportTask(&ht.task)
+	}
+}
+
+func reportTask(t *Task) {
+	if t.waitReason == WaitSystem || t.ctx.sp == 0 {
+		return
+	}
+	printString("\npuroutine ")
+	printUint(t.id)
+	printString(" [")
+	printString(t.waitReason.String())
+	printString("]:\n")
+	TraceTask(t, Console{})
 }
 
 func acquirep(mp *m, pp *p) {

@@ -351,7 +351,8 @@ wakes every waiter, whose `Read` or `Write` then reports `os.ErrClosed`, and so 
 file; the descriptor itself is closed when the last operation in progress on it returns, so that the
 number is not reused under a running call. When every puroutine waits for another and nothing waits
 for I/O, a system call or an armed timer, the program stops with "fatal error: all puroutines are
-asleep - deadlock!" and status 2, as in Go.
+asleep - deadlock!" and status 2, as in Go, and lists each puroutine with what it waits for and its
+stack (`puroutine 3 [chan send]:` and the frames, debugging.md section 5; `rt.TraceTask`).
 
 A hosted program catches `SIGPIPE` at startup, with a handler that does nothing (so a program it starts
 with `os/exec` gets the default action back), and follows Go's rule: a write to a pipe or socket with no
@@ -431,7 +432,9 @@ closing a closed or nil channel panic; receiving from a closed channel yields th
 `make(chan T)` and `make(chan T, n)` allocate the channel and its buffer from the current allocator, or
 from an allocator given as the final argument: `make(chan Msg, 16, arena)`. A channel value is one word,
 the address of the channel. Operations on a nil channel block forever, `select {}` blocks forever, and a
-`select` with several ready cases picks one at random, as in Go.
+`select` with several ready cases picks one at random, as in Go. A puroutine blocked on a channel is
+reported in a deadlock as `chan receive`, `chan send`, `select`, `chan receive (nil chan)`, `chan send
+(nil chan)` or `select (no cases)` (section 4.7).
 
 A channel value is a reference counted like `synced[T]` (section 6.5), since a channel always has
 several users: copying it counts a reference, and when the last reference goes away the channel and its

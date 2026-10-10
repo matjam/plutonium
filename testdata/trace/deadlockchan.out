@@ -1,0 +1,29 @@
+fatal error: all puroutines are asleep - deadlock!
+
+puroutine 1 [chan receive]:
+    main.main (./main.p:53)
+
+puroutine 2 [chan receive]:
+    main.receive (./main.p:8)
+    main.middle (./main.p:12)
+    main.main.go1 (./main.p:47)
+
+puroutine 3 [chan send]:
+    main.send (./main.p:16)
+    main.main.go2 (./main.p:48)
+
+puroutine 4 [select]:
+    main.choose (./main.p:20)
+    main.main.go3 (./main.p:49)
+
+puroutine 5 [chan receive (nil chan)]:
+    main.nilrecv (./main.p:29)
+    main.main.go4 (./main.p:50)
+
+puroutine 6 [chan send (nil chan)]:
+    main.nilsend (./main.p:34)
+    main.main.go5 (./main.p:51)
+
+puroutine 7 [select (no cases)]:
+    main.nocases (./main.p:38)
+    main.main.go6 (./main.p:52)
