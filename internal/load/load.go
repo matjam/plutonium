@@ -66,6 +66,44 @@ type Program struct {
 	Fset     *token.FileSet
 	Main     *Package
 	Packages []*Package // in dependency order: every package after its imports
+	// Root is the directory that the program's own source files are
+	// named relative to by TrimmedName: the module root (the directory
+	// holding pluto.mod), or the main package's directory when there is no
+	// module. It is "" when the program has no source files on disk other
+	// than the standard library's (testing a standard library package).
+	Root string
+}
+
+// StdPrefix starts the position file name of every standard library file:
+// "$PLUTOROOT/pluto/fmt/print.p". Positions keep the prefix whether the
+// library is embedded in the compiler or read from $PLUTOROOT.
+const StdPrefix = "$PLUTOROOT/"
+
+// TrimmedName returns the name that debugging information and stack traces
+// record for the source file named name in the program's positions, with
+// the build machine's directories removed, as go build -trimpath does:
+//
+//   - a file under Root is "./" followed by its slash-separated path
+//     relative to Root ("./main.p", "./cmd/tool/main.p");
+//   - a standard library file is its import path and file name
+//     ("pluto/fmt/print.p"), the same whether the library is embedded or
+//     read from $PLUTOROOT;
+//   - any other name (a generated file such as _testmain.p) is unchanged.
+//
+// The result depends only on the module's contents, so the same source
+// gives the same binary wherever it is built.
+func (p *Program) TrimmedName(name string) string {
+	if rest, ok := strings.CutPrefix(name, StdPrefix); ok {
+		return rest
+	}
+	if p.Root == "" || !filepath.IsAbs(name) {
+		return name
+	}
+	rel, err := filepath.Rel(p.Root, name)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return name
+	}
+	return "./" + filepath.ToSlash(rel)
 }
 
 // Load loads the main package in dir and everything it imports.
@@ -89,7 +127,11 @@ func Load(cfg *Config, dir string) (*Program, error) {
 	if main.Types.Name() != "main" {
 		return nil, fail(diag.NotMainPackage, "%s: package %s is not a main package", dir, main.Types.Name())
 	}
-	return &Program{Fset: l.fset, Main: main, Packages: l.order}, nil
+	root := l.modRoot
+	if root == "" {
+		root = absDir
+	}
+	return &Program{Fset: l.fset, Main: main, Packages: l.order, Root: root}, nil
 }
 
 // TestMainFile is the file name of the main package that LoadTest
@@ -107,8 +149,8 @@ const TestMainFile = "_testmain.p"
 func LoadTest(cfg *Config, target string, gen func(*token.FileSet, *Package) ([]byte, error)) (*Program, error) {
 	l := newLoader(cfg)
 	var (
-		src        source
-		dir, ipath string
+		src              source
+		dir, ipath, root string
 	)
 	if isStdPath(target) {
 		var err error
@@ -129,8 +171,9 @@ func LoadTest(cfg *Config, target string, gen func(*token.FileSet, *Package) ([]
 		if err != nil {
 			return nil, err
 		}
-		src, dir, ipath = osDir(absDir), absDir, l.dirPath(absDir)
+		src, dir, ipath, root = osDir(absDir), absDir, l.dirPath(absDir), l.modRoot
 		if l.modRoot == "" {
+			root = absDir
 			ipath = filepath.Base(absDir)
 			if isStdPath(ipath) || ipath == "main" {
 				return nil, fail(diag.TestDirName, "%s: a package outside a module cannot be tested from a directory named %q", target, ipath)
@@ -156,7 +199,7 @@ func LoadTest(cfg *Config, target string, gen func(*token.FileSet, *Package) ([]
 	if err != nil {
 		return nil, err
 	}
-	return &Program{Fset: l.fset, Main: main, Packages: l.order}, nil
+	return &Program{Fset: l.fset, Main: main, Packages: l.order, Root: root}, nil
 }
 
 func isStdPath(p string) bool { return p == "pluto" || strings.HasPrefix(p, "pluto/") }
@@ -232,7 +275,7 @@ type fsDir struct {
 
 func (d fsDir) list() ([]fs.DirEntry, error)     { return fs.ReadDir(d.fsys, d.dir) }
 func (d fsDir) read(name string) ([]byte, error) { return fs.ReadFile(d.fsys, path.Join(d.dir, name)) }
-func (d fsDir) name(file string) string          { return "$PLUTOROOT/" + path.Join(d.dir, file) }
+func (d fsDir) name(file string) string          { return StdPrefix + path.Join(d.dir, file) }
 
 // memDir is a package held in memory: file name to contents.
 type memDir map[string][]byte
@@ -272,7 +315,7 @@ func (l *loader) resolve(importPath string) (source, string, error) {
 		if _, err := fs.Stat(l.cfg.Stdlib, importPath); err != nil {
 			return nil, "", fail(diag.StdPackageMissing, "standard library package %q not found", importPath)
 		}
-		return fsDir{l.cfg.Stdlib, importPath}, "$PLUTOROOT/" + importPath, nil
+		return fsDir{l.cfg.Stdlib, importPath}, StdPrefix + importPath, nil
 	}
 	if l.modRoot != "" && (importPath == l.modPath || strings.HasPrefix(importPath, l.modPath+"/")) {
 		rel := strings.TrimPrefix(strings.TrimPrefix(importPath, l.modPath), "/")

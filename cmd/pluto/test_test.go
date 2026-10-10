@@ -15,7 +15,7 @@ import (
 var (
 	times       = regexp.MustCompile(`\d+\.\d+s`)
 	benchResult = regexp.MustCompile(`(?m)^(Benchmark\w+)\t *\d+\t *[0-9.]+ ns/op$`)
-	stdlibLine  = regexp.MustCompile(`(\(\$PLUTOROOT/[^:]+):\d+\)`)
+	stdlibLine  = regexp.MustCompile(`(\((?:\$PLUTOROOT/)?pluto/[^:]+):\d+\)`)
 )
 
 // pluto runs "pluto test" with args and returns its normalised standard
@@ -39,8 +39,21 @@ func plutoTest(t *testing.T, args ...string) (string, int) {
 const calc = "testdata/testpkg/calc"
 
 // crashTrace is the stack trace of testdata/testpkg/crash's panic, through
-// the test runner.
-const crashTrace = `    example.com/testpkg/crash.Div ($DIR/testdata/testpkg/crash/crash.p:5)
+// the test runner. The package's files are named relative to the module
+// root (testdata/testpkg), and the standard library's by import path.
+const crashTrace = `    example.com/testpkg/crash.Div (./crash/crash.p:5)
+    example.com/testpkg/crash.TestPanics.func1 (./crash/crash_test.p:11)
+    pluto/testing.(*T).run (pluto/testing/testing.p:N)
+    pluto/testing.(*T).Run (pluto/testing/testing.p:N)
+    example.com/testpkg/crash.TestPanics (./crash/crash_test.p:8)
+    pluto/testing.(*T).run (pluto/testing/testing.p:N)
+    pluto/testing.(*M).Test (pluto/testing/testing.p:N)
+    main.main (_testmain.p:15)
+`
+
+// crashTraceAbs is crashTrace with -trimpath=false: absolute paths, and
+// standard library files under $PLUTOROOT.
+const crashTraceAbs = `    example.com/testpkg/crash.Div ($DIR/testdata/testpkg/crash/crash.p:5)
     example.com/testpkg/crash.TestPanics.func1 ($DIR/testdata/testpkg/crash/crash_test.p:11)
     pluto/testing.(*T).run ($PLUTOROOT/pluto/testing/testing.p:N)
     pluto/testing.(*T).Run ($PLUTOROOT/pluto/testing/testing.p:N)
@@ -162,6 +175,20 @@ ok  	example.com/testpkg/calc	T
         test binary died (exit status 2) while TestPanics/divide was running; later tests did not run
 panic: runtime error: integer divide by zero
 ` + crashTrace + `FAIL
+FAIL	example.com/testpkg/crash	T
+FAIL
+`,
+		},
+		{
+			name: "panic, absolute paths",
+			args: []string{"-trimpath=false", "testdata/testpkg/crash"},
+			code: 1,
+			want: `--- FAIL: TestPanics (T)
+    --- FAIL: TestPanics/divide (T)
+        dividing by zero
+        test binary died (exit status 2) while TestPanics/divide was running; later tests did not run
+panic: runtime error: integer divide by zero
+` + crashTraceAbs + `FAIL
 FAIL	example.com/testpkg/crash	T
 FAIL
 `,
