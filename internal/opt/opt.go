@@ -46,6 +46,9 @@ func ForLevel(level int) *Pipeline {
 	if level >= 2 {
 		p.add(Pass{"cse", CSE})
 		p.add(Pass{"schedule", ssa.Schedule})
+		// Before inlining, so that copies inlined into callers carry the
+		// loop rather than the recursion.
+		p.add(Pass{"tailrec", TailRec})
 		p.addProgram(ProgramPass{"inline", Inline})
 		p.add(Pass{"prove", Prove})
 		p.add(Pass{"simplify2", Simplify})

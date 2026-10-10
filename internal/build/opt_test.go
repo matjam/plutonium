@@ -153,6 +153,34 @@ func main() { println(int64(f(1, 2, 3))) }
 	}
 }
 
+func TestTailRec(t *testing.T) {
+	const src = `package main
+
+func fib(n int64) int64 {
+	if n < 2 {
+		return n
+	}
+	return fib(n-1) + fib(n-2)
+}
+
+func gcd(a, b int) int {
+	if b == 0 {
+		return a
+	}
+	return gcd(b, a%b)
+}
+
+func main() { println(fib(20), gcd(12, 18)) }
+`
+	// fib keeps one call and loops on the other; gcd is a loop.
+	if asm := listFunc(t, src, "main.fib"); strings.Count(asm, "call main.fib") != 1 {
+		t.Errorf("fib: want one recursive call\n%s", asm)
+	}
+	if asm := listFunc(t, src, "main.gcd"); strings.Contains(asm, "call") {
+		t.Errorf("gcd: want a loop\n%s", asm)
+	}
+}
+
 func TestZeroIdiomNotLive(t *testing.T) {
 	const src = `package main
 
