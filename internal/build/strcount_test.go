@@ -17,7 +17,7 @@ import (
 // boxes, closures, deferred calls, containers, puroutines, channels, range
 // over functions and every way out of a scope.
 func TestStringsLeakFree(t *testing.T) {
-	for _, prog := range []string{"run/strcount", "lib/strbuild", "lib/strutf8", "lib/strcontainers", "lib/strconc", "run/fmtquote", "lib/strregions", "lib/regionargs"} {
+	for _, prog := range []string{"run/strcount", "lib/strbuild", "lib/strutf8", "lib/strcontainers", "lib/strconc", "run/fmtquote", "lib/strregions", "lib/regionargs", "run/strreturnloop"} {
 		file := filepath.Join("..", "..", "testdata", prog)
 		src, err := os.ReadFile(file + ".p")
 		if err != nil {
