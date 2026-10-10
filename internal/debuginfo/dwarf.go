@@ -24,35 +24,36 @@ const (
 
 	dwOpCallFrameCFA = 0x9c
 
-	dwLnsCopy            = 1
-	dwLnsAdvancePC       = 2
-	dwLnsAdvanceLine     = 3
-	dwLnsSetFile         = 4
-	dwLnsSetPrologueEnd  = 10
-	dwLneEndSequence     = 1
-	dwLneSetAddress      = 2
-	lineBase             = -5
-	lineRange            = 14
-	lineOpcodeBase       = 13
-	dwCFAAdvanceLoc      = 0x40
-	dwCFAOffset          = 0x80
-	dwCFARestore         = 0xc0
-	dwCFAAdvanceLoc1     = 0x02
-	dwCFAAdvanceLoc2     = 0x03
-	dwCFAAdvanceLoc4     = 0x04
-	dwCFADefCFA          = 0x0c
-	dwCFADefCFAOffset    = 0x0e
-	dwCFADefCFARegister  = 0x0d
-	dwCFANop             = 0x00
-	dataAlignmentFactor  = -8
-	dwFormRef4           = 0x13
-	dwInlInlined         = 1
-	abbrevCompileUnit    = 1
-	abbrevAbstract       = 2
-	abbrevSubprogram     = 3 // + abbrevNoPos, + abbrevNoKids
-	abbrevInlined        = 7 // + abbrevNoPos, + abbrevNoKids
-	abbrevNoPos          = 1 // no declaration or call position
-	abbrevNoKids         = 2 // no children
+	dwLnsCopy              = 1
+	dwLnsAdvancePC         = 2
+	dwLnsAdvanceLine       = 3
+	dwLnsSetFile           = 4
+	dwLnsSetPrologueEnd    = 10
+	dwLneEndSequence       = 1
+	dwLneSetAddress        = 2
+	lineBase               = -5
+	lineRange              = 14
+	lineOpcodeBase         = 13
+	dwCFAAdvanceLoc        = 0x40
+	dwCFAOffset            = 0x80
+	dwCFARestore           = 0xc0
+	dwCFAAdvanceLoc1       = 0x02
+	dwCFAAdvanceLoc2       = 0x03
+	dwCFAAdvanceLoc4       = 0x04
+	dwCFADefCFA            = 0x0c
+	dwCFADefCFAOffset      = 0x0e
+	dwCFADefCFARegister    = 0x0d
+	dwCFANop               = 0x00
+	dataAlignmentFactor    = -8
+	dwFormRef4             = 0x13
+	dwInlInlined           = 1
+	abbrevCompileUnit      = 1
+	abbrevAbstract         = 2
+	abbrevSubprogram       = 3  // + abbrevNoPos, + abbrevNoKids
+	abbrevInlined          = 7  // + abbrevNoPos, + abbrevNoKids
+	abbrevNoPos            = 1  // no declaration or call position
+	abbrevNoKids           = 2  // no children
+	abbrevCompileUnitNoDir = 11 // a compile unit without DW_AT_comp_dir
 )
 
 // abbrevFor returns the abbreviation code of a subprogram or inlined call
@@ -74,7 +75,11 @@ var Producer = "plutonium"
 // WriteDWARF adds .debug_abbrev, .debug_info, .debug_line, .debug_ranges,
 // .debug_aranges and .debug_frame to obj, describing every function: one
 // compile unit per package, a subprogram per function, a line table and
-// call frame information. compDir is recorded as each unit's directory.
+// call frame information. compDir is recorded as each unit's directory;
+// "" records none, for relative file names that a consumer resolves
+// against its working directory. ld and BFD-based tools join DW_AT_comp_dir
+// to a relative line table directory, so "." with directory "." would name
+// ./main.p as ././main.p.
 func (t *Table) WriteDWARF(obj *objfile.Object, compDir string) {
 	var abbrev, info, line, ranges, aranges buf
 	writeAbbrevs(&abbrev)
@@ -101,11 +106,17 @@ func (t *Table) WriteDWARF(obj *objfile.Object, compDir string) {
 		if name == "" {
 			name = "pluto"
 		}
-		info.uleb(abbrevCompileUnit)
+		if compDir != "" {
+			info.uleb(abbrevCompileUnit)
+		} else {
+			info.uleb(abbrevCompileUnitNoDir)
+		}
 		info.str(Producer)
 		info.u8(dwLangGo)
 		info.str(name)
-		info.str(compDir)
+		if compDir != "" {
+			info.str(compDir)
+		}
 		info.secOff(".debug_line", int64(lineOff))
 		info.u64(0) // low_pc: ranges hold absolute addresses
 		info.secOff(".debug_ranges", int64(rangesOff))
@@ -177,17 +188,21 @@ func writeAbbrevs(b *buf) {
 		b.uleb(uint64(at))
 		b.uleb(uint64(form))
 	}
-	b.uleb(abbrevCompileUnit)
-	b.uleb(uint64(dwarf.TagCompileUnit))
-	b.u8(1) // children
-	attr(dwarf.AttrProducer, dwFormString)
-	attr(dwarf.AttrLanguage, dwFormData1)
-	attr(dwarf.AttrName, dwFormString)
-	attr(dwarf.AttrCompDir, dwFormString)
-	attr(dwarf.AttrStmtList, dwFormSecOffset)
-	attr(dwarf.AttrLowpc, dwFormAddr)
-	attr(dwarf.AttrRanges, dwFormSecOffset)
-	b.u16(0)
+	for _, code := range []uint64{abbrevCompileUnit, abbrevCompileUnitNoDir} {
+		b.uleb(code)
+		b.uleb(uint64(dwarf.TagCompileUnit))
+		b.u8(1) // children
+		attr(dwarf.AttrProducer, dwFormString)
+		attr(dwarf.AttrLanguage, dwFormData1)
+		attr(dwarf.AttrName, dwFormString)
+		if code == abbrevCompileUnit {
+			attr(dwarf.AttrCompDir, dwFormString)
+		}
+		attr(dwarf.AttrStmtList, dwFormSecOffset)
+		attr(dwarf.AttrLowpc, dwFormAddr)
+		attr(dwarf.AttrRanges, dwFormSecOffset)
+		b.u16(0)
+	}
 
 	b.uleb(abbrevAbstract)
 	b.uleb(uint64(dwarf.TagSubprogram))
@@ -334,9 +349,9 @@ func (t *Table) writeLines(b *buf, funcs []*Func) map[string]int {
 	hdrLenAt := len(b.b)
 	b.u32(0) // header length
 	hdrStart := len(b.b)
-	b.u8(1) // minimum instruction length
-	b.u8(1) // maximum operations per instruction
-	b.u8(1) // default is_stmt
+	b.u8(1)              // minimum instruction length
+	b.u8(1)              // maximum operations per instruction
+	b.u8(1)              // default is_stmt
 	b.u8(256 + lineBase) // signed byte
 	b.u8(lineRange)
 	b.u8(lineOpcodeBase)

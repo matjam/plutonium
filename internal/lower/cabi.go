@@ -3,6 +3,7 @@ package lower
 import (
 	"fmt"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -364,11 +365,11 @@ func (l *Lowerer) checkCDecls() {
 				}
 				if _, ok := externName(fd); ok {
 					if fd.Body != nil {
-						l.errorf(fd.Pos(), "//pu:extern function %s must not have a body", fn.Name())
+						l.errorf(fd.Pos(), diag.ExternWithBody, "//pu:extern function %s must not have a body", fn.Name())
 						continue
 					}
 					if _, err := l.cSignature(fn.Type().(*types2.Signature)); err != nil {
-						l.errorf(fd.Pos(), "//pu:extern function %s: %v", fn.Name(), err)
+						l.errorf(fd.Pos(), diag.BadCSignature, "//pu:extern function %s: %v", fn.Name(), err)
 					}
 				}
 			}
@@ -390,7 +391,7 @@ func (l *Lowerer) cExport(fd *ast.FuncDecl, fn *types2.Func, sym *ssa.Sym, name 
 	sig := fn.Type().(*types2.Signature)
 	cs, err := l.cSignature(sig)
 	if err != nil {
-		l.errorf(fd.Pos(), "//pu:export function %s: %v", fn.Name(), err)
+		l.errorf(fd.Pos(), diag.BadCSignature, "//pu:export function %s: %v", fn.Name(), err)
 		return
 	}
 	if cs.internal {
@@ -398,7 +399,7 @@ func (l *Lowerer) cExport(fd *ast.FuncDecl, fn *types2.Func, sym *ssa.Sym, name 
 		return
 	}
 	if other := l.out.LookupSym(name); other != nil && other.Kind != ssa.SymExtern {
-		l.errorf(fd.Pos(), "//pu:export %s: symbol already defined", name)
+		l.errorf(fd.Pos(), diag.DuplicateExport, "//pu:export %s: symbol already defined", name)
 		return
 	}
 	wrapper := l.out.Sym(name, ssa.SymFunc)
@@ -451,7 +452,7 @@ func (s *fnState) emitCCall(c callee, cs *cSig, recv *value, args []value, pos t
 		all = append([]value{*recv}, args...)
 	}
 	if len(all) != len(cs.params) {
-		s.l.errorf(pos, "lower: C call has %d arguments, signature has %d parameters", len(all), len(cs.params))
+		s.l.internalf(pos, "C call has %d arguments, signature has %d parameters", len(all), len(cs.params))
 		return nil
 	}
 	var flat []*ssa.Value

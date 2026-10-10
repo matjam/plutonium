@@ -1,0 +1,11 @@
+main: cannot import "example.com/util": no pluto.mod declares a module, so only pluto/ packages can be imported
+    Without a pluto.mod file, a program is a single package that can import only
+    the standard library (paths under pluto/). To split a program into packages,
+    add a pluto.mod file in its top directory that names the module, and import
+    packages by the module path followed by their directory.
+    Create pluto.mod in the top directory:
+        module example.com/project
+
+        // and import a package in ./util as:
+        import "example.com/project/util"
+    (run "pluto explain E4007" for a longer explanation)

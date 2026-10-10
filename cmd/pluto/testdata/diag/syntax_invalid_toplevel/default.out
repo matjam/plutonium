@@ -1,0 +1,10 @@
+$DIR/main.p:3:1: expected declaration, found limit
+    This line uses :=, the short variable declaration, outside a function. := is
+    a statement, and statements may only appear inside a function body. Outside
+    a function, a file may contain only declarations: package, import, const,
+    var, type and func.
+    To declare a package-level variable, use var:
+        var limit = 10
+    (see "Declarations and scope" and "Short variable declarations" in the Go
+    spec; Plutonium follows Go here)
+    (run "pluto explain E1003" for a longer explanation)

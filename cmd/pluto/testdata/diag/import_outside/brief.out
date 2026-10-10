@@ -1,0 +1,1 @@
+main: cannot import "example.com/util": no pluto.mod declares a module, so only pluto/ packages can be imported
