@@ -24,13 +24,13 @@ func main() {
 		fmt.Printf("%d %d %t %t [%s] [%s] %d\n", bytes.Compare(b, bs("a,b,c")), bytes.IndexAny(b, "cb"), bytes.ContainsAny(b, "本"),
 			bytes.Contains(b, bs("ll")), bytes.TrimPrefix(b, bs("  ")), bytes.TrimSuffix(b, bs("xx")), len(bytes.TrimSpace(b)))
 	}
-	var store [32]byte
-	buf := bytes.NewBuffer(store[:])
+	var buf bytes.Buffer
+	defer buf.Free()
 	fmt.Fprintf(&buf, "x=%d ", 42)
 	buf.WriteString("hello ")
 	buf.WriteByte('!')
 	buf.WriteRune('é')
-	fmt.Printf("%s %d %d\n", buf.String(), buf.Len(), buf.Cap())
+	fmt.Printf("%s %d %t\n", buf.String(), buf.Len(), buf.Cap() >= buf.Len())
 	var p [4]byte
 	n, err := buf.Read(p[:])
 	fmt.Printf("%d %t %s\n", n, err == nil, p[:n])
@@ -44,10 +44,37 @@ func main() {
 	fmt.Printf("\n%d\n", buf.Len())
 	n, err = buf.Read(p[:])
 	fmt.Printf("%d %t\n", n, err == io.EOF)
-	var s2 [16]byte
-	rb := bytes.NewBufferString(s2[:], "abc")
+	rb := bytes.NewBufferString("abc")
 	k, _ := rb.Read(p[:])
 	fmt.Printf("%s\n", p[:k])
+	rb.Free()
+
+	// Growing well past the first allocation; reading leaves room at the
+	// front that later writes reuse.
+	var g bytes.Buffer
+	defer g.Free()
+	for i := 0; i < 1000; i++ {
+		fmt.Fprintf(&g, "%d,", i)
+	}
+	fmt.Printf("%d %s\n", g.Len(), g.Next(10))
+	for g.Len() > 100 {
+		g.Next(50)
+	}
+	g.WriteString("end")
+	fmt.Printf("%d %s\n", g.Len(), g.Bytes()[g.Len()-12:])
+	g.Grow(5000)
+	fmt.Println(g.Available() >= 5000)
+
+	// NewBuffer copies its argument to read, and ReadFrom reads all of a
+	// reader.
+	data := []byte("from a reader")
+	rf := bytes.NewBuffer(data)
+	data[0] = 'F'
+	var h bytes.Buffer
+	n64, err := h.ReadFrom(&rf)
+	fmt.Printf("%d %t %s %d\n", n64, err == nil, h.Bytes(), rf.Len())
+	h.Free()
+	rf.Free()
 }
 
 func bs(s string) []byte { return unsafe.Slice(unsafe.StringData(s), len(s)) }

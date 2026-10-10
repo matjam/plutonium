@@ -54,7 +54,7 @@ func main() {
 		src[i] = byte('a' + i%26)
 	}
 	in := bytes.NewBuffer(src[:])
-	in.Write(src[:])
+	defer in.Free()
 	c = exec.Command("cat")
 	c.Stdin = &in
 	out, err = c.Output()

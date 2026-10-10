@@ -1,7 +1,7 @@
 // Package bytes implements functions for the manipulation of byte slices,
 // mirroring Go's bytes package where that is possible without allocating.
 // Functions that return part of their argument return a subslice of it, not
-// a copy. Buffer reads and writes a fixed buffer the caller provides.
+// a copy. Buffer is Go's growing buffer, with storage from an allocator.
 //
 // The searching and trimming functions share their implementation with
 // pluto/strings, viewing the slice as a string without copying.
