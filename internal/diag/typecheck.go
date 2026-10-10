@@ -339,7 +339,7 @@ func explainAssign(s *spec) {
 			}
 		}
 		if isKind(T, types2.IsString) {
-			text = append(text, "To print a number, pass it to fmt.Printf with %d. To make its text, format it into a buffer with fmt.Bprintf or strconv.AppendInt.")
+			text = append(text, "To print a number, pass it to fmt.Printf with %d. To make its text, use strconv.Itoa or fmt.Sprintf, or append it to a vec.Vec or vec.Fixed with strconv.AppendInt or fmt.Appendf.")
 		}
 	case numeric && !isUntyped(V):
 		text = append(text, "Plutonium, like Go, never converts between number types automatically, even when the value would fit. Write the conversion, so that the change of type is visible.")

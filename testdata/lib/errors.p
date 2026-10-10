@@ -19,6 +19,7 @@ import (
 	"pluto/os"
 	"pluto/strconv"
 	"pluto/syscall"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -51,7 +52,9 @@ type Parser struct {
 // fail records the error in the parser and returns a pointer to it.
 func (p *Parser) fail(err error) error {
 	p.err.Line, p.err.Col, p.err.Err = p.line, p.col, err
-	p.err.n = len(fmt.Bprintf(p.err.text[:0], "%d:%d: %v", p.line, p.col, err))
+	f := vec.NewFixed(p.err.text[:])
+	fmt.Appendf(&f, "%d:%d: %v", p.line, p.col, err)
+	p.err.n = f.Len()
 	return &p.err
 }
 

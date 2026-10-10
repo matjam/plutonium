@@ -1,7 +1,9 @@
 // Package fmt formats values, in the style of Go's fmt. Fprintf and Printf
-// write to an io.Writer through a fixed buffer and Bprintf into a caller's
-// byte slice, without allocating; Sprintf, Sprint and Sprintln return a
-// new string, allocated from the current allocator.
+// write to an io.Writer through a fixed buffer without allocating; Appendf,
+// Append and Appendln append to a *vec.Vec[byte], which grows, or a
+// *vec.Fixed[byte], which keeps what fits in a caller's array and never
+// allocates; Sprintf, Sprint and Sprintln return a new string, allocated
+// from the current allocator.
 //
 // Verbs: %v %d %b %o %O %x %X %c %q %U %e %E %f %F %g %G %s %t %p %T %%.
 // Flags: + - # 0 space. Width and precision may be numbers or *.
@@ -25,7 +27,8 @@
 // widths count runes, and a byte that is not valid UTF-8 is one rune.
 //
 // Formatting never allocates: output goes through the printer's fixed
-// buffer.
+// buffer. Only its destination may (a growing vec.Vec, or the string of
+// Sprintf).
 package fmt
 
 import (
@@ -33,6 +36,7 @@ import (
 	"pluto/rt"
 	"pluto/strconv"
 	"pluto/unicode/utf8"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -46,19 +50,20 @@ type GoStringer interface {
 	GoString() string
 }
 
-// printer accumulates output and flushes it to a writer or a byte slice.
+// printer accumulates output and flushes it to a writer or a bounded
+// vector.
 type printer struct {
 	buf [256]byte
 	n   int
 
-	w   io.Writer // destination, or nil when appending to dst
-	dst []byte    // destination for Bprintf
+	w     io.Writer        // destination, or nil when appending to fixed
+	fixed *vec.Fixed[byte] // destination of Appendf into a Fixed, and ErrorBuf
 
 	written int
 	err     error
 
-	wrapErrs bool    // %w is allowed (Errorf)
-	wrapped  []error // the %w operands, within the slice's capacity
+	wrapErrs bool              // %w is allowed (Errorf)
+	wrapped  vec.Fixed[error] // the %w operands, as many as fit
 
 	// current directive
 	plus, minus, sharp, space, zero bool
@@ -83,10 +88,9 @@ func (p *printer) flush() {
 			p.err = err
 		}
 	} else {
-		room := cap(p.dst) - len(p.dst)
-		k := min(room, p.n)
-		p.dst = append(p.dst, p.buf[:k]...)
-		p.written += k
+		k := p.fixed.Len()
+		p.fixed.Append(p.buf[:p.n]...)
+		p.written += p.fixed.Len() - k
 	}
 	p.n = 0
 }
@@ -732,9 +736,7 @@ func (p *printer) handleMethods(arg any, verb rune) bool {
 			p.badVerb(verb)
 			return true
 		}
-		if len(p.wrapped) < cap(p.wrapped) {
-			p.wrapped = append(p.wrapped, err)
-		}
+		p.wrapped.TryPush(err)
 		verb = 'v'
 	}
 	if p.sharpV {
@@ -927,21 +929,56 @@ func Fprintln(w io.Writer, args ...any) (int, error) {
 	return p.written, p.err
 }
 
-// Bprintf appends formatted text to buf within its capacity; text that does
-// not fit is dropped. It returns the extended slice.
-func Bprintf(buf []byte, format string, args ...any) []byte {
+// Appendf formats according to a format specifier and appends the result
+// to dst: a *vec.Vec[byte], which grows from its allocator, or a
+// *vec.Fixed[byte], which keeps what fits in the caller's array, records
+// the rest as truncated, and never allocates.
+func Appendf[D vec.Appender[byte]](dst D, format string, args ...any) {
 	var p printer
-	p.dst = buf
+	var w appendWriter[D]
+	p.to(dst, &w)
 	p.doPrintf(format, args)
 	p.flush()
-	return p.dst
 }
 
-// Bprint is Bprintf with %v formatting.
-func Bprint(buf []byte, args ...any) []byte {
+// Append formats args with %v and appends the result to dst, adding spaces
+// between operands when neither is a string.
+func Append[D vec.Appender[byte]](dst D, args ...any) {
 	var p printer
-	p.dst = buf
+	var w appendWriter[D]
+	p.to(dst, &w)
 	p.doPrint(args, false)
 	p.flush()
-	return p.dst
+}
+
+// Appendln formats args with %v, separated by spaces and followed by a
+// newline, and appends the result to dst.
+func Appendln[D vec.Appender[byte]](dst D, args ...any) {
+	var p printer
+	var w appendWriter[D]
+	p.to(dst, &w)
+	p.doPrint(args, true)
+	p.flush()
+}
+
+// to makes dst the printer's destination: a Fixed directly, and any other
+// Appender through w.
+func (p *printer) to[D vec.Appender[byte]](dst D, w *appendWriter[D]) {
+	if f, ok := any(dst).(*vec.Fixed[byte]); ok {
+		p.fixed = f
+		return
+	}
+	w.dst = dst
+	p.w = w
+}
+
+// An appendWriter is an io.Writer that appends to an Appender.
+type appendWriter[D vec.Appender[byte]] struct {
+	dst D
+}
+
+func (w *appendWriter[D]) Write(b []byte) (int, error) {
+	n := w.dst.Len()
+	w.dst.Append(b...)
+	return w.dst.Len() - n, nil
 }
