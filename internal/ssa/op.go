@@ -118,6 +118,7 @@ const (
 	OpStore  // store arg1 (type in Aux as *Type) to arg0; arg2 is memory; result memory
 	OpZero   // zero AuxInt bytes at arg0; arg1 memory; result memory
 	OpMove   // copy AuxInt bytes from arg1 to arg0; arg2 memory; result memory
+	OpFill   // set arg2 bytes (an i64, not negative) at arg0 to byte arg1; arg3 memory; result memory
 	OpVarDef // marks the start of slot Aux's lifetime; arg0 memory; result memory
 
 	// Calls. The last argument is memory; the result is a tuple of the
@@ -211,6 +212,7 @@ var opTable = [opTableSize]OpInfo{
 	OpStore:  {Name: "Store", Args: 3, Flags: fMemArg | fMemResult},
 	OpZero:   {Name: "Zero", Args: 2, Flags: fMemArg | fMemResult},
 	OpMove:   {Name: "Move", Args: 3, Flags: fMemArg | fMemResult},
+	OpFill:   {Name: "Fill", Args: 4, Flags: fMemArg | fMemResult},
 	OpVarDef: {Name: "VarDef", Args: 1, Flags: fMemArg | fMemResult},
 
 	OpCall:             {Name: "Call", Args: -1, Flags: fMemArg | fMemResult | fCall | fSideEffect},

@@ -56,6 +56,28 @@ func replaceFloat(v *ssa.Value, f float64) bool {
 
 func floatOf(v *ssa.Value) float64 { return math.Float64frombits(uint64(v.AuxInt)) }
 
+// stepOf reports whether y is x+1 (d = 1) or x-1 (d = -1).
+func stepOf(y, x *ssa.Value) (d int, ok bool) {
+	if len(y.Args) != 2 || y.Args[0] != x {
+		return 0, false
+	}
+	switch {
+	case y.Op == ssa.OpAdd && constEq(y.Args[1], 1), y.Op == ssa.OpSub && constEq(y.Args[1], -1):
+		return 1, true
+	case y.Op == ssa.OpAdd && constEq(y.Args[1], -1), y.Op == ssa.OpSub && constEq(y.Args[1], 1):
+		return -1, true
+	}
+	return 0, false
+}
+
+// stepOp is the operation that applies a step of direction d.
+func stepOp(d int) ssa.Op {
+	if d > 0 {
+		return ssa.OpAdd
+	}
+	return ssa.OpSub
+}
+
 // newBefore inserts a value before v in v's block.
 func newBefore(v *ssa.Value, op ssa.Op, t *ssa.Type, args ...*ssa.Value) *ssa.Value {
 	return v.Block.NewValueBefore(v, op, t, args...)
@@ -136,6 +158,22 @@ func simplifyValue(f *ssa.Func, v *ssa.Value, expand bool) bool {
 		case a == b:
 			v.CopyOf(a)
 			return true
+		}
+		// c ? x+1 : x is x + zext(c), and c ? x : x+1 is x + zext(!c);
+		// likewise for x-1. A bool is 0 or 1.
+		if t.IsInteger() && c.Type.IsBool() {
+			if d, ok := stepOf(a, b); ok {
+				v.Reset(stepOp(d))
+				v.AddArg(b)
+				v.AddArg(newBefore(v, ssa.OpZeroExt, t, c))
+				return true
+			}
+			if d, ok := stepOf(b, a); ok {
+				v.Reset(stepOp(d))
+				v.AddArg(a)
+				v.AddArg(newBefore(v, ssa.OpZeroExt, t, newBefore(v, ssa.OpNot, ssa.TBool, c)))
+				return true
+			}
 		}
 	case ssa.OpSignExt, ssa.OpZeroExt:
 		a := v.Args[0]
