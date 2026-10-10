@@ -230,6 +230,37 @@ func main() {
 	}
 }
 
+func TestVolatileReadOrders(t *testing.T) {
+	const src = `package main
+
+var buf [8]uint32
+var status volatile[uint32]
+
+//pu:noinline
+func poll() uint32 {
+	x := buf[3]
+	for status&1 == 0 {
+	}
+	return x + buf[3]
+}
+
+//pu:noinline
+func twice(p *volatile[uint32]) uint32 { return *p + *p }
+
+func main() {
+	status = 1
+	println(poll(), twice(&status))
+}
+`
+	// The plain read after the polling loop must read memory again.
+	if asm := listFunc(t, src, "main.poll"); strings.Count(asm, "main.buf+12") != 2 {
+		t.Errorf("poll: want buf[3] read before and after the loop\n%s", asm)
+	}
+	if asm := listFunc(t, src, "main.twice"); strings.Count(asm, "(%rdi)") != 2 {
+		t.Errorf("twice: want two volatile reads\n%s", asm)
+	}
+}
+
 func TestLoadFold(t *testing.T) {
 	const src = `package main
 

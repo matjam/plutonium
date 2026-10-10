@@ -626,7 +626,7 @@ func (s *isel) value(v *ssa.Value) error {
 	}
 	size := sizeOf(v.Type)
 	switch v.Op {
-	case ssa.OpPhi, ssa.OpInitMem, ssa.OpVarDef, ssa.OpArg, ssa.OpClosurePtr, ssa.OpUnreachableValue:
+	case ssa.OpPhi, ssa.OpInitMem, ssa.OpVarDef, ssa.OpVolatileRead, ssa.OpArg, ssa.OpClosurePtr, ssa.OpUnreachableValue:
 		// Handled elsewhere or produce no code.
 		if v.Op == ssa.OpUnreachableValue && !v.Type.IsMem() {
 			r := s.def(v)
