@@ -2109,7 +2109,7 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | Directive | Applies to | Meaning |
 |---|---|---|
 | `//pu:build expr` | file | include the file only when `expr` holds |
-| `//pu:inline` | function | always inline calls to this function |
+| `//pu:inline` | function | inline calls to this function whatever its size, as long as the caller stays within its growth limit (four times its own size, at least 5,000 and at most 20,000 IR values) |
 | `//pu:noinline` | function | never inline it |
 | `//pu:nobounds` | function | omit bounds checks in its body |
 | `//pu:extern name` | body-less function | the function is the external symbol `name` (C ABI) |

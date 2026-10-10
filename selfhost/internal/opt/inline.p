@@ -4,6 +4,7 @@ package opt
 
 import (
 	"pluto/hash"
+	"pluto/sort"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 )
@@ -19,8 +20,23 @@ import (
 // ordinary call site.
 const inlineBudget = 80
 
-// maxCallerSize stops inlining into a caller that has grown this large.
-const maxCallerSize = 20000
+// Each caller has a growth budget: inlining into it stops once it would
+// grow past growthFactor times its size before inlining, or growthMin
+// values for a small one, and never past maxCallerSize. This applies to
+// //pu:inline callees too. Without it, a function making many calls to
+// inlinable functions grows without bound, and register allocation, which
+// is superlinear in the size of a function, comes to dominate the compile.
+// The values were chosen by measurement: none of the benchmarks reaches
+// the budget, and an inline-heavy fuzzer program that grew functions from
+// 1,000 to 20,000 values compiles in a tenth of the time.
+const (
+	growthFactor  = 4
+	growthMin     = 5000
+	maxCallerSize = 20000
+)
+
+// callSize is what funcSize counts for a call, which inlining replaces.
+const callSize = 6
 
 // Inline runs the inliner over a program, then cleans up each function it
 // changed.
@@ -101,6 +117,7 @@ func inlineInto(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], sizes *hash.M
 	for _, g := range scc {
 		sameSCC.Set(g, true)
 	}
+	limit := min(maxCallerSize, max(growthMin, growthFactor*funcSize(f)))
 	for rounds := 0; rounds < 4; rounds++ {
 		var sites []*ssa.Value
 		doomed := ssa.DoomedBlocks(f)
@@ -136,12 +153,21 @@ func inlineInto(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], sizes *hash.M
 		if len(sites) == 0 {
 			break
 		}
+		// Smallest callees first, so that when the budget runs out the
+		// calls left are the ones that would have cost the most to copy.
+		// The size is kept up to date by adding each callee's size
+		// rather than recounting, which would be quadratic.
+		sort.SortStableFunc(sites, func(a, b *ssa.Value) bool {
+			return compat.MapAt(sizes, compat.MapAt(funcs, a.Aux.(*ssa.Sym))) < compat.MapAt(sizes, compat.MapAt(funcs, b.Aux.(*ssa.Sym)))
+		})
+		size := funcSize(f)
 		for _, v := range sites {
-			if funcSize(f) > maxCallerSize {
-				return changed
-			}
 			g := compat.MapAt(funcs, v.Aux.(*ssa.Sym))
+			if size+compat.MapAt(sizes, g)-callSize > limit {
+				continue
+			}
 			inlineCall(f, v, g)
+			size += compat.MapAt(sizes, g) - callSize
 			changed = true
 			if checkSSA {
 				if err := verify(f); err != nil {
