@@ -340,8 +340,8 @@ monitor thread preempts a puroutine that has run for 10 ms by sending its thread
 processor of a worker blocked in a system call (`rt.EnterSyscall`, which `pluto/os` file I/O uses) to
 another worker. Waits for I/O go through one epoll poller: `os.Pipe`'s descriptors are non-blocking,
 and a puroutine that reads an empty pipe or writes a full one parks there (`rt.PollWait`). When every
-puroutine waits for another and nothing waits for I/O or a system call, the program stops with "fatal
-error: all puroutines are asleep - deadlock!" and status 2, as in Go.
+puroutine waits for another and nothing waits for I/O, a system call or an armed timer, the program
+stops with "fatal error: all puroutines are asleep - deadlock!" and status 2, as in Go.
 
 A hosted program catches `SIGPIPE` at startup, with a handler that does nothing (so a program it starts
 with `os/exec` gets the default action back), and follows Go's rule: a write to a pipe or socket with no
@@ -353,6 +353,29 @@ A kernel implements the backend over its own per-CPU run queues and calls `rt.Pr
 interrupt handler; the runtime keeps the current task in a per-CPU slot and masks interrupts while it
 holds its own locks, so interrupt handlers may make non-blocking channel operations and call
 `rt.Ready`. `testdata/kernel/sched` is such a kernel, booted under QEMU by the compiler's tests.
+
+**Timers.** `time.Sleep` parks the puroutine until a deadline, so its processor runs other puroutines
+and a program whose puroutines all sleep uses no processor time. `time.Timer`, `time.Ticker`,
+`time.After` and `time.Tick` deliver the time on a channel, so a `select` waits for a timer like any
+other case (section 4.8), and `time.AfterFunc` starts a function on a puroutine of its own when its
+timer expires. Underneath is the runtime's mechanism: a monotonic clock, `rt.Now()`; timers,
+`rt.Timer`, which call a function when their deadline passes and never allocate; and `rt.ParkUntil`,
+`rt.Park` with a deadline (abi.md section 12.9). The hosted backend keeps the timers of each processor
+in a heap of its own, run by the workers between puroutines and, while they sleep, by the poller. A
+kernel's backend provides the clock and the hardware: a `Now` method, and an `ArmTimer` method that
+arranges for `rt.RunTimers()` to be called, typically from the timer interrupt, once a deadline has
+passed. Both are optional, so a kernel that never sleeps needs neither; a program that uses timers with
+a backend that lacks them fails to build. Arming and stopping a timer, and `rt.RunTimers`, never block
+and may be used in interrupt handlers; sleeping and `rt.ParkUntil` are `//pu:blocking`.
+
+The `time` API follows Go's where the language allows. Timers and tickers come from an allocator
+(`time.NewTimer(d, a)`, with the default allocator if none is given) and are freed with `alloc.Free`,
+which stops them and frees their channels; `time.After` and `time.Tick` allocate a timer that is never
+freed, so a loop should use `NewTimer` and `Reset`. As in Go 1.23, a timer's channel holds no stale
+value once `Stop` or `Reset` has returned. `time.AfterFunc(d, f)` cannot run `f` where timers fire (an
+interrupt handler, in a kernel), so expired timers are queued for one puroutine of `pluto/time`'s,
+which starts each function with a `go` statement; like a function passed to `go`, `f` must not capture
+variables, and `AfterFunc` panics if its closure record lies in the caller's stack.
 
 **The sendable rule.** Values that cross between puroutines, as `go` arguments or channel elements, must
 be safe to use from several processors at once. A type is **sendable** unless it contains, directly or in
@@ -414,6 +437,20 @@ memory of `new`. When counting lands, `FreeChan` goes away.
 The operations that may wait (a send or receive, a `range` over a channel, a `select` without a
 `default` case) call runtime functions marked `//pu:blocking`; a `select` with a `default` case and
 `close`, `len` and `cap` never wait, so interrupt handlers may use them (section 12.6).
+
+Timeouts are channels too: `time.After(d)` and a `time.Timer`'s `C` receive the time once the timer
+expires, so a `select` that waits for a value or a deadline has a case for each (section 4.7).
+
+```go
+t := time.NewTimer(100 * time.Millisecond)
+select {
+case v := <-results:
+	use(v)
+case <-t.C:
+	println("timed out")
+}
+alloc.Free(t) // stops the timer and frees its channel
+```
 
 The element type must be sendable (section 4.7). Sending an owner moves it: after `ch <- b`, `b` holds
 nothing, and the receiver of `v := <-ch` owns it. In a `select`, the value of a send case is evaluated on
@@ -2625,7 +2662,8 @@ the processor stops. So nothing an interrupt handler can reach, and nothing the 
 - allocate from an allocator that may wait (below).
 
 Operations that do not wait are allowed: `select` with `default`, `TryLock`, readying a parked
-puroutine, atomics, and spin locks that disable interrupts while held. To hand work to normal code, a
+puroutine, arming, stopping and running the runtime's timers (`rt.Timer`, `rt.RunTimers`), atomics, and
+spin locks that disable interrupts while held. To hand work to normal code, a
 handler sends without waiting:
 
 ```go
@@ -2691,7 +2729,7 @@ hold, and most have a `Clone`.
 
 | Package | Contents |
 |---|---|
-| `pluto/rt` | panic hook, program entry, memory copy and compare primitives the compiler calls, the scheduler contract (`Scheduler`, `Task`, `Switch`, `Park`, `Ready`, `Preempt`), `Go`, `Yield`, the hosted scheduler |
+| `pluto/rt` | panic hook, program entry, memory copy and compare primitives the compiler calls, the scheduler contract (`Scheduler`, `Task`, `Switch`, `Park`, `Ready`, `Preempt`), timers (`Now`, `Timer`, `ParkUntil`, `RunTimers`), `Go`, `Yield`, the hosted scheduler |
 | `pluto/sync` | `Mutex`, `RWMutex`, `WaitGroup` (with `Go`), `Once`, `Cond` over the scheduler; the operations that park are `//pu:blocking` |
 | `pluto/alloc` | allocators, the default allocator, `Use`/`Restore`, `Owned`/`Shared`/`Synced`, and the unchecked layer `Raw`/`New`/`Free` (section 7.1) |
 | `pluto/alloc/debug` | the checking allocator (section 7.3) |
@@ -2702,7 +2740,7 @@ hold, and most have a `Clone`.
 | `pluto/os` | files (`os.File`, an owner that closes on drop), `Stat`, whole-file reads and writes, directories (`ReadDir` returns a `DirEntries` owner), removal, renaming, temporary directories, the working directory, pipes, processes, arguments, environment, exit (hosted) |
 | `pluto/os/exec` | running commands: `Cmd` (an owner), pipes copied inside `Wait`, `ExitError` in the data word (hosted) |
 | `pluto/path/filepath` | slash-separated paths: views (`Base`, `Dir`, `Ext`, `Split`) and `Append` forms (`AppendJoin`, `AppendClean`, `AppendRel`, `AppendAbs`), `Match`, `WalkDir` |
-| `pluto/time` | `Duration`, `Time` in UTC with a monotonic reading, `Now`, `Since`, `Sleep` |
+| `pluto/time` | `Duration`, `Time` in UTC with a monotonic reading, `Now`, `Since`; `Sleep`, `Timer`, `Ticker`, `After`, `Tick` and `AfterFunc` over the scheduler's timers (section 4.7) |
 | `pluto/flag` | command-line flags; a `FlagSet` owns its flags and their variables |
 | `pluto/syscall` | raw Linux system calls (hosted) |
 | `pluto/strings`, `pluto/bytes` | `strings.Buf`, an owning string buffer (section 6.6); searching, comparison; Go 1.24's iterators `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq`, `FieldsFuncSeq` |

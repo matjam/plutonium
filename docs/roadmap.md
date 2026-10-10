@@ -86,14 +86,16 @@ later takes the next free number and is listed in the section where it belongs.
     runtime's task mechanism (`rt.Switch`, `rt.Park`/`rt.Ready` with a permit, `rt.Preempt`) and the
     hosted work-stealing scheduler on Go's M/P/G design: per-processor run queues with stealing,
     worker threads made with `clone`, preemption by `SIGURG` from a monitor thread every 10 ms, hand-off
-    of a processor blocked in a system call (`os` file I/O, `time.Sleep`, `Process.Wait` and the waits
-    of `os/exec`), an epoll poller for pipes from `os.Pipe` (`File.Fd` makes one blocking again, as in
+    of a processor blocked in a system call (`os` file I/O, `Process.Wait` and the waits of
+    `os/exec`), an epoll poller for pipes from `os.Pipe` (`File.Fd` makes one blocking again, as in
     Go, so `os/exec` can hand it to a child), `SIGPIPE` handling as in Go (a write to a closed pipe
-    returns `EPIPE`; on standard output or error it ends the program with the signal), and deadlock
-    detection (language spec section 4.7; abi.md section 12). `rt.StackLeft` measures a puroutine's own stack. The sendable rules are checked
+    returns `EPIPE`; on standard output or error it ends the program with the signal), timers
+    (per-processor heaps run by the workers and the poller, `rt.Now` through the vDSO,
+    `rt.ParkUntil`), and deadlock detection that waits for armed timers (language spec section 4.7;
+    abi.md section 12). `rt.StackLeft` measures a puroutine's own stack. The sendable rules are checked
     (`shared[T]` never crosses, frame views are rejected syntactically, and closures in the current
     frame are a compile error, E2594, where the compiler can tell, and panic at the `go` otherwise).
-    Follow-ups: timers and `ParkUntil` with item 45; traces of parked puroutines (`rt.TraceTask`); one
+    Follow-ups: traces of parked puroutines (`rt.TraceTask`); one
     waiter per file in the poller, and closing a file does not wake it; a program that binds its own
     hosted backend runs on one thread; spawning costs about twice Go's.
 15. **Channels and `select`** (done): `chan T`, send, receive, `close`, `range`, `select` with Go's
@@ -114,8 +116,11 @@ later takes the next free number and is listed in the section where it belongs.
     scheduler in the standard library: a permit-based `Park`/`Ready`, interrupt-safe `Ready`,
     backend-allocated task records embedding `rt.Task`, a current-task slot (`%gs:8` in kernels), a
     preemption count, `rt.Preempt` on the interrupted task's stack, stack requests carrying the proven
-    bound, and link-time binding with `//pu:scheduler`. A single-processor test kernel with timer
-    preemption runs under QEMU. Its section 9 lists later requirements from PlutoniumOS (a userland
+    bound, and link-time binding with `//pu:scheduler`. Timers are optional: a backend that provides a
+    clock (`Now`) and a timer (`ArmTimer`, serviced with `rt.RunTimers`) runs the runtime's
+    allocation-free timer heap, and a program that uses timers without them fails to build (E2595). A
+    single-processor test kernel with timer preemption, and `time.Sleep`, `time.After` and tickers
+    on the PIT, runs under QEMU. Its section 9 lists later requirements from PlutoniumOS (a userland
     target, `//pu:nonblocking`, a `portable` constraint). The PlutoniumOS task model they serve is in
     PlutoniumOS: docs/architecture/lightweight-tasks.md (github.com/matjam/plutoniumos, private).
 
@@ -248,8 +253,10 @@ later takes the next free number and is listed in the section where it belongs.
     float32 at float32 precision. The digits come from Go's unrounded scaling, with integer arithmetic
     and a fixed buffer. Kernel builds print the bits, as `pluto/fmt` does.
 45. **`time`** (in progress): `pluto/time` has `Duration` (with `AppendString` and `ParseDuration`),
-    `Time` in UTC with a monotonic reading, the calendar, `Now`, `Since`, `Until` and a thread-blocking
-    `Sleep` (item 56) that hands its processor to another worker meanwhile (item 14). Time zones, layout-based formatting and timers over the scheduler remain.
+    `Time` in UTC with a monotonic reading, the calendar, `Now`, `Since`, `Until`, and over the
+    scheduler's timers (items 14 and 53) `Sleep`, which parks the puroutine, `Timer`, `Ticker`,
+    `After`, `Tick` and `AfterFunc` (started on a puroutine by one of the package's), with Go 1.23's
+    channel semantics and freed with `alloc.Free`. Time zones and layout-based formatting remain.
 46. **`net`** (planned, hosted): sockets over the epoll poller of item 14.
 47. **`fmt.Sprintf` returns a `strings.Buf`** (planned): settled by the ownership model (language spec
     section 6.6). `Sprintf` allocates and returns a `strings.Buf`; `Bprintf` keeps formatting into a
