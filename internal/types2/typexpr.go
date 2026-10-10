@@ -300,6 +300,13 @@ func (check *Checker) typInternal(e0 ast.Expr, def *TypeName) (T Type) {
 	case *ast.EnumType:
 		return check.enumType(e, def)
 
+	case *ast.UnionType:
+		return check.unionType(e, def)
+
+	case *ast.VariantCase:
+		check.error(e, InvalidSyntaxTree, "variant case outside a packed union")
+		return Typ[Invalid]
+
 	case *ast.BitsGroup:
 		check.error(e, BadBitField, "bits group outside a packed type")
 		return Typ[Invalid]
@@ -480,6 +487,7 @@ func (check *Checker) instantiatedType(ix *indexedExpr) (res Type) {
 				check.softErrorf(atPos(pos), InvalidTypeArg, "%v", err)
 			} else {
 				check.mono.recordInstance(check.pkg, ix.Pos(), tparams, targs, ix.indices)
+				check.checkUnionInstance(ix, inst)
 			}
 		}
 	}).describef(ix, "verify instantiation %s", inst)

@@ -44,8 +44,11 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 		fun = ix.X
 	}
 
-	// Method calls.
+	// Method calls, and constructions of union variants (U.V(payload)).
 	if se, ok := fun.(*ast.SelectorExpr); ok {
+		if v, ok := s.info.Uses[se.Sel].(*types2.Variant); ok {
+			return []value{s.variantCall(e, v)}
+		}
 		if sel := s.info.Selections[se]; sel != nil {
 			switch sel.Kind() {
 			case types2.MethodVal:

@@ -132,15 +132,26 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		return nil
 
 	case "print", "println":
-		for i, a := range s.argSources(e.Args) {
+		// As in Go, every argument is evaluated before anything is printed,
+		// so an argument that prints or changes a later argument's operands
+		// has finished by the time output starts.
+		srcs := s.argSources(e.Args)
+		vals := make([]value, len(srcs))
+		nodes := make([]ast.Node, len(srcs))
+		for i, a := range srcs {
+			if a.e != nil {
+				vals[i] = s.materialize(s.printOperand(a.e))
+				nodes[i] = a.e
+			} else {
+				vals[i] = s.materialize(a.v)
+				nodes[i] = e
+			}
+		}
+		for i, v := range vals {
 			if i > 0 && b.Name() == "println" {
 				s.callRuntime("printSpace", nil)
 			}
-			if a.e != nil {
-				s.printArg(a.e)
-			} else {
-				s.printValue(a.v, unwrap(a.v.T), e)
-			}
+			s.printValue(v, unwrap(v.T), nodes[i])
 		}
 		if b.Name() == "println" {
 			s.callRuntime("printNewline", nil)
@@ -234,6 +245,19 @@ func (s *fnState) minMax(isMin bool, a, b *ssa.Value, T types2.Type) *ssa.Value 
 			better = s.newValue(ssa.OpFLess, ssa.TBool, b, a)
 		}
 		s.ifThen(better, func() { s.store(t, res, a) })
+		// Equal operands differ only if they are zeros of different
+		// signs: min is -0 if either is, max is +0 if either is. ORing
+		// (for min) or ANDing (for max) the bits gives that, and leaves
+		// any other pair of equal values unchanged.
+		s.ifThen(s.newValue(ssa.OpFEq, ssa.TBool, a, b), func() {
+			it := ssa.IntType(t.Size)
+			op := ssa.OpOr
+			if !isMin {
+				op = ssa.OpAnd
+			}
+			bits := s.newValue(op, it, s.newValue(ssa.OpBitcast, it, a), s.newValue(ssa.OpBitcast, it, b))
+			s.store(t, res, s.newValue(ssa.OpBitcast, t, bits))
+		})
 		s.ifThen(s.newValue(ssa.OpFNe, ssa.TBool, a, a), func() { s.store(t, res, a) })
 		s.ifThen(s.newValue(ssa.OpFNe, ssa.TBool, b, b), func() { s.store(t, res, b) })
 		return s.load(t, res)
@@ -332,12 +356,6 @@ func (s *fnState) appendCheck(newLen, c *ssa.Value, e *ast.CallExpr) {
 	s.panicUnless(ok, e.Pos(), func() { s.callRuntimeNoReturn("panicAppend", newLen, c) })
 }
 
-// printArg prints one argument of print or println.
-func (s *fnState) printArg(a ast.Expr) {
-	v := s.printOperand(a)
-	s.printValue(v, v.T, a)
-}
-
 // printOperand evaluates an argument of print or println, giving untyped
 // constants their default type.
 func (s *fnState) printOperand(a ast.Expr) value {
@@ -432,9 +450,19 @@ func (s *fnState) conversion(e *ast.CallExpr) value {
 
 	v := s.expr(arg)
 	if v.addr {
+		if s.l.scalarType(unwrap(to)) != nil {
+			// A byte array to a packed type held in a register.
+			return s.loadFrom(v.v, to)
+		}
 		// Aggregates convert between identical layouts unchanged.
 		v.T = to
 		return v
+	}
+	if s.l.scalarType(unwrap(to)) == nil {
+		// A packed value held in a register to its byte array.
+		tmp := s.temp(to, "conv")
+		s.storeTo(tmp, v, from)
+		return aggValue(tmp, to)
 	}
 	return scalarValue(s.convertScalar(v.v, from, to), to)
 }

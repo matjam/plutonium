@@ -1,8 +1,8 @@
 {
   "name": "plutonium",
   "displayName": "Plutonium",
-  "description": "Syntax highlighting and pluto fmt formatting for the Plutonium systems language",
-  "version": "0.1.0",
+  "description": "Language support for the Plutonium systems language: highlighting, diagnostics, navigation, completion and formatting through pluto lsp",
+  "version": "0.2.0",
   "publisher": "matjam",
   "repository": {
     "type": "git",
@@ -10,11 +10,12 @@
     "directory": "editors/vscode"
   },
   "engines": {
-    "vscode": "^1.80.0"
+    "vscode": "^1.91.0"
   },
   "categories": [
     "Programming Languages",
-    "Formatters"
+    "Formatters",
+    "Linters"
   ],
   "keywords": [
     "plutonium",
@@ -23,19 +24,23 @@
   ],
   "main": "./extension.js",
   "activationEvents": [
-    "onLanguage:plutonium"
+    "onLanguage:plutonium",
+    "workspaceContains:**/pluto.mod"
   ],
+  "scripts": {
+    "package": "vsce package --skip-license"
+  },
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "pluto fmt is not run in an untrusted workspace, and plutonium.plutoPath is read only from user settings there.",
+      "description": "pluto (the language server and pluto fmt) is not run in an untrusted workspace, and plutonium.plutoPath is read only from user settings there.",
       "restrictedConfigurations": [
         "plutonium.plutoPath"
       ]
     },
     "virtualWorkspaces": {
       "supported": "limited",
-      "description": "Formatting runs pluto on the local machine; highlighting works everywhere."
+      "description": "The language server and formatting run pluto on the local machine; highlighting works everywhere."
     }
   },
   "contributes": {
@@ -59,6 +64,26 @@
         "path": "./syntaxes/plutonium.tmLanguage.json"
       }
     ],
+    "commands": [
+      {
+        "command": "plutonium.restartLanguageServer",
+        "title": "Restart Language Server",
+        "category": "Plutonium"
+      },
+      {
+        "command": "plutonium.explainError",
+        "title": "Explain Error",
+        "category": "Plutonium"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "plutonium.explainError",
+          "when": "false"
+        }
+      ]
+    },
     "configuration": {
       "title": "Plutonium",
       "properties": {
@@ -66,13 +91,62 @@
           "type": "string",
           "default": "pluto",
           "scope": "machine-overridable",
-          "markdownDescription": "The `pluto` compiler used to format Plutonium source. A bare name is looked up on `PATH`; `~` and `${workspaceFolder}` are expanded."
+          "markdownDescription": "The `pluto` compiler, which runs the language server (`pluto lsp`) and formats Plutonium source. A bare name is looked up on `PATH`; `~` and `${workspaceFolder}` are expanded."
+        },
+        "plutonium.useLanguageServer": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Run the language server, `pluto lsp`, for diagnostics, hover, go to definition, references, symbols, completion, signature help, rename and formatting. When it is off, only formatting with `pluto fmt` is available."
+        },
+        "plutonium.target": {
+          "type": "string",
+          "enum": [
+            "x86_64-linux",
+            "x86_64-none"
+          ],
+          "default": "x86_64-linux",
+          "markdownDescription": "The target the language server checks code for, which selects files by their `//pu:build` lines and file name suffixes. A file that the target leaves out is checked in the first build mode that includes it."
+        },
+        "plutonium.mode": {
+          "type": "string",
+          "enum": [
+            "",
+            "hosted",
+            "freestanding",
+            "kernel"
+          ],
+          "enumDescriptions": [
+            "The target's default: hosted for x86_64-linux, freestanding for x86_64-none",
+            "A program running on Linux",
+            "No operating system",
+            "No operating system, with the kernel mode rules"
+          ],
+          "default": "",
+          "markdownDescription": "The build mode the language server checks code in, as `pluto build --mode`."
+        },
+        "plutonium.tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Additional build tags for the language server, as `pluto build --tags`."
+        },
+        "plutonium.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "markdownDescription": "Log the messages between VS Code and the language server to the *Plutonium* output."
         },
         "plutonium.formatTimeout": {
           "type": "number",
           "default": 10000,
           "minimum": 100,
-          "markdownDescription": "Milliseconds to wait for `pluto fmt` before giving up and leaving the document unchanged."
+          "markdownDescription": "Milliseconds to wait for `pluto fmt` before giving up and leaving the document unchanged (used when the language server is off)."
         }
       }
     },
@@ -82,5 +156,11 @@
         "editor.formatOnSave": true
       }
     }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^10.1.2"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^4.0.0"
   }
 }

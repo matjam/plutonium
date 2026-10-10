@@ -157,7 +157,7 @@ assertions, type switches. An interface value is two words: a pointer to a stati
   that wraps one pointer, `type wrapErr struct{ d *detail }`, can therefore be returned as an `error`, and
   two such interface values are equal when they hold the same pointer. A struct with one integer field
   is not covered: it is boxed like any other struct.
-- A larger value (a string, slice, array or struct) is copied into a temporary in the stack frame of the
+- A larger value (a string, slice, array, struct or union) is copied into a temporary in the stack frame of the
   function that performs the conversion, and the data word points at that copy. The interface value is
   valid until that function returns, exactly like a pointer to a local variable.
 
@@ -701,6 +701,178 @@ with an enum field.
 
 Enums do not provide bit-flag sets; packed `bits` groups do that.
 
+### 5.10 Unions
+
+A union type (a tagged union, or sum type) holds exactly one of a closed set of named variants, together
+with that variant's payload, stored inline: no allocation and no boxing, so a union can be returned,
+stored in package variables and put in arrays like a struct. It is the sibling of the enum, whose members
+have no payloads. The design and the alternatives considered are in the
+[sum types proposal](../plans/2026-10-09-sum-types-proposal.md) (option A).
+
+```
+UnionType       = "union" "{" { VariantDecl ";" } "}" .
+VariantDecl     = identifier { "," identifier } Type | identifier .
+PackedUnionType = "packed" "union" [ "le" | "be" ] Type "{" TagField ";" { PackedVariant ";" } "}" .
+TagField        = identifier PackedFieldType .
+PackedVariant   = identifier "case" ExpressionList "{" { PackedFieldDecl ";" } "}" .
+```
+
+```go
+type DeviceState union {
+	Off                                  // no payload
+	Probing struct{ attempt int }
+	Ready   struct {
+		irq  uint8
+		base uintptr
+	}
+	Failed syscall.Errno
+}
+
+var st DeviceState                       // zero value: Off, the first variant
+st = DeviceState.Probing{attempt: 1}
+st = DeviceState.Failed(syscall.EIO)
+
+switch s := st.(type) {
+case Off:
+	start()
+case Probing:
+	retry(s.attempt)                     // s is the payload, a struct{ attempt int }
+case Ready:
+	enableIRQ(s.irq)
+case Failed:
+	log("device failed:", s)             // s is a syscall.Errno
+}                                        // a missing case is a compile error
+```
+
+**Declaration.** A union type may only be the type of a type definition, as an enum, since its variants
+are reached through the type's name; it may have type parameters (a packed union may not). `union` is not
+a keyword: it begins a union type only as the type of a type declaration followed by `{`, or after
+`packed`, so Go code that uses `union` as an identifier still compiles. Variants are written like struct
+fields: a name and a payload type, or a name alone for a variant without a payload; `A, B T` declares two
+variants with the same payload type. A union has at least one variant; variant names are distinct, not
+`_`, and carry no tags. A payload may be any type, including an enum, an interface, a type parameter or
+another union; a union cannot contain itself except through a pointer. Unexported variants are not
+visible in other packages.
+
+**Construction.** For a variant `V` of union type `U`:
+
+- without a payload, `U.V` is a value of type `U`;
+- with a payload of type `P`, `U.V(x)` makes a `U` holding `x`, which must be assignable to `P` (as a
+  function argument); `U.V{...}` is a composite literal of `P` making a `U`; and `U.V` alone is a function
+  value of type `func(P) U`.
+
+`U` may be qualified by a package or instantiated: `pkg.U.V`, `Result[int].Ok(5)`. On a type name a
+variant takes precedence over a method of the same name. A variant is not a type: `var x U.V` is an error,
+and a payload, once selected, has its own payload type. `U{...}` is an error, as is `U.V{}` for a variant
+without a payload. There are no implicit conversions into a union: `var u U = x` and `u = nil` are errors,
+and a value of another union type with identical variants converts only explicitly.
+
+**Zero value.** The first variant, with its payload's zero value. Put the idle or empty state first.
+
+**Type switches.** `switch v := u.(type)` on a union value selects the variant `u` holds. Each case names
+variants: `U.V` (or `pkg.U.V`, `U[T].V`), or the bare name `V`, which in a case of such a switch denotes
+the variant whatever else the name denotes in scope, as an enum member does in an expression switch.
+Bare names are accepted nowhere else. In a clause naming one variant, `v` has that variant's payload type
+(`struct{}` for a variant without a payload); in a clause naming several, and in the default clause, it
+has type `U`. A union value is never nil, so there is no `nil` case; naming a variant twice is an error,
+and `fallthrough` is not allowed. A switch without a `default` case must name every variant, or it is a
+compile error that lists the missing ones:
+
+```
+dev.p:14:2: missing case in type switch on st (DeviceState): Failed (add it or a default case)
+    A type switch on a union value that has no default case must name every
+    variant. That way, adding a variant to the union shows every switch that
+    needs to handle it.
+    Add a case for each missing variant, or a default case if the remaining
+    variants share one action. A switch that names every variant needs no
+    default to end a function.
+    Go cannot check this for interfaces, whose set of types is open. A union's
+    variants are a closed set, so the compiler can tell when one is forgotten.
+    (see "Unions" in the Plutonium spec, section 5.10)
+    (run "pluto explain E2414" for a longer explanation)
+```
+
+The union errors have codes E2401 to E2415, explained by `pluto explain`.
+
+Such an exhaustive switch is a terminating statement when every clause is, so a function may end with it.
+A tag that names no variant can only come from `unsafe` code; the switch then panics.
+
+**Assertions.** `u.(U.V)` yields the payload of `V`, and panics (section 8) if `u` holds another variant;
+`p, ok := u.(U.V)` reports instead, with `p` the zero payload when `ok` is false. A bare variant name is
+not accepted here.
+
+**Operations.** A union is comparable if every payload type is; two values are equal when they hold the
+same variant with equal payloads. A union type may have methods and implement interfaces. Converting a
+union to an interface copies it into the frame like a struct (section 4.4); a type switch on the
+interface sees the union type, and a second switch on the union selects the variant. `fmt` prints a union
+that has no `String` method as its variant and payload: `Some(5)`, `Err(no such file or directory)`,
+`None`.
+
+**Generics.** Every instantiation of a generic union has the same variants, so a switch on a `Result[T]`
+in generic code is checked once for every `T`, and payload types may coincide (`Result[syscall.Errno]`).
+Variants are selected through the instance, `Result[int].Ok(5)`, or `Result[T].Ok(v)` in generic code. A
+union may be a type argument; unions cannot appear in constraints, where `A | B` keeps Go's meaning.
+
+**Layout.** A union is its tag, a `uint8` (a `uint16` for more than 256 variants) numbering the variants
+from 0 in declaration order, followed by the payload of the variant it holds at the first offset that
+satisfies the largest payload alignment; its size is rounded up to its alignment. `DeviceState` above is
+24 bytes. A variant without a payload takes no space beyond the tag. The layout is not part of the C ABI:
+unions are not allowed in `//pu:extern` or `//pu:export` signatures (abi.md sections 1 and 3).
+
+**Packed unions.** A packed union gives a bit-exact layout for hardware words and records whose shape
+depends on a tag bit:
+
+```go
+type PTE packed union uint64 {
+	present bits[bool, 1]                // the tag: shared by every variant
+
+	Swapped case false {
+		slot bits[uint64, 63]
+	}
+	Mapped case true {
+		writable bits[bool, 1]
+		user     bits[bool, 1]
+		_        bits[uint, 9]
+		frame    bits[uint64, 40]
+		_        bits[uint, 11]
+		nx       bits[bool, 1]
+	}
+}
+
+pte := PTE(table[i])                     // converting from the raw word never fails
+switch e := pte.(type) {
+case PTE.Mapped:
+	return uintptr(e.frame) << 12
+case PTE.Swapped:
+	return swapIn(e.slot)
+}
+```
+
+- The one field before the first variant is the tag: a `bool`, integer or enum field (section 5.5) that
+  occupies the same bits in every variant. A packed union has a backing type, which fixes its size.
+- Each variant lists the constant tag values that select it (`case false`, `case 1, 2`), each of the tag
+  field's type and fitting its width; no value selects two variants. Its fields follow the tag, laid
+  out by the packed rules of section 5.5.
+- A variant's payload is a packed type with the same storage holding the tag and the variant's fields:
+  in the switch above, `e.present` and `e.frame` are both fields of `e`. `PTE.Mapped(e)` converts a payload
+  back, keeping its tag if it is one of the variant's values and otherwise setting the first;
+  `PTE.Mapped{frame: f}` sets the tag to the variant's first value and may not set it itself.
+- A packed union converts to and from its backing type or a byte array of its size, like any packed type,
+  and is comparable as its bits. Its tag is readable as a field (`pte.present`); a variant's fields are not.
+- A type switch without a `default` case must cover every value the tag field can hold, since hardware
+  may hold any bit pattern; `PTE` above needs none, since its one-bit tag has two values.
+
+**Ownership.** A union whose payloads are all values is a value (section 6.2). A union with a variant
+whose payload is an owner must be declared `owner` like a struct (section 6.4): dropping it drops the
+payload of the variant it holds, giving it a new variant drops the old payload first, and moving a
+payload out through a type switch binding moves the whole union. The ownership checker does not exist
+yet, and until it does, a payload that holds an `owned`, `shared` or `synced` pointer (directly, or in a
+field, an array element or another union, but not behind a pointer) is a compile error, in a
+declaration or through a type argument.
+
+**Not yet.** Updating a variant's payload in place through a pointer (`(&u).(*U.V)`, proposal section 3)
+waits for real use; assign a new variant instead. Debug information describes a union as its size only.
+
 ## 6. Ownership
 
 Plutonium has no garbage collector, so every piece of memory a program uses has an owner that frees it,
@@ -767,7 +939,8 @@ func load() hash.Map[string, string] {
 ### 6.2 Values
 
 Integers, floats, booleans, enums, packed types, `volatile[T]` and `aligned[T, N]` of values, function
-values that capture nothing, and arrays and structs whose elements and fields are all values. They copy on
+values that capture nothing, and arrays, structs and unions whose elements, fields and payloads are all
+values. They copy on
 assignment, on passing and on return, and nothing happens when they go out of scope. This is Go's
 behaviour.
 
@@ -855,7 +1028,7 @@ The rules for where `owner` may appear:
   definition `type B A` where `A` is an owner must be written `type B owner A`. An unnamed struct type may
   not have owner fields. An unnamed array type `[N]T` and a ring `ring[T, N]` whose element is an owner
   are owners without a declaration, because their element type already says so; so is `aligned[T, N]` of
-  an owner. When sum types land, a union with an owner variant must be declared `owner` like a struct.
+  an owner. A union with an owner variant must be declared `owner` like a struct (section 5.10).
 - **`Drop` needs `owner`.** A method named `Drop` must have no parameters and no results, and may be
   declared only on a type declared `owner` (on `T` or `*T`). An owner without a `Drop` method is valid: its
   values still move, and dropping one drops its fields.
@@ -1793,7 +1966,8 @@ The following stop the program through the same path as `panic`:
 
 - an index or slice expression out of range,
 - integer division or remainder by zero,
-- a failed type assertion with a single result,
+- a failed type assertion with a single result, on an interface or a union (section 5.10),
+- a union whose tag names no variant, in a type switch without a default case,
 - `append` beyond capacity,
 - an allocation with no allocator set,
 - a `go` statement or channel operation with no scheduler set,
