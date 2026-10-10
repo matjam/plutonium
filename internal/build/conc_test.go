@@ -280,6 +280,48 @@ func main() {
 	run(func() { n++ })
 }
 `},
+		{name: "allocuse", want: "while used 2\nafter 2 restored true\n", src: `package main
+
+import (
+	"pluto/alloc"
+	"unsafe"
+)
+
+// counting counts the allocations made from it.
+type counting struct {
+	next alloc.Allocator
+	n    int
+}
+
+func (c *counting) Alloc(size, align uintptr) unsafe.Pointer {
+	c.n++
+	return c.next.Alloc(size, align)
+}
+
+func (c *counting) Free(p unsafe.Pointer, size, align uintptr) { c.next.Free(p, size, align) }
+
+var mine counting
+
+// other allocates with the program-wide default: alloc.Use in main does
+// not reach it.
+func other(done chan int) {
+	p := new(int)
+	*p = 5
+	done <- *p
+}
+
+func main() {
+	mine.next = alloc.Default()
+	r := alloc.Use(&mine)
+	done := make(chan int) // from mine: 1
+	go other(done)         // the new puroutine's stack, from mine: 2
+	<-done
+	println("while used", mine.n)
+	r.Restore()
+	_ = new(int)
+	println("after", mine.n, "restored", alloc.Default() == mine.next)
+}
+`},
 		{name: "interruptcontext", status: 2, want: "non-blocking send ok\nreceived 1\npanic: blocking operation in interrupt context\n", src: `package main
 
 import "pluto/rt"
