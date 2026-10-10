@@ -163,7 +163,7 @@ func TestHandFixNotes(t *testing.T) {
 		"encoding/binary.BigEndian.PutUint32: no translation",
 		"conversion between string and []rune",
 		"complex: Plutonium has no complex numbers",
-		"pluto/os has no Args",
+		"pluto/os has no Hostname",
 		`no Plutonium package for import "iter"`,
 	} {
 		if !strings.Contains(all, want) {

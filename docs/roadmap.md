@@ -183,7 +183,9 @@ later takes the next free number and is listed in the section where it belongs.
     until puroutines run in parallel).
 44. **`println` of floats matching Go** (planned): `rt.printFloat` prints six fixed decimals; Go prints
     `+1.500000e+000` style.
-45. **`time`** (planned): monotonic and wall clocks, durations, timers over the scheduler.
+45. **`time`** (in progress): `pluto/time` has `Duration` (with `AppendString` and `ParseDuration`),
+    `Time` in UTC with a monotonic reading, the calendar, `Now`, `Since`, `Until` and a thread-blocking
+    `Sleep` (item 53). Time zones, layout-based formatting and timers over the scheduler remain.
 46. **`net`** (planned, hosted): sockets over the epoll poller of item 14.
 47. **`fmt.Sprintf` returns a `strings.Buf`** (planned): settled by the ownership model (language spec
     section 6.6). `Sprintf` allocates and returns a `strings.Buf`; `Bprintf` keeps formatting into a
@@ -194,7 +196,10 @@ later takes the next free number and is listed in the section where it belongs.
     on first write, `String()` and `Bytes()` views, `Clone`), with `strings.Builder` merged into it; make
     `os.File` an owner returned by value from `Open`, `Create` and `OpenFile` that closes on drop; add
     `Clone` to `Vec`, `Map` and `Buf`. `arena.Chunked` (item 53) already releases through `Drop`;
-    declaring it `owner` is a one-line change to its type declaration.
+    declaring it `owner` is a one-line change to its type declaration, as it is for `os.DirEntries`,
+    `exec.Cmd` and `flag.FlagSet` (item 53). Converting the OS layer: `Open`, `Create`, `OpenFile` and
+    `Pipe` return `os.File` by value; `Getwd`, `MkdirTemp`, `exec.LookPath` and the `filepath`
+    `Append` functions gain forms returning a `strings.Buf`.
 52. **The `pu` mirror package for self-hosting** (planned): a Go package `pu` with `Map`, `Vec`, `Buf` and
     the other library owners, mirroring the Plutonium API, which the compiler's Go sources migrate to so
     that go2pu translates them one to one. Specified as an amendment in
@@ -220,3 +225,15 @@ later takes the next free number and is listed in the section where it belongs.
       on `Drop` (spares alone on `Trim`), can poison released memory, and is an `alloc.Allocator`. It is
       an owner by convention until the `owner` keyword lands (item 51). Tested by
       `testdata/lib/chunked.p` and `build.TestChunkedMisuse`.
+    - OS and process layer (done, Linux): `pluto/os` gains `Stat`/`Lstat`/`File.Stat` (a `FileInfo`
+      struct with Go's method names), `ReadFile` (a `vec.Vec[byte]`), `WriteFile`, `ReadDir` (a
+      `DirEntries` owner, sorted), `Mkdir`, `MkdirAll`, `Remove`, `RemoveAll`, `Rename`, `Chmod`,
+      `Getwd` and `MkdirTemp` into caller buffers, `Chdir`, `TempDir`, `Pipe`, `LookupEnv`,
+      `Environ`, `Args`, `Process` and `ProcessState`; files open with `O_CLOEXEC`. `pluto/os/exec`
+      runs commands with fork and execve, connecting each stream to `/dev/null`, a file, or a pipe
+      that `Wait` copies with `poll`; `ExitError` is a word. `pluto/path/filepath`, `pluto/time`
+      (item 45), `pluto/flag` and `io.ReadAll` complete it. Errors are `syscall.Errno` and
+      `*os.PathError`. Tested by `testdata/lib/osfs.p`, `exec.p` and `time.p` and the `filepath` and
+      `flag` package tests. What is left for item 51: `os.File` returned by value as an owner (today
+      `*File` from an allocator, freed with `alloc.Free`), and text results as `strings.Buf` where
+      functions now append to caller buffers.
