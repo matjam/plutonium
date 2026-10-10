@@ -93,8 +93,6 @@ func Close(fd int) error {
 }
 
 // Exit ends the process.
-//
-//pu:noreturn
 func Exit(code int) {
 	Syscall(SYS_EXIT_GROUP, uintptr(code), 0, 0)
 	for {

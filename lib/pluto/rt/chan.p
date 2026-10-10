@@ -10,10 +10,10 @@ import "unsafe"
 // (or, for select, in the select statement's case array), which stays put
 // while it is parked.
 //
-// Entry points that may block carry //pu:blocking; the non-blocking ones
+// The entry points that may block end in park; the non-blocking ones
 // (select with a default case, close, len, cap) never call a function that
-// does, so a checker of interrupt handlers can tell them apart from the
-// call graph.
+// does, so the compiler's check of interrupt handlers tells them apart from
+// the call graph.
 
 // An hchan is a channel. A chan value is its address.
 type hchan struct {
@@ -275,8 +275,6 @@ func panicSendClosed() {
 }
 
 // chansend1 implements ch <- v: ep points at v.
-//
-//pu:blocking
 func chansend1(p, ep unsafe.Pointer) {
 	c := (*hchan)(p)
 	if c == nil {
@@ -300,8 +298,6 @@ func chansend1(p, ep unsafe.Pointer) {
 
 // sendWait blocks until a receiver takes the value at ep, with c's lock
 // held on entry.
-//
-//pu:blocking
 func sendWait(c *hchan, ep unsafe.Pointer) {
 	var sg sudog
 	sg.g = current()
@@ -318,15 +314,11 @@ func sendWait(c *hchan, ep unsafe.Pointer) {
 }
 
 // chanrecv1 implements <-ch, storing the value at ep (unless ep is nil).
-//
-//pu:blocking
 func chanrecv1(p, ep unsafe.Pointer) {
 	chanrecv2(p, ep)
 }
 
 // chanrecv2 implements v, ok := <-ch.
-//
-//pu:blocking
 func chanrecv2(p, ep unsafe.Pointer) bool {
 	c := (*hchan)(p)
 	if c == nil {
@@ -346,8 +338,6 @@ func chanrecv2(p, ep unsafe.Pointer) bool {
 
 // recvWait blocks until a sender or close completes the receive, with c's
 // lock held on entry.
-//
-//pu:blocking
 func recvWait(c *hchan, ep unsafe.Pointer) bool {
 	var sg sudog
 	sg.g = current()
@@ -362,8 +352,6 @@ func recvWait(c *hchan, ep unsafe.Pointer) bool {
 
 // parkForever blocks the running puroutine for good, for reason r: an
 // operation on a nil channel, or select {}.
-//
-//pu:blocking
 func parkForever(r WaitReason) {
 	for {
 		ParkReason(r)
@@ -438,8 +426,6 @@ func chancap(p unsafe.Pointer) int {
 // points at n scases and order at 2n uint16s of scratch space, both in the
 // selecting frame. It returns the index of the case that proceeded and,
 // for a receive, whether a value was received.
-//
-//pu:blocking
 func selectgo(cases unsafe.Pointer, order *uint16, n int) (int, bool) {
 	if n == 0 {
 		parkForever(WaitSelectNoCases)
@@ -572,8 +558,6 @@ func selectPoll(scs []scase, pollorder, lockorder []uint16, norder int) (int, bo
 
 // selectWait waits on every case at once, with every channel locked on
 // entry, and returns the case that a sender, receiver or close completed.
-//
-//pu:blocking
 func selectWait(g *Task, scs []scase, lockorder []uint16, norder int) (int, bool) {
 	store32(&g.selectDone, 0)
 	g.param = nil

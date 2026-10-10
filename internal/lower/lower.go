@@ -83,6 +83,7 @@ type Lowerer struct {
 	flowTent       []string                   // tentative summaries
 	flowMin        int                        // the outermost summary being computed that was read
 	flowReported   map[token.Pos]bool         // returned closure records already reported
+	noRet          map[*types2.Func]int       // which functions never return (noreturn.go)
 	sched          *schedBinding              // the //pu:scheduler variable, or nil
 	schedMissing   bool                       // the missing-scheduler error has been reported
 	schedNoTimers  bool                       // the scheduler-without-timers error has been reported
@@ -178,6 +179,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		ctorMisused:    map[*types2.Func]bool{},
 		flowSums:       map[string]*flowSummary{},
 		flowReported:   map[token.Pos]bool{},
+		noRet:          map[*types2.Func]int{},
 		localTypes:     map[localKey]*types2.Named{},
 		countedTypes:   map[string]bool{},
 		errorSites:     map[*ast.CallExpr]*ssa.Sym{},

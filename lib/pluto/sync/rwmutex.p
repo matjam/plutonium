@@ -28,8 +28,6 @@ type RWMutex struct {
 }
 
 // RLock locks rw for reading.
-//
-//pu:blocking
 func (rw *RWMutex) RLock() {
 	if atomic.AddInt32(&rw.readerCount, 1) < 0 {
 		// A writer is pending: wait for it.
@@ -69,8 +67,6 @@ func (rw *RWMutex) rUnlockSlow(r int32) {
 }
 
 // Lock locks rw for writing.
-//
-//pu:blocking
 func (rw *RWMutex) Lock() {
 	rw.w.Lock()
 	// Tell readers a writer is pending.

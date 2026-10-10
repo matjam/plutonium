@@ -114,9 +114,10 @@ fatal: panic while handling a panic
 // os.Stderr, as TestHostedPanicHandler's does: File.Write reaches the
 // poller only through the ioWaiter interface, which only os.Pipe fills in.
 // Without a pipe the program has no ioWaiter to call and builds. With one,
-// the interrupt-context check follows that interface call into
-// poller.waitIO and reports the handler, since it cannot tell which File
-// the handler writes to.
+// the interrupt-context check follows that interface call into the
+// poller's wait and reports the handler, since it cannot tell which File
+// the handler writes to; the message names the call into the library, not
+// how the library goes on to wait.
 func TestHostedPanicHandlerPipe(t *testing.T) {
 	const handler = `package main
 
@@ -150,10 +151,7 @@ func main() {
 	msg := strings.Join(strings.Fields(b.String()), " ")
 	for _, want := range []string{
 		"main.p:10:2: onPanic is the panic handler, so it must not wait",
-		"onPanic calls os.Stderr.WriteString (main.p:10), which calls f.Write",
-		"which calls f.poll.Wait",
-		"which may be rt.(*PollDesc).Wait, which may wait.",
-		"f.poll.Wait calls through an interface, so it counts as calling the Wait method of every type the program converts to os.ioWaiter.",
+		"onPanic waits on os.Stderr (main.p:10).",
 		"The path goes through an os.File.",
 		"Write to rt.Console{} instead of os.Stderr in a panic or interrupt handler; os.File writes may wait for the poller: p.Print(rt.Console{})",
 	} {

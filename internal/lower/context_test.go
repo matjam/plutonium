@@ -74,6 +74,19 @@ func TestInterruptContext(t *testing.T) {
 			"which may be slowAlloc.Alloc, which calls wait",
 			"(main.p:43), which may wait.",
 			"a.Alloc calls through an interface, so it counts as calling the Alloc\n    method of every type the program converts to rt.Allocator."}},
+		// Kernel code makes strings without marking; the check follows the
+		// allocation into the allocator. The walk meets the allocator's Free
+		// (releasing the old value of last) before its Alloc, which must not
+		// resolve to Free.
+		{"string allocation", "type slowAlloc struct{}\n\n" +
+			"func (slowAlloc) Alloc(size, align uintptr) unsafe.Pointer {\n\twait()\n\treturn nil\n}\n\n" +
+			"func (slowAlloc) Free(p unsafe.Pointer, size, align uintptr) {}\n\n" +
+			"func init() { alloc.SetDefault(slowAlloc{}) }\n\nvar name, last string\n\n" +
+			"//pu:interrupt\nfunc keyboard(f *x86.InterruptFrame) {\n\tlast = name + \"!\"\n}\n", []string{
+			"main.p:55:9: " + irqWait,
+			"keyboard allocates (main.p:55)",
+			"which may be slowAlloc.Alloc, which calls wait",
+			"(main.p:43), which may wait."}},
 		{"panic handler waits", "//pu:interrupt\nfunc keyboard(f *x86.InterruptFrame) {\n\tvar a [4]int\n\ti := 5\n\ta[i%8] = 1\n}\n", []string{
 			"onPanic is the panic handler, so it must not wait\n" +
 				"    A panic can happen anywhere: in an interrupt handler, or while the code\n",

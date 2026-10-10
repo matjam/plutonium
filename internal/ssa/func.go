@@ -387,7 +387,6 @@ const (
 	PragmaInline Pragma = 1 << iota
 	PragmaNoInline
 	PragmaNoBounds
-	PragmaNoReturn
 	PragmaInterrupt
 	// PragmaNoSIMD (//pu:nosimd) keeps the optimiser from introducing
 	// vector instructions the function's own code does not ask for.
@@ -399,10 +398,6 @@ const (
 	// PragmaGenMaskOnly is PragmaGenCheck for the runtime and allocator,
 	// which remove tags without checking them.
 	PragmaGenMaskOnly
-	// PragmaBlocking (//pu:blocking) marks a function that may park the
-	// running puroutine or block its thread, which interrupt context must
-	// not reach (language spec section 9).
-	PragmaBlocking
 )
 
 // MayVectorize reports whether optimisations may introduce vector

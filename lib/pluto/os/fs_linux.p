@@ -94,8 +94,6 @@ func (m FileMode) Type() FileMode { return m & ModeType }
 
 // String returns m as Go's FileMode.String formats it, such as
 // "drwxr-xr-x" or "-rw-r--r--", in a new string.
-//
-//pu:alloc
 func (m FileMode) String() string {
 	var buf [32]byte
 	return string(m.AppendString(buf[:0]))
@@ -673,8 +671,6 @@ func isDots(name []byte) bool {
 // each invalid UTF-8 byte of the target replaced by U+FFFD (a link may
 // point anywhere, and a string holds only valid UTF-8; see AppendReadlink
 // for the exact bytes). A failure is a *PathError from a.
-//
-//pu:alloc
 func Readlink(name string, a alloc.Allocator = alloc.Default()) (string, error) {
 	var buf [maxPath]byte
 	b, err := readlink(buf[:0], strBytes(name), name, a)
@@ -720,8 +716,6 @@ func readlink(dst []byte, name []byte, sname string, a alloc.Allocator) ([]byte,
 // allocator. The directory's name is any bytes but NUL, so each byte that
 // is not valid UTF-8 is replaced by U+FFFD, as string(b) does; AppendWd
 // returns the exact bytes.
-//
-//pu:alloc
 func Getwd() (string, error) {
 	var buf [maxPath]byte
 	b, err := AppendWd(buf[:0])
@@ -793,8 +787,6 @@ func TempDirBytes() []byte {
 // allocator. If dir is "" and $TMPDIR is not valid UTF-8, the path
 // returned has U+FFFD for each invalid byte (AppendMkdirTemp returns the
 // exact bytes).
-//
-//pu:alloc
 func MkdirTemp(dir, pattern string, a alloc.Allocator = alloc.Default()) (string, error) {
 	var buf [maxPath]byte
 	b, err := AppendMkdirTemp(buf[:0], dir, pattern, a)

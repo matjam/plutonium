@@ -62,8 +62,6 @@ func (w *stringSink) string() string {
 // string, allocated from the current allocator, alloc.Default(). Bytes that
 // are not valid UTF-8 (from a %s of a []byte, say) become U+FFFD, as in
 // string(b).
-//
-//pu:alloc
 func Sprintf(format string, args ...any) string {
 	var w stringSink
 	var p printer
@@ -75,8 +73,6 @@ func Sprintf(format string, args ...any) string {
 
 // Sprint formats args with %v and returns the resulting string, adding
 // spaces between operands when neither is a string.
-//
-//pu:alloc
 func Sprint(args ...any) string {
 	var w stringSink
 	var p printer
@@ -88,8 +84,6 @@ func Sprint(args ...any) string {
 
 // Sprintln formats args with %v, separated by spaces and followed by a
 // newline, and returns the resulting string.
-//
-//pu:alloc
 func Sprintln(args ...any) string {
 	var w stringSink
 	var p printer

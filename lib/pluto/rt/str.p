@@ -462,6 +462,17 @@ func MakeString(p *byte, n int, ctl uintptr, ascii bool) string {
 	return *(*string)(unsafe.Pointer(&w))
 }
 
+// SliceBytewise returns s[lo:hi], with its bounds checked against len(s)
+// but not checked to be rune boundaries: the result may begin or end
+// inside a rune. It is for the library's byte-level searching
+// (pluto/strings), which compares and searches such slices, and returns
+// only what starts and ends at boundaries, since a match of valid UTF-8
+// does. A plain slice expression is checked (language spec section 6.10);
+// the compiler leaves the check out where it can prove the bounds are
+// boundaries. The compiler expands SliceBytewise inline, the call in its
+// body too.
+func SliceBytewise(s string, lo, hi int) string { return SliceBytewise(s, lo, hi) }
+
 // StringControl returns the control word of s: the address of its buffer's
 // header with the flag bits, or only the flags for a string nobody counts.
 // The compiler expands it inline.

@@ -107,33 +107,33 @@ func main() {
 	}
 }
 
-// TestStringsKernelAlloc checks that kernel code builds strings in
-// functions marked //pu:alloc, and only there (language spec section 12.7):
-// a program that does so compiles, and the errors for one that does not are
-// in cmd/pluto/testdata/diag/kernel_strings.
+// TestStringsKernelAlloc checks that kernel code builds strings as it
+// allocates with new and make, with no marking (language spec section
+// 12.7); that an interrupt handler may only where the allocator does not
+// wait is checked in internal/lower (TestInterruptContext).
 func TestStringsKernelAlloc(t *testing.T) {
 	dir := t.TempDir()
 	src := `package main
 
-import "pluto/rt"
+import (
+	"pluto/fmt"
+	"pluto/rt"
+)
 
-//pu:alloc
 func label(name string, b []byte) string {
-	f := func() string { return "irq " + name } // inherits //pu:alloc
-	return f() + string(b)
+	f := func() string { return "irq " + name }
+	return f() + string(b) + fmt.Sprintf("%d", len(b))
 }
 
-//pu:alloc
 func setup() string {
 	var b [2]byte
 	return label("x", b[:])
 }
 
 func handler(s string) int {
-	return len(s[1:]) // slicing and len never allocate
+	return len(s[1:])
 }
 
-//pu:alloc
 func main() {
 	_ = handler(setup())
 }

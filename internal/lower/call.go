@@ -94,7 +94,6 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 				return []value{s.expandCtor(c, targs, nil, args, s.typeOf(e), e.Pos())}
 			}
 			sym := s.l.funcSym(fn, targs)
-			s.checkAllocCall(fn, e.Pos())
 			args := s.callArgs(e, sig, &defaultsOf{fn, targs})
 			site := &callSite{desc: types2.ExprString(e.Fun)}
 			return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn), site: site}, sig, nil, args, e.Pos())
@@ -113,18 +112,6 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 func (s *fnState) isFuncInstance(x ast.Expr) bool {
 	_, ok := s.typeOf(x).Underlying().(*types2.Signature)
 	return ok
-}
-
-// isNoReturn reports whether a declared function carries //pu:noreturn.
-func (l *Lowerer) isNoReturn(fn *types2.Func) bool {
-	if d := l.decls[fn.Origin()]; d != nil {
-		for _, dir := range directives(d.decl.Doc) {
-			if dir == "noreturn" {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // An argSource is one argument of a call: an expression still to be
@@ -546,7 +533,6 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 	sym := s.l.funcSym(fn, targs)
 	full := s.l.methodSig(fn, targs)
 	recv = s.hold(recv)
-	s.checkAllocCall(fn, e.Pos())
 	args := s.callArgs(e, sig, &defaultsOf{fn, targs})
 	site := &callSite{desc: desc, recv: types2.ExprString(se.X)}
 	return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn), site: site}, full, &recv, args, e.Pos())

@@ -80,9 +80,9 @@ later takes the next free number and is listed in the section where it belongs.
 55. **Interrupt context cannot block** (done): a whole-program check from every `//pu:interrupt` handler
     and the panic handler against blocking channel operations, `go`, `//pu:blocking` functions and
     allocators that may wait, conservative through interfaces and func values (language spec section
-    12.6). Channel operations and `go` are found in the source, and their lowering calls `//pu:blocking`
-    runtime entries, so the walk sees them through library code too; `pluto/sync` marks its parking
-    operations `//pu:blocking`, and the bound scheduler's `Wake` is checked as interrupt context.
+    12.6). Channel operations and `go` are found in the source, and the walk follows library code into
+    the runtime's `park` and `spawn`, so nothing else in the library is marked (`park` is the one
+    `//pu:blocking` function); the bound scheduler's `Wake` is checked as interrupt context.
 
 ## Concurrency
 
@@ -233,7 +233,8 @@ later takes the next free number and is listed in the section where it belongs.
     `vec.Vec`, `hash.Map`, `hash.Set`, `alloc.Free`, `flag.FlagSet` and the error types release their
     strings. `fmt.Sprintf`, `strconv.Itoa`, `strings.Join` and the rest return strings again, as do
     `os.Getwd`, `filepath.Join` and `time.Duration.String`, with `Append` forms kept. In kernel mode the
-    allocating operations need `//pu:alloc` (E2544, E2545). Measured (2026-10-10, `bench`, Pu/Rust
+    allocating operations follow the rules of any allocation: the interrupt-context check follows them
+    into the allocator (a first version required `//pu:alloc`, E2544 and E2545, now retired). Measured (2026-10-10, `bench`, Pu/Rust
     geomean): 1.03 before, 1.00 after; after merging puroutines, 1.03 for main and 1.06 with counted
     strings in one run, whose gaps (heapsort, sha256) were noise: reruns timed both compilers within 2%.
     No benchmark builds strings in its loop. On a loop that passes struct fields to a search function, removing holds that

@@ -73,8 +73,6 @@ func (b *Builder) Init(a alloc.Allocator = alloc.Default()) {
 // rather than copying it, unless the buffer is the caller's (NewBuilder) or
 // the bytes are not valid UTF-8; either way the string stays valid after
 // the Builder changes or is freed.
-//
-//pu:alloc
 func (b *Builder) String() string {
 	n := len(b.buf)
 	if n == 0 {

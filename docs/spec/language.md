@@ -86,7 +86,7 @@ Each of these is a compile error that names the construct and the reason.
 Strings work as in Go otherwise. Runtime concatenation (`s + t`, `s += t`) and the conversions
 `string(b)`, `string(runes)`, `string(r)`, `[]byte(s)` and `[]rune(s)` allocate from the current
 allocator, and the strings they make are counted and freed when their last copy goes (section 6.10).
-In kernel mode they are allowed only in functions marked `//pu:alloc` (section 12.7).
+In kernel mode they follow the rules of any allocation (section 12.7).
 
 ## 4. What Plutonium changes
 
@@ -433,7 +433,8 @@ kernel's backend provides the clock and the hardware: a `Now` method, and an `Ar
 arranges for `rt.RunTimers()` to be called, typically from the timer interrupt, once a deadline has
 passed. Both are optional, so a kernel that never sleeps needs neither; a program that uses timers with
 a backend that lacks them fails to build. Arming and stopping a timer, and `rt.RunTimers`, never block
-and may be used in interrupt handlers; sleeping and `rt.ParkUntil` are `//pu:blocking`.
+and may be used in interrupt handlers; sleeping and `rt.ParkUntil` park the caller, so interrupt handlers
+must not reach them (section 12.6).
 
 The `time` API follows Go's where the language allows. Timers and tickers come from an allocator
 (`time.NewTimer(d, a)`, with the default allocator if none is given) and are freed with `alloc.Free`,
@@ -505,7 +506,7 @@ channel afterwards, and freeing one that puroutines wait on panics. A channel ma
 memory of `new`. When counting lands, `FreeChan` goes away.
 
 The operations that may wait (a send or receive, a `range` over a channel, a `select` without a
-`default` case) call runtime functions marked `//pu:blocking`; a `select` with a `default` case and
+`default` case) call runtime functions that park the caller; a `select` with a `default` case and
 `close`, `len` and `cap` never wait, so interrupt handlers may use them (section 12.6).
 
 Timeouts are channels too: `time.After(d)` and a `time.Timer`'s `C` receive the time once the timer
@@ -2416,7 +2417,14 @@ each string stored; the roadmap (item 55) records what it measured.
   invalid code points (surrogate halves, values above U+10FFFF, negative values) with U+FFFD, as in Go.
 - `s[i:j]` must start and end at the start of a rune (or at `len(s)`); otherwise it panics. The check
   reads the bytes at `i` and `j`, and the compiler leaves it out for an ASCII string and where it can
-  prove the bound is a rune boundary (offsets that `strings.Index` returns are).
+  prove the bound is a rune boundary: 0 and `len(s)`; a bound of an earlier slice of `s` that was
+  checked; an offset that advances by the width of the rune decoded there
+  (`_, w := utf8.DecodeRuneInString(s[i:]); i += w`, or the index of a `range` over `s`) or retreats by
+  the width of the rune before it (`utf8.DecodeLastRuneInString(s[:i])`); the index of a match that
+  `strings.Index`, `IndexRune`, `IndexFunc` and their relatives return, or `IndexByte` of an ASCII byte;
+  and, where the index is known not to be -1, the end of that match (`s[i+len(sep):]`). The library's
+  byte-level searching, which compares slices at offsets that need not be boundaries, slices with
+  `rt.SliceBytewise(s, i, j)`, which checks the bounds against `len(s)` only.
 - `len(s)` counts bytes, `s[i]` is a byte, `range` yields runes and comparison is bytewise, as in Go.
 - `unsafe.String(p, n)` is the escape hatch: it makes a string of `n` bytes at `p` without copying or
   checking them. Such a string is not counted (its control word has no buffer, and its flags say the
@@ -2469,7 +2477,7 @@ The compiler leaves out the counting that cannot be observed:
   and released; `return x` hands over `x`'s; a local whose address is not taken and that no function
   literal uses is read without a reference.
 
-In kernel mode, the operations that make new strings are restricted to functions marked `//pu:alloc`
+In kernel mode, the operations that make new strings allocate under the same rules as `new` and `make`
 (section 12.7).
 
 ## 7. Memory and allocation
@@ -2655,10 +2663,10 @@ func onPanic(p *rt.Panic) {
 - **Its declaration.** A plain function with a body, not a method, not generic, not also
   `//pu:interrupt`, declared `func name(p *rt.Panic)`.
 - **It never returns.** A panic has nothing to return to. The compiler checks that every path through the
-  handler ends in an endless loop or in a call of a function that never returns: one marked
-  `//pu:noreturn` (`os.Exit`, an assembly halt routine), or one whose every path ends that way, which the
-  compiler infers. A call that the compiler cannot see through (through a func value or interface, or
-  into recursion) counts as returning.
+  handler ends in an endless loop or in a call of a function that never returns (`os.Exit`, `rt.Abort`,
+  a function of the program's own whose every path ends that way), which the compiler works out from
+  the functions' bodies (section 13). A call that the compiler cannot see through (through a func value
+  or interface, or into recursion) counts as returning.
 - **A direct call.** The runtime's panic path calls the handler directly; nothing is registered at run
   time, so it works from the first instruction of the program, before any initialisation.
 - **It must not wait.** The handler runs on top of whatever panicked, possibly an interrupt handler or
@@ -2765,15 +2773,14 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | `//pu:export name` | function | also export the function under the symbol `name` |
 | `//pu:section name` | function or package variable | place it in the named section |
 | `//pu:interrupt` | function | an x86-64 interrupt handler: saves every register it may change, returns with `iretq` (section 12.4) |
-| `//pu:noreturn` | function | the function never returns (lets the optimiser drop code after calls) |
+| `//pu:noreturn` | body-less function | the assembly or C function never returns (lets the optimiser drop code after calls). A function with a body needs no directive: the compiler finds that it never returns when it has no return statement and its body ends in a terminating statement (Go's definition), counting a call of a function that never returns as one, so a panic, an endless loop and a call of `os.Exit` all count, through any number of calls |
 | `//pu:noescape` | body-less function | keeps no pointer argument past the call, except by storing it where another argument points (section 6.3) |
 | `//pu:resultholds p` | function returning an owner, in the standard library only (E3008 elsewhere) | keeps parameter `p` only while the result lives, and stores `p` in it; the call counts as returning `p` (section 6.3). The compiler checks that the result holds `p`; that its `Drop` gives `p` back is the author's promise |
 | `//pu:panic` | function | the program's panic handler, `func(p *rt.Panic)`; exactly one in freestanding and kernel builds (section 8.1) |
-| `//pu:blocking` | function (with or without a body) | calling it may wait (park the caller); interrupt handlers and the panic handler must not reach it (section 12.6) |
+| `//pu:blocking` | function (with or without a body) | kernel code and assembly: calling it may wait in a way the compiler cannot see (a kernel's spinning lock, a routine that halts until an interrupt); interrupt handlers and the panic handler must not reach it. Waits the compiler can see need no directive: it follows calls into the runtime's `park` (section 12.6) |
 | `//pu:scheduler` | package variable | the program's scheduler backend, of a type implementing `rt.Scheduler`; at most one in a program, replacing the hosted one (section 4.7) |
 | `//pu:nosimd` | function | the optimiser adds no vector instructions to it (implied by `//pu:interrupt`, and by kernel mode outside `//pu:fpu` functions) |
 | `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (section 12.3) |
-| `//pu:alloc` | function | allocates: may make strings in kernel mode, and only such functions may call it there (section 12.7) |
 | `//pu:percpu` | package variable | one copy per processor, addressed through `GS`; kernel mode only (section 12.5) |
 | `//pu:stack size` | `func main` | run the program on a stack of `size` bytes (`K`, `M` or `G` suffixes, 64K to 64G) that the hosted runtime reserves, maps as it is used and puts a 1 MiB guard region below; without it, main runs on the stack the system gave the process (usually 8 MiB). Hosted builds only |
 
@@ -2860,8 +2867,7 @@ enabled and no vector state saved on entry. It differs from `freestanding` in th
   a default kernel linker script (abi.md section 10.3) that places the image at 1 MiB physical and
   `0xFFFFFFFF80100000` virtual.
 
-Kernel mode also restricts the string operations that allocate to functions marked `//pu:alloc`
-(section 12.7), and enables per-CPU variables (section 12.5). `pluto/arch/x86` (section 12.4) and
+Kernel mode also enables per-CPU variables (section 12.5). `pluto/arch/x86` (section 12.4) and
 `//pu:interrupt` handlers work in every mode; in kernel mode a handler without `//pu:fpu` saves no vector
 registers. `pluto/os` and `pluto/syscall` are unavailable, as in every freestanding build. `pluto run`
 refuses kernel builds. Like every freestanding program, a kernel must define its panic handler (section
@@ -2990,10 +2996,10 @@ the processor stops. So nothing an interrupt handler can reach, and nothing the 
 
 - send or receive on a channel, except as a case of a `select` with a `default` case; run a `select`
   without a `default` case; or range over a channel;
-- call a function marked `//pu:blocking`: those that park the caller, such as `pluto/sync`'s
-  `Mutex.Lock` and `WaitGroup.Wait` and the runtime's parking operations, and any function a program
-  marks;
-- start a puroutine (`go`), which allocates a stack and takes the scheduler's locks;
+- call a function that may park the caller, such as `pluto/sync`'s `Mutex.Lock` and `WaitGroup.Wait`,
+  `time.Sleep` or `rt.Park`, or a function a program marks `//pu:blocking` (below);
+- start a puroutine (`go`, `rt.Go`, `sync.WaitGroup.Go`), which allocates a stack and takes the
+  scheduler's locks;
 - allocate from an allocator that may wait (below).
 
 Operations that do not wait are allowed: `select` with `default`, `TryLock`, readying a parked
@@ -3030,8 +3036,15 @@ irq.p:5:3: keyboard is an interrupt handler, so it must not wait
 A go statement on the path is reported the same way, as E2585 ("so it must not start a puroutine").
 
 - **What is followed.** Direct calls, method calls, deferred calls and the calls the compiler adds for
-  `new`, `make`, interface conversions and panics. It does not enter a `//pu:blocking` function, and a
-  path from an interrupt handler stops at the panic handler, which is checked on its own.
+  `new`, `make`, interface conversions and panics, into the standard library as into the program's own
+  code. A path ends at the runtime's `park`, which every wait in the library ends in, at the runtime's
+  `spawn`, which starts every puroutine, and at a function marked `//pu:blocking`; a path from an
+  interrupt handler stops at the panic handler, which is checked on its own. The message names the path
+  as far as the call that enters the standard library (`keyboard calls readConfig (irq.p:5), which waits
+  on cfgMutex (config.p:22)`), not how the library goes on to wait.
+- **`//pu:blocking`** is for what the compiler cannot see: a kernel's own primitive that waits for
+  another processor (a lock that spins until it is released, a routine that halts until an interrupt),
+  and assembly or C that waits. The standard library marks only `park`.
 - **Calls through interfaces and func values** cannot be resolved exactly, so the compiler is
   conservative, using what it knows about the whole program. A call of method `m` through an interface
   type `I` may reach `m` of every type the program converts to `I`, whether directly, from another
@@ -3041,48 +3054,51 @@ A go statement on the path is reported the same way, as E2585 ("so it must not s
   through such a call. To make a handler's call exact, call the function directly.
 - **Allocation.** An allocator is not marked as a whole: `new` and `make` call the allocator's `Alloc`
   through the `alloc.Allocator` interface, and the check follows that call into every allocator the
-  program installs. An allocator whose `Alloc` or `Free` may wait, because it takes a `//pu:blocking`
-  lock (a slab cache refilled under a `sync.Mutex`), is reported like any other function that may wait;
-  one that uses a spin lock with interrupts disabled, or none, is allowed. So `//pu:blocking` belongs on
-  the primitives that park, and no allocator needs a marking of its own. (The alternative, forbidding all
+  program installs. An allocator whose `Alloc` or `Free` may wait, because it takes a lock that parks
+  (a slab cache refilled under a `sync.Mutex`), is reported like any other function that may wait; one
+  that uses a spin lock with interrupts disabled, or none, is allowed. So no allocator needs a marking of
+  its own. (The alternative, forbidding all
   allocation in interrupt context unless an allocator is marked safe, was rejected: it would forbid the
   common, safe case of a lock-free per-CPU cache, and the marking could be wrong without the compiler
   noticing.)
 - **Assembly and C** are not looked into: a body-less function counts as not waiting unless its
   declaration is marked `//pu:blocking`.
-- **Non-blocking channel operations** lower to runtime functions that are not marked `//pu:blocking`
-  (`selectnb`, `closechan`), so that a `select` with `default` stays allowed; the waiting forms call
-  ones that are (`chansend1`, `chanrecv1`, `chanrecv2`, `selectgo`, `spawnGo`).
+- **Non-blocking channel operations** lower to runtime functions that never reach `park` (`selectnb`,
+  `closechan`), so that a `select` with `default` stays allowed; the waiting forms call ones that do
+  (`chansend1`, `chanrecv1`, `chanrecv2`, `selectgo`).
 - **The scheduler's `Wake`.** `rt.Ready` calls the bound scheduler's `Wake` (section 4.7), and interrupt
   handlers may call `rt.Ready`, so `Wake` is checked as a root too, with the message "is the
   scheduler's Wake, which interrupt handlers reach through rt.Ready".
 
 ### 12.7 Allocation in kernel mode
 
-Kernel code runs where allocating is not allowed: in interrupt handlers, with spin locks held, on paths
-that must not fail, and before the kernel has set a default allocator. Calls of `new`, `make` and the
-`pluto/alloc` functions are visible in the source, but the operations that make strings look like
-arithmetic and conversions. In kernel mode, therefore, these are compile errors outside functions marked
-`//pu:alloc`, as floats are outside `//pu:fpu` functions (section 12.3):
+Kernel code allocates as other code does: `new`, `make`, the `pluto/alloc` functions and the operations
+that make strings (`+` and `+=` on strings that are not constants, `string(b)` for a byte or rune slice,
+`string(r)` for a rune that is not a constant, `[]byte(s)`, `[]rune(s)`, and library functions that
+return new strings, such as `fmt.Sprintf` and `strconv.Itoa`) all take memory from the current
+allocator, and no function needs a marking to use them. Where allocating is not allowed is decided by
+what the allocator does, not by which operation calls it:
 
-- `+` and `+=` on strings that are not constants;
-- `string(b)` for a byte or rune slice, `string(r)` for a rune that is not a constant, `[]byte(s)` and
-  `[]rune(s)`;
-- a call of a function marked `//pu:alloc`. The library marks the functions that allocate behind their
-  signature: `fmt.Sprintf`, `fmt.Errorf`, `strconv.Itoa`, `strings.Repeat`, `strings.Join` and the like.
+- **In interrupt context.** Whatever an interrupt handler, the panic handler or the scheduler's `Wake`
+  can reach must not wait (section 12.6), and the compiler follows every allocation, a string
+  concatenation as much as a `new`, into the `Alloc` method of every allocator the program installs.
+  An allocator that may wait (one that takes a `sync.Mutex`) is reported on the path that allocates; one
+  that does not (a per-CPU cache, a spin lock with interrupts disabled) may be used there.
+- **Before an allocator is set.** A kernel starts without a default allocator. Allocating before
+  `alloc.SetDefault` panics when it runs, for strings ("no allocator: call alloc.SetDefault before
+  building strings") as for `new` and `make`.
+- **When memory runs out.** The allocator returns nil and the operation panics with "out of memory".
 
-Everything else about strings stays allowed everywhere: literals and constants, copying, comparison,
-slicing, indexing, `len`, `range`, passing and returning, `unsafe.String`, and the functions that write
-into a buffer the caller provides (`fmt.Bprintf`, `strconv.AppendInt`). Copying and dropping a counted
-string made elsewhere is allowed, and a drop may free a buffer: a kernel that cannot free in some context
-keeps the strings it uses there static or made in an arena.
+Everything about strings that does not make a new one never allocates: literals and constants,
+copying, comparison, slicing, indexing, `len`, `range`, passing and returning, `unsafe.String`, and the
+functions that write into a buffer the caller provides (`fmt.Bprintf`, `strconv.AppendInt`). Copying
+and dropping a counted string made elsewhere is allowed, and a drop may free a buffer: a kernel that
+cannot free in some context keeps the strings it uses there static or made in an arena.
 
-`//pu:alloc` marks a function as one that allocates: in kernel mode it may make strings, and only
-functions marked `//pu:alloc` may call it. Function literals inside it inherit the mark. Calls through
-function values and interfaces are not checked. In hosted and freestanding builds the directive has no
-effect beyond documentation. It is a promise the compiler cannot check, as with `//pu:fpu`: the function
-must run only where the current allocator may be used. Section 12.6 is the other half: whatever an
-interrupt handler reaches, including an allocator's `Alloc` and `Free`, must not wait.
+An earlier design required kernel functions that make strings to be marked `//pu:alloc`, to make the
+allocation visible. It was retired once the check of section 12.6 followed allocation into the
+allocator, which tells the places where allocating is wrong from the places where it is fine, while the
+marking only said that a function allocates.
 
 ## 13. Standard library
 
@@ -3092,7 +3108,7 @@ hold, and most have a `Clone`.
 | Package | Contents |
 |---|---|
 | `pluto/rt` | panic hook, program entry, memory copy and compare primitives the compiler calls, the scheduler contract (`Scheduler`, `Task`, `Switch`, `Park`, `Ready`, `Preempt`), timers (`Now`, `Timer`, `ParkUntil`, `RunTimers`), `Go`, `Yield`, the hosted scheduler |
-| `pluto/sync` | `Mutex`, `RWMutex`, `WaitGroup` (with `Go`), `Once`, `Cond` over the scheduler; the operations that park are `//pu:blocking` |
+| `pluto/sync` | `Mutex`, `RWMutex`, `WaitGroup` (with `Go`), `Once`, `Cond` over the scheduler; interrupt handlers must not reach the operations that park |
 | `pluto/alloc` | allocators, the default allocator, `Use`/`Restore`, `Owned`/`Shared`/`Synced`, and the unchecked layer `Raw`/`New`/`Free` (section 7.1) |
 | `pluto/alloc/debug` | the checking allocator (section 7.3) |
 | `pluto/arena` | bump allocators; freeing into one does nothing, and `Reset` reclaims everything (section 6.6) |

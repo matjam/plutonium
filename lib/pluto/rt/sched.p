@@ -473,16 +473,16 @@ func (t *Task) Parked() bool { return load32(&t.wake) == wakeParked }
 // processor, between the moment the task made itself known to its waker
 // and its call of Park), Park consumes the permit and returns at once.
 // Park panics if preemption is disabled.
-//
-//pu:blocking
 func Park() { park(WaitUnknown) }
 
 // ParkReason is Park for a task that can say what it waits for, which
 // traces of parked tasks show.
-//
-//pu:blocking
 func ParkReason(r WaitReason) { park(r) }
 
+// park suspends the running task until Ready. Every wait in the library
+// ends here: the compiler finds the code that may wait, which interrupt
+// handlers must not reach, by following calls to this function.
+//
 //pu:blocking
 func park(r WaitReason) {
 	startTasks()
@@ -615,8 +615,6 @@ func preemptPark() uintptr {
 // MinStackSize), allocated from a. It is the go statement with an explicit
 // stack (language spec section 4.7). f must not capture variables: Go
 // panics if f's closure record lies in the calling task's stack.
-//
-//pu:blocking
 func Go(f func(), size uintptr, a Allocator = DefaultAllocator()) {
 	rec := *(*unsafe.Pointer)(unsafe.Pointer(&f))
 	checkGoFunc(rec)
@@ -635,8 +633,6 @@ func CheckGoFunc(f func()) {
 // compiler-generated function that takes the address of the argument
 // block, args, which is copied onto the new task's stack. bound is the
 // stack the compiler proved the call needs, or 0 if it could not.
-//
-//pu:blocking
 func spawnGo(fn, args unsafe.Pointer, argSize, argAlign, bound uintptr) {
 	req := StackRequest{Size: DefaultStackSize, Alloc: DefaultAllocator()}
 	if bound != 0 {

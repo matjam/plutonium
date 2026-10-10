@@ -154,7 +154,7 @@ func TestCatalogStyle(t *testing.T) {
 	}
 	// The rules that differ from Go say why.
 	for _, c := range []Code{CheckerCode(typerr.MapNotPermitted), CheckerCode(typerr.ErrorsNewNotConstant),
-		CheckerCode(typerr.MissingEnumCase), KernelFloat, DeferInLoop, KernelStringAlloc, KernelAllocCall} {
+		CheckerCode(typerr.MissingEnumCase), KernelFloat, DeferInLoop} {
 		if Lookup(c).Why == "" {
 			t.Errorf("%s: no reason why Plutonium differs from Go", c)
 		}

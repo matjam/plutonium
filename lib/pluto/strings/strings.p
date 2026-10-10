@@ -25,6 +25,7 @@
 package strings
 
 import (
+	"pluto/rt"
 	"pluto/unicode/utf8"
 	"unsafe"
 )
@@ -42,22 +43,18 @@ func Compare(a, b string) int {
 }
 
 // The searching functions below compare bytes, so they slice their
-// arguments at byte offsets that need not be rune boundaries (//pu:bytewise);
-// a match of a valid UTF-8 needle starts and ends at boundaries, so what
-// they return is whole runes.
+// arguments at byte offsets that need not be rune boundaries
+// (rt.SliceBytewise); a match of a valid UTF-8 needle starts and ends at
+// boundaries, so what they return is whole runes.
 
 // HasPrefix reports whether s begins with prefix.
-//
-//pu:bytewise
 func HasPrefix(s, prefix string) bool {
-	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+	return len(s) >= len(prefix) && rt.SliceBytewise(s, 0, len(prefix)) == prefix
 }
 
 // HasSuffix reports whether s ends with suffix.
-//
-//pu:bytewise
 func HasSuffix(s, suffix string) bool {
-	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
+	return len(s) >= len(suffix) && rt.SliceBytewise(s, len(s)-len(suffix), len(s)) == suffix
 }
 
 // IndexByte returns the index of the first instance of c in s, or -1 if c
@@ -84,8 +81,6 @@ func LastIndexByte(s string, c byte) int {
 
 // Index returns the index of the first instance of substr in s, or -1 if
 // substr is not present in s.
-//
-//pu:bytewise
 func Index(s, substr string) int {
 	n := len(substr)
 	switch {
@@ -108,13 +103,13 @@ func Index(s, substr string) int {
 	fails := 0
 	for i < t {
 		if s[i] != c0 {
-			o := IndexByte(s[i+1:t], c0)
+			o := IndexByte(rt.SliceBytewise(s, i+1, t), c0)
 			if o < 0 {
 				return -1
 			}
 			i += o + 1
 		}
-		if s[i+1] == c1 && s[i:i+n] == substr {
+		if s[i+1] == c1 && rt.SliceBytewise(s, i, i+n) == substr {
 			return i
 		}
 		i++
@@ -122,7 +117,7 @@ func Index(s, substr string) int {
 		if fails >= 4+i>>4 && i < t {
 			// Too many false positives on the first two bytes: switch to
 			// Rabin-Karp, which is linear in the worst case.
-			j := indexRabinKarp(s[i:], substr)
+			j := indexRabinKarp(rt.SliceBytewise(s, i, len(s)), substr)
 			if j < 0 {
 				return -1
 			}
@@ -171,8 +166,6 @@ func hashStrRev(sep string) (uint32, uint32) {
 
 // indexRabinKarp uses the Rabin-Karp search algorithm to return the index
 // of the first occurrence of sep in s, or -1 if not present.
-//
-//pu:bytewise
 func indexRabinKarp(s, sep string) int {
 	hashss, pow := hashStr(sep)
 	n := len(sep)
@@ -183,7 +176,7 @@ func indexRabinKarp(s, sep string) int {
 	for i := 0; i < n; i++ {
 		h = h*primeRK + uint32(s[i])
 	}
-	if h == hashss && s[:n] == sep {
+	if h == hashss && rt.SliceBytewise(s, 0, n) == sep {
 		return 0
 	}
 	for i := n; i < len(s); {
@@ -191,7 +184,7 @@ func indexRabinKarp(s, sep string) int {
 		h += uint32(s[i])
 		h -= pow * uint32(s[i-n])
 		i++
-		if h == hashss && s[i-n:i] == sep {
+		if h == hashss && rt.SliceBytewise(s, i-n, i) == sep {
 			return i - n
 		}
 	}
@@ -200,8 +193,6 @@ func indexRabinKarp(s, sep string) int {
 
 // LastIndex returns the index of the last instance of substr in s, or -1 if
 // substr is not present in s.
-//
-//pu:bytewise
 func LastIndex(s, substr string) int {
 	n := len(substr)
 	switch {
@@ -224,14 +215,14 @@ func LastIndex(s, substr string) int {
 	for i := len(s) - 1; i >= last; i-- {
 		h = h*primeRK + uint32(s[i])
 	}
-	if h == hashss && s[last:] == substr {
+	if h == hashss && rt.SliceBytewise(s, last, len(s)) == substr {
 		return last
 	}
 	for i := last - 1; i >= 0; i-- {
 		h *= primeRK
 		h += uint32(s[i])
 		h -= pow * uint32(s[i+n])
-		if h == hashss && s[i:i+n] == substr {
+		if h == hashss && rt.SliceBytewise(s, i, i+n) == substr {
 			return i
 		}
 	}
@@ -242,15 +233,13 @@ func LastIndex(s, substr string) int {
 // point r, or -1 if rune is not present in s. If r is utf8.RuneError, it
 // returns the first U+FFFD in s (or, for the bytes package's views of bytes
 // that are not valid UTF-8, the first invalid byte sequence).
-//
-//pu:bytewise
 func IndexRune(s string, r rune) int {
 	switch {
 	case 0 <= r && r < utf8.RuneSelf:
 		return IndexByte(s, byte(r))
 	case r == utf8.RuneError:
 		for i := 0; i < len(s); {
-			c, size := utf8.DecodeRuneInString(s[i:])
+			c, size := utf8.DecodeRuneInString(rt.SliceBytewise(s, i, len(s)))
 			if c == utf8.RuneError {
 				return i
 			}
@@ -277,11 +266,9 @@ func LastIndexFunc(s string, f func(rune) bool) int { return lastIndexFunc(s, f,
 
 // indexFunc is the same as IndexFunc except that if truth==false, the sense
 // of the predicate function is inverted.
-//
-//pu:bytewise
 func indexFunc(s string, f func(rune) bool, truth bool) int {
 	for i := 0; i < len(s); {
-		r, size := utf8.DecodeRuneInString(s[i:])
+		r, size := utf8.DecodeRuneInString(rt.SliceBytewise(s, i, len(s)))
 		if f(r) == truth {
 			return i
 		}
@@ -292,11 +279,9 @@ func indexFunc(s string, f func(rune) bool, truth bool) int {
 
 // lastIndexFunc is the same as LastIndexFunc except that if truth==false,
 // the sense of the predicate function is inverted.
-//
-//pu:bytewise
 func lastIndexFunc(s string, f func(rune) bool, truth bool) int {
 	for i := len(s); i > 0; {
-		r, size := utf8.DecodeLastRuneInString(s[0:i])
+		r, size := utf8.DecodeLastRuneInString(rt.SliceBytewise(s, 0, i))
 		i -= size
 		if f(r) == truth {
 			return i
@@ -308,8 +293,6 @@ func lastIndexFunc(s string, f func(rune) bool, truth bool) int {
 // IndexAny returns the index of the first instance of any Unicode code point
 // from chars in s, or -1 if no Unicode code point from chars is present in
 // s.
-//
-//pu:bytewise
 func IndexAny(s, chars string) int {
 	if chars == "" {
 		return -1
@@ -330,7 +313,7 @@ func IndexAny(s, chars string) int {
 		return -1
 	}
 	for i := 0; i < len(s); {
-		r, size := utf8.DecodeRuneInString(s[i:])
+		r, size := utf8.DecodeRuneInString(rt.SliceBytewise(s, i, len(s)))
 		if IndexRune(chars, r) >= 0 {
 			return i
 		}
@@ -342,8 +325,6 @@ func IndexAny(s, chars string) int {
 // LastIndexAny returns the index of the last instance of any Unicode code
 // point from chars in s, or -1 if no Unicode code point from chars is
 // present in s.
-//
-//pu:bytewise
 func LastIndexAny(s, chars string) int {
 	if chars == "" {
 		return -1
@@ -367,7 +348,7 @@ func LastIndexAny(s, chars string) int {
 		return -1
 	}
 	for i := len(s); i > 0; {
-		r, size := utf8.DecodeLastRuneInString(s[:i])
+		r, size := utf8.DecodeLastRuneInString(rt.SliceBytewise(s, 0, i))
 		i -= size
 		if IndexRune(chars, r) >= 0 {
 			return i
@@ -392,8 +373,6 @@ func ContainsFunc(s string, f func(rune) bool) bool { return IndexFunc(s, f) >= 
 // Count counts the number of non-overlapping instances of substr in s. If
 // substr is an empty string, Count returns 1 + the number of Unicode code
 // points in s.
-//
-//pu:bytewise
 func Count(s, substr string) int {
 	if len(substr) == 0 {
 		return utf8.RuneCountInString(s) + 1
@@ -415,7 +394,7 @@ func Count(s, substr string) int {
 			return n
 		}
 		n++
-		s = s[i+len(substr):]
+		s = rt.SliceBytewise(s, i+len(substr), len(s))
 	}
 }
 
@@ -452,8 +431,6 @@ func CutSuffix(s, suffix string) (before string, found bool) {
 // EqualFold reports whether s and t, interpreted as UTF-8 strings, are equal
 // under simple case folding. Only ASCII letters fold; other code points must
 // match exactly.
-//
-//pu:bytewise
 func EqualFold(s, t string) bool {
 	i := 0
 	for ; i < len(s) && i < len(t); i++ {
@@ -477,13 +454,13 @@ func EqualFold(s, t string) bool {
 	return len(s) == len(t)
 
 hasUnicode:
-	s = s[i:]
-	t = t[i:]
+	s = rt.SliceBytewise(s, i, len(s))
+	t = rt.SliceBytewise(t, i, len(t))
 	for len(s) > 0 && len(t) > 0 {
 		sr, ss := utf8.DecodeRuneInString(s)
 		tr, ts := utf8.DecodeRuneInString(t)
-		s = s[ss:]
-		t = t[ts:]
+		s = rt.SliceBytewise(s, ss, len(s))
+		t = rt.SliceBytewise(t, ts, len(t))
 		if tr == sr {
 			continue
 		}

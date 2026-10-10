@@ -648,8 +648,8 @@ assembly stubs that refer to it.
 
 The handler may call ordinary functions: they run on a 16-byte aligned stack with the direction flag
 clear, as section 2 requires, and every register they may change is restored before `iretq`. Nothing it
-can reach may wait or start a puroutine: no blocking channel operation, no call of a `//pu:blocking`
-function, no `go` statement, no allocator that may wait. The compiler checks this over the whole program
+can reach may wait or start a puroutine: no blocking channel operation, no call that reaches the
+runtime's `park` or a `//pu:blocking` function, no `go` statement, no allocator that may wait. The compiler checks this over the whole program
 (language spec section 12.6), and the same for the panic handler, which can run on top of a handler.
 
 A panic inside a handler, or a fault an exception handler reports with `rt.PanicFault`, goes to the
@@ -941,10 +941,10 @@ from. The operations call the runtime with the address of a temporary holding (o
 | Operation | Runtime call |
 |---|---|
 | `make(chan T, n)`, `make(chan T, n, a)` | `makechan(size, align, n)`, `makechanWith(a, size, align, n)` |
-| `ch <- v` | `chansend1(c, &v)` (`//pu:blocking`) |
-| `<-ch`, `v, ok := <-ch`, `for v := range ch` | `chanrecv1(c, &v)`, `chanrecv2(c, &v) bool` (`//pu:blocking`) |
+| `ch <- v` | `chansend1(c, &v)` (may park) |
+| `<-ch`, `v, ok := <-ch`, `for v := range ch` | `chanrecv1(c, &v)`, `chanrecv2(c, &v) bool` (may park) |
 | `close(ch)`, `len(ch)`, `cap(ch)` | `closechan(c)`, `chanlen(c)`, `chancap(c)` |
-| `select` without `default` | `selectgo(cases, order, n) (int, bool)` (`//pu:blocking`) |
+| `select` without `default` | `selectgo(cases, order, n) (int, bool)` (may park) |
 | `select` with `default` | `selectnb(cases, order, n) (int, bool)`, -1 for the default |
 
 A select's cases are an array of `n` `rt.scase` in the selecting frame, `{c, elem, kind, sudog}` with

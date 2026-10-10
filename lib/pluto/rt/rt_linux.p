@@ -43,7 +43,6 @@ func mainStackSize() uintptr
 // argc, then the argv pointers, a nil, then the environment pointers.
 //
 //pu:export
-//pu:noreturn
 func start(sp unsafe.Pointer) {
 	argc = *(*int)(sp)
 	bootTask.stackHi = uintptr(sp) // so a go statement can tell a closure in this stack
@@ -69,7 +68,6 @@ func runOnStack(top uintptr)
 // mainOnStack runs the program on the stack reserved for //pu:stack.
 //
 //pu:export
-//pu:noreturn
 func mainOnStack() { Exit(int(programMain())) }
 
 // stackGuard is the inaccessible region below a reserved stack: as large as
@@ -195,8 +193,6 @@ func sigpipe(sig int32, info, ctx unsafe.Pointer) {}
 // SIGPIPE. pluto/os calls it when a write to standard output or standard
 // error fails with EPIPE, as Go's os package does; a write to any other
 // descriptor reports the error.
-//
-//pu:noreturn
 func DieFromSigpipe() {
 	sa := sigactionT{} // SIG_DFL
 	syscall6(sysRtSigaction, sigPIPE, uintptr(unsafe.Pointer(&sa)), 0, 8, 0, 0)
@@ -213,7 +209,6 @@ func DieFromSigpipe() {
 // the exit hook.
 //
 //pu:export
-//pu:noreturn
 func sigpanic(sig int32, info, ctx unsafe.Pointer) {
 	const pfWrite = 0x2                              // page fault error code: the access was a write
 	addr := *(*uintptr)(unsafe.Add(info, 16))        // si_addr
@@ -260,8 +255,6 @@ func signalName(sig int) string {
 // defaultPanic is the panic handler of a hosted program that does not
 // define one: it prints the panic to standard error and exits with status
 // 2, without running the exit hook.
-//
-//pu:noreturn
 func defaultPanic(p *Panic) {
 	p.Print(Console{})
 	exit(2)
@@ -276,8 +269,6 @@ func cpuNumber() int { return 0 }
 
 // otherPanicking stops a thread that panics while another handles a
 // panic: it waits until that one ends the process.
-//
-//pu:noreturn
 func otherPanicking() {
 	for {
 		syscall3(sysPause, 0, 0, 0)
@@ -287,8 +278,6 @@ func otherPanicking() {
 // lastResort ends the process after a panic inside the panic handler, or
 // while a panic's message was being written: it writes a fixed message
 // with a raw system call and exits with status 2.
-//
-//pu:noreturn
 func lastResort() {
 	const msg = "fatal: panic while handling a panic\n"
 	syscall3(sysWrite, 2, uintptr(unsafe.Pointer(unsafe.StringData(msg))), uintptr(len(msg)))
@@ -303,8 +292,6 @@ func Args() (int, unsafe.Pointer) { return argc, argv }
 func Environ() unsafe.Pointer { return envp }
 
 // exit ends the process.
-//
-//pu:noreturn
 func exit(code int) {
 	syscall3(sysExitGroup, uintptr(code), 0, 0)
 	for {
@@ -313,8 +300,6 @@ func exit(code int) {
 
 // Exit ends the process with the given status, after running the exit hook
 // if one is set.
-//
-//pu:noreturn
 func Exit(code int) {
 	flushStackCache()
 	if h := exitHook; h != nil {

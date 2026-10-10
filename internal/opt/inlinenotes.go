@@ -48,14 +48,19 @@ func note(why map[*ssa.Value]string, v *ssa.Value, g *ssa.Func, reason string) {
 	}
 }
 
-// noteBlock records reason for every call in b to a //pu:inline function.
+// noteBlock records reason for every call in b to a //pu:inline function,
+// or that the function never returns, for the call that ends a panic path.
 func noteBlock(why map[*ssa.Value]string, b *ssa.Block, funcs map[*ssa.Sym]*ssa.Func, reason string) {
 	if why == nil {
 		return
 	}
 	for _, v := range b.Values {
 		if g := callTarget(v, funcs); g != nil {
-			note(why, v, g, reason)
+			if v.Call != nil && v.Call.NoReturn && !returns(g) {
+				note(why, v, g, "it never returns")
+			} else {
+				note(why, v, g, reason)
+			}
 		}
 	}
 }

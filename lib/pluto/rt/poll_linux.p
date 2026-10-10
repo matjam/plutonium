@@ -132,8 +132,6 @@ func (pd *PollDesc) Release() {
 // wakes all those waiting for it. PollClosed is returned if Evict was
 // called, whether before or during the wait; PollUnavailable if there is
 // no poller.
-//
-//pu:blocking
 func (pd *PollDesc) Wait(write bool) int {
 	startTasks()
 	g := current()

@@ -42,8 +42,6 @@ func (wg *WaitGroup) Done() { wg.Add(-1) }
 // Go starts f in a new puroutine counted by wg, as Go 1.25's
 // WaitGroup.Go does: Add(1), then Done when f returns. f must not capture
 // variables (language spec section 4.7).
-//
-//pu:blocking
 func (wg *WaitGroup) Go(f func()) {
 	wg.Add(1)
 	// The puroutine uses wg until its Done, which a Wait on wg waits for:
@@ -60,8 +58,6 @@ func runDone(wg *WaitGroup, f func()) {
 }
 
 // Wait parks until the counter is zero.
-//
-//pu:blocking
 func (wg *WaitGroup) Wait() {
 	wg.mu.Lock()
 	if wg.n == 0 {
@@ -84,15 +80,12 @@ type Once struct {
 // Do calls f if and only if Do is called for the first time on this Once.
 // Every call returns after f has returned: the return of f is
 // synchronised before the return of every Do.
-//
-//pu:blocking
 func (o *Once) Do(f func()) {
 	if atomic.LoadUint32(&o.done) == 0 {
 		o.doSlow(f)
 	}
 }
 
-//pu:blocking
 func (o *Once) doSlow(f func()) {
 	o.m.Lock()
 	if o.done == 0 {
@@ -122,8 +115,6 @@ func NewCond(l Locker, a alloc.Allocator = alloc.Default()) *Cond {
 // Wait unlocks c.L, parks until Signal or Broadcast wakes it, and locks
 // c.L again before it returns. As in Go, the caller must check its
 // condition in a loop.
-//
-//pu:blocking
 func (c *Cond) Wait() {
 	var w waiter
 	w.t = self()

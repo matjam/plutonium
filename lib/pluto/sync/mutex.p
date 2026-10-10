@@ -24,8 +24,6 @@ type Mutex struct {
 }
 
 // Lock locks m, waiting until it is available.
-//
-//pu:blocking
 func (m *Mutex) Lock() {
 	if atomic.CompareAndSwapUint32(&m.state, 0, mutexLocked) {
 		return
@@ -33,7 +31,6 @@ func (m *Mutex) Lock() {
 	m.lockSlow()
 }
 
-//pu:blocking
 func (m *Mutex) lockSlow() {
 	front := false
 	for {
@@ -123,7 +120,6 @@ type sema struct {
 	q  waitQueue
 }
 
-//pu:blocking
 func (s *sema) acquire(r rt.WaitReason) {
 	s.mu.Lock()
 	if s.n > 0 {

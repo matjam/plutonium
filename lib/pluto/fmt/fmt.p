@@ -474,18 +474,16 @@ func (p *printer) fmtSbx(s string, upper bool) {
 
 // truncate cuts s to the precision, if any, in runes; a byte that is not
 // valid UTF-8 counts as one rune. s may view a []byte, so its bytes need
-// not be valid UTF-8 (//pu:bytewise).
-//
-//pu:bytewise
+// not be valid UTF-8 (rt.SliceBytewise).
 func (p *printer) truncate(s string) string {
 	if p.hasPrec {
 		n := p.prec
 		for i := 0; i < len(s); {
 			n--
 			if n < 0 {
-				return s[:i]
+				return rt.SliceBytewise(s, 0, i)
 			}
-			_, w := utf8.DecodeRuneInString(s[i:])
+			_, w := utf8.DecodeRuneInString(rt.SliceBytewise(s, i, len(s)))
 			i += w
 		}
 	}
@@ -529,15 +527,13 @@ func (p *printer) fmtQ(s string) {
 // quote writes s as a double-quoted string literal and returns the number
 // of runes in the literal; with emit false it only counts them. A byte
 // that is not valid UTF-8 is written as \x and two hex digits.
-//
-//pu:bytewise
 func (p *printer) quote(s string, emit bool) int {
 	n := 2
 	if emit {
 		p.writeByte('"')
 	}
 	for i := 0; i < len(s); {
-		r, w := utf8.DecodeRuneInString(s[i:])
+		r, w := utf8.DecodeRuneInString(rt.SliceBytewise(s, i, len(s)))
 		if w == 1 && r == utf8.RuneError {
 			n += p.escapeHex('x', uint64(s[i]), 2, emit)
 		} else {

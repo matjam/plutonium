@@ -254,11 +254,9 @@ var directives = map[string]string{
 	"export":    "also export the function under this symbol name, callable from C",
 	"section":   "place the function or package variable in the named section",
 	"interrupt": "an x86-64 interrupt handler: saves every register it may change and returns with iretq",
-	"noreturn":  "the function never returns, so code after calls to it is dropped",
+	"noreturn":  "the assembly or C function never returns, so code after calls to it is dropped (a function with a body needs no directive: the compiler works it out)",
 	"nosimd":    "the optimiser adds no vector instructions to the function",
 	"fpu":       "the function may use floating point in kernel mode; the caller has saved the FPU state",
-	"alloc":     "the function allocates: in kernel mode it may build strings, and only such functions may call it",
-	"bytewise":  "string slices in the function are not checked for rune boundaries; it returns only whole runes",
 	"percpu":    "one copy of the package variable per processor, addressed through GS (kernel mode only)",
 }
 

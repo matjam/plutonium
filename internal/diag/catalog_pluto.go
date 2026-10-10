@@ -528,14 +528,6 @@ func init() {
 			Spec: "\"Defer statements\" in the Go spec",
 		},
 		&Entry{
-			Code: KernelStringAlloc, Name: "KernelStringAlloc",
-			Text:    "This string operation makes a new string, and a new string needs memory from the current allocator: s + t, string(b) for a byte or rune slice, string(r) for a rune that is not a constant, []byte(s) and []rune(s). Kernel code may run where allocating is not allowed (in an interrupt handler, before the allocator exists, with a lock held), so in kernel mode it may build strings only in functions that say they allocate.\nMark the function //pu:alloc if it runs where the allocator may be used. Otherwise work on bytes in a buffer you own, for example with fmt.Bprintf or strconv.AppendInt, and keep string operations that do not allocate: literals, comparison, slicing, indexing and len.",
-			Why:     "Go allocates new strings on the garbage-collected heap. Plutonium counts them and frees each one when its last copy goes, but the allocation itself still needs an allocator, which a kernel only has in some places.",
-			Fix:     &Fix{Intro: "Mark a function that may allocate", Code: "//pu:alloc\nfunc describe(dev *Device) string {\n\treturn dev.name + \": \" + dev.state.String()\n}"},
-			Spec:    pspec("12.7", "Allocation in kernel mode"),
-			Example: "func label(n int) string {\n\treturn \"irq\" + strconv.Itoa(n)\n}",
-		},
-		&Entry{
 			Code: DeferInRangeFunc, Name: "DeferInRangeFunc",
 			Text:    "The body of a loop over a function (for x := range seq) runs once for each value the iterator yields, so a defer statement in it is a defer inside a loop. Its deferred call belongs to the function the loop is in and runs when that function returns, as in Go. Plutonium gives each defer statement one slot in that function's frame, so the defer may run at most once per call: after it, every path must leave the loop, by return, by panic, or by break, continue or goto to a statement outside the loop.\nIf the deferred call should run at the end of each iteration, move the body into a function of its own.",
 			Why:     "Go keeps the deferred calls of such a loop in a list on the heap. Plutonium never allocates behind the program's back, and kernel stacks are small and fixed.",
@@ -551,14 +543,6 @@ func init() {
 			Fix:     &Fix{Intro: "Pass the loop variable as an argument", Code: "for x := range seq {\n\tif done(x) {\n\t\tdefer func(x int) { log(x) }(x)\n\t\treturn\n\t}\n}"},
 			Spec:    pspec("4.10", "Range over functions"),
 			Example: "for x := range seq {\n\tif done(x) {\n\t\tdefer func() { log(x) }()\n\t\treturn\n\t}\n}",
-		},
-		&Entry{
-			Code: KernelAllocCall, Name: "KernelAllocCall",
-			Text:    "The function called is marked //pu:alloc: it allocates, for example because it builds strings. In kernel mode a function that is not marked //pu:alloc may not call one, so that code that must not allocate (an interrupt handler, code holding a spin lock) cannot do it by accident through a call.\nMark the calling function //pu:alloc too, if it runs where the allocator may be used, or use a function that writes into a buffer you provide, such as strconv.AppendInt or fmt.Bprintf.",
-			Why:     "In Go any function may allocate. A kernel needs to know which code may, so Plutonium makes allocation visible in the declarations of kernel code.",
-			Fix:     &Fix{Intro: "Format into a buffer instead", Code: "var buf [32]byte\nmsg := fmt.Bprintf(buf[:0], \"irq %d\", n)"},
-			Spec:    pspec("12.7", "Allocation in kernel mode"),
-			Example: "func onIRQ(n int) {\n\tlog(fmt.Sprintf(\"irq %d\", n))\n}",
 		},
 		&Entry{
 			Code: ErrorsNewValue, Name: "ErrorsNewValue",
@@ -695,7 +679,7 @@ func init() {
 		},
 		&Entry{
 			Code: PanicHandlerRet, Name: "PanicHandlerRet",
-			Text:    "A panic stops the program: it does not unwind, so there is nothing for the panic handler to return to. Every path through it must end in an endless loop or in a call of a function that never returns: one marked //pu:noreturn, such as os.Exit, or one whose every path ends the same way. A call through a func value or an interface, and recursion, count as returning.",
+			Text:    "A panic stops the program: it does not unwind, so there is nothing for the panic handler to return to. Every path through it must end in an endless loop or in a call of a function that never returns, such as os.Exit, or a function whose every path ends the same way. A call through a func value or an interface, and recursion, count as returning.",
 			Why:     whyPanicHandler,
 			Fix:     &Fix{Intro: "End the handler by halting", Code: "for {\n\tx86.Cli()\n\tx86.Hlt()\n}"},
 			Spec:    pspec("8.1", "Panics in freestanding programs"),
@@ -704,7 +688,7 @@ func init() {
 		},
 		&Entry{
 			Code: ContextWaits, Name: "ContextWaits",
-			Text: "Interrupt handlers run on top of whatever code the CPU was executing, and the panic handler on top of whatever panicked. If either waits, for a lock or for room in a channel, the code it interrupted can never resume to release it, and the CPU stops. So nothing they can reach may call a function marked //pu:blocking (such as sync.Mutex.Lock), send or receive on a channel outside a select with a default case, run a select without one, or allocate from an allocator that may wait.\nCalls through interfaces and func values count as calling every method or function they could reach in the program.\nWriting to an os.File, such as os.Stderr, waits for the poller when the file is a full pipe or socket, and the check cannot tell which file a call writes to. In a panic or interrupt handler, write to rt.Console{} instead of os.Stderr: it writes to standard error with a system call that never waits.",
+			Text: "Interrupt handlers run on top of whatever code the CPU was executing, and the panic handler on top of whatever panicked. If either waits, for a lock or for room in a channel, the code it interrupted can never resume to release it, and the CPU stops. So nothing they can reach may call a function that may park (such as sync.Mutex.Lock or time.Sleep), send or receive on a channel outside a select with a default case, run a select without one, or allocate from an allocator that may wait.\nCalls through interfaces and func values count as calling every method or function they could reach in the program.\nWriting to an os.File, such as os.Stderr, waits for the poller when the file is a full pipe or socket, and the check cannot tell which file a call writes to. In a panic or interrupt handler, write to rt.Console{} instead of os.Stderr: it writes to standard error with a system call that never waits.",
 			Why:  whyContext,
 			Fix:  &Fix{Intro: "To hand work to normal code, use a non-blocking send", Code: "select { case work <- item: default: }"},
 			Spec: pspec("12.6", "Interrupts"),

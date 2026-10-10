@@ -86,8 +86,6 @@ func Split(path string) (dir, file string) {
 // Dir returns all but the last element of path, cleaned, as Go's Dir does:
 // "." if there is none. For a path whose directory part is already clean
 // it is a substring of path and allocates nothing.
-//
-//pu:alloc
 func Dir(path string) string {
 	dir, _ := Split(path)
 	return Clean(dir)
