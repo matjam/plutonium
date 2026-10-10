@@ -59,6 +59,42 @@ End-to-end tests live in `internal/build`:
 - `examples/*/main.p` are checked against `examples/*/expected` (first line
   `exit N` for a non-zero exit status).
 
+## Diagnostics
+
+Every compile error is an `*diag.Diagnostic` (`internal/diag`): position,
+code, one-line message, and optionally an explanation of its own. `pluto`
+prints the message line unchanged (`file:line:col: message`, all that
+`--brief` or `PLUTO_BRIEF=1` prints), then an indented explanation, a fix,
+the spec section, and `run "pluto explain E1234"`. Codes and their ranges
+are listed in `internal/diag/diag.go`.
+
+To add an error:
+1. Give it a code. Type checker errors: a constant at the end of a group in
+   `internal/types2/errors/plutonium.go` (E2000-E2499), then `go generate`
+   in that directory. Anything else: a constant in `internal/diag/codes.go`
+   (ownership and escape errors use E3000-E3999).
+2. Add a catalog entry (`internal/diag/catalog_pluto.go`, or
+   `catalog_build.go`): `Text` in plain words, `Why` when Plutonium differs
+   from Go (no hidden allocation, no GC, kernel safety), `Spec`, and a
+   `Fix` or `Example`/`Fixed`. Short sentences, no jargon without a
+   definition, no em dashes, and American spelling, as in the go/types
+   text the catalog builds on. `TestCatalogComplete` and `TestCatalogStyle`
+   fail without it.
+3. Report it: `check.errorf(at, Code, ...)` in the checker;
+   `l.errorf(pos, diag.Code, ...)` in `internal/lower`, or `l.report(pos, d)`
+   with `d.Text`/`d.Fix` filled in from what is known at the error (names,
+   lines); `diag.New` elsewhere. Type checker errors are specialised by
+   code in `internal/diag/typecheck.go`.
+4. Test the full output, not a substring: add a program under
+   `cmd/pluto/testdata/diag/` and run
+   `go test ./cmd/pluto -run TestDiagnostics -update`, then read the diff of
+   `default.out` and `brief.out`. Tests that match only the first line keep
+   passing, and that line must not change without reason.
+
+Go's codes (E0001-E0999) take their text from go/types' documentation
+(`catalog_go.go`, `go generate` in `internal/diag`) unless `goPlain` in
+`catalog_go_plain.go` has a hand-written entry.
+
 ## Verification Checklist (before considering work complete)
 
 Every change must pass ALL of these before committing:

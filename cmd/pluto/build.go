@@ -106,6 +106,7 @@ func init() {
 		c.Flags().BoolP("strip", "s", false, "omit DWARF and the symbol table (panic traces still work)")
 		c.Flags().Bool("trace", true, "emit the table panics use to print stack traces (--trace=false to omit it)")
 		c.Flags().String("alloc", "", "default allocator: debug for the checking allocator (hosted builds; tune with $PLUTO_DEBUGALLOC)")
+		c.Flags().Bool("brief", false, briefUsage)
 	}
 	rootCmd.AddCommand(buildCmd, runCmd)
 }
