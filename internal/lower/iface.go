@@ -564,6 +564,14 @@ func (l *Lowerer) ifaceMethodValueWrapper(I types2.Type, fn *types2.Func) *ssa.S
 	}
 	sym := l.out.Sym(name, ssa.SymFunc)
 	l.funcs[name] = sym
+	// I's own method has the signature as instantiated in I, which fn,
+	// selected in generic code, may not.
+	iface := I.Underlying().(*types2.Interface)
+	for i := 0; i < iface.NumMethods(); i++ {
+		if m := iface.Method(i); m.Name() == fn.Name() && m.Pkg() == fn.Pkg() {
+			fn = m
+		}
+	}
 	sig := fn.Type().(*types2.Signature)
 	plain := types2.NewSignatureType(nil, nil, nil, sig.Params(), sig.Results(), sig.Variadic())
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: plain, build: func(s *fnState) {
@@ -638,8 +646,12 @@ func (s *fnState) assertTo(iv value, I, T types2.Type, commaOk bool, pos token.P
 // typeMatches tests whether an interface table denotes concrete type T.
 func (s *fnState) typeMatches(tab *ssa.Value, I, T types2.Type) *ssa.Value {
 	var want *ssa.Value
-	if I.Underlying().(*types2.Interface).Empty() {
+	iface := I.Underlying().(*types2.Interface)
+	if iface.Empty() {
 		want = s.symAddr(s.l.types.desc(T))
+	} else if !types2.Implements(T, iface) {
+		// Possible in generic code: an I never holds a T.
+		return s.constBool(false)
 	} else {
 		want = s.symAddr(s.l.types.itab(T, I))
 	}

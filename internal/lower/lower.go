@@ -91,8 +91,20 @@ type funcJob struct {
 }
 
 // Lower lowers a loaded program.
-func Lower(cfg *Config, prog *load.Program) (*ssa.Program, error) {
-	l := &Lowerer{
+func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
+	var l *Lowerer
+	defer func() {
+		// Lowering carries on after an error with placeholder values, which
+		// later code may trip over. Such a crash is a consequence of the
+		// errors already reported, so report those instead.
+		if r := recover(); r != nil {
+			if l == nil || len(l.errs) == 0 {
+				panic(r)
+			}
+			err = joinErrors(l.errs)
+		}
+	}()
+	l = &Lowerer{
 		cfg:            cfg,
 		prog:           prog,
 		fset:           prog.Fset,

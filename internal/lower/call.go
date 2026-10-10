@@ -687,10 +687,20 @@ func (s *fnState) methodValue(se *ast.SelectorExpr, sel *types2.Selection) *ssa.
 	}
 	wrapper := s.l.boundMethodWrapper(s.l.methodFunc(fn, targs, w))
 	size := 8 + s.l.sizeof(recv.T)
-	rec := s.tempSize((size+7)&^7, 8, "methodvalue")
+	rec := s.methodValueRecord((size + 7) &^ 7)
 	s.store(ssa.TPtr, rec, s.funcAddr(wrapper))
 	s.storeTo(s.offPtr(rec, 8), recv, recv.T)
 	return rec
+}
+
+// methodValueRecord returns storage for the closure record of a method
+// value: in this frame, or in static storage during package
+// initialisation, whose values outlive the init function.
+func (s *fnState) methodValueRecord(size int64) *ssa.Value {
+	if s.staticLits {
+		return s.symAddr(s.l.staticBytes(size, 8))
+	}
+	return s.tempSize(size, 8, "methodvalue")
 }
 
 // ifaceMethodValue lowers the method value iv.fn of an interface value: a
@@ -698,7 +708,7 @@ func (s *fnState) methodValue(se *ast.SelectorExpr, sel *types2.Selection) *ssa.
 func (s *fnState) ifaceMethodValue(iv value, fn *types2.Func) *ssa.Value {
 	iv = s.materialize(iv)
 	wrapper := s.l.ifaceMethodValueWrapper(iv.T, fn)
-	rec := s.tempSize(24, 8, "methodvalue")
+	rec := s.methodValueRecord(24)
 	s.store(ssa.TPtr, rec, s.funcAddr(wrapper))
 	s.move(s.offPtr(rec, 8), iv.v, 16)
 	return rec

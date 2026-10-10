@@ -182,6 +182,10 @@ func (s *fnState) offsetof(e ast.Expr) int64 {
 	}
 	sel := s.info.Selections[se]
 	T := unwrap(s.typeOf(se.X))
+	if isPointerLike(T) {
+		// x.f through a pointer x: the offset is within *x.
+		T = unwrap(pointerElem(T))
+	}
 	var off int64
 	for _, idx := range sel.Index() {
 		st, ok := T.Underlying().(*types2.Struct)

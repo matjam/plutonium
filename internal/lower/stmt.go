@@ -546,12 +546,17 @@ func (s *fnState) switchStmt(st *ast.SwitchStmt, label *types2.Label) {
 			if st.Tag == nil {
 				s.cond(e, bodies[i], next)
 			} else {
-				ev := s.exprAs(e, tagT)
+				// An interface compares with a concrete value as an
+				// interface, whichever side it is on.
+				eT := s.typeOf(e)
 				var eq *ssa.Value
-				if isInterface(tagT) && !isInterface(s.typeOf(e)) {
-					eq = s.equal(tag, s.toInterface(s.expr(e), s.typeOf(e), tagT), tagT, e.Pos())
-				} else {
-					eq = s.equal(tag, ev, tagT, e.Pos())
+				switch {
+				case isInterface(tagT) && !isInterface(eT):
+					eq = s.equal(tag, s.toInterface(s.expr(e), eT, tagT), tagT, e.Pos())
+				case !isInterface(tagT) && isInterface(eT):
+					eq = s.equal(s.toInterface(tag, tagT, eT), s.expr(e), eT, e.Pos())
+				default:
+					eq = s.equal(tag, s.exprAs(e, tagT), tagT, e.Pos())
 				}
 				s.endIf(eq, bodies[i], next)
 			}
@@ -617,12 +622,12 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 		for _, e := range cc.List {
 			next := s.newBlock(ssa.BlockInvalid)
 			tv := s.info.Types[e]
+			T := s.subst(tv.Type)
 			var match *ssa.Value
 			switch {
 			case tv.IsNil():
 				match = s.newValue(ssa.OpEq, ssa.TBool, tab, s.constInt(ssa.TPtr, 0))
-			case isInterface(tv.Type):
-				T := s.subst(tv.Type)
+			case isInterface(T):
 				if T.Underlying().(*types2.Interface).Empty() {
 					match = s.newValue(ssa.OpNe, ssa.TBool, tab, s.constInt(ssa.TPtr, 0))
 				} else {
@@ -631,7 +636,7 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 					match = s.newValue(ssa.OpNe, ssa.TBool, itab, s.constInt(ssa.TPtr, 0))
 				}
 			default:
-				match = s.typeMatches(tab, I, s.subst(tv.Type))
+				match = s.typeMatches(tab, I, T)
 			}
 			s.endIf(match, bodies[i], next)
 			s.seal(next)
