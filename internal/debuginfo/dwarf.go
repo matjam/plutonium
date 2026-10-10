@@ -7,6 +7,7 @@ import (
 
 	"github.com/matjam/plutonium/internal/arch/amd64"
 	"github.com/matjam/plutonium/internal/objfile"
+	"github.com/matjam/plutonium/internal/syntax/token"
 )
 
 // DWARF 4 constants that debug/dwarf does not export.
@@ -48,20 +49,21 @@ const (
 	dwFormRef4             = 0x13
 	dwInlInlined           = 1
 	abbrevCompileUnit      = 1
-	abbrevAbstract         = 2
-	abbrevSubprogram       = 3  // + abbrevNoPos, + abbrevNoKids
-	abbrevInlined          = 7  // + abbrevNoPos, + abbrevNoKids
-	abbrevNoPos            = 1  // no declaration or call position
-	abbrevNoKids           = 2  // no children
-	abbrevCompileUnitNoDir = 11 // a compile unit without DW_AT_comp_dir
+	abbrevCompileUnitNoDir = 2 // a compile unit without DW_AT_comp_dir
+	abbrevAbstract         = 3
+	abbrevAbstractNoPos    = 4 // an abstract subprogram without a declaration position
+	abbrevSubprogram       = 5 // + abbrevVariant: no declaration position; + abbrevNoKids
+	abbrevInlined          = 9 // + abbrevVariant: DW_AT_ranges, not low_pc and high_pc; + abbrevNoKids
+	abbrevVariant          = 1
+	abbrevNoKids           = 2 // no children
 )
 
-// abbrevFor returns the abbreviation code of a subprogram or inlined call
-// (base) with or without a source position and children.
-func abbrevFor(base int, hasPos, hasKids bool) uint64 {
+// abbrevFor returns the abbreviation code of a subprogram or an inlined
+// call (base), in its variant or not, with or without children.
+func abbrevFor(base int, variant, hasKids bool) uint64 {
 	c := base
-	if !hasPos {
-		c += abbrevNoPos
+	if variant {
+		c += abbrevVariant
 	}
 	if !hasKids {
 		c += abbrevNoKids
@@ -122,7 +124,8 @@ func (t *Table) WriteDWARF(obj *objfile.Object, compDir string) {
 		info.secOff(".debug_ranges", int64(rangesOff))
 
 		// An abstract subprogram for each function inlined in this unit,
-		// for the inlined instances to refer to.
+		// for the inlined instances to refer to, declared where the
+		// function is.
 		abstract := map[string]int{}
 		for _, f := range p.funcs {
 			for _, s := range f.Inlines {
@@ -130,16 +133,25 @@ func (t *Table) WriteDWARF(obj *objfile.Object, compDir string) {
 					continue
 				}
 				abstract[s.Func] = len(info.b) - cuOff
-				info.uleb(abbrevAbstract)
+				file, ln := t.position(s.Start)
+				if ln > 0 {
+					info.uleb(abbrevAbstract)
+				} else {
+					info.uleb(abbrevAbstractNoPos)
+				}
 				info.str(s.Func)
 				info.u8(dwInlInlined)
+				if ln > 0 {
+					info.uleb(uint64(files[file]))
+					info.uleb(uint64(ln))
+				}
 			}
 		}
 
 		for _, f := range p.funcs {
 			file, ln := t.position(f.Pos)
 			sites := inlineCode(f)
-			info.uleb(abbrevFor(abbrevSubprogram, ln > 0, len(sites[0]) > 0))
+			info.uleb(abbrevFor(abbrevSubprogram, ln == 0, len(sites[0]) > 0))
 			info.str(f.Sym)
 			info.addr(f.Sym, 0)
 			info.u32(uint32(f.Size))
@@ -204,42 +216,54 @@ func writeAbbrevs(b *buf) {
 		b.u16(0)
 	}
 
-	b.uleb(abbrevAbstract)
-	b.uleb(uint64(dwarf.TagSubprogram))
-	b.u8(0)
-	attr(dwarf.AttrName, dwFormString)
-	attr(dwarf.AttrInline, dwFormData1)
-	b.u16(0)
+	for _, code := range []uint64{abbrevAbstract, abbrevAbstractNoPos} {
+		b.uleb(code)
+		b.uleb(uint64(dwarf.TagSubprogram))
+		b.u8(0)
+		attr(dwarf.AttrName, dwFormString)
+		attr(dwarf.AttrInline, dwFormData1)
+		if code == abbrevAbstract {
+			attr(dwarf.AttrDeclFile, dwFormUdata)
+			attr(dwarf.AttrDeclLine, dwFormUdata)
+		}
+		b.u16(0)
+	}
 
-	for _, hasPos := range []bool{true, false} {
+	for _, variant := range []bool{false, true} {
 		for _, hasKids := range []bool{true, false} {
 			kids := uint8(0)
 			if hasKids {
 				kids = 1 // the calls inlined into it
 			}
-			b.uleb(abbrevFor(abbrevSubprogram, hasPos, hasKids))
+			b.uleb(abbrevFor(abbrevSubprogram, variant, hasKids))
 			b.uleb(uint64(dwarf.TagSubprogram))
 			b.u8(kids)
 			attr(dwarf.AttrName, dwFormString)
 			attr(dwarf.AttrLowpc, dwFormAddr)
 			attr(dwarf.AttrHighpc, dwFormData4)
 			attr(dwarf.AttrFrameBase, dwFormExprloc)
-			if hasPos {
+			if !variant {
 				attr(dwarf.AttrDeclFile, dwFormUdata)
 				attr(dwarf.AttrDeclLine, dwFormUdata)
 			}
 			attr(dwarf.AttrExternal, dwFormFlagPresent)
 			b.u16(0)
 
-			b.uleb(abbrevFor(abbrevInlined, hasPos, hasKids))
+			// An inlined call always has a call file: gdb leaves an
+			// inlined call without one out of backtraces (writeInlined).
+			b.uleb(abbrevFor(abbrevInlined, variant, hasKids))
 			b.uleb(uint64(dwarf.TagInlinedSubroutine))
 			b.u8(kids)
 			attr(dwarf.AttrAbstractOrigin, dwFormRef4)
-			attr(dwarf.AttrRanges, dwFormSecOffset)
-			if hasPos {
-				attr(dwarf.AttrCallFile, dwFormUdata)
-				attr(dwarf.AttrCallLine, dwFormUdata)
+			if variant {
+				attr(dwarf.AttrRanges, dwFormSecOffset)
+			} else {
+				attr(dwarf.AttrLowpc, dwFormAddr)
+				attr(dwarf.AttrHighpc, dwFormData4)
 			}
+			attr(dwarf.AttrCallFile, dwFormUdata)
+			attr(dwarf.AttrCallLine, dwFormUdata)
+			attr(dwarf.AttrCallColumn, dwFormUdata)
 			b.u16(0)
 		}
 	}
@@ -282,7 +306,15 @@ func inlineCode(f *Func) [][][2]int {
 
 // writeInlined appends an inlined_subroutine entry for each call inlined
 // directly into site parent of f (0 for f itself) that has code left,
-// nested as the calls are, with the code ranges that came from it.
+// nested as the calls are, with the code that came from it (as low_pc and
+// high_pc if it is contiguous) and the position of the call.
+//
+// A call with no position (pluto.main's call of main.main, or of a
+// package's initialisation) has call line 0, for no line, and the
+// inlined function's own file as its call file. gdb does not make a
+// block of an inlined call without DW_AT_call_file, so it would leave
+// the call's frame out of backtraces, and DWARF 4's "no file" (0) is not
+// one llvm-dwarfdump accepts.
 func (t *Table) writeInlined(info, ranges *buf, f *Func, code [][][2]int, parent int32, files map[string]int, abstract map[string]int) {
 	for i, s := range f.Inlines {
 		k := int32(i + 1)
@@ -293,20 +325,33 @@ func (t *Table) writeInlined(info, ranges *buf, f *Func, code [][][2]int, parent
 		for j, c := range f.Inlines {
 			hasKids = hasKids || c.Parent == k && len(code[j+1]) > 0
 		}
-		file, line := t.position(s.Pos)
-		info.uleb(abbrevFor(abbrevInlined, line > 0, hasKids))
+		rs := code[k]
+		info.uleb(abbrevFor(abbrevInlined, len(rs) > 1, hasKids))
 		info.u32(uint32(abstract[s.Func]))
-		info.secOff(".debug_ranges", int64(len(ranges.b)))
-		for _, r := range code[k] {
-			ranges.addr(f.Sym, int64(r[0]))
-			ranges.addr(f.Sym, int64(r[1]))
+		if len(rs) == 1 {
+			info.addr(f.Sym, int64(rs[0][0]))
+			info.u32(uint32(rs[0][1] - rs[0][0]))
+		} else {
+			info.secOff(".debug_ranges", int64(len(ranges.b)))
+			for _, r := range rs {
+				ranges.addr(f.Sym, int64(r[0]))
+				ranges.addr(f.Sym, int64(r[1]))
+			}
+			ranges.u64(0)
+			ranges.u64(0)
 		}
-		ranges.u64(0)
-		ranges.u64(0)
-		if line > 0 {
-			info.uleb(uint64(files[file]))
-			info.uleb(uint64(line))
+		file, line := t.position(s.Pos)
+		fileNo := files[file]
+		if line == 0 {
+			decl, _ := t.position(s.Start)
+			fileNo = files[decl]
+			if fileNo == 0 && len(files) > 0 {
+				fileNo = 1 // the inlined function has no source either
+			}
 		}
+		info.uleb(uint64(fileNo))
+		info.uleb(uint64(line))
+		info.uleb(uint64(t.column(s.Pos)))
 		if hasKids {
 			t.writeInlined(info, ranges, f, code, k, files, abstract)
 			info.u8(0)
@@ -337,8 +382,10 @@ func (t *Table) writeLines(b *buf, funcs []*Func) map[string]int {
 			}
 		}
 		for _, s := range f.Inlines {
-			if name, _ := t.position(s.Pos); name != "" {
-				file(name) // for DW_AT_call_file
+			for _, p := range []token.Pos{s.Pos, s.Start} {
+				if name, _ := t.position(p); name != "" {
+					file(name) // for DW_AT_call_file and DW_AT_decl_file
+				}
 			}
 		}
 	}

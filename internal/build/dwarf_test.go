@@ -52,7 +52,7 @@ func wide(n int) int {
 	}
 	return sum(buf[:]) * 2
 }
-//pu:noinline
+
 func main() {
 	var b big
 	println(fill(&b, 3) + wide(2))
@@ -239,12 +239,31 @@ func TestDWARF(t *testing.T) {
 	}
 }
 
-// TestDWARFInlined checks the inlined_subroutine entries of a program whose
-// calls are all inlined at -O2: main calls level1 twice (lines 17 and 18),
-// which calls level2 (line 12), which calls level3 (line 8).
+// TestDWARFInlined checks the inlined_subroutine entries of programs whose
+// calls are inlined at -O2. In index.p main calls level1 twice (lines 17
+// and 18), which calls level2 (line 12), which calls level3 (line 8). In
+// faultchain.p main is itself inlined into pluto.main, whose call has no
+// position, so call line and column 0.
 func TestDWARFInlined(t *testing.T) {
 	testguard.Parallel(t)
-	src, err := os.ReadFile(filepath.Join("..", "..", "testdata", "trace", "index.p"))
+	calls := "main.level1:11@17:10(main.level2:7@12:9(main.level3:3@8:9)) main.level1:11@18:10(main.level2:7@12:9(main.level3:3@8:9))"
+	for _, tc := range []struct{ prog, fn, want string }{
+		{"index.p", "main.main", calls},
+		{"faultchain.p", "pluto.main", "main.main:24@0:0(main.walk:15@27:10(main.value:11@18:10))"},
+	} {
+		if got := inlinedCalls(t, tc.prog)[tc.fn]; got != tc.want {
+			t.Errorf("%s: %s's inlined calls:\n%s\nwant\n%s", tc.prog, tc.fn, got, tc.want)
+		}
+	}
+}
+
+// inlinedCalls builds testdata/trace/prog at -O2 and describes the calls
+// inlined into each function, by function, as "origin:declaration
+// line@call line:call column(children)", leaving out calls of functions
+// outside package main.
+func inlinedCalls(t *testing.T, prog string) map[string]string {
+	t.Helper()
+	src, err := os.ReadFile(filepath.Join("..", "..", "testdata", "trace", prog))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +277,6 @@ func TestDWARFInlined(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Describe main.main's inlined calls as "origin@line(children)".
 	r := d.Reader()
 	var describe func() string
 	describe = func() string {
@@ -272,7 +290,7 @@ func TestDWARFInlined(t *testing.T) {
 				return strings.Join(parts, " ")
 			}
 			if e.Tag != dwarf.TagInlinedSubroutine {
-				t.Fatalf("unexpected %v in main.main", e.Tag)
+				t.Fatalf("unexpected %v in a subprogram", e.Tag)
 			}
 			off, _ := e.Val(dwarf.AttrAbstractOrigin).(dwarf.Offset)
 			or := d.Reader()
@@ -286,7 +304,15 @@ func TestDWARFInlined(t *testing.T) {
 				t.Errorf("inlined %v: ranges %v, %v", origin.Val(dwarf.AttrName), rs, err)
 			}
 			name, _ := origin.Val(dwarf.AttrName).(string)
-			s := fmt.Sprintf("%v@%v", name, e.Val(dwarf.AttrCallLine))
+			if origin.Val(dwarf.AttrInline) == nil {
+				t.Errorf("inlined %s: origin without DW_AT_inline", name)
+			}
+			// gdb leaves an inlined call without a call file out of
+			// backtraces, so every call has one, even with no line.
+			if e.Val(dwarf.AttrCallFile) == nil {
+				t.Errorf("inlined %s: no DW_AT_call_file", name)
+			}
+			s := fmt.Sprintf("%v:%v@%v:%v", name, origin.Val(dwarf.AttrDeclLine), e.Val(dwarf.AttrCallLine), e.Val(dwarf.AttrCallColumn))
 			if e.Children {
 				s += "(" + describe() + ")"
 			}
@@ -295,7 +321,7 @@ func TestDWARFInlined(t *testing.T) {
 			}
 		}
 	}
-	got := ""
+	got := map[string]string{}
 	for {
 		e, err := r.Next()
 		if err != nil {
@@ -304,17 +330,11 @@ func TestDWARFInlined(t *testing.T) {
 		if e == nil {
 			break
 		}
-		if e.Tag == dwarf.TagSubprogram && e.Val(dwarf.AttrName) == "main.main" {
-			if e.Children {
-				got = describe()
-			}
-			break
+		if name, _ := e.Val(dwarf.AttrName).(string); e.Tag == dwarf.TagSubprogram && e.Children {
+			got[name] = describe()
 		}
 	}
-	want := "main.level1@17(main.level2@12(main.level3@8)) main.level1@18(main.level2@12(main.level3@8))"
-	if got != want {
-		t.Errorf("main.main's inlined calls:\n%s\nwant\n%s", got, want)
-	}
+	return got
 }
 
 // dwarfFiles returns the compilation directory of every unit and the file
@@ -521,7 +541,8 @@ func TestGDB(t *testing.T) {
 	}
 
 	// A fault in an unrolled loop two inlined calls deep (at -O2) has the
-	// same backtrace as at -O0.
+	// same backtrace as at -O0, where gdb stops at main.main. At -O2 main
+	// is inlined into pluto.main, which the backtrace continues to.
 	src, err = os.ReadFile(filepath.Join("..", "..", "testdata", "trace", "faultchain.p"))
 	if err != nil {
 		t.Fatal(err)
@@ -539,7 +560,11 @@ func TestGDB(t *testing.T) {
 		frame := func(n int, fn string, line int) string {
 			return fmt.Sprintf(`#%d +(0x[0-9a-f]+ in )?%s \(\) at %s:%d\n`, n, regexp.QuoteMeta(fn), regexp.QuoteMeta(file), line)
 		}
-		want := regexp.MustCompile(frame(0, "main.value", 12) + frame(1, "main.walk", 18) + frame(2, "main.main", 28))
+		re := frame(0, "main.value", 12) + frame(1, "main.walk", 18) + frame(2, "main.main", 27)
+		if level == 2 {
+			re += `#3 +0x[0-9a-f]+ in pluto\.main \(\)\n`
+		}
+		want := regexp.MustCompile(re)
 		if !strings.Contains(string(out), "SIGSEGV") || !want.Match(out) {
 			t.Errorf("O%d: gdb backtrace of a fault in inlined calls:\n%s", level, out)
 		}

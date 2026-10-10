@@ -59,6 +59,14 @@ func (t *Table) position(p token.Pos) (string, int) {
 	return name, pos.Line
 }
 
+// column returns the column of p, or 0 if it has none.
+func (t *Table) column(p token.Pos) int {
+	if !p.IsValid() || t.fset == nil {
+		return 0
+	}
+	return t.fset.Position(p).Column
+}
+
 // buf is a section under construction, with its relocations.
 type buf struct {
 	b      []byte

@@ -93,14 +93,23 @@ The compiler writes DWARF version 4 into its object file; the linker concatenate
   with `DW_AT_low_pc`, `DW_AT_high_pc`, `DW_AT_decl_file` and `DW_AT_decl_line`, and the CFA as
   `DW_AT_frame_base`.
 - **Inlined calls**: a `DW_TAG_inlined_subroutine` for each inlined call, nested as the calls were, with
-  the code that came from it as `DW_AT_ranges` and the call's `DW_AT_call_file` and `DW_AT_call_line`.
-  Its `DW_AT_abstract_origin` is an abstract `DW_TAG_subprogram` for the inlined function in the same unit.
+  the code that came from it (`DW_AT_low_pc` and `DW_AT_high_pc` if it is contiguous, otherwise
+  `DW_AT_ranges`) and the call's `DW_AT_call_file`, `DW_AT_call_line` and `DW_AT_call_column`. Its
+  `DW_AT_abstract_origin` is an abstract `DW_TAG_subprogram` for the inlined function in the same unit,
+  with `DW_AT_inline` and the function's `DW_AT_decl_file` and `DW_AT_decl_line`. A call with no source
+  position, such as `pluto.main`'s call of `main.main` once `main.main` is inlined into it, has call line
+  and column 0 and the inlined function's own file as its call file: gdb leaves an inlined call without
+  `DW_AT_call_file` out of its backtraces, and llvm-dwarfdump rejects DWARF 4's file 0 ("no file"). gdb
+  then shows such a caller with its address and no line (`#3 0x... in pluto.main ()`).
+  The line table attributes the inlined code to the inlined function's own lines.
 - **Line table**: one sequence per function, a row wherever the file or line changes. The row where the
   body starts is marked `prologue_end`: the first line after the function's declaration line once the
   frame is set up, or the end of the frame setup if the whole function is on one line. Debuggers put a
   function's breakpoint there.
 - **Call frame information**: `.debug_frame`, one CIE and one FDE per function (section 4).
-- **Not emitted yet**: types, variables and parameters (`info locals`, `print x`), and column numbers.
+- **Not emitted yet**: types, variables and parameters (`info locals`, `print x`), so neither subprograms
+  nor inlined calls have `DW_TAG_formal_parameter` or `DW_TAG_variable` children, and column numbers in
+  the line table.
 
 File names are relative (section 2.1), and with no compilation directory a debugger resolves them against
 its own working directory. The line table splits each name into a directory (`.` for `./main.p`) and a
@@ -128,8 +137,10 @@ have. Go makes the same choice for DWARF, with `.` as its compilation directory.
 With `gdb` (tested with gdb 17 by `internal/build/dwarf_test.go`, at -O0 and -O2, run from the module
 root, and with `--trimpath=false` from elsewhere):
 
-- `break main.p:12` and `break main.f` (after the prologue), `run`, `next`, `step`, `finish`;
-- `bt` through every frame, with or without a frame pointer, with inlined calls as frames of their own;
+- `break main.p:12` and `break main.f` (after the prologue, and at each copy of `main.f` inlined
+  elsewhere), `run`, `next`, `step`, `finish`;
+- `bt` through every frame, with or without a frame pointer, with inlined calls as frames of their own,
+  including `main.main` where it is inlined into `pluto.main`;
 - `info line`, `list`, `disassemble /s`, `info frame`, `up` and `down`;
 - in a puroutine, `bt` through its frames to the go statement's thunk (`main.main.go1`, at the line of
   the go statement) and `pluto/rt.taskMain`, ending at the runtime's entry `goStart`, whose call frame
