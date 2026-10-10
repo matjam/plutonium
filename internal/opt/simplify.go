@@ -180,6 +180,22 @@ func simplifyValue(f *ssa.Func, v *ssa.Value, expand bool) bool {
 			v.CopyOf(a)
 			return true
 		}
+		// For bools, c ? true : x is c || x and c ? x : false is c && x
+		// (x is computed either way).
+		if t.IsBool() {
+			switch {
+			case a == c || isConst(a) && a.AuxInt != 0:
+				v.Reset(ssa.OpOr)
+				v.AddArg(c)
+				v.AddArg(b)
+				return true
+			case b == c || isConst(b) && b.AuxInt == 0:
+				v.Reset(ssa.OpAnd)
+				v.AddArg(c)
+				v.AddArg(a)
+				return true
+			}
+		}
 		// c ? x+1 : x is x + zext(c), and c ? x : x+1 is x + zext(!c);
 		// likewise for x-1. A bool is 0 or 1.
 		if t.IsInteger() && c.Type.IsBool() {
