@@ -24,11 +24,21 @@ type Closer interface {
 	Close() error
 }
 
-// EOF is returned by Read when no more input is available.
-var EOF = &errors.Text{Msg: "EOF"}
+// EOF is the error returned by Read when no more input is available.
+// Functions return EOF itself, never wrapped, so callers may test for it
+// with ==.
+var EOF = errors.New("EOF")
+
+// ErrUnexpectedEOF means that EOF was encountered in the middle of reading
+// a fixed-size block or data structure.
+var ErrUnexpectedEOF = errors.New("unexpected EOF")
 
 // ErrShortWrite means a write accepted fewer bytes than requested.
-var ErrShortWrite = &errors.Text{Msg: "short write"}
+var ErrShortWrite = errors.New("short write")
+
+// ErrShortBuffer means that a read required a longer buffer than was
+// provided.
+var ErrShortBuffer = errors.New("short buffer")
 
 // WriteString writes s to w.
 func WriteString(w Writer, s string) (int, error) {
@@ -38,18 +48,35 @@ func WriteString(w Writer, s string) (int, error) {
 	return w.Write(unsafeBytes(s))
 }
 
-// ReadFull reads exactly len(buf) bytes from r.
-func ReadFull(r Reader, buf []byte) (int, error) {
-	n := 0
-	for n < len(buf) {
-		m, err := r.Read(buf[n:])
-		n += m
-		if err != nil {
-			return n, err
-		}
-		if m == 0 {
-			return n, EOF
+// ReadAtLeast reads from r into buf until it has read at least min bytes.
+// It returns the number of bytes copied and an error if fewer bytes were
+// read. The error is EOF only if no bytes were read. If an EOF happens after
+// reading fewer than min bytes, ReadAtLeast returns ErrUnexpectedEOF. If min
+// is greater than the length of buf, ReadAtLeast returns ErrShortBuffer.
+func ReadAtLeast(r Reader, buf []byte, min int) (n int, err error) {
+	if len(buf) < min {
+		return 0, ErrShortBuffer
+	}
+	for n < min && err == nil {
+		var nn int
+		nn, err = r.Read(buf[n:])
+		n += nn
+		if nn == 0 && err == nil {
+			// A Reader that returns neither data nor an error would loop
+			// forever; treat it as the end of input.
+			err = EOF
 		}
 	}
-	return n, nil
+	if n >= min {
+		err = nil
+	} else if n > 0 && err == EOF {
+		err = ErrUnexpectedEOF
+	}
+	return n, err
+}
+
+// ReadFull reads exactly len(buf) bytes from r. The error is EOF only if no
+// bytes were read; ErrUnexpectedEOF if some but not all were.
+func ReadFull(r Reader, buf []byte) (int, error) {
+	return ReadAtLeast(r, buf, len(buf))
 }

@@ -5,41 +5,72 @@ import (
 	"testing"
 )
 
-// TestCompileErrors checks that constructs the compiler cannot lower, and
-// enum misuse, stop the build with an error rather than producing code.
-func TestCompileErrors(t *testing.T) {
+// TestErrorConventionErrors checks that the ways of building an error
+// message that would allocate behind the program's back, or of asking
+// errors.AsType for something that is not an error, are compile errors.
+func TestErrorConventionErrors(t *testing.T) {
 	cases := []struct{ name, src, want string }{
-		{"promoted method expression", `package main
+		{"concatenated message", `package main
 
-type In struct{ n int }
+import "pluto/errors"
 
-func (i In) Get() int { return i.n }
+func fail(name string) error { return errors.New("open " + name) }
 
-type Out struct{ In }
+func main() { _ = fail("x") }
+`, "runtime string concatenation is not permitted in Plutonium"},
+		{"message from bytes", `package main
 
-func main() {
-	f := Out.Get
-	_ = f
-}
-`, "method expression Get of a promoted method is not supported yet"},
-		{"non-exhaustive enum switch", `package main
+import "pluto/errors"
 
-type Color enum { Red; Green; Blue }
+var ErrBad error
 
 func main() {
-	c := Color.Green
-	switch c {
-	case Red, Green:
-	}
+	b := []byte{'x'}
+	ErrBad = errors.New(string(b))
 }
-`, "missing case in switch on c (Color): Blue"},
+`, "is not permitted in Plutonium (it allocates a copy)"},
+		{"AsType of a non-error", `package main
+
+import "pluto/errors"
+
+func main() {
+	_, _ = errors.AsType[int](nil)
+}
+`, "int does not satisfy error"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			err := buildError(t, c.src)
-			if err == nil || !strings.Contains(err.Error(), c.want) {
-				t.Fatalf("got error %v, want %q", err, c.want)
+			if err == nil {
+				t.Fatalf("no error, want %q", c.want)
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("error %q does not contain %q", err, c.want)
 			}
 		})
+	}
+}
+
+// TestErrorsNewLimit checks that errors.New, which hands out static storage
+// meant for package-level sentinels, panics with an explanation when a
+// program calls it more often than that storage allows.
+func TestErrorsNewLimit(t *testing.T) {
+	const src = `package main
+
+import "pluto/errors"
+
+func main() {
+	for i := 0; i < 1000; i++ {
+		_ = errors.New("made at run time")
+	}
+}
+`
+	out, status := compileAndRun(t, src, 0)
+	if status != 2 {
+		t.Fatalf("exit status %d, want 2; output:\n%s", status, out)
+	}
+	const want = "panic: errors.New: more than 512 errors; declare errors in package-level variables, or use fmt.Errorf\n"
+	if out != want {
+		t.Fatalf("output %q, want %q", out, want)
 	}
 }

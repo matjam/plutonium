@@ -86,6 +86,14 @@ func ifaceEqual(xt unsafe.Pointer, xd unsafe.Pointer, yt unsafe.Pointer, yd unsa
 	return t.equal(xd, yd)
 }
 
+// Comparable reports whether v's dynamic type is comparable, so that == on
+// interface values holding it cannot panic. It is true for nil.
+func Comparable(v any) bool {
+	words := (*[2]unsafe.Pointer)(unsafe.Pointer(&v))
+	t := (*typeDesc)(words[0])
+	return t == nil || t.flags&flagDirect != 0 || t.equal != nil
+}
+
 // ----------------------------------------------------------------------------
 // Inspecting interface values. Plutonium has no reflection, but formatting
 // needs a value's kind, size and type name, which the descriptor holds.

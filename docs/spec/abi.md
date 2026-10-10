@@ -15,8 +15,9 @@ There are two calling conventions:
 - the **C ABI** (System V AMD64), for `//pu:extern` and `//pu:export` functions.
 
 The internal ABI is a superset of System V for signatures made only of scalars, so most `//pu:extern`
-declarations work without any translation. Where the two differ, the table in
-[section 9](#9-compatibility-with-system-v) says so.
+declarations need no translation. Where the two differ, the table in
+[section 9](#9-compatibility-with-system-v) says so, and section 9.1 gives the classification lowering
+applies to C calls and entry points.
 
 ## Contents
 
@@ -297,9 +298,10 @@ programs (no floats, section 10.2) have none.
 
 Symbols contain `/`, `*`, `(`, `[` and `·`, so assembly quotes them: `"pluto/syscall.Syscall"`.
 A `//pu:extern name` function refers to the symbol `name`; a body-less function without it refers to its
-own Plutonium symbol, implemented in a `.s` file of the same package. `//pu:export name` adds `name` as
-a second global symbol for the same code; `//pu:export` with no name only keeps the function even if
-nothing in Plutonium calls it.
+own Plutonium symbol, implemented in a `.s` file of the same package. `//pu:export name` makes `name` a
+C entry point: a second global symbol for the same code, or a wrapper when the signature needs System V
+translation (section 9.1); `//pu:export` with no name only keeps the function even if nothing in
+Plutonium calls it.
 
 Hosted programs start at `_start` (`lib/pluto/rt/sys_linux_amd64.s`), which aligns the stack and calls
 `pluto/rt.start`; that calls `pluto.main` and exits with its result. Freestanding programs provide their
@@ -321,12 +323,70 @@ aligned stack with the direction flag clear.
 | callee-saved registers, stack alignment, direction flag | as System V | | yes |
 | red zone | never used | may be used | callers of Plutonium are unaffected; Plutonium never relies on one |
 
-`//pu:extern` and `//pu:export` functions currently use the internal ABI too. That is correct for every
-signature made of scalars with at most two results, which covers system calls, `lua_*`-style C APIs and
-most kernel interfaces. Signatures with aggregate parameters or results, or more than two results, need
-System V classification, which the backend supports (`ssa.ABIC`, `CallInfo.OnStack`) but lowering does
-not yet select; until it does, such `//pu:extern` and `//pu:export` declarations must be rejected (see the
-roadmap). Variadic C calls set AL to the number of vector registers used.
+### 9.1 The C convention for `//pu:extern` and `//pu:export`
+
+Calls to a `//pu:extern` function and entries through a `//pu:export name` symbol follow System V. When
+the internal ABI already passes a signature exactly as System V does (every parameter a scalar of 4 or 8
+bytes, a float or a pointer, and at most one such result), the call is an ordinary internal-ABI call and
+an export is a second symbol on the same code, as before. Otherwise lowering classifies the signature:
+
+- **Type mapping.** Integers, `uintptr`, pointers, `unsafe.Pointer` and `owned`/`shared`/`synced` map to
+  the C integer or pointer type of the same size; `bool` is C `_Bool` (1 byte); `float32` and `float64` are
+  `float` and `double`; structs and arrays inside structs are laid out as in section 1, which matches C
+  for these members. `volatile[T]` and `aligned[T, N]` (N at most 8) are `T`. A packed type crosses as its
+  storage: `packed uint32 {...}` is a `uint32_t`, and a byte-backed `packed {...}` of n bytes is a
+  `uint8_t[n]` (as a parameter, a struct holding that array). It is not a C `__attribute__((packed))`
+  struct with misaligned members, which System V passes in memory.
+- **Scalars** are passed in registers or 8-byte stack slots as in section 3.2. Integers and booleans
+  narrower than 32 bits are zero- or sign-extended to 32 bits by the caller for arguments and by the
+  callee for results, as GCC and Clang do; values Plutonium receives are not assumed to be extended.
+- **Structs of up to 16 bytes** are split into eightbytes, each classed INTEGER if any scalar in it is an
+  integer, pointer or boolean, otherwise SSE. Each eightbyte travels as one 8-byte value in the next free
+  register of its class (RDI to R9, XMM0 to XMM7). If the registers left cannot hold every eightbyte, the
+  whole struct goes on the stack and later scalars still take the registers that remain.
+- **Larger structs** are MEMORY: an argument is copied onto the stack, in argument order, in 8-byte
+  slots; a result is written through a hidden pointer the caller passes in RDI (shifting the other
+  integer arguments by one), and the callee returns that pointer in RAX.
+- **Results.** A scalar is returned in RAX or XMM0. A struct of up to 16 bytes is returned by eightbyte
+  class in RAX then RDX for INTEGER eightbytes and XMM0 then XMM1 for SSE ones, so a mixed struct uses
+  RAX and XMM0 in either order. **Several results** are returned as a C struct whose members are the
+  results in order: `(q, r int64)` is `struct { int64_t q, r; }` in RAX:RDX, `(a, b int32)` is one
+  eightbyte in RAX, and three `int64` results are returned through a hidden pointer.
+- **Receivers.** A method with `//pu:extern` or `//pu:export` takes its receiver as the first C
+  parameter.
+- **Rejected,** at the declaration, even if nothing calls it: `string` and slices (no C type; pass
+  `unsafe.StringData(s)` or `unsafe.SliceData(b)` and the length), interfaces, func values (a func value
+  points at a closure record, not at code), maps and channels, anywhere in a by-value parameter or result,
+  including inside structs; arrays as a whole parameter or result (C cannot pass them by value; wrap them
+  in a struct or pass a pointer); zero-size types; types aligned to more than 8 bytes; variadic functions
+  (C varargs are not supported); generic functions; `//pu:extern` on a function with a body; and two
+  wrapped exports of the same name.
+
+Strings and slices were rejected rather than passed as their `{ptr, len[, cap]}` structs because no C
+declaration of a function taking `const char *, size_t` would match: a string would happen to arrive in
+the same two registers, but a 24-byte slice is a MEMORY struct copied to the stack, and either would make
+a mistake in the C prototype silent. Behind a pointer, a struct containing strings or slices may be
+shared with C, with the layout of section 1.
+
+An export whose signature needs translating gets a **wrapper** named by the export: an `ABIC` function
+that takes System V arguments, calls the Plutonium function with the internal ABI and returns System V
+results. The Plutonium function keeps its own symbol for Plutonium callers. A `//pu:extern` function used
+as a func value whose signature needs translating is reached through a **thunk**, an internal-ABI
+function named by the declaration's Plutonium symbol that makes the C call. `//pu:export` with no name and
+`//pu:export` on a `//pu:interrupt` handler only add a symbol; they never wrap.
+
+C calls never pass a closure context. The backend supports variadic C calls (AL holds the number of
+vector registers used), but lowering does not generate them.
+
+### 9.2 Linking C
+
+A package may contain `.c` files, compiled with the system C compiler (`$CC`, default `cc`) as
+`cc -c -O2 -ffreestanding -fno-stack-protector`, plus `-mno-red-zone` in freestanding builds, with the
+package directory on the include path, and `.o` files, linked as they are. Both follow the file-name
+tag rules of `.p` files (`name_linux.c`, `name_amd64.o`), and `.c` files may start with a `//pu:build`
+line. Programs are linked with `ld -static -nostdlib`, so there is no C library: C code must not call
+libc, and must provide `memcpy` and `memset` itself if the C compiler emits calls to them for large
+copies.
 
 ## 10. Kernel mode
 
@@ -374,15 +434,18 @@ position-independent code (section 7).
 
 ### 10.4 Interrupt handlers
 
-`//pu:interrupt` (planned; today the directive is accepted but compiles an ordinary function ending in
-`ret`, which must become a compile error until this is implemented) makes a function an x86-64 interrupt
-or exception handler:
+`//pu:interrupt` makes a function an x86-64 interrupt or exception handler. It is available in every
+build mode (a hosted program can compile one but has no way to install it).
 
 ```go
+package x86
+
 type InterruptFrame struct {
 	RIP, CS, RFLAGS, RSP, SS uint64
 }
+```
 
+```go
 //pu:interrupt
 func timer(f *x86.InterruptFrame)
 
@@ -390,20 +453,49 @@ func timer(f *x86.InterruptFrame)
 func pageFault(f *x86.InterruptFrame, code uint64) // vectors that push an error code
 ```
 
+A handler is a plain function (not a method, not generic) with a body, no results, and either one
+parameter, the address of the interrupt frame, or two, the frame and the error code. The frame parameter
+may be any pointer type, `unsafe.Pointer` or `uintptr`; the error code is `uint64` or `uintptr`. The
+signature decides the stack layout, so a handler with an error code must be installed only on the
+vectors whose exceptions push one (8, 10 to 14, 17, 21, 29 and 30), and a handler without one on every
+other vector, including software `int $n`. This follows GCC's and Clang's
+`__attribute__((interrupt))`. Anything else is a compile error, as is `//pu:interrupt` combined with
+`//pu:inline`.
+
 The compiler generates the entry and exit:
 
-1. On entry RSP points at the error code (if the signature has one) or at the saved RIP. The prologue
-   pushes every general-purpose register the handler, or anything it calls, may change: all caller-saved
-   registers (RAX, RCX, RDX, RSI, RDI, R8 to R11) plus the callee-saved registers it uses.
-2. It executes `cld`, aligns RSP to 16 bytes, and passes the address of the `InterruptFrame` in RDI and
-   the error code in RSI.
-3. The epilogue restores the registers and RSP, discards the error code (`add $8, %rsp`), and returns
-   with `iretq`.
-4. In kernel mode no vector registers are saved; a `//pu:interrupt` function in a mode that allows floats
-   must not use them, and the compiler reports an error if it does.
+1. On entry RSP points at the error code, if the signature has one, or at the saved RIP. In 64-bit mode
+   the CPU aligns RSP to 16 bytes before pushing the frame, so RSP is 8 modulo 16 on entry without an
+   error code (five words pushed, the same as after a `call`) and 0 with one (six words). The compiler
+   uses this to size the frame; it does not realign at run time.
+2. The prologue pushes every general-purpose register the handler changes. A handler that makes a call
+   also saves every caller-saved register (RAX, RCX, RDX, RSI, RDI, R8 to R11), since the callee may
+   change them; callees preserve the callee-saved ones. It then allocates the frame, padded so that RSP
+   is 16-byte aligned at every call, and executes `cld`.
+3. The prologue saves, with `movups` into the frame, the XMM registers the handler changes: the ones
+   its own code uses, and all of XMM0 to XMM15 if it makes a call, because any Plutonium, C or assembly
+   callee may use them. A handler that neither calls nor uses floats touches no vector register. Saving
+   XMM registers needs SSE enabled (CR4.OSFXSR); a kernel that leaves SSE off must keep its handlers free
+   of calls and floats until kernel mode (section 10.2) removes floats from the whole program. x87, AVX
+   upper halves and MXCSR are not saved: Plutonium code does not change them, and legacy SSE instructions
+   leave the upper halves of the YMM registers alone.
+4. The handler's parameters are the frame's address (the saved RIP, `8(%rsp)` on entry when there is an
+   error code, `(%rsp)` otherwise) and the error code (`(%rsp)` on entry). They are not passed in
+   registers.
+5. The epilogue restores the XMM registers, frees the frame, pops the saved registers in reverse order,
+   discards the error code (`add $8, %rsp`) if there is one, and returns with `iretq`. Changes the handler
+   makes to `*f` (for example advancing `RIP` past a faulting instruction) take effect then.
 
-Handlers cannot be called directly or used as func values; their address is taken with
-`x86.HandlerAddr(timer)` for the IDT.
+Handlers are never inlined, cannot be called directly (including with `defer`) and cannot be used as
+func values, all compile errors; their address is taken with `x86.HandlerAddr(timer)`, which yields a
+`uintptr` for the IDT gate. `x86.HandlerAddr` with anything other than the name of a `//pu:interrupt`
+function is a compile error. `//pu:export name` on a handler gives its code a second global symbol, for
+assembly stubs that refer to it.
+
+The handler may call ordinary functions: they run on a 16-byte aligned stack with the direction flag
+clear, as section 2 requires, and every register they may change is restored before `iretq`. In kernel
+mode (planned) floats are rejected everywhere outside `//pu:fpu` functions, so handlers will save no
+vector registers there.
 
 ### 10.5 `pluto/arch/x86` intrinsics
 
@@ -432,7 +524,7 @@ also has an assembly body for when its address is taken. Privileged instructions
 | `ReadGSBase() uintptr`, `WriteGSBase(v uintptr)` | `rdmsr`/`wrmsr` of `IA32_GS_BASE` (or `rdgsbase`/`wrgsbase` with `--cpu` support for FSGSBASE) |
 | `GSLoad64(off uintptr) uint64`, `GSLoad32`, `GSStore64(off uintptr, v uint64)`, `GSStore32` | `mov %gs:(%rdi), ...` |
 | `FPUBegin(area *FPUState)`, `FPUEnd(area *FPUState)` | `fxsave`/`fxrstor` (or `xsave`/`xrstor`), with `clts` |
-| `HandlerAddr(h any) uintptr` | `lea handler(%rip), %rax`; `h` must name a `//pu:interrupt` function, checked at compile time |
+| `HandlerAddr(h any) uintptr` | `lea handler(%rip), %rax`; `h` must name a `//pu:interrupt` function, checked at compile time (implemented, with `InterruptFrame`; the rest of this table is proposed) |
 
 ```go
 type DescriptorTablePointer packed [10]byte {
