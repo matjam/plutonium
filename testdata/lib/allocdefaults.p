@@ -79,7 +79,8 @@ func main() {
 	report("hash")
 
 	var b strings.Builder
-	b.Grow(8, exp)
+	b.Init(exp)
+	b.Grow(8)
 	b.WriteString("built on explicit")
 	var b2 strings.Builder
 	b2.Grow(8)

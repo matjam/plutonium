@@ -112,7 +112,8 @@ func main() {
 	// Builder on an arena.
 	ar.Reset()
 	var b strings.Builder
-	b.Grow(2, &ar)
+	b.Init(&ar)
+	b.Grow(2)
 	for i := 0; i < 50; i++ {
 		fmt.Fprintf(&b, "%d,", i)
 	}

@@ -99,7 +99,8 @@ func main() {
 		m.Set(i, "x")
 	}
 	var b strings.Builder
-	b.Grow(4, d)
+	b.Init(d)
+	b.Grow(4)
 	for i := 0; i < 50; i++ {
 		b.WriteString("ab")
 	}
