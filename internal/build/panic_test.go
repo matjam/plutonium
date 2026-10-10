@@ -70,7 +70,7 @@ func TestHostedPanicHandler(t *testing.T) {
 	cases := []struct {
 		scenario string
 		status   int
-		want     string // a regular expression; FILE is the program's path
+		want     string // a regular expression; FILE is the program's trimmed path
 	}{
 		{"value", 3, `start
 handler: message: boom
@@ -100,8 +100,8 @@ fatal: panic while handling a panic
 	for _, c := range cases {
 		for _, level := range []int{0, 2} {
 			src := hostedPanicSource + "\nconst scenario = \"" + c.scenario + "\"\n"
-			dir, out, status := buildFiles(t, map[string][]byte{"main.p": []byte(src)}, build.Config{OptLevel: level})
-			re := `\A` + strings.ReplaceAll(c.want, "FILE", regexp.QuoteMeta(filepath.Join(dir, "main.p"))) + `\z`
+			_, out, status := buildFiles(t, map[string][]byte{"main.p": []byte(src)}, build.Config{OptLevel: level})
+			re := `\A` + strings.ReplaceAll(c.want, "FILE", `\./main\.p`) + `\z`
 			if status != c.status || !regexp.MustCompile(re).MatchString(out) {
 				t.Errorf("%s -O%d: status %d, output:\n%s\nwant status %d and a match for\n%s", c.scenario, level, status, out, c.status, re)
 			}
@@ -114,8 +114,8 @@ fatal: panic while handling a panic
 // standard error, then exit status 2.
 func TestHostedDefaultPanic(t *testing.T) {
 	src := []byte("package main\n\nfunc main() {\n\tpanic(\"boom\")\n}\n")
-	dir, out, status := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{})
-	want := "panic: boom\n    main.main (" + filepath.Join(dir, "main.p") + ":4)\n"
+	_, out, status := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{})
+	want := "panic: boom\n    main.main (./main.p:4)\n"
 	if status != 2 || out != want {
 		t.Errorf("status %d, output %q; want 2, %q", status, out, want)
 	}

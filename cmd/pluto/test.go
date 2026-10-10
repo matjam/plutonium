@@ -74,6 +74,7 @@ func runTests(args []string, stdout, stderr io.Writer) int {
 	flags.BoolVar(&opts.Verbose, "v", false, "verbose output")
 	flags.IntVar(&opts.Count, "count", 1, "run each test and benchmark `n` times")
 	optLevel := flags.Int("O", 2, "optimisation `level`")
+	trimpath := flags.Bool("trimpath", true, "record source paths relative to the module root and the standard library")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -92,7 +93,8 @@ func runTests(args []string, stdout, stderr io.Writer) int {
 	}
 	failed := false
 	for _, t := range targets {
-		if !testPackage(t, &opts, *optLevel, stdout, stderr) {
+		base := build.Config{OptLevel: *optLevel, NoTrimPath: !*trimpath}
+		if !testPackage(t, &opts, base, stdout, stderr) {
 			failed = true
 		}
 	}
@@ -223,19 +225,18 @@ func dirTarget(dir string) testTarget {
 }
 
 // testPackage builds and runs one package's tests, printing the results.
-// It reports whether the package passed.
-func testPackage(t testTarget, opts *build.TestOptions, optLevel int, stdout, stderr io.Writer) bool {
+// It reports whether the package passed. base holds the build settings
+// from the command line.
+func testPackage(t testTarget, opts *build.TestOptions, base build.Config, stdout, stderr io.Writer) bool {
 	work, err := os.MkdirTemp("", "pluto-test-")
 	if err != nil {
 		say(stderr, "pluto test: %v\n", err)
 		return false
 	}
 	defer func() { _ = os.RemoveAll(work) }()
-	cfg := &build.Config{
-		Output:   filepath.Join(work, "test"),
-		OptLevel: optLevel,
-		Stdlib:   t.stdlib,
-	}
+	cfg := &base
+	cfg.Output = filepath.Join(work, "test")
+	cfg.Stdlib = t.stdlib
 	bin, err := build.BuildTest(cfg, t.pkg, opts)
 	if errors.Is(err, build.ErrNoTestFiles) {
 		say(stdout, "?   \t%s\t[no test files]\n", bin.Path)

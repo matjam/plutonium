@@ -65,15 +65,15 @@ later takes the next free number and is listed in the section where it belongs.
     and the debug allocator, which reports through the same fault path and names its sites from the
     same table; specified in [debugging.md](spec/debugging.md) and
     [debug-allocator.md](spec/debug-allocator.md). Implementation items 41 to 43; what remains is listed
-    there and in debugging.md section 8.
-53. **Compile-time panic handler, `//pu:panic`** (done): one `func(p *rt.Panic)` per program, required in
+    there and in debugging.md section 9.
+54. **Compile-time panic handler, `//pu:panic`** (done): one `func(p *rt.Panic)` per program, required in
     freestanding and kernel builds, linked as a direct call from the runtime's panic path, checked never
     to return (with inferred no-return functions); `rt.Panic` carries the message, value, fault and CPU
     and prints its trace without allocating; one panic at a time with a last resort for nested panics
     (language spec section 8.1). Replaces `rt.SetPanicHandler`. Tested under QEMU
     (`testdata/kernel/panic`: explicit panic, bounds error, page fault in an interrupt handler, nested
     panic) and hosted. Hosted panics report CPU 0 until hosted programs have worker threads (item 14).
-54. **Interrupt context cannot block** (done): a whole-program check from every `//pu:interrupt` handler
+55. **Interrupt context cannot block** (done): a whole-program check from every `//pu:interrupt` handler
     and the panic handler against blocking channel operations, `go`, `//pu:blocking` functions and
     allocators that may wait, conservative through interfaces and func values (language spec section
     12.6). Channel operations and `go` are found in the source; until items 14 to 16 land they are
@@ -92,6 +92,15 @@ later takes the next free number and is listed in the section where it belongs.
     synchronised before reuse (memory-model.md section 3.8). Today's `alloc.Slab` is single-threaded.
 18. **Stack size analysis and `-stackreport`** (planned): compute the stack a spawned function needs when
     its call graph has no recursion or indirect calls.
+53. **Scheduler contract for kernels** (proposed; [scheduler contract](plans/2026-10-09-scheduler-contract.md)):
+    the interface and rules any kernel implements to run puroutines, with no kernel scheduler in the
+    standard library: a permit-based `Park`/`Ready`, interrupt-safe `Ready`, backend-allocated task records
+    embedding `rt.Task`, a current-task slot, a preemption count, `rt.Preempt` on the interrupted task's
+    stack, stack requests carrying the proven bound, and link-time binding with `//pu:scheduler` instead of
+    `rt.SetScheduler`. These amend item 14 and should be settled before it lands. Its section 9 lists later
+    requirements from PlutoniumOS (a userland target, `//pu:nonblocking`, a `portable` constraint). The
+    PlutoniumOS task model they serve is in PlutoniumOS: docs/architecture/lightweight-tasks.md
+    (github.com/matjam/plutoniumos, private).
 
 ## Language
 
@@ -182,7 +191,9 @@ later takes the next free number and is listed in the section where it belongs.
     `{TypeName}` today; needs item 23.
 41. **Symbolised stack traces on panic** (done): the compiler's trace table, walked by the panic path
     and the hosted fault handler, usable in kernels (`rt.Traceback`); inlined calls are frames of their
-    own. A per-thread alternate signal stack for puroutine worker threads remains.
+    own. Files are named relative to the module root and the standard library, so builds are
+    reproducible in any directory (`--trimpath=false` for absolute paths; debugging.md section 2.1). A
+    per-thread alternate signal stack for puroutine worker threads remains.
 42. **DWARF line tables and CFI** (done): compile units, subprograms, inlined calls, line table and
     `.debug_frame` for `gdb` and `perf` (`-g`, default on; `-s` strips). Variable and type information
     remains, and with it DWARF enumeration types (`DW_TAG_enumeration_type`) for enums: no type is

@@ -1,5 +1,5 @@
 panic: runtime error: invalid memory address or nil pointer dereference
 [signal SIGSEGV: segmentation violation addr=0x8 pc=PC]
-    main.(*node).second ($FILE:9)
-    main.sum ($FILE:13)
-    main.main ($FILE:18)
+    main.(*node).second (./main.p:9)
+    main.sum (./main.p:13)
+    main.main (./main.p:18)

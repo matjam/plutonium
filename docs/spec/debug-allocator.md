@@ -73,11 +73,11 @@ overrun faults on the spot:
 
 ```
 panic: debug allocator: heap overflow: write at 0x7f3a1c3d5000, offset 10 of the 10-byte allocation at 0x7f3a1c3d4ff6 (allocation #1)
-  faulting instruction at main.fill (/home/me/prog/main.p:21)
-  allocated at main.main (/home/me/prog/main.p:16)
+  faulting instruction at main.fill (./main.p:21)
+  allocated at main.main (./main.p:16)
 [signal SIGSEGV: segmentation violation addr=0x7f3a1c3d5000 pc=0x40135a]
-    main.fill (/home/me/prog/main.p:21)
-    main.main (/home/me/prog/main.p:17)
+    main.fill (./main.p:21)
+    main.main (./main.p:17)
 ```
 
 The end of the allocation is rounded down to its alignment, so an allocation whose size is not a multiple
@@ -87,7 +87,7 @@ allocation is freed:
 
 ```
 panic: debug allocator: heap underflow: the 10-byte allocation at 0x7f0e6a2c2ff6 (allocation #1) was written before its start, at offset -3; found when it was freed
-  allocated at main.main (/home/me/prog/main.p:16)
+  allocated at main.main (./main.p:16)
 ```
 
 With the `underflow` setting the guard page comes first and the allocation starts on the next page, so
@@ -108,11 +108,11 @@ inaccessible, so any later access faults:
 
 ```
 panic: debug allocator: use after free: write at 0x7fd24f8e7ff8, offset 16 of the 24-byte allocation at 0x7fd24f8e7fe8 (allocation #2, freed)
-  faulting instruction at main.main (/home/me/prog/main.p:22)
-  allocated at main.main (/home/me/prog/main.p:17)
-  freed at main.main (/home/me/prog/main.p:21)
+  faulting instruction at main.main (./main.p:22)
+  allocated at main.main (./main.p:17)
+  freed at main.main (./main.p:21)
 [signal SIGSEGV: segmentation violation addr=0x7fd24f8e7ff8 pc=0x401456]
-    main.main (/home/me/prog/main.p:22)
+    main.main (./main.p:22)
 ```
 
 A canary-guarded block stays readable: a stale read sees poison (an `int64` reads `0xdddddddddddddddd`, a
@@ -121,8 +121,8 @@ quarantine or by the heap check at exit:
 
 ```
 panic: debug allocator: write after free: the 24-byte allocation at 0x7c1b8e1f0010 (allocation #2) was written at offset 16 after it was freed
-  allocated at main.main (/home/me/prog/main.p:17)
-  freed at main.main (/home/me/prog/main.p:21)
+  allocated at main.main (./main.p:17)
+  freed at main.main (./main.p:21)
 ```
 
 Freed blocks are held in a first-in, first-out quarantine, 64 MiB by default (`quarantine=N`), before their
@@ -136,13 +136,13 @@ and the call sites that allocated and freed it. `Free` checks the pointer agains
 
 ```
 panic: debug allocator: double free of 0x7f9a2e1b2fe8 (24-byte allocation #2)
-  freed again at main.release (/home/me/prog/main.p:18)
-  allocated at main.makeNode (/home/me/prog/main.p:12)
-  freed at main.release (/home/me/prog/main.p:18)
+  freed again at main.release (./main.p:18)
+  allocated at main.makeNode (./main.p:12)
+  freed at main.release (./main.p:18)
     pluto/alloc/debug.(*Allocator).Free ($PLUTOROOT/pluto/alloc/debug/debug.p:424)
     pluto/alloc.Free[main.node] ($PLUTOROOT/pluto/alloc/alloc.p:63)
-    main.release (/home/me/prog/main.p:18)
-    main.main (/home/me/prog/main.p:28)
+    main.release (./main.p:18)
+    main.main (./main.p:28)
 
 panic: debug allocator: free of 0x7b6e1e331ff6 with size 16, align 1: it was allocated with size 10, align 1
 
@@ -161,8 +161,8 @@ and then list the allocations still live:
 
 ```
 debug allocator: 2 allocations still live, 34 bytes:
-  10 bytes at 0x7f1d2c9e4ff6 (allocation #1), allocated at main.main (/home/me/prog/main.p:16)
-  24 bytes at 0x7f1d2c9e6fe8 (allocation #2), allocated at main.main (/home/me/prog/main.p:17)
+  10 bytes at 0x7f1d2c9e4ff6 (allocation #1), allocated at main.main (./main.p:16)
+  24 bytes at 0x7f1d2c9e6fe8 (allocation #2), allocated at main.main (./main.p:17)
 debug allocator: exiting with status 2 because of leaks
 ```
 
@@ -188,7 +188,7 @@ the address of the inlined code. Code that calls an allocator's methods directly
 `strings.Builder`) reports "an unknown site".
 
 Sites print as the function and source line of the call, the way a stack trace names a frame:
-`main.makeNode (/home/me/prog/main.p:12)`. The allocator prints every program counter through
+`main.makeNode (./main.p:12)`. The allocator prints every program counter through
 `rt.PrintPC`, which looks it up in the trace table that stack traces use
 ([debugging.md](debugging.md#the-trace-table)); where the allocating call was inlined, it names the
 function the call is written in, not the one it was inlined into, and its line. The inliner gives the

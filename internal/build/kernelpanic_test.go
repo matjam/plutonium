@@ -34,7 +34,7 @@ func TestKernelPanic(t *testing.T) {
 	}
 	cases := []struct {
 		scenario string
-		want     string // a regular expression; FILE is main.p's path
+		want     string // a regular expression; FILE is main.p's trimmed path
 		halts    bool   // the last resort halts instead of leaving QEMU
 	}{
 		{"explicit", `scenario explicit
@@ -83,7 +83,7 @@ panic: kernel nested
 				if err := build.Build(cfg); err != nil {
 					t.Fatalf("build: %v", err)
 				}
-				want := regexp.MustCompile(`\A` + strings.ReplaceAll(c.want, "FILE", regexp.QuoteMeta(filepath.Join(dir, "main.p"))) + `\z`)
+				want := regexp.MustCompile(`\A` + strings.ReplaceAll(c.want, "FILE", `\./main\.p`) + `\z`)
 				out, status, running := runQEMU(t, qemu, image, want)
 				if !want.MatchString(out) {
 					t.Errorf("serial output\n%s\nwant a match for\n%s", out, want)

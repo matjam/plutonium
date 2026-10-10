@@ -1,0 +1,6 @@
+*.go
+*.vsix
+scripts/**
+test/**
+.gitignore
+.vscodeignore

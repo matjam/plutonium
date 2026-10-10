@@ -294,6 +294,12 @@ races; their lifetime is checked at run time as for any heap view (section 6.3).
 Stacks come from the default allocator, or from `rt.Go(f, size, a)` with an explicit one, and are freed
 when the puroutine returns.
 
+What a kernel's scheduler must implement, and what the runtime gives it, is proposed in
+[the scheduler contract](../plans/2026-10-09-scheduler-contract.md); the standard library has no kernel
+scheduler. On PlutoniumOS a puroutine is a kernel task and there is one scheduler in the system, the
+kernel's. That task model is proposed in PlutoniumOS: docs/architecture/lightweight-tasks.md
+(github.com/matjam/plutoniumos, private).
+
 ### 4.8 Channels
 
 `chan T`, `<-chan T`, `chan<- T`, the send and receive operators, `select`, `close`, `len`, `cap` and
