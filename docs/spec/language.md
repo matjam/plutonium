@@ -128,9 +128,9 @@ assertions, type switches. An interface value is two words: a pointer to a stati
   function that performs the conversion, and the data word points at that copy. The interface value is
   valid until that function returns, exactly like a pointer to a local variable.
 
-Returning an interface that holds such a frame copy, or storing it in a package-level variable, is a
-compile error where the compiler can see it. To keep a large value in an interface beyond the current
-function, store a pointer to it instead.
+Returning an interface that holds such a frame copy, storing it in a package-level variable or on the
+heap, or passing it to a function that does, is a compile error (section 6.3). To keep a large value in
+an interface beyond the current function, store a pointer to memory that lives long enough instead.
 
 The initializer of a package-level variable is the exception: it runs once, and its results must outlive
 package initialization, so a conversion there copies the value into static storage instead of a frame.
@@ -152,8 +152,8 @@ variables stay in the enclosing frame; nothing is moved to the heap. A closure t
 therefore valid only while the enclosing function is running:
 
 - Calling it, passing it as an argument, assigning it to a local variable, and deferring it are allowed.
-- Returning it, storing it in a package-level variable, or storing it through a pointer is a compile
-  error.
+- Returning it, storing it in a package-level variable, or storing it through a pointer into memory that
+  may outlive the frame is a compile error (section 6.3).
 
 A function literal that captures nothing is an ordinary function value and may be used anywhere.
 
@@ -498,6 +498,49 @@ func kernelMain(info *BootInfo) {
 The slab allocator takes its pages from an `alloc.PageProvider`, so a kernel can reuse it on top of its own
 physical page allocator.
 
+### 6.3 Pointers into the frame
+
+Some values point into the stack frame of the function that makes them:
+
+- `&x` for a local variable or parameter `x` (or a field or element of one), and `x[:]` for a local
+  array;
+- `&T{...}` and slice literals `[]T{...}`, whose storage is a frame temporary;
+- an interface holding a value larger than a word (section 4.4);
+- a closure that captures variables (section 4.5) and a method value `x.M`, whose record holds the
+  receiver;
+- the array behind a variadic call's `...` arguments.
+
+Such a pointer is valid until the function returns, so it may be used, copied into locals, stored in the
+same frame (or the frame of a function literal running inside it) and passed to calls. It is a compile
+error to let it reach memory that outlives the frame:
+
+1. returning it, directly or inside a struct, array, interface or closure;
+2. storing it in a package-level variable or in memory that may be on the heap;
+3. storing it through a pointer the function received from its caller (that memory outlives the call);
+4. sending it on a channel or passing it to a `go` statement;
+5. passing it to a function that does one of these with that parameter.
+
+Rule 5 is what makes the check whole-program. The compiler summarises each function (which parameters it
+keeps, stores into memory another parameter points to, or returns) and checks every call against the
+callee's summary, so nothing needs annotating. A call through an interface or a function value is
+checked against every method or function that could be called there. The error names the path:
+
+```
+main.p:12:2: a pointer to local variable buf escapes: it is passed to cache.Put, which stores
+p in c.entries (cache.p:31), which may be on the heap
+```
+
+Package-level initialisers are the exception of section 4.4: their literals and interface boxes are
+static. A function implemented outside Plutonium (assembly, `//pu:extern`) is assumed to keep every pointer
+argument; `//pu:noescape` on its declaration says it keeps none past the call, except by storing one
+argument into memory another points to (as `atomic.StorePointer` does), which is still checked.
+`unsafe.Pointer` carries the same facts as the pointer it came from; a pointer made from a `uintptr` is
+assumed to point outside every frame.
+
+The analysis follows local variables whose address is never taken along the control flow, so reusing a
+variable (`err` above all) for a frame pointer and later for a heap pointer is fine. Other storage is
+tracked field by field, two levels of struct fields deep, but without regard to the order of statements.
+
 ## 7. Runtime faults and panic
 
 The following stop the program through the same path as `panic`:
@@ -539,6 +582,7 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | `//pu:section name` | function or package variable | place it in the named section |
 | `//pu:interrupt` | function | an x86-64 interrupt handler: saves every register it may change, returns with `iretq` (section 11.4) |
 | `//pu:noreturn` | function | the function never returns (lets the optimiser drop code after calls) |
+| `//pu:noescape` | body-less function | keeps no pointer argument past the call, except by storing it where another argument points (section 6.3) |
 | `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (proposed, section 11.3) |
 | `//pu:percpu` | package variable | one copy per processor, addressed through `GS` (proposed, section 11.5) |
 

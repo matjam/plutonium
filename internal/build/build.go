@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/matjam/plutonium/internal/arch/amd64"
+	"github.com/matjam/plutonium/internal/escape"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/lower"
 	"github.com/matjam/plutonium/internal/objfile"
@@ -69,8 +70,13 @@ func loadConfig(cfg *Config) *load.Config {
 
 // buildProgram compiles and links a loaded program.
 func buildProgram(cfg *Config, prog *load.Program) error {
+	// Lowering reports the constructs Plutonium does not support; the
+	// escape analysis assumes a program without them.
 	sp, err := lower.Lower(&lower.Config{Freestanding: cfg.Freestanding, Sizes: sizes}, prog)
 	if err != nil {
+		return err
+	}
+	if err := escape.Check(prog); err != nil {
 		return err
 	}
 	if err := optimize(cfg, sp); err != nil {

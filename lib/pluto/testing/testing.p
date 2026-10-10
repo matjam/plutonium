@@ -45,7 +45,10 @@ type jmpbuf struct {
 	regs [8]uintptr
 }
 
+//pu:noescape
 func setjmp(b *jmpbuf) int
+
+//pu:noescape
 func longjmp(b *jmpbuf)
 
 // M runs the tests and benchmarks of one package. pluto test generates

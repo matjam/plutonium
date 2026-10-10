@@ -32,6 +32,14 @@ func (c *counting) Free(p unsafe.Pointer, size, align uintptr) {
 	c.inner.Free(p, size, align)
 }
 
+// The arena and its buffer are package-level: alloc.Use installs the arena
+// as the default allocator, which a pointer into main's frame must not be.
+// The buffer is uint64s so it is 8-aligned and padding is predictable.
+var (
+	mem [1 << 13]uint64
+	ar  arena.Arena
+)
+
 func main() {
 	ca := &counting{inner: alloc.Default()}
 	v := vec.New[int](ca)
@@ -68,9 +76,7 @@ func main() {
 	v.Free()
 
 	// Vec of structs on an arena.
-	// Backed by uint64s so the buffer is 8-aligned and padding is predictable.
-	var mem [1 << 13]uint64
-	ar := arena.New(unsafe.Slice((*byte)(unsafe.Pointer(&mem)), len(mem)*8))
+	ar = arena.New(unsafe.Slice((*byte)(unsafe.Pointer(&mem)), len(mem)*8))
 	bv := vec.WithCapacity[big](&ar, 2)
 	for i := 0; i < 100; i++ {
 		bv.Push(big{a: int64(i), b: int64(2 * i), c: int64(3 * i), s: "x"})

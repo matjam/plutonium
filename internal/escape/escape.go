@@ -1,0 +1,727 @@
+// Package escape checks that no pointer into a stack frame outlives the
+// frame.
+//
+// Plutonium never moves a variable to the heap behind the programmer's
+// back: locals, interface boxes of large values, closure records and slice
+// literals live in the frame of the function that makes them. A pointer to
+// any of them is valid only until that function returns. This package
+// rejects every program in which such a pointer could be used after that:
+// returned, stored in a package variable or in memory that may be on the
+// heap, stored through a pointer the caller supplied, sent on a channel or
+// handed to a go statement.
+//
+// The analysis is whole-program, flow-insensitive and field-insensitive. It
+// computes, for every function, a summary of what it does with the pointers
+// its caller passes (keeps them, stores one into memory another points to,
+// returns them), and applies the summary at each call. Calls through
+// interfaces and function values use the union of the summaries of every
+// function that could be called there. Nothing has to be annotated.
+//
+// The rules are written up in docs/spec/language.md, section 6.3.
+package escape
+
+import (
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/matjam/plutonium/internal/load"
+	"github.com/matjam/plutonium/internal/syntax/ast"
+	"github.com/matjam/plutonium/internal/syntax/token"
+	"github.com/matjam/plutonium/internal/types2"
+)
+
+// An Error is an escape reported at a position.
+type Error struct {
+	Pos token.Position
+	Msg string
+}
+
+func (e *Error) Error() string { return fmt.Sprintf("%s: %s", e.Pos, e.Msg) }
+
+// maxErrors stops a run that has gone badly wrong from printing pages.
+const maxErrors = 50
+
+// Check analyses a loaded program and returns the escapes it finds, joined,
+// or nil.
+func Check(prog *load.Program) error {
+	a := newAnalyzer(prog)
+	a.run()
+	if len(a.errs) == 0 {
+		return nil
+	}
+	sort.SliceStable(a.errs, func(i, j int) bool {
+		pi, pj := a.errs[i].Pos, a.errs[j].Pos
+		if pi.Filename != pj.Filename {
+			return pi.Filename < pj.Filename
+		}
+		if pi.Line != pj.Line {
+			return pi.Line < pj.Line
+		}
+		return pi.Column < pj.Column
+	})
+	errs := make([]error, len(a.errs))
+	for i, e := range a.errs {
+		errs[i] = e
+	}
+	return errors.Join(errs...)
+}
+
+// pkgInfo is a package with the facts the analysis needs about it.
+type pkgInfo struct {
+	*load.Package
+}
+
+type analyzer struct {
+	prog *load.Program
+	fset *token.FileSet
+
+	// Type information of every package, merged: AST nodes are unique.
+	types      map[ast.Expr]types2.TypeAndValue
+	uses       map[*ast.Ident]types2.Object
+	defs       map[*ast.Ident]types2.Object
+	selections map[*ast.SelectorExpr]*types2.Selection
+	implicits  map[ast.Node]types2.Object
+	instances  map[*ast.Ident]types2.Instance
+
+	funcs  map[*types2.Func]*function // declared functions and methods, by origin
+	lits   map[*ast.FuncLit]*function
+	order  []*function // what to analyse: declarations and package initialisers
+	byName map[string][]*function
+
+	// Candidates for dynamic calls.
+	converted       map[string]types2.Type // concrete types converted to an interface
+	tparamConverted bool                   // a type parameter was converted to an interface
+	funcValues      map[funcValue]bool     // functions used as values
+	embedded        map[*types2.TypeName]bool
+
+	grew   bool // a summary or candidate set grew during this pass
+	report bool // the final pass: report errors
+
+	errs    []*Error
+	errSeen map[string]bool
+}
+
+func newAnalyzer(prog *load.Program) *analyzer {
+	a := &analyzer{
+		prog:       prog,
+		fset:       prog.Fset,
+		types:      map[ast.Expr]types2.TypeAndValue{},
+		uses:       map[*ast.Ident]types2.Object{},
+		defs:       map[*ast.Ident]types2.Object{},
+		selections: map[*ast.SelectorExpr]*types2.Selection{},
+		implicits:  map[ast.Node]types2.Object{},
+		instances:  map[*ast.Ident]types2.Instance{},
+		funcs:      map[*types2.Func]*function{},
+		lits:       map[*ast.FuncLit]*function{},
+		byName:     map[string][]*function{},
+		converted:  map[string]types2.Type{},
+		funcValues: map[funcValue]bool{},
+		errSeen:    map[string]bool{},
+	}
+	for _, p := range prog.Packages {
+		pi := &pkgInfo{p}
+		for k, v := range p.Info.Types {
+			a.types[k] = v
+		}
+		for k, v := range p.Info.Uses {
+			a.uses[k] = v
+		}
+		for k, v := range p.Info.Defs {
+			a.defs[k] = v
+		}
+		for k, v := range p.Info.Selections {
+			a.selections[k] = v
+		}
+		for k, v := range p.Info.Implicits {
+			a.implicits[k] = v
+		}
+		for k, v := range p.Info.Instances {
+			a.instances[k] = v
+		}
+		a.order = append(a.order, &function{name: p.Path + " package initialisation", pkg: pi, inits: true})
+		for _, f := range p.Files {
+			for _, d := range f.Decls {
+				fd, ok := d.(*ast.FuncDecl)
+				if !ok {
+					continue
+				}
+				obj, ok := p.Info.Defs[fd.Name].(*types2.Func)
+				if !ok {
+					continue
+				}
+				fn := &function{
+					name:     funcName(obj),
+					obj:      obj,
+					pkg:      pi,
+					decl:     fd,
+					sig:      obj.Type().(*types2.Signature),
+					bodyless: fd.Body == nil,
+				}
+				for _, d := range directives(fd.Doc) {
+					if d == "noescape" {
+						fn.noescape = true
+					}
+				}
+				fn.params = sigParams(fn.sig)
+				if fn.bodyless {
+					fn.sum = bodylessSummary(fn)
+				}
+				a.funcs[obj] = fn
+				a.order = append(a.order, fn)
+				if fd.Recv != nil {
+					a.byName[obj.Name()] = append(a.byName[obj.Name()], fn)
+				}
+			}
+		}
+	}
+	return a
+}
+
+// sigParams lists a signature's receiver and parameters.
+func sigParams(sig *types2.Signature) []*types2.Var {
+	var out []*types2.Var
+	if r := sig.Recv(); r != nil {
+		out = append(out, r)
+	}
+	for i := 0; i < sig.Params().Len(); i++ {
+		out = append(out, sig.Params().At(i))
+	}
+	return out
+}
+
+// bodylessSummary describes a function implemented outside Plutonium. By
+// default every pointer argument escapes. With //pu:noescape, an argument
+// may only be stored into memory another argument points to, and results
+// may point wherever the arguments do.
+func bodylessSummary(fn *function) summary {
+	var s summary
+	r := &reason{text: "is implemented outside Plutonium and may keep it"}
+	if fn.noescape {
+		r = &reason{text: "may store it into memory another argument points to"}
+	}
+	for i, p := range fn.params {
+		if !hasPointers(p.Type()) {
+			continue
+		}
+		src := pkey{idx: i, ge: true}
+		if !fn.noescape {
+			s.addEscape(src, r)
+			continue
+		}
+		for j, q := range fn.params {
+			if j != i && hasPointers(q.Type()) {
+				s.addStore(edge{src: src, dst: pkey{idx: j, ge: true}}, r)
+			}
+		}
+		for k := 0; k < fn.sig.Results().Len(); k++ {
+			s.addResult(k, src, "")
+		}
+	}
+	for k := 0; k < fn.sig.Results().Len(); k++ {
+		s.addResultHeap(k, "")
+	}
+	return s
+}
+
+func funcName(obj *types2.Func) string {
+	sig := obj.Type().(*types2.Signature)
+	if r := sig.Recv(); r != nil {
+		t := r.Type()
+		ptr := ""
+		if p, ok := t.(*types2.Pointer); ok {
+			t = p.Elem()
+			ptr = "*"
+		}
+		if n, ok := types2.Unalias(t).(*types2.Named); ok {
+			return fmt.Sprintf("(%s%s).%s", ptr, n.Obj().Name(), obj.Name())
+		}
+		return obj.Name()
+	}
+	return obj.Name()
+}
+
+func directives(doc *ast.CommentGroup) []string {
+	if doc == nil {
+		return nil
+	}
+	var out []string
+	for _, c := range doc.List {
+		if d, ok := strings.CutPrefix(c.Text, "//pu:"); ok {
+			f := strings.Fields(d)
+			if len(f) > 0 {
+				out = append(out, f[0])
+			}
+		}
+	}
+	return out
+}
+
+// run computes summaries until nothing changes, then reports.
+func (a *analyzer) run() {
+	for pass := 0; ; pass++ {
+		a.grew = false
+		for _, f := range a.order {
+			if !f.bodyless {
+				a.analyze(f)
+			}
+		}
+		if !a.grew || pass > 100 {
+			break
+		}
+	}
+	a.report = true
+	for _, f := range a.order {
+		if !f.bodyless {
+			a.analyze(f)
+		}
+		if len(a.errs) >= maxErrors {
+			return
+		}
+	}
+}
+
+// analyze walks one function (and the literals inside it) until the
+// contents of its frame stop growing, then once more to report if this is
+// the reporting pass.
+func (a *analyzer) analyze(f *function) {
+	w := newWalker(a, f)
+	report := a.report
+	a.report = false
+	for i := 0; ; i++ {
+		w.grew = false
+		w.run()
+		if !w.grew || i > 50 {
+			break
+		}
+	}
+	a.report = report
+	if report {
+		w.run()
+	}
+}
+
+// errorf records an escape error. A non-empty key deduplicates: one error
+// per escaping location and kind of sink. Errors without a key are
+// deduplicated by position.
+func (a *analyzer) errorf(pos token.Pos, key string, format string, args ...any) {
+	if !a.report || len(a.errs) >= maxErrors {
+		return
+	}
+	p := a.fset.Position(pos)
+	k := key
+	if k == "" {
+		k = p.String()
+	}
+	if a.errSeen[k] {
+		return
+	}
+	a.errSeen[k] = true
+	a.errs = append(a.errs, &Error{Pos: p, Msg: fmt.Sprintf(format, args...)})
+}
+
+// litFunc returns the function for a function literal.
+func (a *analyzer) litFunc(lit *ast.FuncLit, pkg *pkgInfo, outer string) *function {
+	if f := a.lits[lit]; f != nil {
+		return f
+	}
+	sig, _ := a.types[lit].Type.(*types2.Signature)
+	if sig == nil {
+		sig = types2.NewSignatureType(nil, nil, nil, nil, nil, false)
+	}
+	p := a.fset.Position(lit.Pos())
+	f := &function{name: fmt.Sprintf("func literal in %s at line %d", outer, p.Line), pkg: pkg, lit: lit, sig: sig}
+	f.params = sigParams(sig)
+	a.lits[lit] = f
+	return f
+}
+
+// ----------------------------------------------------------------------------
+// Candidates for dynamic calls
+
+// noteConversion records that values of type T are converted to an
+// interface somewhere, so its methods may be called dynamically.
+func (a *analyzer) noteConversion(T types2.Type) {
+	if T == nil {
+		return
+	}
+	if _, ok := T.(*types2.TypeParam); ok {
+		if !a.tparamConverted {
+			a.tparamConverted = true
+			a.grew = true
+		}
+		return
+	}
+	if isInterface(T) {
+		return
+	}
+	key := types2.TypeString(T, nil)
+	if _, ok := a.converted[key]; !ok {
+		a.converted[key] = T
+		a.grew = true
+	}
+}
+
+// A fvKind says how a function is used as a function value.
+type fvKind uint8
+
+const (
+	fvPlain      fvKind = iota // a function, literal or method expression T.M
+	fvBound                    // a method value x.M: the record holds the receiver
+	fvBoundIface               // a method value i.M of an interface: the record holds the interface
+	fvIfaceExpr                // a method expression I.M: the first argument is the interface
+)
+
+// A funcValue is a function used as a function value, and how.
+type funcValue struct {
+	f    *function
+	kind fvKind
+}
+
+// noteFuncValue records that fn is used as a function value.
+func (a *analyzer) noteFuncValue(fn *function, kind fvKind) {
+	if fn == nil {
+		return
+	}
+	k := funcValue{fn, kind}
+	if a.funcValues[k] {
+		return
+	}
+	a.funcValues[k] = true
+	a.grew = true
+}
+
+// ifaceCandidates returns the methods a dynamic call of method name may
+// reach: the methods of that name of every type converted to an interface.
+// For a call through a type parameter (byName set), every method of that
+// name is a candidate, since instantiations need not convert anything.
+func (a *analyzer) ifaceCandidates(name string, byName bool) []candidate {
+	var out []candidate
+	if byName || a.tparamConverted {
+		// Any type may be behind the interface or type parameter. A
+		// pointer method gets the data word; a value method gets it or
+		// what it points to. A method that may be promoted from an
+		// embedded field gets something reachable from it.
+		for _, f := range a.byName[name] {
+			mode := recvEither
+			if _, ptr := f.sig.Recv().Type().(*types2.Pointer); ptr {
+				mode = recvExact
+			}
+			if a.isEmbedded(f.sig.Recv().Type()) {
+				mode = recvReach
+			}
+			out = append(out, candidate{f, mode})
+		}
+		return out
+	}
+	seen := map[candidate]bool{}
+	keys := make([]string, 0, len(a.converted))
+	for k := range a.converted {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		// A T in an interface has T's method set; a *T has all methods.
+		T := a.converted[k]
+		ms := types2.NewMethodSet(T)
+		for i := 0; i < ms.Len(); i++ {
+			sel := ms.At(i)
+			if sel.Obj().Name() != name {
+				continue
+			}
+			fn, _ := sel.Obj().(*types2.Func)
+			if fn == nil {
+				continue
+			}
+			f := a.funcs[fn.Origin()]
+			if f == nil {
+				continue
+			}
+			c := candidate{f, recvExact}
+			_, ptrRecv := fn.Type().(*types2.Signature).Recv().Type().(*types2.Pointer)
+			switch {
+			case len(sel.Index()) > 1:
+				c.recv = recvReach // promoted from an embedded field
+			case ptrRecv:
+			case pointerElem(T) != nil:
+				c.recv = recvBoxed // a value method called through a *T
+			default:
+				if direct, _ := isDirect(T); !direct {
+					c.recv = recvBoxed
+				}
+			}
+			if !seen[c] {
+				seen[c] = true
+				out = append(out, c)
+			}
+		}
+	}
+	return out
+}
+
+// A candidate is a method a dynamic call may reach, with how the
+// interface's data word relates to the method's receiver.
+type candidate struct {
+	f    *function
+	recv recvMode
+}
+
+type recvMode uint8
+
+const (
+	recvExact  recvMode = iota // the data word is the receiver
+	recvBoxed                  // the data word points at the receiver
+	recvEither                 // one of the two
+	recvReach                  // unknown: anything reachable from the data word
+)
+
+// isEmbedded reports whether a receiver's base type is embedded in some
+// struct type of the program, so that its methods may be promoted.
+func (a *analyzer) isEmbedded(recv types2.Type) bool {
+	if p, ok := recv.(*types2.Pointer); ok {
+		recv = p.Elem()
+	}
+	n, ok := types2.Unalias(recv).(*types2.Named)
+	if !ok {
+		return true
+	}
+	if a.embedded == nil {
+		a.embedded = map[*types2.TypeName]bool{}
+		mark := func(T types2.Type) {
+			s, ok := T.Underlying().(*types2.Struct)
+			if !ok {
+				return
+			}
+			for i := 0; i < s.NumFields(); i++ {
+				if !s.Field(i).Embedded() {
+					continue
+				}
+				ft := s.Field(i).Type()
+				if p, ok := ft.(*types2.Pointer); ok {
+					ft = p.Elem()
+				}
+				if fn, ok := types2.Unalias(ft).(*types2.Named); ok {
+					a.embedded[fn.Origin().Obj()] = true
+				}
+			}
+		}
+		for _, tv := range a.types {
+			if tv.Type != nil {
+				mark(tv.Type)
+			}
+		}
+		for _, obj := range a.defs {
+			if tn, ok := obj.(*types2.TypeName); ok {
+				mark(tn.Type())
+			}
+		}
+	}
+	return a.embedded[n.Origin().Obj()]
+}
+
+// funcCandidates returns the functions a call through a value of
+// signature sig may reach.
+func (a *analyzer) funcCandidates(sig *types2.Signature) []funcValue {
+	var out []funcValue
+	for fv := range a.funcValues {
+		if sigMatch(fv, sig) {
+			out = append(out, fv)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].f.name != out[j].f.name {
+			return out[i].f.name < out[j].f.name
+		}
+		return out[i].kind < out[j].kind
+	})
+	return out
+}
+
+// sigMatch reports whether a function used as a value could have type
+// sig. Type parameters match anything.
+func sigMatch(fv funcValue, sig *types2.Signature) bool {
+	f := fv.f
+	params := f.params
+	skipFirst := false
+	switch fv.kind {
+	case fvBound, fvBoundIface:
+		if f.sig.Recv() != nil {
+			params = params[1:]
+		}
+	case fvIfaceExpr:
+		skipFirst = true // the interface, not f's receiver type
+	}
+	if len(params) != sig.Params().Len() || f.sig.Results().Len() != sig.Results().Len() {
+		return false
+	}
+	for i, p := range params {
+		if i == 0 && skipFirst {
+			continue
+		}
+		if !typeMatch(p.Type(), sig.Params().At(i).Type()) {
+			return false
+		}
+	}
+	for i := 0; i < sig.Results().Len(); i++ {
+		if !typeMatch(f.sig.Results().At(i).Type(), sig.Results().At(i).Type()) {
+			return false
+		}
+	}
+	return true
+}
+
+func typeMatch(x, y types2.Type) bool {
+	if containsTypeParam(x) || containsTypeParam(y) {
+		return true
+	}
+	return types2.Identical(x, y)
+}
+
+func containsTypeParam(t types2.Type) bool {
+	switch t := t.(type) {
+	case *types2.TypeParam:
+		return true
+	case *types2.Pointer:
+		return containsTypeParam(t.Elem())
+	case *types2.Slice:
+		return containsTypeParam(t.Elem())
+	case *types2.Array:
+		return containsTypeParam(t.Elem())
+	case *types2.Named:
+		if ta := t.TypeArgs(); ta != nil {
+			for i := 0; i < ta.Len(); i++ {
+				if containsTypeParam(ta.At(i)) {
+					return true
+				}
+			}
+		}
+	case *types2.Signature:
+		for i := 0; i < t.Params().Len(); i++ {
+			if containsTypeParam(t.Params().At(i).Type()) {
+				return true
+			}
+		}
+		for i := 0; i < t.Results().Len(); i++ {
+			if containsTypeParam(t.Results().At(i).Type()) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ----------------------------------------------------------------------------
+// Type predicates
+
+// hasPointers reports whether a value of type T may hold a pointer the
+// analysis tracks.
+func hasPointers(T types2.Type) bool {
+	return hasPointersSeen(T, map[types2.Type]bool{})
+}
+
+func hasPointersSeen(T types2.Type, seen map[types2.Type]bool) bool {
+	if T == nil {
+		return false
+	}
+	if seen[T] {
+		return false
+	}
+	seen[T] = true
+	switch u := types2.Unalias(T).(type) {
+	case *types2.TypeParam:
+		return true
+	case *types2.Named:
+		return hasPointersSeen(u.Underlying(), seen)
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Basic:
+		return u.Kind() == types2.String || u.Kind() == types2.UnsafePointer || u.Kind() == types2.UntypedString
+	case *types2.Pointer, *types2.Slice, *types2.Signature, *types2.Interface, *types2.Chan, *types2.Map:
+		return true
+	case *types2.Array:
+		return u.Len() > 0 && hasPointersSeen(u.Elem(), seen)
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if hasPointersSeen(u.Field(i).Type(), seen) {
+				return true
+			}
+		}
+		return false
+	case *types2.Tuple:
+		for i := 0; i < u.Len(); i++ {
+			if hasPointersSeen(u.At(i).Type(), seen) {
+				return true
+			}
+		}
+		return false
+	case *types2.Wrapper:
+		if u.IsPointer() {
+			return true
+		}
+		return hasPointersSeen(u.Elem(), seen)
+	case *types2.TypeParam:
+		return true
+	}
+	return false
+}
+
+func isInterface(T types2.Type) bool {
+	if T == nil {
+		return false
+	}
+	if _, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+		return false
+	}
+	_, ok := T.Underlying().(*types2.Interface)
+	return ok
+}
+
+// isCounted reports whether T is owned[T], shared[T] or synced[T]: pointers
+// that can only point to the heap.
+func isCounted(T types2.Type) bool {
+	w, ok := T.Underlying().(*types2.Wrapper)
+	return ok && w.IsPointer()
+}
+
+// isDirect reports whether a value of T is stored in an interface's data
+// word itself rather than boxed in the frame. For type parameters it is
+// unknown: the second result is false.
+func isDirect(T types2.Type) (direct, known bool) {
+	if _, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+		return false, false
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Basic:
+		return u.Kind() != types2.String && u.Kind() != types2.UntypedString, true
+	case *types2.Pointer, *types2.Signature, *types2.Chan, *types2.Map:
+		return true, true
+	case *types2.Wrapper:
+		switch {
+		case u.IsPointer():
+			return true, true
+		case u.Kind() == types2.WrapVolatile:
+			return isDirect(u.Elem())
+		}
+		return false, true
+	case *types2.Packed:
+		return u.Bits() <= 64 && (u.Bits() == 8 || u.Bits() == 16 || u.Bits() == 32 || u.Bits() == 64), true
+	case *types2.TypeParam:
+		return false, false
+	}
+	return false, true
+}
+
+// pointerElem returns the element type of a pointer-like type (a pointer,
+// or owned/shared/synced), or nil.
+func pointerElem(T types2.Type) types2.Type {
+	switch u := T.Underlying().(type) {
+	case *types2.Pointer:
+		return u.Elem()
+	case *types2.Wrapper:
+		if u.IsPointer() {
+			return u.Elem()
+		}
+	}
+	return nil
+}

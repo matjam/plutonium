@@ -107,6 +107,8 @@ type counting struct {
 	live, allocs int
 }
 
+var tracker counting
+
 func (c *counting) Alloc(size, align uintptr) unsafe.Pointer {
 	c.live += int(size)
 	c.allocs++
@@ -127,6 +129,9 @@ func (e *timeoutError) Error() string        { return e.op }
 func (e *timeoutError) Is(target error) bool { return target == ErrTimeout }
 
 var ErrTimeout = errors.New("timeout")
+
+// name is a path buffer that outlives main's frame (see the os.Open test).
+var name [32]byte
 var slowRead = &timeoutError{op: "read timed out"}
 
 // listError is not comparable; errors.Is must not compare it with ==.
@@ -163,8 +168,9 @@ func main() {
 		errors.Is(syscall.ENOSYS, errors.ErrUnsupported))
 	fmt.Println("errno temp:", syscall.EINTR.Temporary(), syscall.EAGAIN.Timeout(), syscall.ENOENT.Temporary())
 
-	// os.Open fails with a PathError that copies the path.
-	var name [32]byte
+	// os.Open fails with a PathError that copies the path. The buffer is
+	// static: a File keeps its name, so the escape analysis rejects a path
+	// in this frame.
 	n := copy(name[:], "/nonexistent/pluto.conf")
 	_, err := os.Open(unsafe.String(&name[0], n))
 	copy(name[:], "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
@@ -189,8 +195,11 @@ func main() {
 	}
 
 	// Wrapping across three layers, inspected at the top.
-	c := counting{base: alloc.Default()}
-	restore := alloc.Use(&c)
+	// The default allocator is a package variable, so the counting
+	// allocator installed in it must not live in main's frame.
+	c := &tracker
+	c.base = alloc.Default()
+	restore := alloc.Use(c)
 	err = startup("/nonexistent/app.conf")
 	restore.Restore()
 	fmt.Println("startup:", err)
@@ -209,7 +218,7 @@ func main() {
 	fmt.Println("after free live:", c.live)
 
 	// Errorf with several %w, and Join.
-	restore = alloc.Use(&c)
+	restore = alloc.Use(c)
 	multi := fmt.Errorf("both: %w and %w", ErrEmpty, syscall.EIO)
 	joined := errors.Join(ErrTooDeep, nil, multi, slowRead)
 	restore.Restore()
