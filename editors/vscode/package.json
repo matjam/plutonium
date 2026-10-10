@@ -2,7 +2,7 @@
   "name": "plutonium",
   "displayName": "Plutonium",
   "description": "Language support for the Plutonium systems language: highlighting, diagnostics, navigation, completion and formatting through pluto lsp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "matjam",
   "repository": {
     "type": "git",
@@ -140,7 +140,7 @@
             "verbose"
           ],
           "default": "off",
-          "markdownDescription": "Log the messages between VS Code and the language server to the *Plutonium* output."
+          "markdownDescription": "How the messages between VS Code and the language server are logged to the *Plutonium* output. They are logged only while that output's log level is *Trace* (set it with the gear in the Output panel), and then at least as `messages`."
         },
         "plutonium.formatTimeout": {
           "type": "number",

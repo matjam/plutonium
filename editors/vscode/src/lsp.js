@@ -5,11 +5,18 @@
 // definitions, references, symbols, formatting, completion, signature help
 // and rename onto the editor's providers.
 //
-// If the server exits unexpectedly it is restarted after a delay that
-// doubles with each crash (RESTART_BASE_MS up to RESTART_MAX_MS); after
-// MAX_CRASHES crashes within CRASH_WINDOW_MS it is left stopped, with a
-// message offering to restart it.
+// If the server exits unexpectedly after it started, it is restarted after
+// a delay that doubles with each crash (RESTART_BASE_MS up to
+// RESTART_MAX_MS), which is logged to the output; after MAX_CRASHES crashes
+// within CRASH_WINDOW_MS it is left stopped, with one message offering to
+// restart it or show the output. A server that fails to start is reported
+// once and not restarted.
+//
+// The output channel must be a LogOutputChannel (createOutputChannel with
+// { log: true }): vscode-languageclient 10 logs through its info, warn and
+// error methods.
 
+const readline = require('readline');
 const vscode = require('vscode');
 const { plutoPath, runPluto } = require('./pluto');
 
@@ -36,11 +43,43 @@ function serverSettings() {
   };
 }
 
+// SLOG_LINE matches a line of pluto lsp's log (log/slog's text format):
+// the time and level, which the output channel shows itself, and the rest.
+const SLOG_LINE = /^time=\S+ level=(DEBUG|INFO|WARN|ERROR)([+-]\d+)? (.*)$/;
+
+// logServerLine writes a line the server wrote to standard error to output
+// at the line's own level; vscode-languageclient would log every one of
+// them as an error.
+function logServerLine(output, line) {
+  const m = SLOG_LINE.exec(line);
+  if (!m) {
+    output.error(line);
+    return;
+  }
+  const log = { DEBUG: output.debug, INFO: output.info, WARN: output.warn, ERROR: output.error }[m[1]];
+  log.call(output, m[3]);
+}
+
+// pipeLines calls fn with each line of the stream input.
+function pipeLines(input, fn) {
+  readline.createInterface({ input, crlfDelay: Infinity, terminal: false, historySize: 0 }).on('line', fn);
+}
+
+const stdioOptions = {
+  stdout: (input, output) => pipeLines(input, (line) => output.info(line)),
+  stderr: (input, output) => pipeLines(input, (line) => logServerLine(output, line)),
+};
+
+function errorText(err) {
+  return `${err && err.message ? err.message : err}`;
+}
+
 class LanguageServer {
   constructor(output, timers = { setTimeout, clearTimeout }) {
     this.output = output;
     this.timers = timers;
     this.client = null;
+    this.started = null; // this.client once it has started
     this.crashes = []; // times of recent crashes
     this.stopping = false;
   }
@@ -58,7 +97,11 @@ class LanguageServer {
     const lc = require('vscode-languageclient/node');
     this.lc = lc;
     const command = plutoPath();
-    const serverOptions = { command, args: ['lsp'], transport: lc.TransportKind.stdio };
+    // No transport: with TransportKind.stdio the client would add --stdio
+    // to the arguments, which pluto lsp rejects. Without one it still talks
+    // to the server over standard input and output.
+    const serverOptions = { command, args: ['lsp'] };
+    let client = null;
     const clientOptions = {
       documentSelector: [{ scheme: 'file', language: 'plutonium' }],
       synchronize: {
@@ -67,22 +110,34 @@ class LanguageServer {
       },
       initializationOptions: serverSettings(),
       outputChannel: this.output,
+      stdioOptions,
       errorHandler: {
-        error: () => ({ action: lc.ErrorAction.Continue }),
-        closed: () => this.closed(),
+        // The client logs the error; closed decides what happens next.
+        error: () => ({ action: lc.ErrorAction.Continue, handled: true }),
+        closed: () => this.closed(client),
       },
     };
     this.stopping = false;
-    this.client = new lc.LanguageClient('plutonium', 'Plutonium Language Server', serverOptions, clientOptions);
     try {
-      await this.client.start();
-      this.output.appendLine(`Started ${command} lsp`);
+      client = new lc.LanguageClient('plutonium', 'Plutonium Language Server', serverOptions, clientOptions);
+      this.client = client;
+      await client.start();
+      this.started = client;
+      this.output.info(`Started ${command} lsp`);
     } catch (err) {
-      this.client = null;
-      const msg = err && err.code === 'ENOENT'
-        ? `${command} was not found. Install pluto or set plutonium.plutoPath.`
-        : `${err && err.message ? err.message : err}`;
-      this.output.appendLine(`Cannot start the language server: ${msg}`);
+      if (this.client === client) {
+        this.client = null;
+      }
+      // The client leaves a server that failed to initialize running.
+      const proc = client && client.serverProcess;
+      if (proc && proc.exitCode === null && proc.signalCode === null) {
+        proc.kill();
+      }
+      // A command that cannot be run is reported as a string, "Launching
+      // server using command pluto failed. Error: spawn pluto ENOENT".
+      const missing = (err && err.code === 'ENOENT') || /\bENOENT\b/.test(errorText(err));
+      const msg = missing ? `${command} was not found. Install pluto or set plutonium.plutoPath.` : errorText(err);
+      this.output.error(`Cannot start the language server: ${msg}`);
       vscode.window.showErrorMessage(`Plutonium: cannot start the language server: ${msg}`, 'Show Output')
         .then((choice) => choice && this.output.show());
     }
@@ -91,12 +146,13 @@ class LanguageServer {
   async stop() {
     const client = this.client;
     this.client = null;
+    this.started = null;
     this.stopping = true;
     if (client) {
       try {
         await client.stop();
       } catch (err) {
-        this.output.appendLine(`Stopping the language server: ${err && err.message ? err.message : err}`);
+        this.output.warn(`Stopping the language server: ${errorText(err)}`);
       }
     }
   }
@@ -107,38 +163,39 @@ class LanguageServer {
     await this.start();
   }
 
-  // closed decides what happens when the server's connection closes
-  // without the client stopping it: the server crashed or exited.
-  async closed() {
+  // closed decides what happens when client's connection closes without
+  // the extension stopping it: the server crashed or exited. A client that
+  // never started, or has been replaced, is not restarted; start reports
+  // why it failed.
+  async closed(client) {
     const lc = this.lc;
-    if (this.stopping) {
-      return { action: lc.CloseAction.DoNotRestart, handled: true };
+    const stay = (message) => ({ action: lc.CloseAction.DoNotRestart, handled: true, message });
+    if (this.stopping || client !== this.client || client !== this.started) {
+      return stay('The language server stopped.');
     }
     const now = Date.now();
     this.crashes = this.crashes.filter((t) => now - t < CRASH_WINDOW_MS);
     this.crashes.push(now);
     if (this.crashes.length > MAX_CRASHES) {
       this.client = null;
+      this.started = null;
       const msg = `The Plutonium language server crashed ${this.crashes.length} times in the last few minutes and was not restarted.`;
-      this.output.appendLine(msg);
-      vscode.window.showErrorMessage(msg, 'Restart', 'Show Output').then((choice) => {
+      vscode.window.showErrorMessage(msg, 'Show Output', 'Restart').then((choice) => {
         if (choice === 'Restart') {
           this.restart();
         } else if (choice === 'Show Output') {
           this.output.show();
         }
       });
-      return { action: lc.CloseAction.DoNotRestart, handled: true };
+      return stay(msg);
     }
     const delay = Math.min(RESTART_BASE_MS * 2 ** (this.crashes.length - 1), RESTART_MAX_MS);
-    const msg = `The Plutonium language server stopped unexpectedly; restarting in ${(delay / 1000).toFixed(1)}s.`;
-    this.output.appendLine(msg);
-    vscode.window.showWarningMessage(msg, 'Show Output').then((choice) => choice && this.output.show());
+    this.output.warn(`The language server stopped unexpectedly; restarting in ${(delay / 1000).toFixed(1)}s.`);
     await new Promise((resolve) => this.timers.setTimeout(resolve, delay));
-    if (this.stopping) {
-      return { action: lc.CloseAction.DoNotRestart, handled: true };
+    if (this.stopping || client !== this.client) {
+      return stay('The language server stopped.');
     }
-    return { action: lc.CloseAction.Restart, handled: true };
+    return { action: lc.CloseAction.Restart, handled: true, message: 'Restarting the language server.' };
   }
 }
 
@@ -154,7 +211,7 @@ const explainProvider = {
       const res = await runPluto(['explain', code], { timeoutMs: 10000 });
       return res.code === 0 ? res.stdout : `pluto explain ${code} failed:\n\n${res.stderr}`;
     } catch (err) {
-      return `Cannot run pluto explain ${code}: ${err && err.message ? err.message : err}`;
+      return `Cannot run pluto explain ${code}: ${errorText(err)}`;
     }
   },
 };
@@ -187,4 +244,6 @@ function register(context, output) {
   return server;
 }
 
-module.exports = { register, wanted, LanguageServer, explainProvider, RESTART_BASE_MS, RESTART_MAX_MS, MAX_CRASHES };
+module.exports = {
+  register, wanted, LanguageServer, explainProvider, logServerLine, RESTART_BASE_MS, RESTART_MAX_MS, MAX_CRASHES,
+};

@@ -26,9 +26,12 @@ includes it. The standard library comes from `$PLUTOROOT` if it is set, otherwis
 inside `pluto`, extracted read-only to `~/.cache/pluto/` so that go to definition can open it.
 
 If the server stops unexpectedly it is restarted after a short delay that doubles with each crash
-(up to 30 seconds); after five crashes in three minutes it stays stopped and offers to restart.
-*Plutonium: Restart Language Server* restarts it by hand. Its log goes to the *Plutonium* output
-(`plutonium.trace.server` adds every message).
+(up to 30 seconds), which the *Plutonium* output records; after five crashes in three minutes it
+stays stopped, and one message offers to show the output or restart it. A server that cannot start
+is reported once and not restarted. *Plutonium: Restart Language Server* restarts it by hand. Its
+log goes to the *Plutonium* output, at the level of each line; set that output's log level to
+*Trace* (the gear in the Output panel) to add every message (`plutonium.trace.server` chooses
+`messages` or `verbose`).
 
 **Highlighting** of the whole language as `docs/spec/language.md` describes it:
 
@@ -72,7 +75,7 @@ Go-style indentation, and `// region` / `// endregion` folding markers.
 | `plutonium.target` | `x86_64-linux` | The target the server checks code for: `x86_64-linux` or `x86_64-none`. |
 | `plutonium.mode` | (from the target) | The build mode: `hosted`, `freestanding` or `kernel`, as `pluto build --mode`. |
 | `plutonium.tags` | `[]` | More build tags, as `pluto build --tags`. |
-| `plutonium.trace.server` | `off` | `messages` or `verbose` logs the protocol to the *Plutonium* output. |
+| `plutonium.trace.server` | `off` | `messages` or `verbose`: how the protocol is logged to the *Plutonium* output while its log level is *Trace*. |
 | `plutonium.formatTimeout` | `10000` | Milliseconds to wait for `pluto fmt` (with the server off). |
 
 The extension sets `editor.insertSpaces: false` and `editor.formatOnSave: true` for Plutonium;
@@ -93,8 +96,8 @@ go install ./cmd/pluto                     # the language server is pluto lsp
 cd editors/vscode
 npm ci                                     # install the locked dependencies
 npm run package                            # writes plutonium-<version>.vsix
-code --install-extension plutonium-0.2.0.vsix
-cursor --install-extension plutonium-0.2.0.vsix   # or codium, code-insiders
+code --install-extension plutonium-0.2.1.vsix
+cursor --install-extension plutonium-0.2.1.vsix   # or codium, code-insiders
 ```
 
 `vsce` puts the extension's files and its production dependencies (`vscode-languageclient` and
@@ -128,11 +131,17 @@ For development, run `npm ci`, then the editor with
   without touching the buffer, and copes with a missing `pluto` (`test/format-check.js`).
 - the language server client, run through `extension.js` against stand-ins for `vscode` and
   `vscode-languageclient`, starts `pluto lsp` with the settings, swaps the stand-alone formatter
-  out while it runs, follows `useLanguageServer`, `plutoPath` and workspace trust, and restarts a
-  crashed server with doubling delays until it gives up (`test/lsp-check.js`).
+  out while it runs, follows `useLanguageServer`, `plutoPath` and workspace trust, reports a
+  server that cannot start once, and restarts a crashed server with doubling delays until it
+  gives up with one message (`test/lsp-check.js`). The stand-ins hold the extension to what
+  `vscode-languageclient` 10 needs: a `LogOutputChannel` (`test/fake-output.js` gives one only
+  for `{ log: true }`, as VS Code does) and no `--stdio` argument, which `pluto lsp` rejects.
 - a freshly built `pluto lsp` and `vscode-jsonrpc` (the library under `vscode-languageclient`)
   agree on the protocol: handshake, diagnostics after an edit, hover, definition into the standard
-  library, formatting and shutdown (`test/lsp-protocol-check.js`; skipped without `npm ci`).
+  library, formatting and shutdown (`test/lsp-protocol-check.js`); and the extension starts and
+  stops that `pluto lsp` through the installed `vscode-languageclient`, with the server's log at
+  its own levels and a missing `pluto` reported once (`test/lsp-client-check.js`). Both are
+  skipped without `npm ci`.
 
 The node-based checks are skipped when `node` is not installed. The language server itself is
 tested in Go, in `internal/lsp`.

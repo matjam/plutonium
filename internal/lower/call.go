@@ -851,7 +851,6 @@ func (l *Lowerer) boundMethodWrapper(target *ssa.Sym, full *types2.Signature) *s
 	return sym
 }
 
-
 // incomingArgs rebuilds a synthesized function's parameters as values.
 func (s *fnState) incomingArgs(sig *types2.Signature) []value {
 	idx := 0

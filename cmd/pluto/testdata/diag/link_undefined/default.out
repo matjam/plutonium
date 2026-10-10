@@ -9,5 +9,5 @@ running ld failed: undefined reference to main.checksum
     body must be defined in a .s file of its package, under the symbol
     "main.checksum" in quotes, or be marked //pu:extern with the name of a C
     function.
-    (see "Assembly and C" in the Plutonium spec, section 9)
+    (see "Assembly and C" in the Plutonium spec, section 10)
     (run "pluto explain E5001" for a longer explanation)

@@ -26,7 +26,7 @@ $DIR/main.p:21:50: errors.New needs a constant message, since each call site mak
     instead, which costs nothing and can never fail.
     To include values in the message:
         return fmt.Errorf("open %s: not found", name)
-    (see "Sentinels and errors.New" in the Plutonium spec, section 13.1)
+    (see "Sentinels and errors.New" in the Plutonium spec, section 14.1)
     (run "pluto explain E2008" for a longer explanation)
 
 $DIR/main.p:24:12: map types are not permitted in Plutonium (maps need a garbage-collected hash table; use pluto/hash)
