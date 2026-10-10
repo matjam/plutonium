@@ -436,10 +436,11 @@ func (e *encoder) encode(in *MInst) {
 		} else {
 			e.sse(0, 0x2E, false, in.Dst.Reg, rmOf(in.Src))
 		}
+	case MPSHUFD:
+		e.emitInsn(insn{prefixes: []byte{0x66}, opcode: []byte{0x0F, 0x70}, reg: in.Dst.Reg, rm: rmOf(in.Src), immSize: 1})
+		e.imm(in.Imm, 1)
 	case MUNPCKLPD:
 		e.sse(0x66, 0x14, false, in.Dst.Reg, rmOf(in.Src))
-	case MUNPCKHPD:
-		e.sse(0x66, 0x15, false, in.Dst.Reg, rmOf(in.Src))
 	case MMOVHPD:
 		if in.Dst.Kind == OpdMem {
 			e.sse(0x66, 0x17, false, in.Src.Reg, rmMem(in.Dst.Mem))

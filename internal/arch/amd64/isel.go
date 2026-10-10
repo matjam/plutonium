@@ -799,10 +799,13 @@ func (s *isel) value(v *ssa.Value) error {
 			s.emit(&MInst{Op: MUNPCKLPD, Size: 16, Dst: RegOp(d), Src: RegOp(s.reg(b))})
 		}
 	case ssa.OpVLane:
+		// d holds a scalar and may be spilled as one, so it never holds
+		// the whole vector: lane 1 is shuffled straight into it.
 		d := s.def(v)
-		s.copyReg(d, s.reg(v.Args[0]), 16)
-		if v.AuxInt == 1 {
-			s.emit(&MInst{Op: MUNPCKHPD, Size: 16, Dst: RegOp(d), Src: RegOp(d)})
+		if v.AuxInt == 0 {
+			s.copyReg(d, s.reg(v.Args[0]), 16)
+		} else {
+			s.emit(&MInst{Op: MPSHUFD, Size: 16, Dst: RegOp(d), Src: RegOp(s.reg(v.Args[0])), Imm: 0xEE})
 		}
 
 	case ssa.OpEq, ssa.OpNe, ssa.OpLess, ssa.OpLeq, ssa.OpLessu, ssa.OpLequ:

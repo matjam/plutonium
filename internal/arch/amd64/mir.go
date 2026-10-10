@@ -77,8 +77,8 @@ const (
 	// SSE2 packed doubles. MMOVSF, MADDSF, MSUBSF, MMULSF, MDIVSF and
 	// MSQRTSF with Size 16 are the packed forms (movupd, addpd, ...).
 	MUNPCKLPD // Dst = {Dst.lo, Src.lo}
-	MUNPCKHPD // Dst = {Dst.hi, Src.hi}
 	MMOVHPD   // load: Dst.hi = [Src]; store: [Dst] = Src.hi
+	MPSHUFD   // Dst = the dwords of Src that Imm selects (two bits each)
 
 	// Control flow.
 	MJMP  // to Target
@@ -117,7 +117,7 @@ var mopNames = map[MOp]string{
 	MMOVSF: "movs", MADDSF: "adds", MSUBSF: "subs", MMULSF: "muls", MDIVSF: "divs", MSQRTSF: "sqrts",
 	MUCOMI: "ucomis", MXORPS: "xorps", MANDPS: "andps", MCVTSI2F: "cvtsi2s", MCVTTF2SI: "cvtts2si",
 	MCVTF2F: "cvts2s", MMOVQ: "movq",
-	MUNPCKLPD: "unpcklpd", MUNPCKHPD: "unpckhpd", MMOVHPD: "movhpd",
+	MUNPCKLPD: "unpcklpd", MMOVHPD: "movhpd", MPSHUFD: "pshufd",
 	MJMP: "jmp", MJCC: "j", MCALL: "call", MRET: "ret", MUD2: "ud2",
 	MPUSH: "push", MPOP: "pop", MREPMOVSB: "rep movsb", MREPSTOSB: "rep stosb",
 	MCOPY: "copy", MPCOPY: "pcopy", MDEF: "def", MUSE: "use", MLABEL: "label",
@@ -261,10 +261,10 @@ type MFunc struct {
 	regClass  map[Reg]RegClass
 	wide      map[Reg]bool // XMM registers holding 16 bytes (vectors), spilled as such
 	frameFP   bool         // use RBP as a frame pointer (over-aligned slots)
-	maxAlign  int64 // largest slot alignment
-	outArgs   int64 // bytes of outgoing stack arguments
-	usedSaved []Reg // callee-saved registers the function changes
-	frameSize int64 // bytes below the saved registers, excluding them
+	maxAlign  int64        // largest slot alignment
+	outArgs   int64        // bytes of outgoing stack arguments
+	usedSaved []Reg        // callee-saved registers the function changes
+	frameSize int64        // bytes below the saved registers, excluding them
 	interrupt bool
 	nextSlot  int
 	consts    []Const
@@ -436,6 +436,8 @@ func (in *MInst) String() string {
 		return fmt.Sprintf("imul $%d, %s, %s", in.Imm, in.Src.format(size), in.Dst.format(size))
 	case MLOADCONSTF:
 		return fmt.Sprintf("loadconstf $%#x, %s", in.Imm, in.Dst.format(size))
+	case MPSHUFD:
+		return fmt.Sprintf("pshufd $%#x, %s, %s", in.Imm, in.Src.format(size), in.Dst.format(size))
 	}
 	var args []string
 	if in.Src.Kind != OpdNone {
@@ -448,7 +450,7 @@ func (in *MInst) String() string {
 		return fmt.Sprintf("%s %s", name, strings.Join(args, ", "))
 	}
 	switch in.Op {
-	case MUNPCKLPD, MUNPCKHPD, MMOVHPD:
+	case MUNPCKLPD, MMOVHPD:
 		return fmt.Sprintf("%s %s", in.Op, strings.Join(args, ", "))
 	}
 	return fmt.Sprintf("%s%d %s", in.Op, in.Size, strings.Join(args, ", "))

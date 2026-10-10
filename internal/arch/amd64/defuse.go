@@ -18,7 +18,7 @@ func (in *MInst) readsDst() bool {
 	case MADD, MSUB, MAND, MOR, MXOR, MIMUL, MNEG, MNOT, MBSWAP,
 		MSHL, MSHR, MSAR, MROL, MROR, MCMOVCC,
 		MADDSF, MSUBSF, MMULSF, MDIVSF, MXORPS, MANDPS,
-		MUNPCKLPD, MUNPCKHPD, MMOVHPD, // MMOVHPD keeps the low lane
+		MUNPCKLPD, MMOVHPD, // MMOVHPD keeps the low lane
 		MSETCC: // keeps the upper bytes, which setcc clears beforehand
 		return true
 	case MCMP, MTEST, MUCOMI:

@@ -72,7 +72,7 @@ func TestPackedEncoding(t *testing.T) {
 		{MInst{Op: MMOVSF, Size: 16, Dst: MemOp(BaseMem(RAX, 0)), Src: x(1)}, []byte{0x66, 0x0f, 0x11, 0x08}, "movupd %xmm1, (%rax)"},
 		{MInst{Op: MMOVSF, Size: 16, Dst: MemOp(BaseMem(R12, 16)), Src: x(10)}, []byte{0x66, 0x45, 0x0f, 0x11, 0x54, 0x24, 0x10}, "movupd %xmm10, 16(%r12)"},
 		{MInst{Op: MUNPCKLPD, Size: 16, Dst: x(1), Src: x(2)}, []byte{0x66, 0x0f, 0x14, 0xca}, "unpcklpd %xmm2, %xmm1"},
-		{MInst{Op: MUNPCKHPD, Size: 16, Dst: x(1), Src: x(1)}, []byte{0x66, 0x0f, 0x15, 0xc9}, "unpckhpd %xmm1, %xmm1"},
+		{MInst{Op: MPSHUFD, Size: 16, Dst: x(3), Src: x(9), Imm: 0xEE}, []byte{0x66, 0x41, 0x0f, 0x70, 0xd9, 0xee}, "pshufd $0xee, %xmm9, %xmm3"},
 		{MInst{Op: MMOVHPD, Size: 8, Dst: x(1), Src: MemOp(BaseMem(RAX, 8))}, []byte{0x66, 0x0f, 0x16, 0x48, 0x08}, "movhpd 8(%rax), %xmm1"},
 		{MInst{Op: MMOVHPD, Size: 8, Dst: MemOp(BaseMem(RAX, 8)), Src: x(1)}, []byte{0x66, 0x0f, 0x17, 0x48, 0x08}, "movhpd %xmm1, 8(%rax)"},
 	}
