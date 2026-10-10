@@ -154,6 +154,8 @@ const (
 	// OwnerTypeArg: an owner type argument for a type parameter whose
 	// constraint is not marked owner.
 	OwnerTypeArg
+	// BadTakeArg: take with an argument that is not a pointer.
+	BadTakeArg
 )
 
 // The indexing interface: index expressions on library containers.

@@ -796,6 +796,30 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 			check.recordBuiltinType(call.Fun, makeSig(x.typ()))
 		}
 
+	case _Take:
+		// take(p *T) T
+		// Plutonium: moves the value *p out and leaves the zero value
+		// behind (language spec section 6.4).
+		var elem Type
+		if p, ok := x.typ().Underlying().(*Pointer); ok {
+			elem = p.base
+		}
+		if elem == nil {
+			check.explainf(x, BadTakeArg, &Explanation{
+				Text: "take moves a value out of a place, a field, an element or a variable reached through a pointer, and leaves the zero value there. It takes the place's address, so that it can write the zero value back.",
+				Fixes: []ExplainFix{{
+					Intro: "Pass the address of the place",
+					Code:  "v := take(&x.field)",
+				}},
+			}, invalidArg+"take needs a pointer to the place to take from, not %s", x)
+			return
+		}
+		x.mode_ = value
+		x.typ_ = elem
+		if check.recordTypes() {
+			check.recordBuiltinType(call.Fun, makeSig(elem, NewPointer(elem)))
+		}
+
 	case _Add:
 		// unsafe.Add(ptr unsafe.Pointer, len IntegerType) unsafe.Pointer
 		check.verifyVersionf(call.Fun, go1_17, "unsafe.Add")

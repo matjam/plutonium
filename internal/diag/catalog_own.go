@@ -115,6 +115,13 @@ func init() {
 			Fixed:   "func Fill[T owner any](s []T, v T)",
 		},
 		&Entry{
+			Code: CheckerCode(typerr.BadTakeArg), Name: "BadTakeArg",
+			Text:    "take(p) moves the value p points to out of its place and leaves the zero value there. It needs the place's address, so that it can write the zero value back: a pointer such as &x.field, &s[i] or a pointer variable.",
+			Spec:    pspec("6.4", "Owners"),
+			Example: "left := take(n.left)",
+			Fixed:   "left := take(&n.left)",
+		},
+		&Entry{
 			Code: BadResultHolds, Name: "BadResultHolds",
 			Text:    "//pu:resultholds p says that a function keeps its parameter p only for as long as its result lives: the result, an owner, holds p and gives it back when it is dropped, as alloc.Use's Restore does. The compiler then treats the call as returning p instead of keeping it. The directive must name a parameter, and the function must store that parameter in its result.",
 			Spec:    pspec("9", "Directives"),

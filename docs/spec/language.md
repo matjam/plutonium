@@ -1132,8 +1132,9 @@ anything else is a compile error: a field (`t.left`), an element (`s[i]`), a val
 pointer (`*p`, `p.buf`) or a package-level variable. Each of those places would still believe it holds the
 value and would drop it again. To move out of such a place:
 
-- `take(&place)` returns the value and leaves the zero value behind (**`take` is a new predeclared
-  function; proposal, needs sign-off**);
+- `take(&place)` returns the value and leaves the zero value behind. `take` is a predeclared function,
+  `func take[T any](p *T) T`, for values of any type; the move checker treats it as a use of the
+  place, which still holds a value (the zero one) afterwards;
 - an assignment that permutes places, such as `a, b = b, a` or `s[i], s[j] = s[j], s[i]`, is allowed,
   since nothing is duplicated or lost;
 - `place.Clone()` copies instead.

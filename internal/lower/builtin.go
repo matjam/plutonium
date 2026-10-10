@@ -64,6 +64,15 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		s.callRuntime("memmove", nil, []*ssa.Value{s.checked(dp), s.checked(sp), bytes})
 		return one(scalarValue(n, T))
 
+	case "take":
+		// take(p): the value at p, which then holds the zero value
+		// (language spec section 6.4).
+		p := s.expr(e.Args[0])
+		ptr := s.checked(p.v)
+		v := s.materialize(s.loadLV(lvalue{ptr: ptr, T: T}))
+		s.zero(ptr, s.l.sizeof(T))
+		return one(v)
+
 	case "clear":
 		x := s.expr(e.Args[0])
 		p, n, _ := s.sliceParts(x)

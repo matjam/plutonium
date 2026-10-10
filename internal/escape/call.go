@@ -459,6 +459,12 @@ func (w *walker) builtin(e *ast.CallExpr) []tset {
 		name = f.Sel.Name
 	}
 	switch name {
+	case "take":
+		// The value moved out of *p.
+		if len(e.Args) != 1 {
+			return nil
+		}
+		return []tset{w.load(w.value(e.Args[0]))}
 	case "new", "make":
 		for _, a := range e.Args[1:] {
 			w.value(a)
