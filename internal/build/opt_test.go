@@ -230,6 +230,20 @@ func main() {
 	}
 }
 
+func TestRotate(t *testing.T) {
+	const src = `package main
+
+//pu:noinline
+func f(x uint32) uint32 { return (x >> 7) | (x << 25) ^ (x>>18 + x<<14) }
+
+func main() { println(f(5)) }
+`
+	asm := listFunc(t, src, "main.f")
+	if strings.Count(asm, "rol") != 2 || strings.Contains(asm, "shr") || strings.Contains(asm, "shl") {
+		t.Errorf("f: want two rotates\n%s", asm)
+	}
+}
+
 func TestSetccClearsFirst(t *testing.T) {
 	const src = `package main
 

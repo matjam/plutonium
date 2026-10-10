@@ -56,6 +56,27 @@ func replaceFloat(v *ssa.Value, f float64) bool {
 
 func floatOf(v *ssa.Value) float64 { return math.Float64frombits(uint64(v.AuxInt)) }
 
+// rotate rewrites v = x<<c | x>>(w-c) as a left rotation by c. The two
+// shifted parts share no bits, so Xor and Add combine them as Or does.
+func rotate(v, a, b *ssa.Value) bool {
+	if a.Op == ssa.OpShrL {
+		a, b = b, a
+	}
+	if a.Op != ssa.OpShl || b.Op != ssa.OpShrL || a.Args[0] != b.Args[0] || !isConst(a.Args[1]) || !isConst(b.Args[1]) {
+		return false
+	}
+	w := uint64(v.Type.Size * 8)
+	l, r := ssa.ZeroExt(a.Args[1].Type, a.Args[1].AuxInt), ssa.ZeroExt(b.Args[1].Type, b.Args[1].AuxInt)
+	if l == 0 || r == 0 || l+r != w {
+		return false
+	}
+	x, n := a.Args[0], a.Args[1]
+	v.Reset(ssa.OpRotl)
+	v.AddArg(x)
+	v.AddArg(n)
+	return true
+}
+
 // stepOf reports whether y is x+1 (d = 1) or x-1 (d = -1).
 func stepOf(y, x *ssa.Value) (d int, ok bool) {
 	if len(y.Args) != 2 || y.Args[0] != x {
@@ -332,6 +353,9 @@ func simplifyValue(f *ssa.Func, v *ssa.Value, expand bool) bool {
 func simplifyIntBinary(f *ssa.Func, v *ssa.Value) bool {
 	t := v.Type
 	a, b := v.Args[0], v.Args[1]
+	if (v.Op == ssa.OpOr || v.Op == ssa.OpXor || v.Op == ssa.OpAdd) && rotate(v, a, b) {
+		return true
+	}
 	if isConst(a) && isConst(b) {
 		x, y := a.AuxInt, b.AuxInt
 		var r int64
