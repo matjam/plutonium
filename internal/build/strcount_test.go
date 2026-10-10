@@ -68,7 +68,8 @@ func pure(p *rec) int { return length(p.name) }
 func risky(p *rec) int { return replace(p, p.name) }
 
 func main() {
-	r := rec{name: string([]byte{'a', 'b'})}
+	ch := 'a'
+	r := rec{name: string(ch) + "b"}
 	println(pure(&r), risky(&r), r.name)
 }
 `
@@ -124,11 +125,12 @@ func TestStringsKernelAlloc(t *testing.T) {
 import (
 	"pluto/fmt"
 	"pluto/rt"
+	"pluto/strings"
 )
 
 func label(name string, b []byte) string {
 	f := func() string { return "irq " + name }
-	return f() + string(b) + fmt.Sprintf("%d", len(b))
+	return f() + strings.FromUTF8Lossy(b) + fmt.Sprintf("%d", len(b))
 }
 
 func setup() string {

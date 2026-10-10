@@ -191,6 +191,49 @@ func TestBuilder(t *testing.T) {
 	}
 }
 
+func TestFromUTF8(t *testing.T) {
+	tests := [...]struct {
+		b     []byte
+		lossy string
+		valid bool
+	}{
+		{nil, "", true},
+		{[]byte{'a', 'b'}, "ab", true},
+		{[]byte{0xc3, 0xa9}, "é", true},
+		{[]byte{0xf0, 0x9f, 0x98, 0x80}, "😀", true},
+		{[]byte{0xff}, "�", false},
+		{[]byte{0xfe}, "�", false},
+		{[]byte{'a', 0xe4, 0xb8, 'b'}, "a��b", false},
+		{[]byte{0xed, 0xa0, 0x80}, "���", false},
+		{[]byte{0xf0, 0x9f, 0x98}, "���", false},
+	}
+	for _, tt := range tests {
+		got := FromUTF8Lossy(tt.b)
+		if got != tt.lossy {
+			t.Errorf("FromUTF8Lossy(%x) = %q, want %q", tt.b, got, tt.lossy)
+		}
+		s, err := FromUTF8(tt.b)
+		switch {
+		case tt.valid && (err != nil || s != tt.lossy):
+			t.Errorf("FromUTF8(%x) = %q, %v, want %q, nil", tt.b, s, err, tt.lossy)
+		case !tt.valid && (err != ErrInvalidUTF8 || s != ""):
+			t.Errorf("FromUTF8(%x) = %q, %v, want an empty string and ErrInvalidUTF8", tt.b, s, err)
+		}
+	}
+	// The result is a copy: changing the bytes leaves the string alone.
+	b := []byte{'c', 'o', 'p', 'y'}
+	s := FromUTF8Lossy(b)
+	b[0] = 'C'
+	if s != "copy" {
+		t.Errorf("FromUTF8Lossy shares its argument: %q", s)
+	}
+	// Different invalid bytes give equal strings, which is why the
+	// conversion has a name that says so.
+	if FromUTF8Lossy([]byte{0xfe}) != FromUTF8Lossy([]byte{0xff}) {
+		t.Errorf("FromUTF8Lossy(0xfe) != FromUTF8Lossy(0xff)")
+	}
+}
+
 func BenchmarkIndex(b *testing.B) {
 	s := "the quick brown fox jumps over the lazy dog"
 	for i := 0; i < b.N; i++ {

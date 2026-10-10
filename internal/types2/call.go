@@ -222,10 +222,14 @@ func (check *Checker) callExpr(x *operand, call *ast.CallExpr) exprKind {
 						break
 					}
 				}
+				V := x.typ()
 				if en := EnumOf(T); en != nil && !Identical(x.typ(), T) {
 					check.enumConversion(x, T, en, call)
 				} else {
 					check.conversion(x, T)
+				}
+				if x.isValid() {
+					check.removedConversion(call, V, T)
 				}
 			}
 		default:

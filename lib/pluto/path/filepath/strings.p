@@ -4,6 +4,7 @@ import (
 	"pluto/alloc"
 	"pluto/os"
 	"pluto/rt"
+	"pluto/strings"
 	"pluto/vec"
 	"unsafe"
 )
@@ -24,10 +25,10 @@ func build(n int, reuse string, fill func(dst *vec.Fixed[byte])) string {
 		f := vec.NewFixed(stack[:])
 		fill(&f)
 		out := f.Slice()
-		if string(out) == reuse {
+		if strings.FromUTF8Lossy(out) == reuse {
 			return reuse
 		}
-		return string(out)
+		return strings.FromUTF8Lossy(out)
 	}
 	p, ctl := rt.NewStringBuffer(n, alloc.Default())
 	f := vec.NewFixed(unsafe.Slice(p, n))

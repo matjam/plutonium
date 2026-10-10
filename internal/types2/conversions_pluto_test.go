@@ -1,0 +1,62 @@
+package types2_test
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/matjam/plutonium/internal/testguard"
+)
+
+// TestRemovedConversions checks the conversions of Go that Plutonium does
+// not have (language spec section 3), and that the neighbours that stay are
+// still accepted.
+func TestRemovedConversions(t *testing.T) {
+	testguard.Parallel(t)
+	const decls = `package p
+
+type Bytes []byte
+type MyByte byte
+type Name string
+
+func use(...any) {}
+
+`
+	tests := []struct {
+		name string
+		body string
+		want string // part of the error; empty if the conversion is accepted
+	}{
+		// string(b) of a byte slice.
+		{"bytes", "func f(b []byte) string { return string(b) }", "string(b) of a byte slice is not permitted"},
+		{"uint8", "func f(b []uint8) string { return string(b) }", "string(b) of a byte slice is not permitted"},
+		{"named slice", "func f(b Bytes) string { return string(b) }", "string(b) of a byte slice is not permitted"},
+		{"named byte", "func f(b []MyByte) string { return string(b) }", "string(b) of a byte slice is not permitted"},
+		{"named string", "func f(b []byte) Name { return Name(b) }", "string(b) of a byte slice is not permitted"},
+		{"array slice", "func f(a *[4]byte) string { return string(a[:]) }", "string(b) of a byte slice is not permitted"},
+		{"type parameter", "func f[S ~[]byte](b S) string { return string(b) }", "string(b) of a byte slice is not permitted"},
+		{"type parameter union", "func f[S ~[]byte | ~string](b S) string { return string(b) }", "string(b) of a byte slice is not permitted"},
+		{"message names the fix", "func f(b []byte) string { return string(b) }", "use strings.FromUTF8 or strings.FromUTF8Lossy"},
+
+		// What stays.
+		{"runes", "func f(r []rune) string { return string(r) }", ""},
+		{"rune", "func f(r rune) string { return string(r) }", ""},
+		{"string", "func f(s Name) string { return string(s) }", ""},
+		{"bytes to bytes", "func f(b []byte) Bytes { return Bytes(b) }", ""},
+		{"type parameter of strings", "func f[S ~string](s S) string { return string(s) }", ""},
+		{"no specific types", "func f[T any](x T) any { return any(x) }", ""},
+		{"byte array to array", "func f(b [4]byte) [4]byte { return [4]byte(b) }", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testguard.Parallel(t)
+			if tt.want == "" {
+				mustCheck(t, decls+tt.body)
+				return
+			}
+			_, _, err := checkSrc(t, decls+tt.body)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("error %v, want one containing %q", err, tt.want)
+			}
+		})
+	}
+}

@@ -1,0 +1,4 @@
+$DIR/main.p:8:9: string(b) of a byte slice is not permitted in Plutonium (it would replace bytes that are not UTF-8; use strings.FromUTF8 or strings.FromUTF8Lossy)
+$DIR/main.p:12:9: string(b) of a byte slice is not permitted in Plutonium (it would replace bytes that are not UTF-8; use strings.FromUTF8 or strings.FromUTF8Lossy)
+$DIR/main.p:18:11: string(b) of a byte slice is not permitted in Plutonium (it would replace bytes that are not UTF-8; use strings.FromUTF8 or strings.FromUTF8Lossy)
+$DIR/main.p:26:10: string(b) of a byte slice is not permitted in Plutonium (it would replace bytes that are not UTF-8; use strings.FromUTF8 or strings.FromUTF8Lossy)

@@ -520,7 +520,7 @@ func throughFile(hops []hop) bool {
 // new and make, and for the operations that make strings.
 var allocCalls = map[string]bool{
 	"pluto/rt.alloc": true, "pluto/rt.allocWith": true, "pluto/rt.boxNew": true, "pluto/rt.boxNewWith": true,
-	"pluto/rt.concatStrings": true, "pluto/rt.stringFromBytes": true, "pluto/rt.stringFromRunes": true,
+	"pluto/rt.concatStrings": true, "pluto/rt.stringFromRunes": true,
 	"pluto/rt.stringFromRune": true, "pluto/rt.bytesFromString": true, "pluto/rt.runesFromString": true,
 }
 

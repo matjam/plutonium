@@ -72,7 +72,7 @@ func (s *fnState) concatAssign(lv lvalue, rhs ast.Expr, pos token.Pos) {
 }
 
 // stringConversion lowers a conversion to or from a string that copies,
-// and so allocates: string(bytes), string(runes), string(r) for a rune that
+// and so allocates: string(runes), string(r) for a rune that
 // is not a constant, []byte(s) and []rune(s). It reports false for any
 // other conversion.
 func (s *fnState) stringConversion(e *ast.CallExpr, to, from types2.Type) (value, bool) {
@@ -89,10 +89,6 @@ func (s *fnState) stringConversion(e *ast.CallExpr, to, from types2.Type) (value
 	switch {
 	case isString(to) && !isString(from):
 		switch elemKind(fu) {
-		case types2.Byte:
-			p, n, _ := s.sliceParts(s.expr(e.Args[0]))
-			res := s.callRuntime("stringFromBytes", []*ssa.Type{ssa.TPtr, ssa.TI64, ssa.TI64}, []*ssa.Value{p, n})
-			return s.newString(res, to), true
 		case types2.Rune:
 			p, n, _ := s.sliceParts(s.expr(e.Args[0]))
 			res := s.callRuntime("stringFromRunes", []*ssa.Type{ssa.TPtr, ssa.TI64, ssa.TI64}, []*ssa.Value{p, n})

@@ -49,6 +49,10 @@ const (
 	// MakeSliceNotPermitted: make of a slice type, whose array nothing
 	// would own; vec.Make returns an owner.
 	MakeSliceNotPermitted
+	// BytesToStringNotPermitted: string(b) of a byte slice, which would
+	// replace the bytes that are not valid UTF-8; strings.FromUTF8 refuses
+	// them and strings.FromUTF8Lossy replaces them by name.
+	BytesToStringNotPermitted
 )
 
 // Packed types, bit fields, volatile, aligned and ring.

@@ -21,6 +21,45 @@ func (check *Checker) forbidden(at positioner, code Code, what, reason string) {
 	check.errorf(at, code, "%s not permitted in Plutonium (%s)", what, reason)
 }
 
+// removedConversion reports the conversions of Go that Plutonium does not
+// have, once they have checked as Go's would (language spec section 3).
+// V is the type of the argument and T the type converted to.
+//
+//   - string(b) of a byte slice replaces what is not valid UTF-8, so two
+//     different slices can give equal strings.
+func (check *Checker) removedConversion(call *ast.CallExpr, V, T Type) {
+	if V == nil || T == nil {
+		return
+	}
+	if allString(T) && someUnder(V, func(_, u Type) bool { return isByteSlice(u) }) {
+		check.forbidden(call.Fun, BytesToStringNotPermitted, "string(b) of a byte slice is",
+			"it would replace bytes that are not UTF-8; use strings.FromUTF8 or strings.FromUTF8Lossy")
+	}
+}
+
+// someUnder reports whether f holds for some type in the type set of typ,
+// given with its underlying type, or for typ itself if it is not a type
+// parameter. A type parameter without specific types has none.
+func someUnder(typ Type, f func(t, u Type) bool) bool {
+	some := false
+	all(typ, func(t, u Type) bool {
+		if t != nil && u != nil && f(t, u) {
+			some = true
+		}
+		return true
+	})
+	return some
+}
+
+// isByteSlice reports whether typ's underlying type is a slice of bytes.
+func isByteSlice(typ Type) bool {
+	if s, _ := typ.Underlying().(*Slice); s != nil {
+		t, _ := s.elem.Underlying().(*Basic)
+		return t != nil && t.kind == Byte
+	}
+	return false
+}
+
 // Code returns the error's code, which says what kind of error it is
 // (internal/types2/errors).
 func (err Error) Code() Code { return err.go116code }

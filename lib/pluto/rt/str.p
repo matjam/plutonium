@@ -266,16 +266,9 @@ func runeLen(r rune) int {
 	return 4
 }
 
-// stringFromBytes implements string(b): a copy of the bytes in a new
-// buffer, with each byte that does not start a valid UTF-8 sequence
-// replaced by U+FFFD, as ranging over the bytes would decode it.
-func stringFromBytes(p *byte, n int) (*byte, int, uintptr) {
-	if n == 0 {
-		return nil, 0, 0
-	}
-	return stringFromBytesAt(p, n, currentAllocator(), CallerPC())
-}
-
+// stringFromBytesAt copies the n bytes at p into a new buffer from a, with
+// each byte that does not start a valid UTF-8 sequence replaced by U+FFFD,
+// as ranging over the bytes would decode it (StringFromBytes).
 func stringFromBytesAt(p *byte, n int, a Allocator, pc uintptr) (*byte, int, uintptr) {
 	if n == 0 {
 		return nil, 0, 0
@@ -550,6 +543,17 @@ func KeepString(s string, a Allocator) string {
 	// s is counted: it views no caller's memory, which the escape analysis
 	// cannot see through the branch above (Pinned).
 	return *Pinned(&s)
+}
+
+// StringFromSlice returns a string holding a copy of b, in a buffer from a,
+// with each byte that does not start a valid UTF-8 sequence replaced by
+// U+FFFD. It is strings.FromUTF8Lossy for the packages that pluto/strings
+// itself depends on, or that its tests do (through pluto/testing).
+func StringFromSlice(b []byte, a Allocator) string {
+	if len(b) == 0 {
+		return ""
+	}
+	return StringFromBytes(unsafe.SliceData(b), len(b), a)
 }
 
 // StringFromBytes returns a string holding a copy of the n bytes at p, in a

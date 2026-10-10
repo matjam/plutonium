@@ -32,14 +32,11 @@ func itoa(n int) string {
 	if neg {
 		n = -n
 	}
-	var buf [20]byte
-	i := len(buf)
+	s := ""
 	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
+		s = string(rune('0'+n%10)) + s
 		n /= 10
 	}
-	s := string(buf[i:])
 	if neg {
 		s = "-" + s
 	}
@@ -150,12 +147,10 @@ func main() {
 	c += "!"
 	println(b, c)
 
-	// Conversions. (The slices that []byte(s) and []rune(s) make are
-	// tested in testdata/lib/strutf8.p, which frees them.)
-	var barr [16]byte
-	bs := barr[:copy(barr[:], b)]
-	bs[0] = 'X'
-	println(string(bs), string(bs[1:4]))
+	// Conversions. (Bytes to a string and back are tested in
+	// testdata/lib/strutf8.p: they are not in the subset Go shares.)
+	ra := [...]rune{'X', 'b', 'c', 'd', 'e', 'f', 'a', 'b', 'c'}
+	println(string(ra[:]), string(ra[1:4]))
 	rs := [...]rune{'h', 'é', 'l', 'l', 'o', ',', ' ', 'w', 'ö', 'r', 'l', 'd'}
 	println(len(rs), string(rs[7:]), string(rs[1]))
 	for _, r := range "añb" {

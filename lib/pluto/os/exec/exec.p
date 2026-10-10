@@ -23,6 +23,7 @@ import (
 	"pluto/io"
 	"pluto/os"
 	"pluto/rt"
+	"pluto/strings"
 	"pluto/syscall"
 	"pluto/vec"
 	"unsafe"
@@ -679,9 +680,9 @@ func LookPath(file string) (string, error) {
 	if err := AppendLookPath(&b, file); err != nil {
 		return "", err
 	}
-	// A directory of $PATH may not be valid UTF-8: string(b) replaces each
+	// A directory of $PATH may not be valid UTF-8: strings.FromUTF8Lossy replaces each
 	// invalid byte with U+FFFD. AppendLookPath returns the exact bytes.
-	return string(b.Slice()), nil
+	return strings.FromUTF8Lossy(b.Slice()), nil
 }
 
 // AppendLookPath is LookPath appending the path it finds to dst, a

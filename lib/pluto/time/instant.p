@@ -1,6 +1,10 @@
 package time
 
-import "pluto/vec"
+import (
+	"pluto/alloc"
+	"pluto/rt"
+	"pluto/vec"
+)
 
 // A Time is an instant with nanosecond precision, in UTC. Times from Now
 // also carry a reading of the monotonic clock, which Sub, Since, Until and
@@ -365,7 +369,7 @@ func (t Time) RFC3339() string {
 	var buf [64]byte
 	b := vec.NewFixed(buf[:])
 	t.AppendRFC3339(&b)
-	return string(b.Slice())
+	return rt.StringFromSlice(b.Slice(), alloc.Default())
 }
 
 // AppendRFC3339 appends to dst t in RFC 3339 format with nanoseconds, as Go's

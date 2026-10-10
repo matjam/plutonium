@@ -3,6 +3,7 @@ package bytes
 import (
 	"pluto/alloc"
 	"pluto/io"
+	"pluto/strings"
 	"pluto/unicode/utf8"
 	"pluto/vec"
 )
@@ -60,7 +61,7 @@ func (b *Buffer) String() string {
 		// Special case, useful in debugging.
 		return "<nil>"
 	}
-	return string(b.Bytes())
+	return strings.FromUTF8Lossy(b.Bytes())
 }
 
 // Len returns the number of bytes of the unread portion of the buffer.

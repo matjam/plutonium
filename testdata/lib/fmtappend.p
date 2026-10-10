@@ -3,6 +3,7 @@ package main
 import (
 	"pluto/fmt"
 	"pluto/os"
+	"pluto/strings"
 	"pluto/vec"
 )
 
@@ -48,7 +49,7 @@ func main() {
 	var big [600]byte
 	g := vec.NewFixed(big[:])
 	fmt.Appendf(&g, "%300s|%-250d|", "right", 7)
-	fmt.Println(g.Len(), g.Truncated(), string(g.Slice()[295:306]))
+	fmt.Println(g.Len(), g.Truncated(), strings.FromUTF8Lossy(g.Slice()[295:306]))
 
 	// Any other Appender.
 	var s sink

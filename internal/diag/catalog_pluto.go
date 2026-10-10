@@ -121,6 +121,22 @@ func init() {
 			Example: "buf := make([]byte, n)\nread(buf)",
 			Fixed:   "buf := vec.Make[byte](n)\ndefer buf.Free()\nread(buf.Slice())",
 		},
+		&Entry{
+			Code: CheckerCode(typerr.BytesToStringNotPermitted), Name: "BytesToStringNotPermitted",
+			Text: "Plutonium has no string(b) for a byte slice b. Every string holds valid UTF-8 text, but a " +
+				"slice of bytes can hold anything. In Go the conversion keeps the bytes. Here it would have to " +
+				"change each byte that is not valid UTF-8 into the replacement character U+FFFD without telling you, " +
+				"so two different slices, such as {0xfe} and {0xff}, would give equal strings.\n" +
+				"Say what you mean. strings.FromUTF8(b) returns the string and an error, and fails if the bytes are not " +
+				"valid UTF-8. strings.FromUTF8Lossy(b) returns a string in which each invalid byte is replaced by U+FFFD. " +
+				"If the bytes are binary data, such as a digest used as a map key, keep them in a byte array or a " +
+				"slice and not in a string.",
+			Why:     "Go strings may hold any bytes. Plutonium strings are text, so a conversion from bytes must either check them or replace some of them, and it must not do the second without the program saying so. The data in a string must not change silently.",
+			Fix:     &Fix{Intro: "To check the bytes and handle bad input", Code: "import \"pluto/strings\"\n\ns, err := strings.FromUTF8(b)\nif err != nil {\n\treturn err\n}"},
+			Spec:    pspec("6.10", "Strings"),
+			Example: "s := string(b)",
+			Fixed:   "s, err := strings.FromUTF8(b)",
+		},
 
 		// Packed types and wrappers.
 		&Entry{

@@ -603,7 +603,10 @@ func (t *fileTr) heapVariadic(n *ast.CallExpr) (string, bool) {
 	return fmt.Sprintf("%s(%s)", t.render(n.Fun), strings.Join(args, ", ")), true
 }
 
-// conversion translates conversions that copy in Go.
+// conversion translates conversions that copy in Go. string(b) of a byte
+// slice becomes compat.String, the lossy form (strings.FromUTF8Lossy): the
+// translation is mechanical, and bytes that are not UTF-8 would become
+// U+FFFD where Go kept them; code that relies on that keeps a []byte.
 func (t *fileTr) conversion(n *ast.CallExpr, to types.Type) (string, bool) {
 	if len(n.Args) != 1 || t.info.Types[n].Value != nil {
 		return "", false

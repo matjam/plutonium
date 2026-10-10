@@ -30,7 +30,7 @@ import (
 //
 // The bytes written need not be valid UTF-8 one at a time, but String
 // replaces each byte that does not begin a valid UTF-8 sequence with U+FFFD,
-// as string(b) does; it checks only the bytes written since the last call.
+// as strings.FromUTF8Lossy does; it checks only the bytes written since the last call.
 type Builder owner struct {
 	buf []byte          // the bytes so far, within the buffer
 	ctl uintptr         // reference to the counted buffer, or 0

@@ -138,9 +138,10 @@ Each of these is a compile error that names the construct and the reason.
 | `append` | Go's `append` grows a slice by allocating a larger array behind the program's back, and the collector frees the old one; a slice is a view and owns no array it could grow (sections 4.3, 6.3) | `pluto/vec.Vec[T]`, an owner that grows (`Push`, `Append`); `vec.Fixed[T]` to fill a caller's array (section 13.2); slicing and `copy` within a slice's capacity |
 | `make([]T, n)`, `make([]T, n, c)` | the array would belong to no one: a slice is a view, and without a collector nothing would free it (sections 4.2, 6.6) | `vec.Make[T](n)` and `vec.WithCapacity[T](c)`, which return an owning `vec.Vec[T]`; an array for a constant size; `a.Slice[T](n)` from an arena |
 | string literals that are not valid UTF-8 (`"\xff"`) | every string holds valid UTF-8 (section 6.10) | `[]byte{0xff}` for binary data |
+| `string(b)` for a byte slice `b` (E2015) | Go keeps the bytes; a Plutonium string holds only valid UTF-8, so the conversion would replace each invalid byte with U+FFFD without saying so, and `string([]byte{0xfe}) == string([]byte{0xff})` (section 6.10) | `strings.FromUTF8(b)`, which returns an error for bytes that are not text; `strings.FromUTF8Lossy(b)`, which replaces them by name; a byte array or slice for binary data |
 
 Strings work as in Go otherwise. Runtime concatenation (`s + t`, `s += t`) and the conversions
-`string(b)`, `string(runes)`, `string(r)`, `[]byte(s)` and `[]rune(s)` allocate from the current
+`string(runes)`, `string(r)`, `[]byte(s)` and `[]rune(s)` allocate from the current
 allocator, and the strings they make are counted and freed when their last copy goes (section 6.10).
 In kernel mode they follow the rules of any allocation (section 12.7).
 
@@ -1746,7 +1747,7 @@ memory return owner types:
   general heap: an owner allocated in an arena is dropped as usual, and its free costs nothing. Memory that
   only an arena owns can also be handed out as plain views (`a.New[T]()` returns a `*T`), valid until the
   arena is reset or dropped.
-- **Text.** Strings own their buffers by counting (section 6.10): `s + t`, `string(b)` and
+- **Text.** Strings own their buffers by counting (section 6.10): `s + t`, `strings.FromUTF8Lossy(b)` and
   `fmt.Sprintf` return a string, freed when its last copy goes. `strings.Builder` builds one with fewer
   copies: its `String()` shares the builder's buffer instead of copying it. `fmt.Appendf(&f, ...)` into a
   `vec.Fixed[byte]` over a caller's array formats without allocating (section 13.2).
@@ -2234,7 +2235,7 @@ main.p:12:12: cannot pass buf[:n] to cache.Put, which keeps it after returning
     main.p:9). cache.Put stores its parameter p in c.entries (cache.p:31), which
     lives longer than this call, so the slice would outlive buf.
     Give Put something that keeps its bytes alive, for example a string:
-        c.Put(string(buf[:n]))  // a copy the cache can keep; Put takes a string
+        c.Put(strings.FromUTF8Lossy(buf[:n]))  // a copy the cache can keep; Put takes a string
     (see "Ownership" in the language spec, section 6.3)
 ```
 
@@ -2586,7 +2587,7 @@ the reference is inside another value, it continues `(Job contains a shared[Cach
 ### 6.10 Strings
 
 A `string` is an immutable, reference-counted value. String code reads and behaves as in Go: `s + t`,
-`s += t`, `string(b)`, `[]byte(s)`, `fmt.Sprintf`, substrings, comparison, `len`, indexing and `range`
+`s += t`, `[]byte(s)`, `fmt.Sprintf`, substrings, comparison, `len`, indexing and `range`
 all work, strings are stored in structs, slices and maps and passed and returned freely, and nothing is
 ever freed while a copy can still reach it. The compiler counts the copies, as Swift does, and frees a
 string's bytes when the last copy goes. This is the one place where Plutonium counts without being asked
@@ -2664,10 +2665,17 @@ each string stored; the roadmap (item 55) records what it measured.
 
 - A string literal or constant that is not valid UTF-8 (`"\xff"`, `"\xc0\x80"`) is a compile error.
   Binary data belongs in `[]byte`, `[N]byte` or `vec.Vec[byte]`.
-- `string(b)` for a byte slice copies it and replaces each byte that does not begin a valid UTF-8
-  sequence with U+FFFD, as `range` over the bytes would decode them; it never fails.
-  `strings.FromUTF8(b)` returns an error instead of replacing. `string(runes)` and `string(r)` replace
-  invalid code points (surrogate halves, values above U+10FFFF, negative values) with U+FFFD, as in Go.
+- `string(b)` for a byte slice is a compile error (E2015). Go keeps the bytes, so a string is any byte
+  sequence there; here the conversion would have to replace each byte that does not begin a valid UTF-8
+  sequence with U+FFFD, and so `string([]byte{0xfe}) == string([]byte{0xff})`, a silent change of data.
+  `strings.FromUTF8(b)` returns the string and an error, `ErrInvalidUTF8`, for bytes that are not valid
+  UTF-8. `strings.FromUTF8Lossy(b)` returns a copy with each such byte replaced by U+FFFD, as `range`
+  over the bytes would decode them; it never fails, and the name says that two different slices can give
+  equal strings. Binary data (a digest used as a key, a protocol field) belongs in a byte array or slice.
+  The library's other paths from bytes to strings (`strings.Builder.String`, `bytes.Buffer.String`,
+  `fmt.Sprintf` of a `[]byte`, names from the operating system, section 13.1) are text-oriented and keep
+  replacing. `string(runes)` and `string(r)` replace invalid code points (surrogate halves, values above
+  U+10FFFF, negative values) with U+FFFD, as in Go.
 - `s[i:j]` must start and end at the start of a rune (or at `len(s)`); otherwise it panics. The check
   reads the bytes at `i` and `j`, and the compiler leaves it out for an ASCII string and where it can
   prove the bound is a rune boundary: 0 and `len(s)`; a bound of an earlier slice of `s` that was
@@ -2688,7 +2696,7 @@ each string stored; the roadmap (item 55) records what it measured.
 
 **Conversions.** `[]byte(s)` and `[]rune(s)` copy into memory from the current allocator: today a slice,
 which the program or an arena frees, and a `vec.Vec[byte]` (`vec.Vec[rune]`) that owns the copy once the
-ownership proposals of section 4.2 are adopted. `string(b)`, `string(runes)`
+ownership proposals of section 4.2 are adopted. `string(runes)`
 and `string(r)` for a non-constant rune make a counted string; `string(r)` for an ASCII rune returns a
 static one-byte string and does not allocate, and a value out of range, of any integer type, gives
 U+FFFD as in Go.
@@ -2879,7 +2887,7 @@ errors are E3401 to E3406 once it lands.
 
 Plutonium never allocates heap memory unless the program asks: through `new`, `make`, the `pluto/alloc`
 functions, `owned`/`shared`/`synced` constructors, the operations that make strings (`+` on strings that
-are not constants, `string(b)`, `string(runes)`, `string(r)` for a rune that is not a constant,
+are not constants, `strings.FromUTF8Lossy(b)`, `string(runes)`, `string(r)` for a rune that is not a constant,
 `[]byte(s)`, `[]rune(s)`; section 6.10), or library code that takes an allocator or uses the default
 one. Every allocation belongs to an owner, an arena or, for a string's buffer, the strings that count it
 (section 6.6). Local variables, temporaries and interface frame copies live on the stack. Package-level
@@ -3628,7 +3636,7 @@ A go statement on the path is reported the same way, as E2585 ("so it must not s
 ### 12.7 Allocation in kernel mode
 
 Kernel code allocates as other code does: `new`, `make`, the `pluto/alloc` functions and the operations
-that make strings (`+` and `+=` on strings that are not constants, `string(b)` for a byte or rune slice,
+that make strings (`+` and `+=` on strings that are not constants, `strings.FromUTF8Lossy(b)`, `string(runes)`,
 `string(r)` for a rune that is not a constant, `[]byte(s)`, `[]rune(s)`, and library functions that
 return new strings, such as `fmt.Sprintf` and `strconv.Itoa`) all take memory from the current
 allocator, and no function needs a marking to use them. Where allocating is not allowed is decided by
@@ -3711,7 +3719,7 @@ any bytes except NUL and `/`, and so is a symbolic link's target, the working di
 argument and an environment variable. The library therefore follows one rule:
 
 **Bytes that the operating system hands back become a `string` only through validation, which replaces each
-byte that does not begin a valid UTF-8 sequence with U+FFFD, as `string(b)` does.** A name that is valid
+byte that does not begin a valid UTF-8 sequence with U+FFFD, as `strings.FromUTF8Lossy(b)` does.** A name that is valid
 UTF-8 comes back as it is; no other string is made from external bytes without being checked. The
 conversion is lossy, as Rust's `to_string_lossy`. Two different files can give the same string, and a lossy
 name does not name the file it came from, so it must not be used to open, rename or remove that file.

@@ -3,6 +3,7 @@ package main
 import (
 	"pluto/fmt"
 	"pluto/iter"
+	"pluto/strings"
 	"pluto/vec"
 )
 
@@ -87,7 +88,7 @@ func main() {
 		fmt.Print(n, " ")
 	}
 	fmt.Println()
-	fmt.Println(string(v.Slice()))
+	fmt.Println(strings.FromUTF8Lossy(v.Slice()))
 	fmt.Println(line(&v, "much-too-long", 1), v.Len())
 	var small [24]byte
 	w := vec.NewFixed(small[:])
@@ -97,7 +98,7 @@ func main() {
 		fmt.Print(n, " ")
 	}
 	fmt.Println()
-	fmt.Println(string(w.Slice()), w.Truncated())
+	fmt.Println(strings.FromUTF8Lossy(w.Slice()), w.Truncated())
 	fmt.Println(line(&w, "much-too-long", 1), w.Len())
 
 	// A Fixed of strings releases those it drops from its storage.

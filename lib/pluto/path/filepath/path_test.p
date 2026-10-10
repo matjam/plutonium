@@ -2,6 +2,7 @@ package filepath
 
 import (
 	"pluto/os"
+	"pluto/strings"
 	"pluto/testing"
 	"pluto/vec"
 	"unsafe"
@@ -95,7 +96,7 @@ func TestJoin(t *testing.T) {
 	}
 	// A path longer than the stack buffer.
 	var zeros [300]byte
-	long := Join(Clean(string(zeros[:])), "x/../y")
+	long := Join(Clean(strings.FromUTF8Lossy(zeros[:])), "x/../y")
 	if len(long) != 302 || long[300:] != "/y" {
 		t.Errorf("long Join: %d bytes, ends %q", len(long), long[len(long)-2:])
 	}

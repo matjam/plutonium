@@ -23,13 +23,13 @@ func main() {
 		var mem [512]byte
 		f := vec.NewFixed(mem[:])
 		strconv.AppendQuote(&f, s)
-		fmt.Println(q, len(q), string(v.Slice()) == q, string(f.Slice()) == q)
+		fmt.Println(q, len(q), strings.FromUTF8Lossy(v.Slice()) == q, strings.FromUTF8Lossy(f.Slice()) == q)
 		v.Free()
 	}
 	var small [8]byte
 	f := vec.NewFixed(small[:])
 	strconv.AppendQuote(&f, "a\tb\tc\td")
-	fmt.Println(string(f.Slice()), f.Truncated())
+	fmt.Println(strings.FromUTF8Lossy(f.Slice()), f.Truncated())
 	for _, r := range []rune{'a', '\'', '\\', '\n', '\t', '\r', 'é', '世', '😀'} {
 		fmt.Print(strconv.QuoteRune(r), " ")
 	}

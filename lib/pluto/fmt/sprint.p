@@ -63,7 +63,7 @@ func (w *stringSink) string() string {
 // Sprintf formats according to a format specifier and returns the resulting
 // string, allocated from the current allocator, alloc.Default(). Bytes that
 // are not valid UTF-8 (from a %s of a []byte, say) become U+FFFD, as in
-// string(b).
+// strings.FromUTF8Lossy.
 func Sprintf(format string, args ...any) string {
 	var w stringSink
 	var p printer

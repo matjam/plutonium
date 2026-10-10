@@ -127,7 +127,7 @@ func main() {
 	var buf [256]byte
 	b := vec.NewFixed(buf[:])
 	err = exec.AppendLookPath(&b, "sh")
-	println("append lookpath sh", strings.HasSuffix(string(b.Slice()), "/sh"), err == nil)
+	println("append lookpath sh", strings.HasSuffix(strings.FromUTF8Lossy(b.Slice()), "/sh"), err == nil)
 	var tiny [2]byte
 	tb := vec.NewFixed(tiny[:])
 	err = exec.AppendLookPath(&tb, "sh")

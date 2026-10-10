@@ -27,7 +27,9 @@
 package time
 
 import (
+	"pluto/alloc"
 	"pluto/errors"
+	"pluto/rt"
 	"pluto/vec"
 )
 
@@ -140,7 +142,7 @@ func (d Duration) String() string {
 	}
 	var arr [32]byte
 	n := d.format(&arr)
-	return string(arr[n:])
+	return rt.StringFromSlice(arr[n:], alloc.Default())
 }
 
 // AppendString appends d formatted as String formats it to dst, a

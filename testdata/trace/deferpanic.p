@@ -31,7 +31,7 @@ func (b *buffer) Write(s string) {
 }
 
 func (b *buffer) Flush() {
-	fmt.Println("flushed:", string(b.data[:b.n]))
+	fmt.Printf("flushed: %s\n", b.data[:b.n])
 }
 
 func returned() {

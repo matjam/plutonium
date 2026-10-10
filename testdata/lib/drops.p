@@ -124,8 +124,7 @@ func (n *Named) Drop() {
 
 // dyn makes a string with a counted buffer.
 func dyn(c byte, i int) string {
-	b := []byte{c, byte('0' + i)}
-	return string(b)
+	return string(rune(c)) + string(rune('0'+i))
 }
 
 func keepName(n Named) string { return n.name }

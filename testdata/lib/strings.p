@@ -29,8 +29,8 @@ func main() {
 		}
 		fmt.Printf("%d %d %d %d %d\n", strings.IndexByte(h, 'c'), strings.LastIndexByte(h, 'c'), strings.IndexRune(h, '本'), strings.IndexRune(h, 'ö'), strings.IndexRune(h, 'b'))
 	}
-	// string(b) replaces the invalid byte with U+FFFD (language spec section 6.10).
-	fmt.Printf("%d %d\n", strings.IndexRune(string([]byte{'a', 0xff, 'b'}), 0xFFFD), strings.IndexRune("abc", -1))
+	// strings.FromUTF8Lossy replaces the invalid byte with U+FFFD (language spec section 6.10).
+	fmt.Printf("%d %d\n", strings.IndexRune(strings.FromUTF8Lossy([]byte{'a', 0xff, 'b'}), 0xFFFD), strings.IndexRune("abc", -1))
 	sp := []string{"", "  ", " a ", "\t\n hello world \r\n", " x ", "　日本　 ", "abc"}
 	for _, s := range sp {
 		fmt.Printf("[%s]\n", strings.TrimSpace(s))
@@ -92,7 +92,7 @@ func main() {
 	vec.AppendString(&b, "hi")
 	b.Push(' ')
 	utf8.AppendRune(&b, 'é')
-	fmt.Printf("%s %d %d\n", string(b.Slice()), b.Len(), b.Cap())
+	fmt.Printf("%s %d %d\n", strings.FromUTF8Lossy(b.Slice()), b.Len(), b.Cap())
 
 	var g strings.Builder
 	g.Grow(4)

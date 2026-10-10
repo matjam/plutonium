@@ -295,7 +295,7 @@ func NArgs() int {
 // Arg returns command-line argument i (Arg(0) is the program name). An
 // argument is any bytes but NUL, so it need not be valid UTF-8; a string
 // must be (language spec section 6.10), so Arg replaces each invalid byte
-// with U+FFFD, as string(b) does. ArgBytes returns the exact bytes.
+// with U+FFFD, as strings.FromUTF8Lossy does. ArgBytes returns the exact bytes.
 func Arg(i int) string { return lossyView(ArgBytes(i)) }
 
 // ArgBytes returns the exact bytes of command-line argument i (ArgBytes(0)
@@ -382,10 +382,10 @@ func cbytes(p *byte) []byte {
 
 // lossyView returns b as a string. If b is valid UTF-8 the string is an
 // uncounted view of b, which must outlive it and not change; otherwise it
-// is a counted copy with U+FFFD for each invalid byte, as string(b) makes,
+// is a counted copy with U+FFFD for each invalid byte, as strings.FromUTF8Lossy makes,
 // since a string must hold valid UTF-8. Every os function that turns bytes
 // from the system (a name, a path, an argument, a variable) into a string
-// does so through here, through lossyCopy or through string(b).
+// does so through here, through lossyCopy or through strings.FromUTF8Lossy.
 func lossyView(b []byte) string {
 	if len(b) == 0 {
 		return ""

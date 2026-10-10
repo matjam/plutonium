@@ -25,7 +25,7 @@ import (
 // string holds only valid UTF-8 (language spec section 6.10), so every name
 // or path this package hands back as a string (DirEntry.Name, Readlink,
 // Getwd, FileInfo.Name, PathError.Path, File.Name, Arg, Getenv) has each
-// invalid byte replaced by U+FFFD, as string(b) does, and the exact bytes
+// invalid byte replaced by U+FFFD, as strings.FromUTF8Lossy does, and the exact bytes
 // are available next to it: DirEntry.RawName, AppendReadlink, AppendWd,
 // ArgBytes, GetenvBytes. A lossy name cannot be opened, because it may name
 // another file or none, so every core operation on a path has a Bytes form
@@ -98,7 +98,7 @@ func (m FileMode) String() string {
 	var buf [32]byte
 	b := vec.NewFixed(buf[:])
 	m.AppendString(&b)
-	return string(b.Slice())
+	return rt.StringFromSlice(b.Slice(), alloc.Default())
 }
 
 // AppendString appends m as String formats it to dst, a *vec.Vec[byte]
@@ -741,7 +741,7 @@ func appendAll[D vec.Appender[byte]](dst D, b []byte) bool {
 
 // Getwd returns the working directory, a new string from the current
 // allocator. The directory's name is any bytes but NUL, so each byte that
-// is not valid UTF-8 is replaced by U+FFFD, as string(b) does; AppendWd
+// is not valid UTF-8 is replaced by U+FFFD, as strings.FromUTF8Lossy does; AppendWd
 // returns the exact bytes.
 func Getwd() (string, error) {
 	var buf [maxPath]byte
@@ -749,7 +749,7 @@ func Getwd() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return string(buf[:n]), nil
+	return rt.StringFromSlice(buf[:n], alloc.Default()), nil
 }
 
 // AppendWd appends the exact bytes of the working directory to dst, a

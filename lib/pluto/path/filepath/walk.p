@@ -3,6 +3,7 @@ package filepath
 import (
 	"pluto/errors"
 	"pluto/os"
+	"pluto/strings"
 	"pluto/unicode/utf8"
 	"pluto/vec"
 	"unsafe"
@@ -46,7 +47,7 @@ func (w *walker) call(path []byte, d *os.DirEntry, err error) error {
 		// Checked just now; the view lasts for the call, as documented.
 		return w.fs(unsafe.String(unsafe.SliceData(path), len(path)), d, err)
 	}
-	return w.fs(string(path), d, err) // a copy, with U+FFFD for invalid bytes
+	return w.fs(strings.FromUTF8Lossy(path), d, err) // a copy, with U+FFFD for invalid bytes
 }
 
 // WalkDir walks the tree rooted at root in lexical order, calling fn for

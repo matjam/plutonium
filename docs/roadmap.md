@@ -252,6 +252,13 @@ later takes the next free number and is listed in the section where it belongs.
     `synced[T]` object used without the lock of the same object (E3502, E3503). Follow-ups: maps join the
     `synced[T]` rule when they return (gap G16); `sync.Scope`'s sharing check reuses the lock inference
     (E3401 to E3406).
+60. **Conversions Plutonium removes** (in progress; language spec sections 3 and 6.10; false-friends
+    audit F2, decisions 2 and 16; complete-spec gaps G10 and G11): `string(b)` for a byte slice is E2015,
+    because it silently replaced bytes that are not UTF-8 (`string([]byte{0xfe}) == string([]byte{0xff})`);
+    the fix is `strings.FromUTF8(b)` (strict) or the new `strings.FromUTF8Lossy(b)`; the library's own
+    uses became `rt.StringFromSlice` or `FromUTF8Lossy`, and go2pu translates Go's `string(b)` to
+    `compat.String`, which is the lossy form. `[]byte(s)`, `[]rune(s)` and `string(i)` for an integer
+    other than a rune follow.
 48. **Counted references and `weak[P]`** (planned; language spec sections 5.6 and 6.5): the allocation
     header (allocator, strong and weak counts), increments on copy and decrements on drop with matched
     pairs removed at last use, `Drop` at zero strong count and the free at zero weak count, the atomic
@@ -280,7 +287,7 @@ later takes the next free number and is listed in the section where it belongs.
     3.7): `string` is an immutable, reference-counted value of three words, `{ptr, len, ctl}`, whose
     control word points at the buffer's header (count, allocator, size) or holds only flags for a static
     or `unsafe.String` string, which is never counted. Runtime `+` and `+=` (one allocation for a chain),
-    `string(b)`, `string(runes)`, `string(r)`, `[]byte(s)` and `[]rune(s)` work again; every string is
+    `string(runes)`, `string(r)`, `[]byte(s)` and `[]rune(s)` work again (item 60 removes some of them); every string is
     valid UTF-8 (invalid literals are errors, conversions replace with U+FFFD, `s[i:j]` panics inside a
     rune, `strings.FromUTF8` is strict), and bit 0 of the control word marks strings that may hold
     non-ASCII bytes. Lowering counts with drop glue kept apart from the ownership work

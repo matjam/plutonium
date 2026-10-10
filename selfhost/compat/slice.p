@@ -4,6 +4,7 @@ import (
 	"pluto/alloc"
 	"pluto/fmt"
 	"pluto/strconv"
+	"pluto/strings"
 	"pluto/unicode/utf8"
 	"pluto/vec"
 	"unsafe"
@@ -114,15 +115,12 @@ func grow[T any](s []T, need int) []T {
 	return ns
 }
 
-// String returns a copy of b as a string, for Go's string(b).
-func String(b []byte) string {
-	if len(b) == 0 {
-		return ""
-	}
-	c := Make[byte](len(b))
-	copy(c, b)
-	return unsafe.String(unsafe.SliceData(c), len(c))
-}
+// String returns a copy of b as a string, for Go's string(b). Plutonium has
+// no string(b), because a string holds only valid UTF-8; go2pu translates
+// the conversion mechanically, so this is the lossy form: each byte that is
+// not valid UTF-8 becomes U+FFFD. Code that must keep arbitrary bytes keeps
+// them in a []byte.
+func String(b []byte) string { return strings.FromUTF8Lossy(b) }
 
 // Bytes returns a copy of s as a byte slice, for Go's []byte(s).
 func Bytes(s string) []byte {

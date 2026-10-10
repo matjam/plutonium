@@ -44,7 +44,7 @@ func FormatInt(i int64, base int) string {
 	}
 	var buf [65]byte
 	n := putInt(buf[:], i, base)
-	return string(buf[len(buf)-n:])
+	return rt.StringFromSlice(buf[len(buf)-n:], alloc.Default())
 }
 
 // FormatUint returns the text of u in the given base (2 to 36).
@@ -54,7 +54,7 @@ func FormatUint(u uint64, base int) string {
 	}
 	var buf [64]byte
 	n := PutUint(buf[:], u, base)
-	return string(buf[len(buf)-n:])
+	return rt.StringFromSlice(buf[len(buf)-n:], alloc.Default())
 }
 
 // FormatBool returns "true" or "false", static strings.
@@ -181,5 +181,5 @@ func QuoteRune(r rune) string {
 		n += utf8.EncodeRune(buf[1:], r)
 	}
 	buf[n] = '\''
-	return string(buf[:n+1])
+	return rt.StringFromSlice(buf[:n+1], alloc.Default())
 }

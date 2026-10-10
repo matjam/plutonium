@@ -67,14 +67,30 @@ func Clone(s string) string {
 	return nb.done(rt.KnownASCII(s))
 }
 
-// FromUTF8 returns the bytes of b as a string if they are valid UTF-8, and
-// ErrInvalidUTF8 otherwise. string(b) never fails: it replaces what is not
-// valid with U+FFFD.
+// FromUTF8 returns a copy of the bytes of b as a string if they are valid
+// UTF-8, and ErrInvalidUTF8 otherwise. Plutonium has no string(b) for a byte
+// slice, since it would have to change the bytes that are not valid;
+// FromUTF8Lossy replaces them by name.
 func FromUTF8(b []byte) (string, error) {
 	if !utf8.Valid(b) {
 		return "", ErrInvalidUTF8
 	}
-	return string(b), nil
+	return FromUTF8Lossy(b), nil
+}
+
+// FromUTF8Lossy returns a copy of the bytes of b as a string, with each byte
+// that does not start a valid UTF-8 sequence replaced by U+FFFD, as ranging
+// over the bytes would decode them. It never fails, and two different byte
+// slices can give equal strings; FromUTF8 refuses bytes that are not text.
+func FromUTF8Lossy(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	a := alloc.Default()
+	if a == nil {
+		panic("strings: no allocator: call alloc.SetDefault before building strings")
+	}
+	return rt.StringFromBytes(unsafe.SliceData(b), len(b), a)
 }
 
 // Repeat returns a new string consisting of count copies of s. It panics if

@@ -29,7 +29,7 @@ func FormatFloat(f float64, fmt byte, prec, bitSize int) string {
 		var buf [800]byte
 		b := vec.NewFixed(buf[:])
 		AppendFloat(&b, f, fmt, prec, bitSize)
-		return string(b.Slice())
+		return rt.StringFromSlice(b.Slice(), alloc.Default())
 	}
 	n := 400 + prec
 	p, ctl := rt.NewStringBuffer(n, alloc.Default())

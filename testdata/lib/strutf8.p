@@ -1,7 +1,7 @@
 package main
 
-// Strings hold valid UTF-8 (language spec section 6.10): conversions
-// replace what is not valid, FromUTF8 refuses it, and the ASCII flag that
+// Strings hold valid UTF-8 (language spec section 6.10): FromUTF8Lossy replaces
+// what is not valid, FromUTF8 refuses it, and the ASCII flag that
 // constructors compute gives the library fast paths.
 
 import (
@@ -14,12 +14,13 @@ import (
 )
 
 func main() {
-	// string(b) replaces each byte that does not begin a valid sequence.
+	// strings.FromUTF8Lossy replaces each byte that does not begin a valid
+	// sequence.
 	for _, b := range [][]byte{
 		{'a', 'b'}, {0xff}, {'a', 0xe4, 0xb8, 'b'}, {0xed, 0xa0, 0x80}, {0xc3, 0xa9},
 		{0xf0, 0x9f, 0x98, 0x80}, {0xf0, 0x9f, 0x98}, {}, {0xc0, 0x80},
 	} {
-		s := string(b)
+		s := strings.FromUTF8Lossy(b)
 		_, err := strings.FromUTF8(b)
 		fmt.Printf("%x -> %q valid=%t runes=%d ascii=%t fromutf8=%v\n", b, s, utf8.ValidString(s), utf8.RuneCountInString(s), rt.KnownASCII(s), err)
 	}
@@ -39,7 +40,7 @@ func main() {
 	both := ascii + accent
 	fmt.Println(rt.KnownASCII(ascii), rt.KnownASCII(accent), rt.KnownASCII(ascii+ascii), rt.KnownASCII(both))
 	head := []byte(both[:5])
-	fmt.Println(rt.KnownASCII(both[:5]), rt.KnownASCII(string(head)), rt.KnownASCII(strings.Repeat("ab", 3)))
+	fmt.Println(rt.KnownASCII(both[:5]), rt.KnownASCII(strings.FromUTF8Lossy(head)), rt.KnownASCII(strings.Repeat("ab", 3)))
 	freeSlice(head)
 	fmt.Println(utf8.RuneCountInString(ascii+ascii), utf8.RuneCountInString(both), len(both))
 
@@ -57,7 +58,7 @@ func main() {
 	bs := []byte(accent)
 	bs[0] = 'C'
 	runes := []rune(accent)
-	fmt.Println(accent, string(bs), len(runes), len(bs), string(runes[3]))
+	fmt.Println(accent, strings.FromUTF8Lossy(bs), len(runes), len(bs), string(runes[3]))
 	freeSlice(bs)
 	freeSlice(runes)
 }
