@@ -145,7 +145,7 @@ inventory checks names, not semantics, so the column also says where the semanti
 | `errors` | 5 packages | `New` 5, `Join` 3, `Is` 1 | `pluto/errors`: `New` (static slots, for sentinels), `Is`, `As`, `Unwrap`, `Join` | as is; `errors.New` at run time (3 sites) becomes `compat.NewError` |
 | `sync`, `sync/atomic` | token 39, types2 25, printer 3 | `Mutex`, `RWMutex`, `Once`, `Pool`; atomics | `pluto/sync/atomic` only (`pluto/sync` is roadmap item 16) | no-op stubs (the compiler is single-threaded) |
 | `hash/maphash`, `hash/fnv` | types2 58, lower 2 | `maphash.Hash` (`WriteByte`, `WriteString`, `Sum64`), `fnv.New32a` | `pluto/hash` has the functions, no streaming hasher | add a streaming hasher |
-| `iter` | ast, token, types2 | `Seq` (13) | none (range over func is roadmap item 22) | rewrite the 12 loops as index loops |
+| `iter` | ast, token, types2 | `Seq` (13) | `pluto/iter` (roadmap item 22, done) | import `pluto/iter` |
 | `go/build/constraint` | load, parser, printer | `Parse`, `Expr.Eval` | none | translate with go2pu (696 lines) |
 | `container/heap` | types2 3 | `Init`, `Pop`, `Fix` | none | 100-line generic heap |
 | `go/token`, `go/version` | types2 | `Token` (operators for `go/constant`), `Compare`, `Lang` | none | disappears with the constant package; `version` by hand |
@@ -773,7 +773,9 @@ Roadmap items that must land first: item 5 (escape errors) before any hand-writt
 (the errors design) has landed and the port follows it; item 43 (debug allocator) to check
 arena lifetimes; item 45 (`time`) for the driver. Items 14 to 17 (puroutines, channels, `pluto/sync`,
 thread-safe allocator) are not needed: the compiler stays single-threaded. Item 22 (range over functions)
-is not needed: the twelve loops are rewritten. Item 25 (sum types) helps but is not required.
+has landed, with `pluto/iter`; iterator constructors that return closures capturing their parameters are
+expanded in the caller (language spec section 4.5), so the twelve loops can stay as they are, unless an
+iterator keeps `yield` or is used as a func value. Item 25 (sum types) helps but is not required.
 
 The order puts the measured, mechanical part first (it is done), then the pieces that need design (the
 constant package, closure conversion), then the large mechanical part they unblock (`types2`), then the

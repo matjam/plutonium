@@ -213,6 +213,31 @@ therefore valid only while the enclosing function is running:
 
 A function literal that captures nothing is an ordinary function value and may be used anywhere.
 
+**Closure constructors.** A function whose body is a single `return` of a function literal that captures
+the function's parameters (its receiver, parameters or named results), or of a call of another such
+function, is a closure constructor. Go's iterator constructors are the common case:
+
+```go
+func (v *Vec[T]) All() iter.Seq2[int, T] {
+	return func(yield func(int, T) bool) {
+		for i := 0; i < len(v.data); i++ {
+			if !yield(i, v.data[i]) {
+				return
+			}
+		}
+	}
+}
+```
+
+Returning the literal would make it outlive the constructor's frame, so each call of a closure
+constructor is compiled where it is made instead: the arguments are stored in fresh variables of the
+caller's frame, and the literal's closure is built in that frame and captures them there. The result is
+an ordinary closure of the caller, valid while the caller runs, and `for i, x := range v.All()` costs no
+allocation. Each call site has its own variables: a call in a loop reuses them on every iteration, as a
+function literal in a loop does. A closure constructor can only be called directly; using it as a func
+value or a method value, or calling it through an interface, is a compile error (E2543), since there is no
+caller's frame to build the closure in.
+
 A capturing closure is a view of the enclosing frame (section 6.3). Captured owners stay where they are
 declared:
 
@@ -345,6 +370,49 @@ brief:
   for an interrupt handler and the code it interrupts on the same processor to share data.
 - Any scheduler, including a kernel's own (section 4.7), must make starting a puroutine and readying a
   parked one synchronising operations, so that these rules hold however puroutines are scheduled.
+
+### 4.10 Range over functions
+
+`for k, v := range f`, where `f` is a function `func(yield func(K, V) bool)` with zero, one or two
+parameters to `yield`, works as in Go 1.23. `pluto/iter` defines `Seq[V]` and `Seq2[K, V]`, and the
+library's containers have iterator methods (section 13). The loop body becomes a yield function, a
+closure built in the enclosing frame and passed to `f`, which is how Go compiles the loop too:
+
+- `f` may call `yield` as often as it likes while it runs, but may not keep it: `yield` is a closure of
+  the enclosing frame (section 4.5), and storing it where it outlives the call of `f` is an escape that
+  section 6.3 forbids. (The escape checks do not catch it yet.)
+- `break`, `continue`, `return`, `goto` and labelled `break` and `continue` out of the body work as in
+  Go: the body returns false, and once `f` returns the loop goes on at the target.
+- An iterator that calls `yield` when it may not panics with Go's message: after `yield` returned false
+  ("range function continued iteration after function for loop body returned false"), after the loop
+  ended ("... after whole loop exit"), or while the body is running ("... after loop body panic", which
+  Go reports for that state). A panic in the body stops the program (section 4.1); no iterator can
+  recover it.
+- A `defer` in the body defers a call of the enclosing function, as in Go: it runs when that function
+  returns. Plutonium gives each `defer` statement one slot in the function's frame, so a `defer` inside
+  any loop is a compile error, and in the body of a range-over-func loop, which runs once per iteration,
+  the `defer` must be followed on every path by leaving the loop: a `return`, a `panic`, or a `break`,
+  `continue` or `goto` to a statement outside the loop (E2533). A function literal deferred there may not
+  capture the body's own variables, the loop variables included, since the body's frame is gone when it
+  runs (E2534); pass them as arguments.
+
+```go
+func find(items *vec.Vec[*Item], id int) int {
+	for _, it := range items.All() {
+		if it.id == id {
+			it.mu.Lock()
+			defer it.mu.Unlock() // runs when find returns
+			return it.value
+		}
+	}
+	return -1
+}
+```
+
+Iterator constructors such as `items.All()` are closure constructors (section 4.5), so a loop over one
+allocates nothing. The optimiser inlines the iterator and then the loop body through their closures, so a
+loop over a simple iterator compiles to the loop the iterator runs: ranging over `v.All()` costs the same
+as ranging over `v.Slice()`.
 - Moving an owner is an ordinary write; the `go` statement or channel send that hands it to another
   puroutine is the synchronising operation. Every use of a `synced[T]` through any reference happens
   before its `Drop` runs and its memory is freed.
@@ -1792,6 +1860,7 @@ The following stop the program through the same path as `panic`:
 - an allocation with no allocator set,
 - a `go` statement or channel operation with no scheduler set,
 - sending on a closed channel, or closing a closed or nil channel,
+- an iterator calling the yield function of a range-over-func loop when it may not (section 4.10),
 - overflowing a puroutine's stack (the guard page faults),
 - `panic(v)`.
 
@@ -2036,11 +2105,12 @@ hold, and most have a `Clone`.
 | `pluto/io` | `Reader`, `Writer`, buffered I/O |
 | `pluto/os` | files (`os.File`, an owner that closes on drop), arguments, environment, exit (hosted) |
 | `pluto/syscall` | raw Linux system calls (hosted) |
-| `pluto/strings`, `pluto/bytes` | `strings.Buf`, an owning string buffer (section 6.6); searching, comparison |
+| `pluto/strings`, `pluto/bytes` | `strings.Buf`, an owning string buffer (section 6.6); searching, comparison; Go 1.24's iterators `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq`, `FieldsFuncSeq` |
+| `pluto/iter` | `Seq` and `Seq2` (section 4.10), and adaptors that allocate nothing: `Filter`, `Map`, `Limit`, `Concat` (each with a `2` form), `Enumerate`, `Keys`, `Values`, `Reduce`, `Count`, `Fill`. Go's `Pull` needs a coroutine per iterator and has no equivalent |
 | `pluto/bits` | bit operations (section 5.8) |
 | `pluto/math` | floating-point functions |
-| `pluto/hash` | `Map[K, V]` and `Set[K]`, owners that record their allocator |
-| `pluto/vec` | `Vec[T]`, a growable owner that records its allocator |
+| `pluto/hash` | `Map[K, V]` and `Set[K]`, owners that record their allocator; `All`, `Keys` and `Values` iterate in table order, the same for the same changes and seed |
+| `pluto/vec` | `Vec[T]`, a growable owner that records its allocator; `All`, `Values` and `Backward` iterate it, reading it as they go so the body may change it |
 | `pluto/sort` | sorting without allocation |
 | `pluto/sync/atomic` | atomic integers and pointers |
 | `pluto/unicode/utf8` | UTF-8 encoding and decoding |

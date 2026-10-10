@@ -114,8 +114,16 @@ later takes the next free number and is listed in the section where it belongs.
     `F`/`FIn` pairs are single functions with a trailing allocator defaulting to `alloc.Default()`;
     `new` and `make` take an optional allocator (section 4.2). `make(chan T, n, a)` parses the allocator
     the same way and waits for item 15.
-22. **Range over func and iterators** (planned): `for x := range f` is rejected with "range over
-    functions is not supported yet".
+22. **Range over func and iterators** (done): language spec section 4.10. Loop bodies are yield
+    closures in the enclosing frame, with Go's exit codes and state checks; iterator constructors are
+    closure constructors (section 4.5), expanded in the caller. `pluto/iter` has `Seq`, `Seq2` and
+    allocation-free adaptors; `vec.Vec`, `hash.Map`, `hash.Set`, `strings` and `bytes` have iterators.
+    The inliner inlines calls through known closures and SimplifyCFG threads branches on phis of
+    constants, so a loop over `v.All()` compiles like one over `v.Slice()`. Follow-ups: the escape
+    checks (item 5) should reject an iterator that keeps `yield`; `defer` in a loop body runs at most
+    once per call (item 28); `ring[T, N]` has no iterator method yet; no `iter.Pull` without
+    coroutines; expanded closures are named after the caller (`main.main.func1`), not the
+    constructor, in traces.
 23. **Richer type descriptors** (planned): element types, lengths, field offsets, types and names, so `fmt`
     can print composite values and `hash` can hash them generically.
 24. **Compile-time type-switch folding** (planned): `switch any(x).(type)` on a type parameter decided per
@@ -131,6 +139,8 @@ later takes the next free number and is listed in the section where it belongs.
 27. **Per-puroutine `alloc.Use`** (planned): the override belongs to the puroutine that installs it; today
     it replaces the program-wide default.
 28. **`defer` in loops** (planned, possibly never): rejected today because it needs unbounded stack.
+    In the body of a range-over-func loop a `defer` is accepted when every path after it leaves the
+    loop, so it runs at most once (language spec section 4.10).
 29. **`min`/`max` of strings and comparison of large arrays** (planned): rejected with "not supported
     yet".
 48. **Counted references and `weak[P]`** (planned; language spec sections 5.6 and 6.5): the allocation
