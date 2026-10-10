@@ -39,7 +39,7 @@ compiler binary. Set `PLUTOROOT=$PWD/lib` to use the working tree instead.
 - Run Plutonium tests: `PLUTOROOT=$PWD/lib /tmp/pluto test pluto/strings pluto/sort`,
   or a directory (`pluto test ./lib/pluto/strings`, which uses that tree as
   the standard library), or `./...`. Flags: `-run`, `-bench`, `-v`, `-count`,
-  `-O`. Tests are `func TestXxx(t *testing.T)` in `*_test.p` files of the
+  `-O`, `-trimpath`. Tests are `func TestXxx(t *testing.T)` in `*_test.p` files of the
   package itself, using `pluto/testing`; the loader leaves `_test.p` files out
   of every other build. `internal/build/test.go` generates the test main;
   `cmd/pluto/test.go` runs it and prints go test's format.
@@ -53,7 +53,9 @@ End-to-end tests live in `internal/build`:
   running the same program with its imports pointed at Go's packages, or by
   hand for Plutonium-only APIs.
 - `testdata/trace/*.p` panic; their `.out` files hold the expected message and stack trace, with
-  `$FILE` for the program's path and `PC` for code addresses. Each runs at -O0 and -O2 and must print the
+  `PC` for code addresses. Traces name files relative to the module root (`./main.p` for these
+  programs, which have no `pluto.mod`) and the standard library (`pluto/fmt/print.p`), so builds are
+  reproducible in any directory (`docs/spec/debugging.md` section 2.1). Each runs at -O0 and -O2 and must print the
   same trace at both. DWARF output is checked by `internal/build/dwarf_test.go` (see
   `docs/spec/debugging.md`).
 - `examples/*/main.p` are checked against `examples/*/expected` (first line

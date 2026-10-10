@@ -21,7 +21,6 @@ import (
 	"github.com/matjam/plutonium/internal/objfile"
 	"github.com/matjam/plutonium/internal/opt"
 	"github.com/matjam/plutonium/internal/ssa"
-	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
 )
 
@@ -50,9 +49,16 @@ type Config struct {
 	// NoTrace leaves the trace table empty (pluto build --trace=false), for
 	// images that cannot spare its size: panics then print no stack trace.
 	NoTrace bool
-	// StdlibDir, if set, is the directory Stdlib was read from; debugging
-	// information names standard library files under it rather than
-	// $PLUTOROOT.
+	// NoTrimPath records absolute source paths in the trace table and
+	// DWARF (pluto build --trimpath=false). By default they record paths
+	// relative to the module root and the standard library
+	// (load.Program.TrimmedName), with "." as DWARF's compilation
+	// directory, so that the output does not depend on where the source
+	// is.
+	NoTrimPath bool
+	// StdlibDir, if set, is the directory Stdlib was read from; with
+	// NoTrimPath, debugging information names standard library files under
+	// it rather than $PLUTOROOT.
 	StdlibDir string
 	// Alloc selects the default allocator of a hosted program: "" for the
 	// slab allocator, "debug" for the checking allocator in
@@ -115,7 +121,7 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 		return err
 	}
 
-	obj, err := emitObject(cfg, sp, prog.Fset)
+	obj, err := emitObject(cfg, sp, prog)
 	if err != nil {
 		return err
 	}
@@ -148,15 +154,18 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 	objs := []string{mainObj}
 	for _, p := range prog.Packages {
 		for i, a := range p.AsmFiles {
-			src := filepath.Join(work, fmt.Sprintf("%s_%d.s", strings.ReplaceAll(p.Path, "/", "_"), i))
-			if err := os.WriteFile(src, a.Src, 0o644); err != nil {
+			// Assemble in the work directory by relative names: an
+			// assembler may record the source's name, and the work
+			// directory's differs on every build.
+			src := fmt.Sprintf("%s_%d.s", strings.ReplaceAll(p.Path, "/", "_"), i)
+			if err := os.WriteFile(filepath.Join(work, src), a.Src, 0o644); err != nil {
 				return err
 			}
 			o := strings.TrimSuffix(src, ".s") + ".o"
-			if err := run(cfg, "as", "--64", "-o", o, src); err != nil {
+			if err := runIn(cfg, work, "as", "--64", "-o", o, src); err != nil {
 				return fmt.Errorf("assembling %s: %w", a.Name, err)
 			}
-			objs = append(objs, o)
+			objs = append(objs, filepath.Join(work, o))
 		}
 		cobjs, err := compileC(cfg, work, p)
 		if err != nil {
@@ -165,7 +174,9 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 		objs = append(objs, cobjs...)
 	}
 
-	args := []string{"-static", "-nostdlib", "-z", "noexecstack", "-o", cfg.Output}
+	// No build ID: whether ld adds one by default depends on how it was
+	// configured, and the output must not depend on the machine.
+	args := []string{"-static", "-nostdlib", "-z", "noexecstack", "--build-id=none", "-o", cfg.Output}
 	if cfg.Strip {
 		args = append(args, "-s")
 	}
@@ -202,10 +213,12 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 // on the same stack would overwrite (abi.md section 10.1).
 func compileC(cfg *Config, work string, p *load.Package) ([]string, error) {
 	var objs []string
-	prefix := filepath.Join(work, strings.ReplaceAll(p.Path, "/", "_"))
+	prefix := strings.ReplaceAll(p.Path, "/", "_")
 	for i, c := range p.CFiles {
+		// Compiled in the work directory by relative names, like
+		// assembly, so that no temporary path reaches the object.
 		src := fmt.Sprintf("%s_c%d.c", prefix, i)
-		if err := os.WriteFile(src, c.Src, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(work, src), c.Src, 0o644); err != nil {
 			return nil, err
 		}
 		o := strings.TrimSuffix(src, ".c") + ".o"
@@ -221,13 +234,13 @@ func compileC(cfg *Config, work string, p *load.Package) ([]string, error) {
 		if len(cc) == 0 {
 			cc = []string{"cc"}
 		}
-		if err := run(cfg, cc[0], append(cc[1:], args...)...); err != nil {
+		if err := runIn(cfg, work, cc[0], append(cc[1:], args...)...); err != nil {
 			return nil, fmt.Errorf("compiling %s: %w", c.Name, err)
 		}
-		objs = append(objs, o)
+		objs = append(objs, filepath.Join(work, o))
 	}
 	for i, obj := range p.ObjFiles {
-		o := fmt.Sprintf("%s_o%d.o", prefix, i)
+		o := filepath.Join(work, fmt.Sprintf("%s_o%d.o", prefix, i))
 		if err := os.WriteFile(o, obj.Src, 0o644); err != nil {
 			return nil, err
 		}
@@ -237,10 +250,19 @@ func compileC(cfg *Config, work string, p *load.Package) ([]string, error) {
 }
 
 func run(cfg *Config, name string, args ...string) error {
+	return runIn(cfg, "", name, args...)
+}
+
+// runIn runs a command in directory dir ("" for the current one).
+func runIn(cfg *Config, dir, name string, args ...string) error {
 	if cfg.Verbose {
+		if dir != "" {
+			fmt.Fprintf(os.Stderr, "cd %s && ", dir)
+		}
 		fmt.Fprintln(os.Stderr, name, strings.Join(args, " "))
 	}
 	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	cmd.Stdout = os.Stderr
@@ -261,14 +283,17 @@ func optimize(cfg *Config, p *ssa.Program) error {
 }
 
 // emitObject generates code for every function and lays out the data.
-func emitObject(cfg *Config, p *ssa.Program, fset *token.FileSet) (*objfile.Object, error) {
+func emitObject(cfg *Config, p *ssa.Program, prog *load.Program) (*objfile.Object, error) {
 	obj := objfile.New()
 	text := obj.Section(".text", elf.SHT_PROGBITS, elf.SHF_ALLOC|elf.SHF_EXECINSTR, 16)
 	obj.Section(".note.GNU-stack", elf.SHT_PROGBITS, 0, 1)
-	dbg := debuginfo.New(fset)
-	if cfg.StdlibDir != "" {
+	dbg := debuginfo.New(prog.Fset)
+	switch {
+	case !cfg.NoTrimPath:
+		dbg.FileName = prog.TrimmedName
+	case cfg.StdlibDir != "":
 		dbg.FileName = func(name string) string {
-			if rest, ok := strings.CutPrefix(name, "$PLUTOROOT/"); ok {
+			if rest, ok := strings.CutPrefix(name, load.StdPrefix); ok {
 				return filepath.Join(cfg.StdlibDir, rest)
 			}
 			return name
@@ -334,9 +359,14 @@ func emitObject(cfg *Config, p *ssa.Program, fset *token.FileSet) (*objfile.Obje
 
 	dbg.WriteTraceTable(obj, cfg.NoTrace)
 	if !cfg.NoDWARF && !cfg.Strip {
-		dir, err := filepath.Abs(cfg.Dir)
-		if err != nil {
-			return nil, err
+		// Trimmed names are relative to the module root, so a debugger
+		// run there finds the program's sources (debugging.md section 3).
+		dir := "."
+		if cfg.NoTrimPath {
+			var err error
+			if dir, err = filepath.Abs(cfg.Dir); err != nil {
+				return nil, err
+			}
 		}
 		dbg.WriteDWARF(obj, dir)
 	}
