@@ -99,6 +99,33 @@ const (
 	MRELOAD     // load register from spill slot
 	MLOADCONSTF // load a float constant into an XMM register (Imm holds the bits)
 	MEPILOGUE   // restore callee-saved registers and the stack pointer, then RET
+
+	// System instructions (pluto/arch/x86 intrinsics). Fixed registers are
+	// in ImplicitUses and ImplicitDefs.
+	MCLI
+	MSTI
+	MSTIHLT // sti; hlt, adjacent
+	MHLT
+	MPAUSE
+	MSAVEFLAGS    // pushfq; pop Dst
+	MRESTOREFLAGS // push Src; popfq
+	MIN           // AL/AX/EAX (Size) = port DX, or port Src when Src is an immediate
+	MOUT          // port DX (or immediate Src) = AL/AX/EAX (Size)
+	MRDMSR        // EDX:EAX = MSR[ECX]
+	MWRMSR        // MSR[ECX] = EDX:EAX
+	MRDCR         // Dst = CR(Imm)
+	MWRCR         // CR(Imm) = Src
+	MINVLPG       // invalidate the TLB entry of memory operand Src
+	MLGDT         // load GDTR from memory operand Src
+	MLIDT         // load IDTR from memory operand Src
+	MLTR          // load the task register from Src (16 bits)
+	MCPUID        // EAX, EBX, ECX, EDX = cpuid(EAX, ECX)
+	MRDTSC        // EDX:EAX = TSC
+	MRDTSCP       // EDX:EAX = TSC, ECX = TSC_AUX
+	MSWAPGS
+	MCLTS
+	MFXSAVE  // fxsave64 to memory operand Src
+	MFXRSTOR // fxrstor64 from memory operand Src
 )
 
 var mopNames = map[MOp]string{
@@ -115,6 +142,11 @@ var mopNames = map[MOp]string{
 	MPUSH: "push", MPOP: "pop", MREPMOVSB: "rep movsb", MREPSTOSB: "rep stosb",
 	MCOPY: "copy", MPCOPY: "pcopy", MDEF: "def", MUSE: "use", MLABEL: "label",
 	MSPILL: "spill", MRELOAD: "reload", MLOADCONSTF: "loadconstf", MEPILOGUE: "epilogue",
+	MCLI: "cli", MSTI: "sti", MSTIHLT: "sti; hlt", MHLT: "hlt", MPAUSE: "pause",
+	MSAVEFLAGS: "pushfq; pop", MRESTOREFLAGS: "push; popfq", MIN: "in", MOUT: "out",
+	MRDMSR: "rdmsr", MWRMSR: "wrmsr", MRDCR: "movfromcr", MWRCR: "movtocr", MINVLPG: "invlpg",
+	MLGDT: "lgdt", MLIDT: "lidt", MLTR: "ltr", MCPUID: "cpuid", MRDTSC: "rdtsc", MRDTSCP: "rdtscp",
+	MSWAPGS: "swapgs", MCLTS: "clts", MFXSAVE: "fxsave64", MFXRSTOR: "fxrstor64",
 }
 
 func (op MOp) String() string {
@@ -178,7 +210,20 @@ type Mem struct {
 	ArgOff  int64
 	// OutArg addresses the outgoing argument area at offset Disp from RSP.
 	OutArg bool
+	// Seg is a segment override. With SegGS the address is relative to
+	// the GS base, and a symbol with no base register is an absolute
+	// disp32 (R_X86_64_32S), not RIP-relative: per-CPU variables are
+	// %gs:sym, where sym's address is its offset in the per-CPU block.
+	Seg Segment
 }
+
+// A Segment is a segment override prefix.
+type Segment uint8
+
+const (
+	SegNone Segment = iota
+	SegGS
+)
 
 // An Operand is a register, immediate or memory reference.
 type Operand struct {
@@ -312,6 +357,31 @@ func (o Operand) format(size int) string {
 
 func (m Mem) String() string {
 	var sb strings.Builder
+	if m.Seg == SegGS {
+		sb.WriteString("%gs:")
+		if m.Base == NoReg && m.Index == NoReg {
+			if m.Sym != nil {
+				sb.WriteString(m.Sym.Name)
+				if m.Disp != 0 {
+					fmt.Fprintf(&sb, "%+d", m.Disp)
+				}
+				return sb.String()
+			}
+			fmt.Fprintf(&sb, "%d", m.Disp)
+			return sb.String()
+		}
+		m.Seg = SegNone
+		if m.Sym != nil && m.Base == NoReg {
+			// sym(,%index,scale): absolute, not RIP-relative.
+			fmt.Fprintf(&sb, "%s", m.Sym.Name)
+			if m.Disp != 0 {
+				fmt.Fprintf(&sb, "%+d", m.Disp)
+			}
+			fmt.Fprintf(&sb, "(,%%%s,%d)", m.Index.Name(8), max(m.Scale, 1))
+			return sb.String()
+		}
+		return sb.String() + m.String()
+	}
 	switch {
 	case m.Sym != nil:
 		fmt.Fprintf(&sb, "%s", m.Sym.Name)
@@ -396,6 +466,22 @@ func (in *MInst) String() string {
 		return fmt.Sprintf("imul $%d, %s, %s", in.Imm, in.Src.format(size), in.Dst.format(size))
 	case MLOADCONSTF:
 		return fmt.Sprintf("loadconstf $%#x, %s", in.Imm, in.Dst.format(size))
+	case MRDCR:
+		return fmt.Sprintf("mov %%cr%d, %s", in.Imm, in.Dst.format(8))
+	case MWRCR:
+		return fmt.Sprintf("mov %s, %%cr%d", in.Src.format(8), in.Imm)
+	case MIN, MOUT:
+		port := "%dx"
+		if in.Src.Kind == OpdImm {
+			port = in.Src.format(1)
+		}
+		suffix := map[uint8]string{1: "b", 2: "w", 4: "l"}[in.Size]
+		if in.Op == MIN {
+			return fmt.Sprintf("in%s %s, %%%s", suffix, port, RAX.Name(size))
+		}
+		return fmt.Sprintf("out%s %%%s, %s", suffix, RAX.Name(size), port)
+	case MCLI, MSTI, MSTIHLT, MHLT, MPAUSE, MRDMSR, MWRMSR, MCPUID, MRDTSC, MRDTSCP, MSWAPGS, MCLTS:
+		return in.Op.String()
 	}
 	var args []string
 	if in.Src.Kind != OpdNone {

@@ -824,6 +824,8 @@ func (s *isel) value(v *ssa.Value) error {
 
 	case ssa.OpCall, ssa.OpCallInd:
 		s.call(v)
+	case ssa.OpIntrinsic:
+		return s.intrinsic(v)
 	case ssa.OpSelectN:
 		if v.Type.IsMem() {
 			return nil

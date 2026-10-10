@@ -125,6 +125,14 @@ const (
 	OpVolatileRead
 	OpVarDef // marks the start of slot Aux's lifetime; arg0 memory; result memory
 
+	// OpIntrinsic is a machine instruction sequence named by Aux (an
+	// Intrinsic, such as "x86.Cli"), expanded inline by the backend. The
+	// last argument is memory; the result is a tuple of the memory state
+	// followed by the sequence's results, read with SelectN as for calls.
+	// It is a full compiler barrier: it consumes and produces memory, so
+	// no load or store moves across it, and it is never removed or merged.
+	OpIntrinsic
+
 	// Calls. The last argument is memory; the result is a tuple of the
 	// memory state followed by the callee's results.
 	OpCall             // static call to Aux (*Sym); AuxCall in Aux2 describes the ABI
@@ -136,6 +144,10 @@ const (
 
 	OpGenericEnd
 )
+
+// An Intrinsic names the machine instruction sequence of an OpIntrinsic.
+// The backend for the target defines the names it accepts.
+type Intrinsic string
 
 // Memory access flags in OpLoad / OpStore AuxInt.
 const (
@@ -220,6 +232,8 @@ var opTable = [opTableSize]OpInfo{
 
 	OpVolatileRead: {Name: "VolatileRead", Args: 2, Flags: fMemArg | fMemResult},
 	OpVarDef: {Name: "VarDef", Args: 1, Flags: fMemArg | fMemResult},
+
+	OpIntrinsic: {Name: "Intrinsic", Args: -1, Flags: fMemArg | fMemResult | fSideEffect | fNoCSE},
 
 	OpCall:             {Name: "Call", Args: -1, Flags: fMemArg | fMemResult | fCall | fSideEffect},
 	OpCallInd:          {Name: "CallInd", Args: -1, Flags: fMemArg | fMemResult | fCall | fSideEffect},

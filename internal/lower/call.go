@@ -448,6 +448,9 @@ func ringOf(recvT types2.Type, sel *types2.Selection) *types2.Wrapper {
 // funcValue returns a func value for a declared function: the address of a
 // static closure record holding its code pointer.
 func (s *fnState) funcValue(fn *types2.Func, targs []types2.Type) *ssa.Value {
+	if isIntrinsicOnly(fn) {
+		s.l.errorf(s.pos, "%s.%s must be called directly", fn.Pkg().Name(), fn.Name())
+	}
 	sym := s.l.funcSym(fn, targs)
 	return s.symAddr(s.l.closureRecord(sym))
 }
