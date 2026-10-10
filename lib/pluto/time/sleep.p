@@ -233,7 +233,7 @@ func runFuncs() {
 		t := funcs.head
 		if t == nil {
 			funcs.lock.Unlock()
-			rt.Park()
+			rt.ParkReason(rt.WaitSystem)
 			continue
 		}
 		funcs.head = t.link

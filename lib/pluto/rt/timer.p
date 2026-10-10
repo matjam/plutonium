@@ -345,7 +345,7 @@ func ParkUntil(deadline int64) bool {
 	pt.t = t
 	pt.tm.Init(parkTimeout, unsafe.Pointer(&pt))
 	pt.tm.Reset(deadline, 0)
-	Park()
+	ParkReason(WaitSleep)
 	if cas32(&pt.state, 0, 2) {
 		// Readied before the deadline: the timer's function, if it is
 		// running, finds the park settled. Stop waits for it, since pt

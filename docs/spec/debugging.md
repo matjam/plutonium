@@ -230,6 +230,49 @@ puroutine 3:
 One panic is handled at a time: a puroutine that panics on another thread while one is reported waits
 for the process to end.
 
+### Parked puroutines
+
+`rt.TraceTask(t *rt.Task, w)` writes the trace of a task that is not running, in the same format and
+with the same rules, from the state its last switch saved in `t.Context()`: the stack pointer points at
+RFLAGS and the callee-saved registers, then the return address into the caller of `swapcontext`
+(`ctx_amd64.s`), and that return address, the stack pointer after it and the saved RBP start the walk.
+Like `Panic.PrintTrace` it is generic in the writer, reads the trace table and the stack, and allocates
+nothing. The frames of package `pluto/rt` that park the task, including calls of it inlined into the
+program's functions, are left out, so the first frame is the program's (or the library's) call that
+waits: `main.receive`, `pluto/sync.(*Mutex).lockSlow`. The task must be switched out and stay so;
+`Task.Parked()` says it is waiting in `Park`, and `Task.WaitReason()` says what for (`rt.WaitReason`,
+set by `rt.ParkReason`; plain `Park` gives "waiting"). A task preempted in the middle of a function has
+the preemption stub on top, where the walk stops, and one that has not run yet has no frames.
+
+The hosted scheduler uses it when the program deadlocks. It keeps every task on a list in the order they
+were started, and after "fatal error: all puroutines are asleep - deadlock!" prints each one's number,
+what it waits for and its trace, as Go prints "goroutine 1 [chan receive]:". The puroutine that runs
+`main` comes first. Helpers of the runtime that wait for work (the runner of `time.AfterFunc` functions)
+are left out:
+
+```
+fatal error: all puroutines are asleep - deadlock!
+
+puroutine 1 [chan receive]:
+    main.main (./main.p:53)
+
+puroutine 2 [chan receive]:
+    main.receive (./main.p:8)
+    main.middle (./main.p:12)
+    main.main.go1 (./main.p:47)
+
+puroutine 3 [chan send]:
+    main.send (./main.p:16)
+    main.main.go2 (./main.p:48)
+```
+
+The reasons are Go's: `chan receive`, `chan send`, their `(nil chan)` forms, `select`,
+`select (no cases)`, `sleep`, `IO wait` (a puroutine waiting in the poller; it keeps the program from
+being reported as deadlocked), and for `pluto/sync` `sync.Mutex.Lock`, `sync.RWMutex.RLock`,
+`sync.RWMutex.Lock`, `sync.WaitGroup.Wait` and `sync.Cond.Wait`. A program built with `--trace=false`
+prints the numbers and reasons without frames. Tests: `testdata/trace/deadlockchan.p`, and
+`internal/build/deadlock_test.go` for puroutines parked in the library.
+
 ### Hardware faults (hosted)
 
 At startup the runtime installs a handler for SIGSEGV, SIGBUS, SIGFPE and SIGILL that runs on a 16 KiB
@@ -376,7 +419,9 @@ the same versions for executables to match across machines.
   locations, first for parameters at -O0, where they live in stack slots.
 - Column numbers in the line table.
 - `.eh_frame`, so that a stripped binary can still be unwound by tools.
-- Traces of parked puroutines, in panics (a `rt.TraceTask` for panic handlers) and in gdb.
+- Traces of the other puroutines in a panic report (a panic handler can call `rt.TraceTask`, but the
+  runtime keeps no list of tasks for it to walk outside the hosted deadlock report), and of parked
+  puroutines in gdb.
 - A sorted function index in the trace table, for in-process sampling profilers.
 - Call frame information for `//pu:interrupt` handlers describes the interrupted RIP (and the error
   code's slot) but not the interrupted RSP, which the CPU saved in its frame; a debugger attached to a

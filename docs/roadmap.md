@@ -94,10 +94,11 @@ later takes the next free number and is listed in the section where it belongs.
     returns `EPIPE`; on standard output or error it ends the program with the signal), timers
     (per-processor heaps run by the workers and the poller, `rt.Now` through the vDSO,
     `rt.ParkUntil`), and deadlock detection that waits for armed timers (language spec section 4.7;
-    abi.md section 12). `rt.StackLeft` measures a puroutine's own stack. The sendable rules are checked
-    (`shared[T]` never crosses, frame views are rejected syntactically, and closures in the current
-    frame are a compile error, E2594, where the compiler can tell, and panic at the `go` otherwise).
-    Follow-ups: traces of parked puroutines (`rt.TraceTask`); a program that binds its own hosted
+    abi.md section 12), which lists every puroutine with what it waits for and its stack, as Go does
+    (`rt.TraceTask`, `rt.ParkReason`; debugging.md section 5). `rt.StackLeft` measures a puroutine's
+    own stack. The sendable rules are checked (`shared[T]` never crosses, frame views are rejected
+    syntactically, and closures in the current frame are a compile error, E2594, where the compiler
+    can tell, and panic at the `go` otherwise). Follow-ups: a program that binds its own hosted
     backend runs on one thread; spawning costs about twice Go's.
 15. **Channels and `select`** (done): `chan T`, send, receive, `close`, `range`, `select` with Go's
     random choice, `len`, `cap` and `make(chan T, n, a)`, on Go's design (a lock per channel, waiters

@@ -177,7 +177,7 @@ func (pd *PollDesc) Wait(write bool) int {
 	}
 	xadd32(&hs.pollWaiting, 1)
 	pd.lock.Unlock()
-	Park()
+	ParkReason(WaitIO)
 	pd.lock.Lock()
 	closing := pd.closing
 	pd.lock.Unlock()
