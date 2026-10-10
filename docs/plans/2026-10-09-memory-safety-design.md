@@ -2,7 +2,8 @@
 
 **Date:** 2026-10-09 (updated 2026-10-10)
 **Status:** sections 4 and 6.1 to 6.3 are implemented and enforced; section 5 is a measured prototype
-behind `pluto build --gencheck`, off by default; sections 6.4, 7 and 8 are designs not yet implemented.
+behind `pluto build --gencheck`, off by default; section 7 is implemented (`internal/race`, spec section 6.11); section 8
+is a design not yet implemented.
 The decisions of section 12 were signed off on 2026-10-10.
 
 ## 1. The goal
@@ -20,7 +21,7 @@ Memory safety splits into four properties, each handled by a different mechanism
 | Spatial | out-of-bounds index, slice or pointer arithmetic | bounds checks | enforced (existing) |
 | Stack temporal | a pointer into a frame used after the frame returns | whole-program escape check at compile time | enforced (section 4) |
 | Heap temporal | a pointer into freed heap memory | ownership (moves, drops) at compile time, generation checks at run time | moves and drops enforced (section 6); generation checks prototyped (section 5) |
-| Concurrency | data races; torn multi-word values | sendable types, restricted sharing | spec rule exists; proposals in sections 7 and 8 |
+| Concurrency | data races; torn multi-word values | sendable types, restricted sharing, inferred lock guards | enforced (section 7, spec section 6.11) |
 
 Rust gets all four from one mechanism, borrowing with lifetimes. Plutonium gets the first and third
 mostly from run-time checks and the second and fourth from whole-program analyses that need no
@@ -266,7 +267,16 @@ go2pu's output, and is the next step.
 - Cycles of strong references are never freed; structures with back pointers use `weak` (examples in
   section 9). A cycle collector is not proposed: it would reintroduce unpredictable pauses.
 
-## 7. Data race freedom (proposal)
+## 7. Data race freedom (implemented)
+
+Implemented in `internal/race` as specified in language spec section 6.11: the sendable rule for views
+(E3501), and guards inferred from the locks held at writes for package variables (E3502, E3503) and for
+the objects of `synced[T]`. Two refinements came from the existing tree: a struct type whose fields are
+never changed once an object is shared, or are used only atomically or under a lock of the same object,
+may be shared through plain pointers (the type rule; `os.File` is such a type), and the order channel
+operations and `WaitGroup.Wait` impose is not used, so reads after a `Wait` hold the guarding lock as
+Clang's analysis would require. The text below is the proposal as signed off.
+
 
 Spec section 4.7 already defines **sendable**: values, owners (moved, so the sender loses them),
 `synced[T]` and `weak[synced[T]]`, and channels may cross puroutines; `shared[T]` and views of the
@@ -461,8 +471,8 @@ measuring, and it marks that function for the `pluto vet -unsafe` audit. Not imp
    `Default()` while a local arena is installed is now a view of the arena (spec section 7.1); arena
    memory stored into other heap memory is caught at run time by the per-arena epochs (D4) in
    `--gencheck` builds.
-4. Data races: section 7 is a proposal. Today heap views may be shared between puroutines, and package
-   variables may be written from several.
+4. Data races in unsafe code and in the runtime (`pluto/rt`, whose variables and records are outside
+   the rules) are not checked; memory reached through `unsafe.Pointer` or `rt.Pinned` is not followed.
 5. Writes through memory reinterpreted with `unsafe.Pointer` bypass the heap-only field inference
    (section 4): unsafe code that stores a frame pointer that way is not caught.
 6. A function value or interface method called from outside Plutonium (passed to C) is assumed to be

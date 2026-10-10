@@ -27,7 +27,7 @@ contract to meet.
 
 As in Go: a program that modifies data read by other puroutines must serialise those accesses, using
 channels, `pluto/sync` or `pluto/sync/atomic`. If you need the rest of this document to understand your
-program, you are being too clever.
+program, you are being too clever. In safe code the compiler checks this (section 4.1).
 
 `volatile[T]` is not a synchronisation tool between processors. It orders accesses to one device or
 between an interrupt handler and the code it interrupts on the same processor (section 6), nothing more.
@@ -207,11 +207,21 @@ concurrent use at all.
 
 ## 4. Data races
 
-### 4.1 Go's position
+### 4.1 Safe code is free of data races
 
-Plutonium takes Go's position on races, not C's. A racy program is wrong, but it is not undefined: the
-compiler may not assume races are absent and use that to justify arbitrary transformations. A race has the
-limited consequences below and no others.
+Safe code (code that uses no `unsafe`, no `rt.Pinned`, and calls no function without a body) cannot
+race: the compiler rejects every program in which two puroutines could make conflicting accesses that
+are not ordered by locks or made atomically (language spec section 6.11). Puroutines share memory only
+through owners moved from one to another, through package variables and `synced[T]` objects whose every
+access holds the lock the compiler infers to guard them (or is atomic), and through views of memory that
+cannot change while both may use it. The check reasons about locks and atomics, not about the order that
+channel operations or `WaitGroup.Wait` give: a program that relies on those to order plain accesses to
+shared data holds the guarding lock as well.
+
+Unsafe code can still race, and so can the runtime, which implements these rules with its own locks and
+with preemption disabled. For it, Plutonium takes Go's position on races, not C's. A racy program is
+wrong, but it is not undefined: the compiler may not assume races are absent and use that to justify
+arbitrary transformations. A race has the limited consequences below and no others.
 
 ### 4.2 Word-sized and smaller locations
 
@@ -387,7 +397,8 @@ barrier like every `pluto/arch/x86` intrinsic, so no per-CPU access moves across
 | Topic | Go | Plutonium |
 |---|---|---|
 | Atomics | sequentially consistent | the same |
-| Races on word-sized values | observe some written value | the same |
+| Data races in safe code | possible; found by the race detector at run time | rejected at compile time (language spec section 6.11) |
+| Races on word-sized values | observe some written value | the same, in unsafe code |
 | Races on larger values | may tear | the same |
 | Struct fields | separate locations | the same |
 | Packed fields | n/a | the whole packed value is one location (section 4.3) |

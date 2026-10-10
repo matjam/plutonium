@@ -609,23 +609,36 @@ any field or element:
 - a `shared[T]` or a `weak[shared[T]]`, whose counts are not atomic (section 6.5);
 - a view of the sending function's frame, which section 6.3 already forbids passing on.
 
-Values, owners, `synced[T]` and `weak[synced[T]]` (with a sendable `T`) and channels are sendable. Moving
-an owner to another puroutine is safe because the sender loses it: only one puroutine can use it. A
-`synced[T]` lets several puroutines reach the same `T`, so fields of `T` that change must be protected
-with `pluto/sync` or `pluto/sync/atomic`; the count is atomic, the data is not. Strings are sendable:
-their bytes never change and their counts are atomic once a program has several threads (section 6.10).
-Views of heap and static memory (`*T`, `[]T`) are sendable and, like raw pointers in C, their data is not
-checked for races; their lifetime is checked at run time as for any heap view (section 6.3).
+- a view (`*T`, `[]T`) of heap or static memory that may change while both puroutines can use it
+  (section 6.11).
 
-The checker applies the rule to the arguments and receiver of every `go` statement and to the element
-type of every channel type, looking through struct fields, array elements and the referents of
-`owned`, `synced` and the transparent wrappers (`ring`, `volatile`, `aligned`), but not through views,
-interfaces or functions. Until the escape checks of section 6.3 land (roadmap item 5), the views of the
-frame it rejects are the ones written out: the address of a local variable or of a field or element of
-one (`&x`, `&t.f`, `&a[i]`), a slice of a local array, the address of a composite literal, and a
-pointer method called on a local variable (`go wg.Wait()`). Passing a local `sync.WaitGroup` by address,
-the usual Go idiom, is therefore an error: allocate it, or make it a package-level variable. In a generic
-function the rule is checked for each instantiation.
+Values, owners, `synced[T]` and `weak[synced[T]]` (with a sendable `T`) and channels are sendable. Moving
+an owner to another puroutine is safe because the sender loses it: only one puroutine can use it, and a
+library owner that manages its memory (`vec.Vec`, `hash.Map`, `strings.Builder`) takes that memory with
+it, so only its elements are checked. A `synced[T]` lets several puroutines reach the same `T`, so fields
+of `T` that change are guarded by a lock in the same object or used atomically (section 6.11); the count
+is atomic, the data is not. Strings are sendable: their bytes never change and their counts are atomic
+once a program has several threads (section 6.10).
+
+A view may cross only when what it points to cannot change while both puroutines may use it, or every
+change is synchronised: memory of a `pluto/sync` or `pluto/sync/atomic` type (or a channel, or a struct
+of only those), a package variable that no puroutine writes once the program's puroutines run, the
+object of a `synced[T]`, or a struct type whose objects are safe by the type rule of section 6.11 (no
+field changes once an object is shared, or each field that changes is used only under one lock of the
+same object or atomically). Anything else, such as a slice of a `[]int` that `main` still fills, is
+error E3501, which names a write that could change it. The fixes are to pass a copy, to move an owner,
+or to share through a `synced[T]` or a package variable guarded by a lock.
+
+The type checker applies the type part of the rule (`shared[T]`) to the arguments and receiver of every
+`go` statement and to the element type of every channel type, looking through struct fields, array
+elements and the referents of `owned`, `synced` and the transparent wrappers (`ring`, `volatile`,
+`aligned`). The escape analysis rejects views of the frame (E3004, E3005, section 6.3). The race
+analysis (section 6.11) checks views of other memory where they cross: the arguments and receiver of a
+`go` statement, values sent on a channel, and, through interface values, every type the program converts
+to that interface. Packed variadic arguments of a `go` statement are copied into the new puroutine, so
+each one crosses as a value. Passing a local `sync.WaitGroup` by address, the usual Go idiom, is an error
+(E3004): use a package-level variable, or the `sync.Scope` of scoped puroutines once it lands. In a
+generic function the rule is checked for each instantiation.
 
 Stacks come from the default allocator (the starting puroutine's, if it installed one with `alloc.Use`),
 or from `rt.Go(f, size, a)` with an explicit one, and are freed when the puroutine returns. They belong
@@ -680,7 +693,8 @@ case <-t.C:
 alloc.Free(t) // stops the timer and frees its channel
 ```
 
-The element type must be sendable (section 4.7). Sending an owner moves it: after `ch <- b`, `b` holds
+The element type must be sendable, and a view sent on a channel must point to memory that cannot change
+while both puroutines may use it (section 4.7). Sending an owner moves it: after `ch <- b`, `b` holds
 nothing, and the receiver of `v := <-ch` owns it. In a `select`, the value of a send case is evaluated on
 entry as in Go, but an owner is moved only if that case proceeds: inside the other clauses the variable
 still holds its value, and after the `select` it counts as possibly moved (section 6.4).
@@ -703,7 +717,8 @@ brief:
 
 - `go` statements, channel operations, `pluto/sync` locks, `WaitGroup` and `Once`, and
   `pluto/sync/atomic` operations synchronise exactly as in Go. Atomics are sequentially consistent.
-- A data race is a bug but not undefined behaviour. A racy read of a naturally aligned value of at most a
+- Safe code cannot race: the compiler rejects data races (section 6.11). In unsafe code a data race is
+  a bug but not undefined behaviour. A racy read of a naturally aligned value of at most a
   word observes some value that was written to it; larger values (strings, slices, interfaces, structs)
   may tear. The compiler may not assume that a program has no races.
 - A packed value is a single memory location: writing one field rewrites its neighbours, so two
@@ -2718,6 +2733,147 @@ The compiler leaves out the counting that cannot be observed:
 
 In kernel mode, the operations that make new strings allocate under the same rules as `new` and `make`
 (section 12.7).
+
+### 6.11 Data races
+
+Safe code has no data races: two puroutines never use the same memory at once with one of them writing,
+unless both use atomic operations. Go leaves races to a run-time detector; Plutonium checks the whole
+program when it compiles, with no annotations (memory model, section 4). Three rules do it, all inferred
+from the program. The rest of this section says what each rule accepts, what it rejects with which error,
+and what to write instead.
+
+**Puroutines.** The compiler finds every puroutine the program may start: each `go` statement, and each
+function value passed to a function that starts a puroutine with it (`rt.Go`, `time.AfterFunc`,
+`sync.WaitGroup.Go`, or a function of the program's own that passes a func parameter on to one of these;
+found by following func parameters, section 4.7). The **main puroutine** runs package initialisation
+and `main`. A `go` statement that may run more than once (in a loop, or in a function other than `main`)
+may start several puroutines that run the same code at once. Package initialisation, and the part of
+`main` before the first statement that may start a puroutine, run while no other puroutine exists.
+
+**Accesses and locks.** For each puroutine the compiler collects what it reads and writes, in its own
+code and in every function it calls (calls through interfaces and func values reach every function that
+could be called there), and which locks are held at each access. A lock is a `sync.Mutex` or
+`sync.RWMutex`, held from `Lock` (or `RLock`, or a `TryLock` that succeeded, in the branch where it did)
+to `Unlock`, or to the end of the function with `defer mu.Unlock()`. The analysis follows the control
+flow of each function: a lock counts as held at a statement only if it is held on every path there. A
+function that returns with a lock held (a helper such as `func (s *State) lock() { s.mu.Lock() }`) holds
+it for its caller, and a lock held around a call counts inside the callee. A lock reached through a
+pointer is named by where the pointer came from, so `s.mu` and `s.items` in one method are the lock and
+the data of the same object. Unlocking a mutex the compiler cannot name counts as unlocking every lock.
+The order that channel operations and `WaitGroup.Wait` impose between puroutines is not used: reading a
+counter after `wg.Wait()` still holds the counter's lock. A method value (`f := s.add`) may be called
+later, anywhere, so what the method does counts as done with no lock held.
+
+**Guards.** For data that several puroutines may use, the compiler infers the lock that guards it: a lock
+that every write of the data holds for writing (a `sync.RWMutex`'s `Lock`, not `RLock`). The data is then
+safe when every access, read or write, holds its guard (a read may hold it with `RLock`). Data that every
+access changes or reads with `pluto/sync/atomic` operations (the `atomic.Int64` types' methods, or
+`atomic.AddInt64(&x, 1)` and the other functions) needs no lock. A field of a struct, and all the
+elements of an array or slice together, are one piece of data each; writing a whole struct writes all its
+fields. Values of `pluto/sync` and `pluto/sync/atomic` types synchronise themselves through their methods;
+assigning a whole new value to one is a write like any other.
+
+**Rule 1: package variables** (gap G32 of the complete-spec plan, adopted). A package variable (or a
+field or element of one) that two puroutines may use, or that one `go` statement's puroutines may use
+while several run, with at least one of them writing it once puroutines run, must be guarded or atomic:
+
+- E3502: it is written with no lock that every write holds. The message names the write, the puroutine
+  that makes it (by the `go` statement that starts it), and another puroutine's access it may meet.
+- E3503: it is read without its guard. The message names the guard, the writes that hold it, and the
+  read.
+
+```go
+var (
+	mu   sync.Mutex
+	hits int
+)
+
+func handle(done chan bool) {
+	mu.Lock()
+	hits++ // every write holds mu: mu guards hits
+	mu.Unlock()
+	done <- true
+}
+
+func main() {
+	done := make(chan bool)
+	for i := 0; i < 4; i++ {
+		go handle(done)
+	}
+	for i := 0; i < 4; i++ {
+		<-done
+	}
+	mu.Lock()
+	println(hits) // without mu.Lock(): E3503, hits is read without holding mu
+	mu.Unlock()
+}
+```
+
+A package variable written only during initialisation, or only by `main` before it starts its first
+puroutine, may be read by every puroutine without a lock. Variables of the runtime itself (`pluto/rt`),
+which implements puroutines with its own locks and with preemption disabled, are outside the rule, as is
+memory that unsafe code reaches through `unsafe.Pointer`.
+
+**Rule 2: views that cross** (the sendable rule of section 4.7; memory safety decision D5(b)). A pointer
+or slice given to another puroutine, as a `go` argument or receiver, a value sent on a channel, or inside
+an interface, struct or array that crosses, must point to memory that is safe for both:
+
+- memory of a `pluto/sync` or `pluto/sync/atomic` type, of the runtime's own records (`rt.Task`,
+  `rt.Timer`), a channel, or a struct of only those
+  (`go worker(&wg)` with a package-level `wg`);
+- a package variable, or part of one, that no puroutine writes once puroutines run;
+- the object of a `synced[T]` (rule 3);
+- an object of a struct type that satisfies the **type rule**: no code overwrites a whole object of the
+  type through a pointer, and each field either never changes once an object is shared, or is used only
+  atomically or only under one lock of the same object (or one package-level lock), inferred as above.
+  Writes that initialise an object do not count: writes through a pointer to memory the function
+  allocated (`new`, `make`, `alloc.New`, or a function that returns memory it allocated and kept to
+  itself, such as a constructor), before the pointer is stored, passed to a function that keeps it, sent
+  or returned, including writes made by a function it is passed to, such as an `init` method. So an
+  object built by its constructor and then only read, and an object whose methods all hold its own
+  `sync.Mutex`, may both be shared; `os.File`, whose state is atomic, is one of the second kind.
+
+A pointer to, or slice of, anything other than a struct is accepted only in the first three cases.
+Anything else is E3501, which names a write that could change the memory while the other puroutine uses
+it, where it knows one. The fixes: pass a copy
+of the value; move an owner (a `vec.Vec` instead of a slice) so that only the receiver has it; or keep
+the shared data where the guards of rules 1 and 3 apply.
+
+```go
+type Counter struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (c *Counter) Add() { c.mu.Lock(); c.n++; c.mu.Unlock() }
+func (c *Counter) Peek() int { return c.n } // E3501 at the go statement below: n is changed under
+                                            // c.mu in Add and read here without it
+
+var counter Counter
+
+go work(&counter, done) // work calls Add, and main calls Peek
+```
+
+An owner, such as the `owned[T]` that `new` returns, moves to the task instead (`go c.bump()` on an
+`owned[Counter]` hands over the box), so only one task has it and none of this applies.
+
+**Rule 3: synced objects.** Every puroutine that holds a `synced[T]` reference may use its object, so
+every field of `T` that some code changes must be guarded by a lock of the same object, or used only
+atomically, with the same errors E3502 and E3503 as package variables. Writes that initialise the object,
+before the reference is copied anywhere, do not count. A pointer method called on the box
+(`go s.Serve()`, `s.Add(1)`) uses the object the same way.
+
+Maps, once they return as counted reference types (gap G16), are sendable like `synced[T]`, and their
+contents are guarded by the same rule: writes from several puroutines hold one lock.
+
+**What is not checked.** Unsafe code (section 11 and memory safety design section 2) is the programmer's
+responsibility: memory reached through `unsafe.Pointer` or `rt.Pinned`, functions without a body
+(assembly and C), and the runtime's own variables. A data race in unsafe code has the limited
+consequences of the memory model (section 4 there), never undefined behaviour.
+
+**Scoped puroutines.** The sharing check of `sync.Scope` (docs/plans/2026-10-10-scoped-puroutines.md,
+section 4.5) uses the same lock inference for locals of the frame that scoped puroutines share; its
+errors are E3401 to E3406 once it lands.
 
 ## 7. Memory and allocation
 

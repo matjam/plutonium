@@ -221,6 +221,22 @@ later takes the next free number and is listed in the section where it belongs.
     Freestanding and kernel builds are unchanged. Follow-ups: owner drops on `Goexit` come with item 20's
     drops, which run on the same return paths; `sync.Scope`'s join on `Goexit` likewise (scoped-puroutines
     D7).
+59. **Data race freedom** (done; language spec section 6.11,
+    memory-model.md section 4.1; memory safety design section 7, D5(b) and D7; complete-spec gap G32):
+    `internal/race`, a whole-program analysis after the escape analysis, infers which `sync.Mutex` or
+    `sync.RWMutex` guards each piece of shared data from the locks held at its writes (a must-hold flow
+    analysis per function, with summaries that carry locks taken in helpers and held across calls), and
+    rejects package variables written by several puroutines without their guard or atomics (E3502,
+    E3503) and views that cross to another puroutine while what they point to may change (E3501; the
+    type rule accepts structs never changed once shared, or guarded by their own lock), and fields of a
+    `synced[T]` object used without the lock of the same object (E3502, E3503). Follow-ups: maps join the
+    `synced[T]` rule when they return (gap G16); `sync.Scope`'s sharing check reuses the lock inference
+    (E3401 to E3406).
+48. **Counted references and `weak[P]`** (planned; language spec sections 5.6 and 6.5): the allocation
+    header (allocator, strong and weak counts), increments on copy and decrements on drop with matched
+    pairs removed at last use, `Drop` at zero strong count and the free at zero weak count, the atomic
+    forms for `synced` with the ordering of memory-model.md section 3.7, `weak[P]` conversion and
+    `Upgrade`, and the sendable rule of section 4.7 (no `shared` or `weak[shared]` across puroutines).
 48. **Counted references and `weak[P]`** (done; language spec sections 5.6 and 6.5, abi.md section
     1.2): the allocation header (strong and weak counts, allocator), counted by the machinery of counted
     strings (borrowed parameters, owned results, statement temporaries), `Drop` at zero strong count and
