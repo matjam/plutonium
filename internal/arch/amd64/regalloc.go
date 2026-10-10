@@ -126,6 +126,44 @@ func bitIndex(b uint64) int {
 	return n
 }
 
+// postorder returns the indices of f's blocks in a postorder of the CFG
+// from the entry, followed by any unreachable blocks. Visiting blocks in
+// this order, successors before predecessors except along back edges,
+// lets backward dataflow converge in a few passes whatever the layout.
+func postorder(f *MFunc, index map[*MBlock]int) []int {
+	order := make([]int, 0, len(f.Blocks))
+	seen := make([]bool, len(f.Blocks))
+	type frame struct {
+		b    *MBlock
+		next int
+	}
+	var stack []frame
+	visit := func(b *MBlock) {
+		seen[index[b]] = true
+		stack = append(stack, frame{b: b})
+		for len(stack) > 0 {
+			top := &stack[len(stack)-1]
+			if top.next < len(top.b.Succs) {
+				s := top.b.Succs[top.next]
+				top.next++
+				if !seen[index[s]] {
+					seen[index[s]] = true
+					stack = append(stack, frame{b: s})
+				}
+				continue
+			}
+			order = append(order, index[top.b])
+			stack = stack[:len(stack)-1]
+		}
+	}
+	for _, b := range f.Blocks {
+		if !seen[index[b]] {
+			visit(b)
+		}
+	}
+	return order
+}
+
 // liveness computes the registers live out of each block.
 func liveness(f *MFunc) []regSet {
 	n := f.numRegIndexes()
@@ -155,9 +193,10 @@ func liveness(f *MFunc) []regSet {
 		index[b] = i
 	}
 	tmp := newRegSet(n)
+	order := postorder(f, index)
 	for changed := true; changed; {
 		changed = false
-		for i := len(f.Blocks) - 1; i >= 0; i-- {
+		for _, i := range order {
 			b := f.Blocks[i]
 			for _, s := range b.Succs {
 				if liveOut[i].unionChanged(liveIn[index[s]]) {
