@@ -1,8 +1,8 @@
 running ld failed: undefined reference to main.checksum
 	ld: $WORK/main.o: in function `main.main':
-	././main.p:8:(.text+OFFSET): undefined reference to `main.checksum'
+	./main.p:8:(.text+OFFSET): undefined reference to `main.checksum'
 	ld: $WORK/main.o: in function `pluto.main':
-	././main.p:8:(.text+OFFSET): undefined reference to `main.checksum'
+	./main.p:8:(.text+OFFSET): undefined reference to `main.checksum'
     The program uses the symbol main.checksum (in main.main), but nothing linked
     into it defines that symbol.
     main.checksum looks like a Plutonium function. A function declared without a

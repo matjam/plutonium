@@ -698,6 +698,7 @@ func (s *isel) addr(p *ssa.Value) Mem {
 			m.Disp += p.AuxInt
 			return m
 		}
+		return s.farOffset(p.Args[0], p.AuxInt)
 	case ssa.OpAddPtr:
 		base, idx := p.Args[0], p.Args[1]
 		if idx.Op == ssa.OpPerCPUOffset && s.vregs[idx.ID] == NoReg {
@@ -714,7 +715,7 @@ func (s *isel) addr(p *ssa.Value) Mem {
 				m.Disp += idx.AuxInt
 				return m
 			}
-			break
+			return s.farOffset(base, idx.AuxInt)
 		}
 		m := s.addr(base)
 		if m.Index != NoReg {
@@ -726,6 +727,16 @@ func (s *isel) addr(p *ssa.Value) Mem {
 		return m
 	}
 	return BaseMem(s.reg(p), 0)
+}
+
+// farOffset addresses base+off for an offset too large for a
+// displacement, with the offset in an index register. (Falling back to
+// reg(p) for such a p would come straight back here through LEA.)
+func (s *isel) farOffset(base *ssa.Value, off int64) Mem {
+	b := s.reg(base)
+	c := s.newReg(ssa.TI64)
+	s.loadConst(c, off, 8)
+	return Mem{Base: b, Index: c, Scale: 1}
 }
 
 // ----------------------------------------------------------------------------

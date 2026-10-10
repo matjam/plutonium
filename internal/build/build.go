@@ -402,7 +402,9 @@ func emitObject(cfg *Config, p *ssa.Program, prog *load.Program) (*objfile.Objec
 	if !cfg.NoDWARF && !cfg.Strip {
 		// Trimmed names are relative to the module root, so a debugger
 		// run there finds the program's sources (debugging.md section 3).
-		dir := "."
+		// They carry no compilation directory: ld would join "." to
+		// ./main.p and report ././main.p.
+		dir := ""
 		if cfg.NoTrimPath {
 			var err error
 			if dir, err = filepath.Abs(cfg.Dir); err != nil {
