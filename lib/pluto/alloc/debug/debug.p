@@ -6,7 +6,7 @@
 //
 //	alloc.SetDefault(debug.New(debug.DefaultOptions()))
 //
-// or build a hosted program with "pluto build -alloc=debug", which does the
+// or build a hosted program with "pluto build --alloc=debug", which does the
 // same without code changes and reads settings from the PLUTO_DEBUGALLOC
 // environment variable. docs/spec/debug-allocator.md describes the checks,
 // the settings and the messages.

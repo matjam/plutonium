@@ -34,7 +34,7 @@ type Config struct {
 	Sizes  types2.Sizes
 	// Preload lists standard library packages to load, and so initialise,
 	// right after pluto/rt and pluto/alloc, whether or not the program
-	// imports them (pluto/alloc/debug for -alloc=debug).
+	// imports them (pluto/alloc/debug for --alloc=debug).
 	Preload []string
 }
 

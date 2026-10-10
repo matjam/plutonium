@@ -77,7 +77,7 @@ func loadConfig(cfg *Config) (*load.Config, error) {
 	case "":
 	case "debug":
 		if cfg.Freestanding {
-			return nil, fmt.Errorf("-alloc=debug needs a hosted build; a freestanding program installs the debug allocator itself with alloc.SetDefault(debug.New(...))")
+			return nil, fmt.Errorf("--alloc=debug needs a hosted build; a freestanding program installs the debug allocator itself with alloc.SetDefault(debug.New(...))")
 		}
 		tags["allocdebug"] = true
 		tags["allocsites"] = true

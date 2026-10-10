@@ -16,7 +16,7 @@ import (
 	"github.com/matjam/plutonium/internal/build"
 )
 
-// buildDebugAlloc builds src with -alloc=debug at optLevel and returns the
+// buildDebugAlloc builds src with --alloc=debug at optLevel and returns the
 // executable's path.
 func buildDebugAlloc(t *testing.T, src string, optLevel int) string {
 	t.Helper()
@@ -499,7 +499,7 @@ func TestDebugAllocNeedsHosted(t *testing.T) {
 		freestanding bool
 		want         string
 	}{
-		{"debug", true, "-alloc=debug needs a hosted build"},
+		{"debug", true, "--alloc=debug needs a hosted build"},
 		{"fancy", false, `unknown allocator "fancy"`},
 	} {
 		cfg := &build.Config{Dir: dir, Output: filepath.Join(dir, "prog"), Stdlib: plutonium.Stdlib(), Freestanding: tt.freestanding, Alloc: tt.alloc}
