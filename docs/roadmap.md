@@ -149,7 +149,7 @@ later takes the next free number and is listed in the section where it belongs.
     The inliner inlines calls through known closures and SimplifyCFG threads branches on phis of
     constants, so a loop over `v.All()` compiles like one over `v.Slice()`. Follow-ups: the escape
     checks (item 5) should reject an iterator that keeps `yield`; `defer` in a loop body runs at most
-    once per call (item 28); `ring[T, N]` has no iterator method yet; no `iter.Pull` without
+    once per call (item 28); `ring[T, N]` has `All` and `Values` (section 5.4); no `iter.Pull` without
     coroutines; expanded closures are named after the caller (`main.main.func1`), not the
     constructor, in traces.
 23. **Richer type descriptors** (done; abi.md section 5): element types, lengths, field offsets, types and

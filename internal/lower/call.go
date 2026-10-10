@@ -651,7 +651,7 @@ func (s *fnState) methodExpr(e *ast.SelectorExpr, sel *types2.Selection, sig *ty
 		}
 		targs = s.withMethodTypeArgs(fn, e.Sel, targs)
 	}
-	target, full := s.l.methodFunc(fn, targs, w)
+	target, full := s.l.methodFunc(fn, targs, w, e.Sel.Pos(), "used as a method expression")
 	if len(path) == 1 && types2.Identical(full.Recv().Type(), R) {
 		return target
 	}
@@ -661,9 +661,11 @@ func (s *fnState) methodExpr(e *ast.SelectorExpr, sel *types2.Selection, sig *ty
 // methodFunc returns the function implementing method fn instantiated with
 // targs, and its signature with the receiver. w is fn's ring type if fn is
 // a built-in ring method, or nil.
-func (l *Lowerer) methodFunc(fn *types2.Func, targs []types2.Type, w *types2.Wrapper) (*ssa.Sym, *types2.Signature) {
+// pos and what describe the use for the error reported when fn is a ring
+// iterator method, which can only be called.
+func (l *Lowerer) methodFunc(fn *types2.Func, targs []types2.Type, w *types2.Wrapper, pos token.Pos, what string) (*ssa.Sym, *types2.Signature) {
 	if w != nil {
-		return l.ringMethodFunc(fn, w)
+		return l.ringMethodFunc(fn, w, pos, what)
 	}
 	return l.funcSym(fn, targs), l.methodSig(fn, targs)
 }
@@ -805,7 +807,7 @@ func (s *fnState) methodValue(se *ast.SelectorExpr, sel *types2.Selection) *ssa.
 		targs = s.methodTypeArgs(fn, se, recvT)
 		s.l.checkNotCtor(fn, se.Sel.Pos(), "used as a method value")
 	}
-	wrapper := s.l.boundMethodWrapper(s.l.methodFunc(fn, targs, w))
+	wrapper := s.l.boundMethodWrapper(s.l.methodFunc(fn, targs, w, se.Sel.Pos(), "used as a method value"))
 	size := 8 + s.l.sizeof(recv.T)
 	rec := s.methodValueRecord((size + 7) &^ 7)
 	s.store(ssa.TPtr, rec, s.funcAddr(wrapper))
