@@ -84,6 +84,15 @@ func init() {
 			Fix:  &Fix{Intro: "Either form works", Code: "func main() { ... }\nfunc main() int64 { return 0 }"},
 			Spec: pspec("2", "Source files and packages"),
 		},
+		&Entry{
+			Code: CheckerCode(typerr.InvalidUTF8String), Name: "InvalidUTF8String",
+			Text:    "Every string in Plutonium holds valid UTF-8 text, so a string literal whose escapes spell out bytes that are not valid UTF-8 is an error. Here the escapes make a byte or a sequence of bytes that does not encode a character.\nBinary data belongs in a []byte or a byte array, which may hold any bytes. To write the character itself, use its \\u escape or type it.",
+			Why:     "Go strings may hold any bytes. Plutonium guarantees that a string is text, so that ranging over it, slicing it between runes and the library's rune functions never meet broken encodings, and so that ASCII strings can be recognized once and taken fast paths for.",
+			Fix:     &Fix{Intro: "Keep binary data in bytes", Code: "magic := []byte{0x7f, 'E', 'L', 'F'}"},
+			Spec:    pspec("6.10", "Strings"),
+			Example: "const magic = \"\\x7fELF\\xff\"",
+			Fixed:   "var magic = [4]byte{0x7f, 'E', 'L', 0xff}",
+		},
 
 		// Packed types and wrappers.
 		&Entry{
@@ -519,6 +528,14 @@ func init() {
 			Spec: "\"Defer statements\" in the Go spec",
 		},
 		&Entry{
+			Code: KernelStringAlloc, Name: "KernelStringAlloc",
+			Text:    "This string operation makes a new string, and a new string needs memory from the current allocator: s + t, string(b) for a byte or rune slice, string(r) for a rune that is not a constant, []byte(s) and []rune(s). Kernel code may run where allocating is not allowed (in an interrupt handler, before the allocator exists, with a lock held), so in kernel mode it may build strings only in functions that say they allocate.\nMark the function //pu:alloc if it runs where the allocator may be used. Otherwise work on bytes in a buffer you own, for example with fmt.Bprintf or strconv.AppendInt, and keep string operations that do not allocate: literals, comparison, slicing, indexing and len.",
+			Why:     "Go allocates new strings on the garbage-collected heap. Plutonium counts them and frees each one when its last copy goes, but the allocation itself still needs an allocator, which a kernel only has in some places.",
+			Fix:     &Fix{Intro: "Mark a function that may allocate", Code: "//pu:alloc\nfunc describe(dev *Device) string {\n\treturn dev.name + \": \" + dev.state.String()\n}"},
+			Spec:    pspec("12.7", "Allocation in kernel mode"),
+			Example: "func label(n int) string {\n\treturn \"irq\" + strconv.Itoa(n)\n}",
+		},
+		&Entry{
 			Code: DeferInRangeFunc, Name: "DeferInRangeFunc",
 			Text:    "The body of a loop over a function (for x := range seq) runs once for each value the iterator yields, so a defer statement in it is a defer inside a loop. Its deferred call belongs to the function the loop is in and runs when that function returns, as in Go. Plutonium gives each defer statement one slot in that function's frame, so the defer may run at most once per call: after it, every path must leave the loop, by return, by panic, or by break, continue or goto to a statement outside the loop.\nIf the deferred call should run at the end of each iteration, move the body into a function of its own.",
 			Why:     "Go keeps the deferred calls of such a loop in a list on the heap. Plutonium never allocates behind the program's back, and kernel stacks are small and fixed.",
@@ -536,21 +553,12 @@ func init() {
 			Example: "for x := range seq {\n\tif done(x) {\n\t\tdefer func() { log(x) }()\n\t\treturn\n\t}\n}",
 		},
 		&Entry{
-			Code: AllocatingConv, Name: "AllocatingConv",
-			Text:    "Converting between string and []byte (or []rune), or making a string from a rune that is not a constant, copies the data into newly allocated memory in Go. Plutonium does not allow it.\nTo look at the same bytes without copying, use unsafe.String or unsafe.Slice with unsafe.StringData. To copy, allocate a buffer yourself and copy into it.",
-			Why:     "In Go the copy is allocated and later freed by the garbage collector. Plutonium has no garbage collector and never allocates behind the program's back.",
-			Fix:     &Fix{Intro: "To view bytes as a string without copying", Code: "s := unsafe.String(unsafe.SliceData(b), len(b))"},
-			Spec:    pspec("3", "What Plutonium removes from Go"),
-			Example: "s := string(buf[:n])",
-			Fixed:   "s := unsafe.String(unsafe.SliceData(buf), n)",
-		},
-		&Entry{
-			Code: StringConcat, Name: "StringConcat",
-			Text:    "Joining strings with + makes a new string, and that needs memory. Plutonium only allows + on strings whose values are constants, which the compiler joins while compiling.\nTo build a string at run time, use pluto/strings.Builder, which takes an allocator, or format into a buffer of your own with fmt.Bprintf.",
-			Why:     "In Go the result of + is allocated and later freed by the garbage collector. Plutonium has no garbage collector and never allocates behind the program's back.",
-			Fix:     &Fix{Intro: "Use a Builder", Code: "var b strings.Builder\ndefer b.Free()\nb.WriteString(\"hello, \")\nb.WriteString(name)\ngreeting := b.String()"},
-			Spec:    pspec("3", "What Plutonium removes from Go"),
-			Example: "greeting := \"hello, \" + name",
+			Code: KernelAllocCall, Name: "KernelAllocCall",
+			Text:    "The function called is marked //pu:alloc: it allocates, for example because it builds strings. In kernel mode a function that is not marked //pu:alloc may not call one, so that code that must not allocate (an interrupt handler, code holding a spin lock) cannot do it by accident through a call.\nMark the calling function //pu:alloc too, if it runs where the allocator may be used, or use a function that writes into a buffer you provide, such as strconv.AppendInt or fmt.Bprintf.",
+			Why:     "In Go any function may allocate. A kernel needs to know which code may, so Plutonium makes allocation visible in the declarations of kernel code.",
+			Fix:     &Fix{Intro: "Format into a buffer instead", Code: "var buf [32]byte\nmsg := fmt.Bprintf(buf[:0], \"irq %d\", n)"},
+			Spec:    pspec("12.7", "Allocation in kernel mode"),
+			Example: "func onIRQ(n int) {\n\tlog(fmt.Sprintf(\"irq %d\", n))\n}",
 		},
 		&Entry{
 			Code: ErrorsNewValue, Name: "ErrorsNewValue",
@@ -607,7 +615,7 @@ func init() {
 		},
 		&Entry{
 			Code: GoCapturingLiteral, Name: "GoCapturingLiteral",
-			Text:    "A function literal that uses variables of the function around it reaches them in that function's stack frame. A go statement may start it after that function has returned, when the frame is gone.\nPass the values the literal needs as arguments: they are copied when the go statement runs.",
+			Text:    "A function literal that uses variables of the function around it reaches them in that function's stack frame. A go statement may start it after that function has returned, when the frame is gone.\nPass the values the literal needs as arguments: they are copied when the go statement runs. Do not pass a Mutex, a WaitGroup or another sync type this way, since the copy is a different one: pass a pointer to it.",
 			Why:     "Go moves captured variables to the heap. Plutonium never allocates behind the program's back, so captured variables stay in their frame (spec section 4.5).",
 			Fix:     &Fix{Intro: "Pass the values as arguments", Code: "for i := 0; i < n; i++ {\n\tgo func(i int, out chan int) {\n\t\tout <- i * i\n\t}(i, out)\n}"},
 			Spec:    pspec("4.7", "go starts a puroutine"),
@@ -616,7 +624,8 @@ func init() {
 		&Entry{
 			Code: GoFrameClosure, Name: "GoFrameClosure",
 			Text: "A function literal that captures variables, and a method value such as c.handle, keep their closure record (the code to call, with the captured variables or a copy of the receiver) in the frame of the function that makes them. A func value points to that record. A go statement copies its function and arguments, but copying a func value copies only the pointer, so the puroutine may call through it after the frame is gone.\n" +
-				"The compiler reports this wherever it can tell: a capturing literal or a method value passed to go, or a local variable assigned only once, from one of them. Elsewhere the go statement checks when it runs, and panics.",
+				"The compiler reports this wherever it can tell: a capturing literal or a method value passed to go, or a local variable assigned only once, from one of them. Elsewhere the go statement checks when it runs, and panics.\n" +
+				"Library functions that start a puroutine with a func argument, such as sync.WaitGroup.Go and time.AfterFunc, follow the same rule and the compiler reports them the same way.",
 			Why:     "Go moves captured variables and the receivers of method values to the heap. Plutonium never allocates behind the program's back, so the record stays in its frame (spec section 4.5).",
 			Fix:     &Fix{Intro: "Pass the values the function needs, and start a function that takes them", Code: "go func(n int, out chan int) {\n\tout <- n * n\n}(n, out)"},
 			Spec:    pspec("4.7", "go starts a puroutine"),

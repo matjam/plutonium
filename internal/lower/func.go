@@ -53,11 +53,14 @@ type fnState struct {
 	// staticLits makes &T{...} allocate static storage: set while lowering
 	// package initialisation, whose objects outlive the init function.
 	staticLits bool
+	// lastingFrame, set while a defer statement's arguments are evaluated
+	// in a range-over-func loop body, is the function whose frame holds
+	// the storage they keep (interface boxes, literals, variadic arrays),
+	// since the deferred call runs after the body has returned.
+	lastingFrame *fnState
 
-	// scopes are the scopes being lowered, innermost last, with the owners
-	// to destroy when each ends (scope.go); inTemp is the temporary being
-	// evaluated into its slot.
-	scopes []*dropScope
+	// inTemp is the owner temporary being evaluated into its slot
+	// (scope.go).
 	inTemp ast.Expr
 
 	// pos is the expression or statement being lowered, for errors
@@ -66,6 +69,31 @@ type fnState struct {
 	// floatReported is set once a kernel-mode float error has been
 	// reported for this function.
 	floatReported bool
+
+	// String counting (strcount.go, strscope.go).
+	cleanups    []*cleanupEntry
+	frameSlots  []countedSlot
+	ownedParams []countedSlot
+	entryZeros  []countedSlot
+	entryEnd    *ssa.Block // the entry block, once the body has its own
+	bodyBlock   *ssa.Block
+	varFacts    map[*types2.Var]*varFacts
+	ownedVars   map[*types2.Var]bool // variables that hold references of their own
+	labelScopes map[*types2.Label]ast.Node
+	// allocOK is set in functions marked //pu:alloc, which may use
+	// allocating string operations in kernel mode.
+	allocOK       bool
+	allocReported bool
+	// bytewise is set in functions marked //pu:bytewise, whose string
+	// slice expressions are not checked for rune boundaries.
+	bytewise bool
+
+	// Count elision (strelide.go): every call emitted, in order, and the
+	// references held to keep borrowed strings alive across calls.
+	callLog     []*ssa.Value
+	strHolds    []*holdRec
+	holdOf      map[*ownedTemp]*holdRec
+	tempRelease map[*ssa.Value]bool // releases of statement temporaries
 }
 
 type blockState struct {
@@ -80,16 +108,10 @@ type target struct {
 	breakTo  *ssa.Block
 	contTo   *ssa.Block // nil for switch
 	isSwitch bool
-	depth    int // the scopes outside it, which break and continue stay in
+	depth    int // cleanup entries below this one stay open on a break or continue
 	// rf is set for the range-over-func loop whose body is being lowered:
 	// break and continue return from the yield function instead.
 	rf *rangeFunc
-}
-
-// pushTarget starts a breakable statement inside the current scopes.
-func (s *fnState) pushTarget(t *target) {
-	t.depth = len(s.scopes)
-	s.targets = append(s.targets, t)
 }
 
 type labelInfo struct {
@@ -310,13 +332,17 @@ func (l *Lowerer) newFnState(job *funcJob) *fnState {
 	}
 	l.genPragmas(f, pkgPath)
 	s := &fnState{
-		l:      l,
-		pkg:    job.pkg,
-		f:      f,
-		job:    job,
-		tmap:   job.tmap,
-		vars:   map[*types2.Var]*ssa.Value{},
-		labels: map[*types2.Label]*labelInfo{},
+		l:         l,
+		pkg:       job.pkg,
+		f:         f,
+		job:       job,
+		tmap:      job.tmap,
+		vars:      map[*types2.Var]*ssa.Value{},
+		labels:    map[*types2.Label]*labelInfo{},
+		ownedVars: map[*types2.Var]bool{},
+
+		holdOf:      map[*ownedTemp]*holdRec{},
+		tempRelease: map[*ssa.Value]bool{},
 	}
 	if job.pkg != nil {
 		s.info = job.pkg.Info
@@ -326,6 +352,8 @@ func (l *Lowerer) newFnState(job *funcJob) *fnState {
 	f.NoSSE = l.cfg.Kernel
 	if job.parent != nil {
 		f.NoSSE = job.parent.f.NoSSE
+		s.allocOK = job.parent.allocOK
+		s.bytewise = job.parent.bytewise
 	}
 	if job.ctor != nil {
 		f.NoSSE = l.cfg.Kernel && !hasDirective(job.ctor.decl.Doc, "fpu")
@@ -372,7 +400,13 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 
 	l.sigs[job.sym] = job.sig
 	if job.build != nil {
+		if job.setup != nil {
+			job.setup(s)
+		}
+		s.startBody()
+		root := s.pushCleanup(nil, true)
 		job.build(s)
+		s.popCleanup(root)
 	} else {
 		var body *ast.BlockStmt
 		if job.decl != nil {
@@ -380,24 +414,27 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 		} else {
 			body = job.lit.Body
 		}
-		// The parameters' scope: they are destroyed when the function
-		// returns (scope.go).
-		s.pushScope(true, f.Pos, f.End)
-		s.bindParams()
 		l.bodies[job.sym] = funcBody{body: body, info: s.info}
 		l.checkClosureReturns(job)
+		s.varFacts = analyzeVars(body, s.info)
+		s.labelScopes = labelBlocks(body, s.info)
+		s.bindParams()
 		if hasDefer(body) {
 			s.deferBits = s.temp(types2.Typ[types2.Uint64], "deferbits")
 			s.store(ssa.TI64, s.deferBits, s.constInt(ssa.TI64, 0))
 		}
+		s.startBody()
+		root := s.pushCleanup(body, true)
 		s.stmtList(body.List)
 		if s.b != nil {
 			// Falling off the end: only valid for functions without results
 			// (the checker rejects missing returns otherwise).
 			s.emitReturn(body.Rbrace)
 		}
-		s.popScope()
+		s.popCleanup(root)
 	}
+	s.finishEntry()
+	s.recordHolds()
 
 	for _, b := range f.Blocks {
 		s.seal(b)
@@ -436,6 +473,10 @@ func (s *fnState) applyPragmas(doc *ast.CommentGroup) {
 			s.f.Pragmas |= ssa.PragmaBlocking
 		case "fpu":
 			s.f.NoSSE = false
+		case "alloc":
+			s.allocOK = true
+		case "bytewise":
+			s.bytewise = true
 		}
 	}
 }
@@ -468,6 +509,13 @@ func (s *fnState) bindParams() {
 			ptr := nextArg(ssa.TPtr)
 			if v != nil {
 				s.vars[v] = ptr
+				if s.l.counted(p.typ) && s.ownsParam(v) {
+					// The caller's copy is borrowed; the function changes
+					// it, so it takes references of its own, released when
+					// it returns.
+					s.retainAt(ptr, p.typ)
+					s.ownedParams = append(s.ownedParams, countedSlot{base: ptr, T: p.typ})
+				}
 			}
 			continue
 		}
@@ -477,6 +525,11 @@ func (s *fnState) bindParams() {
 		}
 		if v != nil {
 			s.vars[v] = addr
+			if s.l.counted(p.typ) && s.ownsParam(v) {
+				s.retainAt(addr, p.typ)
+				s.ownedParams = append(s.ownedParams, countedSlot{base: addr, T: p.typ})
+				s.ownedVars[v] = true
+			}
 		}
 	}
 
@@ -489,7 +542,7 @@ func (s *fnState) bindParams() {
 			continue
 		}
 		if T := s.subst(v.Type()); s.l.needsDrop(T) {
-			s.registerVar(s.vars[v], T)
+			s.ownedParams = append(s.ownedParams, countedSlot{base: s.vars[v], T: T, pos: v.Pos()})
 		}
 	}
 
@@ -554,9 +607,9 @@ func (s *fnState) emitReturn(pos token.Pos) {
 		s.f.SetPos(pos)
 	}
 	s.runDefers()
-	// Every scope ends: the function's variables are destroyed after its
-	// deferred calls ran (language spec section 6.4).
-	s.dropScopes(0)
+	// Deferred calls may use the function's variables, so they are
+	// released only now.
+	s.releaseForReturn()
 	controls := []*ssa.Value{}
 	if s.abi.sret {
 		for i, p := range s.abi.results {

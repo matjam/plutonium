@@ -175,7 +175,9 @@ func (s *StdSizes) Sizeof(T Type) int64 {
 			}
 		}
 		if k == String {
-			return s.WordSize * 2
+			// Plutonium: data pointer, length and the control word
+			// (count pointer and flags; abi.md section 1).
+			return s.WordSize * 3
 		}
 	case *Array:
 		n := t.len

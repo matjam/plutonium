@@ -9,6 +9,10 @@ import "unsafe"
 // initialisation and main.main, and its own panic handler, the function it
 // marks //pu:panic. print and println go to the writer it registers.
 
+// A kernel starts processors of its own, so string counts are atomic from
+// the start (str.p).
+const atomicCountsAtStart = true
+
 var consoleWriter func(p unsafe.Pointer, n int)
 
 // SetConsole registers where print and println write, and Console.

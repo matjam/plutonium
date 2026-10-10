@@ -93,8 +93,8 @@ func (l *Lowerer) appendLeaves(out *[]leaf, T types2.Type, base int64) bool {
 		return true
 	}
 	switch u := T.Underlying().(type) {
-	case *types2.Basic: // string
-		*out = append(*out, leaf{base, ssa.TPtr}, leaf{base + 8, ssa.TI64})
+	case *types2.Basic: // string: data, length, control word (strrep.go)
+		*out = append(*out, leaf{base, ssa.TPtr}, leaf{base + 8, ssa.TI64}, leaf{base + strCtlOff, ssa.TI64})
 		return true
 	case *types2.Slice:
 		*out = append(*out, leaf{base, ssa.TPtr}, leaf{base + 8, ssa.TI64}, leaf{base + 16, ssa.TI64})

@@ -1,6 +1,7 @@
-// Package fmt formats values, in the style of Go's fmt, without
-// allocating: output goes to an io.Writer through a fixed buffer, or into a
-// caller's byte slice.
+// Package fmt formats values, in the style of Go's fmt. Fprintf and Printf
+// write to an io.Writer through a fixed buffer and Bprintf into a caller's
+// byte slice, without allocating; Sprintf, Sprint and Sprintln return a
+// new string, allocated from the current allocator.
 //
 // Verbs: %v %d %b %o %O %x %X %c %q %U %e %E %f %F %g %G %s %t %p %T %%.
 // Flags: + - # 0 space. Width and precision may be numbers or *.
@@ -56,7 +57,6 @@ type printer struct {
 	written int
 	err     error
 
-	count    bool    // only count the output (the first pass of Errorf)
 	wrapErrs bool    // %w is allowed (Errorf)
 	wrapped  []error // the %w operands, within the slice's capacity
 
@@ -81,9 +81,7 @@ func (p *printer) flush() {
 	if p.n == 0 {
 		return
 	}
-	if p.count {
-		p.written += p.n
-	} else if p.w != nil {
+	if p.w != nil {
 		if p.err == nil {
 			m, err := p.w.Write(p.buf[:p.n])
 			p.written += m
@@ -475,7 +473,10 @@ func (p *printer) fmtSbx(s string, upper bool) {
 }
 
 // truncate cuts s to the precision, if any, in runes; a byte that is not
-// valid UTF-8 counts as one rune.
+// valid UTF-8 counts as one rune. s may view a []byte, so its bytes need
+// not be valid UTF-8 (//pu:bytewise).
+//
+//pu:bytewise
 func (p *printer) truncate(s string) string {
 	if p.hasPrec {
 		n := p.prec
@@ -528,6 +529,8 @@ func (p *printer) fmtQ(s string) {
 // quote writes s as a double-quoted string literal and returns the number
 // of runes in the literal; with emit false it only counts them. A byte
 // that is not valid UTF-8 is written as \x and two hex digits.
+//
+//pu:bytewise
 func (p *printer) quote(s string, emit bool) int {
 	n := 2
 	if emit {

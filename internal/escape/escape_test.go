@@ -30,6 +30,11 @@ func check(t *testing.T, src string) error {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
+	if strings.Contains(src, "//pu:resultholds") && !strings.Contains(src, "// a user package") {
+		// Tests of the directive itself, which only the standard
+		// library may use.
+		return escape.CheckUserResultHolds(prog)
+	}
 	return escape.Check(prog)
 }
 
@@ -503,6 +508,25 @@ func main() {
 		_ = p
 	}
 }`, []string{"cannot keep &i in p after this iteration: the loop at line 5 reuses i"}},
+
+	{"resultholds in a user package", `
+// a user package
+type R owner struct{ p *int }
+//pu:resultholds p
+func hold(p *int) R { return R{p} }
+func main() { _ = hold(nil) }`, []string{"main.p:6:1: //pu:resultholds is for the standard library; hold cannot use it", "E3008"}},
+
+	{"returning the Restore of a local arena", `
+import (
+	"pluto/alloc"
+	"pluto/arena"
+)
+func install() alloc.Restore {
+	var mem [64]byte
+	a := arena.New(mem[:])
+	return alloc.Use(&a)
+}
+func main() { install().Restore() }`, []string{"cannot return alloc.Use(&a)"}},
 
 	{"go statement whose function keeps its packed variadic arguments", `
 var kept []int

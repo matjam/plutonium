@@ -82,10 +82,6 @@ var strs = [...]string{
 	"quote\"'`",
 	"back\\slash",
 	"\x00\x01\x7f",
-	"\xff",
-	"a\xe4\xb8b",
-	"\xed\xa0\x80",
-	"\xf4\x90\x80\x80",
 	"\xc2\xa0nbsp",
 	"\xc2\xadsoft",
 	"\xef\xbb\xbfbom",
@@ -97,6 +93,20 @@ var strs = [...]string{
 	"\xef\xbf\xbd",
 	"`",
 	"a\tb",
+}
+
+// Bytes that are not valid UTF-8, which no Plutonium string may hold
+// (language spec section 6.10): %s, %q and %x print a []byte as they would
+// print a string of its bytes.
+var invalid = [...][]byte{
+	{0xff},
+	{'a', 0xe4, 0xb8, 'b'},
+	{0xed, 0xa0, 0x80},
+	{0xf4, 0x90, 0x80, 0x80},
+}
+
+var bytesW = [...]string{
+	"%*q", "%+*q", "%#*q", "%-*q", "%*x", "%*X", "% *x", "%*s", "%-*s",
 }
 
 // Formats with a width argument, then with a width and a precision.
@@ -160,6 +170,19 @@ func main() {
 		}
 	}
 
+	for _, b := range invalid {
+		fmt.Printf("== %q (% x)\n", b, b)
+		for _, f := range bytesW {
+			fmt.Printf("%-8s", f)
+			for _, w := range widths {
+				fmt.Printf(" [")
+				fmt.Printf(f, w, b)
+				fmt.Printf("]")
+			}
+			fmt.Printf("\n")
+		}
+	}
+
 	for _, r := range runes {
 		fmt.Printf("== %d\n", r)
 		for _, f := range runeW {
@@ -214,7 +237,7 @@ func main() {
 	fmt.Printf("[%q|%#v|%+v]\n", struct {
 		S string
 		B []byte
-	}{"s\t", []byte{'b'}}, struct{ S string }{"\xff"}, struct{ S string }{"x"})
+	}{"s\t", []byte{'b'}}, struct{ S string }{"ÿ\x01"}, struct{ S string }{"x"})
 	fmt.Printf("[%q|%x|%c|%U]\n", []rune{'a', 0x1F600}, []rune{'a'}, []int32{0x263a}, []rune{'é'})
 
 	// Other padded values: the 0 flag pads strings and booleans with zeros.

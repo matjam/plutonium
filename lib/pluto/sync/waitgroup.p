@@ -46,7 +46,12 @@ func (wg *WaitGroup) Done() { wg.Add(-1) }
 //pu:blocking
 func (wg *WaitGroup) Go(f func()) {
 	wg.Add(1)
-	go runDone(wg, f)
+	// The puroutine uses wg until its Done, which a Wait on wg waits for:
+	// a WaitGroup in a frame that waits before returning outlives it.
+	// Checking that the frame does wait is the scoped-puroutines work
+	// (docs/plans/2026-10-10-scoped-puroutines.md); until then wg is
+	// hidden from the escape analysis (rt.Pinned).
+	go runDone(rt.Pinned(wg), f)
 }
 
 func runDone(wg *WaitGroup, f func()) {

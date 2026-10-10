@@ -9,7 +9,6 @@
 //     section 6.4), released with Drop. NewFlagSet returns a FlagSet, not a
 //     *FlagSet. Declaring it owner is a one-line change once the keyword
 //     lands (roadmap item 51).
-//   - Value.String returns a view of storage the Value owns.
 //   - There are no Float64 flags yet (pluto/strconv has no ParseFloat).
 package flag
 
@@ -20,11 +19,11 @@ import (
 	"pluto/fmt"
 	"pluto/io"
 	"pluto/os"
+	"pluto/rt"
 	"pluto/sort"
 	"pluto/strconv"
 	"pluto/time"
 	"pluto/vec"
-	"unsafe"
 )
 
 // ErrHelp is reported by Parse when -help or -h is given and not defined.
@@ -37,7 +36,7 @@ var (
 )
 
 // A Value is the value of a flag: Set parses and stores a new value, and
-// String formats the current one, as a view of storage the Value owns.
+// String formats the current one.
 type Value interface {
 	String() string
 	Set(string) error
@@ -48,19 +47,6 @@ type boolFlag interface {
 	Value
 	IsBoolFlag() bool
 }
-
-// text is the formatted value of a built-in flag type.
-type text struct {
-	buf [40]byte
-	n   int
-}
-
-func (t *text) set(b []byte) string {
-	t.n = copy(t.buf[:], b)
-	return unsafe.String(&t.buf[0], t.n)
-}
-
-func (t *text) view() string { return unsafe.String(&t.buf[0], t.n) }
 
 type boolValue struct{ p *bool }
 
@@ -95,7 +81,6 @@ func parseBool(s string) (bool, error) {
 type intValue struct {
 	p *int64
 	n *int // set for an int flag
-	t text
 }
 
 func (v *intValue) Set(s string) error {
@@ -115,20 +100,18 @@ func (v *intValue) Set(s string) error {
 }
 
 func (v *intValue) String() string {
-	var buf [24]byte
 	x := int64(0)
 	if v.n != nil {
 		x = int64(*v.n)
 	} else {
 		x = *v.p
 	}
-	return v.t.set(strconv.AppendInt(buf[:0], x, 10))
+	return strconv.FormatInt(x, 10)
 }
 
 type uintValue struct {
 	p *uint64
 	n *uint // set for a uint flag
-	t text
 }
 
 func (v *uintValue) Set(s string) error {
@@ -148,14 +131,13 @@ func (v *uintValue) Set(s string) error {
 }
 
 func (v *uintValue) String() string {
-	var buf [24]byte
 	x := uint64(0)
 	if v.n != nil {
 		x = uint64(*v.n)
 	} else {
 		x = *v.p
 	}
-	return v.t.set(strconv.AppendUint(buf[:0], x, 10))
+	return strconv.FormatUint(x, 10)
 }
 
 type stringValue struct{ p *string }
@@ -169,7 +151,6 @@ func (v *stringValue) String() string { return *v.p }
 
 type durationValue struct {
 	p *time.Duration
-	t text
 }
 
 func (v *durationValue) Set(s string) error {
@@ -181,10 +162,7 @@ func (v *durationValue) Set(s string) error {
 	return nil
 }
 
-func (v *durationValue) String() string {
-	var buf [40]byte
-	return v.t.set(v.p.AppendString(buf[:0]))
-}
+func (v *durationValue) String() string { return v.p.String() }
 
 // A Flag is a defined flag.
 type Flag struct {
@@ -195,7 +173,6 @@ type Flag struct {
 
 	kind string // type name for PrintDefaults, or "" for booleans
 	zero string // the type's zero value, as text
-	def  text   // storage for DefValue
 }
 
 // ErrorHandling says what Parse does when parsing fails.
@@ -223,7 +200,8 @@ type FlagSet owner struct {
 	actual   vec.Vec[*Flag] // flags that were set
 	args     []string       // arguments after the flags
 	output   io.Writer
-	osArgs   vec.Vec[string] // the process's arguments, for CommandLine
+	osArgs   vec.Vec[string]  // the process's arguments, for CommandLine
+	strs     vec.Vec[*string] // the string variables String allocated in mem
 }
 
 // NewFlagSet returns an empty FlagSet with the given name and error
@@ -235,11 +213,21 @@ func NewFlagSet(name string, handling ErrorHandling, a alloc.Allocator = alloc.D
 		mem:      arena.NewChunked(1024, a),
 		flags:    vec.New[*Flag](a),
 		actual:   vec.New[*Flag](a),
+		strs:     vec.New[*string](a),
 	}
 }
 
-// Drop frees the FlagSet's flags and the variables it allocated.
+// Drop frees the FlagSet's flags and the variables it allocated, releasing
+// the strings in them (language spec section 6.10), whose memory the arena
+// frees without looking at it.
 func (f *FlagSet) Drop() {
+	for _, fl := range f.flags.Slice() {
+		rt.ReleaseValues(fl, 1)
+	}
+	for _, p := range f.strs.Slice() {
+		rt.ReleaseValues(p, 1)
+	}
+	f.strs.Free()
 	f.flags.Free()
 	f.actual.Free()
 	f.osArgs.Free()
@@ -359,13 +347,11 @@ func (f *FlagSet) define(value Value, name, usage, kind, zero string) {
 	fl.Name = name
 	fl.Usage = usage
 	fl.Value = value
-	fl.DefValue = fl.def.set(bytesOf(value.String()))
+	fl.DefValue = value.String()
 	fl.kind = kind
 	fl.zero = zero
 	f.flags.Push(fl)
 }
-
-func bytesOf(s string) []byte { return unsafe.Slice(unsafe.StringData(s), len(s)) }
 
 // BoolVar defines a bool flag stored in *p, with default value.
 func (f *FlagSet) BoolVar(p *bool, name string, value bool, usage string) {
@@ -454,6 +440,7 @@ func (f *FlagSet) StringVar(p *string, name string, value string, usage string) 
 // String defines a string flag and returns its variable, which f owns.
 func (f *FlagSet) String(name string, value string, usage string) *string {
 	p := alloc.New[string](&f.mem)
+	f.strs.Push(p)
 	f.StringVar(p, name, value, usage)
 	return p
 }
@@ -723,8 +710,23 @@ func Args() []string { return CommandLine.Args() }
 // NArg returns the number of arguments after the flags.
 func NArg() int { return CommandLine.NArg() }
 
-// Arg returns argument i after the flags, or "".
+// Arg returns argument i after the flags, or "". An argument is any bytes
+// but NUL, and a string holds only valid UTF-8 (language spec section 6.10),
+// so a command-line argument that is not valid UTF-8 (a file name, say)
+// comes back with U+FFFD for each invalid byte; ArgBytes returns it exactly.
 func Arg(i int) string { return CommandLine.Arg(i) }
+
+// ArgBytes returns the exact bytes of argument i after the flags, or nil. It
+// is a view of the process's arguments (os.ArgBytes), valid for the life of
+// the program; do not modify it. It is meaningful only when the command
+// line was parsed by Parse, which takes the arguments from the process, and
+// returns nil before that.
+func ArgBytes(i int) []byte {
+	if i < 0 || i >= CommandLine.NArg() || CommandLine.osArgs.Len() == 0 {
+		return nil
+	}
+	return os.ArgBytes(os.NArgs() - CommandLine.NArg() + i)
+}
 
 // NFlag returns the number of command-line flags that have been set.
 func NFlag() int { return CommandLine.NFlag() }

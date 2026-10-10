@@ -48,6 +48,11 @@ type step struct {
 // ForLevel returns the passes for an optimisation level.
 func ForLevel(level int) *Pipeline {
 	p := pu.New(Pipeline{})
+	if level >= 1 && os.Getenv("PLUTO_NOSTRELIDE") == "" {
+		// Before anything inlines the runtime's count calls.
+		// PLUTO_NOSTRELIDE turns it off, to measure what it saves.
+		p.steps = compat.Append(p.steps, step{prog: pu.New(ProgramPass{"strelide", ElideStringHolds})})
+	}
 	p.add(Pass{"copyelim", ssa.CopyElim})
 	p.add(Pass{"deadcode", ssa.DeadCode})
 	if level >= 1 {

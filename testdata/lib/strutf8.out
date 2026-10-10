@@ -1,0 +1,18 @@
+6162 -> "ab" valid=true runes=2 ascii=true fromutf8=<nil>
+ff -> "�" valid=true runes=1 ascii=false fromutf8=strings: invalid UTF-8
+61e4b862 -> "a��b" valid=true runes=4 ascii=false fromutf8=strings: invalid UTF-8
+eda080 -> "���" valid=true runes=3 ascii=false fromutf8=strings: invalid UTF-8
+c3a9 -> "é" valid=true runes=1 ascii=false fromutf8=<nil>
+f09f9880 -> "😀" valid=true runes=1 ascii=false fromutf8=<nil>
+f09f98 -> "���" valid=true runes=3 ascii=false fromutf8=strings: invalid UTF-8
+ -> "" valid=true runes=0 ascii=true fromutf8=<nil>
+c080 -> "��" valid=true runes=2 ascii=false fromutf8=strings: invalid UTF-8
+"a���é😀"
+"a" "�" "�" "�" "é" "😀" 
+"�" "A" "A"
+true false true false
+false true true
+10 9 10
+"plaincaf" "é" "" 8
+0:i 1:n 2:c 3:a 4:f 5:é 
+café Café 4 5 é

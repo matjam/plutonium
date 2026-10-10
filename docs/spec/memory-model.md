@@ -176,7 +176,25 @@ Dropping an owner is ordinary code (its `Drop` method, then its fields) run by t
   already holds a reference.
 
 `shared[T]` and `weak[shared[T]]` counts are not atomic, which is why they cannot cross puroutines
-(language spec section 4.7). Allocated errors under the proposal of language spec section 14.6 are
+(language spec section 4.7).
+
+String buffers (language spec section 6.10, abi.md section 1.1) are counted like `synced[T]` objects:
+
+- Once the program can run Plutonium code on more than one thread, every count update is an atomic
+  read-modify-write (`lock xadd`). Every decrement is a release, and the decrement that reaches zero is
+  also an acquire before the buffer is freed, so every use of the bytes through any copy happens before
+  the free. Increments need no ordering: the puroutine that copies a string already holds a reference.
+- Before that, counts use plain arithmetic. A hosted program runs on one thread, with no puroutines,
+  until it starts its first puroutine; the runtime calls `rt.SetThreaded` then, whatever the scheduler,
+  since even on one thread a puroutine may preempt another in the middle of a plain increment, and before
+  it starts a thread. The `go` statement or thread start that follows is the synchronising operation
+  that publishes every count written before it. A program that runs Plutonium code on another thread
+  by other means calls `rt.SetThreaded` first. A freestanding
+  program counts atomically from the start, since its kernel may run code on other processors without
+  telling the runtime. `rt.SetThreaded` cannot be undone.
+- A string's bytes never change once a string uses them, so reading a shared string needs no lock. Writing
+  a string variable that another puroutine reads is a race on a three-word location (section 4.3): the
+  reader may see a torn value, or a buffer whose last reference the writer has just released. Allocated errors under the proposal of language spec section 14.6 are
 `synced` objects and follow these rules.
 
 ### 3.8 Allocators
@@ -208,8 +226,10 @@ Values larger than a word (strings, slices, interfaces, arrays, structs, packed 
 8 bytes) are read and written as several accesses. A racy read may observe some words from one write and
 some from another. Such a torn value can break memory safety: a slice whose pointer came from one write
 and length from another indexes outside its array, and an interface whose method table came from one
-write and data word from another calls a method on the wrong kind of data. As in Go, this is the reason
-races on multi-word values are dangerous.
+write and data word from another calls a method on the wrong kind of data. A string whose control word
+came from another write than its data pointer counts the wrong buffer, and a string read while another
+puroutine overwrites the variable may lose its buffer to the writer's release before the reader takes
+its own reference (section 3.7). As in Go, this is the reason races on multi-word values are dangerous.
 
 Accesses that are not naturally aligned (through `unsafe`, or a field of a packed type that does not sit
 on a boundary of its own size) may also tear.
@@ -373,6 +393,7 @@ barrier like every `pluto/arch/x86` intrinsic, so no per-CPU access moves across
 | Packed fields | n/a | the whole packed value is one location (section 4.3) |
 | Volatile | n/a | ordered by the compiler; not synchronising between processors |
 | Finalizers, GC | `runtime.SetFinalizer` synchronises | none; owners are dropped by the puroutine that holds them, and `synced[T]` and weak references have the drop ordering of section 3.7 |
+| Strings | garbage collected | counted: atomically once the program has several threads, with the drop ordering of section 3.7 |
 | Interrupt handlers | n/a | section 6.1 |
 | Scheduler | built in | any scheduler must meet section 3.6 |
 | `Fence` | not provided | `atomic.Fence`, sequentially consistent, `MFENCE` |

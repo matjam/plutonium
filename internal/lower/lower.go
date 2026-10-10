@@ -105,6 +105,8 @@ type Lowerer struct {
 	// instances of types declared in generic functions (typeMap.local)
 	localTypes map[localKey]*types2.Named
 
+	countedTypes map[string]bool // counted, by type (strcount.go)
+
 	errs diag.List
 }
 
@@ -135,7 +137,11 @@ type funcJob struct {
 	ctor *funcDecl
 
 	build func(s *fnState) // for synthesized functions (init, wrappers)
-	pos   token.Pos        // for synthesized functions with a source extent
+	// setup, if set, runs before build in the entry block, ahead of the
+	// zeroing of counted slots (strscope.go): incoming arguments and the
+	// closure pointer, which the entry block must define.
+	setup func(s *fnState)
+	pos   token.Pos // for synthesized functions with a source extent
 	end   token.Pos
 }
 
@@ -173,6 +179,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		flowSums:       map[string]*flowSummary{},
 		flowReported:   map[token.Pos]bool{},
 		localTypes:     map[localKey]*types2.Named{},
+		countedTypes:   map[string]bool{},
 		errorSites:     map[*ast.CallExpr]*ssa.Sym{},
 		exports:        map[*ssa.Sym][]string{},
 		interruptSyms:  map[*ssa.Sym]bool{},

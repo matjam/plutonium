@@ -1,6 +1,10 @@
 package strconv
 
-import "unsafe"
+import (
+	"pluto/alloc"
+	"pluto/rt"
+	"unsafe"
+)
 
 // Float formatting: exact, using multiprecision decimal arithmetic, with the
 // shortest representation that reads back to the same value when no
@@ -14,6 +18,25 @@ type floatInfo struct {
 
 var float32info = floatInfo{23, 8, -127}
 var float64info = floatInfo{52, 11, -1023}
+
+// FormatFloat returns the text of f as AppendFloat formats it, a new string
+// from the current allocator.
+//
+//pu:alloc
+func FormatFloat(f float64, fmt byte, prec, bitSize int) string {
+	// At most 330 digits before the point, plus the precision, exponent,
+	// sign and point.
+	if prec <= 400 {
+		var buf [800]byte
+		return string(AppendFloat(buf[:0], f, fmt, prec, bitSize))
+	}
+	n := 400 + prec
+	p, ctl := rt.NewStringBuffer(n, alloc.Default())
+	b := AppendFloat(unsafe.Slice(p, n)[:0], f, fmt, prec, bitSize)
+	s := rt.MakeString(p, len(b), ctl, true)
+	rt.ReleaseString(ctl)
+	return s
+}
 
 // AppendFloat appends the text of f, formatted with fmt ('e', 'E', 'f', 'g',
 // 'G', 'b', 'x' or 'X') and precision prec (-1 means the fewest digits that

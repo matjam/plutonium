@@ -136,6 +136,13 @@ func init() {
 			Fixed:   "//pu:resultholds a\nfunc Use(a Allocator) Restore {\n\tr := Restore{prev: Default(), cur: a}\n\tSetDefault(a)\n\treturn r\n}",
 		},
 		&Entry{
+			Code: ResultHoldsOutsideStd, Name: "ResultHoldsOutsideStd",
+			Text:    "//pu:resultholds is a promise the compiler cannot check: that a function's result gives a parameter back when it is dropped, as alloc.Use's Restore gives back the allocator it installed. The standard library uses it for the few functions that need it. A program's own code does not need it: the compiler works out by itself what a function keeps.\nRemove the directive. If the compiler then rejects a call because the function keeps an argument, pass memory that lives long enough, such as an allocated value or a package variable.",
+			Spec:    pspec("9", "Directives"),
+			Example: "//pu:resultholds a\nfunc Install(a *Arena) Undo {\n\t...\n}",
+			Fixed:   "func Install(a *Arena) Undo {\n\t...\n}",
+		},
+		&Entry{
 			Code: UseAfterMove, Name: "UseAfterMove",
 			Text:    "A value of an owner type owns memory or another resource. Assigning it, passing it by value, returning it, sending it or storing it moves it instead of copying it, so that what it owns has exactly one owner. The variable it left holds nothing until it is given a new value, and using it before then is an error.\nIf both places need a value, copy it explicitly with Clone. If the later code only needs to look, give it a pointer (&m) instead of the value.",
 			Why:     whyOwners,

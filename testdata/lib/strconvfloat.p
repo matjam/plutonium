@@ -942,8 +942,10 @@ func testNumError() {
 	if !errors.As(e, &ne) || ne != e {
 		errorf("errors.As does not find the NumError")
 	}
-	e2 := strconv.NewNumError("ParseInt", "\xffé\u0001", ErrRange, a)
-	if want := "strconv.ParseInt: parsing \"\\xffé\\x01\": value out of range"; e2.Error() != want {
+	// Strings are valid UTF-8 (language spec section 6.10), so the input
+	// has no invalid bytes; U+0080 is not printable and is escaped.
+	e2 := strconv.NewNumError("ParseInt", "\u0080é\u0001", ErrRange, a)
+	if want := "strconv.ParseInt: parsing \"\\u0080é\\x01\": value out of range"; e2.Error() != want {
 		errorf("Error() = %q, want %q", e2.Error(), want)
 	}
 	a.Reset()

@@ -109,7 +109,43 @@ again:
 	_ = r.peek()
 }
 
+// Named owns a counted string: destroying it releases the string after
+// its Drop method, and moving it moves the reference.
+type Named owner struct {
+	name string
+	tags [2]string
+}
+
+func (n *Named) Drop() {
+	if n.name != "" {
+		println("named drop", n.name, n.tags[1])
+	}
+}
+
+// dyn makes a string with a counted buffer.
+func dyn(c byte, i int) string {
+	b := []byte{c, byte('0' + i)}
+	return string(b)
+}
+
+func keepName(n Named) string { return n.name }
+
+func counted() {
+	a := Named{name: dyn('a', 1), tags: [2]string{dyn('t', 1), dyn('t', 2)}}
+	b := a // moves: a is cleared, so only b is destroyed
+	println("kept", keepName(b))
+	c := Named{name: dyn('c', 1)}
+	c = Named{name: dyn('c', 2)}
+	for i := 0; i < 2; i++ {
+		d := Named{name: dyn('d', i)}
+		_ = d.name
+	}
+	println("end counted", c.name)
+}
+
 func main() {
+	counted()
+	println("--")
 	scopes()
 	println("--")
 	loops()

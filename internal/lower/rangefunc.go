@@ -188,9 +188,11 @@ func (s *fnState) rangeOver(st *ast.RangeStmt, label *types2.Label, sig *types2.
 	rf.state = s.temp(types2.Typ[types2.Int], "rangestate")
 	s.rangeLoops++
 	sym := s.l.out.Sym(fmt.Sprintf("%s-range%d", s.f.Name, s.rangeLoops), ssa.SymFunc)
+	var in []value // the yield function's parameters
 	s.l.lowerFunc(&funcJob{
 		sym: sym, pkg: s.pkg, sig: ySig, tmap: s.tmap, parent: s, pos: st.Pos(), end: st.End(),
-		build: func(bs *fnState) { bs.rangeBody(rf) },
+		setup: func(bs *fnState) { in = bs.rangeSetup(rf) },
+		build: func(bs *fnState) { bs.rangeBody(rf, in) },
 	})
 
 	rec := s.closureRecord(sym, rf.caps)
@@ -249,9 +251,10 @@ func (s *fnState) closureRecord(sym *ssa.Sym, caps []*ssa.Value) *ssa.Value {
 	return rec
 }
 
-// rangeBody lowers the body of rf's loop as the yield function bs.
-func (bs *fnState) rangeBody(rf *rangeFunc) {
-	st := rf.st
+// rangeSetup starts the yield function bs of rf's loop in its entry block:
+// the closure pointer, through which it reaches the enclosing function,
+// and its parameters.
+func (bs *fnState) rangeSetup(rf *rangeFunc) []value {
 	bs.rf = rf
 	bs.capPtrs = map[*ssa.Value]*ssa.Value{}
 	bs.info = rf.parent.info
@@ -259,7 +262,13 @@ func (bs *fnState) rangeBody(rf *rangeFunc) {
 	bs.loopDepth = rf.parent.loopDepth
 	bs.ctx = bs.newValue(ssa.OpClosurePtr, ssa.TPtr)
 	bs.initMem = bs.mem()
-	in := bs.incomingArgs(bs.job.sig)
+	return bs.incomingArgs(bs.job.sig)
+}
+
+// rangeBody lowers the body of rf's loop as the yield function bs, whose
+// parameters are in.
+func (bs *fnState) rangeBody(rf *rangeFunc, in []value) {
+	st := rf.st
 	res := bs.temp(types2.Typ[types2.Bool], "result")
 	bs.results = []*ssa.Value{res}
 
@@ -277,16 +286,20 @@ func (bs *fnState) rangeBody(rf *rangeFunc) {
 	bs.startBlock(ok)
 	bs.store(ssa.TI64, statep, bs.constInt(ssa.TI64, rfRunning))
 
+	// The body's variables are the enclosing function's as far as string
+	// counting is concerned: its facts and label scopes cover the body.
+	bs.varFacts = rf.parent.varFacts
+	bs.labelScopes = rf.parent.labelScopes
 	for i, e := range []ast.Expr{st.Key, st.Value} {
 		if i >= len(in) {
 			break
 		}
 		if lv := bs.rangeVar(st, e); lv != nil {
-			bs.storeLV(*lv, bs.assignConvert(in[i], unwrap(lv.T), st))
+			bs.assign(*lv, bs.assignConvert(in[i], unwrap(lv.T), st), st.Tok == token.DEFINE)
 		}
 	}
 	bs.targets = []*target{{label: rf.label, rf: rf}}
-	bs.stmtList(st.Body.List)
+	bs.block(st.Body, st.Body.List)
 	if bs.b != nil {
 		bs.endIter(true)
 	}
@@ -405,7 +418,7 @@ func (s *fnState) rangeBranch(st *ast.BranchStmt, label *types2.Label) {
 			p = p.rf.parent
 		}
 		s.exitTo(p, gotoExit{label}, func(p *fnState) {
-			p.gotoDrops(label.Pos()) // the scopes the jump leaves end (scope.go)
+			p.releaseForGoto(label)
 			p.endPlain(p.labelBlock(label))
 		})
 		return
@@ -422,10 +435,10 @@ func (s *fnState) rangeBranch(st *ast.BranchStmt, label *types2.Label) {
 				case t.rf != nil:
 					p.endIter(tok == token.CONTINUE)
 				case tok == token.CONTINUE:
-					p.dropScopes(t.depth)
+					p.releaseAbove(t.depth)
 					p.endPlain(t.contTo)
 				default:
-					p.dropScopes(t.depth)
+					p.releaseAbove(t.depth)
 					p.endPlain(t.breakTo)
 				}
 			})
@@ -448,21 +461,27 @@ func (s *fnState) rangeReturn(st *ast.ReturnStmt) {
 		ptrs[i] = s.outerPtr(r, root)
 	}
 	types := root.abi.results
+	// The result slots hold references, as in returnStmt; unnamed ones
+	// are zero until a return sets them.
+	named := root.namedResults()
 	switch {
 	case len(st.Results) == 0:
 	case len(st.Results) == len(ptrs):
 		vals := make([]value, len(st.Results))
 		for i, e := range st.Results {
 			vals[i] = s.materialize(s.exprAs(e, types[i].typ))
+			if named && len(vals) > 1 {
+				vals[i] = s.holdOwned(vals[i])
+			}
 		}
 		for i, v := range vals {
-			s.storeTo(ptrs[i], v, types[i].typ)
+			s.assign(lvalue{ptr: ptrs[i], T: types[i].typ}, v, !named)
 		}
 	default: // return f() with several results
 		vals := s.multiValue(st.Results[0], len(ptrs))
 		for i, v := range vals {
 			T := types[i].typ
-			s.storeTo(ptrs[i], s.assignConvert(v, T, st), T)
+			s.assign(lvalue{ptr: ptrs[i], T: T}, s.assignConvert(v, T, st), !named)
 		}
 	}
 	pos := st.Pos()

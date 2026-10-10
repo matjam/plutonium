@@ -8,7 +8,10 @@ import "pluto/unicode/utf8"
 
 // CanBackquote reports whether the string s can be represented
 // unchanged as a single-line backquoted string without control
-// characters other than tab.
+// characters other than tab. fmt passes it views of byte slices, whose
+// bytes need not be valid UTF-8 (//pu:bytewise).
+//
+//pu:bytewise
 func CanBackquote(s string) bool {
 	for len(s) > 0 {
 		r, wid := utf8.DecodeRuneInString(s)

@@ -66,14 +66,17 @@ func New[T owner any](a Allocator = Default()) *T {
 }
 
 // Free returns p, allocated by New, to the allocator it came from: a, by
-// default the default allocator. If T is an owner, *p is dropped first
-// (its Drop method, then its fields). The call's site is published through
-// rt.AllocSite while the allocator runs (if rt.TrackSites).
+// default the default allocator. *p is destroyed first: if T is an owner,
+// its Drop method, then its fields; otherwise the strings in it are
+// released (language spec sections 6.4 and 6.10). The call's site is
+// published through rt.AllocSite while the allocator runs (if
+// rt.TrackSites).
 func Free[T owner any](p *T, a Allocator = Default()) {
 	if p == nil {
 		return
 	}
 	unsafe.Drop(p)
+	rt.ReleaseValues(p, 1)
 	if rt.TrackSites {
 		rt.SetAllocSite(rt.CallerPC())
 	}
@@ -86,14 +89,23 @@ func Free[T owner any](p *T, a Allocator = Default()) {
 // FreeChan frees a channel made by make(chan T, ...) and its buffer,
 // returning them to the allocator they came from, whatever the default is
 // now. No puroutine may use the channel afterwards, and none may be waiting
-// on it (FreeChan panics then); values still buffered are discarded.
+// on it (FreeChan panics then); values still buffered are discarded, and
+// the strings in them released (language spec section 6.10).
 //
 // Channels are freed explicitly until the compiler counts channel
 // references (roadmap item 48, language spec section 4.8); then the last
 // reference frees the channel and FreeChan goes away. A channel made in an
 // arena needs no FreeChan.
 func FreeChan[T any](ch chan T) {
-	rt.FreeChan(*(*unsafe.Pointer)(unsafe.Pointer(&ch)))
+	p := *(*unsafe.Pointer)(unsafe.Pointer(&ch))
+	if p != nil && rt.HoldsStrings[T]() {
+		var zero T
+		buf, first, n, size := rt.ChanBuffered(p)
+		for i := 0; i < n; i++ {
+			rt.ReleaseValues((*T)(unsafe.Add(buf, uintptr((first+i)%size)*unsafe.Sizeof(zero))), 1)
+		}
+	}
+	rt.FreeChan(p)
 }
 
 // Raw allocates size zeroed bytes aligned to align from a (by default the

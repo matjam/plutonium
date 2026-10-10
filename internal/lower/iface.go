@@ -22,8 +22,8 @@ import (
 // Otherwise the data word points at a copy of the value in the stack frame of
 // the function that made the interface value.
 //
-// Type descriptor layout (72 bytes), mirrored by pluto/rt.typeDesc (abi.md
-// section 5):
+// Type descriptor layout (80 bytes), mirrored by pluto/rt.typeDesc (abi.md
+// section 5). Its strings are static three-word strings (strrep.go).
 //
 //	0  size   uintptr
 //	8  hash   uint32
@@ -31,18 +31,18 @@ import (
 //	13 flags  uint8   (1 = direct, 2 = interface with methods, 4 = has methods)
 //	14 align  uint8
 //	16 name   string  (as Go's reflect writes it)
-//	32 equal  func(a, b unsafe.Pointer) bool   (nil if not comparable or direct)
-//	40 elem   *typeDesc  (array, slice, pointer, ring, owned and counted references)
-//	48 len    uintptr    (array length, ring capacity, number of struct fields)
-//	56 fields *fieldDesc (struct fields, or nil)
-//	64 ptrTo  *typeDesc  (*T, if *T has methods T lacks, or nil)
+//	40 equal  func(a, b unsafe.Pointer) bool   (nil if not comparable or direct)
+//	48 elem   *typeDesc  (array, slice, pointer, ring, owned and counted references)
+//	56 len    uintptr    (array length, ring capacity, number of struct fields)
+//	64 fields *fieldDesc (struct fields, or nil)
+//	72 ptrTo  *typeDesc  (*T, if *T has methods T lacks, or nil)
 //
-// Field descriptor layout (40 bytes), an array of them per struct type:
+// Field descriptor layout (48 bytes), an array of them per struct type:
 //
 //	0  typ    *typeDesc
 //	8  offset uintptr
 //	16 name   string  (empty when the build strips field names)
-//	32 flags  uint8   (1 = exported, 2 = embedded)
+//	40 flags  uint8   (1 = exported, 2 = embedded)
 //
 // The descriptors of a type's elements, fields and pointer are emitted with
 // it, so that pluto/fmt can walk a value of the type; only types converted
@@ -51,25 +51,35 @@ import (
 // The descriptor of a union (kind 30) continues, mirrored by
 // pluto/rt.unionDesc, with
 //
-//	72 payload  uintptr        offset of the payload
-//	80 variants *[n]variant    one entry per variant, in tag order
-//	88 count    int            n
+//	80 payload  uintptr        offset of the payload
+//	88 variants *[n]variant    one entry per variant, in tag order
+//	96 count    int            n
 //
-// and each variant entry (32 bytes) is
+// and each variant entry (40 bytes) is
 //
 //	0  name  string
-//	16 typ   *typeDesc        the payload's descriptor; nil without a payload
-//	24 iface uintptr          1 if the payload is an empty interface, 2 another interface
+//	24 typ   *typeDesc        the payload's descriptor; nil without a payload
+//	32 iface uintptr          1 if the payload is an empty interface, 2 another interface
 //
 // Itab layout: type descriptor, interface descriptor, then one code pointer
 // per interface method in method order. Each code pointer is an adapter
 // taking the data word as its first argument.
 
 const (
-	descSize      = 72
+	descName      = 16
+	descEqual     = descName + strSize
+	descElem      = descEqual + 8
+	descNum       = descElem + 8
+	descFields    = descNum + 8
+	descPtrTo     = descFields + 8
+	descSize      = descPtrTo + 8
 	unionDescSize = descSize + 24
-	variantSize   = 32
-	fieldDescSize = 40
+	variantSize   = strSize + 16
+	variantTyp    = strSize
+	variantIface  = strSize + 8
+	fieldDescSize = 16 + strSize + 8
+	fieldName     = 16
+	fieldFlags    = fieldName + strSize
 	itabHeader    = 16
 
 	flagDirect       = 1
@@ -266,19 +276,18 @@ func (tt *typeTable) unionDesc(data *ssa.Data, key string, u *types2.TaggedUnion
 	for i := range n {
 		v := u.Variant(i)
 		base := int64(variantSize * i)
-		binary.LittleEndian.PutUint64(table.Bytes[base+8:], uint64(len(v.Name())))
-		table.Relocs = append(table.Relocs, ssa.DataReloc{Off: base, Sym: l.stringData(v.Name())})
+		l.putStaticString(table, base, v.Name())
 		if !v.HasPayload() {
 			continue
 		}
 		P := v.Payload()
-		table.Relocs = append(table.Relocs, ssa.DataReloc{Off: base + 16, Sym: tt.descs[typeString(P)].sym})
+		table.Relocs = append(table.Relocs, ssa.DataReloc{Off: base + variantTyp, Sym: tt.descs[typeString(P)].sym})
 		if iface, ok := P.Underlying().(*types2.Interface); ok {
 			kind := uint64(2)
 			if iface.Empty() {
 				kind = 1
 			}
-			binary.LittleEndian.PutUint64(table.Bytes[base+24:], kind)
+			binary.LittleEndian.PutUint64(table.Bytes[base+variantIface:], kind)
 		}
 	}
 	l.out.Data = append(l.out.Data, table)
@@ -370,14 +379,13 @@ func (tt *typeTable) emit() {
 			buf[14] = byte(a)
 		}
 		name := reflectName(d.T)
-		binary.LittleEndian.PutUint64(buf[24:], uint64(len(name)))
-		binary.LittleEndian.PutUint64(buf[48:], uint64(d.n))
+		binary.LittleEndian.PutUint64(buf[descNum:], uint64(d.n))
 		data.Bytes = buf
-		data.Relocs = append(data.Relocs, ssa.DataReloc{Off: 16, Sym: l.stringData(name)})
+		l.putStaticString(data, descName, name)
 		for _, r := range []struct {
 			off int64
 			sym *ssa.Sym
-		}{{32, d.equal}, {40, d.elem}, {56, tt.fieldsData(k, d)}, {64, d.ptrTo}} {
+		}{{descEqual, d.equal}, {descElem, d.elem}, {descFields, tt.fieldsData(k, d)}, {descPtrTo, d.ptrTo}} {
 			if r.sym != nil {
 				data.Relocs = append(data.Relocs, ssa.DataReloc{Off: r.off, Sym: r.sym})
 			}
@@ -482,10 +490,7 @@ func (tt *typeTable) fieldsData(key string, d *descInfo) *ssa.Sym {
 		off := int64(fieldDescSize * i)
 		data.Relocs = append(data.Relocs, ssa.DataReloc{Off: off, Sym: f.typ})
 		binary.LittleEndian.PutUint64(data.Bytes[off+8:], uint64(f.offset))
-		if f.name != "" {
-			data.Relocs = append(data.Relocs, ssa.DataReloc{Off: off + 16, Sym: l.stringData(f.name)})
-			binary.LittleEndian.PutUint64(data.Bytes[off+24:], uint64(len(f.name)))
-		}
+		l.putStaticString(data, off+fieldName, f.name)
 		var flags byte
 		if f.exported {
 			flags |= fieldExported
@@ -493,7 +498,7 @@ func (tt *typeTable) fieldsData(key string, d *descInfo) *ssa.Sym {
 		if f.embedded {
 			flags |= fieldEmbedded
 		}
-		data.Bytes[off+32] = flags
+		data.Bytes[off+fieldFlags] = flags
 	}
 	l.out.Data = append(l.out.Data, data)
 	return sym
@@ -627,11 +632,19 @@ func (s *fnState) dataWord(v value, T types2.Type) *ssa.Value {
 		// During package initialisation the interface value outlives the
 		// init function, so the box gets static storage, like &T{...}.
 		box := s.symAddr(s.l.staticObject(T))
-		s.storeTo(box, v, T)
+		s.assign(lvalue{ptr: box, T: T}, v, true)
+		return box
+	}
+	if s.l.counted(T) {
+		// The box may be used until the function returns, so it holds
+		// references of its own, released then (or when the conversion
+		// runs again and refills it).
+		box := s.frameSlot(T, "box")
+		s.storeCounted(lvalue{ptr: box, T: T}, v, false)
 		return box
 	}
 	// Box the value in this frame.
-	box := s.temp(T, "box")
+	box := s.lastingTemp(T, "box")
 	s.storeTo(box, v, T)
 	return box
 }
@@ -815,9 +828,15 @@ func (s *fnState) receiverFromData(data *ssa.Value, T types2.Type, index []int, 
 			return scalarValue(data, recvT) // T is the pointer type
 		case isPointerLike(T):
 			// A value method called through a pointer: dereference.
-			return s.materialize(s.loadFrom(data, pointerElem(T)))
+			return s.hold(s.materialize(s.loadFrom(data, pointerElem(T))))
 		}
-		return s.materialize(s.fromDataWord(data, T))
+		// The receiver is borrowed from the box, which the interface's
+		// holder keeps alive for the call.
+		v := s.materialize(s.fromDataWord(data, T))
+		if v.addr {
+			v.cnt = cntStable
+		}
+		return v
 	}
 	// A promoted method: walk the embedded fields.
 	var cur lvalue
@@ -837,7 +856,7 @@ func (s *fnState) receiverFromData(data *ssa.Value, T types2.Type, index []int, 
 	if wantPtr {
 		return scalarValue(cur.ptr, recvT)
 	}
-	return s.materialize(s.loadLV(cur))
+	return s.hold(s.materialize(s.loadLV(cur)))
 }
 
 // ifaceMethodValueWrapper synthesizes the code of a method value taken from

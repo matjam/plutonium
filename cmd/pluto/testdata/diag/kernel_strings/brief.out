@@ -1,0 +1,4 @@
+$DIR/main.p:38:6: joined allocates (it is marked //pu:alloc), which kernel code may only call from a function marked //pu:alloc
+$DIR/main.p:9:9: string concatenation allocates, which kernel code may only do in a function marked //pu:alloc
+$DIR/main.p:13:9: conversion to string allocates, which kernel code may only do in a function marked //pu:alloc
+$DIR/main.p:17:9: Sprintf allocates (it is marked //pu:alloc), which kernel code may only call from a function marked //pu:alloc

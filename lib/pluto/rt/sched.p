@@ -660,6 +660,11 @@ func checkGoFunc(rec unsafe.Pointer) {
 }
 
 func spawn(fn, args unsafe.Pointer, argSize, argAlign uintptr, req StackRequest) {
+	// Once there are puroutines, a string's count may change on another
+	// thread, or in a puroutine that preempts this one between the load
+	// and the store of a plain increment: counts are atomic from now on
+	// (str.p), whatever the scheduler.
+	SetThreaded()
 	startTasks()
 	checkBlocking()
 	if req.Alloc == nil {

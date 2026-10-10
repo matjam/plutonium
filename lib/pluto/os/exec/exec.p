@@ -13,7 +13,8 @@
 //     the interface's data word: errors.As(err, &e) with a `var e
 //     exec.ExitError`, then e.ExitCode().
 //   - Output and CombinedOutput return a vec.Vec[byte] the caller owns.
-//   - LookPath builds the path in a buffer the caller provides.
+//   - LookPath returns a string as Go's does; AppendLookPath builds the path
+//     in a buffer the caller provides instead.
 package exec
 
 import (
@@ -213,12 +214,13 @@ func (c *Cmd) start(out, errOut sink) error {
 
 	// The program's path, NUL-terminated.
 	var pathBuf [4096]byte
-	path, err := LookPath(c.Path, pathBuf[:len(pathBuf)-1])
+	pathb, err := AppendLookPath(pathBuf[:0:len(pathBuf)-1], c.Path)
 	if err != nil {
 		return err
 	}
-	pathBuf[len(path)] = 0
-	cpath := pathBuf[:len(path)+1]
+	cpath := append(pathBuf[:len(pathb)], 0)
+	// pathb is a path found in $PATH, any bytes but NUL; an error holds it
+	// as a string with U+FFFD for each invalid byte (os.NewPathErrorBytes).
 	var dirBuf [4096]byte
 	var cdir []byte
 	if c.Dir != "" {
@@ -234,13 +236,17 @@ func (c *Cmd) start(out, errOut sink) error {
 	if len(args) == 0 {
 		args = unsafe.Slice(&c.Path, 1)
 	}
-	var envView vec.Vec[string]
+	// The child's environment is the caller's strings, or ours exactly:
+	// the bytes of a variable that is not valid UTF-8 must reach the child
+	// unchanged, which os.Environ's strings would not do.
+	var envView vec.Vec[[]byte]
 	env := c.Env
+	var envBytes [][]byte
 	if env == nil {
-		envView = os.Environ(a)
-		env = envView.Slice()
+		envView = os.EnvironBytes(a)
+		envBytes = envView.Slice()
 	}
-	block, size := cArrays(args, env, a)
+	block, size := cArrays(args, env, envBytes, a)
 	envView.Free()
 	argvp := block
 	envpp := unsafe.Add(block, (len(args)+1)*8)
@@ -291,7 +297,7 @@ func (c *Cmd) start(out, errOut sink) error {
 	if err != nil {
 		a.Free(block, size, 8)
 		c.closeAll(devnull)
-		return os.NewPathError("fork/exec", path, err)
+		return os.NewPathErrorBytes("fork/exec", pathb, err)
 	}
 
 	pid, err := syscall.Fork()
@@ -303,7 +309,7 @@ func (c *Cmd) start(out, errOut sink) error {
 	if err != nil {
 		syscall.Close(int(ep[0]))
 		c.closeAll(devnull)
-		return os.NewPathError("fork/exec", path, err)
+		return os.NewPathErrorBytes("fork/exec", pathb, err)
 	}
 	// Did the exec work? The pipe closes on exec; otherwise the child
 	// writes its errno.
@@ -326,7 +332,7 @@ func (c *Cmd) start(out, errOut sink) error {
 		if rerr == nil {
 			rerr = syscall.Errno(uint32(code[0]) | uint32(code[1])<<8 | uint32(code[2])<<16 | uint32(code[3])<<24)
 		}
-		return os.NewPathError("fork/exec", path, rerr)
+		return os.NewPathErrorBytes("fork/exec", pathb, rerr)
 	}
 	c.Process = os.Process{Pid: pid}
 	return nil
@@ -387,16 +393,20 @@ func childFail(fd int, err error) {
 }
 
 // cArrays lays out argv and envp for execve in one block from a: the two
-// nil-terminated pointer arrays, then the NUL-terminated strings. It
-// returns the block and its size.
-func cArrays(args, env []string, a alloc.Allocator) (unsafe.Pointer, uintptr) {
-	ptrs := (len(args) + 1 + len(env) + 1) * 8
+// nil-terminated pointer arrays, then the NUL-terminated strings. The
+// environment is env, or envBytes (exact bytes) if env is nil. It returns
+// the block and its size.
+func cArrays(args, env []string, envBytes [][]byte, a alloc.Allocator) (unsafe.Pointer, uintptr) {
+	ptrs := (len(args) + 1 + len(env) + len(envBytes) + 1) * 8
 	size := ptrs
 	for _, s := range args {
 		size += len(s) + 1
 	}
 	for _, s := range env {
 		size += len(s) + 1
+	}
+	for _, b := range envBytes {
+		size += len(b) + 1
 	}
 	block := alloc.Raw(uintptr(size), 8, a)
 	slot := 0
@@ -409,12 +419,23 @@ func cArrays(args, env []string, a alloc.Allocator) (unsafe.Pointer, uintptr) {
 		slot++
 		text += len(s) + 1
 	}
+	putBytes := func(b []byte) {
+		p := unsafe.Add(block, text)
+		copy(unsafe.Slice((*byte)(p), len(b)), b)
+		*(*byte)(unsafe.Add(p, len(b))) = 0
+		*(*unsafe.Pointer)(unsafe.Add(block, slot*8)) = p
+		slot++
+		text += len(b) + 1
+	}
 	for _, s := range args {
 		put(s)
 	}
 	slot++ // nil
 	for _, s := range env {
 		put(s)
+	}
+	for _, b := range envBytes {
+		putBytes(b)
 	}
 	return block, uintptr(size)
 }
@@ -634,58 +655,96 @@ func text(i int, prefix string, n int) string {
 		b = append(b, byte('0'+n/10%10))
 	}
 	b = append(b, byte('0'+n%10))
+	// ASCII only (the prefixes and digits above), so valid UTF-8.
 	return unsafe.String(&exitTexts[i][0], len(b))
 }
 
 // LookPath finds the executable file to run for file: file itself if it
 // contains a slash, otherwise the first executable regular file named file
-// in a directory of $PATH. The path is built in buf, and the result is a
-// view of buf (or of file). A failure is a *os.PathError from the default
-// allocator wrapping ErrNotFound or the reason file cannot be run.
-func LookPath(file string, buf []byte) (string, error) {
+// in a directory of $PATH. The result is file itself or a new string. A
+// failure is a *os.PathError from the default allocator wrapping
+// ErrNotFound or the reason file cannot be run. A path found in $PATH that
+// is not valid UTF-8 is returned with U+FFFD for each invalid byte; use
+// AppendLookPath for the exact bytes.
+//
+//pu:alloc
+func LookPath(file string) (string, error) {
 	for i := 0; i < len(file); i++ {
 		if file[i] == '/' {
-			if err := executable(file); err != nil {
+			if err := executable(strBytes(file)); err != nil {
 				return "", os.NewPathError("exec", file, err)
 			}
 			return file, nil
 		}
 	}
-	if file == "" {
-		return "", os.NewPathError("exec", file, ErrNotFound)
+	var buf [4096]byte
+	b, err := AppendLookPath(buf[:0], file)
+	if err != nil {
+		return "", err
 	}
-	path := os.Getenv("PATH")
-	for path != "" {
+	// A directory of $PATH may not be valid UTF-8: string(b) replaces each
+	// invalid byte with U+FFFD. AppendLookPath returns the exact bytes.
+	return string(b), nil
+}
+
+// AppendLookPath is LookPath appending the path it finds to dst, within its
+// capacity; it allocates only for an error. The path is the exact bytes:
+// $PATH is searched as bytes, so a directory that is not valid UTF-8 works.
+func AppendLookPath(dst []byte, file string) ([]byte, error) {
+	for i := 0; i < len(file); i++ {
+		if file[i] == '/' {
+			if err := executable(strBytes(file)); err != nil {
+				return dst, os.NewPathError("exec", file, err)
+			}
+			if cap(dst)-len(dst) < len(file) {
+				return dst, os.NewPathError("exec", file, syscall.ENAMETOOLONG)
+			}
+			return append(dst, file...), nil
+		}
+	}
+	if file == "" {
+		return dst, os.NewPathError("exec", file, ErrNotFound)
+	}
+	buf := dst[len(dst):cap(dst)]
+	path := os.GetenvBytes(strBytes("PATH"))
+	for len(path) > 0 {
 		dir := path
-		rest := ""
+		var rest []byte
 		for i := 0; i < len(path); i++ {
 			if path[i] == ':' {
 				dir, rest = path[:i], path[i+1:]
 				break
 			}
 		}
-		if dir == "" {
-			dir = "."
+		if len(dir) == 0 {
+			dir = strBytes(".")
 		}
 		if len(dir)+1+len(file) <= len(buf) {
 			b := append(buf[:0], dir...)
 			b = append(b, '/')
 			b = append(b, file...)
-			full := unsafe.String(unsafe.SliceData(b), len(b))
-			if executable(full) == nil {
-				return full, nil
+			if executable(b) == nil {
+				return dst[:len(dst)+len(b)], nil
 			}
 		}
-		if rest == "" {
+		if len(rest) == 0 {
 			break
 		}
 		path = rest
 	}
-	return "", os.NewPathError("exec", file, ErrNotFound)
+	return dst, os.NewPathError("exec", file, ErrNotFound)
+}
+
+// strBytes views a string's bytes. The caller must not modify them.
+func strBytes(s string) []byte {
+	if len(s) == 0 {
+		return nil
+	}
+	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
 
 // executable reports why path is not an executable regular file, or nil.
-func executable(path string) error {
+func executable(path []byte) error {
 	var buf [4096]byte
 	if len(path) >= len(buf) {
 		return syscall.ENAMETOOLONG

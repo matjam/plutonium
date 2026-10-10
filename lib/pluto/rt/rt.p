@@ -610,7 +610,7 @@ func strcmp(a, b string) int {
 // decodeRune decodes the UTF-8 sequence at p[i:n] and returns the rune and
 // its length. Invalid encodings decode as U+FFFD with length 1.
 func decodeRune(p *byte, n, i int) (rune, int) {
-	s := unsafe.String(p, n)
+	s := unsafe.Slice(p, n) // bytes: this is what decides whether they are UTF-8
 	b0 := s[i]
 	if b0 < 0x80 {
 		return rune(b0), 1

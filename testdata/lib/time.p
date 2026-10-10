@@ -62,6 +62,9 @@ func testDurationString(t *T) {
 		if got := str(tt.d.AppendString(buf[:0])); got != tt.want {
 			t.Errorf("Duration(%d) = %q, want %q", int64(tt.d), got, tt.want)
 		}
+		if got := tt.d.String(); got != tt.want {
+			t.Errorf("Duration(%d).String() = %q, want %q", int64(tt.d), got, tt.want)
+		}
 	}
 }
 
@@ -99,7 +102,7 @@ func testParseDuration(t *T) {
 	}{
 		{"", ErrInvalidDuration}, {"3", ErrMissingUnit}, {"-", ErrInvalidDuration}, {"s", ErrInvalidDuration},
 		{".", ErrInvalidDuration}, {"-.", ErrInvalidDuration}, {".s", ErrInvalidDuration}, {"+.s", ErrInvalidDuration},
-		{"1d", ErrUnknownUnit}, {"\x85\x85", ErrInvalidDuration}, {"\xffff", ErrInvalidDuration},
+		{"1d", ErrUnknownUnit}, {"\u0085\u0085", ErrInvalidDuration}, {"ÿff", ErrInvalidDuration},
 		{"9223372036854775808ns", ErrInvalidDuration}, {"9223372036854775.808us", ErrInvalidDuration},
 	}
 	for _, tt := range bad {

@@ -52,7 +52,8 @@ func Embed[T any](v T) int {
 }
 
 func main() {
-	println(Alias(int8(1)), Alias("s"), Box[int8]{}.Size(), Box[int64]{}.Size())
-	println(Box[int8]{}.With(int64(1)), Box[string]{}.With(int8(1)))
+	// Sizes of [2]int, not of string, which is three words in Plutonium.
+	println(Alias(int8(1)), Alias([2]int{}), Box[int8]{}.Size(), Box[int64]{}.Size())
+	println(Box[int8]{}.With(int64(1)), Box[[2]int]{}.With(int8(1)))
 	println(Embed(int8(1)), Embed([3]int{}))
 }

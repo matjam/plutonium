@@ -134,7 +134,9 @@ func collectInlineNotes(p *ssa.Program, why map[*ssa.Value]string, inlined bool)
 					continue
 				}
 				g := callTarget(v, funcs)
-				if g == nil || g.Pragmas&ssa.PragmaInline == 0 {
+				if g == nil || g.Pragmas&ssa.PragmaInline == 0 || v.Call != nil && v.Call.Implicit {
+					// Runtime calls the compiler made (string counts)
+					// are not the program's to tune.
 					continue
 				}
 				reason := why[v]

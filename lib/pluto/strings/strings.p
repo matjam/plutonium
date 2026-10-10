@@ -1,22 +1,23 @@
 // Package strings implements simple functions to manipulate UTF-8 encoded
-// strings. It mirrors Go's strings package where that is possible without
-// allocating:
+// strings. It mirrors Go's strings package:
 //
 //   - searching, comparison, trimming and Cut work as in Go and return
-//     substrings of their argument;
-//   - functions that produce a new string in Go instead append to a caller's
-//     byte slice (AppendUpper, AppendLower, AppendRepeat, AppendReplace,
-//     AppendJoin) and, like append, need room in its capacity;
+//     substrings of their argument, which share its buffer;
+//   - functions that make a new string (Repeat, Join, Replace, ToUpper,
+//     ToLower, Map) return one, counted like every string and allocated
+//     from the current allocator; they return their argument itself when
+//     nothing changes. Each has an Append form (AppendRepeat, AppendJoin,
+//     ...) that writes into a caller's byte slice and allocates nothing;
 //   - Split and Fields fill a caller's []string (SplitInto, FieldsInto), are
 //     ranged over as in Go 1.24 (SplitSeq, FieldsSeq, Lines), or are walked
 //     a step at a time with an explicit iterator (SplitIter, FieldsIter);
-//   - a Builder writes into a caller's buffer or one from an allocator,
-//     which it gets once: from Init, or from alloc.Default() when it
-//     first grows.
+//   - a Builder builds a string in a buffer that its String method shares
+//     with the result instead of copying.
 //
-// There are no Unicode tables yet: white space follows unicode.IsSpace
-// exactly, but case mapping and case folding (AppendUpper, AppendLower,
-// EqualFold) only change ASCII letters.
+// Strings hold valid UTF-8 (language spec section 6.10): FromUTF8 checks
+// bytes, and string(b) replaces what is not. There are no Unicode tables
+// yet: white space follows unicode.IsSpace exactly, but case mapping and
+// case folding (ToUpper, ToLower, EqualFold) only change ASCII letters.
 //
 // Parts of this package are adapted from Go's strings package.
 // Copyright 2009 The Go Authors. All rights reserved.
@@ -40,12 +41,21 @@ func Compare(a, b string) int {
 	return +1
 }
 
+// The searching functions below compare bytes, so they slice their
+// arguments at byte offsets that need not be rune boundaries (//pu:bytewise);
+// a match of a valid UTF-8 needle starts and ends at boundaries, so what
+// they return is whole runes.
+
 // HasPrefix reports whether s begins with prefix.
+//
+//pu:bytewise
 func HasPrefix(s, prefix string) bool {
 	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
 
 // HasSuffix reports whether s ends with suffix.
+//
+//pu:bytewise
 func HasSuffix(s, suffix string) bool {
 	return len(s) >= len(suffix) && s[len(s)-len(suffix):] == suffix
 }
@@ -74,6 +84,8 @@ func LastIndexByte(s string, c byte) int {
 
 // Index returns the index of the first instance of substr in s, or -1 if
 // substr is not present in s.
+//
+//pu:bytewise
 func Index(s, substr string) int {
 	n := len(substr)
 	switch {
@@ -159,6 +171,8 @@ func hashStrRev(sep string) (uint32, uint32) {
 
 // indexRabinKarp uses the Rabin-Karp search algorithm to return the index
 // of the first occurrence of sep in s, or -1 if not present.
+//
+//pu:bytewise
 func indexRabinKarp(s, sep string) int {
 	hashss, pow := hashStr(sep)
 	n := len(sep)
@@ -186,6 +200,8 @@ func indexRabinKarp(s, sep string) int {
 
 // LastIndex returns the index of the last instance of substr in s, or -1 if
 // substr is not present in s.
+//
+//pu:bytewise
 func LastIndex(s, substr string) int {
 	n := len(substr)
 	switch {
@@ -224,7 +240,10 @@ func LastIndex(s, substr string) int {
 
 // IndexRune returns the index of the first instance of the Unicode code
 // point r, or -1 if rune is not present in s. If r is utf8.RuneError, it
-// returns the first instance of any invalid UTF-8 byte sequence.
+// returns the first U+FFFD in s (or, for the bytes package's views of bytes
+// that are not valid UTF-8, the first invalid byte sequence).
+//
+//pu:bytewise
 func IndexRune(s string, r rune) int {
 	switch {
 	case 0 <= r && r < utf8.RuneSelf:
@@ -243,6 +262,7 @@ func IndexRune(s string, r rune) int {
 	default:
 		var buf [utf8.UTFMax]byte
 		n := utf8.EncodeRune(buf[:], r)
+		// EncodeRune of a valid rune: valid UTF-8.
 		return Index(s, unsafe.String(&buf[0], n))
 	}
 }
@@ -257,6 +277,8 @@ func LastIndexFunc(s string, f func(rune) bool) int { return lastIndexFunc(s, f,
 
 // indexFunc is the same as IndexFunc except that if truth==false, the sense
 // of the predicate function is inverted.
+//
+//pu:bytewise
 func indexFunc(s string, f func(rune) bool, truth bool) int {
 	for i := 0; i < len(s); {
 		r, size := utf8.DecodeRuneInString(s[i:])
@@ -270,6 +292,8 @@ func indexFunc(s string, f func(rune) bool, truth bool) int {
 
 // lastIndexFunc is the same as LastIndexFunc except that if truth==false,
 // the sense of the predicate function is inverted.
+//
+//pu:bytewise
 func lastIndexFunc(s string, f func(rune) bool, truth bool) int {
 	for i := len(s); i > 0; {
 		r, size := utf8.DecodeLastRuneInString(s[0:i])
@@ -284,6 +308,8 @@ func lastIndexFunc(s string, f func(rune) bool, truth bool) int {
 // IndexAny returns the index of the first instance of any Unicode code point
 // from chars in s, or -1 if no Unicode code point from chars is present in
 // s.
+//
+//pu:bytewise
 func IndexAny(s, chars string) int {
 	if chars == "" {
 		return -1
@@ -316,6 +342,8 @@ func IndexAny(s, chars string) int {
 // LastIndexAny returns the index of the last instance of any Unicode code
 // point from chars in s, or -1 if no Unicode code point from chars is
 // present in s.
+//
+//pu:bytewise
 func LastIndexAny(s, chars string) int {
 	if chars == "" {
 		return -1
@@ -364,6 +392,8 @@ func ContainsFunc(s string, f func(rune) bool) bool { return IndexFunc(s, f) >= 
 // Count counts the number of non-overlapping instances of substr in s. If
 // substr is an empty string, Count returns 1 + the number of Unicode code
 // points in s.
+//
+//pu:bytewise
 func Count(s, substr string) int {
 	if len(substr) == 0 {
 		return utf8.RuneCountInString(s) + 1
@@ -422,6 +452,8 @@ func CutSuffix(s, suffix string) (before string, found bool) {
 // EqualFold reports whether s and t, interpreted as UTF-8 strings, are equal
 // under simple case folding. Only ASCII letters fold; other code points must
 // match exactly.
+//
+//pu:bytewise
 func EqualFold(s, t string) bool {
 	i := 0
 	for ; i < len(s) && i < len(t); i++ {

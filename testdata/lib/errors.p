@@ -128,8 +128,6 @@ func (e *timeoutError) Is(target error) bool { return target == ErrTimeout }
 
 var ErrTimeout = errors.New("timeout")
 
-// name is a path buffer that outlives main's frame (see the os.Open test).
-var name [32]byte
 var slowRead = &timeoutError{op: "read timed out"}
 
 // listError is not comparable; errors.Is must not compare it with ==.
@@ -166,11 +164,11 @@ func main() {
 		errors.Is(syscall.ENOSYS, errors.ErrUnsupported))
 	fmt.Println("errno temp:", syscall.EINTR.Temporary(), syscall.EAGAIN.Timeout(), syscall.ENOENT.Temporary())
 
-	// os.Open fails with a PathError that copies the path. The buffer is
-	// static: a File keeps its name, so the escape analysis rejects a path
-	// in this frame.
+	// os.Open fails with a PathError that keeps the path string: string(b)
+	// copied the bytes, so changing them later does not change the error.
+	var name [32]byte
 	n := copy(name[:], "/nonexistent/pluto.conf")
-	_, err := os.Open(unsafe.String(&name[0], n))
+	_, err := os.Open(string(name[:n]))
 	copy(name[:], "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
 	fmt.Println("open:", err)
 	var pe *os.PathError
@@ -200,7 +198,10 @@ func main() {
 	fmt.Println("startup:", err)
 	fmt.Println("startup is:", errors.Is(err, os.ErrNotExist), errors.Is(err, syscall.ENOENT), errors.Is(err, ErrEmpty))
 	var pe2 *os.PathError
-	fmt.Println("startup as:", errors.As(err, &pe2), pe2.Op, pe2.Path)
+	// Printed from a function literal: the interface boxes of its Println
+	// hold copies of the path string until it returns (language spec
+	// section 4.4), not until main does, so the free below frees it.
+	func() { fmt.Println("startup as:", errors.As(err, &pe2), pe2.Op, pe2.Path) }()
 	if errno, ok := errors.AsType[syscall.Errno](err); ok {
 		fmt.Println("startup errno:", errno.Name(), int(errno))
 	}

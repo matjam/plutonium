@@ -26,8 +26,15 @@ func IsSpace(r rune) bool {
 	return false
 }
 
+// The trimming functions work on bytes and are also used by the bytes
+// package on bytes that need not be valid UTF-8, so their slices are not
+// checked for rune boundaries (//pu:bytewise). Trimming whole runes from
+// valid UTF-8 leaves whole runes.
+
 // TrimSpace returns a slice of the string s, with all leading and trailing
 // white space removed, as defined by Unicode.
+//
+//pu:bytewise
 func TrimSpace(s string) string {
 	// Fast path for ASCII: look for the first ASCII non-space byte.
 	start := 0
@@ -62,6 +69,8 @@ func TrimSpace(s string) string {
 
 // TrimLeftFunc returns a slice of the string s with all leading Unicode code
 // points c satisfying f(c) removed.
+//
+//pu:bytewise
 func TrimLeftFunc(s string, f func(rune) bool) string {
 	i := indexFunc(s, f, false)
 	if i == -1 {
@@ -72,6 +81,8 @@ func TrimLeftFunc(s string, f func(rune) bool) string {
 
 // TrimRightFunc returns a slice of the string s with all trailing Unicode
 // code points c satisfying f(c) removed.
+//
+//pu:bytewise
 func TrimRightFunc(s string, f func(rune) bool) string {
 	i := lastIndexFunc(s, f, false)
 	if i >= 0 && s[i] >= utf8.RuneSelf {
@@ -121,6 +132,7 @@ func TrimLeft(s, cutset string) string {
 	return trimLeftUnicode(s, cutset)
 }
 
+//pu:bytewise
 func trimLeftByte(s string, c byte) string {
 	for len(s) > 0 && s[0] == c {
 		s = s[1:]
@@ -128,6 +140,7 @@ func trimLeftByte(s string, c byte) string {
 	return s
 }
 
+//pu:bytewise
 func trimLeftASCII(s string, as *asciiSet) string {
 	for len(s) > 0 {
 		if !as.contains(s[0]) {
@@ -138,6 +151,7 @@ func trimLeftASCII(s string, as *asciiSet) string {
 	return s
 }
 
+//pu:bytewise
 func trimLeftUnicode(s, cutset string) string {
 	for len(s) > 0 {
 		r, n := rune(s[0]), 1
@@ -169,6 +183,7 @@ func TrimRight(s, cutset string) string {
 	return trimRightUnicode(s, cutset)
 }
 
+//pu:bytewise
 func trimRightByte(s string, c byte) string {
 	for len(s) > 0 && s[len(s)-1] == c {
 		s = s[:len(s)-1]
@@ -176,6 +191,7 @@ func trimRightByte(s string, c byte) string {
 	return s
 }
 
+//pu:bytewise
 func trimRightASCII(s string, as *asciiSet) string {
 	for len(s) > 0 {
 		if !as.contains(s[len(s)-1]) {
@@ -186,6 +202,7 @@ func trimRightASCII(s string, as *asciiSet) string {
 	return s
 }
 
+//pu:bytewise
 func trimRightUnicode(s, cutset string) string {
 	for len(s) > 0 {
 		r, n := rune(s[len(s)-1]), 1

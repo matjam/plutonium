@@ -627,6 +627,11 @@ func isUnsafePointer(T types2.Type) bool {
 	return ok && b.Kind() == types2.UnsafePointer
 }
 
+func isString(T types2.Type) bool {
+	b, ok := underlying(T).(*types2.Basic)
+	return ok && (b.Kind() == types2.String || b.Kind() == types2.UntypedString)
+}
+
 // explicitConv handles T(x).
 func (w *walker) explicitConv(e *ast.CallExpr, to types2.Type) tset {
 	if len(e.Args) != 1 {
@@ -639,6 +644,14 @@ func (w *walker) explicitConv(e *ast.CallExpr, to types2.Type) tset {
 		return nil
 	}
 	if from != nil {
+		// string(b) copies into a counted buffer, and []byte(s) into
+		// memory from the current allocator (spec section 6.10).
+		if isString(to) && !isString(from) {
+			return nil
+		}
+		if isString(from) && !isString(to) {
+			return tset{heapTok}
+		}
 		if b, ok := underlying(from).(*types2.Basic); ok && b.Kind() != types2.UnsafePointer && b.Kind() != types2.String {
 			// An integer made into a pointer: unsafe code's business. It
 			// is treated as pointing outside every frame.

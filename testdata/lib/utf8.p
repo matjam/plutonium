@@ -3,12 +3,22 @@ package main
 import (
 	"pluto/fmt"
 	"pluto/unicode/utf8"
+	"unsafe"
 )
 
-var samples = []string{"", "a", "héllo", "日本語", "\xff", "\xe6\x97", "a\xc0\x80b", "😀x", "\xed\xa0\x80", "\xf4\x90\x80\x80", "ab\xf0\x9f\x98"}
+// The samples include bytes that are not valid UTF-8, which no string may
+// hold (language spec section 6.10): they are bytes, and the string
+// functions see them through unsafe.String, to check that the decoder
+// copes with them.
+var samples = [][]byte{
+	{}, {'a'}, {'h', 0xc3, 0xa9, 'l', 'l', 'o'}, {0xe6, 0x97, 0xa5, 0xe6, 0x9c, 0xac, 0xe8, 0xaa, 0x9e},
+	{0xff}, {0xe6, 0x97}, {'a', 0xc0, 0x80, 'b'}, {0xf0, 0x9f, 0x98, 0x80, 'x'}, {0xed, 0xa0, 0x80},
+	{0xf4, 0x90, 0x80, 0x80}, {'a', 'b', 0xf0, 0x9f, 0x98},
+}
 
 func main() {
-	for _, s := range samples {
+	for _, sb := range samples {
+		s := unsafe.String(unsafe.SliceData(sb), len(sb))
 		r, n := utf8.DecodeRuneInString(s)
 		lr, ln := utf8.DecodeLastRuneInString(s)
 		b := []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}

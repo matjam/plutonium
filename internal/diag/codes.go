@@ -20,7 +20,9 @@ const (
 	IfaceMethodTParams Code = "E1011" // an interface method with type parameters
 )
 
-// Plutonium rules checked while compiling, after type checking.
+// Plutonium rules checked while compiling, after type checking. E2540 and
+// E2541 rejected string conversions and concatenation before strings were
+// counted; they are retired.
 const (
 	NotYetSupported   Code = "E2500" // a construct the compiler cannot compile yet
 	ExternWithBody    Code = "E2510" // a //pu:extern function with a body
@@ -33,10 +35,10 @@ const (
 	DeferBuiltin      Code = "E2532" // defer of a builtin such as copy
 	DeferInRangeFunc  Code = "E2533" // a defer in a range-over-func loop body that may run once per iteration
 	DeferLitCapture   Code = "E2534" // a literal deferred in a range-over-func loop body captures the body's variables
-	AllocatingConv    Code = "E2540" // string to []byte, []byte to string, and similar
-	StringConcat      Code = "E2541" // + on strings that are not constants
 	ErrorsNewValue    Code = "E2542" // errors.New used other than by calling it
 	ClosureCtorValue  Code = "E2543" // a closure constructor used other than by calling it
+	KernelStringAlloc Code = "E2544" // an allocating string operation in kernel mode outside //pu:alloc
+	KernelAllocCall   Code = "E2545" // a //pu:alloc function called from kernel code without //pu:alloc
 	PerCPUInit        Code = "E2550" // a per-CPU variable with a non-constant initialiser
 	PerCPUMode        Code = "E2551" // //pu:percpu outside kernel mode
 	PerCPUSection     Code = "E2552" // //pu:percpu with //pu:section
@@ -107,6 +109,8 @@ const (
 	SendFrameView   Code = "E3005" // a view of the frame sent on a channel
 	LoopFrameView   Code = "E3006" // a view of a loop's variables kept beyond the iteration
 	BadResultHolds  Code = "E3007" // a //pu:resultholds directive that does not match the function
+
+	ResultHoldsOutsideStd Code = "E3008" // //pu:resultholds outside the standard library
 )
 
 // The move checker (internal/moves).

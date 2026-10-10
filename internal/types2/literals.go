@@ -7,10 +7,13 @@
 package types2
 
 import (
+	"go/constant"
+	"strings"
+	"unicode/utf8"
+
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	. "github.com/matjam/plutonium/internal/types2/errors"
-	"strings"
 )
 
 // langCompat reports an error if the representation of a numeric
@@ -69,6 +72,13 @@ func (check *Checker) basicLit(x *operand, e *ast.BasicLit) {
 		// TODO(gri) setConst (and in turn the go/constant package)
 		// should return an error describing the issue.
 		check.errorf(e, InvalidConstVal, "malformed constant: %s", e.Value)
+		x.invalidate()
+		return
+	}
+	// Plutonium: every string holds valid UTF-8 (language spec section
+	// 6.10), so a literal with escapes that make it invalid is an error.
+	if e.Kind == token.STRING && !utf8.ValidString(constant.StringVal(x.val)) {
+		check.errorf(e, InvalidUTF8String, "string literal %s is not valid UTF-8; use a []byte for binary data", e.Value)
 		x.invalidate()
 		return
 	}

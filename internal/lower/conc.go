@@ -9,6 +9,7 @@ package lower
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
@@ -62,6 +63,18 @@ func (s *fnState) goFrameClosures(fun ast.Expr, args []ast.Expr) bool {
 			found = true
 		}
 	}
+	if s.frameClosureArgs(args, "a puroutine") {
+		found = true
+	}
+	return found
+}
+
+// frameClosureArgs reports the func-typed arguments of a call that are
+// known to be closure records in this frame, for a call that hands them to
+// dest, which starts a puroutine with them. It reports whether there were
+// any.
+func (s *fnState) frameClosureArgs(args []ast.Expr, dest string) bool {
+	found := false
 	for _, a := range args {
 		if _, ok := s.typeOf(a).Underlying().(*types2.Signature); !ok {
 			continue
@@ -72,12 +85,55 @@ func (s *fnState) goFrameClosures(fun ast.Expr, args []ast.Expr) bool {
 		}
 		found = true
 		if id, ok := ast.Unparen(a).(*ast.Ident); ok {
-			s.l.errorf(a.Pos(), diag.GoFrameClosure, "cannot pass %s to a puroutine: it holds %s, whose closure record lives in the starting frame (spec section 4.7)", id.Name, what)
+			s.l.errorf(a.Pos(), diag.GoFrameClosure, "cannot pass %s to %s: it holds %s, whose closure record lives in the starting frame (spec section 4.7)", id.Name, dest, what)
 		} else {
-			s.l.errorf(a.Pos(), diag.GoFrameClosure, "cannot pass %s to a puroutine: its closure record lives in the starting frame (spec section 4.7)", what)
+			s.l.errorf(a.Pos(), diag.GoFrameClosure, "cannot pass %s to %s: its closure record lives in the starting frame (spec section 4.7)", what, dest)
 		}
 	}
 	return found
+}
+
+// goFuncCall checks a call of a function that starts puroutines with
+// some of its func arguments (sync.WaitGroup.Go, time.AfterFunc, rt.Go,
+// and any function that passes a func parameter on to one of them or to a
+// go statement; the closure flow summaries find them): the arguments that
+// are known to be closure records in this frame are compile errors, as in
+// a go statement. The functions still check the rest when they run.
+func (s *fnState) goFuncCall(e *ast.CallExpr, fun ast.Expr) {
+	var cands []int
+	for i, a := range e.Args {
+		if _, ok := s.typeOf(a).Underlying().(*types2.Signature); ok && s.frameClosure(a, 0) != "" {
+			cands = append(cands, i)
+		}
+	}
+	if len(cands) == 0 {
+		return
+	}
+	g := calledFunc(s.info, e)
+	if g == nil || s.l.closureCtor(g) != nil {
+		return
+	}
+	var targs []types2.Type
+	nrecv := 0
+	if se, ok := fun.(*ast.SelectorExpr); ok && s.info.Selections[se] != nil {
+		targs = s.methodTypeArgs(g, se, s.info.TypeOf(se.X))
+		nrecv = 1
+	} else if id := identOf(fun); id != nil {
+		targs = s.instanceArgs(id)
+	}
+	sum := s.l.closureSummary(g, targs)
+	sig := g.Type().(*types2.Signature)
+	gp := sig.Params().Len()
+	if sig.Recv() != nil {
+		gp++
+	}
+	var args []ast.Expr
+	for _, i := range cands {
+		if sum.starts.has(min(i+nrecv, gp-1)) {
+			args = append(args, e.Args[i])
+		}
+	}
+	s.frameClosureArgs(args, types2.ExprString(e.Fun)+", which starts a puroutine with it")
 }
 
 // frameClosure describes e if it is known to be a func value whose closure
@@ -176,6 +232,118 @@ func (s *fnState) onlyValue(v *types2.Var) ast.Expr {
 	return init
 }
 
+// syncPackages are the packages whose struct types are not copyable for the
+// purposes of advice: copying a Mutex, a WaitGroup or an atomic value makes
+// a different one, and nothing marks them (they have no noCopy field).
+var syncPackages = map[string]bool{"pluto/sync": true, "pluto/sync/atomic": true}
+
+// noCopyType returns the synchronization type that T is or holds by value
+// (in a struct field or an array), or nil if copying a T is harmless.
+func noCopyType(T types2.Type) types2.Type {
+	return noCopyIn(T, map[types2.Type]bool{})
+}
+
+func noCopyIn(T types2.Type, seen map[types2.Type]bool) types2.Type {
+	T = unwrap(T)
+	if seen[T] {
+		return nil
+	}
+	seen[T] = true
+	if n, ok := T.(*types2.Named); ok {
+		if _, isStruct := n.Underlying().(*types2.Struct); isStruct && n.Obj().Pkg() != nil && syncPackages[n.Obj().Pkg().Path()] {
+			return T
+		}
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if bad := noCopyIn(u.Field(i).Type(), seen); bad != nil {
+				return bad
+			}
+		}
+	case *types2.Array:
+		return noCopyIn(u.Elem(), seen)
+	}
+	return nil
+}
+
+// sourceQualifier prints the types of the file that holds pos as the file
+// refers to them: a package by the name the file's import gives it (the
+// package's own name, or the alias), not by import path, and a type of the
+// current package without one.
+func (s *fnState) sourceQualifier(pos token.Pos) types2.Qualifier {
+	names := map[*types2.Package]string{}
+	file := s.l.fset.Position(pos).Filename
+	for _, f := range s.pkg.Files {
+		if s.l.fset.Position(f.Pos()).Filename != file {
+			continue
+		}
+		for _, imp := range f.Imports {
+			if pn := s.info.PkgNameOf(imp); pn != nil {
+				names[pn.Imported()] = pn.Name()
+			}
+		}
+	}
+	return func(p *types2.Package) string {
+		if p == s.pkg.Types {
+			return ""
+		}
+		if n, ok := names[p]; ok {
+			return n
+		}
+		return p.Name()
+	}
+}
+
+// goCapturingLiteral reports a go statement that starts a function literal
+// capturing the variables caps. The usual fix passes them as arguments; a
+// variable that holds a Mutex, a WaitGroup or another synchronization type
+// cannot be passed by value, since the copy is a different one, so for
+// those the fix allocates the variable and passes the pointer.
+func (s *fnState) goCapturingLiteral(lit *ast.FuncLit, caps []*types2.Var) {
+	q := s.sourceQualifier(lit.Pos())
+	str := func(T types2.Type) string { return types2.TypeString(T, q) }
+	d := &diag.Diagnostic{Code: diag.GoCapturingLiteral}
+	prefix := fmt.Sprintf("a function literal that captures variables cannot be started with go: %s lives in the starting frame, which may be gone before the puroutine runs (spec section 4.7); ", caps[0].Name())
+
+	var params, args, news []string
+	var shared []*types2.Var
+	var sharedT []types2.Type
+	for _, v := range caps {
+		if bad := noCopyType(v.Type()); bad != nil {
+			shared = append(shared, v)
+			sharedT = append(sharedT, bad)
+			params = append(params, v.Name()+" *"+str(v.Type()))
+			news = append(news, fmt.Sprintf("%s := new(%s)", v.Name(), str(v.Type())))
+		} else {
+			params = append(params, v.Name()+" "+str(v.Type()))
+		}
+		args = append(args, v.Name())
+	}
+	if len(shared) == 0 {
+		it, them := "it as an argument", "them as arguments"
+		if len(caps) == 1 {
+			them = it
+		}
+		d.Msg = prefix + fmt.Sprintf("pass %s instead: go func(%s) {...}(%s)", them, strings.Join(params, ", "), strings.Join(args, ", "))
+		s.l.report(lit.Pos(), d)
+		return
+	}
+
+	v, bad := shared[0], sharedT[0]
+	what := fmt.Sprintf("%s has type %s, which", v.Name(), str(v.Type()))
+	if unwrap(v.Type()) != bad {
+		what = fmt.Sprintf("%s has type %s, which holds a value of type %s and", v.Name(), str(v.Type()), str(bad))
+	}
+	d.Msg = prefix + fmt.Sprintf("%s must not be copied, so allocate it with new and pass the pointer: %s; go func(%s) {...}(%s)", what, news[0], strings.Join(params, ", "), strings.Join(args, ", "))
+	d.Text = diag.Lookup(diag.GoCapturingLiteral).Text + fmt.Sprintf("\n%s holds a value of type %s. Passing it as an argument would copy it, and a copy is a separate value: calling Done or Unlock on the copy never reaches the original, so a Wait or Lock on the original may never return. Pass a pointer to one instead, allocated with new, or declare the variable at package level.", v.Name(), str(bad))
+	d.Fix = &diag.Fix{
+		Intro: "Allocate it with new and pass the pointer",
+		Code:  strings.Join(news, "\n") + fmt.Sprintf("\ngo func(%s) {\n\t...\n}(%s)", strings.Join(params, ", "), strings.Join(args, ", ")),
+	}
+	s.l.report(lit.Pos(), d)
+}
+
 // A goArg is a value a go statement evaluates in the starting frame and
 // copies into the new puroutine's argument block.
 type goArg struct {
@@ -194,8 +362,7 @@ func (s *fnState) goStmt(st *ast.GoStmt) {
 	fun := ast.Unparen(call.Fun)
 	if lit, ok := fun.(*ast.FuncLit); ok {
 		if caps := s.capturedVars(lit); len(caps) > 0 {
-			s.l.errorf(lit.Pos(), diag.GoCapturingLiteral, "a function literal that captures variables cannot be started with go: %s lives in the starting frame, which may be gone before the puroutine runs (spec section 4.7); pass it as an argument instead: go func(%s %s) {...}(%s)",
-				caps[0].Name(), caps[0].Name(), types2.TypeString(caps[0].Type(), types2.RelativeTo(s.pkg.Types)), caps[0].Name())
+			s.goCapturingLiteral(lit, caps)
 			return
 		}
 	}
@@ -328,13 +495,23 @@ func (s *fnState) goStmt(st *ast.GoStmt) {
 	}
 	size := max(off, 1)
 	block := s.tempSize((size+7)&^7, max(align, 8), "goargs")
+	// The new puroutine owns a reference to every string in the block
+	// (language spec section 6.10), and its thunk drops them when the call
+	// returns.
 	for _, a := range args {
-		s.storeTo(s.offPtr(block, a.off), a.v, a.v.T)
+		dst := s.offPtr(block, a.off)
+		s.storeTo(dst, a.v, a.v.T)
+		if s.l.counted(a.v.T) {
+			s.takeRefAt(a.v, dst, a.v.T)
+		}
 	}
 	if varArr != nil {
 		last := args[len(args)-1].v
 		p, _, _ := s.sliceParts(last)
 		s.move(s.offPtr(block, varOff), p, s.l.sizeof(varArr))
+		if s.l.counted(varArr.Elem()) {
+			s.retainRange(s.offPtr(block, varOff), s.constInt(ssa.TI64, varArr.Len()), varArr.Elem())
+		}
 	}
 
 	// The thunk: func(p unsafe.Pointer), which loads the values and calls.
@@ -357,6 +534,14 @@ func (s *fnState) goStmt(st *ast.GoStmt) {
 			loaded[len(loaded)-1] = ts.makeSlice(ts.offPtr(p, varOff), n, c, last.T)
 		}
 		emit(ts, loaded, pos)
+		for _, a := range args {
+			if ts.l.counted(a.v.T) {
+				ts.releaseAt(ts.offPtr(p, a.off), a.v.T)
+			}
+		}
+		if varArr != nil && ts.l.counted(varArr.Elem()) {
+			ts.releaseRange(ts.offPtr(p, varOff), ts.constInt(ssa.TI64, varArr.Len()), varArr.Elem())
+		}
 		ts.returnValues(nil)
 	}})
 
@@ -411,6 +596,11 @@ func (s *fnState) sendStmt(st *ast.SendStmt) {
 	v := s.exprAs(st.Value, et)
 	tmp := s.temp(et, "send")
 	s.storeTo(tmp, v, et)
+	if s.l.counted(et) {
+		// The channel, and then the receiver, owns a reference to the
+		// strings sent.
+		s.takeRefAt(v, tmp, et)
+	}
 	s.callRuntime("chansend1", nil, []*ssa.Value{c, tmp})
 }
 
@@ -420,12 +610,18 @@ func (s *fnState) recv(e *ast.UnaryExpr, commaOK bool) (value, *ssa.Value) {
 	c := s.scalar(e.X)
 	tmp := s.temp(et, "recv")
 	s.zero(tmp, s.l.sizeof(et))
+	var ok *ssa.Value
 	if commaOK {
-		ok := s.callRuntime("chanrecv2", []*ssa.Type{ssa.TBool}, []*ssa.Value{c, tmp})[0]
-		return s.loadFrom(tmp, et), ok
+		ok = s.callRuntime("chanrecv2", []*ssa.Type{ssa.TBool}, []*ssa.Value{c, tmp})[0]
+	} else {
+		s.callRuntime("chanrecv1", nil, []*ssa.Value{c, tmp})
 	}
-	s.callRuntime("chanrecv1", nil, []*ssa.Value{c, tmp})
-	return s.loadFrom(tmp, et), nil
+	if s.l.counted(et) {
+		// The value received comes with the sender's references: a
+		// temporary of this statement unless a store takes it over.
+		return s.ownTemp(tmp, et), ok
+	}
+	return s.loadFrom(tmp, et), ok
 }
 
 // isRecv reports whether e is a receive expression <-ch.
@@ -454,12 +650,21 @@ func (s *fnState) rangeChan(st *ast.RangeStmt, label *types2.Label) {
 	s.endIf(ok, body, done)
 	s.seal(body)
 	s.startBlock(body)
+	counted := s.l.counted(et)
 	if keyLV != nil {
-		s.storeLV(*keyLV, s.assignConvert(s.materialize(s.loadFrom(tmp, et)), unwrap(keyLV.T), st))
+		v := s.materialize(s.loadFrom(tmp, et))
+		if counted {
+			v.cnt = cntStable
+		}
+		s.assign(*keyLV, s.assignConvert(v, unwrap(keyLV.T), st), false)
 	}
-	s.pushTarget(&target{label: label, breakTo: done, contTo: head})
+	if counted {
+		// The variable took its own reference; drop the one received.
+		s.releaseAt(tmp, et)
+	}
+	s.targets = append(s.targets, &target{label: label, breakTo: done, contTo: head, depth: len(s.cleanups)})
 	s.loopDepth++
-	s.stmtList(st.Body.List)
+	s.block(st.Body, st.Body.List)
 	s.loopDepth--
 	s.targets = s.targets[:len(s.targets)-1]
 	s.endPlain(head)
@@ -499,7 +704,13 @@ func (s *fnState) selectStmt(st *ast.SelectStmt, label *types2.Label) {
 			et := s.subst(chanElem(s.typeOf(comm.Chan)))
 			c := s.scalar(comm.Chan)
 			tmp := s.temp(et, "selsend")
-			s.storeTo(tmp, s.exprAs(comm.Value, et), et)
+			v := s.exprAs(comm.Value, et)
+			s.storeTo(tmp, v, et)
+			if s.l.counted(et) {
+				// A reference for the receiver, dropped again if another
+				// case proceeds (releaseCases).
+				s.takeRefAt(v, tmp, et)
+			}
 			cases = append(cases, &selCase{clause: cc, elem: et, tmp: tmp})
 			chans = append(chans, c)
 		case *ast.ExprStmt:
@@ -572,20 +783,31 @@ func (s *fnState) selectStmt(st *ast.SelectStmt, label *types2.Label) {
 	}
 	s.endPlain(defBody)
 
-	s.pushTarget(&target{label: label, breakTo: done, isSwitch: true})
+	s.targets = append(s.targets, &target{label: label, breakTo: done, isSwitch: true, depth: len(s.cleanups)})
 	for i, c := range cases {
 		s.seal(bodies[i])
 		s.startBlock(bodies[i])
+		clause := s.pushCleanup(c.clause, true)
+		s.releaseCases(cases, i)
 		if len(c.lhs) > 0 {
 			s.selectAssign(c, s.load(ssa.TBool, okSlot))
 		}
+		if c.recv && s.l.counted(c.elem) {
+			// The variables took their own references; drop the one
+			// received.
+			s.releaseAt(c.tmp, c.elem)
+		}
 		s.stmtList(c.clause.Body)
+		s.popCleanup(clause)
 		s.endPlain(done)
 	}
 	if deflt != nil {
 		s.seal(defBody)
 		s.startBlock(defBody)
+		clause := s.pushCleanup(deflt, true)
+		s.releaseCases(cases, -1)
 		s.stmtList(deflt.Body)
+		s.popCleanup(clause)
 		s.endPlain(done)
 	}
 	s.targets = s.targets[:len(s.targets)-1]
@@ -593,10 +815,24 @@ func (s *fnState) selectStmt(st *ast.SelectStmt, label *types2.Label) {
 	s.startBlock(done)
 }
 
+// releaseCases drops the references held for the values of the send cases
+// other than cases[chosen], which did not proceed.
+func (s *fnState) releaseCases(cases []*selCase, chosen int) {
+	for i, c := range cases {
+		if i != chosen && !c.recv && s.l.counted(c.elem) {
+			s.releaseAt(c.tmp, c.elem)
+		}
+	}
+}
+
 // selectAssign stores the value and ok of the receive case c that
 // proceeded into the variables of its assignment.
 func (s *fnState) selectAssign(c *selCase, ok *ssa.Value) {
-	vals := []value{s.materialize(s.loadFrom(c.tmp, c.elem)), scalarValue(ok, types2.Typ[types2.Bool])}
+	v := s.materialize(s.loadFrom(c.tmp, c.elem))
+	if s.l.counted(c.elem) {
+		v.cnt = cntStable // released by the caller after the stores
+	}
+	vals := []value{v, scalarValue(ok, types2.Typ[types2.Bool])}
 	for i, lhs := range c.lhs {
 		if id, isID := lhs.(*ast.Ident); isID && id.Name == "_" {
 			continue
@@ -605,7 +841,7 @@ func (s *fnState) selectAssign(c *selCase, ok *ssa.Value) {
 			if v, isVar := s.info.Defs[lhs.(*ast.Ident)].(*types2.Var); isVar {
 				T := s.subst(v.Type())
 				addr := s.declareVar(v)
-				s.storeTo(addr, s.assignConvert(vals[i], T, c.clause), T)
+				s.assign(lvalue{ptr: addr, T: T}, s.assignConvert(vals[i], T, c.clause), true)
 			}
 			continue
 		}
@@ -614,6 +850,6 @@ func (s *fnState) selectAssign(c *selCase, ok *ssa.Value) {
 		if lv.bits != nil {
 			T = lv.bits.T
 		}
-		s.storeLV(lv, s.assignConvert(vals[i], T, c.clause))
+		s.assign(lv, s.assignConvert(vals[i], T, c.clause), false)
 	}
 }

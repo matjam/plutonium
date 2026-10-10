@@ -7,7 +7,10 @@
 // Use of this source code is governed by a BSD-style license.
 package utf8
 
-import "unsafe"
+import (
+	"pluto/rt"
+	"unsafe"
+)
 
 // Numbers fundamental to the encoding.
 const (
@@ -101,7 +104,10 @@ var acceptRanges = [16]acceptRange{
 	4: {locb, 0x8F},
 }
 
-// str views p as a string without copying.
+// str views p as a string without copying. The bytes need not be valid
+// UTF-8: it is the point of Valid to find that out, so the view is read by
+// ValidString and the functions here that decode a rune, which treat
+// invalid bytes as errors, and goes no further.
 func str(p []byte) string {
 	if len(p) == 0 {
 		return ""
@@ -190,6 +196,9 @@ func DecodeRuneInString(s string) (rune, int) {
 func DecodeLastRune(p []byte) (r rune, size int) { return DecodeLastRuneInString(str(p)) }
 
 // DecodeLastRuneInString is like DecodeLastRune but its input is a string.
+// It looks at bytes, which for DecodeLastRune need not be valid UTF-8.
+//
+//pu:bytewise
 func DecodeLastRuneInString(s string) (rune, int) {
 	end := len(s)
 	if end == 0 {
@@ -295,8 +304,14 @@ func AppendRune(p []byte, r rune) []byte {
 // are treated as single runes of width 1 byte.
 func RuneCount(p []byte) int { return RuneCountInString(str(p)) }
 
-// RuneCountInString is like RuneCount but its input is a string.
+// RuneCountInString is like RuneCount but its input is a string. For a
+// string known to be ASCII it is len(s).
+//
+//pu:bytewise
 func RuneCountInString(s string) int {
+	if rt.KnownASCII(s) {
+		return len(s)
+	}
 	n := 0
 	for i := 0; i < len(s); {
 		if s[i] < RuneSelf {
@@ -319,8 +334,12 @@ func RuneStart(b byte) bool { return b&0xC0 != 0x80 }
 func Valid(p []byte) bool { return ValidString(str(p)) }
 
 // ValidString reports whether s consists entirely of valid UTF-8-encoded
-// runes.
+// runes. Every string is, except views of other bytes made with
+// unsafe.String, which Valid uses.
 func ValidString(s string) bool {
+	if rt.KnownASCII(s) {
+		return true
+	}
 	for i := 0; i < len(s); {
 		si := s[i]
 		if si < RuneSelf {

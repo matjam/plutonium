@@ -80,12 +80,13 @@ Each of these is a compile error that names the construct and the reason.
 | `recover` | needs an unwinder; `panic` aborts (section 8) | return errors (section 14) |
 | `import "reflect"` | needs runtime type metadata | type switches, generics |
 | `complex64`, `complex128`, `complex`, `real`, `imag` | rarely useful in systems code; keeps the backend small | a struct of two floats |
-| runtime string concatenation (`s + t` where either is not a constant) | allocates, and a `string` is a view that cannot own the result (section 6.3) | `pluto/strings.Buf`, an owner (section 6.6) |
-| conversions between `string` and `[]byte` or `[]rune`, and `string(r)` for a non-constant rune | allocate a copy that nothing owns | `strings.Buf`, `unsafe.String`, `unsafe.StringData`, `pluto/strings` |
 | `append` beyond capacity | a slice is a view and owns no array it could grow (section 6.3) | `pluto/vec.Vec[T]`, an owner (section 6.6) |
+| string literals that are not valid UTF-8 (`"\xff"`) | every string holds valid UTF-8 (section 6.10) | `[]byte{0xff}` for binary data |
 
-Constant string concatenation (`const greeting = "hello, " + name`) remains, since it happens at compile
-time.
+Strings work as in Go otherwise. Runtime concatenation (`s + t`, `s += t`) and the conversions
+`string(b)`, `string(runes)`, `string(r)`, `[]byte(s)` and `[]rune(s)` allocate from the current
+allocator, and the strings they make are counted and freed when their last copy goes (section 6.10).
+In kernel mode they are allowed only in functions marked `//pu:alloc` (section 12.7).
 
 ## 4. What Plutonium changes
 
@@ -160,7 +161,10 @@ assertions, type switches. An interface value is two words: a pointer to a stati
   is not covered: it is boxed like any other struct.
 - A larger value (a string, slice, array, struct or union) is copied into a temporary in the stack frame of the
   function that performs the conversion, and the data word points at that copy. The interface value is
-  valid until that function returns, exactly like a pointer to a local variable.
+  valid until that function returns, exactly like a pointer to a local variable. A copy that holds
+  strings holds references of its own (section 6.10), released when the function returns or when the
+  same conversion runs again and refills it; in a package-level initializer the copy is static and keeps
+  its references for ever.
 
 An interface that holds such a frame copy is a view of the frame (section 6.3). Returning it, storing it in
 a package-level variable or on the heap, or passing it to a function that keeps it, is a compile error. To
@@ -307,12 +311,12 @@ declared:
   owner declared in an inner block, which is dropped when that block ends (section 6.4).
 
 ```go
-func process(items []Item) strings.Buf {
-	var log strings.Buf
+func process(items []Item) vec.Vec[int] {
+	sizes := vec.New[int]()
 	each(items, func(it *Item) {
-		fmt.Fprintf(&log, "%s\n", it.name) // uses the captured owner: allowed
+		sizes.Push(it.size) // uses the captured owner: allowed
 	})
-	return log                            // moves it to the caller after the literal is done
+	return sizes           // moves it to the caller after the literal is done
 }
 ```
 
@@ -347,7 +351,12 @@ of the spawning frame cannot be passed at all (section 6.3), since the puroutine
   only assignment is its declaration from one of them (directly or through other such variables). Any
   other func value whose closure record lies in the starting puroutine's stack (one that reached the
   `go` statement through a parameter, a field or a variable assigned more than once) panics when the
-  `go` statement runs, and so does `rt.Go` with one.
+  `go` statement runs, and so does `rt.Go` with one. A call of a function that starts a puroutine with
+  one of its func arguments (`sync.WaitGroup.Go`, `time.AfterFunc`, `rt.Go`, or a function of the
+  program's own that passes a func parameter on to a `go` statement or to one of these) is checked the
+  same way: the compiler rejects an argument it can tell is such a closure, and the function panics for
+  the rest. The compiler finds these functions itself by following each func parameter through the
+  function's body.
 - Puroutines run in parallel and are preempted: one that runs for a full time slice (10 ms in hosted
   builds) without blocking is suspended at whatever instruction it has reached and another runs in its
   place, even in a loop that makes no calls. Since there is no garbage collector, every instruction is a
@@ -445,9 +454,10 @@ any field or element:
 Values, owners, `synced[T]` and `weak[synced[T]]` (with a sendable `T`) and channels are sendable. Moving
 an owner to another puroutine is safe because the sender loses it: only one puroutine can use it. A
 `synced[T]` lets several puroutines reach the same `T`, so fields of `T` that change must be protected
-with `pluto/sync` or `pluto/sync/atomic`; the count is atomic, the data is not. Views of heap and static
-memory (`*T`, `[]T`, `string`) are sendable and, like raw pointers in C, their data is not checked for
-races; their lifetime is checked at run time as for any heap view (section 6.3).
+with `pluto/sync` or `pluto/sync/atomic`; the count is atomic, the data is not. Strings are sendable:
+their bytes never change and their counts are atomic once a program has several threads (section 6.10).
+Views of heap and static memory (`*T`, `[]T`) are sendable and, like raw pointers in C, their data is not
+checked for races; their lifetime is checked at run time as for any heap view (section 6.3).
 
 The checker applies the rule to the arguments and receiver of every `go` statement and to the element
 type of every channel type, looking through struct fields, array elements and the referents of
@@ -518,10 +528,11 @@ entry as in Go, but an owner is moved only if that case proceeds: inside the oth
 still holds its value, and after the `select` it counts as possibly moved (section 6.4).
 
 ```go
-func produce(out chan<- strings.Buf) {
+func produce(out chan<- vec.Vec[int]) {
 	for i := 0; i < 3; i++ {
-		b := fmt.Sprintf("item %d", i)
-		out <- b              // moves b to whoever receives it
+		v := vec.New[int]()
+		v.Push(i)
+		out <- v              // moves v to whoever receives it
 	}
 	close(out)
 }
@@ -815,7 +826,7 @@ manages. Section 6 gives the rules they follow; this section describes the types
 | `synced[T]` | counted | Like `shared[T]`, but the count is atomic, so references may cross puroutines. |
 | `weak[P]` | counted (weak) | A back reference to the object of `P`, a `shared[T]` or `synced[T]`, that does not keep it alive. |
 
-`owned[T]` is one owner among many: `vec.Vec[T]`, `hash.Map[K, V]`, `strings.Buf` and `os.File` are owners
+`owned[T]` is one owner among many: `vec.Vec[T]`, `hash.Map[K, V]`, `strings.Builder` and `os.File` are owners
 too, declared in the library with `owner` (section 6.4). It is the one to use for a single object on the
 heap, such as a tree node or a large struct that must keep its address.
 
@@ -1151,13 +1162,14 @@ Plutonium has no garbage collector, so every piece of memory a program uses has 
 and the owner is visible in the program's types. Every type is one of three kinds:
 
 - **Values** are copied on assignment, exactly as in Go: integers, floats, booleans, enums, packed types,
-  strings, arrays `[N]T` of values, and structs made only of values. A `string` is immutable and counts
-  the references to its bytes, so copying one is safe anywhere (section 6.2).
-- **Views** look at memory that something else owns: `[]T` and `*T`, built into the language. A view
-  never owns or frees anything. Creating, copying and passing views is free, and a view may not outlive
-  what it looks at.
+  strings, arrays `[N]T` of values, and structs made only of values. A string is the one built-in value
+  that holds memory: its copies share an immutable buffer and count it, and the last one to go frees it
+  (section 6.10). The counting is automatic, so strings copy as freely as integers.
+- **Views** look at memory that something else owns: `[]T` and `*T`, built into the language. A
+  view never owns or frees anything. Creating, copying and passing views is free, and a view may not
+  outlive what it looks at.
 - **Owners** hold memory or another resource and release it when they are dropped. They are types
-  declared with `owner`, such as `vec.Vec[T]`, `hash.Map[K, V]`, `strings.Buf`, `os.File` and the
+  declared with `owner`, such as `vec.Vec[T]`, `hash.Map[K, V]`, `strings.Builder`, `os.File` and the
   built-in box `owned[T]`. Assigning an owner **moves** it to the new place; copies are made only by
   calling `Clone`.
 
@@ -1169,6 +1181,7 @@ reference, `shared[T]` or `synced[T]`, and breaks cycles with `weak[...]`.
 | let a function use it for a while | view | free |
 | give it to exactly one new owner | move | free |
 | let several places keep it | shared/synced | count update |
+| keep text | string | count update when a heap string is stored; none for literals |
 
 Editors (hover) and `pluto doc` show each type's kind next to its name: `value`, `view`, `owner (moves)`
 or `shared (counted)`.
@@ -1195,8 +1208,9 @@ is copied, what is shared and where it lives.
 Plutonium separates the three jobs so that each type does one:
 
 - a view only looks: `[]T`, `*T`;
-- an owner only owns: `vec.Vec[T]`, `hash.Map[K, V]`, `strings.Buf`;
-- a value is only bits.
+- an owner only owns: `vec.Vec[T]`, `hash.Map[K, V]`, `strings.Builder`;
+- a value is only bits, except a string, which is text that can be copied anywhere and is freed
+  when nothing holds it (section 6.10).
 
 ```go
 func load() hash.Map[string, string] {
@@ -1217,9 +1231,9 @@ values. They copy on
 assignment, on passing and on return, and nothing happens when they go out of scope. This is Go's
 behaviour.
 
-A struct or array that contains a counted reference (`shared[T]`, `synced[T]`, `weak[P]`) or a channel,
-and no owner, also copies; copying it updates each count, and dropping it releases each reference
-(section 6.5). It needs no declaration, since assignment still copies.
+A struct or array that contains a counted reference (`shared[T]`, `synced[T]`, `weak[P]`), a string or a
+channel, and no owner, also copies; copying it updates each count, and dropping it releases each reference
+(sections 6.5 and 6.10). It needs no declaration, since assignment still copies.
 
 A `string` is a value of this kind. Its bytes never change, and they count their references: a string
 literal is static and uncounted, a string made at run time (by `+`, a conversion from `[]byte`, or
@@ -1231,13 +1245,14 @@ over memory something else owns: it is a view, and follows the rules of section 
 
 ### 6.3 Views
 
-`[]T` and `*T` are views. So are `unsafe.Pointer`, a string made by `unsafe.String`, and the frame-bound
-values of sections 4.4 and 4.5: a capturing closure, a method value, and an interface holding a frame copy
-or a lent owner. A struct or array that contains a view, and no owner, is a view too: it copies freely and
-must not outlive what any of its views look at.
+`[]T` and `*T` are views. So are `unsafe.Pointer`, and the frame-bound values of sections 4.4
+and 4.5: a capturing closure, a method value, and an interface holding a frame copy or a lent owner. A
+struct or array that contains a view, and no owner, is a view too: it copies freely and must not outlive
+what any of its views look at. A string made with `unsafe.String` is a view of the memory it was made
+from (section 6.10).
 
-1. **Views are free.** `&x`, `s[i:j]`, `v.Slice()` and copying or passing any of them cost nothing beyond
-   the words copied. A view never frees anything; dropping one does nothing.
+1. **Views are free.** `&x`, `b[i:j]`, `v.Slice()` and copying or passing any of them cost
+   nothing beyond the words copied. A view never frees anything; dropping one does nothing.
 2. **`&x` is a view of `x` where `x` lives.** Where a variable lives is decided by its declaration, never
    by how it is used later: a local variable or parameter lives in its function's frame, a package
    variable in static storage, a field in its struct, an element in its array. Plutonium never moves a
@@ -1246,7 +1261,7 @@ must not outlive what any of its views look at.
    copies it to the caller, or allocate it with `new`.
 3. **Passing a view down is always allowed.** A callee's frame ends before its caller's, so `f(&x)`,
    `f(buf[:n])` and `f(v.Slice())` are valid whatever `x`, `buf` and `v` are. The callee may return a view
-   derived from its parameters (`return s[4:]`), since the caller's memory outlives the call.
+   derived from its parameters (`return b[4:]`), since the caller's memory outlives the call.
 4. **A view may not outlive what it looks at.** How this is checked depends on where the memory is:
    - **Frame memory** is checked at compile time. A view of a frame (of a local, of a temporary, of a
      composite literal `&T{...}` or slice literal, or of a variadic call's argument array) may be used,
@@ -1258,9 +1273,9 @@ must not outlive what any of its views look at.
      the last case needs no annotation; calls through interfaces and function values are checked against
      every possible callee.
    - **A local owner's memory** is treated like the frame. A view obtained from an owner held in a local
-     variable (`v.Slice()`, `&m`) follows the frame rules above, and in addition may not be used after
-     that variable has been moved, dropped or given a new value in the same function. A view of a
-     temporary owner (`vec.New[int]().Slice()`) may not outlive the statement (section 6.4).
+     variable (`v.Slice()`, `b.Bytes()`, `&m`) follows the frame rules above, and in addition may not be
+     used after that variable has been moved, dropped or given a new value in the same function. A view of
+     a temporary owner (`makeVec().Slice()`) may not outlive the statement (section 6.4).
    - **Heap memory** reached any other way is checked at run time by generation checks: a view whose
      allocation has since been freed, or reallocated by a growing owner, faults when it is used instead of
      reading freed memory. A prototype is built with `pluto build --gencheck` (hosted builds only); the
@@ -1278,7 +1293,9 @@ a `uintptr` is assumed to point outside every frame, and a pointer converted to 
 followed. `//pu:resultholds p` on a function that returns an owner says it keeps `p` only for as long as
 that owner lives, and stores `p` in it: the call then counts as returning `p` rather than keeping it, so
 the result is a view of what `p` points to. `alloc.Use` is declared this way, so a local arena may be
-installed as the default allocator while the `Restore` it returns lives (section 7.1).
+installed as the default allocator while the `Restore` it returns lives (section 7.1). The directive is
+for the standard library: it states a promise the compiler cannot check, and a program's own code does not
+need it (E3008).
 
 How precise the frame check is, so that programs know what it accepts:
 
@@ -1357,7 +1374,7 @@ The rules for where `owner` may appear:
   promoted: the outer type's own `Drop` (if any) runs, and then the embedded field is dropped like any
   other field.
 
-The library's `vec.Vec[T]`, `hash.Map[K, V]`, `hash.Set[K]`, `strings.Buf`, `os.File` and arenas that own
+The library's `vec.Vec[T]`, `hash.Map[K, V]`, `hash.Set[K]`, `strings.Builder`, `os.File` and arenas that own
 their chunks are declared `owner`.
 
 **Moves.** An owner is moved, not copied, when it is
@@ -1408,7 +1425,7 @@ zero value as empty (as `File.Drop` above checks `open`), because memory from ev
 
 **Clone.** Copies are explicit. By convention an owner that can be copied has a method
 `Clone(a alloc.Allocator = ...) T` that returns an independent copy. `vec.Vec[T]` (for `T` that is not an
-owner or has `Clone`), `hash.Map[K, V]`, `strings.Buf` and `owned[T]` have one; `os.File` has none, since
+owner or has `Clone`), `hash.Map[K, V]`, `strings.Builder` and `owned[T]` have one; `os.File` has none, since
 a file descriptor cannot be copied that way.
 
 **Drops.** An owner held by a variable when the variable's scope ends is dropped automatically, on every
@@ -1430,11 +1447,11 @@ end of each iteration for a variable declared in a loop body. In detail:
 - Deferred calls run before the function's own variables are dropped, so a deferred call may use them. A
   deferred call may not use an owner declared in an inner block, which is dropped when the block ends.
 - Dropping an owner runs its `Drop` method if it has one, then drops its fields in declaration order and
-  array elements in index order. Fields that are views or values need nothing; counted fields release
-  their references.
+  array elements in index order. Fields that are views or plain values need nothing; counted fields,
+  strings among them, release their references.
 - An owner that an expression produces and nothing stores is a **temporary**. It is dropped at the end of
   the statement that made it, so a view of it may be passed to a call in that statement:
-  `os.Stdout.WriteString(fmt.Sprintf("%d\n", n).String())` is valid. In the header of an `if`, `switch` or
+  `os.Stdout.Write(readAll(f).Slice())` is valid. In the header of an `if`, `switch` or
   `for ... range`, a temporary lives until the whole statement ends; in the condition and post statement
   of a three-clause `for` it is dropped after each evaluation.
 - `panic` aborts without unwinding (section 8), so nothing is dropped; neither does `os.Exit`.
@@ -1497,23 +1514,28 @@ on, for free. Counting costs something on every copy, and Plutonium makes that c
   latency-sensitive path, possibly freeing a whole graph at once. A kernel needs to know when and where
   memory is released, and with views and moves it does.
 
+Strings are the exception, and counted by default (section 6.10): text is copied, stored and returned
+far more than it is changed, a string's buffer refers to nothing else (so releasing one never frees a
+graph), literals cost nothing to count, and the compiler removes most counts of strings passed down. The
+kernel rules of section 12.7 keep string allocation out of code that must not allocate.
+
 ### 6.6 No allocation without an owner or an arena
 
 Every allocation belongs to an owner or to an arena. The library is written so that functions that create
 memory return owner types:
 
-- **Owners record their allocator.** `vec.Vec`, `hash.Map` and `strings.Buf` keep it in a field; `owned`,
-  `shared` and `synced` keep it in the allocation's header. Dropping an owner frees to that allocator,
-  whichever is the default at the time.
+- **Owners record their allocator.** `vec.Vec`, `hash.Map` and `strings.Builder` keep it in a field;
+  `owned`, `shared` and `synced` keep it in the allocation's header, and so does a string's buffer.
+  Dropping an owner frees to that allocator, whichever is the default at the time.
 - **Arenas own what is allocated in them.** Freeing into an arena does nothing, and the arena reclaims
   everything at once when it is reset or dropped. The same code therefore works in an arena and on the
   general heap: an owner allocated in an arena is dropped as usual, and its free costs nothing. Memory that
   only an arena owns can also be handed out as plain views (`a.New[T]()` returns a `*T`), valid until the
   arena is reset or dropped.
-- **Text.** `fmt.Sprintf` returns a `strings.Buf`, an owner of the formatted bytes, lent as a `string`
-  view through `.String()`. `fmt.Bprintf(buf, ...)` formats into a caller's `[]byte` and allocates
-  nothing; `fmt.Fprintf(&b, ...)` appends to a `strings.Buf`. A zero `strings.Buf` is empty and allocates
-  from `alloc.Default()` on its first write; `strings.NewBuf(a)` chooses the allocator.
+- **Text.** Strings own their buffers by counting (section 6.10): `s + t`, `string(b)` and
+  `fmt.Sprintf` return a string, freed when its last copy goes. `strings.Builder` builds one with fewer
+  copies: its `String()` shares the builder's buffer instead of copying it. `fmt.Bprintf(buf, ...)` formats
+  into a caller's `[]byte` and allocates nothing.
 - **Growing.** A slice is a view and cannot grow beyond its capacity (section 4.3). Growing sequences are
   `vec.Vec[T]` or another owner; there are no arrays that nobody owns.
 - **`new` and `make`** return owners under the proposal in section 4.2 (`owned[T]` and `vec.Vec[T]`).
@@ -1669,32 +1691,32 @@ func readHeader(f *os.File) error {
 }
 ```
 
-**A string view of a Buf.**
+**Strings.**
 
 ```go
-func greet(name string) {
-	msg := fmt.Sprintf("hello, %s\n", name) // msg is a strings.Buf: it owns the bytes
-	s := msg.String()                       // s is a view of msg's bytes: nothing is copied
-	os.Stdout.WriteString(s)
-	audit(msg.String())                     // as many views as needed
-}                                           // msg is dropped: its bytes are freed
+func greet(name string) string {
+	msg := fmt.Sprintf("hello, %s\n", name) // a new string: one reference, msg's
+	os.Stdout.WriteString(msg)              // passed down: borrowed, nothing counted
+	last = msg                              // a package variable keeps a copy: count 2
+	return msg[7:]                          // a substring shares the buffer: count 3 for the caller
+}                                           // msg goes out of scope: count 2
 ```
 
 **Returning an owner.**
 
 ```go
-func render(items []Item) strings.Buf {
-	var b strings.Buf                       // empty; allocates on its first write
+func render(items []Item) vec.Vec[byte] {
+	out := vec.New[byte]()                  // empty; allocates on its first write
 	for i := range items {
-		fmt.Fprintf(&b, "%s: %d\n", items[i].name, items[i].count)
+		out.Append(items[i].line...)
 	}
-	return b                                // moves b to the caller: nothing copied, nothing freed
+	return out                              // moves out to the caller: nothing copied, nothing freed
 }
 
 func main() {
-	out := render(items)                    // main owns the text now
-	os.Stdout.WriteString(out.String())
-}                                           // and it is freed here
+	out := render(items)                    // main owns the bytes now
+	os.Stdout.Write(out.Slice())
+}                                           // and they are freed here
 ```
 
 **Storing an owner in a struct.**
@@ -1703,7 +1725,7 @@ func main() {
 type Conn owner struct {                    // owner: it has owner fields
 	file os.File
 	in   vec.Vec[byte]
-	name strings.Buf
+	name string                             // a string field: copied with the struct, counted
 }
 
 func dial(path string) (Conn, error) {
@@ -1713,7 +1735,7 @@ func dial(path string) (Conn, error) {
 	}
 	var c Conn
 	c.file = f                              // moves f into the field
-	c.name.WriteString(path)                // c owns its own copy of the path
+	c.name = path                           // c keeps a reference to the path's bytes
 	return c, nil                           // moves c, and with it the file, to the caller
 }
 ```
@@ -1797,14 +1819,14 @@ func show(c *Cache, id uint64) {
 
 ```go
 type Node owner struct {
-	name     strings.Buf
+	name     string
 	parent   weak[shared[Node]]     // does not keep the parent alive
 	children vec.Vec[shared[Node]]  // keeps the children alive
 }
 
 func addChild(parent shared[Node], name string) shared[Node] {
 	child := alloc.Shared[Node]()
-	child.name.WriteString(name)
+	child.name = name
 	child.parent = weak[shared[Node]](parent)
 	parent.children.Push(child)     // a copy: the child's count is 2
 	return child                    // moved to the caller
@@ -1872,15 +1894,19 @@ func handle(req *Request) error {
 	a := arena.New(mem[:])              // a views mem; both live in handle's frame
 	fields := vec.New[Field](&a)        // allocates in the arena; holds a view of a
 	parseFields(req.body, &fields)
-	reply := strings.NewBuf(&a)
+	reply := strings.NewBuilder(nil)
+	reply.Init(&a)                      // the builder grows in the arena
 	for i := 0; i < fields.Len(); i++ {
 		f := fields.Ptr(i)
 		fmt.Fprintf(&reply, "%s=%s\n", f.key, f.val)
 	}
-	return send(req, reply.String())
+	return send(req, reply.Bytes())
 }   // reply, then fields, are dropped: their frees go to the arena and do nothing;
     // a and mem go with the frame. Returning fields would be a compile error: it views a.
 ```
+
+A string built while an arena is the current allocator lives in the arena, and must not be used after the
+arena is reset or dropped (section 6.10).
 
 Code that allocates through `alloc.Default()` without an allocator parameter, such as `fmt.Sprintf`, is
 pointed at an arena with `alloc.Use` (section 7.1).
@@ -1944,17 +1970,17 @@ main.p:25:9: cannot return &c, a pointer to a local variable
 **Returning a view of a local owner** *(planned; a slice of a local array is E3001 today)*.
 
 ```
-names.p:12:9: cannot return b.String(), which points into b, a local variable
-    b.String() does not copy anything: it is a view, a string that looks at the
-    bytes b owns. b is a local variable of join (declared at names.p:5), and when
-    join returns b is dropped and its bytes are freed, so the string would look
-    at freed memory.
-    To give the caller the text, return the buffer itself. That moves it:
-        func join(parts []string) strings.Buf {
+names.p:12:9: cannot return v.Slice(), which points into v, a local variable
+    v.Slice() does not copy anything: it is a view, a slice that looks at the
+    elements v owns. v is a local variable of collect (declared at names.p:5),
+    and when collect returns v is dropped and its elements are freed, so the
+    slice would look at freed memory.
+    To give the caller the elements, return the vector itself. That moves it:
+        func collect(parts []string) vec.Vec[int] {
             ...
-            return b
+            return v
         }
-    The caller reads it as a string with .String() for as long as it keeps it.
+    The caller reads it as a slice with .Slice() for as long as it keeps it.
     (see "Ownership" in the language spec, section 6.3)
 ```
 
@@ -1988,10 +2014,8 @@ main.p:12:12: cannot pass buf[:n] to cache.Put, which keeps it after returning
     buf[:n] is a slice that looks at buf, a local array of main (declared at
     main.p:9). cache.Put stores its parameter p in c.entries (cache.p:31), which
     lives longer than this call, so the slice would outlive buf.
-    Give Put something that owns its bytes, for example a buffer:
-        var b strings.Buf
-        b.Write(buf[:n])
-        c.Put(b)                // moves b into the cache; Put takes a strings.Buf
+    Give Put something that keeps its bytes alive, for example a string:
+        c.Put(string(buf[:n]))  // a copy the cache can keep; Put takes a string
     (see "Ownership" in the language spec, section 6.3)
 ```
 
@@ -2089,7 +2113,7 @@ main.p:20:5: b may have been moved at line 15, so it cannot be used here
     Use b before line 15, or give it a new value on that path:
         if verbose {
             flush(b)
-            b = strings.Buf{}
+            b = vec.New[byte]()
         }
     (see "Ownership" in the language spec, section 6.4)
 ```
@@ -2112,7 +2136,7 @@ tree.p:31:10: cannot move n.left out of n: n.left is a field, not a variable
     (see "Ownership" in the language spec, section 6.4)
 ```
 
-For a range loop the first line is `cannot copy the elements of bufs in a range loop: strings.Buf is an
+For a range loop the first line is `cannot copy the elements of bufs in a range loop: vec.Vec[byte] is an
 owner type`, and the fix is
 
 ```
@@ -2130,7 +2154,7 @@ job.p:17:8: cannot move b inside a function literal: the literal may run more th
     lives. Moving it here would leave b empty after the first call, and run
     could not tell whether b still needs to be dropped.
     Pass the value to the literal as an argument:
-        do := func(b strings.Buf) { send(b) }
+        do := func(b vec.Vec[byte]) { send(b) }
         do(b)
     (see "Ownership" in the language spec, section 6.4)
 ```
@@ -2139,12 +2163,12 @@ job.p:17:8: cannot move b inside a function literal: the literal may run more th
 
 ```
 main.p:16:14: s cannot be used here: it looks at b's bytes, and b was moved at line 15
-    s := b.String() at line 14 made s a view: a string that looks at bytes b
+    s := b.Slice() at line 14 made s a view: a slice that looks at bytes b
     owns, without copying them. At line 15 b was moved into send, and whoever
     owns the bytes now may free or change them at any time.
     Use s before line 15, or keep a copy that does not depend on b:
         c := b.Clone()
-        s := c.String()
+        s := c.Slice()
     (see "Ownership" in the language spec, section 6.3)
 ```
 
@@ -2152,12 +2176,12 @@ For a temporary:
 
 ```
 main.p:8:7: s would look at a temporary that is dropped at the end of this statement
-    fmt.Sprintf returns a strings.Buf, which owns the formatted bytes. It is not
-    stored anywhere, so it is dropped when this statement ends, and s would look
-    at freed bytes.
-    Keep the buffer in a variable and look at it while it lives:
-        msg := fmt.Sprintf("%d items", n)
-        s := msg.String()
+    readAll returns a vec.Vec[byte], which owns the bytes. It is not stored
+    anywhere, so it is dropped when this statement ends, and s would look at
+    freed bytes.
+    Keep the vector in a variable and look at it while it lives:
+        data := readAll(f)
+        s := data.Slice()
     (see "Ownership" in the language spec, section 6.4)
 ```
 
@@ -2195,7 +2219,7 @@ fix is to rename it.
 **An owner field in a struct not declared owner** (E3202; in a struct type without a name, E3203).
 
 ```
-conn.p:4:2: Conn must be declared owner: its field buf is a strings.Buf, which is an owner
+conn.p:4:2: Conn must be declared owner: its field buf is a strings.Builder, which is an owner
     An owner owns memory and frees it when dropped, so it moves instead of
     being copied. A struct that contains one owns that memory too, and copying
     the struct would copy the owner, leaving two values that both free it.
@@ -2205,7 +2229,7 @@ conn.p:4:2: Conn must be declared owner: its field buf is a strings.Buf, which i
         }
     Conn values then move, and buf is dropped when a Conn is.
     If Conn should only look at a buffer that something else owns, store a pointer:
-        buf *strings.Buf
+        buf *strings.Builder
     (see "Ownership" in the language spec, section 6.4)
 ```
 
@@ -2249,7 +2273,7 @@ pool.p:22:2: cannot call p.Drop(): p is a *File, which only points at a File tha
 **An owner type for a type parameter that does not allow owners** (E3207).
 
 ```
-main.p:10:12: cannot use strings.Buf as T in Fill: strings.Buf is an owner and T does not allow owners
+main.p:10:12: cannot use strings.Builder as T in Fill: strings.Builder is an owner and T does not allow owners
     Inside Fill, values of T are copied (Fill assigns v to every element at
     fill.p:4). Copying an owner would leave several values that all free the
     same memory.
@@ -2265,7 +2289,7 @@ main.p:10:12: cannot use strings.Buf as T in Fill: strings.Buf is an owner and T
 literal E3312, and `x[k]` on a container of owners E3309).
 
 ```
-main.p:7:2: cannot copy elements of type strings.Buf: each element is an owner
+main.p:7:2: cannot copy elements of type strings.Builder: each element is an owner
     copy duplicates elements, and duplicating an owner would leave two values
     that both free the same memory.
     Move the elements one at a time:
@@ -2278,10 +2302,10 @@ main.p:7:2: cannot copy elements of type strings.Buf: each element is an owner
 **Taking an owner out of an ordinary interface** (E3308).
 
 ```
-main.p:19:7: cannot assert x to strings.Buf: x is an any, which only lends the value it holds
+main.p:19:7: cannot assert x to strings.Builder: x is an any, which only lends the value it holds
     Converting an owner to an ordinary interface such as any lends it: the
     interface looks at the owner, which still belongs to the variable that was
-    converted. Taking a strings.Buf out of x would create a second owner.
+    converted. Taking a strings.Builder out of x would create a second owner.
     Call the value's methods through an interface type instead:
         if s, ok := x.(fmt.Stringer); ok { use(s.String()) }
     or move it into an owning interface in the first place:
@@ -2305,12 +2329,158 @@ worker.p:22:12: cannot pass s to a go statement: shared[Stats] can only be used 
 For a send the first line is `cannot send s on ch: shared[Stats] can only be used by one puroutine`; when
 the reference is inside another value, it continues `(Job contains a shared[Cache] in its field cache)`.
 
+### 6.10 Strings
+
+A `string` is an immutable, reference-counted value. String code reads and behaves as in Go: `s + t`,
+`s += t`, `string(b)`, `[]byte(s)`, `fmt.Sprintf`, substrings, comparison, `len`, indexing and `range`
+all work, strings are stored in structs, slices and maps and passed and returned freely, and nothing is
+ever freed while a copy can still reach it. The compiler counts the copies, as Swift does, and frees a
+string's bytes when the last copy goes. This is the one place where Plutonium counts without being asked
+(section 6.5 says why everything else does not).
+
+**Values, buffers and counts.**
+
+- A string made at run time (by `+`, a conversion, `fmt.Sprintf`, `strconv.Itoa`, `strings.Builder`)
+  has a **buffer**: its bytes, allocated from the current allocator (section 7.1) behind a header that
+  records the allocator, the size and a count of the strings that use it. The buffer never changes once
+  a string uses it.
+- Copying a string (assigning it, storing it in a field, an element, an interface, a result, a captured
+  variable) copies its three words and adds one to the count. Dropping a copy (its variable's scope ends,
+  it is overwritten, the struct or container holding it is dropped) subtracts one, and the last drop
+  frees the buffer to the allocator recorded in its header.
+- A substring `s[i:j]` shares `s`'s buffer and keeps it alive.
+- String literals, constants and every other static string (package-level constant initializers,
+  compile-time concatenations, type names, enum names) live in read-only data and are **never counted**:
+  their control word has no buffer, so copying or dropping one costs nothing. The zero string is static.
+- Counts are atomic once a program can run Plutonium code on several threads (memory-model.md section
+  3.7). A hosted program counts with plain arithmetic until it starts its first puroutine, when the
+  runtime switches to atomic counts (`rt.SetThreaded`); a freestanding program counts atomically from
+  the start, since its kernel starts processors on its own. Strings are therefore sendable (section
+  4.7). A `go` statement gives the new puroutine its own references to the strings in its arguments,
+  and a send gives the channel one, which the receiver takes over; `alloc.FreeChan` releases the strings
+  of values still buffered.
+
+**Strings and ownership.** A string is a value, not an owner: it never moves, a moved-from string does
+not exist, and copying is always allowed. A struct or array with string fields is a value too: it copies
+freely, each copy counting its strings, and needs no `owner` declaration. When such a value is destroyed,
+the compiler releases its strings: this is **drop glue**, the same release that an owner's fields get
+(section 6.4), but implicit. Values are destroyed:
+
+- at the end of a variable's scope, on every path out of it (falling off the end of the block, `return`,
+  `break`, `continue`, `goto`), and at the end of each iteration for a variable declared in a loop body;
+- when a place is overwritten: the new value takes its references first, then the old one is released,
+  so `s = s[1:]` and `a, b = b, a` are safe;
+- for a **temporary** (a call's result, a concatenation, a conversion or a composite literal that nothing
+  stores), at the end of the statement that made it; in the condition of a three-clause `for`, after each
+  evaluation;
+- for storage that outlives a statement but belongs to the frame (an interface's box, the object of
+  `&T{...}`, a slice literal's array, a method value's receiver, a deferred call's saved arguments), when
+  the function returns, after its deferred calls have run, or when the same expression runs again and
+  refills it.
+
+`panic` and `os.Exit` release nothing, as for owners. A `[]string` slice is a view: its elements belong
+to the array it looks at, and whoever owns the array releases them. The library's containers do:
+`vec.Vec[string]` and `hash.Map[string, V]` release their elements when they are cleared, truncated,
+freed or dropped, through `rt.ReleaseValues`, the drop glue the compiler makes for any type. Memory from
+`new`, `make` or `alloc.New` that nobody frees keeps the strings in it alive too: `alloc.Free(p)` releases
+the strings in `*p` before freeing it.
+
+**Passing and returning.** A string parameter is **borrowed**: the caller keeps the string alive for the
+call, so passing one costs nothing, and the callee counts only the copies it keeps. A function that
+assigns to a string parameter, or takes its address, takes a reference of its own on entry. A result is
+**owned**: the callee hands the caller one reference, and `return x` for a local `x` hands over `x`'s
+own instead of adding one.
+
+**Representation** (abi.md section 1). A string is three words: the address of its first byte, its length
+in bytes, and a **control word**: the address of its buffer's header, or'ed with flag bits, or only the
+flags for a string nobody counts. The header is 8-aligned, so the low three bits are free. Bit 0 is set
+when the string may contain a byte at or above `0x80`; when it is clear, every byte is ASCII, which gives
+the library O(1) rune counting and indexing and ASCII-only paths for case conversion and comparison.
+Constructors compute it as they copy the bytes, and concatenation ors its operands' bits without
+scanning again. A substring keeps its parent's bit, which may then say "maybe" for an ASCII substring.
+
+The third word was chosen over two-word forms because substrings must find their buffer: a count found
+from the data pointer (at a fixed offset before it) does not work once a substring points into the
+middle of the buffer, and packing a count pointer or an offset into the length word limits strings' length
+and costs a mask on every `len`. The cost of the third word is one more register for each string passed
+or returned (a function returning a string and an error returns them in memory), and eight more bytes for
+each string stored; the roadmap (item 55) records what it measured.
+
+**Valid UTF-8.** Every string holds valid UTF-8, as Rust's `str` does.
+
+- A string literal or constant that is not valid UTF-8 (`"\xff"`, `"\xc0\x80"`) is a compile error.
+  Binary data belongs in `[]byte`, `[N]byte` or `vec.Vec[byte]`.
+- `string(b)` for a byte slice copies it and replaces each byte that does not begin a valid UTF-8
+  sequence with U+FFFD, as `range` over the bytes would decode them; it never fails.
+  `strings.FromUTF8(b)` returns an error instead of replacing. `string(runes)` and `string(r)` replace
+  invalid code points (surrogate halves, values above U+10FFFF, negative values) with U+FFFD, as in Go.
+- `s[i:j]` must start and end at the start of a rune (or at `len(s)`); otherwise it panics. The check
+  reads the bytes at `i` and `j`, and the compiler leaves it out for an ASCII string and where it can
+  prove the bound is a rune boundary (offsets that `strings.Index` returns are).
+- `len(s)` counts bytes, `s[i]` is a byte, `range` yields runes and comparison is bytewise, as in Go.
+- `unsafe.String(p, n)` is the escape hatch: it makes a string of `n` bytes at `p` without copying or
+  checking them. Such a string is not counted (its control word has no buffer, and its flags say the
+  bytes may be non-ASCII); it is a view of that memory, which must outlive every copy of it, as for any
+  view (section 6.3). If the bytes are not valid UTF-8, the behaviour of the string functions and of
+  `range` on it is undefined. `unsafe.StringData(s)` returns the address of the first byte. The library
+  never uses it on bytes from the operating system (section 13.1).
+
+**Conversions.** `[]byte(s)` and `[]rune(s)` copy into memory from the current allocator, exactly as
+`make([]byte, len(s))` would allocate it, and return what `make` returns (section 4.2): today a slice,
+which the program or an arena frees, and a `vec.Vec[byte]` (`vec.Vec[rune]`) that owns the copy once the
+proposal that `make` returns an owner is adopted, so the two never differ. `string(b)`, `string(runes)`
+and `string(r)` for a non-constant rune make a counted string; `string(r)` for an ASCII rune returns a
+static one-byte string and does not allocate, and a value out of range, of any integer type, gives
+U+FFFD as in Go.
+
+**Interface boxes.** A string converted to an interface is copied into a box in the converting
+function's frame (section 4.4), which holds a reference until the function returns or the same
+conversion runs again. A loop that prints a string therefore keeps the last one alive until the
+function returns; code that must see the memory freed earlier converts in a function of its own.
+
+**Arenas.** A string built while an arena is the current allocator (`defer alloc.Use(&a).Restore()`) has
+its buffer in the arena. Releasing it writes its header, so it must not be used, or dropped, after the
+arena is reset or dropped: declare the arena before the strings that use it, as for any owner that views
+it (section 6.4).
+
+**Races.** Reading a string variable while another puroutine writes it is a data race, as for any value
+larger than a word (memory-model.md section 4.3): the reader may see a torn value, or a buffer the writer
+has just released. Strings that are not written while shared need no locks.
+
+**What it costs.** Copying a static string costs nothing but the words copied, and so does passing any
+string down. Storing a heap string costs an increment, and dropping one a decrement and a test, both
+plain arithmetic in a single-threaded program. The compiler removes the counts it can prove unneeded
+(section 6.10.1); the rest are the price of strings that read like Go's.
+
+#### 6.10.1 Count elision
+
+The compiler leaves out the counting that cannot be observed:
+
+- **Parameters** are borrowed (above), so passing a string costs nothing in the common case. When the
+  argument is read from memory a call could change (a field reached through a pointer, a slice element, a
+  package variable), the caller holds a reference for the rest of the statement, unless no call made
+  while it is held can release a string: the optimiser (at `-O1` and above) summarises every function of
+  the program, and a function may release one if it drops a string reference, makes a call through a
+  func value or an interface, or calls a function that may. Calls that never return (panics) do not
+  count. Searching, comparing, hashing and other code that only reads strings therefore costs no count.
+- **Static strings** never touch a count, and the compiler skips the call altogether when it knows a
+  value is static.
+- **Local copies**: a temporary stored into a variable hands over its reference instead of being copied
+  and released; `return x` hands over `x`'s; a local whose address is not taken and that no function
+  literal uses is read without a reference.
+
+In kernel mode, the operations that make new strings are restricted to functions marked `//pu:alloc`
+(section 12.7).
+
 ## 7. Memory and allocation
 
 Plutonium never allocates heap memory unless the program asks: through `new`, `make`, the `pluto/alloc`
-functions, `owned`/`shared`/`synced` constructors, or library code that takes an allocator. Every
-allocation belongs to an owner or an arena (section 6.6). Local variables, temporaries and interface frame
-copies live on the stack. Package-level variables live in static storage (`.data` or `.bss`).
+functions, `owned`/`shared`/`synced` constructors, the operations that make strings (`+` on strings that
+are not constants, `string(b)`, `string(runes)`, `string(r)` for a rune that is not a constant,
+`[]byte(s)`, `[]rune(s)`; section 6.10), or library code that takes an allocator or uses the default
+one. Every allocation belongs to an owner, an arena or, for a string's buffer, the strings that count it
+(section 6.6). Local variables, temporaries and interface frame copies live on the stack. Package-level
+variables live in static storage (`.data` or `.bss`).
 
 ### 7.1 Allocators
 
@@ -2425,6 +2595,7 @@ recorded per puroutine. [debug-allocator.md](debug-allocator.md) has the details
 The following stop the program through the same path as `panic`:
 
 - an index or slice expression out of range,
+- slicing a string at a bound that is not the start of a rune (section 6.10),
 - integer division or remainder by zero,
 - a failed type assertion with a single result, on an interface or a union (section 5.10),
 - a union whose tag names no variant, in a type switch without a default case,
@@ -2596,12 +2767,13 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | `//pu:interrupt` | function | an x86-64 interrupt handler: saves every register it may change, returns with `iretq` (section 12.4) |
 | `//pu:noreturn` | function | the function never returns (lets the optimiser drop code after calls) |
 | `//pu:noescape` | body-less function | keeps no pointer argument past the call, except by storing it where another argument points (section 6.3) |
-| `//pu:resultholds p` | function returning an owner | keeps parameter `p` only while the result lives, and stores `p` in it; the call counts as returning `p` (section 6.3). The compiler checks that the result holds `p`; that its `Drop` gives `p` back is the author's promise |
+| `//pu:resultholds p` | function returning an owner, in the standard library only (E3008 elsewhere) | keeps parameter `p` only while the result lives, and stores `p` in it; the call counts as returning `p` (section 6.3). The compiler checks that the result holds `p`; that its `Drop` gives `p` back is the author's promise |
 | `//pu:panic` | function | the program's panic handler, `func(p *rt.Panic)`; exactly one in freestanding and kernel builds (section 8.1) |
 | `//pu:blocking` | function (with or without a body) | calling it may wait (park the caller); interrupt handlers and the panic handler must not reach it (section 12.6) |
 | `//pu:scheduler` | package variable | the program's scheduler backend, of a type implementing `rt.Scheduler`; at most one in a program, replacing the hosted one (section 4.7) |
 | `//pu:nosimd` | function | the optimiser adds no vector instructions to it (implied by `//pu:interrupt`, and by kernel mode outside `//pu:fpu` functions) |
 | `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (section 12.3) |
+| `//pu:alloc` | function | allocates: may make strings in kernel mode, and only such functions may call it there (section 12.7) |
 | `//pu:percpu` | package variable | one copy per processor, addressed through `GS`; kernel mode only (section 12.5) |
 | `//pu:stack size` | `func main` | run the program on a stack of `size` bytes (`K`, `M` or `G` suffixes, 64K to 64G) that the hosted runtime reserves, maps as it is used and puts a 1 MiB guard region below; without it, main runs on the stack the system gave the process (usually 8 MiB). Hosted builds only |
 
@@ -2644,6 +2816,9 @@ The full calling convention and data layouts are in [abi.md](abi.md).
 without Go's restrictions that exist only for the garbage collector. Every package that uses raw memory
 imports `unsafe`, so such code is easy to find. An `unsafe.Pointer` is a view (section 6.3); one made from
 a `uintptr` is assumed to point outside every frame and to memory nobody in the program frees.
+`unsafe.String` makes an uncounted string that views its bytes, which must be valid UTF-8 and outlive
+every copy of the string (section 6.10). Reading or writing a string's words through `unsafe` bypasses
+its count.
 
 Plutonium adds `unsafe.Drop(p *T)`, which destroys `*p` as the end of its owner's life would: `T`'s `Drop`
 method, then its fields (section 6.4). It is what the unchecked layer (`alloc.Free`, a container dropping
@@ -2685,7 +2860,8 @@ enabled and no vector state saved on entry. It differs from `freestanding` in th
   a default kernel linker script (abi.md section 10.3) that places the image at 1 MiB physical and
   `0xFFFFFFFF80100000` virtual.
 
-Kernel mode also enables per-CPU variables (section 12.5). `pluto/arch/x86` (section 12.4) and
+Kernel mode also restricts the string operations that allocate to functions marked `//pu:alloc`
+(section 12.7), and enables per-CPU variables (section 12.5). `pluto/arch/x86` (section 12.4) and
 `//pu:interrupt` handlers work in every mode; in kernel mode a handler without `//pu:fpu` saves no vector
 registers. `pluto/os` and `pluto/syscall` are unavailable, as in every freestanding build. `pluto run`
 refuses kernel builds. Like every freestanding program, a kernel must define its panic handler (section
@@ -2881,6 +3057,33 @@ A go statement on the path is reported the same way, as E2585 ("so it must not s
   handlers may call `rt.Ready`, so `Wake` is checked as a root too, with the message "is the
   scheduler's Wake, which interrupt handlers reach through rt.Ready".
 
+### 12.7 Allocation in kernel mode
+
+Kernel code runs where allocating is not allowed: in interrupt handlers, with spin locks held, on paths
+that must not fail, and before the kernel has set a default allocator. Calls of `new`, `make` and the
+`pluto/alloc` functions are visible in the source, but the operations that make strings look like
+arithmetic and conversions. In kernel mode, therefore, these are compile errors outside functions marked
+`//pu:alloc`, as floats are outside `//pu:fpu` functions (section 12.3):
+
+- `+` and `+=` on strings that are not constants;
+- `string(b)` for a byte or rune slice, `string(r)` for a rune that is not a constant, `[]byte(s)` and
+  `[]rune(s)`;
+- a call of a function marked `//pu:alloc`. The library marks the functions that allocate behind their
+  signature: `fmt.Sprintf`, `fmt.Errorf`, `strconv.Itoa`, `strings.Repeat`, `strings.Join` and the like.
+
+Everything else about strings stays allowed everywhere: literals and constants, copying, comparison,
+slicing, indexing, `len`, `range`, passing and returning, `unsafe.String`, and the functions that write
+into a buffer the caller provides (`fmt.Bprintf`, `strconv.AppendInt`). Copying and dropping a counted
+string made elsewhere is allowed, and a drop may free a buffer: a kernel that cannot free in some context
+keeps the strings it uses there static or made in an arena.
+
+`//pu:alloc` marks a function as one that allocates: in kernel mode it may make strings, and only
+functions marked `//pu:alloc` may call it. Function literals inside it inherit the mark. Calls through
+function values and interfaces are not checked. In hosted and freestanding builds the directive has no
+effect beyond documentation. It is a promise the compiler cannot check, as with `//pu:fpu`: the function
+must run only where the current allocator may be used. Section 12.6 is the other half: whatever an
+interrupt handler reaches, including an allocator's `Alloc` and `Free`, must not wait.
+
 ## 13. Standard library
 
 The library's containers, buffers and files are owners (section 6.4); their `Drop` methods free what they
@@ -2893,18 +3096,18 @@ hold, and most have a `Clone`.
 | `pluto/alloc` | allocators, the default allocator, `Use`/`Restore`, `Owned`/`Shared`/`Synced`, and the unchecked layer `Raw`/`New`/`Free` (section 7.1) |
 | `pluto/alloc/debug` | the checking allocator (section 7.3) |
 | `pluto/arena` | bump allocators; freeing into one does nothing, and `Reset` reclaims everything (section 6.6) |
-| `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf` returning a `strings.Buf`, `Bprintf` into a caller's buffer, `Println`; integer, float, string, pointer verbs with width, precision and flags; arrays, slices, structs, pointers, interfaces and enums with `%v`, `%+v` and `%#v` as Go prints them, read from type descriptors (section 4.4), and containers through `fmt.Mapper` (`hash.Map` prints as `map[k:v]` with sorted keys) and `fmt.Lister` (`vec.Vec` prints as a slice); all formatting goes through a fixed buffer and never allocates; `Errorf` and `ErrorBuf` (section 14) |
+| `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf`, `Sprint` and `Sprintln` returning a string, `Bprintf` into a caller's buffer, `Println`; integer, float, string, pointer verbs with width, precision and flags; arrays, slices, structs, pointers, interfaces and enums with `%v`, `%+v` and `%#v` as Go prints them, read from type descriptors (section 4.4), and containers through `fmt.Mapper` (`hash.Map` prints as `map[k:v]` with sorted keys) and `fmt.Lister` (`vec.Vec` prints as a slice); formatting goes through a fixed buffer, and only the `S` functions allocate, for their result; `Errorf` and `ErrorBuf` (section 14) |
 | `pluto/container` | the constraints of the indexing interface (section 6.7): `Indexable`, `Reader`, `Lookup`, `Sized` |
 | `pluto/container/heap` | Go's `container/heap` (`Init`, `Push`, `Pop`, `Remove`, `Fix` over a `heap.Interface`), and `Heap[T]`, a min-heap in a `vec.Vec` ordered by a less function, without boxing elements in `any` |
 | `pluto/io` | `Reader`, `Writer`, buffered I/O |
-| `pluto/os` | files (`os.File`, an owner that closes on drop), `Stat`, whole-file reads and writes, directories (`ReadDir` returns a `DirEntries` owner), removal, renaming, temporary directories, the working directory, pipes, processes, arguments, environment, exit (hosted) |
+| `pluto/os` | files (`os.File`, an owner that closes on drop), `Stat`, whole-file reads and writes, directories (`ReadDir` returns a `DirEntries` owner), removal, renaming, `Readlink`, temporary directories, the working directory, pipes, processes, arguments, environment, exit (hosted). Names and paths come back as strings with invalid bytes replaced, next to exact bytes (`DirEntry.RawName`, `ArgBytes`, `AppendWd`), and each core operation has a `Bytes` form that takes a `[]byte` path (`OpenBytes`, `StatBytes`, `RemoveBytes`, ...); see "Names from the operating system" below |
 | `pluto/os/exec` | running commands: `Cmd` (an owner), pipes copied inside `Wait`, `ExitError` in the data word (hosted) |
-| `pluto/path/filepath` | slash-separated paths: views (`Base`, `Dir`, `Ext`, `Split`) and `Append` forms (`AppendJoin`, `AppendClean`, `AppendRel`, `AppendAbs`), `Match`, `WalkDir` |
+| `pluto/path/filepath` | slash-separated paths: substrings (`Base`, `Ext`, `Split`), `Join`, `Clean`, `Dir`, `Rel` and `Abs` returning strings, with `Append` forms that write into a caller's buffer, `Match`, `WalkDir` (paths as strings with invalid bytes replaced) and `WalkDirBytes` (the exact bytes) |
 | `pluto/time` | `Duration`, `Time` in UTC with a monotonic reading, `Now`, `Since`; `Sleep`, `Timer`, `Ticker`, `After`, `Tick` and `AfterFunc` over the scheduler's timers (section 4.7) |
-| `pluto/flag` | command-line flags; a `FlagSet` owns its flags and their variables |
+| `pluto/flag` | command-line flags; a `FlagSet` owns its flags and their variables; `flag.Arg` is a string with invalid bytes replaced, `flag.ArgBytes` the exact bytes |
 | `pluto/syscall` | raw Linux system calls (hosted) |
-| `pluto/strconv` | `ParseUint`, `ParseInt`, `Atoi`, `ParseFloat` (decimal and hexadecimal, any rounding case, exact as Go's), `AppendInt`, `AppendUint`, `AppendFloat`, `PutUint`, `IsPrint`, `CanBackquote`; a failed parse returns `ErrSyntax` or `ErrRange` itself, and `NewNumError` makes Go's `*NumError` from an allocator when a caller wants one |
-| `pluto/strings`, `pluto/bytes` | `strings.Buf`, an owning string buffer (section 6.6); searching, comparison; Go 1.24's iterators `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq`, `FieldsFuncSeq` |
+| `pluto/strconv` | `Itoa`, `FormatInt`, `FormatFloat`, `Quote` returning strings, with `Append` forms that write into a caller's buffer; `ParseUint`, `ParseInt`, `Atoi`, `ParseFloat` (decimal and hexadecimal, any rounding case, exact as Go's), `PutUint`, `IsPrint`, `CanBackquote`; a failed parse returns `ErrSyntax` or `ErrRange` itself, and `NewNumError` makes Go's `*NumError` from an allocator when a caller wants one |
+| `pluto/strings`, `pluto/bytes` | `strings.Builder`, which builds a string in a buffer it shares with the result (section 6.10); searching, comparison, case conversion, `Join`, `Repeat`, `Replace`, `FromUTF8`; Go 1.24's iterators `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq`, `FieldsFuncSeq` |
 | `pluto/iter` | `Seq` and `Seq2` (section 4.10), and adaptors that allocate nothing: `Filter`, `Map`, `Limit`, `Concat` (each with a `2` form), `Enumerate`, `Keys`, `Values`, `Reduce`, `Count`, `Fill`. Go's `Pull` needs a coroutine per iterator and has no equivalent |
 | `pluto/bits` | bit operations (section 5.8) |
 | `pluto/math` | floating-point functions |
@@ -2920,6 +3123,47 @@ hold, and most have a `Clone`.
 | `pluto/errors` | `New` (a static error per call site), `Is`, `As`, `AsType`, `Unwrap`, `Join`, `Free` (section 14) |
 
 `pluto/os` and `pluto/syscall` are not available in freestanding builds.
+
+### 13.1 Names from the operating system
+
+A string holds only valid UTF-8 (section 6.10), but the system does not promise it: a Linux file name is
+any bytes except NUL and `/`, and so is a symbolic link's target, the working directory, a command-line
+argument and an environment variable. The library therefore follows one rule:
+
+**Bytes that the operating system hands back become a `string` only through validation, which replaces each
+byte that does not begin a valid UTF-8 sequence with U+FFFD, as `string(b)` does.** A name that is valid
+UTF-8 comes back as it is; no other string is made from external bytes without being checked. The
+conversion is lossy, as Rust's `to_string_lossy`. Two different files can give the same string, and a lossy
+name does not name the file it came from, so it must not be used to open, rename or remove that file.
+
+The exact bytes stay available next to every string that can be lossy:
+
+| String | Exact bytes |
+|---|---|
+| `DirEntry.Name`, `FileInfo.Name` of an entry | `DirEntry.RawName() []byte` |
+| `os.Readlink(name)` | `os.AppendReadlink(dst, name)`, `os.ReadlinkBytes(dst, name)` |
+| `os.Getwd()`, `filepath.Abs` | `os.AppendWd(dst)`, `filepath.AppendAbs(dst, path)` |
+| `os.Arg(i)`, `os.Args()`, `flag.Arg(i)` | `os.ArgBytes(i)`, `os.ArgsBytes()`, `flag.ArgBytes(i)` |
+| `os.Getenv`, `os.LookupEnv`, `os.Environ()`, `os.TempDir()` | `os.GetenvBytes`, `os.LookupEnvBytes`, `os.EnvironBytes()`, `os.TempDirBytes()` |
+| the `path` of `filepath.WalkDir` | `filepath.WalkDirBytes`, whose function takes `path []byte` |
+| `os.MkdirTemp`, `exec.LookPath` | `os.AppendMkdirTemp`, `exec.AppendLookPath` |
+| `PathError.Path`, `File.Name` | none: the caller has the bytes it passed |
+
+The views (`RawName`, `ArgBytes`, `GetenvBytes`) are valid as long as what they view: the `DirEntries`
+that holds the entry, or the life of the program for the process's arguments and environment.
+
+The core operations on a path have a form that takes the path as a `[]byte`, named by the suffix `Bytes`:
+`OpenBytes`, `OpenFileBytes`, `CreateBytes`, `StatBytes`, `LstatBytes`, `ReadDirBytes`, `ReadlinkBytes`,
+`ReadFileBytes`, `WriteFileBytes`, `MkdirBytes`, `MkdirAllBytes`, `RemoveBytes`, `RemoveAllBytes`,
+`RenameBytes`, `ChmodBytes` and `ChdirBytes`. A program that must handle any file writes `os.OpenBytes(e.RawName())`
+(joined to the directory) where it would write `os.Open(e.Name())`. The string forms remain the normal API.
+`ReadDir` sorts by the exact bytes of the names, as Go's does; `os/exec` passes the process's environment
+to a child unchanged. The runtime's own reads of the environment (`PLUTO_MAXPROCS`, `PLUTO_DEBUGALLOC`)
+ignore a value that is not valid UTF-8, and the trace table the compiler writes has file names made valid.
+
+`unsafe.String` stays in the library only where the bytes are valid by construction (literals, ASCII
+formatting output, text the library validated or built from valid strings) or are used inside a package as
+bytes and not returned as a string; each use has a comment that says which.
 
 ## 14. Errors
 
@@ -2982,13 +3226,14 @@ the code, `Name` its symbol (`"ENOENT"`), and its `Is` method makes `errors.Is(e
 
 ### 14.3 Errors with context
 
-An error that records context (a path, a line and column) needs storage for it. Its message is formatted
-when the error is made, into that storage, because `Error()` must return a string and cannot concatenate
-one at run time.
+An error that records context (a path, a line and column) needs storage for it. Its text is a string
+(section 6.10): `fmt.Errorf` formats its message into a string when the error is made, as `fmt.Sprintf`
+does, and `*os.PathError` keeps the operation and the path as strings and builds its message when
+`Error()` is called, as in Go. The error object holding those strings is what needs a home.
 
-- **Allocated.** `fmt.Errorf(format, args...)` allocates the error and its message in one block from the
-  default allocator, and so does `errors.Join`; both are variadic, so they cannot take a defaulted
-  allocator (section 5.1), and `alloc.Use` installs another allocator around them.
+- **Allocated.** `fmt.Errorf(format, args...)` allocates the error from the default allocator, and so does
+  `errors.Join`; both are variadic, so they cannot take a defaulted allocator (section 5.1), and
+  `alloc.Use` installs another allocator around them. Freeing the error releases its strings.
   `os.NewPathError(op, path, err, a = alloc.Default())` allocates from its last argument, and so do
   `os.Open`, `os.Create` and `os.OpenFile` when they fail. Such an error has a `Free()` method. `errors.Free(err)` releases every allocated error
   in `err`'s tree and skips the others; a wrapper owns the errors it wraps, so free only the outermost
@@ -3048,6 +3293,12 @@ how error handling reads.
    returned as an `error`; one that is an owner and is converted to `error` directly is only lent, and
    returning it is the compile error of section 6.9.
 7. The count is atomic, so allocated errors may be sent between puroutines.
+8. The text in an error is a string (section 6.10): a message, an operation, a path. An error object is
+   then a small struct of strings and wrapped errors (`struct{ msg string; err error }`), and its `Drop`
+   needs no code of its own for the text: the drop glue releases the strings, and a message that is a
+   substring of another, or a path the caller still holds, is shared rather than copied. Only the object
+   itself, and the errors it wraps, need the counting of points 1 to 4. Before strings were counted, the
+   message had to be formatted into the error's own block, and every error type freed its text by hand.
 
 Code does not change: `if err != nil { return err }` moves at the last use with no count update, and
 `errors.Is(err, os.ErrNotExist)` lends `err`.

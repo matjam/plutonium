@@ -217,7 +217,16 @@ func (c *common) setName(parent *common, elem string) {
 			n++
 		}
 	}
-	for i := 0; i < len(elem) && n < maxName; i++ {
+	// elem may be cut at maxName: not in the middle of a rune, since Name
+	// views the bytes as a string, which holds valid UTF-8.
+	limit := len(elem)
+	if limit > maxName-n {
+		limit = maxName - n
+		for limit > 0 && elem[limit]&0xC0 == 0x80 {
+			limit--
+		}
+	}
+	for i := 0; i < limit; i++ {
 		ch := elem[i]
 		if ch == ' ' {
 			ch = '_'
@@ -229,7 +238,11 @@ func (c *common) setName(parent *common, elem string) {
 }
 
 // Name returns the name of the running test or benchmark.
-func (c *common) Name() string { return unsafe.String(&c.name[0], c.nameLen) }
+func (c *common) Name() string {
+	// Valid UTF-8: the parent's name, a slash and elem cut at a rune
+	// boundary (setName).
+	return unsafe.String(&c.name[0], c.nameLen)
+}
 
 // Fail marks the test as failed and lets it continue.
 func (c *common) Fail() { c.failed = true }

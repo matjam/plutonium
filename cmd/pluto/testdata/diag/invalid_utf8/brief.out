@@ -1,0 +1,2 @@
+$DIR/main.p:5:15: string literal "\x7fELF\xff" is not valid UTF-8; use a []byte for binary data
+$DIR/main.p:9:21: string literal "\xed\xa0\x80" is not valid UTF-8; use a []byte for binary data

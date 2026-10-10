@@ -257,6 +257,8 @@ var directives = map[string]string{
 	"noreturn":  "the function never returns, so code after calls to it is dropped",
 	"nosimd":    "the optimiser adds no vector instructions to the function",
 	"fpu":       "the function may use floating point in kernel mode; the caller has saved the FPU state",
+	"alloc":     "the function allocates: in kernel mode it may build strings, and only such functions may call it",
+	"bytewise":  "string slices in the function are not checked for rune boundaries; it returns only whole runes",
 	"percpu":    "one copy of the package variable per processor, addressed through GS (kernel mode only)",
 }
 

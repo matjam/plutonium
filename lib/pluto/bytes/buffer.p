@@ -4,7 +4,6 @@ import (
 	"pluto/errors"
 	"pluto/io"
 	"pluto/unicode/utf8"
-	"unsafe"
 )
 
 // ErrFull is returned by Buffer writes that do not fit in the buffer.
@@ -43,18 +42,18 @@ func NewBufferString(buf []byte, s string) Buffer {
 // buffer content: it is valid only until the next buffer modification.
 func (b *Buffer) Bytes() []byte { return b.buf[b.off:] }
 
-// String returns the unread portion of the buffer as a string. Like Bytes it
-// is a view of the buffer, not a copy.
+// String returns the unread portion of the buffer as a new string, a copy
+// from the current allocator, as in Go; Bytes views it without copying.
+// Bytes that are not valid UTF-8 become U+FFFD (language spec section
+// 6.10).
+//
+//pu:alloc
 func (b *Buffer) String() string {
 	if b == nil {
 		// Special case, useful in debugging.
 		return "<nil>"
 	}
-	u := b.buf[b.off:]
-	if len(u) == 0 {
-		return ""
-	}
-	return unsafe.String(unsafe.SliceData(u), len(u))
+	return string(b.buf[b.off:])
 }
 
 // Len returns the number of bytes of the unread portion of the buffer.

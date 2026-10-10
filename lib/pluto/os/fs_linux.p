@@ -20,6 +20,18 @@ import (
 // Functions that produce text take a buffer from the caller and return a
 // view of it; functions that produce a list of values return an owner
 // (vec.Vec or DirEntries) that records its allocator.
+//
+// Names and paths. A file name on Linux is any bytes but NUL and '/'. A
+// string holds only valid UTF-8 (language spec section 6.10), so every name
+// or path this package hands back as a string (DirEntry.Name, Readlink,
+// Getwd, FileInfo.Name, PathError.Path, File.Name, Arg, Getenv) has each
+// invalid byte replaced by U+FFFD, as string(b) does, and the exact bytes
+// are available next to it: DirEntry.RawName, AppendReadlink, AppendWd,
+// ArgBytes, GetenvBytes. A lossy name cannot be opened, because it may name
+// another file or none, so every core operation on a path has a Bytes form
+// that takes the path as a []byte (OpenBytes, StatBytes, RemoveBytes and so
+// on). Use them with RawName and the Append forms for files whose names
+// may not be UTF-8.
 
 // maxPath is the longest path, including its NUL, the system calls take.
 const maxPath = 4096
@@ -27,6 +39,11 @@ const maxPath = 4096
 // cpath copies name into buf with a terminating NUL, for a system call. It
 // fails for names that are too long or contain a NUL.
 func cpath(name string, buf *[maxPath]byte) ([]byte, error) {
+	return cpathBytes(strBytes(name), buf)
+}
+
+// cpathBytes is cpath for a name that is bytes.
+func cpathBytes(name []byte, buf *[maxPath]byte) ([]byte, error) {
 	if len(name) >= len(buf) {
 		return nil, syscall.ENAMETOOLONG
 	}
@@ -75,8 +92,17 @@ func (m FileMode) Perm() FileMode { return m & ModePerm }
 // Type returns the type bits of m.
 func (m FileMode) Type() FileMode { return m & ModeType }
 
-// AppendString appends m as Go's FileMode.String formats it, such as
-// "drwxr-xr-x" or "-rw-r--r--", and returns the extended buffer.
+// String returns m as Go's FileMode.String formats it, such as
+// "drwxr-xr-x" or "-rw-r--r--", in a new string.
+//
+//pu:alloc
+func (m FileMode) String() string {
+	var buf [32]byte
+	return string(m.AppendString(buf[:0]))
+}
+
+// AppendString appends m as String formats it and returns the extended
+// buffer; it allocates nothing.
 func (m FileMode) AppendString(dst []byte) []byte {
 	const str = "dalTLDpSugct?"
 	typed := false
@@ -133,6 +159,7 @@ func modeFromStat(m uint32) FileMode {
 // struct, not an interface; the methods have Go's names.
 type FileInfo struct {
 	name    string
+	raw     []byte // the exact name, a view; see FileInfoToDirEntryBytes
 	size    int64
 	mode    FileMode
 	modTime time.Time
@@ -141,7 +168,9 @@ type FileInfo struct {
 }
 
 // Name returns the file's base name: a view of the path given to Stat, or
-// of the File's name.
+// of the File's name. If the name is not valid UTF-8 (StatBytes, ReadDir)
+// it is a copy with U+FFFD for each invalid byte; the caller has the exact
+// bytes (the path given to StatBytes, DirEntry.RawName).
 func (fi *FileInfo) Name() string { return fi.name }
 
 // Size returns the length in bytes of a regular file.
@@ -163,8 +192,16 @@ func (fi *FileInfo) Ino() uint64 { return fi.ino }
 func (fi *FileInfo) Nlink() uint64 { return fi.nlink }
 
 func fileInfo(name string, st *syscall.Stat_t) FileInfo {
+	base := basename(name)
+	fi := fileInfoOf(st)
+	fi.name = base
+	fi.raw = strBytes(base)
+	return fi
+}
+
+// fileInfoOf describes st, without a name.
+func fileInfoOf(st *syscall.Stat_t) FileInfo {
 	return FileInfo{
-		name:    basename(name),
 		size:    st.Size,
 		mode:    modeFromStat(st.Mode),
 		modTime: time.Unix(st.Mtim.Sec, st.Mtim.Nsec),
@@ -189,35 +226,73 @@ func basename(name string) string {
 	return name
 }
 
+// basenameBytes is basename for a path that is bytes.
+func basenameBytes(name []byte) []byte {
+	i := len(name) - 1
+	for i > 0 && name[i] == '/' {
+		name = name[:i]
+		i--
+	}
+	for i--; i >= 0; i-- {
+		if name[i] == '/' {
+			name = name[i+1:]
+			break
+		}
+	}
+	return name
+}
+
 // Stat returns a FileInfo describing the named file, following symbolic
 // links.
 func Stat(name string, a alloc.Allocator = alloc.Default()) (FileInfo, error) {
-	return statAt(name, 0, "stat", a)
+	return statAt(strBytes(name), name, 0, "stat", a)
+}
+
+// StatBytes is Stat for a name that is bytes (see OpenBytes). The FileInfo's
+// Name is a copy of the base name with invalid bytes replaced by U+FFFD.
+func StatBytes(name []byte, a alloc.Allocator = alloc.Default()) (FileInfo, error) {
+	return statAt(name, "", 0, "stat", a)
 }
 
 // Lstat is Stat without following a final symbolic link: it describes the
 // link itself.
 func Lstat(name string, a alloc.Allocator = alloc.Default()) (FileInfo, error) {
-	return statAt(name, syscall.AT_SYMLINK_NOFOLLOW, "lstat", a)
+	return statAt(strBytes(name), name, syscall.AT_SYMLINK_NOFOLLOW, "lstat", a)
 }
 
-func statAt(name string, flags int, op string, a alloc.Allocator) (FileInfo, error) {
-	return statNamed(name, name, flags, op, a)
+// LstatBytes is Lstat for a name that is bytes (see OpenBytes).
+func LstatBytes(name []byte, a alloc.Allocator = alloc.Default()) (FileInfo, error) {
+	return statAt(name, "", syscall.AT_SYMLINK_NOFOLLOW, "lstat", a)
 }
 
-// statNamed is statAt for a FileInfo that records base, rather than a view
-// of the path name, as its name.
-func statNamed(name, base string, flags int, op string, a alloc.Allocator) (FileInfo, error) {
-	var buf [maxPath]byte
-	p, err := cpath(name, &buf)
-	if err != nil {
-		return FileInfo{}, NewPathError(op, name, err, a)
-	}
+// statAt stats name, whose string form sname is "" if the caller has only
+// bytes.
+func statAt(name []byte, sname string, flags int, op string, a alloc.Allocator) (FileInfo, error) {
 	var st syscall.Stat_t
-	if err := syscall.Fstatat(syscall.AT_FDCWD, p, &st, flags); err != nil {
-		return FileInfo{}, NewPathError(op, name, err, a)
+	if err := fstatat(name, sname, &st, flags, op, a); err != nil {
+		return FileInfo{}, err
 	}
-	return fileInfo(base, &st), nil
+	if sname != "" || len(name) == 0 {
+		return fileInfo(sname, &st), nil
+	}
+	fi := fileInfoOf(&st)
+	fi.raw = basenameBytes(name)
+	fi.name = lossyCopy(fi.raw, a)
+	return fi, nil
+}
+
+// fstatat fills st for name, whose string form sname is "" if the caller
+// has only bytes, or returns a *PathError.
+func fstatat(name []byte, sname string, st *syscall.Stat_t, flags int, op string, a alloc.Allocator) error {
+	var buf [maxPath]byte
+	p, err := cpathBytes(name, &buf)
+	if err != nil {
+		return newPathError(op, name, sname, err, a)
+	}
+	if err := syscall.Fstatat(syscall.AT_FDCWD, p, st, flags); err != nil {
+		return newPathError(op, name, sname, err, a)
+	}
+	return nil
 }
 
 // Stat describes the open file. It reports a bare syscall.Errno, as the
@@ -246,20 +321,28 @@ func (f *File) Truncate(size int64) error { return syscall.Ftruncate(f.fd, size)
 // allocates from a (by default the default allocator); the caller owns it
 // and frees it with Free. A failure is a *PathError from a.
 func ReadFile(name string, a alloc.Allocator = alloc.Default()) (vec.Vec[byte], error) {
+	return readFile(strBytes(name), name, a)
+}
+
+// ReadFileBytes is ReadFile for a name that is bytes (see OpenBytes).
+func ReadFileBytes(name []byte, a alloc.Allocator = alloc.Default()) (vec.Vec[byte], error) {
+	return readFile(name, "", a)
+}
+
+func readFile(name []byte, sname string, a alloc.Allocator) (vec.Vec[byte], error) {
 	data := vec.New[byte](a)
-	// The File lives in this frame, as in WriteFile.
-	fd, err := openFD(name, syscall.O_RDONLY, 0, a)
+	f, err := openFile(name, sname, syscall.O_RDONLY, 0, a)
 	if err != nil {
 		return data, err
 	}
-	f := &File{fd: fd, name: name}
+	defer alloc.Free(f, a)
 	defer f.Close()
 	if fi, err := f.Stat(); err == nil && fi.size > 0 && fi.size < 1<<40 {
 		data.Reserve(int(fi.size) + 1)
 	}
 	if err := readAll(f, &data); err != nil {
 		data.Free()
-		return data, NewPathError("read", name, err, a)
+		return data, newPathError("read", name, sname, err, a)
 	}
 	return data, nil
 }
@@ -282,33 +365,49 @@ func readAll(r io.Reader, data *vec.Vec[byte]) error {
 // WriteFile writes data to the named file, creating it with permissions
 // perm if necessary and truncating it otherwise.
 func WriteFile(name string, data []byte, perm FileMode, a alloc.Allocator = alloc.Default()) error {
-	// The File lives in this frame: it keeps a view of name only until
-	// WriteFile returns.
-	fd, err := openFD(name, syscall.O_WRONLY|syscall.O_CREAT|syscall.O_TRUNC, uint32(perm.Perm()), a)
+	return writeFile(strBytes(name), name, data, perm, a)
+}
+
+// WriteFileBytes is WriteFile for a name that is bytes (see OpenBytes).
+func WriteFileBytes(name []byte, data []byte, perm FileMode, a alloc.Allocator = alloc.Default()) error {
+	return writeFile(name, "", data, perm, a)
+}
+
+func writeFile(name []byte, sname string, data []byte, perm FileMode, a alloc.Allocator) error {
+	f, err := openFile(name, sname, syscall.O_WRONLY|syscall.O_CREAT|syscall.O_TRUNC, uint32(perm.Perm()), a)
 	if err != nil {
 		return err
 	}
-	f := File{fd: fd, name: name}
 	_, err = f.Write(data)
 	cerr := f.Close()
+	alloc.Free(f, a)
 	if err == nil {
 		err = cerr
 	}
 	if err != nil {
-		return NewPathError("write", name, err, a)
+		return newPathError("write", name, sname, err, a)
 	}
 	return nil
 }
 
 // Mkdir creates a directory with permissions perm (before the umask).
 func Mkdir(name string, perm FileMode, a alloc.Allocator = alloc.Default()) error {
+	return mkdir(strBytes(name), name, perm, a)
+}
+
+// MkdirBytes is Mkdir for a name that is bytes (see OpenBytes).
+func MkdirBytes(name []byte, perm FileMode, a alloc.Allocator = alloc.Default()) error {
+	return mkdir(name, "", perm, a)
+}
+
+func mkdir(name []byte, sname string, perm FileMode, a alloc.Allocator) error {
 	var buf [maxPath]byte
-	p, err := cpath(name, &buf)
+	p, err := cpathBytes(name, &buf)
 	if err == nil {
 		err = syscall.Mkdirat(syscall.AT_FDCWD, p, uint32(perm.Perm()))
 	}
 	if err != nil {
-		return NewPathError("mkdir", name, err, a)
+		return newPathError("mkdir", name, sname, err, a)
 	}
 	return nil
 }
@@ -316,13 +415,22 @@ func Mkdir(name string, perm FileMode, a alloc.Allocator = alloc.Default()) erro
 // MkdirAll creates a directory and any parents it needs, with permissions
 // perm. It does nothing if path is already a directory.
 func MkdirAll(path string, perm FileMode, a alloc.Allocator = alloc.Default()) error {
+	return mkdirAllPath(strBytes(path), path, perm, a)
+}
+
+// MkdirAllBytes is MkdirAll for a path that is bytes (see OpenBytes).
+func MkdirAllBytes(path []byte, perm FileMode, a alloc.Allocator = alloc.Default()) error {
+	return mkdirAllPath(path, "", perm, a)
+}
+
+func mkdirAllPath(path []byte, spath string, perm FileMode, a alloc.Allocator) error {
 	var buf [maxPath]byte
-	p, err := cpath(path, &buf)
+	p, err := cpathBytes(path, &buf)
 	if err != nil {
-		return NewPathError("mkdir", path, err, a)
+		return newPathError("mkdir", path, spath, err, a)
 	}
 	if err := mkdirAll(p, len(path), uint32(perm.Perm())); err != nil {
-		return NewPathError("mkdir", path, err, a)
+		return newPathError("mkdir", path, spath, err, a)
 	}
 	return nil
 }
@@ -366,8 +474,17 @@ func mkdirAll(p []byte, n int, perm uint32) error {
 
 // Remove removes the named file or empty directory.
 func Remove(name string, a alloc.Allocator = alloc.Default()) error {
+	return remove(strBytes(name), name, a)
+}
+
+// RemoveBytes is Remove for a name that is bytes (see OpenBytes).
+func RemoveBytes(name []byte, a alloc.Allocator = alloc.Default()) error {
+	return remove(name, "", a)
+}
+
+func remove(name []byte, sname string, a alloc.Allocator) error {
 	var buf [maxPath]byte
-	p, err := cpath(name, &buf)
+	p, err := cpathBytes(name, &buf)
 	if err == nil {
 		err = syscall.Unlinkat(syscall.AT_FDCWD, p, 0)
 		if err == syscall.EISDIR || err == syscall.EPERM {
@@ -379,7 +496,7 @@ func Remove(name string, a alloc.Allocator = alloc.Default()) error {
 		}
 	}
 	if err != nil {
-		return NewPathError("remove", name, err, a)
+		return newPathError("remove", name, sname, err, a)
 	}
 	return nil
 }
@@ -387,21 +504,43 @@ func Remove(name string, a alloc.Allocator = alloc.Default()) error {
 // RemoveAll removes path and everything it contains. It returns nil if
 // path does not exist.
 func RemoveAll(path string, a alloc.Allocator = alloc.Default()) error {
-	if path == "" {
+	return removeAll(strBytes(path), path, a)
+}
+
+// RemoveAllBytes is RemoveAll for a path that is bytes (see OpenBytes).
+func RemoveAllBytes(path []byte, a alloc.Allocator = alloc.Default()) error {
+	return removeAll(path, "", a)
+}
+
+func removeAll(path []byte, spath string, a alloc.Allocator) error {
+	if len(path) == 0 {
 		return nil
 	}
-	if path == "." || path == ".." || len(path) >= 2 && path[len(path)-2:] == "/." || len(path) >= 3 && path[len(path)-3:] == "/.." {
-		return NewPathError("RemoveAll", path, syscall.EINVAL, a)
+	if hasDotSuffix(path) {
+		return newPathError("RemoveAll", path, spath, syscall.EINVAL, a)
 	}
 	var buf [maxPath]byte
-	p, err := cpath(path, &buf)
+	p, err := cpathBytes(path, &buf)
 	if err == nil {
 		err = removeAllAt(syscall.AT_FDCWD, p)
 	}
 	if err != nil {
-		return NewPathError("unlinkat", path, err, a)
+		return newPathError("unlinkat", path, spath, err, a)
 	}
 	return nil
+}
+
+// hasDotSuffix reports whether path is "." or "..", or ends in "/." or
+// "/..".
+func hasDotSuffix(path []byte) bool {
+	n := len(path)
+	if n == 1 && path[0] == '.' || n == 2 && path[0] == '.' && path[1] == '.' {
+		return true
+	}
+	if n >= 2 && path[n-2] == '/' && path[n-1] == '.' {
+		return true
+	}
+	return n >= 3 && path[n-3] == '/' && path[n-2] == '.' && path[n-1] == '.'
 }
 
 // removeAllAt removes name (NUL-terminated) relative to dirfd, and
@@ -443,7 +582,7 @@ func removeAllAt(dirfd int, name []byte) error {
 			for off := 0; off < n; {
 				ent, _, reclen := syscall.ParseDirent(dents[off:n])
 				off += reclen
-				if ent == "." || ent == ".." {
+				if isDots(ent) {
 					continue
 				}
 				copy(child[:], ent)
@@ -479,58 +618,156 @@ func removeAllAt(dirfd int, name []byte) error {
 // Rename renames (moves) oldpath to newpath, replacing newpath if it is
 // a file.
 func Rename(oldpath, newpath string, a alloc.Allocator = alloc.Default()) error {
+	return rename(strBytes(oldpath), oldpath, strBytes(newpath), a)
+}
+
+// RenameBytes is Rename for names that are bytes (see OpenBytes).
+func RenameBytes(oldpath, newpath []byte, a alloc.Allocator = alloc.Default()) error {
+	return rename(oldpath, "", newpath, a)
+}
+
+func rename(oldpath []byte, soldpath string, newpath []byte, a alloc.Allocator) error {
 	var ob, nb [maxPath]byte
-	op, err := cpath(oldpath, &ob)
+	op, err := cpathBytes(oldpath, &ob)
 	if err != nil {
-		return NewPathError("rename", oldpath, err, a)
+		return newPathError("rename", oldpath, soldpath, err, a)
 	}
-	np, err := cpath(newpath, &nb)
+	np, err := cpathBytes(newpath, &nb)
 	if err == nil {
 		err = syscall.Renameat(syscall.AT_FDCWD, op, syscall.AT_FDCWD, np)
 	}
 	if err != nil {
-		return NewPathError("rename", oldpath, err, a)
+		return newPathError("rename", oldpath, soldpath, err, a)
 	}
 	return nil
 }
 
 // Chmod changes the permission bits of the named file.
 func Chmod(name string, mode FileMode, a alloc.Allocator = alloc.Default()) error {
+	return chmod(strBytes(name), name, mode, a)
+}
+
+// ChmodBytes is Chmod for a name that is bytes (see OpenBytes).
+func ChmodBytes(name []byte, mode FileMode, a alloc.Allocator = alloc.Default()) error {
+	return chmod(name, "", mode, a)
+}
+
+func chmod(name []byte, sname string, mode FileMode, a alloc.Allocator) error {
 	var buf [maxPath]byte
-	p, err := cpath(name, &buf)
+	p, err := cpathBytes(name, &buf)
 	if err == nil {
 		err = syscall.Fchmodat(syscall.AT_FDCWD, p, uint32(mode&(ModePerm|ModeSetuid|ModeSetgid|ModeSticky)))
 	}
 	if err != nil {
-		return NewPathError("chmod", name, err, a)
+		return newPathError("chmod", name, sname, err, a)
 	}
 	return nil
 }
 
-// Getwd stores the working directory in buf and returns it, a view of buf.
-// It fails with ERANGE if buf is too short; maxPath bytes always suffice.
-func Getwd(buf []byte) (string, error) {
-	n, err := syscall.Getcwd(buf)
+// isDots reports whether name is "." or "..".
+func isDots(name []byte) bool {
+	return len(name) == 1 && name[0] == '.' || len(name) == 2 && name[0] == '.' && name[1] == '.'
+}
+
+// Readlink returns the target of the symbolic link name, a string with
+// each invalid UTF-8 byte of the target replaced by U+FFFD (a link may
+// point anywhere, and a string holds only valid UTF-8; see AppendReadlink
+// for the exact bytes). A failure is a *PathError from a.
+//
+//pu:alloc
+func Readlink(name string, a alloc.Allocator = alloc.Default()) (string, error) {
+	var buf [maxPath]byte
+	b, err := readlink(buf[:0], strBytes(name), name, a)
 	if err != nil {
 		return "", err
 	}
-	return unsafe.String(unsafe.SliceData(buf), n-1), nil
+	return lossyCopy(b, a), nil
+}
+
+// AppendReadlink appends the exact bytes of the target of the symbolic link
+// name to dst, within its capacity, and allocates only for an error. A
+// target that does not fit is ENAMETOOLONG; maxPath (4096) bytes always
+// suffice.
+func AppendReadlink(dst []byte, name string, a alloc.Allocator = alloc.Default()) ([]byte, error) {
+	return readlink(dst, strBytes(name), name, a)
+}
+
+// ReadlinkBytes is AppendReadlink for a name that is bytes (see
+// OpenBytes).
+func ReadlinkBytes(dst []byte, name []byte, a alloc.Allocator = alloc.Default()) ([]byte, error) {
+	return readlink(dst, name, "", a)
+}
+
+func readlink(dst []byte, name []byte, sname string, a alloc.Allocator) ([]byte, error) {
+	var buf [maxPath]byte
+	p, err := cpathBytes(name, &buf)
+	if err != nil {
+		return dst, newPathError("readlink", name, sname, err, a)
+	}
+	room := dst[len(dst):cap(dst)]
+	n, err := syscall.Readlinkat(syscall.AT_FDCWD, p, room)
+	if err != nil {
+		return dst, newPathError("readlink", name, sname, err, a)
+	}
+	if n >= len(room) {
+		// The kernel cuts a longer target to fit: it may be truncated.
+		return dst, newPathError("readlink", name, sname, syscall.ENAMETOOLONG, a)
+	}
+	return dst[:len(dst)+n], nil
+}
+
+// Getwd returns the working directory, a new string from the current
+// allocator. The directory's name is any bytes but NUL, so each byte that
+// is not valid UTF-8 is replaced by U+FFFD, as string(b) does; AppendWd
+// returns the exact bytes.
+//
+//pu:alloc
+func Getwd() (string, error) {
+	var buf [maxPath]byte
+	b, err := AppendWd(buf[:0])
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// AppendWd appends the exact bytes of the working directory to dst, within
+// its capacity, and allocates nothing. It fails with ERANGE if the room
+// left is too short; maxPath bytes always suffice.
+func AppendWd(dst []byte) ([]byte, error) {
+	room := dst[len(dst):cap(dst)]
+	n, err := syscall.Getcwd(room)
+	if err != nil {
+		return dst, err
+	}
+	return dst[:len(dst)+n-1], nil
 }
 
 // Chdir changes the working directory.
 func Chdir(dir string, a alloc.Allocator = alloc.Default()) error {
+	return chdir(strBytes(dir), dir, a)
+}
+
+// ChdirBytes is Chdir for a directory name that is bytes (see OpenBytes).
+func ChdirBytes(dir []byte, a alloc.Allocator = alloc.Default()) error {
+	return chdir(dir, "", a)
+}
+
+func chdir(dir []byte, sdir string, a alloc.Allocator) error {
 	var buf [maxPath]byte
-	p, err := cpath(dir, &buf)
+	p, err := cpathBytes(dir, &buf)
 	if err == nil {
 		err = syscall.Chdir(p)
 	}
 	if err != nil {
-		return NewPathError("chdir", dir, err, a)
+		return newPathError("chdir", dir, sdir, err, a)
 	}
 	return nil
 }
 
 // TempDir returns the directory for temporary files: $TMPDIR, or "/tmp".
+// A $TMPDIR that is not valid UTF-8 comes back with U+FFFD for each invalid
+// byte; TempDirBytes returns it exactly.
 func TempDir() string {
 	if d := Getenv("TMPDIR"); d != "" {
 		return d
@@ -538,19 +775,49 @@ func TempDir() string {
 	return "/tmp"
 }
 
+// TempDirBytes returns the directory for temporary files as the exact
+// bytes of $TMPDIR, or "/tmp". It may be a view of the process's
+// environment: do not modify it.
+func TempDirBytes() []byte {
+	if d := GetenvBytes(strBytes("TMPDIR")); len(d) > 0 {
+		return d
+	}
+	return strBytes("/tmp")
+}
+
 // MkdirTemp creates a new directory in dir (TempDir if dir is "") whose
 // name is pattern with its last "*" replaced by a random string (or the
-// random string appended if pattern has no "*"), and returns its path,
-// built in buf. The directory has permissions 0o700; removing it is the
-// caller's job.
-func MkdirTemp(dir, pattern string, buf []byte, a alloc.Allocator = alloc.Default()) (string, error) {
+// random string appended if pattern has no "*"), and returns its path, a
+// new string. The directory has permissions 0o700; removing it is the
+// caller's job. Errors, and the path, come from a, by default the default
+// allocator. If dir is "" and $TMPDIR is not valid UTF-8, the path
+// returned has U+FFFD for each invalid byte (AppendMkdirTemp returns the
+// exact bytes).
+//
+//pu:alloc
+func MkdirTemp(dir, pattern string, a alloc.Allocator = alloc.Default()) (string, error) {
+	var buf [maxPath]byte
+	b, err := AppendMkdirTemp(buf[:0], dir, pattern, a)
+	if err != nil {
+		return "", err
+	}
+	return rt.StringFromBytes(unsafe.SliceData(b), len(b), a), nil
+}
+
+// AppendMkdirTemp is MkdirTemp building the path in dst, within its
+// capacity, instead of a new string: it allocates only for an error. The
+// path is the exact bytes, which differ from a string only when dir is ""
+// and $TMPDIR is not valid UTF-8.
+func AppendMkdirTemp(dst []byte, dir, pattern string, a alloc.Allocator = alloc.Default()) ([]byte, error) {
+	buf := dst[len(dst):cap(dst)]
+	dirb := strBytes(dir)
 	if dir == "" {
-		dir = TempDir()
+		dirb = TempDirBytes()
 	}
 	prefix, suffix := pattern, ""
 	for i := len(pattern) - 1; i >= 0; i-- {
 		if pattern[i] == '/' {
-			return "", NewPathError("mkdirtemp", pattern, ErrPatternHasSeparator, a)
+			return dst, NewPathError("mkdirtemp", pattern, ErrPatternHasSeparator, a)
 		}
 		if pattern[i] == '*' {
 			prefix, suffix = pattern[:i], pattern[i+1:]
@@ -565,11 +832,11 @@ func MkdirTemp(dir, pattern string, buf []byte, a alloc.Allocator = alloc.Defaul
 			r = r<<8 | uint64(b)
 		}
 		name := buf[:0]
-		if cap(name) < len(dir)+1+len(prefix)+20+len(suffix) {
-			return "", NewPathError("mkdirtemp", dir, syscall.ENAMETOOLONG, a)
+		if cap(name) < len(dirb)+1+len(prefix)+20+len(suffix) {
+			return dst, NewPathErrorBytes("mkdirtemp", dirb, syscall.ENAMETOOLONG, a)
 		}
-		name = append(name, dir...)
-		if len(dir) > 0 && dir[len(dir)-1] != '/' {
+		name = append(name, dirb...)
+		if len(dirb) > 0 && dirb[len(dirb)-1] != '/' {
 			name = append(name, '/')
 		}
 		name = append(name, prefix...)
@@ -578,20 +845,19 @@ func MkdirTemp(dir, pattern string, buf []byte, a alloc.Allocator = alloc.Defaul
 			r /= 10
 		}
 		name = append(name, suffix...)
-		s := unsafe.String(unsafe.SliceData(name), len(name))
 		var pb [maxPath]byte
-		p, err := cpath(s, &pb)
+		p, err := cpathBytes(name, &pb)
 		if err == nil {
 			err = syscall.Mkdirat(syscall.AT_FDCWD, p, 0o700)
 		}
 		if err == nil {
-			return s, nil
+			return dst[:len(dst)+len(name)], nil
 		}
 		if err != syscall.EEXIST {
-			return "", NewPathError("mkdirtemp", s, err, a)
+			return dst, NewPathErrorBytes("mkdirtemp", name, err, a)
 		}
 	}
-	return "", NewPathError("mkdirtemp", dir, syscall.EEXIST, a)
+	return dst, NewPathErrorBytes("mkdirtemp", dirb, syscall.EEXIST, a)
 }
 
 // ErrPatternHasSeparator is reported by MkdirTemp for a pattern with a "/".
@@ -621,23 +887,17 @@ func Getpid() int { return syscall.Getpid() }
 func Getuid() int { return syscall.Getuid() }
 
 // LookupEnv returns the value of the environment variable key and whether
-// it is set.
+// it is set. The value is made a valid string as Getenv makes it;
+// LookupEnvBytes returns the exact bytes.
 func LookupEnv(key string) (string, bool) {
-	env := rt.Environ()
-	for i := 0; ; i++ {
-		p := *(**byte)(unsafe.Add(env, i*8))
-		if p == nil {
-			return "", false
-		}
-		kv := cstring(p)
-		if len(kv) > len(key) && kv[len(key)] == '=' && kv[:len(key)] == key {
-			return kv[len(key)+1:], true
-		}
-	}
+	v, ok := lookupEnv(strBytes(key))
+	return lossyView(v), ok
 }
 
 // Environ returns the environment as "key=value" strings, views of the
-// process's environment, in a vec.Vec allocated from a.
+// process's environment, in a vec.Vec allocated from a. An entry that is
+// not valid UTF-8 is a copy with U+FFFD for each invalid byte;
+// EnvironBytes returns the exact bytes.
 func Environ(a alloc.Allocator = alloc.Default()) vec.Vec[string] {
 	env := rt.Environ()
 	out := vec.New[string](a)
@@ -646,17 +906,45 @@ func Environ(a alloc.Allocator = alloc.Default()) vec.Vec[string] {
 		if p == nil {
 			return out
 		}
-		out.Push(cstring(p))
+		out.Push(lossyView(cbytes(p)))
+	}
+}
+
+// EnvironBytes returns the environment as exact "key=value" byte slices,
+// views of the process's environment (valid for the life of the program; do
+// not modify them), in a vec.Vec allocated from a.
+func EnvironBytes(a alloc.Allocator = alloc.Default()) vec.Vec[[]byte] {
+	env := rt.Environ()
+	out := vec.New[[]byte](a)
+	for i := 0; ; i++ {
+		p := *(**byte)(unsafe.Add(env, i*8))
+		if p == nil {
+			return out
+		}
+		out.Push(cbytes(p))
 	}
 }
 
 // Args returns the command-line arguments, starting with the program name,
-// as views of the process's arguments in a vec.Vec allocated from a.
+// as views of the process's arguments in a vec.Vec allocated from a. An
+// argument that is not valid UTF-8 is a copy with U+FFFD for each invalid
+// byte; ArgsBytes returns the exact bytes.
 func Args(a alloc.Allocator = alloc.Default()) vec.Vec[string] {
 	n := NArgs()
 	out := vec.WithCapacity[string](n, a)
 	for i := 0; i < n; i++ {
 		out.Push(Arg(i))
+	}
+	return out
+}
+
+// ArgsBytes returns the command-line arguments as exact byte slices (see
+// ArgBytes), in a vec.Vec allocated from a.
+func ArgsBytes(a alloc.Allocator = alloc.Default()) vec.Vec[[]byte] {
+	n := NArgs()
+	out := vec.WithCapacity[[]byte](n, a)
+	for i := 0; i < n; i++ {
+		out.Push(ArgBytes(i))
 	}
 	return out
 }

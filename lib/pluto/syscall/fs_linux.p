@@ -23,6 +23,7 @@ const (
 	SYS_NEWFSTATAT = 262
 	SYS_UNLINKAT   = 263
 	SYS_RENAMEAT   = 264
+	SYS_READLINKAT = 267
 	SYS_FCHMODAT   = 268
 	SYS_FACCESSAT  = 269
 	SYS_DUP3       = 292
@@ -171,8 +172,10 @@ func Getdents64(fd int, buf []byte) (int, error) {
 }
 
 // ParseDirent returns the first entry of a buffer filled by Getdents64: its
-// name (a view of buf), its type (DT_*), and the length of the record.
-func ParseDirent(buf []byte) (name string, typ uint8, reclen int) {
+// name (a view of buf), its type (DT_*), and the length of the record. The
+// name is bytes, not a string: a file name is any bytes but NUL and '/', and
+// need not be valid UTF-8 (language spec section 6.10).
+func ParseDirent(buf []byte) (name []byte, typ uint8, reclen int) {
 	// struct linux_dirent64: ino u64, off i64, reclen u16, type u8, name.
 	reclen = int(buf[16]) | int(buf[17])<<8
 	typ = buf[18]
@@ -180,7 +183,14 @@ func ParseDirent(buf []byte) (name string, typ uint8, reclen int) {
 	for 19+n < reclen && buf[19+n] != 0 {
 		n++
 	}
-	return unsafe.String(&buf[19], n), typ, reclen
+	return buf[19 : 19+n : 19+n], typ, reclen
+}
+
+// Readlinkat reads the target of the symbolic link at path (relative to
+// dirfd) into buf, without a NUL, and returns its length. A target longer
+// than buf is cut short, so a result equal to len(buf) may be truncated.
+func Readlinkat(dirfd int, path []byte, buf []byte) (int, error) {
+	return result(Syscall6(SYS_READLINKAT, uintptr(dirfd), ptr(path), ptr(buf), uintptr(len(buf)), 0, 0))
 }
 
 // Mkdirat creates a directory.

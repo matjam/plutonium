@@ -1,7 +1,6 @@
 package lower
 
 import (
-	"encoding/binary"
 	"go/constant"
 	"strconv"
 
@@ -27,7 +26,7 @@ func (s *fnState) errorsNew(e *ast.CallExpr, fn *types2.Func) []value {
 		return []value{s.zeroValue(T)}
 	}
 	text, ok := fn.Pkg().Scope().Lookup("Text").(*types2.TypeName)
-	if !ok || s.l.sizeof(text.Type()) != 16 {
+	if !ok || s.l.sizeof(text.Type()) != strSize {
 		s.l.internalf(e.Pos(), "pluto/errors.Text must be a struct holding one string")
 		return []value{s.zeroValue(T)}
 	}
@@ -43,13 +42,9 @@ func (l *Lowerer) staticError(e *ast.CallExpr, msg string) *ssa.Sym {
 	}
 	sym := l.out.Sym(".errors.New."+strconv.Itoa(len(l.errorSites)), ssa.SymData)
 	l.errorSites[e] = sym
-	// Text{Msg: msg}: the string's data pointer, then its length.
-	data := make([]byte, 16)
-	binary.LittleEndian.PutUint64(data[8:], uint64(len(msg)))
-	d := &ssa.Data{Sym: sym, Size: 16, Align: 8, Bytes: data, ReadOnly: true, Local: true}
-	if msg != "" {
-		d.Relocs = []ssa.DataReloc{{Off: 0, Sym: l.stringData(msg)}}
-	}
+	// Text{Msg: msg}: a static, uncounted string header.
+	data, relocs := l.staticStringHeader(msg)
+	d := &ssa.Data{Sym: sym, Size: strSize, Align: 8, Bytes: data, Relocs: relocs, ReadOnly: true, Local: true}
 	l.out.Data = append(l.out.Data, d)
 	return sym
 }

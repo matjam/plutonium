@@ -357,6 +357,15 @@ func daysFromCivil(y, m, d int64) int64 {
 	return era*146097 + doe - 719468
 }
 
+// RFC3339 returns t in RFC 3339 format with nanoseconds, as AppendRFC3339
+// formats it, in a new string.
+//
+//pu:alloc
+func (t Time) RFC3339() string {
+	var buf [64]byte
+	return string(t.AppendRFC3339(buf[:0]))
+}
+
 // AppendRFC3339 appends t in RFC 3339 format with nanoseconds, as Go's
 // t.Format(time.RFC3339Nano) prints a UTC time ("2006-01-02T15:04:05.999999999Z",
 // trailing zeros of the fraction removed).

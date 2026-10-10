@@ -205,6 +205,7 @@ func printHex(v uintptr) {
 	buf[i] = 'x'
 	i--
 	buf[i] = '0'
+	// Hexadecimal digits and "0x": ASCII.
 	print(unsafe.String(&buf[i], len(buf)-i))
 }
 

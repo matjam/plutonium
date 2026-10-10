@@ -45,7 +45,13 @@ const maxErrors = 50
 // Check analyses a loaded program and returns the escapes it finds, as a
 // diag.List, or nil.
 func Check(prog *load.Program) error {
-	a := newAnalyzer(prog)
+	return check(prog, false)
+}
+
+// check is Check; userResultHolds lets packages outside the standard
+// library use //pu:resultholds, for tests of the directive.
+func check(prog *load.Program, userResultHolds bool) error {
+	a := newAnalyzer(prog, userResultHolds)
 	a.run()
 	sort.SliceStable(a.errs, func(i, j int) bool {
 		pi, pj := a.errs[i].Pos, a.errs[j].Pos
@@ -96,6 +102,10 @@ type analyzer struct {
 	fieldDeps    map[*types2.Var]map[paramRef]bool // parameters stored in a field
 	paramNonHeap map[paramRef]bool                 // parameters some call passes non-heap memory for
 
+	// userResultHolds allows //pu:resultholds outside the standard
+	// library (tests of the directive).
+	userResultHolds bool
+
 	grew   bool // a summary or candidate set grew during this pass
 	report bool // the final pass: report errors
 
@@ -103,22 +113,23 @@ type analyzer struct {
 	errSeen map[string]bool
 }
 
-func newAnalyzer(prog *load.Program) *analyzer {
+func newAnalyzer(prog *load.Program, userResultHolds bool) *analyzer {
 	a := &analyzer{
-		prog:       prog,
-		fset:       prog.Fset,
-		types:      map[ast.Expr]types2.TypeAndValue{},
-		uses:       map[*ast.Ident]types2.Object{},
-		defs:       map[*ast.Ident]types2.Object{},
-		selections: map[*ast.SelectorExpr]*types2.Selection{},
-		implicits:  map[ast.Node]types2.Object{},
-		instances:  map[*ast.Ident]types2.Instance{},
-		funcs:      map[*types2.Func]*function{},
-		lits:       map[*ast.FuncLit]*function{},
-		byName:     map[string][]*function{},
-		converted:  map[string]types2.Type{},
-		funcValues: map[funcValue]bool{},
-		errSeen:    map[string]bool{},
+		userResultHolds: userResultHolds,
+		prog:            prog,
+		fset:            prog.Fset,
+		types:           map[ast.Expr]types2.TypeAndValue{},
+		uses:            map[*ast.Ident]types2.Object{},
+		defs:            map[*ast.Ident]types2.Object{},
+		selections:      map[*ast.SelectorExpr]*types2.Selection{},
+		implicits:       map[ast.Node]types2.Object{},
+		instances:       map[*ast.Ident]types2.Instance{},
+		funcs:           map[*types2.Func]*function{},
+		lits:            map[*ast.FuncLit]*function{},
+		byName:          map[string][]*function{},
+		converted:       map[string]types2.Type{},
+		funcValues:      map[funcValue]bool{},
+		errSeen:         map[string]bool{},
 	}
 	for _, p := range prog.Packages {
 		pi := &pkgInfo{p}
@@ -399,6 +410,11 @@ func (a *analyzer) applyDirectives(fn *function) {
 		case "noescape":
 			fn.noescape = true
 		case "resultholds":
+			if pos := a.fset.Position(fn.decl.Pos()); !a.userResultHolds && !strings.HasPrefix(pos.Filename, load.StdPrefix) {
+				a.errs = append(a.errs, diag.New(pos, diag.ResultHoldsOutsideStd,
+					"//pu:resultholds is for the standard library; %s cannot use it", fn.name))
+				continue
+			}
 			for _, name := range d[1:] {
 				found := false
 				for i, p := range fn.params {
@@ -1082,6 +1098,9 @@ func hasPointersSeen(T types2.Type, seen map[types2.Type]bool) bool {
 	}
 	switch u := T.Underlying().(type) {
 	case *types2.Basic:
+		// A string made with unsafe.String is a view of the memory it was
+		// made from (spec section 6.10); other strings point only to
+		// static bytes or counted buffers.
 		return u.Kind() == types2.String || u.Kind() == types2.UnsafePointer || u.Kind() == types2.UntypedString
 	case *types2.Pointer, *types2.Slice, *types2.Signature, *types2.Interface, *types2.Chan, *types2.Map:
 		return true

@@ -92,7 +92,8 @@ func (s *fnState) containerCall(r *containerRef, name string, args []value) []va
 		return nil
 	}
 	for i := range args {
-		args[i] = s.materialize(s.assignConvert(args[i], sig.Params().At(i).Type(), r.at))
+		// Borrowed by the method, like any argument (strcount.go).
+		args[i] = s.hold(s.materialize(s.assignConvert(args[i], sig.Params().At(i).Type(), r.at)))
 	}
 	pos := r.at.Pos()
 	desc := types2.ExprString(r.at) + " (" + name + ")" // for the interrupt-context check

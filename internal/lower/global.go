@@ -241,13 +241,7 @@ func globalSections(p *load.Package) (map[*types2.Var]string, map[*types2.Var]to
 func (l *Lowerer) staticConst(d *ssa.Data, c constant.Value, T types2.Type) bool {
 	T = unwrap(T)
 	if isString(T) {
-		str := constant.StringVal(c)
-		buf := make([]byte, 16)
-		binary.LittleEndian.PutUint64(buf[8:], uint64(len(str)))
-		d.Bytes = buf
-		if str != "" {
-			d.Relocs = append(d.Relocs, ssa.DataReloc{Off: 0, Sym: l.stringData(str)})
-		}
+		d.Bytes, d.Relocs = l.staticStringHeader(constant.StringVal(c))
 		return true
 	}
 	t := l.scalarType(T)
@@ -385,14 +379,14 @@ func (l *Lowerer) queueInit(p *load.Package, static map[*types2.Var]bool) {
 				v := init.Lhs[0]
 				val := s.exprAs(init.Rhs, v.Type())
 				if v.Name() != "_" {
-					s.storeTo(s.symAddr(l.globalSym(v)), val, v.Type())
+					s.assign(lvalue{ptr: s.symAddr(l.globalSym(v)), T: v.Type()}, val, true)
 				}
 				continue
 			}
 			vals := s.multiValue(init.Rhs, len(init.Lhs))
 			for i, v := range init.Lhs {
 				if v.Name() != "_" {
-					s.storeTo(s.symAddr(l.globalSym(v)), s.assignConvert(vals[i], v.Type(), init.Rhs), v.Type())
+					s.assign(lvalue{ptr: s.symAddr(l.globalSym(v)), T: v.Type()}, s.assignConvert(vals[i], v.Type(), init.Rhs), true)
 				}
 			}
 		}

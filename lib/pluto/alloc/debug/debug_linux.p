@@ -153,7 +153,8 @@ func parseSize(s string) (uintptr, bool) {
 	return n << shift, true
 }
 
-// getenv returns the value of environment variable key, or "".
+// getenv returns the value of environment variable key, or "" if it is
+// unset or its value is not valid UTF-8 (the settings read here are ASCII).
 func getenv(key string) string {
 	env := rt.Environ()
 	for i := 0; ; i++ {
@@ -165,9 +166,27 @@ func getenv(key string) string {
 		for *(*byte)(unsafe.Add(unsafe.Pointer(s), n)) != 0 {
 			n++
 		}
-		kv := unsafe.String(s, n)
-		if len(kv) > len(key) && kv[len(key)] == '=' && kv[:len(key)] == key {
-			return kv[len(key)+1:]
+		kv := unsafe.Slice(s, n) // bytes: the entry need not be valid UTF-8
+		if len(kv) > len(key) && kv[len(key)] == '=' && hasKey(kv, key) {
+			v := kv[len(key)+1:]
+			if len(v) == 0 {
+				return ""
+			}
+			if valid, _ := rt.ValidUTF8(&v[0], len(v)); !valid {
+				return ""
+			}
+			// Checked just now; the environment lives as long as the program.
+			return unsafe.String(&v[0], len(v))
 		}
 	}
+}
+
+// hasKey reports whether kv begins with the bytes of key.
+func hasKey(kv []byte, key string) bool {
+	for i := 0; i < len(key); i++ {
+		if kv[i] != key[i] {
+			return false
+		}
+	}
+	return true
 }

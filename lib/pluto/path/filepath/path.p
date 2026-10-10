@@ -1,11 +1,12 @@
 // Package filepath manipulates slash-separated file paths, as Go's
 // path/filepath does on Unix.
 //
-// Functions whose result is part of their argument (Base, Ext, Split,
-// Dir) return views of it. Functions that build a new path (Join, Clean,
-// Abs, Rel) append it to a caller's buffer, as strconv's Append functions
-// do: AppendJoin, AppendClean, AppendAbs, AppendRel. Dir does not clean
-// its result as Go's does; for a clean path the two agree.
+// Functions whose result is part of their argument (Base, Ext, Split)
+// return substrings of it. Join, Clean, Dir, Abs and Rel return strings as
+// Go's do, allocated from the current allocator only when the result is
+// not already a substring of an argument; their Append forms (AppendJoin,
+// AppendClean, AppendDir, AppendAbs, AppendRel) write into a caller's
+// buffer and never allocate, for kernel code and hot paths.
 package filepath
 
 import (
@@ -82,19 +83,14 @@ func Split(path string) (dir, file string) {
 	return path[:i+1], path[i+1:]
 }
 
-// Dir returns all but the last element of path: the directory part,
-// without its trailing slashes, "." if there is none and "/" for the root.
-// Unlike Go's Dir it does not clean the result; it equals Go's for a clean
-// path. Use AppendDir for Go's exact result.
+// Dir returns all but the last element of path, cleaned, as Go's Dir does:
+// "." if there is none. For a path whose directory part is already clean
+// it is a substring of path and allocates nothing.
+//
+//pu:alloc
 func Dir(path string) string {
 	dir, _ := Split(path)
-	for len(dir) > 1 && dir[len(dir)-1] == '/' {
-		dir = dir[:len(dir)-1]
-	}
-	if dir == "" {
-		return "."
-	}
-	return dir
+	return Clean(dir)
 }
 
 // AppendDir appends Go's Dir of path, the cleaned directory part, to dst.
@@ -108,8 +104,23 @@ func AppendDir(dst []byte, path string) []byte {
 // elements, and ".." elements with the element before them, and ".."
 // right after the root; an empty result is ".".
 func AppendClean(dst []byte, path string) []byte {
+	return appendClean(dst, strBytes(path))
+}
+
+// strBytes views a string's bytes. The caller must not modify them.
+func strBytes(s string) []byte {
+	if len(s) == 0 {
+		return nil
+	}
+	return unsafe.Slice(unsafe.StringData(s), len(s))
+}
+
+// appendClean is AppendClean for a path that is bytes. Cleaning looks only
+// at '/' and '.', so it works on any bytes, valid UTF-8 or not, and can be
+// done in place: it never writes ahead of what it reads.
+func appendClean(dst []byte, path []byte) []byte {
 	start := len(dst)
-	if path == "" {
+	if len(path) == 0 {
 		return append(dst, '.')
 	}
 	rooted := path[0] == '/'
@@ -184,6 +195,7 @@ func AppendJoin(dst []byte, elem ...string) []byte {
 	if len(joined) == 0 {
 		return dst
 	}
+	// The elements are strings, valid UTF-8, joined by slashes: valid.
 	return AppendClean(dst, unsafe.String(&joined[0], len(joined)))
 }
 
@@ -202,22 +214,28 @@ func appendJoinSlow(dst []byte, elem []string) []byte {
 	}
 	// Clean in place: AppendClean never writes ahead of what it reads, so
 	// cleaning the joined text onto its own start is safe.
-	text := dst[start:]
-	return AppendClean(dst[:start], unsafe.String(unsafe.SliceData(text), len(text)))
+	return appendClean(dst[:start], dst[start:])
 }
 
 // AppendAbs appends an absolute, clean form of path to dst: path joined to
-// the working directory if it is relative.
+// the working directory if it is relative. The working directory is taken
+// as its exact bytes (os.AppendWd), so the result is exact even if the
+// directory's name is not valid UTF-8.
 func AppendAbs(dst []byte, path string) ([]byte, error) {
 	if IsAbs(path) {
 		return AppendClean(dst, path), nil
 	}
 	var wd [4096]byte
-	cwd, err := os.Getwd(wd[:])
+	cwd, err := os.AppendWd(wd[:0])
 	if err != nil {
 		return dst, err
 	}
-	return AppendJoin(dst, cwd, path), nil
+	// Build "cwd/path" at the end of dst, then clean it in place.
+	start := len(dst)
+	dst = append(dst, cwd...)
+	dst = append(dst, '/')
+	dst = append(dst, path...)
+	return appendClean(dst[:start], dst[start:]), nil
 }
 
 // AppendRel appends a relative path that is lexically equivalent to targ
@@ -227,6 +245,8 @@ func AppendRel(dst []byte, basepath, targpath string) ([]byte, error) {
 	var bb, tb [4096]byte
 	baseb := AppendClean(bb[:0], basepath)
 	targb := AppendClean(tb[:0], targpath)
+	// Cleaned copies of strings, valid UTF-8 (cleaning only drops whole
+	// elements and slashes).
 	base := unsafe.String(&baseb[0], len(baseb))
 	targ := unsafe.String(&targb[0], len(targb))
 	if targ == base {

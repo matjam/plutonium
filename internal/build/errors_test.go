@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-// TestErrorConventionErrors checks that the ways of building an error
-// message that would allocate behind the program's back, or of asking
-// errors.AsType for something that is not an error, are compile errors.
-// errors.New takes only a constant message, so a message built at run time
-// fails there first.
+// TestErrorConventionErrors checks that errors.New with a message built at
+// run time, and asking errors.AsType for something that is not an error,
+// are compile errors. (Building strings at run time is allowed since
+// strings are counted; errors.New still takes only a constant message,
+// since each call site makes one static error.)
 func TestErrorConventionErrors(t *testing.T) {
 	const notConstant = "errors.New needs a constant message, since each call site makes one static error; use fmt.Errorf to build a message at run time"
 	cases := []struct{ name, src, want string }{
@@ -42,27 +42,6 @@ var ErrBad = errors.New(msg)
 
 func main() { _ = ErrBad }
 `, notConstant},
-		{"concatenated buffer message", `package main
-
-import "pluto/fmt"
-
-func fail(buf *fmt.ErrorBuf, name string) error { return buf.Errorf("%s", "open "+name) }
-
-func main() {
-	var buf fmt.ErrorBuf
-	_ = fail(&buf, "x")
-}
-`, "runtime string concatenation is not permitted in Plutonium"},
-		{"buffer message from bytes", `package main
-
-import "pluto/fmt"
-
-func main() {
-	var buf fmt.ErrorBuf
-	b := []byte{'x'}
-	_ = buf.Errorf("%s", string(b))
-}
-`, "is not permitted in Plutonium (it allocates a copy)"},
 		{"AsType of a non-error", `package main
 
 import "pluto/errors"

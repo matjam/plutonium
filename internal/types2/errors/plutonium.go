@@ -40,6 +40,9 @@ const (
 	// of a local array, &T{...}) passed to a go statement or sent on a
 	// channel.
 	FrameViewSent
+	// InvalidUTF8String: a string literal that is not valid UTF-8, which
+	// no string may hold.
+	InvalidUTF8String
 )
 
 // Packed types, bit fields, volatile, aligned and ring.

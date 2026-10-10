@@ -1,3 +1,11 @@
+named drop a1 t2
+kept a1
+named drop c1 
+named drop d0 
+named drop d1 
+end counted c2
+named drop c2 
+--
 drop 2
 after block
 consume 3

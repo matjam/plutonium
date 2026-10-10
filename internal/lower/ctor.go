@@ -138,8 +138,21 @@ func (s *fnState) expandCtor(c *ctorInfo, targs []types2.Type, recv *value, args
 	vals = append(vals, args...)
 	for i, p := range params {
 		PT := s.subst(p.Type())
-		addr := s.lastingTemp(PT, varName(p))
-		s.storeTo(addr, vals[i], PT)
+		var addr *ssa.Value
+		switch {
+		case !s.l.counted(PT):
+			addr = s.lastingTemp(PT, varName(p))
+			s.storeTo(addr, vals[i], PT)
+		case s.staticLits:
+			// Kept for the life of the program.
+			addr = s.lastingTemp(PT, varName(p))
+			s.storeTo(addr, vals[i], PT)
+			s.takeRefAt(vals[i], addr, PT)
+		default:
+			// The closure keeps the strings until the frame ends.
+			addr = s.frameSlot(PT, varName(p))
+			s.storeCounted(lvalue{ptr: addr, T: PT}, vals[i], false)
+		}
 		s.vars[p] = addr
 	}
 
@@ -161,10 +174,15 @@ func (s *fnState) expandCtor(c *ctorInfo, targs []types2.Type, recv *value, args
 
 // lastingTemp returns storage for a T that the value being built keeps: a
 // slot in this frame, or static storage during package initialisation,
-// whose values outlive the init function.
+// whose values outlive the init function, or, for the arguments of a defer
+// statement in a range-over-func loop body, a slot in the frame that runs
+// the deferred call (lastingFrame).
 func (s *fnState) lastingTemp(T types2.Type, name string) *ssa.Value {
 	if s.staticLits {
 		return s.symAddr(s.l.staticObject(T))
+	}
+	if o := s.lastingFrame; o != nil && o != s {
+		return s.outerPtr(o.temp(T, name), o)
 	}
 	return s.temp(T, name)
 }

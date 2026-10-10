@@ -19,6 +19,11 @@ const (
 	sysExitGroup   = 231
 )
 
+// A hosted program runs on one thread, with no puroutines, until it starts
+// its first puroutine, when the runtime calls SetThreaded; string counts
+// start with plain arithmetic (str.p).
+const atomicCountsAtStart = false
+
 var (
 	argc int
 	argv unsafe.Pointer

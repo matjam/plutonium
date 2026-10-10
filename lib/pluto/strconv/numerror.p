@@ -87,10 +87,12 @@ func NewNumError(fn, num string, err error, a alloc.Allocator = alloc.Default())
 	k += q.n
 	text[k], text[k+1] = ':', ' '
 	copy(text[k+2:], errMsg)
+	// The text is valid UTF-8: the function name, the quoted input (Quote
+	// output), the message, all valid strings, joined at their edges.
 	msg := unsafe.String(unsafe.SliceData(text), n)
 	e := (*NumError)(p)
 	e.Func = msg[fnAt : fnAt+len(fn)]
-	e.Num = unsafe.String(unsafe.SliceData(numText), len(num))
+	e.Num = unsafe.String(unsafe.SliceData(numText), len(num)) // a copy of num, valid
 	e.Err = err
 	e.msg = msg
 	e.a = a

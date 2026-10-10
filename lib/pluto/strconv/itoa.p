@@ -1,7 +1,9 @@
 // Package strconv converts between numbers and their text form.
 //
-// The Append functions append to a caller's buffer and, like Plutonium's
-// append, need room in its capacity: they never allocate.
+// Itoa, FormatInt, FormatFloat, Quote and the other Format functions return
+// strings, as in Go, allocated from the current allocator (format.p). The
+// Append functions append to a caller's buffer instead and, like
+// Plutonium's append, need room in its capacity: they never allocate.
 //
 // Parts of this package are adapted from Go's strconv package.
 // Copyright 2009 The Go Authors. All rights reserved.

@@ -158,6 +158,7 @@ type closureFlow struct {
 	storeTo   map[int]bitset          // values stored through each parameter
 	callArgs  map[int]bitset          // the parameters passed to calls of each func parameter
 	storeAny  bitset                  // values stored through pointers from elsewhere
+	started   bitset                  // values a puroutine may be started with
 	changed   bool
 }
 
@@ -170,6 +171,7 @@ type flowSummary struct {
 	storeAny bitset         // the parameters stored through other pointers
 	calls    bitset         // func parameters it calls, whose captured state may be stored
 	callArgs map[int]bitset // the parameters it passes to calls of each func parameter
+	starts   bitset         // func parameters it may start puroutines with (gofunc)
 	all      bool           // unknown: every parameter does everything
 
 	// -1 once final; otherwise the depth of the outermost summary being
@@ -546,6 +548,14 @@ func (f *closureFlow) visit(n ast.Node) bool {
 		}
 	case *ast.SendStmt:
 		f.assign(&ast.StarExpr{X: n.Chan}, f.expr(n.Value))
+	case *ast.GoStmt:
+		// The puroutine runs the function with the arguments, which must
+		// outlive this frame.
+		m := f.expr(n.Call.Fun)
+		for _, a := range n.Call.Args {
+			m = m.or(f.expr(a))
+		}
+		f.start(m)
 	case *ast.CallExpr:
 		f.call(n)
 	case *ast.UnaryExpr:
@@ -789,6 +799,9 @@ func (f *closureFlow) call(c *ast.CallExpr) bitset {
 			m.add(f.source(c))
 			return m.or(all)
 		}
+		if isGoFuncCheck(g) {
+			f.start(all)
+		}
 		sum := f.l.closureSummary(g, targs)
 		if sum.all {
 			r := f.callFuncs(all, all.or(f.unknown()))
@@ -824,6 +837,9 @@ func (f *closureFlow) call(c *ast.CallExpr) bitset {
 			}
 			for i := range args {
 				p := param(i)
+				if p < 0 && !sum.starts.empty() || p >= 0 && sum.starts.has(p) {
+					f.start(masks[i])
+				}
 				if p < 0 {
 					r := f.callFuncs(masks[i], all.or(f.unknown()))
 					ret.union(masks[i].or(r))
@@ -904,6 +920,23 @@ func (f *closureFlow) callFuncs(m, in bitset) bitset {
 		}
 	}
 	return r
+}
+
+// start records that a puroutine may be started with the func values with
+// origins m.
+func (f *closureFlow) start(m bitset) {
+	if f.started.union(m) {
+		f.changed = true
+	}
+}
+
+// isGoFuncCheck reports whether g is the runtime's check that a func value
+// may start a puroutine (pluto/rt's checkGoFunc, which rt.Go and
+// rt.CheckGoFunc call): a function that passes a parameter to it starts
+// puroutines with that parameter, as one that passes it to a go statement
+// does.
+func isGoFuncCheck(g *types2.Func) bool {
+	return g.Name() == "checkGoFunc" && g.Pkg() != nil && g.Pkg().Path() == "pluto/rt"
 }
 
 // addLitIn records that lit's parameters may receive values with origins m.
@@ -1140,6 +1173,7 @@ func (s *flowSummary) merge(f *closureFlow) bool {
 	}
 	grew = s.storeAny.union(f.storeAny.from(0, np)) || grew
 	grew = s.calls.union(f.called.from(0, np)) || grew
+	grew = s.starts.union(f.started.from(0, np)) || grew
 	for j, m := range f.callArgs {
 		b := s.callArgs[j]
 		if b.union(m.from(0, np)) {

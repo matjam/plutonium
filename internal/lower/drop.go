@@ -17,7 +17,9 @@ import (
 //
 // This file has the glue; scope.go decides where values are destroyed.
 
-// needsDrop reports whether destroying a value of T runs code.
+// needsDrop reports whether destroying a value of T runs drop glue: T is
+// an owner with a Drop method, or with parts that need destroying (owners,
+// or strings to release).
 func (l *Lowerer) needsDrop(T types2.Type) bool {
 	key := typeString(T)
 	if v, ok := l.dropNeeds[key]; ok {
@@ -30,10 +32,10 @@ func (l *Lowerer) needsDrop(T types2.Type) bool {
 		case *types2.Struct:
 			need = dropMethod(T) != nil
 			for i := 0; i < u.NumFields() && !need; i++ {
-				need = l.needsDrop(u.Field(i).Type())
+				need = l.needsDrop(u.Field(i).Type()) || l.counted(u.Field(i).Type())
 			}
 		case *types2.Array:
-			need = dropMethod(T) != nil || (u.Len() > 0 && l.needsDrop(u.Elem()))
+			need = dropMethod(T) != nil || (u.Len() > 0 && (l.needsDrop(u.Elem()) || l.counted(u.Elem())))
 		case *types2.Wrapper:
 			need = true // owned[T]: reported as unsupported where it is dropped
 		default:
@@ -115,12 +117,13 @@ func (s *fnState) dropFields(ptr *ssa.Value, T types2.Type) {
 		}
 		offs := s.l.sizes.Offsetsof(fields)
 		for i, f := range fields {
-			if s.l.needsDrop(f.Type()) {
-				s.dropAt(s.offPtr(ptr, offs[i]), f.Type())
-			}
+			s.destroyAt(s.offPtr(ptr, offs[i]), f.Type())
 		}
 	case *types2.Array:
 		if !s.l.needsDrop(u.Elem()) {
+			if s.l.counted(u.Elem()) {
+				s.releaseAt(ptr, types2.NewArray(u.Elem(), u.Len())) // its strings
+			}
 			return
 		}
 		size := s.l.sizeof(u.Elem())

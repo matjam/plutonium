@@ -109,9 +109,9 @@ func (s *fnState) makeVariant(T types2.Type, v *types2.Variant, payload value, p
 	// padding before the payload, so that the union can live in registers.
 	s.store(ul.word, tmp, s.constInt(ul.word, int64(v.Index())))
 	if P := payloadType(T, v); v.HasPayload() && s.l.sizeof(P) > 0 {
-		s.storeTo(s.offPtr(tmp, ul.payload), payload, P)
+		s.assign(lvalue{ptr: s.offPtr(tmp, ul.payload), T: P}, payload, true)
 	}
-	return aggValue(tmp, T)
+	return s.litValue(tmp, T)
 }
 
 // makePackedVariant makes a packed union value from a payload of variant v,
@@ -251,7 +251,8 @@ func (s *fnState) layoutFor(T types2.Type, pos token.Pos) *unionLayout {
 func (s *fnState) unionTypeSwitch(st *ast.TypeSwitchStmt, x ast.Expr, label *types2.Label) {
 	T := s.typeOf(x)
 	ul := s.layoutFor(T, x.Pos())
-	u := s.materialize(s.expr(x))
+	// Held: the clauses may change the union the payloads are read from.
+	u := s.hold(s.materialize(s.expr(x)))
 	if !u.addr {
 		// A packed union held in a register: give it a home, so that cases
 		// and bindings read the same bits.
@@ -288,23 +289,25 @@ func (s *fnState) unionTypeSwitch(st *ast.TypeSwitchStmt, x ast.Expr, label *typ
 		s.invalidTag(T, u, ul, st.Pos())
 	}
 
-	s.pushTarget(&target{label: label, breakTo: done, isSwitch: true})
+	s.targets = append(s.targets, &target{label: label, breakTo: done, isSwitch: true, depth: len(s.cleanups)})
 	for i, c := range clauses {
 		cc := c.(*ast.CaseClause)
 		s.seal(bodies[i])
 		s.startBlock(bodies[i])
+		clause := s.pushCleanup(cc, true)
 		if obj, ok := s.info.Implicits[cc].(*types2.Var); ok {
 			// The variable is a copy of the payload the union still holds,
 			// so it is not destroyed on its own.
 			addr := s.declareView(obj)
 			VT := s.subst(obj.Type())
 			if len(cc.List) == 1 {
-				s.storeTo(addr, s.payloadOf(T, u, s.variantOf(cc.List[0]), ul), VT)
+				s.assign(lvalue{ptr: addr, T: VT}, s.payloadOf(T, u, s.variantOf(cc.List[0]), ul), true)
 			} else {
-				s.storeTo(addr, s.loadFrom(u.v, T), VT)
+				s.assign(lvalue{ptr: addr, T: VT}, s.loadFrom(u.v, T), true)
 			}
 		}
 		s.stmtList(cc.Body)
+		s.popCleanup(clause)
 		s.endPlain(done)
 	}
 	s.targets = s.targets[:len(s.targets)-1]
@@ -335,7 +338,7 @@ func (s *fnState) typeName(T types2.Type) string {
 	return types2.TypeString(T, func(p *types2.Package) string { return p.Name() })
 }
 
-// stringLeavesOf returns the two words of a constant string.
+// stringLeavesOf returns the three words of a constant string.
 func (s *fnState) stringLeavesOf(str string) []*ssa.Value {
 	return s.stringLeaves(s.stringConst(str, types2.Typ[types2.String]))
 }
@@ -373,7 +376,7 @@ func (s *fnState) unionAssert(e *ast.TypeAssertExpr, commaOk bool) (value, *ssa.
 	return s.loadFrom(out, P), ok
 }
 
-// variantName returns the two words of the name of the variant an ordinary
+// variantName returns the three words of the name of the variant an ordinary
 // union value holds, read from a table of the names, or "an invalid tag".
 func (s *fnState) variantName(T types2.Type, ul *unionLayout, u value) []*ssa.Value {
 	n := ul.u.NumVariants()
@@ -386,8 +389,8 @@ func (s *fnState) variantName(T types2.Type, ul *unionLayout, u value) []*ssa.Va
 	tag := s.newValue(ssa.OpZeroExt, ssa.TI64, s.unionTag(ul, u))
 	limit := s.constInt(ssa.TI64, int64(n))
 	idx := s.newValue(ssa.OpSelect, ssa.TI64, s.newValue(ssa.OpLessu, ssa.TBool, tag, limit), tag, limit)
-	entry := s.newValue(ssa.OpAddPtr, ssa.TPtr, s.symAddr(sym), s.newValue(ssa.OpMul, ssa.TI64, idx, s.constInt(ssa.TI64, 16)))
-	return []*ssa.Value{s.load(ssa.TPtr, entry), s.load(ssa.TI64, s.offPtr(entry, 8))}
+	entry := s.newValue(ssa.OpAddPtr, ssa.TPtr, s.symAddr(sym), s.newValue(ssa.OpMul, ssa.TI64, idx, s.constInt(ssa.TI64, strSize)))
+	return s.stringLeaves(aggValue(entry, types2.Typ[types2.String]))
 }
 
 // variantNames returns the table of a union type's variant names.

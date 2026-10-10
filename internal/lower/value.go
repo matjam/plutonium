@@ -17,6 +17,11 @@ type value struct {
 	v    *ssa.Value
 	addr bool // v is the address of an aggregate
 	T    types2.Type
+
+	// For a value of a counted type (one that holds strings, strcount.go):
+	// who keeps its references alive while it is used.
+	cnt countKind
+	tmp *ownedTemp // the statement temporary holding it, for cntOwned
 }
 
 func scalarValue(v *ssa.Value, T types2.Type) value { return value{v: v, T: T} }
@@ -29,6 +34,12 @@ type lvalue struct {
 
 	bits *bitRef       // non-nil for a packed field
 	elem *containerRef // non-nil for a container element, x[k] (indexing.go); ptr is nil
+
+	// stable says nothing but this function's own assignments can change
+	// the storage while a statement runs: a local variable whose address
+	// is not taken, or a temporary. Counted values read from it are
+	// borrowed without a retain (strcount.go).
+	stable bool
 }
 
 // A bitRef locates a packed field inside its container's storage.
@@ -83,7 +94,13 @@ func (s *fnState) loadLV(lv lvalue) value {
 		}
 		return scalarValue(ld, T)
 	}
-	return aggValue(lv.ptr, T)
+	v := aggValue(lv.ptr, T)
+	if lv.stable {
+		v.cnt = cntStable
+	} else {
+		v.cnt = cntUnstable
+	}
+	return v
 }
 
 // storeLV writes val to an lvalue.
@@ -129,7 +146,10 @@ func (s *fnState) materialize(v value) value {
 	}
 	tmp := s.temp(v.T, "tmp")
 	s.move(tmp, v.v, s.l.sizeof(v.T))
-	return aggValue(tmp, v.T)
+	out := aggValue(tmp, v.T)
+	// The copy holds the same references, kept alive by the same owner.
+	out.cnt, out.tmp = v.cnt, v.tmp
+	return out
 }
 
 // zeroValue returns T's zero value.
@@ -139,7 +159,9 @@ func (s *fnState) zeroValue(T types2.Type) value {
 	}
 	tmp := s.temp(T, "zero")
 	s.zero(tmp, s.l.sizeof(T))
-	return aggValue(tmp, T)
+	v := aggValue(tmp, T)
+	v.cnt = cntStatic
+	return v
 }
 
 func (s *fnState) zeroScalar(t *ssa.Type) *ssa.Value {
@@ -245,7 +267,10 @@ func (s *fnState) stringConst(str string, T types2.Type) value {
 	}
 	s.store(ssa.TPtr, tmp, ptr)
 	s.store(ssa.TI64, s.offPtr(tmp, 8), s.constInt(ssa.TI64, int64(len(str))))
-	return aggValue(tmp, T)
+	s.store(ssa.TI64, s.offPtr(tmp, strCtlOff), s.constInt(ssa.TI64, strFlags(str)))
+	v := aggValue(tmp, T)
+	v.cnt = cntStatic
+	return v
 }
 
 // hoistEntry moves v, just appended to the entry block, to the front so that

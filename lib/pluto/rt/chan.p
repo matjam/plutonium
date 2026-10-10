@@ -128,6 +128,14 @@ func FreeChan(p unsafe.Pointer) {
 	}
 }
 
+// ChanBuffered returns the buffer of the channel at p, the index of its
+// first buffered value, the number of values buffered and the buffer's
+// capacity, so that pluto/alloc.FreeChan can drop the strings in them.
+func ChanBuffered(p unsafe.Pointer) (buf unsafe.Pointer, first, n, size int) {
+	c := (*hchan)(p)
+	return c.buf, int(c.recvx), int(c.qcount), int(c.dataqsiz)
+}
+
 func chanbuf(c *hchan, i uint) unsafe.Pointer {
 	return unsafe.Add(c.buf, uintptr(i)*c.elemsize)
 }

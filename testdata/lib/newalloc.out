@@ -1,5 +1,5 @@
-T: 0 0 "" 0 "" calls=2 live=64
-v: 3 4 "y" 42 "str" 7 "v" 1 9 calls=7 live=208
+T: 0 0 "" 0 "" calls=2 live=80
+v: 3 4 "y" 42 "str" 7 "v" 1 9 calls=7 live=248
 order: 2 value alloc 5
 make: 3 3 11 2 8 calls=10
 default: "default" 2 calls=2 other=10
