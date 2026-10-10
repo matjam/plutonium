@@ -3,7 +3,7 @@
 // instruction anywhere would fault), prints over the first serial port
 // with x86.Outb (println and pluto/fmt), sets up two per-CPU blocks from the .percpu image and
 // switches between them with WriteGSBase and Swapgs, then enables SSE for
-// one //pu:fpu call bracketed by FPUBegin and FPUEnd.
+// //pu:fpu calls bracketed by FPUBegin and FPUEnd.
 package main
 
 import (
@@ -67,6 +67,8 @@ type pair struct{ A, B int32 }
 
 var v = vec{1.5, 2}
 
+var half float32 = 0.5
+
 var fpuState x86.FPUState
 
 //pu:fpu
@@ -82,6 +84,15 @@ func scale(p *vec, k int) {
 //pu:noinline
 func describe(p *vec, buf []byte) []byte {
 	return fmt.Bprintf(buf, "fmt float %v\n", p.X)
+}
+
+// show prints floats with println, which in kernel builds writes their
+// bits.
+//
+//pu:fpu
+//pu:noinline
+func show(p *vec) {
+	println("println float", p.X, half)
 }
 
 func main() int64 {
@@ -123,5 +134,8 @@ func main() int64 {
 	x86.FPUEnd(&fpuState)
 	serialWrite(unsafe.Pointer(&out[0]), len(out))
 	println("fpu result bits", *(*uint64)(unsafe.Pointer(&v.X)))
+	x86.FPUBegin(&fpuState)
+	show(&v)
+	x86.FPUEnd(&fpuState)
 	return 0
 }

@@ -2191,7 +2191,7 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | Directive | Applies to | Meaning |
 |---|---|---|
 | `//pu:build expr` | file | include the file only when `expr` holds |
-| `//pu:inline` | function | always inline calls to this function |
+| `//pu:inline` | function | inline calls to this function whatever its size, as long as the caller stays within its growth limit (four times its own size, at least 5,000 and at most 20,000 IR values) |
 | `//pu:noinline` | function | never inline it |
 | `//pu:nobounds` | function | omit bounds checks in its body |
 | `//pu:extern name` | body-less function | the function is the external symbol `name` (C ABI) |
@@ -2298,7 +2298,8 @@ is an error, while one passed by reference is not. Float types may still appear,
 values (whole structs, fields, array elements, zero values) is allowed, since it uses integer registers.
 Because the compiler only generates the functions a program reaches, a float function in an imported
 package that the kernel never calls costs nothing, and the standard library keeps its float code behind
-`//pu:build !kernel` (in `pluto/fmt`, a float argument prints as its bits in kernel builds). Package-level
+`//pu:build !kernel` (in `pluto/fmt`, a float argument prints as its bits in kernel builds, and so does
+a float passed to `print` or `println` from a `//pu:fpu` function). Package-level
 arrays and structs initialised with constants, such as `pluto/math`'s coefficient tables, are written into
 the image, so importing such a package adds no float code to package initialisation.
 

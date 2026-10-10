@@ -490,32 +490,6 @@ func writePointer(w Writer, v uintptr) {
 	writeBytes(w, unsafe.Pointer(&buf[i]), len(buf)-i)
 }
 
-func printFloat(f float64) {
-	// Enough for diagnostics: sign, integer part, six decimals.
-	if f != f {
-		printString("NaN")
-		return
-	}
-	if f < 0 {
-		printString("-")
-		f = -f
-	}
-	if f > 1e18 {
-		printString("+Inf")
-		return
-	}
-	ip := uint64(f)
-	printUint(ip)
-	printString(".")
-	frac := f - float64(ip)
-	for i := 0; i < 6; i++ {
-		frac *= 10
-		d := uint64(frac)
-		printUint(d)
-		frac -= float64(d)
-	}
-}
-
 func printString(s string) {
 	if len(s) > 0 {
 		printBytes(unsafe.Pointer(unsafe.StringData(s)), len(s))
