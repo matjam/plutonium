@@ -94,15 +94,30 @@ func (p *Pipeline) addProgram(gopass ProgramPass) {
 // every function after every pass.
 var checkSSA = os.Getenv("PLUTO_SSACHECK") != ""
 
+// verify checks f's invariants and its source positions.
+func verify(f *ssa.Func) error {
+	if err := f.Verify(); err != nil {
+		return err
+	}
+	return f.VerifyPos()
+}
+
 // Run applies the pipeline. after, if non-nil, is called after each
 // function pass with the pass name.
 func (p *Pipeline) Run(prog *ssa.Program, after func(pass string, f *ssa.Func)) error {
+	if checkSSA {
+		for _, f := range prog.Funcs {
+			if err := verify(f); err != nil {
+				return fmt.Errorf("before optimisation: %w", err)
+			}
+		}
+	}
 	for _, st := range p.steps {
 		if st.prog != nil {
 			st.prog.Run(prog)
 			if checkSSA {
 				for _, f := range prog.Funcs {
-					if err := f.Verify(); err != nil {
+					if err := verify(f); err != nil {
 						return fmt.Errorf("after %s: %w", st.prog.Name, err)
 					}
 				}
@@ -112,7 +127,7 @@ func (p *Pipeline) Run(prog *ssa.Program, after func(pass string, f *ssa.Func)) 
 		for _, f := range prog.Funcs {
 			st.fn.Run(f)
 			if checkSSA {
-				if err := f.Verify(); err != nil {
+				if err := verify(f); err != nil {
 					return fmt.Errorf("after %s: %w", st.fn.Name, err)
 				}
 			}

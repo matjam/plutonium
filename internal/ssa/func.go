@@ -28,6 +28,12 @@ type Value struct {
 
 func (v *Value) String() string { return fmt.Sprintf("v%d", v.ID) }
 
+// CopyPos gives v the source position of w together with its inline site.
+// A pass that copies or replaces a value copies its position this way,
+// never Pos alone: a position from an inlined body without its Inl is
+// symbolised as a line of the function it was inlined into.
+func (v *Value) CopyPos(w *Value) { v.Pos, v.Inl = w.Pos, w.Inl }
+
 // AddArg appends an argument.
 func (v *Value) AddArg(a *Value) {
 	v.Args = append(v.Args, a)
@@ -134,9 +140,13 @@ type Block struct {
 	Func     *Func
 	Likely   int8 // branch prediction for BlockIf
 	Pos      token.Pos
+	Inl      int32 // inline site of Pos, as for Value.Inl
 }
 
 func (b *Block) String() string { return fmt.Sprintf("b%d", b.ID) }
+
+// CopyPos gives b the source position of c together with its inline site.
+func (b *Block) CopyPos(c *Block) { b.Pos, b.Inl = c.Pos, c.Inl }
 
 // SetControl replaces the block's controls.
 func (b *Block) SetControl(vs ...*Value) {
@@ -209,7 +219,7 @@ func (b *Block) NewValue(op Op, t *Type, args ...*Value) *Value {
 func (b *Block) NewValueBefore(at *Value, op Op, t *Type, args ...*Value) *Value {
 	v := b.Func.newValue(op, t, b)
 	if !v.Pos.IsValid() && at != nil {
-		v.Pos, v.Inl = at.Pos, at.Inl
+		v.CopyPos(at)
 	}
 	for _, a := range args {
 		v.AddArg(a)
@@ -386,7 +396,11 @@ type Func struct {
 	Pragmas Pragma
 	Section string
 	Pos     token.Pos
-	Pkg     string // import path of the package that declares it, if any
+	// End, if valid, is the end of the function's source: every position
+	// in its own code (Inl 0) lies in [Pos, End]. Lowering sets it for
+	// functions declared in source; synthesized ones leave it unset.
+	End token.Pos
+	Pkg string // import path of the package that declares it, if any
 
 	// Inlines records the calls inlined into this function, so that a
 	// position in an inlined body can be traced back to its call site.
@@ -440,6 +454,9 @@ type InlineSite struct {
 	Parent int32     // 1-based index of the enclosing inlined call, or 0
 	Func   string    // the inlined function's name
 	Pos    token.Pos // position of the call
+	// Start and End are the inlined function's Func.Pos and Func.End: the
+	// positions of values from this call lie between them.
+	Start, End token.Pos
 }
 
 // SetPos sets the position given to values created from now on and returns
@@ -470,7 +487,7 @@ func (base InlineBase) Map(inl int32) int32 {
 // it: Plutonium closures do not outlive their frame.)
 func (f *Func) AddInline(call *Value, g *Func) InlineBase {
 	base := int32(len(f.Inlines)) + 1 // index of the new site
-	f.Inlines = append(f.Inlines, InlineSite{Parent: call.Inl, Func: g.Name, Pos: call.Pos})
+	f.Inlines = append(f.Inlines, InlineSite{Parent: call.Inl, Func: g.Name, Pos: call.Pos, Start: g.Pos, End: g.End})
 	for _, s := range g.Inlines {
 		if s.Parent == 0 {
 			s.Parent = base

@@ -4,7 +4,7 @@
 //
 // The compiler expands every call to a function of this package inline,
 // to the instruction or short sequence the function names (language spec
-// section 11.4, abi.md section 10.5). Each expansion is a compiler
+// section 12.4, abi.md section 10.5). Each expansion is a compiler
 // barrier: no load or store is moved across it, and it is never removed,
 // even when its result is unused. The functions also have assembly
 // bodies (x86_amd64.s), used when one is called through a func value.

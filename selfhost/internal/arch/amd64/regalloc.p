@@ -697,10 +697,12 @@ func (a *allocator) rewrite(spillTemps *hash.Map[Reg, bool]) {
 				return r
 			})
 			out = compat.Append(out, in)
-			{
-				goIt9 := compat.MapIter(store)
-				for r, t, goOk10 := goIt9.Next(); goOk10; r, t, goOk10 = goIt9.Next() {
+			// buf still holds the defs; walk them rather than the map so
+			// the stores come out in a fixed order.
+			for _, r := range buf {
+				if t, ok := compat.MapGet(store, r); ok {
 					out = compat.Append(out, new(MInst{Op: MSPILL, Size: f.spillSize(r), Src: RegOp(t), Slot: compat.MapAt(slots, r)}))
+					compat.MapDelete(store, r)
 				}
 			}
 		}

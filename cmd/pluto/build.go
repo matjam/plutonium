@@ -31,6 +31,12 @@ var buildCmd = &cobra.Command{
 var runCmd = &cobra.Command{
 	Use:   "run [dir] [-- args...]",
 	Short: "Build a hosted program and run it",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if n := cmd.ArgsLenAtDash(); n >= 0 {
+			args = args[:n]
+		}
+		return cobra.MaximumNArgs(1)(cmd, args)
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var progArgs []string
 		if n := cmd.ArgsLenAtDash(); n >= 0 {
@@ -42,27 +48,44 @@ var runCmd = &cobra.Command{
 			return err
 		}
 		if cfg.Kernel {
-			return fmt.Errorf("pluto run cannot run a kernel; use pluto build --mode kernel")
+			return flagErrorf("cannot run a kernel; use pluto build --mode kernel")
 		}
 		tmp, err := os.MkdirTemp("", "pluto-run-")
 		if err != nil {
 			return err
 		}
-		defer func() { _ = os.RemoveAll(tmp) }()
-		cfg.Output = filepath.Join(tmp, "prog")
-		if err := build.Build(cfg); err != nil {
-			return err
+		code, err := buildAndRun(cfg, tmp, progArgs)
+		_ = os.RemoveAll(tmp)
+		if err == nil && code != 0 {
+			os.Exit(code)
 		}
-		c := exec.Command(cfg.Output, progArgs...)
-		c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
-		if err := c.Run(); err != nil {
-			if ee, ok := err.(*exec.ExitError); ok {
-				os.Exit(ee.ExitCode())
-			}
-			return err
-		}
-		return nil
+		return err
 	},
+}
+
+// buildAndRun builds the program in directory tmp and runs it, returning
+// its exit status.
+func buildAndRun(cfg *build.Config, tmp string, args []string) (int, error) {
+	cfg.Output = filepath.Join(tmp, "prog")
+	if err := build.Build(cfg); err != nil {
+		return 0, err
+	}
+	c := exec.Command(cfg.Output, args...)
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	err := c.Run()
+	if ee, ok := err.(*exec.ExitError); ok {
+		return ee.ExitCode(), nil
+	}
+	return 0, err
+}
+
+// A flagError is a flag value no build accepts, or flags that do not go
+// together. pluto reports it with the command's name and without the usage
+// text: the message names what is accepted, which the flag list would not.
+type flagError struct{ error }
+
+func flagErrorf(format string, args ...any) error {
+	return flagError{fmt.Errorf(format, args...)}
 }
 
 func init() {
@@ -114,7 +137,7 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 
 	arch, osName, ok := strings.Cut(target, "-")
 	if !ok || arch != "x86_64" || (osName != "linux" && osName != "none") {
-		return nil, fmt.Errorf("unsupported target %q (supported: x86_64-linux, x86_64-none)", target)
+		return nil, flagErrorf("unsupported target %q (supported: x86_64-linux, x86_64-none)", target)
 	}
 	freestanding := osName == "none"
 	kernel := false
@@ -127,14 +150,14 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 		kernel = true
 	case "hosted":
 		if osName == "none" {
-			return nil, fmt.Errorf("hosted mode needs an operating system target")
+			return nil, flagErrorf("hosted mode needs an operating system target")
 		}
 		freestanding = false
 	default:
-		return nil, fmt.Errorf("unknown mode %q", mode)
+		return nil, flagErrorf("unknown mode %q (supported: hosted, freestanding, kernel)", mode)
 	}
 	if format != "elf" && format != "binary" {
-		return nil, fmt.Errorf("unsupported format %q (supported: elf, binary)", format)
+		return nil, flagErrorf("unsupported format %q (supported: elf, binary)", format)
 	}
 
 	cfg := &build.Config{
@@ -161,6 +184,9 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 		if abs, err := filepath.Abs(root); err == nil {
 			cfg.StdlibDir = abs
 		}
+	}
+	if err := cfg.Check(); err != nil {
+		return nil, flagError{err}
 	}
 	switch asm {
 	case "":

@@ -14,7 +14,7 @@
 // An arena in a function's own frame, over a buffer in that frame, can back
 // code that function calls (vec.New[int](&a)), but cannot become the default
 // allocator: the default is a package variable, and a pointer into a frame
-// must not be stored there (language spec section 6.4).
+// must not be stored there (language spec section 6.3).
 //
 // An Arena is not safe for concurrent use.
 package arena

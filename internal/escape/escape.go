@@ -17,7 +17,8 @@
 // interfaces and function values use the union of the summaries of every
 // function that could be called there. Nothing has to be annotated.
 //
-// The rules are written up in docs/spec/language.md, section 6.4.
+// The rules are written up in docs/spec/language.md, section 6.3 ("Views"), and its
+// diagnostics in section 6.9.
 package escape
 
 import (

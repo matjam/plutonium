@@ -43,7 +43,7 @@ Sizes and alignments follow Go's gc compiler on amd64. `int`, `uint`, `uintptr` 
 | `int16`, `uint16` | 2 | 2 | |
 | `int32`, `uint32`, `float32`, `rune` | 4 | 4 | |
 | `int64`, `uint64`, `int`, `uint`, `uintptr`, `float64` | 8 | 8 | |
-| `*T`, `unsafe.Pointer`, `owned[T]`, `shared[T]`, `synced[T]` | 8 | 8 | address |
+| `*T`, `unsafe.Pointer`, `owned[T]`, `shared[T]`, `synced[T]`, `weak[P]` | 8 | 8 | address |
 | func value | 8 | 8 | address of a closure record (section 4) |
 | `string` | 16 | 8 | `{ptr *byte, len int}` |
 | `[]T` | 24 | 8 | `{ptr *T, len int, cap int}` |
@@ -57,9 +57,11 @@ Sizes and alignments follow Go's gc compiler on amd64. `int`, `uint`, `uintptr` 
 | enum type | its underlying integer's | its underlying integer's | the member's value, language spec section 5.9 |
 | `chan T` (planned) | 8 | 8 | address of the channel object |
 
-`owned[T]`, `shared[T]` and `synced[T]` point at the object. The allocation behind them begins with a
-hidden header word recording its allocator (and, for the counted kinds, the count) at a negative offset
-from the object (planned with the move checker).
+`owned[T]`, `shared[T]`, `synced[T]` and `weak[P]` point at the object. The allocation behind them begins
+with a hidden header at a negative offset from the object: one word recording its allocator for
+`owned[T]`, and for the counted kinds the allocator, the strong count and the weak count (language spec
+section 5.6; planned with the move checker). Owner types declared with `owner` (language spec section
+6.4) have the layout of their underlying type; ownership adds no bytes.
 
 Package-level variables are in `.data` (constant initialiser, written into the image; this includes
 arrays and structs whose elements are constants), `.bss` (no initialiser, or one computed by the package
@@ -396,7 +398,7 @@ copies.
 
 ## 10. Kernel mode
 
-Kernel mode (`--mode kernel`, language spec section 11.2) is a freestanding build with these differences
+Kernel mode (`--mode kernel`, language spec section 12.2) is a freestanding build with these differences
 in generated code. It sets the build tags `freestanding`, `none` and `kernel`.
 
 ### 10.1 No red zone
