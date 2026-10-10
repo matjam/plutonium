@@ -1,0 +1,14 @@
+fib 6765
+divmod 9 2
+named 49 343
+sum 0 1 10
+sum slice 60
+apply 42
+apply lit 21
+many 525
+deferOrder 16
+x now 2
+deferred x 1
+counter 105
+swap 1 2
+func array 59

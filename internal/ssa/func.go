@@ -421,8 +421,33 @@ func (f *Func) Reachable() []bool {
 
 // ConstInt returns a new integer constant in the entry block. Constants are
 // placed in the entry so they dominate every use; CSE merges duplicates.
+// The value is stored in canonical form (see Canon).
 func (f *Func) ConstInt(t *Type, c int64) *Value {
-	return f.Entry.prependValue(OpConst, t, c)
+	return f.Entry.prependValue(OpConst, t, Canon(t, c))
+}
+
+// Canon returns the canonical AuxInt of an integer constant of type t: its
+// low t.Size bytes, sign-extended to 64 bits. Booleans are 0 or 1.
+func Canon(t *Type, c int64) int64 {
+	switch {
+	case t.IsBool():
+		if c != 0 {
+			return 1
+		}
+		return 0
+	case t.Kind == KInt && t.Size < 8:
+		shift := 64 - 8*t.Size
+		return c << shift >> shift
+	}
+	return c
+}
+
+// ZeroExt returns the canonical constant c of type t as an unsigned value.
+func ZeroExt(t *Type, c int64) uint64 {
+	if t.Size >= 8 || t.Kind != KInt {
+		return uint64(c)
+	}
+	return uint64(c) & (1<<(8*t.Size) - 1)
 }
 
 // ConstBool returns a new boolean constant.

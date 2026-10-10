@@ -5,6 +5,8 @@
 # Go test cache
 *.test
 *.out
+# ...except the expected output of the end-to-end test programs.
+!testdata/run/*.out
 
 # Editor artifacts
 .idea/

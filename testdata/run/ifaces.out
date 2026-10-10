@@ -1,0 +1,14 @@
+rect 12
+square 25
+rect 1
+total 38
+named square
+is square 5
+not rect
+shape via iface 25
+nil int big int string value bool shape rect other
+error myErr
+no error
+stringer celsius
+any eq true false true
+iface eq true false

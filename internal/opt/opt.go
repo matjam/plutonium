@@ -40,6 +40,14 @@ func ForLevel(level int) *Pipeline {
 	if level >= 1 {
 		p.add(Pass{"sroa", SROA})
 		p.add(Pass{"mem2reg", Mem2Reg})
+		p.add(Pass{"simplify", Simplify})
+		p.add(Pass{"simplifycfg", SimplifyCFG})
+	}
+	if level >= 2 {
+		p.add(Pass{"cse", CSE})
+		p.add(Pass{"simplify2", Simplify})
+		p.add(Pass{"simplifycfg2", SimplifyCFG})
+		p.add(Pass{"deadcode2", ssa.DeadCode})
 	}
 	return p
 }

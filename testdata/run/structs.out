@@ -1,0 +1,11 @@
+point 40 60 160
+copy 40 99
+eq true false
+mixed 200 -5 60000 true -77 60001 false
+big 91 1081 10 1000
+array of structs 20
+embedded 8 8 seven
+list 100
+method value 6
+method expr 8
+vec 3000 4500 6250

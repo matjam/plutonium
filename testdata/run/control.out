@@ -1,0 +1,28 @@
+-5 negative
+0 zero
+3 small
+42 large
+-1 invalid
+0 weekend
+1 weekday
+2 weekday
+3 weekday
+4 weekday
+5 weekday
+6 weekend
+7 invalid
+fall 0 0
+fall 1 111
+fall 2 110
+fall 3 100
+fall 4 1000
+fall 5 0
+labeled 27
+goto 45
+breakInSwitch 8
+collatz 111 118
+or ok
+calls 2
+if-init 10
+range int 45
+infinite 7
