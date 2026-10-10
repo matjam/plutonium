@@ -754,7 +754,14 @@ func (g *gen) intExpr(t *typ, d int, nc bool) expr {
 		if g.chance(5) {
 			// From a float, through the range check.
 			u := g.randFloat()
-			return expr{s: t.String() + "(" + toInt(g.floatExpr(u, d-1, true).s, u) + ")"}
+			f := g.floatExpr(u, d-1, true).s
+			if g.chance(3) {
+				if u == tFloat32 {
+					f = "float64(" + f + ")"
+				}
+				return expr{s: t.String() + "(f2u(" + f + "))"}
+			}
+			return expr{s: t.String() + "(" + toInt(f, u) + ")"}
 		}
 		u := g.randInt()
 		return expr{s: t.String() + "(" + g.intExpr(u, d-1, true).s + ")"}
@@ -1800,7 +1807,7 @@ func (g *gen) stmt() bool {
 	g.addCost(1)
 	deep := g.cx.depth >= maxDepth
 	for {
-		switch k := g.r.Intn(139); {
+		switch k := g.r.Intn(142); {
 		case k < 20:
 			g.declStmt()
 			return false
@@ -1902,11 +1909,84 @@ func (g *gen) stmt() bool {
 		case k < 136:
 			g.floatStmt()
 			return false
-		default:
+		case k < 139:
 			g.stringStmt()
+			return false
+		default:
+			g.aggStmt()
 			return false
 		}
 	}
+}
+
+// aggStmt copies parts of a local aggregate onto other parts of it at
+// constant paths, the accesses scalar replacement splits, sometimes with
+// a pointer into it, and prints every leaf.
+func (g *gen) aggStmt() {
+	var t *typ
+	if len(g.structs) > 0 && g.chance(2) {
+		t = g.arrayOf(g.structs[g.r.Intn(len(g.structs))], 2+g.r.Intn(3))
+	} else if len(g.structs) > 0 {
+		t = g.structs[g.r.Intn(len(g.structs))]
+	} else {
+		t = g.arrayOf(g.concreteInt(), 2+g.r.Intn(4))
+	}
+	// Every path into t with constant indices, by type.
+	type path struct {
+		s string
+		t *typ
+	}
+	var paths []path
+	var walk func(s string, t *typ)
+	walk = func(s string, t *typ) {
+		paths = append(paths, path{s, t})
+		switch t.kind {
+		case kStruct:
+			for _, f := range t.fields {
+				walk(s+"."+f.name, f.t)
+			}
+		case kArray:
+			for i := 0; i < t.n && i < 4; i++ {
+				walk(fmt.Sprintf("%s[%d]", s, i), t.elem)
+			}
+		}
+	}
+	a := g.name("agg")
+	walk(a, t)
+	g.line("{")
+	g.indent++
+	g.line("var %s %s", a, t)
+	var ptr, ptrPath string
+	for i, n := 0, 3+g.r.Intn(5); i < n; i++ {
+		p := paths[g.r.Intn(len(paths))]
+		switch {
+		case ptr == "" && p.s != a && g.chance(4):
+			ptr, ptrPath = g.name("q"), p.s
+			g.line("%s := &%s", ptr, p.s)
+		case p.t.scalar():
+			g.line("%s = %s", p.s, g.value(p.t, 1))
+		default:
+			// Copy from another path of the same type, possibly itself.
+			var same []path
+			for _, o := range paths {
+				if o.t == p.t {
+					same = append(same, o)
+				}
+			}
+			g.line("%s = %s", p.s, same[g.r.Intn(len(same))].s)
+		}
+	}
+	if ptr != "" {
+		for _, p := range paths {
+			if p.s == ptrPath {
+				g.printLeaves("(*"+ptr+")", p.t)
+				break
+			}
+		}
+	}
+	g.printLeaves(a, t)
+	g.indent--
+	g.line("}")
 }
 
 // A str is a package-level string variable and its contents.

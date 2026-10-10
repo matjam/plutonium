@@ -27,6 +27,15 @@ func f2i(x float64) int64 {
 	return -2
 }
 
+// f2u converts x to an unsigned integer where that is defined, including
+// values of 2^63 and above.
+func f2u(x float64) uint64 {
+	if x >= 0 && x < 1.8e19 {
+		return uint64(x)
+	}
+	return 7
+}
+
 `
 
 // leafOrBool spells a printable form of scalar p of type t.
