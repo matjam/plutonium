@@ -444,6 +444,18 @@ func (s *fnState) selector(e *ast.SelectorExpr, T types2.Type) value {
 	case types2.MethodExpr:
 		fn := sel.Obj().(*types2.Func)
 		targs := s.withMethodTypeArgs(fn, e.Sel, s.recvTypeArgs(sel.Recv()))
+		if len(sel.Index()) > 1 {
+			s.l.errorf(e.Pos(), "method expression %s of a promoted method is not supported yet", e.Sel.Name)
+			return s.zeroValue(T)
+		}
+		_, exprPtr := sel.Recv().Underlying().(*types2.Pointer)
+		_, methPtr := fn.Type().(*types2.Signature).Recv().Type().(*types2.Pointer)
+		if exprPtr && !methPtr {
+			// (*T).M of a value method takes a *T: call M with *p.
+			sig := s.subst(T).Underlying().(*types2.Signature)
+			wrapper := s.l.derefMethodWrapper(fn, targs, sig)
+			return scalarValue(s.symAddr(s.l.closureRecord(wrapper)), T)
+		}
 		return scalarValue(s.funcValue(fn, targs, e.Pos()), T)
 	}
 	return s.zeroValue(T)
@@ -1019,6 +1031,11 @@ func (s *fnState) compositeLit(e *ast.CompositeLit, T types2.Type) value {
 			}
 		}
 		return s.loadLV(lv)
+
+	case *types2.Wrapper:
+		if u.Kind() == types2.WrapRing && len(e.Elts) == 0 {
+			return s.zeroValue(T) // ring[T, N]{}: the empty ring
+		}
 	}
 	s.l.errorf(e.Pos(), "lower: unsupported composite literal of type %s", T)
 	return s.zeroValue(T)

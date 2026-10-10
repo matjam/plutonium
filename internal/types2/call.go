@@ -222,7 +222,11 @@ func (check *Checker) callExpr(x *operand, call *ast.CallExpr) exprKind {
 						break
 					}
 				}
-				check.conversion(x, T)
+				if en := EnumOf(T); en != nil && !Identical(x.typ(), T) {
+					check.enumConversion(x, T, en, call)
+				} else {
+					check.conversion(x, T)
+				}
 			}
 		default:
 			check.use(call.Args...)
@@ -819,6 +823,15 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 		goto Error
 	}
 
+	// Plutonium: E.Member selects a member of enum type E. A member takes
+	// precedence over a method expression of the same name.
+	if x.mode() == typexpr && check.enumSelector(x, e) {
+		if !x.isValid() {
+			goto Error
+		}
+		return
+	}
+
 	// Additionally, if x.typ is a pointer type, selecting implicitly dereferences the value, meaning
 	// its base type must also be complete.
 	if p, ok := x.typ().Underlying().(*Pointer); ok && !check.isComplete(p.base) {
@@ -848,7 +861,9 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 		}
 
 		var why string
-		if isInterfacePtr(x.typ()) {
+		if en := EnumOf(x.typ()); en != nil && en.lookup(sel) != nil {
+			why = check.sprintf("%s is a member of enum %s: write %s.%s", sel, en.obj.name, en.obj.name, sel)
+		} else if isInterfacePtr(x.typ()) {
 			why = check.interfacePtrError(x.typ())
 		} else {
 			alt, _, _ := lookupFieldOrMethod(x.typ(), x.mode() == variable, check.pkg, sel, true)

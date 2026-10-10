@@ -157,6 +157,7 @@ func (check *Checker) objDecl(obj Object) {
 		// invalid recursive types are detected via path
 		check.typeDecl(obj, d.tdecl)
 		check.collectMethods(obj) // methods can only be added to top-level types
+		check.addEnumString(obj)
 	case *Func:
 		// functions may be recursive - no need to track dependencies
 		check.funcDecl(obj, d)
@@ -886,6 +887,7 @@ func (check *Checker) declStmt(d ast.Decl) {
 			check.declare(check.scope, d.spec.Name, obj, scopePos)
 			check.push(obj) // mark as grey
 			check.typeDecl(obj, d.spec)
+			check.addEnumString(obj)
 			check.pop()
 		default:
 			check.errorf(d.node(), InvalidSyntaxTree, "unknown ast.Decl node %T", d.node())

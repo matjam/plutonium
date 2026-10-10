@@ -80,7 +80,11 @@ tooling, platforms and libraries.
     can print composite values and `hash` can hash them generically.
 24. **Compile-time type-switch folding** (planned): `switch any(x).(type)` on a type parameter decided per
     instantiation, as language spec section 4.4 promises.
-25. **Sum types** (proposed): [tagged unions with exhaustive switches](plans/2026-10-09-sum-types-proposal.md).
+25. **Enums and sum types**: enums are done (language spec section 5.9,
+    [design](plans/2026-10-09-enums-design.md)); tagged unions are proposed
+    ([proposal](plans/2026-10-09-sum-types-proposal.md), option A accepted) and will reuse the enum's
+    member selection, bare case names and exhaustiveness check. Follow-ups: DWARF enumeration types,
+    and dropping bounds checks when a dense enum indexes an array of length `len(E)`.
 26. **`alloc.Use` signature** (planned): the spec's `Use(a) (restore func())` cannot be written under
     section 4.5 (the closure captures the previous allocator and is returned); align the spec with the
     library's `Use(a) Restore` and `defer alloc.Use(a).Restore()`.

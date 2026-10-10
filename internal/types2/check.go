@@ -169,6 +169,11 @@ type Checker struct {
 	// aligned wrapper on its operand instead of unwrapping it.
 	keepWrapper bool
 
+	// Plutonium: the expression multiExpr is evaluating in a two-value
+	// (comma-ok) context, or nil. A non-constant conversion to an enum
+	// type is valid only as that expression.
+	commaOkExpr ast.Expr
+
 	// debugging
 	posStack []positioner // stack of source positions seen; used for panic tracing
 	indent   int          // indentation for tracing

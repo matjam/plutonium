@@ -127,10 +127,14 @@ func (s *fnState) declStmt(d *ast.GenDecl) {
 }
 
 // multiValue lowers an expression producing n values: a call, or a comma-ok
-// form (type assertion).
+// form (type assertion, conversion to an enum type).
 func (s *fnState) multiValue(e ast.Expr, n int) []value {
 	switch x := ast.Unparen(e).(type) {
 	case *ast.CallExpr:
+		if s.isEnumConversion(x) {
+			v, ok := s.enumConversion(x)
+			return []value{v, scalarValue(ok, types2.Typ[types2.Bool])}
+		}
 		res := s.callResults(x)
 		for i := range res {
 			res[i] = s.materialize(res[i])
@@ -406,6 +410,10 @@ func (s *fnState) rangeVar(st *ast.RangeStmt, e ast.Expr) *lvalue {
 }
 
 func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
+	if s.info.Types[st.X].IsType() {
+		s.rangeEnum(st, label) // range E over an enum type's members
+		return
+	}
 	xt := unwrap(s.typeOf(st.X))
 	assign := func(lv *lvalue, v value) {
 		if lv != nil {

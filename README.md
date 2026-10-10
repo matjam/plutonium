@@ -48,6 +48,7 @@ Interfaces are partially supported today (compile-time dispatch for non-empty in
 | `volatile[T]` | Every read/write is exactly one load/store, never elided or reordered |
 | `aligned[T, N]` | Guarantees N-byte alignment for DMA buffers, SIMD, page tables |
 | `ring[T, N]` | Built-in lock-free ring buffer with compiler-inlined Push/Pop/Len |
+| `enum` types | Scoped members (`Color.Red`), exhaustive switches, checked conversions, generated `String` |
 | `bits[V]` lens | Zero-cost bit-addressing over existing variables (Set/Clear/Test/Toggle) |
 | `alloc.New[T]()` | Explicit heap allocation via slab allocator with auto reference counting |
 | RAII auto-free | Compiler inserts `decRef` at scope exit; no manual free required |
@@ -149,7 +150,7 @@ pluto version
 
 `pluto fmt [-l] [-w] [-d] [path ...]` formats Plutonium source exactly as
 gofmt formats Go, including the Plutonium-only syntax (packed types, bits
-groups, type constructors such as `volatile[T]` and `ring[T, N]`), and
+groups, enum types, type constructors such as `volatile[T]` and `ring[T, N]`), and
 normalises `//pu:build` lines like `//go:build`. A directory is walked for
 `.p` files; with no paths, or `-`, it formats standard input. `-l` lists files
 that differ, `-w` rewrites them, `-d` prints a unified diff (and exits with

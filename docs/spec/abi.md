@@ -54,6 +54,7 @@ Sizes and alignments follow Go's gc compiler on amd64. `int`, `uint`, `uintptr` 
 | `aligned[T, N]` | size(T) rounded up to N | N | as `T` |
 | `ring[T, N]` | 16 + N × size(T) | max(8, align(T)) | `{head, tail uint64; buf [N]T}` |
 | packed type | its backing, or its field width rounded up to bytes | backing's | bit-exact, language spec section 5.5 |
+| enum type | its underlying integer's | its underlying integer's | the member's value, language spec section 5.9 |
 | `chan T` (planned) | 8 | 8 | address of the channel object |
 
 `owned[T]`, `shared[T]` and `synced[T]` point at the object. The allocation behind them begins with a

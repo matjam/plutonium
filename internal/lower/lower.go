@@ -179,9 +179,10 @@ func pkgPath(pkg *types2.Package) string {
 	return pkg.Path()
 }
 
-// typeString formats a type for symbol names: fully qualified by import path.
+// typeString formats a type for symbol names: fully qualified by import
+// path, with types declared in functions told apart by position.
 func typeString(T types2.Type) string {
-	return types2.TypeString(T, func(p *types2.Package) string { return p.Path() })
+	return types2.SymbolString(T, func(p *types2.Package) string { return p.Path() })
 }
 
 // funcSymName returns the symbol name of a function or method instance.
@@ -205,6 +206,11 @@ func funcSymName(fn *types2.Func, targs []types2.Type) string {
 		name := rt.String()
 		if n, ok := types2.Unalias(rt).(*types2.Named); ok {
 			name = n.Obj().Name()
+			if tn := n.Obj(); tn.Parent() != nil && tn.Pkg() != nil && tn.Parent() != tn.Pkg().Scope() {
+				// Methods of types declared in functions (enum String
+				// methods) need names that tell such types apart.
+				name += fmt.Sprintf("·%d", tn.Pos())
+			}
 		}
 		if nr := sig.RecvTypeParams().Len(); nr > 0 && sig.TypeParams().Len() > 0 && len(targs) >= nr {
 			name += "[" + typeList(targs[:nr]) + "]"
@@ -267,6 +273,11 @@ func directives(doc *ast.CommentGroup) []string {
 func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 	fn = fn.Origin()
 	d := l.decls[fn]
+	if d == nil {
+		if en := enumOfMethod(fn); en != nil {
+			return l.enumString(fn, en)
+		}
+	}
 	if d != nil && d.decl.Body == nil {
 		if name, ok := externName(d.decl); ok {
 			sym := l.out.Sym(name, ssa.SymExtern)
