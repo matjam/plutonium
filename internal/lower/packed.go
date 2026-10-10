@@ -96,7 +96,7 @@ func (s *fnState) loadBits(lv lvalue) *ssa.Value {
 	rt := s.l.scalarType(ref.T)
 	word, wt, shift, _ := s.storageWord(lv)
 	if word == nil {
-		s.l.errorf(0, "lower: packed field of %d bits at bit %d cannot be accessed", ref.width, ref.offset)
+		s.l.unsupportedf(0, "packed field of %d bits at bit %d cannot be accessed", ref.width, ref.offset)
 		return s.zeroScalar(rt)
 	}
 	// Move the field to the top of the word and shift it back down, which
@@ -142,7 +142,7 @@ func (s *fnState) storeBits(lv lvalue, val *ssa.Value) {
 	ref := lv.bits
 	word, wt, shift, ptr := s.storageWord(lv)
 	if word == nil {
-		s.l.errorf(0, "lower: packed field of %d bits at bit %d cannot be accessed", ref.width, ref.offset)
+		s.l.unsupportedf(0, "packed field of %d bits at bit %d cannot be accessed", ref.width, ref.offset)
 		return
 	}
 	// Bring the new value to the word's width.

@@ -69,14 +69,14 @@ func (check *Checker) paramDefaults(recvPar *ast.FieldList, ftyp *ast.FuncType, 
 	if recvPar != nil {
 		for _, f := range recvPar.List {
 			if f.Default != nil {
-				check.error(f.Default, BadDecl, "a receiver cannot have a default value")
+				check.error(f.Default, MisplacedDefault, "a receiver cannot have a default value")
 			}
 		}
 	}
 	if ftyp.Results != nil {
 		for _, f := range ftyp.Results.List {
 			if f.Default != nil {
-				check.error(f.Default, BadDecl, "result parameters cannot have default values")
+				check.error(f.Default, MisplacedDefault, "result parameters cannot have default values")
 			}
 		}
 	}
@@ -86,7 +86,7 @@ func (check *Checker) paramDefaults(recvPar *ast.FieldList, ftyp *ast.FuncType, 
 	if variadic {
 		for _, f := range ftyp.Params.List {
 			if f.Default != nil {
-				check.error(f.Default, BadDecl, "a variadic function cannot have default parameter values (an argument after the variadic ones could not be told apart from them)")
+				check.error(f.Default, VariadicDefault, "a variadic function cannot have default parameter values (an argument after the variadic ones could not be told apart from them)")
 				return nil
 			}
 		}
@@ -99,13 +99,13 @@ func (check *Checker) paramDefaults(recvPar *ast.FieldList, ftyp *ast.FuncType, 
 		n := max(1, len(f.Names))
 		switch {
 		case f.Default == nil && first != nil:
-			check.errorf(f, BadDecl, "parameter %s has no default value but follows parameter %s, which has one",
+			check.errorf(f, MissingDefault, "parameter %s has no default value but follows parameter %s, which has one",
 				paramLabel(f, index), paramLabel(first, index-len(defs)))
 			return nil
 		case f.Default == nil:
 		case n > 1:
 			// The parser rejects "a, b T = x"; a constructed tree may not.
-			check.error(f.Default, BadDecl, "a default value must follow a single parameter name and its type")
+			check.error(f.Default, SharedDefault, "a default value must follow a single parameter name and its type")
 			return nil
 		default:
 			if first == nil {
@@ -130,7 +130,7 @@ func paramLabel(f *ast.Field, index int) string {
 // defaultsNotAllowed reports a default value outside a function or method
 // declaration.
 func (check *Checker) defaultsNotAllowed(def ast.Expr) {
-	check.error(def, BadDecl, "default parameter values are allowed only in function and method declarations, not in function types, function literals or interface methods")
+	check.error(def, MisplacedDefault, "default parameter values are allowed only in function and method declarations, not in function types, function literals or interface methods")
 }
 
 // defaultValues type-checks the default values of a declared function's
@@ -187,6 +187,6 @@ func (check *Checker) paramPlaceholderUse(e *ast.Ident, v *Var) bool {
 	if !check.paramPlaceholders[v] {
 		return false
 	}
-	check.errorf(e, BadDecl, "a default value cannot refer to parameter %s (defaults are evaluated by the caller)", v.name)
+	check.errorf(e, DefaultRefersToParam, "a default value cannot refer to parameter %s (defaults are evaluated by the caller)", v.name)
 	return true
 }

@@ -1,0 +1,11 @@
+$DIR/main.p:22:1: missing return
+$DIR/main.p:27:10: cannot use name (variable of type string) as int value in assignment
+$DIR/main.p:29:9: invalid operation: count + total (mismatched types int and int64)
+$DIR/main.p:30:10: undefined: cuont
+$DIR/main.p:31:23: too many arguments in call to perimeter
+	have (number, number)
+	want (int)
+$DIR/main.p:32:16: cannot use Square{…} (value of struct type Square) as Shape value in variable declaration: Square does not implement Shape (missing method Area)
+$DIR/main.p:33:7: in call to Zero, cannot infer T (declared at $DIR/main.p:13:11)
+$DIR/main.p:34:6: declared and not used: spare
+$DIR/main.p:3:8: "pluto/strings" imported and not used

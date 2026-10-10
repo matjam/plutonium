@@ -411,7 +411,7 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 		check.errorf(&x, code, "%s %s", &x, msg)
 
 	case *ast.SendStmt:
-		check.forbidden(s, "channel send is", "channels need a scheduler")
+		check.forbidden(s, ChanNotPermitted, "channel send is", "channels need a scheduler")
 		var ch, val operand
 		check.expr(nil, &ch, s.Chan)
 		check.genericExpr(&val, s.Value, nil)
@@ -485,7 +485,7 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 		}
 
 	case *ast.GoStmt:
-		check.forbidden(s, "go statements are", "goroutines need a scheduler")
+		check.forbidden(s, GoNotPermitted, "go statements are", "goroutines need a scheduler")
 		check.suspendedCall("go", s.Call)
 
 	case *ast.DeferStmt:
@@ -740,7 +740,7 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 		}
 
 	case *ast.SelectStmt:
-		check.forbidden(s, "select statements are", "channels need a scheduler")
+		check.forbidden(s, ChanNotPermitted, "select statements are", "channels need a scheduler")
 		inner |= breakOk
 
 		check.multipleDefaults(s.Body.List)
