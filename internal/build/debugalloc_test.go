@@ -14,6 +14,7 @@ import (
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // buildDebugAlloc builds src with --alloc=debug at optLevel and returns the
@@ -93,7 +94,7 @@ func main() {
 }
 
 func TestDebugAllocErrors(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	free := `
 	alloc.Free(n)
 	alloc.Default().Free(base, 10, 1)
@@ -342,7 +343,7 @@ func TestDebugAllocErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			prog := buildDebugAlloc(t, debugAllocProgram(tt.body), 2)
 			got, status := runDebugAlloc(t, prog, tt.settings)
 			if status != tt.status {
@@ -411,10 +412,10 @@ func main() {
 // trace table to the call of new, make, alloc.New or alloc.Free, including
 // where that call was inlined.
 func TestDebugAllocSites(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	for _, level := range []int{0, 2} {
 		t.Run("leaks/O"+strconv.Itoa(level), func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			prog := buildDebugAlloc(t, debugAllocSitesProgram(false), level)
 			got, status := runDebugAlloc(t, prog, "")
 			want := `\Adebug allocator: 3 allocations still live, 158 bytes:\n` +
@@ -427,7 +428,7 @@ func TestDebugAllocSites(t *testing.T) {
 			}
 		})
 		t.Run("double free/O"+strconv.Itoa(level), func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			var listing bytes.Buffer
 			prog := buildDebugAllocWith(t, debugAllocSitesProgram(true), build.Config{OptLevel: level, Listing: &listing})
 			got, status := runDebugAlloc(t, prog, "")
@@ -460,11 +461,11 @@ func TestDebugAllocSites(t *testing.T) {
 // back to the address of the call, which must lie in the function that
 // allocated or freed.
 func TestDebugAllocSitesUnsymbolised(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	re := regexp.MustCompile(`(?m)^  (allocated|freed again|freed) at pc 0x([0-9a-f]+)$`)
 	for _, level := range []int{0, 2} {
 		t.Run("O"+strconv.Itoa(level), func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			prog := buildDebugAllocWith(t, debugAllocSitesProgram(true), build.Config{OptLevel: level, NoTrace: true})
 			got, status := runDebugAlloc(t, prog, "")
 			if status != 2 || !strings.Contains(got, "panic: debug allocator: double free of ") {
@@ -491,7 +492,7 @@ func TestDebugAllocSitesUnsymbolised(t *testing.T) {
 // address in a function of its own, the address of the code where it is
 // inlined, and the interrupted RIP in an interrupt handler.
 func TestCallerPC(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 import (
@@ -557,7 +558,7 @@ func funcAt(t *testing.T, prog string, pc uint64) string {
 // allocates with the size and alignment it allocated, and must not touch
 // memory outside its allocations.
 func TestLibDebugAlloc(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	files, err := filepath.Glob(filepath.Join("..", "..", "testdata", "lib", "*.p"))
 	if err != nil {
 		t.Fatal(err)
@@ -574,7 +575,7 @@ func TestLibDebugAlloc(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			prog := buildDebugAlloc(t, string(src), 2)
 			got, status := runDebugAlloc(t, prog, "leaks=off")
 			if status != 0 {
@@ -588,7 +589,7 @@ func TestLibDebugAlloc(t *testing.T) {
 }
 
 func TestDebugAllocNeedsHosted(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "main.p"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
 		t.Fatal(err)

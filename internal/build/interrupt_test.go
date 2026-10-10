@@ -3,13 +3,15 @@ package build_test
 import (
 	"strings"
 	"testing"
+
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // TestInterruptListing checks the code generated for //pu:interrupt
 // handlers: register saves in the prologue, cld, the mirror-image restores
 // and iretq in place of ret, and the error code dropped before iretq.
 func TestInterruptListing(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 import "pluto/arch/x86"

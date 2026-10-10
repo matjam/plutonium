@@ -13,6 +13,7 @@ import (
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // buildConc builds src as a main package with cfg's settings and returns
@@ -655,7 +656,7 @@ func main() {
 // TestParallelAlloc checks the default allocator, and the debug
 // allocator, with allocations and frees from every worker at once.
 func TestParallelAlloc(t *testing.T) {
-	t.Parallel() // it checks the heap, not timing
+	testguard.Parallel(t) // it checks the heap, not timing
 	cfgs := []build.Config{{OptLevel: 2}, {OptLevel: 2, Alloc: "debug"}}
 	progs := buildConcAll(t, []concBuild{
 		{name: "default allocator", src: parallelAllocProgram, cfg: cfgs[0]},

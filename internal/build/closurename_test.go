@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // TestReturnedClosureNames checks that the closure a function returns is
@@ -16,7 +17,7 @@ import (
 // for Count and for each instance of Bag's All, none named after main or
 // after the other callers.
 func TestReturnedClosureNames(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 type Bag[T any] struct{ items []T }
@@ -68,7 +69,7 @@ func main() {
 `
 	for _, level := range []int{0, 2} {
 		t.Run("O"+string(rune('0'+level)), func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			dir, _, _ := buildFiles(t, map[string][]byte{"main.p": []byte(src)}, build.Config{OptLevel: level})
 			f, err := elf.Open(filepath.Join(dir, "prog"))
 			if err != nil {

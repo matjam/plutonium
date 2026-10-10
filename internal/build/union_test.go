@@ -3,12 +3,14 @@ package build_test
 import (
 	"strings"
 	"testing"
+
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // TestUnionCompileErrors checks that union misuse, and the union payloads
 // the compiler does not support yet, stop the build.
 func TestUnionCompileErrors(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const decls = `package main
 
 type State union {
@@ -53,7 +55,7 @@ func main() { _ = cState(State.Idle) }
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			err := buildError(t, decls+c.src)
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("got error %v, want %q", err, c.want)
@@ -66,7 +68,7 @@ func main() { _ = cState(State.Idle) }
 // the wrong variant, and a tag that names no variant, which only unsafe code
 // can make.
 func TestUnionPanics(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	cases := []struct{ name, src, want string }{
 		{"packed assertion", `package main
 
@@ -139,7 +141,7 @@ func main() { f(P(3)) }
 	for _, c := range cases {
 		for _, level := range []int{0, 2} {
 			t.Run(c.name, func(t *testing.T) {
-				t.Parallel()
+				testguard.Parallel(t)
 				out, status := compileAndRun(t, c.src, level)
 				wantStatus := 2
 				if !strings.HasPrefix(c.want, "panic") {

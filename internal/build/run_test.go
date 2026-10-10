@@ -10,6 +10,7 @@ import (
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // compileAndRun builds src as a main package and runs it, returning its
@@ -65,7 +66,7 @@ func compileAndRunFiles(t *testing.T, files map[string]string, optLevel int) (st
 }
 
 func TestReturnStatus(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	_, status := compileAndRun(t, "package main\n\nfunc main() int64 { return 42 }\n", 0)
 	if status != 42 {
 		t.Fatalf("exit status %d, want 42", status)

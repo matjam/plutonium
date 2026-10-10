@@ -13,6 +13,7 @@ import (
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // TestKernelPanic boots testdata/kernel/panic, a kernel-mode kernel with a
@@ -22,7 +23,7 @@ import (
 // handler itself panics, the runtime's last resort halts the processor
 // without a word, so QEMU keeps running, silent, until the test stops it.
 func TestKernelPanic(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	qemu, err := exec.LookPath("qemu-system-x86_64")
 	if err != nil {
 		t.Skip("qemu-system-x86_64 is not installed")
@@ -65,7 +66,7 @@ panic: kernel nested
 	for _, c := range cases {
 		for _, level := range []int{0, 2} {
 			t.Run(c.scenario+"/O"+string(rune('0'+level)), func(t *testing.T) {
-				t.Parallel()
+				testguard.Parallel(t)
 				dir := t.TempDir()
 				for name, from := range files {
 					data, err := os.ReadFile(from)

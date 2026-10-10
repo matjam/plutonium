@@ -16,6 +16,7 @@ import (
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // debugSrc is the program the DWARF tests inspect. The tests refer to its
@@ -85,10 +86,10 @@ type funcRange struct{ lo, hi uint64 }
 // TestDWARF checks the compile units, subprograms, line table and call frame
 // information of a program at -O0 and -O2.
 func TestDWARF(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	for _, level := range []int{0, 2} {
 		t.Run("O"+string(rune('0'+level)), func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			f, _ := buildDebug(t, build.Config{OptLevel: level})
 			// The line table names main.p in directory ".", with no
 			// compilation directory, which debug/dwarf joins to main.p.
@@ -242,7 +243,7 @@ func TestDWARF(t *testing.T) {
 // calls are all inlined at -O2: main calls level1 twice (lines 17 and 18),
 // which calls level2 (line 12), which calls level3 (line 8).
 func TestDWARFInlined(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	src, err := os.ReadFile(filepath.Join("..", "..", "testdata", "trace", "index.p"))
 	if err != nil {
 		t.Fatal(err)
@@ -359,7 +360,7 @@ func dwarfFiles(t *testing.T, f *elf.File) (dirs, files []string) {
 // with --trimpath=false by absolute path, with standard library files
 // under Config.StdlibDir rather than $PLUTOROOT when it is set.
 func TestDWARFFileNames(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	f, _ := buildDebug(t, build.Config{StdlibDir: "/opt/pluto/lib"})
 	dirs, files := dwarfFiles(t, f)
 	for _, dir := range dirs {
@@ -396,7 +397,7 @@ func TestDWARFFileNames(t *testing.T) {
 // TestNoDWARF checks -g=false and -s: no DWARF sections, and with -s no
 // symbol table either.
 func TestNoDWARF(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	f, _ := buildDebug(t, build.Config{OptLevel: 2, NoDWARF: true})
 	for _, s := range f.Sections {
 		if strings.HasPrefix(s.Name, ".debug_") {
@@ -420,7 +421,7 @@ func TestNoDWARF(t *testing.T) {
 // finds the source: run from the module root for a trimmed build, from
 // anywhere for --trimpath=false. It is skipped without gdb.
 func TestGDB(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	gdb, err := exec.LookPath("gdb")
 	if err != nil {
 		t.Skip("gdb not installed")

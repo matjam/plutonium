@@ -8,13 +8,14 @@ import (
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // TestFieldNames builds a program that prints a struct with %+v and %#v
 // with field names kept and stripped (--fieldnames=false): without names
 // both print the fields as %v does, in Go syntax for %#v.
 func TestFieldNames(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 import "pluto/fmt"
@@ -35,7 +36,7 @@ func main() {
 	}
 	for _, c := range cases {
 		t.Run("fieldnames="+c.setting, func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			dir := t.TempDir()
 			if err := os.WriteFile(filepath.Join(dir, "main.p"), []byte(src), 0o644); err != nil {
 				t.Fatal(err)

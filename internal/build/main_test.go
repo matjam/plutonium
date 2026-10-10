@@ -1,10 +1,11 @@
 package build_test
 
 import (
-	"flag"
 	"os"
 	"runtime/debug"
 	"testing"
+
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // TestMain makes the garbage collector less eager than its default unless
@@ -14,19 +15,17 @@ import (
 // times what is live, or to a limit that grows with the number of builds
 // at once (about what GOGC=100 used at the default -parallel on 24 CPUs),
 // whichever comes first.
+//
+// internal/testguard first lowers -parallel if the machine has too little
+// memory available for that many builds at once, and stops the run, naming
+// the tests in flight, if the test binary grows past a memory cap.
 func TestMain(m *testing.M) {
-	flag.Parse()
-	if os.Getenv("GOGC") == "" {
-		debug.SetGCPercent(400)
-	}
-	if os.Getenv("GOMEMLIMIT") == "" {
-		parallel := 1
-		if f := flag.Lookup("test.parallel"); f != nil {
-			if g, ok := f.Value.(flag.Getter); ok {
-				parallel, _ = g.Get().(int)
-			}
+	os.Exit(testguard.Run(m, func(parallel int) {
+		if os.Getenv("GOGC") == "" {
+			debug.SetGCPercent(400)
 		}
-		debug.SetMemoryLimit(int64(max(parallel, 4)) * 96 << 20)
-	}
-	os.Exit(m.Run())
+		if os.Getenv("GOMEMLIMIT") == "" {
+			debug.SetMemoryLimit(int64(max(parallel, 4)) * 96 << 20)
+		}
+	}))
 }

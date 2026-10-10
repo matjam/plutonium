@@ -5,12 +5,13 @@ import (
 	"testing"
 
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // TestTraceTask checks rt.TraceTask: the trace of a parked puroutine, taken
 // from another, with the runtime's frames left out, and the wait reason.
 func TestTraceTask(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	runConcCases(t, []concCase{
 		{name: "tracetask", want: `reason: chan receive
     main.inner (./main.p:16)
@@ -76,7 +77,7 @@ var libLine = regexp.MustCompile(`\((pluto/[a-z/]+\.p):[0-9]+\)`)
 // library's functions appear in: the same puroutines, reasons and program
 // frames.
 func TestDeadlockSync(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	src := `package main
 
 import "pluto/sync"

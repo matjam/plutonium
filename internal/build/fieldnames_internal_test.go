@@ -1,12 +1,16 @@
 package build
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/matjam/plutonium/internal/testguard"
+)
 
 // TestFieldNamesDefault checks that type descriptors keep field names by
 // default in hosted and freestanding builds and leave them out in kernel
 // mode, unless --fieldnames says otherwise.
 func TestFieldNamesDefault(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	cases := []struct {
 		cfg  Config
 		want bool

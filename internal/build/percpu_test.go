@@ -12,6 +12,7 @@ import (
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // TestPerCPUHosted runs testdata/kernel/gsuser, a kernel-mode program that
@@ -21,7 +22,7 @@ import (
 // variable indexes, struct fields, large copies and clears, and addresses
 // taken and passed to other functions.
 func TestPerCPUHosted(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	dir := filepath.Join("..", "..", "testdata", "kernel", "gsuser")
 	for _, level := range []int{0, 2} {
 		out := filepath.Join(t.TempDir(), "gsuser")
@@ -48,7 +49,7 @@ func TestPerCPUHosted(t *testing.T) {
 
 // TestPerCPUErrors checks the rules on //pu:percpu variables.
 func TestPerCPUErrors(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	tests := []struct {
 		name, decls string
 		kernel      bool
@@ -62,7 +63,7 @@ func TestPerCPUErrors(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			dir := t.TempDir()
 			src := "package main\n\n" + tc.decls + "\n\nfunc main() {}\n"
 			if err := os.WriteFile(filepath.Join(dir, "main.p"), []byte(src), 0o644); err != nil {
@@ -131,7 +132,7 @@ func buildPerCPU(t *testing.T, compileOnly bool, ldscript string) (string, error
 // initialisers, and every access is a GS-relative absolute disp32 with an
 // R_X86_64_32S relocation.
 func TestPerCPUObject(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	obj, err := buildPerCPU(t, true, "")
 	if err != nil {
 		t.Fatal(err)
@@ -199,7 +200,7 @@ func TestPerCPUObject(t *testing.T) {
 // the layout: code in the top 2 GiB, .percpu at address 0 with its image
 // loaded after .data, and the script's symbols.
 func TestKernelLink(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	exe, err := buildPerCPU(t, false, "")
 	if err != nil {
 		t.Fatal(err)
@@ -243,7 +244,7 @@ func TestKernelLink(t *testing.T) {
 // .percpu at address 0 is an error rather than a kernel with wrong
 // per-CPU accesses.
 func TestPerCPUBadScript(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	script := filepath.Join(t.TempDir(), "bad.ld")
 	const bad = "ENTRY(_start)\nSECTIONS {\n\t. = 0x400000;\n\t.text : { *(.boot) *(.text .text.*) }\n" +
 		"\t.data : { *(.data .data.* .rodata .rodata.*) }\n\t.percpu 0x10000 : { *(.percpu) }\n" +

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // printAtomicSrc starts tasks that print many lines at once, each line
@@ -55,7 +56,7 @@ func main() {
 // TestPrintAtomic checks that print and println statements of concurrent
 // tasks never mix within a line, with one processor and with all of them.
 func TestPrintAtomic(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const (
 		tasks = 8
 		lines = 400
@@ -74,7 +75,7 @@ func TestPrintAtomic(t *testing.T) {
 		prog := buildConc(t, printAtomicSrc, build.Config{OptLevel: level})
 		for _, procs := range []string{"1", "4"} {
 			t.Run(fmt.Sprintf("O%d/procs%s", level, procs), func(t *testing.T) {
-				t.Parallel()
+				testguard.Parallel(t)
 				got, status := runConc(t, prog, "PLUTO_MAXPROCS="+procs)
 				if status != 0 {
 					t.Fatalf("status %d, output:\n%s", status, got)

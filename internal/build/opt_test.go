@@ -10,6 +10,7 @@ import (
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // listFunc compiles src at -O2 and returns the machine listing of function
@@ -38,7 +39,7 @@ func listFunc(t *testing.T, src, name string) string {
 }
 
 func TestBranchElim(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 var data [64]int64
@@ -81,7 +82,7 @@ func main() { println(step(7), child(3)) }
 }
 
 func TestProveBoundsChecks(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	tests := []struct {
 		name, body string
 		checked    bool
@@ -98,7 +99,7 @@ func TestProveBoundsChecks(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			src := "package main\n\nvar g [100]int64\n\n//pu:noinline\nfunc f(s []int64, n int) int64 {\n\tt := int64(0)\n\t" +
 				tc.body + "\n\treturn t\n}\n\nfunc main() { println(f(nil, 0)) }\n"
 			asm := listFunc(t, src, "main.f")
@@ -110,7 +111,7 @@ func TestProveBoundsChecks(t *testing.T) {
 }
 
 func TestInlinedResultSlot(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 type P struct{ a, b, c, d, e float64 }
@@ -144,7 +145,7 @@ func main() {
 }
 
 func TestFloatNegFold(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 //pu:noinline
@@ -160,7 +161,7 @@ func main() { println(int64(f(1, 2, 3))) }
 }
 
 func TestTailRec(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 func fib(n int64) int64 {
@@ -189,7 +190,7 @@ func main() { println(fib(20), gcd(12, 18)) }
 }
 
 func TestFillAndCount(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 var big [1000]bool
@@ -239,7 +240,7 @@ func main() {
 }
 
 func TestVolatileReadOrders(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 var buf [8]uint32
@@ -271,7 +272,7 @@ func main() {
 }
 
 func TestBoolSelect(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 //pu:noinline
@@ -288,7 +289,7 @@ func main() { println(isOdd(' ')) }
 }
 
 func TestBitTest(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 //pu:noinline
@@ -322,7 +323,7 @@ func main() { println(isSpace(' '), vowel('a'), two(3), far(3)) }
 }
 
 func TestLoadFold(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 //pu:noinline
@@ -352,7 +353,7 @@ func main() {
 }
 
 func TestRotate(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 //pu:noinline
@@ -367,7 +368,7 @@ func main() { println(f(5)) }
 }
 
 func TestSetccClearsFirst(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 //pu:noinline
@@ -385,7 +386,7 @@ func main() { println(lt(1, 2)) }
 }
 
 func TestZeroIdiomNotLive(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 var ps [8][7]float64
@@ -417,7 +418,7 @@ func main() {
 }
 
 func TestMemOpt(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 type P struct {
@@ -489,7 +490,7 @@ func main() {
 }
 
 func TestUnroll(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 type Body struct{ x, y, z, vx, vy, vz, m float64 }
@@ -556,7 +557,7 @@ func main() {
 }
 
 func TestVectorize(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 type P struct{ x, y, vx, vy, m float64 }
@@ -628,7 +629,7 @@ func main() {
 // TestVectorizeKernelFPU checks that in kernel mode a //pu:fpu function,
 // whose caller has saved the vector state, is vectorised like any other.
 func TestVectorizeKernelFPU(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 var a, b, c [64]float64
@@ -657,7 +658,7 @@ func main() { axpy() }
 // as many as fit, and the small callee is inlined first, so none of its
 // calls remain.
 func TestInlineGrowthBudget(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	var sb strings.Builder
 	sb.WriteString("package main\n\nvar g [8]int\n\n//pu:inline\nfunc big(k int) {\n")
 	for i := 0; i < 150; i++ {

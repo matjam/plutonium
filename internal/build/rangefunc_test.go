@@ -3,6 +3,8 @@ package build_test
 import (
 	"strings"
 	"testing"
+
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // TestRangeFuncInlined checks that a loop over a simple iterator compiles
@@ -10,7 +12,7 @@ import (
 // inlined through their closures, the captured variables live in
 // registers, and the iteration state checks fold away.
 func TestRangeFuncInlined(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 func All(s []int) func(func(int, int) bool) {
@@ -78,7 +80,7 @@ func main() {
 // rejects: a defer that could run once per iteration, and a deferred
 // literal that keeps the loop body's variables past the body.
 func TestRangeFuncErrors(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const decls = `package main
 
 func seq(yield func(int) bool) {
@@ -196,7 +198,7 @@ func main() {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			err := buildError(t, decls+c.src)
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("got error %v, want %q", err, c.want)

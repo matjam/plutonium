@@ -12,6 +12,7 @@ import (
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // The checked-in translations under selfhost/, and where they come from.
@@ -85,7 +86,7 @@ func TestTranslationsUpToDate(t *testing.T) {
 // TestDifferential builds each demo with Go and its translation with the
 // Plutonium compiler, at -O0 and -O2, and compares their output.
 func TestDifferential(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	if _, err := exec.LookPath("ld"); err != nil {
 		t.Skip("no linker")
 	}
@@ -98,7 +99,7 @@ func TestDifferential(t *testing.T) {
 		// TestTranslationsUpToDate (which is not parallel) has checked
 		// or regenerated the translations.
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			goBin := filepath.Join(t.TempDir(), "go-"+name)
 			if out, err := exec.Command("go", "build", "-o", goBin, "./"+tr.dir).CombinedOutput(); err != nil {
 				t.Fatalf("go build: %v\n%s", err, out)
@@ -106,7 +107,7 @@ func TestDifferential(t *testing.T) {
 			want := run(t, goBin)
 			for _, level := range []int{0, 2} {
 				t.Run(fmt.Sprintf("O%d", level), func(t *testing.T) {
-					t.Parallel()
+					testguard.Parallel(t)
 					puBin := filepath.Join(t.TempDir(), "pu-"+name)
 					cfg := &build.Config{Dir: filepath.Join(selfhostDir, "demo", name), Output: puBin,
 						Stdlib: plutonium.Stdlib(), OptLevel: level}
@@ -136,7 +137,7 @@ func run(t *testing.T, bin string) string {
 
 // TestCompat runs the compat package's own tests.
 func TestCompat(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	if _, err := exec.LookPath("ld"); err != nil {
 		t.Skip("no linker")
 	}

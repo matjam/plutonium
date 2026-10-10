@@ -11,6 +11,7 @@ import (
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // runGenCheck builds src with the generational-reference prototype at the
@@ -43,7 +44,7 @@ func runGenCheck(t *testing.T, src string, optLevel int) (string, int) {
 // TestGenCheck checks that, built with -gencheck, a use of freed memory and
 // a double free trap, while correct code runs as before.
 func TestGenCheck(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	cases := []struct {
 		name, body, want string
 		status           int
@@ -86,7 +87,7 @@ func TestGenCheck(t *testing.T) {
 	for _, c := range cases {
 		for _, opt := range []int{0, 2} {
 			t.Run(c.name, func(t *testing.T) {
-				t.Parallel()
+				testguard.Parallel(t)
 				src := "package main\n\nimport \"pluto/alloc\"\n\ntype Node struct {\n\tnext *Node\n\tval  int\n}\n\nfunc main() {" + c.body + "\n}\n"
 				out, status := runGenCheck(t, src, opt)
 				if status != c.status || !strings.Contains(out, c.want) {
@@ -98,7 +99,7 @@ func TestGenCheck(t *testing.T) {
 }
 
 func TestGenCheckFreestanding(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	cfg := &build.Config{Dir: t.TempDir(), Freestanding: true, GenCheck: true, Stdlib: plutonium.Stdlib()}
 	if err := os.WriteFile(filepath.Join(cfg.Dir, "main.p"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
 		t.Fatal(err)

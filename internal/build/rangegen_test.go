@@ -18,10 +18,12 @@ import (
 	"bytes"
 	"fmt"
 	"testing"
+
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 func TestRangeGen(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	if testing.Short() {
 		t.Skip("slow")
 	}
@@ -60,7 +62,7 @@ func TestRangeGen(t *testing.T) {
 
 	for _, level := range []int{0, 2} {
 		t.Run(fmt.Sprintf("O%d", level), func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			got, status := compileAndRun(t, src, level)
 			if status != 0 || got != "ok\n" {
 				t.Errorf("status %d, output:\n%s", status, got)

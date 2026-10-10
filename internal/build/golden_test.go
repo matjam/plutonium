@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 var update = flag.Bool("update", false, "regenerate testdata/run/*.out by running each program with Go")
@@ -17,7 +19,7 @@ var update = flag.Bool("update", false, "regenerate testdata/run/*.out by runnin
 // by running them with the Go toolchain. A program may import pluto/fmt,
 // which Go runs as its fmt.
 func TestRun(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	files, err := filepath.Glob(filepath.Join("..", "..", "testdata", "run", "*.p"))
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +43,7 @@ func TestRun(t *testing.T) {
 		}
 		for _, level := range []int{0, 2} {
 			t.Run(name+"/O"+string(rune('0'+level)), func(t *testing.T) {
-				t.Parallel()
+				testguard.Parallel(t)
 				src, err := os.ReadFile(file)
 				if err != nil {
 					t.Fatal(err)

@@ -3,13 +3,15 @@ package build_test
 import (
 	"strings"
 	"testing"
+
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // TestRingIterInlined checks that a loop over a ring's iterator compiles to
 // the loop the iterator runs: the iterator and then the loop body are
 // inlined through their closures, as for a library container's iterator.
 func TestRingIterInlined(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 //pu:noinline
@@ -54,7 +56,7 @@ func main() {
 // interface are allowed: the iterator's closure is built in the region the
 // caller provides (testdata/lib/ringitervalue.p).
 func TestRingIterErrors(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const decls = `package main
 
 type Seq interface{ All() func(func(int, int) bool) }
@@ -77,7 +79,7 @@ func main() {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			err := buildError(t, decls+c.src)
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("got error %v, want %q", err, c.want)

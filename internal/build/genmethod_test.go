@@ -8,6 +8,7 @@ import (
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // buildError compiles src as a main package and returns the build error.
@@ -27,7 +28,7 @@ func buildError(t *testing.T, src string) error {
 // cannot declare one, and a method value or method expression must be
 // instantiated.
 func TestGenericMethodErrors(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const decls = `package main
 
 type S struct{ x int }
@@ -51,7 +52,7 @@ type Lener interface{ Len(xs []int) int }
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			err := buildError(t, decls+c.src)
 			if err == nil {
 				t.Fatalf("no error, want %q", c.want)
@@ -67,7 +68,7 @@ type Lener interface{ Len(xs []int) int }
 // parameters are named: the receiver type's arguments go on the receiver
 // and the method's own after the method name.
 func TestGenericMethodSymbols(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 type Vec[T any] struct{ x T }

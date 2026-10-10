@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // TestBoxesLeakFree runs the programs that make, move, share and drop
@@ -13,7 +15,7 @@ import (
 // memory freed exactly once, on every path out of a scope, through counts
 // and weak references, across tasks and through rt.Goexit.
 func TestBoxesLeakFree(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	for _, prog := range []string{"plutonium/boxes", "plutonium/newexpr", "plutonium/owniface", "plutonium/ownunion"} {
 		file := filepath.Join("..", "..", "testdata", prog)
 		src, err := os.ReadFile(file + ".p")
@@ -26,7 +28,7 @@ func TestBoxesLeakFree(t *testing.T) {
 		}
 		for _, level := range []int{0, 2} {
 			t.Run(prog+"/O"+string(rune('0'+level)), func(t *testing.T) {
-				t.Parallel()
+				testguard.Parallel(t)
 				exe := buildDebugAlloc(t, string(src), level)
 				got, status := runDebugAlloc(t, exe, "")
 				if status != 0 || got != string(want) {

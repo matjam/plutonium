@@ -64,11 +64,22 @@ End-to-end tests live in `internal/build`:
   `docs/spec/debugging.md`).
 - `examples/*/main.p` are checked against `examples/*/expected` (first line
   `exit N` for a non-zero exit status).
-- The tests in `internal/build` and their subtests call `t.Parallel()`; a
-  new one should too. The exceptions are the scheduler, timer and poller
+- The tests in `internal/build` and their subtests call
+  `testguard.Parallel(t)` (`internal/testguard`, which calls `t.Parallel()`
+  and records the test as running); a new one should too. The exceptions are the scheduler, timer and poller
   tests in `conc_test.go`, `timer_test.go` and `poll_test.go` whose
   programs depend on timing: they build in parallel (`buildConcAll`) and
   then run their programs one at a time, before the parallel tests start.
+- Memory guard (`internal/testguard`, used by `TestMain` in `internal/build`
+  and `tools/go2pu`): unless `-parallel` is given, it lowers the parallelism
+  so that slots at `PLUTO_TEST_SLOT_MB` each (default 256; 0 turns this
+  off) fit in `MemAvailable`, and says so on stderr. A watchdog samples the
+  test binary's resident memory every second and, past `PLUTO_TEST_RSS_MB`
+  (default: 80% of the memory available at start, at most 12288; 0 turns it
+  off), prints the tests in flight and exits with status 2. A run killed
+  this way means a test, or a compiler change it exercises, uses far more
+  memory than before: fix that rather than raising the cap. Linux only
+  (`/proc`); elsewhere both do nothing.
 
 ## Directives
 

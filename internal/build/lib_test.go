@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // TestLib compiles and runs every program in testdata/lib, which exercise
@@ -14,7 +16,7 @@ import (
 // code with the imports pointed at Go's packages (or at shims for
 // Plutonium-only APIs), or by hand where no Go equivalent exists.
 func TestLib(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	runGoldenDir(t, "lib")
 }
 
@@ -23,7 +25,7 @@ func TestLib(t *testing.T) {
 // constructor expressions). Go cannot run them, so their .out files were
 // checked by hand.
 func TestPlutonium(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	runGoldenDir(t, "plutonium")
 }
 
@@ -50,7 +52,7 @@ func runGoldenDir(t *testing.T, dir string) {
 		}
 		for _, level := range []int{0, 2} {
 			t.Run(name+"/O"+string(rune('0'+level)), func(t *testing.T) {
-				t.Parallel()
+				testguard.Parallel(t)
 				got, status := compileAndRun(t, string(src), level)
 				if status != 0 {
 					t.Errorf("exit status %d", status)
@@ -67,7 +69,7 @@ func runGoldenDir(t *testing.T, dir string) {
 // program: a Builder gets its allocator once, so a second Init panics.
 // testdata/lib/strings.p covers the uses that work.
 func TestBuilderAllocator(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	cases := []struct{ name, body, want string }{
 		{"Init twice", "var b strings.Builder\n\tb.Init()\n\tb.Init()", "panic: strings.Builder.Init: the Builder already has an allocator\n"},
 		{"Init after growing", "var b strings.Builder\n\tb.WriteString(\"x\")\n\tb.Init()", "panic: strings.Builder.Init: the Builder already has an allocator\n"},
@@ -75,7 +77,7 @@ func TestBuilderAllocator(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			src := "package main\n\nimport \"pluto/strings\"\n\nfunc main() {\n\t" + c.body + "\n\tprintln(\"unreachable\")\n}\n"
 			out, status := compileAndRun(t, src, 0)
 			if status != 2 || !strings.HasPrefix(out, c.want) || strings.Contains(out, "unreachable") {

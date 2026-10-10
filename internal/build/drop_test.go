@@ -3,12 +3,14 @@ package build_test
 import (
 	"strings"
 	"testing"
+
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // TestDropUnsupported checks that an owner the compiler cannot drop yet is
 // a compile error at the variable, not a value silently leaked.
 func TestDropUnsupported(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	cases := []struct{ name, src, want string }{
 		{"owning interface without methods", `package main
 
@@ -21,7 +23,7 @@ func main() { use(nil) }
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			err := buildError(t, c.src)
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("got error %v, want %q", err, c.want)

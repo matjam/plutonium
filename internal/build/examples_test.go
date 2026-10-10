@@ -6,13 +6,15 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // TestExamples builds and runs every program in examples/ and checks its
 // output against examples/<name>/expected (the exact output) and its exit
 // status against a first line of the form "exit N" in that file, if any.
 func TestExamples(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	dirs, err := filepath.Glob(filepath.Join("..", "..", "examples", "*"))
 	if err != nil {
 		t.Fatal(err)
@@ -24,7 +26,7 @@ func TestExamples(t *testing.T) {
 		}
 		name := filepath.Base(dir)
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			want, err := os.ReadFile(filepath.Join(dir, "expected"))
 			if err != nil {
 				t.Fatalf("missing expected output: %v", err)

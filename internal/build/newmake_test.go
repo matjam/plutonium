@@ -14,6 +14,7 @@ import (
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // TestFreestandingNoAllocator boots a freestanding program under QEMU that
@@ -22,7 +23,7 @@ import (
 // testdata/kernel/irq; the program's panic handler leaves QEMU through the
 // isa-debug-exit device with status 3.
 func TestFreestandingNoAllocator(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	qemu, err := exec.LookPath("qemu-system-x86_64")
 	if err != nil {
 		t.Skip("qemu-system-x86_64 is not installed")
@@ -109,7 +110,7 @@ func main() int64 {
 // before alloc.SetDefault, and with a message of its own when the explicit
 // allocator is nil.
 func TestNoAllocator(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const noDefault = "panic: no allocator: call alloc.SetDefault before allocating\n"
 	const nilArg = "panic: nil allocator passed to new or make\n"
 	cases := []struct {
@@ -122,7 +123,7 @@ func TestNoAllocator(t *testing.T) {
 	for _, c := range cases {
 		want := regexp.MustCompile(`\A` + regexp.QuoteMeta(c.want) + `    main\.main \(\S*/main\.p:` + strconv.Itoa(c.line) + `\)\n\z`)
 		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			src := "package main\n\nimport \"pluto/alloc\"\n\nvar _ alloc.Allocator\n\nfunc main() {\n\t" + c.body + "\n\tprintln(\"unreachable\")\n}\n"
 			out, status := compileAndRun(t, src, 0)
 			if status != 2 || !want.MatchString(out) {

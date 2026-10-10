@@ -8,12 +8,13 @@ import (
 	"testing"
 
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // A write to a pipe with no reader fails with EPIPE instead of killing the
 // process: the runtime catches SIGPIPE, as Go does.
 func TestSigpipeReturnsEPIPE(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	runConcCases(t, []concCase{
 		{name: "epipe", want: "pipe write: EPIPE true\nstill alive\n", src: `package main
 
@@ -80,13 +81,13 @@ func main() {
 // A write to standard output or standard error that fails with EPIPE ends
 // the program with SIGPIPE, as in Go.
 func TestSigpipeStdio(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	for _, c := range []struct{ name, stream string }{
 		{"stdout", "Stdout"},
 		{"stderr", "Stderr"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			prog := buildConc(t, `package main
 
 import "pluto/os"

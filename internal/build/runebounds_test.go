@@ -9,6 +9,7 @@ import (
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // TestRuneBounds checks which string slice expressions keep the check that
@@ -16,7 +17,7 @@ import (
 // the optimiser cannot prove are boundaries. The program also runs, and
 // prints what the functions return for a string with multi-byte runes.
 func TestRuneBounds(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 import (

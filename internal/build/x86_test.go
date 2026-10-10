@@ -3,6 +3,8 @@ package build_test
 import (
 	"strings"
 	"testing"
+
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // TestX86Barriers checks that pluto/arch/x86 intrinsics are expanded inline
@@ -10,7 +12,7 @@ import (
 // rather than reused, stores on both sides stay, and an intrinsic whose
 // result is unused is still emitted.
 func TestX86Barriers(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 import "pluto/arch/x86"
@@ -100,7 +102,7 @@ func main() {
 // TestX86All compiles a call to every intrinsic and checks the listing
 // holds its instruction.
 func TestX86All(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 import "pluto/arch/x86"
@@ -179,7 +181,7 @@ func main() { all(0x3f8, 0x1b, 0x1000) }
 // TestX86Hosted runs the intrinsics that work in user space, inline and
 // through func values (the assembly bodies), and checks they agree.
 func TestX86Hosted(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const src = `package main
 
 import "pluto/arch/x86"

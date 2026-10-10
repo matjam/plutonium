@@ -10,6 +10,7 @@ import (
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // TestInlineNotes builds a program with Config.InlineNotes (pluto build
@@ -18,7 +19,7 @@ import (
 // that never returns, calls past the caller's growth limit and a func
 // value; and that at -O0 every such call is reported.
 func TestInlineNotes(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	var b strings.Builder
 	b.WriteString(`package main
 

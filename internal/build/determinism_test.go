@@ -13,6 +13,7 @@ import (
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // frameStore matches a store to the stack frame, which the spill program
@@ -27,7 +28,7 @@ var frameStore = regexp.MustCompile(`, -?\d+\(%r[sb]p\)`)
 // ifaces.p and generics.p exercise type descriptors, itabs and
 // instantiation.
 func TestDeterministic(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	const runs = 4
 	for _, name := range []string{"spills", "ifaces", "generics"} {
 		src, err := os.ReadFile(filepath.Join("..", "..", "testdata", "run", name+".p"))
@@ -36,7 +37,7 @@ func TestDeterministic(t *testing.T) {
 		}
 		for _, level := range []int{0, 2} {
 			t.Run(name+"/O"+string(rune('0'+level)), func(t *testing.T) {
-				t.Parallel()
+				testguard.Parallel(t)
 				var firstAsm, firstObj []byte
 				for run := range runs {
 					asm, obj := compileObject(t, t.TempDir(), src, level)
@@ -113,7 +114,7 @@ func Area(w, h int) int {
 // directory is. It also checks the paths a panic prints, and that
 // --trimpath=false records the directory, so differs.
 func TestReproducible(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	cabi, err := readTree(filepath.Join("..", "..", "testdata", "cabi"))
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +132,7 @@ func TestReproducible(t *testing.T) {
 		for _, level := range []int{0, 2} {
 			for _, noDWARF := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/O%d/g=%v", p.name, level, !noDWARF), func(t *testing.T) {
-					t.Parallel()
+					testguard.Parallel(t)
 					if p.cc {
 						needCC(t)
 					}

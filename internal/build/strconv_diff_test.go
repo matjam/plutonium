@@ -15,6 +15,7 @@ import (
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/testguard"
 )
 
 // The differential tests of pluto/strconv's float conversions: ParseFloat
@@ -519,7 +520,7 @@ func runHarness(t *testing.T, bin, mode string, lines []string) []string {
 // TestParseFloatDifferential compares pluto/strconv.ParseFloat with Go's
 // over the corpus, for float64 and float32 results.
 func TestParseFloatDifferential(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	n := atofN()
 	if testing.Short() && n > 5000 {
 		n = 5000
@@ -531,7 +532,7 @@ func TestParseFloatDifferential(t *testing.T) {
 			count = min(count, 5000) // -O0 is slow; the code is the same
 		}
 		t.Run(fmt.Sprintf("O%d", level), func(t *testing.T) {
-			t.Parallel()
+			testguard.Parallel(t)
 			bin := buildStrconvHarness(t, level)
 			cases := corpus[:count]
 			got := runHarness(t, bin, "parse", cases)
@@ -598,7 +599,7 @@ func formatCorpus(n int) (lines, want []string) {
 // TestAppendFloatDifferential compares pluto/strconv.AppendFloat with
 // Go's over random floats, formats, precisions and bit sizes.
 func TestAppendFloatDifferential(t *testing.T) {
-	t.Parallel()
+	testguard.Parallel(t)
 	n := atofN()
 	if testing.Short() && n > 5000 {
 		n = 5000
