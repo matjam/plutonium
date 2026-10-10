@@ -37,10 +37,8 @@ func (e *DirEntry) Info(a alloc.Allocator = alloc.Default()) (FileInfo, error) {
 	buf[n] = '/'
 	n++
 	n += copy(buf[n:], e.name)
-	path := unsafe.String(&buf[0], n)
-	fi, err := Lstat(path, a)
-	fi.name = e.name
-	return fi, err
+	// The FileInfo records the entry's name, not a view of buf.
+	return statNamed(unsafe.String(&buf[0], n), e.name, syscall.AT_SYMLINK_NOFOLLOW, "lstat", a)
 }
 
 // FileInfoToDirEntry returns a DirEntry for the file info describes, which
@@ -51,9 +49,9 @@ func FileInfoToDirEntry(dir string, info FileInfo) DirEntry {
 
 // DirEntries is the result of ReadDir: the entries of a directory sorted by
 // name, and the memory their names live in. It owns both, and its entries
-// are valid until it is dropped. Declaring it owner is a one-line change
-// once the keyword lands (roadmap item 51).
-type DirEntries struct {
+// are valid until it is dropped. It is an owner (language spec section
+// 6.4).
+type DirEntries owner struct {
 	ents  vec.Vec[DirEntry]
 	names vec.Vec[byte]
 }
@@ -95,7 +93,7 @@ func ReadDir(name string, a alloc.Allocator = alloc.Default()) (DirEntries, erro
 		if err != nil {
 			syscall.Close(fd)
 			d.Drop()
-			return d, NewPathError("readdirent", name, err, a)
+			return DirEntries{}, NewPathError("readdirent", name, err, a)
 		}
 		if n == 0 {
 			break

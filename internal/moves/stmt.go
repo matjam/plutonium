@@ -440,11 +440,34 @@ func (f *fn) returnStmt(st *ast.ReturnStmt) {
 	}
 }
 
+// deferredDrop returns the owner variable of a deferred call x.Drop(), or
+// nil.
+func (f *fn) deferredDrop(call *ast.CallExpr) (*types2.Var, *ast.Ident) {
+	se, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr)
+	if !ok || se.Sel.Name != "Drop" || len(call.Args) != 0 {
+		return nil, nil
+	}
+	id, ok := ast.Unparen(se.X).(*ast.Ident)
+	if !ok {
+		return nil, nil
+	}
+	if v := f.varOf(id); v != nil && isOwner(v.Type()) && !f.captured(v) {
+		return v, id
+	}
+	return nil, nil
+}
+
 // deferStmt walks a deferred call. Its arguments are evaluated now; a
 // deferred call may not use an owner of an inner block, which is dropped
 // when that block ends, before the call runs.
 func (f *fn) deferStmt(st *ast.DeferStmt) {
-	f.call(st.Call, mvArg)
+	if v, id := f.deferredDrop(st.Call); v != nil {
+		// defer x.Drop() ends x's life when the function returns, after
+		// everything else has used it: here it only takes x's address.
+		f.use(id, v)
+	} else {
+		f.call(st.Call, mvArg)
+	}
 	if !f.report || len(f.blocks) == 0 {
 		return
 	}

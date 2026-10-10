@@ -83,12 +83,18 @@ type analyzer struct {
 	byName map[string][]*function
 
 	// Candidates for dynamic calls.
-	converted       map[string]types2.Type // concrete types converted to an interface
-	tparamConverted bool                   // a type parameter was converted to an interface
-	funcValues      map[funcValue]bool     // functions used as values
-	embedded        map[*types2.TypeName]bool
-	tpArgs          map[*types2.TypeParam][]types2.Type // type arguments of each type parameter
-	tpRecv          map[*types2.TypeParam]*types2.TypeParam
+	converted  map[string]types2.Type // concrete types converted to an interface
+	funcValues map[funcValue]bool     // functions used as values
+	embedded   map[*types2.TypeName]bool
+	tpArgs     map[*types2.TypeParam][]types2.Type // type arguments of each type parameter
+	tpRecv     map[*types2.TypeParam]*types2.TypeParam
+
+	// Heap-only fields (fields.go), by origin field: fields whose address
+	// is taken, and fields something other than heap memory is stored in.
+	addrField    map[*types2.Var]bool
+	nonHeap      map[*types2.Var]bool
+	fieldDeps    map[*types2.Var]map[paramRef]bool // parameters stored in a field
+	paramNonHeap map[paramRef]bool                 // parameters some call passes non-heap memory for
 
 	grew   bool // a summary or candidate set grew during this pass
 	report bool // the final pass: report errors
@@ -166,6 +172,7 @@ func newAnalyzer(prog *load.Program) *analyzer {
 			}
 		}
 	}
+	a.scanFields()
 	return a
 }
 
@@ -257,6 +264,8 @@ func directives(doc *ast.CommentGroup) [][]string {
 func (a *analyzer) applyDirectives(fn *function) {
 	for _, d := range directives(fn.decl.Doc) {
 		switch d[0] {
+		case "export", "interrupt", "panic":
+			fn.external = true
 		case "noescape":
 			fn.noescape = true
 		case "resultholds":
@@ -546,10 +555,12 @@ func (a *analyzer) noteConversion(T types2.Type) {
 	if T == nil {
 		return
 	}
-	if _, ok := T.(*types2.TypeParam); ok {
-		if !a.tparamConverted {
-			a.tparamConverted = true
-			a.grew = true
+	if tp, ok := T.(*types2.TypeParam); ok {
+		// The types the parameter is instantiated with anywhere in the
+		// program are what can be converted. One that is never
+		// instantiated is never run.
+		for _, t := range a.tparamTypes(tp) {
+			a.noteConversion(t)
 		}
 		return
 	}
@@ -598,7 +609,7 @@ func (a *analyzer) noteFuncValue(fn *function, kind fvKind) {
 // name is a candidate, since instantiations need not convert anything.
 func (a *analyzer) ifaceCandidates(name string, byName bool) []candidate {
 	var out []candidate
-	if byName || a.tparamConverted {
+	if byName {
 		// Any type may be behind the interface or type parameter. A
 		// pointer method gets the data word; a value method gets it or
 		// what it points to. A method that may be promoted from an
@@ -896,6 +907,9 @@ func isDirect(T types2.Type) (direct, known bool) {
 	if isZeroSize(T) {
 		return true, true // a box of nothing: no memory to outlive
 	}
+	if types2.PointerShaped(T) {
+		return true, true // its one pointer is the data word
+	}
 	switch u := T.Underlying().(type) {
 	case *types2.Basic:
 		return u.Kind() != types2.String && u.Kind() != types2.UntypedString, true
@@ -915,6 +929,38 @@ func isDirect(T types2.Type) (direct, known bool) {
 		return false, false
 	}
 	return false, true
+}
+
+// shapeOut returns what the data word of an interface holding v, a
+// pointer-shaped value of type T, points to: the pointer inside the struct
+// or array wrappers, without their field tags.
+func shapeOut(v tset, T types2.Type) tset {
+	for {
+		switch u := T.Underlying().(type) {
+		case *types2.Struct:
+			if u.NumFields() != 1 {
+				return v
+			}
+			v, T = selectField(v, 0), u.Field(0).Type()
+			continue
+		case *types2.Array:
+			T = u.Elem()
+			continue
+		}
+		return v
+	}
+}
+
+// shapeIn is the reverse of shapeOut: the value of type T, pointer-shaped,
+// whose data word holds the pointers in v.
+func shapeIn(v tset, T types2.Type) tset {
+	if u, ok := T.Underlying().(*types2.Struct); ok && u.NumFields() == 1 {
+		return tagField(shapeIn(v, u.Field(0).Type()), 0)
+	}
+	if u, ok := T.Underlying().(*types2.Array); ok {
+		return shapeIn(v, u.Elem())
+	}
+	return v
 }
 
 // isZeroSize reports whether values of T occupy no memory.

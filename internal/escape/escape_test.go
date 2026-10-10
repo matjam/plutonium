@@ -324,6 +324,51 @@ func main() {
 	r.Push(&x)
 }`, []string{"cannot store &x in package variable r, which outlives x", "&x is a pointer to x."}},
 
+	// Pointer-shaped structs are the data word of an interface.
+	{"pointer-shaped struct holding a frame pointer returned as an error", `
+type W struct{ p *int }
+func (W) Error() string { return "w" }
+func f() error {
+	x := 1
+	return W{&x}
+}
+func main() { _ = f() }`, []string{"cannot return W{...}, which points into x, a local variable of f"}},
+
+	// Heap-only fields: soundness.
+	{"field given a frame pointer through a parameter", `
+type N struct{ next *N }
+func link(a, b *N) { a.next = b }
+var G *N
+func keep(n *N) { G = n.next }
+func main() {
+	var x, y N
+	link(&x, &y)
+	keep(&x)
+}`, []string{"cannot pass &x to keep, which keeps it after returning"}},
+
+	{"field written through its address", `
+type N struct{ p *int }
+func set(pp **int, v *int) { *pp = v }
+var G *int
+func main() {
+	var n N
+	x := 1
+	set(&n.p, &x)
+	G = n.p
+}`, []string{"cannot store n.p in package variable G, which outlives x"}},
+
+	{"field inside a field written through the outer's address", `
+type In struct{ p *int }
+type Out struct{ in In }
+func set(i *In, v *int) { i.p = v }
+var G *int
+func main() {
+	var o Out
+	x := 1
+	set(&o.in, &x)
+	G = o.in.p
+}`, []string{"cannot store o.in.p in package variable G, which outlives x"}},
+
 	// Loops: every iteration reuses the memory of the loop's variables.
 	{"closure using the loop variable kept in an outer variable", `
 func main() {
@@ -720,6 +765,77 @@ func main() {
 	p := new(int)
 	*p = 1
 	r.Restore()
+}`},
+
+	{"pointer-shaped struct holding heap memory returned as an error", `
+type W struct{ p *int }
+func (W) Error() string { return "w" }
+func f() error { return W{new(int)} }
+func main() { _ = f() }`},
+	{"heap-only fields of a chunk list over a frame-backed parent", `
+import "unsafe"
+type Allocator interface{ Alloc(n uintptr) unsafe.Pointer }
+type chunk struct{ prev *chunk }
+type Chunked struct {
+	parent      Allocator
+	cur, spare  *chunk
+}
+func (a *Chunked) recycle(c *chunk) { c.prev = a.spare; a.spare = c }
+func (a *Chunked) grow() {
+	c := a.spare
+	if c != nil {
+		a.spare = c.prev
+	} else {
+		c = (*chunk)(a.parent.Alloc(64))
+	}
+	c.prev = a.cur
+	a.cur = c
+}
+func (a *Chunked) release() {
+	c := a.cur
+	a.cur = c.prev
+	a.recycle(c)
+}
+func (a *Chunked) Alloc(n uintptr) unsafe.Pointer {
+	a.grow()
+	return unsafe.Pointer(a.cur)
+}
+type heap struct{}
+func (heap) Alloc(n uintptr) unsafe.Pointer { return unsafe.Pointer(new([64]byte)) }
+type counting struct {
+	under Allocator
+	n     int
+}
+func (c *counting) Alloc(n uintptr) unsafe.Pointer {
+	c.n++
+	return c.under.Alloc(n)
+}
+func main() {
+	parent := counting{under: heap{}}
+	a := Chunked{parent: &parent}
+	_ = a.Alloc(8)
+	var inner Chunked
+	inner.parent = &a
+	_ = inner.Alloc(8)
+	a.release()
+}`},
+	{"generic conversion uses only the instantiations", `
+type I interface{ M(p *int) }
+type keeper struct{}
+var saved *int
+func (keeper) M(p *int) { saved = p }
+type looker struct{}
+func (looker) M(p *int) {}
+func box[T any](x T) any { return x }
+func call(i I) {
+	x := 1
+	i.M(&x)
+}
+func main() {
+	_ = box(looker{})
+	call(looker{})
+	var k keeper
+	_ = k
 }`},
 
 	// Loops: views of a loop's variables used within the iteration.

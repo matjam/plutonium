@@ -27,7 +27,7 @@ func Sprintf(format string, args ...any) strings.Builder {
 // phase (alloc.Use). The variable is a view of that arena: it is never
 // freed on its own, and lives until the arena is reset or dropped
 // (language spec section 6.6).
-func New[T any](v T) *T {
+func New[T owner any](v T) *T {
 	p := alloc.New[T]()
 	*p = v
 	return p
@@ -35,5 +35,6 @@ func New[T any](v T) *T {
 
 // Alloc returns a pointer to a new zero T in the phase arena, as New does.
 // go2pu uses it for a variable that Go's escape analysis moves to the heap
-// and that is declared without a value.
-func Alloc[T any]() *T { return alloc.New[T]() }
+// and that is declared without a value. T may be an owner: the variable
+// is a view of the arena, as for New.
+func Alloc[T owner any]() *T { return alloc.New[T]() }

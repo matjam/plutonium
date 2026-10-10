@@ -202,6 +202,12 @@ func Lstat(name string, a alloc.Allocator = alloc.Default()) (FileInfo, error) {
 }
 
 func statAt(name string, flags int, op string, a alloc.Allocator) (FileInfo, error) {
+	return statNamed(name, name, flags, op, a)
+}
+
+// statNamed is statAt for a FileInfo that records base, rather than a view
+// of the path name, as its name.
+func statNamed(name, base string, flags int, op string, a alloc.Allocator) (FileInfo, error) {
 	var buf [maxPath]byte
 	p, err := cpath(name, &buf)
 	if err != nil {
@@ -211,7 +217,7 @@ func statAt(name string, flags int, op string, a alloc.Allocator) (FileInfo, err
 	if err := syscall.Fstatat(syscall.AT_FDCWD, p, &st, flags); err != nil {
 		return FileInfo{}, NewPathError(op, name, err, a)
 	}
-	return fileInfo(name, &st), nil
+	return fileInfo(base, &st), nil
 }
 
 // Stat describes the open file. It reports a bare syscall.Errno, as the
@@ -241,11 +247,12 @@ func (f *File) Truncate(size int64) error { return syscall.Ftruncate(f.fd, size)
 // and frees it with Free. A failure is a *PathError from a.
 func ReadFile(name string, a alloc.Allocator = alloc.Default()) (vec.Vec[byte], error) {
 	data := vec.New[byte](a)
-	f, err := OpenFile(name, syscall.O_RDONLY, 0, a)
+	// The File lives in this frame, as in WriteFile.
+	fd, err := openFD(name, syscall.O_RDONLY, 0, a)
 	if err != nil {
 		return data, err
 	}
-	defer alloc.Free(f, a)
+	f := &File{fd: fd, name: name}
 	defer f.Close()
 	if fi, err := f.Stat(); err == nil && fi.size > 0 && fi.size < 1<<40 {
 		data.Reserve(int(fi.size) + 1)
@@ -275,13 +282,15 @@ func readAll(r io.Reader, data *vec.Vec[byte]) error {
 // WriteFile writes data to the named file, creating it with permissions
 // perm if necessary and truncating it otherwise.
 func WriteFile(name string, data []byte, perm FileMode, a alloc.Allocator = alloc.Default()) error {
-	f, err := OpenFile(name, syscall.O_WRONLY|syscall.O_CREAT|syscall.O_TRUNC, uint32(perm.Perm()), a)
+	// The File lives in this frame: it keeps a view of name only until
+	// WriteFile returns.
+	fd, err := openFD(name, syscall.O_WRONLY|syscall.O_CREAT|syscall.O_TRUNC, uint32(perm.Perm()), a)
 	if err != nil {
 		return err
 	}
+	f := File{fd: fd, name: name}
 	_, err = f.Write(data)
 	cerr := f.Close()
-	alloc.Free(f, a)
 	if err == nil {
 		err = cerr
 	}

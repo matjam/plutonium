@@ -27,10 +27,21 @@ var (
 	ErrClosed     = oserror.ErrClosed     // file already closed
 )
 
-// A File is an open file descriptor.
-type File struct {
+// A File is an open file descriptor. A File from OpenFile owns a copy of
+// its name, so it is an owner (language spec section 6.4): dropping it
+// (alloc.Free does) releases the name. Close the descriptor first.
+type File owner struct {
 	fd   int
 	name string
+	a    alloc.Allocator // allocator of name's bytes, or nil if name is static
+}
+
+// Drop releases the File's copy of its name. It does not close the file.
+func (f *File) Drop() {
+	if f.a != nil && len(f.name) > 0 {
+		f.a.Free(unsafe.Pointer(unsafe.StringData(f.name)), uintptr(len(f.name)), 1)
+	}
+	f.a, f.name = nil, ""
 }
 
 // Standard streams.
@@ -152,19 +163,35 @@ func Create(name string, a alloc.Allocator = alloc.Default()) (*File, error) {
 // allocator; free the File with alloc.Free after Close, and the error with
 // errors.Free.
 func OpenFile(name string, flags int, perm uint32, a alloc.Allocator = alloc.Default()) (*File, error) {
+	fd, err := openFD(name, flags, perm, a)
+	if err != nil {
+		return nil, err
+	}
+	f := alloc.New[File](a)
+	f.fd = fd
+	if len(name) > 0 {
+		// The File keeps its own copy: the caller's name may be a view of
+		// a buffer that does not live as long.
+		p := alloc.Raw(uintptr(len(name)), 1, a)
+		copy(unsafe.Slice((*byte)(p), len(name)), name)
+		f.name = unsafe.String((*byte)(p), len(name))
+		f.a = a
+	}
+	return f, nil
+}
+
+// openFD opens name and returns its file descriptor.
+func openFD(name string, flags int, perm uint32, a alloc.Allocator) (int, error) {
 	var path [4096]byte
 	if len(name) >= len(path) {
-		return nil, NewPathError("open", name, syscall.ENAMETOOLONG, a)
+		return -1, NewPathError("open", name, syscall.ENAMETOOLONG, a)
 	}
 	copy(path[:], name)
 	fd, err := syscall.Open(path[:len(name)+1], flags|syscall.O_CLOEXEC, perm)
 	if err != nil {
-		return nil, NewPathError("open", name, err, a)
+		return -1, NewPathError("open", name, err, a)
 	}
-	f := alloc.New[File](a)
-	f.fd = fd
-	f.name = name
-	return f, nil
+	return fd, nil
 }
 
 // PathError records an error and the operation and file path that caused

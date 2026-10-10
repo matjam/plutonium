@@ -233,6 +233,12 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		}
 		return w.walkParam(f, args[k.idx], k)
 	}
+	// What the callee's parameters hold, for heap-only fields.
+	passed := args
+	if len(args) > 0 && mode != recvExact {
+		passed = append([]tset{w.reach(args[0])}, args[1:]...)
+	}
+	w.a.passArgs(f, passed)
 	for _, k := range sortedKeys(f.sum.escapes) {
 		r := f.sum.escapes[k]
 		v := arg(k)
@@ -548,6 +554,10 @@ func (w *walker) ringCall(e *ast.CallExpr, t callTarget) []tset {
 	switch t.ring.Obj().Name() {
 	case "Push":
 		if len(vals) == 1 {
+			// The elements are stored inside the ring's own storage.
+			if f := w.fieldOf(t.ringX); f != nil {
+				w.a.storeField(f, vals[0], w.enclosingFields(t.ringX))
+			}
 			d := w.destOf(t.ringX)
 			d.src = e.Args[0]
 			w.store(r, vals[0], e.Pos(), d)

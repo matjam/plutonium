@@ -15,11 +15,12 @@ import (
 	"pluto/vec"
 	"selfhost/compat"
 	"selfhost/pu"
+	"unsafe"
 )
 
 // A node is part of a pointer graph: allocated with pu.New, a view of the
 // phase arena in Plutonium.
-type node struct {
+type node owner struct {
 	name     string
 	children vec.Vec[*node]
 	attrs    hash.Map[string, int]
@@ -42,7 +43,7 @@ func walk(out *strings.Builder, n *node, depth int) {
 
 // symbols is a structure that owns its containers, as a compiler pass
 // would.
-type symbols struct {
+type symbols owner struct {
 	byName hash.Map[string, int]
 	order  vec.Vec[string]
 	seen   hash.Set[int]
@@ -169,6 +170,6 @@ func main() {
 	msg := pu.Sprintf("%s has %d bytes", out.String(), out.Len())
 	fmt.Println(msg.String())
 	msg.Drop()
-	out.Drop()
+	unsafe.Drop(out)
 	fmt.Println("dropped", out.Len())
 }

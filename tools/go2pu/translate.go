@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"go/ast"
 	"go/build"
-	"go/format"
 	"go/importer"
 	"go/parser"
 	"go/token"
@@ -16,6 +15,10 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	// Plutonium's formatter: gofmt's output for Go, and it knows the
+	// Plutonium syntax the translation adds (owner).
+	"github.com/matjam/plutonium/internal/syntax/format"
 )
 
 // goModule is the compiler's Go module path.

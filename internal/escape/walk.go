@@ -346,6 +346,11 @@ func (w *walker) assignTo(lhs ast.Expr, val tset, from types2.Type, node ast.Nod
 	if !ok || !hasPointers(to) {
 		return
 	}
+	if f := w.fieldOf(lhs); f != nil {
+		w.a.storeField(f, val, w.enclosingFields(lhs))
+	} else if outer := w.enclosingFields(lhs); len(outer) > 0 {
+		w.a.storeField(outer[0], val, outer[1:])
+	}
 	d := w.destOf(lhs)
 	d.src = src
 	w.store(target, val, pos, d)
@@ -526,6 +531,27 @@ func (w *walker) goStmt(st *ast.GoStmt) {
 	}
 	w.sink(t.recv, ve(recv), "passes %s to a go statement", "")
 	w.sink(t.fv, ve(e.Fun), "passes %s to a go statement", "")
+	// What the started function's parameters hold, for heap-only fields.
+	all := args
+	if t.hasRecv {
+		all = append([]tset{t.recv}, args...)
+	}
+	switch {
+	case t.static != nil:
+		w.a.passArgs(t.static, all)
+	case t.method != "":
+		for _, c := range w.a.ifaceCandidates(t.method, t.byName) {
+			w.a.passArgs(c.f, append([]tset{w.reach(t.recv)}, args...))
+		}
+	case t.dynFunc:
+		for _, fv := range w.a.funcCandidates(t.sig) {
+			fa := args
+			if fv.kind != fvPlain {
+				fa = append([]tset{w.reach(t.fv)}, args...)
+			}
+			w.a.passArgs(fv.f, fa)
+		}
+	}
 }
 
 // argExprs returns, for each parameter of sig, the argument expression a

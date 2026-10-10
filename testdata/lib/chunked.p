@@ -151,8 +151,10 @@ func main() {
 	ts[299] = 7
 	println("typed", tn.val, tn.next == nil, len(ts), ts[0], ts[299], uintptr(unsafe.Pointer(&ts[0]))%8 == 0)
 
+	// Drop ends a's life (a is an owner, so it cannot be used afterwards)
+	// and gives every chunk back to the parent.
 	a.Drop()
-	println("drop", a.Used(), a.Held(), parent.blocks, parent.bytes)
+	println("drop", parent.blocks, parent.bytes)
 
 	// The same on a fixed Arena.
 	var mem [256]byte

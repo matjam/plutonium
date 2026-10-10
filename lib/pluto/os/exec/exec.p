@@ -39,8 +39,10 @@ var (
 	ErrStderrSet      = errors.New("exec: Stderr already set")
 )
 
-// A Cmd is an external command being prepared or run.
-type Cmd struct {
+// A Cmd is an external command being prepared or run. It owns the memory
+// of its arguments and output, so it is an owner (language spec section
+// 6.4), released by Drop.
+type Cmd owner struct {
 	// Path is the command to run: a path, or a name looked up in $PATH
 	// when the Cmd starts if it contains no slash.
 	Path string

@@ -208,8 +208,9 @@ const (
 	PanicOnError                         // panic with the error
 )
 
-// A FlagSet is a set of defined flags. It owns their memory.
-type FlagSet struct {
+// A FlagSet is a set of defined flags. It owns their memory, so it is an
+// owner (language spec section 6.4), released by Drop.
+type FlagSet owner struct {
 	// Usage prints a usage message when parsing fails; nil means the
 	// default, a header and PrintDefaults.
 	Usage func()
@@ -242,7 +243,8 @@ func (f *FlagSet) Drop() {
 	f.flags.Free()
 	f.actual.Free()
 	f.osArgs.Free()
-	f.mem.Drop()
+	mem := take(&f.mem)
+	mem.Drop()
 }
 
 // Name returns the FlagSet's name.

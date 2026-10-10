@@ -26,7 +26,7 @@ type (
 	arr1     [1]*T
 	arrWrap  [1]wrap
 	own      owned[T]
-	wrapOwn  struct{ o owned[T] }
+	wrapOwn  owner struct{ o owned[T] }
 	alias    = wrap
 	named    wrap
 	two      struct{ p, q *T }

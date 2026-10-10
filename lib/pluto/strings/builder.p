@@ -27,8 +27,9 @@ import (
 // A Builder from NewBuilder writes into the caller's buffer and never
 // allocates unless Init gives it an allocator: without one, a write that
 // does not fit in the buffer's capacity panics, as append does. A Builder
-// must not be copied after first use.
-type Builder struct {
+// owns the buffer it grows, so it is an owner (language spec section 6.4):
+// it moves instead of being copied, and Drop releases the buffer.
+type Builder owner struct {
 	buf   []byte
 	a     alloc.Allocator // allocator that grows the buffer, or nil
 	owned bool            // buf came from a and must be freed to it

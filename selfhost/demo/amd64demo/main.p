@@ -133,7 +133,7 @@ func caller(p *ssa.Program) *ssa.Func {
 	e := f.Entry
 	mem := e.NewValue(ssa.OpInitMem, ssa.TMem)
 	x := e.NewValueI(ssa.OpArg, ssa.TI64, 0)
-	tup := ssa.TupleOf(ssa.TMem, ssa.TI64)
+	tup := ssa.TupleOf(compat.Clone([]*ssa.Type{ssa.TMem, ssa.TI64})...)
 	c1 := e.NewValueA(ssa.OpCall, tup, p.Sym("demo.abs", ssa.SymFunc), x, mem)
 	c1.Call = pu.New(ssa.CallInfo{Results: compat.Clone([]*ssa.Type{ssa.TI64})})
 	m1 := e.NewValueI(ssa.OpSelectN, ssa.TMem, 0, c1)

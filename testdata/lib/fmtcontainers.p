@@ -20,7 +20,7 @@ type Level enum {
 	High
 }
 
-type config struct {
+type config owner struct {
 	Name   string
 	Limits hash.Map[string, int]
 	Tags   vec.Vec[string]

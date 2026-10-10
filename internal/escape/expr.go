@@ -278,6 +278,9 @@ func (w *walker) value1(e ast.Expr) tset {
 		switch sel.Kind() {
 		case types2.FieldVal:
 			p, isAddr := w.fieldPlace(e.X, sel.Index())
+			if f, ok := sel.Obj().(*types2.Var); ok && w.a.isHeapField(f) {
+				return tset{heapTok}
+			}
 			if isAddr {
 				return w.load(p)
 			}
@@ -420,6 +423,8 @@ func (w *walker) unbox(xv tset, T types2.Type) tset {
 	}
 	_, known := isDirect(T)
 	switch {
+	case types2.PointerShaped(T):
+		return shapeIn(xv, T)
 	case w.a.isDirectType(T):
 		return xv
 	case !known:
@@ -572,6 +577,19 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 	w.a.noteConversion(from)
 	_, known := isDirect(from)
 	if w.a.isDirectType(from) {
+		switch {
+		case types2.PointerShaped(from):
+			return shapeOut(v, from)
+		case !known:
+			// A type parameter whose instances are all direct, some of
+			// them perhaps pointer-shaped structs: the data word is the
+			// value, whichever field held its pointer.
+			var out tset
+			for _, t := range v {
+				out.add(t.untag())
+			}
+			return out
+		}
 		return v
 	}
 	if w.static {
@@ -670,7 +688,9 @@ func (w *walker) compLit(e *ast.CompositeLit) tset {
 				fi, fT = i, u.Field(i).Type()
 			}
 			if fi >= 0 {
-				val.addAll(tagField(w.elem(x, fT), fi))
+				ev := w.elem(x, fT)
+				w.a.storeField(u.Field(fi), ev, nil)
+				val.addAll(tagField(ev, fi))
 			} else {
 				val.addAll(w.elem(x, fT))
 			}

@@ -1056,7 +1056,15 @@ How precise the frame check is, so that programs know what it accepts:
   variable (`err` above all) for a view of the frame and later for heap memory is fine. Other storage is
   followed field by field, two levels of struct fields deep, without regard to the order of statements.
 - A generic function is checked once for all its instantiations: a conversion of a type parameter to an
-  interface counts as a frame copy if any instantiation is larger than a word.
+  interface counts as a frame copy if any instantiation is larger than a word, and makes the methods of
+  each type it is instantiated with possible callees of interface calls.
+- A struct field is *heap-only* when, in the whole program, its address (or that of anything inside it)
+  is never taken and everything stored in it is heap memory, or a parameter that every call passes heap
+  memory for. Loading a heap-only field yields heap memory, so a list's `next` or an arena's current
+  chunk does not make the function that follows it keep its caller's pointers. Writes through memory
+  reinterpreted with `unsafe.Pointer` are not seen (section 11).
+- A pointer-shaped value (a struct with one pointer-shaped field, an array of one, section 4.4) in an
+  interface is the pointer it holds, not a copy in the frame.
 - Each iteration of a loop reuses the frame memory of the loop's variables, so views of them are checked
   as section 4.5 describes.
 

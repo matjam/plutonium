@@ -7,6 +7,7 @@ import (
 	"pluto/os"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
+	"selfhost/pu"
 )
 
 // GenCheck inserts the generation checks of the generational-reference
@@ -149,7 +150,7 @@ func (g *genChecker) partsOf(root *ssa.Value) *genParts {
 		return b.NewValueBefore(at, op, t, args...)
 	}
 	i64 := func(c int64) *ssa.Value { return f.ConstInt(ssa.TI64, c) }
-	p := new(genParts{})
+	p := pu.New(genParts{})
 	ai := emit(ssa.OpBitcast, ssa.TI64, root)
 	shl := emit(ssa.OpShl, ssa.TI64, ai, i64(64-genTagShift))
 	plain := emit(ssa.OpShrL, ssa.TI64, shl, i64(64-genTagShift))
@@ -253,9 +254,9 @@ func (g *genChecker) check(b *ssa.Block, v, p *ssa.Value) (*ssa.Block, *ssa.Valu
 	chk.AddEdgeTo(cont)
 	chk.AddEdgeTo(fail)
 
-	call := fail.NewValue(ssa.OpCall, ssa.TupleOf(ssa.TMem), p, mem)
+	call := fail.NewValue(ssa.OpCall, ssa.TupleOf(compat.Clone([]*ssa.Type{ssa.TMem})...), p, mem)
 	call.Aux = f.GenPanic
-	call.Call = new(ssa.CallInfo{ABI: ssa.ABIInternal, NoReturn: true})
+	call.Call = pu.New(ssa.CallInfo{ABI: ssa.ABIInternal, NoReturn: true})
 	fail.SetControl(fail.NewValueI(ssa.OpSelectN, ssa.TMem, 0, call))
 
 	// The address in cont: p if it had no tag, its plain form if it had.

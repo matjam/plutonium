@@ -9,6 +9,8 @@ import (
 
 // The expected behaviour and output come from Go's package flag.
 
+var sv string
+
 func TestParse(t *testing.T) {
 	fs := NewFlagSet("test", ContinueOnError)
 	defer fs.Drop()
@@ -20,7 +22,9 @@ func TestParse(t *testing.T) {
 	u64 := fs.Uint64("uint64", 0, "uint64 value")
 	s := fs.String("string", "0", "string value")
 	d := fs.Duration("duration", 5*time.Second, "time.Duration value")
-	var sv string
+	// The FlagSet keeps &sv in memory it allocated, which the escape
+	// analysis cannot tell is released before this frame ends, so sv is
+	// a package variable (language spec section 6.3).
 	fs.StringVar(&sv, "sv", "x", "a string variable")
 	args := []string{
 		"-bool", "-bool2=true", "--int", "22", "--int64", "0x23", "-uint", "24",

@@ -432,7 +432,10 @@ type function struct {
 	// //pu:resultholds: parameters kept only while the result lives, by
 	// index (receiver first).
 	resultHolds map[int]bool
-	inits       bool // the initialisers of a package's variables
+	// external: called from outside what the analysis sees (exported to C,
+	// an interrupt handler, started by a go statement).
+	external bool
+	inits    bool // the initialisers of a package's variables
 }
 
 // paramName names parameter idx of f (receiver first), for messages.
