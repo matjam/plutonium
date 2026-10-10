@@ -13,8 +13,8 @@
 //     the interface's data word: errors.As(err, &e) with a `var e
 //     exec.ExitError`, then e.ExitCode().
 //   - Output and CombinedOutput return a vec.Vec[byte] the caller owns.
-//   - LookPath returns a string as Go's does; AppendLookPath builds the path
-//     in a buffer the caller provides instead.
+//   - LookPath returns a string as Go's does; AppendLookPath appends the
+//     exact bytes of the path to a vec.Vec[byte] or a vec.Fixed[byte].
 package exec
 
 import (
@@ -214,11 +214,14 @@ func (c *Cmd) start(out, errOut sink) error {
 
 	// The program's path, NUL-terminated.
 	var pathBuf [4096]byte
-	pathb, err := AppendLookPath(pathBuf[:0:len(pathBuf)-1], c.Path)
+	pf := vec.NewFixed(pathBuf[:len(pathBuf)-1])
+	err := AppendLookPath(&pf, c.Path)
 	if err != nil {
 		return err
 	}
-	cpath := append(pathBuf[:len(pathb)], 0)
+	pathb := pf.Slice()
+	pathBuf[len(pathb)] = 0
+	cpath := pathBuf[:len(pathb)+1]
 	// pathb is a path found in $PATH, any bytes but NUL; an error holds it
 	// as a string with U+FFFD for each invalid byte (os.NewPathErrorBytes).
 	var dirBuf [4096]byte
@@ -642,17 +645,17 @@ func (e ExitError) Error() string {
 
 // text returns slot i of exitTexts, filled with prefix and n.
 func text(i int, prefix string, n int) string {
-	b := exitTexts[i][:0]
-	b = append(b, prefix...)
+	b := vec.NewFixed(exitTexts[i][:])
+	vec.AppendString(&b, prefix)
 	if n >= 100 {
-		b = append(b, byte('0'+n/100))
+		b.Push(byte('0' + n/100))
 	}
 	if n >= 10 {
-		b = append(b, byte('0'+n/10%10))
+		b.Push(byte('0' + n/10%10))
 	}
-	b = append(b, byte('0'+n%10))
+	b.Push(byte('0' + n%10))
 	// ASCII only (the prefixes and digits above), so valid UTF-8.
-	return unsafe.String(&exitTexts[i][0], len(b))
+	return unsafe.String(&exitTexts[i][0], b.Len())
 }
 
 // LookPath finds the executable file to run for file: file itself if it
@@ -672,34 +675,36 @@ func LookPath(file string) (string, error) {
 		}
 	}
 	var buf [4096]byte
-	b, err := AppendLookPath(buf[:0], file)
-	if err != nil {
+	b := vec.NewFixed(buf[:])
+	if err := AppendLookPath(&b, file); err != nil {
 		return "", err
 	}
 	// A directory of $PATH may not be valid UTF-8: string(b) replaces each
 	// invalid byte with U+FFFD. AppendLookPath returns the exact bytes.
-	return string(b), nil
+	return string(b.Slice()), nil
 }
 
-// AppendLookPath is LookPath appending the path it finds to dst, within its
-// capacity; it allocates only for an error. The path is the exact bytes:
+// AppendLookPath is LookPath appending the path it finds to dst, a
+// *vec.Vec[byte] (which grows) or a *vec.Fixed[byte]; it allocates only for
+// an error or to grow a Vec. A path that does not fit in a Fixed is
+// ENAMETOOLONG, and dst is left as it was. The path is the exact bytes:
 // $PATH is searched as bytes, so a directory that is not valid UTF-8 works.
-func AppendLookPath(dst []byte, file string) ([]byte, error) {
+func AppendLookPath[D vec.Appender[byte]](dst D, file string) error {
 	for i := 0; i < len(file); i++ {
 		if file[i] == '/' {
 			if err := executable(strBytes(file)); err != nil {
-				return dst, os.NewPathError("exec", file, err)
+				return os.NewPathError("exec", file, err)
 			}
-			if cap(dst)-len(dst) < len(file) {
-				return dst, os.NewPathError("exec", file, syscall.ENAMETOOLONG)
+			if !appendAll(dst, strBytes(file)) {
+				return os.NewPathError("exec", file, syscall.ENAMETOOLONG)
 			}
-			return append(dst, file...), nil
+			return nil
 		}
 	}
 	if file == "" {
-		return dst, os.NewPathError("exec", file, ErrNotFound)
+		return os.NewPathError("exec", file, ErrNotFound)
 	}
-	buf := dst[len(dst):cap(dst)]
+	var buf [4096]byte
 	path := os.GetenvBytes(strBytes("PATH"))
 	for len(path) > 0 {
 		dir := path
@@ -714,11 +719,15 @@ func AppendLookPath(dst []byte, file string) ([]byte, error) {
 			dir = strBytes(".")
 		}
 		if len(dir)+1+len(file) <= len(buf) {
-			b := append(buf[:0], dir...)
-			b = append(b, '/')
-			b = append(b, file...)
-			if executable(b) == nil {
-				return dst[:len(dst)+len(b)], nil
+			b := vec.NewFixed(buf[:])
+			b.Append(dir...)
+			b.Push('/')
+			vec.AppendString(&b, file)
+			if executable(b.Slice()) == nil {
+				if !appendAll(dst, b.Slice()) {
+					return os.NewPathErrorBytes("exec", b.Slice(), syscall.ENAMETOOLONG)
+				}
+				return nil
 			}
 		}
 		if len(rest) == 0 {
@@ -726,7 +735,19 @@ func AppendLookPath(dst []byte, file string) ([]byte, error) {
 		}
 		path = rest
 	}
-	return dst, os.NewPathError("exec", file, ErrNotFound)
+	return os.NewPathError("exec", file, ErrNotFound)
+}
+
+// appendAll appends b to dst whole, or reports false and leaves dst as it
+// was if a bounded dst cannot hold all of it: a path must not be cut.
+func appendAll[D vec.Appender[byte]](dst D, b []byte) bool {
+	n := dst.Len()
+	dst.Append(b...)
+	if dst.Len()-n < len(b) {
+		dst.Truncate(n)
+		return false
+	}
+	return true
 }
 
 // strBytes views a string's bytes. The caller must not modify them.

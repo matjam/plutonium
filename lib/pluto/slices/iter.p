@@ -46,17 +46,6 @@ func Values[Slice ~[]E, E any](s Slice) iter.Seq[E] {
 	}
 }
 
-// AppendSeq appends the values from seq to the slice and
-// returns the extended slice. As with append, the result must fit in the
-// slice's capacity, or AppendSeq panics; to collect an unknown number of
-// values, use Collect.
-func AppendSeq[Slice ~[]E, E any](s Slice, seq iter.Seq[E]) Slice {
-	for v := range seq {
-		s = append(s, v)
-	}
-	return s
-}
-
 // Collect collects values from seq into a new Vec, allocated from the
 // default allocator, and returns it. If seq is empty, the Vec is empty.
 func Collect[E any](seq iter.Seq[E]) vec.Vec[E] {

@@ -5,6 +5,7 @@ import (
 	"pluto/errors"
 	"pluto/rt"
 	"pluto/unicode/utf8"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -34,11 +35,11 @@ func Errorf(format string, args ...any) error {
 	var p printer
 	p.w = &w
 	p.wrapErrs = true
-	p.wrapped = ws[:0]
+	p.wrapped = vec.NewFixed(ws[:])
 	p.doPrintf(format, args)
 	p.flush()
 	msg := w.string()
-	nw := len(p.wrapped)
+	nw := p.wrapped.Len()
 
 	var one wrapError
 	var many wrapErrors
@@ -135,18 +136,19 @@ func (b *ErrorBuf) Errorf(format string, args ...any) error {
 	var ws [1]error
 	var p printer
 	p.wrapErrs = true
-	p.wrapped = ws[:0]
-	p.dst = tmp[:0]
+	p.wrapped = vec.NewFixed(ws[:])
+	out := vec.NewFixed(tmp[:])
+	p.fixed = &out
 	p.doPrintf(format, args)
 	p.flush()
 	var wrapped error
-	if len(p.wrapped) > 0 {
-		wrapped = p.wrapped[0]
+	if p.wrapped.Len() > 0 {
+		wrapped = ws[0]
 		if errors.Is(wrapped, b) {
 			panic("fmt: ErrorBuf.Errorf would wrap itself")
 		}
 	}
-	b.n = copy(b.text[:], p.dst)
+	b.n = copy(b.text[:], out.Slice())
 	b.n = sanitize(b.text[:b.n])
 	b.err = wrapped
 	return b

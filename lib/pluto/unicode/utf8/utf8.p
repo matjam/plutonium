@@ -1,6 +1,7 @@
 // Package utf8 implements functions and constants to support text encoded
-// in UTF-8. It mirrors Go's unicode/utf8. Nothing here allocates: the byte
-// slice functions view their argument as a string without copying.
+// in UTF-8. It mirrors Go's unicode/utf8. Nothing here allocates, except
+// AppendRune into a growing vec.Vec: the byte slice functions view their
+// argument as a string without copying.
 //
 // Adapted from Go's unicode/utf8 package.
 // Copyright 2009 The Go Authors. All rights reserved.
@@ -9,6 +10,7 @@ package utf8
 
 import (
 	"pluto/rt"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -280,22 +282,17 @@ func EncodeRune(p []byte, r rune) int {
 	}
 }
 
-// AppendRune appends the UTF-8 encoding of r to the end of p and returns the
-// extended buffer. If the rune is out of range, it appends the encoding of
-// RuneError. Like append, it needs room in p's capacity.
-func AppendRune(p []byte, r rune) []byte {
-	switch i := uint32(r); {
-	case i <= rune1Max:
-		return append(p, byte(r))
-	case i <= rune2Max:
-		return append(p, t2|byte(r>>6), tx|byte(r)&maskx)
-	case i < surrogateMin, surrogateMax < i && i <= rune3Max:
-		return append(p, t3|byte(r>>12), tx|byte(r>>6)&maskx, tx|byte(r)&maskx)
-	case i > rune3Max && i <= MaxRune:
-		return append(p, t4|byte(r>>18), tx|byte(r>>12)&maskx, tx|byte(r>>6)&maskx, tx|byte(r)&maskx)
-	default:
-		return append(p, runeErrorByte0, runeErrorByte1, runeErrorByte2)
+// AppendRune appends the UTF-8 encoding of r to dst, a *vec.Vec[byte] (which
+// grows) or a *vec.Fixed[byte] (which keeps what fits). If the rune is out of
+// range, it appends the encoding of RuneError.
+func AppendRune[D vec.Appender[byte]](dst D, r rune) {
+	if uint32(r) <= rune1Max {
+		dst.Push(byte(r))
+		return
 	}
+	var buf [UTFMax]byte
+	n := EncodeRune(buf[:], r)
+	dst.Append(buf[:n]...)
 }
 
 // RuneCount returns the number of runes in p. Erroneous and short encodings

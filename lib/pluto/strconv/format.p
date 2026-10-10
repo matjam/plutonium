@@ -4,12 +4,14 @@ import (
 	"pluto/alloc"
 	"pluto/rt"
 	"pluto/unicode/utf8"
+	"pluto/vec"
 	"unsafe"
 )
 
 // The functions that return new strings (language spec section 6.10). Each
-// formats into a buffer on the stack with its Append form and copies the
-// result into a string from the current allocator; FormatBool, and Itoa and
+// formats into a buffer on the stack and copies the result into a string
+// from the current allocator, or formats straight into a new string's
+// buffer of the size it has measured; FormatBool, and Itoa and
 // FormatInt for 0 to 99, return static strings and allocate nothing.
 
 const smallsString = "00010203040506070809" +
@@ -41,7 +43,8 @@ func FormatInt(i int64, base int) string {
 		return small(int(i))
 	}
 	var buf [65]byte
-	return string(AppendInt(buf[:0], i, base))
+	n := putInt(buf[:], i, base)
+	return string(buf[len(buf)-n:])
 }
 
 // FormatUint returns the text of u in the given base (2 to 36).
@@ -50,7 +53,8 @@ func FormatUint(u uint64, base int) string {
 		return small(int(u))
 	}
 	var buf [64]byte
-	return string(AppendUint(buf[:0], u, base))
+	n := PutUint(buf[:], u, base)
+	return string(buf[len(buf)-n:])
 }
 
 // FormatBool returns "true" or "false", static strings.
@@ -80,45 +84,68 @@ func Quote(s string) string {
 		panic("strconv: no allocator: call alloc.SetDefault before building strings")
 	}
 	p, ctl := rt.NewStringBuffer(n, a)
-	b := AppendQuote(unsafe.Slice(p, n)[:0], s)
-	q := rt.MakeString(p, len(b), ctl, rt.KnownASCII(s))
+	b := unsafe.Slice(p, n)
+	b[0] = '"'
+	quoteInto(b[1:n-1], s)
+	b[n-1] = '"'
+	q := rt.MakeString(p, n, ctl, rt.KnownASCII(s))
 	rt.ReleaseString(ctl)
 	return q
 }
 
-// AppendQuote appends the double-quoted Go string literal representing s,
-// as made by Quote. Like append, it needs room in dst's capacity.
-func AppendQuote(dst []byte, s string) []byte {
+// AppendQuote appends to dst the double-quoted Go string literal
+// representing s, as made by Quote.
+func AppendQuote[D vec.Appender[byte]](dst D, s string) {
+	// Quoting is bytewise, so s is quoted in pieces of up to 64 bytes,
+	// each of which takes at most 4*64 bytes quoted.
+	var buf [4 * 64]byte
+	dst.Push('"')
+	for len(s) > 0 {
+		k := min(len(s), 64)
+		dst.Append(buf[:quoteInto(buf[:], s[:k])]...)
+		s = s[k:]
+	}
+	dst.Push('"')
+}
+
+// quoteInto writes the escaped bytes of s, without the quotes, at the start
+// of dst, which must have room for them, and returns how many it wrote.
+// It works on bytes: a rune cut at either end of s is copied as it is.
+func quoteInto(dst []byte, s string) int {
 	const hex = "0123456789abcdef"
-	dst = append(dst, '"')
+	w := 0
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		switch c {
 		case '"', '\\':
-			dst = append(dst, '\\', c)
+			dst[w], dst[w+1] = '\\', c
 		case '\a':
-			dst = append(dst, '\\', 'a')
+			dst[w], dst[w+1] = '\\', 'a'
 		case '\b':
-			dst = append(dst, '\\', 'b')
+			dst[w], dst[w+1] = '\\', 'b'
 		case '\f':
-			dst = append(dst, '\\', 'f')
+			dst[w], dst[w+1] = '\\', 'f'
 		case '\n':
-			dst = append(dst, '\\', 'n')
+			dst[w], dst[w+1] = '\\', 'n'
 		case '\r':
-			dst = append(dst, '\\', 'r')
+			dst[w], dst[w+1] = '\\', 'r'
 		case '\t':
-			dst = append(dst, '\\', 't')
+			dst[w], dst[w+1] = '\\', 't'
 		case '\v':
-			dst = append(dst, '\\', 'v')
+			dst[w], dst[w+1] = '\\', 'v'
 		default:
 			if c < 0x20 || c == 0x7F {
-				dst = append(dst, '\\', 'x', hex[c>>4], hex[c&15])
+				dst[w], dst[w+1], dst[w+2], dst[w+3] = '\\', 'x', hex[c>>4], hex[c&15]
+				w += 4
 			} else {
-				dst = append(dst, c)
+				dst[w] = c
+				w++
 			}
+			continue
 		}
+		w += 2
 	}
-	return append(dst, '"')
+	return w
 }
 
 // quotedLen returns the length of byte c in a quoted string.
@@ -135,19 +162,24 @@ func quotedLen(c byte) int {
 // QuoteRune returns a single-quoted Go character literal representing r.
 func QuoteRune(r rune) string {
 	var buf [16]byte
-	b := append(buf[:0], '\'')
+	buf[0] = '\''
+	n := 1
 	switch r {
 	case '\'', '\\':
-		b = append(b, '\\', byte(r))
+		buf[1], buf[2] = '\\', byte(r)
+		n = 3
 	case '\n':
-		b = append(b, '\\', 'n')
+		buf[1], buf[2] = '\\', 'n'
+		n = 3
 	case '\t':
-		b = append(b, '\\', 't')
+		buf[1], buf[2] = '\\', 't'
+		n = 3
 	case '\r':
-		b = append(b, '\\', 'r')
+		buf[1], buf[2] = '\\', 'r'
+		n = 3
 	default:
-		b = utf8.AppendRune(b, r)
+		n += utf8.EncodeRune(buf[1:], r)
 	}
-	b = append(b, '\'')
-	return string(b)
+	buf[n] = '\''
+	return string(buf[:n+1])
 }

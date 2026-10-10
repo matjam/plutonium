@@ -104,7 +104,7 @@ func main() {
 	for i := 0; i < 50; i++ {
 		b.WriteString("ab")
 	}
-	s := make([]int64, 10)
+	s := vec.Make[int64](10)
 	s[9] = 9
 	stats(d, "in use")
 	fmt.Printf("%d %d %d %d %d\n", x.a+x.b, v.Len(), m.Len(), len(b.String()), s[9])
@@ -112,7 +112,7 @@ func main() {
 	v.Free()
 	m.Free()
 	b.Free()
-	alloc.Default().Free(unsafe.Pointer(unsafe.SliceData(s)), 10*8, 8)
+	s.Free()
 	fmt.Printf("alloc.ReportLeaks with the debug allocator: %d\n", alloc.ReportLeaks())
 	restore.Restore()
 	fmt.Printf("alloc.ReportLeaks with the slab allocator: %d\n", alloc.ReportLeaks())

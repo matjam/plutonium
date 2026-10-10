@@ -62,9 +62,9 @@ func main() {
 	b.Free()
 
 	var arr [8]string
-	parts := arr[:0]
-	for i := 0; i < 4; i++ {
-		parts = append(parts, fmt.Sprintf("p%d", i*i))
+	parts := arr[:4]
+	for i := range parts {
+		parts[i] = fmt.Sprintf("p%d", i*i)
 	}
 	fmt.Println(strings.Join(parts, "/"), len(parts))
 

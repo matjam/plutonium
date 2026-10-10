@@ -2,30 +2,48 @@
 //
 // Itoa, FormatInt, FormatFloat, Quote and the other Format functions return
 // strings, as in Go, allocated from the current allocator (format.p). The
-// Append functions append to a caller's buffer instead and, like
-// Plutonium's append, need room in its capacity: they never allocate.
+// Append functions append to a destination the caller declares instead: a
+// *vec.Vec[byte], which grows from its allocator, or a *vec.Fixed[byte],
+// which never allocates and keeps what fits in the caller's array:
+//
+//	var mem [32]byte
+//	b := vec.NewFixed(mem[:])
+//	strconv.AppendInt(&b, n, 10)
 //
 // Parts of this package are adapted from Go's strconv package.
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license.
 package strconv
 
+import "pluto/vec"
+
 const digits = "0123456789abcdefghijklmnopqrstuvwxyz"
 
-// AppendInt appends the text of i in the given base (2 to 36).
-func AppendInt(dst []byte, i int64, base int) []byte {
-	if i < 0 {
-		dst = append(dst, '-')
-		return AppendUint(dst, uint64(-i), base)
-	}
-	return AppendUint(dst, uint64(i), base)
+// AppendInt appends the text of i in the given base (2 to 36) to dst, a
+// *vec.Vec[byte] (which grows) or a *vec.Fixed[byte] (which keeps what
+// fits).
+func AppendInt[D vec.Appender[byte]](dst D, i int64, base int) {
+	var buf [65]byte
+	n := putInt(buf[:], i, base)
+	dst.Append(buf[len(buf)-n:]...)
 }
 
-// AppendUint appends the text of u in the given base (2 to 36).
-func AppendUint(dst []byte, u uint64, base int) []byte {
+// AppendUint appends the text of u in the given base (2 to 36) to dst.
+func AppendUint[D vec.Appender[byte]](dst D, u uint64, base int) {
 	var buf [64]byte
 	n := PutUint(buf[:], u, base)
-	return append(dst, buf[len(buf)-n:]...)
+	dst.Append(buf[len(buf)-n:]...)
+}
+
+// putInt formats i in base right-aligned at the end of buf, which must hold
+// 65 bytes for base 2, and returns the number of bytes used.
+func putInt(buf []byte, i int64, base int) int {
+	if i >= 0 {
+		return PutUint(buf, uint64(i), base)
+	}
+	n := PutUint(buf, uint64(-i), base) + 1
+	buf[len(buf)-n] = '-'
+	return n
 }
 
 // PutUint formats u in base right-aligned at the end of buf and returns the
@@ -65,10 +83,11 @@ func PutUint(buf []byte, u uint64, base int) int {
 	return len(buf) - i
 }
 
-// AppendBool appends "true" or "false".
-func AppendBool(dst []byte, b bool) []byte {
+// AppendBool appends "true" or "false" to dst.
+func AppendBool[D vec.Appender[byte]](dst D, b bool) {
 	if b {
-		return append(dst, "true"...)
+		vec.AppendString(dst, "true")
+		return
 	}
-	return append(dst, "false"...)
+	vec.AppendString(dst, "false")
 }

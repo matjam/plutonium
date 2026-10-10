@@ -102,7 +102,8 @@ Each of these is a compile error that names the construct and the reason.
 | `recover` | needs an unwinder that resumes a frame; a panic never returns to the code that panicked (section 8) | return errors (section 14) |
 | `import "reflect"` | needs runtime type metadata | type switches, generics |
 | `complex64`, `complex128`, `complex`, `real`, `imag` | rarely useful in systems code; keeps the backend small | a struct of two floats |
-| `append` beyond capacity | a slice is a view and owns no array it could grow (section 6.3) | `pluto/vec.Vec[T]`, an owner (section 6.6) |
+| `append` | Go's `append` grows a slice by allocating a larger array behind the program's back, and the collector frees the old one; a slice is a view and owns no array it could grow (sections 4.3, 6.3) | `pluto/vec.Vec[T]`, an owner that grows (`Push`, `Append`); `vec.Fixed[T]` to fill a caller's array (section 13.2); slicing and `copy` within a slice's capacity |
+| `make([]T, n)`, `make([]T, n, c)` | the array would belong to no one: a slice is a view, and without a collector nothing would free it (sections 4.2, 6.6) | `vec.Make[T](n)` and `vec.WithCapacity[T](c)`, which return an owning `vec.Vec[T]`; an array for a constant size; `a.Slice[T](n)` from an arena |
 | string literals that are not valid UTF-8 (`"\xff"`) | every string holds valid UTF-8 (section 6.10) | `[]byte{0xff}` for binary data |
 
 Strings work as in Go otherwise. Runtime concatenation (`s + t`, `s += t`) and the conversions
@@ -126,26 +127,35 @@ drops what each holds (section 8.3).
 
 ### 4.2 `new` and `make` allocate from an allocator
 
-`new(T)`, `new(v)` and `make([]T, len)` / `make([]T, len, cap)` allocate from the current allocator
-(section 7). Each accepts an optional final allocator argument:
+`new(T)`, `new(v)` and `make(chan T, n)` allocate from the current allocator (section 7). Each accepts an
+optional final allocator argument:
 
 ```go
 n := new(Node)                  // current allocator
 m := new(Node, arena)           // explicit allocator
 k := new(Node{val: 1}, arena)   // a new variable holding a value
-buf := make([]byte, 4096)       // current allocator
-big := make([]byte, 0, 4096)    // length and capacity
-tmp := make([]byte, 64, scratch) // length and allocator
-all := make([]byte, 0, 64, scratch)
+c := make(chan Msg, 16, arena)  // a channel and its buffer
+```
+
+`make` of a slice type is a compile error (E2014): the array it allocates would belong to no one, since a
+slice is a view and nothing collects what no slice refers to. `vec.Make[T](n)` returns a `vec.Vec[T]` of
+`n` zero elements that owns its array, `vec.WithCapacity[T](c)` an empty one with room for `c`, each with
+the same optional allocator, and `v.Slice()` lends the elements as a slice:
+
+```go
+buf := vec.Make[byte](4096)          // Go's make([]byte, 4096)
+defer buf.Free()
+big := vec.WithCapacity[byte](4096)  // Go's make([]byte, 0, 4096)
+tmp := vec.Make[byte](64, scratch)   // from an allocator
+var small [64]byte                   // a constant size needs no allocation
 ```
 
 As in Go 1.26, `new(v)` allocates a variable of `v`'s type (an untyped constant takes its default type) and
 stores `v` in it; `new(T{...})` is how a composite literal outlives its frame. Whether the first operand is a
 type decides between `new(T, a)` and `new(v, a)`; `v` is evaluated before the allocator. The allocator is
 any value assignable to `alloc.Allocator`, such as `&arena`, and the checker tells it from a capacity by
-its type: a final argument of `make` is a capacity if it is an integer or untyped numeric constant and an
-allocator otherwise (with four arguments the last is always the allocator). Memory from `new(T)` and
-`make` is zeroed. With no allocator argument and no default allocator set, as in a freestanding program
+its type: a final argument of `make` is a size if it is an integer or untyped numeric constant and an
+allocator otherwise. Memory from `new(T)` and `make` is zeroed. With no allocator argument and no default allocator set, as in a freestanding program
 before `alloc.SetDefault`, the allocation panics with "no allocator" (section 7.2); a nil allocator
 argument panics too.
 
@@ -154,24 +164,37 @@ argument panics too.
 
 - `new(T)` and `new(v)` return an `owned[T]` (section 5.6): the single owner of the new variable, which
   frees it when dropped. It dereferences like `*T`, so `n := new(Node); n.val = 1` reads as in Go.
-- `make([]T, len)` and `make([]T, len, cap)` return a `vec.Vec[T]` of that length, which owns the array.
-  `v.Slice()` lends it as a `[]T`, and `v[i]` and `len(v)` work on it directly through the indexing
-  interface (section 6.7).
+- slices come from `vec.Make` and `vec.WithCapacity` (above), which return the owner, a `vec.Vec[T]`;
+  `v[i]` and `len(v)` work on it directly through the indexing interface (section 6.7).
 - `make(chan T)` and `make(chan T, n)` return a channel, which counts its references (section 4.8).
 
 Memory that only an arena should own is allocated through the arena, which returns views: `a.New[T]()`
 gives a `*T` and `a.Slice[T](n)` a `[]T` that live until the arena is reset or dropped. Today's compiler
-still returns `*T` and `[]T` from `new` and `make`; that memory is freed only by an explicit `alloc.Free`
-or an arena reset, which section 6.6 forbids outside the unchecked allocation layer.
+still returns `*T` from `new`; that memory is freed only by an explicit `alloc.Free` or an arena reset,
+which section 6.6 forbids outside the unchecked allocation layer.
 
-### 4.3 `append` works within capacity
+### 4.3 Slices do not grow
 
-`append(s, x...)` stores into `s`'s spare capacity and returns the longer slice. If the result would exceed
-`cap(s)`, the program panics. A slice is a view (section 6.3): the array behind it belongs to someone else,
-so it cannot grow. Growable sequences are `pluto/vec.Vec[T]`, an owner that records its allocator.
+A slice is a view (section 6.3): the array behind it belongs to someone else, so a slice cannot grow, and
+Plutonium has no `append`. Every call of `append` is a compile error (E2013) whose fix is the form of the
+idiom at hand:
 
-If `T` is an owner type, `append(s, x)` moves `x` into the spare slot. `append(s, t...)` with another slice
-of owners is a compile error, since it would duplicate the owners in `t` (section 6.9).
+| Go | Plutonium | Allocates |
+|---|---|---|
+| `v = append(v, x)`, `v = append(v, xs...)` | `v.Push(x)`, `v.Append(xs...)` on a `vec.Vec[T]` | when it grows |
+| `b = append(b, s...)` with a string `s` | `vec.AppendString(&b, s)` | when `b` is a `vec.Vec` that grows |
+| `append([]T(nil), s...)` | `slices.Clone(s)`, a `vec.Vec[T]` | yes, an owner |
+| `c := append(a, b...)` as a new sequence | `slices.Concat(a, b)`, a `vec.Vec[T]` | yes, an owner |
+| `s = append(s[:i], s[j:]...)` | `s = slices.Delete(s, i, j)` | no |
+| `slices.Insert`, `slices.Replace`, `slices.AppendSeq` | `v.Insert`, `v.Replace`, `v.AppendSeq` on a `vec.Vec` | when it grows |
+| `append(buf[:0], ...)` into an array the code owns | `vec.NewFixed(buf[:])`, then `Push` and `Append` | no |
+| `s = append(s, x)` within a capacity the code chose | `s = s[:len(s)+1]; s[len(s)-1] = x` | no |
+
+Everything else slices do in Go they do here: indexing, slicing (`s[:len(s)+1]` within the capacity),
+`copy`, `clear`, `range`, and the `slices` functions that shrink or reorder in place. `append` stays a
+predeclared name, so that a call names it in the error, and a program may declare its own. The library's
+`Append` functions (`strconv.AppendInt`, `fmt.Appendf` and the rest) keep their names and append to a
+`vec.Vec[byte]` or a `vec.Fixed[byte]` (section 13.2).
 
 ### 4.4 Interfaces hold a word or a frame pointer
 
@@ -1263,8 +1286,8 @@ func load() *map[string]string {
 
 `x` is a small header that refers to a hash table. `&x` points at the header, which Go moves to the heap
 without saying so. Copying `x` copies the reference, not the table. Nobody frees the table; the collector
-does, eventually. Slices are the same: `t := s` shares the array, and `append(s, v)` sometimes writes into
-that shared array and sometimes copies it. Most Go programmers cannot say, for code like the above, what
+does, eventually. Slices are the same: `t := s` shares the array, and Go's `append(s, v)` sometimes writes
+into that shared array and sometimes copies it. Most Go programmers cannot say, for code like the above, what
 is copied, what is shared and where it lives.
 
 Plutonium separates the three jobs so that each type does one:
@@ -1598,11 +1621,12 @@ memory return owner types:
   arena is reset or dropped.
 - **Text.** Strings own their buffers by counting (section 6.10): `s + t`, `string(b)` and
   `fmt.Sprintf` return a string, freed when its last copy goes. `strings.Builder` builds one with fewer
-  copies: its `String()` shares the builder's buffer instead of copying it. `fmt.Bprintf(buf, ...)` formats
-  into a caller's `[]byte` and allocates nothing.
-- **Growing.** A slice is a view and cannot grow beyond its capacity (section 4.3). Growing sequences are
-  `vec.Vec[T]` or another owner; there are no arrays that nobody owns.
-- **`new` and `make`** return owners under the proposal in section 4.2 (`owned[T]` and `vec.Vec[T]`).
+  copies: its `String()` shares the builder's buffer instead of copying it. `fmt.Appendf(&f, ...)` into a
+  `vec.Fixed[byte]` over a caller's array formats without allocating (section 13.2).
+- **Growing.** A slice is a view and cannot grow (section 4.3). Growing sequences are `vec.Vec[T]` or
+  another owner; there are no arrays that nobody owns.
+- **`new`** returns an owner under the proposal in section 4.2 (`owned[T]`); slices are allocated as
+  `vec.Vec[T]` owners (`vec.Make`), since `make` of a slice is not allowed.
 - **The unchecked layer.** `alloc.Raw`, `alloc.New` and `alloc.Free` (section 7.1) allocate and free
   memory that has no owner until the code that called them gives it one. They are what owner types are
   written with, and, like `unsafe`, the compiler does not check them.
@@ -1680,7 +1704,10 @@ an addressable `x` or a pointer (E2459); its form is `All() F`, with no paramete
 variadic parameter, where `F` is a function type that range accepts, such as `iter.Seq[V]` or
 `iter.Seq2[K, V]` (E2458). The iteration variables follow `F`, so `vec.Vec[T]`, whose `All` returns
 `iter.Seq2[int, T]`, ranges like a slice, `hash.Map[K, V]` like a map (in its table's order, section 13),
-and `hash.Set[K]` over its elements. A `ring[T, N]` ranges over its built-in `All` (section 5.4). A struct,
+and `hash.Set[K]` over its elements. As for a slice in Go, a `vec.Vec` loop reads the length once, when it
+starts: elements the body pushes are not visited (a worklist that should see them is an index loop,
+`for i := 0; i < v.Len(); i++`), each element is read when the loop reaches it, and the loop stops early
+if the body shrinks the vector below the next index. A `ring[T, N]` ranges over its built-in `All` (section 5.4). A struct,
 or a type with an `Index` method, that has no `All` is a compile error (E2456).
 
 ```go
@@ -1958,7 +1985,7 @@ func handle(req *Request) error {
 	a := arena.New(mem[:])              // a views mem; both live in handle's frame
 	fields := vec.New[Field](&a)        // allocates in the arena; holds a view of a
 	parseFields(req.body, &fields)
-	reply := strings.NewBuilder(nil)
+	var reply strings.Builder
 	reply.Init(&a)                      // the builder grows in the arena
 	for i := 0; i < fields.Len(); i++ {
 		f := fields.Ptr(i)
@@ -2384,8 +2411,8 @@ main.p:10:12: cannot use strings.Builder as T in Fill: strings.Builder is an own
     (see "Ownership" in the language spec, section 6.4)
 ```
 
-**Duplicating owners with `copy` or `append`** (E3306; owners as variadic arguments are E3310, in a slice
-literal E3312, and `x[k]` on a container of owners E3309).
+**Duplicating owners with `copy`** (E3306; owners as variadic arguments are E3310, in a slice literal
+E3312, and `x[k]` on a container of owners E3309).
 
 ```
 main.p:7:2: cannot copy elements of type strings.Builder: each element is an owner
@@ -2531,10 +2558,9 @@ each string stored; the roadmap (item 55) records what it measured.
   `range` on it is undefined. `unsafe.StringData(s)` returns the address of the first byte. The library
   never uses it on bytes from the operating system (section 13.1).
 
-**Conversions.** `[]byte(s)` and `[]rune(s)` copy into memory from the current allocator, exactly as
-`make([]byte, len(s))` would allocate it, and return what `make` returns (section 4.2): today a slice,
+**Conversions.** `[]byte(s)` and `[]rune(s)` copy into memory from the current allocator: today a slice,
 which the program or an arena frees, and a `vec.Vec[byte]` (`vec.Vec[rune]`) that owns the copy once the
-proposal that `make` returns an owner is adopted, so the two never differ. `string(b)`, `string(runes)`
+ownership proposals of section 4.2 are adopted. `string(b)`, `string(runes)`
 and `string(r)` for a non-constant rune make a counted string; `string(r)` for an ASCII rune returns a
 static one-byte string and does not allocate, and a value out of range, of any integer type, gives
 U+FFFD as in Go.
@@ -2705,7 +2731,6 @@ The following stop the program through the same path as `panic`:
 - integer division or remainder by zero,
 - a failed type assertion with a single result, on an interface or a union (section 5.10),
 - a union whose tag names no variant, in a type switch without a default case,
-- `append` beyond capacity,
 - an allocation with no allocator set,
 - sending on a closed channel, or closing a closed or nil channel,
 - an iterator calling the yield function of a range-over-func loop when it may not (section 4.10),
@@ -3304,9 +3329,18 @@ what the allocator does, not by which operation calls it:
 
 Everything about strings that does not make a new one never allocates: literals and constants,
 copying, comparison, slicing, indexing, `len`, `range`, passing and returning, `unsafe.String`, and the
-functions that write into a buffer the caller provides (`fmt.Bprintf`, `strconv.AppendInt`). Copying
-and dropping a counted string made elsewhere is allowed, and a drop may free a buffer: a kernel that
-cannot free in some context keeps the strings it uses there static or made in an arena.
+`Append` functions with a `vec.Fixed[byte]` destination over a caller's array (`fmt.Appendf`,
+`strconv.AppendInt`, section 13.2). Copying and dropping a counted string made elsewhere is allowed, and a
+drop may free a buffer: a kernel that cannot free in some context keeps the strings it uses there static or
+made in an arena.
+
+A generic function is judged for each set of type arguments it is compiled with, since each is a function
+of its own: `strconv.AppendInt` into a `*vec.Fixed[byte]` never allocates, so an interrupt handler may
+call it while other code appends to a `*vec.Vec[byte]`, which grows from an allocator that may wait.
+`fmt.Appendf` reaches a destination other than a `vec.Fixed` through an `io.Writer`, as `Fprintf` does,
+so a handler that formats with it counts as calling the `Write` method of every `io.Writer` the program
+makes, a growing `vec.Vec` destination's among them; in a handler of such a program, format with the
+`strconv` functions into a `vec.Fixed`.
 
 An earlier design required kernel functions that make strings to be marked `//pu:alloc`, to make the
 allocation visible. It was retired once the check of section 12.6 followed allocation into the
@@ -3325,29 +3359,29 @@ hold, and most have a `Clone`.
 | `pluto/alloc` | allocators, the default allocator, `Use`/`Restore`, `Owned`/`Shared`/`Synced`, and the unchecked layer `Raw`/`New`/`Free` (section 7.1) |
 | `pluto/alloc/debug` | the checking allocator (section 7.3) |
 | `pluto/arena` | bump allocators; freeing into one does nothing, and `Reset` reclaims everything (section 6.6) |
-| `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf`, `Sprint` and `Sprintln` returning a string, `Bprintf` into a caller's buffer, `Println`; integer, float, string, pointer verbs with width, precision and flags; arrays, slices, structs, pointers, interfaces and enums with `%v`, `%+v` and `%#v` as Go prints them, read from type descriptors (section 4.4), and containers through `fmt.Mapper` (`hash.Map` prints as `map[k:v]` with sorted keys) and `fmt.Lister` (`vec.Vec` prints as a slice); formatting goes through a fixed buffer, and only the `S` functions allocate, for their result; `Errorf` and `ErrorBuf` (section 14) |
+| `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf`, `Sprint` and `Sprintln` returning a string, `Appendf`, `Append` and `Appendln` appending to a `vec.Vec[byte]` or `vec.Fixed[byte]` (section 13.2), `Println`; integer, float, string, pointer verbs with width, precision and flags; arrays, slices, structs, pointers, interfaces and enums with `%v`, `%+v` and `%#v` as Go prints them, read from type descriptors (section 4.4), and containers through `fmt.Mapper` (`hash.Map` prints as `map[k:v]` with sorted keys) and `fmt.Lister` (`vec.Vec` prints as a slice); formatting goes through a fixed buffer, and only the `S` functions allocate, for their result, and the `Append` functions to grow a `vec.Vec`; `Errorf` and `ErrorBuf` (section 14) |
 | `pluto/container` | the constraints of the indexing interface (section 6.7): `Indexable`, `Reader`, `Lookup`, `Sized` |
 | `pluto/container/heap` | Go's `container/heap` (`Init`, `Push`, `Pop`, `Remove`, `Fix` over a `heap.Interface`), and `Heap[T]`, a min-heap in a `vec.Vec` ordered by a less function, without boxing elements in `any` |
 | `pluto/io` | `Reader`, `Writer`, buffered I/O |
 | `pluto/os` | files (`os.File`, an owner that closes on drop), `Stat`, whole-file reads and writes, directories (`ReadDir` returns a `DirEntries` owner), removal, renaming, `Readlink`, temporary directories, the working directory, pipes, processes, arguments, environment, exit (hosted). Names and paths come back as strings with invalid bytes replaced, next to exact bytes (`DirEntry.RawName`, `ArgBytes`, `AppendWd`), and each core operation has a `Bytes` form that takes a `[]byte` path (`OpenBytes`, `StatBytes`, `RemoveBytes`, ...); see "Names from the operating system" below |
 | `pluto/os/exec` | running commands: `Cmd` (an owner), pipes copied inside `Wait`, `ExitError` in the data word (hosted) |
-| `pluto/path/filepath` | slash-separated paths: substrings (`Base`, `Ext`, `Split`), `Join`, `Clean`, `Dir`, `Rel` and `Abs` returning strings, with `Append` forms that write into a caller's buffer, `Match`, `WalkDir` (paths as strings with invalid bytes replaced) and `WalkDirBytes` (the exact bytes) |
+| `pluto/path/filepath` | slash-separated paths: substrings (`Base`, `Ext`, `Split`), `Join`, `Clean`, `Dir`, `Rel` and `Abs` returning strings, with `Append` forms (section 13.2), `Match`, `WalkDir` (paths as strings with invalid bytes replaced) and `WalkDirBytes` (the exact bytes) |
 | `pluto/time` | `Duration`, `Time` in UTC with a monotonic reading, `Now`, `Since`; `Sleep`, `Timer`, `Ticker`, `After`, `Tick` and `AfterFunc` over the scheduler's timers (section 4.7) |
 | `pluto/flag` | command-line flags; a `FlagSet` owns its flags and their variables; `flag.Arg` is a string with invalid bytes replaced, `flag.ArgBytes` the exact bytes |
 | `pluto/syscall` | raw Linux system calls (hosted) |
-| `pluto/strconv` | `Itoa`, `FormatInt`, `FormatFloat`, `Quote` returning strings, with `Append` forms that write into a caller's buffer; `ParseUint`, `ParseInt`, `Atoi`, `ParseFloat` (decimal and hexadecimal, any rounding case, exact as Go's), `PutUint`, `IsPrint`, `CanBackquote`; a failed parse returns `ErrSyntax` or `ErrRange` itself, and `NewNumError` makes Go's `*NumError` from an allocator when a caller wants one |
-| `pluto/strings`, `pluto/bytes` | `strings.Builder`, which builds a string in a buffer it shares with the result (section 6.10); searching, comparison, case conversion, `Join`, `Repeat`, `Replace`, `FromUTF8`; Go 1.24's iterators `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq`, `FieldsFuncSeq` |
+| `pluto/strconv` | `Itoa`, `FormatInt`, `FormatFloat`, `Quote` returning strings, with `Append` forms (section 13.2); `ParseUint`, `ParseInt`, `Atoi`, `ParseFloat` (decimal and hexadecimal, any rounding case, exact as Go's), `PutUint`, `IsPrint`, `CanBackquote`; a failed parse returns `ErrSyntax` or `ErrRange` itself, and `NewNumError` makes Go's `*NumError` from an allocator when a caller wants one |
+| `pluto/strings`, `pluto/bytes` | `strings.Builder`, which builds a string in a buffer it shares with the result (section 6.10); `bytes.Buffer`, Go's growing buffer, an owner over a `vec.Vec[byte]`; searching, comparison, case conversion, `Join`, `Repeat`, `Replace`, `FromUTF8`, with `Append` forms of the functions that make strings (section 13.2); Go 1.24's iterators `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq`, `FieldsFuncSeq` |
 | `pluto/iter` | `Seq` and `Seq2` (section 4.10), and adaptors that allocate nothing: `Filter`, `Map`, `Limit`, `Concat` (each with a `2` form), `Enumerate`, `Keys`, `Values`, `Reduce`, `Count`, `Fill`. Go's `Pull` needs a coroutine per iterator and has no equivalent |
 | `pluto/bits` | bit operations (section 5.8) |
 | `pluto/math` | floating-point functions |
 | `pluto/hash` | `Map[K, V]` and `Set[K]`, owners that record their allocator; `All`, `Keys` and `Values` iterate in table order, the same for the same changes and seed |
-| `pluto/vec` | `Vec[T]`, a growable owner that records its allocator; `All`, `Values` and `Backward` iterate it, reading it as they go so the body may change it |
+| `pluto/vec` | `Vec[T]`, a growable owner that records its allocator, with `Push`, `Append`, `Insert`, `Replace` and `AppendSeq`; `All`, `Values` and `Backward` iterate it, reading its length once as range over a slice does (section 6.7); `Fixed[T]`, a bounded vector over a caller's array, the `Appender[T]` constraint both satisfy, and `AppendString` (section 13.2) |
 | `pluto/sort` | sorting without allocation |
 | `pluto/cmp` | Go's `cmp`: `Ordered`, `Less`, `Compare`, `Or` |
-| `pluto/slices` | Go's `slices`: `Sort`, `SortFunc`, `SortStableFunc` (pdqsort and in-place merge sort, three-way comparison functions), `BinarySearch`, `Index`, `Contains`, `Equal`, `Compare`, `Max`, `Min`, `IsSorted`, `Reverse`, `Compact`, `Clip`, and the iterators `All`, `Values`, `Backward`, `Chunk`; `Insert`, `Delete`, `Replace` and `AppendSeq` work within the slice's capacity, and `Clone`, `Concat`, `Repeat`, `Collect`, `Sorted`, `SortedFunc`, `SortedStableFunc` (each with an `In` form taking an allocator) return a `vec.Vec` |
+| `pluto/slices` | Go's `slices`: `Sort`, `SortFunc`, `SortStableFunc` (pdqsort and in-place merge sort, three-way comparison functions), `BinarySearch`, `Index`, `Contains`, `Equal`, `Compare`, `Max`, `Min`, `IsSorted`, `Reverse`, `Delete`, `DeleteFunc`, `Compact`, `Clip`, and the iterators `All`, `Values`, `Backward`, `Chunk`; `Insert`, `Replace` and `AppendSeq`, which grow, are `vec.Vec`'s methods, and `Clone`, `Concat`, `Repeat`, `Collect`, `Sorted`, `SortedFunc`, `SortedStableFunc` (each with an `In` form taking an allocator) return a `vec.Vec` |
 | `pluto/sync/atomic` | atomic integers and pointers |
 | `pluto/unicode` | Go's `unicode` with Go 1.27's Unicode 17.0.0 tables (generated by `tools/mkunicode`): `IsLetter`, `IsDigit`, `IsSpace`, `IsUpper`, `IsLower`, `IsPunct`, `IsPrint`, `IsGraphic`, `ToUpper`, `ToLower`, `ToTitle`, `SimpleFold`, `Is` and `In` over `RangeTable`s; a variable for each category, script and property table, and no maps from names to tables |
-| `pluto/unicode/utf8` | UTF-8 encoding and decoding |
+| `pluto/unicode/utf8` | UTF-8 encoding and decoding; `AppendRune` (section 13.2) |
 | `pluto/testing` | tests and benchmarks for `pluto test` (hosted); `FailNow`, `Fatal`, `SkipNow` and their relatives end the test function with `rt.Goexit`, so its deferred calls run (section 8.3) |
 | `pluto/errors` | `New` (a static error per call site), `Is`, `As`, `AsType`, `Unwrap`, `Join`, `Free` (section 14) |
 
@@ -3370,8 +3404,8 @@ The exact bytes stay available next to every string that can be lossy:
 | String | Exact bytes |
 |---|---|
 | `DirEntry.Name`, `FileInfo.Name` of an entry | `DirEntry.RawName() []byte` |
-| `os.Readlink(name)` | `os.AppendReadlink(dst, name)`, `os.ReadlinkBytes(dst, name)` |
-| `os.Getwd()`, `filepath.Abs` | `os.AppendWd(dst)`, `filepath.AppendAbs(dst, path)` |
+| `os.Readlink(name)` | `os.AppendReadlink(&b, name)`, `os.ReadlinkBytes(&b, name)` |
+| `os.Getwd()`, `filepath.Abs` | `os.AppendWd(&b)`, `filepath.AppendAbs(&b, path)` |
 | `os.Arg(i)`, `os.Args()`, `flag.Arg(i)` | `os.ArgBytes(i)`, `os.ArgsBytes()`, `flag.ArgBytes(i)` |
 | `os.Getenv`, `os.LookupEnv`, `os.Environ()`, `os.TempDir()` | `os.GetenvBytes`, `os.LookupEnvBytes`, `os.EnvironBytes()`, `os.TempDirBytes()` |
 | the `path` of `filepath.WalkDir` | `filepath.WalkDirBytes`, whose function takes `path []byte` |
@@ -3393,6 +3427,52 @@ ignore a value that is not valid UTF-8, and the trace table the compiler writes 
 `unsafe.String` stays in the library only where the bytes are valid by construction (literals, ASCII
 formatting output, text the library validated or built from valid strings) or are used inside a package as
 bytes and not returned as a string; each use has a comment that says which.
+
+### 13.2 Append functions
+
+The library's `Append` functions write text into a destination the caller declares, whose type says
+whether it grows. They keep Go's names and take the destination by pointer, generic over
+`vec.Appender[byte]`:
+
+```go
+type Appender[T any] interface {
+	Push(x T)
+	Append(xs ...T)
+	Len() int
+	Slice() []T
+	Truncate(n int)
+}
+```
+
+- A `*vec.Vec[byte]` grows from its allocator, as Go's `[]byte` destination does.
+- A `*vec.Fixed[byte]` is a bounded vector over the caller's array (`vec.NewFixed(mem[:])`, whose length
+  is the room). It never allocates and never panics when full: `Push` and `Append` store what fits, drop
+  the rest and record it, and `Truncated()` reports it; `TryPush` refuses instead, for containers that must
+  not drop elements, and `Reset` empties it and clears the record. A `Fixed` holds a view of the array and
+  owns nothing, so it copies freely and must not outlive the array (section 6.3).
+
+```go
+v := vec.New[byte]()            // grows: Go's behavior
+defer v.Free()
+strconv.AppendInt(&v, n, 10)
+v.Push(' ')
+strconv.AppendQuote(&v, name)
+
+var mem [64]byte
+f := vec.NewFixed(mem[:])       // bounded: no allocation, kernel safe
+fmt.Appendf(&f, "%d %q", n, name)
+console.Write(f.Slice())
+```
+
+The functions return nothing, or only their error: `strconv.AppendInt`, `AppendUint`, `AppendBool`,
+`AppendFloat`, `AppendQuote`; `utf8.AppendRune`; `strings.AppendUpper`, `AppendLower`, `AppendRepeat`,
+`AppendJoin`, `AppendReplace`; `fmt.Appendf`, `Append`, `Appendln`; `time.Duration.AppendString`,
+`time.Time.AppendRFC3339`, `os.FileMode.AppendString`; `filepath.AppendClean`, `AppendJoin`, `AppendDir`,
+and `AppendAbs` and `AppendRel`, which return an error; and `vec.AppendString`, which appends a string's
+bytes (`append(b, s...)` in Go). The functions that must not store a partial path, `os.AppendWd`,
+`AppendReadlink`, `ReadlinkBytes`, `AppendMkdirTemp` and `exec.AppendLookPath`, leave the destination as
+it was and return `ENAMETOOLONG` (`ERANGE` for `AppendWd`) when the path does not fit in a `vec.Fixed`.
+Each function is compiled once for each destination type a program uses with it, so its calls are direct.
 
 ## 14. Errors
 

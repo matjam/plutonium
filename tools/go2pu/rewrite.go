@@ -160,6 +160,9 @@ func (t *fileTr) qualified(sel *ast.SelectorExpr) (string, bool) {
 		t.compat()
 		return r, true
 	}
+	if appendPkgs[p] && strings.HasPrefix(sel.Sel.Name, "Append") {
+		t.note(sel, "%s.%s: Plutonium's takes a vec.Appender destination, and compat has no form with Go's []byte; hand-fix", p, sel.Sel.Name)
+	}
 	to := t.mapPath(p)
 	if to == "" {
 		t.note(sel, "%s.%s: no Plutonium translation", p, sel.Sel.Name)
@@ -638,12 +641,25 @@ func (t *fileTr) builtin(n *ast.CallExpr, name string) (string, bool) {
 		}
 		return fmt.Sprintf("%s.Append(%s%s)", t.compat(), t.list(n.Args), dots), true
 	case "make":
-		if mt, ok := t.typeOf(n).Underlying().(*types.Map); ok {
+		T := t.typeOf(n)
+		if mt, ok := T.Underlying().(*types.Map); ok {
 			size := "0"
 			if len(n.Args) > 1 {
 				size = t.render(n.Args[1])
 			}
 			return t.newMapAt(n, mt, size), true
+		}
+		if st, ok := T.Underlying().(*types.Slice); ok {
+			// Plutonium has no make([]T, ...): compat.Make allocates as
+			// Go's does, from the default allocator.
+			call := fmt.Sprintf("%s.Make[%s](%s)", t.compat(), t.typeText(st.Elem()), t.intArg(n.Args[1]))
+			if len(n.Args) > 2 {
+				call = fmt.Sprintf("%s.MakeCap[%s](%s, %s)", t.compat(), t.typeText(st.Elem()), t.intArg(n.Args[1]), t.intArg(n.Args[2]))
+			}
+			if _, named := T.(*types.Named); named {
+				call = fmt.Sprintf("%s(%s)", t.typeText(T), call)
+			}
+			return call, true
 		}
 	case "len", "delete", "clear":
 		if len(n.Args) > 0 && t.isMapValue(n.Args[0]) {
@@ -660,6 +676,15 @@ func (t *fileTr) builtin(n *ast.CallExpr, name string) (string, bool) {
 		t.note(n, "%s: Plutonium has no complex numbers", name)
 	}
 	return "", false
+}
+
+// intArg renders a size argument of make as an int: make takes any
+// integer type, compat.Make an int.
+func (t *fileTr) intArg(e ast.Expr) string {
+	if b, ok := t.typeOf(e).(*types.Basic); ok && (b.Kind() == types.Int || b.Info()&types.IsUntyped != 0) {
+		return t.render(e)
+	}
+	return "int(" + t.render(e) + ")"
 }
 
 // sortSlice turns sort.Slice(x, func(i, j int) bool { ... x[i] ... x[j] ... })

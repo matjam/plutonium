@@ -64,16 +64,14 @@ func runGoldenDir(t *testing.T, dir string) {
 }
 
 // TestBuilderAllocator checks the strings.Builder misuses that stop the
-// program: a Builder gets its allocator once, so a second Init panics, and
-// a Builder over a caller's buffer does not allocate unless Init gives it
-// an allocator. testdata/lib/strings.p covers the uses that work.
+// program: a Builder gets its allocator once, so a second Init panics.
+// testdata/lib/strings.p covers the uses that work.
 func TestBuilderAllocator(t *testing.T) {
 	t.Parallel()
 	cases := []struct{ name, body, want string }{
 		{"Init twice", "var b strings.Builder\n\tb.Init()\n\tb.Init()", "panic: strings.Builder.Init: the Builder already has an allocator\n"},
 		{"Init after growing", "var b strings.Builder\n\tb.WriteString(\"x\")\n\tb.Init()", "panic: strings.Builder.Init: the Builder already has an allocator\n"},
 		{"Init with nil", "var b strings.Builder\n\tb.Init(nil)", "panic: strings.Builder.Init: nil allocator\n"},
-		{"NewBuilder overflow", "var mem [2]byte\n\tb := strings.NewBuilder(mem[:])\n\tb.WriteString(\"abc\")", "panic: strings.Builder: out of room in the buffer passed to NewBuilder (call Init to let it grow)\n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

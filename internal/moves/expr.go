@@ -308,27 +308,6 @@ func (f *fn) builtin(e *ast.CallExpr) {
 		name = fun.Sel.Name
 	}
 	switch name {
-	case "append":
-		if len(e.Args) == 0 {
-			return
-		}
-		f.expr(e.Args[0])
-		var elem types2.Type
-		if s, ok := f.c.typeOf(e.Args[0]).Underlying().(*types2.Slice); ok {
-			elem = s.Elem()
-		}
-		if e.Ellipsis.IsValid() {
-			if isOwner(elem) && f.report {
-				f.c.report(f.c.copyDiag(e, elem, "append"))
-			}
-			for _, a := range e.Args[1:] {
-				f.expr(a)
-			}
-			return
-		}
-		for _, a := range e.Args[1:] {
-			f.consume(a, elem, move{kind: mvAppend, to: exprText(e.Args[0])})
-		}
 	case "copy":
 		if len(e.Args) == 2 {
 			if s, ok := f.c.typeOf(e.Args[0]).Underlying().(*types2.Slice); ok && isOwner(s.Elem()) && f.report {

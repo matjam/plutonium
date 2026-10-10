@@ -109,9 +109,11 @@ func main() {
 	println(Kind(Color.Green), Kind(Level.High), Kind(Level.Mid), Kind(3))
 	println(Local(1), Local("s"))
 
-	cs := make([]Color, 3)
+	var csArr [3]Color
+	cs := csArr[:]
 	println(Fill(cs, Color.Blue), cs[2].String())
-	ns := make([]int, 2)
+	var nsArr [2]int
+	ns := nsArr[:]
 	ns[0] = 5
 	println(Fill(ns), ns[0])
 

@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE file.
 
 // Adapted from Go's slices/iter_test.go. Collect, Sorted and the like return
-// a vec.Vec, and AppendSeq works within a slice's capacity.
+// a vec.Vec, and vec.Vec's AppendSeq replaces AppendSeq.
 
 package slices
 
@@ -17,9 +17,9 @@ import (
 func TestAll(t *testing.T) {
 	for size := 0; size < 10; size++ {
 		var buf [10]int
-		s := buf[:0]
+		s := buf[:size]
 		for i := range size {
-			s = append(s, i)
+			s[i] = i
 		}
 		ei, ev := 0, 0
 		cnt := 0
@@ -40,9 +40,9 @@ func TestAll(t *testing.T) {
 func TestBackward(t *testing.T) {
 	for size := 0; size < 10; size++ {
 		var buf [10]int
-		s := buf[:0]
+		s := buf[:size]
 		for i := range size {
-			s = append(s, i)
+			s[i] = i
 		}
 		ei, ev := size-1, size-1
 		cnt := 0
@@ -63,9 +63,9 @@ func TestBackward(t *testing.T) {
 func TestValues(t *testing.T) {
 	for size := 0; size < 10; size++ {
 		var buf [10]int
-		s := buf[:0]
+		s := buf[:size]
 		for i := range size {
-			s = append(s, i)
+			s[i] = i
 		}
 		ev := 0
 		cnt := 0
@@ -117,12 +117,13 @@ func testSeq(yield func(int) bool) {
 var testSeqResult = [...]int{0, 2, 4, 6, 8}
 
 func TestAppendSeq(t *testing.T) {
-	var buf [16]int
-	s := append(buf[:0], 1, 2)
-	s = AppendSeq(s, testSeq)
+	v := vec.New[int]()
+	defer v.Free()
+	v.Append(1, 2)
+	v.AppendSeq(testSeq)
 	want := [...]int{1, 2, 0, 2, 4, 6, 8}
-	if !Equal(s, want[:]) {
-		t.Errorf("got %v, want %v", s, want)
+	if !Equal(v.Slice(), want[:]) {
+		t.Errorf("got %v, want %v", v.Slice(), want)
 	}
 }
 
@@ -147,15 +148,16 @@ var iterTests = [...][]string{
 }
 
 func TestValuesAppendSeq(t *testing.T) {
-	var buf [32]string
 	for _, prefix := range iterTests {
 		for _, s := range iterTests {
-			got := AppendSeq(append(buf[:0], prefix...), Values(s))
+			got := Clone(prefix)
+			got.AppendSeq(Values(s))
 			want := Concat(prefix, s)
-			if !Equal(got, want.Slice()) {
-				t.Errorf("AppendSeq(%v, Values(%v)) == %v, want %v", prefix, s, got, want.Slice())
+			if !Equal(got.Slice(), want.Slice()) {
+				t.Errorf("AppendSeq(%v, Values(%v)) == %v, want %v", prefix, s, got.Slice(), want.Slice())
 			}
 			want.Free()
+			got.Free()
 		}
 	}
 }
@@ -190,7 +192,9 @@ func TestSortedFunc(t *testing.T) {
 
 func TestSortedStableFunc(t *testing.T) {
 	n, m := 1000, 100
-	data := make([]intPair, n)
+	dv := vec.Make[intPair](n)
+	defer dv.Free()
+	data := dv.Slice()
 	g := lcg{state: 11}
 	for i := range data {
 		data[i].a = g.intn(m)
@@ -249,10 +253,12 @@ func TestChunk(t *testing.T) {
 
 	for _, tc := range cases {
 		var buf [4][]int
-		chunks := buf[:0]
+		n := 0
 		for c := range Chunk(tc.s, tc.n) {
-			chunks = append(chunks, c)
+			buf[n] = c
+			n++
 		}
+		chunks := buf[:n]
 
 		if !chunkEqual(chunks, tc.chunks) {
 			t.Errorf("%s: Chunk(%v, %d) = %v, want %v", tc.name, tc.s, tc.n, chunks, tc.chunks)
@@ -271,15 +277,17 @@ func TestChunk(t *testing.T) {
 func TestChunkRange(t *testing.T) {
 	// Verify Chunk iteration can be stopped.
 	var buf [4][]int
-	got := buf[:0]
+	n := 0
 	for c := range Chunk([]int{1, 2, 3, 4, -100}, 2) {
-		if len(got) == 2 {
+		if n == 2 {
 			// Found enough values, break early.
 			break
 		}
 
-		got = append(got, c)
+		buf[n] = c
+		n++
 	}
+	got := buf[:n]
 
 	if want := [][]int{{1, 2}, {3, 4}}; !chunkEqual(got, want) {
 		t.Errorf("Chunk iteration did not stop, got %v, want %v", got, want)

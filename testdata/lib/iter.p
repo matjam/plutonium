@@ -114,26 +114,47 @@ func vecs() {
 	}
 	println()
 
-	// The loop reads v as it goes: pushing during the loop extends it,
-	// even when v grows into new storage.
+	// As over a slice, the loop reads w's length once, when it starts:
+	// elements pushed during the loop are not visited, even when w grows
+	// into new storage, and elements set ahead of the loop are.
 	w := vec.New[int]()
 	defer w.Free()
 	w.Push(1)
+	w.Push(3)
 	print("growing:")
-	for i, x := range w.All() {
+	for i, x := range w {
 		print(" ", x)
-		if i < 9 {
+		for k := 0; k < 4; k++ {
 			w.Push(x * 2)
 		}
+		if i == 0 {
+			w.Set(1, 5)
+		}
 	}
-	println()
-	// Removing from the back while walking backward.
+	println(" len", w.Len())
+	// An index loop visits what it pushes: a worklist.
+	print("worklist:")
+	for i := 0; i < w.Len() && i < 4; i++ {
+		x := w.At(i)
+		print(" ", x)
+		if x < 100 {
+			w.Insert(i+1, x*10)
+		}
+	}
+	println(" len", w.Len())
+	// Removing from the back while walking stops the loop below the next
+	// index.
 	print("shrinking:")
 	for i, x := range w.Backward() {
 		print(" ", i, "=", x)
-		if i%3 == 0 && w.Len() > 2 {
-			w.Truncate(w.Len() - 2)
+		if i == w.Len()-2 {
+			w.Truncate(3)
 		}
+	}
+	print(" forward:")
+	for i, x := range w.All() {
+		print(" ", i, "=", x)
+		w.Truncate(1)
 	}
 	println(" len", w.Len())
 
@@ -276,13 +297,14 @@ func text() {
 	println()
 
 	var buf [64]byte
-	data := append(buf[:0], "x=1;y=22;z=333\nnext line\n"...)
+	data := buf[:copy(buf[:], "x=1;y=22;z=333\nnext line\n")]
 	print("bytes lines:")
 	for line := range bytes.Lines(data) {
 		print(" ", len(line), "/", cap(line))
 	}
 	println()
-	semi := append(buf[40:40], ';')
+	buf[40] = ';'
+	semi := buf[40:41]
 	print("bytes split:")
 	for part := range bytes.SplitSeq(data[:14], semi) {
 		print(" [", str(part), "]")

@@ -58,7 +58,7 @@ func (t *table) add(n *node) {
 }
 
 func sortedKeys(m *hash.Map[string, int]) []string {
-	keys := make([]string, 0, compat.MapLen(m))
+	keys := compat.MakeCap[string](0, compat.MapLen(m))
 	{
 		goIt1 := compat.MapIter(m)
 		for k, _, goOk2 := goIt1.Next(); goOk2; k, _, goOk2 = goIt1.Next() {
@@ -169,6 +169,12 @@ func stringsAndBytes() {
 	fmt.Println(compat.String(bs), string(rune(0x263A)))
 	bs = compat.AppendString(bs, " tail")
 	fmt.Println(compat.String(bs))
+	num := compat.AppendInt(nil, -42, 10)
+	num = compat.Append(num, ' ')
+	num = compat.AppendFloat(num, 2.5e-7, 'g', -1, 64)
+	num = compat.AppendRune(num, '☺')
+	num = compat.Appendf(num, " %d|%q", 7, "x")
+	fmt.Println(compat.String(num))
 
 	sb := pu.Alloc[compat.Builder]()
 	for i := 0; i < 3; i++ {

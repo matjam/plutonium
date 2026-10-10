@@ -1,16 +1,26 @@
 package compat
 
-import "unsafe"
+import (
+	"pluto/alloc"
+	"pluto/fmt"
+	"pluto/strconv"
+	"pluto/unicode/utf8"
+	"pluto/vec"
+	"unsafe"
+)
 
 // Append is Go's append: it stores xs in s's spare capacity, or, when they
 // do not fit, copies s into a new array from alloc.Default() at least twice
 // as large. The old array is not freed; it may be shared, and the arena
 // reclaims it with everything else.
 func Append[T any](s []T, xs ...T) []T {
-	if need := len(s) + len(xs); need > cap(s) {
+	n := len(s)
+	if need := n + len(xs); need > cap(s) {
 		s = grow(s, need)
 	}
-	return append(s, xs...)
+	s = s[:n+len(xs)]
+	copy(s[n:], xs)
+	return s
 }
 
 // Clone returns a copy of s in memory from alloc.Default(). It translates
@@ -20,17 +30,74 @@ func Clone[T any](s []T) []T {
 	if s == nil {
 		return nil
 	}
-	c := make([]T, len(s))
+	c := Make[T](len(s))
 	copy(c, s)
 	return c
 }
 
+// Make is Go's make([]T, n): n zero elements in memory from
+// alloc.Default(), which nothing frees; the arena reclaims it with
+// everything else.
+func Make[T any](n int) []T { return MakeCap[T](n, n) }
+
+// MakeCap is Go's make([]T, n, c).
+func MakeCap[T any](n, c int) []T {
+	if n < 0 || c < n {
+		panic("compat.MakeCap: len out of range")
+	}
+	var zero T
+	size := uintptr(c) * unsafe.Sizeof(zero)
+	if size == 0 {
+		size = 1
+	}
+	p := alloc.Raw(size, unsafe.Alignof(zero))
+	return unsafe.Slice((*T)(p), c)[:n]
+}
+
 // AppendString is append(b, s...) for a string s.
 func AppendString(b []byte, s string) []byte {
-	if need := len(b) + len(s); need > cap(b) {
+	n := len(b)
+	if need := n + len(s); need > cap(b) {
 		b = grow(b, need)
 	}
-	return append(b, s...)
+	b = b[:n+len(s)]
+	copy(b[n:], s)
+	return b
+}
+
+// AppendInt is Go's strconv.AppendInt: the text of i in base, appended to
+// dst as Append appends.
+func AppendInt(dst []byte, i int64, base int) []byte {
+	var mem [65]byte
+	f := vec.NewFixed(mem[:])
+	strconv.AppendInt(&f, i, base)
+	return Append(dst, f.Slice()...)
+}
+
+// AppendFloat is Go's strconv.AppendFloat, appending as Append does.
+func AppendFloat(dst []byte, x float64, verb byte, prec, bitSize int) []byte {
+	v := vec.New[byte]()
+	strconv.AppendFloat(&v, x, verb, prec, bitSize)
+	dst = Append(dst, v.Slice()...)
+	v.Free()
+	return dst
+}
+
+// AppendRune is Go's utf8.AppendRune, appending as Append does.
+func AppendRune(p []byte, r rune) []byte {
+	var mem [utf8.UTFMax]byte
+	f := vec.NewFixed(mem[:])
+	utf8.AppendRune(&f, r)
+	return Append(p, f.Slice()...)
+}
+
+// Appendf is Go's fmt.Appendf, appending as Append does.
+func Appendf(b []byte, format string, args ...any) []byte {
+	v := vec.New[byte]()
+	fmt.Appendf(&v, format, args...)
+	b = Append(b, v.Slice()...)
+	v.Free()
+	return b
 }
 
 // grow returns a copy of s with capacity for at least need elements.
@@ -42,7 +109,7 @@ func grow[T any](s []T, need int) []T {
 	if c < 4 {
 		c = 4
 	}
-	ns := make([]T, len(s), c)
+	ns := MakeCap[T](len(s), c)
 	copy(ns, s)
 	return ns
 }
@@ -52,14 +119,14 @@ func String(b []byte) string {
 	if len(b) == 0 {
 		return ""
 	}
-	c := make([]byte, len(b))
+	c := Make[byte](len(b))
 	copy(c, b)
 	return unsafe.String(unsafe.SliceData(c), len(c))
 }
 
 // Bytes returns a copy of s as a byte slice, for Go's []byte(s).
 func Bytes(s string) []byte {
-	c := make([]byte, len(s))
+	c := Make[byte](len(s))
 	copy(c, s)
 	return c
 }
@@ -73,9 +140,10 @@ func Concat(parts ...string) string {
 	if n == 0 {
 		return ""
 	}
-	b := make([]byte, 0, n)
+	b := Make[byte](n)
+	k := 0
 	for _, p := range parts {
-		b = append(b, p...)
+		k += copy(b[k:], p)
 	}
 	return unsafe.String(unsafe.SliceData(b), n)
 }

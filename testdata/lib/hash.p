@@ -5,6 +5,7 @@ import (
 	"pluto/fmt"
 	"pluto/hash"
 	"pluto/strconv"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -98,9 +99,10 @@ func main() {
 	used := 0
 	sm := hash.NewMap[string, int](16, ca)
 	for i := 0; i < 2000; i++ {
-		b := strconv.AppendInt(store[used:used], int64(i), 10)
-		s := unsafe.String(&b[0], len(b))
-		used += len(b)
+		b := vec.NewFixed(store[used:])
+		strconv.AppendInt(&b, int64(i), 10)
+		s := unsafe.String(&store[used], b.Len())
+		used += b.Len()
 		sm.Set(s, i)
 	}
 	v1, ok1 := sm.Get("1234")

@@ -24,5 +24,6 @@ f4908080: dec=65533,1 last=65533,1 b=65533,1 count=4 4 valid=false false full=tr
 57343: len=-1 enc=3 efbfbd valid=false
 233: len=2 enc=2 c3a9 valid=true
 19990: len=3 enc=3 e4b896 valid=true
-00617fc280dfbfe0a080efbfbff0908080f48fbfbfefbfbdefbfbdefbfbdefbfbdc3a9e4b896
+00617fc280dfbfe0a080efbfbff0908080f48fbfbfefbfbdefbfbdefbfbdefbfbdc3a9e4b896 false
+e4b896c3 true
 false true

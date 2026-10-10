@@ -11,6 +11,7 @@ import (
 	"pluto/os"
 	"pluto/os/exec"
 	"pluto/strings"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -53,7 +54,7 @@ func main() {
 		src[i] = byte('a' + i%26)
 	}
 	in := bytes.NewBuffer(src[:])
-	in.Write(src[:])
+	defer in.Free()
 	c = exec.Command("cat")
 	c.Stdin = &in
 	out, err = c.Output()
@@ -124,8 +125,14 @@ func main() {
 	println("lookpath relative", p == "", err != nil)
 	errors.Free(err)
 	var buf [256]byte
-	b, err := exec.AppendLookPath(buf[:0], "sh")
-	println("append lookpath sh", strings.HasSuffix(string(b), "/sh"), err == nil)
+	b := vec.NewFixed(buf[:])
+	err = exec.AppendLookPath(&b, "sh")
+	println("append lookpath sh", strings.HasSuffix(string(b.Slice()), "/sh"), err == nil)
+	var tiny [2]byte
+	tb := vec.NewFixed(tiny[:])
+	err = exec.AppendLookPath(&tb, "sh")
+	println("append lookpath too long", err != nil, tb.Len())
+	errors.Free(err)
 
 	// Misuse.
 	c = sh("true")

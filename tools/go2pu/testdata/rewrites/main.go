@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 type node struct {
@@ -139,6 +141,12 @@ func stringsAndBytes() {
 	fmt.Println(string(bs), string(rune(0x263A)))
 	bs = append(bs, " tail"...)
 	fmt.Println(string(bs))
+	num := strconv.AppendInt(nil, -42, 10)
+	num = append(num, ' ')
+	num = strconv.AppendFloat(num, 2.5e-7, 'g', -1, 64)
+	num = utf8.AppendRune(num, '☺')
+	num = fmt.Appendf(num, " %d|%q", 7, "x")
+	fmt.Println(string(num))
 
 	var sb strings.Builder
 	for i := 0; i < 3; i++ {

@@ -1,4 +1,4 @@
-$DIR/main.p:18:6: a function literal that captures variables cannot be started with go: wg lives in the starting frame, which may be gone before the puroutine runs (spec section 4.7); wg has type stdsync.WaitGroup, which must not be copied, so allocate it with new and pass the pointer: wg := new(stdsync.WaitGroup); go func(wg *stdsync.WaitGroup, results []int, i int) {...}(wg, results, i)
+$DIR/main.p:18:6: a function literal that captures variables cannot be started with go: wg lives in the starting frame, which may be gone before the puroutine runs (spec section 4.7); wg has type stdsync.WaitGroup, which must not be copied, so allocate it with new and pass the pointer: wg := new(stdsync.WaitGroup); go func(wg *stdsync.WaitGroup, results *[4]int, i int) {...}(wg, results, i)
     A function literal that uses variables of the function around it reaches
     them in that function's stack frame. A go statement may start it after that
     function has returned, when the frame is gone.
@@ -15,7 +15,7 @@ $DIR/main.p:18:6: a function literal that captures variables cannot be started w
     4.5).
     Allocate it with new and pass the pointer:
         wg := new(stdsync.WaitGroup)
-        go func(wg *stdsync.WaitGroup, results []int, i int) {
+        go func(wg *stdsync.WaitGroup, results *[4]int, i int) {
             ...
         }(wg, results, i)
     (see "go starts a puroutine" in the Plutonium spec, section 4.7)

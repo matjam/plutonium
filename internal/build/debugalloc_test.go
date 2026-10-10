@@ -83,7 +83,7 @@ type node struct {
 var global int
 
 func main() {
-	p := make([]byte, 10)
+	p := alloc.New[[10]byte]()[:]
 	n := alloc.New[node]()
 	base := unsafe.Pointer(unsafe.SliceData(p))
 	_, _, _ = p, n, base
@@ -388,12 +388,12 @@ var small []byte
 func makeNode() *node { return alloc.New[node]() }
 
 //pu:noinline
-func makeBuf() []byte { return make([]byte, 100) }
+func makeBuf() []byte { return alloc.New[[100]byte]()[:] }
 
 //pu:noinline
 func release(n *node) { alloc.Free(n) }
 
-func makeSmall() []byte { return make([]byte, 50) }
+func makeSmall() []byte { return alloc.New[[50]byte]()[:] }
 
 func main() {
 	keep = makeNode()

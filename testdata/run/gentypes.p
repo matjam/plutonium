@@ -178,8 +178,8 @@ type Big struct {
 }
 
 // Inference.
-func Map[T, U any](xs []T, f func(T) U) []U {
-	out := make([]U, len(xs))
+func Map[T, U any](xs []T, f func(T) U, out []U) []U {
+	out = out[:len(xs)]
 	for i, x := range xs {
 		out[i] = f(x)
 	}
@@ -206,8 +206,8 @@ func Pick[T any](a, b T, first bool) T {
 	return b
 }
 
-func Keys[K comparable, V any](ps []Pair[K, V]) []K {
-	out := make([]K, len(ps))
+func Keys[K comparable, V any](ps []Pair[K, V], out []K) []K {
+	out = out[:len(ps)]
 	for i, p := range ps {
 		out[i] = p.a
 	}
@@ -237,7 +237,8 @@ func main() {
 	l.Each(func(s string) { print(s, " ") })
 	println()
 
-	store := make([]Tree[string, int], 8)
+	var storeArr [8]Tree[string, int]
+	store := storeArr[:]
 	var root *Tree[string, int]
 	n := 0
 	for i, k := range []string{"m", "c", "x", "a", "c"} {
@@ -262,11 +263,14 @@ func main() {
 	println(IsZero(0), IsZero(1), IsZero(""), IsZero(Pair[int, int]{}), IsZero[any](nil), IsZero(e))
 	println(ZeroAfterUse(5), ZeroAfterUse("x") == "", ZeroAfterUse(Big{s: "q"}).s == "")
 
-	strs := Map([]int{1, 2, 3}, func(i int) string { return "abc"[i-1 : i] })
-	println(strs[0], strs[2], len(Map(strs, func(s string) []byte { return nil })))
+	var sbuf [3]string
+	var bbuf [3][]byte
+	strs := Map([]int{1, 2, 3}, func(i int) string { return "abc"[i-1 : i] }, sbuf[:])
+	println(strs[0], strs[2], len(Map(strs, func(s string) []byte { return nil }, bbuf[:])))
 	println(Apply(3, Double[int], Double[int]), int(Apply(1.5, Double)), Apply(Celsius(2), Double[Celsius]) == 4)
 	println(First([]string{"x"}), First(Vec[int]{9}), Ptr(&n), Pick(1, 2.5, false) == 2.5, Pick[int8](1, 2, true))
-	ks := Keys([]Pair[string, bool]{{"p", true}, {"q", false}})
+	var kbuf [2]string
+	ks := Keys([]Pair[string, bool]{{"p", true}, {"q", false}}, kbuf[:])
 	println(len(ks), ks[1], Compose(Double[int], Double[int]) == nil)
 	println(CallWith(func(s string) int { return len(s) }, "four"), CallWith(Double[int], 21))
 }

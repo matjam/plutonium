@@ -39,6 +39,7 @@ const strconvHarness = `package main
 import (
 	"pluto/os"
 	"pluto/strconv"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -96,11 +97,12 @@ func main() {
 		if mode == "parse" {
 			f64, e64 := strconv.ParseFloat(line, 64)
 			f32, e32 := strconv.ParseFloat(line, 32)
-			out := strconv.AppendUint(scratch[:0], bitsOf(f64), 10)
-			out = append(out, ' ', class(e64), ' ')
-			out = strconv.AppendUint(out, bitsOf(f32), 10)
-			out = append(out, ' ', class(e32), '\n')
-			put(out)
+			out := vec.NewFixed(scratch[:])
+			strconv.AppendUint(&out, bitsOf(f64), 10)
+			out.Append(' ', class(e64), ' ')
+			strconv.AppendUint(&out, bitsOf(f32), 10)
+			out.Append(' ', class(e32), '\n')
+			put(out.Slice())
 			continue
 		}
 		// format: bits fmt prec bitSize
@@ -121,9 +123,10 @@ func main() {
 		bits, _ := strconv.ParseUint(fields[0], 10, 64)
 		prec, _ := strconv.ParseInt(fields[2], 10, 64)
 		size, _ := strconv.ParseInt(fields[3], 10, 64)
-		out := strconv.AppendFloat(scratch[:0], fromBits(bits), fields[1][0], int(prec), int(size))
-		out = append(out, '\n')
-		put(out)
+		out := vec.NewFixed(scratch[:])
+		strconv.AppendFloat(&out, fromBits(bits), fields[1][0], int(prec), int(size))
+		out.Push('\n')
+		put(out.Slice())
 	}
 	flush()
 }

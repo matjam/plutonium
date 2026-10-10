@@ -1,11 +1,12 @@
 // Generic code over Plutonium's own types: packed types as type arguments
 // and in generic structs, packed conversions through type sets, volatile
 // and aligned values, rings of a type parameter, allocation with new and
-// make in generic functions, and the pluto/alloc generics.
+// vec.Make in generic functions, and the pluto/alloc generics.
 package main
 
 import (
 	"pluto/alloc"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -107,9 +108,9 @@ func Fill4[T any](r *ring[T, 4], v T) int {
 // Allocation in generic code.
 func NewOf[T any](v T) *T { return new(v) }
 
-func MakeN[T any](n int, v T) []T {
-	s := make([]T, n)
-	Fill(s, v)
+func MakeN[T any](n int, v T) vec.Vec[T] {
+	s := vec.Make[T](n)
+	Fill(s.Slice(), v)
 	return s
 }
 
@@ -161,7 +162,8 @@ func main() {
 
 	h := Hdr{kind: 3, ver: 4, len: 0x0102}
 	hs := MakeN(3, h)
-	println(len(hs), hs[2].kind, hs[2].ver, hs[2].len, Same(hs[0], h))
+	println(hs.Len(), hs[2].kind, hs[2].ver, hs[2].len, Same(hs[0], h))
+	hs.Free()
 
 	var dv Dev[uint8]
 	println(dv.Write(4), dv.status)

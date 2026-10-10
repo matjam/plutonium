@@ -3,6 +3,7 @@ package strconv
 import (
 	"pluto/alloc"
 	"pluto/rt"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -26,20 +27,23 @@ func FormatFloat(f float64, fmt byte, prec, bitSize int) string {
 	// sign and point.
 	if prec <= 400 {
 		var buf [800]byte
-		return string(AppendFloat(buf[:0], f, fmt, prec, bitSize))
+		b := vec.NewFixed(buf[:])
+		AppendFloat(&b, f, fmt, prec, bitSize)
+		return string(b.Slice())
 	}
 	n := 400 + prec
 	p, ctl := rt.NewStringBuffer(n, alloc.Default())
-	b := AppendFloat(unsafe.Slice(p, n)[:0], f, fmt, prec, bitSize)
-	s := rt.MakeString(p, len(b), ctl, true)
+	b := vec.NewFixed(unsafe.Slice(p, n))
+	AppendFloat(&b, f, fmt, prec, bitSize)
+	s := rt.MakeString(p, b.Len(), ctl, true)
 	rt.ReleaseString(ctl)
 	return s
 }
 
-// AppendFloat appends the text of f, formatted with fmt ('e', 'E', 'f', 'g',
-// 'G', 'b', 'x' or 'X') and precision prec (-1 means the fewest digits that
-// read back exactly). bitSize is 32 or 64.
-func AppendFloat(dst []byte, f float64, fmt byte, prec, bitSize int) []byte {
+// AppendFloat appends to dst the text of f, formatted with fmt ('e', 'E',
+// 'f', 'g', 'G', 'b', 'x' or 'X') and precision prec (-1 means the fewest
+// digits that read back exactly). bitSize is 32 or 64.
+func AppendFloat[D vec.Appender[byte]](dst D, f float64, fmt byte, prec, bitSize int) {
 	var bits uint64
 	var flt *floatInfo
 	switch bitSize {
@@ -62,11 +66,14 @@ func AppendFloat(dst []byte, f float64, fmt byte, prec, bitSize int) []byte {
 	case 1<<flt.expbits - 1:
 		switch {
 		case mant != 0:
-			return append(dst, "NaN"...)
+			vec.AppendString(dst, "NaN")
+			return
 		case neg:
-			return append(dst, "-Inf"...)
+			vec.AppendString(dst, "-Inf")
+			return
 		}
-		return append(dst, "+Inf"...)
+		vec.AppendString(dst, "+Inf")
+		return
 	case 0:
 		exp++ // denormal
 	default:
@@ -75,10 +82,12 @@ func AppendFloat(dst []byte, f float64, fmt byte, prec, bitSize int) []byte {
 	exp += flt.bias
 
 	if fmt == 'b' {
-		return fmtB(dst, neg, mant, exp-int(flt.mantbits))
+		fmtB(dst, neg, mant, exp-int(flt.mantbits))
+		return
 	}
 	if fmt == 'x' || fmt == 'X' {
-		return fmtX(dst, prec, fmt, neg, mant, exp, flt)
+		fmtX(dst, prec, fmt, neg, mant, exp, flt)
+		return
 	}
 
 	var d decimal
@@ -108,7 +117,7 @@ func AppendFloat(dst []byte, f float64, fmt byte, prec, bitSize int) []byte {
 			d.round(prec)
 		}
 	}
-	return fmtEFG(dst, neg, d.d[:], d.dp, d.nd, prec, fmt, shortest)
+	fmtEFG(dst, neg, d.d[:], d.dp, d.nd, prec, fmt, shortest)
 }
 
 // roundShortest rounds d (= mant * 2**(exp-mantbits)) to the fewest digits
@@ -196,7 +205,7 @@ func roundShortest(d *decimal, mant uint64, exp int, flt *floatInfo) {
 }
 
 // fmtEFG formats the digits s[:nd] with decimal point dp.
-func fmtEFG(dst []byte, neg bool, s []byte, dp, nd, prec int, fmt byte, shortest bool) []byte {
+func fmtEFG[D vec.Appender[byte]](dst D, neg bool, s []byte, dp, nd, prec int, fmt byte, shortest bool) {
 	if fmt == 'g' || fmt == 'G' {
 		eprec := prec
 		if eprec > nd && nd >= dp {
@@ -224,26 +233,26 @@ func fmtEFG(dst []byte, neg bool, s []byte, dp, nd, prec int, fmt byte, shortest
 	switch fmt {
 	case 'e', 'E':
 		if neg {
-			dst = append(dst, '-')
+			dst.Push('-')
 		}
 		ch := byte('0')
 		if nd != 0 {
 			ch = s[0]
 		}
-		dst = append(dst, ch)
+		dst.Push(ch)
 		if prec > 0 {
-			dst = append(dst, '.')
+			dst.Push('.')
 			i := 1
 			m := min(nd, prec+1)
 			if i < m {
-				dst = append(dst, s[i:m]...)
+				dst.Append(s[i:m]...)
 				i = m
 			}
 			for ; i <= prec; i++ {
-				dst = append(dst, '0')
+				dst.Push('0')
 			}
 		}
-		dst = append(dst, fmt)
+		dst.Push(fmt)
 		exp := dp - 1
 		if nd == 0 {
 			exp = 0
@@ -254,60 +263,60 @@ func fmtEFG(dst []byte, neg bool, s []byte, dp, nd, prec int, fmt byte, shortest
 		} else {
 			ch = '+'
 		}
-		dst = append(dst, ch)
+		dst.Push(ch)
 		switch {
 		case exp < 10:
-			dst = append(dst, '0', byte(exp)+'0')
+			dst.Append('0', byte(exp)+'0')
 		case exp < 100:
-			dst = append(dst, byte(exp/10)+'0', byte(exp%10)+'0')
+			dst.Append(byte(exp/10)+'0', byte(exp%10)+'0')
 		default:
-			dst = append(dst, byte(exp/100)+'0', byte(exp/10)%10+'0', byte(exp%10)+'0')
+			dst.Append(byte(exp/100)+'0', byte(exp/10)%10+'0', byte(exp%10)+'0')
 		}
-		return dst
+		return
 
 	case 'f':
 		if neg {
-			dst = append(dst, '-')
+			dst.Push('-')
 		}
 		if dp > 0 {
 			m := min(nd, dp)
-			dst = append(dst, s[:m]...)
+			dst.Append(s[:m]...)
 			for ; m < dp; m++ {
-				dst = append(dst, '0')
+				dst.Push('0')
 			}
 		} else {
-			dst = append(dst, '0')
+			dst.Push('0')
 		}
 		if prec > 0 {
-			dst = append(dst, '.')
+			dst.Push('.')
 			for i := 1; i <= prec; i++ {
 				ch := byte('0')
 				if j := dp + i - 1; 0 <= j && j < nd {
 					ch = s[j]
 				}
-				dst = append(dst, ch)
+				dst.Push(ch)
 			}
 		}
-		return dst
+		return
 	}
-	return append(dst, '%', fmt)
+	dst.Append('%', fmt)
 }
 
 // fmtB formats mantissa and binary exponent: -ddddp±ddd.
-func fmtB(dst []byte, neg bool, mant uint64, exp int) []byte {
+func fmtB[D vec.Appender[byte]](dst D, neg bool, mant uint64, exp int) {
 	if neg {
-		dst = append(dst, '-')
+		dst.Push('-')
 	}
-	dst = AppendUint(dst, mant, 10)
-	dst = append(dst, 'p')
+	AppendUint(dst, mant, 10)
+	dst.Push('p')
 	if exp >= 0 {
-		dst = append(dst, '+')
+		dst.Push('+')
 	}
-	return AppendInt(dst, int64(exp), 10)
+	AppendInt(dst, int64(exp), 10)
 }
 
 // fmtX formats hexadecimal floating point: -0x1.yyyyp±dd.
-func fmtX(dst []byte, prec int, fmt byte, neg bool, mant uint64, exp int, flt *floatInfo) []byte {
+func fmtX[D vec.Appender[byte]](dst D, prec int, fmt byte, neg bool, mant uint64, exp int, flt *floatInfo) {
 	if mant == 0 {
 		exp = 0
 	}
@@ -334,20 +343,20 @@ func fmtX(dst []byte, prec int, fmt byte, neg bool, mant uint64, exp int, flt *f
 		hex = "0123456789ABCDEF"
 	}
 	if neg {
-		dst = append(dst, '-')
+		dst.Push('-')
 	}
-	dst = append(dst, '0', fmt, '0'+byte((mant>>60)&1))
+	dst.Append('0', fmt, '0'+byte((mant>>60)&1))
 	mant <<= 4
 	if prec < 0 && mant != 0 {
-		dst = append(dst, '.')
+		dst.Push('.')
 		for mant != 0 {
-			dst = append(dst, hex[(mant>>60)&15])
+			dst.Push(hex[(mant>>60)&15])
 			mant <<= 4
 		}
 	} else if prec > 0 {
-		dst = append(dst, '.')
+		dst.Push('.')
 		for i := 0; i < prec; i++ {
-			dst = append(dst, hex[(mant>>60)&15])
+			dst.Push(hex[(mant>>60)&15])
 			mant <<= 4
 		}
 	}
@@ -355,21 +364,20 @@ func fmtX(dst []byte, prec int, fmt byte, neg bool, mant uint64, exp int, flt *f
 	if fmt == 'x' {
 		ch = 'p'
 	}
-	dst = append(dst, ch)
+	dst.Push(ch)
 	if exp < 0 {
 		ch = '-'
 		exp = -exp
 	} else {
 		ch = '+'
 	}
-	dst = append(dst, ch)
+	dst.Push(ch)
 	switch {
 	case exp < 100:
-		dst = append(dst, byte(exp/10)+'0', byte(exp%10)+'0')
+		dst.Append(byte(exp/10)+'0', byte(exp%10)+'0')
 	case exp < 1000:
-		dst = append(dst, byte(exp/100)+'0', byte((exp/10)%10)+'0', byte(exp%10)+'0')
+		dst.Append(byte(exp/100)+'0', byte((exp/10)%10)+'0', byte(exp%10)+'0')
 	default:
-		dst = append(dst, byte(exp/1000)+'0', byte(exp/100)%10+'0', byte((exp/10)%10)+'0', byte(exp%10)+'0')
+		dst.Append(byte(exp/1000)+'0', byte(exp/100)%10+'0', byte((exp/10)%10)+'0', byte(exp%10)+'0')
 	}
-	return dst
 }

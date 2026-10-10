@@ -482,31 +482,6 @@ func (w *walker) builtin(e *ast.CallExpr) []tset {
 			w.value(a)
 		}
 		return []tset{{heapTok}}
-	case "append":
-		if len(e.Args) == 0 {
-			return nil
-		}
-		s := w.value(e.Args[0])
-		var xs tset
-		if e.Ellipsis.IsValid() && len(e.Args) == 2 {
-			xs = w.load(w.value(e.Args[1]))
-		} else {
-			var et types2.Type
-			if st, ok := underlying(w.typeOf(e.Args[0])).(*types2.Slice); ok {
-				et = st.Elem()
-			}
-			for _, a := range e.Args[1:] {
-				xs.addAll(w.conv(w.value(a), w.typeOf(a), et, a))
-			}
-		}
-		if st, ok := underlying(w.typeOf(e.Args[0])).(*types2.Slice); ok && hasPointers(st.Elem()) {
-			d := dest{text: "the backing array of " + exprText(e.Args[0])}
-			if len(e.Args) == 2 && !e.Ellipsis.IsValid() {
-				d.src = e.Args[1]
-			}
-			w.store(s, xs, e.Pos(), d)
-		}
-		return []tset{s}
 	case "copy":
 		if len(e.Args) != 2 {
 			return nil

@@ -2,6 +2,7 @@ package strings
 
 import (
 	"pluto/testing"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -134,27 +135,51 @@ func view(b []byte) string { return unsafe.String(unsafe.SliceData(b), len(b)) }
 
 func TestAppend(t *testing.T) {
 	var buf [64]byte
-	if got := view(AppendUpper(buf[:0], "MiXed")); got != "MIXED" {
+	f := vec.NewFixed(buf[:])
+	AppendUpper(&f, "MiXed")
+	if got := view(f.Slice()); got != "MIXED" {
 		t.Errorf("AppendUpper = %q", got)
 	}
-	if got := view(AppendLower(buf[:0], "MiXed")); got != "mixed" {
+	f.Reset()
+	AppendLower(&f, "MiXed")
+	if got := view(f.Slice()); got != "mixed" {
 		t.Errorf("AppendLower = %q", got)
 	}
-	if got := view(AppendRepeat(buf[:0], "ab", 3)); got != "ababab" {
+	f.Reset()
+	AppendRepeat(&f, "ab", 3)
+	if got := view(f.Slice()); got != "ababab" {
 		t.Errorf("AppendRepeat = %q", got)
 	}
 	parts := [...]string{"a", "b", "c"}
-	if got := view(AppendJoin(buf[:0], parts[:], ", ")); got != "a, b, c" {
+	f.Reset()
+	AppendJoin(&f, parts[:], ", ")
+	if got := view(f.Slice()); got != "a, b, c" {
 		t.Errorf("AppendJoin = %q", got)
 	}
-	if got := view(AppendReplace(buf[:0], "oink oink oink", "k", "ky", 2)); got != "oinky oinky oink" {
+	f.Reset()
+	AppendReplace(&f, "oink oink oink", "k", "ky", 2)
+	if got := view(f.Slice()); got != "oinky oinky oink" {
 		t.Errorf("AppendReplace = %q", got)
+	}
+	// A Fixed keeps what fits; a Vec grows.
+	var small [4]byte
+	g := vec.NewFixed(small[:])
+	AppendRepeat(&g, "ab", 3)
+	if got := view(g.Slice()); got != "abab" || !g.Truncated() {
+		t.Errorf("AppendRepeat into a Fixed of 4 = %q, truncated %t", got, g.Truncated())
+	}
+	v := vec.New[byte]()
+	defer v.Free()
+	AppendRepeat(&v, "abc", 100)
+	AppendJoin(&v, parts[:], "-")
+	if v.Len() != 305 || view(v.Slice()[300:]) != "a-b-c" {
+		t.Errorf("AppendRepeat and AppendJoin into a Vec: len %d", v.Len())
 	}
 }
 
 func TestBuilder(t *testing.T) {
-	var buf [32]byte
-	b := NewBuilder(buf[:0])
+	var b Builder
+	defer b.Free()
 	b.WriteString("pluto")
 	b.WriteByte('/')
 	b.WriteString("strings")

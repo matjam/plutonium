@@ -8,17 +8,16 @@
 // from Plutonium's rules that a slice is a view that cannot grow and that
 // nothing allocates behind the program's back:
 //
-//   - Insert and Replace work within the slice's capacity, as append does,
-//     and panic when the result would not fit. To grow a sequence, keep it in
-//     a vec.Vec.
+//   - Insert, Replace and AppendSeq, which grow a slice, are vec.Vec's
+//     methods instead: a slice is a view and cannot grow. The functions that
+//     shrink or reorder a slice in place (Delete, DeleteFunc, Compact,
+//     CompactFunc, Clip, Reverse, the sorts) are here.
 //   - Clone, Concat, Repeat, Collect, Sorted, SortedFunc and SortedStableFunc
 //     return a vec.Vec, which owns the new storage, allocated from an
 //     allocator: by default the default allocator, or the one passed to
 //     CloneIn, ConcatIn, RepeatIn, CollectIn, SortedIn, SortedFuncIn and
 //     SortedStableFuncIn. Use v.Slice() for the elements as a slice, and
 //     v.Free() when done.
-//   - AppendSeq, like append, must fit in the slice's capacity; Collect is
-//     the way to gather values of unknown number.
 //   - Grow is vec.Vec's Reserve.
 //   - The iterators All, Values, Backward and Chunk build their closures in
 //     the region their caller provides (pluto/iter), so they allocate
@@ -34,7 +33,6 @@ import (
 	"pluto/bits"
 	"pluto/cmp"
 	"pluto/vec"
-	"unsafe"
 )
 
 // Equal reports whether two slices are equal: the same length and all
@@ -151,88 +149,6 @@ func ContainsFunc[S ~[]E, E any](s S, f func(E) bool) bool {
 	return IndexFunc(s, f) >= 0
 }
 
-// Insert modifies s in place by inserting the values v... at index i,
-// and returns the modified slice.
-// The elements at s[i:] are shifted up to make room.
-// In the returned slice r, r[i] == v[0],
-// and, if i < len(s), r[i+len(v)] == value originally at s[i].
-// Insert panics if i > len(s), or if len(s)+len(v) > cap(s): as with
-// append, the result must fit in the slice's capacity.
-// This function is O(len(s) + len(v)).
-func Insert[S ~[]E, E any](s S, i int, v ...E) S {
-	_ = s[i:] // bounds check
-
-	m := len(v)
-	if m == 0 {
-		return s
-	}
-	n := len(s)
-	if n+m > cap(s) {
-		panic("slices.Insert: the result does not fit in the capacity")
-	}
-	if i == n {
-		return append(s, v...)
-	}
-	s = s[:n+m]
-
-	// before:
-	// s: aaaaaaaabbbbccccccccdddd
-	//            ^   ^       ^   ^
-	//            i  i+m      n  n+m
-	// after:
-	// s: aaaaaaaavvvvbbbbcccccccc
-	//            ^   ^       ^   ^
-	//            i  i+m      n  n+m
-	//
-	// a are the values that don't move in s.
-	// v are the values copied in from v.
-	// b and c are the values from s that are shifted up in index.
-	// d are the values that get overwritten, never to be seen again.
-
-	if !overlaps(v, s[i+m:]) {
-		// Easy case - v does not overlap either the c or d regions.
-		// (It might be in some of a or b, or elsewhere entirely.)
-		// The data we copy up doesn't write to v at all, so just do it.
-
-		copy(s[i+m:], s[i:])
-
-		// Now we have
-		// s: aaaaaaaabbbbbbbbcccccccc
-		//            ^   ^       ^   ^
-		//            i  i+m      n  n+m
-		// Note the b values are duplicated.
-
-		copy(s[i:], v)
-
-		// Now we have
-		// s: aaaaaaaavvvvbbbbcccccccc
-		//            ^   ^       ^   ^
-		//            i  i+m      n  n+m
-		// That's the result we want.
-		return s
-	}
-
-	// The hard case - v overlaps c or d. We can't just shift up
-	// the data because we'd move or clobber the values we're trying
-	// to insert.
-	// So instead, write v on top of d, then rotate.
-	copy(s[n:], v)
-
-	// Now we have
-	// s: aaaaaaaabbbbccccccccvvvv
-	//            ^   ^       ^   ^
-	//            i  i+m      n  n+m
-
-	rotateRight(s[i:], m)
-
-	// Now we have
-	// s: aaaaaaaavvvvbbbbcccccccc
-	//            ^   ^       ^   ^
-	//            i  i+m      n  n+m
-	// That's the result we want.
-	return s
-}
-
 // Delete modifies s in place by removing the elements s[i:j],
 // and returns the modified slice.
 // Delete panics if j > len(s) or s[i:j] is not a valid slice of s.
@@ -247,7 +163,7 @@ func Delete[S ~[]E, E any](s S, i, j int) S {
 	}
 
 	oldlen := len(s)
-	s = append(s[:i], s[j:]...)
+	s = s[:i+copy(s[i:], s[j:])]
 	clear(s[len(s):oldlen]) // zero the obsolete elements
 	return s
 }
@@ -269,99 +185,6 @@ func DeleteFunc[S ~[]E, E any](s S, del func(E) bool) S {
 	}
 	clear(s[i:]) // zero the obsolete elements
 	return s[:i]
-}
-
-// Replace modifies s in place by replacing the elements s[i:j] with the given v,
-// and returns the modified slice.
-// Replace panics if j > len(s) or s[i:j] is not a valid slice of s, or if
-// the result does not fit in the capacity of s.
-// When len(v) < (j-i), Replace zeroes the elements between the new length and the original length.
-func Replace[S ~[]E, E any](s S, i, j int, v ...E) S {
-	_ = s[i:j] // bounds check
-
-	if i == j {
-		return Insert(s, i, v...)
-	}
-	if j == len(s) {
-		if i+len(v) > cap(s) {
-			panic("slices.Replace: the result does not fit in the capacity")
-		}
-		s2 := append(s[:i], v...)
-		if len(s2) < len(s) {
-			clear(s[len(s2):]) // zero the obsolete elements
-		}
-		return s2
-	}
-
-	tot := len(s[:i]) + len(v) + len(s[j:])
-	if tot > cap(s) {
-		panic("slices.Replace: the result does not fit in the capacity")
-	}
-
-	r := s[:tot]
-
-	if i+len(v) <= j {
-		// Easy, as v fits in the deleted portion.
-		copy(r[i:], v)
-		copy(r[i+len(v):], s[j:])
-		clear(s[tot:]) // zero the obsolete elements
-		return r
-	}
-
-	// We are expanding (v is bigger than j-i).
-	// The situation is something like this:
-	// (example has i=4,j=8,len(s)=16,len(v)=6)
-	// s: aaaaxxxxbbbbbbbbyy
-	//        ^   ^       ^ ^
-	//        i   j  len(s) tot
-	// a: prefix of s
-	// x: deleted range
-	// b: more of s
-	// y: area to expand into
-
-	if !overlaps(r[i+len(v):], v) {
-		// Easy, as v is not clobbered by the first copy.
-		copy(r[i+len(v):], s[j:])
-		copy(r[i:], v)
-		return r
-	}
-
-	// This is a situation where we don't have a single place to which
-	// we can copy v. Parts of it need to go to two different places.
-	// We want to copy the prefix of v into y and the suffix into x, then
-	// rotate |y| spots to the right.
-	//
-	//        v[2:]      v[:2]
-	//         |           |
-	// s: aaaavvvvbbbbbbbbvv
-	//        ^   ^       ^ ^
-	//        i   j  len(s) tot
-	//
-	// If either of those two destinations don't alias v, then we're good.
-	y := len(v) - (j - i) // length of y portion
-
-	if !overlaps(r[i:j], v) {
-		copy(r[i:j], v[y:])
-		copy(r[len(s):], v[:y])
-		rotateRight(r[i:], y)
-		return r
-	}
-	if !overlaps(r[len(s):], v) {
-		copy(r[len(s):], v[:y])
-		copy(r[i:j], v[y:])
-		rotateRight(r[i:], y)
-		return r
-	}
-
-	// Now we know that v overlaps both x and y.
-	// That means that the entirety of b is *inside* v.
-	// So we don't need to preserve b at all; instead we
-	// can copy v first, then copy the b part of v out of
-	// v to the right destination.
-	k := startIdx(v, s[j:])
-	copy(r[i:], v)
-	copy(r[i+len(v):], r[i+k:])
-	return r
 }
 
 // Clone returns a copy of the elements of s in a new Vec, allocated from the
@@ -431,46 +254,6 @@ func CompactFunc[S ~[]E, E any](s S, eq func(E, E) bool) S {
 // Clip removes unused capacity from the slice, returning s[:len(s):len(s)].
 func Clip[S ~[]E, E any](s S) S {
 	return s[:len(s):len(s)]
-}
-
-// TODO: There are other rotate algorithms.
-// This algorithm has the desirable property that it moves each element at most twice.
-// The follow-cycles algorithm can be 1-write but it is not very cache friendly.
-
-// rotateLeft rotates s left by r spaces.
-// s_final[i] = s_orig[i+r], wrapping around.
-func rotateLeft[E any](s []E, r int) {
-	Reverse(s[:r])
-	Reverse(s[r:])
-	Reverse(s)
-}
-func rotateRight[E any](s []E, r int) {
-	rotateLeft(s, len(s)-r)
-}
-
-// overlaps reports whether the memory ranges a[:len(a)] and b[:len(b)] overlap.
-func overlaps[E any](a, b []E) bool {
-	if len(a) == 0 || len(b) == 0 {
-		return false
-	}
-	elemSize := unsafe.Sizeof(a[0])
-	if elemSize == 0 {
-		return false
-	}
-	return uintptr(unsafe.Pointer(&a[0])) <= uintptr(unsafe.Pointer(&b[len(b)-1]))+(elemSize-1) &&
-		uintptr(unsafe.Pointer(&b[0])) <= uintptr(unsafe.Pointer(&a[len(a)-1]))+(elemSize-1)
-}
-
-// startIdx returns the index in haystack where the needle starts.
-// prerequisite: the needle must be aliased entirely inside the haystack.
-func startIdx[E any](haystack, needle []E) int {
-	p := &needle[0]
-	for i := range haystack {
-		if p == &haystack[i] {
-			return i
-		}
-	}
-	panic("needle not found")
 }
 
 // Reverse reverses the elements of the slice in place.

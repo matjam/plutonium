@@ -29,8 +29,12 @@ func (h *myHeap) Pop() (v any) {
 	return
 }
 
+// Push stores v in the slice's spare capacity: a heap over a slice is
+// as big as the array it views.
 func (h *myHeap) Push(v any) {
-	*h = append(*h, v.(int))
+	n := len(*h)
+	*h = (*h)[:n+1]
+	(*h)[n] = v.(int)
 }
 
 func (h myHeap) verify(t *testing.T, i int) {
@@ -186,7 +190,8 @@ func TestRemove2(t *testing.T) {
 
 func BenchmarkDup(b *testing.B) {
 	const n = 10000
-	h := make(myHeap, 0, n)
+	var buf [n]int
+	h := myHeap(buf[:0])
 	for i := 0; i < b.N; i++ {
 		for j := 0; j < n; j++ {
 			Push(&h, 0) // all elements are the same

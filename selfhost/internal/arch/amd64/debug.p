@@ -131,7 +131,7 @@ func lineTable(insts []*MInst, starts []int) []LineEntry {
 		p   token.Pos
 		inl int32
 	}
-	ps := make([]pos, len(insts))
+	ps := compat.Make[pos](len(insts))
 	var next pos
 	for i := len(insts) - 1; i >= 0; i-- {
 		if insts[i].Pos.IsValid() {

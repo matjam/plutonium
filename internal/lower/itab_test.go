@@ -28,9 +28,9 @@ func TestItabTable(t *testing.T) {
 			}
 		}
 	}
-	src.WriteString("var sink []any\n\nfunc main() {\n")
+	fmt.Fprintf(&src, "var sink [%d]any\n\nfunc main() {\n", nTypes)
 	for i := 0; i < nTypes; i++ {
-		fmt.Fprintf(&src, "\tsink = append(sink, T%d{})\n", i)
+		fmt.Fprintf(&src, "\tsink[%d] = T%d{}\n", i, i)
 	}
 	src.WriteString("\tfor _, v := range sink {\n")
 	for j := 0; j < nIfaces; j++ {

@@ -3,12 +3,45 @@ package filepath
 import (
 	"pluto/os"
 	"pluto/testing"
+	"pluto/vec"
 	"unsafe"
 )
 
 // The expected values come from Go's path/filepath on Unix.
 
 func str(b []byte) string { return unsafe.String(unsafe.SliceData(b), len(b)) }
+
+// cleanIn, joinIn, dirIn, absIn and relIn call the Append forms with a
+// vec.Fixed over buf and return the text they appended.
+func cleanIn(buf []byte, path string) string {
+	f := vec.NewFixed(buf)
+	AppendClean(&f, path)
+	return str(f.Slice())
+}
+
+func joinIn(buf []byte, elem ...string) string {
+	f := vec.NewFixed(buf)
+	AppendJoin(&f, elem...)
+	return str(f.Slice())
+}
+
+func dirIn(buf []byte, path string) string {
+	f := vec.NewFixed(buf)
+	AppendDir(&f, path)
+	return str(f.Slice())
+}
+
+func absIn(buf []byte, path string) (string, error) {
+	f := vec.NewFixed(buf)
+	err := AppendAbs(&f, path)
+	return str(f.Slice()), err
+}
+
+func relIn(buf []byte, base, targ string) (string, error) {
+	f := vec.NewFixed(buf)
+	err := AppendRel(&f, base, targ)
+	return str(f.Slice()), err
+}
 
 func TestClean(t *testing.T) {
 	tests := [...]struct{ in, want string }{
@@ -25,14 +58,17 @@ func TestClean(t *testing.T) {
 	}
 	var buf [128]byte
 	for _, tt := range tests {
-		if got := str(AppendClean(buf[:0], tt.in)); got != tt.want {
+		if got := cleanIn(buf[:], tt.in); got != tt.want {
 			t.Errorf("AppendClean(%q) = %q, want %q", tt.in, got, tt.want)
 		}
 		if got := Clean(tt.in); got != tt.want {
 			t.Errorf("Clean(%q) = %q, want %q", tt.in, got, tt.want)
 		}
 		// Appending keeps what dst holds.
-		if got := str(AppendClean(append(buf[:0], "x:"...), tt.in)); got[2:] != tt.want || got[:2] != "x:" {
+		f := vec.NewFixed(buf[:])
+		vec.AppendString(&f, "x:")
+		AppendClean(&f, tt.in)
+		if got := str(f.Slice()); got[2:] != tt.want || got[:2] != "x:" {
 			t.Errorf("AppendClean(\"x:\", %q) = %q", tt.in, got)
 		}
 	}
@@ -50,7 +86,7 @@ func TestJoin(t *testing.T) {
 	}
 	var buf [128]byte
 	for _, tt := range tests {
-		if got := str(AppendJoin(buf[:0], tt.elem...)); got != tt.want {
+		if got := joinIn(buf[:], tt.elem...); got != tt.want {
 			t.Errorf("AppendJoin(%d elements) = %q, want %q", len(tt.elem), got, tt.want)
 		}
 		if got := Join(tt.elem...); got != tt.want {
@@ -58,7 +94,8 @@ func TestJoin(t *testing.T) {
 		}
 	}
 	// A path longer than the stack buffer.
-	long := Join(Clean(string(make([]byte, 300))), "x/../y")
+	var zeros [300]byte
+	long := Join(Clean(string(zeros[:])), "x/../y")
 	if len(long) != 302 || long[300:] != "/y" {
 		t.Errorf("long Join: %d bytes, ends %q", len(long), long[len(long)-2:])
 	}
@@ -94,7 +131,7 @@ func TestBaseDirExtSplit(t *testing.T) {
 			t.Errorf("Dir(%q) = %q, want %q", tt.in, got, tt.dir)
 		}
 		var buf [64]byte
-		if got := str(AppendDir(buf[:0], tt.in)); got != tt.dir {
+		if got := dirIn(buf[:], tt.in); got != tt.dir {
 			t.Errorf("AppendDir(%q) = %q, want %q", tt.in, got, tt.dir)
 		}
 		if got := Ext(tt.in); got != tt.ext {
@@ -106,7 +143,7 @@ func TestBaseDirExtSplit(t *testing.T) {
 	}
 	// Go's Dir cleans, and so do Dir and AppendDir.
 	var buf [64]byte
-	if got := str(AppendDir(buf[:0], "a/./b/../c/d")); got != "a/c" {
+	if got := dirIn(buf[:], "a/./b/../c/d"); got != "a/c" {
 		t.Errorf("AppendDir = %q, want a/c", got)
 	}
 	if got := Dir("a/./b/../c/d"); got != "a/c" {
@@ -133,8 +170,7 @@ func TestRel(t *testing.T) {
 	}
 	var buf [128]byte
 	for _, tt := range tests {
-		b, err := AppendRel(buf[:0], tt.root, tt.path)
-		got := str(b)
+		got, err := relIn(buf[:], tt.root, tt.path)
 		if tt.want == "err" {
 			if err == nil {
 				t.Errorf("Rel(%q, %q) = %q, want an error", tt.root, tt.path, got)
@@ -159,17 +195,30 @@ func TestAbs(t *testing.T) {
 		t.Fatal(err)
 	}
 	var buf, want [4096]byte
-	b, err := AppendAbs(buf[:0], "x/../y")
-	w := AppendJoin(want[:0], cwd, "y")
-	if err != nil || str(b) != str(w) {
-		t.Errorf("Abs(x/../y) = %q, %v; want %q", str(b), err, str(w))
+	b, err := absIn(buf[:], "x/../y")
+	w := joinIn(want[:], cwd, "y")
+	if err != nil || b != w {
+		t.Errorf("Abs(x/../y) = %q, %v; want %q", b, err, w)
 	}
-	b, _ = AppendAbs(buf[:0], "/a//b/")
-	if str(b) != "/a/b" {
-		t.Errorf("Abs(/a//b/) = %q", str(b))
+	b, _ = absIn(buf[:], "/a//b/")
+	if b != "/a/b" {
+		t.Errorf("Abs(/a//b/) = %q", b)
 	}
-	if s, err := Abs("x/../y"); err != nil || s != str(w) {
-		t.Errorf("Abs(x/../y) = %q, %v; want %q", s, err, str(w))
+	if s, err := Abs("x/../y"); err != nil || s != w {
+		t.Errorf("Abs(x/../y) = %q, %v; want %q", s, err, w)
+	}
+	// A Vec grows to hold the path.
+	v := vec.New[byte]()
+	defer v.Free()
+	if err := AppendAbs(&v, "x/../y"); err != nil || str(v.Slice()) != w {
+		t.Errorf("AppendAbs into a Vec = %q, %v; want %q", str(v.Slice()), err, w)
+	}
+	// A path that does not fit in a Fixed is truncated, and Rel reports it.
+	var small [3]byte
+	f := vec.NewFixed(small[:])
+	AppendJoin(&f, "abc", "def")
+	if str(f.Slice()) != "abc" || !f.Truncated() {
+		t.Errorf("AppendJoin into 3 bytes = %q, truncated %t", str(f.Slice()), f.Truncated())
 	}
 	if s, _ := Abs("/a//b/"); s != "/a/b" {
 		t.Errorf("Abs(/a//b/) = %q", s)
@@ -219,10 +268,10 @@ func TestWalkDir(t *testing.T) {
 	defer os.RemoveAll(root)
 	var pb [512]byte
 	for _, p := range [...]string{"b/x", "a", "c/d/e", "skip/y"} {
-		os.MkdirAll(str(AppendJoin(pb[:0], root, p)), 0o755)
+		os.MkdirAll(joinIn(pb[:], root, p), 0o755)
 	}
 	for _, p := range [...]string{"a/1.txt", "b/x/2.txt", "c/3.txt", "skip/z.txt", "top.txt"} {
-		os.WriteFile(str(AppendJoin(pb[:0], root, p)), nil, 0o644)
+		os.WriteFile(joinIn(pb[:], root, p), nil, 0o644)
 	}
 	var seen [32][64]byte
 	var lens [32]int
@@ -232,8 +281,8 @@ func TestWalkDir(t *testing.T) {
 			return err
 		}
 		var rb [256]byte
-		rel, _ := AppendRel(rb[:0], root, path)
-		if d.IsDir() && str(rel) == "skip" {
+		rel, _ := relIn(rb[:], root, path)
+		if d.IsDir() && rel == "skip" {
 			return SkipDir
 		}
 		lens[n] = copy(seen[n][:], rel)
@@ -269,7 +318,7 @@ func TestWalkDir(t *testing.T) {
 		t.Errorf("SkipAll: %d calls, want 3", n)
 	}
 	calls := 0
-	err = WalkDir(str(AppendJoin(pb[:0], root, "missing")), func(path string, d *os.DirEntry, err error) error {
+	err = WalkDir(joinIn(pb[:], root, "missing"), func(path string, d *os.DirEntry, err error) error {
 		calls++
 		if d != nil || err == nil {
 			t.Errorf("missing root: d %v, err %v", d != nil, err)

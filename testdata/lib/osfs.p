@@ -9,6 +9,7 @@ import (
 	"pluto/io"
 	"pluto/os"
 	"pluto/strings"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -21,10 +22,11 @@ func check(what string, err error) {
 
 // join builds dir/name in buf and returns it as a view.
 func join(buf []byte, dir, name string) string {
-	b := append(buf[:0], dir...)
-	b = append(b, '/')
-	b = append(b, name...)
-	return unsafe.String(unsafe.SliceData(b), len(b))
+	b := vec.NewFixed(buf)
+	vec.AppendString(&b, dir)
+	b.Push('/')
+	vec.AppendString(&b, name)
+	return unsafe.String(unsafe.SliceData(buf), b.Len())
 }
 
 func bytesOf(s string) []byte { return unsafe.Slice(unsafe.StringData(s), len(s)) }
@@ -39,7 +41,9 @@ func main() {
 	check("Stat dir", err)
 	var mb [16]byte
 	println("dir mode", fi.Mode().Perm().String(), fi.IsDir())
-	println("dir mode string", str(fi.Mode().AppendString(mb[:0])))
+	mf := vec.NewFixed(mb[:])
+	fi.Mode().AppendString(&mf)
+	println("dir mode string", str(mf.Slice()))
 
 	// WriteFile, ReadFile and Stat.
 	var pb, qb, rb [512]byte
@@ -126,9 +130,9 @@ func main() {
 	check("Getwd", err)
 	check("Chdir", os.Chdir(nested))
 	var wb [4096]byte
-	cwdb, err := os.AppendWd(wb[:0])
-	check("Getwd 2", err)
-	cwd := str(cwdb)
+	cwdb := vec.NewFixed(wb[:])
+	check("Getwd 2", os.AppendWd(&cwdb))
+	cwd := str(cwdb.Slice())
 	println("chdir", strings.HasSuffix(cwd, "/x/y/z"))
 	data, err = os.ReadFile("deep.txt")
 	check("relative ReadFile", err)

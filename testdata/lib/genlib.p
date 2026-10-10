@@ -47,9 +47,9 @@ func NewIn[T any](v T, a alloc.Allocator) *T {
 	return p
 }
 
-func MakeIn[T any](n int, v T, a alloc.Allocator) []T {
-	s := make([]T, n, a)
-	for i := range s {
+func MakeIn[T any](n int, v T, a alloc.Allocator) vec.Vec[T] {
+	s := vec.Make[T](n, a)
+	for i := range n {
 		s[i] = v
 	}
 	return s
@@ -81,5 +81,5 @@ func main() {
 
 	p := NewIn(key{7, 8}, &ar)
 	s := MakeIn(3, "s", &ar)
-	println(p.x, p.y, len(s), s[2], ar.Used() > 0)
+	println(p.x, p.y, s.Len(), s[2], ar.Used() > 0)
 }

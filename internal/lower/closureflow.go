@@ -783,8 +783,6 @@ func (f *closureFlow) call(c *ast.CallExpr) bitset {
 					f.assign(&ast.StarExpr{X: c.Args[0]}, masks[1])
 				}
 				return nil
-			case "append":
-				return all
 			}
 			return all
 		}

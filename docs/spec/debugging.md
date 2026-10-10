@@ -174,8 +174,8 @@ body's. The FDEs encode exactly these states with `DW_CFA_def_cfa*`, `DW_CFA_off
 
 ## 5. Stack traces
 
-A panic, a runtime fault (an index or slice out of range, division by zero, a failed type assertion,
-`append` beyond capacity and the rest in [language.md section 8](language.md#8-runtime-faults-and-panic))
+A panic, a runtime fault (an index or slice out of range, division by zero, a failed type assertion
+and the rest in [language.md section 8](language.md#8-runtime-faults-and-panic))
 or, in hosted builds, a hardware fault goes to the panic handler (language spec section 8.1). The built-in
 handler of hosted programs, and `rt.Panic.Print`, print the message and then the stack, innermost frame
 first:

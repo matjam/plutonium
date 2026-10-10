@@ -17,7 +17,7 @@
 -1 -1 false false [	 
 ] [	 
 ] 0
-x=42 hello !é 14 32
+x=42 hello !é 14 true
 4 true x=42
   hel lo !é
 [lo]
@@ -25,3 +25,7 @@ lomore
 0
 0 true
 abc
+3890 0,1,2,3,4,
+83 ,998,999,end
+true
+13 true from a reader 0

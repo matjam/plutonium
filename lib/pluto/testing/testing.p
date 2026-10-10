@@ -32,6 +32,7 @@ import (
 	"pluto/os"
 	"pluto/rt"
 	"pluto/syscall"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -266,67 +267,72 @@ func (c *common) Helper() {}
 // text in the test's output.
 func (c *common) Log(args ...any) {
 	var buf [msgSize]byte
-	c.log(sprintln(buf[:0], args))
+	c.log(sprintln(&buf, args))
 }
 
 // Logf formats its arguments as Printf does and records the text in the
 // test's output.
 func (c *common) Logf(format string, args ...any) {
 	var buf [msgSize]byte
-	c.log(fmt.Bprintf(buf[:0], format, args...))
+	c.log(sprintf(&buf, format, args))
 }
 
 // Error is Log followed by Fail.
 func (c *common) Error(args ...any) {
 	var buf [msgSize]byte
-	c.log(sprintln(buf[:0], args))
+	c.log(sprintln(&buf, args))
 	c.Fail()
 }
 
 // Errorf is Logf followed by Fail.
 func (c *common) Errorf(format string, args ...any) {
 	var buf [msgSize]byte
-	c.log(fmt.Bprintf(buf[:0], format, args...))
+	c.log(sprintf(&buf, format, args))
 	c.Fail()
 }
 
 // Fatal is Log followed by FailNow.
 func (c *common) Fatal(args ...any) {
 	var buf [msgSize]byte
-	c.log(sprintln(buf[:0], args))
+	c.log(sprintln(&buf, args))
 	c.FailNow()
 }
 
 // Fatalf is Logf followed by FailNow.
 func (c *common) Fatalf(format string, args ...any) {
 	var buf [msgSize]byte
-	c.log(fmt.Bprintf(buf[:0], format, args...))
+	c.log(sprintf(&buf, format, args))
 	c.FailNow()
 }
 
 // Skip is Log followed by SkipNow.
 func (c *common) Skip(args ...any) {
 	var buf [msgSize]byte
-	c.log(sprintln(buf[:0], args))
+	c.log(sprintln(&buf, args))
 	c.SkipNow()
 }
 
 // Skipf is Logf followed by SkipNow.
 func (c *common) Skipf(format string, args ...any) {
 	var buf [msgSize]byte
-	c.log(fmt.Bprintf(buf[:0], format, args...))
+	c.log(sprintf(&buf, format, args))
 	c.SkipNow()
 }
 
-// sprintln appends args formatted with %v and separated by spaces.
-func sprintln(buf []byte, args []any) []byte {
-	for i, a := range args {
-		if i > 0 && len(buf) < cap(buf) {
-			buf = append(buf, ' ')
-		}
-		buf = fmt.Bprint(buf, a)
-	}
-	return buf
+// sprintln formats args as fmt.Sprintln does into buf, as much as fits,
+// and returns the text.
+func sprintln(buf *[msgSize]byte, args []any) []byte {
+	f := vec.NewFixed(buf[:])
+	fmt.Appendln(&f, args...)
+	return f.Slice()
+}
+
+// sprintf formats args as fmt.Sprintf does into buf, as much as fits, and
+// returns the text.
+func sprintf(buf *[msgSize]byte, format string, args []any) []byte {
+	f := vec.NewFixed(buf[:])
+	fmt.Appendf(&f, format, args...)
+	return f.Slice()
 }
 
 // log writes a message as an indented line of the test's output, with
@@ -336,28 +342,19 @@ func (c *common) log(msg []byte) {
 		msg = msg[:len(msg)-1]
 	}
 	var buf [msgSize + 256]byte
-	out := buf[:0]
-	out = appendString(out, "    ")
+	// One byte is kept for the final newline.
+	out := vec.NewFixed(buf[:len(buf)-1])
+	vec.AppendString(&out, "    ")
 	for _, ch := range msg {
 		if ch == '\n' {
-			out = appendString(out, "\n        ")
+			vec.AppendString(&out, "\n        ")
 			continue
 		}
-		if len(out) < cap(out)-1 {
-			out = append(out, ch)
-		}
+		out.Push(ch)
 	}
-	out = append(out, '\n')
-	os.Stdout.Write(out)
-}
-
-// appendString appends s to buf as far as it fits, keeping one byte of
-// room for a final newline.
-func appendString(buf []byte, s string) []byte {
-	for i := 0; i < len(s) && len(buf) < cap(buf)-1; i++ {
-		buf = append(buf, s[i])
-	}
-	return buf
+	n := out.Len()
+	buf[n] = '\n'
+	os.Stdout.Write(buf[:n+1])
 }
 
 // report prints the result line of a finished test.

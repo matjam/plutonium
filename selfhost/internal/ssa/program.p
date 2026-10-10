@@ -41,7 +41,7 @@ func (p *Program) LookupSym(name string) *Sym { return compat.MapAt(p.syms, name
 
 // Syms returns all symbols sorted by name.
 func (p *Program) Syms() []*Sym {
-	out := make([]*Sym, 0, compat.MapLen(p.syms))
+	out := compat.MakeCap[*Sym](0, compat.MapLen(p.syms))
 	{
 		goIt1 := compat.MapIter(p.syms)
 		for _, s, goOk2 := goIt1.Next(); goOk2; _, s, goOk2 = goIt1.Next() {

@@ -12,7 +12,7 @@ type stats struct {
 
 func main() {
 	var wg stdsync.WaitGroup
-	results := make([]int, 4)
+	results := new([4]int)
 	for i := 0; i < 4; i++ {
 		wg.Add(1)
 		go func() {

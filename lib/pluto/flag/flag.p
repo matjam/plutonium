@@ -486,20 +486,22 @@ func UnquoteUsage(fl *Flag) (name string, usage string) {
 func (f *FlagSet) PrintDefaults() {
 	w := f.Output()
 	f.VisitAll(func(fl *Flag) {
-		var line [256]byte
-		b := append(line[:0], "  -"...)
-		b = append(b, fl.Name...)
+		// The flag and its argument's name, written as they are, so that
+		// no length is too long.
+		io.WriteString(w, "  -")
+		io.WriteString(w, fl.Name)
+		n := 3 + len(fl.Name)
 		name, usage := UnquoteUsage(fl)
 		if name != "" {
-			b = append(b, ' ')
-			b = append(b, name...)
+			io.WriteString(w, " ")
+			io.WriteString(w, name)
+			n += 1 + len(name)
 		}
-		if len(b) <= 4 {
-			b = append(b, '\t')
+		if n <= 4 {
+			io.WriteString(w, "\t")
 		} else {
-			b = append(b, "\n    \t"...)
+			io.WriteString(w, "\n    \t")
 		}
-		w.Write(b)
 		// The usage, with its backquotes removed and each newline
 		// indented.
 		quotes := 0

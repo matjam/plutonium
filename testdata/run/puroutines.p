@@ -100,7 +100,7 @@ func main() {
 	println(<-d)
 	// Not []int{5, 6}: that array would be in main's frame, which the
 	// puroutine may outlive.
-	xs := make([]int, 2)
+	xs := new([2]int)[:]
 	xs[0], xs[1] = 5, 6
 	go vari(d, xs...)
 	println(<-d)

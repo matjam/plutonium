@@ -54,9 +54,6 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		s.callRuntime("closechan", nil, []*ssa.Value{s.scalar(e.Args[0])})
 		return nil
 
-	case "append":
-		return one(s.appendCall(e, T))
-
 	case "copy":
 		dst := s.expr(e.Args[0])
 		src := s.expr(e.Args[1])
@@ -133,25 +130,9 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		if _, isChan := unwrap(T).Underlying().(*types2.Chan); isChan {
 			return one(s.makeChan(e, T))
 		}
-		st, isSlice := unwrap(T).Underlying().(*types2.Slice)
-		if !isSlice {
-			// The checker rejects map types.
-			s.l.unsupportedf(e.Pos(), "make of %s is not supported", T)
-			return nil
-		}
-		et := s.subst(st.Elem())
-		n := s.indexValue(e.Args[1])
-		c := n
-		rest := e.Args[2:]
-		if len(rest) > 0 && isIntegerType(unwrap(s.typeOf(rest[0]))) {
-			c = s.indexValue(rest[0])
-			rest = rest[1:]
-		}
-		ok := s.newValue(ssa.OpLequ, ssa.TBool, n, c)
-		s.panicUnless(ok, e.Pos(), func() { s.callRuntimeNoReturn("panicMakeLen", n, c) })
-		bytes := s.newValue(ssa.OpMul, ssa.TI64, c, s.constInt(ssa.TI64, s.l.sizeof(et)))
-		ptr := s.allocate(bytes, s.l.alignof(et), rest)
-		return one(s.makeSlice(ptr, n, c, T))
+		// The checker rejects make of a map or a slice (E2014).
+		s.l.unsupportedf(e.Pos(), "make of %s is not supported", T)
+		return nil
 
 	case "panic":
 		arg := s.exprAs(e.Args[0], types2.NewInterfaceType(nil, nil))
@@ -351,52 +332,6 @@ func (s *fnState) allocate(size *ssa.Value, align int64, extra []ast.Expr) *ssa.
 	return s.callRuntime("alloc", []*ssa.Type{ssa.TPtr}, []*ssa.Value{size, alignV})[0]
 }
 
-// appendCall lowers append, which never allocates: it fills the slice's spare
-// capacity and panics if there is not enough.
-func (s *fnState) appendCall(e *ast.CallExpr, T types2.Type) value {
-	st := unwrap(T).Underlying().(*types2.Slice)
-	et := s.subst(st.Elem())
-	esize := s.l.sizeof(et)
-	sl := s.materialize(s.expr(e.Args[0]))
-	ptr, n, c := s.sliceParts(sl)
-
-	if e.Ellipsis.IsValid() {
-		src := s.expr(e.Args[1])
-		var sp, sn *ssa.Value
-		if isString(s.typeOf(e.Args[1])) {
-			sp, sn = s.stringParts(src)
-		} else {
-			sp, sn, _ = s.sliceParts(src)
-		}
-		newLen := s.newValue(ssa.OpAdd, ssa.TI64, n, sn)
-		s.appendCheck(newLen, c, e)
-		dst := s.elemAddr(ptr, n, et)
-		if s.l.counted(et) {
-			s.copyElems(s.checked(dst), s.checked(sp), sn, et)
-		} else {
-			bytes := s.newValue(ssa.OpMul, ssa.TI64, sn, s.constInt(ssa.TI64, esize))
-			s.callRuntime("memmove", nil, []*ssa.Value{s.checked(dst), s.checked(sp), bytes})
-		}
-		return s.makeSlice(ptr, newLen, c, T)
-	}
-
-	extra := e.Args[1:]
-	vals := make([]value, len(extra))
-	for i, a := range extra {
-		vals[i] = s.hold(s.materialize(s.exprAs(a, et)))
-	}
-	newLen := s.newValue(ssa.OpAdd, ssa.TI64, n, s.constInt(ssa.TI64, int64(len(extra))))
-	s.appendCheck(newLen, c, e)
-	for i, v := range vals {
-		idx := s.newValue(ssa.OpAdd, ssa.TI64, n, s.constInt(ssa.TI64, int64(i)))
-		// The spare capacity is part of the array, which may still hold
-		// references from before the slice was shortened: assignment
-		// drops them.
-		s.assign(lvalue{ptr: s.elemAddr(ptr, idx, et), T: et}, v, false)
-	}
-	return s.makeSlice(ptr, newLen, c, T)
-}
-
 // copyElems copies n elements of type et from src to dst, which may
 // overlap, as copy does: each copy of a counted element takes a reference,
 // and each element overwritten drops its own (all retains come first, so
@@ -408,11 +343,6 @@ func (s *fnState) copyElems(dst, src, n *ssa.Value, et types2.Type) {
 	}
 	bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(et)))
 	s.callRuntime("memmove", nil, []*ssa.Value{dst, src, bytes})
-}
-
-func (s *fnState) appendCheck(newLen, c *ssa.Value, e *ast.CallExpr) {
-	ok := s.newValue(ssa.OpLequ, ssa.TBool, newLen, c)
-	s.panicUnless(ok, e.Pos(), func() { s.callRuntimeNoReturn("panicAppend", newLen, c) })
 }
 
 // printOperand evaluates an argument of print or println, giving untyped

@@ -4,6 +4,7 @@ import (
 	"pluto/alloc"
 	"pluto/os"
 	"pluto/rt"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -17,21 +18,25 @@ const stackPath = 256
 // build returns the string that fill appends to an empty buffer of
 // capacity n, which must be enough. If the result equals reuse, it returns
 // reuse itself, so a path that is already clean allocates nothing.
-func build(n int, reuse string, fill func(dst []byte) []byte) string {
+func build(n int, reuse string, fill func(dst *vec.Fixed[byte])) string {
 	if n <= stackPath {
 		var stack [stackPath]byte
-		out := fill(stack[:0])
+		f := vec.NewFixed(stack[:])
+		fill(&f)
+		out := f.Slice()
 		if string(out) == reuse {
 			return reuse
 		}
 		return string(out)
 	}
 	p, ctl := rt.NewStringBuffer(n, alloc.Default())
-	out := fill(unsafe.Slice(p, n)[:0])
+	f := vec.NewFixed(unsafe.Slice(p, n))
+	fill(&f)
+	out := f.Slice()
 	s := reuse
 	// Compared and dropped: a path built from valid strings (cut only at
 	// slashes), so valid UTF-8 anyway.
-	if unsafe.String(unsafe.SliceData(out), len(out)) != reuse {
+	if unsafe.String(p, len(out)) != reuse {
 		// The bytes are a path built from valid strings, cut only at
 		// slashes: valid UTF-8.
 		s = rt.MakeString(p, len(out), ctl, false)
@@ -44,7 +49,7 @@ func build(n int, reuse string, fill func(dst []byte) []byte) string {
 // as Go's Clean does (see AppendClean). A path that is already clean is
 // returned as it is.
 func Clean(path string) string {
-	return build(len(path)+1, path, func(dst []byte) []byte { return AppendClean(dst, path) })
+	return build(len(path)+1, path, func(dst *vec.Fixed[byte]) { AppendClean(dst, path) })
 }
 
 // Join joins the non-empty elements with slashes and cleans the result, as
@@ -65,7 +70,7 @@ func Join(elem ...string) string {
 	if nonEmpty > 1 {
 		only = "" // the result is never one of the elements
 	}
-	return build(n+1, only, func(dst []byte) []byte { return AppendJoin(dst, elem...) })
+	return build(n+1, only, func(dst *vec.Fixed[byte]) { AppendJoin(dst, elem...) })
 }
 
 // Abs returns an absolute, clean form of path, joined to the working
@@ -89,11 +94,7 @@ func Rel(basepath, targpath string) (string, error) {
 	// rest is copied.
 	n := 3*len(basepath) + len(targpath) + 4
 	var err error
-	s := build(n, "", func(dst []byte) []byte {
-		out, e := AppendRel(dst, basepath, targpath)
-		err = e
-		return out
-	})
+	s := build(n, "", func(dst *vec.Fixed[byte]) { err = AppendRel(dst, basepath, targpath) })
 	if err != nil {
 		return "", err
 	}

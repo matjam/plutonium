@@ -10,6 +10,7 @@ import (
 	"pluto/arch/x86"
 	"pluto/fmt"
 	"pluto/rt"
+	pvec "pluto/vec"
 	"unsafe"
 )
 
@@ -82,8 +83,8 @@ func scale(p *vec, k int) {
 //
 //pu:fpu
 //pu:noinline
-func describe(p *vec, buf []byte) []byte {
-	return fmt.Bprintf(buf, "fmt float %v\n", p.X)
+func describe(p *vec, buf *pvec.Fixed[byte]) {
+	fmt.Appendf(buf, "fmt float %v\n", p.X)
 }
 
 // show prints floats with println, which in kernel builds writes their
@@ -99,12 +100,14 @@ func main() int64 {
 	rt.SetConsole(serialWrite)
 	println("hello from kernel mode")
 	var buf [64]byte
-	out := fmt.Bprintf(buf[:0], "fmt %d %s %#x %v\n", -42, "works", 255, true)
-	serialWrite(unsafe.Pointer(&out[0]), len(out))
+	out := pvec.NewFixed(buf[:])
+	fmt.Appendf(&out, "fmt %d %s %#x %v\n", -42, "works", 255, true)
+	serialWrite(unsafe.Pointer(&buf[0]), out.Len())
 	// Composite values; kernel builds leave field names out of type
 	// descriptors, so %+v prints none.
-	out = fmt.Bprintf(buf[:0], "fmt %v %+v %v\n", pair{1, -2}, pair{3, 4}, []pair{{5, 6}})
-	serialWrite(unsafe.Pointer(&out[0]), len(out))
+	out.Reset()
+	fmt.Appendf(&out, "fmt %v %+v %v\n", pair{1, -2}, pair{3, 4}, []pair{{5, 6}})
+	serialWrite(unsafe.Pointer(&buf[0]), out.Len())
 
 	b0, b1 := initBlock(0), initBlock(1)
 	x86.WriteGSBase(b0)
@@ -130,9 +133,10 @@ func main() int64 {
 	x86.WriteCR4(cr4 | 1<<9 | 1<<10)
 	x86.FPUBegin(&fpuState)
 	scale(&v, 4)
-	out = describe(&v, buf[:0])
+	out.Reset()
+	describe(&v, &out)
 	x86.FPUEnd(&fpuState)
-	serialWrite(unsafe.Pointer(&out[0]), len(out))
+	serialWrite(unsafe.Pointer(&buf[0]), out.Len())
 	println("fpu result bits", *(*uint64)(unsafe.Pointer(&v.X)))
 	x86.FPUBegin(&fpuState)
 	show(&v)

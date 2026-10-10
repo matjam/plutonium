@@ -37,9 +37,10 @@ func main() {
 	println("3-index", len(s2), cap(s2), s2[0], s2[1])
 	reverse(arr[:])
 	println("reversed", arr[0], arr[9], total(arr[:]))
-	buf := arr[:0]
-	buf = append(buf, 5, 3, 9, 1)
-	buf = append(buf, 7)
+	buf := arr[:4]
+	buf[0], buf[1], buf[2], buf[3] = 5, 3, 9, 1
+	buf = buf[:5]
+	buf[4] = 7
 	println("append", len(buf), cap(buf), buf[0], buf[4], arr[3])
 	bubble(buf)
 	println("sorted", buf[0], buf[1], buf[2], buf[3], buf[4])

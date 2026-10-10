@@ -103,14 +103,14 @@ func unrollLoop(f *ssa.Func, l *ssa.Loop, limit int) bool {
 
 	// Copy k of a value is maps[k][v]; values from outside the loop are
 	// their own copies.
-	maps := make([]*hash.Map[*ssa.Value, *ssa.Value], trip+1)
+	maps := compat.Make[*hash.Map[*ssa.Value, *ssa.Value]](trip + 1)
 	get := func(k int, v *ssa.Value) *ssa.Value {
 		if w, ok := compat.MapGet(maps[k], v); ok {
 			return w
 		}
 		return v
 	}
-	heads := make([]*ssa.Block, trip+1)
+	heads := compat.Make[*ssa.Block](trip + 1)
 	var prevLatch *ssa.Block // copy of the latch block, jumping to the next header
 	latchBlock, latchSucc := h.Preds[latch].B, h.Preds[latch].I
 	for k := 0; k <= trip; k++ {
@@ -173,7 +173,7 @@ func unrollLoop(f *ssa.Func, l *ssa.Loop, limit int) bool {
 					}
 				}
 				if b != h {
-					ctl := make([]*ssa.Value, len(b.Controls))
+					ctl := compat.Make[*ssa.Value](len(b.Controls))
 					for i, c := range b.Controls {
 						ctl[i] = get(k, c)
 					}
@@ -188,8 +188,8 @@ func unrollLoop(f *ssa.Func, l *ssa.Loop, limit int) bool {
 				if b == h {
 					continue
 				}
-				nb.Preds = make([]ssa.Edge, len(b.Preds))
-				nb.Succs = make([]ssa.Edge, len(b.Succs))
+				nb.Preds = compat.Make[ssa.Edge](len(b.Preds))
+				nb.Succs = compat.Make[ssa.Edge](len(b.Succs))
 			}
 		}
 		{

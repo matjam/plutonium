@@ -23,7 +23,7 @@ func (f *Func) Verify() error {
 
 	// Blocks and values are looked up by ID: this runs after every pass
 	// under PLUTO_SSACHECK, and maps keyed by pointer made it slow.
-	blocks := make([]*Block, f.NumBlocks())
+	blocks := compat.Make[*Block](f.NumBlocks())
 	inFunc := func(b *Block) bool {
 		return b != nil && b.ID >= 0 && b.ID < len(blocks) && blocks[b.ID] == b
 	}
@@ -46,10 +46,10 @@ func (f *Func) Verify() error {
 	// vals[id] is the value with that ID listed in a block, and where[id]
 	// and pos[id] that block and its index there.
 	n := f.NumValues()
-	vals := make([]*Value, n)
-	where := make([]*Block, n)
-	pos := make([]int32, n)
-	uses := make([]int32, n)
+	vals := compat.Make[*Value](n)
+	where := compat.Make[*Block](n)
+	pos := compat.Make[int32](n)
+	uses := compat.Make[int32](n)
 	listed := func(v *Value) bool {
 		return v.ID >= 0 && v.ID < n && vals[v.ID] == v
 	}

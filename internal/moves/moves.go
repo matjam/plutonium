@@ -206,7 +206,6 @@ const (
 	mvDrop                        // m.Drop()
 	mvConv                        // converted to another owner type
 	mvMethodValue                 // bound into a method value
-	mvAppend                      // appended to a slice
 )
 
 // A move records where and how a variable's value left it.

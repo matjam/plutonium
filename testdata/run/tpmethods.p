@@ -206,7 +206,8 @@ func main() {
 	cp.Add(&P{})
 	cp.Dump()
 	println(both(I(4)))
-	cells := make([]Cell, 3)
+	var cellArr [3]Cell
+	cells := cellArr[:]
 	setAll(cells, 4)
 	println(cells[0].v, cells[2].v)
 	println(ids([]Node{{1}, {2}, {3}}))

@@ -191,14 +191,17 @@ func main() {
 	buf := [8]string{}
 	s := buf[:0]
 	for _, p := range parts {
-		s = append(s, p+"."+p)
+		s = s[:len(s)+1]
+		s[len(s)-1] = p + "." + p
 	}
-	s = append(s, parts...)
+	n := len(s)
+	s = s[:n+len(parts)]
+	copy(s[n:], parts)
 	println(join(s, ","))
 	copy(s[1:], s[:3])
 	println(join(s, ","))
-	s = s[:2]
-	s = append(s, "again")
+	s = s[:3]
+	s[2] = "again"
 	println(join(buf[:6], "|"))
 
 	// Results, named results and early returns.

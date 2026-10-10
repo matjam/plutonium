@@ -117,9 +117,7 @@ func TestNoAllocator(t *testing.T) {
 		line             int // of the new or make, which the stack trace names
 	}{
 		{"new without a default", "alloc.SetDefault(nil)\n\t_ = new(int)", noDefault, 9},
-		{"make without a default", "alloc.SetDefault(nil)\n\t_ = make([]int, 3)", noDefault, 9},
 		{"new with a nil allocator", "var a alloc.Allocator\n\t_ = new(int, a)", nilArg, 9},
-		{"make with a nil allocator", "_ = make([]byte, 1, 8, nil)", nilArg, 8},
 	}
 	for _, c := range cases {
 		want := regexp.MustCompile(`\A` + regexp.QuoteMeta(c.want) + `    main\.main \(\S*/main\.p:` + strconv.Itoa(c.line) + `\)\n\z`)

@@ -33,7 +33,9 @@ func (w *stringSink) Write(p []byte) (int, error) {
 		}
 		w.buf, w.ctl = nb, ctl
 	}
-	w.buf = append(w.buf, p...)
+	n := len(w.buf)
+	w.buf = w.buf[:n+len(p)]
+	copy(w.buf[n:], p)
 	return len(p), nil
 }
 

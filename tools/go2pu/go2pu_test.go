@@ -175,6 +175,7 @@ func TestHandFixNotes(t *testing.T) {
 		`string literal "\x7fELF\xff" is not valid UTF-8: keep binary data in a []byte`,
 		"complex: Plutonium has no complex numbers",
 		"pluto/os has no Hostname",
+		"strconv.AppendQuote: Plutonium's takes a vec.Appender destination",
 		`no Plutonium package for import "iter"`,
 	} {
 		if !strings.Contains(all, want) {

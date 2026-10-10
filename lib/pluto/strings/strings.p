@@ -7,7 +7,9 @@
 //     ToLower, Map) return one, counted like every string and allocated
 //     from the current allocator; they return their argument itself when
 //     nothing changes. Each has an Append form (AppendRepeat, AppendJoin,
-//     ...) that writes into a caller's byte slice and allocates nothing;
+//     ...) that writes into a *vec.Vec[byte], which grows, or a
+//     *vec.Fixed[byte], which keeps what fits in a caller's array and
+//     allocates nothing;
 //   - Split and Fields fill a caller's []string (SplitInto, FieldsInto), are
 //     ranged over as in Go 1.24 (SplitSeq, FieldsSeq, Lines), or are walked
 //     a step at a time with an explicit iterator (SplitIter, FieldsIter);

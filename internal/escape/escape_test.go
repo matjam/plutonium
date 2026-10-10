@@ -177,12 +177,13 @@ func main() {
 	link(new(Node), &x)
 }`, []string{"cannot pass &x to link, which keeps it after returning", "link stores it in a.next"}},
 
-	{"append to heap slice", `
+	{"copy to heap slice", `
 func main() {
-	s := make([]*int, 0, 4)
+	s := new([4]*int)[:]
 	x := 1
-	s = append(s, &x)
-}`, []string{"cannot store &x in the backing array of s, which outlives x"}},
+	src := [1]*int{&x}
+	copy(s, src[:])
+}`, []string{"cannot store", "backing array of s"}},
 
 	{"variadic array kept", `
 var all []*int

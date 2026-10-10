@@ -480,10 +480,10 @@ func f(a rt.Allocator, ar *arena, v T) {
 	var p4 *T = new(T{1, 2}, ar)
 	var p5 *int = new(42, a)
 	var p6 *int8 = new(c, a)
-	var s1 []int = make([]int, 2, a)
-	var s2 []int = make([]int, 2, 4, ar)
-	var s3 []byte = make([]byte, 2, 4.0)
-	var s4 []byte = make([]byte, 2, c)
+	var s1 chan int = make(chan int, 2, a)
+	var s2 chan int = make(chan int, ar)
+	var s3 chan byte = make(chan byte, 4.0)
+	var s4 chan byte = make(chan byte, c)
 	_, _, _, _, _, _, _, _, _, _ = p1, p2, p3, p4, p5, p6, s1, s2, s3, s4
 }
 `)
@@ -507,7 +507,7 @@ func f(a rt.Allocator, ar *arena, v T) {
 		}
 		sigs[key]++
 	}
-	want := map[string]int{"new/2/alloc": 6, "make/3/alloc": 1, "make/4/alloc": 1, "make/3": 2}
+	want := map[string]int{"new/2/alloc": 6, "make/3/alloc": 1, "make/2/alloc": 1, "make/2": 2}
 	for k, n := range want {
 		if sigs[k] != n {
 			t.Errorf("%s: %d calls recorded, want %d (all: %v)", k, sigs[k], n, sigs)
@@ -534,6 +534,10 @@ func TestAllocatorArgumentErrors(t *testing.T) {
 				t.Fatalf("error %v does not contain %q", err, c.want)
 			}
 		})
+	}
+	// make of a slice is an error once its arguments check.
+	if _, err := checkWithRT(t, decls+"var _ = make([]int, 2, a)"); err == nil || !strings.Contains(err.Error(), "make of a slice is not permitted") {
+		t.Errorf("make of a slice: error %v", err)
 	}
 	// Without pluto/rt there is no allocator type to check against.
 	mustFail(t, "package p\ntype T struct{}\nvar x int\nvar _ = new(T, x)", "needs package pluto/rt")

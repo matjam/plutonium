@@ -76,10 +76,10 @@ var goPlain = map[string]Entry{
 		Example: "var size = 4\nvar buf size",
 	},
 	"InvalidArrayLen": {
-		Text:    "The length of an array type must be a constant integer that is not negative, since an array's size is fixed when compiling. For a length known only at run time, use a slice.",
+		Text:    "The length of an array type must be a constant integer that is not negative, since an array's size is fixed when compiling. For a length known only at run time, use a vec.Vec from pluto/vec.",
 		Spec:    goSpec("Array types"),
 		Example: "n := 8\nvar buf [n]byte",
-		Fixed:   "n := 8\nbuf := make([]byte, n)",
+		Fixed:   "n := 8\nbuf := vec.Make[byte](n)\ndefer buf.Free()",
 	},
 	"DuplicateMethod": {
 		Text: "A type has two methods with the same name. Method names must be unique for each type, whatever their parameters; there is no overloading.",
@@ -196,12 +196,12 @@ var goPlain = map[string]Entry{
 		Spec: goSpec("Selectors"),
 	},
 	"UncalledBuiltin": {
-		Text: "A builtin function such as len or append is used as a value. Builtins can only be called; wrap the call in a function literal if you need a func value.",
+		Text: "A builtin function such as len or cap is used as a value. Builtins can only be called; wrap the call in a function literal if you need a func value.",
 		Spec: goSpec("Built-in functions"),
 	},
 	"InvalidAppend": {
-		Text: "append's first argument must be a slice, and the values after it must fit its element type. In Plutonium, append only fills the slice's spare capacity; it panics if the result would not fit. Use pluto/vec.Vec for a sequence that grows.",
-		Spec: pspec("4.3", "append works within capacity"),
+		Text: "append's first argument must be a slice, and the values after it must fit its element type. Plutonium has no append (a slice cannot grow); use pluto/vec.Vec for a sequence that grows.",
+		Spec: pspec("3", "What Plutonium removes from Go"),
 	},
 	"InvalidAssert": {
 		Text: "A type assertion x.(T) asks which concrete type an interface value holds, so x must be an interface. This value is not an interface; its type is already known.",
@@ -276,7 +276,7 @@ var goPlain = map[string]Entry{
 		Spec: goSpec("Calls"),
 	},
 	"UnusedResults": {
-		Text: "The result of this call must be used. Builtins such as len and append, and conversions, have no effect other than their result.",
+		Text: "The result of this call must be used. Builtins such as len and cap, and conversions, have no effect other than their result.",
 		Spec: goSpec("Expression statements"),
 	},
 	"UnsupportedFeature": {

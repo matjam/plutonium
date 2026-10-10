@@ -80,8 +80,6 @@ func (c *checker) howMoved(mv *move) string {
 		return "converted to " + mv.to
 	case mvMethodValue:
 		return "moved into the method value " + mv.to
-	case mvAppend:
-		return "moved into " + mv.to + " by append"
 	}
 	return "moved"
 }
@@ -127,7 +125,7 @@ func (c *checker) useDiag(id *ast.Ident, v *types2.Var, s vstate) *diag.Diagnost
 		what = "Calling a method with a value receiver moves the receiver into the method"
 	case mvSend:
 		what = "Sending an owner moves it"
-	case mvStore, mvAppend:
+	case mvStore:
 		what = "Storing an owner moves it"
 	case mvDrop:
 		what = "Calling Drop ends an owner's life"

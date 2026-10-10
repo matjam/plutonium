@@ -93,6 +93,34 @@ func init() {
 			Example: "const magic = \"\\x7fELF\\xff\"",
 			Fixed:   "var magic = [4]byte{0x7f, 'E', 'L', 0xff}",
 		},
+		&Entry{
+			Code: CheckerCode(typerr.AppendNotPermitted), Name: "AppendNotPermitted",
+			Text: "Plutonium has no append. In Go, append grows a slice by allocating a larger array behind " +
+				"the program's back, and the garbage collector frees the old one. A Plutonium slice is a view " +
+				"of an array that something else owns, so it cannot grow.\n" +
+				"Use a vec.Vec from pluto/vec, which owns its array and grows it from an allocator. " +
+				"To fill a slice's spare capacity without growing it, slice it longer and assign, or use copy.",
+			Why:     whyNoGC,
+			Fix:     &Fix{Intro: "To build a sequence that grows", Code: "import \"pluto/vec\"\n\nv := vec.New[int]()\ndefer v.Free()\nv.Push(1)\nv.Append(2, 3)"},
+			Spec:    pspec("3", "What Plutonium removes from Go"),
+			Example: "var s []int\ns = append(s, 1)\ns = append(s, 2, 3)",
+			Fixed:   "s := vec.New[int]()\ndefer s.Free()\ns.Push(1)\ns.Append(2, 3)",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.MakeSliceNotPermitted), Name: "MakeSliceNotPermitted",
+			Text: "Plutonium has no make for slices. In Go, make([]T, n) allocates an array that the garbage " +
+				"collector frees when no slice refers to it. A Plutonium slice is a view of an array that " +
+				"something else owns, so a new array needs an owner to free it.\n" +
+				"vec.Make[T](n) from pluto/vec returns a vec.Vec[T] of n zero elements, which owns its array and " +
+				"frees it in Free; vec.WithCapacity[T](c) is make([]T, 0, c). v.Slice() lends the elements as a " +
+				"slice, and v[i] and len(v) work on the Vec itself. For a size known when the program is " +
+				"compiled, an array needs no allocation at all.",
+			Why:     whyNoGC,
+			Fix:     &Fix{Intro: "Make a vec.Vec, which owns the array", Code: "import \"pluto/vec\"\n\nbuf := vec.Make[byte](n)\ndefer buf.Free()"},
+			Spec:    pspec("3", "What Plutonium removes from Go"),
+			Example: "buf := make([]byte, n)\nread(buf)",
+			Fixed:   "buf := vec.Make[byte](n)\ndefer buf.Free()\nread(buf.Slice())",
+		},
 
 		// Packed types and wrappers.
 		&Entry{
@@ -652,7 +680,7 @@ func init() {
 			Why:     "Go allocates each closure on the heap. Plutonium builds it in the caller's frame, which has room for one closure per call site.",
 			Fix:     &Fix{Intro: "Use the closure within the iteration", Code: "for _, n := range sizes {\n\tnext := counterFrom(n)\n\tprintln(next(), next())\n}"},
 			Spec:    pspec("4.5", "Closures do not outlive their frame"),
-			Example: "var all []func() int\nfor _, n := range sizes {\n\tall = append(all, counterFrom(n))\n}",
+			Example: "all := vec.New[func() int]()\nfor _, n := range sizes {\n\tall.Push(counterFrom(n))\n}",
 		},
 		&Entry{
 			Code: ClosureRegionCycle, Name: "ClosureRegionCycle",

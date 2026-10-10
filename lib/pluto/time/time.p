@@ -6,7 +6,8 @@
 //   - There are no time zones: every Time is in UTC.
 //   - Duration.String and Time.Format(RFC3339Nano)'s counterpart,
 //     Time.RFC3339, return new strings; AppendString and AppendRFC3339
-//     format into a caller's buffer without allocating.
+//     append to a *vec.Vec[byte] or a *vec.Fixed[byte], which never
+//     allocates.
 //   - ParseDuration reports one of three static errors rather than an error
 //     that quotes its input.
 //   - NewTimer, NewTicker and AfterFunc take an optional allocator, and the
@@ -25,7 +26,10 @@
 // timers send carry only the scheduler's clock.
 package time
 
-import "pluto/errors"
+import (
+	"pluto/errors"
+	"pluto/vec"
+)
 
 // A Duration is the time between two instants as an int64 count of
 // nanoseconds, about 292 years at most.
@@ -139,12 +143,13 @@ func (d Duration) String() string {
 	return string(arr[n:])
 }
 
-// AppendString appends d formatted as String formats it and returns the
-// extended buffer; it allocates nothing.
-func (d Duration) AppendString(dst []byte) []byte {
+// AppendString appends d formatted as String formats it to dst, a
+// *vec.Vec[byte] (which grows) or a *vec.Fixed[byte] (which keeps what
+// fits).
+func (d Duration) AppendString[D vec.Appender[byte]](dst D) {
 	var arr [32]byte
 	n := d.format(&arr)
-	return append(dst, arr[n:]...)
+	dst.Append(arr[n:]...)
 }
 
 // format formats d into the end of buf and returns where the text starts.

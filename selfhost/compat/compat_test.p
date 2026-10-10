@@ -114,6 +114,17 @@ func TestAppendConcat(t *testing.T) {
 	if String(b) != "abcd" {
 		t.Fatalf("AppendString: %s", String(b))
 	}
+	b = AppendInt(b, -42, 10)
+	b = AppendRune(b, 'é')
+	b = AppendFloat(b, 1.5, 'g', -1, 64)
+	b = Appendf(b, "|%d|%s", 7, "z")
+	if String(b) != "abcd-42é1.5|7|z" {
+		t.Fatalf("Append wrappers: %s", String(b))
+	}
+	m := MakeCap[string](2, 5)
+	if len(m) != 2 || cap(m) != 5 || m[1] != "" || len(Make[int](0)) != 0 {
+		t.Fatalf("MakeCap: %d %d", len(m), cap(m))
+	}
 	if Concat("x", "", "yz", "!") != "xyz!" || Concat() != "" {
 		t.Fatalf("Concat")
 	}

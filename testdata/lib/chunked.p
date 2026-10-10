@@ -68,14 +68,14 @@ func main() {
 	m := a.Mark()
 	usedAtMark := a.Used()
 	chunksAtMark := parent.blocks
-	scratch := make([]int, 0, 2000, &a) // 16000 bytes: a chunk of its own
+	scratch := vec.WithCapacity[int](2000, &a) // 16000 bytes: a chunk of its own
 	for i := 0; i < 2000; i++ {
-		scratch = append(scratch, i)
+		scratch.Push(i)
 	}
 	for i := 0; i < 50; i++ {
 		_ = new(node, &a)
 	}
-	println("scratch", scratch[1999], "more chunks", parent.blocks > chunksAtMark)
+	println("scratch", scratch.At(1999), "more chunks", parent.blocks > chunksAtMark)
 	bytesBefore := parent.bytes
 	blocksBefore := parent.blocks
 	a.Release(m)
@@ -115,13 +115,13 @@ func main() {
 	got, _ := mp.Get(123)
 	println("vec", v.Len(), v.At(499), "map", mp.Len(), got)
 
-	// Through alloc.Use, new and make without an allocator use the arena.
+	// Through alloc.Use, new and vec.Make without an allocator use the arena.
 	restore := alloc.Use(&a)
 	q := new(node)
 	q.val = 7
-	s := make([]byte, 10)
+	s := vec.Make[byte](10)
 	restore.Restore()
-	println("use", q.val, len(s), a.Used() > u)
+	println("use", q.val, s.Len(), a.Used() > u)
 
 	// Reset keeps the standard chunks; Trim returns them; the arena is
 	// usable again afterwards.

@@ -154,7 +154,7 @@ func encodeFunc(f *MFunc, order []*MBlock) (*Code, error) {
 // is copied unchanged and its relocations move with it.
 func relax(e *encoder) *Code {
 	fx := e.fixups
-	short := make([]bool, len(fx))
+	short := compat.Make[bool](len(fx))
 	for i := range short {
 		short[i] = true
 	}
@@ -165,7 +165,7 @@ func relax(e *encoder) *Code {
 		return 3 // E9 rel32 -> EB rel8
 	}
 	// shift[i] is the bytes saved by the short branches before fixup i.
-	shift := make([]int, len(fx)+1)
+	shift := compat.Make[int](len(fx) + 1)
 	newPos := func(off int) int {
 		// The number of branches starting before off.
 		lo, hi := 0, len(fx)
@@ -199,7 +199,7 @@ func relax(e *encoder) *Code {
 		}
 	}
 
-	out := make([]byte, 0, len(e.code))
+	out := compat.MakeCap[byte](0, len(e.code))
 	prev := 0
 	for i, f := range fx {
 		out = compat.Append(out, e.code[prev:f.start]...)
