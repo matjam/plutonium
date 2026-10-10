@@ -194,8 +194,8 @@ func comparableType(T Type, dynamic bool, seen map[Type]bool) *typeError {
 
 	case *Wrapper:
 		switch {
-		case t.IsPointer():
-			// owned, shared and synced compare as pointers.
+		case t.IsBox():
+			// owned, shared, synced and weak compare as pointers.
 		case t.kind == WrapRing:
 			return typeErrorf("%s cannot be compared", T)
 		default:
@@ -230,6 +230,8 @@ func hasNil(t Type) bool {
 		return u.kind == UnsafePointer
 	case *Slice, *Pointer, *Signature, *Map, *Chan:
 		return true
+	case *Wrapper:
+		return u.IsBox() // owned, shared, synced and weak are nil when empty
 	case *Interface:
 		return !isTypeParam(t) || underIs(t, func(u Type) bool {
 			return u != nil && hasNil(u)

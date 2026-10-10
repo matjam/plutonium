@@ -1,0 +1,74 @@
+$DIR/main.p:17:9: cannot return &n.val, which points into the object n refers to, which n keeps alive in field
+    &n.val points into the object n refers to, which n keeps alive in field. n
+    (declared at main.p:16) is an owned[Node]: the object it refers to lives
+    only while n holds it, and is dropped when n is dropped at the end of its
+    scope in field, or released when it is the last reference. A pointer into
+    the object, or an interface that lends it, is a view that may not outlive n.
+    When field returns, n is dropped and the object freed, so &n.val would point
+    at freed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return n itself: an owned box moves to the caller, and a shared or synced
+    one gives the caller its own reference:
+        return n
+    (see "Views" in the Plutonium spec, section 6.3)
+    (run "pluto explain E3001" for a longer explanation)
+
+$DIR/main.p:23:2: cannot store (*Node)(n) in package variable kept, which outlives n
+    (*Node)(n) points into the object n refers to, which n keeps alive in keep.
+    n (declared at main.p:22) is an owned[Node]: the object it refers to lives
+    only while n holds it, and is dropped when n is dropped at the end of its
+    scope in keep, or released when it is the last reference. A pointer into the
+    object, or an interface that lends it, is a view that may not outlive n.
+    When keep returns, n is dropped and the object freed, but package variables
+    live for the whole program, so package variable kept would be left pointing
+    at reclaimed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store n itself, changing the type of kept to match: an owned box moves
+    there, and a shared or synced one is counted:
+        kept = n
+    (see "Views" in the Plutonium spec, section 6.3)
+    (run "pluto explain E3002" for a longer explanation)
+
+$DIR/main.p:29:9: cannot return n as an interface: an ordinary interface only borrows the box, which is dropped when lend returns
+    n points into the object n refers to, which n keeps alive in lend. n
+    (declared at main.p:28) is an owned[Node]: the object it refers to lives
+    only while n holds it, and is dropped when n is dropped at the end of its
+    scope in lend, or released when it is the last reference. A pointer into the
+    object, or an interface that lends it, is a view that may not outlive n.
+    Converting n to an ordinary interface lends it: the interface points at the
+    object, and n still owns it.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return the box itself, changing the result type to owned[Node]:
+        return n
+    Or declare the interface as an owning interface, which takes ownership of
+    what is converted into it (language spec section 6.4):
+        type I owner interface {
+            ...
+        }
+    (see "Views" in the Plutonium spec, section 6.3)
+    (run "pluto explain E3001" for a longer explanation)
+
+$DIR/main.p:34:9: cannot return (*Node)(new(Node)), which points into the object of a temporary owned[Node] in temp's frame
+    (*Node)(new(Node)) points into the object of a temporary owned[Node] in
+    temp's frame. The owned[Node] made at main.p:34 is a temporary: nothing
+    keeps it, so its object is dropped at the end of the statement, and a view
+    of the object may not outlive that statement. At the end of the statement,
+    the temporary is dropped and its object freed, so (*Node)(new(Node)) would
+    point at freed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return the box itself, changing the result type to owned[Node]:
+        return new(Node)
+    (see "Views" in the Plutonium spec, section 6.3)
+    (run "pluto explain E3001" for a longer explanation)

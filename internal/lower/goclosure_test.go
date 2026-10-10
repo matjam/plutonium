@@ -142,20 +142,20 @@ func TestGoCapturingLiteralFix(t *testing.T) {
 			name:    "wait group",
 			imports: "\"pluto/sync\"",
 			body:    "var wg sync.WaitGroup\ngo func() { defer wg.Done() }()",
-			want:    []string{"wg has type sync.WaitGroup, which must not be copied", "wg := new(sync.WaitGroup); go func(wg *sync.WaitGroup) {...}(wg)"},
+			want:    []string{"wg has type sync.WaitGroup, which must not be copied", "var wg sync.WaitGroup // at package level; go func(wg *sync.WaitGroup) {...}(&wg)"},
 			notWant: []string{"pluto/sync", "pass it as an argument"},
 		},
 		{
 			name:    "alias",
 			imports: "stdsync \"pluto/sync\"",
 			body:    "var mu stdsync.Mutex\ngo func() { mu.Lock() }()",
-			want:    []string{"mu has type stdsync.Mutex, which must not be copied", "mu := new(stdsync.Mutex)"},
+			want:    []string{"mu has type stdsync.Mutex, which must not be copied", "var mu stdsync.Mutex // at package level"},
 		},
 		{
 			name:    "struct holding a mutex",
 			imports: "\"pluto/sync\"",
 			body:    "var s struct{ mu sync.Mutex }\ngo func() { s.mu.Lock() }()",
-			want:    []string{"holds a value of type sync.Mutex and must not be copied", "allocate it with new and pass the pointer"},
+			want:    []string{"holds a value of type sync.Mutex and must not be copied", "declare it at package level and pass a pointer"},
 		},
 		{
 			name:    "atomic array",
@@ -168,7 +168,7 @@ func TestGoCapturingLiteralFix(t *testing.T) {
 			imports: "\"pluto/sync\"",
 			body:    "n := 1\nvar l sync.Locker\ngo func() { _ = n; _ = l }()",
 			want:    []string{"pass them as arguments instead: go func(n int, l sync.Locker) {...}(n, l)"},
-			notWant: []string{"new("},
+			notWant: []string{"at package level"},
 		},
 	}
 	for _, c := range cases {

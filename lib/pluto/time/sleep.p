@@ -85,7 +85,7 @@ type Timer owner struct {
 // NewTimer creates a new Timer that will send the current time on its
 // channel after at least duration d.
 func NewTimer(d Duration, a alloc.Allocator = alloc.Default()) *Timer {
-	t := new(Timer, a)
+	t := alloc.New[Timer](a)
 	t.c = make(chan Time, 1, a)
 	t.C = t.c
 	t.r.Init(sendTime, unsafe.Pointer(&t.c))
@@ -168,7 +168,7 @@ func (t *Timer) Drop() {
 func AfterFunc(d Duration, f func(), a alloc.Allocator = alloc.Default()) *Timer {
 	rt.CheckGoFunc(f)
 	startFuncRunner()
-	t := new(Timer, a)
+	t := alloc.New[Timer](a)
 	t.f = f
 	t.r.Init(goFunc, unsafe.Pointer(t))
 	t.r.Reset(deadline(d), 0)
@@ -275,7 +275,7 @@ func NewTicker(d Duration, a alloc.Allocator = alloc.Default()) *Ticker {
 	if d <= 0 {
 		panic("non-positive interval for NewTicker")
 	}
-	t := new(Ticker, a)
+	t := alloc.New[Ticker](a)
 	t.c = make(chan Time, 1, a)
 	t.C = t.c
 	t.r.Init(sendTime, unsafe.Pointer(&t.c))

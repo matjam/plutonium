@@ -37,7 +37,7 @@ func (l *Lowerer) needsDrop(T types2.Type) bool {
 		case *types2.Array:
 			need = dropMethod(T) != nil || (u.Len() > 0 && (l.needsDrop(u.Elem()) || l.counted(u.Elem())))
 		case *types2.Wrapper:
-			need = true // owned[T]: reported as unsupported where it is dropped
+			need = true // owned[T] (box.go)
 		default:
 			need = dropMethod(T) != nil || types2.IsInterface(T) || types2.UnionVariants(T) != nil
 		}
@@ -110,6 +110,26 @@ func (s *fnState) dropFields(ptr *ssa.Value, T types2.Type) {
 		s.emitCall(callee{sym: target}, full, &recv, nil, token.NoPos)
 	}
 	switch u := unwrap(T).Underlying().(type) {
+	case *types2.Wrapper:
+		if u.Kind() == types2.WrapOwned {
+			s.dropOwned(ptr, u)
+		}
+	case *types2.Interface:
+		s.dropIface(ptr, u)
+	case *types2.TaggedUnion:
+		// An owner union drops the payload of the variant it holds.
+		ul := s.l.unionLayoutOf(T, s.pos)
+		tag := s.unionTag(ul, aggValue(ptr, T))
+		for i := 0; i < u.NumVariants(); i++ {
+			v := u.Variant(i)
+			P := s.subst(v.Payload())
+			if !v.HasPayload() || !s.l.needsDrop(P) && !s.l.counted(P) {
+				continue
+			}
+			s.ifThen(s.newValue(ssa.OpEq, ssa.TBool, tag, s.constInt(ul.tag, int64(i))), func() {
+				s.destroyAt(s.offPtr(ptr, ul.payload), P)
+			})
+		}
 	case *types2.Struct:
 		fields := make([]*types2.Var, u.NumFields())
 		for i := range fields {
@@ -135,22 +155,18 @@ func (s *fnState) dropFields(ptr *ssa.Value, T types2.Type) {
 }
 
 // cannotDrop returns what the compiler cannot drop yet in a value of type
-// T, or "": owned, shared and synced references, owning interfaces and
-// owner unions.
+// T, or "": owning interfaces with no methods.
 func (l *Lowerer) cannotDrop(T types2.Type, seen map[string]bool) string {
 	key := typeString(T)
 	if seen[key] || !l.needsDrop(T) {
 		return ""
 	}
 	seen[key] = true
-	if types2.UnionVariants(T) != nil {
-		return "owner unions"
-	}
 	switch u := unwrap(T).Underlying().(type) {
-	case *types2.Wrapper:
-		return "owned, shared and synced references"
 	case *types2.Interface:
-		return "owning interfaces"
+		if u.Empty() {
+			return "owning interfaces with no methods"
+		}
 	case *types2.Struct:
 		for i := 0; i < u.NumFields(); i++ {
 			if why := l.cannotDrop(u.Field(i).Type(), seen); why != "" {

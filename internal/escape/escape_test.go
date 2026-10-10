@@ -209,12 +209,13 @@ func main() {
 }`, []string{"cannot store &x in n.next, which outlives x", "n.next may be on the heap"}},
 
 	{"store through parameter", `
+import "pluto/alloc"
 type Node struct{ next *Node }
 func link(n *Node) {
 	var x Node
 	n.next = &x
 }
-func main() { link(new(Node)) }`, []string{"cannot store &x in n.next, which outlives x", "n.next is reached through n, which points to memory that link's caller owns"}},
+func main() { link(alloc.New[Node]()) }`, []string{"cannot store &x in n.next, which outlives x", "n.next is reached through n, which points to memory that link's caller owns"}},
 
 	{"callee keeps argument", `
 var saved *int
@@ -242,11 +243,12 @@ func f() *int {
 func main() { _ = f() }`, []string{"cannot return id(&x), which points into x, a local variable of f"}},
 
 	{"callee stores argument into heap through another", `
+import "pluto/alloc"
 type Node struct{ next *Node }
 func link(a, b *Node) { a.next = b }
 func main() {
 	var x Node
-	link(new(Node), &x)
+	link(alloc.New[Node](), &x)
 }`, []string{"cannot pass &x to link, which keeps it after returning", "link stores it in a.next"}},
 
 	{"copy to heap slice", `
@@ -361,12 +363,13 @@ func main() {
 }`, []string{"cannot pass &x to extKeep", "extKeep is implemented outside Plutonium and may keep it"}},
 
 	{"noescape still checks stores between arguments", `
+import "pluto/alloc"
 //pu:extern ext_store
 //pu:noescape
 func extStore(dst **int, p *int)
 func main() {
 	x := 1
-	extStore(new(*int), &x)
+	extStore(alloc.New[*int](), &x)
 }`, []string{"cannot pass &x to extStore", "may store it into memory another argument points to"}},
 
 	{"generic conversion of a struct instantiation", `
@@ -671,6 +674,100 @@ func main() {
 		saved = p
 	}
 }`, []string{"cannot store p in package variable saved"}},
+
+	{"field of a box returned", `
+type N struct{ v int }
+func f() *int {
+	n := new(N)
+	return &n.v
+}
+func main() { _ = f() }`, []string{"cannot return &n.v, which points into the object n refers to"}},
+
+	{"box view stored globally", `
+type N struct{ v int }
+var G *N
+func f() {
+	n := new(N)
+	G = (*N)(n)
+}
+func main() { f() }`, []string{"cannot store (*N)(n) in package variable G, which outlives n"}},
+
+	{"temporary box viewed", `
+type N struct{ v int }
+func f() *N { return (*N)(new(N)) }
+func main() { _ = f() }`, []string{"the object of a temporary owned[N]"}},
+
+	{"box lent to an ordinary interface", `
+type N struct{ v int }
+func (n *N) Get() int { return n.v }
+type G interface{ Get() int }
+func f() G {
+	n := new(N)
+	return n
+}
+func main() { _ = f() }`, []string{"cannot return n as an interface: an ordinary interface only borrows the box"}},
+
+	{"string from a deferred local arena", `
+import (
+	"pluto/alloc"
+	"pluto/arena"
+)
+func f(a, b string) string {
+	var mem [256]byte
+	ar := arena.New(mem[:])
+	defer alloc.Use(&ar).Restore()
+	return a + b
+}
+func main() { _ = f("x", "y") }`, []string{"memory allocated from ar, a local arena of f"}},
+
+	{"deferred restore in an inner block", `
+import (
+	"pluto/alloc"
+	"pluto/arena"
+)
+func f(a, b string) string {
+	var mem [256]byte
+	ar := arena.New(mem[:])
+	{
+		defer alloc.Use(&ar).Restore() // runs when f returns
+	}
+	return a + b
+}
+func main() { _ = f("x", "y") }`, []string{"cannot return a + b"}},
+
+	{"new in a local arena block", `
+import (
+	"pluto/alloc"
+	"pluto/arena"
+)
+var G *int
+func f() {
+	var mem [256]byte
+	ar := arena.New(mem[:])
+	{
+		r := alloc.Use(&ar)
+		p := new(int)
+		G = (*int)(p)
+		r.Restore()
+	}
+}
+func main() { f() }`, []string{"cannot store (*int)(p) in package variable G"}},
+
+	{"defaulted allocator in a local arena window", `
+import (
+	"pluto/alloc"
+	"pluto/arena"
+	"pluto/vec"
+)
+func f() vec.Vec[int] {
+	var mem [256]byte
+	ar := arena.New(mem[:])
+	r := alloc.Use(&ar)
+	v := vec.New[int]()
+	r.Restore()
+	return v
+}
+func main() { _ = f() }`, []string{"cannot return v, which points into memory allocated from ar"}},
 }
 
 func TestRejected(t *testing.T) {
@@ -735,7 +832,7 @@ func main() {
 
 	{"return heap pointer", `
 type T struct{ a int }
-func f() *T {
+func f() owned[T] {
 	p := new(T)
 	p.a = 1
 	return p
@@ -785,8 +882,9 @@ func f() error { return none{} }
 func main() { _ = f() }`},
 
 	{"generic conversion of word-sized instantiations", `
+import "pluto/alloc"
 func box[T any](x T) any { return x }
-func main() { _, _ = box(1), box(new(int)) }`},
+func main() { _, _ = box(1), box(alloc.New[int]()) }`},
 
 	{"closure called locally", `
 func apply(f func()) { f() }
@@ -805,6 +903,7 @@ func main() {
 }`},
 
 	{"variable reused for frame and heap values", `
+import "pluto/alloc"
 type E struct{ code int }
 func (e *E) Error() string { return "e" }
 var saved error
@@ -812,17 +911,18 @@ func main() {
 	var local E
 	var err error = &local
 	_ = err.Error()
-	err = new(E)
+	err = alloc.New[E]()
 	saved = err
 }`},
 
 	{"branches join", `
+import "pluto/alloc"
 var G *int
 func main() {
 	x := 1
 	p := &x
 	if x > 0 {
-		p = new(int)
+		p = alloc.New[int]()
 		G = p
 	}
 	_ = p
@@ -858,6 +958,7 @@ func main() {
 }`},
 
 	{"loop reassigns a tracked variable", `
+import "pluto/alloc"
 type Node struct{ next *Node }
 var G *Node
 func main() {
@@ -865,14 +966,14 @@ func main() {
 	p := &local
 	for i := 0; i < 3; i++ {
 		_ = p.next
-		p = new(Node)
+		p = alloc.New[Node]()
 	}
-	q := new(Node)
+	q := alloc.New[Node]()
 	for i := 0; i < 2; i++ {
 		if i == 1 {
 			break
 		}
-		q = new(Node)
+		q = alloc.New[Node]()
 	}
 	G = q
 }`},
@@ -897,6 +998,7 @@ func pick(n int) error {
 func main() { G = pick(1) }`},
 
 	{"struct fields told apart", `
+import "pluto/alloc"
 type Pair struct {
 	a *int
 	b *int
@@ -904,7 +1006,7 @@ type Pair struct {
 var G *int
 func main() {
 	x := 1
-	p := Pair{a: &x, b: new(int)}
+	p := Pair{a: &x, b: alloc.New[int]()}
 	G = p.b
 }`},
 
@@ -936,12 +1038,16 @@ func main() {
 }`},
 
 	{"pointer-shaped struct holding heap memory returned as an error", `
+import "pluto/alloc"
 type W struct{ p *int }
 func (W) Error() string { return "w" }
-func f() error { return W{new(int)} }
+func f() error { return W{alloc.New[int]()} }
 func main() { _ = f() }`},
 	{"heap-only fields of a chunk list over a frame-backed parent", `
-import "unsafe"
+import (
+	"pluto/alloc"
+	"unsafe"
+)
 type Allocator interface{ Alloc(n uintptr) unsafe.Pointer }
 type chunk struct{ prev *chunk }
 type Chunked struct {
@@ -969,7 +1075,7 @@ func (a *Chunked) Alloc(n uintptr) unsafe.Pointer {
 	return unsafe.Pointer(a.cur)
 }
 type heap struct{}
-func (heap) Alloc(n uintptr) unsafe.Pointer { return unsafe.Pointer(new([64]byte)) }
+func (heap) Alloc(n uintptr) unsafe.Pointer { return unsafe.Pointer(alloc.New[[64]byte]()) }
 type counting struct {
 	under Allocator
 	n     int
@@ -1124,12 +1230,13 @@ func main() {
 	println(<-d)
 }`},
 	{"constructor yielding copies of what it captures", `
+import "pluto/alloc"
 var saved *int
 func vals(p *int) func(func(*int) bool) {
 	return func(yield func(*int) bool) { yield(p) }
 }
 func main() {
-	for p := range vals(new(int)) {
+	for p := range vals(alloc.New[int]()) {
 		saved = p
 	}
 }`},
@@ -1154,6 +1261,64 @@ func main() {
 	d.Write(1)
 	println(put(sink{}))
 }`},
+	{"boxes returned and stored themselves", `
+type N struct{ v int }
+var G owned[N]
+var S shared[N]
+func f() owned[N] {
+	n := new(N)
+	n.v = 1
+	return n
+}
+func main() {
+	G = f()
+	S = nil
+	p := (*N)(G)
+	_ = p.v
+}`},
+	{"allocations after the arena window", `
+import (
+	"pluto/alloc"
+	"pluto/arena"
+)
+func g(a, b string) string {
+	var mem [256]byte
+	ar := arena.New(mem[:])
+	{
+		r := alloc.Use(&ar)
+		_ = a + b
+		r.Restore()
+	}
+	return a + b // after the window's block
+}
+func main() { _ = g("x", "y") }`},
+	{"explicit allocator in an arena window", `
+import (
+	"pluto/alloc"
+	"pluto/arena"
+	"pluto/vec"
+)
+func f() vec.Vec[int] {
+	heap := alloc.Default()
+	var mem [256]byte
+	ar := arena.New(mem[:])
+	defer alloc.Use(&ar).Restore()
+	v := vec.New[int](heap)
+	v.Push(1)
+	return v
+}
+func main() { _ = f() }`},
+	{"heap arena installed", `
+import (
+	"pluto/alloc"
+	"pluto/arena"
+)
+var ar arena.Chunked
+func f(a, b string) string {
+	defer alloc.Use(&ar).Restore()
+	return a + b
+}
+func main() { _ = f("x", "y") }`},
 }
 
 func TestAccepted(t *testing.T) {

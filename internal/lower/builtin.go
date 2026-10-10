@@ -27,7 +27,7 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		}
 		x := s.expr(e.Args[0])
 		xt := unwrap(s.typeOf(e.Args[0]))
-		switch u := xt.Underlying().(type) {
+		switch u := asPointer(xt.Underlying()).(type) {
 		case *types2.Basic: // string
 			_, n := s.stringParts(x)
 			return one(scalarValue(n, T))
@@ -114,13 +114,18 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		// new(T) or new(v), either with an optional allocator. new(v)
 		// evaluates v before the allocator, then stores it in the new
 		// variable.
-		elem := unwrap(T).Underlying().(*types2.Pointer).Elem()
+		// The result is an owned[T] (box.go).
+		elem := s.subst(unwrap(T).Underlying().(*types2.Wrapper).Elem())
 		var v value
 		isValue := !s.info.Types[e.Args[0]].IsType()
 		if isValue {
-			v = s.materialize(s.exprAs(e.Args[0], elem))
+			if s.isMove(e.Args[0]) {
+				v = s.movedOut(s.lv(e.Args[0])) // new(x) moves an owner x in
+			} else {
+				v = s.materialize(s.exprAs(e.Args[0], elem))
+			}
 		}
-		ptr := s.allocate(s.constInt(ssa.TI64, s.l.sizeof(elem)), s.l.alignof(elem), e.Args[1:])
+		ptr := s.newBox(types2.WrapOwned, elem, e.Args[1:])
 		if isValue {
 			s.assign(lvalue{ptr: ptr, T: elem}, v, true)
 		}
@@ -319,19 +324,6 @@ func (s *fnState) minMaxString(isMin bool, args []ast.Expr, T types2.Type) value
 	return out
 }
 
-// allocate returns size zeroed bytes from the allocator given in extra (an
-// optional trailing argument of new or make) or the current default.
-func (s *fnState) allocate(size *ssa.Value, align int64, extra []ast.Expr) *ssa.Value {
-	alignV := s.constInt(ssa.TI64, align)
-	if len(extra) > 0 {
-		allocT := s.l.rtFunc("allocWith").Type().(*types2.Signature).Params().At(0).Type()
-		a := s.exprAs(extra[0], allocT)
-		parts := s.leafValues(a, []leaf{{0, ssa.TPtr}, {8, ssa.TPtr}})
-		return s.callRuntime("allocWith", []*ssa.Type{ssa.TPtr}, parts, []*ssa.Value{size, alignV})[0]
-	}
-	return s.callRuntime("alloc", []*ssa.Type{ssa.TPtr}, []*ssa.Value{size, alignV})[0]
-}
-
 // copyElems copies n elements of type et from src to dst, which may
 // overlap, as copy does: each copy of a counted element takes a reference,
 // and each element overwritten drops its own (all retains come first, so
@@ -390,6 +382,13 @@ func (s *fnState) printValue(v value, T types2.Type, a ast.Node) {
 		}
 	case *types2.Pointer, *types2.Signature:
 		s.callRuntime("printPointer", nil, []*ssa.Value{v.v})
+	case *types2.Wrapper:
+		if !u.IsBox() {
+			s.l.unsupportedf(a.Pos(), "cannot print a value of type %s", T)
+			break
+		}
+		// owned, shared, synced and weak print their address, as pointers do.
+		s.callRuntime("printPointer", nil, []*ssa.Value{s.wordOf(v)})
 	default:
 		s.l.unsupportedf(a.Pos(), "cannot print a value of type %s", T)
 	}
@@ -408,6 +407,19 @@ func (s *fnState) conversion(e *ast.CallExpr) value {
 
 	if isInterface(to) {
 		return s.assignConvert(s.expr(arg), to, e)
+	}
+
+	if w, ok := tu.(*types2.Wrapper); ok && w.IsCounted() {
+		// weak[P](p) takes a weak reference (box.go).
+		if _, ok := fu.(*types2.Wrapper); ok && w.Kind() == types2.WrapWeak {
+			return s.weakFrom(s.expr(arg), to)
+		}
+		// A counted box made from an unsafe.Pointer adopts the reference
+		// the pointer stands for (alloc.Shared and friends): it is a new
+		// value that the statement holds until something takes it.
+		if b, ok := fu.(*types2.Basic); ok && b.Kind() == types2.UnsafePointer {
+			return s.wordTemp(s.scalar(arg), to, "box")
+		}
 	}
 
 	// []byte(s), string(b) and friends copy, so they allocate (strops.go).

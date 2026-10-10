@@ -318,7 +318,7 @@ func (s *fnState) indexLV(e *ast.IndexExpr) lvalue {
 		return s.containerLV(e)
 	}
 	xt := s.typeOf(e.X)
-	u := unwrap(xt).Underlying()
+	u := asPointer(unwrap(xt).Underlying())
 	if p, ok := u.(*types2.Pointer); ok {
 		u = unwrap(p.Elem()).Underlying()
 	}
@@ -326,7 +326,7 @@ func (s *fnState) indexLV(e *ast.IndexExpr) lvalue {
 	case *types2.Array:
 		var base *ssa.Value
 		stable := false
-		if _, isPtr := unwrap(xt).Underlying().(*types2.Pointer); isPtr {
+		if _, isPtr := asPointer(unwrap(xt).Underlying()).(*types2.Pointer); isPtr {
 			base = s.scalar(e.X)
 		} else {
 			lv := s.lv(e.X)
@@ -459,6 +459,15 @@ func (s *fnState) fieldPath(cur lvalue, path []int) lvalue {
 		}
 	}
 	return cur
+}
+
+// asPointer returns *T for owned[T], shared[T] and synced[T], which index,
+// slice and range like the pointer they are; otherwise it returns u.
+func asPointer(u types2.Type) types2.Type {
+	if w, ok := u.(*types2.Wrapper); ok && w.IsPointer() {
+		return types2.NewPointer(w.Elem())
+	}
+	return u
 }
 
 func isPointerLike(T types2.Type) bool {
@@ -1016,7 +1025,7 @@ func (s *fnState) sliceExpr(e *ast.SliceExpr, T types2.Type) value {
 	var elem types2.Type
 	var str value
 	isStr := false
-	switch u := xt.Underlying().(type) {
+	switch u := asPointer(xt.Underlying()).(type) {
 	case *types2.Basic:
 		str = s.holdAcross(s.expr(e.X), e.Low, e.High, e.Max)
 		base, length = s.stringParts(str)

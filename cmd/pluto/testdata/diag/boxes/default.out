@@ -1,0 +1,37 @@
+$DIR/main.p:14:12: weak takes shared[T] or synced[T], not Node
+    A weak reference refers to an object that counted references keep alive,
+    without keeping it alive itself. Only shared[T] and synced[T] count their
+    references.
+    Name the counted reference type the weak reference comes from:
+        weak[shared[Node]]
+    (see "Shared ownership" in the Plutonium spec, section 6.5)
+    (run "pluto explain E3211" for a longer explanation)
+
+$DIR/main.p:9:13: owned cannot hold an interface type (Reader): use an owning interface
+    owned[T] holds one object of type T on the heap. An interface already refers
+    to the value it holds, so a box around one would be a second, slower way to
+    own a value behind an interface.
+    To own whatever is converted into an interface, declare an owning interface:
+        type Resource owner interface {
+            ...
+        }
+    To put the value itself in a box, use its own type: owned[File] rather than
+    owned[Reader].
+    (see "owned, shared, synced and weak" in the Plutonium spec, section 5.6)
+    (run "pluto explain E3210" for a longer explanation)
+
+$DIR/main.p:24:19: cannot use b (variable of struct type Buf) as Finisher value in variable declaration: Buf does not implement Finisher (method Finish has a value receiver of owner type Buf, so calling it would consume the owner; it cannot implement an interface method: declare it on *Buf and convert a pointer)
+    f is declared as Finisher, so it can only hold values whose type has every
+    method of Finisher.
+    Finisher needs a method Finish. Buf has one, but with a value receiver: Buf
+    is an owner, so calling the method moves the value into it, and the method
+    drops it when it returns. An interface does not own what it holds, so a call
+    through the interface could not give the value up; such a method never
+    satisfies an interface method.
+    Declare the method on a pointer, so that it borrows the value, and convert a
+    pointer:
+        func (b *Buf) Finish(...) ...
+
+        ... = &b
+    (see "Implementing an interface" in the Go spec; Plutonium follows Go here)
+    (run "pluto explain E0021" for a longer explanation)

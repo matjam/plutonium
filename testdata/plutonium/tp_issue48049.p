@@ -6,6 +6,8 @@
 
 package main
 
+import "pluto/alloc"
+
 func main() {
 	Gooer2[byte]()
 }
@@ -30,6 +32,9 @@ func (mr fooer2[T]) Foo(p T) {
 
 func Gooer2[T any]() Fooer[T] {
 	// Plutonium: fooer2[T]{} converted to Fooer[T] would be boxed in this
-	// frame and could not be returned; a pointer to an allocation can.
-	return new(fooer2[T])
+	// frame and could not be returned; a pointer to an allocation can. It
+	// comes from alloc.New, the unchecked layer, and is never freed: new
+	// would return an owned[fooer2[T]], which the ordinary interface could
+	// only borrow.
+	return alloc.New[fooer2[T]]()
 }

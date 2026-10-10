@@ -1,5 +1,5 @@
 $DIR/main.p:17:20: channel element type Job is not sendable: it contains shared[int], whose count is not atomic, so it cannot cross puroutines; use synced[T] (spec section 4.7)
-$DIR/main.p:21:10: &x is passed to a go statement, but x lives in this function's frame, which the receiving puroutine may outlive (spec section 6.3); allocate it with new or make it a package-level variable
+$DIR/main.p:21:10: &x is passed to a go statement, but x lives in this function's frame, which the receiving puroutine may outlive (spec section 6.3); allocate it with new, whose owned[T] then moves to the puroutine, or make it a package-level variable
 $DIR/main.p:24:9: buf[:] is passed to a go statement, but it is a slice of buf, which lives in this function's frame and which the receiving puroutine may outlive (spec section 6.3)
-$DIR/main.p:27:5: go statement calls a pointer method on c, a variable in this function's frame, which the puroutine may outlive (spec section 6.3); allocate it with new or make it a package-level variable
-$DIR/main.p:30:10: &x is sent on a channel, but x lives in this function's frame, which the receiving puroutine may outlive (spec section 6.3); allocate it with new or make it a package-level variable
+$DIR/main.p:27:5: go statement calls a pointer method on c, a variable in this function's frame, which the puroutine may outlive (spec section 6.3); make it a package-level variable, or give the puroutine a function that takes an owner
+$DIR/main.p:30:10: &x is sent on a channel, but x lives in this function's frame, which the receiving puroutine may outlive (spec section 6.3); allocate it with new, whose owned[T] then moves to the puroutine, or make it a package-level variable

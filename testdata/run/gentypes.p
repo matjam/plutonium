@@ -60,7 +60,11 @@ type List[T any] struct {
 	tail *List[T]
 }
 
-func (l *List[T]) Push(v T) *List[T] { return new(List[T]{v, l}) }
+// Push makes n the new head, in front of l.
+func (l *List[T]) Push(n *List[T], v T) *List[T] {
+	n.head, n.tail = v, l
+	return n
+}
 
 func (l *List[T]) Len() int {
 	if l == nil {
@@ -232,7 +236,8 @@ func main() {
 	println(Same[int, int](1), Same[int, string](1), Same[int, any](1), Same[Kind, int](1))
 
 	var l *List[string]
-	l = l.Push("a").Push("b").Push("c")
+	var la, lb, lc List[string]
+	l = l.Push(&la, "a").Push(&lb, "b").Push(&lc, "c")
 	println(l.Len(), l.head, l.tail.head)
 	l.Each(func(s string) { print(s, " ") })
 	println()

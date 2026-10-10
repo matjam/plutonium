@@ -106,7 +106,7 @@ func Fill4[T any](r *ring[T, 4], v T) int {
 }
 
 // Allocation in generic code.
-func NewOf[T any](v T) *T { return new(v) }
+func NewOf[T any](v T) owned[T] { return new(v) }
 
 func MakeN[T any](n int, v T) vec.Vec[T] {
 	s := vec.Make[T](n)
@@ -180,7 +180,6 @@ func main() {
 
 	p := NewOf(Slot[int]{val: 5})
 	println(p.val, *NewOf(3), *NewOf("q"))
-	alloc.Free(p)
 	l := Build(1, 2, 3)
 	println(l.v, l.next.v, l.next.next.v, FreeAll(l))
 }

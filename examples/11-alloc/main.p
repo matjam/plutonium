@@ -23,9 +23,9 @@ func main() {
 	fmt.Printf("reused slot is zeroed: %d\n", *q)
 	alloc.Free(q)
 
-	// new and vec.Vec use the same allocator.
+	// new returns an owned[Point], which frees the Point when pt goes out
+	// of scope. It allocates from the same default allocator.
 	pt := new(Point)
-	defer alloc.Free(pt)
 	pt.X, pt.Y = 3, 4
 	fmt.Printf("point=%d,%d\n", pt.X, pt.Y)
 

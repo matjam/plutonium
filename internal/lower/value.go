@@ -92,7 +92,15 @@ func (s *fnState) loadLV(lv lvalue) value {
 		if p, ok := T.Underlying().(*types2.Packed); ok && needsSwap(p) {
 			ld = s.newValue(ssa.OpBswap, t, ld)
 		}
-		return scalarValue(ld, T)
+		v := scalarValue(ld, T)
+		if s.l.counted(T) {
+			// A shared, synced or weak reference, borrowed from lv.
+			v.cnt = cntUnstable
+			if lv.stable {
+				v.cnt = cntStable
+			}
+		}
+		return v
 	}
 	v := aggValue(lv.ptr, T)
 	if lv.stable {

@@ -22,7 +22,7 @@ func PointerShaped(t Type) bool {
 	case *Basic:
 		return u.kind == UnsafePointer
 	case *Wrapper:
-		return u.IsPointer()
+		return u.IsBox()
 	case *Struct:
 		return u.NumFields() == 1 && PointerShaped(u.Field(0).Type())
 	case *Array:

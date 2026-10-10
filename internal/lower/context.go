@@ -519,7 +519,7 @@ func throughFile(hops []hop) bool {
 // allocCalls are the runtime functions the compiler calls to allocate: for
 // new and make, and for the operations that make strings.
 var allocCalls = map[string]bool{
-	"pluto/rt.alloc": true, "pluto/rt.allocWith": true,
+	"pluto/rt.alloc": true, "pluto/rt.allocWith": true, "pluto/rt.boxNew": true, "pluto/rt.boxNewWith": true,
 	"pluto/rt.concatStrings": true, "pluto/rt.stringFromBytes": true, "pluto/rt.stringFromRunes": true,
 	"pluto/rt.stringFromRune": true, "pluto/rt.bytesFromString": true, "pluto/rt.runesFromString": true,
 }

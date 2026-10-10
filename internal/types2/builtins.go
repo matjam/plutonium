@@ -693,8 +693,11 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 			}
 			params = append(params, allocT)
 		}
+		// Plutonium: new returns the owner of the new variable, an
+		// owned[T] (language spec section 4.2).
+		check.boxElem(arg, WrapOwned, T)
 		x.mode_ = value
-		x.typ_ = NewPointer(T)
+		x.typ_ = NewWrapper(WrapOwned, T, 0)
 		if check.recordTypes() {
 			check.recordBuiltinType(call.Fun, makeSig(x.typ(), params...))
 		}
@@ -1215,10 +1218,19 @@ func makeSig(res Type, args ...Type) *Signature {
 	return &Signature{params: params, results: result}
 }
 
+// boxAsPointer returns *T for owned[T], shared[T] and synced[T], which index,
+// slice and range like the pointer they act as; otherwise it returns u.
+func boxAsPointer(u Type) Type {
+	if w, ok := u.(*Wrapper); ok && w.IsPointer() {
+		return &Pointer{base: w.elem}
+	}
+	return u
+}
+
 // arrayPtrDeref returns A if typ is of the form *A and A is an array;
 // otherwise it returns typ.
 func arrayPtrDeref(typ Type) Type {
-	if p, ok := Unalias(typ).(*Pointer); ok {
+	if p, ok := boxAsPointer(Unalias(typ)).(*Pointer); ok {
 		if a, _ := p.base.Underlying().(*Array); a != nil {
 			return a
 		}

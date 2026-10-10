@@ -151,7 +151,14 @@ func lookupFieldOrMethodImpl(T Type, addressable bool, pkg *Package, name string
 	// Importantly, we must not call Underlying before the call to deref below (nor
 	// does deref call Underlying), as doing so could incorrectly result in finding
 	// methods of the pointer base type when T is a (*Named) pointer type.
-	typ, isPtr := deref(T)
+	// owned, shared and synced have built-in methods of their own (Drop,
+	// and weak's Upgrade) and then those of the pointer they act as.
+	if w, _ := Unalias(T).(*Wrapper); w != nil && w.kind != WrapRing {
+		if i, m := w.builtinMethod(name, foldCase); m != nil {
+			return m, []int{i}, false
+		}
+	}
+	typ, isPtr := derefBox(T)
 
 	// *typ where typ is an interface (incl. a type parameter) has no methods.
 	if isPtr {
@@ -229,7 +236,7 @@ func lookupFieldOrMethodImpl(T Type, addressable bool, pkg *Package, name string
 					// this depth, f.typ appears multiple times at the next
 					// depth.
 					if obj == nil && f.embedded {
-						typ, isPtr := deref(f.typ)
+						typ, isPtr := derefBox(f.typ)
 						// TODO(gri) optimization: ignore types that can't
 						// have fields or methods (only Named, Struct, and
 						// Interface types need to be considered).
@@ -420,6 +427,7 @@ func (check *Checker) missingMethod(V, T Type, static bool, equivalent func(x, y
 		field
 		nointerface
 		genericMethod
+		consumes
 	)
 
 	state := ok
@@ -495,6 +503,16 @@ func (check *Checker) missingMethod(V, T Type, static bool, equivalent func(x, y
 				break
 			}
 
+			// A value-receiver method of an owner type consumes its
+			// receiver, and the built-in methods of owned, shared, synced
+			// and weak act on the reference itself: neither implements an
+			// interface method, whose call cannot give up what the
+			// interface holds (language spec section 6.4).
+			if consumesReceiver(f) {
+				state = consumes
+				break
+			}
+
 			if !equivalent(f.typ, m.typ) {
 				state = wrongSig
 				break
@@ -559,12 +577,34 @@ func (check *Checker) missingMethod(V, T Type, static bool, equivalent func(x, y
 		case genericMethod:
 			fs, ms := check.funcString(f, false), check.funcString(m, false)
 			*cause = check.sprintf("(method %s has type parameters, so it cannot implement an interface method)\n\t\thave %s\n\t\twant %s", m.Name(), fs, ms)
+		case consumes:
+			if r := f.typ.(*Signature).recv; r != nil && IsOwner(r.typ) {
+				*cause = check.sprintf("(method %s has a value receiver of owner type %s, so calling it would consume the owner; it cannot implement an interface method: declare it on *%s and convert a pointer)", m.Name(), r.typ, r.typ)
+			} else {
+				*cause = check.sprintf("(%s.%s is a built-in method and cannot implement an interface method)", V, m.Name())
+			}
 		default:
 			panic("unreachable")
 		}
 	}
 
-	return m, state == wrongSig || state == ptrRecv || state == genericMethod
+	return m, state == wrongSig || state == ptrRecv || state == genericMethod || state == consumes
+}
+
+// consumesReceiver reports whether method f takes its receiver by value
+// and the receiver is an owner, or f is a built-in method of a wrapper type.
+func consumesReceiver(f *Func) bool {
+	sig, _ := f.typ.(*Signature)
+	if sig == nil || sig.recv == nil {
+		return false
+	}
+	if w, ok := Unalias(sig.recv.typ).(*Wrapper); ok && w.kind != WrapRing {
+		return true
+	}
+	if _, isPtr := Unalias(sig.recv.typ).(*Pointer); isPtr {
+		return false
+	}
+	return IsOwner(sig.recv.typ)
 }
 
 // hasAllMethods is similar to checkMissingMethod but instead reports whether all methods are present.
@@ -674,6 +714,17 @@ func deref(typ Type) (Type, bool) {
 		return p.base, true
 	}
 	return typ, false
+}
+
+// derefBox is deref that also sees through owned, shared and synced, which
+// select fields and methods like the pointer they act as (language spec
+// section 5.6). It is used for field and method lookup, method sets and
+// embedded fields only.
+func derefBox(typ Type) (Type, bool) {
+	if w, _ := Unalias(typ).(*Wrapper); w != nil && w.IsPointer() {
+		return w.elem, true
+	}
+	return deref(typ)
 }
 
 // derefStructPtr dereferences typ if it is a (named or unnamed) pointer to a

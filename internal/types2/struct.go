@@ -126,6 +126,13 @@ func (check *Checker) structType(styp *Struct, e *ast.StructType) {
 			// pointer type."
 			pos := f.Type.Pos() // position of type, for errors
 			name := embeddedFieldIdent(f.Type)
+			if w, ok := Unalias(typ).(*Wrapper); ok && w.IsPointer() {
+				// owned[T], shared[T] and synced[T] embed like *T: the
+				// field is named T (language spec section 5.6).
+				if ix, ok := f.Type.(*ast.IndexExpr); ok {
+					name = embeddedFieldIdent(ix.Index)
+				}
+			}
 			if name == nil {
 				check.errorf(f.Type, InvalidSyntaxTree, "embedded field type %s has no name", f.Type)
 				name = ast.NewIdent("_")
@@ -145,7 +152,7 @@ func (check *Checker) structType(styp *Struct, e *ast.StructType) {
 			embeddedPos := f.Type
 
 			check.later(func() {
-				t, isPtr := deref(embeddedTyp)
+				t, isPtr := derefBox(embeddedTyp)
 				switch u := t.Underlying().(type) {
 				case *Basic:
 					if !isValid(t) {

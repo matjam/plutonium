@@ -53,7 +53,7 @@ func (check *Checker) indexExpr(x *operand, e *indexedExpr) (isFuncInst bool) {
 		x.invalidate()
 		return false
 	}
-	switch typ := x.typ().Underlying().(type) {
+	switch typ := boxAsPointer(x.typ().Underlying()).(type) {
 	case *Pointer:
 		// Additionally, if x.typ is a pointer to an array type, indexing implicitly dereferences the value, meaning
 		// its base type must also be complete.
@@ -73,7 +73,7 @@ func (check *Checker) indexExpr(x *operand, e *indexedExpr) (isFuncInst bool) {
 	// ordinary index expression
 	valid := false
 	length := int64(-1) // valid if >= 0
-	switch typ := x.typ().Underlying().(type) {
+	switch typ := boxAsPointer(x.typ().Underlying()).(type) {
 	case *Basic:
 		if isString(typ) {
 			valid = true
@@ -293,7 +293,7 @@ func (check *Checker) sliceExpr(x *operand, e *ast.SliceExpr) {
 
 	valid := false
 	length := int64(-1) // valid if >= 0
-	switch u := cu.(type) {
+	switch u := boxAsPointer(cu).(type) {
 	case nil:
 		// error reported above
 		x.invalidate()

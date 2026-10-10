@@ -100,14 +100,16 @@ func inExpression() {
 	fmt.Println("not reached:", s)
 }
 
+var interfaceHalter halter
+
 func main() {
 	go direct()
 	fmt.Println(<-done)
 	go viaValue(stop)
 	fmt.Println(<-done)
 	// Not halter{...}: the interface would box it in main's frame,
-	// which the puroutine may outlive.
-	h := new(halter)
+	// which the puroutine may outlive; a package variable lives on.
+	h := &interfaceHalter
 	h.name = "interface"
 	go viaInterface(h)
 	fmt.Println(<-done)

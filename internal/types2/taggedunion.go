@@ -261,73 +261,38 @@ func (check *Checker) unionType(e *ast.UnionType, def *TypeName) Type {
 
 	check.later(func() {
 		for _, v := range u.variants {
-			check.checkOwnerPayload(atPos(v.pos), def.name, v)
+			if !check.checkOwnerPayload(atPos(v.pos), def, v) {
+				return
+			}
 		}
 	}).describef(e, "union payloads of %s", def.name)
 	return u
 }
 
-// ownerIn returns the owned, shared or synced pointer type that a value of
-// T holds directly (in T itself, a field, an array element or a variant
-// payload, but not behind a pointer), or nil.
-func ownerIn(T Type, seen map[Type]bool) Type {
-	if seen[T] {
-		return nil
-	}
-	seen[T] = true
-	switch u := T.Underlying().(type) {
-	case *Wrapper:
-		if u.IsPointer() {
-			return T
-		}
-		return ownerIn(u.elem, seen)
-	case *Struct:
-		for _, f := range u.fields {
-			if t := ownerIn(f.typ, seen); t != nil {
-				return t
-			}
-		}
-	case *Array:
-		return ownerIn(u.elem, seen)
-	case *TaggedUnion:
-		for _, v := range u.variants {
-			if t := ownerIn(v.typ, seen); t != nil {
-				return t
-			}
-		}
-	}
-	return nil
-}
-
-// checkOwnerPayload reports a variant whose payload holds an owned, shared
-// or synced pointer. Such a union must drop the payload of the variant it
-// holds, which needs the ownership checker (language spec section 6.4).
-func (check *Checker) checkOwnerPayload(at positioner, union string, v *Variant) bool {
-	t := ownerIn(v.typ, map[Type]bool{})
-	if t == nil {
+// checkOwnerPayload reports a variant whose payload is an owner in a union
+// not declared owner (language spec sections 5.10 and 6.4): the union owns
+// the payload of the variant it holds and drops it, so it moves like any
+// owner, and must say so.
+func (check *Checker) checkOwnerPayload(at positioner, def *TypeName, v *Variant) bool {
+	if def == nil || def.ownerMark || !v.HasPayload() || !IsOwner(v.typ) {
 		return true
 	}
-	what := "the payload"
-	if !Identical(t, v.typ) {
-		what = "part of it"
+	p := check.sprintf("%s", v.typ)
+	view := "*" + p
+	if w, ok := Unalias(v.typ).(*Wrapper); ok && w.kind == WrapOwned {
+		view = "*" + check.sprintf("%s", w.elem)
 	}
-	check.errorf(at, UnionOwnerPayload, "union %s cannot have variant %s with payload %s yet: %s is %s, and unions that own their payloads wait for ownership",
-		union, v.name, v.typ, what, t)
+	check.explainf(at, UnionOwnerPayload, &Explanation{
+		Text: whatOwners + " A union holding one owns the payload of the variant it holds: it drops it when the union is dropped or given another variant, and the union moves instead of being copied.",
+		Fixes: []ExplainFix{{
+			Intro: "Plutonium does not make " + def.name + " an owner silently; say so in its declaration",
+			Code:  "type " + def.name + " owner union {\n\t...\n}",
+		}, {
+			Intro: "If the union should only look at a value something else owns, hold a pointer",
+			Code:  v.name + " " + view,
+		}},
+	}, "union %s must be declared owner: its variant %s holds %s, which is an owner", def.name, v.name, article(p))
 	return false
-}
-
-// checkUnionInstance reports a union instance whose type arguments put an
-// owned, shared or synced pointer in a payload (see checkOwnerPayload).
-func (check *Checker) checkUnionInstance(at positioner, inst Type) {
-	u, _ := inst.Underlying().(*TaggedUnion)
-	if u == nil {
-		return
-	}
-	for _, v := range u.variants {
-		if !check.checkOwnerPayload(at, check.sprintf("%s", inst), v) {
-			return
-		}
-	}
 }
 
 // ----------------------------------------------------------------------------

@@ -98,6 +98,8 @@ func (check *Checker) conversion(x *operand, T Type) {
 		return
 	}
 
+	check.ownerConversion(x, T)
+
 	// The conversion argument types are final. For untyped values the
 	// conversion provides the type, per the spec: "A constant may be
 	// given a type explicitly by a constant declaration or conversion,...".
@@ -167,6 +169,14 @@ func (x *operand) convertibleTo(check *Checker, T Type, cause *string) bool {
 				return true
 			}
 		}
+	}
+
+	// Plutonium: boxes (language spec section 5.6). owned[T], shared[T]
+	// and synced[T] convert to a *T view; a shared[T] or synced[T] converts
+	// to a weak reference; and, as unsafe code, every box converts to and
+	// from unsafe.Pointer.
+	if boxConvertible(Vu, Tu) {
+		return true
 	}
 
 	// "V and T are both integer or floating point types"
@@ -300,6 +310,28 @@ func (x *operand) convertibleTo(check *Checker, T Type, cause *string) bool {
 		})
 	}
 
+	return false
+}
+
+// boxConvertible reports whether a value of underlying type Vu converts to
+// underlying type Tu by the box rules of convertibleTo.
+func boxConvertible(Vu, Tu Type) bool {
+	vw, _ := Vu.(*Wrapper)
+	tw, _ := Tu.(*Wrapper)
+	switch {
+	case vw != nil && vw.IsPointer():
+		if p, ok := Tu.(*Pointer); ok {
+			return Identical(vw.elem, p.base)
+		}
+		if tw != nil && tw.kind == WrapWeak {
+			return Identical(vw, tw.elem)
+		}
+		return isUnsafePointer(Tu)
+	case vw != nil && vw.kind == WrapWeak:
+		return isUnsafePointer(Tu)
+	case tw != nil && tw.IsBox():
+		return isUnsafePointer(Vu)
+	}
 	return false
 }
 

@@ -129,6 +129,27 @@ func init() {
 			Fixed:   "unsafe.Drop(&v)",
 		},
 		&Entry{
+			Code: CheckerCode(typerr.BoxOfInterface), Name: "BoxOfInterface",
+			Text:    "owned[T], shared[T] and synced[T] hold one object of type T on the heap. An interface already refers to the value it holds, so a box around an interface would be a second, slower way to own a value behind an interface, with two levels of pointers.\nTo own whatever is converted into an interface, declare an owning interface. To box the value itself, use its own type.",
+			Spec:    pspec("5.6", "owned, shared, synced and weak"),
+			Example: "var r owned[io.Reader]",
+			Fixed:   "type Source owner interface {\n\tRead(p []byte) (int, error)\n}\n\nvar r Source",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.BadWeakElem), Name: "BadWeakElem",
+			Text:    "A weak reference refers to an object that counted references keep alive, without keeping it alive itself, so that structures with back pointers can be freed. Only shared[T] and synced[T] count their references, so weak takes one of them: weak[shared[Node]].",
+			Spec:    pspec("6.5", "Shared ownership"),
+			Example: "parent weak[Node]",
+			Fixed:   "parent weak[shared[Node]]",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.OwnerConversion), Name: "OwnerConversion",
+			Text:    "Converting a plain value into an owner type makes a new owner of whatever the value refers to: a file descriptor, a page frame. If code outside the owner's package could do that, two owners of the same resource could exist, and both would release it. So only the package that declares the owner type may convert into it, as only that package can fill its unexported fields.\nConverting an owner into a plain value only reads it, and converting between two owner types moves the owner; both are allowed anywhere. A pointer view cannot become a box at all: make one with new or the alloc package.",
+			Spec:    pspec("6.4", "Owners"),
+			Example: "fd := sys.Fd(3) // sys declares type Fd owner int32",
+			Fixed:   "fd, err := sys.Open(\"/dev/null\")",
+		},
+		&Entry{
 			Code: BadResultHolds, Name: "BadResultHolds",
 			Text:    "//pu:resultholds p says that a function keeps its parameter p only for as long as its result lives: the result, an owner, holds p and gives it back when it is dropped, as alloc.Use's Restore does. The compiler then treats the call as returning p instead of keeping it. The directive must name a parameter, and the function must store that parameter in its result.",
 			Spec:    pspec("9", "Directives"),

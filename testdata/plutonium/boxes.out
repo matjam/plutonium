@@ -1,0 +1,31 @@
+tree root left right
+took left true
+drop left
+drop root
+drop right
+drop early-a
+early 0
+drop loop-b
+drop loop-b
+early-a early-c
+drop early-c
+drop early-a
+early 1
+consuming moved
+drop moved
+drop dropped
+after drop
+clone 1 10 pt false
+view viewed true
+parents root root true
+drop node root
+parent of a now (gone)
+a alive true
+drop node b
+drop node a
+counter 6
+drop counter
+leaving goexit
+drop goexit
+end
+drop viewed

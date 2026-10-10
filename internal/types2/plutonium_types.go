@@ -10,7 +10,7 @@ import (
 
 // ----------------------------------------------------------------------------
 // Wrapper types: volatile[T], aligned[T, N], ring[T, N], owned[T],
-// shared[T], synced[T].
+// shared[T], synced[T], weak[P].
 //
 // All of them wrap one element type and, for aligned and ring, an integer.
 // They share one Go type so that every type switch in the checker needs only
@@ -26,6 +26,7 @@ const (
 	WrapOwned                       // owned[T]: unique owning pointer
 	WrapShared                      // shared[T]: reference-counted pointer, one core
 	WrapSynced                      // synced[T]: atomically reference-counted pointer
+	WrapWeak                        // weak[P]: non-owning reference to a shared or synced object
 )
 
 var wrapperNames = [...]string{
@@ -35,6 +36,7 @@ var wrapperNames = [...]string{
 	WrapOwned:    "owned",
 	WrapShared:   "shared",
 	WrapSynced:   "synced",
+	WrapWeak:     "weak",
 }
 
 func (k WrapperKind) String() string { return wrapperNames[k] }
@@ -49,6 +51,64 @@ type Wrapper struct {
 	n    int64 // alignment for aligned, capacity for ring; 0 otherwise
 
 	methods []*Func // ring methods, built on first lookup
+	builtin []*Func // owned's Drop, weak's Upgrade, built on first lookup
+}
+
+// BoxMethods lists the built-in methods of owned, shared, synced and weak,
+// which act on the reference rather than on the object it points to. Their
+// receiver is the reference, by value. The compiler expands calls to them.
+//
+//   - owned[T].Drop(): drop the object, then free its memory (section 6.4);
+//   - owned[T].Clone() owned[T]: a new box holding a copy of the object, from
+//     the current allocator, when T is not an owner (section 5.6);
+//   - weak[P].Upgrade() (P, bool): a new strong reference while the object
+//     is alive (section 6.5).
+var BoxMethods = [...]string{"Drop", "Clone", "Upgrade"}
+
+// builtinMethod returns the index (into BoxMethods) and object of a
+// built-in method of a box or weak reference, or nil.
+func (w *Wrapper) builtinMethod(name string, foldCase bool) (int, *Func) {
+	for i, m := range BoxMethods {
+		if name != m && (!foldCase || !strings.EqualFold(name, m)) {
+			continue
+		}
+		switch {
+		case w.kind == WrapOwned && m == "Drop", w.kind == WrapWeak && m == "Upgrade":
+		case w.kind == WrapOwned && m == "Clone" && !IsOwner(w.elem):
+		default:
+			return -1, nil
+		}
+		if w.builtin == nil {
+			w.builtin = make([]*Func, len(BoxMethods))
+		}
+		if w.builtin[i] == nil {
+			recv := NewVar(nopos, nil, "r", w)
+			var results *Tuple
+			switch m {
+			case "Upgrade":
+				results = NewTuple(NewParam(nopos, nil, "", w.elem), NewParam(nopos, nil, "ok", Typ[Bool]))
+			case "Clone":
+				results = NewTuple(NewParam(nopos, nil, "", w))
+			}
+			w.builtin[i] = NewFunc(nopos, nil, m, NewSignatureType(recv, nil, nil, nil, results, false))
+		}
+		return i, w.builtin[i]
+	}
+	return -1, nil
+}
+
+// BoxMethodOf returns the box or weak type a built-in method belongs to, or
+// nil if fn is not one.
+func BoxMethodOf(fn *Func) *Wrapper {
+	sig, _ := fn.typ.(*Signature)
+	if sig == nil || sig.recv == nil {
+		return nil
+	}
+	w, ok := sig.recv.typ.(*Wrapper)
+	if !ok || (!w.IsPointer() && w.kind != WrapWeak) {
+		return nil
+	}
+	return w
 }
 
 // RingMethods lists the built-in methods of ring[T, N] in the order
@@ -124,10 +184,22 @@ func (w *Wrapper) Elem() Type { return w.elem }
 // N returns the alignment (aligned) or capacity (ring), or 0.
 func (w *Wrapper) N() int64 { return w.n }
 
-// IsPointer reports whether w is one of the owning or counted pointer kinds.
+// IsPointer reports whether w is one of the owning or counted pointer kinds:
+// owned, shared or synced, which dereference like *T. weak is a reference
+// too, but does not dereference.
 func (w *Wrapper) IsPointer() bool {
 	return w.kind == WrapOwned || w.kind == WrapShared || w.kind == WrapSynced
 }
+
+// IsCounted reports whether w is a counted reference: shared, synced or
+// weak. Copying one updates a count, and dropping one releases it.
+func (w *Wrapper) IsCounted() bool {
+	return w.kind == WrapShared || w.kind == WrapSynced || w.kind == WrapWeak
+}
+
+// IsBox reports whether w refers to a heap object with a header: owned,
+// shared, synced or weak (abi.md section 1).
+func (w *Wrapper) IsBox() bool { return w.IsPointer() || w.kind == WrapWeak }
 
 func (w *Wrapper) Underlying() Type { return w }
 func (w *Wrapper) String() string   { return TypeString(w, nil) }
@@ -534,9 +606,43 @@ func (check *Checker) wrapperType(ix *indexedExpr) Type {
 				check.errorf(ix.indices[0], BadVolatileElem, "volatile element type %s must be an integer, bool or pointer", elem)
 			}
 		})
+	case WrapOwned, WrapShared, WrapSynced:
+		check.later(func() { check.boxElem(ix.indices[0], kind, elem) })
+	case WrapWeak:
+		w, ok := Unalias(elem).(*Wrapper)
+		if !ok || (w.kind != WrapShared && w.kind != WrapSynced) {
+			e := check.sprintf("%s", elem)
+			check.explainf(ix.indices[0], BadWeakElem, &Explanation{
+				Text: "A weak reference refers to an object that counted references keep alive, without keeping it alive itself. Only shared[T] and synced[T] count their references.",
+				Fixes: []ExplainFix{{
+					Intro: "Name the counted reference type the weak reference comes from",
+					Code:  "weak[shared[" + e + "]]",
+				}},
+			}, "weak takes shared[T] or synced[T], not %s", e)
+			return Typ[Invalid]
+		}
 	}
 
 	return NewWrapper(kind, elem, n)
+}
+
+// boxElem reports an interface type as the element of owned, shared or
+// synced (language spec section 5.6): an owning interface owns a value
+// behind an interface.
+func (check *Checker) boxElem(at positioner, kind WrapperKind, elem Type) {
+	if _, isTP := Unalias(elem).(*TypeParam); isTP || !IsInterface(elem) {
+		return
+	}
+	e := check.sprintf("%s", elem)
+	check.explainf(at, BoxOfInterface, &Explanation{
+		Text: kind.String() + "[T] holds one object of type T on the heap. An interface already refers to the value it holds, so a box around one would be a second, slower way to own a value behind an interface.",
+		Fixes: []ExplainFix{{
+			Intro: "To own whatever is converted into an interface, declare an owning interface",
+			Code:  "type Resource owner interface {\n\t...\n}",
+		}, {
+			Intro: "To put the value itself in a box, use its own type: " + kind.String() + "[File] rather than " + kind.String() + "[" + e + "].",
+		}},
+	}, "%s cannot hold an interface type (%s): use an owning interface", kind, e)
 }
 
 // isVolatileElem reports whether T can be wrapped in volatile: a scalar

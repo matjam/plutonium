@@ -99,12 +99,104 @@ func (w *walker) load(ts tset) tset {
 		case tHeap:
 			out.add(heapTok)
 		case tFrame:
+			if t.loc.kind == lkObject || t.loc.kind == lkArena {
+				out.add(heapTok) // what a box's object or an arena holds is heap memory
+				continue
+			}
 			out.addAll(t.loc.get(t.path))
 		case tParam:
 			out.add(t.untag().extend("*"))
 		}
 	}
 	return out
+}
+
+// isBoxPtr reports whether T is owned[T], shared[T] or synced[T], whose
+// value points to a heap object that the box keeps alive.
+func isBoxPtr(T types2.Type) bool {
+	if T == nil {
+		return false
+	}
+	b, ok := T.Underlying().(*types2.Wrapper)
+	return ok && b.IsPointer()
+}
+
+// pointee returns what the pointer x points to: its value for a pointer,
+// and for a box a view of the box's object, bounded by where the box is
+// held (boxView).
+func (w *walker) pointee(x ast.Expr) tset {
+	v := w.value(x)
+	if isBoxPtr(w.typeOf(x)) {
+		return w.boxView(x)
+	}
+	return v
+}
+
+// boxView returns what a view of the object of the box x points to
+// (language spec section 6.5, rule 5): a view through a box may not outlive
+// the box it was made through. A box held in a local variable or a
+// parameter of this frame (owned parameters are the callee's own) bounds
+// the view by that variable; a temporary box bounds it by the frame, where
+// the statement drops it. A box reached any other way (a field of heap
+// memory, a package variable) gives a view of heap memory, checked at run
+// time.
+func (w *walker) boxView(x ast.Expr) tset {
+	switch e := ast.Unparen(x).(type) {
+	case *ast.Ident:
+		v, _ := w.objOf(e).(*types2.Var)
+		if v == nil || isGlobal(v) {
+			return tset{heapTok}
+		}
+		return tset{frameTok(w.objLoc(v))}
+	case *ast.SelectorExpr, *ast.IndexExpr, *ast.StarExpr:
+		if root := w.frameRoot(e); root != nil {
+			return tset{frameTok(w.objLoc(root))}
+		}
+		return tset{heapTok}
+	}
+	l := w.tmp(x, lkObject)
+	l.typ = w.typeOf(x)
+	return tset{frameTok(l)}
+}
+
+// frameRoot returns the local variable a field or array element selection
+// is part of, without following pointers, or nil.
+func (w *walker) frameRoot(e ast.Expr) *types2.Var {
+	for {
+		switch x := ast.Unparen(e).(type) {
+		case *ast.Ident:
+			v, _ := w.objOf(x).(*types2.Var)
+			if v == nil || isGlobal(v) {
+				return nil
+			}
+			return v
+		case *ast.SelectorExpr:
+			sel := w.a.selections[x]
+			if sel == nil || sel.Kind() != types2.FieldVal || sel.Indirect() {
+				return nil
+			}
+			e = x.X
+		case *ast.IndexExpr:
+			if _, ok := underlying(w.typeOf(x.X)).(*types2.Array); !ok {
+				return nil
+			}
+			e = x.X
+		default:
+			return nil
+		}
+	}
+}
+
+// objLoc returns the location standing for the object of the box held in
+// local variable v.
+func (w *walker) objLoc(v *types2.Var) *loc {
+	if l := w.objs[v]; l != nil {
+		return l
+	}
+	vl := w.varLoc(v)
+	l := &loc{kind: lkObject, v: v, fn: vl.fn, pos: vl.pos, level: vl.level, typ: v.Type()}
+	w.objs[v] = l
+	return l
 }
 
 // offset returns pointers to field i of what the pointers in ts point to.
@@ -319,6 +411,9 @@ func (w *walker) value1(e ast.Expr) tset {
 			w.value(i)
 		}
 		xt := w.typeOf(x)
+		if isBoxPtr(xt) {
+			return w.load(w.pointee(x)) // an element of a box's array
+		}
 		switch u := underlying(xt).(type) {
 		case *types2.Basic:
 			w.value(x)
@@ -342,10 +437,10 @@ func (w *walker) value1(e ast.Expr) tset {
 				return p
 			}
 		}
-		return w.value(e.X)
+		return w.pointee(e.X)
 
 	case *ast.StarExpr:
-		return w.load(w.value(e.X))
+		return w.load(w.pointee(e.X))
 
 	case *ast.UnaryExpr:
 		switch e.Op {
@@ -361,10 +456,15 @@ func (w *walker) value1(e ast.Expr) tset {
 	case *ast.BinaryExpr:
 		w.value(e.X)
 		w.value(e.Y)
+		if T := w.typeOf(e); e.Op == token.ADD && T != nil && isString(T) {
+			// A concatenation allocates its result through the default
+			// allocator, which may be a local arena (arena.go).
+			return w.arenaAt(e.Pos())
+		}
 		return nil
 
 	case *ast.CallExpr:
-		res := w.call(e)
+		res := w.arenaResult(e, w.call(e))
 		if len(res) == 0 {
 			return nil
 		}
@@ -462,6 +562,9 @@ func (w *walker) place(e ast.Expr) (tset, bool) {
 		return w.fieldPlace(e.X, sel.Index())
 	case *ast.IndexExpr:
 		w.value(e.Index)
+		if isBoxPtr(w.typeOf(e.X)) {
+			return w.pointee(e.X), true
+		}
 		switch u := underlying(w.typeOf(e.X)).(type) {
 		case *types2.Array:
 			return w.place(e.X)
@@ -472,7 +575,7 @@ func (w *walker) place(e ast.Expr) (tset, bool) {
 		w.value(e.X)
 		return nil, false
 	case *ast.StarExpr:
-		return w.value(e.X), true
+		return w.pointee(e.X), true
 	case *ast.CompositeLit:
 		return w.litPlace(e), true
 	}
@@ -500,7 +603,7 @@ func (w *walker) fieldPlace(x ast.Expr, path []int) (tset, bool) {
 	isAddr := false
 	T := xt
 	if el := pointerElem(xt); el != nil {
-		cur, isAddr, T = w.value(x), true, el
+		cur, isAddr, T = w.pointee(x), true, el
 	} else if p, ok := w.place(x); ok {
 		cur, isAddr = p, true
 	} else {
@@ -575,6 +678,11 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 		return nil // an untyped constant becomes a word or a static string
 	}
 	w.a.noteConversion(from)
+	if x, ok := node.(ast.Expr); ok && isBoxPtr(from) && !types2.IsOwner(to) {
+		// An ordinary interface lends: holding a box's pointer, it is a
+		// view of the box's object (language spec section 6.4).
+		return w.boxView(x)
+	}
 	_, known := isDirect(from)
 	if w.a.isDirectType(from) {
 		switch {
@@ -661,6 +769,10 @@ func (w *walker) explicitConv(e *ast.CallExpr, to types2.Type) tset {
 			if _, ok := underlying(to).(*types2.Array); ok {
 				return w.load(v) // the elements are copied
 			}
+		}
+		if isBoxPtr(from) && (isUnsafePointer(to) || pointerElem(to) != nil && !isBoxPtr(to)) {
+			// (*T)(p) and unsafe.Pointer(p): a view of the box's object.
+			return w.boxView(x)
 		}
 		if isUnsafePointer(from) || isUnsafePointer(to) {
 			// The address keeps its path while no pointers can be read
@@ -866,7 +978,7 @@ func (w *walker) receiver(x ast.Expr, sel *types2.Selection) tset {
 	isAddr := false
 	T := xt
 	if el := pointerElem(xt); el != nil {
-		cur, isAddr, T = w.value(x), true, el
+		cur, isAddr, T = w.pointee(x), true, el
 	} else if p, ok := w.place(x); ok {
 		cur, isAddr = p, true
 	} else {
@@ -908,7 +1020,7 @@ func (w *walker) multi(e ast.Expr, n int) ([]tset, []types2.Type) {
 	}
 	switch x := ast.Unparen(e).(type) {
 	case *ast.CallExpr:
-		res := w.call(x)
+		res := w.arenaResult(x, w.call(x))
 		copy(vals, res)
 		return vals, types
 	case *ast.TypeAssertExpr:
@@ -988,6 +1100,9 @@ func (w *walker) store(targets, vals tset, pos token.Pos, d dest) {
 		w.report(e, fmt.Sprintf("store|%p", v.loc))
 	}
 	for _, t := range targets {
+		if t.kind == tFrame && (t.loc.kind == lkObject || t.loc.kind == lkArena) {
+			t = heapTok // a box's object, or an arena's memory, is not the frame's
+		}
 		switch t.kind {
 		case tFrame:
 			var add tset

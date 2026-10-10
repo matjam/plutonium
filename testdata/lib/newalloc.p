@@ -91,14 +91,15 @@ func main() {
 	restore.Restore()
 	fmt.Printf("default: %q %d calls=%d other=%d\n", e.s, m.Len(), d.calls, c.calls)
 
-	alloc.Free(p, a)
-	alloc.Free(q, a)
-	alloc.Free(r, a)
-	alloc.Free(n, a)
-	alloc.Free(s, a)
-	alloc.Free(w, a)
-	alloc.Free(g, a)
-	alloc.Free(t, a)
-	// Only the two slices are left.
+	p.Drop()
+	q.Drop()
+	r.Drop()
+	n.Drop()
+	s.Drop()
+	w.Drop()
+	g.Drop()
+	t.Drop()
+	// Dropping each owner freed its variable to the allocator recorded
+	// with it. Only the two slices are left.
 	fmt.Printf("freed live=%d\n", c.live)
 }

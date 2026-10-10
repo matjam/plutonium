@@ -1029,7 +1029,7 @@ func hasPointersSeen(T types2.Type, seen map[types2.Type]bool) bool {
 		}
 		return false
 	case *types2.Wrapper:
-		if u.IsPointer() {
+		if u.IsBox() {
 			return true
 		}
 		return hasPointersSeen(u.Elem(), seen)
@@ -1054,7 +1054,7 @@ func isInterface(T types2.Type) bool {
 // that can only point to the heap.
 func isCounted(T types2.Type) bool {
 	w, ok := T.Underlying().(*types2.Wrapper)
-	return ok && w.IsPointer()
+	return ok && w.IsBox()
 }
 
 // isDirect reports whether a value of T is stored in an interface's data
@@ -1077,7 +1077,7 @@ func isDirect(T types2.Type) (direct, known bool) {
 		return true, true
 	case *types2.Wrapper:
 		switch {
-		case u.IsPointer():
+		case u.IsBox():
 			return true, true
 		case u.Kind() == types2.WrapVolatile:
 			return isDirect(u.Elem())

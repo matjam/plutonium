@@ -1,12 +1,10 @@
 package lower
 
 import (
-	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
-	typerr "github.com/matjam/plutonium/internal/types2/errors"
 )
 
 // Unions. An ordinary union is laid out as its tag (one byte, or two for
@@ -29,48 +27,15 @@ type unionLayout struct {
 	payload int64     // offset of the payload
 }
 
-// unionLayout returns the layout of union type T, reporting at pos a payload
-// that holds an owned, shared or synced pointer once type arguments are
-// substituted (the checker reports those it can see).
+// unionLayout returns the layout of union type T.
 func (l *Lowerer) unionLayoutOf(T types2.Type, pos token.Pos) *unionLayout {
 	u := T.Underlying().(*types2.TaggedUnion)
 	tagSize, off := types2.UnionLayout(l.sizes, u)
-	for i := 0; i < u.NumVariants(); i++ {
-		if p := u.Variant(i).Payload(); ownerPointerIn(p) {
-			l.errorf(pos, diag.CheckerCode(typerr.UnionOwnerPayload), "union %s cannot have variant %s with payload %s yet: unions with owned, shared or synced payloads are not supported until ownership lands (language spec section 6.4)",
-				T, u.Variant(i).Name(), p)
-			break
-		}
-	}
 	word := int64(8)
 	for word > off {
 		word /= 2
 	}
 	return &unionLayout{T: T, u: u, tag: ssa.IntType(tagSize), word: ssa.IntType(word), payload: off}
-}
-
-// ownerPointerIn reports whether a value of T holds an owned, shared or
-// synced pointer directly (not behind a pointer).
-func ownerPointerIn(T types2.Type) bool {
-	switch u := T.Underlying().(type) {
-	case *types2.Wrapper:
-		return u.IsPointer() || ownerPointerIn(u.Elem())
-	case *types2.Struct:
-		for i := 0; i < u.NumFields(); i++ {
-			if ownerPointerIn(u.Field(i).Type()) {
-				return true
-			}
-		}
-	case *types2.Array:
-		return ownerPointerIn(u.Elem())
-	case *types2.TaggedUnion:
-		for i := 0; i < u.NumVariants(); i++ {
-			if ownerPointerIn(u.Variant(i).Payload()) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // variantOf returns the variant an expression names (U.V, or a bare V in a
@@ -253,6 +218,15 @@ func (s *fnState) unionTypeSwitch(st *ast.TypeSwitchStmt, x ast.Expr, label *typ
 	ul := s.layoutFor(T, x.Pos())
 	// Held: the clauses may change the union the payloads are read from.
 	u := s.hold(s.materialize(s.expr(x)))
+	moves := s.l.moves != nil && s.l.moves.SwitchMoves[st]
+	if moves {
+		// An owner union moves into the binding of the clause that runs
+		// (language spec section 5.10): x holds nothing afterwards.
+		copied := s.temp(T, "switched")
+		s.storeTo(copied, u, T)
+		u = aggValue(copied, T)
+		s.zero(s.lv(x).ptr, s.l.sizeof(T))
+	}
 	if !u.addr {
 		// A packed union held in a register: give it a home, so that cases
 		// and bindings read the same bits.
@@ -297,8 +271,14 @@ func (s *fnState) unionTypeSwitch(st *ast.TypeSwitchStmt, x ast.Expr, label *typ
 		clause := s.pushCleanup(cc, true)
 		if obj, ok := s.info.Implicits[cc].(*types2.Var); ok {
 			// The variable is a copy of the payload the union still holds,
-			// so it is not destroyed on its own.
-			addr := s.declareView(obj)
+			// so it is not destroyed on its own; from an owner union it
+			// takes the payload, and is.
+			var addr *ssa.Value
+			if moves {
+				addr = s.declareVar(obj)
+			} else {
+				addr = s.declareView(obj)
+			}
 			VT := s.subst(obj.Type())
 			if len(cc.List) == 1 {
 				s.assign(lvalue{ptr: addr, T: VT}, s.payloadOf(T, u, s.variantOf(cc.List[0]), ul), true)
@@ -358,6 +338,15 @@ func (s *fnState) unionAssert(e *ast.TypeAssertExpr, commaOk bool) (value, *ssa.
 	v := s.variantOf(e.Type)
 	P := payloadType(T, v)
 	ok := s.holds(T, u, v, ul)
+	if s.l.moves != nil && s.l.moves.AssertMoves[e] {
+		// v, ok := x.(V) on an owner union takes the payload where it
+		// succeeds: x is cleared there.
+		copied := s.temp(T, "asserted")
+		s.storeTo(copied, u, T)
+		u = aggValue(copied, T)
+		lv := s.lv(e.X)
+		s.ifThen(ok, func() { s.zero(lv.ptr, s.l.sizeof(T)) })
+	}
 	if !commaOk {
 		s.panicUnless(ok, e.Pos(), func() {
 			have := s.stringLeavesOf("")

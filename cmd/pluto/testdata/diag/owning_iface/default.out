@@ -1,0 +1,65 @@
+$DIR/main.p:20:20: f was moved to r at line 19, so it can no longer be used here
+    owned[File] is an owner type: its values own what they hold and release it
+    when they are dropped. Assigning an owner moves it instead of copying it, so
+    that what it owns has exactly one owner. Since line 19, r owns it and f
+    holds nothing.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    If r only needs to look at the value, give it a pointer instead:
+        r := &f
+    If this is the last use of f, move it before line 19, where f still holds
+    its value.
+    (see "Owners" in the Plutonium spec, section 6.4)
+    (run "pluto explain E3301" for a longer explanation)
+
+$DIR/main.p:33:7: cannot assert n to owned[File]: n is a Namer, which only lends the value it holds
+    Converting an owner to an ordinary interface such as Namer lends it: the
+    interface looks at the owner, which still belongs to the variable that was
+    converted. Taking an owned[File] out of n would create a second owner.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Call the value's methods through an interface type instead:
+        if s, ok := n.(fmt.Stringer); ok {
+            use(s.String())
+        }
+    or move it into an owning interface in the first place:
+        type Text owner interface{ String() string }
+    (see "Owners" in the Plutonium spec, section 6.4)
+    (run "pluto explain E3308" for a longer explanation)
+
+$DIR/main.p:42:10: r may have been moved at line 39, so it cannot be used here
+    Resource is an owner type: its values own what they hold and release it when
+    they are dropped. r is moved out by the type assertion r.(owned[File]) at
+    line 39 on some paths to this point and not on others. On those paths r
+    holds nothing afterwards, and the compiler cannot let a value be used where
+    it may already belong to someone else.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Use r before line 39, or give it a new value on the path that moves it:
+        r = ...
+    (see "Owners" in the Plutonium spec, section 6.4)
+    (run "pluto explain E3302" for a longer explanation)
+
+$DIR/main.p:27:9: cannot return n, which points into the object f refers to, which f keeps alive in lent
+    n points into the object f refers to, which f keeps alive in lent. f
+    (declared at main.p:25) is an owned[File]: the object it refers to lives
+    only while f holds it, and is dropped when f is dropped at the end of its
+    scope in lent, or released when it is the last reference. A pointer into the
+    object, or an interface that lends it, is a view that may not outlive f.
+    When lent returns, f is dropped and the object freed, so n would point at
+    freed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return f itself: an owned box moves to the caller, and a shared or synced
+    one gives the caller its own reference:
+        return f
+    (see "Views" in the Plutonium spec, section 6.3)
+    (run "pluto explain E3001" for a longer explanation)

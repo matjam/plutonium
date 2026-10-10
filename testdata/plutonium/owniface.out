@@ -1,0 +1,26 @@
+a
+close b
+c
+using d
+close d
+fd
+drop fd 7
+plain
+shared
+still shared
+big
+big
+drop big big
+still a
+asserted a
+close a
+close e
+file e
+drop fd 8
+fd
+other value
+pool pooled
+end
+close pooled
+drop node shared
+close c

@@ -376,8 +376,15 @@ func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []
 	k := 1
 	for _, p := range abi.results {
 		if len(p.leaves) == 1 && p.leaves[0].off == 0 && s.l.scalarType(p.typ) != nil {
-			out = append(out, scalarValue(s.selectN(call, k, p.leaves[0].t), p.typ))
+			r := s.selectN(call, k, p.leaves[0].t)
 			k++
+			if s.l.counted(p.typ) {
+				// A shared, synced or weak reference: the callee handed
+				// over a reference, which the statement holds.
+				out = append(out, s.wordTemp(r, p.typ, "res"))
+				continue
+			}
+			out = append(out, scalarValue(r, p.typ))
 			continue
 		}
 		tmp := s.temp(p.typ, "res")
@@ -516,6 +523,15 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 		s.dropAt(lv.ptr, T)
 		s.zero(lv.ptr, s.l.sizeof(T))
 		return nil
+	}
+
+	// weak[P].Upgrade and owned[T].Clone (box.go).
+	if w := types2.BoxMethodOf(fn); w != nil && fn.Name() != "Drop" {
+		rw := unwrap(s.subst(recvT)).Underlying().(*types2.Wrapper)
+		if fn.Name() == "Clone" {
+			return []value{s.cloneBox(s.expr(se.X), rw, s.typeOf(e))}
+		}
+		return s.upgrade(s.expr(se.X), rw, s.typeOf(e))
 	}
 
 	// Interface method calls.

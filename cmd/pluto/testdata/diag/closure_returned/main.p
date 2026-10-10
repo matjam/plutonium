@@ -11,7 +11,7 @@ type holder struct {
 
 // Through memory on the heap: the result holds the closure only through a
 // pointer, so the caller provides no region.
-func Ptr(n int) *holder {
+func Ptr(n int) owned[holder] {
 	h := new(holder)
 	h.f = func() int { return n }
 	return h
@@ -26,7 +26,7 @@ func counter() func() int {
 }
 
 // The same, for the closure of a call.
-func PtrCall() *holder {
+func PtrCall() owned[holder] {
 	h := new(holder)
 	h.f = counter()
 	return h
@@ -37,7 +37,7 @@ type box struct{ n int }
 func (b *box) get() int { return b.n }
 
 // A method value, through a pointer.
-func PtrMethod(b *box) *holder {
+func PtrMethod(b *box) owned[holder] {
 	h := new(holder)
 	h.f = b.get
 	return h

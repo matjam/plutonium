@@ -50,6 +50,12 @@ func (f *fn) expr(e ast.Expr) {
 		f.call(e, mvArg)
 	case *ast.TypeAssertExpr:
 		f.temp(e)
+		if e.Type != nil && f.assertMoves(e.X, f.c.typeOf(e.Type)) {
+			// Moves the owner out of the interface variable, which lowering
+			// clears as for any move.
+			f.consume(e.X, f.c.typeOf(e.X), move{kind: mvAssert, to: exprText(e)})
+			return
+		}
 		f.expr(e.X)
 		if e.Type != nil {
 			f.assertTo(e.X, f.c.typeOf(e.Type), e.Pos())
@@ -148,7 +154,7 @@ func (f *fn) selector(e *ast.SelectorExpr) {
 		return
 	}
 	recv := methodRecv(fun)
-	if recv != nil && pointerElem(recv) == nil && isOwner(recv) && len(sel.Index()) == 1 {
+	if recv != nil && pointerElem(recv) == nil && isOwner(recv) && !types2.IsInterface(recv) && len(sel.Index()) == 1 {
 		f.consume(e.X, recv, move{kind: mvMethodValue, to: exprText(e)})
 		return
 	}
@@ -247,7 +253,11 @@ func (f *fn) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.Selec
 		f.dropCall(se, recv)
 		return
 	}
-	if recv == nil || pointerElem(recv) != nil || !isOwner(recv) {
+	if fun != nil && types2.BoxMethodOf(fun) != nil {
+		f.expr(se.X) // Clone and Upgrade only look at the reference
+		return
+	}
+	if recv == nil || pointerElem(recv) != nil || !isOwner(recv) || types2.IsInterface(recv) {
 		f.expr(se.X) // a pointer receiver borrows; an interface lends
 		return
 	}
@@ -317,9 +327,18 @@ func (f *fn) builtin(e *ast.CallExpr) {
 		for _, a := range e.Args {
 			f.expr(a)
 		}
+	case "new":
+		// new(v) stores v in the new variable: an owner moves into it.
+		for i, a := range e.Args {
+			if tv := f.c.types[a]; i == 0 && !tv.IsType() {
+				f.consume(a, tv.Type, move{kind: mvStore, to: exprText(e)})
+				continue
+			}
+			f.expr(a)
+		}
 	default:
-		// take(&place) borrows the place; len, new, make and the rest only
-		// look at their operands.
+		// take(&place) borrows the place; len, make and the rest only look
+		// at their operands.
 		for _, a := range e.Args {
 			f.expr(a)
 		}
@@ -400,6 +419,36 @@ func (f *fn) funcLit(lit *ast.FuncLit) {
 
 // assertTo checks a type assertion of x to T: taking an owner out of an
 // ordinary interface would make a second owner of the value it lends.
+// assertMoves reports whether asserting x to T moves an owner out of x: x
+// is an owning interface and T an owner type or another owning interface.
+func (f *fn) assertMoves(x ast.Expr, T types2.Type) bool {
+	xt := f.c.typeOf(x)
+	if xt == nil || !isOwner(xt) {
+		return false
+	}
+	if types2.UnionVariants(xt) != nil {
+		return true // an owner union's payload, or the union itself
+	}
+	return T != nil && types2.IsInterface(xt) && isOwner(T)
+}
+
+// assertOut walks the operand of a comma-ok assertion or a type switch
+// that moves an owner out of x: x must be a variable, which holds nothing
+// afterwards (where the assertion fails it still does, which lowering
+// arranges and the if statement of a comma-ok assertion follows).
+func (f *fn) assertOut(x ast.Expr, to string) bool {
+	if id, ok := ast.Unparen(x).(*ast.Ident); ok {
+		if v := f.varOf(id); v != nil {
+			f.moveOut(id, v, move{kind: mvAssert, to: to})
+			return true
+		}
+	}
+	// Not a variable: as for any move, the place would still believe it
+	// holds the owner.
+	f.consume(x, f.c.typeOf(x), move{kind: mvAssert, to: to})
+	return false
+}
+
 func (f *fn) assertTo(x ast.Expr, T types2.Type, pos token.Pos) {
 	xt := f.c.typeOf(x)
 	if !isOwner(T) || types2.IsInterface(T) || xt == nil || isOwner(xt) || !f.report {

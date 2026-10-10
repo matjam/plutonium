@@ -335,7 +335,7 @@ func (l *Lowerer) cCheckType(T types2.Type, top bool) error {
 		}
 	case *types2.Wrapper:
 		switch {
-		case u.IsPointer():
+		case u.IsBox():
 		case u.Kind() == types2.WrapAligned && u.N() > 8:
 			return fmt.Errorf("%s is aligned to more than 8 bytes, which C calls do not support", T)
 		case u.Kind() == types2.WrapRing:

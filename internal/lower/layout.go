@@ -48,7 +48,7 @@ func (l *Lowerer) scalarType(T types2.Type) *ssa.Type {
 		return ssa.TPtr
 	case *types2.Wrapper:
 		switch {
-		case u.IsPointer():
+		case u.IsBox():
 			return ssa.TPtr
 		case u.Kind() == types2.WrapVolatile:
 			return l.scalarType(u.Elem())

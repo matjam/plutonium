@@ -1,0 +1,3 @@
+$DIR/main.p:14:12: weak takes shared[T] or synced[T], not Node
+$DIR/main.p:9:13: owned cannot hold an interface type (Reader): use an owning interface
+$DIR/main.p:24:19: cannot use b (variable of struct type Buf) as Finisher value in variable declaration: Buf does not implement Finisher (method Finish has a value receiver of owner type Buf, so calling it would consume the owner; it cannot implement an interface method: declare it on *Buf and convert a pointer)

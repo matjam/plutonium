@@ -9,8 +9,11 @@ $DIR/main.p:25:9: cannot return &c, a pointer to a local variable
     To give the value to the caller, return it instead. This copies it, or moves
     it if it is an owner:
         return c
-    To keep it at a fixed address after load returns, allocate it:
+    To keep it at a fixed address after load returns, allocate it and return its
+    owner, an owned[Config]:
         c := new(Config)
+        ...
+        return c
     (see "Views" in the Plutonium spec, section 6.3)
     (run "pluto explain E3001" for a longer explanation)
 
@@ -80,8 +83,8 @@ $DIR/main.p:50:2: cannot store &c in package variable last, which outlives c
     Store the value instead of a pointer to it, changing the type of last to
     match. This copies c, or moves it if it is an owner:
         last = c
-    Or allocate c so that it lives as long as package variable last:
-        c := new(Config)
+    Or allocate c and store its owner, an owned[Config], which moves into last:
+        last = new(Config)
     (see "Views" in the Plutonium spec, section 6.3)
     (run "pluto explain E3002" for a longer explanation)
 
@@ -92,11 +95,9 @@ $DIR/main.p:51:2: cannot pass &c to remember, which keeps it after returning
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
     code.
-    Give remember memory that lives as long as it keeps it, for example by
-    allocating c:
-        c := new(Config)
-    If remember should keep its own copy, change it to take the value, not a
-    pointer, or an owner such as a strings.Buf or a vec.Vec, which it can keep.
+    If remember should keep its own copy of c, change it to take the value, not
+    a pointer, or an owner it can keep: an owned[Config] from new, a
+    shared[Config], or a library owner such as a vec.Vec.
     (see "Views" in the Plutonium spec, section 6.3)
     (run "pluto explain E3003" for a longer explanation)
 

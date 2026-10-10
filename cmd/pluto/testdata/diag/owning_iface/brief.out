@@ -1,0 +1,4 @@
+$DIR/main.p:20:20: f was moved to r at line 19, so it can no longer be used here
+$DIR/main.p:33:7: cannot assert n to owned[File]: n is a Namer, which only lends the value it holds
+$DIR/main.p:42:10: r may have been moved at line 39, so it cannot be used here
+$DIR/main.p:27:9: cannot return n, which points into the object f refers to, which f keeps alive in lent

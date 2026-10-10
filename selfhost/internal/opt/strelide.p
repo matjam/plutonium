@@ -44,11 +44,16 @@ func ElideStringHolds(p *ssa.Program) {
 	}
 }
 
-// releaseFuncs are the runtime functions that drop string references.
+// releaseFuncs are the runtime functions that drop counted references:
+// strings, and the shared, synced and weak references whose release may
+// free an object holding strings.
 var releaseFuncs = compat.MapOf[string, bool](
 	compat.Pair[string, bool]{"pluto/rt.strRelease", true},
 	compat.Pair[string, bool]{"pluto/rt.strFree", true},
 	compat.Pair[string, bool]{"pluto/rt.ReleaseString", true},
+	compat.Pair[string, bool]{"pluto/rt.boxReleaseStrong", true},
+	compat.Pair[string, bool]{"pluto/rt.weakRelease", true},
+	compat.Pair[string, bool]{"pluto/rt.boxFree", true},
 )
 
 // mayReleaseCall reports whether call v may release a string, given what

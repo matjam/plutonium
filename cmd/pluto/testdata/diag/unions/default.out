@@ -1,20 +1,19 @@
-$DIR/main.p:11:2: union Slot cannot have variant Full with payload owned[int] yet: the payload is owned[int], and unions that own their payloads wait for ownership
-    This payload holds an owned, shared or synced pointer, directly or in a
-    field, an array element or another union. Such a pointer owns, or counts
-    references to, what it points at. A union holding one must release the
-    payload of the variant it holds when the union is dropped or given a new
-    variant, so it must be declared owner like a struct, and that needs the
-    ownership checker, which the compiler does not have yet.
-    Until it does, hold a plain pointer in the payload and free the object
-    yourself.
-    In Go, the garbage collector frees what any value points at. Plutonium has
-    no garbage collector, so the compiler must release what a union owns; until
-    it can, it rejects the union rather than leak the payload or free it twice.
-    Hold a plain pointer, and free it explicitly:
-        type Slot union {
-            Empty
-            Full *Buffer
+$DIR/main.p:11:2: union Slot must be declared owner: its variant Full holds an owned[int], which is an owner
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. A union holding one owns the payload of
+    the variant it holds: it drops it when the union is dropped or given another
+    variant, and the union moves instead of being copied.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Plutonium does not make Slot an owner silently; say so in its declaration:
+        type Slot owner union {
+            ...
         }
+    If the union should only look at a value something else owns, hold a
+    pointer:
+        Full *int
     (see "Unions" in the Plutonium spec, section 5.10)
     (run "pluto explain E2406" for a longer explanation)
 

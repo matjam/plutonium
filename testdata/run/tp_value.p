@@ -42,7 +42,8 @@ func main() {
 		panic(sprintf("get() == %d, want %d", got, want))
 	}
 
-	v1p := new(value[int])
+	var v1h value[int] // Plutonium: new would return an owned[value[int]]
+	v1p := &v1h
 	set(v1p, 3)
 	if got, want := get(v1p), 3; got != want {
 		panic(sprintf("get() == %d, want %d", got, want))
@@ -64,7 +65,8 @@ func main() {
 		panic(sprintf("get() == %q, want %q", got, want))
 	}
 
-	v2p := new(value[string])
+	var v2h value[string]
+	v2p := &v2h
 	set(v2p, "c")
 	if got, want := get(v2p), "c"; got != want {
 		panic(sprintf("get() == %d, want %d", got, want))

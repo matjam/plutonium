@@ -149,6 +149,8 @@ type itabInfo struct {
 	T, I    types2.Type
 	sym     *ssa.Sym
 	methods []*ssa.Sym // adapters, in interface method order
+	owning  bool       // I is an owning interface: a drop slot follows the methods
+	drop    *ssa.Sym   // the drop slot's adapter, nil when a T needs no drop (owniface.go)
 }
 
 // typeTable collects the type descriptors and itabs the program uses.
@@ -308,6 +310,10 @@ func (tt *typeTable) itab(T, I types2.Type) *ssa.Sym {
 	for i := 0; i < iface.NumMethods(); i++ {
 		it.methods = append(it.methods, tt.l.itabAdapter(T, iface.Method(i)))
 	}
+	if types2.IsOwner(I) {
+		it.owning = true
+		it.drop = tt.l.ifaceDropAdapter(T)
+	}
 	return it.sym
 }
 
@@ -417,7 +423,13 @@ func (tt *typeTable) emit() {
 	for _, k := range keys {
 		it := tt.itabs[k]
 		size := int64(itabHeader + 8*len(it.methods))
+		if it.owning {
+			size += 8
+		}
 		data := &ssa.Data{Sym: it.sym, Size: size, Align: 8, ReadOnly: true}
+		if it.drop != nil {
+			data.Relocs = append(data.Relocs, ssa.DataReloc{Off: int64(itabHeader + 8*len(it.methods)), Sym: it.drop})
+		}
 		data.Relocs = append(data.Relocs,
 			ssa.DataReloc{Off: 0, Sym: tt.descs[typeString(it.T)].sym},
 			ssa.DataReloc{Off: 8, Sym: tt.descs[typeString(it.I)].sym})
@@ -563,7 +575,7 @@ func kindOf(T types2.Type) byte {
 		if u.Kind() == types2.WrapRing {
 			return kindRing
 		}
-		if u.IsPointer() {
+		if u.IsBox() {
 			return kindOwned
 		}
 		return kindOf(u.Elem())
@@ -602,6 +614,14 @@ func (s *fnState) toInterface(v value, from, I types2.Type) value {
 		tab = s.symAddr(s.l.types.itab(from, I))
 	}
 	data := s.dataWord(v, from)
+	handsOver := v.cnt == cntOwned && v.tmp != nil && !v.tmp.consumed
+	if types2.IsOwner(I) && s.l.isDirect(from) && s.l.counted(from) && !handsOver && v.cnt != cntStatic {
+		// An owning interface holds a reference of its own to a shared,
+		// synced or weak object (language spec section 4.4).
+		s.retainWord(data, from)
+	} else if types2.IsOwner(I) && v.cnt == cntOwned && v.tmp != nil {
+		v.tmp.consumed = true // the interface takes over the temporary's reference
+	}
 	tmp := s.temp(I, "iface")
 	s.store(ssa.TPtr, tmp, tab)
 	s.store(ssa.TPtr, s.offPtr(tmp, 8), data)
@@ -900,7 +920,14 @@ func (s *fnState) typeAssert(e *ast.TypeAssertExpr, commaOk bool) (value, *ssa.V
 	iv := s.expr(e.X)
 	I := s.typeOf(e.X)
 	T := s.subst(s.info.Types[e.Type].Type)
-	return s.assertTo(iv, I, T, commaOk, e.Pos())
+	v, ok := s.assertTo(iv, I, T, commaOk, e.Pos())
+	if s.l.moves != nil && s.l.moves.AssertMoves[e] && ok != nil {
+		// v, ok := x.(T) moves the owner out of the owning interface x
+		// where it succeeds (language spec section 4.4).
+		lv := s.lv(e.X)
+		s.ifThen(ok, func() { s.zero(lv.ptr, s.l.sizeof(I)) })
+	}
+	return v, ok
 }
 
 func (s *fnState) assertTo(iv value, I, T types2.Type, commaOk bool, pos token.Pos) (value, *ssa.Value) {

@@ -42,7 +42,7 @@ func Collect[T any](xs []T, keep func(T) bool) vec.Vec[T] {
 }
 
 func NewIn[T any](v T, a alloc.Allocator) *T {
-	p := new(T, a)
+	p := alloc.New[T](a) // a view of memory the arena owns
 	*p = v
 	return p
 }

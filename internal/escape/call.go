@@ -42,6 +42,9 @@ func (w *walker) call(e *ast.CallExpr) []tset {
 		return w.ringCall(e, t)
 	}
 	args := w.args(e, t.sig)
+	if len(w.arenas) > 0 && len(args) > 0 && w.isUse(e) {
+		w.noteArena(e, args[0])
+	}
 	cs := &callSite{pos: e.Pos(), exprs: argExprs(e, t.sig)}
 	if t.hasRecv {
 		args = append([]tset{t.recv}, args...)
@@ -483,6 +486,10 @@ func (w *walker) builtin(e *ast.CallExpr) []tset {
 		}
 		return []tset{w.load(w.value(e.Args[0]))}
 	case "new", "make":
+		if name == "new" && len(e.Args) > 0 && !w.a.types[e.Args[0]].IsType() {
+			// new(v) stores v in a new heap variable.
+			w.store(tset{heapTok}, w.value(e.Args[0]), e.Args[0].Pos(), dest{text: "the variable new(...) allocates", src: e.Args[0]})
+		}
 		for _, a := range e.Args[1:] {
 			w.value(a)
 		}

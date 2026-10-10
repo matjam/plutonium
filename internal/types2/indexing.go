@@ -57,6 +57,9 @@ func builtinIndexable(u Type) bool {
 		_, ok := u.base.Underlying().(*Array)
 		return ok
 	case *Wrapper:
+		if u.IsPointer() {
+			return builtinIndexable(boxAsPointer(u))
+		}
 		return u.isTransparent() && builtinIndexable(u.elem.Underlying())
 	}
 	return false
@@ -75,6 +78,9 @@ func builtinLen(u Type) bool {
 	case *Wrapper:
 		// A ring's Len is built in and expanded inline; len(r) stays an
 		// error rather than becoming a method call.
+		if u.IsPointer() {
+			return builtinLen(boxAsPointer(u))
+		}
 		return u.kind == WrapRing || u.isTransparent() && builtinLen(u.elem.Underlying())
 	}
 	return false

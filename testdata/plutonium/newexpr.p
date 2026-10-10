@@ -1,6 +1,8 @@
 package main
 
-// new(expr) allocates a variable holding expr's value (Go 1.26).
+// new(expr) allocates a variable holding expr's value (Go 1.26), and new
+// returns its owner, an owned[T] (language spec section 4.2): the variable
+// is freed when the owner is dropped.
 
 type O struct {
 	a, b int
@@ -11,14 +13,16 @@ type Big struct {
 	a, b, c, d, e, f, g int
 }
 
-type Node struct {
+type Node owner struct {
 	val  int
-	next *Node
+	next owned[Node]
 }
 
 const typed int8 = -7
 
 var calls int
+
+var nums = [3]int{7, 8, 9}
 
 func next() int {
 	calls++
@@ -28,13 +32,14 @@ func next() int {
 func pair() Big { return Big{1, 2, 3, 4, 5, 6, 7} }
 
 // box allocates a copy of a value of any type.
-func box[T any](v T) *T { return new(v) }
+func box[T any](v T) owned[T] { return new(v) }
 
 // zero allocates a zero T.
-func zero[T any]() *T { return new(T) }
+func zero[T any]() owned[T] { return new(T) }
 
-// push returns a node that outlives push's frame.
-func push(head *Node, v int) *Node {
+// push returns a node that outlives push's frame. The old head moves into
+// the new node.
+func push(head owned[Node], v int) owned[Node] {
 	return new(Node{val: v, next: head})
 }
 
@@ -91,10 +96,10 @@ func main() {
 	println(g.a, g.g)
 
 	// Slices and pointers as the value.
-	sl := new([]int{7, 8, 9})
+	sl := new(nums[:]) // a view of static memory; a slice literal would be in the frame
 	println(len(*sl), (*sl)[2])
-	pp := new(q)
-	println((*pp).s, *pp == q)
+	pp := new(*q)
+	println((*pp).s, *pp == *q)
 
 	// Generic code: a value of type parameter type, and a type parameter.
 	bo := box(O{a: 9, s: "boxed"})
@@ -103,11 +108,11 @@ func main() {
 	println(bo.a, bo.s, *bi, bz.g)
 
 	// new(T{...}) escaping its frame, as &T{...} would.
-	var head *Node
+	var head owned[Node]
 	for i := 1; i <= 3; i++ {
 		head = push(head, i)
 	}
-	for e := head; e != nil; e = e.next {
+	for e := (*Node)(head); e != nil; e = (*Node)(e.next) {
 		print(e.val, " ")
 	}
 	println()

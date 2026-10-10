@@ -18,10 +18,13 @@ func worker(n *node, done chan int) {
 
 func main() {
 	done := make(chan int)
-	n := new(node)
-	n.next = new(node)
+	n := &nodes[0]
+	n.next = &nodes[1]
 	go worker(n, done)
 	println(<-done)
 	go worker(n.next, done)
 	println(<-done)
 }
+
+// Package variables: the puroutines may outlive main's frame.
+var nodes [2]node

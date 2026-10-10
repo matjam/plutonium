@@ -10,9 +10,10 @@ type stats struct {
 	n  int
 }
 
+var results [4]int
+
 func main() {
 	var wg stdsync.WaitGroup
-	results := new([4]int)
 	for i := 0; i < 4; i++ {
 		wg.Add(1)
 		go func() {

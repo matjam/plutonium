@@ -533,7 +533,7 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 	}
 	intT := types2.Typ[types2.Int]
 
-	switch u := xt.Underlying().(type) {
+	switch u := asPointer(xt.Underlying()).(type) {
 	case *types2.Basic:
 		if u.Info()&types2.IsString != 0 {
 			s.rangeString(st, label)
@@ -773,6 +773,15 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 	}
 	I := s.typeOf(x)
 	iv := s.materialize(s.expr(x))
+	moves := s.l.moves != nil && s.l.moves.SwitchMoves[st]
+	if moves {
+		// The owner moves out of x into the binding of whichever clause
+		// runs (language spec section 4.4): x holds nothing afterwards.
+		copied := s.temp(I, "switched")
+		s.storeTo(copied, iv, I)
+		iv = aggValue(copied, I)
+		s.zero(s.lv(x).ptr, s.l.sizeof(I))
+	}
 	tab, data := s.ifaceParts(iv)
 
 	done := s.newBlock(ssa.BlockInvalid)
@@ -811,6 +820,10 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 			s.seal(next)
 			s.startBlock(next)
 		}
+	}
+	if moves && defaultBody == done {
+		// No clause took the value: drop it here.
+		s.dropAt(iv.v, I)
 	}
 	s.endPlain(defaultBody)
 

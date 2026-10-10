@@ -31,12 +31,22 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 	case *ast.BlockStmt:
 		f.block(st)
 	case *ast.IfStmt:
+		before := f.env.clone()
 		f.stmt(st.Init, "")
 		f.expr(st.Cond)
 		entry := f.env.clone()
 		f.block(st.Body)
 		after := f.env
 		f.env = entry
+		if v := f.assertFailed(st); v != nil && f.env != nil {
+			// if x, ok := i.(T); ok {...} else {...}: the assertion moved
+			// the owner out of i only where ok is true.
+			if s, ok := before[v]; ok {
+				f.env[v] = s
+			} else {
+				delete(f.env, v)
+			}
+		}
 		f.stmt(st.Else, "")
 		f.env = join(after, f.env)
 	case *ast.ForStmt:
@@ -71,11 +81,21 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 		case *ast.ExprStmt:
 			x = a.X.(*ast.TypeAssertExpr).X
 		}
-		f.expr(x)
+		_, binds := st.Assign.(*ast.AssignStmt)
+		if binds && f.assertMoves(x, f.c.typeOf(x)) {
+			// The binding takes the owner in every clause.
+			if f.assertOut(x, "switch "+exprText(x)+".(type)") && f.report {
+				f.c.info.SwitchMoves[st] = true
+			}
+		} else {
+			f.expr(x)
+		}
 		f.clauses(label, st.Body.List, func(c ast.Stmt) []ast.Stmt {
 			cc := c.(*ast.CaseClause)
 			for _, e := range cc.List {
-				f.assertTo(x, f.c.typeOf(e), e.Pos())
+				if !binds || !f.assertMoves(x, f.c.typeOf(x)) {
+					f.assertTo(x, f.c.typeOf(e), e.Pos())
+				}
 			}
 			if v, ok := f.c.implicits[cc].(*types2.Var); ok {
 				f.assignVar(v)
@@ -250,6 +270,12 @@ func (f *fn) multi(e ast.Expr) {
 		f.expr(x.X)
 		f.expr(x.Index)
 	case *ast.TypeAssertExpr:
+		if f.assertMoves(x.X, f.c.typeOf(x.Type)) {
+			if f.assertOut(x.X, exprText(x)) && f.report {
+				f.c.info.AssertMoves[x] = true
+			}
+			return
+		}
 		f.expr(x.X)
 		f.assertTo(x.X, f.c.typeOf(x.Type), x.Pos())
 	default:
@@ -488,4 +514,28 @@ func (f *fn) deferStmt(st *ast.DeferStmt) {
 		}
 		return true
 	})
+}
+
+// assertFailed returns the owning interface variable that the init of an
+// if statement "if v, ok := x.(T); ok" asserts out of, or nil: on the else
+// path the assertion failed, and x still holds its value.
+func (f *fn) assertFailed(st *ast.IfStmt) *types2.Var {
+	as, ok := st.Init.(*ast.AssignStmt)
+	if !ok || len(as.Lhs) != 2 || len(as.Rhs) != 1 {
+		return nil
+	}
+	ta, ok := ast.Unparen(as.Rhs[0]).(*ast.TypeAssertExpr)
+	if !ok || !f.c.info.AssertMoves[ta] && !f.assertMoves(ta.X, f.c.typeOf(ta.Type)) {
+		return nil
+	}
+	okID, ok := as.Lhs[1].(*ast.Ident)
+	cond, ok2 := ast.Unparen(st.Cond).(*ast.Ident)
+	if !ok || !ok2 || f.c.objOf(okID) == nil || f.c.objOf(okID) != f.c.objOf(cond) {
+		return nil
+	}
+	x, ok := ast.Unparen(ta.X).(*ast.Ident)
+	if !ok {
+		return nil
+	}
+	return f.varOf(x)
 }

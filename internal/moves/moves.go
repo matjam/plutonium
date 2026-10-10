@@ -35,6 +35,13 @@ type Info struct {
 	// DeferredDrops are the deferred calls x.Drop() of owner variables:
 	// they drop x when the function returns.
 	DeferredDrops map[*ast.CallExpr]bool
+	// AssertMoves are the comma-ok assertions v, ok := x.(T) that move an
+	// owner out of the owning interface variable x: x is cleared where the
+	// assertion succeeds. SwitchMoves are the type switches with a binding
+	// on an owning interface variable, which move it into the binding in
+	// every clause (language spec section 4.4).
+	AssertMoves map[*ast.TypeAssertExpr]bool
+	SwitchMoves map[*ast.TypeSwitchStmt]bool
 }
 
 // Check runs the move checker over a loaded program and returns its errors
@@ -48,7 +55,8 @@ func Check(prog *load.Program) error {
 // errors as a diag.List, or nil.
 func Analyze(prog *load.Program) (*Info, error) {
 	c := &checker{
-		info:       &Info{Moves: map[*ast.Ident]bool{}, Temps: map[ast.Expr]bool{}, DeferredDrops: map[*ast.CallExpr]bool{}},
+		info: &Info{Moves: map[*ast.Ident]bool{}, Temps: map[ast.Expr]bool{}, DeferredDrops: map[*ast.CallExpr]bool{},
+			AssertMoves: map[*ast.TypeAssertExpr]bool{}, SwitchMoves: map[*ast.TypeSwitchStmt]bool{}},
 		fset:       prog.Fset,
 		types:      map[ast.Expr]types2.TypeAndValue{},
 		uses:       map[*ast.Ident]types2.Object{},
@@ -206,6 +214,7 @@ const (
 	mvDrop                        // m.Drop()
 	mvConv                        // converted to another owner type
 	mvMethodValue                 // bound into a method value
+	mvAssert                      // asserted out of an owning interface
 )
 
 // A move records where and how a variable's value left it.
@@ -433,6 +442,21 @@ func (f *fn) moveVar(id *ast.Ident, v *types2.Var, mv move) {
 	}
 	if f.report {
 		f.c.info.Moves[id] = true
+	}
+}
+
+// moveOut records that v, read at id, no longer holds a value, without
+// making lowering clear it where id is read: the caller arranges that.
+func (f *fn) moveOut(id *ast.Ident, v *types2.Var, mv move) {
+	if f.captured(v) {
+		if f.report {
+			f.c.report(f.c.capturedDiag(id, v))
+		}
+		return
+	}
+	if f.env != nil {
+		mv.pos = id.Pos()
+		f.env[v] = vstate{moved, &mv}
 	}
 }
 

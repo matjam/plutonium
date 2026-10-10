@@ -27,7 +27,7 @@ func unsendable(T Type, seen map[Type]bool) Type {
 		if u.kind == WrapShared {
 			return T
 		}
-		if u.kind == WrapRing || u.IsPointer() || u.isTransparent() {
+		if u.kind == WrapRing || u.IsBox() || u.isTransparent() {
 			return unsendable(u.elem, seen)
 		}
 	case *Struct:
@@ -79,7 +79,7 @@ func (check *Checker) goStmtArgs(call *ast.CallExpr) {
 				if _, ptr := sig.recv.typ.(*Pointer); ptr {
 					if !isPointerTyped(check.exprType(se.X)) {
 						if root := check.frameRoot(se.X); root != nil {
-							check.errorf(se.X, FrameViewSent, "go statement calls a pointer method on %s, a variable in this function's frame, which the puroutine may outlive (spec section 6.3); allocate it with new or make it a package-level variable", root.name)
+							check.errorf(se.X, FrameViewSent, "go statement calls a pointer method on %s, a variable in this function's frame, which the puroutine may outlive (spec section 6.3); make it a package-level variable, or give the puroutine a function that takes an owner", root.name)
 						}
 					}
 				} else if T := check.exprType(se.X); T != nil {
@@ -103,11 +103,11 @@ func (check *Checker) checkFrameView(e ast.Expr, what string) {
 			return
 		}
 		if _, lit := ast.Unparen(x.X).(*ast.CompositeLit); lit {
-			check.errorf(x, FrameViewSent, "%s is %s, but it points into this function's frame, which the receiving puroutine may outlive (spec section 6.3); allocate it with new(T{...})", ExprString(x), what)
+			check.errorf(x, FrameViewSent, "%s is %s, but it points into this function's frame, which the receiving puroutine may outlive (spec section 6.3); allocate it with new(T{...}), whose owned[T] then moves to the puroutine", ExprString(x), what)
 			return
 		}
 		if root := check.frameRoot(x.X); root != nil {
-			check.errorf(x, FrameViewSent, "%s is %s, but %s lives in this function's frame, which the receiving puroutine may outlive (spec section 6.3); allocate it with new or make it a package-level variable", ExprString(x), what, root.name)
+			check.errorf(x, FrameViewSent, "%s is %s, but %s lives in this function's frame, which the receiving puroutine may outlive (spec section 6.3); allocate it with new, whose owned[T] then moves to the puroutine, or make it a package-level variable", ExprString(x), what, root.name)
 		}
 	case *ast.SliceExpr:
 		if T := check.exprType(x.X); T != nil {
@@ -168,7 +168,7 @@ func isPointerTyped(T Type) bool {
 	case *Pointer:
 		return true
 	case *Wrapper:
-		return u.IsPointer()
+		return u.IsBox()
 	}
 	return false
 }

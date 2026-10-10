@@ -18,6 +18,8 @@ type walker struct {
 	top    *scope
 	sc     *scope // the scope being walked
 	locs   map[*types2.Var]*loc
+	objs   map[*types2.Var]*loc // lkObject: the objects of boxes held in variables
+	arenas []*arenaWindow       // where a local arena is the default allocator (arena.go)
 	tmps   map[tmpKey]*loc
 	scopes map[*ast.FuncLit]*scope
 	grew   bool // a location's contents grew during this walk
@@ -45,6 +47,7 @@ func newWalker(a *analyzer, f *function) *walker {
 		a:      a,
 		f:      f,
 		locs:   map[*types2.Var]*loc{},
+		objs:   map[*types2.Var]*loc{},
 		tmps:   map[tmpKey]*loc{},
 		scopes: map[*ast.FuncLit]*scope{},
 		recLit: map[*loc]*ast.FuncLit{},
@@ -60,6 +63,7 @@ func newWalker(a *analyzer, f *function) *walker {
 		}
 		w.tracked = f.tracked
 		w.computeLoops(f.decl)
+		w.computeArenaWindows(f.decl.Body)
 	} else {
 		w.tracked = map[*types2.Var]bool{}
 		w.computeLoops(nil)

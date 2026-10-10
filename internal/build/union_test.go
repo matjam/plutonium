@@ -32,7 +32,7 @@ type State union {
 }
 
 func main() { _ = Box.Empty }
-`, "union Box cannot have variant Full with payload owned[int] yet"},
+`, "union Box must be declared owner: its variant Full holds an owned[int], which is an owner"},
 		{"owned through a generic function", `type Opt[T any] union {
 	None
 	Some T

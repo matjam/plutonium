@@ -62,9 +62,11 @@ func selectSend() {
 // select4: a select statement proceeds when a value is ready, and does
 // not evaluate the left-hand side of a case that does not run.
 
+var fTarget int
+
 func f() *int {
 	println("BUG: called f")
-	return new(int)
+	return &fTarget
 }
 
 func selectReady() {

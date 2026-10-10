@@ -323,10 +323,11 @@ func (s *fnState) goCapturingLiteral(lit *ast.FuncLit, caps []*types2.Var) {
 			shared = append(shared, v)
 			sharedT = append(sharedT, bad)
 			params = append(params, v.Name()+" *"+str(v.Type()))
-			news = append(news, fmt.Sprintf("%s := new(%s)", v.Name(), str(v.Type())))
-		} else {
-			params = append(params, v.Name()+" "+str(v.Type()))
+			news = append(news, fmt.Sprintf("var %s %s // at package level", v.Name(), str(v.Type())))
+			args = append(args, "&"+v.Name())
+			continue
 		}
+		params = append(params, v.Name()+" "+str(v.Type()))
 		args = append(args, v.Name())
 	}
 	if len(shared) == 0 {
@@ -344,10 +345,10 @@ func (s *fnState) goCapturingLiteral(lit *ast.FuncLit, caps []*types2.Var) {
 	if unwrap(v.Type()) != bad {
 		what = fmt.Sprintf("%s has type %s, which holds a value of type %s and", v.Name(), str(v.Type()), str(bad))
 	}
-	d.Msg = prefix + fmt.Sprintf("%s must not be copied, so allocate it with new and pass the pointer: %s; go func(%s) {...}(%s)", what, news[0], strings.Join(params, ", "), strings.Join(args, ", "))
-	d.Text = diag.Lookup(diag.GoCapturingLiteral).Text + fmt.Sprintf("\n%s holds a value of type %s. Passing it as an argument would copy it, and a copy is a separate value: calling Done or Unlock on the copy never reaches the original, so a Wait or Lock on the original may never return. Pass a pointer to one instead, allocated with new, or declare the variable at package level.", v.Name(), str(bad))
+	d.Msg = prefix + fmt.Sprintf("%s must not be copied, so declare it at package level and pass a pointer: %s; go func(%s) {...}(%s)", what, news[0], strings.Join(params, ", "), strings.Join(args, ", "))
+	d.Text = diag.Lookup(diag.GoCapturingLiteral).Text + fmt.Sprintf("\n%s holds a value of type %s. Passing it as an argument would copy it, and a copy is a separate value: calling Done or Unlock on the copy never reaches the original, so a Wait or Lock on the original may never return. Pass a pointer to one that outlives the puroutine instead: a package variable, or a field of memory the puroutine owns.", v.Name(), str(bad))
 	d.Fix = &diag.Fix{
-		Intro: "Allocate it with new and pass the pointer",
+		Intro: "Declare it at package level and pass a pointer",
 		Code:  strings.Join(news, "\n") + fmt.Sprintf("\ngo func(%s) {\n\t...\n}(%s)", strings.Join(params, ", "), strings.Join(args, ", ")),
 	}
 	s.l.report(lit.Pos(), d)

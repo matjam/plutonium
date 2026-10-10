@@ -26,7 +26,12 @@ func isOwner(T Type, seen map[Type]bool) bool {
 	seen[T] = true
 	switch t := Unalias(T).(type) {
 	case *Named:
-		return t.Origin().obj.ownerMark
+		if t.Origin().obj.ownerMark {
+			return true
+		}
+		// A type defined from owned[T] owns its object like owned[T].
+		w, ok := t.Underlying().(*Wrapper)
+		return ok && w.kind == WrapOwned
 	case *TypeParam:
 		return t.obj.ownerMark
 	case *Array:
@@ -395,4 +400,27 @@ func (check *Checker) reportTypeArg(at positioner, err error, what string) {
 		return
 	}
 	check.softErrorf(at, InvalidTypeArg, "%s", err)
+}
+
+// ownerConversion reports a conversion T(x) that would make a new owner
+// outside the package that declares the owner type T (language spec
+// section 6.4): an owner is made from a plain value only where its
+// invariants are kept, as only its package can fill its unexported fields.
+// Converting an owner to a non-owner reads it, and converting between
+// owner types moves it; both are allowed anywhere.
+func (check *Checker) ownerConversion(x *operand, T Type) {
+	if !IsOwner(T) || IsOwner(x.typ()) || x.isNil() {
+		return
+	}
+	n := asNamed(Unalias(T))
+	if n == nil || n.Origin().obj.pkg == check.pkg {
+		return // a box from unsafe.Pointer is unsafe code
+	}
+	t, v := check.sprintf("%s", T), check.sprintf("%s", x.typ())
+	check.explainf(x, OwnerConversion, &Explanation{
+		Text: whatOwners + " Converting a plain " + v + " into " + article(t) + " would make a second owner of whatever the value refers to (a descriptor, a page frame), and both would release it. Only the package that declares " + t + " may do that, where its invariants are kept.",
+		Fixes: []ExplainFix{{
+			Intro: "Use a constructor from the package that declares " + t + ".",
+		}},
+	}, "cannot convert %s to owner type %s outside package %s", x, t, n.Origin().obj.pkg.name)
 }

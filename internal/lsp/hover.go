@@ -151,15 +151,17 @@ func kindLine(t types2.Type) string {
 // typeKind classifies a type as a value, view, owner or counted reference
 // (spec section 6).
 //
-// The checker does not yet record which types are declared owner, so a
-// named type counts as an owner if it has a Drop method, which only an
-// owner may declare, or if it holds an owner.
+// A named type is an owner if it is declared owner (or defined from
+// owned[T]), or if it has a Drop method, which only an owner may declare.
 func typeKind(t types2.Type, depth int) string {
 	if depth > 8 {
 		return ""
 	}
 	switch t := types2.Unalias(t).(type) {
 	case *types2.Named:
+		if types2.IsOwner(t) {
+			return kindOwner
+		}
 		if obj, _, _ := types2.LookupFieldOrMethod(types2.NewPointer(t), false, t.Obj().Pkg(), "Drop"); obj != nil {
 			if _, ok := obj.(*types2.Func); ok {
 				return kindOwner
@@ -185,7 +187,7 @@ func typeKind(t types2.Type, depth int) string {
 		switch t.Kind() {
 		case types2.WrapOwned:
 			return kindOwner
-		case types2.WrapShared, types2.WrapSynced:
+		case types2.WrapShared, types2.WrapSynced, types2.WrapWeak:
 			return kindShared
 		}
 		return typeKind(t.Elem(), depth+1)

@@ -492,6 +492,12 @@ func (check *Checker) implicitTypeAndValue(x *operand, target Type) (Type, const
 		}
 		// Keep nil untyped - see comment for interfaces, above.
 		return Typ[UntypedNil], nil, 0
+	case *Wrapper:
+		// Plutonium: owned, shared, synced and weak are nil when empty.
+		if !u.IsBox() || !x.isNil() {
+			return nil, nil, InvalidUntypedConversion
+		}
+		return Typ[UntypedNil], nil, 0
 	default:
 		return nil, nil, InvalidUntypedConversion
 	}
@@ -1200,6 +1206,10 @@ func (check *Checker) exprInternal(T *target, x *operand, e ast.Expr, hint Type)
 			var base Type
 			if !underIs(x.typ(), func(u Type) bool {
 				p, _ := u.(*Pointer)
+				if w, ok := u.(*Wrapper); ok && w.IsPointer() {
+					// *p of owned, shared or synced is the object (section 5.6).
+					p = &Pointer{base: w.elem}
+				}
 				if p == nil {
 					check.errorf(x, InvalidIndirection, invalidOp+"cannot indirect %s", x)
 					return false

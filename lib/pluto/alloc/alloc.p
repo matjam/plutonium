@@ -65,6 +65,30 @@ func New[T owner any](a Allocator = Default()) *T {
 	return (*T)(must(a, unsafe.Sizeof(*p), unsafe.Alignof(*p), rt.CallerPC()))
 }
 
+// Owned allocates a zeroed T from a, by default the current allocator, and
+// returns its owner. new(T) is the same as Owned[T]() (language spec
+// section 5.6).
+func Owned[T owner any](a Allocator = Default()) owned[T] {
+	var p *T // only for its element's size: Sizeof does not evaluate *p
+	return owned[T](rt.NewBox(a, false, unsafe.Sizeof(*p), unsafe.Alignof(*p)))
+}
+
+// Shared allocates a zeroed T from a, by default the current allocator, and
+// returns the first reference to it. Copies of a shared[T] count their
+// references without atomics, so they stay in one task; the last one drops
+// the T and frees it (language spec section 6.5).
+func Shared[T owner any](a Allocator = Default()) shared[T] {
+	var p *T
+	return shared[T](rt.NewBox(a, true, unsafe.Sizeof(*p), unsafe.Alignof(*p)))
+}
+
+// Synced is Shared for references that cross tasks: their counts are
+// atomic.
+func Synced[T owner any](a Allocator = Default()) synced[T] {
+	var p *T
+	return synced[T](rt.NewBox(a, true, unsafe.Sizeof(*p), unsafe.Alignof(*p)))
+}
+
 // Free returns p, allocated by New, to the allocator it came from: a, by
 // default the default allocator. *p is destroyed first: if T is an owner,
 // its Drop method, then its fields; otherwise the strings in it are

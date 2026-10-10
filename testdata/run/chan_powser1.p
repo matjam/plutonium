@@ -48,18 +48,34 @@ var chnames string
 var chnameserial int
 var seqno int
 
+// Plutonium: new returns an owner, which would free the dch when mkdch
+// returns; the program never frees them, so they come from a pool.
+var dchPool [4096]dch
+var dchUsed int
+
 func mkdch() *dch {
 	c := chnameserial % len(chnames)
 	chnameserial++
-	d := new(dch)
+	if dchUsed == len(dchPool) {
+		panic("dch pool exhausted")
+	}
+	d := &dchPool[dchUsed]
+	dchUsed++
 	d.req = make(chan int)
 	d.dat = make(chan rat)
 	d.nam = c
 	return d
 }
 
+var dch2Pool [1024]dch2
+var dch2Used int
+
 func mkdch2() *dch2 {
-	d2 := new(dch2)
+	if dch2Used == len(dch2Pool) {
+		panic("dch2 pool exhausted")
+	}
+	d2 := &dch2Pool[dch2Used]
+	dch2Used++
 	d2[0] = mkdch()
 	d2[1] = mkdch()
 	return d2
@@ -128,14 +144,14 @@ func get(in *dch) rat {
 
 // Get one rat from each of n demand channels
 
-func getn(in []*dch) []rat {
+func getn(in []*dch) [2]rat {
 	n := len(in)
 	if n != 2 {
 		panic("bad n in getn")
 	}
-	req := new([2]chan int)
-	dat := new([2]chan rat)
-	out := new([2]rat)[:]
+	var req [2]chan int
+	var dat [2]chan rat
+	var out [2]rat
 	var i int
 	var it rat
 	for i = 0; i < n; i++ {
@@ -165,7 +181,7 @@ func getn(in []*dch) []rat {
 
 // Get one rat from each of 2 demand channels
 
-func get2(in0 *dch, in1 *dch) []rat {
+func get2(in0 *dch, in1 *dch) [2]rat {
 	return getn([]*dch{in0, in1})
 }
 
@@ -312,7 +328,7 @@ func Add(U, V PS) PS {
 }
 
 func add2(U, V, Z PS) {
-	var uv []rat
+	var uv [2]rat
 	for {
 		<-Z.req
 		uv = get2(U, V)

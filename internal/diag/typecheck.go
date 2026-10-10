@@ -298,6 +298,7 @@ func plural(n int, what string) string {
 
 var (
 	cannotUse      = regexp.MustCompile(`^cannot use (.+) as (.+?) value in (.+?)(?:: (.+))?$`)
+	consumesRecv   = regexp.MustCompile(`^(.+) does not implement (.+?) \(method (\w+) has a value receiver of owner type`)
 	doesNotImpl    = regexp.MustCompile(`^(.+) does not implement (.+?) \((missing method|method) (\w+)(\)| has pointer receiver\))`)
 	overflowSuffix = regexp.MustCompile(` \((overflows|truncated)\)$`)
 )
@@ -322,6 +323,13 @@ func explainAssign(s *spec) {
 	}
 	var text []string
 	if cause != "" {
+		if mm := consumesRecv.FindStringSubmatch(cause); mm != nil {
+			s.explainConsumes(src, V, T, mm[3])
+			if target != "" && s.d.Text != "" {
+				s.d.Text = fmt.Sprintf("%s, so it can only hold values whose type has every method of %s.\n%s", target, s.str(T), s.d.Text)
+			}
+			return
+		}
 		if mm := doesNotImpl.FindStringSubmatch(cause); mm != nil {
 			s.explainImplements(src, V, T, mm[4], mm[5] != ")")
 			if target != "" && s.d.Text != "" {
@@ -539,6 +547,16 @@ func (s *spec) explainImplements(src string, V, T types2.Type, method string, po
 		r := strings.ToLower(named.Obj().Name()[:1])
 		s.d.Fix = &Fix{Intro: "Add the method to " + recv, Code: fmt.Sprintf("func (%s %s) %s%s {\n\t...\n}", r, recv, method, s.signature(sig))}
 	}
+}
+
+// explainConsumes explains why an owner V does not satisfy the interface T:
+// its method has a value receiver, which consumes the owner (language spec
+// section 6.4).
+func (s *spec) explainConsumes(src string, V, T types2.Type, method string) {
+	recv := s.str(V)
+	r := strings.ToLower(recv[:1])
+	s.d.Text = fmt.Sprintf("%s needs a method %s. %s has one, but with a value receiver: %s is an owner, so calling the method moves the value into it, and the method drops it when it returns. An interface does not own what it holds, so a call through the interface could not give the value up; such a method never satisfies an interface method.", s.str(T), method, recv, recv)
+	s.d.Fix = &Fix{Intro: "Declare the method on a pointer, so that it borrows the value, and convert a pointer", Code: fmt.Sprintf("func (%s *%s) %s(...) ...\n\n... = &%s", r, recv, method, src)}
 }
 
 // intRanges gives the range of each integer type.

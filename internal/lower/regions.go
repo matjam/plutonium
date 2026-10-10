@@ -67,7 +67,7 @@ func holdsFunc(T types2.Type, seen map[types2.Type]bool) bool {
 	case *types2.Array:
 		return holdsFunc(t.Elem(), seen)
 	case *types2.Wrapper:
-		return !t.IsPointer() && holdsFunc(t.Elem(), seen)
+		return !t.IsBox() && holdsFunc(t.Elem(), seen)
 	case *types2.TaggedUnion:
 		for i := 0; i < t.NumVariants(); i++ {
 			if holdsFunc(t.Variant(i).Type(), seen) {

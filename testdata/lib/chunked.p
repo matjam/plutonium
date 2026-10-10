@@ -45,7 +45,7 @@ func main() {
 	// Fill several chunks with linked nodes (64 bytes each).
 	var head *node
 	for i := 0; i < 100; i++ {
-		n := new(node, &a)
+		n := a.New[node]()
 		n.val = i
 		n.next = head
 		head = n
@@ -73,7 +73,7 @@ func main() {
 		scratch.Push(i)
 	}
 	for i := 0; i < 50; i++ {
-		_ = new(node, &a)
+		_ = a.New[node]()
 	}
 	println("scratch", scratch.At(1999), "more chunks", parent.blocks > chunksAtMark)
 	bytesBefore := parent.bytes
@@ -93,7 +93,7 @@ func main() {
 	// standard chunks from the parent.
 	before := parent.blocks
 	for i := 0; i < 50; i++ {
-		_ = new(node, &a)
+		_ = a.New[node]()
 	}
 	println("reused spares", parent.blocks == before)
 
@@ -122,6 +122,7 @@ func main() {
 	s := vec.Make[byte](10)
 	restore.Restore()
 	println("use", q.val, s.Len(), a.Used() > u)
+	q.Drop() // q's node is in the arena: drop it before the arena is reset
 
 	// Reset keeps the standard chunks; Trim returns them; the arena is
 	// usable again afterwards.
@@ -130,7 +131,7 @@ func main() {
 	println("reset", a.Used(), a.Held() <= held, parent.blocks > 0)
 	a.Trim()
 	println("trim", a.Held(), parent.blocks, parent.bytes)
-	r := new(node, &a)
+	r := a.New[node]()
 	r.val = 42
 	println("again", r.val, r.next == nil, parent.blocks)
 

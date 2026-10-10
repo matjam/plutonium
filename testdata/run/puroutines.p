@@ -71,6 +71,10 @@ func bigArg(b big, out chan int) {
 
 func gen[E any](v E, out chan E) { out <- v }
 
+var tBump, t9Show T
+
+var xsArr [2]int
+
 func main() {
 	c := make(chan int)
 	r := make(chan int, 1)
@@ -99,8 +103,8 @@ func main() {
 	go vari(d)
 	println(<-d)
 	// Not []int{5, 6}: that array would be in main's frame, which the
-	// puroutine may outlive.
-	xs := new([2]int)[:]
+	// puroutine may outlive; a package variable lives on.
+	xs := xsArr[:]
 	xs[0], xs[1] = 5, 6
 	go vari(d, xs...)
 	println(<-d)
@@ -108,11 +112,12 @@ func main() {
 	bd := make(chan bool)
 	go T{7}.show(bd)
 	<-bd
-	t := new(T)
+	// Package variables: the puroutines may outlive main's frame.
+	t := &tBump
 	go t.bump(bd)
 	<-bd
 	// Not T{9}: the interface would box it in main's frame.
-	t9 := new(T)
+	t9 := &t9Show
 	t9.n = 9
 	var sh shower = t9
 	go sh.show(bd)

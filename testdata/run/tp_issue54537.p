@@ -17,9 +17,7 @@ func F[T ~bool](x string) {
 	var _ T = x == "foo"
 }
 
-func G[T any](t T) *T {
-	// Plutonium: &t would point into G's frame; return an allocation.
-	p := new(T)
-	*p = t
-	return p
+func G[T any](t T) T {
+	// Plutonium: &t would point into G's frame; return the value.
+	return t
 }

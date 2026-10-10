@@ -1,0 +1,13 @@
+close a
+file a
+drop node b
+close c
+code
+drop node scoped
+took d
+close d
+close e
+still a file: file e
+ref shared
+end shared
+drop node shared

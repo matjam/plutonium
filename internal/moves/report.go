@@ -80,8 +80,35 @@ func (c *checker) howMoved(mv *move) string {
 		return "converted to " + mv.to
 	case mvMethodValue:
 		return "moved into the method value " + mv.to
+	case mvAssert:
+		return "moved out by the type assertion " + mv.to
 	}
 	return "moved"
+}
+
+// newValue writes a value of type T for a fix that gives a moved-from
+// variable a new one: a composite literal, or a call that makes a box or an
+// interface value.
+func (c *checker) newValue(T types2.Type) string {
+	switch u := T.Underlying().(type) {
+	case *types2.Interface:
+		return "..." // whatever new value the variable should hold
+	case *types2.Wrapper:
+		if u.IsBox() {
+			return "new(" + c.typeName(u.Elem()) + ")"
+		}
+	case *types2.TaggedUnion:
+		if u.NumVariants() > 0 {
+			v := c.typeName(T) + "." + u.Variant(0).Name()
+			if u.Variant(0).HasPayload() {
+				v += "(...)"
+			}
+			return v
+		}
+	case *types2.Basic:
+		return c.typeName(T) + "(0)"
+	}
+	return c.typeName(T) + "{}"
 }
 
 func article(s string) string {
@@ -103,7 +130,7 @@ func (c *checker) useDiag(id *ast.Ident, v *types2.Var, s vstate) *diag.Diagnost
 		d := c.newDiag(id.Pos(), diag.UseMaybeMoved, "%s was %s at line %d in the previous iteration of this loop", name, c.howMoved(mv), at)
 		d.Text = fmt.Sprintf("%s %s is declared outside the loop, and the loop moves its value away at line %d without giving it a new one, so when the next iteration starts %s holds nothing.", c.ownerIntro(T), name, at, name)
 		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Declare %s inside the loop, so that each iteration has its own", name), Code: fmt.Sprintf("for ... {\n\tvar %s %s\n\t...\n}", name, c.typeName(T))}
-		more := &diag.Fix{Intro: fmt.Sprintf("Or give %s a new value after line %d", name, at), Code: fmt.Sprintf("%s = %s{}", name, c.typeName(T))}
+		more := &diag.Fix{Intro: fmt.Sprintf("Or give %s a new value after line %d", name, at), Code: fmt.Sprintf("%s = %s", name, c.newValue(T))}
 		d.More = []*diag.Fix{more}
 		if hasClone(T) {
 			d.More = append(d.More, &diag.Fix{Intro: fmt.Sprintf("Or move a copy at line %d", at), Code: name + ".Clone()"})
@@ -113,7 +140,7 @@ func (c *checker) useDiag(id *ast.Ident, v *types2.Var, s vstate) *diag.Diagnost
 	if s.st == maybe {
 		d := c.newDiag(id.Pos(), diag.UseMaybeMoved, "%s may have been moved at line %d, so it cannot be used here", name, at)
 		d.Text = fmt.Sprintf("%s %s is %s at line %d on some paths to this point and not on others. On those paths %s holds nothing afterwards, and the compiler cannot let a value be used where it may already belong to someone else.", c.ownerIntro(T), name, c.howMoved(mv), at, name)
-		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Use %s before line %d, or give it a new value on the path that moves it", name, at), Code: fmt.Sprintf("%s = %s{}", name, c.typeName(T))}
+		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Use %s before line %d, or give it a new value on the path that moves it", name, at), Code: fmt.Sprintf("%s = %s", name, c.newValue(T))}
 		return d
 	}
 	d := c.newDiag(id.Pos(), diag.UseAfterMove, "%s was %s at line %d, so it can no longer be used here", name, c.howMoved(mv), at)

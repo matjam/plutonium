@@ -1,6 +1,7 @@
 package compat
 
 import (
+	"pluto/alloc"
 	"pluto/errors"
 	"pluto/fmt"
 	"pluto/unicode/utf8"
@@ -99,7 +100,7 @@ func Sprintln(args ...any) string {
 // runs is allocated instead, from alloc.Default() like fmt.Errorf's. (fmt.Errorf, errors.Is, As, Unwrap
 // and Join need no translation: pluto/fmt and pluto/errors follow Go.)
 func NewError(text string) error {
-	e := new(errors.Text)
+	e := alloc.New[errors.Text]()
 	e.Msg = text
 	return e
 }

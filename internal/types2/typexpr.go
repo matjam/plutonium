@@ -491,7 +491,6 @@ func (check *Checker) instantiatedType(ix *indexedExpr) (res Type) {
 				check.reportTypeArg(atPos(pos), err, name)
 			} else {
 				check.mono.recordInstance(check.pkg, ix.Pos(), tparams, targs, ix.indices)
-				check.checkUnionInstance(ix, inst)
 			}
 		}
 	}).describef(ix, "verify instantiation %s", inst)

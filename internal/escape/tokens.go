@@ -222,6 +222,8 @@ const (
 	lkClosure                    // the record of a function literal that uses variables
 	lkMethodValue                // the record of a method value, holding its receiver
 	lkCtor                       // the region a call that returns closures builds them in
+	lkObject                     // the heap object a box (owned, shared, synced) held in a frame refers to
+	lkArena                      // memory allocated from a local arena installed as the default allocator (arena.go)
 )
 
 // A loc is a piece of frame storage: a local variable, a parameter's slot,

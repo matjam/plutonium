@@ -92,6 +92,8 @@ func (l *Lowerer) counted(T types2.Type) bool {
 		switch u.Kind() {
 		case types2.WrapAligned, types2.WrapVolatile, types2.WrapRing:
 			c = l.counted(u.Elem())
+		default:
+			c = u.IsCounted() // shared, synced and weak (box.go)
 		}
 	case *types2.TaggedUnion:
 		for i := 0; i < u.NumVariants() && !c; i++ {
@@ -105,12 +107,19 @@ func (l *Lowerer) counted(T types2.Type) bool {
 // ----------------------------------------------------------------------------
 // Retain and release
 
-// eachString calls f with the address of the control word of every string
-// in the T at ptr, looping over large arrays.
-func (s *fnState) eachString(ptr *ssa.Value, T types2.Type, f func(ctl *ssa.Value)) {
+// A countedRef is one counted reference inside a value: the control word
+// of a string (box nil), or a shared, synced or weak reference (box.go).
+type countedRef struct {
+	addr *ssa.Value      // where the control word or reference is
+	box  *types2.Wrapper // the reference's type, or nil for a string
+}
+
+// eachString calls f for every counted reference in the T at ptr: strings,
+// and shared, synced and weak references, looping over large arrays.
+func (s *fnState) eachString(ptr *ssa.Value, T types2.Type, f func(r countedRef)) {
 	switch u := T.Underlying().(type) {
 	case *types2.Basic:
-		f(s.offPtr(ptr, strCtlOff))
+		f(countedRef{addr: s.offPtr(ptr, strCtlOff)})
 	case *types2.Struct:
 		fields := make([]*types2.Var, u.NumFields())
 		for i := range fields {
@@ -144,6 +153,10 @@ func (s *fnState) eachString(ptr *ssa.Value, T types2.Type, f func(ctl *ssa.Valu
 			s.eachString(s.offPtr(ptr, (16+align-1)&^(align-1)), types2.NewArray(et, u.N()), f)
 			return
 		}
+		if u.IsCounted() {
+			f(countedRef{addr: ptr, box: types2.NewWrapper(u.Kind(), et, 0)})
+			return
+		}
 		s.eachString(ptr, et, f)
 	case *types2.TaggedUnion:
 		// Only the payload of the variant the tag names holds references.
@@ -162,7 +175,7 @@ func (s *fnState) eachString(ptr *ssa.Value, T types2.Type, f func(ctl *ssa.Valu
 
 // forEach calls eachString for each of the n values of type et at ptr, in
 // a loop.
-func (s *fnState) forEach(ptr, n *ssa.Value, et types2.Type, f func(ctl *ssa.Value)) {
+func (s *fnState) forEach(ptr, n *ssa.Value, et types2.Type, f func(r countedRef)) {
 	idx := s.temp(types2.Typ[types2.Int], "i")
 	s.store(ssa.TI64, idx, s.constInt(ssa.TI64, 0))
 	head := s.newBlock(ssa.BlockInvalid)
@@ -183,33 +196,43 @@ func (s *fnState) forEach(ptr, n *ssa.Value, et types2.Type, f func(ctl *ssa.Val
 	s.startBlock(done)
 }
 
-// retainAt takes a reference for every string in the T at ptr.
-func (s *fnState) retainAt(ptr *ssa.Value, T types2.Type) {
-	s.eachString(ptr, T, func(ctl *ssa.Value) {
-		s.callRuntime("strRetain", nil, []*ssa.Value{s.load(ssa.TI64, ctl)})
-	})
+// retainRef takes one more reference of r.
+func (s *fnState) retainRef(r countedRef) {
+	if r.box != nil {
+		s.boxRetain(s.load(ssa.TPtr, r.addr), r.box)
+		return
+	}
+	s.callRuntime("strRetain", nil, []*ssa.Value{s.load(ssa.TI64, r.addr)})
 }
 
-// releaseAt drops the reference of every string in the T at ptr.
+// releaseRef drops the reference r.
+func (s *fnState) releaseRef(r countedRef) {
+	if r.box != nil {
+		s.boxRelease(s.load(ssa.TPtr, r.addr), r.box)
+		return
+	}
+	s.callRuntime("strRelease", nil, []*ssa.Value{s.load(ssa.TI64, r.addr)})
+}
+
+// retainAt takes a reference for every counted reference in the T at ptr.
+func (s *fnState) retainAt(ptr *ssa.Value, T types2.Type) {
+	s.eachString(ptr, T, s.retainRef)
+}
+
+// releaseAt drops every counted reference in the T at ptr.
 func (s *fnState) releaseAt(ptr *ssa.Value, T types2.Type) {
-	s.eachString(ptr, T, func(ctl *ssa.Value) {
-		s.callRuntime("strRelease", nil, []*ssa.Value{s.load(ssa.TI64, ctl)})
-	})
+	s.eachString(ptr, T, s.releaseRef)
 }
 
 // releaseRange drops the references held by the n values of type et at
 // ptr.
 func (s *fnState) releaseRange(ptr, n *ssa.Value, et types2.Type) {
-	s.forEach(ptr, n, et, func(ctl *ssa.Value) {
-		s.callRuntime("strRelease", nil, []*ssa.Value{s.load(ssa.TI64, ctl)})
-	})
+	s.forEach(ptr, n, et, s.releaseRef)
 }
 
 // retainRange takes a reference for each of the n values of type et at ptr.
 func (s *fnState) retainRange(ptr, n *ssa.Value, et types2.Type) {
-	s.forEach(ptr, n, et, func(ctl *ssa.Value) {
-		s.callRuntime("strRetain", nil, []*ssa.Value{s.load(ssa.TI64, ctl)})
-	})
+	s.forEach(ptr, n, et, s.retainRef)
 }
 
 // takeRef makes the counted value v's references the caller's to store:
@@ -220,9 +243,21 @@ func (s *fnState) takeRef(v value, T types2.Type) {
 	case v.cnt == cntStatic:
 	case v.cnt == cntOwned && v.tmp != nil && !v.tmp.consumed:
 		v.tmp.consumed = true
+	case !v.addr:
+		s.retainWord(v.v, T)
 	default:
 		s.retainAt(v.v, T)
 	}
+}
+
+// retainWord takes a reference for the counted value p held in a register:
+// a shared, synced or weak reference (box.go).
+func (s *fnState) retainWord(p *ssa.Value, T types2.Type) {
+	if w, ok := unwrap(T).Underlying().(*types2.Wrapper); ok && w.IsCounted() {
+		s.boxRetain(p, types2.NewWrapper(w.Kind(), s.subst(w.Elem()), 0))
+		return
+	}
+	s.l.internalf(s.pos, "counted value of type %s in a register", T)
 }
 
 // takeRefAt is takeRef for a copy of v already stored at dst, which is
@@ -283,19 +318,38 @@ func (s *fnState) assign(lv lvalue, v value, init bool) {
 func (s *fnState) ownTemp(addr *ssa.Value, T types2.Type) value {
 	t := &ownedTemp{addr: addr, T: T}
 	s.addTemp(t)
+	if st := s.l.scalarType(unwrap(T)); st != nil {
+		// A reference held in a register (shared, synced, weak): the
+		// temporary keeps a copy to release.
+		return value{v: s.load(st, addr), T: T, cnt: cntOwned, tmp: t}
+	}
 	return value{v: addr, addr: true, T: T, cnt: cntOwned, tmp: t}
+}
+
+// wordTemp stores the counted one-word value p into a new temporary of the
+// statement, which then holds its reference, and returns it.
+func (s *fnState) wordTemp(p *ssa.Value, T types2.Type, name string) value {
+	tmp := s.temp(T, name)
+	s.store(ssa.TPtr, tmp, p)
+	return s.ownTemp(tmp, T)
 }
 
 // hold returns a counted value that stays valid until the end of the
 // statement whatever the calls in it do: a borrow of memory that a call
 // could change is copied into a temporary and retained.
 func (s *fnState) hold(v value) value {
-	if !v.addr || !s.l.counted(v.T) {
+	if !s.l.counted(v.T) {
 		return v
 	}
 	switch v.cnt {
 	case cntStatic, cntOwned, cntStable:
 		return v
+	}
+	if !v.addr {
+		// A shared, synced or weak reference. Its hold is not offered to
+		// the optimiser, which knows only which calls release strings.
+		s.retainWord(v.v, v.T)
+		return s.wordTemp(v.v, v.T, "held")
 	}
 	tmp := s.temp(v.T, "held")
 	s.move(tmp, v.v, s.l.sizeof(v.T))
@@ -310,8 +364,12 @@ func (s *fnState) hold(v value) value {
 // result is a temporary or static, never a borrow. Assignments with several
 // values use it, since storing one value may release another's source.
 func (s *fnState) holdOwned(v value) value {
-	if !v.addr || !s.l.counted(v.T) || v.cnt == cntStatic || isTemp(v) {
+	if !s.l.counted(v.T) || v.cnt == cntStatic || isTemp(v) {
 		return v
+	}
+	if !v.addr {
+		s.retainWord(v.v, v.T)
+		return s.wordTemp(v.v, v.T, "held")
 	}
 	tmp := s.temp(v.T, "held")
 	s.move(tmp, v.v, s.l.sizeof(v.T))
@@ -336,7 +394,7 @@ func (s *fnState) holdAcross(v value, later ...ast.Expr) value {
 // references nothing else will release, rather than a value derived from
 // one (a substring shares its temporary's reference).
 func isTemp(v value) bool {
-	return v.cnt == cntOwned && v.tmp != nil && !v.tmp.consumed && v.tmp.addr == v.v
+	return v.cnt == cntOwned && v.tmp != nil && !v.tmp.consumed && (v.tmp.addr == v.v || !v.addr)
 }
 
 // stableFrom returns the count kind of a value read from inside v: the

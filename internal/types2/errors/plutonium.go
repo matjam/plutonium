@@ -176,6 +176,14 @@ const (
 	// BadUnsafeDropArg: unsafe.Drop with an argument that is not a
 	// pointer.
 	BadUnsafeDropArg
+	// BoxOfInterface: owned, shared or synced of an interface type, which
+	// an owning interface replaces.
+	BoxOfInterface
+	// BadWeakElem: weak[P] with P other than shared[T] or synced[T].
+	BadWeakElem
+	// OwnerConversion: a conversion of a value into an owner type outside
+	// the package that declares it, or of a view into a box.
+	OwnerConversion
 )
 
 // The indexing interface: index expressions on library containers.
@@ -224,8 +232,8 @@ const (
 	BadVariantDecl
 	// TooManyVariants: a union with more variants than its tag can number.
 	TooManyVariants
-	// UnionOwnerPayload: a variant payload that holds an owned, shared or
-	// synced pointer, which needs the ownership checker.
+	// UnionOwnerPayload: a variant payload that is an owner, in a union not
+	// declared owner.
 	UnionOwnerPayload
 	// BadUnionTag: a packed union without a backing type, or without
 	// exactly one bool, integer or enum tag field before its variants.

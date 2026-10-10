@@ -70,6 +70,14 @@ func (w *walker) report(e *viewErr, key string) {
 	if !w.a.report {
 		return
 	}
+	if e.l != nil && e.l.kind == lkArena && (e.sink == sinkCall || e.sink == sinkStore && e.where == storeHeap) {
+		// Memory from a local arena stored into other heap memory, by this
+		// function or a callee: that memory was most likely allocated in
+		// the same window, from the same arena, and the analysis cannot
+		// tell. The arena's epochs are to catch the rest at run time
+		// (arena.go).
+		return
+	}
 	if e.qual == nil {
 		e.qual = types2.RelativeTo(w.f.pkg.Types)
 	}
@@ -133,7 +141,7 @@ func (l *loc) isVarLoc() bool {
 // name is what a message calls l in "which outlives x".
 func (l *loc) name() string {
 	switch {
-	case l.isVarLoc():
+	case l.isVarLoc(), (l.kind == lkObject || l.kind == lkArena) && l.v != nil:
 		return l.v.Name()
 	case l.kind == lkClosure && len(l.captures) > 0:
 		return l.captures[0].Name()
@@ -189,6 +197,16 @@ func (a *analyzer) noun(l *loc, q types2.Qualifier) string {
 		return "a method value whose receiver is in " + frame
 	case lkCtor:
 		return "the closure " + exprText(l.node.(ast.Expr)) + " returns, built in " + frame
+	case lkObject:
+		if l.v != nil {
+			return "the object " + l.v.Name() + " refers to, which " + l.v.Name() + " keeps alive in " + l.fn
+		}
+		return "the object of a temporary " + typeText(l.typ, q) + " in " + frame
+	case lkArena:
+		if l.v != nil {
+			return "memory allocated from " + l.v.Name() + ", a local arena of " + l.fn
+		}
+		return "memory allocated from a local arena in " + frame
 	}
 	return frame
 }
@@ -242,6 +260,17 @@ func (a *analyzer) intro(l *loc, q types2.Qualifier) string {
 		return fmt.Sprintf("A method value (at %s) is a record in %s frame that holds its receiver, and calling it calls the method on that receiver.", at, possessive(l.fn))
 	case lkCtor:
 		return fmt.Sprintf("%s returns a closure, which it builds in a region of its caller's frame, %s (at %s); the closure lives as long as that frame (section 4.5).", exprText(l.node.(ast.Expr)), possessive(l.fn), at)
+	case lkArena:
+		name := "a local arena"
+		if l.v != nil {
+			name = l.v.Name() + " (a local arena of " + l.fn + ")"
+		}
+		return fmt.Sprintf("%s (at %s) makes %s the default allocator, so what is allocated through the default allocator from there on (by new, a string operation, or a call that allocates and leaves out its allocator) lives in the arena, and is gone when the arena is.", exprText(l.node.(ast.Expr)), at, name)
+	case lkObject:
+		if l.v != nil {
+			return fmt.Sprintf("%s (declared at %s) is %s: the object it refers to lives only while %s holds it, and is dropped when %s is dropped at the end of its scope in %s, or released when it is the last reference. A pointer into the object, or an interface that lends it, is a view that may not outlive %s.", l.v.Name(), at, article(typeText(l.typ, q)), l.v.Name(), l.v.Name(), l.fn, l.v.Name())
+		}
+		return fmt.Sprintf("The %s made at %s is a temporary: nothing keeps it, so its object is dropped at the end of the statement, and a view of the object may not outlive that statement.", typeText(l.typ, q), at)
 	}
 	return ""
 }
@@ -352,7 +381,14 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 	}
 	// "When f returns, x's memory is reclaimed".
 	reclaimed := fmt.Sprintf("When %s returns, %s memory is reclaimed", l.fn, possessive(l.name()))
-	if !l.isVarLoc() && l.kind != lkClosure {
+	switch {
+	case l.kind == lkArena:
+		reclaimed = fmt.Sprintf("When %s returns, the arena %s is gone", l.fn, l.name())
+	case l.kind == lkObject && l.v != nil:
+		reclaimed = fmt.Sprintf("When %s returns, %s is dropped and the object freed", l.fn, l.v.Name())
+	case l.kind == lkObject:
+		reclaimed = "At the end of the statement, the temporary is dropped and its object freed"
+	case !l.isVarLoc() && l.kind != lkClosure:
 		reclaimed = fmt.Sprintf("When %s returns, its frame is reclaimed", l.fn)
 	}
 	// What would be left pointing at reclaimed memory.
@@ -369,7 +405,17 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 		if l.kind == lkBox && e.expr != nil && !isInterfaceExpr(a, e.expr) {
 			d.Msg = fmt.Sprintf("cannot return %s as an interface: the interface would hold a copy of it in %s frame", x, possessive(l.fn))
 		}
+		lends := l.kind == lkObject && e.expr != nil && !isInterfaceExpr(a, e.expr) && isBoxPtr(a.types[e.expr].Type)
+		if lends {
+			d.Msg = fmt.Sprintf("cannot return %s as an interface: an ordinary interface only borrows the box, which is dropped when %s returns", x, e.fn)
+		}
 		switch {
+		case l.kind == lkArena:
+			add(sentence(about, fmt.Sprintf("%s, so %s would point at memory that is no longer allocated.", reclaimed, x)))
+		case lends:
+			add(sentence(about, fmt.Sprintf("Converting %s to an ordinary interface lends it: the interface points at the object, and %s still owns it.", x, x)))
+		case l.kind == lkObject:
+			add(sentence(about, fmt.Sprintf("%s, so %s would point at freed memory.", reclaimed, x)))
 		case l.isVarLoc():
 			add(sentence(about, fmt.Sprintf("Its memory is reclaimed when %s returns, so %s would point at memory that no longer holds %s.", e.fn, x, l.v.Name())))
 		case l.kind == lkClosure:
@@ -377,7 +423,13 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 		default:
 			add(sentence(about, fmt.Sprintf("That frame is reclaimed when %s returns, so %s would point at memory that no longer holds the value.", e.fn, pointer)))
 		}
-		a.returnFixes(d, e, l, q)
+		if lends {
+			name := x
+			d.Fix = &diag.Fix{Intro: fmt.Sprintf("Return the box itself, changing the result type to %s", typeText(a.types[e.expr].Type, q)), Code: "return " + name}
+			d.More = []*diag.Fix{{Intro: "Or declare the interface as an owning interface, which takes ownership of what is converted into it (language spec section 6.4)", Code: "type I owner interface {\n\t...\n}"}}
+		} else {
+			a.returnFixes(d, e, l, q)
+		}
 	case sinkStore:
 		d.Code = diag.StoreFrameView
 		d.Msg = fmt.Sprintf("cannot store %s in %s, which outlives %s", x, e.dst, l.name())
@@ -486,17 +538,24 @@ func (a *analyzer) returnFixes(d *diag.Diagnostic, e *viewErr, l *loc, q types2.
 	case l.kind == lkLit:
 		T := typeText(l.typ, q)
 		d.Fix = &diag.Fix{Intro: "To give the value to the caller, return it instead. This copies it, or moves it if it is an owner", Code: fmt.Sprintf("return %s{...}", T)}
-		d.More = []*diag.Fix{{Intro: fmt.Sprintf("To keep it at a fixed address after %s returns, allocate it", e.fn), Code: fmt.Sprintf("p := new(%s)", T)}}
+		d.More = []*diag.Fix{{Intro: fmt.Sprintf("To keep it at a fixed address after %s returns, allocate it and return its owner, an owned[%s]", e.fn, T), Code: fmt.Sprintf("p := new(%s)\n...\nreturn p", T)}}
 	case l.kind == lkSliceLit || (sliceOfVar(e.expr, l) && isArrayVar(l.v)):
 		d.Fix = &diag.Fix{Intro: "To give the caller the elements, return an owner of them, such as a vec.Vec", Code: "v := vec.New[T]()\nv.Push(...)\nreturn v"}
 		d.More = []*diag.Fix{{Intro: "or copy them into memory the caller passes in", Code: "func fill(dst []T) int {\n\t...\n\treturn copy(dst, buf[:n])\n}"}}
 	case l.isVarLoc() && addrOfVar(e.expr, l):
 		name := l.v.Name()
 		d.Fix = &diag.Fix{Intro: "To give the value to the caller, return it instead. This copies it, or moves it if it is an owner", Code: "return " + name}
-		d.More = []*diag.Fix{{Intro: fmt.Sprintf("To keep it at a fixed address after %s returns, allocate it", e.fn), Code: fmt.Sprintf("%s := new(%s)", name, varType(l, q))}}
+		d.More = []*diag.Fix{{Intro: fmt.Sprintf("To keep it at a fixed address after %s returns, allocate it and return its owner, an owned[%s]", e.fn, varType(l, q)), Code: fmt.Sprintf("%s := new(%s)\n...\nreturn %s", name, varType(l, q), name)}}
+	case l.kind == lkObject && l.v != nil:
+		name := l.v.Name()
+		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Return %s itself: an owned box moves to the caller, and a shared or synced one gives the caller its own reference", name), Code: "return " + name}
+	case l.kind == lkObject:
+		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Return the box itself, changing the result type to %s", typeText(l.typ, q)), Code: "return " + exprText(l.node.(ast.Expr))}
+	case l.kind == lkArena:
+		arenaFixes(d, l)
 	case l.isVarLoc():
 		name := l.v.Name()
-		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Return values instead of views of %s, or allocate %s so that it outlives %s", name, name, e.fn), Code: fmt.Sprintf("%s := new(%s)", name, varType(l, q))}
+		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Return values instead of views of %s, or allocate %s and return its owner, an owned[%s]", name, name, varType(l, q)), Code: fmt.Sprintf("%s := new(%s)\n...\nreturn %s", name, varType(l, q), name)}
 	default:
 		d.Fix = &diag.Fix{Intro: "Return the value itself, which copies it, or allocate it so that it outlives the function."}
 	}
@@ -509,10 +568,15 @@ func (a *analyzer) storeFixes(d *diag.Diagnostic, e *viewErr, l *loc, q types2.Q
 	case l.isVarLoc() && addrOfVar(e.expr, l) && !strings.Contains(trimAddr(e.dst), " "):
 		name := l.v.Name()
 		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Store the value instead of a pointer to it, changing the type of %s to match. This copies %s, or moves it if it is an owner", trimAddr(e.dst), name), Code: fmt.Sprintf("%s = %s", trimAddr(e.dst), name)}
-		d.More = []*diag.Fix{{Intro: fmt.Sprintf("Or allocate %s so that it lives as long as %s", name, e.dst), Code: fmt.Sprintf("%s := new(%s)", name, varType(l, q))}}
+		d.More = []*diag.Fix{{Intro: fmt.Sprintf("Or allocate %s and store its owner, an owned[%s], which moves into %s", name, varType(l, q), trimAddr(e.dst)), Code: fmt.Sprintf("%s = new(%s)", trimAddr(e.dst), varType(l, q))}}
+	case l.kind == lkArena:
+		arenaFixes(d, l)
+	case l.kind == lkObject && l.v != nil:
+		name := l.v.Name()
+		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Store %s itself, changing the type of %s to match: an owned box moves there, and a shared or synced one is counted", name, trimAddr(e.dst)), Code: fmt.Sprintf("%s = %s", trimAddr(e.dst), name)}
 	case l.isVarLoc():
 		name := l.v.Name()
-		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Store values instead of views of %s, or allocate %s so that it lives as long as %s", name, name, e.dst), Code: fmt.Sprintf("%s := new(%s)", name, varType(l, q))}
+		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Store values instead of views of %s, or allocate %s and store its owner, an owned[%s], which moves there", name, name, varType(l, q)), Code: fmt.Sprintf("%s = new(%s)", trimAddr(e.dst), varType(l, q))}
 	default:
 		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Store the value itself instead of a view of %s frame, or allocate it so that it lives as long as %s.", possessive(l.fn), e.dst)}
 	}
@@ -526,15 +590,10 @@ func trimAddr(dst string) string {
 
 func (a *analyzer) passFixes(d *diag.Diagnostic, e *viewErr, l *loc, q types2.Qualifier) {
 	if l.isVarLoc() {
-		name := l.v.Name()
-		d.Fix = &diag.Fix{
-			Intro: fmt.Sprintf("Give %s memory that lives as long as it keeps it, for example by allocating %s", e.callee, name),
-			Code:  fmt.Sprintf("%s := new(%s)", name, varType(l, q)),
-		}
-		d.More = []*diag.Fix{{Intro: fmt.Sprintf("If %s should keep its own copy, change it to take the value, not a pointer, or an owner such as a strings.Buf or a vec.Vec, which it can keep.", e.callee)}}
+		d.Fix = &diag.Fix{Intro: fmt.Sprintf("If %s should keep its own copy of %s, change it to take the value, not a pointer, or an owner it can keep: an owned[%s] from new, a shared[%s], or a library owner such as a vec.Vec.", e.callee, l.v.Name(), varType(l, q), varType(l, q))}
 		return
 	}
-	d.Fix = &diag.Fix{Intro: fmt.Sprintf("Give %s memory that lives as long as it keeps it, such as a value allocated with new, or change it to take a value or an owner, which it can keep.", e.callee)}
+	d.Fix = &diag.Fix{Intro: fmt.Sprintf("Change %s to take a value or an owner, which it can keep: an owned[T] from new, a shared[T], or a library owner such as a vec.Vec.", e.callee)}
 }
 
 func (a *analyzer) handOffFixes(d *diag.Diagnostic, e *viewErr, l *loc, how string) {
@@ -629,4 +688,14 @@ func (a *analyzer) loopDiag(d *diag.Diagnostic, e *viewErr, x string, add func(s
 		return
 	}
 	d.Fix = &diag.Fix{Intro: fmt.Sprintf("Use %s before the iteration ends, or keep a copy of the value instead of a view of it.", x)}
+}
+
+// arenaFixes are the fixes for memory from a local arena that would outlive
+// it.
+func arenaFixes(d *diag.Diagnostic, l *loc) {
+	d.Fix = &diag.Fix{
+		Intro: "Allocate what must outlive the arena from an allocator that does, passed explicitly",
+		Code:  "heap := alloc.Default() // before alloc.Use\n...\nv := vec.New[T](heap)",
+	}
+	d.More = []*diag.Fix{{Intro: "Or install an arena that outlives the result, such as one the caller passes in, or make the copy that must outlive the arena after the Restore is dropped."}}
 }

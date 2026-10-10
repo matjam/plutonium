@@ -431,9 +431,9 @@ func init() {
 		},
 		&Entry{
 			Code: CheckerCode(typerr.UnionOwnerPayload), Name: "UnionOwnerPayload",
-			Text:    "This payload holds an owned, shared or synced pointer, directly or in a field, an array element or another union. Such a pointer owns, or counts references to, what it points at. A union holding one must release the payload of the variant it holds when the union is dropped or given a new variant, so it must be declared owner like a struct, and that needs the ownership checker, which the compiler does not have yet.\nUntil it does, hold a plain pointer in the payload and free the object yourself.",
-			Why:     "In Go, the garbage collector frees what any value points at. Plutonium has no garbage collector, so the compiler must release what a union owns; until it can, it rejects the union rather than leak the payload or free it twice.",
-			Fix:     &Fix{Intro: "Hold a plain pointer, and free it explicitly", Code: "type Slot union {\n\tEmpty\n\tFull *Buffer\n}"},
+			Text:    "This payload is an owner: an owned[T] box, or a type declared owner, such as a file or a vec.Vec. A union that holds one owns the payload of the variant it holds. It drops that payload when the union is dropped or given another variant, and it moves instead of being copied, so that the payload has exactly one owner. Plutonium never makes a type an owner silently, so the union must be declared owner union.\nIf the union should only look at a value that something else owns, hold a pointer in the payload instead.",
+			Why:     whyOwners,
+			Fix:     &Fix{Intro: "Declare the union as an owner", Code: "type Slot owner union {\n\tEmpty\n\tFull owned[Buffer]\n}"},
 			Spec:    pspec("5.10", "Unions"),
 			Example: "type Slot union {\n\tEmpty\n\tFull owned[Buffer]\n}",
 		},

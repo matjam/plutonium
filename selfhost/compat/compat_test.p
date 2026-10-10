@@ -1,6 +1,7 @@
 package compat
 
 import (
+	"pluto/alloc"
 	"pluto/hash"
 	"pluto/testing"
 )
@@ -10,7 +11,7 @@ type node struct{ id int }
 // newNode allocates a node: a map outlives the test's frame, so its keys
 // may not point into it (&node{1} would).
 func newNode(id int) *node {
-	n := new(node)
+	n := alloc.New[node]() // never freed, as in Go
 	n.id = id
 	return n
 }

@@ -6,13 +6,17 @@
 
 package main
 
+import "pluto/alloc"
+
 // Adapted from Go's test/typeparam: fmt.Sprintf is replaced by a stub, since
 // Plutonium has none and the message is only seen when a check fails.
 func sprintf(format string, args ...interface{}) string { return format }
 
 // Plutonium: a Cons cell converted to an interface would be boxed in the
 // frame of the function that converts it, and the list outlives those
-// frames, so the cells are allocated and the list holds *Cons.
+// frames, so the cells are allocated and the list holds *Cons. They come
+// from alloc.New, the unchecked layer, and are never freed: new would return
+// an owned[Cons], which frees its cell when it is dropped.
 
 // Overriding the predeclare "any", so it can be used as a type constraint or a type
 // argument
@@ -70,7 +74,7 @@ type Cons[a any] struct {
 }
 
 func cons[a any](head a, tail List[a]) *Cons[a] {
-	c := new(Cons[a])
+	c := alloc.New[Cons[a]]()
 	c.Head = head
 	c.Tail = tail
 	return c
