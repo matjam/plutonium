@@ -948,14 +948,9 @@ func (p *parser) parseParamDecl(name *ast.Ident, typeSetsOK bool) (f field) {
 		}
 		switch p.tok {
 		case token.IDENT, token.MUL, token.ARROW, token.FUNC, token.CHAN, token.MAP, token.STRUCT, token.PACKED, token.ENUM, token.INTERFACE, token.LPAREN:
-			// name type
-			f.typ = p.parseType()
-
-		case token.OWNER:
-			// name "owner" constraint (a type parameter that admits owners)
-			f.owner = p.pos
-			p.next()
-			f.typ = p.parseType()
+			// name type, or name "owner" constraint (a type parameter
+			// that admits owners)
+			f.owner, f.typ = p.parseOwnerType()
 
 		case token.LBRACK:
 			// name "[" type1, ..., typeN "]" or name "[" n "]" type
@@ -2773,16 +2768,24 @@ func (p *parser) parseGenericType(spec *ast.TypeSpec, openPos token.Pos, name0 *
 		spec.Assign = p.pos
 		p.next()
 	}
-	p.parseOwner(spec)
-	spec.Type = p.parseType()
+	spec.Owner, spec.Type = p.parseOwnerType()
 }
 
-// parseOwner records "owner" before the type of a type definition.
-func (p *parser) parseOwner(spec *ast.TypeSpec) {
-	if p.tok == token.OWNER {
-		spec.Owner = p.pos
-		p.next()
+// parseOwnerType parses a type that may follow "owner", in a type
+// definition or a type parameter's constraint, and returns the position of
+// "owner" (NoPos if there is none). "owner" is not reserved: it is the
+// keyword only when a type follows it, and otherwise names a type.
+func (p *parser) parseOwnerType() (token.Pos, ast.Expr) {
+	if p.tok != token.IDENT || p.lit != "owner" {
+		return token.NoPos, p.parseType()
 	}
+	pos := p.pos
+	p.next()
+	switch p.tok {
+	case token.IDENT, token.LBRACK, token.STRUCT, token.PACKED, token.ENUM, token.MUL, token.FUNC, token.INTERFACE, token.MAP, token.CHAN, token.ARROW, token.LPAREN:
+		return pos, p.parseType()
+	}
+	return token.NoPos, p.parseQualifiedIdent(&ast.Ident{NamePos: pos, Name: "owner"})
 }
 
 func (p *parser) parseTypeSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
@@ -2852,8 +2855,7 @@ func (p *parser) parseTypeSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.
 			spec.Assign = p.pos
 			p.next()
 		}
-		p.parseOwner(spec)
-		spec.Type = p.parseType()
+		spec.Owner, spec.Type = p.parseOwnerType()
 	}
 
 	spec.Comment = p.expectSemi()

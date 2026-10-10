@@ -177,7 +177,7 @@ func (s *fnState) constValue(c constant.Value, T types2.Type, pos ast.Node) valu
 	}
 	t := s.l.scalarType(T)
 	if t == nil {
-		s.l.errorf(pos.Pos(), "lower: constant of non-scalar type %s", T)
+		s.l.internalf(pos.Pos(), "constant of non-scalar type %s", T)
 		return s.zeroValue(T)
 	}
 	if t.IsFloat() && s.f.NoSSE {
@@ -208,7 +208,7 @@ func (s *fnState) constValue(c constant.Value, T types2.Type, pos ast.Node) valu
 		i, _ := constant.Int64Val(constant.ToInt(c))
 		return scalarValue(s.constInt(t, i), T)
 	}
-	s.l.errorf(pos.Pos(), "lower: unsupported constant %s", c)
+	s.l.internalf(pos.Pos(), "unsupported constant %s", c)
 	return s.zeroValue(T)
 }
 

@@ -45,10 +45,20 @@ func use() {
 	_ = v
 	Fill([]int{1}, 2)
 }
+
+// "owner" is a keyword only before a type; elsewhere it is a name.
+type owner int
+type Count owner
+type Pkg owner
+
+func id[T owner, U owner any](x T, u U) (T, U) {
+	var owner T = x
+	return owner, u
+}
 `)
 	for name, want := range map[string]bool{
 		"File": true, "Frame": true, "Pages": true, "Raw": true, "Box": true, "Resource": true,
-		"Conn": true, "Moves": true, "Vec": true, "Plain": false,
+		"Conn": true, "Moves": true, "Vec": true, "Plain": false, "Count": false, "Pkg": false,
 	} {
 		obj := pkg.Scope().Lookup(name)
 		if got := types2.IsOwner(obj.Type()); got != want {

@@ -133,6 +133,9 @@ const (
 	// go/constant unchanged.
 	PACKED
 	ENUM
+	// OWNER is never produced by the scanner: "owner" is a keyword only
+	// before a type in a type definition or a type parameter's constraint,
+	// and an identifier everywhere else. The printer uses the token.
 	OWNER
 	additional_end
 )
@@ -298,7 +301,6 @@ func init() {
 	}
 	keywords[tokens[PACKED]] = PACKED
 	keywords[tokens[ENUM]] = ENUM
-	keywords[tokens[OWNER]] = OWNER
 }
 
 // Lookup maps an identifier to its keyword token or [IDENT] (if not a keyword).
@@ -324,7 +326,7 @@ func (tok Token) IsOperator() bool {
 // IsKeyword returns true for tokens corresponding to keywords;
 // it returns false otherwise.
 func (tok Token) IsKeyword() bool {
-	return keyword_beg < tok && tok < keyword_end || tok == PACKED || tok == ENUM || tok == OWNER
+	return keyword_beg < tok && tok < keyword_end || tok == PACKED || tok == ENUM
 }
 
 // IsExported reports whether name starts with an upper-case letter.
