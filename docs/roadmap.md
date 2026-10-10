@@ -267,7 +267,8 @@ later takes the next free number and is listed in the section where it belongs.
       `*os.PathError`. Tested by `testdata/lib/osfs.p`, `exec.p` and `time.p` and the `filepath` and
       `flag` package tests. What is left for item 51: `os.File` returned by value as an owner (today
       `*File` from an allocator, freed with `alloc.Free`), and text results as `strings.Buf` where
-      functions now append to caller buffers.
+      functions now append to caller buffers. When allocated errors become counted (section 14.6,
+      accepted), the `errors.Free` calls in `os.ReadDir` and `filepath.WalkDir` go away.
     - Constant package (done): `internal/constant`, written in Go for go2pu to translate, has
       go/constant's API with a value-typed `Value` (zero value Unknown) and its own arbitrary-precision
       integers, exact fractions and 512-bit floats with math/big's rounding, so its results are
