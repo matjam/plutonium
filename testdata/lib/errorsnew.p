@@ -6,7 +6,7 @@ import (
 )
 
 // errors.New with a constant message is a static error per call site
-// (language spec section 13.1).
+// (language spec section 14.1).
 
 var (
 	ErrA = errors.New("a")

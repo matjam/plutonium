@@ -13,7 +13,7 @@ import (
 
 // The standard library's allocating functions take their allocator as a
 // trailing parameter that defaults to alloc.Default() (language spec
-// sections 5.1 and 6.1). A counting allocator shows which one each call
+// sections 5.1 and 7.1). A counting allocator shows which one each call
 // used.
 
 type counter struct {
