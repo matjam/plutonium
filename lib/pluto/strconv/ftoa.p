@@ -21,8 +21,6 @@ var float64info = floatInfo{52, 11, -1023}
 
 // FormatFloat returns the text of f as AppendFloat formats it, a new string
 // from the current allocator.
-//
-//pu:alloc
 func FormatFloat(f float64, fmt byte, prec, bitSize int) string {
 	// At most 330 digits before the point, plus the precision, exponent,
 	// sign and point.

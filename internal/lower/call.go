@@ -94,7 +94,6 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 				return []value{s.expandCtor(c, targs, nil, args, s.typeOf(e), e.Pos())}
 			}
 			sym := s.l.funcSym(fn, targs)
-			s.checkAllocCall(fn, e.Pos())
 			args := s.callArgs(e, sig, &defaultsOf{fn, targs})
 			site := &callSite{desc: types2.ExprString(e.Fun)}
 			return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn), site: site}, sig, nil, args, e.Pos())
@@ -515,7 +514,6 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 	sym := s.l.funcSym(fn, targs)
 	full := s.l.methodSig(fn, targs)
 	recv = s.hold(recv)
-	s.checkAllocCall(fn, e.Pos())
 	args := s.callArgs(e, sig, &defaultsOf{fn, targs})
 	site := &callSite{desc: desc, recv: types2.ExprString(se.X)}
 	return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn), site: site}, full, &recv, args, e.Pos())

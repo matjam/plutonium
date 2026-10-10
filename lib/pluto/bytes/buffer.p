@@ -46,8 +46,6 @@ func (b *Buffer) Bytes() []byte { return b.buf[b.off:] }
 // from the current allocator, as in Go; Bytes views it without copying.
 // Bytes that are not valid UTF-8 become U+FFFD (language spec section
 // 6.10).
-//
-//pu:alloc
 func (b *Buffer) String() string {
 	if b == nil {
 		// Special case, useful in debugging.

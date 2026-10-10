@@ -27,8 +27,6 @@ const maxWrapped = 8
 // spec section 6.10), which the error keeps: it does not depend on the
 // operands staying alive, and Error returns it without copying. Freeing the
 // error releases it.
-//
-//pu:alloc
 func Errorf(format string, args ...any) error {
 	a := alloc.Default()
 	var ws [maxWrapped]error

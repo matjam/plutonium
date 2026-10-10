@@ -487,8 +487,6 @@ type PathError struct {
 }
 
 // Error returns "op path: err", a new string, as Go's does.
-//
-//pu:alloc
 func (e *PathError) Error() string {
 	if e.Err == nil {
 		return e.Op + " " + e.Path

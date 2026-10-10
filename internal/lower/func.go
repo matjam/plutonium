@@ -76,10 +76,6 @@ type fnState struct {
 	varFacts    map[*types2.Var]*varFacts
 	ownedVars   map[*types2.Var]bool // variables that hold references of their own
 	labelScopes map[*types2.Label]ast.Node
-	// allocOK is set in functions marked //pu:alloc, which may use
-	// allocating string operations in kernel mode.
-	allocOK       bool
-	allocReported bool
 	// bytewise is set while rt.SliceBytewise is expanded: its slice is not
 	// checked for rune boundaries.
 	bytewise bool
@@ -343,7 +339,6 @@ func (l *Lowerer) newFnState(job *funcJob) *fnState {
 	f.NoSSE = l.cfg.Kernel
 	if job.parent != nil {
 		f.NoSSE = job.parent.f.NoSSE
-		s.allocOK = job.parent.allocOK
 	}
 	if job.ctor != nil {
 		f.NoSSE = l.cfg.Kernel && !hasDirective(job.ctor.decl.Doc, "fpu")
@@ -459,8 +454,6 @@ func (s *fnState) applyPragmas(doc *ast.CommentGroup) {
 			s.f.Pragmas |= ssa.PragmaNoSIMD
 		case "fpu":
 			s.f.NoSSE = false
-		case "alloc":
-			s.allocOK = true
 		}
 	}
 }

@@ -359,8 +359,6 @@ func daysFromCivil(y, m, d int64) int64 {
 
 // RFC3339 returns t in RFC 3339 format with nanoseconds, as AppendRFC3339
 // formats it, in a new string.
-//
-//pu:alloc
 func (t Time) RFC3339() string {
 	var buf [64]byte
 	return string(t.AppendRFC3339(buf[:0]))

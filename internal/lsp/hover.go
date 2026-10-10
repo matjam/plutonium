@@ -257,7 +257,6 @@ var directives = map[string]string{
 	"noreturn":  "the assembly or C function never returns, so code after calls to it is dropped (a function with a body needs no directive: the compiler works it out)",
 	"nosimd":    "the optimiser adds no vector instructions to the function",
 	"fpu":       "the function may use floating point in kernel mode; the caller has saved the FPU state",
-	"alloc":     "the function allocates: in kernel mode it may build strings, and only such functions may call it",
 	"percpu":    "one copy of the package variable per processor, addressed through GS (kernel mode only)",
 }
 

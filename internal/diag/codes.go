@@ -22,7 +22,9 @@ const (
 
 // Plutonium rules checked while compiling, after type checking. E2540 and
 // E2541 rejected string conversions and concatenation before strings were
-// counted; they are retired.
+// counted, and E2544 and E2545 restricted them to functions marked
+// //pu:alloc in kernel mode, before allocation in interrupt context was
+// checked over the whole program (E2584); they are retired.
 const (
 	NotYetSupported   Code = "E2500" // a construct the compiler cannot compile yet
 	ExternWithBody    Code = "E2510" // a //pu:extern function with a body
@@ -37,8 +39,6 @@ const (
 	DeferLitCapture   Code = "E2534" // a literal deferred in a range-over-func loop body captures the body's variables
 	ErrorsNewValue    Code = "E2542" // errors.New used other than by calling it
 	ClosureCtorValue  Code = "E2543" // a closure constructor used other than by calling it
-	KernelStringAlloc Code = "E2544" // an allocating string operation in kernel mode outside //pu:alloc
-	KernelAllocCall   Code = "E2545" // a //pu:alloc function called from kernel code without //pu:alloc
 	PerCPUInit        Code = "E2550" // a per-CPU variable with a non-constant initialiser
 	PerCPUMode        Code = "E2551" // //pu:percpu outside kernel mode
 	PerCPUSection     Code = "E2552" // //pu:percpu with //pu:section

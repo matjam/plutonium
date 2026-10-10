@@ -86,7 +86,7 @@ Each of these is a compile error that names the construct and the reason.
 Strings work as in Go otherwise. Runtime concatenation (`s + t`, `s += t`) and the conversions
 `string(b)`, `string(runes)`, `string(r)`, `[]byte(s)` and `[]rune(s)` allocate from the current
 allocator, and the strings they make are counted and freed when their last copy goes (section 6.10).
-In kernel mode they are allowed only in functions marked `//pu:alloc` (section 12.7).
+In kernel mode they follow the rules of any allocation (section 12.7).
 
 ## 4. What Plutonium changes
 
@@ -2375,7 +2375,7 @@ The compiler leaves out the counting that cannot be observed:
   and released; `return x` hands over `x`'s; a local whose address is not taken and that no function
   literal uses is read without a reference.
 
-In kernel mode, the operations that make new strings are restricted to functions marked `//pu:alloc`
+In kernel mode, the operations that make new strings allocate under the same rules as `new` and `make`
 (section 12.7).
 
 ## 7. Memory and allocation
@@ -2659,7 +2659,6 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | `//pu:scheduler` | package variable | the program's scheduler backend, of a type implementing `rt.Scheduler`; at most one in a program, replacing the hosted one (section 4.7) |
 | `//pu:nosimd` | function | the optimiser adds no vector instructions to it (implied by `//pu:interrupt`, and by kernel mode outside `//pu:fpu` functions) |
 | `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (section 12.3) |
-| `//pu:alloc` | function | allocates: may make strings in kernel mode, and only such functions may call it there (section 12.7) |
 | `//pu:percpu` | package variable | one copy per processor, addressed through `GS`; kernel mode only (section 12.5) |
 | `//pu:stack size` | `func main` | run the program on a stack of `size` bytes (`K`, `M` or `G` suffixes, 64K to 64G) that the hosted runtime reserves, maps as it is used and puts a 1 MiB guard region below; without it, main runs on the stack the system gave the process (usually 8 MiB). Hosted builds only |
 
@@ -2742,8 +2741,7 @@ enabled and no vector state saved on entry. It differs from `freestanding` in th
   a default kernel linker script (abi.md section 10.3) that places the image at 1 MiB physical and
   `0xFFFFFFFF80100000` virtual.
 
-Kernel mode also restricts the string operations that allocate to functions marked `//pu:alloc`
-(section 12.7), and enables per-CPU variables (section 12.5). `pluto/arch/x86` (section 12.4) and
+Kernel mode also enables per-CPU variables (section 12.5). `pluto/arch/x86` (section 12.4) and
 `//pu:interrupt` handlers work in every mode; in kernel mode a handler without `//pu:fpu` saves no vector
 registers. `pluto/os` and `pluto/syscall` are unavailable, as in every freestanding build. `pluto run`
 refuses kernel builds. Like every freestanding program, a kernel must define its panic handler (section
@@ -2948,30 +2946,33 @@ A go statement on the path is reported the same way, as E2585 ("so it must not s
 
 ### 12.7 Allocation in kernel mode
 
-Kernel code runs where allocating is not allowed: in interrupt handlers, with spin locks held, on paths
-that must not fail, and before the kernel has set a default allocator. Calls of `new`, `make` and the
-`pluto/alloc` functions are visible in the source, but the operations that make strings look like
-arithmetic and conversions. In kernel mode, therefore, these are compile errors outside functions marked
-`//pu:alloc`, as floats are outside `//pu:fpu` functions (section 12.3):
+Kernel code allocates as other code does: `new`, `make`, the `pluto/alloc` functions and the operations
+that make strings (`+` and `+=` on strings that are not constants, `string(b)` for a byte or rune slice,
+`string(r)` for a rune that is not a constant, `[]byte(s)`, `[]rune(s)`, and library functions that
+return new strings, such as `fmt.Sprintf` and `strconv.Itoa`) all take memory from the current
+allocator, and no function needs a marking to use them. Where allocating is not allowed is decided by
+what the allocator does, not by which operation calls it:
 
-- `+` and `+=` on strings that are not constants;
-- `string(b)` for a byte or rune slice, `string(r)` for a rune that is not a constant, `[]byte(s)` and
-  `[]rune(s)`;
-- a call of a function marked `//pu:alloc`. The library marks the functions that allocate behind their
-  signature: `fmt.Sprintf`, `fmt.Errorf`, `strconv.Itoa`, `strings.Repeat`, `strings.Join` and the like.
+- **In interrupt context.** Whatever an interrupt handler, the panic handler or the scheduler's `Wake`
+  can reach must not wait (section 12.6), and the compiler follows every allocation, a string
+  concatenation as much as a `new`, into the `Alloc` method of every allocator the program installs.
+  An allocator that may wait (one that takes a `sync.Mutex`) is reported on the path that allocates; one
+  that does not (a per-CPU cache, a spin lock with interrupts disabled) may be used there.
+- **Before an allocator is set.** A kernel starts without a default allocator. Allocating before
+  `alloc.SetDefault` panics when it runs, for strings ("no allocator: call alloc.SetDefault before
+  building strings") as for `new` and `make`.
+- **When memory runs out.** The allocator returns nil and the operation panics with "out of memory".
 
-Everything else about strings stays allowed everywhere: literals and constants, copying, comparison,
-slicing, indexing, `len`, `range`, passing and returning, `unsafe.String`, and the functions that write
-into a buffer the caller provides (`fmt.Bprintf`, `strconv.AppendInt`). Copying and dropping a counted
-string made elsewhere is allowed, and a drop may free a buffer: a kernel that cannot free in some context
-keeps the strings it uses there static or made in an arena.
+Everything about strings that does not make a new one never allocates: literals and constants,
+copying, comparison, slicing, indexing, `len`, `range`, passing and returning, `unsafe.String`, and the
+functions that write into a buffer the caller provides (`fmt.Bprintf`, `strconv.AppendInt`). Copying
+and dropping a counted string made elsewhere is allowed, and a drop may free a buffer: a kernel that
+cannot free in some context keeps the strings it uses there static or made in an arena.
 
-`//pu:alloc` marks a function as one that allocates: in kernel mode it may make strings, and only
-functions marked `//pu:alloc` may call it. Function literals inside it inherit the mark. Calls through
-function values and interfaces are not checked. In hosted and freestanding builds the directive has no
-effect beyond documentation. It is a promise the compiler cannot check, as with `//pu:fpu`: the function
-must run only where the current allocator may be used. Section 12.6 is the other half: whatever an
-interrupt handler reaches, including an allocator's `Alloc` and `Free`, must not wait.
+An earlier design required kernel functions that make strings to be marked `//pu:alloc`, to make the
+allocation visible. It was retired once the check of section 12.6 followed allocation into the
+allocator, which tells the places where allocating is wrong from the places where it is fine, while the
+marking only said that a function allocates.
 
 ## 13. Standard library
 

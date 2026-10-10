@@ -44,8 +44,6 @@ func (nb *newBuf) done(ascii bool) string {
 
 // Clone returns a fresh copy of s, in a buffer of its own. A substring keeps
 // the whole buffer it was cut from alive; a clone of it does not.
-//
-//pu:alloc
 func Clone(s string) string {
 	if s == "" {
 		return ""
@@ -58,8 +56,6 @@ func Clone(s string) string {
 // FromUTF8 returns the bytes of b as a string if they are valid UTF-8, and
 // ErrInvalidUTF8 otherwise. string(b) never fails: it replaces what is not
 // valid with U+FFFD.
-//
-//pu:alloc
 func FromUTF8(b []byte) (string, error) {
 	if !utf8.Valid(b) {
 		return "", ErrInvalidUTF8
@@ -69,8 +65,6 @@ func FromUTF8(b []byte) (string, error) {
 
 // Repeat returns a new string consisting of count copies of s. It panics if
 // count is negative or if the result would be too long.
-//
-//pu:alloc
 func Repeat(s string, count int) string {
 	switch {
 	case count < 0:
@@ -92,8 +86,6 @@ func Repeat(s string, count int) string {
 
 // Join concatenates the elements of elems to create a single string, with
 // sep placed between them.
-//
-//pu:alloc
 func Join(elems []string, sep string) string {
 	switch len(elems) {
 	case 0:
@@ -120,8 +112,6 @@ func Join(elems []string, sep string) string {
 // string and after each UTF-8 sequence, yielding up to k+1 replacements for
 // a k-rune string. If n < 0, there is no limit on the number of
 // replacements. It returns s itself if nothing is replaced.
-//
-//pu:alloc
 func Replace(s, old, new string, n int) string {
 	if old == new || n == 0 {
 		return s
@@ -144,15 +134,11 @@ func Replace(s, old, new string, n int) string {
 
 // ReplaceAll returns a copy of s with all non-overlapping instances of old
 // replaced by new, as Replace with n < 0 does.
-//
-//pu:alloc
 func ReplaceAll(s, old, new string) string { return Replace(s, old, new, -1) }
 
 // ToUpper returns s with all ASCII letters mapped to upper case; other
 // runes are unchanged (there are no Unicode case tables yet). It returns s
 // itself if it has no lower-case ASCII letter.
-//
-//pu:alloc
 func ToUpper(s string) string {
 	i := 0
 	for i < len(s) && !('a' <= s[i] && s[i] <= 'z') {
@@ -169,8 +155,6 @@ func ToUpper(s string) string {
 // ToLower returns s with all ASCII letters mapped to lower case; other
 // runes are unchanged. It returns s itself if it has no upper-case ASCII
 // letter.
-//
-//pu:alloc
 func ToLower(s string) string {
 	i := 0
 	for i < len(s) && !('A' <= s[i] && s[i] <= 'Z') {
@@ -187,8 +171,6 @@ func ToLower(s string) string {
 // Map returns a copy of s with each rune modified by mapping. A negative
 // result drops the rune; an invalid one becomes U+FFFD. It returns s itself
 // if mapping changes nothing.
-//
-//pu:alloc
 func Map(mapping func(rune) rune, s string) string {
 	for i, c := range s {
 		r := mapping(c)

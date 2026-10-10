@@ -16,8 +16,6 @@ import (
 // with alloc.Use: Join is variadic, so it cannot take a defaulted allocator
 // parameter (see the language spec, section 5.1). The joined error owns the
 // errors it wraps; errors.Free releases them all.
-//
-//pu:alloc
 func Join(errs ...error) error {
 	a := alloc.Default()
 	n, size := 0, 0

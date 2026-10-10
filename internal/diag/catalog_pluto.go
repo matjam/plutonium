@@ -528,14 +528,6 @@ func init() {
 			Spec: "\"Defer statements\" in the Go spec",
 		},
 		&Entry{
-			Code: KernelStringAlloc, Name: "KernelStringAlloc",
-			Text:    "This string operation makes a new string, and a new string needs memory from the current allocator: s + t, string(b) for a byte or rune slice, string(r) for a rune that is not a constant, []byte(s) and []rune(s). Kernel code may run where allocating is not allowed (in an interrupt handler, before the allocator exists, with a lock held), so in kernel mode it may build strings only in functions that say they allocate.\nMark the function //pu:alloc if it runs where the allocator may be used. Otherwise work on bytes in a buffer you own, for example with fmt.Bprintf or strconv.AppendInt, and keep string operations that do not allocate: literals, comparison, slicing, indexing and len.",
-			Why:     "Go allocates new strings on the garbage-collected heap. Plutonium counts them and frees each one when its last copy goes, but the allocation itself still needs an allocator, which a kernel only has in some places.",
-			Fix:     &Fix{Intro: "Mark a function that may allocate", Code: "//pu:alloc\nfunc describe(dev *Device) string {\n\treturn dev.name + \": \" + dev.state.String()\n}"},
-			Spec:    pspec("12.7", "Allocation in kernel mode"),
-			Example: "func label(n int) string {\n\treturn \"irq\" + strconv.Itoa(n)\n}",
-		},
-		&Entry{
 			Code: DeferInRangeFunc, Name: "DeferInRangeFunc",
 			Text:    "The body of a loop over a function (for x := range seq) runs once for each value the iterator yields, so a defer statement in it is a defer inside a loop. Its deferred call belongs to the function the loop is in and runs when that function returns, as in Go. Plutonium gives each defer statement one slot in that function's frame, so the defer may run at most once per call: after it, every path must leave the loop, by return, by panic, or by break, continue or goto to a statement outside the loop.\nIf the deferred call should run at the end of each iteration, move the body into a function of its own.",
 			Why:     "Go keeps the deferred calls of such a loop in a list on the heap. Plutonium never allocates behind the program's back, and kernel stacks are small and fixed.",
@@ -551,14 +543,6 @@ func init() {
 			Fix:     &Fix{Intro: "Pass the loop variable as an argument", Code: "for x := range seq {\n\tif done(x) {\n\t\tdefer func(x int) { log(x) }(x)\n\t\treturn\n\t}\n}"},
 			Spec:    pspec("4.10", "Range over functions"),
 			Example: "for x := range seq {\n\tif done(x) {\n\t\tdefer func() { log(x) }()\n\t\treturn\n\t}\n}",
-		},
-		&Entry{
-			Code: KernelAllocCall, Name: "KernelAllocCall",
-			Text:    "The function called is marked //pu:alloc: it allocates, for example because it builds strings. In kernel mode a function that is not marked //pu:alloc may not call one, so that code that must not allocate (an interrupt handler, code holding a spin lock) cannot do it by accident through a call.\nMark the calling function //pu:alloc too, if it runs where the allocator may be used, or use a function that writes into a buffer you provide, such as strconv.AppendInt or fmt.Bprintf.",
-			Why:     "In Go any function may allocate. A kernel needs to know which code may, so Plutonium makes allocation visible in the declarations of kernel code.",
-			Fix:     &Fix{Intro: "Format into a buffer instead", Code: "var buf [32]byte\nmsg := fmt.Bprintf(buf[:0], \"irq %d\", n)"},
-			Spec:    pspec("12.7", "Allocation in kernel mode"),
-			Example: "func onIRQ(n int) {\n\tlog(fmt.Sprintf(\"irq %d\", n))\n}",
 		},
 		&Entry{
 			Code: ErrorsNewValue, Name: "ErrorsNewValue",

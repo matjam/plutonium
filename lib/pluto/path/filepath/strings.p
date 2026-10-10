@@ -43,16 +43,12 @@ func build(n int, reuse string, fill func(dst []byte) []byte) string {
 // Clean returns the shortest path equivalent to path by lexical processing,
 // as Go's Clean does (see AppendClean). A path that is already clean is
 // returned as it is.
-//
-//pu:alloc
 func Clean(path string) string {
 	return build(len(path)+1, path, func(dst []byte) []byte { return AppendClean(dst, path) })
 }
 
 // Join joins the non-empty elements with slashes and cleans the result, as
 // Go's Join does; it returns "" if every element is empty.
-//
-//pu:alloc
 func Join(elem ...string) string {
 	n, only := 0, ""
 	nonEmpty := 0
@@ -74,8 +70,6 @@ func Join(elem ...string) string {
 
 // Abs returns an absolute, clean form of path, joined to the working
 // directory if it is relative.
-//
-//pu:alloc
 func Abs(path string) (string, error) {
 	if IsAbs(path) {
 		return Clean(path), nil
@@ -90,8 +84,6 @@ func Abs(path string) (string, error) {
 // Rel returns a relative path that is lexically equivalent to targpath when
 // joined to basepath, as Go's Rel does. It fails if targpath cannot be made
 // relative to basepath, such as when one is absolute and the other is not.
-//
-//pu:alloc
 func Rel(basepath, targpath string) (string, error) {
 	// Each element of the base becomes at most "../", and the target's
 	// rest is copied.

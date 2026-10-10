@@ -225,7 +225,8 @@ later takes the next free number and is listed in the section where it belongs.
     `vec.Vec`, `hash.Map`, `hash.Set`, `alloc.Free`, `flag.FlagSet` and the error types release their
     strings. `fmt.Sprintf`, `strconv.Itoa`, `strings.Join` and the rest return strings again, as do
     `os.Getwd`, `filepath.Join` and `time.Duration.String`, with `Append` forms kept. In kernel mode the
-    allocating operations need `//pu:alloc` (E2544, E2545). Measured (2026-10-10, `bench`, Pu/Rust
+    allocating operations follow the rules of any allocation: the interrupt-context check follows them
+    into the allocator (a first version required `//pu:alloc`, E2544 and E2545, now retired). Measured (2026-10-10, `bench`, Pu/Rust
     geomean): 1.03 before, 1.00 after; after merging puroutines, 1.03 for main and 1.06 with counted
     strings in one run, whose gaps (heapsort, sha256) were noise: reruns timed both compilers within 2%.
     No benchmark builds strings in its loop. On a loop that passes struct fields to a search function, removing holds that

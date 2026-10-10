@@ -146,7 +146,7 @@ type callGraph struct {
 	funcs map[*ssa.Sym]*ssa.Func
 	edges map[*ssa.Sym][]hop
 	// candidates of indirect calls, by itab key or signature
-	ifaceTargets map[string][]*ssa.Sym
+	ifaceTargets map[string][]*ssa.Sym // by interface and method index
 	valueFuncs   []*ssa.Sym
 }
 
@@ -285,7 +285,7 @@ func (g *callGraph) callsOf(sym *ssa.Sym) []hop {
 // targets returns the functions an indirect call may reach.
 func (g *callGraph) targets(site *callSite) []*ssa.Sym {
 	if site.iface != nil {
-		key := typeString(site.iface)
+		key := fmt.Sprintf("%s.%d", typeString(site.iface), site.method)
 		if t, ok := g.ifaceTargets[key]; ok {
 			return t
 		}
@@ -516,6 +516,14 @@ func throughFile(hops []hop) bool {
 	return false
 }
 
+// allocCalls are the runtime functions the compiler calls to allocate: for
+// new and make, and for the operations that make strings.
+var allocCalls = map[string]bool{
+	"pluto/rt.alloc": true, "pluto/rt.allocWith": true,
+	"pluto/rt.concatStrings": true, "pluto/rt.stringFromBytes": true, "pluto/rt.stringFromRunes": true,
+	"pluto/rt.stringFromRune": true, "pluto/rt.bytesFromString": true, "pluto/rt.runesFromString": true,
+}
+
 // hopPhrase describes one call of a path, following "which": "calls
 // readConfig (irq.p:5)". final marks the call that waits or starts a
 // puroutine (kind).
@@ -525,7 +533,7 @@ func (l *Lowerer) hopPhrase(h *hop, final bool, kind opKind) string {
 	switch {
 	case final && kind == opWait && h.site != nil && h.site.recv != "" && !h.indirect():
 		return fmt.Sprintf("waits on %s (%s)", h.site.recv, at)
-	case h.site == nil && (h.to.Name == "pluto/rt.alloc" || h.to.Name == "pluto/rt.allocWith"):
+	case h.site == nil && allocCalls[h.to.Name]:
 		s = fmt.Sprintf("allocates (%s)", at)
 	case h.site == nil || h.site.desc == "":
 		s = fmt.Sprintf("calls %s (%s)", displayName(h.to), at)

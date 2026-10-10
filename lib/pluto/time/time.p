@@ -130,8 +130,6 @@ func (d Duration) Abs() Duration {
 // String returns d formatted as Go's Duration.String formats it, such as
 // "72h3m0.5s", "1.5µs" or "0s": a new string from the current allocator
 // ("0s" is static).
-//
-//pu:alloc
 func (d Duration) String() string {
 	if d == 0 {
 		return "0s"

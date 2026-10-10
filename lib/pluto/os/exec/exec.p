@@ -660,8 +660,6 @@ func text(i int, prefix string, n int) string {
 // ErrNotFound or the reason file cannot be run. A path found in $PATH that
 // is not valid UTF-8 is returned with U+FFFD for each invalid byte; use
 // AppendLookPath for the exact bytes.
-//
-//pu:alloc
 func LookPath(file string) (string, error) {
 	for i := 0; i < len(file); i++ {
 		if file[i] == '/' {

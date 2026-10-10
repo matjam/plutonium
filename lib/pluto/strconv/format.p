@@ -32,14 +32,10 @@ func small(i int) string {
 }
 
 // Itoa returns the decimal text of i, FormatInt(int64(i), 10).
-//
-//pu:alloc
 func Itoa(i int) string { return FormatInt(int64(i), 10) }
 
 // FormatInt returns the text of i in the given base (2 to 36), with
 // lower-case letters for digits above 9.
-//
-//pu:alloc
 func FormatInt(i int64, base int) string {
 	if 0 <= i && i < 100 && base == 10 {
 		return small(int(i))
@@ -49,8 +45,6 @@ func FormatInt(i int64, base int) string {
 }
 
 // FormatUint returns the text of u in the given base (2 to 36).
-//
-//pu:alloc
 func FormatUint(u uint64, base int) string {
 	if u < 100 && base == 10 {
 		return small(int(u))
@@ -71,8 +65,6 @@ func FormatBool(b bool) string {
 // control characters, quotes and backslashes; other runes, printable or
 // not, appear as themselves. (There are no Unicode tables to tell which are
 // printable.)
-//
-//pu:alloc
 func Quote(s string) string {
 	n := 2
 	for i := 0; i < len(s); i++ {
@@ -141,8 +133,6 @@ func quotedLen(c byte) int {
 }
 
 // QuoteRune returns a single-quoted Go character literal representing r.
-//
-//pu:alloc
 func QuoteRune(r rune) string {
 	var buf [16]byte
 	b := append(buf[:0], '\'')

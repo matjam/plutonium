@@ -3,7 +3,6 @@ package lower
 import (
 	"go/constant"
 
-	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -18,7 +17,6 @@ import (
 // concat lowers a chain of string additions, a + b + c, as one runtime call
 // that copies every operand into one new buffer, as Go does.
 func (s *fnState) concat(e *ast.BinaryExpr, T types2.Type) value {
-	s.checkAllocOp(e.Pos(), "string concatenation")
 	var operands []ast.Expr
 	var collect func(x ast.Expr)
 	collect = func(x ast.Expr) {
@@ -67,7 +65,6 @@ func (s *fnState) newString(words []*ssa.Value, T types2.Type) value {
 
 // concatAssign lowers s += t on a string place.
 func (s *fnState) concatAssign(lv lvalue, rhs ast.Expr, pos token.Pos) {
-	s.checkAllocOp(pos, "string concatenation")
 	T := unwrap(lv.T)
 	old := s.holdAcross(s.loadLV(lv), rhs)
 	y := s.exprAs(rhs, T)
@@ -91,7 +88,6 @@ func (s *fnState) stringConversion(e *ast.CallExpr, to, from types2.Type) (value
 	}
 	switch {
 	case isString(to) && !isString(from):
-		s.checkAllocOp(e.Pos(), "conversion to string")
 		switch elemKind(fu) {
 		case types2.Byte:
 			p, n, _ := s.sliceParts(s.expr(e.Args[0]))
@@ -115,7 +111,6 @@ func (s *fnState) stringConversion(e *ast.CallExpr, to, from types2.Type) (value
 			return s.newString(res, to), true
 		}
 	case isString(from) && !isString(to):
-		s.checkAllocOp(e.Pos(), "conversion from string")
 		str := s.expr(e.Args[0])
 		p, n := s.stringParts(str)
 		switch elemKind(tu) {
@@ -220,30 +215,4 @@ func (s *fnState) countIntrinsic(fn *types2.Func, e *ast.CallExpr, id *ast.Ident
 		}
 	}
 	return nil, true
-}
-
-// checkAllocOp reports an allocating string operation in kernel mode
-// outside a function marked //pu:alloc (language spec section 12.7).
-func (s *fnState) checkAllocOp(pos token.Pos, what string) {
-	if !s.l.cfg.Kernel || s.allocOK || s.allocReported {
-		return
-	}
-	s.allocReported = true
-	s.l.errorf(pos, diag.KernelStringAlloc, "%s allocates, which kernel code may only do in a function marked //pu:alloc", what)
-}
-
-// checkAllocCall reports a call of a function marked //pu:alloc from kernel
-// code that is not marked //pu:alloc itself.
-func (s *fnState) checkAllocCall(fn *types2.Func, pos token.Pos) {
-	if !s.l.cfg.Kernel || s.allocOK || s.allocReported || !s.l.isAllocFunc(fn) {
-		return
-	}
-	s.allocReported = true
-	s.l.errorf(pos, diag.KernelAllocCall, "%s allocates (it is marked //pu:alloc), which kernel code may only call from a function marked //pu:alloc", fn.Name())
-}
-
-// isAllocFunc reports whether a declared function carries //pu:alloc.
-func (l *Lowerer) isAllocFunc(fn *types2.Func) bool {
-	d := l.decls[fn.Origin()]
-	return d != nil && hasDirective(d.decl.Doc, "alloc")
 }
