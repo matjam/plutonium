@@ -85,26 +85,22 @@ func main() {
 	}
 }
 
-// TestErrorsNewLimit checks that errors.New, which hands out static storage
-// meant for package-level sentinels, panics with an explanation when a
-// program calls it more often than that storage allows.
-func TestErrorsNewLimit(t *testing.T) {
-	const src = `package main
-
-import "pluto/errors"
-
-func main() {
-	for i := 0; i < 1000; i++ {
-		_ = errors.New("made at run time")
+// TestErrorsNewUses checks that errors.New, whose error belongs to a call
+// site, can only be called: taking its value or deferring it is a compile
+// error. testdata/lib/errorsnew.p covers the calls themselves.
+func TestErrorsNewUses(t *testing.T) {
+	cases := []struct{ name, body, want string }{
+		{"func value", "f := errors.New\n\t_ = f", "errors.New cannot be used as a func value"},
+		{"func value argument", "apply(errors.New)", "errors.New cannot be used as a func value"},
+		{"deferred", "defer errors.New(\"x\")", "errors.New cannot be deferred"},
 	}
-}
-`
-	out, status := compileAndRun(t, src, 0)
-	if status != 2 {
-		t.Fatalf("exit status %d, want 2; output:\n%s", status, out)
-	}
-	const want = "panic: errors.New: more than 512 errors; declare errors in package-level variables, or use fmt.Errorf\n"
-	if out != want {
-		t.Fatalf("output %q, want %q", out, want)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			src := "package main\n\nimport \"pluto/errors\"\n\nfunc apply(f func(string) error) { _ = f }\n\nfunc main() {\n\t" + c.body + "\n}\n"
+			err := buildError(t, src)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("error %v, want %q", err, c.want)
+			}
+		})
 	}
 }

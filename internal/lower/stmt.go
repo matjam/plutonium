@@ -838,6 +838,9 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 		}
 		if id := identOf(fun); id != nil {
 			if fn, ok := s.info.Uses[id].(*types2.Func); ok {
+				if s.l.errorsNewValue(fn, call.Pos(), "deferred") {
+					return
+				}
 				targs := s.instanceArgs(id)
 				sym := s.l.funcSym(fn, targs)
 				sig := s.subst(funTV.Type).(*types2.Signature)

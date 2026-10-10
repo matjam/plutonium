@@ -57,6 +57,9 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 			if fn.Pkg() != nil && fn.Pkg().Path()+"."+fn.Name() == handlerAddrFunc {
 				return []value{s.handlerAddr(e, s.typeOf(e))}
 			}
+			if types2.IsErrorsNew(fn) {
+				return s.errorsNew(e, fn)
+			}
 			if res, ok := s.intrinsic(fn, e); ok {
 				return res
 			}
@@ -521,6 +524,7 @@ func ringOf(recvT types2.Type, sel *types2.Selection) *types2.Wrapper {
 // funcValue returns a func value for a declared function: the address of a
 // static closure record holding its code pointer.
 func (s *fnState) funcValue(fn *types2.Func, targs []types2.Type, pos token.Pos) *ssa.Value {
+	s.l.errorsNewValue(fn, pos, "used as a func value")
 	sym := s.l.funcSym(fn, targs)
 	s.checkNotHandler(sym, pos, "used as a func value")
 	if s.l.isCFunc(sym) {
