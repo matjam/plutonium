@@ -532,7 +532,7 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | `//pu:extern name` | body-less function | the function is the external symbol `name` (C ABI) |
 | `//pu:export name` | function | also export the function under the symbol `name` |
 | `//pu:section name` | function or package variable | place it in the named section |
-| `//pu:interrupt` | function | an x86-64 interrupt handler: saves all registers, returns with `iretq` (planned, section 11.4) |
+| `//pu:interrupt` | function | an x86-64 interrupt handler: saves every register it may change, returns with `iretq` (section 11.4) |
 | `//pu:noreturn` | function | the function never returns (lets the optimiser drop code after calls) |
 | `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (proposed, section 11.3) |
 | `//pu:percpu` | package variable | one copy per processor, addressed through `GS` (proposed, section 11.5) |
@@ -548,10 +548,13 @@ A function declared without a body is implemented outside Plutonium.
 - **C**: with `//pu:extern name`, the function is the C symbol `name`, called with the System V AMD64
   calling convention, so C code compiled separately, such as the reference Lua interpreter, links in
   directly. `//pu:export name` makes a Plutonium function callable from C under `name`. Calls between
-  Plutonium functions use an internal convention that agrees with System V for scalar arguments and up to
-  two scalar results, and passes strings, slices, interfaces and small structs in registers (abi.md
-  section 9). Until the compiler classifies aggregates the System V way, `//pu:extern` and `//pu:export`
-  functions are limited to scalar parameters and at most two scalar results.
+  Plutonium functions use an internal convention that passes strings, slices, interfaces and small
+  structs in registers; the compiler translates at the C boundary, classifying structs the System V way
+  and returning several results as a struct of the results (abi.md section 9.1). Strings, slices,
+  interfaces and func values have no C equivalent and are compile errors in `//pu:extern` and
+  `//pu:export` signatures, as are variadic functions.
+- **C sources**: `.c` files in a package are compiled with the system C compiler and linked in, and `.o`
+  files are linked as they are (abi.md section 9.2). There is no C library.
 
 ```go
 //pu:extern lua_pushinteger
@@ -602,8 +605,8 @@ specified in [abi.md section 10](abi.md#10-kernel-mode):
   `sym+disp32(,index,scale)`) is correct there without change; the kernel's linker script places the
   image.
 
-Kernel mode also enables `//pu:interrupt`, `pluto/arch/x86` (section 11.4) and per-CPU variables
-(section 11.5). `pluto/os` and `pluto/syscall` are unavailable, as in every freestanding build.
+Kernel mode also enables `pluto/arch/x86` intrinsics (section 11.4) and per-CPU variables (section
+11.5). `//pu:interrupt` handlers already work in every mode. `pluto/os` and `pluto/syscall` are unavailable, as in every freestanding build.
 
 ### 11.3 Floating point in kernel mode
 
@@ -679,8 +682,9 @@ func FPUEnd(area *FPUState)
 func HandlerAddr(h any) uintptr   // h must name a //pu:interrupt function; for building the IDT
 ```
 
-`//pu:interrupt` handlers (planned) take a `*x86.InterruptFrame`, and an error code for the exceptions
-that push one; abi.md section 10.4 gives the entry and exit sequence.
+`//pu:interrupt` handlers take a `*x86.InterruptFrame`, and an error code for the exceptions that push
+one; abi.md section 10.4 gives the rules and the entry and exit sequence. `InterruptFrame` and
+`HandlerAddr` exist today; the other functions above are proposed.
 
 ### 11.5 Per-CPU variables
 
