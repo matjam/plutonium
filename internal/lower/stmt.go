@@ -447,15 +447,32 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 	case *types2.Array, *types2.Pointer, *types2.Slice:
 		var base, n *ssa.Value
 		var et types2.Type
+		// As in Go, a range over an array or a pointer to one with no
+		// value variable needs only the constant length and does not
+		// evaluate the range expression, unless the expression calls
+		// a function (then its length is not a constant).
+		hasValue := st.Value != nil
+		if id, ok := st.Value.(*ast.Ident); ok && id.Name == "_" {
+			hasValue = false
+		}
+		if _, isSlice := u.(*types2.Slice); !isSlice && !hasValue && s.callsFunction(st.X) {
+			s.expr(st.X)
+		}
 		switch u := u.(type) {
 		case *types2.Array:
-			// Arrays are ranged over in place (see the spec).
-			base = s.lv(st.X).ptr
+			// The range expression is evaluated once, before the loop,
+			// so the loop sees a copy of the array.
+			if hasValue {
+				base = s.temp(xt, "range")
+				s.storeTo(base, s.expr(st.X), xt)
+			}
 			n = s.constInt(ssa.TI64, u.Len())
 			et = s.subst(u.Elem())
 		case *types2.Pointer:
 			arr := unwrap(u.Elem()).Underlying().(*types2.Array)
-			base = s.scalar(st.X)
+			if hasValue {
+				base = s.scalar(st.X)
+			}
 			n = s.constInt(ssa.TI64, arr.Len())
 			et = s.subst(arr.Elem())
 		case *types2.Slice:
@@ -479,6 +496,21 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 		return
 	}
 	s.l.errorf(st.Pos(), "lower: cannot range over %s", xt)
+}
+
+// callsFunction reports whether e contains a function call (a conversion
+// or a call of a built-in folded to a constant is not one).
+func (s *fnState) callsFunction(e ast.Expr) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok {
+			if tv := s.info.Types[call]; tv.Value == nil && !s.info.Types[call.Fun].IsType() {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
 }
 
 // rangeString iterates over the runes of a string.
