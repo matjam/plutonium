@@ -157,8 +157,9 @@ func (s *Signature) String() string   { return TypeString(s, nil) }
 // ----------------------------------------------------------------------------
 // Implementation
 
-// funcType type-checks a function or method type.
-func (check *Checker) funcType(sig *Signature, recvPar *ast.FieldList, ftyp *ast.FuncType) {
+// funcType type-checks a function or method type. It returns the default
+// values of the trailing parameters, if any (see paramDefaults).
+func (check *Checker) funcType(sig *Signature, recvPar *ast.FieldList, ftyp *ast.FuncType) []ast.Expr {
 	check.openScope(ftyp, "function")
 	check.scope.isFunc = true
 	check.recordScope(ftyp, check.scope)
@@ -201,6 +202,7 @@ func (check *Checker) funcType(sig *Signature, recvPar *ast.FieldList, ftyp *ast
 	sig.params = NewTuple(params...)
 	sig.results = NewTuple(results...)
 	sig.variadic = variadic
+	return check.paramDefaults(recvPar, ftyp, variadic)
 }
 
 // collectRecv extracts the method receiver and its type parameters (if any) from rparam.

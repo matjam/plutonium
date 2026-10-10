@@ -169,6 +169,15 @@ type Checker struct {
 	// aligned wrapper on its operand instead of unwrapping it.
 	keepWrapper bool
 
+	// Plutonium: the declared function or method each identifier names
+	// when it is used as a value or callee, so that a call can find the
+	// default values of its callee (see calleeFunc).
+	funcRefs map[*ast.Ident]*Func
+
+	// Plutonium: stand-ins for parameter names while default values are
+	// checked; using one is an error (see defaultValues).
+	paramPlaceholders map[*Var]bool
+
 	// debugging
 	posStack []positioner // stack of source positions seen; used for panic tracing
 	indent   int          // indentation for tracing

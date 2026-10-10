@@ -16,9 +16,23 @@ import (
 // standard error (where print and println write) and exit status.
 func compileAndRun(t *testing.T, src string, optLevel int) (string, int) {
 	t.Helper()
+	return compileAndRunFiles(t, map[string]string{"main.p": src}, optLevel)
+}
+
+// compileAndRunFiles is compileAndRun for a program of several files,
+// given by their paths relative to the main package's directory, such as
+// a module: a pluto.mod and the packages under it.
+func compileAndRunFiles(t *testing.T, files map[string]string, optLevel int) (string, int) {
+	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "main.p"), []byte(src), 0o644); err != nil {
-		t.Fatal(err)
+	for name, src := range files {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	out := filepath.Join(dir, "prog")
 	var listing bytes.Buffer

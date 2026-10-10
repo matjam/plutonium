@@ -60,7 +60,7 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 			targs := s.instanceArgs(id)
 			sig := s.subst(s.info.Types[e.Fun].Type).(*types2.Signature)
 			sym := s.l.funcSym(fn, targs)
-			args := s.callArgs(e, sig)
+			args := s.callArgs(e, sig, &defaultsOf{fn, targs})
 			return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn)}, sig, nil, args, e.Pos())
 		}
 	}
@@ -68,7 +68,7 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 	// A call through a func value.
 	fv := s.scalar(e.Fun)
 	sig := s.typeOf(e.Fun).Underlying().(*types2.Signature)
-	args := s.callArgs(e, sig)
+	args := s.callArgs(e, sig, nil)
 	code := s.load(ssa.TPtr, fv)
 	return s.emitCall(callee{code: code, ctx: fv}, sig, nil, args, e.Pos())
 }
@@ -119,9 +119,20 @@ func (s *fnState) argSources(args []ast.Expr) []argSource {
 	return out
 }
 
+// defaultsOf identifies the declared function a call names, and the type
+// arguments of the instance it calls, so that the call can evaluate the
+// default values of the parameters it omits.
+type defaultsOf struct {
+	fn    *types2.Func
+	targs []types2.Type
+}
+
 // callArgs evaluates a call's arguments in order, packing variadic
-// arguments into a slice whose backing array lives in this frame.
-func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature) []value {
+// arguments into a slice whose backing array lives in this frame. A call
+// that names its callee (def is not nil) may omit trailing parameters that
+// have default values; their defaults are evaluated after the explicit
+// arguments.
+func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature, def *defaultsOf) []value {
 	params := sig.Params()
 	n := params.Len()
 	args := s.argSources(e.Args)
@@ -139,6 +150,15 @@ func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature) []value {
 	}
 	for i := 0; i < fixed && i < len(args); i++ {
 		out = append(out, s.materialize(as(args[i], s.subst(params.At(i).Type()))))
+	}
+	if !sig.Variadic() && len(args) < n {
+		if def == nil {
+			s.l.errorf(e.Pos(), "lower: call has %d arguments, signature has %d parameters", len(args), n)
+			return out
+		}
+		for i := len(args); i < n; i++ {
+			out = append(out, s.defaultArg(def, i, n, s.subst(params.At(i).Type()), e))
+		}
 	}
 	if sig.Variadic() && !e.Ellipsis.IsValid() {
 		sliceT := s.subst(params.At(n - 1).Type())
@@ -158,6 +178,32 @@ func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature) []value {
 		}
 	}
 	return out
+}
+
+// defaultArg evaluates the default value of parameter i (of n) of the
+// callee def names, converted to the parameter type T. The default is
+// lowered here, in the caller's frame, as if it were written at the call
+// site; but its names were resolved in the callee's declaration, so it is
+// lowered with the callee package's type information and the callee
+// instance's type arguments. That lets it use the callee package's
+// unexported names and the callee's type parameters.
+func (s *fnState) defaultArg(def *defaultsOf, i, n int, T types2.Type, e *ast.CallExpr) value {
+	fn := def.fn.Origin()
+	defs := fn.Defaults()
+	k := i - (n - len(defs))
+	d := s.l.decls[fn]
+	if k < 0 || d == nil {
+		s.l.errorf(e.Pos(), "lower: no argument for parameter %d of %s", i+1, fn.Name())
+		return s.zeroValue(T)
+	}
+	pkg, info, tmap := s.pkg, s.info, s.tmap
+	s.pkg, s.info, s.tmap = d.pkg, d.pkg.Info, nil
+	if len(def.targs) > 0 {
+		s.tmap = newTypeMap(s.l, fn, def.targs)
+	}
+	v := s.materialize(s.exprAs(defs[k], T))
+	s.pkg, s.info, s.tmap = pkg, info, tmap
+	return v
 }
 
 // emitCall emits a call and returns its results as values.
@@ -328,7 +374,7 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 	// Interface method calls.
 	if isInterface(recvT) && len(sel.Index()) == 1 {
 		iv := s.expr(se.X)
-		args := s.callArgs(e, sig)
+		args := s.callArgs(e, sig, nil)
 		return s.ifaceCall(iv, recvT, fn, sig, args, e.Pos())
 	}
 
@@ -336,7 +382,7 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 	targs := s.methodTypeArgs(fn, se, recvT)
 	sym := s.l.funcSym(fn, targs)
 	full := s.l.methodSig(fn, targs)
-	args := s.callArgs(e, sig)
+	args := s.callArgs(e, sig, &defaultsOf{fn, targs})
 	return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn)}, full, &recv, args, e.Pos())
 }
 

@@ -58,6 +58,24 @@ func isMainStatus(results *ast.FieldList) bool {
 	return ok && id.Name == "int64"
 }
 
+// IsErrorsNew reports whether fn is pluto/errors.New, which the compiler
+// evaluates at each call site to a static error (language spec section
+// 13.1).
+func IsErrorsNew(fn *Func) bool {
+	return fn != nil && fn.name == "New" && fn.pkg != nil && fn.pkg.path == "pluto/errors"
+}
+
+// errorsNewCall checks a call of errors.New: its message must be a
+// constant, since the error it makes is static.
+func (check *Checker) errorsNewCall(call *ast.CallExpr, args []*operand) {
+	if !IsErrorsNew(check.calleeFunc(call)) || len(args) != 1 || !args[0].isValid() {
+		return
+	}
+	if args[0].mode() != constant_ {
+		check.errorf(args[0], InvalidCall, "errors.New needs a constant message, since each call site makes one static error; use fmt.Errorf to build a message at run time")
+	}
+}
+
 // forbiddenImports lists import paths Plutonium rejects, with the reason.
 var forbiddenImports = map[string]string{
 	"reflect": "requires runtime type metadata",

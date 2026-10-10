@@ -8,7 +8,10 @@ import (
 // TestErrorConventionErrors checks that the ways of building an error
 // message that would allocate behind the program's back, or of asking
 // errors.AsType for something that is not an error, are compile errors.
+// errors.New takes only a constant message, so a message built at run time
+// fails there first.
 func TestErrorConventionErrors(t *testing.T) {
+	const notConstant = "errors.New needs a constant message, since each call site makes one static error; use fmt.Errorf to build a message at run time"
 	cases := []struct{ name, src, want string }{
 		{"concatenated message", `package main
 
@@ -17,7 +20,7 @@ import "pluto/errors"
 func fail(name string) error { return errors.New("open " + name) }
 
 func main() { _ = fail("x") }
-`, "runtime string concatenation is not permitted in Plutonium"},
+`, notConstant},
 		{"message from bytes", `package main
 
 import "pluto/errors"
@@ -27,6 +30,37 @@ var ErrBad error
 func main() {
 	b := []byte{'x'}
 	ErrBad = errors.New(string(b))
+}
+`, notConstant},
+		{"message from a variable", `package main
+
+import "pluto/errors"
+
+var msg = "bad"
+
+var ErrBad = errors.New(msg)
+
+func main() { _ = ErrBad }
+`, notConstant},
+		{"concatenated buffer message", `package main
+
+import "pluto/fmt"
+
+func fail(buf *fmt.ErrorBuf, name string) error { return buf.Errorf("%s", "open "+name) }
+
+func main() {
+	var buf fmt.ErrorBuf
+	_ = fail(&buf, "x")
+}
+`, "runtime string concatenation is not permitted in Plutonium"},
+		{"buffer message from bytes", `package main
+
+import "pluto/fmt"
+
+func main() {
+	var buf fmt.ErrorBuf
+	b := []byte{'x'}
+	_ = buf.Errorf("%s", string(b))
 }
 `, "is not permitted in Plutonium (it allocates a copy)"},
 		{"AsType of a non-error", `package main
