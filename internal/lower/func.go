@@ -406,6 +406,7 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 			body = job.lit.Body
 		}
 		l.bodies[job.sym] = funcBody{body: body, info: s.info}
+		l.checkClosureReturns(job)
 		s.varFacts = analyzeVars(body, s.info)
 		s.labelScopes = labelBlocks(body, s.info)
 		s.bindParams()

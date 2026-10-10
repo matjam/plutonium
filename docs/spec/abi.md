@@ -1034,3 +1034,15 @@ the PIT handler; `testdata/plutonium/customsched.p` sleeps in its idle loop unti
 **Hosted.** The built-in backend keeps a heap per P instead (section 12.7): a timer goes into the heap of
 the P that arms it, and stays there until it fires or is stopped, whichever worker runs the heap. Its
 `ArmTimer` does nothing.
+
+**Sleeping without a scheduler.** `rt.Sleep(ns)` is declared without a body and marked
+`//pu:schedlate sleepDirect sleepParked`. Lowering (`internal/lower/sched.go`) gives such a function its
+body after every other function has been lowered: a call of `sleepDirect` if the backend is the default
+hosted one (the `//pu:scheduler` variable of `pluto/rt`) and `rt.startTasks` was never reached, otherwise
+a call of `sleepParked`. `startTasks` is what a `go` statement, a blocking channel operation or `pluto/sync`
+wait (through `Park`), `ParkUntil`, an armed `Timer` and the poller all call before they use the
+scheduler, so reaching it means the program starts one. `sleepDirect` sleeps until an absolute
+`CLOCK_MONOTONIC` time with `clock_nanosleep`, repeated if a signal interrupts it, so a program that only
+sleeps has one thread and links `startTasks`, `startHosted`, `sysmonMain` and `startPoller` out.
+`sleepParked` is `ParkUntil` in a loop. A late hook that finds the scheduler started after it chose the
+direct body is a compiler failure.

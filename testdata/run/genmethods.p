@@ -178,8 +178,12 @@ func ViaValue[T, U any](w Wrapped[T], f func(T) U) U {
 // from Apply1's own parameter types.
 func Apply1[R any](f func(func(int) R) R, g func(int) R) R { return f(g) }
 
-// Applier returns a method value instantiated by the result type.
-func Applier(c Counter) func(func(int) bool) bool { return c.Apply }
+// Applier calls a method value instantiated by the type of the variable
+// that holds it.
+func Applier(c Counter, g func(int) bool) bool {
+	var f func(func(int) bool) bool = c.Apply
+	return f(g)
+}
 
 // Ider would implement this interface but for its type parameter.
 type Ider interface{ Id() int }
@@ -272,7 +276,7 @@ func main() {
 	add(1)
 	println("ptr method value", c.n)
 	println("inferred value", Apply1(Counter{n: 4}.Apply, func(i int) int { return i + 1 }))
-	println("returned value", Applier(Counter{n: 9})(func(i int) bool { return i == 9 }))
+	println("returned value", Applier(Counter{n: 9}, func(i int) bool { return i == 9 }))
 	println("id", c.Id[string](), c.Id[bool]())
 
 	// A method with type parameters does not implement an interface.

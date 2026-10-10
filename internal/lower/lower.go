@@ -65,9 +65,17 @@ type Lowerer struct {
 	types          *typeTable
 	ctors          map[*types2.Func]*ctorInfo // closure constructors (ctor.go), nil for other functions
 	ctorMisused    map[*types2.Func]bool      // closure constructors already reported
+	flowSums       map[string]*flowSummary    // closureflow.go, by instance symbol name
+	flowStack      []string                   // summaries being computed
+	flowTent       []string                   // tentative summaries
+	flowMin        int                        // the outermost summary being computed that was read
+	flowReported   map[token.Pos]bool         // returned closure records already reported
 	sched          *schedBinding              // the //pu:scheduler variable, or nil
 	schedMissing   bool                       // the missing-scheduler error has been reported
 	schedNoTimers  bool                       // the scheduler-without-timers error has been reported
+	late           []*lateHook                // //pu:schedlate hooks waiting for their bodies (sched.go)
+	lateDone       bool                       // the late hooks have been resolved
+	lateDirect     bool                       // ... to the functions that avoid the scheduler
 
 	// panicFn is the program's panic handler (panic.go).
 	panicFn *types2.Func
@@ -153,6 +161,8 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		closureRecords: map[*ssa.Sym]*ssa.Sym{},
 		ctors:          map[*types2.Func]*ctorInfo{},
 		ctorMisused:    map[*types2.Func]bool{},
+		flowSums:       map[string]*flowSummary{},
+		flowReported:   map[token.Pos]bool{},
 		localTypes:     map[localKey]*types2.Named{},
 		countedTypes:   map[string]bool{},
 		errorSites:     map[*ast.CallExpr]*ssa.Sym{},
@@ -195,10 +205,15 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 			l.queue = l.queue[1:]
 			l.lowerFunc(job)
 		}
-		if len(l.errs) > 0 || !l.types.finish() {
+		if len(l.errs) > 0 {
 			break
 		}
+		if l.types.finish() || l.resolveLateHooks() {
+			continue
+		}
+		break
 	}
+	l.checkLateHooks()
 	l.types.emit()
 	if len(l.errs) == 0 {
 		l.checkPanicHandler()
@@ -353,6 +368,9 @@ func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 	if d != nil && d.decl.Body == nil {
 		if method, mode, ok := schedHook(d.decl); ok {
 			return l.schedHookSym(fn, method, mode)
+		}
+		if direct, parked, ok := lateHookNames(d.decl); ok {
+			return l.lateHookSym(fn, direct, parked)
 		}
 		if name, ok := externName(d.decl); ok {
 			sym := l.out.Sym(name, ssa.SymExtern)

@@ -662,6 +662,15 @@ func init() {
 			Spec: pspec("12.4", "pluto/arch/x86"),
 		},
 		&Entry{
+			Code: ClosureReturned, Name: "ClosureReturned",
+			Text: "A function literal that uses variables of the function around it, and a method value such as c.handle, are closure records: the code to run, with where each captured variable is or a copy of the receiver. The record is built in the frame of the function that makes it, and that frame is reclaimed when the function returns. This function returns such a record, directly or inside a variable, a struct, an interface or the result of a call, so the caller would get a pointer into a frame that no longer exists.\n" +
+				"A closure constructor, a function whose whole body is return func(...) {...}, is the exception: each call builds the closure in the caller's frame.",
+			Why:     "Go moves the captured variables and the closure to the heap. Plutonium never allocates behind the program's back, so the record stays in the frame that made it.",
+			Fix:     &Fix{Intro: "Return a value that carries its own state instead, such as a struct with a method", Code: "type Counter struct{ total int }\n\nfunc (c *Counter) Add(n int) int {\n\tc.total += n\n\treturn c.total\n}"},
+			Spec:    pspec("4.5", "Closures do not outlive their frame"),
+			Example: "func counter() func(int) int {\n\ttotal := 0\n\treturn func(n int) int {\n\t\ttotal += n\n\t\treturn total\n\t}\n}",
+		},
+		&Entry{
 			Code: NoPanicHandler, Name: "NoPanicHandler",
 			Text:    "A freestanding or kernel build has no operating system to report a crash to, so the program itself must say what happens when it panics (print to a serial port or screen, then halt). It does so with one function marked //pu:panic.",
 			Why:     whyPanicHandler,
