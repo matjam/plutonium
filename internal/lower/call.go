@@ -333,16 +333,39 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 	}
 
 	recv := s.methodReceiver(se.X, sel)
-	fsig := fn.Type().(*types2.Signature)
-	targs := s.recvTypeArgs(fsig.Recv().Type())
-	if len(targs) == 0 {
-		// The receiver's type arguments come from the receiver expression.
-		targs = s.recvTypeArgs(s.subst(recvT))
-	}
+	targs := s.methodTypeArgs(fn, se, recvT)
 	sym := s.l.funcSym(fn, targs)
 	full := s.l.methodSig(fn, targs)
 	args := s.callArgs(e, sig)
 	return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn)}, full, &recv, args, e.Pos())
+}
+
+// methodTypeArgs returns the type arguments of the method instance that
+// se selects with a receiver of type recvT: the receiver type's arguments,
+// followed by the method's own when it has type parameters. The checker
+// records the method's own arguments, explicit or inferred, on se.Sel.
+func (s *fnState) methodTypeArgs(fn *types2.Func, se *ast.SelectorExpr, recvT types2.Type) []types2.Type {
+	targs := s.recvTypeArgs(fn.Type().(*types2.Signature).Recv().Type())
+	if len(targs) == 0 {
+		// The receiver's type arguments come from the receiver expression.
+		targs = s.recvTypeArgs(s.subst(recvT))
+	}
+	return s.withMethodTypeArgs(fn, se.Sel, targs)
+}
+
+// withMethodTypeArgs appends the type arguments of the instance of method
+// fn named by id to the receiver's type arguments rtargs.
+func (s *fnState) withMethodTypeArgs(fn *types2.Func, id *ast.Ident, rtargs []types2.Type) []types2.Type {
+	n := fn.Origin().Type().(*types2.Signature).TypeParams().Len()
+	if n == 0 {
+		return rtargs
+	}
+	own := s.instanceArgs(id)
+	if len(own) != n {
+		s.l.errorf(id.Pos(), "lower: method %s is not instantiated", fn.Name())
+		return rtargs
+	}
+	return append(append([]types2.Type(nil), rtargs...), own...)
 }
 
 // methodSig returns a method's signature with its receiver, instantiated.
@@ -496,10 +519,7 @@ func (s *fnState) methodValue(se *ast.SelectorExpr, sel *types2.Selection) *ssa.
 		return rec
 	}
 	recv := s.methodReceiver(se.X, sel)
-	targs := s.recvTypeArgs(fn.Type().(*types2.Signature).Recv().Type())
-	if len(targs) == 0 {
-		targs = s.recvTypeArgs(s.subst(recvT))
-	}
+	targs := s.methodTypeArgs(fn, se, recvT)
 	wrapper := s.l.boundMethodWrapper(fn, targs, recv.T)
 	size := 8 + s.l.sizeof(recv.T)
 	rec := s.tempSize((size+7)&^7, 8, "methodvalue")

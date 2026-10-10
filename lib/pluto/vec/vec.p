@@ -187,6 +187,16 @@ func (v *Vec[T]) Free() {
 	v.data = nil
 }
 
+// Map returns a new Vec, allocating from a, that holds f applied to each
+// element of v in order. v is unchanged.
+func (v *Vec[T]) Map[U any](f func(T) U, a alloc.Allocator) Vec[U] {
+	out := WithCapacity[U](a, len(v.data))
+	for _, x := range v.data {
+		out.data = append(out.data, f(x))
+	}
+	return out
+}
+
 // grow makes room for at least n more elements, at least doubling the
 // capacity.
 func (v *Vec[T]) grow(n int) {

@@ -1243,7 +1243,7 @@ func (p *parser) parseMethodSpec() *ast.Field {
 				// better error message and improved error recovery.
 				_ = p.parseParameterList(name0, nil, token.RBRACK, false)
 				_ = p.expect(token.RBRACK)
-				p.error(lbrack, "interface method must have no type parameters")
+				p.error(lbrack, "interface method must have no type parameters: a method with type parameters is never called through an interface")
 
 				// TODO(rfindley) refactor to share code with parseFuncType.
 				params := p.parseParameters(false)

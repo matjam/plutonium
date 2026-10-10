@@ -386,6 +386,9 @@ called directly and never through an interface: a method with its own type param
 towards implementing an interface, and an interface cannot declare one. This is the restriction that lets
 Plutonium allow them where Go does not, since every instantiation is visible to the compiler.
 
+As with a generic function, a method value `x.M` or method expression `T.M` of such a method must be
+instantiated, either explicitly (`names.Map[int]`) or from the function type it is assigned to.
+
 ### 5.8 Standard bit operations
 
 The `pluto/bits` package mirrors Go's `math/bits` (`OnesCount`, `LeadingZeros`, `TrailingZeros`,
