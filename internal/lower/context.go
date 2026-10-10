@@ -521,7 +521,7 @@ func throughFile(hops []hop) bool {
 var allocCalls = map[string]bool{
 	"pluto/rt.alloc": true, "pluto/rt.allocWith": true, "pluto/rt.boxNew": true, "pluto/rt.boxNewWith": true,
 	"pluto/rt.concatStrings": true, "pluto/rt.stringFromRunes": true,
-	"pluto/rt.stringFromRune": true, "pluto/rt.bytesFromString": true, "pluto/rt.runesFromString": true,
+	"pluto/rt.stringFromRune": true,
 }
 
 // hopPhrase describes one call of a path, following "which": "calls

@@ -12,7 +12,8 @@ import "strings"
 //
 //   - append, and make([]T, n): slices are slices of arrays or composite
 //     literals (both are being removed in favour of pluto/vec);
-//   - conversions from []byte to string (removed, F2, E2015);
+//   - conversions from []byte to string (removed, F2, E2015), and from a
+//     string to []byte or []rune (removed, G10, E2016);
 //   - maps (removed until map[K]V returns);
 //   - new, and pointers or slices of a function's frame that outlive it:
 //     functions return values, never views (spec section 6.3);
@@ -47,6 +48,8 @@ var outsideSubset = []string{
 	"is not valid UTF-8",                         // E2012, an invalid string literal
 	"is not at the start of a rune",              // the panic of a string slice
 	"string(b) of a byte slice is not permitted", // E2015
+	"[]byte(s) is not permitted",                 // E2016
+	"[]rune(s) is not permitted",                 // E2016
 }
 
 // leftSubset returns the line of out that shows the program is outside the

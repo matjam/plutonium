@@ -5,6 +5,7 @@ import (
 	"pluto/fmt"
 	"pluto/io"
 	"pluto/os"
+	"pluto/strings"
 	"unsafe"
 )
 
@@ -67,9 +68,9 @@ func main() {
 
 	// NewBuffer copies its argument to read, and ReadFrom reads all of a
 	// reader.
-	data := []byte("from a reader")
-	rf := bytes.NewBuffer(data)
-	data[0] = 'F'
+	data := strings.Bytes("from a reader")
+	rf := bytes.NewBuffer(data.Slice())
+	data.Slice()[0] = 'F'
 	var h bytes.Buffer
 	n64, err := h.ReadFrom(&rf)
 	fmt.Printf("%d %t %s %d\n", n64, err == nil, h.Bytes(), rf.Len())

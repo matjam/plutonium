@@ -752,8 +752,7 @@ func (w *walker) explicitConv(e *ast.CallExpr, to types2.Type) tset {
 		return nil
 	}
 	if from != nil {
-		// string(b) copies into a counted buffer, and []byte(s) into
-		// memory from the current allocator (spec section 6.10).
+		// string(runes) copies into a counted buffer (spec section 6.10).
 		if isString(to) && !isString(from) {
 			return nil
 		}

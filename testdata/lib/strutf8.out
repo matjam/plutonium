@@ -16,3 +16,4 @@ false true true
 "plaincaf" "é" "" 8
 0:i 1:n 2:c 3:a 4:f 5:é 
 café Café 4 5 é
+5 café true

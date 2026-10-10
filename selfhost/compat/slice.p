@@ -129,6 +129,19 @@ func Bytes(s string) []byte {
 	return c
 }
 
+// Runes returns the runes of s as a slice in memory from alloc.Default(),
+// for Go's []rune(s). Nothing frees it; the arena reclaims it with
+// everything else.
+func Runes(s string) []rune {
+	r := Make[rune](utf8.RuneCountInString(s))
+	i := 0
+	for _, c := range s {
+		r[i] = c
+		i++
+	}
+	return r
+}
+
 // Concat returns the concatenation of parts, for Go's s + t.
 func Concat(parts ...string) string {
 	n := 0

@@ -172,7 +172,6 @@ func TestHandFixNotes(t *testing.T) {
 		"map m modified while ranging over it",
 		"sort comparison uses its indexes",
 		"encoding/binary.BigEndian.PutUint32: no translation",
-		"conversion between string and []rune",
 		`string literal "\x7fELF\xff" is not valid UTF-8: keep binary data in a []byte`,
 		"complex: Plutonium has no complex numbers",
 		"pluto/os has no Hostname",
@@ -189,7 +188,7 @@ func TestHandFixNotes(t *testing.T) {
 	// x is captured by a closure that outlives main, so it moves to the
 	// heap.
 	src := string(res.Files[0].Src)
-	for _, want := range []string{"x := pu.New(1)", "(*x)++", "goIt1 := compat.MapIter(m)"} {
+	for _, want := range []string{"x := pu.New(1)", "(*x)++", "goIt1 := compat.MapIter(m)", `compat.Runes("é")`} {
 		if !strings.Contains(src, want) {
 			t.Errorf("translation lacks %q:\n%s", want, src)
 		}

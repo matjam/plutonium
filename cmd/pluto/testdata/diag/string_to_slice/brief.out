@@ -1,0 +1,6 @@
+$DIR/main.p:7:7: []byte(s) is not permitted in Plutonium (the copy would belong to no one; use strings.Bytes, or copy into a buffer)
+$DIR/main.p:12:7: []rune(s) is not permitted in Plutonium (the copy would belong to no one; use strings.Runes, or range over the string)
+$DIR/main.p:17:13: []rune(s) is not permitted in Plutonium (the copy would belong to no one; use strings.Runes, or range over the string)
+$DIR/main.p:22:20: []byte(s) is not permitted in Plutonium (the copy would belong to no one; use strings.Bytes, or copy into a buffer)
+$DIR/main.p:25:20: []rune(s) is not permitted in Plutonium (the copy would belong to no one; use strings.Runes, or range over the string)
+$DIR/main.p:32:9: []byte(s) is not permitted in Plutonium (the copy would belong to no one; use strings.Bytes, or copy into a buffer)

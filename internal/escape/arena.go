@@ -20,7 +20,7 @@ import (
 // a:
 //
 //   - new and make without an allocator argument, string concatenation and
-//     the conversions that allocate (string(b), []byte(s));
+//     the conversions that allocate (string(runes), string(r));
 //   - calls that leave out a defaulted allocator parameter, such as
 //     vec.New[T]() or alloc.Shared[T](), whose default is alloc.Default();
 //   - calls whose result is a string, an owned, shared, synced or weak

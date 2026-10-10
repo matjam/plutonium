@@ -53,6 +53,10 @@ const (
 	// replace the bytes that are not valid UTF-8; strings.FromUTF8 refuses
 	// them and strings.FromUTF8Lossy replaces them by name.
 	BytesToStringNotPermitted
+	// StringToSliceNotPermitted: []byte(s) or []rune(s) of a string, whose
+	// copy nothing would own; strings.Bytes and strings.Runes return an
+	// owner, and copy fills a caller's buffer.
+	StringToSliceNotPermitted
 )
 
 // Packed types, bit fields, volatile, aligned and ring.

@@ -246,7 +246,7 @@ func (w *walker) conversion(e *ast.CallExpr, to types2.Type) origins {
 	v := w.value(e.Args[0])
 	from := w.typeOf(e.Args[0])
 	if isString(to) != isString(from) && from != nil {
-		// string(b) and []byte(s) copy into new memory.
+		// string(runes) and string(r) copy into new memory.
 		return origins{{vp: w.alloc(e).addr()}}
 	}
 	if isUnsafePointer(from) || isUnsafePointer(to) {

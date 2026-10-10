@@ -98,6 +98,7 @@ func init() {
 		typerr.AppendNotPermitted:        explainAppend,
 		typerr.MakeSliceNotPermitted:     explainMakeSlice,
 		typerr.BytesToStringNotPermitted: explainBytesToString,
+		typerr.StringToSliceNotPermitted: explainStringToSlice,
 	}
 }
 

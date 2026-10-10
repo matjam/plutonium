@@ -93,6 +93,29 @@ func FromUTF8Lossy(b []byte) string {
 	return rt.StringFromBytes(unsafe.SliceData(b), len(b), a)
 }
 
+// Bytes returns a copy of the bytes of s in a vec.Vec[byte] from a, by
+// default the default allocator. The Vec owns the copy and frees it when it
+// is dropped; v.Slice() lends it as a []byte. Plutonium has no []byte(s),
+// whose copy would belong to no one. To fill a buffer of your own without
+// allocating, use copy(buf[:], s).
+func Bytes(s string, a alloc.Allocator = alloc.Default()) vec.Vec[byte] {
+	v := vec.Make[byte](len(s), a)
+	copy(v.Slice(), s)
+	return v
+}
+
+// Runes returns the runes of s in a vec.Vec[rune] from a, by default the
+// default allocator, which owns them as Bytes' result owns its bytes.
+// Plutonium has no []rune(s). To visit the runes of s without copying them,
+// range over s.
+func Runes(s string, a alloc.Allocator = alloc.Default()) vec.Vec[rune] {
+	v := vec.WithCapacity[rune](utf8.RuneCountInString(s), a)
+	for _, r := range s {
+		v.Push(r)
+	}
+	return v
+}
+
 // Repeat returns a new string consisting of count copies of s. It panics if
 // count is negative or if the result would be too long.
 func Repeat(s string, count int) string {

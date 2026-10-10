@@ -361,43 +361,6 @@ func stringFromRune(r rune) (*byte, int, uintptr) {
 	return q, n, ctl | strNonASCII
 }
 
-// zerobase is where an empty slice made by a conversion points.
-var zerobase byte
-
-// bytesFromString implements []byte(s): a copy of the bytes in memory from
-// the current allocator, as new and vec.Make allocate.
-func bytesFromString(p *byte, n int) *byte {
-	if n == 0 {
-		return &zerobase
-	}
-	q := allocAt(currentAllocator(), uintptr(n), 1, CallerPC())
-	memmove(q, unsafe.Pointer(p), n)
-	return (*byte)(q)
-}
-
-// runesFromString implements []rune(s): the decoded runes in memory from
-// the current allocator.
-func runesFromString(p *byte, n int) (*rune, int) {
-	count := 0
-	for i := 0; i < n; {
-		_, size := decodeRune(p, n, i)
-		i += size
-		count++
-	}
-	if count == 0 {
-		return (*rune)(unsafe.Pointer(&zerobase)), 0
-	}
-	q := allocAt(currentAllocator(), uintptr(4*count), 4, CallerPC())
-	k := 0
-	for i := 0; i < n; {
-		r, size := decodeRune(p, n, i)
-		*(*rune)(unsafe.Add(q, 4*k)) = r
-		k++
-		i += size
-	}
-	return (*rune)(q), count
-}
-
 // checkRuneBounds panics unless lo and hi, bounds of a slice of the n
 // bytes at p already checked against n, are each at the start of a rune or
 // at n. The compiler calls it for strings whose flags do not say ASCII. It

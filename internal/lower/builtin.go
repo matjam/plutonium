@@ -461,7 +461,7 @@ func (s *fnState) conversion(e *ast.CallExpr) value {
 		}
 	}
 
-	// []byte(s), string(b) and friends copy, so they allocate (strops.go).
+	// string(runes) and string(r) copy, so they allocate (strops.go).
 	if isString(to) != isString(from) {
 		if v, ok := s.stringConversion(e, to, from); ok {
 			return v

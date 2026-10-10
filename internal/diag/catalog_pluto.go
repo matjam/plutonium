@@ -137,6 +137,21 @@ func init() {
 			Example: "s := string(b)",
 			Fixed:   "s, err := strings.FromUTF8(b)",
 		},
+		&Entry{
+			Code: CheckerCode(typerr.StringToSliceNotPermitted), Name: "StringToSliceNotPermitted",
+			Text: "Plutonium has no []byte(s) or []rune(s) for a string s. In Go the conversion allocates a new " +
+				"slice and the garbage collector frees it later. A Plutonium slice is a view of an array that " +
+				"something else owns, so a copy of a string needs an owner to free it.\n" +
+				"strings.Bytes(s) and strings.Runes(s) from pluto/strings return a vec.Vec that owns the copy and frees it " +
+				"when it is dropped; v.Slice() lends the elements as a slice. To fill a buffer of your own without " +
+				"allocating, use copy(buf[:], s), which works from a string into a []byte. To visit the runes of " +
+				"a string, range over it, and to count them, use utf8.RuneCountInString(s).",
+			Why:     "Go allocates the copy behind the program's back and leaves the garbage collector to free it. Plutonium never allocates unless the code says so, and every allocation has an owner, so that every cost is visible and the same code can run inside a kernel.",
+			Fix:     &Fix{Intro: "To keep a copy that you own", Code: "import \"pluto/strings\"\n\nb := strings.Bytes(s)\nuse(b.Slice())"},
+			Spec:    pspec("3", "What Plutonium removes from Go"),
+			Example: "b := []byte(s)\nr := []rune(s)",
+			Fixed:   "b := strings.Bytes(s)\nr := strings.Runes(s)",
+		},
 
 		// Packed types and wrappers.
 		&Entry{

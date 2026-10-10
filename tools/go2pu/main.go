@@ -13,9 +13,11 @@
 //     compat forms with Go's []byte destination;
 //   - make([]T, n) and make([]T, n, c) become compat.Make and compat.MakeCap,
 //     which allocate from alloc.Default();
-//   - s + t on strings, string(b) and []byte(s) become compat calls that copy
-//     (string(b) is the lossy form, which replaces bytes that are not valid
-//     UTF-8 with U+FFFD, since Plutonium strings hold only valid UTF-8);
+//   - s + t on strings, string(b), []byte(s) and []rune(s) become compat
+//     calls that copy (string(b) is the lossy form, which replaces bytes
+//     that are not valid UTF-8 with U+FFFD, since Plutonium strings hold
+//     only valid UTF-8; []byte(s) and []rune(s) copy into memory from
+//     alloc.Default() that nothing frees);
 //   - fmt.Sprintf and fmt.Errorf become compat.Sprintf and compat.Errorf;
 //   - bytes.Buffer and strings.Builder become compat.Buffer;
 //   - sort.Slice with a comparison of x[i] and x[j] becomes sort.SortFunc;

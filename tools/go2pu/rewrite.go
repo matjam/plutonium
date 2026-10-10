@@ -619,8 +619,8 @@ func (t *fileTr) conversion(n *ast.CallExpr, to types.Type) (string, bool) {
 	switch {
 	case isString(to) && elemBasic(from) == types.Byte:
 		return fmt.Sprintf("%s.String(%s)", t.compat(), arg), true
-	case isString(to) && elemBasic(from) == types.Rune, elemBasic(to) == types.Rune && isString(from):
-		t.note(n, "conversion between string and []rune: hand-fix")
+	case elemBasic(to) == types.Rune && isString(from):
+		return fmt.Sprintf("%s.Runes(%s)", t.compat(), arg), true
 	case elemBasic(to) == types.Byte && isString(from):
 		return fmt.Sprintf("%s.Bytes(%s)", t.compat(), arg), true
 	case isString(to) && !isString(from):

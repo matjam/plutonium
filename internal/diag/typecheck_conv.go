@@ -2,6 +2,7 @@ package diag
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/types2"
@@ -74,4 +75,66 @@ func explainBytesToString(s *spec) {
 		lossy = name + " := " + lossy
 	}
 	s.d.More = []*Fix{{Intro: lossyIntro, Code: "import \"pluto/strings\"\n\n" + lossy}}
+}
+
+// enclosingCall returns the call of the built-in or function name that has
+// call as its only argument, or nil.
+func (s *spec) enclosingCall(call *ast.CallExpr, name string) *ast.CallExpr {
+	for _, n := range s.path {
+		if c, ok := n.(*ast.CallExpr); ok && c != call && len(c.Args) == 1 && c.Args[0] == ast.Expr(call) {
+			if id, ok := c.Fun.(*ast.Ident); ok && id.Name == name {
+				return c
+			}
+		}
+	}
+	return nil
+}
+
+// rangedOver reports whether call is the expression a for statement ranges
+// over.
+func (s *spec) rangedOver(call *ast.CallExpr) bool {
+	r, ok := find[*ast.RangeStmt](s)
+	return ok && r.X == ast.Expr(call)
+}
+
+// explainStringToSlice writes the fixes for []byte(s) and []rune(s) with the
+// conversion's own argument, and the one-line replacement for the idioms
+// that never needed the copy: len([]rune(s)) and a range over []byte(s) or
+// []rune(s).
+func explainStringToSlice(s *spec) {
+	call := s.conversionAt()
+	if call == nil {
+		return
+	}
+	s.keepText()
+	str := types2.ExprString(call.Args[0])
+	runes := strings.HasPrefix(s.first, "[]rune")
+	if runes && s.enclosingCall(call, "len") != nil {
+		s.d.Fix = &Fix{Intro: "To count the runes of a string, count them without copying",
+			Code: fmt.Sprintf("import \"pluto/unicode/utf8\"\n\nn := utf8.RuneCountInString(%s)", str)}
+		return
+	}
+	if runes && s.rangedOver(call) {
+		s.d.Fix = &Fix{Intro: "To visit the runes of a string, range over the string; i is the byte offset of r",
+			Code: fmt.Sprintf("for i, r := range %s {\n\t...\n}", str)}
+		return
+	}
+	if !runes && s.rangedOver(call) {
+		s.d.Fix = &Fix{Intro: "To visit the bytes of a string, index it",
+			Code: fmt.Sprintf("for i := 0; i < len(%s); i++ {\n\tb := %s[i]\n\t...\n}", str, str)}
+		return
+	}
+	if runes {
+		name := s.resultName(call, "r")
+		s.d.Fix = &Fix{Intro: "To visit the runes of a string, range over the string; i is the byte offset of r",
+			Code: fmt.Sprintf("for i, r := range %s {\n\t...\n}", str)}
+		s.d.More = []*Fix{{Intro: "To keep the runes in a vec.Vec[rune] that you own, which frees them when it is dropped",
+			Code: fmt.Sprintf("import \"pluto/strings\"\n\n%s := strings.Runes(%s)\n// %s.Slice() is the []rune", name, str, name)}}
+		return
+	}
+	name := s.resultName(call, "b")
+	s.d.Fix = &Fix{Intro: "To keep a copy that you own, in a vec.Vec[byte] that frees it when it is dropped",
+		Code: fmt.Sprintf("import \"pluto/strings\"\n\n%s := strings.Bytes(%s)\n// %s.Slice() is the []byte", name, str, name)}
+	s.d.More = []*Fix{{Intro: "To copy into a buffer of your own without allocating",
+		Code: fmt.Sprintf("var buf [64]byte\nn := copy(buf[:], %s)\n%s := buf[:n]", str, name)}}
 }

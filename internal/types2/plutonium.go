@@ -26,7 +26,8 @@ func (check *Checker) forbidden(at positioner, code Code, what, reason string) {
 // V is the type of the argument and T the type converted to.
 //
 //   - string(b) of a byte slice replaces what is not valid UTF-8, so two
-//     different slices can give equal strings.
+//     different slices can give equal strings (E2015).
+//   - []byte(s) and []rune(s) make a copy that nothing would own (E2016).
 func (check *Checker) removedConversion(call *ast.CallExpr, V, T Type) {
 	if V == nil || T == nil {
 		return
@@ -34,6 +35,15 @@ func (check *Checker) removedConversion(call *ast.CallExpr, V, T Type) {
 	if allString(T) && someUnder(V, func(_, u Type) bool { return isByteSlice(u) }) {
 		check.forbidden(call.Fun, BytesToStringNotPermitted, "string(b) of a byte slice is",
 			"it would replace bytes that are not UTF-8; use strings.FromUTF8 or strings.FromUTF8Lossy")
+	}
+	if someUnder(V, func(_, u Type) bool { return isString(u) }) && someUnder(T, func(_, u Type) bool { return isBytesOrRunes(u) }) {
+		if someUnder(T, func(_, u Type) bool { return isRuneSlice(u) }) {
+			check.forbidden(call.Fun, StringToSliceNotPermitted, "[]rune(s) is",
+				"the copy would belong to no one; use strings.Runes, or range over the string")
+		} else {
+			check.forbidden(call.Fun, StringToSliceNotPermitted, "[]byte(s) is",
+				"the copy would belong to no one; use strings.Bytes, or copy into a buffer")
+		}
 	}
 }
 
@@ -52,10 +62,15 @@ func someUnder(typ Type, f func(t, u Type) bool) bool {
 }
 
 // isByteSlice reports whether typ's underlying type is a slice of bytes.
-func isByteSlice(typ Type) bool {
+func isByteSlice(typ Type) bool { return isSliceOf(typ, Byte) }
+
+// isRuneSlice reports whether typ's underlying type is a slice of runes.
+func isRuneSlice(typ Type) bool { return isSliceOf(typ, Rune) }
+
+func isSliceOf(typ Type, kind BasicKind) bool {
 	if s, _ := typ.Underlying().(*Slice); s != nil {
 		t, _ := s.elem.Underlying().(*Basic)
-		return t != nil && t.kind == Byte
+		return t != nil && t.kind == kind
 	}
 	return false
 }

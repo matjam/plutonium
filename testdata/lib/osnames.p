@@ -29,6 +29,10 @@ func check(what string, err error) {
 
 func str(b []byte) string { return unsafe.String(unsafe.SliceData(b), len(b)) }
 
+// viewOf views the bytes of s, which the callee reads and does not change (a
+// []byte(s) would be a copy that nothing owns).
+func viewOf(s string) []byte { return unsafe.Slice(unsafe.StringData(s), len(s)) }
+
 // hex prints b as hexadecimal.
 func hex(b []byte) {
 	const digits = "0123456789abcdef"
@@ -78,7 +82,7 @@ func main() {
 		f.Close()
 	}
 	check("MkdirBytes", os.MkdirBytes(join(pb[:], dir, nSub[:]), 0o755))
-	check("WriteFile", os.WriteFile(dir+"/plain.txt", []byte("plain"), 0o644))
+	check("WriteFile", os.WriteFile(dir+"/plain.txt", viewOf("plain"), 0o644))
 
 	// ReadDir: sorted by the exact bytes; Name is valid UTF-8, RawName exact.
 	ents, err := os.ReadDir(dir)
@@ -146,7 +150,7 @@ func main() {
 	println("LstatBytes", fi.Size(), utf8.ValidString(fi.Name()), fi.Mode().IsRegular())
 
 	// ReadFileBytes and WriteFileBytes.
-	check("WriteFileBytes", os.WriteFileBytes(join(pb[:], dir, nE[:]), []byte("rewritten"), 0o600))
+	check("WriteFileBytes", os.WriteFileBytes(join(pb[:], dir, nE[:]), viewOf("rewritten"), 0o600))
 	data, err := os.ReadFileBytes(join(pb[:], dir, nE[:]))
 	check("ReadFileBytes", err)
 	println("ReadFileBytes", str(data.Slice()))
@@ -181,16 +185,16 @@ func main() {
 	check("AppendWd 2", os.AppendWd(&rf))
 	raw := rf.Slice()
 	println("Getwd valid", utf8.ValidString(wd), "lossy is longer", len(wd) > len(raw))
-	println("raw ends with y", raw[len(raw)-1] == 'y', "raw has 0xfd", rawHas(raw, 0xfd), "lossy has 0xfd", rawHas([]byte(wd), 0xfd))
+	println("raw ends with y", raw[len(raw)-1] == 'y', "raw has 0xfd", rawHas(raw, 0xfd), "lossy has 0xfd", rawHas(viewOf(wd), 0xfd))
 	af := vec.NewFixed(wb[:])
 	check("AppendAbs", filepath.AppendAbs(&af, "z/../w"))
 	abs := af.Slice()
 	println("AppendAbs ends with /x/y/w", suffix(abs, "/x/y/w"), "exact", rawHas(abs, 0xfd))
 	s, err := filepath.Abs("w")
 	check("Abs", err)
-	println("Abs valid", utf8.ValidString(s), "ends with /x/y/w", suffix([]byte(s), "/x/y/w"))
+	println("Abs valid", utf8.ValidString(s), "ends with /x/y/w", suffix(viewOf(s), "/x/y/w"))
 	// Open a file relative to the directory whose name is not a string.
-	check("WriteFile relative", os.WriteFile("rel.txt", []byte("relative"), 0o644))
+	check("WriteFile relative", os.WriteFile("rel.txt", viewOf("relative"), 0o644))
 	check("Chdir back", os.ChdirBytes(h))
 	// Readdir of the walk below shows it.
 
@@ -240,7 +244,7 @@ func main() {
 	check("WalkDir", err)
 	println("WalkDir visited", nstr)
 	nraw, opened := 0, 0
-	err = filepath.WalkDirBytes([]byte(dir), func(path []byte, d *os.DirEntry, err error) error {
+	err = filepath.WalkDirBytes(viewOf(dir), func(path []byte, d *os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -267,9 +271,9 @@ func main() {
 	args := os.ArgsBytes()
 	println("ArgsBytes", args.Len() == os.NArgs())
 	args.Free()
-	pathv := os.GetenvBytes([]byte("PATH"))
+	pathv := os.GetenvBytes(viewOf("PATH"))
 	println("GetenvBytes matches Getenv", str(pathv) == os.Getenv("PATH"))
-	_, ok := os.LookupEnvBytes([]byte("PLUTO_NO_SUCH_VARIABLE"))
+	_, ok := os.LookupEnvBytes(viewOf("PLUTO_NO_SUCH_VARIABLE"))
 	println("LookupEnvBytes unset", ok)
 	env := os.EnvironBytes()
 	envs := os.Environ()

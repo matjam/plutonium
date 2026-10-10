@@ -5,12 +5,10 @@ package main
 // constructors compute gives the library fast paths.
 
 import (
-	"pluto/alloc"
 	"pluto/fmt"
 	"pluto/rt"
 	"pluto/strings"
 	"pluto/unicode/utf8"
-	"unsafe"
 )
 
 func main() {
@@ -39,9 +37,9 @@ func main() {
 	ascii, accent := "plain", "café"
 	both := ascii + accent
 	fmt.Println(rt.KnownASCII(ascii), rt.KnownASCII(accent), rt.KnownASCII(ascii+ascii), rt.KnownASCII(both))
-	head := []byte(both[:5])
-	fmt.Println(rt.KnownASCII(both[:5]), rt.KnownASCII(strings.FromUTF8Lossy(head)), rt.KnownASCII(strings.Repeat("ab", 3)))
-	freeSlice(head)
+	head := strings.Bytes(both[:5])
+	fmt.Println(rt.KnownASCII(both[:5]), rt.KnownASCII(strings.FromUTF8Lossy(head.Slice())), rt.KnownASCII(strings.Repeat("ab", 3)))
+	head.Free()
 	fmt.Println(utf8.RuneCountInString(ascii+ascii), utf8.RuneCountInString(both), len(both))
 
 	// Slicing between runes works on any string; byte offsets that
@@ -53,19 +51,14 @@ func main() {
 	}
 	fmt.Println()
 
-	// []byte(s) and []rune(s) copy into memory from the current allocator,
-	// as make does; the program frees it.
-	bs := []byte(accent)
-	bs[0] = 'C'
-	runes := []rune(accent)
-	fmt.Println(accent, strings.FromUTF8Lossy(bs), len(runes), len(bs), string(runes[3]))
-	freeSlice(bs)
-	freeSlice(runes)
-}
-
-// freeSlice returns the array of a slice made by a conversion (or make) to
-// the default allocator.
-func freeSlice[T any](s []T) {
-	var zero T
-	alloc.Default().Free(unsafe.Pointer(unsafe.SliceData(s)), uintptr(cap(s))*unsafe.Sizeof(zero), unsafe.Alignof(zero))
+	// strings.Bytes and strings.Runes copy into vec.Vecs from the current
+	// allocator, which own the copies and free them when they are dropped.
+	// copy(buf[:], s) fills an array of the program's own instead.
+	bs := strings.Bytes(accent)
+	bs.Slice()[0] = 'C'
+	runes := strings.Runes(accent)
+	fmt.Println(accent, strings.FromUTF8Lossy(bs.Slice()), runes.Len(), bs.Len(), string(runes.At(3)))
+	var buf [8]byte
+	n := copy(buf[:], accent)
+	fmt.Println(n, strings.FromUTF8Lossy(buf[:n]), rt.KnownASCII(strings.FromUTF8Lossy(buf[:n-2])))
 }

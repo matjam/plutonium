@@ -9,7 +9,7 @@ func main() {
 	var s []int
 	s = append(s, 1)    // growing: Push
 	s = append(s, 2, 3) // growing: Append
-	b := []byte("x")
+	var b []byte
 	b = append(b, "yz"...)        // a string's bytes: vec.AppendString
 	c := append([]int(nil), s...) // copying: slices.Clone
 	d := append(s, c...)          // joining: slices.Concat

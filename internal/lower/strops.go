@@ -71,52 +71,34 @@ func (s *fnState) concatAssign(lv lvalue, rhs ast.Expr, pos token.Pos) {
 	s.storeCounted(lv, s.concatValues([]value{old, y}, T), false)
 }
 
-// stringConversion lowers a conversion to or from a string that copies,
-// and so allocates: string(runes), string(r) for a rune that
-// is not a constant, []byte(s) and []rune(s). It reports false for any
-// other conversion.
+// stringConversion lowers a conversion to a string that copies, and so
+// allocates: string(runes), and string(r) for a rune that is not a constant.
+// It reports false for any other conversion. (The checker rejects the
+// conversions of a string to a byte or rune slice, and of a byte slice or a
+// non-rune integer to a string; language spec section 3.)
 func (s *fnState) stringConversion(e *ast.CallExpr, to, from types2.Type) (value, bool) {
-	tu := unwrap(to).Underlying()
-	fu := unwrap(from).Underlying()
-	elemKind := func(T types2.Type) types2.BasicKind {
-		if sl, ok := T.(*types2.Slice); ok {
-			if b, ok := unwrap(sl.Elem()).Underlying().(*types2.Basic); ok {
-				return b.Kind()
-			}
-		}
-		return types2.Invalid
+	if !isString(to) || isString(from) {
+		return value{}, false
 	}
-	switch {
-	case isString(to) && !isString(from):
-		switch elemKind(fu) {
-		case types2.Rune:
+	fu := unwrap(from).Underlying()
+	if sl, ok := fu.(*types2.Slice); ok {
+		if b, ok := unwrap(sl.Elem()).Underlying().(*types2.Basic); ok && b.Kind() == types2.Rune {
 			p, n, _ := s.sliceParts(s.expr(e.Args[0]))
 			res := s.callRuntime("stringFromRunes", []*ssa.Type{ssa.TPtr, ssa.TI64, ssa.TI64}, []*ssa.Value{p, n})
 			return s.newString(res, to), true
 		}
-		if b, ok := fu.(*types2.Basic); ok && b.Info()&types2.IsInteger != 0 {
-			r := s.convertScalar(s.scalar(e.Args[0]), from, types2.Typ[types2.Rune])
-			if isUnsigned(from) || s.l.sizeof(from) == 8 {
-				// A value that does not fit in a rune is not a code point:
-				// clamp it to one that is not either.
-				wide := s.convertScalar(s.scalar(e.Args[0]), from, types2.Typ[types2.Int64])
-				ok := s.newValue(ssa.OpLequ, ssa.TBool, wide, s.constInt(ssa.TI64, 0x10FFFF))
-				r = s.newValue(ssa.OpSelect, ssa.TI32, ok, r, s.constInt(ssa.TI32, -1))
-			}
-			res := s.callRuntime("stringFromRune", []*ssa.Type{ssa.TPtr, ssa.TI64, ssa.TI64}, []*ssa.Value{r})
-			return s.newString(res, to), true
+	}
+	if b, ok := fu.(*types2.Basic); ok && b.Info()&types2.IsInteger != 0 {
+		r := s.convertScalar(s.scalar(e.Args[0]), from, types2.Typ[types2.Rune])
+		if isUnsigned(from) || s.l.sizeof(from) == 8 {
+			// A value that does not fit in a rune is not a code point:
+			// clamp it to one that is not either.
+			wide := s.convertScalar(s.scalar(e.Args[0]), from, types2.Typ[types2.Int64])
+			ok := s.newValue(ssa.OpLequ, ssa.TBool, wide, s.constInt(ssa.TI64, 0x10FFFF))
+			r = s.newValue(ssa.OpSelect, ssa.TI32, ok, r, s.constInt(ssa.TI32, -1))
 		}
-	case isString(from) && !isString(to):
-		str := s.expr(e.Args[0])
-		p, n := s.stringParts(str)
-		switch elemKind(tu) {
-		case types2.Byte:
-			q := s.callRuntime("bytesFromString", []*ssa.Type{ssa.TPtr}, []*ssa.Value{p, n})[0]
-			return s.makeSlice(q, n, n, to), true
-		case types2.Rune:
-			res := s.callRuntime("runesFromString", []*ssa.Type{ssa.TPtr, ssa.TI64}, []*ssa.Value{p, n})
-			return s.makeSlice(res[0], res[1], res[1], to), true
-		}
+		res := s.callRuntime("stringFromRune", []*ssa.Type{ssa.TPtr, ssa.TI64, ssa.TI64}, []*ssa.Value{r})
+		return s.newString(res, to), true
 	}
 	return value{}, false
 }

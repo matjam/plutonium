@@ -257,8 +257,12 @@ later takes the next free number and is listed in the section where it belongs.
     because it silently replaced bytes that are not UTF-8 (`string([]byte{0xfe}) == string([]byte{0xff})`);
     the fix is `strings.FromUTF8(b)` (strict) or the new `strings.FromUTF8Lossy(b)`; the library's own
     uses became `rt.StringFromSlice` or `FromUTF8Lossy`, and go2pu translates Go's `string(b)` to
-    `compat.String`, which is the lossy form. `[]byte(s)`, `[]rune(s)` and `string(i)` for an integer
-    other than a rune follow.
+    `compat.String`, which is the lossy form. `[]byte(s)` and `[]rune(s)` are E2016 (gap G10): the copy
+    would belong to no one; the fix is `strings.Bytes(s)` or `strings.Runes(s)`, which return an owning
+    `vec.Vec`, `copy(buf[:], s)` into a buffer of the program's own, or a `range` over the string. The
+    lowering and the runtime functions of the three conversions are deleted; go2pu translates `[]rune(s)`
+    to the new `compat.Runes` (`[]byte(s)` was `compat.Bytes`). `string(i)` for an integer other than a
+    rune follows.
 48. **Counted references and `weak[P]`** (planned; language spec sections 5.6 and 6.5): the allocation
     header (allocator, strong and weak counts), increments on copy and decrements on drop with matched
     pairs removed at last use, `Drop` at zero strong count and the free at zero weak count, the atomic

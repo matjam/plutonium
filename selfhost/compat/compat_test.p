@@ -137,6 +137,12 @@ func TestAppendConcat(t *testing.T) {
 	if String(c) != "Hi" {
 		t.Fatalf("Bytes")
 	}
+	if r := Runes("aé世"); len(r) != 3 || r[0] != 'a' || r[1] != 'é' || r[2] != '世' || len(Runes("")) != 0 {
+		t.Fatalf("Runes")
+	}
+	if String([]byte{'a', 0xff}) != "a�" {
+		t.Fatalf("String is the lossy conversion")
+	}
 }
 
 func TestSprintfNewError(t *testing.T) {

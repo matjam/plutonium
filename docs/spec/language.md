@@ -138,10 +138,11 @@ Each of these is a compile error that names the construct and the reason.
 | `append` | Go's `append` grows a slice by allocating a larger array behind the program's back, and the collector frees the old one; a slice is a view and owns no array it could grow (sections 4.3, 6.3) | `pluto/vec.Vec[T]`, an owner that grows (`Push`, `Append`); `vec.Fixed[T]` to fill a caller's array (section 13.2); slicing and `copy` within a slice's capacity |
 | `make([]T, n)`, `make([]T, n, c)` | the array would belong to no one: a slice is a view, and without a collector nothing would free it (sections 4.2, 6.6) | `vec.Make[T](n)` and `vec.WithCapacity[T](c)`, which return an owning `vec.Vec[T]`; an array for a constant size; `a.Slice[T](n)` from an arena |
 | string literals that are not valid UTF-8 (`"\xff"`) | every string holds valid UTF-8 (section 6.10) | `[]byte{0xff}` for binary data |
+| `[]byte(s)` and `[]rune(s)` for a string `s` (E2016) | Go allocates the copy and the collector frees it; here a slice is a view and the copy would belong to no one (sections 4.2, 6.6) | `strings.Bytes(s)` and `strings.Runes(s)`, which return an owning `vec.Vec`; `copy(buf[:], s)` into a buffer of your own; `for i, r := range s`; `utf8.RuneCountInString(s)` to count |
 | `string(b)` for a byte slice `b` (E2015) | Go keeps the bytes; a Plutonium string holds only valid UTF-8, so the conversion would replace each invalid byte with U+FFFD without saying so, and `string([]byte{0xfe}) == string([]byte{0xff})` (section 6.10) | `strings.FromUTF8(b)`, which returns an error for bytes that are not text; `strings.FromUTF8Lossy(b)`, which replaces them by name; a byte array or slice for binary data |
 
 Strings work as in Go otherwise. Runtime concatenation (`s + t`, `s += t`) and the conversions
-`string(runes)`, `string(r)`, `[]byte(s)` and `[]rune(s)` allocate from the current
+`string(runes)` and `string(r)` allocate from the current
 allocator, and the strings they make are counted and freed when their last copy goes (section 6.10).
 In kernel mode they follow the rules of any allocation (section 12.7).
 
@@ -2587,7 +2588,7 @@ the reference is inside another value, it continues `(Job contains a shared[Cach
 ### 6.10 Strings
 
 A `string` is an immutable, reference-counted value. String code reads and behaves as in Go: `s + t`,
-`s += t`, `[]byte(s)`, `fmt.Sprintf`, substrings, comparison, `len`, indexing and `range`
+`s += t`, `fmt.Sprintf`, substrings, comparison, `len`, indexing and `range`
 all work, strings are stored in structs, slices and maps and passed and returned freely, and nothing is
 ever freed while a copy can still reach it. The compiler counts the copies, as Swift does, and frees a
 string's bytes when the last copy goes. This is the one place where Plutonium counts without being asked
@@ -2694,9 +2695,13 @@ each string stored; the roadmap (item 55) records what it measured.
   `range` on it is undefined. `unsafe.StringData(s)` returns the address of the first byte. The library
   never uses it on bytes from the operating system (section 13.1).
 
-**Conversions.** `[]byte(s)` and `[]rune(s)` copy into memory from the current allocator: today a slice,
-which the program or an arena frees, and a `vec.Vec[byte]` (`vec.Vec[rune]`) that owns the copy once the
-ownership proposals of section 4.2 are adopted. `string(runes)`
+**Conversions.** `[]byte(s)` and `[]rune(s)` are compile errors (E2016): a slice is a view, so the copy
+would belong to no one, and without a collector nothing would free it. `strings.Bytes(s)` returns the
+bytes in a `vec.Vec[byte]` and `strings.Runes(s)` the runes in a `vec.Vec[rune]`, which own the copy,
+allocate from the allocator they are given (by default the current one) and free it when dropped;
+`v.Slice()` lends it as a slice. `copy(buf[:], s)` copies the bytes of a string into a buffer of the
+program's own and allocates nothing; `for i, r := range s` visits the runes without copying, and
+`utf8.RuneCountInString(s)` counts them. `string(runes)`
 and `string(r)` for a non-constant rune make a counted string; `string(r)` for an ASCII rune returns a
 static one-byte string and does not allocate, and a value out of range, of any integer type, gives
 U+FFFD as in Go.
@@ -2887,8 +2892,8 @@ errors are E3401 to E3406 once it lands.
 
 Plutonium never allocates heap memory unless the program asks: through `new`, `make`, the `pluto/alloc`
 functions, `owned`/`shared`/`synced` constructors, the operations that make strings (`+` on strings that
-are not constants, `strings.FromUTF8Lossy(b)`, `string(runes)`, `string(r)` for a rune that is not a constant,
-`[]byte(s)`, `[]rune(s)`; section 6.10), or library code that takes an allocator or uses the default
+are not constants, `strings.FromUTF8Lossy(b)`, `string(runes)`, `string(r)` for a rune that is not a constant;
+section 6.10), or library code that takes an allocator or uses the default
 one. Every allocation belongs to an owner, an arena or, for a string's buffer, the strings that count it
 (section 6.6). Local variables, temporaries and interface frame copies live on the stack. Package-level
 variables live in static storage (`.data` or `.bss`).
@@ -3637,7 +3642,7 @@ A go statement on the path is reported the same way, as E2585 ("so it must not s
 
 Kernel code allocates as other code does: `new`, `make`, the `pluto/alloc` functions and the operations
 that make strings (`+` and `+=` on strings that are not constants, `strings.FromUTF8Lossy(b)`, `string(runes)`,
-`string(r)` for a rune that is not a constant, `[]byte(s)`, `[]rune(s)`, and library functions that
+`string(r)` for a rune that is not a constant, and library functions that
 return new strings, such as `fmt.Sprintf` and `strconv.Itoa`) all take memory from the current
 allocator, and no function needs a marking to use them. Where allocating is not allowed is decided by
 what the allocator does, not by which operation calls it:

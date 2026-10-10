@@ -37,7 +37,23 @@ func use(...any) {}
 		{"type parameter union", "func f[S ~[]byte | ~string](b S) string { return string(b) }", "string(b) of a byte slice is not permitted"},
 		{"message names the fix", "func f(b []byte) string { return string(b) }", "use strings.FromUTF8 or strings.FromUTF8Lossy"},
 
+		// []byte(s) and []rune(s).
+		{"to bytes", "func f(s string) []byte { return []byte(s) }", "[]byte(s) is not permitted"},
+		{"to bytes from a constant", `func f() []byte { return []byte("x") }`, "[]byte(s) is not permitted"},
+		{"to named bytes", "func f(s string) Bytes { return Bytes(s) }", "[]byte(s) is not permitted"},
+		{"to bytes from a named string", "func f(s Name) []byte { return []byte(s) }", "[]byte(s) is not permitted"},
+		{"to bytes in a type parameter", "func f[S ~string, B ~[]byte](s S) B { return B(s) }", "[]byte(s) is not permitted"},
+		{"to runes", "func f(s string) []rune { return []rune(s) }", "[]rune(s) is not permitted"},
+		{"to runes from a constant", `func f() []rune { return []rune("x") }`, "[]rune(s) is not permitted"},
+		{"to int32s", "func f(s string) []int32 { return []int32(s) }", "[]rune(s) is not permitted"},
+		{"bytes message names the fix", "func f(s string) []byte { return []byte(s) }", "use strings.Bytes, or copy into a buffer"},
+		{"runes message names the fix", "func f(s string) []rune { return []rune(s) }", "use strings.Runes, or range over the string"},
+
 		// What stays.
+		{"bytes of nil", "func f() []byte { return []byte(nil) }", ""},
+		{"runes to bytes of other types", "func f(r []uint16) []uint16 { return []uint16(r) }", ""},
+		{"copy from a string", "func f(s string, b []byte) int { return copy(b, s) }", ""},
+		{"range over a string", "func f(s string) int { n := 0; for _, r := range s { n += int(r) }; return n }", ""},
 		{"runes", "func f(r []rune) string { return string(r) }", ""},
 		{"rune", "func f(r rune) string { return string(r) }", ""},
 		{"string", "func f(s Name) string { return string(s) }", ""},
