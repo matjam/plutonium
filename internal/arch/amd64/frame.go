@@ -24,12 +24,21 @@ import (
 // memory operand to RSP or RBP addressing.
 func layoutFrame(f *MFunc) {
 	outArgs := (f.outArgs + 15) &^ 15
+	// Slots of 16 bytes or more are placed 16-aligned whatever their type
+	// needs, so block copies and clears of them are aligned. The frame is
+	// 16-aligned anyway, so this never forces a frame pointer.
+	align := func(s *ssa.Slot) int64 {
+		if s.Size >= 16 {
+			return max(s.Align, 16)
+		}
+		return max(s.Align, 1)
+	}
 	slots := append([]*ssa.Slot(nil), f.Slots...)
-	sort.SliceStable(slots, func(i, j int) bool { return slots[i].Align > slots[j].Align })
+	sort.SliceStable(slots, func(i, j int) bool { return align(slots[i]) > align(slots[j]) })
 	off := outArgs
 	maxAlign := int64(16)
 	for _, s := range slots {
-		al := max(s.Align, 1)
+		al := align(s)
 		maxAlign = max(maxAlign, al)
 		off = (off + al - 1) &^ (al - 1)
 		s.Offset = off

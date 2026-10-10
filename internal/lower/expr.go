@@ -127,6 +127,10 @@ func (s *fnState) assignConvert(v value, T types2.Type, pos ast.Node) value {
 	if isInterface(T) && isInterface(v.T) && !types2.Identical(v.T, T) {
 		return s.ifaceToIface(v, T, pos)
 	}
+	if b, ok := v.T.(*types2.Basic); ok && b.Kind() == types2.UntypedNil && s.l.scalarType(T) == nil {
+		// nil for a slice is a whole aggregate, not a one-word zero.
+		return s.zeroValue(T)
+	}
 	if v.T != nil && !v.addr {
 		if vt, tt := s.l.scalarType(v.T), s.l.scalarType(T); vt != nil && tt != nil && (vt.Kind != tt.Kind || vt.Size != tt.Size) {
 			// Untyped values reaching a typed slot (nil to a pointer, an
