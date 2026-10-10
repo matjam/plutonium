@@ -239,6 +239,7 @@ func (*Const) isDependency() {} // a constant may be a dependency of an initiali
 // or a predeclared type such as int or error.
 type TypeName struct {
 	object
+	ownerMark bool // Plutonium: declared "type T owner ...", or a type parameter [T owner C]
 }
 
 // NewTypeName returns a new type name denoting the given typ.
@@ -249,7 +250,7 @@ type TypeName struct {
 // argument for NewNamed, which will set the TypeName's type as a side-
 // effect.
 func NewTypeName(pos token.Pos, pkg *Package, name string, typ Type) *TypeName {
-	return &TypeName{object{nil, pos, pkg, name, typ, 0, nopos}}
+	return &TypeName{object: object{nil, pos, pkg, name, typ, 0, nopos}}
 }
 
 // IsAlias reports whether obj is an alias name for a type.

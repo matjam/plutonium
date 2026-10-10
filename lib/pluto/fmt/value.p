@@ -41,9 +41,30 @@ func (p *printer) printValue(t *rt.Type, ptr unsafe.Pointer, verb rune, depth in
 		}
 	}
 	curT, curP := p.curT, p.curP
-	p.curT, p.curP = t, ptr
+	p.curT, p.curP = t, uintptr(ptr)
 	p.printKind(t, ptr, verb, depth, ro)
 	p.curT, p.curP = curT, curP
+}
+
+// printPayload prints a union variant's payload as printArg prints an
+// operand, except that %w wraps nothing: only an operand is wrapped.
+func (p *printer) printPayload(arg any, verb rune) {
+	if verb == 'w' {
+		verb = 'v'
+	}
+	t, word := rt.TypeOf(arg)
+	if t == nil {
+		p.writeString("<nil>")
+		return
+	}
+	if p.handleMethods(arg, verb) {
+		return
+	}
+	if !t.Direct() {
+		p.printValue(t, word, verb, 0, false)
+		return
+	}
+	p.printValue(t, unsafe.Pointer(&word), verb, 0, false)
 }
 
 func (p *printer) printKind(t *rt.Type, ptr unsafe.Pointer, verb rune, depth int, ro bool) {
@@ -106,7 +127,7 @@ func (p *printer) printKind(t *rt.Type, ptr unsafe.Pointer, verb rune, depth int
 		p.writeString(variant)
 		if hasPayload {
 			p.writeByte('(')
-			p.printArg(payload, verb)
+			p.printPayload(payload, verb)
 			p.writeByte(')')
 		}
 	case rt.KindPacked:

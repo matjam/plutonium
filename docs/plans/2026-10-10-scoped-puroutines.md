@@ -226,7 +226,7 @@ literal is allowed too, and counts as a move at `s.Go`.
 
 **Views of variables that end before the join are errors.** Taking a variable copies it; it does not
 copy what a view in it points to. A slice of a loop-body array, taken into a puroutine that runs past
-the iteration, still looks at that array, and is E3301 (section 8.7).
+the iteration, still looks at that array, and is E3401 (section 8.7).
 
 **Taken values must be sendable.** What a puroutine takes crosses to another processor, so the sendable
 rule (spec section 4.7) applies to it. Variables used by reference are governed by section 4.5 instead.
@@ -243,8 +243,8 @@ writes (the starting function, a puroutine, or several instances of one `s.Go` i
 
 1. **Synchronized by type.** A `pluto/sync` or `pluto/sync/atomic` value used through its methods, or a
    channel variable used for channel operations. Assigning a whole new value to such a place is a write
-   like any other, so `mu = sync.Mutex{}` while puroutines run is rejected (E3302), and moving the Scope
-   itself is E3305.
+   like any other, so `mu = sync.Mutex{}` while puroutines run is rejected (E3402), and moving the Scope
+   itself is E3405.
 2. **Guarded by a local lock.** Every access to the place, in every puroutine and in the starting
    function, happens while one and the same local `sync.Mutex` (or the write lock of a local
    `sync.RWMutex`, with reads under `RLock`) is held. The compiler infers this: it follows
@@ -255,7 +255,7 @@ writes (the starting function, a puroutine, or several instances of one `s.Go` i
 3. **Partitioned.** Each puroutine writes elements or windows of a slice or array that no other
    puroutine or the starting function can reach during the interval, in one of the forms below.
 
-Places that nobody writes during the interval may be read by everyone. Anything else is E3302, which
+Places that nobody writes during the interval may be read by everyone. Anything else is E3402, which
 names both accesses.
 
 **Partitions.** The compiler accepts these forms, where `i` is the puroutine's own copy (section 4.4)
@@ -294,7 +294,7 @@ each function, which parameter paths it keeps and stores; the sharing check adds
 and writes, and calls through interfaces and func values use the union of their candidates, as the
 escape analysis does. A function that calls a func-valued parameter from several puroutines at once
 (a parallel map, section 7.2) records that in its summary, and a caller that passes a literal which
-writes its captured variables without a lock is E3306.
+writes its captured variables without a lock is E3406.
 
 **Package variables and heap memory that the frame does not reach** are not covered by this section.
 They follow the memory safety design's section 7, which applies to all puroutines alike. With its
@@ -315,7 +315,7 @@ During the interval the starting function is one more party to section 4.5. In a
 variable that a running puroutine uses:
 
 - moving it, dropping it (`x.Drop()`), or assigning a new value to it when it is an owner, which
-  drops the old one, is E3304: the puroutine would use freed memory;
+  drops the old one, is E3404: the puroutine would use freed memory;
 - the move checker's "used after move" and the escape analysis's "used after the owner is gone" rules
   treat the puroutine's uses as uses at every point of the interval.
 
@@ -361,13 +361,13 @@ checked against the puroutines still possibly running:
 if fast {
 	s.Wait()
 }
-results[0] = Result{} // E3302: results may still be written by the puroutines started at line 12
+results[0] = Result{} // E3402: results may still be written by the puroutines started at line 12
 ```
 
 **Copies and moves of the Scope.** `sync.Scope` is an owner, so assigning it moves it and there are no
 copies. Running puroutines refer to the Scope at its address, so moving it, or assigning a new Scope to
 the variable (which drops the old one and would wait at an unexpected place), while puroutines it started
-may run is E3305. Once everything is joined, moving it is allowed. A struct that holds a Scope must be
+may run is E3405. Once everything is joined, moving it is allowed. A struct that holds a Scope must be
 declared `owner`, as for any owner field.
 
 **Nested scopes and scopes inside puroutines.** A scoped puroutine runs a function on its own stack,
@@ -476,7 +476,7 @@ func Map[T, U any](in []T, out []U, f func(T) U) {
 
 `Map`'s summary records that it calls `f` from several puroutines at once. A caller that passes a pure
 function or a literal that only reads its captures compiles; one that counts in a captured variable is
-E3306 unless it locks or uses an atomic:
+E3406 unless it locks or uses an atomic:
 
 ```go
 var calls atomic.Int64
@@ -536,7 +536,7 @@ func crawl(urls []string) (int, error) {
 
 `jobs` is a channel variable used for channel operations; `total` and `first` are written only while
 `mu` is held, which the compiler infers; `urls` is only read. Without the `mu.Lock()` line, `total += n`
-is E3302. `s.Wait()` must come before `return`: reading `total` while the workers may write it is E3302,
+is E3402. `s.Wait()` must come before `return`: reading `total` while the workers may write it is E3402,
 and the drop at the end of the function would come too late for the read in the `return` statement.
 
 ### 7.4 Recursive splitting
@@ -560,7 +560,7 @@ The puroutine reaches `v` only through `v[:p]` and the starting function only th
 ### 7.5 What stays rejected
 
 Each message follows spec section 6.9: what happened, the idea it relies on, the related lines, fixes
-as code. Codes E3301 to E3306 are new (section 8.7).
+as code. Codes E3401 to E3406 are new (section 8.7); E3301 to E3312 are the move checker's.
 
 **A WaitGroup or a plain `go` with a frame view** (E2590 and E3004, which keep their codes and gain a
 fix):
@@ -584,7 +584,7 @@ For a `go` statement the first line reads `cannot start the function literal wit
 and nothing makes process wait for it`, and the same fix follows. E2590's argument suggestion never
 passes a `sync` type by value.
 
-**A race between puroutines (E3302):**
+**A race between puroutines (E3402):**
 
 ```
 count.p:15:4: total is written by the puroutines started at count.p:13 at the same time as each other
@@ -600,14 +600,14 @@ count.p:15:4: total is written by the puroutines started at count.p:13 at the sa
         var total atomic.Int64
         total.Add(int64(n))
     (see "Scoped puroutines" in the Plutonium spec, section 4.11)
-    (run "pluto explain E3302" for a longer explanation)
+    (run "pluto explain E3402" for a longer explanation)
 ```
 
 When the other access is the starting function's, the first line reads `results is read at main.p:20
 while the puroutines started at main.p:14 may still write it`, the explanation names where the join is
 ("s waits at main.p:22"), and the fix is to move the access after `s.Wait()`.
 
-**A write the compiler cannot partition (E3303):**
+**A write the compiler cannot partition (E3403):**
 
 ```
 grid.p:12:5: the puroutines started at grid.p:10 may write the same element of out
@@ -621,13 +621,13 @@ grid.p:12:5: the puroutines started at grid.p:10 may write the same element of o
         row := out[i*w : (i+1)*w]
     Or send the results on a channel and store them in this function.
     (see "Scoped puroutines" in the Plutonium spec, section 4.11)
-    (run "pluto explain E3303" for a longer explanation)
+    (run "pluto explain E3403" for a longer explanation)
 ```
 
 A `[][]T` written as `grid[y][x]` gets this error too, since two rows may be the same slice; the fix
 suggests a flat slice with a window per row, or a local `[H][W]T` array, whose rows are elements.
 
-**A view of iteration storage that outlives the iteration (E3301):**
+**A view of iteration storage that outlives the iteration (E3401):**
 
 ```
 main.p:16:12: the puroutine started here uses v, a slice of line, which is reclaimed at the end of each iteration
@@ -640,10 +640,10 @@ main.p:16:12: the puroutine started here uses v, a slice of line, which is recla
     Or wait inside the loop, before the end of its body:
         s.Wait()
     (see "Scoped puroutines" in the Plutonium spec, section 4.11)
-    (run "pluto explain E3301" for a longer explanation)
+    (run "pluto explain E3401" for a longer explanation)
 ```
 
-**Dropping what a puroutine uses (E3304):**
+**Dropping what a puroutine uses (E3404):**
 
 ```
 main.p:20:2: cannot drop buf here: the puroutines started at main.p:15 may still be using it
@@ -654,18 +654,18 @@ main.p:20:2: cannot drop buf here: the puroutines started at main.p:15 may still
         s.Wait()
         buf.Drop()
     (see "Scoped puroutines" in the Plutonium spec, section 4.11)
-    (run "pluto explain E3304" for a longer explanation)
+    (run "pluto explain E3404" for a longer explanation)
 ```
 
 The same message covers moving `buf` ("cannot move buf to consume here") and assigning to it ("cannot
 assign to buf here: assigning drops its old value").
 
-**Moving or replacing the Scope (E3305):** "cannot move s while puroutines it started may be running:
+**Moving or replacing the Scope (E3405):** "cannot move s while puroutines it started may be running:
 they find s at its address, so after the move nothing would wait for them." For an assignment to `s`:
 "assigning to s drops the old Scope, which would wait here for the puroutines started at main.p:12."
 The fix is `s.Wait()` first.
 
-**A func value called concurrently (E3306):**
+**A func value called concurrently (E3406):**
 
 ```
 main.p:9:14: Map calls f from several puroutines at once, and the function literal passed here writes count
@@ -677,7 +677,7 @@ main.p:9:14: Map calls f from several puroutines at once, and the function liter
         ... count.Add(1) ...
     Or lock a mutex around the update.
     (see "Scoped puroutines" in the Plutonium spec, section 4.11)
-    (run "pluto explain E3306" for a longer explanation)
+    (run "pluto explain E3406" for a longer explanation)
 ```
 
 **Still rejected in phase 1, accepted in phase 2 (section 10):** a Scope reached through a pointer
@@ -710,20 +710,20 @@ set of `s.Go` calls that may be running (section 4.3). It uses the same control-
 ### 8.3 Escape analysis (`internal/escape`)
 
 - A scoped `s.Go` is not a sink. Each frame token it receives is checked against the interval: the
-  location's storage must last until every join of that call, else E3301 (with taken variables, section
+  location's storage must last until every join of that call, else E3401 (with taken variables, section
   4.4, exempted for their own storage but not for what they point to).
 - Parameter tokens handed to a scoped `s.Go` do not escape, so they add nothing to the function's
   summary.
-- Loop iteration storage held by a running puroutine across a back edge is E3301 (the loop check of
+- Loop iteration storage held by a running puroutine across a back edge is E3401 (the loop check of
   `loops.go`, with "kept by a running puroutine" as the keeper).
 
 ### 8.4 Moves (`internal/moves`)
 
 - An owner taken by a scoped puroutine is moved at the `s.Go` call.
 - A scoped literal may move a captured owner (it runs exactly once); that is a move at the `s.Go` call,
-  replacing E3105 for scoped literals.
-- Moving, dropping or reassigning a variable a running puroutine uses is E3304; moving or reassigning
-  the Scope while its puroutines may run is E3305.
+  replacing E3305 (MoveCaptured) for scoped literals.
+- Moving, dropping or reassigning a variable a running puroutine uses is E3404; moving or reassigning
+  the Scope while its puroutines may run is E3405.
 
 ### 8.5 The sharing check (`internal/share`, new)
 
@@ -734,7 +734,7 @@ set of `s.Go` calls that may be running (section 4.3). It uses the same control-
 - A lockset pass over each body: `Lock`, `Unlock`, `RLock`, `RUnlock` and deferred unlocks of local
   locks.
 - Per interval: the accesses of every party, the three rules of section 4.5, the partition forms, and
-  type-based conflict for memory reached through views. E3302, E3303, E3306.
+  type-based conflict for memory reached through views. E3402, E3403, E3406.
 
 ### 8.6 Lowering and runtime
 
@@ -765,12 +765,12 @@ New codes in `internal/diag/codes.go`, with catalog entries in `catalog_build.go
 
 | Code | Name | When |
 |---|---|---|
-| E3301 | ScopeOutlivesVar | a running scoped puroutine uses storage that ends before its join |
-| E3302 | ScopeRace | two parties may access one place at once, one writing, and it is not synchronized or guarded |
-| E3303 | ScopeNotPartitioned | indexed writes the compiler cannot prove disjoint |
-| E3304 | ScopeMoveInUse | moving, dropping or reassigning a variable a running puroutine uses |
-| E3305 | ScopeMoved | moving or reassigning a Scope while puroutines it started may run |
-| E3306 | ScopeConcurrentCall | a literal that writes its captures, passed where it is called concurrently |
+| E3401 | ScopeOutlivesVar | a running scoped puroutine uses storage that ends before its join |
+| E3402 | ScopeRace | two parties may access one place at once, one writing, and it is not synchronized or guarded |
+| E3403 | ScopeNotPartitioned | indexed writes the compiler cannot prove disjoint |
+| E3404 | ScopeMoveInUse | moving, dropping or reassigning a variable a running puroutine uses |
+| E3405 | ScopeMoved | moving or reassigning a Scope while puroutines it started may run |
+| E3406 | ScopeConcurrentCall | a literal that writes its captures, passed where it is called concurrently |
 
 E2590, E2594, E2011 and E3004 change their fixes: when the rejected puroutine uses the frame, they
 suggest a `sync.Scope` (section 7.5), and E2590's argument suggestion never passes a `sync` type by

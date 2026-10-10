@@ -267,14 +267,9 @@ func LstatBytes(name []byte, a alloc.Allocator = alloc.Default()) (FileInfo, err
 // statAt stats name, whose string form sname is "" if the caller has only
 // bytes.
 func statAt(name []byte, sname string, flags int, op string, a alloc.Allocator) (FileInfo, error) {
-	var buf [maxPath]byte
-	p, err := cpathBytes(name, &buf)
-	if err != nil {
-		return FileInfo{}, newPathError(op, name, sname, err, a)
-	}
 	var st syscall.Stat_t
-	if err := syscall.Fstatat(syscall.AT_FDCWD, p, &st, flags); err != nil {
-		return FileInfo{}, newPathError(op, name, sname, err, a)
+	if err := fstatat(name, sname, &st, flags, op, a); err != nil {
+		return FileInfo{}, err
 	}
 	if sname != "" || len(name) == 0 {
 		return fileInfo(sname, &st), nil
@@ -283,6 +278,20 @@ func statAt(name []byte, sname string, flags int, op string, a alloc.Allocator) 
 	fi.raw = basenameBytes(name)
 	fi.name = lossyCopy(fi.raw, a)
 	return fi, nil
+}
+
+// fstatat fills st for name, whose string form sname is "" if the caller
+// has only bytes, or returns a *PathError.
+func fstatat(name []byte, sname string, st *syscall.Stat_t, flags int, op string, a alloc.Allocator) error {
+	var buf [maxPath]byte
+	p, err := cpathBytes(name, &buf)
+	if err != nil {
+		return newPathError(op, name, sname, err, a)
+	}
+	if err := syscall.Fstatat(syscall.AT_FDCWD, p, st, flags); err != nil {
+		return newPathError(op, name, sname, err, a)
+	}
+	return nil
 }
 
 // Stat describes the open file. It reports a bare syscall.Errno, as the

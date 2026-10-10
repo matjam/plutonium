@@ -69,7 +69,7 @@ func sendTime(arg unsafe.Pointer, now int64) {
 //
 // As in Go 1.23, C has no stale values: once Stop or Reset has returned, a
 // receive from C gets only a time sent by a later expiry.
-type Timer struct {
+type Timer owner struct {
 	C <-chan Time
 	c chan Time
 	r rt.Timer
@@ -261,7 +261,7 @@ func runFuncs() {
 // NewTicker allocates it and its channel; free it with alloc.Free, which
 // stops it (Drop). As with Timer, C has no stale values after Stop or
 // Reset.
-type Ticker struct {
+type Ticker owner struct {
 	C <-chan Time
 	c chan Time
 	r rt.Timer

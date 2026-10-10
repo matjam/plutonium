@@ -44,7 +44,12 @@ func (wg *WaitGroup) Done() { wg.Add(-1) }
 // variables (language spec section 4.7).
 func (wg *WaitGroup) Go(f func()) {
 	wg.Add(1)
-	go runDone(wg, f)
+	// The puroutine uses wg until its Done, which a Wait on wg waits for:
+	// a WaitGroup in a frame that waits before returning outlives it.
+	// The compiler cannot check that the frame does wait, so wg is hidden
+	// from the escape analysis (rt.Pinned); sync.Scope is the checked form
+	// (docs/plans/2026-10-10-scoped-puroutines.md).
+	go runDone(rt.Pinned(wg), f)
 }
 
 func runDone(wg *WaitGroup, f func()) {
@@ -61,7 +66,7 @@ func (wg *WaitGroup) Wait() {
 	}
 	var w waiter
 	w.t = self()
-	wg.q.push(&w)
+	wg.q.push(rt.Pinned(&w)) // popped before this puroutine is readied
 	wg.mu.Unlock()
 	rt.ParkReason(rt.WaitWaitGroup)
 }
@@ -114,7 +119,7 @@ func (c *Cond) Wait() {
 	var w waiter
 	w.t = self()
 	c.mu.Lock()
-	c.q.push(&w)
+	c.q.push(rt.Pinned(&w)) // popped before this puroutine is readied
 	c.mu.Unlock()
 	c.L.Unlock()
 	rt.ParkReason(rt.WaitCond)

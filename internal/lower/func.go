@@ -78,6 +78,10 @@ type fnState struct {
 	// since the deferred call runs after the body has returned.
 	lastingFrame *fnState
 
+	// inTemp is the owner temporary being evaluated into its slot
+	// (scope.go).
+	inTemp ast.Expr
+
 	// pos is the expression or statement being lowered, for errors
 	// found below the AST (float operations in kernel mode).
 	pos token.Pos
@@ -341,6 +345,11 @@ func (s *fnState) subst(T types2.Type) types2.Type { return s.tmap.subst(T) }
 func (l *Lowerer) newFnState(job *funcJob) *fnState {
 	f := ssa.NewFunc(job.sym.Name)
 	f.Sym = job.sym
+	pkgPath := ""
+	if job.pkg != nil {
+		pkgPath = job.pkg.Path
+	}
+	l.genPragmas(f, pkgPath)
 	s := &fnState{
 		l:         l,
 		pkg:       job.pkg,
@@ -566,6 +575,19 @@ func (s *fnState) bindParams() {
 		}
 	}
 
+	// Parameters that are owners belong to the function, which destroys
+	// them when it returns; a Drop method's receiver is the value being
+	// destroyed, whose fields the drop glue destroys after it.
+	dropRecv := s.job.decl != nil && s.job.decl.Recv != nil && s.job.decl.Name.Name == "Drop"
+	for i, v := range paramVars {
+		if v == nil || (i == 0 && sig.recv != nil && dropRecv) {
+			continue
+		}
+		if T := s.subst(v.Type()); s.l.needsDrop(T) {
+			s.ownedParams = append(s.ownedParams, countedSlot{base: s.vars[v], T: T, pos: v.Pos()})
+		}
+	}
+
 	// Result variables, named or not, live in slots so that return
 	// statements and deferred closures can update them.
 	s.resultRegion = make([]bool, len(s.abi.results))
@@ -699,9 +721,6 @@ func (s *fnState) finishReturn(r pendingReturn) {
 	if gx != nil {
 		s.passGoexit(gx)
 	}
-	ret := s.b
-	ret.Kind = ssa.BlockRet
-	ret.Pos = pos
 	controls := []*ssa.Value{}
 	if s.abi.sret {
 		for i, p := range s.abi.results {
@@ -719,6 +738,10 @@ func (s *fnState) finishReturn(r pendingReturn) {
 		controls = append(controls, s.mem())
 		controls = append(controls, leaves...)
 	}
+	// The copies above may have split the block (generation checks).
+	ret := s.b
+	ret.Kind = ssa.BlockRet
+	ret.Pos = pos
 	ret.SetControl(controls...)
 	s.b = nil
 }

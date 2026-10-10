@@ -73,6 +73,8 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 		}
 	case *ast.CallExpr:
 		return t.call(n)
+	case *ast.TypeSpec:
+		return t.ownerSpec(n)
 	case *ast.BinaryExpr:
 		if n.Op == token.ADD && isString(t.typeOf(n)) && t.info.Types[n].Value == nil {
 			var parts []string
@@ -472,6 +474,15 @@ func (t *fileTr) call(n *ast.CallExpr) (string, bool) {
 			return t.builtin(n, b.Name())
 		}
 	}
+	if s, ok := t.heapVariadic(n); ok {
+		return s, true
+	}
+	// x.Drop() on a heap variable: x is a pointer into the phase arena,
+	// which never drops what it holds, so the drop goes through the
+	// unchecked layer (language spec section 11).
+	if se, ok := fun.(*ast.SelectorExpr); ok && se.Sel.Name == "Drop" && len(n.Args) == 0 && t.isHeapUse(se.X) {
+		return fmt.Sprintf("%s.Drop(%s)", t.use("unsafe", "unsafe"), t.render(se.X)), true
+	}
 	sel, ok := fun.(*ast.SelectorExpr)
 	if !ok {
 		return "", false
@@ -507,6 +518,89 @@ func (t *fileTr) call(n *ast.CallExpr) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// puOwners are the names of internal/pu whose Plutonium counterparts are
+// owner types (language spec section 6.4).
+var puOwners = map[string]bool{"Vec": true, "Map": true, "Set": true, "Buf": true}
+
+// ownerSpec declares a type owner when its values hold library owners: in
+// Plutonium a struct with an owner field must say owner (section 6.4).
+func (t *fileTr) ownerSpec(n *ast.TypeSpec) (string, bool) {
+	if n.Assign.IsValid() {
+		return "", false
+	}
+	obj, ok := t.info.Defs[n.Name].(*types.TypeName)
+	if !ok || !holdsOwner(obj.Type(), map[types.Type]bool{}) {
+		return "", false
+	}
+	s := n.Name.Name
+	if n.TypeParams != nil {
+		s += t.render(n.TypeParams)
+	}
+	return s + " owner " + t.render(n.Type), true
+}
+
+// holdsOwner reports whether values of T hold a library owner, in a field
+// or an array element, so that the translated T is an owner too.
+func holdsOwner(T types.Type, seen map[types.Type]bool) bool {
+	if seen[T] {
+		return false
+	}
+	seen[T] = true
+	if n, ok := T.(*types.Named); ok {
+		if o := n.Obj(); o.Pkg() != nil && o.Pkg().Path() == puPath && puOwners[o.Name()] {
+			return true
+		}
+	}
+	switch u := T.Underlying().(type) {
+	case *types.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if holdsOwner(u.Field(i).Type(), seen) {
+				return true
+			}
+		}
+	case *types.Array:
+		return holdsOwner(u.Elem(), seen)
+	}
+	return false
+}
+
+// heapVariadic translates a call whose variadic arguments Go's escape
+// analysis moves to the heap (the callee keeps the slice). In Plutonium
+// they would be passed in an array in the caller's frame, which the
+// callee may not keep (language spec section 6.3), so the translation
+// allocates the slice: f(a, b, c) becomes f(a, compat.Clone([]T{b, c})...).
+func (t *fileTr) heapVariadic(n *ast.CallExpr) (string, bool) {
+	if n.Ellipsis.IsValid() || !t.esc.has(t.fset, n.Lparen, "... argument", "escapes to heap") {
+		return "", false
+	}
+	sig, ok := t.typeOf(n.Fun).Underlying().(*types.Signature)
+	if !ok || !sig.Variadic() {
+		return "", false
+	}
+	fixed := sig.Params().Len() - 1
+	if len(n.Args) <= fixed {
+		return "", false // no variadic arguments: nothing to allocate
+	}
+	if s, ok := sig.Params().At(fixed).Type().(*types.Slice); ok && types.IsInterface(s.Elem()) {
+		// Copying the slice would not help: its interfaces would still
+		// point at the frame copies of the arguments. Go moves those for
+		// formatting calls that keep nothing; Plutonium's analysis is the
+		// judge of whether such a call keeps them.
+		return "", false
+	}
+	var args []string
+	for _, a := range n.Args[:fixed] {
+		args = append(args, t.render(a))
+	}
+	var rest []string
+	for _, a := range n.Args[fixed:] {
+		rest = append(rest, t.render(a))
+	}
+	slice := t.typeText(sig.Params().At(fixed).Type())
+	args = append(args, fmt.Sprintf("%s.Clone(%s{%s})...", t.compat(), slice, strings.Join(rest, ", ")))
+	return fmt.Sprintf("%s(%s)", t.render(n.Fun), strings.Join(args, ", ")), true
 }
 
 // conversion translates conversions that copy in Go.

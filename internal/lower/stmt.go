@@ -43,7 +43,14 @@ func (s *fnState) stmt(st ast.Stmt) {
 	case *ast.EmptyStmt:
 	case *ast.ExprStmt:
 		if call, ok := ast.Unparen(st.X).(*ast.CallExpr); ok {
-			s.callResults(call)
+			// Results that are owners are temporaries.
+			for _, r := range s.callResults(call) {
+				if s.b != nil && r.T != nil && s.l.needsDrop(r.T) {
+					slot := s.temp(r.T, "drop")
+					s.storeTo(slot, r, r.T)
+					s.registerTemp(slot, r.T)
+				}
+			}
 		} else {
 			s.expr(st.X)
 		}
@@ -279,17 +286,57 @@ func (s *fnState) assignStmt(st *ast.AssignStmt) {
 		vals = s.multiValue(st.Rhs[0], len(st.Lhs))
 	}
 
+	// Assigning to a place that holds an owner destroys the old value
+	// first, unless the assignment only permutes places (a, b = b, a).
+	permutes := s.permutes(st)
 	for i, t := range targets {
 		switch {
 		case t.blank:
+			// A discarded owner from a call with several results.
+			if len(st.Rhs) != len(st.Lhs) && i < len(vals) && vals[i].T != nil && s.l.needsDrop(vals[i].T) {
+				slot := s.temp(vals[i].T, "drop")
+				s.storeTo(slot, vals[i], vals[i].T)
+				s.registerTemp(slot, vals[i].T)
+			}
 		case t.def != nil:
 			T := s.subst(t.def.Type())
 			addr := s.declareVar(t.def)
 			s.assign(lvalue{ptr: addr, T: T}, s.assignConvert(vals[i], T, st), true)
 		default:
+			if T := unwrap(t.lv.T); t.lv.elem == nil && t.lv.bits == nil && !permutes && s.l.needsDrop(T) {
+				s.dropAt(t.lv.ptr, T)
+			}
 			s.assign(*t.lv, s.assignConvert(vals[i], targetType(i), st), false)
 		}
 	}
+}
+
+// dropResult destroys what result i holds before a return replaces it: a
+// named result given an owner earlier. Results start clear.
+func (s *fnState) dropResult(i int) {
+	if T := s.abi.results[i].typ; s.l.needsDrop(T) {
+		s.dropAt(s.results[i], T)
+	}
+}
+
+// permutes reports whether an assignment's right-hand sides are its
+// left-hand sides in another order, which moves nothing in or out.
+func (s *fnState) permutes(st *ast.AssignStmt) bool {
+	if len(st.Lhs) < 2 || len(st.Lhs) != len(st.Rhs) {
+		return false
+	}
+	left := map[string]int{}
+	for _, l := range st.Lhs {
+		left[types2.ExprString(l)]++
+	}
+	for _, r := range st.Rhs {
+		k := types2.ExprString(r)
+		if left[k] == 0 {
+			return false
+		}
+		left[k]--
+	}
+	return true
 }
 
 func compoundOp(tok token.Token) token.Token {
@@ -897,6 +944,7 @@ func (s *fnState) returnStmt(st *ast.ReturnStmt) {
 		moved := map[*types2.Var]bool{}
 		for i, v := range vals {
 			T := s.abi.results[i].typ
+			s.dropResult(i)
 			if s.moveOnReturn(st.Results[i], v, T, i, moved) {
 				continue
 			}
@@ -907,6 +955,7 @@ func (s *fnState) returnStmt(st *ast.ReturnStmt) {
 		vals := s.multiValue(st.Results[0], len(s.results))
 		for i, v := range vals {
 			T := s.abi.results[i].typ
+			s.dropResult(i)
 			s.assign(lvalue{ptr: s.results[i], T: T}, s.assignConvert(v, T, st), !named)
 		}
 	}
@@ -1055,6 +1104,18 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 		default:
 			s.l.errorf(st.Pos(), diag.DeferBuiltin, "defer of builtin %s is not supported", name)
 			return
+		}
+	case s.l.moves != nil && s.l.moves.DeferredDrops[call]:
+		// defer x.Drop() on an owner variable: when the function returns,
+		// x's whole drop glue runs and x is left clear, so that the end of
+		// its scope destroys nothing (language spec section 6.4).
+		lv := s.lv(ast.Unparen(call.Fun).(*ast.SelectorExpr).X)
+		T := unwrap(lv.T)
+		addr := s.saveValue(scalarValue(lv.ptr, types2.NewPointer(T)))
+		run = func(s *fnState, rec *ssa.Value) {
+			p := s.loadSaved(addr, rec).v
+			s.dropAt(p, T)
+			s.zero(p, s.l.sizeof(T))
 		}
 	default:
 		fun := ast.Unparen(call.Fun)

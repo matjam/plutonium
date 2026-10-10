@@ -303,7 +303,9 @@ func sendWait(c *hchan, ep unsafe.Pointer) {
 	sg.g = current()
 	sg.elem = ep
 	sg.c = c
-	c.sendq.enqueue(&sg)
+	// sg stays queued only while this puroutine is parked: the receiver
+	// dequeues it before waking it.
+	c.sendq.enqueue(Pinned(&sg))
 	c.lock.Unlock()
 	ParkReason(WaitChanSend)
 	if !sg.success {
@@ -341,7 +343,8 @@ func recvWait(c *hchan, ep unsafe.Pointer) bool {
 	sg.g = current()
 	sg.elem = ep
 	sg.c = c
-	c.recvq.enqueue(&sg)
+	// As in sendWait: dequeued before this puroutine is woken.
+	c.recvq.enqueue(Pinned(&sg))
 	c.lock.Unlock()
 	ParkReason(WaitChanReceive)
 	return sg.success

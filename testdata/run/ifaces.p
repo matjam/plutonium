@@ -21,9 +21,13 @@ type myErr struct{ code int }
 
 func (e *myErr) Error() string { return "myErr" }
 
+// errFound is package-level: in Plutonium &myErr{42} would live in find's
+// frame and could not be returned.
+var errFound = myErr{42}
+
 func find(fail bool) error {
 	if fail {
-		return &myErr{42}
+		return &errFound
 	}
 	return nil
 }

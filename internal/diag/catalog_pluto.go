@@ -736,7 +736,7 @@ func init() {
 		},
 		&Entry{
 			Code: UnknownDirective, Name: "UnknownDirective",
-			Text:    "A comment that starts with //pu: and no space is a directive: an instruction to the compiler. This one has a name the compiler does not know, so it would do nothing. A misspelt directive that was ignored could silently leave out an interrupt handler, a per-CPU variable or an inlining request, so the compiler reports it.\nThe directives are: build, inline, noinline, nobounds, extern, export, section, interrupt, noreturn, panic, blocking, scheduler, nosimd, fpu, percpu and stack.\nA comment that is only a note should start with // and a space.",
+			Text:    "A comment that starts with //pu: and no space is a directive: an instruction to the compiler. This one has a name the compiler does not know, so it would do nothing. A misspelt directive that was ignored could silently leave out an interrupt handler, a per-CPU variable or an inlining request, so the compiler reports it.\nThe directives are: build, inline, noinline, nobounds, extern, export, section, interrupt, noreturn, noescape, resultholds, panic, blocking, scheduler, nosimd, fpu, percpu and stack.\nA comment that is only a note should start with // and a space.",
 			Why:     "Go ignores unknown //go: comments, which makes a typo easy to miss. Plutonium directives change what the program means, so a typo must not go unnoticed.",
 			Fix:     &Fix{Intro: "Use one of the directives, spelt exactly", Code: "//pu:interrupt\nfunc timer(frame *x86.InterruptFrame) { ... }"},
 			Spec:    pspec("9", "Directives"),

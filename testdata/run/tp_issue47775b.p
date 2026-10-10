@@ -14,7 +14,10 @@ func (c *C[T]) reset() {
 
 func New[T any]() {
 	c := &C[T]{}
-	i = c.reset
+	// Plutonium: the method value's record lives in this frame, so it is
+	// kept in a local rather than the package variable i.
+	j := interface{}(c.reset)
+	z(j)
 	z(c.reset)
 }
 

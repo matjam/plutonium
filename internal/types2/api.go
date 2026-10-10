@@ -54,6 +54,10 @@ type Error struct {
 	Msg  string         // error message
 	Soft bool           // if set, error is "soft"
 
+	// Explain, if set, explains a Plutonium error with the names and lines
+	// of the code at fault; internal/diag prints it under the message.
+	Explain *Explanation
+
 	// go116code is a future API, unexported as the set of error codes is large
 	// and likely to change significantly during experimentation. Tools wishing
 	// to preview this feature may read go116code using reflection (see

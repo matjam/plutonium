@@ -40,6 +40,8 @@ func TestCheck(t *testing.T) {
 			"E2601: //pu:schedlate was removed: the compiler knows the runtime's scheduler hooks by name"}},
 		{"noreturn body", "package p\n\n//pu:noreturn\nfunc f() {\n\tfor {\n\t}\n}\n", []string{"E2601: //pu:noreturn is inferred for a function with a body: delete it"}},
 		{"noreturn bodyless", "package p\n\n//pu:noreturn\nfunc f()\n", nil},
+		{"noescape body", "package p\n\n//pu:noescape\nfunc f(p *int) {}\n", []string{"E2601: //pu:noescape is inferred for a function with a body: delete it"}},
+		{"noescape bodyless", "package p\n\n//pu:noescape\nfunc f(p *int)\n", nil},
 		{"noreturn on var", "package p\n\n//pu:noreturn\nvar v int\n", []string{"E2602: //pu:noreturn is in the wrong place: it goes in the doc comment of a function, not of a package-level variable"}},
 		{"percpu on func", "package p\n\n//pu:percpu\nfunc f() {}\n", []string{"E2602: //pu:percpu is in the wrong place: it goes in the doc comment of a package-level variable, not of a function"}},
 		{"inline on var", "package p\n\n//pu:inline\nvar v int\n", []string{"E2602: //pu:inline is in the wrong place: it goes in the doc comment of a function, not of a package-level variable"}},

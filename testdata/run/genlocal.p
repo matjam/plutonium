@@ -113,15 +113,22 @@ func Rec[T any](v T) int {
 	return k*100 + Bytes[node]()
 }
 
-func Wrap[T any](v T) any {
+// Plutonium: wrapped{v} converted to any is boxed in Wrap's frame, so Wrap
+// hands the interface to use instead of returning it.
+func Wrap[T any](v T, use func(any)) {
 	type wrapped struct{ v T }
-	return wrapped{v}
+	use(wrapped{v})
 }
 
 func main() {
 	println(a(), b(), local1(), local2(), Inner(1), Inner("s"), c(), d())
 	println(Bytes[struct{ a, b int }](), Rec(3), Rec([2]int{}))
-	w1, w2 := Wrap(1), Wrap("x")
-	_, ok := w1.(interface{})
-	println(ok, w1 == Wrap(1), w1 == w2)
+	Wrap(1, func(w1 any) {
+		Wrap("x", func(w2 any) {
+			Wrap(1, func(w3 any) {
+				_, ok := w1.(interface{})
+				println(ok, w1 == w3, w1 == w2)
+			})
+		})
+	})
 }

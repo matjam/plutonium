@@ -34,10 +34,16 @@ func (c *counter) Free(p unsafe.Pointer, size, align uintptr) {
 
 type pair struct{ a, b int }
 
+var defCounter, expCounter counter
+
 func main() {
 	sys := alloc.Default()
-	def := &counter{a: sys} // installed as the default
-	exp := &counter{a: sys} // passed explicitly
+	// Package-level: the default allocator is a package variable, and errors
+	// keep the allocator they came from, so neither may point into main's
+	// frame.
+	def := &defCounter // installed as the default
+	exp := &expCounter // passed explicitly
+	def.a, exp.a = sys, sys
 	alloc.SetDefault(def)
 	report := func(what string) {
 		fmt.Printf("%-12s default %d/%d explicit %d/%d\n", what, def.allocs, def.frees, exp.allocs, exp.frees)

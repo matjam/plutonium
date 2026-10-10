@@ -107,8 +107,37 @@ const (
 	ToolNotFound    Code = "E5008" // as, ld or cc is not installed
 )
 
-// Ownership and lifetimes: E3000-E3999, for the ownership and escape
-// checks.
+// Ownership and lifetimes: E3000-E3999. Views of a frame that outlive it
+// (internal/escape) are E3001-E3099; closures and their records are
+// E3100-E3199; the type checker's own ownership errors are in
+// internal/types2/errors from E3200; the move checker's are E3300-E3399.
+const (
+	ReturnFrameView Code = "E3001" // a function returns a view of its own frame
+	StoreFrameView  Code = "E3002" // a view of the frame stored where it outlives the frame
+	PassFrameView   Code = "E3003" // a view of the frame passed to a function that keeps it
+	GoFrameView     Code = "E3004" // a view of the frame passed to a go statement
+	SendFrameView   Code = "E3005" // a view of the frame sent on a channel
+	LoopFrameView   Code = "E3006" // a view of a loop's variables kept beyond the iteration
+	BadResultHolds  Code = "E3007" // a //pu:resultholds directive that does not match the function
+
+	ResultHoldsOutsideStd Code = "E3008" // //pu:resultholds outside the standard library
+)
+
+// The move checker (internal/moves).
+const (
+	UseAfterMove     Code = "E3301" // a variable used after its owner moved out
+	UseMaybeMoved    Code = "E3302" // a variable used where it may have been moved
+	MoveOutOfPlace   Code = "E3303" // an owner moved out of a field, element, pointer or package variable
+	RangeCopiesOwner Code = "E3304" // a range loop that copies owner elements
+	MoveCaptured     Code = "E3305" // a captured owner moved inside a function literal
+	CopyOwners       Code = "E3306" // copy, or append(s, t...), of owner elements
+	DropThroughView  Code = "E3307" // Drop called other than on an owner variable
+	OwnerFromLender  Code = "E3308" // an owner asserted out of an ordinary interface
+	IndexOwner       Code = "E3309" // x[k] read from a container of owners
+	VariadicOwners   Code = "E3310" // owners passed as variadic arguments
+	DeferInnerOwner  Code = "E3311" // a deferred call using an owner of an inner block
+	SliceLitOwners   Code = "E3312" // a slice literal with owner elements
+)
 
 // Closures and their records (E3100-E3199).
 const (

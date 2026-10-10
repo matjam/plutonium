@@ -22,15 +22,16 @@ import (
 //	b.WriteString(name)
 //	greeting := b.String()
 //
-// A Builder must not be copied after first use. To build text in a
-// caller's array without allocating, use a vec.Fixed[byte] and the Append
-// functions (strconv.AppendInt, fmt.Appendf, vec.AppendString), then
-// string(f.Slice()).
+// A Builder owns the buffer it grows, so it is an owner (language spec
+// section 6.4): it moves instead of being copied, and Drop releases the
+// buffer. To build text in a caller's array without allocating, use a
+// vec.Fixed[byte] and the Append functions (strconv.AppendInt, fmt.Appendf,
+// vec.AppendString), then string(f.Slice()).
 //
 // The bytes written need not be valid UTF-8 one at a time, but String
 // replaces each byte that does not begin a valid UTF-8 sequence with U+FFFD,
 // as string(b) does; it checks only the bytes written since the last call.
-type Builder struct {
+type Builder owner struct {
 	buf []byte          // the bytes so far, within the buffer
 	ctl uintptr         // reference to the counted buffer, or 0
 	a   alloc.Allocator // allocator that grows the buffer, or nil

@@ -350,38 +350,41 @@ func main() {
 `},
 		{name: "nilclosure", status: 2, want: "panic: go of a function value that captures variables or binds a method value: its closure record lives in the starting frame; pass the values as arguments\n", src: `package main
 
-func run(f func()) {
-	go f()
+import "pluto/rt"
+
+func run(f *func()) {
+	go (*f)()
 }
 
-// The compiler rejects a capturing literal passed to run where it can see
-// the call; this one reaches run through a func value, so the check when
-// the go statement runs catches it.
-var starter = run
-
+// The escape analysis rejects passing the literal to a function that
+// starts it (spec section 6.3); rt.Pinned hides it, so the check at run
+// time is what stops it.
 func main() {
 	n := 1
-	starter(func() { n++ })
+	f := func() { n++ }
+	run(rt.Pinned(&f))
 }
 `},
 		{name: "waitgroupgoclosure", status: 2, want: "panic: go of a function value that captures variables or binds a method value: its closure record lives in the starting frame; pass the values as arguments\n", src: `package main
 
-import "pluto/sync"
+import (
+	"pluto/rt"
+	"pluto/sync"
+)
 
 // The compiler rejects a capturing literal passed to wg.Go, or to a
 // function that passes it on to wg.Go, where it can see the call
-// (TestGoFuncCall); this one reaches start through a func value, so the
-// check when Go runs catches it.
+// (TestGoFuncCall), and the escape analysis rejects it anywhere else;
+// rt.Pinned hides it from both, so the check when Go runs catches it.
 func start(wg *sync.WaitGroup, f func()) {
 	wg.Go(f)
 }
 
-var starter = start
-
 func main() {
 	var wg sync.WaitGroup
 	n := 1
-	starter(&wg, func() { n++ })
+	f := func() { n++ }
+	start(&wg, *rt.Pinned(&f))
 	wg.Wait()
 }
 `},

@@ -25,7 +25,15 @@ type Field struct {
 // value. Both are nil for a nil interface.
 func TypeOf(v any) (*Type, unsafe.Pointer) {
 	words := (*[2]unsafe.Pointer)(unsafe.Pointer(&v))
-	return (*Type)(words[0]), words[1]
+	return staticType(words[0]), words[1]
+}
+
+// staticType returns the type descriptor or method table at p. Both are
+// static data, never in a frame; going through uintptr says so to the
+// escape analysis (language spec section 6.3), which otherwise could not
+// tell the first word of an interface from the second.
+func staticType(p unsafe.Pointer) *Type {
+	return (*Type)(unsafe.Pointer(uintptr(p)))
 }
 
 // Make returns an empty interface value holding a value of type t with data
@@ -110,7 +118,7 @@ func (t *Type) IfaceAt(p unsafe.Pointer) (*Type, unsafe.Pointer) {
 		return nil, nil
 	}
 	if t.flags&flagIfaceMethods != 0 {
-		return (*itab)(tab).typ, words[1]
+		return (*itab)(unsafe.Pointer(uintptr(tab))).typ, words[1]
 	}
-	return (*Type)(tab), words[1]
+	return staticType(tab), words[1]
 }

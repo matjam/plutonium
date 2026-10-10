@@ -1,0 +1,119 @@
+$DIR/main.p:18:2: cannot call f.Drop(): f is a *File, which only points at a File that something else owns
+    Drop releases what an owner holds. The File f points to belongs to another
+    variable or place, which will drop it when its life ends, so dropping it
+    here would release it twice.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    To end an owner's life early, call Drop on the variable that holds it; it
+    cannot be used afterwards:
+        v.Drop() // v is the File variable itself
+    To leave an empty value behind instead:
+        old := take(f)
+    (see "Owners" in the Plutonium spec, section 6.4)
+    (run "pluto explain E3307" for a longer explanation)
+
+$DIR/main.p:27:9: cannot copy the elements of bufs in a range loop: Buf is an owner type
+    A range loop copies each element into b. Copying an owner would leave two
+    values that both release what it owns, and the element in bufs would still
+    believe it owns it.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Range over the indexes and use a pointer to each element:
+        for i := range bufs {
+            b := &bufs[i]
+            ...
+        }
+    (see "Owners" in the Plutonium spec, section 6.4)
+    (run "pluto explain E3304" for a longer explanation)
+
+$DIR/main.p:32:2: cannot copy elements of type Buf: each element is an owner
+    copy duplicates elements, and duplicating an owner would leave two values
+    that both release what it owns.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Move the elements one at a time:
+        for i := range src {
+            dst[i] = take(&src[i])
+        }
+    or copy each one explicitly:
+        for i := range src {
+            dst[i] = src[i].Clone()
+        }
+    (see "Owners" in the Plutonium spec, section 6.4)
+    (run "pluto explain E3306" for a longer explanation)
+
+$DIR/main.p:35:7: cannot assert x to Buf: x is an any, which only lends the value it holds
+    Converting an owner to an ordinary interface such as any lends it: the
+    interface looks at the owner, which still belongs to the variable that was
+    converted. Taking a Buf out of x would create a second owner.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Call the value's methods through an interface type instead:
+        if s, ok := x.(fmt.Stringer); ok {
+            use(s.String())
+        }
+    or move it into an owning interface in the first place:
+        type Text owner interface{ String() string }
+    (see "Owners" in the Plutonium spec, section 6.4)
+    (run "pluto explain E3308" for a longer explanation)
+
+$DIR/main.p:39:11: cannot read v[0]: the elements of v are owners, and v[0] would be a copy
+    v[0] on Bufs calls its Index method, which returns a copy of the element.
+    Buf is an owner type, so the copy would be a second owner of what the
+    element owns.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    To look at the element, use a method that returns a pointer to it:
+        p := v.Ptr(0)
+    To move it out, use a method that removes or replaces it, or take it through
+    such a pointer:
+        elem := take(v.Ptr(0))
+    (see "Indexing library containers" in the Plutonium spec, section 6.7)
+    (run "pluto explain E3309" for a longer explanation)
+
+$DIR/main.p:43:6: cannot pass one to all as a variadic argument: Buf is an owner type
+    Variadic arguments are passed in an array that all sees as a slice. A slice
+    is a view and never owns its elements, so one would be released by nobody.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Pass the owners one at a time to a parameter that takes them by value, or
+    collect them in an owner such as a vec.Vec.
+    (see "Owners" in the Plutonium spec, section 6.4)
+    (run "pluto explain E3310" for a longer explanation)
+
+$DIR/main.p:46:10: a slice literal cannot hold owners: Buf is an owner type, and nothing would drop the elements
+    A slice literal keeps its elements in an array that the slice only looks at.
+    Owners stored there would be released by nobody.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Use an array literal, which owns its elements:
+        [...]Buf{...}
+    (see "Owners" in the Plutonium spec, section 6.4)
+    (run "pluto explain E3312" for a longer explanation)
+
+$DIR/main.p:51:3: the deferred call uses f, which is dropped at the end of its block (line 52)
+    Deferred calls run when the function returns. f is declared in the block
+    that ends at line 52 and is dropped there, before this call would run, so
+    the call would use what f had released.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Declare f at the top level of the function, or do the work at the end of the
+    block instead of deferring it.
+    (see "Owners" in the Plutonium spec, section 6.4)
+    (run "pluto explain E3311" for a longer explanation)

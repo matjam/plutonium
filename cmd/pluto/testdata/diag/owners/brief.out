@@ -1,0 +1,6 @@
+$DIR/main.p:13:2: Conn must be declared owner: its field buf is a Buf, which is an owner
+$DIR/main.p:16:12: owner cannot qualify a slice type
+$DIR/main.p:18:11: owner cannot qualify an enum type
+$DIR/main.p:35:2: cannot use Buf as T in Fill: Buf is an owner and T does not allow owners
+$DIR/main.p:25:18: Drop must have no parameters and no results
+$DIR/main.p:7:16: File has a Drop method but is not declared owner

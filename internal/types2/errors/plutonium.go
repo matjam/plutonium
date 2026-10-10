@@ -147,6 +147,37 @@ const (
 	RangeOverEnumValue
 )
 
+// Ownership (language spec section 6.4). Ownership and lifetime errors are
+// E3000-E3999; the type checker's, about where owner may and must appear,
+// start at 3200, and the others are in internal/diag/codes.go.
+const (
+	_ Code = 3200 + iota
+
+	// DropNotOwner: a Drop method on a type not declared owner.
+	DropNotOwner
+	// MustBeOwner: a type with an owner field, an embedded owner, an
+	// array of owners, an owning interface embedded, or a definition from
+	// an owner, that is not declared owner.
+	MustBeOwner
+	// UnnamedOwnerStruct: a struct type literal with an owner field.
+	UnnamedOwnerStruct
+	// BadOwnerKind: owner on a kind of type that cannot own, such as a
+	// slice or an enum.
+	BadOwnerKind
+	// OwnerAlias: owner in an alias declaration.
+	OwnerAlias
+	// BadDropSignature: a Drop method with parameters or results.
+	BadDropSignature
+	// OwnerTypeArg: an owner type argument for a type parameter whose
+	// constraint is not marked owner.
+	OwnerTypeArg
+	// BadTakeArg: take with an argument that is not a pointer.
+	BadTakeArg
+	// BadUnsafeDropArg: unsafe.Drop with an argument that is not a
+	// pointer.
+	BadUnsafeDropArg
+)
+
 // The indexing interface: index expressions on library containers.
 const (
 	_ Code = 2450 + iota

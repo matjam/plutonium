@@ -160,7 +160,7 @@ func (check *Checker) instantiateSignature(pos token.Pos, expr ast.Expr, typ *Si
 			if i < len(xlist) {
 				pos = xlist[i].Pos()
 			}
-			check.softErrorf(atPos(pos), InvalidTypeArg, "%s", err)
+			check.reportTypeArg(atPos(pos), err, ExprString(expr))
 		} else {
 			check.mono.recordInstance(check.pkg, pos, tparams, targs, xlist)
 		}

@@ -1,6 +1,8 @@
 package main
 
 // checksum is written in assembly, but the package has no .s file.
+//
+//pu:noescape
 func checksum(p *byte, n int) uint32
 
 func main() {

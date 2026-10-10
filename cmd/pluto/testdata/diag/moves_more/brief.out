@@ -1,0 +1,8 @@
+$DIR/main.p:18:2: cannot call f.Drop(): f is a *File, which only points at a File that something else owns
+$DIR/main.p:27:9: cannot copy the elements of bufs in a range loop: Buf is an owner type
+$DIR/main.p:32:2: cannot copy elements of type Buf: each element is an owner
+$DIR/main.p:35:7: cannot assert x to Buf: x is an any, which only lends the value it holds
+$DIR/main.p:39:11: cannot read v[0]: the elements of v are owners, and v[0] would be a copy
+$DIR/main.p:43:6: cannot pass one to all as a variadic argument: Buf is an owner type
+$DIR/main.p:46:10: a slice literal cannot hold owners: Buf is an owner type, and nothing would drop the elements
+$DIR/main.p:51:3: the deferred call uses f, which is dropped at the end of its block (line 52)

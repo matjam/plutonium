@@ -158,6 +158,7 @@ const (
 	_Println
 	_Real
 	_Recover
+	_Take // Plutonium: take(&place) moves a value out, leaving zero behind
 
 	// package unsafe
 	_Add
@@ -168,6 +169,7 @@ const (
 	_SliceData
 	_String
 	_StringData
+	_Drop // Plutonium: unsafe.Drop(p) destroys *p (the unchecked layer)
 
 	// testing support
 	_Assert
@@ -199,6 +201,7 @@ var predeclaredFuncs = [...]struct {
 	_Println: {"println", 0, true, statement},
 	_Real:    {"real", 1, false, expression},
 	_Recover: {"recover", 0, false, statement},
+	_Take:    {"take", 1, false, expression},
 
 	_Add:        {"Add", 2, false, expression},
 	_Alignof:    {"Alignof", 1, false, expression},
@@ -208,6 +211,7 @@ var predeclaredFuncs = [...]struct {
 	_SliceData:  {"SliceData", 1, false, expression},
 	_String:     {"String", 2, false, expression},
 	_StringData: {"StringData", 1, false, expression},
+	_Drop:       {"Drop", 1, false, statement},
 
 	_Assert: {"assert", 1, false, statement},
 	_Trace:  {"trace", 0, true, statement},

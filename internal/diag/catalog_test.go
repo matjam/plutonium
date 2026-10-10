@@ -21,7 +21,7 @@ import (
 func checkerCodes(t *testing.T) map[string]typerr.Code {
 	t.Helper()
 	byName := map[string]typerr.Code{}
-	for v := -1; v < 3000; v++ {
+	for v := -1; v < 4000; v++ {
 		if s := typerr.Code(v).String(); !strings.HasPrefix(s, "Code(") {
 			byName[s] = typerr.Code(v)
 		}
@@ -139,7 +139,7 @@ func TestCatalogStyle(t *testing.T) {
 			t.Errorf("%s: no name or text", code)
 		}
 		n, _ := strconv.Atoi(string(code[1:]))
-		if n >= 2000 && n < 3000 && e.Spec == "" {
+		if n >= 2000 && n < 4000 && e.Spec == "" {
 			t.Errorf("%s (%s): a Plutonium rule needs a spec section", code, e.Name)
 		}
 		all := e.Text + e.Why + e.Spec + e.Example + e.Fixed

@@ -18,8 +18,10 @@ import (
 	"github.com/matjam/plutonium/internal/arch/amd64"
 	"github.com/matjam/plutonium/internal/debuginfo"
 	"github.com/matjam/plutonium/internal/diag"
+	"github.com/matjam/plutonium/internal/escape"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/lower"
+	"github.com/matjam/plutonium/internal/moves"
 	"github.com/matjam/plutonium/internal/objfile"
 	"github.com/matjam/plutonium/internal/opt"
 	"github.com/matjam/plutonium/internal/ssa"
@@ -44,6 +46,9 @@ type Config struct {
 	KeepWork     bool // keep the temporary directory
 	CompileOnly  bool // write the object file to Output and stop
 
+	// GenCheck builds with the generational-reference prototype: the
+	// allocator tags heap pointers and every access checks the tag.
+	GenCheck bool
 	// NoDWARF omits the DWARF debugging sections (pluto build -g=false).
 	NoDWARF bool
 	// Strip omits DWARF and the symbol table (pluto build -s). Panics still
@@ -100,6 +105,18 @@ func Build(cfg *Config) error {
 
 var sizes = types2.SizesFor("gc", "amd64")
 
+// forceGenCheck, set by the PLUTO_GENCHECK environment variable, builds every
+// program with the generational-reference prototype, so the whole test suite
+// can run under it.
+var forceGenCheck = os.Getenv("PLUTO_GENCHECK") != ""
+
+// genCheck reports whether a build uses the generation checks. The
+// prototype's tag layout assumes user-space addresses, so it is for hosted
+// builds only.
+func (cfg *Config) genCheck() bool {
+	return (cfg.GenCheck || forceGenCheck) && !cfg.Freestanding && !cfg.Kernel
+}
+
 // Check reports a setting of cfg that no build accepts, such as an unknown
 // allocator or one that needs a hosted build.
 func (cfg *Config) Check() error {
@@ -111,6 +128,9 @@ func (cfg *Config) Check() error {
 		}
 	default:
 		return fmt.Errorf("unknown allocator %q (supported: debug)", cfg.Alloc)
+	}
+	if cfg.GenCheck && (cfg.Freestanding || cfg.Kernel) {
+		return fmt.Errorf("-gencheck is a prototype for hosted builds only")
 	}
 	switch cfg.FieldNames {
 	case "", "on", "off":
@@ -126,6 +146,9 @@ func loadConfig(cfg *Config) (*load.Config, error) {
 		return nil, err
 	}
 	tags := load.BuildTags(cfg.Freestanding, cfg.Kernel, cfg.Tags)
+	if cfg.genCheck() {
+		tags["gencheck"] = true
+	}
 	var preload []string
 	if cfg.Alloc == "debug" {
 		tags["allocdebug"] = true
@@ -137,13 +160,23 @@ func loadConfig(cfg *Config) (*load.Config, error) {
 
 // buildProgram compiles and links a loaded program.
 func buildProgram(cfg *Config, prog *load.Program) error {
+	// The move checker's account of moves tells lowering where owners are
+	// destroyed. Lowering reports the constructs Plutonium does not
+	// support; the escape analysis assumes a program without them. The
+	// errors of both lifetime checks are reported together.
+	info, moveErr := moves.Analyze(prog)
 	sp, err := lower.Lower(&lower.Config{
 		Freestanding: cfg.Freestanding || cfg.Kernel,
 		Kernel:       cfg.Kernel,
 		Sizes:        sizes,
 		NoFieldNames: !cfg.fieldNames(),
+		GenCheck:     cfg.genCheck(),
+		Moves:        info,
 	}, prog)
 	if err != nil {
+		return err
+	}
+	if err := joinLifetimeErrors(moveErr, escape.Check(prog)); err != nil {
 		return err
 	}
 	if err := optimize(cfg, sp, prog); err != nil {
@@ -324,6 +357,20 @@ func prefixed(prefix string, err error) error {
 
 // internal turns an error from the compiler's later stages, which all mean
 // a bug in the compiler, into a diagnostic.
+// joinLifetimeErrors returns the errors of the move checker and the escape
+// analysis (language spec sections 6.3 and 6.4) as one list.
+func joinLifetimeErrors(errs ...error) error {
+	var all diag.List
+	for _, err := range errs {
+		if l, ok := err.(diag.List); ok {
+			all = append(all, l...)
+		} else if err != nil {
+			return err
+		}
+	}
+	return all.Err()
+}
+
 func internal(err error) error {
 	var d *diag.Diagnostic
 	if err == nil || errors.As(err, &d) {

@@ -296,7 +296,9 @@ func (s *fnState) unionTypeSwitch(st *ast.TypeSwitchStmt, x ast.Expr, label *typ
 		s.startBlock(bodies[i])
 		clause := s.pushCleanup(cc, true)
 		if obj, ok := s.info.Implicits[cc].(*types2.Var); ok {
-			addr := s.declareVar(obj)
+			// The variable is a copy of the payload the union still holds,
+			// so it is not destroyed on its own.
+			addr := s.declareView(obj)
 			VT := s.subst(obj.Type())
 			if len(cc.List) == 1 {
 				s.assign(lvalue{ptr: addr, T: VT}, s.payloadOf(T, u, s.variantOf(cc.List[0]), ul), true)

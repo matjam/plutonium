@@ -98,7 +98,10 @@ func main() {
 	println(<-d)
 	go vari(d)
 	println(<-d)
-	xs := []int{5, 6}
+	// Not []int{5, 6}: that array would be in main's frame, which the
+	// puroutine may outlive.
+	xs := new([2]int)[:]
+	xs[0], xs[1] = 5, 6
 	go vari(d, xs...)
 	println(<-d)
 
@@ -108,7 +111,10 @@ func main() {
 	t := new(T)
 	go t.bump(bd)
 	<-bd
-	var sh shower = T{9}
+	// Not T{9}: the interface would box it in main's frame.
+	t9 := new(T)
+	t9.n = 9
+	var sh shower = t9
 	go sh.show(bd)
 	<-bd
 

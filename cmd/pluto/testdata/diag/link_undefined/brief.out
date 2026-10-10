@@ -1,5 +1,5 @@
 running ld failed: undefined reference to main.checksum
 	ld: $WORK/main.o: in function `main.main':
-	./main.p:8:(.text+OFFSET): undefined reference to `main.checksum'
+	./main.p:10:(.text+OFFSET): undefined reference to `main.checksum'
 	ld: $WORK/main.o: in function `pluto.main':
-	./main.p:8:(.text+OFFSET): undefined reference to `main.checksum'
+	./main.p:10:(.text+OFFSET): undefined reference to `main.checksum'

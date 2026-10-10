@@ -62,7 +62,10 @@ type slot[K comparable, V any] struct {
 // m[k] = v stores, v, ok := m[k] reports whether k is present, m[k] += 1
 // reads and stores, and len(m) is Len (language spec section 6.7). &m[k] is
 // not allowed; Ptr and Upsert return pointers into the table.
-type Map[K comparable, V any] struct {
+//
+// A Map owns its table, so it is an owner (language spec section 6.4): it
+// moves instead of being copied, and Drop releases the table.
+type Map[K comparable, V any] owner struct {
 	slots []slot[K, V]
 	meta  []uint8
 	n     int // number of entries
@@ -519,8 +522,8 @@ func (m *Map[K, V]) Insert(seq iter.Seq2[K, V]) {
 	}
 }
 
-// A Set is a set of K, a Map with no values.
-type Set[K comparable] struct {
+// A Set is a set of K, a Map with no values. Like a Map, it is an owner.
+type Set[K comparable] owner struct {
 	m Map[K, struct{}]
 }
 

@@ -11,6 +11,8 @@ import (
 
 // Implemented in start_amd64.s.
 func setGS(base uintptr)
+
+//pu:noescape
 func write(p unsafe.Pointer, n int)
 
 //pu:noreturn

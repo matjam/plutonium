@@ -60,10 +60,12 @@ func (m *Mutex) lockSlow() {
 		}
 		var w waiter
 		w.t = self()
+		// w is queued only while this puroutine is parked: the waker pops
+		// it before readying it (rt.Pinned).
 		if front {
-			m.q.pushFront(&w)
+			m.q.pushFront(rt.Pinned(&w))
 		} else {
-			m.q.push(&w)
+			m.q.push(rt.Pinned(&w))
 		}
 		m.mu.Unlock()
 		rt.ParkReason(rt.WaitMutex)
@@ -127,7 +129,7 @@ func (s *sema) acquire(r rt.WaitReason) {
 	}
 	var w waiter
 	w.t = self()
-	s.q.push(&w)
+	s.q.push(rt.Pinned(&w)) // popped before this puroutine is readied
 	s.mu.Unlock()
 	rt.ParkReason(r)
 }

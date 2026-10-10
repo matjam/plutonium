@@ -32,12 +32,10 @@ import (
 //	restore.Restore()
 //
 // A Chunked owns its chunks, so it is an owner (language spec section 6.4):
-// it must not be copied after its first allocation, only moved, and it is
-// released by Drop. Until the owner keyword reaches the compiler this is a
-// convention; the declaration below then becomes `type Chunked owner struct`.
+// it moves instead of being copied, and it is released by Drop.
 //
 // A Chunked is not safe for concurrent use.
-type Chunked struct {
+type Chunked owner struct {
 	parent    alloc.Allocator
 	chunkSize uintptr // data bytes in a standard chunk
 	cur       *chunk  // the chunk being filled; older chunks follow prev

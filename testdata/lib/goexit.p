@@ -105,7 +105,11 @@ func main() {
 	fmt.Println(<-done)
 	go viaValue(stop)
 	fmt.Println(<-done)
-	go viaInterface(halter{"interface"})
+	// Not halter{...}: the interface would box it in main's frame,
+	// which the puroutine may outlive.
+	h := new(halter)
+	h.name = "interface"
+	go viaInterface(h)
 	fmt.Println(<-done)
 	go viaTypeParam(halter{"type parameter"})
 	fmt.Println(<-done)

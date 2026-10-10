@@ -13,5 +13,5 @@ again 42 true 1
 poisoned true true
 zeroed again 0 0
 typed 5 true 300 0 7 true
-drop 0 0 0 0
+drop 0 0
 fixed 9 8 3 80

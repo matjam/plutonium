@@ -133,6 +133,10 @@ const (
 	// go/constant unchanged.
 	PACKED
 	ENUM
+	// OWNER is never produced by the scanner: "owner" is a keyword only
+	// before a type in a type definition or a type parameter's constraint,
+	// and an identifier everywhere else. The printer uses the token.
+	OWNER
 	additional_end
 )
 
@@ -239,6 +243,7 @@ var tokens = [...]string{
 
 	PACKED: "packed",
 	ENUM:   "enum",
+	OWNER:  "owner",
 }
 
 // String returns the string corresponding to the token tok.

@@ -264,6 +264,16 @@ func panicSlice(lo, hi, max int) {
 	fatal(nil)
 }
 
+// panicStale reports an access through a heap pointer whose allocation has
+// been freed (the generational-reference prototype, built with -gencheck).
+func panicStale(p unsafe.Pointer) {
+	startPanic()
+	printString("runtime error: use of freed memory: pointer ")
+	printUint(uint64(uintptr(p)))
+	printString(" has an old generation")
+	fatal(nil)
+}
+
 func panicDivide() {
 	startPanic()
 	printString("runtime error: integer divide by zero")

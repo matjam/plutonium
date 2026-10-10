@@ -409,6 +409,13 @@ const (
 	// PragmaNoSIMD (//pu:nosimd) keeps the optimiser from introducing
 	// vector instructions the function's own code does not ask for.
 	PragmaNoSIMD
+	// PragmaGenCheck marks a function built with generation checks on heap
+	// pointers (opt/gencheck.go): its memory accesses get checks, and frame
+	// and static addresses in it, at user-space addresses, carry no tag.
+	PragmaGenCheck
+	// PragmaGenMaskOnly is PragmaGenCheck for the runtime and allocator,
+	// which remove tags without checking them.
+	PragmaGenMaskOnly
 )
 
 // MayVectorize reports whether optimisations may introduce vector
@@ -457,6 +464,10 @@ type Func struct {
 	// ParamOnStack forces parameters to the stack, as CallInfo.OnStack does
 	// for calls (ABIC functions only; nil otherwise).
 	ParamOnStack []bool
+
+	// GenPanic is the function a failed generation check calls (with
+	// PragmaGenCheck).
+	GenPanic *Sym
 
 	// StrHolds lists the references lowering took to keep a borrowed string
 	// alive across calls that might release it (internal/lower/strcount.go);

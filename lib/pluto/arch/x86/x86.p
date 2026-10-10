@@ -109,9 +109,13 @@ func WriteCR4(v uint64)
 func Invlpg(addr uintptr)
 
 // Lgdt loads the global descriptor table register.
+//
+//pu:noescape
 func Lgdt(p *DescriptorTablePointer)
 
 // Lidt loads the interrupt descriptor table register.
+//
+//pu:noescape
 func Lidt(p *DescriptorTablePointer)
 
 // Ltr loads the task register with a TSS selector.
@@ -158,9 +162,13 @@ func GSStore32(off uintptr, v uint32)
 // (clts; fxsave64), so that //pu:fpu functions may run in kernel mode.
 // The state they start from is the interrupted context's, including its
 // MXCSR and x87 control word.
+//
+//pu:noescape
 func FPUBegin(area *FPUState)
 
 // FPUEnd restores the state FPUBegin saved (fxrstor64).
+//
+//pu:noescape
 func FPUEnd(area *FPUState)
 
 // HandlerAddr returns the entry address of the //pu:interrupt function h,

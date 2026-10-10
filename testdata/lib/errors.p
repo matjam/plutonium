@@ -130,6 +130,7 @@ func (e *timeoutError) Error() string        { return e.op }
 func (e *timeoutError) Is(target error) bool { return target == ErrTimeout }
 
 var ErrTimeout = errors.New("timeout")
+
 var slowRead = &timeoutError{op: "read timed out"}
 
 // listError is not comparable; errors.Is must not compare it with ==.

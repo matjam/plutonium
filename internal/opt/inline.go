@@ -105,6 +105,12 @@ func inline(p *ssa.Program, why map[*ssa.Value]string) {
 // cleanup runs the simplifications that make an inlined body fit in.
 func cleanup(f *ssa.Func) {
 	ssa.CopyElim(f)
+	if f.Pragmas&ssa.PragmaGenCheck != 0 {
+		// Generation checks on what are now frame addresses fold away;
+		// without that, their address arithmetic keeps SROA from
+		// splitting the frame slots of inlined struct arguments.
+		Simplify(f)
+	}
 	SimplifyCFG(f)
 	ssa.Schedule(f)
 	SROA(f)

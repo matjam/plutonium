@@ -10,6 +10,10 @@ package main
 // Plutonium has none and the message is only seen when a check fails.
 func sprintf(format string, args ...interface{}) string { return format }
 
+// Plutonium: a Cons cell converted to an interface would be boxed in the
+// frame of the function that converts it, and the list outlives those
+// frames, so the cells are allocated and the list holds *Cons.
+
 // Overriding the predeclare "any", so it can be used as a type constraint or a type
 // argument
 type any interface{}
@@ -50,13 +54,13 @@ func (this Int) Equal(that int) bool {
 }
 
 type List[a any] interface {
-	Match(casenil Function[Nil[a], any], casecons Function[Cons[a], any]) any
+	Match(casenil Function[Nil[a], any], casecons Function[*Cons[a], any]) any
 }
 
 type Nil[a any] struct {
 }
 
-func (xs Nil[a]) Match(casenil Function[Nil[a], any], casecons Function[Cons[a], any]) any {
+func (xs Nil[a]) Match(casenil Function[Nil[a], any], casecons Function[*Cons[a], any]) any {
 	return casenil.Apply(xs)
 }
 
@@ -65,7 +69,14 @@ type Cons[a any] struct {
 	Tail List[a]
 }
 
-func (xs Cons[a]) Match(casenil Function[Nil[a], any], casecons Function[Cons[a], any]) any {
+func cons[a any](head a, tail List[a]) *Cons[a] {
+	c := new(Cons[a])
+	c.Head = head
+	c.Tail = tail
+	return c
+}
+
+func (xs *Cons[a]) Match(casenil Function[Nil[a], any], casecons Function[*Cons[a], any]) any {
 	return casecons.Apply(xs)
 }
 
@@ -80,8 +91,8 @@ type mapCons[a, b any] struct {
 	f Function[a, b]
 }
 
-func (m mapCons[a, b]) Apply(xs Cons[a]) any {
-	return Cons[b]{m.f.Apply(xs.Head), Map[a, b](m.f, xs.Tail)}
+func (m mapCons[a, b]) Apply(xs *Cons[a]) any {
+	return cons[b](m.f.Apply(xs.Head), Map[a, b](m.f, xs.Tail))
 }
 
 func Map[a, b any](f Function[a, b], xs List[a]) List[b] {
@@ -89,11 +100,11 @@ func Map[a, b any](f Function[a, b], xs List[a]) List[b] {
 }
 
 func main() {
-	var xs List[int] = Cons[int]{3, Cons[int]{6, Nil[int]{}}}
+	var xs List[int] = cons[int](3, cons[int](6, Nil[int]{}))
 	var ys List[int] = Map[int, int](incr{-5}, xs)
 	var xz List[bool] = Map[int, bool](pos{}, ys)
-	cs1 := xz.(Cons[bool])
-	cs2 := cs1.Tail.(Cons[bool])
+	cs1 := xz.(*Cons[bool])
+	cs2 := cs1.Tail.(*Cons[bool])
 	_, ok := cs2.Tail.(Nil[bool])
 	if cs1.Head != false || cs2.Head != true || !ok {
 		panic(sprintf("got %v, %v, %v, expected false, true, true",

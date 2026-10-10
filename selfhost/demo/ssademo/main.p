@@ -156,7 +156,7 @@ func program() {
 		fmt.Printf("sym %s kind=%d\n", s, s.Kind)
 	}
 	fmt.Println(p.LookupSym("main.a") != nil, p.LookupSym("nope") == nil)
-	fmt.Println(ssa.TupleOf(ssa.TI64, ssa.TMem, ssa.TF32), ssa.IntType(2), ssa.FloatType(4))
+	fmt.Println(ssa.TupleOf(compat.Clone([]*ssa.Type{ssa.TI64, ssa.TMem, ssa.TF32})...), ssa.IntType(2), ssa.FloatType(4))
 	fmt.Println(ssa.Canon(ssa.TI8, 200), ssa.ZeroExt(ssa.TI8, -56), ssa.OpAdd.IsCommutative(), ssa.OpStore.HasMemArg())
 }
 

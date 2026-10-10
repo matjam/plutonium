@@ -304,7 +304,7 @@ func TestUnionErrors(t *testing.T) {
 		{"embedded pointer", "type U union { *int }", "union variant *int needs a name"},
 		{"recursive", "type U union { A; B U }", "invalid recursive type"},
 		{"owned payload", "type U union { A; B owned[int] }", "union U cannot have variant B with payload owned[int] yet"},
-		{"owned in struct", "type U union { A struct{ p owned[int] } }", "part of it is owned[int], and unions that own their payloads wait for ownership"},
+		{"owned in struct", "type U union { A struct{ p owned[int] } }", "a struct type without a name cannot have owner fields: its field p is an owned[int], which is an owner"},
 		{"owned instance", "type R[T any] union { Ok T; No }\nvar r R[shared[int]]", "union R[shared[int]] cannot have variant Ok"},
 		{"variant as type", "var v DeviceState.Ready", "DeviceState.Ready is a variant of union DeviceState, not a type"},
 		{"variant on value", "func f(st DeviceState) { _ = st.Ready }", "Ready is a variant of union DeviceState, not a field"},

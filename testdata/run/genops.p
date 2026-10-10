@@ -150,14 +150,17 @@ type Point struct{ x, y int }
 
 func (p Point) Show() int { return p.x*10 + p.y }
 
-func Box[T any](x T) any { return x }
+// Plutonium: a value larger than a word converted to an interface is boxed
+// in the converting function's frame, so Box and ToShower hand the
+// interface to use instead of returning it.
+func Box[T any](x T, use func(any)) { use(x) }
 
 func Unbox[T any](v any) (T, bool) {
 	t, ok := v.(T)
 	return t, ok
 }
 
-func ToShower[T Shower](x T) Shower { return x }
+func ToShower[T Shower](x T, use func(Shower)) { use(x) }
 
 func IsShower[T any](x T) bool {
 	_, ok := any(x).(Shower)
@@ -194,13 +197,18 @@ func main() {
 	var nine [9]int
 	println(PtrArr(&arr), CapOf(nine[:2]), CapOf(xs[1:]))
 	println(Triangle(5), Triangle(IntID(30)))
-	b := Box(Point{1, 2})
-	p, ok := Unbox[Point](b)
-	println(p.x, p.y, ok)
-	_, ok = Unbox[int](b)
-	println(ok)
-	n, ok := Unbox[int](Box(42))
-	println(n, ok)
-	println(ToShower(Point{3, 4}).Show(), IsShower(Point{}), IsShower(3))
+	Box(Point{1, 2}, func(b any) {
+		p, ok := Unbox[Point](b)
+		println(p.x, p.y, ok)
+		_, ok = Unbox[int](b)
+		println(ok)
+	})
+	Box(42, func(b any) {
+		n, ok := Unbox[int](b)
+		println(n, ok)
+	})
+	ToShower(Point{3, 4}, func(s Shower) {
+		println(s.Show(), IsShower(Point{}), IsShower(3))
+	})
 	println(Equal(1, 1), Equal("a", "b"), Equal(Point{1, 2}, Point{1, 2}), Equal[any](1, "1"))
 }

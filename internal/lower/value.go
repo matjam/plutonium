@@ -330,7 +330,11 @@ func (s *fnState) convertScalar(v *ssa.Value, from, to types2.Type) *ssa.Value {
 		}
 		return s.newValue(ssa.OpFloatConv, tt, v)
 	case ft.Kind != tt.Kind || ft.Size != tt.Size:
-		// pointer <-> uintptr and similar same-size reinterpretations
+		// pointer <-> uintptr and similar same-size reinterpretations. A
+		// uintptr is a plain address: it carries no generation tag.
+		if ft.IsPtr() && tt.IsInt() {
+			v = s.untagged(v)
+		}
 		return s.newValue(ssa.OpBitcast, tt, v)
 	}
 	return v

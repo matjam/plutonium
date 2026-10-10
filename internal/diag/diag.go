@@ -64,10 +64,13 @@ type Diagnostic struct {
 	// Fix, if set, is a fix specific to this error. When Text is empty the
 	// catalog's fix for Code is used instead.
 	Fix *Fix
+	// More are further fixes, printed after Fix, for errors that have
+	// several ways out (ownership errors show each).
+	More []*Fix
 }
 
 // A Fix is a suggested change: a sentence introducing it and the code to
-// write.
+// write. A Fix without Code is a paragraph of advice, printed as it is.
 type Fix struct {
 	Intro string // "To parse a number from text"
 	Code  string // lines of code; a tab indents

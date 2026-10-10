@@ -34,9 +34,9 @@ import (
 // first, it takes the default allocator the first time it grows.
 //
 // A Vec owns its storage, so it is an owner (language spec section 6.4):
-// Drop releases it. Declaring the type owner is a one-line change once the
-// keyword lands (roadmap item 51).
-type Vec[T any] struct {
+// it moves instead of being copied, and Drop releases it. Clone makes an
+// independent copy.
+type Vec[T any] owner struct {
 	data []T
 	a    alloc.Allocator
 }

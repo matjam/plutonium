@@ -18,7 +18,7 @@ import (
 // copied after first use; pass a *Buffer. To write into a caller's array
 // without allocating, use a vec.Fixed[byte] and the Append functions
 // instead.
-type Buffer struct {
+type Buffer owner struct {
 	buf vec.Vec[byte] // contents are buf[off:]
 	off int           // read at buf[off], write at the end
 }

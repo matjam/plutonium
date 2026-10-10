@@ -955,6 +955,9 @@ type field struct {
 	// Plutonium: a parameter's default value ("a Allocator = Default()").
 	assign token.Pos
 	def    ast.Expr
+
+	// Plutonium: "owner" before a type parameter's constraint.
+	owner token.Pos
 }
 
 func (p *parser) parseParamDecl(name *ast.Ident, typeSetsOK bool) (f field) {
@@ -983,8 +986,9 @@ func (p *parser) parseParamDecl(name *ast.Ident, typeSetsOK bool) (f field) {
 		}
 		switch p.tok {
 		case token.IDENT, token.MUL, token.ARROW, token.FUNC, token.CHAN, token.MAP, token.STRUCT, token.PACKED, token.ENUM, token.INTERFACE, token.LPAREN:
-			// name type
-			f.typ = p.parseType()
+			// name type, or name "owner" constraint (a type parameter
+			// that admits owners)
+			f.owner, f.typ = p.parseOwnerType(p.parseType)
 
 		case token.LBRACK:
 			// name "[" type1, ..., typeN "]" or name "[" n "]" type
@@ -1136,9 +1140,10 @@ func (p *parser) parseParameterList(name0 *ast.Ident, typ0 ast.Expr, closing tok
 		// some named or we're in a type parameter list => all must be named
 		var errPos token.Pos // left-most error position (or invalid)
 		var typ ast.Expr     // current type (from right to left)
+		var owner token.Pos  // and its "owner", for type parameters
 		for i := range list {
 			if par := &list[len(list)-i-1]; par.typ != nil {
-				typ = par.typ
+				typ, owner = par.typ, par.owner
 				if par.name == nil {
 					errPos = typ.Pos()
 					n := ast.NewIdent("_")
@@ -1150,7 +1155,7 @@ func (p *parser) parseParameterList(name0 *ast.Ident, typ0 ast.Expr, closing tok
 					// "a = x, b T": a default needs a type of its own.
 					p.error(par.assign, "a default value must follow a single parameter name and its type")
 				}
-				par.typ = typ
+				par.typ, par.owner = typ, owner
 			} else {
 				// par.typ == nil && typ == nil => we only have a par.name
 				errPos = par.name.Pos()
@@ -1223,9 +1228,10 @@ func (p *parser) parseParameterList(name0 *ast.Ident, typ0 ast.Expr, closing tok
 	// A parameter with a default value gets a field of its own.
 	var names []*ast.Ident
 	var typ ast.Expr
+	var owner token.Pos
 	addParams := func(assign token.Pos, def ast.Expr) {
 		assert(typ != nil, "nil type in named parameter list")
-		field := &ast.Field{Names: names, Type: typ, Assign: assign, Default: def}
+		field := &ast.Field{Names: names, Owner: owner, Type: typ, Assign: assign, Default: def}
 		params = append(params, field)
 		names = nil
 	}
@@ -1234,7 +1240,7 @@ func (p *parser) parseParameterList(name0 *ast.Ident, typ0 ast.Expr, closing tok
 			if len(names) > 0 {
 				addParams(token.NoPos, nil)
 			}
-			typ = par.typ
+			typ, owner = par.typ, par.owner
 		}
 		if par.def != nil {
 			if len(names) > 0 {
@@ -2805,7 +2811,24 @@ func (p *parser) parseGenericType(spec *ast.TypeSpec, openPos token.Pos, name0 *
 		spec.Assign = p.pos
 		p.next()
 	}
-	spec.Type = p.parseTypeSpecType()
+	spec.Owner, spec.Type = p.parseOwnerType(p.parseTypeSpecType)
+}
+
+// parseOwnerType parses, with typ, a type that may follow "owner", in a
+// type definition or a type parameter's constraint, and returns the
+// position of "owner" (NoPos if there is none). "owner" is not reserved: it
+// is the keyword only when a type follows it, and otherwise names a type.
+func (p *parser) parseOwnerType(typ func() ast.Expr) (token.Pos, ast.Expr) {
+	if p.tok != token.IDENT || p.lit != "owner" {
+		return token.NoPos, typ()
+	}
+	pos := p.pos
+	p.next()
+	switch p.tok {
+	case token.IDENT, token.LBRACK, token.STRUCT, token.PACKED, token.ENUM, token.MUL, token.FUNC, token.INTERFACE, token.MAP, token.CHAN, token.ARROW, token.LPAREN:
+		return pos, typ()
+	}
+	return token.NoPos, p.parseQualifiedIdent(&ast.Ident{NamePos: pos, Name: "owner"})
 }
 
 // parseTypeSpecType parses the type of a type declaration. There, and only
@@ -2955,7 +2978,7 @@ func (p *parser) parseTypeSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.
 			spec.Assign = p.pos
 			p.next()
 		}
-		spec.Type = p.parseTypeSpecType()
+		spec.Owner, spec.Type = p.parseOwnerType(p.parseTypeSpecType)
 	}
 
 	spec.Comment = p.expectSemi()

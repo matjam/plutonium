@@ -6,11 +6,14 @@
 
 package main
 
-func returnOption[T any](n int) Option[T] {
+// Plutonium: Some[T]{} converted to Option[T] is boxed in the converting
+// function's frame, so withOption hands the option to f instead of
+// returning it.
+func withOption[T any](n int, f func(Option[T])) {
 	if n == 1 {
-		return Some[T]{}
+		f(Some[T]{})
 	} else {
-		return None{}
+		f(None{})
 	}
 }
 
@@ -33,18 +36,20 @@ type None struct{}
 func (s None) sealedOption() {}
 
 func main() {
-	s := returnOption[int](1)
-	_ = s.(Some[int])
+	withOption[int](1, func(s Option[int]) {
+		_ = s.(Some[int])
+	})
 
-	s = returnOption[int](0)
-	_ = s.(None)
+	withOption[int](0, func(s Option[int]) {
+		_ = s.(None)
 
-	switch (any)(s).(type) {
-	case Some[int]:
-		panic("s is a Some[int]")
-	case None:
-		// ok
-	default:
-		panic("oops")
-	}
+		switch (any)(s).(type) {
+		case Some[int]:
+			panic("s is a Some[int]")
+		case None:
+			// ok
+		default:
+			panic("oops")
+		}
+	})
 }

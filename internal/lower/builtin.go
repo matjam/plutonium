@@ -66,8 +66,23 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		}
 		n := s.minInt(dn, sn)
 		et := s.subst(unwrap(s.typeOf(e.Args[0])).Underlying().(*types2.Slice).Elem())
-		s.copyElems(dp, sp, n, et)
+		s.copyElems(s.checked(dp), s.checked(sp), n, et)
 		return one(scalarValue(n, T))
+
+	case "Drop":
+		// unsafe.Drop(p): the drop glue of *p.
+		p := s.expr(e.Args[0])
+		s.dropAt(s.checked(p.v), pointerElem(s.typeOf(e.Args[0])))
+		return nil
+
+	case "take":
+		// take(p): the value at p, which then holds the zero value
+		// (language spec section 6.4).
+		p := s.expr(e.Args[0])
+		ptr := s.checked(p.v)
+		v := s.materialize(s.loadLV(lvalue{ptr: ptr, T: T}))
+		s.zero(ptr, s.l.sizeof(T))
+		return one(v)
 
 	case "clear":
 		x := s.expr(e.Args[0])
@@ -78,7 +93,7 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 			s.releaseRange(p, n, et)
 		}
 		bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(et)))
-		s.callRuntime("memclr", nil, []*ssa.Value{p, bytes})
+		s.callRuntime("memclr", nil, []*ssa.Value{s.checked(p), bytes})
 		return nil
 
 	case "min", "max":

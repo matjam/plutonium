@@ -28,6 +28,13 @@ func (mmapPages) ProtectPages(p unsafe.Pointer, n uintptr, access bool) bool {
 var Pages PageProvider = mmapPages{}
 
 func init() {
+	if genCheck {
+		// The generational-reference prototype (gen.p) tags pointers in
+		// Slab only, which is not safe for concurrent use: gencheck
+		// builds allocate from one puroutine.
+		SetDefault(NewSlab(Pages))
+		return
+	}
 	SetDefault(NewSyncSlab(Pages))
 }
 
@@ -49,17 +56,20 @@ const (
 // synchronised before any Alloc that reuses its memory (memory-model.md
 // section 3.8). Requests over 2048 bytes go straight to the page provider,
 // which must itself be safe for concurrent use, as mmap is.
+//
+// As in Slab, the free lists link free slots through their first word, as
+// uintptr addresses of memory nobody owns.
 type SyncSlab struct {
 	pages   PageProvider
 	lock    rt.Lock
-	central [numClasses]unsafe.Pointer
+	central [numClasses]uintptr
 	caches  [rt.MaxProcs]syncCache
 }
 
 // A syncCache is one processor's free slots. It is padded to its own cache
 // lines.
 type syncCache struct {
-	free [numClasses]unsafe.Pointer
+	free [numClasses]uintptr
 	n    [numClasses]int32
 	_    [32]byte
 }
@@ -77,33 +87,34 @@ func (s *SyncSlab) Alloc(size, align uintptr) unsafe.Pointer {
 		return s.pages.AllocPages((size + PageSize - 1) / PageSize)
 	}
 	c := classOf(size, align)
-	var p unsafe.Pointer
+	var p uintptr
 	if id := rt.ProcPin(); id >= 0 {
 		pc := &s.caches[id]
-		if pc.free[c] == nil {
+		if pc.free[c] == 0 {
 			s.refill(pc, c)
 		}
 		p = pc.free[c]
-		if p != nil {
-			pc.free[c] = *(*unsafe.Pointer)(p)
+		if p != 0 {
+			pc.free[c] = *(*uintptr)(unsafe.Pointer(p))
 			pc.n[c]--
 		}
 	} else {
 		s.lock.Lock()
-		if s.central[c] == nil {
+		if s.central[c] == 0 {
 			s.grow(c)
 		}
 		p = s.central[c]
-		if p != nil {
-			s.central[c] = *(*unsafe.Pointer)(p)
+		if p != 0 {
+			s.central[c] = *(*uintptr)(unsafe.Pointer(p))
 		}
 		s.lock.Unlock()
 	}
 	rt.ProcUnpin()
-	if p != nil {
-		*(*unsafe.Pointer)(p) = nil // the rest of the slot is already zero
+	if p == 0 {
+		return nil
 	}
-	return p
+	*(*uintptr)(unsafe.Pointer(p)) = 0 // the rest of the slot is already zero
+	return unsafe.Pointer(p)
 }
 
 // Free returns memory to its size class.
@@ -120,16 +131,16 @@ func (s *SyncSlab) Free(p unsafe.Pointer, size, align uintptr) {
 	clear(unsafe.Slice((*byte)(p), slot))
 	if id := rt.ProcPin(); id >= 0 {
 		pc := &s.caches[id]
-		*(*unsafe.Pointer)(p) = pc.free[c]
-		pc.free[c] = p
+		*(*uintptr)(p) = pc.free[c]
+		pc.free[c] = uintptr(p)
 		pc.n[c]++
 		if pc.n[c] > syncCacheMax {
 			s.drain(pc, c)
 		}
 	} else {
 		s.lock.Lock()
-		*(*unsafe.Pointer)(p) = s.central[c]
-		s.central[c] = p
+		*(*uintptr)(p) = s.central[c]
+		s.central[c] = uintptr(p)
 		s.lock.Unlock()
 	}
 	rt.ProcUnpin()
@@ -140,15 +151,16 @@ func (s *SyncSlab) Free(p unsafe.Pointer, size, align uintptr) {
 func (s *SyncSlab) refill(pc *syncCache, c int) {
 	s.lock.Lock()
 	for i := 0; i < syncBatch; i++ {
-		if s.central[c] == nil {
+		if s.central[c] == 0 {
 			s.grow(c)
 		}
 		p := s.central[c]
-		if p == nil {
+		if p == 0 {
 			break
 		}
-		s.central[c] = *(*unsafe.Pointer)(p)
-		*(*unsafe.Pointer)(p) = pc.free[c]
+		link := (*uintptr)(unsafe.Pointer(p))
+		s.central[c] = *link
+		*link = pc.free[c]
 		pc.free[c] = p
 		pc.n[c]++
 	}
@@ -161,9 +173,10 @@ func (s *SyncSlab) drain(pc *syncCache, c int) {
 	s.lock.Lock()
 	for i := 0; i < syncBatch; i++ {
 		p := pc.free[c]
-		pc.free[c] = *(*unsafe.Pointer)(p)
+		link := (*uintptr)(unsafe.Pointer(p))
+		pc.free[c] = *link
 		pc.n[c]--
-		*(*unsafe.Pointer)(p) = s.central[c]
+		*link = s.central[c]
 		s.central[c] = p
 	}
 	s.lock.Unlock()
@@ -181,8 +194,8 @@ func (s *SyncSlab) grow(c int) {
 	head := s.central[c]
 	for i := n; i > 0; i-- {
 		p := unsafe.Add(chunk, (i-1)*slot)
-		*(*unsafe.Pointer)(p) = head
-		head = p
+		*(*uintptr)(p) = head
+		head = uintptr(p)
 	}
 	s.central[c] = head
 }

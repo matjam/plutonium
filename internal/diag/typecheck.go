@@ -35,6 +35,19 @@ func FromChecker(err error, ctx *CheckContext) *Diagnostic {
 	if code == typerr.InvalidSyntaxTree {
 		d.Code = InternalError
 	}
+	if ex := te.Explain; ex != nil {
+		// The checker explained the error itself, with the program's names.
+		d.Text = ex.Text
+		for i, f := range ex.Fixes {
+			fix := &Fix{Intro: f.Intro, Code: f.Code}
+			if i == 0 {
+				d.Fix = fix
+			} else {
+				d.More = append(d.More, fix)
+			}
+		}
+		return d
+	}
 	if f := specialisers[code]; f != nil && ctx != nil && ctx.Info != nil {
 		s := &spec{CheckContext: ctx, pos: te.Pos, d: d, first: strings.SplitN(te.Msg, "\n", 2)[0]}
 		s.path = s.enclosing(te.Pos)

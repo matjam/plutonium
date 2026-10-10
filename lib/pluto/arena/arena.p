@@ -7,9 +7,16 @@
 // frees everything at once. It implements alloc.Allocator, so it can back
 // new, make, vec.Vec, hash.Map or any other allocating code:
 //
-//	var mem [64 << 10]byte
-//	a := arena.New(mem[:])
+//	var mem [64 << 10]byte // package-level
+//	var a arena.Arena
+//
+//	a = arena.New(mem[:])
 //	defer alloc.Use(&a).Restore()
+//
+// An arena in a function's own frame, over a buffer in that frame, can back
+// code that function calls (vec.New[int](&a)), but cannot become the default
+// allocator: the default is a package variable, and a pointer into a frame
+// must not be stored there (language spec section 6.3).
 //
 // An Arena is not safe for concurrent use.
 package arena

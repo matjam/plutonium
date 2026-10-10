@@ -108,6 +108,7 @@ func init() {
 		c.Flags().Bool("trace", true, "emit the table panics use to print stack traces (--trace=false to omit it)")
 		c.Flags().Bool("trimpath", true, "record source paths relative to the module root and the standard library (--trimpath=false for absolute paths)")
 		c.Flags().String("alloc", "", "default allocator: debug for the checking allocator (hosted builds; tune with $PLUTO_DEBUGALLOC)")
+		c.Flags().Bool("gencheck", false, "prototype: tag heap pointers with generations and check every access")
 		c.Flags().Bool("fieldnames", true, "record struct field names in type descriptors, for %+v and %#v (default true, false in kernel mode)")
 		c.Flags().Bool("brief", false, briefUsage)
 	}
@@ -138,6 +139,7 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 	trace, _ := f.GetBool("trace")
 	trimpath, _ := f.GetBool("trimpath")
 	allocator, _ := f.GetString("alloc")
+	genCheck, _ := f.GetBool("gencheck")
 	fieldNames := "" // the mode's default
 	if f.Changed("fieldnames") {
 		fieldNames = "off"
@@ -190,6 +192,7 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 		NoTrace:      !trace,
 		NoTrimPath:   !trimpath,
 		Alloc:        allocator,
+		GenCheck:     genCheck,
 		FieldNames:   fieldNames,
 	}
 	if inlineNotes {

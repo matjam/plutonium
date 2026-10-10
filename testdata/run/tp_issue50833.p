@@ -11,11 +11,14 @@ type (
 	PS *S
 )
 
-func a() []*S { return []*S{{f: 1}} }
-func b() []PS { return []PS{{f: 1}} }
+// Plutonium: a slice literal and the &S{...} its elements elide live in the
+// frame, so the functions use them rather than return them.
 
-func c[P *S]() []P { return []P{{f: 1}} }
-func d[P PS]() []P { return []P{{f: 1}} }
+func a() int { s := []*S{{f: 1}}; return s[0].f }
+func b() int { s := []PS{{f: 1}}; return s[0].f }
+
+func c[P *S]() int { s := []P{{f: 1}}; return len(s) }
+func d[P PS]() int { s := []P{{f: 1}}; return len(s) }
 
 func main() {
 	c[*S]()

@@ -7,13 +7,28 @@ import (
 
 type node struct{ id int }
 
+// newNode allocates a node: a map outlives the test's frame, so its keys
+// may not point into it (&node{1} would).
+func newNode(id int) *node {
+	n := new(node)
+	n.id = id
+	return n
+}
+
+// Interface keys stored in a map are package-level, so that their boxes
+// are static rather than in the test's frame.
+var (
+	keyX     any = "x"
+	keySeven any = int64(7)
+)
+
 type named interface{ name() string }
 
 func (n *node) name() string { return "node" }
 
 func TestMapPointerKeys(t *testing.T) {
 	m := NewMap[*node, int](0)
-	a, b := &node{1}, &node{2}
+	a, b := newNode(1), newNode(2)
 	m.Set(a, 10)
 	*MapSlot(m, b) += 5
 	*MapSlot(m, b) += 5
@@ -36,15 +51,15 @@ func TestMapPointerKeys(t *testing.T) {
 
 func TestMapInterfaceKeys(t *testing.T) {
 	m := NewMap[named, string](4)
-	a, b := &node{1}, &node{2}
+	a, b := newNode(1), newNode(2)
 	m.Set(a, "a")
 	m.Set(b, "b")
 	if MapAt(m, named(a)) != "a" || MapAt(m, named(b)) != "b" {
 		t.Fatalf("interface keys lost their values")
 	}
 	k := NewMap[any, int](0)
-	k.Set("x", 1)
-	k.Set(int64(7), 2)
+	k.Set(keyX, 1)
+	k.Set(keySeven, 2)
 	if MapAt(k, any("x")) != 1 || MapAt(k, any(int64(7))) != 2 || MapLen(k) != 2 {
 		t.Fatalf("any keys: %d %d", MapAt(k, any("x")), MapAt(k, any(int64(7))))
 	}

@@ -97,6 +97,9 @@ func ForLevel(level int) *Pipeline {
 		p.add(Pass{"vectorize", Vectorize})
 		p.add(Pass{"deadcode2", ssa.DeadCode})
 	}
+	// Last, so that inlining and scalar replacement see the code without
+	// them; a no-op unless the build asked for generation checks.
+	p.add(Pass{"gencheck", GenCheck})
 	return p
 }
 

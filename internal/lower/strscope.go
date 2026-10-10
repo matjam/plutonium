@@ -31,6 +31,7 @@ type countedSlot struct {
 	off  int64
 	T    types2.Type
 	tmp  *ownedTemp // a temporary, which needs no release once consumed
+	pos  token.Pos  // where a variable is declared, for goto
 }
 
 // A cleanupEntry is one level of the cleanup stack.
@@ -77,7 +78,12 @@ func (s *fnState) releaseSlots(slots []countedSlot, zero bool) {
 		}
 		p := s.offPtr(c.base, c.off)
 		from := len(s.callLog)
-		s.releaseAt(p, c.T)
+		restore := func() {}
+		if c.pos.IsValid() {
+			restore = s.at(c.pos) // errors name where the value was made
+		}
+		s.destroyAt(p, c.T) // an owner's drop glue, or a release (scope.go)
+		restore()
 		if c.tmp != nil {
 			s.noteRelease(c.tmp, from)
 		}
@@ -131,7 +137,7 @@ func (s *fnState) addTemp(t *ownedTemp) {
 
 // addVar registers a local variable's storage with the innermost scope.
 func (s *fnState) addVar(addr *ssa.Value, T types2.Type) {
-	c := countedSlot{base: addr, T: T}
+	c := countedSlot{base: addr, T: T, pos: s.pos}
 	s.zeroAtEntry(c)
 	for i := len(s.cleanups) - 1; i >= 0; i-- {
 		if s.cleanups[i].scope {
@@ -460,12 +466,23 @@ func (s *fnState) makesTemps(e ast.Expr) bool {
 	return found
 }
 
-// releaseForGoto releases the entries a goto to label leaves.
+// releaseForGoto releases the entries a goto to label leaves, and in the
+// block that holds the label, the variables declared after it, whose
+// declarations run again.
 func (s *fnState) releaseForGoto(label *types2.Label) {
 	node := s.labelScopes[label]
 	for i := len(s.cleanups) - 1; i >= 0; i-- {
-		if s.cleanups[i].node == node && s.cleanups[i].scope {
+		if e := s.cleanups[i]; e.node == node && e.scope {
 			s.releaseAbove(i + 1)
+			var after []countedSlot
+			for _, c := range e.slots {
+				if c.tmp == nil && c.pos >= label.Pos() {
+					after = append(after, c)
+				}
+			}
+			if s.b != nil {
+				s.releaseSlots(after, true)
+			}
 			return
 		}
 	}

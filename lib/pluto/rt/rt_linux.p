@@ -139,6 +139,8 @@ const (
 
 // signalPCs stores the addresses of sigpanic and of the signal restorer
 // (sys_linux_amd64.s).
+//
+//pu:noescape
 func signalPCs(out *[2]uintptr)
 
 type sigactionT struct {

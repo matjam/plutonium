@@ -317,14 +317,18 @@ func main() {
 `},
 		{name: "afterfuncclosure", status: 2, want: "panic: go of a function value that captures variables or binds a method value: its closure record lives in the starting frame; pass the values as arguments\n", src: `package main
 
-import "pluto/time"
+import (
+	"pluto/rt"
+	"pluto/time"
+)
 
+// The escape analysis rejects passing the literal to AfterFunc (spec
+// section 6.3); rt.Pinned hides it, so the check at run time is what
+// stops it.
 func main() {
 	n := 1
-	// Assigned twice, so only the run-time check can tell (see TestGoFuncCall).
-	f := func() {}
-	f = func() { n++ }
-	time.AfterFunc(time.Millisecond, f)
+	f := func() { n++ }
+	time.AfterFunc(time.Millisecond, *rt.Pinned(&f))
 }
 `},
 		{name: "idle", want: "idle while sleeping true\n", src: `package main

@@ -136,7 +136,10 @@ func strAllocFrom(a Allocator, n int, pc uintptr) (*byte, uintptr) {
 	p := allocAt(a, size, 8, pc)
 	h := (*strHeader)(p)
 	h.count = 1
-	h.a = a
+	// The buffer records its allocator to free itself to. A string from
+	// an arena must not outlive the arena, which the escape analysis does
+	// not check (language spec section 6.10), so a is hidden from it.
+	h.a = *Pinned(&a)
 	h.size = size
 	return (*byte)(unsafe.Add(p, strHeaderSize)), uintptr(p)
 }
@@ -501,8 +504,10 @@ func ReleaseString(ctl uintptr) { strRelease(ctl) }
 // reports it), so the bodies below never run.
 
 // ReleaseValues drops the string references held by the n values of type T
-// at p, as dropping those values would. The memory is left as it is.
-func ReleaseValues[T any](p *T, n int) { notCalled() }
+// at p, as dropping those values would. The memory is left as it is. For
+// an owner T it does nothing: an owner's strings are released by its drop
+// glue (unsafe.Drop).
+func ReleaseValues[T owner any](p *T, n int) { notCalled() }
 
 // RetainValues takes a reference for every string in the n values of type
 // T at p, as copying them into a place that keeps them would.
@@ -527,6 +532,20 @@ func notCalled() {
 // ValidUTF8 reports whether the n bytes at p are valid UTF-8, and whether
 // they are all ASCII.
 func ValidUTF8(p *byte, n int) (valid, ascii bool) { return scanUTF8(p, n) }
+
+// KeepString returns s if it is counted, and otherwise (a literal, or a
+// view made with unsafe.String, which may be of memory about to change) a
+// counted copy of it from a: a string that stays valid however long the
+// memory s was made from lives. Code that keeps a string it was given, such
+// as an error recording a path, calls it so that callers may pass views.
+func KeepString(s string, a Allocator) string {
+	if s != "" && StringControl(s) < 8 {
+		return StringFromBytes(unsafe.StringData(s), len(s), a)
+	}
+	// s is counted: it views no caller's memory, which the escape analysis
+	// cannot see through the branch above (Pinned).
+	return *Pinned(&s)
+}
 
 // StringFromBytes returns a string holding a copy of the n bytes at p, in a
 // buffer from a, with each byte that does not start a valid UTF-8 sequence

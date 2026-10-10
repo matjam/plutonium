@@ -58,13 +58,17 @@ var directives = map[string]info{
 	"section":   {atFunc | atVar, needsArg, "the name of the section"},
 	"interrupt": {atFunc, noArg, ""},
 	"noreturn":  {atFunc, noArg, ""},
-	"panic":     {atFunc, noArg, ""},
-	"blocking":  {atFunc, noArg, ""},
-	"scheduler": {atVar, noArg, ""},
-	"nosimd":    {atFunc, noArg, ""},
-	"fpu":       {atFunc, noArg, ""},
-	"percpu":    {atVar, noArg, ""},
-	"stack":     {atFunc, checkedElse, ""},
+	"noescape":  {atFunc, noArg, ""},
+	// resultholds is for the standard library; the escape analysis
+	// reports it elsewhere (E3008) and checks the names.
+	"resultholds": {atFunc, checkedElse, ""},
+	"panic":       {atFunc, noArg, ""},
+	"blocking":    {atFunc, noArg, ""},
+	"scheduler":   {atVar, noArg, ""},
+	"nosimd":      {atFunc, noArg, ""},
+	"fpu":         {atFunc, noArg, ""},
+	"percpu":      {atVar, noArg, ""},
+	"stack":       {atFunc, checkedElse, ""},
 }
 
 // retired maps a removed directive to what replaced it, finishing the
@@ -201,6 +205,12 @@ func checkOne(pos token.Position, name, arg string, owner ownerInfo, hasOwner, b
 	}
 	if owner.kind&info.where == 0 {
 		return misplaced(pos, name, "in the doc comment of "+placeNames(info.where)+", not of "+owner.what)
+	}
+	if name == "noescape" && owner.fn != nil && owner.fn.Body != nil {
+		d := diag.New(pos, diag.RetiredDirective, "//pu:noescape is inferred for a function with a body: delete it")
+		d.Text = "The compiler works out which pointer arguments a function keeps by reading its body, and the calls it makes. The directive is only needed on a function without a body, written in assembly or C, which the compiler cannot look into."
+		d.Fix = &diag.Fix{Intro: "Delete the directive", Code: "func sum(p *[4]int) int {\n\treturn p[0] + p[1] + p[2] + p[3]\n}"}
+		return d
 	}
 	if name == "noreturn" && owner.fn != nil && owner.fn.Body != nil {
 		d := diag.New(pos, diag.RetiredDirective, "//pu:noreturn is inferred for a function with a body: delete it")

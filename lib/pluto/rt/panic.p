@@ -92,11 +92,19 @@ type Fault struct {
 
 // callPanicHandler calls the program's panic handler. It has no body: the
 // compiler turns each call into a direct call to the function marked
-// //pu:panic or, in a hosted program without one, to defaultPanic.
+// //pu:panic or, in a hosted program without one, to defaultPanic. The
+// handler does not return, so the frame p points into outlives anything it
+// does with p.
+//
+//pu:noescape
 func callPanicHandler(p *Panic)
 
 // casUint64 and loadUint64 are atomic operations (panic_amd64.s).
+//
+//pu:noescape
 func casUint64(addr *uint64, old, new uint64) bool
+
+//pu:noescape
 func loadUint64(addr *uint64) uint64
 
 const msgBufSize = 1024
@@ -196,12 +204,15 @@ func raise(p *Panic) {
 			// Only startPanic's own DisablePreemption: the task panicked
 			// in ordinary code, not holding a runtime lock or in the
 			// scheduler, where its deferred calls could wait for good.
+			// raise never returns, so buf outlives every use of p
+			// (Pinned).
 			var buf [msgBufSize]byte
+			bp := Pinned(&buf)
 			for i := 0; i < len(p.Message); i++ {
-				buf[i] = p.Message[i]
+				bp[i] = p.Message[i]
 			}
 			if len(p.Message) > 0 {
-				p.Message = unsafe.String(&buf[0], len(p.Message))
+				p.Message = unsafe.String(&bp[0], len(p.Message))
 			}
 			runDeferred(t, p)
 		}
@@ -214,7 +225,8 @@ func raise(p *Panic) {
 // the panic p, innermost frame first. It gives up the panic while they run
 // and claims it again afterwards.
 func runDeferred(t *Task, p *Panic) {
-	t.panicking = p
+	// Cleared before runDeferred returns, so p outlives the use (Pinned).
+	t.panicking = Pinned(p)
 	casUint64(&panicOwner, selfID()+1, 0)
 	enablePreempt(t)
 	walkDeferred(p)

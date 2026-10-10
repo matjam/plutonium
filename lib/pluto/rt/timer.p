@@ -365,8 +365,10 @@ func ParkUntil(deadline int64) bool {
 	}
 	var pt parkTimer
 	pt.t = t
-	pt.tm.Init(parkTimeout, unsafe.Pointer(&pt))
-	pt.tm.Reset(deadline, 0)
+	// The timer heap holds pt.tm only until Stop below (Pinned).
+	pp := Pinned(&pt)
+	pp.tm.Init(parkTimeout, unsafe.Pointer(pp))
+	pp.tm.Reset(deadline, 0)
 	ParkReason(WaitSleep)
 	if cas32(&pt.state, 0, 2) {
 		// Readied before the deadline: the timer's function, if it is

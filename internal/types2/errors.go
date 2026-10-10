@@ -37,10 +37,11 @@ type errorDesc struct {
 // A new error_ is created with Checker.newError.
 // To report an error_, call error_.report.
 type error_ struct {
-	check *Checker
-	desc  []errorDesc
-	code  Code
-	soft  bool // TODO(gri) eventually determine this from an error code
+	check   *Checker
+	desc    []errorDesc
+	code    Code
+	soft    bool         // TODO(gri) eventually determine this from an error code
+	explain *Explanation // Plutonium: an explanation specialised to this error
 }
 
 // newError returns a new error_ with the given error code.
@@ -142,10 +143,10 @@ func (err *error_) report() {
 	if multiError {
 		for i := range err.desc {
 			p := &err.desc[i]
-			check.handleError(i, p.posn, err.code, p.msg, err.soft)
+			check.handleError(i, p.posn, err.code, p.msg, err.soft, nil)
 		}
 	} else {
-		check.handleError(0, err.posn(), err.code, err.msg(), err.soft)
+		check.handleError(0, err.posn(), err.code, err.msg(), err.soft, err.explain)
 	}
 
 	// make sure the error is not reported twice
@@ -153,7 +154,7 @@ func (err *error_) report() {
 }
 
 // handleError should only be called by error_.report.
-func (check *Checker) handleError(index int, posn positioner, code Code, msg string, soft bool) {
+func (check *Checker) handleError(index int, posn positioner, code Code, msg string, soft bool, explain *Explanation) {
 	assert(code != 0)
 
 	if index == 0 {
@@ -194,6 +195,7 @@ func (check *Checker) handleError(index int, posn positioner, code Code, msg str
 		Pos:        span.pos,
 		Msg:        stripAnnotations(msg),
 		Soft:       soft,
+		Explain:    explain,
 		go116code:  code,
 		go116start: span.start,
 		go116end:   span.end,

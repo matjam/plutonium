@@ -442,7 +442,9 @@ func CreateBytes(name []byte, a alloc.Allocator = alloc.Default()) (*File, error
 func OpenFile(name string, flags int, perm uint32, a alloc.Allocator = alloc.Default()) (*File, error) {
 	f, err := openFile(strBytes(name), name, flags, perm, a)
 	if f != nil {
-		f.name = name
+		// A name made with unsafe.String may view memory that does not
+		// live as long as the File: keep a counted copy of it.
+		f.name = rt.KeepString(name, a)
 	}
 	return f, err
 }
@@ -522,10 +524,7 @@ func (e *PathError) Free() {
 func NewPathError(op, path string, err error, a alloc.Allocator = alloc.Default()) *PathError {
 	e := alloc.New[PathError](a)
 	e.Op = op
-	if path != "" && rt.StringControl(path) < 8 {
-		path = rt.StringFromBytes(unsafe.StringData(path), len(path), a)
-	}
-	e.Path = path
+	e.Path = rt.KeepString(path, a)
 	e.Err = err
 	e.a = a
 	return e

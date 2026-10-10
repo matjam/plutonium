@@ -1,0 +1,125 @@
+$DIR/main.p:25:9: cannot return &c, a pointer to a local variable
+    &c is a pointer to c. c is a local variable of load (declared at main.p:23).
+    Its memory is reclaimed when load returns, so &c would point at memory that
+    no longer holds c.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    To give the value to the caller, return it instead. This copies it, or moves
+    it if it is an owner:
+        return c
+    To keep it at a fixed address after load returns, allocate it:
+        c := new(Config)
+    (see "Views" in the Plutonium spec, section 6.3)
+    (run "pluto explain E3001" for a longer explanation)
+
+$DIR/main.p:30:9: cannot return buf[:], a slice of buf, a local array
+    buf[:] is a slice that looks at buf. buf is a local array of header
+    (declared at main.p:29). Its memory is reclaimed when header returns, so
+    buf[:] would point at memory that no longer holds buf.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    To give the caller the elements, return an owner of them, such as a vec.Vec:
+        v := vec.New[T]()
+        v.Push(...)
+        return v
+    or copy them into memory the caller passes in:
+        func fill(dst []T) int {
+            ...
+            return copy(dst, buf[:n])
+        }
+    (see "Views" in the Plutonium spec, section 6.3)
+    (run "pluto explain E3001" for a longer explanation)
+
+$DIR/main.p:38:2: cannot store the function literal in package variable hook, which outlives total
+    A function literal that uses variables of the function around it refers to
+    those variables where they live, in counter's frame (total is declared at
+    main.p:37). When counter returns, total's memory is reclaimed, but package
+    variables live for the whole program, so package variable hook would be left
+    pointing at reclaimed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store a value that carries its own state instead of the function literal,
+    such as a struct with a method, or make total a package variable if it must
+    outlive counter.
+    (see "Views" in the Plutonium spec, section 6.3)
+    (run "pluto explain E3002" for a longer explanation)
+
+$DIR/main.p:45:9: cannot return ParseError{...} as an interface: the interface would hold a copy of it in parse's frame
+    Converting a value larger than one word to an interface puts a copy of the
+    value in the frame of the function that converts it (here parse, at
+    main.p:45), and the interface points at that copy. That frame is reclaimed
+    when parse returns, so the interface would point at memory that no longer
+    holds the value.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return a pointer to memory that outlives parse, such as a field of a
+    longer-lived value:
+        p.err = ParseError{...}
+        return &p.err
+    or return a value that fits in one word, such as an error code.
+    (see "Views" in the Plutonium spec, section 6.3)
+    (run "pluto explain E3001" for a longer explanation)
+
+$DIR/main.p:50:2: cannot store &c in package variable last, which outlives c
+    &c is a pointer to c. c is a local variable of keep (declared at main.p:49).
+    When keep returns, c's memory is reclaimed, but package variables live for
+    the whole program, so package variable last would be left pointing at
+    reclaimed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store the value instead of a pointer to it, changing the type of last to
+    match. This copies c, or moves it if it is an owner:
+        last = c
+    Or allocate c so that it lives as long as package variable last:
+        c := new(Config)
+    (see "Views" in the Plutonium spec, section 6.3)
+    (run "pluto explain E3002" for a longer explanation)
+
+$DIR/main.p:51:2: cannot pass &c to remember, which keeps it after returning
+    &c is a pointer to c. c is a local variable of keep (declared at main.p:49).
+    remember stores c in cache[0] (main.p:20), so &c would outlive c.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Give remember memory that lives as long as it keeps it, for example by
+    allocating c:
+        c := new(Config)
+    If remember should keep its own copy, change it to take the value, not a
+    pointer, or an owner such as a strings.Buf or a vec.Vec, which it can keep.
+    (see "Views" in the Plutonium spec, section 6.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:59:4: cannot keep f in first after this iteration: it uses i, which the loop at line 56 reuses in every iteration
+    A function literal refers to the variables it uses where they live, and i
+    lives in loops's frame, where every iteration of the loop at line 56 reuses
+    the same memory for it. When the next iteration starts, the literal kept in
+    first would see that iteration's i, not this one's.
+    Go gives each iteration of a loop its own variables, so a function literal
+    made in one iteration keeps that iteration's values. Plutonium keeps
+    variables in the function's frame, which has room for one copy of each;
+    giving every iteration its own copy would need memory for each iteration,
+    allocated behind the program's back.
+    If the function literal is needed only in this iteration, call it before the
+    iteration ends. To use i later, keep its value instead of the function
+    literal:
+        var saved int // declared before the loop
+        ...
+        saved = i
+    Or pass i to the function literal as a parameter when it is called:
+        first = func(i int) { ... }
+        ...
+        first(i)
+    (see "Closures do not outlive their frame" in the Plutonium spec, section
+    4.5)
+    (run "pluto explain E3006" for a longer explanation)

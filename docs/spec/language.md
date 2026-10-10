@@ -159,7 +159,7 @@ allocator otherwise. Memory from `new(T)` and `make` is zeroed. With no allocato
 before `alloc.SetDefault`, the allocation panics with "no allocator" (section 7.2); a nil allocator
 argument panics too.
 
-**What they return (proposal, needs sign-off).** Every allocation needs an owner or an arena (section
+**What they return (approved; not implemented yet: `new` still returns `*T` and `make` a slice).** Every allocation needs an owner or an arena (section
 6.6), so `new` and `make` return owners:
 
 - `new(T)` and `new(v)` return an `owned[T]` (section 5.6): the single owner of the new variable, which
@@ -225,9 +225,11 @@ enough instead, or move an owner into an owning interface (below).
 The initializer of a package-level variable is the exception: it runs once, and its results must outlive
 package initialization, so a conversion there copies the value into static storage instead of a frame.
 `var ErrBad error = parseError{line: 1}` and `var names any = []string{"a", "b"}` are valid. The same
-holds for `&T{...}` and slice literals in package-level initializers, which also get static storage.
+holds for `&T{...}`, slice literals and the array behind a variadic call's arguments in package-level
+initializers, which also get static storage.
 
-**Owners in interfaces (proposal, needs sign-off).** An interface value has no static owner kind of its
+**Owners in interfaces (approved; owning interfaces can be declared, and lending to ordinary interfaces
+is checked, but an owning interface cannot be dropped yet).** An interface value has no static owner kind of its
 own, so the kind comes from the interface type:
 
 - An **ordinary interface** (`any`, `error`, `io.Reader`, any interface type not declared `owner`) never
@@ -279,6 +281,38 @@ built in the frame of the function that makes it. A closure is therefore valid w
   a compile error (section 6.3).
 
 A function literal that captures nothing is an ordinary function value and may be used anywhere.
+
+**Loop variables.** Go gives each iteration of a loop its own copies of the variables the loop declares,
+so a closure made in one iteration keeps seeing that iteration's values. Plutonium cannot: the copies would
+need memory for every iteration, and closures refer to variables where they live, in the frame, which has
+room for one copy of each. Every iteration of a loop reuses the same memory for the variables declared in
+its header (`for i := ...`, `for k, v := range ...`) and its body, and for the temporaries its body makes.
+A view of that memory (a closure that uses one of those variables, `&x`, a slice of a local array) is
+therefore valid for one iteration:
+
+- Using it within the iteration (calling the closure, passing the pointer down, storing it in a variable
+  declared in the body) is allowed, and behaves exactly as in Go.
+- Keeping it where the next iteration can see it is a compile error (section 6.9): in a variable, array
+  element or field declared outside the loop body or in the loop's header, or anywhere a view of the frame
+  may not go at all (returned, sent, stored on the heap). A local variable whose address is never taken is
+  checked where the next iteration starts, so keeping the view and then leaving the loop with `break` or
+  `return` is allowed.
+- A closure that uses only variables declared outside the loop holds the same addresses in every
+  iteration and may be kept.
+- Copying the variable into one declared in the body (`i := i`) does not help, since that copy is reused
+  too. Call the closure within the iteration, store values instead of closures or pointers, or pass the
+  value to the closure as a parameter when it is called.
+
+```go
+var first func() int
+for i := 0; i < 3; i++ {
+	f := func() int { return i * 10 }
+	println(f())   // allowed: used within the iteration
+	if i == 0 {
+		first = f  // compile error: the next iteration reuses i
+	}
+}
+```
 
 **Returned closures.** A function whose results can hold a closure (a func result, an interface, or a
 struct or array holding one) builds the closures it may return in a **region** of memory its caller
@@ -1286,6 +1320,14 @@ A struct or array that contains a counted reference (`shared[T]`, `synced[T]`, `
 channel, and no owner, also copies; copying it updates each count, and dropping it releases each reference
 (sections 6.5 and 6.10). It needs no declaration, since assignment still copies.
 
+A `string` is a value of this kind. Its bytes never change, and they count their references: a string
+literal is static and uncounted, a string made at run time (by `+`, a conversion from `[]byte`, or
+`fmt.Sprintf`) owns its bytes with a count, copying a string increments it, a substring shares the
+bytes, and dropping a string decrements it. A struct holding strings copies as any value does; the
+compiler releases its strings where the struct is destroyed. Strings are not owners and never move, and
+they may cross puroutines. The one exception is `unsafe.String(p, n)`, which makes an uncounted string
+over memory something else owns: it is a view, and follows the rules of section 6.3.
+
 ### 6.3 Views
 
 `[]T` and `*T` are views. So are `unsafe.Pointer`, and the frame-bound values of sections 4.4
@@ -1323,14 +1365,48 @@ allowed, and the caller may not let it outlive its own frame.
      a temporary owner (`makeVec().Slice()`) may not outlive the statement (section 6.4).
    - **Heap memory** reached any other way is checked at run time by generation checks: a view whose
      allocation has since been freed, or reallocated by a growing owner, faults when it is used instead of
-     reading freed memory. The design is in progress (roadmap item 20); until it lands such a view is
-     unchecked, as in C, and the debug allocator (section 7.3) catches its use.
+     reading freed memory. A prototype is built with `pluto build --gencheck` (hosted builds only); the
+     design and its measured cost are in docs/plans/2026-10-09-memory-safety-design.md. Without it such a
+     view is unchecked, as in C, and the debug allocator (section 7.3) catches its use.
    - **Static memory, and memory nobody in the program owns** (string literals, package variables, device
      registers, memory made from a `uintptr`) is never freed, so views of it have no limit.
 
-Package-level initialisers are the exception of section 4.4: their literals and interface boxes are
-static. A function implemented outside Plutonium (assembly, `//pu:extern`) is assumed to keep every
-pointer argument.
+Package-level initialisers are the exception of section 4.4: their literals, interface boxes and method
+value records are static. A function implemented outside Plutonium (assembly, `//pu:extern`) is assumed
+to keep every pointer argument; `//pu:noescape` on its declaration says it keeps none past the call,
+except by storing one argument into memory another points to (as `atomic.StorePointer` does), which is
+still checked. An `unsafe.Pointer` carries the same facts as the pointer it came from; a pointer made from
+a `uintptr` is assumed to point outside every frame, and a pointer converted to a `uintptr` is no longer
+followed. `//pu:resultholds p` on a function that returns an owner says it keeps `p` only for as long as
+that owner lives, and stores `p` in it: the call then counts as returning `p` rather than keeping it, so
+the result is a view of what `p` points to. `alloc.Use` is declared this way, so a local arena may be
+installed as the default allocator while the `Restore` it returns lives (section 7.1). The directive is
+for the standard library: it states a promise the compiler cannot check, and a program's own code does not
+need it (E3008).
+
+How precise the frame check is, so that programs know what it accepts:
+
+- It is whole-program and needs no annotations. Each function's summary records which parameters it
+  keeps, which it stores into memory another parameter points to, and which it returns, field by field;
+  a call is checked against the callee's summary, and a call through an interface or a function value
+  against every method or function that could be there (narrowed by type assertions on the way, and by
+  the type of the value in the interface where the caller knows it). Summaries follow pointers up to
+  three loads deep; beyond that, everything reachable is assumed.
+- Local variables whose address is never taken are followed along the control flow, so reusing a
+  variable (`err` above all) for a view of the frame and later for heap memory is fine. Other storage is
+  followed field by field, two levels of struct fields deep, without regard to the order of statements.
+- A generic function is checked once for all its instantiations: a conversion of a type parameter to an
+  interface counts as a frame copy if any instantiation is larger than a word, and makes the methods of
+  each type it is instantiated with possible callees of interface calls.
+- A struct field is *heap-only* when, in the whole program, its address (or that of anything inside it)
+  is never taken and everything stored in it is heap memory, or a parameter that every call passes heap
+  memory for. Loading a heap-only field yields heap memory, so a list's `next` or an arena's current
+  chunk does not make the function that follows it keep its caller's pointers. Writes through memory
+  reinterpreted with `unsafe.Pointer` are not seen (section 11).
+- A pointer-shaped value (a struct with one pointer-shaped field, an array of one, section 4.4) in an
+  interface is the pointer it holds, not a copy in the frame.
+- Each iteration of a loop reuses the frame memory of the loop's variables, so views of them are checked
+  as section 4.5 describes.
 
 ### 6.4 Owners
 
@@ -1398,8 +1474,9 @@ their chunks are declared `owner`.
 - converted to an owning interface (section 4.4);
 - dropped explicitly with `x.Drop()`.
 
-A move copies the owner's bytes and nothing else; the source is not touched at run time. The compiler
-tracks that the source no longer holds a value, and using it afterwards (reading it, calling a method,
+A move copies the owner's bytes and clears the source variable to the zero value, which serves as its drop
+flag: dropping the zero value does nothing (the optimizer removes the clearing store where nothing reads
+it). The compiler tracks that the source no longer holds a value, and using it afterwards (reading it, calling a method,
 taking its address) is a compile error. Assigning a new value to a moved-from variable makes it usable
 again. The error message names the move and its line, and suggests a fix based on how the variable is
 used afterwards: `Clone` when both copies are needed, a pointer when the later use only looks, reordering
@@ -1410,8 +1487,9 @@ anything else is a compile error: a field (`t.left`), an element (`s[i]`), a val
 pointer (`*p`, `p.buf`) or a package-level variable. Each of those places would still believe it holds the
 value and would drop it again. To move out of such a place:
 
-- `take(&place)` returns the value and leaves the zero value behind (**`take` is a new predeclared
-  function; proposal, needs sign-off**);
+- `take(&place)` returns the value and leaves the zero value behind. `take` is a predeclared function,
+  `func take[T any](p *T) T`, for values of any type; the move checker treats it as a use of the
+  place, which still holds a value (the zero one) afterwards;
 - an assignment that permutes places, such as `a, b = b, a` or `s[i], s[j] = s[j], s[i]`, is allowed,
   since nothing is duplicated or lost;
 - `place.Clone()` copies instead.
@@ -1446,7 +1524,13 @@ end of each iteration for a variable declared in a loop body. In detail:
 - Parameters are dropped when the function returns, after its locals. Results are moved to the caller and
   not dropped; a bare `return` moves the named results.
 - A variable moved on some paths and not others is dropped only on the paths where it still holds a value
-  (the compiler keeps a flag where it cannot tell statically). Using it after such a point is an error.
+  (the move cleared it, so dropping it at the end of its scope does nothing). Using it after such a
+  point is an error.
+- Leaving a scope by `break`, `continue`, `return` or `goto` drops what the scopes it leaves hold. A
+  `goto` back to a label before a variable's declaration drops the variable first, since its declaration
+  runs again.
+- `defer x.Drop()` on an owner variable drops `x` (its `Drop`, then its fields) when the function
+  returns; `x` is not dropped again.
 - Deferred calls run before the function's own variables are dropped, so a deferred call may use them. A
   deferred call may not use an owner declared in an inner block, which is dropped when the block ends.
 - Dropping an owner runs its `Drop` method if it has one, then drops its fields in declaration order and
@@ -1458,9 +1542,15 @@ end of each iteration for a variable declared in a loop body. In detail:
   `for ... range`, a temporary lives until the whole statement ends; in the condition and post statement
   of a three-clause `for` it is dropped after each evaluation.
 - `panic` aborts without unwinding (section 8), so nothing is dropped; neither does `os.Exit`.
-- `x.Drop()` on an owner variable ends its life early: it counts as a move, and `x` is not dropped again.
-  Calling `Drop` in any other way (through a pointer, a method value or an ordinary interface) is a
-  compile error, since the real owner would drop the value a second time.
+- `x.Drop()` on an owner variable ends its life early: it drops `x` completely (its `Drop` method, then
+  its fields), counts as a move, and `x` is not dropped again. Calling `Drop` in any other way (through a
+  pointer, a method value or an ordinary interface) is a compile error, since the real owner would drop
+  the value a second time. Code that manages memory itself (an allocator, a container dropping its
+  elements, an arena's variables) drops a value through a pointer with `unsafe.Drop(p)` (section 11).
+- Values in memory from `alloc.New` or an arena are not dropped by the compiler: that memory has no
+  owner until the code that allocated it gives it one, and `alloc.Free` drops the value before freeing.
+- Owner unions, owning interfaces and `owned`/`shared`/`synced` references are not dropped yet: dropping a
+  variable of such a type is a compile error saying so.
 
 `Drop` cannot report failure. A type whose release can fail (a file whose last write is flushed on close)
 provides a method such as `Close() error` for callers that care; `Drop` then has nothing left to do.
@@ -1940,25 +2030,35 @@ func framebuffer(info *BootInfo) []uint32 {
 
 Ownership and escape errors are written for a reader who has not read this section. Each one says what
 happened in plain words, explains the idea it relies on, names the related line, shows fixes as code, and
-points here. The texts below are exact, with the names, types and positions of the example filled in; the
-fixes shown depend on the case and are chosen from those listed with each message.
+points here. Every message has a code from E3000 to E3999, and `pluto explain` prints the long form.
 
-**Returning a pointer to a local variable.**
+The compiler's exact output for each implemented message is pinned by the programs and expected
+output in `cmd/pluto/testdata/diag/escape`, `owners`, `moves` and `moves_more`; the first example below
+is copied from there. The others show what each message says and which fixes it offers, in the same
+form; their wording in the compiler can differ in detail. Messages marked *(planned)* belong to rules
+that are not enforced yet (sections 6.3 and 6.5).
+
+**Returning a pointer to a local variable** (E3001).
 
 ```
-config.p:7:9: cannot return &x, a pointer to a local variable
-    x is a local variable of load (declared at config.p:4). Its memory is
-    reclaimed when load returns, so a pointer to it would point at memory that
-    no longer holds x. Plutonium never moves a variable to the heap because its
-    address is taken.
-    To give the value to the caller, return it instead. This moves it, which is free:
-        return x
+main.p:25:9: cannot return &c, a pointer to a local variable
+    &c is a pointer to c. c is a local variable of load (declared at main.p:23).
+    Its memory is reclaimed when load returns, so &c would point at memory that
+    no longer holds c.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    To give the value to the caller, return it instead. This copies it, or moves
+    it if it is an owner:
+        return c
     To keep it at a fixed address after load returns, allocate it:
-        x := new(Config)        // an owned[Config]; change the result type to match
-    (see "Ownership" in the language spec, section 6.3)
+        c := new(Config)
+    (see "Views" in the Plutonium spec, section 6.3)
+    (run "pluto explain E3001" for a longer explanation)
 ```
 
-**Returning a view of a local array or a local owner.**
+**Returning a view of a local owner** *(planned; a slice of a local array is E3001 today)*.
 
 ```
 names.p:12:9: cannot return v.Slice(), which points into v, a local variable
@@ -1978,7 +2078,7 @@ names.p:12:9: cannot return v.Slice(), which points into v, a local variable
 The same message with `a slice of buf, a local array` and the fix `return a vec.Vec[byte]` (or "copy the
 bytes into a buffer the caller passes in: copy(dst, buf[:n])") is given for `return buf[:n]`.
 
-**Storing a view where it outlives its target.**
+**Storing a view where it outlives its target** (E3002).
 
 ```
 cache.p:21:12: cannot store &e in c.entries, which outlives e
@@ -1998,7 +2098,7 @@ cache.p:21:12: cannot store &e in c.entries, which outlives e
 Storing in a package-level variable reads `cannot store &e in package variable last, which outlives e`
 with "package variables live for the whole program" in place of the second sentence.
 
-**Passing a view to a function that keeps it.**
+**Passing a view to a function that keeps it** (E3003).
 
 ```
 main.p:12:12: cannot pass buf[:n] to cache.Put, which keeps it after returning
@@ -2010,7 +2110,7 @@ main.p:12:12: cannot pass buf[:n] to cache.Put, which keeps it after returning
     (see "Ownership" in the language spec, section 6.3)
 ```
 
-**Passing a view of the frame to a puroutine or a channel.**
+**Passing a view of the frame to a puroutine or a channel** (E3004, E3005).
 
 ```
 srv.p:30:13: cannot pass &req to a go statement: the new puroutine may outlive req
@@ -2025,7 +2125,8 @@ srv.p:30:13: cannot pass &req to a go statement: the new puroutine may outlive r
 For a send the first line is `cannot send &req on ch: the receiver may outlive req`, with "the value sent
 here may be received after serve returns" as the explanation.
 
-**Returning a closure that captures variables.**
+**Returning a closure that captures variables** (E3100; keeping one past a loop iteration is E3006,
+section 4.5).
 
 ```
 count.p:9:9: cannot return the function literal: it uses total, a local variable of counter
@@ -2081,7 +2182,7 @@ main.p:49:10: chain cannot return the closures of this call: the call reaches ch
     a value the caller owns, such as a struct with a method.
 ```
 
-**Returning an interface that holds a frame copy, or lends an owner.**
+**Returning an interface that holds a frame copy** (E3001)**, or lends an owner** *(planned)*.
 
 ```
 parse.p:40:10: cannot return err, an interface holding a copy of a ParseError in parse's frame
@@ -2100,7 +2201,7 @@ variable`, the explanation is "converting an owner to an ordinary interface lend
 looks at b, and b is dropped when f returns", and the fixes are "return b itself" and "declare an owning
 interface (type Resource owner interface {...}) to move b into it".
 
-**Using a variable after it was moved.**
+**Using a variable after it was moved** (E3301).
 
 ```
 main.p:14:2: m was moved to n at line 12, so it can no longer be used here
@@ -2128,7 +2229,7 @@ analysis:
 - when the later use only looks at `m` and nothing between the two lines changes it: "This is m's last
   use. Move it before line 12 and no copy is needed:" followed by the reordered lines.
 
-**Using a variable that may have been moved.**
+**Using a variable that may have been moved** (E3302).
 
 ```
 main.p:20:5: b may have been moved at line 15, so it cannot be used here
@@ -2146,7 +2247,7 @@ main.p:20:5: b may have been moved at line 15, so it cannot be used here
 In a loop the first line is `b was moved to out at line 9 in the previous iteration of this loop`, and the
 fixes are "declare b inside the loop so that each iteration has its own" and "b.Clone()".
 
-**Moving out of a field, an element or through a pointer.**
+**Moving out of a field, an element or through a pointer** (E3303; the range loop is E3304).
 
 ```
 tree.p:31:10: cannot move n.left out of n: n.left is a field, not a variable
@@ -2171,7 +2272,7 @@ owner type`, and the fix is
         }
 ```
 
-**Moving a captured variable inside a function literal.**
+**Moving a captured variable inside a function literal** (E3305).
 
 ```
 job.p:17:8: cannot move b inside a function literal: the literal may run more than once, or never
@@ -2184,7 +2285,7 @@ job.p:17:8: cannot move b inside a function literal: the literal may run more th
     (see "Ownership" in the language spec, section 6.4)
 ```
 
-**Using a view after its owner is gone.**
+**Using a view after its owner is gone** *(planned)*.
 
 ```
 main.p:16:14: s cannot be used here: it looks at b's bytes, and b was moved at line 15
@@ -2210,7 +2311,7 @@ main.p:8:7: s would look at a temporary that is dropped at the end of this state
     (see "Ownership" in the language spec, section 6.4)
 ```
 
-**A deferred call that uses an owner from an inner block.**
+**A deferred call that uses an owner from an inner block** (E3311).
 
 ```
 main.p:11:9: the deferred call uses b, which is dropped at the end of its block (line 14)
@@ -2222,7 +2323,7 @@ main.p:11:9: the deferred call uses b, which is dropped at the end of its block 
     (see "Ownership" in the language spec, section 6.4)
 ```
 
-**A `Drop` method on a type not declared owner.**
+**A `Drop` method on a type not declared owner** (E3201; a `Drop` with parameters or results is E3206).
 
 ```
 file.p:9:1: File has a Drop method but is not declared owner
@@ -2241,7 +2342,7 @@ A `Drop` with parameters or results reads `Drop must have no parameters and no r
 the compiler calls it with nothing and ignores any result; if the method is not meant as a destructor, the
 fix is to rename it.
 
-**An owner field in a struct not declared owner.**
+**An owner field in a struct not declared owner** (E3202; in a struct type without a name, E3203).
 
 ```
 conn.p:4:2: Conn must be declared owner: its field buf is a strings.Builder, which is an owner
@@ -2262,7 +2363,7 @@ The same message covers an embedded owner (`its embedded field Buf`), an array o
 pages is a [4]Frame, an array of owners`), an interface embedding an owning interface, and `type B A`
 (`B is defined from A, which is an owner; write type B owner A`).
 
-**`owner` where it is not allowed.**
+**`owner` where it is not allowed** (E3204; on an alias, E3205).
 
 ```
 kind.p:3:11: owner cannot qualify an enum type
@@ -2280,7 +2381,7 @@ For other kinds the first line names them (`owner cannot qualify a slice type`),
 slice is a view, and the fix is the same wrapper struct. `owner` outside a type definition reads `owner can
 only be used in a type definition: type T owner struct {...}`.
 
-**Calling `Drop` through a view.**
+**Calling `Drop` through a view** (E3307).
 
 ```
 pool.p:22:2: cannot call p.Drop(): p is a *File, which only points at a File that something else owns
@@ -2295,7 +2396,7 @@ pool.p:22:2: cannot call p.Drop(): p is a *File, which only points at a File tha
     (see "Ownership" in the language spec, section 6.4)
 ```
 
-**An owner type for a type parameter that does not allow owners.**
+**An owner type for a type parameter that does not allow owners** (E3207).
 
 ```
 main.p:10:12: cannot use strings.Builder as T in Fill: strings.Builder is an owner and T does not allow owners
@@ -2310,7 +2411,8 @@ main.p:10:12: cannot use strings.Builder as T in Fill: strings.Builder is an own
     (see "Ownership" in the language spec, section 6.4)
 ```
 
-**Duplicating owners with `copy`.**
+**Duplicating owners with `copy`** (E3306; owners as variadic arguments are E3310, in a slice literal
+E3312, and `x[k]` on a container of owners E3309).
 
 ```
 main.p:7:2: cannot copy elements of type strings.Builder: each element is an owner
@@ -2323,7 +2425,7 @@ main.p:7:2: cannot copy elements of type strings.Builder: each element is an own
     (see "Ownership" in the language spec, section 6.4)
 ```
 
-**Taking an owner out of an ordinary interface.**
+**Taking an owner out of an ordinary interface** (E3308).
 
 ```
 main.p:19:7: cannot assert x to strings.Builder: x is an any, which only lends the value it holds
@@ -2337,7 +2439,7 @@ main.p:19:7: cannot assert x to strings.Builder: x is an any, which only lends t
     (see "Ownership" in the language spec, section 6.4, and section 4.4)
 ```
 
-**A `shared[T]` crossing puroutines.**
+**A `shared[T]` crossing puroutines** *(planned)*.
 
 ```
 worker.p:22:12: cannot pass s to a go statement: shared[Stats] can only be used by one puroutine
@@ -2524,8 +2626,8 @@ type Allocator interface {
 
 func Default() Allocator                // the current allocator
 func SetDefault(a Allocator)            // replaces it for all later allocations
-func Use(a Allocator) Restore           // replaces it until Restore is called
-func (r Restore) Restore()
+func Use(a Allocator) Restore           // replaces it while the Restore lives
+func (r Restore) Restore()              // drops r now, putting the previous default back
 
 // Owners of a single heap object (sections 5.6 and 6).
 func Owned[T any](a Allocator = Default()) owned[T]
@@ -2553,8 +2655,26 @@ func handle(req *Request) {
 }
 ```
 
+`Restore` is an owner: dropping it, or calling its `Restore` method, which consumes it, puts the previous
+default back. `Use` is declared `//pu:resultholds a` (section 6.3), so the `Restore` counts as a view of
+`a`: an arena in a local variable may be installed, and the compiler rejects returning the `Restore` or
+storing it anywhere that outlives the arena.
+
+```go
+func parseAll(files []string) {
+	var a arena.Arena = arena.New(buf[:])
+	r := alloc.Use(&a)  // r holds &a, so it may not leave this function
+	...
+	r.Restore()         // or let r be dropped at the end of the function
+}
+```
+
 Owners allocated while the override is in force record the arena as their allocator, so dropping them
-later frees into the arena, which does nothing (section 6.6).
+later frees into the arena, which does nothing (section 6.6). The compiler does not check that such an
+owner is dropped before the arena itself is reset or goes away: an owner allocated from a local arena
+through `Default()` and returned from the function refers to an allocator that no longer exists. This is
+a known gap in the checks (docs/plans/2026-10-09-memory-safety-design.md); pass the arena explicitly
+(`vec.New[T](&a)`) where the compiler should see it.
 
 ### 7.2 The system allocator
 
@@ -2892,6 +3012,8 @@ argument a directive does not take or lacks (E2603). A note that is not a direct
 | `//pu:section name` | function or package variable | place it in the named section |
 | `//pu:interrupt` | function | an x86-64 interrupt handler: saves every register it may change, returns with `iretq` (section 12.4) |
 | `//pu:noreturn` | body-less function | the assembly or C function never returns (lets the optimiser drop code after calls). A function with a body needs no directive: the compiler finds that it never returns when it has no return statement and its body ends in a terminating statement (Go's definition), counting a call of a function that never returns as one, so a panic, an endless loop and a call of `os.Exit` all count, through any number of calls |
+| `//pu:noescape` | body-less function | keeps no pointer argument past the call, except by storing it where another argument points (section 6.3) |
+| `//pu:resultholds p` | function returning an owner, in the standard library only (E3008 elsewhere) | keeps parameter `p` only while the result lives, and stores `p` in it; the call counts as returning `p` (section 6.3). The compiler checks that the result holds `p`; that its `Drop` gives `p` back is the author's promise |
 | `//pu:panic` | function | the program's panic handler, `func(p *rt.Panic)`; exactly one in freestanding and kernel builds (section 8.1) |
 | `//pu:blocking` | function (with or without a body) | kernel code and assembly: calling it may wait in a way the compiler cannot see (a kernel's spinning lock, a routine that halts until an interrupt); interrupt handlers and the panic handler must not reach it. Waits the compiler can see need no directive: it follows calls into the runtime's `park` (section 12.6) |
 | `//pu:scheduler` | package variable | the program's scheduler backend, of a type implementing `rt.Scheduler`; at most one in a program, replacing the hosted one (section 4.7) |
@@ -2942,6 +3064,10 @@ a `uintptr` is assumed to point outside every frame and to memory nobody in the 
 `unsafe.String` makes an uncounted string that views its bytes, which must be valid UTF-8 and outlive
 every copy of the string (section 6.10). Reading or writing a string's words through `unsafe` bypasses
 its count.
+
+Plutonium adds `unsafe.Drop(p *T)`, which destroys `*p` as the end of its owner's life would: `T`'s `Drop`
+method, then its fields (section 6.4). It is what the unchecked layer (`alloc.Free`, a container dropping
+its elements) is written with; nothing stops `*p` from being used or dropped again afterwards.
 
 ## 12. Build modes and targets
 
@@ -3446,7 +3572,7 @@ comparable. `errors.As` is generic, `func As[E any](err error, target *E) bool`,
 closed file), not a `*PathError`, so that I/O does not allocate. `strconv` reports `ErrSyntax` and `ErrRange` without Go's `*NumError`. An
 `Errno` the table does not know reports `"unknown error"`.
 
-### 14.6 Allocated errors and ownership (proposal, needs sign-off)
+### 14.6 Allocated errors and ownership (approved; not implemented yet)
 
 Section 6.6 requires every allocation to have an owner or an arena. An allocated error as section 14.3
 describes it has neither when the default allocator is the general heap: `error` is an ordinary interface,

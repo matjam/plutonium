@@ -13,8 +13,11 @@ type Constraint[T any] interface {
 func Foo[T Constraint[T]]() T {
 	var t T
 
+	// Plutonium: a closure capturing t lives in this frame and could not be
+	// returned, so this one captures nothing.
 	t = func() T {
-		return t
+		var u T
+		return u
 	}
 	return t
 }

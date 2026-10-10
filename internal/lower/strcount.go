@@ -65,9 +65,12 @@ type ownedTemp struct {
 	consumed bool // handed over to a place; nothing to release
 }
 
-// counted reports whether a value of T holds string references.
+// counted reports whether a value of T holds string references that
+// copies retain and destruction releases. An owner never does: it moves
+// instead of being copied, and its drop glue releases the strings in it
+// (drop.go).
 func (l *Lowerer) counted(T types2.Type) bool {
-	if T == nil {
+	if T == nil || types2.IsOwner(T) {
 		return false
 	}
 	key := typeString(T)

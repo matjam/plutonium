@@ -424,6 +424,14 @@ func (s *fnState) callValue(c callee, flat []*ssa.Value, results []*ssa.Type) *s
 		s.checkFloatCall(flat, results)
 	}
 	rt := ssa.TupleOf(append([]*ssa.Type{ssa.TMem}, results...)...)
+	if c.sym != nil && c.sym.Kind == ssa.SymExtern {
+		// Code outside Plutonium sees plain addresses.
+		for i, a := range flat {
+			if a.Type.IsPtr() {
+				flat[i] = s.untagged(a)
+			}
+		}
+	}
 	var call *ssa.Value
 	if c.sym != nil {
 		call = s.newValue(ssa.OpCall, rt)
@@ -498,6 +506,17 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 	fn := sel.Obj().(*types2.Func)
 	recvT := s.typeOf(se.X)
 	sig := s.subst(s.info.Types[e.Fun].Type).(*types2.Signature)
+
+	// x.Drop() on an owner variable ends its life: its whole drop glue
+	// runs (Drop, then its fields), and x is left clear, so that the end
+	// of its scope destroys nothing (language spec section 6.4).
+	if fn.Name() == "Drop" && len(e.Args) == 0 && s.isMove(se.X) {
+		lv := s.lv(se.X)
+		T := unwrap(lv.T)
+		s.dropAt(lv.ptr, T)
+		s.zero(lv.ptr, s.l.sizeof(T))
+		return nil
+	}
 
 	// Interface method calls.
 	desc := types2.ExprString(e.Fun)
@@ -610,6 +629,16 @@ func (s *fnState) methodReceiver(x ast.Expr, fn *types2.Func, path []int) value 
 
 	xt := s.typeOf(x)
 	var cur lvalue
+	switch {
+	case s.isMove(x) && len(path) == 1 && !wantPtr:
+		// A value receiver that moves out of its variable.
+		return s.expr(x)
+	case s.isTemp(x):
+		// The method works on the statement's temporary itself, which is
+		// destroyed afterwards, not on a copy.
+		cur = lvalue{ptr: s.tempSlot(x, xt), T: xt}
+		return s.receiverAt(cur, wantPtr, path)
+	}
 	if isPointerLike(xt) {
 		cur = lvalue{ptr: s.scalar(x), T: pointerElem(xt)}
 	} else if isAddressable(x, s.info) {

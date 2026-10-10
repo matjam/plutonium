@@ -1,0 +1,5 @@
+$DIR/main.p:25:10: m was moved to n at line 24, so it can no longer be used here
+$DIR/main.p:31:10: b may have been moved at line 29, so it cannot be used here
+$DIR/main.p:34:10: cannot move t.left out of t: t.left is a field, not a variable
+$DIR/main.p:39:9: out was moved into flush (its parameter takes a Buf by value) at line 39 in the previous iteration of this loop
+$DIR/main.p:43:23: cannot move c inside a function literal: the literal may run more than once, or never

@@ -285,9 +285,9 @@ func (l *Lowerer) dropSymFor(sym *ssa.Sym) *ssa.Sym {
 	return l.out.Sym(sym.Name+"·rdrop", ssa.SymFunc)
 }
 
-// needsDrop reports whether the region key names may hold something to
+// regionNeedsDrop reports whether the region key names may hold something to
 // release, once regions are sized.
-func (l *Lowerer) needsDrop(k regionKey) bool {
+func (l *Lowerer) regionNeedsDrop(k regionKey) bool {
 	if size, _ := l.keySize(k); size == 0 {
 		return false
 	}
@@ -298,7 +298,7 @@ func (l *Lowerer) needsDrop(k regionKey) bool {
 		return false
 	}
 	for _, sym := range l.regionMembers[k.sig] {
-		if l.needsDrop(regionKey{sym: sym}) {
+		if l.regionNeedsDrop(regionKey{sym: sym}) {
 			return true
 		}
 	}
@@ -442,7 +442,7 @@ func (l *Lowerer) finishRegions() bool {
 	}
 	l.regionZeros = nil
 	for _, d := range l.regionDrops {
-		if l.needsDrop(d.key) {
+		if l.regionNeedsDrop(d.key) {
 			continue
 		}
 		d.cond.AuxInt = 0
@@ -494,7 +494,7 @@ func (l *Lowerer) queueDrop(rl *regionLayout) {
 			s.zero(s.offPtr(p, c.off), s.l.sizeof(c.T))
 		}
 		for _, n := range rl.nested {
-			if !l.needsDrop(n.key) {
+			if !l.regionNeedsDrop(n.key) {
 				continue
 			}
 			q := s.newValue(ssa.OpRegion, ssa.TPtr, s.offPtr(p, n.off))

@@ -370,6 +370,11 @@ func (p *printer) parameters(fields *ast.FieldList, mode paramMode) {
 				p.identList(par.Names, ws == indent)
 				p.print(blank)
 			}
+			// Plutonium: a type parameter that admits owners ([T owner any]).
+			if par.Owner.IsValid() {
+				p.setPos(par.Owner)
+				p.print(token.OWNER, blank)
+			}
 			// parameter type
 			p.expr(stripParensAlways(par.Type))
 			// Plutonium default parameter values (spec section 5.1):
@@ -1773,6 +1778,10 @@ func (p *printer) spec(spec ast.Spec, n int, doIndent bool) {
 		}
 		if s.Assign.IsValid() {
 			p.print(token.ASSIGN, blank)
+		}
+		if s.Owner.IsValid() {
+			p.setPos(s.Owner)
+			p.print(token.OWNER, blank)
 		}
 		p.expr(s.Type)
 		p.setComment(s.Comment)

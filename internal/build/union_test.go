@@ -43,7 +43,7 @@ func main() {
 	var p owned[int]
 	_ = wrap(p)
 }
-`, "unions with owned, shared or synced payloads are not supported until ownership lands"},
+`, "cannot use owned[int] as T in wrap: owned[int] is an owner and T does not allow owners"},
 		{"extern signature", `//pu:extern c_state
 func cState(s State) int
 

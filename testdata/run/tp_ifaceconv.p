@@ -21,10 +21,13 @@ func f[T any](x T) interface{} {
 	return i
 }
 
-func fs[T any](x T) interface{} {
+// Plutonium: a slice converted to an interface is boxed in the converting
+// function's frame, so fs and js hand the interface to use instead of
+// returning it.
+func fs[T any](x T, use func(interface{})) {
 	y := []T{x}
 	var i interface{} = y
-	return i
+	use(i)
 }
 
 func g[T any](x T) E {
@@ -55,18 +58,20 @@ func j[T C](t T) C {
 	return C(t) // explicit conversion
 }
 
-func js[T any](x T) interface{} {
+func js[T any](x T, use func(interface{})) {
 	y := []T{x}
-	return interface{}(y)
+	use(interface{}(y))
 }
 
 func main() {
 	if got, want := f[int](7), 7; got != want {
 		panic(sprintf("got %d want %d", got, want))
 	}
-	if got, want := fs[int](7), []int{7}; got.([]int)[0] != want[0] {
-		panic(sprintf("got %d want %d", got, want))
-	}
+	fs[int](7, func(got interface{}) {
+		if want := []int{7}; got.([]int)[0] != want[0] {
+			panic(sprintf("got %d want %d", got, want))
+		}
+	})
 	if got, want := g[int](7), 7; got != want {
 		panic(sprintf("got %d want %d", got, want))
 	}
@@ -79,7 +84,9 @@ func main() {
 	if got, want := j[myInt](7).foo(), 8; got != want {
 		panic(sprintf("got %d want %d", got, want))
 	}
-	if got, want := js[int](7), []int{7}; got.([]int)[0] != want[0] {
-		panic(sprintf("got %d want %d", got, want))
-	}
+	js[int](7, func(got interface{}) {
+		if want := []int{7}; got.([]int)[0] != want[0] {
+			panic(sprintf("got %d want %d", got, want))
+		}
+	})
 }

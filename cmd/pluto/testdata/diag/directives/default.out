@@ -2,8 +2,8 @@ $DIR/main.p:3:1: unknown directive //pu:interupt (did you mean //pu:interrupt?)
     The compiler has no directive named interupt, so this comment would do
     nothing. It is close to interrupt.
     The directives are: blocking, build, export, extern, fpu, inline, interrupt,
-    nobounds, noinline, noreturn, nosimd, panic, percpu, scheduler, section,
-    stack.
+    nobounds, noescape, noinline, noreturn, nosimd, panic, percpu, resultholds,
+    scheduler, section, stack.
     A comment that is only a note should start with // and a space.
     Go ignores unknown //go: comments, which makes a typo easy to miss.
     Plutonium directives change what the program means, so a typo must not go

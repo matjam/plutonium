@@ -385,6 +385,16 @@ func newContext(top, a1, entry, a2 uintptr) uintptr {
 // ----------------------------------------------------------------------------
 // Parking
 
+// Pinned returns p unchanged, hidden from the escape analysis (language
+// spec section 6.3). It is for a record in the caller's frame that the
+// caller links into a structure other puroutines reach, such as a wait
+// queue, while it is parked, and that it unlinks (or has unlinked) before
+// it returns: the frame then outlives every use, which the analysis cannot
+// see. Like the rest of unsafe, the caller takes responsibility for that.
+func Pinned[T any](p *T) *T {
+	return (*T)(unsafe.Pointer(uintptr(unsafe.Pointer(p))))
+}
+
 // A WaitReason says what a parked task waits for. Traces of parked tasks
 // show it, as Go does in "goroutine 5 [chan receive]:" (TraceTask).
 type WaitReason uint8
@@ -761,20 +771,45 @@ func fastrand(t *Task) uint64 {
 	return x * 0x2545F4914F6CDD1D
 }
 
-// Atomics and the context switch, in ctx_amd64.s.
+// Atomics and the context switch, in ctx_amd64.s. None keeps its pointer
+// argument after it returns.
+//
+//pu:noescape
 func swapcontext(save *uintptr, sp uintptr)
 func goStartPC() uintptr
 func asyncPreemptPC() uintptr
 func getsp() uintptr
+
+//pu:noescape
 func inc32(p *int32)
+
+//pu:noescape
 func dec32(p *int32)
+
+//pu:noescape
 func load32(p *uint32) uint32
+
+//pu:noescape
 func store32(p *uint32, v uint32)
+
+//pu:noescape
 func cas32(p *uint32, old, new uint32) bool
+
+//pu:noescape
 func xadd32(p *uint32, delta int32) uint32
+
+//pu:noescape
 func xchg32(p *uint32, v uint32) uint32
+
+//pu:noescape
 func load64(p *uint64) uint64
+
+//pu:noescape
 func store64(p *uint64, v uint64)
+
+//pu:noescape
 func cas64(p *uint64, old, new uint64) bool
+
+//pu:noescape
 func xadd64(p *uint64, delta int64) uint64
 func pause()

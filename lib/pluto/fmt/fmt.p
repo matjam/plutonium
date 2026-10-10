@@ -71,9 +71,14 @@ type printer struct {
 	hasWid, hasPrec                 bool
 	sharpV, plusV                   bool // %#v and %+v (sharp and plus are then false)
 
-	// the value being printed, for %!verb(type=value)
+	// the value being printed, for %!verb(type=value). curP is the
+	// value's address, often a local variable of the function printing it,
+	// and is valid only while that function runs: printValue restores the
+	// previous one before returning. It is kept as a uintptr so that the
+	// compiler does not count it as a pointer kept beyond the call
+	// (language spec section 6.3); nothing reads it outside that window.
 	curT     *rt.Type
-	curP     unsafe.Pointer
+	curP     uintptr
 	erroring bool // printing a bad verb's value: call no methods
 }
 
@@ -642,7 +647,7 @@ func (p *printer) badVerb(verb rune) {
 	if t := p.curT; t != nil {
 		p.writeString(t.Name())
 		p.writeByte('=')
-		p.printValue(t, p.curP, 'v', 0, false)
+		p.printValue(t, unsafe.Pointer(p.curP), 'v', 0, false)
 	} else {
 		p.writeString("<nil>")
 	}
@@ -659,7 +664,7 @@ func (p *printer) badVerb(verb rune) {
 func (p *printer) printArg(arg any, verb rune) {
 	t, word := rt.TypeOf(arg)
 	if t == nil {
-		p.curT, p.curP = nil, nil
+		p.curT, p.curP = nil, 0
 		if verb == 'T' || verb == 'v' {
 			p.fieldString("<nil>")
 		} else {
@@ -672,7 +677,7 @@ func (p *printer) printArg(arg any, verb rune) {
 	if t.Direct() {
 		ptr = unsafe.Pointer(&word)
 	}
-	p.curT, p.curP = t, ptr
+	p.curT, p.curP = t, uintptr(ptr)
 	switch verb {
 	case 'T':
 		p.fmtS(t.Name())
@@ -717,6 +722,19 @@ func (p *printer) printArg(arg any, verb rune) {
 	case []byte:
 		p.fmtBytes(v, verb, "[]byte", t, ptr)
 	default:
+		if verb == 'w' {
+			// %w takes an error operand and is otherwise %v. Only an
+			// operand is wrapped, never a value found inside one.
+			if !p.erroring {
+				err, ok := arg.(error)
+				if !ok || !p.wrapErrs {
+					p.badVerb(verb)
+					return
+				}
+				p.wrapped.TryPush(err)
+			}
+			verb = 'v'
+		}
 		if !p.handleMethods(arg, verb) {
 			p.printValue(t, ptr, verb, 0, false)
 		}
@@ -725,19 +743,14 @@ func (p *printer) printArg(arg any, verb rune) {
 
 // handleMethods prints arg with its Error, String or GoString method if the
 // verb calls for one, as Go's handleMethods does, and reports whether it
-// did. %w takes an error and is otherwise %v.
+// did. A %w operand is wrapped by printArg, which calls this with %v.
 func (p *printer) handleMethods(arg any, verb rune) bool {
 	if p.erroring {
 		return false
 	}
 	if verb == 'w' {
-		err, ok := arg.(error)
-		if !ok || !p.wrapErrs {
-			p.badVerb(verb)
-			return true
-		}
-		p.wrapped.TryPush(err)
-		verb = 'v'
+		p.badVerb(verb)
+		return true
 	}
 	if p.sharpV {
 		if g, ok := arg.(GoStringer); ok {

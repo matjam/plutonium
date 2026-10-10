@@ -21,50 +21,66 @@ func Default() Allocator { return rt.DefaultAllocator() }
 // SetDefault replaces the default allocator for all later allocations.
 func SetDefault(a Allocator) { rt.SetDefaultAllocator(a) }
 
-// A Restore puts back the allocator that was the default before Use.
-type Restore struct {
+// A Restore puts back the allocator that was the default before Use. It is
+// an owner: dropping it puts the previous allocator back, so the allocator
+// Use installed is the default only while the Restore lives.
+type Restore owner struct {
 	prev Allocator
+	cur  Allocator // the allocator Use installed; nil once restored
 }
 
 // Use makes a the running puroutine's default allocator until the returned
-// Restore's Restore method is called:
+// Restore is dropped, or its Restore method is called:
 //
 //	defer alloc.Use(arena).Restore()
 //
 // The override belongs to the puroutine that calls Use: Default returns a
 // there and the program-wide default (SetDefault) everywhere else, and a
 // puroutine it starts begins with the program-wide default.
+//
+// a may be a local arena: the Restore holds a, so the compiler checks that
+// the Restore does not outlive it (language spec section 7.1).
+//
+//pu:resultholds a
 func Use(a Allocator) Restore {
-	return Restore{prev: rt.UseAllocator(a)}
+	return Restore{prev: rt.UseAllocator(a), cur: a}
 }
 
-// Restore reinstates the previous default allocator.
-func (r Restore) Restore() { rt.UseAllocator(r.prev) }
+// Restore reinstates the previous default allocator. It consumes r.
+func (r Restore) Restore() { r.Drop() }
 
-// New allocates a zeroed T from a, by default the default allocator.
-func New[T any](a Allocator = Default()) *T {
-	var zero T
-	return (*T)(must(a, unsafe.Sizeof(zero), unsafe.Alignof(zero), rt.CallerPC()))
+// Drop reinstates the previous default allocator, if r still holds one.
+func (r *Restore) Drop() {
+	if r.cur != nil {
+		rt.UseAllocator(r.prev)
+		r.cur = nil
+	}
+}
+
+// New allocates a zeroed T from a, by default the default allocator. T may
+// be an owner: the memory itself has no owner until the caller gives it one
+// (language spec section 6.6).
+func New[T owner any](a Allocator = Default()) *T {
+	var p *T // only for its element's size: Sizeof does not evaluate *p
+	return (*T)(must(a, unsafe.Sizeof(*p), unsafe.Alignof(*p), rt.CallerPC()))
 }
 
 // Free returns p, allocated by New, to the allocator it came from: a, by
-// default the default allocator. If T has a Drop method it is called first,
-// and the strings in *p are released (language spec section 6.10). The
-// call's site is published through rt.AllocSite while the allocator runs
-// (if rt.TrackSites).
-func Free[T any](p *T, a Allocator = Default()) {
+// default the default allocator. *p is destroyed first: if T is an owner,
+// its Drop method, then its fields; otherwise the strings in it are
+// released (language spec sections 6.4 and 6.10). The call's site is
+// published through rt.AllocSite while the allocator runs (if
+// rt.TrackSites).
+func Free[T owner any](p *T, a Allocator = Default()) {
 	if p == nil {
 		return
 	}
-	if d, ok := any(p).(interface{ Drop() }); ok {
-		d.Drop()
-	}
+	unsafe.Drop(p)
 	rt.ReleaseValues(p, 1)
-	var zero T
 	if rt.TrackSites {
 		rt.SetAllocSite(rt.CallerPC())
 	}
-	a.Free(unsafe.Pointer(p), unsafe.Sizeof(zero), unsafe.Alignof(zero))
+	a.Free(unsafe.Pointer(p), unsafe.Sizeof(*p), unsafe.Alignof(*p))
 	if rt.TrackSites {
 		rt.SetAllocSite(0)
 	}
@@ -154,9 +170,15 @@ const (
 // A Slab is a size-class allocator. Requests up to 2048 bytes come from
 // per-class free lists refilled a chunk of pages at a time; larger requests
 // go straight to the page provider. It is not safe for concurrent use.
+//
+// The free lists link free slots through their first word. The links are
+// addresses of memory nobody owns, not references the program holds, so
+// they are kept as uintptr: the compiler's escape analysis (language spec
+// section 6.3) then does not count a slot handed back to Free as kept, nor
+// the free list as something a freed slot points to.
 type Slab struct {
 	pages PageProvider
-	free  [numClasses]unsafe.Pointer
+	free  [numClasses]uintptr
 }
 
 // NewSlab returns a slab allocator drawing pages from pages.
@@ -192,16 +214,18 @@ func (s *Slab) Alloc(size, align uintptr) unsafe.Pointer {
 		return s.pages.AllocPages((size + PageSize - 1) / PageSize)
 	}
 	c := classOf(size, align)
-	p := s.free[c]
-	if p == nil {
+	if s.free[c] == 0 {
 		s.refill(c)
-		p = s.free[c]
-		if p == nil {
+		if s.free[c] == 0 {
 			return nil
 		}
 	}
-	s.free[c] = *(*unsafe.Pointer)(p)
-	*(*unsafe.Pointer)(p) = nil // the rest of the slot is already zero
+	p := unsafe.Pointer(s.free[c])
+	s.free[c] = *(*uintptr)(p)
+	*(*uintptr)(p) = 0 // the rest of the slot is already zero
+	if genCheck {
+		return genTag(p)
+	}
 	return p
 }
 
@@ -216,26 +240,40 @@ func (s *Slab) Free(p unsafe.Pointer, size, align uintptr) {
 	}
 	c := classOf(size, align)
 	slot := uintptr(1) << (minClassShift + c)
+	if genCheck {
+		live := genRelease(p, slot)
+		p = unsafe.Pointer(uintptr(p)) // the plain address
+		if !live {
+			return // the slot is worn out: never hand it out again
+		}
+	}
 	// Zero the slot so Alloc can hand it out without clearing.
 	b := unsafe.Slice((*byte)(p), slot)
 	clear(b)
-	*(*unsafe.Pointer)(p) = s.free[c]
-	s.free[c] = p
+	*(*uintptr)(p) = s.free[c]
+	s.free[c] = uintptr(p)
 }
 
 func (s *Slab) refill(c int) {
-	chunk := s.pages.AllocPages(chunkPages)
+	var chunk unsafe.Pointer
+	first := uintptr(0)
+	if genCheck {
+		chunk = s.genChunk()
+		first = genFirst(uintptr(1) << (minClassShift + c))
+	} else {
+		chunk = s.pages.AllocPages(chunkPages)
+	}
 	if chunk == nil {
 		return
 	}
 	slot := uintptr(1) << (minClassShift + c)
 	n := chunkPages * PageSize / slot
 	// Thread the new slots onto the free list in address order.
-	var head unsafe.Pointer
-	for i := n; i > 0; i-- {
+	var head uintptr
+	for i := n; i > first; i-- {
 		p := unsafe.Add(chunk, (i-1)*slot)
-		*(*unsafe.Pointer)(p) = head
-		head = p
+		*(*uintptr)(p) = head
+		head = uintptr(p)
 	}
 	s.free[c] = head
 }

@@ -925,10 +925,17 @@ func testFtoaPowersOfTwo() {
 	fmt.Println("ok FtoaPowersOfTwo", n)
 }
 
+// A NumError keeps its allocator in heap memory, so the arena must outlive
+// any frame (language spec section 6.3): it is a package variable.
+var (
+	numErrMem   [1024]byte
+	numErrArena arena.Arena
+)
+
 func testNumError() {
-	var mem [1024]byte
-	a := arena.New(mem[:])
-	e := strconv.NewNumError("ParseFloat", "1x\n\"", ErrSyntax, &a)
+	numErrArena = arena.New(numErrMem[:])
+	a := &numErrArena
+	e := strconv.NewNumError("ParseFloat", "1x\n\"", ErrSyntax, a)
 	want := "strconv.ParseFloat: parsing \"1x\\n\\\"\": invalid syntax"
 	if e.Error() != want {
 		errorf("Error() = %q, want %q", e.Error(), want)
@@ -945,7 +952,7 @@ func testNumError() {
 	}
 	// Strings are valid UTF-8 (language spec section 6.10), so the input
 	// has no invalid bytes; U+0080 is not printable and is escaped.
-	e2 := strconv.NewNumError("ParseInt", "\u0080é\u0001", ErrRange, &a)
+	e2 := strconv.NewNumError("ParseInt", "\u0080é\u0001", ErrRange, a)
 	if want := "strconv.ParseInt: parsing \"\\u0080é\\x01\": value out of range"; e2.Error() != want {
 		errorf("Error() = %q, want %q", e2.Error(), want)
 	}

@@ -13,6 +13,8 @@ import "unsafe"
 
 // callerFrame stores the program counter and stack pointer its caller will
 // have after it returns, and the caller's RBP (trace_amd64.s).
+//
+//pu:noescape
 func callerFrame(out *[3]uintptr)
 
 // traceTable returns the address of pluto.tracetab (trace_amd64.s).

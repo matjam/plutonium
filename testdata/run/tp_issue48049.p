@@ -29,5 +29,7 @@ func (mr fooer2[T]) Foo(p T) {
 }
 
 func Gooer2[T any]() Fooer[T] {
-	return fooer2[T]{}
+	// Plutonium: fooer2[T]{} converted to Fooer[T] would be boxed in this
+	// frame and could not be returned; a pointer to an allocation can.
+	return new(fooer2[T])
 }

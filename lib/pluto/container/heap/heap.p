@@ -141,7 +141,7 @@ func down(h Interface, i0, n int) bool {
 //
 // A Heap owns its storage, so it is an owner (language spec section 6.4):
 // Drop releases it. It must not be copied after first use; pass a *Heap.
-type Heap[T any] struct {
+type Heap[T any] owner struct {
 	items vec.Vec[T]
 	less  func(a, b T) bool
 }

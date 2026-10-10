@@ -223,6 +223,11 @@ func (check *Checker) verify(pos token.Pos, tparams []*TypeParam, targs []Type, 
 		// need to instantiate it with the type arguments with which we instantiated
 		// the parameterized type.
 		bound := check.subst(pos, tpar.bound, smap, nil, ctxt)
+		if check != nil {
+			if oe := check.ownerTypeArg(tpar, targs[i]); oe != nil {
+				return i, oe
+			}
+		}
 		var cause string
 		if !check.implements(targs[i], bound, true, &cause) {
 			return i, errors.New(cause)
