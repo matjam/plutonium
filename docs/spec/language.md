@@ -1590,7 +1590,10 @@ an addressable `x` or a pointer (E2459); its form is `All() F`, with no paramete
 variadic parameter, where `F` is a function type that range accepts, such as `iter.Seq[V]` or
 `iter.Seq2[K, V]` (E2458). The iteration variables follow `F`, so `vec.Vec[T]`, whose `All` returns
 `iter.Seq2[int, T]`, ranges like a slice, `hash.Map[K, V]` like a map (in its table's order, section 13),
-and `hash.Set[K]` over its elements. A `ring[T, N]` ranges over its built-in `All` (section 5.4). A struct,
+and `hash.Set[K]` over its elements. As for a slice in Go, a `vec.Vec` loop reads the length once, when it
+starts: elements the body pushes are not visited (a worklist that should see them is an index loop,
+`for i := 0; i < v.Len(); i++`), each element is read when the loop reaches it, and the loop stops early
+if the body shrinks the vector below the next index. A `ring[T, N]` ranges over its built-in `All` (section 5.4). A struct,
 or a type with an `Index` method, that has no `All` is a compile error (E2456).
 
 ```go

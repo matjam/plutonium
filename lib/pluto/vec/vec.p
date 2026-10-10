@@ -12,7 +12,7 @@
 //		v.Push(i)
 //	}
 //	for _, x := range v.Slice() { ... }
-//	for i, x := range v.All() { ... } // reads v as it goes
+//	for i, x := range v { ... } // v.All(), as over a slice
 //
 // v[i], v[i] = x and len(v) work as on a slice, through the methods Index,
 // SetIndex and Len (language spec section 6.7).
@@ -296,13 +296,16 @@ func (v *Vec[T]) Map[U any](f func(T) U, a alloc.Allocator = alloc.Default()) Ve
 //
 //	for i, x := range v.All() { ... }
 //
-// The loop reads v as it goes, so it is safe for the body to change v: it
-// sees elements set during the loop, stops at v's length as it is then
-// (visiting elements pushed during the loop, and not those removed), and
-// follows v's storage when v grows.
+// As range over a slice does in Go, the loop reads v's length once, when it
+// starts, so elements pushed during the loop are not visited. It reads each
+// element when it reaches it, so it sees elements set during the loop and
+// follows v's storage when v grows, and it stops early if v has shrunk
+// below the next index. A loop that should visit elements it pushes (a
+// worklist) is an index loop: for i := 0; i < v.Len(); i++.
 func (v *Vec[T]) All() iter.Seq2[int, T] {
 	return func(yield func(int, T) bool) {
-		for i := 0; i < len(v.data); i++ {
+		n := len(v.data)
+		for i := 0; i < n && i < len(v.data); i++ {
 			if !yield(i, v.data[i]) {
 				return
 			}
@@ -311,10 +314,11 @@ func (v *Vec[T]) All() iter.Seq2[int, T] {
 }
 
 // Values returns an iterator over the elements of v, in order. Like All, it
-// reads v as it goes.
+// reads v's length once, when the loop starts.
 func (v *Vec[T]) Values() iter.Seq[T] {
 	return func(yield func(T) bool) {
-		for i := 0; i < len(v.data); i++ {
+		n := len(v.data)
+		for i := 0; i < n && i < len(v.data); i++ {
 			if !yield(v.data[i]) {
 				return
 			}
@@ -323,11 +327,11 @@ func (v *Vec[T]) Values() iter.Seq[T] {
 }
 
 // Backward returns an iterator over the indexes and elements of v, last
-// first. If the body removes elements, the loop goes on from the last
-// element still in v below the current index.
+// first, starting from v's length when the loop starts. It stops early if
+// v has shrunk below the next index.
 func (v *Vec[T]) Backward() iter.Seq2[int, T] {
 	return func(yield func(int, T) bool) {
-		for i := len(v.data) - 1; i >= 0; i = min(i, len(v.data)) - 1 {
+		for i := len(v.data) - 1; i >= 0 && i < len(v.data); i-- {
 			if !yield(i, v.data[i]) {
 				return
 			}

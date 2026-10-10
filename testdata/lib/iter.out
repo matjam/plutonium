@@ -11,8 +11,9 @@ early 56
 all: 0=0 1=10 2=20 3=30 4=40 5=50
 values: 0 10 20 30 40 50
 backward: 5=50 4=40 3=30 2=20
-growing: 1 2 4 8 16 32 64 128 256 512
-shrinking: 9=512 7=128 6=64 5=32 4=16 3=8 2=4 1=2 0=1 len 2
+growing: 1 5 len 10
+worklist: 1 10 100 5 len 13
+shrinking: 12=10 11=10 forward: 0=1 len 1
 collect: 0 2 4 6 8 0 1 2
 map entries 10 same order true
 keys: eight five four nine one seven six three two zero
