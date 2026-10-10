@@ -70,11 +70,12 @@ func Explain(code Code) (string, error) {
 		return "", fmt.Errorf("no such error code %q (codes look like E0024)", code)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s: %s\n\n", e.Code, e.Name)
-	writeParas(&b, e.Text, "", 80)
-	if e.Why != "" {
-		b.WriteByte('\n')
-		writeParas(&b, e.Why, "", 80)
+	fmt.Fprintf(&b, "%s: %s\n", e.Code, e.Name)
+	for _, para := range strings.Split(e.Text+"\n"+e.Why, "\n") {
+		if strings.TrimSpace(para) != "" {
+			b.WriteByte('\n')
+			writeParas(&b, para, "", width)
+		}
 	}
 	if e.Example != "" {
 		b.WriteString("\nFor example:\n\n")

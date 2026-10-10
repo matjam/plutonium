@@ -22,7 +22,7 @@ func init() {
 			Fix:     &Fix{Intro: "To use a hash map", Code: "import \"pluto/hash\"\n\nm := hash.NewMap[string, int](0)\ndefer m.Free()\nm.Set(\"a\", 1)"},
 			Spec:    pspec("3", "What Plutonium removes from Go"),
 			Example: "counts := map[string]int{}\ncounts[\"a\"]++",
-			Fixed:   "counts := hash.NewMap[string, int](0)\ndefer counts.Free()\n*counts.Ptr(\"a\")++",
+			Fixed:   "counts := hash.NewMap[string, int](0)\ndefer counts.Free()\np, _ := counts.Upsert(\"a\")\n*p++",
 		},
 		&Entry{
 			Code: CheckerCode(typerr.ChanNotPermitted), Name: "ChanNotPermitted",

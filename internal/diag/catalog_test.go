@@ -196,16 +196,34 @@ func TestExplain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{
-		"E2001: MapNotPermitted\n\nPlutonium has no built-in map type.",
-		"\nFor example:\n\n    counts := map[string]int{}\n",
-		"\nWritten correctly:\n\n    counts := hash.NewMap[string, int](0)\n",
-		"\nSee \"What Plutonium removes from Go\" in the Plutonium spec, section 3.\n",
-	}
-	for _, w := range want {
-		if !strings.Contains(text, w) {
-			t.Errorf("explanation lacks %q:\n%s", w, text)
-		}
+	want := `E2001: MapNotPermitted
+
+Plutonium has no built-in map type. A Go map grows by allocating memory behind
+the program's back, and the old memory is freed by the garbage collector.
+
+Use a hash map from pluto/hash, which takes an allocator, so you can see and
+control where its memory comes from.
+
+Plutonium has no garbage collector and never allocates memory unless the program
+asks for it in the code, so that every cost is visible and the same code can run
+inside a kernel.
+
+For example:
+
+    counts := map[string]int{}
+    counts["a"]++
+
+Written correctly:
+
+    counts := hash.NewMap[string, int](0)
+    defer counts.Free()
+    p, _ := counts.Upsert("a")
+    *p++
+
+See "What Plutonium removes from Go" in the Plutonium spec, section 3.
+`
+	if text != want {
+		t.Errorf("Explain(e2001):\n%s\nwant:\n%s", text, want)
 	}
 	if text, _ := Explain(BadCSignature); !strings.Contains(text, "\nPass a pointer and a length:\n\n    //pu:extern write\n") {
 		t.Errorf("explanation without Fixed lacks the fix:\n%s", text)

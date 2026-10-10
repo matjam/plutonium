@@ -114,8 +114,8 @@ func FromSyntax(e *scanner.Error, src []byte) *Diagnostic {
 		}
 	case UnclosedBlock, MissingSemicolon, UnexpectedToken:
 		if strings.HasSuffix(e.Msg, "found 'EOF'") {
-			d.Code = UnclosedBlock
 			if open, ok := unclosedBrace(src, e.Pos.Filename); ok {
+				d.Code = UnclosedBlock
 				d.Text = fmt.Sprintf("The file ended while a block was still open. The { on line %d has no matching }, so the parser reached the end of the file looking for it. Add the missing } where the block should end; the mistake is somewhere between line %d and the end of the file.", open.Line, open.Line)
 			}
 		}
