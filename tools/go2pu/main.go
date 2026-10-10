@@ -7,7 +7,10 @@
 //
 //   - map[K]V becomes *hash.Map[K, V]; indexing, assignment, delete, len,
 //     range and literals become method or compat calls;
-//   - append becomes compat.Append, which grows from alloc.Default();
+//   - append becomes compat.Append, which grows from alloc.Default(), and
+//     strconv.AppendInt, strconv.AppendFloat, utf8.AppendRune and
+//     fmt.Appendf, whose Plutonium forms append to a vec.Appender, become
+//     compat forms with Go's []byte destination;
 //   - s + t on strings, string(b) and []byte(s) become compat calls that copy;
 //   - fmt.Sprintf and fmt.Errorf become compat.Sprintf and compat.Errorf;
 //   - bytes.Buffer and strings.Builder become compat.Buffer;

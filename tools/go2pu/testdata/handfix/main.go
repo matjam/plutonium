@@ -8,6 +8,7 @@ import (
 	"iter"
 	"os"
 	"sort"
+	"strconv"
 )
 
 type big struct{ a, b, c int }
@@ -66,5 +67,6 @@ func main() {
 	r := []rune("é")
 	magic := "\x7fELF\xff" // binary data in a string
 	host, _ := os.Hostname()
-	fmt.Println(x, <-ch, fail(), safe(), len(r), host != "", complex(1, 2), len(magic))
+	quoted := strconv.AppendQuote(nil, host)
+	fmt.Println(x, <-ch, fail(), safe(), len(r), host != "", complex(1, 2), len(magic), len(quoted))
 }

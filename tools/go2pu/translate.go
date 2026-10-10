@@ -116,6 +116,19 @@ var special = map[string]string{
 	"strings.Builder": "compat.Builder",
 	"strings.Join":    "compat.Join",
 	"bytes.Buffer":    "compat.Buffer",
+	// The library's Append functions append to a vec.Appender; the compat
+	// forms keep Go's []byte destination, growing it as compat.Append does.
+	"strconv.AppendInt":       "compat.AppendInt",
+	"strconv.AppendFloat":     "compat.AppendFloat",
+	"unicode/utf8.AppendRune": "compat.AppendRune",
+	"fmt.Appendf":             "compat.Appendf",
+}
+
+// appendPkgs are the Go packages whose Append functions take a vec.Appender
+// in Plutonium; one without a compat form in special gets a note.
+var appendPkgs = map[string]bool{
+	"fmt": true, "os": true, "path/filepath": true, "strconv": true, "strings": true,
+	"time": true, "unicode/utf8": true,
 }
 
 // puPath is the Go mirror of the Plutonium library types (internal/pu),

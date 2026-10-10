@@ -1,16 +1,25 @@
 package compat
 
-import "unsafe"
+import (
+	"pluto/fmt"
+	"pluto/strconv"
+	"pluto/unicode/utf8"
+	"pluto/vec"
+	"unsafe"
+)
 
 // Append is Go's append: it stores xs in s's spare capacity, or, when they
 // do not fit, copies s into a new array from alloc.Default() at least twice
 // as large. The old array is not freed; it may be shared, and the arena
 // reclaims it with everything else.
 func Append[T any](s []T, xs ...T) []T {
-	if need := len(s) + len(xs); need > cap(s) {
+	n := len(s)
+	if need := n + len(xs); need > cap(s) {
 		s = grow(s, need)
 	}
-	return append(s, xs...)
+	s = s[:n+len(xs)]
+	copy(s[n:], xs)
+	return s
 }
 
 // Clone returns a copy of s in memory from alloc.Default(). It translates
@@ -27,10 +36,48 @@ func Clone[T any](s []T) []T {
 
 // AppendString is append(b, s...) for a string s.
 func AppendString(b []byte, s string) []byte {
-	if need := len(b) + len(s); need > cap(b) {
+	n := len(b)
+	if need := n + len(s); need > cap(b) {
 		b = grow(b, need)
 	}
-	return append(b, s...)
+	b = b[:n+len(s)]
+	copy(b[n:], s)
+	return b
+}
+
+// AppendInt is Go's strconv.AppendInt: the text of i in base, appended to
+// dst as Append appends.
+func AppendInt(dst []byte, i int64, base int) []byte {
+	var mem [65]byte
+	f := vec.NewFixed(mem[:])
+	strconv.AppendInt(&f, i, base)
+	return Append(dst, f.Slice()...)
+}
+
+// AppendFloat is Go's strconv.AppendFloat, appending as Append does.
+func AppendFloat(dst []byte, x float64, verb byte, prec, bitSize int) []byte {
+	v := vec.New[byte]()
+	strconv.AppendFloat(&v, x, verb, prec, bitSize)
+	dst = Append(dst, v.Slice()...)
+	v.Free()
+	return dst
+}
+
+// AppendRune is Go's utf8.AppendRune, appending as Append does.
+func AppendRune(p []byte, r rune) []byte {
+	var mem [utf8.UTFMax]byte
+	f := vec.NewFixed(mem[:])
+	utf8.AppendRune(&f, r)
+	return Append(p, f.Slice()...)
+}
+
+// Appendf is Go's fmt.Appendf, appending as Append does.
+func Appendf(b []byte, format string, args ...any) []byte {
+	v := vec.New[byte]()
+	fmt.Appendf(&v, format, args...)
+	b = Append(b, v.Slice()...)
+	v.Free()
+	return b
 }
 
 // grow returns a copy of s with capacity for at least need elements.
@@ -73,9 +120,10 @@ func Concat(parts ...string) string {
 	if n == 0 {
 		return ""
 	}
-	b := make([]byte, 0, n)
+	b := make([]byte, n)
+	k := 0
 	for _, p := range parts {
-		b = append(b, p...)
+		k += copy(b[k:], p)
 	}
 	return unsafe.String(unsafe.SliceData(b), n)
 }

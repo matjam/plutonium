@@ -158,6 +158,9 @@ func (t *fileTr) qualified(sel *ast.SelectorExpr) (string, bool) {
 		t.compat()
 		return r, true
 	}
+	if appendPkgs[p] && strings.HasPrefix(sel.Sel.Name, "Append") {
+		t.note(sel, "%s.%s: Plutonium's takes a vec.Appender destination, and compat has no form with Go's []byte; hand-fix", p, sel.Sel.Name)
+	}
 	to := t.mapPath(p)
 	if to == "" {
 		t.note(sel, "%s.%s: no Plutonium translation", p, sel.Sel.Name)
