@@ -680,7 +680,7 @@ func init() {
 			Why:     "Go allocates each closure on the heap. Plutonium builds it in the caller's frame, which has room for one closure per call site.",
 			Fix:     &Fix{Intro: "Use the closure within the iteration", Code: "for _, n := range sizes {\n\tnext := counterFrom(n)\n\tprintln(next(), next())\n}"},
 			Spec:    pspec("4.5", "Closures do not outlive their frame"),
-			Example: "var all []func() int\nfor _, n := range sizes {\n\tall = append(all, counterFrom(n))\n}",
+			Example: "all := vec.New[func() int]()\nfor _, n := range sizes {\n\tall.Push(counterFrom(n))\n}",
 		},
 		&Entry{
 			Code: ClosureRegionCycle, Name: "ClosureRegionCycle",
