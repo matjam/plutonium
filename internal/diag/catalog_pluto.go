@@ -26,7 +26,7 @@ func init() {
 		},
 		&Entry{
 			Code: CheckerCode(typerr.NotSendable), Name: "NotSendable",
-			Text:    "A value that crosses puroutines, as the argument or receiver of a go statement or as the element of a channel, must be sendable. This type holds a shared[T], whose reference count is changed with ordinary arithmetic, so two puroutines copying or dropping references at once would corrupt it.\nUse synced[T], which counts atomically.",
+			Text:    "A value that crosses puroutines, as the argument or receiver of a go statement or as the element of a channel, must be sendable. This type holds a shared[T], whose reference count is changed with ordinary arithmetic, so two puroutines copying or dropping references at once would corrupt it. Starting a method of a shared box with go (go z.Serve()) hands the box itself to the new puroutine, so it needs a synced box as well.\nUse synced[T], which counts atomically.",
 			Why:     "Go's garbage collector makes every pointer safe to share. Plutonium counts shared references without atomic instructions, which is only correct on one puroutine.",
 			Fix:     &Fix{Intro: "Count the references atomically", Code: "type Job struct {\n\tdata synced[Buffer]\n}\n\njobs := make(chan Job, 16)"},
 			Spec:    pspec("4.7", "go starts a puroutine"),

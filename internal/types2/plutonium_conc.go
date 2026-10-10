@@ -57,6 +57,32 @@ func (check *Checker) checkSendable(at positioner, T Type, what string) {
 	}
 }
 
+// GoBoxReceiver returns the box type when sel, the selection a go
+// statement's function is, calls a pointer method of T directly on an
+// owned[T], shared[T] or synced[T] (go p.Serve()), and nil otherwise. The
+// puroutine then takes the box itself (spec section 4.7): an owned box
+// moves into it, which drops the box when the method returns, and a synced
+// one is counted for it; a shared one is not sendable. A box of a named
+// type, or a method promoted from a field, takes the ordinary rule for a
+// pointer into the object.
+func GoBoxReceiver(sel *Selection) *Wrapper {
+	if sel == nil || sel.kind != MethodVal || len(sel.index) != 1 {
+		return nil
+	}
+	w, _ := Unalias(sel.recv).(*Wrapper)
+	if w == nil || w.kind != WrapOwned && w.kind != WrapShared && w.kind != WrapSynced {
+		return nil
+	}
+	sig, _ := sel.obj.Type().(*Signature)
+	if sig == nil || sig.recv == nil {
+		return nil
+	}
+	if _, ptr := sig.recv.typ.(*Pointer); !ptr {
+		return nil
+	}
+	return w
+}
+
 // goStmtArgs checks what a go statement hands to the new puroutine: its
 // arguments, and the receiver of a method it calls.
 func (check *Checker) goStmtArgs(call *ast.CallExpr) {
@@ -77,7 +103,12 @@ func (check *Checker) goStmtArgs(call *ast.CallExpr) {
 			sig, _ := sel.obj.Type().(*Signature)
 			if sig != nil && sig.recv != nil {
 				if _, ptr := sig.recv.typ.(*Pointer); ptr {
-					if !isPointerTyped(check.exprType(se.X)) {
+					if GoBoxReceiver(sel) != nil {
+						// The box itself goes to the puroutine.
+						if T := check.exprType(se.X); T != nil {
+							check.checkSendable(se.X, T, "go statement receiver of type")
+						}
+					} else if !isPointerTyped(check.exprType(se.X)) {
 						if root := check.frameRoot(se.X); root != nil {
 							check.errorf(se.X, FrameViewSent, "go statement calls a pointer method on %s, a variable in this function's frame, which the puroutine may outlive (spec section 6.3); make it a package-level variable, or give the puroutine a function that takes an owner", root.name)
 						}

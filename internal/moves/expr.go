@@ -257,6 +257,14 @@ func (f *fn) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.Selec
 		f.expr(se.X) // Clone and Upgrade only look at the reference
 		return
 	}
+	if kind == mvGo && pointerElem(recv) != nil {
+		if w := types2.GoBoxReceiver(sel); w != nil && w.Kind() == types2.WrapOwned {
+			// go p.Serve() moves the owned box into the puroutine, which
+			// drops it when the method returns (language spec 4.7).
+			f.consume(se.X, f.c.typeOf(se.X), move{kind: mvGoRecv, to: exprText(se), typ: f.c.typeOf(se.X)})
+			return
+		}
+	}
 	if recv == nil || pointerElem(recv) != nil || !isOwner(recv) || types2.IsInterface(recv) {
 		f.expr(se.X) // a pointer receiver borrows; an interface lends
 		return

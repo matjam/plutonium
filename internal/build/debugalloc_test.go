@@ -43,12 +43,13 @@ func buildDebugAllocWith(t *testing.T, src string, cfg build.Config) string {
 }
 
 // runDebugAlloc runs prog with PLUTO_DEBUGALLOC set to settings and returns
-// its output (stdout, then stderr) and exit status. A death by signal fails
-// the test: the debug allocator must turn faults into messages.
-func runDebugAlloc(t *testing.T, prog, settings string) (string, int) {
+// its output (stdout, then stderr) and exit status, with the extra
+// environment variables env. A death by signal fails the test: the debug
+// allocator must turn faults into messages.
+func runDebugAlloc(t *testing.T, prog, settings string, env ...string) (string, int) {
 	t.Helper()
 	cmd := exec.Command(prog)
-	cmd.Env = append(os.Environ(), "PLUTO_DEBUGALLOC="+settings)
+	cmd.Env = append(append(os.Environ(), "PLUTO_DEBUGALLOC="+settings), env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

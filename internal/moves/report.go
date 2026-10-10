@@ -72,6 +72,8 @@ func (c *checker) howMoved(mv *move) string {
 		return "moved by the send on " + mv.to
 	case mvGo:
 		return "moved to the puroutine started"
+	case mvGoRecv:
+		return "moved to the puroutine started by go " + mv.to + "()"
 	case mvStore:
 		return "moved into " + mv.to
 	case mvDrop:
@@ -148,6 +150,8 @@ func (c *checker) useDiag(id *ast.Ident, v *types2.Var, s vstate) *diag.Diagnost
 	switch mv.kind {
 	case mvArg, mvGo:
 		what = "Passing an owner by value moves it"
+	case mvGoRecv:
+		what = "Starting a method of an owned box with go moves the box into the new puroutine, which drops it when the method returns,"
 	case mvRecv:
 		what = "Calling a method with a value receiver moves the receiver into the method"
 	case mvSend:
@@ -190,6 +194,8 @@ func (c *checker) useDiag(id *ast.Ident, v *types2.Var, s vstate) *diag.Diagnost
 			method = method[i+1:]
 		}
 		fixes = append(fixes, &diag.Fix{Intro: fmt.Sprintf("Declare %s with a pointer receiver so that calling it does not consume %s", method, name), Code: fmt.Sprintf("func (x *%s) %s(...)", c.typeName(T), method)})
+	case mvGoRecv:
+		fixes = append(fixes, &diag.Fix{Intro: fmt.Sprintf("To keep using %s while the puroutine runs, make it a synced box: the puroutine then takes a reference of its own", name), Code: fmt.Sprintf("%s := alloc.Synced[%s]()", name, boxElem(c, T))})
 	default:
 		if hasClone(T) {
 			fixes = append(fixes, &diag.Fix{Intro: fmt.Sprintf("If both need a value, move a copy at line %d", at), Code: name + ".Clone()"})
@@ -391,4 +397,13 @@ func (c *checker) indexDiag(e *ast.IndexExpr) *diag.Diagnostic {
 	d.Fix = &diag.Fix{Intro: "To look at the element, use a method that returns a pointer to it", Code: fmt.Sprintf("p := %s.Ptr(%s)", x, exprText(e.Index))}
 	d.More = []*diag.Fix{{Intro: "To move it out, use a method that removes or replaces it, or take it through such a pointer", Code: fmt.Sprintf("elem := take(%s.Ptr(%s))", x, exprText(e.Index))}}
 	return d
+}
+
+// boxElem names the type an owned box refers to, or the box type itself
+// for a type that is not a plain box.
+func boxElem(c *checker, T types2.Type) string {
+	if w, ok := types2.Unalias(T).Underlying().(*types2.Wrapper); ok && w.IsBox() {
+		return c.typeName(w.Elem())
+	}
+	return c.typeName(T)
 }

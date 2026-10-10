@@ -38,3 +38,39 @@ func TestBoxesLeakFree(t *testing.T) {
 		}
 	}
 }
+
+// TestBoxTasks runs the program that starts methods of owned and synced
+// boxes with go (language spec section 4.7) with the debug allocator and
+// its leak report on, at -O0 and -O2, with one, two and many processors: the
+// puroutine drops the owned box it was given, and the object of a synced
+// box is dropped once, by whoever holds the last reference.
+func TestBoxTasks(t *testing.T) {
+	testguard.Parallel(t)
+	const prog = "plutonium/gobox"
+	file := filepath.Join("..", "..", "testdata", prog)
+	src, err := os.ReadFile(file + ".p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(file + ".out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, level := range []int{0, 2} {
+		t.Run("O"+string(rune('0'+level)), func(t *testing.T) {
+			testguard.Parallel(t)
+			exe := buildDebugAlloc(t, string(src), level)
+			for _, procs := range []string{"1", "2", "24"} {
+				t.Run("procs"+procs, func(t *testing.T) {
+					testguard.Parallel(t)
+					for range 5 {
+						got, status := runDebugAlloc(t, exe, "", "PLUTO_MAXPROCS="+procs)
+						if status != 0 || got != string(want) {
+							t.Fatalf("exit status %d, output:\n%s\nwant:\n%s", status, got, want)
+						}
+					}
+				})
+			}
+		})
+	}
+}

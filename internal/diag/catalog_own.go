@@ -39,7 +39,7 @@ func init() {
 		},
 		&Entry{
 			Code: GoFrameView, Name: "GoFrameView",
-			Text:    "A go statement starts a puroutine that runs on its own, and may still be running after the function that started it returns. A view of that function's frame passed to it could then point at reclaimed memory.\nPass the value itself, which copies it, or moves it if it is an owner.",
+			Text:    "A go statement starts a puroutine that runs on its own, and may still be running after the function that started it returns. A view of that function's frame passed to it could then point at reclaimed memory.\nPass the value itself, which copies it, or moves it if it is an owner. To run a method of an owned or synced box on the new puroutine, start it directly (go p.Serve()): the puroutine then takes the box itself, so there is no view of the frame.",
 			Why:     whyFrame,
 			Spec:    pspec("6.3", "Views"),
 			Example: "go handle(&req)",

@@ -597,7 +597,9 @@ func (w *walker) goStmt(st *ast.GoStmt) {
 	if se, ok := ast.Unparen(e.Fun).(*ast.SelectorExpr); ok {
 		recv = se.X
 	}
-	w.sink(t.recv, ve(recv), "passes %s to a go statement", "")
+	if !w.goBoxReceiver(e, t) {
+		w.sink(t.recv, ve(recv), "passes %s to a go statement", "")
+	}
 	w.sink(t.fv, ve(e.Fun), "passes %s to a go statement", "")
 	// What the started function's parameters hold, for heap-only fields.
 	all := args
@@ -620,6 +622,20 @@ func (w *walker) goStmt(st *ast.GoStmt) {
 			w.a.passArgs(fv.f, fa)
 		}
 	}
+}
+
+// goBoxReceiver reports whether the go statement e calls a pointer method
+// of an owned or synced box (go p.Serve()): the box itself goes to the new
+// puroutine, which keeps the object alive until the method returns, so the
+// pointer into it is no view of this frame. A method that keeps its
+// receiver beyond that is checked as before.
+func (w *walker) goBoxReceiver(e *ast.CallExpr, t callTarget) bool {
+	se, ok := ast.Unparen(e.Fun).(*ast.SelectorExpr)
+	if !ok || t.static == nil {
+		return false
+	}
+	bw := types2.GoBoxReceiver(w.a.selections[se])
+	return bw != nil && bw.Kind() != types2.WrapShared && !t.static.keepsParam(0)
 }
 
 // argExprs returns, for each parameter of sig, the argument expression a

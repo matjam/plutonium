@@ -390,6 +390,7 @@ func (s *fnState) goStmt(st *ast.GoStmt) {
 	var sig *types2.Signature
 	var checkFunc *ssa.Value // a func value to check at run time
 	nlead := 0               // values before the arguments
+	boxRecv := false         // the receiver is the owned or synced box itself (go p.Serve())
 
 	if se, ok := fun.(*ast.SelectorExpr); ok {
 		if sel := s.info.Selections[se]; sel != nil && sel.Kind() == types2.MethodVal {
@@ -409,7 +410,21 @@ func (s *fnState) goStmt(st *ast.GoStmt) {
 				if !ok {
 					return
 				}
-				recv := s.materialize(s.methodReceiver(se.X, m, path))
+				var recv value
+				var boxElem types2.Type
+				if types2.GoBoxReceiver(sel) != nil && !isIfaceMethod(m) {
+					// The puroutine takes the box itself, which the type
+					// checker has made sendable: an owned box moves into
+					// it, a synced one is counted for it (language spec
+					// section 4.7). The thunk calls the method on the
+					// object, which the box's word points to, and drops
+					// the box when the method returns.
+					boxRecv = true
+					recv = s.materialize(s.hold(s.expr(se.X)))
+					boxElem = pointerElem(unwrap(recv.T))
+				} else {
+					recv = s.materialize(s.methodReceiver(se.X, m, path))
+				}
 				vals = append(vals, recv)
 				if isIfaceMethod(m) {
 					rT := recv.T
@@ -429,6 +444,9 @@ func (s *fnState) goStmt(st *ast.GoStmt) {
 					noReturn := s.l.isNoReturn(m)
 					emit = func(ts *fnState, in []value, pos token.Pos) {
 						r := in[0]
+						if boxRecv {
+							r = scalarValue(r.v, types2.NewPointer(boxElem))
+						}
 						ts.emitCall(callee{sym: sym, noReturn: noReturn}, full, &r, in[1:], pos)
 					}
 					vals = append(vals, s.callArgs(call, sig, def)...)
@@ -543,8 +561,19 @@ func (s *fnState) goStmt(st *ast.GoStmt) {
 			_, n, c := ts.sliceParts(last)
 			loaded[len(loaded)-1] = ts.makeSlice(ts.offPtr(p, varOff), n, c, last.T)
 		}
+		if boxRecv {
+			// The box moves from the argument block to a slot of this
+			// frame, so that it is dropped (or released) when the thunk
+			// returns, including when the method ends the puroutine with
+			// rt.Goexit.
+			slot := ts.frameSlot(args[0].v.T, "box")
+			ts.store(ssa.TPtr, slot, loaded[0].v)
+		}
 		emit(ts, loaded, pos)
-		for _, a := range args {
+		for i, a := range args {
+			if boxRecv && i == 0 {
+				continue
+			}
 			if ts.l.counted(a.v.T) {
 				ts.releaseAt(ts.offPtr(p, a.off), a.v.T)
 			}

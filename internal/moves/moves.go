@@ -215,6 +215,7 @@ const (
 	mvConv                        // converted to another owner type
 	mvMethodValue                 // bound into a method value
 	mvAssert                      // asserted out of an owning interface
+	mvGoRecv                      // the owned box a go statement calls a method of
 )
 
 // A move records where and how a variable's value left it.

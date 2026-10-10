@@ -1,0 +1,17 @@
+serve owned
+drop owned 1
+add temporary 5
+drop temporary 5
+leave owned-leave
+drop owned-leave 0
+serve synced
+serve synced
+serve synced
+add synced 10
+drop synced 13
+serve farm
+farm still holds farm 0
+drop farm 1
+leave synced-leave
+drop synced-leave 0
+end

@@ -441,6 +441,23 @@ runs. An argument of owner type is moved into the new puroutine, which drops it 
 `f` moves it on; a `synced` reference is copied (count +1). Arguments must be sendable (below), and a view
 of the spawning frame cannot be passed at all (section 6.3), since the puroutine may outlive the frame.
 
+- **A method of a box.** `go p.Serve()`, where `Serve` has a pointer receiver and `p` is an `owned[T]` or a
+  `synced[T]`, hands the box itself to the new puroutine, so the object lives as long as the puroutine needs
+  it and no view of the spawning frame is involved. An `owned[T]` moves into the puroutine, as an owner
+  argument does: `p` holds nothing afterwards (using it is the use-after-move error of section 6.4), and the
+  puroutine drops the box when `Serve` returns, or when `Serve` ends it with `rt.Goexit`. The receiver must be
+  a whole variable or a temporary, since an owner moves only out of a whole variable (`go newServer().Serve()`
+  is fine, `go s.box.Serve()` is not). A `synced[T]` is copied as an argument is: the new puroutine holds a
+  reference of its own, taken before it starts and released when the method returns, so the object is dropped
+  by whichever puroutine releases the last one and a field or element may be the receiver. A `shared[T]` is
+  not sendable (below): `go z.Serve()` is a compile error, as is a box whose `T` contains one. The
+  method must be one of `T`, not one promoted from a field, and the box type must not be a named type;
+  other receivers are pointers into the object, which the escape analysis (section 6.3) treats as views of the
+  frame. A method that keeps its receiver (stores it somewhere that outlives the puroutine) is rejected as
+  before. Starting a method value, `go f()` with `f := p.Serve`, remains an error, since the closure record
+  would live in the starting frame (below); so does passing it to `rt.Go`, `sync.WaitGroup.Go` or
+  `time.AfterFunc`.
+
 - Each puroutine has a fixed-size stack: stacks cannot grow or move, because nothing knows where the
   pointers into them are. A guard page below the stack turns an overflow into a fault, reported as a
   stack overflow with the puroutine's trace. The default size is 64 KiB; `rt.Go(f, size)` starts a
