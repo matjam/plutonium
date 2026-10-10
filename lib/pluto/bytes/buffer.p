@@ -141,8 +141,10 @@ func (b *Buffer) WriteRune(r rune) (n int, err error) {
 		return 0, ErrFull
 	}
 	m := len(b.buf)
-	b.buf = utf8.AppendRune(b.buf, r)
-	return len(b.buf) - m, nil
+	b.buf = b.buf[:m+need]
+	n = utf8.EncodeRune(b.buf[m:], r)
+	b.buf = b.buf[:m+n]
+	return n, nil
 }
 
 // Read reads the next len(p) bytes from the buffer or until the buffer is

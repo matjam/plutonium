@@ -4,6 +4,7 @@ package fmt
 
 import (
 	"pluto/strconv"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -42,7 +43,10 @@ func (p *printer) printFloat(f float64, bitSize int, verb rune) {
 	if (fmtc == 'e' || fmtc == 'E' || fmtc == 'f') && prec < 0 {
 		prec = 6
 	}
-	out := strconv.AppendFloat(buf[:1], f, fmtc, prec, bitSize)
+	// buf[0] is room for a sign the flags add.
+	fb := vec.NewFixed(buf[1:])
+	strconv.AppendFloat(&fb, f, fmtc, prec, bitSize)
+	out := buf[:1+fb.Len()]
 	// Sign handling: AppendFloat writes '-' for negatives; add + or space.
 	start := 1
 	if out[1] != '-' && out[1] != '+' {

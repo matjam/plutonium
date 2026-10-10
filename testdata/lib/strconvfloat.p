@@ -16,6 +16,7 @@ import (
 	"pluto/fmt"
 	"pluto/os"
 	"pluto/strconv"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -453,8 +454,9 @@ var fmtBuf [1024]byte
 // format returns FormatFloat(f, fmt, prec, bitSize), a view of fmtBuf that
 // is valid until the next call.
 func format(f float64, fmt byte, prec, bitSize int) string {
-	b := strconv.AppendFloat(fmtBuf[:0], f, fmt, prec, bitSize)
-	return unsafe.String(unsafe.SliceData(b), len(b))
+	b := vec.NewFixed(fmtBuf[:])
+	strconv.AppendFloat(&b, f, fmt, prec, bitSize)
+	return unsafe.String(&fmtBuf[0], b.Len())
 }
 
 func bitsOf(f float64) uint64     { return *(*uint64)(unsafe.Pointer(&f)) }
@@ -500,12 +502,13 @@ func testAtof() {
 
 // longInput builds head, n copies of fill, then tail, in buf.
 func longInput(buf []byte, head string, fill byte, n int, tail string) string {
-	b := append(buf[:0], head...)
+	b := vec.NewFixed(buf)
+	vec.AppendString(&b, head)
 	for i := 0; i < n; i++ {
-		b = append(b, fill)
+		b.Push(fill)
 	}
-	b = append(b, tail...)
-	return unsafe.String(unsafe.SliceData(b), len(b))
+	vec.AppendString(&b, tail)
+	return unsafe.String(unsafe.SliceData(buf), b.Len())
 }
 
 var longBuf [10100]byte
@@ -555,8 +558,9 @@ func testAtofRandom() {
 	for i := 0; i < 20000; i++ {
 		n := g.next()>>32<<32 | g.next()>>32
 		x := fromBits(n)
-		s := strconv.AppendFloat(buf[:0], x, 'g', -1, 64)
-		str := unsafe.String(unsafe.SliceData(s), len(s))
+		s := vec.NewFixed(buf[:])
+		strconv.AppendFloat(&s, x, 'g', -1, 64)
+		str := unsafe.String(&buf[0], s.Len())
 		y, _ := strconv.ParseFloat(str, 64)
 		if y != x && !(x != x && y != y) {
 			errorf("number %s badly parsed as %b (expected %b)", str, bitsOf(y), bitsOf(x))
@@ -642,9 +646,10 @@ func testTrailing() {
 		}
 		// Adding characters that do not extend a number invalidates the input.
 		for _, suffix := range [...]string{" ", "q", "+", "-", "<", "=", ">", "(", ")", "i", "init"} {
-			b := append(buf[:0], test.in...)
-			b = append(b, suffix...)
-			in := unsafe.String(unsafe.SliceData(b), len(b))
+			b := vec.NewFixed(buf[:])
+			vec.AppendString(&b, test.in)
+			vec.AppendString(&b, suffix)
+			in := unsafe.String(&buf[0], b.Len())
 			if _, err := strconv.ParseFloat(in, 64); err != ErrSyntax {
 				errorf("ParseFloat(%q, 64): err = %v; want ErrSyntax", in, err)
 			}
@@ -875,7 +880,10 @@ func testFtoa() {
 		if s != test.s {
 			errorf("testN=64 %v %c %d want %s got %s", test.f, test.fmt, test.prec, test.s, s)
 		}
-		x := strconv.AppendFloat(append(abc[:0], "abc"...), test.f, test.fmt, test.prec, 64)
+		xb := vec.NewFixed(abc[:])
+		vec.AppendString(&xb, "abc")
+		strconv.AppendFloat(&xb, test.f, test.fmt, test.prec, 64)
+		x := xb.Slice()
 		if len(x) != 3+len(test.s) || unsafe.String(unsafe.SliceData(x), 3) != "abc" || unsafe.String(unsafe.SliceData(x[3:]), len(x)-3) != test.s {
 			errorf("AppendFloat testN=64 %v %c %d want abc%s got %s", test.f, test.fmt, test.prec, test.s, unsafe.String(unsafe.SliceData(x), len(x)))
 		}

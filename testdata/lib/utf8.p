@@ -3,6 +3,7 @@ package main
 import (
 	"pluto/fmt"
 	"pluto/unicode/utf8"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -30,12 +31,18 @@ func main() {
 	}
 	runes := []rune{0, 'a', 0x7f, 0x80, 0x7ff, 0x800, 0xffff, 0x10000, 0x10ffff, 0x110000, -1, 0xd800, 0xdfff, 'é', '世'}
 	var buf [8]byte
-	out := make([]byte, 0, 128)
+	var mem [128]byte
+	out := vec.NewFixed(mem[:])
 	for _, r := range runes {
 		n := utf8.EncodeRune(buf[:], r)
-		out = utf8.AppendRune(out, r)
+		utf8.AppendRune(&out, r)
 		fmt.Printf("%d: len=%d enc=%d %x valid=%t\n", r, utf8.RuneLen(r), n, buf[:n], utf8.ValidRune(r))
 	}
-	fmt.Printf("%x\n", out)
+	fmt.Printf("%x %t\n", out.Slice(), out.Truncated())
+	var small [4]byte
+	f := vec.NewFixed(small[:])
+	utf8.AppendRune(&f, '世')
+	utf8.AppendRune(&f, 'é')
+	fmt.Printf("%x %t\n", f.Slice(), f.Truncated())
 	fmt.Printf("%t %t\n", utf8.RuneStart(0x80), utf8.RuneStart('a'))
 }

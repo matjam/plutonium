@@ -226,8 +226,10 @@ func (b *Builder) WriteRune(r rune) (int, error) {
 		b.grow(need)
 	}
 	n := len(b.buf)
-	b.buf = utf8.AppendRune(b.buf, r)
-	return len(b.buf) - n, nil
+	b.buf = b.buf[:n+need]
+	m := utf8.EncodeRune(b.buf[n:], r)
+	b.buf = b.buf[:n+m]
+	return m, nil
 }
 
 // WriteString appends the contents of s to b's buffer. It returns the
