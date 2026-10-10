@@ -7,6 +7,14 @@
 // LogOutputChannel, and a command line pluto lsp runs.
 //
 //   node test/lsp-client-check.js /path/to/pluto
+//   node test/lsp-client-check.js --search
+//
+// With a path, plutonium.plutoPath is set to it, and the check also starts
+// that pluto from a fake HOME's go/bin with plutonium.plutoPath unset and
+// PATH, GOBIN and GOPATH leading nowhere. With --search the setting is
+// left unset throughout, so the extension finds pluto itself in the real
+// environment: run it with a PATH that lacks the Go bin directory to check
+// that an editor started that way still finds an installed pluto.
 //
 // It needs the extension's npm dependencies (npm ci) and exits with status
 // 3 when they are missing.
@@ -18,9 +26,10 @@ const os = require('os');
 const path = require('path');
 const { LogLevel, createOutputChannel } = require('./fake-output');
 
-const pluto = process.argv[2];
-if (!pluto) {
-  console.error('usage: lsp-client-check.js /path/to/pluto');
+const search = process.argv[2] === '--search';
+let pluto = search ? null : process.argv[2];
+if (!pluto && !search) {
+  console.error('usage: lsp-client-check.js /path/to/pluto | --search');
   process.exit(2);
 }
 try {
@@ -36,7 +45,7 @@ fs.writeFileSync(path.join(dir, 'pluto.mod'), 'module example.com/check\n');
 // keep that inside the check's directory. The server inherits it.
 process.env.XDG_CACHE_HOME = path.join(dir, 'cache');
 
-const settings = { plutoPath: pluto };
+const settings = search ? {} : { plutoPath: pluto };
 const messages = [];
 const folderUri = { scheme: 'file', fsPath: dir, path: dir, toString: () => `file://${dir}` };
 
@@ -144,6 +153,12 @@ async function main() {
   const proc = server.client.serverProcess;
   assert.ok(proc && proc.pid, 'pluto lsp is running');
   assert.deepStrictEqual(proc.spawnargs.slice(1), ['lsp']);
+  if (search) {
+    pluto = proc.spawnfile;
+    console.log(`found ${pluto} with PATH=${process.env.PATH}`);
+  }
+  assert.strictEqual(proc.spawnfile, pluto);
+  assert.ok(output.lines.includes(`info: Using pluto at ${pluto}`), `the path is logged:\n${output.lines.join('\n')}`);
   // The server logs "initialized" before it answers initialize.
   assert.ok(output.lines.some((l) => l.startsWith('info: msg=initialized ')), `pluto's log is info:\n${output.lines.join('\n')}`);
   assert.ok(output.lines.includes(`info: Started ${pluto} lsp`));
@@ -180,9 +195,48 @@ async function main() {
   assert.strictEqual(missing.running, false);
   const ours = messages.filter(([, m]) => m.startsWith('Plutonium:'));
   assert.strictEqual(ours.length, 1, `one message from the extension: ${JSON.stringify(messages)}`);
-  assert.match(ours[0][1], /cannot start the language server: .*no-such-pluto was not found/);
+  assert.match(ours[0][1], /cannot start the language server: .*no-such-pluto \(plutonium.plutoPath\) was not found/);
+  messages.length = 0;
+
+  if (!search) {
+    await checkGoBin(lsp);
+  }
 
   console.log('ok: vscode-languageclient runs pluto lsp');
+}
+
+// checkGoBin starts pluto from a fake HOME's go/bin with plutonium.plutoPath
+// unset and nothing on PATH, GOBIN or GOPATH, as for an editor started from
+// a desktop launcher whose PATH lacks ~/go/bin; then, with that pluto gone,
+// checks that the message says where it looked.
+async function checkGoBin(lsp) {
+  const home = path.join(dir, 'home');
+  const installed = path.join(home, 'go', 'bin', 'pluto');
+  fs.mkdirSync(path.dirname(installed), { recursive: true });
+  fs.symlinkSync(path.resolve(pluto), installed);
+  delete settings.plutoPath;
+  process.env.PATH = path.join(dir, 'empty');
+  process.env.HOME = home;
+  delete process.env.GOBIN;
+  delete process.env.GOPATH;
+
+  const output = createOutputChannel('Plutonium', { log: true });
+  const server = new lsp.LanguageServer(output);
+  await server.start();
+  assert.ok(server.running, `the server runs; output:\n${output.lines.join('\n')}`);
+  assert.strictEqual(server.client.serverProcess.spawnfile, installed);
+  assert.ok(output.lines.includes(`info: Using pluto at ${installed}`));
+  assert.ok(output.lines.includes(`info: Started ${installed} lsp`));
+  await server.stop();
+  assert.deepStrictEqual(messages, [], 'no notifications');
+
+  fs.rmSync(installed);
+  const missing = new lsp.LanguageServer(createOutputChannel('Plutonium', { log: true }));
+  await missing.start();
+  assert.strictEqual(missing.running, false);
+  assert.strictEqual(messages.length, 1);
+  assert.strictEqual(messages[0][1], 'Plutonium: cannot start the language server: ' +
+    `pluto was not found on PATH or at ${installed}. Install pluto or set plutonium.plutoPath.`);
 }
 
 main().then(() => {

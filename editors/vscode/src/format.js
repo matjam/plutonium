@@ -33,17 +33,20 @@ function register(context, output) {
         input: text,
         timeoutMs: config.get('formatTimeout', 10000),
         token,
+        output,
       });
     } catch (err) {
       if (err.cancelled) {
         return [];
       }
       if (err.code === 'ENOENT') {
-        output.error(`pluto fmt: cannot run ${err.command}: not found. Install pluto or set plutonium.plutoPath.`);
+        // resolvePluto's message says where it looked; a pluto that went
+        // away after it was found is reported by its path.
+        const msg = err.notFound ? err.message : `${err.command} was not found. Install pluto or set plutonium.plutoPath.`;
+        output.error(`pluto fmt: cannot run pluto: ${msg}`);
         if (!warnedMissing) {
           warnedMissing = true;
-          vscode.window.showErrorMessage(
-            `Plutonium: cannot format, ${err.command} was not found. Install pluto or set plutonium.plutoPath.`);
+          vscode.window.showErrorMessage(`Plutonium: cannot format: ${msg}`);
         }
       } else {
         output.error(`pluto fmt: ${err.message}`);
