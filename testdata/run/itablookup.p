@@ -22,24 +22,24 @@ type f struct{ x, y, z int }
 type g string
 type h uint8
 
-func (a) Name() string    { return "a" }
-func (a) Size() int       { return 1 }
-func (b) Name() string    { return "b" }
-func (c) Size() int       { return 3 }
-func (c) Weight() int     { return 30 }
-func (d) Name() string    { return "d" }
-func (d) Size() int       { return 4 }
-func (d) Weight() int     { return 40 }
-func (e) Shout() string   { return "E!" }
-func (e) Name() string    { return "e" }
-func (f) Size() int       { return 6 }
-func (f) Name() string    { return "f" }
-func (f) Shout() string   { return "F!" }
-func (g) Weight() int     { return 70 }
-func (h) Name() string    { return "h" }
-func (*h) Shout() string  { return "H!" }
-func (*a) Weight() int    { return 10 }
-func (*b) Size() int      { return 2 }
+func (a) Name() string   { return "a" }
+func (a) Size() int      { return 1 }
+func (b) Name() string   { return "b" }
+func (c) Size() int      { return 3 }
+func (c) Weight() int    { return 30 }
+func (d) Name() string   { return "d" }
+func (d) Size() int      { return 4 }
+func (d) Weight() int    { return 40 }
+func (e) Shout() string  { return "E!" }
+func (e) Name() string   { return "e" }
+func (f) Size() int      { return 6 }
+func (f) Name() string   { return "f" }
+func (f) Shout() string  { return "F!" }
+func (g) Weight() int    { return 70 }
+func (h) Name() string   { return "h" }
+func (*h) Shout() string { return "H!" }
+func (*a) Weight() int   { return 10 }
+func (*b) Size() int     { return 2 }
 
 func describe(v any) {
 	n := 0

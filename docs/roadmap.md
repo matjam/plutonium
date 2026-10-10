@@ -193,7 +193,8 @@ later takes the next free number and is listed in the section where it belongs.
     into `Drop`; add `strings.Buf`, the owning string buffer (`NewBuf(a)`, a zero value that allocates
     on first write, `String()` and `Bytes()` views, `Clone`), with `strings.Builder` merged into it; make
     `os.File` an owner returned by value from `Open`, `Create` and `OpenFile` that closes on drop; add
-    `Clone` to `Vec`, `Map` and `Buf`.
+    `Clone` to `Vec`, `Map` and `Buf`. `arena.Chunked` (item 53) already releases through `Drop`;
+    declaring it `owner` is a one-line change to its type declaration.
 52. **The `pu` mirror package for self-hosting** (planned): a Go package `pu` with `Map`, `Vec`, `Buf` and
     the other library owners, mirroring the Plutonium API, which the compiler's Go sources migrate to so
     that go2pu translates them one to one. Specified as an amendment in
@@ -214,3 +215,8 @@ later takes the next free number and is listed in the section where it belongs.
       parser's limit) and calls `Config.StackCheck`, the hook the self-hosted compiler points at
       `rt.StackLeft`, every 16 levels. Tested by `testdata/lib/mainstack.p`, `build.TestMainStack*` and
       `types2.TestNestingLimit`.
+    - Growable arenas (done): `arena.Chunked` takes chunks from a parent allocator, keeps standard chunks
+      for reuse across `Reset` and `Release(Mark())`, returns oversized ones at once, frees everything
+      on `Drop` (spares alone on `Trim`), can poison released memory, and is an `alloc.Allocator`. It is
+      an owner by convention until the `owner` keyword lands (item 51). Tested by
+      `testdata/lib/chunked.p` and `build.TestChunkedMisuse`.
