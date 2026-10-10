@@ -28,11 +28,16 @@ type walker struct {
 	tracked map[*types2.Var]bool // locals followed along the control flow
 	env     env                  // what they hold at the current point
 	targets []*flowTarget        // enclosing breakable statements
+
+	loops   []*loopInfo                 // the loops of the function, in source order
+	loopOf  map[ast.Stmt]*loopInfo      // by statement
+	litList []*ast.FuncLit              // the function literals in the function
+	pending map[pendingKey]pendingStore // views of loop storage given to tracked locals
 }
 
 type tmpKey struct {
 	node ast.Node
-	kind string
+	kind locKind
 }
 
 func newWalker(a *analyzer, f *function) *walker {
@@ -48,19 +53,12 @@ func newWalker(a *analyzer, f *function) *walker {
 	if f.decl != nil {
 		w.top.node = f.decl
 		w.computeTracked(f.decl)
+		w.computeLoops(f.decl)
 	} else {
 		w.tracked = map[*types2.Var]bool{}
+		w.computeLoops(nil)
 	}
 	return w
-}
-
-// errorf reports an escape. A non-empty key makes it one error per key in
-// this function.
-func (w *walker) errorf(pos token.Pos, key string, format string, args ...any) {
-	if key != "" {
-		key = fmt.Sprintf("%p|%s", w.f, key)
-	}
-	w.a.errorf(pos, key, format, args...)
 }
 
 func (w *walker) run() {
@@ -81,12 +79,25 @@ func (w *walker) run() {
 func (w *walker) bindParams(sc *scope) {
 	for i, p := range sc.fn.params {
 		l := w.paramLoc(p, sc)
-		if hasPointers(p.Type()) {
-			if w.isTracked(p) {
-				w.setVar(l, tset{paramTok(sc, i)})
-			} else {
-				w.addContents(l, tset{paramTok(sc, i)})
+		if !hasPointers(p.Type()) {
+			continue
+		}
+		switch s, isStruct := underlying(p.Type()).(*types2.Struct); {
+		case w.isTracked(p):
+			w.setVar(l, tset{paramTok(sc, i)})
+		case isStruct:
+			// Each field of a struct parameter holds the caller's pointers
+			// for that field only, so that a call can tell them apart
+			// (walkParam).
+			for fi := 0; fi < s.NumFields(); fi++ {
+				if hasPointers(s.Field(fi).Type()) {
+					if l.put(fieldStep(fi), tset{paramTok(sc, i).extend(fieldStep(fi))}) {
+						w.grew = true
+					}
+				}
 			}
+		default:
+			w.addContents(l, tset{paramTok(sc, i)})
 		}
 	}
 	res := sc.fn.sig.Results()
@@ -96,10 +107,10 @@ func (w *walker) bindParams(sc *scope) {
 			if v.Name() != "" {
 				sc.named = true
 				l := w.paramLoc(v, sc)
-				l.desc = "a pointer to result " + v.Name()
+				l.kind = lkResult
 				sc.results = append(sc.results, l)
 			} else {
-				sc.results = append(sc.results, &loc{desc: fmt.Sprintf("result %d", i+1), level: sc.level})
+				sc.results = append(sc.results, &loc{kind: lkResultN, v: v, fn: w.scopeName(sc), level: sc.level})
 			}
 		}
 	}
@@ -109,11 +120,7 @@ func (w *walker) paramLoc(v *types2.Var, sc *scope) *loc {
 	if l := w.locs[v]; l != nil {
 		return l
 	}
-	name := v.Name()
-	if name == "" || name == "_" {
-		name = "(unnamed)"
-	}
-	l := &loc{desc: "a pointer to parameter " + name, level: sc.level, hint: hintLocal, typ: v.Type()}
+	l := &loc{kind: lkParam, v: v, fn: w.scopeName(sc), pos: v.Pos(), level: sc.level, typ: v.Type()}
 	w.locs[v] = l
 	return l
 }
@@ -128,7 +135,11 @@ func (w *walker) finishScope(sc *scope) {
 		end = sc.node.End() - 1
 	}
 	for k, l := range sc.results {
-		w.returnVal(sc, k, l.get(""), end)
+		var expr ast.Expr
+		if l.v != nil {
+			expr = &ast.Ident{NamePos: end, Name: l.v.Name()}
+		}
+		w.returnVal(sc, k, l.get(""), end, expr)
 	}
 }
 
@@ -199,7 +210,7 @@ func (w *walker) labeled(st ast.Stmt, label string) {
 		w.env = join(after, w.env)
 	case *ast.ForStmt:
 		w.stmt(st.Init)
-		w.loop(label, func() {
+		w.loop(label, st, func() {
 			if st.Cond != nil {
 				w.value(st.Cond)
 			}
@@ -247,9 +258,9 @@ func (w *walker) labeled(st ast.Stmt, label string) {
 		if ch, ok := w.typeOf(st.Chan).Underlying().(*types2.Chan); ok {
 			v = w.conv(v, w.typeOf(st.Value), ch.Elem(), st.Value)
 		}
-		w.sink(v, st.Arrow, "is sent on a channel", "sends %s on a channel", "")
+		w.sink(v, &viewErr{sink: sinkSend, pos: st.Arrow, expr: st.Value, ch: st.Chan, fn: w.scopeName(w.sc)}, "sends %s on a channel", "")
 	default:
-		w.errorf(st.Pos(), "","escape analysis: unsupported statement %T", st)
+		w.a.internalf(st.Pos(), "unsupported statement %T", st)
 	}
 }
 
@@ -319,12 +330,15 @@ func (w *walker) assignTo(lhs ast.Expr, val tset, from types2.Type, node ast.Nod
 	}
 	to := w.lhsType(lhs)
 	val = w.conv(val, from, to, node)
+	src, _ := node.(ast.Expr)
 	if id, ok := ast.Unparen(lhs).(*ast.Ident); ok {
 		if v, ok := w.objOf(id).(*types2.Var); ok && w.isTracked(v) {
 			if !hasPointers(to) {
 				val = nil
 			}
-			w.setVar(w.varLoc(v), val)
+			l := w.varLoc(v)
+			w.noteTracked(l, val, pos, dest{text: id.Name, src: src})
+			w.setVar(l, val)
 			return
 		}
 	}
@@ -332,7 +346,9 @@ func (w *walker) assignTo(lhs ast.Expr, val tset, from types2.Type, node ast.Nod
 	if !ok || !hasPointers(to) {
 		return
 	}
-	w.store(target, val, pos, w.destOf(lhs))
+	d := w.destOf(lhs)
+	d.src = src
+	w.store(target, val, pos, d)
 }
 
 // lhsType returns the type of an assignment's left-hand side, which for a
@@ -363,7 +379,7 @@ func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
 	case *types2.Chan:
 		key, keyT = tset{heapTok}, u.Elem()
 	}
-	w.loop(label, func() {
+	w.loop(label, st, func() {
 		for _, kv := range []struct {
 			e ast.Expr
 			v tset
@@ -428,27 +444,35 @@ func (w *walker) returnStmt(st *ast.ReturnStmt) {
 	}
 	for k := 0; k < len(vals) && k < res.Len(); k++ {
 		var node ast.Node = st
+		var expr ast.Expr
 		if k < len(st.Results) {
-			node = st.Results[k]
+			node, expr = st.Results[k], st.Results[k]
+		} else if len(st.Results) == 1 {
+			expr = st.Results[0]
 		}
 		v := w.conv(vals[k], types[k], res.At(k).Type(), node)
 		if !hasPointers(res.At(k).Type()) {
 			continue
 		}
-		w.returnVal(sc, k, v, st.Pos())
+		pos := st.Pos()
+		if expr != nil {
+			pos = expr.Pos()
+		}
+		w.returnVal(sc, k, v, pos, expr)
 		if sc.named {
 			w.addContents(sc.results[k], v)
 		}
 	}
 }
 
-// returnVal applies the return rule to what result k of scope sc holds.
-func (w *walker) returnVal(sc *scope, k int, v tset, pos token.Pos) {
+// returnVal applies the return rule to what result k of scope sc holds; expr
+// is the result as written, if known.
+func (w *walker) returnVal(sc *scope, k int, v tset, pos token.Pos, expr ast.Expr) {
 	for _, t := range v {
 		switch t.kind {
 		case tFrame:
 			if t.loc.level >= sc.level {
-				w.errorf(pos, fmt.Sprintf("ret|%p", t.loc), "%s escapes: it is returned from %s%s", t.loc.desc, w.scopeName(sc), t.loc.hintText())
+				w.report(&viewErr{sink: sinkReturn, pos: pos, expr: expr, l: t.loc, fn: w.scopeName(sc)}, fmt.Sprintf("ret|%p", t.loc))
 			} else if sc.outerRet.add(t.untag()) {
 				// A literal returning something of an enclosing frame.
 				w.grew = true
@@ -478,6 +502,47 @@ func (w *walker) scopeName(sc *scope) string {
 }
 
 func (w *walker) goStmt(st *ast.GoStmt) {
-	all := w.callOperands(st.Call)
-	w.sink(all, st.Pos(), "is passed to a go statement, whose puroutine may outlive this frame", "passes %s to a go statement", "")
+	e := st.Call
+	ve := func(x ast.Expr) *viewErr {
+		return &viewErr{sink: sinkGo, pos: st.Pos(), expr: x, call: e, fn: w.scopeName(w.sc)}
+	}
+	if tv := w.a.types[e.Fun]; tv.IsBuiltin() || tv.IsType() {
+		w.sink(union(w.call(e)...), ve(nil), "passes %s to a go statement", "")
+		return
+	}
+	t := w.target(e)
+	if t.ring != nil {
+		w.ringCall(e, t)
+		return
+	}
+	args := w.args(e, t.sig)
+	exprs := argExprs(e, t.sig)
+	for i, a := range args {
+		w.sink(a, ve(exprs[i]), "passes %s to a go statement", "")
+	}
+	recv := e.Fun
+	if se, ok := ast.Unparen(e.Fun).(*ast.SelectorExpr); ok {
+		recv = se.X
+	}
+	w.sink(t.recv, ve(recv), "passes %s to a go statement", "")
+	w.sink(t.fv, ve(e.Fun), "passes %s to a go statement", "")
+}
+
+// argExprs returns, for each parameter of sig, the argument expression a
+// call passes for it, or nil where several are packed into a variadic
+// parameter.
+func argExprs(e *ast.CallExpr, sig *types2.Signature) []ast.Expr {
+	n := sig.Params().Len()
+	out := make([]ast.Expr, n)
+	if len(e.Args) == 1 && n > 1 {
+		return out // f(g()) with several results
+	}
+	variadic := sig.Variadic() && !e.Ellipsis.IsValid()
+	for i, a := range e.Args {
+		if i >= n || (variadic && i >= n-1) {
+			break
+		}
+		out[i] = a
+	}
+	return out
 }

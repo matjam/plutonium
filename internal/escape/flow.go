@@ -282,9 +282,11 @@ func (w *walker) clauses(label string, list []ast.Stmt, clause func(ast.Stmt) []
 	w.popTarget()
 }
 
-// loop walks a loop body until the envs at its head stop changing. body
-// walks one iteration from the head; cond, if any, runs at the head.
-func (w *walker) loop(label string, head func(), body func()) {
+// loop walks the body of loop st until the envs at its head stop changing.
+// body walks one iteration from the head; head, if any, runs at the head.
+// Where the next iteration starts, the tracked locals may not hold views
+// of the iteration's storage (loops.go).
+func (w *walker) loop(label string, st ast.Stmt, head func(), body func()) {
 	entry := w.env
 	t := w.pushTarget(label, true)
 	at := entry.clone()
@@ -296,7 +298,9 @@ func (w *walker) loop(label string, head func(), body func()) {
 		afterHead := w.env
 		t.conts = nil
 		body()
-		next := join(entry, join(w.env, t.conts))
+		back := join(w.env, t.conts)
+		w.checkBackEdge(w.loopOf[st], back)
+		next := join(entry, back)
 		if envEqual(next, at) || i > 20 {
 			w.env = join(afterHead, t.breaks)
 			break

@@ -21,23 +21,39 @@ func Default() Allocator { return rt.DefaultAllocator() }
 // SetDefault replaces the default allocator for all later allocations.
 func SetDefault(a Allocator) { rt.SetDefaultAllocator(a) }
 
-// A Restore puts back the allocator that was the default before Use.
-type Restore struct {
+// A Restore puts back the allocator that was the default before Use. It is
+// an owner: dropping it puts the previous allocator back, so the allocator
+// Use installed is the default only while the Restore lives.
+type Restore owner struct {
 	prev Allocator
+	cur  Allocator // the allocator Use installed; nil once restored
 }
 
-// Use makes a the default allocator until the returned Restore's Restore
-// method is called:
+// Use makes a the default allocator until the returned Restore is dropped,
+// or its Restore method is called:
 //
 //	defer alloc.Use(arena).Restore()
+//
+// a may be a local arena: the Restore holds a, so the compiler checks that
+// the Restore does not outlive it (language spec section 7.1).
+//
+//pu:resultholds a
 func Use(a Allocator) Restore {
-	r := Restore{prev: Default()}
+	r := Restore{prev: Default(), cur: a}
 	SetDefault(a)
 	return r
 }
 
-// Restore reinstates the previous default allocator.
-func (r Restore) Restore() { SetDefault(r.prev) }
+// Restore reinstates the previous default allocator. It consumes r.
+func (r Restore) Restore() { r.Drop() }
+
+// Drop reinstates the previous default allocator, if r still holds one.
+func (r *Restore) Drop() {
+	if r.cur != nil {
+		SetDefault(r.prev)
+		r.cur = nil
+	}
+}
 
 // New allocates a zeroed T from a, by default the default allocator. T may
 // be an owner: the memory itself has no owner until the caller gives it one
@@ -130,9 +146,15 @@ const (
 // A Slab is a size-class allocator. Requests up to 2048 bytes come from
 // per-class free lists refilled a chunk of pages at a time; larger requests
 // go straight to the page provider. It is not safe for concurrent use.
+//
+// The free lists link free slots through their first word. The links are
+// addresses of memory nobody owns, not references the program holds, so
+// they are kept as uintptr: the compiler's escape analysis (language spec
+// section 6.3) then does not count a slot handed back to Free as kept, nor
+// the free list as something a freed slot points to.
 type Slab struct {
 	pages PageProvider
-	free  [numClasses]unsafe.Pointer
+	free  [numClasses]uintptr
 }
 
 // NewSlab returns a slab allocator drawing pages from pages.
@@ -168,16 +190,15 @@ func (s *Slab) Alloc(size, align uintptr) unsafe.Pointer {
 		return s.pages.AllocPages((size + PageSize - 1) / PageSize)
 	}
 	c := classOf(size, align)
-	p := s.free[c]
-	if p == nil {
+	if s.free[c] == 0 {
 		s.refill(c)
-		p = s.free[c]
-		if p == nil {
+		if s.free[c] == 0 {
 			return nil
 		}
 	}
-	s.free[c] = *(*unsafe.Pointer)(p)
-	*(*unsafe.Pointer)(p) = nil // the rest of the slot is already zero
+	p := unsafe.Pointer(s.free[c])
+	s.free[c] = *(*uintptr)(p)
+	*(*uintptr)(p) = 0 // the rest of the slot is already zero
 	if genCheck {
 		return genTag(p)
 	}
@@ -205,8 +226,8 @@ func (s *Slab) Free(p unsafe.Pointer, size, align uintptr) {
 	// Zero the slot so Alloc can hand it out without clearing.
 	b := unsafe.Slice((*byte)(p), slot)
 	clear(b)
-	*(*unsafe.Pointer)(p) = s.free[c]
-	s.free[c] = p
+	*(*uintptr)(p) = s.free[c]
+	s.free[c] = uintptr(p)
 }
 
 func (s *Slab) refill(c int) {
@@ -224,11 +245,11 @@ func (s *Slab) refill(c int) {
 	slot := uintptr(1) << (minClassShift + c)
 	n := chunkPages * PageSize / slot
 	// Thread the new slots onto the free list in address order.
-	var head unsafe.Pointer
+	var head uintptr
 	for i := n; i > first; i-- {
 		p := unsafe.Add(chunk, (i-1)*slot)
-		*(*unsafe.Pointer)(p) = head
-		head = p
+		*(*uintptr)(p) = head
+		head = uintptr(p)
 	}
 	s.free[c] = head
 }

@@ -77,8 +77,19 @@ const (
 	ToolNotFound      Code = "E5008" // as, ld or cc is not installed
 )
 
-// Ownership and lifetimes: E3000-E3999, reserved for the ownership and
-// escape checks.
+// Ownership and lifetimes: E3000-E3999. Views of a frame that outlive it
+// (internal/escape) are E3001-E3099; the ownership checks after type
+// checking are E3100-E3199; the type checker's own ownership errors are
+// in internal/types2/errors from E3200.
+const (
+	ReturnFrameView  Code = "E3001" // a function returns a view of its own frame
+	StoreFrameView   Code = "E3002" // a view of the frame stored where it outlives the frame
+	PassFrameView    Code = "E3003" // a view of the frame passed to a function that keeps it
+	GoFrameView      Code = "E3004" // a view of the frame passed to a go statement
+	SendFrameView    Code = "E3005" // a view of the frame sent on a channel
+	LoopFrameView    Code = "E3006" // a view of a loop's variables kept beyond the iteration
+	BadResultHolds   Code = "E3007" // a //pu:resultholds directive that does not match the function
+)
 
 // Errors in the compiler itself.
 const (

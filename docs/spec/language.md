@@ -213,6 +213,38 @@ therefore valid only while the enclosing function is running:
 
 A function literal that captures nothing is an ordinary function value and may be used anywhere.
 
+**Loop variables.** Go gives each iteration of a loop its own copies of the variables the loop declares,
+so a closure made in one iteration keeps seeing that iteration's values. Plutonium cannot: the copies would
+need memory for every iteration, and closures refer to variables where they live, in the frame, which has
+room for one copy of each. Every iteration of a loop reuses the same memory for the variables declared in
+its header (`for i := ...`, `for k, v := range ...`) and its body, and for the temporaries its body makes.
+A view of that memory (a closure that uses one of those variables, `&x`, a slice of a local array) is
+therefore valid for one iteration:
+
+- Using it within the iteration (calling the closure, passing the pointer down, storing it in a variable
+  declared in the body) is allowed, and behaves exactly as in Go.
+- Keeping it where the next iteration can see it is a compile error (section 6.9): in a variable, array
+  element or field declared outside the loop body or in the loop's header, or anywhere a view of the frame
+  may not go at all (returned, sent, stored on the heap). A local variable whose address is never taken is
+  checked where the next iteration starts, so keeping the view and then leaving the loop with `break` or
+  `return` is allowed.
+- A closure that uses only variables declared outside the loop holds the same addresses in every
+  iteration and may be kept.
+- Copying the variable into one declared in the body (`i := i`) does not help, since that copy is reused
+  too. Call the closure within the iteration, store values instead of closures or pointers, or pass the
+  value to the closure as a parameter when it is called.
+
+```go
+var first func() int
+for i := 0; i < 3; i++ {
+	f := func() int { return i * 10 }
+	println(f())   // allowed: used within the iteration
+	if i == 0 {
+		first = f  // compile error: the next iteration reuses i
+	}
+}
+```
+
 A capturing closure is a view of the enclosing frame (section 6.3). Captured owners stay where they are
 declared:
 
@@ -701,10 +733,11 @@ Plutonium has no garbage collector, so every piece of memory a program uses has 
 and the owner is visible in the program's types. Every type is one of three kinds:
 
 - **Values** are copied on assignment, exactly as in Go: integers, floats, booleans, enums, packed types,
-  arrays `[N]T` of values, and structs made only of values.
-- **Views** look at memory that something else owns: `string`, `[]T` and `*T`, built into the language. A
-  view never owns or frees anything. Creating, copying and passing views is free, and a view may not
-  outlive what it looks at.
+  strings, arrays `[N]T` of values, and structs made only of values. A `string` is immutable and counts
+  the references to its bytes, so copying one is safe anywhere (section 6.2).
+- **Views** look at memory that something else owns: `[]T` and `*T`, built into the language. A view
+  never owns or frees anything. Creating, copying and passing views is free, and a view may not outlive
+  what it looks at.
 - **Owners** hold memory or another resource and release it when they are dropped. They are types
   declared with `owner`, such as `vec.Vec[T]`, `hash.Map[K, V]`, `strings.Buf`, `os.File` and the
   built-in box `owned[T]`. Assigning an owner **moves** it to the new place; copies are made only by
@@ -743,7 +776,7 @@ is copied, what is shared and where it lives.
 
 Plutonium separates the three jobs so that each type does one:
 
-- a view only looks: `[]T`, `string`, `*T`;
+- a view only looks: `[]T`, `*T`;
 - an owner only owns: `vec.Vec[T]`, `hash.Map[K, V]`, `strings.Buf`;
 - a value is only bits.
 
@@ -769,15 +802,23 @@ A struct or array that contains a counted reference (`shared[T]`, `synced[T]`, `
 and no owner, also copies; copying it updates each count, and dropping it releases each reference
 (section 6.5). It needs no declaration, since assignment still copies.
 
+A `string` is a value of this kind. Its bytes never change, and they count their references: a string
+literal is static and uncounted, a string made at run time (by `+`, a conversion from `[]byte`, or
+`fmt.Sprintf`) owns its bytes with a count, copying a string increments it, a substring shares the
+bytes, and dropping a string decrements it. A struct holding strings copies as any value does; the
+compiler releases its strings where the struct is destroyed. Strings are not owners and never move, and
+they may cross puroutines. The one exception is `unsafe.String(p, n)`, which makes an uncounted string
+over memory something else owns: it is a view, and follows the rules of section 6.3.
+
 ### 6.3 Views
 
-`string`, `[]T` and `*T` are views. So are `unsafe.Pointer`, and the frame-bound values of sections 4.4
-and 4.5: a capturing closure, a method value, and an interface holding a frame copy or a lent owner. A
-struct or array that contains a view, and no owner, is a view too: it copies freely and must not outlive
-what any of its views look at.
+`[]T` and `*T` are views. So are `unsafe.Pointer`, a string made by `unsafe.String`, and the frame-bound
+values of sections 4.4 and 4.5: a capturing closure, a method value, and an interface holding a frame copy
+or a lent owner. A struct or array that contains a view, and no owner, is a view too: it copies freely and
+must not outlive what any of its views look at.
 
-1. **Views are free.** `&x`, `s[i:j]`, `b.String()`, `v.Slice()` and copying or passing any of them cost
-   nothing beyond the words copied. A view never frees anything; dropping one does nothing.
+1. **Views are free.** `&x`, `s[i:j]`, `v.Slice()` and copying or passing any of them cost nothing beyond
+   the words copied. A view never frees anything; dropping one does nothing.
 2. **`&x` is a view of `x` where `x` lives.** Where a variable lives is decided by its declaration, never
    by how it is used later: a local variable or parameter lives in its function's frame, a package
    variable in static storage, a field in its struct, an element in its array. Plutonium never moves a
@@ -785,7 +826,7 @@ what any of its views look at.
    is a compile error (section 6.9) whose message shows the two fixes: return `x` itself, which moves or
    copies it to the caller, or allocate it with `new`.
 3. **Passing a view down is always allowed.** A callee's frame ends before its caller's, so `f(&x)`,
-   `f(buf[:n])` and `f(b.String())` are valid whatever `x`, `buf` and `b` are. The callee may return a view
+   `f(buf[:n])` and `f(v.Slice())` are valid whatever `x`, `buf` and `v` are. The callee may return a view
    derived from its parameters (`return s[4:]`), since the caller's memory outlives the call.
 4. **A view may not outlive what it looks at.** How this is checked depends on where the memory is:
    - **Frame memory** is checked at compile time. A view of a frame (of a local, of a temporary, of a
@@ -798,13 +839,14 @@ what any of its views look at.
      the last case needs no annotation; calls through interfaces and function values are checked against
      every possible callee.
    - **A local owner's memory** is treated like the frame. A view obtained from an owner held in a local
-     variable (`b.String()`, `v.Slice()`, `&m`) follows the frame rules above, and in addition may not be
-     used after that variable has been moved, dropped or given a new value in the same function. A view of
-     a temporary owner (`fmt.Sprintf(...).String()`) may not outlive the statement (section 6.4).
+     variable (`v.Slice()`, `&m`) follows the frame rules above, and in addition may not be used after
+     that variable has been moved, dropped or given a new value in the same function. A view of a
+     temporary owner (`vec.New[int]().Slice()`) may not outlive the statement (section 6.4).
    - **Heap memory** reached any other way is checked at run time by generation checks: a view whose
      allocation has since been freed, or reallocated by a growing owner, faults when it is used instead of
-     reading freed memory. The design is in progress (roadmap item 20); until it lands such a view is
-     unchecked, as in C, and the debug allocator (section 7.3) catches its use.
+     reading freed memory. A prototype is built with `pluto build --gencheck` (hosted builds only); the
+     design and its measured cost are in docs/plans/2026-10-09-memory-safety-design.md. Without it such a
+     view is unchecked, as in C, and the debug allocator (section 7.3) catches its use.
    - **Static memory, and memory nobody in the program owns** (string literals, package variables, device
      registers, memory made from a `uintptr`) is never freed, so views of it have no limit.
 
@@ -813,19 +855,27 @@ value records are static. A function implemented outside Plutonium (assembly, `/
 to keep every pointer argument; `//pu:noescape` on its declaration says it keeps none past the call,
 except by storing one argument into memory another points to (as `atomic.StorePointer` does), which is
 still checked. An `unsafe.Pointer` carries the same facts as the pointer it came from; a pointer made from
-a `uintptr` is assumed to point outside every frame.
+a `uintptr` is assumed to point outside every frame, and a pointer converted to a `uintptr` is no longer
+followed. `//pu:resultholds p` on a function that returns an owner says it keeps `p` only for as long as
+that owner lives, and stores `p` in it: the call then counts as returning `p` rather than keeping it, so
+the result is a view of what `p` points to. `alloc.Use` is declared this way, so a local arena may be
+installed as the default allocator while the `Restore` it returns lives (section 7.1).
 
 How precise the frame check is, so that programs know what it accepts:
 
 - It is whole-program and needs no annotations. Each function's summary records which parameters it
   keeps, which it stores into memory another parameter points to, and which it returns, field by field;
   a call is checked against the callee's summary, and a call through an interface or a function value
-  against every method or function that could be there (narrowed by type assertions on the way).
+  against every method or function that could be there (narrowed by type assertions on the way, and by
+  the type of the value in the interface where the caller knows it). Summaries follow pointers up to
+  three loads deep; beyond that, everything reachable is assumed.
 - Local variables whose address is never taken are followed along the control flow, so reusing a
   variable (`err` above all) for a view of the frame and later for heap memory is fine. Other storage is
   followed field by field, two levels of struct fields deep, without regard to the order of statements.
 - A generic function is checked once for all its instantiations: a conversion of a type parameter to an
   interface counts as a frame copy if any instantiation is larger than a word.
+- Each iteration of a loop reuses the frame memory of the loop's variables, so views of them are checked
+  as section 4.5 describes.
 
 ### 6.4 Owners
 
@@ -1723,8 +1773,8 @@ type Allocator interface {
 
 func Default() Allocator                // the current allocator
 func SetDefault(a Allocator)            // replaces it for all later allocations
-func Use(a Allocator) Restore           // replaces it until Restore is called
-func (r Restore) Restore()
+func Use(a Allocator) Restore           // replaces it while the Restore lives
+func (r Restore) Restore()              // drops r now, putting the previous default back
 
 // Owners of a single heap object (sections 5.6 and 6).
 func Owned[T any](a Allocator = Default()) owned[T]
@@ -1749,8 +1799,26 @@ func handle(req *Request) {
 }
 ```
 
+`Restore` is an owner: dropping it, or calling its `Restore` method, which consumes it, puts the previous
+default back. `Use` is declared `//pu:resultholds a` (section 6.3), so the `Restore` counts as a view of
+`a`: an arena in a local variable may be installed, and the compiler rejects returning the `Restore` or
+storing it anywhere that outlives the arena.
+
+```go
+func parseAll(files []string) {
+	var a arena.Arena = arena.New(buf[:])
+	r := alloc.Use(&a)  // r holds &a, so it may not leave this function
+	...
+	r.Restore()         // or let r be dropped at the end of the function
+}
+```
+
 Owners allocated while the override is in force record the arena as their allocator, so dropping them
-later frees into the arena, which does nothing (section 6.6).
+later frees into the arena, which does nothing (section 6.6). The compiler does not check that such an
+owner is dropped before the arena itself is reset or goes away: an owner allocated from a local arena
+through `Default()` and returned from the function refers to an allocator that no longer exists. This is
+a known gap in the checks (docs/plans/2026-10-09-memory-safety-design.md); pass the arena explicitly
+(`vec.New[T](&a)`) where the compiler should see it.
 
 ### 7.2 The system allocator
 
@@ -1846,7 +1914,8 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | `//pu:section name` | function or package variable | place it in the named section |
 | `//pu:interrupt` | function | an x86-64 interrupt handler: saves every register it may change, returns with `iretq` (section 12.4) |
 | `//pu:noreturn` | function | the function never returns (lets the optimiser drop code after calls) |
-| `//pu:noescape` | body-less function | keeps no pointer argument past the call, except by storing it where another argument points (section 6.4) |
+| `//pu:noescape` | body-less function | keeps no pointer argument past the call, except by storing it where another argument points (section 6.3) |
+| `//pu:resultholds p` | function returning an owner | keeps parameter `p` only while the result lives, and stores `p` in it; the call counts as returning `p` (section 6.3). The compiler checks that the result holds `p`; that its `Drop` gives `p` back is the author's promise |
 | `//pu:nosimd` | function | the optimiser adds no vector instructions to it (implied by `//pu:interrupt`, and by kernel mode outside `//pu:fpu` functions) |
 | `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (section 12.3) |
 | `//pu:percpu` | package variable | one copy per processor, addressed through `GS`; kernel mode only (section 12.5) |

@@ -139,7 +139,7 @@ func TestCatalogStyle(t *testing.T) {
 			t.Errorf("%s: no name or text", code)
 		}
 		n, _ := strconv.Atoi(string(code[1:]))
-		if n >= 2000 && n < 3000 && e.Spec == "" {
+		if n >= 2000 && n < 4000 && e.Spec == "" {
 			t.Errorf("%s (%s): a Plutonium rule needs a spec section", code, e.Name)
 		}
 		all := e.Text + e.Why + e.Spec + e.Example + e.Fixed

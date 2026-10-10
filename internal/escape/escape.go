@@ -10,48 +10,43 @@
 // heap, stored through a pointer the caller supplied, sent on a channel or
 // handed to a go statement.
 //
-// The analysis is whole-program, flow-insensitive and field-insensitive. It
-// computes, for every function, a summary of what it does with the pointers
-// its caller passes (keeps them, stores one into memory another points to,
-// returns them), and applies the summary at each call. Calls through
-// interfaces and function values use the union of the summaries of every
-// function that could be called there. Nothing has to be annotated.
+// It also rejects keeping a view of a loop's variables where the next
+// iteration can see it: every iteration reuses the same frame memory for
+// them, where Go gives each iteration its own (spec section 4.5).
 //
-// The rules are written up in docs/spec/language.md, section 6.3 ("Views"), and its
-// diagnostics in section 6.9.
+// The analysis is whole-program. It computes, for every function, a
+// summary of what it does with the pointers its caller passes (keeps them,
+// stores one into memory another points to, returns them), field by field,
+// and applies the summary at each call. Calls through interfaces and
+// function values use the union of the summaries of every function that
+// could be called there. Local variables whose address is never taken are
+// followed along the control flow (flow.go); other storage is
+// flow-insensitive. Nothing has to be annotated.
+//
+// The rules are written up in docs/spec/language.md, section 6.3 ("Views"),
+// and its diagnostics, codes E3001-E3006, in section 6.9.
 package escape
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
 )
 
-// An Error is an escape reported at a position.
-type Error struct {
-	Pos token.Position
-	Msg string
-}
-
-func (e *Error) Error() string { return fmt.Sprintf("%s: %s", e.Pos, e.Msg) }
-
 // maxErrors stops a run that has gone badly wrong from printing pages.
 const maxErrors = 50
 
-// Check analyses a loaded program and returns the escapes it finds, joined,
-// or nil.
+// Check analyses a loaded program and returns the escapes it finds, as a
+// diag.List, or nil.
 func Check(prog *load.Program) error {
 	a := newAnalyzer(prog)
 	a.run()
-	if len(a.errs) == 0 {
-		return nil
-	}
 	sort.SliceStable(a.errs, func(i, j int) bool {
 		pi, pj := a.errs[i].Pos, a.errs[j].Pos
 		if pi.Filename != pj.Filename {
@@ -62,11 +57,7 @@ func Check(prog *load.Program) error {
 		}
 		return pi.Column < pj.Column
 	})
-	errs := make([]error, len(a.errs))
-	for i, e := range a.errs {
-		errs[i] = e
-	}
-	return errors.Join(errs...)
+	return a.errs.Err()
 }
 
 // pkgInfo is a package with the facts the analysis needs about it.
@@ -102,7 +93,7 @@ type analyzer struct {
 	grew   bool // a summary or candidate set grew during this pass
 	report bool // the final pass: report errors
 
-	errs    []*Error
+	errs    diag.List
 	errSeen map[string]bool
 }
 
@@ -162,12 +153,8 @@ func newAnalyzer(prog *load.Program) *analyzer {
 					sig:      obj.Type().(*types2.Signature),
 					bodyless: fd.Body == nil,
 				}
-				for _, d := range directives(fd.Doc) {
-					if d == "noescape" {
-						fn.noescape = true
-					}
-				}
 				fn.params = sigParams(fn.sig)
+				a.applyDirectives(fn)
 				if fn.bodyless {
 					fn.sum = bodylessSummary(fn)
 				}
@@ -245,20 +232,52 @@ func funcName(obj *types2.Func) string {
 	return obj.Name()
 }
 
-func directives(doc *ast.CommentGroup) []string {
+// directives returns the //pu: directives of a declaration, each as its
+// name followed by its arguments.
+func directives(doc *ast.CommentGroup) [][]string {
 	if doc == nil {
 		return nil
 	}
-	var out []string
+	var out [][]string
 	for _, c := range doc.List {
 		if d, ok := strings.CutPrefix(c.Text, "//pu:"); ok {
 			f := strings.Fields(d)
 			if len(f) > 0 {
-				out = append(out, f[0])
+				out = append(out, f)
 			}
 		}
 	}
 	return out
+}
+
+// applyDirectives records what fn's directives say about its parameters.
+// //pu:resultholds p names a parameter the function keeps only for as long
+// as its result lives: the function stores p in its result (an owner, whose
+// Drop gives p back), so the caller sees p returned instead of kept.
+func (a *analyzer) applyDirectives(fn *function) {
+	for _, d := range directives(fn.decl.Doc) {
+		switch d[0] {
+		case "noescape":
+			fn.noescape = true
+		case "resultholds":
+			for _, name := range d[1:] {
+				found := false
+				for i, p := range fn.params {
+					if p.Name() == name {
+						if fn.resultHolds == nil {
+							fn.resultHolds = map[int]bool{}
+						}
+						fn.resultHolds[i] = true
+						found = true
+					}
+				}
+				if !found {
+					a.errs = append(a.errs, diag.New(a.fset.Position(fn.decl.Pos()), diag.BadResultHolds,
+						"//pu:resultholds names %s, which is not a parameter of %s", name, fn.name))
+				}
+			}
+		}
+	}
 }
 
 // run computes summaries until nothing changes, then reports.
@@ -283,6 +302,29 @@ func (a *analyzer) run() {
 			return
 		}
 	}
+	a.checkResultHolds()
+}
+
+// checkResultHolds checks that each parameter named by //pu:resultholds is
+// one the function returns: the directive excuses keeping a parameter only
+// because the result carries it to the caller.
+func (a *analyzer) checkResultHolds() {
+	for _, f := range a.order {
+		for idx := range f.resultHolds {
+			returned := false
+			for _, r := range f.sum.results {
+				for k := range r.from {
+					if k.idx == idx {
+						returned = true
+					}
+				}
+			}
+			if !returned {
+				a.errs = append(a.errs, diag.New(a.fset.Position(f.decl.Pos()), diag.BadResultHolds,
+					"//pu:resultholds %s, but %s does not return %s in its result", f.paramName(idx), f.name, f.paramName(idx)))
+			}
+		}
+	}
 }
 
 // analyze walks one function (and the literals inside it) until the
@@ -305,23 +347,30 @@ func (a *analyzer) analyze(f *function) {
 	}
 }
 
-// errorf records an escape error. A non-empty key deduplicates: one error
-// per escaping location and kind of sink. Errors without a key are
-// deduplicated by position.
-func (a *analyzer) errorf(pos token.Pos, key string, format string, args ...any) {
+// add records an error in the reporting pass, made by mk. A non-empty key
+// deduplicates: one error per escaping location and kind of sink. Errors
+// without a key are deduplicated by position.
+func (a *analyzer) add(pos token.Pos, key string, mk func() *diag.Diagnostic) {
 	if !a.report || len(a.errs) >= maxErrors {
 		return
 	}
-	p := a.fset.Position(pos)
 	k := key
 	if k == "" {
-		k = p.String()
+		k = a.fset.Position(pos).String()
 	}
 	if a.errSeen[k] {
 		return
 	}
 	a.errSeen[k] = true
-	a.errs = append(a.errs, &Error{Pos: p, Msg: fmt.Sprintf(format, args...)})
+	a.errs = append(a.errs, mk())
+}
+
+// internalf reports a construct the analysis does not expect after type
+// checking: a bug in the compiler.
+func (a *analyzer) internalf(pos token.Pos, format string, args ...any) {
+	a.add(pos, "", func() *diag.Diagnostic {
+		return diag.New(a.fset.Position(pos), diag.InternalError, "internal compiler error: escape analysis: "+format, args...)
+	})
 }
 
 // litFunc returns the function for a function literal.

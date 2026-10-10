@@ -3,6 +3,8 @@ package escape
 import (
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -14,8 +16,9 @@ type callTarget struct {
 	static  *function // a declared function or method, or nil
 	name    string    // for messages
 	sig     *types2.Signature
-	recv    tset // the receiver, for method calls
-	hasRecv bool
+	recv     tset // the receiver, for method calls
+	recvExpr ast.Expr
+	hasRecv  bool
 	method  string // dynamic method calls: the method name
 	byName  bool   // a method call through a type parameter
 	fv      tset   // calls through a func value: the value
@@ -39,19 +42,35 @@ func (w *walker) call(e *ast.CallExpr) []tset {
 		return w.ringCall(e, t)
 	}
 	args := w.args(e, t.sig)
+	cs := &callSite{pos: e.Pos(), exprs: argExprs(e, t.sig)}
 	if t.hasRecv {
 		args = append([]tset{t.recv}, args...)
+		cs.exprs = append([]ast.Expr{t.recvExpr}, cs.exprs...)
 	}
 	nres := t.sig.Results().Len()
 	switch {
 	case t.static != nil:
-		return w.apply(t.static, args, e.Pos(), t.name, recvExact, nres)
+		return w.apply(t.static, args, cs, t.name, recvExact, nres)
 	case t.method != "":
-		return w.dynIface(t, args, e.Pos(), nres)
+		return w.dynIface(t, args, cs, nres)
 	case t.dynFunc:
-		return w.dynFuncCall(t, args, e.Pos(), nres)
+		return w.dynFuncCall(t, args, cs, e.Fun, nres)
 	}
 	return make([]tset, nres)
+}
+
+// A callSite is a call being applied, for messages: its position and the
+// expression passed for each parameter, receiver first (nil where unknown).
+type callSite struct {
+	pos   token.Pos
+	exprs []ast.Expr
+}
+
+func (cs *callSite) expr(i int) ast.Expr {
+	if i < len(cs.exprs) {
+		return cs.exprs[i]
+	}
+	return nil
 }
 
 // target works out what e calls, evaluating the receiver or func value.
@@ -84,11 +103,15 @@ func (w *walker) target(e *ast.CallExpr) callTarget {
 					if p := pointerElem(w.typeOf(se.X)); p != nil {
 						_, byName = types2.Unalias(p).(*types2.TypeParam)
 					}
-					return callTarget{sig: sig, recv: w.receiver(se.X, sel), hasRecv: true,
+					return callTarget{sig: sig, recv: w.receiver(se.X, sel), hasRecv: true, recvExpr: se.X,
 						method: fn.Name(), byName: byName, name: types2.ExprString(se)}
 				}
 				f := w.a.funcs[fn.Origin()]
-				return callTarget{static: f, sig: sig, recv: w.receiver(se.X, sel), hasRecv: true, name: w.funcLabel(f, fn)}
+				recvExpr := se.X
+				if recvVar != nil && pointerElem(recvVar.Type()) != nil && pointerElem(w.typeOf(se.X)) == nil {
+					recvExpr = &ast.UnaryExpr{OpPos: se.X.Pos(), Op: token.AND, X: se.X}
+				}
+				return callTarget{static: f, sig: sig, recv: w.receiver(se.X, sel), hasRecv: true, recvExpr: recvExpr, name: w.funcLabel(f, fn)}
 			case sel.Kind() == types2.MethodExpr:
 				// T.M(recv, args...): the receiver is the first argument.
 				f := w.a.funcs[fn.Origin()]
@@ -160,7 +183,7 @@ func (w *walker) args(e *ast.CallExpr, sig *types2.Signature) []tset {
 		if variadic && i >= n-1 {
 			rest.addAll(v)
 			if i == len(e.Args)-1 || len(rest) > 0 {
-				l := w.tmp(e, "varargs", "the variadic argument array of a call to "+types2.ExprString(e.Fun), hintLocal)
+				l := w.tmp(e, lkVarargs)
 				w.addContents(l, rest)
 			}
 			continue
@@ -170,38 +193,26 @@ func (w *walker) args(e *ast.CallExpr, sig *types2.Signature) []tset {
 		}
 	}
 	if variadic && len(e.Args) >= n {
-		l := w.tmp(e, "varargs", "the variadic argument array of a call to "+types2.ExprString(e.Fun), hintLocal)
+		l := w.tmp(e, lkVarargs)
 		out[n-1] = tset{frameTok(l)}
 	}
-	return out
-}
-
-// callOperands evaluates everything a call hands over: the func value or
-// receiver and the arguments. A go statement uses it.
-func (w *walker) callOperands(e *ast.CallExpr) tset {
-	if tv := w.a.types[e.Fun]; tv.IsBuiltin() || tv.IsType() {
-		return union(w.call(e)...)
-	}
-	t := w.target(e)
-	if t.ring != nil {
-		w.ringCall(e, t)
-		return nil
-	}
-	out := union(w.args(e, t.sig)...)
-	out.addAll(t.recv)
-	out.addAll(t.fv)
 	return out
 }
 
 // apply applies f's summary to a call with the given arguments (receiver
 // first) and returns what the results may point to. mode says how args[0]
 // relates to the receiver f sees, for calls through an interface.
-func (w *walker) apply(f *function, args []tset, pos token.Pos, label string, mode recvMode, nres int) []tset {
+func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mode recvMode, nres int) []tset {
 	res := make([]tset, nres)
+	pos := cs.pos
+	passErr := func(i int, why string) *viewErr {
+		return &viewErr{sink: sinkCall, pos: pos, expr: cs.expr(i), fn: w.scopeName(w.sc), callee: label, calleeWhy: why}
+	}
 	if f == nil {
 		// Not a function the analysis has seen: assume the worst.
-		for _, a := range args {
-			w.sink(w.reach(a), pos, "is passed to "+label+", which the escape analysis cannot see", "passes %s to "+label, ", which the escape analysis cannot see")
+		const why = "is a function the compiler cannot see into, so it may keep it"
+		for i, a := range args {
+			w.sink(w.reach(a), passErr(i, why), "passes %s to "+label, ", which the escape analysis cannot see")
 		}
 		for i := range res {
 			res[i] = tset{heapTok}
@@ -215,21 +226,21 @@ func (w *walker) apply(f *function, args []tset, pos token.Pos, label string, mo
 		if k.idx == 0 {
 			switch mode {
 			case recvBoxed:
-				return w.walkKey(w.load(args[0]), k)
+				return w.walkParam(f, w.load(args[0]), k)
 			case recvReach:
 				return w.reach(args[0])
 			}
 		}
-		return w.walkKey(args[k.idx], k)
+		return w.walkParam(f, args[k.idx], k)
 	}
 	for _, k := range sortedKeys(f.sum.escapes) {
 		r := f.sum.escapes[k]
 		v := arg(k)
-		w.sink(v, pos, "is passed to "+label+", which "+r.text, "passes %s to "+label, ", which "+r.text)
+		w.sink(v, passErr(k.idx, r.text), "passes %s to "+label, ", which "+r.text)
 	}
 	for _, e := range sortedEdges(f.sum.stores) {
 		r := f.sum.stores[e]
-		d := dest{callee: label, calleeWhy: r.text}
+		d := dest{callee: label, calleeWhy: r.text, src: cs.expr(e.src.idx)}
 		w.store(arg(e.dst), arg(e.src), pos, d)
 	}
 	for i := 0; i < nres && i < len(f.sum.results); i++ {
@@ -249,9 +260,49 @@ func (w *walker) apply(f *function, args []tset, pos token.Pos, label string, mo
 	return res
 }
 
+// walkParam follows k from v, the value passed for parameter k.idx of f. A
+// struct parameter's fields are told apart (bindParams): a path that starts
+// with a field step selects that field of the struct value passed.
+func (w *walker) walkParam(f *function, v tset, k pkey) tset {
+	if k.idx < len(f.params) && isStructValue(f.params[k.idx].Type()) {
+		if i, rest, ok := cutFieldStep(k.path); ok {
+			v = selectField(v, i)
+			n := len(k.path) - len(rest)
+			k.path = rest
+			if k.filt != nil {
+				if k.filtAt >= n {
+					k.filtAt -= n
+				} else {
+					k.filt, k.filtAt = nil, 0
+				}
+			}
+		}
+	}
+	return w.walkKey(v, k)
+}
+
+// isStructValue reports whether T is a struct type (not a pointer to one).
+func isStructValue(T types2.Type) bool {
+	_, ok := underlying(T).(*types2.Struct)
+	return ok
+}
+
+// cutFieldStep splits a leading field step from a path.
+func cutFieldStep(p string) (int, string, bool) {
+	i := strings.IndexByte(p, '.')
+	if i <= 0 || strings.IndexByte(p[:i], '*') >= 0 {
+		return 0, p, false
+	}
+	n, err := strconv.Atoi(p[:i])
+	if err != nil {
+		return 0, p, false
+	}
+	return n, p[i+1:], true
+}
+
 // dynIface applies a dynamic method call: the union of the summaries of
 // every method it may reach.
-func (w *walker) dynIface(t callTarget, args []tset, pos token.Pos, nres int) []tset {
+func (w *walker) dynIface(t callTarget, args []tset, cs *callSite, nres int) []tset {
 	res := make([]tset, nres)
 	for i := range res {
 		res[i] = tset{heapTok}
@@ -268,10 +319,13 @@ func (w *walker) dynIface(t callTarget, args []tset, pos token.Pos, nres int) []
 			if len(recv) == 0 {
 				continue
 			}
+			if c.recv != recvReach {
+				recv = markRecv(recv, f)
+			}
 			cargs = append([]tset{recv}, args[1:]...)
 		}
 		label := fmt.Sprintf("%s (which may call %s.%s)", t.name, f.pkg.Types.Name(), f.name)
-		r := w.apply(f, cargs, pos, label, c.recv, nres)
+		r := w.apply(f, cargs, cs, label, c.recv, nres)
 		for i := range res {
 			res[i].addAll(r[i])
 		}
@@ -302,10 +356,35 @@ func filterRecv(ts tset, f *function) tset {
 	return out
 }
 
+// markRecv records on the caller's pointers in an interface data word that
+// they reach method f only if the interface holds f's receiver type: a
+// caller that knows the dynamic type then drops what f's summary says
+// about other types (filterDyn).
+func markRecv(ts tset, f *function) tset {
+	if len(f.params) == 0 {
+		return ts
+	}
+	T := f.params[0].Type()
+	if el := pointerElem(T); el != nil {
+		T = el
+	}
+	if containsTypeParam(T) {
+		return ts
+	}
+	var out tset
+	for _, t := range ts {
+		if t.kind == tParam && t.filt == nil && !t.ge {
+			t.filt, t.filtAt = T, len(t.path)
+		}
+		out.add(t)
+	}
+	return out
+}
+
 // dynFuncCall applies a call through a func value: the union of the
 // summaries of every function of that type used as a value. Results may
 // point anywhere the arguments or the func value reach.
-func (w *walker) dynFuncCall(t callTarget, args []tset, pos token.Pos, nres int) []tset {
+func (w *walker) dynFuncCall(t callTarget, args []tset, cs *callSite, fun ast.Expr, nres int) []tset {
 	res := make([]tset, nres)
 	for i := range res {
 		res[i] = tset{heapTok}
@@ -331,19 +410,21 @@ func (w *walker) dynFuncCall(t callTarget, args []tset, pos token.Pos, nres int)
 			continue
 		}
 		label := fmt.Sprintf("%s (which may call %s)", t.name, f.name)
-		fargs, mode := args, recvExact
+		fargs, mode, fcs := args, recvExact, cs
 		switch fv.kind {
 		case fvBound:
 			// A method value: the closure record holds the receiver.
 			fargs = append([]tset{w.load(t.fv)}, args...)
+			fcs = &callSite{pos: cs.pos, exprs: append([]ast.Expr{fun}, cs.exprs...)}
 		case fvBoundIface:
 			// The record holds an interface, whose data word leads to the
 			// receiver.
 			fargs, mode = append([]tset{w.load(t.fv)}, args...), recvReach
+			fcs = &callSite{pos: cs.pos, exprs: append([]ast.Expr{fun}, cs.exprs...)}
 		case fvIfaceExpr:
 			mode = recvReach
 		}
-		r := w.apply(f, fargs, pos, label, mode, nres)
+		r := w.apply(f, fargs, fcs, label, mode, nres)
 		var outer tset
 		if f.lit != nil {
 			// What a literal returns of the frames around it: known if it
@@ -401,7 +482,11 @@ func (w *walker) builtin(e *ast.CallExpr) []tset {
 			}
 		}
 		if st, ok := underlying(w.typeOf(e.Args[0])).(*types2.Slice); ok && hasPointers(st.Elem()) {
-			w.store(s, xs, e.Pos(), dest{text: "the backing array of " + types2.ExprString(e.Args[0]) + ", which append writes to"})
+			d := dest{text: "the backing array of " + exprText(e.Args[0])}
+			if len(e.Args) == 2 && !e.Ellipsis.IsValid() {
+				d.src = e.Args[1]
+			}
+			w.store(s, xs, e.Pos(), d)
 		}
 		return []tset{s}
 	case "copy":
@@ -411,7 +496,7 @@ func (w *walker) builtin(e *ast.CallExpr) []tset {
 		dst := w.value(e.Args[0])
 		src := w.value(e.Args[1])
 		if st, ok := underlying(w.typeOf(e.Args[0])).(*types2.Slice); ok && hasPointers(st.Elem()) {
-			w.store(dst, w.load(src), e.Pos(), dest{text: "the backing array of " + types2.ExprString(e.Args[0]) + ", which copy writes to"})
+			w.store(dst, w.load(src), e.Pos(), dest{text: "the backing array of " + exprText(e.Args[0])})
 		}
 		return []tset{nil}
 	case "Sizeof", "Alignof", "Offsetof":
@@ -451,7 +536,9 @@ func (w *walker) ringCall(e *ast.CallExpr, t callTarget) []tset {
 	switch t.ring.Obj().Name() {
 	case "Push":
 		if len(vals) == 1 {
-			w.store(r, vals[0], e.Pos(), dest{text: types2.ExprString(t.ringX)})
+			d := w.destOf(t.ringX)
+			d.src = e.Args[0]
+			w.store(r, vals[0], e.Pos(), d)
 		}
 		return []tset{nil}
 	case "Pop", "Peek":

@@ -13,8 +13,6 @@ type counting struct {
 	calls int
 }
 
-var defaultCounter counting
-
 func (c *counting) Alloc(size, align uintptr) unsafe.Pointer {
 	c.live += int(size)
 	c.calls++
@@ -79,10 +77,7 @@ func main() {
 	fmt.Printf("make: %d %d %d %d %d calls=%d\n", len(b1), cap(b1), b1[2], len(b2), cap(b2), c.calls)
 
 	// Without an allocator, new and make use the current default.
-	// The default allocator is a package variable, so the allocator put
-	// there must not live in main's frame.
-	d := &defaultCounter
-	d.inner = alloc.Default()
+	d := &counting{inner: alloc.Default()}
 	restore := alloc.Use(d)
 	e := new(pair{s: "default"})
 	m := make([]int, 2)

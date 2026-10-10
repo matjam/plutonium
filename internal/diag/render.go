@@ -94,17 +94,23 @@ func Explanation(d *Diagnostic) string {
 		return ""
 	}
 	var b strings.Builder
-	text, fix := d.Text, d.Fix
+	text, fixes := d.Text, append([]*Fix{d.Fix}, d.More...)
 	if text == "" && e != nil {
-		text, fix = e.Text, e.Fix
+		text, fixes = e.Text, []*Fix{e.Fix}
 	}
 	writeParas(&b, text, indent, width)
 	if e != nil && e.Why != "" {
 		writeParas(&b, e.Why, indent, width)
 	}
-	if fix != nil {
-		writeParas(&b, fix.Intro+":", indent, width)
-		writeCode(&b, fix.Code, indent+indent)
+	for _, fix := range fixes {
+		switch {
+		case fix == nil:
+		case fix.Code == "":
+			writeParas(&b, fix.Intro, indent, width)
+		default:
+			writeParas(&b, fix.Intro+":", indent, width)
+			writeCode(&b, fix.Code, indent+indent)
+		}
 	}
 	if e != nil && e.Spec != "" {
 		writeParas(&b, "(see "+e.Spec+")", indent, width)

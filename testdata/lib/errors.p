@@ -107,8 +107,6 @@ type counting struct {
 	live, allocs int
 }
 
-var tracker counting
-
 func (c *counting) Alloc(size, align uintptr) unsafe.Pointer {
 	c.live += int(size)
 	c.allocs++
@@ -195,11 +193,8 @@ func main() {
 	}
 
 	// Wrapping across three layers, inspected at the top.
-	// The default allocator is a package variable, so the counting
-	// allocator installed in it must not live in main's frame.
-	c := &tracker
-	c.base = alloc.Default()
-	restore := alloc.Use(c)
+	c := counting{base: alloc.Default()}
+	restore := alloc.Use(&c)
 	err = startup("/nonexistent/app.conf")
 	restore.Restore()
 	fmt.Println("startup:", err)
@@ -218,7 +213,7 @@ func main() {
 	fmt.Println("after free live:", c.live)
 
 	// Errorf with several %w, and Join.
-	restore = alloc.Use(c)
+	restore = alloc.Use(&c)
 	multi := fmt.Errorf("both: %w and %w", ErrEmpty, syscall.EIO)
 	joined := errors.Join(ErrTooDeep, nil, multi, slowRead)
 	restore.Restore()

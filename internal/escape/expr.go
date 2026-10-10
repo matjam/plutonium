@@ -61,26 +61,26 @@ func (w *walker) varLoc(v *types2.Var) *loc {
 	if l := w.locs[v]; l != nil {
 		return l
 	}
-	level := 0
+	owner := w.top
 	for sc := w.sc; sc != nil; sc = sc.parent {
 		if sc.contains(v.Pos()) {
-			level = sc.level
+			owner = sc
 			break
 		}
 	}
-	l := &loc{desc: "a pointer to local variable " + v.Name(), level: level, hint: hintLocal, typ: v.Type()}
+	l := &loc{kind: lkVar, v: v, fn: w.scopeName(owner), pos: v.Pos(), level: owner.level, typ: v.Type()}
 	w.locs[v] = l
 	return l
 }
 
-// tmp returns the frame temporary the compiler makes for node.
-func (w *walker) tmp(node ast.Node, kind, desc string, h hint) *loc {
-	k := tmpKey{node, kind}
-	if l := w.tmps[k]; l != nil {
+// tmp returns the frame temporary of kind k the compiler makes for node.
+func (w *walker) tmp(node ast.Node, k locKind) *loc {
+	key := tmpKey{node, k}
+	if l := w.tmps[key]; l != nil {
 		return l
 	}
-	l := &loc{desc: desc, level: w.sc.level, hint: h}
-	w.tmps[k] = l
+	l := &loc{kind: k, node: node, fn: w.scopeName(w.sc), pos: node.Pos(), level: w.sc.level}
+	w.tmps[key] = l
 	return l
 }
 
@@ -176,9 +176,17 @@ func (w *walker) walkKey(ts tset, k pkey) tset {
 // ts: a frame box or a pointer to a frame variable whose type does not
 // implement I cannot be there. Parameter tokens carry the filter on to
 // the caller.
+//
+// I may also be a concrete type, the receiver of a method a dynamic call
+// may reach: then only data words whose dynamic type has that method as its
+// own (I itself, or a pointer to I) are kept.
 func (a *analyzer) filterDyn(ts tset, I types2.Type, _ int) tset {
 	iface, _ := I.Underlying().(*types2.Interface)
-	if iface == nil || iface.Empty() {
+	exact := iface == nil
+	if exact && containsTypeParam(I) {
+		return ts
+	}
+	if !exact && iface.Empty() {
 		return ts
 	}
 	var out tset
@@ -190,7 +198,10 @@ func (a *analyzer) filterDyn(ts tset, I types2.Type, _ int) tset {
 				if !t.loc.box {
 					dyn = types2.NewPointer(dyn)
 				}
-				if !types2.Implements(dyn, iface) {
+				if exact && !types2.Identical(dyn, I) && !types2.Identical(dyn, types2.NewPointer(I)) {
+					continue
+				}
+				if !exact && !types2.Implements(dyn, iface) {
 					continue
 				}
 			}
@@ -374,7 +385,7 @@ func (w *walker) value1(e ast.Expr) tset {
 		*ast.MapType, *ast.ChanType, *ast.Ellipsis:
 		return nil
 	}
-	w.errorf(e.Pos(), "","escape analysis: unsupported expression %T", e)
+	w.a.internalf(e.Pos(), "unsupported expression %T", e)
 	return nil
 }
 
@@ -470,7 +481,7 @@ func (w *walker) addrOf(e ast.Expr) tset {
 		return p
 	}
 	v := w.value(e)
-	l := w.tmp(e, "addr", "a pointer to a temporary", hintLocal)
+	l := w.tmp(e, lkTemp)
 	w.addContents(l, v)
 	return tset{frameTok(l)}
 }
@@ -571,7 +582,7 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 		}
 		return union(v, tset{heapTok})
 	}
-	box := w.tmp(node, "box", fmt.Sprintf("an interface value holding a frame copy of a %s", types2.TypeString(from, shortQualifier)), hintBox)
+	box := w.tmp(node, lkBox)
 	box.typ, box.box = from, true
 	w.addContents(box, v)
 	out := tset{frameTok(box)}
@@ -580,8 +591,6 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 	}
 	return out
 }
-
-func shortQualifier(p *types2.Package) string { return p.Name() }
 
 func isUnsafePointer(T types2.Type) bool {
 	b, ok := underlying(T).(*types2.Basic)
@@ -656,7 +665,7 @@ func (w *walker) compLit(e *ast.CompositeLit) tset {
 			w.store(tset{heapTok}, val, e.Pos(), dest{text: "a static slice literal"})
 			return tset{heapTok}
 		}
-		l := w.tmp(e, "slice", "a slice of a slice literal's backing array, which lives in the frame", hintLocal)
+		l := w.tmp(e, lkSliceLit)
 		w.addContents(l, val)
 		return tset{frameTok(l)}
 	default:
@@ -696,7 +705,7 @@ func (w *walker) litPlace(lit *ast.CompositeLit) tset {
 		w.store(tset{heapTok}, val, lit.Pos(), dest{text: "a static composite literal"})
 		return tset{heapTok}
 	}
-	l := w.tmp(lit, "lit", "a pointer to a composite literal, which lives in the frame", hintLocal)
+	l := w.tmp(lit, lkLit)
 	if T := w.typeOf(lit); T != nil {
 		if el := pointerElem(T); el != nil {
 			T = el
@@ -730,11 +739,8 @@ func (w *walker) funcLit(lit *ast.FuncLit) tset {
 	if len(captures) == 0 {
 		return tset{heapTok} // a static closure record
 	}
-	names := make([]string, len(captures))
-	for i, v := range captures {
-		names[i] = v.Name()
-	}
-	rec := w.tmp(lit, "closure", "a closure capturing "+strings.Join(names, ", "), hintClosure)
+	rec := w.tmp(lit, lkClosure)
+	rec.captures = captures
 	w.recLit[rec] = lit
 	for _, v := range captures {
 		w.addContents(rec, tset{frameTok(w.varLoc(v))})
@@ -788,7 +794,7 @@ func (w *walker) methodValue(e *ast.SelectorExpr, sel *types2.Selection) tset {
 		w.store(tset{heapTok}, recv, e.Pos(), dest{text: "a static method value"})
 		return tset{heapTok}
 	}
-	rec := w.tmp(e, "methodvalue", "a method value bound to "+types2.ExprString(e.X), hintClosure)
+	rec := w.tmp(e, lkMethodValue)
 	w.addContents(rec, recv)
 	return tset{frameTok(rec)}
 }
@@ -830,7 +836,7 @@ func (w *walker) receiver(x ast.Expr, sel *types2.Selection) tset {
 	case wantPtr && isAddr:
 		return cur
 	case wantPtr:
-		l := w.tmp(x, "recv", "a pointer to a temporary copy of a receiver", hintLocal)
+		l := w.tmp(x, lkRecv)
 		w.addContents(l, cur)
 		return tset{frameTok(l)}
 	case isAddr:
@@ -876,8 +882,9 @@ func (w *walker) multi(e ast.Expr, n int) ([]tset, []types2.Type) {
 
 // A dest describes memory being stored into, for messages.
 type dest struct {
-	text   string // "n.next", "package variable G"
-	global bool   // a package variable
+	text   string   // "n.next", "package variable G"
+	global bool     // a package variable
+	src    ast.Expr // the value stored, as written, if known
 	// Set when a callee does the store: the callee and what it does.
 	callee, calleeWhy string
 }
@@ -894,18 +901,6 @@ func (w *walker) destOf(lhs ast.Expr) dest {
 		}
 	}
 	return dest{text: types2.ExprString(lhs)}
-}
-
-// errHow phrases, for an error, a store into d of memory described by
-// where ("which may be on the heap").
-func (d dest) errHow(where string) string {
-	if d.callee != "" {
-		return "is passed to " + d.callee + ", which " + d.calleeWhy
-	}
-	if d.global {
-		return "is stored in " + d.text
-	}
-	return "is stored in " + d.text + ", " + where
 }
 
 // why phrases, for a summary reason, a store of desc into d at pos.
@@ -931,10 +926,15 @@ func (w *walker) store(targets, vals tset, pos token.Pos, d dest) {
 	escape := func(v tok) {
 		w.escapeParam(v, func() string { return why(v, v.sc.fn.paramDesc(keyOf(v)))() })
 	}
-	frameErr := func(v tok, where string) {
-		if w.a.report {
-			w.errorf(pos, fmt.Sprintf("store|%p", v.loc), "%s escapes: it %s%s", v.loc.desc, d.errHow(where), v.loc.hintText())
+	frameErr := func(v tok, where storeKind, via string, owner *scope) {
+		e := &viewErr{sink: sinkStore, pos: pos, expr: d.src, l: v.loc, fn: w.scopeName(owner), dst: d.text, where: where, via: via}
+		if d.global {
+			e.where = storeGlobal
 		}
+		if d.callee != "" {
+			e.sink, e.callee, e.calleeWhy = sinkCall, d.callee, d.calleeWhy
+		}
+		w.report(e, fmt.Sprintf("store|%p", v.loc))
 	}
 	for _, t := range targets {
 		switch t.kind {
@@ -944,8 +944,11 @@ func (w *walker) store(targets, vals tset, pos token.Pos, d dest) {
 				switch v.kind {
 				case tFrame:
 					if v.loc.level > t.loc.level {
-						frameErr(v, "which outlives the function literal it belongs to")
+						frameErr(v, storeOuter, "", w.sc)
 						continue
+					}
+					if L := w.keptPast(t.loc, v.loc); L != nil {
+						w.loopErr(v.loc, L, d, pos)
 					}
 				case tParam:
 					if v.sc.level > t.loc.level {
@@ -965,7 +968,7 @@ func (w *walker) store(targets, vals tset, pos token.Pos, d dest) {
 			for _, v := range vals {
 				switch v.kind {
 				case tFrame:
-					frameErr(v, "which belongs to the caller of "+w.scopeName(t.sc))
+					frameErr(v, storeParam, t.sc.fn.paramName(t.idx), t.sc)
 				case tParam:
 					if v.sc != t.sc {
 						escape(v)
@@ -986,7 +989,7 @@ func (w *walker) store(targets, vals tset, pos token.Pos, d dest) {
 			for _, v := range vals {
 				switch v.kind {
 				case tFrame:
-					frameErr(v, "which may be on the heap")
+					frameErr(v, storeHeap, "", w.sc)
 				case tParam:
 					escape(v)
 				}
@@ -1004,20 +1007,21 @@ func selfSafe(v, t tok) bool {
 }
 
 // sink records that the pointers in v are kept beyond the frame: sent on a
-// channel, handed to a go statement or to a callee that keeps it. errHow
-// completes "it ...". act is a format for summary reasons, with %s for
-// what escapes, and tail follows the position: "passes %s to g" and
-// ", which stores it in G (a.p:3)".
-func (w *walker) sink(v tset, pos token.Pos, errHow, act, tail string) {
+// channel, handed to a go statement or to a callee that keeps it. e
+// describes the sink for an error; its l is filled in for each frame
+// location. act is a format for summary reasons, with %s for what escapes,
+// and tail follows the position: "passes %s to g" and ", which stores it
+// in G (a.p:3)".
+func (w *walker) sink(v tset, e *viewErr, act, tail string) {
 	for _, t := range v {
 		switch t.kind {
 		case tFrame:
-			if w.a.report {
-				w.errorf(pos, fmt.Sprintf("sink|%p", t.loc), "%s escapes: it %s%s", t.loc.desc, errHow, t.loc.hintText())
-			}
+			ve := *e
+			ve.l = t.loc
+			w.report(&ve, fmt.Sprintf("sink|%p", t.loc))
 		case tParam:
 			w.escapeParam(t, func() string {
-				return fmt.Sprintf(act, t.sc.fn.paramDesc(keyOf(t))) + " (" + shortPos(w.a.fset.Position(pos)) + ")" + tail
+				return fmt.Sprintf(act, t.sc.fn.paramDesc(keyOf(t))) + " (" + shortPos(w.a.fset.Position(e.pos)) + ")" + tail
 			})
 		}
 	}
@@ -1026,6 +1030,10 @@ func (w *walker) sink(v tset, pos token.Pos, errHow, act, tail string) {
 // escapeParam records that a parameter-derived pointer escapes from the
 // function that owns the parameter. why is called only when that is new.
 func (w *walker) escapeParam(t tok, why func() string) {
+	if t.sc.level == 0 && t.sc.fn.resultHolds[t.idx] {
+		// Kept only while the result, which holds it, lives.
+		return
+	}
 	sum := &t.sc.fn.sum
 	if _, ok := sum.escapes[keyOf(t)]; ok {
 		return

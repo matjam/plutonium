@@ -2,6 +2,7 @@ package escape
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -204,12 +205,34 @@ func union(sets ...tset) tset {
 	return out
 }
 
+// A locKind says what a piece of frame storage is, for messages.
+type locKind uint8
+
+const (
+	lkVar         locKind = iota // a local variable
+	lkParam                      // a parameter
+	lkResult                     // a named result
+	lkResultN                    // an unnamed result
+	lkTemp                       // a copy of an operand that & cannot address
+	lkRecv                       // a copy of a receiver, for a pointer method
+	lkLit                        // the T of &T{...}
+	lkSliceLit                   // the backing array of a slice literal
+	lkVarargs                    // the argument array of a variadic call
+	lkBox                        // an interface's copy of a value larger than a word
+	lkClosure                    // the record of a function literal that uses variables
+	lkMethodValue                // the record of a method value, holding its receiver
+)
+
 // A loc is a piece of frame storage: a local variable, a parameter's slot,
 // a result, or a temporary the compiler places in the frame (an interface
 // box, a closure record, a slice literal's backing array).
 type loc struct {
-	desc     string          // for messages: "a pointer to local variable x"
-	hint     hint            // what to do instead, for messages
+	kind     locKind
+	v        *types2.Var    // lkVar, lkParam, lkResult
+	node     ast.Node       // temporaries: the expression that makes it
+	fn       string         // the function whose frame holds it, for messages
+	captures []*types2.Var  // lkClosure: the variables the literal uses
+	pos      token.Pos      // where it is declared or made
 	level    int             // nesting depth of the function literal that owns it; 0 for the declared function
 	contents map[string]tset // what the storage may hold, by field path within it
 
@@ -266,28 +289,6 @@ func (l *loc) get(p string) tset {
 		}
 	}
 	return out
-}
-
-// A hint selects the advice an escape message ends with.
-type hint uint8
-
-const (
-	hintNone hint = iota
-	hintLocal
-	hintBox
-	hintClosure
-)
-
-func (l *loc) hintText() string {
-	switch l.hint {
-	case hintLocal:
-		return " (Plutonium never moves variables to the heap: allocate with new or alloc.New if it must outlive the frame)"
-	case hintBox:
-		return " (an interface holding a value larger than a word points at a copy in the frame, section 4.4: convert a pointer to memory that lives long enough instead)"
-	case hintClosure:
-		return " (a closure that captures variables or binds a receiver lives in its frame, section 4.5)"
-	}
-	return ""
 }
 
 // A scope is the body of a declared function, a function literal inside
@@ -409,10 +410,10 @@ type reason struct {
 
 func (r *reason) String() string { return r.text }
 
-// shortPos prints a position as file:line, which is enough to find it and
-// keeps chained explanations short.
+// shortPos prints a position as file:line, without the directory, which is
+// enough to find it and keeps chained explanations short.
 func shortPos(p token.Position) string {
-	return fmt.Sprintf("%s:%d", p.Filename, p.Line)
+	return fmt.Sprintf("%s:%d", filepath.Base(p.Filename), p.Line)
 }
 
 // A function is a declared function, method or function literal, with the
@@ -428,15 +429,23 @@ type function struct {
 	sum      summary
 	bodyless bool // implemented in assembly or C
 	noescape bool // //pu:noescape: arguments are not kept past the call
+	// //pu:resultholds: parameters kept only while the result lives, by
+	// index (receiver first).
+	resultHolds map[int]bool
 	inits    bool // the initialisers of a package's variables
+}
+
+// paramName names parameter idx of f (receiver first), for messages.
+func (f *function) paramName(idx int) string {
+	if idx < len(f.params) && f.params[idx].Name() != "" && f.params[idx].Name() != "_" {
+		return f.params[idx].Name()
+	}
+	return fmt.Sprintf("argument %d", idx+1)
 }
 
 // paramDesc names the memory a pkey denotes inside f, for messages.
 func (f *function) paramDesc(k pkey) string {
-	name := fmt.Sprintf("argument %d", k.idx+1)
-	if k.idx < len(f.params) && f.params[k.idx].Name() != "" && f.params[k.idx].Name() != "_" {
-		name = f.params[k.idx].Name()
-	}
+	name := f.paramName(k.idx)
 	switch {
 	case k.ge:
 		return "a pointer reachable from " + name
