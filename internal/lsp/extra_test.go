@@ -234,6 +234,16 @@ type Bits packed uint8 {
 	b bits[uint8, 4]
 }
 
+type State union {
+	Off
+	On int
+}
+
+type Text union {
+	Empty
+	Some string
+}
+
 var (
 	o  owned[int]
 	sh shared[int]
@@ -250,6 +260,8 @@ var (
 	pl Plain
 	i  Iface
 	bt Bits
+	us State
+	ut Text
 )
 `,
 	})
@@ -265,7 +277,7 @@ var (
 	for name, want := range map[string]string{
 		"o": kindOwner, "sh": kindShared, "sy": kindShared, "v": kindValue, "s": kindView, "sl": kindView,
 		"ch": kindShared, "f": "", "n": kindOwner, "a": kindOwner, "r": kindView, "c": kindValue,
-		"pl": kindValue, "i": "", "bt": kindValue,
+		"pl": kindValue, "i": "", "bt": kindValue, "us": kindValue, "ut": kindView,
 	} {
 		obj := p.types.Scope().Lookup(name)
 		if obj == nil {
