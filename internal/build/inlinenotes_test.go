@@ -18,6 +18,7 @@ import (
 // that never returns, calls past the caller's growth limit and a func
 // value; and that at -O0 every such call is reported.
 func TestInlineNotes(t *testing.T) {
+	t.Parallel()
 	var b strings.Builder
 	b.WriteString(`package main
 

@@ -9,6 +9,7 @@ import (
 // handlers: register saves in the prologue, cld, the mirror-image restores
 // and iretq in place of ret, and the error code dropped before iretq.
 func TestInterruptListing(t *testing.T) {
+	t.Parallel()
 	const src = `package main
 
 import "pluto/arch/x86"

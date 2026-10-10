@@ -20,6 +20,7 @@ import (
 // puroutine with no calls is preempted, and the timer handler wakes a
 // parked puroutine with a non-blocking channel send.
 func TestKernelScheduler(t *testing.T) {
+	t.Parallel()
 	qemu, err := exec.LookPath("qemu-system-x86_64")
 	if err != nil {
 		t.Skip("qemu-system-x86_64 is not installed")
@@ -36,6 +37,7 @@ func TestKernelScheduler(t *testing.T) {
 		"done\n"
 	for _, level := range []int{0, 2} {
 		t.Run("O"+string(rune('0'+level)), func(t *testing.T) {
+			t.Parallel()
 			elfOut := filepath.Join(t.TempDir(), "kernel.elf")
 			cfg := &build.Config{Dir: dir, Output: elfOut, Stdlib: plutonium.Stdlib(), OptLevel: level, Kernel: true}
 			if err := build.Build(cfg); err != nil {
@@ -72,6 +74,7 @@ func TestKernelScheduler(t *testing.T) {
 // code), then reports over the serial port whether every register survived,
 // the stack alignment inside the handlers, and the error code.
 func TestKernelInterrupts(t *testing.T) {
+	t.Parallel()
 	qemu, err := exec.LookPath("qemu-system-x86_64")
 	if err != nil {
 		t.Skip("qemu-system-x86_64 is not installed")
@@ -86,6 +89,7 @@ func TestKernelInterrupts(t *testing.T) {
 		"#GP: count 1 error code 24 stack mod 16 0\n"
 	for _, level := range []int{0, 2} {
 		t.Run("O"+string(rune('0'+level)), func(t *testing.T) {
+			t.Parallel()
 			image := filepath.Join(t.TempDir(), "kernel.bin")
 			cfg := &build.Config{
 				Dir: dir, Output: image, Stdlib: plutonium.Stdlib(), OptLevel: level,

@@ -14,6 +14,7 @@ import (
 // with field names kept and stripped (--fieldnames=false): without names
 // both print the fields as %v does, in Go syntax for %#v.
 func TestFieldNames(t *testing.T) {
+	t.Parallel()
 	const src = `package main
 
 import "pluto/fmt"
@@ -34,6 +35,7 @@ func main() {
 	}
 	for _, c := range cases {
 		t.Run("fieldnames="+c.setting, func(t *testing.T) {
+			t.Parallel()
 			dir := t.TempDir()
 			if err := os.WriteFile(filepath.Join(dir, "main.p"), []byte(src), 0o644); err != nil {
 				t.Fatal(err)

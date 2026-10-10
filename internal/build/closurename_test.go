@@ -16,6 +16,7 @@ import (
 // for Count and for each instance of Bag's All, none named after main or
 // after the other callers.
 func TestReturnedClosureNames(t *testing.T) {
+	t.Parallel()
 	const src = `package main
 
 type Bag[T any] struct{ items []T }
@@ -67,6 +68,7 @@ func main() {
 `
 	for _, level := range []int{0, 2} {
 		t.Run("O"+string(rune('0'+level)), func(t *testing.T) {
+			t.Parallel()
 			dir, _, _ := buildFiles(t, map[string][]byte{"main.p": []byte(src)}, build.Config{OptLevel: level})
 			f, err := elf.Open(filepath.Join(dir, "prog"))
 			if err != nil {

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -84,6 +85,7 @@ func TestTranslationsUpToDate(t *testing.T) {
 // TestDifferential builds each demo with Go and its translation with the
 // Plutonium compiler, at -O0 and -O2, and compares their output.
 func TestDifferential(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("ld"); err != nil {
 		t.Skip("no linker")
 	}
@@ -92,23 +94,29 @@ func TestDifferential(t *testing.T) {
 			continue
 		}
 		name := filepath.Base(tr.dir)
+		// The demos and their levels build and run in parallel, after
+		// TestTranslationsUpToDate (which is not parallel) has checked
+		// or regenerated the translations.
 		t.Run(name, func(t *testing.T) {
-			tmp := t.TempDir()
-			goBin := filepath.Join(tmp, "go-"+name)
+			t.Parallel()
+			goBin := filepath.Join(t.TempDir(), "go-"+name)
 			if out, err := exec.Command("go", "build", "-o", goBin, "./"+tr.dir).CombinedOutput(); err != nil {
 				t.Fatalf("go build: %v\n%s", err, out)
 			}
 			want := run(t, goBin)
 			for _, level := range []int{0, 2} {
-				puBin := filepath.Join(tmp, "pu-"+name)
-				cfg := &build.Config{Dir: filepath.Join(selfhostDir, "demo", name), Output: puBin,
-					Stdlib: plutonium.Stdlib(), OptLevel: level}
-				if err := build.Build(cfg); err != nil {
-					t.Fatalf("-O%d: %v", level, err)
-				}
-				if got := run(t, puBin); got != want {
-					t.Errorf("-O%d: output differs\n--- Plutonium ---\n%s\n--- Go ---\n%s", level, got, want)
-				}
+				t.Run(fmt.Sprintf("O%d", level), func(t *testing.T) {
+					t.Parallel()
+					puBin := filepath.Join(t.TempDir(), "pu-"+name)
+					cfg := &build.Config{Dir: filepath.Join(selfhostDir, "demo", name), Output: puBin,
+						Stdlib: plutonium.Stdlib(), OptLevel: level}
+					if err := build.Build(cfg); err != nil {
+						t.Fatal(err)
+					}
+					if got := run(t, puBin); got != want {
+						t.Errorf("output differs\n--- Plutonium ---\n%s\n--- Go ---\n%s", got, want)
+					}
+				})
 			}
 		})
 	}
@@ -128,6 +136,7 @@ func run(t *testing.T, bin string) string {
 
 // TestCompat runs the compat package's own tests.
 func TestCompat(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("ld"); err != nil {
 		t.Skip("no linker")
 	}

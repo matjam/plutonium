@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	plutonium "github.com/matjam/plutonium"
@@ -18,17 +19,62 @@ import (
 // the executable's path.
 func buildConc(t *testing.T, src string, cfg build.Config) string {
 	t.Helper()
-	dir := t.TempDir()
+	prog, err := buildIn(t.TempDir(), src, cfg)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	return prog
+}
+
+// buildIn builds src as a main package in dir with cfg's settings and
+// returns the executable's path.
+func buildIn(dir, src string, cfg build.Config) (string, error) {
 	if err := os.WriteFile(filepath.Join(dir, "main.p"), []byte(src), 0o644); err != nil {
-		t.Fatal(err)
+		return "", err
 	}
 	cfg.Dir = dir
 	cfg.Output = filepath.Join(dir, "prog")
 	cfg.Stdlib = plutonium.Stdlib()
-	if err := build.Build(&cfg); err != nil {
-		t.Fatalf("build: %v", err)
+	return cfg.Output, build.Build(&cfg)
+}
+
+// concBuild is a program, its name for messages, and the settings to build
+// it with.
+type concBuild struct {
+	name, src string
+	cfg       build.Config
+}
+
+// buildConcAll builds the programs at the same time, as many at once as
+// there are processors, and returns the executables' paths in order. The
+// tests that use it run the programs one at a time afterwards, since
+// their timing should not compete with the compiler for the CPU.
+func buildConcAll(t *testing.T, builds []concBuild) []string {
+	t.Helper()
+	progs := make([]string, len(builds))
+	errs := make([]error, len(builds))
+	sem := make(chan struct{}, runtime.GOMAXPROCS(0))
+	var wg sync.WaitGroup
+	for i, b := range builds {
+		dir := t.TempDir()
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			progs[i], errs[i] = buildIn(dir, b.src, b.cfg)
+		})
 	}
-	return cfg.Output
+	wg.Wait()
+	failed := false
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("%s: build: %v", builds[i].name, err)
+			failed = true
+		}
+	}
+	if failed {
+		t.FailNow()
+	}
+	return progs
 }
 
 // runConc runs prog with the extra environment variables env and returns
@@ -63,11 +109,11 @@ type concCase struct {
 }
 
 func runConcCases(t *testing.T, cases []concCase, cfg build.Config) {
+	progs := buildConcCases(t, cases, cfg)
 	for _, c := range cases {
 		for _, level := range []int{0, 2} {
-			cfg := cfg
-			cfg.OptLevel = level
-			prog := buildConc(t, c.src, cfg)
+			prog := progs[0]
+			progs = progs[1:]
 			for _, procs := range []string{"1", ""} {
 				name := c.name + "/O" + string(rune('0'+level))
 				if procs != "" {
@@ -86,6 +132,21 @@ func runConcCases(t *testing.T, cases []concCase, cfg build.Config) {
 			}
 		}
 	}
+}
+
+// buildConcCases builds each case at -O0 and -O2 with cfg's other
+// settings, with buildConcAll, and returns the executables in that order.
+func buildConcCases(t *testing.T, cases []concCase, cfg build.Config) []string {
+	t.Helper()
+	var builds []concBuild
+	for _, c := range cases {
+		for _, level := range []int{0, 2} {
+			cfg := cfg
+			cfg.OptLevel = level
+			builds = append(builds, concBuild{name: c.name + "/O" + string(rune('0'+level)), src: c.src, cfg: cfg})
+		}
+	}
+	return buildConcAll(t, builds)
 }
 
 // TestConcurrency runs programs that exercise the hosted scheduler: they
@@ -594,9 +655,14 @@ func main() {
 // TestParallelAlloc checks the default allocator, and the debug
 // allocator, with allocations and frees from every worker at once.
 func TestParallelAlloc(t *testing.T) {
-	for _, cfg := range []build.Config{{OptLevel: 2}, {OptLevel: 2, Alloc: "debug"}} {
-		prog := buildConc(t, parallelAllocProgram, cfg)
-		out, status := runConc(t, prog, "PLUTO_DEBUGALLOC=leaks=off")
+	t.Parallel() // it checks the heap, not timing
+	cfgs := []build.Config{{OptLevel: 2}, {OptLevel: 2, Alloc: "debug"}}
+	progs := buildConcAll(t, []concBuild{
+		{name: "default allocator", src: parallelAllocProgram, cfg: cfgs[0]},
+		{name: "debug allocator", src: parallelAllocProgram, cfg: cfgs[1]},
+	})
+	for i, cfg := range cfgs {
+		out, status := runConc(t, progs[i], "PLUTO_DEBUGALLOC=leaks=off")
 		if status != 0 || out != "corrupt blocks 0\n" {
 			t.Errorf("alloc %q: status %d, output:\n%s", cfg.Alloc, status, out)
 		}

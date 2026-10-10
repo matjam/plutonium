@@ -10,6 +10,7 @@ import (
 // which the calling package cannot name itself. The expected output was
 // worked out by hand from the language spec, section 5.1.
 func TestCrossPackageDefaults(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{
 		"pluto.mod": "module example.com/defs\n",
 		"shapes/shapes.p": `package shapes
@@ -112,6 +113,7 @@ func main() {
 `
 	for _, level := range []int{0, 2} {
 		t.Run(fmt.Sprintf("O%d", level), func(t *testing.T) {
+			t.Parallel()
 			got, status := compileAndRunFiles(t, files, level)
 			if status != 0 || got != want {
 				t.Errorf("exit status %d, output:\n%s\nwant:\n%s", status, got, want)

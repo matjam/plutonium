@@ -63,6 +63,7 @@ func needCC(t *testing.T) {
 // memory-class structs, register exhaustion, several results, func values of
 // C functions and C callbacks into //pu:export functions.
 func TestCABI(t *testing.T) {
+	t.Parallel()
 	needCC(t)
 	dir := filepath.Join("..", "..", "testdata", "cabi")
 	want, err := os.ReadFile(filepath.Join(dir, "expected"))
@@ -71,6 +72,7 @@ func TestCABI(t *testing.T) {
 	}
 	for _, level := range []int{0, 2} {
 		t.Run("O"+string(rune('0'+level)), func(t *testing.T) {
+			t.Parallel()
 			got, status := runProg(t, buildDir(t, dir, level))
 			if status != 0 {
 				t.Errorf("exit status %d", status)
@@ -84,6 +86,7 @@ func TestCABI(t *testing.T) {
 
 // TestObjectFiles links a package's .o file as it is.
 func TestObjectFiles(t *testing.T) {
+	t.Parallel()
 	needCC(t)
 	dir := t.TempDir()
 	src := filepath.Join(dir, "add.c")

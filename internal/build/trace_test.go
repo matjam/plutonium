@@ -58,6 +58,7 @@ var pcPattern = regexp.MustCompile(`pc=0x[0-9a-f]+`)
 // Traces must be the same at -O0 and -O2: inlined calls are reported as
 // frames of their own.
 func TestTraces(t *testing.T) {
+	t.Parallel()
 	files, err := filepath.Glob(filepath.Join("..", "..", "testdata", "trace", "*.p"))
 	if err != nil {
 		t.Fatal(err)
@@ -77,6 +78,7 @@ func TestTraces(t *testing.T) {
 		}
 		for _, level := range []int{0, 2} {
 			t.Run(name+"/O"+string(rune('0'+level)), func(t *testing.T) {
+				t.Parallel()
 				_, got, status := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: level})
 				if status != 2 {
 					t.Errorf("exit status %d, want 2", status)
@@ -93,6 +95,7 @@ func TestTraces(t *testing.T) {
 // TestTraceStripped checks that a program built with -s, which has neither
 // DWARF nor a symbol table, still prints a symbolised trace.
 func TestTraceStripped(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile(filepath.Join("..", "..", "testdata", "trace", "index.p"))
 	if err != nil {
 		t.Fatal(err)
@@ -132,6 +135,7 @@ func TestTraceStripped(t *testing.T) {
 // TestTraceStackOverflow checks that running into the stack's guard page is
 // reported as a stack overflow, with a trace cut short after 64 frames.
 func TestTraceStackOverflow(t *testing.T) {
+	t.Parallel()
 	src, err := os.ReadFile(filepath.Join("..", "..", "testdata", "trace", "overflow.p"))
 	if err != nil {
 		t.Fatal(err)
@@ -159,6 +163,7 @@ func TestTraceStackOverflow(t *testing.T) {
 // guard page below its stack, on a worker thread with its own signal
 // stack, is reported as a stack overflow with the puroutine's trace.
 func TestTracePuroutineOverflow(t *testing.T) {
+	t.Parallel()
 	src := `package main
 
 import "pluto/rt"
@@ -203,6 +208,7 @@ func main() {
 // no operating system, prints its trace through the console the program
 // registers and stops through its panic handler.
 func TestTraceFreestanding(t *testing.T) {
+	t.Parallel()
 	src := filepath.Join("..", "..", "testdata", "trace", "freestanding")
 	files := map[string][]byte{}
 	for _, name := range []string{"main.p", "start_amd64.s"} {

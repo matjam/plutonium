@@ -10,11 +10,11 @@ import (
 // processors: the per-processor timer heaps, the stealing of expired
 // timers and the poller's timeouts all take part with more than one.
 func runTimerCases(t *testing.T, cases []concCase, cfg build.Config) {
+	progs := buildConcCases(t, cases, cfg)
 	for _, c := range cases {
 		for _, level := range []int{0, 2} {
-			cfg := cfg
-			cfg.OptLevel = level
-			prog := buildConc(t, c.src, cfg)
+			prog := progs[0]
+			progs = progs[1:]
 			for _, procs := range []string{"1", "2", "24"} {
 				t.Run(c.name+"/O"+string(rune('0'+level))+"/procs"+procs, func(t *testing.T) {
 					got, status := runConc(t, prog, "PLUTO_MAXPROCS="+procs)

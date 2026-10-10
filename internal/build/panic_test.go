@@ -68,6 +68,7 @@ func main() {
 // runtime error and a hardware fault, and a panic inside it goes to the
 // runtime's last resort.
 func TestHostedPanicHandler(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		scenario string
 		status   int
@@ -119,6 +120,7 @@ fatal: panic while handling a panic
 // the handler writes to; the message names the call into the library, not
 // how the library goes on to wait.
 func TestHostedPanicHandlerPipe(t *testing.T) {
+	t.Parallel()
 	const handler = `package main
 
 import (
@@ -169,6 +171,7 @@ func main() {
 // rather than through the Writer interface, which counts as calling every
 // Writer, File's Write among them.
 func TestHostedPanicConsolePipe(t *testing.T) {
+	t.Parallel()
 	src := []byte(`package main
 
 import (
@@ -219,6 +222,7 @@ func main() {
 // handler still reports a panic as before: the message and the trace on
 // standard error, then exit status 2.
 func TestHostedDefaultPanic(t *testing.T) {
+	t.Parallel()
 	src := []byte("package main\n\nfunc main() {\n\tpanic(\"boom\")\n}\n")
 	_, out, status := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{})
 	want := "panic: boom\n    main.main (./main.p:4)\n"
@@ -230,6 +234,7 @@ func TestHostedDefaultPanic(t *testing.T) {
 // TestFreestandingPanicHandlerRequired checks that a freestanding build
 // without a panic handler does not build.
 func TestFreestandingPanicHandlerRequired(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "main.p"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
 		t.Fatal(err)

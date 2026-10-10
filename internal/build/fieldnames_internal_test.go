@@ -6,6 +6,7 @@ import "testing"
 // default in hosted and freestanding builds and leave them out in kernel
 // mode, unless --fieldnames says otherwise.
 func TestFieldNamesDefault(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		cfg  Config
 		want bool

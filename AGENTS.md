@@ -64,6 +64,11 @@ End-to-end tests live in `internal/build`:
   `docs/spec/debugging.md`).
 - `examples/*/main.p` are checked against `examples/*/expected` (first line
   `exit N` for a non-zero exit status).
+- The tests in `internal/build` and their subtests call `t.Parallel()`; a
+  new one should too. The exceptions are the scheduler, timer and poller
+  tests in `conc_test.go`, `timer_test.go` and `poll_test.go` whose
+  programs depend on timing: they build in parallel (`buildConcAll`) and
+  then run their programs one at a time, before the parallel tests start.
 
 ## Directives
 

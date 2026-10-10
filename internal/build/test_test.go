@@ -18,9 +18,11 @@ import (
 // pluto/testing is also compiled under PLUTO_SSACHECK. cmd/pluto tests the
 // command's output.
 func TestBuildTest(t *testing.T) {
+	t.Parallel()
 	for _, pkg := range []string{"pluto/strings", "pluto/sort", "pluto/path/filepath", "pluto/flag"} {
 		for _, level := range []int{0, 2} {
 			t.Run(pkg+"/O"+string(rune('0'+level)), func(t *testing.T) {
+				t.Parallel()
 				out := filepath.Join(t.TempDir(), "test")
 				cfg := &build.Config{Output: out, Stdlib: plutonium.Stdlib(), OptLevel: level}
 				bin, err := build.BuildTest(cfg, pkg, &build.TestOptions{Verbose: true})
@@ -79,6 +81,7 @@ func TestNext(t *testing.T) {
 `
 
 func TestBuildTestFailNow(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	files := map[string]string{"pluto.mod": "module example.com/p\n", "p.p": "package p\n", "p_test.p": fatalTest}
 	for name, src := range files {
@@ -115,6 +118,7 @@ FAIL
 }
 
 func TestBuildTestNoTestFiles(t *testing.T) {
+	t.Parallel()
 	cfg := &build.Config{Output: filepath.Join(t.TempDir(), "test"), Stdlib: plutonium.Stdlib()}
 	bin, err := build.BuildTest(cfg, "pluto/bits", &build.TestOptions{})
 	if !errors.Is(err, build.ErrNoTestFiles) || bin == nil || bin.Path != "pluto/bits" {

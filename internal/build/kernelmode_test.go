@@ -71,6 +71,7 @@ func funcListing(t *testing.T, text, name string) string {
 // TestKernelFloatErrors checks that each kind of floating-point use in a
 // kernel-mode function without //pu:fpu is a compile error naming it.
 func TestKernelFloatErrors(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name, decls, want string
 	}{
@@ -95,6 +96,7 @@ func TestKernelFloatErrors(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			src := "package main\n\nimport \"pluto/math\"\n\n" + tc.decls +
 				"\n\ntype V struct{ X, Y float64 }\n\ntype W struct{ X float32 }\n\nvar _ = math.Pi\n\nfunc main() { f(nil) }\n"
 			src = strings.Replace(src, "func main() { f(nil) }", mainFor(tc.decls), 1)
@@ -130,6 +132,7 @@ func mainFor(decls string) string {
 // types, copying float values as bits, zero values, and floating point in
 // //pu:fpu functions and the closures inside them.
 func TestKernelFloatsAllowed(t *testing.T) {
+	t.Parallel()
 	const src = `package main
 
 type V struct{ X, Y float64 }
@@ -180,6 +183,7 @@ func main() {
 // out of a caller without FPU state, but inlines it into another
 // //pu:fpu function.
 func TestKernelNoInlineFPU(t *testing.T) {
+	t.Parallel()
 	const src = `package main
 
 type V struct{ X, Y float64 }
@@ -346,6 +350,7 @@ func main() {
 // register or the float constant pool, in the listing and in the object
 // code.
 func TestKernelNoXMM(t *testing.T) {
+	t.Parallel()
 	for _, level := range []int{0, 2} {
 		dir := t.TempDir()
 		if err := os.WriteFile(filepath.Join(dir, "main.p"), []byte(kernelProgram), 0o644); err != nil {
@@ -383,6 +388,7 @@ func TestKernelNoXMM(t *testing.T) {
 // up per-CPU blocks from the .percpu image and switches GS between them,
 // then enables SSE for one //pu:fpu call between FPUBegin and FPUEnd.
 func TestKernelSmoke(t *testing.T) {
+	t.Parallel()
 	qemu, err := exec.LookPath("qemu-system-x86_64")
 	if err != nil {
 		t.Skip("qemu-system-x86_64 is not installed")
@@ -400,6 +406,7 @@ func TestKernelSmoke(t *testing.T) {
 		"println float float64=0x4020000000000000 float32=0x3f000000\n"
 	for _, level := range []int{0, 2} {
 		t.Run("O"+string(rune('0'+level)), func(t *testing.T) {
+			t.Parallel()
 			// The ELF image links with the per-CPU check; the flat binary
 			// is what QEMU's multiboot loader boots.
 			elfOut := filepath.Join(t.TempDir(), "kernel.elf")
@@ -437,6 +444,7 @@ func TestKernelSmoke(t *testing.T) {
 // makes calls; the ones it uses for a //pu:fpu handler; and, outside
 // kernel mode, all of them when it makes a call.
 func TestKernelInterruptXMM(t *testing.T) {
+	t.Parallel()
 	const src = `package main
 
 import "pluto/arch/x86"

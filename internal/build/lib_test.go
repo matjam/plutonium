@@ -14,6 +14,7 @@ import (
 // code with the imports pointed at Go's packages (or at shims for
 // Plutonium-only APIs), or by hand where no Go equivalent exists.
 func TestLib(t *testing.T) {
+	t.Parallel()
 	runGoldenDir(t, "lib")
 }
 
@@ -22,6 +23,7 @@ func TestLib(t *testing.T) {
 // constructor expressions). Go cannot run them, so their .out files were
 // checked by hand.
 func TestPlutonium(t *testing.T) {
+	t.Parallel()
 	runGoldenDir(t, "plutonium")
 }
 
@@ -48,6 +50,7 @@ func runGoldenDir(t *testing.T, dir string) {
 		}
 		for _, level := range []int{0, 2} {
 			t.Run(name+"/O"+string(rune('0'+level)), func(t *testing.T) {
+				t.Parallel()
 				got, status := compileAndRun(t, string(src), level)
 				if status != 0 {
 					t.Errorf("exit status %d", status)
@@ -65,6 +68,7 @@ func runGoldenDir(t *testing.T, dir string) {
 // a Builder over a caller's buffer does not allocate unless Init gives it
 // an allocator. testdata/lib/strings.p covers the uses that work.
 func TestBuilderAllocator(t *testing.T) {
+	t.Parallel()
 	cases := []struct{ name, body, want string }{
 		{"Init twice", "var b strings.Builder\n\tb.Init()\n\tb.Init()", "panic: strings.Builder.Init: the Builder already has an allocator\n"},
 		{"Init after growing", "var b strings.Builder\n\tb.WriteString(\"x\")\n\tb.Init()", "panic: strings.Builder.Init: the Builder already has an allocator\n"},
@@ -73,6 +77,7 @@ func TestBuilderAllocator(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			src := "package main\n\nimport \"pluto/strings\"\n\nfunc main() {\n\t" + c.body + "\n\tprintln(\"unreachable\")\n}\n"
 			out, status := compileAndRun(t, src, 0)
 			if status != 2 || !strings.HasPrefix(out, c.want) || strings.Contains(out, "unreachable") {

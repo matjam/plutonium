@@ -17,6 +17,7 @@ import (
 // boxes, closures, deferred calls, containers, puroutines, channels, range
 // over functions and every way out of a scope.
 func TestStringsLeakFree(t *testing.T) {
+	t.Parallel()
 	for _, prog := range []string{"run/strcount", "lib/strbuild", "lib/strutf8", "lib/strcontainers", "lib/strconc", "run/fmtquote", "lib/strregions", "lib/regionargs", "run/strreturnloop"} {
 		file := filepath.Join("..", "..", "testdata", prog)
 		src, err := os.ReadFile(file + ".p")
@@ -29,6 +30,7 @@ func TestStringsLeakFree(t *testing.T) {
 		}
 		for _, level := range []int{0, 2} {
 			t.Run(prog+"/O"+string(rune('0'+level)), func(t *testing.T) {
+				t.Parallel()
 				exe := buildDebugAlloc(t, string(src), level)
 				got, status := runDebugAlloc(t, exe, "")
 				if status != 0 || got != string(want) {
@@ -44,6 +46,7 @@ func TestStringsLeakFree(t *testing.T) {
 // can release a string (opt.ElideStringHolds), and is counted when one
 // can.
 func TestStringHoldElision(t *testing.T) {
+	t.Parallel()
 	const src = `package main
 
 type rec struct{ name string }
@@ -84,6 +87,7 @@ func main() {
 // here a copy made through unsafe that took no reference, stops the
 // program instead of freeing memory twice.
 func TestStringDoubleRelease(t *testing.T) {
+	t.Parallel()
 	src := `package main
 
 import (
@@ -112,6 +116,7 @@ func main() {
 // 12.7); that an interrupt handler may only where the allocator does not
 // wait is checked in internal/lower (TestInterruptContext).
 func TestStringsKernelAlloc(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	src := `package main
 

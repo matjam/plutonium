@@ -16,6 +16,7 @@ import (
 // the optimiser cannot prove are boundaries. The program also runs, and
 // prints what the functions return for a string with multi-byte runes.
 func TestRuneBounds(t *testing.T) {
+	t.Parallel()
 	const src = `package main
 
 import (

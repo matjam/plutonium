@@ -81,6 +81,7 @@ func sleepThreads(t *testing.T, prog string) (threads int, out string) {
 // channels or timers keeps the scheduler and parks (language spec section
 // 4.7).
 func TestSleepWithoutScheduler(t *testing.T) {
+	t.Parallel()
 	const check = `
 	println("elapsed ok", time.Since(start) >= 500*time.Millisecond && time.Since(start) < 5*time.Second)
 `
@@ -179,6 +180,7 @@ func main() {
 	for _, c := range cases {
 		for _, level := range []int{0, 2} {
 			t.Run(fmt.Sprintf("%s/O%d", c.name, level), func(t *testing.T) {
+				t.Parallel()
 				prog := buildConc(t, c.src, build.Config{OptLevel: level})
 				found := symbolsOf(t, prog, schedulerSymbols)
 				if c.sched != (len(found) > 0) {

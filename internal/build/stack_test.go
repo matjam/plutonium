@@ -14,6 +14,7 @@ import (
 // with //pu:stack lands in its guard region and is reported as a stack
 // overflow, like an overflow of the system's stack.
 func TestMainStackOverflow(t *testing.T) {
+	t.Parallel()
 	const src = `package main
 
 //pu:noinline
@@ -46,6 +47,7 @@ func firstLine(s string) string {
 // TestMainStackErrors checks that malformed or misplaced //pu:stack
 // directives stop the build.
 func TestMainStackErrors(t *testing.T) {
+	t.Parallel()
 	cases := []struct{ name, src, want string }{
 		{"missing size", "package main\n\n//pu:stack\nfunc main() {}\n", "//pu:stack: missing size"},
 		{"bad size", "package main\n\n//pu:stack lots\nfunc main() {}\n", `//pu:stack: invalid size "lots"`},
@@ -57,6 +59,7 @@ func TestMainStackErrors(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			err := buildError(t, c.src)
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("got error %v, want %q", err, c.want)
@@ -64,6 +67,7 @@ func TestMainStackErrors(t *testing.T) {
 		})
 	}
 	t.Run("freestanding", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		src := "package main\n\n//pu:stack 1M\nfunc main() {}\n"
 		if err := os.WriteFile(filepath.Join(dir, "main.p"), []byte(src), 0o644); err != nil {

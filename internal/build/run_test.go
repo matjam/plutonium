@@ -65,6 +65,7 @@ func compileAndRunFiles(t *testing.T, files map[string]string, optLevel int) (st
 }
 
 func TestReturnStatus(t *testing.T) {
+	t.Parallel()
 	_, status := compileAndRun(t, "package main\n\nfunc main() int64 { return 42 }\n", 0)
 	if status != 42 {
 		t.Fatalf("exit status %d, want 42", status)
