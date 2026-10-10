@@ -52,6 +52,9 @@ func ForLevel(level int) *Pipeline {
 		p.addProgram(ProgramPass{"inline", Inline})
 		p.add(Pass{"prove", Prove})
 		p.add(Pass{"simplify2", Simplify})
+		// After prove, which removes the bounds checks that would give a
+		// loop more than one exit.
+		p.add(Pass{"unroll", Unroll})
 		p.add(Pass{"branchelim", BranchElim})
 		p.add(Pass{"simplifycfg2", SimplifyCFG})
 		// Simplify the selects branchelim made.

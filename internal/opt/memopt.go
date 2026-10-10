@@ -30,7 +30,7 @@ func MemOpt(f *ssa.Func) {
 						changed = true
 					}
 				case ssa.OpStore:
-					if redundantStore(v) || deadStoreBelow(v) {
+					if redundantStore(v) || deadStoreBelow(v, lf) {
 						changed = true
 					}
 				}
@@ -47,75 +47,14 @@ func MemOpt(f *ssa.Func) {
 // maxMemWalk bounds how far a walk follows the memory chain.
 const maxMemWalk = 64
 
-// A memLoc is a pointer split into a base and a constant offset.
-type memLoc struct {
-	base any // *ssa.Slot, *ssa.Sym or the base *ssa.Value
-	off  int64
-}
-
-// locOf splits p into a base and constant offset.
-func locOf(p *ssa.Value) memLoc {
-	var off int64
-	for {
-		switch {
-		case p.Op == ssa.OpOffPtr:
-			off += p.AuxInt
-			p = p.Args[0]
-			continue
-		case p.Op == ssa.OpAddPtr && p.Args[1].Op == ssa.OpConst:
-			off += p.Args[1].AuxInt
-			p = p.Args[0]
-			continue
-		case p.Op == ssa.OpSlotAddr || p.Op == ssa.OpSymAddr:
-			return memLoc{base: p.Aux, off: off}
-		}
-		return memLoc{base: p, off: off}
-	}
-}
-
-// objectOf returns the stack slot or global p points into, or nil.
-func objectOf(p *ssa.Value) any {
-	for p.Op == ssa.OpOffPtr || p.Op == ssa.OpAddPtr {
-		p = p.Args[0]
-	}
-	if p.Op == ssa.OpSlotAddr || p.Op == ssa.OpSymAddr {
-		return p.Aux
-	}
-	return nil
-}
-
-// sameBytes reports whether p and q address the same location.
-func sameBytes(p, q *ssa.Value) bool {
-	return p == q || locOf(p) == locOf(q)
-}
-
-// disjoint reports whether n bytes at p and m bytes at q cannot overlap.
-// A negative size means unknown.
-func disjoint(p *ssa.Value, n int64, q *ssa.Value, m int64) bool {
-	lp, lq := locOf(p), locOf(q)
-	if lp.base == lq.base && n >= 0 && m >= 0 {
-		return lp.off+n <= lq.off || lq.off+m <= lp.off
-	}
-	op, oq := objectOf(p), objectOf(q)
-	return op != nil && oq != nil && op != oq
-}
-
-// written returns the address and size a plain memory write changes, and
-// false for anything else (calls, phis, volatile stores and so on).
-func written(m *ssa.Value) (p *ssa.Value, size int64, ok bool) {
-	switch m.Op {
-	case ssa.OpStore:
-		if m.IsVolatile() {
-			return nil, 0, false
-		}
-		return m.Args[0], m.StoreType().Size, true
-	case ssa.OpZero, ssa.OpMove:
-		return m.Args[0], m.AuxInt, true
-	case ssa.OpFill:
-		return m.Args[0], -1, true
-	}
-	return nil, 0, false
-}
+// The alias analysis lives in package ssa, which the scheduler shares.
+var (
+	locOf     = ssa.LocOf
+	objectOf  = ssa.ObjectOf
+	sameBytes = ssa.SameBytes
+	disjoint  = ssa.Disjoint
+	written   = ssa.Written
+)
 
 // A loadFinder finds the loads that read a memory state.
 type loadFinder struct {
@@ -144,11 +83,63 @@ func (lf *loadFinder) find(v, m *ssa.Value) *ssa.Value {
 		if w == v || w.Op != ssa.OpLoad || !w.Type.Same(v.Type) || !sameBytes(w.Args[0], v.Args[0]) {
 			continue
 		}
-		if w.Block == v.Block && lf.pos[w.ID] < lf.pos[v.ID] || w.Block != v.Block && lf.dom.Dominates(w.Block, v.Block) {
+		if w.Block == v.Block && lf.pos[w.ID] < lf.pos[v.ID] && lf.near(w, v) || w.Block != v.Block && lf.dom.Dominates(w.Block, v.Block) {
 			return w
 		}
 	}
 	return nil
+}
+
+// otherReaders returns the loads reading memory state m, provided none of
+// them reads any of the n bytes at p.
+func (lf *loadFinder) otherReaders(m, p *ssa.Value, n int64) ([]*ssa.Value, bool) {
+	var out []*ssa.Value
+	for _, w := range lf.readers[m] {
+		if w.Op != ssa.OpLoad || w.Args[1] != m {
+			continue // merged away this round
+		}
+		if !disjoint(p, n, w.Args[0], w.Type.Size) {
+			return nil, false
+		}
+		out = append(out, w)
+	}
+	return out, true
+}
+
+// addrReadsMemory reports whether p is computed, within block b, from a
+// value that reads or writes memory.
+func addrReadsMemory(p *ssa.Value, b *ssa.Block) bool {
+	seen := map[*ssa.Value]bool{}
+	var walk func(x *ssa.Value) bool
+	walk = func(x *ssa.Value) bool {
+		if x.Block != b || x.Op == ssa.OpPhi || seen[x] {
+			return false
+		}
+		seen[x] = true
+		if x.Op.HasMemArg() || x.Op == ssa.OpSelectN {
+			return true
+		}
+		for _, a := range x.Args {
+			if walk(a) {
+				return true
+			}
+		}
+		return false
+	}
+	return walk(p)
+}
+
+// memOptWindow is how far apart, in values of one block, a load may be
+// from the earlier load or store whose value it reuses. Reusing a value
+// keeps it in a register until then; across a long stretch of code (a
+// fully unrolled loop) that costs spills, which are dearer than loading
+// again.
+const memOptWindow = 64
+
+// near reports whether w, earlier in v's block, is close enough to v for
+// v to reuse its value.
+func (lf *loadFinder) near(w, v *ssa.Value) bool {
+	return w.Block != v.Block || lf.pos[v.ID]-lf.pos[w.ID] <= memOptWindow
 }
 
 // forwardLoad applies the load rules to v.
@@ -169,7 +160,10 @@ func forwardLoad(v *ssa.Value, lf *loadFinder) bool {
 		if !ok {
 			break
 		}
-		if m.Op == ssa.OpStore && sameBytes(p, q) && m.Args[1].Type.Same(v.Type) {
+		if m.Op == ssa.OpStore && sameBytes(p, q) {
+			if !m.Args[1].Type.Same(v.Type) || !lf.near(m, v) {
+				break
+			}
 			v.CopyOf(m.Args[1])
 			return true
 		}
@@ -206,7 +200,7 @@ func redundantStore(v *ssa.Value) bool {
 
 // deadStoreBelow drops an earlier store that v overwrites. The memory
 // states between them must have no other readers.
-func deadStoreBelow(v *ssa.Value) bool {
+func deadStoreBelow(v *ssa.Value, lf *loadFinder) bool {
 	if v.IsVolatile() {
 		return false
 	}
@@ -214,7 +208,9 @@ func deadStoreBelow(v *ssa.Value) bool {
 	user := v // the value whose memory argument is m
 	m := v.Args[2]
 	for i := 0; i < maxMemWalk; i++ {
-		if m.Uses != 1 {
+		// Besides user, only loads of other bytes may read m.
+		readers, ok := lf.otherReaders(m, p, n)
+		if !ok || m.Uses != int32(1+len(readers)) {
 			return false
 		}
 		q, size, ok := written(m)
@@ -222,7 +218,21 @@ func deadStoreBelow(v *ssa.Value) bool {
 			return false
 		}
 		if m.Op == ssa.OpStore && sameBytes(p, q) && size == n {
+			// The loads that read the dead store's memory read the
+			// memory before it instead, which holds the same bytes for
+			// them. They then precede the store in the schedule, which
+			// their addresses must allow.
+			if m.Uses > 1 {
+				for _, r := range readers {
+					if addrReadsMemory(r.Args[0], r.Block) {
+						return false
+					}
+				}
+			}
 			user.SetArg(len(user.Args)-1, m.Args[2])
+			for _, r := range readers {
+				r.SetArg(1, m.Args[2])
+			}
 			return true
 		}
 		if !disjoint(p, n, q, size) {

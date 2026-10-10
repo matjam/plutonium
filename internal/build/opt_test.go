@@ -438,6 +438,72 @@ func main() {
 	}
 }
 
+func TestUnroll(t *testing.T) {
+	const src = `package main
+
+type Body struct{ x, y, z, vx, vy, vz, m float64 }
+
+var bodies [5]Body
+
+//pu:noinline
+func pairs(dt float64) {
+	for i := 0; i < len(bodies); i++ {
+		bi := &bodies[i]
+		for j := i + 1; j < len(bodies); j++ {
+			bj := &bodies[j]
+			dx, dy, dz := bi.x-bj.x, bi.y-bj.y, bi.z-bj.z
+			mag := dt / (dx*dx + dy*dy + dz*dz)
+			bi.vx -= dx * bj.m * mag
+			bi.vy -= dy * bj.m * mag
+			bi.vz -= dz * bj.m * mag
+			bj.vx += dx * bi.m * mag
+			bj.vy += dy * bi.m * mag
+			bj.vz += dz * bi.m * mag
+		}
+	}
+}
+
+//pu:noinline
+func long() int {
+	s := 0
+	for i := 0; i < 17; i++ {
+		s += i * i
+	}
+	return s
+}
+
+//pu:noinline
+func calls() {
+	for i := 0; i < 4; i++ {
+		pairs(float64(i))
+	}
+}
+
+func main() {
+	pairs(0.01)
+	calls()
+	println(long(), int64(bodies[1].vx*1e9))
+}
+`
+	// The inner loop's bounds become constants once the outer loop is
+	// unrolled; then it is unrolled too. A velocity updated by nearby
+	// pairs stays in a register and is stored once, but values are not
+	// held in registers across the whole function, so nothing spills.
+	asm := listFunc(t, src, "main.pairs")
+	if strings.Contains(asm, "\tj") || strings.Contains(asm, "rsp") {
+		t.Errorf("pairs: want straight-line code without spills\n%s", asm)
+	}
+	if n := strings.Count(asm, ", main.bodies+"); n < 30 || n > 45 {
+		t.Errorf("pairs: %d stores, want 30 to 45 (one per update would be 60)\n%s", n, asm)
+	}
+	// Past the trip count limit, or calling out: loops stay.
+	for _, fn := range []string{"main.long", "main.calls"} {
+		if asm := listFunc(t, src, fn); !strings.Contains(asm, "\tjl") {
+			t.Errorf("%s: want a loop\n%s", fn, asm)
+		}
+	}
+}
+
 func TestVectorize(t *testing.T) {
 	const src = `package main
 

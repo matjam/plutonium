@@ -265,7 +265,7 @@ func (vl *vecLoop) independent() bool {
 				continue
 			}
 			lb, ls := locOf(a.base), locOf(s.base)
-			if lb.base != ls.base {
+			if lb.Base != ls.Base {
 				oa, os := objectOf(a.base), objectOf(s.base)
 				if oa == nil || os == nil || oa == os {
 					return false
@@ -278,7 +278,7 @@ func (vl *vecLoop) independent() bool {
 			if a.stride != s.stride {
 				return false
 			}
-			d := (lb.off + a.off) - (ls.off + s.off)
+			d := (lb.Off + a.off) - (ls.Off + s.off)
 			st := s.stride
 			if d < 0 {
 				d = -d

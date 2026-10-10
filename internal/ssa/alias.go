@@ -1,0 +1,86 @@
+package ssa
+
+// Simple alias analysis: two accesses are known apart when they are at
+// non-overlapping constant offsets from the same pointer, or in different
+// stack slots or globals.
+
+// A MemLoc is a pointer split into a base and a constant offset.
+type MemLoc struct {
+	Base any // *Slot, *Sym or the base *Value
+	Off  int64
+}
+
+// LocOf splits p into a base and constant offset.
+func LocOf(p *Value) MemLoc {
+	var off int64
+	for {
+		switch {
+		case p.Op == OpOffPtr:
+			off += p.AuxInt
+			p = p.Args[0]
+			continue
+		case p.Op == OpAddPtr && p.Args[1].Op == OpConst:
+			off += p.Args[1].AuxInt
+			p = p.Args[0]
+			continue
+		case p.Op == OpSlotAddr || p.Op == OpSymAddr:
+			return MemLoc{Base: p.Aux, Off: off}
+		}
+		return MemLoc{Base: p, Off: off}
+	}
+}
+
+// ObjectOf returns the stack slot or global p points into, or nil.
+func ObjectOf(p *Value) any {
+	for p.Op == OpOffPtr || p.Op == OpAddPtr {
+		p = p.Args[0]
+	}
+	if p.Op == OpSlotAddr || p.Op == OpSymAddr {
+		return p.Aux
+	}
+	return nil
+}
+
+// SameBytes reports whether p and q address the same location.
+func SameBytes(p, q *Value) bool {
+	return p == q || LocOf(p) == LocOf(q)
+}
+
+// Disjoint reports whether n bytes at p and m bytes at q cannot overlap.
+// A negative size means unknown.
+func Disjoint(p *Value, n int64, q *Value, m int64) bool {
+	lp, lq := LocOf(p), LocOf(q)
+	if lp.Base == lq.Base && n >= 0 && m >= 0 {
+		return lp.Off+n <= lq.Off || lq.Off+m <= lp.Off
+	}
+	op, oq := ObjectOf(p), ObjectOf(q)
+	return op != nil && oq != nil && op != oq
+}
+
+// Written returns the address and size a plain memory write changes
+// (a negative size if unknown), and false for anything else: calls, phis,
+// volatile stores and the like, which may touch any memory.
+func Written(m *Value) (p *Value, size int64, ok bool) {
+	switch m.Op {
+	case OpStore:
+		if m.IsVolatile() {
+			return nil, 0, false
+		}
+		return m.Args[0], m.StoreType().Size, true
+	case OpZero, OpMove:
+		return m.Args[0], m.AuxInt, true
+	case OpFill:
+		return m.Args[0], -1, true
+	}
+	return nil, 0, false
+}
+
+// mayClobber reports whether memory operation w may change what load l
+// reads.
+func mayClobber(w, l *Value) bool {
+	if l.Op != OpLoad || l.IsVolatile() {
+		return true
+	}
+	q, size, ok := Written(w)
+	return !ok || !Disjoint(l.Args[0], l.Type.Size, q, size)
+}
