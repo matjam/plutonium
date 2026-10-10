@@ -141,11 +141,21 @@ later takes the next free number and is listed in the section where it belongs.
 20. **Ownership: owners, moves and views** (in progress; language spec section 6;
     docs/plans/2026-10-09-memory-safety-design.md). Done: `owner` types and constraints, the move checker
     (`internal/moves`, E3301 to E3312), automatic drops on every path sharing the cleanup stack of counted
-    strings, `take`, `unsafe.Drop`, and generation checks as an opt-in prototype (`--gencheck`). Before
-    generation checks become the default for hosted builds: loop-invariant hoisting of the checks, a
-    second measurement, and generation tags in `alloc.SyncSlab` (the prototype tags only the
-    single-threaded `Slab`). Not yet: dropping `owned`, `shared`, `synced`, owning interfaces and owner
-    unions; per-arena epochs for arena views (decision D4). The original list:
+    strings, `take`, `unsafe.Drop`, and generation checks as an opt-in prototype (`--gencheck`). Done
+    since: `owned[T]` (which `new` returns), `shared`, `synced` and `weak` (item 48), owning interfaces
+    that drop what they hold through a drop slot in their itabs, owner unions (item 25), the
+    complete-spec type-system decisions (G12 embedding boxes, G13 comparison, G14 owner conversions only
+    in the declaring package, G18 value receivers of owners never satisfy interfaces, G20 no box of an
+    interface), and the local-arena rule (G34): what is allocated through `Default()` while a local
+    arena is installed is a view of the arena (language spec section 7.1). Before generation checks
+    become the default for hosted builds: loop-invariant hoisting of the checks, a second measurement,
+    and generation tags in `alloc.SyncSlab` (the prototype tags only the single-threaded `Slab`). Not
+    yet: per-arena epochs (decision D4), which would also catch at run time what the arena rule cannot
+    see (arena memory stored into heap memory that outlives the arena, by the function or a callee);
+    dropping an owning interface with no methods (`type R owner interface{}`), which has no itab for the
+    drop slot and is a compile error; holds of `shared`/`synced` references are not offered to
+    `opt.ElideStringHolds` yet, so a reference read from memory a call could change is always retained
+    for its statement. The original list:
     - `owner` in type definitions and in type parameter constraints, with the placement rules of section
       6.4 (structs with owner fields must be declared `owner`; `Drop` only on owners; never inferred);
     - the move checker: moves on assignment, passing, return, send, `go`, field stores and owning
@@ -185,11 +195,12 @@ later takes the next free number and is listed in the section where it belongs.
     [proposal](plans/2026-10-09-sum-types-proposal.md), option A): named variants, type switches with
     bare case names and exhaustiveness, assertions, comparison, generic unions such as `Result[T]`,
     packed unions for hardware formats, and `fmt` printing. Follow-ups: DWARF enumeration types and
-    variant parts; dropping bounds checks when a dense enum indexes an array of length `len(E)`; union
-    payloads that are owners or counted references, which wait for item 20 and are compile errors until
-    then; updating a payload in place, `(&u).(*U.V)` (proposal section 3), when real use asks for it;
+    variant parts; dropping bounds checks when a dense enum indexes an array of length `len(E)`;
+    updating a payload in place, `(&u).(*U.V)` (proposal section 3), when real use asks for it;
     a jump table for type switches over many variants; inferring a generic union's type arguments in
-    `Result.Ok(5)`.
+    `Result.Ok(5)`. Owner payloads (done): a union with an owner variant is declared `owner union`,
+    drops the payload of the variant it holds, and moves it out through a type switch binding or a
+    comma-ok assertion; payloads holding counted references copy and count.
 26. **`alloc.Use` signature** (done): the spec now gives the library's `Use(a) Restore` and
     `defer alloc.Use(a).Restore()` (language spec section 7.1); `Use(a) (restore func())` could not be
     written under section 4.5.
@@ -210,11 +221,12 @@ later takes the next free number and is listed in the section where it belongs.
     Freestanding and kernel builds are unchanged. Follow-ups: owner drops on `Goexit` come with item 20's
     drops, which run on the same return paths; `sync.Scope`'s join on `Goexit` likewise (scoped-puroutines
     D7).
-48. **Counted references and `weak[P]`** (planned; language spec sections 5.6 and 6.5): the allocation
-    header (allocator, strong and weak counts), increments on copy and decrements on drop with matched
-    pairs removed at last use, `Drop` at zero strong count and the free at zero weak count, the atomic
-    forms for `synced` with the ordering of memory-model.md section 3.7, `weak[P]` conversion and
-    `Upgrade`, and the sendable rule of section 4.7 (no `shared` or `weak[shared]` across puroutines).
+48. **Counted references and `weak[P]`** (done; language spec sections 5.6 and 6.5, abi.md section
+    1.2): the allocation header (strong and weak counts, allocator), counted by the machinery of counted
+    strings (borrowed parameters, owned results, statement temporaries), `Drop` at zero strong count and
+    the free at zero weak count, atomic `synced` counts once the program is threaded (as strings), `weak[P]`
+    conversion and `Upgrade` (a compare-and-swap for `synced`), and the sendable rule of section 4.7.
+    Leak-checked under the debug allocator (`TestBoxesLeakFree`).
 49. **Indexing interface** (done; language spec section 6.7): `x[k]`, `x[k] = v`, `v, ok := x[k]`,
     `x[k] op= v` and `len(x)` on types that are not built-in indexable call `Index`, `SetIndex`,
     `IndexOk` and `Len`; `vec.Vec` and `hash.Map` have them, and `pluto/container` declares the
@@ -222,13 +234,11 @@ later takes the next free number and is listed in the section where it belongs.
     (containers return pointers from `Ptr`). `for k, v := range x` on such a type ranges over `x.All()`
     (item 22), so `vec.Vec`, `hash.Map` and `hash.Set` range like Go's slices and maps; `container.Iterable`
     is its constraint.
-50. **Ownership proposals awaiting sign-off** (proposed):
-    - `new` returns `owned[T]` (`make([]T, ...)` is an error now, item 58), with `a.New[T]()` and
-      `a.Slice[T](n)` for arena-owned views (language spec section 4.2);
-    - the predeclared `take(&place)`, which moves out of a field, element or pointer and leaves the zero
-      value (section 6.4);
-    - owning interfaces (`type R owner interface {...}`) that move owners in, and ordinary interfaces that
-      lend them (section 4.4);
+50. **Ownership proposals** (done except allocated errors):
+    - `new` returns `owned[T]` (done), with `a.New[T]()` and `a.Slice[T](n)` for arena-owned views
+      (language spec section 4.2);
+    - the predeclared `take(&place)` (done, section 6.4);
+    - owning interfaces (done, section 4.4);
     - counted allocated errors (section 14.6; item 11).
 57. **Counted strings** (done; language spec section 6.10, abi.md section 1.1, memory-model.md section
     3.7): `string` is an immutable, reference-counted value of three words, `{ptr, len, ctl}`, whose

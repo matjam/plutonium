@@ -443,16 +443,19 @@ measuring, and it marks that function for the `pluto vet -unsafe` audit. Not imp
 1. Views of heap memory are checked only by the opt-in generation checks (section 5); without them a
    use after free through a `*T` or `[]T` into freed heap memory is undetected, as in C.
 2. Arena allocations are never generation checked; a view into an arena after `Reset` is undetected.
-3. An owner allocated from a local arena installed with `alloc.Use` and returned from the function
-   refers to an allocator that no longer exists (spec section 7.1).
+3. (Closed 2026-10-10, gap G34.) An owner allocated from a local arena installed with `alloc.Use` and
+   returned from the function referred to an allocator that no longer exists. What is allocated through
+   `Default()` while a local arena is installed is now a view of the arena (spec section 7.1); arena
+   memory stored into other heap memory is left to the per-arena epochs (D4), not implemented yet.
 4. Data races: section 7 is a proposal. Today heap views may be shared between puroutines, and package
    variables may be written from several.
 5. Writes through memory reinterpreted with `unsafe.Pointer` bypass the heap-only field inference
    (section 4): unsafe code that stores a frame pointer that way is not caught.
 6. A function value or interface method called from outside Plutonium (passed to C) is assumed to be
    called only by Plutonium code when inferring heap-only fields.
-7. `owned`, `shared`, `synced`, `weak`, owning interfaces and owner unions cannot be dropped yet (a
-   compile error, not a leak). Values in memory from `alloc.New` are never dropped by the compiler.
+7. (Closed 2026-10-10.) `owned`, `shared`, `synced`, `weak`, owning interfaces and owner unions are
+   dropped; an owning interface with no methods is still a compile error to drop. Values in memory from
+   `alloc.New` are never dropped by the compiler.
 8. The escape analysis is conservative: programs that layer allocators through interfaces in unusual
    ways, or that keep frame pointers in heap memory freed before the frame ends, are rejected. The
    error names the path; the fix is usually to allocate or to make a field heap-only.
@@ -471,8 +474,8 @@ measuring, and it marks that function for the `pluto vet -unsafe` audit. Not imp
     keeps strings (`rt.KeepString`) copies a string nobody counts at run time, which the analysis cannot
     see; it relies on `rt.Pinned` for that. `KeepString` also copies string literals, which costs an
     allocation per `os.OpenFile` with a literal name.
-14. A string built while a local arena is the current allocator records the arena in its buffer and must
-    not outlive it (spec section 6.10); the escape analysis does not check this.
+14. (Closed 2026-10-10, with 3.) A string built while a local arena is the current allocator is a view of
+    the arena (spec section 7.1).
 
 ## 12. Decisions (signed off 2026-10-10)
 

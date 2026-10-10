@@ -159,19 +159,23 @@ allocator otherwise. Memory from `new(T)` and `make` is zeroed. With no allocato
 before `alloc.SetDefault`, the allocation panics with "no allocator" (section 7.2); a nil allocator
 argument panics too.
 
-**What they return (approved; not implemented yet: `new` still returns `*T` and `make` a slice).** Every allocation needs an owner or an arena (section
-6.6), so `new` and `make` return owners:
+**What they return.** Every allocation needs an owner or an arena (section 6.6), so `new` and `make`
+return owners:
 
 - `new(T)` and `new(v)` return an `owned[T]` (section 5.6): the single owner of the new variable, which
-  frees it when dropped. It dereferences like `*T`, so `n := new(Node); n.val = 1` reads as in Go.
+  frees it when dropped. It dereferences like `*T`, so `n := new(Node); n.val = 1` reads as in Go, but it
+  is not a `*T`: storing it in a `*T` variable, returning it as a `*T` or passing it where a `*T` is
+  expected is a compile error, so Go code that keeps the pointer of a `new` shows where the owner must
+  go. `(*T)(n)` and `&*n` lend a `*T` view of the variable (section 6.5, rule 5). `new(v)` with an owner
+  `v` moves it into the new variable.
 - slices come from `vec.Make` and `vec.WithCapacity` (above), which return the owner, a `vec.Vec[T]`;
   `v[i]` and `len(v)` work on it directly through the indexing interface (section 6.7).
 - `make(chan T)` and `make(chan T, n)` return a channel, which counts its references (section 4.8).
 
 Memory that only an arena should own is allocated through the arena, which returns views: `a.New[T]()`
-gives a `*T` and `a.Slice[T](n)` a `[]T` that live until the arena is reset or dropped. Today's compiler
-still returns `*T` from `new`; that memory is freed only by an explicit `alloc.Free` or an arena reset,
-which section 6.6 forbids outside the unchecked allocation layer.
+gives a `*T` and `a.Slice[T](n)` a `[]T` that live until the arena is reset or dropped. `alloc.New[T]()`
+returns a `*T` that nothing owns; it belongs to the unchecked layer that owner types are written with
+(section 6.6).
 
 ### 4.3 Slices do not grow
 
@@ -228,9 +232,8 @@ package initialization, so a conversion there copies the value into static stora
 holds for `&T{...}`, slice literals and the array behind a variadic call's arguments in package-level
 initializers, which also get static storage.
 
-**Owners in interfaces (approved; owning interfaces can be declared, and lending to ordinary interfaces
-is checked, but an owning interface cannot be dropped yet).** An interface value has no static owner kind of its
-own, so the kind comes from the interface type:
+**Owners in interfaces.** An interface value has no static owner kind of its own, so the kind comes from
+the interface type:
 
 - An **ordinary interface** (`any`, `error`, `io.Reader`, any interface type not declared `owner`) never
   owns what it holds. Converting an owner, or a `shared`/`synced` reference, to an ordinary interface
@@ -253,6 +256,16 @@ own, so the kind comes from the interface type:
   clause. Asserting an ordinary interface to an owner type is a compile error, since the interface only
   lends the value and the result would be a second owner (section 6.9); assert it to an interface type
   instead and use the value's methods.
+- An owning interface drops what it holds through its method table: an owning interface's itab has one
+  more slot after the methods, the dynamic type's drop code (abi.md section 5), so dropping the interface
+  runs the right `Drop` whatever the type. An owning interface with no methods, `type R owner
+  interface{}`, has no itab to hold the slot, and dropping one is a compile error for now.
+- A method of the dynamic type with a value receiver never satisfies an interface method when the type is
+  an owner (section 6.4): calling it would consume the value, and the interface, ordinary or owning,
+  cannot give it up. The conversion is a compile error that shows the fix, a pointer receiver. A
+  pointer-receiver method of an owner is reached through `&b` (an ordinary interface) or through a box
+  (`new(b)` in an owning interface), as in Go: `fmt.Println(b)` prints the fields and
+  `fmt.Println(&b)` calls `b`'s `String` method.
 
 The predeclared `error` is an ordinary interface. How an error that allocates memory is freed exactly once
 is the subject of the proposal in section 14.6.
@@ -925,21 +938,26 @@ manages. Section 6 gives the rules they follow; this section describes the types
 too, declared in the library with `owner` (section 6.4). It is the one to use for a single object on the
 heap, such as a tree node or a large struct that must keep its address.
 
-**Representation.** Each is one word, the address of the object (abi.md section 1). The allocation begins
-with a hidden header at a negative offset: for `owned[T]`, the allocator the object came from; for
-`shared[T]` and `synced[T]`, the allocator, the strong count and the weak count. Freeing goes to the
+**Representation.** Each is one word, the address of the object (abi.md section 1.2). The allocation begins
+with a hidden header in front of the object: for `owned[T]`, the allocator the object came from; for
+`shared[T]` and `synced[T]`, the strong count, the weak count and the allocator. Freeing goes to the
 recorded allocator even if the default has changed since; freeing into an arena does nothing (section
 6.6). The zero value of each is nil; dropping a nil reference does nothing, and dereferencing one faults
-like a nil pointer.
+like a nil pointer. They compare by address, with each other and with `nil`.
 
-**Creation.** `alloc.Owned[T]()`, `alloc.Shared[T]()` and `alloc.Synced[T]()` allocate a zeroed `T`, each
-with an optional allocator argument (section 7.1); under the proposal of section 4.2, `new(T)` and
-`new(v)` also return an `owned[T]`. A `weak[P]` is made by converting a reference:
-`weak[shared[Node]](p)`.
+**Creation.** `new(T)` and `new(v)` return an `owned[T]` (section 4.2). `alloc.Owned[T]()`,
+`alloc.Shared[T]()` and `alloc.Synced[T]()` allocate a zeroed `T`, each with an optional allocator
+argument (section 7.1). A `weak[P]` is made by converting a reference: `weak[shared[Node]](p)`. A box
+holds a concrete type: `owned[io.Reader]` is a compile error (E3210) whose fix is an owning interface
+(section 4.4), which already owns a value behind an interface. A `*T` view never becomes a box; the
+conversions out of a box are `(*T)(p)`, `&*p` and, as unsafe code, `unsafe.Pointer(p)`.
 
-**Use.** `owned[T]`, `shared[T]` and `synced[T]` dereference like `*T`: `p.field`, `*p` and method calls
-with `*T`'s methods. Each of these gives a view of the object, which may not outlive the reference it was
-made through (section 6.3). `&*p` and the conversion `(*T)(p)` produce a `*T` view to pass to code that
+**Use.** `owned[T]`, `shared[T]` and `synced[T]` dereference like `*T`: `p.field`, `*p`, `p[i]`, `len(p)`
+and `range p` when `T` is an array, and method calls with `*T`'s methods. Each of these gives a view of
+the object, which may not outlive the reference it was made through (section 6.3): a view made through a
+box held in a local variable is bounded by that variable, and one made through a temporary box by its
+statement. A struct may embed one, `struct { owned[Style] }`, as Go embeds `*Style`, promoting `Style`'s
+methods; a struct that embeds an `owned[T]` is an owner and must be declared `owner`. `&*p` and the conversion `(*T)(p)` produce a `*T` view to pass to code that
 does not take ownership. A `weak[P]` does not dereference; its one method is
 
 ```go
@@ -949,10 +967,13 @@ func (w weak[P]) Upgrade() (P, bool)
 which returns a new strong reference and `true` while the object is alive, and the zero `P` and `false`
 once the last strong reference has been dropped (always `false` for the zero `weak`).
 
-**Own methods.** Besides `*T`'s methods, `owned[T]` has a `Drop` (drop the `T`, then free the memory),
-used when it sits in an owning interface, and a `Clone()` when `T` is not an owner or has a `Clone`
-method of its own. `shared[T]` and `synced[T]` have no methods of their own, so they never hide one of
-`T`'s; their counts are changed only by copying and dropping.
+**Own methods.** Besides `*T`'s methods, `owned[T]` has a `Drop` (drop the `T`, then free the memory,
+ending the variable's life as `x.Drop()` does for any owner) and, when `T` is not an owner, a `Clone()`
+that returns a new box from the current allocator holding a copy of the object. For an owner `T` with
+a `Clone` method of its own, write `new(p.Clone())`. These methods act on the box, never satisfy an
+interface method, and are never promoted from an embedded box. `shared[T]` and `synced[T]` have no
+methods of their own, so they never hide one of `T`'s; their counts are changed only by copying and
+dropping.
 
 ```go
 type Tree owner struct {
@@ -1241,12 +1262,25 @@ case PTE.Swapped:
   may hold any bit pattern; `PTE` above needs none, since its one-bit tag has two values.
 
 **Ownership.** A union whose payloads are all values is a value (section 6.2). A union with a variant
-whose payload is an owner must be declared `owner` like a struct (section 6.4): dropping it drops the
-payload of the variant it holds, giving it a new variant drops the old payload first, and moving a
-payload out through a type switch binding moves the whole union. The ownership checker does not exist
-yet, and until it does, a payload that holds an `owned`, `shared` or `synced` pointer (directly, or in a
-field, an array element or another union, but not behind a pointer) is a compile error, in a
-declaration or through a type argument.
+whose payload is an owner (a type declared `owner`, or `owned[T]`) must be declared `owner union`, like
+a struct with an owner field (section 6.4; E2406 otherwise):
+
+```go
+type Slot owner union {
+	Empty
+	Open File            // File is an owner
+	Boxed owned[Node]
+	Code int
+}
+```
+
+An owner union moves instead of being copied. Dropping it drops the payload of the variant it holds,
+and giving it a new variant drops the old payload first. A type switch with a binding on an owner union
+variable (`switch v := s.(type)`) moves the payload into the binding of the clause that runs, which drops
+it at the end of the clause unless it moves on; the variable is empty afterwards. The comma-ok assertion
+`f, ok := s.(Slot.Open)` moves the payload out only where `ok` is true; where it is false `s` keeps it. A
+union whose payloads hold counted references (`shared`, `synced`, `weak`, strings) and no owner copies,
+counting each copy, as a struct of them does (section 6.2).
 
 **Not yet.** Updating a variant's payload in place through a pointer (`(&u).(*U.V)`, proposal section 3)
 waits for real use; assign a new variant instead. Debug information describes a union as its size only.
@@ -1559,8 +1593,10 @@ end of each iteration for a variable declared in a loop body. In detail:
   elements, an arena's variables) drops a value through a pointer with `unsafe.Drop(p)` (section 11).
 - Values in memory from `alloc.New` or an arena are not dropped by the compiler: that memory has no
   owner until the code that allocated it gives it one, and `alloc.Free` drops the value before freeing.
-- Owner unions, owning interfaces and `owned`/`shared`/`synced` references are not dropped yet: dropping a
-  variable of such a type is a compile error saying so.
+- An `owned[T]` is dropped by dropping its `T` and freeing the memory to the allocator recorded in its
+  header; an owning interface by the drop slot of its method table (section 4.4); an owner union by
+  dropping the payload of the variant it holds (section 5.10). The one exception left is an owning
+  interface with no methods, which is a compile error to drop.
 
 `Drop` cannot report failure. A type whose release can fail (a file whose last write is flushed on close)
 provides a method such as `Close() error` for callers that care; `Drop` then has nothing left to do.
@@ -1594,7 +1630,17 @@ The rules:
 5. A view obtained through a counted reference (`p.field`, `&*p`) is bounded by that reference like a view
    of a local owner (section 6.3).
 6. Cycles of strong references are never freed. A structure with back pointers makes them `weak`
-   (section 6.8).
+   (section 6.8); the debug allocator (section 7.3) reports what a cycle leaks.
+
+How the compiler keeps these rules: a counted reference is counted exactly as a string is (section
+6.10). A store into a place takes a reference for the new value and releases the old one; a call's
+parameters are borrowed, so passing a reference down costs nothing unless the callee keeps it; a result
+hands its reference to the caller; a reference read from memory a call could change is held for the
+statement. The strong references together hold one weak reference, as in Rust's `Arc`, so the memory is
+freed when the weak count reaches zero after `Drop` has run. A `synced` count is atomic once the program
+runs more than one task (`rt.SetThreaded`, as for strings) and plain before; a `shared` count is always
+plain, which is why it may not cross tasks (section 4.7). `weak[P].Upgrade` on a `synced` object is a
+compare-and-swap that fails once the strong count is zero.
 
 **Why not count everything.** Views and moves cover the common cases, passing data down and handing it
 on, for free. Counting costs something on every copy, and Plutonium makes that cost opt-in:
@@ -2007,7 +2053,8 @@ func handle(req *Request) error {
 ```
 
 A string built while an arena is the current allocator lives in the arena, and must not be used after the
-arena is reset or dropped (section 6.10).
+arena is reset or dropped (section 6.10); for a local arena, returning or storing such a string beyond the
+arena is a compile error (section 7.1).
 
 Code that allocates through `alloc.Default()` without an allocator parameter, such as `fmt.Sprintf`, is
 pointed at an arena with `alloc.Use` (section 7.1).
@@ -2582,8 +2629,9 @@ function returns; code that must see the memory freed earlier converts in a func
 
 **Arenas.** A string built while an arena is the current allocator (`defer alloc.Use(&a).Restore()`) has
 its buffer in the arena. Releasing it writes its header, so it must not be used, or dropped, after the
-arena is reset or dropped: declare the arena before the strings that use it, as for any owner that views
-it (section 6.4).
+arena is reset or dropped. For an arena in a local variable the compiler checks this: such a string is a
+view of the arena, which may not be returned or stored beyond it (section 7.1). Declare the arena before
+the strings that use it, as for any owner that views it (section 6.4).
 
 **Races.** Reading a string variable while another puroutine writes it is a data race, as for any value
 larger than a word (memory-model.md section 4.3): the reader may see a torn value, or a buffer the writer
@@ -2680,11 +2728,32 @@ func parseAll(files []string) {
 ```
 
 Owners allocated while the override is in force record the arena as their allocator, so dropping them
-later frees into the arena, which does nothing (section 6.6). The compiler does not check that such an
-owner is dropped before the arena itself is reset or goes away: an owner allocated from a local arena
-through `Default()` and returned from the function refers to an allocator that no longer exists. This is
-a known gap in the checks (docs/plans/2026-10-09-memory-safety-design.md); pass the arena explicitly
-(`vec.New[T](&a)`) where the compiler should see it.
+later frees into the arena, which does nothing (section 6.6). So that nothing allocated in a local arena
+outlives it, the compiler treats what is allocated through `Default()` while a `Restore` that views a
+local arena is live as a view of that arena (section 6.3): returning it, storing it in a package
+variable, or handing it to a task is a compile error that names the arena. The window runs from the
+call of `alloc.Use` to the end of its block, or to the end of the function for `defer
+alloc.Use(&a).Restore()`, and covers `new` and `make` without an allocator argument, string
+concatenation and conversions, calls that leave out a defaulted `alloc.Allocator` parameter (such as
+`vec.New[T]()` or `fmt.Sprintf`, whose results come from `Default()`), and calls whose results keep their
+allocator out of sight (a string, an `owned`/`shared`/`synced`/`weak` reference, an interface such as an
+error):
+
+```go
+func name(n int) string {
+	var mem [256]byte
+	a := arena.New(mem[:])
+	defer alloc.Use(&a).Restore()
+	return fmt.Sprintf("item %d", n) // error: the string is in a, which is gone when name returns
+}
+```
+
+To keep something past the arena, allocate it from an allocator that outlives it, passed explicitly
+(`heap := alloc.Default()` before `Use`, then `vec.New[T](heap)`), or install an arena the caller
+provides. Memory from the arena stored into other heap memory, by the function or a callee, is not
+reported (it is most often in the same arena); per-arena epochs, decided for arena views (memory-safety
+design D4), are to catch a use of it after the arena is gone at run time. They are not implemented yet
+(roadmap item 20).
 
 ### 7.2 The system allocator
 

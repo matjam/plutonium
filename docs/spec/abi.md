@@ -60,11 +60,9 @@ Sizes and alignments follow Go's gc compiler on amd64. `int`, `uint`, `uintptr` 
 | packed union | its backing | backing's | a packed type whose tag field selects the variant, language spec section 5.10 |
 | `chan T` | 8 | 8 | address of the channel object (`rt.hchan`, section 12.6) |
 
-`owned[T]`, `shared[T]`, `synced[T]` and `weak[P]` point at the object. The allocation behind them begins
-with a hidden header at a negative offset from the object: one word recording its allocator for
-`owned[T]`, and for the counted kinds the allocator, the strong count and the weak count (language spec
-section 5.6; planned with the move checker). Owner types declared with `owner` (language spec section
-6.4) have the layout of their underlying type; ownership adds no bytes.
+`owned[T]`, `shared[T]`, `synced[T]` and `weak[P]` point at the object, with a header in front of it
+(section 1.2). Owner types declared with `owner` (language spec section 6.4) have the layout of their
+underlying type; ownership adds no bytes.
 
 A union (language spec section 5.10) is its tag at offset 0, numbering the variants from 0 in declaration
 order, and the payload of the variant it holds at the first offset after the tag that satisfies the
@@ -115,6 +113,28 @@ after; freestanding programs use `lock xadd` from the start (memory-model.md sec
 Static strings in data (a package variable initialised with a constant, a type name in a descriptor, an
 enum's names) are written as all three words, with a control word that holds only the flags, computed
 when compiling.
+
+### 1.2 Boxes
+
+The object of an `owned[T]`, `shared[T]` or `synced[T]` (language spec section 5.6) is preceded by a
+header, 8-aligned, at the start of an allocation from the allocator that was current when the box was
+made, or the one passed to `new` or `alloc.Owned`/`Shared`/`Synced`:
+
+| Box | Header, at negative offsets from the object | Size |
+|---|---|---|
+| `owned[T]` | `-16 a Allocator` (an interface, two words) | 16 |
+| `shared[T]`, `synced[T]` | `-32 strong int64`, `-24 weak int64`, `-16 a Allocator` | 32 |
+
+The allocation starts at the object's address minus the header size rounded up to `T`'s alignment (at
+least 8), is aligned to that alignment, and is that offset plus `size(T)` bytes long, so freeing needs only
+the address and `T`. The strong count counts `shared` or `synced` references; the weak count counts
+`weak` references plus one held by all the strong references together. Copying a strong reference adds
+one to the strong count and dropping one subtracts one (`pluto/rt.boxRetain`, `boxReleaseStrong`); the
+release that reaches zero drops `T` and then releases the weak reference the strong ones held
+(`weakRelease`), which frees the memory when the weak count reaches zero. `synced` counts are updated with
+`lock xadd` once `rt.SetThreaded` has been called (memory-model.md section 3.7), and `Upgrade` with
+`lock cmpxchg`; `shared` counts never are. A `weak[P]` is the same address as its `P`. Dropping an
+`owned[T]` drops `T` and frees the memory (`pluto/rt.boxFree`).
 
 ## 2. Registers
 
@@ -291,7 +311,7 @@ Type descriptor, 80 bytes, read-only, named `type:<type>` (mirrored by `pluto/rt
 |---|---|---|
 | 0 | `size uintptr` | 16 for interface types |
 | 8 | `hash uint32` | FNV-1a of the type string |
-| 12 | `kind uint8` | Go's reflect numbering, plus 27 packed, 28 ring, 29 owned, 30 union |
+| 12 | `kind uint8` | Go's reflect numbering, plus 27 packed, 28 ring, 29 owned, `shared`, `synced` or `weak`, 30 union |
 | 13 | `flags uint8` | 1 = direct, 2 = interface type with methods (its values hold an itab), 4 = the type has methods |
 | 14 | `align uint8` | alignment in bytes (0 if 256 or more) |
 | 16 | `name string` | the type as Go's `reflect.Type.String` writes it: `main.T`, `[]uint8`, `hash.Map[string,int]`, `interface {}`, `struct { A int }` |
@@ -326,7 +346,10 @@ payload) and a word that is 1 when the payload is an empty interface and 2 when 
 `pluto/rt.UnionInfo` reads them, and `fmt` prints a union with them.
 
 Itab, named `itab:<type>,<interface>`: the type descriptor, the interface's descriptor, then one code
-pointer per interface method in method order. Each code pointer is an adapter that takes the data word as
+pointer per interface method in method order. The itab of an owning interface (language spec section 4.4)
+has one more word after the methods: the dynamic type's drop adapter, which takes the data word and drops
+the value it holds (an owner's drop, or the release of a `shared`, `synced` or `weak` reference), or 0 when
+values of the type need no drop. Each code pointer is an adapter that takes the data word as
 its first argument (in place of the receiver) followed by the method's arguments, and is called with RAX
 set to 0. `pluto.itabs` holds every itab for the run-time lookup that conversions between non-empty
 interfaces and type assertions to them use. It is an open-addressing hash table: a word holding the
