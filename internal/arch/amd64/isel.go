@@ -21,6 +21,7 @@ type isel struct {
 	cur    *MBlock
 	vregs  []Reg // by SSA value ID; NoReg if not yet materialised
 	fused  []bool
+	folded []bool // loads folded into their user as a memory operand
 	loops  *ssa.LoopNest
 }
 
@@ -40,6 +41,7 @@ func Select(f *ssa.Func) (*MFunc, error) {
 		blocks: make([]*MBlock, f.NumBlocks()),
 		vregs:  make([]Reg, f.NumValues()),
 		fused:  make([]bool, f.NumValues()),
+		folded: make([]bool, f.NumValues()),
 		loops:  f.Loops(),
 	}
 	for i := range s.vregs {
@@ -221,6 +223,66 @@ func (s *isel) markFused() {
 			s.fused[v.ID] = true
 		}
 	}
+	s.markFoldedLoads()
+}
+
+// markFoldedLoads finds loads used only by an ALU operation later in their
+// block, with no memory write in between, and folds them into it as its
+// memory operand. Commutative operations may take the load on either side.
+func (s *isel) markFoldedLoads() {
+	for _, b := range s.f.Blocks {
+		// Loads since the last memory write, which may move down to here.
+		loadAfter := map[*ssa.Value]bool{}
+		for _, v := range b.Values {
+			if v.Op.HasMemResult() || v.Op.IsCall() {
+				clear(loadAfter)
+				continue
+			}
+			if v.Op == ssa.OpLoad && !v.IsVolatile() && v.Uses == 1 {
+				loadAfter[v] = true
+				continue
+			}
+			if !foldsLoad(v) || s.fused[v.ID] || s.fused[v.Args[0].ID] || s.fused[v.Args[1].ID] {
+				continue
+			}
+			for j, a := range v.Args {
+				if j == 0 && !v.Op.IsCommutative() || a == v.Args[1-j] {
+					continue
+				}
+				if loadAfter[a] && a.Type.Same(v.Type) {
+					s.folded[a.ID] = true
+					break
+				}
+			}
+		}
+	}
+}
+
+// foldsLoad reports whether v can take a memory operand.
+func foldsLoad(v *ssa.Value) bool {
+	switch v.Op {
+	case ssa.OpAdd, ssa.OpSub, ssa.OpAnd, ssa.OpOr, ssa.OpXor:
+		return true
+	case ssa.OpFAdd, ssa.OpFSub, ssa.OpFMul, ssa.OpFDiv:
+		return true
+	}
+	return false
+}
+
+// aluArgs returns v's first operand and its second as an instruction
+// source, swapping them when a commutative v folded its first.
+func (s *isel) aluArgs(v *ssa.Value) (*ssa.Value, Operand) {
+	x, y := v.Args[0], v.Args[1]
+	if s.folded[x.ID] {
+		x, y = y, x
+	}
+	if s.folded[y.ID] {
+		return x, MemOp(s.addr(y.Args[0]))
+	}
+	if y.Type.IsFloat() {
+		return x, s.floatOperand(y)
+	}
+	return x, s.operand(y)
 }
 
 // scaledIndex returns x and scale when v is x*scale for an address scale
@@ -532,6 +594,12 @@ func (s *isel) load(r Reg, m Mem, t *ssa.Type) {
 		return
 	}
 	size := sizeOf(t)
+	if size < 4 {
+		// Zero-extend narrow loads: a partial register write would depend
+		// on the register's old value. ZeroExt of a load relies on this.
+		s.emit(&MInst{Op: MMOVZX, Size: 4, SrcSize: size, Dst: RegOp(r), Src: MemOp(m)})
+		return
+	}
 	s.emit(&MInst{Op: MMOV, Size: size, Dst: RegOp(r), Src: MemOp(m)})
 }
 
@@ -553,12 +621,12 @@ func (s *isel) def(v *ssa.Value) Reg {
 }
 
 func (s *isel) value(v *ssa.Value) error {
-	if isLazy(v) || s.fused[v.ID] {
+	if isLazy(v) || s.fused[v.ID] || s.folded[v.ID] {
 		return nil
 	}
 	size := sizeOf(v.Type)
 	switch v.Op {
-	case ssa.OpPhi, ssa.OpInitMem, ssa.OpVarDef, ssa.OpArg, ssa.OpClosurePtr, ssa.OpUnreachableValue:
+	case ssa.OpPhi, ssa.OpInitMem, ssa.OpVarDef, ssa.OpVolatileRead, ssa.OpArg, ssa.OpClosurePtr, ssa.OpUnreachableValue:
 		// Handled elsewhere or produce no code.
 		if v.Op == ssa.OpUnreachableValue && !v.Type.IsMem() {
 			r := s.def(v)
@@ -577,9 +645,10 @@ func (s *isel) value(v *ssa.Value) error {
 			break
 		}
 		op := map[ssa.Op]MOp{ssa.OpAdd: MADD, ssa.OpSub: MSUB, ssa.OpAnd: MAND, ssa.OpOr: MOR, ssa.OpXor: MXOR}[v.Op]
+		x, src := s.aluArgs(v)
 		d := s.def(v)
-		s.copyReg(d, s.reg(v.Args[0]), size)
-		s.emit(&MInst{Op: op, Size: size, Dst: RegOp(d), Src: s.operand(v.Args[1])})
+		s.copyReg(d, s.reg(x), size)
+		s.emit(&MInst{Op: op, Size: size, Dst: RegOp(d), Src: src})
 
 	case ssa.OpAndNot:
 		d := s.def(v)
@@ -636,9 +705,10 @@ func (s *isel) value(v *ssa.Value) error {
 
 	case ssa.OpFAdd, ssa.OpFSub, ssa.OpFMul, ssa.OpFDiv:
 		op := map[ssa.Op]MOp{ssa.OpFAdd: MADDSF, ssa.OpFSub: MSUBSF, ssa.OpFMul: MMULSF, ssa.OpFDiv: MDIVSF}[v.Op]
+		x, src := s.aluArgs(v)
 		d := s.def(v)
-		s.copyReg(d, s.reg(v.Args[0]), size)
-		s.emit(&MInst{Op: op, Size: size, Dst: RegOp(d), Src: s.floatOperand(v.Args[1])})
+		s.copyReg(d, s.reg(x), size)
+		s.emit(&MInst{Op: op, Size: size, Dst: RegOp(d), Src: src})
 	case ssa.OpFNeg, ssa.OpFAbs:
 		d := s.def(v)
 		s.copyReg(d, s.reg(v.Args[0]), size)
@@ -659,7 +729,7 @@ func (s *isel) value(v *ssa.Value) error {
 
 	case ssa.OpEq, ssa.OpNe, ssa.OpLess, ssa.OpLeq, ssa.OpLessu, ssa.OpLequ:
 		cond := s.intCompare(v)
-		s.emit(&MInst{Op: MSETCC, Size: 1, Dst: RegOp(s.def(v)), Cond: cond})
+		s.setcc(s.def(v), cond)
 	case ssa.OpFEq, ssa.OpFNe, ssa.OpFLess, ssa.OpFLeq:
 		s.floatCompareValue(v)
 
@@ -672,7 +742,10 @@ func (s *isel) value(v *ssa.Value) error {
 	case ssa.OpZeroExt:
 		from := sizeOf(v.Args[0].Type)
 		d := s.def(v)
-		if from == 4 {
+		if a := v.Args[0]; a.Op == ssa.OpLoad && from < 4 && !a.Type.IsFloat() {
+			// load already zero-extended it.
+			s.copyReg(d, s.reg(a), 8)
+		} else if from == 4 {
 			s.emit(&MInst{Op: MMOV, Size: 4, Dst: RegOp(d), Src: RegOp(s.reg(v.Args[0]))})
 		} else {
 			s.emit(&MInst{Op: MMOVZX, Size: 4, SrcSize: from, Dst: RegOp(d), Src: RegOp(s.reg(v.Args[0]))})
@@ -717,6 +790,11 @@ func (s *isel) value(v *ssa.Value) error {
 		s.zero(v.Args[0], v.AuxInt)
 	case ssa.OpMove:
 		s.move(v.Args[0], v.Args[1], v.AuxInt)
+	case ssa.OpFill:
+		s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(RDI), Src: MemOp(s.addr(v.Args[0]))})
+		s.copyReg(RCX, s.reg(v.Args[2]), 8)
+		s.copyReg(RAX, s.reg(v.Args[1]), 8)
+		s.emit(&MInst{Op: MREPSTOSB, ImplicitUses: []Reg{RDI, RCX, RAX}, ImplicitDefs: []Reg{RDI, RCX}})
 
 	case ssa.OpCall, ssa.OpCallInd:
 		s.call(v)
@@ -908,13 +986,21 @@ func (s *isel) floatCompare(v *ssa.Value) (cond Cond, parity Cond, needParity bo
 	}
 }
 
+// setcc sets d to the flag condition, as 0 or 1 in all of d. SETcc writes
+// only the low byte, which would make it wait for d's old value; clearing
+// d first with a MOV (which keeps the flags) removes that dependency.
+func (s *isel) setcc(d Reg, cond Cond) {
+	s.emit(&MInst{Op: MMOV, Size: 4, Dst: RegOp(d), Src: ImmOp(0)})
+	s.emit(&MInst{Op: MSETCC, Size: 1, Dst: RegOp(d), Cond: cond})
+}
+
 func (s *isel) floatCompareValue(v *ssa.Value) {
 	cond, parity, two := s.floatCompare(v)
 	d := s.def(v)
-	s.emit(&MInst{Op: MSETCC, Size: 1, Dst: RegOp(d), Cond: cond})
+	s.setcc(d, cond)
 	if two {
 		t := s.mf.newVReg(ClassGP)
-		s.emit(&MInst{Op: MSETCC, Size: 1, Dst: RegOp(t), Cond: parity})
+		s.setcc(t, parity)
 		op := MAND
 		if v.Op == ssa.OpFNe {
 			op = MOR

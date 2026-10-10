@@ -419,6 +419,7 @@ func (check *Checker) missingMethod(V, T Type, static bool, equivalent func(x, y
 		ptrRecv
 		field
 		nointerface
+		genericMethod
 	)
 
 	state := ok
@@ -487,6 +488,13 @@ func (check *Checker) missingMethod(V, T Type, static bool, equivalent func(x, y
 				break
 			}
 
+			// A method with type parameters of its own is called
+			// statically only and never implements an interface method.
+			if sig, _ := f.typ.(*Signature); sig != nil && sig.TypeParams().Len() > 0 {
+				state = genericMethod
+				break
+			}
+
 			if !equivalent(f.typ, m.typ) {
 				state = wrongSig
 				break
@@ -548,12 +556,15 @@ func (check *Checker) missingMethod(V, T Type, static bool, equivalent func(x, y
 			*cause = check.sprintf("(%s.%s is a field, not a method)", V, m.Name())
 		case nointerface:
 			*cause = check.sprintf("(%s method is marked 'nointerface')", m.Name())
+		case genericMethod:
+			fs, ms := check.funcString(f, false), check.funcString(m, false)
+			*cause = check.sprintf("(method %s has type parameters, so it cannot implement an interface method)\n\t\thave %s\n\t\twant %s", m.Name(), fs, ms)
 		default:
 			panic("unreachable")
 		}
 	}
 
-	return m, state == wrongSig || state == ptrRecv
+	return m, state == wrongSig || state == ptrRecv || state == genericMethod
 }
 
 // hasAllMethods is similar to checkMissingMethod but instead reports whether all methods are present.

@@ -1026,6 +1026,10 @@ func (check *Checker) nonGeneric(T *target, x *operand) {
 				return
 			}
 			what = "function"
+			if t.recvold != nil {
+				// A method value x.M or method expression T.M.
+				what = "method"
+			}
 		}
 	}
 	if what != "" {

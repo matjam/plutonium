@@ -46,7 +46,11 @@ func (s *fnState) expr(e ast.Expr) value {
 		ix := unpackIndex(e)
 		xt := s.typeOf(ix.x)
 		if _, ok := xt.Underlying().(*types2.Signature); ok {
-			// Instantiation of a generic function used as a value.
+			// Instantiation of a generic function used as a value, or of
+			// a method with type parameters (x.M[int], T.M[int]).
+			if se, ok := ast.Unparen(ix.x).(*ast.SelectorExpr); ok && s.info.Selections[se] != nil {
+				return s.selector(se, T)
+			}
 			if id := identOf(ix.x); id != nil {
 				if fn, ok := s.info.Uses[id].(*types2.Func); ok {
 					return scalarValue(s.funcValue(fn, s.instanceArgs(id)), T)
@@ -439,7 +443,8 @@ func (s *fnState) selector(e *ast.SelectorExpr, T types2.Type) value {
 		return scalarValue(s.methodValue(e, sel), T)
 	case types2.MethodExpr:
 		fn := sel.Obj().(*types2.Func)
-		return scalarValue(s.funcValue(fn, s.recvTypeArgs(sel.Recv())), T)
+		targs := s.withMethodTypeArgs(fn, e.Sel, s.recvTypeArgs(sel.Recv()))
+		return scalarValue(s.funcValue(fn, targs), T)
 	}
 	return s.zeroValue(T)
 }

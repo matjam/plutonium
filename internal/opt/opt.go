@@ -54,6 +54,9 @@ func ForLevel(level int) *Pipeline {
 		p.add(Pass{"simplify2", Simplify})
 		p.add(Pass{"branchelim", BranchElim})
 		p.add(Pass{"simplifycfg2", SimplifyCFG})
+		// Simplify the selects branchelim made.
+		p.add(Pass{"simplify3", Simplify})
+		p.add(Pass{"loopidiom", LoopIdiom})
 		p.add(Pass{"deadcode2", ssa.DeadCode})
 	}
 	return p

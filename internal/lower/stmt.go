@@ -821,10 +821,7 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 			if sel := s.info.Selections[se]; sel != nil && sel.Kind() == types2.MethodVal && !isInterface(s.typeOf(se.X)) && ringOf(s.typeOf(se.X), sel) == nil {
 				fn := sel.Obj().(*types2.Func)
 				recv := s.saveValue(s.methodReceiver(se.X, sel))
-				targs := s.recvTypeArgs(fn.Type().(*types2.Signature).Recv().Type())
-				if len(targs) == 0 {
-					targs = s.recvTypeArgs(s.subst(s.typeOf(se.X)))
-				}
+				targs := s.methodTypeArgs(fn, se, s.typeOf(se.X))
 				sym := s.l.funcSym(fn, targs)
 				full := s.l.methodSig(fn, targs)
 				sig := s.subst(funTV.Type).(*types2.Signature)

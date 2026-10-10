@@ -137,6 +137,46 @@ end:
 	}
 }
 
+// TestParseGenericMethods checks that methods may declare type parameters
+// and that interface methods may not.
+func TestParseGenericMethods(t *testing.T) {
+	ok := `package p
+
+func (v *Vec[T]) Map[U any](f func(T) U) Vec[U] { return Vec[U]{} }
+
+func (s S) Pair[A, B any, C comparable](a A, b B, c C) {}
+
+func f() {
+	_ = v.Map[int](g)
+	_ = v.Map(g)
+	_ = s.Pair[int, string, bool]
+}
+`
+	fset := token.NewFileSet()
+	f, err := ParseFile(fset, "ok.p", ok, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, n := range []int{1, 3} {
+		fd := f.Decls[i].(*ast.FuncDecl)
+		if fd.Recv == nil || fd.Type.TypeParams.NumFields() != n {
+			t.Errorf("%s: %d type parameters, want %d", fd.Name.Name, fd.Type.TypeParams.NumFields(), n)
+		}
+	}
+
+	bad := `package p
+
+type I interface {
+	M[T any](x T) T
+}
+`
+	_, err = ParseFile(token.NewFileSet(), "bad.p", bad, 0)
+	want := "interface method must have no type parameters: a method with type parameters is never called through an interface"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("got error %v, want %q", err, want)
+	}
+}
+
 // TestParseRepoSources parses every .p file shipped in the repository.
 func TestParseRepoSources(t *testing.T) {
 	root := filepath.Join("..", "..", "..")

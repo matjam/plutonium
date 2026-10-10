@@ -1,0 +1,35 @@
+package vec
+
+import "pluto/alloc"
+
+type Vec[T any] struct {
+	data []T
+	a    alloc.Allocator
+}
+
+// Map applies f to every element. U is the method's own type parameter.
+func (v *Vec[T]) Map[U any](f func(T) U) Vec[U] {
+	var out Vec[U]
+	for _, x := range v.data {
+		out.Push(f(x))
+	}
+	return out
+}
+
+func (v *Vec[T]) Fold[A any, B comparable](init A, f func(A, T) A) A {
+	return init
+}
+
+func (v Vec[T]) Zip[
+	U any,
+	V any,
+](u Vec[U], f func(T, U) V) Vec[V] {
+	var out Vec[V]
+	return out
+}
+
+func use(names Vec[string]) {
+	lengths := names.Map[int](func(s string) int { return len(s) })
+	inferred := names.Map(func(s string) int {return len(s)})
+	_, _ = lengths, inferred
+}

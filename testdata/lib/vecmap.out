@@ -1,0 +1,7 @@
+lens len=4 cap=4 5 2 5 0
+src live=64 calls=1 dst live=32 calls=1
+points len=4 at2=5,25 dst live=64
+generic 500 500 same alloc=true
+empty len=0 cap=0 dst calls=3
+grown grown dst calls=4
+freed src=0 dst=0

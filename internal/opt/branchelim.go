@@ -52,7 +52,7 @@ func feedsAddress(v *ssa.Value, users map[*ssa.Value][]*ssa.Value) bool {
 			switch u.Op {
 			case ssa.OpAddPtr, ssa.OpOffPtr:
 				return true
-			case ssa.OpLoad, ssa.OpStore, ssa.OpZero, ssa.OpMove:
+			case ssa.OpLoad, ssa.OpStore, ssa.OpZero, ssa.OpMove, ssa.OpFill:
 				if u.Args[0] == v {
 					return true
 				}
