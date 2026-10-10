@@ -272,6 +272,14 @@ func (s *fnState) selectN(call *ssa.Value, i int, t *ssa.Type) *ssa.Value {
 // callValue emits the call op itself.
 func (s *fnState) callValue(c callee, flat []*ssa.Value, results []*ssa.Type) *ssa.Value {
 	rt := ssa.TupleOf(append([]*ssa.Type{ssa.TMem}, results...)...)
+	if c.sym != nil && c.sym.Kind == ssa.SymExtern {
+		// Code outside Plutonium sees plain addresses.
+		for i, a := range flat {
+			if a.Type.IsPtr() {
+				flat[i] = s.untagged(a)
+			}
+		}
+	}
 	var call *ssa.Value
 	if c.sym != nil {
 		call = s.newValue(ssa.OpCall, rt)

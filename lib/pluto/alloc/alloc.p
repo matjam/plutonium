@@ -156,6 +156,9 @@ func (s *Slab) Alloc(size, align uintptr) unsafe.Pointer {
 	}
 	s.free[c] = *(*unsafe.Pointer)(p)
 	*(*unsafe.Pointer)(p) = nil // the rest of the slot is already zero
+	if genCheck {
+		return genTag(p)
+	}
 	return p
 }
 
@@ -170,6 +173,13 @@ func (s *Slab) Free(p unsafe.Pointer, size, align uintptr) {
 	}
 	c := classOf(size, align)
 	slot := uintptr(1) << (minClassShift + c)
+	if genCheck {
+		live := genRelease(p, slot)
+		p = unsafe.Pointer(uintptr(p)) // the plain address
+		if !live {
+			return // the slot is worn out: never hand it out again
+		}
+	}
 	// Zero the slot so Alloc can hand it out without clearing.
 	b := unsafe.Slice((*byte)(p), slot)
 	clear(b)
@@ -178,7 +188,14 @@ func (s *Slab) Free(p unsafe.Pointer, size, align uintptr) {
 }
 
 func (s *Slab) refill(c int) {
-	chunk := s.pages.AllocPages(chunkPages)
+	var chunk unsafe.Pointer
+	first := uintptr(0)
+	if genCheck {
+		chunk = s.genChunk()
+		first = genFirst(uintptr(1) << (minClassShift + c))
+	} else {
+		chunk = s.pages.AllocPages(chunkPages)
+	}
 	if chunk == nil {
 		return
 	}
@@ -186,7 +203,7 @@ func (s *Slab) refill(c int) {
 	n := chunkPages * PageSize / slot
 	// Thread the new slots onto the free list in address order.
 	var head unsafe.Pointer
-	for i := n; i > 0; i-- {
+	for i := n; i > first; i-- {
 		p := unsafe.Add(chunk, (i-1)*slot)
 		*(*unsafe.Pointer)(p) = head
 		head = p

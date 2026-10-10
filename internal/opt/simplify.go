@@ -523,6 +523,19 @@ func simplifyIntBinary(f *ssa.Func, v *ssa.Value) bool {
 	return false
 }
 
+// staticAddrBits is the width of the user-space addresses frames and static
+// data live at on x86-64 Linux: below 2^47.
+const staticAddrBits = 47
+
+// isStaticAddr reports whether p is the address of a stack slot or a
+// symbol, or an offset from one.
+func isStaticAddr(p *ssa.Value) bool {
+	for p.Op == ssa.OpOffPtr {
+		p = p.Args[0]
+	}
+	return p.Op == ssa.OpSlotAddr || p.Op == ssa.OpSymAddr
+}
+
 func simplifyShift(f *ssa.Func, v *ssa.Value) bool {
 	t := v.Type
 	a, n := v.Args[0], v.Args[1]
@@ -534,6 +547,19 @@ func simplifyShift(f *ssa.Func, v *ssa.Value) bool {
 	if cnt == 0 {
 		v.CopyOf(a)
 		return true
+	}
+	if v.Op == ssa.OpShrL && w == 64 && f.Pragmas&ssa.PragmaGenCheck != 0 {
+		// The high bits of a frame or static address are zero: the
+		// generation tag of such a pointer (lower/gencheck.go) is 0, and
+		// removing the tag leaves the address as it was.
+		if cnt >= staticAddrBits && a.Op == ssa.OpBitcast && isStaticAddr(a.Args[0]) {
+			return replaceConst(v, 0)
+		}
+		if 64-cnt >= staticAddrBits && a.Op == ssa.OpShl && constEq(a.Args[1], int64(cnt)) &&
+			a.Args[0].Op == ssa.OpBitcast && isStaticAddr(a.Args[0].Args[0]) {
+			v.CopyOf(a.Args[0])
+			return true
+		}
 	}
 	if isConst(a) {
 		x := a.AuxInt

@@ -260,6 +260,11 @@ func (s *fnState) subst(T types2.Type) types2.Type { return s.tmap.subst(T) }
 func (l *Lowerer) newFnState(job *funcJob) *fnState {
 	f := ssa.NewFunc(job.sym.Name)
 	f.Sym = job.sym
+	pkgPath := ""
+	if job.pkg != nil {
+		pkgPath = job.pkg.Path
+	}
+	l.genPragmas(f, pkgPath)
 	s := &fnState{
 		l:      l,
 		pkg:    job.pkg,
@@ -452,9 +457,6 @@ func varName(v *types2.Var) string {
 // emitReturn runs deferred calls and returns the result variables.
 func (s *fnState) emitReturn(pos token.Pos) {
 	s.runDefers()
-	ret := s.b
-	ret.Kind = ssa.BlockRet
-	ret.Pos = pos
 	controls := []*ssa.Value{}
 	if s.abi.sret {
 		for i, p := range s.abi.results {
@@ -472,6 +474,10 @@ func (s *fnState) emitReturn(pos token.Pos) {
 		controls = append(controls, s.mem())
 		controls = append(controls, leaves...)
 	}
+	// The copies above may have split the block (generation checks).
+	ret := s.b
+	ret.Kind = ssa.BlockRet
+	ret.Pos = pos
 	ret.SetControl(controls...)
 	s.b = nil
 }

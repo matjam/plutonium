@@ -130,11 +130,15 @@ func (t tok) extend(step string) tok {
 	}
 	p := t.path + step
 	if pathDepth(p) > maxDepth || pathSteps(p) > maxSteps {
-		// Too long: cut the path back to its first load, so that the
-		// tokens past the limit stay few.
+		// Too long: cut the path back to its first load and one more,
+		// so that the tokens past the limit stay few. A long path has at
+		// least two loads, so the pointers it reaches are all reachable
+		// from the memory the first load's result points to.
 		t.ge = true
 		if i := strings.IndexByte(t.path, '*'); i >= 0 {
-			t.path = t.path[:i+1]
+			t.path = t.path[:i+1] + "*"
+		} else {
+			t.path = ""
 		}
 		return t
 	}

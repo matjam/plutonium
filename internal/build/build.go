@@ -39,6 +39,10 @@ type Config struct {
 	Verbose      bool
 	KeepWork     bool // keep the temporary directory
 	CompileOnly  bool // write the object file to Output and stop
+
+	// GenCheck builds with the generational-reference prototype: the
+	// allocator tags heap pointers and every access checks the tag.
+	GenCheck bool
 }
 
 // Build compiles and links a program.
@@ -51,6 +55,18 @@ func Build(cfg *Config) error {
 }
 
 var sizes = types2.SizesFor("gc", "amd64")
+
+// forceGenCheck, set by the PLUTO_GENCHECK environment variable, builds every
+// program with the generational-reference prototype, so the whole test suite
+// can run under it.
+var forceGenCheck = os.Getenv("PLUTO_GENCHECK") != ""
+
+// genCheck reports whether a build uses the generation checks. The
+// prototype's tag layout assumes user-space addresses, so it is for hosted
+// builds only.
+func (cfg *Config) genCheck() bool {
+	return (cfg.GenCheck || forceGenCheck) && !cfg.Freestanding
+}
 
 // loadConfig returns the package loader's configuration for a build.
 func loadConfig(cfg *Config) *load.Config {
@@ -65,14 +81,20 @@ func loadConfig(cfg *Config) *load.Config {
 	for _, t := range cfg.Tags {
 		tags[t] = true
 	}
+	if cfg.genCheck() {
+		tags["gencheck"] = true
+	}
 	return &load.Config{Tags: tags, Stdlib: cfg.Stdlib, Sizes: sizes}
 }
 
 // buildProgram compiles and links a loaded program.
 func buildProgram(cfg *Config, prog *load.Program) error {
+	if cfg.GenCheck && cfg.Freestanding {
+		return fmt.Errorf("-gencheck is a prototype for hosted builds only")
+	}
 	// Lowering reports the constructs Plutonium does not support; the
 	// escape analysis assumes a program without them.
-	sp, err := lower.Lower(&lower.Config{Freestanding: cfg.Freestanding, Sizes: sizes}, prog)
+	sp, err := lower.Lower(&lower.Config{Freestanding: cfg.Freestanding, Sizes: sizes, GenCheck: cfg.genCheck()}, prog)
 	if err != nil {
 		return err
 	}

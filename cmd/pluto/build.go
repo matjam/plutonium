@@ -76,6 +76,7 @@ func init() {
 		c.Flags().String("ssa", "", "dump the SSA of this function (or all) after each pass")
 		c.Flags().Bool("work", false, "keep the temporary work directory")
 		c.Flags().BoolP("compile", "c", false, "write the object file instead of linking")
+		c.Flags().Bool("gencheck", false, "prototype: tag heap pointers with generations and check every access")
 	}
 	rootCmd.AddCommand(buildCmd, runCmd)
 }
@@ -98,6 +99,7 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 	ssaDump, _ := f.GetString("ssa")
 	work, _ := f.GetBool("work")
 	compileOnly, _ := f.GetBool("compile")
+	genCheck, _ := f.GetBool("gencheck")
 
 	arch, osName, ok := strings.Cut(target, "-")
 	if !ok || arch != "x86_64" || (osName != "linux" && osName != "none") {
@@ -133,6 +135,7 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 		Verbose:      verbose,
 		KeepWork:     work,
 		CompileOnly:  compileOnly,
+		GenCheck:     genCheck,
 	}
 	switch asm {
 	case "":

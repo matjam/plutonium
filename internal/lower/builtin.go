@@ -54,7 +54,7 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		n := s.minInt(dn, sn)
 		et := unwrap(s.typeOf(e.Args[0])).Underlying().(*types2.Slice).Elem()
 		bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(s.subst(et))))
-		s.callRuntime("memmove", nil, []*ssa.Value{dp, sp, bytes})
+		s.callRuntime("memmove", nil, []*ssa.Value{s.checked(dp), s.checked(sp), bytes})
 		return one(scalarValue(n, T))
 
 	case "clear":
@@ -62,7 +62,7 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		p, n, _ := s.sliceParts(x)
 		et := unwrap(s.typeOf(e.Args[0])).Underlying().(*types2.Slice).Elem()
 		bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(s.subst(et))))
-		s.callRuntime("memclr", nil, []*ssa.Value{p, bytes})
+		s.callRuntime("memclr", nil, []*ssa.Value{s.checked(p), bytes})
 		return nil
 
 	case "min", "max":
@@ -274,7 +274,7 @@ func (s *fnState) appendCall(e *ast.CallExpr, T types2.Type) value {
 		s.appendCheck(newLen, c, e)
 		dst := s.elemAddr(ptr, n, et)
 		bytes := s.newValue(ssa.OpMul, ssa.TI64, sn, s.constInt(ssa.TI64, esize))
-		s.callRuntime("memmove", nil, []*ssa.Value{dst, sp, bytes})
+		s.callRuntime("memmove", nil, []*ssa.Value{s.checked(dst), s.checked(sp), bytes})
 		return s.makeSlice(ptr, newLen, c, T)
 	}
 

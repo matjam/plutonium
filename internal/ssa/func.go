@@ -302,6 +302,13 @@ const (
 	PragmaNoBounds
 	PragmaNoReturn
 	PragmaInterrupt
+	// PragmaGenCheck marks a function built with generation checks on heap
+	// pointers (opt/gencheck.go): its memory accesses get checks, and frame
+	// and static addresses in it, at user-space addresses, carry no tag.
+	PragmaGenCheck
+	// PragmaGenMaskOnly is PragmaGenCheck for the runtime and allocator,
+	// which remove tags without checking them.
+	PragmaGenMaskOnly
 )
 
 // A Func is a function in SSA form.
@@ -319,6 +326,10 @@ type Func struct {
 	// ParamOnStack forces parameters to the stack, as CallInfo.OnStack does
 	// for calls (ABIC functions only; nil otherwise).
 	ParamOnStack []bool
+
+	// GenPanic is the function a failed generation check calls (with
+	// PragmaGenCheck).
+	GenPanic *Sym
 
 	Blocks []*Block
 	Entry  *Block

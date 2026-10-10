@@ -30,6 +30,11 @@ import (
 type Config struct {
 	Freestanding bool
 	Sizes        types2.Sizes
+
+	// GenCheck checks the generation of heap pointers on every access
+	// (prototype, gencheck.go). The standard library must be built with the
+	// gencheck tag so that its allocator tags pointers.
+	GenCheck bool
 }
 
 // An Error is a lowering error at a source position.
@@ -59,6 +64,7 @@ type Lowerer struct {
 	closureRecords map[*ssa.Sym]*ssa.Sym // static closure record per function used as a value
 	exports        map[*ssa.Sym][]string // extra symbol names from //pu:export
 	interruptSyms  map[*ssa.Sym]bool     // //pu:interrupt functions
+	genPanic       *ssa.Sym              // pluto/rt.panicStale, under GenCheck
 	cfuncs         map[*ssa.Sym]bool     // //pu:extern symbols, called with the C convention
 	statics        int                   // anonymous static objects created
 	types          *typeTable
