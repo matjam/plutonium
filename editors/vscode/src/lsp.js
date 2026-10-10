@@ -3,7 +3,8 @@
 // The Plutonium language server: runs `pluto lsp` and connects it to VS Code
 // with vscode-languageclient, which maps the server's diagnostics, hover,
 // definitions, references, symbols, formatting, completion, signature help
-// and rename onto the editor's providers.
+// and rename onto the editor's providers. pluto is found by resolvePluto
+// (src/pluto.js) at each start, and its path is logged to the output.
 //
 // If the server exits unexpectedly after it started, it is restarted after
 // a delay that doubles with each crash (RESTART_BASE_MS up to
@@ -18,7 +19,7 @@
 
 const readline = require('readline');
 const vscode = require('vscode');
-const { plutoPath, runPluto } = require('./pluto');
+const { resolvePluto, runPluto } = require('./pluto');
 
 const RESTART_BASE_MS = 500;
 const RESTART_MAX_MS = 30000;
@@ -96,7 +97,15 @@ class LanguageServer {
     // language server is turned off.
     const lc = require('vscode-languageclient/node');
     this.lc = lc;
-    const command = plutoPath();
+    // pluto is looked up again at every start, so a restart or a new
+    // plutonium.plutoPath finds the current one.
+    let command;
+    try {
+      command = resolvePluto(undefined, this.output, { always: true });
+    } catch (err) {
+      this.reportStartFailure(err.message);
+      return;
+    }
     // No transport: with TransportKind.stdio the client would add --stdio
     // to the arguments, which pluto lsp rejects. Without one it still talks
     // to the server over standard input and output.
@@ -136,11 +145,16 @@ class LanguageServer {
       // A command that cannot be run is reported as a string, "Launching
       // server using command pluto failed. Error: spawn pluto ENOENT".
       const missing = (err && err.code === 'ENOENT') || /\bENOENT\b/.test(errorText(err));
-      const msg = missing ? `${command} was not found. Install pluto or set plutonium.plutoPath.` : errorText(err);
-      this.output.error(`Cannot start the language server: ${msg}`);
-      vscode.window.showErrorMessage(`Plutonium: cannot start the language server: ${msg}`, 'Show Output')
-        .then((choice) => choice && this.output.show());
+      this.reportStartFailure(missing ? `${command} was not found. Install pluto or set plutonium.plutoPath.` : errorText(err));
     }
+  }
+
+  // reportStartFailure logs why the server could not start and says so
+  // once in a message.
+  reportStartFailure(msg) {
+    this.output.error(`Cannot start the language server: ${msg}`);
+    vscode.window.showErrorMessage(`Plutonium: cannot start the language server: ${msg}`, 'Show Output')
+      .then((choice) => choice && this.output.show());
   }
 
   async stop() {
