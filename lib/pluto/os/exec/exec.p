@@ -312,7 +312,9 @@ func (c *Cmd) start(out, errOut sink) error {
 	if n == 4 || rerr != nil {
 		var status int32
 		for {
+			rt.EnterSyscall()
 			_, werr := syscall.Wait4(pid, &status, 0)
+			rt.ExitSyscall()
 			if werr != syscall.EINTR {
 				break
 			}
@@ -416,11 +418,14 @@ func cArrays(args, env []string, a alloc.Allocator) (unsafe.Pointer, uintptr) {
 }
 
 // readFull reads into b until it is full or the descriptor reaches EOF,
-// and returns how much it read.
+// and returns how much it read. The reads are announced to the scheduler
+// (rt.EnterSyscall), so other puroutines keep running while it waits.
 func readFull(fd int, b []byte) (int, error) {
 	n := 0
 	for n < len(b) {
+		rt.EnterSyscall()
 		m, err := syscall.Read(fd, b[n:])
+		rt.ExitSyscall()
 		if err == syscall.EINTR {
 			continue
 		}
@@ -523,7 +528,10 @@ func (c *Cmd) pump(out, errOut sink) error {
 		if n == 0 {
 			break
 		}
-		if _, err := syscall.Poll(fds[:n], -1); err != nil {
+		rt.EnterSyscall()
+		_, err := syscall.Poll(fds[:n], -1)
+		rt.ExitSyscall()
+		if err != nil {
 			if err == syscall.EINTR {
 				continue
 			}

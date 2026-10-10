@@ -16,19 +16,41 @@ import "unsafe"
 func CallerPC() uintptr { return 0 }
 
 // allocSite is the return address of the new or make (or pluto/alloc
-// function) that is allocating or freeing, or 0.
+// function) that is allocating or freeing, or 0, for code that runs
+// outside any task (a scheduler's own context). Each task has its own
+// (Task.allocSite), since tasks allocate in parallel.
 var allocSite uintptr
 
 // AllocSite returns the return address of the allocating or freeing call in
-// progress, or 0 if it is not known: an allocator may record it as where
-// memory was allocated or freed. When TrackSites is set, new and make set
-// it, as do alloc.New, alloc.Raw and alloc.Free; code that calls an
-// Allocator's methods directly does not.
-func AllocSite() uintptr { return allocSite }
+// progress on the running task, or 0 if it is not known: an allocator may
+// record it as where memory was allocated or freed. When TrackSites is
+// set, new and make set it, as do alloc.New, alloc.Raw and alloc.Free;
+// code that calls an Allocator's methods directly does not.
+func AllocSite() uintptr {
+	if t := current(); t != nil {
+		return t.allocSite
+	}
+	return allocSite
+}
+
+// StackSite is the site AllocSite reports while the runtime allocates a
+// puroutine's stack. Such memory belongs to the runtime, which frees it
+// when the puroutine ends; leak reports leave it out.
+const StackSite = 1
 
 // SetAllocSite publishes pc as the site of the allocation or free about to
 // be made (0 once it is done). pluto/alloc uses it for its typed functions.
-func SetAllocSite(pc uintptr) { allocSite = pc }
+// It is not inlined, so that the small functions that call it (alloc.Free)
+// still inline into their callers and their rt.CallerPC names the call.
+//
+//pu:noinline
+func SetAllocSite(pc uintptr) {
+	if t := current(); t != nil {
+		t.allocSite = pc
+		return
+	}
+	allocSite = pc
+}
 
 // A Symbolizer describes the code at pc: the function, and the file and line
 // it was compiled from. It returns ok false if it does not know pc.

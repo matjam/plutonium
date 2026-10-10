@@ -25,9 +25,10 @@ func SetStackBounds(lo, hi uintptr) { stackLo, stackHi = lo, hi }
 
 // StackLeft returns how many bytes of stack remain below the caller's
 // frame before the stack's limit, or ^uintptr(0) if that is unknown: the
-// limit is unknown, or the caller is not running on the main thread's
-// stack. Deeply recursive code (a type checker walking nested types) calls
-// it to stop with an error before it overflows the stack:
+// limit is unknown, or the caller is running neither on the main thread's
+// stack nor on a puroutine's (whose limit is its guard page). Deeply
+// recursive code (a type checker walking nested types) calls it to stop
+// with an error before it overflows the stack:
 //
 //	if rt.StackLeft() < 256<<10 {
 //		return errTooDeep
@@ -37,6 +38,9 @@ func SetStackBounds(lo, hi uintptr) { stackLo, stackHi = lo, hi }
 func StackLeft() uintptr {
 	var here byte
 	sp := uintptr(unsafe.Pointer(&here))
+	if t := current(); t != nil && t.stackLo != 0 && sp >= t.stackLo && sp < t.stackHi {
+		return sp - t.stackLo
+	}
 	if stackLo == 0 || sp < stackLo || sp >= stackHi {
 		return ^uintptr(0)
 	}

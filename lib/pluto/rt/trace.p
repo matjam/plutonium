@@ -53,6 +53,16 @@ func traceback(w Writer, pc, sp, bp uintptr, exact, skipRuntime bool) {
 		}
 		fn := findFunc(tab, look)
 		if fn == nil {
+			if depth == 0 && exact && sp != 0 {
+				// A fault in assembly the table does not describe, such
+				// as an atomic operation: such functions are leaves with
+				// no frame, so the return address is at the stack
+				// pointer.
+				pc = *(*uintptr)(unsafe.Pointer(sp))
+				sp += 8
+				exact = false
+				continue
+			}
 			return
 		}
 		name := traceString(tab, *(*uint32)(unsafe.Add(fn, 12)))
@@ -61,7 +71,8 @@ func traceback(w Writer, pc, sp, bp uintptr, exact, skipRuntime bool) {
 			printInlinedMain(w, tab, fn, look)
 			return
 		}
-		if name == "pluto/rt.start" {
+		if name == "pluto/rt.start" || name == "pluto/rt.taskMain" {
+			// The bottom of the main thread's or a puroutine's stack.
 			return
 		}
 		if skipRuntime && hasPrefix(name, "pluto/rt.") {

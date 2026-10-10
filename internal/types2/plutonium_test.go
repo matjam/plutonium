@@ -128,15 +128,63 @@ var c = real(1 + 2i)
 func TestForbiddenConstructs(t *testing.T) {
 	cases := []struct{ name, src, want string }{
 		{"map", "package p\nvar m map[int]int", "map types are not permitted"},
-		{"chan", "package p\nvar c chan int", "channel types are not permitted"},
-		{"go", "package p\nfunc f() {}\nfunc g() { go f() }", "go statements are not permitted"},
-		{"select", "package p\nfunc g() { select {} }", "select statements are not permitted"},
 		{"reflect", "package p\nimport \"reflect\"\nvar _ = reflect.TypeOf", "import of reflect is not permitted"},
 		{"recover", "package p\nfunc f() { defer func() { _ = recover() }() }", "recover is not permitted"},
 		{"complex variable", "package p\nfunc f(c complex128) complex128 { return c * c }", "complex numbers are not permitted"},
 		{"complex constant", "package p\nfunc f() { x := 2i; _ = x }", "complex numbers are not permitted"},
 		{"complex type argument", "package p\nfunc id[T any](x T) T { return x }\nvar _ = id(2i)", "complex numbers are not permitted"},
 		{"complex conversion", "package p\nvar f float64\nvar _ = complex(f, f)", "complex numbers are not permitted"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) { mustFail(t, c.src, c.want) })
+	}
+}
+
+// TestConcurrencyRules checks what may cross puroutines (language spec
+// sections 4.7, 4.8 and 6.3): sendable types, and no views of the frame
+// that the checker can see.
+func TestConcurrencyRules(t *testing.T) {
+	mustCheck(t, `package p
+
+var global int
+
+type S struct {
+	n int
+	q synced[int]
+}
+
+func f(p *int)       {}
+func h(s S, c chan S) {}
+
+func g(p *int, c chan *int, s chan synced[int]) {
+	go f(p)
+	go f(&global)
+	c <- p
+	go h(S{}, make(chan S, 1))
+	select {
+	case v := <-c:
+		_ = v
+	case c <- p:
+	default:
+	}
+	for v := range c {
+		_ = v
+	}
+	close(c)
+	_, _ = len(c), cap(c)
+}
+`)
+	cases := []struct{ name, src, want string }{
+		{"shared element", "package p\nvar c chan shared[int]", "channel element type shared[int] is not sendable"},
+		{"shared field", "package p\ntype S struct{ p shared[int] }\nvar c chan S", "it contains shared[int]"},
+		{"shared argument", "package p\nfunc f(x shared[int]) {}\nfunc g(x shared[int]) { go f(x) }", "go statement argument of type shared[int] is not sendable"},
+		{"local address", "package p\nfunc f(p *int) {}\nfunc g() { x := 1; go f(&x) }", "&x is passed to a go statement, but x lives in this function's frame"},
+		{"field address", "package p\ntype T struct{ a [2]int }\nfunc f(p *int) {}\nfunc g() { var t T; go f(&t.a[1]) }", "but t lives in this function's frame"},
+		{"literal address", "package p\ntype T struct{ a int }\nfunc f(p *T) {}\nfunc g() { go f(&T{}) }", "allocate it with new(T{...})"},
+		{"send local address", "package p\nfunc g(c chan *int) { x := 1; c <- &x }", "&x is sent on a channel"},
+		{"local array slice", "package p\nfunc f(b []int) {}\nfunc g() { var a [4]int; go f(a[:]) }", "is a slice of a"},
+		{"pointer method on local", "package p\ntype W struct{ n int }\nfunc (w *W) M() {}\nfunc g() { var w W; go w.M() }", "calls a pointer method on w"},
+		{"make chan args", "package p\nvar c = make(chan int, 1, 2, 3)", "expects 1 or 2 arguments and an optional allocator"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) { mustFail(t, c.src, c.want) })

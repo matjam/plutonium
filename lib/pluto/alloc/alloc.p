@@ -26,18 +26,20 @@ type Restore struct {
 	prev Allocator
 }
 
-// Use makes a the default allocator until the returned Restore's Restore
-// method is called:
+// Use makes a the running puroutine's default allocator until the returned
+// Restore's Restore method is called:
 //
 //	defer alloc.Use(arena).Restore()
+//
+// The override belongs to the puroutine that calls Use: Default returns a
+// there and the program-wide default (SetDefault) everywhere else, and a
+// puroutine it starts begins with the program-wide default.
 func Use(a Allocator) Restore {
-	r := Restore{prev: Default()}
-	SetDefault(a)
-	return r
+	return Restore{prev: rt.UseAllocator(a)}
 }
 
 // Restore reinstates the previous default allocator.
-func (r Restore) Restore() { SetDefault(r.prev) }
+func (r Restore) Restore() { rt.UseAllocator(r.prev) }
 
 // New allocates a zeroed T from a, by default the default allocator.
 func New[T any](a Allocator = Default()) *T {
@@ -64,6 +66,19 @@ func Free[T any](p *T, a Allocator = Default()) {
 	if rt.TrackSites {
 		rt.SetAllocSite(0)
 	}
+}
+
+// FreeChan frees a channel made by make(chan T, ...) and its buffer,
+// returning them to the allocator they came from, whatever the default is
+// now. No puroutine may use the channel afterwards, and none may be waiting
+// on it (FreeChan panics then); values still buffered are discarded.
+//
+// Channels are freed explicitly until the compiler counts channel
+// references (roadmap item 48, language spec section 4.8); then the last
+// reference frees the channel and FreeChan goes away. A channel made in an
+// arena needs no FreeChan.
+func FreeChan[T any](ch chan T) {
+	rt.FreeChan(*(*unsafe.Pointer)(unsafe.Pointer(&ch)))
 }
 
 // Raw allocates size zeroed bytes aligned to align from a (by default the

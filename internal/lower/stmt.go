@@ -77,6 +77,12 @@ func (s *fnState) stmt(st ast.Stmt) {
 		s.returnStmt(st)
 	case *ast.DeferStmt:
 		s.deferStmt(st)
+	case *ast.GoStmt:
+		s.goStmt(st)
+	case *ast.SendStmt:
+		s.sendStmt(st)
+	case *ast.SelectStmt:
+		s.selectStmt(st, nil)
 	default:
 		s.l.unsupportedf(st.Pos(), "unsupported statement %T", st)
 	}
@@ -148,6 +154,11 @@ func (s *fnState) multiValue(e ast.Expr, n int) []value {
 	case *ast.TypeAssertExpr:
 		v, ok := s.typeAssert(x, true)
 		return []value{s.materialize(v), scalarValue(ok, types2.Typ[types2.Bool])}
+	case *ast.UnaryExpr:
+		if x.Op == token.ARROW {
+			v, ok := s.recv(x, true)
+			return []value{s.materialize(v), scalarValue(ok, types2.Typ[types2.Bool])}
+		}
 	case *ast.IndexExpr:
 		if s.isContainerIndex(x) {
 			return s.containerIndexOk(x)
@@ -499,6 +510,10 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 	case *types2.Signature:
 		s.rangeFuncStmt(st, label, u)
 		return
+
+	case *types2.Chan:
+		s.rangeChan(st, label)
+		return
 	}
 	s.l.unsupportedf(st.Pos(), "cannot range over %s", xt)
 }
@@ -751,6 +766,8 @@ func (s *fnState) labeledStmt(st *ast.LabeledStmt) {
 		s.switchStmt(inner, label)
 	case *ast.TypeSwitchStmt:
 		s.typeSwitchStmt(inner, label)
+	case *ast.SelectStmt:
+		s.selectStmt(inner, label)
 	default:
 		s.stmt(inner)
 	}
@@ -885,6 +902,11 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 				if name == "println" {
 					s.callRuntime("printNewline", nil)
 				}
+			}
+		case "close":
+			ch := s.saveValue(s.materialize(scalarValue(s.scalar(call.Args[0]), s.typeOf(call.Args[0]))))
+			run = func(s *fnState) {
+				s.callRuntime("closechan", nil, []*ssa.Value{s.loadFrom(ch.v, ch.T).v})
 			}
 		case "panic":
 			arg := s.saveValue(s.exprAs(call.Args[0], types2.NewInterfaceType(nil, nil)))

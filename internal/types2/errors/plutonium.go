@@ -13,10 +13,10 @@ const (
 	// MapNotPermitted: a map type, which needs a garbage-collected hash
 	// table.
 	MapNotPermitted
-	// ChanNotPermitted: a channel type or operation, without a scheduler.
-	ChanNotPermitted
-	// GoNotPermitted: a go statement, without a scheduler.
-	GoNotPermitted
+	// 2002 and 2003 were ChanNotPermitted and GoNotPermitted, from before
+	// the compiler supported channels and go statements.
+	_
+	_
 	// RecoverNotPermitted: recover, which needs stack unwinding.
 	RecoverNotPermitted
 	// ReflectNotPermitted: an import of reflect.
@@ -32,6 +32,14 @@ const (
 	// BadMainSignature: func main with parameters, or with results other
 	// than a single int64.
 	BadMainSignature
+	// NotSendable: a value that crosses puroutines (a go statement's
+	// argument or receiver, or a channel's element type) of a type that
+	// holds a shared[T].
+	NotSendable
+	// FrameViewSent: a view of the current frame (&x of a local, a slice
+	// of a local array, &T{...}) passed to a go statement or sent on a
+	// channel.
+	FrameViewSent
 )
 
 // Packed types, bit fields, volatile, aligned and ring.

@@ -141,6 +141,50 @@ func TestTraceStackOverflow(t *testing.T) {
 	}
 }
 
+// TestTracePuroutineOverflow checks that a puroutine that runs into the
+// guard page below its stack, on a worker thread with its own signal
+// stack, is reported as a stack overflow with the puroutine's trace.
+func TestTracePuroutineOverflow(t *testing.T) {
+	src := `package main
+
+import "pluto/rt"
+
+func recurse(n int) int {
+	var buf [64]int
+	buf[n&63] = n
+	return recurse(n+1) + buf[(n+1)&63]
+}
+
+var done = make(chan bool)
+
+func run() {
+	println(recurse(0))
+	done <- true
+}
+
+func main() {
+	rt.Go(run, 16<<10)
+	<-done
+}
+`
+	for _, level := range []int{0, 2} {
+		_, got, status := buildFiles(t, map[string][]byte{"main.p": []byte(src)}, build.Config{OptLevel: level})
+		lines := strings.Split(strings.TrimSuffix(got, "\n"), "\n")
+		// The 16 KiB stack holds fewer than 64 frames: the trace reaches
+		// the function rt.Go started.
+		frame := "    main.recurse (./main.p:"
+		ok := status == 2 && len(lines) > 10 &&
+			lines[0] == "panic: runtime error: stack overflow" &&
+			strings.HasPrefix(lines[1], "[signal SIGSEGV") &&
+			lines[2] == "puroutine 2:" &&
+			strings.HasPrefix(lines[3], frame) &&
+			lines[len(lines)-1] == "    main.run (./main.p:14)"
+		if !ok {
+			t.Errorf("O%d: status %d, unexpected output:\n%s", level, status, got)
+		}
+	}
+}
+
 // TestTraceFreestanding checks that a freestanding build, whose runtime has
 // no operating system, prints its trace through the console the program
 // registers and stops through its panic handler.

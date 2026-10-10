@@ -205,8 +205,13 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 	// No build ID: whether ld adds one by default depends on how it was
 	// configured, and the output must not depend on the machine.
 	args := []string{"-static", "-nostdlib", "-z", "noexecstack", "--build-id=none", "-o", cfg.Output}
-	if cfg.Strip {
+	switch {
+	case cfg.Strip:
 		args = append(args, "-s")
+	case cfg.NoDWARF:
+		// Assembly in the runtime carries call frame information for
+		// debuggers; -g=false drops it with the rest.
+		args = append(args, "-S")
 	}
 	switch {
 	case cfg.LinkerScript != "":
@@ -429,10 +434,14 @@ func emitObject(cfg *Config, p *ssa.Program, prog *load.Program) (*objfile.Objec
 
 	data := append([]*ssa.Data(nil), p.Data...)
 	// The per-CPU block's self word goes first, at offset 0 of .percpu
-	// (abi.md section 10.6).
+	// (abi.md section 10.6), then the runtime's current-task slot at
+	// offset 8 (section 12.3).
 	key := func(d *ssa.Data) string {
-		if d.Sym.Name == perCPUSelf {
+		switch {
+		case d.Sym.Name == perCPUSelf:
 			return ""
+		case d.Sym.Name == perCPUTask && d.Sym.PerCPU:
+			return "\x01"
 		}
 		return d.Sym.Name
 	}

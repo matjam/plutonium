@@ -51,6 +51,13 @@ const (
 	PanicHandlerRet   Code = "E2583" // a panic handler that can return
 	ContextWaits      Code = "E2584" // an interrupt handler or the panic handler can reach code that waits
 	ContextSpawns     Code = "E2585" // an interrupt handler or the panic handler can reach a go statement
+
+	// Puroutines and the scheduler.
+	GoCapturingLiteral Code = "E2590" // go of a function literal that captures variables
+	GoBuiltin          Code = "E2591" // go of a builtin function
+	BadScheduler       Code = "E2592" // a //pu:scheduler variable that cannot be the scheduler, or two of them
+	NoScheduler        Code = "E2593" // a program that needs a scheduler and binds none
+	GoFrameClosure     Code = "E2594" // go of, or with an argument that is, a closure whose record is in the frame
 )
 
 // Finding and loading packages.

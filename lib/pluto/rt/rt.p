@@ -522,21 +522,36 @@ func memmove(dst, src unsafe.Pointer, n int) {
 	if n <= 0 || dst == src {
 		return
 	}
+	// Eight bytes at a time (x86-64 allows unaligned words), then the
+	// rest. Forward when dst is below src or the ranges do not overlap,
+	// backward otherwise, so every word is read before it is overwritten.
 	d := uintptr(dst)
 	s := uintptr(src)
 	if d < s || d >= s+uintptr(n) {
-		for i := 0; i < n; i++ {
+		i := 0
+		for ; i+8 <= n; i += 8 {
+			*(*uint64)(unsafe.Add(dst, i)) = *(*uint64)(unsafe.Add(src, i))
+		}
+		for ; i < n; i++ {
 			*(*byte)(unsafe.Add(dst, i)) = *(*byte)(unsafe.Add(src, i))
 		}
 		return
 	}
-	for i := n - 1; i >= 0; i-- {
+	i := n
+	for ; i >= 8; i -= 8 {
+		*(*uint64)(unsafe.Add(dst, i-8)) = *(*uint64)(unsafe.Add(src, i-8))
+	}
+	for i--; i >= 0; i-- {
 		*(*byte)(unsafe.Add(dst, i)) = *(*byte)(unsafe.Add(src, i))
 	}
 }
 
 func memclr(p unsafe.Pointer, n int) {
-	for i := 0; i < n; i++ {
+	i := 0
+	for ; i+8 <= n; i += 8 {
+		*(*uint64)(unsafe.Add(p, i)) = 0
+	}
+	for ; i < n; i++ {
 		*(*byte)(unsafe.Add(p, i)) = 0
 	}
 }
@@ -633,18 +648,44 @@ type Allocator interface {
 
 var defaultAllocator Allocator
 
-// DefaultAllocator returns the current default allocator, or nil.
-func DefaultAllocator() Allocator { return defaultAllocator }
+// DefaultAllocator returns the current default allocator: the running
+// puroutine's, if it installed one with UseAllocator, otherwise the
+// program-wide default. It returns nil if there is neither.
+func DefaultAllocator() Allocator {
+	if g := current(); g != nil && g.alloc != nil {
+		return g.alloc
+	}
+	return defaultAllocator
+}
 
-// SetDefaultAllocator replaces the default allocator.
+// SetDefaultAllocator replaces the program-wide default allocator.
 func SetDefaultAllocator(a Allocator) { defaultAllocator = a }
+
+// UseAllocator makes a the running puroutine's default allocator, in place
+// of the program-wide default, and returns the allocator it replaced
+// (nil if the puroutine had none of its own); UseAllocator(prev) restores
+// it. Other puroutines, including those this one starts, are not affected
+// (language spec section 7.1). Outside a puroutine (in a scheduler's own
+// context) it changes the program-wide default instead.
+func UseAllocator(a Allocator) Allocator {
+	g := current()
+	if g == nil {
+		prev := defaultAllocator
+		defaultAllocator = a
+		return prev
+	}
+	prev := g.alloc
+	g.alloc = a
+	return prev
+}
 
 // alloc implements new and make without an explicit allocator.
 func alloc(size, align uintptr) unsafe.Pointer {
-	if defaultAllocator == nil {
+	a := DefaultAllocator()
+	if a == nil {
 		panicMessage("no allocator: call alloc.SetDefault before allocating", "", "", "", "")
 	}
-	return allocAt(defaultAllocator, size, align, CallerPC())
+	return allocAt(a, size, align, CallerPC())
 }
 
 // allocWith implements new and make with an explicit allocator.
@@ -663,11 +704,11 @@ func allocAt(a Allocator, size, align, pc uintptr) unsafe.Pointer {
 		size = 1
 	}
 	if TrackSites {
-		allocSite = pc
+		SetAllocSite(pc)
 	}
 	p := a.Alloc(size, align)
 	if TrackSites {
-		allocSite = 0
+		SetAllocSite(0)
 	}
 	if p == nil {
 		panicMessage("out of memory", "", "", "", "")

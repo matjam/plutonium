@@ -34,6 +34,7 @@ type fnState struct {
 	deferBits *ssa.Value // address of the defer bitmask slot, created on first defer
 	loopDepth int
 	closures  int // counter for naming closures
+	goStmts   int // counter for naming go statement thunks
 
 	// Range over functions (rangefunc.go). rf is set in the yield function
 	// lowered from the body of a range-over-func loop; capPtrs maps the
@@ -405,6 +406,8 @@ func (s *fnState) applyPragmas(doc *ast.CommentGroup) {
 			s.f.Pragmas |= ssa.PragmaInterrupt
 		case "nosimd":
 			s.f.Pragmas |= ssa.PragmaNoSIMD
+		case "blocking":
+			s.f.Pragmas |= ssa.PragmaBlocking
 		case "fpu":
 			s.f.NoSSE = false
 		}

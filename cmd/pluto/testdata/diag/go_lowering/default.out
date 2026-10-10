@@ -1,0 +1,23 @@
+$DIR/main.p:6:6: a function literal that captures variables cannot be started with go: out lives in the starting frame, which may be gone before the puroutine runs (spec section 4.7); pass it as an argument instead: go func(out chan int) {...}(out)
+    A function literal that uses variables of the function around it reaches
+    them in that function's stack frame. A go statement may start it after that
+    function has returned, when the frame is gone.
+    Pass the values the literal needs as arguments: they are copied when the go
+    statement runs.
+    Go moves captured variables to the heap. Plutonium never allocates behind
+    the program's back, so captured variables stay in their frame (spec section
+    4.5).
+    Pass the values as arguments:
+        for i := 0; i < n; i++ {
+            go func(i int, out chan int) {
+                out <- i * i
+            }(i, out)
+        }
+    (see "go starts a puroutine" in the Plutonium spec, section 4.7)
+    (run "pluto explain E2590" for a longer explanation)
+
+$DIR/main.p:10:2: go with the built-in println is not supported; start a function that calls it
+    A go statement cannot start a built-in function such as println or close
+    directly. Wrap it in a function and start that.
+    (see "go starts a puroutine" in the Plutonium spec, section 4.7)
+    (run "pluto explain E2591" for a longer explanation)

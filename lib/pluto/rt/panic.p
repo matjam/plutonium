@@ -40,6 +40,9 @@ type Panic struct {
 	// CPU is the processor that panicked: in kernel mode the number the
 	// kernel gave it with SetCPU (0 until it does); otherwise 0.
 	CPU int
+	// Puroutine is the ID of the puroutine that panicked (Task.ID): 1 for
+	// the one that runs main, 0 outside any (a scheduler's own context).
+	Puroutine uint64
 
 	// Where the stack trace starts: the faulting instruction (exact),
 	// or a return address in the runtime's panic functions, whose frames
@@ -98,6 +101,7 @@ var (
 func startPanic() {
 	me := selfID() + 1
 	if casUint64(&panicOwner, 0, me) {
+		DisablePreemption() // the panic stays on this thread or processor
 		msgLen = 0
 		capturing = true
 		return
@@ -157,6 +161,9 @@ func raise(p *Panic) {
 		p.Message = unsafe.String(&msgBuf[0], n)
 	}
 	p.CPU = cpuNumber()
+	if t := current(); t != nil {
+		p.Puroutine = t.id
+	}
 	callPanicHandler(p)
 	lastResort() // the compiler checks that the handler cannot return
 }
@@ -190,10 +197,13 @@ func PanicFault(kind FaultKind, addr, pc, sp, bp uintptr) {
 func describeFault(kind FaultKind, addr, sp uintptr) {
 	switch kind {
 	case MemoryFault:
+		t := current()
 		switch {
-		case addr < sp+4096 && addr+65536 > sp || addr >= guardLo && addr < guardHi:
-			// Just below the stack pointer, or in the guard region of the
-			// stack //pu:stack reserved: the stack ran into its guard.
+		case addr < sp+4096 && addr+65536 > sp || addr >= guardLo && addr < guardHi,
+			t != nil && t.stackLo != 0 && addr < t.stackLo && addr+pageSize >= t.stackLo:
+			// Just below the stack pointer, in the guard region of the
+			// stack //pu:stack reserved, or in the guard page below a
+			// puroutine's stack: the stack ran into its guard.
 			printString("runtime error: stack overflow")
 		case addr < 4096:
 			printString("runtime error: invalid memory address or nil pointer dereference")
@@ -246,6 +256,11 @@ func (p *Panic) Print(w Writer) {
 		writeString(w, " pc=")
 		writePointer(w, p.Fault.PC)
 		writeString(w, "]\n")
+	}
+	if p.Puroutine > 1 {
+		writeString(w, "puroutine ")
+		writeUint(w, p.Puroutine)
+		writeString(w, ":\n")
 	}
 	p.PrintTrace(w)
 }

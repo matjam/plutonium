@@ -166,14 +166,44 @@ func (l *Lowerer) checkContexts() {
 		// Panics in the handler reach the panic handler, which is
 		// checked on its own.
 		if path, last, op := g.search(root, panicSym); path != nil {
-			l.reportContext(g, root, false, path, last, op)
+			l.reportContext(g, root, roleInterrupt, path, last, op)
 		}
 	}
 	if panicSym != nil && g.funcs[panicSym] != nil {
 		if path, last, op := g.search(panicSym, nil); path != nil {
-			l.reportContext(g, panicSym, true, path, last, op)
+			l.reportContext(g, panicSym, rolePanic, path, last, op)
 		}
 	}
+	// The scheduler's Wake runs when rt.Ready does, which interrupt
+	// handlers may call (scheduler contract, rule 6).
+	if wake := l.schedWakeSym(); wake != nil && g.funcs[wake] != nil {
+		if path, last, op := g.search(wake, panicSym); path != nil {
+			l.reportContext(g, wake, roleWake, path, last, op)
+		}
+	}
+}
+
+// A ctxRole says why a root of the walk must not wait.
+type ctxRole int
+
+const (
+	roleInterrupt ctxRole = iota // a //pu:interrupt handler
+	rolePanic                    // the //pu:panic handler
+	roleWake                     // the bound scheduler's Wake
+)
+
+// schedWakeSym returns the lowered Wake method of the bound scheduler, or
+// nil.
+func (l *Lowerer) schedWakeSym() *ssa.Sym {
+	if l.sched == nil {
+		return nil
+	}
+	obj, _, _ := types2.LookupFieldOrMethod(l.sched.v.Type(), true, l.sched.v.Pkg(), "Wake")
+	fn, ok := obj.(*types2.Func)
+	if !ok {
+		return nil
+	}
+	return l.funcs[funcSymName(fn, nil)]
 }
 
 // A ctxNode is a function reached by the walk, and how.
@@ -322,10 +352,12 @@ func displayName(sym *ssa.Sym) string {
 	return name
 }
 
-// reportContext reports the path from root, an interrupt handler or (if
-// isPanic) the panic handler, to the operation it must not reach: the call
-// last of a //pu:blocking function, or op, in the function n.
-func (l *Lowerer) reportContext(g *callGraph, root *ssa.Sym, isPanic bool, n *ctxNode, last *hop, op *blockOp) {
+// reportContext reports the path from root, an interrupt handler, the
+// panic handler or the scheduler's Wake (role), to the operation it must
+// not reach: the call last of a //pu:blocking function, or op, in the
+// function n.
+func (l *Lowerer) reportContext(g *callGraph, root *ssa.Sym, rl ctxRole, n *ctxNode, last *hop, op *blockOp) {
+	isPanic := rl == rolePanic
 	var hops []hop
 	for ; n.via != nil; n = n.parent {
 		hops = append(hops, *n.via)
@@ -371,8 +403,11 @@ func (l *Lowerer) reportContext(g *callGraph, root *ssa.Sym, isPanic bool, n *ct
 	path := name + " " + strings.Join(phrases, ", which ") + "."
 
 	role := "is an interrupt handler"
-	if isPanic {
+	switch rl {
+	case rolePanic:
 		role = "is the panic handler"
+	case roleWake:
+		role = "is the scheduler's Wake, which interrupt handlers reach through rt.Ready"
 	}
 	code, verb := diag.ContextWaits, "wait"
 	if kind == opSpawn {
@@ -380,6 +415,11 @@ func (l *Lowerer) reportContext(g *callGraph, root *ssa.Sym, isPanic bool, n *ct
 	}
 	var why string
 	switch {
+	case rl == roleWake:
+		why = "rt.Ready calls the scheduler's Wake, and interrupt handlers may call rt.Ready " +
+			"(or make a channel operation that does), so Wake runs under the same rule as " +
+			"a handler: it runs on top of whatever code the CPU was executing, and must not " +
+			"wait for anything that code may hold."
 	case !isPanic && kind == opWait:
 		why = "Interrupt handlers run on top of whatever code the CPU was executing. " +
 			"If a handler waits, for a lock or for room in a channel, the interrupted code " +

@@ -411,7 +411,6 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 		check.errorf(&x, code, "%s %s", &x, msg)
 
 	case *ast.SendStmt:
-		check.forbidden(s, ChanNotPermitted, "channel send is", "channels need a scheduler")
 		var ch, val operand
 		check.expr(nil, &ch, s.Chan)
 		check.genericExpr(&val, s.Value, nil)
@@ -421,6 +420,7 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 		if elem := check.chanElem(inNode(s, s.Arrow), &ch, false); elem != nil {
 			check.assignment(&val, elem, "send")
 		}
+		check.checkFrameView(s.Value, "sent on a channel")
 
 	case *ast.IncDecStmt:
 		var op token.Token
@@ -485,8 +485,8 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 		}
 
 	case *ast.GoStmt:
-		check.forbidden(s, GoNotPermitted, "go statements are", "goroutines need a scheduler")
 		check.suspendedCall("go", s.Call)
+		check.goStmtArgs(s.Call)
 
 	case *ast.DeferStmt:
 		check.suspendedCall("defer", s.Call)
@@ -744,7 +744,6 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 		}
 
 	case *ast.SelectStmt:
-		check.forbidden(s, ChanNotPermitted, "select statements are", "channels need a scheduler")
 		inner |= breakOk
 
 		check.multipleDefaults(s.Body.List)
