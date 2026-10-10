@@ -1151,6 +1151,13 @@ func (check *Checker) exprInternal(T *target, x *operand, e ast.Expr, hint Type)
 			goto Error
 		}
 		if _, ok := x.typ().Underlying().(*Interface); !ok {
+			if isUnion(x.typ()) {
+				// Plutonium: u.(U.V) yields the payload of variant V.
+				if !check.unionAssertion(x, e) {
+					goto Error
+				}
+				break
+			}
 			check.errorf(x, InvalidAssert, invalidOp+"%s is not an interface", x)
 			goto Error
 		}

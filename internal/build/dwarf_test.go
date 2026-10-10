@@ -88,8 +88,8 @@ func TestDWARF(t *testing.T) {
 	for _, level := range []int{0, 2} {
 		t.Run("O"+string(rune('0'+level)), func(t *testing.T) {
 			f, _ := buildDebug(t, build.Config{OptLevel: level})
-			// The line table names ./main.p in compilation directory ".",
-			// which debug/dwarf joins to main.p.
+			// The line table names main.p in directory ".", with no
+			// compilation directory, which debug/dwarf joins to main.p.
 			const file = "main.p"
 			syms, err := f.Symbols()
 			if err != nil {
@@ -129,8 +129,8 @@ func TestDWARF(t *testing.T) {
 					if e.Val(dwarf.AttrLanguage) != int64(0x16) {
 						t.Errorf("unit %v: language %v, want Go", e.Val(dwarf.AttrName), e.Val(dwarf.AttrLanguage))
 					}
-					if dir := e.Val(dwarf.AttrCompDir); dir != "." {
-						t.Errorf("unit %v: compilation directory %q, want \".\"", e.Val(dwarf.AttrName), dir)
+					if dir := e.Val(dwarf.AttrCompDir); dir != nil {
+						t.Errorf("unit %v: compilation directory %q, want none", e.Val(dwarf.AttrName), dir)
 					}
 				case dwarf.TagSubprogram:
 					name, _ := e.Val(dwarf.AttrName).(string)
@@ -352,15 +352,15 @@ func dwarfFiles(t *testing.T, f *elf.File) (dirs, files []string) {
 
 // TestDWARFFileNames checks how DWARF names source files: by default
 // relative to the module root (here the package directory, with no
-// pluto.mod) and the standard library, in compilation directory ".";
+// pluto.mod) and the standard library, with no compilation directory;
 // with --trimpath=false by absolute path, with standard library files
 // under Config.StdlibDir rather than $PLUTOROOT when it is set.
 func TestDWARFFileNames(t *testing.T) {
 	f, _ := buildDebug(t, build.Config{StdlibDir: "/opt/pluto/lib"})
 	dirs, files := dwarfFiles(t, f)
 	for _, dir := range dirs {
-		if dir != "." {
-			t.Errorf("compilation directory %q, want \".\"", dir)
+		if dir != "" {
+			t.Errorf("compilation directory %q, want none", dir)
 		}
 	}
 	for _, name := range files {

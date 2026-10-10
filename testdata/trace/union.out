@@ -1,0 +1,4 @@
+3
+panic: union variant: main.State holds Idle, not Busy
+    main.busy (./main.p:9)
+    main.main (./main.p:14)

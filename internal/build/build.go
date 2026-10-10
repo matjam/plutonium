@@ -103,20 +103,7 @@ func loadConfig(cfg *Config) (*load.Config, error) {
 	if err := cfg.Check(); err != nil {
 		return nil, err
 	}
-	tags := map[string]bool{"amd64": true}
-	if cfg.Freestanding || cfg.Kernel {
-		tags["none"] = true
-		tags["freestanding"] = true
-		if cfg.Kernel {
-			tags["kernel"] = true
-		}
-	} else {
-		tags["linux"] = true
-		tags["hosted"] = true
-	}
-	for _, t := range cfg.Tags {
-		tags[t] = true
-	}
+	tags := load.BuildTags(cfg.Freestanding, cfg.Kernel, cfg.Tags)
 	var preload []string
 	if cfg.Alloc == "debug" {
 		tags["allocdebug"] = true
@@ -407,7 +394,9 @@ func emitObject(cfg *Config, p *ssa.Program, prog *load.Program) (*objfile.Objec
 	if !cfg.NoDWARF && !cfg.Strip {
 		// Trimmed names are relative to the module root, so a debugger
 		// run there finds the program's sources (debugging.md section 3).
-		dir := "."
+		// They carry no compilation directory: ld would join "." to
+		// ./main.p and report ././main.p.
+		dir := ""
 		if cfg.NoTrimPath {
 			var err error
 			if dir, err = filepath.Abs(cfg.Dir); err != nil {

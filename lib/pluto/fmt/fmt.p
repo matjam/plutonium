@@ -5,9 +5,10 @@
 // Verbs: %v %d %b %o %O %x %X %c %q %U %e %E %f %F %g %G %s %t %p %T %%.
 // Flags: + - # 0 space. Width and precision may be numbers or *.
 //
-// %v prints basic values, errors (Error) and Stringers (String). Other
-// structured values print as their type name in braces, since Plutonium has
-// no reflection. %s, %q, %x and %X apply to an error's message. %w is
+// %v prints basic values, errors (Error) and Stringers (String). A union
+// without a String method prints as the variant it holds, followed by its
+// payload in parentheses: Some(5), None. Other structured values print as
+// their type name in braces, since Plutonium has no reflection. %s, %q, %x and %X apply to an error's message. %w is
 // accepted only by Errorf and ErrorBuf.Errorf (see errorf.p),
 // where it prints the error like %v and wraps it.
 package fmt
@@ -520,6 +521,15 @@ func (p *printer) printOther(arg any, verb rune) {
 		}
 	case rt.KindPacked:
 		p.printNumber(word, false, verb)
+	case rt.KindUnion:
+		// The variant's name, then its payload in parentheses.
+		variant, payload, hasPayload := rt.UnionInfo(arg)
+		p.writeString(variant)
+		if hasPayload {
+			p.writeByte('(')
+			p.printArg(payload, verb)
+			p.writeByte(')')
+		}
 	default:
 		p.writeByte('{')
 		p.writeString(name)

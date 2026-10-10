@@ -174,6 +174,16 @@ func Walk(v Visitor, node Node) {
 			Walk(v, n.Comment)
 		}
 
+	case *UnionType:
+		if n.Backing != nil {
+			Walk(v, n.Backing)
+		}
+		Walk(v, n.Fields)
+
+	case *VariantCase:
+		walkList(v, n.Values)
+		Walk(v, n.Fields)
+
 	case *FuncType:
 		if n.TypeParams != nil {
 			Walk(v, n.TypeParams)

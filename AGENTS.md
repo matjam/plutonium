@@ -123,6 +123,7 @@ Every change must pass ALL of these before committing:
    - `internal/syntax/format`: ≥91%
    - `internal/diff`: ≥98%
    - `internal/types2`: ≥56%
+   - `internal/lsp`: ≥85%
 
    New code paths need tests: a `testdata/run` program for language features,
    a unit test for passes and backend details.

@@ -258,7 +258,12 @@ func compositeKind(typ Type) string {
 	case *Struct:
 		return "struct"
 	case *Packed:
+		if t.IsUnion() {
+			return "packed union"
+		}
 		return "packed"
+	case *TaggedUnion:
+		return "union"
 	case *Wrapper:
 		return t.kind.String()
 	case *Pointer:

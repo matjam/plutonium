@@ -85,7 +85,7 @@ Compiler error messages are not affected.
 
 The compiler writes DWARF version 4 into its object file; the linker concatenates and relocates it.
 
-- **Compile units**: one per package, named by the import path, with `DW_AT_language` Go, `.` as
+- **Compile units**: one per package, named by the import path, with `DW_AT_language` Go, no
   `DW_AT_comp_dir` (the build directory with `--trimpath=false`), and the package's functions as
   `DW_AT_ranges`. Generated functions with
   no package (`pluto.main`, method wrappers) are in a unit named `pluto`.
@@ -102,8 +102,11 @@ The compiler writes DWARF version 4 into its object file; the linker concatenate
 - **Call frame information**: `.debug_frame`, one CIE and one FDE per function (section 4).
 - **Not emitted yet**: types, variables and parameters (`info locals`, `print x`), and column numbers.
 
-File names are relative (section 2.1), and the compilation directory `.` makes a debugger resolve them
-against its own working directory. Run the debugger from the module root (for a program outside a module,
+File names are relative (section 2.1), and with no compilation directory a debugger resolves them against
+its own working directory. The line table splits each name into a directory (`.` for `./main.p`) and a
+base name, so gdb, `ld` and `addr2line` print the names the trace table prints. A compilation directory
+of `.` would add nothing for a debugger, and `ld` and the other binutils tools would prepend it to the
+line table's directory and report `././main.p`. Run the debugger from the module root (for a program outside a module,
 its directory) and it finds the program's source; from anywhere else, or for the standard library, add the
 roots to its source path:
 
@@ -118,7 +121,7 @@ on the machine that built it (and the standard library's only when `PLUTOROOT` w
 Absolute paths are not the `-g` default, although they need no `directory`: DWARF is on by default, and a
 default build that recorded the build directory would make every binary depend on where it was built,
 which is what self-hosting (stage 2 and stage 3 must be byte-identical) and reproducible builds cannot
-have. Go makes the same choice for DWARF: its compilation directory is always `.`.
+have. Go makes the same choice for DWARF, with `.` as its compilation directory.
 
 ### What works
 

@@ -292,6 +292,108 @@ func init() {
 			Spec: pspec("5.9", "Enums"),
 		},
 
+		// Unions.
+		&Entry{
+			Code: CheckerCode(typerr.MisplacedUnion), Name: "MisplacedUnion",
+			Text:    "A union type can only be the type of a type definition, type U union { ... }. It cannot be written inline in a variable or field, or be an alias, because its variants are reached through its name (U.V).",
+			Spec:    pspec("5.10", "Unions"),
+			Example: "type Alias = union { A int; B }",
+			Fixed:   "type Shape union {\n\tA int\n\tB\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.GenericPackedUnion), Name: "GenericPackedUnion",
+			Text: "A packed union cannot have type parameters. Its layout is fixed bit by bit by its backing type, its tag and its fields, so it cannot depend on a type argument. An ordinary union can be generic.",
+			Spec: pspec("5.10", "Unions"),
+		},
+		&Entry{
+			Code: CheckerCode(typerr.EmptyUnion), Name: "EmptyUnion",
+			Text:    "A union value holds one of its variants, so a union needs at least one. Variants are written like struct fields: a name, and a payload type if the variant carries data.",
+			Spec:    pspec("5.10", "Unions"),
+			Example: "type Option union {}",
+			Fixed:   "type Option union {\n\tNone\n\tSome int\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.BadVariantDecl), Name: "BadVariantDecl",
+			Text:    "Each variant of a union has a name of its own, which is not _, followed by its payload type if it has one. Variants have no tags, and in a packed union each variant has its own case clause.",
+			Spec:    pspec("5.10", "Unions"),
+			Example: "type Value union {\n\t*Node\n\t_ int\n}",
+			Fixed:   "type Value union {\n\tRef  *Node\n\tSize int\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.TooManyVariants), Name: "TooManyVariants",
+			Text: "A union numbers its variants with a tag of at most 16 bits, so it can have at most 65536 variants. Group related variants into a variant whose payload is another union or an enum.",
+			Spec: pspec("5.10", "Unions"),
+		},
+		&Entry{
+			Code: CheckerCode(typerr.UnionOwnerPayload), Name: "UnionOwnerPayload",
+			Text: "This payload holds an owned, shared or synced pointer, directly or in a field, an array element or another union. Such a pointer owns, or counts references to, what it points at. A union holding one must release the payload of the variant it holds when the union is dropped or given a new variant, so it must be declared owner like a struct, and that needs the ownership checker, which the compiler does not have yet.\nUntil it does, hold a plain pointer in the payload and free the object yourself.",
+			Why:  "In Go, the garbage collector frees what any value points at. Plutonium has no garbage collector, so the compiler must release what a union owns; until it can, it rejects the union rather than leak the payload or free it twice.",
+			Fix:  &Fix{Intro: "Hold a plain pointer, and free it explicitly", Code: "type Slot union {\n\tEmpty\n\tFull *Buffer\n}"},
+			Spec: pspec("5.10", "Unions"),
+			Example: "type Slot union {\n\tEmpty\n\tFull owned[Buffer]\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.BadUnionTag), Name: "BadUnionTag",
+			Text: "A packed union has a backing type, which fixes its size, and exactly one named field before its variants: the tag. The tag is a bool, integer or enum field that occupies the same bits in every variant, and each variant lists the tag values that select it.",
+			Spec: pspec("5.10", "Unions"),
+			Example: "type PTE packed union uint64 {\n\tSwapped case false { slot bits[uint64, 63] }\n}",
+			Fixed:   "type PTE packed union uint64 {\n\tpresent bits[bool, 1]\n\n\tSwapped case false { slot bits[uint64, 63] }\n\tMapped case true { frame bits[uint64, 40] }\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.BadVariantCase), Name: "BadVariantCase",
+			Text:    "The values after case in a packed union variant are the tag values that select it. Each must be a constant of the tag's type that fits in the tag's bits, and no value may select two variants, so that every bit pattern means at most one variant.",
+			Spec:    pspec("5.10", "Unions"),
+			Example: "type Desc packed union uint8 {\n\tkind bits[uint8, 2]\n\tA case 1 {}\n\tB case 1, 4 {}\n}",
+			Fixed:   "type Desc packed union uint8 {\n\tkind bits[uint8, 2]\n\tA case 1 {}\n\tB case 2, 3 {}\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.VariantNotType), Name: "VariantNotType",
+			Text:    "A variant of a union is not a type. U.V(x) and U.V{...} make a value of the union type U holding the variant, and a type switch on a union gives you the payload of the variant it holds, which has the payload's own type.\nTo keep a payload in a variable, give the variable the payload's type.",
+			Why:     "Go has no unions. Keeping variants out of the type system means a payload always has its own type and methods, and generic unions need no special rules.",
+			Spec:    pspec("5.10", "Unions"),
+			Example: "var r DeviceState.Ready",
+			Fixed:   "var st DeviceState = DeviceState.Ready{irq: 11}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.UnknownVariant), Name: "UnknownVariant",
+			Text: "The union has no variant with this name, or the type before the dot is not a union, so it has no variants at all. The message lists the variants the union has.",
+			Spec: pspec("5.10", "Unions"),
+		},
+		&Entry{
+			Code: CheckerCode(typerr.UnexportedVariant), Name: "UnexportedVariant",
+			Text: "Union variants follow Go's rule for names: a variant whose name starts with a lower-case letter is visible only inside its own package. A switch in another package that cannot name it needs a default case.",
+			Spec: pspec("5.10", "Unions"),
+		},
+		&Entry{
+			Code: CheckerCode(typerr.UnionLiteral), Name: "UnionLiteral",
+			Text:    "A union value holds one of its variants, so a literal must name the variant: U.V{...} for a variant whose payload is a struct, array or packed type, or U.V(payload) for any variant with a payload. A variant without a payload is the value U.V itself. In a packed union, the variant sets the tag, so its literal cannot.",
+			Spec:    pspec("5.10", "Unions"),
+			Example: "st := DeviceState{}",
+			Fixed:   "st := DeviceState.Off\nst = DeviceState.Probing{attempt: 1}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.NotAVariant), Name: "NotAVariant",
+			Text:    "A type switch on a union value, and a type assertion on one, name the union's own variants: U.V, or in a case of the switch the bare name V. A union value is never nil, and a variant of another union, or a type, can never match.\nA bare variant name is accepted only in the cases of a type switch, where the switch says which union is meant.",
+			Spec:    pspec("5.10", "Unions"),
+			Example: "switch v := st.(type) {\ncase int:\n\t...\n}",
+			Fixed:   "switch v := st.(type) {\ncase Probing:\n\t...\ndefault:\n\t...\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.MissingVariantCase), Name: "MissingVariantCase",
+			Text: "A type switch on a union value that has no default case must name every variant. That way, adding a variant to the union shows every switch that needs to handle it.\nAdd a case for each missing variant, or a default case if the remaining variants share one action. A switch that names every variant needs no default to end a function.",
+			Why:  "Go cannot check this for interfaces, whose set of types is open. A union's variants are a closed set, so the compiler can tell when one is forgotten.",
+			Spec: pspec("5.10", "Unions"),
+			Example: "switch s := st.(type) {\ncase Off:\n\tstart()\ncase Probing:\n\tretry(s.attempt)\n}",
+			Fixed:   "switch s := st.(type) {\ncase Off:\n\tstart()\ncase Probing:\n\tretry(s.attempt)\ncase Ready, Failed:\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.PackedUnionNoDefault), Name: "PackedUnionNoDefault",
+			Text:    "A packed union's bits usually come from hardware or from converting a raw value, so its tag may hold any value its bits allow, including values no variant names. A type switch without a default case must therefore cover every value of the tag; this one does not.\nAdd a default case that handles the other values.",
+			Spec:    pspec("5.10", "Unions"),
+			Example: "switch d.(type) {\ncase Seg:\n\t...\ncase Int:\n\t...\n}",
+			Fixed:   "switch d.(type) {\ncase Seg:\n\t...\ncase Int:\n\t...\ndefault:\n\treturn errBadDescriptor\n}",
+		},
+
 		// Rules checked while compiling.
 		&Entry{
 			Code: NotYetSupported, Name: "NotYetSupported",

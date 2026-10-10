@@ -125,7 +125,73 @@ const (
 	KindPacked        = 27
 	KindRing          = 28
 	KindOwned         = 29
+	KindUnion         = 30
 )
+
+// unionDesc is the descriptor of a union type (KindUnion), which continues
+// a typeDesc with the payload's offset and a table of the variants.
+type unionDesc struct {
+	typeDesc
+	payload  uintptr      // offset of the payload
+	variants *variantDesc // the first of count entries, in tag order
+	count    int
+}
+
+type variantDesc struct {
+	name  string
+	typ   *typeDesc // the payload's descriptor; nil without a payload
+	iface uintptr   // 1 if the payload is an empty interface, 2 another interface
+}
+
+// UnionInfo describes the union value an empty interface value holds: the
+// name of the variant it holds, and whether the variant has a payload and
+// that payload as an interface value. It returns "" if v does not hold a
+// union.
+func UnionInfo(v any) (variant string, payload any, hasPayload bool) {
+	words := (*[2]unsafe.Pointer)(unsafe.Pointer(&v))
+	t := (*typeDesc)(words[0])
+	if t == nil || t.kind != KindUnion {
+		return "", nil, false
+	}
+	u := (*unionDesc)(unsafe.Pointer(t))
+	data := words[1]
+	tag := int(*(*uint8)(data))
+	if u.count > 256 {
+		tag = int(*(*uint16)(data))
+	}
+	if tag >= u.count {
+		return "?", nil, false
+	}
+	vd := (*variantDesc)(unsafe.Add(unsafe.Pointer(u.variants), tag*int(unsafe.Sizeof(variantDesc{}))))
+	if vd.typ == nil {
+		return vd.name, nil, false
+	}
+	p := unsafe.Add(data, u.payload)
+	out := (*[2]unsafe.Pointer)(unsafe.Pointer(&payload))
+	switch vd.iface {
+	case 1:
+		payload = *(*any)(p)
+	case 2:
+		inner := (*[2]unsafe.Pointer)(p)
+		if inner[0] != nil {
+			out[0] = unsafe.Pointer((*itab)(inner[0]).typ)
+			out[1] = inner[1]
+		}
+	default:
+		out[0] = unsafe.Pointer(vd.typ)
+		out[1] = p
+		if vd.typ.flags&flagDirect != 0 {
+			// The data word holds a direct value's bits, zero-extended.
+			var bits uint64
+			b := (*[8]byte)(unsafe.Pointer(&bits))
+			for i := uintptr(0); i < vd.typ.size; i++ {
+				b[i] = *(*byte)(unsafe.Add(p, i))
+			}
+			out[1] = unsafe.Pointer(uintptr(bits))
+		}
+	}
+	return vd.name, payload, true
+}
 
 // TypeInfo describes the dynamic type of an empty interface value: its kind,
 // size and name (all zero for nil), and its data word. For kinds whose
@@ -211,6 +277,34 @@ func panicAssert(have, want *typeDesc) {
 }
 
 // panicValue implements panic(v).
+// panicUnion reports a failed assertion u.(U.V) on a union value: union
+// holds the variant have (empty if not known), not want.
+func panicUnion(union, have, want string) {
+	printString("panic: union variant: ")
+	printString(union)
+	if have == "" {
+		printString(" does not hold ")
+	} else {
+		printString(" holds ")
+		printString(have)
+		printString(", not ")
+	}
+	printString(want)
+	printNewline()
+	fatal()
+}
+
+// panicUnionTag reports a union value whose tag names none of its
+// variants, which only unsafe code or memory corruption can make.
+func panicUnionTag(union string, tag int64) {
+	printString("panic: invalid tag ")
+	printInt(tag)
+	printString(" in a value of union ")
+	printString(union)
+	printNewline()
+	fatal()
+}
+
 func panicValue(v any) {
 	printString("panic: ")
 	switch x := v.(type) {
