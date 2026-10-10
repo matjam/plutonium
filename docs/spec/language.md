@@ -93,18 +93,27 @@ time.
 
 ### 4.2 `new` and `make` allocate from an allocator
 
-`new(T)` and `make([]T, len)` / `make([]T, len, cap)` allocate from the current allocator
+`new(T)`, `new(expr)` and `make([]T, len)` / `make([]T, len, cap)` allocate from the current allocator
 (section 6). Each accepts an optional final allocator argument:
 
 ```go
 n := new(Node)                  // current allocator
 m := new(Node, arena)           // explicit allocator
+k := new(42, arena)             // a *int holding 42
 buf := make([]byte, 4096)       // current allocator
-tmp := make([]byte, 0, 64, scratch)
+big := make([]byte, 0, 4096)    // length and capacity
+tmp := make([]byte, 64, scratch) // length and allocator
+all := make([]byte, 0, 64, scratch)
 ```
 
-The checker tells an allocator from a capacity by its type. Memory from `new` and `make` is zeroed and is
-not freed automatically; free it with `alloc.Free` or use `owned[T]` (section 5.6).
+The checker tells an allocator from a capacity by its type: a final argument of integer type, or an
+untyped numeric constant, is a length or capacity, and any other final argument is the allocator. The
+allocator may be any value whose type has the methods of `alloc.Allocator` (`Alloc(size, align uintptr)
+unsafe.Pointer` and `Free(p unsafe.Pointer, size, align uintptr)`), such as `&arena`; it need not be an
+`alloc.Allocator` interface value. Memory from `new(T)` and `make` is zeroed, and `new(expr)` holds
+`expr`'s value. It is not freed automatically; free it with `alloc.Free` or use `owned[T]` (section 5.6).
+With no allocator, because none was given and no default is set, or because the one given is nil, the
+allocation panics with "no allocator" (section 6.2).
 
 ### 4.3 `append` works within capacity
 
@@ -244,9 +253,53 @@ n := alloc.New[Node]()          // a = alloc.Default(), evaluated now
 m := alloc.New[Node](arena)
 ```
 
-A default may refer to package-level names visible where the function is declared, but not to other
-parameters. Variadic functions cannot have defaults. Function types do not record defaults: a function
-value is called with all of its arguments.
+The rules in full:
+
+- **Declaration.** A defaulted parameter is written `name T = expr` (or `T = expr` in a list of unnamed
+  parameters), with a type of its own: `a, b int = 1` is an error. Once a parameter has a default, every
+  later parameter must have one. Defaults are allowed only in function and method
+  declarations: not on receivers or results, and not in function types, function literals or interface
+  methods.
+- **Scope.** A default is checked where the function is declared: it may use the names of that package,
+  exported or not, the imports of that file, and the type parameters of the function and of its receiver
+  type. It may not refer to the function's parameters or receiver; a parameter name inside a default is an
+  error even where a package-level name of the same spelling exists. The default must be assignable to
+  the parameter's type.
+- **Evaluation.** Each call that omits a defaulted parameter evaluates its default after all explicit
+  arguments, left to right, as if the expression were written at the call site (its temporaries live in
+  the caller's frame) but with its names resolved in the callee's declaration. A call from another
+  package may therefore run the callee's unexported helpers. For `defer`, the defaults are evaluated
+  with the other arguments when the `defer` statement runs. The package-level variables a default uses
+  are dependencies of the function for initialisation order, as those its body uses are.
+- **Which calls.** Defaults apply to calls that name a declared function or method directly: `f(x)`,
+  `pkg.F(x)`, `F[T](x)` and `v.M(x)`, including promoted methods and methods with type parameters.
+  Function types do not record defaults, so a function value, method value or method expression has all
+  of the parameters: after `g := pkg.F` or `m := v.M`, `g` and `m` are called with every argument, as in
+  C++ and Kotlin. Interface methods cannot declare defaults, and a call through an interface passes every
+  argument; a method with defaults implements an interface method with the same parameter types, since
+  defaults are not part of the signature and signature identity ignores them.
+- **Generics.** A default may use type parameters, as `Default()` in `New[T]` could use `T`; it is
+  evaluated with the type arguments of the instance called. Omitted parameters take no part in type
+  inference, so a type parameter that appears only in omitted parameters must be given explicitly.
+- **Multiple values.** In `f(g())`, where `g` returns k values and `f` has more parameters, the k values
+  fill the first k parameters and the rest take their defaults, provided they all have one.
+- **Variadic functions** cannot have defaults: a defaulted parameter after `...T` could never be given
+  explicitly, since an argument after the variadic ones cannot be told apart from them, and a defaulted
+  parameter before it would have to be given whenever any variadic argument is. The variadic
+  constructors of the standard library (`fmt.Errorf`, `errors.Join`) therefore allocate from
+  `alloc.Default()`, which `alloc.Use` replaces for a region of code.
+
+```go
+func Grow(n int, factor int = 2, limit int = 1 << 20) int
+
+Grow(10)        // factor = 2, limit = 1 << 20
+Grow(10, 3)     // limit = 1 << 20
+g := Grow       // g has type func(int, int, int) int
+g(10, 2, 64)    // a function value takes every argument
+
+func (v *Vec[T]) Map[U any](f func(T) U, a alloc.Allocator = alloc.Default()) Vec[U]
+func Errorf(format string, args ...any, a alloc.Allocator = alloc.Default()) error // error: variadic
+```
 
 ### 5.2 `volatile[T]`
 
@@ -457,6 +510,7 @@ func Use(a Allocator) (restore func())  // replaces it until restore is called
 
 func New[T any](a Allocator = Default()) *T
 func Free[T any](p *T, a Allocator = Default())   // calls p.Drop() first if T has one
+func Raw(size, align uintptr, a Allocator = Default()) unsafe.Pointer
 func Owned[T any](a Allocator = Default()) owned[T]
 func Shared[T any](a Allocator = Default()) shared[T]
 func Synced[T any](a Allocator = Default()) synced[T]
@@ -710,7 +764,7 @@ to another processor in between, so it runs with preemption or interrupts disabl
 | `pluto/rt` | panic hook, program entry, memory copy and compare primitives the compiler calls, the scheduler interface, `Go`, `Yield` |
 | `pluto/sync` | `Mutex`, `RWMutex`, `WaitGroup`, `Once` over the scheduler |
 | `pluto/alloc` | allocators, the default allocator, `New`/`Free`/`Owned`/`Shared`/`Synced` |
-| `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf` into a caller's buffer, `Println`; integer, float, string, pointer verbs with width, precision and flags; `Errorf` with an allocator and `ErrorBuf` (section 13) |
+| `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf` into a caller's buffer, `Println`; integer, float, string, pointer verbs with width, precision and flags; `Errorf` and `ErrorBuf` (section 13) |
 | `pluto/io` | `Reader`, `Writer`, buffered I/O |
 | `pluto/os` | files, arguments, environment, exit (hosted) |
 | `pluto/syscall` | raw Linux system calls (hosted) |
@@ -723,7 +777,7 @@ to another processor in between, so it runs with preemption or interrupts disabl
 | `pluto/sync/atomic` | atomic integers and pointers |
 | `pluto/unicode/utf8` | UTF-8 encoding and decoding |
 | `pluto/testing` | tests and benchmarks for `pluto test` (hosted) |
-| `pluto/errors` | `New` for sentinels, `Is`, `As`, `AsType`, `Unwrap`, `Join`, `Free` (section 13) |
+| `pluto/errors` | `New` (a static error per call site), `Is`, `As`, `AsType`, `Unwrap`, `Join`, `Free` (section 13) |
 
 `pluto/os` and `pluto/syscall` are not available in freestanding builds.
 
@@ -744,27 +798,40 @@ outlives the function.** That storage is one of:
 | Storage | Used for | Example |
 |---|---|---|
 | the interface's data word | error codes | `syscall.Errno`, a kernel's own code type |
-| static storage | sentinel errors | `var ErrNotFound = errors.New("not found")` in a package-level variable |
+| static storage | sentinel errors and fixed messages | `var ErrNotFound = errors.New("not found")`; `return errors.New("bad header")` |
 | a field of a longer-lived object | errors with context that belong to an owner | a parser that returns `&p.err`; `fmt.ErrorBuf` |
 | memory from an allocator | errors with context that travel up the stack | `*os.PathError`, `fmt.Errorf`, `errors.Join` |
 
 Returning a struct as an `error`, or a pointer to a local variable or composite literal, breaks the rule:
 the first is a compile error (section 4.4), and the second leaves a dangling pointer.
 
-### 13.1 Sentinels
+### 13.1 Sentinels and `errors.New`
 
-`errors.New(text)` returns a distinct error each time it is called, held in static storage that package
-`errors` reserves (512 errors). It is meant for package-level variables, whose initializers run once:
+`errors.New(text)` works anywhere, as in Go: in a package-level variable and inside a function.
 
 ```go
 var ErrNotFound = errors.New("not found")
+
+func parseHeader(b []byte) error {
+	if len(b) < 4 {
+		return errors.New("short header")
+	}
+	...
+}
 ```
 
-`text` must be a constant or other static string. `errors.New` panics when its storage runs out, which
-happens only if a program calls it repeatedly at run time; such code should declare a package-level
-sentinel or use `fmt.Errorf`. A sentinel may also be written as a static literal,
-`var ErrClosed = &errors.Text{Msg: "file already closed"}`, and a package-level initializer may convert
-a struct to `error` directly, since its box is static (section 4.4).
+`text` must be a constant; any other argument is a compile error that points to `fmt.Errorf`. The
+compiler evaluates each call to the address of a static, read-only `errors.Text{Msg: text}` that belongs
+to the call site, so `errors.New` never allocates and never runs out. The same call site always returns
+the same error, however often it runs and in every instance of a generic function; different call sites
+return different errors, even with equal messages, so two packages' sentinels never compare equal.
+(Go returns a new error from every evaluation; no correct program can tell, except by comparing two
+results of one call site.) Since its result belongs to a call site, `errors.New` must be called
+directly: taking its value (`f := errors.New`) or deferring it is a compile error.
+
+A sentinel may also be written as a static literal, `var ErrClosed = &errors.Text{Msg: "file already
+closed"}`, and a package-level initializer may convert a struct to `error` directly, since its box is
+static (section 4.4).
 
 ### 13.2 Error codes
 
@@ -780,9 +847,10 @@ when the error is made, into that storage, because `Error()` must return a strin
 one at run time.
 
 - **Allocated.** `fmt.Errorf(format, args...)` allocates the error and its message in one block from the
-  default allocator; `fmt.ErrorfIn(a, format, args...)` uses `a`. `errors.Join`/`JoinIn` and
-  `os.NewPathError`/`NewPathErrorIn` work the same way, and so do `os.Open`, `os.Create` and `os.OpenFile`
-  when they fail. Such an error has a `Free()` method. `errors.Free(err)` releases every allocated error
+  default allocator, and so does `errors.Join`; both are variadic, so they cannot take a defaulted
+  allocator (section 5.1), and `alloc.Use` installs another allocator around them.
+  `os.NewPathError(op, path, err, a = alloc.Default())` allocates from its last argument, and so do
+  `os.Open`, `os.Create` and `os.OpenFile` when they fail. Such an error has a `Free()` method. `errors.Free(err)` releases every allocated error
   in `err`'s tree and skips the others; a wrapper owns the errors it wraps, so free only the outermost
   one. Code that runs under an arena (`defer alloc.Use(&a).Restore()`) needs no `Free`.
 - **Owned.** An object that performs operations (a parser, a device, a connection) keeps its last error in
