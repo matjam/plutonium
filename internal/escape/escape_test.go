@@ -80,18 +80,20 @@ func f() error {
 }
 func main() { _ = f() }`, []string{"cannot return &e, a pointer to a local variable"}},
 
-	{"return capturing closure", `
+	{"closure from a call stored in a package variable", `
+var saved func() int
 func f() func() int {
 	n := 0
 	return func() int { n++; return n }
 }
-func main() { _ = f() }`, []string{"cannot return the function literal: it uses n, a local variable of f", "type state struct{ n int }"}},
+func main() { saved = f() }`, []string{"cannot store f() in package variable saved", "f() returns a closure, which it builds in a region of its caller's frame"}},
 
-	{"return method value", `
+	{"method value from a call stored in a package variable", `
 type C struct{ n int }
 func (c C) Get() int { return c.n }
 func f(c C) func() int { return c.Get }
-func main() { _ = f(C{}) }`, []string{"cannot return c.Get, a method value whose receiver is in f's frame"}},
+var saved func() int
+func main() { saved = f(C{}) }`, []string{"cannot store f(C{}) in package variable saved"}},
 
 	{"return slice of local array", `
 func f() []byte {
@@ -931,6 +933,24 @@ func main() {
 		println(*p)
 		p = nil
 	}
+}`},
+	{"closures returned in the caller's region", `
+func f() func() int {
+	n := 0
+	return func() int { n++; return n }
+}
+type C struct{ n int }
+func (c C) Get() int { return c.n }
+func g(c C) func() int { return c.Get }
+func h(k int) func() int {
+	if k < 0 {
+		panic("k")
+	}
+	return f()
+}
+func main() {
+	a, b, c := f(), g(C{1}), h(2)
+	println(a(), b(), c())
 }`},
 	{"go statement copies packed variadic arguments", `
 func sum(done chan int, xs ...int) {

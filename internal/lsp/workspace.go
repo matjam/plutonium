@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/matjam/plutonium/internal/diag"
+	"github.com/matjam/plutonium/internal/directive"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/parser"
@@ -371,6 +372,11 @@ func (w *workspace) check(dir string, mode buildMode, tests bool, loading map[pk
 	for _, terr := range typeErrs {
 		if f := byTok[w.fset.File(terr.Pos)]; f != nil {
 			p.errors = append(p.errors, newCheckError(f.path, f.src, f.tok.Offset(terr.Pos), diag.FromChecker(terr, ctx)))
+		}
+	}
+	for _, f := range p.files {
+		for _, d := range directive.Check(w.fset, f.ast) {
+			p.errors = append(p.errors, newCheckError(f.path, f.src, d.Pos.Offset, d))
 		}
 	}
 	w.pkgs[key] = p

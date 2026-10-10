@@ -76,20 +76,28 @@ type Lowerer struct {
 	perCPUSelfSym  *ssa.Sym                   // pluto.percpu.self, once a per-CPU variable exists
 	genPanic       *ssa.Sym                   // pluto/rt.panicStale, under GenCheck
 	types          *typeTable
-	ctors          map[*types2.Func]*ctorInfo // closure constructors (ctor.go), nil for other functions
-	ctorMisused    map[*types2.Func]bool      // closure constructors already reported
-	flowSums       map[string]*flowSummary    // closureflow.go, by instance symbol name
-	flowStack      []string                   // summaries being computed
-	flowTent       []string                   // tentative summaries
-	flowMin        int                        // the outermost summary being computed that was read
-	flowReported   map[token.Pos]bool         // returned closure records already reported
-	noRet          map[*types2.Func]int       // which functions never return (noreturn.go)
-	sched          *schedBinding              // the //pu:scheduler variable, or nil
-	schedMissing   bool                       // the missing-scheduler error has been reported
-	schedNoTimers  bool                       // the scheduler-without-timers error has been reported
-	late           []*lateHook                // late hooks waiting for their bodies (sched.go)
-	lateDone       bool                       // the late hooks have been resolved
-	lateDirect     bool                       // ... to the functions that avoid the scheduler
+	flowSums       map[string]*flowSummary        // closureflow.go, by instance symbol name
+	flowStack      []string                       // summaries being computed
+	flowTent       []string                       // tentative summaries
+	flowMin        int                            // the outermost summary being computed that was read
+	flowReported   map[token.Pos]bool             // returned closure records already reported
+	noRet          map[*types2.Func]int           // which functions never return (noreturn.go)
+	regionLayouts  map[*ssa.Sym]*regionLayout     // closure regions (regions.go)
+	regionMembers  map[string][]*ssa.Sym          // functions that take a region, by sigKey
+	regionSlots    []regionSlot                   // regions reserved by callers
+	regionCycles   map[token.Pos]bool             // regions reported as holding themselves
+	regionPending  [][]regionCand                 // errors that depend on the size of a region
+	regionZeros    []regionLocal                  // callers' regions, zeroed on entry
+	regionDrops    []regionDrop                   // drops of regions
+	regionStatics  []regionStatic                 // regions of calls made during initialisation
+	regionNodes    map[any]*regionNode            // sizeRegions' graph
+	sigKeys        map[string][]*types2.Signature // sigKey's signatures, by shape
+	sched          *schedBinding                  // the //pu:scheduler variable, or nil
+	schedMissing   bool                           // the missing-scheduler error has been reported
+	schedNoTimers  bool                           // the scheduler-without-timers error has been reported
+	late           []*lateHook                    // late hooks waiting for their bodies (sched.go)
+	lateDone       bool                           // the late hooks have been resolved
+	lateDirect     bool                           // ... to the functions that avoid the scheduler
 
 	// panicFn is the program's panic handler (panic.go).
 	panicFn *types2.Func
@@ -132,11 +140,6 @@ type funcJob struct {
 	captures []*types2.Var
 	parent   *fnState
 
-	// For the closure of a closure constructor: the constructor. The
-	// closure is the constructor's, not its caller's, so it may use the FPU
-	// where the constructor may, whichever function calls the constructor.
-	ctor *funcDecl
-
 	build func(s *fnState) // for synthesized functions (init, wrappers)
 	// setup, if set, runs before build in the entry block, ahead of the
 	// zeroing of counted slots (strscope.go): incoming arguments and the
@@ -175,8 +178,10 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		globals:        map[*types2.Var]*ssa.Sym{},
 		strs:           map[string]*ssa.Sym{},
 		closureRecords: map[*ssa.Sym]*ssa.Sym{},
-		ctors:          map[*types2.Func]*ctorInfo{},
-		ctorMisused:    map[*types2.Func]bool{},
+		regionLayouts:  map[*ssa.Sym]*regionLayout{},
+		regionMembers:  map[string][]*ssa.Sym{},
+		regionCycles:   map[token.Pos]bool{},
+		sigKeys:        map[string][]*types2.Signature{},
 		flowSums:       map[string]*flowSummary{},
 		flowReported:   map[token.Pos]bool{},
 		noRet:          map[*types2.Func]int{},
@@ -230,10 +235,14 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		if len(l.errs) > 0 {
 			break
 		}
-		if l.types.finish() || l.resolveLateHooks() {
+		if l.types.finish() || l.resolveLateHooks() || l.finishRegions() {
 			continue
 		}
 		break
+	}
+	if len(l.errs) > 0 {
+		// The errors that depend on the sizes of regions.
+		l.finishRegions()
 	}
 	l.checkLateHooks()
 	l.types.emit()

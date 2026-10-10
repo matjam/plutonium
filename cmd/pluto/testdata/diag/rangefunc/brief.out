@@ -1,3 +1,2 @@
-$DIR/main.p:33:7: Count returns a closure that captures its parameters, which is built in its caller's frame; it can only be called directly, not used as a func value
 $DIR/main.p:17:3: defer in the body of a range-over-func loop must be followed by a return, or a break or goto out of the loop (otherwise it may run once per iteration, which would need unbounded stack)
 $DIR/main.p:24:10: a function literal deferred in a range-over-func loop body cannot capture x, a variable of the loop body: the deferred call runs after the body has returned

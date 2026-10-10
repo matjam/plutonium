@@ -167,8 +167,8 @@ A value **fits in registers** when it has between 1 and 4 leaves (`maxRegLeaves`
 
 ### 3.2 Parameters
 
-Parameters are assigned in this order: the hidden result pointer, if any (section 3.3), then the
-receiver, then the declared parameters.
+Parameters are assigned in this order: the hidden result pointer, if any (section 3.3), then the hidden
+region pointer, if any (section 4.1), then the receiver, then the declared parameters.
 
 - A parameter that fits in registers is passed as its leaves, each one as a separate scalar argument.
 - Any other parameter is passed **by reference**: the caller makes a copy in its own frame and passes the
@@ -217,15 +217,57 @@ A func value is the address of a **closure record**. Word 0 of the record is the
 - A declared function used as a value, or a function literal that captures nothing, uses a static,
   read-only one-word record named `sym·f`.
 - A function literal that captures variables gets a record in the creating function's frame: word 0 is
-  the code pointer, word *i*+1 is the address of captured variable *i* (captures are by reference). This
-  is why such closures cannot outlive their frame (language spec section 4.5).
+  the code pointer, word *i*+1 is the address of captured variable *i* (captures are by reference). A
+  record the function may return is built in its caller's region instead (section 4.1).
 - A method value `x.M` gets a record in the frame holding a wrapper's code pointer (`sym-fm`) followed by
-  a copy of the receiver; an interface method value holds the interface value.
+  a copy of the receiver; an interface method value holds the interface value. These too go in the
+  caller's region when returned.
 
 A call through a func value loads the code pointer from word 0 and calls it with the **record address in
 RAX**, in addition to the ordinary arguments. Functions that do not need it ignore RAX, so a declared
 function can be called directly or through its record with the same code. Calls to C functions never
 pass a context.
+
+### 4.1 Closure regions
+
+A function whose results can hold a func value without a pointer in between (a func result, an
+interface, or a struct, array or union holding one) takes a hidden **region pointer**, a scalar argument
+after the result pointer and before the receiver (section 3.2). The caller provides the region, and the
+function builds there the closures it may return (language spec section 4.5):
+
+- the records of the function literals and method values it makes and may return;
+- the variables those literals capture, which therefore live in the region rather than the function's
+  frame, for the function and the closures alike (parameters are copied there on entry);
+- the regions of the calls whose closures it may return in turn, after its own variables and records.
+
+The region's layout is fixed per function when compiling: a **drop word** at offset 0, its own variables
+and records at offsets assigned in the order the function's code makes them, then each nested region
+aligned for its contents. A function that builds nothing has an empty region, without a drop word, and
+ignores the pointer, which the caller still passes. The callee reads and writes the region only through
+the pointer; it may hold the address of a variable in the region and of a record in it, and returns func
+values that point into it.
+
+The region owns the strings it holds (language spec section 6.10): those of its variables, and of the
+receivers its method values copied. The drop word is 0, or the closure record of the function's **drop
+function** (`<function symbol>·rdrop`), which the function stores on entry when its region holds strings
+or nested regions. The drop function takes the region's address, releases its strings, drops its nested
+regions and clears the word. The caller zeroes the regions it reserves when it is entered, drops a region
+before each call that refills it, and drops its regions when it returns: a call of a known function calls
+that function's drop function, and a call through a func value or an interface calls the record in the
+drop word, if there is one. A region that turns out to hold nothing to release has these drops left out.
+Calls made while initialising packages get regions in static storage, which are never dropped.
+
+The caller reserves the region in its frame, one per call site, reused on every execution of the call,
+or passes a part of its own region when it may return the call's closures in turn. A call of a known
+function reserves that function's region; a call through a func value or an interface reserves the
+largest region of any function of the program with the same signature (receiver aside, for interface
+methods; as the first parameter, for method expressions). A function implemented outside Plutonium
+(assembly, `//pu:extern`) whose results can hold a func value would have to accept the region pointer
+too; C functions cannot return one (section 9).
+
+At `-O2`, once a call is inlined, its region is split into one slot per variable, record and nested
+region, so that closure records are seen through and the variables promoted to registers as if the
+closure had been built in the caller.
 
 ## 5. Interfaces
 
@@ -383,10 +425,11 @@ functions without `//pu:fpu` (no floats, section 10.2) never use it.
 | generic instance | `path.Name[T1,T2]`, type arguments package-qualified by import path |
 | method of a generic type instance | `pluto/vec.(*Vec).Push[int]`: the receiver's type arguments, then the method's own, in the brackets |
 | function literal | `<enclosing symbol>.func<N>` |
-| the closure of a closure constructor (language spec section 4.5) | `<constructor symbol>.func1`, e.g. `main.Count.func1` or `pluto/vec.(*Vec).All[int].func1`: named after the constructor, not the caller that builds it, and shared by every call |
+| a closure a function returns (language spec section 4.5) | `<function symbol>.func<N>`, e.g. `main.Count.func1` or `pluto/vec.(*Vec).All[int].func1`: named after the function that makes it, not the caller whose region it is built in, and shared by every call |
 | the closure of a `ring` iterator (section 5.4) | `builtin.(*ring[T,N]).All.func1`, or `.Values.func1` |
 | go statement thunk (section 12.6) | `<enclosing symbol>.go<N>` |
 | bound method wrapper | `<method symbol>-fm` |
+| a region's drop function (section 4.1) | `<function symbol>·rdrop`; `pluto.noRegionDrop` for the regions that turned out to need none |
 | static closure record | `<function symbol>·f` |
 | package-level variable | `path.Name` |
 | package initialiser | `path.init·pkg`; user `init` functions are `path.init.0`, `path.init.1`, ... |

@@ -187,7 +187,7 @@ func (a *analyzer) noun(l *loc, q types2.Qualifier) string {
 	case lkMethodValue:
 		return "a method value whose receiver is in " + frame
 	case lkCtor:
-		return "the closure " + exprText(l.node.(ast.Expr)) + " builds in " + frame
+		return "the closure " + exprText(l.node.(ast.Expr)) + " returns, built in " + frame
 	}
 	return frame
 }
@@ -240,7 +240,7 @@ func (a *analyzer) intro(l *loc, q types2.Qualifier) string {
 	case lkMethodValue:
 		return fmt.Sprintf("A method value (at %s) is a record in %s frame that holds its receiver, and calling it calls the method on that receiver.", at, possessive(l.fn))
 	case lkCtor:
-		return fmt.Sprintf("%s calls a closure constructor, which builds the function literal it returns in the caller's frame, %s (at %s), with copies of its arguments; the closure lives as long as that frame (section 4.5).", exprText(l.node.(ast.Expr)), possessive(l.fn), at)
+		return fmt.Sprintf("%s returns a closure, which it builds in a region of its caller's frame, %s (at %s); the closure lives as long as that frame (section 4.5).", exprText(l.node.(ast.Expr)), possessive(l.fn), at)
 	}
 	return ""
 }

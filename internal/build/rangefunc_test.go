@@ -73,10 +73,9 @@ func main() {
 	}
 }
 
-// TestRangeFuncErrors checks the range-over-func loops and closure
-// constructors the compiler rejects: a defer that could run once per
-// iteration, a deferred literal that keeps the loop body's variables past
-// the body, and a closure constructor used other than by calling it.
+// TestRangeFuncErrors checks the range-over-func loops the compiler
+// rejects: a defer that could run once per iteration, and a deferred
+// literal that keeps the loop body's variables past the body.
 func TestRangeFuncErrors(t *testing.T) {
 	const decls = `package main
 
@@ -192,31 +191,6 @@ func main() {
 	}
 }
 `, "cannot capture x, a variable of the loop body"},
-		{"constructor as func value", `
-func main() {
-	f := count
-	for x := range f(3) {
-		use(x)
-	}
-}
-`, "count returns a closure that captures its parameters"},
-		{"constructor as method value", `
-func main() {
-	c := &Counter{n: 2}
-	f := c.All
-	for x := range f() {
-		use(x)
-	}
-}
-`, "All returns a closure that captures its parameters"},
-		{"constructor as interface method", `
-func main() {
-	var s Seq = &Counter{n: 2}
-	for x := range s.All() {
-		use(x)
-	}
-}
-`, "All returns a closure that captures its parameters"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

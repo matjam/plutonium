@@ -1,6 +1,6 @@
 package main
 
-// All is a closure constructor on a generic type, called for two
+// All returns a closure from a method of a generic type, called for two
 // instantiations: each one's closure is named after its instance of All. The
 // string instance panics inside the closure.
 type Bag[T any] struct {

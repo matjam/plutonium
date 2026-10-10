@@ -2,13 +2,15 @@ package lower
 
 // Closure records that reach a function's results.
 //
-// A function literal that captures variables, a method value, and the
-// closure a closure constructor builds where it is called are closure
-// records in the frame of the function that makes them (language spec
-// sections 4.5 and 6.3). This file finds the records that may reach a
-// function's results: returned directly, or through variables, fields,
-// elements, interfaces, pointers and calls. Returning one is a compile error
-// (E3100), since the record is gone once the function returns.
+// A function literal that captures variables and a method value are
+// closure records in the frame of the function that makes them, and the
+// closures a call returns are in a region of the caller's frame (language
+// spec sections 4.5 and 6.3, regions.go). This file finds the records that
+// may reach a function's results: returned directly, or through variables,
+// fields, elements, interfaces, pointers and calls. planClosures puts those
+// the function makes, and the variables they capture, in the region its
+// caller provides, and reports those that cannot go there (E3100), and the
+// closures of calls in a loop kept past the iteration (E3101).
 //
 // The analysis is flow-insensitive and field-insensitive, and when it
 // cannot tell it assumes the worst:
@@ -125,16 +127,6 @@ func (b bitset) members() []int {
 	return out
 }
 
-// first returns the smallest member of b, or -1.
-func (b bitset) first() int {
-	for i, w := range b {
-		if w != 0 {
-			return i*64 + bits.TrailingZeros64(w)
-		}
-	}
-	return -1
-}
-
 // A closureFlow is the analysis of one function body.
 type closureFlow struct {
 	l    *Lowerer
@@ -154,12 +146,14 @@ type closureFlow struct {
 	pool      bitset                  // values stored through pointers
 	litArgs   bitset                  // values passed to calls, which an iterator may yield
 	litIn     map[*ast.FuncLit]bitset // what each literal's parameters may receive
+	srcState  map[int]bitset          // what calls stored in the records of method values and calls' closures
 	called    bitset                  // parameters called as unknown code, whose state may be stored
 	storeTo   map[int]bitset          // values stored through each parameter
 	callArgs  map[int]bitset          // the parameters passed to calls of each func parameter
 	storeAny  bitset                  // values stored through pointers from elsewhere
 	started   bitset                  // values a puroutine may be started with
 	changed   bool
+	foreign   []ast.Node // nested literals and range-over-func bodies (ownFrame)
 }
 
 // A flowSummary says what a function does with its parameters (the
@@ -170,6 +164,7 @@ type flowSummary struct {
 	store    map[int]bitset // the parameters stored through each parameter
 	storeAny bitset         // the parameters stored through other pointers
 	calls    bitset         // func parameters it calls, whose captured state may be stored
+	builds   bool           // it may build closures in the region its caller provides
 	callArgs map[int]bitset // the parameters it passes to calls of each func parameter
 	starts   bitset         // func parameters it may start puroutines with (gofunc)
 	all      bool           // unknown: every parameter does everything
@@ -188,6 +183,7 @@ func newClosureFlow(l *Lowerer, info *types2.Info, tmap *typeMap, sig *types2.Si
 		vars:      map[*types2.Var]bitset{},
 		addressed: map[*types2.Var]bool{},
 		litIn:     map[*ast.FuncLit]bitset{},
+		srcState:  map[int]bitset{},
 		storeTo:   map[int]bitset{},
 		callArgs:  map[int]bitset{},
 		ident:     map[*types2.Var]bitset{},
@@ -239,6 +235,8 @@ func mayHoldFunc(T types2.Type, seen map[types2.Type]bool) bool {
 	seen[T] = true
 	switch t := types2.Unalias(T).Underlying().(type) {
 	case *types2.Basic:
+		// An unsafe.Pointer may hold a closure record (rt.Go passes one to
+		// the check that it may start a puroutine).
 		return t.Kind() == types2.UnsafePointer
 	case *types2.Signature, *types2.Interface, *types2.TypeParam:
 		return true
@@ -272,18 +270,14 @@ func mayHoldFunc(T types2.Type, seen map[types2.Type]bool) bool {
 	return true
 }
 
-// reaches reports whether a callee given a value of type T can store a func
-// value where the caller can see it: through a pointer, slice, map or
-// channel, or in an interface or a value of a type parameter, which may be
-// a pointer.
-func reaches(T types2.Type) bool { return mayReach(T, true, map[types2.Type]bool{}) }
-
 // refers reports whether a value of type T can refer to memory that holds
-// func values, so that what is stored there through another pointer can be
-// read through it.
-func refers(T types2.Type) bool { return mayReach(T, false, map[types2.Type]bool{}) }
+// func values: through a pointer, slice, map or channel, or in an interface
+// or a value of a type parameter, which may be a pointer. What is stored
+// there through another pointer can be read through it, and a callee given
+// it can store there.
+func refers(T types2.Type) bool { return mayReach(T, map[types2.Type]bool{}) }
 
-func mayReach(T types2.Type, funcs bool, seen map[types2.Type]bool) bool {
+func mayReach(T types2.Type, seen map[types2.Type]bool) bool {
 	if T == nil {
 		return true
 	}
@@ -295,7 +289,7 @@ func mayReach(T types2.Type, funcs bool, seen map[types2.Type]bool) bool {
 	case *types2.Basic:
 		return t.Kind() == types2.UnsafePointer
 	case *types2.Signature:
-		return funcs // a closure's captured variables
+		return false // what a closure captured is changed by calling it (storeState)
 	case *types2.Interface, *types2.TypeParam:
 		return true
 	case *types2.Pointer:
@@ -307,17 +301,17 @@ func mayReach(T types2.Type, funcs bool, seen map[types2.Type]bool) bool {
 	case *types2.Map:
 		return carries(t.Key()) || carries(t.Elem())
 	case *types2.Array:
-		return mayReach(t.Elem(), funcs, seen)
+		return mayReach(t.Elem(), seen)
 	case *types2.Struct:
 		for i := 0; i < t.NumFields(); i++ {
-			if mayReach(t.Field(i).Type(), funcs, seen) {
+			if mayReach(t.Field(i).Type(), seen) {
 				return true
 			}
 		}
 		return false
 	case *types2.Tuple:
 		for i := 0; i < t.Len(); i++ {
-			if mayReach(t.At(i).Type(), funcs, seen) {
+			if mayReach(t.At(i).Type(), seen) {
 				return true
 			}
 		}
@@ -326,7 +320,7 @@ func mayReach(T types2.Type, funcs bool, seen map[types2.Type]bool) bool {
 		if t.IsPointer() {
 			return carries(t.Elem())
 		}
-		return mayReach(t.Elem(), funcs, seen)
+		return mayReach(t.Elem(), seen)
 	}
 	return true
 }
@@ -519,9 +513,16 @@ func (f *closureFlow) visit(n ast.Node) bool {
 			}
 		}
 	case *ast.RangeStmt:
-		m := f.expr(n.X).or(f.unknown()).or(f.pool)
+		x := f.expr(n.X)
+		m := x.or(f.unknown()).or(f.pool)
 		if _, ok := underlying(f.typeOf(n.X)).(*types2.Signature); ok {
-			m = m.or(f.litArgs) // the iterator's arguments to yield
+			// The iterator yields what it captured (a parameter: anything
+			// it holds), not itself, or, for a literal of this function,
+			// what its body passes to yield.
+			m = x.from(0, len(f.params)).or(f.unknown()).or(f.pool).or(f.state(x))
+			if len(f.lits(x)) > 0 {
+				m = m.or(f.litArgs)
+			}
 		}
 		if n.Key != nil {
 			f.assign(n.Key, m)
@@ -792,21 +793,18 @@ func (f *closureFlow) call(c *ast.CallExpr) bitset {
 	var ret, store bitset // store: through any argument that can reach memory
 	argStore := make([]bitset, len(args))
 	var anyStore bitset // through pointers the arguments do not reach
+	builds := true      // whether the callee may build closures in a region
 	if g, targs := f.callee(c); g != nil {
-		if f.l.closureCtor(g) != nil {
-			// Expanded here: the closure record is in this frame.
-			var m bitset
-			m.add(f.source(c))
-			return m.or(all)
-		}
 		if isGoFuncCheck(g) {
 			f.start(all)
 		}
 		sum := f.l.closureSummary(g, targs)
+		builds = sum.all || sum.builds
 		if sum.all {
 			r := f.callFuncs(all, all.or(f.unknown()))
 			ret = all.or(r).or(f.state(all))
 			store = ret
+			f.storeState(all, ret)
 		} else {
 			sig := g.Type().(*types2.Signature)
 			nrecv := 0
@@ -817,8 +815,10 @@ func (f *closureFlow) call(c *ast.CallExpr) bitset {
 			// param maps each argument to its parameter, or -1 for the
 			// results of f(g()), which fill every parameter.
 			param := func(i int) int {
-				if len(c.Args) == 1 && sig.Params().Len() > 1 && i == len(args)-1 {
-					return -1
+				if len(c.Args) == 1 && i == len(args)-1 {
+					if _, multi := f.typeOf(c.Args[0]).(*types2.Tuple); multi {
+						return -1
+					}
 				}
 				p := i
 				if recv == nil {
@@ -863,6 +863,7 @@ func (f *closureFlow) call(c *ast.CallExpr) bitset {
 					r := f.callFuncs(masks[i], in)
 					ret.union(r)
 					store.union(r.or(f.state(masks[i])))
+					f.storeState(masks[i], in)
 				}
 			}
 		}
@@ -883,6 +884,12 @@ func (f *closureFlow) call(c *ast.CallExpr) bitset {
 		r := f.callFuncs(all.or(cm).or(st), all.or(f.unknown()))
 		ret = all.or(st).or(r)
 		store = ret
+		f.storeState(cm.or(all), ret)
+	}
+	if sig, ok := underlying(f.typeOf(c.Fun)).(*types2.Signature); ok && regionSig(sig) && builds {
+		// The callee builds the closures it returns in a region this
+		// frame provides.
+		ret.add(f.source(c))
 	}
 	f.addPool(anyStore)
 	for i, a := range args {
@@ -892,7 +899,9 @@ func (f *closureFlow) call(c *ast.CallExpr) bitset {
 		}
 		if i == 0 && recv != nil && !f.isPointer(recv) {
 			f.assign(recv, m) // a pointer method changes the receiver itself
-		} else if reaches(f.typeOf(a)) {
+		} else if refers(f.typeOf(a)) {
+			// Through a pointer, slice, map, channel or interface; what a
+			// func value captured is changed by calling it (storeState).
 			f.assign(&ast.StarExpr{X: a}, m)
 		}
 	}
@@ -966,8 +975,11 @@ func (f *closureFlow) state(m bitset) bitset {
 		case *ast.SelectorExpr:
 			// A method value's copy of its receiver.
 			out.union(f.expr(n.X))
+			out.union(f.srcState[i])
 		case *ast.CallExpr:
-			// A constructor's closure captures its arguments.
+			// The closures a call returns capture its arguments, and what
+			// calls of them stored.
+			out.union(f.srcState[i])
 			for _, a := range n.Args {
 				out.union(f.expr(a))
 			}
@@ -977,6 +989,23 @@ func (f *closureFlow) state(m bitset) bitset {
 		}
 	}
 	return out
+}
+
+// storeState records that calling, or passing to unknown code, the func
+// values with origins m may store values with origins vals in what they
+// captured: the records of method values and of calls' closures. A
+// literal's captured variables are the analysis' own.
+func (f *closureFlow) storeState(m, vals bitset) {
+	for _, i := range m.from(f.firstSrc(), -1).members() {
+		if _, lit := f.src[i-f.firstSrc()].(*ast.FuncLit); lit {
+			continue
+		}
+		b := f.srcState[i]
+		if b.union(vals) {
+			f.srcState[i] = b
+			f.changed = true
+		}
+	}
 }
 
 // lits returns the function literals of this function among the origins m.
@@ -1158,11 +1187,11 @@ func (l *Lowerer) closureSummary(g *types2.Func, targs []types2.Type) *flowSumma
 // merge adds what the analysis f found to s and reports whether s grew.
 func (s *flowSummary) merge(f *closureFlow) bool {
 	np := len(f.params)
-	grew := false
-	for _, r := range f.returns() {
-		for _, m := range f.returned(r) {
-			grew = s.ret.union(m.from(0, np)) || grew
-		}
+	esc := f.escaping()
+	grew := s.ret.union(esc.from(0, np))
+	if !s.builds && !esc.from(f.firstSrc(), -1).empty() {
+		s.builds = true
+		grew = true
 	}
 	for j, m := range f.storeTo {
 		b := s.store[j]
@@ -1182,6 +1211,48 @@ func (s *flowSummary) merge(f *closureFlow) bool {
 		}
 	}
 	return grew
+}
+
+// escaping returns the origins of what the function may return, with
+// what the closure records among them hold: the variables a literal
+// captures, the receiver a method value copies.
+func (f *closureFlow) escaping() bitset {
+	var m bitset
+	for _, r := range f.returns() {
+		for _, x := range f.returned(r) {
+			m.union(x)
+		}
+	}
+	return f.closeOver(m)
+}
+
+// closeOver adds to m the origins of what the closure records in m hold.
+func (f *closureFlow) closeOver(m bitset) bitset {
+	m = m.or(nil)
+	done := map[int]bool{}
+	for {
+		grew := false
+		for _, i := range m.from(f.firstSrc(), -1).members() {
+			if done[i] {
+				continue
+			}
+			done[i] = true
+			switch n := f.src[i-f.firstSrc()].(type) {
+			case *ast.FuncLit:
+				for _, v := range litCaptures(f.info, n) {
+					grew = m.union(f.varOrigins(v)) || grew
+				}
+			case *ast.SelectorExpr:
+				grew = m.union(f.expr(n.X)) || grew
+				grew = m.union(f.srcState[i]) || grew
+			case *ast.CallExpr:
+				grew = m.union(f.srcState[i]) || grew
+			}
+		}
+		if !grew {
+			return m
+		}
+	}
 }
 
 // returns lists the function's own return statements, leaving out those
@@ -1219,39 +1290,78 @@ func (f *closureFlow) returned(r *ast.ReturnStmt) []bitset {
 // ----------------------------------------------------------------------------
 // Reporting
 
-// checkClosureReturns reports the closure records that job's function may
-// return.
-func (l *Lowerer) checkClosureReturns(job *funcJob) {
+// planClosures decides, before s's function is lowered, where the closure
+// records it may return are built: in the region its caller provides, when
+// it takes one (regions.go). It reports the records that cannot be built
+// there and so cannot outlive this frame (E3100), and the closures of calls
+// in a loop that are kept past the iteration (E3101).
+func (s *fnState) planClosures() {
+	l, job := s.l, s.job
 	var body *ast.BlockStmt
 	var name string
+	var sig *types2.Signature
 	switch {
 	case job.pkg == nil:
 		return
 	case job.decl != nil:
-		if fn, _ := job.pkg.Info.Defs[job.decl.Name].(*types2.Func); fn == nil || l.closureCtor(fn) != nil {
-			return
-		}
 		body, name = job.decl.Body, job.decl.Name.Name
+		sig = job.pkg.Info.Defs[job.decl.Name].Type().(*types2.Signature)
 	case job.lit != nil:
 		body, name = job.lit.Body, "the function literal at "+l.shortPos(job.lit.Pos())
-	}
-	if body == nil || job.sig.Results().Len() == 0 {
-		return
-	}
-	var sig *types2.Signature
-	if job.decl != nil {
-		sig = job.pkg.Info.Defs[job.decl.Name].Type().(*types2.Signature)
-	} else {
 		sig = job.pkg.Info.TypeOf(job.lit).(*types2.Signature)
+	}
+	if body == nil {
+		return
 	}
 	f := newClosureFlow(l, job.pkg.Info, job.tmap, sig, body)
 	f.run()
+	f.findForeign()
+	s.checkLoopRegions(f)
+	if job.sig.Results().Len() == 0 {
+		return
+	}
+	region := s.abi.region
+	for _, i := range f.escaping().from(f.firstSrc(), -1).members() {
+		n := f.src[i-f.firstSrc()]
+		if !region || !f.ownFrame(n.Pos()) {
+			continue
+		}
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			s.regionNodes[n] = true
+			for _, v := range litCaptures(f.info, n) {
+				if s.ownVar(f, v) {
+					s.regionVars[v] = true
+				}
+			}
+		case *ast.SelectorExpr:
+			s.regionNodes[n] = true
+		case *ast.CallExpr:
+			s.regionCalls[n] = true
+		}
+	}
 	for _, r := range f.returns() {
 		ms := f.returned(r)
 		named := len(ms) - len(r.Results)
 		for i, m := range ms {
-			src := m.from(f.firstSrc(), -1)
-			if src.empty() {
+			// The records that cannot be built in a region. A call's
+			// closures are only a problem if the callee builds any: that
+			// is known once every function is lowered (finishRegions).
+			src := -1
+			var calls []int
+			for _, j := range f.closeOver(m).from(f.firstSrc(), -1).members() {
+				n := f.src[j-f.firstSrc()]
+				if region && f.ownFrame(n.Pos()) {
+					continue
+				}
+				if _, ok := n.(*ast.CallExpr); ok {
+					calls = append(calls, j)
+					continue
+				}
+				src = j
+				break
+			}
+			if src < 0 && calls == nil {
 				continue
 			}
 			var e ast.Expr
@@ -1267,37 +1377,152 @@ func (l *Lowerer) checkClosureReturns(job *funcJob) {
 				break
 			}
 			l.flowReported[pos] = true
-			l.report(pos, f.diagnose(e, what, f.src[src.first()-f.firstSrc()], name, job))
+			if src >= 0 {
+				l.report(pos, f.diagnose(e, what, f.src[src-f.firstSrc()], name, job, region))
+				break
+			}
+			var cands []regionCand
+			for _, j := range calls {
+				c := f.src[j-f.firstSrc()].(*ast.CallExpr)
+				cands = append(cands, regionCand{key: f.callKey(c), pos: pos, d: f.diagnose(e, what, c, name, job, region)})
+			}
+			l.regionPending = append(l.regionPending, cands)
 			break
 		}
 	}
 }
 
+// ownVar reports whether v is declared in the frame of s's function: in its
+// signature or body, outside nested literals and range-over-func bodies.
+func (s *fnState) ownVar(f *closureFlow, v *types2.Var) bool {
+	var lo, hi token.Pos
+	if s.job.decl != nil {
+		lo, hi = s.job.decl.Pos(), s.job.decl.End()
+	} else {
+		lo, hi = s.job.lit.Pos(), s.job.lit.End()
+	}
+	return v.Pos() >= lo && v.Pos() < hi && f.ownFrame(v.Pos())
+}
+
+// checkLoopRegions reports the closures of calls in a loop that are kept
+// past the iteration: the call's region is reused by the next one.
+func (s *fnState) checkLoopRegions(f *closureFlow) {
+	// A loop's iteration runs its condition, post statement and body; its
+	// variables, the range statement's and the init statement's included,
+	// are per iteration as in Go.
+	type span struct{ lo, hi, vlo token.Pos }
+	var loops []span
+	var lits []span
+	ast.Inspect(f.body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			lits = append(lits, span{n.Pos(), n.End(), n.Pos()})
+			return false
+		case *ast.ForStmt:
+			lo := n.Body.Pos()
+			if n.Post != nil {
+				lo = n.Post.Pos()
+			}
+			if n.Cond != nil {
+				lo = n.Cond.Pos()
+			}
+			loops = append(loops, span{lo, n.Body.End(), n.Pos()})
+		case *ast.RangeStmt:
+			loops = append(loops, span{n.Body.Pos(), n.Body.End(), n.Pos()})
+		}
+		return true
+	})
+	in := func(p token.Pos, sp span) bool { return p >= sp.lo && p < sp.hi }
+	inLit := func(p token.Pos) bool {
+		for _, sp := range lits {
+			if in(p, sp) {
+				return true
+			}
+		}
+		return false
+	}
+	for k, n := range f.src {
+		c, ok := n.(*ast.CallExpr)
+		if !ok || inLit(c.Pos()) {
+			continue
+		}
+		var loop *span
+		for i := range loops {
+			if in(c.Pos(), loops[i]) && (loop == nil || loops[i].lo > loop.lo) {
+				loop = &loops[i]
+			}
+		}
+		if loop == nil {
+			continue
+		}
+		bit := f.firstSrc() + k
+		var where string
+		var kept *types2.Var
+		for v, m := range f.vars {
+			if m.has(bit) && v.Name() != "_" && !in(v.Pos(), span{loop.vlo, loop.hi, 0}) && !inLit(v.Pos()) && (kept == nil || v.Pos() < kept.Pos()) {
+				kept = v
+			}
+		}
+		switch {
+		case kept != nil:
+			where = fmt.Sprintf("%s, declared outside the loop (%s)", kept.Name(), s.l.shortPos(kept.Pos()))
+		case f.pool.has(bit):
+			where = "memory reached through a pointer"
+		default:
+			continue
+		}
+		if s.l.flowReported[c.Pos()] {
+			continue
+		}
+		s.l.flowReported[c.Pos()] = true
+		call := shortExpr(c)
+		// Reported only if the callee builds closures (finishRegions).
+		s.l.regionPending = append(s.l.regionPending, []regionCand{{key: f.callKey(c), pos: c.Pos(), d: &diag.Diagnostic{
+			Code: diag.ClosureRegionLoop,
+			Msg:  fmt.Sprintf("cannot keep the closure %s returns past this iteration of the loop: it is stored in %s", call, where),
+			Text: fmt.Sprintf("A function that returns a closure builds it in a region its caller provides (spec section 4.5). The region of a call in a loop is part of this frame, and the call uses the same region on every iteration, so the closure %s returns on one iteration is overwritten on the next. Keeping it past the iteration, in %s, would leave it changing under you.\nUse the closure within the iteration, or declare the variable that holds it inside the loop.", call, where),
+		}}})
+	}
+}
+
+// callKey names the region a call c needs (regionKey).
+func (f *closureFlow) callKey(c *ast.CallExpr) regionKey {
+	if g, targs := f.callee(c); g != nil {
+		return regionKey{name: funcSymName(g, targs)}
+	}
+	sig, _ := underlying(f.typeOf(c.Fun)).(*types2.Signature)
+	if sig == nil {
+		return regionKey{}
+	}
+	return regionKey{sig: f.l.sigKey(sig)}
+}
+
 // diagnose explains returning what (the expression e, or a named result
-// when e is nil), which holds the closure record src makes in the frame of
-// the function called name.
-func (f *closureFlow) diagnose(e ast.Expr, what string, src ast.Node, name string, job *funcJob) *diag.Diagnostic {
+// when e is nil), which holds the closure record src, made in the frame of
+// the function called name or in a function nested in it. region says
+// whether that function takes a region its callers provide.
+func (f *closureFlow) diagnose(e ast.Expr, what string, src ast.Node, name string, job *funcJob, region bool) *diag.Diagnostic {
 	l := f.l
 	direct := e != nil && ast.Unparen(e) == src
 	d := &diag.Diagnostic{Code: diag.ClosureReturned}
+	maker := name
+	if region {
+		maker = f.container(src)
+	}
+	why := fmt.Sprintf("\n%s's results can hold the closure only through a pointer, so its callers provide no region to build it in (spec section 4.5). Return the closure itself, an interface holding it, or a struct or array holding it, instead.", name)
+	if region {
+		why = fmt.Sprintf("\n%s builds the closures it returns in a region its caller provides (spec section 4.5), but this one is made in %s, which is a function of its own. Make it in %s itself.", name, maker, name)
+	}
 	switch src := src.(type) {
 	case *ast.FuncLit:
-		caps := litCaptures(f.info, src)
-		v := caps[0]
+		v := litCaptures(f.info, src)[0]
 		owner := l.varOwner(v, job, name)
 		if direct {
 			d.Msg = fmt.Sprintf("cannot return the function literal: it uses %s, a local variable of %s", v.Name(), owner)
 		} else {
 			d.Msg = fmt.Sprintf("cannot return %s: it holds the function literal at %s, which uses %s, a local variable of %s", what, l.shortPos(src.Pos()), v.Name(), owner)
 		}
-		if owner == name {
-			d.Text = fmt.Sprintf("A function literal that uses variables of the function around it refers to those variables where they live, in %s's frame (%s is declared at %s). That frame is reclaimed when %s returns.", name, v.Name(), l.shortPos(v.Pos()), name)
-		} else {
-			d.Text = fmt.Sprintf("A function literal that uses variables of the functions around it is a closure record, holding the code to run and where each variable is, in the frame of the function that makes it: here %s. That frame is reclaimed when %s returns, and the record with it.", name, name)
-		}
-		if direct && job.decl != nil && onlyParams(caps, f.params) {
-			d.Text += fmt.Sprintf("\nIf %s only checks its arguments and returns the literal, make the literal its whole body, so that it is a closure constructor: each call then builds the closure in the caller's frame (spec section 4.5). Checks can move into the literal, or to the caller.", name)
-		}
+		d.Text = fmt.Sprintf("A function literal that uses variables of the functions around it is a closure record, holding the code to run and where each variable is, in the frame of the function that makes it: here %s. That frame is reclaimed when %s returns, and the record with it.", maker, maker) + why
 		d.Fix = &diag.Fix{
 			Intro: "Return a value that carries its own state instead, such as a struct with a method",
 			Code:  fmt.Sprintf("type state struct {\n\t%s %s\n}\n\nfunc (s *state) call() {\n\t... s.%s ...\n}", v.Name(), types2.TypeString(v.Type(), types2.RelativeTo(v.Pkg())), v.Name()),
@@ -1305,11 +1530,11 @@ func (f *closureFlow) diagnose(e ast.Expr, what string, src ast.Node, name strin
 	case *ast.SelectorExpr:
 		mv := types2.ExprString(src)
 		if direct {
-			d.Msg = fmt.Sprintf("cannot return the method value %s: its closure record is in %s's frame", mv, name)
+			d.Msg = fmt.Sprintf("cannot return the method value %s: its closure record is in %s's frame", mv, maker)
 		} else {
-			d.Msg = fmt.Sprintf("cannot return %s: it holds the method value %s (%s), whose closure record is in %s's frame", what, mv, l.shortPos(src.Pos()), name)
+			d.Msg = fmt.Sprintf("cannot return %s: it holds the method value %s (%s), whose closure record is in %s's frame", what, mv, l.shortPos(src.Pos()), maker)
 		}
-		d.Text = fmt.Sprintf("A method value such as %s is a closure record, holding the method to call and a copy of the receiver, in the frame of the function that makes it: here %s. That frame is reclaimed when %s returns, and the record with it.", mv, name, name)
+		d.Text = fmt.Sprintf("A method value such as %s is a closure record, holding the method to call and a copy of the receiver, in the frame of the function that makes it: here %s. That frame is reclaimed when %s returns, and the record with it.", mv, maker, maker) + why
 		sel := f.info.Selections[src]
 		recv := types2.TypeString(sel.Obj().Type().(*types2.Signature).Recv().Type(), types2.RelativeTo(sel.Obj().Pkg()))
 		d.Fix = &diag.Fix{
@@ -1318,18 +1543,32 @@ func (f *closureFlow) diagnose(e ast.Expr, what string, src ast.Node, name strin
 		}
 	case *ast.CallExpr:
 		call := shortExpr(src)
-		ctor := types2.ExprString(src.Fun)
 		if direct {
-			d.Msg = fmt.Sprintf("cannot return %s: %s builds its closure in %s's frame", call, ctor, name)
+			d.Msg = fmt.Sprintf("cannot return %s: its closures are built in %s's frame", call, maker)
 		} else {
-			d.Msg = fmt.Sprintf("cannot return %s: it holds the closure that %s builds in %s's frame (%s)", what, call, name, l.shortPos(src.Pos()))
+			d.Msg = fmt.Sprintf("cannot return %s: it holds a closure that %s (%s) builds in %s's frame", what, call, l.shortPos(src.Pos()), maker)
 		}
-		d.Text = fmt.Sprintf("%s is a closure constructor: each call is compiled where it is made, and the closure it returns is built in the caller's frame, here %s's (spec section 4.5). That frame is reclaimed when %s returns.", ctor, name, name)
-		if job.decl != nil {
-			d.Text += fmt.Sprintf("\nIf %s's whole body is one return of a call of %s, %s is a closure constructor too, and its callers build the closure instead.", name, ctor, name)
-		}
+		d.Text = fmt.Sprintf("A function that returns a closure builds it in a region its caller provides. The region of this call is in %s's frame, which is reclaimed when %s returns.", maker, maker) + why
 	}
 	return d
+}
+
+// container names the function whose frame n runs in: the function
+// literal or range-over-func loop body it is in.
+func (f *closureFlow) container(n ast.Node) string {
+	var in ast.Node
+	for _, r := range f.foreign {
+		if n.Pos() > r.Pos() && n.Pos() < r.End() && (in == nil || r.Pos() > in.Pos()) {
+			in = r
+		}
+	}
+	switch in := in.(type) {
+	case *ast.FuncLit:
+		return "the function literal at " + f.l.shortPos(in.Pos())
+	case *ast.BlockStmt:
+		return "the body of the loop at " + f.l.shortPos(in.Pos())
+	}
+	return "this function"
 }
 
 // shortExpr returns e as source text for a message, with the arguments of
@@ -1353,20 +1592,6 @@ func shortExpr(e ast.Expr) string {
 		}
 	}
 	return s
-}
-
-// onlyParams reports whether every variable in vs is one of params.
-func onlyParams(vs, params []*types2.Var) bool {
-	for _, v := range vs {
-		found := false
-		for _, p := range params {
-			found = found || p == v
-		}
-		if !found {
-			return false
-		}
-	}
-	return true
 }
 
 // varOwner names the function that declares v: name, the function job
@@ -1394,4 +1619,33 @@ func (l *Lowerer) varOwner(v *types2.Var, job *funcJob, name string) string {
 		j = j.parent.job
 	}
 	return "the function around it"
+}
+
+// calledFunc returns the declared function or concrete method a call
+// names statically, or nil.
+func calledFunc(info *types2.Info, call *ast.CallExpr) *types2.Func {
+	fun := ast.Unparen(call.Fun)
+	switch ix := fun.(type) {
+	case *ast.IndexExpr:
+		fun = ix.X
+	case *ast.IndexListExpr:
+		fun = ix.X
+	}
+	if se, ok := fun.(*ast.SelectorExpr); ok {
+		if sel := info.Selections[se]; sel != nil {
+			if sel.Kind() != types2.MethodVal || isInterface(sel.Recv()) || len(sel.Index()) != 1 {
+				return nil
+			}
+			if _, ok := types2.Unalias(info.Types[se.X].Type).(*types2.TypeParam); ok {
+				return nil
+			}
+			fn, _ := sel.Obj().(*types2.Func)
+			return fn
+		}
+	}
+	if id := staticFuncIdent(fun, info); id != nil {
+		fn, _ := info.Uses[id].(*types2.Func)
+		return fn
+	}
+	return nil
 }

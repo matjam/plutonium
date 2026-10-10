@@ -30,8 +30,4 @@ func deferCapture() {
 func main() {
 	eachDefer()
 	deferCapture()
-	f := Count
-	for x := range f(2) {
-		log(x)
-	}
 }

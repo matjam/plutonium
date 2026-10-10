@@ -230,7 +230,7 @@ func (s *fnState) staticCallee(x ast.Expr) (callee, bool) {
 // closureRecord builds a closure record in this frame for the function sym
 // with the given captured addresses; or, during package initialisation,
 // in static storage, since the closure may be kept in a package variable
-// (a closure constructor's result, whose captures are static too).
+// (a closure a function returns, whose captures are static too).
 func (s *fnState) closureRecord(sym *ssa.Sym, caps []*ssa.Value) *ssa.Value {
 	size := int64(8 * (1 + len(caps)))
 	var rec *ssa.Value
@@ -244,11 +244,17 @@ func (s *fnState) closureRecord(sym *ssa.Sym, caps []*ssa.Value) *ssa.Value {
 			slot.Leaves = append(slot.Leaves, ssa.Leaf{Off: int64(8 * i), Type: ssa.TPtr})
 		}
 	}
+	s.storeRecord(rec, sym, caps)
+	return rec
+}
+
+// storeRecord writes a closure record at rec: the code pointer of sym, then
+// the captured addresses.
+func (s *fnState) storeRecord(rec *ssa.Value, sym *ssa.Sym, caps []*ssa.Value) {
 	s.store(ssa.TPtr, rec, s.funcAddr(sym))
 	for i, c := range caps {
 		s.store(ssa.TPtr, s.offPtr(rec, int64(8*(i+1))), c)
 	}
-	return rec
 }
 
 // rangeSetup starts the yield function bs of rf's loop in its entry block:

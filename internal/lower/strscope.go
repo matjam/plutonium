@@ -114,6 +114,7 @@ func (s *fnState) releaseForReturn() {
 	}
 	s.releaseSlots(s.frameSlots, false)
 	s.releaseSlots(s.ownedParams, false)
+	s.dropLocalRegions()
 }
 
 // addTemp registers a temporary with the innermost entry.
@@ -194,6 +195,7 @@ func (s *fnState) finishEntry() {
 	for _, c := range s.entryZeros {
 		s.zero(s.offPtr(c.base, c.off), s.l.sizeof(c.T))
 	}
+	s.zeroRegions()
 	s.b = cur
 	s.seal(s.bodyBlock)
 }

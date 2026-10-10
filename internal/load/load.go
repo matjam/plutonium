@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/matjam/plutonium/internal/diag"
+	"github.com/matjam/plutonium/internal/directive"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/parser"
 	"github.com/matjam/plutonium/internal/syntax/scanner"
@@ -420,12 +421,18 @@ func (l *loader) load(importPath string, src source, dir string) (*Package, erro
 		},
 	}
 	pkg.Types, _ = conf.Check(importPath, l.fset, pkg.Files, pkg.Info)
+	// A //pu: comment the compiler would ignore is an error too.
+	var list diag.List
+	for _, f := range pkg.Files {
+		list = append(list, directive.Check(l.fset, f)...)
+	}
 	if len(errs) > 0 {
 		ctx := &diag.CheckContext{Fset: l.fset, Files: pkg.Files, Pkg: pkg.Types, Info: pkg.Info}
-		list := make(diag.List, len(errs))
-		for i, err := range errs {
-			list[i] = diag.FromChecker(err, ctx)
+		for _, err := range errs {
+			list = append(list, diag.FromChecker(err, ctx))
 		}
+	}
+	if len(list) > 0 {
 		return nil, list
 	}
 	l.packages[importPath] = pkg

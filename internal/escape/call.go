@@ -49,36 +49,12 @@ func (w *walker) call(e *ast.CallExpr) []tset {
 	}
 	nres := t.sig.Results().Len()
 	switch {
-	case t.static != nil && t.static.ctor:
-		// The closure is built here, in this frame, with copies of the
-		// arguments (spec section 4.5); what its body does with them is in
-		// the constructor's summary.
-		w.apply(t.static, args, cs, t.name, recvExact, nres)
-		res := make([]tset, nres)
-		if w.static {
-			// Package initialisation keeps the closure in static storage.
-			for _, a := range args {
-				w.store(tset{heapTok}, a, e.Pos(), dest{text: "a static closure"})
-			}
-			if nres > 0 {
-				res[0] = tset{heapTok}
-			}
-			return res
-		}
-		rec := w.tmp(e, lkCtor)
-		for _, a := range args {
-			w.addContents(rec, a)
-		}
-		if nres > 0 {
-			res[0] = tset{frameTok(rec)}
-		}
-		return res
 	case t.static != nil:
-		return w.apply(t.static, args, cs, t.name, recvExact, nres)
+		return w.regionResults(e, t, args, w.apply(t.static, args, cs, t.name, recvExact, nres))
 	case t.method != "":
-		return w.dynIface(t, args, cs, nres)
+		return w.regionResults(e, t, args, w.dynIface(t, args, cs, nres))
 	case t.dynFunc:
-		return w.dynFuncCall(t, args, cs, e.Fun, nres)
+		return w.regionResults(e, t, args, w.dynFuncCall(t, args, cs, e.Fun, nres))
 	}
 	return make([]tset, nres)
 }

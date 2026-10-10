@@ -31,10 +31,11 @@ later takes the next free number and is listed in the section where it belongs.
    holding a frame copy or a closure with captures, or storing one in a package variable, on the heap or
    through a caller's pointer, passing it to a function that keeps it, to a `go` statement or on a
    channel, or keeping a view of a loop's variables past the iteration, is a compile error (language spec
-   sections 4.4, 4.5 and 6.3), with the explanatory messages of section 6.9: E3100 for a returned
-   closure record (lowering), E3001 to E3008 for the rest (`internal/escape`, a whole-program analysis
-   without annotations; docs/plans/2026-10-09-memory-safety-design.md section 4). This is the
-   compile-time half of "a view may not outlive what it looks at" (item 20).
+   sections 4.4, 4.5 and 6.3), with the explanatory messages of section 6.9. Returned closures are built
+   in a region the caller provides (section 4.5), and what a region cannot hold is checked (E3100 to
+   E3102, lowering); the rest is E3001 to E3008 (`internal/escape`, a whole-program analysis without
+   annotations; docs/plans/2026-10-09-memory-safety-design.md section 4). This is the compile-time half
+   of "a view may not outlive what it looks at" (item 20).
 
 ## Kernel enablement
 
@@ -163,14 +164,14 @@ later takes the next free number and is listed in the section where it belongs.
     `F`/`FIn` pairs are single functions with a trailing allocator defaulting to `alloc.Default()`;
     `new` and `make` take an optional allocator (section 4.2), and so does `make(chan T, n, a)`.
 22. **Range over func and iterators** (done): language spec section 4.10. Loop bodies are yield
-    closures in the enclosing frame, with Go's exit codes and state checks; iterator constructors are
-    closure constructors (section 4.5), expanded in the caller. `pluto/iter` has `Seq`, `Seq2` and
+    closures in the enclosing frame, with Go's exit codes and state checks; iterators build their closures
+    in a region the caller provides (section 4.5). `pluto/iter` has `Seq`, `Seq2` and
     allocation-free adaptors; `vec.Vec`, `hash.Map`, `hash.Set`, `strings` and `bytes` have iterators.
     The inliner inlines calls through known closures and SimplifyCFG threads branches on phis of
     constants, so a loop over `v.All()` compiles like one over `v.Slice()`. Follow-ups: the escape
     checks (item 5) should reject an iterator that keeps `yield`; `defer` in a loop body runs at most
     once per call (item 28); `ring[T, N]` has `All` and `Values` (section 5.4); no `iter.Pull` without
-    coroutines. A constructor's closure is named after the constructor (`main.Count.func1`) in
+    coroutines. A returned closure is named after the function that makes it (`main.Count.func1`) in
     symbols, DWARF and traces.
 23. **Richer type descriptors** (done; abi.md section 5): element types, lengths, field offsets, types and
     names, the `*T` descriptor for types with pointer methods, and Go's `reflect` type names, emitted for

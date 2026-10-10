@@ -1,0 +1,226 @@
+package opt
+
+import (
+	"fmt"
+	"sort"
+
+	"github.com/matjam/plutonium/internal/ssa"
+)
+
+// Closure regions.
+//
+// A function that returns a closure builds it in a region its caller
+// provides: a slot of the caller marked with the parts it holds (the
+// variables the closure captures, its record, and the regions of calls
+// nested in it). While a call takes the region as a whole (an OpRegion of
+// its address), the slot is one block of memory. Once that call is inlined,
+// every access lands in one part, and SplitRegions gives each part a slot
+// of its own: a record becomes a closure slot that ForwardClosureLoads
+// sees through, and the variables become slots that SROA and mem2reg
+// promote, so a loop over an inlined iterator compiles as if the closure had
+// been built in the caller.
+
+// SplitRegions splits the closure region slots of f whose parts are
+// accessed separately, and reports whether it changed f.
+func SplitRegions(f *ssa.Func) bool {
+	regions := false
+	for _, s := range f.Slots {
+		regions = regions || len(s.Parts) > 0
+	}
+	if !regions {
+		return false
+	}
+	// The OpRegion of a call just inlined is dead, and must not count, nor
+	// that of a drop on a branch lowering left out (a constant condition).
+	SimplifyCFG(f)
+	ssa.DeadCode(f)
+	changed := false
+	for round := 0; round < 64; round++ {
+		did := false
+		for _, s := range append([]*ssa.Slot(nil), f.Slots...) {
+			if len(s.Parts) > 0 && splitRegion(f, s) {
+				did = true
+			}
+		}
+		if !did {
+			break
+		}
+		changed = true
+		ssa.CopyElim(f)
+		ssa.DeadCode(f)
+		dropUnusedSlots(f)
+	}
+	return changed
+}
+
+// splitRegion splits region slot s into one slot per part, if every use of
+// its address stays within one part.
+func splitRegion(f *ssa.Func, s *ssa.Slot) bool {
+	// The pointers into s, with their offsets.
+	off := map[*ssa.Value]int64{}
+	for grew := true; grew; {
+		grew = false
+		for _, b := range f.Blocks {
+			for _, v := range b.Values {
+				if _, ok := off[v]; ok {
+					continue
+				}
+				switch {
+				case v.Op == ssa.OpSlotAddr && v.Aux == s:
+					off[v] = 0
+				case v.Op == ssa.OpOffPtr || v.Op == ssa.OpCopy:
+					o, ok := off[v.Args[0]]
+					if !ok {
+						continue
+					}
+					if v.Op == ssa.OpOffPtr {
+						o += v.AuxInt
+					}
+					off[v] = o
+				default:
+					continue
+				}
+				grew = true
+			}
+		}
+	}
+	if len(off) == 0 {
+		return false
+	}
+	// partAt returns the part holding the size bytes at o, or the part a
+	// pointer to o points into when size is 0.
+	partAt := func(o, size int64) int {
+		for i, p := range s.Parts {
+			if size > 0 && o >= p.Off && o+size <= p.Off+p.Size ||
+				size == 0 && (o >= p.Off && o < p.Off+p.Size || p.Size == 0 && o == p.Off) {
+				return i
+			}
+		}
+		return -1
+	}
+	// part[v] is the part a pointer with a use other than OffPtr points
+	// into.
+	part := map[*ssa.Value]int{}
+	use := func(p *ssa.Value, size int64) bool {
+		o := off[p]
+		i := partAt(o, size)
+		if i < 0 {
+			return false
+		}
+		if prev, ok := part[p]; ok && prev != i {
+			return false
+		}
+		part[p] = i
+		return true
+	}
+	// covers returns the parts that [o, o+size) covers exactly, if every
+	// part it touches is whole within it.
+	covers := func(o, size int64) ([]int, bool) {
+		var in []int
+		for i, p := range s.Parts {
+			switch {
+			case p.Off >= o && p.Off+p.Size <= o+size:
+				in = append(in, i)
+			case p.Off < o+size && p.Off+p.Size > o:
+				return nil, false
+			}
+		}
+		return in, true
+	}
+	// zeros are the Zeros of several parts (the caller's zeroing of the
+	// whole region on entry), split into one per part.
+	zeros := map[*ssa.Value][]int{}
+	for _, b := range f.Blocks {
+		for _, v := range b.Values {
+			for k, a := range v.Args {
+				if _, ok := off[a]; !ok {
+					continue
+				}
+				var ok bool
+				switch {
+				case v.Op == ssa.OpOffPtr || v.Op == ssa.OpCopy:
+					continue
+				case v.Op == ssa.OpZero && k == 0 && partAt(off[a], v.AuxInt) < 0:
+					zeros[v], ok = covers(off[a], v.AuxInt)
+				case v.Op == ssa.OpRegion:
+					// A call takes a nested region as a whole.
+					for i, p := range s.Parts {
+						if p.Region && p.Off == off[a] {
+							if prev, seen := part[a]; !seen || prev == i {
+								part[a], ok = i, true
+							}
+							break
+						}
+					}
+				case v.Op == ssa.OpLoad && k == 0:
+					ok = use(a, v.Type.Size)
+				case v.Op == ssa.OpStore && k == 0:
+					ok = use(a, v.StoreType().Size)
+				case (v.Op == ssa.OpZero || v.Op == ssa.OpMove) && k < 2:
+					ok = use(a, v.AuxInt)
+				default:
+					// The pointer escapes: what it is used for stays within
+					// the variable, record or region it points into.
+					ok = use(a, 0)
+				}
+				if !ok {
+					return false
+				}
+			}
+		}
+		for _, c := range b.Controls {
+			if _, ok := off[c]; ok && !use(c, 0) {
+				return false
+			}
+		}
+	}
+	slots := make([]*ssa.Slot, len(s.Parts))
+	addrs := make([]*ssa.Value, len(s.Parts))
+	for i, p := range s.Parts {
+		ns := f.NewSlot(fmt.Sprintf("%s.%d", s.Name, p.Off), p.Size, max(p.Align, 1))
+		ns.Leaves, ns.Pads, ns.Closure, ns.Parts = p.Leaves, p.Pads, p.Closure, p.Parts
+		slots[i] = ns
+	}
+	var zs []*ssa.Value
+	for z := range zeros {
+		zs = append(zs, z)
+	}
+	sort.Slice(zs, func(i, j int) bool { return zs[i].ID < zs[j].ID })
+	for _, z := range zs {
+		mem := z.Args[1]
+		for _, i := range zeros[z] {
+			if s.Parts[i].Closure {
+				// A record is written whole before it is read, and a
+				// closure slot must not be zeroed (ForwardClosureLoads).
+				continue
+			}
+			if addrs[i] == nil {
+				addrs[i] = slotAddr(f, slots[i])
+			}
+			nz := z.Block.NewValueBefore(z, ssa.OpZero, ssa.TMem, addrs[i], mem)
+			nz.AuxInt = s.Parts[i].Size
+			mem = nz
+		}
+		z.CopyOf(mem)
+	}
+	var ptrs []*ssa.Value
+	for v := range part {
+		ptrs = append(ptrs, v)
+	}
+	sort.Slice(ptrs, func(i, j int) bool { return ptrs[i].ID < ptrs[j].ID })
+	for _, v := range ptrs {
+		i := part[v]
+		if addrs[i] == nil {
+			addrs[i] = slotAddr(f, slots[i])
+		}
+		rel := off[v] - s.Parts[i].Off
+		if rel == 0 {
+			v.CopyOf(addrs[i])
+			continue
+		}
+		nv := v.Block.NewValueBefore(v, ssa.OpOffPtr, ssa.TPtr, addrs[i])
+		nv.AuxInt = rel
+		v.CopyOf(nv)
+	}
+	return true
+}

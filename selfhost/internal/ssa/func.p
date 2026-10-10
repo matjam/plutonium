@@ -278,11 +278,29 @@ type Slot struct {
 	// offset, wherever the load is.
 	Closure bool
 
+	// Parts, if set, divide a closure region (a block of memory a call
+	// gets for the closures it returns, abi.md section 4.1) into the
+	// variables, closure records and nested regions it holds. Once no call
+	// takes the region as a whole (an OpRegion of its address), the slot
+	// can be split into one slot per part (opt.SplitRegions).
+	Parts []Part
+
 	// Offset is assigned by frame layout, relative to the frame base.
 	Offset int64
 }
 
 func (s *Slot) String() string { return compat.Sprintf("%s#%d", s.Name, s.ID) }
+
+// A Part is one piece of a closure region: a variable, a closure record, or
+// the region of a call nested in it.
+type Part struct {
+	Off, Size, Align int64
+	Leaves           []Leaf // relative to Off, as Slot.Leaves
+	Pads             []Pad
+	Closure          bool   // a closure record, as Slot.Closure
+	Region           bool   // a nested region, passed to a call as a whole
+	Parts            []Part // a nested region's own parts, relative to Off, if known
+}
 
 // A Leaf is one scalar component of an aggregate.
 type Leaf struct {

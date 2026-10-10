@@ -1,13 +1,34 @@
 # The Plutonium Language
 
 **Version:** 0.2 (draft)
-**Date:** 2026-10-09
+**Date:** 2026-10-10
 
-Plutonium is a systems programming language with Go's syntax and most of Go's semantics, minus the parts
-that need a garbage collector or reflection. Puroutines and channels run on a scheduler that only programs
-using them carry, and that a kernel supplies itself. It is meant for operating system
-kernels, drivers, boot code, allocators and other code that runs without a managed runtime. It is the
-language PlutoniumOS is written in.
+Plutonium is a systems programming language for operating system kernels, drivers, boot code, allocators
+and other code that runs without a managed runtime. It is the language PlutoniumOS is written in. It has
+no garbage collector. Puroutines and channels run on a scheduler that only programs using them carry, and
+that a kernel supplies itself.
+
+Four rules shape the language:
+
+- **Go-familiar, not Go-compatible.** Plutonium uses Go's syntax and idioms wherever they fit, so a Go
+  programmer can read Plutonium code without a manual. Compiling Go source unchanged is not a goal. Where
+  Go's meaning depends on a garbage collector, a growing stack or hidden allocation, Plutonium changes the
+  language, and Go code may need edits before it compiles.
+- **No false friends.** Where Plutonium behaves differently from Go in a way a Go programmer would not
+  expect, the difference is visible in the source: a different name, a different syntax, a different
+  type, or a compile error that explains it. Code that looks like Go and compiles does what Go would do.
+  Where the language does not meet this rule yet, the gap and its planned fix are listed in
+  [the false-friends audit](../plans/2026-10-10-go-false-friends.md).
+- **No annotations for ordinary code.** Ordinary code needs no annotations and no knowledge of how the
+  compiler works. What the compiler can work out for itself (what escapes, what moves, which functions
+  never return or may wait, which lock guards which data) it works out, and there is no `//pu:` directive
+  for such a fact. Directives state only what the compiler cannot see: linkage to assembly and C,
+  hardware state, bindings to the runtime, and explicit requests such as `//pu:inline` (section 9).
+- **Go as a test oracle.** Programs in the common subset of Go and Plutonium are kept as tests:
+  `internal/build/testdata/run` takes its expected output from Go, and `tools/difftest` runs generated
+  programs under both compilers and compares the results. The subset is how the compiler is checked
+  against Go's behavior. It is not a design constraint: a change that moves a program out of the subset
+  is judged on its own merits, and the program is rewritten or moved to the Plutonium-only tests.
 
 This document describes Plutonium as differences from Go. **Where this document is silent, the
 [Go language specification](https://go.dev/ref/spec) as of Go 1.27 applies.** Plutonium has one language
@@ -32,7 +53,8 @@ version: every Go feature up to 1.27 that is not removed or changed below is par
 
 ## 1. Goals
 
-- Read like Go. A Go programmer should understand Plutonium code without a manual.
+- Read like Go, and never mislead a Go reader: code that differs from Go looks different (the rules
+  above).
 - Compile like C: no garbage collector, no hidden allocation, no runtime the program did not ask for. A
   program that never starts a puroutine or makes a channel contains no scheduler.
 - Make the costs visible. Every allocation is a call you can see; every memory-mapped register access is
@@ -220,23 +242,16 @@ each instantiation, so it costs nothing at run time.
 ### 4.5 Closures do not outlive their frame
 
 Function literals may capture variables of the enclosing function, by reference as in Go. Captured
-variables stay in the enclosing frame; nothing is moved to the heap. A closure that captures variables is
-therefore valid only while the enclosing function is running:
+variables stay in a frame; nothing is moved to the heap. A capturing closure, like a method value, is a
+**closure record**: the code to run, with where each captured variable is (or a copy of the receiver),
+built in the frame of the function that makes it. A closure is therefore valid while that frame is:
 
 - Calling it, passing it as an argument, assigning it to a local variable, and deferring it are allowed.
-- Returning it, storing it in a package-level variable, or storing it through a pointer into memory that
-  may outlive the frame is a compile error (section 6.3).
+- Returning it is allowed: the closure is then built in a region its caller provides, below.
+- Storing it in a package-level variable, or through a pointer into memory that may outlive the frame, is
+  a compile error (section 6.3).
 
 A function literal that captures nothing is an ordinary function value and may be used anywhere.
-
-A capturing closure, like a method value, is a closure record in the frame of the function that makes it:
-the code to run, with where each captured variable is (or a copy of the receiver). The compiler reports
-every function that may return a record made in its own frame (E3100), whether it returns the closure
-directly or inside a variable, a struct, an array, an interface, memory reached through a pointer, or the
-result of a call that may return its argument. The check follows values through assignments and calls
-without regard to order, and assumes that a call through a func value or an interface may return
-anything passed to it, so it may reject a function that would never return the record at run time.
-Storing a record in a package-level variable or through a pointer is not checked yet (roadmap item 5).
 
 **Loop variables.** Go gives each iteration of a loop its own copies of the variables the loop declares,
 so a closure made in one iteration keeps seeing that iteration's values. Plutonium cannot: the copies would
@@ -270,15 +285,24 @@ for i := 0; i < 3; i++ {
 }
 ```
 
-**Closure constructors.** A function whose body is a single `return` of a function literal that captures
-the function's parameters (its receiver, parameters or named results), or of a call of another such
-function, is a closure constructor. Go's iterator constructors are the common case:
+**Returned closures.** A function whose results can hold a closure (a func result, an interface, or a
+struct or array holding one) builds the closures it may return in a **region** of memory its caller
+provides: their records, the variables they capture, and the regions of the calls whose closures it
+returns in turn. The caller reserves the region in its own frame, like a local variable, so the closure
+lives as long as the caller's frame, captures by reference exactly as in Go, and costs no allocation. A
+caller that returns the closure in turn passes part of its own region down instead, so a chain of such
+calls reserves the space once, in the frame where the closure is last used. Go's iterators are the common
+case, written as in Go, with whatever checks and early returns they need:
 
 ```go
-func (v *Vec[T]) All() iter.Seq2[int, T] {
-	return func(yield func(int, T) bool) {
-		for i := 0; i < len(v.data); i++ {
-			if !yield(i, v.data[i]) {
+func Chunk[Slice ~[]E, E any](s Slice, n int) iter.Seq[Slice] {
+	if n < 1 {
+		panic("cannot be less than 1")
+	}
+	return func(yield func(Slice) bool) {
+		for i := 0; i < len(s); i += n {
+			end := min(n, len(s[i:]))
+			if !yield(s[i : i+end : i+end]) {
 				return
 			}
 		}
@@ -286,16 +310,35 @@ func (v *Vec[T]) All() iter.Seq2[int, T] {
 }
 ```
 
-Returning the literal would make it outlive the constructor's frame, so each call of a closure
-constructor is compiled where it is made instead: the arguments are stored in fresh variables of the
-caller's frame, and the literal's closure is built in that frame and captures them there. The result is
-an ordinary closure of the caller, valid while the caller runs, and `for i, x := range v.All()` costs no
-allocation. Each call site has its own variables: a call in a loop reuses them on every iteration, as a
-function literal in a loop does. The closure's code is the literal's, compiled once for the constructor, so a
-stack trace names its frame after the constructor (`main.Count.func1`, `pluto/vec.(*Vec).All[int].func1`)
-wherever it was called. A closure constructor can only be called directly; using it as a func
-value or a method value, or calling it through an interface, is a compile error (E2543), since there is no
-caller's frame to build the closure in.
+The size of a region is fixed when compiling. A call through a func value or an interface reserves the
+largest region of any function of its signature. Such a function is an ordinary function: it can be used
+as a func value, a method value or an interface method, and is inlined when it is small, so that
+`for i, x := range v.All()` compiles to the loop `All` runs. The closure's code is compiled once, and a stack
+trace names its frame after the function that returns it (`main.Count.func1`,
+`pluto/vec.(*Vec).All[int].func1`) wherever it was called. The region's place in the calling convention
+is in abi.md section 4.1. Strings the closures capture are counted as in any variable (section 6.10): the
+region holds references to them, released when the call runs again and refills the region, and when
+the caller returns.
+
+The compiler follows closures through variables, fields, elements, interfaces, pointers and calls, without
+regard to order, and reports what a region cannot hold:
+
+- A function that returns a closure made by a function literal nested in it, or in the body of a
+  range-over-func loop, which is a function of its own whose frame is gone when it returns (E3100); and
+  a function whose results hold a closure only through a pointer, for which its callers provide no region
+  (E3100). Make the closure in the function that returns it, and return it by value.
+- A closure that a call in a loop returns, kept past the iteration in a variable declared outside the loop
+  or in memory reached through a pointer (E3101): every iteration's call reuses the call's region, so the
+  next iteration would overwrite it. A function literal in a loop is built the same way, one record per
+  literal, reused on every iteration.
+- A function that returns the closures of a call that can reach the same function again, directly, through
+  other functions, or through a func value or interface whose implementations do, when any of them builds
+  a closure: its region would have to hold itself, and no fixed size fits (E3102). Build the closures in a
+  loop, or keep their state in a value the caller owns.
+
+A call through a func value or an interface is assumed to return and keep anything passed to it, so the
+check may reject a function that would never return or keep the record at run time. Storing a record in
+a package-level variable or through a pointer is not checked yet (roadmap item 5).
 
 A capturing closure is a view of the enclosing frame (section 6.3). Captured owners stay where they are
 declared:
@@ -556,6 +599,9 @@ brief:
   for an interrupt handler and the code it interrupts on the same processor to share data.
 - Any scheduler, including a kernel's own (section 4.7), must make starting a puroutine and readying a
   parked one synchronising operations, so that these rules hold however puroutines are scheduled.
+- Moving an owner is an ordinary write; the `go` statement or channel send that hands it to another
+  puroutine is the synchronising operation. Every use of a `synced[T]` through any reference happens
+  before its `Drop` runs and its memory is freed.
 
 ### 4.10 Range over functions
 
@@ -596,13 +642,10 @@ func find(items *vec.Vec[*Item], id int) int {
 }
 ```
 
-Iterator constructors such as `items.All()` are closure constructors (section 4.5), so a loop over one
-allocates nothing. The optimiser inlines the iterator and then the loop body through their closures, so a
+An iterator such as `items.All()` builds its closure in a region of the caller's frame (section 4.5), so a
+loop over one allocates nothing. The optimiser inlines the iterator and then the loop body through their closures, so a
 loop over a simple iterator compiles to the loop the iterator runs: ranging over `v.All()` costs the same
 as ranging over `v.Slice()`.
-- Moving an owner is an ordinary write; the `go` statement or channel send that hands it to another
-  puroutine is the synchronising operation. Every use of a `synced[T]` through any reference happens
-  before its `Drop` runs and its memory is freed.
 
 ## 5. What Plutonium adds
 
@@ -731,11 +774,11 @@ single-producer, single-consumer queue between an interrupt handler and a task c
 `volatile` indexes.
 
 `All` and `Values` are iterators for `for` loops over functions (section 4.10), and work like those of
-`vec.Vec` (section 13). The ring has no storage of its own to return them from, so, like a closure
-constructor (section 4.5), a call of one builds its closure in the caller's frame, where it holds the
-address of the ring; they can only be called, not used as a method value or called through an interface
-(E2543). Their results have the type `func(yield func(int, T) bool)` and `func(yield func(T) bool)`, which
-are assignable to `iter.Seq2[int, T]` and `iter.Seq[T]`.
+`vec.Vec` (section 13). A call of one builds its closure, which holds the address of the ring, in the
+caller's frame; used as a method value or a method expression, or called through an interface, it builds
+it in the region its caller provides, as any function that returns a closure does (section 4.5). Their
+results have the type `func(yield func(int, T) bool)` and `func(yield func(T) bool)`, which are assignable
+to `iter.Seq2[int, T]` and `iter.Seq[T]`.
 
 ```go
 var r ring[int, 4]
@@ -1250,7 +1293,9 @@ over memory something else owns: it is a view, and follows the rules of section 
 and 4.5: a capturing closure, a method value, and an interface holding a frame copy or a lent owner. A
 struct or array that contains a view, and no owner, is a view too: it copies freely and must not outlive
 what any of its views look at. A string made with `unsafe.String` is a view of the memory it was made
-from (section 6.10).
+from (section 6.10). A closure or method value that a function returns is built in a region its caller
+provides (section 4.5), so it is a view of the caller's frame, not of the function's: returning it is
+allowed, and the caller may not let it outlive its own frame.
 
 1. **Views are free.** `&x`, `b[i:j]`, `v.Slice()` and copying or passing any of them cost
    nothing beyond the words copied. A view never frees anything; dropping one does nothing.
@@ -2049,13 +2094,48 @@ count.p:9:9: cannot return the function literal: it uses total, a local variable
     (see "Ownership" in the language spec, section 6.3)
 ```
 
-When the closure is returned inside something else, the first line names what is returned and where the
-literal is: `cannot return h: it holds the function literal at count.p:12, which uses total, a local
-variable of counter`. A method value reads `cannot return the method value c.get: its closure record is
-in f's frame`, with "a method value is a closure record, holding the method to call and a copy of the
-receiver" as the explanation and a method expression (`(*Counter).Get`) as the fix. The closure a closure
-constructor builds in the function's frame reads `cannot return Count(m): Count builds its closure in
-f's frame`. These are E3100.
+Returning a closure is allowed when the function makes it and its results hold it by value: the closure
+is built in the region the caller provides (section 4.5). The message above is for the closures a region
+cannot hold (E3100). When the closure is returned inside something else, the first line names what is
+returned and where the literal is: `cannot return h: it holds the function literal at count.p:12, which
+uses total, a local variable of counter`. The explanation then says why the region cannot hold it: "counter's
+results can hold the closure only through a pointer, so its callers provide no region to build it in",
+or "counter builds the closures it returns in a region its caller provides, but this one is made in the
+function literal at count.p:10, which is a function of its own". A method value reads `cannot return the
+method value c.get: its closure record is in f's frame`, with "a method value is a closure record, holding
+the method to call and a copy of the receiver" as the explanation and a method expression
+(`(*Counter).Get`) as the fix. The closures of a call read `cannot return h: it holds a closure that
+counter() (count.p:20) builds in f's frame`.
+
+**Keeping the closure of a call in a loop past the iteration (E3101).**
+
+```
+main.p:17:10: cannot keep the closure counterFrom(n) returns past this iteration of the loop: it is stored in last, declared outside the loop (main.p:15)
+    A function that returns a closure builds it in a region its caller provides
+    (spec section 4.5). The region of a call in a loop is part of this frame,
+    and the call uses the same region on every iteration, so the closure
+    counterFrom(n) returns on one iteration is overwritten on the next. Keeping it
+    past the iteration, in last, declared outside the loop (main.p:15), would
+    leave it changing under you.
+    Use the closure within the iteration, or declare the variable that holds it
+    inside the loop.
+```
+
+Stored through a pointer, the message ends `it is stored in memory reached through a pointer`.
+
+**A region that holds itself (E3102).**
+
+```
+main.p:49:10: chain cannot return the closures of this call: the call reaches chain again, so its region would have no fixed size
+    A function that returns a closure builds it in a region its caller provides,
+    and the region holds the regions of the calls whose closures it returns in
+    turn (spec section 4.5). chain returns closures that hold those of this
+    call, and the call can reach chain again, directly, through other
+    functions, or through a func value or an interface, so its region would
+    have to hold itself.
+    Build the closures in a loop instead of by recursion, or keep their state in
+    a value the caller owns, such as a struct with a method.
+```
 
 **Returning an interface that holds a frame copy** (E3001)**, or lends an owner** *(planned)*.
 
@@ -2375,9 +2455,9 @@ the compiler releases its strings: this is **drop glue**, the same release that 
   stores), at the end of the statement that made it; in the condition of a three-clause `for`, after each
   evaluation;
 - for storage that outlives a statement but belongs to the frame (an interface's box, the object of
-  `&T{...}`, a slice literal's array, a method value's receiver, a deferred call's saved arguments), when
-  the function returns, after its deferred calls have run, or when the same expression runs again and
-  refills it.
+  `&T{...}`, a slice literal's array, a method value's receiver, a deferred call's saved arguments, the
+  region a call builds its closures in, section 4.5), when the function returns, after its deferred calls
+  have run, or when the same expression runs again and refills it.
 
 `panic` and `os.Exit` release nothing, as for owners. A `[]string` slice is a view: its elements belong
 to the array it looks at, and whoever owns the array releases them. The library's containers do:
@@ -2771,6 +2851,13 @@ knowing how the compiler works. Ordinary hosted code needs only the requests: `/
 `//pu:inline`, `//pu:noinline`, `//pu:stack`, and `//pu:extern` and `//pu:export` for C. The hardware and
 binding directives (`//pu:interrupt`, `//pu:panic`, `//pu:scheduler`, `//pu:percpu`, `//pu:fpu`,
 `//pu:blocking`) are for kernels.
+
+A `//pu:` comment that the compiler would not act on is an error, so that a misspelt directive does not
+silently change nothing: an unknown name (E2600, with the closest known name suggested), a directive that
+was removed because the compiler now works it out (E2601: `alloc`, `bytewise`, `gofunc`, `schedhook`,
+`schedlate`, and `noreturn` on a function with a body), a directive in a place it does not apply to (E2602:
+not in the doc comment of the right kind of declaration, or `//pu:build` after the package clause), and an
+argument a directive does not take or lacks (E2603). A note that is not a directive starts with `// `.
 
 | Directive | Applies to | Meaning |
 |---|---|---|

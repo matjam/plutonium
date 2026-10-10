@@ -221,7 +221,7 @@ const (
 	lkBox                        // an interface's copy of a value larger than a word
 	lkClosure                    // the record of a function literal that uses variables
 	lkMethodValue                // the record of a method value, holding its receiver
-	lkCtor                       // the closure a call of a closure constructor builds
+	lkCtor                       // the region a call that returns closures builds them in
 )
 
 // A loc is a piece of frame storage: a local variable, a parameter's slot,
@@ -436,10 +436,10 @@ type function struct {
 	// external: called from outside what the analysis sees (exported to C,
 	// an interrupt handler, started by a go statement).
 	external bool
-	// ctor: a closure constructor (spec section 4.5), whose calls build the
-	// closure it returns in the caller's frame.
-	ctor  bool
-	inits bool // the initialisers of a package's variables
+	// builds: the function may return closures it builds in a region of
+	// its caller's frame (regions.go).
+	builds bool
+	inits  bool // the initialisers of a package's variables
 }
 
 // keepsParam reports whether f keeps parameter idx's own pointer (not

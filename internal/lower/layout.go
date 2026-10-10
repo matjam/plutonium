@@ -215,6 +215,7 @@ type abiSig struct {
 	params      []param // receiver first, if any
 	results     []param
 	sret        bool        // results returned through a hidden first pointer
+	region      bool        // a closure region pointer follows (regions.go)
 	flatParams  []*ssa.Type // scalar parameter list as the backend sees it
 	flatResults []*ssa.Type
 	variadic    bool
@@ -239,7 +240,12 @@ func (l *Lowerer) lowerSig(sig *types2.Signature) *abiSig {
 	if resultLeaves > maxRegLeaves {
 		a.sret = true
 		a.flatParams = append(a.flatParams, ssa.TPtr)
-	} else {
+	}
+	if regionSig(sig) {
+		a.region = true
+		a.flatParams = append(a.flatParams, ssa.TPtr)
+	}
+	if !a.sret {
 		for _, p := range a.results {
 			for _, lf := range p.leaves {
 				a.flatResults = append(a.flatResults, lf.t)

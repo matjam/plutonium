@@ -425,7 +425,7 @@ func (w *walker) yieldValues(xv tset) tset {
 	for _, t := range xv {
 		if t.kind == tFrame && t.loc.kind == lkCtor {
 			if call, ok := t.loc.node.(*ast.CallExpr); ok {
-				if f := w.a.staticCallee(call); f != nil && f.ctor && !w.a.addrsCaptures(f) {
+				if f := w.a.staticCallee(call); f != nil && f.builds && !w.a.addrsCaptures(f) {
 					start.addAll(w.load(tset{t}))
 					continue
 				}
@@ -507,14 +507,19 @@ func (w *walker) returnStmt(st *ast.ReturnStmt) {
 // returnVal applies the return rule to what result k of scope sc holds; expr
 // is the result as written, if known.
 func (w *walker) returnVal(sc *scope, k int, v tset, pos token.Pos, expr ast.Expr) {
-	if sc == w.top && sc.fn.ctor {
-		// A closure constructor's closure is built in its caller's frame
-		// (spec section 4.5): the call site accounts for it (ctorCall).
-		return
-	}
 	for _, t := range v {
 		switch t.kind {
 		case tFrame:
+			if closureLoc(t.loc) && t.loc.level >= sc.level && regionSig(sc.fn.sig) {
+				// A closure this function returns is built in its
+				// caller's region; lowering checks what it may not
+				// return (E3100).
+				if !sc.fn.builds {
+					sc.fn.builds = true
+					w.a.grew = true
+				}
+				continue
+			}
 			if t.loc.level >= sc.level {
 				w.report(&viewErr{sink: sinkReturn, pos: pos, expr: expr, l: t.loc, fn: w.scopeName(sc)}, fmt.Sprintf("ret|%p", t.loc))
 			} else if sc.outerRet.add(t.untag()) {

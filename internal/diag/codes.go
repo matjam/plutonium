@@ -22,7 +22,9 @@ const (
 
 // Plutonium rules checked while compiling, after type checking. E2540 and
 // E2541 rejected string conversions and concatenation before strings were
-// counted, and E2544 and E2545 restricted them to functions marked
+// counted, E2543 a closure constructor used other than by calling it before
+// returned closures were built in regions their callers provide (E3100),
+// and E2544 and E2545 restricted string operations to functions marked
 // //pu:alloc in kernel mode, before allocation in interrupt context was
 // checked over the whole program (E2584); they are retired.
 const (
@@ -38,7 +40,6 @@ const (
 	DeferInRangeFunc  Code = "E2533" // a defer in a range-over-func loop body that may run once per iteration
 	DeferLitCapture   Code = "E2534" // a literal deferred in a range-over-func loop body captures the body's variables
 	ErrorsNewValue    Code = "E2542" // errors.New used other than by calling it
-	ClosureCtorValue  Code = "E2543" // a closure constructor used other than by calling it
 	PerCPUInit        Code = "E2550" // a per-CPU variable with a non-constant initialiser
 	PerCPUMode        Code = "E2551" // //pu:percpu outside kernel mode
 	PerCPUSection     Code = "E2552" // //pu:percpu with //pu:section
@@ -61,6 +62,15 @@ const (
 	NoScheduler        Code = "E2593" // a program that needs a scheduler and binds none
 	GoFrameClosure     Code = "E2594" // go of, or with an argument that is, a closure whose record is in the frame
 	SchedulerTimers    Code = "E2595" // a program that uses timers with a scheduler that has no Now or ArmTimer
+)
+
+// Directives (internal/directive): a //pu: comment the compiler would
+// otherwise ignore.
+const (
+	UnknownDirective   Code = "E2600" // a //pu: directive with a name the compiler does not know
+	RetiredDirective   Code = "E2601" // a directive that was removed because the compiler now works it out
+	MisplacedDirective Code = "E2602" // a directive where it has no effect
+	DirectiveArgument  Code = "E2603" // a directive with an argument it does not take, or without one it needs
 )
 
 // Finding and loading packages.
@@ -131,7 +141,9 @@ const (
 
 // Closures and their records (E3100-E3199).
 const (
-	ClosureReturned Code = "E3100" // a function returns a closure record made in its frame
+	ClosureReturned    Code = "E3100" // a function returns a closure record that cannot outlive its frame
+	ClosureRegionLoop  Code = "E3101" // the closure of a call in a loop kept past the iteration
+	ClosureRegionCycle Code = "E3102" // a closure region that would hold itself
 )
 
 // Errors in the compiler itself.

@@ -120,6 +120,12 @@ before optimization:
   program puts heap memory or a parameter that every call passes heap memory for, loads as heap. This is
   what lets an arena's chunk list or a linked list's `next` be followed without making the caller's
   pointers escape. Writes through memory reinterpreted with `unsafe.Pointer` are not seen.
+- *Closure regions.* A function that may return a closure builds it in a region of its caller's frame
+  (spec section 4.5; lowering decides the layout and checks what a function returns of its own frame,
+  E3100 to E3102). Here, a call whose callee returns a closure of its own frame returns a view of a
+  region at the call, holding what the arguments point to, and that view follows the rules above: it
+  may be returned (the caller passes its own region down) but not stored in a package variable or kept
+  past a loop iteration.
 - *Escape hatches with checks.* A function without a body keeps every pointer argument unless marked
   `//pu:noescape`. `//pu:resultholds p` says a function keeps `p` only inside the owner it returns
   (`alloc.Use` returns a `Restore` that holds the allocator); the compiler checks that the result does

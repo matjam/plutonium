@@ -1,8 +1,8 @@
 package main
 
-// Count is a closure constructor: the call in main builds its closure in
-// main's frame, but the trace names the closure after Count, as Go does.
-// The closure panics reading past the end of table.
+// Count returns a closure, built in a region of main's frame, and the trace
+// names the closure after Count, as Go does. The closure panics reading
+// past the end of table.
 func Count(n int, table []int) func(yield func(int) bool) {
 	return func(yield func(int) bool) {
 		for i := 0; i < n; i++ {

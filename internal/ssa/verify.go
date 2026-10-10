@@ -326,7 +326,7 @@ func (f *Func) verifyTypes(v *Value, fail func(string, ...any)) {
 		if !argType(0).IsPtr() || argType(1).Size != 1 || !argType(2).Same(TI64) || !v.Type.IsMem() {
 			fail("%s: bad fill types", v.LongString())
 		}
-	case OpOffPtr, OpAddPtr, OpSlotAddr, OpSymAddr, OpFuncAddr:
+	case OpOffPtr, OpAddPtr, OpSlotAddr, OpSymAddr, OpFuncAddr, OpRegion:
 		if !v.Type.IsPtr() {
 			fail("%s: address op must produce a pointer", v.LongString())
 		}
