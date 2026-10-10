@@ -32,6 +32,13 @@ func (s *fnState) stmt(st ast.Stmt) {
 	if p := st.Pos(); p.IsValid() {
 		s.f.SetPos(p)
 	}
+	if _, isLabel := st.(*ast.LabeledStmt); !isLabel {
+		// The statement's temporaries, and for a block or a statement
+		// with an implicit block its variables, are released at its end
+		// (strscope.go).
+		e := s.pushCleanup(st, isScopeStmt(st))
+		defer s.popCleanup(e)
+	}
 	switch st := st.(type) {
 	case *ast.EmptyStmt:
 	case *ast.ExprStmt:
@@ -82,6 +89,24 @@ func (s *fnState) stmt(st ast.Stmt) {
 	}
 }
 
+// isScopeStmt reports whether st is a block or has an implicit block, whose
+// variables are released when it ends.
+func isScopeStmt(st ast.Stmt) bool {
+	switch st.(type) {
+	case *ast.BlockStmt, *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+		return true
+	}
+	return false
+}
+
+// block lowers a statement list as a block of its own, node, whose
+// variables are released when it ends.
+func (s *fnState) block(node ast.Node, list []ast.Stmt) {
+	e := s.pushCleanup(node, true)
+	s.stmtList(list)
+	s.popCleanup(e)
+}
+
 // ----------------------------------------------------------------------------
 // Declarations and assignment
 
@@ -115,7 +140,7 @@ func (s *fnState) declStmt(d *ast.GenDecl) {
 			for i, v := range vars {
 				if v != nil {
 					addr := s.declareVar(v)
-					s.storeTo(addr, vals[i], s.subst(v.Type()))
+					s.assign(lvalue{ptr: addr, T: s.subst(v.Type())}, vals[i], true)
 				}
 			}
 		default: // var a, b = f()
@@ -124,7 +149,7 @@ func (s *fnState) declStmt(d *ast.GenDecl) {
 				if v != nil {
 					addr := s.declareVar(v)
 					T := s.subst(v.Type())
-					s.storeTo(addr, s.assignConvert(vals[i], T, vs), T)
+					s.assign(lvalue{ptr: addr, T: T}, s.assignConvert(vals[i], T, vs), true)
 				}
 			}
 		}
@@ -167,8 +192,12 @@ func (s *fnState) assignStmt(st *ast.AssignStmt) {
 		if lv.bits != nil {
 			T = lv.bits.T
 		}
-		old := s.loadLV(lv)
 		op := compoundOp(st.Tok)
+		if isString(T) && lv.bits == nil {
+			s.concatAssign(lv, st.Rhs[0], st.Pos())
+			return
+		}
+		old := s.loadLV(lv)
 		var res *ssa.Value
 		if op == token.SHL || op == token.SHR {
 			y := s.expr(st.Rhs[0])
@@ -225,7 +254,9 @@ func (s *fnState) assignStmt(st *ast.AssignStmt) {
 			}
 			v := s.exprAs(e, T)
 			if len(st.Rhs) > 1 {
-				v = s.materialize(v)
+				// Storing one value may release another's source
+				// (a, b = b, a), so each holds its own references.
+				v = s.holdOwned(s.materialize(v))
 			}
 			vals[i] = v
 		}
@@ -239,9 +270,9 @@ func (s *fnState) assignStmt(st *ast.AssignStmt) {
 		case t.def != nil:
 			T := s.subst(t.def.Type())
 			addr := s.declareVar(t.def)
-			s.storeTo(addr, s.assignConvert(vals[i], T, st), T)
+			s.assign(lvalue{ptr: addr, T: T}, s.assignConvert(vals[i], T, st), true)
 		default:
-			s.storeLV(*t.lv, s.assignConvert(vals[i], targetType(i), st))
+			s.assign(*t.lv, s.assignConvert(vals[i], targetType(i), st), false)
 		}
 	}
 }
@@ -319,7 +350,7 @@ func (s *fnState) ifStmt(st *ast.IfStmt) {
 	s.cond(st.Cond, then, els)
 	s.seal(then)
 	s.startBlock(then)
-	s.stmtList(st.Body.List)
+	s.block(st.Body, st.Body.List)
 	s.endPlain(done)
 	if st.Else != nil {
 		s.seal(els)
@@ -341,16 +372,24 @@ func (s *fnState) forStmt(st *ast.ForStmt, label *types2.Label) {
 	done := s.newBlock(ssa.BlockInvalid)
 	s.endPlain(head)
 	s.startBlock(head)
-	if st.Cond != nil {
-		s.cond(st.Cond, body, done)
-	} else {
+	switch {
+	case st.Cond == nil:
 		s.endPlain(body)
+	case s.makesTemps(st.Cond):
+		// The condition's temporaries are released after each
+		// evaluation, before the branch.
+		e := s.pushCleanup(st.Cond, false)
+		c := s.scalar(st.Cond)
+		s.popCleanup(e)
+		s.endIf(c, body, done)
+	default:
+		s.cond(st.Cond, body, done)
 	}
 	s.seal(body)
 	s.startBlock(body)
-	s.targets = append(s.targets, &target{label: label, breakTo: done, contTo: post})
+	s.targets = append(s.targets, &target{label: label, breakTo: done, contTo: post, depth: len(s.cleanups)})
 	s.loopDepth++
-	s.stmtList(st.Body.List)
+	s.block(st.Body, st.Body.List)
 	s.loopDepth--
 	s.targets = s.targets[:len(s.targets)-1]
 	s.endPlain(post)
@@ -380,7 +419,7 @@ func (s *fnState) countedLoop(n *ssa.Value, label *types2.Label, body func(i *ss
 	s.endIf(s.newValue(ssa.OpLess, ssa.TBool, i, n), bodyB, done)
 	s.seal(bodyB)
 	s.startBlock(bodyB)
-	s.targets = append(s.targets, &target{label: label, breakTo: done, contTo: post})
+	s.targets = append(s.targets, &target{label: label, breakTo: done, contTo: post, depth: len(s.cleanups)})
 	s.loopDepth++
 	body(s.load(ssa.TI64, idx))
 	s.loopDepth--
@@ -423,7 +462,7 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 	assign := func(lv *lvalue, v value) {
 		if lv != nil {
 			T := unwrap(lv.T)
-			s.storeLV(*lv, s.assignConvert(v, T, st))
+			s.assign(*lv, s.assignConvert(v, T, st), false)
 		}
 	}
 	intT := types2.Typ[types2.Int]
@@ -441,7 +480,7 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 		n64 := s.convertScalar(n, xt, intT)
 		s.countedLoop(n64, label, func(i *ssa.Value) {
 			assign(keyLV, scalarValue(s.convertScalar(i, intT, keyT), keyT))
-			s.stmtList(st.Body.List)
+			s.block(st.Body, st.Body.List)
 		})
 		return
 
@@ -464,8 +503,14 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 			// The range expression is evaluated once, before the loop,
 			// so the loop sees a copy of the array.
 			if hasValue {
-				base = s.temp(xt, "range")
-				s.storeTo(base, s.expr(st.X), xt)
+				if s.l.counted(xt) {
+					// The copy keeps its elements alive whatever the body
+					// does to the array.
+					base = s.holdOwned(s.expr(st.X)).v
+				} else {
+					base = s.temp(xt, "range")
+					s.storeTo(base, s.expr(st.X), xt)
+				}
 			}
 			n = s.constInt(ssa.TI64, u.Len())
 			et = s.subst(u.Elem())
@@ -488,7 +533,7 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 			if valLV != nil {
 				assign(valLV, s.materialize(s.loadFrom(s.elemAddr(base, i, et), et)))
 			}
-			s.stmtList(st.Body.List)
+			s.block(st.Body, st.Body.List)
 		})
 		return
 
@@ -516,7 +561,9 @@ func (s *fnState) callsFunction(e ast.Expr) bool {
 
 // rangeString iterates over the runes of a string.
 func (s *fnState) rangeString(st *ast.RangeStmt, label *types2.Label) {
-	str := s.materialize(s.expr(st.X))
+	// The string is evaluated once and must stay alive for the loop. An
+	// untyped constant takes the type string.
+	str := s.hold(s.materialize(s.exprAs(st.X, types2.Typ[types2.String])))
 	ptr, n := s.stringParts(str)
 	keyLV := s.rangeVar(st, st.Key)
 	valLV := s.rangeVar(st, st.Value)
@@ -546,9 +593,9 @@ func (s *fnState) rangeString(st *ast.RangeStmt, label *types2.Label) {
 	if valLV != nil {
 		s.storeLV(*valLV, scalarValue(res[0], runeT))
 	}
-	s.targets = append(s.targets, &target{label: label, breakTo: done, contTo: post})
+	s.targets = append(s.targets, &target{label: label, breakTo: done, contTo: post, depth: len(s.cleanups)})
 	s.loopDepth++
-	s.stmtList(st.Body.List)
+	s.block(st.Body, st.Body.List)
 	s.loopDepth--
 	s.targets = s.targets[:len(s.targets)-1]
 	s.endPlain(post)
@@ -571,7 +618,9 @@ func (s *fnState) switchStmt(st *ast.SwitchStmt, label *types2.Label) {
 		if b, ok := tagT.Underlying().(*types2.Basic); ok && b.Info()&types2.IsUntyped != 0 {
 			tagT = defaultType(s.info.Types[st.Tag].Value)
 		}
-		tag = s.materialize(s.exprAs(st.Tag, tagT))
+		// The tag is compared with each case in turn; the cases may call
+		// functions.
+		tag = s.hold(s.materialize(s.exprAs(st.Tag, tagT)))
 	}
 	done := s.newBlock(ssa.BlockInvalid)
 	clauses := st.Body.List
@@ -611,7 +660,7 @@ func (s *fnState) switchStmt(st *ast.SwitchStmt, label *types2.Label) {
 	}
 	s.endPlain(defaultBody)
 
-	s.targets = append(s.targets, &target{label: label, breakTo: done, isSwitch: true})
+	s.targets = append(s.targets, &target{label: label, breakTo: done, isSwitch: true, depth: len(s.cleanups)})
 	for i, c := range clauses {
 		cc := c.(*ast.CaseClause)
 		s.seal(bodies[i])
@@ -624,7 +673,8 @@ func (s *fnState) switchStmt(st *ast.SwitchStmt, label *types2.Label) {
 				body = body[:n-1]
 			}
 		}
-		s.stmtList(body)
+		// The clause is a block; fallthrough leaves it too.
+		s.block(cc, body)
 		if fallthrough_ && i+1 < len(clauses) {
 			s.endPlain(bodies[i+1])
 		} else {
@@ -690,11 +740,12 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 	}
 	s.endPlain(defaultBody)
 
-	s.targets = append(s.targets, &target{label: label, breakTo: done, isSwitch: true})
+	s.targets = append(s.targets, &target{label: label, breakTo: done, isSwitch: true, depth: len(s.cleanups)})
 	for i, c := range clauses {
 		cc := c.(*ast.CaseClause)
 		s.seal(bodies[i])
 		s.startBlock(bodies[i])
+		clause := s.pushCleanup(cc, true)
 		if v, ok := s.info.Implicits[cc].(*types2.Var); ok {
 			T := s.subst(v.Type())
 			addr := s.declareVar(v)
@@ -705,10 +756,11 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 				vv, _ := s.assertTo(iv, I, T, true, cc.Pos())
 				s.storeTo(addr, vv, T)
 			default:
-				s.storeTo(addr, s.fromDataWord(data, T), T)
+				s.assign(lvalue{ptr: addr, T: T}, s.fromDataWord(data, T), true)
 			}
 		}
 		s.stmtList(cc.Body)
+		s.popCleanup(clause)
 		s.endPlain(done)
 	}
 	s.targets = s.targets[:len(s.targets)-1]
@@ -731,14 +783,19 @@ func (s *fnState) labeledStmt(st *ast.LabeledStmt) {
 	s.endPlain(b)
 	s.startBlock(b)
 	switch inner := st.Stmt.(type) {
-	case *ast.ForStmt:
-		s.forStmt(inner, label)
-	case *ast.RangeStmt:
-		s.rangeStmt(inner, label)
-	case *ast.SwitchStmt:
-		s.switchStmt(inner, label)
-	case *ast.TypeSwitchStmt:
-		s.typeSwitchStmt(inner, label)
+	case *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt:
+		e := s.pushCleanup(inner, true)
+		switch inner := inner.(type) {
+		case *ast.ForStmt:
+			s.forStmt(inner, label)
+		case *ast.RangeStmt:
+			s.rangeStmt(inner, label)
+		case *ast.SwitchStmt:
+			s.switchStmt(inner, label)
+		case *ast.TypeSwitchStmt:
+			s.typeSwitchStmt(inner, label)
+		}
+		s.popCleanup(e)
 	default:
 		s.stmt(inner)
 	}
@@ -751,6 +808,7 @@ func (s *fnState) branchStmt(st *ast.BranchStmt) {
 	}
 	switch st.Tok {
 	case token.GOTO:
+		s.releaseForGoto(label)
 		s.endPlain(s.labelBlock(label))
 		return
 	case token.FALLTHROUGH:
@@ -765,9 +823,11 @@ func (s *fnState) branchStmt(st *ast.BranchStmt) {
 			if t.contTo == nil {
 				continue // switches are not continue targets
 			}
+			s.releaseAbove(t.depth)
 			s.endPlain(t.contTo)
 			return
 		}
+		s.releaseAbove(t.depth)
 		s.endPlain(t.breakTo)
 		return
 	}
@@ -778,21 +838,69 @@ func (s *fnState) returnStmt(st *ast.ReturnStmt) {
 	switch {
 	case len(st.Results) == 0:
 	case len(st.Results) == len(s.results):
+		named := s.namedResults()
 		vals := make([]value, len(st.Results))
 		for i, e := range st.Results {
 			vals[i] = s.materialize(s.exprAs(e, s.abi.results[i].typ))
+			if named && len(vals) > 1 {
+				// return b, a with named results a and b: storing one
+				// releases the other's source.
+				vals[i] = s.holdOwned(vals[i])
+			}
 		}
+		moved := map[*types2.Var]bool{}
 		for i, v := range vals {
-			s.storeTo(s.results[i], v, s.abi.results[i].typ)
+			T := s.abi.results[i].typ
+			if s.moveOnReturn(st.Results[i], v, T, i, moved) {
+				continue
+			}
+			s.assign(lvalue{ptr: s.results[i], T: T}, v, !named)
 		}
 	default: // return f() with several results
+		named := s.namedResults()
 		vals := s.multiValue(st.Results[0], len(s.results))
 		for i, v := range vals {
 			T := s.abi.results[i].typ
-			s.storeTo(s.results[i], s.assignConvert(v, T, st), T)
+			s.assign(lvalue{ptr: s.results[i], T: T}, s.assignConvert(v, T, st), !named)
 		}
 	}
 	s.emitReturn(st.Pos())
+}
+
+// namedResults reports whether the function's results are named, and so
+// are variables that may hold values before a return statement sets them.
+func (s *fnState) namedResults() bool {
+	for _, v := range s.signatureVars().results {
+		if v != nil && v.Name() != "" && v.Name() != "_" {
+			return true
+		}
+	}
+	return false
+}
+
+// moveOnReturn hands the references of a local variable returned as
+// result i over to the caller instead of retaining them and releasing the
+// variable when its scope ends: return x is x's last use when the function
+// has no deferred calls that could still read it. A variable is moved once;
+// return x, x retains the second copy. It reports whether it stored the
+// result.
+func (s *fnState) moveOnReturn(e ast.Expr, v value, T types2.Type, i int, moved map[*types2.Var]bool) bool {
+	if !s.l.counted(T) || s.deferBits != nil || s.namedResults() {
+		return false
+	}
+	id, ok := ast.Unparen(e).(*ast.Ident)
+	if !ok {
+		return false
+	}
+	obj, ok := s.info.Uses[id].(*types2.Var)
+	if !ok || moved[obj] || !s.ownedVars[obj] || !types2.Identical(s.subst(obj.Type()), T) {
+		return false
+	}
+	moved[obj] = true
+	addr := s.vars[obj]
+	s.move(s.results[i], addr, s.l.sizeof(T))
+	s.zero(addr, s.l.sizeof(T))
+	return true
 }
 
 // ----------------------------------------------------------------------------
@@ -928,6 +1036,15 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 // saveValue copies a value into a fresh slot and returns its address as an
 // aggregate-style value (v.v is the slot address).
 func (s *fnState) saveValue(v value) value {
+	if v.addr && s.l.counted(v.T) {
+		// The saved argument keeps references until the function returns,
+		// after the deferred call has run.
+		slot := s.frameSlot(v.T, "defer")
+		s.storeCounted(lvalue{ptr: slot, T: v.T}, v, false)
+		saved := aggValue(slot, v.T)
+		saved.cnt = cntStable
+		return saved
+	}
 	tmp := s.temp(v.T, "defer")
 	s.storeTo(tmp, v, v.T)
 	return aggValue(tmp, v.T)
@@ -945,6 +1062,7 @@ func (s *fnState) loadValues(saved []value) []value {
 	out := make([]value, len(saved))
 	for i, v := range saved {
 		out[i] = s.loadFrom(v.v, v.T)
+		out[i].cnt = v.cnt
 	}
 	return out
 }

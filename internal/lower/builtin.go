@@ -3,7 +3,6 @@ package lower
 import (
 	"fmt"
 
-	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -56,16 +55,19 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 			sp, sn, _ = s.sliceParts(src)
 		}
 		n := s.minInt(dn, sn)
-		et := unwrap(s.typeOf(e.Args[0])).Underlying().(*types2.Slice).Elem()
-		bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(s.subst(et))))
-		s.callRuntime("memmove", nil, []*ssa.Value{dp, sp, bytes})
+		et := s.subst(unwrap(s.typeOf(e.Args[0])).Underlying().(*types2.Slice).Elem())
+		s.copyElems(dp, sp, n, et)
 		return one(scalarValue(n, T))
 
 	case "clear":
 		x := s.expr(e.Args[0])
 		p, n, _ := s.sliceParts(x)
-		et := unwrap(s.typeOf(e.Args[0])).Underlying().(*types2.Slice).Elem()
-		bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(s.subst(et))))
+		et := s.subst(unwrap(s.typeOf(e.Args[0])).Underlying().(*types2.Slice).Elem())
+		if s.l.counted(et) {
+			// Clearing an element drops what it held.
+			s.releaseRange(p, n, et)
+		}
+		bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(et)))
 		s.callRuntime("memclr", nil, []*ssa.Value{p, bytes})
 		return nil
 
@@ -95,7 +97,7 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		}
 		ptr := s.allocate(s.constInt(ssa.TI64, s.l.sizeof(elem)), s.l.alignof(elem), e.Args[1:])
 		if isValue {
-			s.storeTo(ptr, v, elem)
+			s.assign(lvalue{ptr: ptr, T: elem}, v, true)
 		}
 		return one(scalarValue(ptr, T))
 
@@ -173,9 +175,13 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		p, _, _ := s.sliceParts(s.expr(e.Args[0]))
 		return one(scalarValue(p, T))
 	case "String": // unsafe.String
+		// An uncounted view of borrowed memory whose bytes nobody has
+		// checked: the flags say nothing (strrep.go).
 		p := s.scalar(e.Args[0])
 		n := s.indexValue(e.Args[1])
-		return one(s.makeString(p, n, T))
+		v := s.makeString(p, n, s.constInt(ssa.TI64, strNonASCII), T)
+		v.cnt = cntStatic
+		return one(v)
 	case "StringData":
 		p, _ := s.stringParts(s.expr(e.Args[0]))
 		return one(scalarValue(p, T))
@@ -257,10 +263,12 @@ func (s *fnState) minMax(isMin bool, a, b *ssa.Value, T types2.Type) *ssa.Value 
 // minMaxString returns min(args...) or max(args...) of strings of type T,
 // comparing with the runtime's strcmp; the first of equal strings wins.
 func (s *fnState) minMaxString(isMin bool, args []ast.Expr, T types2.Type) value {
+	// The result is borrowed from one of the operands, each of which stays
+	// valid until the end of the statement.
 	res := s.temp(T, "minmax")
-	s.storeTo(res, s.exprAs(args[0], T), T)
+	s.storeTo(res, s.hold(s.exprAs(args[0], T)), T)
 	for _, a := range args[1:] {
-		v := s.materialize(s.exprAs(a, T))
+		v := s.hold(s.materialize(s.exprAs(a, T)))
 		cur := s.loadFrom(res, T)
 		c := s.callRuntime("strcmp", []*ssa.Type{ssa.TI64}, s.stringLeaves(v), s.stringLeaves(cur))[0]
 		zero := s.constInt(ssa.TI64, 0)
@@ -272,7 +280,9 @@ func (s *fnState) minMaxString(isMin bool, args []ast.Expr, T types2.Type) value
 		}
 		s.ifThen(better, func() { s.storeTo(res, v, T) })
 	}
-	return s.loadFrom(res, T)
+	out := s.loadFrom(res, T)
+	out.cnt = cntStable
+	return out
 }
 
 // allocate returns size zeroed bytes from the allocator given in extra (an
@@ -308,23 +318,43 @@ func (s *fnState) appendCall(e *ast.CallExpr, T types2.Type) value {
 		newLen := s.newValue(ssa.OpAdd, ssa.TI64, n, sn)
 		s.appendCheck(newLen, c, e)
 		dst := s.elemAddr(ptr, n, et)
-		bytes := s.newValue(ssa.OpMul, ssa.TI64, sn, s.constInt(ssa.TI64, esize))
-		s.callRuntime("memmove", nil, []*ssa.Value{dst, sp, bytes})
+		if s.l.counted(et) {
+			s.copyElems(dst, sp, sn, et)
+		} else {
+			bytes := s.newValue(ssa.OpMul, ssa.TI64, sn, s.constInt(ssa.TI64, esize))
+			s.callRuntime("memmove", nil, []*ssa.Value{dst, sp, bytes})
+		}
 		return s.makeSlice(ptr, newLen, c, T)
 	}
 
 	extra := e.Args[1:]
 	vals := make([]value, len(extra))
 	for i, a := range extra {
-		vals[i] = s.materialize(s.exprAs(a, et))
+		vals[i] = s.hold(s.materialize(s.exprAs(a, et)))
 	}
 	newLen := s.newValue(ssa.OpAdd, ssa.TI64, n, s.constInt(ssa.TI64, int64(len(extra))))
 	s.appendCheck(newLen, c, e)
 	for i, v := range vals {
 		idx := s.newValue(ssa.OpAdd, ssa.TI64, n, s.constInt(ssa.TI64, int64(i)))
-		s.storeTo(s.elemAddr(ptr, idx, et), v, et)
+		// The spare capacity is part of the array, which may still hold
+		// references from before the slice was shortened: assignment
+		// drops them.
+		s.assign(lvalue{ptr: s.elemAddr(ptr, idx, et), T: et}, v, false)
 	}
 	return s.makeSlice(ptr, newLen, c, T)
+}
+
+// copyElems copies n elements of type et from src to dst, which may
+// overlap, as copy does: each copy of a counted element takes a reference,
+// and each element overwritten drops its own (all retains come first, so
+// overlapping copies are safe).
+func (s *fnState) copyElems(dst, src, n *ssa.Value, et types2.Type) {
+	if s.l.counted(et) {
+		s.retainRange(src, n, et)
+		s.releaseRange(dst, n, et)
+	}
+	bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(et)))
+	s.callRuntime("memmove", nil, []*ssa.Value{dst, src, bytes})
 }
 
 func (s *fnState) appendCheck(newLen, c *ssa.Value, e *ast.CallExpr) {
@@ -357,8 +387,7 @@ func (s *fnState) printValue(v value, T types2.Type, a ast.Node) {
 		info := u.Info()
 		switch {
 		case info&types2.IsString != 0:
-			p, n := s.stringParts(v)
-			s.callRuntime("printString", nil, []*ssa.Value{p, n})
+			s.callRuntime("printString", nil, s.stringLeaves(v))
 		case info&types2.IsBoolean != 0:
 			s.callRuntime("printBool", nil, []*ssa.Value{v.v})
 		case info&types2.IsFloat != 0:
@@ -392,9 +421,12 @@ func (s *fnState) conversion(e *ast.CallExpr) value {
 		return s.assignConvert(s.expr(arg), to, e)
 	}
 
-	// []byte(s), string(b) and friends copy, so they would allocate.
+	// []byte(s), string(b) and friends copy, so they allocate (strops.go).
 	if isString(to) != isString(from) {
-		s.l.errorf(e.Pos(), diag.AllocatingConv, "conversion between %s and %s is not permitted in Plutonium (it allocates a copy); use unsafe.String or unsafe.StringData", from, to)
+		if v, ok := s.stringConversion(e, to, from); ok {
+			return v
+		}
+		s.l.internalf(e.Pos(), "unexpected conversion from %s to %s", from, to)
 		return s.zeroValue(to)
 	}
 
@@ -500,6 +532,9 @@ func (l *Lowerer) ringMethodFunc(fn *types2.Func, w *types2.Wrapper) (*ssa.Sym, 
 // arguments already evaluated.
 func (s *fnState) ringOp(name string, p *ssa.Value, w *types2.Wrapper, args []value, pos token.Pos) []value {
 	et := s.subst(w.Elem())
+	// A ring of counted values keeps every slot outside [tail, head) zero,
+	// so dropping or copying the whole ring counts only the live ones.
+	counted := s.l.counted(et)
 	n := w.N()
 	mask := s.constInt(ssa.TI64, n-1)
 	align := s.l.alignof(et)
@@ -526,6 +561,11 @@ func (s *fnState) ringOp(name string, p *ssa.Value, w *types2.Wrapper, args []va
 		eq := s.newValue(ssa.OpEq, ssa.TBool, s.load(ssa.TI64, headPtr), s.load(ssa.TI64, tailPtr))
 		return []value{scalarValue(eq, boolT)}
 	case "Reset":
+		if counted {
+			// Drop the live elements and leave their slots zero.
+			s.releaseAt(s.offPtr(p, dataOff), types2.NewArray(et, n))
+			s.zero(s.offPtr(p, dataOff), n*s.l.sizeof(et))
+		}
 		s.store(ssa.TI64, headPtr, s.constInt(ssa.TI64, 0))
 		s.store(ssa.TI64, tailPtr, s.constInt(ssa.TI64, 0))
 		return nil
@@ -537,7 +577,7 @@ func (s *fnState) ringOp(name string, p *ssa.Value, w *types2.Wrapper, args []va
 		d := s.newValue(ssa.OpSub, ssa.TI64, head, s.load(ssa.TI64, tailPtr))
 		hasRoom := s.newValue(ssa.OpLessu, ssa.TBool, d, s.constInt(ssa.TI64, n))
 		s.ifThen(hasRoom, func() {
-			s.storeTo(slot(head), v, et)
+			s.assign(lvalue{ptr: slot(head), T: et}, v, false)
 			s.store(ssa.TI64, headPtr, s.newValue(ssa.OpAdd, ssa.TI64, head, s.constInt(ssa.TI64, 1)))
 			s.store(ssa.TBool, res, s.constBool(true))
 		})
@@ -550,12 +590,25 @@ func (s *fnState) ringOp(name string, p *ssa.Value, w *types2.Wrapper, args []va
 		tail := s.load(ssa.TI64, tailPtr)
 		nonEmpty := s.newValue(ssa.OpNe, ssa.TBool, s.load(ssa.TI64, headPtr), tail)
 		s.ifThen(nonEmpty, func() {
-			s.storeTo(out, s.loadFrom(slot(tail), et), et)
+			switch {
+			case counted && name == "Pop":
+				// The element's references move out with it, and its
+				// slot is left zero.
+				s.move(out, slot(tail), s.l.sizeof(et))
+				s.zero(slot(tail), s.l.sizeof(et))
+			case counted:
+				s.assign(lvalue{ptr: out, T: et}, s.loadFrom(slot(tail), et), true)
+			default:
+				s.storeTo(out, s.loadFrom(slot(tail), et), et)
+			}
 			if name == "Pop" {
 				s.store(ssa.TI64, tailPtr, s.newValue(ssa.OpAdd, ssa.TI64, tail, s.constInt(ssa.TI64, 1)))
 			}
 			s.store(ssa.TBool, res, s.constBool(true))
 		})
+		if counted {
+			return []value{s.ownTemp(out, et), scalarValue(s.load(ssa.TBool, res), boolT)}
+		}
 		return []value{s.loadFrom(out, et), scalarValue(s.load(ssa.TBool, res), boolT)}
 	}
 	s.l.internalf(pos, "unknown ring method %s", name)

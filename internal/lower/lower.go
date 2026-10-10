@@ -64,6 +64,8 @@ type Lowerer struct {
 	// instances of types declared in generic functions (typeMap.local)
 	localTypes map[localKey]*types2.Named
 
+	countedTypes map[string]bool // counted, by type (strcount.go)
+
 	errs diag.List
 }
 
@@ -119,6 +121,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		strs:           map[string]*ssa.Sym{},
 		closureRecords: map[*ssa.Sym]*ssa.Sym{},
 		localTypes:     map[localKey]*types2.Named{},
+		countedTypes:   map[string]bool{},
 		errorSites:     map[*ast.CallExpr]*ssa.Sym{},
 		exports:        map[*ssa.Sym][]string{},
 		interruptSyms:  map[*ssa.Sym]bool{},

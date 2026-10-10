@@ -87,8 +87,8 @@ func (l *Lowerer) enumString(fn *types2.Func, en *types2.Enum) *ssa.Sym {
 			idx = s.newValue(ssa.OpSub, ssa.TI64, idx, s.constInt(ssa.TI64, int64(lo)))
 			inRange := s.newValue(ssa.OpLessu, ssa.TBool, idx, s.constInt(ssa.TI64, int64(span)))
 			s.ifThen(inRange, func() {
-				off := s.newValue(ssa.OpMul, ssa.TI64, idx, s.constInt(ssa.TI64, 16))
-				s.move(res, s.newValue(ssa.OpAddPtr, ssa.TPtr, s.symAddr(table), off), 16)
+				off := s.newValue(ssa.OpMul, ssa.TI64, idx, s.constInt(ssa.TI64, strSize))
+				s.move(res, s.newValue(ssa.OpAddPtr, ssa.TPtr, s.symAddr(table), off), strSize)
 			})
 		} else {
 			wide := s.widenEnum(x, T)
@@ -142,13 +142,10 @@ func (s *fnState) widenEnum(x *ssa.Value, T types2.Type) *ssa.Value {
 // stringTable returns a read-only array of string headers.
 func (l *Lowerer) stringTable(name string, strs []string) *ssa.Sym {
 	sym := l.out.Sym(name, ssa.SymData)
-	buf := make([]byte, 16*len(strs))
+	buf := make([]byte, strSize*len(strs))
 	d := &ssa.Data{Sym: sym, Size: int64(len(buf)), Align: 8, Bytes: buf, ReadOnly: true, Local: true}
 	for i, str := range strs {
-		binary.LittleEndian.PutUint64(buf[16*i+8:], uint64(len(str)))
-		if str != "" {
-			d.Relocs = append(d.Relocs, ssa.DataReloc{Off: int64(16 * i), Sym: l.stringData(str)})
-		}
+		l.putStaticString(d, int64(strSize*i), str)
 	}
 	l.out.Data = append(l.out.Data, d)
 	return sym

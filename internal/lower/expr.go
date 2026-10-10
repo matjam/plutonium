@@ -3,7 +3,6 @@ package lower
 import (
 	"go/constant"
 
-	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -63,7 +62,7 @@ func (s *fnState) expr(e ast.Expr) value {
 			}
 		}
 		if isString(xt) {
-			str := s.expr(ix.x)
+			str := s.holdAcross(s.expr(ix.x), ix.index)
 			i := s.indexValue(ix.index)
 			ptr, n := s.stringParts(str)
 			s.boundsCheck(i, n, ix.index.Pos())
@@ -199,8 +198,15 @@ func (s *fnState) lv(e ast.Expr) lvalue {
 			// &T{...} during package initialisation: the object outlives
 			// the init function, so it gets static storage.
 			sym := s.l.staticObject(T)
-			s.storeTo(s.symAddr(sym), s.compositeLit(e, T), T)
+			s.assign(lvalue{ptr: s.symAddr(sym), T: T}, s.compositeLit(e, T), true)
 			return lvalue{ptr: s.symAddr(sym), T: T}
+		}
+		if s.l.counted(T) {
+			// &T{...} may be used until the function returns, so the
+			// literal lives in a frame slot that holds its references.
+			slot := s.frameSlot(T, "lit")
+			s.storeCounted(lvalue{ptr: slot, T: T}, s.compositeLit(e, T), false)
+			return lvalue{ptr: slot, T: T, stable: true}
 		}
 		v := s.materialize(s.compositeLit(e, T))
 		if !v.addr {
@@ -213,6 +219,13 @@ func (s *fnState) lv(e ast.Expr) lvalue {
 	// Not addressable: evaluate into a temporary.
 	T := s.typeOf(e)
 	v := s.expr(e)
+	if s.l.counted(T) {
+		// Code may change the temporary through its address (a method
+		// with a pointer receiver), so it must hold references of its
+		// own.
+		v = s.holdOwned(v)
+		return lvalue{ptr: v.v, T: T, stable: true}
+	}
 	if v.addr {
 		return lvalue{ptr: v.v, T: T}
 	}
@@ -226,7 +239,7 @@ func (s *fnState) lv(e ast.Expr) lvalue {
 func (s *fnState) varLV(obj *types2.Var, at ast.Node) lvalue {
 	T := s.subst(obj.Type())
 	if addr := s.vars[obj]; addr != nil {
-		return lvalue{ptr: addr, T: T}
+		return lvalue{ptr: addr, T: T, stable: s.stableVar(obj)}
 	}
 	if obj.Pkg() != nil && obj.Pkg().Scope().Lookup(obj.Name()) == obj {
 		return lvalue{ptr: s.symAddr(s.l.globalSym(obj)), T: T}
@@ -244,6 +257,17 @@ func (s *fnState) declareVar(obj *types2.Var) *ssa.Value {
 	T := s.subst(obj.Type())
 	addr := s.temp(T, obj.Name())
 	s.vars[obj] = addr
+	if s.l.counted(T) {
+		// Released when its scope ends (strscope.go). A goto back over
+		// the declaration runs it again without leaving the scope: what
+		// the variable held is released first.
+		s.addVar(addr, T)
+		s.ownedVars[obj] = true
+		if len(s.labelScopes) > 0 {
+			s.releaseAt(addr, T)
+			s.zero(addr, s.l.sizeof(T))
+		}
+	}
 	return addr
 }
 
@@ -258,16 +282,18 @@ func (s *fnState) indexLV(e *ast.IndexExpr) lvalue {
 	switch u := u.(type) {
 	case *types2.Array:
 		var base *ssa.Value
+		stable := false
 		if _, isPtr := unwrap(xt).Underlying().(*types2.Pointer); isPtr {
 			base = s.scalar(e.X)
 		} else {
-			base = s.lv(e.X).ptr
+			lv := s.lv(e.X)
+			base, stable = lv.ptr, lv.stable
 		}
 		i := s.indexValue(e.Index)
 		if c, ok := constIndex(s.info, e.Index); !ok || c >= u.Len() {
 			s.boundsCheck(i, s.constInt(ssa.TI64, u.Len()), e.Index.Pos())
 		}
-		return lvalue{ptr: s.elemAddr(base, i, u.Elem()), T: s.subst(u.Elem())}
+		return lvalue{ptr: s.elemAddr(base, i, u.Elem()), T: s.subst(u.Elem()), stable: stable}
 	case *types2.Slice:
 		sl := s.expr(e.X)
 		ptr := s.load(ssa.TPtr, sl.v)
@@ -376,7 +402,7 @@ func (s *fnState) fieldPath(cur lvalue, path []int) lvalue {
 				fields[i] = u.Field(i)
 			}
 			off := s.l.sizes.Offsetsof(fields)[idx]
-			cur = lvalue{ptr: s.offPtr(cur.ptr, off), T: s.subst(u.Field(idx).Type())}
+			cur = lvalue{ptr: s.offPtr(cur.ptr, off), T: s.subst(u.Field(idx).Type()), stable: cur.stable}
 		case *types2.Packed:
 			cur = s.packedField(cur, u, idx)
 		default:
@@ -444,7 +470,9 @@ func (s *fnState) selector(e *ast.SelectorExpr, T types2.Type) value {
 				s.storeTo(tmp, x, xt)
 				return s.loadLV(s.fieldPath(lvalue{ptr: tmp, T: xt}, sel.Index()))
 			}
-			return s.loadLV(s.fieldPath(lvalue{ptr: x.v, T: xt}, sel.Index()))
+			// A field of a temporary or of a stable value is borrowed from
+			// it, and stays valid as long as it does.
+			return s.loadLV(s.fieldPath(lvalue{ptr: x.v, T: xt, stable: stableFrom(x) != cntUnstable}, sel.Index()))
 		}
 		return s.loadLV(s.selectorLV(e))
 	case types2.MethodVal:
@@ -537,6 +565,9 @@ func (s *fnState) binary(e *ast.BinaryExpr, T types2.Type) value {
 		return scalarValue(s.shift(e.Op, x, unwrap(s.typeOf(e.X)), y.v, y.T, e.Pos()), T)
 	}
 	opT := unwrap(T)
+	if isString(opT) && e.Op == token.ADD {
+		return s.concat(e, T)
+	}
 	x := s.exprAs(e.X, opT).v
 	y := s.exprAs(e.Y, opT).v
 	return scalarValue(s.arith(e.Op, x, y, opT, e.Pos()), T)
@@ -545,10 +576,6 @@ func (s *fnState) binary(e *ast.BinaryExpr, T types2.Type) value {
 // arith emits a binary arithmetic operation on scalars of type T.
 func (s *fnState) arith(op token.Token, x, y *ssa.Value, T types2.Type, pos token.Pos) *ssa.Value {
 	t := x.Type
-	if isString(T) {
-		s.l.errorf(pos, diag.StringConcat, "runtime string concatenation is not permitted in Plutonium (it allocates); use pluto/strings.Builder")
-		return x
-	}
 	if t.IsFloat() {
 		var fop ssa.Op
 		switch op {
@@ -728,7 +755,7 @@ func (s *fnState) compare(op token.Token, xe, ye ast.Expr, pos token.Pos) *ssa.V
 			T = yT
 		}
 	}
-	x := s.exprAs(xe, T)
+	x := s.holdAcross(s.exprAs(xe, T), ye)
 	y := s.exprAs(ye, T)
 	eq := s.equal(x, y, T, pos)
 	switch op {
@@ -777,8 +804,10 @@ func (s *fnState) order(op token.Token, x, y *ssa.Value, T types2.Type, pos toke
 	return s.newValue(o, ssa.TBool, x, y)
 }
 
+// stringLeaves returns the three words of a string value, as a string
+// argument of a runtime function takes them.
 func (s *fnState) stringLeaves(v value) []*ssa.Value {
-	return s.leafValues(v, []leaf{{0, ssa.TPtr}, {8, ssa.TI64}})
+	return s.leafValues(v, []leaf{{0, ssa.TPtr}, {8, ssa.TI64}, {strCtlOff, ssa.TI64}})
 }
 
 // equal compares two values of type T for equality.
@@ -795,9 +824,7 @@ func (s *fnState) equal(x, y value, T types2.Type, pos token.Pos) *ssa.Value {
 	}
 	switch u := unwrap(T).Underlying().(type) {
 	case *types2.Basic: // string
-		xp, xn := s.stringParts(x)
-		yp, yn := s.stringParts(y)
-		return s.callRuntime("strequal", []*ssa.Type{ssa.TBool}, []*ssa.Value{xp, xn}, []*ssa.Value{yp, yn})[0]
+		return s.callRuntime("strequal", []*ssa.Type{ssa.TBool}, s.stringLeaves(x), s.stringLeaves(y))[0]
 	case *types2.Interface:
 		return s.ifaceEqual(x, y, T)
 	case *types2.Struct:
@@ -902,11 +929,18 @@ func (s *fnState) stringParts(v value) (*ssa.Value, *ssa.Value) {
 	return s.load(ssa.TPtr, v.v), s.load(ssa.TI64, s.offPtr(v.v, 8))
 }
 
-// makeString builds a string value from a pointer and length.
-func (s *fnState) makeString(ptr, n *ssa.Value, T types2.Type) value {
+// stringCtl returns a string value's control word (strrep.go).
+func (s *fnState) stringCtl(v value) *ssa.Value {
+	return s.load(ssa.TI64, s.offPtr(v.v, strCtlOff))
+}
+
+// makeString builds a string value from a pointer, a length and a control
+// word.
+func (s *fnState) makeString(ptr, n, ctl *ssa.Value, T types2.Type) value {
 	tmp := s.temp(types2.Typ[types2.String], "str")
 	s.store(ssa.TPtr, tmp, ptr)
 	s.store(ssa.TI64, s.offPtr(tmp, 8), n)
+	s.store(ssa.TI64, s.offPtr(tmp, strCtlOff), ctl)
 	return aggValue(tmp, T)
 }
 
@@ -926,13 +960,15 @@ func (s *fnState) sliceParts(v value) (ptr, n, c *ssa.Value) {
 
 func (s *fnState) sliceExpr(e *ast.SliceExpr, T types2.Type) value {
 	xt := unwrap(s.typeOf(e.X))
-	var base, length, capacity *ssa.Value
+	var base, length, capacity, ctl *ssa.Value
 	var elem types2.Type
+	var str value
 	isStr := false
 	switch u := xt.Underlying().(type) {
 	case *types2.Basic:
-		str := s.expr(e.X)
+		str = s.holdAcross(s.expr(e.X), e.Low, e.High, e.Max)
 		base, length = s.stringParts(str)
+		ctl = s.stringCtl(str)
 		capacity = length
 		elem = types2.Typ[types2.Byte]
 		isStr = true
@@ -977,7 +1013,11 @@ func (s *fnState) sliceExpr(e *ast.SliceExpr, T types2.Type) value {
 	ptr := s.elemAddr(base, lo, elem)
 	n := s.newValue(ssa.OpSub, ssa.TI64, hi, lo)
 	if isStr {
-		return s.makeString(ptr, n, T)
+		// A substring shares the buffer and its count: it is a view
+		// derived from str, kept alive by whatever keeps str alive.
+		sub := s.makeString(ptr, n, ctl, T)
+		sub.cnt, sub.tmp = str.cnt, str.tmp
+		return sub
 	}
 	c := s.newValue(ssa.OpSub, ssa.TI64, mx, lo)
 	return s.makeSlice(ptr, n, c, T)
@@ -993,6 +1033,17 @@ func (s *fnState) compositeLit(e *ast.CompositeLit, T types2.Type) value {
 		// &T{...} elided in a nested literal: the element is a pointer.
 		elem := unwrap(s.subst(p.Elem()))
 		v := s.compositeLit(e, elem)
+		if s.l.counted(elem) {
+			// As &T{...}: storage that lives as long as the pointer may.
+			var slot *ssa.Value
+			if s.staticLits {
+				slot = s.symAddr(s.l.staticObject(elem))
+			} else {
+				slot = s.frameSlot(elem, "lit")
+			}
+			s.storeCounted(lvalue{ptr: slot, T: elem}, v, s.staticLits)
+			return scalarValue(slot, T)
+		}
 		v = s.materialize(v)
 		if !v.addr {
 			tmp := s.temp(elem, "lit")
@@ -1024,15 +1075,15 @@ func (s *fnState) compositeLit(e *ast.CompositeLit, T types2.Type) value {
 				val = kv.Value
 			}
 			ft := s.subst(fields[idx].Type())
-			s.storeTo(s.offPtr(tmp, offs[idx]), s.compositeElem(val, ft), ft)
+			s.assign(lvalue{ptr: s.offPtr(tmp, offs[idx]), T: ft}, s.compositeElem(val, ft), true)
 		}
-		return aggValue(tmp, T)
+		return s.litValue(tmp, T)
 
 	case *types2.Array:
 		tmp := s.temp(T, "lit")
 		s.zero(tmp, s.l.sizeof(T))
 		s.fillElems(tmp, e.Elts, s.subst(u.Elem()))
-		return aggValue(tmp, T)
+		return s.litValue(tmp, T)
 
 	case *types2.Slice:
 		// The backing array lives in this function's frame, like any
@@ -1041,11 +1092,19 @@ func (s *fnState) compositeLit(e *ast.CompositeLit, T types2.Type) value {
 		n := s.literalLen(e.Elts)
 		arrT := types2.NewArray(et, n)
 		var arr *ssa.Value
-		if s.staticLits {
+		switch {
+		case s.staticLits:
 			// During package initialisation the slice outlives the init
 			// function, so its backing array is static.
 			arr = s.symAddr(s.l.staticObject(arrT))
-		} else {
+		case s.l.counted(et):
+			// The slice may be used until the function returns: the
+			// array is a frame slot that holds its elements' references,
+			// dropped when the literal is evaluated again or the
+			// function returns.
+			arr = s.frameSlot(arrT, "lit")
+			s.releaseAt(arr, arrT)
+		default:
 			arr = s.temp(arrT, "lit")
 		}
 		s.zero(arr, s.l.sizeof(arrT))
@@ -1113,9 +1172,18 @@ func (s *fnState) fillElems(base *ssa.Value, elts []ast.Expr, et types2.Type) {
 			i, _ = constIndex(s.info, kv.Key)
 			val = kv.Value
 		}
-		s.storeTo(s.offPtr(base, i*esize), s.compositeElem(val, et), et)
+		s.assign(lvalue{ptr: s.offPtr(base, i*esize), T: et}, s.compositeElem(val, et), true)
 		i++
 	}
+}
+
+// litValue returns a composite literal built at tmp: a statement temporary
+// if it holds references.
+func (s *fnState) litValue(tmp *ssa.Value, T types2.Type) value {
+	if s.l.counted(T) {
+		return s.ownTemp(tmp, T)
+	}
+	return aggValue(tmp, T)
 }
 
 // ----------------------------------------------------------------------------

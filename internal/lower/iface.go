@@ -21,21 +21,23 @@ import (
 // Otherwise the data word points at a copy of the value in the stack frame of
 // the function that made the interface value.
 //
-// Type descriptor layout (40 bytes), mirrored by pluto/rt.typeDesc:
+// Type descriptor layout (48 bytes), mirrored by pluto/rt.typeDesc:
 //
 //	0  size  uintptr
 //	8  hash  uint32
 //	12 kind  uint8
 //	13 flags uint8   (1 = direct)
-//	16 name  string
-//	32 equal func(a, b unsafe.Pointer) bool   (nil if not comparable or direct)
+//	16 name  string  (a static string, strrep.go)
+//	40 equal func(a, b unsafe.Pointer) bool   (nil if not comparable or direct)
 //
 // Itab layout: type descriptor, interface descriptor, then one code pointer
 // per interface method in method order. Each code pointer is an adapter
 // taking the data word as its first argument.
 
 const (
-	descSize   = 40
+	descSize   = 16 + strSize + 8
+	descName   = 16
+	descEqual  = descName + strSize
 	itabHeader = 16
 	flagDirect = 1
 )
@@ -200,11 +202,10 @@ func (tt *typeTable) emit() {
 			buf[13] = flagDirect
 		}
 		name := types2.TypeString(d.T, func(p *types2.Package) string { return p.Name() })
-		binary.LittleEndian.PutUint64(buf[24:], uint64(len(name)))
 		data.Bytes = buf
-		data.Relocs = append(data.Relocs, ssa.DataReloc{Off: 16, Sym: l.stringData(name)})
+		l.putStaticString(data, descName, name)
 		if d.equal != nil {
-			data.Relocs = append(data.Relocs, ssa.DataReloc{Off: 32, Sym: d.equal})
+			data.Relocs = append(data.Relocs, ssa.DataReloc{Off: descEqual, Sym: d.equal})
 		}
 		l.out.Data = append(l.out.Data, data)
 	}
@@ -353,7 +354,15 @@ func (s *fnState) dataWord(v value, T types2.Type) *ssa.Value {
 		// During package initialisation the interface value outlives the
 		// init function, so the box gets static storage, like &T{...}.
 		box := s.symAddr(s.l.staticObject(T))
-		s.storeTo(box, v, T)
+		s.assign(lvalue{ptr: box, T: T}, v, true)
+		return box
+	}
+	if s.l.counted(T) {
+		// The box may be used until the function returns, so it holds
+		// references of its own, released then (or when the conversion
+		// runs again and refills it).
+		box := s.frameSlot(T, "box")
+		s.storeCounted(lvalue{ptr: box, T: T}, v, false)
 		return box
 	}
 	// Box the value in this frame.
@@ -532,9 +541,15 @@ func (s *fnState) receiverFromData(data *ssa.Value, T types2.Type, index []int, 
 			return scalarValue(data, recvT) // T is the pointer type
 		case isPointerLike(T):
 			// A value method called through a pointer: dereference.
-			return s.materialize(s.loadFrom(data, pointerElem(T)))
+			return s.hold(s.materialize(s.loadFrom(data, pointerElem(T))))
 		}
-		return s.materialize(s.fromDataWord(data, T))
+		// The receiver is borrowed from the box, which the interface's
+		// holder keeps alive for the call.
+		v := s.materialize(s.fromDataWord(data, T))
+		if v.addr {
+			v.cnt = cntStable
+		}
+		return v
 	}
 	// A promoted method: walk the embedded fields.
 	var cur lvalue
@@ -554,7 +569,7 @@ func (s *fnState) receiverFromData(data *ssa.Value, T types2.Type, index []int, 
 	if wantPtr {
 		return scalarValue(cur.ptr, recvT)
 	}
-	return s.materialize(s.loadLV(cur))
+	return s.hold(s.materialize(s.loadLV(cur)))
 }
 
 // ifaceMethodValueWrapper synthesizes the code of a method value taken from

@@ -31,9 +31,11 @@ const (
 	DeferInLoop       Code = "E2530" // defer inside a loop
 	TooManyDefers     Code = "E2531" // more than 64 defers in one function
 	DeferBuiltin      Code = "E2532" // defer of a builtin such as copy
-	AllocatingConv    Code = "E2540" // string to []byte, []byte to string, and similar
-	StringConcat      Code = "E2541" // + on strings that are not constants
+	// E2540 and E2541 rejected string conversions and concatenation before
+	// strings were counted; they are retired.
 	ErrorsNewValue    Code = "E2542" // errors.New used other than by calling it
+	KernelStringAlloc Code = "E2543" // an allocating string operation in kernel mode outside //pu:alloc
+	KernelAllocCall   Code = "E2544" // a //pu:alloc function called from kernel code without //pu:alloc
 	PerCPUInit        Code = "E2550" // a per-CPU variable with a non-constant initialiser
 	PerCPUMode        Code = "E2551" // //pu:percpu outside kernel mode
 	PerCPUSection     Code = "E2552" // //pu:percpu with //pu:section

@@ -45,6 +45,21 @@ type fnState struct {
 	// floatReported is set once a kernel-mode float error has been
 	// reported for this function.
 	floatReported bool
+
+	// String counting (strcount.go, strscope.go).
+	cleanups    []*cleanupEntry
+	frameSlots  []countedSlot
+	ownedParams []countedSlot
+	entryZeros  []countedSlot
+	entryEnd    *ssa.Block // the entry block, once the body has its own
+	bodyBlock   *ssa.Block
+	varFacts    map[*types2.Var]*varFacts
+	ownedVars   map[*types2.Var]bool // variables that hold references of their own
+	labelScopes map[*types2.Label]ast.Node
+	// allocOK is set in functions marked //pu:alloc, which may use
+	// allocating string operations in kernel mode.
+	allocOK      bool
+	allocReported bool
 }
 
 type blockState struct {
@@ -59,6 +74,7 @@ type target struct {
 	breakTo  *ssa.Block
 	contTo   *ssa.Block // nil for switch
 	isSwitch bool
+	depth    int // cleanup entries below this one stay open on a break or continue
 }
 
 type labelInfo struct {
@@ -279,8 +295,9 @@ func (l *Lowerer) newFnState(job *funcJob) *fnState {
 		f:      f,
 		job:    job,
 		tmap:   job.tmap,
-		vars:   map[*types2.Var]*ssa.Value{},
-		labels: map[*types2.Label]*labelInfo{},
+		vars:      map[*types2.Var]*ssa.Value{},
+		labels:    map[*types2.Label]*labelInfo{},
+		ownedVars: map[*types2.Var]bool{},
 	}
 	if job.pkg != nil {
 		s.info = job.pkg.Info
@@ -290,6 +307,7 @@ func (l *Lowerer) newFnState(job *funcJob) *fnState {
 	f.NoSSE = l.cfg.Kernel
 	if job.parent != nil {
 		f.NoSSE = job.parent.f.NoSSE
+		s.allocOK = job.parent.allocOK
 	}
 	for range f.Blocks {
 		s.blocks = append(s.blocks, &blockState{})
@@ -328,26 +346,35 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 	}
 
 	if job.build != nil {
+		s.startBody()
+		root := s.pushCleanup(nil, true)
 		job.build(s)
+		s.popCleanup(root)
 	} else {
-		s.bindParams()
 		var body *ast.BlockStmt
 		if job.decl != nil {
 			body = job.decl.Body
 		} else {
 			body = job.lit.Body
 		}
+		s.varFacts = analyzeVars(body, s.info)
+		s.labelScopes = labelBlocks(body, s.info)
+		s.bindParams()
 		if hasDefer(body) {
 			s.deferBits = s.temp(types2.Typ[types2.Uint64], "deferbits")
 			s.store(ssa.TI64, s.deferBits, s.constInt(ssa.TI64, 0))
 		}
+		s.startBody()
+		root := s.pushCleanup(body, true)
 		s.stmtList(body.List)
 		if s.b != nil {
 			// Falling off the end: only valid for functions without results
 			// (the checker rejects missing returns otherwise).
 			s.emitReturn(body.Rbrace)
 		}
+		s.popCleanup(root)
 	}
+	s.finishEntry()
 
 	for _, b := range f.Blocks {
 		s.seal(b)
@@ -384,6 +411,8 @@ func (s *fnState) applyPragmas(doc *ast.CommentGroup) {
 			s.f.Pragmas |= ssa.PragmaNoSIMD
 		case "fpu":
 			s.f.NoSSE = false
+		case "alloc":
+			s.allocOK = true
 		}
 	}
 }
@@ -416,6 +445,13 @@ func (s *fnState) bindParams() {
 			ptr := nextArg(ssa.TPtr)
 			if v != nil {
 				s.vars[v] = ptr
+				if s.l.counted(p.typ) && s.ownsParam(v) {
+					// The caller's copy is borrowed; the function changes
+					// it, so it takes references of its own, released when
+					// it returns.
+					s.retainAt(ptr, p.typ)
+					s.ownedParams = append(s.ownedParams, countedSlot{base: ptr, T: p.typ})
+				}
 			}
 			continue
 		}
@@ -425,6 +461,11 @@ func (s *fnState) bindParams() {
 		}
 		if v != nil {
 			s.vars[v] = addr
+			if s.l.counted(p.typ) && s.ownsParam(v) {
+				s.retainAt(addr, p.typ)
+				s.ownedParams = append(s.ownedParams, countedSlot{base: addr, T: p.typ})
+				s.ownedVars[v] = true
+			}
 		}
 	}
 
@@ -489,6 +530,9 @@ func (s *fnState) emitReturn(pos token.Pos) {
 		s.f.SetPos(pos)
 	}
 	s.runDefers()
+	// Deferred calls may use the function's variables, so they are
+	// released only now.
+	s.releaseForReturn()
 	ret := s.b
 	ret.Kind = ssa.BlockRet
 	ret.Pos = pos

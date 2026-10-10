@@ -15,8 +15,10 @@ func c() int {
 	return Bytes[T]()
 }
 
+// The sizes printed avoid string, which is three words in Plutonium and
+// two in Go.
 func d() int {
-	type T string
+	type T [2]uintptr
 	return Bytes[T]()
 }
 
@@ -118,7 +120,7 @@ func Wrap[T any](v T) any {
 
 func main() {
 	println(a(), b(), local1(), local2(), Inner(1), Inner("s"), c(), d())
-	println(Bytes[struct{ a, b int }](), Rec(3), Rec("x"))
+	println(Bytes[struct{ a, b int }](), Rec(3), Rec([2]int{}))
 	w1, w2 := Wrap(1), Wrap("x")
 	_, ok := w1.(interface{})
 	println(ok, w1 == Wrap(1), w1 == w2)

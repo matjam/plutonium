@@ -17,6 +17,11 @@ const (
 	sysExitGroup   = 231
 )
 
+// A hosted program runs on one thread until its scheduler starts another
+// and calls SetThreaded, so string counts start with plain arithmetic
+// (str.p).
+const atomicCountsAtStart = false
+
 var (
 	argc int
 	argv unsafe.Pointer

@@ -3,6 +3,7 @@ package lower
 import (
 	"fmt"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -74,9 +75,13 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 			if res, ok := s.intrinsic(fn, e); ok {
 				return res
 			}
+			if res, ok := s.countIntrinsic(fn, e, id); ok {
+				return res
+			}
 			targs := s.instanceArgs(id)
 			sig := s.subst(s.info.Types[e.Fun].Type).(*types2.Signature)
 			sym := s.l.funcSym(fn, targs)
+			s.checkAllocCall(fn, e.Pos())
 			args := s.callArgs(e, sig, &defaultsOf{fn, targs})
 			return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn)}, sig, nil, args, e.Pos())
 		}
@@ -154,10 +159,15 @@ func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature, def *defaults
 	n := params.Len()
 	args := s.argSources(e.Args)
 	as := func(a argSource, T types2.Type) value {
+		var v value
 		if a.e != nil {
-			return s.exprAs(a.e, T)
+			v = s.exprAs(a.e, T)
+		} else {
+			v = s.assignConvert(a.v, T, e)
 		}
-		return s.assignConvert(a.v, T, e)
+		// The callee borrows its arguments; one that the call could
+		// change under it is kept alive by a reference of the caller's.
+		return s.hold(v)
 	}
 
 	var out []value
@@ -219,7 +229,7 @@ func (s *fnState) defaultArg(def *defaultsOf, i, n int, T types2.Type, e *ast.Ca
 		s.tmap = newTypeMap(s.l, fn, def.targs)
 	}
 	firstValue, firstBlock := s.f.NumValues(), s.f.NumBlocks()
-	v := s.materialize(s.exprAs(defs[k], T))
+	v := s.hold(s.materialize(s.exprAs(defs[k], T)))
 	s.pkg, s.info, s.tmap = pkg, info, tmap
 	s.moveToCall(firstValue, firstBlock, e.Pos())
 	return v
@@ -320,6 +330,15 @@ func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []
 	if abi.sret {
 		offs := s.l.resultOffsets(abi)
 		for i, p := range abi.results {
+			if s.l.counted(p.typ) {
+				// The result's references are the caller's: keep them in
+				// a temporary of their own, since the sret buffer is
+				// reused by every execution of this call.
+				tmp := s.temp(p.typ, "res")
+				s.move(tmp, s.offPtr(sretBuf, offs[i]), s.l.sizeof(p.typ))
+				out = append(out, s.ownTemp(tmp, p.typ))
+				continue
+			}
 			out = append(out, s.loadFrom(s.offPtr(sretBuf, offs[i]), p.typ))
 		}
 		return out
@@ -335,6 +354,11 @@ func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []
 		for _, lf := range p.leaves {
 			s.store(lf.t, s.offPtr(tmp, lf.off), s.selectN(call, k, lf.t))
 			k++
+		}
+		if s.l.counted(p.typ) {
+			// Results are owned: the callee handed over a reference.
+			out = append(out, s.ownTemp(tmp, p.typ))
+			continue
 		}
 		out = append(out, aggValue(tmp, p.typ))
 	}
@@ -460,6 +484,8 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 	targs := s.methodTypeArgs(fn, se, recvT)
 	sym := s.l.funcSym(fn, targs)
 	full := s.l.methodSig(fn, targs)
+	recv = s.hold(recv)
+	s.checkAllocCall(fn, e.Pos())
 	args := s.callArgs(e, sig, &defaultsOf{fn, targs})
 	return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn)}, full, &recv, args, e.Pos())
 }
@@ -550,6 +576,11 @@ func (s *fnState) methodReceiver(x ast.Expr, fn *types2.Func, path []int) value 
 		cur = s.lv(x)
 	} else {
 		v := s.materialize(s.expr(x))
+		if wantPtr && s.l.counted(xt) {
+			// The method may change the temporary through the pointer, so
+			// it must hold references of its own.
+			v = s.holdOwned(v)
+		}
 		if !v.addr {
 			if len(path) == 1 && !wantPtr {
 				return v
@@ -588,9 +619,13 @@ func (s *fnState) receiverFromValue(v value, fn *types2.Func, path []int) value 
 		return v
 	}
 	var cur lvalue
-	if isPointerLike(v.T) {
+	switch {
+	case isPointerLike(v.T):
 		cur = lvalue{ptr: v.v, T: pointerElem(v.T)}
-	} else {
+	case s.l.counted(v.T):
+		// A copy the method may change: it holds references of its own.
+		cur = lvalue{ptr: s.holdOwned(v).v, T: v.T, stable: true}
+	default:
 		tmp := s.temp(v.T, "recv")
 		s.storeTo(tmp, v, v.T)
 		cur = lvalue{ptr: tmp, T: v.T}
@@ -684,6 +719,9 @@ func (l *Lowerer) methodExprThunk(R types2.Type, fn *types2.Func, path []int, ta
 // static closure record holding its code pointer.
 func (s *fnState) funcValue(fn *types2.Func, targs []types2.Type, pos token.Pos) *ssa.Value {
 	s.l.errorsNewValue(fn, pos, "used as a func value")
+	if fn.Pkg() != nil && fn.Pkg().Path() == "pluto/rt" && countIntrinsics[fn.Name()] {
+		s.l.errorf(pos, diag.NotYetSupported, "rt.%s is expanded inline by the compiler and cannot be used as a func value", fn.Name())
+	}
 	sym := s.l.funcSym(fn, targs)
 	s.checkNotHandler(sym, pos, "used as a func value")
 	if s.l.isCFunc(sym) {
@@ -777,6 +815,15 @@ func (s *fnState) methodValue(se *ast.SelectorExpr, sel *types2.Selection) *ssa.
 	size := 8 + s.l.sizeof(recv.T)
 	rec := s.methodValueRecord((size + 7) &^ 7)
 	s.store(ssa.TPtr, rec, s.funcAddr(wrapper))
+	if s.l.counted(recv.T) {
+		// The record keeps a copy of the receiver until the function
+		// returns (or for ever, in a package initialiser).
+		if !s.staticLits {
+			s.addFrameSlot(rec, 8, recv.T)
+		}
+		s.storeCounted(lvalue{ptr: s.offPtr(rec, 8), T: recv.T}, recv, s.staticLits)
+		return rec
+	}
 	s.storeTo(s.offPtr(rec, 8), recv, recv.T)
 	return rec
 }
@@ -844,7 +891,9 @@ func (s *fnState) incomingArgs(sig *types2.Signature) []value {
 			a := s.newValue(ssa.OpArg, ssa.TPtr)
 			a.AuxInt = int64(idx)
 			idx++
-			out = append(out, aggValue(a, p.typ))
+			v := aggValue(a, p.typ)
+			v.cnt = cntStable
+			out = append(out, v)
 			continue
 		}
 		tmp := s.temp(p.typ, "arg")
@@ -854,16 +903,20 @@ func (s *fnState) incomingArgs(sig *types2.Signature) []value {
 			idx++
 			s.store(lf.t, s.offPtr(tmp, lf.off), a)
 		}
-		out = append(out, s.loadFrom(tmp, p.typ))
+		v := s.loadFrom(tmp, p.typ)
+		// Parameters are borrowed from the caller, who keeps them alive.
+		v.cnt = cntStable
+		out = append(out, v)
 	}
 	return out
 }
 
 // returnValues returns the given values from a synthesized function.
+// Results are owned, so each takes a reference (strcount.go).
 func (s *fnState) returnValues(res []value) {
 	for i, p := range s.abi.results {
 		addr := s.temp(p.typ, "result")
-		s.storeTo(addr, res[i], p.typ)
+		s.assign(lvalue{ptr: addr, T: p.typ}, res[i], true)
 		s.results = append(s.results, addr)
 	}
 	s.emitReturn(token.NoPos)

@@ -7,7 +7,7 @@ len=8 last=9
 cleared len=0 pop ok=false cap=1024
 freed live=0 len=0 cap=0
 reuse 5 live=32
-big len=100 total=29800 used=10160
+big len=100 total=29800 used=12192
 align ok=true gap=8 used=16
 after free last used=8
 after release used=8 avail=65528 cap=65536
