@@ -61,6 +61,24 @@ func TestNilMap(t *testing.T) {
 	}
 }
 
+type edge struct{ a, b int32 }
+
+func hashEdge(k edge) uint64 { return Mix(Mix(0, HashAny(k.a)), HashAny(k.b)) }
+
+func TestMapFunc(t *testing.T) {
+	m := NewMapFunc[edge, bool](0, hashEdge)
+	for i := int32(0); i < 50; i++ {
+		m.Set(edge{i, i + 1}, true)
+	}
+	if !MapAt(m, edge{7, 8}) || MapAt(m, edge{8, 7}) || MapLen(m) != 50 {
+		t.Fatalf("struct keys")
+	}
+	k := MapOfFunc(func(k [4]byte) uint64 { return HashBytes(k[:]) }, Pair[[4]byte, int]{[4]byte{1, 2, 3, 4}, 9})
+	if MapAt(k, [4]byte{1, 2, 3, 4}) != 9 || HashAny("x") != HashAny("x") || HashAny(1) == HashAny(2) {
+		t.Fatalf("array keys or HashAny")
+	}
+}
+
 func TestMapOf(t *testing.T) {
 	m := MapOf(Pair[string, int]{"one", 1}, Pair[string, int]{"two", 2})
 	if MapAt(m, "two") != 2 || MapLen(m) != 2 {

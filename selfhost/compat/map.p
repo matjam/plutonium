@@ -34,6 +34,33 @@ func NewMap[K comparable, V any](n int) *hash.Map[K, V] {
 	return m
 }
 
+// NewMapFunc is NewMap for keys hash.Map cannot hash by itself (structs and
+// arrays), with a hash function go2pu generates from the key type.
+func NewMapFunc[K comparable, V any](n int, h func(K) uint64) *hash.Map[K, V] {
+	m := alloc.New[hash.Map[K, V]]()
+	m.InitFunc(alloc.Default(), n, h)
+	return m
+}
+
+// MapOfFunc is MapOf with a hash function, as for NewMapFunc.
+func MapOfFunc[K comparable, V any](h func(K) uint64, entries ...Pair[K, V]) *hash.Map[K, V] {
+	m := NewMapFunc[K, V](len(entries), h)
+	for _, e := range entries {
+		m.Set(e.Key, e.Val)
+	}
+	return m
+}
+
+// HashAny hashes a value of a type hash.Map hashes by itself (integers,
+// booleans, pointers, floats and strings), for generated key hashes.
+func HashAny[T comparable](x T) uint64 { return ifaceHash(any(x)) }
+
+// HashBytes hashes a byte slice by its contents.
+func HashBytes(b []byte) uint64 { return hash.Bytes(b, hash.DefaultSeed) }
+
+// Mix combines a running hash with the hash of the next component.
+func Mix(h, x uint64) uint64 { return hash.Uint64(h^x, hash.DefaultSeed) }
+
 // ifaceHash hashes an interface value by its dynamic value: the data word
 // for values that fit in it (pointers, integers), the contents for strings.
 // Other dynamic types panic: their equality compares contents the hash

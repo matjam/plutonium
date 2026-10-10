@@ -20,8 +20,10 @@ var translations = []struct {
 }{
 	{dir: "../../internal/objfile"},
 	{dir: "../../internal/ssa"},
+	{dir: "../../internal/arch/amd64"},
 	{dir: "testdata/objdemo", demo: true},
 	{dir: "testdata/ssademo", demo: true},
+	{dir: "testdata/amd64demo", demo: true},
 	{dir: "testdata/rewrites", demo: true},
 }
 

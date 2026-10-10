@@ -282,6 +282,79 @@ func (t *fileTr) concatOperands(e ast.Expr, out []ast.Expr) []ast.Expr {
 	return append(out, e)
 }
 
+// newMap returns a call creating an empty map of type mt.
+func (t *fileTr) newMap(mt *types.Map, size string) string { return t.newMapAt(nil, mt, size) }
+
+func (t *fileTr) newMapAt(at ast.Node, mt *types.Map, size string) string {
+	k, v := t.typeText(mt.Key()), t.typeText(mt.Elem())
+	if h := t.keyHashFunc(at, mt.Key()); h != "" {
+		return fmt.Sprintf("%s.NewMapFunc[%s, %s](%s, %s)", t.compat(), k, v, size, h)
+	}
+	return fmt.Sprintf("%s.NewMap[%s, %s](%s)", t.compat(), k, v, size)
+}
+
+// keyHashFunc returns a function literal hashing keys of type K, for the
+// struct and array keys hash.Map cannot hash by itself, or "" for keys it
+// can. The literal captures nothing, so the map may keep it.
+func (t *fileTr) keyHashFunc(at ast.Node, K types.Type) string {
+	switch K.Underlying().(type) {
+	case *types.Struct, *types.Array:
+	default:
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "func(k %s) uint64 {\nh := uint64(0)\n", t.typeText(K))
+	if !t.hashComponents(&b, at, "k", K, 0) {
+		return ""
+	}
+	b.WriteString("return h\n}")
+	return b.String()
+}
+
+// hashComponents writes statements mixing the components of e (of type T)
+// into h. It reports false, after noting why, if a component cannot be
+// hashed.
+func (t *fileTr) hashComponents(b *strings.Builder, at ast.Node, e string, T types.Type, depth int) bool {
+	c := t.compat()
+	switch u := T.Underlying().(type) {
+	case *types.Basic, *types.Pointer, *types.Chan:
+		fmt.Fprintf(b, "h = %s.Mix(h, %s.HashAny(%s))\n", c, c, e)
+	case *types.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			f := u.Field(i)
+			if f.Name() == "_" {
+				continue
+			}
+			if !f.Exported() && f.Pkg() != t.pkg {
+				if at != nil {
+					t.note(at, "map key %s has an unexported field of another package: hand-fix its hash", T)
+				}
+				return false
+			}
+			if !t.hashComponents(b, at, e+"."+f.Name(), f.Type(), depth) {
+				return false
+			}
+		}
+	case *types.Array:
+		if eb, ok := u.Elem().Underlying().(*types.Basic); ok && eb.Kind() == types.Byte {
+			fmt.Fprintf(b, "h = %s.Mix(h, %s.HashBytes(%s[:]))\n", c, c, e)
+			return true
+		}
+		x := fmt.Sprintf("goX%d", depth)
+		fmt.Fprintf(b, "for _, %s := range %s {\n", x, e)
+		if !t.hashComponents(b, at, x, u.Elem(), depth+1) {
+			return false
+		}
+		b.WriteString("}\n")
+	default:
+		if at != nil {
+			t.note(at, "map key %s has a component of type %s with no hash: hand-fix", T, u)
+		}
+		return false
+	}
+	return true
+}
+
 // mapLiteral translates a map composite literal.
 func (t *fileTr) mapLiteral(n *ast.CompositeLit) (string, bool) {
 	T := t.typeOf(n)
@@ -295,10 +368,14 @@ func (t *fileTr) mapLiteral(n *ast.CompositeLit) (string, bool) {
 	k, v := t.typeText(mt.Key()), t.typeText(mt.Elem())
 	c := t.compat()
 	if len(n.Elts) == 0 {
-		return fmt.Sprintf("%s.NewMap[%s, %s](0)", c, k, v), true
+		return t.newMap(mt, "0"), true
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s.MapOf[%s, %s](\n", c, k, v)
+	if h := t.keyHashFunc(n, mt.Key()); h != "" {
+		fmt.Fprintf(&b, "%s.MapOfFunc[%s, %s](%s,\n", c, k, v, h)
+	} else {
+		fmt.Fprintf(&b, "%s.MapOf[%s, %s](\n", c, k, v)
+	}
 	for _, e := range n.Elts {
 		kv, ok := e.(*ast.KeyValueExpr)
 		if !ok {
@@ -437,7 +514,7 @@ func (t *fileTr) builtin(n *ast.CallExpr, name string) (string, bool) {
 			if len(n.Args) > 1 {
 				size = t.render(n.Args[1])
 			}
-			return fmt.Sprintf("%s.NewMap[%s, %s](%s)", t.compat(), t.typeText(mt.Key()), t.typeText(mt.Elem()), size), true
+			return t.newMapAt(n, mt, size), true
 		}
 	case "len", "delete", "clear":
 		if len(n.Args) > 0 && t.isMapValue(n.Args[0]) {
