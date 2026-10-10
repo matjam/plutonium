@@ -99,7 +99,7 @@ Each of these is a compile error that names the construct and the reason.
 | Removed | Reason | Use instead |
 |---|---|---|
 | `map[K]V`, `delete` | needs a garbage-collected hash table, and a map value that secretly refers to memory nobody owns (section 6.1) | `pluto/hash.Map[K, V]`, an owner |
-| `recover` | needs an unwinder; `panic` aborts (section 8) | return errors (section 14) |
+| `recover` | needs an unwinder that resumes a frame; a panic never returns to the code that panicked (section 8) | return errors (section 14) |
 | `import "reflect"` | needs runtime type metadata | type switches, generics |
 | `complex64`, `complex128`, `complex`, `real`, `imag` | rarely useful in systems code; keeps the backend small | a struct of two floats |
 | `append` beyond capacity | a slice is a view and owns no array it could grow (section 6.3) | `pluto/vec.Vec[T]`, an owner (section 6.6) |
@@ -114,9 +114,15 @@ In kernel mode they follow the rules of any allocation (section 12.7).
 
 ### 4.1 `panic` aborts
 
-`panic(v)` stops the program. It does not unwind the stack, deferred calls do not run, and owners are not
-dropped (section 6.4). It calls the program's panic handler, which never returns. See
-[section 8](#8-runtime-faults-and-panic).
+`panic(v)` stops the program. It does not unwind the stack: control never returns to a function that
+panicked, so there is no `recover`, and owners are not dropped (section 6.4). In hosted builds the
+panicking task first runs its pending deferred calls, innermost frame first, as Go runs them for a panic
+that nothing recovers; other tasks are not affected (section 8.2). Then the runtime calls the program's
+panic handler, which never returns. Freestanding and kernel builds run no deferred calls: their panic
+handler must work from whatever state the panic left. See [section 8](#8-runtime-faults-and-panic).
+
+`rt.Goexit` is the controlled way to leave a task early: it runs the deferred calls of every frame and
+drops what each holds (section 8.3).
 
 ### 4.2 `new` and `make` allocate from an allocator
 
@@ -596,7 +602,8 @@ closure built in the enclosing frame and passed to `f`, which is how Go compiles
 - An iterator that calls `yield` when it may not panics with Go's message: after `yield` returned false
   ("range function continued iteration after function for loop body returned false"), after the loop
   ended ("... after whole loop exit"), or while the body is running ("... after loop body panic", which
-  Go reports for that state). A panic in the body stops the program (section 4.1); no iterator can
+  Go reports for that state). A panic in the body stops the program (section 4.1), after the deferred
+  calls of the iterator and of the function the loop is in have run (hosted builds); no iterator can
   recover it.
 - A `defer` in the body defers a call of the enclosing function, as in Go: it runs when that function
   returns. Plutonium gives each `defer` statement one slot in the function's frame, so a `defer` inside
@@ -2593,11 +2600,12 @@ A program that needs a scheduler and binds none fails to build rather than panic
 in a puroutine other than the one that runs `main` names it: the built-in handler prints `puroutine N:`
 before the trace, and `rt.Panic.Puroutine` holds the number.
 
-A panic does not unwind: deferred functions do not run and owners are not dropped. The runtime writes
-the panic's message and calls the program's **panic handler** (section 8.1), which never returns. In
-hosted builds without a handler of their own, the built-in one prints `panic: ` followed by the value
-(and, for faults, what failed and where), then a stack trace with the function, file and line of each
-frame, and the process exits with status 2.
+A panic does not unwind: control never returns to a frame that panicked, and owners are not dropped. In
+hosted builds the panicking task first runs its pending deferred calls (section 8.2). The runtime then
+calls the program's **panic handler** (section 8.1), which never returns. In hosted builds without a
+handler of their own, the built-in one prints `panic: ` followed by the value (and, for faults, what
+failed and where), then a stack trace with the function, file and line of each frame, and the process
+exits with status 2.
 
 Dereferencing a nil pointer is not checked by the compiler; it faults in hardware wherever address zero is
 unmapped, which is true in hosted builds and should be arranged by kernels. In hosted builds the runtime
@@ -2673,7 +2681,7 @@ rather than `os.Stderr`: once a program makes a pipe, writing to an `os.File` ma
 and the check cannot tell which file is written. The message lives in a
 buffer of the runtime (1 KiB, longer messages are cut), and printing the trace reads the trace table and
 the stack (debugging.md section 5), so nothing allocates. Since a panic does not unwind, the stack the
-trace describes is still there while the handler runs.
+trace describes is still there while the handler runs, deferred calls having run below it (section 8.2).
 
 Hardware faults reach the handler too. In hosted builds the runtime's signal handler does it. A kernel's
 exception handlers call
@@ -2728,6 +2736,104 @@ kernel: no panic handler is defined
     (see "Panics in freestanding programs" in the Plutonium spec, section 8.1)
     (run "pluto explain E2580" for a longer explanation)
 ```
+
+### 8.2 Deferred calls on a panic
+
+In hosted builds a panic runs the panicking task's pending deferred calls before the panic handler is
+called, as Go runs the deferred calls of a goroutine whose panic nothing recovers:
+
+```go
+w := bufio.NewWriter(os.Stdout)
+defer w.Flush()            // runs: the output written so far is not lost
+defer os.RemoveAll(tmp)    // runs
+process(items)             // panics on bad input
+```
+
+- **Which calls.** Every deferred call armed in a frame of the task that panicked, innermost frame
+  first and, within a frame, the last deferred first, with the arguments evaluated at its `defer`
+  statement. A `defer` in the body of a range-over-func loop belongs to the function the loop is in
+  (section 4.10). Deferred calls of other tasks do not run; those tasks keep running meanwhile, so a
+  deferred `Unlock` lets a task waiting for the lock go on. If one of them panics in the meantime, it may
+  end the program first, as in Go.
+- **Nothing else changes.** Control never returns to a function that panicked: there is no `recover`.
+  Owners are not dropped (section 6.4), and a function's result variables are not returned anywhere.
+- **Which panics.** `panic(v)`, the runtime errors of section 8, and the faults the runtime turns into
+  panics (a nil pointer dereference, an integer division fault). For a fault, the runtime leaves the
+  signal handler and runs the deferred calls on the faulting task's own stack. A panic runs no deferred
+  calls after a stack overflow, which leaves no stack to run them on (Go also reports one without
+  them); after a heap error the debug allocator reports (section 7.3) or a stop by `rt.Abort` or
+  `rt.PanicFault`, after which the program's state is not to be trusted; while the task has preemption
+  disabled, which means it holds a runtime lock or is inside the scheduler, where a deferred call could
+  wait for good; and outside any task (a scheduler's own context).
+- **A panic in a deferred call** that runs for a panic goes straight to the panic handler: the deferred
+  calls after it do not run. The new panic's `rt.Panic.During` points to the first, and the built-in
+  handler prints both messages as Go does, then the trace from the second panic through the deferred
+  call into the frames where the first one happened:
+
+  ```
+  panic: runtime error: integer divide by zero
+  	panic: close failed
+      main.(*conn).Close (./main.p:13)
+      main.work (./main.p:20)
+      main.main (./main.p:26)
+  ```
+
+  A deferred call that calls `rt.Goexit` while deferred calls run for a panic stops them too, and the
+  program ends with the panic.
+- **What the handler sees.** The panic as it happened: `Message` (copied out of the runtime's buffer
+  before the deferred calls run), `Value`, `Fault`, and a trace that starts where the panic happened,
+  not in the deferred calls, since those ran below the frames it describes and left them as they were.
+  A program's own `//pu:panic` handler is called in the same way, after the deferred calls; it does not
+  run them itself.
+
+Freestanding and kernel builds keep the panic as it was: no deferred calls run, since the handler must
+work from any state, with interrupts disabled or a lock held.
+
+**How.** A function with `defer` statements keeps, in hosted builds, the bits that say which of its
+deferred calls are armed and the values each `defer` statement saved in one slot of its frame, the defer
+record, which the compiler never moves into registers. For each such function it also generates a small
+function that runs the armed calls of a record, last first. The trace table lists, for each such
+function, where its record lies in the frame and that function (debugging.md section 5); the runtime walks
+the panicking task's frames as it does for a stack trace and runs each frame's armed calls. A deferred
+call clears its bit before it runs, on a normal return too, so a deferred call that panics on the way out
+of a return is not run again. Code that does not panic pays a store when each `defer` statement runs and
+another when each deferred call runs, and functions with `defer` statements are not inlined (Go does not
+inline them either); a function without `defer` pays nothing.
+
+### 8.3 Ending a task with `rt.Goexit`
+
+`rt.Goexit()` ends the calling task, as Go's `runtime.Goexit` does: every function on the task's stack,
+innermost first, runs its deferred calls and drops what it holds, as if it returned at the call it is in,
+and then the task ends. It is not a panic: no handler is called, and other tasks are not affected.
+
+- **In a deferred call.** A deferred call that calls `Goexit` ends its own frames; the deferred calls
+  after it in the frame that deferred it still run, and the task ends afterwards, as in Go.
+- **In the task that runs `main`.** `main` does not return: its deferred calls run, the other tasks go on,
+  and once none of them is left (or all wait for good) the program stops with "fatal error: no
+  puroutines (main called rt.Goexit) - deadlock!" and status 2, as Go's does.
+- **Tests.** `testing`'s `FailNow`, and `Fatal`, `Fatalf`, `SkipNow`, `Skip` and `Skipf`, call
+  `Goexit`, so a test's deferred calls run when it stops early. The test runner stops the exit with
+  `rt.CatchGoexit(f func()) bool`, which calls `f` and reports whether it ended with `Goexit`; the next
+  test then runs on the same task.
+- **C.** `Goexit` cannot leave a function that C code called (`//pu:export`): the call panics at the
+  boundary with "rt.Goexit cannot leave a function called from C".
+
+`Goexit` is not an unwinder. It sets a flag in the task and returns; after every call that may end
+with `Goexit`, the compiler checks the flag and, if it is set, leaves the function through its ordinary
+return path, which runs its deferred calls and drops its variables exactly as a `return` there would, and
+sets the flag again for its caller. The check is made only after calls that may reach `Goexit`, which
+the compiler works out from the whole program: a call of a function that calls `Goexit` or a function
+that may, and a call through a func value or an interface that may reach one: a function literal or a
+function whose value the program takes, of an identical type, or a method of the same name and type, with
+type parameters matching any type. A program that never calls `Goexit` has no checks; in one that does,
+code that cannot reach it has none. The match is conservative where generic code is involved, so a test
+binary checks after some calls in the library (in `pluto/fmt`, through generic iterators) that never
+reach `Goexit`; a check costs a call and a branch.
+
+Since every frame leaves through its return path, a frame that holds a `sync.Scope` (scoped tasks, the
+scoped-puroutines design note) joins its tasks there, as on any return: `Goexit` needs no list of scopes
+to wait for. That list (`rt.WaitScopes`) remains for kernels that abandon a task's stack without
+returning.
 
 ## 9. Directives
 
@@ -3116,7 +3222,7 @@ hold, and most have a `Clone`.
 | `pluto/sync/atomic` | atomic integers and pointers |
 | `pluto/unicode` | Go's `unicode` with Go 1.27's Unicode 17.0.0 tables (generated by `tools/mkunicode`): `IsLetter`, `IsDigit`, `IsSpace`, `IsUpper`, `IsLower`, `IsPunct`, `IsPrint`, `IsGraphic`, `ToUpper`, `ToLower`, `ToTitle`, `SimpleFold`, `Is` and `In` over `RangeTable`s; a variable for each category, script and property table, and no maps from names to tables |
 | `pluto/unicode/utf8` | UTF-8 encoding and decoding |
-| `pluto/testing` | tests and benchmarks for `pluto test` (hosted) |
+| `pluto/testing` | tests and benchmarks for `pluto test` (hosted); `FailNow`, `Fatal`, `SkipNow` and their relatives end the test function with `rt.Goexit`, so its deferred calls run (section 8.3) |
 | `pluto/errors` | `New` (a static error per call site), `Is`, `As`, `AsType`, `Unwrap`, `Join`, `Free` (section 14) |
 
 `pluto/os` and `pluto/syscall` are not available in freestanding builds.

@@ -463,6 +463,14 @@ type Func struct {
 	// opt.ElideStringHolds removes those whose calls cannot.
 	StrHolds []StrHold
 
+	// DeferRecord, in a hosted build, is the slot holding the function's
+	// defer record (internal/lower/deferrec.go), and DeferRunner the
+	// function that runs the deferred calls armed in it, which the
+	// runtime calls when the function's task panics. The backend reports
+	// the slot's offset in the trace table. Both are nil otherwise.
+	DeferRecord *Slot
+	DeferRunner *Sym
+
 	Blocks []*Block
 	Entry  *Block
 	Slots  []*Slot

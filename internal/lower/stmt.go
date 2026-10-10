@@ -931,7 +931,7 @@ func (s *fnState) namedResults() bool {
 // return x, x retains the second copy. It reports whether it stored the
 // result.
 func (s *fnState) moveOnReturn(e ast.Expr, v value, T types2.Type, i int, moved map[*types2.Var]bool) bool {
-	if !s.l.counted(T) || s.deferBits != nil || s.namedResults() {
+	if !s.l.counted(T) || s.hasDefers() || s.namedResults() {
 		return false
 	}
 	id, ok := ast.Unparen(e).(*ast.Ident)
@@ -1014,7 +1014,7 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 	bit := len(root.defers)
 	call := st.Call
 
-	var run func(s *fnState)
+	var run func(s *fnState, rec *ssa.Value)
 	funTV := s.info.Types[call.Fun]
 	switch {
 	case funTV.IsBuiltin():
@@ -1022,16 +1022,16 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 		switch name {
 		case "print", "println":
 			// Arguments are evaluated at the defer statement.
-			args := make([]value, len(call.Args))
+			args := make([]savedArg, len(call.Args))
 			for i, a := range call.Args {
 				args[i] = s.saveValue(s.printOperand(a))
 			}
-			run = func(s *fnState) {
+			run = func(s *fnState, rec *ssa.Value) {
 				for i, a := range args {
 					if i > 0 && name == "println" {
 						s.callRuntime("printSpace", nil)
 					}
-					v := s.loadFrom(a.v, a.T)
+					v := s.loadSaved(a, rec)
 					s.printValue(v, a.T, call)
 				}
 				if name == "println" {
@@ -1040,13 +1040,13 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 			}
 		case "close":
 			ch := s.saveValue(s.materialize(scalarValue(s.scalar(call.Args[0]), s.typeOf(call.Args[0]))))
-			run = func(s *fnState) {
-				s.callRuntime("closechan", nil, []*ssa.Value{s.loadFrom(ch.v, ch.T).v})
+			run = func(s *fnState, rec *ssa.Value) {
+				s.callRuntime("closechan", nil, []*ssa.Value{s.loadSaved(ch, rec).v})
 			}
 		case "panic":
 			arg := s.saveValue(s.exprAs(call.Args[0], types2.NewInterfaceType(nil, nil)))
-			run = func(s *fnState) {
-				parts := s.leafValues(s.loadFrom(arg.v, arg.T), []leaf{{0, ssa.TPtr}, {8, ssa.TPtr}})
+			run = func(s *fnState, rec *ssa.Value) {
+				parts := s.leafValues(s.loadSaved(arg, rec), []leaf{{0, ssa.TPtr}, {8, ssa.TPtr}})
 				s.callRuntimeNoReturn("panicValue", parts...)
 				dead := s.newBlock(ssa.BlockInvalid)
 				s.seal(dead)
@@ -1079,9 +1079,9 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 					sig := s.subst(funTV.Type).(*types2.Signature)
 					args := s.saveValues(s.callArgs(call, sig, def))
 					site := &callSite{desc: types2.ExprString(call.Fun), recv: types2.ExprString(se.X)}
-					run = func(s *fnState) {
-						r := s.loadFrom(recv.v, recv.T)
-						s.emitCall(callee{sym: sym, site: site}, full, &r, s.loadValues(args), call.Pos())
+					run = func(s *fnState, rec *ssa.Value) {
+						r := s.loadSaved(recv, rec)
+						s.emitCall(callee{sym: sym, site: site, deferred: true}, full, &r, s.loadValues(args, rec), call.Pos())
 					}
 				}
 			}
@@ -1099,7 +1099,9 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 				sig := s.subst(funTV.Type).(*types2.Signature)
 				args := s.saveValues(s.callArgs(call, sig, &defaultsOf{fn, targs}))
 				site := &callSite{desc: types2.ExprString(call.Fun)}
-				run = func(s *fnState) { s.emitCall(callee{sym: sym, site: site}, sig, nil, s.loadValues(args), call.Pos()) }
+				run = func(s *fnState, rec *ssa.Value) {
+					s.emitCall(callee{sym: sym, site: site, deferred: true}, sig, nil, s.loadValues(args, rec), call.Pos())
+				}
 				break
 			}
 		}
@@ -1116,51 +1118,91 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 		fv := s.saveValue(scalarValue(f, s.typeOf(call.Fun)))
 		args := s.saveValues(s.callArgs(call, sig, nil))
 		site := &callSite{desc: types2.ExprString(call.Fun), fsig: sig}
-		run = func(s *fnState) {
-			f := s.loadFrom(fv.v, fv.T).v
-			s.emitCall(callee{code: s.load(ssa.TPtr, f), ctx: f, site: site}, sig, nil, s.loadValues(args), call.Pos())
+		run = func(s *fnState, rec *ssa.Value) {
+			f := s.loadSaved(fv, rec).v
+			s.emitCall(callee{code: s.load(ssa.TPtr, f), ctx: f, site: site, deferred: true}, sig, nil, s.loadValues(args, rec), call.Pos())
 		}
 	}
 
-	bitsp := s.outerPtr(root.deferBits, root)
+	// Arm the call. In a hosted build the store is volatile: the runtime
+	// reads the bits when the function panics (deferrec.go), so the store
+	// must be in memory before anything after it can fault.
+	bitsp := s.outerPtr(root.deferBitsAddr(), root)
 	bits := s.load(ssa.TI64, bitsp)
-	s.store(ssa.TI64, bitsp, s.newValue(ssa.OpOr, ssa.TI64, bits, s.constInt(ssa.TI64, 1<<bit)))
-	root.defers = append(root.defers, &deferInfo{run: run})
+	armed := s.newValue(ssa.OpOr, ssa.TI64, bits, s.constInt(ssa.TI64, 1<<bit))
+	if root.deferRec != nil {
+		s.storeVolatile(ssa.TI64, bitsp, armed)
+	} else {
+		s.store(ssa.TI64, bitsp, armed)
+	}
+	root.defers = append(root.defers, &deferInfo{run: run, mayGoexit: s.l.deferMayGoexit(s, call)})
 }
 
-// saveValue copies a value into a fresh slot and returns its address as an
-// aggregate-style value (v.v is the slot address). The slot is in the frame
-// whose returns run deferred calls: in a range-over-func loop body, the
-// enclosing function's, and v.v is its address there.
-func (s *fnState) saveValue(v value) value {
+// A savedArg is a value a defer statement saved for its call: in the
+// defer record at off (hosted builds, deferrec.go), or in a slot of its own
+// at addr, an address in the frame whose returns run the call.
+type savedArg struct {
+	off  int64
+	addr *ssa.Value
+	T    types2.Type
+	cnt  countKind
+}
+
+// saveValue copies a value into storage that lasts until the deferred call
+// has run, in the frame whose returns run deferred calls: in a
+// range-over-func loop body, the enclosing function's.
+func (s *fnState) saveValue(v value) savedArg {
 	root := s.rootFn()
-	if v.addr && s.l.counted(v.T) {
-		// The saved argument keeps references until the function returns,
-		// after the deferred call has run.
+	counted := v.addr && s.l.counted(v.T)
+	if root.deferRec != nil {
+		off := root.recordField(v.T)
+		ptr := s.offPtr(s.outerPtr(root.deferRec, root), off)
+		a := savedArg{off: off, T: v.T}
+		if counted {
+			// The saved argument keeps references until the function
+			// returns, after the deferred call has run.
+			s.storeCounted(lvalue{ptr: ptr, T: v.T}, v, false)
+			root.addFrameSlot(root.deferRec, off, v.T)
+			a.cnt = cntStable
+			return a
+		}
+		s.storeTo(ptr, v, v.T)
+		return a
+	}
+	if counted {
 		slot := root.frameSlot(v.T, "defer")
 		s.storeCounted(lvalue{ptr: s.outerPtr(slot, root), T: v.T}, v, false)
-		saved := aggValue(slot, v.T)
-		saved.cnt = cntStable
-		return saved
+		return savedArg{addr: slot, T: v.T, cnt: cntStable}
 	}
 	tmp := root.temp(v.T, "defer")
 	s.storeTo(s.outerPtr(tmp, root), v, v.T)
-	return aggValue(tmp, v.T)
+	return savedArg{addr: tmp, T: v.T}
 }
 
-func (s *fnState) saveValues(vs []value) []value {
-	out := make([]value, len(vs))
+func (s *fnState) saveValues(vs []value) []savedArg {
+	out := make([]savedArg, len(vs))
 	for i, v := range vs {
 		out[i] = s.saveValue(v)
 	}
 	return out
 }
 
-func (s *fnState) loadValues(saved []value) []value {
+// loadSaved reads a saved value for the deferred call; rec is the address
+// of the defer record in the function emitting the call.
+func (s *fnState) loadSaved(a savedArg, rec *ssa.Value) value {
+	ptr := a.addr
+	if ptr == nil {
+		ptr = s.offPtr(rec, a.off)
+	}
+	v := s.loadFrom(ptr, a.T)
+	v.cnt = a.cnt
+	return v
+}
+
+func (s *fnState) loadValues(saved []savedArg, rec *ssa.Value) []value {
 	out := make([]value, len(saved))
-	for i, v := range saved {
-		out[i] = s.loadFrom(v.v, v.T)
-		out[i].cnt = v.cnt
+	for i, a := range saved {
+		out[i] = s.loadSaved(a, rec)
 	}
 	return out
 }

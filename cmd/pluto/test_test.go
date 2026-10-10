@@ -42,10 +42,14 @@ const calc = "testdata/testpkg/calc"
 // the test runner. The package's files are named relative to the module
 // root (testdata/testpkg), and the standard library's by import path.
 const crashTrace = `    example.com/testpkg/crash.Div (./crash/crash.p:5)
-    example.com/testpkg/crash.TestPanics.func1 (./crash/crash_test.p:11)
+    example.com/testpkg/crash.TestPanics.func1 (./crash/crash_test.p:12)
+    pluto/testing.(*T).run.func1 (pluto/testing/testing.p:N)
+    pluto/rt.CatchGoexit (pluto/rt/goexit.p:N)
     pluto/testing.(*T).run (pluto/testing/testing.p:N)
     pluto/testing.(*T).Run (pluto/testing/testing.p:N)
     example.com/testpkg/crash.TestPanics (./crash/crash_test.p:8)
+    pluto/testing.(*T).run.func1 (pluto/testing/testing.p:N)
+    pluto/rt.CatchGoexit (pluto/rt/goexit.p:N)
     pluto/testing.(*T).run (pluto/testing/testing.p:N)
     pluto/testing.(*M).Test (pluto/testing/testing.p:N)
     main.main (_testmain.p:15)
@@ -54,10 +58,14 @@ const crashTrace = `    example.com/testpkg/crash.Div (./crash/crash.p:5)
 // crashTraceAbs is crashTrace with -trimpath=false: absolute paths, and
 // standard library files under $PLUTOROOT.
 const crashTraceAbs = `    example.com/testpkg/crash.Div ($DIR/testdata/testpkg/crash/crash.p:5)
-    example.com/testpkg/crash.TestPanics.func1 ($DIR/testdata/testpkg/crash/crash_test.p:11)
+    example.com/testpkg/crash.TestPanics.func1 ($DIR/testdata/testpkg/crash/crash_test.p:12)
+    pluto/testing.(*T).run.func1 ($PLUTOROOT/pluto/testing/testing.p:N)
+    pluto/rt.CatchGoexit ($PLUTOROOT/pluto/rt/goexit.p:N)
     pluto/testing.(*T).run ($PLUTOROOT/pluto/testing/testing.p:N)
     pluto/testing.(*T).Run ($PLUTOROOT/pluto/testing/testing.p:N)
     example.com/testpkg/crash.TestPanics ($DIR/testdata/testpkg/crash/crash_test.p:8)
+    pluto/testing.(*T).run.func1 ($PLUTOROOT/pluto/testing/testing.p:N)
+    pluto/rt.CatchGoexit ($PLUTOROOT/pluto/rt/goexit.p:N)
     pluto/testing.(*T).run ($PLUTOROOT/pluto/testing/testing.p:N)
     pluto/testing.(*M).Test ($PLUTOROOT/pluto/testing/testing.p:N)
     main.main (_testmain.p:15)
@@ -83,6 +91,10 @@ func TestPlutoTest(t *testing.T) {
 --- FAIL: TestSub (T)
     --- FAIL: TestSub/fatal (T)
         stop 1
+--- FAIL: TestCleanup (T)
+    2+2 != 5
+    deferred in check(2)
+    deferred in the test
 FAIL
 FAIL	example.com/testpkg/calc	T
 FAIL
@@ -109,6 +121,11 @@ FAIL
     --- PASS: TestSub/small_numbers (T)
     --- FAIL: TestSub/fatal (T)
     --- SKIP: TestSub/skipped (T)
+=== RUN   TestCleanup
+    2+2 != 5
+    deferred in check(2)
+    deferred in the test
+--- FAIL: TestCleanup (T)
 FAIL
 FAIL	example.com/testpkg/calc	T
 FAIL
@@ -172,6 +189,7 @@ ok  	example.com/testpkg/calc	T
 			want: `--- FAIL: TestPanics (T)
     --- FAIL: TestPanics/divide (T)
         dividing by zero
+        deferred: runs before the panic is reported
         test binary died (exit status 2) while TestPanics/divide was running; later tests did not run
 panic: runtime error: integer divide by zero
 ` + crashTrace + `FAIL
@@ -186,6 +204,7 @@ FAIL
 			want: `--- FAIL: TestPanics (T)
     --- FAIL: TestPanics/divide (T)
         dividing by zero
+        deferred: runs before the panic is reported
         test binary died (exit status 2) while TestPanics/divide was running; later tests did not run
 panic: runtime error: integer divide by zero
 ` + crashTraceAbs + `FAIL
@@ -202,6 +221,7 @@ FAIL
 === RUN   TestPanics
 === RUN   TestPanics/divide
     dividing by zero
+    deferred: runs before the panic is reported
     test binary died (exit status 2) while TestPanics/divide was running; later tests did not run
 --- FAIL: TestPanics (T)
     --- FAIL: TestPanics/divide (T)

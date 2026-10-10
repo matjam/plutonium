@@ -21,7 +21,7 @@ The debug allocator, which finds memory errors at run time, is described in
 | `-g` (default) | emit DWARF |
 | `-g=false` | omit DWARF; keep the symbol table |
 | `-s` | omit DWARF and the symbol table (`ld -s`) |
-| `--trace=false` | leave the trace table empty: panics print no stack trace |
+| `--trace=false` | leave the trace table empty: panics print no stack trace (a hosted program keeps what a panic needs to run deferred calls, section 7) |
 | `--trimpath=false` | record absolute source paths in DWARF and the trace table (section 2.1) |
 
 Panics print symbolised traces with `-g=false` and `-s` too: the trace table does not depend on DWARF or
@@ -294,7 +294,11 @@ other as `unexpected fault address`.
 The signal handler does not print this itself: it raises a panic, with the fault in `rt.Panic.Fault`
 (kind, address, faulting instruction, signal) and a trace that starts at the faulting instruction, and
 calls the panic handler (language spec section 8.1). The output above is the built-in handler's; a
-program with a `//pu:panic` handler of its own gets the same information.
+program with a `//pu:panic` handler of its own gets the same information. When the panic will run
+deferred calls (language spec section 8.2), the handler first describes the fault, then rewrites the
+signal's saved context so that, once it returns, the task resumes on its own stack, below the 128-byte red
+zone, in a runtime function that raises the panic there: deferred calls never run on the signal stack or
+with the fault signals blocked. A stack overflow raises the panic in the handler, without deferred calls.
 
 There is one handler. For `SIGSEGV` and `SIGBUS` it first calls the function registered with
 `rt.SetFaultHandler`, if any, with the fault address, the faulting instruction and whether the access was
@@ -313,7 +317,8 @@ A freestanding program's panic handler (language spec section 8.1) prints the tr
 `p.PrintTrace(w)`, or the whole report, message, fault and trace, with `p.Print(w)`, to any `rt.Writer`;
 `rt.Console{}` writes through `rt.SetConsole`'s writer (in a hosted program, to standard error with a
 system call that never waits, which makes it the writer for a hosted panic handler too). Since a panic does not unwind, the frames the
-trace describes are still on the stack while the handler runs. A kernel's exception handlers turn a fault
+trace describes are still on the stack while the handler runs. (In hosted builds the deferred calls run
+before the handler, below those frames, which they leave as they were: language spec section 8.2.) A kernel's exception handlers turn a fault
 into a panic whose trace starts at the faulting instruction with
 
 ```go
@@ -340,8 +345,9 @@ All integers are little-endian; offsets are from the start of the table.
 
 | Part | Contents |
 |---|---|
-| header (16 bytes) | `u32` number of functions, `u32` offset of the strings, `u32` offset of the line programs, `u32` offset of the inline sites |
+| header (24 bytes) | `u32` number of functions, `u32` offset of the strings, `u32` offset of the line programs, `u32` offset of the inline sites, `u32` number of defer records, `u32` offset of the defer records |
 | functions (32 bytes each) | `u64` start address, `u32` size, `u32` name (string offset), `u32` frame size (the `sub rsp`), `u16` end of the prologue, `u8` saved-register mask (bit 0 RBX, 1 RBP, 2-5 R12-R15), `u8` flags (1 frame pointer, 2 interrupt handler), `u32` offset of its line program, `u32` index of its first inline site |
+| defer records (16 bytes each, by function) | `u32` index of a function with `defer` statements, `u32` offset of its defer record from RSP in its body, `u64` address of the function that runs the record's armed deferred calls (hosted builds; language spec section 8.2) |
 | inline sites (16 bytes each) | `u32` parent site (1-based within the function, 0 for none), `u32` inlined function's name, `u32` call's file, `u32` call's line |
 | strings | `u16` length, then the bytes |
 | line programs | per function, rows covering its code from offset 0: `uvarint(zigzag(line delta) << 2 \| file changed << 1 \| site changed)`, then the new file (string offset) and the new inline site (1-based within the function, 0 for none) if they changed, then `uvarint` length of the row's code |
@@ -360,6 +366,12 @@ mask (pushes of RBX and RBP are one byte, of R12 to R15 two) and the frame-point
 
 Functions are found by a linear search, which is fast enough for printing a trace once. A sorted index
 would be needed for sampling profilers in the runtime; none exists yet.
+
+A hosted panic walks the same frames to run their deferred calls (language spec section 8.2): for each
+frame whose function has a defer record, the record lies at the frame's RSP plus the listed offset, its
+first word holds the armed bits, and the runtime calls the listed function with the record's address if
+any is set. Such a frame's runner is left out of traces, and a trace of a panic in a deferred call goes
+on, at the runtime's call of the deferred calls, with the frames of the panic they ran for.
 
 ## 6. Frame pointers or a table
 
@@ -395,7 +407,9 @@ reserve a 16 KB alternate signal stack in `.bss`, which takes no space in the fi
 fault uses it.
 
 `--trace=false` leaves the trace table empty, for images that cannot spare it: `fib` is then 52369 bytes of
-code and read-only data, and a panic prints its message without a trace.
+code and read-only data, and a panic prints its message without a trace. A hosted program with `defer`
+statements keeps the frame shapes and defer records (without names but those of the bottom frames, lines
+or inline sites), which a panic needs to run its deferred calls; freestanding builds never need them.
 
 Debugging information never changes code generation: the machine code of every benchmark's own functions
 is byte for byte what it was before this work, with or without `-g`. The only new work at run time is

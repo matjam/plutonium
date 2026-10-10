@@ -522,6 +522,7 @@ func (s *fnState) emitCCall(c callee, cs *cSig, recv *value, args []value, pos t
 // with the internal ABI and returns the results the System V way.
 func (s *fnState) exportWrapper(cs *cSig, target *ssa.Sym, sig *types2.Signature) {
 	f := s.f
+	s.gxBoundary = gxC
 	f.ABI = ssa.ABIC
 	f.Params = cs.flatParams
 	f.ParamOnStack = cs.onStack

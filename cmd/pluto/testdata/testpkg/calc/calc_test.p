@@ -31,6 +31,22 @@ func TestSub(t *testing.T) {
 	})
 }
 
+// TestCleanup stops in a helper with Fatal: the deferred calls of the
+// helper and of the test still run, innermost first.
+func TestCleanup(t *testing.T) {
+	defer t.Log("deferred in the test")
+	check(t, 2)
+	t.Log("not reached")
+}
+
+func check(t *testing.T, n int) {
+	defer t.Logf("deferred in check(%d)", n)
+	if Add(n, n) != 5 {
+		t.Fatalf("%d+%d != 5", n, n)
+	}
+	t.Log("not reached either")
+}
+
 func BenchmarkAdd(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()

@@ -431,6 +431,7 @@ func (l *Lowerer) lowerEntry() {
 
 	sym := l.out.Sym("pluto.main", ssa.SymFunc)
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: sig, build: func(s *fnState) {
+		s.gxBoundary = gxMain
 		for _, p := range l.prog.Packages {
 			s.emitCall(callee{sym: l.out.Sym(l.initSymName(p), ssa.SymFunc)}, noArgs, nil, nil, token.NoPos)
 		}

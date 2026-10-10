@@ -216,10 +216,12 @@ func sigpanic(sig int32, info, ctx unsafe.Pointer) {
 	errCode := *(*uintptr)(unsafe.Add(ctx, 40+19*8)) // gregs[REG_ERR]
 	startPanic()
 	kind := IllegalInstruction
+	explained := false
 	switch sig {
 	case sigSEGV, sigBUS:
 		kind = MemoryFault
 		if h := faultHandler; h != nil && h(addr, pc, errCode&pfWrite != 0) {
+			explained = true
 			break // h wrote the message
 		}
 		describeFault(kind, addr, sp)
@@ -232,6 +234,35 @@ func sigpanic(sig int32, info, ctx unsafe.Pointer) {
 	var p Panic
 	p.Fault = Fault{Kind: kind, Addr: addr, PC: pc, Signal: int(sig)}
 	p.pc, p.sp, p.bp, p.exact = pc, sp, bp, true
+	// A stack overflow has no stack left to run deferred calls on, and a
+	// fault the debug allocator explained leaves the heap untrustworthy.
+	p.noDefers = explained || kind == MemoryFault && stackOverflow(addr, sp)
+	if t := current(); !p.noDefers && t != nil && t.locks == 1 && t.panicking == nil {
+		// The panic will run the task's deferred calls, which must not
+		// run in the signal handler, on the signal stack with the fault
+		// signals blocked: resume on the task's stack, below the red
+		// zone, and raise the panic there (faultResume).
+		faultPanic = p
+		*(*uintptr)(unsafe.Add(ctx, 40+15*8)) = (sp - 128) &^ 15 // gregs[REG_RSP]
+		*(*uintptr)(unsafe.Add(ctx, 40+16*8)) = faultResumePC()  // gregs[REG_RIP]
+		return
+	}
+	raise(&p)
+}
+
+// faultPanic is the panic sigpanic describes for raiseFault. It belongs to
+// the thread that holds the panic (panicOwner).
+var faultPanic Panic
+
+// faultResumePC returns the address of faultResume (sys_linux_amd64.s).
+func faultResumePC() uintptr
+
+// raiseFault raises the fault panic sigpanic described, on the stack of the
+// task that faulted (called by faultResume).
+//
+//pu:export
+func raiseFault() {
+	p := faultPanic
 	raise(&p)
 }
 
@@ -264,6 +295,10 @@ func selfID() uint64 { return uint64(syscall3(sysGettid, 0, 0, 0)) }
 // cpuNumber is the CPU number a hosted panic reports: 0, as hosted
 // programs run on a single thread.
 func cpuNumber() int { return 0 }
+
+// deferOnPanic says a panic runs the panicking task's deferred calls
+// before the panic handler: hosted builds only (language spec section 8).
+const deferOnPanic = true
 
 // otherPanicking stops a thread that panics while another handles a
 // panic: it waits until that one ends the process.

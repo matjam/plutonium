@@ -1,0 +1,4 @@
+finish deferred
+main deferred
+worker runs after main's Goexit
+fatal error: no puroutines (main called rt.Goexit) - deadlock!

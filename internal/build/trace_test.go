@@ -113,6 +113,20 @@ func TestTraceStripped(t *testing.T) {
 	if want := "7\npanic: runtime error: index out of range [4] with length 4\n"; status != 2 || out != want {
 		t.Errorf("-trace=false: status %d, output:\n%s", status, out)
 	}
+
+	// -trace=false with deferred calls: the table keeps what the panic
+	// needs to run them, and still prints no trace.
+	src, err = os.ReadFile(filepath.Join("..", "..", "testdata", "trace", "deferfault.p"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, out, status = buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: 2, NoTrace: true})
+	out = pcPattern.ReplaceAllString(out, "pc=PC")
+	if want := "iterator deferred\nsum deferred, total = 3\nmain deferred\n" +
+		"panic: runtime error: invalid memory address or nil pointer dereference\n" +
+		"[signal SIGSEGV: segmentation violation addr=0x8 pc=PC]\n"; status != 2 || out != want {
+		t.Errorf("-trace=false with defers: status %d, output:\n%s", status, out)
+	}
 }
 
 // TestTraceStackOverflow checks that running into the stack's guard page is

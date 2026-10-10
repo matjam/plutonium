@@ -21,6 +21,13 @@ import "unsafe"
 // claims panicOwner and runs the handler; another that panics meanwhile
 // stops for good (otherPanicking), and a panic on the owner itself, inside
 // the handler or while its message is written, goes to lastResort.
+//
+// In hosted builds a panic first runs the panicking task's deferred calls
+// (runDeferred), innermost frame first. It gives up panicOwner while they
+// run, with its message copied out of msgBuf, so that other tasks go on
+// (one of them may panic and end the program first, as in Go); a panic in
+// one of the calls goes straight to the handler, linked to the first
+// (Panic.During).
 
 // A Panic describes a panic to the panic handler. It lives in the frame of
 // the runtime function that called the handler, which never returns.
@@ -43,6 +50,10 @@ type Panic struct {
 	// Puroutine is the ID of the puroutine that panicked (Task.ID): 1 for
 	// the one that runs main, 0 outside any (a scheduler's own context).
 	Puroutine uint64
+	// During is the panic whose deferred calls the task was running when
+	// this one happened, or nil. Only hosted builds run deferred calls on
+	// a panic (language spec section 8).
+	During *Panic
 
 	// Where the stack trace starts: the faulting instruction (exact),
 	// or a return address in the runtime's panic functions, whose frames
@@ -50,6 +61,10 @@ type Panic struct {
 	pc, sp, bp  uintptr
 	exact       bool
 	skipRuntime bool
+	// noDefers says the panic runs no deferred calls: a stack overflow, a
+	// fault the fault handler explained, or a stop by Abort or
+	// PanicFault, after which the program's state is not to be trusted.
+	noDefers bool
 }
 
 // A FaultKind says what kind of hardware fault stopped the program.
@@ -167,12 +182,72 @@ func raise(p *Panic) {
 		p.Message = unsafe.String(&msgBuf[0], n)
 	}
 	p.CPU = cpuNumber()
-	if t := current(); t != nil {
+	t := current()
+	if t != nil {
 		p.Puroutine = t.id
+	}
+	if deferOnPanic && t != nil {
+		switch {
+		case t.panicking != nil:
+			// A panic in a deferred call that runs for a panic: straight
+			// to the handler.
+			p.During = t.panicking
+		case !p.noDefers && t.locks == 1:
+			// Only startPanic's own DisablePreemption: the task panicked
+			// in ordinary code, not holding a runtime lock or in the
+			// scheduler, where its deferred calls could wait for good.
+			var buf [msgBufSize]byte
+			for i := 0; i < len(p.Message); i++ {
+				buf[i] = p.Message[i]
+			}
+			if len(p.Message) > 0 {
+				p.Message = unsafe.String(&buf[0], len(p.Message))
+			}
+			runDeferred(t, p)
+		}
 	}
 	callPanicHandler(p)
 	lastResort() // the compiler checks that the handler cannot return
 }
+
+// runDeferred runs the pending deferred calls of t, the running task, for
+// the panic p, innermost frame first. It gives up the panic while they run
+// and claims it again afterwards.
+func runDeferred(t *Task, p *Panic) {
+	t.panicking = p
+	casUint64(&panicOwner, selfID()+1, 0)
+	enablePreempt(t)
+	walkDeferred(p)
+	DisablePreemption()
+	if !casUint64(&panicOwner, 0, selfID()+1) {
+		otherPanicking()
+	}
+	t.panicking = nil
+}
+
+// walkDeferred walks the frames p's stack trace starts in and calls the
+// runner of each one whose defer record has calls armed (trace.p). A
+// deferred call that ends with Goexit stops the walk: the task ends with
+// the panic.
+//
+//pu:noinline
+func walkDeferred(p *Panic) {
+	var w frameWalk
+	w.start(traceTable(), p.pc, p.sp, p.bp, p.exact)
+	for w.fn != nil && !w.bottom() {
+		if rec, runner := w.deferRecord(); runner != 0 && *(*uint64)(unsafe.Pointer(rec)) != 0 {
+			callDeferRunner(runner, rec)
+			if takeGoexit() {
+				return
+			}
+		}
+		w.next()
+	}
+}
+
+// callDeferRunner calls the runner of a defer record, a func(rec
+// unsafe.Pointer) at code address runner (panic_amd64.s).
+func callDeferRunner(runner, rec uintptr)
 
 // PanicFault stops the program with a panic describing a hardware fault:
 // one of kind, at the instruction at pc, accessing addr (for a
@@ -194,20 +269,26 @@ func PanicFault(kind FaultKind, addr, pc, sp, bp uintptr) {
 	var p Panic
 	p.Fault = Fault{Kind: kind, Addr: addr, PC: pc}
 	p.pc, p.sp, p.bp, p.exact = pc, sp, bp, true
+	p.noDefers = true
 	raise(&p)
+}
+
+// stackOverflow reports whether a memory fault at addr, with the stack
+// pointer at sp, is the stack running into its guard: just below the
+// stack pointer, in the guard region of the stack //pu:stack reserved, or
+// in the guard page below a puroutine's stack.
+func stackOverflow(addr, sp uintptr) bool {
+	t := current()
+	return addr < sp+4096 && addr+65536 > sp || addr >= guardLo && addr < guardHi ||
+		t != nil && t.stackLo != 0 && addr < t.stackLo && addr+pageSize >= t.stackLo
 }
 
 // describeFault writes the runtime's message for a fault.
 func describeFault(kind FaultKind, addr, sp uintptr) {
 	switch kind {
 	case MemoryFault:
-		t := current()
 		switch {
-		case addr < sp+4096 && addr+65536 > sp || addr >= guardLo && addr < guardHi,
-			t != nil && t.stackLo != 0 && addr < t.stackLo && addr+pageSize >= t.stackLo:
-			// Just below the stack pointer, in the guard region of the
-			// stack //pu:stack reserved, or in the guard page below a
-			// puroutine's stack: the stack ran into its guard.
+		case stackOverflow(addr, sp):
 			printString("runtime error: stack overflow")
 		case addr < 4096:
 			printString("runtime error: invalid memory address or nil pointer dereference")
@@ -235,33 +316,42 @@ func Abort() {
 	callerFrame(&fr)
 	p.pc, p.sp, p.bp = fr[0], fr[1], fr[2]
 	p.skipRuntime = true
+	p.noDefers = true
 	raise(&p)
 }
 
 // Print writes the panic to w as a hosted program reports it: "panic: "
 // and the message, a line describing the fault if there was one, then the
-// stack trace.
+// stack trace. A panic in a deferred call that ran for another panic
+// follows that one's message, indented, as Go prints it:
+//
+//	panic: first
+//		panic: second
 //
 // Print is generic in the type of w so that a call with a writer of a
 // known type, such as Console, calls its Write directly: in a panic or
 // interrupt handler, a call through the Writer interface counts as
 // calling every Writer the program has (language spec section 12.6).
 func (p *Panic) Print[W Writer](w W) {
-	writeString(w, "panic: ")
-	writeString(w, p.Message)
-	writeString(w, "\n")
-	if p.Fault.Kind != NoFault {
+	p.printMessages(w)
+	// The fault line describes the last fault among the panics, as Go's
+	// does.
+	f := p
+	for f.Fault.Kind == NoFault && f.During != nil {
+		f = f.During
+	}
+	if f.Fault.Kind != NoFault {
 		writeString(w, "[")
-		if name := signalName(p.Fault.Signal); name != "" {
+		if name := signalName(f.Fault.Signal); name != "" {
 			writeString(w, "signal ")
 			writeString(w, name)
 		} else {
 			writeString(w, "fault")
 		}
 		writeString(w, " addr=")
-		writePointer(w, p.Fault.Addr)
+		writePointer(w, f.Fault.Addr)
 		writeString(w, " pc=")
-		writePointer(w, p.Fault.PC)
+		writePointer(w, f.Fault.PC)
 		writeString(w, "]\n")
 	}
 	if p.Puroutine > 1 {
@@ -272,11 +362,25 @@ func (p *Panic) Print[W Writer](w W) {
 	p.PrintTrace(w)
 }
 
+// printMessages writes "panic: " and the message of p, after those of the
+// panics whose deferred calls were running when it happened.
+func (p *Panic) printMessages[W Writer](w W) {
+	if p.During != nil {
+		p.During.printMessages(w)
+		writeString(w, "\t")
+	}
+	writeString(w, "panic: ")
+	writeString(w, p.Message)
+	writeString(w, "\n")
+}
+
 // PrintTrace writes the stack trace of the code that panicked to w, one
 // frame per line, innermost first, the way a hosted program prints it
 // (docs/spec/debugging.md). It reads the trace table and the stack and
 // allocates nothing; a program built with --trace=false prints nothing.
-// Like Print, it is generic in the type of w.
+// For a panic in a deferred call that ran for another panic, the trace
+// goes from the deferred call on to the frames of the first panic. Like
+// Print, it is generic in the type of w.
 func (p *Panic) PrintTrace[W Writer](w W) {
-	traceback(w, p.pc, p.sp, p.bp, p.exact, p.skipRuntime)
+	traceback(w, p.pc, p.sp, p.bp, p.exact, p.skipRuntime, p.During)
 }

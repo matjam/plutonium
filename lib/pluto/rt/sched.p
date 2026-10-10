@@ -87,6 +87,11 @@ type Task struct {
 
 	waitReason WaitReason // what the task last parked for (Task.WaitReason)
 
+	// goexit is set while the task leaves its frames for Goexit (goexit.p),
+	// and panicking while it runs its deferred calls for a panic.
+	goexit    bool
+	panicking *Panic
+
 	// Link and Data are the backend's: a run-queue link and a word for its
 	// own use. The runtime never touches them.
 	Link *Task

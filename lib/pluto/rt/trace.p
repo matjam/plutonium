@@ -20,9 +20,10 @@ func traceTable() unsafe.Pointer
 
 // Layout of the table; keep in sync with internal/debuginfo/trace.go.
 const (
-	traceHeaderSize    = 16
+	traceHeaderSize    = 24
 	traceFuncSize      = 32
 	traceInlineSize    = 16
+	traceDeferSize     = 16
 	traceFlagFP        = 1
 	traceFlagInterrupt = 2
 	maxTraceFrames     = 64
@@ -33,7 +34,7 @@ const (
 // faulting instruction, to the console. A kernel can call it from its
 // exception handlers; to stop with a panic instead, call PanicFault.
 func Traceback(pc, sp, bp uintptr) {
-	traceback(Console{}, pc, sp, bp, true, false)
+	traceback(Console{}, pc, sp, bp, true, false, nil)
 }
 
 // TraceTask writes to w the stack trace of t, a task that is not running,
@@ -55,83 +56,158 @@ func TraceTask[W Writer](t *Task, w W) {
 	}
 	bp := *(*uintptr)(unsafe.Pointer(sp + 48))
 	pc := *(*uintptr)(unsafe.Pointer(sp + 56))
-	traceback(w, pc, sp+64, bp, false, true)
+	traceback(w, pc, sp+64, bp, false, true, nil)
 }
 
 // traceback prints to w the stack walked from pc, sp and bp. exact says pc
 // is the faulting instruction rather than a return address. skipRuntime
 // omits the innermost frames of package rt, which belong to the panic
-// itself.
-func traceback[W Writer](w W, pc, sp, bp uintptr, exact, skipRuntime bool) {
-	tab := traceTable()
-	for depth := 0; ; depth++ {
+// itself. during, if set, is the panic whose deferred calls were running
+// when this one happened: the walk goes on from its start once it reaches
+// the runtime's call of the deferred calls (walkDeferred).
+func traceback[W Writer](w W, pc, sp, bp uintptr, exact, skipRuntime bool, during *Panic) {
+	var fw frameWalk
+	fw.start(traceTable(), pc, sp, bp, exact)
+	for depth := 0; fw.fn != nil; depth++ {
 		if depth == maxTraceFrames {
 			writeString(w, "    ...additional frames elided...\n")
 			return
 		}
-		look := pc
-		if !exact {
-			look = pc - 1 // the call, not the instruction after it
-		}
-		fn := findFunc(tab, look)
-		if fn == nil {
-			if depth == 0 && exact && sp != 0 {
-				// A fault in assembly the table does not describe, such
-				// as an atomic operation: such functions are leaves with
-				// no frame, so the return address is at the stack
-				// pointer.
-				pc = *(*uintptr)(unsafe.Pointer(sp))
-				sp += 8
-				exact = false
-				continue
-			}
-			return
-		}
-		name := traceString(tab, *(*uint32)(unsafe.Add(fn, 12)))
+		name := fw.name()
 		if name == "pluto.main" {
 			// main.main may be inlined into it.
-			printInlinedMain(w, tab, fn, look)
+			printInlinedMain(w, fw.tab, fw.fn, fw.look())
 			return
 		}
-		if name == "pluto/rt.start" || name == "pluto/rt.taskMain" {
-			// The bottom of the main thread's or a puroutine's stack.
+		if fw.bottom() {
 			return
 		}
-		skipRuntime = printFrame(w, tab, fn, name, look, skipRuntime)
-		flags := *(*uint8)(unsafe.Add(fn, 23))
-		if flags&traceFlagInterrupt != 0 {
-			return // an interrupt frame has no caller to return to
+		if during != nil && name == "pluto/rt.walkDeferred" {
+			fw.start(fw.tab, during.pc, during.sp, during.bp, during.exact)
+			skipRuntime = during.skipRuntime
+			during = during.During
+			continue
 		}
-		var cfa, callerBP uintptr
-		start := *(*uintptr)(fn)
-		mask := *(*uint8)(unsafe.Add(fn, 22))
-		prologueEnd := uintptr(*(*uint16)(unsafe.Add(fn, 20)))
-		switch {
-		case exact && pc-start < prologueEnd:
-			cfa, callerBP = prologueCFA(pc-start, mask, flags&traceFlagFP != 0, sp, bp)
-		case flags&traceFlagFP != 0:
-			cfa = bp + 16
-			callerBP = *(*uintptr)(unsafe.Pointer(bp))
-		default:
-			frameSize := uintptr(*(*uint32)(unsafe.Add(fn, 16)))
-			cfa = sp + frameSize + 8*uintptr(popcount(mask)) + 8
-			callerBP = bp
-			if mask&2 != 0 {
-				// RBP is pushed second, after RBX if that is saved.
-				at := cfa - 16
-				if mask&1 != 0 {
-					at -= 8
-				}
-				callerBP = *(*uintptr)(unsafe.Pointer(at))
-			}
-		}
-		if cfa <= sp || cfa&7 != 0 {
-			return
-		}
-		pc = *(*uintptr)(unsafe.Pointer(cfa - 8))
-		sp, bp = cfa, callerBP
-		exact = false
+		skipRuntime = printFrame(w, fw.tab, fw.fn, name, fw.look(), skipRuntime)
+		fw.next()
 	}
+}
+
+// A frameWalk walks a stack from the innermost frame out, with the trace
+// table: fn is the trace table entry of the current frame's function (nil
+// once the walk ends), pc the instruction it is at (exact) or the return
+// address into it, and sp and bp the stack pointer and RBP there.
+type frameWalk struct {
+	tab        unsafe.Pointer
+	fn         unsafe.Pointer
+	pc, sp, bp uintptr
+	exact      bool
+}
+
+// start begins a walk at the machine state pc, sp and bp.
+func (w *frameWalk) start(tab unsafe.Pointer, pc, sp, bp uintptr, exact bool) {
+	w.tab, w.pc, w.sp, w.bp, w.exact = tab, pc, sp, bp, exact
+	w.fn = findFunc(tab, w.look())
+	if w.fn == nil && exact && sp != 0 {
+		// A fault in assembly the table does not describe, such as an
+		// atomic operation: such functions are leaves with no frame, so
+		// the return address is at the stack pointer.
+		w.pc = *(*uintptr)(unsafe.Pointer(sp))
+		w.sp = sp + 8
+		w.exact = false
+		w.fn = findFunc(tab, w.look())
+	}
+}
+
+// look returns the address that identifies the current frame's code: the
+// call, not the instruction after it, for a return address.
+func (w *frameWalk) look() uintptr {
+	if w.exact {
+		return w.pc
+	}
+	return w.pc - 1
+}
+
+// name returns the current frame's function name.
+func (w *frameWalk) name() string {
+	return traceString(w.tab, *(*uint32)(unsafe.Add(w.fn, 12)))
+}
+
+// bottom reports whether the current frame is the first of the main
+// thread's stack or of a puroutine's.
+func (w *frameWalk) bottom() bool {
+	name := w.name()
+	return name == "pluto.main" || name == "pluto/rt.start" || name == "pluto/rt.taskMain"
+}
+
+// next moves the walk to the caller of the current frame. The walk ends at
+// an interrupt frame, which has no caller to return to, and wherever the
+// table cannot tell where the caller is.
+func (w *frameWalk) next() {
+	fn := w.fn
+	w.fn = nil
+	flags := *(*uint8)(unsafe.Add(fn, 23))
+	if flags&traceFlagInterrupt != 0 {
+		return
+	}
+	var cfa, callerBP uintptr
+	start := *(*uintptr)(fn)
+	mask := *(*uint8)(unsafe.Add(fn, 22))
+	prologueEnd := uintptr(*(*uint16)(unsafe.Add(fn, 20)))
+	switch {
+	case w.exact && w.pc-start < prologueEnd:
+		cfa, callerBP = prologueCFA(w.pc-start, mask, flags&traceFlagFP != 0, w.sp, w.bp)
+	case flags&traceFlagFP != 0:
+		cfa = w.bp + 16
+		callerBP = *(*uintptr)(unsafe.Pointer(w.bp))
+	default:
+		frameSize := uintptr(*(*uint32)(unsafe.Add(fn, 16)))
+		cfa = w.sp + frameSize + 8*uintptr(popcount(mask)) + 8
+		callerBP = w.bp
+		if mask&2 != 0 {
+			// RBP is pushed second, after RBX if that is saved.
+			at := cfa - 16
+			if mask&1 != 0 {
+				at -= 8
+			}
+			callerBP = *(*uintptr)(unsafe.Pointer(at))
+		}
+	}
+	if cfa <= w.sp || cfa&7 != 0 {
+		return
+	}
+	w.pc = *(*uintptr)(unsafe.Pointer(cfa - 8))
+	w.sp, w.bp = cfa, callerBP
+	w.exact = false
+	w.fn = findFunc(w.tab, w.look())
+}
+
+// deferRecord returns the address of the current frame's defer record and
+// the code address of its runner (internal/lower/deferrec.go), or zeros if
+// the function has no defer statements, or if the frame is not set up yet
+// (a fault in the prologue).
+func (w *frameWalk) deferRecord() (uintptr, uintptr) {
+	if w.exact && w.pc-*(*uintptr)(w.fn) < uintptr(*(*uint16)(unsafe.Add(w.fn, 20))) {
+		return 0, 0
+	}
+	idx := uint32((uintptr(w.fn) - uintptr(w.tab) - traceHeaderSize) / traceFuncSize)
+	n := int(*(*uint32)(unsafe.Add(w.tab, 16)))
+	defers := unsafe.Add(w.tab, int(*(*uint32)(unsafe.Add(w.tab, 20))))
+	lo, hi := 0, n
+	for lo < hi {
+		mid := int(uint(lo+hi) >> 1)
+		e := unsafe.Add(defers, mid*traceDeferSize)
+		at := *(*uint32)(e)
+		switch {
+		case at == idx:
+			return w.sp + uintptr(*(*uint32)(unsafe.Add(e, 4))), *(*uintptr)(unsafe.Add(e, 8))
+		case at < idx:
+			lo = mid + 1
+		default:
+			hi = mid
+		}
+	}
+	return 0, 0
 }
 
 // prologueCFA returns the canonical frame address and the caller's RBP for
@@ -194,7 +270,12 @@ func printFrame[W Writer](w W, tab, fn unsafe.Pointer, name string, pc uintptr, 
 		return true
 	}
 	file, line := printInlined(w, tab, fn, pc, 0, skip)
-	printLocation(w, name, file, line)
+	if !hasSuffix(name, "·defers") {
+		// Not the runner of a defer record (internal/lower/deferrec.go),
+		// the runtime's means of calling deferred calls, which a trace
+		// leaves out as Go leaves out its panic frame.
+		printLocation(w, name, file, line)
+	}
 	return false
 }
 
@@ -338,6 +419,10 @@ func traceString(tab unsafe.Pointer, off uint32) string {
 	// The compiler wrote the table with valid UTF-8 only: file names are
 	// made valid and cut at a rune boundary (internal/debuginfo/trace.go).
 	return unsafe.String((*byte)(unsafe.Add(p, 2)), n)
+}
+
+func hasSuffix(s, suffix string) bool {
+	return len(s) >= len(suffix) && strequal(s[len(s)-len(suffix):], suffix)
 }
 
 func hasPrefix(s, prefix string) bool {

@@ -576,9 +576,22 @@ func checkDead() {
 	if hs.mcount-hs.nmidle > 0 || load32(&hs.pollWaiting) != 0 || load32(&activeTimers) != 0 || workAvailable() {
 		return
 	}
+	if mainGoexited && !anyReported() {
+		noTasksLeft()
+	}
 	printString("fatal error: all puroutines are asleep - deadlock!\n")
 	reportParked()
 	exit(2)
+}
+
+// anyReported reports whether a deadlock report would list a puroutine.
+func anyReported() bool {
+	for ht := allTasks.head; ht != nil; ht = ht.allNext {
+		if t := &ht.task; t.waitReason != WaitSystem && t.ctx.sp != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // reportParked prints each parked puroutine's wait and trace, as Go does

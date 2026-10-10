@@ -42,8 +42,8 @@ func init() {
 		},
 		&Entry{
 			Code: CheckerCode(typerr.RecoverNotPermitted), Name: "RecoverNotPermitted",
-			Text:    "In Plutonium, panic stops the program. It does not unwind the stack, and deferred calls do not run, so there is nothing for recover to catch.\nReport failures that the caller can handle by returning an error instead.",
-			Why:     "Unwinding needs tables and runtime support that a kernel cannot rely on, and a panic in kernel code means the state is already wrong.",
+			Text:    "In Plutonium, panic stops the program. A hosted program first runs the pending deferred calls, as Go does, but control never returns to the function that panicked, so there is nothing for recover to catch.\nReport failures that the caller can handle by returning an error instead.",
+			Why:     "Resuming a function after a panic needs an unwinder, tables and runtime support that a kernel cannot rely on, and a panic in kernel code means the state is already wrong.",
 			Fix:     &Fix{Intro: "Return an error instead", Code: "func parse(s string) (int, error) {\n\tif s == \"\" {\n\t\treturn 0, errors.New(\"empty input\")\n\t}\n\t...\n}"},
 			Spec:    pspec("4.1", "panic aborts"),
 			Example: "defer func() {\n\tif r := recover(); r != nil {\n\t\tlog(r)\n\t}\n}()",

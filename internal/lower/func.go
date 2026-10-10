@@ -43,10 +43,17 @@ type fnState struct {
 	labels  map[*types2.Label]*labelInfo
 
 	defers    []*deferInfo
-	deferBits *ssa.Value // address of the defer bitmask slot, created on first defer
-	loopDepth int
-	closures  int // counter for naming closures
-	goStmts   int // counter for naming go statement thunks
+	deferBits *ssa.Value // freestanding builds: address of the defer bitmask slot
+	// Hosted builds: the address of the defer record (deferrec.go), and
+	// how much of it is in use.
+	deferRec     *ssa.Value
+	deferRecSize int64
+	// gxBoundary says what a call that ends with rt.Goexit does here, when
+	// it does not just leave the function (goexit.go).
+	gxBoundary gxBoundary
+	loopDepth  int
+	closures   int // counter for naming closures
+	goStmts    int // counter for naming go statement thunks
 
 	// Range over functions (rangefunc.go). rf is set in the yield function
 	// lowered from the body of a range-over-func loop; capPtrs maps the
@@ -125,7 +132,10 @@ type labelInfo struct {
 // A deferInfo is one defer statement: the call to run, with its function
 // and arguments already evaluated into slots.
 type deferInfo struct {
-	run func(s *fnState) // emits the deferred call
+	// run emits the deferred call; rec is the address of the defer record
+	// in the function emitting it (nil in freestanding builds).
+	run       func(s *fnState, rec *ssa.Value)
+	mayGoexit bool // the call may end with rt.Goexit
 }
 
 // ----------------------------------------------------------------------------
@@ -375,6 +385,9 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 	s.setMem(entry.NewValue(ssa.OpInitMem, ssa.TMem))
 
 	if job.decl != nil {
+		if fn := l.symFuncs[job.sym]; fn != nil && (fn == l.gx.catch || fn == l.gx.taskMain || fn == l.panicFn) {
+			s.gxBoundary = gxCatch
+		}
 		f.Pos, f.End = job.decl.Pos(), job.decl.End()
 		s.applyPragmas(job.decl.Doc)
 		s.checkStackDirective(job.decl.Doc)
@@ -417,8 +430,7 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 		s.planClosures()
 		s.bindParams()
 		if hasDefer(body) {
-			s.deferBits = s.temp(types2.Typ[types2.Uint64], "deferbits")
-			s.store(ssa.TI64, s.deferBits, s.constInt(ssa.TI64, 0))
+			s.startDefers()
 		}
 		s.startBody()
 		root := s.pushCleanup(body, true)
@@ -433,6 +445,7 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 	s.finishEntry()
 	s.recordHolds()
 	s.endRegion()
+	s.finishDefers()
 
 	for _, b := range f.Blocks {
 		s.seal(b)
@@ -614,20 +627,38 @@ func varName(v *types2.Var) string {
 }
 
 // emitReturn runs deferred calls and returns the result variables.
-func (s *fnState) emitReturn(pos token.Pos) {
+func (s *fnState) emitReturn(pos token.Pos) { s.emitReturnFor(pos, false) }
+
+// emitReturnFor is emitReturn; goexit says the function leaves because a
+// call it made ended with rt.Goexit, which it passes on to its caller once
+// its deferred calls have run and its variables are released (goexit.go).
+func (s *fnState) emitReturnFor(pos token.Pos, goexit bool) {
 	if pos.IsValid() {
 		s.f.SetPos(pos)
 	}
-	s.runDefers()
+	var gx *ssa.Value
+	if goexit || s.deferGoexits() {
+		gx = s.temp(types2.Typ[types2.Bool], "goexit")
+		s.store(ssa.TBool, gx, s.constBool(goexit))
+	}
+	if s.hasDefers() {
+		s.runDeferList(s.defers, s.deferBitsAddr(), s.deferRec, gx)
+	}
 	// Deferred calls may use the function's variables, so they are
 	// released only now.
 	s.releaseForReturn()
+	if s.b == nil {
+		return // a deferred call never returns
+	}
 	for i, inRegion := range s.resultRegion {
 		// A result variable in the region keeps its references; the
 		// caller gets references of its own.
 		if T := s.abi.results[i].typ; inRegion && s.l.counted(T) {
 			s.retainAt(s.results[i], T)
 		}
+	}
+	if gx != nil {
+		s.passGoexit(gx)
 	}
 	ret := s.b
 	ret.Kind = ssa.BlockRet
@@ -681,24 +712,4 @@ func (l *Lowerer) sretSize(a *abiSig) (int64, int64) {
 		off = (off+al-1)&^(al-1) + l.sizeof(p.typ)
 	}
 	return (off + align - 1) &^ (align - 1), align
-}
-
-// runDefers emits the pending deferred calls, last first. A defer whose
-// statement might not have run is guarded by its bit in the defer mask.
-func (s *fnState) runDefers() {
-	for i := len(s.defers) - 1; i >= 0; i-- {
-		d := s.defers[i]
-		bits := s.load(ssa.TI64, s.deferBits)
-		bit := s.newValue(ssa.OpAnd, ssa.TI64, bits, s.constInt(ssa.TI64, 1<<i))
-		cond := s.newValue(ssa.OpNe, ssa.TBool, bit, s.constInt(ssa.TI64, 0))
-		call := s.newBlock(ssa.BlockInvalid)
-		next := s.newBlock(ssa.BlockInvalid)
-		s.endIf(cond, call, next)
-		s.seal(call)
-		s.startBlock(call)
-		d.run(s)
-		s.endPlain(next)
-		s.seal(next)
-		s.startBlock(next)
-	}
 }

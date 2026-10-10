@@ -98,6 +98,11 @@ type Lowerer struct {
 	funcValues map[*ssa.Sym]*types2.Signature
 	sites      map[*ssa.Value]*callSite
 
+	// rt.Goexit (goexit.go): which functions may end with it, and the
+	// declared function a generated method expression thunk calls.
+	gx        *goexitInfo
+	gxWrapped map[*ssa.Sym]*types2.Func
+
 	// instances of types declared in generic functions (typeMap.local)
 	localTypes map[localKey]*types2.Named
 
@@ -181,6 +186,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		sigs:           map[*ssa.Sym]*types2.Signature{},
 		funcValues:     map[*ssa.Sym]*types2.Signature{},
 		sites:          map[*ssa.Value]*callSite{},
+		gxWrapped:      map[*ssa.Sym]*types2.Func{},
 	}
 	l.types = newTypeTable(l)
 	if l.sizes == nil {
@@ -199,6 +205,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		}
 	}
 
+	l.analyzeGoexit()
 	l.findPanicHandler()
 	l.findScheduler()
 	l.lowerGlobals()
