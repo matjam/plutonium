@@ -1,0 +1,531 @@
+package lower
+
+import (
+	"fmt"
+
+	"github.com/matjam/plutonium/internal/ssa"
+	"github.com/matjam/plutonium/internal/syntax/ast"
+	"github.com/matjam/plutonium/internal/syntax/token"
+	"github.com/matjam/plutonium/internal/types2"
+)
+
+// A callee is what a call invokes.
+type callee struct {
+	sym      *ssa.Sym   // static target
+	code     *ssa.Value // indirect: code pointer
+	ctx      *ssa.Value // indirect: closure record passed to the callee
+	noReturn bool
+}
+
+// callExpr lowers a call expression and returns its single result (or the
+// first result; multi-value calls go through callResults).
+func (s *fnState) callExpr(e *ast.CallExpr) value {
+	res := s.callResults(e)
+	if len(res) == 0 {
+		return value{}
+	}
+	return res[0]
+}
+
+// callResults lowers a call and returns all of its results.
+func (s *fnState) callResults(e *ast.CallExpr) []value {
+	funTV := s.info.Types[e.Fun]
+	if funTV.IsType() {
+		return []value{s.conversion(e)}
+	}
+	if funTV.IsBuiltin() {
+		return s.builtin(e)
+	}
+
+	fun := ast.Unparen(e.Fun)
+	if ix, ok := fun.(*ast.IndexExpr); ok && s.isFuncInstance(ix.X) {
+		fun = ix.X
+	} else if ix, ok := fun.(*ast.IndexListExpr); ok {
+		fun = ix.X
+	}
+
+	// Method calls.
+	if se, ok := fun.(*ast.SelectorExpr); ok {
+		if sel := s.info.Selections[se]; sel != nil && sel.Kind() == types2.MethodVal {
+			return s.methodCall(e, se, sel)
+		}
+	}
+
+	// Static calls of declared functions.
+	if id := identOf(fun); id != nil {
+		if fn, ok := s.info.Uses[id].(*types2.Func); ok {
+			targs := s.instanceArgs(id)
+			sig := s.subst(s.info.Types[e.Fun].Type).(*types2.Signature)
+			sym := s.l.funcSym(fn, targs)
+			args := s.callArgs(e, sig)
+			return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn)}, sig, nil, args, e.Pos())
+		}
+	}
+
+	// A call through a func value.
+	fv := s.scalar(e.Fun)
+	sig := s.typeOf(e.Fun).Underlying().(*types2.Signature)
+	args := s.callArgs(e, sig)
+	code := s.load(ssa.TPtr, fv)
+	return s.emitCall(callee{code: code, ctx: fv}, sig, nil, args, e.Pos())
+}
+
+func (s *fnState) isFuncInstance(x ast.Expr) bool {
+	_, ok := s.typeOf(x).Underlying().(*types2.Signature)
+	return ok
+}
+
+// isNoReturn reports whether a declared function carries //pu:noreturn.
+func (l *Lowerer) isNoReturn(fn *types2.Func) bool {
+	if d := l.decls[fn.Origin()]; d != nil {
+		for _, dir := range directives(d.decl.Doc) {
+			if dir == "noreturn" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// callArgs evaluates a call's arguments in order, packing variadic
+// arguments into a slice whose backing array lives in this frame.
+func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature) []value {
+	params := sig.Params()
+	n := params.Len()
+
+	// f(g()) where g returns several values.
+	if len(e.Args) == 1 && n > 1 {
+		if call, ok := ast.Unparen(e.Args[0]).(*ast.CallExpr); ok {
+			if tup, ok := s.info.Types[call].Type.(*types2.Tuple); ok && tup.Len() > 1 {
+				res := s.callResults(call)
+				out := make([]value, len(res))
+				for i, r := range res {
+					out[i] = s.assignConvert(r, s.subst(params.At(i).Type()), call)
+				}
+				return out
+			}
+		}
+	}
+
+	var out []value
+	fixed := n
+	if sig.Variadic() && !e.Ellipsis.IsValid() {
+		fixed = n - 1
+	}
+	for i := 0; i < fixed && i < len(e.Args); i++ {
+		out = append(out, s.materialize(s.exprAs(e.Args[i], s.subst(params.At(i).Type()))))
+	}
+	if sig.Variadic() && !e.Ellipsis.IsValid() {
+		sliceT := s.subst(params.At(n - 1).Type())
+		et := sliceT.Underlying().(*types2.Slice).Elem()
+		extra := e.Args[fixed:]
+		if len(extra) == 0 {
+			out = append(out, s.zeroValue(sliceT))
+		} else {
+			arrT := types2.NewArray(et, int64(len(extra)))
+			arr := s.temp(arrT, "varargs")
+			esize := s.l.sizeof(et)
+			for i, a := range extra {
+				s.storeTo(s.offPtr(arr, int64(i)*esize), s.exprAs(a, et), et)
+			}
+			nv := s.constInt(ssa.TI64, int64(len(extra)))
+			out = append(out, s.makeSlice(arr, nv, nv, sliceT))
+		}
+	}
+	return out
+}
+
+// emitCall emits a call and returns its results as values.
+func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []value, pos token.Pos) []value {
+	abi := s.l.lowerSig(sig)
+	var flat []*ssa.Value
+	var sretBuf *ssa.Value
+	if abi.sret {
+		size, align := s.l.sretSize(abi)
+		sretBuf = s.tempSize(size, align, "sret")
+		flat = append(flat, sretBuf)
+	}
+	all := args
+	if recv != nil {
+		all = append([]value{*recv}, args...)
+	}
+	if len(all) != len(abi.params) {
+		s.l.errorf(pos, "lower: call has %d arguments, signature has %d parameters", len(all), len(abi.params))
+		return nil
+	}
+	for i, p := range abi.params {
+		v := all[i]
+		if p.byRef {
+			// The callee owns this copy and may modify it.
+			cp := s.temp(p.typ, "arg")
+			s.storeTo(cp, v, p.typ)
+			flat = append(flat, cp)
+			continue
+		}
+		flat = append(flat, s.leafValues(v, p.leaves)...)
+	}
+
+	call := s.callValue(c, flat, abi.flatResults)
+	call.Pos = pos
+	s.setMem(s.newValue(ssa.OpSelectN, ssa.TMem, call))
+	if c.noReturn {
+		call.Call.NoReturn = true
+		s.b.Kind = ssa.BlockExit
+		s.b.SetControl(s.mem())
+		s.b = nil
+		// Code after a call that does not return is unreachable; give it
+		// a block so lowering can continue harmlessly.
+		dead := s.newBlock(ssa.BlockInvalid)
+		s.seal(dead)
+		s.startBlock(dead)
+	}
+
+	var out []value
+	if abi.sret {
+		offs := s.l.resultOffsets(abi)
+		for i, p := range abi.results {
+			out = append(out, s.loadFrom(s.offPtr(sretBuf, offs[i]), p.typ))
+		}
+		return out
+	}
+	k := 1
+	for _, p := range abi.results {
+		if len(p.leaves) == 1 && p.leaves[0].off == 0 && s.l.scalarType(p.typ) != nil {
+			out = append(out, scalarValue(s.selectN(call, k, p.leaves[0].t), p.typ))
+			k++
+			continue
+		}
+		tmp := s.temp(p.typ, "res")
+		for _, lf := range p.leaves {
+			s.store(lf.t, s.offPtr(tmp, lf.off), s.selectN(call, k, lf.t))
+			k++
+		}
+		out = append(out, aggValue(tmp, p.typ))
+	}
+	return out
+}
+
+func (s *fnState) selectN(call *ssa.Value, i int, t *ssa.Type) *ssa.Value {
+	v := s.newValue(ssa.OpSelectN, t, call)
+	v.AuxInt = int64(i)
+	return v
+}
+
+// callValue emits the call op itself.
+func (s *fnState) callValue(c callee, flat []*ssa.Value, results []*ssa.Type) *ssa.Value {
+	rt := ssa.TupleOf(append([]*ssa.Type{ssa.TMem}, results...)...)
+	var call *ssa.Value
+	if c.sym != nil {
+		call = s.newValue(ssa.OpCall, rt)
+		call.Aux = c.sym
+	} else {
+		call = s.newValue(ssa.OpCallInd, rt, c.code, c.ctx)
+	}
+	for _, a := range flat {
+		call.AddArg(a)
+	}
+	call.AddArg(s.mem())
+	call.Call = &ssa.CallInfo{ABI: ssa.ABIInternal, Results: results, NoReturn: c.noReturn}
+	return call
+}
+
+// ----------------------------------------------------------------------------
+// Runtime calls
+
+// rtFunc returns the named function of package pluto/rt.
+func (l *Lowerer) rtFunc(name string) *types2.Func {
+	for _, p := range l.prog.Packages {
+		if p.Path == "pluto/rt" {
+			if fn, ok := p.Types.Scope().Lookup(name).(*types2.Func); ok {
+				return fn
+			}
+		}
+	}
+	panic(fmt.Sprintf("lower: pluto/rt.%s is missing", name))
+}
+
+// callRuntime calls pluto/rt.name with already-flattened scalar arguments and
+// returns its scalar results.
+func (s *fnState) callRuntime(name string, results []*ssa.Type, argGroups ...[]*ssa.Value) []*ssa.Value {
+	var flat []*ssa.Value
+	for _, g := range argGroups {
+		flat = append(flat, g...)
+	}
+	sym := s.l.funcSym(s.l.rtFunc(name), nil)
+	call := s.callValue(callee{sym: sym}, flat, results)
+	s.setMem(s.newValue(ssa.OpSelectN, ssa.TMem, call))
+	out := make([]*ssa.Value, len(results))
+	for i, t := range results {
+		out[i] = s.selectN(call, i+1, t)
+	}
+	return out
+}
+
+// callRuntimeNoReturn calls a pluto/rt panic function and ends the block.
+func (s *fnState) callRuntimeNoReturn(name string, args ...*ssa.Value) {
+	sym := s.l.funcSym(s.l.rtFunc(name), nil)
+	call := s.callValue(callee{sym: sym, noReturn: true}, args, nil)
+	s.setMem(s.newValue(ssa.OpSelectN, ssa.TMem, call))
+	s.b.Kind = ssa.BlockExit
+	s.b.SetControl(s.mem())
+	s.b = nil
+}
+
+// ----------------------------------------------------------------------------
+// Methods
+
+// methodCall lowers x.m(args).
+func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.Selection) []value {
+	fn := sel.Obj().(*types2.Func)
+	recvT := s.typeOf(se.X)
+	sig := s.subst(s.info.Types[e.Fun].Type).(*types2.Signature)
+
+	// Built-in ring methods.
+	if w := ringOf(recvT, sel); w != nil {
+		return s.ringCall(e, se, sel, w)
+	}
+
+	// Interface method calls.
+	if isInterface(recvT) && len(sel.Index()) == 1 {
+		iv := s.expr(se.X)
+		args := s.callArgs(e, sig)
+		return s.ifaceCall(iv, recvT, fn, sig, args, e.Pos())
+	}
+
+	recv := s.methodReceiver(se.X, sel)
+	fsig := fn.Type().(*types2.Signature)
+	targs := s.recvTypeArgs(fsig.Recv().Type())
+	if len(targs) == 0 {
+		// The receiver's type arguments come from the receiver expression.
+		targs = s.recvTypeArgs(s.subst(recvT))
+	}
+	sym := s.l.funcSym(fn, targs)
+	full := s.l.methodSig(fn, targs)
+	args := s.callArgs(e, sig)
+	return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn)}, full, &recv, args, e.Pos())
+}
+
+// methodSig returns a method's signature with its receiver, instantiated.
+func (l *Lowerer) methodSig(fn *types2.Func, targs []types2.Type) *types2.Signature {
+	sig := fn.Origin().Type().(*types2.Signature)
+	if len(targs) > 0 {
+		tm := newTypeMap(l, fn.Origin(), targs)
+		return tm.subst(sig).(*types2.Signature)
+	}
+	return sig
+}
+
+// methodReceiver evaluates the receiver of a method call or method value,
+// following embedded fields and taking the address or dereferencing as the
+// method's receiver type requires.
+func (s *fnState) methodReceiver(x ast.Expr, sel *types2.Selection) value {
+	fn := sel.Obj().(*types2.Func)
+	// Named types cannot be pointers when they have methods, so a pointer
+	// receiver is always a literal *T.
+	_, wantPtr := fn.Type().(*types2.Signature).Recv().Type().(*types2.Pointer)
+
+	path := sel.Index()
+	xt := s.typeOf(x)
+	var cur lvalue
+	if isPointerLike(xt) {
+		cur = lvalue{ptr: s.scalar(x), T: pointerElem(xt)}
+	} else if isAddressable(x, s.info) {
+		cur = s.lv(x)
+	} else {
+		v := s.materialize(s.expr(x))
+		if !v.addr {
+			if len(path) == 1 && !wantPtr {
+				return v
+			}
+			tmp := s.temp(xt, "recv")
+			s.storeTo(tmp, v, xt)
+			cur = lvalue{ptr: tmp, T: xt}
+		} else {
+			cur = lvalue{ptr: v.v, T: xt}
+		}
+	}
+	if len(path) > 1 {
+		cur = s.fieldPath(cur, path[:len(path)-1])
+		if isPointerLike(unwrap(cur.T)) {
+			cur = lvalue{ptr: s.loadLV(cur).v, T: pointerElem(unwrap(cur.T))}
+		}
+	}
+	if wantPtr {
+		return scalarValue(cur.ptr, types2.NewPointer(cur.T))
+	}
+	return s.loadLV(cur)
+}
+
+// ringOf returns the ring type of a ring method selection, or nil.
+func ringOf(recvT types2.Type, sel *types2.Selection) *types2.Wrapper {
+	if sel.Obj().Pkg() != nil {
+		return nil
+	}
+	T := recvT
+	if p, ok := T.Underlying().(*types2.Pointer); ok {
+		T = p.Elem()
+	}
+	if w, ok := unwrap(T).Underlying().(*types2.Wrapper); ok && w.Kind() == types2.WrapRing {
+		return w
+	}
+	return nil
+}
+
+// ----------------------------------------------------------------------------
+// Function values and closures
+
+// funcValue returns a func value for a declared function: the address of a
+// static closure record holding its code pointer.
+func (s *fnState) funcValue(fn *types2.Func, targs []types2.Type) *ssa.Value {
+	sym := s.l.funcSym(fn, targs)
+	return s.symAddr(s.l.closureRecord(sym))
+}
+
+// closure lowers a function literal. A literal that captures nothing is a
+// static closure record; otherwise the record is built in this frame:
+// the code pointer followed by the address of each captured variable.
+func (s *fnState) closure(lit *ast.FuncLit) *ssa.Value {
+	captures := s.capturedVars(lit)
+	s.closures++
+	name := fmt.Sprintf("%s.func%d", s.f.Name, s.closures)
+	sym := s.l.out.Sym(name, ssa.SymFunc)
+	sig := s.subst(s.info.Types[lit].Type).(*types2.Signature)
+	s.l.queue = append(s.l.queue, &funcJob{
+		sym: sym, pkg: s.pkg, lit: lit, sig: sig, tmap: s.tmap, captures: captures, parent: s,
+	})
+	if len(captures) == 0 {
+		return s.symAddr(s.l.closureRecord(sym))
+	}
+	rec := s.tempSize(int64(8*(1+len(captures))), 8, "closure")
+	code := s.f.Entry.NewValue(ssa.OpFuncAddr, ssa.TPtr)
+	code.Aux = sym
+	s.hoistEntry(code)
+	s.store(ssa.TPtr, rec, code)
+	for i, v := range captures {
+		s.store(ssa.TPtr, s.offPtr(rec, int64(8*(i+1))), s.varLV(v, lit).ptr)
+	}
+	return rec
+}
+
+// capturedVars lists the local variables of enclosing functions that lit
+// refers to, in first-use order.
+func (s *fnState) capturedVars(lit *ast.FuncLit) []*types2.Var {
+	var out []*types2.Var
+	seen := map[*types2.Var]bool{}
+	ast.Inspect(lit.Body, func(n ast.Node) bool {
+		id, ok := n.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		v, ok := s.info.Uses[id].(*types2.Var)
+		if !ok || seen[v] || v.IsField() {
+			return true
+		}
+		// Captured if declared outside the literal but inside a function.
+		if v.Pkg() != nil && v.Parent() == v.Pkg().Scope() {
+			return true
+		}
+		if v.Pos() >= lit.Pos() && v.Pos() < lit.End() {
+			return true
+		}
+		if _, local := s.vars[v]; local {
+			seen[v] = true
+			out = append(out, v)
+		}
+		return true
+	})
+	return out
+}
+
+// methodValue lowers x.m used as a value: a closure record in this frame
+// holding a wrapper's code pointer and a copy of the receiver.
+func (s *fnState) methodValue(se *ast.SelectorExpr, sel *types2.Selection) *ssa.Value {
+	fn := sel.Obj().(*types2.Func)
+	recvT := s.typeOf(se.X)
+	if isInterface(recvT) {
+		iv := s.materialize(s.expr(se.X))
+		wrapper := s.l.ifaceMethodValueWrapper(recvT, fn)
+		rec := s.tempSize(24, 8, "methodvalue")
+		s.store(ssa.TPtr, rec, s.funcAddr(wrapper))
+		s.move(s.offPtr(rec, 8), iv.v, 16)
+		return rec
+	}
+	recv := s.methodReceiver(se.X, sel)
+	targs := s.recvTypeArgs(fn.Type().(*types2.Signature).Recv().Type())
+	if len(targs) == 0 {
+		targs = s.recvTypeArgs(s.subst(recvT))
+	}
+	wrapper := s.l.boundMethodWrapper(fn, targs, recv.T)
+	size := 8 + s.l.sizeof(recv.T)
+	rec := s.tempSize((size+7)&^7, 8, "methodvalue")
+	s.store(ssa.TPtr, rec, s.funcAddr(wrapper))
+	s.storeTo(s.offPtr(rec, 8), recv, recv.T)
+	return rec
+}
+
+func (s *fnState) funcAddr(sym *ssa.Sym) *ssa.Value {
+	v := s.f.Entry.NewValue(ssa.OpFuncAddr, ssa.TPtr)
+	v.Aux = sym
+	s.hoistEntry(v)
+	return v
+}
+
+// boundMethodWrapper synthesizes the function a method value's record
+// points at: it loads the receiver from the record and calls the method.
+func (l *Lowerer) boundMethodWrapper(fn *types2.Func, targs []types2.Type, recvT types2.Type) *ssa.Sym {
+	name := funcSymName(fn, targs) + "-fm"
+	if sym := l.funcs[name]; sym != nil {
+		return sym
+	}
+	sym := l.out.Sym(name, ssa.SymFunc)
+	l.funcs[name] = sym
+	full := l.methodSig(fn, targs)
+	plain := types2.NewSignatureType(nil, nil, nil, full.Params(), full.Results(), full.Variadic())
+	target := l.funcSym(fn, targs)
+	l.queue = append(l.queue, &funcJob{sym: sym, sig: plain, build: func(s *fnState) {
+		ctx := s.newValue(ssa.OpClosurePtr, ssa.TPtr)
+		recv := s.loadFrom(s.offPtr(ctx, 8), recvT)
+		args := s.incomingArgs(plain)
+		res := s.emitCall(callee{sym: target}, full, &recv, args, token.NoPos)
+		s.returnValues(res)
+	}})
+	return sym
+}
+
+// incomingArgs rebuilds a synthesized function's parameters as values.
+func (s *fnState) incomingArgs(sig *types2.Signature) []value {
+	idx := 0
+	if s.abi.sret {
+		s.sret = s.newValue(ssa.OpArg, ssa.TPtr)
+		idx++
+	}
+	var out []value
+	for _, p := range s.abi.params {
+		if p.byRef {
+			a := s.newValue(ssa.OpArg, ssa.TPtr)
+			a.AuxInt = int64(idx)
+			idx++
+			out = append(out, aggValue(a, p.typ))
+			continue
+		}
+		tmp := s.temp(p.typ, "arg")
+		for _, lf := range p.leaves {
+			a := s.newValue(ssa.OpArg, lf.t)
+			a.AuxInt = int64(idx)
+			idx++
+			s.store(lf.t, s.offPtr(tmp, lf.off), a)
+		}
+		out = append(out, s.loadFrom(tmp, p.typ))
+	}
+	return out
+}
+
+// returnValues returns the given values from a synthesized function.
+func (s *fnState) returnValues(res []value) {
+	for i, p := range s.abi.results {
+		addr := s.temp(p.typ, "result")
+		s.storeTo(addr, res[i], p.typ)
+		s.results = append(s.results, addr)
+	}
+	s.emitReturn(token.NoPos)
+}

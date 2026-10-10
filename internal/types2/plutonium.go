@@ -34,6 +34,30 @@ func (check *Checker) unwrapTransparent(x *operand) {
 	}
 }
 
+// Subst returns t with each type parameter in tparams replaced by the
+// matching type in targs. The compiler uses it to instantiate the types in a
+// generic function's body. ctxt de-duplicates instantiated named types and may
+// be shared across calls.
+func Subst(ctxt *Context, t Type, tparams []*TypeParam, targs []Type) Type {
+	if len(tparams) == 0 {
+		return t
+	}
+	if ctxt == nil {
+		ctxt = NewContext()
+	}
+	return (*Checker)(nil).subst(nopos, t, makeSubstMap(tparams, targs), nil, ctxt)
+}
+
+// isMainStatus reports whether a result list is a single unnamed int64,
+// the exit status main may return.
+func isMainStatus(results *ast.FieldList) bool {
+	if results.NumFields() != 1 || len(results.List[0].Names) > 0 {
+		return false
+	}
+	id, ok := results.List[0].Type.(*ast.Ident)
+	return ok && id.Name == "int64"
+}
+
 // forbiddenImports lists import paths Plutonium rejects, with the reason.
 var forbiddenImports = map[string]string{
 	"reflect": "requires runtime type metadata",

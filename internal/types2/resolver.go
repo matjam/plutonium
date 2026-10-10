@@ -423,9 +423,13 @@ func (check *Checker) collectObjects() {
 						if tparam0 != nil {
 							check.softErrorf(tparam0, code, "func %s must have no type parameters", name)
 						}
-						if t := d.decl.Type; t.Params.NumFields() != 0 || t.Results != nil {
-							// TODO(rFindley) Should this be a hard error?
-							check.softErrorf(d.decl.Name, code, "func %s must have no arguments and no return values", name)
+						if t := d.decl.Type; t.Params.NumFields() != 0 || t.Results != nil && (name != "main" || !isMainStatus(t.Results)) {
+							// Plutonium: main may return an int64 exit status.
+							if name == "main" {
+								check.softErrorf(d.decl.Name, code, "func main must have no arguments and return nothing or an int64")
+							} else {
+								check.softErrorf(d.decl.Name, code, "func %s must have no arguments and no return values", name)
+							}
 						}
 					} else {
 						_ = tparam0 != nil && check.verifyVersionf(tparam0, go1_18, "type parameter")
