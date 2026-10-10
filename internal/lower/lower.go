@@ -107,6 +107,11 @@ type funcJob struct {
 	captures []*types2.Var
 	parent   *fnState
 
+	// For the closure of a closure constructor: the constructor. The
+	// closure is the constructor's, not its caller's, so it may use the FPU
+	// where the constructor may, whichever function calls the constructor.
+	ctor *funcDecl
+
 	build func(s *fnState) // for synthesized functions (init, wrappers)
 	pos   token.Pos        // for synthesized functions with a source extent
 	end   token.Pos

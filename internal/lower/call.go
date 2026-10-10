@@ -731,7 +731,12 @@ func (s *fnState) funcValue(fn *types2.Func, targs []types2.Type, pos token.Pos)
 // the code pointer followed by the address of each captured variable.
 func (s *fnState) closure(lit *ast.FuncLit) *ssa.Value {
 	captures := s.capturedVars(lit)
-	sym := s.closureFunc(lit, captures)
+	return s.closureWith(lit, captures, s.closureFunc(lit, captures))
+}
+
+// closureWith builds the closure record of literal lit, whose function is
+// sym and whose captured variables are captures.
+func (s *fnState) closureWith(lit *ast.FuncLit, captures []*types2.Var, sym *ssa.Sym) *ssa.Value {
 	if len(captures) == 0 {
 		return s.symAddr(s.l.closureRecord(sym))
 	}
@@ -751,6 +756,27 @@ func (s *fnState) closureFunc(lit *ast.FuncLit, captures []*types2.Var) *ssa.Sym
 	s.l.funcValues[sym] = sig
 	s.l.queue = append(s.l.queue, &funcJob{
 		sym: sym, pkg: s.pkg, lit: lit, sig: sig, tmap: s.tmap, captures: captures, parent: s,
+	})
+	return sym
+}
+
+// ctorClosureFunc queues the function of the literal that closure
+// constructor c returns, instantiated with targs, and names it after the
+// constructor (main.Count.func1, pkg.(*Vec).All[int].func1), as Go names the
+// closure the constructor would have returned. The function does not depend
+// on the call that builds the closure, only on the constructor and its type
+// arguments, so every call shares it.
+func (s *fnState) ctorClosureFunc(c *ctorInfo, targs []types2.Type, lit *ast.FuncLit, captures []*types2.Var) *ssa.Sym {
+	name := funcSymName(c.decl.obj, targs) + ".func1"
+	if sym := s.l.funcs[name]; sym != nil {
+		return sym
+	}
+	sym := s.l.out.Sym(name, ssa.SymFunc)
+	s.l.funcs[name] = sym
+	sig := s.subst(s.info.Types[lit].Type).(*types2.Signature)
+	s.l.funcValues[sym] = sig
+	s.l.queue = append(s.l.queue, &funcJob{
+		sym: sym, pkg: s.pkg, lit: lit, sig: sig, tmap: s.tmap, captures: captures, ctor: c.decl,
 	})
 	return sym
 }

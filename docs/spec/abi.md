@@ -342,6 +342,8 @@ functions without `//pu:fpu` (no floats, section 10.2) never use it.
 | generic instance | `path.Name[T1,T2]`, type arguments package-qualified by import path |
 | method of a generic type instance | `pluto/vec.(*Vec).Push[int]`: the receiver's type arguments, then the method's own, in the brackets |
 | function literal | `<enclosing symbol>.func<N>` |
+| the closure of a closure constructor (language spec section 4.5) | `<constructor symbol>.func1`, e.g. `main.Count.func1` or `pluto/vec.(*Vec).All[int].func1`: named after the constructor, not the caller that builds it, and shared by every call |
+| the closure of a `ring` iterator (section 5.4) | `builtin.(*ring[T,N]).All.func1`, or `.Values.func1` |
 | go statement thunk (section 12.6) | `<enclosing symbol>.go<N>` |
 | bound method wrapper | `<method symbol>-fm` |
 | static closure record | `<function symbol>·f` |

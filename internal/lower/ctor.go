@@ -146,7 +146,8 @@ func (s *fnState) expandCtor(c *ctorInfo, targs []types2.Type, recv *value, args
 	var rec *ssa.Value
 	switch x := c.result.(type) {
 	case *ast.FuncLit:
-		rec = s.closure(x)
+		captures := s.capturedVars(x)
+		rec = s.closureWith(x, captures, s.ctorClosureFunc(c, targs, x, captures))
 	case *ast.CallExpr:
 		rec = s.callExpr(x).v
 	}

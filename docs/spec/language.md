@@ -244,7 +244,9 @@ constructor is compiled where it is made instead: the arguments are stored in fr
 caller's frame, and the literal's closure is built in that frame and captures them there. The result is
 an ordinary closure of the caller, valid while the caller runs, and `for i, x := range v.All()` costs no
 allocation. Each call site has its own variables: a call in a loop reuses them on every iteration, as a
-function literal in a loop does. A closure constructor can only be called directly; using it as a func
+function literal in a loop does. The closure's code is the literal's, compiled once for the constructor, so a
+stack trace names its frame after the constructor (`main.Count.func1`, `pluto/vec.(*Vec).All[int].func1`)
+wherever it was called. A closure constructor can only be called directly; using it as a func
 value or a method value, or calling it through an interface, is a compile error (E2543), since there is no
 caller's frame to build the closure in.
 
