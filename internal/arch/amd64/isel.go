@@ -39,6 +39,7 @@ func Select(f *ssa.Func) (*MFunc, error) {
 	// Lowering checks a handler's signature: a frame pointer, then
 	// optionally the error code.
 	mf.errCode = mf.interrupt && len(f.Params) == 2
+	mf.noSSE = f.NoSSE
 	for _, s := range f.Slots {
 		mf.maxAlign = max(mf.maxAlign, s.Align)
 	}

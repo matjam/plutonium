@@ -350,3 +350,67 @@ func TestKernelNoXMM(t *testing.T) {
 		}
 	}
 }
+
+// TestKernelInterruptXMM checks which XMM registers interrupt handlers
+// save: none for a kernel-mode handler without //pu:fpu, even when it
+// makes calls; the ones it uses for a //pu:fpu handler; and, outside
+// kernel mode, all of them when it makes a call.
+func TestKernelInterruptXMM(t *testing.T) {
+	const src = `package main
+
+import "pluto/arch/x86"
+
+type V struct{ X, Y float64 }
+
+var count int
+var v V
+var idt [2]uintptr
+
+//pu:noinline
+func work() { count += 2 }
+
+//pu:interrupt
+func tick(f *x86.InterruptFrame) {
+	count++
+	work()
+}
+
+//pu:fpu
+//pu:interrupt
+func ftick(f *x86.InterruptFrame) {
+	v.X = v.X * v.Y
+}
+
+func main() {
+	idt[0] = x86.HandlerAddr(tick)
+	idt[1] = x86.HandlerAddr(ftick)
+}
+`
+	listing, err := kernelCompile(t, src, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asm := funcListing(t, listing, "main.tick"); !strings.Contains(asm, "call main.work") ||
+		strings.Contains(asm, "movups") || strings.Contains(asm, "xmm") {
+		t.Errorf("kernel-mode handler saves vector registers:\n%s", asm)
+	}
+	if asm := funcListing(t, listing, "main.ftick"); !strings.Contains(asm, "movups") ||
+		strings.Count(asm, "movups") > 6 {
+		t.Errorf("//pu:fpu handler should save just the XMM registers it uses:\n%s", asm)
+	}
+
+	// Outside kernel mode a handler that calls saves all sixteen.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.p"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	cfg := &build.Config{Dir: dir, Output: filepath.Join(dir, "k.o"), Stdlib: plutonium.Stdlib(),
+		OptLevel: 2, Freestanding: true, Listing: &buf, CompileOnly: true}
+	if err := build.Build(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if asm := funcListing(t, buf.String(), "main.tick"); strings.Count(asm, "movups") != 32 {
+		t.Errorf("freestanding handler that calls should save XMM0-15:\n%s", asm)
+	}
+}

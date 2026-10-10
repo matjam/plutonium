@@ -310,7 +310,11 @@ type MFunc struct {
 	errCode   bool
 	savedXMM  []Reg
 	xmmSave   *ssa.Slot
-	nextSlot  int
+	// noSSE is ssa.Func.NoSSE: the function and everything it may call
+	// without FPUBegin leave the vector registers alone, so an interrupt
+	// handler with it saves none.
+	noSSE    bool
+	nextSlot int
 	consts    []Const
 	constSyms map[[16]byte]*ssa.Sym
 }
