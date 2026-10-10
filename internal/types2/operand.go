@@ -246,7 +246,7 @@ func operandString(x *operand, qf Qualifier) string {
 // ("array", "slice", etc.) or the empty string if typ is not
 // composite but a basic type.
 func compositeKind(typ Type) string {
-	switch typ.Underlying().(type) {
+	switch t := typ.Underlying().(type) {
 	case *Basic:
 		return ""
 	case *Array:
@@ -255,6 +255,10 @@ func compositeKind(typ Type) string {
 		return "slice"
 	case *Struct:
 		return "struct"
+	case *Packed:
+		return "packed"
+	case *Wrapper:
+		return t.kind.String()
 	case *Pointer:
 		return "pointer"
 	case *Signature:
@@ -334,6 +338,12 @@ func (x *operand) assignableTo(check *Checker, T Type, cause *string) (bool, Cod
 	// x's type is identical to T
 	if Identical(V, T) {
 		return true, 0
+	}
+
+	// Plutonium: volatile[T] and aligned[T, N] store a T, so a value
+	// assignable to T is assignable to them.
+	if w, ok := T.Underlying().(*Wrapper); ok && w.isTransparent() {
+		return x.assignableTo(check, w.elem, cause)
 	}
 
 	Vu := V.Underlying()

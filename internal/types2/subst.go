@@ -129,6 +129,12 @@ func (subst *subster) typ(typ Type) Type {
 			return &Slice{elem: elem}
 		}
 
+	case *Wrapper:
+		elem := subst.typOrNil(t.elem)
+		if elem != t.elem {
+			return NewWrapper(t.kind, elem, t.n)
+		}
+
 	case *Struct:
 		if fields := substList(t.fields, subst.var_); fields != nil {
 			s := &Struct{fields: fields, tags: t.tags}

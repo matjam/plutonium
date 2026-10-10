@@ -169,6 +169,13 @@ func (x *operand) convertibleTo(check *Checker, T Type, cause *string) bool {
 		return true
 	}
 
+	// Plutonium: a packed type converts to and from its storage: an integer
+	// type of the same size, or a byte array of the same length. This is
+	// how a raw register value becomes a typed view and back.
+	if packedStorageConvertible(check, Vu, Tu) || packedStorageConvertible(check, Tu, Vu) {
+		return true
+	}
+
 	// "V and T are both complex types"
 	if isComplex(Vu) && isComplex(Tu) {
 		return true

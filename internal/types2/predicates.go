@@ -185,6 +185,22 @@ func comparableType(T Type, dynamic bool, seen map[Type]bool) *typeError {
 			return typeErrorf("%s cannot be compared", T)
 		}
 
+	case *Packed:
+		// Packed values compare as their storage bits; writes keep
+		// padding bits zero.
+
+	case *Wrapper:
+		switch {
+		case t.IsPointer():
+			// owned, shared and synced compare as pointers.
+		case t.kind == WrapRing:
+			return typeErrorf("%s cannot be compared", T)
+		default:
+			if comparableType(t.elem, dynamic, seen) != nil {
+				return typeErrorf("%s cannot be compared", T)
+			}
+		}
+
 	case *Interface:
 		if dynamic && !isTypeParam(T) || t.typeSet().IsComparable(seen) {
 			return nil
@@ -280,6 +296,34 @@ func (c *comparer) identical(x, y Type, p *ifacePair) bool {
 		// Two slice types are identical if they have identical element types.
 		if y, ok := y.(*Slice); ok {
 			return c.identical(x.elem, y.elem, p)
+		}
+
+	case *Wrapper:
+		// Two wrapper types are identical if they come from the same
+		// constructor with the same count and identical element types.
+		if y, ok := y.(*Wrapper); ok {
+			return x.kind == y.kind && x.n == y.n && c.identical(x.elem, y.elem, p)
+		}
+
+	case *Packed:
+		// Two packed types are identical if they have the same byte order,
+		// identical backing types and the same sequence of fields with the
+		// same names, layout and identical types.
+		if y, ok := y.(*Packed); ok {
+			if x.order != y.order || x.bits != y.bits || len(x.fields) != len(y.fields) {
+				return false
+			}
+			if (x.backing == nil) != (y.backing == nil) || x.backing != nil && !c.identical(x.backing, y.backing, p) {
+				return false
+			}
+			for i, f := range x.fields {
+				g := y.fields[i]
+				if f.offset != g.offset || f.width != g.width || f.isBits != g.isBits ||
+					!f.obj.sameId(g.obj.pkg, g.obj.name, false) || !c.identical(f.obj.typ, g.obj.typ, p) {
+					return false
+				}
+			}
+			return true
 		}
 
 	case *Struct:

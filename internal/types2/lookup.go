@@ -237,6 +237,34 @@ func lookupFieldOrMethodImpl(T Type, addressable bool, pkg *Package, name string
 					}
 				}
 
+			case *Packed:
+				// look for a matching packed field; packed types have no
+				// embedded fields
+				for i, f := range t.fields {
+					if f.obj.sameId(pkg, name, foldCase) {
+						index = concat(e.index, i)
+						if obj != nil || e.multiples {
+							return nil, index, false // collision
+						}
+						obj = f.obj
+						indirect = e.indirect
+						break
+					}
+				}
+
+			case *Wrapper:
+				// ring[T, N] has built-in methods
+				if t.kind == WrapRing {
+					if i, m := t.ringMethod(name, foldCase); m != nil {
+						index = concat(e.index, i)
+						if obj != nil || e.multiples {
+							return nil, index, false // collision
+						}
+						obj = m
+						indirect = e.indirect
+					}
+				}
+
 			case *Interface:
 				// look for a matching method (interface may be a type parameter)
 				if i, m := t.typeSet().LookupMethod(pkg, name, foldCase); m != nil {

@@ -332,9 +332,9 @@ func (conf *Config) sizeof(T Type) int64 {
 }
 
 // align returns the smallest y >= x such that y % a == 0.
-// a must be within 1 and 8 and it must be a power of 2.
+// a must be a power of 2 (Plutonium's aligned[T, N] allows any power of 2).
 // The result may be negative due to overflow.
 func align(x, a int64) int64 {
-	assert(x >= 0 && 1 <= a && a <= 8 && a&(a-1) == 0)
+	assert(x >= 0 && 1 <= a && a&(a-1) == 0)
 	return (x + a - 1) &^ (a - 1)
 }

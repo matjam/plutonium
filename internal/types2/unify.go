@@ -607,6 +607,20 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 			return u.nify(x.elem, y.elem, emode, p)
 		}
 
+	case *Wrapper:
+		// Two wrapper types unify if they come from the same constructor
+		// with the same count and their element types unify.
+		if y, ok := y.(*Wrapper); ok {
+			return x.kind == y.kind && x.n == y.n && u.nify(x.elem, y.elem, emode, p)
+		}
+
+	case *Packed:
+		// Packed types cannot contain type parameters, so they unify only
+		// when identical.
+		if y, ok := y.(*Packed); ok {
+			return Identical(x, y)
+		}
+
 	case *Struct:
 		// Two struct types unify if they have the same sequence of fields,
 		// and if corresponding fields have the same names, their (field) types unify,

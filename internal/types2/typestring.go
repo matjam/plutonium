@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/matjam/plutonium/internal/syntax/ast"
 )
 
 // A Qualifier controls how named package-level objects are printed in
@@ -141,6 +143,51 @@ func (w *typeWriter) typ(typ Type) {
 	case *Slice:
 		w.string("[]")
 		w.typ(t.elem)
+
+	case *Wrapper:
+		w.string(t.kind.String())
+		w.byte('[')
+		w.typ(t.elem)
+		if t.kind.hasCount() {
+			w.string(", ")
+			w.string(strconv.FormatInt(t.n, 10))
+		}
+		w.byte(']')
+
+	case *Packed:
+		w.string("packed")
+		switch t.order {
+		case ast.BigEndian:
+			w.string(" be")
+		case ast.LittleEndian:
+			w.string(" le")
+		}
+		if t.backing != nil {
+			w.byte(' ')
+			w.typ(t.backing)
+		}
+		w.string(" {")
+		for i, f := range t.fields {
+			if i > 0 {
+				w.byte(';')
+			}
+			w.byte(' ')
+			w.string(f.obj.name)
+			w.byte(' ')
+			if f.isBits {
+				w.string("bits[")
+				w.typ(f.obj.typ)
+				w.string(", ")
+				w.string(strconv.FormatInt(f.width, 10))
+				w.byte(']')
+			} else {
+				w.typ(f.obj.typ)
+			}
+		}
+		w.string(" }")
+
+	case *typeConstructor:
+		w.string(t.kind.String())
 
 	case *Struct:
 		w.string("struct{")

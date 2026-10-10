@@ -274,8 +274,18 @@ func (check *Checker) typInternal(e0 ast.Expr, def *TypeName) (T Type) {
 
 	case *ast.IndexExpr, *ast.IndexListExpr:
 		ix := unpackIndexedExpr(e)
+		if t := check.wrapperType(ix); t != nil {
+			return t
+		}
 		check.verifyVersionf(inNode(e, ix.lbrack), go1_18, "type instantiation")
 		return check.instantiatedType(ix)
+
+	case *ast.PackedType:
+		return check.packedType(e)
+
+	case *ast.BitsGroup:
+		check.error(e, InvalidSyntaxTree, "bits group outside a packed type")
+		return Typ[Invalid]
 
 	case *ast.ParenExpr:
 		// Generic types must be instantiated before they can be used in any form.

@@ -239,6 +239,8 @@ func (w *monoGraph) assign(pkg *Package, pos token.Pos, tpar *TypeParam, targ Ty
 			do(typ.Elem())
 		case *Slice:
 			do(typ.Elem())
+		case *Wrapper:
+			do(typ.Elem())
 
 		case *Interface:
 			for i := 0; i < typ.NumMethods(); i++ {

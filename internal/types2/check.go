@@ -165,6 +165,10 @@ type Checker struct {
 	// for the duration of type-checking a specific object)
 	environment
 
+	// Plutonium: set by unary & so that the next rawExpr keeps a volatile or
+	// aligned wrapper on its operand instead of unwrapping it.
+	keepWrapper bool
+
 	// debugging
 	posStack []positioner // stack of source positions seen; used for panic tracing
 	indent   int          // indentation for tracing

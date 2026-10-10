@@ -240,6 +240,7 @@ func init() {
 	Unsafe.complete = true
 
 	defPredeclaredTypes()
+	defPlutoniumTypes()
 	defPredeclaredConsts()
 	defPredeclaredNil()
 	defPredeclaredFuncs()

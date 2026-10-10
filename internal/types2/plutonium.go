@@ -18,6 +18,22 @@ func (check *Checker) forbidden(at positioner, what, reason string) {
 	check.errorf(at, UnsupportedFeature, "%s not permitted in Plutonium (%s)", what, reason)
 }
 
+// unwrapTransparent gives a variable or value of type volatile[T] or
+// aligned[T, N] the type T. The storage keeps its wrapper type; lowering finds
+// it from the variable, field or pointer the expression reads.
+func (check *Checker) unwrapTransparent(x *operand) {
+	if x.mode() != variable && x.mode() != value {
+		return
+	}
+	for {
+		w, ok := x.typ().Underlying().(*Wrapper)
+		if !ok || !w.isTransparent() {
+			return
+		}
+		x.typ_ = w.elem
+	}
+}
+
 // forbiddenImports lists import paths Plutonium rejects, with the reason.
 var forbiddenImports = map[string]string{
 	"reflect": "requires runtime type metadata",

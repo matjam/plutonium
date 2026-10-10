@@ -127,6 +127,8 @@ var op2str2 = [...]string{
 
 // The unary expression e may be nil. It's passed in for better error messages only.
 func (check *Checker) unary(x *operand, e *ast.UnaryExpr) {
+	// &v keeps v's volatile or aligned wrapper in the pointer type.
+	check.keepWrapper = e.Op == token.AND
 	check.expr(nil, x, e.X)
 	if !x.isValid() {
 		return
@@ -983,10 +985,20 @@ func (check *Checker) rawExpr(T *target, x *operand, e ast.Expr, hint Type, allo
 		}()
 	}
 
+	keep := check.keepWrapper
+	check.keepWrapper = false
+
 	kind := check.exprInternal(T, x, e, hint)
 
 	if !allowGeneric {
 		check.nonGeneric(T, x)
+	}
+
+	// Plutonium: reading or writing a volatile[T] or aligned[T, N] variable
+	// reads or writes a T. Only the operand of & keeps the wrapper, so that
+	// &v has type *volatile[T].
+	if !keep {
+		check.unwrapTransparent(x)
 	}
 
 	check.record(x)

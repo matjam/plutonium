@@ -55,6 +55,20 @@ func (s *gcSizes) Alignof(T Type) (result int64) {
 		if t.Info()&IsString != 0 {
 			return s.WordSize
 		}
+	case *Wrapper:
+		switch t.kind {
+		case WrapVolatile:
+			return s.Alignof(t.elem)
+		case WrapAligned:
+			return max(s.Alignof(t.elem), t.n)
+		case WrapRing:
+			// ring[T, N] is laid out as struct { head, tail uint64; data [N]T }.
+			return max(8, s.Alignof(t.elem))
+		default:
+			return s.WordSize // owned, shared, synced are pointers
+		}
+	case *Packed:
+		return t.align
 	case *TypeParam, *Union:
 		panic("unreachable")
 	}
@@ -153,6 +167,28 @@ func (s *gcSizes) Sizeof(T Type) int64 {
 		// StdSizes.Sizeof won't be called for them.
 		assert(!isTypeParam(T))
 		return s.WordSize * 2
+	case *Wrapper:
+		switch t.kind {
+		case WrapVolatile:
+			return s.Sizeof(t.elem)
+		case WrapAligned:
+			esize := s.Sizeof(t.elem)
+			if esize < 0 {
+				return -1
+			}
+			return align(esize, s.Alignof(t))
+		case WrapRing:
+			esize := s.Sizeof(t.elem)
+			const maxInt64 = 1<<63 - 1
+			if esize < 0 || esize > 0 && t.n > (maxInt64-16)/esize {
+				return -1
+			}
+			return align(16+t.n*esize, s.Alignof(t))
+		default:
+			return s.WordSize // owned, shared, synced are pointers
+		}
+	case *Packed:
+		return (t.bits + 7) / 8
 	case *TypeParam, *Union:
 		panic("unreachable")
 	}

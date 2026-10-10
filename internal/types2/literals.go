@@ -151,6 +151,38 @@ func (check *Checker) compositeLit(x *operand, e *ast.CompositeLit, hint Type) {
 	}
 
 	switch u, _ := commonUnder(base, nil); utyp := u.(type) {
+	case *Packed:
+		// Packed literals name their fields: field order says nothing
+		// about layout a reader can check, so positional values are not
+		// allowed.
+		seen := make(map[string]bool)
+		for _, elt := range e.Elts {
+			kv, _ := elt.(*ast.KeyValueExpr)
+			if kv == nil {
+				check.genericExpr(x, elt, nil)
+				check.error(elt, InvalidLitField, "packed literal elements must be field: value")
+				continue
+			}
+			check.genericExpr(x, kv.Value, nil)
+			key, _ := kv.Key.(*ast.Ident)
+			if key == nil {
+				check.errorf(kv, InvalidLitField, "invalid field name %s in packed literal", kv.Key)
+				continue
+			}
+			i := utyp.lookupField(key.Name)
+			if i < 0 || key.Name == "_" {
+				check.errorf(kv.Key, MissingLitField, "unknown field %s in packed literal of type %s", key.Name, base)
+				continue
+			}
+			fld := utyp.fields[i].obj
+			check.recordUse(key, fld)
+			check.assignment(x, fld.typ, "packed literal")
+			if seen[key.Name] {
+				check.errorf(kv, DuplicateLitField, "duplicate field name %s in packed literal", key.Name)
+			}
+			seen[key.Name] = true
+		}
+
 	case *Struct:
 		if len(e.Elts) == 0 {
 			break
