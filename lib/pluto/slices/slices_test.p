@@ -11,6 +11,7 @@ import (
 	"pluto/cmp"
 	"pluto/math"
 	"pluto/testing"
+	"pluto/vec"
 )
 
 var equalIntTests = [...]struct {
@@ -245,41 +246,55 @@ var insertTests = [...]struct {
 	{[]int{1, 2, 3}, 2, []int{4, 5}, []int{1, 2, 4, 5, 3}},
 }
 
+// vecOf returns a new Vec holding the elements of s, with no spare room,
+// so that inserting grows it.
+func vecOf(s []int) vec.Vec[int] {
+	v := vec.New[int]()
+	v.Append(s...)
+	return v
+}
+
+// TestInsert checks vec.Vec's Insert, which replaces Insert.
 func TestInsert(t *testing.T) {
-	s := []int{1, 2, 3}
-	if got := Insert(s, 0); !Equal(got, s) {
-		t.Errorf("Insert(%v, 0) = %v, want %v", s, got, s)
-	}
 	for _, test := range insertTests {
-		// Insert works within the capacity.
-		var buf [16]int
-		c := buf[:copy(buf[:], test.s)]
-		if got := Insert(c, test.i, test.add...); !Equal(got, test.want) {
-			t.Errorf("Insert(%v, %d, %v...) = %v, want %v", test.s, test.i, test.add, got, test.want)
+		v := vecOf(test.s)
+		v.Insert(test.i, test.add...)
+		if !Equal(v.Slice(), test.want) {
+			t.Errorf("Insert(%v, %d, %v...) = %v, want %v", test.s, test.i, test.add, v.Slice(), test.want)
 		}
+		v.Free()
 	}
 }
 
-func TestInsertOverlap(t *testing.T) {
+func TestInsertAll(t *testing.T) {
 	const N = 10
-	var abuf [2 * N]int
-	var wbuf [2 * N]int
-	a := abuf[:N]
+	var a, wbuf [2 * N]int
+	for k := range a {
+		a[k] = 100 + k
+	}
 	for n := 0; n <= N; n++ { // length
 		for i := 0; i <= n; i++ { // insertion point
 			for x := 0; x <= N; x++ { // start of inserted data
 				for y := x; y <= N; y++ { // end of inserted data
-					for k := 0; k < N; k++ {
-						a[k] = k
+					v := vec.New[int]()
+					for k := 0; k < n; k++ {
+						v.Push(k)
 					}
-					want := wbuf[:0]
-					want = append(want, a[:i]...)
-					want = append(want, a[x:y]...)
-					want = append(want, a[i:n]...)
-					got := Insert(abuf[:n:2*N], i, a[x:y]...)
-					if !Equal(got, want) {
-						t.Errorf("Insert with overlap failed n=%d i=%d x=%d y=%d, got %v want %v", n, i, x, y, got, want)
+					w := 0
+					for k := 0; k < i; k++ {
+						wbuf[w] = k
+						w++
 					}
+					w += copy(wbuf[w:], a[x:y])
+					for k := i; k < n; k++ {
+						wbuf[w] = k
+						w++
+					}
+					v.Insert(i, a[x:y]...)
+					if !Equal(v.Slice(), wbuf[:w]) {
+						t.Errorf("Insert n=%d i=%d x=%d y=%d, got %v want %v", n, i, x, y, v.Slice(), wbuf[:w])
+					}
+					v.Free()
 				}
 			}
 		}
@@ -490,59 +505,52 @@ var replaceTests = [...]struct {
 	{[]int{1, 2, 3, 4}, 1, 3, []int{9}, []int{1, 9, 4}},
 }
 
+// TestReplace checks vec.Vec's Replace, which replaces Replace.
 func TestReplace(t *testing.T) {
 	for _, test := range replaceTests {
-		var buf [16]int
-		c := buf[:copy(buf[:], test.s)]
-		if got := Replace(c, test.i, test.j, test.v...); !Equal(got, test.want) {
-			t.Errorf("Replace(%v, %d, %d, %v) = %v, want %v", test.s, test.i, test.j, test.v, got, test.want)
+		v := vecOf(test.s)
+		v.Replace(test.i, test.j, test.v...)
+		if !Equal(v.Slice(), test.want) {
+			t.Errorf("Replace(%v, %d, %d, %v) = %v, want %v", test.s, test.i, test.j, test.v, v.Slice(), test.want)
 		}
+		v.Free()
 	}
 }
 
-func TestReplaceOverlap(t *testing.T) {
+func TestReplaceAll(t *testing.T) {
 	const N = 10
-	var abuf [2 * N]int
-	var wbuf [2 * N]int
-	a := abuf[:N]
+	var a, wbuf [2 * N]int
+	for k := range a {
+		a[k] = 100 + k
+	}
 	for n := 0; n <= N; n++ { // length
-		for i := 0; i <= n; i++ { // insertion point 1
-			for j := i; j <= n; j++ { // insertion point 2
+		for i := 0; i <= n; i++ { // start of the replaced range
+			for j := i; j <= n; j++ { // end of the replaced range
 				for x := 0; x <= N; x++ { // start of inserted data
 					for y := x; y <= N; y++ { // end of inserted data
-						for k := 0; k < N; k++ {
-							a[k] = k
+						v := vec.New[int]()
+						for k := 0; k < n; k++ {
+							v.Push(k)
 						}
-						want := wbuf[:0]
-						want = append(want, a[:i]...)
-						want = append(want, a[x:y]...)
-						want = append(want, a[j:n]...)
-						got := Replace(abuf[:n:2*N], i, j, a[x:y]...)
-						if !Equal(got, want) {
-							t.Errorf("Replace with overlap failed n=%d i=%d j=%d x=%d y=%d, got %v want %v", n, i, j, x, y, got, want)
+						w := 0
+						for k := 0; k < i; k++ {
+							wbuf[w] = k
+							w++
 						}
+						w += copy(wbuf[w:], a[x:y])
+						for k := j; k < n; k++ {
+							wbuf[w] = k
+							w++
+						}
+						v.Replace(i, j, a[x:y]...)
+						if !Equal(v.Slice(), wbuf[:w]) {
+							t.Errorf("Replace n=%d i=%d j=%d x=%d y=%d, got %v want %v", n, i, j, x, y, v.Slice(), wbuf[:w])
+						}
+						v.Free()
 					}
 				}
 			}
 		}
-	}
-}
-
-func TestReplaceClearTail(t *testing.T) {
-	var a, b, c, d, e, f int
-	mem := [...]*int{&a, &b, &c, &d, &e, &f}
-	s := mem[0:5] // there is 1 element beyond len(s), within cap(s)
-
-	s = Replace(s, 1, 4, &a)
-
-	if len(s) != 3 {
-		t.Fatalf("Replace: len = %d, want 3", len(s))
-	}
-	if mem[3] != nil || mem[4] != nil {
-		t.Errorf("Replace: want nil discarded elements, got %v, %v", mem[3], mem[4])
-	}
-	if mem[5] == nil {
-		t.Errorf("Replace: want unchanged elements beyond original len, got nil")
 	}
 }
 

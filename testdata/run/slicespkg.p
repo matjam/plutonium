@@ -13,6 +13,53 @@ import (
 
 var seed uint64 = 12345
 
+// Insert, Replace and AppendSeq grow a slice, so pluto/slices leaves them
+// to vec.Vec (testdata/lib/vecfixed.p). insert, replace, appendSeq and push
+// are their Go forms for a slice with room in its capacity, written with
+// slicing, which Go and Plutonium both have.
+
+func insert(s []int, i int, v ...int) []int {
+	var tmp [32]int
+	t := tmp[:copy(tmp[:], v)] // v may be a view of s
+	n := len(s)
+	s = s[:n+len(t)]
+	copy(s[i+len(t):], s[i:n])
+	copy(s[i:], t)
+	return s
+}
+
+func replace(s []int, i, j int, v ...int) []int {
+	var tmp [32]int
+	t := tmp[:copy(tmp[:], v)]
+	n := len(s)
+	m := n - (j - i) + len(t)
+	if m > n {
+		s = s[:m]
+	}
+	copy(s[i+len(t):], s[j:n])
+	copy(s[i:], t)
+	if m < n {
+		clear(s[m:n])
+		s = s[:m]
+	}
+	return s
+}
+
+func appendSeq(s []int, seq func(yield func(int) bool)) []int {
+	for x := range seq {
+		s = s[:len(s)+1]
+		s[len(s)-1] = x
+	}
+	return s
+}
+
+func push(s []int, v ...int) []int {
+	n := len(s)
+	s = s[:n+len(v)]
+	copy(s[n:], v)
+	return s
+}
+
 func rnd() uint64 {
 	seed = seed*6364136223846793005 + 1442695040888963407
 	return seed >> 33
@@ -116,22 +163,22 @@ func main() {
 	fmt.Println(slices.Equal(st, st), slices.Equal(st, st[1:]), slices.Compare(st, st[:3]), slices.Compare(st[:3], st), slices.Compare(st, st))
 
 	// Insert, Delete, Replace, Compact and Reverse within capacity.
-	s := make([]int, 0, 32)
-	s = append(s, 1, 2, 3, 4, 5)
-	s = slices.Insert(s, 2, 10, 11)
+	var sbuf [32]int
+	s := push(sbuf[:0], 1, 2, 3, 4, 5)
+	s = insert(s, 2, 10, 11)
 	fmt.Println(s, len(s), cap(s))
-	s = slices.Insert(s, len(s), 99)
-	s = slices.Insert(s, 0, s[1:3]...)
+	s = insert(s, len(s), 99)
+	s = insert(s, 0, s[1:3]...)
 	fmt.Println(s)
 	s = slices.Delete(s, 1, 4)
 	fmt.Println(s, len(s))
-	s = slices.Replace(s, 1, 3, 7, 7, 7, 7)
+	s = replace(s, 1, 3, 7, 7, 7, 7)
 	fmt.Println(s)
-	s = slices.Replace(s, 0, 5, 42)
+	s = replace(s, 0, 5, 42)
 	fmt.Println(s)
 	s = slices.DeleteFunc(s, func(v int) bool { return v%2 == 1 })
 	fmt.Println(s)
-	s = append(s, 1, 1, 2, 2, 2, 3, 1, 1)
+	s = push(s, 1, 1, 2, 2, 2, 3, 1, 1)
 	s = slices.Compact(s)
 	fmt.Println(s)
 	slices.Reverse(s)
@@ -161,8 +208,8 @@ func main() {
 	for c := range slices.Chunk(words, 2) {
 		fmt.Println("Chunk", c, len(c), cap(c))
 	}
-	grown := make([]int, 0, 16)
-	grown = slices.AppendSeq(grown, slices.Values([]int{4, 5, 6}))
-	grown = slices.AppendSeq(grown, slices.Values([]int{7}))
+	var gbuf [16]int
+	grown := appendSeq(gbuf[:0], slices.Values([]int{4, 5, 6}))
+	grown = appendSeq(grown, slices.Values([]int{7}))
 	fmt.Println("AppendSeq", grown, cap(grown))
 }
