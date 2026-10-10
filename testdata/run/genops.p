@@ -182,7 +182,7 @@ func main() {
 	println(Shifts(int8(-64), 2))
 	println(Shifts(uint16(0x8001), 3))
 	println(Wrap(uint8(100)), Wrap(int8(100)), Wrap(Bits(1)))
-	println(int(Avg([]float64{1, 2, 4}) * 100), int(Avg([]float32{1, 2}) * 100))
+	println(int(Avg([]float64{1, 2, 4})*100), int(Avg([]float32{1, 2})*100))
 	println(Count([]int{1, 2, 1, 3, 1}, 1), Count([]string{"a", "b"}, "c"), Count([]Key{{1, "x"}, {1, "y"}, {1, "x"}}, Key{1, "x"}))
 	println(Count([]*int{nil, nil}, nil), Count([]any{1, "x", 1, 2.5}, any(1)), Count([][2]int{{1, 2}, {2, 1}}, [2]int{2, 1}))
 	println(Conv[int, uint8](300), Conv[int8, int](-1), int(Conv[int, float64](7)*2), Conv[float64, int](-3.9), Conv[uint8, int8](200))

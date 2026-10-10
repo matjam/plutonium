@@ -12,7 +12,7 @@ type Color enum {
 }
 
 type Level enum int16 {
-	Low  = -1
+	Low = -1
 	Mid
 	High = 10
 }
