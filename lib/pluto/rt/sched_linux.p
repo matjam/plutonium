@@ -38,7 +38,6 @@ const (
 
 	archSetFS = 0x1002
 	sigURG    = 23
-	saRestart = 0x10000000
 
 	futexWaitPrivate = 128
 	futexWakePrivate = 129

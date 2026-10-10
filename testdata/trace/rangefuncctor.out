@@ -1,0 +1,6 @@
+1
+2
+3
+panic: runtime error: index out of range [3] with length 3
+    main.Count.func1 (./main.p:9)
+    main.main (./main.p:18)

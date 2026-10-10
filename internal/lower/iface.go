@@ -775,7 +775,7 @@ func (l *Lowerer) itabAdapter(T types2.Type, m *types2.Func) *ssa.Sym {
 			targs = append(targs, n.TypeArgs().At(i))
 		}
 	}
-	target, full := l.methodFunc(fn, targs, ringMethodRing(fn, func(t types2.Type) types2.Type { return t }))
+	target, full := l.methodFunc(fn, targs, ringMethodRing(fn, func(t types2.Type) types2.Type { return t }), token.NoPos, "called through an interface")
 	plain := types2.NewSignatureType(nil, nil, nil, full.Params(), full.Results(), full.Variadic())
 	adapter := adapterSignature(plain)
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: adapter, build: func(s *fnState) {

@@ -342,6 +342,8 @@ functions without `//pu:fpu` (no floats, section 10.2) never use it.
 | generic instance | `path.Name[T1,T2]`, type arguments package-qualified by import path |
 | method of a generic type instance | `pluto/vec.(*Vec).Push[int]`: the receiver's type arguments, then the method's own, in the brackets |
 | function literal | `<enclosing symbol>.func<N>` |
+| the closure of a closure constructor (language spec section 4.5) | `<constructor symbol>.func1`, e.g. `main.Count.func1` or `pluto/vec.(*Vec).All[int].func1`: named after the constructor, not the caller that builds it, and shared by every call |
+| the closure of a `ring` iterator (section 5.4) | `builtin.(*ring[T,N]).All.func1`, or `.Values.func1` |
 | go statement thunk (section 12.6) | `<enclosing symbol>.go<N>` |
 | bound method wrapper | `<method symbol>-fm` |
 | static closure record | `<function symbol>·f` |
@@ -915,6 +917,7 @@ A blocked operation's waiting record (`sudog`) lives in the waiting task's frame
 | poller | a thread blocked in `epoll_wait`; `rt.PollWait(fd, write)` arms one-shot interest and parks |
 | stacks | a guard page, the stack, then the backend's task record, from the requested allocator; stacks of the default size from the program-wide default allocator are cached rather than unmapped |
 | deadlock | when every worker is idle and nothing waits in the poller or a system call: "fatal error: all puroutines are asleep - deadlock!", status 2 |
+| `SIGPIPE` | caught at startup (every hosted program, not only those that start puroutines) by a handler that returns, so a write to a pipe with no reader fails with `EPIPE`; `pluto/os` calls `rt.DieFromSigpipe` (default action, then `tgkill` of the calling thread) for `EPIPE` on descriptors 1 and 2 |
 
 The program's thread becomes the first worker when the first task operation runs (`Init`); the main
 task keeps running on the original stack, and the worker's scheduling loop gets a stack of its own.

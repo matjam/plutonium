@@ -203,6 +203,10 @@ panic: negative width
   the same at every optimisation level.
 - A default argument ([language.md section 5.1](language.md#51-default-parameter-values)) is evaluated by
   the caller, and its code has the position of the call, so a panic in it is reported at the call's line.
+- A function literal is `<enclosing function>.func<N>`, and the body of a range-over-func loop is
+  `<enclosing function>-range<N>`. The closure of a closure constructor (an iterator such as
+  `v.All()`, language spec section 4.5) is named after the constructor, as in Go:
+  `pluto/vec.(*Vec).All[int].func1`, not `main.main.func1`, whichever function called it.
 - The panic's own frames in package `pluto/rt` are left out, and so is generated code with no source
   position, such as the wrapper that calls a method through an interface.
 - The walk stops at `pluto.main` (which runs initialisation and `main.main`; where `main.main` is

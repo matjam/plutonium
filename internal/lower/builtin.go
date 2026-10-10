@@ -499,6 +499,9 @@ func (s *fnState) conversion(e *ast.CallExpr) value {
 // ringCall expands a call of a built-in ring method inline.
 func (s *fnState) ringCall(e *ast.CallExpr, se *ast.SelectorExpr, fn *types2.Func, path []int, w *types2.Wrapper) []value {
 	recv := s.methodReceiver(se.X, fn, path) // pointer to the ring
+	if types2.IsRingIterator(fn.Name()) {
+		return []value{s.ringIterator(fn.Name(), w, recv.v, s.typeOf(e))}
+	}
 	var args []value
 	if fn.Name() == "Push" {
 		args = append(args, s.materialize(s.exprAs(e.Args[0], s.subst(w.Elem()))))
@@ -533,10 +536,16 @@ func ringMethodRing(fn *types2.Func, subst func(types2.Type) types2.Type) *types
 // type w on the ring its receiver points at, for a ring method used as a
 // value or called through an interface; calls name the method directly
 // and are expanded inline instead.
-func (l *Lowerer) ringMethodFunc(fn *types2.Func, w *types2.Wrapper) (*ssa.Sym, *types2.Signature) {
+func (l *Lowerer) ringMethodFunc(fn *types2.Func, w *types2.Wrapper, pos token.Pos, what string) (*ssa.Sym, *types2.Signature) {
 	ptr := types2.NewPointer(w)
 	obj, _, _ := types2.LookupFieldOrMethod(ptr, false, nil, fn.Name())
 	full := obj.(*types2.Func).Type().(*types2.Signature)
+	if types2.IsRingIterator(fn.Name()) {
+		// The iterator's closure is built in the caller's frame, as a closure
+		// constructor's is: there is no frame for a func value to build it in.
+		l.ctorValueError(fn.Name(), pos, what)
+		return l.out.Sym("builtin.ring."+fn.Name()+"·error", ssa.SymFunc), full
+	}
 	name := fmt.Sprintf("builtin.(*ring[%s,%d]).%s", typeString(w.Elem()), w.N(), fn.Name())
 	if sym := l.funcs[name]; sym != nil {
 		return sym, full
@@ -550,20 +559,94 @@ func (l *Lowerer) ringMethodFunc(fn *types2.Func, w *types2.Wrapper) (*ssa.Sym, 
 	return sym, full
 }
 
+// ringSlot returns the address of element idx, taken modulo the capacity,
+// of the ring of type w that p points at.
+func (s *fnState) ringSlot(p *ssa.Value, w *types2.Wrapper, idx *ssa.Value) *ssa.Value {
+	et := s.subst(w.Elem())
+	align := s.l.alignof(et)
+	dataOff := (16 + align - 1) &^ (align - 1)
+	i := s.newValue(ssa.OpAnd, ssa.TI64, idx, s.constInt(ssa.TI64, w.N()-1))
+	return s.elemAddr(s.offPtr(p, dataOff), i, et)
+}
+
+// ringIterator lowers a call of ring method name (All or Values) on the ring
+// of type w that p points at: the iterator's closure record, built in this
+// frame. T is the iterator's func type.
+func (s *fnState) ringIterator(name string, w *types2.Wrapper, p *ssa.Value, T types2.Type) value {
+	T = s.subst(T)
+	cw := types2.NewWrapper(types2.WrapRing, s.subst(w.Elem()), w.N())
+	sym := s.l.ringIterFunc(name, cw, T.Underlying().(*types2.Signature))
+	return scalarValue(s.closureRecord(sym, []*ssa.Value{p}), T)
+}
+
+// ringIterFunc returns the function of the iterator that ring method name
+// (All or Values) of ring type w returns, of func type sig. The iterator is
+// a closure record in the caller's frame holding the code pointer and the
+// address of the ring, so a call of All or Values builds it where it is
+// made, as a closure constructor's call does (language spec section 5.4).
+//
+// The loop reads the ring as it goes. It keeps a position in the ring's
+// push count: each step skips to the oldest element if the body popped the
+// position's element, and stops once the position reaches the push count.
+func (l *Lowerer) ringIterFunc(name string, w *types2.Wrapper, sig *types2.Signature) *ssa.Sym {
+	symName := fmt.Sprintf("builtin.(*ring[%s,%d]).%s.func1", typeString(w.Elem()), w.N(), name)
+	if sym := l.funcs[symName]; sym != nil {
+		return sym
+	}
+	sym := l.out.Sym(symName, ssa.SymFunc)
+	l.funcs[symName] = sym
+	l.funcValues[sym] = sig
+	l.queue = append(l.queue, &funcJob{sym: sym, sig: sig, build: func(s *fnState) {
+		ctx := s.newValue(ssa.OpClosurePtr, ssa.TPtr)
+		in := s.incomingArgs(sig)
+		yield := in[0].v
+		yieldSig := sig.Params().At(0).Type().Underlying().(*types2.Signature)
+		et := w.Elem()
+		intT := types2.Typ[types2.Int]
+		p := s.load(ssa.TPtr, s.offPtr(ctx, 8))
+		headPtr, tailPtr := p, s.offPtr(p, 8)
+
+		pos := s.temp(types2.Typ[types2.Uint64], "pos")
+		s.store(ssa.TI64, pos, s.load(ssa.TI64, tailPtr))
+		head := s.newBlock(ssa.BlockInvalid)
+		body := s.newBlock(ssa.BlockInvalid)
+		done := s.newBlock(ssa.BlockInvalid)
+		s.endPlain(head)
+		s.startBlock(head)
+		tail := s.load(ssa.TI64, tailPtr)
+		s.ifThen(s.newValue(ssa.OpLessu, ssa.TBool, s.load(ssa.TI64, pos), tail), func() {
+			s.store(ssa.TI64, pos, tail)
+		})
+		cur := s.load(ssa.TI64, pos)
+		s.endIf(s.newValue(ssa.OpLessu, ssa.TBool, cur, s.load(ssa.TI64, headPtr)), body, done)
+		s.seal(body)
+		s.startBlock(body)
+		s.store(ssa.TI64, pos, s.newValue(ssa.OpAdd, ssa.TI64, cur, s.constInt(ssa.TI64, 1)))
+		var args []value
+		if name == "All" {
+			idx := s.newValue(ssa.OpSub, ssa.TI64, cur, s.load(ssa.TI64, tailPtr))
+			args = append(args, scalarValue(idx, intT))
+		}
+		args = append(args, s.loadFrom(s.ringSlot(p, w, cur), et))
+		code := s.load(ssa.TPtr, yield)
+		res := s.emitCall(callee{code: code, ctx: yield}, yieldSig, nil, args, token.NoPos)
+		s.endIf(res[0].v, head, done)
+		s.seal(head)
+		s.seal(done)
+		s.startBlock(done)
+		s.returnValues(nil)
+	}})
+	return sym
+}
+
 // ringOp expands ring method name on the ring that p points at, with the
 // arguments already evaluated.
 func (s *fnState) ringOp(name string, p *ssa.Value, w *types2.Wrapper, args []value, pos token.Pos) []value {
 	et := s.subst(w.Elem())
 	n := w.N()
-	mask := s.constInt(ssa.TI64, n-1)
-	align := s.l.alignof(et)
-	dataOff := (16 + align - 1) &^ (align - 1)
 	headPtr := p
 	tailPtr := s.offPtr(p, 8)
-	slot := func(idx *ssa.Value) *ssa.Value {
-		i := s.newValue(ssa.OpAnd, ssa.TI64, idx, mask)
-		return s.elemAddr(s.offPtr(p, dataOff), i, et)
-	}
+	slot := func(idx *ssa.Value) *ssa.Value { return s.ringSlot(p, w, idx) }
 	boolT := types2.Typ[types2.Bool]
 	intT := types2.Typ[types2.Int]
 

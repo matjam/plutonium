@@ -244,7 +244,9 @@ constructor is compiled where it is made instead: the arguments are stored in fr
 caller's frame, and the literal's closure is built in that frame and captures them there. The result is
 an ordinary closure of the caller, valid while the caller runs, and `for i, x := range v.All()` costs no
 allocation. Each call site has its own variables: a call in a loop reuses them on every iteration, as a
-function literal in a loop does. A closure constructor can only be called directly; using it as a func
+function literal in a loop does. The closure's code is the literal's, compiled once for the constructor, so a
+stack trace names its frame after the constructor (`main.Count.func1`, `pluto/vec.(*Vec).All[int].func1`)
+wherever it was called. A closure constructor can only be called directly; using it as a func
 value or a method value, or calling it through an interface, is a compile error (E2543), since there is no
 caller's frame to build the closure in.
 
@@ -340,6 +342,12 @@ another worker. Waits for I/O go through one epoll poller: `os.Pipe`'s descripto
 and a puroutine that reads an empty pipe or writes a full one parks there (`rt.PollWait`). When every
 puroutine waits for another and nothing waits for I/O or a system call, the program stops with "fatal
 error: all puroutines are asleep - deadlock!" and status 2, as in Go.
+
+A hosted program catches `SIGPIPE` at startup, with a handler that does nothing (so a program it starts
+with `os/exec` gets the default action back), and follows Go's rule: a write to a pipe or socket with no
+reader fails with `EPIPE`, except that a write to standard output or standard error (descriptors 1 and 2)
+that fails with `EPIPE` ends the program as if by the signal, so that `prog | head` stops `prog` as it
+would a C program (`rt.DieFromSigpipe`).
 
 A kernel implements the backend over its own per-CPU run queues and calls `rt.Preempt()` from its timer
 interrupt handler; the runtime keeps the current task in a per-CPU slot and masks interrupts while it
@@ -606,10 +614,45 @@ var dma  aligned[[2048]byte, 64]
 | `Cap() int` | `N` |
 | `Full() bool`, `Empty() bool` | |
 | `Reset()` | empties the ring |
+| `All() iter.Seq2[int, T]` | an iterator over the index and value of each element, oldest first |
+| `Values() iter.Seq[T]` | an iterator over the values, oldest first |
 
 All methods have pointer receivers and are expanded inline. A ring is not safe for concurrent use; a
 single-producer, single-consumer queue between an interrupt handler and a task can be built from
 `volatile` indexes.
+
+`All` and `Values` are iterators for `for` loops over functions (section 4.10), and work like those of
+`vec.Vec` (section 13). The ring has no storage of its own to return them from, so, like a closure
+constructor (section 4.5), a call of one builds its closure in the caller's frame, where it holds the
+address of the ring; they can only be called, not used as a method value or called through an interface
+(E2543). Their results have the type `func(yield func(int, T) bool)` and `func(yield func(T) bool)`, which
+are assignable to `iter.Seq2[int, T]` and `iter.Seq[T]`.
+
+```go
+var r ring[int, 4]
+r.Push(10)
+r.Push(20)
+for i, x := range r.All() { // 0 10, then 1 20
+	fmt.Println(i, x)
+}
+for i, x := range r { ... } // the same: a ring ranges over its All method (section 6.7)
+```
+
+Since `All` has a pointer receiver, `range r` needs an addressable ring or a pointer to one.
+
+The loop reads the ring as it goes, so the body may call `Push`, `Pop` and `Reset`. The loop keeps a position
+among the elements ever pushed (the ring counts them, from the last `Reset`), starting at the oldest element
+when the loop starts. On each step:
+
+- If the body popped the element at the position, the loop moves on to the oldest element left.
+- If the position has reached the end, nothing more has been pushed and the loop ends. Elements the body
+  pushed are visited, as long as it finds room for them.
+- Otherwise the loop yields the element, and the position moves on.
+
+The index `All` yields is the element's place in the ring when it is yielded, so 0 is the oldest element
+now: a body that pops each element as it is visited sees index 0 every time. A body that calls `Reset` should leave the loop: the position
+then counts the pushes since the reset, so the loop ends, or goes on from where it was among the elements
+pushed after the reset.
 
 ### 5.5 `packed` types
 
@@ -1399,8 +1442,8 @@ an addressable `x` or a pointer (E2459); its form is `All() F`, with no paramete
 variadic parameter, where `F` is a function type that range accepts, such as `iter.Seq[V]` or
 `iter.Seq2[K, V]` (E2458). The iteration variables follow `F`, so `vec.Vec[T]`, whose `All` returns
 `iter.Seq2[int, T]`, ranges like a slice, `hash.Map[K, V]` like a map (in its table's order, section 13),
-and `hash.Set[K]` over its elements. A struct, or a type with an `Index` method, that has no `All` is a
-compile error (E2456).
+and `hash.Set[K]` over its elements. A `ring[T, N]` ranges over its built-in `All` (section 5.4). A struct,
+or a type with an `Index` method, that has no `All` is a compile error (E2456).
 
 ```go
 for i, x := range v { ... }  // v.All(): index and element

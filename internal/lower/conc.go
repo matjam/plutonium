@@ -248,7 +248,7 @@ func (s *fnState) goStmt(st *ast.GoStmt) {
 						targs = s.methodTypeArgs(m, se, recvT)
 						def = &defaultsOf{m, targs}
 					}
-					sym, full := s.l.methodFunc(m, targs, w)
+					sym, full := s.l.methodFunc(m, targs, w, se.Sel.Pos(), "started with go")
 					noReturn := s.l.isNoReturn(m)
 					emit = func(ts *fnState, in []value, pos token.Pos) {
 						r := in[0]

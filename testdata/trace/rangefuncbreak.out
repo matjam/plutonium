@@ -2,7 +2,7 @@
 100 10
 panic: runtime error: range function continued iteration after function for loop body returned false
     main.main-range1-range1 (./main.p:30)
-    main.main-range1.func1 (./main.p:21)
+    main.BadOfSliceIndex[int,[]int].func1 (./main.p:21)
     main.main-range1 (./main.p:30)
-    main.main.func1 (./main.p:11)
+    main.OfSliceIndex[int,[]int].func1 (./main.p:11)
     main.main (./main.p:28)

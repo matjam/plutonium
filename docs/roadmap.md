@@ -88,8 +88,9 @@ later takes the next free number and is listed in the section where it belongs.
     worker threads made with `clone`, preemption by `SIGURG` from a monitor thread every 10 ms, hand-off
     of a processor blocked in a system call (`os` file I/O, `time.Sleep`, `Process.Wait` and the waits
     of `os/exec`), an epoll poller for pipes from `os.Pipe` (`File.Fd` makes one blocking again, as in
-    Go, so `os/exec` can hand it to a child), and deadlock detection (language spec section 4.7; abi.md
-    section 12). `rt.StackLeft` measures a puroutine's own stack. The sendable rules are checked
+    Go, so `os/exec` can hand it to a child), `SIGPIPE` handling as in Go (a write to a closed pipe
+    returns `EPIPE`; on standard output or error it ends the program with the signal), and deadlock
+    detection (language spec section 4.7; abi.md section 12). `rt.StackLeft` measures a puroutine's own stack. The sendable rules are checked
     (`shared[T]` never crosses, frame views are rejected syntactically, and closures in the current
     frame are a compile error, E2594, where the compiler can tell, and panic at the `go` otherwise).
     Follow-ups: timers and `ParkUntil` with item 45; traces of parked puroutines (`rt.TraceTask`); one
@@ -148,9 +149,9 @@ later takes the next free number and is listed in the section where it belongs.
     The inliner inlines calls through known closures and SimplifyCFG threads branches on phis of
     constants, so a loop over `v.All()` compiles like one over `v.Slice()`. Follow-ups: the escape
     checks (item 5) should reject an iterator that keeps `yield`; `defer` in a loop body runs at most
-    once per call (item 28); `ring[T, N]` has no iterator method yet; no `iter.Pull` without
-    coroutines; expanded closures are named after the caller (`main.main.func1`), not the
-    constructor, in traces.
+    once per call (item 28); `ring[T, N]` has `All` and `Values` (section 5.4); no `iter.Pull` without
+    coroutines. A constructor's closure is named after the constructor (`main.Count.func1`) in
+    symbols, DWARF and traces.
 23. **Richer type descriptors** (done; abi.md section 5): element types, lengths, field offsets, types and
     names, the `*T` descriptor for types with pointer methods, and Go's `reflect` type names, emitted for
     converted types and the types they are made of, read through `rt.Type`. Field names follow
