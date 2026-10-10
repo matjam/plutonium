@@ -131,7 +131,8 @@ func TestDefaultErrors(t *testing.T) {
 			"not enough arguments in call to T.M"},
 		{"interface call", "type T struct{}\nfunc (T) M(a int = 1) {}\ntype I interface{ M(a int) }\nfunc g() { var i I = T{}; i.M() }",
 			"not enough arguments in call to i.M"},
-		{"cannot infer from omitted", "func f[T any](a T = *new(T)) {}\nfunc g() { f() }", "cannot infer T"},
+		{"initialization cycle", "var x = f()\nfunc f(a int = x) int { return a }", "initialization cycle"},
+		{"cannot infer from omitted","func f[T any](a T = *new(T)) {}\nfunc g() { f() }", "cannot infer T"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) { mustFail(t, "package p\n\n"+c.src+"\n", c.want) })

@@ -88,8 +88,19 @@ func show(tag string, n int = next()) {
 // A package-level initializer may call a function with defaults.
 var initial = add(100, 1)
 
+// The variables a default uses are initialised before any initializer
+// that calls the function, as those its body uses are.
+var early = withLate()
+
+func withLate(a int = late + 1) int { return a }
+
+var late = lateValue()
+
+func lateValue() int { return 41 }
+
 func main() {
 	fmt.Println("initial", initial)
+	fmt.Println("early", early, late)
 
 	fmt.Println(add(1, 2, 3))
 	fmt.Println(add(1, 2))
