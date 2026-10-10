@@ -6,6 +6,7 @@ import (
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
+	typerr "github.com/matjam/plutonium/internal/types2/errors"
 )
 
 // Unions. An ordinary union is laid out as its tag (one byte, or two for
@@ -35,7 +36,7 @@ func (l *Lowerer) unionLayoutOf(T types2.Type, pos token.Pos) *unionLayout {
 	tagSize, off := types2.UnionLayout(l.sizes, u)
 	for i := 0; i < u.NumVariants(); i++ {
 		if p := u.Variant(i).Payload(); ownerPointerIn(p) {
-			l.errorf(pos, diag.NotYetSupported, "union %s cannot have variant %s with payload %s yet: unions with owned, shared or synced payloads are not supported until ownership lands (language spec section 6.4)",
+			l.errorf(pos, diag.CheckerCode(typerr.UnionOwnerPayload), "union %s cannot have variant %s with payload %s yet: unions with owned, shared or synced payloads are not supported until ownership lands (language spec section 6.4)",
 				T, u.Variant(i).Name(), p)
 			break
 		}

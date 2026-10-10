@@ -773,11 +773,20 @@ and `fallthrough` is not allowed. A switch without a `default` case must name ev
 compile error that lists the missing ones:
 
 ```
-dev.p:14:2: missing case in type switch on st (DeviceState): Failed
-    A type switch on a union must handle every variant, so that a variant
-    added later cannot be missed silently. Add a case for Failed, or a default
-    case for the variants this switch does not need to tell apart.
+dev.p:14:2: missing case in type switch on st (DeviceState): Failed (add it or a default case)
+    A type switch on a union value that has no default case must name every
+    variant. That way, adding a variant to the union shows every switch that
+    needs to handle it.
+    Add a case for each missing variant, or a default case if the remaining
+    variants share one action. A switch that names every variant needs no
+    default to end a function.
+    Go cannot check this for interfaces, whose set of types is open. A union's
+    variants are a closed set, so the compiler can tell when one is forgotten.
+    (see "Unions" in the Plutonium spec, section 5.10)
+    (run "pluto explain E2414" for a longer explanation)
 ```
+
+The union errors have codes E2401 to E2415, explained by `pluto explain`.
 
 Such an exhaustive switch is a terminating statement when every clause is, so a function may end with it.
 A tag that names no variant can only come from `unsafe` code; the switch then panics.
