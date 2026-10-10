@@ -4,9 +4,15 @@
 // runs each with Go and with Plutonium at -O0 and -O2, and reports any
 // difference in output or exit status, Plutonium compile errors and
 // compiler crashes. With -reduce it shrinks each failing program to a
-// small reproducer. Run it from the repository root:
+// small reproducer. With -alloc debug, Plutonium's programs run on the
+// debug allocator, which stops at a use after free or a double free and
+// fails a program that leaks (main releases the strings globals hold, so
+// that only leaks remain live). What the generator writes is limited to
+// the common subset described in subset.go. Run it from the repository
+// root:
 //
 //	go run ./tools/difftest -seed 1 -n 1000 -j 8 -o /tmp/findings -reduce
+//	go run ./tools/difftest -seed 1 -n 1000 -alloc debug -levels 0,1,2
 //	go run ./tools/difftest -seed 42 -print   # show one program
 package main
 
@@ -19,6 +25,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,7 +42,17 @@ func main() {
 	show := flag.Bool("print", false, "print the program for -seed and exit")
 	rangeWrites := flag.Bool("rangewrites", true, "let loops write to the array they range over (false for compilers that range over arrays in place)")
 	file := flag.String("file", "", "check (and with -reduce, reduce) this program instead of generating")
+	lvls := flag.String("levels", "0,2", "Plutonium optimisation levels to run at, separated by commas")
+	allocator := flag.String("alloc", "", "Plutonium allocator (--alloc), such as debug, which stops at a use after free")
 	flag.Parse()
+	levels = nil
+	for _, l := range strings.Split(*lvls, ",") {
+		n, err := strconv.Atoi(strings.TrimSpace(l))
+		if err != nil {
+			log.Fatalf("-levels: %v", err)
+		}
+		levels = append(levels, n)
+	}
 
 	opt := Options{RangeWrites: *rangeWrites}
 	if *show {
@@ -67,6 +84,9 @@ func main() {
 		}
 	}
 	r := &runner{pu: *pu, plutoDir: filepath.Join(root, "lib"), work: *work, runLimit: runTimeout}
+	if *allocator != "" {
+		r.puFlags = append(r.puFlags, "--alloc="+*allocator)
+	}
 
 	if *file != "" {
 		os.Exit(checkFile(r, *file, *outDir, *doReduce, cleanup))

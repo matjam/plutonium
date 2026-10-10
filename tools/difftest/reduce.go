@@ -141,7 +141,7 @@ func typeErrors(src string) ([]types.Error, error) {
 	var errs []types.Error
 	conf := types.Config{
 		Importer:  importer.Default(),
-		GoVersion: "go1.22",
+		GoVersion: "go1.23",
 		Error:     func(err error) { errs = append(errs, err.(types.Error)) },
 	}
 	_, _ = conf.Check("main", fset, []*ast.File{f}, nil)
