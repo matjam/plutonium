@@ -207,7 +207,7 @@ RBP frame pointer, which takes RBP away from the register allocator and adds `pu
 call-heavy benchmarks hit hardest: `fib` 19% slower, `structs` 34%, `binarytrees` 12%. (One run of each
 on a shared machine, with Rust's times within a few percent of each other in the two runs; treat the figures as
 indicative.) The table costs
-nothing at run time and about 130 bytes per function in all (section 7). Frame pointers would only have
+nothing at run time and about 140 bytes per function in all (section 7). Frame pointers would only have
 saved the table's frame descriptions, since the table is needed anyway for names and lines, and with
 frames of a fixed shape those descriptions are 8 bytes per function.
 
@@ -219,18 +219,19 @@ table, which is what a freestanding image keeps.
 
 | Program | File before | `-g` (default) | `-g=false` | `-s` | Code and read-only data before | after |
 |---|---:|---:|---:|---:|---:|---:|
-| fib | 57936 | 126688 | 82000 | 67320 | 39046 | 61042 |
-| nbody | 71928 | 139368 | 93616 | 74168 | 45766 | 68210 |
-| spectralnorm | 64976 | 134912 | 89312 | 72128 | 43126 | 65402 |
-| binarytrees | 79096 | 205056 | 117576 | 102336 | 58494 | 94906 |
+| fib | 76872 | 149040 | 101784 | 78848 | 48221 | 71065 |
+| nbody | 87912 | 162472 | 114152 | 86456 | 54797 | 78081 |
+| spectralnorm | 83904 | 157280 | 109088 | 83648 | 52285 | 75401 |
+| binarytrees | 98024 | 223328 | 133264 | 109768 | 67661 | 104929 |
 
-For `fib`, which has 136 functions (most of them from `pluto/fmt`, `pluto/strconv` and the runtime), the
-22 KB of growth in loaded code and data is the trace table (18 KB: 4 KB of function entries, 4 KB of inline
-sites, 3.7 KB of names and file names, 6.7 KB of line programs) and 4 KB of runtime code that walks the
-stack and handles faults. The DWARF sections add 44 KB to the file. Hosted programs also reserve a 16 KB
-alternate signal stack in `.bss`, which takes no space in the file and no memory until a fault uses it.
+For `fib`, which has 133 functions (most of them from `pluto/fmt`, `pluto/strconv` and the runtime), the
+23 KB of growth in loaded code and data is the trace table (18.7 KB: 4.3 KB of function entries, 4.1 KB
+for 258 inline sites, 3.9 KB of names and file names, 6.4 KB of line programs) and 4 KB of runtime code
+that walks the stack and handles faults. The DWARF sections add 47 KB to the file. Hosted programs also
+reserve a 16 KB alternate signal stack in `.bss`, which takes no space in the file and no memory until a
+fault uses it.
 
-`--trace=false` leaves the trace table empty, for images that cannot spare it: `fib` is then 43194 bytes of
+`--trace=false` leaves the trace table empty, for images that cannot spare it: `fib` is then 52369 bytes of
 code and read-only data, and a panic prints its message without a trace.
 
 Debugging information never changes code generation: the machine code of every benchmark's own functions
