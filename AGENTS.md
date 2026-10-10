@@ -137,7 +137,11 @@ Go's codes (E0001-E0999) take their text from go/types' documentation
 Every change must pass ALL of these before committing:
 
 1. **Tests**: `go test -count=1 ./...` — all packages must pass. This builds and
-   runs every example and every `testdata/run` program.
+   runs every example and every `testdata/run` program. It also checks that
+   every `.p` file under `lib`, `examples`, `testdata` and `bench` is
+   `pluto fmt` clean (`TestRepoFormatted` in `internal/syntax/format`); fix a
+   failure with `pluto fmt -w lib testdata examples bench`. A file that must
+   stay unformatted goes in that test's `unformattedAllowed` list with a reason.
 2. **Lint**: `golangci-lint run ./...` — must report 0 issues.
    Fix all errcheck, staticcheck, and unused warnings before committing.
    Lint includes the `gofmt` formatter (`.golangci.yml`), so unformatted Go

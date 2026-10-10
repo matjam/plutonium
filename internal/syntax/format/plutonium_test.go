@@ -94,6 +94,45 @@ func TestIdempotent(t *testing.T) {
 	}
 }
 
+// unformattedAllowed lists .p files, as slash-separated paths from the
+// repository root, that are deliberately not formatted. Add a file here
+// only when a test needs its exact layout (a formatter input, or a
+// diagnostic whose golden output carries columns), and say why.
+var unformattedAllowed = map[string]string{}
+
+// TestRepoFormatted fails if a .p file under lib, examples, testdata or
+// bench differs from what pluto fmt produces, so unformatted files cannot
+// land. Fix a failure with "pluto fmt -w lib testdata examples bench".
+func TestRepoFormatted(t *testing.T) {
+	t.Parallel()
+	files := repoSourceFiles(t)
+	if len(files) < 50 {
+		t.Fatalf("found only %d .p files; is the repository layout different?", len(files))
+	}
+	var bad []string
+	for _, file := range files {
+		rel := filepath.ToSlash(strings.TrimPrefix(filepath.ToSlash(file), repoRoot+"/"))
+		if _, ok := unformattedAllowed[rel]; ok {
+			continue
+		}
+		src, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := File(file, src, false)
+		if err != nil {
+			t.Errorf("%s: %v", rel, err)
+			continue
+		}
+		if !bytes.Equal(src, got) {
+			bad = append(bad, rel)
+		}
+	}
+	if len(bad) > 0 {
+		t.Errorf("%d files are not formatted; run \"pluto fmt -w lib testdata examples bench\":\n\t%s", len(bad), strings.Join(bad, "\n\t"))
+	}
+}
+
 // TestSameAsGoFormat checks that plain Go formats exactly as go/format
 // formats it. The corpus is Go's own go/... sources and printer test data,
 // this repository's Go files, and every .p file that go/parser accepts.
