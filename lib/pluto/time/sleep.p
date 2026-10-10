@@ -26,15 +26,15 @@ func deadline(d Duration) int64 {
 // Sleep pauses the calling puroutine for at least d. A negative or zero d
 // returns at once. The puroutine parks with a timer, so its processor runs
 // other puroutines meanwhile, and a program whose puroutines all sleep
-// uses no processor time.
+// uses no processor time. A program that starts no puroutine, uses no
+// channel, timer or wait, and has the default hosted scheduler has none to
+// run: there Sleep waits in the kernel on the program's only thread, and
+// the scheduler's threads are not started (rt.Sleep).
 func Sleep(d Duration) {
 	if d <= 0 {
 		return
 	}
-	end := deadline(d)
-	for rt.Now() < end {
-		rt.ParkUntil(end)
-	}
+	rt.Sleep(int64(d))
 }
 
 // drain takes a value left in c, a timer's channel, and reports whether

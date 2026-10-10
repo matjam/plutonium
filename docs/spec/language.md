@@ -362,7 +362,15 @@ holds its own locks, so interrupt handlers may make non-blocking channel operati
 `rt.Ready`. `testdata/kernel/sched` is such a kernel, booted under QEMU by the compiler's tests.
 
 **Timers.** `time.Sleep` parks the puroutine until a deadline, so its processor runs other puroutines
-and a program whose puroutines all sleep uses no processor time. `time.Timer`, `time.Ticker`,
+and a program whose puroutines all sleep uses no processor time. A program that never starts the
+scheduler (no `go` statement, no channel operation or `pluto/sync` wait that can block, no timer,
+`time.After`, `AfterFunc` or `rt.ParkUntil`) has no other puroutine to run, so there `Sleep` waits in
+the kernel on the program's only thread (`clock_nanosleep`), and the scheduler, monitor and poller
+threads are neither started nor linked. The compiler decides this once it has lowered the whole
+program, from whether the runtime's `startTasks` is reachable (`rt.Sleep`, a body-less function marked
+`//pu:schedlate`, takes the direct body or the parking one then); the default hosted backend is the
+only one it applies to, so a program that binds its own scheduler, a kernel included, always parks.
+`time.Timer`, `time.Ticker`,
 `time.After` and `time.Tick` deliver the time on a channel, so a `select` waits for a timer like any
 other case (section 4.8), and `time.AfterFunc` starts a function on a puroutine of its own when its
 timer expires. Underneath is the runtime's mechanism: a monotonic clock, `rt.Now()`; timers,
