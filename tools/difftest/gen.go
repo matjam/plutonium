@@ -2020,15 +2020,43 @@ func (g *gen) aggStmt() {
 		case g.chance(5):
 			// Clear part of it.
 			g.line("%s = %s{}", p.s, p.t)
+		case g.chance(4):
+			// Rebuild it from its own parts: every part is read before
+			// any is written.
+			var parts []string
+			switch p.t.kind {
+			case kStruct:
+				for _, f := range p.t.fields {
+					src := p.s + "." + f.name
+					for _, o := range paths {
+						if o.t == f.t && g.chance(2) {
+							src = o.s
+						}
+					}
+					parts = append(parts, f.name+": "+src)
+				}
+			case kArray:
+				for j := 0; j < p.t.n; j++ {
+					src := fmt.Sprintf("%s[%d]", p.s, (p.t.n-1-j+g.r.Intn(2))%p.t.n)
+					parts = append(parts, src)
+				}
+			}
+			g.line("%s = %s{%s}", p.s, p.t, strings.Join(parts, ", "))
 		default:
-			// Copy from another path of the same type, possibly itself.
+			// Copy or swap with another path of the same type, possibly
+			// itself.
 			var same []path
 			for _, o := range paths {
 				if o.t == p.t {
 					same = append(same, o)
 				}
 			}
-			g.line("%s = %s", p.s, same[g.r.Intn(len(same))].s)
+			o := same[g.r.Intn(len(same))].s
+			if g.chance(3) {
+				g.line("%s, %s = %s, %s", p.s, o, o, p.s)
+			} else {
+				g.line("%s = %s", p.s, o)
+			}
 		}
 	}
 	if ptr != "" {
