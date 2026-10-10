@@ -36,7 +36,9 @@ applies to C calls and entry points.
 
 ## 1. Data layout
 
-Sizes and alignments follow Go's gc compiler on amd64. `int`, `uint`, `uintptr` and pointers are 8 bytes.
+Sizes are in bytes. `int`, `uint`, `uintptr` and pointers are 8 bytes, and the machine word is 8 bytes. The
+alignment of a scalar is its size. The layout of an aggregate follows from the layout of its parts by the
+rules that come after the table.
 
 | Type | Size | Align | Layout |
 |---|---|---|---|
@@ -50,7 +52,7 @@ Sizes and alignments follow Go's gc compiler on amd64. `int`, `uint`, `uintptr` 
 | `[]T` | 24 | 8 | `{ptr *T, len int, cap int}` |
 | interface | 16 | 8 | `{tab, data}` (section 5) |
 | `[N]T` | N × size(T) | align(T) | |
-| struct | Go's rules | max field align | fields in order, padded to alignment |
+| struct | the end of the last field, rounded up to the struct's alignment (below) | the largest field alignment, at least 1 | fields in declaration order, each at the next multiple of its alignment (below) |
 | `volatile[T]` | size(T) | align(T) | as `T` |
 | `aligned[T, N]` | size(T) rounded up to N | N | as `T` |
 | `ring[T, N]` | 16 + N × size(T) | max(8, align(T)) | `{head, tail uint64; buf [N]T}` |
@@ -59,6 +61,33 @@ Sizes and alignments follow Go's gc compiler on amd64. `int`, `uint`, `uintptr` 
 | union | tag, then the largest payload at its alignment, rounded up to the alignment | max(tag size, largest payload alignment) | `{tag uint8 (uint16 above 256 variants); payload}`, below |
 | packed union | its backing | backing's | a packed type whose tag field selects the variant, language spec section 5.10 |
 | `chan T` | 8 | 8 | address of the channel object (`rt.hchan`, section 12.6) |
+
+**Layout rules.** An interface is two words, and its representation is the subject of section 5. A string
+and a slice are three words, laid out as the table shows.
+
+- **Struct.** Fields appear in declaration order. Each field is placed at the lowest offset, not less than
+  the end of the previous field, that is a multiple of the field's alignment. The first field is at
+  offset 0. The alignment of the struct is the largest alignment of its fields, and at least 1. The size
+  of the struct is the end of the last field, rounded up to a multiple of the struct's alignment. The
+  bytes between fields and after the last field are padding, and their contents are unspecified.
+- **Zero-size fields.** A type has size 0 when it is an empty struct, an array of length 0, or a struct or
+  array made only of such parts. Its alignment is that of its parts (1 for an empty struct). A zero-size
+  field is placed like any other field. If the last field of a struct has size 0 and starts at an offset
+  above 0, one byte is counted after it before the size is rounded up, so that a pointer to the last
+  field never points at the object that follows the struct. Two distinct zero-size objects may have the
+  same address. A struct with no field of non-zero size has size 0.
+- **Array.** `[N]T` has `N` elements of size(T) bytes each, one after the other, with no padding between
+  them, because the size of a type is always a multiple of its alignment. Its alignment is that of `T`,
+  and its size is `N` times size(T).
+- **Wrappers.** `volatile[T]` is laid out as `T`. `aligned[T, N]` is laid out as `T`, placed at a multiple
+  of `N` bytes, with a size that is size(T) rounded up to a multiple of `N`, so an array of them has no
+  padding between its elements. `ring[T, N]` is laid out as `struct { head, tail uint64; buf [N]T }`.
+- **Named types.** A named type, an owner type and an enum type have the layout of their underlying type.
+
+For example, `struct { a int8; b int64; c int8 }` has `b` at offset 8 and `c` at offset 16, an alignment
+of 8, and a size of 24; `struct { a, c int8; b int64 }` has `b` at offset 8 and a size of 16; and
+`struct { a int8; z struct{} }` has `z` at offset 1 and a size of 2 (one byte is counted for the
+zero-size last field).
 
 `owned[T]`, `shared[T]`, `synced[T]` and `weak[P]` point at the object, with a header in front of it
 (section 1.2). Owner types declared with `owner` (language spec section 6.4) have the layout of their
@@ -379,16 +408,48 @@ Type descriptor, 88 bytes, read-only, named `type:<type>` (mirrored by `pluto/rt
 |---|---|---|
 | 0 | `size uintptr` | 16 for interface types |
 | 8 | `hash uint32` | FNV-1a of the type string |
-| 12 | `kind uint8` | Go's reflect numbering, plus 27 packed, 28 ring, 29 owned, `shared`, `synced` or `weak`, 30 union |
+| 12 | `kind uint8` | the kind of the type (below) |
 | 13 | `flags uint8` | 1 = direct, 2 = interface type with methods (its values hold an itab), 4 = the type has methods |
 | 14 | `align uint8` | alignment in bytes (0 if 256 or more) |
-| 16 | `name string` | the type as Go's `reflect.Type.String` writes it: `main.T`, `[]uint8`, `hash.Map[string,int]`, `interface {}`, `struct { A int }` |
+| 16 | `name string` | the type's name, written as described below |
 | 40 | `equal func(a, b unsafe.Pointer) bool` | closure record, or nil if not comparable or direct, or if the type is only part of a converted type |
 | 48 | `elem *typeDesc` | element type of an array, slice or ring; the type a pointer, `owned`, `shared`, `synced` or `weak` points at; nil otherwise |
 | 56 | `len uintptr` | array length, ring capacity, or number of struct fields |
 | 64 | `fields *fieldDesc` | the struct's field descriptors, `len` of them; nil otherwise |
 | 72 | `ptrTo *typeDesc` | the descriptor of `*T` when `*T` has methods that `T` lacks; nil otherwise |
 | 80 | `drop uintptr` | code address of the drop adapter of `T`, set for every type converted into an owning interface (with or without methods) when a `T` needs a drop; 0 otherwise |
+
+The kind numbers are:
+
+| Kind | Type | Kind | Type |
+|---|---|---|---|
+| 1 | `bool` | 15, 16 | not used |
+| 2 | `int` | 17 | array |
+| 3 | `int8` | 18 | channel |
+| 4 | `int16` | 19 | func |
+| 5 | `int32` | 20 | interface |
+| 6 | `int64` | 21 | map |
+| 7 | `uint` | 22 | pointer |
+| 8 | `uint8` | 23 | slice |
+| 9 | `uint16` | 24 | string |
+| 10 | `uint32` | 25 | struct |
+| 11 | `uint64` | 26 | `unsafe.Pointer` |
+| 12 | `uintptr` | 27 | packed type |
+| 13 | `float32` | 28 | `ring` |
+| 14 | `float64` | 29 | `owned`, `shared`, `synced` or `weak` |
+| | | 30 | union |
+
+A named type has the kind of its underlying type; an enum has the kind of its underlying integer type;
+`volatile[T]` and `aligned[T, N]` have the kind of `T`.
+
+The name of a type is written from the outside in, with no spaces except where shown. A named type is its
+package's name, a dot and its name (`main.T`), followed, if it is an instance of a generic type, by its
+type arguments in brackets, separated by commas (`hash.Map[string,int]`). A predeclared type is its
+name, except that `byte` is written `uint8` and `rune` is written `int32`. An unnamed type is written in
+the syntax of the language with its parts named in the same way: `*main.T`, `[]uint8`, `[4]int`,
+`interface {}` for the empty interface, and `struct { A int }` for a struct. The name is for printing and
+has no part in the identity of a type, which is the address of the descriptor. A descriptor has kind 0
+when no kind above describes its type.
 
 Field descriptor, 48 bytes, an array of them per struct type named `typefields:<type>`:
 

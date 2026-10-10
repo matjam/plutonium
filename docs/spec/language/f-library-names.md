@@ -1,3 +1,240 @@
 ## F. Library names the language relies on
 
-> Stub: written in phase 2 by part 6.
+The standard library is not part of this specification. Each package documents itself, as Go's packages
+do, and a Go programmer looks for the verbs of `fmt` or the functions of `os` in the package
+documentation, not here. This appendix lists only the names that the language itself depends on: names
+that the compiler calls or checks, names that a rule of the language mentions, and names that an error
+sends the programmer to. A conforming implementation provides each of them, in the package shown, with the
+meaning given here. Everything else about these packages is for their documentation.
+
+The names fall in two kinds. Some are **called by the compiler**: it generates calls to them or reads
+their declarations, and a program calls them directly only to implement a kernel (a scheduler, a panic
+handler). The others are **ordinary library names** that the language gives meaning to, such as
+`sync.Scope`.
+
+### F.1 The runtime, `pluto/rt`
+
+The runtime is the part of the library that the compiler knows by name. It provides mechanisms, and a
+kernel supplies policy through hooks (section 1.2, Design rules). Application code never calls the hooks.
+
+**The panic handler.** The program's panic handler (section 17.4, Panics in freestanding programs) is a
+function `func(p *rt.Panic)`:
+
+```go
+type Panic struct {
+	Message string // "runtime error: index out of range [4] with length 4", or the value passed to panic
+	Value   any    // the value passed to panic, nil for run-time errors and faults
+	Fault   Fault  // the hardware fault, if the panic came from one
+	CPU     int    // the processor that panicked: in kernel mode its number from rt.SetCPU, otherwise 0
+}
+
+type Fault struct {
+	Kind   FaultKind // NoFault, MemoryFault, DivideFault or IllegalInstruction
+	Addr   uintptr   // the address accessed, for a MemoryFault, if known
+	PC     uintptr   // the faulting instruction
+	Signal int       // the signal that reported it in hosted builds, or 0
+}
+
+func (p *Panic) Print[W Writer](w W)      // the panic as a hosted program prints it, then the trace
+func (p *Panic) PrintTrace[W Writer](w W) // the stack trace alone
+```
+
+`rt.Writer` has the method of `io.Writer`. `rt.Console{}` writes where `print` does: in a freestanding
+build, the function registered with `rt.SetConsole`, and in a hosted build, standard error with a system
+call that never waits. A kernel's exception handler reports a fault with
+`rt.PanicFault(kind rt.FaultKind, addr, pc, sp, bp uintptr)`, which never returns. A tool that describes an
+error at length starts the panic with `rt.BeginPanic()`, prints with `print`, and raises it with
+`rt.Abort()` or `rt.PanicFault`. `rt.SetCPU(n)` tells the runtime which processor the caller is, once
+the processor's `GS` base points at its per-CPU block (section 20.9, Per-CPU variables).
+
+**Tasks and the scheduler.** The scheduler contract (section 19.5, The scheduler contract) uses these:
+
+```go
+type Scheduler interface {
+	NewTask(req StackRequest) *Task // a record with Task at offset 0, and a stack
+	FreeTask(t *Task)               // free an exited task, after the switch away from it
+	Spawn(t *Task)                  // make a new task runnable
+	Park(t *Task)                   // switch away from t, the running task, until it is woken
+	Wake(t *Task)                   // make a switched-out task runnable; interrupt-safe
+	Yield(t *Task)                  // switch away from t, which stays runnable
+}
+```
+
+A backend may also have `Init()`, called once before the first task operation; `InInterrupt() bool`, which
+lets the runtime refuse an operation that would park in interrupt context; and `Now() int64` and
+`ArmTimer(deadline int64)`, which give the runtime a clock and a timer. A program that uses timers needs
+both of the last two. The compiler gives each runtime hook that stands for one of these methods (the
+body-less functions `schedNewTask`, `schedFreeTask`, `schedSpawn`, `schedPark`, `schedWake`, `schedYield`,
+`schedInit`, `schedInInterrupt`, `schedNow` and `schedArmTimer`) a body that calls the method of the
+variable marked `//pu:scheduler` directly.
+
+The runtime's other names that a scheduler uses are `rt.Task`, `rt.Context`, `rt.StackRequest`,
+`rt.MakeContext`, `rt.Switch`, `rt.Park`, `rt.Ready`, `rt.Preempt`, `rt.Yield`, `rt.DisablePreemption`,
+`rt.EnablePreemption`, `rt.BootTask`, `rt.Go(f, size, a)` with `rt.MinStackSize` (8 KiB), `rt.Timer`,
+`rt.Now`, `rt.ParkUntil`, `rt.RunTimers` and `rt.NoDeadline`. `rt.StackLeft`, `rt.StackBounds` and
+`rt.SetStackBounds` report and record the limits of a stack. `rt.Goexit` ends the calling task after
+running the deferred calls and drops of every frame; `rt.CatchGoexit` lets a runner stop that exit
+(section 17.3, Ending a task with rt.Goexit). `rt.Pinned` hides a pointer from the escape analysis, and is
+unsafe code (section 20.1, Package `unsafe`). The compiler gives `rt.Sleep`, which is declared without a
+body, its body by name: a direct wait if the program never starts the scheduler, a parked one otherwise.
+
+**Hooks the compiler calls.** The compiler generates calls to these functions by name. Their names and
+meanings are fixed by this appendix; their signatures are the runtime's business.
+
+| Name | Called for |
+|---|---|
+| `callPanicHandler` | every panic and fault, to reach the program's panic handler |
+| `makechan`, `makechanWith` | `make(chan T, n)` and `make(chan T, n, a)` |
+| `chansend1`, `chanrecv1`, `chanrecv2` | send and receive; these may park |
+| `closechan`, `chanlen`, `chancap` | `close`, `len` and `cap` of a channel; these never park |
+| `selectgo`, `selectnb` | `select` without and with a `default` case |
+| `spawnGo`, `checkGoFunc` | the `task` statement, and the check of its function and func arguments |
+| `strRetain`, `strRelease` | copying and dropping a counted string |
+| `boxNew`, `boxNewWith`, `boxRetain`, `boxReleaseStrong`, `weakRelease`, `boxFree` | creating, copying and dropping `owned`, `shared`, `synced` and `weak` values |
+| `panicStale` | a failed generation or arena epoch check |
+| `startTasks` | the first use of the scheduler, which decides how `rt.Sleep` waits |
+| `SetThreaded` | switching reference counts to atomic arithmetic when the program becomes multi-threaded |
+| `NewEpoch`, `EpochEnded` | the program-wide counter of arena epochs, and the record of the call that last ended one |
+| `Type`, `UnionInfo` | reading type descriptors, for printing and equality in the library |
+| `ReleaseValues`, `RetainValues`, `MoveValues`, `HoldsStrings` | generic functions that give library containers the compiler's drop and copy code for the values they hold |
+
+### F.2 Allocation, `pluto/alloc` and `pluto/arena`
+
+```go
+package alloc
+
+type Allocator interface {
+	// Alloc returns size bytes of zeroed memory aligned to align, or nil.
+	Alloc(size, align uintptr) unsafe.Pointer
+	// Free releases memory returned by Alloc with the same size and align.
+	Free(p unsafe.Pointer, size, align uintptr)
+}
+
+func Default() Allocator       // the current default allocator, or nil
+func SetDefault(a Allocator)   // replace the program-wide default
+func Use(a Allocator) Restore  // install a for the calling task until the Restore ends
+
+type Restore owner struct{ /* ... */ }
+func (r Restore) Restore()     // consumes r: put back the allocator that was current before Use
+```
+
+The **current allocator** (the one `Default()` returns, and the one `new`, `make`, string-making
+operations and the library's constructors use when none is given) is the calling task's override, if it
+installed one with `Use`, and otherwise the program-wide default. A task starts with no override, so every
+task, scoped or not, starts with the program-wide default; a task that wants an arena installs its own
+(section 18.9, Allocators). Dropping a `Restore` puts the previous allocator back, so
+`defer alloc.Use(&a).Restore()` installs `a` for the rest of the function. The compiler treats what is
+allocated through `Default()` while a `Restore` that views a local arena is live as a view of that arena
+(section 18.3, Views).
+
+The functions `alloc.Owned[T]()`, `alloc.Shared[T]()` and `alloc.Synced[T]()` allocate a zeroed `T` in a
+box. They take an optional allocator argument. `alloc.Raw`, `alloc.New` and `alloc.Free` are the
+unchecked layer that owner types are written with (section 20.1).
+
+`arena.Arena` is a fixed bump allocator over a caller's buffer, and `arena.Chunked` is a growable one that
+takes chunks from a parent allocator. Freeing into an arena does nothing, and `Reset` reclaims everything.
+An arena's `New[T]()` and `Slice[T](n)` methods return views that live until the arena is reset or
+dropped (section 18.10, No allocation without an owner or an arena). `arena.Arena` is not safe for use by
+several tasks at once.
+
+### F.3 Iterators and containers
+
+```go
+package iter
+
+type Seq[V any] func(yield func(V) bool)
+type Seq2[K, V any] func(yield func(K, V) bool)
+```
+
+A range over a function (section 12.11, Range over functions) uses these types, and a range over a
+container ranges over its `All` method (section 11.11, Indexing library containers). The constraints of
+the indexing interface are in `pluto/container`:
+
+```go
+type Indexable[K, V any] interface { Index(k K) V; SetIndex(k K, v V) }
+type Reader[K, V any] interface    { Index(k K) V }
+type Lookup[K, V any] interface    { IndexOk(k K) (V, bool) }
+type Sized interface               { Len() int }
+type Iterable[K, V any] interface  { All() iter.Seq2[K, V] }
+```
+
+The language depends on the method names `Index`, `SetIndex`, `IndexOk`, `Len` and `All`, and on their
+forms, not on the constraints; the constraints give generic code a name for a container.
+
+`pluto/vec` has the growable owner `vec.Vec[T]`, created by `vec.New[T]`, by `vec.Make[T](n)` (an owner
+of `n` zero elements) and by `vec.WithCapacity[T](c)` (an empty one with room for `c`), each with an
+optional allocator. It has the methods `Push`, `Append`, `Insert`, `Replace`, `AppendSeq`, `Len`, `Slice`
+(which lends the elements as a slice) and `Truncate`, and the iterators `All`, `Values` and `Backward`,
+which read the length once when the loop starts. `vec.Fixed[T]` is a bounded vector over a caller's array
+(`vec.NewFixed(buf[:])`), which never allocates and records what did not fit. `vec.Appender[T]` is the
+constraint that both satisfy, and `vec.AppendString` appends a string's bytes. `hash.Map[K, V]` is the
+library table for owners: its `Ptr`, `Remove` and `Pop` methods look at or take out an owner, which the
+built-in map cannot do (section 7.10, Map types).
+
+### F.4 Errors
+
+`errors.New(text)` is checked by the compiler: `text` must be a constant, and the call must be written as
+a call, not taken as a value or deferred. The compiler evaluates each call site to the address of a
+static, read-only `errors.Text{Msg: text}` that belongs to that call site, so the same call site always
+yields the same error, in every instance of a generic function, and different call sites yield different
+errors (section 16.3, Sentinels and errors.New). `errors.Text` is a struct with the field `Msg string`,
+and `*errors.Text` implements `error`. A sentinel may be written as the literal
+`&errors.Text{Msg: "..."}` in a package-level variable. `errors.Is`, `errors.As`, `errors.AsType`,
+`errors.Unwrap` and `errors.Join` have the meaning of section 16.6 (Wrapping, Is and As).
+
+### F.5 Synchronization
+
+The compiler recognizes these types in `pluto/sync`:
+
+- `sync.Scope`, an owner that starts tasks that may use the variables of the function that starts them, and
+  waits for all of them when its scope ends. `s.Task(f)` starts `f` as a task that `s` waits for, `s.Wait()`
+  waits for every task started so far, and `Drop` waits as `Wait` does (section 19.4, Scoped tasks). The
+  zero `Scope` is ready to use.
+- `sync.Mutex` and `sync.RWMutex`, the locks whose `Lock`, `Unlock`, `RLock`, `RUnlock` and `TryLock`
+  the race analysis follows to infer which lock guards which data (section 19.3, Data race freedom). `Lock`
+  and `RLock` may park the caller, so they may not be reached from interrupt context (section 20.10).
+- `sync.WaitGroup`, `sync.Once` and `sync.Cond`, which synchronize as in section 19.7 (Memory model). A
+  local `sync.WaitGroup` shared with a task by address is an error, because the view of the frame may
+  outlive the frame: `sync.Scope` is the type for that.
+
+Every type declared in `pluto/sync` or `pluto/sync/atomic`, and the runtime's own lock `rt.Lock`, is
+**synchronized by its own methods**: a view of one may cross between tasks (section 19.2, The sendable
+rule). The atomic integer and pointer types of `pluto/sync/atomic` are the types that a package variable
+written by several tasks may have instead of a lock.
+
+### F.6 Strings
+
+These functions are named by rules and by errors:
+
+```go
+package strings
+
+func FromUTF8(b []byte) (string, error) // a string of b, or an error if b is not valid UTF-8
+func FromUTF8Lossy(b []byte) string     // a string of b, each invalid byte replaced by U+FFFD
+func Bytes(s string) vec.Vec[byte]      // a copy of the bytes of s, an owner
+func Runes(s string) vec.Vec[rune]      // the runes of s, an owner
+func Truncate(s string, n int) string   // the longest prefix of at most n bytes that ends on a rune boundary
+
+package utf8
+
+func RuneStartBefore(s string, i int) int // rounds the byte offset i down to the start of a rune
+```
+
+They are the replacements for the conversions Plutonium removes (appendix A, section A.2) and the helpers
+for slicing a string on a rune boundary (appendix A, section A.5). `strconv.Itoa` is the replacement for
+converting an integer to a string with `string(i)`.
+
+### F.7 Time
+
+`time.Sleep` parks the calling task until a deadline, so it may not be reached from interrupt context.
+`time.Timer`, `time.Ticker`, `time.After` and `time.Tick` deliver the time on a channel, so a `select`
+waits for a timer like any other case. A timer's channel owns the timer: when the last reference to the
+channel goes away, the timer is stopped and freed with it (section 19.6, Timers). `time.AfterFunc(d, f)`
+starts `f` as a task when the timer expires, so `f` is subject to the rules of the `task` statement for
+func arguments: the compiler rejects a function that captures variables from a frame. Underneath is the
+runtime's mechanism (section F.1): a monotonic clock, `rt.Now()`, timers that never allocate, and
+`rt.ParkUntil`. A kernel's scheduler provides the clock and the hardware with `Now` and `ArmTimer`.
+
+### F.8 Machine access
+
+`pluto/arch/x86` is specified in section 20.8. `unsafe` is specified in section 20.1.
