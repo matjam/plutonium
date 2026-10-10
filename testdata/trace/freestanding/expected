@@ -1,4 +1,4 @@
 2
 panic: runtime error: index out of range [7] with length 3
-    main.get ($FILE:22)
-    main.main ($FILE:28)
+    main.get (./main.p:22)
+    main.main (./main.p:28)

@@ -210,8 +210,12 @@ order (a task has been filed for both):
 The others (`isel.go`, the rest of `regalloc.go`, `lower/iface.go`, `opt/slots.go`, `opt/tailrec.go`,
 `ssa/program.go`) build sets, copy maps or sort first. `ssa.Verify` lists errors in map order, which only
 affects diagnostics. Object files carry no timestamps, symbol tables are emitted in definition order with
-data sorted by name, and positions never reach the output (that changes with symbolised stack traces,
-roadmap item 41, which must use paths relative to the module or `PLUTOROOT`).
+data sorted by name. Positions reach the output through the trace table and DWARF (roadmap items 41 and
+42), which name files relative to the module root (`./cmd/tool/main.p`) and the standard library
+(`pluto/fmt/print.p`), with `.` as DWARF's compilation directory ([debugging.md section
+2.1](../spec/debugging.md#21-file-names)). (Amended 2026-10-09: the two map-order bugs above are fixed,
+and the same source now links to a byte-identical executable from any directory, checked by
+`TestDeterministic` and `TestReproducible` in `internal/build/determinism_test.go`.)
 
 ## 3. Translation strategy
 
@@ -590,8 +594,15 @@ CI runs it on every change to the compiler once stage 1 exists.
   (verified by the `rewrites` demo); sorts should still use total orders.
 - **Floating-point text.** Constant parsing and printing must round exactly as Go's `strconv` does, or
   stage 0 and stage 1 disagree on constant values; this is why `ParseFloat` is ported, not rewritten.
-- **No timestamps, no absolute paths** in output. Object files have none today; symbolised stack traces
-  (roadmap item 41) must record paths relative to the module root or `PLUTOROOT`.
+- **No timestamps, no absolute paths** in output. Object files have no timestamps. The trace table and
+  DWARF record paths relative to the module root or the standard library, and DWARF's compilation
+  directory is `.` ([debugging.md section 2.1](../spec/debugging.md#21-file-names)); `--trimpath=false`
+  restores absolute paths and is never used for bootstrap stages. The driver also runs the assembler and
+  C compiler in the work directory on relative names, so the temporary directory's name never reaches an
+  object, and passes `--build-id=none` to `ld`, so the result does not depend on how the system linker
+  was configured. Stage 2 and stage 3 are then comparable even when built in different directories or on
+  different machines, provided `as` and `ld` are the same versions (the compiler's own output does not
+  depend on them, only the linked file).
 - **Single-threaded.** The compiler does not use puroutines; if it ever compiles packages in parallel,
   results are merged in a fixed order.
 

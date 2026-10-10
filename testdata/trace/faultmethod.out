@@ -1,4 +1,4 @@
 panic: runtime error: invalid memory address or nil pointer dereference
 [signal SIGSEGV: segmentation violation addr=0x8 pc=PC]
-    main.(*Node).Sum3 ($FILE:13)
-    main.main ($FILE:22)
+    main.(*Node).Sum3 (./main.p:13)
+    main.main (./main.p:22)
