@@ -1,0 +1,31 @@
+buffered one 2
+received a
+left 3
+drop a
+drop b
+drop c
+drop d
+channel gone
+drop synced
+box gone
+got x
+got y
+closed kept true 1
+closed empty 0 false
+struct hello
+struct new true false 1
+array 0 true
+nested deep 1
+reply 10
+reply 20
+reply 30
+mailbox 5
+containers 10 true
+owning 1
+range 6 true
+timeouts 499500
+after fired
+ticked
+timer fired after free
+ticker freed
+end

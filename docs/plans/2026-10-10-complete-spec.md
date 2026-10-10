@@ -312,7 +312,7 @@ Old 6.9 (the exact texts of ownership diagnostics) leaves the spec for the catal
 | 19.3 Data race freedom (heap views, `synced[T]` contents, inferred lock guarding, package variables) | memory-safety design 7, D5, D7; old 6.11 | main (roadmap 59); G32 decided (a) |
 | 19.4 Scoped tasks (`sync.Scope`, `s.Task(f)`, joins, the sharing check) | scoped-puroutines plan (revised) | decided (no roadmap item); open G35 |
 | 19.5 The scheduler contract (summary; abi.md 12 is normative) | old 4.7; abi.md 12; scheduler-contract plan | main |
-| 19.6 Timers | old 4.7 | main; the channel owns its timer decided (false-friends F6, after roadmap 48) |
+| 19.6 Timers | old 4.7 | main; the channel owns its timer (false-friends F6, roadmap 48); the result type of `NewTimer` open |
 | 19.7 Memory model (summary; memory-model.md is normative) | old 4.9; memory-model.md | main; open G33, G41 |
 
 ### Chapter 20. System considerations

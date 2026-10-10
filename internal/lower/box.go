@@ -21,6 +21,11 @@ import (
 //
 // synced counts atomically once the program is threaded; shared never does,
 // which is why it may not cross tasks.
+//
+// A channel is counted in the same way (language spec section 4.8): its
+// count is in the runtime's hchan, atomic once the program is threaded, and
+// the last release drops the values still buffered and frees the channel
+// (chanRelease).
 
 // boxHeader is the size of the header in front of a box's object.
 func boxHeader(k types2.WrapperKind) int64 {
@@ -107,6 +112,58 @@ func (l *Lowerer) releaseGlue(w *types2.Wrapper) *ssa.Sym {
 			s.destroyAt(obj, elem)
 			s.callRuntime("weakRelease", nil, []*ssa.Value{obj, s.constBool(sync),
 				s.constInt(ssa.TI64, s.l.sizeof(elem)), s.constInt(ssa.TI64, s.l.alignof(elem))})
+		})
+		s.returnValues(nil)
+	}})
+	return sym
+}
+
+// chanRetain takes another reference to the channel p.
+func (s *fnState) chanRetain(p *ssa.Value) {
+	s.callRuntime("chanRetain", nil, []*ssa.Value{p})
+}
+
+// chanRelease drops a reference to the channel p, of type ch. A channel
+// whose elements need no drop is released by the runtime alone; otherwise
+// by the release glue of its element type, which drops the values still
+// buffered when the reference was the last.
+func (s *fnState) chanRelease(p *ssa.Value, ch *types2.Chan) {
+	elem := ch.Elem()
+	if !s.l.needsDrop(elem) && !s.l.counted(elem) {
+		s.callRuntime("chanDrop", nil, []*ssa.Value{p})
+		return
+	}
+	glue := s.l.chanReleaseGlue(elem)
+	p0 := types2.NewVar(token.NoPos, nil, "p", types2.Typ[types2.UnsafePointer])
+	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(p0), nil, false)
+	s.emitCall(callee{sym: glue}, sig, nil, []value{scalarValue(p, p0.Type())}, token.NoPos)
+}
+
+// chanReleaseGlue returns the function that drops a reference to a channel
+// of elem values: the last one drops the values still buffered, then frees
+// the channel and its timer.
+func (l *Lowerer) chanReleaseGlue(elem types2.Type) *ssa.Sym {
+	name := "chan " + typeString(elem) + "·release"
+	if sym := l.funcs[name]; sym != nil {
+		return sym
+	}
+	sym := l.out.Sym(name, ssa.SymFunc)
+	l.funcs[name] = sym
+	p := types2.NewVar(token.NoPos, nil, "p", types2.Typ[types2.UnsafePointer])
+	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(p), nil, false)
+	l.queue = append(l.queue, &funcJob{sym: sym, sig: sig, build: func(s *fnState) {
+		in := s.incomingArgs(sig)
+		c := in[0].v
+		last := s.callRuntime("chanRelease", []*ssa.Type{ssa.TBool}, []*ssa.Value{c})[0]
+		s.ifThen(last, func() {
+			res := s.callRuntime("chanBuffered", []*ssa.Type{ssa.TPtr, ssa.TI64, ssa.TI64, ssa.TI64}, []*ssa.Value{c})
+			buf, first, size := res[0], res[1], res[3]
+			s.countedLoop(res[2], nil, func(i *ssa.Value) {
+				// The buffer is a ring: value i is in slot (first+i) % size.
+				k := s.newValue(ssa.OpMod, ssa.TI64, s.newValue(ssa.OpAdd, ssa.TI64, first, i), size)
+				s.destroyAt(s.elemAddr(buf, k, elem), elem)
+			})
+			s.callRuntime("chanFree", nil, []*ssa.Value{c})
 		})
 		s.returnValues(nil)
 	}})

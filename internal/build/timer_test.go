@@ -142,7 +142,6 @@ loop:
 	println("ticks", ticks > 0)
 	alloc.Free(tk)
 	alloc.Free(timeout)
-	alloc.FreeChan(c)
 }
 `},
 		{name: "stopreset", want: "bad 0\n", src: `package main
@@ -428,12 +427,13 @@ func TestTimersDebugAlloc(t *testing.T) {
 
 import (
 	"pluto/alloc"
+	"pluto/sync"
 	"pluto/time"
 )
 
-var done = make(chan bool, 1)
+var fired sync.WaitGroup
 
-func f() { done <- true }
+func f() { fired.Done() }
 
 func main() {
 	t := time.NewTimer(time.Millisecond)
@@ -442,13 +442,13 @@ func main() {
 	tk := time.NewTicker(time.Millisecond)
 	<-tk.C
 	alloc.Free(tk)
+	fired.Add(1)
 	af := time.AfterFunc(time.Millisecond, f)
-	<-done
+	fired.Wait()
 	alloc.Free(af)
 	stopped := time.AfterFunc(time.Hour, f)
 	alloc.Free(stopped)
 	time.Sleep(time.Millisecond)
-	alloc.FreeChan(done)
 	println("freed")
 }
 `, build.Config{OptLevel: 2, Alloc: "debug"})

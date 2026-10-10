@@ -1,13 +1,11 @@
 // Counted strings (language spec section 6.10) across puroutines, channels,
 // select, and range over functions: every string made here must be freed
 // exactly once (TestStringsLeakFree runs this with the debug allocator).
-// With the imports changed to Go's packages and alloc.FreeChan removed, Go
-// prints the same.
+// With the imports changed to Go's packages, Go prints the same.
 
 package main
 
 import (
-	"pluto/alloc"
 	"pluto/fmt"
 	"pluto/strconv"
 	"pluto/strings"
@@ -20,10 +18,7 @@ func heap(s string) string { return strings.Clone(s) }
 // ----------------------------------------------------------------------------
 // go statements
 
-var (
-	wg      sync.WaitGroup
-	results = make(chan string, 8)
-)
+var wg sync.WaitGroup
 
 type tagged struct {
 	tag  string
@@ -31,7 +26,7 @@ type tagged struct {
 	note string
 }
 
-func worker(name string, t tagged, rest ...string) {
+func worker(results chan<- string, name string, t tagged, rest ...string) {
 	out := name + ":" + t.tag + "/" + strconv.Itoa(t.n) + "/" + t.note
 	for _, r := range rest {
 		out += "," + r
@@ -42,11 +37,12 @@ func worker(name string, t tagged, rest ...string) {
 
 func goStatements() {
 	base := heap("base")
+	results := make(chan string, 8)
 	wg.Add(3)
-	go worker(base, tagged{tag: heap("t1"), n: 1, note: "static"})
-	go worker(base+"+", tagged{tag: "t2", n: 2, note: heap("n2")}, heap("x"), "y")
+	go worker(results, base, tagged{tag: heap("t1"), n: 1, note: "static"})
+	go worker(results, base+"+", tagged{tag: "t2", n: 2, note: heap("n2")}, heap("x"), "y")
 	t := tagged{tag: heap("t3"), n: 3}
-	go worker("lit", t, base)
+	go worker(results, "lit", t, base)
 	base = "changed" // the puroutines hold their own references
 	t.tag = "gone"
 	wg.Wait()
@@ -99,7 +95,6 @@ func sharedCounts() {
 		total += <-done
 	}
 	fmt.Println("shared:", total, shared)
-	alloc.FreeChan(done)
 }
 
 // ----------------------------------------------------------------------------
@@ -135,8 +130,6 @@ func channels() {
 	left := make(chan msg, 3)
 	left <- msg{1, heap("left behind")}
 	left <- msg{2, strconv.Itoa(12345)}
-	alloc.FreeChan(left)
-	alloc.FreeChan(mc)
 
 	// Unbuffered, from another puroutine, received with range.
 	un := make(chan string)
@@ -151,8 +144,6 @@ func channels() {
 		count++
 	}
 	fmt.Println("range discard:", count)
-	alloc.FreeChan(un)
-	alloc.FreeChan(ch)
 }
 
 // ----------------------------------------------------------------------------
@@ -188,8 +179,6 @@ func selects() {
 		fmt.Println("select: refilled")
 	}
 	fmt.Println("select: left", len(full), len(data))
-	alloc.FreeChan(full)
-	alloc.FreeChan(data)
 }
 
 // ----------------------------------------------------------------------------
@@ -279,5 +268,4 @@ func main() {
 	channels()
 	selects()
 	rangeFuncs()
-	alloc.FreeChan(results)
 }

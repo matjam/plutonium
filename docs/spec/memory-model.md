@@ -116,7 +116,9 @@ would on its own. A `select` that takes its `default` case performs no synchroni
 A channel is a counted reference with an atomic count (language spec section 19.8, Channels). The release
 of the last reference is synchronized before the channel's memory is freed, so freeing never races with a
 task that still held a reference. Values still buffered at that point are dropped after that release and
-before the memory is freed, by the task that released the last reference.
+before the memory is freed, by the task that released the last reference. The channel's timer, if it has
+one (`time.After`, `time.Tick`, a `Timer` or `Ticker`), is stopped before the memory is freed; stopping
+waits for the timer's function if it is running, so a timer never delivers to a freed channel.
 
 ### 3.4 `pluto/sync`
 

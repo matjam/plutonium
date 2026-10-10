@@ -14,8 +14,10 @@ import (
 // counted value is copied freely and never moved by the program, and its
 // drops are implicit.
 //
-// A type is counted if a value of it holds a string reference: string
-// itself, and structs and arrays with a counted field or element. Slices,
+// A type is counted if a value of it holds a string reference, or a
+// shared, synced or weak reference or a channel, which are counted the same
+// way (box.go): string itself, and structs and arrays with a counted field
+// or element. Slices,
 // pointers and interfaces only look at counted values; the memory they look
 // at holds the references.
 //
@@ -99,6 +101,8 @@ func (l *Lowerer) counted(T types2.Type) bool {
 		for i := 0; i < u.NumVariants() && !c; i++ {
 			c = u.Variant(i).HasPayload() && l.counted(u.Variant(i).Payload())
 		}
+	case *types2.Chan:
+		c = true // a channel is a counted reference (box.go)
 	}
 	l.countedTypes[key] = c
 	return c
@@ -108,10 +112,12 @@ func (l *Lowerer) counted(T types2.Type) bool {
 // Retain and release
 
 // A countedRef is one counted reference inside a value: the control word
-// of a string (box nil), or a shared, synced or weak reference (box.go).
+// of a string (box and ch nil), a shared, synced or weak reference, or a
+// channel (box.go).
 type countedRef struct {
 	addr *ssa.Value      // where the control word or reference is
-	box  *types2.Wrapper // the reference's type, or nil for a string
+	box  *types2.Wrapper // the box's type, or nil
+	ch   *types2.Chan    // the channel's type, or nil
 }
 
 // eachString calls f for every counted reference in the T at ptr: strings,
@@ -158,6 +164,8 @@ func (s *fnState) eachString(ptr *ssa.Value, T types2.Type, f func(r countedRef)
 			return
 		}
 		s.eachString(ptr, et, f)
+	case *types2.Chan:
+		f(countedRef{addr: ptr, ch: types2.NewChan(u.Dir(), s.subst(u.Elem()))})
 	case *types2.TaggedUnion:
 		// Only the payload of the variant the tag names holds references.
 		ul := s.l.unionLayoutOf(T, s.pos)
@@ -198,6 +206,10 @@ func (s *fnState) forEach(ptr, n *ssa.Value, et types2.Type, f func(r countedRef
 
 // retainRef takes one more reference of r.
 func (s *fnState) retainRef(r countedRef) {
+	if r.ch != nil {
+		s.chanRetain(s.load(ssa.TPtr, r.addr))
+		return
+	}
 	if r.box != nil {
 		s.boxRetain(s.load(ssa.TPtr, r.addr), r.box)
 		return
@@ -207,6 +219,10 @@ func (s *fnState) retainRef(r countedRef) {
 
 // releaseRef drops the reference r.
 func (s *fnState) releaseRef(r countedRef) {
+	if r.ch != nil {
+		s.chanRelease(s.load(ssa.TPtr, r.addr), r.ch)
+		return
+	}
 	if r.box != nil {
 		s.boxRelease(s.load(ssa.TPtr, r.addr), r.box)
 		return
@@ -251,8 +267,12 @@ func (s *fnState) takeRef(v value, T types2.Type) {
 }
 
 // retainWord takes a reference for the counted value p held in a register:
-// a shared, synced or weak reference (box.go).
+// a shared, synced or weak reference, or a channel (box.go).
 func (s *fnState) retainWord(p *ssa.Value, T types2.Type) {
+	if _, ok := unwrap(T).Underlying().(*types2.Chan); ok {
+		s.chanRetain(p)
+		return
+	}
 	if w, ok := unwrap(T).Underlying().(*types2.Wrapper); ok && w.IsCounted() {
 		s.boxRetain(p, types2.NewWrapper(w.Kind(), s.subst(w.Elem()), 0))
 		return
@@ -347,7 +367,7 @@ func (s *fnState) hold(v value) value {
 	}
 	from := len(s.callLog)
 	if !v.addr {
-		// A shared, synced or weak reference.
+		// A shared, synced or weak reference, or a channel.
 		s.retainWord(v.v, v.T)
 		held := s.wordTemp(v.v, v.T, "held")
 		s.startHold(held.tmp, from) // the optimiser may remove it (strelide.go)

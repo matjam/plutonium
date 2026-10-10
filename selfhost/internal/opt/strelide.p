@@ -9,7 +9,7 @@ import (
 )
 
 // ElideStringHolds removes the references lowering takes to keep a
-// borrowed string, or a borrowed shared, synced or weak reference, alive
+// borrowed string, shared, synced or weak reference, or channel, alive
 // while calls run (ssa.StrHold) when none of those calls can release one
 // (language spec sections 6.5 and 6.10.1).
 //
@@ -46,8 +46,8 @@ func ElideStringHolds(p *ssa.Program) {
 }
 
 // releaseFuncs are the runtime functions that drop counted references:
-// strings, and the shared, synced and weak references whose release may
-// free an object holding strings.
+// strings, and the shared, synced and weak references and channels whose
+// release may free an object holding strings.
 var releaseFuncs = compat.MapOf[string, bool](
 	compat.Pair[string, bool]{"pluto/rt.strRelease", true},
 	compat.Pair[string, bool]{"pluto/rt.strFree", true},
@@ -55,6 +55,9 @@ var releaseFuncs = compat.MapOf[string, bool](
 	compat.Pair[string, bool]{"pluto/rt.boxReleaseStrong", true},
 	compat.Pair[string, bool]{"pluto/rt.weakRelease", true},
 	compat.Pair[string, bool]{"pluto/rt.boxFree", true},
+	compat.Pair[string, bool]{"pluto/rt.chanRelease", true},
+	compat.Pair[string, bool]{"pluto/rt.chanDrop", true},
+	compat.Pair[string, bool]{"pluto/rt.chanFree", true},
 )
 
 // mayReleaseCall reports whether call v may release a string, given what

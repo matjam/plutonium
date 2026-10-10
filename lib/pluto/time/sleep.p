@@ -39,7 +39,7 @@ func Sleep(d Duration) {
 
 // drain takes a value left in c, a timer's channel, and reports whether
 // there was one.
-func drain(c chan Time) bool {
+func drain(c <-chan Time) bool {
 	select {
 	case <-c:
 		return true
@@ -48,35 +48,52 @@ func drain(c chan Time) bool {
 	}
 }
 
-// sendTime is the function of channel timers and tickers: arg points at the
-// channel, which gets the time unless it already holds a value.
+// sendTime is the function of channel timers and tickers: arg is the
+// channel, which owns the timer and gets the time unless it already holds
+// a value. The channel's count is left alone: the channel stops its timer,
+// waiting for this function, before it is freed.
 func sendTime(arg unsafe.Pointer, now int64) {
-	c := *(*chan Time)(arg)
-	select {
-	case c <- fireTime(now):
-	default:
-	}
+	t := fireTime(now)
+	rt.ChanTrySend(arg, unsafe.Pointer(&t))
+}
+
+// chanWord returns the address of the channel c, uncounted.
+func chanWord(c <-chan Time) unsafe.Pointer {
+	return *(*unsafe.Pointer)(unsafe.Pointer(&c))
+}
+
+// timerOf returns the timer that the channel c owns.
+func timerOf(c <-chan Time) *rt.Timer {
+	return rt.ChanTimer(chanWord(c), sendTime)
+}
+
+// newTimerChan makes a channel from a that owns a timer, which sends it the
+// time after d, and every period after that if period is positive.
+func newTimerChan(d, period Duration, a alloc.Allocator) <-chan Time {
+	c := make(chan Time, 1, a)
+	timerOf(c).Reset(deadline(d), int64(period))
+	return c
 }
 
 // The Timer type represents a single event. When the Timer expires, the
 // current time is sent on C, unless the Timer was made by AfterFunc.
 //
 // NewTimer and AfterFunc allocate the Timer, and NewTimer its channel, from
-// the allocator they are given (the default allocator if none). Free a
-// Timer with alloc.Free, passing the same allocator, which stops it and
-// frees its channel (Drop): Plutonium has no garbage collector to reclaim
-// a Timer nobody refers to.
+// the allocator they are given (the default allocator if none). C owns the
+// timer: it keeps running while anything holds a reference to C, and stops
+// when the last reference goes, as a Go timer that nothing refers to any
+// more does. Free the Timer with alloc.Free, passing the same allocator,
+// which releases its reference to C, and stops an AfterFunc timer (Drop).
 //
 // As in Go 1.23, C has no stale values: once Stop or Reset has returned, a
 // receive from C gets only a time sent by a later expiry.
 type Timer owner struct {
 	C <-chan Time
-	c chan Time
-	r rt.Timer
 
-	// AfterFunc: the function, the expiries whose puroutine has not
-	// started yet, and the link in the queue of the puroutine that starts
-	// them (funcs). fires and link are guarded by funcs.lock.
+	// AfterFunc: the timer, the function, the expiries whose puroutine
+	// has not started yet, and the link in the queue of the puroutine
+	// that starts them (funcs). fires and link are guarded by funcs.lock.
+	r     rt.Timer
 	f     func()
 	fires int
 	link  *Timer
@@ -86,19 +103,25 @@ type Timer owner struct {
 // channel after at least duration d.
 func NewTimer(d Duration, a alloc.Allocator = alloc.Default()) *Timer {
 	t := alloc.New[Timer](a)
-	t.c = make(chan Time, 1, a)
-	t.C = t.c
-	t.r.Init(sendTime, unsafe.Pointer(&t.c))
-	t.r.Reset(deadline(d), 0)
+	t.C = newTimerChan(d, 0, a)
 	return t
 }
 
 // After waits for the duration to elapse and then sends the current time on
-// the returned channel. It is NewTimer(d).C, and the Timer it allocates is
-// never freed: in a loop, or wherever the memory matters, use NewTimer and
-// free the Timer when done.
+// the returned channel. The channel owns its timer, which stops when the
+// last reference to the channel goes: a select that waits on After in a
+// loop frees each one when the select ends.
 func After(d Duration) <-chan Time {
-	return NewTimer(d).C
+	return newTimerChan(d, 0, alloc.Default())
+}
+
+// timer returns the rt.Timer of t: its channel's, or its own for
+// AfterFunc.
+func (t *Timer) timer() *rt.Timer {
+	if t.C != nil {
+		return timerOf(t.C)
+	}
+	return &t.r
 }
 
 // Stop prevents the Timer from firing. It returns true if the call stops
@@ -107,11 +130,11 @@ func After(d Duration) <-chan Time {
 // a false result means the function has been or will be started on its own
 // puroutine. Stop does not wait for that function.
 func (t *Timer) Stop() bool {
-	if t.c == nil && t.f == nil {
+	if t.C == nil && t.f == nil {
 		panic("time: Stop called on uninitialized Timer")
 	}
-	active := t.r.Stop()
-	if t.c != nil && drain(t.c) {
+	active := t.timer().Stop()
+	if t.C != nil && drain(t.C) {
 		active = true
 	}
 	return active
@@ -121,37 +144,35 @@ func (t *Timer) Stop() bool {
 // the timer had been active, as Stop does; a time not yet received from C
 // is discarded. A timer made by AfterFunc runs its function again.
 func (t *Timer) Reset(d Duration) bool {
-	if t.c == nil && t.f == nil {
+	if t.C == nil && t.f == nil {
 		panic("time: Reset called on uninitialized Timer")
 	}
-	active := t.r.Stop()
-	if t.c != nil && drain(t.c) {
+	tm := t.timer()
+	active := tm.Stop()
+	if t.C != nil && drain(t.C) {
 		active = true
 	}
-	t.r.Reset(deadline(d), 0)
+	tm.Reset(deadline(d), 0)
 	return active
 }
 
-// Drop stops the timer and frees its channel. alloc.Free calls it before
-// freeing the Timer. For a timer made by AfterFunc, it first waits until
-// the puroutines of expiries already past have started.
+// Drop stops a timer made by AfterFunc, first waiting until the
+// puroutines of expiries already past have started. alloc.Free calls it
+// before freeing the Timer; then C's reference is released, and a channel
+// timer stops with the last reference to its channel.
 func (t *Timer) Drop() {
-	t.r.Stop()
-	if t.f != nil {
-		for {
-			funcs.lock.Lock()
-			n := t.fires
-			funcs.lock.Unlock()
-			if n == 0 {
-				break
-			}
-			rt.Yield()
-		}
+	if t.f == nil {
+		return
 	}
-	if t.c != nil {
-		alloc.FreeChan(t.c)
-		t.c = nil
-		t.C = nil
+	t.r.Stop()
+	for {
+		funcs.lock.Lock()
+		n := t.fires
+		funcs.lock.Unlock()
+		if n == 0 {
+			break
+		}
+		rt.Yield()
 	}
 }
 
@@ -257,13 +278,12 @@ func runFuncs() {
 }
 
 // A Ticker holds a channel that delivers "ticks" of a clock at intervals.
-// NewTicker allocates it and its channel; free it with alloc.Free, which
-// stops it (Drop). As with Timer, C has no stale values after Stop or
-// Reset.
+// NewTicker allocates it and its channel. As for Timer, C owns the ticker's
+// timer, which stops when the last reference to C goes; free the Ticker
+// with alloc.Free, which releases its reference. As with Timer, C has no
+// stale values after Stop or Reset.
 type Ticker owner struct {
 	C <-chan Time
-	c chan Time
-	r rt.Timer
 }
 
 // NewTicker returns a new Ticker containing a channel that will send the
@@ -276,30 +296,27 @@ func NewTicker(d Duration, a alloc.Allocator = alloc.Default()) *Ticker {
 		panic("non-positive interval for NewTicker")
 	}
 	t := alloc.New[Ticker](a)
-	t.c = make(chan Time, 1, a)
-	t.C = t.c
-	t.r.Init(sendTime, unsafe.Pointer(&t.c))
-	t.r.Reset(deadline(d), int64(d))
+	t.C = newTimerChan(d, d, a)
 	return t
 }
 
-// Tick is NewTicker(d).C, or nil if d <= 0. The Ticker it allocates is
-// never freed.
+// Tick is NewTicker(d).C, or nil if d <= 0: a channel that owns its timer,
+// which stops when the last reference to the channel goes.
 func Tick(d Duration) <-chan Time {
 	if d <= 0 {
 		return nil
 	}
-	return NewTicker(d).C
+	return newTimerChan(d, d, alloc.Default())
 }
 
 // Stop turns off a ticker. After Stop, no more ticks will be sent, and a
 // tick not yet received is discarded.
 func (t *Ticker) Stop() {
-	if t.c == nil {
+	if t.C == nil {
 		return
 	}
-	t.r.Stop()
-	drain(t.c)
+	timerOf(t.C).Stop()
+	drain(t.C)
 }
 
 // Reset stops a ticker and resets its period to the specified duration.
@@ -309,21 +326,11 @@ func (t *Ticker) Reset(d Duration) {
 	if d <= 0 {
 		panic("non-positive interval for Ticker.Reset")
 	}
-	if t.c == nil {
+	if t.C == nil {
 		panic("time: Reset called on uninitialized Ticker")
 	}
-	t.r.Stop()
-	drain(t.c)
-	t.r.Reset(deadline(d), int64(d))
-}
-
-// Drop stops the ticker and frees its channel. alloc.Free calls it before
-// freeing the Ticker.
-func (t *Ticker) Drop() {
-	t.r.Stop()
-	if t.c != nil {
-		alloc.FreeChan(t.c)
-		t.c = nil
-		t.C = nil
-	}
+	tm := timerOf(t.C)
+	tm.Stop()
+	drain(t.C)
+	tm.Reset(deadline(d), int64(d))
 }

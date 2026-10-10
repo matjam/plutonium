@@ -5,7 +5,6 @@
 package main
 
 import (
-	"pluto/alloc"
 	"pluto/sync"
 	"pluto/syscall"
 	"unsafe"
@@ -59,8 +58,6 @@ func buffered(n int) int64 {
 	close(c)
 	<-done
 	elapsed := now() - start
-	alloc.FreeChan(c)
-	alloc.FreeChan(done)
 	return elapsed / int64(n)
 }
 

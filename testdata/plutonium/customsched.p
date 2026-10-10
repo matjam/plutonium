@@ -211,12 +211,6 @@ func main() {
 	}
 	println("timers armed", sched.armed > 0, "elapsed", rt.Now()-start >= 20000000)
 
-	alloc.FreeChan(in)
-	alloc.FreeChan(out)
-	alloc.FreeChan(names)
-	alloc.FreeChan(a)
-	alloc.FreeChan(b)
-	alloc.FreeChan(woke)
 	println("spawned", sched.spawned, "freed", sched.freed, "switched", sched.switches > 10)
 }
 

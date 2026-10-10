@@ -529,7 +529,6 @@ func crawl(urls []string) (int, error) {
 	}
 	close(jobs)
 	s.Wait()
-	alloc.FreeChan(jobs) // until channels are counted (spec section 4.8)
 	return total, first
 }
 ```

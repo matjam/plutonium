@@ -3,7 +3,7 @@ package opt
 import "github.com/matjam/plutonium/internal/ssa"
 
 // ElideStringHolds removes the references lowering takes to keep a
-// borrowed string, or a borrowed shared, synced or weak reference, alive
+// borrowed string, shared, synced or weak reference, or channel, alive
 // while calls run (ssa.StrHold) when none of those calls can release one
 // (language spec sections 6.5 and 6.10.1).
 //
@@ -40,8 +40,8 @@ func ElideStringHolds(p *ssa.Program) {
 }
 
 // releaseFuncs are the runtime functions that drop counted references:
-// strings, and the shared, synced and weak references whose release may
-// free an object holding strings.
+// strings, and the shared, synced and weak references and channels whose
+// release may free an object holding strings.
 var releaseFuncs = map[string]bool{
 	"pluto/rt.strRelease":       true,
 	"pluto/rt.strFree":          true,
@@ -49,6 +49,9 @@ var releaseFuncs = map[string]bool{
 	"pluto/rt.boxReleaseStrong": true,
 	"pluto/rt.weakRelease":      true,
 	"pluto/rt.boxFree":          true,
+	"pluto/rt.chanRelease":      true,
+	"pluto/rt.chanDrop":         true,
+	"pluto/rt.chanFree":         true,
 }
 
 // mayReleaseCall reports whether call v may release a string, given what

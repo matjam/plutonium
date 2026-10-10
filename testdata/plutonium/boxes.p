@@ -96,10 +96,7 @@ type Counter owner struct {
 }
 
 func (c *Counter) Drop() {
-	println("drop counter")
-	if c.done != nil {
-		alloc.FreeChan(c.done)
-	}
+	println("drop counter") // then its channel is released
 }
 
 func bump(c synced[Counter], k int) {
@@ -111,11 +108,14 @@ func bump(c synced[Counter], k int) {
 	done <- true
 }
 
+// leaving waits for leave's task.
+var leaving sync.WaitGroup
+
 // leave ends its task with rt.Goexit: the deferred calls of every frame
 // run and what each frame holds is dropped, innermost frame first, so
-// stop's r is dropped before leave's deferred send lets main go on.
-func leave(done chan bool) {
-	defer func() { done <- true }()
+// stop's r is dropped before leave's deferred Done lets main go on.
+func leave() {
+	defer leaving.Done()
 	stop()
 }
 
@@ -187,9 +187,8 @@ func main() {
 	c.mu.Unlock()
 	c = nil // the last reference: drops the Counter
 
-	done := make(chan bool)
-	go leave(done)
-	<-done
-	alloc.FreeChan(done)
+	leaving.Add(1)
+	go leave()
+	leaving.Wait()
 	println("end")
 }

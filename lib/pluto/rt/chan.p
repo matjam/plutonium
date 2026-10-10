@@ -15,7 +15,12 @@ import "unsafe"
 // does, so the compiler's check of interrupt handlers tells them apart from
 // the call graph.
 
-// An hchan is a channel. A chan value is its address.
+// An hchan is a channel. A chan value is its address, and a counted
+// reference (language spec section 4.8): the compiler retains and releases
+// it as it does a synced[T] (chanRetain, chanRelease), and the last release
+// drops the values still buffered and frees the channel (chanFree). The
+// count is plain until the program starts its first task, then atomic, as
+// for strings (SetThreaded).
 type hchan struct {
 	lock     Lock
 	qcount   uint // values in the buffer
@@ -30,6 +35,16 @@ type hchan struct {
 	alloc    Allocator
 	memSize  uintptr
 	memAlign uintptr
+
+	// refs counts the references to the channel. It is after the fields
+	// the operations use, so that their layout is Go's.
+	refs uint64
+
+	// timer is the channel's own timer (pluto/time's After, Tick, Timer
+	// and Ticker), or nil: the channel owns it, and stops and frees it
+	// when it is freed. The timer's pointer back to the channel is not
+	// counted.
+	timer *Timer
 }
 
 type waitq struct {
@@ -94,46 +109,112 @@ func makechanAt(a Allocator, elemsize, elemalign uintptr, size int, pc uintptr) 
 	c.buf = unsafe.Add(p, hdr)
 	c.dataqsiz = uint(size)
 	c.elemsize = elemsize
+	c.refs = 1
 	c.alloc = a
 	c.memSize = total
 	c.memAlign = elemalign
 	return p
 }
 
-// FreeChan frees a channel made by make(chan T, ...) and its buffer,
-// returning them to the allocator they came from. No puroutine may use the
-// channel afterwards; values still buffered are discarded. A channel that
-// puroutines wait on cannot be freed. Channels are freed explicitly until
-// the compiler counts their references (roadmap item 48); then the last
-// reference frees them and this goes away. pluto/alloc.FreeChan is the
-// typed form.
-func FreeChan(p unsafe.Pointer) {
-	if p == nil {
-		return
-	}
-	c := (*hchan)(p)
-	c.lock.Lock()
-	if c.recvq.first != nil || c.sendq.first != nil {
-		c.lock.Unlock()
-		panicMessage("FreeChan of a channel that puroutines are waiting on", "", "", "", "")
-	}
-	c.lock.Unlock()
-	a := c.alloc
-	if TrackSites {
-		SetAllocSite(CallerPC())
-	}
-	a.Free(p, c.memSize, c.memAlign)
-	if TrackSites {
-		SetAllocSite(0)
+// chanRetain takes another reference to the channel at p, if it is not
+// nil.
+//
+//pu:inline
+func chanRetain(p unsafe.Pointer) {
+	if p != nil {
+		addBoxCount(&(*hchan)(p).refs, 1, true)
 	}
 }
 
-// ChanBuffered returns the buffer of the channel at p, the index of its
+// chanRelease drops a reference to the channel at p and reports whether it
+// was the last, in which case the caller drops the values still buffered
+// (chanBuffered) and then calls chanFree. The compiler makes that caller,
+// the release glue of each element type (internal/lower/box.go).
+//
+//pu:inline
+func chanRelease(p unsafe.Pointer) bool {
+	if p == nil {
+		return false
+	}
+	if genCheck {
+		checkLive(p)
+	}
+	n := addBoxCount(&(*hchan)(p).refs, -1, true)
+	if n < 0 {
+		panicMessage("runtime error: channel reference count below zero (a channel was released twice)", "", "", "", "")
+	}
+	return n == 0
+}
+
+// chanDrop releases a reference to a channel whose values need no drop,
+// freeing it with the last.
+func chanDrop(p unsafe.Pointer) {
+	if chanRelease(p) {
+		chanFree(p)
+	}
+}
+
+// chanBuffered returns the buffer of the channel at p, the index of its
 // first buffered value, the number of values buffered and the buffer's
-// capacity, so that pluto/alloc.FreeChan can drop the strings in them.
-func ChanBuffered(p unsafe.Pointer) (buf unsafe.Pointer, first, n, size int) {
+// capacity, for the release glue that drops them.
+func chanBuffered(p unsafe.Pointer) (buf unsafe.Pointer, first, n, size int) {
 	c := (*hchan)(p)
 	return c.buf, int(c.recvx), int(c.qcount), int(c.dataqsiz)
+}
+
+// chanFree frees the channel at p, whose last reference has gone and whose
+// buffered values have been dropped: it stops and frees the channel's
+// timer, then returns the channel and its buffer to the allocator they
+// came from. No puroutine can be waiting on it, since a waiting puroutine
+// holds a reference. It is out of line: a channel is freed rarely, and its
+// releases are everywhere.
+//
+//pu:noinline
+func chanFree(p unsafe.Pointer) {
+	c := (*hchan)(p)
+	if c.recvq.first != nil || c.sendq.first != nil {
+		panicMessage("runtime error: channel freed while puroutines wait on it", "", "", "", "")
+	}
+	a := c.alloc
+	if tm := c.timer; tm != nil {
+		// Stop waits for the timer's function if it is running, so
+		// nothing touches the channel once it returns.
+		tm.Stop()
+		c.timer = nil
+		a.Free(unsafe.Pointer(tm), unsafe.Sizeof(Timer{}), unsafe.Alignof(Timer{}))
+	}
+	a.Free(p, c.memSize, c.memAlign)
+}
+
+// ChanTimer returns the timer of the channel at p, made the first time
+// with function f and argument p: pluto/time's channels deliver the time
+// through it. The channel owns the timer: it stops and frees it when the
+// last reference to the channel goes, so a timer whose channel nobody
+// holds any more cannot fire. The timer comes from the channel's
+// allocator.
+func ChanTimer(p unsafe.Pointer, f func(arg unsafe.Pointer, now int64)) *Timer {
+	c := (*hchan)(p)
+	if c.timer == nil {
+		tm := (*Timer)(allocAt(c.alloc, unsafe.Sizeof(Timer{}), unsafe.Alignof(Timer{}), CallerPC()))
+		tm.Init(f, p)
+		c.timer = tm
+	}
+	return c.timer
+}
+
+// ChanTrySend sends the value at ep on the channel at p if that can be
+// done without waiting, and reports whether it did; a closed channel takes
+// nothing. It neither counts references nor blocks, so a timer's function
+// may use it to deliver to the channel that owns the timer.
+func ChanTrySend(p, ep unsafe.Pointer) bool {
+	c := (*hchan)(p)
+	c.lock.Lock()
+	ok, wake := trySend(c, ep)
+	c.lock.Unlock()
+	if wake != nil {
+		Ready(wake)
+	}
+	return ok
 }
 
 func chanbuf(c *hchan, i uint) unsafe.Pointer {

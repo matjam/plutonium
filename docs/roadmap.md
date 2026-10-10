@@ -111,8 +111,9 @@ later takes the next free number and is listed in the section where it belongs.
     backend runs on one thread; spawning costs about twice Go's.
 15. **Channels and `select`** (done): `chan T`, send, receive, `close`, `range`, `select` with Go's
     random choice, `len`, `cap` and `make(chan T, n, a)`, on Go's design (a lock per channel, waiters
-    queued in their frames, values copied directly to a waiting receiver). Channels are freed with
-    `alloc.FreeChan` until item 48 counts them. Buffered channels run at about a third of Go's speed.
+    queued in their frames, values copied directly to a waiting receiver). Channels are counted
+    references, freed with their last reference (item 48). Buffered channels run at about a third of
+    Go's speed.
 16. **`pluto/sync`** (done): `Mutex`, `RWMutex`, `WaitGroup` (with `Go`), `Once` and `Cond` over the
     scheduler, with the guarantees of memory-model.md section 3.4. Parking operations are
     `//pu:blocking`; `TryLock` is not.
@@ -147,13 +148,17 @@ later takes the next free number and is listed in the section where it belongs.
     specification promises hosted tasks at least this much and makes overflow a panic that names the size
     and how to ask for more (`rt.Go(f, size)`). Kernel builds keep computed or explicit sizes and
     `-stackreport`.
-67. **Counted channels, and a channel owns its timer** (in progress; item 48, false-friends audit F6 and
-    F7): a channel is a counted reference, freed with its last reference, and `alloc.FreeChan` goes away.
-    The channel of a timer owns the timer: when the last reference goes, the timer is stopped and freed
-    with it. `time.After` and `time.Tick` free themselves when the `select` drops its temporary, `Timer` and
-    `Ticker` hold a reference to their channel like any other value, and `alloc.Free(t)` goes away. The
-    runtime's own pointer from the timer heap to the channel is not counted. Replaces the leak notes of
-    items 15 and 45.
+67. **Counted channels, and a channel owns its timer** (done except `alloc.Free(t)`; item 48,
+    false-friends audit F6 and F7; language spec sections 4.7 and 4.8, abi.md section 12.6): a channel is
+    a counted reference, counted like a `synced[T]` by the machinery of counted strings, and freed with its
+    last reference, which drops the values still buffered; `alloc.FreeChan` is gone. The channel of a
+    timer owns the timer: when the last reference goes, the timer is stopped and freed with it.
+    `time.After` and `time.Tick` free themselves when the `select` drops its temporary, and `Timer` and
+    `Ticker` hold a reference to their channel like any other value. The runtime's own pointer from the
+    timer heap to the channel is not counted. Leak-checked under the debug allocator
+    (`TestChannelsLeakFree`). Open: `NewTimer`, `NewTicker` and `AfterFunc` still return a `*Timer`
+    (`*Ticker`) that `alloc.Free` frees, since nothing counts a `*T`; making `alloc.Free(t)` go away needs
+    a counted (`synced[Timer]`) or owned (`owned[Timer]`) result type, which is undecided.
 
 ## Language
 
@@ -252,17 +257,13 @@ later takes the next free number and is listed in the section where it belongs.
     `synced[T]` object used without the lock of the same object (E3502, E3503). Follow-ups: maps join the
     `synced[T]` rule when they return (gap G16); `sync.Scope`'s sharing check reuses the lock inference
     (E3401 to E3406).
-48. **Counted references and `weak[P]`** (planned; language spec sections 5.6 and 6.5): the allocation
-    header (allocator, strong and weak counts), increments on copy and decrements on drop with matched
-    pairs removed at last use, `Drop` at zero strong count and the free at zero weak count, the atomic
-    forms for `synced` with the ordering of memory-model.md section 3.7, `weak[P]` conversion and
-    `Upgrade`, and the sendable rule of section 4.7 (no `shared` or `weak[shared]` across puroutines).
 48. **Counted references and `weak[P]`** (done; language spec sections 5.6 and 6.5, abi.md section
     1.2): the allocation header (strong and weak counts, allocator), counted by the machinery of counted
     strings (borrowed parameters, owned results, statement temporaries), `Drop` at zero strong count and
     the free at zero weak count, atomic `synced` counts once the program is threaded (as strings), `weak[P]`
     conversion and `Upgrade` (a compare-and-swap for `synced`), and the sendable rule of section 4.7.
     Leak-checked under the debug allocator (`TestBoxesLeakFree`).
+    Channels are counted the same way (item 67).
 49. **Indexing interface** (done; language spec section 6.7): `x[k]`, `x[k] = v`, `v, ok := x[k]`,
     `x[k] op= v` and `len(x)` on types that are not built-in indexable call `Index`, `SetIndex`,
     `IndexOk` and `Len`; `vec.Vec` and `hash.Map` have them, and `pluto/container` declares the
@@ -301,7 +302,7 @@ later takes the next free number and is listed in the section where it belongs.
     `rt.SetThreaded`, which the runtime calls when the first puroutine starts (a puroutine may preempt
     another in the middle of a plain increment) and before it starts a thread. `go`
     statements give the new puroutine references to the strings in their arguments, a send hands the
-    channel one, `alloc.FreeChan` releases the strings still buffered, and the bodies of range-over-func
+    channel one, a channel freed with values buffered releases their strings, and the bodies of range-over-func
     loops and of ranges over containers count like the function they are in; a ring's iterator holds
     the element it passes, which the body may pop (`testdata/lib/strconc.p` and `strcontainers.p`,
     leak-checked). The storage that
@@ -460,7 +461,8 @@ later takes the next free number and is listed in the section where it belongs.
     `Time` in UTC with a monotonic reading, the calendar, `Now`, `Since`, `Until`, and over the
     scheduler's timers (items 14 and 53) `Sleep`, which parks the puroutine (or sleeps in the kernel, in a program with no scheduler), `Timer`, `Ticker`,
     `After`, `Tick` and `AfterFunc` (started on a puroutine by one of the package's), with Go 1.23's
-    channel semantics and freed with `alloc.Free`. Time zones and layout-based formatting remain.
+    channel semantics; a timer's channel owns the timer (item 67), and `Timer` and `Ticker` objects are
+    freed with `alloc.Free`. Time zones and layout-based formatting remain.
 46. **`net`** (planned, hosted): sockets over the epoll poller of item 14.
 47. **`fmt.Sprintf` returns a string** (done, with item 57): `Sprintf`, `Sprint` and `Sprintln` return
     counted strings, built in a counted buffer of `pluto/fmt`'s own, so `fmt` still need not import

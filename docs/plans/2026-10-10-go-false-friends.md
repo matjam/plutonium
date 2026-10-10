@@ -225,7 +225,8 @@ Plutonium's `time.After` and `time.Tick` "allocate a timer that is never freed" 
 timer's channel goes, the timer is stopped and freed with it. `time.After` then frees itself when the
 `select` drops its temporary, `Timer` and `Ticker` hold a reference to their channel like any other
 value, and `alloc.Free(t)` goes away. The runtime's own pointer from the timer heap to the channel is
-not counted.
+not counted. **Done** for `time.After`, `time.Tick` and the timers of every channel; `alloc.Free(t)` of
+a `Timer` or `Ticker` stays until its result type is decided (decision 6).
 
 ### F7. Channels are never freed
 
@@ -235,6 +236,7 @@ accepted and specified; it is waiting on implementation (roadmap item 48).
 
 **Risk:** high for long-running programs; none for short ones. **Fix:** land counting before declaring
 the concurrency story Go-familiar. Until then the debug allocator's leak report lists the channels.
+**Done:** channels are counted (decision 6).
 
 ### F8. Fixed puroutine stacks
 
@@ -468,6 +470,14 @@ thing is.
    rely on, deferred calls and drops running when a test stops, holds either way.
 6. **F6, F7.** Channel counting before more concurrency work, then the channel owns its timer and
    `alloc.Free` of timers and `alloc.FreeChan` go away. Recommended.
+   **Implemented** (language spec sections 4.7 and 4.8), except one part: channels are counted, the last
+   release drops the values still buffered and frees the channel, `alloc.FreeChan` is gone, and a timer's
+   channel owns its timer, so `time.After` and `time.Tick` free theirs with the channel. `NewTimer`,
+   `NewTicker` and `AfterFunc` still return a `*Timer` (`*Ticker`) that `alloc.Free` frees: a `*T` is a
+   view, which nothing counts, so freeing the object without a call needs a different result type, a
+   counted `synced[Timer]` (copies freely, as Go's pointer does) or an `owned[Timer]` (moves). That
+   choice is open. Freeing the `Timer` releases its reference to `C`; the timer stops with the last
+   reference to `C`, as in Go 1.23.
 7. **F8.** Computed stack sizes where the call graph allows (roadmap item 18), and a 64 MiB lazily
    mapped stack for the rest in hosted builds. Recommended; the size is open.
 8. **F9.** `bytes.Buffer` becomes Go's growing buffer; bounded writes use `vec.Fixed[byte]`.

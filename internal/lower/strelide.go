@@ -4,7 +4,7 @@ import "github.com/matjam/plutonium/internal/ssa"
 
 // Count elision across calls (language spec sections 6.5 and 6.10.1).
 //
-// A string, or a shared, synced or weak reference, borrowed from memory a
+// A string, a shared, synced or weak reference, or a channel, borrowed from memory a
 // call could change (a field reached through a pointer, a slice element, a
 // package variable) is held for the rest of its statement: copied into a
 // temporary and retained, so that a call that overwrites or frees its
@@ -89,5 +89,5 @@ func (s *fnState) recordHolds() {
 
 func isRetain(c *ssa.Value) bool {
 	sym, ok := c.Aux.(*ssa.Sym)
-	return ok && c.Op == ssa.OpCall && (sym.Name == "pluto/rt.strRetain" || sym.Name == "pluto/rt.boxRetain")
+	return ok && c.Op == ssa.OpCall && (sym.Name == "pluto/rt.strRetain" || sym.Name == "pluto/rt.boxRetain" || sym.Name == "pluto/rt.chanRetain")
 }

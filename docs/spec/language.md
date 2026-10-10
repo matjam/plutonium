@@ -596,10 +596,13 @@ a backend that lacks them fails to build. Arming and stopping a timer, and `rt.R
 and may be used in interrupt handlers; sleeping and `rt.ParkUntil` park the caller, so interrupt handlers
 must not reach them (section 12.6).
 
-The `time` API follows Go's where the language allows. Timers and tickers come from an allocator
-(`time.NewTimer(d, a)`, with the default allocator if none is given) and are freed with `alloc.Free`,
-which stops them and frees their channels; `time.After` and `time.Tick` allocate a timer that is never
-freed, so a loop should use `NewTimer` and `Reset`. As in Go 1.23, a timer's channel holds no stale
+The `time` API follows Go's where the language allows. A timer's channel owns its timer: the channel
+of `time.After`, `time.Tick`, a `Timer` or a `Ticker` stops and frees its timer when the last reference
+to the channel goes (section 4.8), where Go 1.23 collects a timer nothing refers to. So
+`time.After` in a `select` loop frees each timer when its `select` ends, and a timer keeps firing while
+anything holds its channel. `Timer` and `Ticker` objects come from an allocator (`time.NewTimer(d, a)`,
+with the default allocator if none is given) and are freed with `alloc.Free`, which releases their
+reference to the channel and stops an `AfterFunc` timer. As in Go 1.23, a timer's channel holds no stale
 value once `Stop` or `Reset` has returned. `time.AfterFunc(d, f)` cannot run `f` where timers fire (an
 interrupt handler, in a kernel), so expired timers are queued for one puroutine of `pluto/time`'s,
 which starts each function with a `go` statement; like a function passed to `go`, `f` must not capture
@@ -668,15 +671,17 @@ reported in a deadlock as `chan receive`, `chan send`, `select`, `chan receive (
 
 A channel value is a reference counted like `synced[T]` (section 6.5), since a channel always has
 several users: copying it counts a reference, and when the last reference goes away the channel and its
-buffer are freed. Values still buffered at that point are dropped first, so owners in the buffer are
-freed rather than leaked; their `Drop` runs on the puroutine that released the last reference.
-
-**Today** the compiler does not count channel references yet (roadmap item 48, with `synced[T]`). Until
-it does, a channel lives until the program frees it with `alloc.FreeChan(ch)`, which returns the channel
-and its buffer to the allocator they came from and discards buffered values; no puroutine may use the
-channel afterwards, and freeing one that puroutines wait on panics. A channel made in an arena needs no
-`FreeChan`. Programs in the common subset with Go leak their channels until they exit, as they do the
-memory of `new`. When counting lands, `FreeChan` goes away.
+buffer are freed to the allocator they came from (nothing, for an arena). Values still buffered at that
+point are dropped first, so owners in the buffer are dropped and strings and counted references in it
+released rather than leaked; their `Drop` runs on the puroutine that released the last reference. The
+counts follow the rules of counted strings (section 6.10): a variable, field, element or buffer slot
+holding a channel holds one reference, parameters are borrowed and results owned, and the compiler
+leaves out the counting where no reference can go away meanwhile. They are plain until the program
+starts its first puroutine and atomic after. A `go` statement gives the new puroutine its own reference
+to each channel among its arguments, and sending a channel on a channel gives the receiver the
+sender's. A puroutine waiting on a channel holds a reference to it, so a channel is never freed under a
+waiter; a puroutine blocked for good on a channel nothing else refers to keeps it, as a goroutine does in
+Go. Nothing frees a channel explicitly; `close` only marks it closed.
 
 The operations that may wait (a send or receive, a `range` over a channel, a `select` without a
 `default` case) call runtime functions that park the caller; a `select` with a `default` case and
@@ -686,15 +691,18 @@ Timeouts are channels too: `time.After(d)` and a `time.Timer`'s `C` receive the 
 expires, so a `select` that waits for a value or a deadline has a case for each (section 4.7).
 
 ```go
-t := time.NewTimer(100 * time.Millisecond)
-select {
-case v := <-results:
-	use(v)
-case <-t.C:
-	println("timed out")
+for {
+	select {
+	case v := <-results:
+		use(v)
+	case <-time.After(100 * time.Millisecond):
+		println("timed out")
+	}
 }
-alloc.Free(t) // stops the timer and frees its channel
 ```
+
+A timer's channel owns the timer: the channel `time.After` returns is freed, and its timer stopped, when
+the `select` that waited on it ends, so the loop above holds one timer at a time.
 
 The element type must be sendable, and a view sent on a channel must point to memory that cannot change
 while both puroutines may use it (section 4.7). Sending an owner moves it: after `ch <- b`, `b` holds
@@ -2614,8 +2622,8 @@ string's bytes when the last copy goes. This is the one place where Plutonium co
   runtime switches to atomic counts (`rt.SetThreaded`); a freestanding program counts atomically from
   the start, since its kernel starts processors on its own. Strings are therefore sendable (section
   4.7). A `go` statement gives the new puroutine its own references to the strings in its arguments,
-  and a send gives the channel one, which the receiver takes over; `alloc.FreeChan` releases the strings
-  of values still buffered.
+  and a send gives the channel one, which the receiver takes over; a channel freed with values still
+  buffered releases their strings (section 4.8).
 
 **Strings and ownership.** A string is a value, not an owner: it never moves, a moved-from string does
 not exist, and copying is always allowed. A struct or array with string fields is a value too: it copies
@@ -2928,9 +2936,6 @@ func Synced[T any](a Allocator = Default()) synced[T]
 func Raw(size, align uintptr, a Allocator = Default()) unsafe.Pointer
 func New[T any](a Allocator = Default()) *T
 func Free[T any](p *T, a Allocator = Default())   // drops *p first if T is an owner
-
-// Until channel references are counted (section 4.8).
-func FreeChan[T any](ch chan T)
 ```
 
 `Use` scopes an allocator to a region of code without changing the code inside it. The override belongs

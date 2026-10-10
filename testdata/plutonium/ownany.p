@@ -10,6 +10,7 @@ package main
 import (
 	"pluto/alloc"
 	"pluto/rt"
+	"pluto/sync"
 )
 
 type Any owner interface{}
@@ -142,10 +143,13 @@ func holder() {
 	println(h.label)
 }
 
+// leaving waits for leave's task.
+var leaving sync.WaitGroup
+
 // leave ends its task with rt.Goexit: the deferred calls of every frame
 // run and what each frame holds is dropped, innermost frame first.
-func leave(done chan bool) {
-	defer func() { done <- true }()
+func leave() {
+	defer leaving.Done()
 	stop()
 }
 
@@ -177,9 +181,8 @@ func main() {
 		var o Any = new(b) // b moves into a box, which moves into o
 		_ = o
 	}
-	done := make(chan bool)
-	go leave(done)
-	<-done
-	alloc.FreeChan(done)
+	leaving.Add(1)
+	go leave()
+	leaving.Wait()
 	println("end")
 }

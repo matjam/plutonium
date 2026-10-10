@@ -624,14 +624,23 @@ func (s *fnState) makeChan(e *ast.CallExpr, T types2.Type) value {
 	} else {
 		p = s.callRuntime("makechan", []*ssa.Type{ssa.TPtr}, []*ssa.Value{esize, ealign, size})[0]
 	}
-	return scalarValue(p, T)
+	// The new channel's one reference is the statement's until a store
+	// takes it.
+	return s.wordTemp(p, T, "chan")
+}
+
+// chanOperand lowers the channel operand e of a send or receive, held if
+// any of the later expressions, evaluated before the operation, calls a
+// function that could release it.
+func (s *fnState) chanOperand(e ast.Expr, later ...ast.Expr) *ssa.Value {
+	return s.wordOf(s.holdAcross(s.expr(e), later...))
 }
 
 // sendStmt lowers ch <- v.
 func (s *fnState) sendStmt(st *ast.SendStmt) {
 	ct := s.typeOf(st.Chan)
 	et := s.subst(chanElem(ct))
-	c := s.scalar(st.Chan)
+	c := s.chanOperand(st.Chan, st.Value)
 	v := s.exprAs(st.Value, et)
 	tmp := s.temp(et, "send")
 	s.storeTo(tmp, v, et)
@@ -673,9 +682,11 @@ func isRecv(e ast.Expr) (*ast.UnaryExpr, bool) {
 func (s *fnState) rangeChan(st *ast.RangeStmt, label *types2.Label) {
 	ct := s.typeOf(st.X)
 	et := s.subst(chanElem(ct))
-	c := s.materialize(scalarValue(s.scalar(st.X), ct))
+	// The loop holds a reference of its own, whatever the body does to the
+	// channel's variable.
+	c := s.holdOwned(s.materialize(s.expr(st.X)))
 	cslot := s.temp(ct, "rangechan")
-	s.storeTo(cslot, c, ct)
+	s.store(ssa.TPtr, cslot, s.wordOf(c))
 	keyLV := s.rangeVar(st, st.Key)
 	tmp := s.temp(et, "recv")
 
@@ -733,6 +744,26 @@ func (s *fnState) selectStmt(st *ast.SelectStmt, label *types2.Label) {
 	var cases []*selCase
 	var deflt *ast.CommClause
 	var chans []*ssa.Value
+	// The operands in the order they are evaluated: a channel is held if
+	// one evaluated after it calls a function (chanOperand).
+	var operands []ast.Expr
+	for _, cl := range st.Body.List {
+		switch comm := cl.(*ast.CommClause).Comm.(type) {
+		case *ast.SendStmt:
+			operands = append(operands, comm.Chan, comm.Value)
+		case *ast.ExprStmt:
+			u, _ := isRecv(comm.X)
+			operands = append(operands, u.X)
+		case *ast.AssignStmt:
+			u, _ := isRecv(comm.Rhs[0])
+			operands = append(operands, u.X)
+		}
+	}
+	nextOp := 0
+	chanOperand := func(e ast.Expr) *ssa.Value {
+		nextOp++
+		return s.chanOperand(e, operands[nextOp:]...)
+	}
 	for _, cl := range st.Body.List {
 		cc := cl.(*ast.CommClause)
 		switch comm := cc.Comm.(type) {
@@ -741,7 +772,8 @@ func (s *fnState) selectStmt(st *ast.SelectStmt, label *types2.Label) {
 			continue
 		case *ast.SendStmt:
 			et := s.subst(chanElem(s.typeOf(comm.Chan)))
-			c := s.scalar(comm.Chan)
+			c := chanOperand(comm.Chan)
+			nextOp++ // the value
 			tmp := s.temp(et, "selsend")
 			v := s.exprAs(comm.Value, et)
 			s.storeTo(tmp, v, et)
@@ -755,13 +787,13 @@ func (s *fnState) selectStmt(st *ast.SelectStmt, label *types2.Label) {
 		case *ast.ExprStmt:
 			u, _ := isRecv(comm.X)
 			et := s.subst(chanElem(s.typeOf(u.X)))
-			chans = append(chans, s.scalar(u.X))
+			chans = append(chans, chanOperand(u.X))
 			tmp := s.temp(et, "selrecv")
 			cases = append(cases, &selCase{clause: cc, recv: true, elem: et, tmp: tmp})
 		case *ast.AssignStmt:
 			u, _ := isRecv(comm.Rhs[0])
 			et := s.subst(chanElem(s.typeOf(u.X)))
-			chans = append(chans, s.scalar(u.X))
+			chans = append(chans, chanOperand(u.X))
 			tmp := s.temp(et, "selrecv")
 			cases = append(cases, &selCase{clause: cc, recv: true, elem: et, tmp: tmp, lhs: comm.Lhs, define: comm.Tok == token.DEFINE})
 		default:

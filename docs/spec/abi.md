@@ -1136,8 +1136,15 @@ func-typed argument is passed to `rt.checkGoFunc`, which panics if its closure r
 starting task's stack.
 
 **Channels.** A channel is the address of an `rt.hchan`: a runtime lock, the buffer's count, capacity,
-indices and element size, the buffer, queues of waiting senders and receivers, and the allocator it came
-from. The operations call the runtime with the address of a temporary holding (or receiving) the element:
+indices and element size, the buffer, queues of waiting senders and receivers, the allocator it came
+from, then the reference count (at offset 136) and the channel's timer or nil. The count is changed as a
+`synced[T]` object's is (section 1.2): `chanRetain(c)` takes a reference, and a release calls the
+release glue the compiler makes for the element type, `chan T·release(c)`, which calls
+`chanRelease(c) bool` and, for the last reference, drops the values still buffered (`chanBuffered(c)`
+gives the buffer, the first index, the count and the capacity) and calls `chanFree(c)`, which stops and
+frees the timer and frees the channel; for element types with nothing to drop the compiler calls
+`chanDrop(c)` instead. `makechan` returns the channel with one reference, the caller's. The operations
+call the runtime with the address of a temporary holding (or receiving) the element:
 
 | Operation | Runtime call |
 |---|---|
@@ -1208,8 +1215,10 @@ may be freed. A timer's function runs wherever timers run (a hosted worker betwe
 hosted poller thread, or a kernel's timer interrupt), so it must not block, allocate or use timers; when
 an interrupt handler calls `rt.RunTimers`, the interrupt-context check (language spec section 12.6)
 follows the call into every function of type `func(unsafe.Pointer, int64)` the program takes. The
-library's functions ready a parked task (`ParkUntil`), send on a channel without waiting (`time.Timer`,
-`time.Ticker`) or queue an `AfterFunc` for a puroutine that starts it.
+library's functions ready a parked task (`ParkUntil`), send on a channel without waiting or counting
+(`rt.ChanTrySend`, for the channels of `time.After`, `time.Tick`, `time.Timer` and `time.Ticker`) or queue
+an `AfterFunc` for a puroutine that starts it. A channel's timer (`rt.ChanTimer(c, f)`) belongs to the
+channel, which stops and frees it when it is freed; the timer's pointer to the channel is not counted.
 
 `ParkUntil(deadline)` arms a timer in its frame whose function readies the task, and parks. A ready and
 the timeout race on a word in the frame, and the loser does nothing: the timer's function readies the

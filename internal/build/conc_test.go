@@ -680,10 +680,7 @@ func TestParallelAlloc(t *testing.T) {
 func TestConcDebugAlloc(t *testing.T) {
 	prog := buildConc(t, `package main
 
-import (
-	"pluto/alloc"
-	"pluto/sync"
-)
+import "pluto/sync"
 
 var wg sync.WaitGroup
 
@@ -710,8 +707,6 @@ func main() {
 	for i := 0; i < 100; i++ {
 		sum += <-out
 	}
-	alloc.FreeChan(in)
-	alloc.FreeChan(out)
 	println("sum", sum)
 }
 `, build.Config{OptLevel: 2, Alloc: "debug"})
