@@ -123,7 +123,7 @@ body's. The FDEs encode exactly these states with `DW_CFA_def_cfa*`, `DW_CFA_off
 ## 5. Stack traces
 
 A panic, a runtime fault (an index or slice out of range, division by zero, a failed type assertion,
-`append` beyond capacity and the rest in [language.md section 7](language.md#7-runtime-faults-and-panic))
+`append` beyond capacity and the rest in [language.md section 8](language.md#8-runtime-faults-and-panic))
 or, in hosted builds, a hardware fault prints its message and then the stack, innermost frame first:
 
 ```

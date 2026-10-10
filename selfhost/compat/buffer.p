@@ -95,7 +95,7 @@ func Sprintln(args ...any) string {
 
 // NewError is errors.New called at run time. Plutonium's errors.New takes
 // a constant message and makes one static error per call site (spec
-// section 13.1), so an error whose message is made each time a function
+// section 14.1), so an error whose message is made each time a function
 // runs is allocated instead, from alloc.Default() like fmt.Errorf's. (fmt.Errorf, errors.Is, As, Unwrap
 // and Join need no translation: pluto/fmt and pluto/errors follow Go.)
 func NewError(text string) error {
