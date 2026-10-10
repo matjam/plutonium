@@ -165,6 +165,9 @@ pluto test ./mypkg/
 pluto test -v -run 'TestParse/empty' ./mypkg/
 pluto test -run '^$' -bench . -count 3 ./...
 
+# Run the language server for an editor (JSON-RPC on stdin and stdout)
+pluto lsp
+
 # Print version
 pluto version
 ```
@@ -227,6 +230,19 @@ returns to the test runner directly, so the test function's deferred calls do
 not run. Tests must be in the package itself; external `_test` packages are
 not supported, and a package that `pluto/testing` depends on (such as
 `pluto/fmt`) cannot be tested this way.
+
+### pluto lsp
+
+`pluto lsp` is a Language Server Protocol server on standard input and
+output, for editors: diagnostics (type-checking only, as you type, with error
+codes and explanations), hover (declarations, doc comments, ownership kinds,
+enum members, `//pu:` directives), go to definition (into the standard
+library too), references, document and workspace symbols, completion,
+signature help, rename, formatting and an "explain this error" code action.
+It reads its target, mode and tags from the client's settings
+(`initializationOptions` or `workspace/didChangeConfiguration` under
+`plutonium`), and logs to standard error (`-v` for every request). The VS
+Code extension in `editors/vscode` runs it. The server is `internal/lsp`.
 
 ## Project Structure
 
