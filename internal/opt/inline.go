@@ -113,6 +113,11 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 				if g == nil || g == f || sameSCC[g] && inCycle[g] {
 					continue
 				}
+				if v.Call.ABI != g.ABI {
+					// A C call to a Plutonium function: its arguments
+					// are laid out for a different convention.
+					continue
+				}
 				if !shouldInline(g, sizes[g]) {
 					continue
 				}

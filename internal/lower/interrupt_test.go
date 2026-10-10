@@ -88,7 +88,10 @@ import "pluto/arch/x86"
 
 var n, code uint64
 
+// An exported name is an alias of the handler's code, for assembly.
+//
 //pu:interrupt
+//pu:export isr_timer
 func timer(f *x86.InterruptFrame) { n++ }
 
 //pu:interrupt
@@ -111,6 +114,9 @@ func main() { println(x86.HandlerAddr(timer), x86.HandlerAddr(fault)) }
 		}
 		if len(f.Results) != 0 {
 			t.Errorf("%s: results %v", name, f.Results)
+		}
+		if name == "main.timer" && (len(f.Exports) != 1 || f.Exports[0] != "isr_timer") {
+			t.Errorf("%s: exports %v, want [isr_timer]", name, f.Exports)
 		}
 	}
 }

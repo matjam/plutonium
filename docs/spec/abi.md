@@ -15,8 +15,9 @@ There are two calling conventions:
 - the **C ABI** (System V AMD64), for `//pu:extern` and `//pu:export` functions.
 
 The internal ABI is a superset of System V for signatures made only of scalars, so most `//pu:extern`
-declarations work without any translation. Where the two differ, the table in
-[section 9](#9-compatibility-with-system-v) says so.
+declarations need no translation. Where the two differ, the table in
+[section 9](#9-compatibility-with-system-v) says so, and section 9.1 gives the classification lowering
+applies to C calls and entry points.
 
 ## Contents
 
@@ -296,9 +297,10 @@ programs (no floats, section 10.2) have none.
 
 Symbols contain `/`, `*`, `(`, `[` and `·`, so assembly quotes them: `"pluto/syscall.Syscall"`.
 A `//pu:extern name` function refers to the symbol `name`; a body-less function without it refers to its
-own Plutonium symbol, implemented in a `.s` file of the same package. `//pu:export name` adds `name` as
-a second global symbol for the same code; `//pu:export` with no name only keeps the function even if
-nothing in Plutonium calls it.
+own Plutonium symbol, implemented in a `.s` file of the same package. `//pu:export name` makes `name` a
+C entry point: a second global symbol for the same code, or a wrapper when the signature needs System V
+translation (section 9.1); `//pu:export` with no name only keeps the function even if nothing in
+Plutonium calls it.
 
 Hosted programs start at `_start` (`lib/pluto/rt/sys_linux_amd64.s`), which aligns the stack and calls
 `pluto/rt.start`; that calls `pluto.main` and exits with its result. Freestanding programs provide their
@@ -320,12 +322,70 @@ aligned stack with the direction flag clear.
 | callee-saved registers, stack alignment, direction flag | as System V | | yes |
 | red zone | never used | may be used | callers of Plutonium are unaffected; Plutonium never relies on one |
 
-`//pu:extern` and `//pu:export` functions currently use the internal ABI too. That is correct for every
-signature made of scalars with at most two results, which covers system calls, `lua_*`-style C APIs and
-most kernel interfaces. Signatures with aggregate parameters or results, or more than two results, need
-System V classification, which the backend supports (`ssa.ABIC`, `CallInfo.OnStack`) but lowering does
-not yet select; until it does, such `//pu:extern` and `//pu:export` declarations must be rejected (see the
-roadmap). Variadic C calls set AL to the number of vector registers used.
+### 9.1 The C convention for `//pu:extern` and `//pu:export`
+
+Calls to a `//pu:extern` function and entries through a `//pu:export name` symbol follow System V. When
+the internal ABI already passes a signature exactly as System V does (every parameter a scalar of 4 or 8
+bytes, a float or a pointer, and at most one such result), the call is an ordinary internal-ABI call and
+an export is a second symbol on the same code, as before. Otherwise lowering classifies the signature:
+
+- **Type mapping.** Integers, `uintptr`, pointers, `unsafe.Pointer` and `owned`/`shared`/`synced` map to
+  the C integer or pointer type of the same size; `bool` is C `_Bool` (1 byte); `float32` and `float64` are
+  `float` and `double`; structs and arrays inside structs are laid out as in section 1, which matches C
+  for these members. `volatile[T]` and `aligned[T, N]` (N at most 8) are `T`. A packed type crosses as its
+  storage: `packed uint32 {...}` is a `uint32_t`, and a byte-backed `packed {...}` of n bytes is a
+  `uint8_t[n]` (as a parameter, a struct holding that array). It is not a C `__attribute__((packed))`
+  struct with misaligned members, which System V passes in memory.
+- **Scalars** are passed in registers or 8-byte stack slots as in section 3.2. Integers and booleans
+  narrower than 32 bits are zero- or sign-extended to 32 bits by the caller for arguments and by the
+  callee for results, as GCC and Clang do; values Plutonium receives are not assumed to be extended.
+- **Structs of up to 16 bytes** are split into eightbytes, each classed INTEGER if any scalar in it is an
+  integer, pointer or boolean, otherwise SSE. Each eightbyte travels as one 8-byte value in the next free
+  register of its class (RDI to R9, XMM0 to XMM7). If the registers left cannot hold every eightbyte, the
+  whole struct goes on the stack and later scalars still take the registers that remain.
+- **Larger structs** are MEMORY: an argument is copied onto the stack, in argument order, in 8-byte
+  slots; a result is written through a hidden pointer the caller passes in RDI (shifting the other
+  integer arguments by one), and the callee returns that pointer in RAX.
+- **Results.** A scalar is returned in RAX or XMM0. A struct of up to 16 bytes is returned by eightbyte
+  class in RAX then RDX for INTEGER eightbytes and XMM0 then XMM1 for SSE ones, so a mixed struct uses
+  RAX and XMM0 in either order. **Several results** are returned as a C struct whose members are the
+  results in order: `(q, r int64)` is `struct { int64_t q, r; }` in RAX:RDX, `(a, b int32)` is one
+  eightbyte in RAX, and three `int64` results are returned through a hidden pointer.
+- **Receivers.** A method with `//pu:extern` or `//pu:export` takes its receiver as the first C
+  parameter.
+- **Rejected,** at the declaration, even if nothing calls it: `string` and slices (no C type; pass
+  `unsafe.StringData(s)` or `unsafe.SliceData(b)` and the length), interfaces, func values (a func value
+  points at a closure record, not at code), maps and channels, anywhere in a by-value parameter or result,
+  including inside structs; arrays as a whole parameter or result (C cannot pass them by value; wrap them
+  in a struct or pass a pointer); zero-size types; types aligned to more than 8 bytes; variadic functions
+  (C varargs are not supported); generic functions; `//pu:extern` on a function with a body; and two
+  wrapped exports of the same name.
+
+Strings and slices were rejected rather than passed as their `{ptr, len[, cap]}` structs because no C
+declaration of a function taking `const char *, size_t` would match: a string would happen to arrive in
+the same two registers, but a 24-byte slice is a MEMORY struct copied to the stack, and either would make
+a mistake in the C prototype silent. Behind a pointer, a struct containing strings or slices may be
+shared with C, with the layout of section 1.
+
+An export whose signature needs translating gets a **wrapper** named by the export: an `ABIC` function
+that takes System V arguments, calls the Plutonium function with the internal ABI and returns System V
+results. The Plutonium function keeps its own symbol for Plutonium callers. A `//pu:extern` function used
+as a func value whose signature needs translating is reached through a **thunk**, an internal-ABI
+function named by the declaration's Plutonium symbol that makes the C call. `//pu:export` with no name and
+`//pu:export` on a `//pu:interrupt` handler only add a symbol; they never wrap.
+
+C calls never pass a closure context. The backend supports variadic C calls (AL holds the number of
+vector registers used), but lowering does not generate them.
+
+### 9.2 Linking C
+
+A package may contain `.c` files, compiled with the system C compiler (`$CC`, default `cc`) as
+`cc -c -O2 -ffreestanding -fno-stack-protector`, plus `-mno-red-zone` in freestanding builds, with the
+package directory on the include path, and `.o` files, linked as they are. Both follow the file-name
+tag rules of `.p` files (`name_linux.c`, `name_amd64.o`), and `.c` files may start with a `//pu:build`
+line. Programs are linked with `ld -static -nostdlib`, so there is no C library: C code must not call
+libc, and must provide `memcpy` and `memset` itself if the C compiler emits calls to them for large
+copies.
 
 ## 10. Kernel mode
 

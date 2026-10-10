@@ -25,9 +25,8 @@ tooling, platforms and libraries.
    give such boxes static storage as `&T{}` already gets, or reject them.
 3. **`//pu:interrupt` compiles as an ordinary function** (done): handlers now get the entry and exit
    sequence of abi.md section 10.4 (item 9).
-4. **`//pu:extern` and `//pu:export` with aggregates** (planned): they use the internal ABI, which differs
-   from System V for slices, structs and more than two results; reject them until C classification lands
-   (item 12).
+4. **`//pu:extern` and `//pu:export` with aggregates** (done): calls and entry points now follow System V
+   (item 12), and signatures with no C equivalent are compile errors.
 5. **Escape errors for frame-boxed interfaces and capturing closures** (planned): returning, or storing in
    a package variable or through a pointer, an interface holding a frame copy or a closure with captures
    must be a compile error (language spec sections 4.4 and 4.5); today nothing checks it.
@@ -48,8 +47,10 @@ tooling, platforms and libraries.
     (abi.md section 10.6).
 11. **Error design** (in progress): how errors are made, wrapped and given context without hidden
     allocation, given that frame-boxed interfaces cannot be returned; owned by a dedicated design note.
-12. **`//pu:extern` C struct classification** (planned): System V eightbyte classification for aggregate
-    parameters and results; the backend already supports `ABIC` and forced stack arguments.
+12. **`//pu:extern` C struct classification** (done): System V eightbyte classification for aggregate
+    parameters and results, hidden result pointers, several results as a struct, export wrappers and
+    func-value thunks (abi.md section 9.1); `.c` and `.o` files in packages are linked (section 9.2).
+    Tested against GCC and Clang. Strings, slices, interfaces, func values and C varargs are rejected.
 13. **Debugging** (in progress): specification of DWARF line tables and CFI, symbolised stack traces on
     panic, and the debug allocator; owned by a dedicated design document. Implementation items 41 to 43.
 

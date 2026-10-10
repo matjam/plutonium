@@ -542,10 +542,13 @@ A function declared without a body is implemented outside Plutonium.
 - **C**: with `//pu:extern name`, the function is the C symbol `name`, called with the System V AMD64
   calling convention, so C code compiled separately, such as the reference Lua interpreter, links in
   directly. `//pu:export name` makes a Plutonium function callable from C under `name`. Calls between
-  Plutonium functions use an internal convention that agrees with System V for scalar arguments and up to
-  two scalar results, and passes strings, slices, interfaces and small structs in registers (abi.md
-  section 9). Until the compiler classifies aggregates the System V way, `//pu:extern` and `//pu:export`
-  functions are limited to scalar parameters and at most two scalar results.
+  Plutonium functions use an internal convention that passes strings, slices, interfaces and small
+  structs in registers; the compiler translates at the C boundary, classifying structs the System V way
+  and returning several results as a struct of the results (abi.md section 9.1). Strings, slices,
+  interfaces and func values have no C equivalent and are compile errors in `//pu:extern` and
+  `//pu:export` signatures, as are variadic functions.
+- **C sources**: `.c` files in a package are compiled with the system C compiler and linked in, and `.o`
+  files are linked as they are (abi.md section 9.2). There is no C library.
 
 ```go
 //pu:extern lua_pushinteger
