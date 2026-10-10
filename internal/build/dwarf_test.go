@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -57,7 +58,8 @@ func main() {
 }
 `
 
-// buildDebug builds debugSrc and opens the result.
+// buildDebug builds debugSrc and opens the result. It returns the program's
+// main.p.
 func buildDebug(t *testing.T, cfg build.Config) (*elf.File, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -85,7 +87,10 @@ type funcRange struct{ lo, hi uint64 }
 func TestDWARF(t *testing.T) {
 	for _, level := range []int{0, 2} {
 		t.Run("O"+string(rune('0'+level)), func(t *testing.T) {
-			f, file := buildDebug(t, build.Config{OptLevel: level})
+			f, _ := buildDebug(t, build.Config{OptLevel: level})
+			// The line table names main.p in directory ".", with no
+			// compilation directory, which debug/dwarf joins to main.p.
+			const file = "main.p"
 			syms, err := f.Symbols()
 			if err != nil {
 				t.Fatal(err)
@@ -123,6 +128,9 @@ func TestDWARF(t *testing.T) {
 					}
 					if e.Val(dwarf.AttrLanguage) != int64(0x16) {
 						t.Errorf("unit %v: language %v, want Go", e.Val(dwarf.AttrName), e.Val(dwarf.AttrLanguage))
+					}
+					if dir := e.Val(dwarf.AttrCompDir); dir != nil {
+						t.Errorf("unit %v: compilation directory %q, want none", e.Val(dwarf.AttrName), dir)
 					}
 				case dwarf.TagSubprogram:
 					name, _ := e.Val(dwarf.AttrName).(string)
@@ -305,16 +313,16 @@ func TestDWARFInlined(t *testing.T) {
 	}
 }
 
-// TestStdlibDir checks that standard library files are named under
-// Config.StdlibDir rather than $PLUTOROOT when it is set.
-func TestStdlibDir(t *testing.T) {
-	f, _ := buildDebug(t, build.Config{StdlibDir: "/opt/pluto/lib"})
+// dwarfFiles returns the compilation directory of every unit and the file
+// names of every line table. debug/dwarf joins relative names to their
+// directories with path.Join, so "./main.p" in "." reads as "main.p".
+func dwarfFiles(t *testing.T, f *elf.File) (dirs, files []string) {
+	t.Helper()
 	d, err := f.DWARF()
 	if err != nil {
 		t.Fatal(err)
 	}
 	r := d.Reader()
-	found := false
 	for {
 		e, err := r.Next()
 		if err != nil {
@@ -327,22 +335,57 @@ func TestStdlibDir(t *testing.T) {
 			r.SkipChildren()
 			continue
 		}
+		dir, _ := e.Val(dwarf.AttrCompDir).(string)
+		dirs = append(dirs, dir)
 		lr, err := d.LineReader(e)
 		if err != nil || lr == nil {
 			continue
 		}
 		for _, file := range lr.Files() {
-			if file == nil {
-				continue
+			if file != nil {
+				files = append(files, file.Name)
 			}
-			if strings.Contains(file.Name, "$PLUTOROOT") {
-				t.Errorf("file %s not under the standard library directory", file.Name)
-			}
-			found = found || file.Name == "/opt/pluto/lib/pluto/rt/rt.p"
 		}
 	}
-	if !found {
-		t.Errorf("no line table names /opt/pluto/lib/pluto/rt/rt.p")
+	return dirs, files
+}
+
+// TestDWARFFileNames checks how DWARF names source files: by default
+// relative to the module root (here the package directory, with no
+// pluto.mod) and the standard library, with no compilation directory;
+// with --trimpath=false by absolute path, with standard library files
+// under Config.StdlibDir rather than $PLUTOROOT when it is set.
+func TestDWARFFileNames(t *testing.T) {
+	f, _ := buildDebug(t, build.Config{StdlibDir: "/opt/pluto/lib"})
+	dirs, files := dwarfFiles(t, f)
+	for _, dir := range dirs {
+		if dir != "" {
+			t.Errorf("compilation directory %q, want none", dir)
+		}
+	}
+	for _, name := range files {
+		if filepath.IsAbs(name) || strings.Contains(name, "$PLUTOROOT") {
+			t.Errorf("trimmed build names %s", name)
+		}
+	}
+	if !slices.Contains(files, "main.p") || !slices.Contains(files, "pluto/rt/rt.p") {
+		t.Errorf("line tables name neither main.p nor pluto/rt/rt.p: %v", files)
+	}
+
+	f, file := buildDebug(t, build.Config{StdlibDir: "/opt/pluto/lib", NoTrimPath: true})
+	dirs, files = dwarfFiles(t, f)
+	for _, dir := range dirs {
+		if dir != filepath.Dir(file) {
+			t.Errorf("--trimpath=false: compilation directory %q, want %q", dir, filepath.Dir(file))
+		}
+	}
+	for _, name := range files {
+		if !filepath.IsAbs(name) {
+			t.Errorf("--trimpath=false: file %s is not absolute", name)
+		}
+	}
+	if !slices.Contains(files, file) || !slices.Contains(files, "/opt/pluto/lib/pluto/rt/rt.p") {
+		t.Errorf("--trimpath=false: line tables name neither %s nor /opt/pluto/lib/pluto/rt/rt.p: %v", file, files)
 	}
 }
 
@@ -368,16 +411,20 @@ func TestNoDWARF(t *testing.T) {
 
 // TestGDB sets breakpoints by file and line and by function in programs
 // built at -O0 and -O2, and checks the backtraces gdb prints there, through
-// a frame without a frame pointer (fill) and one with (wide). It is skipped
-// without gdb.
+// a frame without a frame pointer (fill) and one with (wide), and that gdb
+// finds the source: run from the module root for a trimmed build, from
+// anywhere for --trimpath=false. It is skipped without gdb.
 func TestGDB(t *testing.T) {
 	gdb, err := exec.LookPath("gdb")
 	if err != nil {
 		t.Skip("gdb not installed")
 	}
-	for _, level := range []int{0, 2} {
-		_, file := buildDebug(t, build.Config{OptLevel: level})
-		prog := filepath.Join(filepath.Dir(file), "prog")
+	for _, tc := range []struct {
+		level  int
+		noTrim bool
+	}{{0, false}, {2, false}, {0, true}} {
+		_, file := buildDebug(t, build.Config{OptLevel: tc.level, NoTrimPath: tc.noTrim})
+		dir := filepath.Dir(file)
 		cmd := exec.Command(gdb, "-nx", "-batch",
 			"-iex", "set debuginfod enabled off",
 			"-ex", "break main.p:19",
@@ -389,25 +436,32 @@ func TestGDB(t *testing.T) {
 			"-ex", "bt",
 			"-ex", "continue",
 			"-ex", "bt",
-			prog)
+			filepath.Join(dir, "prog"))
+		name := "./main.p"
+		if tc.noTrim {
+			name = file // and gdb runs in the test's directory
+		} else {
+			cmd.Dir = dir
+		}
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			t.Fatalf("O%d: gdb: %v\n%s", level, err, out)
+			t.Fatalf("O%d trimpath=%v: gdb: %v\n%s", tc.level, !tc.noTrim, err, out)
 		}
 		text := string(out)
 		for _, want := range []string{
-			"main.fill () at " + file + ":19",
-			"main.sum () at " + file + ":",
-			"main.fill () at " + file + ":21",
-			"main.wide () at " + file + ":30",
-			"main.main () at " + file + ":35",
+			"main.fill () at " + name + ":19\n19\t\t\tb.a[i] = n * i\n", // with its source line
+			"main.sum () at " + name + ":",
+			"main.fill () at " + name + ":21",
+			"main.wide () at " + name + ":30",
+			"main.main () at " + name + ":35",
 		} {
 			if !strings.Contains(text, want) {
-				t.Errorf("O%d: gdb output lacks %q:\n%s", level, want, text)
+				t.Errorf("O%d trimpath=%v: gdb output lacks %q:\n%s", tc.level, !tc.noTrim, want, text)
 			}
 		}
-		if strings.Contains(text, "Backtrace stopped") || strings.Contains(text, "corrupt stack") {
-			t.Errorf("O%d: gdb could not unwind:\n%s", level, text)
+		if strings.Contains(text, "Backtrace stopped") || strings.Contains(text, "corrupt stack") ||
+			strings.Contains(text, "No such file") {
+			t.Errorf("O%d trimpath=%v: gdb could not unwind or find the source:\n%s", tc.level, !tc.noTrim, text)
 		}
 	}
 
@@ -417,9 +471,11 @@ func TestGDB(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir, _, _ := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: 2})
-	file := filepath.Join(dir, "main.p")
-	out, err := exec.Command(gdb, "-nx", "-batch", "-iex", "set debuginfod enabled off",
-		"-ex", "break main.p:4", "-ex", "run", "-ex", "bt", filepath.Join(dir, "prog")).CombinedOutput()
+	file := "./main.p"
+	cmd := exec.Command(gdb, "-nx", "-batch", "-iex", "set debuginfod enabled off",
+		"-ex", "break main.p:4", "-ex", "run", "-ex", "bt", filepath.Join(dir, "prog"))
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("gdb: %v\n%s", err, out)
 	}
@@ -439,9 +495,11 @@ func TestGDB(t *testing.T) {
 	}
 	for _, level := range []int{0, 2} {
 		dir, _, _ := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: level})
-		file := filepath.Join(dir, "main.p")
-		out, err := exec.Command(gdb, "-nx", "-batch", "-iex", "set debuginfod enabled off",
-			"-ex", "run", "-ex", "bt", filepath.Join(dir, "prog")).CombinedOutput()
+		file := "./main.p"
+		cmd := exec.Command(gdb, "-nx", "-batch", "-iex", "set debuginfod enabled off",
+			"-ex", "run", "-ex", "bt", filepath.Join(dir, "prog"))
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("O%d: gdb: %v\n%s", level, err, out)
 		}

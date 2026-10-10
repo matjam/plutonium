@@ -5,10 +5,12 @@ import (
 	"go/constant"
 	"strconv"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
+	typerr "github.com/matjam/plutonium/internal/types2/errors"
 )
 
 // errorsNew lowers a call errors.New(c), whose message the checker requires
@@ -21,12 +23,12 @@ func (s *fnState) errorsNew(e *ast.CallExpr, fn *types2.Func) []value {
 	T := s.typeOf(e)
 	tv := s.info.Types[e.Args[0]]
 	if tv.Value == nil || tv.Value.Kind() != constant.String {
-		s.l.errorf(e.Pos(), "errors.New needs a constant message; use fmt.Errorf")
+		s.l.errorf(e.Pos(), diag.CheckerCode(typerr.ErrorsNewNotConstant), "errors.New needs a constant message; use fmt.Errorf")
 		return []value{s.zeroValue(T)}
 	}
 	text, ok := fn.Pkg().Scope().Lookup("Text").(*types2.TypeName)
 	if !ok || s.l.sizeof(text.Type()) != 16 {
-		s.l.errorf(e.Pos(), "lower: pluto/errors.Text must be a struct holding one string")
+		s.l.internalf(e.Pos(), "pluto/errors.Text must be a struct holding one string")
 		return []value{s.zeroValue(T)}
 	}
 	sym := s.l.staticError(e, constant.StringVal(tv.Value))
@@ -59,6 +61,6 @@ func (l *Lowerer) errorsNewValue(fn *types2.Func, pos token.Pos, use string) boo
 	if !types2.IsErrorsNew(fn) {
 		return false
 	}
-	l.errorf(pos, "errors.New cannot be %s: each call site makes one static error, so call it directly with a constant message", use)
+	l.errorf(pos, diag.ErrorsNewValue, "errors.New cannot be %s: each call site makes one static error, so call it directly with a constant message", use)
 	return true
 }

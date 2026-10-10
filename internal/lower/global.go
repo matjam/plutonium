@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
@@ -71,7 +72,7 @@ func (l *Lowerer) lowerGlobals() {
 				}
 			}
 			if sym.PerCPU && hasInit && !static[v] {
-				l.errorf(percpu[v], "per-CPU variable %s must have a constant initialiser: package initialisation runs before any processor has a per-CPU block", v.Name())
+				l.errorf(percpu[v], diag.PerCPUInit, "per-CPU variable %s must have a constant initialiser: package initialisation runs before any processor has a per-CPU block", v.Name())
 			}
 		}
 		l.queueInit(p, static)
@@ -103,10 +104,10 @@ const perCPUSelf = "pluto.percpu.self"
 func (l *Lowerer) perCPUVar(v *types2.Var, d *ssa.Data, pos token.Pos) {
 	switch {
 	case !l.cfg.Kernel:
-		l.errorf(pos, "//pu:percpu variable %s needs --mode kernel", v.Name())
+		l.errorf(pos, diag.PerCPUMode, "//pu:percpu variable %s needs --mode kernel", v.Name())
 		return
 	case d.Section != "":
-		l.errorf(pos, "//pu:percpu variable %s cannot also have //pu:section", v.Name())
+		l.errorf(pos, diag.PerCPUSection, "//pu:percpu variable %s cannot also have //pu:section", v.Name())
 		return
 	}
 	d.Sym.PerCPU = true
@@ -364,7 +365,7 @@ func (l *Lowerer) queueInit(p *load.Package, static map[*types2.Var]bool) {
 func (l *Lowerer) lowerEntry() {
 	mainFn, _ := l.prog.Main.Types.Scope().Lookup("main").(*types2.Func)
 	if mainFn == nil {
-		l.errs = append(l.errs, &Error{Msg: "package main has no main function"})
+		l.errorf(token.NoPos, diag.NoMainFunc, "package main has no main function")
 		return
 	}
 	i64 := types2.Typ[types2.Int64]

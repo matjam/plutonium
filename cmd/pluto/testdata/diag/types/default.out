@@ -1,0 +1,83 @@
+$DIR/main.p:22:1: missing return
+    sign is declared on line 18 to return int, but the end of its body on line
+    22 can be reached without a return statement. Every path through a function
+    with results must end in a return, a panic, or a loop that never exits.
+    Return a value at the end, for example:
+        return 0
+    (see "Terminating statements" in the Go spec; Plutonium follows Go here)
+    (run "pluto explain E0102" for a longer explanation)
+
+$DIR/main.p:27:10: cannot use name (variable of type string) as int value in assignment
+    count is declared as int on line 25, so it can only hold whole numbers; name
+    holds text. Plutonium, like Go, never converts between text and numbers
+    automatically.
+    To parse a number from text:
+        n, err := strconv.Atoi(name)
+    (see "Assignability" in the Go spec; Plutonium follows Go here)
+    (run "pluto explain E0023" for a longer explanation)
+
+$DIR/main.p:29:9: invalid operation: count + total (mismatched types int and int64)
+    count has type int and total has type int64. The operands of + must have the
+    same type, and Plutonium, like Go, never converts one to match the other.
+    This holds even between number types such as int and int64.
+    Convert one operand to the other's type:
+        int64(count) + total
+    (see "Arithmetic operators" in the Go spec; Plutonium follows Go here)
+    (run "pluto explain E0046" for a longer explanation)
+
+$DIR/main.p:30:10: undefined: cuont
+    cuont is not declared in any scope that reaches line 30. Did you mean count
+    (declared on line 25)? Names are case-sensitive.
+    (see "Declarations and scope" in the Go spec; Plutonium follows Go here)
+    (run "pluto explain E0075" for a longer explanation)
+
+$DIR/main.p:31:23: too many arguments in call to perimeter
+	have (number, number)
+	want (int)
+    perimeter is declared on line 11 with 1 parameter: (side int) int. This call
+    passes 2 arguments. Remove the extra arguments, or check that you are
+    calling the function you meant.
+    (see "Calls" in the Go spec; Plutonium follows Go here)
+    (run "pluto explain E0126" for a longer explanation)
+
+$DIR/main.p:32:16: cannot use Square{…} (value of struct type Square) as Shape value in variable declaration: Square does not implement Shape (missing method Area)
+    s is declared as Shape, so it can only hold values whose type has every
+    method of Shape.
+    Shape needs a method Area() int (declared on line 6), and Square has no
+    method of that name. A type satisfies an interface by having all its
+    methods; nothing else needs to be declared.
+    Add the method to Square:
+        func (s Square) Area() int {
+            ...
+        }
+    (see "Implementing an interface" in the Go spec; Plutonium follows Go here)
+    (run "pluto explain E0021" for a longer explanation)
+
+$DIR/main.p:33:7: in call to Zero, cannot infer T (declared at $DIR/main.p:13:11)
+    Zero is generic: it has the type parameter list [T], and a call normally
+    works the types out from its arguments. T does not appear in the type of any
+    argument given here (it may appear only in the results, or in parameters
+    left out), so the compiler cannot tell which type to use.
+    Give the type arguments in square brackets, with the types you want:
+        Zero[T]()
+    (see "Type inference" in the Go spec; Plutonium follows Go here)
+    (run "pluto explain E0138" for a longer explanation)
+
+$DIR/main.p:34:6: declared and not used: spare
+    spare is declared on line 34, but its value is never used. Plutonium, like
+    Go, treats this as an error, because an unused variable often means a
+    mistake, such as assigning to the wrong variable or forgetting a check.
+    Delete the variable, use it, or replace it with _ where it is declared if
+    you only need the other values.
+    To keep it for now:
+        _ = spare
+    (see "Variable declarations" in the Go spec; Plutonium follows Go here)
+    (run "pluto explain E0101" for a longer explanation)
+
+$DIR/main.p:3:8: "pluto/strings" imported and not used
+    This file imports pluto/strings on line 3, but nothing in the file uses
+    strings. Plutonium, like Go, treats an unused import as an error, so that
+    each file's imports show what it depends on. Delete the import, or use the
+    package.
+    (see "Import declarations" in the Go spec; Plutonium follows Go here)
+    (run "pluto explain E0008" for a longer explanation)
