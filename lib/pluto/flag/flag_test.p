@@ -169,3 +169,19 @@ func TestPrintDefaults(t *testing.T) {
 	}
 	out.Free()
 }
+
+// A flag name longer than any line buffer prints whole.
+func TestPrintDefaultsLongName(t *testing.T) {
+	var out strings.Builder
+	defer out.Free()
+	fs := NewFlagSet("long", ContinueOnError)
+	defer fs.Drop()
+	fs.SetOutput(&out)
+	name := strings.Repeat("n", 300)
+	fs.String(name, "", "a long `value`")
+	fs.PrintDefaults()
+	want := "  -" + name + " value\n    \ta long value\n"
+	if out.String() != want {
+		t.Errorf("PrintDefaults with a long name: %d bytes, want %d", out.Len(), len(want))
+	}
+}

@@ -39,19 +39,20 @@ func Join(errs ...error) error {
 	msg := ""
 	if size > 0 {
 		buf, ctl := rt.NewStringBuffer(size, a)
-		text := unsafe.Slice(buf, size)[:0]
-		k := 0
+		text := unsafe.Slice(buf, size)
+		k, w := 0, 0 // errors and bytes written
 		for _, err := range errs {
 			if err == nil {
 				continue
 			}
 			if k > 0 {
-				text = append(text, '\n')
+				text[w] = '\n'
+				w++
 			}
-			text = append(text, err.Error()...)
+			w += copy(text[w:], err.Error())
 			k++
 		}
-		msg = rt.MakeString(buf, len(text), ctl, ascii)
+		msg = rt.MakeString(buf, w, ctl, ascii)
 		rt.ReleaseString(ctl)
 	}
 	var hdr joinError
