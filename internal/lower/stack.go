@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/types2"
 )
@@ -42,12 +43,12 @@ func (l *Lowerer) mainStackSize(mainFn *types2.Func) uint64 {
 			continue
 		}
 		if l.cfg.Freestanding {
-			l.errorf(c.Pos(), "//pu:stack is not supported in freestanding builds (the program sets up its own stack)")
+			l.errorf(c.Pos(), diag.StackDirective, "//pu:stack is not supported in freestanding builds (the program sets up its own stack)")
 			return 0
 		}
 		size, err := parseStackSize(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(dir), "stack")))
 		if err != "" {
-			l.errorf(c.Pos(), "//pu:stack: %s", err)
+			l.errorf(c.Pos(), diag.StackDirective, "//pu:stack: %s", err)
 			return 0
 		}
 		return size
@@ -103,7 +104,7 @@ func (s *fnState) checkStackDirective(doc *ast.CommentGroup) {
 		}
 		mainFn, _ := s.l.prog.Main.Types.Scope().Lookup("main").(*types2.Func)
 		if mainFn == nil || s.f.Name != funcSymName(mainFn, nil) {
-			s.l.errorf(c.Pos(), "//pu:stack applies only to func main in package main")
+			s.l.errorf(c.Pos(), diag.StackDirective, "//pu:stack applies only to func main in package main")
 		}
 	}
 }

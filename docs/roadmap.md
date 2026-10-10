@@ -196,7 +196,7 @@ later takes the next free number and is listed in the section where it belongs.
     `+1.500000e+000` style.
 45. **`time`** (in progress): `pluto/time` has `Duration` (with `AppendString` and `ParseDuration`),
     `Time` in UTC with a monotonic reading, the calendar, `Now`, `Since`, `Until` and a thread-blocking
-    `Sleep` (item 53). Time zones, layout-based formatting and timers over the scheduler remain.
+    `Sleep` (item 54). Time zones, layout-based formatting and timers over the scheduler remain.
 46. **`net`** (planned, hosted): sockets over the epoll poller of item 14.
 47. **`fmt.Sprintf` returns a `strings.Buf`** (planned): settled by the ownership model (language spec
     section 6.6). `Sprintf` allocates and returns a `strings.Buf`; `Bprintf` keeps formatting into a
@@ -206,16 +206,16 @@ later takes the next free number and is listed in the section where it belongs.
     into `Drop`; add `strings.Buf`, the owning string buffer (`NewBuf(a)`, a zero value that allocates
     on first write, `String()` and `Bytes()` views, `Clone`), with `strings.Builder` merged into it; make
     `os.File` an owner returned by value from `Open`, `Create` and `OpenFile` that closes on drop; add
-    `Clone` to `Vec`, `Map` and `Buf`. `arena.Chunked` (item 53) already releases through `Drop`;
+    `Clone` to `Vec`, `Map` and `Buf`. `arena.Chunked` (item 54) already releases through `Drop`;
     declaring it `owner` is a one-line change to its type declaration, as it is for `os.DirEntries`,
-    `exec.Cmd` and `flag.FlagSet` (item 53). Converting the OS layer: `Open`, `Create`, `OpenFile` and
+    `exec.Cmd` and `flag.FlagSet` (item 54). Converting the OS layer: `Open`, `Create`, `OpenFile` and
     `Pipe` return `os.File` by value; `Getwd`, `MkdirTemp`, `exec.LookPath` and the `filepath`
     `Append` functions gain forms returning a `strings.Buf`.
 52. **The `pu` mirror package for self-hosting** (planned): a Go package `pu` with `Map`, `Vec`, `Buf` and
     the other library owners, mirroring the Plutonium API, which the compiler's Go sources migrate to so
     that go2pu translates them one to one. Specified as an amendment in
     [the self-hosting plan](plans/2026-10-09-self-hosting-plan.md), section 11.
-53. **Self-hosting prerequisites** (in progress): the compiler and library work of phases 0 and 1 of
+54. **Self-hosting prerequisites** (in progress): the compiler and library work of phases 0 and 1 of
     [the self-hosting plan](plans/2026-10-09-self-hosting-plan.md) (section 8).
     - Single-pointer structs in an interface's data word (done): a struct with one field, or an array of
       length 1, that is a single pointer is direct, as in Go (language spec section 4.4,
