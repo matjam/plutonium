@@ -242,12 +242,28 @@ func use(u *UART) uint8 {
 	}
 }
 
+// TestVolatileTypeParam checks that volatile[T] accepts a type parameter
+// whose type set holds only types volatile accepts.
+func TestVolatileTypeParam(t *testing.T) {
+	mustCheck(t, `package p
+
+type Dev[T ~uint8 | ~uint32 | *int] struct{ reg volatile[T] }
+
+func (d *Dev[T]) Set(v T) T {
+	d.reg = v
+	return d.reg
+}
+`)
+}
+
 func TestPlutoniumTypeErrors(t *testing.T) {
 	cases := []struct{ name, src, want string }{
 		{"bits too wide", "package p\ntype R packed uint8 { a bits[uint8, 9] }", "uint8 holds only 8 bits"},
 		{"backing too small", "package p\ntype R packed uint8 { a bits[uint, 5]; b bits[uint, 4] }", "need 9 bits"},
 		{"ring not power of two", "package p\nvar r ring[int, 6]", "not a power of two"},
 		{"volatile struct", "package p\ntype S struct{ a int }\nvar v volatile[S]", "must be an integer, bool or pointer"},
+		{"volatile any type parameter", "package p\ntype D[T any] struct{ v volatile[T] }", "must be an integer, bool or pointer"},
+		{"volatile mixed type parameter", "package p\ntype D[T ~int | ~float64] struct{ v volatile[T] }", "must be an integer, bool or pointer"},
 		{"positional packed literal", "package p\ntype R packed uint8 { a bits[uint, 4] }\nvar r = R{1}", "must be field: value"},
 	}
 	for _, c := range cases {
