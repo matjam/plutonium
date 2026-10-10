@@ -220,8 +220,21 @@ func timer(f *x86.InterruptFrame) {
 	rt.Preempt() // runs another task; returns when this one is resumed
 }
 
+// maskPICs masks every line of both PICs. The firmware leaves the PIT's
+// IRQ 0 unmasked on vector 8, and a new puroutine starts with interrupts
+// enabled, so without this a tick that arrives between the first go
+// statement and startTimer (which a busy host makes likely, as QEMU's
+// clock is the host's) is delivered before there is an IDT, and the
+// machine triple-faults.
+func maskPICs() {
+	x86.Outb(0x21, 0xFF)
+	x86.Outb(0xA1, 0xFF)
+}
+
 func startTimer() {
-	// Remap the PICs to vectors 32 to 47 and unmask only IRQ 0.
+	// Remap the PICs to vectors 32 to 47 and unmask only IRQ 0, with
+	// interrupts off until the IDT is loaded.
+	x86.Cli()
 	x86.Outb(0x20, 0x11)
 	x86.Outb(0xA0, 0x11)
 	x86.Outb(0x21, 0x20)
@@ -284,6 +297,7 @@ func sleepy(i int, woke chan<- int) {
 }
 
 func main() int64 {
+	maskPICs()
 	rt.SetConsole(serialWrite)
 	setupPerCPU()
 	alloc.SetDefault(alloc.NewSlab(&pages))
