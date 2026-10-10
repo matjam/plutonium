@@ -105,6 +105,8 @@ Every change must pass ALL of these before committing:
    runs every example and every `testdata/run` program.
 2. **Lint**: `golangci-lint run ./...` — must report 0 issues.
    Fix all errcheck, staticcheck, and unused warnings before committing.
+   Lint includes the `gofmt` formatter (`.golangci.yml`), so unformatted Go
+   files fail it; fix them with `gofmt -w <file>`.
 3. **Coverage**: coverage must not decrease. Measure across packages, since the
    end-to-end tests exercise most of the compiler:
    ```

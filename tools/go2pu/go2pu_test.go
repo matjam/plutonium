@@ -200,12 +200,12 @@ func TestMapFlag(t *testing.T) {
 func TestMapPath(t *testing.T) {
 	tc := &translator{cfg: testConfig()}
 	for from, want := range map[string]string{
-		goModule:                     "selfhost",
-		goModule + "/internal/ssa":    "selfhost/internal/ssa",
-		"strings":                     "pluto/strings",
-		"debug/elf":                   "selfhost/elf",
-		"encoding/binary":             "",
-		"reflect":                     "",
+		goModule:                   "selfhost",
+		goModule + "/internal/ssa": "selfhost/internal/ssa",
+		"strings":                  "pluto/strings",
+		"debug/elf":                "selfhost/elf",
+		"encoding/binary":          "",
+		"reflect":                  "",
 		goModule + "/tools/go2pu/testdata/ssademo": "selfhost/demo/ssademo",
 	} {
 		if got := tc.mapPath(from); got != want {

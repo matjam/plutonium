@@ -19,6 +19,13 @@ _start:
 	syscall
 	ret
 
+# exit(code int) ends the process.
+	.globl "main.exit"
+"main.exit":
+	movl	$60, %eax		# exit
+	syscall
+	ud2
+
 # write(p unsafe.Pointer, n int): write(2, p, n).
 	.globl "main.write"
 "main.write":

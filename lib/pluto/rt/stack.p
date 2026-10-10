@@ -8,6 +8,11 @@ import "unsafe"
 // stackLo is 0 if the lowest usable address is unknown.
 var stackLo, stackHi uintptr
 
+// guardLo and guardHi bound the guard region below the stack the hosted
+// runtime reserves for //pu:stack (zero otherwise), so that a fault there is
+// reported as a stack overflow.
+var guardLo, guardHi uintptr
+
 // StackBounds returns the lowest and highest addresses of the main thread's
 // stack, as far as the runtime knows them: lo is 0 if the stack's limit is
 // unknown (an unlimited process stack, or a freestanding program that has

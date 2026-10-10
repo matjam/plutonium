@@ -565,8 +565,9 @@ func (s *fnState) ifaceToIface(v value, to types2.Type, pos ast.Node) value {
 	return aggValue(tmp, to)
 }
 
-// ifaceCall calls method fn on interface value iv.
-func (s *fnState) ifaceCall(iv value, I types2.Type, fn *types2.Func, sig *types2.Signature, args []value, pos token.Pos) []value {
+// ifaceCall calls method fn on interface value iv. desc is the call as
+// written (w.Write), for the interrupt-context check.
+func (s *fnState) ifaceCall(iv value, I types2.Type, fn *types2.Func, sig *types2.Signature, args []value, pos token.Pos, desc string) []value {
 	iface := I.Underlying().(*types2.Interface)
 	idx := -1
 	for i := 0; i < iface.NumMethods(); i++ {
@@ -583,7 +584,8 @@ func (s *fnState) ifaceCall(iv value, I types2.Type, fn *types2.Func, sig *types
 	code := s.load(ssa.TPtr, s.offPtr(tab, int64(itabHeader+8*idx)))
 	adapterSig := adapterSignature(sig)
 	recv := scalarValue(data, types2.Typ[types2.UnsafePointer])
-	return s.emitCall(callee{code: code, ctx: s.constInt(ssa.TPtr, 0)}, adapterSig, &recv, args, pos)
+	site := &callSite{desc: desc, iface: I, method: idx}
+	return s.emitCall(callee{code: code, ctx: s.constInt(ssa.TPtr, 0), site: site}, adapterSig, &recv, args, pos)
 }
 
 // adapterSignature is sig with an unsafe.Pointer receiver: the data word.
@@ -617,7 +619,7 @@ func (l *Lowerer) itabAdapter(T types2.Type, m *types2.Func) *ssa.Sym {
 			in := s.incomingArgs(adapter)
 			iface := recvBase(T, index)
 			iv := s.receiverFromData(in[0].v, T, index, iface)
-			s.returnValues(s.ifaceCall(iv, iface, fn, plain, in[1:], token.NoPos))
+			s.returnValues(s.ifaceCall(iv, iface, fn, plain, in[1:], token.NoPos, fn.Name()))
 		}})
 		return sym
 	}
@@ -712,11 +714,12 @@ func (l *Lowerer) ifaceMethodValueWrapper(I types2.Type, fn *types2.Func) *ssa.S
 	}
 	sig := fn.Type().(*types2.Signature)
 	plain := types2.NewSignatureType(nil, nil, nil, sig.Params(), sig.Results(), sig.Variadic())
+	l.funcValues[sym] = plain
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: plain, build: func(s *fnState) {
 		ctx := s.newValue(ssa.OpClosurePtr, ssa.TPtr)
 		args := s.incomingArgs(plain)
 		iv := aggValue(s.offPtr(ctx, 8), I)
-		s.returnValues(s.ifaceCall(iv, I, fn, plain, args, token.NoPos))
+		s.returnValues(s.ifaceCall(iv, I, fn, plain, args, token.NoPos, fn.Name()))
 	}})
 	return sym
 }
@@ -821,6 +824,7 @@ func (l *Lowerer) equalFunc(T types2.Type) *ssa.Sym {
 	params := types2.NewTuple(types2.NewParam(token.NoPos, nil, "a", up), types2.NewParam(token.NoPos, nil, "b", up))
 	results := types2.NewTuple(types2.NewParam(token.NoPos, nil, "", types2.Typ[types2.Bool]))
 	sig := types2.NewSignatureType(nil, nil, nil, params, results, false)
+	l.funcValues[sym] = sig
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: sig, build: func(s *fnState) {
 		in := s.incomingArgs(sig)
 		a := s.loadFrom(in[0].v, T)

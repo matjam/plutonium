@@ -23,3 +23,7 @@ linters:
       - path: internal/types2/
         linters: [staticcheck]
         text: "ST1001:"
+
+formatters:
+  enable:
+    - gofmt

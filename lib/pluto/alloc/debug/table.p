@@ -176,11 +176,14 @@ func findNot(p, n uintptr, b byte) uintptr {
 
 // ----------------------------------------------------------------------------
 // Messages. They are printed piece by piece, since the allocator cannot
-// allocate to format them, and end with rt.Abort.
+// allocate to format them, as the message of a panic (rt.BeginPanic), and
+// end with rt.Abort (or, for a fault, the runtime's fault handler raises
+// the panic).
 
 // failHead starts a fatal message.
 func failHead(what string) {
-	print("panic: debug allocator: ")
+	rt.BeginPanic()
+	print("debug allocator: ")
 	print(what)
 }
 
