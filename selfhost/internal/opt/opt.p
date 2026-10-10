@@ -5,6 +5,7 @@
 package opt
 
 import (
+	"pluto/fmt"
 	"pluto/os"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
@@ -35,7 +36,7 @@ type step struct {
 
 // ForLevel returns the passes for an optimisation level.
 func ForLevel(level int) *Pipeline {
-	p := compat.New(Pipeline{})
+	p := new(Pipeline{})
 	p.add(Pass{"copyelim", ssa.CopyElim})
 	p.add(Pass{"deadcode", ssa.DeadCode})
 	if level >= 1 {
@@ -64,12 +65,12 @@ func ForLevel(level int) *Pipeline {
 }
 
 func (p *Pipeline) add(gopass Pass) {
-	pass := compat.New(gopass)
+	pass := new(gopass)
 	p.steps = compat.Append(p.steps, step{fn: pass})
 }
 
 func (p *Pipeline) addProgram(gopass ProgramPass) {
-	pass := compat.New(gopass)
+	pass := new(gopass)
 	p.steps = compat.Append(p.steps, step{prog: pass})
 }
 
@@ -86,7 +87,7 @@ func (p *Pipeline) Run(prog *ssa.Program, after func(pass string, f *ssa.Func)) 
 			if checkSSA {
 				for _, f := range prog.Funcs {
 					if err := f.Verify(); err != nil {
-						return compat.Errorf("after %s: %w", st.prog.Name, err)
+						return fmt.Errorf("after %s: %w", st.prog.Name, err)
 					}
 				}
 			}
@@ -96,7 +97,7 @@ func (p *Pipeline) Run(prog *ssa.Program, after func(pass string, f *ssa.Func)) 
 			st.fn.Run(f)
 			if checkSSA {
 				if err := f.Verify(); err != nil {
-					return compat.Errorf("after %s: %w", st.fn.Name, err)
+					return fmt.Errorf("after %s: %w", st.fn.Name, err)
 				}
 			}
 			if after != nil {

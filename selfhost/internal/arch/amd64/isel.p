@@ -3,6 +3,7 @@
 package amd64
 
 import (
+	"pluto/fmt"
 	"pluto/math"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
@@ -31,6 +32,9 @@ func Select(f *ssa.Func) (*MFunc, error) {
 	mf.Sym = f.Sym
 	mf.Slots = compat.Append(mf.Slots, f.Slots...)
 	mf.interrupt = f.Pragmas&ssa.PragmaInterrupt != 0
+	// Lowering checks a handler's signature: a frame pointer, then
+	// optionally the error code.
+	mf.errCode = mf.interrupt && len(f.Params) == 2
 	for _, s := range f.Slots {
 		mf.maxAlign = max(mf.maxAlign, s.Align)
 	}
@@ -48,7 +52,7 @@ func Select(f *ssa.Func) (*MFunc, error) {
 		s.vregs[i] = NoReg
 	}
 	for i, b := range f.Blocks {
-		mb := compat.New(MBlock{ID: i, Depth: s.loops.Depth(b), Likely: b.Likely})
+		mb := new(MBlock{ID: i, Depth: s.loops.Depth(b), Likely: b.Likely})
 		s.blocks[b.ID] = mb
 		mf.Blocks = compat.Append(mf.Blocks, mb)
 	}
@@ -121,7 +125,7 @@ func sizeOf(t *ssa.Type) uint8 {
 
 // copyReg emits dst = src.
 func (s *isel) copyReg(dst, src Reg, size uint8) {
-	s.emit(compat.New(MInst{Op: MCOPY, Size: size, Dst: RegOp(dst), Src: RegOp(src)}))
+	s.emit(new(MInst{Op: MCOPY, Size: size, Dst: RegOp(dst), Src: RegOp(src)}))
 }
 
 // isLazy reports whether v is rematerialised at each use rather than emitted
@@ -368,7 +372,7 @@ func (s *isel) leaAdd(v *ssa.Value) bool {
 	} else {
 		panic("amd64: x*3/5/9 fused into an add of a register")
 	}
-	s.emit(compat.New(MInst{Op: MLEA, Size: size, Dst: RegOp(s.def(v)), Src: MemOp(m)}))
+	s.emit(new(MInst{Op: MLEA, Size: size, Dst: RegOp(s.def(v)), Src: MemOp(m)}))
 	return true
 }
 
@@ -400,12 +404,12 @@ func (s *isel) reg(v *ssa.Value) Reg {
 		return r
 	case ssa.OpFuncAddr:
 		r := s.newReg(ssa.TPtr)
-		s.emit(compat.New(MInst{Op: MLEA, Size: 8, Dst: RegOp(r), Src: MemOp(Mem{Base: NoReg, Index: NoReg, Sym: v.Aux.(*ssa.Sym)})}))
+		s.emit(new(MInst{Op: MLEA, Size: 8, Dst: RegOp(r), Src: MemOp(Mem{Base: NoReg, Index: NoReg, Sym: v.Aux.(*ssa.Sym)})}))
 		return r
 	}
 	// Address arithmetic.
 	r := s.newReg(ssa.TPtr)
-	s.emit(compat.New(MInst{Op: MLEA, Size: 8, Dst: RegOp(r), Src: MemOp(s.addr(v))}))
+	s.emit(new(MInst{Op: MLEA, Size: 8, Dst: RegOp(r), Src: MemOp(s.addr(v))}))
 	return r
 }
 
@@ -414,16 +418,16 @@ func (s *isel) loadConst(r Reg, c int64, size uint8) {
 		size = 4 // a 32-bit move clears the upper half
 		c = int64(uint32(c))
 	}
-	s.emit(compat.New(MInst{Op: MMOV, Size: size, Dst: RegOp(r), Src: ImmOp(c)}))
+	s.emit(new(MInst{Op: MMOV, Size: size, Dst: RegOp(r), Src: ImmOp(c)}))
 }
 
 func (s *isel) loadFloatConst(r Reg, v *ssa.Value) {
 	bits := floatBits(v)
 	if bits == 0 {
-		s.emit(compat.New(MInst{Op: MXORPS, Size: 16, Dst: RegOp(r), Src: RegOp(r)}))
+		s.emit(new(MInst{Op: MXORPS, Size: 16, Dst: RegOp(r), Src: RegOp(r)}))
 		return
 	}
-	s.emit(compat.New(MInst{Op: MMOVSF, Size: sizeOf(v.Type), Dst: RegOp(r), Src: MemOp(s.constMem(bits, bits))}))
+	s.emit(new(MInst{Op: MMOVSF, Size: sizeOf(v.Type), Dst: RegOp(r), Src: MemOp(s.constMem(bits, bits))}))
 }
 
 // floatBits returns the bits of float constant v at its own width.
@@ -450,7 +454,7 @@ func (s *isel) constMem(lo, hi uint64) Mem {
 				return h
 			})
 		}
-		sym = compat.New(ssa.Sym{Name: compat.Sprintf("pluto.const.%016x%016x", hi, lo), Kind: ssa.SymData})
+		sym = new(ssa.Sym{Name: compat.Sprintf("pluto.const.%016x%016x", hi, lo), Kind: ssa.SymData})
 		s.mf.constSyms.Set(b, sym)
 		s.mf.consts = compat.Append(s.mf.consts, Const{Sym: sym, Bytes: b})
 	}
@@ -564,7 +568,11 @@ func abiLocs(types []*ssa.Type, intRegs, floatRegs []Reg, onStack []bool) ([]abi
 // entry copies the incoming arguments out of their ABI registers before
 // anything can clobber them.
 func (s *isel) entry() {
-	locs, _ := abiLocs(s.f.Params, intArgRegs, floatArgRegs, nil)
+	if s.mf.interrupt {
+		s.interruptEntry()
+		return
+	}
+	locs, _ := abiLocs(s.f.Params, intArgRegs, floatArgRegs, s.f.ParamOnStack)
 	var defs []Reg
 	for _, l := range locs {
 		if l.reg != NoReg {
@@ -572,7 +580,7 @@ func (s *isel) entry() {
 		}
 	}
 	defs = compat.Append(defs, closureReg)
-	s.emit(compat.New(MInst{Op: MDEF, ImplicitDefs: defs}))
+	s.emit(new(MInst{Op: MDEF, ImplicitDefs: defs}))
 	for _, b := range s.f.Blocks {
 		for _, v := range b.Values {
 			switch v.Op {
@@ -594,31 +602,58 @@ func (s *isel) entry() {
 	}
 }
 
+// interruptEntry gives an interrupt handler its parameters. Nothing arrives
+// in registers: the CPU has pushed the interrupt frame (RIP, CS, RFLAGS, RSP,
+// SS) and, for some exceptions, an error code below it. Parameter 0 is the
+// frame's address and parameter 1 the error code. ArgOff is measured from
+// the stack pointer on entry, where there is no return address.
+func (s *isel) interruptEntry() {
+	frameOff := int64(0)
+	if s.mf.errCode {
+		frameOff = 8
+	}
+	for _, b := range s.f.Blocks {
+		for _, v := range b.Values {
+			if v.Op != ssa.OpArg {
+				continue
+			}
+			r := s.newReg(v.Type)
+			if v.AuxInt == 0 {
+				m := Mem{Base: NoReg, Index: NoReg, ArgSlot: true, ArgOff: frameOff}
+				s.emit(new(MInst{Op: MLEA, Size: 8, Dst: RegOp(r), Src: MemOp(m)}))
+			} else {
+				s.load(r, Mem{Base: NoReg, Index: NoReg, ArgSlot: true}, v.Type)
+			}
+			s.vregs[v.ID] = r
+		}
+	}
+}
+
 func (s *isel) copyRegTyped(dst, src Reg, t *ssa.Type) {
 	s.copyReg(dst, src, 8)
 }
 
 func (s *isel) load(r Reg, m Mem, t *ssa.Type) {
 	if t.IsFloat() {
-		s.emit(compat.New(MInst{Op: MMOVSF, Size: sizeOf(t), Dst: RegOp(r), Src: MemOp(m)}))
+		s.emit(new(MInst{Op: MMOVSF, Size: sizeOf(t), Dst: RegOp(r), Src: MemOp(m)}))
 		return
 	}
 	size := sizeOf(t)
 	if size < 4 {
 		// Zero-extend narrow loads: a partial register write would depend
 		// on the register's old value. ZeroExt of a load relies on this.
-		s.emit(compat.New(MInst{Op: MMOVZX, Size: 4, SrcSize: size, Dst: RegOp(r), Src: MemOp(m)}))
+		s.emit(new(MInst{Op: MMOVZX, Size: 4, SrcSize: size, Dst: RegOp(r), Src: MemOp(m)}))
 		return
 	}
-	s.emit(compat.New(MInst{Op: MMOV, Size: size, Dst: RegOp(r), Src: MemOp(m)}))
+	s.emit(new(MInst{Op: MMOV, Size: size, Dst: RegOp(r), Src: MemOp(m)}))
 }
 
 func (s *isel) store(m Mem, v *ssa.Value) {
 	if v.Type.IsFloat() {
-		s.emit(compat.New(MInst{Op: MMOVSF, Size: sizeOf(v.Type), Dst: MemOp(m), Src: RegOp(s.reg(v))}))
+		s.emit(new(MInst{Op: MMOVSF, Size: sizeOf(v.Type), Dst: MemOp(m), Src: RegOp(s.reg(v))}))
 		return
 	}
-	s.emit(compat.New(MInst{Op: MMOV, Size: sizeOf(v.Type), Dst: MemOp(m), Src: s.operand(v)}))
+	s.emit(new(MInst{Op: MMOV, Size: sizeOf(v.Type), Dst: MemOp(m), Src: s.operand(v)}))
 }
 
 // ----------------------------------------------------------------------------
@@ -640,7 +675,7 @@ func (s *isel) value(v *ssa.Value) error {
 		// Handled elsewhere or produce no code.
 		if v.Op == ssa.OpUnreachableValue && !v.Type.IsMem() {
 			r := s.def(v)
-			s.emit(compat.New(MInst{Op: MDEF, ImplicitDefs: compat.Clone([]Reg{r})}))
+			s.emit(new(MInst{Op: MDEF, ImplicitDefs: compat.Clone([]Reg{r})}))
 		}
 		return nil
 
@@ -664,15 +699,15 @@ func (s *isel) value(v *ssa.Value) error {
 		x, src := s.aluArgs(v)
 		d := s.def(v)
 		s.copyReg(d, s.reg(x), size)
-		s.emit(compat.New(MInst{Op: op, Size: size, Dst: RegOp(d), Src: src}))
+		s.emit(new(MInst{Op: op, Size: size, Dst: RegOp(d), Src: src}))
 
 	case ssa.OpAndNot:
 		d := s.def(v)
 		t := s.newReg(v.Type)
 		s.copyReg(t, s.reg(v.Args[1]), size)
-		s.emit(compat.New(MInst{Op: MNOT, Size: size, Dst: RegOp(t)}))
+		s.emit(new(MInst{Op: MNOT, Size: size, Dst: RegOp(t)}))
 		s.copyReg(d, s.reg(v.Args[0]), size)
-		s.emit(compat.New(MInst{Op: MAND, Size: size, Dst: RegOp(d), Src: RegOp(t)}))
+		s.emit(new(MInst{Op: MAND, Size: size, Dst: RegOp(d), Src: RegOp(t)}))
 
 	case ssa.OpMul:
 		d := s.def(v)
@@ -680,15 +715,15 @@ func (s *isel) value(v *ssa.Value) error {
 		if x, sc := leaMul(v); sc > 0 {
 			// x*3/5/9 in one cycle instead of three.
 			r := s.reg(x)
-			s.emit(compat.New(MInst{Op: MLEA, Size: size, Dst: RegOp(d), Src: MemOp(Mem{Base: r, Index: r, Scale: sc})}))
+			s.emit(new(MInst{Op: MLEA, Size: size, Dst: RegOp(d), Src: MemOp(Mem{Base: r, Index: r, Scale: sc})}))
 			break
 		}
 		if c := v.Args[1]; c.Op == ssa.OpConst && fitsImm32(c.AuxInt) {
-			s.emit(compat.New(MInst{Op: MIMUL3, Size: opSize, Dst: RegOp(d), Src: RegOp(s.reg(v.Args[0])), Imm: c.AuxInt}))
+			s.emit(new(MInst{Op: MIMUL3, Size: opSize, Dst: RegOp(d), Src: RegOp(s.reg(v.Args[0])), Imm: c.AuxInt}))
 			break
 		}
 		s.copyReg(d, s.reg(v.Args[0]), size)
-		s.emit(compat.New(MInst{Op: MIMUL, Size: opSize, Dst: RegOp(d), Src: RegOp(s.reg(v.Args[1]))}))
+		s.emit(new(MInst{Op: MIMUL, Size: opSize, Dst: RegOp(d), Src: RegOp(s.reg(v.Args[1]))}))
 
 	case ssa.OpMulHi, ssa.OpMulHiu:
 		d := s.def(v)
@@ -697,7 +732,7 @@ func (s *isel) value(v *ssa.Value) error {
 		if v.Op == ssa.OpMulHi {
 			op = MIMUL1
 		}
-		s.emit(compat.New(MInst{Op: op, Size: size, Src: RegOp(s.reg(v.Args[1])), ImplicitUses: compat.Clone([]Reg{RAX}), ImplicitDefs: compat.Clone([]Reg{RAX, RDX})}))
+		s.emit(new(MInst{Op: op, Size: size, Src: RegOp(s.reg(v.Args[1])), ImplicitUses: compat.Clone([]Reg{RAX}), ImplicitDefs: compat.Clone([]Reg{RAX, RDX})}))
 		s.copyReg(d, RDX, size)
 
 	case ssa.OpDiv, ssa.OpDivu, ssa.OpMod, ssa.OpModu:
@@ -709,15 +744,15 @@ func (s *isel) value(v *ssa.Value) error {
 	case ssa.OpNeg:
 		d := s.def(v)
 		s.copyReg(d, s.reg(v.Args[0]), size)
-		s.emit(compat.New(MInst{Op: MNEG, Size: size, Dst: RegOp(d)}))
+		s.emit(new(MInst{Op: MNEG, Size: size, Dst: RegOp(d)}))
 	case ssa.OpCom:
 		d := s.def(v)
 		s.copyReg(d, s.reg(v.Args[0]), size)
-		s.emit(compat.New(MInst{Op: MNOT, Size: size, Dst: RegOp(d)}))
+		s.emit(new(MInst{Op: MNOT, Size: size, Dst: RegOp(d)}))
 	case ssa.OpNot:
 		d := s.def(v)
 		s.copyReg(d, s.reg(v.Args[0]), 1)
-		s.emit(compat.New(MInst{Op: MXOR, Size: 1, Dst: RegOp(d), Src: ImmOp(1)}))
+		s.emit(new(MInst{Op: MXOR, Size: 1, Dst: RegOp(d), Src: ImmOp(1)}))
 
 	case ssa.OpFAdd, ssa.OpFSub, ssa.OpFMul, ssa.OpFDiv:
 		op := compat.MapAt(compat.MapOf[ssa.Op, MOp](
@@ -729,7 +764,7 @@ func (s *isel) value(v *ssa.Value) error {
 		x, src := s.aluArgs(v)
 		d := s.def(v)
 		s.copyReg(d, s.reg(x), size)
-		s.emit(compat.New(MInst{Op: op, Size: size, Dst: RegOp(d), Src: src}))
+		s.emit(new(MInst{Op: op, Size: size, Dst: RegOp(d), Src: src}))
 	case ssa.OpFNeg, ssa.OpFAbs:
 		d := s.def(v)
 		s.copyReg(d, s.reg(v.Args[0]), size)
@@ -743,10 +778,10 @@ func (s *isel) value(v *ssa.Value) error {
 			sign = ^sign
 			op = MANDPS
 		}
-		s.emit(compat.New(MInst{Op: op, Size: 16, Dst: RegOp(d), Src: MemOp(s.constMem(sign, sign))}))
+		s.emit(new(MInst{Op: op, Size: 16, Dst: RegOp(d), Src: MemOp(s.constMem(sign, sign))}))
 	case ssa.OpFSqrt:
 		d := s.def(v)
-		s.emit(compat.New(MInst{Op: MSQRTSF, Size: size, Dst: RegOp(d), Src: RegOp(s.reg(v.Args[0]))}))
+		s.emit(new(MInst{Op: MSQRTSF, Size: size, Dst: RegOp(d), Src: RegOp(s.reg(v.Args[0]))}))
 
 	case ssa.OpEq, ssa.OpNe, ssa.OpLess, ssa.OpLeq, ssa.OpLessu, ssa.OpLequ:
 		cond := s.intCompare(v)
@@ -759,7 +794,7 @@ func (s *isel) value(v *ssa.Value) error {
 
 	case ssa.OpSignExt:
 		from := sizeOf(v.Args[0].Type)
-		s.emit(compat.New(MInst{Op: MMOVSX, Size: size, SrcSize: from, Dst: RegOp(s.def(v)), Src: RegOp(s.reg(v.Args[0]))}))
+		s.emit(new(MInst{Op: MMOVSX, Size: size, SrcSize: from, Dst: RegOp(s.def(v)), Src: RegOp(s.reg(v.Args[0]))}))
 	case ssa.OpZeroExt:
 		from := sizeOf(v.Args[0].Type)
 		d := s.def(v)
@@ -767,25 +802,25 @@ func (s *isel) value(v *ssa.Value) error {
 			// load already zero-extended it.
 			s.copyReg(d, s.reg(a), 8)
 		} else if from == 4 {
-			s.emit(compat.New(MInst{Op: MMOV, Size: 4, Dst: RegOp(d), Src: RegOp(s.reg(v.Args[0]))}))
+			s.emit(new(MInst{Op: MMOV, Size: 4, Dst: RegOp(d), Src: RegOp(s.reg(v.Args[0]))}))
 		} else {
-			s.emit(compat.New(MInst{Op: MMOVZX, Size: 4, SrcSize: from, Dst: RegOp(d), Src: RegOp(s.reg(v.Args[0]))}))
+			s.emit(new(MInst{Op: MMOVZX, Size: 4, SrcSize: from, Dst: RegOp(d), Src: RegOp(s.reg(v.Args[0]))}))
 		}
 	case ssa.OpTrunc:
 		s.copyReg(s.def(v), s.reg(v.Args[0]), size)
 
 	case ssa.OpIntToFloat:
 		d := s.def(v)
-		s.emit(compat.New(MInst{Op: MXORPS, Size: 16, Dst: RegOp(d), Src: RegOp(d)})) // break the false dependency
-		s.emit(compat.New(MInst{Op: MCVTSI2F, Size: size, SrcSize: sizeOf(v.Args[0].Type), Dst: RegOp(d), Src: RegOp(s.reg(v.Args[0]))}))
+		s.emit(new(MInst{Op: MXORPS, Size: 16, Dst: RegOp(d), Src: RegOp(d)})) // break the false dependency
+		s.emit(new(MInst{Op: MCVTSI2F, Size: size, SrcSize: sizeOf(v.Args[0].Type), Dst: RegOp(d), Src: RegOp(s.reg(v.Args[0]))}))
 	case ssa.OpFloatToInt:
-		s.emit(compat.New(MInst{Op: MCVTTF2SI, Size: size, SrcSize: sizeOf(v.Args[0].Type), Dst: RegOp(s.def(v)), Src: RegOp(s.reg(v.Args[0]))}))
+		s.emit(new(MInst{Op: MCVTTF2SI, Size: size, SrcSize: sizeOf(v.Args[0].Type), Dst: RegOp(s.def(v)), Src: RegOp(s.reg(v.Args[0]))}))
 	case ssa.OpFloatConv:
-		s.emit(compat.New(MInst{Op: MCVTF2F, Size: size, SrcSize: sizeOf(v.Args[0].Type), Dst: RegOp(s.def(v)), Src: RegOp(s.reg(v.Args[0]))}))
+		s.emit(new(MInst{Op: MCVTF2F, Size: size, SrcSize: sizeOf(v.Args[0].Type), Dst: RegOp(s.def(v)), Src: RegOp(s.reg(v.Args[0]))}))
 	case ssa.OpBitcast:
 		a := v.Args[0]
 		if a.Type.IsFloat() != v.Type.IsFloat() {
-			s.emit(compat.New(MInst{Op: MMOVQ, Size: size, Dst: RegOp(s.def(v)), Src: RegOp(s.reg(a))}))
+			s.emit(new(MInst{Op: MMOVQ, Size: size, Dst: RegOp(s.def(v)), Src: RegOp(s.reg(a))}))
 		} else {
 			s.copyReg(s.def(v), s.reg(a), size)
 		}
@@ -794,9 +829,9 @@ func (s *isel) value(v *ssa.Value) error {
 		d := s.def(v)
 		s.copyReg(d, s.reg(v.Args[0]), size)
 		if size == 2 {
-			s.emit(compat.New(MInst{Op: MROL, Size: 2, Dst: RegOp(d), Src: ImmOp(8)}))
+			s.emit(new(MInst{Op: MROL, Size: 2, Dst: RegOp(d), Src: ImmOp(8)}))
 		} else {
-			s.emit(compat.New(MInst{Op: MBSWAP, Size: size, Dst: RegOp(d)}))
+			s.emit(new(MInst{Op: MBSWAP, Size: size, Dst: RegOp(d)}))
 		}
 	case ssa.OpCtz, ssa.OpClz:
 		s.bitScan(v)
@@ -812,10 +847,10 @@ func (s *isel) value(v *ssa.Value) error {
 	case ssa.OpMove:
 		s.move(v.Args[0], v.Args[1], v.AuxInt)
 	case ssa.OpFill:
-		s.emit(compat.New(MInst{Op: MLEA, Size: 8, Dst: RegOp(RDI), Src: MemOp(s.addr(v.Args[0]))}))
+		s.emit(new(MInst{Op: MLEA, Size: 8, Dst: RegOp(RDI), Src: MemOp(s.addr(v.Args[0]))}))
 		s.copyReg(RCX, s.reg(v.Args[2]), 8)
 		s.copyReg(RAX, s.reg(v.Args[1]), 8)
-		s.emit(compat.New(MInst{Op: MREPSTOSB, ImplicitUses: compat.Clone([]Reg{RDI, RCX, RAX}), ImplicitDefs: compat.Clone([]Reg{RDI, RCX})}))
+		s.emit(new(MInst{Op: MREPSTOSB, ImplicitUses: compat.Clone([]Reg{RDI, RCX, RAX}), ImplicitDefs: compat.Clone([]Reg{RDI, RCX})}))
 
 	case ssa.OpCall, ssa.OpCallInd:
 		s.call(v)
@@ -825,11 +860,11 @@ func (s *isel) value(v *ssa.Value) error {
 		}
 		// Result registers were copied out by the call.
 		if s.vregs[v.ID] == NoReg {
-			return compat.Errorf("amd64: %s: result not produced by its call", v.LongString())
+			return fmt.Errorf("amd64: %s: result not produced by its call", v.LongString())
 		}
 
 	default:
-		return compat.Errorf("amd64: cannot select %s", v.LongString())
+		return fmt.Errorf("amd64: cannot select %s", v.LongString())
 	}
 	return nil
 }
@@ -848,22 +883,22 @@ func (s *isel) divide(v *ssa.Value) {
 			ext = MMOVSX
 		}
 		a2, b2 := s.mf.newVReg(ClassGP), s.mf.newVReg(ClassGP)
-		s.emit(compat.New(MInst{Op: ext, Size: 4, SrcSize: size, Dst: RegOp(a2), Src: RegOp(a)}))
-		s.emit(compat.New(MInst{Op: ext, Size: 4, SrcSize: size, Dst: RegOp(b2), Src: RegOp(b)}))
+		s.emit(new(MInst{Op: ext, Size: 4, SrcSize: size, Dst: RegOp(a2), Src: RegOp(a)}))
+		s.emit(new(MInst{Op: ext, Size: 4, SrcSize: size, Dst: RegOp(b2), Src: RegOp(b)}))
 		a, b = a2, b2
 		size = 4
 	}
 	s.copyReg(RAX, a, 8)
 	if signed {
-		s.emit(compat.New(MInst{Op: MCQO, Size: size, ImplicitUses: compat.Clone([]Reg{RAX}), ImplicitDefs: compat.Clone([]Reg{RDX})}))
+		s.emit(new(MInst{Op: MCQO, Size: size, ImplicitUses: compat.Clone([]Reg{RAX}), ImplicitDefs: compat.Clone([]Reg{RDX})}))
 	} else {
-		s.emit(compat.New(MInst{Op: MMOV, Size: 4, Dst: RegOp(RDX), Src: ImmOp(0)}))
+		s.emit(new(MInst{Op: MMOV, Size: 4, Dst: RegOp(RDX), Src: ImmOp(0)}))
 	}
 	op := MDIV
 	if signed {
 		op = MIDIV
 	}
-	s.emit(compat.New(MInst{Op: op, Size: size, Src: RegOp(b), ImplicitUses: compat.Clone([]Reg{RAX, RDX}), ImplicitDefs: compat.Clone([]Reg{RAX, RDX})}))
+	s.emit(new(MInst{Op: op, Size: size, Src: RegOp(b), ImplicitUses: compat.Clone([]Reg{RAX, RDX}), ImplicitDefs: compat.Clone([]Reg{RAX, RDX})}))
 	res := RAX
 	if v.Op == ssa.OpMod || v.Op == ssa.OpModu {
 		res = RDX
@@ -895,7 +930,7 @@ func (s *isel) shift(v *ssa.Value) {
 		}
 		s.copyReg(d, s.reg(v.Args[0]), size)
 		if c != 0 {
-			s.emit(compat.New(MInst{Op: op, Size: size, Dst: RegOp(d), Src: ImmOp(c)}))
+			s.emit(new(MInst{Op: op, Size: size, Dst: RegOp(d), Src: ImmOp(c)}))
 		}
 		return
 	}
@@ -906,19 +941,19 @@ func (s *isel) shift(v *ssa.Value) {
 		s.loadConst(limit, width-1, 8)
 		c2 := s.mf.newVReg(ClassGP)
 		s.copyReg(c2, cnt, 8)
-		s.emit(compat.New(MInst{Op: MCMP, Size: 8, Dst: RegOp(c2), Src: ImmOp(width - 1)}))
-		s.emit(compat.New(MInst{Op: MCMOVCC, Size: 8, Cond: CondA, Dst: RegOp(c2), Src: RegOp(limit)}))
+		s.emit(new(MInst{Op: MCMP, Size: 8, Dst: RegOp(c2), Src: ImmOp(width - 1)}))
+		s.emit(new(MInst{Op: MCMOVCC, Size: 8, Cond: CondA, Dst: RegOp(c2), Src: RegOp(limit)}))
 		cnt = c2
 	}
 	s.copyReg(d, s.reg(v.Args[0]), size)
 	s.copyReg(RCX, cnt, 8)
-	s.emit(compat.New(MInst{Op: op, Size: size, Dst: RegOp(d), Src: RegOp(RCX)}))
+	s.emit(new(MInst{Op: op, Size: size, Dst: RegOp(d), Src: RegOp(RCX)}))
 	if v.Op == ssa.OpShl || v.Op == ssa.OpShrL {
 		// Counts of at least the width give zero.
 		zero := s.mf.newVReg(ClassGP)
 		s.loadConst(zero, 0, 8)
-		s.emit(compat.New(MInst{Op: MCMP, Size: 8, Dst: RegOp(cnt), Src: ImmOp(width)}))
-		s.emit(compat.New(MInst{Op: MCMOVCC, Size: max(size, 4), Cond: CondAE, Dst: RegOp(d), Src: RegOp(zero)}))
+		s.emit(new(MInst{Op: MCMP, Size: 8, Dst: RegOp(cnt), Src: ImmOp(width)}))
+		s.emit(new(MInst{Op: MCMOVCC, Size: max(size, 4), Cond: CondAE, Dst: RegOp(d), Src: RegOp(zero)}))
 	}
 }
 
@@ -956,14 +991,14 @@ func (s *isel) intCompare(v *ssa.Value) Cond {
 			if x.Op == ssa.OpConst {
 				x, y = y, x
 			}
-			s.emit(compat.New(MInst{Op: MTEST, Size: size, Dst: RegOp(s.reg(x)), Src: s.operand(y)}))
+			s.emit(new(MInst{Op: MTEST, Size: size, Dst: RegOp(s.reg(x)), Src: s.operand(y)}))
 			return cond
 		}
 		r := s.reg(a)
-		s.emit(compat.New(MInst{Op: MTEST, Size: size, Dst: RegOp(r), Src: RegOp(r)}))
+		s.emit(new(MInst{Op: MTEST, Size: size, Dst: RegOp(r), Src: RegOp(r)}))
 		return cond
 	}
-	s.emit(compat.New(MInst{Op: MCMP, Size: size, Dst: RegOp(s.reg(a)), Src: s.operand(b)}))
+	s.emit(new(MInst{Op: MCMP, Size: size, Dst: RegOp(s.reg(a)), Src: s.operand(b)}))
 	return cond
 }
 
@@ -998,16 +1033,16 @@ func (s *isel) floatCompare(v *ssa.Value) (cond Cond, parity Cond, needParity bo
 	size := sizeOf(a.Type)
 	switch v.Op {
 	case ssa.OpFLess: // a < b  <=>  b > a
-		s.emit(compat.New(MInst{Op: MUCOMI, Size: size, Dst: RegOp(s.reg(b)), Src: RegOp(s.reg(a))}))
+		s.emit(new(MInst{Op: MUCOMI, Size: size, Dst: RegOp(s.reg(b)), Src: RegOp(s.reg(a))}))
 		return CondA, 0, false
 	case ssa.OpFLeq:
-		s.emit(compat.New(MInst{Op: MUCOMI, Size: size, Dst: RegOp(s.reg(b)), Src: RegOp(s.reg(a))}))
+		s.emit(new(MInst{Op: MUCOMI, Size: size, Dst: RegOp(s.reg(b)), Src: RegOp(s.reg(a))}))
 		return CondAE, 0, false
 	case ssa.OpFEq:
-		s.emit(compat.New(MInst{Op: MUCOMI, Size: size, Dst: RegOp(s.reg(a)), Src: RegOp(s.reg(b))}))
+		s.emit(new(MInst{Op: MUCOMI, Size: size, Dst: RegOp(s.reg(a)), Src: RegOp(s.reg(b))}))
 		return CondE, CondNP, true
 	default: // FNe
-		s.emit(compat.New(MInst{Op: MUCOMI, Size: size, Dst: RegOp(s.reg(a)), Src: RegOp(s.reg(b))}))
+		s.emit(new(MInst{Op: MUCOMI, Size: size, Dst: RegOp(s.reg(a)), Src: RegOp(s.reg(b))}))
 		return CondNE, CondP, true
 	}
 }
@@ -1016,8 +1051,8 @@ func (s *isel) floatCompare(v *ssa.Value) (cond Cond, parity Cond, needParity bo
 // only the low byte, which would make it wait for d's old value; clearing
 // d first with a MOV (which keeps the flags) removes that dependency.
 func (s *isel) setcc(d Reg, cond Cond) {
-	s.emit(compat.New(MInst{Op: MMOV, Size: 4, Dst: RegOp(d), Src: ImmOp(0)}))
-	s.emit(compat.New(MInst{Op: MSETCC, Size: 1, Dst: RegOp(d), Cond: cond}))
+	s.emit(new(MInst{Op: MMOV, Size: 4, Dst: RegOp(d), Src: ImmOp(0)}))
+	s.emit(new(MInst{Op: MSETCC, Size: 1, Dst: RegOp(d), Cond: cond}))
 }
 
 func (s *isel) floatCompareValue(v *ssa.Value) {
@@ -1031,7 +1066,7 @@ func (s *isel) floatCompareValue(v *ssa.Value) {
 		if v.Op == ssa.OpFNe {
 			op = MOR
 		}
-		s.emit(compat.New(MInst{Op: op, Size: 1, Dst: RegOp(d), Src: RegOp(t)}))
+		s.emit(new(MInst{Op: op, Size: 1, Dst: RegOp(d), Src: RegOp(t)}))
 	}
 }
 
@@ -1054,10 +1089,10 @@ func (s *isel) selectValue(v *ssa.Value) {
 	default:
 		rc := s.reg(c)
 		s.copyReg(d, rb, size)
-		s.emit(compat.New(MInst{Op: MTEST, Size: 1, Dst: RegOp(rc), Src: RegOp(rc)}))
+		s.emit(new(MInst{Op: MTEST, Size: 1, Dst: RegOp(rc), Src: RegOp(rc)}))
 		cond = CondNE
 	}
-	s.emit(compat.New(MInst{Op: MCMOVCC, Size: size, Cond: cond, Dst: RegOp(d), Src: RegOp(ra)}))
+	s.emit(new(MInst{Op: MCMOVCC, Size: size, Cond: cond, Dst: RegOp(d), Src: RegOp(ra)}))
 }
 
 // ----------------------------------------------------------------------------
@@ -1070,7 +1105,7 @@ func (s *isel) bitScan(v *ssa.Value) {
 	if size < 4 {
 		// Widen: zero-extend so the scan sees only the value's bits.
 		w := s.mf.newVReg(ClassGP)
-		s.emit(compat.New(MInst{Op: MMOVZX, Size: 4, SrcSize: size, Dst: RegOp(w), Src: RegOp(src)}))
+		s.emit(new(MInst{Op: MMOVZX, Size: 4, SrcSize: size, Dst: RegOp(w), Src: RegOp(src)}))
 		src = w
 		opSize = 4
 	}
@@ -1078,19 +1113,19 @@ func (s *isel) bitScan(v *ssa.Value) {
 	d := s.def(v)
 	t := s.mf.newVReg(ClassGP)
 	if v.Op == ssa.OpCtz {
-		s.emit(compat.New(MInst{Op: MBSF, Size: opSize, Dst: RegOp(d), Src: RegOp(src)}))
+		s.emit(new(MInst{Op: MBSF, Size: opSize, Dst: RegOp(d), Src: RegOp(src)}))
 		s.loadConst(t, width, 8)
-		s.emit(compat.New(MInst{Op: MCMOVCC, Size: max(opSize, 4), Cond: CondE, Dst: RegOp(d), Src: RegOp(t)}))
+		s.emit(new(MInst{Op: MCMOVCC, Size: max(opSize, 4), Cond: CondE, Dst: RegOp(d), Src: RegOp(t)}))
 		return
 	}
 	// clz = (opWidth-1) - bsr, adjusted for widening; zero gives width.
-	s.emit(compat.New(MInst{Op: MBSR, Size: opSize, Dst: RegOp(d), Src: RegOp(src)}))
+	s.emit(new(MInst{Op: MBSR, Size: opSize, Dst: RegOp(d), Src: RegOp(src)}))
 	s.loadConst(t, -1, 8)
-	s.emit(compat.New(MInst{Op: MCMOVCC, Size: max(opSize, 4), Cond: CondE, Dst: RegOp(d), Src: RegOp(t)}))
+	s.emit(new(MInst{Op: MCMOVCC, Size: max(opSize, 4), Cond: CondE, Dst: RegOp(d), Src: RegOp(t)}))
 	// d = width-1 - d  (d is -1 for zero, giving width)
 	r := s.mf.newVReg(ClassGP)
 	s.loadConst(r, width-1, 8)
-	s.emit(compat.New(MInst{Op: MSUB, Size: max(opSize, 4), Dst: RegOp(r), Src: RegOp(d)}))
+	s.emit(new(MInst{Op: MSUB, Size: max(opSize, 4), Dst: RegOp(r), Src: RegOp(d)}))
 	s.vregs[v.ID] = r
 	s.mf.regClass.Set(r, ClassGP)
 }
@@ -1101,9 +1136,9 @@ func (s *isel) popCount(v *ssa.Value) {
 	x := s.mf.newVReg(ClassGP)
 	if size < 8 {
 		if size == 4 {
-			s.emit(compat.New(MInst{Op: MMOV, Size: 4, Dst: RegOp(x), Src: RegOp(s.reg(v.Args[0]))}))
+			s.emit(new(MInst{Op: MMOV, Size: 4, Dst: RegOp(x), Src: RegOp(s.reg(v.Args[0]))}))
 		} else {
-			s.emit(compat.New(MInst{Op: MMOVZX, Size: 4, SrcSize: size, Dst: RegOp(x), Src: RegOp(s.reg(v.Args[0]))}))
+			s.emit(new(MInst{Op: MMOVZX, Size: 4, SrcSize: size, Dst: RegOp(x), Src: RegOp(s.reg(v.Args[0]))}))
 		}
 	} else {
 		s.copyReg(x, s.reg(v.Args[0]), 8)
@@ -1111,32 +1146,32 @@ func (s *isel) popCount(v *ssa.Value) {
 	tmp := func() Reg { return s.mf.newVReg(ClassGP) }
 	k := func(c int64) Reg {
 		r := tmp()
-		s.emit(compat.New(MInst{Op: MMOV, Size: 8, Dst: RegOp(r), Src: ImmOp(c)}))
+		s.emit(new(MInst{Op: MMOV, Size: 8, Dst: RegOp(r), Src: ImmOp(c)}))
 		return r
 	}
 	// x -= (x >> 1) & 0x5555...
 	t := tmp()
 	s.copyReg(t, x, 8)
-	s.emit(compat.New(MInst{Op: MSHR, Size: 8, Dst: RegOp(t), Src: ImmOp(1)}))
-	s.emit(compat.New(MInst{Op: MAND, Size: 8, Dst: RegOp(t), Src: RegOp(k(0x5555555555555555))}))
-	s.emit(compat.New(MInst{Op: MSUB, Size: 8, Dst: RegOp(x), Src: RegOp(t)}))
+	s.emit(new(MInst{Op: MSHR, Size: 8, Dst: RegOp(t), Src: ImmOp(1)}))
+	s.emit(new(MInst{Op: MAND, Size: 8, Dst: RegOp(t), Src: RegOp(k(0x5555555555555555))}))
+	s.emit(new(MInst{Op: MSUB, Size: 8, Dst: RegOp(x), Src: RegOp(t)}))
 	// x = (x & 0x3333...) + ((x >> 2) & 0x3333...)
 	m3 := k(0x3333333333333333)
 	t2 := tmp()
 	s.copyReg(t2, x, 8)
-	s.emit(compat.New(MInst{Op: MSHR, Size: 8, Dst: RegOp(t2), Src: ImmOp(2)}))
-	s.emit(compat.New(MInst{Op: MAND, Size: 8, Dst: RegOp(t2), Src: RegOp(m3)}))
-	s.emit(compat.New(MInst{Op: MAND, Size: 8, Dst: RegOp(x), Src: RegOp(m3)}))
-	s.emit(compat.New(MInst{Op: MADD, Size: 8, Dst: RegOp(x), Src: RegOp(t2)}))
+	s.emit(new(MInst{Op: MSHR, Size: 8, Dst: RegOp(t2), Src: ImmOp(2)}))
+	s.emit(new(MInst{Op: MAND, Size: 8, Dst: RegOp(t2), Src: RegOp(m3)}))
+	s.emit(new(MInst{Op: MAND, Size: 8, Dst: RegOp(x), Src: RegOp(m3)}))
+	s.emit(new(MInst{Op: MADD, Size: 8, Dst: RegOp(x), Src: RegOp(t2)}))
 	// x = (x + (x >> 4)) & 0x0f0f...
 	t3 := tmp()
 	s.copyReg(t3, x, 8)
-	s.emit(compat.New(MInst{Op: MSHR, Size: 8, Dst: RegOp(t3), Src: ImmOp(4)}))
-	s.emit(compat.New(MInst{Op: MADD, Size: 8, Dst: RegOp(x), Src: RegOp(t3)}))
-	s.emit(compat.New(MInst{Op: MAND, Size: 8, Dst: RegOp(x), Src: RegOp(k(0x0f0f0f0f0f0f0f0f))}))
+	s.emit(new(MInst{Op: MSHR, Size: 8, Dst: RegOp(t3), Src: ImmOp(4)}))
+	s.emit(new(MInst{Op: MADD, Size: 8, Dst: RegOp(x), Src: RegOp(t3)}))
+	s.emit(new(MInst{Op: MAND, Size: 8, Dst: RegOp(x), Src: RegOp(k(0x0f0f0f0f0f0f0f0f))}))
 	// x = (x * 0x0101...) >> 56
-	s.emit(compat.New(MInst{Op: MIMUL, Size: 8, Dst: RegOp(x), Src: RegOp(k(0x0101010101010101))}))
-	s.emit(compat.New(MInst{Op: MSHR, Size: 8, Dst: RegOp(x), Src: ImmOp(56)}))
+	s.emit(new(MInst{Op: MIMUL, Size: 8, Dst: RegOp(x), Src: RegOp(k(0x0101010101010101))}))
+	s.emit(new(MInst{Op: MSHR, Size: 8, Dst: RegOp(x), Src: ImmOp(56)}))
 	s.vregs[v.ID] = x
 }
 
@@ -1150,15 +1185,15 @@ func (s *isel) zero(p *ssa.Value, n int64) {
 			step := chunk(n - off)
 			mm := m
 			mm.Disp += off
-			s.emit(compat.New(MInst{Op: MMOV, Size: uint8(step), Dst: MemOp(mm), Src: ImmOp(0)}))
+			s.emit(new(MInst{Op: MMOV, Size: uint8(step), Dst: MemOp(mm), Src: ImmOp(0)}))
 			off += step
 		}
 		return
 	}
-	s.emit(compat.New(MInst{Op: MLEA, Size: 8, Dst: RegOp(RDI), Src: MemOp(s.addr(p))}))
+	s.emit(new(MInst{Op: MLEA, Size: 8, Dst: RegOp(RDI), Src: MemOp(s.addr(p))}))
 	s.loadConst(RCX, n, 8)
 	s.loadConst(RAX, 0, 8)
-	s.emit(compat.New(MInst{Op: MREPSTOSB, ImplicitUses: compat.Clone([]Reg{RDI, RCX, RAX}), ImplicitDefs: compat.Clone([]Reg{RDI, RCX})}))
+	s.emit(new(MInst{Op: MREPSTOSB, ImplicitUses: compat.Clone([]Reg{RDI, RCX, RAX}), ImplicitDefs: compat.Clone([]Reg{RDI, RCX})}))
 }
 
 func (s *isel) move(dst, src *ssa.Value, n int64) {
@@ -1172,16 +1207,16 @@ func (s *isel) move(dst, src *ssa.Value, n int64) {
 			a.Disp += off
 			b := dm
 			b.Disp += off
-			s.emit(compat.New(MInst{Op: MMOV, Size: uint8(step), Dst: RegOp(t), Src: MemOp(a)}))
-			s.emit(compat.New(MInst{Op: MMOV, Size: uint8(step), Dst: MemOp(b), Src: RegOp(t)}))
+			s.emit(new(MInst{Op: MMOV, Size: uint8(step), Dst: RegOp(t), Src: MemOp(a)}))
+			s.emit(new(MInst{Op: MMOV, Size: uint8(step), Dst: MemOp(b), Src: RegOp(t)}))
 			off += step
 		}
 		return
 	}
-	s.emit(compat.New(MInst{Op: MLEA, Size: 8, Dst: RegOp(RDI), Src: MemOp(s.addr(dst))}))
-	s.emit(compat.New(MInst{Op: MLEA, Size: 8, Dst: RegOp(RSI), Src: MemOp(s.addr(src))}))
+	s.emit(new(MInst{Op: MLEA, Size: 8, Dst: RegOp(RDI), Src: MemOp(s.addr(dst))}))
+	s.emit(new(MInst{Op: MLEA, Size: 8, Dst: RegOp(RSI), Src: MemOp(s.addr(src))}))
 	s.loadConst(RCX, n, 8)
-	s.emit(compat.New(MInst{Op: MREPMOVSB, ImplicitUses: compat.Clone([]Reg{RDI, RSI, RCX}), ImplicitDefs: compat.Clone([]Reg{RDI, RSI, RCX})}))
+	s.emit(new(MInst{Op: MREPMOVSB, ImplicitUses: compat.Clone([]Reg{RDI, RSI, RCX}), ImplicitDefs: compat.Clone([]Reg{RDI, RSI, RCX})}))
 }
 
 // chunk returns the largest power-of-two access size (at most 8) <= n.
@@ -1255,7 +1290,7 @@ func (s *isel) call(v *ssa.Value) {
 		s.loadConst(RAX, int64(nf), 4)
 		uses = compat.Append(uses, RAX)
 	}
-	in := compat.New(MInst{Op: MCALL, ImplicitUses: uses, ImplicitDefs: compat.Append([]Reg(nil), callerSaved...)})
+	in := new(MInst{Op: MCALL, ImplicitUses: uses, ImplicitDefs: compat.Append([]Reg(nil), callerSaved...)})
 	if v.Op == ssa.OpCall {
 		in.Sym = v.Aux.(*ssa.Sym)
 	} else {
@@ -1288,48 +1323,52 @@ func (s *isel) terminator(b *ssa.Block) error {
 	switch b.Kind {
 	case ssa.BlockPlain:
 		s.phiCopies(b, b.Succs[0].B, b.Succs[0].I)
-		s.emit(compat.New(MInst{Op: MJMP, Target: s.blocks[b.Succs[0].B.ID]}))
+		s.emit(new(MInst{Op: MJMP, Target: s.blocks[b.Succs[0].B.ID]}))
 	case ssa.BlockIf:
 		yes, no := s.blocks[b.Succs[0].B.ID], s.blocks[b.Succs[1].B.ID]
 		c := b.Controls[0]
 		switch {
 		case c.Op == ssa.OpConst && s.vregs[c.ID] == NoReg:
 			if c.AuxInt != 0 {
-				s.emit(compat.New(MInst{Op: MJMP, Target: yes}))
+				s.emit(new(MInst{Op: MJMP, Target: yes}))
 			} else {
-				s.emit(compat.New(MInst{Op: MJMP, Target: no}))
+				s.emit(new(MInst{Op: MJMP, Target: no}))
 			}
 			return nil
 		case s.fused[c.ID] && !c.Args[0].Type.IsFloat():
 			cond := s.intCompare(c)
-			s.emit(compat.New(MInst{Op: MJCC, Cond: cond, Target: yes}))
+			s.emit(new(MInst{Op: MJCC, Cond: cond, Target: yes}))
 		case s.fused[c.ID]:
 			cond, parity, two := s.floatCompare(c)
 			switch {
 			case !two:
-				s.emit(compat.New(MInst{Op: MJCC, Cond: cond, Target: yes}))
+				s.emit(new(MInst{Op: MJCC, Cond: cond, Target: yes}))
 			case c.Op == ssa.OpFEq:
-				s.emit(compat.New(MInst{Op: MJCC, Cond: CondNE, Target: no}))
-				s.emit(compat.New(MInst{Op: MJCC, Cond: CondP, Target: no}))
-				s.emit(compat.New(MInst{Op: MJMP, Target: yes}))
+				s.emit(new(MInst{Op: MJCC, Cond: CondNE, Target: no}))
+				s.emit(new(MInst{Op: MJCC, Cond: CondP, Target: no}))
+				s.emit(new(MInst{Op: MJMP, Target: yes}))
 				return nil
 			default: // FNe
-				s.emit(compat.New(MInst{Op: MJCC, Cond: CondNE, Target: yes}))
-				s.emit(compat.New(MInst{Op: MJCC, Cond: parity, Target: yes}))
+				s.emit(new(MInst{Op: MJCC, Cond: CondNE, Target: yes}))
+				s.emit(new(MInst{Op: MJCC, Cond: parity, Target: yes}))
 			}
 		default:
 			r := s.reg(c)
-			s.emit(compat.New(MInst{Op: MTEST, Size: 1, Dst: RegOp(r), Src: RegOp(r)}))
-			s.emit(compat.New(MInst{Op: MJCC, Cond: CondNE, Target: yes}))
+			s.emit(new(MInst{Op: MTEST, Size: 1, Dst: RegOp(r), Src: RegOp(r)}))
+			s.emit(new(MInst{Op: MJCC, Cond: CondNE, Target: yes}))
 		}
-		s.emit(compat.New(MInst{Op: MJMP, Target: no}))
+		s.emit(new(MInst{Op: MJMP, Target: no}))
 	case ssa.BlockRet:
 		results := b.Controls[1:]
 		types := make([]*ssa.Type, len(results))
 		for i, r := range results {
 			types[i] = r.Type
 		}
-		locs, _ := abiLocs(types, intResultRegs, floatResultRegs, nil)
+		resRegsInt, resRegsFloat := intResultRegs, floatResultRegs
+		if s.f.ABI == ssa.ABIC {
+			resRegsInt, resRegsFloat = intResultRegs[:2], floatResultRegs[:2]
+		}
+		locs, _ := abiLocs(types, resRegsInt, resRegsFloat, nil)
 		srcs := make([]Reg, len(results))
 		for i, r := range results {
 			srcs[i] = s.reg(r)
@@ -1339,11 +1378,11 @@ func (s *isel) terminator(b *ssa.Block) error {
 			s.copyReg(locs[i].reg, srcs[i], 8)
 			uses = compat.Append(uses, locs[i].reg)
 		}
-		s.emit(compat.New(MInst{Op: MEPILOGUE, ImplicitUses: uses}))
+		s.emit(new(MInst{Op: MEPILOGUE, ImplicitUses: uses}))
 	case ssa.BlockExit:
-		s.emit(compat.New(MInst{Op: MUD2}))
+		s.emit(new(MInst{Op: MUD2}))
 	default:
-		return compat.Errorf("amd64: block %s has kind %s", b, b.Kind)
+		return fmt.Errorf("amd64: block %s has kind %s", b, b.Kind)
 	}
 	return nil
 }
@@ -1363,6 +1402,6 @@ func (s *isel) phiCopies(b, succ *ssa.Block, idx int) {
 		srcs = compat.Append(srcs, s.reg(v.Args[idx]))
 	}
 	if len(dsts) > 0 {
-		s.emit(compat.New(MInst{Op: MPCOPY, Dsts: dsts, Srcs: srcs}))
+		s.emit(new(MInst{Op: MPCOPY, Dsts: dsts, Srcs: srcs}))
 	}
 }

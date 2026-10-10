@@ -3,6 +3,7 @@
 package amd64
 
 import (
+	"pluto/fmt"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 )
@@ -40,7 +41,7 @@ func Compile(f *ssa.Func, listing bool) (*Code, error) {
 	order := layoutBlocks(mf)
 	code, err := encodeFunc(mf, order)
 	if err != nil {
-		return nil, compat.Errorf("%s: %w", f.Name, err)
+		return nil, fmt.Errorf("%s: %w", f.Name, err)
 	}
 	code.Sym = f.Sym
 	code.Consts = mf.consts
@@ -215,7 +216,7 @@ func relax(e *encoder) *Code {
 	for i := range relocs {
 		relocs[i].Off = newPos(relocs[i].Off)
 	}
-	return compat.New(Code{Bytes: out, Relocs: relocs})
+	return new(Code{Bytes: out, Relocs: relocs})
 }
 
 func binary32(b []byte, v int64) {

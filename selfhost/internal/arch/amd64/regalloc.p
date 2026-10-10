@@ -3,6 +3,7 @@
 package amd64
 
 import (
+	"pluto/fmt"
 	"pluto/hash"
 	"pluto/math"
 	"pluto/sort"
@@ -41,7 +42,7 @@ func expandPCopies(f *MFunc) {
 					if blocked {
 						continue
 					}
-					out = compat.Append(out, compat.New(MInst{Op: MCOPY, Size: 8, Dst: RegOp(m.dst), Src: RegOp(m.src)}))
+					out = compat.Append(out, new(MInst{Op: MCOPY, Size: 8, Dst: RegOp(m.dst), Src: RegOp(m.src)}))
 					pending = compat.Append(pending[:i], pending[i+1:]...)
 					progress = true
 					i--
@@ -51,7 +52,7 @@ func expandPCopies(f *MFunc) {
 					// Save one destination's value and redirect its readers.
 					m := pending[0]
 					t := f.newVReg(f.classOf(m.dst))
-					out = compat.Append(out, compat.New(MInst{Op: MCOPY, Size: 8, Dst: RegOp(t), Src: RegOp(m.dst)}))
+					out = compat.Append(out, new(MInst{Op: MCOPY, Size: 8, Dst: RegOp(t), Src: RegOp(m.dst)}))
 					for j := range pending {
 						if pending[j].src == m.dst {
 							pending[j].src = t
@@ -217,7 +218,7 @@ func allocate(f *MFunc) error {
 	spillTemps := compat.NewMap[Reg, bool](0)
 	for round := 0; ; round++ {
 		if round > 50 {
-			return compat.Errorf("amd64: register allocation of %s did not converge", f.Name)
+			return fmt.Errorf("amd64: register allocation of %s did not converge", f.Name)
 		}
 		liveOut := liveness(f)
 		done := true
@@ -251,7 +252,7 @@ func newAllocator(f *MFunc, class RegClass, spillTemps *hash.Map[Reg, bool]) *al
 	if class == ClassGP && f.frameFP {
 		colors = colors[:len(colors)-1] // RBP is the frame pointer
 	}
-	a := compat.New(allocator{
+	a := new(allocator{
 		f: f, class: class, k: len(colors), colors: colors,
 		precolored: compat.NewMap[Reg, bool](0),
 		simplifyWL: compat.NewMap[Reg, bool](0), freezeWL: compat.NewMap[Reg, bool](0), spillWL: compat.NewMap[Reg, bool](0),
@@ -670,7 +671,7 @@ func (a *allocator) rewrite(spillTemps *hash.Map[Reg, bool]) {
 					t := f.newVReg(a.class)
 					spillTemps.Set(t, true)
 					reload.Set(r, t)
-					out = compat.Append(out, compat.New(MInst{Op: MRELOAD, Size: 8, Dst: RegOp(t), Slot: slot}))
+					out = compat.Append(out, new(MInst{Op: MRELOAD, Size: 8, Dst: RegOp(t), Slot: slot}))
 				}
 			}
 			buf = in.Defs(buf[:0])
@@ -698,7 +699,7 @@ func (a *allocator) rewrite(spillTemps *hash.Map[Reg, bool]) {
 			{
 				goIt9 := compat.MapIter(store)
 				for r, t, goOk10 := goIt9.Next(); goOk10; r, t, goOk10 = goIt9.Next() {
-					out = compat.Append(out, compat.New(MInst{Op: MSPILL, Size: 8, Src: RegOp(t), Slot: compat.MapAt(slots, r)}))
+					out = compat.Append(out, new(MInst{Op: MSPILL, Size: 8, Src: RegOp(t), Slot: compat.MapAt(slots, r)}))
 				}
 			}
 		}
@@ -728,7 +729,9 @@ func applyColors(f *MFunc, color *hash.Map[Reg, Reg]) {
 			}
 			var defs []Reg
 			for _, r := range in.Defs(defs) {
-				if isCalleeSaved(r) && in.Op != MCALL {
+				// An interrupt handler preserves every register, including
+				// those its callees may change.
+				if f.interrupt || isCalleeSaved(r) && in.Op != MCALL {
 					used.Set(r, true)
 				}
 			}
@@ -737,6 +740,19 @@ func applyColors(f *MFunc, color *hash.Map[Reg, Reg]) {
 		b.Insts = out
 	}
 	f.usedSaved = nil
+	f.savedXMM = nil
+	if f.interrupt {
+		for r := RAX; r <= X15; r++ {
+			switch {
+			case !compat.MapAt(used, r) || r == RSP:
+			case r.PhysClass() == ClassXMM:
+				f.savedXMM = compat.Append(f.savedXMM, r)
+			default:
+				f.usedSaved = compat.Append(f.usedSaved, r)
+			}
+		}
+		return
+	}
 	for _, r := range calleeSaved {
 		if compat.MapAt(used, r) {
 			f.usedSaved = compat.Append(f.usedSaved, r)

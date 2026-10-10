@@ -1,6 +1,7 @@
 package compat
 
 import (
+	"pluto/errors"
 	"pluto/fmt"
 	"pluto/unicode/utf8"
 	"unsafe"
@@ -92,80 +93,13 @@ func Sprintln(args ...any) string {
 	return b.String()
 }
 
-// An Error is an error with a message and an optional wrapped error, made
-// by Errorf.
-type Error struct {
-	Msg  string
-	Wrap error
-}
-
-func (e *Error) Error() string { return e.Msg }
-
-// Unwrap returns the error that %w wrapped, or nil.
-func (e *Error) Unwrap() error { return e.Wrap }
-
-// Errorf is fmt.Errorf: it formats a message (%w as %v) and keeps the first
-// %w operand for Unwrap. The error lives in alloc.Default().
-func Errorf(format string, args ...any) error {
-	var f Buffer
-	var wrap error
-	argi := 0
-	for i := 0; i < len(format); i++ {
-		c := format[i]
-		if c != '%' || i+1 >= len(format) {
-			f.WriteByte(c)
-			continue
-		}
-		// Copy the directive, counting the arguments it consumes.
-		f.WriteByte(c)
-		i++
-		for i < len(format) && isFlag(format[i]) {
-			if format[i] == '*' {
-				argi++
-			}
-			f.WriteByte(format[i])
-			i++
-		}
-		if i >= len(format) {
-			break
-		}
-		v := format[i]
-		if v == 'w' {
-			if wrap == nil && argi < len(args) {
-				wrap, _ = args[argi].(error)
-			}
-			v = 'v'
-		}
-		f.WriteByte(v)
-		if v != '%' {
-			argi++
-		}
-	}
-	e := new(Error)
-	e.Msg = Sprintf(f.String(), args...)
-	e.Wrap = wrap
+// NewError is errors.New called at run time. Plutonium's errors.New hands
+// out static slots meant for package-level sentinels (spec section 13.1),
+// so an error made each time a function runs is allocated instead, from
+// alloc.Default() like fmt.Errorf's. (fmt.Errorf, errors.Is, As, Unwrap
+// and Join need no translation: pluto/fmt and pluto/errors follow Go.)
+func NewError(text string) error {
+	e := new(errors.Text)
+	e.Msg = text
 	return e
-}
-
-func isFlag(c byte) bool {
-	return c == '+' || c == '-' || c == '#' || c == ' ' || c == '0' || c == '.' || c == '*' || '1' <= c && c <= '9'
-}
-
-// Unwrap returns the error err wraps, or nil.
-func Unwrap(err error) error {
-	if e, ok := err.(*Error); ok {
-		return e.Wrap
-	}
-	return nil
-}
-
-// Is reports whether err or any error it wraps is target.
-func Is(err, target error) bool {
-	for err != nil {
-		if err == target {
-			return true
-		}
-		err = Unwrap(err)
-	}
-	return false
 }

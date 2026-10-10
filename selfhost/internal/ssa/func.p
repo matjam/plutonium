@@ -317,6 +317,10 @@ type Func struct {
 	Section string
 	Pos     token.Pos
 
+	// ParamOnStack forces parameters to the stack, as CallInfo.OnStack does
+	// for calls (ABIC functions only; nil otherwise).
+	ParamOnStack []bool
+
 	Blocks []*Block
 	Entry  *Block
 	Slots  []*Slot
@@ -333,13 +337,13 @@ type Func struct {
 
 // NewFunc returns an empty function with an entry block.
 func NewFunc(name string) *Func {
-	f := compat.New(Func{Name: name})
+	f := new(Func{Name: name})
 	f.Entry = f.NewBlock(BlockPlain)
 	return f
 }
 
 func (f *Func) newValue(op Op, t *Type, b *Block) *Value {
-	v := compat.New(Value{ID: f.nextValue, Op: op, Type: t, Block: b})
+	v := new(Value{ID: f.nextValue, Op: op, Type: t, Block: b})
 	v.Args = v.argStorage[:0]
 	f.nextValue++
 	return v
@@ -353,7 +357,7 @@ func (f *Func) NumBlocks() int { return f.nextBlock }
 
 // NewBlock adds a new block.
 func (f *Func) NewBlock(kind BlockKind) *Block {
-	b := compat.New(Block{ID: f.nextBlock, Kind: kind, Func: f})
+	b := new(Block{ID: f.nextBlock, Kind: kind, Func: f})
 	f.nextBlock++
 	f.Blocks = compat.Append(f.Blocks, b)
 	f.InvalidateCFG()
@@ -365,7 +369,7 @@ func (f *Func) NewSlot(name string, size, align int64) *Slot {
 	if align < 1 {
 		align = 1
 	}
-	s := compat.New(Slot{ID: f.nextSlot, Name: name, Size: size, Align: align})
+	s := new(Slot{ID: f.nextSlot, Name: name, Size: size, Align: align})
 	f.nextSlot++
 	f.Slots = compat.Append(f.Slots, s)
 	return s

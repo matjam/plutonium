@@ -22,22 +22,22 @@ func main() {
 	// Two functions; the second is padded with int3 to 16 bytes.
 	f1 := text.Append([]byte{0x55, 0x48, 0x89, 0xe5, 0xe8, 0, 0, 0, 0, 0x5d, 0xc3}, 16)
 	f2 := text.Append([]byte{0x31, 0xc0, 0xc3}, 16)
-	o.Define(compat.New(objfile.Symbol{Name: "main.f1", Section: text, Value: f1, Size: 11, Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC}))
-	o.Define(compat.New(objfile.Symbol{Name: "main.f2", Section: text, Value: f2, Size: 3, Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC}))
+	o.Define(new(objfile.Symbol{Name: "main.f1", Section: text, Value: f1, Size: 11, Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC}))
+	o.Define(new(objfile.Symbol{Name: "main.f2", Section: text, Value: f2, Size: 3, Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC}))
 	text.Relocs = compat.Append(text.Relocs, objfile.Reloc{Off: f1 + 5, Sym: "main.f2", Type: elf.R_X86_64_PLT32, Addend: -4})
 	text.Relocs = compat.Append(text.Relocs, objfile.Reloc{Off: f2, Sym: "external.helper", Type: elf.R_X86_64_PC32, Addend: -4})
 
 	// Data with a pointer to rodata, a local constant and some bss.
 	d := data.Append(make([]byte, 16), 8)
 	c := rodata.Append(compat.Bytes("hello, object\x00"), 16)
-	o.Define(compat.New(objfile.Symbol{Name: "const.hello", Section: rodata, Value: c, Size: 14, Bind: elf.STB_LOCAL, Type: elf.STT_OBJECT}))
+	o.Define(new(objfile.Symbol{Name: "const.hello", Section: rodata, Value: c, Size: 14, Bind: elf.STB_LOCAL, Type: elf.STT_OBJECT}))
 	data.Relocs = compat.Append(data.Relocs, objfile.Reloc{Off: d, Sym: "const.hello", Type: elf.R_X86_64_64})
-	o.Define(compat.New(objfile.Symbol{Name: "main.table", Section: data, Value: d, Size: 16, Bind: elf.STB_GLOBAL, Type: elf.STT_OBJECT}))
+	o.Define(new(objfile.Symbol{Name: "main.table", Section: data, Value: d, Size: 16, Bind: elf.STB_GLOBAL, Type: elf.STT_OBJECT}))
 	b := bss.Reserve(4096, 64)
-	o.Define(compat.New(objfile.Symbol{Name: "main.buf", Section: bss, Value: b, Size: 4096, Bind: elf.STB_LOCAL, Type: elf.STT_OBJECT}))
+	o.Define(new(objfile.Symbol{Name: "main.buf", Section: bss, Value: b, Size: 4096, Bind: elf.STB_LOCAL, Type: elf.STT_OBJECT}))
 
 	// Redefining a symbol replaces it in place.
-	o.Define(compat.New(objfile.Symbol{Name: "main.f2", Section: text, Value: f2, Size: 3, Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC}))
+	o.Define(new(objfile.Symbol{Name: "main.f2", Section: text, Value: f2, Size: 3, Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC}))
 
 	buf := new(compat.Buffer)
 	if err := o.Write(buf); err != nil {

@@ -1,7 +1,7 @@
 // Package compat gives code translated from Go by tools/go2pu the Go
 // semantics it relies on, on top of Plutonium's allocators: maps that are
 // references, append that grows, string concatenation and conversions that
-// copy, and fmt.Sprintf and fmt.Errorf that return new strings and errors.
+// copy, fmt.Sprintf that returns a new string, and errors made at run time.
 //
 // Everything here allocates from alloc.Default() and never frees. That is
 // Go's garbage-collected model with the collector replaced by an arena: the

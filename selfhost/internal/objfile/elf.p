@@ -4,6 +4,7 @@
 package objfile
 
 import (
+	"pluto/fmt"
 	"pluto/hash"
 	"pluto/io"
 	"pluto/sort"
@@ -49,7 +50,7 @@ type Object struct {
 }
 
 // New returns an empty object.
-func New() *Object { return compat.New(Object{syms: compat.NewMap[string, *Symbol](0)}) }
+func New() *Object { return new(Object{syms: compat.NewMap[string, *Symbol](0)}) }
 
 // Section returns the named section, creating it with the given attributes.
 func (o *Object) Section(name string, typ elf.SectionType, flags elf.SectionFlag, align uint64) *Section {
@@ -61,7 +62,7 @@ func (o *Object) Section(name string, typ elf.SectionType, flags elf.SectionFlag
 			return s
 		}
 	}
-	s := compat.New(Section{Name: name, Type: typ, Flags: flags, Align: align})
+	s := new(Section{Name: name, Type: typ, Flags: flags, Align: align})
 	o.Sections = compat.Append(o.Sections, s)
 	return s
 }
@@ -111,7 +112,7 @@ func (o *Object) Define(sym *Symbol) {
 // Reference ensures a symbol exists, undefined if not defined later.
 func (o *Object) Reference(name string) {
 	if _, ok := compat.MapGet(o.syms, name); !ok {
-		o.syms.Set(name, compat.New(Symbol{Name: name, Bind: elf.STB_GLOBAL, Type: elf.STT_NOTYPE}))
+		o.syms.Set(name, new(Symbol{Name: name, Bind: elf.STB_GLOBAL, Type: elf.STT_NOTYPE}))
 		o.order = compat.Append(o.order, name)
 	}
 }
@@ -207,7 +208,7 @@ func (o *Object) Write(w io.Writer) error {
 		for _, r := range s.Relocs {
 			idx, ok := compat.MapGet(symIndex, r.Sym)
 			if !ok {
-				return compat.Errorf("objfile: relocation against unknown symbol %q", r.Sym)
+				return fmt.Errorf("objfile: relocation against unknown symbol %q", r.Sym)
 			}
 			e := elf.Rela64{Off: r.Off, Info: elf.R_INFO(uint32(idx), uint32(r.Type)), Addend: r.Addend}
 			_ = goWriteLERela64Ptr(buf, &e)

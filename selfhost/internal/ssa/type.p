@@ -84,7 +84,7 @@ func FloatType(size int64) *Type {
 
 // TupleOf returns a tuple type.
 func TupleOf(elems ...*Type) *Type {
-	return compat.New(Type{Kind: KTuple, Elems: elems})
+	return new(Type{Kind: KTuple, Elems: elems})
 }
 
 func (t *Type) IsMem() bool   { return t.Kind == KMem }

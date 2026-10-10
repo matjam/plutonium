@@ -13,15 +13,6 @@ func Append[T any](s []T, xs ...T) []T {
 	return append(s, xs...)
 }
 
-// New returns a pointer to a copy of v in memory from alloc.Default(). It
-// translates &T{...} where Go's escape analysis moves the literal to the
-// heap: in Plutonium &T{...} is the address of a temporary in the frame.
-func New[T any](v T) *T {
-	p := new(T)
-	*p = v
-	return p
-}
-
 // Clone returns a copy of s in memory from alloc.Default(). It translates
 // a slice literal []T{...} that Go's escape analysis moves to the heap: in
 // Plutonium its backing array is in the frame.

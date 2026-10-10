@@ -43,7 +43,7 @@ var errBase = errors.New("base")
 
 // newNode returns a pointer to a composite literal, which Go moves to the
 // heap and Plutonium would leave in the frame.
-func newNode(name string) *node { return compat.New(node{name: name}) }
+func newNode(name string) *node { return new(node{name: name}) }
 
 // pair returns a slice literal, likewise.
 func pair(a, b int) []int { return compat.Clone([]int{a, b}) }
@@ -143,7 +143,7 @@ func maps() {
 		compat.Pair[string, point]{"x", point{1, 0}},
 	)
 	ptrs := compat.MapOf[string, *point](
-		compat.Pair[string, *point]{"p", compat.New(point{2, 3})},
+		compat.Pair[string, *point]{"p", new(point{2, 3})},
 	)
 	nested := compat.MapOf[string, *hash.Map[string, bool]](
 		compat.Pair[string, *hash.Map[string, bool]]{"outer", compat.MapOf[string, bool](
@@ -178,8 +178,12 @@ func stringsAndBytes() {
 	fmt.Println(compat.Join([]string{"x", "y", "z"}, "-"))
 
 	msg := compat.Sprintf("%s=%d", "k", 42)
-	err := compat.Errorf("wrapped %q: %w", msg, errBase)
-	fmt.Println(err, compat.Is(err, errBase), compat.Unwrap(err) == errBase)
+	err := fmt.Errorf("wrapped %q: %w", msg, errBase)
+	fmt.Println(err, errors.Is(err, errBase), errors.Unwrap(err) == errBase)
+	for i := 0; i < 3; i++ {
+		e := compat.NewError(compat.Concat("made at run time: ", s))
+		fmt.Println(e, errors.Is(e, errBase))
+	}
 }
 
 func sorting() {
@@ -225,12 +229,12 @@ type holder struct {
 // keep takes the addresses of a parameter and of locals, which Go moves to
 // the heap; the translation allocates them.
 func keep(gon int) *holder {
-	n := compat.New(gon)
+	n := new(gon)
 
-	v := compat.New(point{(*n), (*n)})
+	v := new(point{(*n), (*n)})
 	s := new(string)
 	var w int = 7
-	h := compat.New(holder{p: n, q: v, r: s})
+	h := new(holder{p: n, q: v, r: s})
 	(*n)++
 	v.x += w
 	(*s) = "kept"

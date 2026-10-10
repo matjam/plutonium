@@ -82,6 +82,11 @@ const (
 	MCALL // Sym or register/memory target
 	MRET
 	MUD2
+	MIRETQ // return from an interrupt handler
+
+	// Interrupt handler entry and exit.
+	MCLD    // clear the direction flag
+	MMOVUPS // unaligned 128-bit move between an XMM register and memory
 
 	// Stack.
 	MPUSH
@@ -153,6 +158,9 @@ var mopNames = compat.MapOf[MOp, string](
 	compat.Pair[MOp, string]{MCALL, "call"},
 	compat.Pair[MOp, string]{MRET, "ret"},
 	compat.Pair[MOp, string]{MUD2, "ud2"},
+	compat.Pair[MOp, string]{MIRETQ, "iretq"},
+	compat.Pair[MOp, string]{MCLD, "cld"},
+	compat.Pair[MOp, string]{MMOVUPS, "movups"},
 	compat.Pair[MOp, string]{MPUSH, "push"},
 	compat.Pair[MOp, string]{MPOP, "pop"},
 	compat.Pair[MOp, string]{MREPMOVSB, "rep movsb"},
@@ -300,16 +308,23 @@ type MFunc struct {
 	frameFP   bool  // use RBP as a frame pointer (over-aligned slots)
 	maxAlign  int64 // largest slot alignment
 	outArgs   int64 // bytes of outgoing stack arguments
-	usedSaved []Reg // callee-saved registers the function changes
+	usedSaved []Reg // callee-saved registers the function changes (every changed GPR for interrupt handlers)
 	frameSize int64 // bytes below the saved registers, excluding them
+
+	// Interrupt handlers (//pu:interrupt): errCode is set when the CPU
+	// pushes an error code; savedXMM lists the XMM registers the handler or
+	// its callees may change, saved in xmmSave.
 	interrupt bool
+	errCode   bool
+	savedXMM  []Reg
+	xmmSave   *ssa.Slot
 	nextSlot  int
 	consts    []Const
 	constSyms *hash.Map[[16]byte, *ssa.Sym]
 }
 
 func newMFunc(name string) *MFunc {
-	return compat.New(MFunc{Name: name, nextVReg: FirstVirtual, regClass: compat.NewMap[Reg, RegClass](0)})
+	return new(MFunc{Name: name, nextVReg: FirstVirtual, regClass: compat.NewMap[Reg, RegClass](0)})
 }
 
 // newVReg allocates a virtual register.
@@ -330,7 +345,7 @@ func (f *MFunc) classOf(r Reg) RegClass {
 
 // newSlot adds a stack slot.
 func (f *MFunc) newSlot(name string, size, align int64) *ssa.Slot {
-	s := compat.New(ssa.Slot{ID: 1<<20 + f.nextSlot, Name: name, Size: size, Align: align})
+	s := new(ssa.Slot{ID: 1<<20 + f.nextSlot, Name: name, Size: size, Align: align})
 	f.nextSlot++
 	f.Slots = compat.Append(f.Slots, s)
 	return s
@@ -447,6 +462,10 @@ func (in *MInst) String() string {
 		return compat.Sprintf("imul $%d, %s, %s", in.Imm, in.Src.format(size), in.Dst.format(size))
 	case MLOADCONSTF:
 		return compat.Sprintf("loadconstf $%#x, %s", in.Imm, in.Dst.format(size))
+	case MIRETQ, MCLD:
+		return in.Op.String()
+	case MMOVUPS:
+		return compat.Sprintf("movups %s, %s", in.Src.format(16), in.Dst.format(16))
 	}
 	var args []string
 	if in.Src.Kind != OpdNone {

@@ -3,6 +3,7 @@
 package ssa
 
 import (
+	"pluto/fmt"
 	"selfhost/compat"
 )
 
@@ -186,7 +187,7 @@ func (f *Func) Verify() error {
 	}
 
 	if len(errs) > 0 {
-		return compat.Errorf("ssa: %s is invalid:\n  %s\n%s", f.Name, compat.Join(errs, "\n  "), f)
+		return fmt.Errorf("ssa: %s is invalid:\n  %s\n%s", f.Name, compat.Join(errs, "\n  "), f)
 	}
 	return nil
 }

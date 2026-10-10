@@ -88,7 +88,7 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 		}
 		if lit, ok := ast.Unparen(n.X).(*ast.CompositeLit); ok && n.Op == token.AND &&
 			t.esc.has(t.fset, n.Pos(), "&", "escapes to heap") {
-			return fmt.Sprintf("%s.New(%s)", t.compat(), t.render(lit)), true
+			return "new(" + t.render(lit) + ")", true
 		}
 	case *ast.FuncLit:
 		why := t.closureEscape(n)
@@ -400,7 +400,7 @@ func (t *fileTr) heapLiteral(n *ast.CompositeLit) (string, bool) {
 		if p, ok := T.Underlying().(*types.Pointer); ok {
 			T = p.Elem()
 		}
-		return fmt.Sprintf("%s.New(%s%s)", t.compat(), t.typeText(T), t.splice(n)), true
+		return fmt.Sprintf("new(%s%s)", t.typeText(T), t.splice(n)), true
 	}
 	// Go reports a slice literal at its opening brace.
 	if _, ok := T.Underlying().(*types.Slice); ok && t.esc.has(t.fset, n.Lbrace, "[]", "escapes to heap") {
@@ -454,6 +454,13 @@ func (t *fileTr) call(n *ast.CallExpr) (string, bool) {
 				return t.sortSlice(n, "SortStableFunc")
 			case "encoding/binary.Write":
 				return t.binaryWrite(n)
+			case "errors.New":
+				// Plutonium's errors.New takes a static slot, for
+				// package-level sentinels; one made at run time is
+				// allocated.
+				if t.inFunc(n) {
+					return fmt.Sprintf("%s.NewError(%s)", t.compat(), t.list(n.Args)), true
+				}
 			}
 		}
 	}
@@ -802,6 +809,18 @@ func direct(T types.Type) bool {
 		return u.Info()&types.IsString == 0
 	case *types.Pointer, *types.Signature, *types.Interface, *types.Map, *types.Chan:
 		return true
+	}
+	return false
+}
+
+// inFunc reports whether n is inside a function body (rather than a
+// package-level initializer).
+func (t *fileTr) inFunc(n ast.Node) bool {
+	for p := t.parent[n]; p != nil; p = t.parent[p] {
+		switch p.(type) {
+		case *ast.FuncLit, *ast.FuncDecl:
+			return true
+		}
 	}
 	return false
 }

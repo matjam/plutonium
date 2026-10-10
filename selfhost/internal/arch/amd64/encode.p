@@ -3,6 +3,7 @@
 package amd64
 
 import (
+	"pluto/fmt"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 )
@@ -53,7 +54,7 @@ func (e *encoder) imm(v int64, size int) {
 
 func (e *encoder) fail(format string, args ...any) {
 	if e.err == nil {
-		e.err = compat.Errorf(format, args...)
+		e.err = fmt.Errorf(format, args...)
 	}
 }
 
@@ -476,6 +477,16 @@ func (e *encoder) encode(in *MInst) {
 		e.byte(0xC3)
 	case MUD2:
 		e.byte(0x0F, 0x0B)
+	case MIRETQ:
+		e.byte(0x48, 0xCF)
+	case MCLD:
+		e.byte(0xFC)
+	case MMOVUPS:
+		if in.Dst.Kind == OpdMem {
+			e.sse(0, 0x11, false, in.Src.Reg, rmMem(in.Dst.Mem))
+		} else {
+			e.sse(0, 0x10, false, in.Dst.Reg, rmMem(in.Src.Mem))
+		}
 	case MPUSH:
 		r := in.Src.Reg
 		if r.enc() >= 8 {

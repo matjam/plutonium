@@ -151,6 +151,10 @@ func stringsAndBytes() {
 	msg := fmt.Sprintf("%s=%d", "k", 42)
 	err := fmt.Errorf("wrapped %q: %w", msg, errBase)
 	fmt.Println(err, errors.Is(err, errBase), errors.Unwrap(err) == errBase)
+	for i := 0; i < 3; i++ {
+		e := errors.New("made at run time: " + s)
+		fmt.Println(e, errors.Is(e, errBase))
+	}
 }
 
 func sorting() {

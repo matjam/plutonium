@@ -112,14 +112,13 @@ func TestAppendConcat(t *testing.T) {
 	}
 }
 
-func TestSprintfErrorf(t *testing.T) {
+func TestSprintfNewError(t *testing.T) {
 	if s := Sprintf("v%d %s %q", 3, "x", "y"); s != `v3 x "y"` {
 		t.Fatalf("Sprintf: %s", s)
 	}
-	base := Errorf("base %d", 1)
-	err := Errorf("wrapped %5.2f: %w", 1.5, base)
-	if err.Error() != " wrapped  1.50: base 1"[1:] || !Is(err, base) || Is(base, err) {
-		t.Fatalf("Errorf: %s", err.Error())
+	e1, e2 := NewError("made at run time"), NewError("made at run time")
+	if e1.Error() != "made at run time" || e1 == e2 {
+		t.Fatalf("NewError: %s, distinct %t", e1.Error(), e1 != e2)
 	}
 	var b Buffer
 	b.WriteString("abc")

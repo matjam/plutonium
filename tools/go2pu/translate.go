@@ -106,16 +106,16 @@ var stdMap = map[string]string{
 }
 
 // special replaces qualified identifiers of Go packages with compat ones.
+// fmt.Errorf and the errors functions need none: pluto/fmt and pluto/errors
+// follow Go (language spec section 13), except errors.New at run time (see
+// call).
 var special = map[string]string{
 	"fmt.Sprintf":     "compat.Sprintf",
 	"fmt.Sprint":      "compat.Sprint",
 	"fmt.Sprintln":    "compat.Sprintln",
-	"fmt.Errorf":      "compat.Errorf",
 	"strings.Builder": "compat.Builder",
 	"strings.Join":    "compat.Join",
 	"bytes.Buffer":    "compat.Buffer",
-	"errors.Is":       "compat.Is",
-	"errors.Unwrap":   "compat.Unwrap",
 }
 
 const (

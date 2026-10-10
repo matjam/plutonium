@@ -11,15 +11,15 @@ document measures what stands in the way, proposes how to port, and reports how 
 ## 1. Summary
 
 - **Translate, do not rewrite.** A mechanical Go-to-Plutonium translator (`tools/go2pu`) plus a small
-  compatibility package (`selfhost/compat`, 450 lines) that gives translated code Go's semantics on top
+  compatibility package (`selfhost/compat`, 380 lines) that gives translated code Go's semantics on top
   of an arena: maps are `*hash.Map`, `append` grows from the current allocator, string concatenation and
-  conversions copy, `Sprintf`/`Errorf` return new strings and errors. Nothing is freed individually;
+  conversions copy, `Sprintf` returns a new string. Nothing is freed individually;
   arenas reclaim whole phases, which is what Go's collector does for this program.
 - **Go's own escape analysis is the oracle** for the one semantic difference a translator cannot see
   syntactically: in Plutonium `&T{...}`, slice literals and address-taken locals live in the frame. The
   translator allocates exactly the ones `go build -gcflags='-m -l'` moves to the heap.
 - **The prototype works on the whole back half of the compiler.** `internal/ssa`, `internal/opt`,
-  `internal/arch/amd64` and `internal/objfile` (9,205 lines, 17.7% of the compile path) translate with one
+  `internal/arch/amd64` and `internal/objfile` (9,356 lines, 17.6% of the compile path) translate with one
   hand-written file (`opt/magic.go`, which used `math/big`) and produce byte-identical SSA dumps, machine
   code, listings and ELF objects to the Go build at `-O0`, `-O1` and `-O2` (`TestDifferential` checks
   `-O0` and `-O2` on every test run).
@@ -32,14 +32,18 @@ document measures what stands in the way, proposes how to port, and reports how 
 - **Bootstrap:** stage 0 (Go) builds stage 1, stage 1 builds stage 2, stage 2 builds stage 3, and stage 2
   and stage 3 must be byte-identical. The Go implementation stays the source of truth until cutover;
   after it, release N is built by release N-1, with no binaries checked into the repository.
-- The prototype found three wrong-code bugs in the current compiler (one fixed here) and two places where
-  the Go-hosted compiler's output depends on map iteration order.
+- The prototype found three wrong-code bugs in the current compiler (one fixed here, one fixed on `main`
+  while this plan was written) and two places where the Go-hosted compiler's output depends on map
+  iteration order.
 
 ## 2. Inventory
 
 ### 2.1 Method
 
-Every number below is measured, by tooling kept out of the build except where noted:
+Every number below is measured, by tooling kept out of the build except where noted. The inventory
+(sections 2.2 to 2.7) is a snapshot of `main` at 636c276; `main` has since grown to 57,624 lines (`lower`
++773 for System V classification of `//pu:extern`, `amd64` +142 for interrupt handlers, `types2` +93), and
+go2pu translated the grown back end with no new hand work (section 9).
 
 - an inventory program (scratch, `go/packages` and `go/types`) that walks the typed ASTs of `internal/...`
   and `cmd/...` and counts the constructs Plutonium lacks or changes, and every standard library name used;
@@ -121,7 +125,7 @@ inventory checks names, not semantics, so the column also says where the semanti
 
 | Go package | Used by | Names used (most frequent) | Plutonium today | Plan (section 4) |
 |---|---|---|---|---|
-| `fmt` | 16 packages, 259 uses | `Sprintf` 96, `Fprintf` 65, `Errorf` 55, `Println` 17 | `pluto/fmt`: 6 of 8; no `Sprintf`, `Errorf` (it has `Bprintf` into a buffer); `%v` of structs prints the type name | compat `Sprintf`/`Errorf` over `Fprintf` |
+| `fmt` | 16 packages, 259 uses | `Sprintf` 96, `Fprintf` 65, `Errorf` 55, `Println` 17 | `pluto/fmt`: 7 of 8; `Errorf` with `%w` (spec section 13); no `Sprintf` (it has `Bprintf` into a buffer); `%v` of structs prints the type name | compat `Sprintf` over `Fprintf`; `Errorf` as is |
 | `strings` | 13 packages, 236 uses | `Builder` and its methods 100, `HasPrefix` 31, `CutPrefix` 10, `Join` 8 | `pluto/strings`: 28 of 37; no `Join`, `Repeat`, `ReplaceAll`, `Split`, `Fields`, `ToLower` (it has `Append*` and `*Into` forms); `Builder` needs an allocator | add allocator forms; compat `Builder` |
 | `bytes` | 9 packages, 211 uses | `Buffer` methods (`WriteByte` 59, `WriteString` 58) | `pluto/bytes.Buffer` exists but has fixed capacity | compat `Buffer` (grows) |
 | `go/constant` | types2 198, lower 31 | `Value`, `Kind`, `MakeInt64`, `Int64Val`, `ToInt`, `BinaryOp`, `Compare`, `Shift`, `MakeFromLiteral` (34 names) | none | new `constant` package (section 5.3) |
@@ -137,7 +141,7 @@ inventory checks names, not semantics, so the column also says where the semanti
 | `os/exec` | cmd/pluto 12, build 4 | `Command`, `Run`, `Start`, `Wait`, `ExitError` (runs `as`, `ld` and test binaries) | none | OS layer |
 | `io/fs`, `path`, `path/filepath` | cmd, build, load, scanner | `DirEntry`, `FS`, `ReadDir`, `WalkDir`, `Join`, `Dir`, `Base`, `Rel`, `Abs` | none | OS layer |
 | `io` | 10 packages | `Writer` 22, `ReadAll` 2 | `pluto/io`: `Writer`, `Reader` | add `ReadAll` |
-| `errors` | 5 packages | `New` 5, `Join` 3, `Is` 1 | `pluto/errors`: `New`, `Is` | compat `Is`; `Join` by hand |
+| `errors` | 5 packages | `New` 5, `Join` 3, `Is` 1 | `pluto/errors`: `New` (static slots, for sentinels), `Is`, `As`, `Unwrap`, `Join` | as is; `errors.New` at run time (3 sites) becomes `compat.NewError` |
 | `sync`, `sync/atomic` | token 39, types2 25, printer 3 | `Mutex`, `RWMutex`, `Once`, `Pool`; atomics | `pluto/sync/atomic` only (`pluto/sync` is roadmap item 16) | no-op stubs (the compiler is single-threaded) |
 | `hash/maphash`, `hash/fnv` | types2 58, lower 2 | `maphash.Hash` (`WriteByte`, `WriteString`, `Sum64`), `fnv.New32a` | `pluto/hash` has the functions, no streaming hasher | add a streaming hasher |
 | `iter` | ast, token, types2 | `Seq` (13) | none (range over func is roadmap item 22) | rewrite the 12 loops as index loops |
@@ -237,15 +241,17 @@ is ever freed individually. `selfhost/compat` holds the few functions that need 
 | `append(b, s...)` (string) | `compat.AppendString(b, s)` | |
 | `s + t`, `s += t` | `compat.Concat(s, t)` | chains flattened into one call |
 | `string(b)`, `[]byte(s)`, `string(r)` | `compat.String`, `compat.Bytes`, `compat.RuneString` | copies |
-| `fmt.Sprintf`, `fmt.Errorf` | `compat.Sprintf`, `compat.Errorf` | `%w` kept for `compat.Is`/`Unwrap` |
+| `fmt.Sprintf` | `compat.Sprintf` | a new string from `alloc.Default()` |
+| `fmt.Errorf`, `errors.Is`, `As`, `Unwrap`, `Join` | unchanged | `pluto/fmt` and `pluto/errors` follow Go (spec section 13) |
+| `errors.New` in a function body | `compat.NewError` | `errors.New` takes a static slot, meant for package-level sentinels |
 | `bytes.Buffer`, `strings.Builder` | `compat.Buffer` | zero value grows from `alloc.Default()` |
-| `strings.Join`, `errors.Is` | `compat.Join`, `compat.Is` | |
+| `strings.Join` | `compat.Join` | |
 | `sort.Slice(x, func(i, j int) bool { ... x[i] ... x[j] ... })` | `sort.SortFunc(x, func(a, b T) bool { ... a ... b ... })` | same pdqsort as Go, so ties come out in the same order; verified |
 | `binary.Write(w, binary.LittleEndian, &x)` | `goWriteLE<T>(w, &x)` | generated field-by-field encoder |
 | `binary.LittleEndian.PutUint32(b, v)` | `compat.PutUint32(b, v)` | |
-| `&T{...}` that escapes | `compat.New(T{...})` | per Go's escape analysis (3.3) |
+| `&T{...}` that escapes | `new(T{...})` | per Go's escape analysis (3.3); Go 1.26's `new` of a value, from the current allocator |
 | `[]T{...}` that escapes | `compat.Clone([]T{...})` | per Go's escape analysis |
-| `x` moved to heap | `x := compat.New(e)`; uses `(*x)`; `&x` is `x` | parameters copied in at the top of the body |
+| `x` moved to heap | `x := new(e)`; uses `(*x)`; `&x` is `x` | parameters copied in at the top of the body |
 | `debug/elf`, `internal/...` imports | `selfhost/elf`, `selfhost/internal/...` | |
 
 An example, from `internal/objfile` (the Go source, then go2pu's output, unedited):
@@ -304,8 +310,7 @@ Plutonium puts composite literals, their addresses and every local in the frame 
 Go moves to the heap whatever escape analysis cannot prove stays in the frame. go2pu runs
 `go build -gcflags='-m -l'` on each package and allocates exactly what Go moves:
 
-- `&T{...}` reported as escaping becomes `compat.New(T{...})` (which will be `new(T{...})` once the
-  compiler implements Go 1.26's `new(expr)`, section 9.4);
+- `&T{...}` reported as escaping becomes `new(T{...})`, which allocates from the current allocator;
 - a slice literal reported as escaping becomes `compat.Clone(...)`;
 - a variable reported as "moved to heap" becomes a pointer to an allocation;
 - a capturing function literal reported as escaping is flagged for hand-fixing (section 3.6).
@@ -346,17 +351,23 @@ mistake the tests reach into a crash, so the differential tests (section 6.3) ru
 
 ### 3.5 Errors
 
-The compiler's error values are mostly pointers (`*lower.Error`, `*errors.errorString`, `types2.Error`
-through the `Config.Error` callback) and 55 `fmt.Errorf` calls, 10 of which wrap with `%w`. In Plutonium
-an interface holding a pointer can be returned, so `compat.Errorf` returns a `*compat.Error` allocated from
-the current arena, keeping the first `%w` operand for `compat.Is`/`Unwrap`. Three error values are not
-pointers and are returned or stored as interfaces: `lower.errorList` and `scanner.ErrorList` (slices) and
-`types2.Error` (a struct passed to a callback that keeps it). They become pointers by hand.
+The errors design (`docs/plans/2026-10-09-errors-design.md`, language spec section 13) landed on `main`
+while this plan was written, and the port follows it: an error that leaves a function is a word-sized
+value or a pointer to static, owner or allocator storage. For the compiler that means:
 
-Error values live in the arena of the phase that made them, so the driver reports errors before releasing
-that arena (it already prints them immediately). The errors design (roadmap item 11) is not on `main` yet;
-when it lands, `compat.Errorf` maps onto its constructor and `%w` onto its wrapping, and nothing in the
-translated code changes.
+- `fmt.Errorf` (55 calls, 10 with `%w`) is used as it is: `pluto/fmt.Errorf` allocates the error and its
+  message from the default allocator, which during compilation is the phase's arena, and wraps with `%w`
+  like Go. `errors.Is`, `As`, `Unwrap` and `Join` are used as they are.
+- `errors.New` takes one of 512 static slots, meant for package-level sentinels; the compiler's two
+  sentinels (`build.ErrNoTestFiles`, `errFormattingDiffers`) stay, and the three calls made at run time
+  (`types2/instantiate.go`, `parser/interface.go`, `cmd/pluto/fmt.go`) become `compat.NewError`, which
+  allocates. The `types2` one runs once per failed instantiation and would exhaust the slots.
+- Three error values are not pointers and are returned or stored as interfaces, which spec section 13
+  forbids: `lower.errorList` and `scanner.ErrorList` (slices) and `types2.Error` (a struct passed to a
+  callback that keeps it). They become pointers by hand.
+
+Errors live in the arena of the phase that made them, so the driver reports them before releasing that
+arena; it already prints them as soon as a phase fails.
 
 ### 3.6 What must be fixed by hand
 
@@ -538,9 +549,9 @@ func (c *goLater1) Call() {
 }
 
 // in typeDecl, where the heap-variable rewrite has made versionErr and rhs pointers:
-versionErr := compat.New(false)
+versionErr := new(false)
 rhs := new(Type)
-check.later(compat.New(goLater1{check, obj, tdecl, versionErr, rhs})).describef(...)
+check.later(new(goLater1{check, obj, tdecl, versionErr, rhs})).describef(...)
 ```
 
 with `action.f func()` becoming `action.f compat.Func0` (`interface{ Call() }`), and the call `a.f()`
@@ -631,9 +642,10 @@ Size: 471 escaping `&T{...}`, 110 slice literals and 142 address-taken locals in
 Go programmer writes `return &T{...}`. Today it compiles and returns a pointer into a dead frame; it often
 works at `-O2` (inlining) and fails at `-O0`. Recommendation: implement roadmap item 5 for composite
 literals, slice literals and `&local` (return, store through a pointer, store in a global), before any
-hand-written Plutonium is merged; fix `new(expr)` (it compiles but ignores the value, a filed task) so the
-idiomatic allocating form is `new(T{...})`. go2pu does not need the check (it allocates by Go's analysis),
-but everything written after cutover does.
+hand-written Plutonium is merged; the errors design proposes the same check for `return &x` (its section
+9.2). The idiomatic allocating form is `new(T{...})` (Go 1.26's `new` of a value, fixed on `main` while
+this plan was written). go2pu does not need the check (it allocates by Go's analysis), but everything
+written after cutover does.
 
 **2. Constant arithmetic: `go/constant` and `math/big` (library).**
 Size: 229 call sites; 2,500-3,500 lines of new library. Blocks `types2` and `lower`. Recommendation: a new
@@ -724,8 +736,8 @@ change needed.
 **15. Missing small names (library).**
 `math.MaxInt32` was the only name the x86-64 backend needed that the library lacked (added here with the
 rest of Go's integer limits). The others go2pu reports: `strconv` `Quote`/`Unquote`/`Itoa`/`FormatInt`,
-`strings` `Repeat`/`ReplaceAll`/`Split`/`Fields`/`ToLower`, `io.ReadAll`, `errors.Join`, `os` file system
-functions, all covered by gaps 6 and 9.
+`strings` `Repeat`/`ReplaceAll`/`Split`/`Fields`/`ToLower`, `io.ReadAll`, `os` file system functions,
+all covered by gaps 6 and 9 (`errors.Join` arrived with the errors design).
 
 ## 8. Effort and phasing
 
@@ -733,9 +745,9 @@ Sizes are in lines written or changed, not in time.
 
 | Phase | Work | Size | Kind | Risk | Needs first |
 |---|---|---:|---|---|---|
-| 0 | Escape errors for frame addresses (roadmap item 5); `new(expr)`; determinism fixes; direct single-pointer structs; itab lookup | 1,000-1,500 compiler | compiler | medium | - |
+| 0 | Escape errors for frame addresses (roadmap item 5); determinism fixes; direct single-pointer structs; itab lookup | 1,000-1,500 compiler | compiler | medium | - |
 | 1 | Library: growable arenas, OS layer, `strconv` quoting and `ParseFloat`, `unicode` predicates, slices/heap/streaming hash, strings with allocators | 6,000 | library, half mechanical | low | - |
-| 2 | Back end: `ssa`, `opt`, `amd64`, `objfile` (**done** in the prototype, differential at `-O0`/`-O2`); port their Go tests; per-function arenas in `ssa` | 9,205 translated, ~300 by hand | mechanical | low | arenas |
+| 2 | Back end: `ssa`, `opt`, `amd64`, `objfile` (**done** in the prototype, differential at `-O0`/`-O2`); port their Go tests; per-function arenas in `ssa` | 9,356 translated, ~300 by hand | mechanical | low | arenas |
 | 3 | SSA reader; mixed pipeline (Go front end, Plutonium back end) on the whole test corpus | 400 | hand | low | 2 |
 | 4 | Syntax: `token`, `scanner`, `ast`, `parser` (`recover` in the parser, `FileSet` without `sync`, iterators, drop `ast/print.go`) | 8,377 translated, ~400 by hand | mechanical | low | 1 |
 | 5 | `lower` (closure conversion for `funcJob`, intrinsics table, constants) | 5,766 translated, ~400 by hand | mechanical plus conversion | medium | constant package, go2pu closure conversion |
@@ -746,7 +758,7 @@ Sizes are in lines written or changed, not in time.
 | later | Formatter (`printer`, `format`, `diff`, `tabwriter`, `go/doc/comment`); idiomatic cleanup replacing compat; performance | 4,534 translated + 2,100 library | mixed | low | 8 |
 
 Roadmap items that must land first: item 5 (escape errors) before any hand-written compiler code; item 11
-(errors design) before cutover, so that hand-written code follows it; item 43 (debug allocator) to check
+(the errors design) has landed and the port follows it; item 43 (debug allocator) to check
 arena lifetimes; item 45 (`time`) for the driver. Items 14 to 17 (puroutines, channels, `pluto/sync`,
 thread-safe allocator) are not needed: the compiler stays single-threaded. Item 22 (range over functions)
 is not needed: the twelve loops are rewritten. Item 25 (sum types) helps but is not required.
@@ -765,11 +777,12 @@ differential tests.
   translation with the Plutonium compiler at `-O0` and `-O2` and compares their output; `TestCompat` runs
   the compat package's own Plutonium tests; `TestHandFixNotes` checks that every unsupported construct is
   reported.
-- `selfhost/` (a Plutonium module, `module selfhost`): `compat` (450 lines and tests), `elf` (the
+- `selfhost/` (a Plutonium module, `module selfhost`): `compat` (380 lines and tests), `elf` (the
   `debug/elf` subset), `internal/syntax/token/pos.p` (a stub of `token.Pos` until `token` is translated),
   and the translations of `internal/objfile`, `internal/ssa`, `internal/opt` and `internal/arch/amd64`
-  (9,529 lines of Plutonium, 828 references to compat: 174 `Append`, 146 `New`, 122 `MapAt`, 72
-  `NewMap`, 46 `Clone`, 34 `Sprintf`), with `opt/magic.p` written by hand.
+  (9,689 lines of Plutonium, 685 references to compat: 182 `Append`, 123 `MapAt`, 72 `NewMap`, 46
+  `Clone`, 35 `Sprintf`, and 159 `new(...)` allocations for what Go's escape analysis moves to the heap),
+  with `opt/magic.p` written by hand.
 - Demos under `tools/go2pu/testdata`, translated into `selfhost/demo`: `objdemo` (writes an ELF object
   and prints it in hex), `ssademo` (builds SSA, prints dominators, frontiers, loops and the passes'
   results), `amd64demo` (compiles SSA to machine code and prints bytes, relocations and listings),
@@ -808,8 +821,13 @@ go2pu's notes for every package, translated into a scratch directory:
    call indexed past the callee's parameters and crashed the compiler.
 2. **Frame addresses escape silently** (roadmap item 5): `return &T{...}` and returned slice literals
    dangle. Found as wrong output at `-O0` and a missing result type at `-O2`.
-3. **`new(expr)` ignores its operand**: `new(T{a: 1})` returns a zeroed `T`. A task is filed.
+3. **`new(expr)` ignored its operand**: `new(T{a: 1})` returned a zeroed `T`. Fixed on `main` (3217ccc)
+   while this plan was written; go2pu now emits `new(T{...})`, and the differential tests pass with it.
 4. **Output depends on Go's map order** in two places (section 2.7). A task is filed.
+
+Merging `main` midway (System V classification in `lower`, interrupt handlers in `amd64`, new SSA fields)
+was the first test of the sync workflow of section 6.3: the translations were regenerated, the grown
+back end needed no hand work, and the differential tests passed unchanged.
 
 ## 10. Decisions for the user
 

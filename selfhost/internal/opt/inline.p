@@ -117,6 +117,11 @@ func inlineInto(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], sizes *hash.M
 				if g == nil || g == f || compat.MapAt(sameSCC, g) && compat.MapAt(inCycle, g) {
 					continue
 				}
+				if v.Call.ABI != g.ABI {
+					// A C call to a Plutonium function: its arguments
+					// are laid out for a different convention.
+					continue
+				}
 				if !shouldInline(g, compat.MapAt(sizes, g)) {
 					continue
 				}
@@ -234,7 +239,7 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 				nv.Aux = compat.MapAt(slotMap, s)
 			}
 			if gv.Call != nil {
-				c := compat.New(*gv.Call)
+				c := new(*gv.Call)
 				nv.Call = c
 			}
 			nv.Pos = gv.Pos

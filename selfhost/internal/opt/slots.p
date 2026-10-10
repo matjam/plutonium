@@ -60,7 +60,7 @@ func analyzeSlots(f *ssa.Func) *hash.Map[*ssa.Slot, *slotInfo] {
 		if i := compat.MapAt(infos, s); i != nil {
 			return i
 		}
-		i := compat.New(slotInfo{slot: s})
+		i := new(slotInfo{slot: s})
 		infos.Set(s, i)
 		return i
 	}

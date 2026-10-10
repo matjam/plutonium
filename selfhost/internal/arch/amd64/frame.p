@@ -37,6 +37,9 @@ func makesCalls(f *MFunc) bool {
 // layoutFrame assigns slot offsets and resolves every frame-relative
 // memory operand to RSP or RBP addressing.
 func layoutFrame(f *MFunc) {
+	if len(f.savedXMM) > 0 {
+		f.xmmSave = f.newSlot("xmmsave", int64(16*len(f.savedXMM)), 16)
+	}
 	outArgs := (f.outArgs + 15) &^ 15
 	// Slots of 16 bytes or more are placed 16-aligned whatever their type
 	// needs, so block copies and clears of them are aligned. The frame is
@@ -65,16 +68,21 @@ func layoutFrame(f *MFunc) {
 		// A leaf with nothing on the stack needs no frame at all.
 		f.frameSize = 0
 	} else {
-		// rsp_entry is 8 mod 16; after the pushes and the frame, rsp must
-		// be 16-aligned at calls.
+		// After the pushes and the frame, rsp must be 16-aligned at calls.
 		size := (off + 15) &^ 15
-		if (8+8*nSaved+size)%16 != 0 {
+		if (entryMisalign(f)+8*nSaved+size)%16 != 0 {
 			size += 8
 		}
 		f.frameSize = size
 	}
 	f.maxAlign = maxAlign
 
+	// Incoming stack arguments start above the return address; an interrupt
+	// handler has none, its parameters address the CPU's frame directly.
+	retAddr := int64(8)
+	if f.interrupt {
+		retAddr = 0
+	}
 	resolve := func(m *Mem) {
 		switch {
 		case m.Slot != nil && m.Base == NoReg:
@@ -84,10 +92,10 @@ func layoutFrame(f *MFunc) {
 		case m.ArgSlot && m.Base == NoReg:
 			if f.frameFP {
 				m.Base = RBP
-				m.Disp = 16 + m.ArgOff
+				m.Disp = 8 + retAddr + m.ArgOff
 			} else {
 				m.Base = RSP
-				m.Disp = f.frameSize + 8*nSaved + 8 + m.ArgOff
+				m.Disp = f.frameSize + 8*nSaved + retAddr + m.ArgOff
 			}
 			m.ArgSlot = false
 		case m.OutArg && m.Base == NoReg:
@@ -127,29 +135,83 @@ func layoutFrame(f *MFunc) {
 	}
 }
 
+// entryMisalign returns RSP modulo 16 on entry. A call leaves it at 8 (the
+// return address below a 16-aligned stack). In 64-bit mode the CPU aligns
+// RSP to 16 before pushing an interrupt frame: five words (SS, RSP, RFLAGS,
+// CS, RIP) leave it at 8 as well, six with an error code leave it at 0.
+func entryMisalign(f *MFunc) int64 {
+	if f.errCode {
+		return 0
+	}
+	return 8
+}
+
 // prologue returns the instructions that set up the frame.
 func prologue(f *MFunc) []*MInst {
+	if f.interrupt {
+		return interruptPrologue(f)
+	}
+	return framePrologue(f)
+}
+
+// framePrologue pushes the saved registers and allocates the frame.
+func framePrologue(f *MFunc) []*MInst {
 	var out []*MInst
 	if f.frameFP {
-		out = compat.Append(out, compat.New(MInst{Op: MPUSH, Size: 8, Src: RegOp(RBP)}), compat.New(MInst{Op: MMOV, Size: 8, Dst: RegOp(RBP), Src: RegOp(RSP)}))
+		out = compat.Append(out, new(MInst{Op: MPUSH, Size: 8, Src: RegOp(RBP)}), new(MInst{Op: MMOV, Size: 8, Dst: RegOp(RBP), Src: RegOp(RSP)}))
 	}
 	for _, r := range f.usedSaved {
 		if f.frameFP && r == RBP {
 			continue
 		}
-		out = compat.Append(out, compat.New(MInst{Op: MPUSH, Size: 8, Src: RegOp(r)}))
+		out = compat.Append(out, new(MInst{Op: MPUSH, Size: 8, Src: RegOp(r)}))
 	}
 	if f.frameFP {
-		out = compat.Append(out, compat.New(MInst{Op: MAND, Size: 8, Dst: RegOp(RSP), Src: ImmOp(-f.maxAlign)}))
+		out = compat.Append(out, new(MInst{Op: MAND, Size: 8, Dst: RegOp(RSP), Src: ImmOp(-f.maxAlign)}))
 	}
 	if f.frameSize > 0 {
-		out = compat.Append(out, compat.New(MInst{Op: MSUB, Size: 8, Dst: RegOp(RSP), Src: ImmOp(f.frameSize)}))
+		out = compat.Append(out, new(MInst{Op: MSUB, Size: 8, Dst: RegOp(RSP), Src: ImmOp(f.frameSize)}))
 	}
 	return out
 }
 
+// interruptPrologue enters an interrupt handler: it saves every register the
+// handler or its callees may change (the GPRs among usedSaved, then the XMM
+// registers in savedXMM, which the frame holds), and clears the direction
+// flag, which the interrupted code may have set.
+func interruptPrologue(f *MFunc) []*MInst {
+	out := framePrologue(f)
+	out = compat.Append(out, new(MInst{Op: MCLD}))
+	for i, r := range f.savedXMM {
+		out = compat.Append(out, new(MInst{Op: MMOVUPS, Dst: MemOp(xmmSaveMem(f, i)), Src: RegOp(r)}))
+	}
+	return out
+}
+
+// xmmSaveMem addresses the save area of the i'th register of savedXMM.
+func xmmSaveMem(f *MFunc, i int) Mem {
+	return BaseMem(RSP, f.xmmSave.Offset+int64(16*i))
+}
+
 // epilogue returns the instructions that tear the frame down and return.
 func epilogue(f *MFunc) []*MInst {
+	if !f.interrupt {
+		return compat.Append(frameEpilogue(f), new(MInst{Op: MRET}))
+	}
+	var out []*MInst
+	for i, r := range f.savedXMM {
+		out = compat.Append(out, new(MInst{Op: MMOVUPS, Dst: RegOp(r), Src: MemOp(xmmSaveMem(f, i))}))
+	}
+	out = compat.Append(out, frameEpilogue(f)...)
+	if f.errCode {
+		// The error code is not part of the frame iretq pops.
+		out = compat.Append(out, new(MInst{Op: MADD, Size: 8, Dst: RegOp(RSP), Src: ImmOp(8)}))
+	}
+	return compat.Append(out, new(MInst{Op: MIRETQ}))
+}
+
+// frameEpilogue frees the frame and restores the saved registers.
+func frameEpilogue(f *MFunc) []*MInst {
 	var out []*MInst
 	saved := f.usedSaved
 	if f.frameFP {
@@ -159,20 +221,20 @@ func epilogue(f *MFunc) []*MInst {
 				n++
 			}
 		}
-		out = compat.Append(out, compat.New(MInst{Op: MLEA, Size: 8, Dst: RegOp(RSP), Src: MemOp(BaseMem(RBP, int64(-8*n)))}))
+		out = compat.Append(out, new(MInst{Op: MLEA, Size: 8, Dst: RegOp(RSP), Src: MemOp(BaseMem(RBP, int64(-8*n)))}))
 	} else if f.frameSize > 0 {
-		out = compat.Append(out, compat.New(MInst{Op: MADD, Size: 8, Dst: RegOp(RSP), Src: ImmOp(f.frameSize)}))
+		out = compat.Append(out, new(MInst{Op: MADD, Size: 8, Dst: RegOp(RSP), Src: ImmOp(f.frameSize)}))
 	}
 	for i := len(saved) - 1; i >= 0; i-- {
 		if f.frameFP && saved[i] == RBP {
 			continue
 		}
-		out = compat.Append(out, compat.New(MInst{Op: MPOP, Size: 8, Dst: RegOp(saved[i])}))
+		out = compat.Append(out, new(MInst{Op: MPOP, Size: 8, Dst: RegOp(saved[i])}))
 	}
 	if f.frameFP {
-		out = compat.Append(out, compat.New(MInst{Op: MPOP, Size: 8, Dst: RegOp(RBP)}))
+		out = compat.Append(out, new(MInst{Op: MPOP, Size: 8, Dst: RegOp(RBP)}))
 	}
-	return compat.Append(out, compat.New(MInst{Op: MRET}))
+	return out
 }
 
 // insertFrame adds the prologue and expands each epilogue pseudo-op.

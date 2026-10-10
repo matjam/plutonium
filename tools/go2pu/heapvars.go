@@ -12,7 +12,8 @@ import (
 // (escape analysis reports "moved to heap: x"). Plutonium keeps every local
 // in the frame, so the translation allocates such a variable explicitly
 // and refers to it through a pointer: the declaration x := e becomes
-// x := compat.New(e), each use of x becomes (*x), and &x becomes x.
+// x := new(e) (Go 1.26's new of a value, from the current allocator), each
+// use of x becomes (*x), and &x becomes x.
 // A parameter is renamed and copied into a new variable at the top of the
 // body. Go's analysis is conservative (an address passed to an interface
 // method counts as kept), so some of these allocations are unnecessary in
@@ -72,7 +73,7 @@ func (t *fileTr) heapDefine(n *ast.AssignStmt) (string, bool) {
 		lhs[i] = t.text(l)
 		rhs[i] = t.render(n.Rhs[i])
 		if id, ok := l.(*ast.Ident); ok && t.isHeapDef(id) {
-			rhs[i] = fmt.Sprintf("%s.New(%s)", t.compat(), rhs[i])
+			rhs[i] = "new(" + rhs[i] + ")"
 		}
 	}
 	return strings.Join(lhs, ", ") + " := " + strings.Join(rhs, ", "), true
@@ -105,14 +106,13 @@ func (t *fileTr) heapVarDecl(d *ast.GenDecl) (string, bool) {
 			return "", false
 		}
 		name := vs.Names[0].Name
-		c := t.compat()
 		switch {
 		case len(vs.Values) == 0:
 			out = append(out, fmt.Sprintf("%s := new(%s)", name, t.render(vs.Type)))
 		case vs.Type != nil:
-			out = append(out, fmt.Sprintf("%s := %s.New[%s](%s)", name, c, t.render(vs.Type), t.render(vs.Values[0])))
+			out = append(out, fmt.Sprintf("%s := new(%s(%s))", name, convType(t.render(vs.Type)), t.render(vs.Values[0])))
 		default:
-			out = append(out, fmt.Sprintf("%s := %s.New(%s)", name, c, t.render(vs.Values[0])))
+			out = append(out, fmt.Sprintf("%s := new(%s)", name, t.render(vs.Values[0])))
 		}
 	}
 	if !found {
@@ -137,7 +137,7 @@ func (t *fileTr) heapParams(typ *ast.FuncType, recv *ast.FieldList, body *ast.Bl
 			for _, id := range f.Names {
 				if t.isHeapDef(id) {
 					ids = append(ids, id)
-					prologue = append(prologue, fmt.Sprintf("%s := %s.New(go%s)", id.Name, t.compat(), id.Name))
+					prologue = append(prologue, fmt.Sprintf("%s := new(go%s)", id.Name, id.Name))
 				}
 			}
 		}
@@ -172,6 +172,15 @@ func (t *fileTr) funcWithHeapParams(n ast.Node, typ *ast.FuncType, recv *ast.Fie
 		delete(t.subst, id)
 	}
 	return s, true
+}
+
+// convType parenthesises a type for use in a conversion when it would
+// otherwise parse differently (*T(x) is *(T(x))).
+func convType(typ string) string {
+	if strings.HasPrefix(typ, "*") || strings.HasPrefix(typ, "func") || strings.HasPrefix(typ, "<-") {
+		return "(" + typ + ")"
+	}
+	return typ
 }
 
 // checkHeapRange notes range variables moved to the heap.
