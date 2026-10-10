@@ -1,0 +1,57 @@
+scalars ok
+ret u8 ok
+ret u8 wrapped ok
+ret i8 ok
+ret u16 ok
+ret i16 ok
+ret bool ok
+floats ok
+ret f32 ok
+mixed scalars ok
+I1 arg ok
+I2 arg ok
+I3 arg ok
+I4 arg ok
+I1 result ok
+I2 result ok
+I3 result ok
+I4 result ok
+F1 arg ok
+F2 arg ok
+F3 arg ok
+F4 arg ok
+D2 arg ok
+F1 result ok
+F2 result ok
+F3 result ok
+F4 result ok
+D2 result ok
+M2 arg ok
+M2b arg ok
+M3 arg ok
+M4 arg ok
+M2 result ok
+M2b result ok
+M3 result ok
+M4 result ok
+Big arg ok
+Big result ok
+Big round trip ok
+Huge args ok
+many args ok
+struct spilled after ints ok
+struct spilled after floats ok
+sret with six ints ok
+two results ok
+two int32 results ok
+three results ok
+int and float results ok
+func value ok
+packed uint32 ok
+packed bytes in a struct ok
+volatile field ok
+extern method ok
+extern method value ok
+extern method expression ok
+callbacks from C ok
+C function pointer to export ok

@@ -26,7 +26,7 @@ func (s *fnState) expr(e ast.Expr) value {
 		case *types2.Var:
 			return s.loadLV(s.varLV(obj, e))
 		case *types2.Func:
-			return scalarValue(s.funcValue(obj, s.instanceArgs(e)), T)
+			return scalarValue(s.funcValue(obj, s.instanceArgs(e), e.Pos()), T)
 		case *types2.Nil:
 			return s.zeroValue(T)
 		}
@@ -53,7 +53,7 @@ func (s *fnState) expr(e ast.Expr) value {
 			}
 			if id := identOf(ix.x); id != nil {
 				if fn, ok := s.info.Uses[id].(*types2.Func); ok {
-					return scalarValue(s.funcValue(fn, s.instanceArgs(id)), T)
+					return scalarValue(s.funcValue(fn, s.instanceArgs(id), id.Pos()), T)
 				}
 			}
 		}
@@ -412,7 +412,7 @@ func (s *fnState) selector(e *ast.SelectorExpr, T types2.Type) value {
 			case *types2.Var:
 				return s.loadLV(s.varLV(obj, e))
 			case *types2.Func:
-				return scalarValue(s.funcValue(obj, s.instanceArgs(e.Sel)), T)
+				return scalarValue(s.funcValue(obj, s.instanceArgs(e.Sel), e.Pos()), T)
 			}
 		}
 	}
@@ -444,7 +444,7 @@ func (s *fnState) selector(e *ast.SelectorExpr, T types2.Type) value {
 	case types2.MethodExpr:
 		fn := sel.Obj().(*types2.Func)
 		targs := s.withMethodTypeArgs(fn, e.Sel, s.recvTypeArgs(sel.Recv()))
-		return scalarValue(s.funcValue(fn, targs), T)
+		return scalarValue(s.funcValue(fn, targs, e.Pos()), T)
 	}
 	return s.zeroValue(T)
 }
