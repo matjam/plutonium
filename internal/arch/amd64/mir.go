@@ -253,6 +253,8 @@ type MFunc struct {
 	frameSize int64 // bytes below the saved registers, excluding them
 	interrupt bool
 	nextSlot  int
+	consts    []Const
+	constSyms map[[16]byte]*ssa.Sym
 }
 
 func newMFunc(name string) *MFunc {

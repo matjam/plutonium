@@ -1,6 +1,7 @@
 package amd64
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math"
 
@@ -349,18 +350,50 @@ func (s *isel) loadConst(r Reg, c int64, size uint8) {
 }
 
 func (s *isel) loadFloatConst(r Reg, v *ssa.Value) {
-	bits := uint64(v.AuxInt)
-	size := sizeOf(v.Type)
-	if size == 4 {
-		bits = uint64(math.Float32bits(float32(math.Float64frombits(bits))))
-	}
+	bits := floatBits(v)
 	if bits == 0 {
 		s.emit(&MInst{Op: MXORPS, Size: 16, Dst: RegOp(r), Src: RegOp(r)})
 		return
 	}
-	g := s.mf.newVReg(ClassGP)
-	s.loadConst(g, int64(bits), size)
-	s.emit(&MInst{Op: MMOVQ, Size: size, Dst: RegOp(r), Src: RegOp(g)})
+	s.emit(&MInst{Op: MMOVSF, Size: sizeOf(v.Type), Dst: RegOp(r), Src: MemOp(s.constMem(bits, bits))})
+}
+
+// floatBits returns the bits of float constant v at its own width.
+func floatBits(v *ssa.Value) uint64 {
+	bits := uint64(v.AuxInt)
+	if v.Type.Size == 4 {
+		bits = uint64(math.Float32bits(float32(math.Float64frombits(bits))))
+	}
+	return bits
+}
+
+// constMem returns a RIP-relative operand for a 16-byte read-only constant
+// holding lo and hi (little-endian), adding it to the function's pool.
+func (s *isel) constMem(lo, hi uint64) Mem {
+	var b [16]byte
+	binary.LittleEndian.PutUint64(b[:8], lo)
+	binary.LittleEndian.PutUint64(b[8:], hi)
+	sym := s.mf.constSyms[b]
+	if sym == nil {
+		if s.mf.constSyms == nil {
+			s.mf.constSyms = map[[16]byte]*ssa.Sym{}
+		}
+		sym = &ssa.Sym{Name: fmt.Sprintf("pluto.const.%016x%016x", hi, lo), Kind: ssa.SymData}
+		s.mf.constSyms[b] = sym
+		s.mf.consts = append(s.mf.consts, Const{Sym: sym, Bytes: b})
+	}
+	return Mem{Base: NoReg, Index: NoReg, Sym: sym}
+}
+
+// floatOperand returns float v as an instruction source: a constant from
+// the pool, or a register.
+func (s *isel) floatOperand(v *ssa.Value) Operand {
+	if v.Op == ssa.OpConstFloat && s.vregs[v.ID] == NoReg {
+		if bits := floatBits(v); bits != 0 {
+			return MemOp(s.constMem(bits, bits))
+		}
+	}
+	return RegOp(s.reg(v))
 }
 
 // fitsImm32 reports whether c is representable as a sign-extended imm32.
@@ -605,27 +638,21 @@ func (s *isel) value(v *ssa.Value) error {
 		op := map[ssa.Op]MOp{ssa.OpFAdd: MADDSF, ssa.OpFSub: MSUBSF, ssa.OpFMul: MMULSF, ssa.OpFDiv: MDIVSF}[v.Op]
 		d := s.def(v)
 		s.copyReg(d, s.reg(v.Args[0]), size)
-		s.emit(&MInst{Op: op, Size: size, Dst: RegOp(d), Src: RegOp(s.reg(v.Args[1]))})
+		s.emit(&MInst{Op: op, Size: size, Dst: RegOp(d), Src: s.floatOperand(v.Args[1])})
 	case ssa.OpFNeg, ssa.OpFAbs:
 		d := s.def(v)
 		s.copyReg(d, s.reg(v.Args[0]), size)
-		sign := int64(-1 << 63)
+		// The mask fills every lane: packed operations read all 16 bytes.
+		sign := uint64(1 << 63)
 		if size == 4 {
-			sign = 1 << 31
+			sign = 0x80000000_80000000
 		}
-		mask := s.mf.newVReg(ClassXMM)
-		g := s.mf.newVReg(ClassGP)
 		op := MXORPS
 		if v.Op == ssa.OpFAbs {
 			sign = ^sign
-			if size == 4 {
-				sign &= 0xFFFFFFFF
-			}
 			op = MANDPS
 		}
-		s.emit(&MInst{Op: MMOV, Size: 8, Dst: RegOp(g), Src: ImmOp(sign)})
-		s.emit(&MInst{Op: MMOVQ, Size: 8, Dst: RegOp(mask), Src: RegOp(g)})
-		s.emit(&MInst{Op: op, Size: 16, Dst: RegOp(d), Src: RegOp(mask)})
+		s.emit(&MInst{Op: op, Size: 16, Dst: RegOp(d), Src: MemOp(s.constMem(sign, sign))})
 	case ssa.OpFSqrt:
 		d := s.def(v)
 		s.emit(&MInst{Op: MSQRTSF, Size: size, Dst: RegOp(d), Src: RegOp(s.reg(v.Args[0]))})

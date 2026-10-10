@@ -154,6 +154,8 @@ func emitObject(cfg *Config, p *ssa.Program) (*objfile.Object, error) {
 	text := obj.Section(".text", elf.SHT_PROGBITS, elf.SHF_ALLOC|elf.SHF_EXECINSTR, 16)
 	obj.Section(".note.GNU-stack", elf.SHT_PROGBITS, 0, 1)
 
+	var rodata *objfile.Section
+	constDone := map[string]bool{}
 	for _, f := range p.Funcs {
 		amd64.Prepare(f)
 		if err := f.Verify(); err != nil {
@@ -190,6 +192,20 @@ func emitObject(cfg *Config, p *ssa.Program) (*objfile.Object, error) {
 				typ = elf.R_X86_64_32S
 			}
 			sec.Relocs = append(sec.Relocs, objfile.Reloc{Off: off + uint64(r.Off), Sym: r.Sym.Name, Type: typ, Addend: r.Addend})
+		}
+		// Pool constants are named by their contents, so one copy serves
+		// every function. Packed SSE operands need 16-byte alignment.
+		for _, c := range code.Consts {
+			if constDone[c.Sym.Name] {
+				continue
+			}
+			constDone[c.Sym.Name] = true
+			if rodata == nil {
+				rodata = obj.Section(".rodata", elf.SHT_PROGBITS, elf.SHF_ALLOC, 16)
+			}
+			off := rodata.Append(c.Bytes[:], 16)
+			obj.Define(&objfile.Symbol{Name: c.Sym.Name, Section: rodata, Value: off, Size: 16,
+				Bind: elf.STB_LOCAL, Type: elf.STT_OBJECT})
 		}
 	}
 

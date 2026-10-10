@@ -1,0 +1,8 @@
+ops64 3250 1500 7500 24000
+ops32 3250 1500 7500 24000
+poly32 7750 7750
+neg64 -2500 125
+neg32 -2500 125
+negzero64 true true
+negzero32 true true
+loop32 -666

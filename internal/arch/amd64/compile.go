@@ -11,7 +11,16 @@ type Code struct {
 	Sym    *ssa.Sym
 	Bytes  []byte
 	Relocs []Reloc
-	Asm    string // machine IR listing, when requested
+	Consts []Const // read-only constants the code refers to
+	Asm    string  // machine IR listing, when requested
+}
+
+// A Const is a 16-byte, 16-aligned read-only constant. Its symbol name
+// identifies its contents, so equal constants from different functions
+// are emitted once.
+type Const struct {
+	Sym   *ssa.Sym
+	Bytes [16]byte
 }
 
 // Compile turns an SSA function into machine code. The function must be
@@ -33,6 +42,7 @@ func Compile(f *ssa.Func, listing bool) (*Code, error) {
 		return nil, fmt.Errorf("%s: %w", f.Name, err)
 	}
 	code.Sym = f.Sym
+	code.Consts = mf.consts
 	if listing {
 		mf.Blocks = order
 		code.Asm = mf.String()
