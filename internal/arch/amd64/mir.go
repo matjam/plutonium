@@ -240,6 +240,7 @@ type MFunc struct {
 	Name   string
 	Sym    *ssa.Sym
 	Blocks []*MBlock
+	Order  []*MBlock   // emission order (see ssa.Layout)
 	Slots  []*ssa.Slot // stack slots: locals and spills
 	Local  bool
 
@@ -315,7 +316,19 @@ func (m Mem) String() string {
 		if m.Disp != 0 {
 			fmt.Fprintf(&sb, "%+d", m.Disp)
 		}
-		sb.WriteString("(%rip)")
+		if m.Base == NoReg && m.Index == NoReg {
+			sb.WriteString("(%rip)")
+			return sb.String()
+		}
+		// Absolute address plus registers.
+		sb.WriteString("(")
+		if m.Base != NoReg {
+			sb.WriteString(m.Base.String())
+		}
+		if m.Index != NoReg {
+			fmt.Fprintf(&sb, ",%s,%d", m.Index, max(m.Scale, 1))
+		}
+		sb.WriteString(")")
 		return sb.String()
 	case m.Slot != nil && m.Base == NoReg:
 		fmt.Fprintf(&sb, "%s", m.Slot)

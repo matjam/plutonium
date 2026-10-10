@@ -51,39 +51,33 @@ func Prepare(f *ssa.Func) {
 // layoutBlocks orders the blocks for emission and removes jumps to the
 // next block.
 func layoutBlocks(f *MFunc) []*MBlock {
-	// Greedy chaining: follow fall-through preferences from each block,
-	// starting with the entry, placing unlikely (panic) paths last.
-	placed := map[*MBlock]bool{}
-	var order []*MBlock
-	var cold []*MBlock
-	isCold := func(b *MBlock) bool {
-		n := len(b.Insts)
-		return n > 0 && b.Insts[n-1].Op == MUD2
+	// Every block still ends in an explicit transfer. Thread branches through
+	// blocks that only jump on (left behind by critical-edge splitting when
+	// no copies were needed), then drop those that nothing reaches.
+	forward := func(t *MBlock) *MBlock {
+		for range 8 {
+			if len(t.Insts) != 1 || t.Insts[0].Op != MJMP || t.Insts[0].Target == t {
+				break
+			}
+			t = t.Insts[0].Target
+		}
+		return t
 	}
-	visit := func(b *MBlock) {
-		for b != nil && !placed[b] {
-			placed[b] = true
-			if isCold(b) && b != f.Blocks[0] {
-				cold = append(cold, b)
-			} else {
-				order = append(order, b)
+	used := map[*MBlock]bool{f.Order[0]: true}
+	for _, b := range f.Order {
+		for _, in := range b.Insts {
+			if in.Op == MJMP || in.Op == MJCC {
+				in.Target = forward(in.Target)
+				used[in.Target] = true
 			}
-			// Prefer to fall into the target of the final jump.
-			var next *MBlock
-			if n := len(b.Insts); n > 0 {
-				last := b.Insts[n-1]
-				if last.Op == MJMP && !placed[last.Target] {
-					next = last.Target
-				}
-			}
-			b = next
 		}
 	}
-	visit(f.Blocks[0])
-	for _, b := range f.Blocks {
-		visit(b)
+	var order []*MBlock
+	for _, b := range f.Order {
+		if used[b] {
+			order = append(order, b)
+		}
 	}
-	order = append(order, cold...)
 
 	// Remove jumps to the following block; turn "jcc T; jmp F" with T next
 	// into "jncc F".

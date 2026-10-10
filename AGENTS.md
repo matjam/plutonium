@@ -58,13 +58,14 @@ Every change must pass ALL of these before committing:
    go run ./tools/pkgcov /tmp/cover.out
    ```
    Current minimum coverage targets:
-   - `internal/arch/amd64`: ≥77%
-   - `internal/lower`: ≥84%
-   - `internal/ssa`: ≥71%
-   - `internal/load`: ≥70%
+   - `internal/arch/amd64`: ≥86%
+   - `internal/lower`: ≥85%
+   - `internal/opt`: ≥90%
+   - `internal/ssa`: ≥79%
+   - `internal/load`: ≥71%
    - `internal/objfile`: ≥95%
-   - `internal/syntax/parser`: ≥69%
-   - `internal/types2`: ≥55%
+   - `internal/syntax/parser`: ≥70%
+   - `internal/types2`: ≥56%
 
    New code paths need tests: a `testdata/run` program for language features,
    a unit test for passes and backend details.

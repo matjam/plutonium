@@ -186,6 +186,8 @@ func emitObject(cfg *Config, p *ssa.Program) (*objfile.Object, error) {
 				typ = elf.R_X86_64_PLT32
 			case amd64.Rel64:
 				typ = elf.R_X86_64_64
+			case amd64.RelAbs32S:
+				typ = elf.R_X86_64_32S
 			}
 			sec.Relocs = append(sec.Relocs, objfile.Reloc{Off: off + uint64(r.Off), Sym: r.Sym.Name, Type: typ, Addend: r.Addend})
 		}

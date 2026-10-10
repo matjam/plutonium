@@ -20,6 +20,18 @@ import (
 // frame pointer: push rbp; mov rbp, rsp; push saved; and rsp, -align;
 // sub rsp, frameSize. Incoming arguments are then at rbp + 16 + 8k.
 
+// makesCalls reports whether f calls anything.
+func makesCalls(f *MFunc) bool {
+	for _, b := range f.Blocks {
+		for _, in := range b.Insts {
+			if in.Op == MCALL {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // layoutFrame assigns slot offsets and resolves every frame-relative
 // memory operand to RSP or RBP addressing.
 func layoutFrame(f *MFunc) {
@@ -47,6 +59,9 @@ func layoutFrame(f *MFunc) {
 	nSaved := int64(len(f.usedSaved))
 	if f.frameFP {
 		f.frameSize = (off + maxAlign - 1) &^ (maxAlign - 1)
+	} else if off == 0 && !f.interrupt && !makesCalls(f) {
+		// A leaf with nothing on the stack needs no frame at all.
+		f.frameSize = 0
 	} else {
 		// rsp_entry is 8 mod 16; after the pushes and the frame, rsp must
 		// be 16-aligned at calls.

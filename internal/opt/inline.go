@@ -99,7 +99,12 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 	}
 	for rounds := 0; rounds < 4; rounds++ {
 		var sites []*ssa.Value
+		doomed := ssa.DoomedBlocks(f)
 		for _, b := range f.Blocks {
+			if doomed[b.ID] {
+				// A panic path: inlining here only grows the code.
+				continue
+			}
 			for _, v := range b.Values {
 				if v.Op != ssa.OpCall {
 					continue
@@ -134,9 +139,22 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 	return changed
 }
 
+// returns reports whether g has a return block.
+func returns(g *ssa.Func) bool {
+	for _, b := range g.Blocks {
+		if b.Kind == ssa.BlockRet {
+			return true
+		}
+	}
+	return false
+}
+
 func shouldInline(g *ssa.Func, size int) bool {
 	switch {
 	case g.Pragmas&ssa.PragmaNoInline != 0, g.Pragmas&ssa.PragmaInterrupt != 0:
+		return false
+	case !returns(g):
+		// Never returns (panics, exits): keep the call out of line.
 		return false
 	case g.Pragmas&ssa.PragmaInline != 0:
 		return true

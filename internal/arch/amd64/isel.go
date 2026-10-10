@@ -49,6 +49,9 @@ func Select(f *ssa.Func) (*MFunc, error) {
 		s.blocks[b.ID] = mb
 		mf.Blocks = append(mf.Blocks, mb)
 	}
+	for _, b := range ssa.Layout(f) {
+		mf.Order = append(mf.Order, s.blocks[b.ID])
+	}
 	for _, b := range f.Blocks {
 		mb := s.blocks[b.ID]
 		for _, e := range b.Succs {
@@ -148,6 +151,51 @@ func (s *isel) markFused() {
 			s.fused[c.ID] = true
 		}
 	}
+	// An index scaled by 2, 4 or 8 that is only ever used to index
+	// addresses goes into the addressing mode instead of a register.
+	idxUses := map[*ssa.Value]int32{}
+	for _, b := range s.f.Blocks {
+		for _, v := range b.Values {
+			if v.Op == ssa.OpAddPtr && v.Args[1] != v.Args[0] && v.Args[1].Op != ssa.OpConst {
+				idxUses[v.Args[1]]++
+			}
+		}
+	}
+	for v, n := range idxUses {
+		if _, scale := scaledIndex(v); scale > 1 && int32(v.Uses) == n {
+			s.fused[v.ID] = true
+		}
+	}
+}
+
+// scaledIndex returns x and scale when v is x*scale for an address scale
+// (2, 4 or 8), and v and 1 otherwise.
+func scaledIndex(v *ssa.Value) (*ssa.Value, uint8) {
+	if v.Type.Size != 8 {
+		return v, 1
+	}
+	switch v.Op {
+	case ssa.OpMul:
+		for i, c := range v.Args {
+			if c.Op == ssa.OpConst && (c.AuxInt == 2 || c.AuxInt == 4 || c.AuxInt == 8) {
+				return v.Args[1-i], uint8(c.AuxInt)
+			}
+		}
+	case ssa.OpShl:
+		if c := v.Args[1]; c.Op == ssa.OpConst && c.AuxInt >= 1 && c.AuxInt <= 3 {
+			return v.Args[0], uint8(1) << c.AuxInt
+		}
+	}
+	return v, 1
+}
+
+// index returns the register and scale for index value v of an address.
+func (s *isel) index(v *ssa.Value) (Reg, uint8) {
+	if s.fused[v.ID] {
+		x, scale := scaledIndex(v)
+		return s.reg(x), scale
+	}
+	return s.reg(v), 1
 }
 
 // reg returns a register holding v, materialising lazy values here.
@@ -252,11 +300,12 @@ func (s *isel) addr(p *ssa.Value) Mem {
 			break
 		}
 		m := s.addr(base)
-		if m.Index != NoReg || m.Sym != nil {
+		if m.Index != NoReg {
 			m = BaseMem(s.reg(base), 0)
 		}
-		m.Index = s.reg(idx)
-		m.Scale = 1
+		// With a symbol and no base this is absolute sym+disp32 plus the
+		// scaled index, which the small and kernel code models allow.
+		m.Index, m.Scale = s.index(idx)
 		return m
 	}
 	return BaseMem(s.reg(p), 0)

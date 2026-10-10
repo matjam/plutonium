@@ -14,6 +14,7 @@ const (
 	RelPC32  RelocType = iota // R_X86_64_PC32: S + A - P
 	RelPLT32                  // R_X86_64_PLT32 (calls)
 	Rel64                     // R_X86_64_64: S + A
+	RelAbs32S                 // R_X86_64_32S: S + A, sign-extended 32 bits
 )
 
 // A Reloc is a relocation in emitted code.
@@ -132,28 +133,42 @@ func (e *encoder) emitInsn(in insn) {
 		return
 	}
 	m := in.rm.mem
-	if m.Sym != nil {
+	if m.Sym != nil && m.Base == NoReg && m.Index == NoReg {
 		// RIP-relative: disp32 relative to the end of the instruction.
 		e.byte(0x05 | regEnc<<3)
 		e.relocs = append(e.relocs, Reloc{Off: len(e.code), Sym: m.Sym, Type: RelPC32, Addend: m.Disp - 4 - int64(in.immSize)})
 		e.imm(0, 4)
 		return
 	}
-	if m.Base == NoReg && m.Index == NoReg {
-		// Absolute disp32 through SIB with no base.
-		e.byte(0x04|regEnc<<3, 0x25)
+	// disp32 emits a 32-bit displacement: the symbol's absolute address
+	// plus Disp (sign-extended, so the symbol must lie in the low or the
+	// top 2 GiB), or Disp alone.
+	disp32 := func() {
+		if m.Sym != nil {
+			e.relocs = append(e.relocs, Reloc{Off: len(e.code), Sym: m.Sym, Type: RelAbs32S, Addend: m.Disp})
+			e.imm(0, 4)
+			return
+		}
 		e.imm(m.Disp, 4)
-		return
-	}
-	if m.Base == NoReg {
-		e.fail("amd64: memory operand with index and no base")
-		return
 	}
 	if !fitsImm32(m.Disp) {
 		e.fail("amd64: displacement %d does not fit in 32 bits", m.Disp)
 	}
+	if m.Base == NoReg {
+		// SIB with no base: disp32 plus an optional scaled index.
+		e.byte(0x04 | regEnc<<3)
+		idx := byte(4) // no index
+		if m.Index != NoReg {
+			idx = m.Index.enc() & 7
+		}
+		e.byte(e.scaleBits(m)<<6 | idx<<3 | 5)
+		disp32()
+		return
+	}
 	var mod byte
 	switch {
+	case m.Sym != nil:
+		mod = 2
 	case m.Disp == 0 && m.Base.enc()&7 != 5: // RBP/R13 always need a displacement
 		mod = 0
 	case m.Disp >= -128 && m.Disp <= 127:
@@ -165,23 +180,10 @@ func (e *encoder) emitInsn(in insn) {
 		// SIB form (RSP/R12 bases always need it).
 		e.byte(mod<<6 | regEnc<<3 | 4)
 		idx := byte(4) // no index
-		var scale byte
 		if m.Index != NoReg {
 			idx = m.Index.enc() & 7
-			switch m.Scale {
-			case 0, 1:
-				scale = 0
-			case 2:
-				scale = 1
-			case 4:
-				scale = 2
-			case 8:
-				scale = 3
-			default:
-				e.fail("amd64: bad scale %d", m.Scale)
-			}
 		}
-		e.byte(scale<<6 | idx<<3 | m.Base.enc()&7)
+		e.byte(e.scaleBits(m)<<6 | idx<<3 | m.Base.enc()&7)
 	} else {
 		e.byte(mod<<6 | regEnc<<3 | m.Base.enc()&7)
 	}
@@ -189,8 +191,24 @@ func (e *encoder) emitInsn(in insn) {
 	case 1:
 		e.imm(m.Disp, 1)
 	case 2:
-		e.imm(m.Disp, 4)
+		disp32()
 	}
+}
+
+// scaleBits returns the SIB scale field for m's index scale.
+func (e *encoder) scaleBits(m Mem) byte {
+	switch m.Scale {
+	case 0, 1:
+		return 0
+	case 2:
+		return 1
+	case 4:
+		return 2
+	case 8:
+		return 3
+	}
+	e.fail("amd64: bad scale %d", m.Scale)
+	return 0
 }
 
 func sizePrefix(size uint8) []byte {
