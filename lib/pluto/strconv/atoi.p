@@ -3,10 +3,16 @@ package strconv
 import "pluto/errors"
 
 // ErrSyntax indicates that a value does not have the right syntax.
-var ErrSyntax = &errors.Text{Msg: "invalid syntax"}
+//
+// The parse functions return ErrSyntax and ErrRange themselves, where Go
+// wraps them in a *NumError that records the function and the input. The
+// caller has both at hand and can add them when it wraps the error, so
+// parsing never allocates. errors.Is(err, strconv.ErrSyntax) works in both
+// languages.
+var ErrSyntax = errors.New("invalid syntax")
 
 // ErrRange indicates that a value is out of range.
-var ErrRange = &errors.Text{Msg: "value out of range"}
+var ErrRange = errors.New("value out of range")
 
 // ParseUint parses s in the given base (0 means: infer from a 0x, 0o, 0b or
 // 0 prefix) as an unsigned integer of bitSize bits (0 means 64).
@@ -88,7 +94,7 @@ func ParseInt(s string, base int, bitSize int) (int64, error) {
 		s = s[1:]
 	}
 	u, err := ParseUint(s, base, bitSize)
-	if err != nil && err != error(ErrRange) {
+	if err != nil && err != ErrRange {
 		return 0, err
 	}
 	cutoff := uint64(1) << uint(bitSize-1)

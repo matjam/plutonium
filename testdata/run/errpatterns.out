@@ -1,0 +1,13 @@
+not found permission denied false true
+/etc/passwd fd 3
+/root/secret permission denied false true permission denied
+/missing no such file or directory true false enoent
+read 0 nil false false 0
+read 1 wrapped error true true 5
+   read sda input/output error true true
+read 2 eof false false 0
+chain true true false true
+as multi true 2
+typed nil true true true
+by value true false position true
+method value startup

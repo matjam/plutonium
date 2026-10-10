@@ -8,7 +8,7 @@ import (
 )
 
 // ErrFull is returned by Buffer writes that do not fit in the buffer.
-var ErrFull = &errors.Text{Msg: "bytes.Buffer: buffer full"}
+var ErrFull = errors.New("bytes.Buffer: buffer full")
 
 // A Buffer is a variable-sized buffer of bytes with Read and Write methods,
 // like Go's bytes.Buffer, except that its storage is a fixed slice the

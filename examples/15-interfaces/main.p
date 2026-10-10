@@ -24,11 +24,19 @@ type NotFound struct{ Key string }
 
 func (e *NotFound) Error() string { return "not found" }
 
-func lookup(key string) (int, error) {
+// A Table keeps its last lookup error in its own storage, so lookup can
+// return a pointer to it: &NotFound{...} would point into lookup's frame,
+// which is gone once it returns.
+type Table struct {
+	miss NotFound
+}
+
+func (t *Table) lookup(key string) (int, error) {
 	if key == "answer" {
 		return 42, nil
 	}
-	return 0, &NotFound{Key: key}
+	t.miss = NotFound{Key: key}
+	return 0, &t.miss
 }
 
 func describe(v any) string {
@@ -54,8 +62,9 @@ func main() {
 	for _, s := range shapes {
 		fmt.Printf("%s area=%.2f\n", s.Name(), s.Area())
 	}
+	var t Table
 	for _, key := range []string{"answer", "question"} {
-		v, err := lookup(key)
+		v, err := t.lookup(key)
 		if err != nil {
 			if nf, ok := err.(*NotFound); ok {
 				fmt.Printf("%s: %v\n", nf.Key, err)
