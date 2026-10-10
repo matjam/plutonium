@@ -317,10 +317,12 @@ of the spawning frame cannot be passed at all (section 6.3), since the puroutine
   only assignment is its declaration from one of them (directly or through other such variables). Any
   other func value whose closure record lies in the starting puroutine's stack (one that reached the
   `go` statement through a parameter, a field or a variable assigned more than once) panics when the
-  `go` statement runs, and so does `rt.Go` with one. The library functions that start a puroutine with a
-  func argument (`sync.WaitGroup.Go`, `time.AfterFunc`, `rt.Go`) are marked `//pu:gofunc`, and a call of
-  one is checked the same way: the compiler rejects an argument it can tell is such a closure, and the
-  function panics for the rest.
+  `go` statement runs, and so does `rt.Go` with one. A call of a function that starts a puroutine with
+  one of its func arguments (`sync.WaitGroup.Go`, `time.AfterFunc`, `rt.Go`, or a function of the
+  program's own that passes a func parameter on to a `go` statement or to one of these) is checked the
+  same way: the compiler rejects an argument it can tell is such a closure, and the function panics for
+  the rest. The compiler finds these functions itself by following each func parameter through the
+  function's body.
 - Puroutines run in parallel and are preempted: one that runs for a full time slice (10 ms in hosted
   builds) without blocking is suspended at whatever instruction it has reached and another runs in its
   place, even in a loop that makes no calls. Since there is no garbage collector, every instruction is a
@@ -2646,7 +2648,6 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | `//pu:noreturn` | function | the function never returns (lets the optimiser drop code after calls) |
 | `//pu:panic` | function | the program's panic handler, `func(p *rt.Panic)`; exactly one in freestanding and kernel builds (section 8.1) |
 | `//pu:blocking` | function (with or without a body) | calling it may wait (park the caller); interrupt handlers and the panic handler must not reach it (section 12.6) |
-| `//pu:gofunc` | function | the function starts the func values it is given on new puroutines (`sync.WaitGroup.Go`, `time.AfterFunc`, `rt.Go`); a call that passes a function literal that captures variables, a method value, or a local variable holding one is a compile error, as in a `go` statement (section 4.7) |
 | `//pu:scheduler` | package variable | the program's scheduler backend, of a type implementing `rt.Scheduler`; at most one in a program, replacing the hosted one (section 4.7) |
 | `//pu:nosimd` | function | the optimiser adds no vector instructions to it (implied by `//pu:interrupt`, and by kernel mode outside `//pu:fpu` functions) |
 | `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (section 12.3) |

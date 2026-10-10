@@ -607,7 +607,6 @@ func preemptPark() uintptr {
 // panics if f's closure record lies in the calling task's stack.
 //
 //pu:blocking
-//pu:gofunc
 func Go(f func(), size uintptr, a Allocator = DefaultAllocator()) {
 	rec := *(*unsafe.Pointer)(unsafe.Pointer(&f))
 	checkGoFunc(rec)

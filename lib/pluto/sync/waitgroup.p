@@ -44,7 +44,6 @@ func (wg *WaitGroup) Done() { wg.Add(-1) }
 // variables (language spec section 4.7).
 //
 //pu:blocking
-//pu:gofunc
 func (wg *WaitGroup) Go(f func()) {
 	wg.Add(1)
 	go runDone(wg, f)

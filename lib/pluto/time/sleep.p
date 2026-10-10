@@ -166,7 +166,6 @@ func (t *Timer) Drop() {
 // by one puroutine of the time package's, which AfterFunc starts the first
 // time it is called and which then waits for expiries for good.
 //
-//pu:gofunc
 func AfterFunc(d Duration, f func(), a alloc.Allocator = alloc.Default()) *Timer {
 	rt.CheckGoFunc(f)
 	startFuncRunner()

@@ -354,26 +354,34 @@ func run(f func()) {
 	go f()
 }
 
+// The compiler rejects a capturing literal passed to run where it can see
+// the call; this one reaches run through a func value, so the check when
+// the go statement runs catches it.
+var starter = run
+
 func main() {
 	n := 1
-	run(func() { n++ })
+	starter(func() { n++ })
 }
 `},
 		{name: "waitgroupgoclosure", status: 2, want: "panic: go of a function value that captures variables or binds a method value: its closure record lives in the starting frame; pass the values as arguments\n", src: `package main
 
 import "pluto/sync"
 
-// The compiler rejects a capturing literal passed to wg.Go where it can see
-// it (TestGoFuncCall); this one reaches Go through a parameter, so the
+// The compiler rejects a capturing literal passed to wg.Go, or to a
+// function that passes it on to wg.Go, where it can see the call
+// (TestGoFuncCall); this one reaches start through a func value, so the
 // check when Go runs catches it.
 func start(wg *sync.WaitGroup, f func()) {
 	wg.Go(f)
 }
 
+var starter = start
+
 func main() {
 	var wg sync.WaitGroup
 	n := 1
-	start(&wg, func() { n++ })
+	starter(&wg, func() { n++ })
 	wg.Wait()
 }
 `},

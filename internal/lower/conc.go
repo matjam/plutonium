@@ -93,30 +93,47 @@ func (s *fnState) frameClosureArgs(args []ast.Expr, dest string) bool {
 	return found
 }
 
-// goFuncCall checks a call of a function marked //pu:gofunc, which starts
-// the func values it is given on new puroutines (sync.WaitGroup.Go,
-// time.AfterFunc): the arguments that are known to be closure records in
-// this frame are compile errors, as in a go statement. The functions still
-// check the rest when they run.
+// goFuncCall checks a call of a function that starts puroutines with
+// some of its func arguments (sync.WaitGroup.Go, time.AfterFunc, rt.Go,
+// and any function that passes a func parameter on to one of them or to a
+// go statement; the closure flow summaries find them): the arguments that
+// are known to be closure records in this frame are compile errors, as in
+// a go statement. The functions still check the rest when they run.
 func (s *fnState) goFuncCall(e *ast.CallExpr, fun ast.Expr) {
-	var id *ast.Ident
-	switch f := fun.(type) {
-	case *ast.Ident:
-		id = f
-	case *ast.SelectorExpr:
-		id = f.Sel
-	default:
+	var cands []int
+	for i, a := range e.Args {
+		if _, ok := s.typeOf(a).Underlying().(*types2.Signature); ok && s.frameClosure(a, 0) != "" {
+			cands = append(cands, i)
+		}
+	}
+	if len(cands) == 0 {
 		return
 	}
-	fn, ok := s.info.Uses[id].(*types2.Func)
-	if !ok {
+	g := calledFunc(s.info, e)
+	if g == nil || s.l.closureCtor(g) != nil {
 		return
 	}
-	d := s.l.decls[fn.Origin()]
-	if d == nil || !hasDirective(d.decl.Doc, "gofunc") {
-		return
+	var targs []types2.Type
+	nrecv := 0
+	if se, ok := fun.(*ast.SelectorExpr); ok && s.info.Selections[se] != nil {
+		targs = s.methodTypeArgs(g, se, s.info.TypeOf(se.X))
+		nrecv = 1
+	} else if id := identOf(fun); id != nil {
+		targs = s.instanceArgs(id)
 	}
-	s.frameClosureArgs(e.Args, types2.ExprString(e.Fun)+", which starts a puroutine with it")
+	sum := s.l.closureSummary(g, targs)
+	sig := g.Type().(*types2.Signature)
+	gp := sig.Params().Len()
+	if sig.Recv() != nil {
+		gp++
+	}
+	var args []ast.Expr
+	for _, i := range cands {
+		if sum.starts.has(min(i+nrecv, gp-1)) {
+			args = append(args, e.Args[i])
+		}
+	}
+	s.frameClosureArgs(args, types2.ExprString(e.Fun)+", which starts a puroutine with it")
 }
 
 // frameClosure describes e if it is known to be a func value whose closure

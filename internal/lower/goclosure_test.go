@@ -74,10 +74,12 @@ func TestGoFrameClosure(t *testing.T) {
 	}
 }
 
-// TestGoFuncCall checks calls of the library functions marked //pu:gofunc,
-// which start their func arguments on puroutines: the arguments the
-// compiler can tell are closure records in the frame are compile errors,
-// as in a go statement, and the rest are left to the run-time check.
+// TestGoFuncCall checks calls of functions that start puroutines with
+// their func arguments, the library's and the program's own, which the
+// compiler finds by following the func parameters into go statements and
+// into such calls: the arguments the compiler can tell are closure records
+// in the frame are compile errors, as in a go statement, and the rest are
+// left to the run-time check.
 func TestGoFuncCall(t *testing.T) {
 	const code = `(run "pluto explain E2594"`
 	cases := []struct {
@@ -90,11 +92,16 @@ func TestGoFuncCall(t *testing.T) {
 		{"method value", "var c counter\nvar wg sync.WaitGroup\nwg.Go(c.add)", "cannot pass the method value c.add"},
 		{"after func", "n := 0\ntime.AfterFunc(time.Second, func() { n++ })", "to time.AfterFunc, which starts a puroutine with it"},
 		{"rt go", "n := 0\nrt.Go(func() { n++ }, rt.MinStackSize)", "to rt.Go, which starts a puroutine with it"},
+		{"through a function", "n := 0\nstart(func() { n++ })", "to start, which starts a puroutine with it"},
+		{"go statement", "n := 0\nspawn(1, func() { n++ })", "to spawn, which starts a puroutine with it"},
+		{"generic", "n := 0\nspawnT(1, func() { n++ })", "to spawnT, which starts a puroutine with it"},
+		{"through an after func", "n := 0\nlater(func() { n++ })", "to later, which starts a puroutine with it"},
 
 		{"no captures", "var wg sync.WaitGroup\nwg.Go(func() {})\nwg.Wait()\ntime.AfterFunc(time.Second, func() {})", ""},
 		{"function", "var wg sync.WaitGroup\nwg.Go(run2)\nwg.Wait()", ""},
 		{"parameter", "start(func() {})", ""},
 		{"other function", "n := 0\nrun(func() { n++ })", ""},
+		{"other parameter", "n := 0\nspawn(1, run2, func() { n++ })", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -102,6 +109,9 @@ func TestGoFuncCall(t *testing.T) {
 				"type counter struct{ n int }\n\nfunc (c *counter) add() { c.n++ }\n\n" +
 				"func run(f func()) { f() }\n\nfunc run2() {}\n\n" +
 				"func start(f func()) {\n\tvar wg sync.WaitGroup\n\twg.Go(f)\n\twg.Wait()\n}\n\n" +
+				"func spawn(n int, f func(), more ...func()) {\n\tfor _, g := range more {\n\t\tg()\n\t}\n\tgo f()\n}\n\n" +
+				"func spawnT[T any](x T, f func()) { go run(f) }\n\n" +
+				"func later(f func()) { time.AfterFunc(time.Second, f) }\n\n" +
 				"var _ = rt.MinStackSize\n\nvar _ = time.Second\n\n" +
 				"func main() {\n\t" + strings.ReplaceAll(c.body, "\n", "\n\t") + "\n}\n"
 			got := lowerModeError(t, src, hosted)
