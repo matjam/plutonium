@@ -1,0 +1,246 @@
+package amd64
+
+import (
+	"github.com/matjam/plutonium/internal/syntax/token"
+)
+
+// Debug information for one compiled function: where each instruction came
+// from in the source, and how to find the caller's frame at every point.
+// Both are computed from the final code offsets, after branch relaxation.
+
+// frameRole marks the instructions that build and tear down the frame.
+type frameRole uint8
+
+const (
+	frameBody frameRole = iota
+	framePrologue
+	frameEpilogue
+)
+
+// A FuncDebug describes a compiled function for debuggers and for the
+// runtime's stack traces.
+type FuncDebug struct {
+	// Lines maps code offsets to source positions: entry i covers the code
+	// from Lines[i].Off up to the next entry's offset (or the end).
+	Lines []LineEntry
+	// CFI gives the frame state from each entry's offset up to the next:
+	// how to compute the canonical frame address (the stack pointer before
+	// the call) and where each saved register is.
+	CFI []FrameState
+
+	FrameSize   int64 // bytes the prologue subtracts from RSP after the pushes
+	Saved       []Reg // callee-saved registers pushed, in push order
+	FP          bool  // RBP is a frame pointer: CFA = RBP + 16
+	Interrupt   bool  // an interrupt handler (not a normal call frame)
+	PrologueEnd int   // offset of the first instruction after the prologue
+}
+
+// A LineEntry maps the code from Off to a source position.
+type LineEntry struct {
+	Off int
+	Pos token.Pos
+	Inl int32 // 1-based index into ssa.Func.Inlines, or 0
+}
+
+// A FrameState is the unwind rule in effect from Off: the CFA is CFAReg plus
+// CFAOff, the return address is at CFA-8, and each register in Saved is
+// stored at CFA plus its offset.
+type FrameState struct {
+	Off    int
+	CFAReg Reg // RSP or RBP
+	CFAOff int64
+	Saved  []RegSave
+}
+
+// A RegSave says that register Reg is saved at CFA+Off.
+type RegSave struct {
+	Reg Reg
+	Off int64
+}
+
+// sameRule reports whether two states describe the same frame.
+func (s FrameState) sameRule(t FrameState) bool {
+	if s.CFAReg != t.CFAReg || s.CFAOff != t.CFAOff || len(s.Saved) != len(t.Saved) {
+		return false
+	}
+	for i := range s.Saved {
+		if s.Saved[i] != t.Saved[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// DWARFReg returns the DWARF register number of a general register.
+func DWARFReg(r Reg) int {
+	switch r {
+	case RAX:
+		return 0
+	case RDX:
+		return 1
+	case RCX:
+		return 2
+	case RBX:
+		return 3
+	case RSI:
+		return 4
+	case RDI:
+		return 5
+	case RBP:
+		return 6
+	case RSP:
+		return 7
+	}
+	return int(r-R8) + 8 // R8..R15
+}
+
+// DWARFReturnAddress is the DWARF column of the return address (RIP).
+const DWARFReturnAddress = 16
+
+// funcDebug builds the debug information of an encoded function. insts are
+// the instructions in emission order and starts their final offsets; size
+// is the length of the code.
+func funcDebug(f *MFunc, insts []*MInst, starts []int, size int) *FuncDebug {
+	d := &FuncDebug{FrameSize: f.frameSize, FP: f.frameFP, Interrupt: f.interrupt}
+	for _, r := range f.usedSaved {
+		if !f.frameFP || r != RBP {
+			d.Saved = append(d.Saved, r)
+		}
+	}
+	d.Lines = lineTable(insts, starts)
+	d.CFI, d.PrologueEnd = frameStates(insts, starts, size)
+	return d
+}
+
+// lineTable gives every instruction a position, taking it from the next
+// instruction with one when it has none (spill code, copies), or from the
+// previous one at the end of the function, and merges equal neighbours.
+func lineTable(insts []*MInst, starts []int) []LineEntry {
+	type pos struct {
+		p   token.Pos
+		inl int32
+	}
+	ps := make([]pos, len(insts))
+	var next pos
+	for i := len(insts) - 1; i >= 0; i-- {
+		if insts[i].Pos.IsValid() {
+			next = pos{insts[i].Pos, insts[i].Inl}
+		}
+		ps[i] = next
+	}
+	var prev pos
+	var out []LineEntry
+	for i := range insts {
+		p := ps[i]
+		if insts[i].Pos.IsValid() {
+			p = pos{insts[i].Pos, insts[i].Inl}
+		} else if !p.p.IsValid() {
+			p = prev
+		}
+		prev = p
+		if !p.p.IsValid() {
+			continue
+		}
+		if n := len(out); n > 0 && out[n-1].Pos == p.p && out[n-1].Inl == p.inl {
+			continue
+		}
+		if n := len(out); n > 0 && out[n-1].Off == starts[i] {
+			out[n-1].Pos, out[n-1].Inl = p.p, p.inl // empty range
+			continue
+		}
+		out = append(out, LineEntry{Off: starts[i], Pos: p.p, Inl: p.inl})
+	}
+	return out
+}
+
+// frameStates follows the prologue and epilogues and returns the frame
+// state at each offset where it changes, and the end of the prologue.
+func frameStates(insts []*MInst, starts []int, size int) ([]FrameState, int) {
+	// rsp is the distance from RSP up to the CFA, while it is known.
+	cur := FrameState{CFAReg: RSP, CFAOff: 8}
+	rsp := int64(8)
+	body := cur // the state inside the body, restored after each return
+	states := []FrameState{cur}
+	prologueEnd := 0
+	end := func(i int) int {
+		if i+1 < len(starts) {
+			return starts[i+1]
+		}
+		return size
+	}
+	record := func(off int) {
+		if off >= size {
+			return
+		}
+		s := cur
+		s.Off = off
+		s.Saved = append([]RegSave(nil), cur.Saved...)
+		last := &states[len(states)-1]
+		if last.Off == off {
+			*last = s
+		} else if !last.sameRule(s) {
+			states = append(states, s)
+		}
+	}
+	for i, in := range insts {
+		if in.frame == frameBody {
+			continue
+		}
+		switch {
+		case in.Op == MPUSH:
+			rsp += 8
+			cur.Saved = append(cur.Saved, RegSave{in.Src.Reg, -rsp})
+			if cur.CFAReg == RSP {
+				cur.CFAOff = rsp
+			}
+		case in.Op == MMOV && in.Dst.Reg == RBP && in.Src.Kind == OpdReg && in.Src.Reg == RSP:
+			cur.CFAReg, cur.CFAOff = RBP, rsp
+		case in.Op == MSUB && in.Dst.Reg == RSP:
+			rsp += in.Src.Imm
+			if cur.CFAReg == RSP {
+				cur.CFAOff = rsp
+			}
+		case in.Op == MADD && in.Dst.Reg == RSP:
+			rsp -= in.Src.Imm
+			if cur.CFAReg == RSP {
+				cur.CFAOff = rsp
+			}
+		case in.Op == MAND && in.Dst.Reg == RSP:
+			// Realignment: RSP is no longer a fixed distance from the CFA,
+			// which is why such frames keep RBP.
+		case in.Op == MLEA && in.Dst.Reg == RSP:
+			// lea rsp, [rbp - 8n] in a frame-pointer epilogue.
+			rsp = cur.CFAOff - in.Src.Mem.Disp
+		case in.Op == MPOP:
+			rsp -= 8
+			r := in.Dst.Reg
+			saved := cur.Saved[:0:0]
+			for _, s := range cur.Saved {
+				if s.Reg != r {
+					saved = append(saved, s)
+				}
+			}
+			cur.Saved = saved
+			if r == RBP && cur.CFAReg == RBP {
+				cur.CFAReg = RSP
+			}
+			if cur.CFAReg == RSP {
+				cur.CFAOff = rsp
+			}
+		case in.Op == MRET:
+			// Code after a return is reached by a jump from the body.
+			cur = body
+			cur.Saved = append([]RegSave(nil), body.Saved...)
+			rsp = body.CFAOff
+			record(end(i))
+			continue
+		}
+		record(end(i))
+		if in.frame == framePrologue {
+			body = cur
+			body.Saved = append([]RegSave(nil), cur.Saved...)
+			prologueEnd = end(i)
+		}
+	}
+	return states, prologueEnd
+}

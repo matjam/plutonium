@@ -27,6 +27,9 @@ func (s *fnState) stmt(st ast.Stmt) {
 	if _, isLabel := st.(*ast.LabeledStmt); !isLabel {
 		s.ensureBlock()
 	}
+	if p := st.Pos(); p.IsValid() {
+		s.f.SetPos(p)
+	}
 	switch st := st.(type) {
 	case *ast.EmptyStmt:
 	case *ast.ExprStmt:

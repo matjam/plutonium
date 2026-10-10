@@ -1,0 +1,448 @@
+package build_test
+
+import (
+	"bytes"
+	"debug/dwarf"
+	"debug/elf"
+	"encoding/binary"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	plutonium "github.com/matjam/plutonium"
+	"github.com/matjam/plutonium/internal/build"
+)
+
+// debugSrc is the program the DWARF tests inspect. The tests refer to its
+// line numbers.
+const debugSrc = `package main
+
+type big struct {
+	a [8]int
+}
+
+//pu:noinline
+func sum(xs []int) int {
+	s := 0
+	for _, x := range xs {
+		s += x
+	}
+	return s
+}
+
+//pu:noinline
+func fill(b *big, n int) int {
+	for i := range b.a {
+		b.a[i] = n * i
+	}
+	return sum(b.a[:]) + n
+}
+
+//pu:noinline
+func wide(n int) int {
+	var buf aligned[[8]int, 64]
+	for i := 0; i < 8; i++ {
+		buf[i] = n + i
+	}
+	return sum(buf[:]) * 2
+}
+
+func main() {
+	var b big
+	println(fill(&b, 3) + wide(2))
+}
+`
+
+// buildDebug builds debugSrc and opens the result.
+func buildDebug(t *testing.T, cfg build.Config) (*elf.File, string) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.p"), []byte(debugSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Dir = dir
+	cfg.Output = filepath.Join(dir, "prog")
+	cfg.Stdlib = plutonium.Stdlib()
+	if err := build.Build(&cfg); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	f, err := elf.Open(cfg.Output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	return f, filepath.Join(dir, "main.p")
+}
+
+type funcRange struct{ lo, hi uint64 }
+
+// TestDWARF checks the compile units, subprograms, line table and call frame
+// information of a program at -O0 and -O2.
+func TestDWARF(t *testing.T) {
+	for _, level := range []int{0, 2} {
+		t.Run("O"+string(rune('0'+level)), func(t *testing.T) {
+			f, file := buildDebug(t, build.Config{OptLevel: level})
+			syms, err := f.Symbols()
+			if err != nil {
+				t.Fatal(err)
+			}
+			symRange := map[string]funcRange{}
+			for _, s := range syms {
+				if elf.ST_TYPE(s.Info) == elf.STT_FUNC {
+					symRange[s.Name] = funcRange{s.Value, s.Value + s.Size}
+				}
+			}
+			d, err := f.DWARF()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// Every subprogram matches its symbol, and main's are in the
+			// unit of package main.
+			subs := map[string]funcRange{}
+			r := d.Reader()
+			var mainCU *dwarf.Entry
+			var cu *dwarf.Entry
+			for {
+				e, err := r.Next()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if e == nil {
+					break
+				}
+				switch e.Tag {
+				case dwarf.TagCompileUnit:
+					cu = e
+					if e.Val(dwarf.AttrName) == "main" {
+						mainCU = e
+					}
+					if e.Val(dwarf.AttrLanguage) != int64(0x16) {
+						t.Errorf("unit %v: language %v, want Go", e.Val(dwarf.AttrName), e.Val(dwarf.AttrLanguage))
+					}
+				case dwarf.TagSubprogram:
+					name, _ := e.Val(dwarf.AttrName).(string)
+					lo, _ := e.Val(dwarf.AttrLowpc).(uint64)
+					hi, _ := e.Val(dwarf.AttrHighpc).(int64)
+					subs[name] = funcRange{lo, lo + uint64(hi)}
+					if want, ok := symRange[name]; !ok || want != subs[name] {
+						t.Errorf("subprogram %s covers %#x-%#x, symbol %#x-%#x", name, lo, lo+uint64(hi), want.lo, want.hi)
+					}
+					if strings.HasPrefix(name, "main.") && cu != mainCU {
+						t.Errorf("subprogram %s outside the main unit", name)
+					}
+				}
+			}
+			for _, name := range []string{"main.main", "main.sum", "main.fill", "pluto/rt.panicIndex"} {
+				if _, ok := subs[name]; !ok {
+					t.Errorf("no subprogram %s", name)
+				}
+			}
+			if mainCU == nil {
+				t.Fatal("no compile unit for package main")
+			}
+			if _, err := d.Ranges(mainCU); err != nil {
+				t.Errorf("ranges of the main unit: %v", err)
+			}
+
+			// The line table places known statements in their functions.
+			lr, err := d.LineReader(mainCU)
+			if err != nil || lr == nil {
+				t.Fatalf("line reader: %v", err)
+			}
+			found := map[int]string{}
+			var le dwarf.LineEntry
+			for lr.Next(&le) == nil {
+				if le.File == nil || le.File.Name != file || le.EndSequence {
+					continue
+				}
+				for name, fr := range subs {
+					if le.Address >= fr.lo && le.Address < fr.hi && strings.HasPrefix(name, "main.") {
+						found[le.Line] = name
+					}
+				}
+			}
+			for line, fn := range map[int]string{11: "main.sum", 19: "main.fill", 21: "main.fill", 28: "main.wide", 35: "main.main"} {
+				if found[line] != fn {
+					t.Errorf("line %d: in %q, want %q (lines found: %v)", line, found[line], fn, found)
+				}
+			}
+			if pc, err := d.LineReader(mainCU); err == nil {
+				var e dwarf.LineEntry
+				if err := pc.SeekPC(subs["main.sum"].lo, &e); err != nil {
+					t.Errorf("no line for the start of main.sum: %v", err)
+				} else if e.Line != 8 {
+					t.Errorf("main.sum starts at line %d, want 8", e.Line)
+				}
+			}
+
+			// Each function has an FDE covering it, whose rules start and
+			// end at the call boundary.
+			fdes := readFDEs(t, f)
+			for name, fr := range subs {
+				fde, ok := fdes[fr.lo]
+				if !ok {
+					t.Errorf("%s: no FDE", name)
+					continue
+				}
+				if fde.end != fr.hi {
+					t.Errorf("%s: FDE ends at %#x, function at %#x", name, fde.end, fr.hi)
+				}
+				if rule := fde.ruleAt(fr.lo); rule.reg != 7 || rule.off != 8 {
+					t.Errorf("%s: CFA at entry is r%d%+d, want rsp+8", name, rule.reg, rule.off)
+				}
+			}
+			// fill calls sum, so it has a frame: at the call the CFA is
+			// further from RSP than the return address alone, and the rule
+			// is back to rsp+8 at its return.
+			fill := subs["main.fill"]
+			call := findCall(t, f, fill, subs["main.sum"].lo)
+			if rule := fdes[fill.lo].ruleAt(call); rule.reg != 7 || rule.off <= 8 || rule.off%8 != 0 {
+				t.Errorf("main.fill: CFA at the call to sum is r%d%+d", rule.reg, rule.off)
+			}
+			returns := false
+			for _, row := range fdes[fill.lo].rows {
+				returns = returns || row.addr > call && row.reg == 7 && row.off == 8
+			}
+			if !returns {
+				t.Errorf("main.fill: the CFA never returns to rsp+8 after the call: %+v", fdes[fill.lo].rows)
+			}
+			// wide realigns its stack for the 64-byte local, so it keeps
+			// RBP as a frame pointer and the CFA follows RBP in its body.
+			wide := subs["main.wide"]
+			call = findCall(t, f, wide, subs["main.sum"].lo)
+			if rule := fdes[wide.lo].ruleAt(call); rule.reg != 6 || rule.off != 16 {
+				t.Errorf("main.wide: CFA at the call to sum is r%d%+d, want rbp+16", rule.reg, rule.off)
+			}
+		})
+	}
+}
+
+// TestStdlibDir checks that standard library files are named under
+// Config.StdlibDir rather than $PLUTOROOT when it is set.
+func TestStdlibDir(t *testing.T) {
+	f, _ := buildDebug(t, build.Config{StdlibDir: "/opt/pluto/lib"})
+	d, err := f.DWARF()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := d.Reader()
+	found := false
+	for {
+		e, err := r.Next()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e == nil {
+			break
+		}
+		if e.Tag != dwarf.TagCompileUnit {
+			r.SkipChildren()
+			continue
+		}
+		lr, err := d.LineReader(e)
+		if err != nil || lr == nil {
+			continue
+		}
+		for _, file := range lr.Files() {
+			if file == nil {
+				continue
+			}
+			if strings.Contains(file.Name, "$PLUTOROOT") {
+				t.Errorf("file %s not under the standard library directory", file.Name)
+			}
+			found = found || file.Name == "/opt/pluto/lib/pluto/rt/rt.p"
+		}
+	}
+	if !found {
+		t.Errorf("no line table names /opt/pluto/lib/pluto/rt/rt.p")
+	}
+}
+
+// TestNoDWARF checks -g=false and -s: no DWARF sections, and with -s no
+// symbol table either.
+func TestNoDWARF(t *testing.T) {
+	f, _ := buildDebug(t, build.Config{OptLevel: 2, NoDWARF: true})
+	for _, s := range f.Sections {
+		if strings.HasPrefix(s.Name, ".debug_") {
+			t.Errorf("-g=false: section %s present", s.Name)
+		}
+	}
+	if f.Section(".symtab") == nil {
+		t.Errorf("-g=false: no symbol table")
+	}
+	stripped, _ := buildDebug(t, build.Config{OptLevel: 2, Strip: true})
+	for _, s := range stripped.Sections {
+		if strings.HasPrefix(s.Name, ".debug_") || s.Name == ".symtab" {
+			t.Errorf("-s: section %s present", s.Name)
+		}
+	}
+}
+
+// TestGDB sets breakpoints by file and line and by function in programs
+// built at -O0 and -O2, and checks the backtraces gdb prints there, through
+// a frame without a frame pointer (fill) and one with (wide). It is skipped
+// without gdb.
+func TestGDB(t *testing.T) {
+	gdb, err := exec.LookPath("gdb")
+	if err != nil {
+		t.Skip("gdb not installed")
+	}
+	for _, level := range []int{0, 2} {
+		_, file := buildDebug(t, build.Config{OptLevel: level})
+		prog := filepath.Join(filepath.Dir(file), "prog")
+		cmd := exec.Command(gdb, "-nx", "-batch",
+			"-iex", "set debuginfod enabled off",
+			"-ex", "break main.p:19",
+			"-ex", "run",
+			"-ex", "bt",
+			"-ex", "delete",
+			"-ex", "break main.sum",
+			"-ex", "continue",
+			"-ex", "bt",
+			"-ex", "continue",
+			"-ex", "bt",
+			prog)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("O%d: gdb: %v\n%s", level, err, out)
+		}
+		text := string(out)
+		for _, want := range []string{
+			"main.fill () at " + file + ":19",
+			"main.sum () at " + file + ":",
+			"main.fill () at " + file + ":21",
+			"main.wide () at " + file + ":30",
+			"main.main () at " + file + ":35",
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("O%d: gdb output lacks %q:\n%s", level, want, text)
+			}
+		}
+		if strings.Contains(text, "Backtrace stopped") || strings.Contains(text, "corrupt stack") {
+			t.Errorf("O%d: gdb could not unwind:\n%s", level, text)
+		}
+	}
+}
+
+// An fde is a decoded frame description entry.
+type fde struct {
+	start, end uint64
+	rows       []cfaRow // the CFA rule from each address on
+}
+
+type cfaRow struct {
+	addr uint64
+	reg  uint64
+	off  int64
+}
+
+func (f fde) ruleAt(pc uint64) cfaRow {
+	r := f.rows[0]
+	for _, row := range f.rows {
+		if row.addr <= pc {
+			r = row
+		}
+	}
+	return r
+}
+
+// findCall returns the address of the direct call to target in fn.
+func findCall(t *testing.T, f *elf.File, fn funcRange, target uint64) uint64 {
+	t.Helper()
+	text := f.Section(".text")
+	code := make([]byte, fn.hi-fn.lo)
+	if _, err := text.ReadAt(code, int64(fn.lo-text.Addr)); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i+5 <= len(code); i++ {
+		if code[i] != 0xE8 {
+			continue
+		}
+		next := fn.lo + uint64(i) + 5
+		if next+uint64(int64(int32(binary.LittleEndian.Uint32(code[i+1:])))) == target {
+			return fn.lo + uint64(i)
+		}
+	}
+	t.Fatalf("no call to %#x in %#x-%#x", target, fn.lo, fn.hi)
+	return 0
+}
+
+// readFDEs decodes .debug_frame, interpreting the CFA instructions the
+// compiler emits.
+func readFDEs(t *testing.T, f *elf.File) map[uint64]fde {
+	t.Helper()
+	sec := f.Section(".debug_frame")
+	if sec == nil {
+		t.Fatal("no .debug_frame")
+	}
+	data, err := sec.Data()
+	if err != nil {
+		t.Fatal(err)
+	}
+	le := binary.LittleEndian
+	out := map[uint64]fde{}
+	uleb := func(b *bytes.Reader) uint64 {
+		var v uint64
+		for shift := 0; ; shift += 7 {
+			c, _ := b.ReadByte()
+			v |= uint64(c&0x7f) << shift
+			if c < 0x80 {
+				return v
+			}
+		}
+	}
+	for off := 0; off+4 <= len(data); {
+		length := int(le.Uint32(data[off:]))
+		entry := data[off+4 : off+4+length]
+		off += 4 + length
+		if le.Uint32(entry) == 0xffffffff {
+			continue // the CIE
+		}
+		start := le.Uint64(entry[4:])
+		size := le.Uint64(entry[12:])
+		fd := fde{start: start, end: start + size}
+		row := cfaRow{addr: start, reg: 7, off: 8}
+		fd.rows = append(fd.rows, row)
+		b := bytes.NewReader(entry[20:])
+		for b.Len() > 0 {
+			op, _ := b.ReadByte()
+			switch {
+			case op&0xc0 == 0x40:
+				row.addr += uint64(op & 0x3f)
+			case op&0xc0 == 0x80:
+				uleb(b)
+				continue
+			case op&0xc0 == 0xc0:
+				continue
+			case op == 0x02:
+				c, _ := b.ReadByte()
+				row.addr += uint64(c)
+			case op == 0x03:
+				var v [2]byte
+				_, _ = b.Read(v[:])
+				row.addr += uint64(le.Uint16(v[:]))
+			case op == 0x04:
+				var v [4]byte
+				_, _ = b.Read(v[:])
+				row.addr += uint64(le.Uint32(v[:]))
+			case op == 0x0c:
+				row.reg = uleb(b)
+				row.off = int64(uleb(b))
+			case op == 0x0d:
+				row.reg = uleb(b)
+			case op == 0x0e:
+				row.off = int64(uleb(b))
+			case op == 0x00:
+				continue
+			default:
+				t.Fatalf("FDE at %#x: unexpected CFA instruction %#x", start, op)
+			}
+			fd.rows = append(fd.rows, row)
+		}
+		out[start] = fd
+	}
+	return out
+}

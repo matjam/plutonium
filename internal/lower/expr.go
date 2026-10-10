@@ -11,6 +11,9 @@ import (
 
 // expr lowers an expression to a value.
 func (s *fnState) expr(e ast.Expr) value {
+	if p := e.Pos(); p.IsValid() {
+		defer s.f.SetPos(s.f.SetPos(p))
+	}
 	tv := s.info.Types[e]
 	if tv.Value != nil {
 		return s.constValue(tv.Value, s.typeOf(e), e)
@@ -318,6 +321,9 @@ func (s *fnState) panicUnless(cond *ssa.Value, pos token.Pos, raise func()) {
 	s.seal(fail)
 	s.startBlock(fail)
 	fail.Pos = pos
+	if pos.IsValid() {
+		defer s.f.SetPos(s.f.SetPos(pos))
+	}
 	raise()
 	s.seal(cont)
 	s.startBlock(cont)

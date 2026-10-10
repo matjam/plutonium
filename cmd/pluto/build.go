@@ -76,6 +76,8 @@ func init() {
 		c.Flags().String("ssa", "", "dump the SSA of this function (or all) after each pass")
 		c.Flags().Bool("work", false, "keep the temporary work directory")
 		c.Flags().BoolP("compile", "c", false, "write the object file instead of linking")
+		c.Flags().BoolP("debug", "g", true, "emit DWARF debugging information (-g=false to omit it)")
+		c.Flags().BoolP("strip", "s", false, "omit DWARF and the symbol table (panic traces still work)")
 	}
 	rootCmd.AddCommand(buildCmd, runCmd)
 }
@@ -98,6 +100,8 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 	ssaDump, _ := f.GetString("ssa")
 	work, _ := f.GetBool("work")
 	compileOnly, _ := f.GetBool("compile")
+	debug, _ := f.GetBool("debug")
+	strip, _ := f.GetBool("strip")
 
 	arch, osName, ok := strings.Cut(target, "-")
 	if !ok || arch != "x86_64" || (osName != "linux" && osName != "none") {
@@ -133,6 +137,13 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 		Verbose:      verbose,
 		KeepWork:     work,
 		CompileOnly:  compileOnly,
+		NoDWARF:      !debug,
+		Strip:        strip,
+	}
+	if root := os.Getenv("PLUTOROOT"); root != "" {
+		if abs, err := filepath.Abs(root); err == nil {
+			cfg.StdlibDir = abs
+		}
 	}
 	switch asm {
 	case "":

@@ -206,7 +206,9 @@ func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []
 	}
 
 	call := s.callValue(c, flat, abi.flatResults)
-	call.Pos = pos
+	if pos.IsValid() {
+		call.Pos = pos
+	}
 	s.setMem(s.newValue(ssa.OpSelectN, ssa.TMem, call))
 	if c.noReturn {
 		call.Call.NoReturn = true

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/matjam/plutonium/internal/ssa"
+	"github.com/matjam/plutonium/internal/syntax/token"
 )
 
 // An MOp is a machine instruction kind. Most map to one x86-64 instruction;
@@ -218,6 +219,13 @@ type MInst struct {
 	Dsts, Srcs []Reg
 
 	Slot *ssa.Slot // spill slot for MSPILL/MRELOAD
+
+	// Source position, and the inlined call it is in (ssa.Value.Inl). An
+	// instruction without a position takes its neighbours' (see debug.go).
+	Pos token.Pos
+	Inl int32
+	// frame marks prologue and epilogue instructions, for unwind tables.
+	frame frameRole
 }
 
 // An MBlock is a basic block of machine instructions.
@@ -243,6 +251,7 @@ type MFunc struct {
 	Order  []*MBlock   // emission order (see ssa.Layout)
 	Slots  []*ssa.Slot // stack slots: locals and spills
 	Local  bool
+	Pos    token.Pos // the function's declaration, for the prologue
 
 	nextVReg  Reg
 	regClass  map[Reg]RegClass

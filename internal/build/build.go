@@ -15,11 +15,13 @@ import (
 	"strings"
 
 	"github.com/matjam/plutonium/internal/arch/amd64"
+	"github.com/matjam/plutonium/internal/debuginfo"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/lower"
 	"github.com/matjam/plutonium/internal/objfile"
 	"github.com/matjam/plutonium/internal/opt"
 	"github.com/matjam/plutonium/internal/ssa"
+	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
 )
 
@@ -38,6 +40,16 @@ type Config struct {
 	Verbose      bool
 	KeepWork     bool // keep the temporary directory
 	CompileOnly  bool // write the object file to Output and stop
+
+	// NoDWARF omits the DWARF debugging sections (pluto build -g=false).
+	NoDWARF bool
+	// Strip omits DWARF and the symbol table (pluto build -s). Panics still
+	// print symbolised stack traces, which use a table of their own.
+	Strip bool
+	// StdlibDir, if set, is the directory Stdlib was read from; debugging
+	// information names standard library files under it rather than
+	// $PLUTOROOT.
+	StdlibDir string
 }
 
 // Build compiles and links a program.
@@ -66,7 +78,7 @@ func Build(cfg *Config) error {
 		return err
 	}
 
-	obj, err := emitObject(cfg, sp)
+	obj, err := emitObject(cfg, sp, prog.Fset)
 	if err != nil {
 		return err
 	}
@@ -112,6 +124,9 @@ func Build(cfg *Config) error {
 	}
 
 	args := []string{"-static", "-nostdlib", "-z", "noexecstack", "-o", cfg.Output}
+	if cfg.Strip {
+		args = append(args, "-s")
+	}
 	if cfg.LinkerScript != "" {
 		args = append(args, "-T", cfg.LinkerScript)
 	} else {
@@ -149,10 +164,19 @@ func optimize(cfg *Config, p *ssa.Program) error {
 }
 
 // emitObject generates code for every function and lays out the data.
-func emitObject(cfg *Config, p *ssa.Program) (*objfile.Object, error) {
+func emitObject(cfg *Config, p *ssa.Program, fset *token.FileSet) (*objfile.Object, error) {
 	obj := objfile.New()
 	text := obj.Section(".text", elf.SHT_PROGBITS, elf.SHF_ALLOC|elf.SHF_EXECINSTR, 16)
 	obj.Section(".note.GNU-stack", elf.SHT_PROGBITS, 0, 1)
+	dbg := debuginfo.New(fset)
+	if cfg.StdlibDir != "" {
+		dbg.FileName = func(name string) string {
+			if rest, ok := strings.CutPrefix(name, "$PLUTOROOT/"); ok {
+				return filepath.Join(cfg.StdlibDir, rest)
+			}
+			return name
+		}
+	}
 
 	var rodata *objfile.Section
 	constDone := map[string]bool{}
@@ -177,6 +201,8 @@ func emitObject(cfg *Config, p *ssa.Program) (*objfile.Object, error) {
 		off := sec.Append(code.Bytes, 16)
 		obj.Define(&objfile.Symbol{Name: f.Sym.Name, Section: sec, Value: off, Size: uint64(len(code.Bytes)),
 			Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC})
+		dbg.Add(&debuginfo.Func{Sym: f.Sym.Name, Pkg: f.Pkg, Pos: f.Pos, Size: len(code.Bytes),
+			Debug: code.Debug, Inlines: f.Inlines})
 		for _, name := range f.Exports {
 			obj.Define(&objfile.Symbol{Name: name, Section: sec, Value: off, Size: uint64(len(code.Bytes)),
 				Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC})
@@ -207,6 +233,15 @@ func emitObject(cfg *Config, p *ssa.Program) (*objfile.Object, error) {
 			obj.Define(&objfile.Symbol{Name: c.Sym.Name, Section: rodata, Value: off, Size: 16,
 				Bind: elf.STB_LOCAL, Type: elf.STT_OBJECT})
 		}
+	}
+
+	dbg.WriteTraceTable(obj)
+	if !cfg.NoDWARF && !cfg.Strip {
+		dir, err := filepath.Abs(cfg.Dir)
+		if err != nil {
+			return nil, err
+		}
+		dbg.WriteDWARF(obj, dir)
 	}
 
 	data := append([]*ssa.Data(nil), p.Data...)
