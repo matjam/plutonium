@@ -319,7 +319,7 @@ type Pad struct {
 // through the split slot would lose that byte.
 func (s *Slot) LeavesCover() bool {
 	type span struct{ off, end int64 }
-	spans := make([]span, 0, len(s.Leaves)+len(s.Pads))
+	spans := compat.MakeCap[span](0, len(s.Leaves)+len(s.Pads))
 	for _, l := range s.Leaves {
 		spans = compat.Append(spans, span{l.Off, l.Off + l.Type.Size})
 	}
@@ -610,7 +610,7 @@ func (f *Func) RemoveDeadBlocks() {
 
 // Reachable returns the set of blocks reachable from the entry, by block ID.
 func (f *Func) Reachable() []bool {
-	reach := make([]bool, f.NumBlocks())
+	reach := compat.Make[bool](f.NumBlocks())
 	stack := []*Block{f.Entry}
 	reach[f.Entry.ID] = true
 	for len(stack) > 0 {

@@ -84,7 +84,7 @@ func (s *Section) Append(data []byte, align uint64) uint64 {
 			s.Data = compat.Append(s.Data, 0xCC) // int3 padding between functions
 		}
 	} else {
-		s.Data = compat.Append(s.Data, make([]byte, off-uint64(len(s.Data)))...)
+		s.Data = compat.Append(s.Data, compat.Make[byte](int(off-uint64(len(s.Data))))...)
 	}
 	s.Data = compat.Append(s.Data, data...)
 	return off
@@ -156,7 +156,7 @@ func (o *Object) Write(w io.Writer) error {
 	})
 	symIndex := compat.NewMap[string, int](0)
 	symtab := pu.Alloc[compat.Buffer]()
-	symtab.Write(make([]byte, 24)) // null symbol
+	symtab.Write(compat.Make[byte](24)) // null symbol
 	firstGlobal := 1
 	for i, n := range names {
 		sym := compat.MapAt(o.syms, n)

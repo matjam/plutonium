@@ -68,7 +68,7 @@ func Mem2Reg(f *ssa.Func) {
 				hasPhi.Set(y, true)
 				phi := newPhiAtStart(y, compat.MapAt(types, s))
 				phiSlot.Set(phi, s)
-				phiArgs.Set(phi, make([]*ssa.Value, len(y.Preds)))
+				phiArgs.Set(phi, compat.Make[*ssa.Value](len(y.Preds)))
 				phis = compat.Append(phis, phi)
 				if !compat.MapAt(hasDef, y) {
 					hasDef.Set(y, true)

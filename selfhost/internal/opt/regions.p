@@ -175,8 +175,8 @@ func splitRegion(f *ssa.Func, s *ssa.Slot) bool {
 			}
 		}
 	}
-	slots := make([]*ssa.Slot, len(s.Parts))
-	addrs := make([]*ssa.Value, len(s.Parts))
+	slots := compat.Make[*ssa.Slot](len(s.Parts))
+	addrs := compat.Make[*ssa.Value](len(s.Parts))
 	for i, p := range s.Parts {
 		ns := f.NewSlot(compat.Sprintf("%s.%d", s.Name, p.Off), p.Size, max(p.Align, 1))
 		ns.Leaves, ns.Pads, ns.Closure, ns.Parts = p.Leaves, p.Pads, p.Closure, p.Parts

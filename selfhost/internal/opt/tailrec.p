@@ -103,7 +103,7 @@ func TailRec(f *ssa.Func) {
 	// Phis for every parameter and for memory; their other arguments come
 	// from the tail sites in order.
 	phiOf := compat.NewMap[*ssa.Value, *ssa.Value](0)
-	paramPhis := make([]*ssa.Value, len(params))
+	paramPhis := compat.Make[*ssa.Value](len(params))
 	for i, a := range params {
 		if a != nil {
 			paramPhis[i] = newPhi(a.Type, a)

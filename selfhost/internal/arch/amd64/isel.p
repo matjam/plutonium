@@ -56,10 +56,10 @@ func Select(f *ssa.Func) (*MFunc, error) {
 	s := &isel{
 		f:      f,
 		mf:     mf,
-		blocks: make([]*MBlock, f.NumBlocks()),
-		vregs:  make([]Reg, f.NumValues()),
-		fused:  make([]bool, f.NumValues()),
-		folded: make([]bool, f.NumValues()),
+		blocks: compat.Make[*MBlock](f.NumBlocks()),
+		vregs:  compat.Make[Reg](f.NumValues()),
+		fused:  compat.Make[bool](f.NumValues()),
+		folded: compat.Make[bool](f.NumValues()),
 		loops:  f.Loops(),
 		noSSE:  f.NoSSE,
 	}
@@ -751,7 +751,7 @@ type abiLoc struct {
 }
 
 func abiLocs(types []*ssa.Type, intRegs, floatRegs []Reg, onStack []bool) ([]abiLoc, int64) {
-	locs := make([]abiLoc, len(types))
+	locs := compat.Make[abiLoc](len(types))
 	ni, nf := 0, 0
 	var stack int64
 	for i, t := range types {
@@ -1521,7 +1521,7 @@ func (s *isel) call(v *ssa.Value) {
 		ctx = args[1]
 		args = args[2:]
 	}
-	types := make([]*ssa.Type, len(args))
+	types := compat.Make[*ssa.Type](len(args))
 	for i, a := range args {
 		types[i] = a.Type
 	}
@@ -1535,7 +1535,7 @@ func (s *isel) call(v *ssa.Value) {
 			s.store(Mem{Base: NoReg, Index: NoReg, OutArg: true, Disp: locs[i].stack}, a)
 		}
 	}
-	srcs := make([]Reg, len(args))
+	srcs := compat.Make[Reg](len(args))
 	for i, a := range args {
 		if locs[i].reg != NoReg {
 			srcs[i] = s.reg(a)
@@ -1636,7 +1636,7 @@ func (s *isel) terminator(b *ssa.Block) error {
 		s.emit(pu.New(MInst{Op: MJMP, Target: no}))
 	case ssa.BlockRet:
 		results := b.Controls[1:]
-		types := make([]*ssa.Type, len(results))
+		types := compat.Make[*ssa.Type](len(results))
 		for i, r := range results {
 			types[i] = r.Type
 		}
@@ -1645,7 +1645,7 @@ func (s *isel) terminator(b *ssa.Block) error {
 			resRegsInt, resRegsFloat = intResultRegs[:2], floatResultRegs[:2]
 		}
 		locs, _ := abiLocs(types, resRegsInt, resRegsFloat, nil)
-		srcs := make([]Reg, len(results))
+		srcs := compat.Make[Reg](len(results))
 		for i, r := range results {
 			srcs[i] = s.reg(r)
 		}

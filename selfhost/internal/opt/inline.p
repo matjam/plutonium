@@ -460,7 +460,7 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 	// Results.
 	nres := len(g.Results)
 	var outMem *ssa.Value
-	outs := make([]*ssa.Value, nres)
+	outs := compat.Make[*ssa.Value](nres)
 	switch len(rets) {
 	case 0:
 		// g never returns: after is unreachable.

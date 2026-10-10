@@ -71,7 +71,7 @@ type loadFinder struct {
 }
 
 func newLoadFinder(f *ssa.Func) *loadFinder {
-	lf := pu.New(loadFinder{dom: f.Dom(), readers: compat.NewMap[*ssa.Value, []*ssa.Value](0), pos: make([]int, f.NumValues())})
+	lf := pu.New(loadFinder{dom: f.Dom(), readers: compat.NewMap[*ssa.Value, []*ssa.Value](0), pos: compat.Make[int](f.NumValues())})
 	for _, b := range f.Blocks {
 		for i, v := range b.Values {
 			lf.pos[v.ID] = i

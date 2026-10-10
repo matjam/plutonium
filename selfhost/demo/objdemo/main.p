@@ -29,7 +29,7 @@ func main() {
 	text.Relocs = compat.Append(text.Relocs, objfile.Reloc{Off: f2, Sym: "external.helper", Type: elf.R_X86_64_PC32, Addend: -4})
 
 	// Data with a pointer to rodata, a local constant and some bss.
-	d := data.Append(make([]byte, 16), 8)
+	d := data.Append(compat.Make[byte](16), 8)
 	c := rodata.Append(compat.Bytes("hello, object\x00"), 16)
 	o.Define(pu.New(objfile.Symbol{Name: "const.hello", Section: rodata, Value: c, Size: 14, Bind: elf.STB_LOCAL, Type: elf.STT_OBJECT}))
 	data.Relocs = compat.Append(data.Relocs, objfile.Reloc{Off: d, Sym: "const.hello", Type: elf.R_X86_64_64})

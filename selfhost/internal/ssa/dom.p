@@ -12,8 +12,8 @@ func (f *Func) PostOrder() []*Block {
 	if f.cachedOrder != nil {
 		return f.cachedOrder
 	}
-	seen := make([]bool, f.NumBlocks())
-	order := make([]*Block, 0, len(f.Blocks))
+	seen := compat.Make[bool](f.NumBlocks())
+	order := compat.MakeCap[*Block](0, len(f.Blocks))
 	type frame struct {
 		b *Block
 		i int
@@ -42,7 +42,7 @@ func (f *Func) PostOrder() []*Block {
 // block comes before its successors except along back edges.
 func (f *Func) ReversePostOrder() []*Block {
 	po := f.PostOrder()
-	rpo := make([]*Block, len(po))
+	rpo := compat.Make[*Block](len(po))
 	for i, b := range po {
 		rpo[len(po)-1-i] = b
 	}
@@ -71,11 +71,11 @@ func computeDom(f *Func) *DomTree {
 	n := f.NumBlocks()
 	rpo := f.ReversePostOrder()
 	d := pu.New(DomTree{
-		idom:     make([]*Block, n),
-		children: make([][]*Block, n),
-		pre:      make([]int32, n),
-		post:     make([]int32, n),
-		rpoNum:   make([]int32, n),
+		idom:     compat.Make[*Block](n),
+		children: compat.Make[[]*Block](n),
+		pre:      compat.Make[int32](n),
+		post:     compat.Make[int32](n),
+		rpoNum:   compat.Make[int32](n),
 	})
 	for i := range d.rpoNum {
 		d.rpoNum[i] = -1
@@ -174,7 +174,7 @@ func (d *DomTree) Dominates(a, b *Block) bool {
 
 // Frontiers returns the dominance frontier of every block, by block ID.
 func (d *DomTree) Frontiers(f *Func) [][]*Block {
-	df := make([][]*Block, f.NumBlocks())
+	df := compat.Make[[]*Block](f.NumBlocks())
 	for _, b := range f.Blocks {
 		if len(b.Preds) < 2 || !d.Reachable(b) {
 			continue
@@ -242,7 +242,7 @@ func (l *Loop) Contains(ln *LoopNest, b *Block) bool {
 
 func computeLoops(f *Func) *LoopNest {
 	d := f.Dom()
-	ln := pu.New(LoopNest{inner: make([]*Loop, f.NumBlocks())})
+	ln := pu.New(LoopNest{inner: compat.Make[*Loop](f.NumBlocks())})
 	byHeader := compat.NewMap[*Block, *Loop](0)
 
 	// Find back edges p -> h where h dominates p, and collect each loop body by

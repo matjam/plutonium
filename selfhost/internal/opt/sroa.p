@@ -114,8 +114,8 @@ func accessesMatchLeaves(in *slotInfo) bool {
 // splitSlot replaces slot in.slot with one slot per leaf.
 func splitSlot(f *ssa.Func, in *slotInfo) {
 	s := in.slot
-	parts := make([]*ssa.Slot, len(s.Leaves))
-	addrs := make([]*ssa.Value, len(s.Leaves))
+	parts := compat.Make[*ssa.Slot](len(s.Leaves))
+	addrs := compat.Make[*ssa.Value](len(s.Leaves))
 	for i, l := range s.Leaves {
 		parts[i] = f.NewSlot(compat.Sprintf("%s.%d", s.Name, l.Off), l.Type.Size, l.Type.Size)
 		parts[i].Leaves = compat.Clone([]ssa.Leaf{{Off: 0, Type: l.Type}})

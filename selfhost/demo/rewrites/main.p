@@ -58,7 +58,7 @@ func (t *table) add(n *node) {
 }
 
 func sortedKeys(m *hash.Map[string, int]) []string {
-	keys := make([]string, 0, compat.MapLen(m))
+	keys := compat.MakeCap[string](0, compat.MapLen(m))
 	{
 		goIt1 := compat.MapIter(m)
 		for k, _, goOk2 := goIt1.Next(); goOk2; k, _, goOk2 = goIt1.Next() {

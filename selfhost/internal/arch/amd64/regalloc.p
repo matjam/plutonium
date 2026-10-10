@@ -88,7 +88,7 @@ func (f *MFunc) indexReg(i int) Reg {
 
 func (f *MFunc) numRegIndexes() int { return NumPhys + int(f.nextVReg-FirstVirtual) }
 
-func newRegSet(n int) regSet { return make(regSet, (n+63)/64) }
+func newRegSet(n int) regSet { return regSet(compat.Make[uint64]((n + 63) / 64)) }
 
 func (s regSet) has(i int) bool { return s[i/64]&(1<<(i%64)) != 0 }
 func (s regSet) add(i int)      { s[i/64] |= 1 << (i % 64) }
@@ -134,8 +134,8 @@ func bitIndex(b uint64) int {
 // this order, successors before predecessors except along back edges,
 // lets backward dataflow converge in a few passes whatever the layout.
 func postorder(f *MFunc, index *hash.Map[*MBlock, int]) []int {
-	order := make([]int, 0, len(f.Blocks))
-	seen := make([]bool, len(f.Blocks))
+	order := compat.MakeCap[int](0, len(f.Blocks))
+	seen := compat.Make[bool](len(f.Blocks))
 	type frame struct {
 		b    *MBlock
 		next int
@@ -170,10 +170,10 @@ func postorder(f *MFunc, index *hash.Map[*MBlock, int]) []int {
 // liveness computes the registers live out of each block.
 func liveness(f *MFunc) []regSet {
 	n := f.numRegIndexes()
-	use := make([]regSet, len(f.Blocks))
-	def := make([]regSet, len(f.Blocks))
-	liveOut := make([]regSet, len(f.Blocks))
-	liveIn := make([]regSet, len(f.Blocks))
+	use := compat.Make[regSet](len(f.Blocks))
+	def := compat.Make[regSet](len(f.Blocks))
+	liveOut := compat.Make[regSet](len(f.Blocks))
+	liveIn := compat.Make[regSet](len(f.Blocks))
 	var buf []Reg
 	for i, b := range f.Blocks {
 		use[i], def[i] = newRegSet(n), newRegSet(n)

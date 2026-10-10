@@ -10,7 +10,7 @@ import (
 // BlockExit (a call that does not return, such as a panic). Loops are never
 // doomed.
 func DoomedBlocks(f *Func) []bool {
-	doomed := make([]bool, f.NumBlocks())
+	doomed := compat.Make[bool](f.NumBlocks())
 	for changed := true; changed; {
 		changed = false
 		for _, b := range f.Blocks {
@@ -47,14 +47,14 @@ func Layout(f *Func) []*Block {
 	if doomed[f.Entry.ID] {
 		clear(doomed)
 	}
-	placed := make([]bool, f.NumBlocks())
+	placed := compat.Make[bool](f.NumBlocks())
 	inLoop := func(b, c *Block) bool {
 		l := ln.LoopOf(b)
 		return l == nil || l.Contains(ln, c)
 	}
 	// next returns the successor b should fall through to, if any.
 	next := func(b *Block) *Block {
-		cands := make([]*Block, 0, 2)
+		cands := compat.MakeCap[*Block](0, 2)
 		for _, e := range b.Succs {
 			cands = compat.Append(cands, e.B)
 		}

@@ -81,7 +81,7 @@ func trivialPhi(v *Value) *Value {
 func DeadCode(f *Func) {
 	f.RemoveDeadBlocks()
 
-	live := make([]bool, f.NumValues())
+	live := compat.Make[bool](f.NumValues())
 	var work []*Value
 	mark := func(v *Value) {
 		if !live[v.ID] {
@@ -187,7 +187,7 @@ func Schedule(f *Func) {
 			}
 		}
 		done := compat.NewMap[*Value, bool](len(b.Values))
-		out := make([]*Value, 0, len(b.Values))
+		out := compat.MakeCap[*Value](0, len(b.Values))
 		var visit func(v *Value)
 		visit = func(v *Value) {
 			if compat.MapAt(done, v) {

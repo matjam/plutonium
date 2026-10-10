@@ -1,6 +1,7 @@
 package compat
 
 import (
+	"pluto/alloc"
 	"pluto/fmt"
 	"pluto/strconv"
 	"pluto/unicode/utf8"
@@ -29,9 +30,28 @@ func Clone[T any](s []T) []T {
 	if s == nil {
 		return nil
 	}
-	c := make([]T, len(s))
+	c := Make[T](len(s))
 	copy(c, s)
 	return c
+}
+
+// Make is Go's make([]T, n): n zero elements in memory from
+// alloc.Default(), which nothing frees; the arena reclaims it with
+// everything else.
+func Make[T any](n int) []T { return MakeCap[T](n, n) }
+
+// MakeCap is Go's make([]T, n, c).
+func MakeCap[T any](n, c int) []T {
+	if n < 0 || c < n {
+		panic("compat.MakeCap: len out of range")
+	}
+	var zero T
+	size := uintptr(c) * unsafe.Sizeof(zero)
+	if size == 0 {
+		size = 1
+	}
+	p := alloc.Raw(size, unsafe.Alignof(zero))
+	return unsafe.Slice((*T)(p), c)[:n]
 }
 
 // AppendString is append(b, s...) for a string s.
@@ -89,7 +109,7 @@ func grow[T any](s []T, need int) []T {
 	if c < 4 {
 		c = 4
 	}
-	ns := make([]T, len(s), c)
+	ns := MakeCap[T](len(s), c)
 	copy(ns, s)
 	return ns
 }
@@ -99,14 +119,14 @@ func String(b []byte) string {
 	if len(b) == 0 {
 		return ""
 	}
-	c := make([]byte, len(b))
+	c := Make[byte](len(b))
 	copy(c, b)
 	return unsafe.String(unsafe.SliceData(c), len(c))
 }
 
 // Bytes returns a copy of s as a byte slice, for Go's []byte(s).
 func Bytes(s string) []byte {
-	c := make([]byte, len(s))
+	c := Make[byte](len(s))
 	copy(c, s)
 	return c
 }
@@ -120,7 +140,7 @@ func Concat(parts ...string) string {
 	if n == 0 {
 		return ""
 	}
-	b := make([]byte, n)
+	b := Make[byte](n)
 	k := 0
 	for _, p := range parts {
 		k += copy(b[k:], p)
