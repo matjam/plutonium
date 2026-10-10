@@ -97,8 +97,8 @@ knows where the pointers into it are, so it cannot be moved. The size is chosen 
 2. `rt.Go(f, size)` starts `f` with a stack of `size` bytes, at least `rt.MinStackSize` (8 KiB).
 3. Otherwise, in hosted builds, the task gets at least 64 MiB of address space, with a guard region
    below it, whose memory is committed only as it is touched. In freestanding and kernel builds it gets
-   the build's default task stack size. Section 20.5 (Build modes and targets) gives the size each build
-   uses, and `-stackreport` lists the tasks whose size could not be computed.
+   the default task stack size that the implementation documents (section 21.4, Implementation limits).
+   `-stackreport` lists the tasks whose size could not be computed.
 
 Running past the end of a stack with a guard region is a fault, reported as a stack overflow panic with
 the task's trace and the size it had, and how to ask for more (section 17.5, Faults). In kernel builds

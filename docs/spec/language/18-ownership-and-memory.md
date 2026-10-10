@@ -692,9 +692,9 @@ A pointer converted to `uintptr` or passed to a function implemented outside Plu
 **Checked and unchecked builds.** Hosted builds are checked by default. Freestanding and kernel builds
 are unchecked until a tag encoding that fits kernels exists, since a kernel uses the pointer bits the
 hosted encoding takes. A build without the checks is the documented **unchecked mode**: a use of freed
-memory is then not detected, and what it does is not defined by this specification. The toolchain selects
-the mode per build (section 20.5, Build modes and targets), and `//pu:nochecks` removes the checks from one
-function (section 18.12). The checks change only what a bug does: a program that never uses freed memory
+memory is then not detected, and what it does is not defined by this specification. The implementation
+lets each build choose the mode (section 21.5, Run-time checks and the unchecked mode), and
+`//pu:nochecks` removes the checks from one function (section 18.12). The checks change only what a bug does: a program that never uses freed memory
 behaves the same in both modes.
 
 **Bounded checks fail loudly.** A generation or epoch field has a finite range. Reaching its end must
