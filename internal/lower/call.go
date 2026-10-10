@@ -52,7 +52,7 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 				return s.methodCall(e, se, sel)
 			case types2.MethodExpr:
 				sig := s.subst(s.info.Types[e.Fun].Type).(*types2.Signature)
-				sym := s.methodExpr(se, sel)
+				sym := s.methodExpr(se, sel, sig)
 				if sym == nil {
 					return nil
 				}
@@ -569,8 +569,9 @@ func (s *fnState) receiverFromValue(v value, fn *types2.Func, path []int) value 
 // denotes: it takes the receiver, of type R, as its first parameter. That is
 // the method itself when R is its receiver type; otherwise a thunk reaches
 // the method by dereferencing R, following embedded fields or calling
-// through an interface.
-func (s *fnState) methodExpr(e *ast.SelectorExpr, sel *types2.Selection) *ssa.Sym {
+// through an interface. sig is the expression's type, instantiated when
+// the method has type parameters of its own (R.m[int]).
+func (s *fnState) methodExpr(e *ast.SelectorExpr, sel *types2.Selection, sig *types2.Signature) *ssa.Sym {
 	R := s.subst(sel.Recv())
 	fn := sel.Obj().(*types2.Func)
 	path := sel.Index()
@@ -583,7 +584,6 @@ func (s *fnState) methodExpr(e *ast.SelectorExpr, sel *types2.Selection) *ssa.Sy
 		}
 		fn, path = m, index
 	}
-	sig := s.typeOf(e).(*types2.Signature)
 	if isIfaceMethod(fn) {
 		return s.l.methodExprThunk(R, fn, path, nil, nil, sig)
 	}

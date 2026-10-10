@@ -449,7 +449,7 @@ func (s *fnState) selector(e *ast.SelectorExpr, T types2.Type) value {
 	case types2.MethodVal:
 		return scalarValue(s.methodValue(e, sel), T)
 	case types2.MethodExpr:
-		sym := s.methodExpr(e, sel)
+		sym := s.methodExpr(e, sel, T.Underlying().(*types2.Signature))
 		if sym == nil {
 			return s.zeroValue(T)
 		}
