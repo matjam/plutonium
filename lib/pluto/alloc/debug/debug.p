@@ -712,9 +712,10 @@ func (d *Allocator) Stats() Stats {
 // DescribeFault explains a memory access fault at addr, by the instruction
 // at pc, if addr lies in a block of a debug allocator: a guard page of a live
 // allocation (an overflow or underflow) or a freed block (a use after free).
-// It prints a "panic: " message and returns true, or returns false if addr
-// is not in any block. Hosted builds call it from the fault handler; a
-// kernel can call it from its page fault handler.
+// It starts a panic (rt.BeginPanic), writes the panic's message and
+// returns true, or returns false having done nothing if addr is not in any
+// block. Hosted builds call it from the fault handler; a kernel can call it
+// from its page fault handler, then raise the panic with rt.PanicFault.
 func DescribeFault(addr, pc uintptr, write bool) bool {
 	for d := all; d != nil; d = d.next {
 		for i := 0; i < d.nrecs; i++ {

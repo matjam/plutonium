@@ -2,7 +2,7 @@
   "name": "plutonium",
   "displayName": "Plutonium",
   "description": "Language support for the Plutonium systems language: highlighting, diagnostics, navigation, completion and formatting through pluto lsp",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "publisher": "matjam",
   "repository": {
     "type": "git",
@@ -89,9 +89,9 @@
       "properties": {
         "plutonium.plutoPath": {
           "type": "string",
-          "default": "pluto",
+          "default": "",
           "scope": "machine-overridable",
-          "markdownDescription": "The `pluto` compiler, which runs the language server (`pluto lsp`) and formats Plutonium source. A bare name is looked up on `PATH`; `~` and `${workspaceFolder}` are expanded."
+          "markdownDescription": "The `pluto` compiler, which runs the language server (`pluto lsp`) and formats Plutonium source. `~` and `${workspaceFolder}` are expanded. A path is used as it is, with no fallback; another bare name is looked up on `PATH`. When empty (or `pluto`), the extension uses the first of: `pluto` on the editor's `PATH`, `$GOBIN/pluto`, `bin/pluto` in each `$GOPATH` entry, and `~/go/bin/pluto`. The path it uses is logged to the *Plutonium* output."
         },
         "plutonium.useLanguageServer": {
           "type": "boolean",
@@ -140,7 +140,7 @@
             "verbose"
           ],
           "default": "off",
-          "markdownDescription": "Log the messages between VS Code and the language server to the *Plutonium* output."
+          "markdownDescription": "How the messages between VS Code and the language server are logged to the *Plutonium* output. They are logged only while that output's log level is *Trace* (set it with the gear in the Output panel), and then at least as `messages`."
         },
         "plutonium.formatTimeout": {
           "type": "number",

@@ -92,7 +92,8 @@ time.
 ### 4.1 `panic` aborts
 
 `panic(v)` stops the program. It does not unwind the stack, deferred calls do not run, and owners are not
-dropped (section 6.4). See [section 8](#8-runtime-faults-and-panic).
+dropped (section 6.4). It calls the program's panic handler, which never returns. See
+[section 8](#8-runtime-faults-and-panic).
 
 ### 4.2 `new` and `make` allocate from an allocator
 
@@ -151,7 +152,7 @@ assertions, type switches. An interface value is two words: a pointer to a stati
 
 - A value that fits in a word (integers, floats, booleans, pointers, and `owned`/`shared`/`synced`/`weak`
   references) is stored in the data word.
-- A larger value (a string, slice, array or struct) is copied into a temporary in the stack frame of the
+- A larger value (a string, slice, array, struct or union) is copied into a temporary in the stack frame of the
   function that performs the conversion, and the data word points at that copy. The interface value is
   valid until that function returns, exactly like a pointer to a local variable.
 
@@ -763,6 +764,178 @@ with an enum field.
 
 Enums do not provide bit-flag sets; packed `bits` groups do that.
 
+### 5.10 Unions
+
+A union type (a tagged union, or sum type) holds exactly one of a closed set of named variants, together
+with that variant's payload, stored inline: no allocation and no boxing, so a union can be returned,
+stored in package variables and put in arrays like a struct. It is the sibling of the enum, whose members
+have no payloads. The design and the alternatives considered are in the
+[sum types proposal](../plans/2026-10-09-sum-types-proposal.md) (option A).
+
+```
+UnionType       = "union" "{" { VariantDecl ";" } "}" .
+VariantDecl     = identifier { "," identifier } Type | identifier .
+PackedUnionType = "packed" "union" [ "le" | "be" ] Type "{" TagField ";" { PackedVariant ";" } "}" .
+TagField        = identifier PackedFieldType .
+PackedVariant   = identifier "case" ExpressionList "{" { PackedFieldDecl ";" } "}" .
+```
+
+```go
+type DeviceState union {
+	Off                                  // no payload
+	Probing struct{ attempt int }
+	Ready   struct {
+		irq  uint8
+		base uintptr
+	}
+	Failed syscall.Errno
+}
+
+var st DeviceState                       // zero value: Off, the first variant
+st = DeviceState.Probing{attempt: 1}
+st = DeviceState.Failed(syscall.EIO)
+
+switch s := st.(type) {
+case Off:
+	start()
+case Probing:
+	retry(s.attempt)                     // s is the payload, a struct{ attempt int }
+case Ready:
+	enableIRQ(s.irq)
+case Failed:
+	log("device failed:", s)             // s is a syscall.Errno
+}                                        // a missing case is a compile error
+```
+
+**Declaration.** A union type may only be the type of a type definition, as an enum, since its variants
+are reached through the type's name; it may have type parameters (a packed union may not). `union` is not
+a keyword: it begins a union type only as the type of a type declaration followed by `{`, or after
+`packed`, so Go code that uses `union` as an identifier still compiles. Variants are written like struct
+fields: a name and a payload type, or a name alone for a variant without a payload; `A, B T` declares two
+variants with the same payload type. A union has at least one variant; variant names are distinct, not
+`_`, and carry no tags. A payload may be any type, including an enum, an interface, a type parameter or
+another union; a union cannot contain itself except through a pointer. Unexported variants are not
+visible in other packages.
+
+**Construction.** For a variant `V` of union type `U`:
+
+- without a payload, `U.V` is a value of type `U`;
+- with a payload of type `P`, `U.V(x)` makes a `U` holding `x`, which must be assignable to `P` (as a
+  function argument); `U.V{...}` is a composite literal of `P` making a `U`; and `U.V` alone is a function
+  value of type `func(P) U`.
+
+`U` may be qualified by a package or instantiated: `pkg.U.V`, `Result[int].Ok(5)`. On a type name a
+variant takes precedence over a method of the same name. A variant is not a type: `var x U.V` is an error,
+and a payload, once selected, has its own payload type. `U{...}` is an error, as is `U.V{}` for a variant
+without a payload. There are no implicit conversions into a union: `var u U = x` and `u = nil` are errors,
+and a value of another union type with identical variants converts only explicitly.
+
+**Zero value.** The first variant, with its payload's zero value. Put the idle or empty state first.
+
+**Type switches.** `switch v := u.(type)` on a union value selects the variant `u` holds. Each case names
+variants: `U.V` (or `pkg.U.V`, `U[T].V`), or the bare name `V`, which in a case of such a switch denotes
+the variant whatever else the name denotes in scope, as an enum member does in an expression switch.
+Bare names are accepted nowhere else. In a clause naming one variant, `v` has that variant's payload type
+(`struct{}` for a variant without a payload); in a clause naming several, and in the default clause, it
+has type `U`. A union value is never nil, so there is no `nil` case; naming a variant twice is an error,
+and `fallthrough` is not allowed. A switch without a `default` case must name every variant, or it is a
+compile error that lists the missing ones:
+
+```
+dev.p:14:2: missing case in type switch on st (DeviceState): Failed (add it or a default case)
+    A type switch on a union value that has no default case must name every
+    variant. That way, adding a variant to the union shows every switch that
+    needs to handle it.
+    Add a case for each missing variant, or a default case if the remaining
+    variants share one action. A switch that names every variant needs no
+    default to end a function.
+    Go cannot check this for interfaces, whose set of types is open. A union's
+    variants are a closed set, so the compiler can tell when one is forgotten.
+    (see "Unions" in the Plutonium spec, section 5.10)
+    (run "pluto explain E2414" for a longer explanation)
+```
+
+The union errors have codes E2401 to E2415, explained by `pluto explain`.
+
+Such an exhaustive switch is a terminating statement when every clause is, so a function may end with it.
+A tag that names no variant can only come from `unsafe` code; the switch then panics.
+
+**Assertions.** `u.(U.V)` yields the payload of `V`, and panics (section 8) if `u` holds another variant;
+`p, ok := u.(U.V)` reports instead, with `p` the zero payload when `ok` is false. A bare variant name is
+not accepted here.
+
+**Operations.** A union is comparable if every payload type is; two values are equal when they hold the
+same variant with equal payloads. A union type may have methods and implement interfaces. Converting a
+union to an interface copies it into the frame like a struct (section 4.4); a type switch on the
+interface sees the union type, and a second switch on the union selects the variant. `fmt` prints a union
+that has no `String` method as its variant and payload: `Some(5)`, `Err(no such file or directory)`,
+`None`.
+
+**Generics.** Every instantiation of a generic union has the same variants, so a switch on a `Result[T]`
+in generic code is checked once for every `T`, and payload types may coincide (`Result[syscall.Errno]`).
+Variants are selected through the instance, `Result[int].Ok(5)`, or `Result[T].Ok(v)` in generic code. A
+union may be a type argument; unions cannot appear in constraints, where `A | B` keeps Go's meaning.
+
+**Layout.** A union is its tag, a `uint8` (a `uint16` for more than 256 variants) numbering the variants
+from 0 in declaration order, followed by the payload of the variant it holds at the first offset that
+satisfies the largest payload alignment; its size is rounded up to its alignment. `DeviceState` above is
+24 bytes. A variant without a payload takes no space beyond the tag. The layout is not part of the C ABI:
+unions are not allowed in `//pu:extern` or `//pu:export` signatures (abi.md sections 1 and 3).
+
+**Packed unions.** A packed union gives a bit-exact layout for hardware words and records whose shape
+depends on a tag bit:
+
+```go
+type PTE packed union uint64 {
+	present bits[bool, 1]                // the tag: shared by every variant
+
+	Swapped case false {
+		slot bits[uint64, 63]
+	}
+	Mapped case true {
+		writable bits[bool, 1]
+		user     bits[bool, 1]
+		_        bits[uint, 9]
+		frame    bits[uint64, 40]
+		_        bits[uint, 11]
+		nx       bits[bool, 1]
+	}
+}
+
+pte := PTE(table[i])                     // converting from the raw word never fails
+switch e := pte.(type) {
+case PTE.Mapped:
+	return uintptr(e.frame) << 12
+case PTE.Swapped:
+	return swapIn(e.slot)
+}
+```
+
+- The one field before the first variant is the tag: a `bool`, integer or enum field (section 5.5) that
+  occupies the same bits in every variant. A packed union has a backing type, which fixes its size.
+- Each variant lists the constant tag values that select it (`case false`, `case 1, 2`), each of the tag
+  field's type and fitting its width; no value selects two variants. Its fields follow the tag, laid
+  out by the packed rules of section 5.5.
+- A variant's payload is a packed type with the same storage holding the tag and the variant's fields:
+  in the switch above, `e.present` and `e.frame` are both fields of `e`. `PTE.Mapped(e)` converts a payload
+  back, keeping its tag if it is one of the variant's values and otherwise setting the first;
+  `PTE.Mapped{frame: f}` sets the tag to the variant's first value and may not set it itself.
+- A packed union converts to and from its backing type or a byte array of its size, like any packed type,
+  and is comparable as its bits. Its tag is readable as a field (`pte.present`); a variant's fields are not.
+- A type switch without a `default` case must cover every value the tag field can hold, since hardware
+  may hold any bit pattern; `PTE` above needs none, since its one-bit tag has two values.
+
+**Ownership.** A union whose payloads are all values is a value (section 6.2). A union with a variant
+whose payload is an owner must be declared `owner` like a struct (section 6.4): dropping it drops the
+payload of the variant it holds, giving it a new variant drops the old payload first, and moving a
+payload out through a type switch binding moves the whole union. The ownership checker does not exist
+yet, and until it does, a payload that holds an `owned`, `shared` or `synced` pointer (directly, or in a
+field, an array element or another union, but not behind a pointer) is a compile error, in a
+declaration or through a type argument.
+
+**Not yet.** Updating a variant's payload in place through a pointer (`(&u).(*U.V)`, proposal section 3)
+waits for real use; assign a new variant instead. Debug information describes a union as its size only.
+
 ## 6. Ownership
 
 Plutonium has no garbage collector, so every piece of memory a program uses has an owner that frees it,
@@ -829,7 +1002,8 @@ func load() hash.Map[string, string] {
 ### 6.2 Values
 
 Integers, floats, booleans, enums, packed types, `volatile[T]` and `aligned[T, N]` of values, function
-values that capture nothing, and arrays and structs whose elements and fields are all values. They copy on
+values that capture nothing, and arrays, structs and unions whose elements, fields and payloads are all
+values. They copy on
 assignment, on passing and on return, and nothing happens when they go out of scope. This is Go's
 behaviour.
 
@@ -917,7 +1091,7 @@ The rules for where `owner` may appear:
   definition `type B A` where `A` is an owner must be written `type B owner A`. An unnamed struct type may
   not have owner fields. An unnamed array type `[N]T` and a ring `ring[T, N]` whose element is an owner
   are owners without a declaration, because their element type already says so; so is `aligned[T, N]` of
-  an owner. When sum types land, a union with an owner variant must be declared `owner` like a struct.
+  an owner. A union with an owner variant must be declared `owner` like a struct (section 5.10).
 - **`Drop` needs `owner`.** A method named `Drop` must have no parameters and no results, and may be
   declared only on a type declared `owner` (on `T` or `*T`). An owner without a `Drop` method is valid: its
   values still move, and dropping one drops its fields.
@@ -1855,7 +2029,8 @@ The following stop the program through the same path as `panic`:
 
 - an index or slice expression out of range,
 - integer division or remainder by zero,
-- a failed type assertion with a single result,
+- a failed type assertion with a single result, on an interface or a union (section 5.10),
+- a union whose tag names no variant, in a type switch without a default case,
 - `append` beyond capacity,
 - an allocation with no allocator set,
 - a `go` statement or channel operation with no scheduler set,
@@ -1864,25 +2039,136 @@ The following stop the program through the same path as `panic`:
 - overflowing a puroutine's stack (the guard page faults),
 - `panic(v)`.
 
-Panicking prints `panic: ` followed by the value (and, for faults, what failed and where), then a stack
-trace with the function, file and line of each frame, and stops. It does not unwind: deferred functions
-do not run and owners are not dropped. In hosted builds the process exits with status 2. In freestanding
-builds the compiler calls
-the function registered with `rt.SetPanicHandler`; the default handler disables interrupts and halts the
-processor.
+A panic does not unwind: deferred functions do not run and owners are not dropped. The runtime writes
+the panic's message and calls the program's **panic handler** (section 8.1), which never returns. In
+hosted builds without a handler of their own, the built-in one prints `panic: ` followed by the value
+(and, for faults, what failed and where), then a stack trace with the function, file and line of each
+frame, and the process exits with status 2.
 
 Dereferencing a nil pointer is not checked by the compiler; it faults in hardware wherever address zero is
 unmapped, which is true in hosted builds and should be arranged by kernels. In hosted builds the runtime
-reports such faults, and stack overflows, like a panic, with a trace from the faulting instruction. Heap
-misuse through raw pointers is not checked either, except by the debug allocator (section 7.3), which
-reports it through the same path: a fault in its heap is described by the allocator first, then the
-trace follows.
+turns such faults, and stack overflows, into a panic, with a trace from the faulting instruction; a kernel
+does the same from its exception handlers with `rt.PanicFault` (section 8.1). Heap misuse through raw
+pointers is not checked either, except by the debug allocator (section 7.3), which reports it through the
+same path: a fault in its heap is described by the allocator, and that description is the panic's
+message.
 
 Stack traces and DWARF debugging information (`-g`, on by default; `-s` strips it) are described in
 [debugging.md](debugging.md); the debug allocator in [debug-allocator.md](debug-allocator.md).
 
 Bounds checks can be removed from a function with `//pu:nobounds`, for code that has been proven correct
 and must be as fast as possible. The optimiser removes most bounds checks by itself.
+
+### 8.1 Panics in freestanding programs
+
+A program says what happens when it panics by marking one function `//pu:panic`:
+
+```go
+//pu:panic
+func onPanic(p *rt.Panic) {
+	p.Print(serial)           // "panic: ...", the fault if any, the stack trace
+	for {
+		x86.Cli()
+		x86.Hlt()
+	}
+}
+```
+
+- **One handler.** Freestanding and kernel builds must have exactly one; none, or more than one, is a
+  build error, since such a program has no operating system to report a crash to. A hosted program may
+  define one to replace the built-in handler, which prints the panic and exits with status 2.
+- **Its declaration.** A plain function with a body, not a method, not generic, not also
+  `//pu:interrupt`, declared `func name(p *rt.Panic)`.
+- **It never returns.** A panic has nothing to return to. The compiler checks that every path through the
+  handler ends in an endless loop or in a call of a function that never returns: one marked
+  `//pu:noreturn` (`os.Exit`, an assembly halt routine), or one whose every path ends that way, which the
+  compiler infers. A call that the compiler cannot see through (through a func value or interface, or
+  into recursion) counts as returning.
+- **A direct call.** The runtime's panic path calls the handler directly; nothing is registered at run
+  time, so it works from the first instruction of the program, before any initialisation.
+- **It must not wait.** The handler runs on top of whatever panicked, possibly an interrupt handler or
+  code holding a lock, so the rules of section 12.6 apply to it as to an interrupt handler.
+
+`rt.Panic` describes the panic:
+
+```go
+type Panic struct {
+	Message string // "runtime error: index out of range [4] with length 4", or the value passed to panic
+	Value   any    // the value passed to panic, nil for runtime errors and faults
+	Fault   Fault  // the hardware fault, if the panic came from one; Fault.Kind is NoFault otherwise
+	CPU     int    // the processor that panicked: in kernel mode its number from rt.SetCPU, otherwise 0
+}
+
+type Fault struct {
+	Kind   FaultKind // NoFault, MemoryFault, DivideFault or IllegalInstruction
+	Addr   uintptr   // the address accessed, for a MemoryFault, if known
+	PC     uintptr   // the faulting instruction
+	Signal int       // the signal that reported it in hosted builds, or 0
+}
+
+func (p *Panic) Print(w rt.Writer)      // the panic as a hosted program prints it, then the trace
+func (p *Panic) PrintTrace(w rt.Writer) // the stack trace alone
+```
+
+`rt.Writer` has the method of `io.Writer`, so any writer will do; `rt.Console{}` writes where `print`
+does (in freestanding builds, the function registered with `rt.SetConsole`). The message lives in a
+buffer of the runtime (1 KiB, longer messages are cut), and printing the trace reads the trace table and
+the stack (debugging.md section 5), so nothing allocates. Since a panic does not unwind, the stack the
+trace describes is still there while the handler runs.
+
+Hardware faults reach the handler too. In hosted builds the runtime's signal handler does it. A kernel's
+exception handlers call
+
+```go
+rt.PanicFault(kind rt.FaultKind, addr, pc, sp, bp uintptr) // never returns
+```
+
+with the faulting state from the interrupt frame, and the trace starts at the faulting instruction:
+
+```go
+//pu:interrupt
+func pageFault(f *x86.InterruptFrame, code uint64) {
+	rt.PanicFault(rt.MemoryFault, uintptr(x86.ReadCR2()), uintptr(f.RIP), uintptr(f.RSP), 0)
+}
+```
+
+Tools that describe an error at length, such as the debug allocator, start the panic with
+`rt.BeginPanic()`, print the description with `print` (which then goes into the panic's message), and
+raise it with `rt.Abort()` or, for a fault, `rt.PanicFault`.
+
+The runtime guards the handler:
+
+- **One panic at a time.** The first processor (or, hosted, thread) to panic takes an atomic flag and runs
+  the handler. One that panics while another handles a panic stops: a kernel's processor disables
+  interrupts and halts, a hosted thread blocks until the first ends the process. In kernel mode the
+  runtime tells processors apart by the number each one gives itself with `rt.SetCPU(n)`, which a kernel
+  calls on every processor once its GS base points at its per-CPU block (section 12.5); until the first
+  call, every processor counts as CPU 0. Freestanding builds outside kernel mode count all processors as
+  one.
+- **A last resort.** A panic inside the handler, or while a panic's message is being written, does not
+  call the handler again: in freestanding and kernel builds the processor disables interrupts and halts
+  (`cli` then `hlt` in a loop), touching no memory or device; in hosted builds the runtime writes `fatal:
+  panic while handling a panic` to standard error with a raw system call and exits with status 2.
+
+Errors name the rule they break and say what to do. Their codes are E2580 (no handler), E2581 (a second
+handler), E2582 (a declaration that cannot be the handler) and E2583 (a handler that can return); for
+example, a kernel without a handler:
+
+```
+kernel: no panic handler is defined
+    A kernel build has no operating system to report a crash to, so the program
+    itself must say what happens when it panics (print to a serial port or
+    screen, then halt).
+    A kernel has no operating system to fall back on when it panics, so
+    Plutonium makes the program choose what happens at compile time, and checks
+    the choice: the runtime calls the handler directly, with nothing to
+    register, so it works from the first instruction.
+    Mark one function with //pu:panic:
+        //pu:panic
+        func onPanic(p *rt.Panic) { ... }
+    (see "Panics in freestanding programs" in the Plutonium spec, section 8.1)
+    (run "pluto explain E2580" for a longer explanation)
+```
 
 ## 9. Directives
 
@@ -1900,6 +2186,8 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | `//pu:section name` | function or package variable | place it in the named section |
 | `//pu:interrupt` | function | an x86-64 interrupt handler: saves every register it may change, returns with `iretq` (section 12.4) |
 | `//pu:noreturn` | function | the function never returns (lets the optimiser drop code after calls) |
+| `//pu:panic` | function | the program's panic handler, `func(p *rt.Panic)`; exactly one in freestanding and kernel builds (section 8.1) |
+| `//pu:blocking` | function (with or without a body) | calling it may wait (park the caller); interrupt handlers and the panic handler must not reach it (section 12.6) |
 | `//pu:nosimd` | function | the optimiser adds no vector instructions to it (implied by `//pu:interrupt`, and by kernel mode outside `//pu:fpu` functions) |
 | `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (section 12.3) |
 | `//pu:percpu` | package variable | one copy per processor, addressed through `GS`; kernel mode only (section 12.5) |
@@ -1977,7 +2265,8 @@ enabled and no vector state saved on entry. It differs from `freestanding` in th
 Kernel mode also enables per-CPU variables (section 12.5). `pluto/arch/x86` (section 12.4) and
 `//pu:interrupt` handlers work in every mode; in kernel mode a handler without `//pu:fpu` saves no vector
 registers. `pluto/os` and `pluto/syscall` are unavailable, as in every freestanding build. `pluto run`
-refuses kernel builds.
+refuses kernel builds. Like every freestanding program, a kernel must define its panic handler (section
+8.1).
 
 ### 12.3 Floating point in kernel mode
 
@@ -2088,6 +2377,80 @@ changes. Only constant initialisers are allowed, and `//pu:percpu` is a compile 
 mode. Code that reads and then writes a per-CPU variable must not migrate to another processor in
 between, so it runs with preemption or interrupts disabled. Details, including how a kernel sets up each
 processor's block, are in [abi.md section 10.6](abi.md#106-per-cpu-variables).
+
+### 12.6 Interrupts
+
+A function marked `//pu:interrupt` is an interrupt or exception handler, entered by the processor rather
+than called; [abi.md section 10.4](abi.md#104-interrupt-handlers) gives its signature, entry and exit.
+
+**Interrupt context cannot block.** A handler runs on top of whatever code the processor was executing.
+If it waits, for a lock or for room in a channel, the interrupted code can never resume to release it, and
+the processor stops. So nothing an interrupt handler can reach, and nothing the panic handler (section
+8.1) can reach, may:
+
+- send or receive on a channel, except as a case of a `select` with a `default` case; run a `select`
+  without a `default` case; or range over a channel;
+- call a function marked `//pu:blocking`: those that park the caller, such as `pluto/sync`'s
+  `Mutex.Lock` and `WaitGroup.Wait` and the runtime's parking operations, and any function a program
+  marks;
+- start a puroutine (`go`), which allocates a stack and takes the scheduler's locks;
+- allocate from an allocator that may wait (below).
+
+Operations that do not wait are allowed: `select` with `default`, `TryLock`, readying a parked
+puroutine, atomics, and spin locks that disable interrupts while held. To hand work to normal code, a
+handler sends without waiting:
+
+```go
+select {
+case work <- item:
+default: // full: drop it, or count the loss
+}
+```
+
+The compiler checks this over the whole program. From each interrupt handler the program uses and from
+the panic handler it follows every call, through every package, and reports the first path it finds to
+an operation above, naming each call on the way:
+
+```
+irq.p:5:3: keyboard is an interrupt handler, so it must not wait
+    Interrupt handlers run on top of whatever code the CPU was executing. If a
+    handler waits, for a lock or for room in a channel, the interrupted code can
+    never resume to release it, and the CPU stops.
+    keyboard calls readConfig (irq.p:5), which waits on cfgMutex (config.p:22).
+    A kernel that waits in an interrupt handler hangs, often only under load and
+    far from the cause, so Plutonium checks the whole program at compile time
+    instead.
+    To hand work to normal code, use a non-blocking send:
+        select { case work <- item: default: }
+    (see "Interrupts" in the Plutonium spec, section 12.6)
+    (run "pluto explain E2584" for a longer explanation)
+```
+
+A go statement on the path is reported the same way, as E2585 ("so it must not start a puroutine").
+
+- **What is followed.** Direct calls, method calls, deferred calls and the calls the compiler adds for
+  `new`, `make`, interface conversions and panics. It does not enter a `//pu:blocking` function, and a
+  path from an interrupt handler stops at the panic handler, which is checked on its own.
+- **Calls through interfaces and func values** cannot be resolved exactly, so the compiler is
+  conservative, using what it knows about the whole program. A call of method `m` through an interface
+  type `I` may reach `m` of every type the program converts to `I`, whether directly, from another
+  interface, or by a type assertion (the method tables the program contains). A call through a func value
+  of type `F` may reach every function of type `F` whose value the program takes anywhere (as a func
+  value, a method value or a method expression, or a function literal). The message says when a path goes
+  through such a call. To make a handler's call exact, call the function directly.
+- **Allocation.** An allocator is not marked as a whole: `new` and `make` call the allocator's `Alloc`
+  through the `alloc.Allocator` interface, and the check follows that call into every allocator the
+  program installs. An allocator whose `Alloc` or `Free` may wait, because it takes a `//pu:blocking`
+  lock (a slab cache refilled under a `sync.Mutex`), is reported like any other function that may wait;
+  one that uses a spin lock with interrupts disabled, or none, is allowed. So `//pu:blocking` belongs on
+  the primitives that park, and no allocator needs a marking of its own. (The alternative, forbidding all
+  allocation in interrupt context unless an allocator is marked safe, was rejected: it would forbid the
+  common, safe case of a lock-free per-CPU cache, and the marking could be wrong without the compiler
+  noticing.)
+- **Assembly and C** are not looked into: a body-less function counts as not waiting unless its
+  declaration is marked `//pu:blocking`.
+- **Non-blocking channel operations** must lower to runtime functions that are not marked
+  `//pu:blocking`, so that a `select` with `default` stays allowed.
 
 ## 13. Standard library
 

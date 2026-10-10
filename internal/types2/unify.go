@@ -621,6 +621,13 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 			return Identical(x, y)
 		}
 
+	case *TaggedUnion:
+		// Two union types unify if they have the same variants in the same
+		// order and their payload types unify.
+		if y, ok := y.(*TaggedUnion); ok {
+			return identicalVariants(x.variants, y.variants, func(a, b Type) bool { return u.nify(a, b, emode, p) })
+		}
+
 	case *Struct:
 		// Two struct types unify if they have the same sequence of fields,
 		// and if corresponding fields have the same names, their (field) types unify,

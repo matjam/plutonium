@@ -151,6 +151,14 @@ func (hr hasher) hash(h *maphash.Hash, t Type) {
 			hr.hash(h, f.Type())
 		}
 
+	case *TaggedUnion:
+		h.WriteByte('V') // mnemonic: a union of variants
+		maphash.WriteComparable(h, len(t.variants))
+		for _, v := range t.variants {
+			h.WriteString(v.name)
+			hr.hash(h, v.typ)
+		}
+
 	case *Tuple:
 		hr.hashTuple(h, t)
 
@@ -280,6 +288,11 @@ func (hr hasher) shallowHash(h *maphash.Hash, t Type) {
 		h.WriteByte('R') // mnemonic: a struct is a record type
 		h.WriteByte(byte(t.NumFields()))
 		// ignore t.Fields()
+
+	case *TaggedUnion:
+		h.WriteByte('V')
+		maphash.WriteComparable(h, len(t.variants))
+		// ignore the payloads
 
 	case *Tuple:
 		h.WriteByte('T')

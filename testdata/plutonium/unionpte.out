@@ -1,0 +1,21 @@
+0: 0x0000000001234003 present=true addr=0x1234000 swapped=false
+1: 0x000000000000009a present=false addr=0x4d swapped=true
+2: 0x800ffffffffff005 present=true addr=0xffffffffff000 swapped=false
+3: 0x0000000000000000 present=false addr=0x0 swapped=true
+protected: 0x1234001 writable=false frame=0x1234
+true true
+rebuilt: 0x8000000000001005
+segment Data limit 510
+interrupt Gate vector 67 dpl 1
+unknown descriptor 0x4
+interrupt Trap vector 0 dpl 0
+unknown descriptor 0x7
+interrupt Gate vector 128 dpl 3
+segment Code limit 2748
+push -300 1
+pop -1
+nop 0
+nop 2
+raw 97 9 0
+frame 9 1000
+8 2 4 8

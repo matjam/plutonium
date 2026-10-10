@@ -199,6 +199,12 @@ func typeKind(t types2.Type, depth int) string {
 			fields[i] = t.Field(i).Type()
 		}
 		return aggregateKind(depth, fields...)
+	case *types2.TaggedUnion:
+		payloads := make([]types2.Type, t.NumVariants())
+		for i := range payloads {
+			payloads[i] = t.Variant(i).Payload()
+		}
+		return aggregateKind(depth, payloads...)
 	}
 	return ""
 }

@@ -1,0 +1,5 @@
+$DIR/main.p:11:2: union Slot cannot have variant Full with payload owned[int] yet: the payload is owned[int], and unions that own their payloads wait for ownership
+$DIR/main.p:22:2: missing case in type switch on st (DeviceState): Failed (add it or a default case)
+$DIR/main.p:32:2: type switch on packed union d (Desc) needs a default case: its 2-bit tag kind can hold 4 values, and its cases cover 2
+$DIR/main.p:42:20: DeviceState.Probing is a variant of union DeviceState, not a type (its payload has type struct{attempt int})
+$DIR/main.p:43:8: cannot write a composite literal of union type DeviceState: name the variant it holds (Off, Probing and Failed)

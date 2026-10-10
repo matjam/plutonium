@@ -28,8 +28,10 @@ func TestRangeGen(t *testing.T) {
 	tests := ""
 	p := func(format string, args ...any) { fmt.Fprintf(b, format, args...) }
 	p("package main\n\n")
+	// Functions with one exit each, up to two loops deep; then functions
+	// with every exit, up to three, run once per exit.
 	const maxDepth = 3
-	for i := 1; i <= maxDepth; i++ {
+	for i := 1; i < maxDepth; i++ {
 		code := rangeGen(new(bytes.Buffer), "", "", "", i, func(c int) bool { return true })
 		for j := 0; j < code; j++ {
 			s := fmt.Sprintf("%d_%d", i, j)

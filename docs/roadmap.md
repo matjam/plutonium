@@ -66,6 +66,18 @@ later takes the next free number and is listed in the section where it belongs.
     same table; specified in [debugging.md](spec/debugging.md) and
     [debug-allocator.md](spec/debug-allocator.md). Implementation items 41 to 43; what remains is listed
     there and in debugging.md section 9.
+54. **Compile-time panic handler, `//pu:panic`** (done): one `func(p *rt.Panic)` per program, required in
+    freestanding and kernel builds, linked as a direct call from the runtime's panic path, checked never
+    to return (with inferred no-return functions); `rt.Panic` carries the message, value, fault and CPU
+    and prints its trace without allocating; one panic at a time with a last resort for nested panics
+    (language spec section 8.1). Replaces `rt.SetPanicHandler`. Tested under QEMU
+    (`testdata/kernel/panic`: explicit panic, bounds error, page fault in an interrupt handler, nested
+    panic) and hosted. Hosted panics report CPU 0 until hosted programs have worker threads (item 14).
+55. **Interrupt context cannot block** (done): a whole-program check from every `//pu:interrupt` handler
+    and the panic handler against blocking channel operations, `go`, `//pu:blocking` functions and
+    allocators that may wait, conservative through interfaces and func values (language spec section
+    12.6). Channel operations and `go` are found in the source; until items 14 to 16 land they are
+    tested on the scan alone, and `pluto/sync` must mark its parking operations `//pu:blocking`.
 
 ## Concurrency
 
@@ -128,11 +140,16 @@ later takes the next free number and is listed in the section where it belongs.
     can print composite values and `hash` can hash them generically.
 24. **Compile-time type-switch folding** (planned): `switch any(x).(type)` on a type parameter decided per
     instantiation, as language spec section 4.4 promises.
-25. **Enums and sum types**: enums are done (language spec section 5.9,
-    [design](plans/2026-10-09-enums-design.md)); tagged unions are proposed
-    ([proposal](plans/2026-10-09-sum-types-proposal.md), option A accepted) and will reuse the enum's
-    member selection, bare case names and exhaustiveness check. Follow-ups: DWARF enumeration types,
-    and dropping bounds checks when a dense enum indexes an array of length `len(E)`.
+25. **Enums and sum types** (done): enums (language spec section 5.9,
+    [design](plans/2026-10-09-enums-design.md)) and unions (section 5.10,
+    [proposal](plans/2026-10-09-sum-types-proposal.md), option A): named variants, type switches with
+    bare case names and exhaustiveness, assertions, comparison, generic unions such as `Result[T]`,
+    packed unions for hardware formats, and `fmt` printing. Follow-ups: DWARF enumeration types and
+    variant parts; dropping bounds checks when a dense enum indexes an array of length `len(E)`; union
+    payloads that are owners or counted references, which wait for item 20 and are compile errors until
+    then; updating a payload in place, `(&u).(*U.V)` (proposal section 3), when real use asks for it;
+    a jump table for type switches over many variants; inferring a generic union's type arguments in
+    `Result.Ok(5)`.
 26. **`alloc.Use` signature** (done): the spec now gives the library's `Use(a) Restore` and
     `defer alloc.Use(a).Restore()` (language spec section 7.1); `Use(a) (restore func())` could not be
     written under section 4.5.

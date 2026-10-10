@@ -20,7 +20,7 @@ import "github.com/matjam/plutonium/internal/ssa"
 // whether it changed f.
 func ForwardClosureLoads(f *ssa.Func) bool {
 	stored := map[slotRef]*ssa.Value{} // nil when the stores disagree
-	unknown := map[*ssa.Slot]bool{} // written other than by plain stores
+	unknown := map[*ssa.Slot]bool{}    // written other than by plain stores
 	var loads []*ssa.Value
 	for _, b := range f.Blocks {
 		for _, v := range b.Values {
