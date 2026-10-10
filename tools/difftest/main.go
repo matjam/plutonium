@@ -70,6 +70,7 @@ func main() {
 		mu      sync.Mutex
 		bySig   = map[string][]int64{}
 		genBugs []int64
+		goBugs  []int64
 		done    int
 		start   = time.Now()
 	)
@@ -88,6 +89,9 @@ func main() {
 				case v.genBug != "":
 					genBugs = append(genBugs, s)
 					log.Printf("seed %d: generator bug: %s", s, tail(v.genBug, 5))
+				case v.goBug:
+					goBugs = append(goBugs, s)
+					log.Printf("seed %d: Go disagrees with itself at -N; Plutonium agrees with -N", s)
 				case v.failed():
 					bySig[v.signature()] = append(bySig[v.signature()], s)
 					log.Printf("seed %d: FAIL %s", s, v.signature())
@@ -114,6 +118,9 @@ func main() {
 	fmt.Printf("\n%d programs (seeds %d..%d) in %s\n", *n, *seed, *seed+int64(*n)-1, time.Since(start).Round(time.Second))
 	if len(genBugs) > 0 {
 		fmt.Printf("generator bugs: %v\n", genBugs)
+	}
+	if len(goBugs) > 0 {
+		fmt.Printf("probable Go compiler bugs (go -N agrees with Plutonium): %v\n", firstN(goBugs, 20))
 	}
 	var sigs []string
 	for s := range bySig {
@@ -161,7 +168,7 @@ func save(dir string, seed int64, src string, v *verdict, reduce bool, r *runner
 		return
 	}
 	write("report.txt", v.report())
-	if !reduce {
+	if !reduce || v.goBug {
 		return
 	}
 	rr := *r

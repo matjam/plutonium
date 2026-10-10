@@ -14,6 +14,7 @@ const (
 	kSlice
 	kStruct
 	kPtr
+	kIface
 )
 
 // A typ is a type the generator can produce. Types are canonical: two

@@ -49,6 +49,7 @@ type verdict struct {
 	pu     []outcome // by index into levels
 	bad    []bool    // pu[i] differs from Go
 	genBug string    // non-empty if the program is not valid Go or misbehaves under Go
+	goBug  bool      // Go without optimisation agrees with Plutonium, not with optimised Go
 }
 
 func (v *verdict) failed() bool {
@@ -127,10 +128,29 @@ func (r *runner) check(src string, wantSig string) *verdict {
 			return v
 		}
 	}
+	// When every level agrees with the others but not with Go, Go itself
+	// may be wrong: ask it again without optimisation.
+	if wantSig == "" && v.agreeAgainstGo() {
+		noOpt := r.runGo(dir, src, "-gcflags=all=-N -l")
+		if noOpt.class == "ok" && noOpt.status == v.pu[0].status && noOpt.output == v.pu[0].output {
+			v.goBug = true
+		}
+	}
 	return v
 }
 
-func (r *runner) runGo(dir, src string) outcome {
+// agreeAgainstGo reports whether every Plutonium level ran and produced
+// the same output, which differs from Go's.
+func (v *verdict) agreeAgainstGo() bool {
+	for i, o := range v.pu {
+		if !v.bad[i] || o.class != "ok" || o.output != v.pu[0].output || o.status != v.pu[0].status {
+			return false
+		}
+	}
+	return len(v.pu) > 0
+}
+
+func (r *runner) runGo(dir, src string, flags ...string) outcome {
 	gdir := filepath.Join(dir, "go")
 	if err := os.MkdirAll(gdir, 0o755); err != nil {
 		return outcome{class: "compile-error", output: err.Error()}
@@ -142,7 +162,8 @@ func (r *runner) runGo(dir, src string) outcome {
 		return outcome{class: "compile-error", output: err.Error()}
 	}
 	bin := filepath.Join(dir, "gobin")
-	out, err := r.command(buildTimeout, gdir, nil, "go", "build", "-o", bin, ".")
+	args := append([]string{"build", "-o", bin}, flags...)
+	out, err := r.command(buildTimeout, gdir, nil, "go", append(args, ".")...)
 	if err != nil {
 		return outcome{class: "compile-error", output: out}
 	}
@@ -229,6 +250,9 @@ func tail(s string, n int) string {
 func (v *verdict) report() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "signature: %s\n", v.signature())
+	if v.goBug {
+		b.WriteString("Go built with -gcflags=all=-N -l agrees with Plutonium: probably a Go compiler bug\n")
+	}
 	fmt.Fprintf(&b, "go: %s\n", v.goOut)
 	for i, o := range v.pu {
 		fmt.Fprintf(&b, "pu -O%d: %s", levels[i], o)

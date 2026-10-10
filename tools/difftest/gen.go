@@ -54,6 +54,7 @@ type closureInfo struct {
 
 type fnInfo struct {
 	name    string
+	recv    *variable // the receiver of a method
 	params  []*variable
 	results []*typ
 	pure    bool
@@ -103,7 +104,14 @@ type gen struct {
 
 	globalText strings.Builder
 
-	loopStart int // index of the line where the loop being generated starts
+	// The interface Ifc { Get(int) int }, the named integer type N, and
+	// the types that implement Ifc, if the program has them.
+	ifc          *typ
+	named        *typ
+	implementers []*typ
+	inGet        bool
+
+	loopStart  int // index of the line where the loop being generated starts
 	callDepth  int // calls being generated inside other calls' arguments
 	indexDepth int // index expressions being generated inside index expressions
 }
@@ -149,6 +157,18 @@ func (g *gen) program(seed int64) string {
 	}
 
 	var funcs strings.Builder
+	if g.chance(3) {
+		out.WriteString("type Ifc interface {\n\tGet(x int) int\n}\n\ntype N int32\n\n")
+		g.ifc = &typ{kind: kIface, name: "Ifc"}
+		g.named = &typ{kind: kInt, name: "N", bits: 32, signed: true}
+		g.implementers = append([]*typ{g.named}, g.structs...)
+		// Get methods do not call Get, which could recurse forever.
+		g.inGet = true
+		for _, t := range g.implementers {
+			funcs.WriteString(g.getMethod(t))
+		}
+		g.inGet = false
+	}
 	for i, n := 0, 3+g.r.Intn(4); i < n; i++ {
 		g.nfuncs = i
 		f := g.function(i)
@@ -457,6 +477,12 @@ func (g *gen) overBudget() bool { return g.cx.cost > g.cx.budget }
 // variable, or "" if there is none. For writes, only writable roots are
 // considered, and a slice root must be indexed.
 func (g *gen) place(want *typ, write bool) string {
+	p, _ := g.placeRoot(want, write)
+	return p
+}
+
+// placeRoot is place that also returns the root variable.
+func (g *gen) placeRoot(want *typ, write bool) (string, *variable) {
 	var cands []*variable
 	for _, v := range g.visible() {
 		if v.closure != nil || !reach(v.t, want) {
@@ -483,7 +509,7 @@ func (g *gen) place(want *typ, write bool) string {
 		}
 	}
 	if len(cands) == 0 {
-		return ""
+		return "", nil
 	}
 	v := cands[g.r.Intn(len(cands))]
 	if !g.chance(3) {
@@ -492,7 +518,7 @@ func (g *gen) place(want *typ, write bool) string {
 	if !write {
 		v.used = true
 	}
-	return g.descend(v.name, v.t, want, v)
+	return g.descend(v.name, v.t, want, v), v
 }
 
 func (g *gen) descend(base string, t, want *typ, root *variable) string {
@@ -823,6 +849,19 @@ func (g *gen) boolLeaf(d int, nc bool) expr {
 			if c := g.pureCall(tBool); c != "" {
 				return expr{s: c}
 			}
+		case 5:
+			// Equality of structs or arrays.
+			t := g.randType(false)
+			if t.scalar() {
+				continue
+			}
+			if p := g.place(t, false); p != "" {
+				op := "=="
+				if g.chance(2) {
+					op = "!="
+				}
+				return expr{s: "(" + p + " " + op + " " + g.value(t, 1) + ")"}
+			}
 		default:
 			return g.compare(min(d, 1))
 		}
@@ -969,7 +1008,7 @@ func (g *gen) sliceExpr(elem *typ, minLen int) (string, int, bool) {
 			n := minLen + g.r.Intn(3)
 			var parts []string
 			for i := 0; i < n; i++ {
-				parts = append(parts, g.value(elem, 1))
+				parts = append(parts, g.value(elem, 1-g.callDepth))
 			}
 			return "[]" + elem.String() + "{" + strings.Join(parts, ", ") + "}", n, true
 		}
@@ -1022,6 +1061,7 @@ func (g *gen) call(t *typ, pureOnly bool) string {
 		slices []int
 		cost   int64
 		v      *variable
+		f      *fnInfo
 	}
 	var cands []cand
 	for _, f := range g.funcs[:g.nfuncs] {
@@ -1031,12 +1071,7 @@ func (g *gen) call(t *typ, pureOnly bool) string {
 		if !f.pure && !g.cx.writeGlobal {
 			continue
 		}
-		c := cand{name: f.name, cost: f.cost}
-		for _, p := range f.params {
-			c.params = append(c.params, p.t)
-			c.slices = append(c.slices, p.sliceLen)
-		}
-		cands = append(cands, c)
+		cands = append(cands, cand{f: f, cost: f.cost})
 	}
 	for _, v := range g.visible() {
 		ci := v.closure
@@ -1056,10 +1091,48 @@ func (g *gen) call(t *typ, pureOnly bool) string {
 		return ""
 	}
 	g.addCost(c.cost + 1)
-	if c.v != nil {
-		c.v.used = true
+	if c.f != nil {
+		return g.callText(c.f)
 	}
+	c.v.used = true
 	return c.name + "(" + g.args(c.params, c.slices) + ")"
+}
+
+// callText returns a call of function or method f with generated
+// arguments.
+func (g *gen) callText(f *fnInfo) string {
+	var params []*typ
+	var lens []int
+	for _, p := range f.params {
+		params = append(params, p.t)
+		lens = append(lens, p.sliceLen)
+	}
+	name := f.name
+	if f.recv != nil {
+		name = g.receiver(f) + "." + f.name
+	}
+	return name + "(" + g.args(params, lens) + ")"
+}
+
+// receiver returns a receiver for a call of method f. A pointer
+// receiver must be addressable, and writable if f writes through it.
+func (g *gen) receiver(f *fnInfo) string {
+	s := f.recv.t
+	if s.kind == kPtr {
+		s = s.elem
+		p, root := g.placeRoot(s, !f.pure)
+		if p == "" {
+			root = g.newGlobal(s)
+			p = root.name
+		}
+		root.used = true
+		root.sliced = true
+		return p
+	}
+	if p := g.place(s, false); p != "" && !g.chance(4) {
+		return p
+	}
+	return "(" + g.literal(s, 1) + ")"
 }
 
 func (g *gen) args(params []*typ, slices []int) string {
@@ -1108,6 +1181,14 @@ func (g *gen) function(i int) *fnInfo {
 	if rec {
 		g.cx.budget /= maxRecDepth + 1
 		addParam(&variable{name: g.name("n"), t: tInt, used: true, readonly: true, sliceLen: -1})
+	} else if len(g.structs) > 0 && g.chance(4) {
+		// A method, with a value or pointer receiver.
+		s := g.structs[g.r.Intn(len(g.structs))]
+		f.name = fmt.Sprintf("m%d", i) // f0... are field names
+		f.recv = g.declare(&variable{name: g.name("r"), t: s, used: true})
+		if g.chance(2) {
+			f.recv.t = g.canon(&typ{kind: kPtr, elem: s})
+		}
 	}
 	np := g.r.Intn(5)
 	if g.chance(6) {
@@ -1151,7 +1232,11 @@ func (g *gen) function(i int) *fnInfo {
 	if len(res) > 1 {
 		resStr = "(" + resStr + ")"
 	}
-	g.line("func %s(%s) %s {", f.name, strings.Join(params, ", "), resStr)
+	if f.recv != nil {
+		g.line("func (%s %s) %s(%s) %s {", f.recv.name, f.recv.t, f.name, strings.Join(params, ", "), resStr)
+	} else {
+		g.line("func %s(%s) %s {", f.name, strings.Join(params, ", "), resStr)
+	}
 	g.indent++
 	h := g.declare(&variable{name: g.name("h"), t: tUint64, used: true})
 	g.cx.hash = h
@@ -1218,6 +1303,117 @@ func (g *gen) selfCall(f *fnInfo) string {
 	}
 }
 
+// getMethod returns the Get method of t, which implements Ifc.
+func (g *gen) getMethod(t *typ) string {
+	g.lines = nil
+	g.indent = 0
+	g.nfuncs = 0
+	g.cx = &ctx{mult: 1, budget: fnBudget / 4, results: []*typ{tInt}}
+	g.push()
+	r := g.declare(&variable{name: g.name("r"), t: t, used: true})
+	x := g.declare(&variable{name: g.name("x"), t: tInt, used: true})
+	g.line("func (%s %s) Get(%s int) int {", r.name, t, x.name)
+	g.indent++
+	g.stmts(1 + g.r.Intn(3))
+	ret := fmt.Sprintf("int(%s)*%s + %s", leafOf(r.name, t), x.name, g.intExpr(tInt, 2, false).s)
+	g.useAll()
+	g.line("return %s", ret)
+	g.indent--
+	g.line("}")
+	g.line("")
+	g.sc = g.sc.parent
+	return strings.Join(g.lines, "\n") + "\n"
+}
+
+// leafOf returns an integer expression read from a value p of type t: its
+// first integer leaf, or 0.
+func leafOf(p string, t *typ) string {
+	switch t.kind {
+	case kInt:
+		return "int64(" + p + ")"
+	case kStruct:
+		for _, f := range t.fields {
+			if l := leafOf(p+"."+f.name, f.t); l != "0" {
+				return l
+			}
+		}
+	case kArray:
+		return leafOf(p+"[0]", t.elem)
+	}
+	return "0"
+}
+
+// ifaceStmt converts a value to Ifc or any, calls Get through the
+// interface, and switches on the dynamic type.
+func (g *gen) ifaceStmt() bool {
+	if g.ifc == nil || g.inGet || g.chance(3) {
+		return g.anyStmt()
+	}
+	if g.cx.cost+g.cx.mult*3*fnBudget/4 > g.cx.budget {
+		return g.anyStmt()
+	}
+	g.addCost(3 * fnBudget / 4) // at most three calls of Get
+	t := g.implementers[g.r.Intn(len(g.implementers))]
+	var val string
+	if t == g.named {
+		val = "N(" + g.intExpr(intTypes[2], 2, false).s + ")"
+	} else {
+		val = g.value(t, 1)
+	}
+	i := g.name("i")
+	g.line("var %s Ifc = %s", i, val)
+	g.line("println(%q, %s.Get(%s))", i, i, g.intExpr(tInt, 1, false).s)
+	if g.chance(2) && g.assignStmt() {
+		g.line("println(%q, %s.Get(%d))", i, i, g.r.Intn(9)-4)
+	}
+	v := g.name("v")
+	g.line("switch %s := %s.(type) {", v, i)
+	order := g.r.Perm(len(g.implementers))
+	for _, k := range order[:1+g.r.Intn(len(order))] {
+		u := g.implementers[k]
+		g.line("case %s:", u)
+		g.line("\tprintln(%q, %s)", u.name, leafOf(v, u))
+		g.line("\t_ = %s", v)
+	}
+	if g.chance(2) {
+		g.line("default:")
+		g.line("\tprintln(\"other\")")
+	}
+	g.line("}")
+	u := g.implementers[g.r.Intn(len(g.implementers))]
+	w := g.name("w")
+	g.line("if %s, ok := %s.(%s); ok {", w, i, u)
+	g.line("\tprintln(\"is\", %s)", leafOf(w, u))
+	g.line("\t_ = %s", w)
+	g.line("} else {")
+	g.line("\tprintln(\"is not\", ok)")
+	g.line("}")
+	return true
+}
+
+// anyStmt switches on the dynamic type of an integer in an any.
+func (g *gen) anyStmt() bool {
+	t := g.randInt()
+	a, v := g.name("a"), g.name("v")
+	g.line("var %s any = %s", a, typed(g.intExpr(t, 2, false), t))
+	g.line("switch %s := %s.(type) {", v, a)
+	seen := map[*typ]bool{}
+	for _, k := range g.r.Perm(len(intTypes))[:1+g.r.Intn(4)] {
+		seen[intTypes[k]] = true
+	}
+	seen[t] = g.chance(2) || seen[t]
+	for _, u := range intTypes {
+		if seen[u] {
+			g.line("case %s:", u)
+			g.line("\tprintln(%q, %s)", u.name, v)
+		}
+	}
+	g.line("default:")
+	g.line("\tprintln(\"other\", %s == nil)", v)
+	g.line("}")
+	return true
+}
+
 // useAll uses the innermost scope's unread variables without closing it,
 // so that a function can end with its return statement.
 func (g *gen) useAll() {
@@ -1263,18 +1459,12 @@ func (g *gen) mainFunc() string {
 }
 
 func (g *gen) callAndPrint(f *fnInfo) {
-	var params []*typ
-	var lens []int
-	for _, p := range f.params {
-		params = append(params, p.t)
-		lens = append(lens, p.sliceLen)
-	}
 	g.addCost(f.cost + 1)
 	var names []string
 	for range f.results {
 		names = append(names, g.name("r"))
 	}
-	g.line("%s := %s(%s)", strings.Join(names, ", "), f.name, g.args(params, lens))
+	g.line("%s := %s", strings.Join(names, ", "), g.callText(f))
 	for i, t := range f.results {
 		g.printLeaves(names[i], t)
 	}
@@ -1399,7 +1589,7 @@ func (g *gen) stmt() bool {
 	g.addCost(1)
 	deep := g.cx.depth >= maxDepth
 	for {
-		switch k := g.r.Intn(120); {
+		switch k := g.r.Intn(132); {
 		case k < 20:
 			g.declStmt()
 			return false
@@ -1487,12 +1677,36 @@ func (g *gen) stmt() bool {
 			if g.maybeNil() {
 				return false
 			}
-		default:
+		case k < 124:
 			if !deep && g.kernel() {
+				return false
+			}
+		case k < 128:
+			g.repeated()
+			return false
+		default:
+			if g.ifaceStmt() {
 				return false
 			}
 		}
 	}
+}
+
+// repeated evaluates the same expression twice with a store in between,
+// and similar expressions at different types: what CSE must and must not
+// merge.
+func (g *gen) repeated() {
+	t := g.randInt()
+	e := g.intExpr(t, 3, true).s
+	a, b := g.name("v"), g.name("v")
+	g.line("%s := %s", a, e)
+	if !g.chance(4) {
+		if !g.assignStmt() {
+			g.callStmt()
+		}
+	}
+	g.line("%s := %s == %s", b, e, a)
+	g.line("println(%q, %s, %s)", a, a, b)
 }
 
 // kernel emits one of a few classic loops over an array or slice of
@@ -2343,13 +2557,7 @@ func (g *gen) callStmt() bool {
 	}
 	f := cands[g.r.Intn(len(cands))]
 	g.addCost(f.cost + 1)
-	var params []*typ
-	var lens []int
-	for _, p := range f.params {
-		params = append(params, p.t)
-		lens = append(lens, p.sliceLen)
-	}
-	call := f.name + "(" + g.args(params, lens) + ")"
+	call := g.callText(f)
 	switch g.r.Intn(4) {
 	case 0:
 		g.line("%s", call)
