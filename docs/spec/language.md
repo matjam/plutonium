@@ -428,6 +428,82 @@ pointer: `bits.Set(&flags, 3)`, `bits.Clear`, `bits.Toggle`, `bits.Test`, `bits.
 `bits.Insert`. The compiler expands them to single instructions where the target has one. These replace
 the March draft's `bits[V]` lens type.
 
+### 5.9 Enums
+
+An enum type is a closed set of named integer constants of its own type. `enum` is a keyword.
+
+```
+EnumType   = "enum" [ Type ] "{" { EnumMember ";" } "}" .
+EnumMember = identifier [ "=" Expression ] .
+```
+
+```go
+type Color enum {
+	Red
+	Green
+	Blue
+}
+
+type Errno enum uint16 {
+	OK     = 0
+	EPERM               // 1
+	ENOENT              // 2
+	EIO    = 5
+}
+```
+
+An enum type may only be the type of a type definition: not an alias, not generic, and not written
+anywhere else. The design rationale is in
+[2026-10-09-enums-design.md](../plans/2026-10-09-enums-design.md).
+
+**Type and values.** An enum is a defined type whose underlying type is an integer type: the type after
+`enum` (which must be an integer type), or else the smallest of `uint8` to `uint64` that holds every
+member, or of `int8` to `int64` if a member is negative. The first member is 0 unless given a value; a
+member without a value is one more than the previous member. A value is a constant integer expression,
+evaluated in the scope enclosing the declaration; it must be representable in the underlying type and may
+not refer to the enum being declared. Two members may not share a name or a value, `_` is not a member
+name, and **one member must have the value 0**: it is the zero value of the type.
+
+**Names.** A member is selected through its type, `Color.Red` (also `pkg.Color.Red`, or through an alias);
+it is a typed constant of type `Color`. Members enter no scope. Unexported members are not visible in
+other packages. On a type name a member takes precedence over a method of the same name.
+
+**Switches.** In an expression switch whose tag has enum type `E`, a case expression that is a single
+identifier naming a member of `E` denotes that member, whatever else the name denotes in scope:
+`case Red, Green:`. Bare member names are not accepted anywhere else. A switch on an enum value that has no
+`default` case must list every member among its constant case values; otherwise it is a compile error
+naming the missing members.
+
+**Operations.** Enum values compare with `==`, `!=`, `<`, `<=`, `>`, `>=`. Arithmetic, bitwise operators,
+`++`, `--` and shifting an enum value are errors; an enum value may be a shift count or an index. An
+untyped constant does not convert implicitly to an enum: `var c Color = 1` and `c == 1` are errors.
+
+**Conversions.**
+
+- `E(c)` for an integer constant `c` is valid if `c` is a member's value, and gives that member.
+- For a non-constant integer `n`, `E(n)` is valid only in the comma-ok form `v, ok := E(n)` (or `=`, or
+  `var v, ok = E(n)`): `ok` reports whether `n` equals a member's value, and `v` is that member, or the
+  zero value if `ok` is false. Floats and other non-integer types do not convert to an enum.
+- An enum converts to any integer or floating-point type as its underlying integer does.
+
+**Generated operations.**
+
+| Form | Meaning |
+|---|---|
+| `x.String()` | the member's name, or `"E(?)"` for a value that is not a member; generated unless `E` declares `String` |
+| `len(E)` | the number of members, an untyped integer constant |
+| `for v := range E` | each member in declaration order; one iteration variable |
+
+**Other types.** An enum value is an integer everywhere else: it is stored like its underlying type,
+held directly in an interface's data word, satisfies constraints by its underlying type (`~uint8`), and
+may be `volatile` or `aligned`. A packed field of enum type (section 5.5) is a bit field as wide as the
+members need (unsigned, or two's complement if a member is negative); `f bits[E, N]` gives a wider
+field. Values that are not members can arise only through `unsafe`, packed values converted from raw
+bits, and generic code operating on the underlying type; such a value matches no case of a switch.
+`type F E` declares an ordinary integer type with `E`'s underlying type and no members.
+
+Enums do not provide bit-flag sets; packed `bits` groups do that.
+
 ## 6. Memory and allocation
 
 Plutonium never allocates heap memory unless the program asks: through `new`, `make`, the `pluto/alloc`
