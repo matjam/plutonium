@@ -2,17 +2,21 @@ package lower
 
 import "github.com/matjam/plutonium/internal/ssa"
 
-// Count elision across calls (language spec section 6.10.1).
+// Count elision across calls (language spec sections 6.5 and 6.10.1).
 //
-// A string borrowed from memory a call could change (a field reached
-// through a pointer, a slice element, a package variable) is held for the
-// rest of its statement: copied into a temporary and retained, so that a
-// call that overwrites or frees its source cannot free its bytes (hold, in
-// strcount.go). Most such calls cannot release any string at all; the
-// optimiser's opt.ElideStringHolds knows which, once the whole program is
-// lowered, and removes the retain and its releases for a hold whose calls
-// all cannot. Lowering records here what it needs: each hold's retains and
-// releases, and the calls emitted while the hold was active.
+// A string, or a shared, synced or weak reference, borrowed from memory a
+// call could change (a field reached through a pointer, a slice element, a
+// package variable) is held for the rest of its statement: copied into a
+// temporary and retained, so that a call that overwrites or frees its
+// source cannot free what it refers to (hold, in strcount.go). Most such
+// calls cannot release any reference at all; the optimiser's
+// opt.ElideStringHolds knows which, once the whole program is lowered, and
+// removes the retain and its releases for a hold whose calls all cannot.
+// Lowering records here what it needs: each hold's retains and releases,
+// and the calls emitted while the hold was active. Strings and boxes share
+// one account of which calls may release: a box's last release runs drop
+// glue that releases strings, and a string's frees its buffer through an
+// allocator, whose Free could do anything.
 
 // A holdRec is a hold being lowered.
 type holdRec struct {
@@ -70,8 +74,10 @@ func (s *fnState) recordHolds() {
 		h := ssa.StrHold{Retains: rec.retains, Releases: rec.releases}
 		for _, c := range s.callLog[rec.start:rec.end] {
 			// Taking references, and dropping those of statement
-			// temporaries, never frees a string a hold protects: the
-			// protected string's reference belongs to its source.
+			// temporaries, never frees what a hold protects: the
+			// protected reference belongs to its source, and the
+			// temporaries are dropped at the end of the statement,
+			// after the held value's last use.
 			if own[c] || s.tempRelease[c] || isRetain(c) {
 				continue
 			}
@@ -83,5 +89,5 @@ func (s *fnState) recordHolds() {
 
 func isRetain(c *ssa.Value) bool {
 	sym, ok := c.Aux.(*ssa.Sym)
-	return ok && c.Op == ssa.OpCall && sym.Name == "pluto/rt.strRetain"
+	return ok && c.Op == ssa.OpCall && (sym.Name == "pluto/rt.strRetain" || sym.Name == "pluto/rt.boxRetain")
 }

@@ -3,10 +3,74 @@ package build_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/matjam/plutonium/internal/testguard"
 )
+
+// TestBoxHoldElision checks that a shared or synced reference borrowed from
+// memory a call could change is passed without counting when no call it is
+// held across can release a reference (opt.ElideStringHolds), and is
+// counted when one can: here a callee that overwrites the reference's
+// source, which would otherwise free the object while it is in use.
+func TestBoxHoldElision(t *testing.T) {
+	testguard.Parallel(t)
+	const src = `package main
+
+import "pluto/alloc"
+
+type point struct{ x, y int }
+
+type holder struct {
+	p shared[point]
+	q synced[point]
+}
+
+//pu:noinline
+func get(p shared[point]) int { return p.x + p.y }
+
+//pu:noinline
+func getSynced(q synced[point]) int { return q.x - q.y }
+
+//pu:noinline
+func replace(h *holder, p shared[point]) int {
+	h.p = alloc.Shared[point]()
+	return p.x
+}
+
+//pu:noinline
+func pure(h *holder) int { return get(h.p) + getSynced(h.q) }
+
+//pu:noinline
+func risky(h *holder) int { return replace(h, h.p) }
+
+func main() {
+	var h holder
+	h.p = alloc.Shared[point]()
+	h.p.x = 5
+	h.q = alloc.Synced[point]()
+	h.q.x = 9
+	println(pure(&h), risky(&h), h.p.x)
+}
+`
+	pure := listFunc(t, src, "main.pure")
+	for _, count := range []string{"·release", "xadd64", "-32("} {
+		if strings.Contains(pure, count) {
+			t.Errorf("main.pure counts the references it passes (%s):\n%s", count, pure)
+		}
+	}
+	// The count is at -32 from the object (abi.md section 1.2).
+	if risky := listFunc(t, src, "main.risky"); !strings.Contains(risky, "-32(") {
+		t.Errorf("main.risky does not keep the reference it passes alive:\n%s", risky)
+	}
+	for _, level := range []int{0, 2} {
+		exe := buildDebugAlloc(t, src, level)
+		if got, status := runDebugAlloc(t, exe, ""); status != 0 || got != "14 5 0\n" {
+			t.Errorf("-O%d: exit status %d, output %q", level, status, got)
+		}
+	}
+}
 
 // TestBoxesLeakFree runs the programs that make, move, share and drop
 // owned, shared, synced and weak references, owning interfaces and owner

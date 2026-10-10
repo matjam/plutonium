@@ -1658,7 +1658,8 @@ How the compiler keeps these rules: a counted reference is counted exactly as a 
 6.10). A store into a place takes a reference for the new value and releases the old one; a call's
 parameters are borrowed, so passing a reference down costs nothing unless the callee keeps it; a result
 hands its reference to the caller; a reference read from memory a call could change is held for the
-statement. The strong references together hold one weak reference, as in Rust's `Arc`, so the memory is
+statement, unless no call made while it is held can release a reference (as for strings, section
+6.10.1), so passing `h.p` to a function that only reads it costs no count either. The strong references together hold one weak reference, as in Rust's `Arc`, so the memory is
 freed when the weak count reaches zero after `Drop` has run. A `synced` count is atomic once the program
 runs more than one task (`rt.SetThreaded`, as for strings) and plain before; a `shared` count is always
 plain, which is why it may not cross tasks (section 4.7). `weak[P].Upgrade` on a `synced` object is a
@@ -2672,8 +2673,9 @@ The compiler leaves out the counting that cannot be observed:
   argument is read from memory a call could change (a field reached through a pointer, a slice element, a
   package variable), the caller holds a reference for the rest of the statement, unless no call made
   while it is held can release a string: the optimiser (at `-O1` and above) summarises every function of
-  the program, and a function may release one if it drops a string reference, makes a call through a
-  func value or an interface, or calls a function that may. Calls that never return (panics) do not
+  the program, and a function may release one if it drops a string, `shared`, `synced` or `weak`
+  reference, makes a call through a func value or an interface, or calls a function that may. Counted
+  boxes (section 6.5) are held and released by the same rule. Calls that never return (panics) do not
   count. Searching, comparing, hashing and other code that only reads strings therefore costs no count.
 - **Static strings** never touch a count, and the compiler skips the call altogether when it knows a
   value is static.

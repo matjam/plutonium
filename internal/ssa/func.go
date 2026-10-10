@@ -389,11 +389,12 @@ type CallInfo struct {
 }
 
 // A StrHold is a reference a function takes, for the duration of a
-// statement, to a string it borrowed from memory that a call could change:
-// the calls that take it (Retains, to pluto/rt.strRetain) and drop it
-// (Releases, to pluto/rt.strRelease), and every other call made while it
-// is held (Covered). If none of the covered calls can release a string,
-// the reference protects nothing and all of its calls may be removed.
+// statement, to a string or a shared, synced or weak reference it borrowed
+// from memory that a call could change: the calls that take it (Retains,
+// to pluto/rt.strRetain or boxRetain) and drop it (Releases), and every
+// other call made while it is held (Covered). If none of the covered calls
+// can release what is held, the reference protects nothing and all of its
+// calls may be removed.
 type StrHold struct {
 	Retains, Releases, Covered []*Value
 }

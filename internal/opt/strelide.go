@@ -3,10 +3,11 @@ package opt
 import "github.com/matjam/plutonium/internal/ssa"
 
 // ElideStringHolds removes the references lowering takes to keep a
-// borrowed string alive while calls run (ssa.StrHold) when none of those
-// calls can release a string (language spec section 6.10.1).
+// borrowed string, or a borrowed shared, synced or weak reference, alive
+// while calls run (ssa.StrHold) when none of those calls can release one
+// (language spec sections 6.5 and 6.10.1).
 //
-// A function may release a string if it calls one of the runtime's release
+// A function may release a reference if it calls one of the runtime's release
 // functions, makes an indirect call (through a func value or an interface,
 // whose target is not known here), or calls a function that may release.
 // Functions without a body here (assembly and C) release nothing. A call

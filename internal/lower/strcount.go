@@ -345,15 +345,17 @@ func (s *fnState) hold(v value) value {
 	case cntStatic, cntOwned, cntStable:
 		return v
 	}
+	from := len(s.callLog)
 	if !v.addr {
-		// A shared, synced or weak reference. Its hold is not offered to
-		// the optimiser, which knows only which calls release strings.
+		// A shared, synced or weak reference.
 		s.retainWord(v.v, v.T)
-		return s.wordTemp(v.v, v.T, "held")
+		held := s.wordTemp(v.v, v.T, "held")
+		s.startHold(held.tmp, from) // the optimiser may remove it (strelide.go)
+		return held
 	}
 	tmp := s.temp(v.T, "held")
 	s.move(tmp, v.v, s.l.sizeof(v.T))
-	from := len(s.callLog)
+	from = len(s.callLog)
 	s.retainAt(tmp, v.T)
 	held := s.ownTemp(tmp, v.T)
 	s.startHold(held.tmp, from) // the optimiser may remove it (strelide.go)

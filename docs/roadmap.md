@@ -152,10 +152,10 @@ later takes the next free number and is listed in the section where it belongs.
     what the arena rule cannot see (arena memory stored into heap memory that outlives the arena, by the
     function or a callee), and generation tags in `alloc.SyncSlab`, now the default allocator of
     `--gencheck` builds. Before generation checks become the default for hosted builds: loop-invariant
-    hoisting of the checks and a second measurement. Not yet:
-    holds of `shared`/`synced` references are not offered to
-    `opt.ElideStringHolds` yet, so a reference read from memory a call could change is always retained
-    for its statement. The original list:
+    hoisting of the checks and a second measurement. Holds of `shared`, `synced` and `weak` references
+    borrowed from memory a call could change go through `opt.ElideStringHolds` like strings'
+    (2026-10-10): on a loop passing a `shared` and a `synced` field to functions that only read them,
+    568 ms to 333 ms, and 1763 ms to 331 ms once atomic counts are on. The original list:
     - `owner` in type definitions and in type parameter constraints, with the placement rules of section
       6.4 (structs with owner fields must be declared `owner`; `Drop` only on owners; never inferred);
     - the move checker: moves on assignment, passing, return, send, `go`, field stores and owning
