@@ -1,0 +1,12 @@
+clobber true
+string a string in an interface
+pair 3 4
+[]int 3 10 20 30
+[3]string x y z
+string first
+pair 5 6
+int 7
+[]byte 2 98
+error open sentinel inside a struct 9
+pathError open /etc/missing 2
+equal true true

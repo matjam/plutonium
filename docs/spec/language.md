@@ -27,6 +27,7 @@ version: every Go feature up to 1.27 that is not removed or changed below is par
 10. [The unsafe package](#10-the-unsafe-package)
 11. [Build modes and targets](#11-build-modes-and-targets)
 12. [Standard library](#12-standard-library)
+13. [Errors](#13-errors)
 
 ## 1. Goals
 
@@ -73,7 +74,7 @@ Each of these is a compile error that names the construct and the reason.
 | Removed | Reason | Use instead |
 |---|---|---|
 | `map[K]V`, `delete` | needs a garbage-collected hash table | `pluto/hash` |
-| `recover` | needs an unwinder; `panic` aborts (section 7) | return errors |
+| `recover` | needs an unwinder; `panic` aborts (section 7) | return errors (section 13) |
 | `import "reflect"` | needs runtime type metadata | type switches, generics |
 | `complex64`, `complex128`, `complex`, `real`, `imag` | rarely useful in systems code; keeps the backend small | a struct of two floats |
 | runtime string concatenation (`s + t` where either is not a constant) | allocates | `pluto/strings.Builder` with an allocator |
@@ -125,6 +126,11 @@ assertions, type switches. An interface value is two words: a pointer to a stati
 Returning an interface that holds such a frame copy, or storing it in a package-level variable, is a
 compile error where the compiler can see it. To keep a large value in an interface beyond the current
 function, store a pointer to it instead.
+
+The initializer of a package-level variable is the exception: it runs once, and its results must outlive
+package initialization, so a conversion there copies the value into static storage instead of a frame.
+`var ErrBad error = parseError{line: 1}` and `var names any = []string{"a", "b"}` are valid. The same
+holds for `&T{...}` and slice literals in package-level initializers, which also get static storage.
 
 Type descriptors exist only for types that are converted to an interface. Besides identifying the type,
 a descriptor records its size, alignment and kind, and its element type and length or its field offsets
@@ -700,7 +706,7 @@ to another processor in between, so it runs with preemption or interrupts disabl
 | `pluto/rt` | panic hook, program entry, memory copy and compare primitives the compiler calls, the scheduler interface, `Go`, `Yield` |
 | `pluto/sync` | `Mutex`, `RWMutex`, `WaitGroup`, `Once` over the scheduler |
 | `pluto/alloc` | allocators, the default allocator, `New`/`Free`/`Owned`/`Shared`/`Synced` |
-| `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf` into a caller's buffer, `Println`; integer, float, string, pointer verbs with width, precision and flags |
+| `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf` into a caller's buffer, `Println`; integer, float, string, pointer verbs with width, precision and flags; `Errorf` with an allocator and `ErrorBuf` (section 13) |
 | `pluto/io` | `Reader`, `Writer`, buffered I/O |
 | `pluto/os` | files, arguments, environment, exit (hosted) |
 | `pluto/syscall` | raw Linux system calls (hosted) |
@@ -713,5 +719,87 @@ to another processor in between, so it runs with preemption or interrupts disabl
 | `pluto/sync/atomic` | atomic integers and pointers |
 | `pluto/unicode/utf8` | UTF-8 encoding and decoding |
 | `pluto/testing` | tests and benchmarks for `pluto test` (hosted) |
+| `pluto/errors` | `New` for sentinels, `Is`, `As`, `AsType`, `Unwrap`, `Join`, `Free` (section 13) |
 
 `pluto/os` and `pluto/syscall` are not available in freestanding builds.
+
+## 13. Errors
+
+Errors are values of the predeclared `error` interface, handled as in Go: a function returns an `error`
+last, `nil` means success, and callers write `if err != nil { return err }`. `pluto/errors` provides
+`Is`, `As`, `Unwrap` and `Join` with Go's semantics, and `fmt.Errorf` wraps with `%w`. Since `panic`
+aborts (section 7), errors are the only way to recover from a failure.
+
+What differs from Go is where an error lives. An `error` is an interface, so an error value larger than a
+word would be boxed in the converting function's frame (section 4.4), and Plutonium never allocates
+implicitly (section 6). The rule that follows is:
+
+**An error returned from a function is either a value that fits in a word, or a pointer to storage that
+outlives the function.** That storage is one of:
+
+| Storage | Used for | Example |
+|---|---|---|
+| the interface's data word | error codes | `syscall.Errno`, a kernel's own code type |
+| static storage | sentinel errors | `var ErrNotFound = errors.New("not found")` in a package-level variable |
+| a field of a longer-lived object | errors with context that belong to an owner | a parser that returns `&p.err`; `fmt.ErrorBuf` |
+| memory from an allocator | errors with context that travel up the stack | `*os.PathError`, `fmt.Errorf`, `errors.Join` |
+
+Returning a struct as an `error`, or a pointer to a local variable or composite literal, breaks the rule:
+the first is a compile error (section 4.4), and the second leaves a dangling pointer.
+
+### 13.1 Sentinels
+
+`errors.New(text)` returns a distinct error each time it is called, held in static storage that package
+`errors` reserves (512 errors). It is meant for package-level variables, whose initializers run once:
+
+```go
+var ErrNotFound = errors.New("not found")
+```
+
+`text` must be a constant or other static string. `errors.New` panics when its storage runs out, which
+happens only if a program calls it repeatedly at run time; such code should declare a package-level
+sentinel or use `fmt.Errorf`. A sentinel may also be written as a static literal,
+`var ErrClosed = &errors.Text{Msg: "file already closed"}`, and a package-level initializer may convert
+a struct to `error` directly, since its box is static (section 4.4).
+
+### 13.2 Error codes
+
+A named integer type with an `Error() string` method fits in the data word, so it can be returned from
+anywhere and costs nothing. `syscall.Errno` is the standard one: its `Error` returns Linux's message for
+the code, `Name` its symbol (`"ENOENT"`), and its `Is` method makes `errors.Is(err, os.ErrNotExist)`,
+`os.ErrExist`, `os.ErrPermission` and `errors.ErrUnsupported` match the corresponding codes.
+
+### 13.3 Errors with context
+
+An error that records context (a path, a line and column) needs storage for it. Its message is formatted
+when the error is made, into that storage, because `Error()` must return a string and cannot concatenate
+one at run time.
+
+- **Allocated.** `fmt.Errorf(format, args...)` allocates the error and its message in one block from the
+  default allocator; `fmt.ErrorfIn(a, format, args...)` uses `a`. `errors.Join`/`JoinIn` and
+  `os.NewPathError`/`NewPathErrorIn` work the same way, and so do `os.Open`, `os.Create` and `os.OpenFile`
+  when they fail. Such an error has a `Free()` method. `errors.Free(err)` releases every allocated error
+  in `err`'s tree and skips the others; a wrapper owns the errors it wraps, so free only the outermost
+  one. Code that runs under an arena (`defer alloc.Use(&a).Restore()`) needs no `Free`.
+- **Owned.** An object that performs operations (a parser, a device, a connection) keeps its last error in
+  a field and returns a pointer to it. The error is valid while the object lives and until its next
+  error. `fmt.ErrorBuf` is such a field: `buf.Errorf(format, args...)` formats into its 200-byte buffer,
+  wraps the first `%w` operand, and returns the buffer as the error.
+
+### 13.4 Wrapping, `Is` and `As`
+
+`fmt.Errorf` and `ErrorBuf.Errorf` accept `%w`, which formats an error operand like `%v` and wraps it.
+With one `%w` the result has `Unwrap() error`; with several, `Unwrap() []error`. `%w` in any other
+formatting function prints `%!w(error)`.
+
+`errors.Is(err, target)` reports whether any error in `err`'s tree equals `target` or has an
+`Is(error) bool` method that reports true; it compares with `==` only when `target`'s dynamic type is
+comparable. `errors.As` is generic, `func As[E any](err error, target *E) bool`, so the Go spelling
+`errors.As(err, &perr)` works without reflection, with `E` inferred from `target`.
+`errors.AsType[E error](err) (E, bool)` is Go 1.26's form.
+
+### 13.5 Differences in the standard library
+
+`os.File.Read`, `Write` and `Close` report a bare `syscall.Errno` (and `io.EOF`), not a `*PathError`, so
+that I/O does not allocate. `strconv` reports `ErrSyntax` and `ErrRange` without Go's `*NumError`. An
+`Errno` the table does not know reports `"unknown error"`.
