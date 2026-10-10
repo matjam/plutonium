@@ -224,7 +224,7 @@ func signalName(sig int) string {
 //
 //pu:noreturn
 func defaultPanic(p *Panic) {
-	p.Print(nil)
+	p.Print(Console{})
 	exit(2)
 }
 

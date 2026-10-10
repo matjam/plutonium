@@ -425,9 +425,9 @@ func printBool(b bool) {
 	}
 }
 
-func printInt(v int64)              { writeInt(nil, v) }
-func printUint(v uint64)            { writeUint(nil, v) }
-func printPointer(p unsafe.Pointer) { writePointer(nil, uintptr(p)) }
+func printInt(v int64)              { writeInt(Console{}, v) }
+func printUint(v uint64)            { writeUint(Console{}, v) }
+func printPointer(p unsafe.Pointer) { writePointer(Console{}, uintptr(p)) }
 
 // A Writer receives the text of a panic report (Panic.Print and
 // Panic.PrintTrace). It has the method of pluto/io.Writer, so any
@@ -437,8 +437,16 @@ type Writer interface {
 }
 
 // Console is a Writer that writes where print and println do: standard
-// error in hosted builds, the function registered with SetConsole in
+// error in hosted builds, with a write system call that never waits for
+// the scheduler, and the function registered with SetConsole in
 // freestanding builds.
+//
+// The functions below that format text for a Writer are generic in its
+// type, so that writing to the console calls Console.Write directly. The
+// interrupt-context check (language spec section 12.6) follows a call
+// through the Writer interface into every Writer the program has, which
+// may include files that wait for the poller; a direct call reaches only
+// the console.
 type Console struct{}
 
 // Write writes p to the console.
@@ -449,25 +457,20 @@ func (Console) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// writeBytes writes n bytes at p to w, or to the console if w is nil.
-func writeBytes(w Writer, p unsafe.Pointer, n int) {
-	if n <= 0 {
-		return
+// writeBytes writes n bytes at p to w.
+func writeBytes[W Writer](w W, p unsafe.Pointer, n int) {
+	if n > 0 {
+		w.Write(unsafe.Slice((*byte)(p), n))
 	}
-	if w == nil {
-		printBytes(p, n)
-		return
-	}
-	w.Write(unsafe.Slice((*byte)(p), n))
 }
 
-func writeString(w Writer, s string) {
+func writeString[W Writer](w W, s string) {
 	if len(s) > 0 {
 		writeBytes(w, unsafe.Pointer(unsafe.StringData(s)), len(s))
 	}
 }
 
-func writeInt(w Writer, v int64) {
+func writeInt[W Writer](w W, v int64) {
 	if v < 0 {
 		writeString(w, "-")
 		writeUint(w, uint64(-v))
@@ -476,7 +479,7 @@ func writeInt(w Writer, v int64) {
 	writeUint(w, uint64(v))
 }
 
-func writeUint(w Writer, v uint64) {
+func writeUint[W Writer](w W, v uint64) {
 	var buf [20]byte
 	i := len(buf)
 	for {
@@ -490,7 +493,7 @@ func writeUint(w Writer, v uint64) {
 	writeBytes(w, unsafe.Pointer(&buf[i]), len(buf)-i)
 }
 
-func writePointer(w Writer, v uintptr) {
+func writePointer[W Writer](w W, v uintptr) {
 	const digits = "0123456789abcdef"
 	var buf [18]byte
 	i := len(buf)

@@ -33,14 +33,14 @@ const (
 // faulting instruction, to the console. A kernel can call it from its
 // exception handlers; to stop with a panic instead, call PanicFault.
 func Traceback(pc, sp, bp uintptr) {
-	traceback(nil, pc, sp, bp, true, false)
+	traceback(Console{}, pc, sp, bp, true, false)
 }
 
-// traceback prints to w (the console if nil) the stack walked from pc, sp
-// and bp. exact says pc is the faulting instruction rather than a return
-// address. skipRuntime omits the innermost frames of package rt, which
-// belong to the panic itself.
-func traceback(w Writer, pc, sp, bp uintptr, exact, skipRuntime bool) {
+// traceback prints to w the stack walked from pc, sp and bp. exact says pc
+// is the faulting instruction rather than a return address. skipRuntime
+// omits the innermost frames of package rt, which belong to the panic
+// itself.
+func traceback[W Writer](w W, pc, sp, bp uintptr, exact, skipRuntime bool) {
 	tab := traceTable()
 	for depth := 0; ; depth++ {
 		if depth == maxTraceFrames {
@@ -167,7 +167,7 @@ func findFunc(tab unsafe.Pointer, pc uintptr) unsafe.Pointer {
 
 // printFrame prints the frames at pc in function fn: one for each inlined
 // call it is in, innermost first, then fn itself, named name.
-func printFrame(w Writer, tab, fn unsafe.Pointer, name string, pc uintptr) {
+func printFrame[W Writer](w W, tab, fn unsafe.Pointer, name string, pc uintptr) {
 	file, line := printInlined(w, tab, fn, pc, 0)
 	printLocation(w, name, file, line)
 }
@@ -176,7 +176,7 @@ func printFrame(w Writer, tab, fn unsafe.Pointer, name string, pc uintptr) {
 // in, innermost first, up to and including inline site last (1-based within
 // fn; 0 for all of them). It returns the file and line in the code the last
 // one printed was inlined into.
-func printInlined(w Writer, tab, fn unsafe.Pointer, pc uintptr, last int) (string, int) {
+func printInlined[W Writer](w W, tab, fn unsafe.Pointer, pc uintptr, last int) (string, int) {
 	file, line, inl := findLine(tab, fn, pc-*(*uintptr)(fn))
 	for inl != 0 {
 		site := inlineSite(tab, fn, inl)
@@ -195,7 +195,7 @@ func printInlined(w Writer, tab, fn unsafe.Pointer, pc uintptr, last int) (strin
 // the code of main.main inlined there: main.main and the calls inlined into
 // it. The rest of pluto.main, which initialises packages, is not part of
 // the program's stack as its author sees it and prints nothing.
-func printInlinedMain(w Writer, tab, fn unsafe.Pointer, pc uintptr) {
+func printInlinedMain[W Writer](w W, tab, fn unsafe.Pointer, pc uintptr) {
 	_, _, inl := findLine(tab, fn, pc-*(*uintptr)(fn))
 	for inl != 0 {
 		site := inlineSite(tab, fn, inl)
@@ -238,7 +238,7 @@ func traceSymbolize(pc uintptr) (string, string, int, bool) {
 // printLocation prints one frame. Generated code with no source position,
 // such as the wrapper that calls a method through an interface, is left
 // out.
-func printLocation(w Writer, name, file string, line int) {
+func printLocation[W Writer](w W, name, file string, line int) {
 	if line <= 0 {
 		return
 	}

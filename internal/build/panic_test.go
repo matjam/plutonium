@@ -153,9 +153,65 @@ func main() {
 		"onPanic calls os.Stderr.WriteString (main.p:10), which calls f.Write",
 		"which may be os.poller.waitIO, which calls rt.PollWait",
 		"f.poll.waitIO calls through an interface, so it counts as calling the waitIO method of every type the program converts to os.ioWaiter.",
+		"The path goes through an os.File.",
+		"Write to rt.Console{} instead of os.Stderr in a panic or interrupt handler; os.File writes may wait for the poller: p.Print(rt.Console{})",
 	} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("error does not contain %q:\n%s", want, b.String())
+		}
+	}
+}
+
+// TestHostedPanicConsolePipe checks that the runtime's own console output
+// does not reach the poller: a program with a pipe, puroutines (so the
+// hosted scheduler's Wake is checked) and a File converted to rt.Writer
+// builds, with a panic handler that prints through rt.Console. print,
+// println and Panic.Print with a Console call Console.Write directly
+// rather than through the Writer interface, which counts as calling every
+// Writer, File's Write among them.
+func TestHostedPanicConsolePipe(t *testing.T) {
+	src := []byte(`package main
+
+import (
+	"pluto/os"
+	"pluto/rt"
+)
+
+//pu:panic
+func onPanic(p *rt.Panic) {
+	println("handler:", p.Message)
+	p.Print(rt.Console{})
+	os.Exit(3)
+}
+
+func emit(w rt.Writer, b []byte) {
+	w.Write(b)
+}
+
+func writer(w *os.File, done chan int) {
+	w.WriteString("hi\n")
+	w.Close()
+	done <- 1
+}
+
+func main() {
+	r, w, _ := os.Pipe()
+	done := make(chan int)
+	go writer(w, done)
+	var buf [8]byte
+	n, _ := r.Read(buf[:])
+	<-done
+	r.Close()
+	emit(os.Stderr, buf[:n])
+	println(n)
+	panic("boom")
+}
+`)
+	want := "hi\n3\nhandler: boom\npanic: boom\n    main.main (./main.p:35)\n"
+	for _, level := range []int{0, 2} {
+		_, out, status := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: level})
+		if status != 3 || out != want {
+			t.Errorf("-O%d: status %d, output %q; want 3, %q", level, status, out, want)
 		}
 	}
 }

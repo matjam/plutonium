@@ -443,13 +443,35 @@ func (l *Lowerer) reportContext(g *callGraph, root *ssa.Sym, rl ctxRole, n *ctxN
 		text += "\n" + indirectNote(indirect)
 	}
 	d := &diag.Diagnostic{Code: code, Msg: fmt.Sprintf("%s %s, so it must not %s", name, role, verb)}
-	if isPanic {
+	switch {
+	case kind == opWait && throughFile(hops):
+		text += "\nThe path goes through an os.File. Writing to a file waits for the poller " +
+			"when the file is a pipe or a socket that is full, and the check cannot tell which " +
+			"file a call writes to. rt.Console writes to standard error with a system call " +
+			"that never waits."
+		example := "rt.Console{}.Write(msg)"
+		if isPanic {
+			example = "p.Print(rt.Console{})"
+		}
+		d.Fix = &diag.Fix{Intro: "Write to rt.Console{} instead of os.Stderr in a panic or interrupt handler; os.File writes may wait for the poller", Code: example}
+	case isPanic:
 		text += "\nReport the panic with code that does not wait: write to the console or a device directly, then halt."
-	} else {
+	default:
 		d.Fix = &diag.Fix{Intro: "To hand work to normal code, use a non-blocking send", Code: "select { case work <- item: default: }"}
 	}
 	d.Text = text
 	l.report(pos, d)
+}
+
+// throughFile reports whether a path calls a method of pluto/os's File,
+// whose writes may wait for the poller.
+func throughFile(hops []hop) bool {
+	for _, h := range hops {
+		if strings.HasPrefix(h.to.Name, "pluto/os.(*File).") {
+			return true
+		}
+	}
+	return false
 }
 
 // hopPhrase describes one call of a path, following "which": "calls

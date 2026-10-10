@@ -239,7 +239,12 @@ func Abort() {
 // Print writes the panic to w as a hosted program reports it: "panic: "
 // and the message, a line describing the fault if there was one, then the
 // stack trace.
-func (p *Panic) Print(w Writer) {
+//
+// Print is generic in the type of w so that a call with a writer of a
+// known type, such as Console, calls its Write directly: in a panic or
+// interrupt handler, a call through the Writer interface counts as
+// calling every Writer the program has (language spec section 12.6).
+func (p *Panic) Print[W Writer](w W) {
 	writeString(w, "panic: ")
 	writeString(w, p.Message)
 	writeString(w, "\n")
@@ -269,6 +274,7 @@ func (p *Panic) Print(w Writer) {
 // frame per line, innermost first, the way a hosted program prints it
 // (docs/spec/debugging.md). It reads the trace table and the stack and
 // allocates nothing; a program built with --trace=false prints nothing.
-func (p *Panic) PrintTrace(w Writer) {
+// Like Print, it is generic in the type of w.
+func (p *Panic) PrintTrace[W Writer](w W) {
 	traceback(w, p.pc, p.sp, p.bp, p.exact, p.skipRuntime)
 }
