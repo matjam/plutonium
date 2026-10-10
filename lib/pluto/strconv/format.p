@@ -84,9 +84,11 @@ func Quote(s string) string {
 		panic("strconv: no allocator: call alloc.SetDefault before building strings")
 	}
 	p, ctl := rt.NewStringBuffer(n, a)
-	b := vec.NewFixed(unsafe.Slice(p, n))
-	AppendQuote(&b, s)
-	q := rt.MakeString(p, b.Len(), ctl, rt.KnownASCII(s))
+	b := unsafe.Slice(p, n)
+	b[0] = '"'
+	quoteInto(b[1:n-1], s)
+	b[n-1] = '"'
+	q := rt.MakeString(p, n, ctl, rt.KnownASCII(s))
 	rt.ReleaseString(ctl)
 	return q
 }
@@ -94,40 +96,56 @@ func Quote(s string) string {
 // AppendQuote appends to dst the double-quoted Go string literal
 // representing s, as made by Quote.
 func AppendQuote[D vec.Appender[byte]](dst D, s string) {
-	const hex = "0123456789abcdef"
+	// Quoting is bytewise, so s is quoted in pieces of up to 64 bytes,
+	// each of which takes at most 4*64 bytes quoted.
+	var buf [4 * 64]byte
 	dst.Push('"')
-	start := 0 // s[start:i] is still to be appended as it is
+	for len(s) > 0 {
+		k := min(len(s), 64)
+		dst.Append(buf[:quoteInto(buf[:], s[:k])]...)
+		s = s[k:]
+	}
+	dst.Push('"')
+}
+
+// quoteInto writes the escaped bytes of s, without the quotes, at the start
+// of dst, which must have room for them, and returns how many it wrote.
+// It works on bytes: a rune cut at either end of s is copied as it is.
+func quoteInto(dst []byte, s string) int {
+	const hex = "0123456789abcdef"
+	w := 0
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if quotedLen(c) == 1 {
-			continue
-		}
-		// c is ASCII, so i and i+1 are rune boundaries.
-		vec.AppendString(dst, s[start:i])
-		start = i + 1
 		switch c {
 		case '"', '\\':
-			dst.Append('\\', c)
+			dst[w], dst[w+1] = '\\', c
 		case '\a':
-			dst.Append('\\', 'a')
+			dst[w], dst[w+1] = '\\', 'a'
 		case '\b':
-			dst.Append('\\', 'b')
+			dst[w], dst[w+1] = '\\', 'b'
 		case '\f':
-			dst.Append('\\', 'f')
+			dst[w], dst[w+1] = '\\', 'f'
 		case '\n':
-			dst.Append('\\', 'n')
+			dst[w], dst[w+1] = '\\', 'n'
 		case '\r':
-			dst.Append('\\', 'r')
+			dst[w], dst[w+1] = '\\', 'r'
 		case '\t':
-			dst.Append('\\', 't')
+			dst[w], dst[w+1] = '\\', 't'
 		case '\v':
-			dst.Append('\\', 'v')
+			dst[w], dst[w+1] = '\\', 'v'
 		default:
-			dst.Append('\\', 'x', hex[c>>4], hex[c&15])
+			if c < 0x20 || c == 0x7F {
+				dst[w], dst[w+1], dst[w+2], dst[w+3] = '\\', 'x', hex[c>>4], hex[c&15]
+				w += 4
+			} else {
+				dst[w] = c
+				w++
+			}
+			continue
 		}
+		w += 2
 	}
-	vec.AppendString(dst, s[start:])
-	dst.Push('"')
+	return w
 }
 
 // quotedLen returns the length of byte c in a quoted string.
@@ -144,20 +162,24 @@ func quotedLen(c byte) int {
 // QuoteRune returns a single-quoted Go character literal representing r.
 func QuoteRune(r rune) string {
 	var buf [16]byte
-	b := vec.NewFixed(buf[:])
-	b.Push('\'')
+	buf[0] = '\''
+	n := 1
 	switch r {
 	case '\'', '\\':
-		b.Append('\\', byte(r))
+		buf[1], buf[2] = '\\', byte(r)
+		n = 3
 	case '\n':
-		b.Append('\\', 'n')
+		buf[1], buf[2] = '\\', 'n'
+		n = 3
 	case '\t':
-		b.Append('\\', 't')
+		buf[1], buf[2] = '\\', 't'
+		n = 3
 	case '\r':
-		b.Append('\\', 'r')
+		buf[1], buf[2] = '\\', 'r'
+		n = 3
 	default:
-		utf8.AppendRune(&b, r)
+		n += utf8.EncodeRune(buf[1:], r)
 	}
-	b.Push('\'')
-	return string(b.Slice())
+	buf[n] = '\''
+	return string(buf[:n+1])
 }

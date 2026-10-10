@@ -13,24 +13,24 @@ import (
 // AppendUpper appends s to dst with all ASCII letters mapped to upper case.
 // Other bytes, including non-ASCII UTF-8, are copied unchanged.
 func AppendUpper[D vec.Appender[byte]](dst D, s string) {
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if 'a' <= c && c <= 'z' {
-			c -= 'a' - 'A'
-		}
-		dst.Push(c)
+	var buf [256]byte
+	for len(s) > 0 {
+		n := min(len(s), len(buf))
+		upperInto(buf[:n], s[:n])
+		dst.Append(buf[:n]...)
+		s = s[n:]
 	}
 }
 
 // AppendLower appends s to dst with all ASCII letters mapped to lower case.
 // Other bytes, including non-ASCII UTF-8, are copied unchanged.
 func AppendLower[D vec.Appender[byte]](dst D, s string) {
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if 'A' <= c && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		dst.Push(c)
+	var buf [256]byte
+	for len(s) > 0 {
+		n := min(len(s), len(buf))
+		lowerInto(buf[:n], s[:n])
+		dst.Append(buf[:n]...)
+		s = s[n:]
 	}
 }
 
@@ -42,6 +42,40 @@ func AppendRepeat[D vec.Appender[byte]](dst D, s string, count int) {
 	}
 	for i := 0; i < count; i++ {
 		vec.AppendString(dst, s)
+	}
+}
+
+// upperInto stores s with ASCII letters upper-cased in dst[:len(s)]. The
+// string is viewed as bytes, so a cut through a rune does not matter.
+func upperInto(dst []byte, s string) {
+	dst = dst[:len(s)]
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if 'a' <= c && c <= 'z' {
+			c -= 'a' - 'A'
+		}
+		dst[i] = c
+	}
+}
+
+// lowerInto stores s with ASCII letters lower-cased in dst[:len(s)].
+func lowerInto(dst []byte, s string) {
+	dst = dst[:len(s)]
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if 'A' <= c && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		dst[i] = c
+	}
+}
+
+// repeatInto fills dst, whose length is a multiple of len(s) > 0, with
+// copies of s, doubling what it has copied each time.
+func repeatInto(dst []byte, s string) {
+	n := copy(dst, s)
+	for n < len(dst) {
+		n += copy(dst[n:], dst[:n])
 	}
 }
 

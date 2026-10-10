@@ -35,6 +35,19 @@ func allocBuf(n int) newBuf {
 	return newBuf{b: vec.NewFixed(unsafe.Slice(p, n)), ctl: ctl}
 }
 
+// room returns the whole buffer, for code that fills it by index and then
+// calls filled instead of appending to nb.b.
+func (nb *newBuf) room() []byte {
+	return unsafe.Slice(unsafe.SliceData(nb.b.Slice()), nb.b.Cap())
+}
+
+// filled is done for a buffer filled whole through room.
+func (nb *newBuf) filled(ascii bool) string {
+	s := rt.MakeString(unsafe.SliceData(nb.b.Slice()), nb.b.Cap(), nb.ctl, ascii)
+	rt.ReleaseString(nb.ctl)
+	return s
+}
+
 // done returns the string of the bytes written, which must be valid UTF-8,
 // and drops the buffer's own reference: the string holds the only one.
 func (nb *newBuf) done(ascii bool) string {
@@ -79,8 +92,8 @@ func Repeat(s string, count int) string {
 		panic("strings: Repeat output length overflow")
 	}
 	nb := allocBuf(len(s) * count)
-	AppendRepeat(&nb.b, s, count)
-	return nb.done(rt.KnownASCII(s))
+	repeatInto(nb.room(), s)
+	return nb.filled(rt.KnownASCII(s))
 }
 
 // Join concatenates the elements of elems to create a single string, with
@@ -102,8 +115,13 @@ func Join(elems []string, sep string) string {
 		return ""
 	}
 	nb := allocBuf(n)
-	AppendJoin(&nb.b, elems, sep)
-	return nb.done(ascii)
+	b := nb.room()
+	w := copy(b, elems[0])
+	for i := 1; i < len(elems); i++ {
+		w += copy(b[w:], sep)
+		w += copy(b[w:], elems[i])
+	}
+	return nb.filled(ascii)
 }
 
 // Replace returns a copy of s with the first n non-overlapping instances of
@@ -147,8 +165,8 @@ func ToUpper(s string) string {
 		return s
 	}
 	nb := allocBuf(len(s))
-	AppendUpper(&nb.b, s)
-	return nb.done(rt.KnownASCII(s))
+	upperInto(nb.room(), s)
+	return nb.filled(rt.KnownASCII(s))
 }
 
 // ToLower returns s with all ASCII letters mapped to lower case; other
@@ -163,8 +181,8 @@ func ToLower(s string) string {
 		return s
 	}
 	nb := allocBuf(len(s))
-	AppendLower(&nb.b, s)
-	return nb.done(rt.KnownASCII(s))
+	lowerInto(nb.room(), s)
+	return nb.filled(rt.KnownASCII(s))
 }
 
 // Map returns a copy of s with each rune modified by mapping. A negative

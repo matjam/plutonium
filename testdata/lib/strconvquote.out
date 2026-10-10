@@ -1,0 +1,10 @@
+"" 2 true true
+"plain" 7 true true
+"tab\there" 11 true true
+"\"quoted\" and \\back\\" 25 true true
+"bell\a bs\b ff\f nl\n cr\r vt\v del\x7f nul\x00" 49 true true
+"héllo wörld 世界" 22 true true
+"ab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\tab\t" 122 true true
+"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\néééééééééééééééééééééééééééééééééééééééé" 147 true true
+"a\tb\tc true
+'a' '\'' '\\' '\n' '\t' '\r' 'é' '世' '😀' 

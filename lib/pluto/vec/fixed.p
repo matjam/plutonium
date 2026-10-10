@@ -32,14 +32,15 @@ type Appender[T any] interface {
 // freely and needs no Free; like any view, it must not outlive the array
 // (language spec section 6.3).
 type Fixed[T any] struct {
-	data      []T // the elements; cap(data) is the room
+	buf       []T // the storage; len(buf) is the room
+	n         int // the elements are buf[:n]
 	truncated bool
 }
 
 // NewFixed returns an empty Fixed that stores its elements in storage, up
 // to len(storage) of them. What storage holds is overwritten.
 func NewFixed[T any](storage []T) Fixed[T] {
-	return Fixed[T]{data: storage[:0:len(storage)]}
+	return Fixed[T]{buf: storage[:len(storage):len(storage)]}
 }
 
 // Push appends x if there is room, and otherwise drops it and records the
@@ -47,25 +48,24 @@ func NewFixed[T any](storage []T) Fixed[T] {
 //
 //pu:inline
 func (f *Fixed[T]) Push(x T) {
-	n := len(f.data)
-	if n == cap(f.data) {
-		f.truncated = true
+	// One unsigned comparison is the room check and the bounds check.
+	if n := f.n; uint(n) < uint(len(f.buf)) {
+		f.buf[n] = x
+		f.n = n + 1
 		return
 	}
-	f.data = f.data[:n+1]
-	f.data[n] = x
+	f.truncated = true
 }
 
 // TryPush appends x and reports true if there is room, and otherwise
 // reports false and leaves f unchanged (not recording a truncation).
 func (f *Fixed[T]) TryPush(x T) bool {
-	n := len(f.data)
-	if n == cap(f.data) {
-		return false
+	if n := f.n; uint(n) < uint(len(f.buf)) {
+		f.buf[n] = x
+		f.n = n + 1
+		return true
 	}
-	f.data = f.data[:n+1]
-	f.data[n] = x
-	return true
+	return false
 }
 
 // Append appends as many of xs as fit, and records a truncation if any are
@@ -73,32 +73,31 @@ func (f *Fixed[T]) TryPush(x T) bool {
 //
 //pu:inline
 func (f *Fixed[T]) Append(xs ...T) {
-	n := len(f.data)
-	k := copy(f.data[n:cap(f.data)], xs)
-	f.data = f.data[:n+k]
+	k := copy(f.buf[f.n:], xs)
+	f.n += k
 	if k < len(xs) {
 		f.truncated = true
 	}
 }
 
 // Len returns the number of elements stored.
-func (f *Fixed[T]) Len() int { return len(f.data) }
+func (f *Fixed[T]) Len() int { return f.n }
 
 // Cap returns the number of elements f can hold.
-func (f *Fixed[T]) Cap() int { return cap(f.data) }
+func (f *Fixed[T]) Cap() int { return len(f.buf) }
 
 // Slice returns the elements stored, a view of the caller's storage. Its
 // capacity is its length, so reslicing it cannot reach past the elements.
-func (f *Fixed[T]) Slice() []T { return f.data[:len(f.data):len(f.data)] }
+func (f *Fixed[T]) Slice() []T { return f.buf[:f.n:f.n] }
 
 // Truncate shortens f to n elements. It panics if n is negative or greater
 // than Len. It does not change Truncated.
 func (f *Fixed[T]) Truncate(n int) {
-	if n < 0 || n > len(f.data) {
+	if n < 0 || n > f.n {
 		panic("vec: Truncate out of range")
 	}
-	clear(f.data[n:])
-	f.data = f.data[:n]
+	clear(f.buf[n:f.n])
+	f.n = n
 }
 
 // Reset empties f and clears the truncation record.
@@ -114,6 +113,8 @@ func (f *Fixed[T]) Truncated() bool { return f.truncated }
 // AppendString appends the bytes of s to dst: the form of append(b, s...)
 // for a destination that may grow (a *Vec[byte]) or is bounded (a
 // *Fixed[byte]).
+//
+//pu:inline
 func AppendString[D Appender[byte]](dst D, s string) {
 	if len(s) > 0 {
 		dst.Append(unsafe.Slice(unsafe.StringData(s), len(s))...)
