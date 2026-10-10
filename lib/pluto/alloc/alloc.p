@@ -193,7 +193,8 @@ const (
 
 // A Slab is a size-class allocator. Requests up to 2048 bytes come from
 // per-class free lists refilled a chunk of pages at a time; larger requests
-// go straight to the page provider. It is not safe for concurrent use.
+// go straight to the page provider (alignedPages). It is not safe for
+// concurrent use.
 //
 // The free lists link free slots through their first word. The links are
 // addresses of memory nobody owns, not references the program holds, so
@@ -221,6 +222,31 @@ func (b bootstrap) Alloc(size, align uintptr) unsafe.Pointer {
 
 func (b bootstrap) Free(p unsafe.Pointer, size, align uintptr) {}
 
+// alignedPages returns whole pages from pages for size bytes aligned to
+// align. An alignment above PageSize takes extra pages and gives back the
+// ones before and after the aligned run, so the run is freed like any
+// other: FreePages(p, pages for size).
+func alignedPages(pages PageProvider, size, align uintptr) unsafe.Pointer {
+	n := (size + PageSize - 1) / PageSize
+	if align <= PageSize {
+		return pages.AllocPages(n)
+	}
+	extra := align/PageSize - 1
+	raw := pages.AllocPages(n + extra)
+	if raw == nil {
+		return nil
+	}
+	a := uintptr(raw)
+	start := (a + align - 1) &^ (align - 1)
+	if head := start - a; head > 0 {
+		pages.FreePages(raw, head/PageSize)
+	}
+	if tail := a + (n+extra)*PageSize - (start + n*PageSize); tail > 0 {
+		pages.FreePages(unsafe.Pointer(start+n*PageSize), tail/PageSize)
+	}
+	return unsafe.Pointer(start)
+}
+
 func classOf(size, align uintptr) int {
 	if align > size {
 		size = align
@@ -235,7 +261,7 @@ func classOf(size, align uintptr) int {
 // Alloc returns size zeroed bytes aligned to align.
 func (s *Slab) Alloc(size, align uintptr) unsafe.Pointer {
 	if size > 1<<maxClassShift || align > 1<<maxClassShift {
-		return s.pages.AllocPages((size + PageSize - 1) / PageSize)
+		return alignedPages(s.pages, size, align)
 	}
 	c := classOf(size, align)
 	if s.free[c] == 0 {
@@ -282,7 +308,7 @@ func (s *Slab) refill(c int) {
 	var chunk unsafe.Pointer
 	first := uintptr(0)
 	if genCheck {
-		chunk = s.genChunk()
+		chunk = genChunk(s.pages)
 		first = genFirst(uintptr(1) << (minClassShift + c))
 	} else {
 		chunk = s.pages.AllocPages(chunkPages)

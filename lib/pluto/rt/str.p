@@ -94,6 +94,9 @@ func strRelease(ctl uintptr) {
 //pu:noinline
 func strFree(ctl uintptr) {
 	h := (*strHeader)(unsafe.Pointer(ctl &^ strFlagMask))
+	if genCheck {
+		checkLive(unsafe.Pointer(h))
+	}
 	var n int64
 	if atomicCounts {
 		n = addCount(h, -1)
@@ -141,7 +144,9 @@ func strAllocFrom(a Allocator, n int, pc uintptr) (*byte, uintptr) {
 	// not check (language spec section 6.10), so a is hidden from it.
 	h.a = *Pinned(&a)
 	h.size = size
-	return (*byte)(unsafe.Add(p, strHeaderSize)), uintptr(p)
+	// The control word keeps p's generation tag (-gencheck), so that
+	// counting through it is checked like the bytes are.
+	return (*byte)(unsafe.Add(p, strHeaderSize)), *(*uintptr)(unsafe.Pointer(&p))
 }
 
 // concatStrings implements a + b + ...: the operands' bytes in one new

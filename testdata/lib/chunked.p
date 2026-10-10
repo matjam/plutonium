@@ -140,7 +140,11 @@ func main() {
 	m2 := a.Mark()
 	b := (*[16]byte)(a.Alloc(16, 1))
 	b[0] = 1
+	// Released memory is read through its address: with -gencheck, a
+	// read through b itself panics (the arena's epoch has moved on).
+	addr := uintptr(unsafe.Pointer(b))
 	a.Release(m2)
+	b = (*[16]byte)(unsafe.Pointer(addr))
 	println("poisoned", b[0] == 0xDD, b[15] == 0xDD)
 	c := (*[16]byte)(a.Alloc(16, 1))
 	println("zeroed again", c[0], c[15])

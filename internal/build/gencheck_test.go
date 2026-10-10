@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -107,5 +108,199 @@ func TestGenCheckFreestanding(t *testing.T) {
 	err := build.Build(cfg)
 	if err == nil || !strings.Contains(err.Error(), "hosted builds only") {
 		t.Fatalf("error %v, want hosted builds only", err)
+	}
+}
+
+// TestArenaEpochs checks the arena epochs of a -gencheck build (memory-safety
+// design D4): a view, box, string or error in an arena.Chunked that was
+// reset, released past it or freed panics with where that happened, also
+// when a longer-lived heap container holds it, and correct code runs as
+// before.
+func TestArenaEpochs(t *testing.T) {
+	testguard.Parallel(t)
+	const prelude = `package main
+
+import (
+	"pluto/alloc"
+	"pluto/arena"
+	"pluto/fmt"
+	"pluto/strconv"
+	"pluto/vec"
+	"unsafe"
+)
+
+type node struct {
+	next *node
+	val  int
+}
+
+func label(a *arena.Chunked, n int) string {
+	defer alloc.Use(a).Restore()
+	return "item " + strconv.Itoa(n)
+}
+
+func box(a *arena.Chunked, n int) shared[node] {
+	defer alloc.Use(a).Restore()
+	b := alloc.Shared[node]()
+	b.val = n
+	return b
+}
+
+func fail(a *arena.Chunked, n int) error {
+	defer alloc.Use(a).Restore()
+	return fmt.Errorf("parse failed at %d", n)
+}
+
+// heapNames uses the imports a case may leave unused.
+func heapNames() vec.Vec[string] {
+	_ = unsafe.Pointer(nil)
+	return vec.New[string]()
+}
+
+func main() {
+	a := arena.NewChunked()
+`
+	const reset = "use of memory from an arena that was reset at main.main (./main.p:"
+	cases := []struct {
+		name, body, want string
+		status           int
+	}{
+		{"view after reset", `
+	p := a.New[node]()
+	p.val = 7
+	a.Reset() // here
+	println(p.val)`, reset, 2},
+		{"view after release", `
+	m := a.Mark()
+	p := a.New[node]()
+	p.val = 7
+	a.Release(m) // here
+	q := a.New[node]() // reuses p's memory
+	q.val = 8
+	println(p.val)`, reset, 2},
+		{"slice in a chunk of its own", `
+	m := a.Mark()
+	s := a.Slice[int](3000)
+	a.Release(m) // here
+	_ = a.Slice[int](3000)
+	s[2999] = 1`, reset, 2},
+		{"string in a heap container", `
+	names := vec.New[string](alloc.Default())
+	names.Push(label(&a, 4))
+	a.Reset() // here
+	println(names.At(0))`, reset, 2},
+		{"string dropped after reset", `
+	names := vec.New[string](alloc.Default())
+	names.Push(label(&a, 4))
+	a.Reset() // here
+	names.Drop()`, reset, 2},
+		{"box in a heap container", `
+	boxes := vec.New[shared[node]](alloc.Default())
+	boxes.Push(box(&a, 5))
+	a.Reset() // here
+	println(boxes.At(0).val)`, reset, 2},
+		{"box dropped after reset", `
+	boxes := vec.New[shared[node]](alloc.Default())
+	boxes.Push(box(&a, 5))
+	a.Reset() // here
+	boxes.Drop()`, reset, 2},
+		{"error in a heap container", `
+	errs := vec.New[error](alloc.Default())
+	errs.Push(fail(&a, 3))
+	a.Reset() // here
+	println(errs.At(0).Error())`, reset, 2},
+		{"free of the latest allocation", `
+	p := (*node)(a.Alloc(16, 8))
+	a.Free(unsafe.Pointer(p), 16, 8) // here
+	p.val = 1`, "use of freed memory: an arena allocation freed at main.main (./main.p:", 2},
+		{"string dropped after release", `
+	for i := 0; i < 2; i++ {
+		m := a.Mark()
+		s := label(&a, i)
+		println(s)
+		a.Release(m) // here
+	} // s is dropped here, after its memory went back to the arena`, reset, 2},
+		{"correct code", `
+	keep := a.New[node]()
+	keep.val = 1
+	for i := 0; i < 1000; i++ {
+		m := a.Mark()
+		{
+			var head *node
+			for j := 0; j < 100; j++ {
+				n := a.New[node]()
+				n.val = j
+				n.next = head
+				head = n
+			}
+			s := label(&a, i)
+			if len(s) == 0 || head.val != 99 {
+				println("wrong")
+			}
+		} // s is dropped before its memory goes back to the arena
+		a.Release(m)
+	}
+	{
+		b := box(&a, 2)
+		println("ok", keep.val, b.val, label(&a, 3))
+	}
+	a.Reset()
+	again := a.New[node]()
+	again.val = 5
+	println("again", again.val)
+	a.Drop()`, "ok 1 2 item 3\nagain 5\n", 0},
+	}
+	for _, c := range cases {
+		for _, opt := range []int{0, 2} {
+			t.Run(c.name, func(t *testing.T) {
+				testguard.Parallel(t)
+				src := prelude + c.body + "\n}\n"
+				want := c.want
+				if i := strings.Index(src, "// here"); i >= 0 {
+					want += strconv.Itoa(strings.Count(src[:i], "\n")+1) + ")"
+				}
+				out, status := runGenCheck(t, src, opt)
+				if status != c.status || !strings.Contains(out, want) {
+					t.Fatalf("-O%d: status %d, output %q; want status %d and %q", opt, status, out, c.status, want)
+				}
+			})
+		}
+	}
+}
+
+// TestSlabLargeAlign checks that the slab allocators honor an alignment
+// above a page (arena epoch chunks ask for 64 KiB) and take such memory
+// back, with and without generation tags.
+func TestSlabLargeAlign(t *testing.T) {
+	testguard.Parallel(t)
+	const src = `package main
+
+import "pluto/alloc"
+
+func main() {
+	slab := alloc.NewSlab(alloc.Pages)
+	for _, a := range []alloc.Allocator{alloc.Default(), slab} {
+		for i := 0; i < 20; i++ {
+			p := a.Alloc(9000, 1<<16)
+			q := a.Alloc(3000, 8192)
+			*(*int)(p) = 1
+			*(*int)(q) = 2
+			if uintptr(p)%(1<<16) != 0 || uintptr(q)%8192 != 0 {
+				println("misaligned")
+			}
+			a.Free(p, 9000, 1<<16)
+			a.Free(q, 3000, 8192)
+		}
+	}
+	println("aligned")
+}
+`
+	for _, opt := range []int{0, 2} {
+		if out, status := runGenCheck(t, src, opt); status != 0 || out != "aligned\n" {
+			t.Errorf("-gencheck -O%d: status %d, output %q", opt, status, out)
+		}
+		if out, status := compileAndRun(t, src, opt); status != 0 || out != "aligned\n" {
+			t.Errorf("-O%d: status %d, output %q", opt, status, out)
+		}
 	}
 }

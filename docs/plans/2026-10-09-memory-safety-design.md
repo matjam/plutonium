@@ -168,9 +168,20 @@ allocator remove tags without checking.
 **Wraparound.** A slot whose generation would wrap from 65535 back to 1 is retired and never handed out
 again: a stale pointer can then never match by accident. The cost is one slot lost per 65535 reuses.
 
-**Arenas.** Arena allocations are untagged in the prototype: an arena frees everything at once, and views
-of arena memory are checked only by the arena's own discipline. Decided (D4): each arena gets an epoch in
-its chunk headers, bumped by `Reset`, with the same tag check. It is a follow-up, not implemented.
+**Arenas (D4, implemented 2026-10-10).** An `arena.Chunked` tags its pointers with an epoch, checked by
+the same sequence as slab generations (ABI section 1.3). The tag space is split: slab generations are 1
+to `0x7fff` (a slot is retired before it reaches `0x8000`), arena epochs `0x8000` to `0xffff`, so a stale
+pointer of one kind never matches memory now used by the other. Each chunk of at most 56 KiB of data is a
+64 KiB-aligned epoch chunk with the slab's granule table in its first 8 KiB (the chunk header sits in
+the table's unused first KiB). Allocations start on a granule and write the arena's current epoch into
+their granules; `Reset`, `Release`, `Drop` and a `Free` of the latest allocation zero the granules they
+take back and end the epoch. Epochs come from one program-wide counter rather than one per arena, since a
+new local arena is often given the very chunk a dropped one had; the counter wraps after 32768 epochs,
+after which a pointer that old can match again (a slab slot is retired instead; an arena's memory cannot
+be). The panic names the call that took the memory back. A string's control word keeps its tag and the
+runtime's out-of-line count paths check it, so dropping an arena string or box after a reset panics too,
+rather than writing a count into reused memory. Not checked: chunks over 56 KiB (as the slab's large
+allocations), and a fixed `arena.Arena`, whose buffer is its caller's.
 
 **Measurements.** Hosted x86-64, `bench/run.go` programs built with and without `--gencheck`, minimum of
 five runs, instructions and cycles counted with `perf_event_open`:
@@ -193,9 +204,10 @@ align chunks. The main remaining costs are checks inside loops that a loop-invar
 
 **Decided (D3).** Generation checks stay an opt-in build mode. They become the default for hosted builds
 once three things are done: loop-invariant hoisting of the checks (the next optimizer task), a second
-measurement, and generation tags in `alloc.SyncSlab`. The prototype tags only `alloc.Slab`, which is not
-safe for concurrent use, so a `--gencheck` build uses `Slab` as the default allocator and may allocate
-from one puroutine only. The checks are not needed for memory the compiler can prove: values in owners
+measurement, and generation tags in `alloc.SyncSlab`. The last is done (2026-10-10): `SyncSlab` tags its
+slots with the code `Slab` uses (a slot's granules are its freeing thread's until the slot is published,
+so moving it to the next generation needs no lock), and `--gencheck` builds use it as the default
+allocator, so they may allocate from any number of puroutines. The checks are not needed for memory the compiler can prove: values in owners
 never freed early, and the frame (section 4).
 
 ## 6. Ownership: owners, moves, drops, sharing
@@ -442,11 +454,13 @@ measuring, and it marks that function for the `pluto vet -unsafe` audit. Not imp
 
 1. Views of heap memory are checked only by the opt-in generation checks (section 5); without them a
    use after free through a `*T` or `[]T` into freed heap memory is undetected, as in C.
-2. Arena allocations are never generation checked; a view into an arena after `Reset` is undetected.
+2. (Closed 2026-10-10 for `arena.Chunked`, under `--gencheck`.) A view into an arena after `Reset` was
+   undetected; arena epochs (section 5) catch it. A fixed `arena.Arena` stays unchecked.
 3. (Closed 2026-10-10, gap G34.) An owner allocated from a local arena installed with `alloc.Use` and
    returned from the function referred to an allocator that no longer exists. What is allocated through
    `Default()` while a local arena is installed is now a view of the arena (spec section 7.1); arena
-   memory stored into other heap memory is left to the per-arena epochs (D4), not implemented yet.
+   memory stored into other heap memory is caught at run time by the per-arena epochs (D4) in
+   `--gencheck` builds.
 4. Data races: section 7 is a proposal. Today heap views may be shared between puroutines, and package
    variables may be written from several.
 5. Writes through memory reinterpreted with `unsafe.Pointer` bypass the heap-only field inference
@@ -461,9 +475,8 @@ measuring, and it marks that function for the `pluto vet -unsafe` audit. Not imp
    error names the path; the fix is usually to allocate or to make a field heap-only.
 9. Generation tags occupy pointer bits 63..48, which conflicts with 5-level paging and with hardware
    pointer tagging (LAM, TBI); a kernel build would need another encoding.
-10. The generation prototype tags pointers only in `alloc.Slab`, which is not safe for concurrent use,
-    so a `--gencheck` build uses it as the default allocator instead of the concurrent `SyncSlab`:
-    such builds may allocate from one puroutine only.
+10. (Closed 2026-10-10.) The generation prototype tagged pointers only in `alloc.Slab`, so `--gencheck`
+    builds could allocate from one puroutine only; `SyncSlab` now tags them too.
 11. A puroutine started with packed variadic arguments gets its own copy of their array; the escape
     analysis accepts this only when the started function is known statically and does not keep the
     slice itself. Through a func value or interface method, the array is treated as frame memory.
@@ -486,7 +499,7 @@ Every decision was taken as recommended, with D7 changed to lock inference witho
 | D1 | How unsafe code is marked | (a) as now: imports and directives, plus `pluto vet -unsafe` to list it; (b) an `unsafe` block or function keyword | (a): it is Go's model, and the audit list gives what a keyword would |
 | D2 | Drop flags | (a) clear the moved-from variable (implemented); (b) separate flag bits per variable, as Rust | (a): simpler, and the optimizer removes dead clears; requires `Drop` to accept the zero value, which the spec already demands |
 | D3 | Generation checks by default | (a) opt-in flag; (b) default for hosted builds; (c) default everywhere | (a) now, (b) after loop hoisting, a second measurement and `SyncSlab` support |
-| D4 | Arena views | (a) unchecked (prototype); (b) per-arena epoch in the tag | (b), with the same check sequence; a follow-up |
+| D4 | Arena views | (a) unchecked (prototype); (b) per-arena epoch in the tag | (b), with the same check sequence; implemented 2026-10-10 for `arena.Chunked` (section 5) |
 | D5 | Heap views across puroutines | (a) allowed, unchecked (current spec); (b) only immutable or through `synced` | (b), it closes the last race and tearing hole in safe code |
 | D6 | Turning checks off | (a) `//pu:nobounds` only; (b) add `//pu:nochecks` for bounds and generations | (b), counted as unsafe |
 | D7 | Guarded data | (a) only atomics in `synced[T]`; (b) atomics plus `//pu:guardedby mu` checked by flow analysis; (c) atomics plus locks inferred from `Lock`/`Unlock` flow | (c), shared with scoped puroutines; no `//pu:guardedby` |

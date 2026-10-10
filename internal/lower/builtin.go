@@ -67,13 +67,16 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		}
 		n := s.minInt(dn, sn)
 		et := s.subst(unwrap(s.typeOf(e.Args[0])).Underlying().(*types2.Slice).Elem())
-		s.copyElems(s.checked(dp), s.checked(sp), n, et)
+		s.copyElems(s.checkedLen(dp, n), s.checkedLen(sp, n), n, et)
 		return one(scalarValue(n, T))
 
 	case "Drop":
-		// unsafe.Drop(p): the drop glue of *p.
+		// unsafe.Drop(p): the drop glue of *p. The glue is Plutonium code,
+		// which checks its own accesses: p keeps its generation tag, so
+		// that the Drop method sees the same pointer as every other
+		// method (the runtime's timers compare them).
 		p := s.expr(e.Args[0])
-		s.dropAt(s.checked(p.v), pointerElem(s.typeOf(e.Args[0])))
+		s.dropAt(p.v, pointerElem(s.typeOf(e.Args[0])))
 		return nil
 
 	case "take":
@@ -94,7 +97,7 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 			s.releaseRange(p, n, et)
 		}
 		bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(et)))
-		s.callRuntime("memclr", nil, []*ssa.Value{s.checked(p), bytes})
+		s.callRuntime("memclr", nil, []*ssa.Value{s.checkedLen(p, n), bytes})
 		return nil
 
 	case "min", "max":
@@ -390,7 +393,9 @@ func (s *fnState) printValue(v value, T types2.Type, a ast.Node, buffered bool) 
 		info := u.Info()
 		switch {
 		case info&types2.IsString != 0:
-			s.callRuntime(printFunc("printString", buffered), nil, s.stringLeaves(v))
+			leaves := s.stringLeaves(v)
+			leaves[0] = s.checkedLen(leaves[0], leaves[1])
+			s.callRuntime(printFunc("printString", buffered), nil, leaves)
 		case info&types2.IsBoolean != 0:
 			s.callRuntime(printFunc("printBool", buffered), nil, []*ssa.Value{v.v})
 		case info&types2.IsFloat != 0:

@@ -28,13 +28,6 @@ func (mmapPages) ProtectPages(p unsafe.Pointer, n uintptr, access bool) bool {
 var Pages PageProvider = mmapPages{}
 
 func init() {
-	if genCheck {
-		// The generational-reference prototype (gen.p) tags pointers in
-		// Slab only, which is not safe for concurrent use: gencheck
-		// builds allocate from one puroutine.
-		SetDefault(NewSlab(Pages))
-		return
-	}
 	SetDefault(NewSyncSlab(Pages))
 }
 
@@ -51,8 +44,9 @@ const (
 // the hosted scheduler (a P, rt.ProcPin) has a cache of free slots per size
 // class, used without locks; the caches refill from, and overflow to,
 // shared free lists behind one runtime lock, which also serve threads that
-// hold no P. Freed slots are zeroed before they are published, and every
-// slot that moves between processors passes through the lock, so a Free is
+// hold no P. Built with -gencheck it tags its pointers with generations as
+// Slab does (gen.p). Freed slots are zeroed before they are published, and
+// every slot that moves between processors passes through the lock, so a Free is
 // synchronised before any Alloc that reuses its memory (memory-model.md
 // section 3.8). Requests over 2048 bytes go straight to the page provider,
 // which must itself be safe for concurrent use, as mmap is.
@@ -84,7 +78,7 @@ func NewSyncSlab(pages PageProvider) *SyncSlab {
 // Alloc returns size zeroed bytes aligned to align.
 func (s *SyncSlab) Alloc(size, align uintptr) unsafe.Pointer {
 	if size > 1<<maxClassShift || align > 1<<maxClassShift {
-		return s.pages.AllocPages((size + PageSize - 1) / PageSize)
+		return alignedPages(s.pages, size, align)
 	}
 	c := classOf(size, align)
 	var p uintptr
@@ -114,6 +108,9 @@ func (s *SyncSlab) Alloc(size, align uintptr) unsafe.Pointer {
 		return nil
 	}
 	*(*uintptr)(unsafe.Pointer(p)) = 0 // the rest of the slot is already zero
+	if genCheck {
+		return genTag(unsafe.Pointer(p))
+	}
 	return unsafe.Pointer(p)
 }
 
@@ -128,6 +125,15 @@ func (s *SyncSlab) Free(p unsafe.Pointer, size, align uintptr) {
 	}
 	c := classOf(size, align)
 	slot := uintptr(1) << (minClassShift + c)
+	if genCheck {
+		// The slot's granules are this caller's until it is published
+		// below, so moving them to the next generation needs no lock.
+		live := genRelease(p, slot)
+		p = unsafe.Pointer(uintptr(p)) // the plain address
+		if !live {
+			return // the slot is worn out: never hand it out again
+		}
+	}
 	clear(unsafe.Slice((*byte)(p), slot))
 	if id := rt.ProcPin(); id >= 0 {
 		pc := &s.caches[id]
@@ -185,14 +191,21 @@ func (s *SyncSlab) drain(pc *syncCache, c int) {
 // grow threads a new chunk of pages onto class c's shared list; s.lock is
 // held.
 func (s *SyncSlab) grow(c int) {
-	chunk := s.pages.AllocPages(chunkPages)
+	var chunk unsafe.Pointer
+	first := uintptr(0)
+	slot := uintptr(1) << (minClassShift + c)
+	if genCheck {
+		chunk = genChunk(s.pages)
+		first = genFirst(slot)
+	} else {
+		chunk = s.pages.AllocPages(chunkPages)
+	}
 	if chunk == nil {
 		return
 	}
-	slot := uintptr(1) << (minClassShift + c)
 	n := chunkPages * PageSize / slot
 	head := s.central[c]
-	for i := n; i > 0; i-- {
+	for i := n; i > first; i-- {
 		p := unsafe.Add(chunk, (i-1)*slot)
 		*(*uintptr)(p) = head
 		head = uintptr(p)

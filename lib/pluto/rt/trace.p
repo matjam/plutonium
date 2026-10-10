@@ -423,12 +423,15 @@ func traceString(tab unsafe.Pointer, off uint32) string {
 	return unsafe.String((*byte)(unsafe.Add(p, 2)), n)
 }
 
+// hasSuffix and hasPrefix compare bytes: the end of a name such as
+// "shared[T]·release" is not cut at a rune boundary by a shorter suffix
+// that starts with a multi-byte rune ("·defers").
 func hasSuffix(s, suffix string) bool {
-	return len(s) >= len(suffix) && strequal(s[len(s)-len(suffix):], suffix)
+	return len(s) >= len(suffix) && strequal(SliceBytewise(s, len(s)-len(suffix), len(s)), suffix)
 }
 
 func hasPrefix(s, prefix string) bool {
-	return len(s) >= len(prefix) && strequal(s[:len(prefix)], prefix)
+	return len(s) >= len(prefix) && strequal(SliceBytewise(s, 0, len(prefix)), prefix)
 }
 
 func popcount(x uint8) int {

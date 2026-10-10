@@ -414,7 +414,7 @@ func cArrays(args, env []string, envBytes [][]byte, a alloc.Allocator) (unsafe.P
 		p := unsafe.Add(block, text)
 		copy(unsafe.Slice((*byte)(p), len(s)), s)
 		*(*byte)(unsafe.Add(p, len(s))) = 0
-		*(*unsafe.Pointer)(unsafe.Add(block, slot*8)) = p
+		*(*uintptr)(unsafe.Add(block, slot*8)) = uintptr(p) // for the kernel: no tag
 		slot++
 		text += len(s) + 1
 	}
@@ -422,7 +422,7 @@ func cArrays(args, env []string, envBytes [][]byte, a alloc.Allocator) (unsafe.P
 		p := unsafe.Add(block, text)
 		copy(unsafe.Slice((*byte)(p), len(b)), b)
 		*(*byte)(unsafe.Add(p, len(b))) = 0
-		*(*unsafe.Pointer)(unsafe.Add(block, slot*8)) = p
+		*(*uintptr)(unsafe.Add(block, slot*8)) = uintptr(p) // for the kernel: no tag
 		slot++
 		text += len(b) + 1
 	}

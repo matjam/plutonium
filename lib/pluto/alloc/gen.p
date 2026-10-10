@@ -20,6 +20,7 @@ const (
 	genGranule   = 16
 	genTagShift  = 48
 	genHeader    = genChunkSize / genGranule * 2 // bytes of generations per chunk
+	genMax       = 0x8000                        // the first tag that is an arena epoch
 )
 
 // genSlots returns a chunk's generation array.
@@ -64,30 +65,22 @@ func genRelease(p unsafe.Pointer, slot uintptr) bool {
 	if uintptr(gens[first]) != tag {
 		panic("alloc: Free of memory that was already freed")
 	}
-	next := uint16(tag + 1) // 0 once worn out
+	next := uint16(tag + 1)
+	if next == genMax {
+		next = 0 // worn out: no pointer matches
+	}
 	for i := first; i < first+slot/genGranule; i++ {
 		gens[i] = next
 	}
 	return next != 0
 }
 
-// genChunk returns a 64 KiB-aligned chunk of zeroed pages with its
-// generations set up.
-func (s *Slab) genChunk() unsafe.Pointer {
-	raw := s.pages.AllocPages(2 * chunkPages)
-	if raw == nil {
-		return nil
+// genChunk returns a 64 KiB-aligned chunk of zeroed pages from pages with
+// its generations set up.
+func genChunk(pages PageProvider) unsafe.Pointer {
+	chunk := alignedPages(pages, genChunkSize, genChunkSize)
+	if chunk != nil {
+		genInit(chunk)
 	}
-	a := uintptr(raw)
-	start := (a + genChunkSize - 1) &^ (genChunkSize - 1)
-	if head := start - a; head > 0 {
-		s.pages.FreePages(raw, head/PageSize)
-	}
-	end := start + genChunkSize
-	if tail := a + 2*genChunkSize - end; tail > 0 {
-		s.pages.FreePages(unsafe.Pointer(end), tail/PageSize)
-	}
-	chunk := unsafe.Pointer(start)
-	genInit(chunk)
 	return chunk
 }

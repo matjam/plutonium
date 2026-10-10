@@ -1427,9 +1427,13 @@ allowed, and the caller may not let it outlive its own frame.
      a temporary owner (`makeVec().Slice()`) may not outlive the statement (section 6.4).
    - **Heap memory** reached any other way is checked at run time by generation checks: a view whose
      allocation has since been freed, or reallocated by a growing owner, faults when it is used instead of
-     reading freed memory. A prototype is built with `pluto build --gencheck` (hosted builds only); the
-     design and its measured cost are in docs/plans/2026-10-09-memory-safety-design.md. Without it such a
-     view is unchecked, as in C, and the debug allocator (section 7.3) catches its use.
+     reading freed memory. So is arena memory (section 7.1): a view, string or box into an
+     `arena.Chunked` faults when it is used, or dropped, after the arena's `Reset`, `Drop` or a `Release`
+     past it, with a panic that names that call. A prototype is built with `pluto build --gencheck`
+     (hosted builds only; abi.md section 1.3); the design and its measured cost are in
+     docs/plans/2026-10-09-memory-safety-design.md. Without it such a use is unchecked, as in C: the
+     documented unchecked mode, which the debug allocator (section 7.3) narrows by catching uses of
+     memory returned to it.
    - **Static memory, and memory nobody in the program owns** (string literals, package variables, device
      registers, memory made from a `uintptr`) is never freed, so views of it have no limit.
 
@@ -2769,9 +2773,25 @@ func name(n int) string {
 To keep something past the arena, allocate it from an allocator that outlives it, passed explicitly
 (`heap := alloc.Default()` before `Use`, then `vec.New[T](heap)`), or install an arena the caller
 provides. Memory from the arena stored into other heap memory, by the function or a callee, is not
-reported (it is most often in the same arena); per-arena epochs, decided for arena views (memory-safety
-design D4), are to catch a use of it after the arena is gone at run time. They are not implemented yet
-(roadmap item 20).
+reported (it is most often in the same arena); per-arena epochs (memory-safety design D4) catch a use of
+it after the arena is reset, released past it or dropped, at run time, in builds with generation checks
+(section 6.3, abi.md section 1.3):
+
+```go
+func parse(a *arena.Chunked, errs *vec.Vec[error], tok string) {
+	defer alloc.Use(a).Restore()
+	errs.Push(fmt.Errorf("bad token %q", tok)) // the error is in a, the vector is not
+}
+...
+parse(&a, &errs, "}")
+a.Reset()
+println(errs.At(0).Error()) // with --gencheck: panic: use of memory from an arena that was reset at main.run (main.p:31)
+```
+
+Dropping a string or counted box whose memory an arena has taken back is such a use too, since the
+drop updates its count: a string made in an arena between `m := a.Mark()` and `a.Release(m)` must go out
+of scope before the `Release`. Arena epochs cover `arena.Chunked`; a fixed `arena.Arena` works in its
+caller's buffer, which has no epochs, and its views are checked only as that buffer is.
 
 ### 7.2 The system allocator
 

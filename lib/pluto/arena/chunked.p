@@ -2,6 +2,7 @@ package arena
 
 import (
 	"pluto/alloc"
+	"pluto/rt"
 	"unsafe"
 )
 
@@ -18,6 +19,11 @@ import (
 //     short-lived scratch work.
 //   - Drop returns every chunk to the parent; Trim returns only the spare
 //     ones Reset and Release kept.
+//
+// Memory a Reset, Release or Drop takes back must not be used afterwards,
+// through any pointer, slice, string or box into it. Built with -gencheck,
+// such a use panics with "use of memory from an arena that was reset"
+// (epoch.p); otherwise it reads whatever the memory holds by then.
 //
 // A compiler uses one per phase:
 //
@@ -44,10 +50,12 @@ type Chunked owner struct {
 	spare     *chunk  // standard chunks kept for reuse, linked by prev
 	held      uintptr // bytes taken from the parent, headers included
 	poison    bool
+	epoch     uint16 // -gencheck: the epoch of new allocations, or 0 for a new one (epoch.p)
 }
 
 // A chunk is a block from the parent allocator: this header, then size
-// bytes of data at chunkHeader.
+// bytes of data at chunkHeader, or at epochTable in an epoch chunk
+// (epoch.p).
 type chunk struct {
 	prev *chunk
 	size uintptr
@@ -72,10 +80,18 @@ func NewChunked(chunkSize uintptr = DefaultChunkSize, parent alloc.Allocator = a
 	if chunkSize < 256 {
 		chunkSize = 256
 	}
+	if genCheck && chunkSize > epochData {
+		chunkSize = epochData // standard chunks are epoch chunks (epoch.p)
+	}
 	return Chunked{parent: parent, chunkSize: (chunkSize + 15) &^ 15}
 }
 
-func (c *chunk) data() unsafe.Pointer { return unsafe.Add(unsafe.Pointer(c), chunkHeader) }
+func (c *chunk) data() unsafe.Pointer {
+	if isEpoch(c) {
+		return unsafe.Add(unsafe.Pointer(c), epochTable)
+	}
+	return unsafe.Add(unsafe.Pointer(c), chunkHeader)
+}
 
 // Alloc returns size zeroed bytes aligned to align (a power of two), or nil
 // if the parent allocator is out of memory.
@@ -98,6 +114,9 @@ func (a *Chunked) bump(size, align uintptr) unsafe.Pointer {
 	if c == nil {
 		return nil
 	}
+	if isEpoch(c) && align < epochGranule {
+		align = epochGranule // a granule belongs to one allocation
+	}
 	start := uintptr(c.data()) + a.off
 	pad := (align - start&(align-1)) & (align - 1)
 	if pad > c.size-a.off || size > c.size-a.off-pad {
@@ -108,6 +127,9 @@ func (a *Chunked) bump(size, align uintptr) unsafe.Pointer {
 	if size > 0 {
 		// The chunk may hold data from before a Reset or Release.
 		clear(unsafe.Slice((*byte)(p), size))
+		if isEpoch(c) {
+			p = a.tagEpoch(c, p, size)
+		}
 	}
 	return p
 }
@@ -127,13 +149,20 @@ func (a *Chunked) grow(need uintptr) bool {
 		if need > size {
 			size = (need + 15) &^ 15
 		}
-		p := a.parent.Alloc(chunkHeader+size, 16)
-		if p == nil {
-			return false
+		if genCheck && size <= epochData {
+			c = a.newEpochChunk(size)
+			if c == nil {
+				return false
+			}
+		} else {
+			p := a.parent.Alloc(chunkHeader+size, 16)
+			if p == nil {
+				return false
+			}
+			c = (*chunk)(p)
+			c.size = size
+			a.held += chunkHeader + size
 		}
-		c = (*chunk)(p)
-		c.size = size
-		a.held += chunkHeader + size
 	}
 	c.prev = a.cur
 	if a.cur != nil {
@@ -151,6 +180,9 @@ func (a *Chunked) grow(need uintptr) bool {
 func (a *Chunked) Free(p unsafe.Pointer, size, align uintptr) {
 	if c := a.cur; c != nil && p != nil && uintptr(p)+size == uintptr(c.data())+a.off && uintptr(p) >= uintptr(c.data()) {
 		a.off = uintptr(p) - uintptr(c.data())
+		if isEpoch(c) {
+			a.endEpoch(c, a.off, a.off+size, rt.CallerPC(), true)
+		}
 	}
 }
 
@@ -170,14 +202,17 @@ func (a *Chunked) Mark() ChunkMark { return ChunkMark{a.cur, a.off, a.before} }
 // parent), and the chunk that was current when m was taken is cut back to
 // its level then. m must not be stale (taken before a Reset, or before a
 // Release that went further back); Release panics when it can tell.
-func (a *Chunked) Release(m ChunkMark) {
+func (a *Chunked) Release(m ChunkMark) { a.release(m, rt.CallerPC()) }
+
+// release is Release for the call that returns to pc.
+func (a *Chunked) release(m ChunkMark, pc uintptr) {
 	for a.cur != m.cur {
 		c := a.cur
 		if c == nil {
 			panic("arena: Release of a stale mark")
 		}
 		a.cur = c.prev
-		a.recycle(c, 0, a.off)
+		a.recycle(c, 0, a.off, pc)
 		// How full the older chunk was when it was left is not recorded;
 		// treat it as full, so poisoning covers everything after the mark.
 		if a.cur != nil {
@@ -190,20 +225,35 @@ func (a *Chunked) Release(m ChunkMark) {
 	if a.cur != nil && a.poison {
 		fill(unsafe.Add(a.cur.data(), m.off), a.off-m.off)
 	}
+	if a.cur != nil && isEpoch(a.cur) {
+		a.endEpoch(a.cur, m.off, a.off, pc, false)
+	}
 	a.off = m.off
 	a.before = m.before
 }
 
 // recycle takes back a chunk that is no longer current, of which bytes
-// [from, to) were in use: a standard chunk goes on the spare list, a larger
-// one back to the parent.
-func (a *Chunked) recycle(c *chunk, from, to uintptr) {
+// [from, to) were in use, for the call that returns to pc: a standard chunk
+// goes on the spare list, a larger one back to the parent.
+func (a *Chunked) recycle(c *chunk, from, to, pc uintptr) {
 	if a.poison {
 		fill(unsafe.Add(c.data(), from), to-from)
+	}
+	if isEpoch(c) {
+		a.endEpoch(c, from, to, pc, false)
 	}
 	if c.size == a.chunkSize {
 		c.prev = a.spare
 		a.spare = c
+		return
+	}
+	a.freeChunk(c)
+}
+
+// freeChunk returns c to the parent allocator.
+func (a *Chunked) freeChunk(c *chunk) {
+	if isEpoch(c) {
+		a.freeEpochChunk(c)
 		return
 	}
 	a.held -= chunkHeader + c.size
@@ -211,22 +261,21 @@ func (a *Chunked) recycle(c *chunk, from, to uintptr) {
 }
 
 // Reset frees every allocation. Standard chunks are kept for reuse.
-func (a *Chunked) Reset() { a.Release(ChunkMark{}) }
+func (a *Chunked) Reset() { a.release(ChunkMark{}, rt.CallerPC()) }
 
 // Trim returns the spare chunks to the parent allocator.
 func (a *Chunked) Trim() {
 	for a.spare != nil {
 		c := a.spare
 		a.spare = c.prev
-		a.held -= chunkHeader + c.size
-		a.parent.Free(unsafe.Pointer(c), chunkHeader+c.size, 16)
+		a.freeChunk(c)
 	}
 }
 
 // Drop frees every allocation and returns all chunks to the parent
 // allocator. The arena is empty afterwards and may be used again.
 func (a *Chunked) Drop() {
-	a.Reset()
+	a.release(ChunkMark{}, rt.CallerPC())
 	a.Trim()
 }
 

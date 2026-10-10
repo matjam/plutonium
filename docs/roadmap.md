@@ -147,11 +147,12 @@ later takes the next free number and is listed in the section where it belongs.
     complete-spec type-system decisions (G12 embedding boxes, G13 comparison, G14 owner conversions only
     in the declaring package, G18 value receivers of owners never satisfy interfaces, G20 no box of an
     interface), and the local-arena rule (G34): what is allocated through `Default()` while a local
-    arena is installed is a view of the arena (language spec section 7.1). Before generation checks
-    become the default for hosted builds: loop-invariant hoisting of the checks, a second measurement,
-    and generation tags in `alloc.SyncSlab` (the prototype tags only the single-threaded `Slab`). Not
-    yet: per-arena epochs (decision D4), which would also catch at run time what the arena rule cannot
-    see (arena memory stored into heap memory that outlives the arena, by the function or a callee);
+    arena is installed is a view of the arena (language spec section 7.1). Done since: per-arena
+    epochs for `arena.Chunked` under `--gencheck` (decision D4, ABI section 1.3), which catch at run time
+    what the arena rule cannot see (arena memory stored into heap memory that outlives the arena, by the
+    function or a callee), and generation tags in `alloc.SyncSlab`, now the default allocator of
+    `--gencheck` builds. Before generation checks become the default for hosted builds: loop-invariant
+    hoisting of the checks and a second measurement. Not yet:
     holds of `shared`/`synced` references are not offered to
     `opt.ElideStringHolds` yet, so a reference read from memory a call could change is always retained
     for its statement. The original list:

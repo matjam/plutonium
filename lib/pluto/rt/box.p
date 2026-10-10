@@ -102,6 +102,9 @@ func boxInit(p unsafe.Pointer, a Allocator, hdr, off uintptr) unsafe.Pointer {
 // boxFree returns the memory of a box whose object has been dropped to the
 // allocator in its header.
 func boxFree(obj unsafe.Pointer, hdr, size, align uintptr) {
+	if genCheck {
+		checkLive(obj)
+	}
 	off, align := boxOffset(hdr, align)
 	a := *(*Allocator)(unsafe.Add(obj, -16))
 	a.Free(unsafe.Add(obj, -int(off)), off+size, align)
@@ -148,6 +151,9 @@ func boxReleaseStrong(obj unsafe.Pointer, sync bool) bool {
 	if obj == nil {
 		return false
 	}
+	if genCheck {
+		checkLive(obj)
+	}
 	n := addBoxCount(countOf(obj, false), -1, sync)
 	if n < 0 {
 		panicMessage("runtime error: reference count below zero (a shared or synced reference was released twice)", "", "", "", "")
@@ -160,6 +166,9 @@ func boxReleaseStrong(obj unsafe.Pointer, sync bool) bool {
 func weakRelease(obj unsafe.Pointer, sync bool, size, align uintptr) {
 	if obj == nil {
 		return
+	}
+	if genCheck {
+		checkLive(obj)
 	}
 	n := addBoxCount(countOf(obj, true), -1, sync)
 	if n > 0 {
@@ -177,6 +186,9 @@ func weakRelease(obj unsafe.Pointer, sync bool, size, align uintptr) {
 func boxUpgrade(obj unsafe.Pointer, sync bool) bool {
 	if obj == nil {
 		return false
+	}
+	if genCheck {
+		checkLive(obj)
 	}
 	c := countOf(obj, false)
 	if sync && atomicCounts {

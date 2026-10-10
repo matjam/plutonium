@@ -267,8 +267,24 @@ func panicSlice(lo, hi, max int) {
 
 // panicStale reports an access through a heap pointer whose allocation has
 // been freed (the generational-reference prototype, built with -gencheck).
+// A tag of 0x8000 or more is an arena epoch (epoch_on.p): the arena was
+// reset, released or dropped, or the allocation was freed, since p was
+// handed out.
 func panicStale(p unsafe.Pointer) {
 	startPanic()
+	if tag := *(*uintptr)(unsafe.Pointer(&p)) >> 48; tag >= 0x8000 {
+		site := epochSite(tag)
+		if site>>63 != 0 {
+			printString("runtime error: use of freed memory: an arena allocation freed")
+		} else {
+			printString("runtime error: use of memory from an arena that was reset")
+		}
+		if pc := site << 1 >> 1; pc != 0 {
+			printString(" at ")
+			PrintPC(pc - 1)
+		}
+		fatal(nil)
+	}
 	printString("runtime error: use of freed memory: pointer ")
 	printUint(uint64(uintptr(p)))
 	printString(" has an old generation")

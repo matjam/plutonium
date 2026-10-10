@@ -1,7 +1,7 @@
 # Plutonium x86-64 ABI
 
 **Version:** 0.2 (draft)
-**Date:** 2026-10-09
+**Date:** 2026-10-10
 
 This document describes how Plutonium code is laid out and called on x86-64, as implemented by the
 compiler in `internal/lower` (signature lowering, data layout, symbols) and `internal/arch/amd64`
@@ -135,6 +135,70 @@ release that reaches zero drops `T` and then releases the weak reference the str
 `lock xadd` once `rt.SetThreaded` has been called (memory-model.md section 3.7), and `Upgrade` with
 `lock cmpxchg`; `shared` counts never are. A `weak[P]` is the same address as its `P`. Dropping an
 `owned[T]` drops `T` and frees the memory (`pluto/rt.boxFree`).
+
+### 1.3 Generation tags and arena epochs
+
+A hosted build with `--gencheck` (memory-safety design sections 5 and D4) tags heap pointers so that a
+use of memory that has been freed, or that an arena has taken back, panics instead of reading or writing
+whatever the memory holds by then. Bits 63..48 of a pointer hold a 16-bit tag (user-space addresses use
+47 bits):
+
+| Tag | Meaning |
+|---|---|
+| `0` | not checked: the stack, static data, devices, slab allocations over 2 KiB, arena chunks over 56 KiB, a fixed `arena.Arena`'s buffer, pointers made from a `uintptr` |
+| `0x0001` to `0x7fff` | a slab generation (`alloc.Slab`, `alloc.SyncSlab`) |
+| `0x8000` to `0xffff` | an arena epoch (`arena.Chunked`) |
+
+Checked memory is in 64 KiB-aligned chunks whose first 8 KiB hold one `uint16` per 16-byte granule of
+the chunk. Every load and store through a pointer that is not statically a frame slot or a symbol checks
+it, in the same sequence for both kinds of tag (`opt.GenCheck`):
+
+```
+tag := p >> 48
+if tag != 0 {
+	a := p & (1<<48 - 1)
+	if *(*uint16)(a &^ 0xffff + 2*((a & 0xffff) >> 4)) != tag { panicStale(p) }
+}
+access a
+```
+
+The check is done once per pointer in a straight run of code, and again after each call. `copy`, `clear`
+and `print` of a string check their pointer at the call when the length is not zero (a pointer just past
+an allocation may point into another one's granule). The table entries of the chunk's first 512
+granules, which would describe the table itself, are never consulted; arenas keep their chunk header
+there.
+
+- **Slab generations.** Each granule of a slot holds the slot's generation, which starts at 1. `Free`
+  checks the pointer's tag against it (a double free panics) and moves the slot to the next generation;
+  a slot that would reach `0x8000` is retired, never handed out again, so a stale pointer cannot match by
+  wrapping around.
+- **Arena epochs.** A `Chunked` takes each chunk of at most 56 KiB of data as a 64 KiB-aligned epoch
+  chunk (asking its parent for 64 KiB alignment, or aligning within a larger block): the header
+  `{prev *chunk, size uintptr, raw unsafe.Pointer}` at offset 0, data from offset 8192. Allocations
+  start on a granule, so each granule belongs to one allocation. The arena's current epoch, taken from a
+  program-wide counter (`rt.NewEpoch`, `0x8000` plus the count modulo `0x8000`), goes into the granules
+  of each allocation and the tag of its pointer. `Reset`, `Release`, `Drop` and a `Free` of the latest
+  allocation zero the granules they take back (no pointer has tag 0) and end the epoch: the next
+  allocation takes a new one, so a stale pointer does not match the memory once it is handed out again.
+  Epochs are program-wide because a new arena is often given the chunk a dropped one had. The counter
+  wraps after 32768 epochs, after which a pointer that old can match again.
+- **Disjoint ranges.** A stale arena pointer into memory a slab now uses, or a stale slab pointer into
+  an arena chunk, never matches.
+- **Counted strings and boxes.** A string's control word (section 1.1) keeps the tag of its buffer, and
+  a box's address the tag of its allocation, so retaining and releasing them is checked like any other
+  access: the runtime's out-of-line count paths check explicitly (`rt.checkLive`), since the runtime
+  and the allocators otherwise only remove tags.
+- **Panics.** A failed check calls `pluto/rt.panicStale`: "use of freed memory" for a slab tag;
+  "use of memory from an arena that was reset at F (file:line)" for an arena tag, naming the call that
+  last took back memory of that epoch (`rt.EpochEnded` records it); "use of freed memory: an arena
+  allocation freed at F (file:line)" when that was a `Free`.
+
+Converting a pointer to `uintptr`, and passing it to a function implemented outside Plutonium, removes
+its tag; `unsafe.Pointer` keeps it. Without `--gencheck` (the default, and every freestanding and kernel
+build) pointers carry no tag and nothing is checked: a use of freed or reset memory is the documented
+unchecked mode of the language spec (section 6.3). `Chunked.SetPoison` then makes stale reads visible,
+and the debug allocator (language spec section 7.3), as an arena's parent, catches a use of chunks the
+arena gave back (`Trim`, `Drop`), though not of those `Reset` and `Release` keep.
 
 ## 2. Registers
 
