@@ -7,8 +7,8 @@
 // and passed to functions that call them), results of the previous run
 // passed on as values (strings and the results of calling the closures),
 // method values, closures of other calls of the same loop, a fixed number
-// of compositions, and a slice of steps applied by one closure. Run under the debug allocator, nothing leaks and nothing is used
-// after it is freed.
+// of compositions, and a slice of steps applied by one closure. Run under
+// the debug allocator, nothing leaks and nothing is used after it is freed.
 package main
 
 import (

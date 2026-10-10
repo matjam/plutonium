@@ -56,6 +56,31 @@ func Inner(k int) func() int {
 	return func() int { k++; return k }
 }
 
+// A closure that hands back another closure built in the same region:
+// what calling it returns is in the region of the call that made it, so
+// Unwrap returns Pair's region in its caller's region.
+func Pair(k int) func() func() int {
+	inner := Inner(k)
+	return func() func() int { return inner }
+}
+
+//pu:noinline
+func Unwrap(k int) func() int {
+	p := Pair(k)
+	return p()
+}
+
+// clobber writes over the stack below its caller.
+//
+//pu:noinline
+func clobber(a, b, c, d, e, f, g int) int {
+	var arr [64]int
+	for i := range arr {
+		arr[i] = a + b + c + d + e + f + g + i
+	}
+	return arr[5]
+}
+
 // Multiple results with closures.
 func Two(a, b int) (func() int, func() int) {
 	return func() int { return a }, func() int { return b }
@@ -79,6 +104,9 @@ func main() {
 	println(walk(3).Error())
 	o := Outer()
 	println(o(), o())
+	u := Unwrap(10)
+	println(clobber(1, 2, 3, 4, 5, 6, 7))
+	println(u(), u())
 	x, y := Two(7, 8)
 	println(x(), y())
 	println(Through(AsGetter(9))())
