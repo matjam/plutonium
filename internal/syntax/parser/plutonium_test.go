@@ -143,7 +143,7 @@ func TestParseRepoSources(t *testing.T) {
 	var files []string
 	for _, dir := range []string{"pluto", "examples", "testdata"} {
 		_ = filepath.WalkDir(filepath.Join(root, dir), func(path string, d fs.DirEntry, err error) error {
-			if err == nil && !d.IsDir() && strings.HasSuffix(path, ".p") &&!strings.Contains(path, "invalid") {
+			if err == nil && !d.IsDir() && strings.HasSuffix(path, ".p") && !strings.Contains(path, "invalid") {
 				files = append(files, path)
 			}
 			return nil
