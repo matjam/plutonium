@@ -17,7 +17,8 @@ func (in *MInst) readsDst() bool {
 	switch in.Op {
 	case MADD, MSUB, MAND, MOR, MXOR, MIMUL, MNEG, MNOT, MBSWAP,
 		MSHL, MSHR, MSAR, MROL, MROR, MCMOVCC,
-		MADDSF, MSUBSF, MMULSF, MDIVSF, MXORPS, MANDPS:
+		MADDSF, MSUBSF, MMULSF, MDIVSF, MXORPS, MANDPS,
+		MSETCC: // keeps the upper bytes, which setcc clears beforehand
 		return true
 	case MCMP, MTEST, MUCOMI:
 		return true // read only

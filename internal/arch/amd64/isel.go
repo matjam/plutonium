@@ -532,6 +532,12 @@ func (s *isel) load(r Reg, m Mem, t *ssa.Type) {
 		return
 	}
 	size := sizeOf(t)
+	if size < 4 {
+		// Zero-extend narrow loads: a partial register write would depend
+		// on the register's old value. ZeroExt of a load relies on this.
+		s.emit(&MInst{Op: MMOVZX, Size: 4, SrcSize: size, Dst: RegOp(r), Src: MemOp(m)})
+		return
+	}
 	s.emit(&MInst{Op: MMOV, Size: size, Dst: RegOp(r), Src: MemOp(m)})
 }
 
@@ -659,7 +665,7 @@ func (s *isel) value(v *ssa.Value) error {
 
 	case ssa.OpEq, ssa.OpNe, ssa.OpLess, ssa.OpLeq, ssa.OpLessu, ssa.OpLequ:
 		cond := s.intCompare(v)
-		s.emit(&MInst{Op: MSETCC, Size: 1, Dst: RegOp(s.def(v)), Cond: cond})
+		s.setcc(s.def(v), cond)
 	case ssa.OpFEq, ssa.OpFNe, ssa.OpFLess, ssa.OpFLeq:
 		s.floatCompareValue(v)
 
@@ -672,7 +678,10 @@ func (s *isel) value(v *ssa.Value) error {
 	case ssa.OpZeroExt:
 		from := sizeOf(v.Args[0].Type)
 		d := s.def(v)
-		if from == 4 {
+		if a := v.Args[0]; a.Op == ssa.OpLoad && from < 4 && !a.Type.IsFloat() {
+			// load already zero-extended it.
+			s.copyReg(d, s.reg(a), 8)
+		} else if from == 4 {
 			s.emit(&MInst{Op: MMOV, Size: 4, Dst: RegOp(d), Src: RegOp(s.reg(v.Args[0]))})
 		} else {
 			s.emit(&MInst{Op: MMOVZX, Size: 4, SrcSize: from, Dst: RegOp(d), Src: RegOp(s.reg(v.Args[0]))})
@@ -717,6 +726,11 @@ func (s *isel) value(v *ssa.Value) error {
 		s.zero(v.Args[0], v.AuxInt)
 	case ssa.OpMove:
 		s.move(v.Args[0], v.Args[1], v.AuxInt)
+	case ssa.OpFill:
+		s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(RDI), Src: MemOp(s.addr(v.Args[0]))})
+		s.copyReg(RCX, s.reg(v.Args[2]), 8)
+		s.copyReg(RAX, s.reg(v.Args[1]), 8)
+		s.emit(&MInst{Op: MREPSTOSB, ImplicitUses: []Reg{RDI, RCX, RAX}, ImplicitDefs: []Reg{RDI, RCX}})
 
 	case ssa.OpCall, ssa.OpCallInd:
 		s.call(v)
@@ -908,13 +922,21 @@ func (s *isel) floatCompare(v *ssa.Value) (cond Cond, parity Cond, needParity bo
 	}
 }
 
+// setcc sets d to the flag condition, as 0 or 1 in all of d. SETcc writes
+// only the low byte, which would make it wait for d's old value; clearing
+// d first with a MOV (which keeps the flags) removes that dependency.
+func (s *isel) setcc(d Reg, cond Cond) {
+	s.emit(&MInst{Op: MMOV, Size: 4, Dst: RegOp(d), Src: ImmOp(0)})
+	s.emit(&MInst{Op: MSETCC, Size: 1, Dst: RegOp(d), Cond: cond})
+}
+
 func (s *isel) floatCompareValue(v *ssa.Value) {
 	cond, parity, two := s.floatCompare(v)
 	d := s.def(v)
-	s.emit(&MInst{Op: MSETCC, Size: 1, Dst: RegOp(d), Cond: cond})
+	s.setcc(d, cond)
 	if two {
 		t := s.mf.newVReg(ClassGP)
-		s.emit(&MInst{Op: MSETCC, Size: 1, Dst: RegOp(t), Cond: parity})
+		s.setcc(t, parity)
 		op := MAND
 		if v.Op == ssa.OpFNe {
 			op = MOR

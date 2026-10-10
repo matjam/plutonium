@@ -181,6 +181,86 @@ func main() { println(fib(20), gcd(12, 18)) }
 	}
 }
 
+func TestFillAndCount(t *testing.T) {
+	const src = `package main
+
+var big [1000]bool
+
+//pu:noinline
+func fillAll() {
+	for i := 0; i < len(big); i++ {
+		big[i] = true
+	}
+}
+
+//pu:noinline
+func fillShort(n int) {
+	for i := 0; i < n; i++ {
+		big[i] = false
+	}
+}
+
+//pu:noinline
+func count() int {
+	n := 0
+	for i := 0; i < len(big); i++ {
+		if big[i] {
+			n++
+		}
+	}
+	return n
+}
+
+func main() {
+	fillAll()
+	fillShort(3)
+	println(count())
+}
+`
+	if asm := listFunc(t, src, "main.fillAll"); !strings.Contains(asm, "rep stosb") || strings.Contains(asm, "mov1") {
+		t.Errorf("fillAll: want one rep stosb\n%s", asm)
+	}
+	// A short or unknown length stays a loop.
+	if asm := listFunc(t, src, "main.fillShort"); strings.Contains(asm, "rep stosb") {
+		t.Errorf("fillShort: want a loop\n%s", asm)
+	}
+	// n += zext(big[i]): no branch or cmov in the loop.
+	if asm := listFunc(t, src, "main.count"); strings.Contains(asm, "cmov") || strings.Count(asm, "\tj") > 2 {
+		t.Errorf("count: want n += big[i]\n%s", asm)
+	}
+}
+
+func TestRotate(t *testing.T) {
+	const src = `package main
+
+//pu:noinline
+func f(x uint32) uint32 { return (x >> 7) | (x << 25) ^ (x>>18 + x<<14) }
+
+func main() { println(f(5)) }
+`
+	asm := listFunc(t, src, "main.f")
+	if strings.Count(asm, "rol") != 2 || strings.Contains(asm, "shr") || strings.Contains(asm, "shl") {
+		t.Errorf("f: want two rotates\n%s", asm)
+	}
+}
+
+func TestSetccClearsFirst(t *testing.T) {
+	const src = `package main
+
+//pu:noinline
+func lt(a, b int) bool { return a < b }
+
+func main() { println(lt(1, 2)) }
+`
+	// setl writes one byte; clearing the register first breaks the
+	// dependency on its old value.
+	asm := listFunc(t, src, "main.lt")
+	i, j := strings.Index(asm, "mov4 $0"), strings.Index(asm, "setl")
+	if i < 0 || j < i {
+		t.Errorf("lt: want mov4 $0 before setl\n%s", asm)
+	}
+}
+
 func TestZeroIdiomNotLive(t *testing.T) {
 	const src = `package main
 

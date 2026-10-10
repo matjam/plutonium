@@ -230,6 +230,10 @@ func (f *Func) verifyTypes(v *Value, fail func(string, ...any)) {
 		if !ok || !argType(0).IsPtr() || !argType(1).Same(st) || !v.Type.IsMem() {
 			fail("%s: bad store types", v.LongString())
 		}
+	case OpFill:
+		if !argType(0).IsPtr() || argType(1).Size != 1 || !argType(2).Same(TI64) || !v.Type.IsMem() {
+			fail("%s: bad fill types", v.LongString())
+		}
 	case OpOffPtr, OpAddPtr, OpSlotAddr, OpSymAddr, OpFuncAddr:
 		if !v.Type.IsPtr() {
 			fail("%s: address op must produce a pointer", v.LongString())
