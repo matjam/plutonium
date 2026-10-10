@@ -84,6 +84,93 @@ var x packed { a, b uint8 }
 	}
 }
 
+func TestParseEnumTypes(t *testing.T) {
+	src := `package p
+
+type Color enum {
+	Red
+	Green // second
+	Blue
+}
+
+type Errno enum uint16 {
+	// No error.
+	OK = 0
+	EPERM
+	EIO = 2 + 3
+}
+
+type Order enum { Less = -1; Equal; Greater }
+
+type Empty enum {}
+
+func f(c Color) {
+	switch c {
+	case Red, Color.Blue:
+	}
+	for x := range Color {
+		_ = x
+	}
+}
+`
+	f, err := ParseFile(token.NewFileSet(), "enum.p", src, ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var enums []*ast.EnumType
+	ast.Inspect(f, func(n ast.Node) bool {
+		if e, ok := n.(*ast.EnumType); ok {
+			enums = append(enums, e)
+		}
+		return true
+	})
+	if len(enums) != 4 {
+		t.Fatalf("got %d enum types, want 4", len(enums))
+	}
+	names := func(e *ast.EnumType) string {
+		var s []string
+		for _, m := range e.Members {
+			s = append(s, m.Name.Name)
+		}
+		return strings.Join(s, " ")
+	}
+	color, errno, order, empty := enums[0], enums[1], enums[2], enums[3]
+	if color.Base != nil || names(color) != "Red Green Blue" {
+		t.Errorf("Color: base %v, members %q", color.Base, names(color))
+	}
+	if c := color.Members[1].Comment; c == nil || c.Text() != "second\n" {
+		t.Errorf("Green comment = %v, want \"second\"", c)
+	}
+	if id, ok := errno.Base.(*ast.Ident); !ok || id.Name != "uint16" {
+		t.Errorf("Errno base = %#v, want uint16", errno.Base)
+	}
+	if d := errno.Members[0].Doc; d == nil || d.Text() != "No error.\n" {
+		t.Errorf("OK doc = %v, want \"No error.\"", d)
+	}
+	if errno.Members[1].Value != nil || errno.Members[1].Assign.IsValid() {
+		t.Errorf("EPERM has a value")
+	}
+	if _, ok := errno.Members[2].Value.(*ast.BinaryExpr); !ok {
+		t.Errorf("EIO value = %T, want *ast.BinaryExpr", errno.Members[2].Value)
+	}
+	if u, ok := order.Members[0].Value.(*ast.UnaryExpr); !ok || u.Op != token.SUB || names(order) != "Less Equal Greater" {
+		t.Errorf("Order: first value %#v, members %q", order.Members[0].Value, names(order))
+	}
+	if len(empty.Members) != 0 || empty.End() != empty.Rbrace+1 {
+		t.Errorf("Empty: %d members, end %d", len(empty.Members), empty.End())
+	}
+
+	for _, bad := range []struct{ src, want string }{
+		{"package p\ntype E enum { 1 }", "expected '}'"},
+		{"package p\ntype E enum { A = }", "expected operand"},
+		{"package p\nvar enum = 1", "expected 'IDENT'"},
+	} {
+		if _, err := ParseFile(token.NewFileSet(), "bad.p", bad.src, 0); err == nil || !strings.Contains(err.Error(), bad.want) {
+			t.Errorf("%q: got error %v, want %q", bad.src, err, bad.want)
+		}
+	}
+}
+
 // TestParseTypeConstructorExprs checks that type constructors with constant
 // arguments parse in expression position, as composite literal types and
 // conversions, not only in declarations.

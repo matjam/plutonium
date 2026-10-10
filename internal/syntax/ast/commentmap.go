@@ -215,7 +215,7 @@ func NewCommentMap(fset *token.FileSet, node Node, comments []*CommentGroup) Com
 
 		// update previous node group if we see an "important" node
 		switch q.(type) {
-		case *File, *Field, Decl, Spec, Stmt:
+		case *File, *Field, *EnumMember, Decl, Spec, Stmt:
 			stack.push(q)
 		}
 	}

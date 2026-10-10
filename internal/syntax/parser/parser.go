@@ -804,6 +804,39 @@ func (p *parser) parsePackedType() *ast.PackedType {
 	}
 }
 
+// parseEnumType parses a Plutonium enum type:
+//
+//	enum [BaseType] { Name [= Value]; ... }
+//
+// Members are separated by semicolons or newlines, like struct fields.
+func (p *parser) parseEnumType() *ast.EnumType {
+	if p.trace {
+		defer un(trace(p, "EnumType"))
+	}
+
+	pos := p.expect(token.ENUM)
+	var base ast.Expr
+	if p.tok != token.LBRACE {
+		base = p.parseType()
+	}
+	lbrace := p.expect(token.LBRACE)
+	var members []*ast.EnumMember
+	for p.tok == token.IDENT {
+		doc := p.leadComment // read before parseIdent moves past it
+		m := &ast.EnumMember{Doc: doc, Name: p.parseIdent()}
+		if p.tok == token.ASSIGN {
+			m.Assign = p.pos
+			p.next()
+			m.Value = p.parseRhs()
+		}
+		m.Comment = p.expectSemi()
+		members = append(members, m)
+	}
+	rbrace := p.expect(token.RBRACE)
+
+	return &ast.EnumType{Enum: pos, Base: base, Lbrace: lbrace, Members: members, Rbrace: rbrace}
+}
+
 // parsePackedFieldDecl parses one field of a packed type. A field is either
 // "names Type" (byte-level or bits[T, N] fields) or "name bits { A B ... }",
 // a group of one-bit boolean flags.
@@ -907,7 +940,7 @@ func (p *parser) parseParamDecl(name *ast.Ident, typeSetsOK bool) (f field) {
 			f.name = p.parseIdent()
 		}
 		switch p.tok {
-		case token.IDENT, token.MUL, token.ARROW, token.FUNC, token.CHAN, token.MAP, token.STRUCT, token.PACKED, token.INTERFACE, token.LPAREN:
+		case token.IDENT, token.MUL, token.ARROW, token.FUNC, token.CHAN, token.MAP, token.STRUCT, token.PACKED, token.ENUM, token.INTERFACE, token.LPAREN:
 			// name type
 			f.typ = p.parseType()
 
@@ -940,7 +973,7 @@ func (p *parser) parseParamDecl(name *ast.Ident, typeSetsOK bool) (f field) {
 			}
 		}
 
-	case token.MUL, token.ARROW, token.FUNC, token.LBRACK, token.CHAN, token.MAP, token.STRUCT, token.PACKED, token.INTERFACE, token.LPAREN:
+	case token.MUL, token.ARROW, token.FUNC, token.LBRACK, token.CHAN, token.MAP, token.STRUCT, token.PACKED, token.ENUM, token.INTERFACE, token.LPAREN:
 		// type
 		f.typ = p.parseType()
 
@@ -1483,6 +1516,8 @@ func (p *parser) tryIdentOrType() ast.Expr {
 		return p.parseStructType()
 	case token.PACKED:
 		return p.parsePackedType()
+	case token.ENUM:
+		return p.parseEnumType()
 	case token.MUL:
 		return p.parsePointerType()
 	case token.FUNC:

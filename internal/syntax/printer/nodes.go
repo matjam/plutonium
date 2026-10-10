@@ -1071,6 +1071,9 @@ func (p *printer) expr1(expr ast.Expr, prec1, depth int) {
 	case *ast.BitsGroup:
 		p.bitsGroup(x)
 
+	case *ast.EnumType:
+		p.enumType(x)
+
 	case *ast.FuncType:
 		p.print(token.FUNC)
 		p.signature(x)

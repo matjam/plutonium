@@ -153,6 +153,24 @@ func Walk(v Visitor, node Node) {
 	case *BitsGroup:
 		walkList(v, n.Names)
 
+	case *EnumType:
+		if n.Base != nil {
+			Walk(v, n.Base)
+		}
+		walkList(v, n.Members)
+
+	case *EnumMember:
+		if n.Doc != nil {
+			Walk(v, n.Doc)
+		}
+		Walk(v, n.Name)
+		if n.Value != nil {
+			Walk(v, n.Value)
+		}
+		if n.Comment != nil {
+			Walk(v, n.Comment)
+		}
+
 	case *FuncType:
 		if n.TypeParams != nil {
 			Walk(v, n.TypeParams)

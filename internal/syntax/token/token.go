@@ -132,6 +132,7 @@ const (
 	// keeps its go/token ordinal, which lets operator tokens be passed to
 	// go/constant unchanged.
 	PACKED
+	ENUM
 	additional_end
 )
 
@@ -237,6 +238,7 @@ var tokens = [...]string{
 	TILDE: "~",
 
 	PACKED: "packed",
+	ENUM:   "enum",
 }
 
 // String returns the string corresponding to the token tok.
@@ -293,6 +295,7 @@ func init() {
 		keywords[tokens[i]] = i
 	}
 	keywords[tokens[PACKED]] = PACKED
+	keywords[tokens[ENUM]] = ENUM
 }
 
 // Lookup maps an identifier to its keyword token or [IDENT] (if not a keyword).
@@ -318,7 +321,7 @@ func (tok Token) IsOperator() bool {
 // IsKeyword returns true for tokens corresponding to keywords;
 // it returns false otherwise.
 func (tok Token) IsKeyword() bool {
-	return keyword_beg < tok && tok < keyword_end || tok == PACKED
+	return keyword_beg < tok && tok < keyword_end || tok == PACKED || tok == ENUM
 }
 
 // IsExported reports whether name starts with an upper-case letter.
