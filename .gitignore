@@ -8,6 +8,7 @@
 # ...except the expected output of the end-to-end test programs.
 !testdata/run/*.out
 !testdata/lib/*.out
+!testdata/trace/*.out
 
 # Agent worktrees
 /.claude/worktrees/

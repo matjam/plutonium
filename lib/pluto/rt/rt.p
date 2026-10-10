@@ -133,7 +133,8 @@ func TypeInfo(v any) (kind uint8, size uintptr, name string, data unsafe.Pointer
 }
 
 // ----------------------------------------------------------------------------
-// Panics. Panicking prints a message and stops; it does not unwind.
+// Panics. Panicking prints a message and a stack trace (trace.p) and stops;
+// it does not unwind.
 
 func panicIndex(i, n int) {
 	printString("panic: runtime error: index out of range [")
@@ -141,7 +142,7 @@ func panicIndex(i, n int) {
 	printString("] with length ")
 	printInt(int64(n))
 	printNewline()
-	abort()
+	fatal()
 }
 
 func panicSlice(lo, hi, max int) {
@@ -152,17 +153,17 @@ func panicSlice(lo, hi, max int) {
 	printString(":")
 	printInt(int64(max))
 	printString("]\n")
-	abort()
+	fatal()
 }
 
 func panicDivide() {
 	printString("panic: runtime error: integer divide by zero\n")
-	abort()
+	fatal()
 }
 
 func panicShift() {
 	printString("panic: runtime error: negative shift amount\n")
-	abort()
+	fatal()
 }
 
 func panicAppend(n, c int) {
@@ -171,12 +172,12 @@ func panicAppend(n, c int) {
 	printString(", have ")
 	printInt(int64(c))
 	printNewline()
-	abort()
+	fatal()
 }
 
 func panicMakeLen(n, c int) {
 	printString("panic: runtime error: makeslice: len out of range\n")
-	abort()
+	fatal()
 }
 
 func panicSliceConvert(n, want int) {
@@ -185,7 +186,7 @@ func panicSliceConvert(n, want int) {
 	printString(" to array of length ")
 	printInt(int64(want))
 	printNewline()
-	abort()
+	fatal()
 }
 
 func panicAssert(have, want *typeDesc) {
@@ -198,7 +199,7 @@ func panicAssert(have, want *typeDesc) {
 	printString(", not ")
 	printString(want.name)
 	printNewline()
-	abort()
+	fatal()
 }
 
 // panicValue implements panic(v).
@@ -227,7 +228,7 @@ func panicValue(v any) {
 		printString(")")
 	}
 	printNewline()
-	abort()
+	fatal()
 }
 
 func panicMessage(a, b, c, d, e string) {
@@ -238,7 +239,7 @@ func panicMessage(a, b, c, d, e string) {
 	printString(d)
 	printString(e)
 	printNewline()
-	abort()
+	fatal()
 }
 
 // ----------------------------------------------------------------------------
