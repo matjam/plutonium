@@ -27,6 +27,7 @@ var translations = []struct {
 	{dir: "testdata/amd64demo", demo: true},
 	{dir: "testdata/optdemo", demo: true},
 	{dir: "testdata/rewrites", demo: true},
+	{dir: "testdata/pudemo", demo: true}, // internal/pu, translated name for name
 }
 
 const selfhostDir = "../../selfhost"

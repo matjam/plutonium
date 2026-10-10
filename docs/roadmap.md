@@ -205,21 +205,35 @@ later takes the next free number and is listed in the section where it belongs.
 46. **`net`** (planned, hosted): sockets over the epoll poller of item 14.
 47. **`fmt.Sprintf` returns a `strings.Buf`** (planned): settled by the ownership model (language spec
     section 6.6). `Sprintf` allocates and returns a `strings.Buf`; `Bprintf` keeps formatting into a
-    caller's buffer, as the library already does. Needs item 51.
+    caller's buffer, as the library already does. Needs item 51, and a way around an import cycle:
+    `pluto/fmt` cannot import `pluto/strings` while the tests of `pluto/strings` import
+    `pluto/testing`, which imports `pluto/fmt` (external test packages, `package strings_test`, would
+    do it). Until then `selfhost/pu.Sprintf` returns a `strings.Builder` for translated code (item 52).
 51. **Owner types in the library** (planned; language spec sections 6.4 and 6.6): declare `vec.Vec`,
     `hash.Map`, `hash.Set`, `strings.Builder` and growable arenas `owner`, and turn their `Free` methods
     into `Drop`; add `strings.Buf`, the owning string buffer (`NewBuf(a)`, a zero value that allocates
     on first write, `String()` and `Bytes()` views, `Clone`), with `strings.Builder` merged into it; make
     `os.File` an owner returned by value from `Open`, `Create` and `OpenFile` that closes on drop; add
-    `Clone` to `Vec`, `Map` and `Buf`. `arena.Chunked` (item 54) already releases through `Drop`;
+    `Clone` to `Vec`, `Map` and `Buf`. Done ahead of the keyword (item 52): `Drop` on `vec.Vec`,
+    `hash.Map`, `hash.Set` and `strings.Builder` (beside `Free`), `Clone` on `Vec`, `Map` and `Set`,
+    `Map.At`, zero `Vec`s and `Map`s that take the default allocator when they first grow, and the
+    arenas' `New[T]()` and `Slice[T](n)` of section 4.2. `arena.Chunked` (item 54) already releases through `Drop`;
     declaring it `owner` is a one-line change to its type declaration, as it is for `os.DirEntries`,
     `exec.Cmd` and `flag.FlagSet` (item 54). Converting the OS layer: `Open`, `Create`, `OpenFile` and
     `Pipe` return `os.File` by value; `Getwd`, `MkdirTemp`, `exec.LookPath` and the `filepath`
     `Append` functions gain forms returning a `strings.Buf`.
-52. **The `pu` mirror package for self-hosting** (planned): a Go package `pu` with `Map`, `Vec`, `Buf` and
-    the other library owners, mirroring the Plutonium API, which the compiler's Go sources migrate to so
-    that go2pu translates them one to one. Specified as an amendment in
-    [the self-hosting plan](plans/2026-10-09-self-hosting-plan.md), section 11.
+52. **The `pu` mirror package for self-hosting** (done; migrating the compiler to it is not started): a
+    Go package `pu` with `Map`, `Vec`, `Buf` and the other library owners, mirroring the Plutonium API,
+    which the compiler's Go sources migrate to so that go2pu translates them one to one. Specified as an
+    amendment in [the self-hosting plan](plans/2026-10-09-self-hosting-plan.md), section 11.
+    `internal/pu` has `Vec`, `Map`, `Set`, their iterators, `Buf`, `Sprintf` and `New`, each with a
+    `noCopy` marker so that go vet reports copies (Go's use after move). go2pu maps each name to
+    `vec.Vec`, `hash.Map`, `hash.Set`, `hash.Iter`, `hash.SetIter` and `strings.Builder` (`strings.Buf` once
+    it exists), `Sprintf` to `selfhost/pu.Sprintf` (until item 47), and `New` to `selfhost/pu.New`, which allocates in the phase arena (the
+    default allocator the driver installs): under the accepted `new` proposal `new(T)` returns
+    `owned[T]`, which a `*T` field cannot hold, so arena allocation is written `pu.New` in Go.
+    `TestPuMirrorsLibrary` checks every name and method against the library; the `pudemo` demo prints
+    the same output from Go and from its translation at `-O0` and `-O2`.
 54. **Self-hosting prerequisites** (in progress): the compiler and library work of phases 0 and 1 of
     [the self-hosting plan](plans/2026-10-09-self-hosting-plan.md) (section 8).
     - Single-pointer structs in an interface's data word (done): a struct with one field, or an array of

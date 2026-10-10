@@ -118,6 +118,34 @@ var special = map[string]string{
 	"bytes.Buffer":    "compat.Buffer",
 }
 
+// puPath is the Go mirror of the Plutonium library types (internal/pu),
+// whose names translate one to one by puNames.
+const puPath = goModule + "/internal/pu"
+
+// A puName is the Plutonium counterpart of a name of internal/pu.
+type puName struct {
+	pkg, local, name string // import path, local package name, name
+}
+
+// puNames maps each name of internal/pu to the library name it mirrors.
+// New has no library counterpart (the library's arena allocation names an
+// arena), so it maps to selfhost/pu, which allocates in the phase arena;
+// so does Sprintf until pluto/fmt.Sprintf exists (roadmap item 47).
+var puNames = map[string]puName{
+	"Vec":             {"pluto/vec", "vec", "Vec"},
+	"NewVec":          {"pluto/vec", "vec", "New"},
+	"VecWithCapacity": {"pluto/vec", "vec", "WithCapacity"},
+	"Map":             {"pluto/hash", "hash", "Map"},
+	"NewMap":          {"pluto/hash", "hash", "NewMap"},
+	"MapIter":         {"pluto/hash", "hash", "Iter"},
+	"Set":             {"pluto/hash", "hash", "Set"},
+	"NewSet":          {"pluto/hash", "hash", "NewSet"},
+	"SetIter":         {"pluto/hash", "hash", "SetIter"},
+	"Buf":             {"pluto/strings", "strings", "Builder"}, // strings.Buf once it exists (roadmap item 51)
+	"Sprintf":         {"$MOD/pu", "pu", "Sprintf"},
+	"New":             {"$MOD/pu", "pu", "New"},
+}
+
 const (
 	compatPkg = "$MOD/compat"
 	hashPkg   = "pluto/hash"

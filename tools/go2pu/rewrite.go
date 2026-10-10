@@ -126,6 +126,14 @@ func (t *fileTr) qualified(sel *ast.SelectorExpr) (string, bool) {
 		return "", false
 	}
 	p := pn.Imported().Path()
+	if p == puPath {
+		r, ok := puNames[sel.Sel.Name]
+		if !ok {
+			t.note(sel, "pu.%s: no Plutonium counterpart", sel.Sel.Name)
+			return "", false
+		}
+		return t.use(r.pkg, r.local) + "." + r.name, true
+	}
 	if r, ok := special[p+"."+sel.Sel.Name]; ok {
 		t.compat()
 		return r, true

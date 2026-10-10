@@ -144,6 +144,22 @@ func main() {
 	c := (*[16]byte)(a.Alloc(16, 1))
 	println("zeroed again", c[0], c[15])
 
+	// Typed allocation: views of the arena's memory.
+	tn := a.New[node]()
+	tn.val = 5
+	ts := a.Slice[int](300)
+	ts[299] = 7
+	println("typed", tn.val, tn.next == nil, len(ts), ts[0], ts[299], uintptr(unsafe.Pointer(&ts[0]))%8 == 0)
+
 	a.Drop()
 	println("drop", a.Used(), a.Held(), parent.blocks, parent.bytes)
+
+	// The same on a fixed Arena.
+	var mem [256]byte
+	fa := arena.New(mem[:])
+	fn := fa.New[node]()
+	fn.val = 9
+	fs := fa.Slice[uint16](8)
+	fs[7] = 3
+	println("fixed", fn.val, len(fs), fs[7], fa.Used())
 }

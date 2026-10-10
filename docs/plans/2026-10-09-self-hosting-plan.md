@@ -758,7 +758,7 @@ Sizes are in lines written or changed, not in time.
 | Phase | Work | Size | Kind | Risk | Needs first | Status |
 |---|---|---:|---|---|---|---|
 | 0 | Escape errors for frame addresses (roadmap item 5); determinism fixes; direct single-pointer structs; itab lookup | 1,000-1,500 compiler | compiler | medium | - | direct single-pointer structs, hashed itab lookup, `//pu:stack` and the type checker's nesting limit done (roadmap item 54) |
-| 1 | Library: growable arenas, OS layer, `strconv` quoting and `ParseFloat`, `unicode` predicates, slices/heap/streaming hash, strings with allocators | 6,000 | library, half mechanical | low | - | growable arenas (`arena.Chunked`) and the OS layer (`os`, `os/exec`, `path/filepath`, `time`, `flag`) done (roadmap item 54); `strconv` quoting and `ParseFloat`, `unicode`, slices/heap/streaming hash remain |
+| 1 | Library: growable arenas, OS layer, `strconv` quoting and `ParseFloat`, `unicode` predicates, slices/heap/streaming hash, strings with allocators | 6,000 | library, half mechanical | low | - | growable arenas (`arena.Chunked`), the OS layer (`os`, `os/exec`, `path/filepath`, `time`, `flag`) and the `pu` mirror package with its go2pu mapping (section 11) done (roadmap items 52 and 54); `strconv` quoting and `ParseFloat`, `unicode`, slices/heap/streaming hash, and migrating the compiler to `pu` remain |
 | 2 | Back end: `ssa`, `opt`, `amd64`, `objfile` (**done** in the prototype, differential at `-O0`/`-O2`); port their Go tests; per-function arenas in `ssa` | 9,356 translated, ~300 by hand | mechanical | low | arenas | prototype done |
 | 3 | SSA reader; mixed pipeline (Go front end, Plutonium back end) on the whole test corpus | 400 | hand | low | 2 | not started |
 | 4 | Syntax: `token`, `scanner`, `ast`, `parser` (`recover` in the parser, `FileSet` without `sync`, iterators, drop `ast/print.go`) | 8,377 translated, ~400 by hand | mechanical | low | 1 | not started |
@@ -895,6 +895,27 @@ The methods are the Plutonium ones, with the same names and signatures (`Get`, `
 translation are the same text with a different import. In Go, `Drop` does nothing. Each type embeds a
 `noCopy` marker so that `go vet`'s copylocks check reports copies, which are the Go spelling of a use after
 move; `Clone` is the explicit copy in both languages.
+
+**Status (done, roadmap item 52).** `internal/pu` exists with the names above plus `NewVec`,
+`VecWithCapacity`, `NewMap`, `NewSet` and the iterators `MapIter` and `SetIter`; `pu.Map` holds its
+values behind pointers so that `Ptr` and `Upsert` can return them as `hash.Map`'s do. What the translation
+maps to today, where the library is not yet at the end state:
+
+- `pu.Buf` becomes `strings.Builder` (zero value usable, `Drop` added); it becomes `strings.Buf` with
+  roadmap item 51 by changing one entry of go2pu's table. `pu.Sprintf` becomes `selfhost/pu.Sprintf`,
+  which returns a `strings.Builder`: `pluto/fmt` cannot return a `pluto/strings` type yet without an
+  import cycle through the tests of `pluto/strings` (roadmap item 47).
+- `pu.New(v)` becomes `selfhost/pu.New(v)`, which copies `v` into memory from the default allocator,
+  the phase arena by the driver's convention. The library's spelling, `a.New[T]()` (added to
+  `arena.Arena` and `arena.Chunked`), names its arena, which the translated code does not have at hand.
+- The library gained what the mirror needs: zero `vec.Vec` and `hash.Map` values that take the default
+  allocator when they first grow, `Map.At`, `Clone` on `Vec`, `Map` and `Set`, and `Drop` on each.
+
+`TestPuMirrorsLibrary` (go2pu) checks that every name and method of `internal/pu` exists in the library
+under its mapped name; the `pudemo` demo, translated with no notes, prints the same output from Go and
+from Plutonium at `-O0` and `-O2`. The compiler's own code has not moved to `pu` yet (section 11.2). The
+lint configuration exempts `pu.Buf`'s writes from errcheck, as errcheck exempts `strings.Builder`'s;
+`fmt.Fprintf(&buf, ...)` into a `pu.Buf` needs its results discarded explicitly.
 
 ### 11.2 Migration
 
