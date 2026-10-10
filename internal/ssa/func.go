@@ -1,7 +1,9 @@
 package ssa
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 
 	"github.com/matjam/plutonium/internal/syntax/token"
 )
@@ -243,6 +245,11 @@ type Slot struct {
 	// when every access matches a leaf.
 	Leaves []Leaf
 
+	// Pads are the byte ranges of the slot's type that hold no data: the
+	// padding between fields and after the last one. Lowering derives them
+	// from the type's layout, independently of the leaves.
+	Pads []Pad
+
 	// Offset is assigned by frame layout, relative to the frame base.
 	Offset int64
 }
@@ -253,6 +260,38 @@ func (s *Slot) String() string { return fmt.Sprintf("%s#%d", s.Name, s.ID) }
 type Leaf struct {
 	Off  int64
 	Type *Type
+}
+
+// A Pad is a range of padding bytes in an aggregate.
+type Pad struct {
+	Off, Size int64
+}
+
+// LeavesCover reports whether the slot's leaves and pads tile it exactly:
+// every byte belongs to exactly one leaf or pad. A slot whose leaves miss
+// a byte holding data cannot be split into its leaves, since a block copy
+// through the split slot would lose that byte.
+func (s *Slot) LeavesCover() bool {
+	type span struct{ off, end int64 }
+	spans := make([]span, 0, len(s.Leaves)+len(s.Pads))
+	for _, l := range s.Leaves {
+		spans = append(spans, span{l.Off, l.Off + l.Type.Size})
+	}
+	for _, p := range s.Pads {
+		if p.Size <= 0 {
+			return false
+		}
+		spans = append(spans, span{p.Off, p.Off + p.Size})
+	}
+	slices.SortFunc(spans, func(a, b span) int { return cmp.Compare(a.off, b.off) })
+	var at int64
+	for _, sp := range spans {
+		if sp.off != at || sp.end <= sp.off {
+			return false
+		}
+		at = sp.end
+	}
+	return at == s.Size
 }
 
 // A SymKind classifies a symbol.
