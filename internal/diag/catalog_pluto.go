@@ -706,6 +706,42 @@ func init() {
 			Fix:  &Fix{Intro: "To hand work to a puroutine, wake one that waits for it, or send without waiting", Code: "select { case work <- item: default: }"},
 			Spec: pspec("12.6", "Interrupts"),
 		},
+		&Entry{
+			Code: UnknownDirective, Name: "UnknownDirective",
+			Text:    "A comment that starts with //pu: and no space is a directive: an instruction to the compiler. This one has a name the compiler does not know, so it would do nothing. A misspelt directive that was ignored could silently leave out an interrupt handler, a per-CPU variable or an inlining request, so the compiler reports it.\nThe directives are: build, inline, noinline, nobounds, extern, export, section, interrupt, noreturn, panic, blocking, scheduler, nosimd, fpu, percpu and stack.\nA comment that is only a note should start with // and a space.",
+			Why:     "Go ignores unknown //go: comments, which makes a typo easy to miss. Plutonium directives change what the program means, so a typo must not go unnoticed.",
+			Fix:     &Fix{Intro: "Use one of the directives, spelt exactly", Code: "//pu:interrupt\nfunc timer(frame *x86.InterruptFrame) { ... }"},
+			Spec:    pspec("9", "Directives"),
+			Example: "//pu:interupt\nfunc timer(frame *x86.InterruptFrame) { ... }",
+			Fixed:   "//pu:interrupt\nfunc timer(frame *x86.InterruptFrame) { ... }",
+		},
+		&Entry{
+			Code: RetiredDirective, Name: "RetiredDirective",
+			Text:    "This directive was removed because the compiler now works out for itself what it used to be told. Delete the line; the program means the same without it.\nRemoved directives and what replaced them:\n//pu:alloc: kernel code may allocate strings anywhere the allocator may be called.\n//pu:bytewise: the compiler proves that string slice bounds fall on rune boundaries.\n//pu:gofunc: the compiler finds which functions start puroutines with their func arguments.\n//pu:schedhook and //pu:schedlate: the compiler knows the runtime's scheduler hooks by name.\n//pu:noreturn on a function with a body: the compiler finds that a function never returns when its body ends in a terminating statement. The directive is still needed on a function without a body, written in assembly or C.",
+			Why:     "Plutonium asks for a directive only for a fact the compiler cannot derive from the program, so that using the language does not need knowledge of how the compiler works.",
+			Fix:     &Fix{Intro: "Delete the directive", Code: "func halt() {\n\tfor {\n\t}\n}"},
+			Spec:    pspec("9", "Directives"),
+			Example: "//pu:noreturn\nfunc halt() {\n\tfor {\n\t}\n}",
+			Fixed:   "func halt() {\n\tfor {\n\t}\n}",
+		},
+		&Entry{
+			Code: MisplacedDirective, Name: "MisplacedDirective",
+			Text:    "A directive belongs in the doc comment of the declaration it applies to: the lines of comment directly above it, with no blank line between. Each directive applies to one kind of declaration, such as functions or package-level variables, and //pu:build applies to a whole file and goes before the package clause. In any other place the compiler would not see it and it would do nothing.",
+			Why:     "Go's //go: directives are ignored when misplaced. Plutonium directives change what the program means, so a directive that does nothing is an error.",
+			Fix:     &Fix{Intro: "Put it directly above the declaration it applies to", Code: "//pu:noinline\nfunc slow() { ... }"},
+			Spec:    pspec("9", "Directives"),
+			Example: "func f() {\n\t//pu:noinline\n\tg()\n}",
+			Fixed:   "//pu:noinline\nfunc g() { ... }\n\nfunc f() {\n\tg()\n}",
+		},
+		&Entry{
+			Code: DirectiveArgument, Name: "DirectiveArgument",
+			Text:    "Some directives take an argument, such as the symbol name in //pu:extern, and the rest take none. This directive was given text it does not take, or lacks the argument it needs, so the compiler would not understand it. To explain why a directive is there, write an ordinary comment on a line of its own.",
+			Why:     "Go's //go: directives ignore text they do not expect. Plutonium directives change what the program means, so they are read exactly.",
+			Fix:     &Fix{Intro: "Write the directive alone on its line", Code: "// slow path, kept out of line.\n//pu:noinline\nfunc slow() { ... }"},
+			Spec:    pspec("9", "Directives"),
+			Example: "//pu:noinline keeps the profile readable\nfunc slow() { ... }",
+			Fixed:   "// Out of line to keep the profile readable.\n//pu:noinline\nfunc slow() { ... }",
+		},
 	)
 }
 

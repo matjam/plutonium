@@ -951,3 +951,7 @@ func explainUndefinedOp(s *spec) {
 	}
 	s.d.Text = fmt.Sprintf("%s has type %s, and the operator %s works only on %s.", types2.ExprString(operand), s.str(T), op, kinds)
 }
+
+// Closest returns the candidate most like name, if one is close enough to
+// be a likely misspelling, and "" otherwise.
+func Closest(name string, candidates []string) string { return closest(name, candidates) }

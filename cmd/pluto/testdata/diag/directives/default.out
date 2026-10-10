@@ -1,0 +1,89 @@
+$DIR/main.p:3:1: unknown directive //pu:interupt (did you mean //pu:interrupt?)
+    The compiler has no directive named interupt, so this comment would do
+    nothing. It is close to interrupt.
+    The directives are: blocking, build, export, extern, fpu, inline, interrupt,
+    nobounds, noinline, noreturn, nosimd, panic, percpu, scheduler, section,
+    stack.
+    A comment that is only a note should start with // and a space.
+    Go ignores unknown //go: comments, which makes a typo easy to miss.
+    Plutonium directives change what the program means, so a typo must not go
+    unnoticed.
+    Use the spelling the compiler knows:
+        //pu:interrupt
+    (see "Directives" in the Plutonium spec, section 9)
+    (run "pluto explain E2600" for a longer explanation)
+
+$DIR/main.p:6:1: //pu:alloc was removed: kernel code may allocate strings anywhere the allocator may be called
+    //pu:alloc is no longer needed: kernel code may allocate strings anywhere
+    the allocator may be called. Delete the line; the program means the same
+    without it.
+    Plutonium asks for a directive only for a fact the compiler cannot derive
+    from the program, so that using the language does not need knowledge of how
+    the compiler works.
+    Delete the line:
+        //pu:alloc (delete this line)
+    (see "Directives" in the Plutonium spec, section 9)
+    (run "pluto explain E2601" for a longer explanation)
+
+$DIR/main.p:9:1: //pu:noreturn is inferred for a function with a body: delete it
+    The compiler finds that a function never returns when it has no return
+    statement and its body ends in a terminating statement, such as an endless
+    loop, a panic, or a call of a function that never returns, however many
+    calls away. The directive is only needed on a function without a body,
+    written in assembly or C, which the compiler cannot look into.
+    Plutonium asks for a directive only for a fact the compiler cannot derive
+    from the program, so that using the language does not need knowledge of how
+    the compiler works.
+    Delete the directive:
+        func halt() {
+            for {
+            }
+        }
+    (see "Directives" in the Plutonium spec, section 9)
+    (run "pluto explain E2601" for a longer explanation)
+
+$DIR/main.p:15:1: //pu:percpu is in the wrong place: it goes in the doc comment of a package-level variable, not of a function
+    A directive does something only where the compiler looks for it. //pu:percpu
+    goes in the doc comment of a package-level variable, not of a function.
+    Go's //go: directives are ignored when misplaced. Plutonium directives
+    change what the program means, so a directive that does nothing is an error.
+    Move it:
+        //pu:percpu
+        var v T
+    (see "Directives" in the Plutonium spec, section 9)
+    (run "pluto explain E2602" for a longer explanation)
+
+$DIR/main.p:18:1: //pu:inline is in the wrong place: it goes in the doc comment of a function, not of a package-level variable
+    A directive does something only where the compiler looks for it. //pu:inline
+    goes in the doc comment of a function, not of a package-level variable.
+    Go's //go: directives are ignored when misplaced. Plutonium directives
+    change what the program means, so a directive that does nothing is an error.
+    Move it:
+        //pu:inline
+        func f() { ... }
+    (see "Directives" in the Plutonium spec, section 9)
+    (run "pluto explain E2602" for a longer explanation)
+
+$DIR/main.p:21:1: //pu:noinline takes no argument, found "because it is hot"
+    //pu:noinline stands alone on its line. Text after its name is not a
+    comment, and the compiler would not see the directive at all. Put an
+    explanation on a line of its own.
+    Go's //go: directives ignore text they do not expect. Plutonium directives
+    change what the program means, so they are read exactly.
+    Write the directive alone, and the explanation above it:
+        // because it is hot
+        //pu:noinline
+    (see "Directives" in the Plutonium spec, section 9)
+    (run "pluto explain E2603" for a longer explanation)
+
+$DIR/main.p:25:2: //pu:noinline is in the wrong place: it goes in the doc comment of a function, directly above it; it is not above any declaration here
+    A directive does something only where the compiler looks for it.
+    //pu:noinline goes in the doc comment of a function, directly above it; it
+    is not above any declaration here.
+    Go's //go: directives are ignored when misplaced. Plutonium directives
+    change what the program means, so a directive that does nothing is an error.
+    Move it:
+        //pu:noinline
+        func f() { ... }
+    (see "Directives" in the Plutonium spec, section 9)
+    (run "pluto explain E2602" for a longer explanation)

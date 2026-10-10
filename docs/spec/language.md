@@ -2732,6 +2732,13 @@ knowing how the compiler works. Ordinary hosted code needs only the requests: `/
 binding directives (`//pu:interrupt`, `//pu:panic`, `//pu:scheduler`, `//pu:percpu`, `//pu:fpu`,
 `//pu:blocking`) are for kernels.
 
+A `//pu:` comment that the compiler would not act on is an error, so that a misspelt directive does not
+silently change nothing: an unknown name (E2600, with the closest known name suggested), a directive that
+was removed because the compiler now works it out (E2601: `alloc`, `bytewise`, `gofunc`, `schedhook`,
+`schedlate`, and `noreturn` on a function with a body), a directive in a place it does not apply to (E2602:
+not in the doc comment of the right kind of declaration, or `//pu:build` after the package clause), and an
+argument a directive does not take or lacks (E2603). A note that is not a directive starts with `// `.
+
 | Directive | Applies to | Meaning |
 |---|---|---|
 | `//pu:build expr` | file | include the file only when `expr` holds |

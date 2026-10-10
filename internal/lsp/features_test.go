@@ -115,6 +115,40 @@ func TestDiagnosticsIncrementalChange(t *testing.T) {
 	})
 }
 
+// TestDiagnosticsDirectives checks that a //pu: comment the compiler would
+// ignore is reported: a misspelt directive, a removed one and a misplaced one.
+func TestDiagnosticsDirectives(t *testing.T) {
+	c, root := openDemo(t)
+	main := filepath.Join(root, "main.p")
+	bad := demo["main.p"] + "\n//pu:interupt\nfunc handler() {}\n\n//pu:alloc\nfunc build() {}\n\n//pu:percpu\nfunc notAVariable() {}\n"
+	c.notify("textDocument/didChange", DidChangeTextDocumentParams{
+		TextDocument:   VersionedTextDocumentIdentifier{URI: uriFromPath(main), Version: 2},
+		ContentChanges: []TextDocumentContentChangeEvent{{Text: bad}},
+	})
+	diags := c.diagnostics(main, func(d []Diagnostic) bool { return len(d) >= 3 })
+	want := map[string][2]string{ // code: message, the comment it is about
+		"E2600": {"unknown directive //pu:interupt (did you mean //pu:interrupt?)", "//pu:interupt"},
+		"E2601": {"//pu:alloc was removed: kernel code may allocate strings anywhere the allocator may be called", "//pu:alloc"},
+		"E2602": {"//pu:percpu is in the wrong place: it goes in the doc comment of a package-level variable, not of a function", "//pu:percpu"},
+	}
+	src := newText([]byte(bad))
+	for _, d := range diags {
+		w, ok := want[d.Code]
+		if !ok {
+			continue
+		}
+		i := strings.Index(bad, w[1])
+		if d.Message != w[0] || d.Severity != SeverityError || d.Range.Start != src.rangeOf(i, i).Start {
+			t.Errorf("%s: %+v", d.Code, d)
+		}
+		delete(want, d.Code)
+	}
+	for code := range want {
+		t.Errorf("no %s diagnostic in %+v", code, diags)
+	}
+	c.shutdown()
+}
+
 func TestBuildModes(t *testing.T) {
 	root := writeFiles(t, map[string]string{
 		"k/kernel.p":  "//pu:build kernel\n\npackage k\n\nvar K int = \"no\"\n",

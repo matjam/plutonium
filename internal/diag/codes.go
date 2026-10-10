@@ -64,6 +64,15 @@ const (
 	SchedulerTimers    Code = "E2595" // a program that uses timers with a scheduler that has no Now or ArmTimer
 )
 
+// Directives (internal/directive): a //pu: comment the compiler would
+// otherwise ignore.
+const (
+	UnknownDirective   Code = "E2600" // a //pu: directive with a name the compiler does not know
+	RetiredDirective   Code = "E2601" // a directive that was removed because the compiler now works it out
+	MisplacedDirective Code = "E2602" // a directive where it has no effect
+	DirectiveArgument  Code = "E2603" // a directive with an argument it does not take, or without one it needs
+)
+
 // Finding and loading packages.
 const (
 	NotMainPackage    Code = "E4001" // building a package that is not package main
