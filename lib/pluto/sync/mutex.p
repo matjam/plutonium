@@ -37,11 +37,15 @@ func (m *Mutex) Lock() {
 func (m *Mutex) lockSlow() {
 	front := false
 	for {
-		for i := 0; i < 64; i++ {
+		// Spin briefly: the holder is usually running on another
+		// processor and about to unlock, which is far cheaper than
+		// parking and being woken.
+		for i := 0; i < 8; i++ {
 			s := atomic.LoadUint32(&m.state)
 			if s&mutexLocked == 0 && atomic.CompareAndSwapUint32(&m.state, s, s|mutexLocked) {
 				return
 			}
+			rt.SpinWait(30)
 		}
 		m.mu.Lock()
 		s := atomic.LoadUint32(&m.state)

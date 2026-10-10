@@ -91,6 +91,8 @@ type p struct {
 	schedtick   uint32 // incremented each time the P starts running a puroutine
 	syscalltick uint32 // incremented at each system call
 	link        *p
+	stacks      [pStackCacheMax]unsafe.Pointer // cached stacks (allocStack)
+	nstacks     int
 
 	// sysmon's view of the P.
 	smSchedtick   uint32
@@ -382,7 +384,18 @@ func findRunnable(mp *m) *Task {
 				mp.spinning = true
 				xadd32(&hs.nmspinning, 1)
 			}
-			for i := 0; i < 4; i++ {
+			// Look for a while (some tens of microseconds) before going
+			// to sleep: work that arrives soon is taken without a futex
+			// wakeup, which costs more than the spinning.
+			for i := 0; i < 64; i++ {
+				if i >= 4 {
+					for k := 0; k < 64; k++ {
+						pause()
+					}
+					if load32(&hs.runqsize) != 0 {
+						break
+					}
+				}
 				start := uint32(mrand(mp)) % n
 				for k := uint32(0); k < n; k++ {
 					p2 := hs.allp[(start+k)%n]
@@ -1038,32 +1051,80 @@ func protectGuard(mem unsafe.Pointer, access bool) {
 	Mprotect(mem, pageSize, prot)
 }
 
-// Stacks of one size from the program-wide default allocator are kept in a
-// small cache, guard page and all, since mapping and protecting pages costs
-// several system calls. Builds that track allocation sites (the debug
-// allocator) cache nothing, so every stack is checked as it is freed.
+// Stacks of one size from the program-wide default allocator are kept in
+// caches, guard page and all, since mapping and protecting pages costs
+// several system calls: a few per P, used without locks, in front of a
+// shared one. Builds that track allocation sites (the debug allocator)
+// cache nothing, so every stack is checked as it is freed.
 
-const stackCacheMax = 64
+const (
+	stackCacheMax  = 64
+	pStackCacheMax = 8
+)
 
 var stackCache struct {
 	lock  Lock
 	n     int
-	total uintptr
+	total uintptr // the size of the cached stacks, fixed by the first one
 	a     Allocator
 	mem   [stackCacheMax]unsafe.Pointer
 }
 
-func allocStack(total uintptr, a Allocator) unsafe.Pointer {
-	if !TrackSites && stackCache.n > 0 {
-		c := &stackCache
+// cacheable reports whether a stack of total bytes from a may be cached.
+func cacheable(total uintptr, a Allocator) bool {
+	if TrackSites || a != defaultAllocator {
+		return false
+	}
+	c := &stackCache
+	if c.total == 0 {
 		c.lock.Lock()
-		if c.n > 0 && c.total == total && c.a == a {
-			c.n--
-			p := c.mem[c.n]
-			c.lock.Unlock()
-			return p
+		if c.total == 0 {
+			c.total, c.a = total, a
 		}
 		c.lock.Unlock()
+	}
+	return c.total == total && c.a == a
+}
+
+// pinP disables preemption and returns the running worker's P, or nil.
+func pinP() *p {
+	mp := getm()
+	if t := mp.curg; t != nil {
+		inc32(&t.locks)
+	}
+	if mp.syscallp != nil {
+		return nil
+	}
+	return mp.p
+}
+
+func unpinP() {
+	if t := getm().curg; t != nil {
+		dec32(&t.locks)
+	}
+}
+
+func allocStack(total uintptr, a Allocator) unsafe.Pointer {
+	if hs.started && cacheable(total, a) {
+		pp := pinP()
+		if pp != nil && pp.nstacks > 0 {
+			pp.nstacks--
+			mem := pp.stacks[pp.nstacks]
+			unpinP()
+			return mem
+		}
+		unpinP()
+		c := &stackCache
+		if c.n > 0 {
+			c.lock.Lock()
+			if c.n > 0 {
+				c.n--
+				mem := c.mem[c.n]
+				c.lock.Unlock()
+				return mem
+			}
+			c.lock.Unlock()
+		}
 	}
 	mem := allocAt(a, total, pageSize, StackSite)
 	protectGuard(mem, false)
@@ -1071,13 +1132,18 @@ func allocStack(total uintptr, a Allocator) unsafe.Pointer {
 }
 
 func freeStack(mem unsafe.Pointer, total uintptr, a Allocator) {
-	if !TrackSites && a == defaultAllocator {
+	if hs.started && cacheable(total, a) {
+		pp := pinP()
+		if pp != nil && pp.nstacks < pStackCacheMax {
+			pp.stacks[pp.nstacks] = mem
+			pp.nstacks++
+			unpinP()
+			return
+		}
+		unpinP()
 		c := &stackCache
 		c.lock.Lock()
-		if c.n == 0 {
-			c.total, c.a = total, a
-		}
-		if c.n < stackCacheMax && c.total == total && c.a == a {
+		if c.n < stackCacheMax {
 			c.mem[c.n] = mem
 			c.n++
 			c.lock.Unlock()
@@ -1093,7 +1159,7 @@ func freeStack(mem unsafe.Pointer, total uintptr, a Allocator) {
 // that reports leaks sees them returned.
 func flushStackCache() {
 	c := &stackCache
-	if c.n == 0 {
+	if c.total == 0 {
 		return
 	}
 	c.lock.Lock()
@@ -1102,6 +1168,8 @@ func flushStackCache() {
 		protectGuard(c.mem[c.n], true)
 		c.a.Free(c.mem[c.n], c.total, pageSize)
 	}
+	// The Ps' own caches are left alone: their workers may be using them
+	// while the program exits.
 	c.lock.Unlock()
 }
 

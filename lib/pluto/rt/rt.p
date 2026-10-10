@@ -497,21 +497,36 @@ func memmove(dst, src unsafe.Pointer, n int) {
 	if n <= 0 || dst == src {
 		return
 	}
+	// Eight bytes at a time (x86-64 allows unaligned words), then the
+	// rest. Forward when dst is below src or the ranges do not overlap,
+	// backward otherwise, so every word is read before it is overwritten.
 	d := uintptr(dst)
 	s := uintptr(src)
 	if d < s || d >= s+uintptr(n) {
-		for i := 0; i < n; i++ {
+		i := 0
+		for ; i+8 <= n; i += 8 {
+			*(*uint64)(unsafe.Add(dst, i)) = *(*uint64)(unsafe.Add(src, i))
+		}
+		for ; i < n; i++ {
 			*(*byte)(unsafe.Add(dst, i)) = *(*byte)(unsafe.Add(src, i))
 		}
 		return
 	}
-	for i := n - 1; i >= 0; i-- {
+	i := n
+	for ; i >= 8; i -= 8 {
+		*(*uint64)(unsafe.Add(dst, i-8)) = *(*uint64)(unsafe.Add(src, i-8))
+	}
+	for i--; i >= 0; i-- {
 		*(*byte)(unsafe.Add(dst, i)) = *(*byte)(unsafe.Add(src, i))
 	}
 }
 
 func memclr(p unsafe.Pointer, n int) {
-	for i := 0; i < n; i++ {
+	i := 0
+	for ; i+8 <= n; i += 8 {
+		*(*uint64)(unsafe.Add(p, i)) = 0
+	}
+	for ; i < n; i++ {
 		*(*byte)(unsafe.Add(p, i)) = 0
 	}
 }

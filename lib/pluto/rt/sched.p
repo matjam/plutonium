@@ -654,6 +654,15 @@ func (l *Lock) Unlock() {
 	}
 }
 
+// SpinWait executes the processor's spin-wait hint (PAUSE) n times: a
+// short busy wait for a lock that another processor will release soon,
+// which pluto/sync uses before it parks.
+func SpinWait(n int) {
+	for i := 0; i < n; i++ {
+		pause()
+	}
+}
+
 // ----------------------------------------------------------------------------
 
 // fastrand returns a pseudo-random number from t's generator (xorshift64*),
