@@ -54,6 +54,9 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 	// Static calls of declared functions.
 	if id := identOf(fun); id != nil {
 		if fn, ok := s.info.Uses[id].(*types2.Func); ok {
+			if res, ok := s.intrinsic(fn, e); ok {
+				return res
+			}
 			targs := s.instanceArgs(id)
 			sig := s.subst(s.info.Types[e.Fun].Type).(*types2.Signature)
 			sym := s.l.funcSym(fn, targs)

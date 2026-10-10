@@ -4,7 +4,7 @@
 //
 // Memory management differs by language and is part of what is measured:
 // Go relies on its garbage collector, C calls malloc/free, Rust drops Box
-// values, Plutonium frees through its compiler-inserted ownership scheme.
+// values, Plutonium frees explicitly, like C.
 
 const MAX_DEPTH: i64 = 18;
 

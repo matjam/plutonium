@@ -2,10 +2,8 @@
 // lived perfect binary trees plus one long-lived tree.
 // Measures allocation/deallocation throughput and pointer chasing.
 //
-// No explicit frees: per docs/plans/2026-03-15-memory-lifecycle-design.md,
-// each tree is owned by the local variable it is assigned to (t, longLived)
-// and freed when that variable's scope ends; child pointers stored in struct
-// fields are owned by their parent node and released recursively with it.
+// Trees are freed explicitly, like the C version: Plutonium's raw pointers
+// are never freed by the compiler (owned[T] would free them automatically).
 package main
 
 import "pluto/fmt"
@@ -34,9 +32,19 @@ func itemCheck(n *Node) int64 {
 	return 1 + itemCheck(n.left) + itemCheck(n.right)
 }
 
+func freeTree(n *Node) {
+	if n.left != nil {
+		freeTree(n.left)
+		freeTree(n.right)
+	}
+	alloc.Free(n)
+}
+
 func stretch(depth int64) int64 {
 	t := bottomUpTree(depth)
-	return itemCheck(t)
+	c := itemCheck(t)
+	freeTree(t)
+	return c
 }
 
 func main() int64 {
@@ -56,10 +64,12 @@ func main() int64 {
 		for i := int64(0); i < iterations; i++ {
 			t := bottomUpTree(d)
 			check += itemCheck(t)
+			freeTree(t)
 		}
 		fmt.Printf("%d %d %d\n", iterations, d, check)
 	}
 
 	fmt.Printf("%d %d\n", maxDepth, itemCheck(longLived))
+	freeTree(longLived)
 	return 0
 }
