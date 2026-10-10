@@ -1,3 +1,3 @@
 panic: runtime error: integer divide by zero
-    main.ratio ($FILE:4)
-    main.main ($FILE:12)
+    main.ratio (./main.p:4)
+    main.main (./main.p:12)
