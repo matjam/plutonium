@@ -342,10 +342,16 @@ made with `clone(2)` without a C library. Each worker has its own run queue, and
 half the queue of a busy one, so load spreads across processors without any work by the program. A
 monitor thread preempts a puroutine that has run for 10 ms by sending its thread a signal, and hands the
 processor of a worker blocked in a system call (`rt.EnterSyscall`, which `pluto/os` file I/O uses) to
-another worker. Waits for I/O go through one epoll poller: `os.Pipe`'s descriptors are non-blocking,
-and a puroutine that reads an empty pipe or writes a full one parks there (`rt.PollWait`). When every
-puroutine waits for another and nothing waits for I/O, a system call or an armed timer, the program
-stops with "fatal error: all puroutines are asleep - deadlock!" and status 2, as in Go.
+another worker. Waits for I/O go through one epoll poller, on Go's design: a non-blocking descriptor
+(`os.Pipe`'s, or one given to `os.NewFile`, such as a socket made with `SOCK_NONBLOCK`) has a poller
+record (`rt.PollDesc`) with its own queue of puroutines waiting to read and another of those waiting to
+write, so a read and a write can wait on one socket at once, and an event wakes everything waiting for
+it. A puroutine that reads an empty pipe or writes a full one parks there. `Close` on the `os.File`
+wakes every waiter, whose `Read` or `Write` then reports `os.ErrClosed`, and so does any later use of the
+file; the descriptor itself is closed when the last operation in progress on it returns, so that the
+number is not reused under a running call. When every puroutine waits for another and nothing waits
+for I/O, a system call or an armed timer, the program stops with "fatal error: all puroutines are
+asleep - deadlock!" and status 2, as in Go.
 
 A hosted program catches `SIGPIPE` at startup, with a handler that does nothing (so a program it starts
 with `os/exec` gets the default action back), and follows Go's rule: a write to a pipe or socket with no
@@ -2932,6 +2938,7 @@ hold, and most have a `Clone`.
 | `pluto/arena` | bump allocators; freeing into one does nothing, and `Reset` reclaims everything (section 6.6) |
 | `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf`, `Sprint` and `Sprintln` returning a string, `Bprintf` into a caller's buffer, `Println`; integer, float, string, pointer verbs with width, precision and flags; arrays, slices, structs, pointers, interfaces and enums with `%v`, `%+v` and `%#v` as Go prints them, read from type descriptors (section 4.4), and containers through `fmt.Mapper` (`hash.Map` prints as `map[k:v]` with sorted keys) and `fmt.Lister` (`vec.Vec` prints as a slice); formatting goes through a fixed buffer, and only the `S` functions allocate, for their result; `Errorf` and `ErrorBuf` (section 14) |
 | `pluto/container` | the constraints of the indexing interface (section 6.7): `Indexable`, `Reader`, `Lookup`, `Sized` |
+| `pluto/container/heap` | Go's `container/heap` (`Init`, `Push`, `Pop`, `Remove`, `Fix` over a `heap.Interface`), and `Heap[T]`, a min-heap in a `vec.Vec` ordered by a less function, without boxing elements in `any` |
 | `pluto/io` | `Reader`, `Writer`, buffered I/O |
 | `pluto/os` | files (`os.File`, an owner that closes on drop), `Stat`, whole-file reads and writes, directories (`ReadDir` returns a `DirEntries` owner), removal, renaming, temporary directories, the working directory, pipes, processes, arguments, environment, exit (hosted) |
 | `pluto/os/exec` | running commands: `Cmd` (an owner), pipes copied inside `Wait`, `ExitError` in the data word (hosted) |
@@ -2939,15 +2946,18 @@ hold, and most have a `Clone`.
 | `pluto/time` | `Duration`, `Time` in UTC with a monotonic reading, `Now`, `Since`; `Sleep`, `Timer`, `Ticker`, `After`, `Tick` and `AfterFunc` over the scheduler's timers (section 4.7) |
 | `pluto/flag` | command-line flags; a `FlagSet` owns its flags and their variables |
 | `pluto/syscall` | raw Linux system calls (hosted) |
+| `pluto/strconv` | `Itoa`, `FormatInt`, `FormatFloat`, `Quote` returning strings, with `Append` forms that write into a caller's buffer; `ParseUint`, `ParseInt`, `Atoi`, `ParseFloat` (decimal and hexadecimal, any rounding case, exact as Go's), `PutUint`, `IsPrint`, `CanBackquote`; a failed parse returns `ErrSyntax` or `ErrRange` itself, and `NewNumError` makes Go's `*NumError` from an allocator when a caller wants one |
 | `pluto/strings`, `pluto/bytes` | `strings.Builder`, which builds a string in a buffer it shares with the result (section 6.10); searching, comparison, case conversion, `Join`, `Repeat`, `Replace`, `FromUTF8`; Go 1.24's iterators `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq`, `FieldsFuncSeq` |
-| `pluto/strconv` | `Itoa`, `FormatInt`, `Quote` returning strings, with `Append` forms that write into a caller's buffer; parsing |
 | `pluto/iter` | `Seq` and `Seq2` (section 4.10), and adaptors that allocate nothing: `Filter`, `Map`, `Limit`, `Concat` (each with a `2` form), `Enumerate`, `Keys`, `Values`, `Reduce`, `Count`, `Fill`. Go's `Pull` needs a coroutine per iterator and has no equivalent |
 | `pluto/bits` | bit operations (section 5.8) |
 | `pluto/math` | floating-point functions |
 | `pluto/hash` | `Map[K, V]` and `Set[K]`, owners that record their allocator; `All`, `Keys` and `Values` iterate in table order, the same for the same changes and seed |
 | `pluto/vec` | `Vec[T]`, a growable owner that records its allocator; `All`, `Values` and `Backward` iterate it, reading it as they go so the body may change it |
 | `pluto/sort` | sorting without allocation |
+| `pluto/cmp` | Go's `cmp`: `Ordered`, `Less`, `Compare`, `Or` |
+| `pluto/slices` | Go's `slices`: `Sort`, `SortFunc`, `SortStableFunc` (pdqsort and in-place merge sort, three-way comparison functions), `BinarySearch`, `Index`, `Contains`, `Equal`, `Compare`, `Max`, `Min`, `IsSorted`, `Reverse`, `Compact`, `Clip`, and the iterators `All`, `Values`, `Backward`, `Chunk`; `Insert`, `Delete`, `Replace` and `AppendSeq` work within the slice's capacity, and `Clone`, `Concat`, `Repeat`, `Collect`, `Sorted`, `SortedFunc`, `SortedStableFunc` (each with an `In` form taking an allocator) return a `vec.Vec` |
 | `pluto/sync/atomic` | atomic integers and pointers |
+| `pluto/unicode` | Go's `unicode` with Go 1.27's Unicode 17.0.0 tables (generated by `tools/mkunicode`): `IsLetter`, `IsDigit`, `IsSpace`, `IsUpper`, `IsLower`, `IsPunct`, `IsPrint`, `IsGraphic`, `ToUpper`, `ToLower`, `ToTitle`, `SimpleFold`, `Is` and `In` over `RangeTable`s; a variable for each category, script and property table, and no maps from names to tables |
 | `pluto/unicode/utf8` | UTF-8 encoding and decoding |
 | `pluto/testing` | tests and benchmarks for `pluto test` (hosted) |
 | `pluto/errors` | `New` (a static error per call site), `Is`, `As`, `AsType`, `Unwrap`, `Join`, `Free` (section 14) |
@@ -3048,8 +3058,8 @@ comparable. `errors.As` is generic, `func As[E any](err error, target *E) bool`,
 
 ### 14.5 Differences in the standard library
 
-`os.File.Read`, `Write` and `Close` report a bare `syscall.Errno` (and `io.EOF`), not a `*PathError`, so
-that I/O does not allocate. `strconv` reports `ErrSyntax` and `ErrRange` without Go's `*NumError`. An
+`os.File.Read`, `Write` and `Close` report a bare `syscall.Errno` (and `io.EOF`, and `os.ErrClosed` for a
+closed file), not a `*PathError`, so that I/O does not allocate. `strconv` reports `ErrSyntax` and `ErrRange` without Go's `*NumError`. An
 `Errno` the table does not know reports `"unknown error"`.
 
 ### 14.6 Allocated errors and ownership (proposal, needs sign-off)

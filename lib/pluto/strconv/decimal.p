@@ -276,3 +276,23 @@ func (a *decimal) roundUp(nd int) {
 	a.nd = 1
 	a.dp++
 }
+
+// roundedInteger extracts the integer part, rounded appropriately.
+// There are no guarantees about overflow.
+func (a *decimal) roundedInteger() uint64 {
+	if a.dp > 20 {
+		return 0xFFFFFFFFFFFFFFFF
+	}
+	var i int
+	n := uint64(0)
+	for i = 0; i < a.dp && i < a.nd; i++ {
+		n = n*10 + uint64(a.d[i]-'0')
+	}
+	for ; i < a.dp; i++ {
+		n *= 10
+	}
+	if shouldRoundUp(a, a.dp) {
+		n++
+	}
+	return n
+}

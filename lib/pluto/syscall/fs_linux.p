@@ -13,6 +13,7 @@ const (
 	SYS_NANOSLEEP  = 35
 	SYS_CLONE      = 56
 	SYS_FORK       = 57
+	SYS_SOCKETPAIR = 53
 	SYS_EXECVE     = 59
 	SYS_WAIT4      = 61
 	SYS_FSYNC      = 74
@@ -38,6 +39,13 @@ const (
 
 	AT_SYMLINK_NOFOLLOW = 0x100
 	AT_REMOVEDIR        = 0x200
+
+	// Socket domains, types and flags for Socketpair.
+	AF_UNIX       = 1
+	SOCK_STREAM   = 1
+	SOCK_DGRAM    = 2
+	SOCK_NONBLOCK = 0x800
+	SOCK_CLOEXEC  = 0x80000
 
 	F_GETFD    = 1
 	F_SETFD    = 2
@@ -227,6 +235,13 @@ func Ftruncate(fd int, size int64) error {
 // Pipe2 creates a pipe: p[0] is the read end, p[1] the write end.
 func Pipe2(p *[2]int32, flags int) error {
 	return errOnly(Syscall(SYS_PIPE2, uintptr(unsafe.Pointer(p)), uintptr(flags), 0))
+}
+
+// Socketpair makes a pair of connected sockets: domain AF_UNIX, typ
+// SOCK_STREAM or SOCK_DGRAM, optionally with SOCK_NONBLOCK and
+// SOCK_CLOEXEC.
+func Socketpair(domain, typ, proto int, fds *[2]int32) error {
+	return errOnly(Syscall6(SYS_SOCKETPAIR, uintptr(domain), uintptr(typ), uintptr(proto), uintptr(unsafe.Pointer(fds)), 0, 0))
 }
 
 // Dup3 duplicates oldfd onto newfd; flags may be O_CLOEXEC.
