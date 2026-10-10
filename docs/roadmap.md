@@ -1,6 +1,6 @@
 # Plutonium roadmap
 
-**Updated:** 2026-10-09
+**Updated:** 2026-10-10
 
 Every known gap between the specification ([language.md](spec/language.md),
 [memory-model.md](spec/memory-model.md), [abi.md](spec/abi.md)) and the compiler and standard library,
@@ -116,8 +116,10 @@ later takes the next free number and is listed in the section where it belongs.
     the same way and waits for item 15.
 22. **Range over func and iterators** (planned): `for x := range f` is rejected with "range over
     functions is not supported yet".
-23. **Richer type descriptors** (planned): element types, lengths, field offsets, types and names, so `fmt`
-    can print composite values and `hash` can hash them generically.
+23. **Richer type descriptors** (done; abi.md section 5): element types, lengths, field offsets, types and
+    names, the `*T` descriptor for types with pointer methods, and Go's `reflect` type names, emitted for
+    converted types and the types they are made of, read through `rt.Type`. Field names follow
+    `--fieldnames` (off by default in kernel mode). Generic hashing in `hash` can now be built on them.
 24. **Compile-time type-switch folding** (planned): `switch any(x).(type)` on a type parameter decided per
     instantiation, as language spec section 4.4 promises.
 25. **Enums and sum types**: enums are done (language spec section 5.9,
@@ -176,8 +178,11 @@ later takes the next free number and is listed in the section where it belongs.
 
 ## Standard library
 
-40. **`fmt` `%v` for composite types** (planned): structs, arrays, slices and pointers to them print as
-    `{TypeName}` today; needs item 23.
+40. **`fmt` `%v` for composite types** (done): arrays, slices, structs, pointers, interfaces, enums and
+    `[]byte` print as Go prints them with `%v`, `%+v`, `%#v`, `Print` and `Println`, including Go's
+    `%!verb(type=value)`; `hash.Map` prints as a map with sorted keys and `vec.Vec` as a slice, through
+    `fmt.Mapper` and `fmt.Lister`. Checked against Go by `testdata/run/fmtvalues.p`. Not yet Go's: `%+q`
+    and `%#q` quoting, width on quoted strings, and union values (item 25).
 41. **Symbolised stack traces on panic** (done): the compiler's trace table, walked by the panic path
     and the hosted fault handler, usable in kernels (`rt.Traceback`); inlined calls are frames of their
     own. Files are named relative to the module root and the standard library, so builds are

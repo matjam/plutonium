@@ -84,6 +84,15 @@ func (v *Vec[T]) Index(i int) T { return v.data[i] }
 // is out of range.
 func (v *Vec[T]) SetIndex(i int, x T) { v.data[i] = x }
 
+// FmtList returns a pointer to the first element and the number of
+// elements, so that pluto/fmt prints v like a slice (fmt.Lister).
+func (v *Vec[T]) FmtList() (any, int) {
+	if len(v.data) == 0 {
+		return nil, 0
+	}
+	return &v.data[0], len(v.data)
+}
+
 // Ptr returns a pointer to element i, valid until v grows or is freed.
 // &v[i] is not allowed, since v[i] is a copy; Ptr is the way to change an
 // element in place.

@@ -233,6 +233,19 @@ func (m *Map[K, V]) SetIndex(k K, v V) { *m.slot(k) = v }
 // Has reports whether k is in the map.
 func (m *Map[K, V]) Has(k K) bool { return m.find(k) >= 0 }
 
+// FmtSlots and FmtSlot let pluto/fmt print m like a Go map, map[k:v], with
+// its keys sorted (fmt.Mapper). FmtSlots returns the number of slots, and
+// FmtSlot pointers to the key and value in slot i, if it is full.
+func (m *Map[K, V]) FmtSlots() int { return len(m.slots) }
+
+// FmtSlot: see FmtSlots.
+func (m *Map[K, V]) FmtSlot(i int) (k, v any, ok bool) {
+	if m.meta[i] == metaEmpty {
+		return nil, nil, false
+	}
+	return &m.slots[i].key, &m.slots[i].val, true
+}
+
 // Ptr returns a pointer to the value stored for k, or nil. The pointer is
 // valid until the map is next modified.
 func (m *Map[K, V]) Ptr(k K) *V {

@@ -193,10 +193,13 @@ own, so the kind comes from the interface type:
 The predeclared `error` is an ordinary interface. How an error that allocates memory is freed exactly once
 is the subject of the proposal in section 14.6.
 
-Type descriptors exist only for types that are converted to an interface. Besides identifying the type,
-a descriptor records its size, alignment and kind, and its element type and length or its field offsets
-and types, which is what generic printing, hashing and equality in the standard library use. Field names
-are included unless the build strips them. There is no reflection package.
+Type descriptors exist only for types that are converted to an interface, and for the types those are
+made of (their elements, fields and pointees). Besides identifying the type, a descriptor records its
+size, alignment and kind, and its element type and length or its field offsets and types, which is what
+generic printing, hashing and equality in the standard library use (abi.md section 5). Field names are
+included unless the build strips them: `--fieldnames=false` leaves them out, and kernel mode leaves them
+out unless `--fieldnames=true` is given. There is no reflection package; `pluto/rt.Type` reads
+descriptors for the standard library.
 
 Inside generic code, `switch any(x).(type)` on a value of a type parameter is decided at compile time for
 each instantiation, so it costs nothing at run time.
@@ -2105,7 +2108,8 @@ hold, and most have a `Clone`.
 | `pluto/alloc` | allocators, the default allocator, `Use`/`Restore`, `Owned`/`Shared`/`Synced`, and the unchecked layer `Raw`/`New`/`Free` (section 7.1) |
 | `pluto/alloc/debug` | the checking allocator (section 7.3) |
 | `pluto/arena` | bump allocators; freeing into one does nothing, and `Reset` reclaims everything (section 6.6) |
-| `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf` returning a `strings.Buf`, `Bprintf` into a caller's buffer, `Println`; integer, float, string, pointer verbs with width, precision and flags; `Errorf` and `ErrorBuf` (section 14) |
+| `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf` returning a `strings.Buf`, `Bprintf` into a caller's buffer, `Println`; integer, float, string, pointer verbs with width, precision and flags; arrays, slices, structs, pointers, interfaces and enums with `%v`, `%+v` and `%#v` as Go prints them, read from type descriptors (section 4.4), and containers through `fmt.Mapper` (`hash.Map` prints as `map[k:v]` with sorted keys) and `fmt.Lister` (`vec.Vec` prints as a slice); all formatting goes through a fixed buffer and never allocates; `Errorf` and `ErrorBuf` (section 14) |
+| `pluto/container` | the constraints of the indexing interface (section 6.7): `Indexable`, `Reader`, `Lookup`, `Sized` |
 | `pluto/io` | `Reader`, `Writer`, buffered I/O |
 | `pluto/os` | files (`os.File`, an owner that closes on drop), arguments, environment, exit (hosted) |
 | `pluto/syscall` | raw Linux system calls (hosted) |
