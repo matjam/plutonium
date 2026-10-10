@@ -11,5 +11,5 @@ func printFloat(bits uint64, bitSize int) {
 	} else {
 		printString("float64=")
 	}
-	writePointer(nil, uintptr(bits)) // hexadecimal with 0x
+	writePointer(Console{}, uintptr(bits)) // hexadecimal with 0x
 }

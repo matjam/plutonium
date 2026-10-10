@@ -2190,12 +2190,17 @@ type Fault struct {
 	Signal int       // the signal that reported it in hosted builds, or 0
 }
 
-func (p *Panic) Print(w rt.Writer)      // the panic as a hosted program prints it, then the trace
-func (p *Panic) PrintTrace(w rt.Writer) // the stack trace alone
+func (p *Panic) Print[W rt.Writer](w W)      // the panic as a hosted program prints it, then the trace
+func (p *Panic) PrintTrace[W rt.Writer](w W) // the stack trace alone
 ```
 
 `rt.Writer` has the method of `io.Writer`, so any writer will do; `rt.Console{}` writes where `print`
-does (in freestanding builds, the function registered with `rt.SetConsole`). The message lives in a
+does (in freestanding builds, the function registered with `rt.SetConsole`; in hosted builds, standard
+error, with a system call that never waits). The methods are generic so that a writer of a known type is
+called directly: a call through the `rt.Writer` interface counts, for the check of section 12.6, as
+calling every writer the program has. For the same reason a hosted handler should write to `rt.Console{}`
+rather than `os.Stderr`: once a program makes a pipe, writing to an `os.File` may wait for the poller,
+and the check cannot tell which file is written. The message lives in a
 buffer of the runtime (1 KiB, longer messages are cut), and printing the trace reads the trace table and
 the stack (debugging.md section 5), so nothing allocates. Since a panic does not unwind, the stack the
 trace describes is still there while the handler runs.

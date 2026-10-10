@@ -263,7 +263,8 @@ reported with its trace. The scheduler's preemption signal (`SIGURG`) runs on th
 Walking the stack allocates nothing and needs no operating system: it reads the trace table and the stack.
 A freestanding program's panic handler (language spec section 8.1) prints the trace where it likes with
 `p.PrintTrace(w)`, or the whole report, message, fault and trace, with `p.Print(w)`, to any `rt.Writer`;
-`rt.Console{}` writes through `rt.SetConsole`'s writer. Since a panic does not unwind, the frames the
+`rt.Console{}` writes through `rt.SetConsole`'s writer (in a hosted program, to standard error with a
+system call that never waits, which makes it the writer for a hosted panic handler too). Since a panic does not unwind, the frames the
 trace describes are still on the stack while the handler runs. A kernel's exception handlers turn a fault
 into a panic whose trace starts at the faulting instruction with
 
