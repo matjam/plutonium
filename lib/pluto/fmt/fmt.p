@@ -8,7 +8,7 @@
 // %v prints basic values, errors (Error) and Stringers (String). Other
 // structured values print as their type name in braces, since Plutonium has
 // no reflection. %s, %q, %x and %X apply to an error's message. %w is
-// accepted only by Errorf, ErrorfIn and ErrorBuf.Errorf (see errorf.p),
+// accepted only by Errorf and ErrorBuf.Errorf (see errorf.p),
 // where it prints the error like %v and wraps it.
 package fmt
 

@@ -1,7 +1,6 @@
 package build_test
 
 import (
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -9,7 +8,10 @@ import (
 // TestErrorConventionErrors checks that the ways of building an error
 // message that would allocate behind the program's back, or of asking
 // errors.AsType for something that is not an error, are compile errors.
+// errors.New takes only a constant message, so a message built at run time
+// fails there first.
 func TestErrorConventionErrors(t *testing.T) {
+	const notConstant = "errors.New needs a constant message, since each call site makes one static error; use fmt.Errorf to build a message at run time"
 	cases := []struct{ name, src, want string }{
 		{"concatenated message", `package main
 
@@ -18,7 +20,7 @@ import "pluto/errors"
 func fail(name string) error { return errors.New("open " + name) }
 
 func main() { _ = fail("x") }
-`, "runtime string concatenation is not permitted in Plutonium"},
+`, notConstant},
 		{"message from bytes", `package main
 
 import "pluto/errors"
@@ -28,6 +30,37 @@ var ErrBad error
 func main() {
 	b := []byte{'x'}
 	ErrBad = errors.New(string(b))
+}
+`, notConstant},
+		{"message from a variable", `package main
+
+import "pluto/errors"
+
+var msg = "bad"
+
+var ErrBad = errors.New(msg)
+
+func main() { _ = ErrBad }
+`, notConstant},
+		{"concatenated buffer message", `package main
+
+import "pluto/fmt"
+
+func fail(buf *fmt.ErrorBuf, name string) error { return buf.Errorf("%s", "open "+name) }
+
+func main() {
+	var buf fmt.ErrorBuf
+	_ = fail(&buf, "x")
+}
+`, "runtime string concatenation is not permitted in Plutonium"},
+		{"buffer message from bytes", `package main
+
+import "pluto/fmt"
+
+func main() {
+	var buf fmt.ErrorBuf
+	b := []byte{'x'}
+	_ = buf.Errorf("%s", string(b))
 }
 `, "is not permitted in Plutonium (it allocates a copy)"},
 		{"AsType of a non-error", `package main
@@ -52,28 +85,22 @@ func main() {
 	}
 }
 
-// TestErrorsNewLimit checks that errors.New, which hands out static storage
-// meant for package-level sentinels, panics with an explanation when a
-// program calls it more often than that storage allows.
-func TestErrorsNewLimit(t *testing.T) {
-	const src = `package main
-
-import "pluto/errors"
-
-func main() {
-	for i := 0; i < 1000; i++ {
-		_ = errors.New("made at run time")
+// TestErrorsNewUses checks that errors.New, whose error belongs to a call
+// site, can only be called: taking its value or deferring it is a compile
+// error. testdata/lib/errorsnew.p covers the calls themselves.
+func TestErrorsNewUses(t *testing.T) {
+	cases := []struct{ name, body, want string }{
+		{"func value", "f := errors.New\n\t_ = f", "errors.New cannot be used as a func value"},
+		{"func value argument", "apply(errors.New)", "errors.New cannot be used as a func value"},
+		{"deferred", "defer errors.New(\"x\")", "errors.New cannot be deferred"},
 	}
-}
-`
-	out, status := compileAndRun(t, src, 0)
-	if status != 2 {
-		t.Fatalf("exit status %d, want 2; output:\n%s", status, out)
-	}
-	// The message, then the stack trace from errors.New to main.
-	const want = "panic: errors.New: more than 512 errors; declare errors in package-level variables, or use fmt.Errorf\n" +
-		"    pluto/errors.New ($PLUTOROOT/pluto/errors/errors.p:"
-	if !strings.HasPrefix(out, want) || !regexp.MustCompile(`\n    main\.main \([^)]*/main\.p:7\)\n$`).MatchString(out) {
-		t.Fatalf("output %q, want %q, a line, and main.main at main.p:7", out, want)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			src := "package main\n\nimport \"pluto/errors\"\n\nfunc apply(f func(string) error) { _ = f }\n\nfunc main() {\n\t" + c.body + "\n}\n"
+			err := buildError(t, src)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("error %v, want %q", err, c.want)
+			}
+		})
 	}
 }

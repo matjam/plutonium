@@ -836,7 +836,7 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 				sym := s.l.funcSym(fn, targs)
 				full := s.l.methodSig(fn, targs)
 				sig := s.subst(funTV.Type).(*types2.Signature)
-				args := s.saveValues(s.callArgs(call, sig))
+				args := s.saveValues(s.callArgs(call, sig, &defaultsOf{fn, targs}))
 				run = func(s *fnState) {
 					r := s.loadFrom(recv.v, recv.T)
 					s.emitCall(callee{sym: sym}, full, &r, s.loadValues(args), call.Pos())
@@ -849,9 +849,13 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 		}
 		if id := identOf(fun); id != nil {
 			if fn, ok := s.info.Uses[id].(*types2.Func); ok {
-				sym := s.l.funcSym(fn, s.instanceArgs(id))
+				if s.l.errorsNewValue(fn, call.Pos(), "deferred") {
+					return
+				}
+				targs := s.instanceArgs(id)
+				sym := s.l.funcSym(fn, targs)
 				sig := s.subst(funTV.Type).(*types2.Signature)
-				args := s.saveValues(s.callArgs(call, sig))
+				args := s.saveValues(s.callArgs(call, sig, &defaultsOf{fn, targs}))
 				run = func(s *fnState) { s.emitCall(callee{sym: sym}, sig, nil, s.loadValues(args), call.Pos()) }
 				break
 			}
@@ -859,7 +863,7 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 		// Any other callee: evaluate the func value now.
 		sig := s.typeOf(call.Fun).Underlying().(*types2.Signature)
 		fv := s.saveValue(scalarValue(s.scalar(call.Fun), s.typeOf(call.Fun)))
-		args := s.saveValues(s.callArgs(call, sig))
+		args := s.saveValues(s.callArgs(call, sig, nil))
 		run = func(s *fnState) {
 			f := s.loadFrom(fv.v, fv.T).v
 			s.emitCall(callee{code: s.load(ssa.TPtr, f), ctx: f}, sig, nil, s.loadValues(args), call.Pos())

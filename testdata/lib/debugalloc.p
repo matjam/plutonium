@@ -94,11 +94,12 @@ func main() {
 	for i := 0; i < 1000; i++ {
 		v.Push(i)
 	}
-	m := hash.NewMap[int, string](d, 0)
+	m := hash.NewMap[int, string](0, d)
 	for i := 0; i < 100; i++ {
 		m.Set(i, "x")
 	}
-	b := strings.NewBuilderIn(d, 4)
+	var b strings.Builder
+	b.Grow(4, d)
 	for i := 0; i < 50; i++ {
 		b.WriteString("ab")
 	}

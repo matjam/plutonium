@@ -568,6 +568,10 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 		}
 		// Plutonium: making a slice takes an optional final allocator
 		// argument, told from a capacity by its type (spec section 4.2).
+		// Channels take one too (spec 4.8, make(chan T, n, a)); channel
+		// types are rejected until they exist (roadmap item 15), and
+		// supporting them means treating *Chan like *Slice here and
+		// allocating in lower's make.
 		max := min + 1
 		_, isSlice := u.(*Slice)
 		if isSlice {

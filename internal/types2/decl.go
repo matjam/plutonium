@@ -769,7 +769,12 @@ func (check *Checker) funcDecl(obj *Func, decl *declInfo) {
 	obj.typ = sig // guard against cycles
 
 	fdecl := decl.fdecl
-	check.funcType(sig, fdecl.Recv, fdecl.Type)
+	if defs := check.funcType(sig, fdecl.Recv, fdecl.Type); defs != nil {
+		obj.defaults = defs
+		check.later(func() {
+			check.defaultValues(decl, sig, defs)
+		}).describef(obj, "defaults of func %s", obj.name)
+	}
 
 	// types2 handles go:nointerface pragma here by setting obj.nointerface.
 	// go/types currently doesn't handle pragmas.

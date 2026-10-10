@@ -61,6 +61,7 @@ type Lowerer struct {
 	interruptSyms  map[*ssa.Sym]bool     // //pu:interrupt functions
 	cfuncs         map[*ssa.Sym]bool     // //pu:extern symbols, called with the C convention
 	statics        int                   // anonymous static objects created
+	errorSites     map[*ast.CallExpr]*ssa.Sym // static error of each errors.New call site
 	types          *typeTable
 
 	errs []error
@@ -105,6 +106,7 @@ func Lower(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 		globals:        map[*types2.Var]*ssa.Sym{},
 		strs:           map[string]*ssa.Sym{},
 		closureRecords: map[*ssa.Sym]*ssa.Sym{},
+		errorSites:     map[*ast.CallExpr]*ssa.Sym{},
 		exports:        map[*ssa.Sym][]string{},
 		interruptSyms:  map[*ssa.Sym]bool{},
 		cfuncs:         map[*ssa.Sym]bool{},

@@ -93,7 +93,14 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		return one(scalarValue(ptr, T))
 
 	case "make":
-		st := unwrap(T).Underlying().(*types2.Slice)
+		st, isSlice := unwrap(T).Underlying().(*types2.Slice)
+		if !isSlice {
+			// The checker rejects channel and map types. Channels (roadmap
+			// item 15) will allocate here, from the optional final
+			// allocator as slices do: make(chan T, n, a).
+			s.l.errorf(e.Pos(), "lower: make of %s is not supported", T)
+			return nil
+		}
 		et := s.subst(st.Elem())
 		n := s.indexValue(e.Args[1])
 		c := n

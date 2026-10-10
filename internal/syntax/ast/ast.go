@@ -204,6 +204,13 @@ type Field struct {
 	Type    Expr          // field/method/parameter type; or nil
 	Tag     *BasicLit     // field tag; or nil
 	Comment *CommentGroup // line comments; or nil
+
+	// Plutonium: a parameter's default value, as in "a Allocator =
+	// Default()" (language spec section 5.1). Assign is the position of
+	// the "=", and Default is nil for a parameter without one. The parser
+	// records defaults in parameter lists only, one parameter per field.
+	Assign  token.Pos
+	Default Expr
 }
 
 func (f *Field) Pos() token.Pos {
@@ -217,6 +224,9 @@ func (f *Field) Pos() token.Pos {
 }
 
 func (f *Field) End() token.Pos {
+	if f.Default != nil {
+		return f.Default.End()
+	}
 	if f.Tag != nil {
 		return f.Tag.End()
 	}

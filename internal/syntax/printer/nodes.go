@@ -372,11 +372,14 @@ func (p *printer) parameters(fields *ast.FieldList, mode paramMode) {
 			}
 			// parameter type
 			p.expr(stripParensAlways(par.Type))
-			// Plutonium default parameter values (spec section 5.1,
-			// "a Allocator = Default()") print here, as blank, "=", blank
-			// and the default expression, once the AST records them on
-			// ast.Field. The parser does not accept them yet, so there is
-			// nothing to print.
+			// Plutonium default parameter values (spec section 5.1):
+			// "a Allocator = Default()".
+			if par.Default != nil {
+				p.print(blank)
+				p.setPos(par.Assign)
+				p.print(token.ASSIGN, blank)
+				p.expr(par.Default)
+			}
 			prevLine = parLineEnd
 		}
 

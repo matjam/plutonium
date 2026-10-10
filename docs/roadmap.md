@@ -46,6 +46,8 @@ tooling, platforms and libraries.
     (abi.md section 10.6).
 11. **Error design** (in progress): how errors are made, wrapped and given context without hidden
     allocation, given that frame-boxed interfaces cannot be returned; owned by a dedicated design note.
+    The library conventions and `errors.New` as a static error per call site (design 9.1) are done; the
+    escape checks of item 5 remain.
 12. **`//pu:extern` C struct classification** (done): System V eightbyte classification for aggregate
     parameters and results, hidden result pointers, several results as a struct, export wrappers and
     func-value thunks (abi.md section 9.1); `.c` and `.o` files in packages are linked (section 9.2).
@@ -75,8 +77,11 @@ tooling, platforms and libraries.
 19. **Methods with type parameters** (done): merged on 2026-10-09; method values must be instantiated.
 20. **owned, shared, synced and the move checker** (planned): the types exist in the checker; moves,
     use-after-move errors, `Drop` calls, reference counting and the allocator header word do not.
-21. **Default parameter values** (planned): language spec section 5.1. Until then the library has
-    `alloc.New`/`alloc.NewIn` pairs.
+21. **Default parameter values** (done): language spec section 5.1, with the open questions settled
+    there (variadic functions, function values, interface methods, generics, `f(g())`). The library's
+    `F`/`FIn` pairs are single functions with a trailing allocator defaulting to `alloc.Default()`;
+    `new` and `make` take an optional allocator (section 4.2). `make(chan T, n, a)` parses the allocator
+    the same way and waits for item 15.
 22. **Range over func and iterators** (planned): `for x := range f` is rejected with "range over
     functions is not supported yet".
 23. **Richer type descriptors** (planned): element types, lengths, field offsets, types and names, so `fmt`

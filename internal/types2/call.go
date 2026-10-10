@@ -314,6 +314,7 @@ func (check *Checker) callExpr(x *operand, call *ast.CallExpr) exprKind {
 	// evaluate arguments
 	args, atargs := check.genericExprList(call.Args)
 	sig = check.arguments(call, sig, targs, xlist, args, atargs)
+	check.errorsNewCall(call, args)
 
 	if wasGeneric && sig.TypeParams().Len() == 0 {
 		// Update the recorded type of call.Fun to its instantiated type.
@@ -530,6 +531,14 @@ func (check *Checker) arguments(call *ast.CallExpr, sig *Signature, targs []Type
 			return
 		}
 		// standard_func(a, b, c)
+		// Plutonium: a call to a declared function may omit any suffix of
+		// its defaulted parameters (language spec section 5.1); check the
+		// arguments against the parameters they fill.
+		if nargs < npars && nargs >= npars-len(check.calleeDefaults(call)) {
+			sigParams = NewTuple(sig.params.vars[:nargs]...) // possibly nil!
+			adjusted = true
+			npars = nargs
+		}
 	}
 
 	// check argument count
@@ -774,6 +783,7 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 					x.typ_ = x.typ().(*Pointer).base
 				}
 			case *Func:
+				check.noteFunc(e.Sel, exp)
 				x.mode_ = funcMode
 				x.typ_ = exp.typ
 				if pkg.cgo && strings.HasPrefix(exp.name, "_Cmacro_") {
@@ -940,6 +950,7 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 			// TODO(gri) If we needed to take into account the receiver's
 			// addressability, should we report the type &(x.typ) instead?
 			check.recordSelection(e, MethodVal, x.typ(), obj, index, indirect)
+			check.noteFunc(e.Sel, obj)
 
 			// TODO(gri) The verification pass below is disabled for now because
 			//           method sets don't match method lookup in some cases.

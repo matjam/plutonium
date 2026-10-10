@@ -49,6 +49,8 @@ Interfaces are partially supported today (compile-time dispatch for non-empty in
 | `aligned[T, N]` | Guarantees N-byte alignment for DMA buffers, SIMD, page tables |
 | `ring[T, N]` | Built-in lock-free ring buffer with compiler-inlined Push/Pop/Len |
 | `enum` types | Scoped members (`Color.Red`), exhaustive switches, checked conversions, generated `String` |
+| Default parameter values | `func New[T any](a Allocator = Default()) *T`; callers may omit trailing defaulted arguments |
+| `new(T, a)`, `make([]T, n, a)` | `new` and `make` allocate from the default allocator or one passed last |
 | `bits[V]` lens | Zero-cost bit-addressing over existing variables (Set/Clear/Test/Toggle) |
 | `alloc.New[T]()` | Explicit heap allocation via slab allocator with auto reference counting |
 | RAII auto-free | Compiler inserts `decRef` at scope exit; no manual free required |
@@ -65,8 +67,6 @@ The compiler enforces kernel safety at compile time:
 | `chan T` | No scheduler |
 | `select {}` | No scheduler |
 | `map[K]V` | Requires GC; use `pluto/hash` |
-| `new(T)` | No implicit heap allocation; use `alloc.New[T]()` |
-| `make([]T, n)` | No implicit heap allocation; use explicit allocators |
 | `interface{}` | No runtime type metadata yet; full structural interfaces are planned |
 | `panic(...)` | No runtime unwinder |
 | `recover()` | No runtime unwinder |

@@ -140,8 +140,7 @@ panic: debug allocator: double free of 0x7f9a2e1b2fe8 (24-byte allocation #2)
   allocated at main.makeNode (/home/me/prog/main.p:12)
   freed at main.release (/home/me/prog/main.p:18)
     pluto/alloc/debug.(*Allocator).Free ($PLUTOROOT/pluto/alloc/debug/debug.p:424)
-    pluto/alloc.freeAt[main.node] ($PLUTOROOT/pluto/alloc/alloc.p:74)
-    pluto/alloc.Free[main.node] ($PLUTOROOT/pluto/alloc/alloc.p:56)
+    pluto/alloc.Free[main.node] ($PLUTOROOT/pluto/alloc/alloc.p:63)
     main.release (/home/me/prog/main.p:18)
     main.main (/home/me/prog/main.p:28)
 
@@ -181,9 +180,9 @@ allocation hold canaries.
 
 ## Allocation sites
 
-With the `allocsites` tag (set by `--alloc=debug`), `new`, `make`, `alloc.New`, `alloc.NewIn`,
-`alloc.Raw`, `alloc.Free` and `alloc.FreeIn` publish their caller's address through `rt.AllocSite` while the allocator
-runs, and the debug allocator stores it with the block. The address comes from `rt.CallerPC`, which the
+With the `allocsites` tag (set by `--alloc=debug`), `new`, `make`, `alloc.New`, `alloc.Raw` and
+`alloc.Free`, with or without an allocator argument, publish their caller's address through
+`rt.AllocSite` while the allocator runs, and the debug allocator stores it with the block. The address comes from `rt.CallerPC`, which the
 compiler implements as one instruction: a load of the return address, or, where the function is inlined,
 the address of the inlined code. Code that calls an allocator's methods directly (`vec`, `hash`,
 `strings.Builder`) reports "an unknown site".

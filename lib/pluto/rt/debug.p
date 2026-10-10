@@ -21,8 +21,8 @@ var allocSite uintptr
 // AllocSite returns the return address of the allocating or freeing call in
 // progress, or 0 if it is not known: an allocator may record it as where
 // memory was allocated or freed. When TrackSites is set, new and make set
-// it, as do alloc.New, alloc.NewIn, alloc.Raw, alloc.Free and
-// alloc.FreeIn; code that calls an Allocator's methods directly does not.
+// it, as do alloc.New, alloc.Raw and alloc.Free; code that calls an
+// Allocator's methods directly does not.
 func AllocSite() uintptr { return allocSite }
 
 // SetAllocSite publishes pc as the site of the allocation or free about to

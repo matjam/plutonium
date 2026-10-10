@@ -913,6 +913,10 @@ func (p *parser) parseDotsType() *ast.Ellipsis {
 type field struct {
 	name *ast.Ident
 	typ  ast.Expr
+
+	// Plutonium: a parameter's default value ("a Allocator = Default()").
+	assign token.Pos
+	def    ast.Expr
 }
 
 func (p *parser) parseParamDecl(name *ast.Ident, typeSetsOK bool) (f field) {
@@ -927,7 +931,7 @@ func (p *parser) parseParamDecl(name *ast.Ident, typeSetsOK bool) (f field) {
 		p.tok = token.IDENT // force token.IDENT case in switch below
 	} else if typeSetsOK && p.tok == token.TILDE {
 		// "~" ...
-		return field{nil, p.embeddedElem(nil)}
+		return field{typ: p.embeddedElem(nil)}
 	}
 
 	switch p.tok {
@@ -1029,12 +1033,21 @@ func (p *parser) parseParameterList(name0 *ast.Ident, typ0 ast.Expr, closing tok
 			if tparams {
 				typ0 = p.embeddedElem(typ0)
 			}
-			par = field{name0, typ0}
+			par = field{name: name0, typ: typ0}
 		} else {
 			par = p.parseParamDecl(name0, tparams)
 		}
 		name0 = nil // 1st name was consumed if present
 		typ0 = nil  // 1st typ was consumed if present
+		if !tparams && p.tok == token.ASSIGN {
+			// Plutonium: "= expr" gives the parameter a default value.
+			// The checker decides where defaults are allowed.
+			par.assign = p.pos
+			p.next()
+			p.exprLev++
+			par.def = p.parseRhs()
+			p.exprLev--
+		}
 		if par.name != nil || par.typ != nil {
 			list = append(list, par)
 			if par.name != nil && par.typ != nil {
@@ -1095,6 +1108,10 @@ func (p *parser) parseParameterList(name0 *ast.Ident, typ0 ast.Expr, closing tok
 					par.name = n
 				}
 			} else if typ != nil {
+				if par.def != nil {
+					// "a = x, b T": a default needs a type of its own.
+					p.error(par.assign, "a default value must follow a single parameter name and its type")
+				}
 				par.typ = typ
 			} else {
 				// par.typ == nil && typ == nil => we only have a par.name
@@ -1158,32 +1175,43 @@ func (p *parser) parseParameterList(name0 *ast.Ident, typ0 ast.Expr, closing tok
 		// parameter list consists of types only
 		for _, par := range list {
 			assert(par.typ != nil, "nil type in unnamed parameter list")
-			params = append(params, &ast.Field{Type: par.typ})
+			params = append(params, &ast.Field{Type: par.typ, Assign: par.assign, Default: par.def})
 		}
 		return
 	}
 
 	// If the parameter list consists of named parameters with types,
 	// collect all names with the same types into a single ast.Field.
+	// A parameter with a default value gets a field of its own.
 	var names []*ast.Ident
 	var typ ast.Expr
-	addParams := func() {
+	addParams := func(assign token.Pos, def ast.Expr) {
 		assert(typ != nil, "nil type in named parameter list")
-		field := &ast.Field{Names: names, Type: typ}
+		field := &ast.Field{Names: names, Type: typ, Assign: assign, Default: def}
 		params = append(params, field)
 		names = nil
 	}
 	for _, par := range list {
 		if par.typ != typ {
 			if len(names) > 0 {
-				addParams()
+				addParams(token.NoPos, nil)
 			}
 			typ = par.typ
+		}
+		if par.def != nil {
+			if len(names) > 0 {
+				// "a, b T = x" would give the default to b alone.
+				p.error(par.assign, "a default value must follow a single parameter name and its type")
+				addParams(token.NoPos, nil)
+			}
+			names = append(names, par.name)
+			addParams(par.assign, par.def)
+			continue
 		}
 		names = append(names, par.name)
 	}
 	if len(names) > 0 {
-		addParams()
+		addParams(token.NoPos, nil)
 	}
 	return
 }
