@@ -450,9 +450,19 @@ func (s *fnState) conversion(e *ast.CallExpr) value {
 
 	v := s.expr(arg)
 	if v.addr {
+		if s.l.scalarType(unwrap(to)) != nil {
+			// A byte array to a packed type held in a register.
+			return s.loadFrom(v.v, to)
+		}
 		// Aggregates convert between identical layouts unchanged.
 		v.T = to
 		return v
+	}
+	if s.l.scalarType(unwrap(to)) == nil {
+		// A packed value held in a register to its byte array.
+		tmp := s.temp(to, "conv")
+		s.storeTo(tmp, v, from)
+		return aggValue(tmp, to)
 	}
 	return scalarValue(s.convertScalar(v.v, from, to), to)
 }

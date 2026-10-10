@@ -30,14 +30,29 @@ import (
 //	16 name  string
 //	32 equal func(a, b unsafe.Pointer) bool   (nil if not comparable or direct)
 //
+// The descriptor of a union (kind 30) continues, mirrored by
+// pluto/rt.unionDesc, with
+//
+//	40 payload  uintptr        offset of the payload
+//	48 variants *[n]variant    one entry per variant, in tag order
+//	56 count    int            n
+//
+// and each variant entry (32 bytes) is
+//
+//	0  name  string
+//	16 typ   *typeDesc        the payload's descriptor; nil without a payload
+//	24 iface uintptr          1 if the payload is an empty interface, 2 another interface
+//
 // Itab layout: type descriptor, interface descriptor, then one code pointer
 // per interface method in method order. Each code pointer is an adapter
 // taking the data word as its first argument.
 
 const (
-	descSize   = 40
-	itabHeader = 16
-	flagDirect = 1
+	descSize      = 40
+	unionDescSize = 64
+	variantSize   = 32
+	itabHeader    = 16
+	flagDirect    = 1
 )
 
 // Kind numbers in type descriptors (Go's reflect numbering, plus Plutonium's).
@@ -71,6 +86,7 @@ const (
 	kindPacked
 	kindRing
 	kindOwned
+	kindUnion
 )
 
 type descInfo struct {
@@ -121,7 +137,47 @@ func (tt *typeTable) desc(T types2.Type) *ssa.Sym {
 	if !tt.l.isDirect(T) && types2.Comparable(T) && !isInterface(T) {
 		d.equal = tt.l.closureRecord(tt.l.equalFunc(T))
 	}
+	if u, ok := T.Underlying().(*types2.TaggedUnion); ok {
+		// fmt prints a union's variant and payload from its descriptor.
+		for i := 0; i < u.NumVariants(); i++ {
+			if v := u.Variant(i); v.HasPayload() {
+				tt.desc(v.Payload())
+			}
+		}
+	}
 	return d.sym
+}
+
+// unionDesc fills in the union part of the descriptor data of a union type
+// u (named key): the payload offset and the table of variants.
+func (tt *typeTable) unionDesc(data *ssa.Data, key string, u *types2.TaggedUnion) {
+	l := tt.l
+	_, off := types2.UnionLayout(l.sizes, u)
+	n := u.NumVariants()
+	binary.LittleEndian.PutUint64(data.Bytes[40:], uint64(off))
+	binary.LittleEndian.PutUint64(data.Bytes[56:], uint64(n))
+	table := &ssa.Data{Sym: l.out.Sym("variants:"+key, ssa.SymData), Size: int64(variantSize * n), Align: 8, ReadOnly: true}
+	table.Bytes = make([]byte, table.Size)
+	for i := range n {
+		v := u.Variant(i)
+		base := int64(variantSize * i)
+		binary.LittleEndian.PutUint64(table.Bytes[base+8:], uint64(len(v.Name())))
+		table.Relocs = append(table.Relocs, ssa.DataReloc{Off: base, Sym: l.stringData(v.Name())})
+		if !v.HasPayload() {
+			continue
+		}
+		P := v.Payload()
+		table.Relocs = append(table.Relocs, ssa.DataReloc{Off: base + 16, Sym: tt.descs[typeString(P)].sym})
+		if iface, ok := P.Underlying().(*types2.Interface); ok {
+			kind := uint64(2)
+			if iface.Empty() {
+				kind = 1
+			}
+			binary.LittleEndian.PutUint64(table.Bytes[base+24:], kind)
+		}
+	}
+	l.out.Data = append(l.out.Data, table)
+	data.Relocs = append(data.Relocs, ssa.DataReloc{Off: 48, Sym: table.Sym})
 }
 
 // itab returns the itab symbol for concrete type T and interface I.
@@ -185,8 +241,13 @@ func (tt *typeTable) emit() {
 	sort.Strings(keys)
 	for _, k := range keys {
 		d := tt.descs[k]
-		data := &ssa.Data{Sym: d.sym, Size: descSize, Align: 8, ReadOnly: true}
-		buf := make([]byte, descSize)
+		descLen := int64(descSize)
+		u, isUnion := d.T.Underlying().(*types2.TaggedUnion)
+		if isUnion {
+			descLen = unionDescSize
+		}
+		data := &ssa.Data{Sym: d.sym, Size: descLen, Align: 8, ReadOnly: true}
+		buf := make([]byte, descLen)
 		size := int64(0)
 		if !isInterface(d.T) {
 			size = l.sizeof(d.T)
@@ -205,6 +266,9 @@ func (tt *typeTable) emit() {
 		data.Relocs = append(data.Relocs, ssa.DataReloc{Off: 16, Sym: l.stringData(name)})
 		if d.equal != nil {
 			data.Relocs = append(data.Relocs, ssa.DataReloc{Off: 32, Sym: d.equal})
+		}
+		if isUnion {
+			tt.unionDesc(data, k, u)
 		}
 		l.out.Data = append(l.out.Data, data)
 	}
@@ -285,6 +349,8 @@ func kindOf(T types2.Type) byte {
 		return kindStruct
 	case *types2.Packed:
 		return kindPacked
+	case *types2.TaggedUnion:
+		return kindUnion
 	case *types2.Wrapper:
 		if u.Kind() == types2.WrapRing {
 			return kindRing
@@ -594,6 +660,9 @@ func (l *Lowerer) ifaceMethodValueWrapper(I types2.Type, fn *types2.Func) *ssa.S
 // typeAssert lowers x.(T). With commaOk it returns the value and a bool;
 // otherwise a failed assertion panics.
 func (s *fnState) typeAssert(e *ast.TypeAssertExpr, commaOk bool) (value, *ssa.Value) {
+	if types2.UnionVariants(s.typeOf(e.X)) != nil {
+		return s.unionAssert(e, commaOk)
+	}
 	iv := s.expr(e.X)
 	I := s.typeOf(e.X)
 	T := s.subst(s.info.Types[e.Type].Type)

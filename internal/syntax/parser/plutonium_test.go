@@ -171,6 +171,138 @@ func f(c Color) {
 	}
 }
 
+func TestParseUnionTypes(t *testing.T) {
+	src := `package p
+
+type DeviceState union {
+	Off
+	Probing struct{ attempt int } // retrying
+	Ready   struct {
+		irq  uint8
+		base uintptr
+	}
+	// Failed holds the error.
+	Failed syscall.Errno
+	A, B   int
+}
+
+type Result[T any, E any] union {
+	Ok  T
+	Err E
+}
+
+type PTE packed union uint64 {
+	present bits[bool, 1]
+
+	Swapped case false {
+		slot bits[uint64, 63]
+	}
+	Mapped case true { frame bits[uint64, 40] }
+}
+
+type Desc packed union le [8]byte {
+	kind, sub bits[uint8, 4]
+	Code case 1, 2 {}
+	Data case kind(3) {
+		flags bits { R W }
+	}
+}
+
+type Old packed union { u uint8 }
+
+type union int
+
+type U2 union
+type U3 union[int]
+type U4 = union
+
+func f(union int) int {
+	var x union = union(union)
+	return int(x) + union
+}
+`
+	f, err := ParseFile(token.NewFileSet(), "union.p", src, ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var unions []*ast.UnionType
+	var packed []*ast.PackedType
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.UnionType:
+			unions = append(unions, n)
+		case *ast.PackedType:
+			packed = append(packed, n)
+		}
+		return true
+	})
+	if len(unions) != 4 {
+		t.Fatalf("got %d union types, want 4", len(unions))
+	}
+	dev, res, pte, desc := unions[0], unions[1], unions[2], unions[3]
+	if dev.Packed.IsValid() || dev.Pos() != dev.Union || len(dev.Fields.List) != 5 {
+		t.Fatalf("DeviceState: packed %v, %d variants", dev.Packed, len(dev.Fields.List))
+	}
+	if off := dev.Fields.List[0]; off.Names != nil || off.Type.(*ast.Ident).Name != "Off" {
+		t.Errorf("Off variant = %#v, want a lone name", off)
+	}
+	if c := dev.Fields.List[1].Comment; c == nil || c.Text() != "retrying\n" {
+		t.Errorf("Probing comment = %v", c)
+	}
+	if d := dev.Fields.List[3].Doc; d == nil || d.Text() != "Failed holds the error.\n" {
+		t.Errorf("Failed doc = %v", d)
+	}
+	if n := len(dev.Fields.List[4].Names); n != 2 {
+		t.Errorf("A, B: %d names", n)
+	}
+	if len(res.Fields.List) != 2 {
+		t.Errorf("Result: %d variants", len(res.Fields.List))
+	}
+
+	if !pte.Packed.IsValid() || pte.Pos() != pte.Packed || pte.Order != ast.NativeEndian {
+		t.Errorf("PTE: packed %v order %v", pte.Packed, pte.Order)
+	}
+	if id, ok := pte.Backing.(*ast.Ident); !ok || id.Name != "uint64" {
+		t.Errorf("PTE backing = %#v", pte.Backing)
+	}
+	if len(pte.Fields.List) != 3 {
+		t.Fatalf("PTE: %d fields", len(pte.Fields.List))
+	}
+	if _, ok := pte.Fields.List[0].Type.(*ast.IndexListExpr); !ok {
+		t.Errorf("PTE tag type = %T", pte.Fields.List[0].Type)
+	}
+	vc, ok := pte.Fields.List[1].Type.(*ast.VariantCase)
+	if !ok || len(vc.Values) != 1 || len(vc.Fields.List) != 1 || vc.Pos() != vc.Case || vc.End() != vc.Fields.Closing+1 {
+		t.Fatalf("Swapped = %#v", pte.Fields.List[1].Type)
+	}
+	if desc.Order != ast.LittleEndian || len(desc.Fields.List) != 3 {
+		t.Errorf("Desc: order %v, %d fields", desc.Order, len(desc.Fields.List))
+	}
+	if vc := desc.Fields.List[1].Type.(*ast.VariantCase); len(vc.Values) != 2 || len(vc.Fields.List) != 0 {
+		t.Errorf("Code: %d values, %d fields", len(vc.Values), len(vc.Fields.List))
+	}
+	if vc := desc.Fields.List[2].Type.(*ast.VariantCase); len(vc.Values) != 1 {
+		t.Errorf("Data: %d values", len(vc.Values))
+	} else if _, ok := vc.Fields.List[0].Type.(*ast.BitsGroup); !ok {
+		t.Errorf("Data flags = %T", vc.Fields.List[0].Type)
+	}
+	// packed union { ... } is a packed type backed by a type named union.
+	if len(packed) != 1 || packed[0].Backing.(*ast.Ident).Name != "union" {
+		t.Errorf("packed union {...}: %d packed types", len(packed))
+	}
+
+	for _, bad := range []struct{ src, want string }{
+		{"package p\ntype U union { 1 }", "expected '}'"},
+		{"package p\ntype U packed union uint8 { A case { } }", "expected operand"},
+		{"package p\ntype U packed union uint8 { A case 1 x }", "expected '{'"},
+		{"package p\nvar x union { A int }", "expected ';'"},
+	} {
+		if _, err := ParseFile(token.NewFileSet(), "bad.p", bad.src, 0); err == nil || !strings.Contains(err.Error(), bad.want) {
+			t.Errorf("%q: got error %v, want %q", bad.src, err, bad.want)
+		}
+	}
+}
+
 // TestParseTypeConstructorExprs checks that type constructors with constant
 // arguments parse in expression position, as composite literal types and
 // conversions, not only in declarations.

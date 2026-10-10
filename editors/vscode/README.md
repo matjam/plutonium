@@ -1,9 +1,34 @@
 # Plutonium for Visual Studio Code
 
-Syntax highlighting and `pluto fmt` formatting for [Plutonium](https://github.com/matjam/plutonium)
-source files (`.p`). Works in VS Code and its forks (Cursor, VSCodium).
+Language support for [Plutonium](https://github.com/matjam/plutonium) source files (`.p`):
+highlighting, and through the `pluto lsp` language server, diagnostics, hover, navigation,
+completion and formatting. Works in VS Code and its forks (Cursor, VSCodium).
 
 ## Features
+
+**The language server**, `pluto lsp`, runs while `plutonium.useLanguageServer` is on (the
+default). It type-checks open files as you type (without compiling them), and provides:
+
+- diagnostics: syntax and type errors, including Plutonium's own rules, for open files and their
+  packages, with the error code (`E0024`) and its explanation;
+- hover: the declaration and doc comment of the name under the cursor, its kind under the
+  ownership rules (value, view, `owner type (moves)`, shared), an enum's members, and what a
+  `//pu:` directive means; on an error, its full explanation;
+- go to definition, including into the standard library, and find references in the workspace;
+- the outline (document symbols) and workspace symbols;
+- completion of names in scope, package members, fields, methods and enum members, and keywords;
+- signature help, rename, and *Explain this error* (a code action that shows `pluto explain`);
+- formatting, the same as `pluto fmt`.
+
+It checks code for the target and mode in the settings (default `x86_64-linux`, hosted). A file
+that this build leaves out, such as one with `//pu:build kernel`, is checked in the first mode that
+includes it. The standard library comes from `$PLUTOROOT` if it is set, otherwise from the copy
+inside `pluto`, extracted read-only to `~/.cache/pluto/` so that go to definition can open it.
+
+If the server stops unexpectedly it is restarted after a short delay that doubles with each crash
+(up to 30 seconds); after five crashes in three minutes it stays stopped and offers to restart.
+*Plutonium: Restart Language Server* restarts it by hand. Its log goes to the *Plutonium* output
+(`plutonium.trace.server` adds every message).
 
 **Highlighting** of the whole language as `docs/spec/language.md` describes it:
 
@@ -29,10 +54,11 @@ source files (`.p`). Works in VS Code and its forks (Cursor, VSCodium).
   function literals and types, struct, interface, packed, enum and union bodies, generic calls such
   as `v.Map[int](f)`.
 
-**Formatting** with `pluto fmt`: *Format Document* (and format on save, on by default for
-Plutonium) sends the buffer to `pluto fmt` on standard input and replaces it with the output. If
-`pluto fmt` fails, the buffer is left as it was, the error goes to the *Plutonium* output channel,
-and a syntax error is shown as a diagnostic until the document is edited.
+**Formatting** with `pluto fmt` when the language server is off: *Format Document* (and format on
+save, on by default for Plutonium) sends the buffer to `pluto fmt` on standard input and replaces
+it with the output. If `pluto fmt` fails, the buffer is left as it was, the error goes to the
+*Plutonium* output channel, and a syntax error is shown as a diagnostic until the document is
+edited. While the language server runs, it formats instead, and this formatter is not registered.
 
 **Editing**: comment toggling, bracket matching, auto-closing of brackets, quotes and backticks,
 Go-style indentation, and `// region` / `// endregion` folding markers.
@@ -41,8 +67,13 @@ Go-style indentation, and `// region` / `// endregion` folding markers.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `plutonium.plutoPath` | `pluto` | The compiler used for formatting. A bare name is looked up on `PATH`; `~` and `${workspaceFolder}` are expanded. |
-| `plutonium.formatTimeout` | `10000` | Milliseconds to wait for `pluto fmt`. |
+| `plutonium.plutoPath` | `pluto` | The compiler, which runs the language server and formats. A bare name is looked up on `PATH`; `~` and `${workspaceFolder}` are expanded. Changing it restarts the server. |
+| `plutonium.useLanguageServer` | `true` | Run `pluto lsp`. When off, only `pluto fmt` formatting is available. |
+| `plutonium.target` | `x86_64-linux` | The target the server checks code for: `x86_64-linux` or `x86_64-none`. |
+| `plutonium.mode` | (from the target) | The build mode: `hosted`, `freestanding` or `kernel`, as `pluto build --mode`. |
+| `plutonium.tags` | `[]` | More build tags, as `pluto build --tags`. |
+| `plutonium.trace.server` | `off` | `messages` or `verbose` logs the protocol to the *Plutonium* output. |
+| `plutonium.formatTimeout` | `10000` | Milliseconds to wait for `pluto fmt` (with the server off). |
 
 The extension sets `editor.insertSpaces: false` and `editor.formatOnSave: true` for Plutonium;
 override them under `"[plutonium]"` in your settings. In an untrusted workspace `pluto` is never
@@ -53,21 +84,25 @@ To get `pluto` on `PATH`, run `go install ./cmd/pluto` in the repository (it lan
 
 ## Install
 
-The extension has no npm dependencies and no build step. To package and install it:
+The extension is plain JavaScript with no build step. It depends on `vscode-languageclient`, and
+`@vscode/vsce` packages it; both come from npm, pinned by `package-lock.json`. `node_modules/` is
+not committed. To package and install it:
 
 ```sh
+go install ./cmd/pluto                     # the language server is pluto lsp
 cd editors/vscode
-scripts/package.sh                         # writes plutonium-<version>.vsix using zip
-code --install-extension plutonium-0.1.0.vsix
-cursor --install-extension plutonium-0.1.0.vsix   # or codium, code-insiders
+npm ci                                     # install the locked dependencies
+npm run package                            # writes plutonium-<version>.vsix
+code --install-extension plutonium-0.2.0.vsix
+cursor --install-extension plutonium-0.2.0.vsix   # or codium, code-insiders
 ```
 
-`scripts/package.sh` builds the `.vsix` with `zip` alone; `npx @vscode/vsce package` makes an
-equivalent one (honouring `.vscodeignore`). Reload the editor window (*Developer: Reload Window*)
-after installing.
+`vsce` puts the extension's files and its production dependencies (`vscode-languageclient` and
+what it needs) in the `.vsix`, leaving out what `.vscodeignore` lists and the development
+dependencies. Reload the editor window (*Developer: Reload Window*) after installing.
 
-For development, run the editor with `code --extensionDevelopmentPath=$PWD/editors/vscode`, or
-symlink this directory to `~/.vscode/extensions/matjam.plutonium-<version>`.
+For development, run `npm ci`, then the editor with
+`code --extensionDevelopmentPath=$PWD/editors/vscode`.
 
 ## Tests
 
@@ -91,8 +126,16 @@ symlink this directory to `~/.vscode/extensions/matjam.plutonium-<version>`.
 - the formatter, run through `extension.js` against a stand-in for the `vscode` module and a pluto
   built for the test, formats, leaves formatted text alone, reports syntax errors as diagnostics
   without touching the buffer, and copes with a missing `pluto` (`test/format-check.js`).
+- the language server client, run through `extension.js` against stand-ins for `vscode` and
+  `vscode-languageclient`, starts `pluto lsp` with the settings, swaps the stand-alone formatter
+  out while it runs, follows `useLanguageServer`, `plutoPath` and workspace trust, and restarts a
+  crashed server with doubling delays until it gives up (`test/lsp-check.js`).
+- a freshly built `pluto lsp` and `vscode-jsonrpc` (the library under `vscode-languageclient`)
+  agree on the protocol: handshake, diagnostics after an edit, hover, definition into the standard
+  library, formatting and shutdown (`test/lsp-protocol-check.js`; skipped without `npm ci`).
 
-The node-based checks are skipped when `node` is not installed.
+The node-based checks are skipped when `node` is not installed. The language server itself is
+tested in Go, in `internal/lsp`.
 `node test/grammar-check.js dump file.p` prints the scopes of every token of a file.
 
 Assertions in `test/sample.p` are comment lines under the line they check: carets mark columns,

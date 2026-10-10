@@ -18,7 +18,8 @@ if (!pluto) {
 }
 
 // A stand-in for the parts of the vscode API the extension uses.
-const settings = { plutoPath: pluto, formatTimeout: 10000 };
+// The language server is off, so that the stand-alone formatter runs.
+const settings = { plutoPath: pluto, formatTimeout: 10000, useLanguageServer: false };
 const outputLines = [];
 const errorMessages = [];
 const diagnostics = new Map();
@@ -62,11 +63,18 @@ const vscode = {
       return disposable;
     },
     onDidCloseTextDocument: () => disposable,
+    onDidChangeConfiguration: () => disposable,
+    onDidGrantWorkspaceTrust: () => disposable,
+    registerTextDocumentContentProvider: () => disposable,
+  },
+  commands: {
+    registerCommand: () => disposable,
   },
   languages: {
     createDiagnosticCollection: () => ({
       set: (uri, list) => diagnostics.set(uri.toString(), list),
       delete: (uri) => diagnostics.delete(uri.toString()),
+      clear: () => diagnostics.clear(),
       dispose() {},
     }),
     registerDocumentFormattingEditProvider: (selector, p) => {
@@ -108,7 +116,7 @@ function format(text) {
 
 async function main() {
   const context = { subscriptions: [] };
-  require(path.join(__dirname, '..', 'extension.js')).activate(context);
+  await require(path.join(__dirname, '..', 'extension.js')).activate(context);
   assert.ok(provider, 'activate registers a formatting provider');
 
   // Unformatted source is replaced by pluto fmt's output.

@@ -189,6 +189,9 @@ func comparableType(T Type, dynamic bool, seen map[Type]bool) *typeError {
 		// Packed values compare as their storage bits; writes keep
 		// padding bits zero.
 
+	case *TaggedUnion:
+		return unionComparable(t, dynamic, seen)
+
 	case *Wrapper:
 		switch {
 		case t.IsPointer():
@@ -323,7 +326,14 @@ func (c *comparer) identical(x, y Type, p *ifacePair) bool {
 					return false
 				}
 			}
-			return true
+			return identicalVariants(x.variants, y.variants, func(a, b Type) bool { return c.identical(a, b, p) })
+		}
+
+	case *TaggedUnion:
+		// Two union types are identical if they have the same variants, in
+		// the same order, with identical payloads.
+		if y, ok := y.(*TaggedUnion); ok {
+			return identicalVariants(x.variants, y.variants, func(a, b Type) bool { return c.identical(a, b, p) })
 		}
 
 	case *Struct:

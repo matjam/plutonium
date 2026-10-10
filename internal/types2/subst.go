@@ -147,6 +147,11 @@ func (subst *subster) typ(typ Type) Type {
 			return NewWrapper(t.kind, elem, t.n)
 		}
 
+	case *TaggedUnion:
+		if vs := substList(t.variants, subst.variant); vs != nil {
+			return &TaggedUnion{variants: vs}
+		}
+
 	case *Struct:
 		if fields := substList(t.fields, subst.var_); fields != nil {
 			s := &Struct{fields: fields, tags: t.tags}
@@ -388,6 +393,16 @@ func (subst *subster) var_(v *Var) *Var {
 		if typ := subst.typ(v.typ); typ != v.typ {
 			return cloneVar(v, typ)
 		}
+	}
+	return v
+}
+
+// variant substitutes in the payload of a union variant.
+func (subst *subster) variant(v *Variant) *Variant {
+	if typ := subst.typ(v.typ); typ != v.typ {
+		copy := *v
+		copy.typ = typ
+		return &copy
 	}
 	return v
 }

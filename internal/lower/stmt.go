@@ -647,6 +647,10 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 	case *ast.ExprStmt:
 		x = a.X.(*ast.TypeAssertExpr).X
 	}
+	if types2.UnionVariants(s.typeOf(x)) != nil {
+		s.unionTypeSwitch(st, x, label)
+		return
+	}
 	I := s.typeOf(x)
 	iv := s.materialize(s.expr(x))
 	tab, data := s.ifaceParts(iv)
