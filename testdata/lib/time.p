@@ -9,6 +9,7 @@ package main
 import (
 	"pluto/fmt"
 	. "pluto/time"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -59,7 +60,9 @@ func testDurationString(t *T) {
 	}
 	var buf [40]byte
 	for _, tt := range tests {
-		if got := str(tt.d.AppendString(buf[:0])); got != tt.want {
+		f := vec.NewFixed(buf[:])
+		tt.d.AppendString(&f)
+		if got := str(f.Slice()); got != tt.want {
 			t.Errorf("Duration(%d) = %q, want %q", int64(tt.d), got, tt.want)
 		}
 		if got := tt.d.String(); got != tt.want {
@@ -153,7 +156,9 @@ func testCalendar(t *T) {
 			tm.YearDay() != tt.yday || tm.Weekday() != tt.wday {
 			t.Errorf("Unix(%d): %d-%d-%d %d:%d:%d yday %d %s", tt.unix, y, int(m), d, h, mi, s, tm.YearDay(), tm.Weekday().String())
 		}
-		if got := str(tm.AppendRFC3339(buf[:0])); got != tt.rfc {
+		f := vec.NewFixed(buf[:])
+		tm.AppendRFC3339(&f)
+		if got := str(f.Slice()); got != tt.rfc {
 			t.Errorf("Unix(%d) = %q, want %q", tt.unix, got, tt.rfc)
 		}
 		if back := Date(y, m, d, h, mi, s, 0); back.Unix() != tt.unix {
@@ -166,7 +171,11 @@ func testCalendar(t *T) {
 	if n := Date(2023, October, 32, 25, 0, 0, 0); n.Day() != 2 || n.Month() != November || n.Hour() != 1 {
 		t.Errorf("Date normalises: %d %s %d", n.Day(), n.Month().String(), n.Hour())
 	}
-	if got := str(Unix(1, 500000000).AppendRFC3339(buf[:0])); got != "1970-01-01T00:00:01.5Z" {
+	v := vec.New[byte]()
+	defer v.Free()
+	Unix(1, 500000000).AppendRFC3339(&v)
+	(5 * Second).AppendString(&v)
+	if got := str(v.Slice()); got != "1970-01-01T00:00:01.5Z5s" {
 		t.Errorf("fraction: %q", got)
 	}
 	if Unix(1, -1).UnixNano() != 999999999 || UnixMilli(1500).UnixNano() != 1500000000 || Unix(3, 7).UnixMilli() != 3000 {

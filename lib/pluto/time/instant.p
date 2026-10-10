@@ -1,5 +1,7 @@
 package time
 
+import "pluto/vec"
+
 // A Time is an instant with nanosecond precision, in UTC. Times from Now
 // also carry a reading of the monotonic clock, which Sub, Since, Until and
 // the comparisons use when both operands have one, so that measuring
@@ -361,26 +363,28 @@ func daysFromCivil(y, m, d int64) int64 {
 // formats it, in a new string.
 func (t Time) RFC3339() string {
 	var buf [64]byte
-	return string(t.AppendRFC3339(buf[:0]))
+	b := vec.NewFixed(buf[:])
+	t.AppendRFC3339(&b)
+	return string(b.Slice())
 }
 
-// AppendRFC3339 appends t in RFC 3339 format with nanoseconds, as Go's
+// AppendRFC3339 appends to dst t in RFC 3339 format with nanoseconds, as Go's
 // t.Format(time.RFC3339Nano) prints a UTC time ("2006-01-02T15:04:05.999999999Z",
 // trailing zeros of the fraction removed).
-func (t Time) AppendRFC3339(dst []byte) []byte {
+func (t Time) AppendRFC3339[D vec.Appender[byte]](dst D) {
 	y, mo, d := t.Date()
 	h, mi, s := t.Clock()
-	dst = appendInt(dst, y, 4)
-	dst = append(dst, '-')
-	dst = appendInt(dst, int(mo), 2)
-	dst = append(dst, '-')
-	dst = appendInt(dst, d, 2)
-	dst = append(dst, 'T')
-	dst = appendInt(dst, h, 2)
-	dst = append(dst, ':')
-	dst = appendInt(dst, mi, 2)
-	dst = append(dst, ':')
-	dst = appendInt(dst, s, 2)
+	appendInt(dst, y, 4)
+	dst.Push('-')
+	appendInt(dst, int(mo), 2)
+	dst.Push('-')
+	appendInt(dst, d, 2)
+	dst.Push('T')
+	appendInt(dst, h, 2)
+	dst.Push(':')
+	appendInt(dst, mi, 2)
+	dst.Push(':')
+	appendInt(dst, s, 2)
 	if t.nsec != 0 {
 		var frac [10]byte
 		frac[0] = '.'
@@ -393,15 +397,15 @@ func (t Time) AppendRFC3339(dst []byte) []byte {
 		for frac[end-1] == '0' {
 			end--
 		}
-		dst = append(dst, frac[:end]...)
+		dst.Append(frac[:end]...)
 	}
-	return append(dst, 'Z')
+	dst.Push('Z')
 }
 
 // appendInt appends x with at least width digits, zero-padded.
-func appendInt(dst []byte, x, width int) []byte {
+func appendInt[D vec.Appender[byte]](dst D, x, width int) {
 	if x < 0 {
-		dst = append(dst, '-')
+		dst.Push('-')
 		x = -x
 	}
 	var buf [20]byte
@@ -414,5 +418,5 @@ func appendInt(dst []byte, x, width int) []byte {
 	}
 	i--
 	buf[i] = byte('0' + x)
-	return append(dst, buf[i:]...)
+	dst.Append(buf[i:]...)
 }
