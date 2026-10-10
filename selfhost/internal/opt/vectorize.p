@@ -7,6 +7,7 @@ import (
 	"pluto/math"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
+	"selfhost/pu"
 )
 
 // Vectorize runs counted loops over float64 data two iterations at a time
@@ -86,7 +87,7 @@ func matchVecLoop(f *ssa.Func, h *ssa.Block) *vecLoop {
 	if body == h || body.Kind != ssa.BlockPlain || len(body.Preds) != 1 || body.Succs[0].B != h {
 		return nil
 	}
-	vl := new(vecLoop{h: h, body: body, latch: body.Succs[0].I})
+	vl := pu.New(vecLoop{h: h, body: body, latch: body.Succs[0].I})
 	vl.preIdx = 1 - vl.latch
 	inLoop := func(v *ssa.Value) bool { return v.Block == h || v.Block == body }
 

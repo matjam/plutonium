@@ -1,0 +1,169 @@
+// Command pudemo uses each type of internal/pu, the Go mirror of the
+// Plutonium library, the way the compiler's data structures will. go2pu
+// translates it name for name into selfhost/demo/pudemo, and
+// TestDifferential checks that both print the same text, so the output
+// must not depend on map iteration order.
+package main
+
+import (
+	"fmt"
+	"sort"
+
+	"github.com/matjam/plutonium/internal/pu"
+)
+
+// A node is part of a pointer graph: allocated with pu.New, a view of the
+// phase arena in Plutonium.
+type node struct {
+	name     string
+	children pu.Vec[*node]
+	attrs    pu.Map[string, int]
+}
+
+func newNode(name string) *node { return pu.New(node{name: name}) }
+
+func (n *node) add(child *node) { n.children.Push(child) }
+
+// walk prints the tree under n, indented by depth.
+func walk(out *pu.Buf, n *node, depth int) {
+	for i := 0; i < depth; i++ {
+		out.WriteString("  ")
+	}
+	fmt.Fprintf(out, "%s (%d attrs)\n", n.name, n.attrs.Len())
+	for _, c := range n.children.Slice() {
+		walk(out, c, depth+1)
+	}
+}
+
+// symbols is a structure that owns its containers, as a compiler pass
+// would.
+type symbols struct {
+	byName pu.Map[string, int]
+	order  pu.Vec[string]
+	seen   pu.Set[int]
+}
+
+func (s *symbols) intern(name string) int {
+	p, inserted := s.byName.Upsert(name)
+	if inserted {
+		*p = s.order.Len()
+		s.order.Push(name)
+	}
+	s.seen.Add(*p)
+	return *p
+}
+
+func main() {
+	// Vec.
+	v := pu.NewVec[int]()
+	for i := 0; i < 10; i++ {
+		v.Push(i * i)
+	}
+	v.Append(100, 200)
+	last, _ := v.Last()
+	popped, _ := v.Pop()
+	v.Insert(0, -1)
+	removed := v.Remove(3)
+	swapped := v.SwapRemove(1)
+	fmt.Println("vec", v.Len(), last, popped, removed, swapped, v.At(0), v.At(v.Len()-1))
+	*v.Ptr(2) = 42
+	v.Set(3, 43)
+	sum := 0
+	for _, x := range v.Slice() {
+		sum += x
+	}
+	c := v.Clone()
+	c.Truncate(2)
+	v.Reserve(100)
+	fmt.Println("sum", sum, "clone", c.Len(), c.At(1), "cap", v.Cap() >= v.Len()+100)
+	c.Drop()
+	w := pu.VecWithCapacity[string](4)
+	w.Push("a")
+	w.Push("b")
+	fmt.Println("with capacity", w.Len(), w.Cap() >= 4, w.At(1))
+	w.Clear()
+	fmt.Println("cleared", w.Len())
+
+	// Map, Set and their iterators, in a structure that owns them.
+	var syms symbols
+	for _, word := range []string{"func", "main", "func", "x", "main", "y", "func"} {
+		syms.intern(word)
+	}
+	fmt.Println("symbols", syms.byName.Len(), syms.order.Len(), syms.seen.Len(), syms.byName.At("x"), syms.byName.At("missing"))
+	keys := pu.NewVec[string]()
+	it := syms.byName.Iter()
+	for k, id, ok := it.Next(); ok; k, id, ok = it.Next() {
+		keys.Push(fmt.Sprint(k, "=", id))
+	}
+	ks := keys.Slice()
+	sort.Slice(ks, func(i, j int) bool { return ks[i] < ks[j] })
+	for _, k := range ks {
+		fmt.Println(" ", k)
+	}
+	if id, ok := syms.byName.Get("y"); ok {
+		fmt.Println("get y", id, syms.byName.Has("y"))
+	}
+	syms.byName.Set("y", 99)
+	*syms.byName.Ptr("x") += 1000
+	fmt.Println("set", syms.byName.At("y"), syms.byName.At("x"), syms.byName.Ptr("nope") == nil)
+	fmt.Println("delete", syms.byName.Delete("y"), syms.byName.Delete("y"), syms.byName.Len())
+	counts := pu.NewMap[int, int](8)
+	for i := 0; i < 100; i++ {
+		p, _ := counts.Upsert(i % 7)
+		*p++
+	}
+	total := 0
+	cit := counts.Iter()
+	for _, n, ok := cit.Next(); ok; _, n, ok = cit.Next() {
+		total += n
+		*cit.Value() = 0
+	}
+	fmt.Println("counts", counts.Len(), total, counts.At(3))
+	copied := syms.byName.Clone()
+	copied.Set("z", 1)
+	fmt.Println("map clone", copied.Len(), syms.byName.Len())
+	copied.Drop()
+	counts.Clear()
+	fmt.Println("map cleared", counts.Len())
+	set := pu.NewSet[string](4)
+	fmt.Println("set", set.Add("a"), set.Add("a"), set.Add("b"), set.Has("a"), set.Delete("a"), set.Has("a"), set.Len())
+	n := 0
+	sit := set.Iter()
+	for _, ok := sit.Next(); ok; _, ok = sit.Next() {
+		n++
+	}
+	sc := set.Clone()
+	sc.Add("c")
+	fmt.Println("set iter", n, sc.Len(), set.Len())
+	sc.Drop()
+	set.Clear()
+
+	// A pointer graph allocated with New, printed into a Buf.
+	root := newNode("root")
+	for i := 0; i < 3; i++ {
+		child := newNode(fmt.Sprint("child", i))
+		child.attrs.Set("index", i)
+		for j := 0; j < i; j++ {
+			grand := newNode(fmt.Sprint("leaf", i, j))
+			grand.attrs.Set("i", i)
+			grand.attrs.Set("j", j)
+			child.add(grand)
+		}
+		root.add(child)
+	}
+	var out pu.Buf
+	walk(&out, root, 0)
+	fmt.Print(out.String())
+	fmt.Println("buf", out.Len(), out.Cap() >= out.Len(), len(out.Bytes()))
+	out.Reset()
+	out.Grow(10)
+	out.WriteByte('[')
+	out.WriteRune('é')
+	out.Write([]byte("bytes"))
+	out.WriteString("]")
+	msg := pu.Sprintf("%s has %d bytes", out.String(), out.Len())
+	fmt.Println(msg.String())
+	msg.Drop()
+	out.Drop()
+	fmt.Println("dropped", out.Len())
+}

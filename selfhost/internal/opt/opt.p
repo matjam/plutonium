@@ -9,6 +9,7 @@ import (
 	"pluto/os"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
+	"selfhost/pu"
 )
 
 // A Pass transforms one function.
@@ -36,7 +37,7 @@ type step struct {
 
 // ForLevel returns the passes for an optimisation level.
 func ForLevel(level int) *Pipeline {
-	p := new(Pipeline{})
+	p := pu.New(Pipeline{})
 	p.add(Pass{"copyelim", ssa.CopyElim})
 	p.add(Pass{"deadcode", ssa.DeadCode})
 	if level >= 1 {
@@ -78,12 +79,12 @@ func ForLevel(level int) *Pipeline {
 }
 
 func (p *Pipeline) add(gopass Pass) {
-	pass := new(gopass)
+	pass := pu.New(gopass)
 	p.steps = compat.Append(p.steps, step{fn: pass})
 }
 
 func (p *Pipeline) addProgram(gopass ProgramPass) {
-	pass := new(gopass)
+	pass := pu.New(gopass)
 	p.steps = compat.Append(p.steps, step{prog: pass})
 }
 

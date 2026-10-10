@@ -18,6 +18,7 @@ package ssa
 
 import (
 	"selfhost/compat"
+	"selfhost/pu"
 )
 
 // A Kind classifies an SSA type.
@@ -90,7 +91,7 @@ func FloatType(size int64) *Type {
 
 // TupleOf returns a tuple type.
 func TupleOf(elems ...*Type) *Type {
-	return new(Type{Kind: KTuple, Elems: elems})
+	return pu.New(Type{Kind: KTuple, Elems: elems})
 }
 
 func (t *Type) IsMem() bool   { return t.Kind == KMem }

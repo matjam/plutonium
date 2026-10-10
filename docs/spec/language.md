@@ -152,6 +152,12 @@ assertions, type switches. An interface value is two words: a pointer to a stati
 
 - A value that fits in a word (integers, floats, booleans, pointers, and `owned`/`shared`/`synced`/`weak`
   references) is stored in the data word.
+- As in Go, a struct with exactly one field, or an array of length 1, whose field or element is a single
+  pointer (a pointer, `unsafe.Pointer`, a function value, an `owned`/`shared`/`synced` reference, or
+  recursively another such struct or array) is stored in the data word too, as that pointer. An error type
+  that wraps one pointer, `type wrapErr struct{ d *detail }`, can therefore be returned as an `error`, and
+  two such interface values are equal when they hold the same pointer. A struct with one integer field
+  is not covered: it is boxed like any other struct.
 - A larger value (a string, slice, array, struct or union) is copied into a temporary in the stack frame of the
   function that performs the conversion, and the data word points at that copy. The interface value is
   valid until that function returns, exactly like a pointer to a local variable.
@@ -2266,6 +2272,13 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | `//pu:nosimd` | function | the optimiser adds no vector instructions to it (implied by `//pu:interrupt`, and by kernel mode outside `//pu:fpu` functions) |
 | `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (section 12.3) |
 | `//pu:percpu` | package variable | one copy per processor, addressed through `GS`; kernel mode only (section 12.5) |
+| `//pu:stack size` | `func main` | run the program on a stack of `size` bytes (`K`, `M` or `G` suffixes, 64K to 64G) that the hosted runtime reserves, maps as it is used and puts a 1 MiB guard region below; without it, main runs on the stack the system gave the process (usually 8 MiB). Hosted builds only |
+
+A program that recurses deeply checks how much stack remains with `rt.StackLeft()`, which returns the bytes
+between the caller's frame and the limit of its stack: in a puroutine, the guard page below the
+puroutine's stack (section 4.7); on the main thread, the reserved stack's guard or the process stack's
+resource limit. It returns `^uintptr(0)` where the limit is unknown. `rt.StackBounds` returns
+the bounds, and a freestanding program that sets up its own stack records them with `rt.SetStackBounds`.
 
 ## 10. Assembly and C
 
@@ -2547,7 +2560,11 @@ hold, and most have a `Clone`.
 | `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf` returning a `strings.Buf`, `Bprintf` into a caller's buffer, `Println`; integer, float, string, pointer verbs with width, precision and flags; arrays, slices, structs, pointers, interfaces and enums with `%v`, `%+v` and `%#v` as Go prints them, read from type descriptors (section 4.4), and containers through `fmt.Mapper` (`hash.Map` prints as `map[k:v]` with sorted keys) and `fmt.Lister` (`vec.Vec` prints as a slice); all formatting goes through a fixed buffer and never allocates; `Errorf` and `ErrorBuf` (section 14) |
 | `pluto/container` | the constraints of the indexing interface (section 6.7): `Indexable`, `Reader`, `Lookup`, `Sized` |
 | `pluto/io` | `Reader`, `Writer`, buffered I/O |
-| `pluto/os` | files (`os.File`, an owner that closes on drop), arguments, environment, exit (hosted) |
+| `pluto/os` | files (`os.File`, an owner that closes on drop), `Stat`, whole-file reads and writes, directories (`ReadDir` returns a `DirEntries` owner), removal, renaming, temporary directories, the working directory, pipes, processes, arguments, environment, exit (hosted) |
+| `pluto/os/exec` | running commands: `Cmd` (an owner), pipes copied inside `Wait`, `ExitError` in the data word (hosted) |
+| `pluto/path/filepath` | slash-separated paths: views (`Base`, `Dir`, `Ext`, `Split`) and `Append` forms (`AppendJoin`, `AppendClean`, `AppendRel`, `AppendAbs`), `Match`, `WalkDir` |
+| `pluto/time` | `Duration`, `Time` in UTC with a monotonic reading, `Now`, `Since`, `Sleep` |
+| `pluto/flag` | command-line flags; a `FlagSet` owns its flags and their variables |
 | `pluto/syscall` | raw Linux system calls (hosted) |
 | `pluto/strings`, `pluto/bytes` | `strings.Buf`, an owning string buffer (section 6.6); searching, comparison |
 | `pluto/bits` | bit operations (section 5.8) |
@@ -2578,7 +2595,7 @@ outlives the function.** That storage is one of:
 
 | Storage | Used for | Example |
 |---|---|---|
-| the interface's data word | error codes | `syscall.Errno`, a kernel's own code type |
+| the interface's data word | error codes, and structs wrapping one pointer (section 4.4) | `syscall.Errno`, a kernel's own code type, `struct{ d *detail }` |
 | static storage | sentinel errors and fixed messages | `var ErrNotFound = errors.New("not found")`; `return errors.New("bad header")` |
 | a field of a longer-lived object | errors with context that belong to an owner | a parser that returns `&p.err`; `fmt.ErrorBuf` |
 | memory from an allocator | errors with context that travel up the stack | `*os.PathError`, `fmt.Errorf`, `errors.Join` |

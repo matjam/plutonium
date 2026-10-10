@@ -5,6 +5,7 @@ package ssa
 import (
 	"selfhost/compat"
 	"selfhost/internal/syntax/token"
+	"selfhost/pu"
 )
 
 // A Value is one SSA value: the result of an operation.
@@ -438,7 +439,7 @@ type Func struct {
 
 // NewFunc returns an empty function with an entry block.
 func NewFunc(name string) *Func {
-	f := new(Func{Name: name})
+	f := pu.New(Func{Name: name})
 	f.Entry = f.NewBlock(BlockPlain)
 	return f
 }
@@ -494,7 +495,7 @@ func (f *Func) AddInline(call *Value, g *Func) InlineBase {
 }
 
 func (f *Func) newValue(op Op, t *Type, b *Block) *Value {
-	v := new(Value{ID: f.nextValue, Op: op, Type: t, Block: b, Pos: f.pos})
+	v := pu.New(Value{ID: f.nextValue, Op: op, Type: t, Block: b, Pos: f.pos})
 	v.Args = v.argStorage[:0]
 	f.nextValue++
 	return v
@@ -508,7 +509,7 @@ func (f *Func) NumBlocks() int { return f.nextBlock }
 
 // NewBlock adds a new block.
 func (f *Func) NewBlock(kind BlockKind) *Block {
-	b := new(Block{ID: f.nextBlock, Kind: kind, Func: f})
+	b := pu.New(Block{ID: f.nextBlock, Kind: kind, Func: f})
 	f.nextBlock++
 	f.Blocks = compat.Append(f.Blocks, b)
 	f.InvalidateCFG()
@@ -520,7 +521,7 @@ func (f *Func) NewSlot(name string, size, align int64) *Slot {
 	if align < 1 {
 		align = 1
 	}
-	s := new(Slot{ID: f.nextSlot, Name: name, Size: size, Align: align})
+	s := pu.New(Slot{ID: f.nextSlot, Name: name, Size: size, Align: align})
 	f.nextSlot++
 	f.Slots = compat.Append(f.Slots, s)
 	return s

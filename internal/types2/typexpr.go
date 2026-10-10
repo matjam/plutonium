@@ -183,7 +183,7 @@ func (check *Checker) validVarType(e ast.Expr, typ Type) {
 // named def, and def.typ.fromRHS will be set to the [Type] of e immediately
 // after its creation.
 func (check *Checker) declaredType(e ast.Expr, def *TypeName) Type {
-	typ := check.typInternal(e, def)
+	typ := check.nestedType(e, def)
 	assert(isTyped(typ))
 	if isGeneric(typ) {
 		check.errorf(e, WrongTypeArgCount, "cannot use generic type %s without instantiation", typ)
@@ -201,7 +201,7 @@ func (check *Checker) declaredType(e ast.Expr, def *TypeName) Type {
 // cause will not be populated; thus cause alone cannot be used to determine
 // if an error occurred.
 func (check *Checker) genericType(e ast.Expr, cause *string) Type {
-	typ := check.typInternal(e, nil)
+	typ := check.nestedType(e, nil)
 	assert(isTyped(typ))
 	if isValid(typ) && !isGeneric(typ) {
 		if cause != nil {
@@ -214,6 +214,16 @@ func (check *Checker) genericType(e ast.Expr, cause *string) Type {
 	return typ
 }
 
+// nestedType is typInternal within the nesting limit (see enter).
+func (check *Checker) nestedType(e ast.Expr, def *TypeName) Type {
+	if !check.enter(e) {
+		return Typ[Invalid]
+	}
+	typ := check.typInternal(e, def)
+	check.leave()
+	return typ
+}
+
 // goTypeName returns the Go type name for typ and
 // removes any occurrences of "types." from that name.
 func goTypeName(typ Type) string {
@@ -221,7 +231,7 @@ func goTypeName(typ Type) string {
 }
 
 // typInternal drives type checking of types.
-// Must only be called by declaredType or genericType.
+// Must only be called by nestedType.
 func (check *Checker) typInternal(e0 ast.Expr, def *TypeName) (T Type) {
 	if check.conf._Trace {
 		check.trace(e0.Pos(), "-- type %s", e0)

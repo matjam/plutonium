@@ -67,8 +67,20 @@ var (
 	Stderr = &File{fd: 2, name: "/dev/stderr"}
 )
 
-// Fd returns the file descriptor.
-func (f *File) Fd() int { return f.fd }
+// Fd returns the file descriptor. As in Go, it puts a descriptor in
+// non-blocking mode (a pipe from Pipe) into blocking mode first, so that
+// it can be handed to another process (os/exec passes it to the child as
+// it is); the File's reads and writes then block their worker, announced
+// with rt.EnterSyscall, instead of parking in the poller.
+func (f *File) Fd() int {
+	if f.poll != nil {
+		if fl, err := syscall.Fcntl(f.fd, syscall.F_GETFL, 0); err == nil {
+			syscall.Fcntl(f.fd, syscall.F_SETFL, fl&^syscall.O_NONBLOCK)
+		}
+		f.poll = nil
+	}
+	return f.fd
+}
 
 // Name returns the name the file was opened with.
 func (f *File) Name() string { return f.name }
@@ -133,33 +145,6 @@ func (f *File) Read(p []byte) (int, error) {
 
 // Close closes the file.
 func (f *File) Close() error { return syscall.Close(f.fd) }
-
-// Pipe returns a connected pair of Files, reading from r and writing to w,
-// allocated from a (by default the default allocator); free them with
-// alloc.Free after Close. Their descriptors are non-blocking: a puroutine
-// that reads an empty pipe, or writes a full one, parks in the scheduler's
-// poller and leaves its worker free for others.
-func Pipe(a alloc.Allocator = alloc.Default()) (r, w *File, err error) {
-	var fds [2]int32
-	const oNonblock, oCloexec = 0x800, 0x80000
-	if _, err := syscallResult(syscall.Syscall(syscall.SYS_PIPE2, uintptr(unsafe.Pointer(&fds[0])), oNonblock|oCloexec, 0)); err != nil {
-		return nil, nil, err
-	}
-	r = alloc.New[File](a)
-	r.fd, r.name, r.poll = int(fds[0]), "|0", poller{}
-	w = alloc.New[File](a)
-	w.fd, w.name, w.poll = int(fds[1]), "|1", poller{}
-	return r, w, nil
-}
-
-// syscallResult splits a raw system call result into a value and an
-// error.
-func syscallResult(r uintptr) (int, error) {
-	if r > ^uintptr(4095) {
-		return -1, syscall.Errno(-r)
-	}
-	return int(r), nil
-}
 
 // IsEOF reports whether err is io.EOF.
 func IsEOF(err error) bool { return err == io.EOF }
@@ -231,7 +216,7 @@ func OpenFile(name string, flags int, perm uint32, a alloc.Allocator = alloc.Def
 		return nil, NewPathError("open", name, syscall.ENAMETOOLONG, a)
 	}
 	copy(path[:], name)
-	fd, err := syscall.Open(path[:len(name)+1], flags, perm)
+	fd, err := syscall.Open(path[:len(name)+1], flags|syscall.O_CLOEXEC, perm)
 	if err != nil {
 		return nil, NewPathError("open", name, err, a)
 	}

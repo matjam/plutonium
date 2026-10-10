@@ -4,6 +4,7 @@ package ssa
 
 import (
 	"selfhost/compat"
+	"selfhost/pu"
 )
 
 // PostOrder returns the reachable blocks in postorder.
@@ -69,7 +70,7 @@ func (f *Func) Dom() *DomTree {
 func computeDom(f *Func) *DomTree {
 	n := f.NumBlocks()
 	rpo := f.ReversePostOrder()
-	d := new(DomTree{
+	d := pu.New(DomTree{
 		idom:     make([]*Block, n),
 		children: make([][]*Block, n),
 		pre:      make([]int32, n),
@@ -241,7 +242,7 @@ func (l *Loop) Contains(ln *LoopNest, b *Block) bool {
 
 func computeLoops(f *Func) *LoopNest {
 	d := f.Dom()
-	ln := new(LoopNest{inner: make([]*Loop, f.NumBlocks())})
+	ln := pu.New(LoopNest{inner: make([]*Loop, f.NumBlocks())})
 	byHeader := compat.NewMap[*Block, *Loop](0)
 
 	// Find back edges p -> h where h dominates p, and collect each loop body by
@@ -257,7 +258,7 @@ func computeLoops(f *Func) *LoopNest {
 		if len(body) == 0 {
 			continue
 		}
-		l := new(Loop{Header: h})
+		l := pu.New(Loop{Header: h})
 		byHeader.Set(h, l)
 		ln.Loops = compat.Append(ln.Loops, l)
 		inLoop := compat.MapOf[*Block, bool](

@@ -5,6 +5,7 @@ package amd64
 import (
 	"selfhost/compat"
 	"selfhost/internal/syntax/token"
+	"selfhost/pu"
 )
 
 // Debug information for one compiled function: where each instruction came
@@ -104,7 +105,7 @@ const DWARFReturnAddress = 16
 // the instructions in emission order and starts their final offsets; size
 // is the length of the code.
 func funcDebug(f *MFunc, insts []*MInst, starts []int, size int) *FuncDebug {
-	d := new(FuncDebug{FrameSize: f.frameSize, FP: f.frameFP, Interrupt: f.interrupt})
+	d := pu.New(FuncDebug{FrameSize: f.frameSize, FP: f.frameFP, Interrupt: f.interrupt})
 	for _, r := range f.usedSaved {
 		if !f.frameFP || r != RBP {
 			d.Saved = compat.Append(d.Saved, r)

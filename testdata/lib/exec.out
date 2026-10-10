@@ -1,0 +1,23 @@
+straight to stdout
+output: hello
+err true 0 true
+combined: one
+two
+three
+err true
+builders to out | to err true
+cat 100000 true true
+file stdout true
+exit 3: true 3 true exit status 3 3
+killed: true -1 false signal: killed
+exit 255: exit status 255
+pwd: /
+env: hi-nowhere
+not found: true exec surely-not-a-command-anywhere: executable file not found in $PATH
+directory: true exec true
+bad path: true
+lookpath sh true true
+lookpath relative true true
+wait before start true
+run true start again true
+output with stdout true

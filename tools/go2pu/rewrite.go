@@ -88,7 +88,7 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 		}
 		if lit, ok := ast.Unparen(n.X).(*ast.CompositeLit); ok && n.Op == token.AND &&
 			t.esc.has(t.fset, n.Pos(), "&", "escapes to heap") {
-			return "new(" + t.render(lit) + ")", true
+			return t.puNew(t.render(lit)), true
 		}
 	case *ast.FuncLit:
 		why := t.closureEscape(n)
@@ -126,6 +126,14 @@ func (t *fileTr) qualified(sel *ast.SelectorExpr) (string, bool) {
 		return "", false
 	}
 	p := pn.Imported().Path()
+	if p == puPath {
+		r, ok := puNames[sel.Sel.Name]
+		if !ok {
+			t.note(sel, "pu.%s: no Plutonium counterpart", sel.Sel.Name)
+			return "", false
+		}
+		return t.use(r.pkg, r.local) + "." + r.name, true
+	}
 	if r, ok := special[p+"."+sel.Sel.Name]; ok {
 		t.compat()
 		return r, true
@@ -400,7 +408,7 @@ func (t *fileTr) heapLiteral(n *ast.CompositeLit) (string, bool) {
 		if p, ok := T.Underlying().(*types.Pointer); ok {
 			T = p.Elem()
 		}
-		return fmt.Sprintf("new(%s%s)", t.typeText(T), t.splice(n)), true
+		return t.puNew(t.typeText(T) + t.splice(n)), true
 	}
 	// Go reports a slice literal at its opening brace.
 	if _, ok := T.Underlying().(*types.Slice); ok && t.esc.has(t.fset, n.Lbrace, "[]", "escapes to heap") {
@@ -809,6 +817,28 @@ func direct(T types.Type) bool {
 		return u.Info()&types.IsString == 0
 	case *types.Pointer, *types.Signature, *types.Interface, *types.Map, *types.Chan:
 		return true
+	case *types.Struct:
+		// A struct that is a single pointer is held in the data word, as in
+		// Go (types2.PointerShaped).
+		return u.NumFields() == 1 && pointerShaped(u.Field(0).Type())
+	case *types.Array:
+		return u.Len() == 1 && pointerShaped(u.Elem())
+	}
+	return false
+}
+
+// pointerShaped mirrors types2.PointerShaped for go/types: a pointer, a func,
+// unsafe.Pointer, or a struct or array that is exactly one of those.
+func pointerShaped(T types.Type) bool {
+	switch u := T.Underlying().(type) {
+	case *types.Pointer, *types.Signature, *types.Map, *types.Chan:
+		return true
+	case *types.Basic:
+		return u.Kind() == types.UnsafePointer
+	case *types.Struct:
+		return u.NumFields() == 1 && pointerShaped(u.Field(0).Type())
+	case *types.Array:
+		return u.Len() == 1 && pointerShaped(u.Elem())
 	}
 	return false
 }

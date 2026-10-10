@@ -117,6 +117,39 @@ func main() {
 	println("preempted")
 }
 `},
+		{name: "stackleft", want: "main true\ngo true\nrt.Go true\n", src: `package main
+
+import "pluto/rt"
+
+// rt.StackLeft measures a puroutine's own stack, down to its guard page,
+// and main's reserved //pu:stack stack, which a go statement in main
+// leaves alone.
+func left(done chan bool) {
+	n := rt.StackLeft()
+	lo, hi := rt.CurrentTask().Stack()
+	done <- n > 0 && n < hi-lo
+}
+
+func big() {
+	n := rt.StackLeft()
+	lo, hi := rt.CurrentTask().Stack()
+	println("rt.Go", n > 512<<10 && n < hi-lo)
+	bigDone <- true
+}
+
+var bigDone = make(chan bool)
+
+//pu:stack 16M
+func main() {
+	n := rt.StackLeft()
+	println("main", n > 15<<20 && n <= 16<<20)
+	done := make(chan bool)
+	go left(done)
+	println("go", <-done)
+	rt.Go(big, 1<<20)
+	<-bigDone
+}
+`},
 		{name: "preemptmain", want: "main preempted\n", src: `package main
 
 var flag volatile[int32]
@@ -213,6 +246,52 @@ func main() {
 	alloc.Free(r)
 	alloc.Free(w)
 	println("got", total, "bytes")
+}
+`},
+		{name: "execpipe", want: "run true\nread 200000\n", src: `package main
+
+import (
+	"pluto/alloc"
+	"pluto/os"
+	"pluto/os/exec"
+)
+
+// A pipe from os.Pipe handed to a child as its standard output: exec takes
+// its descriptor with Fd, which makes it blocking again, so the child
+// waits when the pipe is full instead of failing with EAGAIN. Meanwhile a
+// puroutine drains the read end through the poller while main waits for
+// the child.
+func drain(r *os.File, done chan int) {
+	var buf [4096]byte
+	total := 0
+	for {
+		n, err := r.Read(buf[:])
+		if err != nil {
+			break
+		}
+		total += n
+	}
+	done <- total
+}
+
+func main() {
+	r, w, err := os.Pipe()
+	if err != nil {
+		println("pipe:", err.Error())
+		return
+	}
+	done := make(chan int)
+	go drain(r, done)
+	c := exec.Command("sh", "-c", "head -c 200000 /dev/zero")
+	c.Stdout = w
+	err = c.Run()
+	println("run", err == nil)
+	c.Drop()
+	w.Close()
+	println("read", <-done)
+	r.Close()
+	alloc.Free(r)
+	alloc.Free(w)
 }
 `},
 		{name: "fairness", want: "fair true\n", src: `package main

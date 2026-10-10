@@ -28,6 +28,12 @@ var (
 //pu:extern pluto.main
 func programMain() int64
 
+// mainStackSize returns the size of the stack main asked for with
+// //pu:stack, or 0 to run on the stack the system gave the process.
+//
+//pu:extern pluto.mainstack
+func mainStackSize() uintptr
+
 // start is called by _start with the initial stack pointer, which points at
 // argc, then the argv pointers, a nil, then the environment pointers.
 //
@@ -39,7 +45,71 @@ func start(sp unsafe.Pointer) {
 	argv = unsafe.Add(sp, 8)
 	envp = unsafe.Add(sp, 8*(argc+2))
 	installFaultHandlers()
+	if size := mainStackSize(); size > 0 {
+		top := reserveStack(size)
+		bootTask.stackHi = top // main runs here instead
+		runOnStack(top)
+	}
+	stackHi = uintptr(sp)
+	stackLo = systemStackLimit(stackHi)
 	Exit(int(programMain()))
+}
+
+// runOnStack switches to the stack whose highest address is top and calls
+// mainOnStack there (sys_linux_amd64.s).
+//
+//pu:noreturn
+func runOnStack(top uintptr)
+
+// mainOnStack runs the program on the stack reserved for //pu:stack.
+//
+//pu:export
+//pu:noreturn
+func mainOnStack() { Exit(int(programMain())) }
+
+// stackGuard is the inaccessible region below a reserved stack: as large as
+// Linux's own gap below the process stack, so that a frame larger than a
+// page still lands in it.
+const stackGuard = 1 << 20
+
+// reserveStack maps size bytes of stack above a guard region and returns
+// the stack's highest address. The memory is reserved, not committed: pages
+// are backed as the stack grows into them.
+func reserveStack(size uintptr) uintptr {
+	const (
+		protRW     = 0x3
+		mapFlags   = 0x22 | 0x4000 | 0x20000 // private, anonymous, no reserve, stack
+		sysMmapErr = ^uintptr(4095)
+	)
+	total := size + stackGuard
+	r := syscall6(sysMmap, 0, total, protRW, mapFlags, ^uintptr(0), 0)
+	if r > sysMmapErr {
+		panicMessage("runtime: cannot reserve the stack that //pu:stack asks for", "", "", "", "")
+	}
+	syscall3(sysMprotect, r, stackGuard, ProtNone)
+	guardLo, guardHi = r, r+stackGuard
+	stackLo, stackHi = r+stackGuard, r+total
+	return r + total
+}
+
+// systemStackLimit returns the lowest address the process stack may grow
+// to, given an address near its top: the stack's resource limit below it,
+// less a margin for the arguments and environment above. It returns 0 if
+// the limit is unknown or unlimited.
+func systemStackLimit(top uintptr) uintptr {
+	const (
+		sysPrlimit64 = 302
+		rlimitStack  = 3
+		margin       = 64 << 10
+	)
+	var lim [2]uint64 // soft and hard limits
+	if syscall6(sysPrlimit64, 0, rlimitStack, 0, uintptr(unsafe.Pointer(&lim)), 0, 0) != 0 {
+		return 0
+	}
+	if lim[0] == ^uint64(0) || uintptr(lim[0]) >= top || lim[0] <= margin {
+		return 0
+	}
+	return top - uintptr(lim[0]) + margin
 }
 
 // ----------------------------------------------------------------------------

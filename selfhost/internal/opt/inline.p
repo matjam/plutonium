@@ -7,6 +7,7 @@ import (
 	"pluto/sort"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
+	"selfhost/pu"
 )
 
 // Inlining replaces calls to small functions with a copy of their body.
@@ -278,7 +279,7 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 				nv.Aux = compat.MapAt(slotMap, s)
 			}
 			if gv.Call != nil {
-				c := new(*gv.Call)
+				c := pu.New(*gv.Call)
 				nv.Call = c
 			}
 			nv.Pos, nv.Inl = gv.Pos, inl.Map(gv.Inl)

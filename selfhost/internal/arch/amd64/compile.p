@@ -6,6 +6,7 @@ import (
 	"pluto/fmt"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
+	"selfhost/pu"
 )
 
 // A Code is a compiled function.
@@ -225,7 +226,7 @@ func relax(e *encoder) *Code {
 	for i := range e.marks {
 		e.marks[i] = newPos(e.marks[i])
 	}
-	return new(Code{Bytes: out, Relocs: relocs})
+	return pu.New(Code{Bytes: out, Relocs: relocs})
 }
 
 func binary32(b []byte, v int64) {

@@ -17,7 +17,8 @@ import (
 // other interfaces it is an itab, whose first word is the descriptor.
 //
 // A dynamic type is "direct" when its value fits in the data word (integers,
-// floats, booleans and pointers); the data word then holds the value's bits.
+// floats, booleans, pointers, and structs and arrays that are a single
+// pointer, types2.PointerShaped); the data word then holds the value's bits.
 // Otherwise the data word points at a copy of the value in the stack frame of
 // the function that made the interface value.
 //
@@ -159,10 +160,15 @@ func newTypeTable(l *Lowerer) *typeTable {
 	}
 }
 
-// isDirect reports whether a T fits in an interface's data word.
+// isDirect reports whether a T fits in an interface's data word: a scalar of
+// at most a word, or a struct or array that is a single pointer
+// (types2.PointerShaped), stored as that pointer.
 func (l *Lowerer) isDirect(T types2.Type) bool {
-	t := l.scalarType(unwrap(T))
-	return t != nil && t.Size <= 8
+	T = unwrap(T)
+	if t := l.scalarType(T); t != nil {
+		return t.Size <= 8
+	}
+	return types2.PointerShaped(T)
 }
 
 // desc returns the descriptor symbol of T, a type converted to an
@@ -348,9 +354,7 @@ func (tt *typeTable) emit() {
 		data := &ssa.Data{Sym: d.sym, Size: descLen, Align: 8, ReadOnly: true}
 		buf := make([]byte, descLen)
 		binary.LittleEndian.PutUint64(buf[0:], uint64(l.sizeof(d.T)))
-		h := fnv.New32a()
-		h.Write([]byte(k))
-		binary.LittleEndian.PutUint32(buf[8:], h.Sum32())
+		binary.LittleEndian.PutUint32(buf[8:], descHash(k))
 		buf[12] = kindOf(d.T)
 		if l.isDirect(d.T) {
 			buf[13] |= flagDirect
@@ -389,11 +393,20 @@ func (tt *typeTable) emit() {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	table := &ssa.Data{Sym: l.out.Sym("pluto.itabs", ssa.SymData), Align: 8, ReadOnly: true}
-	table.Size = int64(8 * (1 + len(keys)))
-	table.Bytes = make([]byte, 8)
-	binary.LittleEndian.PutUint64(table.Bytes, uint64(len(keys)))
+	// The itab table is an open-addressing hash table keyed by the two
+	// descriptors' hashes (see itabSlots), probed linearly; an empty slot
+	// ends a probe.
+	hashes := make([][2]uint32, len(keys))
 	for i, k := range keys {
+		it := tt.itabs[k]
+		hashes[i] = [2]uint32{descHash(typeString(it.T)), descHash(typeString(it.I))}
+	}
+	slots := itabSlots(hashes)
+	table := &ssa.Data{Sym: l.out.Sym("pluto.itabs", ssa.SymData), Align: 8, ReadOnly: true}
+	table.Size = int64(8 * (1 + len(slots)))
+	table.Bytes = make([]byte, 8)
+	binary.LittleEndian.PutUint64(table.Bytes, uint64(len(slots)))
+	for _, k := range keys {
 		it := tt.itabs[k]
 		size := int64(itabHeader + 8*len(it.methods))
 		data := &ssa.Data{Sym: it.sym, Size: size, Align: 8, ReadOnly: true}
@@ -404,9 +417,54 @@ func (tt *typeTable) emit() {
 			data.Relocs = append(data.Relocs, ssa.DataReloc{Off: int64(itabHeader + 8*j), Sym: m})
 		}
 		l.out.Data = append(l.out.Data, data)
-		table.Relocs = append(table.Relocs, ssa.DataReloc{Off: int64(8 * (i + 1)), Sym: it.sym})
+	}
+	for j, i := range slots {
+		if i >= 0 {
+			table.Relocs = append(table.Relocs, ssa.DataReloc{Off: int64(8 * (j + 1)), Sym: tt.itabs[keys[i]].sym})
+		}
 	}
 	l.out.Data = append(l.out.Data, table)
+}
+
+// descHash is the hash stored in a type descriptor: FNV-1a of the type's
+// key string.
+func descHash(key string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(key))
+	return h.Sum32()
+}
+
+// itabHash combines the descriptor hashes of a concrete type and an
+// interface into a starting slot. pluto/rt's findItab computes the same.
+func itabHash(typ, iface uint32) uint32 {
+	h := typ*0x9E3779B1 ^ iface
+	h ^= h >> 15
+	h *= 0x85EBCA6B
+	h ^= h >> 13
+	return h
+}
+
+// itabSlots lays out the itab table: a power-of-two number of slots, at
+// least twice the number of itabs (so probes stay short and at least one
+// slot is empty), each holding the index of an itab in hashes or -1. Itab i
+// goes in the first free slot from itabHash(hashes[i]), wrapping around.
+func itabSlots(hashes [][2]uint32) []int {
+	size := 1
+	for size < 2*len(hashes) {
+		size <<= 1
+	}
+	slots := make([]int, size)
+	for j := range slots {
+		slots[j] = -1
+	}
+	for i, h := range hashes {
+		j := int(itabHash(h[0], h[1])) & (size - 1)
+		for slots[j] >= 0 {
+			j = (j + 1) & (size - 1)
+		}
+		slots[j] = i
+	}
+	return slots
 }
 
 // fieldsData emits the field descriptors of the struct type d describes,
@@ -549,6 +607,11 @@ func (s *fnState) toInterface(v value, from, I types2.Type) value {
 func (s *fnState) dataWord(v value, T types2.Type) *ssa.Value {
 	if s.l.isDirect(T) {
 		x := v.v
+		if v.addr {
+			// A struct or array holding one pointer: the pointer is the
+			// data word.
+			return s.load(ssa.TPtr, x)
+		}
 		switch {
 		case x.Type.IsPtr():
 			return x
@@ -578,6 +641,13 @@ func (s *fnState) fromDataWord(data *ssa.Value, T types2.Type) value {
 	T = unwrap(T)
 	if s.l.isDirect(T) {
 		t := s.l.scalarType(T)
+		if t == nil {
+			// A struct or array holding one pointer: rebuild it around the
+			// data word.
+			tmp := s.temp(T, "unbox")
+			s.store(ssa.TPtr, tmp, data)
+			return aggValue(tmp, T)
+		}
 		if t.IsPtr() {
 			return scalarValue(data, T)
 		}

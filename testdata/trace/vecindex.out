@@ -1,4 +1,4 @@
 10 25 2
 panic: runtime error: index out of range [2] with length 2
-    pluto/vec.(*Vec).Index[int] (pluto/vec/vec.p:81)
+    pluto/vec.(*Vec).Index[int] (pluto/vec/vec.p:85)
     main.main (./main.p:13)
