@@ -322,11 +322,13 @@ A scheduler that meets these rules gives puroutines the same memory model as the
 
 ### 6.4 Per-CPU data
 
-Per-CPU variables (proposed, `//pu:percpu`, language spec section 11.5) are ordinary locations, one copy
-per processor. A puroutine that can be preempted and migrated may read one processor's copy and write
+Per-CPU variables (`//pu:percpu`, language spec section 11.5) are ordinary locations, one copy per
+processor. A puroutine that can be preempted and migrated may read one processor's copy and write
 another's; such sequences must run with preemption (or interrupts) disabled. A single word-sized per-CPU
-access compiles to one `GS`-relative instruction and is therefore atomic with respect to interrupts on
-the same processor.
+load or store compiles to one `GS`-relative instruction and is therefore atomic with respect to interrupts
+on the same processor. Changing the GS base (`x86.WriteGSBase`, `x86.Swapgs`, a call) is a compiler
+barrier like every `pluto/arch/x86` intrinsic, so no per-CPU access moves across it; a pointer taken with
+`&v` before the change still refers to the copy it was taken from.
 
 ## 7. Differences from Go
 

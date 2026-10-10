@@ -34,16 +34,20 @@ tooling, platforms and libraries.
 
 6. **Memory model** (done, this document set): [memory-model.md](spec/memory-model.md), Go's model with
    packed locations, volatile, interrupt and scheduler rules.
-7. **Kernel mode** (proposed): `--mode kernel` with no floats, `//pu:fpu`, and the top-2-GiB code model
-   (language spec section 11.2, abi.md section 10).
-8. **`pluto/arch/x86` intrinsics** (proposed): `cli`, `sti`, `hlt`, port I/O, MSRs, control registers,
-   `invlpg`, descriptor tables, `cpuid`, `rdtsc`, `swapgs`, GS access, expanded inline as compiler barriers.
-9. **`//pu:interrupt`** (done): interrupt and exception handlers with register saves (XMM included when
-   the handler calls or uses floats), `cld`, stack alignment, the error-code variant and `iretq` (abi.md
-   section 10.4), with `x86.InterruptFrame` and `x86.HandlerAddr`. Tested by booting a kernel under QEMU
-   (`testdata/kernel/irq`). Kernel mode (item 7) will drop the XMM saves.
-10. **Per-CPU variables, `//pu:percpu`** (proposed): a `.percpu` section linked at 0, accessed through `GS`
-    (abi.md section 10.6).
+7. **Kernel mode** (done): `--mode kernel` sets the `kernel` tag and links with a default top-2-GiB
+   linker script; floating point is a compile error outside `//pu:fpu` functions, enforced through
+   `ssa.Func.NoSSE` in lowering, the inliner and the backend (language spec section 11.2, abi.md section
+   10). `pluto/fmt` formats floats only outside kernel mode. Tested by booting `testdata/kernel/smoke`
+   under QEMU with SSE disabled.
+8. **`pluto/arch/x86` intrinsics** (done): every function of abi.md section 10.5 expands inline to an
+   `ssa.OpIntrinsic`, a compiler barrier; encodings are checked against GNU as.
+9. **`//pu:interrupt`** (done): interrupt and exception handlers with register saves, `cld`, stack
+   alignment, the error-code variant and `iretq` (abi.md section 10.4), with `x86.InterruptFrame` and
+   `x86.HandlerAddr`. Tested by booting a kernel under QEMU (`testdata/kernel/irq`). In kernel mode a
+   handler without `//pu:fpu` saves no XMM registers.
+10. **Per-CPU variables, `//pu:percpu`** (done): a `.percpu` section linked at 0, accessed through `GS`
+    (abi.md section 10.6). Tested as a Linux process that switches GS with `arch_prctl`, and in the QEMU
+    smoke kernel.
 11. **Error design** (in progress): how errors are made, wrapped and given context without hidden
     allocation, given that frame-boxed interfaces cannot be returned; owned by a dedicated design note.
 12. **`//pu:extern` C struct classification** (done): System V eightbyte classification for aggregate
