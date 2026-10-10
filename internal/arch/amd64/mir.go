@@ -483,6 +483,12 @@ func (in *MInst) String() string {
 		return fmt.Sprintf("imul $%d, %s, %s", in.Imm, in.Src.format(size), in.Dst.format(size))
 	case MLOADCONSTF:
 		return fmt.Sprintf("loadconstf $%#x, %s", in.Imm, in.Dst.format(size))
+	case MSAVEFLAGS:
+		return fmt.Sprintf("pushfq; pop %s", in.Dst.format(8))
+	case MRESTOREFLAGS:
+		return fmt.Sprintf("push %s; popfq", in.Src.format(8))
+	case MINVLPG, MLGDT, MLIDT, MLTR, MFXSAVE, MFXRSTOR:
+		return fmt.Sprintf("%s %s", in.Op, in.Src.format(2))
 	case MRDCR:
 		return fmt.Sprintf("mov %%cr%d, %s", in.Imm, in.Dst.format(8))
 	case MWRCR:
