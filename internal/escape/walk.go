@@ -423,9 +423,9 @@ func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
 }
 
 // yieldValues returns what an iterator whose closure may point to xv may
-// pass to yield: what its closure reaches, or the heap. The record a
-// closure constructor builds is left out when its closure never takes the
-// address of what it captures (analyzer.addrsCaptures).
+// pass to yield: what its closure reaches, or the heap. The region a
+// closure constructor builds is left out when its closure never passes on
+// memory of the region (analyzer.addrsCaptures).
 func (w *walker) yieldValues(xv tset) tset {
 	var start tset
 	for _, t := range xv {
@@ -519,11 +519,12 @@ func (w *walker) returnVal(sc *scope, k int, v tset, pos token.Pos, expr ast.Exp
 			if closureLoc(t.loc) && t.loc.level >= sc.level && regionSig(sc.fn.sig) {
 				// A closure this function returns is built in its
 				// caller's region; lowering checks what it may not
-				// return (E3100).
+				// return (E3100), and regionReturn what it reaches.
 				if !sc.fn.builds {
 					sc.fn.builds = true
 					w.a.grew = true
 				}
+				w.regionReturn(sc, t, pos, expr)
 				continue
 			}
 			if t.loc.level >= sc.level {

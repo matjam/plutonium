@@ -449,6 +449,11 @@ func (w *walker) dynFuncCall(t callTarget, args []tset, cs *callSite, fun ast.Ex
 					captured = append(w.reach(w.load(t.fv)), heapTok)
 				}
 				outer = captured
+				if f.regionLeaks {
+					// Built in a region, it may return memory of the
+					// region itself, which the func value points to.
+					outer = union(outer, t.fv)
+				}
 			}
 		}
 		for i := range res {

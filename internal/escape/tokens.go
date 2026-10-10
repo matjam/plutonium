@@ -439,7 +439,10 @@ type function struct {
 	// builds: the function may return closures it builds in a region of
 	// its caller's frame (regions.go).
 	builds bool
-	inits  bool // the initialisers of a package's variables
+	// regionLeaks: a function literal returned in a caller's region whose
+	// calls may give back memory of the region (regions.go).
+	regionLeaks bool
+	inits       bool // the initialisers of a package's variables
 	// tracked is the walker's computeTracked result for the function's
 	// body, kept for later passes.
 	tracked map[*types2.Var]bool

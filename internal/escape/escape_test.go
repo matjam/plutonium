@@ -95,6 +95,78 @@ func f(c C) func() int { return c.Get }
 var saved func() int
 func main() { saved = f(C{}) }`, []string{"cannot store f(C{}) in package variable saved"}},
 
+	{"closure from a call's region returned by calling its closure", `
+var saved func() int
+func inc(n int) func() int { return func() int { n++; return n } }
+func own(n int) func() func() int {
+	inner := inc(n)
+	return func() func() int { return inner }
+}
+func h() { saved = own(3)() }
+func main() { h() }`, []string{"cannot store own(3)() in package variable saved", "own(3) returns a closure, which it builds in a region of its caller's frame"}},
+
+	{"closure from a call's region returned through a parameter", `
+var saved func() int
+func inc(n int) func() int { return func() int { n++; return n } }
+func own(n int) func() func() int {
+	inner := inc(n)
+	return func() func() int { return inner }
+}
+func get(f func() func() int) func() int { return f() }
+func h() { saved = get(own(3)) }
+func main() { h() }`, []string{"cannot store get(own(3)) in package variable saved"}},
+
+	{"closure from a call's region yielded", `
+var saved func() int
+func inc(n int) func() int { return func() int { n++; return n } }
+func gen(n int) func(func(func() int) bool) {
+	inner := inc(n)
+	return func(yield func(func() int) bool) { yield(inner) }
+}
+func h() {
+	for f := range gen(3) {
+		saved = f
+	}
+}
+func main() { h() }`, []string{"cannot store f in package variable saved"}},
+
+	{"address of a variable in a call's region returned by calling its closure", `
+var saved *int
+func cell(n int) func() *int { return func() *int { return &n } }
+func h() { saved = cell(3)() }
+func main() { h() }`, []string{"cannot store cell(3)() in package variable saved"}},
+
+	{"pointer to a variable in a call's region returned by calling its closure", `
+var saved *int
+func mk() func() *int {
+	x := 3
+	p := &x
+	return func() *int {
+		x++
+		return p
+	}
+}
+func h() { saved = mk()() }
+func main() { h() }`, []string{"cannot store mk()() in package variable saved"}},
+
+	{"parameter set to a closure built in the region, returned by calling the closure", `
+var saved func() int
+func inc(n int) func() int { return func() int { n++; return n } }
+func swap(f func() int) func() func() int {
+	f = inc(3)
+	return func() func() int { return f }
+}
+func h() { saved = swap(nil)() }
+func main() { h() }`, []string{"cannot store swap(nil)() in package variable saved"}},
+
+	{"closure returned in the caller's region pointing into the frame", `
+func mk() func() int {
+	x := 3
+	p := &x
+	return func() int { return *p }
+}
+func main() { println(mk()()) }`, []string{"cannot return the function literal, which points into x, a local variable of mk"}},
+
 	{"return slice of local array", `
 func f() []byte {
 	var buf [16]byte
@@ -1005,6 +1077,38 @@ func h(k int) func() int {
 func main() {
 	a, b, c := f(), g(C{1}), h(2)
 	println(a(), b(), c())
+}`},
+	{"returning what calling a call's closure returns", `
+func inc(n int) func() int { return func() int { n++; return n } }
+func own(n int) func() func() int {
+	inner := inc(n)
+	return func() func() int { return inner }
+}
+func unwrap(n int) func() int {
+	p := own(n)
+	return p()
+}
+func main() {
+	u := unwrap(10)
+	println(u(), u())
+}`},
+	{"calling a region's closure that returns a counted string it captures", `
+var saved string
+func greeter(name string) func() string {
+	greeting := "hi " + name
+	return func() string { return greeting }
+}
+func h() { saved = greeter("x")() }
+func main() { h(); println(saved) }`},
+	{"closure returned in the caller's region using what it captures", `
+func mk(p *int) func() int {
+	x := 3
+	q := &x
+	return func() int { return *p + *q + x }
+}
+func main() {
+	n := 1
+	println(mk(&n)())
 }`},
 	{"go statement copies packed variadic arguments", `
 func sum(done chan int, xs ...int) {

@@ -339,6 +339,12 @@ func Chunk[Slice ~[]E, E any](s Slice, n int) iter.Seq[Slice] {
 }
 ```
 
+The region holds only those. A returned closure that points to another variable of the function, through
+a pointer it captures (`p := &x` where the closure uses `p` but not `x`), would point into a frame that is
+gone, and is a compile error (section 6.3). What calling the closure returns, or passes to `yield`, may be
+in the region too (a closure built there, or the address of a variable it captures), and is valid as long
+as the caller's frame, like the closure itself.
+
 The size of a region is fixed when compiling. A call through a func value or an interface reserves the
 largest region of any function of its signature. Such a function is an ordinary function: it can be used
 as a func value, a method value or an interface method, and is inlined when it is small, so that

@@ -1,6 +1,8 @@
 package escape
 
 import (
+	"fmt"
+
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
@@ -16,6 +18,15 @@ import (
 // what a function may return of its own frame (closureflow.go, E3100 to
 // E3102); this analysis checks everything else a region's closure may
 // reach, like any other view of the frame.
+//
+// The region holds more than copies of the arguments: the closure records
+// the function returns, the variables their literals use, and the regions
+// of the calls whose closures they hold. What the function returns may
+// reach nothing else of its frame (regionReturn). Calling one of the
+// closures, or ranging over it, may give back memory of the region itself
+// when its literal passes on what it captures by address or a closure
+// built there (regionLeaks); otherwise it gives back copies of what the
+// region holds.
 
 // regionSig reports whether a function of signature sig takes a region
 // for the closures it returns: some result can hold a func value by value
@@ -123,10 +134,66 @@ func closureLoc(l *loc) bool {
 	return l.kind == lkClosure || l.kind == lkMethodValue || l.kind == lkCtor
 }
 
-// addrsCaptures reports whether the closures f returns may take the
-// address of a variable they capture, which lives in the region: with &,
-// by slicing an array, by calling a pointer method, or from a function
-// literal inside them. Without that, they pass on copies of what the
+// regionReturn checks the closure t that sc's function returns, built in
+// its caller's region. The region holds the closure records the result
+// reaches and the variables of this frame their literals use; any other
+// memory of this frame the closure reaches is gone once the function
+// returns. What it reaches of the frames around a literal is returned as
+// a literal returns it. Each literal is marked as built in a region, and
+// as passing on memory of the region when it may (regionLeaks), for the
+// calls of it (dynFuncCall) and the loops over it (yieldValues).
+func (w *walker) regionReturn(sc *scope, t tok, pos token.Pos, expr ast.Expr) {
+	r := w.reach(tset{t})
+	region := map[*loc]bool{}
+	for _, u := range r {
+		if u.kind != tFrame || !closureLoc(u.loc) || u.loc.level < sc.level {
+			continue
+		}
+		region[u.loc] = true
+		lit := w.recLit[u.loc]
+		if lit == nil {
+			continue
+		}
+		for _, v := range u.loc.captures {
+			region[w.varLoc(v)] = true
+		}
+		if f := w.a.lits[lit]; f != nil && !f.regionLeaks && w.regionLeaks(sc, u.loc, lit) {
+			f.regionLeaks = true
+			w.a.grew = true
+		}
+	}
+	for _, u := range r {
+		switch {
+		case u.kind != tFrame || region[u.loc]:
+		case u.loc.level >= sc.level:
+			w.report(&viewErr{sink: sinkReturn, pos: pos, expr: expr, l: u.loc, fn: w.scopeName(sc)}, fmt.Sprintf("ret|%p", u.loc))
+		case sc.outerRet.add(u.untag()):
+			w.grew = true
+		}
+	}
+}
+
+// regionLeaks reports whether calling the closure rec of lit, which sc's
+// function returns in its caller's region, may give back memory of the
+// region rather than copies of what the region holds: a variable it
+// captures holds a pointer into this frame (to a closure built in the
+// region, or to a captured variable), or its code takes the address of
+// what it captures (litAddrsCaptures).
+func (w *walker) regionLeaks(sc *scope, rec *loc, lit *ast.FuncLit) bool {
+	for _, v := range rec.captures {
+		for _, c := range w.load(tset{frameTok(w.varLoc(v))}) {
+			if c.kind == tFrame && c.loc.level >= sc.level {
+				return true
+			}
+		}
+	}
+	return w.a.litAddrsCaptures(lit, sc.node)
+}
+
+// addrsCaptures reports whether the closures f returns may pass on memory
+// of their region: their code takes the address of what they capture
+// (litAddrsCaptures), or what they capture points into the region
+// (function.regionLeaks). Without that, they pass on copies of what the
 // region holds, never the region itself. Only a function whose every
 // return returns a function literal is examined.
 func (a *analyzer) addrsCaptures(f *function) bool {
@@ -158,14 +225,18 @@ func (a *analyzer) addrsCaptures(f *function) bool {
 		return true
 	}
 	for _, lit := range lits {
-		if a.litAddrsCaptures(lit, decl) {
+		if a.litAddrsCaptures(lit, decl) || a.lits[lit] != nil && a.lits[lit].regionLeaks {
 			return true
 		}
 	}
 	return false
 }
 
-func (a *analyzer) litAddrsCaptures(lit *ast.FuncLit, decl *ast.FuncDecl) bool {
+// litAddrsCaptures reports whether lit, a literal fn returns, may take the
+// address of a variable it captures, which lives in the region: with &, by
+// slicing an array, by calling a pointer method, or from a function
+// literal inside it.
+func (a *analyzer) litAddrsCaptures(lit *ast.FuncLit, fn ast.Node) bool {
 	captured := func(e ast.Expr) bool {
 		for {
 			switch x := e.(type) {
@@ -181,7 +252,7 @@ func (a *analyzer) litAddrsCaptures(lit *ast.FuncLit, decl *ast.FuncDecl) bool {
 					return false
 				}
 				p := v.Pos()
-				return p >= decl.Pos() && p < decl.End() && (p < lit.Pos() || p >= lit.End())
+				return p >= fn.Pos() && p < fn.End() && (p < lit.Pos() || p >= lit.End())
 			default:
 				return false
 			}
@@ -201,22 +272,22 @@ func (a *analyzer) litAddrsCaptures(lit *ast.FuncLit, decl *ast.FuncDecl) bool {
 				found = ptrRecv && pointerElem(a.types[x.X].Type) == nil && captured(x.X)
 			}
 		case *ast.FuncLit:
-			found = a.capturesFrom(x, decl)
+			found = a.capturesFrom(x, fn)
 		}
 		return !found
 	})
 	return found
 }
 
-// capturesFrom reports whether lit uses a variable declared in decl
+// capturesFrom reports whether lit uses a variable declared in fn
 // outside lit.
-func (a *analyzer) capturesFrom(lit *ast.FuncLit, decl *ast.FuncDecl) bool {
+func (a *analyzer) capturesFrom(lit *ast.FuncLit, fn ast.Node) bool {
 	found := false
 	ast.Inspect(lit.Body, func(n ast.Node) bool {
 		if id, ok := n.(*ast.Ident); ok {
 			if v, ok := a.uses[id].(*types2.Var); ok && !v.IsField() {
 				p := v.Pos()
-				if p >= decl.Pos() && p < decl.End() && (p < lit.Pos() || p >= lit.End()) {
+				if p >= fn.Pos() && p < fn.End() && (p < lit.Pos() || p >= lit.End()) {
 					found = true
 				}
 			}
