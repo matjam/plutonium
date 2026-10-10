@@ -216,7 +216,7 @@ func (g *genChecker) check(b *ssa.Block, v, p *ssa.Value) (*ssa.Block, *ssa.Valu
 	}
 	cont.Values = compat.Append(cont.Values, rest...)
 	cont.Likely = b.Likely
-	cont.Pos = b.Pos
+	cont.CopyPos(b)
 	cont.SetControl(b.Controls...)
 	b.SetControl()
 	for len(b.Succs) > 0 {
@@ -229,6 +229,8 @@ func (g *genChecker) check(b *ssa.Block, v, p *ssa.Value) (*ssa.Block, *ssa.Valu
 
 	chk := f.NewBlock(ssa.BlockIf)
 	fail := f.NewBlock(ssa.BlockExit)
+	chk.CopyPos(b)
+	fail.CopyPos(b)
 	b.Kind = ssa.BlockIf
 	b.Likely = ssa.Unknown
 	b.SetControl(tagged)
