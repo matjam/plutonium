@@ -327,13 +327,13 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 	s.setMem(entry.NewValue(ssa.OpInitMem, ssa.TMem))
 
 	if job.decl != nil {
-		f.Pos = job.decl.Pos()
+		f.Pos, f.End = job.decl.Pos(), job.decl.End()
 		s.applyPragmas(job.decl.Doc)
 		l.checkCtorBody(job)
 	} else if job.lit != nil {
-		f.Pos = job.lit.Pos()
+		f.Pos, f.End = job.lit.Pos(), job.lit.End()
 	} else {
-		f.Pos = job.pos
+		f.Pos, f.End = job.pos, job.end
 	}
 	if job.pkg != nil {
 		f.Pkg = job.pkg.Path

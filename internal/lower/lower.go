@@ -98,7 +98,8 @@ type funcJob struct {
 	parent   *fnState
 
 	build func(s *fnState) // for synthesized functions (init, wrappers)
-	pos   token.Pos        // for synthesized functions with a source position
+	pos   token.Pos        // for synthesized functions with a source extent
+	end   token.Pos
 }
 
 // Lower lowers a loaded program.

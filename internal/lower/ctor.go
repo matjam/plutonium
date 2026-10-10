@@ -115,8 +115,10 @@ func calledFunc(info *types2.Info, call *ast.CallExpr) *types2.Func {
 // expandCtor lowers a call of the closure constructor c, instantiated with
 // targs, with its receiver (or nil) and arguments already evaluated, and
 // returns the closure as a value of type T.
-func (s *fnState) expandCtor(c *ctorInfo, targs []types2.Type, recv *value, args []value, T types2.Type) value {
+func (s *fnState) expandCtor(c *ctorInfo, targs []types2.Type, recv *value, args []value, T types2.Type, call token.Pos) value {
 	d := c.decl
+	firstValue, firstBlock := s.f.NumValues(), s.f.NumBlocks()
+	defer s.moveToCall(firstValue, firstBlock, call)
 	pkg, info, tmap := s.pkg, s.info, s.tmap
 	s.pkg, s.info, s.tmap = d.pkg, d.pkg.Info, nil
 	if len(targs) > 0 {

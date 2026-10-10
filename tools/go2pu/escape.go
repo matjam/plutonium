@@ -15,7 +15,7 @@ import (
 // Go's escape analysis is the oracle for where the translation must
 // allocate. In Go, &T{...} and []T{...} live on the heap when the compiler
 // sees them outlive their frame; in Plutonium they always live in the frame
-// (language spec section 6), so the ones Go moves to the heap must allocate
+// (language spec section 6.3), so the ones Go moves to the heap must allocate
 // explicitly. Go reports its decisions with -gcflags=-m.
 
 // escapes maps "file.go:line:col" to Go's escape analysis messages there.

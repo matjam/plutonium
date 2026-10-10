@@ -78,7 +78,7 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 			sig := s.subst(s.info.Types[e.Fun].Type).(*types2.Signature)
 			if c := s.l.closureCtor(fn); c != nil {
 				args := s.callArgs(e, sig, &defaultsOf{fn, targs})
-				return []value{s.expandCtor(c, targs, nil, args, s.typeOf(e))}
+				return []value{s.expandCtor(c, targs, nil, args, s.typeOf(e), e.Pos())}
 			}
 			sym := s.l.funcSym(fn, targs)
 			args := s.callArgs(e, sig, &defaultsOf{fn, targs})
@@ -222,9 +222,33 @@ func (s *fnState) defaultArg(def *defaultsOf, i, n int, T types2.Type, e *ast.Ca
 	if len(def.targs) > 0 {
 		s.tmap = newTypeMap(s.l, fn, def.targs)
 	}
+	firstValue, firstBlock := s.f.NumValues(), s.f.NumBlocks()
 	v := s.materialize(s.exprAs(defs[k], T))
 	s.pkg, s.info, s.tmap = pkg, info, tmap
+	s.moveToCall(firstValue, firstBlock, e.Pos())
 	return v
+}
+
+// moveToCall gives the code made for a default argument, the values and
+// blocks numbered from firstValue and firstBlock on, the position of the
+// call. The default's own positions are in the callee's declaration, but
+// its code is the caller's, and a stack trace or debugger reports a frame
+// at a line of its own function. (Errors still name the default, through
+// fnState.pos.)
+func (s *fnState) moveToCall(firstValue, firstBlock int, call token.Pos) {
+	if !call.IsValid() {
+		return
+	}
+	for _, b := range s.f.Blocks {
+		if b.ID >= firstBlock && b.Pos.IsValid() {
+			b.Pos = call
+		}
+		for _, w := range b.Values {
+			if w.ID >= firstValue && w.Pos.IsValid() {
+				w.Pos = call
+			}
+		}
+	}
 }
 
 // emitCall emits a call and returns its results as values.
@@ -440,7 +464,7 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 	targs := s.methodTypeArgs(fn, se, recvT)
 	if c := s.l.closureCtor(fn); c != nil {
 		args := s.callArgs(e, sig, &defaultsOf{fn, targs})
-		return []value{s.expandCtor(c, targs, &recv, args, s.typeOf(e))}
+		return []value{s.expandCtor(c, targs, &recv, args, s.typeOf(e), e.Pos())}
 	}
 	sym := s.l.funcSym(fn, targs)
 	full := s.l.methodSig(fn, targs)

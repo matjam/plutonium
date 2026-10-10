@@ -2,7 +2,8 @@
 
 **Date:** 2026-10-09
 **Status:** plan and analysis, with a working prototype (`tools/go2pu`, `selfhost/`). Section 10 lists the
-decisions for the user.
+decisions for the user. Section 11 amends the plan for the ownership model (language spec section 6):
+the Go sources migrate to a `pu` package that mirrors the Plutonium library, so translation is one to one.
 
 The compiler is 56,548 lines of Go. The goal is a compiler written in Plutonium that compiles itself, can
 be built and maintained on PlutoniumOS, and produces byte-identical output when it rebuilds itself. This
@@ -125,7 +126,7 @@ inventory checks names, not semantics, so the column also says where the semanti
 
 | Go package | Used by | Names used (most frequent) | Plutonium today | Plan (section 4) |
 |---|---|---|---|---|
-| `fmt` | 16 packages, 259 uses | `Sprintf` 96, `Fprintf` 65, `Errorf` 55, `Println` 17 | `pluto/fmt`: 7 of 8; `Errorf` with `%w` (spec section 13); no `Sprintf` (it has `Bprintf` into a buffer); `%v` of structs prints the type name | compat `Sprintf` over `Fprintf`; `Errorf` as is |
+| `fmt` | 16 packages, 259 uses | `Sprintf` 96, `Fprintf` 65, `Errorf` 55, `Println` 17 | `pluto/fmt`: 7 of 8; `Errorf` with `%w` (spec section 14); no `Sprintf` (it has `Bprintf` into a buffer); `%v` of structs prints the type name | compat `Sprintf` over `Fprintf`; `Errorf` as is |
 | `strings` | 13 packages, 236 uses | `Builder` and its methods 100, `HasPrefix` 31, `CutPrefix` 10, `Join` 8 | `pluto/strings`: 28 of 37; no `Join`, `Repeat`, `ReplaceAll`, `Split`, `Fields`, `ToLower` (it has `Append*` and `*Into` forms); `Builder` needs an allocator | add allocator forms; compat `Builder` |
 | `bytes` | 9 packages, 211 uses | `Buffer` methods (`WriteByte` 59, `WriteString` 58) | `pluto/bytes.Buffer` exists but has fixed capacity | compat `Buffer` (grows) |
 | `go/constant` | types2 198, lower 31 | `Value`, `Kind`, `MakeInt64`, `Int64Val`, `ToInt`, `BinaryOp`, `Compare`, `Shift`, `MakeFromLiteral` (34 names) | none | new `constant` package (section 5.3) |
@@ -242,7 +243,7 @@ is ever freed individually. `selfhost/compat` holds the few functions that need 
 | `s + t`, `s += t` | `compat.Concat(s, t)` | chains flattened into one call |
 | `string(b)`, `[]byte(s)`, `string(r)` | `compat.String`, `compat.Bytes`, `compat.RuneString` | copies |
 | `fmt.Sprintf` | `compat.Sprintf` | a new string from `alloc.Default()` |
-| `fmt.Errorf`, `errors.Is`, `As`, `Unwrap`, `Join` | unchanged | `pluto/fmt` and `pluto/errors` follow Go (spec section 13) |
+| `fmt.Errorf`, `errors.Is`, `As`, `Unwrap`, `Join` | unchanged | `pluto/fmt` and `pluto/errors` follow Go (spec section 14) |
 | `errors.New` in a function body | `compat.NewError` | `errors.New` takes a static slot, meant for package-level sentinels |
 | `bytes.Buffer`, `strings.Builder` | `compat.Buffer` | zero value grows from `alloc.Default()` |
 | `strings.Join` | `compat.Join` | |
@@ -306,7 +307,7 @@ does not translate the Go file of the same name. This is how a file that needs r
 
 ### 3.3 Go's escape analysis as the oracle
 
-Plutonium puts composite literals, their addresses and every local in the frame (language spec section 6);
+Plutonium puts composite literals, their addresses and every local in the frame (language spec section 6.3);
 Go moves to the heap whatever escape analysis cannot prove stays in the frame. go2pu runs
 `go build -gcflags='-m -l'` on each package and allocates exactly what Go moves:
 
@@ -351,7 +352,7 @@ mistake the tests reach into a crash, so the differential tests (section 6.3) ru
 
 ### 3.5 Errors
 
-The errors design (`docs/plans/2026-10-09-errors-design.md`, language spec section 13) landed on `main`
+The errors design (`docs/plans/2026-10-09-errors-design.md`, language spec section 14) landed on `main`
 while this plan was written, and the port follows it: an error that leaves a function is a word-sized
 value or a pointer to static, owner or allocator storage. For the compiler that means:
 
@@ -362,7 +363,7 @@ value or a pointer to static, owner or allocator storage. For the compiler that 
   sentinels (`build.ErrNoTestFiles`, `errFormattingDiffers`) stay, and the three calls made at run time
   (`types2/instantiate.go`, `parser/interface.go`, `cmd/pluto/fmt.go`) become `compat.NewError`, which
   allocates. The `types2` one runs once per failed instantiation and would exhaust the slots.
-- Three error values are not pointers and are returned or stored as interfaces, which spec section 13
+- Three error values are not pointers and are returned or stored as interfaces, which spec section 14
   forbids: `lower.errorList` and `scanner.ErrorList` (slices) and `types2.Error` (a struct passed to a
   callback that keeps it). They become pointers by hand.
 
@@ -851,4 +852,69 @@ back end needed no hand work, and the differential tests passed unchanged.
 11. **Compiler stack**: a large reserved main-thread stack plus a depth limit in the type checker
     (recommended).
 12. **Library naming**: the spec's `fmt.Sprintf` writes into a caller's buffer; the port wants a version
-    returning a string from an allocator. Pick the names (roadmap item 47).
+    returning a string from an allocator. Pick the names (roadmap item 47). *Settled by the ownership
+    model: `fmt.Sprintf` returns a `strings.Buf` and `Bprintf` formats into a buffer (section 11).*
+
+## 11. Amendment: the ownership model and the `pu` package (2026-10-09)
+
+The ownership model (language spec section 6) was approved after this plan was written. It splits types
+into values, views (`string`, `[]T`, `*T`) and owners (types declared `owner`: `vec.Vec`, `hash.Map`,
+`strings.Buf`, `os.File`, `owned[T]`), requires every allocation to have an owner or an arena, and makes
+`fmt.Sprintf` return a `strings.Buf`. Section 3.1's translation reproduces Go's semantics on arenas through
+`selfhost/compat`, which hides exactly what the model wants visible: `*hash.Map` pointers standing in for
+Go maps, `compat.Append` growing arrays nobody owns, `compat.Sprintf` returning a string nobody owns. This
+amendment changes the strategy for the data structures while keeping the arenas.
+
+### 11.1 The `pu` package
+
+A Go package `pu` (in this repository, for example `internal/pu`) mirrors the Plutonium library API for
+the types the compiler uses:
+
+| `pu` (Go) | Plutonium | Go implementation |
+|---|---|---|
+| `pu.Map[K, V]` | `hash.Map[K, V]` | a struct holding a Go `map[K]V` |
+| `pu.Set[K]` | `hash.Set[K]` | a struct holding a `map[K]struct{}` |
+| `pu.Vec[T]` | `vec.Vec[T]` | a struct holding a `[]T` |
+| `pu.Buf` | `strings.Buf` | a struct holding a `[]byte` |
+| `pu.Sprintf(format, args...) pu.Buf` | `fmt.Sprintf` | `fmt.Appendf` into a new `Buf` |
+| `pu.New[T](v T) *T` | `a.New[T]()` on the phase arena, filled with `v` | `&v` (the collector owns it) |
+
+The methods are the Plutonium ones, with the same names and signatures (`Get`, `Set`, `Delete`, `Len`,
+`Iter`, `Push`, `At`, `Slice`, `WriteString`, `String`, `Clone`, `Drop`), so a call in Go and its
+translation are the same text with a different import. In Go, `Drop` does nothing. Each type embeds a
+`noCopy` marker so that `go vet`'s copylocks check reports copies, which are the Go spelling of a use after
+move; `Clone` is the explicit copy in both languages.
+
+### 11.2 Migration
+
+The compiler's Go sources move to `pu` package by package, while Go is still the source of truth and every
+change is checked by the Go build and tests:
+
+1. Map types become `pu.Map` values held by their owner (a struct field or a local), passed down as
+   `*pu.Map`. A map that several structures share is owned by one of them, or by the phase.
+2. Slices that grow become `pu.Vec`; slices that are only passed and read stay `[]T` views of a `Vec`'s
+   `Slice()`.
+3. String building (`+`, `Sprintf`, `strings.Builder`, `bytes.Buffer`) becomes `pu.Buf`; strings that are
+   only passed and compared stay `string` views.
+4. Pointer graphs (AST nodes, `types2` objects, SSA values) stay `*T`. In Plutonium they are views of the
+   phase arena, allocated with `pu.New`, which is the "or an arena" half of the model's allocation rule.
+
+go2pu then translates `pu.X` to the Plutonium type one to one, and `selfhost/compat` shrinks to what has no
+library counterpart. Go's escape analysis is still the oracle for `&T{...}`, which becomes `pu.New` in the
+Go source rather than `new(T{...})` in the translation; under the proposal of language spec section 4.2,
+`new` returns an `owned[T]`, which cannot be stored in the compiler's `*T` fields, so arena allocation must
+be written as such.
+
+### 11.3 Effect on the rest of this plan
+
+- Section 3.1: the map, `append`, concatenation, `Sprintf` and `Builder` rows translate `pu` calls
+  instead of rewriting Go built-ins; `compat.Concat`, `compat.Append`, `compat.String` and the map helpers
+  become unnecessary for migrated packages.
+- Section 3.4: arenas stay as planned. Owners in an arena free into it, which does nothing, so the same
+  code runs with per-phase arenas and, later, with a freeing allocator.
+- Section 3.5: errors follow language spec section 14, including the proposal of section 14.6 if it is
+  signed off.
+- Section 7, gaps 9 to 11: string formatting, map ergonomics and growing slices are met by `strings.Buf`,
+  `hash.Map` and `vec.Vec` as owners, and by the indexing interface (roadmap item 49) once it lands.
+- The migration to `pu` is new work in phase 0 or 1 of section 8, mechanical and checked by the existing
+  Go tests; it can proceed package by package in the same order as the translation.

@@ -5,6 +5,7 @@ package ssa
 import (
 	"pluto/fmt"
 	"selfhost/compat"
+	"selfhost/internal/syntax/token"
 )
 
 // Verify checks the function's structural invariants and returns an error
@@ -188,6 +189,46 @@ func (f *Func) Verify() error {
 
 	if len(errs) > 0 {
 		return fmt.Errorf("ssa: %s is invalid:\n  %s\n%s", f.Name, compat.Join(errs, "\n  "), f)
+	}
+	return nil
+}
+
+// VerifyPos checks that every source position in the function belongs to
+// the code its inline site says it came from: a value or block with no
+// inline site has a position in the function itself, and one with a site
+// has a position in the inlined function. A pass that copies a position
+// without its inline site fails this check, which otherwise shows only as
+// a stack trace or debugger frame that leaves out an inlined call.
+// Positions in functions with no known extent (synthesized ones) are not
+// checked. The optimiser runs it under PLUTO_SSACHECK.
+func (f *Func) VerifyPos() error {
+	var errs []string
+	check := func(what string, pos token.Pos, inl int32) {
+		if inl < 0 || int(inl) > len(f.Inlines) {
+			errs = compat.Append(errs, compat.Sprintf("%s: inline site %d out of range (%d sites)", what, inl, len(f.Inlines)))
+			return
+		}
+		if !pos.IsValid() {
+			return
+		}
+		start, end, in := f.Pos, f.End, f.Name
+		if inl > 0 {
+			s := f.Inlines[inl-1]
+			start, end, in = s.Start, s.End, s.Func
+		}
+		if !end.IsValid() || start <= pos && pos <= end {
+			return
+		}
+		errs = compat.Append(errs, compat.Sprintf("%s: position %d (inline site %d) is outside %s [%d, %d]", what, pos, inl, in, start, end))
+	}
+	for _, b := range f.Blocks {
+		check(b.String(), b.Pos, b.Inl)
+		for _, v := range b.Values {
+			check(compat.Concat(v.String(), " (", v.Op.String(), ")"), v.Pos, v.Inl)
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("ssa: %s has misplaced positions:\n  %s\n%s", f.Name, compat.Join(errs, "\n  "), f)
 	}
 	return nil
 }

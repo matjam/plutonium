@@ -162,7 +162,7 @@ func (s *fnState) rangeFuncStmt(st *ast.RangeStmt, label *types2.Label, sig *typ
 	s.rangeLoops++
 	sym := s.l.out.Sym(fmt.Sprintf("%s-range%d", s.f.Name, s.rangeLoops), ssa.SymFunc)
 	s.l.lowerFunc(&funcJob{
-		sym: sym, pkg: s.pkg, sig: ySig, tmap: s.tmap, parent: s, pos: st.Pos(),
+		sym: sym, pkg: s.pkg, sig: ySig, tmap: s.tmap, parent: s, pos: st.Pos(), end: st.End(),
 		build: func(bs *fnState) { bs.rangeBody(rf) },
 	})
 
