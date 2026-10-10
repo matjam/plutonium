@@ -7,6 +7,7 @@ import (
 	"pluto/rt"
 	"unsafe"
 )
+
 //pu:noescape
 func consoleWrite(p unsafe.Pointer, n int)
 

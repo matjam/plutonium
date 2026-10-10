@@ -11,7 +11,7 @@ type A[T any] interface {
 }
 
 type Z struct {
-	a,b int
+	a, b int
 }
 
 func (z *Z) m() {

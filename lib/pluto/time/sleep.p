@@ -165,7 +165,6 @@ func (t *Timer) Drop() {
 // puroutine's stack (language spec section 4.7). The puroutines are started
 // by one puroutine of the time package's, which AfterFunc starts the first
 // time it is called and which then waits for expiries for good.
-//
 func AfterFunc(d Duration, f func(), a alloc.Allocator = alloc.Default()) *Timer {
 	rt.CheckGoFunc(f)
 	startFuncRunner()

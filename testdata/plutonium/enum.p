@@ -14,10 +14,10 @@ type Color enum {
 // A sparse enum with an explicit underlying type: its String uses a table
 // with holes.
 type Errno enum uint16 {
-	OK     = 0
+	OK = 0
 	EPERM
 	ENOENT
-	EIO    = 5
+	EIO = 5
 }
 
 // Signed, because a member is negative.

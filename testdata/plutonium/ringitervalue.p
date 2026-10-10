@@ -4,7 +4,9 @@
 // provides (language spec sections 4.5 and 5.4).
 package main
 
-type Seq interface{ All() func(func(int, int) bool) }
+type Seq interface {
+	All() func(func(int, int) bool)
+}
 
 func fill(r *ring[int, 4], n int) {
 	for i := 0; i < n; i++ {

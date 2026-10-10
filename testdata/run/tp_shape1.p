@@ -19,25 +19,25 @@ func f[T I](x T) int {
 type squarer int
 
 func (x squarer) foo() int {
-	return int(x*x)
+	return int(x * x)
 }
 
 type doubler int
 
 func (x doubler) foo() int {
-	return int(2*x)
+	return int(2 * x)
 }
 
 type incrementer int16
 
 func (x *incrementer) foo() int {
-	return int(*x+1)
+	return int(*x + 1)
 }
 
 type decrementer int32
 
-func (x *decrementer) foo() int{
-	return int(*x-1)
+func (x *decrementer) foo() int {
+	return int(*x - 1)
 }
 
 func main() {

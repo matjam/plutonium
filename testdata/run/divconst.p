@@ -19,10 +19,10 @@ func divu32(x uint32) uint32 {
 	return x/3 + x/5 + x/8 + x/7 + x%3 + x%16 + x/4294967295
 }
 
-func div16(x int16) int16  { return x/3 + x/-5 + x%7 + x%4 }
+func div16(x int16) int16    { return x/3 + x/-5 + x%7 + x%4 }
 func divu16(x uint16) uint16 { return x/3 + x/10 + x%7 + x%4 }
-func div8(x int8) int8     { return x/3 + x/-2 + x%5 }
-func divu8(x uint8) uint8   { return x/3 + x/10 + x%7 }
+func div8(x int8) int8       { return x/3 + x/-2 + x%5 }
+func divu8(x uint8) uint8    { return x/3 + x/10 + x%7 }
 
 func even(x int64) bool { return x%2 == 0 }
 func odd(x int64) bool  { return x%2 != 0 }

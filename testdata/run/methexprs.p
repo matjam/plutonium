@@ -6,8 +6,8 @@ type Stringer interface{ String() string }
 
 type S struct{ a, b int }
 
-func (s S) Sum() int     { return s.a + s.b }
-func (s *S) Inc(n int)   { s.a += n }
+func (s S) Sum() int   { return s.a + s.b }
+func (s *S) Inc(n int) { s.a += n }
 func (s S) String() string {
 	if s.a > s.b {
 		return "a"
@@ -25,9 +25,9 @@ type Vec[E any] struct {
 	n     int
 }
 
-func (v Vec[E]) Len() int      { return v.n }
-func (v *Vec[E]) Push(x E)     { v.items[v.n] = x; v.n++ }
-func (v *Vec[E]) Get(i int) E  { return v.items[i] }
+func (v Vec[E]) Len() int     { return v.n }
+func (v *Vec[E]) Push(x E)    { v.items[v.n] = x; v.n++ }
+func (v *Vec[E]) Get(i int) E { return v.items[i] }
 
 func main() {
 	s := S{1, 2}

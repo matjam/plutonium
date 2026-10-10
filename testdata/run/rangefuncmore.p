@@ -65,7 +65,7 @@ func (t *Tree) Walk(yield func(int) bool) {
 
 type big struct {
 	a, b, c, d int
-	name      string
+	name       string
 }
 
 func bigs(yield func(string, big) bool) {

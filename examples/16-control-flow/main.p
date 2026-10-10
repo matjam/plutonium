@@ -29,7 +29,7 @@ func testContinue() {
 	sum := int64(0)
 	i := int64(0)
 	for i < 10 {
-		if i % 2 != 0 {
+		if i%2 != 0 {
 			i = i + 1
 			continue
 		}

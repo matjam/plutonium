@@ -20,7 +20,7 @@ func main() {
 	var i64 atomic.Int64
 	fmt.Printf("%d %d %d %t %d %d %d\n", i64.Add(1<<40), i64.Add(-3<<40), i64.Swap(-1), i64.CompareAndSwap(-1, 9), i64.Load(), i64.And(12), i64.Load())
 	var u64 atomic.Uint64
-	u64.Store(1<<63)
+	u64.Store(1 << 63)
 	fmt.Printf("%d %d %t %d\n", u64.Add(1<<63), u64.Or(0xff00), u64.CompareAndSwap(0, 1), u64.Load())
 	var up atomic.Uintptr
 	fmt.Printf("%d %d\n", up.Add(4096), up.Swap(0))

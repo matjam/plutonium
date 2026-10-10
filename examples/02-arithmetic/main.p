@@ -20,7 +20,7 @@ func mul(a, b int64) int64 {
 }
 
 func main() int64 {
-	x := add(20, 1)  // x = 21
-	y := mul(x, 2)   // y = 42
+	x := add(20, 1) // x = 21
+	y := mul(x, 2)  // y = 42
 	return y
 }

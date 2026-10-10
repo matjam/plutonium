@@ -5,7 +5,6 @@
 // license that can be found in the LICENSE file.
 package main
 
-
 func f[T comparable](i any) {
 	var t T
 

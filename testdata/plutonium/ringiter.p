@@ -251,7 +251,7 @@ func generic() {
 		rf.Push(float64(i) / 2)
 		rl.Push(int64(i) << 40)
 	}
-	println("sums:", sum(&ri), int(sum(&rf)*10), sum(&rl) >> 40)
+	println("sums:", sum(&ri), int(sum(&rf)*10), sum(&rl)>>40)
 }
 
 func named() {

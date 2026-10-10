@@ -1,12 +1,12 @@
 package main
 
 var (
-	a = b + 1
-	b = f()
-	c int
-	d = "global string"
-	e = [3]int{1, 2, 3}
-	pi = 3.25
+	a     = b + 1
+	b     = f()
+	c     int
+	d     = "global string"
+	e     = [3]int{1, 2, 3}
+	pi    = 3.25
 	table [256]uint32
 )
 

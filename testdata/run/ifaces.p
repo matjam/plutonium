@@ -7,8 +7,8 @@ type Shape interface {
 
 type Rect struct{ w, h int }
 
-func (r Rect) Area() int     { return r.w * r.h }
-func (r Rect) Name() string  { return "rect" }
+func (r Rect) Area() int    { return r.w * r.h }
+func (r Rect) Name() string { return "rect" }
 
 type Square struct{ s int }
 

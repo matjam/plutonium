@@ -6,9 +6,9 @@
 
 package main
 
-func f[T any](i interface{foo()}) {
+func f[T any](i interface{ foo() }) {
 	switch i.(type) {
-	case interface{bar() T}:
+	case interface{ bar() T }:
 		println("barT")
 	case myint:
 		println("myint")
@@ -20,6 +20,7 @@ func f[T any](i interface{foo()}) {
 }
 
 type myint int
+
 func (myint) foo() {
 }
 func (x myint) bar() int {
@@ -27,6 +28,7 @@ func (x myint) bar() int {
 }
 
 type myfloat float64
+
 func (myfloat) foo() {
 }
 

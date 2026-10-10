@@ -12,36 +12,36 @@ func Syscall6(num, a1, a2, a3, a4, a5, a6 uintptr) uintptr
 
 // System call numbers (x86-64).
 const (
-	SYS_READ       = 0
-	SYS_WRITE      = 1
-	SYS_OPEN       = 2
-	SYS_CLOSE      = 3
-	SYS_STAT       = 4
-	SYS_FSTAT      = 5
-	SYS_LSEEK      = 8
-	SYS_MMAP       = 9
-	SYS_MPROTECT   = 10
-	SYS_MUNMAP     = 11
-	SYS_BRK        = 12
-	SYS_IOCTL      = 16
-	SYS_PREAD64    = 17
-	SYS_PWRITE64   = 18
-	SYS_GETPID     = 39
-	SYS_EXIT       = 60
-	SYS_KILL       = 62
-	SYS_UNAME      = 63
-	SYS_FCNTL      = 72
-	SYS_GETCWD     = 79
-	SYS_CHDIR      = 80
-	SYS_RENAME     = 82
-	SYS_MKDIR      = 83
-	SYS_RMDIR      = 84
-	SYS_UNLINK     = 87
-	SYS_GETTIMEOFDAY = 96
+	SYS_READ          = 0
+	SYS_WRITE         = 1
+	SYS_OPEN          = 2
+	SYS_CLOSE         = 3
+	SYS_STAT          = 4
+	SYS_FSTAT         = 5
+	SYS_LSEEK         = 8
+	SYS_MMAP          = 9
+	SYS_MPROTECT      = 10
+	SYS_MUNMAP        = 11
+	SYS_BRK           = 12
+	SYS_IOCTL         = 16
+	SYS_PREAD64       = 17
+	SYS_PWRITE64      = 18
+	SYS_GETPID        = 39
+	SYS_EXIT          = 60
+	SYS_KILL          = 62
+	SYS_UNAME         = 63
+	SYS_FCNTL         = 72
+	SYS_GETCWD        = 79
+	SYS_CHDIR         = 80
+	SYS_RENAME        = 82
+	SYS_MKDIR         = 83
+	SYS_RMDIR         = 84
+	SYS_UNLINK        = 87
+	SYS_GETTIMEOFDAY  = 96
 	SYS_CLOCK_GETTIME = 228
-	SYS_EXIT_GROUP = 231
-	SYS_OPENAT     = 257
-	SYS_GETDENTS64 = 217
+	SYS_EXIT_GROUP    = 231
+	SYS_OPENAT        = 257
+	SYS_GETDENTS64    = 217
 )
 
 // Open flags.
