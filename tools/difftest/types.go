@@ -27,6 +27,7 @@ type typ struct {
 	elem   *typ    // arrays, slices and pointers
 	n      int     // array length
 	fields []field // structs
+	param  bool    // a type parameter: an integer of any signed type
 }
 
 type field struct {

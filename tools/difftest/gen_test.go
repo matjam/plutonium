@@ -23,7 +23,7 @@ func TestGenerateDeterministic(t *testing.T) {
 
 // TestGenerateTypeChecks checks that generated programs are valid Go.
 func TestGenerateTypeChecks(t *testing.T) {
-	n := int64(300)
+	n := int64(1000)
 	if testing.Short() {
 		n = 50
 	}

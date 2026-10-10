@@ -55,6 +55,7 @@ type closureInfo struct {
 type fnInfo struct {
 	name    string
 	recv    *variable // the receiver of a method
+	tparam  *typ      // the type parameter of a generic function
 	params  []*variable
 	results []*typ
 	pure    bool
@@ -79,6 +80,7 @@ type ctx struct {
 	writeGlobal   bool // may write globals and memory it does not own
 	minWriteLevel int  // variables of enclosing functions below this level are read-only
 	isMain        bool // main, which does not return early so that all output appears
+	tparam        *typ // the type parameter of a generic function
 	mult          int64
 	cost          int64
 	budget        int64
@@ -206,7 +208,16 @@ func (g *gen) canon(t *typ) *typ {
 func (g *gen) arrayOf(elem *typ, n int) *typ { return g.canon(&typ{kind: kArray, elem: elem, n: n}) }
 func (g *gen) sliceOf(elem *typ) *typ        { return g.canon(&typ{kind: kSlice, elem: elem}) }
 
+// randInt picks an integer type, which in a generic function may be its
+// type parameter.
 func (g *gen) randInt() *typ {
+	if g.cx != nil && g.cx.tparam != nil && g.chance(3) {
+		return g.cx.tparam
+	}
+	return g.concreteInt()
+}
+
+func (g *gen) concreteInt() *typ {
 	if g.chance(4) {
 		return tInt
 	}
@@ -217,11 +228,13 @@ func (g *gen) randLen() int {
 	return []int{1, 2, 3, 4, 4, 5, 7, 8, 8, 16}[g.r.Intn(10)]
 }
 
+// randElem picks an element type for an array, slice or pointer: never a
+// type parameter, which keeps instantiation to plain substitution.
 func (g *gen) randElem() *typ {
 	if len(g.structs) > 0 && g.chance(5) {
 		return g.structs[g.r.Intn(len(g.structs))]
 	}
-	return g.randInt()
+	return g.concreteInt()
 }
 
 // randType picks a value type: an integer, bool, array or struct, or with
@@ -245,7 +258,7 @@ func (g *gen) randType(refs bool) *typ {
 		var elem *typ
 		switch g.r.Intn(3) {
 		case 0:
-			elem = g.randInt()
+			elem = g.concreteInt()
 		case 1:
 			elem = g.arrayOf(g.randElem(), g.randLen())
 		default:
@@ -261,16 +274,16 @@ func (g *gen) newStruct() *typ {
 		var ft *typ
 		switch k := g.r.Intn(20); {
 		case k < 14:
-			ft = g.randInt()
+			ft = g.concreteInt()
 		case k < 16:
 			ft = tBool
 		case k < 19:
-			ft = g.arrayOf(g.randInt(), 2+g.r.Intn(4))
+			ft = g.arrayOf(g.concreteInt(), 2+g.r.Intn(4))
 		default:
 			if len(g.structs) > 0 {
 				ft = g.structs[g.r.Intn(len(g.structs))]
 			} else {
-				ft = g.randInt()
+				ft = g.concreteInt()
 			}
 		}
 		t.fields = append(t.fields, field{name: fmt.Sprintf("f%d", i), t: ft})
@@ -555,7 +568,7 @@ func (g *gen) index(n int, sl *variable) string {
 	var loopVars []string
 	var shifted []string
 	for _, v := range g.visible() {
-		if v.t == nil || v.t.kind != kInt {
+		if v.t == nil || v.t.kind != kInt || v.t.param {
 			continue
 		}
 		if sl != nil && v.boundSlice == sl {
@@ -597,7 +610,8 @@ func (g *gen) index(n int, sl *variable) string {
 			}
 		case 5:
 			if n&(n-1) == 0 {
-				return fmt.Sprintf("(%s & %d)", g.intExpr(g.randInt(), 1, true).s, n-1)
+				// Not a type parameter, which cannot be an index.
+				return fmt.Sprintf("(%s & %d)", g.intExpr(g.concreteInt(), 1, true).s, n-1)
 			}
 		case 6:
 			e := g.intExpr(g.randInt(), 1, true).s
@@ -1065,7 +1079,10 @@ func (g *gen) call(t *typ, pureOnly bool) string {
 	}
 	var cands []cand
 	for _, f := range g.funcs[:g.nfuncs] {
-		if len(f.results) != 1 || f.results[0] != t || (pureOnly && !f.pure) {
+		if len(f.results) != 1 || (pureOnly && !f.pure) {
+			continue
+		}
+		if f.results[0] != t && (f.tparam == nil || !g.canInstantiate(t)) {
 			continue
 		}
 		if !f.pure && !g.cx.writeGlobal {
@@ -1092,26 +1109,88 @@ func (g *gen) call(t *typ, pureOnly bool) string {
 	}
 	g.addCost(c.cost + 1)
 	if c.f != nil {
-		return g.callText(c.f)
+		return g.callText(c.f, t)
 	}
 	c.v.used = true
 	return c.name + "(" + g.args(c.params, c.slices) + ")"
 }
 
 // callText returns a call of function or method f with generated
-// arguments.
-func (g *gen) callText(f *fnInfo) string {
+// arguments. A generic function is instantiated with inst.
+func (g *gen) callText(f *fnInfo, inst *typ) string {
 	var params []*typ
 	var lens []int
 	for _, p := range f.params {
-		params = append(params, p.t)
+		params = append(params, g.subst(p.t, f.tparam, inst))
 		lens = append(lens, p.sliceLen)
 	}
 	name := f.name
 	if f.recv != nil {
 		name = g.receiver(f) + "." + f.name
 	}
+	if f.tparam != nil {
+		name += "[" + inst.String() + "]"
+	}
+	// A call statement's arguments count as nested in a call.
+	if g.callDepth == 0 {
+		g.callDepth++
+		defer func() { g.callDepth-- }()
+	}
 	return name + "(" + g.args(params, lens) + ")"
+}
+
+// typeSetSpelling is the constraint of generated type parameters.
+func typeSetSpelling() string {
+	var parts []string
+	for _, t := range genericSet() {
+		parts = append(parts, "~"+t.String())
+	}
+	return strings.Join(parts, " | ")
+}
+
+// genericSet lists the types a type parameter may be instantiated with:
+// the signed integers, so that every generated constant fits them all.
+func genericSet() []*typ {
+	var out []*typ
+	for _, t := range intTypes {
+		if t.signed {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// instFor returns a type to instantiate a generic function with: a
+// random member of the type set, or within a generic function sometimes
+// its own type parameter.
+func (g *gen) instFor() *typ {
+	if g.cx.tparam != nil && g.chance(3) {
+		return g.cx.tparam
+	}
+	set := genericSet()
+	return set[g.r.Intn(len(set))]
+}
+
+// canInstantiate reports whether a type parameter may be instantiated
+// with t here.
+func (g *gen) canInstantiate(t *typ) bool {
+	return t.kind == kInt && t.signed && (!t.param || t == g.cx.tparam) && t != g.named
+}
+
+// subst replaces the type parameter tp in t with inst.
+func (g *gen) subst(t, tp, inst *typ) *typ {
+	switch {
+	case tp == nil:
+		return t
+	case t == tp:
+		return inst
+	case t.kind == kSlice && t.elem == tp:
+		if inst.param {
+			return &typ{kind: kSlice, elem: inst}
+		}
+		return g.sliceOf(inst)
+	}
+	return t
 }
 
 // receiver returns a receiver for a call of method f. A pointer
@@ -1129,8 +1208,10 @@ func (g *gen) receiver(f *fnInfo) string {
 		root.sliced = true
 		return p
 	}
-	if p := g.place(s, false); p != "" && !g.chance(4) {
-		return p
+	if !g.chance(4) {
+		if p := g.place(s, false); p != "" {
+			return p
+		}
 	}
 	return "(" + g.literal(s, 1) + ")"
 }
@@ -1189,6 +1270,11 @@ func (g *gen) function(i int) *fnInfo {
 		if g.chance(2) {
 			f.recv.t = g.canon(&typ{kind: kPtr, elem: s})
 		}
+	} else if g.chance(5) {
+		// A generic function over the signed integer types. Its first
+		// result has the parameter type.
+		f.tparam = &typ{kind: kInt, name: "T", bits: 8, signed: true, param: true}
+		g.cx.tparam = f.tparam
 	}
 	np := g.r.Intn(5)
 	if g.chance(6) {
@@ -1196,6 +1282,9 @@ func (g *gen) function(i int) *fnInfo {
 	}
 	for j := 0; j < np; j++ {
 		t := g.randType(true)
+		if f.tparam != nil && g.chance(4) {
+			t = &typ{kind: kSlice, elem: f.tparam}
+		}
 		v := &variable{name: g.name("p"), t: t, used: true}
 		if t.kind == kSlice {
 			v.sliceLen = 1 + g.r.Intn(6)
@@ -1213,6 +1302,9 @@ func (g *gen) function(i int) *fnInfo {
 		t := g.randType(false)
 		if rec {
 			t = g.randInt()
+		}
+		if j == 0 && f.tparam != nil {
+			t = f.tparam
 		}
 		f.results = append(f.results, t)
 	}
@@ -1232,9 +1324,12 @@ func (g *gen) function(i int) *fnInfo {
 	if len(res) > 1 {
 		resStr = "(" + resStr + ")"
 	}
-	if f.recv != nil {
+	switch {
+	case f.recv != nil:
 		g.line("func (%s %s) %s(%s) %s {", f.recv.name, f.recv.t, f.name, strings.Join(params, ", "), resStr)
-	} else {
+	case f.tparam != nil:
+		g.line("func %s[T %s](%s) %s {", f.name, typeSetSpelling(), strings.Join(params, ", "), resStr)
+	default:
 		g.line("func %s(%s) %s {", f.name, strings.Join(params, ", "), resStr)
 	}
 	g.indent++
@@ -1464,9 +1559,10 @@ func (g *gen) callAndPrint(f *fnInfo) {
 	for range f.results {
 		names = append(names, g.name("r"))
 	}
-	g.line("%s := %s", strings.Join(names, ", "), g.callText(f))
+	inst := g.instFor()
+	g.line("%s := %s", strings.Join(names, ", "), g.callText(f, inst))
 	for i, t := range f.results {
-		g.printLeaves(names[i], t)
+		g.printLeaves(names[i], g.subst(t, f.tparam, inst))
 	}
 }
 
@@ -1835,6 +1931,9 @@ func (g *gen) insertionSort(s, i, j, x string) {
 func (g *gen) facts() {
 	t := g.randInt()
 	a := g.place(t, false)
+	if a == "" {
+		a = g.intExpr(t, 1, true).s // a type parameter with no variables
+	}
 	b := g.intExpr(t, 1, true).s
 	off := func() string {
 		if g.chance(3) {
@@ -1966,7 +2065,7 @@ func (g *gen) fillLoop() bool {
 // maybeNil loads through a pointer that is nil on some paths, guarded by
 // a nil check.
 func (g *gen) maybeNil() bool {
-	t := g.randInt()
+	t := g.concreteInt()
 	p := g.name("q")
 	g.line("var %s *%s", p, t)
 	g.line("if %s {", g.boolExpr(2, true).s)
@@ -2118,7 +2217,7 @@ func (g *gen) printStmt() {
 // guardedDiv divides by a non-constant divisor under a guard against
 // zero and MinInt / -1.
 func (g *gen) guardedDiv() bool {
-	t := g.randInt()
+	t := g.concreteInt() // the guard spells the type's minimum
 	var target *variable
 	for _, v := range g.visible() {
 		if v.t == t && g.canWriteRoot(v) {
@@ -2394,7 +2493,7 @@ func (g *gen) rangeInt() {
 		g.loopBody(n, i)
 		return
 	}
-	t := g.randInt()
+	t := g.concreteInt() // ranging over a type parameter needs a core type
 	mask := int64(1)
 	for mask*2 <= limit+1 {
 		mask *= 2
@@ -2557,14 +2656,19 @@ func (g *gen) callStmt() bool {
 	}
 	f := cands[g.r.Intn(len(cands))]
 	g.addCost(f.cost + 1)
-	call := g.callText(f)
+	inst := g.instFor()
+	call := g.callText(f, inst)
+	var results []*typ
+	for _, t := range f.results {
+		results = append(results, g.subst(t, f.tparam, inst))
+	}
 	switch g.r.Intn(4) {
 	case 0:
 		g.line("%s", call)
 	case 1:
 		// Assign to existing variables where possible.
 		var lhs []string
-		for _, t := range f.results {
+		for _, t := range results {
 			var target *variable
 			for _, v := range g.visible() {
 				if v.t == t && g.canWriteRoot(v) && g.chance(2) {
@@ -2581,7 +2685,7 @@ func (g *gen) callStmt() bool {
 	default:
 		var names []string
 		var vars []*variable
-		for _, t := range f.results {
+		for _, t := range results {
 			v := &variable{name: g.name("v"), t: t}
 			names = append(names, v.name)
 			vars = append(vars, v)
@@ -2612,6 +2716,7 @@ func (g *gen) closure() {
 		writeGlobal:   !ci.pure && outer.writeGlobal,
 		mult:          1,
 		budget:        fnBudget / 4,
+		tparam:        outer.tparam,
 	}
 	if !ci.pure {
 		inner.minWriteLevel = outer.minWriteLevel
