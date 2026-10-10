@@ -30,6 +30,7 @@ const (
 	MIMUL // Dst = Dst * Src
 	MCMP  // flags = Dst - Src
 	MTEST // flags = Dst & Src
+	MBT   // CF = bit Src (mod the operand size) of Dst
 
 	// One-operand.
 	MNEG
@@ -114,7 +115,7 @@ const (
 
 var mopNames = map[MOp]string{
 	MMOV: "mov", MMOVZX: "movzx", MMOVSX: "movsx", MLEA: "lea",
-	MADD: "add", MSUB: "sub", MAND: "and", MOR: "or", MXOR: "xor", MIMUL: "imul", MCMP: "cmp", MTEST: "test",
+	MADD: "add", MSUB: "sub", MAND: "and", MOR: "or", MXOR: "xor", MIMUL: "imul", MCMP: "cmp", MTEST: "test", MBT: "bt",
 	MNEG: "neg", MNOT: "not", MBSWAP: "bswap",
 	MSHL: "shl", MSHR: "shr", MSAR: "sar", MROL: "rol", MROR: "ror",
 	MDIV: "div", MIDIV: "idiv", MCQO: "cqo", MMUL1: "mul", MIMUL1: "imul1", MIMUL3: "imul3",

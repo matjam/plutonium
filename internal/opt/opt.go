@@ -59,6 +59,8 @@ func ForLevel(level int) *Pipeline {
 		p.add(Pass{"simplifycfg2", SimplifyCFG})
 		// Simplify the selects branchelim made.
 		p.add(Pass{"simplify3", Simplify})
+		// After branchelim, which turns || and && chains into Or and And.
+		p.add(Pass{"bittest", BitTest})
 		p.add(Pass{"memopt", MemOpt})
 		// Constant indexes folded since the first SROA, and accesses
 		// memopt removed, can make more slots splittable.

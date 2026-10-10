@@ -265,14 +265,48 @@ func TestBoolSelect(t *testing.T) {
 	const src = `package main
 
 //pu:noinline
-func isSpace(c byte) bool { return c == ' ' || c == '\n' || c == '\t' || c == '\r' }
+func isOdd(c byte) bool { return c == ' ' || c == 200 || c == '\t' || c == '\r' }
 
-func main() { println(isSpace(' ')) }
+func main() { println(isOdd(' ')) }
 `
 	// The branch-free chain ORs the tests instead of selecting with cmov.
-	asm := listFunc(t, src, "main.isSpace")
+	// (Its constants are too far apart for a bit test; see TestBitTest.)
+	asm := listFunc(t, src, "main.isOdd")
 	if strings.Contains(asm, "cmov") || strings.Count(asm, "or1") != 3 {
-		t.Errorf("isSpace: want three ORs\n%s", asm)
+		t.Errorf("isOdd: want three ORs\n%s", asm)
+	}
+}
+
+func TestBitTest(t *testing.T) {
+	const src = `package main
+
+//pu:noinline
+func isSpace(c byte) bool { return c == ' ' || c == '\n' || c == '\t' || c == '\r' }
+
+//pu:noinline
+func vowel(c byte) bool { return c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u' }
+
+//pu:noinline
+func two(x int) bool { return x == 3 || x == 4 }
+
+//pu:noinline
+func far(x uint16) bool { return x == 3 || x == 67 || x == 7 }
+
+func main() { println(isSpace(' '), vowel('a'), two(3), far(3)) }
+`
+	// One bt against a mask of the bits ' ', '\n', '\t' and '\r'.
+	asm := listFunc(t, src, "main.isSpace")
+	if !strings.Contains(asm, "bt8") || !strings.Contains(asm, "$4294977024") || strings.Contains(asm, "or1") {
+		t.Errorf("isSpace: want a bit test\n%s", asm)
+	}
+	// Offset by 'a', the smallest.
+	if asm := listFunc(t, src, "main.vowel"); !strings.Contains(asm, "bt8") || !strings.Contains(asm, "$-97") {
+		t.Errorf("vowel: want a bit test of c-'a'\n%s", asm)
+	}
+	for _, fn := range []string{"main.two", "main.far"} {
+		if asm := listFunc(t, src, fn); strings.Contains(asm, "bt8") {
+			t.Errorf("%s: want comparisons\n%s", fn, asm)
+		}
 	}
 }
 

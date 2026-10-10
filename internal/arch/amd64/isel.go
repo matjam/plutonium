@@ -224,6 +224,15 @@ func (s *isel) markFused() {
 			}
 		}
 	}
+	// (mask >> x) & 1 compared with zero is a bit test (see opt.BitTest).
+	for _, b := range s.f.Blocks {
+		for _, c := range b.Values {
+			if a := bitTestOf(c); a != nil && a.Block == b && a.Args[0].Block == b {
+				s.fused[a.ID] = true
+				s.fused[a.Args[0].ID] = true
+			}
+		}
+	}
 	// An index scaled by 2, 4 or 8 that is only ever used to index
 	// addresses goes into the addressing mode instead of a register.
 	idxUses := map[*ssa.Value]int32{}
@@ -251,6 +260,31 @@ func (s *isel) markFused() {
 		}
 	}
 	s.markFoldedLoads()
+}
+
+// bitTestOf returns the And of (mask >> x) & 1 when v compares it with
+// zero, mask is a constant, x is 64 bits wide, and the shift and And have
+// no other uses; otherwise nil.
+func bitTestOf(v *ssa.Value) *ssa.Value {
+	if v.Op != ssa.OpEq && v.Op != ssa.OpNe {
+		return nil
+	}
+	a, z := v.Args[0], v.Args[1]
+	if a.Op == ssa.OpConst {
+		a, z = z, a
+	}
+	if z.Op != ssa.OpConst || z.AuxInt != 0 || a.Op != ssa.OpAnd || a.Uses != 1 || a.Type.Size != 8 {
+		return nil
+	}
+	shr, one := a.Args[0], a.Args[1]
+	if shr.Op == ssa.OpConst {
+		shr, one = one, shr
+	}
+	if one.Op != ssa.OpConst || one.AuxInt != 1 || shr.Op != ssa.OpShrL || shr.Uses != 1 ||
+		shr.Args[0].Op != ssa.OpConst || shr.Args[1].Type.Size != 8 || shr.Args[1].Op == ssa.OpConst {
+		return nil
+	}
+	return a
 }
 
 // markFoldedLoads finds loads used only by an ALU operation later in their
@@ -1036,6 +1070,23 @@ func (s *isel) intCompare(v *ssa.Value) Cond {
 	if a.Op == ssa.OpConst && b.Op != ssa.OpConst {
 		a, b = b, a
 		cond = swapCond(cond)
+	}
+	if bt := bitTestOf(v); bt != nil && s.fused[bt.ID] {
+		// mask >> x is zero for x >= 64, which bt (taking x mod 64) does
+		// not know: clear the mask for those first.
+		shr := bt.Args[0]
+		x := s.reg(shr.Args[1])
+		m := s.newReg(ssa.TI64)
+		s.loadConst(m, shr.Args[0].AuxInt, 8)
+		z := s.newReg(ssa.TI64)
+		s.loadConst(z, 0, 8)
+		s.emit(&MInst{Op: MCMP, Size: 8, Dst: RegOp(x), Src: ImmOp(64)})
+		s.emit(&MInst{Op: MCMOVCC, Size: 8, Cond: CondAE, Dst: RegOp(m), Src: RegOp(z)})
+		s.emit(&MInst{Op: MBT, Size: 8, Dst: RegOp(m), Src: RegOp(x)})
+		if cond == CondNE {
+			return CondB // the bit, in CF, is set
+		}
+		return CondAE
 	}
 	size := sizeOf(a.Type)
 	if b.Op == ssa.OpConst && b.AuxInt == 0 && (cond == CondE || cond == CondNE) {

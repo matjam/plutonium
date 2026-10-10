@@ -334,6 +334,8 @@ func (e *encoder) encode(in *MInst) {
 			op = 0x84
 		}
 		e.emitInsn(insn{prefixes: sizePrefix(size), w: size == 8, opcode: []byte{op}, reg: in.Src.Reg, rm: rmOf(in.Dst), byteRegs: size == 1})
+	case MBT:
+		e.emitInsn(insn{prefixes: sizePrefix(size), w: size == 8, opcode: []byte{0x0F, 0xA3}, reg: in.Src.Reg, rm: rmOf(in.Dst)})
 	case MIMUL:
 		e.emitInsn(insn{prefixes: sizePrefix(size), w: size == 8, opcode: []byte{0x0F, 0xAF}, reg: in.Dst.Reg, rm: rmOf(in.Src)})
 	case MIMUL3:

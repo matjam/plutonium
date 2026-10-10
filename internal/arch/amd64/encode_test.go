@@ -76,6 +76,12 @@ func TestPackedEncoding(t *testing.T) {
 		{MInst{Op: MMOVHPD, Size: 8, Dst: x(1), Src: MemOp(BaseMem(RAX, 8))}, []byte{0x66, 0x0f, 0x16, 0x48, 0x08}, "movhpd 8(%rax), %xmm1"},
 		{MInst{Op: MMOVHPD, Size: 8, Dst: MemOp(BaseMem(RAX, 8)), Src: x(1)}, []byte{0x66, 0x0f, 0x17, 0x48, 0x08}, "movhpd %xmm1, 8(%rax)"},
 	}
+	// Not packed, but new alongside: the bit test.
+	tests = append(tests, struct {
+		in   MInst
+		want []byte
+		asm  string
+	}{MInst{Op: MBT, Size: 8, Dst: RegOp(RAX), Src: RegOp(R13)}, []byte{0x4c, 0x0f, 0xa3, 0xe8}, "bt8 %r13, %rax"})
 	for _, tc := range tests {
 		var e encoder
 		e.encode(&tc.in)
