@@ -189,3 +189,7 @@ Plutonium is intended to be self-hosting: the compiler itself will be written in
 See [`docs/spec/language.md`](docs/spec/language.md) for the full language specification.
 
 See [`docs/spec/abi.md`](docs/spec/abi.md) for the x86_64 ABI and calling convention.
+
+See [`docs/spec/memory-model.md`](docs/spec/memory-model.md) for the memory model.
+
+See [`docs/roadmap.md`](docs/roadmap.md) for every known gap between the specification and the compiler, in priority order.
