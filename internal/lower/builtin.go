@@ -77,8 +77,19 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		return one(scalarValue(r, T))
 
 	case "new":
-		elem := s.typeOf(e.Args[0])
+		// new(T) or new(v), either with an optional allocator. new(v)
+		// evaluates v before the allocator, then stores it in the new
+		// variable.
+		elem := unwrap(T).Underlying().(*types2.Pointer).Elem()
+		var v value
+		isValue := !s.info.Types[e.Args[0]].IsType()
+		if isValue {
+			v = s.materialize(s.exprAs(e.Args[0], elem))
+		}
 		ptr := s.allocate(s.constInt(ssa.TI64, s.l.sizeof(elem)), s.l.alignof(elem), e.Args[1:])
+		if isValue {
+			s.storeTo(ptr, v, elem)
+		}
 		return one(scalarValue(ptr, T))
 
 	case "make":
@@ -87,7 +98,7 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		n := s.indexValue(e.Args[1])
 		c := n
 		rest := e.Args[2:]
-		if len(rest) > 0 && !isInterface(s.typeOf(rest[0])) {
+		if len(rest) > 0 && isIntegerType(unwrap(s.typeOf(rest[0]))) {
 			c = s.indexValue(rest[0])
 			rest = rest[1:]
 		}
@@ -245,7 +256,8 @@ func (s *fnState) minMax(isMin bool, a, b *ssa.Value, T types2.Type) *ssa.Value 
 func (s *fnState) allocate(size *ssa.Value, align int64, extra []ast.Expr) *ssa.Value {
 	alignV := s.constInt(ssa.TI64, align)
 	if len(extra) > 0 {
-		a := s.expr(extra[0])
+		allocT := s.l.rtFunc("allocWith").Type().(*types2.Signature).Params().At(0).Type()
+		a := s.exprAs(extra[0], allocT)
 		parts := s.leafValues(a, []leaf{{0, ssa.TPtr}, {8, ssa.TPtr}})
 		return s.callRuntime("allocWith", []*ssa.Type{ssa.TPtr}, parts, []*ssa.Value{size, alignV})[0]
 	}

@@ -472,6 +472,9 @@ func alloc(size, align uintptr) unsafe.Pointer {
 
 // allocWith implements new and make with an explicit allocator.
 func allocWith(a Allocator, size, align uintptr) unsafe.Pointer {
+	if a == nil {
+		panicMessage("nil allocator passed to new or make", "", "", "", "")
+	}
 	if size == 0 {
 		size = 1
 	}
