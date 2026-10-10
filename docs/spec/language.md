@@ -125,8 +125,8 @@ argument panics too.
 - `new(T)` and `new(v)` return an `owned[T]` (section 5.6): the single owner of the new variable, which
   frees it when dropped. It dereferences like `*T`, so `n := new(Node); n.val = 1` reads as in Go.
 - `make([]T, len)` and `make([]T, len, cap)` return a `vec.Vec[T]` of that length, which owns the array.
-  `v.Slice()` lends it as a `[]T`; once the indexing interface lands (section 6.7), `v[i]` and `len(v)`
-  work on it directly.
+  `v.Slice()` lends it as a `[]T`, and `v[i]` and `len(v)` work on it directly through the indexing
+  interface (section 6.7).
 - `make(chan T)` and `make(chan T, n)` return a channel, which counts its references (section 4.8).
 
 Memory that only an arena should own is allocated through the arena, which returns views: `a.New[T]()`
@@ -1018,13 +1018,86 @@ memory return owner types:
   `*os.PathError` from the default allocator and frees them with `errors.Free` or an arena reset, which is
   an exception to this rule; section 14.6 proposes how such errors get an owner.
 
-### 6.7 Indexing library containers (planned)
+### 6.7 Indexing library containers
 
-`m[k]`, `v[i]` and `len(v)` will work on library containers through an indexing interface: a type with
-methods such as `Index(k K) V`, `SetIndex(k K, v V)` and `Len() int` supports the index expression,
-index assignment and `len`. Then `v[i] = x` on a `vec.Vec`, `m["timeout"]` on a `hash.Map` and
-`for i := range v` read as they do on Go's built-in types, while the types stay owners. The method names
-and the treatment of `m[k] += 1` and of `&v[i]` are still to be designed (roadmap item 49).
+Go's maps and slices have index syntax built in. Plutonium's growable containers are library owners
+(`vec.Vec[T]`, `hash.Map[K, V]`), so the syntax is lent to them through methods. On an operand `x` whose
+type is not a string, array, pointer to array or slice:
+
+| Form | Calls | Notes |
+|---|---|---|
+| `x[k]` | `x.Index(k)` | a value of type `V` |
+| `x[k] = v` | `x.SetIndex(k, v)` | also as a target of `a, x[k] = ...` and `for x[k] = range ...` |
+| `v, ok := x[k]` | `x.IndexOk(k)` | also with `=` and `var v, ok = x[k]` |
+| `x[k] op= v`, `x[k]++` | `x.Index(k)`, then `x.SetIndex(k, result)` | `x` and `k` are evaluated once |
+| `len(x)` | `x.Len()` | |
+
+```go
+counts := hash.NewMap[string, int](0)
+defer counts.Free()
+counts["a"] = 1       // counts.SetIndex("a", 1)
+counts["a"] += 2      // counts.SetIndex("a", counts.Index("a")+2)
+n := counts["zzz"]    // 0: hash.Map's Index returns the zero value for a missing key, as Go's map does
+n, ok := counts["a"]  // 3, true: counts.IndexOk("a")
+
+v := vec.New[int]()
+v.Push(1)
+v[0] *= 10            // bounds checked by Vec's methods: v[5] panics "index out of range [5] with length 1"
+for i := 0; i < len(v); i++ { ... }
+```
+
+**The methods.** They are found in the method set of `x`'s type as for a call `x.Index(k)`, so methods
+with pointer receivers need an addressable `x` or a pointer, and indexing through a pointer works:
+`p := &counts; p["b"] = 2`. Their forms are fixed: `Index(k K) V`, `SetIndex(k K, v V)`,
+`IndexOk(k K) (V, bool)` and `Len() int`, with no type parameters of their own and no variadic parameter.
+A type may have any subset; each use needs its own method, and the methods a type has must agree on `K`
+and `V`. The key is assigned to `K` as an argument is. A field named `Index` does not count.
+
+**Built-in types are unaffected.** A string, array, pointer to array or slice is always indexed by the
+language, even when its named type declares an `Index` method; so is `len` of those types and of rings.
+In generic code the choice is made from the type parameter's constraint: a type parameter whose type set
+is made of indexable types is indexed by the language, and one constrained only by methods calls them,
+whatever its type argument.
+
+**The result is a value.** `x[k]` is a copy returned by `Index`, never a variable, as a Go map element is:
+
+- `&x[k]` is a compile error. A pointer into a container's storage would be invalidated by any call that
+  grows it or rehashes it, which nothing in the syntax would show; `&s[i]` on a slice has no such
+  hazard, since a slice never moves its elements. Containers return such pointers from methods named
+  for what they do, such as `vec.Vec.Ptr(i)` and `hash.Map.Ptr(k)` and `Upsert(k)`, whose documentation
+  says how long the pointer stays valid (until the container next grows or is modified). When the
+  generation checks of section 6.3 land, such a pointer becomes a checked heap view; `&x[k]` stays an
+  error, so that the cost and the lifetime stay visible at the call.
+- Assigning to a field or element of `x[k]` (`v[i].count = 1`) is a compile error, as for Go maps;
+  calling a pointer method on it is too. Read, change and store back, or go through `Ptr`.
+
+**Ownership.** The receiver is borrowed for the call (a view, section 6.3), so indexing never moves the
+container. `x[k] = v` moves `v` into the container when `V` is an owner, and `SetIndex` drops the value
+it replaces. `Index` returns a copy, which for an owner `V` would be a second owner: reading `x[k]` from a
+container of owners is therefore a compile error once the move checker lands (roadmap item 20), and such
+code uses `Ptr` to look at an element or a method that takes it out (`Remove`, `Pop`).
+
+**Deleting** stays a method: `m.Delete(k)`. The predeclared `delete` belongs to Go's built-in maps,
+which Plutonium does not have (section 3).
+
+**Range.** `for k, v := range x` over a container will call an iterator method once range over functions
+lands (roadmap item 22); until then it is a compile error whose message points at the alternatives:
+`for i := 0; i < len(v); i++`, `range v.Slice()` and `m.Iter()`.
+
+**Generics.** `pluto/container` declares the constraints: `Indexable[K, V]` (`Index` and `SetIndex`),
+`Reader[K, V]`, `Lookup[K, V]` (`IndexOk`) and `Sized` (`Len`). A value of a type parameter so
+constrained supports the corresponding syntax. The library's containers declare their methods on pointer
+receivers, so their pointers satisfy the constraints:
+
+```go
+func Count[M container.Indexable[K, int], K any](m M, keys []K) {
+	for _, k := range keys {
+		m[k] += 1
+	}
+}
+
+Count(&counts, words)
+```
 
 ### 6.8 Examples
 

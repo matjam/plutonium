@@ -196,65 +196,218 @@ func _() {
 	_ = x[NotEnumType-2315]
 	_ = x[EnumArithmetic-2316]
 	_ = x[RangeOverEnumValue-2317]
+	_ = x[MissingIndexMethod-2401]
+	_ = x[BadIndexMethod-2402]
+	_ = x[IndexMethodMismatch-2403]
+	_ = x[ContainerIndexAddress-2404]
+	_ = x[ContainerElemAssign-2405]
+	_ = x[RangeOverContainer-2406]
+	_ = x[UnaddressableContainer-2407]
 }
 
-const (
-	_Code_name_0 = "InvalidSyntaxTree"
-	_Code_name_1 = "TestBlankPkgNameMismatchedPkgNameInvalidPkgUseBadImportPathBrokenImportImportCRenamedUnusedImportInvalidInitCycleDuplicateDeclInvalidDeclCycleInvalidTypeCycleInvalidConstInitInvalidConstValInvalidConstTypeUntypedNilUseWrongAssignCountUnassignableOperandNoNewVarMultiValAssignOpInvalidIfaceAssignInvalidChanAssignIncompatibleAssignUnaddressableFieldAssignNotATypeInvalidArrayLenBlankIfaceMethodIncomparableMapKey"
-	_Code_name_2 = "InvalidPtrEmbedBadRecvInvalidRecvDuplicateFieldAndMethodDuplicateMethodInvalidBlankInvalidIotaMissingInitBodyInvalidInitSigInvalidInitDeclInvalidMainDeclTooManyValuesNotAnExprTruncatedFloatNumericOverflowUndefinedOpMismatchedTypesDivByZeroNonNumericIncDecUnaddressableOperandInvalidIndirectionNonIndexableOperandInvalidIndexSwappedSliceIndicesNonSliceableOperandInvalidSliceExprInvalidShiftCountInvalidShiftOperandInvalidReceiveInvalidSendDuplicateLitKeyMissingLitKeyInvalidLitIndexOversizeArrayLitMixedStructLitInvalidStructLitMissingLitFieldDuplicateLitFieldUnexportedLitFieldInvalidLitFieldUntypedLitInvalidLitAmbiguousSelectorUndeclaredImportedNameUnexportedNameUndeclaredNameMissingFieldOrMethodBadDotDotDotSyntaxNonVariadicDotDotDot"
-	_Code_name_3 = "InvalidDotDotDotUncalledBuiltinInvalidAppendInvalidCapInvalidCloseInvalidCopyInvalidComplexInvalidDeleteInvalidImagInvalidLenSwappedMakeArgsInvalidMakeInvalidRealInvalidAssertImpossibleAssertInvalidConversionInvalidUntypedConversionBadOffsetofSyntaxInvalidOffsetofUnusedExprUnusedVarMissingReturnWrongResultCountOutOfScopeResultInvalidCondInvalidPostDecl"
-	_Code_name_4 = "InvalidIterVarInvalidRangeExprMisplacedBreakMisplacedContinueMisplacedFallthroughDuplicateCaseDuplicateDefaultBadTypeKeywordInvalidTypeSwitchInvalidExprSwitchInvalidSelectCaseUndeclaredLabelDuplicateLabelMisplacedLabelUnusedLabelJumpOverDeclJumpIntoBlockInvalidMethodExprWrongArgCountInvalidCallUnusedResultsInvalidDeferInvalidGoBadDeclRepeatedDeclInvalidUnsafeAddInvalidUnsafeSliceUnsupportedFeatureNotAGenericTypeWrongTypeArgCountCannotInferTypeArgsInvalidTypeArgInvalidInstanceCycleInvalidUnionMisplacedConstraintIfaceInvalidMethodTypeParamsMisplacedTypeParamInvalidUnsafeSliceDataInvalidUnsafeString"
-	_Code_name_5 = "InvalidClearTypeTooLargeInvalidMinMaxOperandTooNew"
-	_Code_name_6 = "MapNotPermittedChanNotPermittedGoNotPermittedRecoverNotPermittedReflectNotPermittedComplexNotPermittedMissingAllocatorTypeErrorsNewNotConstantBadMainSignature"
-	_Code_name_7 = "BadPackedBackingPackedTooLargeBadBitFieldBadPackedFieldBadPackedLiteralWrongWrapperArgsNotPowerOfTwoBadVolatileElemBadWrapperSizeRingLiteralNotEmpty"
-	_Code_name_8 = "MisplacedDefaultVariadicDefaultMissingDefaultSharedDefaultDefaultRefersToParam"
-	_Code_name_9 = "MisplacedEnumGenericEnumBadEnumBaseEmptyEnumBlankEnumMemberDuplicateEnumValueEnumWithoutZeroEnumOverflowBadEnumValueEnumSelfReferenceUnexportedEnumMemberMissingEnumCaseBadEnumConversionUncheckedEnumConversionNotEnumTypeEnumArithmeticRangeOverEnumValue"
-)
+const _Code_name = "InvalidSyntaxTreeTestBlankPkgNameMismatchedPkgNameInvalidPkgUseBadImportPathBrokenImportImportCRenamedUnusedImportInvalidInitCycleDuplicateDeclInvalidDeclCycleInvalidTypeCycleInvalidConstInitInvalidConstValInvalidConstTypeUntypedNilUseWrongAssignCountUnassignableOperandNoNewVarMultiValAssignOpInvalidIfaceAssignInvalidChanAssignIncompatibleAssignUnaddressableFieldAssignNotATypeInvalidArrayLenBlankIfaceMethodIncomparableMapKeyInvalidPtrEmbedBadRecvInvalidRecvDuplicateFieldAndMethodDuplicateMethodInvalidBlankInvalidIotaMissingInitBodyInvalidInitSigInvalidInitDeclInvalidMainDeclTooManyValuesNotAnExprTruncatedFloatNumericOverflowUndefinedOpMismatchedTypesDivByZeroNonNumericIncDecUnaddressableOperandInvalidIndirectionNonIndexableOperandInvalidIndexSwappedSliceIndicesNonSliceableOperandInvalidSliceExprInvalidShiftCountInvalidShiftOperandInvalidReceiveInvalidSendDuplicateLitKeyMissingLitKeyInvalidLitIndexOversizeArrayLitMixedStructLitInvalidStructLitMissingLitFieldDuplicateLitFieldUnexportedLitFieldInvalidLitFieldUntypedLitInvalidLitAmbiguousSelectorUndeclaredImportedNameUnexportedNameUndeclaredNameMissingFieldOrMethodBadDotDotDotSyntaxNonVariadicDotDotDotInvalidDotDotDotUncalledBuiltinInvalidAppendInvalidCapInvalidCloseInvalidCopyInvalidComplexInvalidDeleteInvalidImagInvalidLenSwappedMakeArgsInvalidMakeInvalidRealInvalidAssertImpossibleAssertInvalidConversionInvalidUntypedConversionBadOffsetofSyntaxInvalidOffsetofUnusedExprUnusedVarMissingReturnWrongResultCountOutOfScopeResultInvalidCondInvalidPostDeclInvalidIterVarInvalidRangeExprMisplacedBreakMisplacedContinueMisplacedFallthroughDuplicateCaseDuplicateDefaultBadTypeKeywordInvalidTypeSwitchInvalidExprSwitchInvalidSelectCaseUndeclaredLabelDuplicateLabelMisplacedLabelUnusedLabelJumpOverDeclJumpIntoBlockInvalidMethodExprWrongArgCountInvalidCallUnusedResultsInvalidDeferInvalidGoBadDeclRepeatedDeclInvalidUnsafeAddInvalidUnsafeSliceUnsupportedFeatureNotAGenericTypeWrongTypeArgCountCannotInferTypeArgsInvalidTypeArgInvalidInstanceCycleInvalidUnionMisplacedConstraintIfaceInvalidMethodTypeParamsMisplacedTypeParamInvalidUnsafeSliceDataInvalidUnsafeStringInvalidClearTypeTooLargeInvalidMinMaxOperandTooNewMapNotPermittedChanNotPermittedGoNotPermittedRecoverNotPermittedReflectNotPermittedComplexNotPermittedMissingAllocatorTypeErrorsNewNotConstantBadMainSignatureBadPackedBackingPackedTooLargeBadBitFieldBadPackedFieldBadPackedLiteralWrongWrapperArgsNotPowerOfTwoBadVolatileElemBadWrapperSizeRingLiteralNotEmptyMisplacedDefaultVariadicDefaultMissingDefaultSharedDefaultDefaultRefersToParamMisplacedEnumGenericEnumBadEnumBaseEmptyEnumBlankEnumMemberDuplicateEnumValueEnumWithoutZeroEnumOverflowBadEnumValueEnumSelfReferenceUnexportedEnumMemberMissingEnumCaseBadEnumConversionUncheckedEnumConversionNotEnumTypeEnumArithmeticRangeOverEnumValueMissingIndexMethodBadIndexMethodIndexMethodMismatchContainerIndexAddressContainerElemAssignRangeOverContainerUnaddressableContainer"
 
-var (
-	_Code_index_1 = [...]uint16{0, 4, 16, 33, 46, 59, 71, 85, 97, 113, 126, 142, 158, 174, 189, 205, 218, 234, 253, 261, 277, 295, 312, 330, 354, 362, 377, 393, 411}
-	_Code_index_2 = [...]uint16{0, 15, 22, 33, 56, 71, 83, 94, 109, 123, 138, 153, 166, 175, 189, 204, 215, 230, 239, 255, 275, 293, 312, 324, 343, 362, 378, 395, 414, 428, 439, 454, 467, 482, 498, 512, 528, 543, 560, 578, 593, 603, 613, 630, 652, 666, 680, 700, 718, 738}
-	_Code_index_3 = [...]uint16{0, 16, 31, 44, 54, 66, 77, 91, 104, 115, 125, 140, 151, 162, 175, 191, 208, 232, 249, 264, 274, 283, 296, 312, 328, 339, 354}
-	_Code_index_4 = [...]uint16{0, 14, 30, 44, 61, 81, 94, 110, 124, 141, 158, 175, 190, 204, 218, 229, 241, 254, 271, 284, 295, 308, 320, 329, 336, 348, 364, 382, 400, 415, 432, 451, 465, 485, 497, 521, 544, 562, 584, 603}
-	_Code_index_5 = [...]uint8{0, 12, 24, 44, 50}
-	_Code_index_6 = [...]uint8{0, 15, 31, 45, 64, 83, 102, 122, 142, 158}
-	_Code_index_7 = [...]uint8{0, 16, 30, 41, 55, 71, 87, 100, 115, 129, 148}
-	_Code_index_8 = [...]uint8{0, 16, 31, 45, 58, 78}
-	_Code_index_9 = [...]uint8{0, 13, 24, 35, 44, 59, 77, 92, 104, 116, 133, 153, 168, 185, 208, 219, 233, 251}
-)
+var _Code_map = map[Code]string{
+	-1:   _Code_name[0:17],
+	1:    _Code_name[17:21],
+	2:    _Code_name[21:33],
+	3:    _Code_name[33:50],
+	4:    _Code_name[50:63],
+	5:    _Code_name[63:76],
+	6:    _Code_name[76:88],
+	7:    _Code_name[88:102],
+	8:    _Code_name[102:114],
+	9:    _Code_name[114:130],
+	10:   _Code_name[130:143],
+	11:   _Code_name[143:159],
+	12:   _Code_name[159:175],
+	13:   _Code_name[175:191],
+	14:   _Code_name[191:206],
+	15:   _Code_name[206:222],
+	16:   _Code_name[222:235],
+	17:   _Code_name[235:251],
+	18:   _Code_name[251:270],
+	19:   _Code_name[270:278],
+	20:   _Code_name[278:294],
+	21:   _Code_name[294:312],
+	22:   _Code_name[312:329],
+	23:   _Code_name[329:347],
+	24:   _Code_name[347:371],
+	25:   _Code_name[371:379],
+	26:   _Code_name[379:394],
+	27:   _Code_name[394:410],
+	28:   _Code_name[410:428],
+	30:   _Code_name[428:443],
+	31:   _Code_name[443:450],
+	32:   _Code_name[450:461],
+	33:   _Code_name[461:484],
+	34:   _Code_name[484:499],
+	35:   _Code_name[499:511],
+	36:   _Code_name[511:522],
+	37:   _Code_name[522:537],
+	38:   _Code_name[537:551],
+	39:   _Code_name[551:566],
+	40:   _Code_name[566:581],
+	41:   _Code_name[581:594],
+	42:   _Code_name[594:603],
+	43:   _Code_name[603:617],
+	44:   _Code_name[617:632],
+	45:   _Code_name[632:643],
+	46:   _Code_name[643:658],
+	47:   _Code_name[658:667],
+	48:   _Code_name[667:683],
+	49:   _Code_name[683:703],
+	50:   _Code_name[703:721],
+	51:   _Code_name[721:740],
+	52:   _Code_name[740:752],
+	53:   _Code_name[752:771],
+	54:   _Code_name[771:790],
+	55:   _Code_name[790:806],
+	56:   _Code_name[806:823],
+	57:   _Code_name[823:842],
+	58:   _Code_name[842:856],
+	59:   _Code_name[856:867],
+	60:   _Code_name[867:882],
+	61:   _Code_name[882:895],
+	62:   _Code_name[895:910],
+	63:   _Code_name[910:926],
+	64:   _Code_name[926:940],
+	65:   _Code_name[940:956],
+	66:   _Code_name[956:971],
+	67:   _Code_name[971:988],
+	68:   _Code_name[988:1006],
+	69:   _Code_name[1006:1021],
+	70:   _Code_name[1021:1031],
+	71:   _Code_name[1031:1041],
+	72:   _Code_name[1041:1058],
+	73:   _Code_name[1058:1080],
+	74:   _Code_name[1080:1094],
+	75:   _Code_name[1094:1108],
+	76:   _Code_name[1108:1128],
+	77:   _Code_name[1128:1146],
+	78:   _Code_name[1146:1166],
+	81:   _Code_name[1166:1182],
+	82:   _Code_name[1182:1197],
+	83:   _Code_name[1197:1210],
+	84:   _Code_name[1210:1220],
+	85:   _Code_name[1220:1232],
+	86:   _Code_name[1232:1243],
+	87:   _Code_name[1243:1257],
+	88:   _Code_name[1257:1270],
+	89:   _Code_name[1270:1281],
+	90:   _Code_name[1281:1291],
+	91:   _Code_name[1291:1306],
+	92:   _Code_name[1306:1317],
+	93:   _Code_name[1317:1328],
+	94:   _Code_name[1328:1341],
+	95:   _Code_name[1341:1357],
+	96:   _Code_name[1357:1374],
+	97:   _Code_name[1374:1398],
+	98:   _Code_name[1398:1415],
+	99:   _Code_name[1415:1430],
+	100:  _Code_name[1430:1440],
+	101:  _Code_name[1440:1449],
+	102:  _Code_name[1449:1462],
+	103:  _Code_name[1462:1478],
+	104:  _Code_name[1478:1494],
+	105:  _Code_name[1494:1505],
+	106:  _Code_name[1505:1520],
+	108:  _Code_name[1520:1534],
+	109:  _Code_name[1534:1550],
+	110:  _Code_name[1550:1564],
+	111:  _Code_name[1564:1581],
+	112:  _Code_name[1581:1601],
+	113:  _Code_name[1601:1614],
+	114:  _Code_name[1614:1630],
+	115:  _Code_name[1630:1644],
+	116:  _Code_name[1644:1661],
+	117:  _Code_name[1661:1678],
+	118:  _Code_name[1678:1695],
+	119:  _Code_name[1695:1710],
+	120:  _Code_name[1710:1724],
+	121:  _Code_name[1724:1738],
+	122:  _Code_name[1738:1749],
+	123:  _Code_name[1749:1761],
+	124:  _Code_name[1761:1774],
+	125:  _Code_name[1774:1791],
+	126:  _Code_name[1791:1804],
+	127:  _Code_name[1804:1815],
+	128:  _Code_name[1815:1828],
+	129:  _Code_name[1828:1840],
+	130:  _Code_name[1840:1849],
+	131:  _Code_name[1849:1856],
+	132:  _Code_name[1856:1868],
+	133:  _Code_name[1868:1884],
+	134:  _Code_name[1884:1902],
+	135:  _Code_name[1902:1920],
+	136:  _Code_name[1920:1935],
+	137:  _Code_name[1935:1952],
+	138:  _Code_name[1952:1971],
+	139:  _Code_name[1971:1985],
+	140:  _Code_name[1985:2005],
+	141:  _Code_name[2005:2017],
+	142:  _Code_name[2017:2041],
+	143:  _Code_name[2041:2064],
+	144:  _Code_name[2064:2082],
+	145:  _Code_name[2082:2104],
+	146:  _Code_name[2104:2123],
+	148:  _Code_name[2123:2135],
+	149:  _Code_name[2135:2147],
+	150:  _Code_name[2147:2167],
+	151:  _Code_name[2167:2173],
+	2001: _Code_name[2173:2188],
+	2002: _Code_name[2188:2204],
+	2003: _Code_name[2204:2218],
+	2004: _Code_name[2218:2237],
+	2005: _Code_name[2237:2256],
+	2006: _Code_name[2256:2275],
+	2007: _Code_name[2275:2295],
+	2008: _Code_name[2295:2315],
+	2009: _Code_name[2315:2331],
+	2101: _Code_name[2331:2347],
+	2102: _Code_name[2347:2361],
+	2103: _Code_name[2361:2372],
+	2104: _Code_name[2372:2386],
+	2105: _Code_name[2386:2402],
+	2106: _Code_name[2402:2418],
+	2107: _Code_name[2418:2431],
+	2108: _Code_name[2431:2446],
+	2109: _Code_name[2446:2460],
+	2110: _Code_name[2460:2479],
+	2201: _Code_name[2479:2495],
+	2202: _Code_name[2495:2510],
+	2203: _Code_name[2510:2524],
+	2204: _Code_name[2524:2537],
+	2205: _Code_name[2537:2557],
+	2301: _Code_name[2557:2570],
+	2302: _Code_name[2570:2581],
+	2303: _Code_name[2581:2592],
+	2304: _Code_name[2592:2601],
+	2305: _Code_name[2601:2616],
+	2306: _Code_name[2616:2634],
+	2307: _Code_name[2634:2649],
+	2308: _Code_name[2649:2661],
+	2309: _Code_name[2661:2673],
+	2310: _Code_name[2673:2690],
+	2311: _Code_name[2690:2710],
+	2312: _Code_name[2710:2725],
+	2313: _Code_name[2725:2742],
+	2314: _Code_name[2742:2765],
+	2315: _Code_name[2765:2776],
+	2316: _Code_name[2776:2790],
+	2317: _Code_name[2790:2808],
+	2401: _Code_name[2808:2826],
+	2402: _Code_name[2826:2840],
+	2403: _Code_name[2840:2859],
+	2404: _Code_name[2859:2880],
+	2405: _Code_name[2880:2899],
+	2406: _Code_name[2899:2917],
+	2407: _Code_name[2917:2939],
+}
 
 func (i Code) String() string {
-	switch {
-	case i == -1:
-		return _Code_name_0
-	case 1 <= i && i <= 28:
-		i -= 1
-		return _Code_name_1[_Code_index_1[i]:_Code_index_1[i+1]]
-	case 30 <= i && i <= 78:
-		i -= 30
-		return _Code_name_2[_Code_index_2[i]:_Code_index_2[i+1]]
-	case 81 <= i && i <= 106:
-		i -= 81
-		return _Code_name_3[_Code_index_3[i]:_Code_index_3[i+1]]
-	case 108 <= i && i <= 146:
-		i -= 108
-		return _Code_name_4[_Code_index_4[i]:_Code_index_4[i+1]]
-	case 148 <= i && i <= 151:
-		i -= 148
-		return _Code_name_5[_Code_index_5[i]:_Code_index_5[i+1]]
-	case 2001 <= i && i <= 2009:
-		i -= 2001
-		return _Code_name_6[_Code_index_6[i]:_Code_index_6[i+1]]
-	case 2101 <= i && i <= 2110:
-		i -= 2101
-		return _Code_name_7[_Code_index_7[i]:_Code_index_7[i+1]]
-	case 2201 <= i && i <= 2205:
-		i -= 2201
-		return _Code_name_8[_Code_index_8[i]:_Code_index_8[i+1]]
-	case 2301 <= i && i <= 2317:
-		i -= 2301
-		return _Code_name_9[_Code_index_9[i]:_Code_index_9[i+1]]
-	default:
-		return "Code(" + strconv.FormatInt(int64(i), 10) + ")"
+	if str, ok := _Code_map[i]; ok {
+		return str
 	}
+	return "Code(" + strconv.FormatInt(int64(i), 10) + ")"
 }

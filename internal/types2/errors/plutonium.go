@@ -129,3 +129,27 @@ const (
 	// RangeOverEnumValue: range over an enum value instead of its type.
 	RangeOverEnumValue
 )
+
+// The indexing interface: index expressions on library containers.
+const (
+	_ Code = 2400 + iota
+
+	// MissingIndexMethod: an index expression on a container that lacks
+	// the method this use of it calls (Index, SetIndex or IndexOk).
+	MissingIndexMethod
+	// BadIndexMethod: an indexing method with the wrong signature.
+	BadIndexMethod
+	// IndexMethodMismatch: indexing methods of one type that disagree on
+	// the key or element type.
+	IndexMethodMismatch
+	// ContainerIndexAddress: &x[k] where x is a container.
+	ContainerIndexAddress
+	// ContainerElemAssign: an assignment to a field or element of x[k]
+	// where x is a container.
+	ContainerElemAssign
+	// RangeOverContainer: a range over a container.
+	RangeOverContainer
+	// UnaddressableContainer: an index expression on a container that is
+	// not addressable, whose method has a pointer receiver.
+	UnaddressableContainer
+)

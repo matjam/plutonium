@@ -1,0 +1,72 @@
+$DIR/main.p:20:8: invalid operation: cannot take address of v[0]: it is a copy returned by the Index method of vec.Vec[point]
+    x[k] on a container calls its Index method, which returns a copy of the
+    element. A copy has no address that would stay valid, and a pointer to the
+    element itself would be invalidated as soon as the container grows or
+    rehashes and moves its elements.
+    Call a method that returns the pointer explicitly, such as vec.Vec.Ptr or
+    hash.Map.Ptr. Its documentation says how long the pointer is valid.
+    &s[i] on a slice is safe because a slice never moves its elements. A
+    container that grows does, so Plutonium makes the pointer an explicit method
+    call rather than give it the same syntax as the safe case.
+    Ask for the pointer by name:
+        p := v.Ptr(i)
+        p.count++
+    (see "Indexing library containers" in the Plutonium spec, section 6.7)
+    (run "pluto explain E2404" for a longer explanation)
+
+$DIR/main.p:21:2: cannot assign to v[0].x: v[0] is a copy returned by the Index method of vec.Vec[point]
+    x[k] on a container is a copy that its Index method returns, so assigning to
+    a field or element of it would change only the copy. This is the same rule
+    as Go's for map elements.
+    Read the element, change it, and store it back with x[k] = v, or change it
+    in place through a pointer from a method such as Ptr.
+    Store the changed element back:
+        p := v[i]
+        p.x = 1
+        v[i] = p
+    (see "Indexing library containers" in the Plutonium spec, section 6.7)
+    (run "pluto explain E2405" for a longer explanation)
+
+$DIR/main.p:25:2: cannot assign to t["a"]: table has no method SetIndex
+    Library containers such as vec.Vec and hash.Map are indexed through methods.
+    x[k] calls x.Index(k), x[k] = v calls x.SetIndex(k, v), and v, ok := x[k]
+    calls x.IndexOk(k). The container's type does not have the method this use
+    of x[k] needs.
+    Add the method to the type, or call another of its methods directly.
+    Go builds maps and slices into the language. In Plutonium they are library
+    types that own their memory, so the index syntax is lent to them through
+    methods.
+    To support v, ok := x[k], add:
+        func (m *Table) IndexOk(k string) (int, bool) {
+            ...
+        }
+    (see "Indexing library containers" in the Plutonium spec, section 6.7)
+    (run "pluto explain E2401" for a longer explanation)
+
+$DIR/main.p:26:11: cannot use comma-ok on t["b"]: table has no method IndexOk
+    (explained above; run "pluto explain E2401" for more)
+
+$DIR/main.p:31:17: cannot range over m (variable of struct type hash.Map[string, int]): ranging over a container needs an iterator, which is not supported yet
+    A for range loop over a container will call an iterator method once
+    Plutonium supports ranging over functions. Until then, loop over the
+    indexes, or over a view of the elements.
+    Loop over the indexes, or a slice view:
+        for i := 0; i < len(v); i++ {
+            use(v[i])
+        }
+        for _, x := range v.Slice() {
+            use(x)
+        }
+    (see "Indexing library containers" in the Plutonium spec, section 6.7)
+    (run "pluto explain E2406" for a longer explanation)
+
+$DIR/main.p:34:6: cannot read load()["a"]: method Index of hash.Map[string, int] has a pointer receiver, and load() is not addressable
+    The container's indexing method has a pointer receiver, so x[k] needs the
+    address of x. Here x is a value that has no address, such as the result of a
+    function call.
+    Store the container in a variable first, or index through a pointer to it.
+    Store it in a variable first:
+        m := load()
+        v := m["key"]
+    (see "Indexing library containers" in the Plutonium spec, section 6.7)
+    (run "pluto explain E2407" for a longer explanation)

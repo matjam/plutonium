@@ -23,6 +23,9 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 
 	switch b.Name() {
 	case "len", "cap":
+		if tv, ok := s.info.Types[e.Args[0]]; ok && b.Name() == "len" && types2.LenByMethod(tv.Type) {
+			return one(s.containerLen(e.Args[0], e.Pos()))
+		}
 		x := s.expr(e.Args[0])
 		xt := unwrap(s.typeOf(e.Args[0]))
 		switch u := xt.Underlying().(type) {

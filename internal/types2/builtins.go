@@ -217,6 +217,11 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 			}
 		}
 
+		// Plutonium: len of a container calls its Len method (indexing.go).
+		if mode == invalid && id == _Len && LenByMethod(x.typ()) && check.containerLen(x) {
+			mode = value
+		}
+
 		if mode == invalid {
 			// avoid error if underlying type is invalid
 			if isValid(x.typ().Underlying()) {

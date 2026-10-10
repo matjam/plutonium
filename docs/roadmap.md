@@ -138,10 +138,11 @@ later takes the next free number and is listed in the section where it belongs.
     pairs removed at last use, `Drop` at zero strong count and the free at zero weak count, the atomic
     forms for `synced` with the ordering of memory-model.md section 3.7, `weak[P]` conversion and
     `Upgrade`, and the sendable rule of section 4.7 (no `shared` or `weak[shared]` across puroutines).
-49. **Indexing interface** (planned; language spec section 6.7): `m[k]`, `v[i]`, `v[i] = x` and `len(v)`
-    on library containers through methods such as `Index`, `SetIndex` and `Len`, so that `vec.Vec` and
-    `hash.Map` read like Go's built-in slices and maps while staying owners. The method names, compound
-    assignment (`m[k] += 1`) and `&v[i]` are still to be designed.
+49. **Indexing interface** (done; language spec section 6.7): `x[k]`, `x[k] = v`, `v, ok := x[k]`,
+    `x[k] op= v` and `len(x)` on types that are not built-in indexable call `Index`, `SetIndex`,
+    `IndexOk` and `Len`; `vec.Vec` and `hash.Map` have them, and `pluto/container` declares the
+    constraints for generic code. `&x[k]` and assigning to a part of `x[k]` are explained errors
+    (containers return pointers from `Ptr`). Range over a container waits for item 22.
 50. **Ownership proposals awaiting sign-off** (proposed):
     - `new` returns `owned[T]` and `make([]T, ...)` returns `vec.Vec[T]`, with `a.New[T]()` and
       `a.Slice[T](n)` for arena-owned views (language spec section 4.2);

@@ -178,6 +178,16 @@ type Checker struct {
 	// type is valid only as that expression.
 	commaOkExpr ast.Expr
 
+	// Plutonium: the expression lhsVar is evaluating as the target of an
+	// assignment, or nil. An index expression on a container is a call of
+	// SetIndex there and of Index elsewhere (see containerIndex).
+	lhsExpr ast.Expr
+
+	// Plutonium: index expressions that call a container's indexing
+	// methods, so that taking their address or assigning to a part of one
+	// can be explained (see indexing.go).
+	containerIndexes map[ast.Expr]Type // to the container's type
+
 	// Plutonium: the declared function or method each identifier names
 	// when it is used as a value or callee, so that a call can find the
 	// default values of its callee (see calleeFunc).

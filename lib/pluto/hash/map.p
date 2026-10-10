@@ -52,6 +52,11 @@ type slot[K comparable, V any] struct {
 // floats and strings (and types defined on them) out of the box; a key type
 // with a Hash(seed uint64) uint64 method uses it; any other key type needs
 // a hash function given to InitFunc.
+//
+// m[k] reads like a Go map element (the zero V for a missing key),
+// m[k] = v stores, v, ok := m[k] reports whether k is present, m[k] += 1
+// reads and stores, and len(m) is Len (language spec section 6.7). &m[k] is
+// not allowed; Ptr and Upsert return pointers into the table.
 type Map[K comparable, V any] struct {
 	slots []slot[K, V]
 	meta  []uint8
@@ -208,6 +213,22 @@ func (m *Map[K, V]) Get(k K) (V, bool) {
 	var zero V
 	return zero, false
 }
+
+// Index returns the value stored for k, or the zero V if k is not in the
+// map; it is what m[k] calls (language spec section 6.7).
+func (m *Map[K, V]) Index(k K) V {
+	if i := m.find(k); i >= 0 {
+		return m.slots[i].val
+	}
+	var zero V
+	return zero
+}
+
+// IndexOk is Get; it is what v, ok := m[k] calls.
+func (m *Map[K, V]) IndexOk(k K) (V, bool) { return m.Get(k) }
+
+// SetIndex is Set; it is what m[k] = v calls.
+func (m *Map[K, V]) SetIndex(k K, v V) { *m.slot(k) = v }
 
 // Has reports whether k is in the map.
 func (m *Map[K, V]) Has(k K) bool { return m.find(k) >= 0 }
