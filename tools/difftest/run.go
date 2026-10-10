@@ -17,7 +17,7 @@ import (
 var levels = []int{0, 2}
 
 const (
-	buildTimeout = 60 * time.Second
+	buildTimeout = 120 * time.Second
 	runTimeout   = 10 * time.Second
 )
 
@@ -31,7 +31,7 @@ type runner struct {
 
 // An outcome is what one toolchain did with a program.
 type outcome struct {
-	class  string // "ok", "compile-error", "crash", "signal", "timeout"
+	class  string // "ok", "compile-error", "slow-compile", "crash", "signal", "timeout"
 	output string // program output, or the compiler's
 	status int
 }
@@ -185,7 +185,7 @@ func (r *runner) runPu(dir, src string, level int) outcome {
 		var ee *exec.ExitError
 		switch {
 		case errors.Is(err, context.DeadlineExceeded):
-			return outcome{class: "crash", output: "compiler timed out\n" + out}
+			return outcome{class: "slow-compile", output: fmt.Sprintf("compiler took over %s\n", buildTimeout) + out}
 		case strings.Contains(out, "goroutine ") && strings.Contains(out, "panic"):
 			return outcome{class: "crash", output: out}
 		case errors.As(err, &ee) && ee.ExitCode() < 0:

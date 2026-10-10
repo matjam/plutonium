@@ -1807,7 +1807,7 @@ func (g *gen) stmt() bool {
 	g.addCost(1)
 	deep := g.cx.depth >= maxDepth
 	for {
-		switch k := g.r.Intn(142); {
+		switch k := g.r.Intn(145); {
 		case k < 20:
 			g.declStmt()
 			return false
@@ -1912,11 +1912,56 @@ func (g *gen) stmt() bool {
 		case k < 139:
 			g.stringStmt()
 			return false
-		default:
+		case k < 142:
 			g.aggStmt()
+			return false
+		default:
+			g.aliasStmt()
 			return false
 		}
 	}
+}
+
+// aliasStmt writes a local array through the array itself, a pointer to
+// an element and a slice of it, interleaved with reads through the other
+// views: what store-to-load forwarding must get right.
+func (g *gen) aliasStmt() {
+	et := g.concreteInt()
+	n := 2 + g.r.Intn(5)
+	a, p, s := g.name("arr"), g.name("p"), g.name("sl")
+	k := g.r.Intn(n)
+	lo := g.r.Intn(n)
+	hi := lo + 1 + g.r.Intn(n-lo)
+	g.line("{")
+	g.indent++
+	g.line("var %s [%d]%s", a, n, et)
+	g.line("%s := &%s[%d]", p, a, k)
+	g.line("%s := %s[%d:%d]", s, a, lo, hi)
+	val := func() string { return typed(g.intExpr(et, 1, false), et) }
+	for i, m := 0, 3+g.r.Intn(6); i < m; i++ {
+		switch g.r.Intn(6) {
+		case 0:
+			g.line("%s[%d] = %s", a, g.r.Intn(n), val())
+		case 1:
+			g.line("*%s = %s", p, val())
+		case 2:
+			g.line("%s[%d] = %s", s, g.r.Intn(hi-lo), val())
+		case 3:
+			g.line("*%s += %s[%d]", p, s, g.r.Intn(hi-lo))
+		case 4:
+			var parts []string
+			for j := 0; j < n; j++ {
+				parts = append(parts, val())
+			}
+			g.line("%s = [%d]%s{%s}", a, n, et, strings.Join(parts, ", "))
+		default:
+			g.line("println(%s[%d], *%s, %s[%d], len(%s))", a, g.r.Intn(n), p, s, g.r.Intn(hi-lo), s)
+		}
+	}
+	g.line("println(*%s, len(%s))", p, s)
+	g.printLeaves(a, g.arrayOf(et, n))
+	g.indent--
+	g.line("}")
 }
 
 // aggStmt copies parts of a local aggregate onto other parts of it at
@@ -1951,20 +1996,30 @@ func (g *gen) aggStmt() {
 			}
 		}
 	}
-	a := g.name("agg")
+	a, b := g.name("agg"), g.name("agg")
 	walk(a, t)
+	two := g.chance(2)
+	if two {
+		walk(b, t)
+	}
 	g.line("{")
 	g.indent++
 	g.line("var %s %s", a, t)
+	if two {
+		g.line("%s := %s", b, g.literal(t, 1))
+	}
 	var ptr, ptrPath string
-	for i, n := 0, 3+g.r.Intn(5); i < n; i++ {
+	for i, n := 0, 3+g.r.Intn(6); i < n; i++ {
 		p := paths[g.r.Intn(len(paths))]
 		switch {
-		case ptr == "" && p.s != a && g.chance(4):
+		case ptr == "" && p.s != a && p.s != b && g.chance(4):
 			ptr, ptrPath = g.name("q"), p.s
 			g.line("%s := &%s", ptr, p.s)
 		case p.t.scalar():
 			g.line("%s = %s", p.s, g.value(p.t, 1))
+		case g.chance(5):
+			// Clear part of it.
+			g.line("%s = %s{}", p.s, p.t)
 		default:
 			// Copy from another path of the same type, possibly itself.
 			var same []path
@@ -1985,6 +2040,9 @@ func (g *gen) aggStmt() {
 		}
 	}
 	g.printLeaves(a, t)
+	if two {
+		g.printLeaves(b, t)
+	}
 	g.indent--
 	g.line("}")
 }

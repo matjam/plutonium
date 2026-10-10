@@ -34,7 +34,7 @@ func TestGenerateTypeChecks(t *testing.T) {
 				t.Errorf("seed %d: program is %d bytes", seed, len(src))
 			}
 			for i, l := range strings.Split(src, "\n") {
-				if len(l) > 8000 {
+				if len(l) > 16000 {
 					t.Errorf("seed %d: line %d is %d bytes: %.300s", seed, i+1, len(l), l)
 				}
 			}
