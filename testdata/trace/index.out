@@ -1,6 +1,6 @@
 7
 panic: runtime error: index out of range [4] with length 4
-    main.level3 ($FILE:4)
-    main.level2 ($FILE:8)
-    main.level1 ($FILE:12)
-    main.main ($FILE:18)
+    main.level3 (./main.p:4)
+    main.level2 (./main.p:8)
+    main.level1 (./main.p:12)
+    main.main (./main.p:18)

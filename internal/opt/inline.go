@@ -140,7 +140,7 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 			inlineCall(f, v, g)
 			changed = true
 			if checkSSA {
-				if err := f.Verify(); err != nil {
+				if err := verify(f); err != nil {
 					panic("after inlining " + g.Name + " into " + f.Name + ": " + err.Error())
 				}
 			}
@@ -192,7 +192,7 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 	}
 	after.Values = append(after.Values, rest...)
 	after.Likely = b.Likely
-	after.Pos = b.Pos
+	after.CopyPos(b)
 	after.SetControl(b.Controls...)
 	b.SetControl()
 	for len(b.Succs) > 0 {
@@ -213,15 +213,15 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 	}
 
 	// Copy g's blocks and values.
+	inl := f.AddInline(v, g)
 	blockMap := map[*ssa.Block]*ssa.Block{}
 	for _, gb := range g.Blocks {
 		nb := f.NewBlock(gb.Kind)
 		nb.Likely = gb.Likely
-		nb.Pos = gb.Pos
+		nb.Pos, nb.Inl = gb.Pos, inl.Map(gb.Inl)
 		blockMap[gb] = nb
 	}
 	valMap := map[*ssa.Value]*ssa.Value{}
-	inl := f.AddInline(v, g)
 	args := v.Args[:len(v.Args)-1]
 	mem := v.Args[len(v.Args)-1]
 	for _, gb := range g.Blocks {
@@ -257,7 +257,7 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 				// give it the call's position, so that the address minus
 				// one symbolises to the line of the call in f rather than
 				// to a line of g.
-				nv.Pos, nv.Inl = v.Pos, v.Inl
+				nv.CopyPos(v)
 			}
 			valMap[gv] = nv
 		}

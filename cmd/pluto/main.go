@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/matjam/plutonium/internal/syntax/scanner"
+	"github.com/matjam/plutonium/internal/diag"
 )
 
 var rootCmd = &cobra.Command{
@@ -23,12 +23,34 @@ var rootCmd = &cobra.Command{
 
 	// Cobra calls this once the flags and arguments have been accepted, so
 	// an error after it comes from the command's work, not from its usage.
-	PersistentPreRun: func(*cobra.Command, []string) { commandRan = true },
+	PersistentPreRun: func(cmd *cobra.Command, _ []string) {
+		commandRan = true
+		if f := cmd.Flags().Lookup("brief"); f != nil && f.Changed {
+			briefErrors, _ = cmd.Flags().GetBool("brief")
+		}
+	},
 }
 
 // commandRan records that cobra accepted the command line and ran the
 // command.
 var commandRan bool
+
+// briefErrors, set by --brief or $PLUTO_BRIEF, prints compile errors
+// without their explanations: one line each, as file:line:col: message.
+var briefErrors bool
+
+// briefUsage describes the --brief flag of build, run and test.
+const briefUsage = "print each error on one line, without its explanation (default from $PLUTO_BRIEF)"
+
+// envBrief reports whether $PLUTO_BRIEF asks for brief errors: set, and
+// not 0 or false.
+func envBrief() bool {
+	switch strings.ToLower(os.Getenv("PLUTO_BRIEF")) {
+	case "", "0", "false", "no", "off":
+		return false
+	}
+	return true
+}
 
 func main() {
 	os.Exit(execute(os.Args[1:], os.Stderr))
@@ -42,6 +64,7 @@ func main() {
 // status 1.
 func execute(args []string, stderr io.Writer) int {
 	commandRan = false
+	briefErrors = envBrief()
 	rootCmd.SetArgs(args)
 	rootCmd.SetErr(stderr)
 	cmd, err := rootCmd.ExecuteC()
@@ -61,20 +84,10 @@ func execute(args []string, stderr io.Writer) int {
 	return 1
 }
 
-// printError prints err one message to a line. The errors of a compilation
-// come joined (errors.Join) or as a scanner.ErrorList, whose own Error
-// method shows only the first; printError prints them all.
+// printError prints every error in err. The errors of a compilation come
+// as a diag.List (or joined, or as a scanner.ErrorList, whose own Error
+// method shows only the first); each is printed as file:line:col: message
+// followed by its explanation, or alone with --brief.
 func printError(w io.Writer, err error) {
-	switch err := err.(type) {
-	case scanner.ErrorList:
-		for _, e := range err {
-			say(w, "%s\n", e)
-		}
-	case interface{ Unwrap() []error }:
-		for _, e := range err.Unwrap() {
-			printError(w, e)
-		}
-	default:
-		say(w, "%s\n", strings.TrimRight(err.Error(), "\n"))
-	}
+	diag.Print(w, err, briefErrors)
 }

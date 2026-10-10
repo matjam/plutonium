@@ -3,6 +3,7 @@ package lower
 import (
 	"fmt"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -14,7 +15,7 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 	id := identOf(ast.Unparen(e.Fun))
 	b, _ := s.info.Uses[id].(*types2.Builtin)
 	if b == nil {
-		s.l.errorf(e.Pos(), "lower: unknown builtin")
+		s.l.internalf(e.Pos(), "unknown builtin")
 		return nil
 	}
 	T := s.typeOf(e)
@@ -115,7 +116,7 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		st, isSlice := unwrap(T).Underlying().(*types2.Slice)
 		if !isSlice {
 			// The checker rejects map types.
-			s.l.errorf(e.Pos(), "lower: make of %s is not supported", T)
+			s.l.unsupportedf(e.Pos(), "make of %s is not supported", T)
 			return nil
 		}
 		et := s.subst(st.Elem())
@@ -190,7 +191,7 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		p, _ := s.stringParts(s.expr(e.Args[0]))
 		return one(scalarValue(p, T))
 	}
-	s.l.errorf(e.Pos(), "lower: builtin %s is not supported", b.Name())
+	s.l.unsupportedf(e.Pos(), "builtin %s is not supported", b.Name())
 	return nil
 }
 
@@ -383,7 +384,7 @@ func (s *fnState) printValue(v value, T types2.Type, a ast.Node) {
 	case *types2.Pointer, *types2.Signature:
 		s.callRuntime("printPointer", nil, []*ssa.Value{v.v})
 	default:
-		s.l.errorf(a.Pos(), "lower: cannot print a value of type %s", T)
+		s.l.unsupportedf(a.Pos(), "cannot print a value of type %s", T)
 	}
 }
 
@@ -404,7 +405,7 @@ func (s *fnState) conversion(e *ast.CallExpr) value {
 
 	// []byte(s), string(b) and friends copy, so they would allocate.
 	if isString(to) != isString(from) {
-		s.l.errorf(e.Pos(), "conversion between %s and %s is not permitted in Plutonium (it allocates a copy); use unsafe.String or unsafe.StringData", from, to)
+		s.l.errorf(e.Pos(), diag.AllocatingConv, "conversion between %s and %s is not permitted in Plutonium (it allocates a copy); use unsafe.String or unsafe.StringData", from, to)
 		return s.zeroValue(to)
 	}
 
@@ -568,7 +569,7 @@ func (s *fnState) ringOp(name string, p *ssa.Value, w *types2.Wrapper, args []va
 		})
 		return []value{s.loadFrom(out, et), scalarValue(s.load(ssa.TBool, res), boolT)}
 	}
-	s.l.errorf(pos, "lower: unknown ring method %s", name)
+	s.l.internalf(pos, "unknown ring method %s", name)
 	return nil
 }
 

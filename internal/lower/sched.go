@@ -12,6 +12,7 @@ package lower
 import (
 	"strings"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
@@ -42,7 +43,7 @@ func (l *Lowerer) findScheduler() {
 	}
 	if len(own) > 1 {
 		for _, b := range own[1:] {
-			l.errorf(b.pos, "%s is a second //pu:scheduler variable; the first is %s at %s: a program binds one scheduler (language spec section 4.7)",
+			l.errorf(b.pos, diag.BadScheduler, "%s is a second //pu:scheduler variable; the first is %s at %s: a program binds one scheduler (language spec section 4.7)",
 				b.v.Name(), own[0].v.Name(), l.fset.Position(own[0].pos))
 		}
 		return
@@ -58,7 +59,7 @@ func (l *Lowerer) findScheduler() {
 	}
 	T := b.v.Type()
 	if isInterface(T) {
-		l.errorf(b.pos, "//pu:scheduler variable %s has interface type %s; give it the backend's own type, so that the runtime calls its methods directly", b.v.Name(), T)
+		l.errorf(b.pos, diag.BadScheduler, "//pu:scheduler variable %s has interface type %s; give it the backend's own type, so that the runtime calls its methods directly", b.v.Name(), T)
 		return
 	}
 	iface := l.rtType("Scheduler").Underlying().(*types2.Interface)
@@ -68,11 +69,11 @@ func (l *Lowerer) findScheduler() {
 		if m != nil {
 			name = m.Name()
 		}
-		l.errorf(b.pos, "//pu:scheduler variable %s of type %s does not implement rt.Scheduler (missing method %s)", b.v.Name(), T, name)
+		l.errorf(b.pos, diag.BadScheduler, "//pu:scheduler variable %s of type %s does not implement rt.Scheduler (missing method %s)", b.v.Name(), T, name)
 		return
 	}
 	if n, ok := types2.Unalias(T).(*types2.Named); ok && n.TypeArgs().Len() > 0 {
-		l.errorf(b.pos, "//pu:scheduler variable %s has generic type %s, which is not supported", b.v.Name(), T)
+		l.errorf(b.pos, diag.BadScheduler, "//pu:scheduler variable %s has generic type %s, which is not supported", b.v.Name(), T)
 		return
 	}
 	l.sched = b
@@ -136,8 +137,8 @@ func (l *Lowerer) schedHookSym(fn *types2.Func, method string, optional bool) *s
 	sig := fn.Type().(*types2.Signature)
 	if l.sched == nil && !optional && !l.schedMissing {
 		l.schedMissing = true
-		l.errs = append(l.errs, &Error{Pos: l.fset.Position(l.prog.Main.Files[0].Package), Msg: "this program starts puroutines or uses channels or pluto/sync, so it needs a scheduler, and none is bound: " +
-			"mark a package-level variable whose type implements rt.Scheduler with //pu:scheduler (language spec section 4.7; hosted builds bind one by default)"})
+		l.errorf(l.prog.Main.Files[0].Package, diag.NoScheduler, "this program starts puroutines, uses channels or waits in pluto/sync, so it needs a scheduler, and none is bound: "+
+			"mark a package-level variable whose type implements rt.Scheduler with //pu:scheduler (language spec section 4.7; hosted builds bind one by default)")
 	}
 	b := l.sched
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: sig, build: func(s *fnState) {

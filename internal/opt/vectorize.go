@@ -304,7 +304,9 @@ func (vl *vecLoop) rewrite(f *ssa.Func) {
 	vh := f.NewBlock(ssa.BlockIf)
 	vb := f.NewBlock(ssa.BlockPlain)
 	vexit := f.NewBlock(ssa.BlockPlain)
-	vh.Pos, vb.Pos, vexit.Pos = h.Pos, body.Pos, h.Pos
+	vh.CopyPos(h)
+	vb.CopyPos(body)
+	vexit.CopyPos(h)
 
 	// pre -> vh, replacing pre -> h.
 	pre.Succs[preEdge.I] = ssa.Edge{B: vh, I: 0}
@@ -327,7 +329,7 @@ func (vl *vecLoop) rewrite(f *ssa.Func) {
 		vh.AddEdgeTo(vexit)
 	} else {
 		vh2 := f.NewBlock(ssa.BlockIf)
-		vh2.Pos = h.Pos
+		vh2.CopyPos(h)
 		vh.SetControl(vh.NewValue(ssa.OpLess, ssa.TBool, vi, n))
 		vh.AddEdgeTo(vh2)
 		vh.AddEdgeTo(vexit)
@@ -378,6 +380,7 @@ func (vl *vecLoop) rewrite(f *ssa.Func) {
 
 	memMap := map[*ssa.Value]*ssa.Value{vl.mem: vm}
 	for _, v := range body.Values {
+		first := len(vb.Values)
 		switch v.Op {
 		case ssa.OpLoad:
 			a := vl.accesses[v]
@@ -412,6 +415,12 @@ func (vl *vecLoop) rewrite(f *ssa.Func) {
 				w.AddArg(vec(a))
 			}
 			vmap[v] = w
+		}
+		// The vector code for v takes v's position, so that a fault in a
+		// vector load or store names the line (and inlined call) of the
+		// scalar access it replaces.
+		for _, w := range vb.Values[first:] {
+			w.CopyPos(v)
 		}
 	}
 	vi.AddArg(vb.NewValue(ssa.OpAdd, ssa.TI64, vi, f.ConstInt(ssa.TI64, 2)))

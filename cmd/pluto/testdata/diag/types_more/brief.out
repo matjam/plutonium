@@ -1,0 +1,9 @@
+$DIR/main.p:16:9: not enough return values
+	have (number)
+	want (int, error)
+$DIR/main.p:20:20: cannot use 300 (untyped int constant) as uint8 value in variable declaration (overflows)
+$DIR/main.p:22:4: c.Totl undefined (type Counter has no field or method Totl)
+$DIR/main.p:23:16: cannot use c (variable of struct type Counter) as Adder value in variable declaration: Counter does not implement Adder (method Add has pointer receiver)
+$DIR/main.p:25:7: invalid operation: ok + 1 (mismatched types bool and untyped int)
+$DIR/main.p:26:2: undefined: fmt
+$DIR/main.p:28:14: undefined: strings.HasPrefx

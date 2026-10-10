@@ -259,7 +259,7 @@ func (s *fnState) move(dst, src *ssa.Value, size int64) {
 func (s *fnState) typeOf(e ast.Expr) types2.Type {
 	tv, ok := s.info.Types[e]
 	if !ok {
-		s.l.errorf(e.Pos(), "lower: no type for expression")
+		s.l.internalf(e.Pos(), "no type for expression")
 		return types2.Typ[types2.Invalid]
 	}
 	return s.tmap.subst(tv.Type)
@@ -311,10 +311,10 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 	s.setMem(entry.NewValue(ssa.OpInitMem, ssa.TMem))
 
 	if job.decl != nil {
-		f.Pos = job.decl.Pos()
+		f.Pos, f.End = job.decl.Pos(), job.decl.End()
 		s.applyPragmas(job.decl.Doc)
 	} else if job.lit != nil {
-		f.Pos = job.lit.Pos()
+		f.Pos, f.End = job.lit.Pos(), job.lit.End()
 	}
 	if job.pkg != nil {
 		f.Pkg = job.pkg.Path

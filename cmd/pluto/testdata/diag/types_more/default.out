@@ -1,0 +1,54 @@
+$DIR/main.p:16:9: not enough return values
+	have (number)
+	want (int, error)
+    pair is declared on line 15 to return 2 values (int, error), so each return
+    statement gives exactly that many values, in that order.
+    (see "Return statements" in the Go spec; Plutonium follows Go here)
+    (run "pluto explain E0103" for a longer explanation)
+
+$DIR/main.p:20:20: cannot use 300 (untyped int constant) as uint8 value in variable declaration (overflows)
+    uint8 holds whole numbers from 0 to 255, and 300 is outside that range. A
+    constant must fit the type it is used as; the compiler will not cut it down
+    silently.
+    Use a wider type, or a value inside the range.
+    (see "Representability" in the Go spec; Plutonium follows Go here)
+    (run "pluto explain E0044" for a longer explanation)
+
+$DIR/main.p:22:4: c.Totl undefined (type Counter has no field or method Totl)
+    c has type Counter, declared on line 5, which has no field or method Totl.
+    Did you mean c.total? Names are case-sensitive.
+    (see "Selectors" in the Go spec; Plutonium follows Go here)
+    (run "pluto explain E0076" for a longer explanation)
+
+$DIR/main.p:23:16: cannot use c (variable of struct type Counter) as Adder value in variable declaration: Counter does not implement Adder (method Add has pointer receiver)
+    a is declared as Adder, so it can only hold values whose type has every
+    method of Adder.
+    Adder needs a method Add(n int) (declared on line 12). Counter has it, but
+    the method is declared on *Counter, so only a pointer to a Counter has it,
+    not a Counter value. A type satisfies an interface only if its own method
+    set has every method.
+    Use a pointer:
+        &c
+    (see "Implementing an interface" in the Go spec; Plutonium follows Go here)
+    (run "pluto explain E0021" for a longer explanation)
+
+$DIR/main.p:25:7: invalid operation: ok + 1 (mismatched types bool and untyped int)
+    ok has type bool and 1 is an untyped int constant. The operands of + must
+    have the same type, and Plutonium, like Go, never converts one to match the
+    other. A bool is true or false; it is not a number.
+    (see "Arithmetic operators" in the Go spec; Plutonium follows Go here)
+    (run "pluto explain E0046" for a longer explanation)
+
+$DIR/main.p:26:2: undefined: fmt
+    fmt is not declared in this file. If you meant the standard library package
+    pluto/fmt, the file must import it; each file lists the packages it uses.
+    Add the import:
+        import "pluto/fmt"
+    (see "Declarations and scope" in the Go spec; Plutonium follows Go here)
+    (run "pluto explain E0075" for a longer explanation)
+
+$DIR/main.p:28:14: undefined: strings.HasPrefx
+    Package pluto/strings has no exported name HasPrefx. Did you mean
+    strings.HasPrefix?
+    (see "Qualified identifiers" in the Go spec; Plutonium follows Go here)
+    (run "pluto explain E0073" for a longer explanation)

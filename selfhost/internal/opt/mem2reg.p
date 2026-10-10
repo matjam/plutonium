@@ -46,6 +46,7 @@ func Mem2Reg(f *ssa.Func) {
 	// Phi placement.
 	phiSlot := compat.NewMap[*ssa.Value, *ssa.Slot](0)
 	phiArgs := compat.NewMap[*ssa.Value, []*ssa.Value](0)
+	var phis []*ssa.Value // creation order, for a deterministic fill below
 	for _, in := range promote {
 		s := in.slot
 		var work []*ssa.Block
@@ -68,6 +69,7 @@ func Mem2Reg(f *ssa.Func) {
 				phi := newPhiAtStart(y, compat.MapAt(types, s))
 				phiSlot.Set(phi, s)
 				phiArgs.Set(phi, make([]*ssa.Value, len(y.Preds)))
+				phis = compat.Append(phis, phi)
 				if !compat.MapAt(hasDef, y) {
 					hasDef.Set(y, true)
 					work = compat.Append(work, y)
@@ -133,16 +135,13 @@ func Mem2Reg(f *ssa.Func) {
 	}
 	rename(f.Entry)
 
-	{
-		goIt3 := compat.MapIter(phiArgs)
-		for phi, args, goOk4 := goIt3.Next(); goOk4; phi, args, goOk4 = goIt3.Next() {
-			for _, a := range args {
-				if a == nil {
-					// Predecessor not reached by renaming (unreachable).
-					a = zeroConst(f, phi.Type)
-				}
-				phi.AddArg(a)
+	for _, phi := range phis {
+		for _, a := range compat.MapAt(phiArgs, phi) {
+			if a == nil {
+				// Predecessor not reached by renaming (unreachable).
+				a = zeroConst(f, phi.Type)
 			}
+			phi.AddArg(a)
 		}
 	}
 	ssa.CopyElim(f)

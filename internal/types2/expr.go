@@ -74,7 +74,7 @@ func (check *Checker) op(m opPredicates, x *operand, op token.Token) bool {
 	// Plutonium: an enum value is one of its members, and no arithmetic or
 	// bitwise operation is guaranteed to give another member.
 	if isEnum(x.typ()) && op != token.LAND && op != token.LOR && op != token.NOT {
-		check.errorf(x, UndefinedOp, invalidOp+"operator %s not defined on %s (enum values only compare; convert to an integer for arithmetic)", op, x)
+		check.errorf(x, EnumArithmetic, invalidOp+"operator %s not defined on %s (enum values only compare; convert to an integer for arithmetic)", op, x)
 		return false
 	}
 	if pred := m[op]; pred != nil {
@@ -638,7 +638,7 @@ func (check *Checker) shift(x, y *operand, e ast.Expr, op token.Token) {
 	}
 
 	if isEnum(x.typ()) {
-		check.errorf(x, InvalidShiftOperand, invalidOp+"shifted operand %s is an enum value (convert it to an integer first)", x)
+		check.errorf(x, EnumArithmetic, invalidOp+"shifted operand %s is an enum value (convert it to an integer first)", x)
 		x.invalidate()
 		return
 	}
@@ -822,7 +822,7 @@ func (check *Checker) binary(x *operand, e ast.Expr, lhs, rhs ast.Expr, op token
 	if !isComparison(op) {
 		for _, z := range []*operand{x, &y} {
 			if isEnum(z.typ()) {
-				check.errorf(z, UndefinedOp, invalidOp+"operator %s not defined on %s (enum values only compare; convert to an integer for arithmetic)", op, z)
+				check.errorf(z, EnumArithmetic, invalidOp+"operator %s not defined on %s (enum values only compare; convert to an integer for arithmetic)", op, z)
 				x.invalidate()
 				return
 			}

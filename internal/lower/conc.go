@@ -10,10 +10,12 @@ package lower
 import (
 	"fmt"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
+	typerr "github.com/matjam/plutonium/internal/types2/errors"
 )
 
 // rtType returns the named type of package pluto/rt.
@@ -40,7 +42,7 @@ func (s *fnState) checkSendable(T types2.Type, pos token.Pos, what string) {
 		return
 	}
 	if bad := types2.Unsendable(T); bad != nil {
-		s.l.errorf(pos, "%s %s is not sendable: it contains %s, whose count is not atomic, so it cannot cross puroutines; use synced[T] (spec section 4.7)", what, T, bad)
+		s.l.errorf(pos, diag.CheckerCode(typerr.NotSendable), "%s %s is not sendable: it contains %s, whose count is not atomic, so it cannot cross puroutines; use synced[T] (spec section 4.7)", what, T, bad)
 	}
 }
 
@@ -65,14 +67,14 @@ func (s *fnState) goStmt(st *ast.GoStmt) {
 	fun := ast.Unparen(call.Fun)
 	if lit, ok := fun.(*ast.FuncLit); ok {
 		if caps := s.capturedVars(lit); len(caps) > 0 {
-			s.l.errorf(lit.Pos(), "a function literal that captures variables cannot be started with go: %s lives in the starting frame, which may be gone before the puroutine runs (spec section 4.7); pass it as an argument instead: go func(%s %s) {...}(%s)",
+			s.l.errorf(lit.Pos(), diag.GoCapturingLiteral, "a function literal that captures variables cannot be started with go: %s lives in the starting frame, which may be gone before the puroutine runs (spec section 4.7); pass it as an argument instead: go func(%s %s) {...}(%s)",
 				caps[0].Name(), caps[0].Name(), types2.TypeString(caps[0].Type(), types2.RelativeTo(s.pkg.Types)), caps[0].Name())
 			return
 		}
 	}
 	funTV := s.info.Types[call.Fun]
 	if funTV.IsBuiltin() {
-		s.l.errorf(st.Pos(), "go with the built-in %s is not supported", identOf(fun).Name)
+		s.l.errorf(st.Pos(), diag.GoBuiltin, "go with the built-in %s is not supported; start a function that calls it", identOf(fun).Name)
 		return
 	}
 
@@ -372,7 +374,7 @@ func (s *fnState) selectStmt(st *ast.SelectStmt, label *types2.Label) {
 			tmp := s.temp(et, "selrecv")
 			cases = append(cases, &selCase{clause: cc, recv: true, elem: et, tmp: tmp, lhs: comm.Lhs, define: comm.Tok == token.DEFINE})
 		default:
-			s.l.errorf(cc.Pos(), "lower: unexpected select case %T", comm)
+			s.l.internalf(cc.Pos(), "unexpected select case %T", comm)
 			return
 		}
 	}

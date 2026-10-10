@@ -677,8 +677,13 @@ func (a *allocator) rewrite(spillTemps map[Reg]bool) {
 				return r
 			})
 			out = append(out, in)
-			for r, t := range store {
-				out = append(out, &MInst{Op: MSPILL, Size: f.spillSize(r), Src: RegOp(t), Slot: slots[r]})
+			// buf still holds the defs; walk them rather than the map so
+			// the stores come out in a fixed order.
+			for _, r := range buf {
+				if t, ok := store[r]; ok {
+					out = append(out, &MInst{Op: MSPILL, Size: f.spillSize(r), Src: RegOp(t), Slot: slots[r]})
+					delete(store, r)
+				}
 			}
 		}
 		b.Insts = out

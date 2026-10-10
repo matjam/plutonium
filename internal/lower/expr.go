@@ -3,6 +3,7 @@ package lower
 import (
 	"go/constant"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -34,7 +35,7 @@ func (s *fnState) expr(e ast.Expr) value {
 		case *types2.Nil:
 			return s.zeroValue(T)
 		}
-		s.l.errorf(e.Pos(), "lower: unexpected identifier %s", e.Name)
+		s.l.internalf(e.Pos(), "unexpected identifier %s", e.Name)
 		return s.zeroValue(T)
 
 	case *ast.FuncLit:
@@ -90,9 +91,9 @@ func (s *fnState) expr(e ast.Expr) value {
 		return v
 
 	case *ast.KeyValueExpr:
-		s.l.errorf(e.Pos(), "lower: key-value outside composite literal")
+		s.l.internalf(e.Pos(), "key-value outside composite literal")
 	}
-	s.l.errorf(e.Pos(), "lower: unsupported expression %T", e)
+	s.l.unsupportedf(e.Pos(), "unsupported expression %T", e)
 	return s.zeroValue(T)
 }
 
@@ -100,7 +101,7 @@ func (s *fnState) expr(e ast.Expr) value {
 func (s *fnState) scalar(e ast.Expr) *ssa.Value {
 	v := s.expr(e)
 	if v.addr {
-		s.l.errorf(e.Pos(), "lower: expected a scalar, have %s", v.T)
+		s.l.internalf(e.Pos(), "expected a scalar, have %s", v.T)
 		return s.constInt(ssa.TI64, 0)
 	}
 	return v.v
@@ -173,7 +174,7 @@ func (s *fnState) lv(e ast.Expr) lvalue {
 			obj, _ = s.info.Defs[e].(*types2.Var)
 		}
 		if obj == nil {
-			s.l.errorf(e.Pos(), "lower: %s is not a variable", e.Name)
+			s.l.internalf(e.Pos(), "%s is not a variable", e.Name)
 			return lvalue{ptr: s.temp(types2.Typ[types2.Int], "bad"), T: types2.Typ[types2.Int]}
 		}
 		return s.varLV(obj, e)
@@ -232,7 +233,7 @@ func (s *fnState) varLV(obj *types2.Var, at ast.Node) lvalue {
 	}
 	// A local seen before its declaration was lowered cannot happen in
 	// checked code, but give it storage rather than crash.
-	s.l.errorf(at.Pos(), "lower: variable %s has no storage", obj.Name())
+	s.l.internalf(at.Pos(), "variable %s has no storage", obj.Name())
 	addr := s.temp(T, obj.Name())
 	s.vars[obj] = addr
 	return lvalue{ptr: addr, T: T}
@@ -275,7 +276,7 @@ func (s *fnState) indexLV(e *ast.IndexExpr) lvalue {
 		s.boundsCheck(i, n, e.Index.Pos())
 		return lvalue{ptr: s.elemAddr(ptr, i, u.Elem()), T: s.subst(u.Elem())}
 	}
-	s.l.errorf(e.Pos(), "lower: cannot index %s", xt)
+	s.l.internalf(e.Pos(), "cannot index %s", xt)
 	return lvalue{ptr: s.temp(types2.Typ[types2.Int], "bad"), T: types2.Typ[types2.Int]}
 }
 
@@ -343,7 +344,7 @@ func (s *fnState) selectorLV(e *ast.SelectorExpr) lvalue {
 	}
 	sel := s.info.Selections[e]
 	if sel == nil || sel.Kind() != types2.FieldVal {
-		s.l.errorf(e.Pos(), "lower: selector %s is not a field", e.Sel.Name)
+		s.l.internalf(e.Pos(), "selector %s is not a field", e.Sel.Name)
 		return lvalue{ptr: s.temp(types2.Typ[types2.Int], "bad"), T: types2.Typ[types2.Int]}
 	}
 	// Start from the addressable base, or a pointer value.
@@ -425,7 +426,7 @@ func (s *fnState) selector(e *ast.SelectorExpr, T types2.Type) value {
 	}
 	sel := s.info.Selections[e]
 	if sel == nil {
-		s.l.errorf(e.Pos(), "lower: unresolved selector %s", e.Sel.Name)
+		s.l.internalf(e.Pos(), "unresolved selector %s", e.Sel.Name)
 		return s.zeroValue(T)
 	}
 	switch sel.Kind() {
@@ -523,7 +524,7 @@ func (s *fnState) unary(e *ast.UnaryExpr, T types2.Type) value {
 		v, _ := s.recv(e, false)
 		return v
 	}
-	s.l.errorf(e.Pos(), "lower: unsupported unary operator %s", e.Op)
+	s.l.unsupportedf(e.Pos(), "unsupported unary operator %s", e.Op)
 	return s.zeroValue(T)
 }
 
@@ -548,7 +549,7 @@ func (s *fnState) binary(e *ast.BinaryExpr, T types2.Type) value {
 func (s *fnState) arith(op token.Token, x, y *ssa.Value, T types2.Type, pos token.Pos) *ssa.Value {
 	t := x.Type
 	if isString(T) {
-		s.l.errorf(pos, "runtime string concatenation is not permitted in Plutonium (it allocates); use pluto/strings.Builder")
+		s.l.errorf(pos, diag.StringConcat, "runtime string concatenation is not permitted in Plutonium (it allocates); use pluto/strings.Builder")
 		return x
 	}
 	if t.IsFloat() {
@@ -563,7 +564,7 @@ func (s *fnState) arith(op token.Token, x, y *ssa.Value, T types2.Type, pos toke
 		case token.QUO:
 			fop = ssa.OpFDiv
 		default:
-			s.l.errorf(pos, "lower: bad float operator %s", op)
+			s.l.internalf(pos, "bad float operator %s", op)
 			return x
 		}
 		return s.newValue(fop, t, x, y)
@@ -601,7 +602,7 @@ func (s *fnState) arith(op token.Token, x, y *ssa.Value, T types2.Type, pos toke
 			return s.signedDiv(iop, x, y)
 		}
 	default:
-		s.l.errorf(pos, "lower: bad integer operator %s", op)
+		s.l.internalf(pos, "bad integer operator %s", op)
 		return x
 	}
 	if t.IsPtr() {
@@ -838,7 +839,7 @@ func (s *fnState) equal(x, y value, T types2.Type, pos token.Pos) *ssa.Value {
 	case *types2.Packed, *types2.Wrapper:
 		return s.callRuntime("memequal", []*ssa.Type{ssa.TBool}, []*ssa.Value{x.v, y.v, s.constInt(ssa.TI64, s.l.sizeof(T))})[0]
 	}
-	s.l.errorf(pos, "lower: cannot compare values of type %s", T)
+	s.l.unsupportedf(pos, "cannot compare values of type %s", T)
 	return s.constBool(false)
 }
 
@@ -954,7 +955,7 @@ func (s *fnState) sliceExpr(e *ast.SliceExpr, T types2.Type) value {
 		capacity = length
 		elem = arr.Elem()
 	default:
-		s.l.errorf(e.Pos(), "lower: cannot slice %s", xt)
+		s.l.internalf(e.Pos(), "cannot slice %s", xt)
 		return s.zeroValue(T)
 	}
 	lo := s.constInt(ssa.TI64, 0)
@@ -1077,7 +1078,7 @@ func (s *fnState) compositeLit(e *ast.CompositeLit, T types2.Type) value {
 			return s.zeroValue(T) // ring[T, N]{}: the empty ring
 		}
 	}
-	s.l.errorf(e.Pos(), "lower: unsupported composite literal of type %s", T)
+	s.l.unsupportedf(e.Pos(), "unsupported composite literal of type %s", T)
 	return s.zeroValue(T)
 }
 

@@ -783,7 +783,7 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 		// recover() interface{}
 		// Plutonium: panic aborts without unwinding (language spec
 		// section 4.1), so there is nothing to recover from.
-		check.forbidden(call.Fun, "recover is", "panic aborts without unwinding; return errors instead")
+		check.forbidden(call.Fun, RecoverNotPermitted, "recover is", "panic aborts without unwinding; return errors instead")
 		x.mode_ = value
 		x.typ_ = &emptyInterface
 		if check.recordTypes() {

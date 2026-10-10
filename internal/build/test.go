@@ -10,6 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -152,7 +153,7 @@ func splitLevels(s string) []string {
 // testFuncs returns the tests and benchmarks declared in the package's
 // _test.p files, in source order, after checking their signatures.
 func testFuncs(fset *token.FileSet, pkg *load.Package) (tests, benchmarks []string, err error) {
-	var errs []error
+	var errs diag.List
 	for _, f := range pkg.Tests {
 		for _, d := range f.Decls {
 			fd, ok := d.(*ast.FuncDecl)
@@ -173,12 +174,12 @@ func testFuncs(fset *token.FileSet, pkg *load.Package) (tests, benchmarks []stri
 			}
 			fn, _ := pkg.Info.Defs[fd.Name].(*types2.Func)
 			if fn == nil || !isTestSignature(fn.Type().(*types2.Signature), param) {
-				errs = append(errs, fmt.Errorf("%s: wrong signature for %s, must be: func %s(%s *testing.%s)",
-					fset.Position(fd.Name.Pos()), name, name, strings.ToLower(param), param))
+				errs = append(errs, diag.New(fset.Position(fd.Name.Pos()), diag.BadTestSignature, "wrong signature for %s, must be: func %s(%s *testing.%s)",
+					name, name, strings.ToLower(param), param))
 			}
 		}
 	}
-	return tests, benchmarks, errors.Join(errs...)
+	return tests, benchmarks, errs.Err()
 }
 
 // isTestName reports whether name is prefix followed by nothing or by a

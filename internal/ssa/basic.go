@@ -128,7 +128,7 @@ func SplitCriticalEdges(f *Func) {
 				continue
 			}
 			mid := f.NewBlock(BlockPlain)
-			mid.Pos = b.Pos
+			mid.CopyPos(b)
 			// Rewire b -> c into b -> mid -> c, keeping c's predecessor index
 			// so its phis stay aligned.
 			j := e.I

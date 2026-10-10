@@ -50,9 +50,9 @@ func (check *Checker) checkSendable(at positioner, T Type, what string) {
 	}
 	if bad := Unsendable(T); bad != nil {
 		if Identical(bad, T) {
-			check.errorf(at, InvalidSend, "%s %s is not sendable: a shared reference's count is not atomic, so it cannot cross puroutines; use synced[T] (spec section 4.7)", what, T)
+			check.errorf(at, NotSendable,"%s %s is not sendable: a shared reference's count is not atomic, so it cannot cross puroutines; use synced[T] (spec section 4.7)", what, T)
 		} else {
-			check.errorf(at, InvalidSend, "%s %s is not sendable: it contains %s, whose count is not atomic, so it cannot cross puroutines; use synced[T] (spec section 4.7)", what, T, bad)
+			check.errorf(at, NotSendable,"%s %s is not sendable: it contains %s, whose count is not atomic, so it cannot cross puroutines; use synced[T] (spec section 4.7)", what, T, bad)
 		}
 	}
 }
@@ -79,7 +79,7 @@ func (check *Checker) goStmtArgs(call *ast.CallExpr) {
 				if _, ptr := sig.recv.typ.(*Pointer); ptr {
 					if !isPointerTyped(check.exprType(se.X)) {
 						if root := check.frameRoot(se.X); root != nil {
-							check.errorf(se.X, InvalidGo, "go statement calls a pointer method on %s, a variable in this function's frame, which the puroutine may outlive (spec section 6.3); allocate it with new or make it a package-level variable", root.name)
+							check.errorf(se.X, FrameViewSent,"go statement calls a pointer method on %s, a variable in this function's frame, which the puroutine may outlive (spec section 6.3); allocate it with new or make it a package-level variable", root.name)
 						}
 					}
 				} else if T := check.exprType(se.X); T != nil {
@@ -103,17 +103,17 @@ func (check *Checker) checkFrameView(e ast.Expr, what string) {
 			return
 		}
 		if _, lit := ast.Unparen(x.X).(*ast.CompositeLit); lit {
-			check.errorf(x, InvalidGo, "%s is %s, but it points into this function's frame, which the receiving puroutine may outlive (spec section 6.3); allocate it with new(T{...})", ExprString(x), what)
+			check.errorf(x, FrameViewSent,"%s is %s, but it points into this function's frame, which the receiving puroutine may outlive (spec section 6.3); allocate it with new(T{...})", ExprString(x), what)
 			return
 		}
 		if root := check.frameRoot(x.X); root != nil {
-			check.errorf(x, InvalidGo, "%s is %s, but %s lives in this function's frame, which the receiving puroutine may outlive (spec section 6.3); allocate it with new or make it a package-level variable", ExprString(x), what, root.name)
+			check.errorf(x, FrameViewSent,"%s is %s, but %s lives in this function's frame, which the receiving puroutine may outlive (spec section 6.3); allocate it with new or make it a package-level variable", ExprString(x), what, root.name)
 		}
 	case *ast.SliceExpr:
 		if T := check.exprType(x.X); T != nil {
 			if _, arr := T.Underlying().(*Array); arr {
 				if root := check.frameRoot(x.X); root != nil {
-					check.errorf(x, InvalidGo, "%s is %s, but it is a slice of %s, which lives in this function's frame and which the receiving puroutine may outlive (spec section 6.3)", ExprString(x), what, root.name)
+					check.errorf(x, FrameViewSent,"%s is %s, but it is a slice of %s, which lives in this function's frame and which the receiving puroutine may outlive (spec section 6.3)", ExprString(x), what, root.name)
 				}
 			}
 		}
