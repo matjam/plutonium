@@ -276,12 +276,6 @@ func panicShift() {
 	fatal(nil)
 }
 
-func panicMakeLen(n, c int) {
-	startPanic()
-	printString("runtime error: makeslice: len out of range")
-	fatal(nil)
-}
-
 func panicSliceConvert(n, want int) {
 	startPanic()
 	printString("runtime error: cannot convert slice with length ")

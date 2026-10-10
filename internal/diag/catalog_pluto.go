@@ -106,6 +106,21 @@ func init() {
 			Example: "var s []int\ns = append(s, 1)\ns = append(s, 2, 3)",
 			Fixed:   "s := vec.New[int]()\ndefer s.Free()\ns.Push(1)\ns.Append(2, 3)",
 		},
+		&Entry{
+			Code: CheckerCode(typerr.MakeSliceNotPermitted), Name: "MakeSliceNotPermitted",
+			Text: "Plutonium has no make for slices. In Go, make([]T, n) allocates an array that the garbage " +
+				"collector frees when no slice refers to it. A Plutonium slice is a view of an array that " +
+				"something else owns, so a new array needs an owner to free it.\n" +
+				"vec.Make[T](n) from pluto/vec returns a vec.Vec[T] of n zero elements, which owns its array and " +
+				"frees it in Free; vec.WithCapacity[T](c) is make([]T, 0, c). v.Slice() lends the elements as a " +
+				"slice, and v[i] and len(v) work on the Vec itself. For a size known when the program is " +
+				"compiled, an array needs no allocation at all.",
+			Why:     whyNoGC,
+			Fix:     &Fix{Intro: "Make a vec.Vec, which owns the array", Code: "import \"pluto/vec\"\n\nbuf := vec.Make[byte](n)\ndefer buf.Free()"},
+			Spec:    pspec("3", "What Plutonium removes from Go"),
+			Example: "buf := make([]byte, n)\nread(buf)",
+			Fixed:   "buf := vec.Make[byte](n)\ndefer buf.Free()\nread(buf.Slice())",
+		},
 
 		// Packed types and wrappers.
 		&Entry{

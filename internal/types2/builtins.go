@@ -572,6 +572,13 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 			check.error(argList[1], SwappedMakeArgs, invalidArg+"length and capacity swapped")
 			// safe to continue
 		}
+		// Plutonium: a slice is a view and owns nothing, so the array make
+		// would allocate has no owner to free it (language spec section
+		// 3); vec.Make returns the owner. The result keeps its type, so
+		// that the rest of the code checks as it would.
+		if isSlice {
+			check.forbidden(call.Fun, MakeSliceNotPermitted, "make of a slice is", "a slice is a view and cannot own its array; use vec.Make")
+		}
 		x.mode_ = value
 		x.typ_ = T
 		if check.recordTypes() {

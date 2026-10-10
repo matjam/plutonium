@@ -217,7 +217,7 @@ later takes the next free number and is listed in the section where it belongs.
     (item 22), so `vec.Vec`, `hash.Map` and `hash.Set` range like Go's slices and maps; `container.Iterable`
     is its constraint.
 50. **Ownership proposals awaiting sign-off** (proposed):
-    - `new` returns `owned[T]` and `make([]T, ...)` returns `vec.Vec[T]`, with `a.New[T]()` and
+    - `new` returns `owned[T]` (`make([]T, ...)` is an error now, item 58), with `a.New[T]()` and
       `a.Slice[T](n)` for arena-owned views (language spec section 4.2);
     - the predeclared `take(&place)`, which moves out of a field, element or pointer and leaves the zero
       value (section 6.4);
@@ -276,6 +276,9 @@ later takes the next free number and is listed in the section where it belongs.
     `AppendSeq` became `vec.Vec` methods; `strings.NewBuilder(buf)` is gone; `bytes.Buffer` grows as Go's
     does; range over a `vec.Vec` reads its length once. The kernel's interrupt-context walk judges each
     instantiation of a generic function apart, so `AppendInt` into a `Fixed` is allowed in a handler.
+    With it (false-friends audit F16): `make([]T, ...)` is E2014, whose fix is `vec.Make[T](n)` or
+    `vec.WithCapacity[T](c)`, owners, or an array for a constant size; go2pu translates it to
+    `compat.Make`.
 
 ## Tooling
 

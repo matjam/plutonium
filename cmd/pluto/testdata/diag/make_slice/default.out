@@ -1,0 +1,122 @@
+$DIR/main.p:9:9: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
+    Plutonium has no make for slices. In Go, make([]T, n) allocates an array
+    that the garbage collector frees when no slice refers to it. A Plutonium
+    slice is a view of an array that something else owns, so a new array needs
+    an owner to free it.
+    vec.Make[T](n) from pluto/vec returns a vec.Vec[T] of n zero elements, which
+    owns its array and frees it in Free; vec.WithCapacity[T](c) is make([]T, 0,
+    c). v.Slice() lends the elements as a slice, and v[i] and len(v) work on the
+    Vec itself. For a size known when the program is compiled, an array needs no
+    allocation at all.
+    Plutonium has no garbage collector and never allocates memory unless the
+    program asks for it in the code, so that every cost is visible and the same
+    code can run inside a kernel.
+    Return a vec.Vec[E], which owns the array, and have the caller free it:
+        import "pluto/vec"
+
+        return vec.Make[E](n)
+    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (run "pluto explain E2014" for a longer explanation)
+
+$DIR/main.p:14:9: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
+    Plutonium has no make for slices. In Go, make([]T, n) allocates an array
+    that the garbage collector frees when no slice refers to it. A Plutonium
+    slice is a view of an array that something else owns, so a new array needs
+    an owner to free it.
+    vec.Make[T](n) from pluto/vec returns a vec.Vec[T] of n zero elements, which
+    owns its array and frees it in Free; vec.WithCapacity[T](c) is make([]T, 0,
+    c). v.Slice() lends the elements as a slice, and v[i] and len(v) work on the
+    Vec itself. For a size known when the program is compiled, an array needs no
+    allocation at all.
+    Plutonium has no garbage collector and never allocates memory unless the
+    program asks for it in the code, so that every cost is visible and the same
+    code can run inside a kernel.
+    Make a vec.Vec, which owns the array:
+        import "pluto/vec"
+
+        buf := vec.Make[byte](n)
+        defer buf.Free()
+    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (run "pluto explain E2014" for a longer explanation)
+
+$DIR/main.p:15:10: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
+    Plutonium has no make for slices. In Go, make([]T, n) allocates an array
+    that the garbage collector frees when no slice refers to it. A Plutonium
+    slice is a view of an array that something else owns, so a new array needs
+    an owner to free it.
+    vec.Make[T](n) from pluto/vec returns a vec.Vec[T] of n zero elements, which
+    owns its array and frees it in Free; vec.WithCapacity[T](c) is make([]T, 0,
+    c). v.Slice() lends the elements as a slice, and v[i] and len(v) work on the
+    Vec itself. For a size known when the program is compiled, an array needs no
+    allocation at all.
+    Plutonium has no garbage collector and never allocates memory unless the
+    program asks for it in the code, so that every cost is visible and the same
+    code can run inside a kernel.
+    Make a vec.Vec, which owns the array:
+        import "pluto/vec"
+
+        list := vec.WithCapacity[string](n)
+        defer list.Free()
+    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (run "pluto explain E2014" for a longer explanation)
+
+$DIR/main.p:16:10: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
+    Plutonium has no make for slices. In Go, make([]T, n) allocates an array
+    that the garbage collector frees when no slice refers to it. A Plutonium
+    slice is a view of an array that something else owns, so a new array needs
+    an owner to free it.
+    vec.Make[T](n) from pluto/vec returns a vec.Vec[T] of n zero elements, which
+    owns its array and frees it in Free; vec.WithCapacity[T](c) is make([]T, 0,
+    c). v.Slice() lends the elements as a slice, and v[i] and len(v) work on the
+    Vec itself. For a size known when the program is compiled, an array needs no
+    allocation at all.
+    Plutonium has no garbage collector and never allocates memory unless the
+    program asks for it in the code, so that every cost is visible and the same
+    code can run inside a kernel.
+    Make a vec.Vec, which owns the array:
+        import "pluto/vec"
+
+        both := vec.Make[int](2)
+        defer both.Free()
+        both.Reserve(n - 2)
+    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (run "pluto explain E2014" for a longer explanation)
+
+$DIR/main.p:19:8: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
+    Plutonium has no make for slices. In Go, make([]T, n) allocates an array
+    that the garbage collector frees when no slice refers to it. A Plutonium
+    slice is a view of an array that something else owns, so a new array needs
+    an owner to free it.
+    vec.Make[T](n) from pluto/vec returns a vec.Vec[T] of n zero elements, which
+    owns its array and frees it in Free; vec.WithCapacity[T](c) is make([]T, 0,
+    c). v.Slice() lends the elements as a slice, and v[i] and len(v) work on the
+    Vec itself. For a size known when the program is compiled, an array needs no
+    allocation at all.
+    Plutonium has no garbage collector and never allocates memory unless the
+    program asks for it in the code, so that every cost is visible and the same
+    code can run inside a kernel.
+    Make a vec.Vec, which owns the array:
+        import "pluto/vec"
+
+        in := vec.Make[int](n, &a)
+        defer in.Free()
+    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (run "pluto explain E2014" for a longer explanation)
+
+$DIR/main.p:20:11: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
+    Plutonium has no make for slices. In Go, make([]T, n) allocates an array
+    that the garbage collector frees when no slice refers to it. A Plutonium
+    slice is a view of an array that something else owns, so a new array needs
+    an owner to free it.
+    vec.Make[T](n) from pluto/vec returns a vec.Vec[T] of n zero elements, which
+    owns its array and frees it in Free; vec.WithCapacity[T](c) is make([]T, 0,
+    c). v.Slice() lends the elements as a slice, and v[i] and len(v) work on the
+    Vec itself. For a size known when the program is compiled, an array needs no
+    allocation at all.
+    Plutonium has no garbage collector and never allocates memory unless the
+    program asks for it in the code, so that every cost is visible and the same
+    code can run inside a kernel.
+    The size is a constant, so an array needs no allocation:
+        var table [64]uint16
+    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (run "pluto explain E2014" for a longer explanation)

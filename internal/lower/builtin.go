@@ -115,25 +115,9 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		if _, isChan := unwrap(T).Underlying().(*types2.Chan); isChan {
 			return one(s.makeChan(e, T))
 		}
-		st, isSlice := unwrap(T).Underlying().(*types2.Slice)
-		if !isSlice {
-			// The checker rejects map types.
-			s.l.unsupportedf(e.Pos(), "make of %s is not supported", T)
-			return nil
-		}
-		et := s.subst(st.Elem())
-		n := s.indexValue(e.Args[1])
-		c := n
-		rest := e.Args[2:]
-		if len(rest) > 0 && isIntegerType(unwrap(s.typeOf(rest[0]))) {
-			c = s.indexValue(rest[0])
-			rest = rest[1:]
-		}
-		ok := s.newValue(ssa.OpLequ, ssa.TBool, n, c)
-		s.panicUnless(ok, e.Pos(), func() { s.callRuntimeNoReturn("panicMakeLen", n, c) })
-		bytes := s.newValue(ssa.OpMul, ssa.TI64, c, s.constInt(ssa.TI64, s.l.sizeof(et)))
-		ptr := s.allocate(bytes, s.l.alignof(et), rest)
-		return one(s.makeSlice(ptr, n, c, T))
+		// The checker rejects make of a map or a slice (E2014).
+		s.l.unsupportedf(e.Pos(), "make of %s is not supported", T)
+		return nil
 
 	case "panic":
 		arg := s.exprAs(e.Args[0], types2.NewInterfaceType(nil, nil))

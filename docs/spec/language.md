@@ -103,6 +103,7 @@ Each of these is a compile error that names the construct and the reason.
 | `import "reflect"` | needs runtime type metadata | type switches, generics |
 | `complex64`, `complex128`, `complex`, `real`, `imag` | rarely useful in systems code; keeps the backend small | a struct of two floats |
 | `append` | Go's `append` grows a slice by allocating a larger array behind the program's back, and the collector frees the old one; a slice is a view and owns no array it could grow (sections 4.3, 6.3) | `pluto/vec.Vec[T]`, an owner that grows (`Push`, `Append`); `vec.Fixed[T]` to fill a caller's array (section 13.2); slicing and `copy` within a slice's capacity |
+| `make([]T, n)`, `make([]T, n, c)` | the array would belong to no one: a slice is a view, and without a collector nothing would free it (sections 4.2, 6.6) | `vec.Make[T](n)` and `vec.WithCapacity[T](c)`, which return an owning `vec.Vec[T]`; an array for a constant size; `a.Slice[T](n)` from an arena |
 | string literals that are not valid UTF-8 (`"\xff"`) | every string holds valid UTF-8 (section 6.10) | `[]byte{0xff}` for binary data |
 
 Strings work as in Go otherwise. Runtime concatenation (`s + t`, `s += t`) and the conversions
@@ -126,26 +127,35 @@ drops what each holds (section 8.3).
 
 ### 4.2 `new` and `make` allocate from an allocator
 
-`new(T)`, `new(v)` and `make([]T, len)` / `make([]T, len, cap)` allocate from the current allocator
-(section 7). Each accepts an optional final allocator argument:
+`new(T)`, `new(v)` and `make(chan T, n)` allocate from the current allocator (section 7). Each accepts an
+optional final allocator argument:
 
 ```go
 n := new(Node)                  // current allocator
 m := new(Node, arena)           // explicit allocator
 k := new(Node{val: 1}, arena)   // a new variable holding a value
-buf := make([]byte, 4096)       // current allocator
-big := make([]byte, 0, 4096)    // length and capacity
-tmp := make([]byte, 64, scratch) // length and allocator
-all := make([]byte, 0, 64, scratch)
+c := make(chan Msg, 16, arena)  // a channel and its buffer
+```
+
+`make` of a slice type is a compile error (E2014): the array it allocates would belong to no one, since a
+slice is a view and nothing collects what no slice refers to. `vec.Make[T](n)` returns a `vec.Vec[T]` of
+`n` zero elements that owns its array, `vec.WithCapacity[T](c)` an empty one with room for `c`, each with
+the same optional allocator, and `v.Slice()` lends the elements as a slice:
+
+```go
+buf := vec.Make[byte](4096)          // Go's make([]byte, 4096)
+defer buf.Free()
+big := vec.WithCapacity[byte](4096)  // Go's make([]byte, 0, 4096)
+tmp := vec.Make[byte](64, scratch)   // from an allocator
+var small [64]byte                   // a constant size needs no allocation
 ```
 
 As in Go 1.26, `new(v)` allocates a variable of `v`'s type (an untyped constant takes its default type) and
 stores `v` in it; `new(T{...})` is how a composite literal outlives its frame. Whether the first operand is a
 type decides between `new(T, a)` and `new(v, a)`; `v` is evaluated before the allocator. The allocator is
 any value assignable to `alloc.Allocator`, such as `&arena`, and the checker tells it from a capacity by
-its type: a final argument of `make` is a capacity if it is an integer or untyped numeric constant and an
-allocator otherwise (with four arguments the last is always the allocator). Memory from `new(T)` and
-`make` is zeroed. With no allocator argument and no default allocator set, as in a freestanding program
+its type: a final argument of `make` is a size if it is an integer or untyped numeric constant and an
+allocator otherwise. Memory from `new(T)` and `make` is zeroed. With no allocator argument and no default allocator set, as in a freestanding program
 before `alloc.SetDefault`, the allocation panics with "no allocator" (section 7.2); a nil allocator
 argument panics too.
 
@@ -154,15 +164,14 @@ argument panics too.
 
 - `new(T)` and `new(v)` return an `owned[T]` (section 5.6): the single owner of the new variable, which
   frees it when dropped. It dereferences like `*T`, so `n := new(Node); n.val = 1` reads as in Go.
-- `make([]T, len)` and `make([]T, len, cap)` return a `vec.Vec[T]` of that length, which owns the array.
-  `v.Slice()` lends it as a `[]T`, and `v[i]` and `len(v)` work on it directly through the indexing
-  interface (section 6.7).
+- slices come from `vec.Make` and `vec.WithCapacity` (above), which return the owner, a `vec.Vec[T]`;
+  `v[i]` and `len(v)` work on it directly through the indexing interface (section 6.7).
 - `make(chan T)` and `make(chan T, n)` return a channel, which counts its references (section 4.8).
 
 Memory that only an arena should own is allocated through the arena, which returns views: `a.New[T]()`
 gives a `*T` and `a.Slice[T](n)` a `[]T` that live until the arena is reset or dropped. Today's compiler
-still returns `*T` and `[]T` from `new` and `make`; that memory is freed only by an explicit `alloc.Free`
-or an arena reset, which section 6.6 forbids outside the unchecked allocation layer.
+still returns `*T` from `new`; that memory is freed only by an explicit `alloc.Free` or an arena reset,
+which section 6.6 forbids outside the unchecked allocation layer.
 
 ### 4.3 Slices do not grow
 
@@ -1526,7 +1535,8 @@ memory return owner types:
   `vec.Fixed[byte]` over a caller's array formats without allocating (section 13.2).
 - **Growing.** A slice is a view and cannot grow (section 4.3). Growing sequences are `vec.Vec[T]` or
   another owner; there are no arrays that nobody owns.
-- **`new` and `make`** return owners under the proposal in section 4.2 (`owned[T]` and `vec.Vec[T]`).
+- **`new`** returns an owner under the proposal in section 4.2 (`owned[T]`); slices are allocated as
+  `vec.Vec[T]` owners (`vec.Make`), since `make` of a slice is not allowed.
 - **The unchecked layer.** `alloc.Raw`, `alloc.New` and `alloc.Free` (section 7.1) allocate and free
   memory that has no owner until the code that called them gives it one. They are what owner types are
   written with, and, like `unsafe`, the compiler does not check them.
@@ -2446,10 +2456,9 @@ each string stored; the roadmap (item 55) records what it measured.
   `range` on it is undefined. `unsafe.StringData(s)` returns the address of the first byte. The library
   never uses it on bytes from the operating system (section 13.1).
 
-**Conversions.** `[]byte(s)` and `[]rune(s)` copy into memory from the current allocator, exactly as
-`make([]byte, len(s))` would allocate it, and return what `make` returns (section 4.2): today a slice,
+**Conversions.** `[]byte(s)` and `[]rune(s)` copy into memory from the current allocator: today a slice,
 which the program or an arena frees, and a `vec.Vec[byte]` (`vec.Vec[rune]`) that owns the copy once the
-proposal that `make` returns an owner is adopted, so the two never differ. `string(b)`, `string(runes)`
+ownership proposals of section 4.2 are adopted. `string(b)`, `string(runes)`
 and `string(r)` for a non-constant rune make a counted string; `string(r)` for an ASCII rune returns a
 static one-byte string and does not allocate, and a value out of range, of any integer type, gives
 U+FFFD as in Go.

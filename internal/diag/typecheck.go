@@ -83,6 +83,7 @@ func init() {
 		typerr.UndefinedOp:            explainUndefinedOp,
 		typerr.CannotInferTypeArgs:    explainInfer,
 		typerr.AppendNotPermitted:     explainAppend,
+		typerr.MakeSliceNotPermitted:  explainMakeSlice,
 	}
 }
 
@@ -1088,4 +1089,103 @@ func isEmptySlice(e ast.Expr) bool {
 		return ok && len(e.Elts) == 0
 	}
 	return false
+}
+
+// explainMakeSlice replaces the catalog's fix for make([]T, ...) with the
+// call written with vec.Make or vec.WithCapacity, and an array when the
+// size is a constant.
+func explainMakeSlice(s *spec) {
+	var call *ast.CallExpr
+	for _, n := range s.path {
+		if c, ok := n.(*ast.CallExpr); ok && c.Fun.Pos() == s.pos {
+			call = c
+			break
+		}
+	}
+	if call == nil || len(call.Args) < 2 {
+		return
+	}
+	if e := Lookup(s.d.Code); e != nil && s.d.Text == "" {
+		s.d.Text = e.Text
+	}
+	elem := sliceElemOf(s.typeOf(call.Args[0]))
+	if elem == nil {
+		return
+	}
+	el := s.str(elem)
+	name := "v"
+	if as, ok := find[*ast.AssignStmt](s); ok && len(as.Lhs) == 1 && len(as.Rhs) == 1 && as.Rhs[0] == ast.Expr(call) {
+		if id, ok := as.Lhs[0].(*ast.Ident); ok && id.Name != "_" {
+			name = id.Name
+		}
+	}
+	// Sizes, and the allocator if the last argument is one.
+	var sizes []ast.Expr
+	alloc := ""
+	for _, a := range call.Args[1:] {
+		if isKind(s.typeOf(a), types2.IsInteger) || isUntyped(s.typeOf(a)) {
+			sizes = append(sizes, a)
+		} else {
+			alloc = ", " + types2.ExprString(a)
+		}
+	}
+	if len(sizes) == 0 {
+		return
+	}
+	n := types2.ExprString(sizes[0])
+	if tv, ok := s.Info.Types[sizes[0]]; ok && tv.Value != nil && len(sizes) == 1 && alloc == "" && name != "v" {
+		s.d.Fix = &Fix{Intro: "The size is a constant, so an array needs no allocation",
+			Code: fmt.Sprintf("var %s [%s]%s", name, n, el)}
+		return
+	}
+	if ret, ok := find[*ast.ReturnStmt](s); ok && len(ret.Results) == 1 && ret.Results[0] == ast.Expr(call) {
+		mk := fmt.Sprintf("vec.Make[%s](%s%s)", el, n, alloc)
+		if len(sizes) == 2 && n == "0" {
+			mk = fmt.Sprintf("vec.WithCapacity[%s](%s%s)", el, types2.ExprString(sizes[1]), alloc)
+		}
+		s.d.Fix = &Fix{Intro: fmt.Sprintf("Return a vec.Vec[%s], which owns the array, and have the caller free it", el),
+			Code: "import \"pluto/vec\"\n\nreturn " + mk}
+		return
+	}
+	var code string
+	switch {
+	case len(sizes) == 1 || n == types2.ExprString(sizes[1]):
+		code = fmt.Sprintf("%s := vec.Make[%s](%s%s)\ndefer %s.Free()", name, el, n, alloc, name)
+	case n == "0":
+		code = fmt.Sprintf("%s := vec.WithCapacity[%s](%s%s)\ndefer %s.Free()", name, el, types2.ExprString(sizes[1]), alloc, name)
+	default:
+		code = fmt.Sprintf("%s := vec.Make[%s](%s%s)\ndefer %s.Free()\n%s.Reserve(%s - %s)", name, el, n, alloc, name, name, types2.ExprString(sizes[1]), n)
+	}
+	s.d.Fix = &Fix{Intro: "Make a vec.Vec, which owns the array", Code: "import \"pluto/vec\"\n\n" + code}
+}
+
+// sliceElemOf returns the element type of a slice type, or of the slice
+// type that every type in a type parameter's set has, or nil.
+func sliceElemOf(T types2.Type) types2.Type {
+	if T == nil {
+		return nil
+	}
+	if tp, ok := T.(*types2.TypeParam); ok {
+		iface, ok := tp.Constraint().Underlying().(*types2.Interface)
+		if !ok {
+			return nil
+		}
+		var elem types2.Type
+		for i := 0; i < iface.NumEmbeddeds(); i++ {
+			u, ok := iface.EmbeddedType(i).(*types2.Union)
+			if !ok || u.Len() != 1 {
+				return nil
+			}
+			sl, ok := u.Term(0).Type().Underlying().(*types2.Slice)
+			if !ok {
+				return nil
+			}
+			elem = sl.Elem()
+		}
+		return elem
+	}
+	if sl, ok := T.Underlying().(*types2.Slice); ok {
+		return sl.Elem()
+	}
+	return nil
 }

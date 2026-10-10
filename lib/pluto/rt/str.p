@@ -364,7 +364,7 @@ func stringFromRune(r rune) (*byte, int, uintptr) {
 var zerobase byte
 
 // bytesFromString implements []byte(s): a copy of the bytes in memory from
-// the current allocator, as make([]byte, len(s)) would allocate it.
+// the current allocator, as new and vec.Make allocate.
 func bytesFromString(p *byte, n int) *byte {
 	if n == 0 {
 		return &zerobase

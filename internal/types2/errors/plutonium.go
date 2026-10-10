@@ -46,6 +46,9 @@ const (
 	// AppendNotPermitted: a call of append, which in Go grows a slice by
 	// allocating behind the program's back; a Plutonium slice cannot grow.
 	AppendNotPermitted
+	// MakeSliceNotPermitted: make of a slice type, whose array nothing
+	// would own; vec.Make returns an owner.
+	MakeSliceNotPermitted
 )
 
 // Packed types, bit fields, volatile, aligned and ring.

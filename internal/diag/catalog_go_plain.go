@@ -76,10 +76,10 @@ var goPlain = map[string]Entry{
 		Example: "var size = 4\nvar buf size",
 	},
 	"InvalidArrayLen": {
-		Text:    "The length of an array type must be a constant integer that is not negative, since an array's size is fixed when compiling. For a length known only at run time, use a slice.",
+		Text:    "The length of an array type must be a constant integer that is not negative, since an array's size is fixed when compiling. For a length known only at run time, use a vec.Vec from pluto/vec.",
 		Spec:    goSpec("Array types"),
 		Example: "n := 8\nvar buf [n]byte",
-		Fixed:   "n := 8\nbuf := make([]byte, n)",
+		Fixed:   "n := 8\nbuf := vec.Make[byte](n)\ndefer buf.Free()",
 	},
 	"DuplicateMethod": {
 		Text: "A type has two methods with the same name. Method names must be unique for each type, whatever their parameters; there is no overloading.",
