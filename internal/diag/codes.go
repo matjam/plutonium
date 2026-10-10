@@ -47,10 +47,12 @@ const (
 	PanicHandlerRet   Code = "E2583" // a panic handler that can return
 	ContextWaits      Code = "E2584" // an interrupt handler or the panic handler can reach code that waits
 	ContextSpawns     Code = "E2585" // an interrupt handler or the panic handler can reach a go statement
+
+	// Puroutines and the scheduler.
 	GoCapturingLiteral Code = "E2590" // go of a function literal that captures variables
-	GoBuiltin         Code = "E2591" // go of a builtin function
-	BadScheduler      Code = "E2592" // a //pu:scheduler variable that cannot be the scheduler, or two of them
-	NoScheduler       Code = "E2593" // a program that needs a scheduler and binds none
+	GoBuiltin          Code = "E2591" // go of a builtin function
+	BadScheduler       Code = "E2592" // a //pu:scheduler variable that cannot be the scheduler, or two of them
+	NoScheduler        Code = "E2593" // a program that needs a scheduler and binds none
 )
 
 // Finding and loading packages.
@@ -77,14 +79,14 @@ const (
 
 // Assembling, compiling C, and linking.
 const (
-	UndefinedSymbol   Code = "E5001" // the linker found no definition of a symbol
-	RelocOverflow     Code = "E5002" // an address does not fit the code model
-	MultipleDefs      Code = "E5003" // two definitions of one symbol
-	AssemblerError    Code = "E5004" // the assembler rejected a .s file
-	CCompilerError    Code = "E5005" // the C compiler rejected a .c file
-	LinkFailed        Code = "E5006" // any other linker failure
-	PerCPUNotAtZero   Code = "E5007" // a kernel image whose .percpu section is not at address 0
-	ToolNotFound      Code = "E5008" // as, ld or cc is not installed
+	UndefinedSymbol Code = "E5001" // the linker found no definition of a symbol
+	RelocOverflow   Code = "E5002" // an address does not fit the code model
+	MultipleDefs    Code = "E5003" // two definitions of one symbol
+	AssemblerError  Code = "E5004" // the assembler rejected a .s file
+	CCompilerError  Code = "E5005" // the C compiler rejected a .c file
+	LinkFailed      Code = "E5006" // any other linker failure
+	PerCPUNotAtZero Code = "E5007" // a kernel image whose .percpu section is not at address 0
+	ToolNotFound    Code = "E5008" // as, ld or cc is not installed
 )
 
 // Ownership and lifetimes: E3000-E3999, reserved for the ownership and

@@ -5,12 +5,20 @@
 // Verbs: %v %d %b %o %O %x %X %c %q %U %e %E %f %F %g %G %s %t %p %T %%.
 // Flags: + - # 0 space. Width and precision may be numbers or *.
 //
-// %v prints basic values, errors (Error) and Stringers (String). A union
-// without a String method prints as the variant it holds, followed by its
-// payload in parentheses: Some(5), None. Other structured values print as
-// their type name in braces, since Plutonium has no reflection. %s, %q, %x and %X apply to an error's message. %w is
-// accepted only by Errorf and ErrorBuf.Errorf (see errorf.p),
-// where it prints the error like %v and wraps it.
+// %v prints values as Go's fmt does: basic values, errors (Error),
+// Stringers (String), and arrays, slices, structs, pointers to them and
+// interfaces by walking their type descriptors (value.p). %+v adds struct
+// field names and %#v prints Go syntax (main.T{A:1, B:[]int{2}}), unless
+// the build strips field names (--fieldnames=false, the default in kernel
+// mode). Containers print through their methods: a Mapper (hash.Map) like
+// a Go map, map[k:v] with sorted keys, and a Lister (vec.Vec) like a slice.
+// A union without a String method prints as the variant it holds, followed
+// by its payload in parentheses: Some(5), None. %s, %q, %x and %X apply to
+// an error's message. %w is accepted only by Errorf and ErrorBuf.Errorf
+// (see errorf.p), where it prints the error like %v and wraps it.
+//
+// Formatting never allocates: output goes through the printer's fixed
+// buffer.
 package fmt
 
 import (
@@ -23,6 +31,11 @@ import (
 // A Stringer has a String method used by %v and %s.
 type Stringer interface {
 	String() string
+}
+
+// A GoStringer has a GoString method used by %#v.
+type GoStringer interface {
+	GoString() string
 }
 
 // printer accumulates output and flushes it to a writer or a byte slice.
@@ -44,6 +57,12 @@ type printer struct {
 	plus, minus, sharp, space, zero bool
 	wid, prec                       int
 	hasWid, hasPrec                 bool
+	sharpV, plusV                   bool // %#v and %+v (sharp and plus are then false)
+
+	// the value being printed, for %!verb(type=value)
+	curT     *rt.Type
+	curP     unsafe.Pointer
+	erroring bool // printing a bad verb's value: call no methods
 }
 
 func (p *printer) flush() {
@@ -225,12 +244,25 @@ func (p *printer) printInt(v int64, verb rune) {
 	if neg {
 		u = uint64(-v)
 	}
+	if verb == 'v' {
+		// Signed integers print in decimal even for %#v.
+		p.fmtInteger(u, neg, 10, verb, false)
+		return
+	}
 	p.printNumber(u, neg, verb)
 }
 
+// printNumber formats an unsigned integer, or the magnitude of a signed
+// one whose sign is neg.
 func (p *printer) printNumber(u uint64, neg bool, verb rune) {
 	switch verb {
-	case 'd', 'v':
+	case 'v':
+		if p.sharpV {
+			p.fmt0x64(u, true)
+		} else {
+			p.fmtInteger(u, neg, 10, verb, false)
+		}
+	case 'd':
 		p.fmtInteger(u, neg, 10, verb, false)
 	case 'b':
 		p.fmtInteger(u, neg, 2, verb, false)
@@ -247,8 +279,16 @@ func (p *printer) printNumber(u uint64, neg bool, verb rune) {
 	case 'U':
 		p.fmtUnicode(u)
 	default:
-		p.badVerb(verb, "int")
+		p.badVerb(verb)
 	}
+}
+
+// fmt0x64 formats u in hexadecimal, with a leading 0x if leading0x.
+func (p *printer) fmt0x64(u uint64, leading0x bool) {
+	sharp := p.sharp
+	p.sharp = leading0x
+	p.fmtInteger(u, false, 16, 'v', false)
+	p.sharp = sharp
 }
 
 func (p *printer) fmtChar(r rune) {
@@ -329,6 +369,10 @@ func encodeRune(b []byte, r rune) int {
 // Strings
 
 func (p *printer) printString(s string, verb rune) {
+	if verb == 'v' && p.sharpV {
+		p.writeQuoted(s)
+		return
+	}
 	switch verb {
 	case 'v', 's':
 		if p.hasPrec && p.prec < len(s) {
@@ -347,18 +391,61 @@ func (p *printer) printString(s string, verb rune) {
 	case 'q':
 		p.writeQuoted(s)
 	case 'x', 'X':
-		const lower = "0123456789abcdef"
-		const upper = "0123456789ABCDEF"
-		hex := lower
-		if verb == 'X' {
-			hex = upper
-		}
-		for i := 0; i < len(s); i++ {
-			p.writeByte(hex[s[i]>>4])
-			p.writeByte(hex[s[i]&15])
-		}
+		p.fmtSbx(s, verb == 'X')
 	default:
-		p.badVerb(verb, "string")
+		p.badVerb(verb)
+	}
+}
+
+// fmtSbx formats the bytes of s in hexadecimal, as Go's %x does: # adds a
+// leading 0x (before each byte with the space flag), and space separates
+// the bytes.
+func (p *printer) fmtSbx(s string, upper bool) {
+	hex := "0123456789abcdef"
+	x := byte('x')
+	if upper {
+		hex = "0123456789ABCDEF"
+		x = 'X'
+	}
+	length := len(s)
+	if p.hasPrec && p.prec < length {
+		length = p.prec
+	}
+	width := 2 * length
+	if width == 0 {
+		if p.hasWid {
+			p.pad(p.wid, ' ')
+		}
+		return
+	}
+	if p.space {
+		if p.sharp {
+			width *= 2
+		}
+		width += length - 1
+	} else if p.sharp {
+		width += 2
+	}
+	if p.hasWid && p.wid > width && !p.minus {
+		p.pad(p.wid-width, ' ')
+	}
+	if p.sharp {
+		p.writeByte('0')
+		p.writeByte(x)
+	}
+	for i := 0; i < length; i++ {
+		if p.space && i > 0 {
+			p.writeByte(' ')
+			if p.sharp {
+				p.writeByte('0')
+				p.writeByte(x)
+			}
+		}
+		p.writeByte(hex[s[i]>>4])
+		p.writeByte(hex[s[i]&15])
+	}
+	if p.hasWid && p.wid > width && p.minus {
+		p.pad(p.wid-width, ' ')
 	}
 }
 
@@ -392,7 +479,7 @@ func (p *printer) writeQuoted(s string) {
 
 func (p *printer) printBool(b bool, verb rune) {
 	if verb != 'v' && verb != 't' {
-		p.badVerb(verb, "bool")
+		p.badVerb(verb)
 		return
 	}
 	if b {
@@ -402,32 +489,58 @@ func (p *printer) printBool(b bool, verb rune) {
 	}
 }
 
-func (p *printer) badVerb(verb rune, what string) {
+// badVerb reports a verb that does not apply to the value being printed, as
+// Go does: %!d(string=hi), or %!d(<nil>) for a nil interface.
+func (p *printer) badVerb(verb rune) {
+	p.erroring = true
 	p.writeString("%!")
 	var b [4]byte
 	n := encodeRune(b[:], verb)
 	p.writeBytes(b[:n])
 	p.writeByte('(')
-	p.writeString(what)
+	if t := p.curT; t != nil {
+		p.writeString(t.Name())
+		p.writeByte('=')
+		p.printValue(t, p.curP, 'v', 0, false)
+	} else {
+		p.writeString("<nil>")
+	}
 	p.writeByte(')')
+	p.erroring = false
 }
 
 // ----------------------------------------------------------------------------
 // Values
 
-// printArg formats one argument for a verb.
+// printArg formats one argument for a verb, as Go's printArg does: basic
+// types directly, then the argument's Error or String method, then its
+// value from its type descriptor.
 func (p *printer) printArg(arg any, verb rune) {
-	if verb == 'T' {
-		_, _, name, _ := rt.TypeInfo(arg)
-		if name == "" {
-			name = "<nil>"
+	t, word := rt.TypeOf(arg)
+	if t == nil {
+		p.curT, p.curP = nil, nil
+		if verb == 'T' || verb == 'v' {
+			p.fieldString("<nil>")
+		} else {
+			p.badVerb(verb)
 		}
-		p.fieldString(name)
+		return
+	}
+	// The value in memory: a direct value is the data word itself.
+	ptr := word
+	if t.Direct() {
+		ptr = unsafe.Pointer(&word)
+	}
+	p.curT, p.curP = t, ptr
+	switch verb {
+	case 'T':
+		p.fieldString(t.Name())
+		return
+	case 'p':
+		p.fmtPointer(t, ptr, 'p')
 		return
 	}
 	switch v := arg.(type) {
-	case nil:
-		p.fieldString("<nil>")
 	case bool:
 		p.printBool(v, verb)
 	case int:
@@ -461,80 +574,51 @@ func (p *printer) printArg(arg any, verb rune) {
 	case string:
 		p.printString(v, verb)
 	case []byte:
-		if verb == 's' || verb == 'v' || verb == 'q' || verb == 'x' || verb == 'X' {
-			p.printString(unsafe.String(unsafe.SliceData(v), len(v)), verb)
-		} else {
-			p.badVerb(verb, "[]byte")
-		}
-	case error:
-		switch verb {
-		case 'w':
-			if !p.wrapErrs {
-				p.badVerb(verb, "error")
-				return
-			}
-			if len(p.wrapped) < cap(p.wrapped) {
-				p.wrapped = append(p.wrapped, v)
-			}
-			p.printString(v.Error(), 'v')
-		case 'v', 's', 'q', 'x', 'X':
-			p.printString(v.Error(), verb)
-		default:
-			p.printOther(arg, verb)
-		}
-	case Stringer:
-		if verb == 'v' || verb == 's' || verb == 'q' {
-			p.printString(v.String(), verb)
-		} else {
-			p.printOther(arg, verb)
-		}
+		p.fmtBytes(v, verb, "[]byte", t, ptr)
 	default:
-		p.printOther(arg, verb)
+		if !p.handleMethods(arg, verb) {
+			p.printValue(t, ptr, verb, 0, false)
+		}
 	}
 }
 
-// printOther formats values of named or composite types from their kind.
-func (p *printer) printOther(arg any, verb rune) {
-	kind, size, name, data := rt.TypeInfo(arg)
-	word := uint64(uintptr(data))
-	switch kind {
-	case rt.KindInt, rt.KindInt8, rt.KindInt16, rt.KindInt32, rt.KindInt64:
-		// Sign-extend from the value's size.
-		shift := 64 - 8*size
-		p.printInt(int64(word<<shift)>>shift, verb)
-	case rt.KindUint, rt.KindUint8, rt.KindUint16, rt.KindUint32, rt.KindUint64, rt.KindUintptr:
-		p.printNumber(word, false, verb)
-	case rt.KindBool:
-		p.printBool(word != 0, verb)
-	case rt.KindFloat64:
-		p.printFloatBits(word, 64, verb)
-	case rt.KindFloat32:
-		p.printFloatBits(uint64(uint32(word)), 32, verb)
-	case rt.KindString:
-		p.printString(*(*string)(data), verb)
-	case rt.KindPointer, rt.KindUnsafePointer, rt.KindFunc, rt.KindOwned:
-		if verb == 'p' || verb == 'v' {
-			p.writeString("0x")
-			p.fmtInteger(word, false, 16, 'x', false)
-		} else {
-			p.printNumber(word, false, verb)
-		}
-	case rt.KindPacked:
-		p.printNumber(word, false, verb)
-	case rt.KindUnion:
-		// The variant's name, then its payload in parentheses.
-		variant, payload, hasPayload := rt.UnionInfo(arg)
-		p.writeString(variant)
-		if hasPayload {
-			p.writeByte('(')
-			p.printArg(payload, verb)
-			p.writeByte(')')
-		}
-	default:
-		p.writeByte('{')
-		p.writeString(name)
-		p.writeByte('}')
+// handleMethods prints arg with its Error, String or GoString method if the
+// verb calls for one, as Go's handleMethods does, and reports whether it
+// did. %w takes an error and is otherwise %v.
+func (p *printer) handleMethods(arg any, verb rune) bool {
+	if p.erroring {
+		return false
 	}
+	if verb == 'w' {
+		err, ok := arg.(error)
+		if !ok || !p.wrapErrs {
+			p.badVerb(verb)
+			return true
+		}
+		if len(p.wrapped) < cap(p.wrapped) {
+			p.wrapped = append(p.wrapped, err)
+		}
+		verb = 'v'
+	}
+	if p.sharpV {
+		if g, ok := arg.(GoStringer); ok {
+			p.printString(g.GoString(), 's')
+			return true
+		}
+		return false
+	}
+	switch verb {
+	case 'v', 's', 'x', 'X', 'q':
+		switch v := arg.(type) {
+		case error:
+			p.printString(v.Error(), verb)
+			return true
+		case Stringer:
+			p.printString(v.String(), verb)
+			return true
+		}
+	}
+	return false
 }
 
 // ----------------------------------------------------------------------------
@@ -625,6 +709,13 @@ func (p *printer) doPrintf(format string, args []any) {
 			p.writeString("(MISSING)")
 			continue
 		}
+		// %#v is Go syntax and %+v adds field names; neither keeps its
+		// flag's other meaning.
+		p.sharpV, p.plusV = false, false
+		if verb == 'v' {
+			p.sharpV, p.sharp = p.sharp, false
+			p.plusV, p.plus = p.plus, false
+		}
 		p.printArg(args[argi], verb)
 		argi++
 	}
@@ -659,7 +750,7 @@ func (p *printer) doPrint(args []any, ln bool) {
 			}
 		}
 		p.plus, p.minus, p.sharp, p.space, p.zero = false, false, false, false, false
-		p.hasWid, p.hasPrec = false, false
+		p.hasWid, p.hasPrec, p.sharpV, p.plusV = false, false, false, false
 		p.printArg(a, 'v')
 	}
 	if ln {

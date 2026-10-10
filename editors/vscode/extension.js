@@ -15,7 +15,9 @@ const lsp = require('./src/lsp');
 let server = null;
 
 function activate(context) {
-  const output = vscode.window.createOutputChannel('Plutonium');
+  // A LogOutputChannel: vscode-languageclient logs through its info, warn
+  // and error methods, which a plain OutputChannel lacks.
+  const output = vscode.window.createOutputChannel('Plutonium', { log: true });
   context.subscriptions.push(output);
   const formatter = format.register(context, output);
   server = lsp.register(context, output);

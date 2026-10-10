@@ -1,0 +1,15 @@
+map[apple:1 banana:4 fig:2 kiwi:3 pear:0]
+map[apple:1 banana:4 fig:2 kiwi:3 pear:0]|map[%!d(string=apple):1 %!d(string=banana):4 %!d(string=fig):2 %!d(string=kiwi):3 %!d(string=pear):0]|hash.Map[string,int]{"apple":1, "banana":4, "fig":2, "kiwi":3, "pear":0}
+&map[apple:1 banana:4 fig:2 kiwi:3 pear:0]
+map[] 0
+map[-5:{-5 5} 0:{0 0} 7:{7 -7} 12:{12 -12} 30:{30 -30}]
+map[-5:{X:-5 Y:5} 0:{X:0 Y:0} 7:{X:7 Y:-7} 12:{X:12 Y:-12} 30:{X:30 Y:-30}]
+map[{1 2}:a {1 9}:b {2 1}:c]
+[]
+[10 20 30 40] &[10 20 30 40]
+[10 20 30 40]|[a 14 1e 28]|vec.Vec[int]{10, 20, 30, 40}|[   10    20    30    40]
+[{1 2} {3 4}] [{X:1 Y:2} {X:3 Y:4}]
+{srv map[bytes:4096 conns:100] [a b] High 1}
+{Name:srv Limits:map[bytes:4096 conns:100] Tags:[a b] Level:High level:1}
+&{srv map[bytes:4096 conns:100] [a b] High 1}
+Low [Mid High] [Low Low]

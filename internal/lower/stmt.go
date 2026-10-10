@@ -159,6 +159,10 @@ func (s *fnState) multiValue(e ast.Expr, n int) []value {
 			v, ok := s.recv(x, true)
 			return []value{s.materialize(v), scalarValue(ok, types2.Typ[types2.Bool])}
 		}
+	case *ast.IndexExpr:
+		if s.isContainerIndex(x) {
+			return s.containerIndexOk(x)
+		}
 	}
 	s.l.internalf(e.Pos(), "expression does not produce %d values", n)
 	out := make([]value, n)

@@ -36,7 +36,9 @@ func Simplify(f *ssa.Func) {
 
 func isConst(v *ssa.Value) bool { return v.Op == ssa.OpConst }
 
-func constEq(v *ssa.Value, c int64) bool { return v.Op == ssa.OpConst && v.AuxInt == ssa.Canon(v.Type, c) }
+func constEq(v *ssa.Value, c int64) bool {
+	return v.Op == ssa.OpConst && v.AuxInt == ssa.Canon(v.Type, c)
+}
 
 // replaceConst turns v into the constant c of its own type.
 func replaceConst(v *ssa.Value, c int64) bool {

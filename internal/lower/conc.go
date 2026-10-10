@@ -78,7 +78,7 @@ func (s *fnState) goStmt(st *ast.GoStmt) {
 		return
 	}
 
-	var vals []value                                    // receiver or func value first, then the arguments
+	var vals []value                                      // receiver or func value first, then the arguments
 	var emit func(ts *fnState, in []value, pos token.Pos) // makes the call in the thunk
 	var sig *types2.Signature
 	var checkFunc *ssa.Value // a func value to check at run time
@@ -346,9 +346,9 @@ type selCase struct {
 	clause *ast.CommClause
 	recv   bool
 	elem   types2.Type
-	tmp    *ssa.Value  // the value to send, or where the received value lands
-	lhs    []ast.Expr  // v, ok of a receive with an assignment
-	define bool        // the assignment is :=
+	tmp    *ssa.Value // the value to send, or where the received value lands
+	lhs    []ast.Expr // v, ok of a receive with an assignment
+	define bool       // the assignment is :=
 }
 
 // selectStmt lowers a select statement: the channel operands and send

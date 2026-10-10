@@ -13,16 +13,36 @@ import "unsafe"
 // (internal/lower/iface.go).
 
 type typeDesc struct {
-	size  uintptr
-	hash  uint32
-	kind  uint8
-	flags uint8
-	_     uint16
-	name  string
-	equal func(a, b unsafe.Pointer) bool
+	size   uintptr
+	hash   uint32
+	kind   uint8
+	flags  uint8
+	align  uint8
+	_      uint8
+	name   string
+	equal  func(a, b unsafe.Pointer) bool
+	elem   *typeDesc  // array, slice, pointer, ring, owned and counted references
+	len    uintptr    // array length, ring capacity, number of struct fields
+	fields *fieldDesc // struct fields
+	ptrTo  *typeDesc  // *T, if *T has methods that T lacks
 }
 
-const flagDirect = 1
+// A fieldDesc describes one field of a struct type.
+type fieldDesc struct {
+	typ    *typeDesc
+	offset uintptr
+	name   string // empty when the build strips field names
+	flags  uint8
+}
+
+const (
+	flagDirect       = 1
+	flagIfaceMethods = 2 // an interface type with methods: its values hold an itab
+	flagMethods      = 4 // a type with methods
+
+	fieldExported = 1
+	fieldEmbedded = 2
+)
 
 type itab struct {
 	typ   *typeDesc
@@ -456,32 +476,6 @@ func writePointer(w Writer, v uintptr) {
 	i--
 	buf[i] = '0'
 	writeBytes(w, unsafe.Pointer(&buf[i]), len(buf)-i)
-}
-
-func printFloat(f float64) {
-	// Enough for diagnostics: sign, integer part, six decimals.
-	if f != f {
-		printString("NaN")
-		return
-	}
-	if f < 0 {
-		printString("-")
-		f = -f
-	}
-	if f > 1e18 {
-		printString("+Inf")
-		return
-	}
-	ip := uint64(f)
-	printUint(ip)
-	printString(".")
-	frac := f - float64(ip)
-	for i := 0; i < 6; i++ {
-		frac *= 10
-		d := uint64(frac)
-		printUint(d)
-		frac -= float64(d)
-	}
 }
 
 func printString(s string) {
