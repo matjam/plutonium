@@ -40,7 +40,14 @@ var savedBit = map[amd64.Reg]uint8{amd64.RBX: 0, amd64.RBP: 1, amd64.R12: 2, amd
 //	strings: u16 length, bytes
 //	lines:   per function, rows of uvarint(zigzag(line delta)<<2 | file<<1 | inl),
 //	         [uvarint file string], [uvarint inline site], uvarint length
-func (t *Table) WriteTraceTable(obj *objfile.Object) {
+//
+// If empty is set the table lists no functions, and panics print their
+// message without a trace.
+func (t *Table) WriteTraceTable(obj *objfile.Object, empty bool) {
+	funcList := t.funcs
+	if empty {
+		funcList = nil
+	}
 	var strs buf
 	strIndex := map[string]uint32{}
 	str := func(s string) uint32 {
@@ -56,7 +63,7 @@ func (t *Table) WriteTraceTable(obj *objfile.Object) {
 
 	var funcs, inlines, lines buf
 	nInl := 0
-	for _, f := range t.funcs {
+	for _, f := range funcList {
 		d := f.Debug
 		funcs.addr(f.Sym, 0)
 		funcs.u32(uint32(f.Size))
@@ -110,7 +117,7 @@ func (t *Table) WriteTraceTable(obj *objfile.Object) {
 	}
 
 	var tab buf
-	n := len(t.funcs)
+	n := len(funcList)
 	inlOff := traceHeaderSize + len(funcs.b)
 	strOff := inlOff + len(inlines.b)
 	lineOff := strOff + len(strs.b)

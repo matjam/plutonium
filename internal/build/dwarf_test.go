@@ -5,9 +5,11 @@ import (
 	"debug/dwarf"
 	"debug/elf"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -124,7 +126,13 @@ func TestDWARF(t *testing.T) {
 					}
 				case dwarf.TagSubprogram:
 					name, _ := e.Val(dwarf.AttrName).(string)
-					lo, _ := e.Val(dwarf.AttrLowpc).(uint64)
+					lo, ok := e.Val(dwarf.AttrLowpc).(uint64)
+					if !ok {
+						if e.Val(dwarf.AttrInline) == nil {
+							t.Errorf("subprogram %s has neither code nor DW_AT_inline", name)
+						}
+						continue // the abstract origin of inlined calls
+					}
 					hi, _ := e.Val(dwarf.AttrHighpc).(int64)
 					subs[name] = funcRange{lo, lo + uint64(hi)}
 					if want, ok := symRange[name]; !ok || want != subs[name] {
@@ -217,6 +225,83 @@ func TestDWARF(t *testing.T) {
 				t.Errorf("main.wide: CFA at the call to sum is r%d%+d, want rbp+16", rule.reg, rule.off)
 			}
 		})
+	}
+}
+
+// TestDWARFInlined checks the inlined_subroutine entries of a program whose
+// calls are all inlined at -O2: main calls level1 twice (lines 17 and 18),
+// which calls level2 (line 12), which calls level3 (line 8).
+func TestDWARFInlined(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "testdata", "trace", "index.p"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, _, _ := buildDir(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: 2})
+	f, err := elf.Open(filepath.Join(dir, "prog"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	d, err := f.DWARF()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Describe main.main's inlined calls as "origin@line(children)".
+	r := d.Reader()
+	var describe func() string
+	describe = func() string {
+		var parts []string
+		for {
+			e, err := r.Next()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if e == nil || e.Tag == 0 {
+				return strings.Join(parts, " ")
+			}
+			if e.Tag != dwarf.TagInlinedSubroutine {
+				t.Fatalf("unexpected %v in main.main", e.Tag)
+			}
+			off, _ := e.Val(dwarf.AttrAbstractOrigin).(dwarf.Offset)
+			or := d.Reader()
+			or.Seek(off)
+			origin, err := or.Next()
+			if err != nil {
+				t.Fatal(err)
+			}
+			rs, err := d.Ranges(e)
+			if err != nil || len(rs) == 0 {
+				t.Errorf("inlined %v: ranges %v, %v", origin.Val(dwarf.AttrName), rs, err)
+			}
+			name, _ := origin.Val(dwarf.AttrName).(string)
+			s := fmt.Sprintf("%v@%v", name, e.Val(dwarf.AttrCallLine))
+			if e.Children {
+				s += "(" + describe() + ")"
+			}
+			if strings.HasPrefix(name, "main.") { // not println's runtime calls
+				parts = append(parts, s)
+			}
+		}
+	}
+	got := ""
+	for {
+		e, err := r.Next()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e == nil {
+			break
+		}
+		if e.Tag == dwarf.TagSubprogram && e.Val(dwarf.AttrName) == "main.main" {
+			if e.Children {
+				got = describe()
+			}
+			break
+		}
+	}
+	want := "main.level1@17(main.level2@12(main.level3@8)) main.level1@18(main.level2@12(main.level3@8))"
+	if got != want {
+		t.Errorf("main.main's inlined calls:\n%s\nwant\n%s", got, want)
 	}
 }
 
@@ -324,6 +409,26 @@ func TestGDB(t *testing.T) {
 		if strings.Contains(text, "Backtrace stopped") || strings.Contains(text, "corrupt stack") {
 			t.Errorf("O%d: gdb could not unwind:\n%s", level, text)
 		}
+	}
+
+	// Inlined calls are frames of their own.
+	src, err := os.ReadFile(filepath.Join("..", "..", "testdata", "trace", "index.p"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, _, _ := buildDir(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: 2})
+	file := filepath.Join(dir, "main.p")
+	out, err := exec.Command(gdb, "-nx", "-batch", "-iex", "set debuginfod enabled off",
+		"-ex", "break main.p:4", "-ex", "run", "-ex", "bt", filepath.Join(dir, "prog")).CombinedOutput()
+	if err != nil {
+		t.Fatalf("gdb: %v\n%s", err, out)
+	}
+	want := regexp.MustCompile(`#0 +main\.level3 \(\) at ` + regexp.QuoteMeta(file) + `:4\n` +
+		`#1 +main\.level2 \(\) at ` + regexp.QuoteMeta(file) + `:8\n` +
+		`#2 +main\.level1 \(\) at ` + regexp.QuoteMeta(file) + `:12\n` +
+		`#3 +main\.main \(\) at ` + regexp.QuoteMeta(file) + `:17\n`)
+	if !want.Match(out) {
+		t.Errorf("gdb backtrace through inlined calls:\n%s", out)
 	}
 }
 

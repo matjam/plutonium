@@ -78,6 +78,7 @@ func init() {
 		c.Flags().BoolP("compile", "c", false, "write the object file instead of linking")
 		c.Flags().BoolP("debug", "g", true, "emit DWARF debugging information (-g=false to omit it)")
 		c.Flags().BoolP("strip", "s", false, "omit DWARF and the symbol table (panic traces still work)")
+		c.Flags().Bool("trace", true, "emit the table panics use to print stack traces (--trace=false to omit it)")
 	}
 	rootCmd.AddCommand(buildCmd, runCmd)
 }
@@ -102,6 +103,7 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 	compileOnly, _ := f.GetBool("compile")
 	debug, _ := f.GetBool("debug")
 	strip, _ := f.GetBool("strip")
+	trace, _ := f.GetBool("trace")
 
 	arch, osName, ok := strings.Cut(target, "-")
 	if !ok || arch != "x86_64" || (osName != "linux" && osName != "none") {
@@ -139,6 +141,7 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 		CompileOnly:  compileOnly,
 		NoDWARF:      !debug,
 		Strip:        strip,
+		NoTrace:      !trace,
 	}
 	if root := os.Getenv("PLUTOROOT"); root != "" {
 		if abs, err := filepath.Abs(root); err == nil {

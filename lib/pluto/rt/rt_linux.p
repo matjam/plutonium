@@ -76,7 +76,7 @@ type stackT struct {
 
 // faultStack is where the fault handler runs, so that it can report a stack
 // overflow.
-var faultStack [32 << 10]byte
+var faultStack [16 << 10]byte
 
 func installFaultHandlers() {
 	st := stackT{sp: unsafe.Pointer(&faultStack[0]), size: uintptr(len(faultStack))}

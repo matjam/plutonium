@@ -46,6 +46,9 @@ type Config struct {
 	// Strip omits DWARF and the symbol table (pluto build -s). Panics still
 	// print symbolised stack traces, which use a table of their own.
 	Strip bool
+	// NoTrace leaves the trace table empty (pluto build --trace=false), for
+	// images that cannot spare its size: panics then print no stack trace.
+	NoTrace bool
 	// StdlibDir, if set, is the directory Stdlib was read from; debugging
 	// information names standard library files under it rather than
 	// $PLUTOROOT.
@@ -235,7 +238,7 @@ func emitObject(cfg *Config, p *ssa.Program, fset *token.FileSet) (*objfile.Obje
 		}
 	}
 
-	dbg.WriteTraceTable(obj)
+	dbg.WriteTraceTable(obj, cfg.NoTrace)
 	if !cfg.NoDWARF && !cfg.Strip {
 		dir, err := filepath.Abs(cfg.Dir)
 		if err != nil {

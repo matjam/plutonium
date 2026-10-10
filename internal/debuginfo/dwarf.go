@@ -45,10 +45,28 @@ const (
 	dwCFADefCFARegister  = 0x0d
 	dwCFANop             = 0x00
 	dataAlignmentFactor  = -8
+	dwFormRef4           = 0x13
+	dwInlInlined         = 1
 	abbrevCompileUnit    = 1
-	abbrevSubprogram     = 2
-	abbrevSubprogramNoLn = 3
+	abbrevAbstract       = 2
+	abbrevSubprogram     = 3 // + abbrevNoPos, + abbrevNoKids
+	abbrevInlined        = 7 // + abbrevNoPos, + abbrevNoKids
+	abbrevNoPos          = 1 // no declaration or call position
+	abbrevNoKids         = 2 // no children
 )
+
+// abbrevFor returns the abbreviation code of a subprogram or inlined call
+// (base) with or without a source position and children.
+func abbrevFor(base int, hasPos, hasKids bool) uint64 {
+	c := base
+	if !hasPos {
+		c += abbrevNoPos
+	}
+	if !hasKids {
+		c += abbrevNoKids
+	}
+	return uint64(c)
+}
 
 // Producer is recorded as DW_AT_producer.
 var Producer = "plutonium"
@@ -91,13 +109,26 @@ func (t *Table) WriteDWARF(obj *objfile.Object, compDir string) {
 		info.secOff(".debug_line", int64(lineOff))
 		info.u64(0) // low_pc: ranges hold absolute addresses
 		info.secOff(".debug_ranges", int64(rangesOff))
+
+		// An abstract subprogram for each function inlined in this unit,
+		// for the inlined instances to refer to.
+		abstract := map[string]int{}
+		for _, f := range p.funcs {
+			for _, s := range f.Inlines {
+				if _, ok := abstract[s.Func]; ok {
+					continue
+				}
+				abstract[s.Func] = len(info.b) - cuOff
+				info.uleb(abbrevAbstract)
+				info.str(s.Func)
+				info.u8(dwInlInlined)
+			}
+		}
+
 		for _, f := range p.funcs {
 			file, ln := t.position(f.Pos)
-			if ln > 0 {
-				info.uleb(abbrevSubprogram)
-			} else {
-				info.uleb(abbrevSubprogramNoLn)
-			}
+			sites := inlineCode(f)
+			info.uleb(abbrevFor(abbrevSubprogram, ln > 0, len(sites[0]) > 0))
 			info.str(f.Sym)
 			info.addr(f.Sym, 0)
 			info.u32(uint32(f.Size))
@@ -106,6 +137,10 @@ func (t *Table) WriteDWARF(obj *objfile.Object, compDir string) {
 			if ln > 0 {
 				info.uleb(uint64(files[file]))
 				info.uleb(uint64(ln))
+			}
+			if len(sites[0]) > 0 {
+				t.writeInlined(&info, &ranges, f, sites, 0, files, abstract)
+				info.u8(0) // end of the subprogram's children
 			}
 		}
 		info.u8(0) // end of the unit's children
@@ -154,26 +189,114 @@ func writeAbbrevs(b *buf) {
 	attr(dwarf.AttrRanges, dwFormSecOffset)
 	b.u16(0)
 
-	for _, withLine := range []bool{true, false} {
-		if withLine {
-			b.uleb(abbrevSubprogram)
-		} else {
-			b.uleb(abbrevSubprogramNoLn)
+	b.uleb(abbrevAbstract)
+	b.uleb(uint64(dwarf.TagSubprogram))
+	b.u8(0)
+	attr(dwarf.AttrName, dwFormString)
+	attr(dwarf.AttrInline, dwFormData1)
+	b.u16(0)
+
+	for _, hasPos := range []bool{true, false} {
+		for _, hasKids := range []bool{true, false} {
+			kids := uint8(0)
+			if hasKids {
+				kids = 1 // the calls inlined into it
+			}
+			b.uleb(abbrevFor(abbrevSubprogram, hasPos, hasKids))
+			b.uleb(uint64(dwarf.TagSubprogram))
+			b.u8(kids)
+			attr(dwarf.AttrName, dwFormString)
+			attr(dwarf.AttrLowpc, dwFormAddr)
+			attr(dwarf.AttrHighpc, dwFormData4)
+			attr(dwarf.AttrFrameBase, dwFormExprloc)
+			if hasPos {
+				attr(dwarf.AttrDeclFile, dwFormUdata)
+				attr(dwarf.AttrDeclLine, dwFormUdata)
+			}
+			attr(dwarf.AttrExternal, dwFormFlagPresent)
+			b.u16(0)
+
+			b.uleb(abbrevFor(abbrevInlined, hasPos, hasKids))
+			b.uleb(uint64(dwarf.TagInlinedSubroutine))
+			b.u8(kids)
+			attr(dwarf.AttrAbstractOrigin, dwFormRef4)
+			attr(dwarf.AttrRanges, dwFormSecOffset)
+			if hasPos {
+				attr(dwarf.AttrCallFile, dwFormUdata)
+				attr(dwarf.AttrCallLine, dwFormUdata)
+			}
+			b.u16(0)
 		}
-		b.uleb(uint64(dwarf.TagSubprogram))
-		b.u8(0)
-		attr(dwarf.AttrName, dwFormString)
-		attr(dwarf.AttrLowpc, dwFormAddr)
-		attr(dwarf.AttrHighpc, dwFormData4)
-		attr(dwarf.AttrFrameBase, dwFormExprloc)
-		if withLine {
-			attr(dwarf.AttrDeclFile, dwFormUdata)
-			attr(dwarf.AttrDeclLine, dwFormUdata)
-		}
-		attr(dwarf.AttrExternal, dwFormFlagPresent)
-		b.u16(0)
 	}
 	b.u8(0)
+}
+
+// inlineCode returns the code of each call inlined into f, by 1-based site
+// index: the ranges of every line entry whose chain of inlined calls
+// includes the site. Element 0 lists the sites with code directly in f.
+func inlineCode(f *Func) [][][2]int {
+	code := make([][][2]int, len(f.Inlines)+1)
+	lines := f.Debug.Lines
+	for i, l := range lines {
+		end := f.Size
+		if i+1 < len(lines) {
+			end = lines[i+1].Off
+		}
+		if end <= l.Off {
+			continue
+		}
+		for k := l.Inl; k != 0; k = f.Inlines[k-1].Parent {
+			rs := code[k]
+			if n := len(rs); n > 0 && rs[n-1][1] == l.Off {
+				rs[n-1][1] = end
+			} else {
+				rs = append(rs, [2]int{l.Off, end})
+			}
+			code[k] = rs
+		}
+	}
+	// Element 0 is not code: mark each top-level site that has some.
+	code[0] = nil
+	for i, s := range f.Inlines {
+		if s.Parent == 0 && len(code[i+1]) > 0 {
+			code[0] = append(code[0], [2]int{i + 1, 0})
+		}
+	}
+	return code
+}
+
+// writeInlined appends an inlined_subroutine entry for each call inlined
+// directly into site parent of f (0 for f itself) that has code left,
+// nested as the calls are, with the code ranges that came from it.
+func (t *Table) writeInlined(info, ranges *buf, f *Func, code [][][2]int, parent int32, files map[string]int, abstract map[string]int) {
+	for i, s := range f.Inlines {
+		k := int32(i + 1)
+		if s.Parent != parent || len(code[k]) == 0 {
+			continue // another site's child, or optimised away entirely
+		}
+		hasKids := false
+		for j, c := range f.Inlines {
+			hasKids = hasKids || c.Parent == k && len(code[j+1]) > 0
+		}
+		file, line := t.position(s.Pos)
+		info.uleb(abbrevFor(abbrevInlined, line > 0, hasKids))
+		info.u32(uint32(abstract[s.Func]))
+		info.secOff(".debug_ranges", int64(len(ranges.b)))
+		for _, r := range code[k] {
+			ranges.addr(f.Sym, int64(r[0]))
+			ranges.addr(f.Sym, int64(r[1]))
+		}
+		ranges.u64(0)
+		ranges.u64(0)
+		if line > 0 {
+			info.uleb(uint64(files[file]))
+			info.uleb(uint64(line))
+		}
+		if hasKids {
+			t.writeInlined(info, ranges, f, code, k, files, abstract)
+			info.u8(0)
+		}
+	}
 }
 
 // writeLines appends the line number program of one compile unit and
@@ -196,6 +319,11 @@ func (t *Table) writeLines(b *buf, funcs []*Func) map[string]int {
 		for _, l := range f.Debug.Lines {
 			if name, _ := t.position(l.Pos); name != "" {
 				file(name)
+			}
+		}
+		for _, s := range f.Inlines {
+			if name, _ := t.position(s.Pos); name != "" {
+				file(name) // for DW_AT_call_file
 			}
 		}
 	}

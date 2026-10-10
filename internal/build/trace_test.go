@@ -101,6 +101,12 @@ func TestTraceStripped(t *testing.T) {
 	if status != 2 || !strings.Contains(out, "    main.level3 ("+filepath.Join(dir, "main.p")+":4)\n") {
 		t.Errorf("status %d, output:\n%s", status, out)
 	}
+
+	// -trace=false: the message alone.
+	_, out, status = buildDir(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: 2, NoTrace: true})
+	if want := "7\npanic: runtime error: index out of range [4] with length 4\n"; status != 2 || out != want {
+		t.Errorf("-trace=false: status %d, output:\n%s", status, out)
+	}
 }
 
 // TestTraceStackOverflow checks that running into the stack's guard page is
