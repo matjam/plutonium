@@ -1,0 +1,83 @@
+// Union types in every form the parser accepts.
+
+package dev
+
+// A DeviceState is the state of one device.
+type DeviceState union {
+	Off
+	Probing struct{ attempt int } // retrying
+	Ready   struct {
+		irq  uint8
+		base uintptr
+	}
+
+	// Failed holds the error.
+	Failed       syscall.Errno
+	Code, Signal int
+}
+
+type Result[T any] union {
+	Ok  T
+	Err syscall.Errno
+}
+
+type Small union{ A int }
+
+type Bare union {
+	A
+	B
+}
+
+type (
+	Option[T any] union {
+		None
+		Some T // a value
+	}
+	Empty union{}
+)
+
+// A PTE is an x86-64 page-table entry.
+type PTE packed union uint64 {
+	present bits[bool, 1] // the tag
+
+	Swapped case false {
+		slot bits[uint64, 63]
+	}
+	Mapped case true {
+		writable bits[bool, 1]
+		user     bits[bool, 1]
+		_        bits[uint, 9]
+		frame    bits[uint64, 40]
+		_        bits[uint, 11]
+		nx       bits[bool, 1]
+	}
+}
+
+type Desc packed union le [8]byte {
+	kind bits[uint8, 4]
+	Code case 1, 2 {}
+	Data case 3 { flags bits { R W } }
+	Wide case 4 { n uint32 }
+}
+
+func f(st DeviceState) int {
+	switch s := st.(type) {
+	case Off:
+		return 0
+	case DeviceState.Probing:
+		return s.attempt
+	case Ready, Failed:
+		_ = s
+	}
+	st = DeviceState.Probing{attempt: 1}
+	st = DeviceState.Off
+	r := Result[int].Ok(5)
+	if v, ok := r.(Result[int].Ok); ok {
+		return v
+	}
+	return 1
+}
+
+type union int
+
+func g(union union) union { return union }

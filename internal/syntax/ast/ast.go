@@ -676,6 +676,48 @@ func (m *EnumMember) End() token.Pos {
 	return m.Name.End()
 }
 
+// A UnionType node represents a Plutonium union (tagged union) type:
+//
+//	union { Name [Payload]; ... }
+//	packed union [le|be] Backing { tag fields; Name case v, ... { fields }; ... }
+//
+// The variants of an ordinary union are parsed like struct fields: a variant
+// with a payload is a Field with one or more names and a type, and a variant
+// without one is written as its name alone, which parses like an embedded
+// field (Names is nil and Type is the name). In a packed union, the fields
+// before the first variant form the tag; each variant is a Field with one
+// name whose Type is a *VariantCase.
+type UnionType struct {
+	Packed  token.Pos  // position of "packed", or NoPos for an ordinary union
+	Order   Endianness // byte-order annotation of a packed union
+	Union   token.Pos  // position of "union"
+	Backing Expr       // backing type of a packed union; or nil
+	Fields  *FieldList // variants (and the tag fields of a packed union)
+}
+
+// A VariantCase node is the body of a packed union variant: the tag values
+// that select it and its own fields.
+//
+//	case v1, v2 { fields }
+type VariantCase struct {
+	Case   token.Pos  // position of "case"
+	Values []Expr     // tag values
+	Fields *FieldList // the variant's fields
+}
+
+func (x *UnionType) Pos() token.Pos {
+	if x.Packed.IsValid() {
+		return x.Packed
+	}
+	return x.Union
+}
+func (x *UnionType) End() token.Pos   { return x.Fields.End() }
+func (x *VariantCase) Pos() token.Pos { return x.Case }
+func (x *VariantCase) End() token.Pos { return x.Fields.End() }
+
+func (*UnionType) exprNode()   {}
+func (*VariantCase) exprNode() {}
+
 // ----------------------------------------------------------------------------
 // Convenience functions for Idents
 
