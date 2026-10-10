@@ -57,6 +57,10 @@ const (
 	// copy nothing would own; strings.Bytes and strings.Runes return an
 	// owner, and copy fills a caller's buffer.
 	StringToSliceNotPermitted
+	// IntToStringNotPermitted: string(i) of an integer that is not a rune
+	// or an untyped constant, which makes the character with that code
+	// where the program usually wants the digits.
+	IntToStringNotPermitted
 )
 
 // Packed types, bit fields, volatile, aligned and ring.

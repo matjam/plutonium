@@ -28,6 +28,9 @@ func (check *Checker) forbidden(at positioner, code Code, what, reason string) {
 //   - string(b) of a byte slice replaces what is not valid UTF-8, so two
 //     different slices can give equal strings (E2015).
 //   - []byte(s) and []rune(s) make a copy that nothing would own (E2016).
+//   - string(i) of an integer type other than rune makes the character with
+//     code i, which go vet reports because programmers expect the digits
+//     (E2017). An untyped constant, string(65), stays.
 func (check *Checker) removedConversion(call *ast.CallExpr, V, T Type) {
 	if V == nil || T == nil {
 		return
@@ -35,6 +38,10 @@ func (check *Checker) removedConversion(call *ast.CallExpr, V, T Type) {
 	if allString(T) && someUnder(V, func(_, u Type) bool { return isByteSlice(u) }) {
 		check.forbidden(call.Fun, BytesToStringNotPermitted, "string(b) of a byte slice is",
 			"it would replace bytes that are not UTF-8; use strings.FromUTF8 or strings.FromUTF8Lossy")
+	}
+	if allString(T) && someUnder(V, isNonRuneInteger) {
+		check.forbidden(call.Fun, IntToStringNotPermitted, "string(i) of an integer other than a rune is",
+			"it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i)")
 	}
 	if someUnder(V, func(_, u Type) bool { return isString(u) }) && someUnder(T, func(_, u Type) bool { return isBytesOrRunes(u) }) {
 		if someUnder(T, func(_, u Type) bool { return isRuneSlice(u) }) {
@@ -59,6 +66,19 @@ func someUnder(typ Type, f func(t, u Type) bool) bool {
 		return true
 	})
 	return some
+}
+
+// isNonRuneInteger reports whether t, with underlying type u, is a typed
+// integer type other than rune (int32), the types for which string(i) is
+// removed. An untyped constant is not one, and neither is a named type
+// whose underlying type is int32: only rune says that the integer is a
+// character.
+func isNonRuneInteger(t, u Type) bool {
+	if !isInteger(u) || isUntyped(t) {
+		return false
+	}
+	b, ok := Unalias(t).(*Basic)
+	return !ok || b.kind != Int32
 }
 
 // isByteSlice reports whether typ's underlying type is a slice of bytes.

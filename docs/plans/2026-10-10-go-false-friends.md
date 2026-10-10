@@ -451,7 +451,7 @@ thing is.
 1. **Order of work.** Land the escape checks first (F1); every other frame rule assumes them.
 2. **F2.** Remove the conversion from `[]byte` to `string`, with a compile error naming
    `strings.FromUTF8` and a new `strings.FromUTF8Lossy`. Recommended.
-   **Implemented** (E2015, language spec section 3 and 6.10, roadmap item 60). The conversion from a
+   **Implemented** (E2015, language spec section 3 and 6.10, roadmap item 61). The conversion from a
    `vec.Vec[byte]` needs no rule of its own: a `Vec` does not convert to `string`.
 3. **F3.** Go's map iteration guarantees become the specification of `hash.Map`, `hash.Set` and the
    coming `map[K]V`. Recommended.

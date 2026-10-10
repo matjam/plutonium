@@ -138,6 +138,7 @@ Each of these is a compile error that names the construct and the reason.
 | `append` | Go's `append` grows a slice by allocating a larger array behind the program's back, and the collector frees the old one; a slice is a view and owns no array it could grow (sections 4.3, 6.3) | `pluto/vec.Vec[T]`, an owner that grows (`Push`, `Append`); `vec.Fixed[T]` to fill a caller's array (section 13.2); slicing and `copy` within a slice's capacity |
 | `make([]T, n)`, `make([]T, n, c)` | the array would belong to no one: a slice is a view, and without a collector nothing would free it (sections 4.2, 6.6) | `vec.Make[T](n)` and `vec.WithCapacity[T](c)`, which return an owning `vec.Vec[T]`; an array for a constant size; `a.Slice[T](n)` from an arena |
 | string literals that are not valid UTF-8 (`"\xff"`) | every string holds valid UTF-8 (section 6.10) | `[]byte{0xff}` for binary data |
+| `string(i)` for an integer `i` of a type other than `rune`, such as `int` or `byte` (E2017; an untyped constant such as `string(65)` stays) | Go makes the character with code `i`, so `string(65)` is `"A"` where programs expect `"65"`; `go vet` reports it. Plutonium makes the choice visible in the source (section 6.10) | `string(rune(i))` for the character; `strconv.Itoa(i)`, `FormatInt` or `FormatUint` for the digits |
 | `[]byte(s)` and `[]rune(s)` for a string `s` (E2016) | Go allocates the copy and the collector frees it; here a slice is a view and the copy would belong to no one (sections 4.2, 6.6) | `strings.Bytes(s)` and `strings.Runes(s)`, which return an owning `vec.Vec`; `copy(buf[:], s)` into a buffer of your own; `for i, r := range s`; `utf8.RuneCountInString(s)` to count |
 | `string(b)` for a byte slice `b` (E2015) | Go keeps the bytes; a Plutonium string holds only valid UTF-8, so the conversion would replace each invalid byte with U+FFFD without saying so, and `string([]byte{0xfe}) == string([]byte{0xff})` (section 6.10) | `strings.FromUTF8(b)`, which returns an error for bytes that are not text; `strings.FromUTF8Lossy(b)`, which replaces them by name; a byte array or slice for binary data |
 
@@ -2703,8 +2704,13 @@ allocate from the allocator they are given (by default the current one) and free
 program's own and allocates nothing; `for i, r := range s` visits the runes without copying, and
 `utf8.RuneCountInString(s)` counts them. `string(runes)`
 and `string(r)` for a non-constant rune make a counted string; `string(r)` for an ASCII rune returns a
-static one-byte string and does not allocate, and a value out of range, of any integer type, gives
-U+FFFD as in Go.
+static one-byte string and does not allocate, and a rune out of range gives U+FFFD as in Go. `string(i)`
+for an integer of any other type is a compile error (E2017): Go makes the character with code `i`, so
+`string(65)` is `"A"` where a program usually wants `"65"`, a trap that `go vet` reports. A conversion to
+string is accepted from a `rune` (`int32`), from an untyped constant (`string(65)`, `string('A')`) and from
+a string; `string(rune(i))` says that `i` is a character, and `strconv.Itoa(i)`, `strconv.FormatInt` and
+`strconv.FormatUint` make the digits. A named type whose underlying type is `int32` is
+converted to `rune` first.
 
 **Interface boxes.** A string converted to an interface is copied into a box in the converting
 function's frame (section 4.4), which holds a reference until the function returns or the same

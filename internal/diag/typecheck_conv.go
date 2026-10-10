@@ -138,3 +138,33 @@ func explainStringToSlice(s *spec) {
 	s.d.More = []*Fix{{Intro: "To copy into a buffer of your own without allocating",
 		Code: fmt.Sprintf("var buf [64]byte\nn := copy(buf[:], %s)\n%s := buf[:n]", str, name)}}
 }
+
+// explainIntToString writes the two fixes for string(i): the character with
+// code i, and the digits of i, with the formatting function that takes i's
+// type.
+func explainIntToString(s *spec) {
+	call := s.conversionAt()
+	if call == nil {
+		return
+	}
+	s.keepText()
+	x := types2.ExprString(call.Args[0])
+	s.d.Fix = &Fix{Intro: fmt.Sprintf("To make the character whose code is %s, convert to a rune first", x),
+		Code: fmt.Sprintf("string(rune(%s))", x)}
+	T := s.typeOf(call.Args[0])
+	var digits string
+	switch {
+	case T != nil && types2.Identical(T, types2.Typ[types2.Int]):
+		digits = fmt.Sprintf("strconv.Itoa(%s)", x)
+	case T != nil && types2.Identical(T, types2.Typ[types2.Int64]):
+		digits = fmt.Sprintf("strconv.FormatInt(%s, 10)", x)
+	case T != nil && types2.Identical(T, types2.Typ[types2.Uint64]):
+		digits = fmt.Sprintf("strconv.FormatUint(%s, 10)", x)
+	case isKind(T, types2.IsUnsigned):
+		digits = fmt.Sprintf("strconv.FormatUint(uint64(%s), 10)", x)
+	default:
+		digits = fmt.Sprintf("strconv.FormatInt(int64(%s), 10)", x)
+	}
+	s.d.More = []*Fix{{Intro: fmt.Sprintf("To make the digits of %s, as text", x),
+		Code: "import \"pluto/strconv\"\n\n" + digits}}
+}

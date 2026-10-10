@@ -1,0 +1,153 @@
+$DIR/main.p:10:19: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))
+    string(i) of an integer does not give the digits of i. In Go it gives the
+    character whose code is i, so string(65) is "A" and string(n) for n := 65 is
+    "A" too, not "65". Go's own vet tool reports it because programmers expect
+    the digits.
+    Plutonium accepts a conversion to string from a rune and from an untyped
+    constant such as string('A'), and nothing else, so the choice is visible in
+    the source. To make the character, convert to a rune first: string(rune(i)).
+    To make the digits, use strconv.Itoa(i), or strconv.FormatInt and
+    strconv.FormatUint for other integer types.
+    A conversion that reads like formatting but means something else is a trap
+    that Go itself warns about. Plutonium has no false friends: the program says
+    which of the two it means.
+    To make the character whose code is n, convert to a rune first:
+        string(rune(n))
+    To make the digits of n, as text:
+        import "pluto/strconv"
+
+        strconv.Itoa(n)
+    (see "Strings" in the Plutonium spec, section 6.10)
+    (run "pluto explain E2017" for a longer explanation)
+
+$DIR/main.p:14:9: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))
+    string(i) of an integer does not give the digits of i. In Go it gives the
+    character whose code is i, so string(65) is "A" and string(n) for n := 65 is
+    "A" too, not "65". Go's own vet tool reports it because programmers expect
+    the digits.
+    Plutonium accepts a conversion to string from a rune and from an untyped
+    constant such as string('A'), and nothing else, so the choice is visible in
+    the source. To make the character, convert to a rune first: string(rune(i)).
+    To make the digits, use strconv.Itoa(i), or strconv.FormatInt and
+    strconv.FormatUint for other integer types.
+    A conversion that reads like formatting but means something else is a trap
+    that Go itself warns about. Plutonium has no false friends: the program says
+    which of the two it means.
+    To make the character whose code is b, convert to a rune first:
+        string(rune(b))
+    To make the digits of b, as text:
+        import "pluto/strconv"
+
+        strconv.FormatUint(uint64(b), 10)
+    (see "Strings" in the Plutonium spec, section 6.10)
+    (run "pluto explain E2017" for a longer explanation)
+
+$DIR/main.p:18:9: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))
+    string(i) of an integer does not give the digits of i. In Go it gives the
+    character whose code is i, so string(65) is "A" and string(n) for n := 65 is
+    "A" too, not "65". Go's own vet tool reports it because programmers expect
+    the digits.
+    Plutonium accepts a conversion to string from a rune and from an untyped
+    constant such as string('A'), and nothing else, so the choice is visible in
+    the source. To make the character, convert to a rune first: string(rune(i)).
+    To make the digits, use strconv.Itoa(i), or strconv.FormatInt and
+    strconv.FormatUint for other integer types.
+    A conversion that reads like formatting but means something else is a trap
+    that Go itself warns about. Plutonium has no false friends: the program says
+    which of the two it means.
+    To make the character whose code is w, convert to a rune first:
+        string(rune(w))
+    To make the digits of w, as text:
+        import "pluto/strconv"
+
+        strconv.FormatInt(w, 10)
+    (see "Strings" in the Plutonium spec, section 6.10)
+    (run "pluto explain E2017" for a longer explanation)
+
+$DIR/main.p:18:20: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))
+    string(i) of an integer does not give the digits of i. In Go it gives the
+    character whose code is i, so string(65) is "A" and string(n) for n := 65 is
+    "A" too, not "65". Go's own vet tool reports it because programmers expect
+    the digits.
+    Plutonium accepts a conversion to string from a rune and from an untyped
+    constant such as string('A'), and nothing else, so the choice is visible in
+    the source. To make the character, convert to a rune first: string(rune(i)).
+    To make the digits, use strconv.Itoa(i), or strconv.FormatInt and
+    strconv.FormatUint for other integer types.
+    A conversion that reads like formatting but means something else is a trap
+    that Go itself warns about. Plutonium has no false friends: the program says
+    which of the two it means.
+    To make the character whose code is u, convert to a rune first:
+        string(rune(u))
+    To make the digits of u, as text:
+        import "pluto/strconv"
+
+        strconv.FormatUint(uint64(u), 10)
+    (see "Strings" in the Plutonium spec, section 6.10)
+    (run "pluto explain E2017" for a longer explanation)
+
+$DIR/main.p:22:9: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))
+    string(i) of an integer does not give the digits of i. In Go it gives the
+    character whose code is i, so string(65) is "A" and string(n) for n := 65 is
+    "A" too, not "65". Go's own vet tool reports it because programmers expect
+    the digits.
+    Plutonium accepts a conversion to string from a rune and from an untyped
+    constant such as string('A'), and nothing else, so the choice is visible in
+    the source. To make the character, convert to a rune first: string(rune(i)).
+    To make the digits, use strconv.Itoa(i), or strconv.FormatInt and
+    strconv.FormatUint for other integer types.
+    A conversion that reads like formatting but means something else is a trap
+    that Go itself warns about. Plutonium has no false friends: the program says
+    which of the two it means.
+    To make the character whose code is s, convert to a rune first:
+        string(rune(s))
+    To make the digits of s, as text:
+        import "pluto/strconv"
+
+        strconv.FormatInt(int64(s), 10)
+    (see "Strings" in the Plutonium spec, section 6.10)
+    (run "pluto explain E2017" for a longer explanation)
+
+$DIR/main.p:22:20: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))
+    string(i) of an integer does not give the digits of i. In Go it gives the
+    character whose code is i, so string(65) is "A" and string(n) for n := 65 is
+    "A" too, not "65". Go's own vet tool reports it because programmers expect
+    the digits.
+    Plutonium accepts a conversion to string from a rune and from an untyped
+    constant such as string('A'), and nothing else, so the choice is visible in
+    the source. To make the character, convert to a rune first: string(rune(i)).
+    To make the digits, use strconv.Itoa(i), or strconv.FormatInt and
+    strconv.FormatUint for other integer types.
+    A conversion that reads like formatting but means something else is a trap
+    that Go itself warns about. Plutonium has no false friends: the program says
+    which of the two it means.
+    To make the character whose code is big, convert to a rune first:
+        string(rune(big))
+    To make the digits of big, as text:
+        import "pluto/strconv"
+
+        strconv.FormatUint(big, 10)
+    (see "Strings" in the Plutonium spec, section 6.10)
+    (run "pluto explain E2017" for a longer explanation)
+
+$DIR/main.p:33:22: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))
+    string(i) of an integer does not give the digits of i. In Go it gives the
+    character whose code is i, so string(65) is "A" and string(n) for n := 65 is
+    "A" too, not "65". Go's own vet tool reports it because programmers expect
+    the digits.
+    Plutonium accepts a conversion to string from a rune and from an untyped
+    constant such as string('A'), and nothing else, so the choice is visible in
+    the source. To make the character, convert to a rune first: string(rune(i)).
+    To make the digits, use strconv.Itoa(i), or strconv.FormatInt and
+    strconv.FormatUint for other integer types.
+    A conversion that reads like formatting but means something else is a trap
+    that Go itself warns about. Plutonium has no false friends: the program says
+    which of the two it means.
+    To make the character whose code is big, convert to a rune first:
+        string(rune(big))
+    To make the digits of big, as text:
+        import "pluto/strconv"
+
+        strconv.Itoa(big)
+    (see "Strings" in the Plutonium spec, section 6.10)
+    (run "pluto explain E2017" for a longer explanation)

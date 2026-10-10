@@ -1,0 +1,7 @@
+$DIR/main.p:10:19: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))
+$DIR/main.p:14:9: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))
+$DIR/main.p:18:9: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))
+$DIR/main.p:18:20: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))
+$DIR/main.p:22:9: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))
+$DIR/main.p:22:20: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))
+$DIR/main.p:33:22: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))

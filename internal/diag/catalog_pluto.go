@@ -152,6 +152,21 @@ func init() {
 			Example: "b := []byte(s)\nr := []rune(s)",
 			Fixed:   "b := strings.Bytes(s)\nr := strings.Runes(s)",
 		},
+		&Entry{
+			Code: CheckerCode(typerr.IntToStringNotPermitted), Name: "IntToStringNotPermitted",
+			Text: "string(i) of an integer does not give the digits of i. In Go it gives the character whose code is i, " +
+				"so string(65) is \"A\" and string(n) for n := 65 is \"A\" too, not \"65\". Go's own vet tool reports it " +
+				"because programmers expect the digits.\n" +
+				"Plutonium accepts a conversion to string from a rune and from an untyped constant such as string('A'), " +
+				"and nothing else, so the choice is visible in the source. To make the character, convert to a rune first: " +
+				"string(rune(i)). To make the digits, use strconv.Itoa(i), or strconv.FormatInt and strconv.FormatUint for " +
+				"other integer types.",
+			Why:     "A conversion that reads like formatting but means something else is a trap that Go itself warns about. Plutonium has no false friends: the program says which of the two it means.",
+			Fix:     &Fix{Intro: "To make the character with code i", Code: "s := string(rune(i))"},
+			Spec:    pspec("6.10", "Strings"),
+			Example: "n := 65\ns := string(n)",
+			Fixed:   "n := 65\ns := strconv.Itoa(n)",
+		},
 
 		// Packed types and wrappers.
 		&Entry{

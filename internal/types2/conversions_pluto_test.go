@@ -49,7 +49,27 @@ func use(...any) {}
 		{"bytes message names the fix", "func f(s string) []byte { return []byte(s) }", "use strings.Bytes, or copy into a buffer"},
 		{"runes message names the fix", "func f(s string) []rune { return []rune(s) }", "use strings.Runes, or range over the string"},
 
+		// string(i) of an integer other than a rune.
+		{"int", "func f(i int) string { return string(i) }", "string(i) of an integer other than a rune is not permitted"},
+		{"byte", "func f(b byte) string { return string(b) }", "string(i) of an integer other than a rune is not permitted"},
+		{"int64", "func f(i int64) string { return string(i) }", "string(i) of an integer other than a rune is not permitted"},
+		{"uint32", "func f(i uint32) string { return string(i) }", "string(i) of an integer other than a rune is not permitted"},
+		{"uintptr", "func f(i uintptr) string { return string(i) }", "string(i) of an integer other than a rune is not permitted"},
+		{"named int32", "type R int32\nfunc f(r R) string { return string(r) }", "string(i) of an integer other than a rune is not permitted"},
+		{"typed constant", "const c int = 65\nfunc f() string { return string(c) }", "string(i) of an integer other than a rune is not permitted"},
+		{"to a named string", "func f(i int) Name { return Name(i) }", "string(i) of an integer other than a rune is not permitted"},
+		{"in a type parameter", "func f[T ~int32 | ~int](x T) string { return string(x) }", "string(i) of an integer other than a rune is not permitted"},
+		{"message names the fix", "func f(i int) string { return string(i) }", "use string(rune(i)) or strconv.Itoa(i)"},
+
 		// What stays.
+		{"rune type", "func f(r rune) string { return string(r) }", ""},
+		{"int32 is rune", "func f(r int32) string { return string(r) }", ""},
+		{"untyped constant", "func f() string { return string(65) }", ""},
+		{"untyped rune constant", "func f() string { return string('A') }", ""},
+		{"typed rune constant", "const c rune = 65\nfunc f() string { return string(c) }", ""},
+		{"converted to a rune", "func f(i int) string { return string(rune(i)) }", ""},
+		{"type parameter of runes", "func f[T ~int32](x T) string { return string(x) }", ""},
+		{"integer to integer", "func f(i int) int64 { return int64(i) }", ""},
 		{"bytes of nil", "func f() []byte { return []byte(nil) }", ""},
 		{"runes to bytes of other types", "func f(r []uint16) []uint16 { return []uint16(r) }", ""},
 		{"copy from a string", "func f(s string, b []byte) int { return copy(b, s) }", ""},

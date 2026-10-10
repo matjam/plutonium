@@ -30,8 +30,11 @@ func main() {
 		fmt.Printf("%q ", string(r))
 	}
 	fmt.Println()
-	var wide int64 = 0x1_0000_0041 // not a code point, though its low bits are 'A'
-	fmt.Printf("%q %q %q\n", string(wide), string(rune(wide)), string(rune('A')))
+	// string(i) of an integer other than a rune is a compile error: a wide
+	// value is converted to a rune first, which keeps its low 32 bits.
+	var wide int64 = 0x1_0000_0041
+	var bad int64 = -1
+	fmt.Printf("%q %q %q\n", string(rune(wide)), string(rune('A')), string(rune(bad)))
 
 	// The ASCII flag: literals, conversions, concatenation and substrings.
 	ascii, accent := "plain", "café"

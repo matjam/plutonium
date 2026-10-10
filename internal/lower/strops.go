@@ -88,15 +88,8 @@ func (s *fnState) stringConversion(e *ast.CallExpr, to, from types2.Type) (value
 			return s.newString(res, to), true
 		}
 	}
-	if b, ok := fu.(*types2.Basic); ok && b.Info()&types2.IsInteger != 0 {
+	if b, ok := fu.(*types2.Basic); ok && b.Kind() == types2.Int32 {
 		r := s.convertScalar(s.scalar(e.Args[0]), from, types2.Typ[types2.Rune])
-		if isUnsigned(from) || s.l.sizeof(from) == 8 {
-			// A value that does not fit in a rune is not a code point:
-			// clamp it to one that is not either.
-			wide := s.convertScalar(s.scalar(e.Args[0]), from, types2.Typ[types2.Int64])
-			ok := s.newValue(ssa.OpLequ, ssa.TBool, wide, s.constInt(ssa.TI64, 0x10FFFF))
-			r = s.newValue(ssa.OpSelect, ssa.TI32, ok, r, s.constInt(ssa.TI32, -1))
-		}
 		res := s.callRuntime("stringFromRune", []*ssa.Type{ssa.TPtr, ssa.TI64, ssa.TI64}, []*ssa.Value{r})
 		return s.newString(res, to), true
 	}

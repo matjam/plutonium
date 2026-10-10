@@ -252,17 +252,6 @@ later takes the next free number and is listed in the section where it belongs.
     `synced[T]` object used without the lock of the same object (E3502, E3503). Follow-ups: maps join the
     `synced[T]` rule when they return (gap G16); `sync.Scope`'s sharing check reuses the lock inference
     (E3401 to E3406).
-60. **Conversions Plutonium removes** (in progress; language spec sections 3 and 6.10; false-friends
-    audit F2, decisions 2 and 16; complete-spec gaps G10 and G11): `string(b)` for a byte slice is E2015,
-    because it silently replaced bytes that are not UTF-8 (`string([]byte{0xfe}) == string([]byte{0xff})`);
-    the fix is `strings.FromUTF8(b)` (strict) or the new `strings.FromUTF8Lossy(b)`; the library's own
-    uses became `rt.StringFromSlice` or `FromUTF8Lossy`, and go2pu translates Go's `string(b)` to
-    `compat.String`, which is the lossy form. `[]byte(s)` and `[]rune(s)` are E2016 (gap G10): the copy
-    would belong to no one; the fix is `strings.Bytes(s)` or `strings.Runes(s)`, which return an owning
-    `vec.Vec`, `copy(buf[:], s)` into a buffer of the program's own, or a `range` over the string. The
-    lowering and the runtime functions of the three conversions are deleted; go2pu translates `[]rune(s)`
-    to the new `compat.Runes` (`[]byte(s)` was `compat.Bytes`). `string(i)` for an integer other than a
-    rune follows.
 48. **Counted references and `weak[P]`** (planned; language spec sections 5.6 and 6.5): the allocation
     header (allocator, strong and weak counts), increments on copy and decrements on drop with matched
     pairs removed at last use, `Drop` at zero strong count and the free at zero weak count, the atomic
@@ -291,7 +280,7 @@ later takes the next free number and is listed in the section where it belongs.
     3.7): `string` is an immutable, reference-counted value of three words, `{ptr, len, ctl}`, whose
     control word points at the buffer's header (count, allocator, size) or holds only flags for a static
     or `unsafe.String` string, which is never counted. Runtime `+` and `+=` (one allocation for a chain),
-    `string(runes)`, `string(r)`, `[]byte(s)` and `[]rune(s)` work again (item 60 removes some of them); every string is
+    `string(runes)`, `string(r)`, `[]byte(s)` and `[]rune(s)` work again (item 61 removes some of them); every string is
     valid UTF-8 (invalid literals are errors, conversions replace with U+FFFD, `s[i:j]` panics inside a
     rune, `strings.FromUTF8` is strict), and bit 0 of the control word marks strings that may hold
     non-ASCII bytes. Lowering counts with drop glue kept apart from the ownership work
@@ -351,15 +340,21 @@ later takes the next free number and is listed in the section where it belongs.
     be owners: the error points to `hash.Map`, whose `Ptr`, `Remove` and `Pop` look at or take out an owner
     (G15). A map may be passed to another task, and its contents fall under the race rules of item 59 as
     the contents of a `synced[T]` do (G16). Iteration follows item 64.
-61. **Remove `string([]byte)`, `[]byte(s)`, `[]rune(s)` and integer-to-string conversions** (in progress:
-    `string(b)` is E2015 on an unmerged branch; false-friends audit F2; complete-spec gaps G10 and G11):
-    each is a compile error whose message shows the replacement. `strings.FromUTF8(b)` converts bytes that
-    should be text, `strings.FromUTF8Lossy(b)` where replacing invalid bytes is acceptable, `strings.Bytes(s)`
-    returns a `vec.Vec[byte]`, `copy(buf[:], s)` fills a caller's buffer without allocating, and
-    `for i, r := range s` or `strings.Runes(s)` give runes (the functions are added where they do not
-    exist). `string(runes)` and `string(r)` stay. A conversion from an integer type to `string` accepts only
-    `rune` and untyped constants; `string(rune(i))` and `strconv.Itoa(i)` are the fixes. Supersedes the
-    conversions that item 57 brought back.
+61. **Remove `string([]byte)`, `[]byte(s)`, `[]rune(s)` and integer-to-string conversions** (done;
+    language spec sections 3 and 6.10; false-friends audit F2, decisions 2 and 16; complete-spec gaps G10
+    and G11): each is a compile error whose message shows the replacement. `string(b)` of a byte slice is
+    E2015 (it replaced bytes that are not UTF-8, so `string([]byte{0xfe}) == string([]byte{0xff})`):
+    `strings.FromUTF8(b)` converts bytes that should be text and fails on the others,
+    `strings.FromUTF8Lossy(b)` replaces them with U+FFFD by name. `[]byte(s)` and `[]rune(s)` are E2016
+    (the copy would belong to no one): `strings.Bytes(s)` returns a `vec.Vec[byte]`, `strings.Runes(s)` a
+    `vec.Vec[rune]`, `copy(buf[:], s)` fills a caller's buffer without allocating, and
+    `for i, r := range s` visits the runes. `string(runes)` and `string(r)` stay. A conversion from an
+    integer type to `string` accepts only `rune` and untyped constants (`string(65)`); any other integer is
+    E2017, and `string(rune(i))` and `strconv.Itoa(i)` are the fixes. The library's own uses became
+    `rt.StringFromSlice` (for the packages `pluto/strings` and its tests depend on) or `FromUTF8Lossy`;
+    the lowering and the runtime functions of the three conversions are deleted; go2pu translates Go's
+    `string(b)` to `compat.String`, which is the lossy form, and `[]rune(s)` to the new `compat.Runes`.
+    Supersedes the conversions that item 57 brought back.
 62. **The `task` rename** (planned; complete-spec gaps G1 to G3): `task f(x)` starts a task. `task` is a
     contextual keyword: it begins a statement when it starts the statement and the next token is an
     identifier or `func`, and is an ordinary identifier everywhere else (G2). `go` stays reserved, and

@@ -193,7 +193,7 @@ A section can carry several statuses when its parts differ.
 | 11.21 Logical operators | Go | main |
 | 11.22 Address operators (`&x` is a view of `x` where it lives) | Go; old 6.3 | main; branch |
 | 11.23 Receive operator (receiving an owner) | Go; old 4.8 | main |
-| 11.24 Conversions (numeric, strings, slices to arrays, packed, enums, owners, `unsafe.Pointer`; the conversions Go has and Plutonium does not) | Go: Conversions; old 3, 5.5, 5.9, 6.10, 11 | main; `string([]byte)` removal decided (false-friends F2); open G8, G10, G11, G14 |
+| 11.24 Conversions (numeric, strings, slices to arrays, packed, enums, owners, `unsafe.Pointer`; the conversions Go has and Plutonium does not) | Go: Conversions; old 3, 5.5, 5.9, 6.10, 11 | main; `string([]byte)` (E2015), `[]byte(s)` and `[]rune(s)` (E2016) and `string(i)` of a non-rune integer (E2017) removed (roadmap 61); open G8, G14 |
 | 11.25 Constant expressions | Go | main |
 | 11.26 Order of evaluation (defaulted arguments, moves) | Go; old 5.1 | main; open G24, G25 |
 
@@ -744,6 +744,8 @@ b := []byte(s)   // today: a slice from the current allocator, freed by nobody
 compiling (**Familiar**), with the fix in the message. (c) leaks (**Owned** cost), and (a) is the
 confusing type error F16 was accepted to avoid. `string(runes)` stays, as F2 decided.
 
+**Decided and implemented (b)** (E2016, language spec sections 3 and 6.10, roadmap item 61).
+
 **G11. What does `string(65)` mean?**
 Go accepts a conversion from any integer type to `string`, giving the character with that code
 (`string(65)` is `"A"`), a known trap that `go vet` reports since programmers expect `"65"`.
@@ -755,6 +757,9 @@ Go accepts a conversion from any integer type to `string`, giving the character 
 **Recommendation: (b).** It is a compile error, so it is not a false friend (**Visible**), and it
 removes a trap that Go itself warns about. The cost to **Familiar** is limited to code `go vet` already
 flags.
+
+**Decided and implemented (b)** (E2017, language spec sections 3 and 6.10, roadmap item 61). A named
+type with underlying type `int32` is not `rune`: it converts through `rune(x)` first.
 
 **G30. What is the helper for cutting a string on a rune boundary called?**
 False-friends F12 keeps the panic for `s[i:j]` off a rune boundary and names a helper in the panic's

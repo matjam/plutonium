@@ -9,7 +9,7 @@ f09f98 -> "���" valid=true runes=3 ascii=false fromutf8=strings: invalid U
 c080 -> "��" valid=true runes=2 ascii=false fromutf8=strings: invalid UTF-8
 "a���é😀"
 "a" "�" "�" "�" "é" "😀" 
-"�" "A" "A"
+"A" "A" "�"
 true false true false
 false true true
 10 9 10
