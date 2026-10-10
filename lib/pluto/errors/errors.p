@@ -7,8 +7,8 @@
 // either a word-sized value (such as syscall.Errno) or a pointer to storage
 // that outlives the call:
 //
-//   - static storage: sentinel errors made by New in a package-level
-//     variable, or written as &errors.Text{...} there;
+//   - static storage: errors made by New with a constant message, anywhere,
+//     or written as &errors.Text{...} in a package-level variable;
 //   - storage owned by a longer-lived object, such as a parser that keeps
 //     its last error in a field and returns a pointer to it;
 //   - memory from an allocator: fmt.Errorf, errors.Join and os.PathError
@@ -19,10 +19,7 @@
 // outermost one, or allocate errors from an arena and reset it.
 package errors
 
-import (
-	"pluto/rt"
-	"pluto/sync/atomic"
-)
+import "pluto/rt"
 
 // A Text is an error whose message is fixed. New returns one; a package can
 // also declare one as a static literal:
@@ -34,30 +31,22 @@ type Text struct {
 
 func (t *Text) Error() string { return t.Msg }
 
-// maxNew is the number of errors New can make in one program.
-const maxNew = 512
-
-var (
-	texts [maxNew]Text
-	nNew  uint32
-)
-
-// New returns an error whose message is text. Each call returns a distinct
-// error, so New is meant for sentinel errors in package-level variables:
+// New returns an error whose message is text, which must be a constant.
+// It works anywhere, as in Go: in a package-level variable,
 //
 //	var ErrNotFound = errors.New("not found")
 //
-// New does not allocate: the error lives in static storage reserved for New,
-// which holds 512 errors and panics when it runs out. text must be a
-// constant or other static string, since the error keeps it. To build a
-// message at run time, use fmt.Errorf with an allocator, or a fmt.ErrorBuf.
+// or inside a function, return errors.New("bad header").
+//
+// New does not allocate. The compiler turns each call into the address of
+// a static, read-only Text that belongs to the call site: the same call
+// site always returns the same error, and different call sites return
+// different errors even when their messages are equal. A message that is
+// not a constant is a compile error; build one at run time with fmt.Errorf
+// or a fmt.ErrorBuf. New cannot be used as a func value or deferred.
 func New(text string) error {
-	i := atomic.AddUint32(&nNew, 1) - 1
-	if i >= maxNew {
-		panic("errors.New: more than 512 errors; declare errors in package-level variables, or use fmt.Errorf")
-	}
-	texts[i].Msg = text
-	return &texts[i]
+	// Never reached: the compiler replaces every call.
+	panic("errors.New: called without compiler support")
 }
 
 // ErrUnsupported indicates that a requested operation cannot be performed,

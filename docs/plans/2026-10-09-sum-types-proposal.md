@@ -329,3 +329,12 @@ not recommended: too many new constructs for a language whose first goal is that
 3. Keyword: `union` (recommended; it says what the layout is) or `enum` (familiar from Rust and Swift, but
    in C and Go culture an enum is a set of named integers)?
 4. Should in-place update (`(&u).(*U.V)`) be part of the first version, or wait for real use?
+
+## 8. Relation to enums
+
+Option A was accepted, with unqualified case names, and `enum` is now the payload-free sibling
+([enums design](2026-10-09-enums-design.md), language spec section 5.9). Enums already implement the
+pieces a union reuses: selecting a member through the type (`types2.Checker.enumSelector`), bare names in
+case clauses (`enumCaseName`), and the missing-cases error (`missingCases`). The enum design resolves bare
+case names as "the member wins over any declaration in scope" rather than this proposal's "only when the
+name is not shadowed" (enums design section 3.4 gives the reason); unions should follow the same rule.

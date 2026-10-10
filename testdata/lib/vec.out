@@ -14,4 +14,4 @@ after release used=8 avail=65528 cap=65536
 too big nil=true
 new in arena=true len=10
 zeroed=0
-0,1,2,3,4,5,6,7,8,9, len=140 used=268
+0,1,2,3,4,5,6,7,8,9, len=140 used=266

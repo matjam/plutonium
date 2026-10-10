@@ -46,16 +46,30 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 
 	// Method calls.
 	if se, ok := fun.(*ast.SelectorExpr); ok {
-		if sel := s.info.Selections[se]; sel != nil && sel.Kind() == types2.MethodVal {
-			return s.methodCall(e, se, sel)
+		if sel := s.info.Selections[se]; sel != nil {
+			switch sel.Kind() {
+			case types2.MethodVal:
+				return s.methodCall(e, se, sel)
+			case types2.MethodExpr:
+				sig := s.subst(s.info.Types[e.Fun].Type).(*types2.Signature)
+				sym := s.methodExpr(se, sel, sig)
+				if sym == nil {
+					return nil
+				}
+				args := s.callArgs(e, sig, nil)
+				return s.emitCall(callee{sym: sym}, sig, nil, args, e.Pos())
+			}
 		}
 	}
 
 	// Static calls of declared functions.
-	if id := identOf(fun); id != nil {
+	if id := staticFuncIdent(fun, s.info); id != nil {
 		if fn, ok := s.info.Uses[id].(*types2.Func); ok {
 			if fn.Pkg() != nil && fn.Pkg().Path()+"."+fn.Name() == handlerAddrFunc {
 				return []value{s.handlerAddr(e, s.typeOf(e))}
+			}
+			if types2.IsErrorsNew(fn) {
+				return s.errorsNew(e, fn)
 			}
 			if res, ok := s.intrinsic(fn, e); ok {
 				return res
@@ -63,7 +77,7 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 			targs := s.instanceArgs(id)
 			sig := s.subst(s.info.Types[e.Fun].Type).(*types2.Signature)
 			sym := s.l.funcSym(fn, targs)
-			args := s.callArgs(e, sig)
+			args := s.callArgs(e, sig, &defaultsOf{fn, targs})
 			return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn)}, sig, nil, args, e.Pos())
 		}
 	}
@@ -71,7 +85,7 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 	// A call through a func value.
 	fv := s.scalar(e.Fun)
 	sig := s.typeOf(e.Fun).Underlying().(*types2.Signature)
-	args := s.callArgs(e, sig)
+	args := s.callArgs(e, sig, nil)
 	code := s.load(ssa.TPtr, fv)
 	return s.emitCall(callee{code: code, ctx: fv}, sig, nil, args, e.Pos())
 }
@@ -122,9 +136,20 @@ func (s *fnState) argSources(args []ast.Expr) []argSource {
 	return out
 }
 
+// defaultsOf identifies the declared function a call names, and the type
+// arguments of the instance it calls, so that the call can evaluate the
+// default values of the parameters it omits.
+type defaultsOf struct {
+	fn    *types2.Func
+	targs []types2.Type
+}
+
 // callArgs evaluates a call's arguments in order, packing variadic
-// arguments into a slice whose backing array lives in this frame.
-func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature) []value {
+// arguments into a slice whose backing array lives in this frame. A call
+// that names its callee (def is not nil) may omit trailing parameters that
+// have default values; their defaults are evaluated after the explicit
+// arguments.
+func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature, def *defaultsOf) []value {
 	params := sig.Params()
 	n := params.Len()
 	args := s.argSources(e.Args)
@@ -142,6 +167,15 @@ func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature) []value {
 	}
 	for i := 0; i < fixed && i < len(args); i++ {
 		out = append(out, s.materialize(as(args[i], s.subst(params.At(i).Type()))))
+	}
+	if !sig.Variadic() && len(args) < n {
+		if def == nil {
+			s.l.errorf(e.Pos(), "lower: call has %d arguments, signature has %d parameters", len(args), n)
+			return out
+		}
+		for i := len(args); i < n; i++ {
+			out = append(out, s.defaultArg(def, i, n, s.subst(params.At(i).Type()), e))
+		}
 	}
 	if sig.Variadic() && !e.Ellipsis.IsValid() {
 		sliceT := s.subst(params.At(n - 1).Type())
@@ -163,6 +197,32 @@ func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature) []value {
 	return out
 }
 
+// defaultArg evaluates the default value of parameter i (of n) of the
+// callee def names, converted to the parameter type T. The default is
+// lowered here, in the caller's frame, as if it were written at the call
+// site; but its names were resolved in the callee's declaration, so it is
+// lowered with the callee package's type information and the callee
+// instance's type arguments. That lets it use the callee package's
+// unexported names and the callee's type parameters.
+func (s *fnState) defaultArg(def *defaultsOf, i, n int, T types2.Type, e *ast.CallExpr) value {
+	fn := def.fn.Origin()
+	defs := fn.Defaults()
+	k := i - (n - len(defs))
+	d := s.l.decls[fn]
+	if k < 0 || d == nil {
+		s.l.errorf(e.Pos(), "lower: no argument for parameter %d of %s", i+1, fn.Name())
+		return s.zeroValue(T)
+	}
+	pkg, info, tmap := s.pkg, s.info, s.tmap
+	s.pkg, s.info, s.tmap = d.pkg, d.pkg.Info, nil
+	if len(def.targs) > 0 {
+		s.tmap = newTypeMap(s.l, fn, def.targs)
+	}
+	v := s.materialize(s.exprAs(defs[k], T))
+	s.pkg, s.info, s.tmap = pkg, info, tmap
+	return v
+}
+
 // emitCall emits a call and returns its results as values.
 func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []value, pos token.Pos) []value {
 	if c.sym != nil {
@@ -182,17 +242,26 @@ func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []
 		sretBuf = s.tempSize(size, align, "sret")
 		// Leaves let SROA split the buffer once the call is inlined. They
 		// must cover every result, so a result held in memory as a unit
-		// leaves the buffer unsplittable.
+		// leaves the buffer unsplittable. The pads are the padding inside
+		// each result and the alignment gaps between them.
 		slot := sretBuf.Aux.(*ssa.Slot)
 		offs := s.l.resultOffsets(abi)
 		for i, p := range abi.results {
 			lfs := s.l.leaves(p.typ)
 			if lfs == nil && s.l.sizeof(p.typ) > 0 {
-				slot.Leaves = nil
+				slot.Leaves, slot.Pads = nil, nil
 				break
 			}
 			for _, lf := range lfs {
 				slot.Leaves = append(slot.Leaves, ssa.Leaf{Off: offs[i] + lf.off, Type: lf.t})
+			}
+			s.l.appendPads(&slot.Pads, p.typ, offs[i])
+			end := slot.Size
+			if i+1 < len(offs) {
+				end = offs[i+1]
+			}
+			if gap := offs[i] + s.l.sizeof(p.typ); end > gap {
+				slot.Pads = append(slot.Pads, ssa.Pad{Off: gap, Size: end - gap})
 			}
 		}
 		flat = append(flat, sretBuf)
@@ -218,7 +287,9 @@ func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []
 	}
 
 	call := s.callValue(c, flat, abi.flatResults)
-	call.Pos = pos
+	if pos.IsValid() {
+		call.Pos = pos
+	}
 	s.endCall(call, c.noReturn)
 
 	var out []value
@@ -271,6 +342,9 @@ func (s *fnState) selectN(call *ssa.Value, i int, t *ssa.Type) *ssa.Value {
 
 // callValue emits the call op itself.
 func (s *fnState) callValue(c callee, flat []*ssa.Value, results []*ssa.Type) *ssa.Value {
+	if s.f.NoSSE {
+		s.checkFloatCall(flat, results)
+	}
 	rt := ssa.TupleOf(append([]*ssa.Type{ssa.TMem}, results...)...)
 	var call *ssa.Value
 	if c.sym != nil {
@@ -338,23 +412,31 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 	recvT := s.typeOf(se.X)
 	sig := s.subst(s.info.Types[e.Fun].Type).(*types2.Signature)
 
-	// Built-in ring methods.
-	if w := ringOf(recvT, sel); w != nil {
-		return s.ringCall(e, se, sel, w)
-	}
-
 	// Interface method calls.
 	if isInterface(recvT) && len(sel.Index()) == 1 {
 		iv := s.expr(se.X)
-		args := s.callArgs(e, sig)
+		args := s.callArgs(e, sig, nil)
 		return s.ifaceCall(iv, recvT, fn, sig, args, e.Pos())
 	}
 
-	recv := s.methodReceiver(se.X, sel)
+	fn, path, ok := s.selectedMethod(se, sel)
+	if !ok {
+		return nil
+	}
+	// Built-in ring methods.
+	if w := s.ringOf(fn); w != nil {
+		return s.ringCall(e, se, fn, path, w)
+	}
+	recv := s.methodReceiver(se.X, fn, path)
+	if isIfaceMethod(fn) {
+		// A method promoted from an embedded interface field.
+		args := s.callArgs(e, sig, nil)
+		return s.ifaceCall(recv, recv.T, fn, sig, args, e.Pos())
+	}
 	targs := s.methodTypeArgs(fn, se, recvT)
 	sym := s.l.funcSym(fn, targs)
 	full := s.l.methodSig(fn, targs)
-	args := s.callArgs(e, sig)
+	args := s.callArgs(e, sig, &defaultsOf{fn, targs})
 	return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn)}, full, &recv, args, e.Pos())
 }
 
@@ -401,16 +483,41 @@ func (l *Lowerer) methodSig(fn *types2.Func, targs []types2.Type) *types2.Signat
 	return types2.NewSignatureType(r, nil, nil, inst.Params(), inst.Results(), inst.Variadic())
 }
 
+// selectedMethod returns the method that the selection x.m reaches in this
+// instance of the function, with the path to it as in Selection.Index. When
+// x is a value of a type parameter, the checker selected a method of the
+// constraint; the call goes to the method of the type argument instead,
+// which may be promoted from an embedded field or have a pointer receiver.
+func (s *fnState) selectedMethod(se *ast.SelectorExpr, sel *types2.Selection) (*types2.Func, []int, bool) {
+	fn := sel.Obj().(*types2.Func)
+	if _, ok := types2.Unalias(s.info.Types[se.X].Type).(*types2.TypeParam); !ok {
+		return fn, sel.Index(), true
+	}
+	T := s.typeOf(se.X)
+	obj, index, _ := types2.LookupFieldOrMethod(T, false, fn.Pkg(), fn.Name())
+	m, ok := obj.(*types2.Func)
+	if !ok {
+		s.l.errorf(se.Sel.Pos(), "lower: %s has no method %s", T, fn.Name())
+		return nil, nil, false
+	}
+	return m, index, true
+}
+
+// isIfaceMethod reports whether fn is declared by an interface.
+func isIfaceMethod(fn *types2.Func) bool {
+	recv := fn.Type().(*types2.Signature).Recv()
+	return recv != nil && isInterface(recv.Type())
+}
+
 // methodReceiver evaluates the receiver of a method call or method value,
 // following embedded fields and taking the address or dereferencing as the
-// method's receiver type requires.
-func (s *fnState) methodReceiver(x ast.Expr, sel *types2.Selection) value {
-	fn := sel.Obj().(*types2.Func)
+// method's receiver type requires. fn is the method and path the selection
+// path to it.
+func (s *fnState) methodReceiver(x ast.Expr, fn *types2.Func, path []int) value {
 	// Named types cannot be pointers when they have methods, so a pointer
 	// receiver is always a literal *T.
 	_, wantPtr := fn.Type().(*types2.Signature).Recv().Type().(*types2.Pointer)
 
-	path := sel.Index()
 	xt := s.typeOf(x)
 	var cur lvalue
 	if isPointerLike(xt) {
@@ -430,6 +537,13 @@ func (s *fnState) methodReceiver(x ast.Expr, sel *types2.Selection) value {
 			cur = lvalue{ptr: v.v, T: xt}
 		}
 	}
+	return s.receiverAt(cur, wantPtr, path)
+}
+
+// receiverAt follows path from the variable cur to the receiver of the
+// method it ends in, and returns the receiver: its address if wantPtr,
+// otherwise its value.
+func (s *fnState) receiverAt(cur lvalue, wantPtr bool, path []int) value {
 	if len(path) > 1 {
 		cur = s.fieldPath(cur, path[:len(path)-1])
 		if isPointerLike(unwrap(cur.T)) {
@@ -437,24 +551,106 @@ func (s *fnState) methodReceiver(x ast.Expr, sel *types2.Selection) value {
 		}
 	}
 	if wantPtr {
-		return scalarValue(cur.ptr, types2.NewPointer(cur.T))
+		return scalarValue(s.absAddr(cur.ptr), types2.NewPointer(cur.T))
 	}
 	return s.loadLV(cur)
 }
 
-// ringOf returns the ring type of a ring method selection, or nil.
-func ringOf(recvT types2.Type, sel *types2.Selection) *types2.Wrapper {
-	if sel.Obj().Pkg() != nil {
-		return nil
+// receiverFromValue returns the receiver of method fn, reached by path,
+// from a value v of the type the method was selected on.
+func (s *fnState) receiverFromValue(v value, fn *types2.Func, path []int) value {
+	_, wantPtr := fn.Type().(*types2.Signature).Recv().Type().(*types2.Pointer)
+	if len(path) == 1 && !wantPtr && !isPointerLike(v.T) {
+		return v
 	}
-	T := recvT
-	if p, ok := T.Underlying().(*types2.Pointer); ok {
-		T = p.Elem()
+	var cur lvalue
+	if isPointerLike(v.T) {
+		cur = lvalue{ptr: v.v, T: pointerElem(v.T)}
+	} else {
+		tmp := s.temp(v.T, "recv")
+		s.storeTo(tmp, v, v.T)
+		cur = lvalue{ptr: tmp, T: v.T}
 	}
-	if w, ok := unwrap(T).Underlying().(*types2.Wrapper); ok && w.Kind() == types2.WrapRing {
-		return w
+	return s.receiverAt(cur, wantPtr, path)
+}
+
+// methodExpr returns the function that the method expression e (R.m)
+// denotes: it takes the receiver, of type R, as its first parameter. That is
+// the method itself when R is its receiver type; otherwise a thunk reaches
+// the method by dereferencing R, following embedded fields or calling
+// through an interface. sig is the expression's type, instantiated when
+// the method has type parameters of its own (R.m[int]).
+func (s *fnState) methodExpr(e *ast.SelectorExpr, sel *types2.Selection, sig *types2.Signature) *ssa.Sym {
+	R := s.subst(sel.Recv())
+	fn := sel.Obj().(*types2.Func)
+	path := sel.Index()
+	if _, ok := types2.Unalias(sel.Recv()).(*types2.TypeParam); ok {
+		obj, index, _ := types2.LookupFieldOrMethod(R, false, fn.Pkg(), fn.Name())
+		m, ok := obj.(*types2.Func)
+		if !ok {
+			s.l.errorf(e.Sel.Pos(), "lower: %s has no method %s", R, fn.Name())
+			return nil
+		}
+		fn, path = m, index
 	}
-	return nil
+	if isIfaceMethod(fn) {
+		return s.l.methodExprThunk(R, fn, path, nil, nil, sig)
+	}
+	w := s.ringOf(fn)
+	var targs []types2.Type
+	if w == nil {
+		targs = s.recvTypeArgs(fn.Type().(*types2.Signature).Recv().Type())
+		if len(targs) == 0 {
+			targs = s.recvTypeArgs(R)
+		}
+		targs = s.withMethodTypeArgs(fn, e.Sel, targs)
+	}
+	target, full := s.l.methodFunc(fn, targs, w)
+	if len(path) == 1 && types2.Identical(full.Recv().Type(), R) {
+		return target
+	}
+	return s.l.methodExprThunk(R, fn, path, target, full, sig)
+}
+
+// methodFunc returns the function implementing method fn instantiated with
+// targs, and its signature with the receiver. w is fn's ring type if fn is
+// a built-in ring method, or nil.
+func (l *Lowerer) methodFunc(fn *types2.Func, targs []types2.Type, w *types2.Wrapper) (*ssa.Sym, *types2.Signature) {
+	if w != nil {
+		return l.ringMethodFunc(fn, w)
+	}
+	return l.funcSym(fn, targs), l.methodSig(fn, targs)
+}
+
+// methodExprThunk synthesizes the function of a method expression R.m whose
+// receiver type R differs from the method's: sig takes the R first. The
+// thunk reaches method fn by path and calls target, whose signature is
+// full, or calls fn through an interface if it is an interface method.
+func (l *Lowerer) methodExprThunk(R types2.Type, fn *types2.Func, path []int, target *ssa.Sym, full, sig *types2.Signature) *ssa.Sym {
+	name := typeString(R) + "." + fn.Name() + "·x"
+	if target != nil {
+		name = typeString(R) + "." + target.Name + "·x"
+	}
+	if sym := l.funcs[name]; sym != nil {
+		return sym
+	}
+	sym := l.out.Sym(name, ssa.SymFunc)
+	l.funcs[name] = sym
+	var rest []*types2.Var
+	for i := 1; i < sig.Params().Len(); i++ {
+		rest = append(rest, sig.Params().At(i))
+	}
+	plain := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(rest...), sig.Results(), sig.Variadic())
+	l.queue = append(l.queue, &funcJob{sym: sym, sig: sig, build: func(s *fnState) {
+		in := s.incomingArgs(sig)
+		recv := s.receiverFromValue(in[0], fn, path)
+		if target == nil {
+			s.returnValues(s.ifaceCall(recv, recv.T, fn, plain, in[1:], token.NoPos))
+			return
+		}
+		s.returnValues(s.emitCall(callee{sym: target}, full, &recv, in[1:], token.NoPos))
+	}})
+	return sym
 }
 
 // ----------------------------------------------------------------------------
@@ -463,6 +659,7 @@ func ringOf(recvT types2.Type, sel *types2.Selection) *types2.Wrapper {
 // funcValue returns a func value for a declared function: the address of a
 // static closure record holding its code pointer.
 func (s *fnState) funcValue(fn *types2.Func, targs []types2.Type, pos token.Pos) *ssa.Value {
+	s.l.errorsNewValue(fn, pos, "used as a func value")
 	sym := s.l.funcSym(fn, targs)
 	s.checkNotHandler(sym, pos, "used as a func value")
 	if s.l.isCFunc(sym) {
@@ -534,23 +731,50 @@ func (s *fnState) capturedVars(lit *ast.FuncLit) []*types2.Var {
 // methodValue lowers x.m used as a value: a closure record in this frame
 // holding a wrapper's code pointer and a copy of the receiver.
 func (s *fnState) methodValue(se *ast.SelectorExpr, sel *types2.Selection) *ssa.Value {
-	fn := sel.Obj().(*types2.Func)
 	recvT := s.typeOf(se.X)
 	if isInterface(recvT) {
-		iv := s.materialize(s.expr(se.X))
-		wrapper := s.l.ifaceMethodValueWrapper(recvT, fn)
-		rec := s.tempSize(24, 8, "methodvalue")
-		s.store(ssa.TPtr, rec, s.funcAddr(wrapper))
-		s.move(s.offPtr(rec, 8), iv.v, 16)
-		return rec
+		return s.ifaceMethodValue(s.expr(se.X), sel.Obj().(*types2.Func))
 	}
-	recv := s.methodReceiver(se.X, sel)
-	targs := s.methodTypeArgs(fn, se, recvT)
-	wrapper := s.l.boundMethodWrapper(fn, targs, recv.T)
+	fn, path, ok := s.selectedMethod(se, sel)
+	if !ok {
+		return s.constInt(ssa.TPtr, 0)
+	}
+	recv := s.methodReceiver(se.X, fn, path)
+	if isIfaceMethod(fn) {
+		// A method promoted from an embedded interface field.
+		return s.ifaceMethodValue(recv, fn)
+	}
+	var targs []types2.Type
+	w := s.ringOf(fn)
+	if w == nil {
+		targs = s.methodTypeArgs(fn, se, recvT)
+	}
+	wrapper := s.l.boundMethodWrapper(s.l.methodFunc(fn, targs, w))
 	size := 8 + s.l.sizeof(recv.T)
-	rec := s.tempSize((size+7)&^7, 8, "methodvalue")
+	rec := s.methodValueRecord((size + 7) &^ 7)
 	s.store(ssa.TPtr, rec, s.funcAddr(wrapper))
 	s.storeTo(s.offPtr(rec, 8), recv, recv.T)
+	return rec
+}
+
+// methodValueRecord returns storage for the closure record of a method
+// value: in this frame, or in static storage during package
+// initialisation, whose values outlive the init function.
+func (s *fnState) methodValueRecord(size int64) *ssa.Value {
+	if s.staticLits {
+		return s.symAddr(s.l.staticBytes(size, 8))
+	}
+	return s.tempSize(size, 8, "methodvalue")
+}
+
+// ifaceMethodValue lowers the method value iv.fn of an interface value: a
+// closure record holding a wrapper's code pointer and the interface value.
+func (s *fnState) ifaceMethodValue(iv value, fn *types2.Func) *ssa.Value {
+	iv = s.materialize(iv)
+	wrapper := s.l.ifaceMethodValueWrapper(iv.T, fn)
+	rec := s.methodValueRecord(24)
+	s.store(ssa.TPtr, rec, s.funcAddr(wrapper))
+	s.move(s.offPtr(rec, 8), iv.v, 16)
 	return rec
 }
 
@@ -563,16 +787,15 @@ func (s *fnState) funcAddr(sym *ssa.Sym) *ssa.Value {
 
 // boundMethodWrapper synthesizes the function a method value's record
 // points at: it loads the receiver from the record and calls the method.
-func (l *Lowerer) boundMethodWrapper(fn *types2.Func, targs []types2.Type, recvT types2.Type) *ssa.Sym {
-	name := funcSymName(fn, targs) + "-fm"
+func (l *Lowerer) boundMethodWrapper(target *ssa.Sym, full *types2.Signature) *ssa.Sym {
+	name := target.Name + "-fm"
 	if sym := l.funcs[name]; sym != nil {
 		return sym
 	}
 	sym := l.out.Sym(name, ssa.SymFunc)
 	l.funcs[name] = sym
-	full := l.methodSig(fn, targs)
 	plain := types2.NewSignatureType(nil, nil, nil, full.Params(), full.Results(), full.Variadic())
-	target := l.funcSym(fn, targs)
+	recvT := full.Recv().Type()
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: plain, build: func(s *fnState) {
 		ctx := s.newValue(ssa.OpClosurePtr, ssa.TPtr)
 		recv := s.loadFrom(s.offPtr(ctx, 8), recvT)
@@ -582,6 +805,7 @@ func (l *Lowerer) boundMethodWrapper(fn *types2.Func, targs []types2.Type, recvT
 	}})
 	return sym
 }
+
 
 // incomingArgs rebuilds a synthesized function's parameters as values.
 func (s *fnState) incomingArgs(sig *types2.Signature) []value {

@@ -42,6 +42,18 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 		check.hasCallOrRecv = false
 	}
 
+	// Plutonium: len(E) of an enum type E is its member count, a constant.
+	if id == _Len && len(argList) == 1 && check.denotesType(argList[0]) {
+		_, en := check.enumTypeOperand(argList[0], "invalid argument for built-in len")
+		if en == nil {
+			return
+		}
+		x.mode_ = constant_
+		x.typ_ = Typ[UntypedInt]
+		x.val = constant.MakeInt64(int64(en.Len()))
+		return true
+	}
+
 	// Evaluate arguments for built-ins that use ordinary (value) arguments.
 	// For built-ins with special argument handling (make, new, etc.),
 	// evaluation is done by the respective built-in code.
@@ -556,6 +568,10 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 		}
 		// Plutonium: making a slice takes an optional final allocator
 		// argument, told from a capacity by its type (spec section 4.2).
+		// Channels take one too (spec 4.8, make(chan T, n, a)); channel
+		// types are rejected until they exist (roadmap item 15), and
+		// supporting them means treating *Chan like *Slice here and
+		// allocating in lower's make.
 		max := min + 1
 		_, isSlice := u.(*Slice)
 		if isSlice {
@@ -766,6 +782,9 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 
 	case _Recover:
 		// recover() interface{}
+		// Plutonium: panic aborts without unwinding (language spec
+		// section 4.1), so there is nothing to recover from.
+		check.forbidden(call.Fun, "recover is", "panic aborts without unwinding; return errors instead")
 		x.mode_ = value
 		x.typ_ = &emptyInterface
 		if check.recordTypes() {

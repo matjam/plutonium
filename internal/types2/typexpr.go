@@ -27,7 +27,7 @@ func (check *Checker) ident(x *operand, e *ast.Ident, wantType bool) {
 		if e.Name == "_" {
 			check.error(e, InvalidBlank, "cannot use _ as value or type")
 		} else if isValidName(e.Name) {
-			check.errorf(e, UndeclaredName, "undefined: %s", e.Name)
+			check.errorf(e, UndeclaredName, "undefined: %s%s", e.Name, check.enumMemberHint(e.Name))
 		}
 		return
 	case universeAny, universeComparable:
@@ -104,6 +104,9 @@ func (check *Checker) ident(x *operand, e *ast.Ident, wantType bool) {
 		x.mode_ = typexpr
 
 	case *Var:
+		if check.paramPlaceholderUse(e, obj) {
+			return
+		}
 		// It's ok to mark non-local variables, but ignore variables
 		// from other packages to avoid potential race conditions with
 		// dot-imported variables.
@@ -118,6 +121,7 @@ func (check *Checker) ident(x *operand, e *ast.Ident, wantType bool) {
 
 	case *Func:
 		check.addDeclDep(obj)
+		check.noteFunc(e, obj)
 		x.mode_ = value
 
 	case *Builtin:
@@ -283,6 +287,9 @@ func (check *Checker) typInternal(e0 ast.Expr, def *TypeName) (T Type) {
 	case *ast.PackedType:
 		return check.packedType(e)
 
+	case *ast.EnumType:
+		return check.enumType(e, def)
+
 	case *ast.BitsGroup:
 		check.error(e, InvalidSyntaxTree, "bits group outside a packed type")
 		return Typ[Invalid]
@@ -338,7 +345,9 @@ func (check *Checker) typInternal(e0 ast.Expr, def *TypeName) (T Type) {
 
 	case *ast.FuncType:
 		typ := new(Signature)
-		check.funcType(typ, nil, e)
+		if defs := check.funcType(typ, nil, e); defs != nil {
+			check.defaultsNotAllowed(defs[0])
+		}
 		return typ
 
 	case *ast.InterfaceType:

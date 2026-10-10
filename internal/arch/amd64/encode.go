@@ -30,6 +30,7 @@ type encoder struct {
 	code   []byte
 	relocs []Reloc
 	fixups []fixup
+	marks  []int // instruction offsets that relax moves with the code
 	err    error
 }
 
@@ -94,6 +95,9 @@ type insn struct {
 }
 
 func (e *encoder) emitInsn(in insn) {
+	if !in.rm.isReg && in.rm.mem.Seg == SegGS {
+		e.byte(0x65)
+	}
 	e.byte(in.prefixes...)
 	var rex byte
 	if in.w {
@@ -136,7 +140,12 @@ func (e *encoder) emitInsn(in insn) {
 		return
 	}
 	m := in.rm.mem
-	if m.Sym != nil && m.Base == NoReg && m.Index == NoReg {
+	if m.RIP {
+		e.byte(0x05 | regEnc<<3)
+		e.imm(m.Disp, 4)
+		return
+	}
+	if m.Sym != nil && m.Base == NoReg && m.Index == NoReg && m.Seg == SegNone && !m.Abs {
 		// RIP-relative: disp32 relative to the end of the instruction.
 		e.byte(0x05 | regEnc<<3)
 		e.relocs = append(e.relocs, Reloc{Off: len(e.code), Sym: m.Sym, Type: RelPC32, Addend: m.Disp - 4 - int64(in.immSize)})
@@ -277,9 +286,14 @@ func (e *encoder) sse(prefix byte, op byte, w bool, reg Reg, rm rmOperand) {
 	e.emitInsn(insn{prefixes: pre, w: w, opcode: []byte{0x0F, op}, reg: reg, rm: rm})
 }
 
+// floatPrefix returns the prefix selecting single (4), double (8) or
+// packed double (16) forms of an SSE instruction.
 func floatPrefix(size uint8) byte {
-	if size == 4 {
+	switch size {
+	case 4:
 		return 0xF3
+	case 16:
+		return 0x66
 	}
 	return 0xF2
 }
@@ -329,6 +343,8 @@ func (e *encoder) encode(in *MInst) {
 			op = 0x84
 		}
 		e.emitInsn(insn{prefixes: sizePrefix(size), w: size == 8, opcode: []byte{op}, reg: in.Src.Reg, rm: rmOf(in.Dst), byteRegs: size == 1})
+	case MBT:
+		e.emitInsn(insn{prefixes: sizePrefix(size), w: size == 8, opcode: []byte{0x0F, 0xA3}, reg: in.Src.Reg, rm: rmOf(in.Dst)})
 	case MIMUL:
 		e.emitInsn(insn{prefixes: sizePrefix(size), w: size == 8, opcode: []byte{0x0F, 0xAF}, reg: in.Dst.Reg, rm: rmOf(in.Src)})
 	case MIMUL3:
@@ -431,6 +447,17 @@ func (e *encoder) encode(in *MInst) {
 		} else {
 			e.sse(0, 0x2E, false, in.Dst.Reg, rmOf(in.Src))
 		}
+	case MPSHUFD:
+		e.emitInsn(insn{prefixes: []byte{0x66}, opcode: []byte{0x0F, 0x70}, reg: in.Dst.Reg, rm: rmOf(in.Src), immSize: 1})
+		e.imm(in.Imm, 1)
+	case MUNPCKLPD:
+		e.sse(0x66, 0x14, false, in.Dst.Reg, rmOf(in.Src))
+	case MMOVHPD:
+		if in.Dst.Kind == OpdMem {
+			e.sse(0x66, 0x17, false, in.Src.Reg, rmMem(in.Dst.Mem))
+		} else {
+			e.sse(0x66, 0x16, false, in.Dst.Reg, rmMem(in.Src.Mem))
+		}
 	case MXORPS:
 		e.sse(0, 0x57, false, in.Dst.Reg, rmOf(in.Src))
 	case MANDPS:
@@ -496,6 +523,69 @@ func (e *encoder) encode(in *MInst) {
 		e.byte(0xF3, 0xA4)
 	case MREPSTOSB:
 		e.byte(0xF3, 0xAA)
+
+	case MCLI:
+		e.byte(0xFA)
+	case MSTI:
+		e.byte(0xFB)
+	case MSTIHLT:
+		e.byte(0xFB, 0xF4)
+	case MHLT:
+		e.byte(0xF4)
+	case MPAUSE:
+		e.byte(0xF3, 0x90)
+	case MSAVEFLAGS:
+		e.byte(0x9C) // pushfq
+		e.encode(&MInst{Op: MPOP, Dst: in.Dst})
+	case MRESTOREFLAGS:
+		e.encode(&MInst{Op: MPUSH, Src: in.Src})
+		e.byte(0x9D) // popfq
+	case MIN, MOUT:
+		e.byte(sizePrefix(size)...)
+		op := byte(0xEC) // in al, dx
+		if in.Op == MOUT {
+			op = 0xEE
+		}
+		if in.Src.Kind == OpdImm {
+			op -= 8 // E4 / E6: imm8 port
+		}
+		if size != 1 {
+			op++
+		}
+		e.byte(op)
+		if in.Src.Kind == OpdImm {
+			e.imm(in.Src.Imm, 1)
+		}
+	case MRDMSR:
+		e.byte(0x0F, 0x32)
+	case MWRMSR:
+		e.byte(0x0F, 0x30)
+	case MRDCR:
+		e.emitInsn(insn{opcode: []byte{0x0F, 0x20}, reg: NoReg, ext: byte(in.Imm), rm: rmReg(in.Dst.Reg)})
+	case MWRCR:
+		e.emitInsn(insn{opcode: []byte{0x0F, 0x22}, reg: NoReg, ext: byte(in.Imm), rm: rmReg(in.Src.Reg)})
+	case MINVLPG:
+		e.emitInsn(insn{opcode: []byte{0x0F, 0x01}, reg: NoReg, ext: 7, rm: rmMem(in.Src.Mem)})
+	case MLGDT:
+		e.emitInsn(insn{opcode: []byte{0x0F, 0x01}, reg: NoReg, ext: 2, rm: rmMem(in.Src.Mem)})
+	case MLIDT:
+		e.emitInsn(insn{opcode: []byte{0x0F, 0x01}, reg: NoReg, ext: 3, rm: rmMem(in.Src.Mem)})
+	case MLTR:
+		e.emitInsn(insn{opcode: []byte{0x0F, 0x00}, reg: NoReg, ext: 3, rm: rmOf(in.Src)})
+	case MCPUID:
+		e.byte(0x0F, 0xA2)
+	case MRDTSC:
+		e.byte(0x0F, 0x31)
+	case MRDTSCP:
+		e.byte(0x0F, 0x01, 0xF9)
+	case MSWAPGS:
+		e.byte(0x0F, 0x01, 0xF8)
+	case MCLTS:
+		e.byte(0x0F, 0x06)
+	case MFXSAVE:
+		e.emitInsn(insn{w: true, opcode: []byte{0x0F, 0xAE}, reg: NoReg, ext: 0, rm: rmMem(in.Src.Mem)})
+	case MFXRSTOR:
+		e.emitInsn(insn{w: true, opcode: []byte{0x0F, 0xAE}, reg: NoReg, ext: 1, rm: rmMem(in.Src.Mem)})
 	default:
 		e.fail("amd64: cannot encode %s", in)
 	}

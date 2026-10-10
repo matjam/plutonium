@@ -320,6 +320,12 @@ func (check *Checker) packedFieldType(e ast.Expr) (typ Type, width int64, isBits
 					check.errorf(ix.Indices[1], InvalidTypeArg, "bits[%s, %d]: %s holds only %d bits", typ, n, typ, max)
 					return nil, 0, false
 				}
+				if en := EnumOf(typ); en != nil {
+					if need := enumBitWidth(en, typ); n < need {
+						check.errorf(ix.Indices[1], InvalidTypeArg, "bits[%s, %d]: enum %s needs %d bits", typ, n, typ, need)
+						return nil, 0, false
+					}
+				}
 			default:
 				check.errorf(ix.Indices[0], InvalidTypeArg, "bit field type %s must be an integer or bool", typ)
 				return nil, 0, false
@@ -331,6 +337,10 @@ func (check *Checker) packedFieldType(e ast.Expr) (typ Type, width int64, isBits
 	typ = check.varType(e)
 	if !isValid(typ) {
 		return nil, 0, false
+	}
+	if en := EnumOf(typ); en != nil {
+		// An enum field takes the bits its values need.
+		return typ, enumBitWidth(en, typ), true
 	}
 	elem := typ
 	if w, ok := typ.(*Wrapper); ok && w.kind == WrapAligned {
@@ -486,7 +496,11 @@ func (check *Checker) wrapperType(ix *indexedExpr) Type {
 
 // isVolatileElem reports whether T can be wrapped in volatile: a scalar
 // that one load or store instruction moves.
+// A type parameter qualifies if every type in its type set does.
 func isVolatileElem(T Type) bool {
+	if tp, ok := Unalias(T).(*TypeParam); ok {
+		return tp.typeset(func(_, u Type) bool { return u != nil && isVolatileElem(u) })
+	}
 	switch u := T.Underlying().(type) {
 	case *Basic:
 		return u.info&(IsInteger|IsBoolean) != 0 || u.kind == UnsafePointer

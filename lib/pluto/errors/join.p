@@ -5,18 +5,18 @@ import (
 	"unsafe"
 )
 
-// Join returns an error that wraps the given errors, allocated from the
-// default allocator. Any nil errors are discarded. Join returns nil if every
-// value in errs is nil. The error's message is the messages of the non-nil
-// errors, each on its own line. See JoinIn.
+// Join returns an error that wraps the given errors. Any nil errors are
+// discarded. Join returns nil if every value in errs is nil. The error's
+// message is the messages of the non-nil errors, each on its own line.
+//
+// The error is one block from the default allocator, alloc.Default(),
+// holding the error, its list of errors and its message. To use another
+// allocator, install it around the call with alloc.Use: Join is variadic,
+// so it cannot take a defaulted allocator parameter (see the language spec,
+// section 5.1). The joined error owns the errors it wraps; errors.Free
+// releases them all.
 func Join(errs ...error) error {
-	return JoinIn(alloc.Default(), errs...)
-}
-
-// JoinIn is Join with the memory taken from a: one block holding the error,
-// its list of errors and its message. The joined error owns the errors it
-// wraps; errors.Free releases them all.
-func JoinIn(a alloc.Allocator, errs ...error) error {
+	a := alloc.Default()
 	n, size := 0, 0
 	for _, err := range errs {
 		if err == nil {
@@ -35,7 +35,7 @@ func JoinIn(a alloc.Allocator, errs ...error) error {
 	listOff := unsafe.Sizeof(hdr)
 	textOff := listOff + uintptr(n)*unsafe.Sizeof(errs[0])
 	total := textOff + uintptr(size)
-	p := alloc.Raw(a, total, unsafe.Alignof(hdr))
+	p := alloc.Raw(total, unsafe.Alignof(hdr), a)
 	e := (*joinError)(p)
 	e.errs = unsafe.Slice((*error)(unsafe.Add(p, listOff)), n)
 	text := unsafe.Slice((*byte)(unsafe.Add(p, textOff)), size)
