@@ -15,6 +15,12 @@ import (
 // its drop glue, a shared, synced or weak reference is released; a plain
 // value or a view needs nothing, and a frame copy holding strings keeps its
 // own references, released with the frame (dataWord).
+//
+// An owning interface with no methods has no itab (its tab word is the type
+// descriptor, as for any empty interface), so the drop adapter is a word of
+// the type descriptor of the types held by one (descDrop), set for every
+// type converted into an owning interface, with or without methods, since
+// an owning interface can be converted to a smaller one.
 
 // needsIfaceDrop reports whether a T held by an owning interface must be
 // dropped when the interface is.
@@ -50,12 +56,24 @@ func (l *Lowerer) ifaceDropAdapter(T types2.Type) *ssa.Sym {
 	return sym
 }
 
+// noteDrop gives T's type descriptor its drop adapter, if a T needs a drop.
+func (tt *typeTable) noteDrop(T types2.Type) {
+	tt.desc(T)
+	if d := tt.descs[typeString(T)]; d.drop == nil {
+		d.drop = tt.l.ifaceDropAdapter(T)
+	}
+}
+
 // dropIface drops the owning interface value at ptr: it calls the drop slot
 // of its itab, if it holds a value whose type needs one.
 func (s *fnState) dropIface(ptr *ssa.Value, iface *types2.Interface) {
 	tab := s.load(ssa.TPtr, ptr)
+	slot := int64(itabHeader + 8*iface.NumMethods())
+	if iface.Empty() {
+		slot = descDrop // tab is the type descriptor
+	}
 	s.ifThen(s.newValue(ssa.OpNe, ssa.TBool, tab, s.constInt(ssa.TPtr, 0)), func() {
-		code := s.load(ssa.TPtr, s.offPtr(tab, int64(itabHeader+8*iface.NumMethods())))
+		code := s.load(ssa.TPtr, s.offPtr(tab, slot))
 		s.ifThen(s.newValue(ssa.OpNe, ssa.TBool, code, s.constInt(ssa.TPtr, 0)), func() {
 			sig := adapterSignature(types2.NewSignatureType(nil, nil, nil, nil, nil, false))
 			recv := scalarValue(s.load(ssa.TPtr, s.offPtr(ptr, 8)), types2.Typ[types2.UnsafePointer])

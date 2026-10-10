@@ -1,0 +1,36 @@
+inner end
+drop fd 3
+outer end true
+close scope-a
+close early-a
+first
+drop node early-b
+close early-a
+second
+close old
+drop fd 1
+reassigned true
+close last
+taking
+close arg
+passed true
+close passed
+holding
+still shared synced
+drop node synced
+drop node shared
+named
+widened
+close named
+got asserted
+close asserted
+asserted end
+drop fd 9
+holder
+close held-0
+drop fd 5
+drop big big
+leaving
+drop big goexit-big
+close goexit
+end

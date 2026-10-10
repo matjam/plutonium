@@ -304,7 +304,7 @@ An interface value is `{tab, data}`.
   bits, or the address. For every other type `data` points at a copy of the
   value in the frame of the function that made the conversion (language spec section 4.4).
 
-Type descriptor, 80 bytes, read-only, named `type:<type>` (mirrored by `pluto/rt.typeDesc`, read through
+Type descriptor, 88 bytes, read-only, named `type:<type>` (mirrored by `pluto/rt.typeDesc`, read through
 `rt.Type`). Its strings are static (section 1.1):
 
 | Offset | Field | |
@@ -320,6 +320,7 @@ Type descriptor, 80 bytes, read-only, named `type:<type>` (mirrored by `pluto/rt
 | 56 | `len uintptr` | array length, ring capacity, or number of struct fields |
 | 64 | `fields *fieldDesc` | the struct's field descriptors, `len` of them; nil otherwise |
 | 72 | `ptrTo *typeDesc` | the descriptor of `*T` when `*T` has methods that `T` lacks; nil otherwise |
+| 80 | `drop uintptr` | code address of the drop adapter of `T`, set for every type converted into an owning interface (with or without methods) when a `T` needs a drop; 0 otherwise |
 
 Field descriptor, 48 bytes, an array of them per struct type named `typefields:<type>`:
 
@@ -339,8 +340,8 @@ Field names are kept unless the build passes `--fieldnames=false`; they are left
 mode (`--mode kernel`, where `--fieldnames=true` keeps them), since a kernel image rarely prints `%+v`.
 Without names, `%+v` and `%#v` print fields as `%v` does.
 
-The descriptor of a union (kind 30) is 104 bytes, continuing with the payload's offset (`uintptr` at 80),
-a pointer to a table of the variants in tag order (at 88) and their number (`int` at 96). Each table entry
+The descriptor of a union (kind 30) is 112 bytes, continuing with the payload's offset (`uintptr` at 88),
+a pointer to a table of the variants in tag order (at 96) and their number (`int` at 104). Each table entry
 is 40 bytes: the variant's name (`string`), its payload's type descriptor (nil for a variant without a
 payload) and a word that is 1 when the payload is an empty interface and 2 when it is another interface.
 `pluto/rt.UnionInfo` reads them, and `fmt` prints a union with them.
@@ -349,7 +350,9 @@ Itab, named `itab:<type>,<interface>`: the type descriptor, the interface's desc
 pointer per interface method in method order. The itab of an owning interface (language spec section 4.4)
 has one more word after the methods: the dynamic type's drop adapter, which takes the data word and drops
 the value it holds (an owner's drop, or the release of a `shared`, `synced` or `weak` reference), or 0 when
-values of the type need no drop. Each code pointer is an adapter that takes the data word as
+values of the type need no drop. An owning interface with no methods has no itab (its `tab` is the type
+descriptor, as for any empty interface), so its drop adapter is the `drop` word of the descriptor; dropping
+the interface calls it with the data word, unless `tab` or the word is 0. Each code pointer is an adapter that takes the data word as
 its first argument (in place of the receiver) followed by the method's arguments, and is called with RAX
 set to 0. `pluto.itabs` holds every itab for the run-time lookup that conversions between non-empty
 interfaces and type assertions to them use. It is an open-addressing hash table: a word holding the

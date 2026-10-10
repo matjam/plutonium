@@ -16,7 +16,7 @@ import (
 // and weak references, across tasks and through rt.Goexit.
 func TestBoxesLeakFree(t *testing.T) {
 	testguard.Parallel(t)
-	for _, prog := range []string{"plutonium/boxes", "plutonium/newexpr", "plutonium/owniface", "plutonium/ownunion"} {
+	for _, prog := range []string{"plutonium/boxes", "plutonium/newexpr", "plutonium/ownany", "plutonium/owniface", "plutonium/ownunion"} {
 		file := filepath.Join("..", "..", "testdata", prog)
 		src, err := os.ReadFile(file + ".p")
 		if err != nil {

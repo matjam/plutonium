@@ -25,6 +25,7 @@ type typeDesc struct {
 	len    uintptr    // array length, ring capacity, number of struct fields
 	fields *fieldDesc // struct fields
 	ptrTo  *typeDesc  // *T, if *T has methods that T lacks
+	drop   uintptr    // code address of the drop adapter of a type held by an owning interface, or 0
 }
 
 // A fieldDesc describes one field of a struct type.

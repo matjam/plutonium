@@ -22,7 +22,7 @@ import (
 // Otherwise the data word points at a copy of the value in the stack frame of
 // the function that made the interface value.
 //
-// Type descriptor layout (80 bytes), mirrored by pluto/rt.typeDesc (abi.md
+// Type descriptor layout (88 bytes), mirrored by pluto/rt.typeDesc (abi.md
 // section 5). Its strings are static three-word strings (strrep.go).
 //
 //	0  size   uintptr
@@ -36,6 +36,7 @@ import (
 //	56 len    uintptr    (array length, ring capacity, number of struct fields)
 //	64 fields *fieldDesc (struct fields, or nil)
 //	72 ptrTo  *typeDesc  (*T, if *T has methods T lacks, or nil)
+//	80 drop   func(data unsafe.Pointer)  (the drop adapter of a type held by an owning interface, or nil)
 //
 // Field descriptor layout (48 bytes), an array of them per struct type:
 //
@@ -51,9 +52,9 @@ import (
 // The descriptor of a union (kind 30) continues, mirrored by
 // pluto/rt.unionDesc, with
 //
-//	80 payload  uintptr        offset of the payload
-//	88 variants *[n]variant    one entry per variant, in tag order
-//	96 count    int            n
+//	88 payload  uintptr        offset of the payload
+//	96 variants *[n]variant    one entry per variant, in tag order
+//	104 count   int            n
 //
 // and each variant entry (40 bytes) is
 //
@@ -72,7 +73,8 @@ const (
 	descNum       = descElem + 8
 	descFields    = descNum + 8
 	descPtrTo     = descFields + 8
-	descSize      = descPtrTo + 8
+	descDrop      = descPtrTo + 8
+	descSize      = descDrop + 8
 	unionDescSize = descSize + 24
 	variantSize   = strSize + 16
 	variantTyp    = strSize
@@ -134,6 +136,7 @@ type descInfo struct {
 	n      int64    // array length, ring capacity or number of fields
 	fields []fieldInfo
 	ptrTo  *ssa.Sym // descriptor of *T, or nil
+	drop   *ssa.Sym // the drop adapter, for a type held by an owning interface (owniface.go)
 }
 
 // A fieldInfo is one entry of a struct type's field descriptors.
@@ -313,6 +316,7 @@ func (tt *typeTable) itab(T, I types2.Type) *ssa.Sym {
 	if types2.IsOwner(I) {
 		it.owning = true
 		it.drop = tt.l.ifaceDropAdapter(T)
+		tt.noteDrop(T) // the same value may be moved on into an owning interface with no methods
 	}
 	return it.sym
 }
@@ -391,7 +395,7 @@ func (tt *typeTable) emit() {
 		for _, r := range []struct {
 			off int64
 			sym *ssa.Sym
-		}{{descEqual, d.equal}, {descElem, d.elem}, {descFields, tt.fieldsData(k, d)}, {descPtrTo, d.ptrTo}} {
+		}{{descEqual, d.equal}, {descElem, d.elem}, {descFields, tt.fieldsData(k, d)}, {descPtrTo, d.ptrTo}, {descDrop, d.drop}} {
 			if r.sym != nil {
 				data.Relocs = append(data.Relocs, ssa.DataReloc{Off: r.off, Sym: r.sym})
 			}
@@ -610,6 +614,9 @@ func (s *fnState) toInterface(v value, from, I types2.Type) value {
 	var tab *ssa.Value
 	if I.Underlying().(*types2.Interface).Empty() {
 		tab = s.symAddr(s.l.types.desc(from))
+		if types2.IsOwner(I) {
+			s.l.types.noteDrop(from) // an owning interface with no methods drops through the descriptor
+		}
 	} else {
 		tab = s.symAddr(s.l.types.itab(from, I))
 	}

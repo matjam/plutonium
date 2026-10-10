@@ -83,10 +83,6 @@ func (s *fnState) dropAt(ptr *ssa.Value, T types2.Type) {
 	if !s.l.needsDrop(T) {
 		return
 	}
-	if why := s.l.cannotDrop(T, map[string]bool{}); why != "" {
-		s.l.unsupportedf(s.pos, "cannot drop a %s here: dropping %s is not implemented yet (language spec section 6.4)", typeString(T), why)
-		return
-	}
 	glue := s.l.dropGlue(T)
 	p := types2.NewVar(token.NoPos, nil, "p", types2.NewPointer(T))
 	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(p), nil, false)
@@ -95,9 +91,6 @@ func (s *fnState) dropAt(ptr *ssa.Value, T types2.Type) {
 
 // dropFields is the body of T's drop glue: Drop, then the parts.
 func (s *fnState) dropFields(ptr *ssa.Value, T types2.Type) {
-	if s.l.cannotDrop(T, map[string]bool{}) != "" {
-		return // reported where the value is dropped (dropAt)
-	}
 	if m := dropMethod(T); m != nil {
 		targs := s.recvTypeArgs(T)
 		target, full := s.l.methodFunc(m, targs, nil, token.NoPos, "")
@@ -152,29 +145,4 @@ func (s *fnState) dropFields(ptr *ssa.Value, T types2.Type) {
 			s.dropAt(s.newValue(ssa.OpAddPtr, ssa.TPtr, ptr, off), u.Elem())
 		})
 	}
-}
-
-// cannotDrop returns what the compiler cannot drop yet in a value of type
-// T, or "": owning interfaces with no methods.
-func (l *Lowerer) cannotDrop(T types2.Type, seen map[string]bool) string {
-	key := typeString(T)
-	if seen[key] || !l.needsDrop(T) {
-		return ""
-	}
-	seen[key] = true
-	switch u := unwrap(T).Underlying().(type) {
-	case *types2.Interface:
-		if u.Empty() {
-			return "owning interfaces with no methods"
-		}
-	case *types2.Struct:
-		for i := 0; i < u.NumFields(); i++ {
-			if why := l.cannotDrop(u.Field(i).Type(), seen); why != "" {
-				return why
-			}
-		}
-	case *types2.Array:
-		return l.cannotDrop(u.Elem(), seen)
-	}
-	return ""
 }

@@ -454,7 +454,7 @@ measuring, and it marks that function for the `pluto vet -unsafe` audit. Not imp
 6. A function value or interface method called from outside Plutonium (passed to C) is assumed to be
    called only by Plutonium code when inferring heap-only fields.
 7. (Closed 2026-10-10.) `owned`, `shared`, `synced`, `weak`, owning interfaces and owner unions are
-   dropped; an owning interface with no methods is still a compile error to drop. Values in memory from
+   dropped, an owning interface with no methods through its type descriptor. Values in memory from
    `alloc.New` are never dropped by the compiler.
 8. The escape analysis is conservative: programs that layer allocators through interfaces in unusual
    ways, or that keep frame pointers in heap memory freed before the frame ends, are rejected. The

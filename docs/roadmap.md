@@ -152,8 +152,7 @@ later takes the next free number and is listed in the section where it belongs.
     and generation tags in `alloc.SyncSlab` (the prototype tags only the single-threaded `Slab`). Not
     yet: per-arena epochs (decision D4), which would also catch at run time what the arena rule cannot
     see (arena memory stored into heap memory that outlives the arena, by the function or a callee);
-    dropping an owning interface with no methods (`type R owner interface{}`), which has no itab for the
-    drop slot and is a compile error; holds of `shared`/`synced` references are not offered to
+    holds of `shared`/`synced` references are not offered to
     `opt.ElideStringHolds` yet, so a reference read from memory a call could change is always retained
     for its statement. The original list:
     - `owner` in type definitions and in type parameter constraints, with the placement rules of section

@@ -259,7 +259,8 @@ the interface type:
 - An owning interface drops what it holds through its method table: an owning interface's itab has one
   more slot after the methods, the dynamic type's drop code (abi.md section 5), so dropping the interface
   runs the right `Drop` whatever the type. An owning interface with no methods, `type R owner
-  interface{}`, has no itab to hold the slot, and dropping one is a compile error for now.
+  interface{}`, has no itab, so the slot is a word of the dynamic type's type descriptor instead; it
+  holds and drops any owner, `shared`, `synced` or `weak` reference, or plain value, as `any` holds any value.
 - A method of the dynamic type with a value receiver never satisfies an interface method when the type is
   an owner (section 6.4): calling it would consume the value, and the interface, ordinary or owning,
   cannot give it up. The conversion is a compile error that shows the fix, a pointer receiver. A
@@ -1595,8 +1596,8 @@ end of each iteration for a variable declared in a loop body. In detail:
   owner until the code that allocated it gives it one, and `alloc.Free` drops the value before freeing.
 - An `owned[T]` is dropped by dropping its `T` and freeing the memory to the allocator recorded in its
   header; an owning interface by the drop slot of its method table (section 4.4); an owner union by
-  dropping the payload of the variant it holds (section 5.10). The one exception left is an owning
-  interface with no methods, which is a compile error to drop.
+  dropping the payload of the variant it holds (section 5.10). An owning interface with no methods finds
+  the drop code in the type descriptor of what it holds (abi.md section 5), as one with methods finds it in the itab.
 
 `Drop` cannot report failure. A type whose release can fail (a file whose last write is flushed on close)
 provides a method such as `Close() error` for callers that care; `Drop` then has nothing left to do.
