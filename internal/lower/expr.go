@@ -224,7 +224,7 @@ func (s *fnState) lv(e ast.Expr) lvalue {
 // a package-level variable.
 func (s *fnState) varLV(obj *types2.Var, at ast.Node) lvalue {
 	T := s.subst(obj.Type())
-	if addr := s.vars[obj]; addr != nil {
+	if addr := s.lookupVar(obj); addr != nil {
 		return lvalue{ptr: addr, T: T}
 	}
 	if obj.Pkg() != nil && obj.Pkg().Scope().Lookup(obj.Name()) == obj {

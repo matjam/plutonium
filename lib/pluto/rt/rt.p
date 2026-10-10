@@ -239,6 +239,24 @@ func panicValue(v any) {
 	fatal()
 }
 
+// panicRangeState reports an iterator that called the yield function of a
+// range-over-func loop when it may not; state is the loop's state, numbered
+// as Go's abi.RF_* constants.
+func panicRangeState(state int) {
+	printString("panic: runtime error: range function ")
+	switch state {
+	case 0:
+		printString("continued iteration after function for loop body returned false\n")
+	case 2:
+		printString("continued iteration after loop body panic\n")
+	case 3:
+		printString("continued iteration after whole loop exit\n")
+	default:
+		printString("recovered a loop body panic and did not resume panicking\n")
+	}
+	fatal()
+}
+
 func panicMessage(a, b, c, d, e string) {
 	printString("panic: ")
 	printString(a)

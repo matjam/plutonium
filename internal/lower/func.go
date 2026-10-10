@@ -35,6 +35,20 @@ type fnState struct {
 	loopDepth int
 	closures  int // counter for naming closures
 
+	// Range over functions (rangefunc.go). rf is set in the yield function
+	// lowered from the body of a range-over-func loop; capPtrs maps the
+	// addresses it reaches in the enclosing function to the pointers it
+	// loads from its closure record, and initMem is its entry memory.
+	rf      *rangeFunc
+	capPtrs map[*ssa.Value]*ssa.Value
+	initMem *ssa.Value
+	// In a function containing range-over-func loops: the address of the
+	// variable through which a loop body asks for return, break, continue
+	// or goto out of the loop, and the codes handed out for those exits.
+	rangeNext  *ssa.Value
+	rangeCodes map[any]int64
+	rangeLoops int // counter for naming loop bodies
+
 	// staticLits makes &T{...} allocate static storage: set while lowering
 	// package initialisation, whose objects outlive the init function.
 	staticLits bool
@@ -59,6 +73,9 @@ type target struct {
 	breakTo  *ssa.Block
 	contTo   *ssa.Block // nil for switch
 	isSwitch bool
+	// rf is set for the range-over-func loop whose body is being lowered:
+	// break and continue return from the yield function instead.
+	rf *rangeFunc
 }
 
 type labelInfo struct {
@@ -312,8 +329,11 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 	if job.decl != nil {
 		f.Pos = job.decl.Pos()
 		s.applyPragmas(job.decl.Doc)
+		l.checkCtorBody(job)
 	} else if job.lit != nil {
 		f.Pos = job.lit.Pos()
+	} else {
+		f.Pos = job.pos
 	}
 	if job.pkg != nil {
 		f.Pkg = job.pkg.Path

@@ -1,0 +1,5 @@
+1
+panic: runtime error: range function continued iteration after function for loop body returned false
+    main.main-range1 ($FILE:11)
+    main.bad ($FILE:7)
+    main.main ($FILE:11)

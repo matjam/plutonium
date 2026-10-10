@@ -492,7 +492,7 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 		return
 
 	case *types2.Signature:
-		s.l.errorf(st.Pos(), "range over functions is not supported yet")
+		s.rangeFuncStmt(st, label, u)
 		return
 	}
 	s.l.errorf(st.Pos(), "lower: cannot range over %s", xt)
@@ -750,6 +750,10 @@ func (s *fnState) branchStmt(st *ast.BranchStmt) {
 	}
 	switch st.Tok {
 	case token.GOTO:
+		if s.rf != nil && !s.rf.contains(label.Pos()) {
+			s.rangeBranch(st, label)
+			return
+		}
 		s.endPlain(s.labelBlock(label))
 		return
 	case token.FALLTHROUGH:
@@ -759,6 +763,11 @@ func (s *fnState) branchStmt(st *ast.BranchStmt) {
 		t := s.targets[i]
 		if label != nil && t.label != label {
 			continue
+		}
+		if t.rf != nil {
+			// The range-over-func loop whose body this is.
+			s.endIter(st.Tok == token.CONTINUE)
+			return
 		}
 		if st.Tok == token.CONTINUE {
 			if t.contTo == nil {
@@ -770,10 +779,18 @@ func (s *fnState) branchStmt(st *ast.BranchStmt) {
 		s.endPlain(t.breakTo)
 		return
 	}
+	if s.rf != nil {
+		s.rangeBranch(st, label)
+		return
+	}
 	s.l.errorf(st.Pos(), "lower: no target for %s", st.Tok)
 }
 
 func (s *fnState) returnStmt(st *ast.ReturnStmt) {
+	if s.rf != nil {
+		s.rangeReturn(st)
+		return
+	}
 	switch {
 	case len(st.Results) == 0:
 	case len(st.Results) == len(s.results):
@@ -820,11 +837,16 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 		s.l.errorf(st.Pos(), "defer inside a loop is not supported in Plutonium (it would need unbounded stack); move the loop body into a function")
 		return
 	}
-	if len(s.defers) >= 64 {
+	if s.rf != nil && !s.deferLeavesLoop(st) {
+		s.l.errorf(st.Pos(), "defer in the body of a range-over-func loop must be followed by a return, or a break or goto out of the loop (otherwise it may run once per iteration, which would need unbounded stack)")
+		return
+	}
+	root := s.rootFn()
+	if len(root.defers) >= 64 {
 		s.l.errorf(st.Pos(), "too many defer statements in one function (at most 64)")
 		return
 	}
-	bit := len(s.defers)
+	bit := len(root.defers)
 	call := st.Call
 
 	var run func(s *fnState)
@@ -911,7 +933,15 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 		}
 		// Any other callee: evaluate the func value now.
 		sig := s.typeOf(call.Fun).Underlying().(*types2.Signature)
-		fv := s.saveValue(scalarValue(s.scalar(call.Fun), s.typeOf(call.Fun)))
+		var f *ssa.Value
+		if lit, ok := fun.(*ast.FuncLit); ok && s.rf != nil {
+			if f = s.deferredLit(lit); f == nil {
+				return
+			}
+		} else {
+			f = s.scalar(call.Fun)
+		}
+		fv := s.saveValue(scalarValue(f, s.typeOf(call.Fun)))
 		args := s.saveValues(s.callArgs(call, sig, nil))
 		run = func(s *fnState) {
 			f := s.loadFrom(fv.v, fv.T).v
@@ -919,16 +949,20 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 		}
 	}
 
-	bits := s.load(ssa.TI64, s.deferBits)
-	s.store(ssa.TI64, s.deferBits, s.newValue(ssa.OpOr, ssa.TI64, bits, s.constInt(ssa.TI64, 1<<bit)))
-	s.defers = append(s.defers, &deferInfo{run: run})
+	bitsp := s.outerPtr(root.deferBits, root)
+	bits := s.load(ssa.TI64, bitsp)
+	s.store(ssa.TI64, bitsp, s.newValue(ssa.OpOr, ssa.TI64, bits, s.constInt(ssa.TI64, 1<<bit)))
+	root.defers = append(root.defers, &deferInfo{run: run})
 }
 
 // saveValue copies a value into a fresh slot and returns its address as an
-// aggregate-style value (v.v is the slot address).
+// aggregate-style value (v.v is the slot address). The slot is in the frame
+// whose returns run deferred calls: in a range-over-func loop body, the
+// enclosing function's, and v.v is its address there.
 func (s *fnState) saveValue(v value) value {
-	tmp := s.temp(v.T, "defer")
-	s.storeTo(tmp, v, v.T)
+	root := s.rootFn()
+	tmp := root.temp(v.T, "defer")
+	s.storeTo(s.outerPtr(tmp, root), v, v.T)
 	return aggValue(tmp, v.T)
 }
 

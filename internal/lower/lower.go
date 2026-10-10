@@ -67,6 +67,8 @@ type Lowerer struct {
 	errorSites     map[*ast.CallExpr]*ssa.Sym // static error of each errors.New call site
 	perCPUSelfSym  *ssa.Sym                   // pluto.percpu.self, once a per-CPU variable exists
 	types          *typeTable
+	ctors          map[*types2.Func]*ctorInfo // closure constructors (ctor.go), nil for other functions
+	ctorMisused    map[*types2.Func]bool      // closure constructors already reported
 
 	// instances of types declared in generic functions (typeMap.local)
 	localTypes map[localKey]*types2.Named
@@ -96,6 +98,7 @@ type funcJob struct {
 	parent   *fnState
 
 	build func(s *fnState) // for synthesized functions (init, wrappers)
+	pos   token.Pos        // for synthesized functions with a source position
 }
 
 // Lower lowers a loaded program.
@@ -125,6 +128,8 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		globals:        map[*types2.Var]*ssa.Sym{},
 		strs:           map[string]*ssa.Sym{},
 		closureRecords: map[*ssa.Sym]*ssa.Sym{},
+		ctors:          map[*types2.Func]*ctorInfo{},
+		ctorMisused:    map[*types2.Func]bool{},
 		localTypes:     map[localKey]*types2.Named{},
 		errorSites:     map[*ast.CallExpr]*ssa.Sym{},
 		exports:        map[*ssa.Sym][]string{},

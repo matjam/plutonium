@@ -256,6 +256,13 @@ type Slot struct {
 	// from the type's layout, independently of the leaves.
 	Pads []Pad
 
+	// Closure marks a closure record: lowering stores its words when it
+	// makes the closure, each store writing the same value every time it
+	// runs, and nothing writes to it through its address afterwards. A
+	// load from it may therefore take the value of the store at the same
+	// offset, wherever the load is.
+	Closure bool
+
 	// Offset is assigned by frame layout, relative to the frame base.
 	Offset int64
 }
