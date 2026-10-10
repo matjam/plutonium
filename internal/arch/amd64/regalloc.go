@@ -1,6 +1,7 @@
 package amd64
 
 import (
+	"container/heap"
 	"fmt"
 	"math"
 	"sort"
@@ -199,6 +200,13 @@ type allocator struct {
 	moves                                                                     []*MInst
 	coalescedMoves, constrainedMoves, frozenMoves, worklistMoves, activeMoves map[*MInst]bool
 
+	// moveOrder is each move's index in moves, and pending a min-heap of
+	// the indices of moves added to worklistMoves, so that coalesce finds
+	// the first worklist move in program order without scanning moves.
+	// Entries for moves that have left the worklist are skipped lazily.
+	moveOrder map[*MInst]int
+	pending   intHeap
+
 	adjSet    map[edge]bool
 	adjList   map[Reg][]Reg
 	degree    map[Reg]int
@@ -252,7 +260,7 @@ func newAllocator(f *MFunc, class RegClass, spillTemps map[Reg]bool) *allocator 
 		simplifyWL: map[Reg]bool{}, freezeWL: map[Reg]bool{}, spillWL: map[Reg]bool{},
 		coalesced: map[Reg]bool{}, colored: map[Reg]bool{}, onStack: map[Reg]bool{},
 		coalescedMoves: map[*MInst]bool{}, constrainedMoves: map[*MInst]bool{}, frozenMoves: map[*MInst]bool{},
-		worklistMoves: map[*MInst]bool{}, activeMoves: map[*MInst]bool{},
+		worklistMoves: map[*MInst]bool{}, activeMoves: map[*MInst]bool{}, moveOrder: map[*MInst]int{},
 		adjSet: map[edge]bool{}, adjList: map[Reg][]Reg{}, degree: map[Reg]int{},
 		moveList: map[Reg][]*MInst{}, alias: map[Reg]Reg{}, color: map[Reg]Reg{}, cost: map[Reg]float64{},
 		spillTemp: spillTemps,
@@ -317,8 +325,9 @@ func (a *allocator) build(liveOut []regSet) {
 				live.remove(f.regIndex(in.Src.Reg))
 				a.moveList[in.Dst.Reg] = append(a.moveList[in.Dst.Reg], in)
 				a.moveList[in.Src.Reg] = append(a.moveList[in.Src.Reg], in)
-				a.worklistMoves[in] = true
+				a.moveOrder[in] = len(a.moves)
 				a.moves = append(a.moves, in)
+				a.addWorklistMove(in)
 			}
 			for _, d := range defs {
 				live.add(f.regIndex(d))
@@ -440,7 +449,7 @@ func (a *allocator) enableMoves(nodes []Reg) {
 		for _, m := range a.nodeMoves(n) {
 			if a.activeMoves[m] {
 				delete(a.activeMoves, m)
-				a.worklistMoves[m] = true
+				a.addWorklistMove(m)
 			}
 		}
 	}
@@ -481,18 +490,39 @@ func (a *allocator) conservative(nodes []Reg) bool {
 	return k < a.k
 }
 
-func (a *allocator) firstMove(set map[*MInst]bool) *MInst {
-	// Deterministic: the first move in program order.
-	for _, m := range a.moves {
-		if set[m] {
+func (a *allocator) addWorklistMove(m *MInst) {
+	a.worklistMoves[m] = true
+	heap.Push(&a.pending, a.moveOrder[m])
+}
+
+// firstMove returns the worklist move that comes first in program order,
+// which keeps allocation deterministic.
+func (a *allocator) firstMove() *MInst {
+	for a.pending.Len() > 0 {
+		if m := a.moves[a.pending[0]]; a.worklistMoves[m] {
 			return m
 		}
+		heap.Pop(&a.pending)
 	}
 	return nil
 }
 
+// intHeap is a min-heap of ints for container/heap.
+type intHeap []int
+
+func (h intHeap) Len() int           { return len(h) }
+func (h intHeap) Less(i, j int) bool { return h[i] < h[j] }
+func (h intHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *intHeap) Push(x any)        { *h = append(*h, x.(int)) }
+func (h *intHeap) Pop() any {
+	old := *h
+	x := old[len(old)-1]
+	*h = old[:len(old)-1]
+	return x
+}
+
 func (a *allocator) coalesce() {
-	m := a.firstMove(a.worklistMoves)
+	m := a.firstMove()
 	delete(a.worklistMoves, m)
 	x := a.getAlias(m.Dst.Reg)
 	y := a.getAlias(m.Src.Reg)
