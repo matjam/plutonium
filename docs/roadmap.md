@@ -204,3 +204,6 @@ later takes the next free number and is listed in the section where it belongs.
       length 1, that is a single pointer is direct, as in Go (language spec section 4.4,
       `types2.PointerShaped`), so an error wrapping one pointer can be returned. Tested by
       `testdata/run/directstruct.p` and unit tests in `types2` and `lower`.
+    - Itab lookup (done): `rt.findItab`, behind conversions between non-empty interfaces and assertions
+      to interface types, probes a hash table the compiler lays out (abi.md section 5) instead of
+      scanning every itab. Tested by `testdata/run/itablookup.p` and `lower.TestItabTable`.

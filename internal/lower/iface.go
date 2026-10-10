@@ -199,9 +199,7 @@ func (tt *typeTable) emit() {
 			size = l.sizeof(d.T)
 		}
 		binary.LittleEndian.PutUint64(buf[0:], uint64(size))
-		h := fnv.New32a()
-		h.Write([]byte(k))
-		binary.LittleEndian.PutUint32(buf[8:], h.Sum32())
+		binary.LittleEndian.PutUint32(buf[8:], descHash(k))
 		buf[12] = kindOf(d.T)
 		if l.isDirect(d.T) {
 			buf[13] = flagDirect
@@ -221,11 +219,20 @@ func (tt *typeTable) emit() {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	table := &ssa.Data{Sym: l.out.Sym("pluto.itabs", ssa.SymData), Align: 8, ReadOnly: true}
-	table.Size = int64(8 * (1 + len(keys)))
-	table.Bytes = make([]byte, 8)
-	binary.LittleEndian.PutUint64(table.Bytes, uint64(len(keys)))
+	// The itab table is an open-addressing hash table keyed by the two
+	// descriptors' hashes (see itabSlots), probed linearly; an empty slot
+	// ends a probe.
+	hashes := make([][2]uint32, len(keys))
 	for i, k := range keys {
+		it := tt.itabs[k]
+		hashes[i] = [2]uint32{descHash(typeString(it.T)), descHash(typeString(it.I))}
+	}
+	slots := itabSlots(hashes)
+	table := &ssa.Data{Sym: l.out.Sym("pluto.itabs", ssa.SymData), Align: 8, ReadOnly: true}
+	table.Size = int64(8 * (1 + len(slots)))
+	table.Bytes = make([]byte, 8)
+	binary.LittleEndian.PutUint64(table.Bytes, uint64(len(slots)))
+	for _, k := range keys {
 		it := tt.itabs[k]
 		size := int64(itabHeader + 8*len(it.methods))
 		data := &ssa.Data{Sym: it.sym, Size: size, Align: 8, ReadOnly: true}
@@ -236,9 +243,54 @@ func (tt *typeTable) emit() {
 			data.Relocs = append(data.Relocs, ssa.DataReloc{Off: int64(itabHeader + 8*j), Sym: m})
 		}
 		l.out.Data = append(l.out.Data, data)
-		table.Relocs = append(table.Relocs, ssa.DataReloc{Off: int64(8 * (i + 1)), Sym: it.sym})
+	}
+	for j, i := range slots {
+		if i >= 0 {
+			table.Relocs = append(table.Relocs, ssa.DataReloc{Off: int64(8 * (j + 1)), Sym: tt.itabs[keys[i]].sym})
+		}
 	}
 	l.out.Data = append(l.out.Data, table)
+}
+
+// descHash is the hash stored in a type descriptor: FNV-1a of the type's
+// key string.
+func descHash(key string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(key))
+	return h.Sum32()
+}
+
+// itabHash combines the descriptor hashes of a concrete type and an
+// interface into a starting slot. pluto/rt's findItab computes the same.
+func itabHash(typ, iface uint32) uint32 {
+	h := typ*0x9E3779B1 ^ iface
+	h ^= h >> 15
+	h *= 0x85EBCA6B
+	h ^= h >> 13
+	return h
+}
+
+// itabSlots lays out the itab table: a power-of-two number of slots, at
+// least twice the number of itabs (so probes stay short and at least one
+// slot is empty), each holding the index of an itab in hashes or -1. Itab i
+// goes in the first free slot from itabHash(hashes[i]), wrapping around.
+func itabSlots(hashes [][2]uint32) []int {
+	size := 1
+	for size < 2*len(hashes) {
+		size <<= 1
+	}
+	slots := make([]int, size)
+	for j := range slots {
+		slots[j] = -1
+	}
+	for i, h := range hashes {
+		j := int(itabHash(h[0], h[1])) & (size - 1)
+		for slots[j] >= 0 {
+			j = (j + 1) & (size - 1)
+		}
+		slots[j] = i
+	}
+	return slots
 }
 
 func kindOf(T types2.Type) byte {
