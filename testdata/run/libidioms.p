@@ -39,7 +39,9 @@ func (s *stack[T]) push(x T) {
 	if len(s.data) == cap(s.data) {
 		panic("full")
 	}
-	s.data = append(s.data, x)
+	n := len(s.data)
+	s.data = s.data[:n+1]
+	s.data[n] = x
 }
 
 func (s *stack[T]) pop() (T, bool) {

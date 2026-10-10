@@ -70,7 +70,8 @@ func main() {
 	chunksAtMark := parent.blocks
 	scratch := make([]int, 0, 2000, &a) // 16000 bytes: a chunk of its own
 	for i := 0; i < 2000; i++ {
-		scratch = append(scratch, i)
+		scratch = scratch[:i+1]
+		scratch[i] = i
 	}
 	for i := 0; i < 50; i++ {
 		_ = new(node, &a)

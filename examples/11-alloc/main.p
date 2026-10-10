@@ -3,10 +3,11 @@ package main
 import (
 	"pluto/alloc"
 	"pluto/fmt"
+	"pluto/vec"
 )
 
-// Explicit heap allocation. Nothing allocates unless asked: new, make and
-// the alloc package take memory from the default allocator (a slab
+// Explicit heap allocation. Nothing allocates unless asked: new, vec.Vec
+// and the alloc package take memory from the default allocator (a slab
 // allocator in hosted programs), and memory is returned explicitly.
 
 type Point struct{ X, Y int }
@@ -22,13 +23,15 @@ func main() {
 	fmt.Printf("reused slot is zeroed: %d\n", *q)
 	alloc.Free(q)
 
-	// new and make use the same allocator.
+	// new and vec.Vec use the same allocator.
 	pt := new(Point)
 	defer alloc.Free(pt)
 	pt.X, pt.Y = 3, 4
 	fmt.Printf("point=%d,%d\n", pt.X, pt.Y)
 
-	buf := make([]byte, 0, 16)
-	buf = append(buf, "hello"...)
-	fmt.Printf("buf=%s len=%d cap=%d\n", buf, len(buf), cap(buf))
+	// A vec.Vec grows from the allocator; a slice cannot grow.
+	buf := vec.WithCapacity[byte](16)
+	defer buf.Free()
+	vec.AppendString(&buf, "hello")
+	fmt.Printf("buf=%s len=%d cap=%d\n", buf.Slice(), buf.Len(), buf.Cap())
 }

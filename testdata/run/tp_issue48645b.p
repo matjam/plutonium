@@ -76,6 +76,8 @@ func main() {
 		return false
 	})
 	Reduce(s, nil, func(acc []int, e int) []int {
-		return append(acc, e)
+		acc = acc[:len(acc)+1]
+		acc[len(acc)-1] = e
+		return acc
 	})
 }

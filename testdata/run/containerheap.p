@@ -16,7 +16,9 @@ func (h IntHeap) Less(i, j int) bool { return h[i] < h[j] }
 func (h IntHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
 
 func (h *IntHeap) Push(x any) {
-	*h = append(*h, x.(int))
+	n := len(*h)
+	*h = (*h)[:n+1]
+	(*h)[n] = x.(int)
 }
 
 func (h *IntHeap) Pop() any {
@@ -37,7 +39,9 @@ func rnd(n int) int {
 func main() {
 	h := IntHeap(make([]int, 0, 1000))
 	for i := 0; i < 40; i++ {
-		h = append(h, rnd(100))
+		n := len(h)
+		h = h[:n+1]
+		h[n] = rnd(100)
 	}
 	fmt.Println("before Init", []int(h))
 	heap.Init(&h)
@@ -63,7 +67,9 @@ func main() {
 
 	out := make([]int, 0, 64)
 	for h.Len() > 0 {
-		out = append(out, heap.Pop(&h).(int))
+		n := len(out)
+		out = out[:n+1]
+		out[n] = heap.Pop(&h).(int)
 	}
 	fmt.Println("drained", out)
 }

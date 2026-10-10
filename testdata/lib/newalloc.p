@@ -36,12 +36,14 @@ type big struct {
 var order []string
 
 func trace(s string, v int) int {
-	order = append(order, s)
+	order = order[:len(order)+1]
+	order[len(order)-1] = s
 	return v
 }
 
 func tracedAlloc(c *counting) *counting {
-	order = append(order, "alloc")
+	order = order[:len(order)+1]
+	order[len(order)-1] = "alloc"
 	return c
 }
 

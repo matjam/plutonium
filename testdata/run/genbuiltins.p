@@ -1,5 +1,5 @@
 // Variadic and multi-result generic functions, mutual recursion, and the
-// built-ins through core types: composite literals, make, append, copy,
+// built-ins through core types: composite literals, make, slicing, copy,
 // clear, min and max (of strings too), len; arrays and structs of type
 // parameters compared; pointer methods through a *T constraint; named
 // results of type T changed by a deferred closure.
@@ -36,7 +36,7 @@ func Odd[T Number](n T) bool {
 	return Even(n - 1)
 }
 
-// Composite literals, make, append, copy, clear and min/max through core
+// Composite literals, make, slicing, copy, clear and min/max through core
 // types.
 func Lit[S ~[]E, E Number]() (int, E) {
 	s := S{1, 2, 3}
@@ -52,7 +52,8 @@ func ArrLit[A ~[3]E, E any](e E) A { return A{2: e} }
 func Grow[S ~[]E, E any](n int, e E) S {
 	s := make(S, 0, n)
 	for i := 0; i < n; i++ {
-		s = append(s, e)
+		s = s[:i+1]
+		s[i] = e
 	}
 	return s
 }

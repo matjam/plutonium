@@ -107,7 +107,8 @@ func main() {
 	// A slice of interfaces filled by a callee.
 	errs := make([]error, 0, 3)
 	for i := 0; i < 3; i++ {
-		errs = append(errs, fail(i))
+		errs = errs[:i+1]
+		errs[i] = fail(i)
 	}
 	clobber(10)
 	for _, e := range errs {

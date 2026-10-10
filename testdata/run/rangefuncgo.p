@@ -8,8 +8,8 @@
 // Adapted from Go's cmd/compile/internal/rangefunc/rangefunc_test.go: the
 // tests that need recover, that run a defer once per iteration, or whose
 // iterators keep yield after returning are left out; results go to slices
-// with room enough, since append does not grow a slice in Plutonium; twice
-// no longer recovers; Bug70035 builds numbers instead of strings.
+// with room enough through push, since a slice does not grow in Plutonium;
+// twice no longer recovers; Bug70035 builds numbers instead of strings.
 
 package main
 
@@ -115,6 +115,13 @@ func equal(s, t []int) bool {
 	return true
 }
 
+// push stores x in the spare capacity of s, where Go's test appends.
+func push(s []int, x int) []int {
+	s = s[:len(s)+1]
+	s[len(s)-1] = x
+	return s
+}
+
 func expect(name string, want, got []int) {
 	print(name, ":")
 	for _, x := range got {
@@ -156,9 +163,9 @@ func TestBreak1() {
 			if y == 3 {
 				break
 			}
-			result = append(result, y)
+			result = push(result, y)
 		}
-		result = append(result, x)
+		result = push(result, x)
 	}
 	expect("break1", []int{1, 2, -1, 1, 2, -2, 1, 2, -3}, result)
 }
@@ -177,9 +184,9 @@ outer:
 				break outer
 			}
 
-			result = append(result, y)
+			result = push(result, y)
 		}
-		result = append(result, x)
+		result = push(result, x)
 	}
 	expect("break2", []int{1, 2, -1, 1, 2, -2, 1, 2, -3}, result)
 }
@@ -190,7 +197,7 @@ func TestContinue() {
 	result := make([]int, 0, 64)
 outer:
 	for _, x := range OfSliceIndex([]int{-1, -2, -3, -4}) {
-		result = append(result, x)
+		result = push(result, x)
 		for _, y := range OfSliceIndex([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}) {
 			if y == 3 {
 				continue outer
@@ -199,9 +206,9 @@ outer:
 				break outer
 			}
 
-			result = append(result, y)
+			result = push(result, y)
 		}
-		result = append(result, x-10)
+		result = push(result, x-10)
 	}
 	expect("continue", []int{-1, 1, 2, -2, 1, 2, -3, 1, 2, -4}, result)
 }
@@ -217,7 +224,7 @@ X:
 			if 10*y >= x {
 				break
 			}
-			result = append(result, y)
+			result = push(result, y)
 			if y == 30 {
 				continue X
 			}
@@ -226,14 +233,14 @@ X:
 				if z&1 == 1 {
 					continue Z
 				}
-				result = append(result, z)
+				result = push(result, z)
 				if z >= 4 {
 					continue Y
 				}
 			}
-			result = append(result, -y) // should never be executed
+			result = push(result, -y) // should never be executed
 		}
-		result = append(result, x)
+		result = push(result, x)
 	}
 	expect("break3", []int{100, 10, 2, 4, 200, 10, 2, 4, 20, 2, 4, 300, 10, 2, 4, 20, 2, 4, 30}, result)
 }
@@ -245,25 +252,25 @@ func TestMultiCont0() {
 
 W:
 	for _, w := range OfSliceIndex([]int{1000, 2000}) {
-		result = append(result, w)
+		result = push(result, w)
 		if w == 2000 {
 			break
 		}
 		for _, x := range OfSliceIndex([]int{100, 200, 300, 400}) {
 			for _, y := range OfSliceIndex([]int{10, 20, 30, 40}) {
-				result = append(result, y)
+				result = push(result, y)
 				for _, z := range OfSliceIndex([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}) {
 					if z&1 == 1 {
 						continue
 					}
-					result = append(result, z)
+					result = push(result, z)
 					if z >= 4 {
 						continue W // modified to be multilevel
 					}
 				}
-				result = append(result, -y) // should never be executed
+				result = push(result, -y) // should never be executed
 			}
-			result = append(result, x)
+			result = push(result, x)
 		}
 	}
 	expect("multicont0", []int{1000, 10, 2, 4, 2000}, result)
@@ -275,25 +282,25 @@ func MultiBreak0() {
 
 W:
 	for _, w := range Check2(OfSliceIndex([]int{1000, 2000})) {
-		result = append(result, w)
+		result = push(result, w)
 		if w == 2000 {
 			break
 		}
 		for _, x := range OfSliceIndex([]int{100, 200, 300, 400}) {
 			for _, y := range Check2(OfSliceIndex([]int{10, 20, 30, 40})) {
-				result = append(result, y)
+				result = push(result, y)
 				for _, z := range OfSliceIndex([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}) {
 					if z&1 == 1 {
 						continue
 					}
-					result = append(result, z)
+					result = push(result, z)
 					if z >= 4 {
 						break W
 					}
 				}
-				result = append(result, -y) // should never be executed
+				result = push(result, -y) // should never be executed
 			}
-			result = append(result, x)
+			result = push(result, x)
 		}
 	}
 	expect("multibreak0", []int{1000, 10, 2, 4}, result)
@@ -302,7 +309,7 @@ W:
 // testReturn1 has no bad iterators.
 func testReturn1(result []int) []int {
 	for _, x := range OfSliceIndex([]int{-1, -2, -3, -4, -5}) {
-		result = append(result, x)
+		result = push(result, x)
 		if x == -4 {
 			break
 		}
@@ -310,9 +317,9 @@ func testReturn1(result []int) []int {
 			if y == 3 {
 				return result
 			}
-			result = append(result, y)
+			result = push(result, y)
 		}
-		result = append(result, x)
+		result = push(result, x)
 	}
 	return nil
 }
@@ -320,7 +327,7 @@ func testReturn1(result []int) []int {
 // testReturn4 has no bad iterators, but exercises return variable rewriting.
 func testReturn4(result []int) (_ []int, _ []int, err any) {
 	for _, x := range OfSliceIndex([]int{-1, -2, -3, -4, -5}) {
-		result = append(result, x)
+		result = push(result, x)
 		if x == -4 {
 			break
 		}
@@ -328,9 +335,9 @@ func testReturn4(result []int) (_ []int, _ []int, err any) {
 			if y == 3 {
 				return result, result, nil
 			}
-			result = append(result, y)
+			result = push(result, y)
 		}
-		result = append(result, x)
+		result = push(result, x)
 	}
 	return
 }
@@ -348,7 +355,7 @@ func TestReturns() {
 // testGotoA1 tests loop-nest-internal goto, no bad iterators.
 func testGotoA1(result []int) []int {
 	for _, x := range OfSliceIndex([]int{-1, -2, -3, -4, -5}) {
-		result = append(result, x)
+		result = push(result, x)
 		if x == -4 {
 			break
 		}
@@ -356,9 +363,9 @@ func testGotoA1(result []int) []int {
 			if y == 3 {
 				goto A
 			}
-			result = append(result, y)
+			result = push(result, y)
 		}
-		result = append(result, x)
+		result = push(result, x)
 	A:
 	}
 	return result
@@ -367,7 +374,7 @@ func testGotoA1(result []int) []int {
 // testGotoB1 tests loop-nest-exiting goto, no bad iterators.
 func testGotoB1(result []int) []int {
 	for _, x := range OfSliceIndex([]int{-1, -2, -3, -4, -5}) {
-		result = append(result, x)
+		result = push(result, x)
 		if x == -4 {
 			break
 		}
@@ -375,12 +382,12 @@ func testGotoB1(result []int) []int {
 			if y == 3 {
 				goto B
 			}
-			result = append(result, y)
+			result = push(result, y)
 		}
-		result = append(result, x)
+		result = push(result, x)
 	}
 B:
-	result = append(result, 999)
+	result = push(result, 999)
 	return result
 }
 

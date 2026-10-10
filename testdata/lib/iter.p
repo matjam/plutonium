@@ -297,13 +297,14 @@ func text() {
 	println()
 
 	var buf [64]byte
-	data := append(buf[:0], "x=1;y=22;z=333\nnext line\n"...)
+	data := buf[:copy(buf[:], "x=1;y=22;z=333\nnext line\n")]
 	print("bytes lines:")
 	for line := range bytes.Lines(data) {
 		print(" ", len(line), "/", cap(line))
 	}
 	println()
-	semi := append(buf[40:40], ';')
+	buf[40] = ';'
+	semi := buf[40:41]
 	print("bytes split:")
 	for part := range bytes.SplitSeq(data[:14], semi) {
 		print(" [", str(part), "]")
