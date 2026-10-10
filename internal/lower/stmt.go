@@ -968,10 +968,33 @@ func hasDefer(body *ast.BlockStmt) bool {
 	return found
 }
 
+// inGotoLoop reports whether p is in a loop that a goto makes, by jumping
+// back to a label before p from after it (loopSpans).
+func (s *fnState) inGotoLoop(p token.Pos) bool {
+	root := s.rootFn()
+	var body *ast.BlockStmt
+	switch {
+	case root.job.decl != nil:
+		body = root.job.decl.Body
+	case root.job.lit != nil:
+		body = root.job.lit.Body
+	}
+	if body == nil {
+		return false
+	}
+	loops, _ := loopSpans(body)
+	for _, sp := range loops {
+		if sp.label != "" && p >= sp.lo && p < sp.hi {
+			return true
+		}
+	}
+	return false
+}
+
 // deferStmt evaluates the deferred call's function and arguments now and
 // records the call to run at every return.
 func (s *fnState) deferStmt(st *ast.DeferStmt) {
-	if s.loopDepth > 0 {
+	if s.loopDepth > 0 || s.inGotoLoop(st.Pos()) {
 		s.l.errorf(st.Pos(), diag.DeferInLoop, "defer inside a loop is not supported in Plutonium (it would need unbounded stack); move the loop body into a function")
 		return
 	}

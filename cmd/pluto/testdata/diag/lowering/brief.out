@@ -1,1 +1,2 @@
 $DIR/main.p:5:3: defer inside a loop is not supported in Plutonium (it would need unbounded stack); move the loop body into a function
+$DIR/main.p:12:2: defer inside a loop is not supported in Plutonium (it would need unbounded stack); move the loop body into a function

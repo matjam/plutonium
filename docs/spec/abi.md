@@ -254,7 +254,10 @@ or nested regions. The drop function takes the region's address, releases its st
 regions and clears the word. The caller zeroes the regions it reserves when it is entered, drops a region
 before each call that refills it, and drops its regions when it returns: a call of a known function calls
 that function's drop function, and a call through a func value or an interface calls the record in the
-drop word, if there is one. A region that turns out to hold nothing to release has these drops left out.
+drop word, if there is one. The drop before a call comes after its arguments are evaluated; nothing the
+call built in the region on its previous run can reach those arguments (language spec section 4.5,
+E3101), so dropping and refilling the region cannot change them. A region that turns out to hold nothing
+to release has these drops left out.
 Calls made while initialising packages get regions in static storage, which are never dropped.
 
 The caller reserves the region in its frame, one per call site, reused on every execution of the call,

@@ -32,7 +32,11 @@ later takes the next free number and is listed in the section where it belongs.
    through a caller's pointer, or passing it to a function that keeps it, must be a compile error
    (language spec sections 4.4, 4.5 and 6.3), with the explanatory messages of section 6.9. Returned
    closures are built in a region the caller provides (section 4.5), and what a region cannot hold is
-   checked (E3100-E3102); nothing else is yet. This is the compile-time half of "a view may not outlive what it looks at" (item 20).
+   checked (E3100-E3102); nothing else is yet. The address of a variable in a call's region is a view
+   of the caller's frame at that call, and must not be kept where the call's next run can see it, as
+   for a loop's variables: today a pointer to such a variable passed back to the same call reads what
+   the call's refill left there (the drop clears its strings first). This is the compile-time half of
+   "a view may not outlive what it looks at" (item 20).
 
 ## Kernel enablement
 
