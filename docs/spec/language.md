@@ -126,6 +126,11 @@ Returning an interface that holds such a frame copy, or storing it in a package-
 compile error where the compiler can see it. To keep a large value in an interface beyond the current
 function, store a pointer to it instead.
 
+The initializer of a package-level variable is the exception: it runs once, and its results must outlive
+package initialization, so a conversion there copies the value into static storage instead of a frame.
+`var ErrBad error = parseError{line: 1}` and `var names any = []string{"a", "b"}` are valid. The same
+holds for `&T{...}` and slice literals in package-level initializers, which also get static storage.
+
 Type descriptors exist only for types that are converted to an interface. Besides identifying the type,
 a descriptor records its size, alignment and kind, and its element type and length or its field offsets
 and types, which is what generic printing, hashing and equality in the standard library use. Field names
