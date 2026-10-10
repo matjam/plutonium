@@ -338,10 +338,16 @@ made with `clone(2)` without a C library. Each worker has its own run queue, and
 half the queue of a busy one, so load spreads across processors without any work by the program. A
 monitor thread preempts a puroutine that has run for 10 ms by sending its thread a signal, and hands the
 processor of a worker blocked in a system call (`rt.EnterSyscall`, which `pluto/os` file I/O uses) to
-another worker. Waits for I/O go through one epoll poller: `os.Pipe`'s descriptors are non-blocking,
-and a puroutine that reads an empty pipe or writes a full one parks there (`rt.PollWait`). When every
-puroutine waits for another and nothing waits for I/O, a system call or an armed timer, the program
-stops with "fatal error: all puroutines are asleep - deadlock!" and status 2, as in Go.
+another worker. Waits for I/O go through one epoll poller, on Go's design: a non-blocking descriptor
+(`os.Pipe`'s, or one given to `os.NewFile`, such as a socket made with `SOCK_NONBLOCK`) has a poller
+record (`rt.PollDesc`) with its own queue of puroutines waiting to read and another of those waiting to
+write, so a read and a write can wait on one socket at once, and an event wakes everything waiting for
+it. A puroutine that reads an empty pipe or writes a full one parks there. `Close` on the `os.File`
+wakes every waiter, whose `Read` or `Write` then reports `os.ErrClosed`, and so does any later use of the
+file; the descriptor itself is closed when the last operation in progress on it returns, so that the
+number is not reused under a running call. When every puroutine waits for another and nothing waits
+for I/O, a system call or an armed timer, the program stops with "fatal error: all puroutines are
+asleep - deadlock!" and status 2, as in Go.
 
 A hosted program catches `SIGPIPE` at startup, with a handler that does nothing (so a program it starts
 with `os/exec` gets the default action back), and follows Go's rule: a write to a pipe or socket with no
@@ -2855,8 +2861,8 @@ comparable. `errors.As` is generic, `func As[E any](err error, target *E) bool`,
 
 ### 14.5 Differences in the standard library
 
-`os.File.Read`, `Write` and `Close` report a bare `syscall.Errno` (and `io.EOF`), not a `*PathError`, so
-that I/O does not allocate. `strconv` reports `ErrSyntax` and `ErrRange` without Go's `*NumError`. An
+`os.File.Read`, `Write` and `Close` report a bare `syscall.Errno` (and `io.EOF`, and `os.ErrClosed` for a
+closed file), not a `*PathError`, so that I/O does not allocate. `strconv` reports `ErrSyntax` and `ErrRange` without Go's `*NumError`. An
 `Errno` the table does not know reports `"unknown error"`.
 
 ### 14.6 Allocated errors and ownership (proposal, needs sign-off)

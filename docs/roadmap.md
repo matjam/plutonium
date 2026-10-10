@@ -87,17 +87,18 @@ later takes the next free number and is listed in the section where it belongs.
     hosted work-stealing scheduler on Go's M/P/G design: per-processor run queues with stealing,
     worker threads made with `clone`, preemption by `SIGURG` from a monitor thread every 10 ms, hand-off
     of a processor blocked in a system call (`os` file I/O, `Process.Wait` and the waits of
-    `os/exec`), an epoll poller for pipes from `os.Pipe` (`File.Fd` makes one blocking again, as in
-    Go, so `os/exec` can hand it to a child), `SIGPIPE` handling as in Go (a write to a closed pipe
+    `os/exec`), an epoll poller for pipes from `os.Pipe` and non-blocking descriptors given to
+    `os.NewFile` (sockets), with a read waiter and a write waiter per descriptor as in Go's `pollDesc`,
+    and `Close` waking the waiters with `os.ErrClosed` (`File.Fd` makes one blocking again, as in Go,
+    so `os/exec` can hand it to a child), `SIGPIPE` handling as in Go (a write to a closed pipe
     returns `EPIPE`; on standard output or error it ends the program with the signal), timers
     (per-processor heaps run by the workers and the poller, `rt.Now` through the vDSO,
     `rt.ParkUntil`), and deadlock detection that waits for armed timers (language spec section 4.7;
     abi.md section 12). `rt.StackLeft` measures a puroutine's own stack. The sendable rules are checked
     (`shared[T]` never crosses, frame views are rejected syntactically, and closures in the current
     frame are a compile error, E2594, where the compiler can tell, and panic at the `go` otherwise).
-    Follow-ups: traces of parked puroutines (`rt.TraceTask`); one
-    waiter per file in the poller, and closing a file does not wake it; a program that binds its own
-    hosted backend runs on one thread; spawning costs about twice Go's.
+    Follow-ups: traces of parked puroutines (`rt.TraceTask`); a program that binds its own hosted
+    backend runs on one thread; spawning costs about twice Go's.
 15. **Channels and `select`** (done): `chan T`, send, receive, `close`, `range`, `select` with Go's
     random choice, `len`, `cap` and `make(chan T, n, a)`, on Go's design (a lock per channel, waiters
     queued in their frames, values copied directly to a waiting receiver). Channels are freed with
