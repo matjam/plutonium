@@ -390,6 +390,7 @@ func TestKernelSmoke(t *testing.T) {
 	dir := filepath.Join("..", "..", "testdata", "kernel", "smoke")
 	const want = "hello from kernel mode\n" +
 		"fmt -42 works 0xff true\n" +
+		"fmt {1 -2} {3 4} [{5 6}]\n" +
 		"cpu0 initial -1 7 9\n" +
 		"cpu1 initial -1 0 true\n" +
 		"cpu0 again 0 11 1 true\n" +

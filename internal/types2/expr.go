@@ -145,6 +145,11 @@ func (check *Checker) unary(x *operand, e *ast.UnaryExpr) {
 	case token.AND:
 		// spec: "As an exception to the addressability
 		// requirement x may also be a composite literal."
+		if check.isContainerIndex(e.X) {
+			check.errorf(x, ContainerIndexAddress, invalidOp+"cannot take address of %s: it is a copy returned by the Index method of %s", e.X, check.containerOf(e.X))
+			x.invalidate()
+			return
+		}
 		if _, ok := ast.Unparen(e.X).(*ast.CompositeLit); !ok && x.mode() != variable {
 			check.errorf(x, UnaddressableOperand, invalidOp+"cannot take address of %s", x)
 			x.invalidate()

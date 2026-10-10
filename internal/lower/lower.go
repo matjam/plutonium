@@ -34,6 +34,9 @@ type Config struct {
 	// //pu:fpu may not use floating point, and //pu:percpu is allowed.
 	Kernel bool
 	Sizes  types2.Sizes
+	// NoFieldNames leaves the field names out of type descriptors, so %+v
+	// prints struct fields without them (pluto build --fieldnames=false).
+	NoFieldNames bool
 }
 
 // A Lowerer lowers one program.

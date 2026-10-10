@@ -56,6 +56,11 @@ type slot[K comparable, V any] struct {
 // floats and strings (and types defined on them) out of the box; a key type
 // with a Hash(seed uint64) uint64 method uses it; any other key type needs
 // a hash function given to InitFunc.
+//
+// m[k] reads like a Go map element (the zero V for a missing key),
+// m[k] = v stores, v, ok := m[k] reports whether k is present, m[k] += 1
+// reads and stores, and len(m) is Len (language spec section 6.7). &m[k] is
+// not allowed; Ptr and Upsert return pointers into the table.
 type Map[K comparable, V any] struct {
 	slots []slot[K, V]
 	meta  []uint8
@@ -213,15 +218,41 @@ func (m *Map[K, V]) Get(k K) (V, bool) {
 	return zero, false
 }
 
-// At returns the value stored for k, or the zero V if k is not in the map
-// (Go's m[k]).
-func (m *Map[K, V]) At(k K) V {
-	v, _ := m.Get(k)
-	return v
+// At returns the value stored for k, or the zero V if k is not in the map:
+// m[k] as a method call, for code translated from Go (internal/pu).
+func (m *Map[K, V]) At(k K) V { return m.Index(k) }
+
+// Index returns the value stored for k, or the zero V if k is not in the
+// map; it is what m[k] calls (language spec section 6.7).
+func (m *Map[K, V]) Index(k K) V {
+	if i := m.find(k); i >= 0 {
+		return m.slots[i].val
+	}
+	var zero V
+	return zero
 }
+
+// IndexOk is Get; it is what v, ok := m[k] calls.
+func (m *Map[K, V]) IndexOk(k K) (V, bool) { return m.Get(k) }
+
+// SetIndex is Set; it is what m[k] = v calls.
+func (m *Map[K, V]) SetIndex(k K, v V) { *m.slot(k) = v }
 
 // Has reports whether k is in the map.
 func (m *Map[K, V]) Has(k K) bool { return m.find(k) >= 0 }
+
+// FmtSlots and FmtSlot let pluto/fmt print m like a Go map, map[k:v], with
+// its keys sorted (fmt.Mapper). FmtSlots returns the number of slots, and
+// FmtSlot pointers to the key and value in slot i, if it is full.
+func (m *Map[K, V]) FmtSlots() int { return len(m.slots) }
+
+// FmtSlot: see FmtSlots.
+func (m *Map[K, V]) FmtSlot(i int) (k, v any, ok bool) {
+	if m.meta[i] == metaEmpty {
+		return nil, nil, false
+	}
+	return &m.slots[i].key, &m.slots[i].val, true
+}
 
 // Ptr returns a pointer to the value stored for k, or nil. The pointer is
 // valid until the map is next modified.
