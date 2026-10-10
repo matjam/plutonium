@@ -275,7 +275,7 @@ func (s *fnState) move(dst, src *ssa.Value, size int64) {
 func (s *fnState) typeOf(e ast.Expr) types2.Type {
 	tv, ok := s.info.Types[e]
 	if !ok {
-		s.l.errorf(e.Pos(), "lower: no type for expression")
+		s.l.internalf(e.Pos(), "no type for expression")
 		return types2.Typ[types2.Invalid]
 	}
 	return s.tmap.subst(tv.Type)

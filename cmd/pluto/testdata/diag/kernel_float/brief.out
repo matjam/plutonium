@@ -1,0 +1,1 @@
+$DIR/main.p:5:34: float64 constant is not allowed in kernel mode (no FPU state is saved; mark the function //pu:fpu to use floats)

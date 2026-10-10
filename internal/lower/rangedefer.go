@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -40,7 +41,7 @@ func (s *fnState) deferredLit(lit *ast.FuncLit) *ssa.Value {
 	for _, v := range captures {
 		// The loop's own variables are declared ahead of its body.
 		if p := v.Pos(); p >= outer.st.Pos() && p < outer.st.End() {
-			s.l.errorf(lit.Pos(), "a function literal deferred in a range-over-func loop body cannot capture %s, a variable of the loop body: the deferred call runs after the body has returned", v.Name())
+			s.l.errorf(lit.Pos(), diag.DeferLitCapture, "a function literal deferred in a range-over-func loop body cannot capture %s, a variable of the loop body: the deferred call runs after the body has returned", v.Name())
 			return nil
 		}
 	}

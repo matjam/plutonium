@@ -395,7 +395,7 @@ func (s *fnState) rangeBranch(st *ast.BranchStmt, label *types2.Label) {
 			break
 		}
 	}
-	s.l.errorf(st.Pos(), "lower: no target for %s", st.Tok)
+	s.l.internalf(st.Pos(), "no target for %s", st.Tok)
 }
 
 // rangeReturn lowers a return statement in a loop body: the results go to

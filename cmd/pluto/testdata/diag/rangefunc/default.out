@@ -1,0 +1,64 @@
+$DIR/main.p:33:7: Count returns a closure that captures its parameters, which is built in its caller's frame; it can only be called directly, not used as a func value
+    This function's body returns a function literal that captures the function's
+    parameters, such as an iterator constructor (func Count(n int) iter.Seq[int]
+    { return func(yield func(int) bool) { ... } }). A closure may not outlive
+    the frame it captures from, so Plutonium builds such a closure in the
+    caller's frame: each call is compiled where it is made, with the parameters
+    as variables of the caller. That needs a caller, so the function can only be
+    called directly. Taking it as a func value or a method value, or calling it
+    through an interface, has no caller's frame to build the closure in.
+    Call it directly, or wrap the call in a function that returns something
+    other than the closure.
+    In Go the captured parameters move to the heap and the closure can be
+    returned. Plutonium never moves a variable to the heap, and building the
+    closure in the caller's frame costs no allocation.
+    Call it where the iterator is used:
+        for i := range Count(3) {
+            ...
+        }
+    (see "Closures do not outlive their frame" in the Plutonium spec, section
+    4.5)
+    (run "pluto explain E2543" for a longer explanation)
+
+$DIR/main.p:17:3: defer in the body of a range-over-func loop must be followed by a return, or a break or goto out of the loop (otherwise it may run once per iteration, which would need unbounded stack)
+    The body of a loop over a function (for x := range seq) runs once for each
+    value the iterator yields, so a defer statement in it is a defer inside a
+    loop. Its deferred call belongs to the function the loop is in and runs when
+    that function returns, as in Go. Plutonium gives each defer statement one
+    slot in that function's frame, so the defer may run at most once per call:
+    after it, every path must leave the loop, by return, by panic, or by break,
+    continue or goto to a statement outside the loop.
+    If the deferred call should run at the end of each iteration, move the body
+    into a function of its own.
+    Go keeps the deferred calls of such a loop in a list on the heap. Plutonium
+    never allocates behind the program's back, and kernel stacks are small and
+    fixed.
+    Leave the loop after the defer, or give the body a function of its own:
+        for item := range items.All() {
+            if item.ID == id {
+                item.mu.Lock()
+                defer item.mu.Unlock()
+                return item.Value
+            }
+        }
+    (see "Range over functions" in the Plutonium spec, section 4.10)
+    (run "pluto explain E2533" for a longer explanation)
+
+$DIR/main.p:24:10: a function literal deferred in a range-over-func loop body cannot capture x, a variable of the loop body: the deferred call runs after the body has returned
+    A function literal deferred in the body of a loop over a function runs when
+    the enclosing function returns, after the loop body has returned. The body's
+    own variables, including the loop variables, live in the body's frame, which
+    is gone by then, so the literal cannot capture them.
+    Pass the values the deferred call needs as arguments: arguments are
+    evaluated when the defer statement runs.
+    Go moves such variables to the heap. Plutonium never moves a variable to the
+    heap; a closure is valid only while the frame it captures from is.
+    Pass the loop variable as an argument:
+        for x := range seq {
+            if done(x) {
+                defer func(x int) { log(x) }(x)
+                return
+            }
+        }
+    (see "Range over functions" in the Plutonium spec, section 4.10)
+    (run "pluto explain E2534" for a longer explanation)

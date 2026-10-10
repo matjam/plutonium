@@ -1,0 +1,4 @@
+$DIR/main.p:19:34: parameter limit has no default value but follows parameter factor, which has one
+$DIR/main.p:12:2: missing cases in switch on c (Color): Green, Blue (add them or a default case)
+$DIR/main.p:21:50: errors.New needs a constant message, since each call site makes one static error; use fmt.Errorf to build a message at run time
+$DIR/main.p:24:12: map types are not permitted in Plutonium (maps need a garbage-collected hash table; use pluto/hash)

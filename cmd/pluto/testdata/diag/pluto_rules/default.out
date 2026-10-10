@@ -1,0 +1,48 @@
+$DIR/main.p:19:34: parameter limit has no default value but follows parameter factor, which has one
+    A call may leave out only trailing parameters. So once a parameter has a
+    default value, every parameter after it needs one too.
+    (see "Default parameter values" in the Plutonium spec, section 5.1)
+    (run "pluto explain E2203" for a longer explanation)
+
+$DIR/main.p:12:2: missing cases in switch on c (Color): Green, Blue (add them or a default case)
+    A switch on an enum value that has no default case must list every member.
+    That way, adding a member to the enum shows every switch that needs to
+    handle it.
+    Add a case for each missing member, or a default case if the remaining
+    members share one action.
+    Go does not check this. Plutonium does, because an enum is a closed set of
+    values, so the compiler can tell when one is forgotten.
+    (see "Enums" in the Plutonium spec, section 5.9)
+    (run "pluto explain E2312" for a longer explanation)
+
+$DIR/main.p:21:50: errors.New needs a constant message, since each call site makes one static error; use fmt.Errorf to build a message at run time
+    errors.New takes only a constant message, such as a string literal. The
+    compiler makes one error value for each place errors.New is called, and
+    stores it in the program image, so the message must be known when compiling.
+    To build a message from values at run time, use fmt.Errorf, which allocates
+    the error.
+    In Go, errors.New allocates a new error on every call. Plutonium never
+    allocates behind the program's back, so errors.New makes a static error
+    instead, which costs nothing and can never fail.
+    To include values in the message:
+        return fmt.Errorf("open %s: not found", name)
+    (see "Sentinels and errors.New" in the Plutonium spec, section 13.1)
+    (run "pluto explain E2008" for a longer explanation)
+
+$DIR/main.p:24:12: map types are not permitted in Plutonium (maps need a garbage-collected hash table; use pluto/hash)
+    Plutonium has no built-in map type. A Go map grows by allocating memory
+    behind the program's back, and the old memory is freed by the garbage
+    collector.
+    Use a hash map from pluto/hash, which takes an allocator, so you can see and
+    control where its memory comes from.
+    Plutonium has no garbage collector and never allocates memory unless the
+    program asks for it in the code, so that every cost is visible and the same
+    code can run inside a kernel.
+    To use a hash map:
+        import "pluto/hash"
+
+        m := hash.NewMap[string, int](0)
+        defer m.Free()
+        m.Set("a", 1)
+    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (run "pluto explain E2001" for a longer explanation)

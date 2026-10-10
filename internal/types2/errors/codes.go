@@ -4,7 +4,7 @@
 
 package errors
 
-//go:generate go run golang.org/x/tools/cmd/stringer@latest -type Code codes.go
+//go:generate go run golang.org/x/tools/cmd/stringer@latest -type Code codes.go plutonium.go
 
 type Code int
 

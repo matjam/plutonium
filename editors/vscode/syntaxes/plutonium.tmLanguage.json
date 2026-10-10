@@ -1,0 +1,699 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Plutonium",
+  "scopeName": "source.plutonium",
+  "fileTypes": ["p"],
+  "comment": "Written for Plutonium (docs/spec/language.md). Every regex stays within the subset of Oniguruma syntax that JavaScript's RegExp also accepts with the u flag, so editors/vscode/test/grammar-check.js can compile them all; see the README.",
+  "patterns": [{ "include": "#statements" }],
+  "repository": {
+    "statements": {
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        { "include": "#package" },
+        { "include": "#imports" },
+        { "include": "#type-group" },
+        { "include": "#type-declaration" },
+        { "include": "#function-declaration" },
+        { "include": "#function-literal" },
+        { "include": "#struct" },
+        { "include": "#interface" },
+        { "include": "#packed" },
+        { "include": "#enum" },
+        { "include": "#union" },
+        { "include": "#labels" },
+        { "include": "#branch-labels" },
+        { "include": "#var-declaration" },
+        { "include": "#const-declaration" },
+        { "include": "#contextual-keywords" },
+        { "include": "#keywords" },
+        { "include": "#short-declaration" },
+        { "include": "#type-constructors" },
+        { "include": "#builtin-types" },
+        { "include": "#builtin-constants" },
+        { "include": "#builtin-functions" },
+        { "include": "#unsafe" },
+        { "include": "#function-call" },
+        { "include": "#property" },
+        { "include": "#operators" },
+        { "include": "#punctuation" }
+      ]
+    },
+
+    "comments": {
+      "patterns": [
+        { "include": "#build-directive" },
+        { "include": "#directive" },
+        {
+          "name": "comment.block.plutonium",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "captures": { "0": { "name": "punctuation.definition.comment.plutonium" } }
+        },
+        {
+          "name": "comment.line.double-slash.plutonium",
+          "begin": "//",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.plutonium" } },
+          "end": "$"
+        }
+      ]
+    },
+
+    "build-directive": {
+      "comment": "//pu:build constraint, with Go's boolean syntax.",
+      "name": "meta.preprocessor.directive.build.plutonium",
+      "begin": "^\\s*(//)(pu:build)(?=\\s|$)",
+      "beginCaptures": {
+        "1": { "name": "comment.line.double-slash.plutonium punctuation.definition.comment.plutonium" },
+        "2": { "name": "keyword.control.directive.plutonium" }
+      },
+      "end": "$",
+      "patterns": [
+        { "name": "keyword.operator.logical.plutonium", "match": "&&|\\|\\||!" },
+        { "name": "punctuation.section.parens.plutonium", "match": "[()]" },
+        { "name": "entity.name.tag.build-constraint.plutonium", "match": "[\\w.]+" }
+      ]
+    },
+
+    "directive": {
+      "comment": "//pu:name args, written with no space after the slashes. Any name is accepted so that new directives highlight without a grammar change.",
+      "name": "meta.preprocessor.directive.plutonium",
+      "match": "^\\s*(//)(pu:[A-Za-z_]\\w*)(?=\\s|$)(.*)$",
+      "captures": {
+        "1": { "name": "comment.line.double-slash.plutonium punctuation.definition.comment.plutonium" },
+        "2": { "name": "keyword.control.directive.plutonium" },
+        "3": { "name": "string.unquoted.directive-argument.plutonium" }
+      }
+    },
+
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.plutonium",
+          "begin": "\"",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.plutonium" } },
+          "end": "(\")|$",
+          "endCaptures": { "1": { "name": "punctuation.definition.string.end.plutonium" } },
+          "patterns": [{ "include": "#string-escapes" }, { "include": "#format-verbs" }]
+        },
+        {
+          "name": "string.quoted.raw.plutonium",
+          "begin": "`",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.plutonium" } },
+          "end": "`",
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.plutonium" } },
+          "patterns": [{ "include": "#format-verbs" }]
+        },
+        {
+          "name": "string.quoted.single.rune.plutonium",
+          "begin": "'",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.plutonium" } },
+          "end": "(')|$",
+          "endCaptures": { "1": { "name": "punctuation.definition.string.end.plutonium" } },
+          "patterns": [{ "include": "#string-escapes" }]
+        }
+      ]
+    },
+
+    "string-escapes": {
+      "patterns": [
+        {
+          "name": "constant.character.escape.plutonium",
+          "match": "\\\\(?:[abfnrtv\\\\'\"]|[0-7]{3}|x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})"
+        },
+        { "name": "invalid.illegal.unknown-escape.plutonium", "match": "\\\\." }
+      ]
+    },
+
+    "format-verbs": {
+      "name": "constant.other.placeholder.plutonium",
+      "match": "%(?:\\[[0-9]+\\])?[-+# 0]*(?:[0-9]+|\\*|\\[[0-9]+\\]\\*)?(?:\\.(?:[0-9]+|\\*|\\[[0-9]+\\]\\*)?)?(?:\\[[0-9]+\\])?[vTtbcdoOqxXUeEfFgGsp%]"
+    },
+
+    "numbers": {
+      "comment": "Go's literal syntax without imaginary literals, since Plutonium has no complex types.",
+      "patterns": [
+        {
+          "name": "constant.numeric.float.hexadecimal.plutonium",
+          "match": "\\b0[xX]_?(?:[0-9A-Fa-f](?:_?[0-9A-Fa-f])*)?\\.?(?:[0-9A-Fa-f](?:_?[0-9A-Fa-f])*)?[pP][+-]?[0-9](?:_?[0-9])*\\b"
+        },
+        {
+          "name": "constant.numeric.integer.hexadecimal.plutonium",
+          "match": "\\b0[xX]_?[0-9A-Fa-f](?:_?[0-9A-Fa-f])*\\b"
+        },
+        {
+          "name": "constant.numeric.integer.binary.plutonium",
+          "match": "\\b0[bB]_?[01](?:_?[01])*\\b"
+        },
+        {
+          "name": "constant.numeric.integer.octal.plutonium",
+          "match": "\\b0[oO]_?[0-7](?:_?[0-7])*\\b"
+        },
+        {
+          "name": "constant.numeric.float.decimal.plutonium",
+          "match": "\\b[0-9](?:_?[0-9])*\\.(?:[0-9](?:_?[0-9])*)?(?:[eE][+-]?[0-9](?:_?[0-9])*)?(?!\\w)|(?<![\\w.])\\.[0-9](?:_?[0-9])*(?:[eE][+-]?[0-9](?:_?[0-9])*)?\\b|\\b[0-9](?:_?[0-9])*[eE][+-]?[0-9](?:_?[0-9])*\\b"
+        },
+        {
+          "name": "constant.numeric.integer.decimal.plutonium",
+          "match": "\\b[0-9](?:_?[0-9])*\\b"
+        }
+      ]
+    },
+
+    "package": {
+      "match": "\\b(package)\\s+([A-Za-z_]\\w*)",
+      "captures": {
+        "1": { "name": "keyword.package.plutonium" },
+        "2": { "name": "entity.name.namespace.plutonium" }
+      }
+    },
+
+    "imports": {
+      "patterns": [
+        {
+          "begin": "\\b(import)\\s*(\\()",
+          "beginCaptures": {
+            "1": { "name": "keyword.import.plutonium" },
+            "2": { "name": "punctuation.definition.imports.begin.bracket.round.plutonium" }
+          },
+          "end": "\\)",
+          "endCaptures": { "0": { "name": "punctuation.definition.imports.end.bracket.round.plutonium" } },
+          "patterns": [{ "include": "#comments" }, { "include": "#import-spec" }]
+        },
+        {
+          "begin": "\\b(import)(?=\\s)",
+          "beginCaptures": { "1": { "name": "keyword.import.plutonium" } },
+          "end": "(?<=\")|$",
+          "patterns": [{ "include": "#comments" }, { "include": "#import-spec" }]
+        }
+      ]
+    },
+
+    "import-spec": {
+      "match": "(?:([A-Za-z_]\\w*|\\.)\\s+)?(\")([^\"]*)(\")",
+      "captures": {
+        "1": { "name": "entity.alias.import.plutonium" },
+        "2": { "name": "string.quoted.double.plutonium punctuation.definition.string.begin.plutonium" },
+        "3": { "name": "string.quoted.double.plutonium entity.name.import.plutonium" },
+        "4": { "name": "string.quoted.double.plutonium punctuation.definition.string.end.plutonium" }
+      }
+    },
+
+    "type-declaration": {
+      "comment": "type Name[TypeParams] = or owner. The rest of the declaration (struct, packed, enum, union) is matched by the general rules.",
+      "match": "\\b(type)\\s+([A-Za-z_]\\w*)(?:\\s*(\\[)([^\\[\\]]*(?:\\[[^\\[\\]]*\\][^\\[\\]]*)*)(\\]))?(?:\\s*(=))?(?:\\s+(owner)\\b)?",
+      "captures": {
+        "1": { "name": "keyword.type.plutonium" },
+        "2": { "name": "entity.name.type.plutonium" },
+        "3": { "name": "punctuation.definition.type-parameters.begin.bracket.square.plutonium" },
+        "4": { "patterns": [{ "include": "#type-parameter-inner" }] },
+        "5": { "name": "punctuation.definition.type-parameters.end.bracket.square.plutonium" },
+        "6": { "name": "keyword.operator.assignment.plutonium" },
+        "7": { "name": "keyword.owner.plutonium" }
+      }
+    },
+
+    "type-group": {
+      "begin": "\\b(type)\\s*(\\()",
+      "beginCaptures": {
+        "1": { "name": "keyword.type.plutonium" },
+        "2": { "name": "punctuation.definition.begin.bracket.round.plutonium" }
+      },
+      "end": "\\)",
+      "endCaptures": { "0": { "name": "punctuation.definition.end.bracket.round.plutonium" } },
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "match": "^\\s*([A-Za-z_]\\w*)(?:\\s*(\\[)([^\\[\\]]*(?:\\[[^\\[\\]]*\\][^\\[\\]]*)*)(\\]))?(?:\\s*(=))?(?:\\s+(owner)\\b)?",
+          "captures": {
+            "1": { "name": "entity.name.type.plutonium" },
+            "2": { "name": "punctuation.definition.type-parameters.begin.bracket.square.plutonium" },
+            "3": { "patterns": [{ "include": "#type-parameter-inner" }] },
+            "4": { "name": "punctuation.definition.type-parameters.end.bracket.square.plutonium" },
+            "5": { "name": "keyword.operator.assignment.plutonium" },
+            "6": { "name": "keyword.owner.plutonium" }
+          }
+        },
+        { "include": "#statements" }
+      ]
+    },
+
+    "type-parameter-list": {
+      "begin": "\\[",
+      "beginCaptures": { "0": { "name": "punctuation.definition.type-parameters.begin.bracket.square.plutonium" } },
+      "end": "\\]",
+      "endCaptures": { "0": { "name": "punctuation.definition.type-parameters.end.bracket.square.plutonium" } },
+      "patterns": [{ "include": "#type-parameter-inner" }]
+    },
+
+    "type-parameter-inner": {
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "comment": "A type parameter name (followed by its constraint, or by more names and then a constraint) and its constraint.",
+          "begin": "\\b([A-Za-z_]\\w*)(?=\\s+[~*\\[A-Za-z_(]|\\s*,\\s*[A-Za-z_]\\w*(?:\\s*,\\s*[A-Za-z_]\\w*)*\\s+[~*\\[A-Za-z_(])",
+          "beginCaptures": { "1": { "name": "entity.name.type.parameter.plutonium" } },
+          "end": "(?=[,\\]])",
+          "patterns": [{ "include": "#constraint" }]
+        },
+        { "include": "#constraint" }
+      ]
+    },
+
+    "constraint": {
+      "patterns": [
+        { "include": "#comments" },
+        { "name": "keyword.owner.plutonium", "match": "\\bowner\\b" },
+        { "name": "keyword.operator.type-set.plutonium", "match": "[~|]" },
+        { "include": "#type-parameter-list" },
+        { "include": "#type-expression" }
+      ]
+    },
+
+    "type-expression": {
+      "comment": "Rules for a position where a type is expected.",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#function-literal" },
+        { "include": "#struct" },
+        { "include": "#interface" },
+        { "include": "#packed" },
+        { "include": "#contextual-keywords" },
+        { "include": "#keywords" },
+        { "include": "#type-constructors" },
+        { "include": "#builtin-types" },
+        { "include": "#builtin-constants" },
+        { "include": "#unsafe" },
+        { "include": "#numbers" },
+        {
+          "match": "\\b([A-Za-z_]\\w*)(\\.)([A-Za-z_]\\w*)",
+          "captures": {
+            "2": { "name": "punctuation.accessor.plutonium" },
+            "3": { "name": "entity.name.type.plutonium" }
+          }
+        },
+        { "name": "entity.name.type.plutonium", "match": "\\b[A-Za-z_]\\w*" },
+        { "include": "#operators" },
+        { "include": "#punctuation" }
+      ]
+    },
+
+    "function-declaration": {
+      "comment": "func Name or func (recv) Name, then type parameters, parameters and results up to the body.",
+      "begin": "^\\s*(func)\\s*(?:(\\()([^()]*)(\\))\\s*)?([A-Za-z_]\\w*)",
+      "beginCaptures": {
+        "1": { "name": "keyword.function.plutonium" },
+        "2": { "name": "punctuation.definition.parameters.begin.bracket.round.plutonium" },
+        "3": { "patterns": [{ "include": "#receiver" }] },
+        "4": { "name": "punctuation.definition.parameters.end.bracket.round.plutonium" },
+        "5": { "name": "entity.name.function.plutonium" }
+      },
+      "end": "(?=[{;])|$",
+      "patterns": [{ "include": "#signature" }]
+    },
+
+    "function-literal": {
+      "comment": "A function literal or function type: func(params) results.",
+      "begin": "\\b(func)\\b(?=\\s*[\\[(])",
+      "beginCaptures": { "1": { "name": "keyword.function.plutonium" } },
+      "end": "(?=[{},;)\\]=])|$",
+      "patterns": [{ "include": "#signature" }]
+    },
+
+    "signature": {
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#type-parameter-list" },
+        { "include": "#parameter-list" },
+        { "include": "#type-expression" }
+      ]
+    },
+
+    "receiver": {
+      "patterns": [
+        {
+          "match": "\\b([A-Za-z_]\\w*)(?=\\s+\\*?\\s*[A-Za-z_])",
+          "captures": { "1": { "name": "variable.parameter.receiver.plutonium" } }
+        },
+        { "include": "#type-expression" }
+      ]
+    },
+
+    "parameter-list": {
+      "begin": "\\(",
+      "beginCaptures": { "0": { "name": "punctuation.definition.parameters.begin.bracket.round.plutonium" } },
+      "end": "\\)",
+      "endCaptures": { "0": { "name": "punctuation.definition.parameters.end.bracket.round.plutonium" } },
+      "patterns": [
+        {
+          "comment": "A parameter name (an identifier followed by a type, or by more names and then a type) and its type.",
+          "begin": "\\b(?!(?:func|chan|map|struct|interface|packed|enum)\\b)([A-Za-z_]\\w*)(?=\\s+(?:\\.\\.\\.|[*\\[A-Za-z_(<])|\\s*,\\s*[A-Za-z_]\\w*(?:\\s*,\\s*[A-Za-z_]\\w*)*\\s+(?:\\.\\.\\.|[*\\[A-Za-z_(<]))",
+          "beginCaptures": { "1": { "name": "variable.parameter.plutonium" } },
+          "end": "(?=[,)])",
+          "patterns": [{ "include": "#parameter-type" }]
+        },
+        { "include": "#parameter-type" }
+      ]
+    },
+
+    "parameter-type": {
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#default-value" },
+        { "name": "keyword.operator.ellipsis.plutonium", "match": "\\.\\.\\." },
+        { "include": "#type-parameter-list" },
+        { "include": "#parameter-list" },
+        { "include": "#type-expression" }
+      ]
+    },
+
+    "default-value": {
+      "comment": "A default parameter value, a Plutonium addition: name T = expr.",
+      "begin": "=(?!=)",
+      "beginCaptures": { "0": { "name": "keyword.operator.assignment.default.plutonium" } },
+      "end": "(?=[,)])",
+      "patterns": [{ "include": "#parenthesized" }, { "include": "#statements" }]
+    },
+
+    "parenthesized": {
+      "begin": "\\(",
+      "beginCaptures": { "0": { "name": "punctuation.definition.begin.bracket.round.plutonium" } },
+      "end": "\\)",
+      "endCaptures": { "0": { "name": "punctuation.definition.end.bracket.round.plutonium" } },
+      "patterns": [{ "include": "#parenthesized" }, { "include": "#statements" }]
+    },
+
+    "struct": {
+      "begin": "\\b(struct)\\b(?=\\s*\\{)",
+      "beginCaptures": { "1": { "name": "keyword.struct.plutonium" } },
+      "end": "(?<=\\})",
+      "patterns": [{ "include": "#comments" }, { "include": "#field-body" }]
+    },
+
+    "interface": {
+      "begin": "\\b(interface)\\b(?=\\s*\\{)",
+      "beginCaptures": { "1": { "name": "keyword.interface.plutonium" } },
+      "end": "(?<=\\})",
+      "patterns": [{ "include": "#comments" }, { "include": "#interface-body" }]
+    },
+
+    "packed": {
+      "comment": "packed [le|be] [Backing] { fields }, also packed union.",
+      "begin": "\\b(packed)\\b(?:\\s+(le|be)\\b)?(?=[^{};]*\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.packed.plutonium" },
+        "2": { "name": "keyword.byte-order.plutonium" }
+      },
+      "end": "(?<=\\})",
+      "patterns": [
+        { "include": "#comments" },
+        { "name": "keyword.union.plutonium", "match": "\\bunion\\b" },
+        { "include": "#field-body" },
+        { "include": "#type-expression" }
+      ]
+    },
+
+    "enum": {
+      "begin": "\\b(enum)\\b(?=[^{};]*\\{)",
+      "beginCaptures": { "1": { "name": "keyword.enum.plutonium" } },
+      "end": "(?<=\\})",
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#enum-body" },
+        { "include": "#type-expression" }
+      ]
+    },
+
+    "union": {
+      "begin": "\\b(union)\\b(?=\\s*\\{)",
+      "beginCaptures": { "1": { "name": "keyword.union.plutonium" } },
+      "end": "(?<=\\})",
+      "patterns": [{ "include": "#comments" }, { "include": "#union-body" }]
+    },
+
+    "field-body": {
+      "comment": "The body of a struct or packed type.",
+      "begin": "\\{",
+      "beginCaptures": { "0": { "name": "punctuation.definition.block.begin.bracket.curly.plutonium" } },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.definition.block.end.bracket.curly.plutonium" } },
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "comment": "Field names: the identifiers that start a field and are followed by its type.",
+          "match": "(?:^|(?<=[{;]))\\s*([A-Za-z_]\\w*(?:\\s*,\\s*[A-Za-z_]\\w*)*)(?=\\s+[^\\s/;}])",
+          "captures": {
+            "1": {
+              "patterns": [
+                { "name": "variable.other.field.plutonium", "match": "[A-Za-z_]\\w*" },
+                { "name": "punctuation.separator.comma.plutonium", "match": "," }
+              ]
+            }
+          }
+        },
+        { "include": "#bits-group" },
+        { "include": "#strings" },
+        { "include": "#enum" },
+        { "include": "#union" },
+        { "include": "#type-parameter-list" },
+        { "include": "#field-body" },
+        { "include": "#type-expression" }
+      ]
+    },
+
+    "bits-group": {
+      "comment": "name bits { A B C }: one-bit boolean flags in a packed type.",
+      "begin": "\\b(bits)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "keyword.bits.plutonium" },
+        "2": { "name": "punctuation.definition.block.begin.bracket.curly.plutonium" }
+      },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.definition.block.end.bracket.curly.plutonium" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "name": "variable.other.field.flag.plutonium", "match": "\\b[A-Za-z_]\\w*" }
+      ]
+    },
+
+    "interface-body": {
+      "begin": "\\{",
+      "beginCaptures": { "0": { "name": "punctuation.definition.block.begin.bracket.curly.plutonium" } },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.definition.block.end.bracket.curly.plutonium" } },
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "match": "(?:^|(?<=[{;]))\\s*([A-Za-z_]\\w*)(?=\\s*\\()",
+          "captures": { "1": { "name": "entity.name.function.plutonium" } }
+        },
+        { "include": "#parameter-list" },
+        { "name": "keyword.operator.type-set.plutonium", "match": "[~|]" },
+        { "include": "#type-parameter-list" },
+        { "include": "#type-expression" }
+      ]
+    },
+
+    "enum-body": {
+      "begin": "\\{",
+      "beginCaptures": { "0": { "name": "punctuation.definition.block.begin.bracket.curly.plutonium" } },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.definition.block.end.bracket.curly.plutonium" } },
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "match": "(?:^|(?<=[{;]))\\s*([A-Za-z_]\\w*)\\b",
+          "captures": { "1": { "name": "variable.other.enummember.plutonium" } }
+        },
+        { "include": "#statements" }
+      ]
+    },
+
+    "union-body": {
+      "begin": "\\{",
+      "beginCaptures": { "0": { "name": "punctuation.definition.block.begin.bracket.curly.plutonium" } },
+      "end": "\\}",
+      "endCaptures": { "0": { "name": "punctuation.definition.block.end.bracket.curly.plutonium" } },
+      "patterns": [
+        { "include": "#comments" },
+        {
+          "comment": "A variant name starts each line; what follows is its payload type.",
+          "match": "(?:^|(?<=[{;]))\\s*([A-Za-z_]\\w*)\\b(?!\\s*[.\\[])",
+          "captures": { "1": { "name": "entity.name.type.variant.plutonium" } }
+        },
+        { "name": "keyword.operator.type-set.plutonium", "match": "\\|" },
+        { "include": "#type-parameter-list" },
+        { "include": "#field-body" },
+        { "include": "#type-expression" }
+      ]
+    },
+
+    "labels": {
+      "match": "^\\s*(?!(?:case|default)\\b)([A-Za-z_]\\w*)\\s*(:)(?!=)\\s*(?=$|//)",
+      "captures": {
+        "1": { "name": "entity.name.label.plutonium" },
+        "2": { "name": "punctuation.separator.label.plutonium" }
+      }
+    },
+
+    "branch-labels": {
+      "match": "\\b(break|continue|goto)\\s+([A-Za-z_]\\w*)\\b",
+      "captures": {
+        "1": { "name": "keyword.control.plutonium" },
+        "2": { "name": "entity.name.label.plutonium" }
+      }
+    },
+
+    "var-declaration": {
+      "match": "\\b(var)\\s+([A-Za-z_]\\w*(?:\\s*,\\s*[A-Za-z_]\\w*)*)",
+      "captures": {
+        "1": { "name": "keyword.var.plutonium" },
+        "2": {
+          "patterns": [
+            { "name": "variable.other.declaration.plutonium", "match": "[A-Za-z_]\\w*" },
+            { "name": "punctuation.separator.comma.plutonium", "match": "," }
+          ]
+        }
+      }
+    },
+
+    "const-declaration": {
+      "match": "\\b(const)\\s+([A-Za-z_]\\w*(?:\\s*,\\s*[A-Za-z_]\\w*)*)",
+      "captures": {
+        "1": { "name": "keyword.const.plutonium" },
+        "2": {
+          "patterns": [
+            { "name": "variable.other.constant.plutonium", "match": "[A-Za-z_]\\w*" },
+            { "name": "punctuation.separator.comma.plutonium", "match": "," }
+          ]
+        }
+      }
+    },
+
+    "short-declaration": {
+      "match": "\\b([A-Za-z_]\\w*(?:\\s*,\\s*[A-Za-z_]\\w*)*)\\s*(?=:=)",
+      "captures": {
+        "1": {
+          "patterns": [
+            { "name": "variable.other.declaration.plutonium", "match": "[A-Za-z_]\\w*" },
+            { "name": "punctuation.separator.comma.plutonium", "match": "," }
+          ]
+        }
+      }
+    },
+
+    "keywords": {
+      "comment": "Every keyword of internal/syntax/token. grammar_test.go checks that none is missing. map is still reserved by the scanner but is a compile error in Plutonium, so it is marked as removed.",
+      "patterns": [
+        {
+          "name": "keyword.control.plutonium",
+          "match": "\\b(?:break|case|continue|default|defer|else|fallthrough|for|go|goto|if|range|return|select|switch)\\b"
+        },
+        { "name": "keyword.function.plutonium", "match": "\\b(?:func)\\b" },
+        { "name": "keyword.var.plutonium", "match": "\\b(?:var)\\b" },
+        { "name": "keyword.const.plutonium", "match": "\\b(?:const)\\b" },
+        { "name": "keyword.type.plutonium", "match": "\\b(?:type)\\b" },
+        { "name": "keyword.package.plutonium", "match": "\\b(?:package)\\b" },
+        { "name": "keyword.import.plutonium", "match": "\\b(?:import)\\b" },
+        { "name": "keyword.struct.plutonium", "match": "\\b(?:struct)\\b" },
+        { "name": "keyword.interface.plutonium", "match": "\\b(?:interface)\\b" },
+        { "name": "keyword.channel.plutonium", "match": "\\b(?:chan)\\b" },
+        { "name": "keyword.packed.plutonium", "match": "\\b(?:packed)\\b" },
+        { "name": "keyword.enum.plutonium", "match": "\\b(?:enum)\\b" },
+        { "name": "invalid.deprecated.removed.map.plutonium", "match": "\\b(?:map)\\b" }
+      ]
+    },
+
+    "contextual-keywords": {
+      "comment": "Words that are keywords only in context, so that they stay usable as identifiers elsewhere.",
+      "patterns": [
+        { "name": "keyword.bits.plutonium", "match": "\\b(?:bits)\\b(?=\\s*[\\[{])" },
+        { "name": "keyword.owner.plutonium", "match": "\\b(?:owner)\\b(?=\\s+(?:struct|interface|union|packed|enum|any|comparable)\\b)" },
+        { "name": "keyword.union.plutonium", "match": "\\b(?:union)\\b(?=\\s*\\{)" }
+      ]
+    },
+
+    "type-constructors": {
+      "comment": "Predeclared type constructors, highlighted only when applied to type arguments.",
+      "name": "support.type.builtin.constructor.plutonium",
+      "match": "\\b(?:volatile|aligned|ring|owned|shared|synced|weak)\\b(?=\\s*\\[)"
+    },
+
+    "builtin-types": {
+      "name": "support.type.builtin.plutonium",
+      "match": "\\b(?:any|bool|byte|comparable|error|float32|float64|int|int8|int16|int32|int64|rune|string|uint|uint8|uint16|uint32|uint64|uintptr)\\b"
+    },
+
+    "builtin-constants": {
+      "name": "constant.language.plutonium",
+      "match": "\\b(?:true|false|nil|iota)\\b"
+    },
+
+    "builtin-functions": {
+      "name": "support.function.builtin.plutonium",
+      "match": "\\b(?:append|cap|clear|close|copy|len|make|max|min|new|panic|print|println|take)\\b(?=\\s*\\()"
+    },
+
+    "unsafe": {
+      "match": "\\b(unsafe)(\\.)(?:(Pointer)|(Add|Alignof|Offsetof|Sizeof|Slice|SliceData|String|StringData))\\b",
+      "captures": {
+        "1": { "name": "entity.name.namespace.plutonium" },
+        "2": { "name": "punctuation.accessor.plutonium" },
+        "3": { "name": "support.type.builtin.unsafe.plutonium" },
+        "4": { "name": "support.function.builtin.unsafe.plutonium" }
+      }
+    },
+
+    "function-call": {
+      "patterns": [
+        {
+          "match": "\\b([A-Za-z_]\\w*)(?=\\s*\\()",
+          "captures": { "1": { "name": "entity.name.function.plutonium" } }
+        },
+        {
+          "comment": "A call with explicit type arguments: F[int](x).",
+          "match": "\\b([A-Za-z_]\\w*)(?=\\[[^\\[\\]()]*(?:\\[[^\\[\\]()]*\\][^\\[\\]()]*)*\\]\\s*\\()",
+          "captures": { "1": { "name": "entity.name.function.plutonium" } }
+        }
+      ]
+    },
+
+    "property": {
+      "match": "(?<=\\.)([A-Za-z_]\\w*)\\b",
+      "captures": { "1": { "name": "variable.other.property.plutonium" } }
+    },
+
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.channel.plutonium", "match": "<-" },
+        { "name": "keyword.operator.assignment.plutonium", "match": ":=" },
+        { "name": "keyword.operator.assignment.compound.plutonium", "match": "(?:<<|>>|&\\^|[+\\-*/%&|^])=" },
+        { "name": "keyword.operator.comparison.plutonium", "match": "==|!=|<=|>=" },
+        { "name": "keyword.operator.logical.plutonium", "match": "&&|\\|\\||!" },
+        { "name": "keyword.operator.bitwise.plutonium", "match": "<<|>>|&\\^" },
+        { "name": "keyword.operator.increment-decrement.plutonium", "match": "\\+\\+|--" },
+        { "name": "keyword.operator.ellipsis.plutonium", "match": "\\.\\.\\." },
+        { "name": "keyword.operator.assignment.plutonium", "match": "=" },
+        { "name": "keyword.operator.comparison.plutonium", "match": "<|>" },
+        { "name": "keyword.operator.arithmetic.plutonium", "match": "[+\\-*/%]" },
+        { "name": "keyword.operator.bitwise.plutonium", "match": "[&|^~]" }
+      ]
+    },
+
+    "punctuation": {
+      "patterns": [
+        { "name": "punctuation.separator.comma.plutonium", "match": "," },
+        { "name": "punctuation.terminator.plutonium", "match": ";" },
+        { "name": "punctuation.accessor.plutonium", "match": "\\." },
+        { "name": "punctuation.separator.colon.plutonium", "match": ":" },
+        { "name": "punctuation.definition.begin.bracket.round.plutonium", "match": "\\(" },
+        { "name": "punctuation.definition.end.bracket.round.plutonium", "match": "\\)" },
+        { "name": "punctuation.definition.begin.bracket.square.plutonium", "match": "\\[" },
+        { "name": "punctuation.definition.end.bracket.square.plutonium", "match": "\\]" },
+        { "name": "punctuation.definition.begin.bracket.curly.plutonium", "match": "\\{" },
+        { "name": "punctuation.definition.end.bracket.curly.plutonium", "match": "\\}" }
+      ]
+    }
+  }
+}

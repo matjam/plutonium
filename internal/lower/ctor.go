@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -163,7 +164,7 @@ func (l *Lowerer) checkNotCtor(fn *types2.Func, pos token.Pos, what string) {
 		return
 	}
 	l.ctorMisused[fn.Origin()] = true
-	l.errorf(pos, "%s returns a closure that captures its parameters, which is built in its caller's frame; it can only be called directly, not %s", fn.Name(), what)
+	l.errorf(pos, diag.ClosureCtorValue, "%s returns a closure that captures its parameters, which is built in its caller's frame; it can only be called directly, not %s", fn.Name(), what)
 }
 
 // checkCtorBody reports a closure constructor whose body is being lowered
@@ -178,5 +179,5 @@ func (l *Lowerer) checkCtorBody(job *funcJob) {
 		return
 	}
 	l.ctorMisused[fn] = true
-	l.errorf(job.decl.Name.Pos(), "%s returns a closure that captures its parameters, which is built in its caller's frame; it can only be called directly, not through a func value, a method value or an interface", fn.Name())
+	l.errorf(job.decl.Name.Pos(), diag.ClosureCtorValue, "%s returns a closure that captures its parameters, which is built in its caller's frame; it can only be called directly, not through a func value, a method value or an interface", fn.Name())
 }

@@ -65,7 +65,7 @@ later takes the next free number and is listed in the section where it belongs.
     and the debug allocator, which reports through the same fault path and names its sites from the
     same table; specified in [debugging.md](spec/debugging.md) and
     [debug-allocator.md](spec/debug-allocator.md). Implementation items 41 to 43; what remains is listed
-    there and in debugging.md section 8.
+    there and in debugging.md section 9.
 
 ## Concurrency
 
@@ -80,6 +80,15 @@ later takes the next free number and is listed in the section where it belongs.
     synchronised before reuse (memory-model.md section 3.8). Today's `alloc.Slab` is single-threaded.
 18. **Stack size analysis and `-stackreport`** (planned): compute the stack a spawned function needs when
     its call graph has no recursion or indirect calls.
+53. **Scheduler contract for kernels** (proposed; [scheduler contract](plans/2026-10-09-scheduler-contract.md)):
+    the interface and rules any kernel implements to run puroutines, with no kernel scheduler in the
+    standard library: a permit-based `Park`/`Ready`, interrupt-safe `Ready`, backend-allocated task records
+    embedding `rt.Task`, a current-task slot, a preemption count, `rt.Preempt` on the interrupted task's
+    stack, stack requests carrying the proven bound, and link-time binding with `//pu:scheduler` instead of
+    `rt.SetScheduler`. These amend item 14 and should be settled before it lands. Its section 9 lists later
+    requirements from PlutoniumOS (a userland target, `//pu:nonblocking`, a `portable` constraint). The
+    PlutoniumOS task model they serve is in PlutoniumOS: docs/architecture/lightweight-tasks.md
+    (github.com/matjam/plutoniumos, private).
 
 ## Language
 
@@ -170,7 +179,9 @@ later takes the next free number and is listed in the section where it belongs.
     `{TypeName}` today; needs item 23.
 41. **Symbolised stack traces on panic** (done): the compiler's trace table, walked by the panic path
     and the hosted fault handler, usable in kernels (`rt.Traceback`); inlined calls are frames of their
-    own. A per-thread alternate signal stack for puroutine worker threads remains.
+    own. Files are named relative to the module root and the standard library, so builds are
+    reproducible in any directory (`--trimpath=false` for absolute paths; debugging.md section 2.1). A
+    per-thread alternate signal stack for puroutine worker threads remains.
 42. **DWARF line tables and CFI** (done): compile units, subprograms, inlined calls, line table and
     `.debug_frame` for `gdb` and `perf` (`-g`, default on; `-s` strips). Variable and type information
     remains, and with it DWARF enumeration types (`DW_TAG_enumeration_type`) for enums: no type is

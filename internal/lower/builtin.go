@@ -3,6 +3,7 @@ package lower
 import (
 	"fmt"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -14,7 +15,7 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 	id := identOf(ast.Unparen(e.Fun))
 	b, _ := s.info.Uses[id].(*types2.Builtin)
 	if b == nil {
-		s.l.errorf(e.Pos(), "lower: unknown builtin")
+		s.l.internalf(e.Pos(), "unknown builtin")
 		return nil
 	}
 	T := s.typeOf(e)
@@ -104,7 +105,7 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 			// The checker rejects channel and map types. Channels (roadmap
 			// item 15) will allocate here, from the optional final
 			// allocator as slices do: make(chan T, n, a).
-			s.l.errorf(e.Pos(), "lower: make of %s is not supported", T)
+			s.l.unsupportedf(e.Pos(), "make of %s is not supported", T)
 			return nil
 		}
 		et := s.subst(st.Elem())
@@ -131,15 +132,26 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		return nil
 
 	case "print", "println":
-		for i, a := range s.argSources(e.Args) {
+		// As in Go, every argument is evaluated before anything is printed,
+		// so an argument that prints or changes a later argument's operands
+		// has finished by the time output starts.
+		srcs := s.argSources(e.Args)
+		vals := make([]value, len(srcs))
+		nodes := make([]ast.Node, len(srcs))
+		for i, a := range srcs {
+			if a.e != nil {
+				vals[i] = s.materialize(s.printOperand(a.e))
+				nodes[i] = a.e
+			} else {
+				vals[i] = s.materialize(a.v)
+				nodes[i] = e
+			}
+		}
+		for i, v := range vals {
 			if i > 0 && b.Name() == "println" {
 				s.callRuntime("printSpace", nil)
 			}
-			if a.e != nil {
-				s.printArg(a.e)
-			} else {
-				s.printValue(a.v, unwrap(a.v.T), e)
-			}
+			s.printValue(v, unwrap(v.T), nodes[i])
 		}
 		if b.Name() == "println" {
 			s.callRuntime("printNewline", nil)
@@ -179,7 +191,7 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		p, _ := s.stringParts(s.expr(e.Args[0]))
 		return one(scalarValue(p, T))
 	}
-	s.l.errorf(e.Pos(), "lower: builtin %s is not supported", b.Name())
+	s.l.unsupportedf(e.Pos(), "builtin %s is not supported", b.Name())
 	return nil
 }
 
@@ -233,6 +245,19 @@ func (s *fnState) minMax(isMin bool, a, b *ssa.Value, T types2.Type) *ssa.Value 
 			better = s.newValue(ssa.OpFLess, ssa.TBool, b, a)
 		}
 		s.ifThen(better, func() { s.store(t, res, a) })
+		// Equal operands differ only if they are zeros of different
+		// signs: min is -0 if either is, max is +0 if either is. ORing
+		// (for min) or ANDing (for max) the bits gives that, and leaves
+		// any other pair of equal values unchanged.
+		s.ifThen(s.newValue(ssa.OpFEq, ssa.TBool, a, b), func() {
+			it := ssa.IntType(t.Size)
+			op := ssa.OpOr
+			if !isMin {
+				op = ssa.OpAnd
+			}
+			bits := s.newValue(op, it, s.newValue(ssa.OpBitcast, it, a), s.newValue(ssa.OpBitcast, it, b))
+			s.store(t, res, s.newValue(ssa.OpBitcast, t, bits))
+		})
 		s.ifThen(s.newValue(ssa.OpFNe, ssa.TBool, a, a), func() { s.store(t, res, a) })
 		s.ifThen(s.newValue(ssa.OpFNe, ssa.TBool, b, b), func() { s.store(t, res, b) })
 		return s.load(t, res)
@@ -331,12 +356,6 @@ func (s *fnState) appendCheck(newLen, c *ssa.Value, e *ast.CallExpr) {
 	s.panicUnless(ok, e.Pos(), func() { s.callRuntimeNoReturn("panicAppend", newLen, c) })
 }
 
-// printArg prints one argument of print or println.
-func (s *fnState) printArg(a ast.Expr) {
-	v := s.printOperand(a)
-	s.printValue(v, v.T, a)
-}
-
 // printOperand evaluates an argument of print or println, giving untyped
 // constants their default type.
 func (s *fnState) printOperand(a ast.Expr) value {
@@ -372,7 +391,7 @@ func (s *fnState) printValue(v value, T types2.Type, a ast.Node) {
 	case *types2.Pointer, *types2.Signature:
 		s.callRuntime("printPointer", nil, []*ssa.Value{v.v})
 	default:
-		s.l.errorf(a.Pos(), "lower: cannot print a value of type %s", T)
+		s.l.unsupportedf(a.Pos(), "cannot print a value of type %s", T)
 	}
 }
 
@@ -393,7 +412,7 @@ func (s *fnState) conversion(e *ast.CallExpr) value {
 
 	// []byte(s), string(b) and friends copy, so they would allocate.
 	if isString(to) != isString(from) {
-		s.l.errorf(e.Pos(), "conversion between %s and %s is not permitted in Plutonium (it allocates a copy); use unsafe.String or unsafe.StringData", from, to)
+		s.l.errorf(e.Pos(), diag.AllocatingConv, "conversion between %s and %s is not permitted in Plutonium (it allocates a copy); use unsafe.String or unsafe.StringData", from, to)
 		return s.zeroValue(to)
 	}
 
@@ -557,7 +576,7 @@ func (s *fnState) ringOp(name string, p *ssa.Value, w *types2.Wrapper, args []va
 		})
 		return []value{s.loadFrom(out, et), scalarValue(s.load(ssa.TBool, res), boolT)}
 	}
-	s.l.errorf(pos, "lower: unknown ring method %s", name)
+	s.l.internalf(pos, "unknown ring method %s", name)
 	return nil
 }
 

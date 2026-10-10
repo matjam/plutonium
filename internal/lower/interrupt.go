@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -59,21 +60,21 @@ func (l *Lowerer) checkInterrupt(fd *ast.FuncDecl, fn *types2.Func) {
 	name := fn.Name()
 	switch {
 	case fd.Body == nil:
-		l.errorf(fd.Pos(), "//pu:interrupt function %s must have a body", name)
+		l.errorf(fd.Pos(), diag.InterruptDecl, "//pu:interrupt function %s must have a body", name)
 	case sig.Recv() != nil:
-		l.errorf(fd.Pos(), "method %s cannot be an interrupt handler", name)
+		l.errorf(fd.Pos(), diag.InterruptDecl, "method %s cannot be an interrupt handler", name)
 	case sig.TypeParams().Len() > 0:
-		l.errorf(fd.Pos(), "generic function %s cannot be an interrupt handler", name)
+		l.errorf(fd.Pos(), diag.InterruptDecl, "generic function %s cannot be an interrupt handler", name)
 	case sig.Results().Len() > 0:
-		l.errorf(fd.Pos(), "interrupt handler %s cannot have results", name)
+		l.errorf(fd.Pos(), diag.InterruptSig, "interrupt handler %s cannot have results", name)
 	case hasDirective(fd.Doc, "inline"):
-		l.errorf(fd.Pos(), "interrupt handler %s cannot be //pu:inline", name)
+		l.errorf(fd.Pos(), diag.InterruptDecl, "interrupt handler %s cannot be //pu:inline", name)
 	case sig.Params().Len() < 1 || sig.Params().Len() > 2 || sig.Variadic():
-		l.errorf(fd.Pos(), "interrupt handler %s must take (frame *x86.InterruptFrame) or (frame *x86.InterruptFrame, code uint64)", name)
+		l.errorf(fd.Pos(), diag.InterruptSig, "interrupt handler %s must take (frame *x86.InterruptFrame) or (frame *x86.InterruptFrame, code uint64)", name)
 	case !isFramePointer(sig.Params().At(0).Type()):
-		l.errorf(fd.Pos(), "interrupt handler %s: first parameter must be a pointer to the interrupt frame, not %s", name, sig.Params().At(0).Type())
+		l.errorf(fd.Pos(), diag.InterruptSig, "interrupt handler %s: first parameter must be a pointer to the interrupt frame, not %s", name, sig.Params().At(0).Type())
 	case sig.Params().Len() == 2 && !isErrorCode(sig.Params().At(1).Type()):
-		l.errorf(fd.Pos(), "interrupt handler %s: error code must be uint64, not %s", name, sig.Params().At(1).Type())
+		l.errorf(fd.Pos(), diag.InterruptSig, "interrupt handler %s: error code must be uint64, not %s", name, sig.Params().At(1).Type())
 	}
 }
 
@@ -104,7 +105,7 @@ func (s *fnState) handlerAddr(e *ast.CallExpr, T types2.Type) value {
 		}
 	}
 	if fn == nil || !s.l.isInterrupt(fn) {
-		s.l.errorf(e.Pos(), "x86.HandlerAddr: argument must name a //pu:interrupt function")
+		s.l.errorf(e.Pos(), diag.HandlerAddrArg, "x86.HandlerAddr: argument must name a //pu:interrupt function")
 		return s.zeroValue(T)
 	}
 	addr := s.funcAddr(s.l.funcSym(fn, nil))
@@ -115,6 +116,6 @@ func (s *fnState) handlerAddr(e *ast.CallExpr, T types2.Type) value {
 // which only the CPU may enter.
 func (s *fnState) checkNotHandler(sym *ssa.Sym, pos token.Pos, what string) {
 	if s.l.interruptSyms[sym] {
-		s.l.errorf(pos, "interrupt handler %s cannot be %s; use x86.HandlerAddr for its address", sym.Name, what)
+		s.l.errorf(pos, diag.InterruptHandlerV, "interrupt handler %s cannot be %s; use x86.HandlerAddr for its address", sym.Name, what)
 	}
 }

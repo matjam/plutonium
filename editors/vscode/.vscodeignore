@@ -1,0 +1,6 @@
+*.go
+*.vsix
+test/**
+.gitignore
+.vscodeignore
+package-lock.json

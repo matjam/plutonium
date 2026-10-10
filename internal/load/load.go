@@ -21,8 +21,10 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/parser"
+	"github.com/matjam/plutonium/internal/syntax/scanner"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
 )
@@ -64,6 +66,44 @@ type Program struct {
 	Fset     *token.FileSet
 	Main     *Package
 	Packages []*Package // in dependency order: every package after its imports
+	// Root is the directory that the program's own source files are
+	// named relative to by TrimmedName: the module root (the directory
+	// holding pluto.mod), or the main package's directory when there is no
+	// module. It is "" when the program has no source files on disk other
+	// than the standard library's (testing a standard library package).
+	Root string
+}
+
+// StdPrefix starts the position file name of every standard library file:
+// "$PLUTOROOT/pluto/fmt/print.p". Positions keep the prefix whether the
+// library is embedded in the compiler or read from $PLUTOROOT.
+const StdPrefix = "$PLUTOROOT/"
+
+// TrimmedName returns the name that debugging information and stack traces
+// record for the source file named name in the program's positions, with
+// the build machine's directories removed, as go build -trimpath does:
+//
+//   - a file under Root is "./" followed by its slash-separated path
+//     relative to Root ("./main.p", "./cmd/tool/main.p");
+//   - a standard library file is its import path and file name
+//     ("pluto/fmt/print.p"), the same whether the library is embedded or
+//     read from $PLUTOROOT;
+//   - any other name (a generated file such as _testmain.p) is unchanged.
+//
+// The result depends only on the module's contents, so the same source
+// gives the same binary wherever it is built.
+func (p *Program) TrimmedName(name string) string {
+	if rest, ok := strings.CutPrefix(name, StdPrefix); ok {
+		return rest
+	}
+	if p.Root == "" || !filepath.IsAbs(name) {
+		return name
+	}
+	rel, err := filepath.Rel(p.Root, name)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return name
+	}
+	return "./" + filepath.ToSlash(rel)
 }
 
 // Load loads the main package in dir and everything it imports.
@@ -85,9 +125,13 @@ func Load(cfg *Config, dir string) (*Program, error) {
 		return nil, err
 	}
 	if main.Types.Name() != "main" {
-		return nil, fmt.Errorf("%s: package %s is not a main package", dir, main.Types.Name())
+		return nil, fail(diag.NotMainPackage, "%s: package %s is not a main package", dir, main.Types.Name())
 	}
-	return &Program{Fset: l.fset, Main: main, Packages: l.order}, nil
+	root := l.modRoot
+	if root == "" {
+		root = absDir
+	}
+	return &Program{Fset: l.fset, Main: main, Packages: l.order, Root: root}, nil
 }
 
 // TestMainFile is the file name of the main package that LoadTest
@@ -105,8 +149,8 @@ const TestMainFile = "_testmain.p"
 func LoadTest(cfg *Config, target string, gen func(*token.FileSet, *Package) ([]byte, error)) (*Program, error) {
 	l := newLoader(cfg)
 	var (
-		src        source
-		dir, ipath string
+		src              source
+		dir, ipath, root string
 	)
 	if isStdPath(target) {
 		var err error
@@ -121,17 +165,18 @@ func LoadTest(cfg *Config, target string, gen func(*token.FileSet, *Package) ([]
 			return nil, err
 		}
 		if st, err := os.Stat(absDir); err != nil || !st.IsDir() {
-			return nil, fmt.Errorf("%s: not a package directory", target)
+			return nil, fail(diag.NotPackageDir, "%s: not a package directory", target)
 		}
 		l.modRoot, l.modPath, err = findModule(absDir)
 		if err != nil {
 			return nil, err
 		}
-		src, dir, ipath = osDir(absDir), absDir, l.dirPath(absDir)
+		src, dir, ipath, root = osDir(absDir), absDir, l.dirPath(absDir), l.modRoot
 		if l.modRoot == "" {
+			root = absDir
 			ipath = filepath.Base(absDir)
 			if isStdPath(ipath) || ipath == "main" {
-				return nil, fmt.Errorf("%s: a package outside a module cannot be tested from a directory named %q", target, ipath)
+				return nil, fail(diag.TestDirName, "%s: a package outside a module cannot be tested from a directory named %q", target, ipath)
 			}
 		}
 	}
@@ -144,7 +189,7 @@ func LoadTest(cfg *Config, target string, gen func(*token.FileSet, *Package) ([]
 		return nil, err
 	}
 	if pkg.Types.Name() == "main" {
-		return nil, fmt.Errorf("%s: testing a main package is not supported; move the code under test into a package of its own", target)
+		return nil, fail(diag.TestMainPackage, "%s: testing a main package is not supported; move the code under test into a package of its own", target)
 	}
 	mainSrc, err := gen(l.fset, pkg)
 	if err != nil {
@@ -154,7 +199,7 @@ func LoadTest(cfg *Config, target string, gen func(*token.FileSet, *Package) ([]
 	if err != nil {
 		return nil, err
 	}
-	return &Program{Fset: l.fset, Main: main, Packages: l.order}, nil
+	return &Program{Fset: l.fset, Main: main, Packages: l.order, Root: root}, nil
 }
 
 func isStdPath(p string) bool { return p == "pluto" || strings.HasPrefix(p, "pluto/") }
@@ -230,7 +275,7 @@ type fsDir struct {
 
 func (d fsDir) list() ([]fs.DirEntry, error)     { return fs.ReadDir(d.fsys, d.dir) }
 func (d fsDir) read(name string) ([]byte, error) { return fs.ReadFile(d.fsys, path.Join(d.dir, name)) }
-func (d fsDir) name(file string) string          { return "$PLUTOROOT/" + path.Join(d.dir, file) }
+func (d fsDir) name(file string) string          { return StdPrefix + path.Join(d.dir, file) }
 
 // memDir is a package held in memory: file name to contents.
 type memDir map[string][]byte
@@ -265,25 +310,42 @@ func (e memEntry) Info() (fs.FileInfo, error) { return nil, fs.ErrInvalid }
 func (l *loader) resolve(importPath string) (source, string, error) {
 	if importPath == "pluto" || strings.HasPrefix(importPath, "pluto/") {
 		if l.cfg.Stdlib == nil {
-			return nil, "", fmt.Errorf("no standard library configured for %q", importPath)
+			return nil, "", fail(diag.StdPackageMissing, "no standard library configured for %q", importPath)
 		}
 		if _, err := fs.Stat(l.cfg.Stdlib, importPath); err != nil {
-			return nil, "", fmt.Errorf("standard library package %q not found", importPath)
+			return nil, "", fail(diag.StdPackageMissing, "standard library package %q not found", importPath)
 		}
-		return fsDir{l.cfg.Stdlib, importPath}, "$PLUTOROOT/" + importPath, nil
+		return fsDir{l.cfg.Stdlib, importPath}, StdPrefix + importPath, nil
 	}
 	if l.modRoot != "" && (importPath == l.modPath || strings.HasPrefix(importPath, l.modPath+"/")) {
 		rel := strings.TrimPrefix(strings.TrimPrefix(importPath, l.modPath), "/")
 		dir := filepath.Join(l.modRoot, filepath.FromSlash(rel))
 		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
-			return nil, "", fmt.Errorf("package %q not found (looked in %s)", importPath, dir)
+			return nil, "", fail(diag.PackageNotFound, "package %q not found (looked in %s)", importPath, dir)
 		}
 		return osDir(dir), dir, nil
 	}
 	if l.modRoot == "" {
-		return nil, "", fmt.Errorf("cannot import %q: no pluto.mod declares a module, so only pluto/ packages can be imported", importPath)
+		return nil, "", fail(diag.ImportNoModule, "cannot import %q: no pluto.mod declares a module, so only pluto/ packages can be imported", importPath)
 	}
-	return nil, "", fmt.Errorf("cannot import %q: it is outside module %s", importPath, l.modPath)
+	return nil, "", fail(diag.ImportOutside, "cannot import %q: it is outside module %s", importPath, l.modPath)
+}
+
+// fail returns a diagnostic without a position in the source.
+func fail(code diag.Code, format string, args ...any) *diag.Diagnostic {
+	return diag.New(token.Position{}, code, format, args...)
+}
+
+// prefixed returns err with prefix and ": " before its message, keeping
+// its code if it is a diagnostic.
+func prefixed(prefix string, err error) error {
+	var d *diag.Diagnostic
+	if errors.As(err, &d) {
+		c := *d
+		c.Msg = prefix + ": " + d.Msg
+		return &c
+	}
+	return fmt.Errorf("%s: %w", prefix, err)
 }
 
 func (l *loader) load(importPath string, src source, dir string) (*Package, error) {
@@ -291,7 +353,7 @@ func (l *loader) load(importPath string, src source, dir string) (*Package, erro
 		return p, nil
 	}
 	if l.loading[importPath] {
-		return nil, fmt.Errorf("import cycle through %q", importPath)
+		return nil, fail(diag.ImportCycle, "import cycle through %q", importPath)
 	}
 	l.loading[importPath] = true
 	defer delete(l.loading, importPath)
@@ -321,7 +383,7 @@ func (l *loader) load(importPath string, src source, dir string) (*Package, erro
 		}
 		isrc, idir, err := l.resolve(p)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", importPath, err)
+			return nil, prefixed(importPath, err)
 		}
 		dep, err := l.load(p, isrc, idir)
 		if err != nil {
@@ -339,7 +401,7 @@ func (l *loader) load(importPath string, src source, dir string) (*Package, erro
 		Selections: map[*ast.SelectorExpr]*types2.Selection{},
 		Scopes:     map[ast.Node]*types2.Scope{},
 	}
-	var errs []error
+	var errs []error // types2.Error
 	conf := types2.Config{
 		Importer: importerFunc(func(p string) (*types2.Package, error) {
 			if p == "unsafe" {
@@ -359,7 +421,12 @@ func (l *loader) load(importPath string, src source, dir string) (*Package, erro
 	}
 	pkg.Types, _ = conf.Check(importPath, l.fset, pkg.Files, pkg.Info)
 	if len(errs) > 0 {
-		return nil, errors.Join(errs...)
+		ctx := &diag.CheckContext{Fset: l.fset, Files: pkg.Files, Pkg: pkg.Types, Info: pkg.Info}
+		list := make(diag.List, len(errs))
+		for i, err := range errs {
+			list[i] = diag.FromChecker(err, ctx)
+		}
+		return nil, list
 	}
 	l.packages[importPath] = pkg
 	l.order = append(l.order, pkg)
@@ -370,9 +437,9 @@ func (l *loader) load(importPath string, src source, dir string) (*Package, erro
 func (l *loader) parse(pkg *Package, src source) error {
 	entries, err := src.list()
 	if err != nil {
-		return fmt.Errorf("reading package %q: %w", pkg.Path, err)
+		return fail(diag.ReadPackage, "reading package %q: %v", pkg.Path, err)
 	}
-	var errs []error
+	var errs diag.List
 	for _, e := range entries {
 		name := e.Name()
 		isTest := strings.HasSuffix(name, "_test.p")
@@ -397,7 +464,7 @@ func (l *loader) parse(pkg *Package, src source) error {
 		}
 		ok, err := l.constraintMatches(data, isAsm)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", src.name(name), err))
+			errs = append(errs, fail(diag.BadConstraint, "%s: %v", src.name(name), err))
 			continue
 		}
 		if !ok {
@@ -412,9 +479,13 @@ func (l *loader) parse(pkg *Package, src source) error {
 			continue
 		}
 		f, err := parser.ParseFile(l.fset, src.name(name), data, parser.ParseComments)
-		if err != nil {
-			errs = append(errs, err)
+		if list, ok := err.(scanner.ErrorList); ok {
+			for _, e := range list {
+				errs = append(errs, diag.FromSyntax(e, data))
+			}
 			continue
+		} else if err != nil {
+			return err
 		}
 		pkg.Files = append(pkg.Files, f)
 		if isTest {
@@ -422,21 +493,21 @@ func (l *loader) parse(pkg *Package, src source) error {
 		}
 	}
 	if len(errs) > 0 {
-		return errors.Join(errs...)
+		return errs
 	}
 	if len(pkg.Files) == 0 {
-		return fmt.Errorf("package %q: no Plutonium source files for this build", pkg.Path)
+		return fail(diag.NoSourceFiles, "package %q: no Plutonium source files for this build", pkg.Path)
 	}
 	for _, f := range pkg.Tests {
 		if n := f.Name.Name; strings.HasSuffix(n, "_test") {
-			return fmt.Errorf("%s: package %s: external test packages are not supported; declare the test in package %s",
+			return fail(diag.ExternalTestPkg, "%s: package %s: external test packages are not supported; declare the test in package %s",
 				l.fset.File(f.Pos()).Name(), n, strings.TrimSuffix(n, "_test"))
 		}
 	}
 	name := pkg.Files[0].Name.Name
 	for _, f := range pkg.Files[1:] {
 		if f.Name.Name != name {
-			return fmt.Errorf("package %q: files declare both package %s and %s", pkg.Path, name, f.Name.Name)
+			return fail(diag.MixedPackages, "package %q: files declare both package %s and %s", pkg.Path, name, f.Name.Name)
 		}
 	}
 	return nil
@@ -448,15 +519,58 @@ var knownSuffixTags = map[string]bool{
 	"linux": true, "none": true,
 }
 
+// BuildTags returns the build tags that are set for a build mode on
+// x86-64: hosted Linux, or freestanding (and kernel) with no operating
+// system, plus the extra tags.
+func BuildTags(freestanding, kernel bool, extra []string) map[string]bool {
+	tags := map[string]bool{"amd64": true}
+	if freestanding || kernel {
+		tags["none"] = true
+		tags["freestanding"] = true
+		if kernel {
+			tags["kernel"] = true
+		}
+	} else {
+		tags["linux"] = true
+		tags["hosted"] = true
+	}
+	for _, t := range extra {
+		tags[t] = true
+	}
+	return tags
+}
+
+// MatchFile reports whether a Plutonium source file belongs in a build with
+// the given tags: its name suffixes (name_tag.p, name_os_arch.p) and its
+// //pu:build line must both allow it. Editors use it to choose a file's
+// package the way the loader does.
+func MatchFile(tags map[string]bool, name string, src []byte) (bool, error) {
+	if !nameMatches(tags, name) {
+		return false, nil
+	}
+	return constraintMatches(tags, src, path.Ext(name) == ".s")
+}
+
+// FindModule walks up from the absolute directory dir looking for
+// pluto.mod, and returns the directory holding it and the module path, or
+// two empty strings if there is none.
+func FindModule(dir string) (root, modPath string, err error) { return findModule(dir) }
+
+func (l *loader) nameMatches(name string) bool { return nameMatches(l.cfg.Tags, name) }
+
+func (l *loader) constraintMatches(data []byte, isAsm bool) (bool, error) {
+	return constraintMatches(l.cfg.Tags, data, isAsm)
+}
+
 // nameMatches applies file name suffix rules: name_tag.p and name_os_arch.p,
 // and the same before _test.p.
-func (l *loader) nameMatches(name string) bool {
+func nameMatches(tags map[string]bool, name string) bool {
 	base := strings.TrimSuffix(name, path.Ext(name))
 	base = strings.TrimSuffix(base, "_test")
 	parts := strings.Split(base, "_")
 	n := len(parts)
 	for i := n - 1; i >= 1 && i >= n-2; i-- {
-		if t := parts[i]; knownSuffixTags[t] && !l.cfg.Tags[t] {
+		if t := parts[i]; knownSuffixTags[t] && !tags[t] {
 			return false
 		}
 	}
@@ -465,7 +579,7 @@ func (l *loader) nameMatches(name string) bool {
 
 // constraintMatches evaluates the //pu:build line (or #pu:build in assembly)
 // before the package clause.
-func (l *loader) constraintMatches(data []byte, isAsm bool) (bool, error) {
+func constraintMatches(tags map[string]bool, data []byte, isAsm bool) (bool, error) {
 	sc := bufio.NewScanner(strings.NewReader(string(data)))
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -487,7 +601,7 @@ func (l *loader) constraintMatches(data []byte, isAsm bool) (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("bad build constraint %q: %w", expr, err)
 		}
-		return c.Eval(func(tag string) bool { return l.cfg.Tags[tag] }), nil
+		return c.Eval(func(tag string) bool { return tags[tag] }), nil
 	}
 	return true, nil
 }
@@ -500,10 +614,10 @@ func findModule(dir string) (root, modPath string, err error) {
 			line, _, _ := strings.Cut(string(data), "\n")
 			fields := strings.Fields(line)
 			if len(fields) != 2 || fields[0] != "module" {
-				return "", "", fmt.Errorf("%s: first line must be \"module <path>\"", filepath.Join(d, "pluto.mod"))
+				return "", "", fail(diag.BadModFile, "%s: first line must be \"module <path>\"", filepath.Join(d, "pluto.mod"))
 			}
 			if fields[1] == "pluto" || strings.HasPrefix(fields[1], "pluto/") {
-				return "", "", fmt.Errorf("%s: module path %q is reserved for the standard library", filepath.Join(d, "pluto.mod"), fields[1])
+				return "", "", fail(diag.ReservedModule, "%s: module path %q is reserved for the standard library", filepath.Join(d, "pluto.mod"), fields[1])
 			}
 			return d, fields[1], nil
 		}
