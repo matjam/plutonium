@@ -193,6 +193,9 @@ func (s *fnState) slotAddr(slot *ssa.Slot) *ssa.Value {
 // temp returns the address of a new stack slot for a T.
 func (s *fnState) temp(T types2.Type, name string) *ssa.Value {
 	slot := s.f.NewSlot(name, s.l.sizeof(T), s.l.alignof(T))
+	for _, lf := range s.l.leaves(T) {
+		slot.Leaves = append(slot.Leaves, ssa.Leaf{Off: lf.off, Type: lf.t})
+	}
 	return s.slotAddr(slot)
 }
 

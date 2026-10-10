@@ -1,0 +1,181 @@
+package opt
+
+import (
+	"github.com/matjam/plutonium/internal/ssa"
+)
+
+// Mem2Reg promotes stack slots that hold a single scalar, and whose address
+// never escapes, to SSA values: loads become the value last stored, stores
+// disappear, and phis are placed at the iterated dominance frontiers of the
+// stores (Cytron et al.).
+//
+// The function must be scheduled: within a block, memory operations appear
+// in program order.
+func Mem2Reg(f *ssa.Func) {
+	infos := analyzeSlots(f)
+	var promote []*slotInfo
+	types := map[*ssa.Slot]*ssa.Type{}
+	for _, s := range f.Slots {
+		in := infos[s]
+		if in == nil || in.escapes {
+			continue
+		}
+		if t := scalarSlotType(in); t != nil {
+			types[s] = t
+			promote = append(promote, in)
+		}
+	}
+	if len(promote) == 0 {
+		return
+	}
+
+	dom := f.Dom()
+	df := dom.Frontiers(f)
+
+	// Which slot does each access touch?
+	accessSlot := map[*ssa.Value]*ssa.Slot{}
+	for _, in := range promote {
+		for _, a := range in.accesses {
+			accessSlot[a.v] = in.slot
+		}
+	}
+
+	// Phi placement.
+	phiSlot := map[*ssa.Value]*ssa.Slot{}
+	phiArgs := map[*ssa.Value][]*ssa.Value{}
+	for _, in := range promote {
+		s := in.slot
+		var work []*ssa.Block
+		hasDef := map[*ssa.Block]bool{}
+		for _, a := range in.accesses {
+			if a.v.Op != ssa.OpLoad && !hasDef[a.v.Block] {
+				hasDef[a.v.Block] = true
+				work = append(work, a.v.Block)
+			}
+		}
+		hasPhi := map[*ssa.Block]bool{}
+		for len(work) > 0 {
+			b := work[len(work)-1]
+			work = work[:len(work)-1]
+			for _, y := range df[b.ID] {
+				if hasPhi[y] {
+					continue
+				}
+				hasPhi[y] = true
+				phi := newPhiAtStart(y, types[s])
+				phiSlot[phi] = s
+				phiArgs[phi] = make([]*ssa.Value, len(y.Preds))
+				if !hasDef[y] {
+					hasDef[y] = true
+					work = append(work, y)
+				}
+			}
+		}
+	}
+
+	// Renaming along the dominator tree.
+	cur := map[*ssa.Slot]*ssa.Value{}
+	current := func(s *ssa.Slot) *ssa.Value {
+		if v := cur[s]; v != nil {
+			return v
+		}
+		// Read before any store on this path: the zero value.
+		z := zeroConst(f, types[s])
+		cur[s] = z
+		return z
+	}
+	var rename func(b *ssa.Block)
+	rename = func(b *ssa.Block) {
+		saved := make(map[*ssa.Slot]*ssa.Value, len(cur))
+		for k, v := range cur {
+			saved[k] = v
+		}
+		for _, v := range append([]*ssa.Value(nil), b.Values...) {
+			if s, ok := phiSlot[v]; ok {
+				cur[s] = v
+				continue
+			}
+			s, ok := accessSlot[v]
+			if !ok {
+				continue
+			}
+			switch v.Op {
+			case ssa.OpLoad:
+				v.CopyOf(current(s))
+			case ssa.OpStore:
+				cur[s] = v.Args[1]
+				v.CopyOf(v.Args[2])
+			case ssa.OpZero:
+				cur[s] = zeroConst(f, types[s])
+				v.CopyOf(v.Args[1])
+			}
+		}
+		for _, e := range b.Succs {
+			for _, v := range e.B.Values {
+				if v.Op != ssa.OpPhi {
+					break
+				}
+				if s, ok := phiSlot[v]; ok {
+					phiArgs[v][e.I] = current(s)
+				}
+			}
+		}
+		for _, c := range dom.Children(b) {
+			rename(c)
+		}
+		cur = saved
+	}
+	rename(f.Entry)
+
+	for phi, args := range phiArgs {
+		for _, a := range args {
+			if a == nil {
+				// Predecessor not reached by renaming (unreachable).
+				a = zeroConst(f, phi.Type)
+			}
+			phi.AddArg(a)
+		}
+	}
+	ssa.CopyElim(f)
+	ssa.DeadCode(f)
+	dropUnusedSlots(f)
+}
+
+// scalarSlotType returns the scalar type held in a slot if every access is a
+// load or store of that type at offset 0 covering the slot, or a Zero of it.
+func scalarSlotType(in *slotInfo) *ssa.Type {
+	var t *ssa.Type
+	for _, a := range in.accesses {
+		if a.off != 0 || a.size != in.slot.Size {
+			return nil
+		}
+		var at *ssa.Type
+		switch a.v.Op {
+		case ssa.OpLoad:
+			at = a.v.Type
+		case ssa.OpStore:
+			at = a.v.StoreType()
+		case ssa.OpZero:
+			continue
+		default:
+			return nil
+		}
+		if t == nil {
+			t = at
+		} else if !t.Same(at) {
+			return nil
+		}
+	}
+	if t == nil && len(in.slot.Leaves) == 1 {
+		t = in.slot.Leaves[0].Type
+	}
+	return t
+}
+
+// newPhiAtStart adds an argument-less phi at the start of b.
+func newPhiAtStart(b *ssa.Block, t *ssa.Type) *ssa.Value {
+	if len(b.Values) == 0 {
+		return b.NewValue(ssa.OpPhi, t)
+	}
+	return b.NewValueBefore(b.Values[0], ssa.OpPhi, t)
+}

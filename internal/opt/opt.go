@@ -37,6 +37,10 @@ func ForLevel(level int) *Pipeline {
 	p := &Pipeline{}
 	p.add(Pass{"copyelim", ssa.CopyElim})
 	p.add(Pass{"deadcode", ssa.DeadCode})
+	if level >= 1 {
+		p.add(Pass{"sroa", SROA})
+		p.add(Pass{"mem2reg", Mem2Reg})
+	}
 	return p
 }
 

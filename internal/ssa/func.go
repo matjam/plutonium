@@ -201,6 +201,22 @@ func (b *Block) NewValue(op Op, t *Type, args ...*Value) *Value {
 	return v
 }
 
+// NewValueBefore inserts a new value into b immediately before at.
+func (b *Block) NewValueBefore(at *Value, op Op, t *Type, args ...*Value) *Value {
+	v := b.Func.newValue(op, t, b)
+	for _, a := range args {
+		v.AddArg(a)
+	}
+	i := 0
+	for i < len(b.Values) && b.Values[i] != at {
+		i++
+	}
+	b.Values = append(b.Values, nil)
+	copy(b.Values[i+1:], b.Values[i:])
+	b.Values[i] = v
+	return v
+}
+
 // NewValueI is NewValue with an AuxInt.
 func (b *Block) NewValueI(op Op, t *Type, auxint int64, args ...*Value) *Value {
 	v := b.NewValue(op, t, args...)
@@ -222,11 +238,22 @@ type Slot struct {
 	Size  int64
 	Align int64
 
+	// Leaves, if known, are the scalar components of the slot's type in
+	// offset order. Scalar replacement splits a slot into one slot per leaf
+	// when every access matches a leaf.
+	Leaves []Leaf
+
 	// Offset is assigned by frame layout, relative to the frame base.
 	Offset int64
 }
 
 func (s *Slot) String() string { return fmt.Sprintf("%s#%d", s.Name, s.ID) }
+
+// A Leaf is one scalar component of an aggregate.
+type Leaf struct {
+	Off  int64
+	Type *Type
+}
 
 // A SymKind classifies a symbol.
 type SymKind uint8

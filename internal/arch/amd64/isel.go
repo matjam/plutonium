@@ -69,7 +69,9 @@ func Select(f *ssa.Func) (*MFunc, error) {
 	}
 	s.markFused()
 
-	for _, b := range f.Blocks {
+	// Reverse postorder visits every definition before its uses (outside
+	// phis, which get their registers up front).
+	for _, b := range f.ReversePostOrder() {
 		s.cur = s.blocks[b.ID]
 		if b == f.Entry {
 			s.entry()
