@@ -141,64 +141,70 @@ func TypeInfo(v any) (kind uint8, size uintptr, name string, data unsafe.Pointer
 }
 
 // ----------------------------------------------------------------------------
-// Panics. Panicking prints a message and a stack trace (trace.p) and stops;
-// it does not unwind.
+// Panics. Each panic function writes its message into the panic's message
+// buffer (startPanic) and calls fatal, which hands the panic to the
+// program's panic handler (panic.p). Panics do not unwind.
 
 func panicIndex(i, n int) {
-	printString("panic: runtime error: index out of range [")
+	startPanic()
+	printString("runtime error: index out of range [")
 	printInt(int64(i))
 	printString("] with length ")
 	printInt(int64(n))
-	printNewline()
-	fatal()
+	fatal(nil)
 }
 
 func panicSlice(lo, hi, max int) {
-	printString("panic: runtime error: slice bounds out of range [")
+	startPanic()
+	printString("runtime error: slice bounds out of range [")
 	printInt(int64(lo))
 	printString(":")
 	printInt(int64(hi))
 	printString(":")
 	printInt(int64(max))
-	printString("]\n")
-	fatal()
+	printString("]")
+	fatal(nil)
 }
 
 func panicDivide() {
-	printString("panic: runtime error: integer divide by zero\n")
-	fatal()
+	startPanic()
+	printString("runtime error: integer divide by zero")
+	fatal(nil)
 }
 
 func panicShift() {
-	printString("panic: runtime error: negative shift amount\n")
-	fatal()
+	startPanic()
+	printString("runtime error: negative shift amount")
+	fatal(nil)
 }
 
 func panicAppend(n, c int) {
-	printString("panic: append beyond capacity: need ")
+	startPanic()
+	printString("append beyond capacity: need ")
 	printInt(int64(n))
 	printString(", have ")
 	printInt(int64(c))
-	printNewline()
-	fatal()
+	fatal(nil)
 }
 
 func panicMakeLen(n, c int) {
-	printString("panic: runtime error: makeslice: len out of range\n")
-	fatal()
+	startPanic()
+	printString("runtime error: makeslice: len out of range")
+	fatal(nil)
 }
 
 func panicSliceConvert(n, want int) {
-	printString("panic: runtime error: cannot convert slice with length ")
+	startPanic()
+	printString("runtime error: cannot convert slice with length ")
 	printInt(int64(n))
 	printString(" to array of length ")
 	printInt(int64(want))
-	printNewline()
-	fatal()
+	fatal(nil)
 }
 
 func panicAssert(have, want *typeDesc) {
-	printString("panic: interface conversion: interface is ")
+	startPanic()
+	printString("interface conversion: interface is ")
 	if have == nil {
 		printString("nil")
 	} else {
@@ -206,13 +212,12 @@ func panicAssert(have, want *typeDesc) {
 	}
 	printString(", not ")
 	printString(want.name)
-	printNewline()
-	fatal()
+	fatal(nil)
 }
 
 // panicValue implements panic(v).
 func panicValue(v any) {
-	printString("panic: ")
+	startPanic()
 	switch x := v.(type) {
 	case string:
 		printString(x)
@@ -235,23 +240,34 @@ func panicValue(v any) {
 		}
 		printString(")")
 	}
-	printNewline()
-	fatal()
+	fatal(v)
 }
 
 func panicMessage(a, b, c, d, e string) {
-	printString("panic: ")
+	startPanic()
 	printString(a)
 	printString(b)
 	printString(c)
 	printString(d)
 	printString(e)
-	printNewline()
-	fatal()
+	fatal(nil)
 }
 
 // ----------------------------------------------------------------------------
-// print and println
+// print and println. They write to the console (consoleWrite), except
+// while a panic's message is being written (panic.p).
+
+// printBytes writes n bytes at p where print writes.
+func printBytes(p unsafe.Pointer, n int) {
+	if n <= 0 {
+		return
+	}
+	if capturing && loadUint64(&panicOwner) == selfID()+1 {
+		captureBytes(p, n)
+		return
+	}
+	consoleWrite(p, n)
+}
 
 func printSpace()   { printString(" ") }
 func printNewline() { printString("\n") }
@@ -264,16 +280,58 @@ func printBool(b bool) {
 	}
 }
 
-func printInt(v int64) {
-	if v < 0 {
-		printString("-")
-		printUint(uint64(-v))
-		return
-	}
-	printUint(uint64(v))
+func printInt(v int64)              { writeInt(nil, v) }
+func printUint(v uint64)            { writeUint(nil, v) }
+func printPointer(p unsafe.Pointer) { writePointer(nil, uintptr(p)) }
+
+// A Writer receives the text of a panic report (Panic.Print and
+// Panic.PrintTrace). It has the method of pluto/io.Writer, so any
+// io.Writer is one.
+type Writer interface {
+	Write(p []byte) (n int, err error)
 }
 
-func printUint(v uint64) {
+// Console is a Writer that writes where print and println do: standard
+// error in hosted builds, the function registered with SetConsole in
+// freestanding builds.
+type Console struct{}
+
+// Write writes p to the console.
+func (Console) Write(p []byte) (int, error) {
+	if len(p) > 0 {
+		printBytes(unsafe.Pointer(&p[0]), len(p))
+	}
+	return len(p), nil
+}
+
+// writeBytes writes n bytes at p to w, or to the console if w is nil.
+func writeBytes(w Writer, p unsafe.Pointer, n int) {
+	if n <= 0 {
+		return
+	}
+	if w == nil {
+		printBytes(p, n)
+		return
+	}
+	w.Write(unsafe.Slice((*byte)(p), n))
+}
+
+func writeString(w Writer, s string) {
+	if len(s) > 0 {
+		writeBytes(w, unsafe.Pointer(unsafe.StringData(s)), len(s))
+	}
+}
+
+func writeInt(w Writer, v int64) {
+	if v < 0 {
+		writeString(w, "-")
+		writeUint(w, uint64(-v))
+		return
+	}
+	writeUint(w, uint64(v))
+}
+
+func writeUint(w Writer, v uint64) {
 	var buf [20]byte
 	i := len(buf)
 	for {
@@ -284,13 +342,12 @@ func printUint(v uint64) {
 			break
 		}
 	}
-	printBytes(unsafe.Pointer(&buf[i]), len(buf)-i)
+	writeBytes(w, unsafe.Pointer(&buf[i]), len(buf)-i)
 }
 
-func printPointer(p unsafe.Pointer) {
+func writePointer(w Writer, v uintptr) {
 	const digits = "0123456789abcdef"
 	var buf [18]byte
-	v := uintptr(p)
 	i := len(buf)
 	for {
 		i--
@@ -304,7 +361,7 @@ func printPointer(p unsafe.Pointer) {
 	buf[i] = 'x'
 	i--
 	buf[i] = '0'
-	printBytes(unsafe.Pointer(&buf[i]), len(buf)-i)
+	writeBytes(w, unsafe.Pointer(&buf[i]), len(buf)-i)
 }
 
 func printFloat(f float64) {

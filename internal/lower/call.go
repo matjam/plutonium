@@ -15,6 +15,7 @@ type callee struct {
 	code     *ssa.Value // indirect: code pointer
 	ctx      *ssa.Value // indirect: closure record passed to the callee
 	noReturn bool
+	site     *callSite // the call as written, for the interrupt-context check
 }
 
 // callExpr lowers a call expression and returns its single result (or the
@@ -74,11 +75,15 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 			if res, ok := s.intrinsic(fn, e); ok {
 				return res
 			}
+			if s.l.isPanicHook(fn) {
+				return s.callPanicHandler(e)
+			}
 			targs := s.instanceArgs(id)
 			sig := s.subst(s.info.Types[e.Fun].Type).(*types2.Signature)
 			sym := s.l.funcSym(fn, targs)
 			args := s.callArgs(e, sig, &defaultsOf{fn, targs})
-			return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn)}, sig, nil, args, e.Pos())
+			site := &callSite{desc: types2.ExprString(e.Fun)}
+			return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn), site: site}, sig, nil, args, e.Pos())
 		}
 	}
 
@@ -87,7 +92,8 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 	sig := s.typeOf(e.Fun).Underlying().(*types2.Signature)
 	args := s.callArgs(e, sig, nil)
 	code := s.load(ssa.TPtr, fv)
-	return s.emitCall(callee{code: code, ctx: fv}, sig, nil, args, e.Pos())
+	site := &callSite{desc: types2.ExprString(e.Fun), fsig: sig}
+	return s.emitCall(callee{code: code, ctx: fv, site: site}, sig, nil, args, e.Pos())
 }
 
 func (s *fnState) isFuncInstance(x ast.Expr) bool {
@@ -353,6 +359,9 @@ func (s *fnState) callValue(c callee, flat []*ssa.Value, results []*ssa.Type) *s
 	} else {
 		call = s.newValue(ssa.OpCallInd, rt, c.code, c.ctx)
 	}
+	if c.site != nil {
+		s.l.sites[call] = c.site
+	}
 	for _, a := range flat {
 		call.AddArg(a)
 	}
@@ -413,10 +422,11 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 	sig := s.subst(s.info.Types[e.Fun].Type).(*types2.Signature)
 
 	// Interface method calls.
+	desc := types2.ExprString(e.Fun)
 	if isInterface(recvT) && len(sel.Index()) == 1 {
 		iv := s.expr(se.X)
 		args := s.callArgs(e, sig, nil)
-		return s.ifaceCall(iv, recvT, fn, sig, args, e.Pos())
+		return s.ifaceCall(iv, recvT, fn, sig, args, e.Pos(), desc)
 	}
 
 	fn, path, ok := s.selectedMethod(se, sel)
@@ -431,13 +441,14 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 	if isIfaceMethod(fn) {
 		// A method promoted from an embedded interface field.
 		args := s.callArgs(e, sig, nil)
-		return s.ifaceCall(recv, recv.T, fn, sig, args, e.Pos())
+		return s.ifaceCall(recv, recv.T, fn, sig, args, e.Pos(), desc)
 	}
 	targs := s.methodTypeArgs(fn, se, recvT)
 	sym := s.l.funcSym(fn, targs)
 	full := s.l.methodSig(fn, targs)
 	args := s.callArgs(e, sig, &defaultsOf{fn, targs})
-	return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn)}, full, &recv, args, e.Pos())
+	site := &callSite{desc: desc, recv: types2.ExprString(se.X)}
+	return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn), site: site}, full, &recv, args, e.Pos())
 }
 
 // methodTypeArgs returns the type arguments of the method instance that
@@ -645,7 +656,7 @@ func (l *Lowerer) methodExprThunk(R types2.Type, fn *types2.Func, path []int, ta
 		in := s.incomingArgs(sig)
 		recv := s.receiverFromValue(in[0], fn, path)
 		if target == nil {
-			s.returnValues(s.ifaceCall(recv, recv.T, fn, plain, in[1:], token.NoPos))
+			s.returnValues(s.ifaceCall(recv, recv.T, fn, plain, in[1:], token.NoPos, fn.Name()))
 			return
 		}
 		s.returnValues(s.emitCall(callee{sym: target}, full, &recv, in[1:], token.NoPos))
@@ -669,6 +680,11 @@ func (s *fnState) funcValue(fn *types2.Func, targs []types2.Type, pos token.Pos)
 			sym = s.l.cThunk(fn, sym)
 		}
 	}
+	sig := fn.Type().(*types2.Signature)
+	if len(targs) > 0 {
+		sig = newTypeMap(s.l, fn.Origin(), targs).subst(sig).(*types2.Signature)
+	}
+	s.l.funcValues[sym] = sig
 	return s.symAddr(s.l.closureRecord(sym))
 }
 
@@ -681,6 +697,7 @@ func (s *fnState) closure(lit *ast.FuncLit) *ssa.Value {
 	name := fmt.Sprintf("%s.func%d", s.f.Name, s.closures)
 	sym := s.l.out.Sym(name, ssa.SymFunc)
 	sig := s.subst(s.info.Types[lit].Type).(*types2.Signature)
+	s.l.funcValues[sym] = sig
 	s.l.queue = append(s.l.queue, &funcJob{
 		sym: sym, pkg: s.pkg, lit: lit, sig: sig, tmap: s.tmap, captures: captures, parent: s,
 	})
@@ -795,6 +812,7 @@ func (l *Lowerer) boundMethodWrapper(target *ssa.Sym, full *types2.Signature) *s
 	sym := l.out.Sym(name, ssa.SymFunc)
 	l.funcs[name] = sym
 	plain := types2.NewSignatureType(nil, nil, nil, full.Params(), full.Results(), full.Variadic())
+	l.funcValues[sym] = plain
 	recvT := full.Recv().Type()
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: plain, build: func(s *fnState) {
 		ctx := s.newValue(ssa.OpClosurePtr, ssa.TPtr)

@@ -65,6 +65,7 @@ func TestPerCPUErrors(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "main.p"), []byte(src), 0o644); err != nil {
 				t.Fatal(err)
 			}
+			writePanicHandler(t, dir)
 			cfg := &build.Config{Dir: dir, Output: filepath.Join(dir, "k.o"), Stdlib: plutonium.Stdlib(),
 				OptLevel: 2, Kernel: tc.kernel, CompileOnly: true}
 			err := build.Build(cfg)
@@ -109,6 +110,7 @@ func buildPerCPU(t *testing.T, compileOnly bool, ldscript string) (string, error
 	files := map[string]string{
 		"main.p":        perCPUSource,
 		"start_amd64.s": "\t.section .boot, \"ax\"\n\t.globl _start\n_start:\n\thlt\n\t.section .note.GNU-stack,\"\",@progbits\n",
+		"panic.p":       panicHandlerSource,
 	}
 	for name, src := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644); err != nil {
