@@ -515,7 +515,11 @@ func (s *fnState) callsFunction(e ast.Expr) bool {
 
 // rangeString iterates over the runes of a string.
 func (s *fnState) rangeString(st *ast.RangeStmt, label *types2.Label) {
-	str := s.materialize(s.expr(st.X))
+	x := s.expr(st.X)
+	// An untyped string constant has no size of its own; every string has
+	// the same layout.
+	x.T = types2.Typ[types2.String]
+	str := s.materialize(x)
 	ptr, n := s.stringParts(str)
 	keyLV := s.rangeVar(st, st.Key)
 	valLV := s.rangeVar(st, st.Value)
