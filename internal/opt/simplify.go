@@ -205,14 +205,46 @@ func simplifyValue(f *ssa.Func, v *ssa.Value, expand bool) bool {
 			}
 			return replaceFloat(v, r)
 		}
+		// Constants on the right of commutative operations.
+		if v.Op.IsCommutative() && a.Op == ssa.OpConstFloat {
+			v.SetArg(0, b)
+			v.SetArg(1, a)
+			return true
+		}
 		// x * 1.0 = x, x / 1.0 = x (exact, including NaN and signed zero).
 		if (v.Op == ssa.OpFMul || v.Op == ssa.OpFDiv) && b.Op == ssa.OpConstFloat && floatOf(b) == 1 {
 			v.CopyOf(a)
 			return true
 		}
+		// x * -1.0 = x / -1.0 = -x (exact up to the sign of a NaN, which
+		// Go does not specify either).
+		if (v.Op == ssa.OpFMul || v.Op == ssa.OpFDiv) && b.Op == ssa.OpConstFloat && floatOf(b) == -1 {
+			v.Reset(ssa.OpFNeg)
+			v.AddArg(a)
+			return true
+		}
+		// IEEE defines x - y as x + (-y), so these are exact.
+		switch {
+		case v.Op == ssa.OpFAdd && b.Op == ssa.OpFNeg:
+			v.Op = ssa.OpFSub
+			v.SetArgs(a, b.Args[0])
+			return true
+		case v.Op == ssa.OpFAdd && a.Op == ssa.OpFNeg:
+			v.Op = ssa.OpFSub
+			v.SetArgs(b, a.Args[0])
+			return true
+		case v.Op == ssa.OpFSub && b.Op == ssa.OpFNeg:
+			v.Op = ssa.OpFAdd
+			v.SetArgs(a, b.Args[0])
+			return true
+		}
 	case ssa.OpFNeg:
-		if a := v.Args[0]; a.Op == ssa.OpConstFloat {
+		switch a := v.Args[0]; a.Op {
+		case ssa.OpConstFloat:
 			return replaceFloat(v, -floatOf(a))
+		case ssa.OpFNeg:
+			v.CopyOf(a.Args[0])
+			return true
 		}
 	case ssa.OpIntToFloat:
 		if a := v.Args[0]; isConst(a) {

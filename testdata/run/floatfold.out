@@ -1,0 +1,12 @@
+ -2500 -2500 -2500 2500 -2500
+ 750 750 750 -750 750
+ -0 -0 -0 +0 -0
+ +0 +0 +0 -0 +0
+ -inf -inf -inf +inf -inf
+ +inf +inf +inf -inf +inf
+ +0 +0 5000 +0 3250 -3250 1750 3250 2500 -2500 2500 2500 2500 -2500 2500 2500 -inf +inf +inf -inf +inf -inf -inf +inf
+ -3250 3250 1750 -3250 +0 +0 -1500 +0 -750 750 -750 -750 -750 750 -750 -750 -inf +inf +inf -inf +inf -inf -inf +inf
+ -2500 2500 2500 -2500 750 -750 -750 750 +0 +0 +0 +0 +0 -0 +0 +0 -inf +inf +inf -inf +inf -inf -inf +inf
+ -2500 2500 2500 -2500 750 -750 -750 750 -0 +0 +0 -0 +0 +0 -0 +0 -inf +inf +inf -inf +inf -inf -inf +inf
+ +inf -inf +inf +inf +inf -inf +inf +inf +inf -inf +inf +inf +inf -inf +inf +inf nan nan +inf nan +inf -inf nan +inf
+ -inf +inf -inf -inf -inf +inf -inf -inf -inf +inf -inf -inf -inf +inf -inf -inf -inf +inf nan -inf nan nan -inf nan

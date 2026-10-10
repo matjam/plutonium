@@ -138,6 +138,21 @@ func main() {
 	}
 }
 
+func TestFloatNegFold(t *testing.T) {
+	const src = `package main
+
+//pu:noinline
+func f(a, b, k float64) float64 { return a*-1 + b*k }
+
+func main() { println(int64(f(1, 2, 3))) }
+`
+	// a*-1 + b*k becomes b*k - a: one multiply, no negation.
+	asm := listFunc(t, src, "main.f")
+	if strings.Count(asm, "muls") != 1 || !strings.Contains(asm, "subs") || strings.Contains(asm, "xorps") {
+		t.Errorf("f: want b*k - a\n%s", asm)
+	}
+}
+
 func TestZeroIdiomNotLive(t *testing.T) {
 	const src = `package main
 
