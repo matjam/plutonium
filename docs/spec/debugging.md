@@ -42,7 +42,12 @@ Every instruction carries the source position it was generated from:
    (`ssa.Func.Inlines`: the callee's name, the call's position, and the enclosing site). Each copied value
    carries the index of its site (`ssa.Value.Inl`), so a position in an inlined body knows its call chain.
 3. Values made by optimisation passes have no position of their own unless the pass inserts them next to
-   a value that has one.
+   a value that has one. A position always travels with its inline site: a pass that copies or replaces
+   a value or block (the loop unroller, the vectoriser, the inliner, edge splitting) copies both
+   (`ssa.Value.CopyPos`, `ssa.Block.CopyPos`), since a position from an inlined body without its site
+   would be reported as a line of the function it was inlined into. Under `PLUTO_SSACHECK`, after every
+   pass, `ssa.Func.VerifyPos` checks that each position lies in the source of the function its site
+   names (`ssa.Func.Pos` to `ssa.Func.End`, or the inlined function's extent recorded in its site).
 4. Instruction selection gives each machine instruction the position of the value it is selected for.
    Constants and addresses folded into an instruction take the position of the instruction that uses
    them. The prologue has the function's declaration; an epilogue has its `return` statement.
@@ -133,6 +138,8 @@ panic: runtime error: index out of range [4] with length 4
   instruction that failed).
 - A call that was inlined is reported as a frame of its own, as if it had not been inlined, so a trace is
   the same at every optimisation level.
+- A default argument ([language.md section 5.1](language.md#51-default-parameter-values)) is evaluated by
+  the caller, and its code has the position of the call, so a panic in it is reported at the call's line.
 - The panic's own frames in package `pluto/rt` are left out, and so is generated code with no source
   position, such as the wrapper that calls a method through an interface.
 - The walk stops at `pluto.main` (which runs initialisation and `main.main`; where `main.main` is

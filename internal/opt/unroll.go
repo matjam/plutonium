@@ -111,7 +111,7 @@ func unrollLoop(f *ssa.Func, l *ssa.Loop, limit int) bool {
 		blocks := map[*ssa.Block]*ssa.Block{}
 		// The header: phis take the value of this iteration.
 		hk := f.NewBlock(ssa.BlockPlain)
-		hk.Pos = h.Pos
+		hk.CopyPos(h)
 		heads[k] = hk
 		blocks[h] = hk
 		for _, v := range h.Values {
@@ -130,7 +130,8 @@ func unrollLoop(f *ssa.Func, l *ssa.Loop, limit int) bool {
 					continue
 				}
 				nv := nb.NewValue(v.Op, v.Type)
-				nv.AuxInt, nv.Aux, nv.Pos = v.AuxInt, v.Aux, v.Pos
+				nv.AuxInt, nv.Aux = v.AuxInt, v.Aux
+				nv.CopyPos(v)
 				if v.Call != nil {
 					c := *v.Call
 					nv.Call = &c
@@ -145,7 +146,8 @@ func unrollLoop(f *ssa.Func, l *ssa.Loop, limit int) bool {
 					continue
 				}
 				nb := f.NewBlock(b.Kind)
-				nb.Likely, nb.Pos = b.Likely, b.Pos
+				nb.Likely = b.Likely
+				nb.CopyPos(b)
 				blocks[b] = nb
 				copyBlock(b, nb)
 			}

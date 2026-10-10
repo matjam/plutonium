@@ -122,7 +122,7 @@ func Select(f *ssa.Func) (*MFunc, error) {
 			}
 		}
 		if b.Kind == ssa.BlockRet && b.Pos.IsValid() {
-			s.pos, s.inl = b.Pos, 0
+			s.pos, s.inl = b.Pos, b.Inl
 		}
 		if err := s.terminator(b); err != nil {
 			return nil, err
@@ -166,7 +166,7 @@ func blockPos(b *ssa.Block) (token.Pos, int32) {
 			return v.Pos, v.Inl
 		}
 	}
-	return b.Pos, 0
+	return b.Pos, b.Inl
 }
 
 func (s *isel) newReg(t *ssa.Type) Reg {

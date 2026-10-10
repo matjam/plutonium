@@ -430,6 +430,29 @@ func TestGDB(t *testing.T) {
 	if !want.Match(out) {
 		t.Errorf("gdb backtrace through inlined calls:\n%s", out)
 	}
+
+	// A fault in an unrolled loop two inlined calls deep (at -O2) has the
+	// same backtrace as at -O0.
+	src, err = os.ReadFile(filepath.Join("..", "..", "testdata", "trace", "faultchain.p"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, level := range []int{0, 2} {
+		dir, _, _ := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: level})
+		file := filepath.Join(dir, "main.p")
+		out, err := exec.Command(gdb, "-nx", "-batch", "-iex", "set debuginfod enabled off",
+			"-ex", "run", "-ex", "bt", filepath.Join(dir, "prog")).CombinedOutput()
+		if err != nil {
+			t.Fatalf("O%d: gdb: %v\n%s", level, err, out)
+		}
+		frame := func(n int, fn string, line int) string {
+			return fmt.Sprintf(`#%d +(0x[0-9a-f]+ in )?%s \(\) at %s:%d\n`, n, regexp.QuoteMeta(fn), regexp.QuoteMeta(file), line)
+		}
+		want := regexp.MustCompile(frame(0, "main.value", 12) + frame(1, "main.walk", 18) + frame(2, "main.main", 27))
+		if !strings.Contains(string(out), "SIGSEGV") || !want.Match(out) {
+			t.Errorf("O%d: gdb backtrace of a fault in inlined calls:\n%s", level, out)
+		}
+	}
 }
 
 // An fde is a decoded frame description entry.
