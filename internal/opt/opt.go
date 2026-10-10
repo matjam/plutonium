@@ -45,6 +45,8 @@ func ForLevel(level int) *Pipeline {
 	}
 	if level >= 2 {
 		p.add(Pass{"cse", CSE})
+		p.add(Pass{"schedule", ssa.Schedule})
+		p.addProgram(ProgramPass{"inline", Inline})
 		p.add(Pass{"simplify2", Simplify})
 		p.add(Pass{"simplifycfg2", SimplifyCFG})
 		p.add(Pass{"deadcode2", ssa.DeadCode})
@@ -53,6 +55,8 @@ func ForLevel(level int) *Pipeline {
 }
 
 func (p *Pipeline) add(pass Pass) { p.steps = append(p.steps, step{fn: &pass}) }
+
+func (p *Pipeline) addProgram(pass ProgramPass) { p.steps = append(p.steps, step{prog: &pass}) }
 
 // checkSSA, when set by the PLUTO_SSACHECK environment variable, verifies
 // every function after every pass.

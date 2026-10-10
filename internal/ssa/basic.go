@@ -38,6 +38,20 @@ func CopyElim(f *Func) {
 			}
 		}
 	}
+	// Every use now refers past the copies; remove them, which also keeps
+	// phis (some of which became copies) at the start of their blocks.
+	for _, b := range f.Blocks {
+		keep := b.Values[:0]
+		for _, v := range b.Values {
+			if v.Op == OpCopy && v.Uses == 0 {
+				v.ResetArgs()
+				continue
+			}
+			keep = append(keep, v)
+		}
+		clear(b.Values[len(keep):])
+		b.Values = keep
+	}
 }
 
 // trivialPhi returns the single value a phi merges (ignoring self

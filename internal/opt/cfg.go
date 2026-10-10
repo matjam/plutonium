@@ -16,21 +16,35 @@ func SimplifyCFG(f *ssa.Func) {
 		if changed {
 			f.RemoveDeadBlocks()
 		}
+		verifyStep(f, "foldConstBranch")
 		for _, b := range f.Blocks {
 			if mergeIntoPred(f, b) {
 				changed = true
 				break // f.Blocks changed
 			}
 		}
+		verifyStep(f, "mergeIntoPred")
 		for _, b := range f.Blocks {
 			if skipEmpty(f, b) {
 				changed = true
 				break
 			}
 		}
+		verifyStep(f, "skipEmpty")
 		f.RemoveDeadBlocks()
 	}
 	ssa.CopyElim(f)
+}
+
+// verifyStep checks the function after one step of a pass when
+// PLUTO_SSACHECK is set.
+func verifyStep(f *ssa.Func, step string) {
+	if !checkSSA {
+		return
+	}
+	if err := f.Verify(); err != nil {
+		panic("after " + step + ": " + err.Error())
+	}
 }
 
 // foldConstBranch turns "if const" into a jump.
@@ -98,7 +112,13 @@ func mergeIntoPred(f *ssa.Func, b *ssa.Block) bool {
 		s.Preds[e.I] = ssa.Edge{B: p, I: len(p.Succs) - 1}
 		b.Succs = b.Succs[1:]
 	}
-	b.Kind = ssa.BlockPlain
+	// b is now empty and unreachable: drop it.
+	for i, x := range f.Blocks {
+		if x == b {
+			f.Blocks = append(f.Blocks[:i], f.Blocks[i+1:]...)
+			break
+		}
+	}
 	f.InvalidateCFG()
 	return true
 }
