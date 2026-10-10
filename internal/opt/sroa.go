@@ -89,8 +89,13 @@ func accessesMatchLeaves(in *slotInfo) bool {
 					return false
 				}
 			}
-			if a.v.Op == ssa.OpMove && a.v.Args[0] == a.v.Args[1] {
-				return false
+			// A copy from one part of the slot to another (a[1] = a[0])
+			// has both ends here; splitSlot rewrites a copy one end at
+			// a time, so leave such slots whole.
+			if a.v.Op == ssa.OpMove {
+				if s, ok := slotOf(a.v.Args[a.otherArg()]); ok && s == in.slot {
+					return false
+				}
 			}
 		default:
 			return false
