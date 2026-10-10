@@ -268,6 +268,10 @@ const (
 type Sym struct {
 	Name string
 	Kind SymKind
+	// PerCPU marks a //pu:percpu variable: the symbol, in section
+	// .percpu linked at address 0, is the variable's offset in each
+	// processor's per-CPU block, and accesses are relative to GS.
+	PerCPU bool
 }
 
 func (s *Sym) String() string { return s.Name }

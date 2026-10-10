@@ -148,7 +148,13 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 		args = append(args, "--oformat=binary")
 	}
 	args = append(args, objs...)
-	return run(cfg, "ld", args...)
+	if err := run(cfg, "ld", args...); err != nil {
+		return err
+	}
+	if cfg.Kernel && cfg.Format != "binary" {
+		return checkPerCPU(cfg.Output)
+	}
+	return nil
 }
 
 // compileC compiles a package's .c files with the system C compiler ($CC,
@@ -279,7 +285,15 @@ func emitObject(cfg *Config, p *ssa.Program) (*objfile.Object, error) {
 	}
 
 	data := append([]*ssa.Data(nil), p.Data...)
-	sort.SliceStable(data, func(i, j int) bool { return data[i].Sym.Name < data[j].Sym.Name })
+	// The per-CPU block's self word goes first, at offset 0 of .percpu
+	// (abi.md section 10.6).
+	key := func(d *ssa.Data) string {
+		if d.Sym.Name == perCPUSelf {
+			return ""
+		}
+		return d.Sym.Name
+	}
+	sort.SliceStable(data, func(i, j int) bool { return key(data[i]) < key(data[j]) })
 	for _, d := range data {
 		var sec *objfile.Section
 		switch {

@@ -426,8 +426,31 @@ func (s *isel) reg(v *ssa.Value) Reg {
 	}
 	// Address arithmetic.
 	r := s.newReg(ssa.TPtr)
-	s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(r), Src: MemOp(s.addr(v))})
+	s.lea(r, s.addr(v))
 	return r
+}
+
+// lea computes the address of memory operand m into dst. LEA ignores
+// segment overrides, so a GS-relative operand (a per-CPU variable) is
+// turned into an ordinary address first: the per-CPU block's own address,
+// read from %gs:0, plus the operand's offset.
+func (s *isel) lea(dst Reg, m Mem) {
+	if m.Seg == SegGS {
+		self := s.mf.newVReg(ClassGP)
+		s.emit(&MInst{Op: MMOV, Size: 8, Dst: RegOp(self), Src: MemOp(Mem{Base: NoReg, Index: NoReg, Seg: SegGS})})
+		m.Seg = SegNone
+		switch {
+		case m.Base == NoReg:
+			m.Base = self
+		case m.Index == NoReg:
+			m.Index, m.Scale = self, 1
+		default:
+			s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(dst), Src: MemOp(m)})
+			s.emit(&MInst{Op: MADD, Size: 8, Dst: RegOp(dst), Src: RegOp(self)})
+			return
+		}
+	}
+	s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(dst), Src: MemOp(m)})
 }
 
 func (s *isel) loadConst(r Reg, c int64, size uint8) {
@@ -518,7 +541,13 @@ func (s *isel) addr(p *ssa.Value) Mem {
 	case ssa.OpSlotAddr:
 		return Mem{Base: NoReg, Index: NoReg, Slot: p.Aux.(*ssa.Slot)}
 	case ssa.OpSymAddr:
-		return Mem{Base: NoReg, Index: NoReg, Sym: p.Aux.(*ssa.Sym)}
+		sym := p.Aux.(*ssa.Sym)
+		if sym.PerCPU {
+			// %gs:sym: the symbol's address is its offset in the
+			// per-CPU block, which GS points at.
+			return Mem{Base: NoReg, Index: NoReg, Sym: sym, Seg: SegGS}
+		}
+		return Mem{Base: NoReg, Index: NoReg, Sym: sym}
 	case ssa.OpOffPtr:
 		m := s.addr(p.Args[0])
 		if fitsImm32(m.Disp + p.AuxInt) {
@@ -852,7 +881,7 @@ func (s *isel) value(v *ssa.Value) error {
 	case ssa.OpMove:
 		s.move(v.Args[0], v.Args[1], v.AuxInt)
 	case ssa.OpFill:
-		s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(RDI), Src: MemOp(s.addr(v.Args[0]))})
+		s.lea(RDI, s.addr(v.Args[0]))
 		s.copyReg(RCX, s.reg(v.Args[2]), 8)
 		s.copyReg(RAX, s.reg(v.Args[1]), 8)
 		s.emit(&MInst{Op: MREPSTOSB, ImplicitUses: []Reg{RDI, RCX, RAX}, ImplicitDefs: []Reg{RDI, RCX}})
@@ -1192,7 +1221,7 @@ func (s *isel) zero(p *ssa.Value, n int64) {
 		}
 		return
 	}
-	s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(RDI), Src: MemOp(s.addr(p))})
+	s.lea(RDI, s.addr(p))
 	s.loadConst(RCX, n, 8)
 	s.loadConst(RAX, 0, 8)
 	s.emit(&MInst{Op: MREPSTOSB, ImplicitUses: []Reg{RDI, RCX, RAX}, ImplicitDefs: []Reg{RDI, RCX}})
@@ -1215,8 +1244,8 @@ func (s *isel) move(dst, src *ssa.Value, n int64) {
 		}
 		return
 	}
-	s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(RDI), Src: MemOp(s.addr(dst))})
-	s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(RSI), Src: MemOp(s.addr(src))})
+	s.lea(RDI, s.addr(dst))
+	s.lea(RSI, s.addr(src))
 	s.loadConst(RCX, n, 8)
 	s.emit(&MInst{Op: MREPMOVSB, ImplicitUses: []Reg{RDI, RSI, RCX}, ImplicitDefs: []Reg{RDI, RSI, RCX}})
 }

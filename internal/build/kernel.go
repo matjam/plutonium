@@ -1,5 +1,35 @@
 package build
 
+import (
+	"debug/elf"
+	"fmt"
+)
+
+// perCPUSelf is the symbol of the word at offset 0 of every per-CPU block.
+const perCPUSelf = "pluto.percpu.self"
+
+// checkPerCPU verifies, in a linked ELF executable, that the per-CPU block
+// starts at address 0 with its self word, as GS-relative accesses assume.
+// A linker script that places .percpu elsewhere would make every per-CPU
+// access wrong, so this is an error rather than a warning.
+func checkPerCPU(path string) error {
+	f, err := elf.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	syms, err := f.Symbols()
+	if err != nil {
+		return nil // no symbol table: nothing to check
+	}
+	for _, s := range syms {
+		if s.Name == perCPUSelf && s.Value != 0 {
+			return fmt.Errorf("%s: %s is at %#x: the linker script must link section .percpu at address 0, with the Plutonium object first (abi.md section 10.6)", path, perCPUSelf, s.Value)
+		}
+	}
+	return nil
+}
+
 // KernelLinkerScript is the linker script for --mode kernel builds that do
 // not pass --ldscript (abi.md section 10.3). It links the kernel in the
 // top 2 GiB of the address space and loads it at 1 MiB physical:

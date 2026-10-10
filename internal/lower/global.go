@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/constant"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/matjam/plutonium/internal/load"
@@ -32,7 +33,7 @@ func (l *Lowerer) globalSym(v *types2.Var) *ssa.Sym {
 func (l *Lowerer) lowerGlobals() {
 	for _, p := range l.prog.Packages {
 		static := map[*types2.Var]bool{}
-		sections := globalSections(p)
+		sections, percpu := globalSections(p)
 		scope := p.Types.Scope()
 		for _, name := range scope.Names() {
 			v, ok := scope.Lookup(name).(*types2.Var)
@@ -46,9 +47,14 @@ func (l *Lowerer) lowerGlobals() {
 				d.Size = 1
 			}
 			l.out.Data = append(l.out.Data, d)
+			if _, ok := percpu[v]; ok {
+				l.perCPUVar(v, d, percpu[v])
+			}
 			// Static initialisation from a constant, or from a literal
 			// array or struct made of constants.
+			hasInit := false
 			for _, init := range p.Info.InitOrder {
+				hasInit = hasInit || slices.Contains(init.Lhs, v)
 				if len(init.Lhs) == 1 && init.Lhs[0] == v {
 					if tv := p.Info.Types[init.Rhs]; tv.Value != nil {
 						if l.staticConst(d, tv.Value, T) {
@@ -64,6 +70,9 @@ func (l *Lowerer) lowerGlobals() {
 					}
 				}
 			}
+			if sym.PerCPU && hasInit && !static[v] {
+				l.errorf(percpu[v], "per-CPU variable %s must have a constant initialiser: package initialisation runs before any processor has a per-CPU block", v.Name())
+			}
 		}
 		l.queueInit(p, static)
 	}
@@ -77,9 +86,43 @@ func (l *Lowerer) staticObject(T types2.Type) *ssa.Sym {
 	return sym
 }
 
-// globalSections reads //pu:section directives on package-level variables.
-func globalSections(p *load.Package) map[*types2.Var]string {
+// perCPUSection holds //pu:percpu variables; the kernel's linker script
+// links it at address 0.
+const perCPUSection = ".percpu"
+
+// perCPUSelf is the word at offset 0 of every per-CPU block, holding the
+// block's own address, which taking a per-CPU variable's address needs.
+const perCPUSelf = "pluto.percpu.self"
+
+// perCPUVar makes package variable v, with data d, a per-CPU variable.
+func (l *Lowerer) perCPUVar(v *types2.Var, d *ssa.Data, pos token.Pos) {
+	switch {
+	case !l.cfg.Kernel:
+		l.errorf(pos, "//pu:percpu variable %s needs --mode kernel", v.Name())
+		return
+	case d.Section != "":
+		l.errorf(pos, "//pu:percpu variable %s cannot also have //pu:section", v.Name())
+		return
+	}
+	d.Sym.PerCPU = true
+	d.Section = perCPUSection
+	if !l.perCPUSelfDone {
+		// The self word comes first: emitObject places it at the start
+		// of .percpu, so it is at offset 0 when this object is linked
+		// first (as pluto build does).
+		l.perCPUSelfDone = true
+		self := l.out.Sym(perCPUSelf, ssa.SymData)
+		self.PerCPU = true
+		l.out.Data = append(l.out.Data, &ssa.Data{Sym: self, Size: 8, Align: 8, Section: perCPUSection})
+	}
+}
+
+// globalSections reads //pu:section and //pu:percpu directives on
+// package-level variables. percpu maps each per-CPU variable to the
+// position of its declaration.
+func globalSections(p *load.Package) (map[*types2.Var]string, map[*types2.Var]token.Pos) {
 	out := map[*types2.Var]string{}
+	percpu := map[*types2.Var]token.Pos{}
 	for _, f := range p.Files {
 		for _, d := range f.Decls {
 			gd, ok := d.(*ast.GenDecl)
@@ -93,18 +136,25 @@ func globalSections(p *load.Package) map[*types2.Var]string {
 					doc = gd.Doc
 				}
 				for _, dir := range directives(doc) {
-					if name, ok := strings.CutPrefix(dir, "section "); ok {
-						for _, n := range vs.Names {
-							if v, ok := p.Info.Defs[n].(*types2.Var); ok {
-								out[v] = strings.TrimSpace(name)
-							}
+					name, isSection := strings.CutPrefix(dir, "section ")
+					if !isSection && dir != "percpu" {
+						continue
+					}
+					for _, n := range vs.Names {
+						v, ok := p.Info.Defs[n].(*types2.Var)
+						switch {
+						case !ok:
+						case isSection:
+							out[v] = strings.TrimSpace(name)
+						default:
+							percpu[v] = n.Pos()
 						}
 					}
 				}
 			}
 		}
 	}
-	return out
+	return out, percpu
 }
 
 // staticConst fills d with constant c of type T, if T is a scalar or string.

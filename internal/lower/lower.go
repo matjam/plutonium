@@ -64,6 +64,7 @@ type Lowerer struct {
 	interruptSyms  map[*ssa.Sym]bool     // //pu:interrupt functions
 	cfuncs         map[*ssa.Sym]bool     // //pu:extern symbols, called with the C convention
 	statics        int                   // anonymous static objects created
+	perCPUSelfDone bool                  // pluto.percpu.self has been emitted
 	types          *typeTable
 
 	errs []error
