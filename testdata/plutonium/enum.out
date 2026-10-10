@@ -36,7 +36,7 @@ Color Blue; Errno EIO; other; end
 equal true false
 stringer Greater
 max Green
-method value Red
+method value Red, expression Green Green
 reg 0x5e: Blue Less EIO
 raw Color(?) invalid 3
 mask 111 volatile Green

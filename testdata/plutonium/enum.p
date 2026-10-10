@@ -112,13 +112,15 @@ func local() string {
 	type Dir enum { North; East; South; West }
 	d := Dir.South
 	fmt.Printf("%v ", d)
-	return d.String()
+	name := d.String
+	return name()
 }
 
 func local2() string {
 	type Dir enum { Up; Down }
 	fmt.Printf("%v ", Dir.Down)
-	return Dir.Down.String()
+	name := Dir.Down.String
+	return name()
 }
 
 func main() {
@@ -192,7 +194,8 @@ func main() {
 	fmt.Printf("stringer %s\n", str.String())
 	fmt.Printf("max %v\n", Max(Color.Green, Color.Red))
 	f := Color.Red.String
-	fmt.Printf("method value %s\n", f())
+	byPtr := (*Color).String
+	fmt.Printf("method value %s, expression %s %s\n", f(), Color.String(Color.Green), byPtr(&c))
 
 	// Packed fields.
 	var r Reg

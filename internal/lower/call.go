@@ -557,6 +557,27 @@ func (l *Lowerer) boundMethodWrapper(fn *types2.Func, targs []types2.Type, recvT
 	return sym
 }
 
+// derefMethodWrapper synthesizes the function behind the method expression
+// (*T).M for a method M with a value receiver: sig is the expression's type,
+// func(*T, params) results, and the wrapper calls M with *p.
+func (l *Lowerer) derefMethodWrapper(fn *types2.Func, targs []types2.Type, sig *types2.Signature) *ssa.Sym {
+	name := funcSymName(fn, targs) + "-deref"
+	if sym := l.funcs[name]; sym != nil {
+		return sym
+	}
+	sym := l.out.Sym(name, ssa.SymFunc)
+	l.funcs[name] = sym
+	full := l.methodSig(fn, targs)
+	target := l.funcSym(fn, targs)
+	l.queue = append(l.queue, &funcJob{sym: sym, sig: sig, build: func(s *fnState) {
+		in := s.incomingArgs(sig)
+		recv := s.loadFrom(in[0].v, full.Recv().Type())
+		res := s.emitCall(callee{sym: target}, full, &recv, in[1:], token.NoPos)
+		s.returnValues(res)
+	}})
+	return sym
+}
+
 // incomingArgs rebuilds a synthesized function's parameters as values.
 func (s *fnState) incomingArgs(sig *types2.Signature) []value {
 	idx := 0

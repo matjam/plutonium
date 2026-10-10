@@ -55,10 +55,6 @@ func enumDense(en *types2.Enum) bool {
 func (l *Lowerer) enumString(fn *types2.Func, en *types2.Enum) *ssa.Sym {
 	tn := en.Obj()
 	name := funcSymName(fn, nil)
-	if tn.Parent() != nil && tn.Parent() != tn.Pkg().Scope() {
-		// Types declared in functions may share a name.
-		name += fmt.Sprintf("·%d", tn.Pos())
-	}
 	if sym := l.funcs[name]; sym != nil {
 		return sym
 	}

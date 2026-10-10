@@ -200,6 +200,11 @@ func funcSymName(fn *types2.Func, targs []types2.Type) string {
 		name := rt.String()
 		if n, ok := types2.Unalias(rt).(*types2.Named); ok {
 			name = n.Obj().Name()
+			if tn := n.Obj(); tn.Parent() != nil && tn.Pkg() != nil && tn.Parent() != tn.Pkg().Scope() {
+				// Methods of types declared in functions (enum String
+				// methods) need names that tell such types apart.
+				name += fmt.Sprintf("·%d", tn.Pos())
+			}
 		}
 		if nr := sig.RecvTypeParams().Len(); nr > 0 && sig.TypeParams().Len() > 0 && len(targs) >= nr {
 			name += "[" + typeList(targs[:nr]) + "]"
