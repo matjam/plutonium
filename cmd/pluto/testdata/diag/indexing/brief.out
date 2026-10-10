@@ -2,5 +2,4 @@ $DIR/main.p:20:8: invalid operation: cannot take address of v[0]: it is a copy r
 $DIR/main.p:21:2: cannot assign to v[0].x: v[0] is a copy returned by the Index method of vec.Vec[point]
 $DIR/main.p:25:2: cannot assign to t["a"]: table has no method SetIndex
 $DIR/main.p:26:11: cannot use comma-ok on t["b"]: table has no method IndexOk
-$DIR/main.p:31:17: cannot range over m (variable of struct type hash.Map[string, int]): ranging over a container needs an iterator, which is not supported yet
-$DIR/main.p:34:6: cannot read load()["a"]: method Index of hash.Map[string, int] has a pointer receiver, and load() is not addressable
+$DIR/main.p:29:6: cannot read load()["a"]: method Index of hash.Map[string, int] has a pointer receiver, and load() is not addressable

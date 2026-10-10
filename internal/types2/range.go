@@ -79,9 +79,14 @@ func (check *Checker) rangeStmt(inner stmtContext, rangeStmt *ast.RangeStmt, noN
 		k, v, cause, ok := rangeKeyVal(check, x.typ(), func(v goVersion) bool {
 			return check.allowVersion(v)
 		})
+		reported := false
+		if !ok && RangesByMethod(x.typ()) {
+			// Plutonium: a range over a container ranges over x.All()
+			// (language spec section 6.7).
+			k, v, ok, reported = check.rangeMethod(&x)
+		}
 		switch {
-		case !ok && check.hasIndexMethod(&x):
-			check.softErrorf(&x, RangeOverContainer, "cannot range over %s: ranging over a container needs an iterator, which is not supported yet", &x)
+		case reported:
 		case !ok && cause != "":
 			check.softErrorf(&x, InvalidRangeExpr, "cannot range over %s: %s", &x, cause)
 		case !ok:

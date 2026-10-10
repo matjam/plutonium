@@ -1,0 +1,4 @@
+$DIR/main.p:30:17: cannot range over t (variable of struct type table): table has no method All returning an iterator
+$DIR/main.p:34:17: cannot range over l: method All of list must have the form All() iter.Seq[V] or All() iter.Seq2[K, V]
+$DIR/main.p:37:17: cannot range over get(): method All of seq has a pointer receiver, and get() is not addressable
+$DIR/main.p:40:20: cannot range over load(): method All of hash.Map[string, int] has a pointer receiver, and load() is not addressable

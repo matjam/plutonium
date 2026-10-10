@@ -434,6 +434,10 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 		s.rangeEnum(st, label) // range E over an enum type's members
 		return
 	}
+	if tv := s.info.Types[st.X]; tv.Type != nil && types2.RangesByMethod(tv.Type) {
+		s.rangeContainer(st, label)
+		return
+	}
 	xt := unwrap(s.typeOf(st.X))
 	assign := func(lv *lvalue, v value) {
 		if lv != nil {

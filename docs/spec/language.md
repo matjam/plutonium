@@ -444,7 +444,8 @@ brief:
 
 `for k, v := range f`, where `f` is a function `func(yield func(K, V) bool)` with zero, one or two
 parameters to `yield`, works as in Go 1.23. `pluto/iter` defines `Seq[V]` and `Seq2[K, V]`, and the
-library's containers have iterator methods (section 13). The loop body becomes a yield function, a
+library's containers have iterator methods (section 13); a range over a container itself ranges over its
+`All` method (section 6.7). The loop body becomes a yield function, a
 closure built in the enclosing frame and passed to `f`, which is how Go compiles the loop too:
 
 - `f` may call `yield` as often as it likes while it runs, but may not keep it: `yield` is a closure of
@@ -1390,12 +1391,29 @@ code uses `Ptr` to look at an element or a method that takes it out (`Remove`, `
 **Deleting** stays a method: `m.Delete(k)`. The predeclared `delete` belongs to Go's built-in maps,
 which Plutonium does not have (section 3).
 
-**Range.** `for k, v := range x` over a container will call an iterator method once range over functions
-lands (roadmap item 22); until then it is a compile error whose message points at the alternatives:
-`for i := 0; i < len(v); i++`, `range v.Slice()` and `m.Iter()`.
+**Range.** `for k, v := range x`, where `x`'s type is not one the language ranges over (a string,
+integer, array, pointer to array, slice, map, channel or function), ranges over `x.All()`: the iterator
+`All` returns is ranged over as section 4.10 describes, so `x` is evaluated once and `All` is called once,
+before the loop. `All` is found in the method set of `x`'s type as `Index` is, so a pointer receiver needs
+an addressable `x` or a pointer (E2459); its form is `All() F`, with no parameters, type parameters or
+variadic parameter, where `F` is a function type that range accepts, such as `iter.Seq[V]` or
+`iter.Seq2[K, V]` (E2458). The iteration variables follow `F`, so `vec.Vec[T]`, whose `All` returns
+`iter.Seq2[int, T]`, ranges like a slice, `hash.Map[K, V]` like a map (in its table's order, section 13),
+and `hash.Set[K]` over its elements. A struct, or a type with an `Index` method, that has no `All` is a
+compile error (E2456).
+
+```go
+for i, x := range v { ... }  // v.All(): index and element
+for k, n := range counts { ... }
+for k := range counts { ... } // keys only, as for a Go map
+```
+
+In generic code the choice is made from the constraint, as for indexing: a type parameter whose type set
+is made of types the language ranges over is ranged over by the language, and one constrained only by
+methods ranges over its `All` method.
 
 **Generics.** `pluto/container` declares the constraints: `Indexable[K, V]` (`Index` and `SetIndex`),
-`Reader[K, V]`, `Lookup[K, V]` (`IndexOk`) and `Sized` (`Len`). A value of a type parameter so
+`Reader[K, V]`, `Lookup[K, V]` (`IndexOk`), `Sized` (`Len`) and `Iterable[K, V]` (`All`, for range). A value of a type parameter so
 constrained supports the corresponding syntax. The library's containers declare their methods on pointer
 receivers, so their pointers satisfy the constraints:
 

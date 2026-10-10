@@ -112,6 +112,66 @@ func TestIndexesByMethod(t *testing.T) {
 	}
 }
 
+func TestRangesByMethod(t *testing.T) {
+	cases := []struct {
+		T    types2.Type
+		want bool
+	}{
+		{types2.Typ[types2.String], false},
+		{types2.Typ[types2.Int], false},
+		{types2.NewSlice(types2.Typ[types2.Int]), false},
+		{types2.NewMap(types2.Typ[types2.Int], types2.Typ[types2.Int]), false},
+		{types2.NewPointer(types2.NewArray(types2.Typ[types2.Int], 3)), false},
+		{types2.NewSignatureType(nil, nil, nil, nil, nil, false), false},
+		{types2.Typ[types2.Float64], true},
+		{types2.NewPointer(types2.NewStruct(nil, nil)), true},
+		{types2.NewStruct(nil, nil), true},
+	}
+	for _, c := range cases {
+		if got := types2.RangesByMethod(c.T); got != c.want {
+			t.Errorf("RangesByMethod(%s) = %v, want %v", c.T, got, c.want)
+		}
+	}
+}
+
+// TestRangeOverContainer checks the iteration variables' types of a range
+// over containers whose All methods return a Seq2, through a pointer and a
+// value receiver, and over a type parameter constrained by a method.
+func TestRangeOverContainer(t *testing.T) {
+	mustCheck(t, `package p
+
+type Seq2[K, V any] func(yield func(K, V) bool)
+
+type M struct{}
+
+func (*M) All() Seq2[string, float64] { return nil }
+
+type L struct{}
+
+func (L) All() func(func(int) bool) { return nil }
+
+func f(m M, p *M, l L) {
+	for k, v := range m {
+		var _ string = k
+		var _ float64 = v
+	}
+	for k := range p {
+		var _ string = k
+	}
+	for x := range l {
+		var _ int = x
+	}
+}
+
+func g[C interface{ All() Seq2[int, bool] }](c C) {
+	for i, b := range c {
+		var _ int = i
+		var _ bool = b
+	}
+}
+`)
+}
+
 func TestIndexingErrors(t *testing.T) {
 	cases := []struct{ name, src, want string }{
 		{"no methods", "type T struct{}\nfunc f(x T) { _ = x[0] }", "cannot index x"},
@@ -123,7 +183,13 @@ func TestIndexingErrors(t *testing.T) {
 		{"element type", "func f(v *Vec) { v[0] = \"x\" }", "cannot use \"x\" (untyped string constant) as int value in assignment"},
 		{"address", "func f(v *Vec) *int { return &v[0] }", "cannot take address of v[0]: it is a copy returned by the Index method of *Vec"},
 		{"field assign", "func f(v *PV) { v[0].x = 1 }", "cannot assign to v[0].x: v[0] is a copy returned by the Index method of *PV"},
-		{"range", "func f(v *Vec) {\n\tfor x := range v {\n\t\t_ = x\n\t}\n}", "ranging over a container needs an iterator"},
+		{"range", "func f(v *Vec) {\n\tfor x := range v {\n\t\t_ = x\n\t}\n}", "*Vec has no method All returning an iterator"},
+		{"range struct", "type S struct{}\nfunc f(s S) {\n\tfor range s {\n\t}\n}", "S has no method All returning an iterator"},
+		{"range bad All", "type S struct{}\nfunc (S) All() int { return 0 }\nfunc f(s S) {\n\tfor range s {\n\t}\n}", "method All of S must have the form All() iter.Seq[V]"},
+		{"range All with argument", "type S struct{}\nfunc (S) All(n int) func(func(int) bool) { return nil }\nfunc f(s S) {\n\tfor range s {\n\t}\n}", "must have the form"},
+		{"range unaddressable", "type S struct{}\nfunc (*S) All() func(func(int) bool) { return nil }\nfunc mk() S { return S{} }\nfunc f() {\n\tfor range mk() {\n\t}\n}", "method All of S has a pointer receiver, and mk() is not addressable"},
+		{"range too many variables", "type S struct{}\nfunc (S) All() func(func(int) bool) { return nil }\nfunc f(s S) {\n\tfor k, v := range s {\n\t\t_, _ = k, v\n\t}\n}", "permits only one iteration variable"},
+		{"range float", "func f(x float64) {\n\tfor range x {\n\t}\n}", "cannot range over x (variable of type float64)"},
 		{"pointer receiver", "func mk() Vec { return Vec{} }\nfunc f() int { return mk()[0] }", "method Index of Vec has a pointer receiver, and mk() is not addressable"},
 		{"bad shape", "type B struct{}\nfunc (B) Index(i, j int) int { return 0 }\nfunc f(b B) int { return b[0] }", "method Index must have the form Index(k K) V"},
 		{"bad comma-ok", "type B struct{}\nfunc (B) IndexOk(i int) (int, int) { return 0, 0 }\nfunc f(b B) { v, ok := b[0]; _, _ = v, ok }", "must have the form IndexOk(k K) (V, bool)"},

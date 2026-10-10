@@ -186,7 +186,9 @@ later takes the next free number and is listed in the section where it belongs.
     `x[k] op= v` and `len(x)` on types that are not built-in indexable call `Index`, `SetIndex`,
     `IndexOk` and `Len`; `vec.Vec` and `hash.Map` have them, and `pluto/container` declares the
     constraints for generic code. `&x[k]` and assigning to a part of `x[k]` are explained errors
-    (containers return pointers from `Ptr`). Range over a container waits for item 22.
+    (containers return pointers from `Ptr`). `for k, v := range x` on such a type ranges over `x.All()`
+    (item 22), so `vec.Vec`, `hash.Map` and `hash.Set` range like Go's slices and maps; `container.Iterable`
+    is its constraint.
 50. **Ownership proposals awaiting sign-off** (proposed):
     - `new` returns `owned[T]` and `make([]T, ...)` returns `vec.Vec[T]`, with `a.New[T]()` and
       `a.Slice[T](n)` for arena-owned views (language spec section 4.2);
