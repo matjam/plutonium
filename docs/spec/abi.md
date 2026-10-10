@@ -32,6 +32,7 @@ applies to C calls and entry points.
 9. [Compatibility with System V](#9-compatibility-with-system-v)
 10. [Kernel mode](#10-kernel-mode)
 11. [Linux system calls](#11-linux-system-calls)
+12. [Puroutines and the scheduler](#12-puroutines-and-the-scheduler)
 
 ## 1. Data layout
 
@@ -57,7 +58,7 @@ Sizes and alignments follow Go's gc compiler on amd64. `int`, `uint`, `uintptr` 
 | enum type | its underlying integer's | its underlying integer's | the member's value, language spec section 5.9 |
 | union | tag, then the largest payload at its alignment, rounded up to the alignment | max(tag size, largest payload alignment) | `{tag uint8 (uint16 above 256 variants); payload}`, below |
 | packed union | its backing | backing's | a packed type whose tag field selects the variant, language spec section 5.10 |
-| `chan T` (planned) | 8 | 8 | address of the channel object |
+| `chan T` | 8 | 8 | address of the channel object (`rt.hchan`, section 12.6) |
 
 `owned[T]`, `shared[T]`, `synced[T]` and `weak[P]` point at the object. The allocation behind them begins
 with a hidden header at a negative offset from the object: one word recording its allocator for
@@ -310,6 +311,7 @@ functions without `//pu:fpu` (no floats, section 10.2) never use it.
 | generic instance | `path.Name[T1,T2]`, type arguments package-qualified by import path |
 | method of a generic type instance | `pluto/vec.(*Vec).Push[int]`: the receiver's type arguments, then the method's own, in the brackets |
 | function literal | `<enclosing symbol>.func<N>` |
+| go statement thunk (section 12.6) | `<enclosing symbol>.go<N>` |
 | bound method wrapper | `<method symbol>-fm` |
 | static closure record | `<function symbol>·f` |
 | package-level variable | `path.Name` |
@@ -665,9 +667,11 @@ var runQueue RunQueue
   initialiser runs once, before any processor has its own block, so it could only initialise one copy.
   Anything else is a compile error, as is `//pu:percpu` together with `//pu:section`.
 - Outside kernel mode `//pu:percpu` is a compile error.
-- The runtime has one per-CPU variable of its own, the processor's number that `rt.SetCPU` records and
-  panics report (language spec section 8.1), so every kernel-mode image has a `.percpu` section and its
-  linker script must place it as below.
+- The runtime has two per-CPU variables of its own: the processor's number that `rt.SetCPU` records and
+  panics report (language spec section 8.1), and the current-task slot `pluto/rt.currentTask` (section
+  12.3), which `pluto build` places at offset 8, right after the self word, so that a kernel's assembly
+  can reach it at `%gs:8`. Every kernel-mode image therefore has a `.percpu` section, and its linker
+  script must place it as below; the build checks the slot's offset as it checks the self word's.
 
 **Setting up GS.** The kernel gives each processor its block and points GS at it, before that processor
 touches a per-CPU variable:
@@ -699,3 +703,199 @@ Linux system calls use their own convention, implemented in assembly in `pluto/s
 | result | RAX; a value in [-4095, -1] is a negated errno |
 
 `syscall` clobbers RCX and R11.
+
+## 12. Puroutines and the scheduler
+
+How puroutines are represented and switched, and what a scheduler backend implements (language spec
+section 4.7). The runtime side is `lib/pluto/rt/sched.p`, `chan.p` and `ctx_amd64.s`; the hosted backend
+is `sched_linux.p`; `testdata/kernel/sched` and `testdata/plutonium/customsched.p` are complete small
+backends. The design is in [the scheduler contract](../plans/2026-10-09-scheduler-contract.md); where
+its working names differ, the names here are the implemented ones (section 12.8).
+
+### 12.1 The task record
+
+A puroutine is a task. Its record, `rt.Task`, is allocated by the backend at offset 0 of the backend's
+own record (`NewTask`), together with its stack, and belongs to the runtime: a backend reads it through
+methods and writes only `Link` and `Data`, two words for its own use (a run-queue link, its own task).
+
+| Offset | Field | |
+|---|---|---|
+| 0 | `sp` | the saved stack pointer while the task is not running (section 12.2) |
+| 24 | `onCPU` (`uint32`) | set while a processor runs the task or is still saving it |
+
+These two offsets are fixed, for a kernel's assembly; the rest of the record (the task's ID, the permit
+word, the preemption count and pending flag, the stack bounds, the `alloc.Use` override, channel and
+select bookkeeping) is private and may change. `t.SetStack(lo, hi)` records the stack in a record
+`NewTask` returns; the runtime places the go statement's arguments at the top of it, then the first
+frame below them.
+
+A stack request (`rt.StackRequest`) carries the size the task may use, `Proven` when the compiler has
+shown the call graph never needs more (then no guard page is needed; the compiler does not compute such
+bounds yet, roadmap item 18), and the allocator the program asked for.
+
+### 12.2 Contexts and the switch frame
+
+An `rt.Context` is the saved state of code that is not running: a task (`t.Context()`) or a backend's own
+loop (an idle loop, a worker's scheduling loop), made with `rt.MakeContext(c, stack, size, fn)`.
+`rt.Switch(from, to)` saves the running code in `from` and resumes `to`:
+
+1. It waits while `to`'s `onCPU` flag is set (another processor is still saving it), then sets it.
+2. It stores `to`'s task (nil for a backend context) in the processor's current-task slot (section
+   12.3).
+3. `swapcontext` pushes RBP, RBX, R12 to R15 and RFLAGS, stores RSP in `from`, loads `to`'s RSP, pops
+   the same and returns. The caller-saved registers, XMM included, are dead across the call under the
+   internal ABI; the direction flag is clear at every call, and Plutonium code does not change MXCSR or
+   the x87 control word. RFLAGS is saved so that a task switched away from inside an interrupt handler
+   (interrupts disabled) and one that parked with interrupts enabled each resume with their own flag.
+4. Back in the context that was switched to, the runtime clears the old context's `onCPU` (a release)
+   and finishes with its task: it completes a park, wakes a task that yielded or was preempted, or calls
+   `FreeTask` for one that exited.
+
+The saved frame, from the saved RSP upwards:
+
+```
+sp+0   RFLAGS
+sp+8   R15
+sp+16  R14
+sp+24  R13
+sp+32  R12
+sp+40  RBX
+sp+48  RBP
+sp+56  return address
+```
+
+A new context's frame has RFLAGS `0x202` (interrupts enabled), R12 the closure record of the entry
+function, RBX and R13 its two arguments, and as return address `rt.goStart`, entered with RSP 16-byte
+aligned; it calls the entry through R12's record (RAX = R12) with RDI = RBX and RSI = R13. The entry is
+`rt.taskMain(t)` for a task, which runs the go statement's thunk and then exits the task, or
+`rt.ctxMain(c, fn)` for `MakeContext`. `goStart`'s call frame information marks it as the outermost
+frame, so debuggers stop there, and stack traces stop at `taskMain`.
+
+### 12.3 The current task
+
+The runtime reads the running task from a slot, with no call into the backend:
+
+| Build | Slot |
+|---|---|
+| hosted, built-in backend | `%fs:8`: each worker thread's FS base points at its worker record, whose first word is its own address and second the current task |
+| kernel mode | `%gs:8`: the per-CPU variable `pluto/rt.currentTask`, right after `pluto.percpu.self` (section 10.6) |
+| other freestanding builds, and hosted programs with their own backend | one variable: such programs run tasks on one processor |
+
+`rt.Switch` writes the slot. Until the first task operation (the first go statement or the first
+operation that may park), the runtime does not read it: the running code is `rt.BootTask()`, the task
+that runs package initialisation and `main`. At that point it calls the backend's `Init`, if it has one,
+and adopts the running code as `BootTask` on this processor; a kernel points GS at the processor's
+per-CPU block before then.
+
+### 12.4 Preemption
+
+Each task has a preemption-disable count, raised by `rt.DisablePreemption`, by runtime locks, by
+`pluto/alloc`'s per-processor caches (`rt.ProcPin`) and while the task is switched out. A preemption
+that arrives while it is non-zero sets a pending flag, and the task yields when the count returns to
+zero. `rt.Park` with a non-zero count panics with "blocking with preemption disabled".
+
+- **From an interrupt handler on the task's stack** (a kernel's timer): the handler acknowledges the
+  interrupt and calls `rt.Preempt()`, which yields; the handler's own frame holds the interrupted
+  state, and when the task is resumed `Preempt` returns and the handler returns with `iretq`.
+- **From a signal handler on another stack** (hosted: the monitor thread sends `SIGURG` to a worker
+  whose task has run for 10 ms): the handler, on the worker's alternate signal stack, rewrites the
+  interrupted RIP in the signal's saved context to `rt.asyncPreempt` and records the old one. When the
+  signal returns, `asyncPreempt` runs on the task's stack: it steps over 128 bytes of red zone (which C
+  code may use), leaves a slot for the resume address, pushes RFLAGS and the fifteen general-purpose
+  registers, saves the x87, MXCSR and XMM state with `fxsave64` in a 16-byte-aligned 512-byte area (not
+  in kernel mode, where no vector state is live), and calls `preemptPark`, which yields and returns the
+  resume address. It then restores everything and returns with `ret $128`. Every instruction is a safe
+  point.
+
+### 12.5 The backend
+
+```go
+type Scheduler interface {
+	NewTask(req StackRequest) *Task // a record with Task at offset 0, and a stack (SetStack)
+	FreeTask(t *Task)               // free an exited task, after the switch away from it
+	Spawn(t *Task)                  // make a new task runnable
+	Park(t *Task)                   // switch away from t, the running task, until it is woken
+	Wake(t *Task)                   // make a switched-out task runnable; interrupt-safe
+	Yield(t *Task)                  // switch away from t, which stays runnable
+}
+```
+
+Optional methods, called if the type has them: `Init()`, once before the first task operation, and
+`InInterrupt() bool`, which lets the runtime refuse operations that would park in interrupt context.
+The backend is bound with `//pu:scheduler` (language spec section 4.7): the compiler gives each of the
+runtime's hooks (`schedNewTask`, `schedPark` and the rest, declared with `//pu:schedhook` in `sched.p`)
+a body that calls the bound variable's method directly.
+
+The rules a backend follows (memory-model.md sections 3.6 and 6.3):
+
+1. Every task passed to `Spawn`, `Wake` or `FreeTask` is switched out. The runtime implements the park
+   permit: `rt.Ready` that comes before `rt.Park` is never lost, and `Wake` is called only for a task
+   that is fully parked. `Park` and `Yield` for a task that yields, is preempted or exits all just
+   switch away; the runtime calls `Wake` (or `FreeTask`) for it once the switch is complete.
+2. `Park(t)` is also called once for an exited task (`t.Exited()`); after switching away the backend
+   must forget `t`.
+3. Putting a task on a run queue is a release and taking it off an acquire (a lock or atomics), on the
+   same processor or another.
+4. `Wake` may be called in interrupt context and from threads that run no tasks: it must not block,
+   allocate or switch. The compiler checks it like an interrupt handler (language spec section 12.6).
+5. Switch only with `rt.Switch`, which keeps the current-task slot and `onCPU` right.
+6. The backend's own run-queue locks disable interrupts where `Wake` takes them from an interrupt
+   handler; runtime locks (`rt.Lock`) do so in kernel mode already.
+
+### 12.6 What the compiler generates
+
+**go statements.** `go f(args)` evaluates the function value or receiver and the arguments (with
+defaults, and a copy of the array behind variadic arguments) into an argument block in the starting
+frame, laid out like a struct, and calls `rt.spawnGo(thunk, block, size, align, bound)`, where `thunk`
+is the closure record of a generated `func(p unsafe.Pointer)` named `<function>.go<N>` that loads the
+values from `p` and makes the call, and `bound` is the proven stack size (0 today). `spawnGo` asks the
+backend for a task with the default stack (64 KiB) from the current default allocator, copies the block
+to the top of the stack and calls `Spawn`. Before it, a func value that is the function started or a
+func-typed argument is passed to `rt.checkGoFunc`, which panics if its closure record lies in the
+starting task's stack.
+
+**Channels.** A channel is the address of an `rt.hchan`: a runtime lock, the buffer's count, capacity,
+indices and element size, the buffer, queues of waiting senders and receivers, and the allocator it came
+from. The operations call the runtime with the address of a temporary holding (or receiving) the element:
+
+| Operation | Runtime call |
+|---|---|
+| `make(chan T, n)`, `make(chan T, n, a)` | `makechan(size, align, n)`, `makechanWith(a, size, align, n)` |
+| `ch <- v` | `chansend1(c, &v)` (`//pu:blocking`) |
+| `<-ch`, `v, ok := <-ch`, `for v := range ch` | `chanrecv1(c, &v)`, `chanrecv2(c, &v) bool` (`//pu:blocking`) |
+| `close(ch)`, `len(ch)`, `cap(ch)` | `closechan(c)`, `chanlen(c)`, `chancap(c)` |
+| `select` without `default` | `selectgo(cases, order, n) (int, bool)` (`//pu:blocking`) |
+| `select` with `default` | `selectnb(cases, order, n) (int, bool)`, -1 for the default |
+
+A select's cases are an array of `n` `rt.scase` in the selecting frame, `{c, elem, kind, sudog}` with
+kind 1 for a receive and 2 for a send, whose embedded waiting record the runtime uses while the select
+waits; `order` is `2n` `uint16` of scratch for the random poll order and the lock order (by channel
+address). The result is the index of the case that ran and, for a receive, whether a value was received.
+A blocked operation's waiting record (`sudog`) lives in the waiting task's frame.
+
+### 12.7 The hosted backend
+
+| Part | |
+|---|---|
+| processors (P) | one per CPU, or `$PLUTO_MAXPROCS`: a 256-entry lock-free run queue that its worker pushes to and pops from and idle workers steal half of, and a cache of free stacks; a global queue behind a lock takes the overflow and tasks readied by threads without a P |
+| workers (m) | threads made with `clone(2)` (`CLONE_VM`, `CLONE_FS`, `CLONE_FILES`, `CLONE_SIGHAND`, `CLONE_THREAD`, `CLONE_SYSVSEM`, `CLONE_SETTLS` with the worker record as FS base), each with a 256 KiB scheduling stack and a 32 KiB alternate signal stack; idle workers sleep on a futex |
+| monitor | a thread that preempts a task after 10 ms (`SIGURG`) and hands the P of a worker that has been in a system call (`rt.EnterSyscall` to `rt.ExitSyscall`) for 20 µs, when other work waits, to another worker |
+| poller | a thread blocked in `epoll_wait`; `rt.PollWait(fd, write)` arms one-shot interest and parks |
+| stacks | a guard page, the stack, then the backend's task record, from the requested allocator; stacks of the default size from the program-wide default allocator are cached rather than unmapped |
+| deadlock | when every worker is idle and nothing waits in the poller or a system call: "fatal error: all puroutines are asleep - deadlock!", status 2 |
+
+The program's thread becomes the first worker when the first task operation runs (`Init`); the main
+task keeps running on the original stack, and the worker's scheduling loop gets a stack of its own.
+
+### 12.8 Names in the scheduler contract note
+
+| Contract note | Implemented |
+|---|---|
+| `Start(t)` | `Spawn(t)` |
+| `Block()`, `Resched()` | `Park(t)`, `Yield(t)`: the runtime records what the switch is for |
+| `Exit()` | `Park(t)` with `t.Exited()`, then `FreeTask(t)` from the runtime after the switch |
+| `rt.Switch(from, to *Task)` | `rt.Switch(from, to *Context)`, which also serves idle and scheduling loops |
+| `rt.InitStack` | done by the runtime between `NewTask` and `Spawn` |
+| `DisablePreempt`, `EnablePreempt` | `rt.DisablePreemption`, `rt.EnablePreemption` |
+| `BlockUntil`, `Now`, `ParkUntil` | not yet: timers are planned with `time` (roadmap item 45) |
+| `rt.StackOverflow`, `rt.TraceTask` | not yet; a kernel reports an overflow with `rt.PanicFault` |

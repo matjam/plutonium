@@ -217,10 +217,10 @@ func startHosted() {
 	newThread(sysmonMain, nil, false)
 }
 
-// Start starts the backend, before the first task operation: the
-// program's thread becomes the first worker, still running the main
-// puroutine, which the runtime then adopts as BootTask.
-func (*hostedSched) Start() { startHosted() }
+// Init starts the backend, before the first task operation: the program's
+// thread becomes the first worker, still running the main puroutine, which
+// the runtime then adopts as BootTask.
+func (*hostedSched) Init() { startHosted() }
 
 func m0Main() { schedLoop(&m0) }
 

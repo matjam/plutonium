@@ -72,35 +72,48 @@ later takes the next free number and is listed in the section where it belongs.
     and prints its trace without allocating; one panic at a time with a last resort for nested panics
     (language spec section 8.1). Replaces `rt.SetPanicHandler`. Tested under QEMU
     (`testdata/kernel/panic`: explicit panic, bounds error, page fault in an interrupt handler, nested
-    panic) and hosted. Hosted panics report CPU 0 until hosted programs have worker threads (item 14).
+    panic) and hosted. Hosted panics report CPU 0 and name the puroutine that panicked instead (item 14).
 55. **Interrupt context cannot block** (done): a whole-program check from every `//pu:interrupt` handler
     and the panic handler against blocking channel operations, `go`, `//pu:blocking` functions and
     allocators that may wait, conservative through interfaces and func values (language spec section
-    12.6). Channel operations and `go` are found in the source; until items 14 to 16 land they are
-    tested on the scan alone, and `pluto/sync` must mark its parking operations `//pu:blocking`.
+    12.6). Channel operations and `go` are found in the source, and their lowering calls `//pu:blocking`
+    runtime entries, so the walk sees them through library code too; `pluto/sync` marks its parking
+    operations `//pu:blocking`, and the bound scheduler's `Wake` is checked as interrupt context.
 
 ## Concurrency
 
-14. **Puroutines and the scheduler** (planned): `go`, `rt.Go`, fixed stacks with guard pages, the
-    four-operation scheduler interface, the hosted work-stealing scheduler with signal preemption, and
-    `rt.SetScheduler` for kernels. The type checker rejects `go` today.
-15. **Channels and `select`** (planned): `chan T`, send, receive, `close`, `range`, `select`, reference
-    counted channel objects. The type checker rejects channel types today.
-16. **`pluto/sync`** (planned): `Mutex`, `RWMutex`, `WaitGroup`, `Once` over the scheduler, with the
-    guarantees of memory-model.md section 3.4. Only `pluto/sync/atomic` exists.
-17. **Thread-safe default allocator** (planned): per-worker caches in front of shared slabs, and `Free`
-    synchronised before reuse (memory-model.md section 3.8). Today's `alloc.Slab` is single-threaded.
+14. **Puroutines and the scheduler** (done): `go`, `rt.Go`, fixed stacks with guard pages, the
+    runtime's task mechanism (`rt.Switch`, `rt.Park`/`rt.Ready` with a permit, `rt.Preempt`) and the
+    hosted work-stealing scheduler on Go's M/P/G design: per-processor run queues with stealing,
+    worker threads made with `clone`, preemption by `SIGURG` from a monitor thread every 10 ms, hand-off
+    of a processor blocked in a system call, an epoll poller for `os` files, and deadlock detection
+    (language spec section 4.7; abi.md section 12). The sendable rules are checked (`shared[T]` never
+    crosses, frame views are rejected syntactically, closures in the current frame panic at the `go`).
+    Follow-ups: timers and `ParkUntil` with item 45; traces of parked puroutines (`rt.TraceTask`); one
+    waiter per file in the poller, and closing a file does not wake it; a program that binds its own
+    hosted backend runs on one thread; spawning costs about twice Go's.
+15. **Channels and `select`** (done): `chan T`, send, receive, `close`, `range`, `select` with Go's
+    random choice, `len`, `cap` and `make(chan T, n, a)`, on Go's design (a lock per channel, waiters
+    queued in their frames, values copied directly to a waiting receiver). Channels are freed with
+    `alloc.FreeChan` until item 48 counts them. Buffered channels run at about a third of Go's speed.
+16. **`pluto/sync`** (done): `Mutex`, `RWMutex`, `WaitGroup` (with `Go`), `Once` and `Cond` over the
+    scheduler, with the guarantees of memory-model.md section 3.4. Parking operations are
+    `//pu:blocking`; `TryLock` is not.
+17. **Thread-safe default allocator** (done): `alloc.SyncSlab`, per-processor caches in front of shared
+    slabs, is the hosted default; the debug allocator's lock is real; allocation sites are per
+    puroutine (memory-model.md section 3.8).
 18. **Stack size analysis and `-stackreport`** (planned): compute the stack a spawned function needs when
-    its call graph has no recursion or indirect calls.
-53. **Scheduler contract for kernels** (proposed; [scheduler contract](plans/2026-10-09-scheduler-contract.md)):
-    the interface and rules any kernel implements to run puroutines, with no kernel scheduler in the
-    standard library: a permit-based `Park`/`Ready`, interrupt-safe `Ready`, backend-allocated task records
-    embedding `rt.Task`, a current-task slot, a preemption count, `rt.Preempt` on the interrupted task's
-    stack, stack requests carrying the proven bound, and link-time binding with `//pu:scheduler` instead of
-    `rt.SetScheduler`. These amend item 14 and should be settled before it lands. Its section 9 lists later
-    requirements from PlutoniumOS (a userland target, `//pu:nonblocking`, a `portable` constraint). The
-    PlutoniumOS task model they serve is in PlutoniumOS: docs/architecture/lightweight-tasks.md
-    (github.com/matjam/plutoniumos, private).
+    its call graph has no recursion or indirect calls. Stack requests already carry a `Proven` bound,
+    always 0 today.
+53. **Scheduler contract for kernels** (done; [scheduler contract](plans/2026-10-09-scheduler-contract.md),
+    abi.md section 12): the interface and rules any kernel implements to run puroutines, with no kernel
+    scheduler in the standard library: a permit-based `Park`/`Ready`, interrupt-safe `Ready`,
+    backend-allocated task records embedding `rt.Task`, a current-task slot (`%gs:8` in kernels), a
+    preemption count, `rt.Preempt` on the interrupted task's stack, stack requests carrying the proven
+    bound, and link-time binding with `//pu:scheduler`. A single-processor test kernel with timer
+    preemption runs under QEMU. Its section 9 lists later requirements from PlutoniumOS (a userland
+    target, `//pu:nonblocking`, a `portable` constraint). The PlutoniumOS task model they serve is in
+    PlutoniumOS: docs/architecture/lightweight-tasks.md (github.com/matjam/plutoniumos, private).
 
 ## Language
 
@@ -124,8 +137,7 @@ later takes the next free number and is listed in the section where it belongs.
 21. **Default parameter values** (done): language spec section 5.1, with the open questions settled
     there (variadic functions, function values, interface methods, generics, `f(g())`). The library's
     `F`/`FIn` pairs are single functions with a trailing allocator defaulting to `alloc.Default()`;
-    `new` and `make` take an optional allocator (section 4.2). `make(chan T, n, a)` parses the allocator
-    the same way and waits for item 15.
+    `new` and `make` take an optional allocator (section 4.2), and so does `make(chan T, n, a)`.
 22. **Range over func and iterators** (planned): `for x := range f` is rejected with "range over
     functions is not supported yet".
 23. **Richer type descriptors** (planned): element types, lengths, field offsets, types and names, so `fmt`
@@ -145,8 +157,8 @@ later takes the next free number and is listed in the section where it belongs.
 26. **`alloc.Use` signature** (done): the spec now gives the library's `Use(a) Restore` and
     `defer alloc.Use(a).Restore()` (language spec section 7.1); `Use(a) (restore func())` could not be
     written under section 4.5.
-27. **Per-puroutine `alloc.Use`** (planned): the override belongs to the puroutine that installs it; today
-    it replaces the program-wide default.
+27. **Per-puroutine `alloc.Use`** (done): the override belongs to the puroutine that installs it, and a
+    puroutine spawned under it starts with the program-wide default.
 28. **`defer` in loops** (planned, possibly never): rejected today because it needs unbounded stack.
 29. **`min`/`max` of strings and comparison of large arrays** (planned): rejected with "not supported
     yet".

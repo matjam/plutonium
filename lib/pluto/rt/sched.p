@@ -173,7 +173,7 @@ type Scheduler interface {
 // Optional methods of a backend, which the hooks call if its type has
 // them:
 //
-//	Start()            called once, before the first task operation, on the
+//	Init()             called once, before the first task operation, on the
 //	                   processor that runs BootTask: set up processors,
 //	                   threads, the timer (the hosted backend starts its
 //	                   workers here)
@@ -213,8 +213,8 @@ func schedWake(t *Task)
 //pu:schedhook Yield optional
 func schedYield(t *Task)
 
-//pu:schedhook Start optional
-func schedStart()
+//pu:schedhook Init optional
+func schedInit()
 
 //pu:schedhook InInterrupt optional
 func schedInInterrupt() bool
@@ -238,7 +238,7 @@ func startTasks() {
 	if tasking {
 		return
 	}
-	schedStart()
+	schedInit()
 	t := BootTask()
 	t.ctx.task = t
 	t.ctx.onCPU = 1
@@ -403,7 +403,7 @@ func Park() {
 		panicMessage("rt.Park called outside a task", "", "", "", "")
 	}
 	if t.locks != 0 {
-		panicMessage("rt.Park called with preemption disabled", "", "", "", "")
+		panicMessage("blocking with preemption disabled", "", "", "", "")
 	}
 	checkBlocking()
 	inc32(&t.locks)

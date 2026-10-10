@@ -34,8 +34,8 @@ var sched roundRobin
 
 var idleStack [16 << 10]byte
 
-// Start runs once, before the first go statement or blocking operation.
-func (s *roundRobin) Start() {
+// Init runs once, before the first go statement or blocking operation.
+func (s *roundRobin) Init() {
 	rt.MakeContext(&s.idle, unsafe.Pointer(&idleStack[0]), uintptr(len(idleStack)), idleLoop)
 }
 

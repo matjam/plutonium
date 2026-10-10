@@ -1,8 +1,12 @@
 # The scheduler contract: what any kernel implements
 
 **Date:** 2026-10-09
-**Status:** proposed requirements for the scheduler contract that the concurrency work (roadmap items 14
-to 16) is implementing. No compiler changes in this note. Section 8 lists the decisions for the user.
+**Status:** decided and implemented (roadmap items 14 to 16 and 53). The user adopted all four
+recommendations of section 8, including link-time binding with `//pu:scheduler`, and all ten changes of
+section 7. The implemented contract is specified in abi.md section 12 and language spec section 4.7;
+abi.md section 12.8 maps the names used below to the implemented ones (`Start` is `Spawn`, `Block` and
+`Resched` are `Park` and `Yield`, and so on). Timers (`BlockUntil`, `Now`, `ParkUntil`) and
+`rt.TraceTask` are not implemented yet. The rest of this note is the proposal as written.
 
 Plutonium provides puroutines, channels, `select` and `pluto/sync` as language and runtime mechanism, and
 a scheduler only for hosted Linux. A freestanding program that uses them, such as a kernel, supplies the
@@ -279,6 +283,9 @@ var sched kernelScheduler
 
 This needs a small compiler change (the directive, the build check, devirtualised calls) and changes
 language spec section 4.7, so it should be decided before the concurrency work lands.
+
+Decided: link-time binding is adopted and implemented. A missing binding is error E2593 and a duplicate or
+ill-typed one E2592; `rt.SetScheduler` does not exist.
 
 ## 6. A minimal backend
 

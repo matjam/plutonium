@@ -116,6 +116,31 @@ the harness one at a time from a private module.
 | `structs` | 1000 particles (spring plus magnetic field) for 500 k steps, using `Vec3` value methods | struct pass/return by value, inlining, scalar replacement |
 | `strings` | wc-style scan of a 16 MB generated text, 35 passes: lines, words, longest word, words equal to `"go"`, per-word FNV-1a | byte indexing, compare chains, string indexing, struct return |
 
+### Concurrency micro-benchmarks
+
+`bench/conc` is not part of the harness: it measures the hosted scheduler, channels and `pluto/sync`
+against Go, with all processors in use, and prints nanoseconds per operation for each case rather than a
+checked output. Build and run both by hand:
+
+```sh
+(cd bench && go build -o /tmp/goconc ./conc/)
+go run ./cmd/pluto build -O2 -o /tmp/puconc ./bench/conc/pu
+/tmp/goconc; /tmp/puconc
+```
+
+| Case | What it measures |
+|---|---|
+| `pingpong` | a round trip over two unbuffered channels between two puroutines |
+| `buffered` | a value sent through a channel with a buffer of 1024 to a puroutine that drains it |
+| `spawn` | starting a puroutine that signals a `WaitGroup`, in batches of 1000 |
+| `mutex-1` | an uncontended `Mutex` lock and unlock |
+| `mutex-8` | the same with eight puroutines contending for one mutex |
+
+`PLUTO_MAXPROCS` (like `GOMAXPROCS`) limits the processors the hosted scheduler uses. On a 24-thread
+AMD Ryzen 9 9900X3D, at the time of writing, ping-pong and the uncontended mutex run at Go's speed
+(about 200 ns and 8 ns), the contended mutex about 15% slower, starting a puroutine about twice Go's
+cost (about 270 ns), and buffered channel operations about 2.6 times Go's (about 90 ns).
+
 The LCG used by several benchmarks is
 `seed = seed*6364136223846793005 + 1442695040888963407` (uint64, wrapping), with
 `int64(seed >> 33)` as the output.

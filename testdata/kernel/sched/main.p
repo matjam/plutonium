@@ -91,9 +91,9 @@ var scheduler kernelSched
 
 var idleStack aligned[[16 << 10]byte, 16]
 
-// Start runs on the boot processor before the first task operation; GS
+// Init runs on the boot processor before the first task operation; GS
 // already points at its per-CPU block.
-func (kernelSched) Start() {
+func (kernelSched) Init() {
 	rt.MakeContext(&cpu.idle, unsafe.Pointer(&idleStack), uintptr(len(idleStack)), idle)
 }
 

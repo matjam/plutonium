@@ -130,7 +130,14 @@ root, and with `--trimpath=false` from elsewhere):
 
 - `break main.p:12` and `break main.f` (after the prologue), `run`, `next`, `step`, `finish`;
 - `bt` through every frame, with or without a frame pointer, with inlined calls as frames of their own;
-- `info line`, `list`, `disassemble /s`, `info frame`, `up` and `down`.
+- `info line`, `list`, `disassemble /s`, `info frame`, `up` and `down`;
+- in a puroutine, `bt` through its frames to the go statement's thunk (`main.main.go1`, at the line of
+  the go statement) and `pluto/rt.taskMain`, ending at the runtime's entry `goStart`, whose call frame
+  information marks it as the outermost frame. Each worker thread is a gdb thread (`info threads`);
+  the backtrace of a parked puroutine is not reachable from gdb yet.
+
+The hosted scheduler preempts with `SIGURG`, which gdb passes to the program without stopping, as it
+does for Go programs.
 
 gdb guesses Pascal from the `.p` extension until the program stops in a frame (whose unit says Go), and
 Pascal reads `main.f` as a field access, so before `run` quote such names (`disassemble 'main.f'`) or
@@ -199,9 +206,25 @@ panic: negative width
 - The panic's own frames in package `pluto/rt` are left out, and so is generated code with no source
   position, such as the wrapper that calls a method through an interface.
 - The walk stops at `pluto.main` (which runs initialisation and `main.main`; where `main.main` is
-  inlined into it, `main.main` and its inlined calls are still printed), at code that is not
-  Plutonium (assembly, C, a kernel's entry point), or after 64 frames, which it reports with
-  `...additional frames elided...`.
+  inlined into it, `main.main` and its inlined calls are still printed), at the bottom of a puroutine
+  (`pluto/rt.taskMain`), at code that is not Plutonium (assembly, C, a kernel's entry point), or after
+  64 frames, which it reports with `...additional frames elided...`. A fault in an assembly leaf that
+  the table does not describe (an atomic operation) is stepped over, since such a function has no
+  frame: the walk continues from the return address at the stack pointer.
+
+A panic in any puroutine but the one that runs `main` names it before the trace (`rt.Panic.Puroutine`).
+The last frame is the go statement that started it, as its generated thunk, at the go statement's line:
+
+```
+panic: runtime error: index out of range [3] with length 3
+puroutine 3:
+    main.level2 (./main.p:7)
+    main.worker (./main.p:11)
+    main.main.go2 (./main.p:20)
+```
+
+One panic is handled at a time: a puroutine that panics on another thread while one is reported waits
+for the process to end.
 
 ### Hardware faults (hosted)
 
@@ -217,7 +240,8 @@ panic: runtime error: invalid memory address or nil pointer dereference
 
 and the trace from the faulting instruction, then exits with status 2 without running the exit hook
 (`rt.SetExitHook`). A fault within 4 KiB of address zero is reported as a nil dereference; one just below
-the stack pointer as `stack overflow`; any other as `unexpected fault address`.
+the stack pointer, or in the guard page below the running puroutine's stack, as `stack overflow`; any
+other as `unexpected fault address`.
 
 The signal handler does not print this itself: it raises a panic, with the fault in `rt.Panic.Fault`
 (kind, address, faulting instruction, signal) and a trace that starts at the faulting instruction, and
@@ -230,9 +254,9 @@ a write. The debug allocator registers one ([debug-allocator.md](debug-allocator
 if the address is in its heap its diagnosis (`debug allocator: use after free: ...`, with where the block
 was allocated and freed) becomes the panic's message in place of the runtime's, and the signal line and
 the trace follow as usual. A fault in a function's prologue, before its frame is complete, is unwound
-correctly too. Only the main thread has the alternate stack: on another thread the handler runs on that
-thread's own stack, which works for every fault except running out of that stack, which kills the
-process with the signal.
+correctly too. Every thread has an alternate signal stack: the main thread's 16 KiB one, and 32 KiB for
+each worker thread of the hosted scheduler, so a puroutine that overflows its stack on any worker is
+reported with its trace. The scheduler's preemption signal (`SIGURG`) runs on the same stacks.
 
 ### Freestanding builds
 
@@ -347,8 +371,7 @@ the same versions for executables to match across machines.
   locations, first for parameters at -O0, where they live in stack slots.
 - Column numbers in the line table.
 - `.eh_frame`, so that a stripped binary can still be unwound by tools.
-- Alternate signal stacks for threads other than the main one, so that a puroutine worker thread's stack
-  overflow is reported too.
+- Traces of parked puroutines, in panics (a `rt.TraceTask` for panic handlers) and in gdb.
 - A sorted function index in the trace table, for in-process sampling profilers.
 - Call frame information for `//pu:interrupt` handlers describes the interrupted RIP (and the error
   code's slot) but not the interrupted RSP, which the CPU saved in its frame; a debugger attached to a
