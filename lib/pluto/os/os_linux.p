@@ -30,10 +30,22 @@ var (
 // A File is an open file descriptor. A File from OpenFile owns a copy of
 // its name, so it is an owner (language spec section 6.4): dropping it
 // (alloc.Free does) releases the name. Close the descriptor first.
+//
+// A read or write that has to wait does not hold up other puroutines: on a
+// descriptor in non-blocking mode (a pipe from Pipe) the puroutine parks
+// in the scheduler's poller until the descriptor is ready, and on any
+// other the system call is announced to the scheduler (rt.EnterSyscall),
+// which hands the worker's processor to another worker if the call blocks.
 type File owner struct {
 	fd   int
 	name string
 	a    alloc.Allocator // allocator of name's bytes, or nil if name is static
+	// poll waits for the descriptor when it is in non-blocking mode (a
+	// pipe from Pipe), or is nil. It is an interface that only Pipe fills
+	// in, so that in a program that never makes a pipe, File's methods do
+	// not reach the scheduler's parking (the interrupt-context check
+	// follows interface calls into the types the program converts).
+	poll ioWaiter
 }
 
 // Drop releases the File's copy of its name. It does not close the file.
@@ -44,6 +56,21 @@ func (f *File) Drop() {
 	f.a, f.name = nil, ""
 }
 
+// An ioWaiter parks the running puroutine until a non-blocking descriptor
+// is ready for reading or writing.
+type ioWaiter interface {
+	waitIO(fd int, write bool)
+}
+
+// poller waits in the scheduler's epoll poller.
+type poller struct{}
+
+func (poller) waitIO(fd int, write bool) {
+	if !rt.PollWait(fd, write) {
+		rt.Yield() // no poller (a program's own scheduler): try again later
+	}
+}
+
 // Standard streams.
 var (
 	Stdin  = &File{fd: 0, name: "/dev/stdin"}
@@ -51,8 +78,20 @@ var (
 	Stderr = &File{fd: 2, name: "/dev/stderr"}
 )
 
-// Fd returns the file descriptor.
-func (f *File) Fd() int { return f.fd }
+// Fd returns the file descriptor. As in Go, it puts a descriptor in
+// non-blocking mode (a pipe from Pipe) into blocking mode first, so that
+// it can be handed to another process (os/exec passes it to the child as
+// it is); the File's reads and writes then block their worker, announced
+// with rt.EnterSyscall, instead of parking in the poller.
+func (f *File) Fd() int {
+	if f.poll != nil {
+		if fl, err := syscall.Fcntl(f.fd, syscall.F_GETFL, 0); err == nil {
+			syscall.Fcntl(f.fd, syscall.F_SETFL, fl&^syscall.O_NONBLOCK)
+		}
+		f.poll = nil
+	}
+	return f.fd
+}
 
 // Name returns the name the file was opened with.
 func (f *File) Name() string { return f.name }
@@ -61,9 +100,19 @@ func (f *File) Name() string { return f.name }
 func (f *File) Write(p []byte) (int, error) {
 	n := 0
 	for n < len(p) {
+		if f.poll == nil {
+			rt.EnterSyscall()
+		}
 		m, err := syscall.Write(f.fd, p[n:])
+		if f.poll == nil {
+			rt.ExitSyscall()
+		}
 		if err != nil {
 			if err == syscall.EINTR {
+				continue
+			}
+			if err == syscall.EAGAIN && f.poll != nil {
+				f.poll.waitIO(f.fd, true)
 				continue
 			}
 			return n, err
@@ -84,8 +133,18 @@ func (f *File) WriteString(s string) (int, error) {
 // Read reads up to len(p) bytes.
 func (f *File) Read(p []byte) (int, error) {
 	for {
+		if f.poll == nil {
+			rt.EnterSyscall()
+		}
 		n, err := syscall.Read(f.fd, p)
+		if f.poll == nil {
+			rt.ExitSyscall()
+		}
 		if err == syscall.EINTR {
+			continue
+		}
+		if err == syscall.EAGAIN && f.poll != nil {
+			f.poll.waitIO(f.fd, false)
 			continue
 		}
 		if err == nil && n == 0 && len(p) > 0 {

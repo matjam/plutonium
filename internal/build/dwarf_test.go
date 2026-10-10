@@ -487,6 +487,32 @@ func TestGDB(t *testing.T) {
 		t.Errorf("gdb backtrace through inlined calls:\n%s", out)
 	}
 
+	// A breakpoint in a puroutine: the backtrace runs through the function
+	// the go statement started and the go statement's own frame, and ends
+	// cleanly at the runtime's entry, whose call frame information marks
+	// it as the outermost frame.
+	src, err = os.ReadFile(filepath.Join("..", "..", "testdata", "trace", "gopanic.p"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, level := range []int{0, 2} {
+		dir, _, _ := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: level})
+		cmd := exec.Command(gdb, "-nx", "-batch", "-iex", "set debuginfod enabled off",
+			"-ex", "break main.p:7", "-ex", "run", "-ex", "bt", filepath.Join(dir, "prog"))
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("O%d: gdb: %v\n%s", level, err, out)
+		}
+		want := regexp.MustCompile(`#0 +main\.level2 \(\) at \./main\.p:7\n` +
+			`#1 +(0x[0-9a-f]+ in )?main\.worker \(\) at \./main\.p:11\n` +
+			`#2 +(0x[0-9a-f]+ in )?main\.main\.go1 \(\) at \./main\.p:18\n` +
+			`#3 +0x[0-9a-f]+ in pluto/rt\.taskMain \(\)`)
+		if !want.Match(out) || strings.Contains(string(out), "Backtrace stopped") || strings.Contains(string(out), "corrupt stack") {
+			t.Errorf("O%d: gdb backtrace of a puroutine:\n%s", level, out)
+		}
+	}
+
 	// A fault in an unrolled loop two inlined calls deep (at -O2) has the
 	// same backtrace as at -O0.
 	src, err = os.ReadFile(filepath.Join("..", "..", "testdata", "trace", "faultchain.p"))

@@ -173,7 +173,137 @@ func newAnalyzer(prog *load.Program) *analyzer {
 		}
 	}
 	a.scanFields()
+	a.findCtors()
 	return a
+}
+
+// findCtors marks the closure constructors: functions whose body is one
+// return of a function literal that uses the function's own variables, or
+// of a call of another closure constructor (lower/ctor.go has the same
+// rule).
+func (a *analyzer) findCtors() {
+	for changed := true; changed; {
+		changed = false
+		for _, f := range a.order {
+			if f.ctor || f.decl == nil || f.decl.Body == nil || len(f.decl.Body.List) != 1 {
+				continue
+			}
+			ret, ok := f.decl.Body.List[0].(*ast.ReturnStmt)
+			if !ok || len(ret.Results) != 1 {
+				continue
+			}
+			switch x := ast.Unparen(ret.Results[0]).(type) {
+			case *ast.FuncLit:
+				f.ctor = a.capturesFrom(x, f.decl)
+			case *ast.CallExpr:
+				g := a.staticCallee(x)
+				f.ctor = g != nil && g.ctor
+			}
+			changed = changed || f.ctor
+		}
+	}
+}
+
+// capturesFrom reports whether lit uses a variable declared in decl
+// outside lit.
+func (a *analyzer) capturesFrom(lit *ast.FuncLit, decl *ast.FuncDecl) bool {
+	found := false
+	ast.Inspect(lit.Body, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok {
+			if v, ok := a.uses[id].(*types2.Var); ok && !v.IsField() {
+				p := v.Pos()
+				if p >= decl.Pos() && p < decl.End() && (p < lit.Pos() || p >= lit.End()) {
+					found = true
+				}
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+// addrsCaptures reports whether the closure a closure constructor returns
+// may take the address of a variable it captures, which lives in the
+// closure's record: with &, by slicing an array, by calling a pointer
+// method, or from a function literal inside it. Without that, the closure
+// passes on copies of what the record holds, never the record itself.
+func (a *analyzer) addrsCaptures(f *function) bool {
+	ret, _ := f.decl.Body.List[0].(*ast.ReturnStmt)
+	lit, ok := ast.Unparen(ret.Results[0]).(*ast.FuncLit)
+	if !ok {
+		return true // a call of another constructor: not examined
+	}
+	decl := f.decl
+	captured := func(e ast.Expr) bool {
+		for {
+			switch x := e.(type) {
+			case *ast.ParenExpr:
+				e = x.X
+			case *ast.SelectorExpr:
+				e = x.X
+			case *ast.IndexExpr:
+				e = x.X
+			case *ast.Ident:
+				v, ok := a.uses[x].(*types2.Var)
+				if !ok || v.IsField() {
+					return false
+				}
+				p := v.Pos()
+				return p >= decl.Pos() && p < decl.End() && (p < lit.Pos() || p >= lit.End())
+			default:
+				return false
+			}
+		}
+	}
+	found := false
+	ast.Inspect(lit.Body, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.UnaryExpr:
+			found = x.Op == token.AND && captured(x.X)
+		case *ast.SliceExpr:
+			_, arr := underlying(a.types[x.X].Type).(*types2.Array)
+			found = arr && captured(x.X)
+		case *ast.SelectorExpr:
+			if sel := a.selections[x]; sel != nil && sel.Kind() == types2.MethodVal {
+				_, ptrRecv := sel.Obj().Type().(*types2.Signature).Recv().Type().(*types2.Pointer)
+				found = ptrRecv && pointerElem(a.types[x.X].Type) == nil && captured(x.X)
+			}
+		case *ast.FuncLit:
+			found = a.capturesFrom(x, decl)
+		}
+		return !found
+	})
+	return found
+}
+
+// staticCallee returns the declared function or concrete method a call
+// names, or nil.
+func (a *analyzer) staticCallee(call *ast.CallExpr) *function {
+	fun := ast.Unparen(call.Fun)
+	switch ix := fun.(type) {
+	case *ast.IndexExpr:
+		fun = ix.X
+	case *ast.IndexListExpr:
+		fun = ix.X
+	}
+	var obj types2.Object
+	switch x := fun.(type) {
+	case *ast.Ident:
+		obj = a.uses[x]
+	case *ast.SelectorExpr:
+		if sel := a.selections[x]; sel != nil {
+			if sel.Kind() != types2.MethodVal || isInterface(sel.Recv()) || len(sel.Index()) != 1 {
+				return nil
+			}
+			obj = sel.Obj()
+		} else {
+			obj = a.uses[x.Sel]
+		}
+	}
+	if fn, ok := obj.(*types2.Func); ok {
+		return a.funcs[fn.Origin()]
+	}
+	return nil
 }
 
 // sigParams lists a signature's receiver and parameters.
@@ -371,7 +501,12 @@ func (a *analyzer) add(pos token.Pos, key string, mk func() *diag.Diagnostic) {
 		return
 	}
 	a.errSeen[k] = true
-	a.errs = append(a.errs, mk())
+	d := mk()
+	// Two views of one place reaching the same sink read the same.
+	if text := "text|" + d.Error(); !a.errSeen[text] {
+		a.errSeen[text] = true
+		a.errs = append(a.errs, d)
+	}
 }
 
 // internalf reports a construct the analysis does not expect after type
@@ -606,8 +741,10 @@ func (a *analyzer) noteFuncValue(fn *function, kind fvKind) {
 // ifaceCandidates returns the methods a dynamic call of method name may
 // reach: the methods of that name of every type converted to an interface.
 // For a call through a type parameter (byName set), every method of that
-// name is a candidate, since instantiations need not convert anything.
-func (a *analyzer) ifaceCandidates(name string, byName bool) []candidate {
+// name whose signature can match msig, the method as the constraint
+// declares it, is a candidate, since instantiations need not convert
+// anything.
+func (a *analyzer) ifaceCandidates(name string, byName bool, msig *types2.Signature) []candidate {
 	var out []candidate
 	if byName {
 		// Any type may be behind the interface or type parameter. A
@@ -615,6 +752,9 @@ func (a *analyzer) ifaceCandidates(name string, byName bool) []candidate {
 		// what it points to. A method that may be promoted from an
 		// embedded field gets something reachable from it.
 		for _, f := range a.byName[name] {
+			if msig != nil && !a.methodSigMatch(f.sig, msig) {
+				continue
+			}
 			// The receiver's own type says how it sits behind the data
 			// word: a pointer or a word-sized value is the data word, a
 			// larger value is boxed.
@@ -738,7 +878,7 @@ func (a *analyzer) isEmbedded(recv types2.Type) bool {
 func (a *analyzer) funcCandidates(sig *types2.Signature) []funcValue {
 	var out []funcValue
 	for fv := range a.funcValues {
-		if sigMatch(fv, sig) {
+		if a.sigMatch(fv, sig) {
 			out = append(out, fv)
 		}
 	}
@@ -752,8 +892,8 @@ func (a *analyzer) funcCandidates(sig *types2.Signature) []funcValue {
 }
 
 // sigMatch reports whether a function used as a value could have type
-// sig. Type parameters match anything.
-func sigMatch(fv funcValue, sig *types2.Signature) bool {
+// sig. A type parameter matches the types it is instantiated with.
+func (a *analyzer) sigMatch(fv funcValue, sig *types2.Signature) bool {
 	f := fv.f
 	params := f.params
 	skipFirst := false
@@ -772,23 +912,116 @@ func sigMatch(fv funcValue, sig *types2.Signature) bool {
 		if i == 0 && skipFirst {
 			continue
 		}
-		if !typeMatch(p.Type(), sig.Params().At(i).Type()) {
+		if !a.typeMatch(p.Type(), sig.Params().At(i).Type()) {
 			return false
 		}
 	}
 	for i := 0; i < sig.Results().Len(); i++ {
-		if !typeMatch(f.sig.Results().At(i).Type(), sig.Results().At(i).Type()) {
+		if !a.typeMatch(f.sig.Results().At(i).Type(), sig.Results().At(i).Type()) {
 			return false
 		}
 	}
 	return true
 }
 
-func typeMatch(x, y types2.Type) bool {
-	if containsTypeParam(x) || containsTypeParam(y) {
+// typeMatch reports whether x and y could be the same type in some
+// instantiation: identical, with a type parameter matching the types it is
+// instantiated with (any type, if those are not known), and the rest of
+// their structure the same.
+func (a *analyzer) typeMatch(x, y types2.Type) bool {
+	if !containsTypeParam(x) && !containsTypeParam(y) {
+		return types2.Identical(x, y)
+	}
+	x, y = types2.Unalias(x), types2.Unalias(y)
+	if tp, ok := x.(*types2.TypeParam); ok {
+		return a.tparamMatches(tp, y)
+	}
+	if tp, ok := y.(*types2.TypeParam); ok {
+		return a.tparamMatches(tp, x)
+	}
+	typeMatch := a.typeMatch
+	switch x := x.(type) {
+	case *types2.Pointer:
+		y, ok := y.(*types2.Pointer)
+		return ok && typeMatch(x.Elem(), y.Elem())
+	case *types2.Slice:
+		y, ok := y.(*types2.Slice)
+		return ok && typeMatch(x.Elem(), y.Elem())
+	case *types2.Array:
+		y, ok := y.(*types2.Array)
+		return ok && x.Len() == y.Len() && typeMatch(x.Elem(), y.Elem())
+	case *types2.Signature:
+		y, ok := y.(*types2.Signature)
+		if !ok || x.Params().Len() != y.Params().Len() || x.Results().Len() != y.Results().Len() || x.Variadic() != y.Variadic() {
+			return false
+		}
+		for i := 0; i < x.Params().Len(); i++ {
+			if !typeMatch(x.Params().At(i).Type(), y.Params().At(i).Type()) {
+				return false
+			}
+		}
+		for i := 0; i < x.Results().Len(); i++ {
+			if !typeMatch(x.Results().At(i).Type(), y.Results().At(i).Type()) {
+				return false
+			}
+		}
+		return true
+	case *types2.Named:
+		y, ok := y.(*types2.Named)
+		if !ok || x.Origin() != y.Origin() {
+			return false
+		}
+		xa, ya := x.TypeArgs(), y.TypeArgs()
+		if xa.Len() != ya.Len() {
+			return false
+		}
+		for i := 0; i < xa.Len(); i++ {
+			if !typeMatch(xa.At(i), ya.At(i)) {
+				return false
+			}
+		}
 		return true
 	}
-	return types2.Identical(x, y)
+	// Other composite types with type parameters inside: assume they can
+	// match.
+	return true
+}
+
+// methodSigMatch reports whether method m could have the signature msig
+// (receivers aside) in some instantiation.
+func (a *analyzer) methodSigMatch(m, msig *types2.Signature) bool {
+	if m.Params().Len() != msig.Params().Len() || m.Results().Len() != msig.Results().Len() || m.Variadic() != msig.Variadic() {
+		return false
+	}
+	for i := 0; i < m.Params().Len(); i++ {
+		if !a.typeMatch(m.Params().At(i).Type(), msig.Params().At(i).Type()) {
+			return false
+		}
+	}
+	for i := 0; i < m.Results().Len(); i++ {
+		if !a.typeMatch(m.Results().At(i).Type(), msig.Results().At(i).Type()) {
+			return false
+		}
+	}
+	return true
+}
+
+// tparamMatches reports whether type parameter tp may be instantiated
+// with a type matching t.
+func (a *analyzer) tparamMatches(tp *types2.TypeParam, t types2.Type) bool {
+	if _, ok := types2.Unalias(t).(*types2.TypeParam); ok {
+		return true
+	}
+	insts := a.tparamTypes(tp)
+	if len(insts) == 0 {
+		return true // not known: assume it can
+	}
+	for _, u := range insts {
+		if a.typeMatch(u, t) {
+			return true
+		}
+	}
+	return false
 }
 
 func containsTypeParam(t types2.Type) bool {

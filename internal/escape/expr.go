@@ -291,7 +291,7 @@ func (w *walker) value1(e ast.Expr) tset {
 			if fn, ok := sel.Obj().(*types2.Func); ok {
 				if recv := fn.Type().(*types2.Signature).Recv(); recv != nil && isInterface(recv.Type()) {
 					// I.M calls whatever its first argument holds.
-					for _, c := range w.a.ifaceCandidates(fn.Name(), true) {
+					for _, c := range w.a.ifaceCandidates(fn.Name(), true, fn.Type().(*types2.Signature)) {
 						w.a.noteFuncValue(c.f, fvIfaceExpr)
 					}
 				} else {
@@ -817,7 +817,7 @@ func (w *walker) methodValue(e *ast.SelectorExpr, sel *types2.Selection) tset {
 	if fn != nil && fn.Type().(*types2.Signature).Recv() != nil && isInterface(fn.Type().(*types2.Signature).Recv().Type()) {
 		recv = w.receiver(e.X, sel)
 		_, byName := types2.Unalias(w.typeOf(e.X)).(*types2.TypeParam)
-		for _, c := range w.a.ifaceCandidates(fn.Name(), byName) {
+		for _, c := range w.a.ifaceCandidates(fn.Name(), byName, fn.Type().(*types2.Signature)) {
 			w.a.noteFuncValue(c.f, fvBoundIface)
 		}
 	} else {

@@ -83,6 +83,10 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 			}
 			targs := s.instanceArgs(id)
 			sig := s.subst(s.info.Types[e.Fun].Type).(*types2.Signature)
+			if c := s.l.closureCtor(fn); c != nil {
+				args := s.callArgs(e, sig, &defaultsOf{fn, targs})
+				return []value{s.expandCtor(c, targs, nil, args, s.typeOf(e), e.Pos())}
+			}
 			sym := s.l.funcSym(fn, targs)
 			args := s.callArgs(e, sig, &defaultsOf{fn, targs})
 			site := &callSite{desc: types2.ExprString(e.Fun)}
@@ -194,7 +198,16 @@ func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature, def *defaults
 			out = append(out, s.zeroValue(sliceT))
 		} else {
 			arrT := types2.NewArray(et, int64(len(extra)))
-			arr := s.temp(arrT, "varargs")
+			var arr *ssa.Value
+			if s.staticLits {
+				// During package initialisation the slice may outlive the
+				// init function (kept by a closure constructor or stored
+				// in a variable), so its array is static, like a slice
+				// literal's.
+				arr = s.symAddr(s.l.staticObject(arrT))
+			} else {
+				arr = s.lastingTemp(arrT, "varargs")
+			}
 			esize := s.l.sizeof(et)
 			for i, a := range extra {
 				s.storeTo(s.offPtr(arr, int64(i)*esize), as(a, et), et)
@@ -490,6 +503,10 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 		return s.ifaceCall(recv, recv.T, fn, sig, args, e.Pos(), desc)
 	}
 	targs := s.methodTypeArgs(fn, se, recvT)
+	if c := s.l.closureCtor(fn); c != nil {
+		args := s.callArgs(e, sig, &defaultsOf{fn, targs})
+		return []value{s.expandCtor(c, targs, &recv, args, s.typeOf(e), e.Pos())}
+	}
 	sym := s.l.funcSym(fn, targs)
 	full := s.l.methodSig(fn, targs)
 	args := s.callArgs(e, sig, &defaultsOf{fn, targs})
@@ -727,6 +744,7 @@ func (l *Lowerer) methodExprThunk(R types2.Type, fn *types2.Func, path []int, ta
 // static closure record holding its code pointer.
 func (s *fnState) funcValue(fn *types2.Func, targs []types2.Type, pos token.Pos) *ssa.Value {
 	s.l.errorsNewValue(fn, pos, "used as a func value")
+	s.l.checkNotCtor(fn, pos, "used as a func value")
 	sym := s.l.funcSym(fn, targs)
 	s.checkNotHandler(sym, pos, "used as a func value")
 	if s.l.isCFunc(sym) {
@@ -749,6 +767,19 @@ func (s *fnState) funcValue(fn *types2.Func, targs []types2.Type, pos token.Pos)
 // the code pointer followed by the address of each captured variable.
 func (s *fnState) closure(lit *ast.FuncLit) *ssa.Value {
 	captures := s.capturedVars(lit)
+	sym := s.closureFunc(lit, captures)
+	if len(captures) == 0 {
+		return s.symAddr(s.l.closureRecord(sym))
+	}
+	addrs := make([]*ssa.Value, len(captures))
+	for i, v := range captures {
+		addrs[i] = s.varLV(v, lit).ptr
+	}
+	return s.closureRecord(sym, addrs)
+}
+
+// closureFunc queues the function of a literal with the given captures.
+func (s *fnState) closureFunc(lit *ast.FuncLit, captures []*types2.Var) *ssa.Sym {
 	s.closures++
 	name := fmt.Sprintf("%s.func%d", s.f.Name, s.closures)
 	sym := s.l.out.Sym(name, ssa.SymFunc)
@@ -757,18 +788,7 @@ func (s *fnState) closure(lit *ast.FuncLit) *ssa.Value {
 	s.l.queue = append(s.l.queue, &funcJob{
 		sym: sym, pkg: s.pkg, lit: lit, sig: sig, tmap: s.tmap, captures: captures, parent: s,
 	})
-	if len(captures) == 0 {
-		return s.symAddr(s.l.closureRecord(sym))
-	}
-	rec := s.tempSize(int64(8*(1+len(captures))), 8, "closure")
-	code := s.f.Entry.NewValue(ssa.OpFuncAddr, ssa.TPtr)
-	code.Aux = sym
-	s.hoistEntry(code)
-	s.store(ssa.TPtr, rec, code)
-	for i, v := range captures {
-		s.store(ssa.TPtr, s.offPtr(rec, int64(8*(i+1))), s.varLV(v, lit).ptr)
-	}
-	return rec
+	return sym
 }
 
 // capturedVars lists the local variables of enclosing functions that lit
@@ -792,7 +812,7 @@ func (s *fnState) capturedVars(lit *ast.FuncLit) []*types2.Var {
 		if v.Pos() >= lit.Pos() && v.Pos() < lit.End() {
 			return true
 		}
-		if _, local := s.vars[v]; local {
+		if s.lookupVar(v) != nil {
 			seen[v] = true
 			out = append(out, v)
 		}
@@ -821,6 +841,7 @@ func (s *fnState) methodValue(se *ast.SelectorExpr, sel *types2.Selection) *ssa.
 	w := s.ringOf(fn)
 	if w == nil {
 		targs = s.methodTypeArgs(fn, se, recvT)
+		s.l.checkNotCtor(fn, se.Sel.Pos(), "used as a method value")
 	}
 	wrapper := s.l.boundMethodWrapper(s.l.methodFunc(fn, targs, w))
 	size := 8 + s.l.sizeof(recv.T)

@@ -598,16 +598,19 @@ func MkdirTemp(dir, pattern string, buf []byte, a alloc.Allocator = alloc.Defaul
 var ErrPatternHasSeparator = errors.New("pattern contains path separator")
 
 // Pipe returns a connected pair of Files: reads from r return bytes
-// written to w. The Files are allocated from a, as Open's are.
+// written to w. The Files are allocated from a, as Open's are. Their
+// descriptors are non-blocking: a puroutine that reads an empty pipe, or
+// writes a full one, parks in the scheduler's poller and leaves its worker
+// free for others (Fd makes them blocking again).
 func Pipe(a alloc.Allocator = alloc.Default()) (r *File, w *File, err error) {
 	var p [2]int32
-	if err := syscall.Pipe2(&p, syscall.O_CLOEXEC); err != nil {
+	if err := syscall.Pipe2(&p, syscall.O_NONBLOCK|syscall.O_CLOEXEC); err != nil {
 		return nil, nil, NewPathError("pipe", "", err, a)
 	}
 	r = alloc.New[File](a)
-	r.fd, r.name = int(p[0]), "|0"
+	r.fd, r.name, r.poll = int(p[0]), "|0", poller{}
 	w = alloc.New[File](a)
-	w.fd, w.name = int(p[1]), "|1"
+	w.fd, w.name, w.poll = int(p[1]), "|1", poller{}
 	return r, w, nil
 }
 

@@ -383,6 +383,20 @@ func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
 		val, valT = w.load(xv), u.Elem()
 	case *types2.Chan:
 		key, keyT = tset{heapTok}, u.Elem()
+	case *types2.Signature:
+		// Range over a function: the iterator passes its yield values,
+		// made from what its closure reaches or from the heap.
+		yv := w.yieldValues(xv)
+		if u.Params().Len() == 1 {
+			if y, ok := u.Params().At(0).Type().Underlying().(*types2.Signature); ok {
+				if y.Params().Len() > 0 {
+					key, keyT = yv, y.Params().At(0).Type()
+				}
+				if y.Params().Len() > 1 {
+					val, valT = yv, y.Params().At(1).Type()
+				}
+			}
+		}
 	}
 	w.loop(label, st, func() {
 		for _, kv := range []struct {
@@ -400,6 +414,26 @@ func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
 	}, func() {
 		w.block(st.Body)
 	})
+}
+
+// yieldValues returns what an iterator whose closure may point to xv may
+// pass to yield: what its closure reaches, or the heap. The record a
+// closure constructor builds is left out when its closure never takes the
+// address of what it captures (analyzer.addrsCaptures).
+func (w *walker) yieldValues(xv tset) tset {
+	var start tset
+	for _, t := range xv {
+		if t.kind == tFrame && t.loc.kind == lkCtor {
+			if call, ok := t.loc.node.(*ast.CallExpr); ok {
+				if f := w.a.staticCallee(call); f != nil && f.ctor && !w.a.addrsCaptures(f) {
+					start.addAll(w.load(tset{t}))
+					continue
+				}
+			}
+		}
+		start.add(t)
+	}
+	return append(w.reach(start), heapTok)
 }
 
 func (w *walker) typeSwitch(st *ast.TypeSwitchStmt, label string) {
@@ -473,6 +507,11 @@ func (w *walker) returnStmt(st *ast.ReturnStmt) {
 // returnVal applies the return rule to what result k of scope sc holds; expr
 // is the result as written, if known.
 func (w *walker) returnVal(sc *scope, k int, v tset, pos token.Pos, expr ast.Expr) {
+	if sc == w.top && sc.fn.ctor {
+		// A closure constructor's closure is built in its caller's frame
+		// (spec section 4.5): the call site accounts for it (ctorCall).
+		return
+	}
 	for _, t := range v {
 		switch t.kind {
 		case tFrame:
@@ -522,7 +561,20 @@ func (w *walker) goStmt(st *ast.GoStmt) {
 	}
 	args := w.args(e, t.sig)
 	exprs := argExprs(e, t.sig)
+	// The array behind packed variadic arguments is copied to the new
+	// puroutine (lower/conc.go), so only what its elements point to must
+	// outlive this frame, unless the started function keeps the slice.
+	packed := t.sig.Variadic() && !e.Ellipsis.IsValid() && len(e.Args) >= t.sig.Params().Len()
 	for i, a := range args {
+		if packed && i == len(args)-1 && t.static != nil {
+			idx := i
+			if t.hasRecv {
+				idx++
+			}
+			if !t.static.keepsParam(idx) {
+				a = w.load(a)
+			}
+		}
 		w.sink(a, ve(exprs[i]), "passes %s to a go statement", "")
 	}
 	recv := e.Fun
@@ -540,7 +592,7 @@ func (w *walker) goStmt(st *ast.GoStmt) {
 	case t.static != nil:
 		w.a.passArgs(t.static, all)
 	case t.method != "":
-		for _, c := range w.a.ifaceCandidates(t.method, t.byName) {
+		for _, c := range w.a.ifaceCandidates(t.method, t.byName, t.sig) {
 			w.a.passArgs(c.f, append([]tset{w.reach(t.recv)}, args...))
 		}
 	case t.dynFunc:

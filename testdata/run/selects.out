@@ -1,0 +1,10 @@
+a 1
+b 2 true
+closed a 0 false
+nil channels block
+sent 2 len 2
+received 0 m true
+counter quit after 10
+total 45
+seen 10
+only default

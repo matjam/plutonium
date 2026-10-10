@@ -272,3 +272,73 @@ func (check *Checker) hasIndexMethod(x *operand) bool {
 	sig, needPtr := check.indexMethod(x, IndexMethodName)
 	return sig != nil || needPtr
 }
+
+// RangeMethodName is the method a range over a container calls.
+const RangeMethodName = "All"
+
+// RangesByMethod reports whether a range over an operand of type T ranges
+// over the iterator its All method returns rather than over a built-in
+// type. As for IndexesByMethod, T is the type the checker recorded, so
+// that in generic code the choice is made from the constraint.
+func RangesByMethod(T Type) bool {
+	return !underIs(T, builtinRangeable)
+}
+
+// builtinRangeable reports whether range is built in for the underlying
+// type u (nil for a type parameter without specific types).
+func builtinRangeable(u Type) bool {
+	switch u := u.(type) {
+	case *Basic:
+		return isString(u) || isInteger(u)
+	case *Array, *Slice, *Map, *Chan, *Signature, *Wrapper:
+		return true
+	case *Pointer:
+		_, ok := u.base.Underlying().(*Array)
+		return ok
+	}
+	return false
+}
+
+// rangeMethod checks a range over x, whose type is not rangeable by the
+// language (RangesByMethod), as a range over x.All(), and returns the key
+// and value types of the iterator All returns. reported is set if it
+// reported an error; neither is set if x has no All method and is not a
+// container or other struct, so that the caller reports that x cannot be
+// ranged over as Go does.
+func (check *Checker) rangeMethod(x *operand) (key, val Type, ok, reported bool) {
+	T := x.typ()
+	sig, needPtr := check.indexMethod(x, RangeMethodName)
+	switch {
+	case needPtr:
+		check.softErrorf(x, UnaddressableRange, "cannot range over %s: method %s of %s has a pointer receiver, and %s is not addressable", x.expr, RangeMethodName, T, x.expr)
+		return nil, nil, false, true
+	case sig == nil:
+		if !check.hasIndexMethod(x) && !isStructOrPtr(T) {
+			return nil, nil, false, false
+		}
+		check.softErrorf(x, RangeOverContainer, "cannot range over %s: %s has no method %s returning an iterator", x, T, RangeMethodName)
+		return nil, nil, false, true
+	}
+	var R Type
+	if sig.TypeParams().Len() == 0 && !sig.Variadic() && sig.Params().Len() == 0 && sig.Results().Len() == 1 {
+		R = sig.Results().At(0).Type()
+	}
+	if R != nil {
+		if _, isFunc := R.Underlying().(*Signature); isFunc {
+			if k, v, _, ok := rangeKeyVal(check, R, nil); ok {
+				return k, v, true, false
+			}
+		}
+	}
+	check.softErrorf(x, BadRangeMethod, "cannot range over %s: method %s of %s must have the form %s() iter.Seq[V] or %s() iter.Seq2[K, V]", x.expr, RangeMethodName, T, RangeMethodName, RangeMethodName)
+	return nil, nil, false, true
+}
+
+// isStructOrPtr reports whether T is a struct or a pointer to one.
+func isStructOrPtr(T Type) bool {
+	if p, ok := T.Underlying().(*Pointer); ok {
+		T = p.base
+	}
+	_, ok := T.Underlying().(*Struct)
+	return ok
+}

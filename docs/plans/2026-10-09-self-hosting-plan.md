@@ -145,7 +145,7 @@ inventory checks names, not semantics, so the column also says where the semanti
 | `errors` | 5 packages | `New` 5, `Join` 3, `Is` 1 | `pluto/errors`: `New` (static slots, for sentinels), `Is`, `As`, `Unwrap`, `Join` | as is; `errors.New` at run time (3 sites) becomes `compat.NewError` |
 | `sync`, `sync/atomic` | token 39, types2 25, printer 3 | `Mutex`, `RWMutex`, `Once`, `Pool`; atomics | `pluto/sync/atomic` only (`pluto/sync` is roadmap item 16) | no-op stubs (the compiler is single-threaded) |
 | `hash/maphash`, `hash/fnv` | types2 58, lower 2 | `maphash.Hash` (`WriteByte`, `WriteString`, `Sum64`), `fnv.New32a` | `pluto/hash` has the functions, no streaming hasher | add a streaming hasher |
-| `iter` | ast, token, types2 | `Seq` (13) | none (range over func is roadmap item 22) | rewrite the 12 loops as index loops |
+| `iter` | ast, token, types2 | `Seq` (13) | `pluto/iter` (roadmap item 22, done) | import `pluto/iter` |
 | `go/build/constraint` | load, parser, printer | `Parse`, `Expr.Eval` | none | translate with go2pu (696 lines) |
 | `container/heap` | types2 3 | `Init`, `Pop`, `Fix` | none | 100-line generic heap |
 | `go/token`, `go/version` | types2 | `Token` (operators for `go/constant`), `Compare`, `Lang` | none | disappears with the constant package; `version` by hand |
@@ -758,13 +758,13 @@ Sizes are in lines written or changed, not in time.
 
 | Phase | Work | Size | Kind | Risk | Needs first | Status |
 |---|---|---:|---|---|---|---|
-| 0 | Escape errors for frame addresses (roadmap item 5); determinism fixes; direct single-pointer structs; itab lookup | 1,000-1,500 compiler | compiler | medium | - | direct single-pointer structs, hashed itab lookup, `//pu:stack` and the type checker's nesting limit done (roadmap item 54) |
-| 1 | Library: growable arenas, OS layer, `strconv` quoting and `ParseFloat`, `unicode` predicates, slices/heap/streaming hash, strings with allocators | 6,000 | library, half mechanical | low | - | growable arenas (`arena.Chunked`), the OS layer (`os`, `os/exec`, `path/filepath`, `time`, `flag`) and the `pu` mirror package with its go2pu mapping (section 11) done (roadmap items 52 and 54); `strconv` quoting and `ParseFloat`, `unicode`, slices/heap/streaming hash, and migrating the compiler to `pu` remain |
+| 0 | Escape errors for frame addresses (roadmap item 5); determinism fixes; direct single-pointer structs; itab lookup | 1,000-1,500 compiler | compiler | medium | - | direct single-pointer structs, hashed itab lookup, `//pu:stack` and the type checker's nesting limit done (roadmap item 56) |
+| 1 | Library: growable arenas, OS layer, `strconv` quoting and `ParseFloat`, `unicode` predicates, slices/heap/streaming hash, strings with allocators | 6,000 | library, half mechanical | low | - | growable arenas (`arena.Chunked`), the OS layer (`os`, `os/exec`, `path/filepath`, `time`, `flag`) and the `pu` mirror package with its go2pu mapping (section 11) done (roadmap items 52 and 56); `strconv` quoting and `ParseFloat`, `unicode`, slices/heap/streaming hash, and migrating the compiler to `pu` remain |
 | 2 | Back end: `ssa`, `opt`, `amd64`, `objfile` (**done** in the prototype, differential at `-O0`/`-O2`); port their Go tests; per-function arenas in `ssa` | 9,356 translated, ~300 by hand | mechanical | low | arenas | prototype done |
 | 3 | SSA reader; mixed pipeline (Go front end, Plutonium back end) on the whole test corpus | 400 | hand | low | 2 | not started |
 | 4 | Syntax: `token`, `scanner`, `ast`, `parser` (`recover` in the parser, `FileSet` without `sync`, iterators, drop `ast/print.go`) | 8,377 translated, ~400 by hand | mechanical | low | 1 | not started |
 | 5 | `lower` (closure conversion for `funcJob`, intrinsics table, constants) | 5,766 translated, ~400 by hand | mechanical plus conversion | medium | constant package, go2pu closure conversion | not started |
-| 6 | Constant package | 2,500-3,500 | hand | medium | - | done in Go (`internal/constant`, 2,800 lines, differential against go/constant; roadmap item 54); its translation waits for `strconv` quoting |
+| 6 | Constant package | 2,500-3,500 | hand | medium | - | done in Go (`internal/constant`, 2,800 lines, differential against go/constant; roadmap item 56); its translation waits for `strconv` quoting |
 | 7 | `types2` (constants, `later` conversion, sync stubs, iterators, hashing) | 26,772 translated, 300-500 by hand | mechanical plus conversion | high (size, recursion depth, performance) | 5, 6, itab lookup | not started |
 | 8 | `load`, `build`, `cmd/pluto`; stage 1, 2, 3 on Linux; bootstrap check in CI; cutover | 1,900 by hand | hand | medium | 1, 7 | not started |
 | 9 | PlutoniumOS: target and OS layer, integrated assembler and linker, cross-built seed, on-system rebuild | 5,000+ | hand | high | 8, kernel system calls | not started |
@@ -774,7 +774,9 @@ Roadmap items that must land first: item 5 (escape errors) before any hand-writt
 (the errors design) has landed and the port follows it; item 43 (debug allocator) to check
 arena lifetimes; item 45 (`time`) for the driver. Items 14 to 17 (puroutines, channels, `pluto/sync`,
 thread-safe allocator) are not needed: the compiler stays single-threaded. Item 22 (range over functions)
-is not needed: the twelve loops are rewritten. Item 25 (sum types) helps but is not required.
+has landed, with `pluto/iter`; iterator constructors that return closures capturing their parameters are
+expanded in the caller (language spec section 4.5), so the twelve loops can stay as they are, unless an
+iterator keeps `yield` or is used as a func value. Item 25 (sum types) helps but is not required.
 
 The order puts the measured, mechanical part first (it is done), then the pieces that need design (the
 constant package, closure conversion), then the large mechanical part they unblock (`types2`), then the

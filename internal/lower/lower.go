@@ -76,6 +76,10 @@ type Lowerer struct {
 	perCPUSelfSym  *ssa.Sym                   // pluto.percpu.self, once a per-CPU variable exists
 	genPanic       *ssa.Sym                   // pluto/rt.panicStale, under GenCheck
 	types          *typeTable
+	ctors          map[*types2.Func]*ctorInfo // closure constructors (ctor.go), nil for other functions
+	ctorMisused    map[*types2.Func]bool      // closure constructors already reported
+	sched          *schedBinding              // the //pu:scheduler variable, or nil
+	schedMissing   bool                       // the missing-scheduler error has been reported
 
 	// panicFn is the program's panic handler (panic.go).
 	panicFn *types2.Func
@@ -117,6 +121,8 @@ type funcJob struct {
 	parent   *fnState
 
 	build func(s *fnState) // for synthesized functions (init, wrappers)
+	pos   token.Pos        // for synthesized functions with a source extent
+	end   token.Pos
 }
 
 // Lower lowers a loaded program.
@@ -148,6 +154,8 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		globals:        map[*types2.Var]*ssa.Sym{},
 		strs:           map[string]*ssa.Sym{},
 		closureRecords: map[*ssa.Sym]*ssa.Sym{},
+		ctors:          map[*types2.Func]*ctorInfo{},
+		ctorMisused:    map[*types2.Func]bool{},
 		localTypes:     map[localKey]*types2.Named{},
 		errorSites:     map[*ast.CallExpr]*ssa.Sym{},
 		exports:        map[*ssa.Sym][]string{},
@@ -182,6 +190,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 	}
 
 	l.findPanicHandler()
+	l.findScheduler()
 	l.lowerGlobals()
 	l.lowerEntry()
 	l.checkInterrupts()
@@ -349,6 +358,9 @@ func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 		}
 	}
 	if d != nil && d.decl.Body == nil {
+		if method, optional, ok := schedHook(d.decl); ok {
+			return l.schedHookSym(fn, method, optional)
+		}
 		if name, ok := externName(d.decl); ok {
 			sym := l.out.Sym(name, ssa.SymExtern)
 			l.cfuncs[sym] = true

@@ -212,8 +212,12 @@ func printHex(v uintptr) {
 // function and line of the call, or its address if rt.PrintPC cannot name
 // it.
 func printRet(ret uintptr) {
-	if ret == 0 {
+	switch ret {
+	case 0:
 		print("an unknown site")
+		return
+	case rt.StackSite:
+		print("the runtime, as a puroutine's stack")
 		return
 	}
 	rt.PrintPC(ret - 1)

@@ -46,21 +46,7 @@ $DIR/main.p:25:2: cannot assign to t["a"]: table has no method SetIndex
 $DIR/main.p:26:11: cannot use comma-ok on t["b"]: table has no method IndexOk
     (explained above; run "pluto explain E2451" for more)
 
-$DIR/main.p:31:17: cannot range over m (variable of struct type hash.Map[string, int]): ranging over a container needs an iterator, which is not supported yet
-    A for range loop over a container will call an iterator method once
-    Plutonium supports ranging over functions. Until then, loop over the
-    indexes, or over a view of the elements.
-    Loop over the indexes, or a slice view:
-        for i := 0; i < len(v); i++ {
-            use(v[i])
-        }
-        for _, x := range v.Slice() {
-            use(x)
-        }
-    (see "Indexing library containers" in the Plutonium spec, section 6.7)
-    (run "pluto explain E2456" for a longer explanation)
-
-$DIR/main.p:34:6: cannot read load()["a"]: method Index of hash.Map[string, int] has a pointer receiver, and load() is not addressable
+$DIR/main.p:29:6: cannot read load()["a"]: method Index of hash.Map[string, int] has a pointer receiver, and load() is not addressable
     The container's indexing method has a pointer receiver, so x[k] needs the
     address of x. Here x is a value that has no address, such as the result of a
     function call.

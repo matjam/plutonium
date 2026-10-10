@@ -1,0 +1,25 @@
+sum 4950
+2 3
+1 2 x
+3 y true
+0  false
+vari 4 10
+vari done
+vari 0 0
+vari done
+vari 2 11
+vari done
+value method 7
+pointer method 1
+value method 9
+42
+42
+both 7 seven
+seven
+big 140 squares
+140
+generic
+p
+true true true
+chan in interface true
+receive-only 3 0 1

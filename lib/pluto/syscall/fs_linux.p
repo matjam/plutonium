@@ -31,6 +31,7 @@ const (
 
 // Flags and modes.
 const (
+	O_NONBLOCK  = 0x800
 	O_DIRECTORY = 0x10000
 	O_NOFOLLOW  = 0x20000
 	O_CLOEXEC   = 0x80000
@@ -40,6 +41,8 @@ const (
 
 	F_GETFD    = 1
 	F_SETFD    = 2
+	F_GETFL    = 3
+	F_SETFL    = 4
 	FD_CLOEXEC = 1
 
 	SEEK_SET = 0

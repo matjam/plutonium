@@ -503,6 +503,22 @@ func main() {
 		_ = p
 	}
 }`, []string{"cannot keep &i in p after this iteration: the loop at line 5 reuses i"}},
+
+	{"go statement whose function keeps its packed variadic arguments", `
+var kept []int
+func keep(xs ...int) { kept = xs }
+func main() { go keep(1, 2) }`, []string{"cannot pass the variadic arguments of keep to a go statement"}},
+
+	{"constructor yielding the address of what it captures", `
+var saved *int
+func ptrs(n int) func(func(*int) bool) {
+	return func(yield func(*int) bool) { yield(&n) }
+}
+func main() {
+	for p := range ptrs(1) {
+		saved = p
+	}
+}`, []string{"cannot store p in package variable saved"}},
 }
 
 func TestRejected(t *testing.T) {
@@ -891,6 +907,50 @@ func main() {
 		println(*p)
 		p = nil
 	}
+}`},
+	{"go statement copies packed variadic arguments", `
+func sum(done chan int, xs ...int) {
+	t := 0
+	for _, x := range xs {
+		t += x
+	}
+	done <- t
+}
+func main() {
+	d := make(chan int)
+	go sum(d, 1, 2, 3)
+	println(<-d)
+}`},
+	{"constructor yielding copies of what it captures", `
+var saved *int
+func vals(p *int) func(func(*int) bool) {
+	return func(yield func(*int) bool) { yield(p) }
+}
+func main() {
+	for p := range vals(new(int)) {
+		saved = p
+	}
+}`},
+	{"variadic call in a package initialiser", `
+func all(xs ...int) func() []int {
+	return func() []int { return xs }
+}
+var F = all(1, 2)
+func main() { println(len(F())) }`},
+	{"type parameter call reaches only methods of matching signature", `
+type W interface{ Write(p []byte) int }
+type Dev[T ~uint8] struct{ data T }
+func (d *Dev[T]) Write(v T) int { d.data = v; return 1 }
+type sink struct{}
+func (sink) Write(p []byte) int { return len(p) }
+func put[V W](w V) int {
+	var buf [4]byte
+	return w.Write(buf[:])
+}
+func main() {
+	var d Dev[uint8]
+	d.Write(1)
+	println(put(sink{}))
 }`},
 }
 

@@ -13,6 +13,55 @@ import (
 	"github.com/matjam/plutonium/internal/build"
 )
 
+// TestKernelScheduler boots testdata/kernel/sched, a kernel-mode image
+// that binds its own scheduler (a per-CPU round-robin run queue with
+// preemption from the PIT timer interrupt), under QEMU, and checks that
+// puroutines, channels, select and pluto/sync run on it: a spinning
+// puroutine with no calls is preempted, and the timer handler wakes a
+// parked puroutine with a non-blocking channel send.
+func TestKernelScheduler(t *testing.T) {
+	qemu, err := exec.LookPath("qemu-system-x86_64")
+	if err != nil {
+		t.Skip("qemu-system-x86_64 is not installed")
+	}
+	dir := filepath.Join("..", "..", "testdata", "kernel", "sched")
+	const want = "sum of squares 385\n" +
+		"spinner preempted by the timer\n" +
+		"ticks from the interrupt handler true true true\n" +
+		"b 42\n" +
+		"done\n"
+	for _, level := range []int{0, 2} {
+		t.Run("O"+string(rune('0'+level)), func(t *testing.T) {
+			elfOut := filepath.Join(t.TempDir(), "kernel.elf")
+			cfg := &build.Config{Dir: dir, Output: elfOut, Stdlib: plutonium.Stdlib(), OptLevel: level, Kernel: true}
+			if err := build.Build(cfg); err != nil {
+				t.Fatalf("build ELF: %v", err)
+			}
+			image := filepath.Join(t.TempDir(), "kernel.bin")
+			cfg.Output, cfg.Format = image, "binary"
+			if err := build.Build(cfg); err != nil {
+				t.Fatalf("build: %v", err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, qemu, "-kernel", image, "-serial", "stdio", "-display", "none",
+				"-monitor", "none", "-no-reboot", "-m", "64M",
+				"-device", "isa-debug-exit,iobase=0xf4,iosize=0x04")
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+			err := cmd.Run()
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+				t.Fatalf("qemu: %v (want exit status 1)\nserial: %s\nstderr: %s", err, stdout.String(), stderr.String())
+			}
+			if got := stdout.String(); got != want {
+				t.Errorf("serial output differs\n--- got ---\n%s--- want ---\n%s", got, want)
+			}
+		})
+	}
+}
+
 // TestKernelInterrupts boots the freestanding kernel in testdata/kernel/irq
 // under QEMU. It installs two //pu:interrupt handlers and enters them with
 // int $0x80 and with a general protection fault (which pushes an error

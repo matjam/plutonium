@@ -186,6 +186,8 @@ func (a *analyzer) noun(l *loc, q types2.Qualifier) string {
 		return "a function literal that uses " + l.captureList() + ", " + l.captureNoun()
 	case lkMethodValue:
 		return "a method value whose receiver is in " + frame
+	case lkCtor:
+		return "the closure " + exprText(l.node.(ast.Expr)) + " builds in " + frame
 	}
 	return frame
 }
@@ -237,6 +239,8 @@ func (a *analyzer) intro(l *loc, q types2.Qualifier) string {
 		return fmt.Sprintf("A function literal that uses variables of the function around it refers to those variables where they live, in %s frame%s.", possessive(l.fn), decl)
 	case lkMethodValue:
 		return fmt.Sprintf("A method value (at %s) is a record in %s frame that holds its receiver, and calling it calls the method on that receiver.", at, possessive(l.fn))
+	case lkCtor:
+		return fmt.Sprintf("%s calls a closure constructor, which builds the function literal it returns in the caller's frame, %s (at %s), with copies of its arguments; the closure lives as long as that frame (section 4.5).", exprText(l.node.(ast.Expr)), possessive(l.fn), at)
 	}
 	return ""
 }

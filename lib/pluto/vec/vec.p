@@ -11,6 +11,7 @@
 //		v.Push(i)
 //	}
 //	for _, x := range v.Slice() { ... }
+//	for i, x := range v.All() { ... } // reads v as it goes
 //
 // v[i], v[i] = x and len(v) work as on a slice, through the methods Index,
 // SetIndex and Len (language spec section 6.7).
@@ -22,6 +23,7 @@ package vec
 
 import (
 	"pluto/alloc"
+	"pluto/iter"
 	"unsafe"
 )
 
@@ -235,6 +237,64 @@ func (v *Vec[T]) Map[U any](f func(T) U, a alloc.Allocator = alloc.Default()) Ve
 		out.data = append(out.data, f(x))
 	}
 	return out
+}
+
+// All returns an iterator over the indexes and elements of v, in order:
+//
+//	for i, x := range v.All() { ... }
+//
+// The loop reads v as it goes, so it is safe for the body to change v: it
+// sees elements set during the loop, stops at v's length as it is then
+// (visiting elements pushed during the loop, and not those removed), and
+// follows v's storage when v grows.
+func (v *Vec[T]) All() iter.Seq2[int, T] {
+	return func(yield func(int, T) bool) {
+		for i := 0; i < len(v.data); i++ {
+			if !yield(i, v.data[i]) {
+				return
+			}
+		}
+	}
+}
+
+// Values returns an iterator over the elements of v, in order. Like All, it
+// reads v as it goes.
+func (v *Vec[T]) Values() iter.Seq[T] {
+	return func(yield func(T) bool) {
+		for i := 0; i < len(v.data); i++ {
+			if !yield(v.data[i]) {
+				return
+			}
+		}
+	}
+}
+
+// Backward returns an iterator over the indexes and elements of v, last
+// first. If the body removes elements, the loop goes on from the last
+// element still in v below the current index.
+func (v *Vec[T]) Backward() iter.Seq2[int, T] {
+	return func(yield func(int, T) bool) {
+		for i := len(v.data) - 1; i >= 0; i = min(i, len(v.data)) - 1 {
+			if !yield(i, v.data[i]) {
+				return
+			}
+		}
+	}
+}
+
+// AppendSeq appends the values of seq, growing as needed.
+func (v *Vec[T]) AppendSeq(seq iter.Seq[T]) {
+	for x := range seq {
+		v.Push(x)
+	}
+}
+
+// Collect returns a new Vec, allocating from a (by default the default
+// allocator), holding the values of seq in order.
+func Collect[T any](seq iter.Seq[T], a alloc.Allocator = alloc.Default()) Vec[T] {
+	v := New[T](a)
+	v.AppendSeq(seq)
+	return v
 }
 
 // grow makes room for at least n more elements, at least doubling the

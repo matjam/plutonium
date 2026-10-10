@@ -232,7 +232,7 @@ func (s *fnState) lv(e ast.Expr) lvalue {
 // a package-level variable.
 func (s *fnState) varLV(obj *types2.Var, at ast.Node) lvalue {
 	T := s.subst(obj.Type())
-	if addr := s.vars[obj]; addr != nil {
+	if addr := s.lookupVar(obj); addr != nil {
 		return lvalue{ptr: addr, T: T}
 	}
 	if obj.Pkg() != nil && obj.Pkg().Scope().Lookup(obj.Name()) == obj {
@@ -547,6 +547,9 @@ func (s *fnState) unary(e *ast.UnaryExpr, T types2.Type) value {
 		return scalarValue(s.newValue(ssa.OpCom, x.Type, x), T)
 	case token.NOT:
 		return scalarValue(s.newValue(ssa.OpNot, ssa.TBool, s.scalar(e.X)), T)
+	case token.ARROW:
+		v, _ := s.recv(e, false)
+		return v
 	}
 	s.l.unsupportedf(e.Pos(), "unsupported unary operator %s", e.Op)
 	return s.zeroValue(T)

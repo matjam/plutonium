@@ -1,0 +1,42 @@
+$DIR/main.p:30:17: cannot range over t (variable of struct type table): table has no method All returning an iterator
+    A for range loop over a value that is not a string, integer, array, slice,
+    map, channel or function calls the value's All method and ranges over the
+    iterator it returns, an iter.Seq or iter.Seq2. This type has no All method.
+    Give the type an All method that returns an iterator, or range over one of
+    its other iterators.
+    Library containers such as vec.Vec and hash.Map are structs, not built-in
+    types, so the loop asks them for an iterator by name. vec.Vec and hash.Map
+    have All, so they range like Go's slices and maps.
+    Add an All method:
+        func (t *T) All() iter.Seq2[string, int] {
+            return func(yield func(string, int) bool) {
+                // call yield for each key and value
+            }
+        }
+    (see "Indexing library containers" in the Plutonium spec, section 6.7)
+    (run "pluto explain E2456" for a longer explanation)
+
+$DIR/main.p:34:17: cannot range over l: method All of list must have the form All() iter.Seq[V] or All() iter.Seq2[K, V]
+    A for range loop over a container calls its All method, which must take no
+    arguments and return an iterator: a function of the form func(yield func(K,
+    V) bool), such as iter.Seq[V] or iter.Seq2[K, V]. This type's All method has
+    another form.
+    (see "Indexing library containers" in the Plutonium spec, section 6.7)
+    (run "pluto explain E2458" for a longer explanation)
+
+$DIR/main.p:37:17: cannot range over get(): method All of seq has a pointer receiver, and get() is not addressable
+    A for range loop over a container calls its All method. That method has a
+    pointer receiver, so the loop needs the address of the container. Here the
+    container is a value that has no address, such as the result of a function
+    call.
+    Store the container in a variable first, or range over a pointer to it.
+    Store it in a variable first:
+        m := load()
+        for k, v := range m {
+            use(k, v)
+        }
+    (see "Indexing library containers" in the Plutonium spec, section 6.7)
+    (run "pluto explain E2459" for a longer explanation)
+
+$DIR/main.p:40:20: cannot range over load(): method All of hash.Map[string, int] has a pointer receiver, and load() is not addressable
+    (explained above; run "pluto explain E2459" for more)

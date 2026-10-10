@@ -156,14 +156,14 @@ func _() {
 	_ = x[InvalidMinMaxOperand-150]
 	_ = x[TooNew-151]
 	_ = x[MapNotPermitted-2001]
-	_ = x[ChanNotPermitted-2002]
-	_ = x[GoNotPermitted-2003]
 	_ = x[RecoverNotPermitted-2004]
 	_ = x[ReflectNotPermitted-2005]
 	_ = x[ComplexNotPermitted-2006]
 	_ = x[MissingAllocatorType-2007]
 	_ = x[ErrorsNewNotConstant-2008]
 	_ = x[BadMainSignature-2009]
+	_ = x[NotSendable-2010]
+	_ = x[FrameViewSent-2011]
 	_ = x[BadPackedBacking-2101]
 	_ = x[PackedTooLarge-2102]
 	_ = x[BadBitField-2103]
@@ -212,6 +212,8 @@ func _() {
 	_ = x[ContainerElemAssign-2455]
 	_ = x[RangeOverContainer-2456]
 	_ = x[UnaddressableContainer-2457]
+	_ = x[BadRangeMethod-2458]
+	_ = x[UnaddressableRange-2459]
 	_ = x[MisplacedUnion-2401]
 	_ = x[GenericPackedUnion-2402]
 	_ = x[EmptyUnion-2403]
@@ -229,7 +231,7 @@ func _() {
 	_ = x[PackedUnionNoDefault-2415]
 }
 
-const _Code_name = "InvalidSyntaxTreeTestBlankPkgNameMismatchedPkgNameInvalidPkgUseBadImportPathBrokenImportImportCRenamedUnusedImportInvalidInitCycleDuplicateDeclInvalidDeclCycleInvalidTypeCycleInvalidConstInitInvalidConstValInvalidConstTypeUntypedNilUseWrongAssignCountUnassignableOperandNoNewVarMultiValAssignOpInvalidIfaceAssignInvalidChanAssignIncompatibleAssignUnaddressableFieldAssignNotATypeInvalidArrayLenBlankIfaceMethodIncomparableMapKeyInvalidPtrEmbedBadRecvInvalidRecvDuplicateFieldAndMethodDuplicateMethodInvalidBlankInvalidIotaMissingInitBodyInvalidInitSigInvalidInitDeclInvalidMainDeclTooManyValuesNotAnExprTruncatedFloatNumericOverflowUndefinedOpMismatchedTypesDivByZeroNonNumericIncDecUnaddressableOperandInvalidIndirectionNonIndexableOperandInvalidIndexSwappedSliceIndicesNonSliceableOperandInvalidSliceExprInvalidShiftCountInvalidShiftOperandInvalidReceiveInvalidSendDuplicateLitKeyMissingLitKeyInvalidLitIndexOversizeArrayLitMixedStructLitInvalidStructLitMissingLitFieldDuplicateLitFieldUnexportedLitFieldInvalidLitFieldUntypedLitInvalidLitAmbiguousSelectorUndeclaredImportedNameUnexportedNameUndeclaredNameMissingFieldOrMethodBadDotDotDotSyntaxNonVariadicDotDotDotInvalidDotDotDotUncalledBuiltinInvalidAppendInvalidCapInvalidCloseInvalidCopyInvalidComplexInvalidDeleteInvalidImagInvalidLenSwappedMakeArgsInvalidMakeInvalidRealInvalidAssertImpossibleAssertInvalidConversionInvalidUntypedConversionBadOffsetofSyntaxInvalidOffsetofUnusedExprUnusedVarMissingReturnWrongResultCountOutOfScopeResultInvalidCondInvalidPostDeclInvalidIterVarInvalidRangeExprMisplacedBreakMisplacedContinueMisplacedFallthroughDuplicateCaseDuplicateDefaultBadTypeKeywordInvalidTypeSwitchInvalidExprSwitchInvalidSelectCaseUndeclaredLabelDuplicateLabelMisplacedLabelUnusedLabelJumpOverDeclJumpIntoBlockInvalidMethodExprWrongArgCountInvalidCallUnusedResultsInvalidDeferInvalidGoBadDeclRepeatedDeclInvalidUnsafeAddInvalidUnsafeSliceUnsupportedFeatureNotAGenericTypeWrongTypeArgCountCannotInferTypeArgsInvalidTypeArgInvalidInstanceCycleInvalidUnionMisplacedConstraintIfaceInvalidMethodTypeParamsMisplacedTypeParamInvalidUnsafeSliceDataInvalidUnsafeStringInvalidClearTypeTooLargeInvalidMinMaxOperandTooNewMapNotPermittedChanNotPermittedGoNotPermittedRecoverNotPermittedReflectNotPermittedComplexNotPermittedMissingAllocatorTypeErrorsNewNotConstantBadMainSignatureBadPackedBackingPackedTooLargeBadBitFieldBadPackedFieldBadPackedLiteralWrongWrapperArgsNotPowerOfTwoBadVolatileElemBadWrapperSizeRingLiteralNotEmptyMisplacedDefaultVariadicDefaultMissingDefaultSharedDefaultDefaultRefersToParamMisplacedEnumGenericEnumBadEnumBaseEmptyEnumBlankEnumMemberDuplicateEnumValueEnumWithoutZeroEnumOverflowBadEnumValueEnumSelfReferenceUnexportedEnumMemberMissingEnumCaseBadEnumConversionUncheckedEnumConversionNotEnumTypeEnumArithmeticRangeOverEnumValueMisplacedUnionGenericPackedUnionEmptyUnionBadVariantDeclTooManyVariantsUnionOwnerPayloadBadUnionTagBadVariantCaseVariantNotTypeUnknownVariantUnexportedVariantUnionLiteralNotAVariantMissingVariantCasePackedUnionNoDefaultMissingIndexMethodBadIndexMethodIndexMethodMismatchContainerIndexAddressContainerElemAssignRangeOverContainerUnaddressableContainerDropNotOwnerMustBeOwnerUnnamedOwnerStructBadOwnerKindOwnerAliasBadDropSignatureOwnerTypeArgBadTakeArgBadUnsafeDropArg"
+const _Code_name = "InvalidSyntaxTreeTestBlankPkgNameMismatchedPkgNameInvalidPkgUseBadImportPathBrokenImportImportCRenamedUnusedImportInvalidInitCycleDuplicateDeclInvalidDeclCycleInvalidTypeCycleInvalidConstInitInvalidConstValInvalidConstTypeUntypedNilUseWrongAssignCountUnassignableOperandNoNewVarMultiValAssignOpInvalidIfaceAssignInvalidChanAssignIncompatibleAssignUnaddressableFieldAssignNotATypeInvalidArrayLenBlankIfaceMethodIncomparableMapKeyInvalidPtrEmbedBadRecvInvalidRecvDuplicateFieldAndMethodDuplicateMethodInvalidBlankInvalidIotaMissingInitBodyInvalidInitSigInvalidInitDeclInvalidMainDeclTooManyValuesNotAnExprTruncatedFloatNumericOverflowUndefinedOpMismatchedTypesDivByZeroNonNumericIncDecUnaddressableOperandInvalidIndirectionNonIndexableOperandInvalidIndexSwappedSliceIndicesNonSliceableOperandInvalidSliceExprInvalidShiftCountInvalidShiftOperandInvalidReceiveInvalidSendDuplicateLitKeyMissingLitKeyInvalidLitIndexOversizeArrayLitMixedStructLitInvalidStructLitMissingLitFieldDuplicateLitFieldUnexportedLitFieldInvalidLitFieldUntypedLitInvalidLitAmbiguousSelectorUndeclaredImportedNameUnexportedNameUndeclaredNameMissingFieldOrMethodBadDotDotDotSyntaxNonVariadicDotDotDotInvalidDotDotDotUncalledBuiltinInvalidAppendInvalidCapInvalidCloseInvalidCopyInvalidComplexInvalidDeleteInvalidImagInvalidLenSwappedMakeArgsInvalidMakeInvalidRealInvalidAssertImpossibleAssertInvalidConversionInvalidUntypedConversionBadOffsetofSyntaxInvalidOffsetofUnusedExprUnusedVarMissingReturnWrongResultCountOutOfScopeResultInvalidCondInvalidPostDeclInvalidIterVarInvalidRangeExprMisplacedBreakMisplacedContinueMisplacedFallthroughDuplicateCaseDuplicateDefaultBadTypeKeywordInvalidTypeSwitchInvalidExprSwitchInvalidSelectCaseUndeclaredLabelDuplicateLabelMisplacedLabelUnusedLabelJumpOverDeclJumpIntoBlockInvalidMethodExprWrongArgCountInvalidCallUnusedResultsInvalidDeferInvalidGoBadDeclRepeatedDeclInvalidUnsafeAddInvalidUnsafeSliceUnsupportedFeatureNotAGenericTypeWrongTypeArgCountCannotInferTypeArgsInvalidTypeArgInvalidInstanceCycleInvalidUnionMisplacedConstraintIfaceInvalidMethodTypeParamsMisplacedTypeParamInvalidUnsafeSliceDataInvalidUnsafeStringInvalidClearTypeTooLargeInvalidMinMaxOperandTooNewMapNotPermittedRecoverNotPermittedReflectNotPermittedComplexNotPermittedMissingAllocatorTypeErrorsNewNotConstantBadMainSignatureNotSendableFrameViewSentBadPackedBackingPackedTooLargeBadBitFieldBadPackedFieldBadPackedLiteralWrongWrapperArgsNotPowerOfTwoBadVolatileElemBadWrapperSizeRingLiteralNotEmptyMisplacedDefaultVariadicDefaultMissingDefaultSharedDefaultDefaultRefersToParamMisplacedEnumGenericEnumBadEnumBaseEmptyEnumBlankEnumMemberDuplicateEnumValueEnumWithoutZeroEnumOverflowBadEnumValueEnumSelfReferenceUnexportedEnumMemberMissingEnumCaseBadEnumConversionUncheckedEnumConversionNotEnumTypeEnumArithmeticRangeOverEnumValueMisplacedUnionGenericPackedUnionEmptyUnionBadVariantDeclTooManyVariantsUnionOwnerPayloadBadUnionTagBadVariantCaseVariantNotTypeUnknownVariantUnexportedVariantUnionLiteralNotAVariantMissingVariantCasePackedUnionNoDefaultMissingIndexMethodBadIndexMethodIndexMethodMismatchContainerIndexAddressContainerElemAssignRangeOverContainerUnaddressableContainerBadRangeMethodUnaddressableRangeDropNotOwnerMustBeOwnerUnnamedOwnerStructBadOwnerKindOwnerAliasBadDropSignatureOwnerTypeArgBadTakeArgBadUnsafeDropArg"
 
 var _Code_map = map[Code]string{
 	-1:   _Code_name[0:17],
@@ -380,77 +382,79 @@ var _Code_map = map[Code]string{
 	150:  _Code_name[2147:2167],
 	151:  _Code_name[2167:2173],
 	2001: _Code_name[2173:2188],
-	2002: _Code_name[2188:2204],
-	2003: _Code_name[2204:2218],
-	2004: _Code_name[2218:2237],
-	2005: _Code_name[2237:2256],
-	2006: _Code_name[2256:2275],
-	2007: _Code_name[2275:2295],
-	2008: _Code_name[2295:2315],
-	2009: _Code_name[2315:2331],
-	2101: _Code_name[2331:2347],
-	2102: _Code_name[2347:2361],
-	2103: _Code_name[2361:2372],
-	2104: _Code_name[2372:2386],
-	2105: _Code_name[2386:2402],
-	2106: _Code_name[2402:2418],
-	2107: _Code_name[2418:2431],
-	2108: _Code_name[2431:2446],
-	2109: _Code_name[2446:2460],
-	2110: _Code_name[2460:2479],
-	2201: _Code_name[2479:2495],
-	2202: _Code_name[2495:2510],
-	2203: _Code_name[2510:2524],
-	2204: _Code_name[2524:2537],
-	2205: _Code_name[2537:2557],
-	2301: _Code_name[2557:2570],
-	2302: _Code_name[2570:2581],
-	2303: _Code_name[2581:2592],
-	2304: _Code_name[2592:2601],
-	2305: _Code_name[2601:2616],
-	2306: _Code_name[2616:2634],
-	2307: _Code_name[2634:2649],
-	2308: _Code_name[2649:2661],
-	2309: _Code_name[2661:2673],
-	2310: _Code_name[2673:2690],
-	2311: _Code_name[2690:2710],
-	2312: _Code_name[2710:2725],
-	2313: _Code_name[2725:2742],
-	2314: _Code_name[2742:2765],
-	2315: _Code_name[2765:2776],
-	2316: _Code_name[2776:2790],
-	2317: _Code_name[2790:2808],
-	2401: _Code_name[2808:2822],
-	2402: _Code_name[2822:2840],
-	2403: _Code_name[2840:2850],
-	2404: _Code_name[2850:2864],
-	2405: _Code_name[2864:2879],
-	2406: _Code_name[2879:2896],
-	2407: _Code_name[2896:2907],
-	2408: _Code_name[2907:2921],
-	2409: _Code_name[2921:2935],
-	2410: _Code_name[2935:2949],
-	2411: _Code_name[2949:2966],
-	2412: _Code_name[2966:2978],
-	2413: _Code_name[2978:2989],
-	2414: _Code_name[2989:3007],
-	2415: _Code_name[3007:3027],
-	2451: _Code_name[3027:3045],
-	2452: _Code_name[3045:3059],
-	2453: _Code_name[3059:3078],
-	2454: _Code_name[3078:3099],
-	2455: _Code_name[3099:3118],
-	2456: _Code_name[3118:3136],
-	2457: _Code_name[3136:3158],
-	3201: _Code_name[3158:3170],
-	3202: _Code_name[3170:3181],
-	3203: _Code_name[3181:3199],
-	3204: _Code_name[3199:3211],
-	3205: _Code_name[3211:3221],
-	3206: _Code_name[3221:3237],
-	3207: _Code_name[3237:3249],
-	3208: _Code_name[3249:3259],
-	3209: _Code_name[3259:3275],
+	2004: _Code_name[2188:2207],
+	2005: _Code_name[2207:2226],
+	2006: _Code_name[2226:2245],
+	2007: _Code_name[2245:2265],
+	2008: _Code_name[2265:2285],
+	2009: _Code_name[2285:2301],
+	2010: _Code_name[2301:2312],
+	2011: _Code_name[2312:2325],
+	2101: _Code_name[2325:2341],
+	2102: _Code_name[2341:2355],
+	2103: _Code_name[2355:2366],
+	2104: _Code_name[2366:2380],
+	2105: _Code_name[2380:2396],
+	2106: _Code_name[2396:2412],
+	2107: _Code_name[2412:2425],
+	2108: _Code_name[2425:2440],
+	2109: _Code_name[2440:2454],
+	2110: _Code_name[2454:2473],
+	2201: _Code_name[2473:2489],
+	2202: _Code_name[2489:2504],
+	2203: _Code_name[2504:2518],
+	2204: _Code_name[2518:2531],
+	2205: _Code_name[2531:2551],
+	2301: _Code_name[2551:2564],
+	2302: _Code_name[2564:2575],
+	2303: _Code_name[2575:2586],
+	2304: _Code_name[2586:2595],
+	2305: _Code_name[2595:2610],
+	2306: _Code_name[2610:2628],
+	2307: _Code_name[2628:2643],
+	2308: _Code_name[2643:2655],
+	2309: _Code_name[2655:2667],
+	2310: _Code_name[2667:2684],
+	2311: _Code_name[2684:2704],
+	2312: _Code_name[2704:2719],
+	2313: _Code_name[2719:2736],
+	2314: _Code_name[2736:2759],
+	2315: _Code_name[2759:2770],
+	2316: _Code_name[2770:2784],
+	2317: _Code_name[2784:2802],
+	2401: _Code_name[2802:2816],
+	2402: _Code_name[2816:2834],
+	2403: _Code_name[2834:2844],
+	2404: _Code_name[2844:2858],
+	2405: _Code_name[2858:2873],
+	2406: _Code_name[2873:2890],
+	2407: _Code_name[2890:2901],
+	2408: _Code_name[2901:2915],
+	2409: _Code_name[2915:2929],
+	2410: _Code_name[2929:2943],
+	2411: _Code_name[2943:2960],
+	2412: _Code_name[2960:2972],
+	2413: _Code_name[2972:2983],
+	2414: _Code_name[2983:3001],
+	2415: _Code_name[3001:3021],
+	2451: _Code_name[3021:3039],
+	2452: _Code_name[3039:3053],
+	2453: _Code_name[3053:3072],
+	2454: _Code_name[3072:3093],
+	2455: _Code_name[3093:3112],
+	2456: _Code_name[3112:3130],
+	2457: _Code_name[3130:3152],
+	2458: _Code_name[3152:3166],
+	2459: _Code_name[3166:3184],
+	3201: _Code_name[3184:3196],
+	3202: _Code_name[3196:3207],
+	3203: _Code_name[3207:3225],
+	3204: _Code_name[3225:3237],
+	3205: _Code_name[3237:3247],
+	3206: _Code_name[3247:3263],
+	3207: _Code_name[3263:3275],
+	3208: _Code_name[3275:3285],
+	3209: _Code_name[3285:3301],
 }
 
 func (i Code) String() string {

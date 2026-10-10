@@ -29,19 +29,21 @@ type Restore owner struct {
 	cur  Allocator // the allocator Use installed; nil once restored
 }
 
-// Use makes a the default allocator until the returned Restore is dropped,
-// or its Restore method is called:
+// Use makes a the running puroutine's default allocator until the returned
+// Restore is dropped, or its Restore method is called:
 //
 //	defer alloc.Use(arena).Restore()
+//
+// The override belongs to the puroutine that calls Use: Default returns a
+// there and the program-wide default (SetDefault) everywhere else, and a
+// puroutine it starts begins with the program-wide default.
 //
 // a may be a local arena: the Restore holds a, so the compiler checks that
 // the Restore does not outlive it (language spec section 7.1).
 //
 //pu:resultholds a
 func Use(a Allocator) Restore {
-	r := Restore{prev: Default(), cur: a}
-	SetDefault(a)
-	return r
+	return Restore{prev: rt.UseAllocator(a), cur: a}
 }
 
 // Restore reinstates the previous default allocator. It consumes r.
@@ -50,7 +52,7 @@ func (r Restore) Restore() { r.Drop() }
 // Drop reinstates the previous default allocator, if r still holds one.
 func (r *Restore) Drop() {
 	if r.cur != nil {
-		SetDefault(r.prev)
+		rt.UseAllocator(r.prev)
 		r.cur = nil
 	}
 }
@@ -79,6 +81,19 @@ func Free[T owner any](p *T, a Allocator = Default()) {
 	if rt.TrackSites {
 		rt.SetAllocSite(0)
 	}
+}
+
+// FreeChan frees a channel made by make(chan T, ...) and its buffer,
+// returning them to the allocator they came from, whatever the default is
+// now. No puroutine may use the channel afterwards, and none may be waiting
+// on it (FreeChan panics then); values still buffered are discarded.
+//
+// Channels are freed explicitly until the compiler counts channel
+// references (roadmap item 48, language spec section 4.8); then the last
+// reference frees the channel and FreeChan goes away. A channel made in an
+// arena needs no FreeChan.
+func FreeChan[T any](ch chan T) {
+	rt.FreeChan(*(*unsafe.Pointer)(unsafe.Pointer(&ch)))
 }
 
 // Raw allocates size zeroed bytes aligned to align from a (by default the

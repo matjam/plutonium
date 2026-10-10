@@ -44,7 +44,7 @@ func (l *Lowerer) scalarType(T types2.Type) *ssa.Type {
 			return ssa.TPtr
 		}
 		return nil // strings
-	case *types2.Pointer, *types2.Signature:
+	case *types2.Pointer, *types2.Signature, *types2.Chan:
 		return ssa.TPtr
 	case *types2.Wrapper:
 		switch {

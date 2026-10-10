@@ -430,6 +430,14 @@ unsafe code (section 2), and no switch for the compile-time checks, which cost n
    error names the path; the fix is usually to allocate or to make a field heap-only.
 9. Generation tags occupy pointer bits 63..48, which conflicts with 5-level paging and with hardware
    pointer tagging (LAM, TBI); a kernel build would need another encoding.
+10. The generation prototype tags pointers only in `alloc.Slab`, which is not safe for concurrent use,
+    so a `--gencheck` build uses it as the default allocator instead of the concurrent `SyncSlab`:
+    such builds may allocate from one puroutine only.
+11. A puroutine started with packed variadic arguments gets its own copy of their array; the escape
+    analysis accepts this only when the started function is known statically and does not keep the
+    slice itself. Through a func value or interface method, the array is treated as frame memory.
+12. `rt.Pinned` hides a pointer from the escape analysis. The runtime's wait queues use it for records
+    in a parked puroutine's frame; any other use is unchecked.
 
 ## 12. Decisions for sign-off
 

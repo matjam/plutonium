@@ -7,8 +7,9 @@
 //   - functions that produce a new string in Go instead append to a caller's
 //     byte slice (AppendUpper, AppendLower, AppendRepeat, AppendReplace,
 //     AppendJoin) and, like append, need room in its capacity;
-//   - Split and Fields fill a caller's []string (SplitInto, FieldsInto) or
-//     are walked with an iterator (SplitIter, FieldsIter);
+//   - Split and Fields fill a caller's []string (SplitInto, FieldsInto), are
+//     ranged over as in Go 1.24 (SplitSeq, FieldsSeq, Lines), or are walked
+//     a step at a time with an explicit iterator (SplitIter, FieldsIter);
 //   - a Builder writes into a caller's buffer or one from an allocator,
 //     which it gets once: from Init, or from alloc.Default() when it
 //     first grows.

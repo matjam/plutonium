@@ -8,9 +8,10 @@ observe a write made by another. It is [Go's memory model](https://go.dev/ref/me
 language without a garbage collector or a built-in scheduler needs, plus rules for interrupt handlers and
 for kernels that bring their own scheduler. Where this document is silent, Go's memory model applies.
 
-Several of the operations below belong to features that are specified but not yet implemented
-(puroutines, channels, `pluto/sync`); see [the roadmap](../roadmap.md). The rules are written now so the
-implementations have a contract to meet.
+Puroutines, channels, `pluto/sync` and the hosted scheduler implement the rules below. Some operations
+belong to features that are specified but not yet implemented (owners, counted references and counted
+channels); see [the roadmap](../roadmap.md). The rules are written now so the implementations have a
+contract to meet.
 
 ## Contents
 
@@ -92,12 +93,19 @@ A `for v := range ch` loop is a sequence of receives.
 A channel is reference counted with an atomic count (language spec section 4.8). The release of the last
 reference is synchronised before the channel's memory is freed, so freeing never races with a puroutine
 that still held a reference. Owners still buffered at that point are dropped after that release and before
-the memory is freed, on the puroutine that released the last reference.
+the memory is freed, on the puroutine that released the last reference. Until channel references are
+counted, a program frees a channel with `alloc.FreeChan` (language spec section 4.8), and must make
+every other use of the channel happen before that call, as for any other `Free`; the channel's lock
+orders a `FreeChan` after the operations that completed on it.
+
+The hosted runtime implements channels as Go does: each channel has a lock, and an operation that pairs
+with a waiting puroutine copies the value directly into the waiter's frame under that lock, before it
+makes the waiter runnable, so the guarantees above follow from the lock and from section 3.6.
 
 ### 3.4 `pluto/sync`
 
-`pluto/sync` provides `Mutex`, `RWMutex`, `WaitGroup` and `Once` over the scheduler (status: planned).
-Their guarantees are Go's:
+`pluto/sync` provides `Mutex`, `RWMutex`, `WaitGroup`, `Once` and `Cond` over the scheduler, built on
+atomics, a runtime lock per wait queue, and `rt.Park` and `rt.Ready`. Their guarantees are Go's:
 
 - **Mutex.** For any `sync.Mutex` `l` and *n* < *m*, the *n*-th call of `l.Unlock()` is synchronised
   before the *m*-th call of `l.Lock()` returns. A successful `TryLock` is a `Lock`; a failed one is not
@@ -317,9 +325,13 @@ in write-combining memory, and on weakly ordered architectures.
 
 ### 6.3 A kernel's own scheduler
 
-A freestanding program installs its scheduler with `rt.SetScheduler` (language spec section 4.7). Every
-scheduler must provide the guarantees of section 3.6, because channels, `pluto/sync` and `go` statements
-rely on them for section 3. Concretely, a kernel scheduler must:
+A freestanding program binds its scheduler backend at link time with `//pu:scheduler` (language spec
+section 4.7; abi.md section 12). Every backend must provide the guarantees of section 3.6, because
+channels, `pluto/sync` and `go` statements rely on them for section 3. The runtime does part of the
+work: `rt.Switch` saves the context completely and is a compiler barrier, clears the old context's
+`onCPU` flag with a release once it is saved, and waits for the new one's flag with an acquire, so no
+processor resumes a task another is still saving; the park permit orders `rt.Ready` before the return
+from `rt.Park`; and `rt.Preempt` saves the interrupted state. Concretely, a kernel's backend must:
 
 1. **Publish new puroutines safely.** Pushing a puroutine onto a run queue (its own processor's, or
    another's for work stealing) must be a release, and taking one off must be an acquire: use a lock or
@@ -337,7 +349,8 @@ rely on them for section 3. Concretely, a kernel scheduler must:
 5. **Keep its own critical sections non-preemptible.** Scheduler and allocator locks disable preemption
    (and, where an interrupt handler can take the same lock, interrupts) for their duration.
 
-A scheduler that meets these rules gives puroutines the same memory model as the hosted scheduler.
+A scheduler that meets these rules gives puroutines the same memory model as the hosted scheduler. Rules
+3 and 4 are met by switching only with `rt.Switch` and preempting only through `rt.Preempt`.
 
 ### 6.4 Per-CPU data
 
