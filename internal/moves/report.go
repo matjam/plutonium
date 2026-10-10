@@ -294,7 +294,7 @@ func (c *checker) dropDiag(se *ast.SelectorExpr, k dropKind) *diag.Diagnostic {
 		}
 		d = c.newDiag(se.Pos(), diag.DropThroughView, "cannot call %s.Drop(): %s is %s, which only points at %s that something else owns", x, x, article(c.typeName(xt)), article(c.typeName(el)))
 		d.Text = fmt.Sprintf("Drop releases what an owner holds. The %s %s points to belongs to another variable or place, which will drop it when its life ends, so dropping it here would release it twice.", c.typeName(el), x)
-		d.Fix = &diag.Fix{Intro: "To end an owner's life early, call Drop on the variable that holds it; it cannot be used afterwards", Code: "f.Drop()"}
+		d.Fix = &diag.Fix{Intro: "To end an owner's life early, call Drop on the variable that holds it; it cannot be used afterwards", Code: fmt.Sprintf("v.Drop() // v is the %s variable itself", c.typeName(el))}
 		d.More = []*diag.Fix{{Intro: "To leave an empty value behind instead", Code: fmt.Sprintf("old := take(%s)", x)}}
 	case dropField:
 		d = c.newDiag(se.Pos(), diag.DropThroughView, "cannot call %s.Drop(): %s is part of another value, which drops it when it is dropped", x, x)
@@ -318,7 +318,11 @@ func (c *checker) copyDiag(e *ast.CallExpr, elem types2.Type, what string) *diag
 	d.Text = fmt.Sprintf("%s duplicates elements, and duplicating an owner would leave two values that both release what it owns.", what)
 	src := "src"
 	if len(e.Args) == 2 {
-		src = exprText(e.Args[1])
+		a := ast.Unparen(e.Args[1])
+		if sl, ok := a.(*ast.SliceExpr); ok && sl.Low == nil && sl.High == nil {
+			a = sl.X // s[:] is s, element for element
+		}
+		src = exprText(a)
 	}
 	d.Fix = &diag.Fix{Intro: "Move the elements one at a time", Code: fmt.Sprintf("for i := range %s {\n\tdst[i] = take(&%s[i])\n}", src, src)}
 	if hasClone(elem) {
@@ -360,6 +364,6 @@ func (c *checker) indexDiag(e *ast.IndexExpr) *diag.Diagnostic {
 	d := c.newDiag(e.Pos(), diag.IndexOwner, "cannot read %s: the elements of %s are owners, and %s would be a copy", exprText(e), x, exprText(e))
 	d.Text = fmt.Sprintf("%s on %s calls its Index method, which returns a copy of the element. %s is an owner type, so the copy would be a second owner of what the element owns.", exprText(e), c.typeName(c.typeOf(e.X)), c.typeName(T))
 	d.Fix = &diag.Fix{Intro: "To look at the element, use a method that returns a pointer to it", Code: fmt.Sprintf("p := %s.Ptr(%s)", x, exprText(e.Index))}
-	d.More = []*diag.Fix{{Intro: "To move it out, use a method that removes or replaces it, or take it through such a pointer", Code: fmt.Sprintf("v := take(%s.Ptr(%s))", x, exprText(e.Index))}}
+	d.More = []*diag.Fix{{Intro: "To move it out, use a method that removes or replaces it, or take it through such a pointer", Code: fmt.Sprintf("elem := take(%s.Ptr(%s))", x, exprText(e.Index))}}
 	return d
 }

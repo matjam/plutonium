@@ -120,7 +120,7 @@ allocator otherwise (with four arguments the last is always the allocator). Memo
 before `alloc.SetDefault`, the allocation panics with "no allocator" (section 7.2); a nil allocator
 argument panics too.
 
-**What they return (proposal, needs sign-off).** Every allocation needs an owner or an arena (section
+**What they return (approved; not implemented yet: `new` still returns `*T` and `make` a slice).** Every allocation needs an owner or an arena (section
 6.6), so `new` and `make` return owners:
 
 - `new(T)` and `new(v)` return an `owned[T]` (section 5.6): the single owner of the new variable, which
@@ -172,7 +172,8 @@ package initialization, so a conversion there copies the value into static stora
 `var ErrBad error = parseError{line: 1}` and `var names any = []string{"a", "b"}` are valid. The same
 holds for `&T{...}` and slice literals in package-level initializers, which also get static storage.
 
-**Owners in interfaces (proposal, needs sign-off).** An interface value has no static owner kind of its
+**Owners in interfaces (approved; owning interfaces can be declared, and lending to ordinary interfaces
+is checked, but an owning interface cannot be dropped yet).** An interface value has no static owner kind of its
 own, so the kind comes from the interface type:
 
 - An **ordinary interface** (`any`, `error`, `io.Reader`, any interface type not declared `owner`) never
@@ -1660,25 +1661,35 @@ func framebuffer(info *BootInfo) []uint32 {
 
 Ownership and escape errors are written for a reader who has not read this section. Each one says what
 happened in plain words, explains the idea it relies on, names the related line, shows fixes as code, and
-points here. The texts below are exact, with the names, types and positions of the example filled in; the
-fixes shown depend on the case and are chosen from those listed with each message.
+points here. Every message has a code from E3000 to E3999, and `pluto explain` prints the long form.
 
-**Returning a pointer to a local variable.**
+The compiler's exact output for each implemented message is pinned by the programs and expected
+output in `cmd/pluto/testdata/diag/escape`, `owners`, `moves` and `moves_more`; the first example below
+is copied from there. The others show what each message says and which fixes it offers, in the same
+form; their wording in the compiler can differ in detail. Messages marked *(planned)* belong to rules
+that are not enforced yet (sections 6.3 and 6.5).
+
+**Returning a pointer to a local variable** (E3001).
 
 ```
-config.p:7:9: cannot return &x, a pointer to a local variable
-    x is a local variable of load (declared at config.p:4). Its memory is
-    reclaimed when load returns, so a pointer to it would point at memory that
-    no longer holds x. Plutonium never moves a variable to the heap because its
-    address is taken.
-    To give the value to the caller, return it instead. This moves it, which is free:
-        return x
+main.p:25:9: cannot return &c, a pointer to a local variable
+    &c is a pointer to c. c is a local variable of load (declared at main.p:23).
+    Its memory is reclaimed when load returns, so &c would point at memory that
+    no longer holds c.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    To give the value to the caller, return it instead. This copies it, or moves
+    it if it is an owner:
+        return c
     To keep it at a fixed address after load returns, allocate it:
-        x := new(Config)        // an owned[Config]; change the result type to match
-    (see "Ownership" in the language spec, section 6.3)
+        c := new(Config)
+    (see "Views" in the Plutonium spec, section 6.3)
+    (run "pluto explain E3001" for a longer explanation)
 ```
 
-**Returning a view of a local array or a local owner.**
+**Returning a view of a local owner** *(planned; a slice of a local array is E3001 today)*.
 
 ```
 names.p:12:9: cannot return b.String(), which points into b, a local variable
@@ -1698,7 +1709,7 @@ names.p:12:9: cannot return b.String(), which points into b, a local variable
 The same message with `a slice of buf, a local array` and the fix `return a vec.Vec[byte]` (or "copy the
 bytes into a buffer the caller passes in: copy(dst, buf[:n])") is given for `return buf[:n]`.
 
-**Storing a view where it outlives its target.**
+**Storing a view where it outlives its target** (E3002).
 
 ```
 cache.p:21:12: cannot store &e in c.entries, which outlives e
@@ -1718,7 +1729,7 @@ cache.p:21:12: cannot store &e in c.entries, which outlives e
 Storing in a package-level variable reads `cannot store &e in package variable last, which outlives e`
 with "package variables live for the whole program" in place of the second sentence.
 
-**Passing a view to a function that keeps it.**
+**Passing a view to a function that keeps it** (E3003).
 
 ```
 main.p:12:12: cannot pass buf[:n] to cache.Put, which keeps it after returning
@@ -1732,7 +1743,7 @@ main.p:12:12: cannot pass buf[:n] to cache.Put, which keeps it after returning
     (see "Ownership" in the language spec, section 6.3)
 ```
 
-**Passing a view of the frame to a puroutine or a channel.**
+**Passing a view of the frame to a puroutine or a channel** (E3004, E3005).
 
 ```
 srv.p:30:13: cannot pass &req to a go statement: the new puroutine may outlive req
@@ -1747,7 +1758,8 @@ srv.p:30:13: cannot pass &req to a go statement: the new puroutine may outlive r
 For a send the first line is `cannot send &req on ch: the receiver may outlive req`, with "the value sent
 here may be received after serve returns" as the explanation.
 
-**Returning a closure that captures variables.**
+**Returning a closure that captures variables** (E3001; keeping one past a loop iteration is E3006,
+section 4.5).
 
 ```
 count.p:9:9: cannot return the function literal: it uses total, a local variable of counter
@@ -1760,7 +1772,7 @@ count.p:9:9: cannot return the function literal: it uses total, a local variable
     (see "Ownership" in the language spec, section 6.3)
 ```
 
-**Returning an interface that holds a frame copy, or lends an owner.**
+**Returning an interface that holds a frame copy** (E3001)**, or lends an owner** *(planned)*.
 
 ```
 parse.p:40:10: cannot return err, an interface holding a copy of a ParseError in parse's frame
@@ -1779,7 +1791,7 @@ variable`, the explanation is "converting an owner to an ordinary interface lend
 looks at b, and b is dropped when f returns", and the fixes are "return b itself" and "declare an owning
 interface (type Resource owner interface {...}) to move b into it".
 
-**Using a variable after it was moved.**
+**Using a variable after it was moved** (E3101).
 
 ```
 main.p:14:2: m was moved to n at line 12, so it can no longer be used here
@@ -1807,7 +1819,7 @@ analysis:
 - when the later use only looks at `m` and nothing between the two lines changes it: "This is m's last
   use. Move it before line 12 and no copy is needed:" followed by the reordered lines.
 
-**Using a variable that may have been moved.**
+**Using a variable that may have been moved** (E3102).
 
 ```
 main.p:20:5: b may have been moved at line 15, so it cannot be used here
@@ -1825,7 +1837,7 @@ main.p:20:5: b may have been moved at line 15, so it cannot be used here
 In a loop the first line is `b was moved to out at line 9 in the previous iteration of this loop`, and the
 fixes are "declare b inside the loop so that each iteration has its own" and "b.Clone()".
 
-**Moving out of a field, an element or through a pointer.**
+**Moving out of a field, an element or through a pointer** (E3103; the range loop is E3104).
 
 ```
 tree.p:31:10: cannot move n.left out of n: n.left is a field, not a variable
@@ -1850,7 +1862,7 @@ owner type`, and the fix is
         }
 ```
 
-**Moving a captured variable inside a function literal.**
+**Moving a captured variable inside a function literal** (E3105).
 
 ```
 job.p:17:8: cannot move b inside a function literal: the literal may run more than once, or never
@@ -1863,7 +1875,7 @@ job.p:17:8: cannot move b inside a function literal: the literal may run more th
     (see "Ownership" in the language spec, section 6.4)
 ```
 
-**Using a view after its owner is gone.**
+**Using a view after its owner is gone** *(planned)*.
 
 ```
 main.p:16:14: s cannot be used here: it looks at b's bytes, and b was moved at line 15
@@ -1889,7 +1901,7 @@ main.p:8:7: s would look at a temporary that is dropped at the end of this state
     (see "Ownership" in the language spec, section 6.4)
 ```
 
-**A deferred call that uses an owner from an inner block.**
+**A deferred call that uses an owner from an inner block** (E3111).
 
 ```
 main.p:11:9: the deferred call uses b, which is dropped at the end of its block (line 14)
@@ -1901,7 +1913,7 @@ main.p:11:9: the deferred call uses b, which is dropped at the end of its block 
     (see "Ownership" in the language spec, section 6.4)
 ```
 
-**A `Drop` method on a type not declared owner.**
+**A `Drop` method on a type not declared owner** (E3201; a `Drop` with parameters or results is E3206).
 
 ```
 file.p:9:1: File has a Drop method but is not declared owner
@@ -1920,7 +1932,7 @@ A `Drop` with parameters or results reads `Drop must have no parameters and no r
 the compiler calls it with nothing and ignores any result; if the method is not meant as a destructor, the
 fix is to rename it.
 
-**An owner field in a struct not declared owner.**
+**An owner field in a struct not declared owner** (E3202; in a struct type without a name, E3203).
 
 ```
 conn.p:4:2: Conn must be declared owner: its field buf is a strings.Buf, which is an owner
@@ -1941,7 +1953,7 @@ The same message covers an embedded owner (`its embedded field Buf`), an array o
 pages is a [4]Frame, an array of owners`), an interface embedding an owning interface, and `type B A`
 (`B is defined from A, which is an owner; write type B owner A`).
 
-**`owner` where it is not allowed.**
+**`owner` where it is not allowed** (E3204; on an alias, E3205).
 
 ```
 kind.p:3:11: owner cannot qualify an enum type
@@ -1959,7 +1971,7 @@ For other kinds the first line names them (`owner cannot qualify a slice type`),
 slice is a view, and the fix is the same wrapper struct. `owner` outside a type definition reads `owner can
 only be used in a type definition: type T owner struct {...}`.
 
-**Calling `Drop` through a view.**
+**Calling `Drop` through a view** (E3107).
 
 ```
 pool.p:22:2: cannot call p.Drop(): p is a *File, which only points at a File that something else owns
@@ -1974,7 +1986,7 @@ pool.p:22:2: cannot call p.Drop(): p is a *File, which only points at a File tha
     (see "Ownership" in the language spec, section 6.4)
 ```
 
-**An owner type for a type parameter that does not allow owners.**
+**An owner type for a type parameter that does not allow owners** (E3207).
 
 ```
 main.p:10:12: cannot use strings.Buf as T in Fill: strings.Buf is an owner and T does not allow owners
@@ -1989,7 +2001,8 @@ main.p:10:12: cannot use strings.Buf as T in Fill: strings.Buf is an owner and T
     (see "Ownership" in the language spec, section 6.4)
 ```
 
-**Duplicating owners with `copy` or `append`.**
+**Duplicating owners with `copy` or `append`** (E3106; owners as variadic arguments are E3110, in a slice
+literal E3112, and `x[k]` on a container of owners E3109).
 
 ```
 main.p:7:2: cannot copy elements of type strings.Buf: each element is an owner
@@ -2002,7 +2015,7 @@ main.p:7:2: cannot copy elements of type strings.Buf: each element is an owner
     (see "Ownership" in the language spec, section 6.4)
 ```
 
-**Taking an owner out of an ordinary interface.**
+**Taking an owner out of an ordinary interface** (E3108).
 
 ```
 main.p:19:7: cannot assert x to strings.Buf: x is an any, which only lends the value it holds
@@ -2016,7 +2029,7 @@ main.p:19:7: cannot assert x to strings.Buf: x is an any, which only lends the v
     (see "Ownership" in the language spec, section 6.4, and section 4.4)
 ```
 
-**A `shared[T]` crossing puroutines.**
+**A `shared[T]` crossing puroutines** *(planned)*.
 
 ```
 worker.p:22:12: cannot pass s to a go statement: shared[Stats] can only be used by one puroutine
@@ -2714,7 +2727,7 @@ comparable. `errors.As` is generic, `func As[E any](err error, target *E) bool`,
 that I/O does not allocate. `strconv` reports `ErrSyntax` and `ErrRange` without Go's `*NumError`. An
 `Errno` the table does not know reports `"unknown error"`.
 
-### 14.6 Allocated errors and ownership (proposal, needs sign-off)
+### 14.6 Allocated errors and ownership (approved; not implemented yet)
 
 Section 6.6 requires every allocation to have an owner or an arena. An allocated error as section 14.3
 describes it has neither when the default allocator is the general heap: `error` is an ordinary interface,
