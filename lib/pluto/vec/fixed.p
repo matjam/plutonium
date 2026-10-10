@@ -44,6 +44,8 @@ func NewFixed[T any](storage []T) Fixed[T] {
 
 // Push appends x if there is room, and otherwise drops it and records the
 // truncation.
+//
+//pu:inline
 func (f *Fixed[T]) Push(x T) {
 	n := len(f.data)
 	if n == cap(f.data) {
@@ -68,6 +70,8 @@ func (f *Fixed[T]) TryPush(x T) bool {
 
 // Append appends as many of xs as fit, and records a truncation if any are
 // dropped.
+//
+//pu:inline
 func (f *Fixed[T]) Append(xs ...T) {
 	n := len(f.data)
 	k := copy(f.data[n:cap(f.data)], xs)

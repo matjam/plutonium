@@ -132,6 +132,8 @@ func (v *Vec[T]) Last() (T, bool) {
 }
 
 // Push appends x.
+//
+//pu:inline
 func (v *Vec[T]) Push(x T) {
 	n := len(v.data)
 	if n == cap(v.data) {
@@ -142,6 +144,8 @@ func (v *Vec[T]) Push(x T) {
 }
 
 // Append appends the elements of xs. xs must not be a view of v itself.
+//
+//pu:inline
 func (v *Vec[T]) Append(xs ...T) {
 	n := len(v.data)
 	if cap(v.data)-n < len(xs) {
