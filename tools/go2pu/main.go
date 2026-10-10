@@ -17,7 +17,9 @@
 //
 // Constructs it cannot translate (closures and interface values that escape
 // their frame, recover, reflection, goroutines, maps modified while ranged
-// over) are marked with a "go2pu:" comment and listed on standard error.
+// over) are marked with a "go2pu:" comment and listed on standard error, as
+// are string literals that are not valid UTF-8: binary data kept in a
+// string, which Plutonium strings cannot hold (language spec section 6.10).
 //
 // Usage:
 //

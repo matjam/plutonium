@@ -5,7 +5,9 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // rewrite returns the translation of n if n itself needs one, and false if
@@ -15,6 +17,8 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 		return s, true
 	}
 	switch n := n.(type) {
+	case *ast.BasicLit:
+		t.checkBinaryString(n)
 	case *ast.Ident:
 		if t.isHeapUse(n) {
 			if sel, ok := t.parent[n].(*ast.SelectorExpr); ok && sel.X == n {
@@ -113,6 +117,22 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// checkBinaryString notes a string literal that holds bytes that are not
+// valid UTF-8: Go code keeping binary data in a string, which Plutonium
+// rejects, since every string holds valid UTF-8 (language spec section
+// 6.10). A conversion string(b) of such bytes would replace them with
+// U+FFFD, so the data belongs in a []byte.
+func (t *fileTr) checkBinaryString(lit *ast.BasicLit) {
+	if lit.Kind != token.STRING {
+		return
+	}
+	s, err := strconv.Unquote(lit.Value)
+	if err != nil || utf8.ValidString(s) {
+		return
+	}
+	t.note(lit, "string literal %s is not valid UTF-8: keep binary data in a []byte", lit.Value)
 }
 
 // qualified handles a reference to a name of an imported package.

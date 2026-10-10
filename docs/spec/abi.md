@@ -45,7 +45,7 @@ Sizes and alignments follow Go's gc compiler on amd64. `int`, `uint`, `uintptr` 
 | `int64`, `uint64`, `int`, `uint`, `uintptr`, `float64` | 8 | 8 | |
 | `*T`, `unsafe.Pointer`, `owned[T]`, `shared[T]`, `synced[T]`, `weak[P]` | 8 | 8 | address |
 | func value | 8 | 8 | address of a closure record (section 4) |
-| `string` | 16 | 8 | `{ptr *byte, len int}` |
+| `string` | 24 | 8 | `{ptr *byte, len int, ctl uintptr}` (section 1.1) |
 | `[]T` | 24 | 8 | `{ptr *T, len int, cap int}` |
 | interface | 16 | 8 | `{tab, data}` (section 5) |
 | `[N]T` | N × size(T) | align(T) | |
@@ -79,6 +79,41 @@ Package-level variables are in `.data` (constant initialiser, written into the i
 arrays and structs whose elements are constants), `.bss` (no initialiser, or one computed by the package
 initialiser), `.percpu` (`//pu:percpu`, section 10.6) or the section named by `//pu:section`. Read-only
 data (string bytes, type descriptors, itabs, closure records) is in `.rodata`.
+
+### 1.1 Strings
+
+A string (language spec section 6.10) is three words:
+
+| Offset | Field | |
+|---|---|---|
+| 0 | `ptr *byte` | the first byte; may be nil for the empty string |
+| 8 | `len int` | the length in bytes |
+| 16 | `ctl uintptr` | the control word: the address of the buffer's header, or'ed with the flags |
+
+The flags are the control word's low three bits. Bit 0 (`nonASCII`) is set when the string may hold a
+byte at or above `0x80`; when it is clear every byte is ASCII. Bits 1 and 2 are reserved and zero. A
+control word below 8 has no header: the string is not counted (a literal, a constant, the zero string,
+a view made with `unsafe.String`, or a string the runtime keeps in static storage), and copying or
+dropping it does nothing. The zero string has a zero control word.
+
+A counted string's bytes follow a 32-byte header, 8-aligned, at the start of an allocation from the
+allocator that was current when the string was made:
+
+| Offset | Field | |
+|---|---|---|
+| 0 | `count int64` | references: one per string value that uses the buffer |
+| 8 | `a Allocator` | the allocator the buffer came from (an interface, two words) |
+| 24 | `size uintptr` | the allocation's size, the header included |
+
+Substrings share the header: `s[i:j]` keeps `ctl` and moves `ptr`. Copying a counted string adds one to
+`count` and dropping it subtracts one (`pluto/rt.strRetain` and `strRelease`, expanded inline); the
+release that reaches zero frees the allocation to `a`. The count is updated with plain arithmetic until
+the program calls `rt.SetThreaded`, and with `lock xadd` after; freestanding programs use `lock xadd`
+from the start (memory-model.md section 3.7).
+
+Static strings in data (a package variable initialised with a constant, a type name in a descriptor, an
+enum's names) are written as all three words, with a control word that holds only the flags, computed
+when compiling.
 
 ## 2. Registers
 
@@ -115,7 +150,7 @@ booleans, pointers and floats, each with its offset in the value.
 |---|---|
 | integer, boolean, pointer, func value, `owned`/`shared`/`synced` | 1 |
 | `float32`, `float64` | 1 (float class) |
-| `string` | 2: pointer, length |
+| `string` | 3: pointer, length, control word |
 | slice | 3: pointer, length, capacity |
 | interface | 2: table, data |
 | struct | the leaves of its fields, in order |
@@ -156,10 +191,16 @@ argument (RDI). It points at a caller-owned buffer laid out as a struct whose fi
 order. The callee writes the results there and returns nothing in registers; unlike System V, RAX does
 not hold the buffer address on return.
 
+**Strings across calls.** A string argument is borrowed: the caller keeps its buffer alive for the
+call, and the callee takes a reference only for a copy it keeps. A string result carries one reference,
+which passes to the caller (language spec section 6.10).
+
 ### 3.4 Examples
 
 ```go
-func f(s string, n int) (int, bool)    // RDI=s.ptr RSI=s.len RDX=n      -> RAX=int, RDX=bool
+func f(s string, n int) (int, bool)    // RDI=s.ptr RSI=s.len RDX=s.ctl RCX=n -> RAX=int, RDX=bool
+func j(s string) (string, error)       // RDI,RSI,RDX=s; results have 5 leaves: RDI=sret, RSI,RDX,RCX=s
+                                       //                                  -> nothing
 func g(x, y float64, p *T) float64     // XMM0=x XMM1=y RDI=p             -> XMM0
 func h(b []byte, v Vec3) error         // RDI,RSI,RDX=b; v={x,y,z float64}: XMM0,XMM1,XMM2
                                        //                                  -> RAX=tab, RDX=data
@@ -197,8 +238,8 @@ An interface value is `{tab, data}`.
   bits, or the address. For every other type `data` points at a copy of the
   value in the frame of the function that made the conversion (language spec section 4.4).
 
-Type descriptor, 72 bytes, read-only, named `type:<type>` (mirrored by `pluto/rt.typeDesc`, read through
-`rt.Type`):
+Type descriptor, 80 bytes, read-only, named `type:<type>` (mirrored by `pluto/rt.typeDesc`, read through
+`rt.Type`). Its strings are static (section 1.1):
 
 | Offset | Field | |
 |---|---|---|
@@ -208,20 +249,20 @@ Type descriptor, 72 bytes, read-only, named `type:<type>` (mirrored by `pluto/rt
 | 13 | `flags uint8` | 1 = direct, 2 = interface type with methods (its values hold an itab), 4 = the type has methods |
 | 14 | `align uint8` | alignment in bytes (0 if 256 or more) |
 | 16 | `name string` | the type as Go's `reflect.Type.String` writes it: `main.T`, `[]uint8`, `hash.Map[string,int]`, `interface {}`, `struct { A int }` |
-| 32 | `equal func(a, b unsafe.Pointer) bool` | closure record, or nil if not comparable or direct, or if the type is only part of a converted type |
-| 40 | `elem *typeDesc` | element type of an array, slice or ring; the type a pointer, `owned`, `shared`, `synced` or `weak` points at; nil otherwise |
-| 48 | `len uintptr` | array length, ring capacity, or number of struct fields |
-| 56 | `fields *fieldDesc` | the struct's field descriptors, `len` of them; nil otherwise |
-| 64 | `ptrTo *typeDesc` | the descriptor of `*T` when `*T` has methods that `T` lacks; nil otherwise |
+| 40 | `equal func(a, b unsafe.Pointer) bool` | closure record, or nil if not comparable or direct, or if the type is only part of a converted type |
+| 48 | `elem *typeDesc` | element type of an array, slice or ring; the type a pointer, `owned`, `shared`, `synced` or `weak` points at; nil otherwise |
+| 56 | `len uintptr` | array length, ring capacity, or number of struct fields |
+| 64 | `fields *fieldDesc` | the struct's field descriptors, `len` of them; nil otherwise |
+| 72 | `ptrTo *typeDesc` | the descriptor of `*T` when `*T` has methods that `T` lacks; nil otherwise |
 
-Field descriptor, 40 bytes, an array of them per struct type named `typefields:<type>`:
+Field descriptor, 48 bytes, an array of them per struct type named `typefields:<type>`:
 
 | Offset | Field | |
 |---|---|---|
 | 0 | `typ *typeDesc` | the field's type (without `volatile` or `aligned`) |
 | 8 | `offset uintptr` | byte offset in the struct |
 | 16 | `name string` | the field's name; empty when the build strips names |
-| 32 | `flags uint8` | 1 = exported, 2 = embedded |
+| 40 | `flags uint8` | 1 = exported, 2 = embedded |
 
 Descriptors are emitted only for types converted to an interface and for the types they are made of: the
 element, pointee and field types of a descriptor, and `*T` when `ptrTo` is set, have descriptors too, so
@@ -232,9 +273,9 @@ Field names are kept unless the build passes `--fieldnames=false`; they are left
 mode (`--mode kernel`, where `--fieldnames=true` keeps them), since a kernel image rarely prints `%+v`.
 Without names, `%+v` and `%#v` print fields as `%v` does.
 
-The descriptor of a union (kind 30) is 96 bytes, continuing with the payload's offset (`uintptr` at 72), a
-pointer to a table of the variants in tag order (at 80) and their number (`int` at 88). Each table entry is
-32 bytes: the variant's name (`string`), its payload's type descriptor (nil for a variant without a
+The descriptor of a union (kind 30) is 104 bytes, continuing with the payload's offset (`uintptr` at 80),
+a pointer to a table of the variants in tag order (at 88) and their number (`int` at 96). Each table entry
+is 40 bytes: the variant's name (`string`), its payload's type descriptor (nil for a variant without a
 payload) and a word that is 1 when the payload is an empty interface and 2 when it is another interface.
 `pluto/rt.UnionInfo` reads them, and `fmt` prints a union with them.
 
@@ -375,7 +416,7 @@ aligned stack with the direction flag clear.
 | further scalar arguments | 8-byte stack slots in order | same | yes |
 | one or two scalar results | RAX, RDX / XMM0, XMM1 | same | yes |
 | three or four scalar results | RCX, RSI / XMM2, XMM3 | memory | **internal only** |
-| strings, slices, interfaces, small structs as arguments | flattened to leaves | classified by eightbyte | **internal only** (a string happens to match, a slice does not) |
+| strings, slices, interfaces, small structs as arguments | flattened to leaves | classified by eightbyte | **internal only** |
 | aggregates with more than 4 leaves | pointer to caller copy | copied onto the stack | **internal only** |
 | aggregate results | leaves in up to 4 registers, or sret | eightbyte classes, or sret returned in RAX | **internal only** |
 | closure context | RAX | none | **internal only** |
@@ -422,11 +463,13 @@ an export is a second symbol on the same code, as before. Otherwise lowering cla
   (C varargs are not supported); generic functions; `//pu:extern` on a function with a body; and two
   wrapped exports of the same name.
 
-Strings and slices were rejected rather than passed as their `{ptr, len[, cap]}` structs because no C
-declaration of a function taking `const char *, size_t` would match: a string would happen to arrive in
-the same two registers, but a 24-byte slice is a MEMORY struct copied to the stack, and either would make
-a mistake in the C prototype silent. Behind a pointer, a struct containing strings or slices may be
-shared with C, with the layout of section 1.
+Strings and slices were rejected rather than passed as their structs because no C declaration of a
+function taking `const char *, size_t` would match: both are 24-byte MEMORY structs copied to the stack,
+which would make a mistake in the C prototype silent. Strings stay rejected now that they are counted:
+C code that kept a string, or a copy of its words, would hold a reference the count does not know about.
+Pass `unsafe.StringData(s)` and `len(s)`, and keep the string alive in Plutonium for as long as C uses the
+bytes. Behind a pointer, a struct containing slices may be shared with C, with the layout of section 1; one
+containing strings may be read by C but not copied or stored by it.
 
 An export whose signature needs translating gets a **wrapper** named by the export: an `ABIC` function
 that takes System V arguments, calls the Plutonium function with the internal ABI and returns System V

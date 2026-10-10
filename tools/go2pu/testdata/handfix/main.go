@@ -64,6 +64,7 @@ func main() {
 	var buf [8]byte
 	binary.BigEndian.PutUint32(buf[:], 1)
 	r := []rune("é")
+	magic := "\x7fELF\xff" // binary data in a string
 	host, _ := os.Hostname()
-	fmt.Println(x, <-ch, fail(), safe(), len(r), host != "", complex(1, 2))
+	fmt.Println(x, <-ch, fail(), safe(), len(r), host != "", complex(1, 2), len(magic))
 }

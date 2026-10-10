@@ -56,7 +56,8 @@ later takes the next free number and is listed in the section where it belongs.
     The library conventions and `errors.New` as a static error per call site (design 9.1) are done; the
     escape checks of item 5 remain. Reconciling allocated errors with the ownership model is
     **proposed** (language spec section 14.6): they become `synced` objects that `error` values count, so
-    each is released exactly once and `errors.Free` goes away.
+    each is released exactly once and `errors.Free` goes away. With counted strings (item 56) an error's
+    text is a string it keeps: `fmt.Errorf`'s message, `*os.PathError`'s path.
 12. **`//pu:extern` C struct classification** (done): System V eightbyte classification for aggregate
     parameters and results, hidden result pointers, several results as a struct, export wrappers and
     func-value thunks (abi.md section 9.1); `.c` and `.o` files in packages are linked (section 9.2).
@@ -170,6 +171,41 @@ later takes the next free number and is listed in the section where it belongs.
     - owning interfaces (`type R owner interface {...}`) that move owners in, and ordinary interfaces that
       lend them (section 4.4);
     - counted allocated errors (section 14.6; item 11).
+56. **Counted strings** (done; language spec section 6.10, abi.md section 1.1, memory-model.md section
+    3.7): `string` is an immutable, reference-counted value of three words, `{ptr, len, ctl}`, whose
+    control word points at the buffer's header (count, allocator, size) or holds only flags for a static
+    or `unsafe.String` string, which is never counted. Runtime `+` and `+=` (one allocation for a chain),
+    `string(b)`, `string(runes)`, `string(r)`, `[]byte(s)` and `[]rune(s)` work again; every string is
+    valid UTF-8 (invalid literals are errors, conversions replace with U+FFFD, `s[i:j]` panics inside a
+    rune, `strings.FromUTF8` is strict), and bit 0 of the control word marks strings that may hold
+    non-ASCII bytes. Lowering counts with drop glue kept apart from the ownership work
+    (`internal/lower/strcount.go`, `strscope.go`, `strops.go`, `strelide.go`): stores retain then
+    release, parameters are borrowed and results owned, temporaries are released at the end of their
+    statement, variables on every path out of their scope, frame slots when the function returns.
+    `rt.ReleaseValues`, `RetainValues`, `MoveValues` and `HoldsStrings` give containers the drop glue;
+    `vec.Vec`, `hash.Map`, `hash.Set`, `alloc.Free`, `flag.FlagSet` and the error types release their
+    strings. `fmt.Sprintf`, `strconv.Itoa`, `strings.Join` and the rest return strings again, as do
+    `os.Getwd`, `filepath.Join` and `time.Duration.String`, with `Append` forms kept. In kernel mode the
+    allocating operations need `//pu:alloc` (E2543, E2544). Measured (2026-10-10, `bench`, Pu/Rust
+    geomean): 1.03 before, 1.00 after, within the noise of a busy machine, since no benchmark builds
+    strings in its loop. On a loop that passes struct fields to a search function, removing holds that
+    no call can release (`opt.ElideStringHolds`) saves about 30%; atomic counts make a loop that stores
+    a heap string five times slower than plain ones, which is why counts stay plain until
+    `rt.SetThreaded`. Remaining:
+    - the scheduler of item 14 must call `rt.SetThreaded` before its second thread runs, and puroutine
+      tests must cover strings sent between puroutines;
+    - interface boxes hold their string until the function returns; a box used only as a call's argument
+      could be a statement temporary;
+    - `(string, error)` has five leaves and returns through memory; a sixth result register would keep
+      it in registers;
+    - elision through calls whose targets are known only as a set (interfaces, func values), and biased
+      counting for strings confined to one puroutine once there are several;
+    - Linux file names are bytes, not necessarily UTF-8: `os.ReadDir` still returns them as views made
+      with `unsafe.String` (arguments and environment are checked and replaced). Whether such names
+      become `[]byte`, a separate path type, or are refused needs a decision;
+    - `tools/go2pu` and `selfhost/compat` can drop the helpers for what is native now (`compat.Concat`,
+      `String`, `Bytes`, `RuneString`, `Join`, `Sprintf`, `selfhost/pu.Sprintf` and `internal/pu.Sprintf`
+      returning a `Buf`), and translate `fmt.Sprintf` to `pluto/fmt`.
 
 ## Tooling
 
@@ -219,29 +255,26 @@ later takes the next free number and is listed in the section where it belongs.
     back to the same value, in strconv's `g` format, as Go's runtime does (`1.5`, `1e+21`, `-0`), for
     float32 at float32 precision. The digits come from Go's unrounded scaling, with integer arithmetic
     and a fixed buffer. Kernel builds print the bits, as `pluto/fmt` does.
-45. **`time`** (in progress): `pluto/time` has `Duration` (with `AppendString` and `ParseDuration`),
+45. **`time`** (in progress): `pluto/time` has `Duration` (with `String`, `AppendString` and `ParseDuration`),
     `Time` in UTC with a monotonic reading, the calendar, `Now`, `Since`, `Until` and a thread-blocking
     `Sleep` (item 54). Time zones, layout-based formatting and timers over the scheduler remain.
 46. **`net`** (planned, hosted): sockets over the epoll poller of item 14.
-47. **`fmt.Sprintf` returns a `strings.Buf`** (planned): settled by the ownership model (language spec
-    section 6.6). `Sprintf` allocates and returns a `strings.Buf`; `Bprintf` keeps formatting into a
-    caller's buffer, as the library already does. Needs item 51, and a way around an import cycle:
-    `pluto/fmt` cannot import `pluto/strings` while the tests of `pluto/strings` import
-    `pluto/testing`, which imports `pluto/fmt` (external test packages, `package strings_test`, would
-    do it). Until then `selfhost/pu.Sprintf` returns a `strings.Builder` for translated code (item 52).
+47. **`fmt.Sprintf` returns a string** (done, with item 56): `Sprintf`, `Sprint` and `Sprintln` return
+    counted strings, built in a counted buffer of `pluto/fmt`'s own, so `fmt` still need not import
+    `pluto/strings`; `Bprintf` keeps formatting into a caller's buffer. `selfhost/pu.Sprintf`, which
+    returns a `strings.Builder` for translated code (item 52), can go (item 56).
 51. **Owner types in the library** (planned; language spec sections 6.4 and 6.6): declare `vec.Vec`,
     `hash.Map`, `hash.Set`, `strings.Builder` and growable arenas `owner`, and turn their `Free` methods
-    into `Drop`; add `strings.Buf`, the owning string buffer (`NewBuf(a)`, a zero value that allocates
-    on first write, `String()` and `Bytes()` views, `Clone`), with `strings.Builder` merged into it; make
-    `os.File` an owner returned by value from `Open`, `Create` and `OpenFile` that closes on drop; add
-    `Clone` to `Vec`, `Map` and `Buf`. Done ahead of the keyword (item 52): `Drop` on `vec.Vec`,
+    into `Drop`; make `os.File` an owner returned by value from `Open`, `Create` and `OpenFile` that
+    closes on drop; add `Clone` to `Vec` and `Map`. (`strings.Buf`, an owning string buffer, is not
+    needed now that strings are counted, item 56: `strings.Builder`'s `String` shares its buffer.) Done ahead of the keyword (item 52): `Drop` on `vec.Vec`,
     `hash.Map`, `hash.Set` and `strings.Builder` (beside `Free`), `Clone` on `Vec`, `Map` and `Set`,
     `Map.At`, zero `Vec`s and `Map`s that take the default allocator when they first grow, and the
     arenas' `New[T]()` and `Slice[T](n)` of section 4.2. `arena.Chunked` (item 54) already releases through `Drop`;
     declaring it `owner` is a one-line change to its type declaration, as it is for `os.DirEntries`,
     `exec.Cmd` and `flag.FlagSet` (item 54). Converting the OS layer: `Open`, `Create`, `OpenFile` and
-    `Pipe` return `os.File` by value; `Getwd`, `MkdirTemp`, `exec.LookPath` and the `filepath`
-    `Append` functions gain forms returning a `strings.Buf`.
+    `Pipe` return `os.File` by value. (`Getwd`, `MkdirTemp`, `exec.LookPath` and the `filepath`
+    functions return strings since item 56.)
 52. **The `pu` mirror package for self-hosting** (done; migrating the compiler to it is not started): a
     Go package `pu` with `Map`, `Vec`, `Buf` and the other library owners, mirroring the Plutonium API,
     which the compiler's Go sources migrate to so that go2pu translates them one to one. Specified as an
@@ -249,7 +282,7 @@ later takes the next free number and is listed in the section where it belongs.
     `internal/pu` has `Vec`, `Map`, `Set`, their iterators, `Buf`, `Sprintf` and `New`, each with a
     `noCopy` marker so that go vet reports copies (Go's use after move). go2pu maps each name to
     `vec.Vec`, `hash.Map`, `hash.Set`, `hash.Iter`, `hash.SetIter` and `strings.Builder` (`strings.Buf` once
-    it exists), `Sprintf` to `selfhost/pu.Sprintf` (until item 47), and `New` to `selfhost/pu.New`, which allocates in the phase arena (the
+    it exists), `Sprintf` to `selfhost/pu.Sprintf` (which `fmt.Sprintf` can replace, item 56), and `New` to `selfhost/pu.New`, which allocates in the phase arena (the
     default allocator the driver installs): under the accepted `new` proposal `new(T)` returns
     `owned[T]`, which a `*T` field cannot hold, so arena allocation is written `pu.New` in Go.
     `TestPuMirrorsLibrary` checks every name and method against the library; the `pudemo` demo prints
@@ -279,15 +312,15 @@ later takes the next free number and is listed in the section where it belongs.
     - OS and process layer (done, Linux): `pluto/os` gains `Stat`/`Lstat`/`File.Stat` (a `FileInfo`
       struct with Go's method names), `ReadFile` (a `vec.Vec[byte]`), `WriteFile`, `ReadDir` (a
       `DirEntries` owner, sorted), `Mkdir`, `MkdirAll`, `Remove`, `RemoveAll`, `Rename`, `Chmod`,
-      `Getwd` and `MkdirTemp` into caller buffers, `Chdir`, `TempDir`, `Pipe`, `LookupEnv`,
+      `Getwd` and `MkdirTemp` (strings, with `Append` forms), `Chdir`, `TempDir`, `Pipe`, `LookupEnv`,
       `Environ`, `Args`, `Process` and `ProcessState`; files open with `O_CLOEXEC`. `pluto/os/exec`
       runs commands with fork and execve, connecting each stream to `/dev/null`, a file, or a pipe
       that `Wait` copies with `poll`; `ExitError` is a word. `pluto/path/filepath`, `pluto/time`
       (item 45), `pluto/flag` and `io.ReadAll` complete it. Errors are `syscall.Errno` and
       `*os.PathError`. Tested by `testdata/lib/osfs.p`, `exec.p` and `time.p` and the `filepath` and
       `flag` package tests. What is left for item 51: `os.File` returned by value as an owner (today
-      `*File` from an allocator, freed with `alloc.Free`), and text results as `strings.Buf` where
-      functions now append to caller buffers. When allocated errors become counted (section 14.6,
+      `*File` from an allocator, freed with `alloc.Free`). Text results are strings since item 56. When
+      allocated errors become counted (section 14.6,
       accepted), the `errors.Free` calls in `os.ReadDir` and `filepath.WalkDir` go away.
     - Constant package (done): `internal/constant`, written in Go for go2pu to translate, has
       go/constant's API with a value-typed `Value` (zero value Unknown) and its own arbitrary-precision

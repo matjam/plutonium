@@ -2034,7 +2034,8 @@ The third word was chosen over two-word forms because substrings must find their
 from the data pointer (at a fixed offset before it) does not work once a substring points into the
 middle of the buffer, and packing a count pointer or an offset into the length word limits strings' length
 and costs a mask on every `len`. The cost of the third word is one more register for each string passed
-or returned, and eight more bytes for each string stored (measured in the roadmap, item 54).
+or returned (a function returning a string and an error returns them in memory), and eight more bytes for
+each string stored; the roadmap (item 55) records what it measured.
 
 **Valid UTF-8.** Every string holds valid UTF-8, as Rust's `str` does.
 
@@ -2055,9 +2056,17 @@ or returned, and eight more bytes for each string stored (measured in the roadma
   `range` on it is undefined. `unsafe.StringData(s)` returns the address of the first byte.
 
 **Conversions.** `[]byte(s)` and `[]rune(s)` copy into memory from the current allocator, exactly as
-`make([]byte, len(s))` would allocate it (section 4.2); the result is a slice, which the program or an
-arena frees. `string(b)`, `string(runes)` and `string(r)` for a non-constant rune make a counted string;
-`string(r)` for an ASCII rune returns a static one-byte string and does not allocate.
+`make([]byte, len(s))` would allocate it, and return what `make` returns (section 4.2): today a slice,
+which the program or an arena frees, and a `vec.Vec[byte]` (`vec.Vec[rune]`) that owns the copy once the
+proposal that `make` returns an owner is adopted, so the two never differ. `string(b)`, `string(runes)`
+and `string(r)` for a non-constant rune make a counted string; `string(r)` for an ASCII rune returns a
+static one-byte string and does not allocate, and a value out of range, of any integer type, gives
+U+FFFD as in Go.
+
+**Interface boxes.** A string converted to an interface is copied into a box in the converting
+function's frame (section 4.4), which holds a reference until the function returns or the same
+conversion runs again. A loop that prints a string therefore keeps the last one alive until the
+function returns; code that must see the memory freed earlier converts in a function of its own.
 
 **Arenas.** A string built while an arena is the current allocator (`defer alloc.Use(&a).Restore()`) has
 its buffer in the arena. Releasing it writes its header, so it must not be used, or dropped, after the
@@ -2079,9 +2088,11 @@ The compiler leaves out the counting that cannot be observed:
 
 - **Parameters** are borrowed (above), so passing a string costs nothing in the common case. When the
   argument is read from memory a call could change (a field reached through a pointer, a slice element, a
-  package variable), the caller keeps a reference for the duration of the call, unless every function
-  that call can reach is known not to drop any string it did not create: the compiler summarises each
-  function after lowering, and removes the reference when the call cannot release it.
+  package variable), the caller holds a reference for the rest of the statement, unless no call made
+  while it is held can release a string: the optimiser (at `-O1` and above) summarises every function of
+  the program, and a function may release one if it drops a string reference, makes a call through a
+  func value or an interface, or calls a function that may. Calls that never return (panics) do not
+  count. Searching, comparing, hashing and other code that only reads strings therefore costs no count.
 - **Static strings** never touch a count, and the compiler skips the call altogether when it knows a
   value is static.
 - **Local copies**: a temporary stored into a variable hands over its reference instead of being copied
