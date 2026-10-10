@@ -41,12 +41,15 @@ type Package struct {
 	Files    []*ast.File
 	Tests    []*ast.File // the _test.p files among Files, for the package under test in LoadTest
 	AsmFiles []AsmFile   // .s files selected by build tags
+	CFiles   []AsmFile   // .c files selected by build tags, compiled with the system C compiler
+	ObjFiles []AsmFile   // .o files selected by file name tags, linked as they are
 	Types    *types2.Package
 	Info     *types2.Info
 	Imports  []*Package
 }
 
-// An AsmFile is an assembly source file belonging to a package.
+// An AsmFile is a file in a package that is not Plutonium source: assembly,
+// C, or an object file.
 type AsmFile struct {
 	Name string // for messages
 	Src  []byte
@@ -372,8 +375,9 @@ func (l *loader) parse(pkg *Package, src source) error {
 		if e.IsDir() || isTest && pkg.Path != l.testPath {
 			continue
 		}
-		isAsm := strings.HasSuffix(name, ".s")
-		if !isAsm && !strings.HasSuffix(name, ".p") {
+		ext := path.Ext(name)
+		isAsm := ext == ".s"
+		if ext != ".s" && ext != ".p" && ext != ".c" && ext != ".o" {
 			continue
 		}
 		if !l.nameMatches(name) {
@@ -382,6 +386,10 @@ func (l *loader) parse(pkg *Package, src source) error {
 		data, err := src.read(name)
 		if err != nil {
 			return err
+		}
+		if ext == ".o" {
+			pkg.ObjFiles = append(pkg.ObjFiles, AsmFile{Name: src.name(name), Src: data})
+			continue
 		}
 		ok, err := l.constraintMatches(data, isAsm)
 		if err != nil {
@@ -393,6 +401,10 @@ func (l *loader) parse(pkg *Package, src source) error {
 		}
 		if isAsm {
 			pkg.AsmFiles = append(pkg.AsmFiles, AsmFile{Name: src.name(name), Src: data})
+			continue
+		}
+		if ext == ".c" {
+			pkg.CFiles = append(pkg.CFiles, AsmFile{Name: src.name(name), Src: data})
 			continue
 		}
 		f, err := parser.ParseFile(l.fset, src.name(name), data, parser.ParseComments)
@@ -435,7 +447,7 @@ var knownSuffixTags = map[string]bool{
 // nameMatches applies file name suffix rules: name_tag.p and name_os_arch.p,
 // and the same before _test.p.
 func (l *loader) nameMatches(name string) bool {
-	base := strings.TrimSuffix(strings.TrimSuffix(name, ".p"), ".s")
+	base := strings.TrimSuffix(name, path.Ext(name))
 	base = strings.TrimSuffix(base, "_test")
 	parts := strings.Split(base, "_")
 	n := len(parts)

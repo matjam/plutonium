@@ -418,12 +418,17 @@ func (check *Checker) singleIndex(expr *indexedExpr) ast.Expr {
 // If the result typ is != Typ[Invalid], index is valid and typ is its (possibly named) integer type.
 // If the result val >= 0, index is valid and val is its constant int value.
 func (check *Checker) index(index ast.Expr, max int64) (typ Type, val int64) {
+	var x operand
+	check.expr(nil, &x, index)
+	return check.indexOperand(&x, max)
+}
+
+// indexOperand is index for an already evaluated operand.
+func (check *Checker) indexOperand(x *operand, max int64) (typ Type, val int64) {
 	typ = Typ[Invalid]
 	val = -1
 
-	var x operand
-	check.expr(nil, &x, index)
-	if !check.isValidIndex(&x, InvalidIndex, "index", false) {
+	if !check.isValidIndex(x, InvalidIndex, "index", false) {
 		return
 	}
 
@@ -438,7 +443,7 @@ func (check *Checker) index(index ast.Expr, max int64) (typ Type, val int64) {
 	v, ok := constant.Int64Val(x.val)
 	assert(ok)
 	if max >= 0 && v >= max {
-		check.errorf(&x, InvalidIndex, invalidArg+"index %s out of bounds [0:%d]", x.val.String(), max)
+		check.errorf(x, InvalidIndex, invalidArg+"index %s out of bounds [0:%d]", x.val.String(), max)
 		return
 	}
 
