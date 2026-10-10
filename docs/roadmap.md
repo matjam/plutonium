@@ -13,7 +13,8 @@ in priority order. Statuses:
 
 The order puts wrong code first (the compiler must never produce it, AGENTS.md rule 4), then what a
 kernel needs, then the concurrency features the spec already promises, then the rest of the language,
-tooling, platforms and libraries.
+tooling, platforms and libraries. Item numbers are stable because other documents cite them; an item added
+later takes the next free number and is listed in the section where it belongs.
 
 ## Wrong code and silent failures
 
@@ -26,9 +27,11 @@ tooling, platforms and libraries.
    sequence of abi.md section 10.4 (item 9).
 4. **`//pu:extern` and `//pu:export` with aggregates** (done): calls and entry points now follow System V
    (item 12), and signatures with no C equivalent are compile errors.
-5. **Escape errors for frame-boxed interfaces and capturing closures** (planned): returning, or storing in
-   a package variable or through a pointer, an interface holding a frame copy or a closure with captures
-   must be a compile error (language spec sections 4.4 and 4.5); today nothing checks it.
+5. **Escape errors for frame views** (planned): returning `&x`, a slice of a local array, an interface
+   holding a frame copy or a closure with captures, or storing one in a package variable, on the heap or
+   through a caller's pointer, or passing it to a function that keeps it, must be a compile error
+   (language spec sections 4.4, 4.5 and 6.3), with the explanatory messages of section 6.9; today nothing
+   checks it. This is the compile-time half of "a view may not outlive what it looks at" (item 20).
 
 ## Kernel enablement
 
@@ -36,7 +39,7 @@ tooling, platforms and libraries.
    packed locations, volatile, interrupt and scheduler rules.
 7. **Kernel mode** (done): `--mode kernel` sets the `kernel` tag and links with a default top-2-GiB
    linker script; floating point is a compile error outside `//pu:fpu` functions, enforced through
-   `ssa.Func.NoSSE` in lowering, the inliner and the backend (language spec section 11.2, abi.md section
+   `ssa.Func.NoSSE` in lowering, the inliner and the backend (language spec section 12.2, abi.md section
    10). `pluto/fmt` formats floats only outside kernel mode. Tested by booting `testdata/kernel/smoke`
    under QEMU with SSE disabled.
 8. **`pluto/arch/x86` intrinsics** (done): every function of abi.md section 10.5 expands inline to an
@@ -51,7 +54,9 @@ tooling, platforms and libraries.
 11. **Error design** (in progress): how errors are made, wrapped and given context without hidden
     allocation, given that frame-boxed interfaces cannot be returned; owned by a dedicated design note.
     The library conventions and `errors.New` as a static error per call site (design 9.1) are done; the
-    escape checks of item 5 remain.
+    escape checks of item 5 remain. Reconciling allocated errors with the ownership model is
+    **proposed** (language spec section 14.6): they become `synced` objects that `error` values count, so
+    each is released exactly once and `errors.Free` goes away.
 12. **`//pu:extern` C struct classification** (done): System V eightbyte classification for aggregate
     parameters and results, hidden result pointers, several results as a struct, export wrappers and
     func-value thunks (abi.md section 9.1); `.c` and `.o` files in packages are linked (section 9.2).
@@ -79,8 +84,22 @@ tooling, platforms and libraries.
 ## Language
 
 19. **Methods with type parameters** (done): merged on 2026-10-09; method values must be instantiated.
-20. **owned, shared, synced and the move checker** (planned): the types exist in the checker; moves,
-    use-after-move errors, `Drop` calls, reference counting and the allocator header word do not.
+20. **Ownership: owners, moves and views** (planned; language spec section 6). Today `owned`, `shared`
+    and `synced` exist in the checker and nothing else does. The work:
+    - `owner` in type definitions and in type parameter constraints, with the placement rules of section
+      6.4 (structs with owner fields must be declared `owner`; `Drop` only on owners; never inferred);
+    - the move checker: moves on assignment, passing, return, send, `go`, field stores and owning
+      interfaces; use-after-move and maybe-moved errors with last-use hints; moving out of places only
+      through `take` or permuting assignments; value receivers that consume;
+    - automatic drops on every path, in reverse declaration order, with drop flags for conditional moves,
+      temporaries dropped at the end of their statement, and fields dropped after the type's `Drop`;
+    - views of local owners: not escaping, and not used after the owner is moved or dropped;
+    - generation checks for heap views (design in progress), the run-time half of "a view may not
+      outlive what it looks at";
+    - the explanatory diagnostics of section 6.9, and the kind of each type (`owner (moves)`, `shared
+      (counted)`, `view`, `value`) in editor hover and `pluto doc`.
+    Item 5 is the compile-time check for frame views. Items 48 to 51 are the counted references, the
+    library and the proposals that go with this item.
 21. **Default parameter values** (done): language spec section 5.1, with the open questions settled
     there (variadic functions, function values, interface methods, generics, `f(g())`). The library's
     `F`/`FIn` pairs are single functions with a trailing allocator defaulting to `alloc.Default()`;
@@ -97,14 +116,31 @@ tooling, platforms and libraries.
     ([proposal](plans/2026-10-09-sum-types-proposal.md), option A accepted) and will reuse the enum's
     member selection, bare case names and exhaustiveness check. Follow-ups: DWARF enumeration types,
     and dropping bounds checks when a dense enum indexes an array of length `len(E)`.
-26. **`alloc.Use` signature** (planned): the spec's `Use(a) (restore func())` cannot be written under
-    section 4.5 (the closure captures the previous allocator and is returned); align the spec with the
-    library's `Use(a) Restore` and `defer alloc.Use(a).Restore()`.
+26. **`alloc.Use` signature** (done): the spec now gives the library's `Use(a) Restore` and
+    `defer alloc.Use(a).Restore()` (language spec section 7.1); `Use(a) (restore func())` could not be
+    written under section 4.5.
 27. **Per-puroutine `alloc.Use`** (planned): the override belongs to the puroutine that installs it; today
     it replaces the program-wide default.
 28. **`defer` in loops** (planned, possibly never): rejected today because it needs unbounded stack.
 29. **`min`/`max` of strings and comparison of large arrays** (planned): rejected with "not supported
     yet".
+48. **Counted references and `weak[P]`** (planned; language spec sections 5.6 and 6.5): the allocation
+    header (allocator, strong and weak counts), increments on copy and decrements on drop with matched
+    pairs removed at last use, `Drop` at zero strong count and the free at zero weak count, the atomic
+    forms for `synced` with the ordering of memory-model.md section 3.7, `weak[P]` conversion and
+    `Upgrade`, and the sendable rule of section 4.7 (no `shared` or `weak[shared]` across puroutines).
+49. **Indexing interface** (planned; language spec section 6.7): `m[k]`, `v[i]`, `v[i] = x` and `len(v)`
+    on library containers through methods such as `Index`, `SetIndex` and `Len`, so that `vec.Vec` and
+    `hash.Map` read like Go's built-in slices and maps while staying owners. The method names, compound
+    assignment (`m[k] += 1`) and `&v[i]` are still to be designed.
+50. **Ownership proposals awaiting sign-off** (proposed):
+    - `new` returns `owned[T]` and `make([]T, ...)` returns `vec.Vec[T]`, with `a.New[T]()` and
+      `a.Slice[T](n)` for arena-owned views (language spec section 4.2);
+    - the predeclared `take(&place)`, which moves out of a field, element or pointer and leaves the zero
+      value (section 6.4);
+    - owning interfaces (`type R owner interface {...}`) that move owners in, and ordinary interfaces that
+      lend them (section 4.4);
+    - counted allocated errors (section 14.6; item 11).
 
 ## Tooling
 
@@ -149,5 +185,16 @@ tooling, platforms and libraries.
     `+1.500000e+000` style.
 45. **`time`** (planned): monotonic and wall clocks, durations, timers over the scheduler.
 46. **`net`** (planned, hosted): sockets over the epoll poller of item 14.
-47. **`fmt.Sprintf` naming** (planned): the spec lists `Sprintf` into a caller's buffer; the library calls
-    it `Bprintf`. Pick one name and update the other.
+47. **`fmt.Sprintf` returns a `strings.Buf`** (planned): settled by the ownership model (language spec
+    section 6.6). `Sprintf` allocates and returns a `strings.Buf`; `Bprintf` keeps formatting into a
+    caller's buffer, as the library already does. Needs item 51.
+51. **Owner types in the library** (planned; language spec sections 6.4 and 6.6): declare `vec.Vec`,
+    `hash.Map`, `hash.Set`, `strings.Builder` and growable arenas `owner`, and turn their `Free` methods
+    into `Drop`; add `strings.Buf`, the owning string buffer (`NewBuf(a)`, a zero value that allocates
+    on first write, `String()` and `Bytes()` views, `Clone`), with `strings.Builder` merged into it; make
+    `os.File` an owner returned by value from `Open`, `Create` and `OpenFile` that closes on drop; add
+    `Clone` to `Vec`, `Map` and `Buf`.
+52. **The `pu` mirror package for self-hosting** (planned): a Go package `pu` with `Map`, `Vec`, `Buf` and
+    the other library owners, mirroring the Plutonium API, which the compiler's Go sources migrate to so
+    that go2pu translates them one to one. Specified as an amendment in
+    [the self-hosting plan](plans/2026-10-09-self-hosting-plan.md), section 11.
