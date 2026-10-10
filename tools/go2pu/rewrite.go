@@ -15,7 +15,19 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 		return s, true
 	}
 	switch n := n.(type) {
+	case *ast.Ident:
+		if t.isHeapUse(n) {
+			if sel, ok := t.parent[n].(*ast.SelectorExpr); ok && sel.X == n {
+				return n.Name, true // x.f and x.m() dereference the pointer themselves
+			}
+			return "(*" + n.Name + ")", true
+		}
+	case *ast.FuncDecl:
+		return t.funcWithHeapParams(n, n.Type, n.Recv, n.Body)
 	case *ast.GenDecl:
+		if s, ok := t.heapVarDecl(n); ok {
+			return s, true
+		}
 		if n.Tok == token.IMPORT {
 			for _, d := range t.file.Decls {
 				if g, ok := d.(*ast.GenDecl); ok && g.Tok == token.IMPORT {
@@ -44,6 +56,7 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 			return t.mapSlot(idx) + n.Tok.String(), true
 		}
 	case *ast.RangeStmt:
+		t.checkHeapRange(n)
 		if t.isMapValue(n.X) {
 			return t.rangeMap(n, ""), true
 		}
@@ -70,15 +83,24 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 		}
 		return t.heapLiteral(n)
 	case *ast.UnaryExpr:
+		if n.Op == token.AND && t.isHeapUse(n.X) {
+			return ast.Unparen(n.X).(*ast.Ident).Name, true // &x of a heap variable is the pointer
+		}
 		if lit, ok := ast.Unparen(n.X).(*ast.CompositeLit); ok && n.Op == token.AND &&
 			t.esc.has(t.fset, n.Pos(), "&", "escapes to heap") {
 			return fmt.Sprintf("%s.New(%s)", t.compat(), t.render(lit)), true
 		}
 	case *ast.FuncLit:
-		if why := t.closureEscape(n); why != "" {
-			t.note(n, "closure escapes its frame (%s): hand-fix", why)
-			return fmt.Sprintf("/* go2pu: closure escapes its frame (%s) */ %s", why, t.splice(n)), true
+		why := t.closureEscape(n)
+		s, ok := t.funcWithHeapParams(n, n.Type, nil, n.Body)
+		if why == "" {
+			return s, ok
 		}
+		t.note(n, "closure escapes its frame (%s): hand-fix", why)
+		if !ok {
+			s = t.splice(n)
+		}
+		return fmt.Sprintf("/* go2pu: closure escapes its frame (%s) */ %s", why, s), true
 	case *ast.ReturnStmt:
 		t.checkReturnBoxes(n)
 	case *ast.GoStmt:
@@ -123,6 +145,11 @@ func (t *fileTr) qualified(sel *ast.SelectorExpr) (string, bool) {
 // assign handles assignments to and comma-ok reads of map elements, and
 // += on strings.
 func (t *fileTr) assign(n *ast.AssignStmt) (string, bool) {
+	if n.Tok == token.DEFINE {
+		if s, ok := t.heapDefine(n); ok {
+			return s, true
+		}
+	}
 	if len(n.Lhs) == 2 && len(n.Rhs) == 1 {
 		if idx, ok := ast.Unparen(n.Rhs[0]).(*ast.IndexExpr); ok && t.isMapValue(idx.X) {
 			return fmt.Sprintf("%s, %s %s %s.MapGet(%s, %s)", t.render(n.Lhs[0]), t.render(n.Lhs[1]), n.Tok,

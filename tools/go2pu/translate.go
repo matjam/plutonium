@@ -168,6 +168,7 @@ func TranslateDir(cfg *Config, dir string) (*Result, error) {
 	res := &Result{GoPath: goPath}
 	tc := &translator{cfg: cfg, fset: fset, info: info, pkg: pkg, esc: esc, exports: plutoExports(cfg.PlutoRoot)}
 	res.OutPath = tc.mapPath(goPath)
+	tc.heap = tc.findHeapVars()
 	for _, f := range files {
 		tf := &fileTr{translator: tc, file: f, src: srcs[f], res: res}
 		out, err := tf.translate()
@@ -229,6 +230,7 @@ type translator struct {
 	info    *types.Info
 	pkg     *types.Package
 	esc     escapes
+	heap    map[*types.Var]bool // variables Go moves to the heap
 	exports map[string]map[string]bool
 }
 
@@ -305,22 +307,6 @@ func (t *fileTr) translate() ([]byte, error) {
 	}
 
 	base := filepath.Base(t.fset.File(t.file.Pos()).Name())
-	var moved []string
-	for key, msgs := range t.esc {
-		for _, m := range msgs {
-			if name, ok := strings.CutPrefix(m, "moved to heap: "); ok && strings.HasPrefix(key, base+":") {
-				moved = append(moved, fmt.Sprintf("%s: variable %s outlives its frame in Go (moved to heap): check that its address is not kept", key, name))
-			}
-		}
-	}
-	sort.Strings(moved)
-	for _, m := range moved {
-		if !t.noted[m] {
-			t.noted[m] = true
-			t.res.Notes = append(t.res.Notes, m)
-		}
-	}
-
 	body := t.render(t.file)
 	if !strings.Contains(body, importMarker) {
 		// No import declaration to replace: put one after the package

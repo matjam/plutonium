@@ -169,9 +169,9 @@ func stringsAndBytes() {
 	bs = compat.AppendString(bs, " tail")
 	fmt.Println(compat.String(bs))
 
-	var sb compat.Builder
+	sb := new(compat.Builder)
 	for i := 0; i < 3; i++ {
-		fmt.Fprintf(&sb, "[%d]", i)
+		fmt.Fprintf(sb, "[%d]", i)
 	}
 	sb.WriteString("end")
 	fmt.Println(sb.String(), sb.Len())
@@ -204,8 +204,8 @@ func sorting() {
 
 func encoding() {
 	h := header{Magic: [4]byte{'P', 'U', 'O', 'B'}, Count: 0x0102, Flags: 7, Size: 0x1122334455667788, Words: [2]uint32{1, 0xAABBCCDD}}
-	var buf compat.Buffer
-	_ = goWriteLEheaderPtr(&buf, &h)
+	buf := new(compat.Buffer)
+	_ = goWriteLEheaderPtr(buf, &h)
 	var tail [8]byte
 	compat.PutUint32(tail[:], 0xDEADBEEF)
 	compat.PutUint16(tail[4:], 0xCAFE)
@@ -216,7 +216,30 @@ func encoding() {
 	fmt.Println()
 }
 
+type holder struct {
+	p *int
+	q *point
+	r *string
+}
+
+// keep takes the addresses of a parameter and of locals, which Go moves to
+// the heap; the translation allocates them.
+func keep(gon int) *holder {
+	n := compat.New(gon)
+
+	v := compat.New(point{(*n), (*n)})
+	s := new(string)
+	var w int = 7
+	h := compat.New(holder{p: n, q: v, r: s})
+	(*n)++
+	v.x += w
+	(*s) = "kept"
+	return h
+}
+
 func main() {
+	h := keep(41)
+	fmt.Println(*h.p, h.q.x, h.q.y, *h.r)
 	maps()
 	stringsAndBytes()
 	sorting()

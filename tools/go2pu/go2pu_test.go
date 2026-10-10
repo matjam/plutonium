@@ -148,7 +148,6 @@ func TestHandFixNotes(t *testing.T) {
 	for _, want := range []string{
 		"closure escapes its frame (returned)",
 		"closure escapes its frame (passed to a function that keeps it)",
-		"variable x outlives its frame",
 		"in an interface: Plutonium boxes it",
 		"recover:",
 		"go statement",
@@ -169,6 +168,14 @@ func TestHandFixNotes(t *testing.T) {
 	}
 	if res.OutPath != "selfhost/demo/handfix" {
 		t.Errorf("output path %q", res.OutPath)
+	}
+	// x is captured by a closure that outlives main, so it moves to the
+	// heap.
+	src := string(res.Files[0].Src)
+	for _, want := range []string{"x := compat.New(1)", "(*x)++", "goIt1 := compat.MapIter(m)"} {
+		if !strings.Contains(src, want) {
+			t.Errorf("translation lacks %q:\n%s", want, src)
+		}
 	}
 }
 

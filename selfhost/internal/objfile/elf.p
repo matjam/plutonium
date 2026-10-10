@@ -153,7 +153,7 @@ func (o *Object) Write(w io.Writer) error {
 		return compat.MapAt(o.syms, a).Bind == elf.STB_LOCAL && compat.MapAt(o.syms, b).Bind != elf.STB_LOCAL
 	})
 	symIndex := compat.NewMap[string, int](0)
-	var symtab compat.Buffer
+	symtab := new(compat.Buffer)
 	symtab.Write(make([]byte, 24)) // null symbol
 	firstGlobal := 1
 	for i, n := range names {
@@ -173,7 +173,7 @@ func (o *Object) Write(w io.Writer) error {
 			Value: sym.Value,
 			Size:  sym.Size,
 		}
-		_ = goWriteLESym64Ptr(&symtab, &e)
+		_ = goWriteLESym64Ptr(symtab, &e)
 	}
 
 	type shdr struct {
@@ -203,14 +203,14 @@ func (o *Object) Write(w io.Writer) error {
 		if len(s.Relocs) == 0 {
 			continue
 		}
-		var buf compat.Buffer
+		buf := new(compat.Buffer)
 		for _, r := range s.Relocs {
 			idx, ok := compat.MapGet(symIndex, r.Sym)
 			if !ok {
 				return compat.Errorf("objfile: relocation against unknown symbol %q", r.Sym)
 			}
 			e := elf.Rela64{Off: r.Off, Info: elf.R_INFO(uint32(idx), uint32(r.Type)), Addend: r.Addend}
-			_ = goWriteLERela64Ptr(&buf, &e)
+			_ = goWriteLERela64Ptr(buf, &e)
 		}
 		h := elf.Section64{
 			Name:      addShstr(compat.Concat(".rela", s.Name)),
@@ -265,8 +265,8 @@ func (o *Object) Write(w io.Writer) error {
 		Shnum:     uint16(len(headers)),
 		Shstrndx:  uint16(shstrIndex),
 	}
-	var out compat.Buffer
-	_ = goWriteLEHeader64Ptr(&out, &hdr)
+	out := new(compat.Buffer)
+	_ = goWriteLEHeader64Ptr(out, &hdr)
 	for i := range headers {
 		h := headers[i].hdr
 		if i == 0 || h.Type == uint32(elf.SHT_NOBITS) {
@@ -281,7 +281,7 @@ func (o *Object) Write(w io.Writer) error {
 		out.WriteByte(0)
 	}
 	for i := range headers {
-		_ = goWriteLESection64Ptr(&out, &headers[i].hdr)
+		_ = goWriteLESection64Ptr(out, &headers[i].hdr)
 	}
 	_, err := w.Write(out.Bytes())
 	return err

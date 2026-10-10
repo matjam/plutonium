@@ -10,8 +10,8 @@ import (
 
 // String formats the function as text, for tests and debugging.
 func (f *Func) String() string {
-	var sb compat.Builder
-	fmt.Fprintf(&sb, "func %s", f.Name)
+	sb := new(compat.Builder)
+	fmt.Fprintf(sb, "func %s", f.Name)
 	sb.WriteByte('(')
 	for i, t := range f.Params {
 		if i > 0 {
@@ -32,7 +32,7 @@ func (f *Func) String() string {
 	}
 	sb.WriteByte('\n')
 	for _, b := range f.Blocks {
-		f.writeBlock(&sb, b)
+		f.writeBlock(sb, b)
 	}
 	return sb.String()
 }
@@ -70,30 +70,30 @@ func (f *Func) writeBlock(sb *compat.Builder, b *Block) {
 
 // LongString formats a value with its operation and arguments.
 func (v *Value) LongString() string {
-	var sb compat.Builder
-	fmt.Fprintf(&sb, "%s = %s", v, v.Op)
+	sb := new(compat.Builder)
+	fmt.Fprintf(sb, "%s = %s", v, v.Op)
 	if v.Type != nil {
-		fmt.Fprintf(&sb, " <%s>", v.Type)
+		fmt.Fprintf(sb, " <%s>", v.Type)
 	}
 	switch v.Op {
 	case OpConst, OpArg, OpOffPtr, OpSelectN, OpZero, OpMove:
-		fmt.Fprintf(&sb, " [%d]", v.AuxInt)
+		fmt.Fprintf(sb, " [%d]", v.AuxInt)
 	case OpConstFloat:
-		fmt.Fprintf(&sb, " [%g]", math.Float64frombits(uint64(v.AuxInt)))
+		fmt.Fprintf(sb, " [%g]", math.Float64frombits(uint64(v.AuxInt)))
 	case OpLoad, OpStore:
 		if v.AuxInt&MemVolatile != 0 {
 			sb.WriteString(" [volatile]")
 		}
 	default:
 		if v.AuxInt != 0 {
-			fmt.Fprintf(&sb, " [%d]", v.AuxInt)
+			fmt.Fprintf(sb, " [%d]", v.AuxInt)
 		}
 	}
 	if v.Aux != nil {
-		fmt.Fprintf(&sb, " {%v}", v.Aux)
+		fmt.Fprintf(sb, " {%v}", v.Aux)
 	}
 	for _, a := range v.Args {
-		fmt.Fprintf(&sb, " %s", a)
+		fmt.Fprintf(sb, " %s", a)
 	}
 	return sb.String()
 }

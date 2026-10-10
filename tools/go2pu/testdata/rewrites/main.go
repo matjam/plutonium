@@ -187,7 +187,28 @@ func encoding() {
 	fmt.Println()
 }
 
+type holder struct {
+	p *int
+	q *point
+	r *string
+}
+
+// keep takes the addresses of a parameter and of locals, which Go moves to
+// the heap; the translation allocates them.
+func keep(n int) *holder {
+	v := point{n, n}
+	var s string
+	var w int = 7
+	h := &holder{p: &n, q: &v, r: &s}
+	n++
+	v.x += w
+	s = "kept"
+	return h
+}
+
 func main() {
+	h := keep(41)
+	fmt.Println(*h.p, h.q.x, h.q.y, *h.r)
 	maps()
 	stringsAndBytes()
 	sorting()

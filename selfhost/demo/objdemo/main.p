@@ -39,8 +39,8 @@ func main() {
 	// Redefining a symbol replaces it in place.
 	o.Define(compat.New(objfile.Symbol{Name: "main.f2", Section: text, Value: f2, Size: 3, Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC}))
 
-	var buf compat.Buffer
-	if err := o.Write(&buf); err != nil {
+	buf := new(compat.Buffer)
+	if err := o.Write(buf); err != nil {
 		fmt.Println("error:", err)
 		return
 	}
@@ -60,5 +60,5 @@ func main() {
 	t.Append([]byte{0xc3}, 16)
 	t.Relocs = compat.Append(t.Relocs, objfile.Reloc{Off: 0, Sym: "", Type: elf.R_X86_64_PC32})
 	buf.Reset()
-	fmt.Println("empty symbol name:", bad.Write(&buf) == nil)
+	fmt.Println("empty symbol name:", bad.Write(buf) == nil)
 }
