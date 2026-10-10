@@ -11,14 +11,18 @@ import (
 // non-constant strings.
 //
 // The buffer is either the caller's (NewBuilder) or comes from an allocator
-// (NewBuilderIn, Grow). A Builder without an allocator never allocates: a
-// write that does not fit in the buffer's capacity panics, as append does. A
-// Builder with an allocator grows by allocating a buffer twice as large from
-// it, copying, and freeing the old buffer if the allocator owned it.
+// (Grow). A Builder without an allocator never allocates: a write that does
+// not fit in the buffer's capacity panics, as append does. A Builder with an
+// allocator grows by allocating a buffer twice as large from it, copying,
+// and freeing the old buffer if the allocator owned it.
 //
-// The zero Builder has no buffer and no allocator; call Grow (which uses the
-// default allocator) or start from NewBuilder or NewBuilderIn. A Builder
-// must not be copied after first use.
+// The zero Builder has no buffer and no allocator; call Grow, which gives
+// it one (the default allocator unless Grow is passed another), or start
+// from NewBuilder. A Builder must not be copied after first use.
+//
+//	var b strings.Builder
+//	b.Grow(64, &arena) // the buffer and later growth come from arena
+//	defer b.Free()
 type Builder struct {
 	buf   []byte
 	a     alloc.Allocator // allocator that grows the buffer, or nil
@@ -29,16 +33,6 @@ type Builder struct {
 // never allocates: writes beyond cap(buf) panic.
 func NewBuilder(buf []byte) Builder {
 	return Builder{buf: buf[:0]}
-}
-
-// NewBuilderIn returns a Builder whose buffer, of the given initial
-// capacity, comes from a and grows from a. Release it with Free.
-func NewBuilderIn(a alloc.Allocator, capacity int) Builder {
-	b := Builder{a: a}
-	if capacity > 0 {
-		b.realloc(capacity)
-	}
-	return b
 }
 
 // String returns the accumulated string. It is a view of the buffer, not a
@@ -74,15 +68,15 @@ func (b *Builder) Free() {
 }
 
 // Grow makes room for at least n more bytes. If the Builder has no
-// allocator it takes the default allocator (alloc.Default()), which then
-// grows it from here on; this is the one place a Builder picks an allocator
-// by itself. It panics if n is negative.
-func (b *Builder) Grow(n int) {
+// allocator it takes a, by default alloc.Default(), which then grows it from
+// here on; a Builder that has an allocator keeps it. This is the one place a
+// Builder picks up an allocator. It panics if n is negative.
+func (b *Builder) Grow(n int, a alloc.Allocator = alloc.Default()) {
 	if n < 0 {
 		panic("strings.Builder.Grow: negative count")
 	}
 	if b.a == nil {
-		b.a = alloc.Default()
+		b.a = a
 	}
 	if cap(b.buf)-len(b.buf) < n {
 		b.grow(n)
@@ -92,7 +86,7 @@ func (b *Builder) Grow(n int) {
 // grow makes room for n more bytes or panics if the Builder cannot grow.
 func (b *Builder) grow(n int) {
 	if b.a == nil {
-		panic("strings.Builder: out of room and no allocator (use NewBuilderIn or Grow)")
+		panic("strings.Builder: out of room and no allocator (call Grow first)")
 	}
 	c := 2*cap(b.buf) + n
 	if c < 16 {

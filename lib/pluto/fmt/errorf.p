@@ -10,13 +10,10 @@ import (
 const maxWrapped = 8
 
 // Errorf formats according to a format specifier and returns the result as
-// an error, allocated from the default allocator. See ErrorfIn.
-func Errorf(format string, args ...any) error {
-	return ErrorfIn(alloc.Default(), format, args...)
-}
-
-// ErrorfIn formats according to a format specifier and returns the result
-// as an error whose memory comes from a.
+// an error whose memory comes from the default allocator, alloc.Default().
+// To use another allocator, install it around the call with alloc.Use:
+// Errorf is variadic, so it cannot take a defaulted allocator parameter
+// (see the language spec, section 5.1).
 //
 // As in Go, the %w verb formats an error operand like %v and makes the
 // result wrap it: with one %w the error has an Unwrap() error method, with
@@ -24,10 +21,12 @@ func Errorf(format string, args ...any) error {
 // new error owns the errors it wraps, so errors.Free on it releases the
 // whole chain.
 //
-// The message is formatted when the error is made, into one block from a
-// together with the error itself, so it does not depend on the operands
-// staying alive. ErrorfIn formats twice: once to measure, once to fill.
-func ErrorfIn(a alloc.Allocator, format string, args ...any) error {
+// The message is formatted when the error is made, into one block from the
+// allocator together with the error itself, so it does not depend on the
+// operands staying alive. Errorf formats twice: once to measure, once to
+// fill.
+func Errorf(format string, args ...any) error {
+	a := alloc.Default()
 	var ws [maxWrapped]error
 	var p printer
 	p.count = true
@@ -49,7 +48,7 @@ func ErrorfIn(a alloc.Allocator, format string, args ...any) error {
 		hdr += uintptr(nw) * unsafe.Sizeof(e0)
 	}
 	total := hdr + uintptr(n)
-	mem := alloc.Raw(a, total, align)
+	mem := alloc.Raw(total, align, a)
 	text := unsafe.Slice((*byte)(unsafe.Add(mem, hdr)), n)
 
 	var q printer

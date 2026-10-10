@@ -63,23 +63,24 @@ type Map[K comparable, V any] struct {
 	fn    func(K) uint64
 }
 
-// NewMap returns an empty Map that allocates from a, with room for
-// capacity entries before it grows.
-func NewMap[K comparable, V any](a alloc.Allocator, capacity int) Map[K, V] {
+// NewMap returns an empty Map that allocates from a (by default the default
+// allocator), with room for capacity entries before it grows.
+func NewMap[K comparable, V any](capacity int, a alloc.Allocator = alloc.Default()) Map[K, V] {
 	var m Map[K, V]
-	m.Init(a, capacity)
+	m.Init(capacity, a)
 	return m
 }
 
-// Init prepares a zero Map to allocate from a, with room for capacity
-// entries before it grows. It panics if the key type has no default hash
-// (use InitFunc) or if m already holds a table.
-func (m *Map[K, V]) Init(a alloc.Allocator, capacity int) {
-	m.InitSeed(a, capacity, DefaultSeed)
+// Init prepares a zero Map to allocate from a (by default the default
+// allocator), with room for capacity entries before it grows. It panics if
+// the key type has no default hash (use InitFunc) or if m already holds a
+// table.
+func (m *Map[K, V]) Init(capacity int, a alloc.Allocator = alloc.Default()) {
+	m.InitSeed(capacity, DefaultSeed, a)
 }
 
 // InitSeed is Init with a hash seed.
-func (m *Map[K, V]) InitSeed(a alloc.Allocator, capacity int, seed uint64) {
+func (m *Map[K, V]) InitSeed(capacity int, seed uint64, a alloc.Allocator = alloc.Default()) {
 	m.setup(a, seed)
 	var zero K
 	if _, ok := any(zero).(Hasher); ok {
@@ -104,10 +105,11 @@ func (m *Map[K, V]) InitSeed(a alloc.Allocator, capacity int, seed uint64) {
 	m.reserve(capacity)
 }
 
-// InitFunc prepares a zero Map to allocate from a and hash keys with hash,
-// which must give equal keys equal hashes. The Map keeps hash, so it must
-// not be a closure that outlives its frame.
-func (m *Map[K, V]) InitFunc(a alloc.Allocator, capacity int, hash func(K) uint64) {
+// InitFunc prepares a zero Map to allocate from a (by default the default
+// allocator) and hash keys with hash, which must give equal keys equal
+// hashes. The Map keeps hash, so it must not be a closure that outlives its
+// frame.
+func (m *Map[K, V]) InitFunc(capacity int, hash func(K) uint64, a alloc.Allocator = alloc.Default()) {
 	m.setup(a, DefaultSeed)
 	m.how = hashFunc
 	m.fn = hash
@@ -390,20 +392,20 @@ type Set[K comparable] struct {
 	m Map[K, struct{}]
 }
 
-// NewSet returns an empty Set that allocates from a, with room for
-// capacity elements before it grows.
-func NewSet[K comparable](a alloc.Allocator, capacity int) Set[K] {
+// NewSet returns an empty Set that allocates from a (by default the default
+// allocator), with room for capacity elements before it grows.
+func NewSet[K comparable](capacity int, a alloc.Allocator = alloc.Default()) Set[K] {
 	var s Set[K]
-	s.m.Init(a, capacity)
+	s.m.Init(capacity, a)
 	return s
 }
 
 // Init prepares a zero Set to allocate from a; see Map.Init.
-func (s *Set[K]) Init(a alloc.Allocator, capacity int) { s.m.Init(a, capacity) }
+func (s *Set[K]) Init(capacity int, a alloc.Allocator = alloc.Default()) { s.m.Init(capacity, a) }
 
 // InitFunc prepares a zero Set with a hash function; see Map.InitFunc.
-func (s *Set[K]) InitFunc(a alloc.Allocator, capacity int, hash func(K) uint64) {
-	s.m.InitFunc(a, capacity, hash)
+func (s *Set[K]) InitFunc(capacity int, hash func(K) uint64, a alloc.Allocator = alloc.Default()) {
+	s.m.InitFunc(capacity, hash, a)
 }
 
 // Add adds k to the set and reports whether it was newly added.
