@@ -65,6 +65,39 @@ version: every Go feature up to 1.27 that is not removed or changed below is par
   control, ring buffers, and a fatal-error path that works before any allocator exists.
 - Generate fast code. The compiler has its own optimising backend and is measured against Rust.
 
+### 1.1 Design principles
+
+Four standing principles decide the cases the rules above leave open. They serve two audiences:
+kernel code, where a run-time check may be unavailable or unaffordable, and application code, which
+should get strong guarantees without writing annotations.
+
+1. **Doubt resolves to a compile error.** Every static analysis (escape, moves, sendable, lock guarding,
+   closure regions) rejects what it cannot prove safe, and never accepts on doubt. A false positive is
+   fixed by improving the analysis, not by weakening the rule. Why: applications get Rust-level guarantees
+   without annotations, and kernels get them at compile time.
+
+2. **Run-time checks change what a bug does, never what correct code means.** Generation and arena-epoch
+   checks (a use of freed memory is a panic) are on by default for hosted builds once their cost is
+   acceptable, and off for kernel and freestanding builds until a kernel tag encoding exists. A build
+   without them is a documented unchecked mode, not a dialect: correct programs behave identically under
+   both. Why: a program that is correct must not depend on whether the checks are present, so each
+   audience can choose its build without rewriting code.
+
+3. **Mechanism in the language, policy in the kernel.** The runtime provides mechanisms with hooks, and the
+   kernel supplies policy. The runtime owns the heap, and the kernel supplies `Now` and `ArmTimer` for
+   timers. The scheduler contract and the panic handler are hooks. New tasks start with interrupts
+   enabled, so the kernel installs its table first. Allocators are chosen per call. Application code
+   never sees the hooks and needs no directives; kernel directives exist only for facts about hardware the
+   compiler cannot see. Why: a kernel must decide for itself how time, scheduling and failure work, while
+   an application should not have to know that these decisions exist.
+
+4. **Bounded checks fail loudly, never silently.** Where a check has a finite range (slab generations and
+   arena epochs, which use one program-wide counter so that a reused chunk cannot match a stale pointer),
+   reaching the end of the range retires the memory or widens the field. It never lets a stale pointer
+   pass. The hosted 16-bit encoding accepts a wrap after 32,768 epochs, as documented in the ABI
+   (abi.md section 1.3). The kernel encoding must retire on wrap. Why: a check that can start passing
+   stale pointers by accident gives a false assurance, which is worse for a kernel than no check.
+
 ## 2. Source files and packages
 
 Source files use the `.p` extension and are UTF-8. Packages, imports, visibility and initialization order

@@ -181,7 +181,11 @@ there.
   allocation zero the granules they take back (no pointer has tag 0) and end the epoch: the next
   allocation takes a new one, so a stale pointer does not match the memory once it is handed out again.
   Epochs are program-wide because a new arena is often given the chunk a dropped one had. The counter
-  wraps after 32768 epochs, after which a pointer that old can match again.
+  wraps after 32768 epochs, after which a pointer that old can match again. This is accepted for the
+  hosted 16-bit encoding only (language spec section 1.1, principle 4: bounded checks fail loudly).
+  **Requirement on the future kernel tag encoding:** reaching the end of the epoch range must retire the
+  chunk (never hand it out again) or widen the tag, as a slab retires a slot at `0x8000`, so that a stale
+  pointer cannot match after a wrap.
 - **Disjoint ranges.** A stale arena pointer into memory a slab now uses, or a stale slab pointer into
   an arena chunk, never matches.
 - **Counted strings and boxes.** A string's control word (section 1.1) keeps the tag of its buffer, and
