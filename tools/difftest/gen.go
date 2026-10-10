@@ -1685,7 +1685,7 @@ func (g *gen) stmt() bool {
 	g.addCost(1)
 	deep := g.cx.depth >= maxDepth
 	for {
-		switch k := g.r.Intn(132); {
+		switch k := g.r.Intn(136); {
 		case k < 20:
 			g.declStmt()
 			return false
@@ -1780,11 +1780,103 @@ func (g *gen) stmt() bool {
 		case k < 128:
 			g.repeated()
 			return false
-		default:
+		case k < 132:
 			if g.ifaceStmt() {
 				return false
 			}
+		default:
+			g.floatStmt()
+			return false
 		}
+	}
+}
+
+// floatStmt computes with floating-point values that are exact (sums of
+// products of small integers and dyadic fractions, so that rounding and
+// fused multiply-add cannot change them) or special (zeros of either
+// sign, infinities, NaN), and prints integer conversions of the exact
+// ones and comparisons of all of them.
+func (g *gen) floatStmt() {
+	ft := "float64"
+	small := []*typ{intTypes[0], intTypes[1], tUint8} // int8, int16, uint8
+	if g.chance(3) {
+		ft = "float32"
+		small = []*typ{intTypes[0], tUint8}
+	}
+	leaf := func() string {
+		switch g.r.Intn(4) {
+		case 0:
+			return fmt.Sprintf("%s(%.2f)", ft, float64(g.r.Intn(81)-40)/4)
+		default:
+			t := small[g.r.Intn(len(small))]
+			return fmt.Sprintf("%s(%s)", ft, g.intExpr(t, 1, true).s)
+		}
+	}
+	term := func() string {
+		if g.chance(2) {
+			return "(" + leaf() + " * " + leaf() + ")"
+		}
+		return leaf()
+	}
+	exact := func() string {
+		e := term()
+		for i, n := 0, g.r.Intn(3); i < n; i++ {
+			op := " + "
+			if g.chance(2) {
+				op = " - "
+			}
+			e = "(" + e + op + term() + ")"
+		}
+		return e
+	}
+	// Exact values, a signed zero, and the special values.
+	var vals []string
+	for i, n := 0, 2+g.r.Intn(3); i < n; i++ {
+		v := g.name("x")
+		g.line("%s := %s", v, exact())
+		vals = append(vals, v)
+		g.line("println(%q, int64(%s), int64(%s / 4), int64(-%s / 3))", v, v, v, v)
+	}
+	z := g.name("z")
+	g.line("%s := %s * 0", z, leaf()) // -0 when the leaf is negative
+	g.line("println(1/%s < 0)", z)
+	specials := []string{z, "-" + z, z + " / " + z, "1 / " + z, "-1 / " + z}
+	all := append(append([]string{}, vals...), specials...)
+	pick := func() string { return all[g.r.Intn(len(all))] }
+	for i, n := 0, 1+g.r.Intn(3); i < n; i++ {
+		a, b := pick(), pick()
+		g.line("println(%s < %s, %s <= %s, %s == %s, %s != %s)", a, b, a, b, a, b, a, b)
+	}
+	// min and max, with the sign of a zero result.
+	a, b := pick(), pick()
+	fn := "min"
+	if g.chance(2) {
+		fn = "max"
+	}
+	m := g.name("m")
+	g.line("%s := %s(%s, %s)", m, fn, a, b)
+	g.line("println(%q, %s == %s, 1/%s < 0, %s > 0)", m, m, m, m, m)
+	if len(vals) >= 2 {
+		g.line("println(int64(%s(%s, %s)))", fn, vals[0], vals[1])
+	}
+	// A choice made by a float comparison: a conditional move must read
+	// the unordered result correctly.
+	r := g.name("r")
+	t := g.concreteInt()
+	g.line("%s := %s", r, typed(g.intExpr(t, 1, false), t))
+	cmps := []string{"<", "<=", ">", ">=", "==", "!="}
+	cond := fmt.Sprintf("%s %s %s", pick(), cmps[g.r.Intn(len(cmps))], pick())
+	if g.chance(2) {
+		cond = "!(" + cond + ")"
+	}
+	g.line("if %s {", cond)
+	g.line("\t%s = %s", r, g.intExpr(t, 1, false).s)
+	g.line("}")
+	g.line("println(%q, %s)", r, r)
+	if ft == "float64" && g.chance(2) {
+		// Through float32 and back: small integers are exact in float32.
+		x, y := g.intExpr(small[g.r.Intn(len(small))], 1, true).s, g.intExpr(small[g.r.Intn(len(small))], 1, true).s
+		g.line("println(int64(float32(float64(%s))), int64(float64(float32(float64(%s)) * 0.5)))", x, y)
 	}
 }
 
