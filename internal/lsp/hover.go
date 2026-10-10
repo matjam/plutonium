@@ -17,12 +17,25 @@ func (s *server) hover(p *TextDocumentPositionParams) (*Hover, *rpcError) {
 	if f == nil {
 		return nil, rerr
 	}
-	if h := directiveHover(f, off); h != nil {
-		return h, nil
+	h := directiveHover(f, off)
+	if h == nil {
+		h = s.objectHover(f, off)
 	}
+	// The explanation of an error here comes first.
+	if errs := errorHover(f, off); errs != "" {
+		if h == nil {
+			return &Hover{Contents: MarkupContent{Kind: "markdown", Value: errs}}, nil
+		}
+		h.Contents.Value = errs + "\n---\n\n" + h.Contents.Value
+	}
+	return h, nil
+}
+
+// objectHover describes the object named at off, or returns nil.
+func (s *server) objectHover(f *srcFile, off int) *Hover {
 	id, obj := objectAt(f, off)
 	if obj == nil {
-		return nil, nil
+		return nil
 	}
 	var b strings.Builder
 	s.describe(&b, f.pkg.types, obj)
@@ -32,7 +45,7 @@ func (s *server) hover(p *TextDocumentPositionParams) (*Hover, *rpcError) {
 		r := f.rangeOf(start, start+len(id.Name))
 		h.Range = &r
 	}
-	return h, nil
+	return h
 }
 
 // describe writes the markdown description of an object: its declaration,

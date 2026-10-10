@@ -172,7 +172,7 @@ func typeCompletions(t types2.Type, cur *types2.Package) []CompletionItem {
 func valueCompletions(t types2.Type, cur *types2.Package) []CompletionItem {
 	t = types2.Unalias(t)
 	// owned[T], shared[T] and synced[T] select like *T.
-	if w, ok := t.(*types2.Wrapper); ok {
+	if w, ok := t.Underlying().(*types2.Wrapper); ok {
 		switch {
 		case w.IsPointer():
 			t = types2.NewPointer(w.Elem())
@@ -277,8 +277,10 @@ func scopeCompletions(f *srcFile, pos token.Pos) []CompletionItem {
 				continue
 			}
 			obj := s.Lookup(name)
-			if found, _ := s.LookupParent(name, pos); found != s {
-				continue // declared after pos
+			if local(s, cur) {
+				if found, _ := s.LookupParent(name, pos); found != s {
+					continue // declared after pos
+				}
 			}
 			seen[name] = true
 			it := objectItem(obj, cur)
@@ -296,6 +298,13 @@ func scopeCompletions(f *srcFile, pos token.Pos) []CompletionItem {
 		}
 	}
 	return items
+}
+
+// local reports whether s is a scope inside a function, where a name is
+// visible only after its declaration; package-level names are visible
+// throughout the package.
+func local(s *types2.Scope, pkg *types2.Package) bool {
+	return s != types2.Universe && (pkg == nil || s != pkg.Scope() && s.Parent() != pkg.Scope())
 }
 
 // keywords are the language's keywords.

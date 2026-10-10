@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
+	"time"
 )
 
 // openDemo starts a server on the demo module with main.p open and waits
@@ -312,6 +314,31 @@ func TestDefinitionExtractedStdlib(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(cache); len(entries) != 1 {
 		t.Errorf("cache holds %d entries, want 1", len(entries))
+	}
+
+	// A new library removes copies a week old, and keeps newer ones.
+	old := filepath.Join(cache, "stdlib-old")
+	recent := filepath.Join(cache, "stdlib-recent")
+	for _, d := range []string{old, recent} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	weekAgo := time.Now().Add(-8 * 24 * time.Hour)
+	if err := os.Chtimes(old, weekAgo, weekAgo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := extractStdlib(fstest.MapFS{"pluto/x/x.p": {Data: []byte("package x\n")}}, cache); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(old); err == nil {
+		t.Error("the stale copy is still there")
+	}
+	if _, err := os.Stat(recent); err != nil {
+		t.Error("the recent copy was removed")
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Error("the current copy was removed")
 	}
 }
 

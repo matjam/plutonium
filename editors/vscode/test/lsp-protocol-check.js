@@ -92,6 +92,15 @@ async function run() {
     assert.ok(broken.diagnostics.some((d) => d.message.includes('missing')), JSON.stringify(broken));
     console.log(`diagnostics ${ms.toFixed(1)} ms after the edit (including the debounce)`);
 
+    // The error has a code, and a code action explains it.
+    const missing = broken.diagnostics.find((d) => d.message.includes('missing'));
+    assert.match(missing.code, /^E\d{4}$/);
+    const actions = await conn.sendRequest('textDocument/codeAction', {
+      textDocument: { uri }, range: missing.range, context: { diagnostics: [missing] },
+    });
+    assert.strictEqual(actions.length, 1);
+    assert.deepStrictEqual(actions[0].command.arguments, [missing.code]);
+
     const hover = await conn.sendRequest('textDocument/hover', { textDocument: { uri }, position: { line: 5, character: 16 } });
     assert.match(hover.contents.value, /func strings\.HasPrefix/);
 

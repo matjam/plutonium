@@ -11,7 +11,7 @@
 // message offering to restart it.
 
 const vscode = require('vscode');
-const { plutoPath } = require('./pluto');
+const { plutoPath, runPluto } = require('./pluto');
 
 const RESTART_BASE_MS = 500;
 const RESTART_MAX_MS = 30000;
@@ -142,11 +142,39 @@ class LanguageServer {
   }
 }
 
-// register adds the language server and its restart command to context and
-// returns it; extension.js starts and stops it as settings change.
+// EXPLAIN_SCHEME is the scheme of the read-only documents that show
+// `pluto explain CODE`, which the server's "Explain error" code actions
+// open through the plutonium.explainError command.
+const EXPLAIN_SCHEME = 'plutonium-explain';
+
+const explainProvider = {
+  async provideTextDocumentContent(uri) {
+    const code = uri.path.replace(/^\//, '').replace(/\.txt$/, '');
+    try {
+      const res = await runPluto(['explain', code], { timeoutMs: 10000 });
+      return res.code === 0 ? res.stdout : `pluto explain ${code} failed:\n\n${res.stderr}`;
+    } catch (err) {
+      return `Cannot run pluto explain ${code}: ${err && err.message ? err.message : err}`;
+    }
+  },
+};
+
+async function explainError(code) {
+  if (typeof code !== 'string' || !/^E\d{4}$/.test(code)) {
+    return;
+  }
+  const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(`${EXPLAIN_SCHEME}:/${code}.txt`));
+  await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Beside });
+}
+
+// register adds the language server, its restart command and the error
+// explanations to context and returns the server; extension.js starts and
+// stops it as settings change.
 function register(context, output) {
   const server = new LanguageServer(output);
   context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider(EXPLAIN_SCHEME, explainProvider),
+    vscode.commands.registerCommand('plutonium.explainError', explainError),
     vscode.commands.registerCommand('plutonium.restartLanguageServer', () => {
       if (!wanted()) {
         vscode.window.showInformationMessage('Plutonium: the language server is turned off (plutonium.useLanguageServer).');
@@ -159,4 +187,4 @@ function register(context, output) {
   return server;
 }
 
-module.exports = { register, wanted, LanguageServer, RESTART_BASE_MS, RESTART_MAX_MS, MAX_CRASHES };
+module.exports = { register, wanted, LanguageServer, explainProvider, RESTART_BASE_MS, RESTART_MAX_MS, MAX_CRASHES };

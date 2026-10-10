@@ -168,6 +168,7 @@ var handlers = map[string]handler{
 	"textDocument/signatureHelp":  withParams((*server).signatureHelp),
 	"textDocument/prepareRename":  withParams((*server).prepareRename),
 	"textDocument/rename":         withParams((*server).rename),
+	"textDocument/codeAction":     withParams((*server).codeAction),
 }
 
 // withParams adapts a handler that takes decoded parameters.
@@ -328,6 +329,7 @@ func (s *server) initialize(p *InitializeParams) (any, *rpcError) {
 			CompletionProvider:         CompletionOptions{TriggerCharacters: []string{"."}},
 			SignatureHelpProvider:      SignatureHelpOptions{TriggerCharacters: []string{"(", ","}, RetriggerCharacters: []string{","}},
 			RenameProvider:             RenameOptions{PrepareProvider: true},
+			CodeActionProvider:         CodeActionOptions{CodeActionKinds: []string{"quickfix"}},
 			Workspace:                  WorkspaceServerCapabilty{WorkspaceFolders: WorkspaceFoldersCapability{Supported: true, ChangeNotifications: true}},
 		},
 	}, nil
@@ -396,9 +398,6 @@ func (s *server) didClose(p *DidCloseTextDocumentParams) {
 	delete(s.docs, path)
 	delete(s.ws.overlay, path)
 	s.ws.invalidate(filepath.Dir(path))
-	if !s.ws.inWorkspace(path) {
-		s.publish(path, nil)
-	}
 	s.diagnose()
 }
 

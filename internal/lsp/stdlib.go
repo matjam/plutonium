@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 )
 
 // extractStdlib copies the standard library in fsys (whose top directory
@@ -69,5 +71,28 @@ func extractStdlib(fsys fs.FS, cache string) (string, error) {
 		}
 		return "", err
 	}
+	removeStale(cache, dir)
 	return dir, nil
+}
+
+// staleAge is how old another copy of the library must be before a new
+// copy removes it: old enough that no server still uses it.
+const staleAge = 7 * 24 * time.Hour
+
+// removeStale removes the copies of the library in cache other than keep
+// that are older than staleAge, left by earlier versions of pluto.
+func removeStale(cache, keep string) {
+	entries, err := os.ReadDir(cache)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		dir := filepath.Join(cache, e.Name())
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), "stdlib-") || dir == keep {
+			continue
+		}
+		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > staleAge {
+			_ = os.RemoveAll(dir)
+		}
+	}
 }

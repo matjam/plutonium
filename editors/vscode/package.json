@@ -69,8 +69,21 @@
         "command": "plutonium.restartLanguageServer",
         "title": "Restart Language Server",
         "category": "Plutonium"
+      },
+      {
+        "command": "plutonium.explainError",
+        "title": "Explain Error",
+        "category": "Plutonium"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "plutonium.explainError",
+          "when": "false"
+        }
+      ]
+    },
     "configuration": {
       "title": "Plutonium",
       "properties": {

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/parser"
@@ -124,12 +125,19 @@ type srcFile struct {
 	pkg *pkg
 }
 
-// A checkError is a parse or type error, at a byte range of a file.
+// A checkError is a parse or type error, at a byte range of a file, with
+// its diagnostic from internal/diag (code and explanation).
 type checkError struct {
 	path       string
 	start, end int
-	msg        string
-	code       string
+	diag       *diag.Diagnostic
+}
+
+// newCheckError returns the error d at offset off of the file path with
+// contents src.
+func newCheckError(path string, src []byte, off int, d *diag.Diagnostic) checkError {
+	off = min(max(off, 0), len(src))
+	return checkError{path: path, start: off, end: wordEnd(src, off), diag: d}
 }
 
 // read returns a file's contents: the open document if there is one,
@@ -254,7 +262,7 @@ func (w *workspace) check(dir string, mode buildMode, tests bool, loading map[pk
 		}
 		match, err := load.MatchFile(mode.tags, name, src)
 		if err != nil {
-			p.errors = append(p.errors, checkError{path: path, start: 0, end: wordEnd(src, 0), msg: err.Error()})
+			p.errors = append(p.errors, newCheckError(path, src, 0, diag.New(token.Position{}, diag.BadConstraint, "%v", err)))
 			continue
 		}
 		if !match {
@@ -264,7 +272,7 @@ func (w *workspace) check(dir string, mode buildMode, tests bool, loading map[pk
 		var list scanner.ErrorList
 		if errors.As(err, &list) {
 			for _, e := range list {
-				p.errors = append(p.errors, checkError{path: path, start: e.Pos.Offset, end: wordEnd(src, e.Pos.Offset), msg: e.Msg})
+				p.errors = append(p.errors, newCheckError(path, src, e.Pos.Offset, diag.FromSyntax(e, src)))
 			}
 		}
 		if f == nil {
@@ -324,6 +332,7 @@ func (w *workspace) check(dir string, mode buildMode, tests bool, loading map[pk
 		Selections: map[*ast.SelectorExpr]*types2.Selection{},
 		Scopes:     map[ast.Node]*types2.Scope{},
 	}
+	var typeErrs []types2.Error
 	byTok := map[*token.File]*srcFile{}
 	for _, f := range p.files {
 		byTok[f.tok] = f
@@ -344,15 +353,9 @@ func (w *workspace) check(dir string, mode buildMode, tests bool, loading map[pk
 		Sizes: sizes,
 		Error: func(err error) {
 			var terr types2.Error
-			if !errors.As(err, &terr) {
-				return
+			if errors.As(err, &terr) {
+				typeErrs = append(typeErrs, terr)
 			}
-			f := byTok[w.fset.File(terr.Pos)]
-			if f == nil {
-				return
-			}
-			off := f.tok.Offset(terr.Pos)
-			p.errors = append(p.errors, checkError{path: f.path, start: off, end: wordEnd(f.src, off), msg: terr.Msg, code: errorCode(terr)})
 		},
 	}
 	files := make([]*ast.File, len(p.files))
@@ -361,7 +364,14 @@ func (w *workspace) check(dir string, mode buildMode, tests bool, loading map[pk
 	}
 	if err := checkFiles(&conf, p, files, w.fset); err != nil {
 		f := p.files[0]
-		p.errors = append(p.errors, checkError{path: f.path, start: 0, end: 0, msg: err.Error()})
+		p.errors = append(p.errors, newCheckError(f.path, f.src, 0, diag.New(token.Position{}, diag.InternalError, "%v", err)))
+	}
+	// Explain the type errors now that the checker has recorded everything.
+	ctx := &diag.CheckContext{Fset: w.fset, Files: files, Pkg: p.types, Info: p.info}
+	for _, terr := range typeErrs {
+		if f := byTok[w.fset.File(terr.Pos)]; f != nil {
+			p.errors = append(p.errors, newCheckError(f.path, f.src, f.tok.Offset(terr.Pos), diag.FromChecker(terr, ctx)))
+		}
 	}
 	w.pkgs[key] = p
 	for _, f := range p.files {

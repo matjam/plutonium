@@ -3,12 +3,11 @@ package lsp
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/matjam/plutonium/internal/types2"
 )
 
 // diagnose checks the package of every open document and publishes the
@@ -67,29 +66,36 @@ func (s *server) diagnose() {
 			byFile[e.path] = append(byFile[e.path], diagnosticOf(e, t))
 		}
 	}
-	for path := range files {
+	// Files no open document's package includes any more lose their
+	// diagnostics: nothing would update them.
+	for path := range s.published {
+		files[path] = true
+	}
+	for _, path := range slices.Sorted(maps.Keys(files)) {
 		s.publish(path, byFile[path])
 	}
 	s.log.Debug("diagnosed", "packages", len(seen), "took", time.Since(start))
 }
 
-// diagnosticOf converts a check error. A message with a long explanation
-// after its first line keeps the first line as the message and the rest as
-// related information at the same place.
+// diagnosticOf converts a check error: the first line of its message, its
+// code, and as related information at the same place, the rest of the
+// message and the explanation. Hovering over the error shows all of it as
+// markdown.
 func diagnosticOf(e checkError, t *text) Diagnostic {
+	first, rest, _ := strings.Cut(e.diag.Msg, "\n")
 	d := Diagnostic{
 		Range:    t.rangeOf(e.start, max(e.end, e.start)),
 		Severity: SeverityError,
 		Source:   "pluto",
-		Code:     e.code,
-		Message:  e.msg,
+		Code:     string(e.diag.Code),
+		Message:  first,
 	}
-	if first, rest, ok := strings.Cut(e.msg, "\n"); ok && strings.TrimSpace(rest) != "" {
-		d.Message = first
-		d.RelatedInformation = []DiagnosticRelatedInformation{{
-			Location: Location{URI: uriFromPath(e.path), Range: d.Range},
-			Message:  strings.TrimSpace(rest),
-		}}
+	at := Location{URI: uriFromPath(e.path), Range: d.Range}
+	for _, line := range paragraphs(rest) {
+		d.RelatedInformation = append(d.RelatedInformation, DiagnosticRelatedInformation{Location: at, Message: line})
+	}
+	if text := explainPlain(e.diag); text != "" {
+		d.RelatedInformation = append(d.RelatedInformation, DiagnosticRelatedInformation{Location: at, Message: text})
 	}
 	return d
 }
@@ -102,13 +108,14 @@ func (s *server) publish(path string, diags []Diagnostic) {
 	}
 	key, _ := json.Marshal(diags)
 	last, sent := s.published[path]
-	if sent && last == string(key) || !sent && len(diags) == 0 && s.docs[path] == nil {
-		return
-	}
-	if len(diags) == 0 && s.docs[path] == nil {
+	open := s.docs[path] != nil
+	if len(diags) == 0 && !open {
 		delete(s.published, path)
 	} else {
 		s.published[path] = string(key)
+	}
+	if sent && last == string(key) || !sent && len(diags) == 0 && !open {
+		return
 	}
 	params := PublishDiagnosticsParams{URI: uriFromPath(path), Diagnostics: diags}
 	if doc := s.docs[path]; doc != nil {
@@ -120,7 +127,3 @@ func (s *server) publish(path string, diags []Diagnostic) {
 		s.log.Error("publishing diagnostics", "file", filepath.Base(path), "error", err)
 	}
 }
-
-// errorCode returns the code of a type error, for the diagnostic's code
-// field, or "" if it has none.
-func errorCode(types2.Error) string { return "" }

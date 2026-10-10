@@ -15,6 +15,8 @@ const settings = { plutoPath: '/opt/pluto/bin/pluto', useLanguageServer: true, t
 const disposable = { dispose() {} };
 const commands = new Map();
 const messages = [];
+const contentProviders = new Map();
+const shown = [];
 let formatter = null;
 let configListener = null;
 let trustListener = null;
@@ -34,7 +36,19 @@ const vscode = {
       return disposable;
     },
     createFileSystemWatcher: (glob) => ({ glob, dispose() {} }),
+    registerTextDocumentContentProvider: (scheme, provider) => {
+      contentProviders.set(scheme, provider);
+      return disposable;
+    },
+    openTextDocument: async (uri) => ({ uri, text: await contentProviders.get(uri.scheme).provideTextDocumentContent(uri) }),
   },
+  Uri: {
+    parse: (s) => {
+      const [scheme, rest] = s.split(/:(.*)/s);
+      return { scheme, path: rest, toString: () => s };
+    },
+  },
+  ViewColumn: { Beside: -2 },
   languages: {
     createDiagnosticCollection: () => ({ set() {}, delete() {}, clear() {}, dispose() {} }),
     registerDocumentFormattingEditProvider: () => {
@@ -62,6 +76,9 @@ const vscode = {
     showInformationMessage: (m) => {
       messages.push(['info', m]);
       return Promise.resolve(undefined);
+    },
+    showTextDocument: async (doc) => {
+      shown.push(doc);
     },
   },
 };
@@ -121,6 +138,15 @@ async function main() {
   assert.strictEqual(c.clientOptions.synchronize.fileEvents.glob, '**/{*.p,pluto.mod}');
   assert.strictEqual(formatter, null, 'no stand-alone formatter while the server runs');
   assert.ok(commands.has('plutonium.restartLanguageServer'));
+
+  // Explain error opens pluto explain's output beside the editor; here pluto
+  // does not exist, which the document says.
+  await commands.get('plutonium.explainError')('E0024');
+  assert.strictEqual(shown.length, 1);
+  assert.strictEqual(shown[0].uri.toString(), 'plutonium-explain:/E0024.txt');
+  assert.match(shown[0].text, /Cannot run pluto explain E0024/);
+  await commands.get('plutonium.explainError')('not a code');
+  assert.strictEqual(shown.length, 1, 'only error codes are explained');
 
   // Errors on the connection do not stop the server.
   assert.deepStrictEqual(c.clientOptions.errorHandler.error(new Error('x')), { action: languageclient.ErrorAction.Continue });

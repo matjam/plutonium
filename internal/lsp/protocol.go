@@ -84,6 +84,7 @@ type ServerCapabilities struct {
 	CompletionProvider         CompletionOptions        `json:"completionProvider"`
 	SignatureHelpProvider      SignatureHelpOptions     `json:"signatureHelpProvider"`
 	RenameProvider             RenameOptions            `json:"renameProvider"`
+	CodeActionProvider         CodeActionOptions        `json:"codeActionProvider"`
 	Workspace                  WorkspaceServerCapabilty `json:"workspace"`
 }
 
@@ -104,6 +105,10 @@ type CompletionOptions struct {
 type SignatureHelpOptions struct {
 	TriggerCharacters   []string `json:"triggerCharacters"`
 	RetriggerCharacters []string `json:"retriggerCharacters"`
+}
+
+type CodeActionOptions struct {
+	CodeActionKinds []string `json:"codeActionKinds"`
 }
 
 type RenameOptions struct {

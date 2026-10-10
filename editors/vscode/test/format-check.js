@@ -65,6 +65,7 @@ const vscode = {
     onDidCloseTextDocument: () => disposable,
     onDidChangeConfiguration: () => disposable,
     onDidGrantWorkspaceTrust: () => disposable,
+    registerTextDocumentContentProvider: () => disposable,
   },
   commands: {
     registerCommand: () => disposable,
