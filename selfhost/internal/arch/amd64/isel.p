@@ -1111,7 +1111,7 @@ func (s *isel) popCount(v *ssa.Value) {
 	tmp := func() Reg { return s.mf.newVReg(ClassGP) }
 	k := func(c int64) Reg {
 		r := tmp()
-		s.emit(&MInst{Op: MMOV, Size: 8, Dst: RegOp(r), Src: ImmOp(c)})
+		s.emit(compat.New(MInst{Op: MMOV, Size: 8, Dst: RegOp(r), Src: ImmOp(c)}))
 		return r
 	}
 	// x -= (x >> 1) & 0x5555...

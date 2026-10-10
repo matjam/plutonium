@@ -21,16 +21,18 @@ var translations = []struct {
 	{dir: "../../internal/objfile"},
 	{dir: "../../internal/ssa"},
 	{dir: "../../internal/arch/amd64"},
+	{dir: "../../internal/opt"}, // magic.go is ported by hand (math/big)
 	{dir: "testdata/objdemo", demo: true},
 	{dir: "testdata/ssademo", demo: true},
 	{dir: "testdata/amd64demo", demo: true},
+	{dir: "testdata/optdemo", demo: true},
 	{dir: "testdata/rewrites", demo: true},
 }
 
 const selfhostDir = "../../selfhost"
 
 func testConfig() *Config {
-	cfg := &Config{Module: "selfhost", PlutoRoot: "../../lib", Imports: map[string]string{}}
+	cfg := &Config{OutDir: selfhostDir, Module: "selfhost", PlutoRoot: "../../lib", Imports: map[string]string{}}
 	for _, tr := range translations {
 		if tr.demo {
 			name := filepath.Base(tr.dir)

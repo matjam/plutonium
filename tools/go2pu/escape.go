@@ -25,9 +25,12 @@ var escLine = regexp.MustCompile(`^(.+?):(\d+):(\d+): (.*)$`)
 
 // goEscapes runs Go's escape analysis on the package in dir, which is rel
 // below the module root. The go command reports positions relative to the
-// module root.
+// module root. Inlining is off (-l): with it, an allocation in an inlined
+// function or closure is reported at each call site instead of where it is
+// written. Without inlining the analysis is more conservative, which only
+// adds allocations.
 func goEscapes(dir, rel string) (escapes, error) {
-	cmd := exec.Command("go", "build", "-gcflags=-m", "-o", os.DevNull, ".")
+	cmd := exec.Command("go", "build", "-gcflags=-m -l", "-o", os.DevNull, ".")
 	cmd.Dir = dir
 	var out bytes.Buffer
 	cmd.Stderr = &out
