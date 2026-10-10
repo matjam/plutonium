@@ -220,9 +220,10 @@ only through it. The fault handler and the exit hook must take it as well.
 ## Cost
 
 `bench/binarytrees` (about 70 million allocations of 16-byte nodes, up to a million live at once) runs
-about 16 to 20 times slower with `--alloc=debug` than with the slab allocator, with or without `canary`:
+about 20 times slower with `--alloc=debug` than with the slab allocator, with or without `canary`:
 after the first 16384 blocks it is canary-guarded either way, and its time goes on cache misses in the
-side table, the quarantine and the redzones. In a loop that allocates and frees with only a few blocks
+side table, the quarantine and the redzones. With `quarantine=0` it is about 9 times slower, at the
+cost of stale pointers seeing reused memory at once. In a loop that allocates and frees with only a few blocks
 live, a canary-guarded cycle costs about 50 ns against 7 ns for the slab allocator, and a page-guarded
 one costs two `mprotect` calls, a few microseconds. Memory use is at least two pages per page-guarded
 block, plus the quarantine.
