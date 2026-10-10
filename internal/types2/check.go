@@ -169,6 +169,24 @@ type Checker struct {
 	// aligned wrapper on its operand instead of unwrapping it.
 	keepWrapper bool
 
+	// Plutonium: positions of values of complex type, reported together
+	// once checking is done (see reportComplex).
+	complexAt []token.Pos
+
+	// Plutonium: the expression multiExpr is evaluating in a two-value
+	// (comma-ok) context, or nil. A non-constant conversion to an enum
+	// type is valid only as that expression.
+	commaOkExpr ast.Expr
+
+	// Plutonium: the declared function or method each identifier names
+	// when it is used as a value or callee, so that a call can find the
+	// default values of its callee (see calleeFunc).
+	funcRefs map[*ast.Ident]*Func
+
+	// Plutonium: stand-ins for parameter names while default values are
+	// checked; using one is an error (see defaultValues).
+	paramPlaceholders map[*Var]bool
+
 	// debugging
 	posStack []positioner // stack of source positions seen; used for panic tracing
 	indent   int          // indentation for tracing
@@ -470,6 +488,9 @@ func (check *Checker) checkFiles(files []*ast.File) {
 
 	print("== recordUntyped ==")
 	check.recordUntyped()
+
+	print("== reportComplex ==")
+	check.reportComplex()
 
 	if check.firstErr == nil {
 		// TODO(mdempsky): Ensure monomorph is safe when errors exist.

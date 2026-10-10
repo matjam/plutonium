@@ -1,7 +1,9 @@
 # Error Handling in Plutonium: Design
 
 **Date:** 2026-10-09
-**Status:** library conventions implemented; three language additions proposed (section 9)
+**Status:** library conventions implemented; 9.1 implemented, 9.2 with the memory-safety work, 9.3
+implemented (section 9). The `...In` functions this note describes have since become single functions
+with a defaulted allocator (spec 5.1); see section 10.
 
 ## 1. The problem
 
@@ -35,9 +37,10 @@ From the spec and the code as of this date:
    made there are static too, so `var ErrX error = someStruct{...}` is valid (it used to point into the
    dead init frame).
 4. Memory comes from an allocator: the default one (`alloc.Default()`), or one passed explicitly. The
-   library's convention for "default unless the caller says otherwise" is a pair of functions, `F` and
+   library's convention for "default unless the caller says otherwise" was a pair of functions, `F` and
    `FIn(a, ...)` (`alloc.New`/`alloc.NewIn`, `strings.NewBuilder`/`NewBuilderIn`), because default
-   parameter values (spec 5.1) are not implemented yet.
+   parameter values (spec 5.1) were not implemented yet. They now are, and each pair is one function
+   (section 10.1).
 5. `panic` aborts. There is no `recover`, so errors are the only recoverable failure path, and the error
    path must work in a kernel: before an allocator exists, in interrupt context, and without leaking
    memory per failure in a long-running system.
@@ -339,6 +342,10 @@ these checks:
 
 ### 9.1 `errors.New` with a constant message is evaluated at compile time
 
+**Status: approved and implemented.** Lowering turns each call into the address of a read-only
+`errors.Text` in `.rodata` keyed by the call site; the checker rejects a non-constant message, and
+lowering rejects taking `errors.New`'s value or deferring it. The table is gone.
+
 **Proposal.** A call `errors.New(c)` where `c` is a constant string lowers to the address of a static
 `errors.Text{Msg: c}` owned by that call site. A non-constant argument is a compile error: "errors.New
 needs a constant message; use fmt.Errorf". This removes the 512-entry table and makes
@@ -389,5 +396,22 @@ Implemented (pure library, no language rules):
   common subset), `testdata/run/initboxes.p`, and `internal/build/errors_test.go` (compile errors and the
   `errors.New` limit).
 
-Not implemented: the three proposals in section 9 (9.3 is in, pending confirmation), and the escape checks
-in section 8.
+Not implemented: 9.2 and the escape checks in section 8, which belong to the memory-safety work.
+
+### 10.1 After default parameter values (2026-10-09)
+
+Default parameter values (spec 5.1) and 9.1 changed the library described above:
+
+- `errors.New` is a static error per call site (9.1); the 512-entry table is gone, and rule 4 of
+  section 7 now reads: `errors.New` takes a constant and may be called anywhere.
+- Each `F`/`FIn` pair is one function whose allocator is a trailing parameter defaulting to
+  `alloc.Default()`: `alloc.New(a = ...)`, `alloc.Free(p, a = ...)`, `alloc.Raw(size, align, a = ...)`,
+  `os.Open(name, a = ...)`, `os.Create`, `os.OpenFile(name, flags, perm, a = ...)` and
+  `os.NewPathError(op, path, err, a = ...)`. The example in 6.1 is now `OpenFile(..., a)` calling
+  `NewPathError("open", name, err, a)`.
+- `fmt.Errorf` and `errors.Join` are variadic, and a variadic function cannot have defaults (spec 5.1),
+  so `ErrorfIn` and `JoinIn` are gone: both allocate from `alloc.Default()`, and code that wants another
+  allocator installs it with `alloc.Use`, the arena pattern of 6.4 and 6.5.
+- Tests: `testdata/lib/errorsnew.p` (identity per call site, distinct sites, package variables, returns,
+  generics), `testdata/lib/allocdefaults.p` (which allocator each library function used), and
+  `internal/build/errors_test.go` (a non-constant message, `errors.New` as a value or deferred).

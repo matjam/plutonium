@@ -141,7 +141,8 @@ func TypeInfo(v any) (kind uint8, size uintptr, name string, data unsafe.Pointer
 }
 
 // ----------------------------------------------------------------------------
-// Panics. Panicking prints a message and stops; it does not unwind.
+// Panics. Panicking prints a message and a stack trace (trace.p) and stops;
+// it does not unwind.
 
 func panicIndex(i, n int) {
 	printString("panic: runtime error: index out of range [")
@@ -149,7 +150,7 @@ func panicIndex(i, n int) {
 	printString("] with length ")
 	printInt(int64(n))
 	printNewline()
-	abort()
+	fatal()
 }
 
 func panicSlice(lo, hi, max int) {
@@ -160,7 +161,7 @@ func panicSlice(lo, hi, max int) {
 	printString(":")
 	printInt(int64(max))
 	printString("]\n")
-	abort()
+	fatal()
 }
 
 // panicStale reports an access through a heap pointer whose allocation has
@@ -174,12 +175,12 @@ func panicStale(p unsafe.Pointer) {
 
 func panicDivide() {
 	printString("panic: runtime error: integer divide by zero\n")
-	abort()
+	fatal()
 }
 
 func panicShift() {
 	printString("panic: runtime error: negative shift amount\n")
-	abort()
+	fatal()
 }
 
 func panicAppend(n, c int) {
@@ -188,12 +189,12 @@ func panicAppend(n, c int) {
 	printString(", have ")
 	printInt(int64(c))
 	printNewline()
-	abort()
+	fatal()
 }
 
 func panicMakeLen(n, c int) {
 	printString("panic: runtime error: makeslice: len out of range\n")
-	abort()
+	fatal()
 }
 
 func panicSliceConvert(n, want int) {
@@ -202,7 +203,7 @@ func panicSliceConvert(n, want int) {
 	printString(" to array of length ")
 	printInt(int64(want))
 	printNewline()
-	abort()
+	fatal()
 }
 
 func panicAssert(have, want *typeDesc) {
@@ -215,7 +216,7 @@ func panicAssert(have, want *typeDesc) {
 	printString(", not ")
 	printString(want.name)
 	printNewline()
-	abort()
+	fatal()
 }
 
 // panicValue implements panic(v).
@@ -244,7 +245,7 @@ func panicValue(v any) {
 		printString(")")
 	}
 	printNewline()
-	abort()
+	fatal()
 }
 
 func panicMessage(a, b, c, d, e string) {
@@ -255,7 +256,7 @@ func panicMessage(a, b, c, d, e string) {
 	printString(d)
 	printString(e)
 	printNewline()
-	abort()
+	fatal()
 }
 
 // ----------------------------------------------------------------------------
@@ -476,7 +477,7 @@ func alloc(size, align uintptr) unsafe.Pointer {
 	if defaultAllocator == nil {
 		panicMessage("no allocator: call alloc.SetDefault before allocating", "", "", "", "")
 	}
-	return allocWith(defaultAllocator, size, align)
+	return allocAt(defaultAllocator, size, align, CallerPC())
 }
 
 // allocWith implements new and make with an explicit allocator.
@@ -484,10 +485,23 @@ func allocWith(a Allocator, size, align uintptr) unsafe.Pointer {
 	if a == nil {
 		panicMessage("nil allocator passed to new or make", "", "", "", "")
 	}
+	return allocAt(a, size, align, CallerPC())
+}
+
+// allocAt allocates for the new or make whose call returns to pc,
+// publishing pc through AllocSite while the allocator runs if TrackSites
+// is set.
+func allocAt(a Allocator, size, align, pc uintptr) unsafe.Pointer {
 	if size == 0 {
 		size = 1
 	}
+	if TrackSites {
+		allocSite = pc
+	}
 	p := a.Alloc(size, align)
+	if TrackSites {
+		allocSite = 0
+	}
 	if p == nil {
 		panicMessage("out of memory", "", "", "", "")
 	}

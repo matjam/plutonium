@@ -48,7 +48,7 @@ func expandPCopies(f *MFunc) {
 					// Every destination is still needed as a source: a cycle.
 					// Save one destination's value and redirect its readers.
 					m := pending[0]
-					t := f.newVReg(f.classOf(m.dst))
+					t := f.newVRegLike(m.dst)
 					out = append(out, &MInst{Op: MCOPY, Size: 8, Dst: RegOp(t), Src: RegOp(m.dst)})
 					for j := range pending {
 						if pending[j].src == m.dst {
@@ -636,7 +636,8 @@ func (a *allocator) rewrite(spillTemps map[Reg]bool) {
 	f := a.f
 	slots := map[Reg]*ssa.Slot{}
 	for _, r := range a.spilled {
-		slots[r] = f.newSlot(fmt.Sprintf("spill%d", r-FirstVirtual), 8, 8)
+		n := int64(f.spillSize(r))
+		slots[r] = f.newSlot(fmt.Sprintf("spill%d", r-FirstVirtual), n, n)
 	}
 	var buf []Reg
 	for _, b := range f.Blocks {
@@ -648,10 +649,10 @@ func (a *allocator) rewrite(spillTemps map[Reg]bool) {
 			for _, r := range buf {
 				slot, spilled := slots[r]
 				if _, done := reload[r]; spilled && !done {
-					t := f.newVReg(a.class)
+					t := f.newVRegLike(r)
 					spillTemps[t] = true
 					reload[r] = t
-					out = append(out, &MInst{Op: MRELOAD, Size: 8, Dst: RegOp(t), Slot: slot})
+					out = append(out, &MInst{Op: MRELOAD, Size: f.spillSize(r), Dst: RegOp(t), Slot: slot})
 				}
 			}
 			buf = in.Defs(buf[:0])
@@ -660,7 +661,7 @@ func (a *allocator) rewrite(spillTemps map[Reg]bool) {
 				if _, ok := slots[r]; ok {
 					t, reused := reload[r]
 					if !reused {
-						t = f.newVReg(a.class)
+						t = f.newVRegLike(r)
 						spillTemps[t] = true
 					}
 					store[r] = t
@@ -677,7 +678,7 @@ func (a *allocator) rewrite(spillTemps map[Reg]bool) {
 			})
 			out = append(out, in)
 			for r, t := range store {
-				out = append(out, &MInst{Op: MSPILL, Size: 8, Src: RegOp(t), Slot: slots[r]})
+				out = append(out, &MInst{Op: MSPILL, Size: f.spillSize(r), Src: RegOp(t), Slot: slots[r]})
 			}
 		}
 		b.Insts = out
@@ -723,7 +724,14 @@ func applyColors(f *MFunc, color map[Reg]Reg) {
 			switch {
 			case !used[r] || r == RSP:
 			case r.PhysClass() == ClassXMM:
-				f.savedXMM = append(f.savedXMM, r)
+				// A NoSSE handler (kernel mode without //pu:fpu) uses no
+				// XMM register, and neither does anything it calls: non-fpu
+				// functions are NoSSE too, and calling a //pu:fpu function
+				// needs FPUBegin/FPUEnd around it (abi.md section 10.4).
+				// The registers marked here are only call clobbers.
+				if !f.noSSE {
+					f.savedXMM = append(f.savedXMM, r)
+				}
 			default:
 				f.usedSaved = append(f.usedSaved, r)
 			}

@@ -1,8 +1,11 @@
 package lower
 
 import (
+	"fmt"
+
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
+	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
 )
 
@@ -66,6 +69,9 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		return nil
 
 	case "min", "max":
+		if isString(unwrap(T)) {
+			return one(s.minMaxString(b.Name() == "min", e.Args, unwrap(T)))
+		}
 		vals := make([]*ssa.Value, len(e.Args))
 		for i, a := range e.Args {
 			vals[i] = s.exprAs(a, unwrap(T)).v
@@ -93,7 +99,14 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		return one(scalarValue(ptr, T))
 
 	case "make":
-		st := unwrap(T).Underlying().(*types2.Slice)
+		st, isSlice := unwrap(T).Underlying().(*types2.Slice)
+		if !isSlice {
+			// The checker rejects channel and map types. Channels (roadmap
+			// item 15) will allocate here, from the optional final
+			// allocator as slices do: make(chan T, n, a).
+			s.l.errorf(e.Pos(), "lower: make of %s is not supported", T)
+			return nil
+		}
 		et := s.subst(st.Elem())
 		n := s.indexValue(e.Args[1])
 		c := n
@@ -179,6 +192,10 @@ func (s *fnState) offsetof(e ast.Expr) int64 {
 	}
 	sel := s.info.Selections[se]
 	T := unwrap(s.typeOf(se.X))
+	if isPointerLike(T) {
+		// x.f through a pointer x: the offset is within *x.
+		T = unwrap(pointerElem(T))
+	}
 	var off int64
 	for _, idx := range sel.Index() {
 		st, ok := T.Underlying().(*types2.Struct)
@@ -203,10 +220,6 @@ func (s *fnState) minInt(a, b *ssa.Value) *ssa.Value {
 // minMax returns min(a, b) or max(a, b) with Go's rules: for floats, a NaN
 // operand gives NaN.
 func (s *fnState) minMax(isMin bool, a, b *ssa.Value, T types2.Type) *ssa.Value {
-	if isString(T) {
-		s.l.errorf(0, "lower: min and max of strings are not supported yet")
-		return a
-	}
 	if a.Type.IsFloat() {
 		// Floats have no conditional move: use branches. A NaN operand
 		// gives NaN.
@@ -238,6 +251,27 @@ func (s *fnState) minMax(isMin bool, a, b *ssa.Value, T types2.Type) *ssa.Value 
 		r = s.newValue(ssa.OpSelect, a.Type, lt, b, a)
 	}
 	return r
+}
+
+// minMaxString returns min(args...) or max(args...) of strings of type T,
+// comparing with the runtime's strcmp; the first of equal strings wins.
+func (s *fnState) minMaxString(isMin bool, args []ast.Expr, T types2.Type) value {
+	res := s.temp(T, "minmax")
+	s.storeTo(res, s.exprAs(args[0], T), T)
+	for _, a := range args[1:] {
+		v := s.materialize(s.exprAs(a, T))
+		cur := s.loadFrom(res, T)
+		c := s.callRuntime("strcmp", []*ssa.Type{ssa.TI64}, s.stringLeaves(v), s.stringLeaves(cur))[0]
+		zero := s.constInt(ssa.TI64, 0)
+		var better *ssa.Value
+		if isMin {
+			better = s.newValue(ssa.OpLess, ssa.TBool, c, zero)
+		} else {
+			better = s.newValue(ssa.OpLess, ssa.TBool, zero, c)
+		}
+		s.ifThen(better, func() { s.storeTo(res, v, T) })
+	}
+	return s.loadFrom(res, T)
 }
 
 // allocate returns size zeroed bytes from the allocator given in extra (an
@@ -389,6 +423,12 @@ func (s *fnState) conversion(e *ast.CallExpr) value {
 		}
 	}
 
+	// nil converted to a slice (or another aggregate) is its zero value,
+	// not a one-word nil.
+	if b, ok := fu.(*types2.Basic); ok && b.Kind() == types2.UntypedNil && s.l.scalarType(to) == nil {
+		return s.zeroValue(to)
+	}
+
 	v := s.expr(arg)
 	if v.addr {
 		// Aggregates convert between identical layouts unchanged.
@@ -402,9 +442,62 @@ func (s *fnState) conversion(e *ast.CallExpr) value {
 // ring[T, N]
 
 // ringCall expands a call of a built-in ring method inline.
-func (s *fnState) ringCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.Selection, w *types2.Wrapper) []value {
-	recv := s.methodReceiver(se.X, sel) // pointer to the ring
-	p := recv.v
+func (s *fnState) ringCall(e *ast.CallExpr, se *ast.SelectorExpr, fn *types2.Func, path []int, w *types2.Wrapper) []value {
+	recv := s.methodReceiver(se.X, fn, path) // pointer to the ring
+	var args []value
+	if fn.Name() == "Push" {
+		args = append(args, s.materialize(s.exprAs(e.Args[0], s.subst(w.Elem()))))
+	}
+	return s.ringOp(fn.Name(), recv.v, w, args, e.Pos())
+}
+
+// ringOf returns the ring type of fn if it is a built-in ring method, or
+// nil.
+func (s *fnState) ringOf(fn *types2.Func) *types2.Wrapper {
+	return ringMethodRing(fn, s.subst)
+}
+
+// ringMethodRing returns the ring type of fn if it is a built-in ring
+// method, or nil. subst instantiates the type of fn's receiver.
+func ringMethodRing(fn *types2.Func, subst func(types2.Type) types2.Type) *types2.Wrapper {
+	recv := fn.Type().(*types2.Signature).Recv()
+	if fn.Pkg() != nil || recv == nil {
+		return nil
+	}
+	p, ok := subst(recv.Type()).(*types2.Pointer)
+	if !ok {
+		return nil
+	}
+	if w, ok := p.Elem().Underlying().(*types2.Wrapper); ok && w.Kind() == types2.WrapRing {
+		return w
+	}
+	return nil
+}
+
+// ringMethodFunc returns a function performing ring method fn of ring
+// type w on the ring its receiver points at, for a ring method used as a
+// value or called through an interface; calls name the method directly
+// and are expanded inline instead.
+func (l *Lowerer) ringMethodFunc(fn *types2.Func, w *types2.Wrapper) (*ssa.Sym, *types2.Signature) {
+	ptr := types2.NewPointer(w)
+	obj, _, _ := types2.LookupFieldOrMethod(ptr, false, nil, fn.Name())
+	full := obj.(*types2.Func).Type().(*types2.Signature)
+	name := fmt.Sprintf("builtin.(*ring[%s,%d]).%s", typeString(w.Elem()), w.N(), fn.Name())
+	if sym := l.funcs[name]; sym != nil {
+		return sym, full
+	}
+	sym := l.out.Sym(name, ssa.SymFunc)
+	l.funcs[name] = sym
+	l.queue = append(l.queue, &funcJob{sym: sym, sig: full, build: func(s *fnState) {
+		in := s.incomingArgs(full)
+		s.returnValues(s.ringOp(fn.Name(), in[0].v, w, in[1:], token.NoPos))
+	}})
+	return sym, full
+}
+
+// ringOp expands ring method name on the ring that p points at, with the
+// arguments already evaluated.
+func (s *fnState) ringOp(name string, p *ssa.Value, w *types2.Wrapper, args []value, pos token.Pos) []value {
 	et := s.subst(w.Elem())
 	n := w.N()
 	mask := s.constInt(ssa.TI64, n-1)
@@ -419,7 +512,7 @@ func (s *fnState) ringCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.Se
 	boolT := types2.Typ[types2.Bool]
 	intT := types2.Typ[types2.Int]
 
-	switch name := sel.Obj().Name(); name {
+	switch name {
 	case "Len":
 		d := s.newValue(ssa.OpSub, ssa.TI64, s.load(ssa.TI64, headPtr), s.load(ssa.TI64, tailPtr))
 		return []value{scalarValue(d, intT)}
@@ -436,7 +529,7 @@ func (s *fnState) ringCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.Se
 		s.store(ssa.TI64, tailPtr, s.constInt(ssa.TI64, 0))
 		return nil
 	case "Push":
-		v := s.materialize(s.exprAs(e.Args[0], et))
+		v := args[0]
 		res := s.temp(boolT, "ok")
 		s.store(ssa.TBool, res, s.constBool(false))
 		head := s.load(ssa.TI64, headPtr)
@@ -464,7 +557,7 @@ func (s *fnState) ringCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.Se
 		})
 		return []value{s.loadFrom(out, et), scalarValue(s.load(ssa.TBool, res), boolT)}
 	}
-	s.l.errorf(e.Pos(), "lower: unknown ring method %s", sel.Obj().Name())
+	s.l.errorf(pos, "lower: unknown ring method %s", name)
 	return nil
 }
 

@@ -146,11 +146,16 @@ func collapse(ts tset) tset {
 	return out
 }
 
-// walkPath follows an access path from the pointers in ts; with ge, it
-// also follows every extension of it.
-func (w *walker) walkPath(ts tset, path string, ge bool) tset {
+// walkKey follows k's path from the pointers in ts, applying its type
+// filter where the path reaches the interface value it constrains.
+func (w *walker) walkKey(ts tset, k pkey) tset {
 	cur := ts
-	for _, step := range splitPath(path) {
+	at := 0
+	for _, step := range splitPath(k.path) {
+		if k.filt != nil && at == k.filtAt {
+			cur = w.a.filterDyn(cur, k.filt, at)
+		}
+		at += len(step)
 		if step == "*" {
 			cur = w.load(cur)
 			continue
@@ -158,10 +163,45 @@ func (w *walker) walkPath(ts tset, path string, ge bool) tset {
 		i, _ := strconv.Atoi(strings.TrimSuffix(step, "."))
 		cur = offset(cur, i)
 	}
-	if !ge {
+	if k.filt != nil && at == k.filtAt {
+		cur = w.a.filterDyn(cur, k.filt, at)
+	}
+	if !k.ge {
 		return cur
 	}
 	return w.reach(cur)
+}
+
+// filterDyn applies a type assertion to interface I to the data words in
+// ts: a frame box or a pointer to a frame variable whose type does not
+// implement I cannot be there. Parameter tokens carry the filter on to
+// the caller.
+func (a *analyzer) filterDyn(ts tset, I types2.Type, _ int) tset {
+	iface, _ := I.Underlying().(*types2.Interface)
+	if iface == nil || iface.Empty() {
+		return ts
+	}
+	var out tset
+	for _, t := range ts {
+		switch t.kind {
+		case tFrame:
+			if t.path == "" && t.loc.typ != nil && !containsTypeParam(t.loc.typ) {
+				dyn := t.loc.typ
+				if !t.loc.box {
+					dyn = types2.NewPointer(dyn)
+				}
+				if !types2.Implements(dyn, iface) {
+					continue
+				}
+			}
+		case tParam:
+			if t.filt == nil && !t.ge {
+				t.filt, t.filtAt = I, len(t.path)
+			}
+		}
+		out.add(t)
+	}
+	return out
 }
 
 // reach returns the pointers in ts and everything reachable from them.
@@ -361,15 +401,18 @@ func (w *walker) identValue(id *ast.Ident) tset {
 // unbox returns what a value of type T taken out of an interface whose
 // data word is xv may point to.
 func (w *walker) unbox(xv tset, T types2.Type) tset {
-	if T == nil || isInterface(T) {
+	if T == nil {
 		return xv
 	}
-	direct, known := isDirect(T)
+	if isInterface(T) {
+		return w.a.filterDyn(xv, T, 0)
+	}
+	_, known := isDirect(T)
 	switch {
+	case w.a.isDirectType(T):
+		return xv
 	case !known:
 		return union(xv, w.load(xv))
-	case direct:
-		return xv
 	}
 	return w.load(xv)
 }
@@ -516,8 +559,8 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 		return nil // an untyped constant becomes a word or a static string
 	}
 	w.a.noteConversion(from)
-	direct, known := isDirect(from)
-	if direct {
+	_, known := isDirect(from)
+	if w.a.isDirectType(from) {
 		return v
 	}
 	if w.static {
@@ -692,6 +735,7 @@ func (w *walker) funcLit(lit *ast.FuncLit) tset {
 		names[i] = v.Name()
 	}
 	rec := w.tmp(lit, "closure", "a closure capturing "+strings.Join(names, ", "), hintClosure)
+	w.recLit[rec] = lit
 	for _, v := range captures {
 		w.addContents(rec, tset{frameTok(w.varLoc(v))})
 	}
@@ -737,6 +781,12 @@ func (w *walker) methodValue(e *ast.SelectorExpr, sel *types2.Selection) tset {
 		if fn != nil {
 			w.a.noteFuncValue(w.a.funcs[fn.Origin()], fvBound)
 		}
+	}
+	if w.static {
+		// Package initialisation keeps method value records in static
+		// storage.
+		w.store(tset{heapTok}, recv, e.Pos(), dest{text: "a static method value"})
+		return tset{heapTok}
 	}
 	rec := w.tmp(e, "methodvalue", "a method value bound to "+types2.ExprString(e.X), hintClosure)
 	w.addContents(rec, recv)

@@ -216,13 +216,6 @@ func main() {
 	_ = p
 }`, []string{"a pointer to local variable y escapes: it is stored in p, which outlives the function literal"}},
 
-	{"method value in package initialisation", `
-type C struct{ n int }
-func (c C) Get() int { return c.n }
-var c0 = C{3}
-var F = c0.Get
-func main() { _ = F() }`, []string{"a method value bound to c0", "package variable F"}},
-
 	{"interface method value keeps argument", `
 type Keeper interface{ Keep(p *int) }
 type k struct{}
@@ -285,6 +278,11 @@ func main() {
 	x := 1
 	extStore(new(*int), &x)
 }`, []string{"a pointer to local variable x", "may store it into memory another argument points to"}},
+
+	{"generic conversion of a struct instantiation", `
+type P struct{ x, y int }
+func box[T any](x T) any { return x }
+func main() { _, _ = box(1), box(P{1, 2}) }`, []string{"an interface value holding a frame copy of a T", "returned from box"}},
 
 	// go statements and channels are rejected by the checker until the
 	// scheduler exists; the analysis already treats a go statement's
@@ -411,6 +409,23 @@ var P = &T{1}
 var L = []int{1, 2, 3}
 var A any = S{"x", 2}
 func main() { _, _, _ = P, L, A }`},
+
+	{"method value in package initialisation is static", `
+type C struct{ n int }
+func (c C) Get() int { return c.n }
+var c0 = C{3}
+var F = c0.Get
+func main() { _ = F() }`},
+
+	{"zero-size values box nothing", `
+type none struct{}
+func (none) Error() string { return "none" }
+func f() error { return none{} }
+func main() { _ = f() }`},
+
+	{"generic conversion of word-sized instantiations", `
+func box[T any](x T) any { return x }
+func main() { _, _ = box(1), box(new(int)) }`},
 
 	{"closure called locally", `
 func apply(f func()) { f() }

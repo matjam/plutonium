@@ -150,7 +150,36 @@ func (check *Checker) compositeLit(x *operand, e *ast.CompositeLit, hint Type) {
 		return
 	}
 
+	// Plutonium: aligned[T, N]{...} and volatile[T]{...} are literals of T,
+	// stored with the wrapper's placement.
+	for {
+		w, ok := base.Underlying().(*Wrapper)
+		if !ok || !w.isTransparent() {
+			break
+		}
+		base = w.elem
+	}
+
 	switch u, _ := commonUnder(base, nil); utyp := u.(type) {
+	case *Wrapper:
+		// ring[T, N]{} is the empty ring; a ring has no elements to list.
+		if utyp.kind == WrapRing && len(e.Elts) == 0 {
+			break
+		}
+		for _, e := range e.Elts {
+			if kv, _ := e.(*ast.KeyValueExpr); kv != nil {
+				e = kv.Value
+			}
+			check.use(e)
+		}
+		if utyp.kind == WrapRing {
+			check.errorf(e.Elts[0], InvalidLit, "ring literal must be empty: %s{}", typ)
+		} else {
+			check.errorf(e, InvalidLit, "invalid composite literal type %s", typ)
+		}
+		x.invalidate()
+		return
+
 	case *Packed:
 		// Packed literals name their fields: field order says nothing
 		// about layout a reader can check, so positional values are not

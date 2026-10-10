@@ -77,7 +77,7 @@ func main() {
 
 	// Vec of structs on an arena.
 	ar = arena.New(unsafe.Slice((*byte)(unsafe.Pointer(&mem)), len(mem)*8))
-	bv := vec.WithCapacity[big](&ar, 2)
+	bv := vec.WithCapacity[big](2, &ar)
 	for i := 0; i < 100; i++ {
 		bv.Push(big{a: int64(i), b: int64(2 * i), c: int64(3 * i), s: "x"})
 	}
@@ -117,7 +117,9 @@ func main() {
 
 	// Builder on an arena.
 	ar.Reset()
-	b := strings.NewBuilderIn(&ar, 2)
+	var b strings.Builder
+	b.Init(&ar)
+	b.Grow(2)
 	for i := 0; i < 50; i++ {
 		fmt.Fprintf(&b, "%d,", i)
 	}

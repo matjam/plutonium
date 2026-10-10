@@ -102,4 +102,17 @@ func main() {
 	fmt.Printf("%s\n", g.String())
 	g.Free()
 	fmt.Printf("%d\n", g.Len())
+
+	// The zero Builder grows from the default allocator without Init or
+	// Grow, and a NewBuilder buffer grows once Init gives it an allocator.
+	var z strings.Builder
+	z.WriteString("implicit")
+	fmt.Printf("%s %d\n", z.String(), z.Len())
+	z.Free()
+	var small [2]byte
+	f := strings.NewBuilder(small[:])
+	f.Init()
+	f.WriteString("grown past 2")
+	fmt.Printf("%s %d\n", f.String(), f.Len())
+	f.Free()
 }

@@ -5,7 +5,7 @@
 // room it allocates a buffer twice as large from its allocator, copies the
 // elements and frees the old buffer.
 //
-//	v := vec.New[int](alloc.Default())
+//	v := vec.New[int]() // or vec.New[int](arena)
 //	defer v.Free()
 //	for i := 0; i < 100; i++ {
 //		v.Push(i)
@@ -30,23 +30,23 @@ type Vec[T any] struct {
 	a    alloc.Allocator
 }
 
-// New returns an empty Vec that allocates from a. It does not allocate
-// until the first element is added.
-func New[T any](a alloc.Allocator) Vec[T] {
+// New returns an empty Vec that allocates from a, by default the default
+// allocator. It does not allocate until the first element is added.
+func New[T any](a alloc.Allocator = alloc.Default()) Vec[T] {
 	return Vec[T]{a: a}
 }
 
-// WithCapacity returns an empty Vec that allocates from a, with room for n
-// elements already allocated.
-func WithCapacity[T any](a alloc.Allocator, n int) Vec[T] {
+// WithCapacity returns an empty Vec that allocates from a (by default the
+// default allocator), with room for n elements already allocated.
+func WithCapacity[T any](n int, a alloc.Allocator = alloc.Default()) Vec[T] {
 	v := Vec[T]{a: a}
 	v.Reserve(n)
 	return v
 }
 
-// Init sets the allocator of a zero Vec. It panics if v already holds
-// storage from another allocator.
-func (v *Vec[T]) Init(a alloc.Allocator) {
+// Init sets the allocator of a zero Vec: a, by default the default
+// allocator. It panics if v already holds storage from another allocator.
+func (v *Vec[T]) Init(a alloc.Allocator = alloc.Default()) {
 	if cap(v.data) > 0 && v.a != a {
 		panic("vec: Init on a Vec that holds storage")
 	}
@@ -187,10 +187,11 @@ func (v *Vec[T]) Free() {
 	v.data = nil
 }
 
-// Map returns a new Vec, allocating from a, that holds f applied to each
-// element of v in order. v is unchanged.
-func (v *Vec[T]) Map[U any](f func(T) U, a alloc.Allocator) Vec[U] {
-	out := WithCapacity[U](a, len(v.data))
+// Map returns a new Vec, allocating from a (by default the default
+// allocator), that holds f applied to each element of v in order. v is
+// unchanged.
+func (v *Vec[T]) Map[U any](f func(T) U, a alloc.Allocator = alloc.Default()) Vec[U] {
+	out := WithCapacity[U](len(v.data), a)
 	for _, x := range v.data {
 		out.data = append(out.data, f(x))
 	}

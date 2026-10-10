@@ -39,4 +39,23 @@ _start:
 	syscall
 	ret
 
+# sigreturn is the signal restorer the kernel requires (SA_RESTORER). The
+# fault handler never returns, so it is never reached in practice.
+	.type "pluto/rt.sigreturn", @function
+"pluto/rt.sigreturn":
+	movl	$15, %eax
+	syscall
+	ud2
+
+# signalPCs(out *[2]uintptr): the addresses of the fault handler and of the
+# restorer, for rt_sigaction.
+	.globl "pluto/rt.signalPCs"
+	.type "pluto/rt.signalPCs", @function
+"pluto/rt.signalPCs":
+	leaq	"pluto/rt.sigpanic"(%rip), %rax
+	movq	%rax, 0(%rdi)
+	leaq	"pluto/rt.sigreturn"(%rip), %rax
+	movq	%rax, 8(%rdi)
+	ret
+
 	.section .note.GNU-stack,"",@progbits

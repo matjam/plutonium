@@ -52,11 +52,24 @@ func ForLevel(level int) *Pipeline {
 		p.addProgram(ProgramPass{"inline", Inline})
 		p.add(Pass{"prove", Prove})
 		p.add(Pass{"simplify2", Simplify})
+		// After prove, which removes the bounds checks that would give a
+		// loop more than one exit.
+		p.add(Pass{"unroll", Unroll})
 		p.add(Pass{"branchelim", BranchElim})
 		p.add(Pass{"simplifycfg2", SimplifyCFG})
 		// Simplify the selects branchelim made.
 		p.add(Pass{"simplify3", Simplify})
+		// After branchelim, which turns || and && chains into Or and And.
+		p.add(Pass{"bittest", BitTest})
+		p.add(Pass{"memopt", MemOpt})
+		// Constant indexes folded since the first SROA, and accesses
+		// memopt removed, can make more slots splittable.
+		p.add(Pass{"sroa2", SROA})
+		p.add(Pass{"mem2reg2", Mem2Reg})
+		p.add(Pass{"simplify4", Simplify})
+		p.add(Pass{"cse2", CSE})
 		p.add(Pass{"loopidiom", LoopIdiom})
+		p.add(Pass{"vectorize", Vectorize})
 		p.add(Pass{"deadcode2", ssa.DeadCode})
 	}
 	// Last, so that inlining and scalar replacement see the code without

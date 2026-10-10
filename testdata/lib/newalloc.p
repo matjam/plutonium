@@ -89,14 +89,14 @@ func main() {
 	restore.Restore()
 	fmt.Printf("default: %q %d calls=%d other=%d\n", e.s, len(m), d.calls, c.calls)
 
-	alloc.FreeIn(a, p)
-	alloc.FreeIn(a, q)
-	alloc.FreeIn(a, r)
-	alloc.FreeIn(a, n)
-	alloc.FreeIn(a, s)
-	alloc.FreeIn(a, w)
-	alloc.FreeIn(a, g)
-	alloc.FreeIn(a, t)
+	alloc.Free(p, a)
+	alloc.Free(q, a)
+	alloc.Free(r, a)
+	alloc.Free(n, a)
+	alloc.Free(s, a)
+	alloc.Free(w, a)
+	alloc.Free(g, a)
+	alloc.Free(t, a)
 	// Only the two slices are left.
 	fmt.Printf("freed live=%d\n", c.live)
 }

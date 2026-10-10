@@ -47,6 +47,13 @@ const (
 	OpSymAddr    // address of global symbol Aux (*Sym)
 	OpFuncAddr   // address of function Aux (*Sym), as a function value code pointer
 	OpClosurePtr // the closure context pointer the caller passed (internal ABI)
+	OpReturnAddr // the function's return address (a code address in its caller)
+	OpCodeAddr   // the address of the code at this point (an OpReturnAddr once inlined)
+	// OpPerCPUOffset is the link-time address of per-CPU symbol Aux (*Sym):
+	// its offset in a per-CPU block, as an i64. (OpSymAddr of a per-CPU
+	// symbol instead addresses the current processor's copy, GS-relative,
+	// at the moment of each access.)
+	OpPerCPUOffset
 
 	// Integer arithmetic. Operands and result share the type.
 	OpAdd
@@ -109,6 +116,11 @@ const (
 	OpBswap // reverse byte order
 	OpRotl  // rotate left by arg1
 
+	// Vectors (see TF64x2). Float arithmetic, loads and stores also take
+	// vector types.
+	OpVPack // vector of arg0 (lane 0) and arg1 (lane 1)
+	OpVLane // lane AuxInt of vector arg0
+
 	// Pointers.
 	OpOffPtr // arg0 + AuxInt
 	OpAddPtr // arg0 + arg1 (arg1 an integer)
@@ -125,6 +137,14 @@ const (
 	OpVolatileRead
 	OpVarDef // marks the start of slot Aux's lifetime; arg0 memory; result memory
 
+	// OpIntrinsic is a machine instruction sequence named by Aux (an
+	// Intrinsic, such as "x86.Cli"), expanded inline by the backend. The
+	// last argument is memory; the result is a tuple of the memory state
+	// followed by the sequence's results, read with SelectN as for calls.
+	// It is a full compiler barrier: it consumes and produces memory, so
+	// no load or store moves across it, and it is never removed or merged.
+	OpIntrinsic
+
 	// Calls. The last argument is memory; the result is a tuple of the
 	// memory state followed by the callee's results.
 	OpCall             // static call to Aux (*Sym); AuxCall in Aux2 describes the ABI
@@ -136,6 +156,10 @@ const (
 
 	OpGenericEnd
 )
+
+// An Intrinsic names the machine instruction sequence of an OpIntrinsic.
+// The backend for the target defines the names it accepts.
+type Intrinsic string
 
 // Memory access flags in OpLoad / OpStore AuxInt.
 const (
@@ -152,6 +176,10 @@ var opTable = [opTableSize]OpInfo{
 	OpSymAddr:    {Name: "SymAddr", Args: 0},
 	OpFuncAddr:   {Name: "FuncAddr", Args: 0},
 	OpClosurePtr: {Name: "ClosurePtr", Args: 0, Flags: fNoCSE},
+	OpReturnAddr: {Name: "ReturnAddr", Args: 0},
+	OpCodeAddr:   {Name: "CodeAddr", Args: 0, Flags: fNoCSE},
+
+	OpPerCPUOffset: {Name: "PerCPUOffset", Args: 0},
 
 	OpAdd:    {Name: "Add", Args: 2, Flags: fCommutative},
 	OpSub:    {Name: "Sub", Args: 2},
@@ -209,6 +237,9 @@ var opTable = [opTableSize]OpInfo{
 	OpBswap:    {Name: "Bswap", Args: 1},
 	OpRotl:     {Name: "Rotl", Args: 2},
 
+	OpVPack: {Name: "VPack", Args: 2},
+	OpVLane: {Name: "VLane", Args: 1},
+
 	OpOffPtr: {Name: "OffPtr", Args: 1},
 	OpAddPtr: {Name: "AddPtr", Args: 2},
 
@@ -220,6 +251,8 @@ var opTable = [opTableSize]OpInfo{
 
 	OpVolatileRead: {Name: "VolatileRead", Args: 2, Flags: fMemArg | fMemResult},
 	OpVarDef: {Name: "VarDef", Args: 1, Flags: fMemArg | fMemResult},
+
+	OpIntrinsic: {Name: "Intrinsic", Args: -1, Flags: fMemArg | fMemResult | fSideEffect | fNoCSE},
 
 	OpCall:             {Name: "Call", Args: -1, Flags: fMemArg | fMemResult | fCall | fSideEffect},
 	OpCallInd:          {Name: "CallInd", Args: -1, Flags: fMemArg | fMemResult | fCall | fSideEffect},

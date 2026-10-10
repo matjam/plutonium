@@ -17,7 +17,7 @@
 // interfaces and function values use the union of the summaries of every
 // function that could be called there. Nothing has to be annotated.
 //
-// The rules are written up in docs/spec/language.md, section 6.3.
+// The rules are written up in docs/spec/language.md, section 6.4.
 package escape
 
 import (
@@ -95,6 +95,8 @@ type analyzer struct {
 	tparamConverted bool                   // a type parameter was converted to an interface
 	funcValues      map[funcValue]bool     // functions used as values
 	embedded        map[*types2.TypeName]bool
+	tpArgs          map[*types2.TypeParam][]types2.Type // type arguments of each type parameter
+	tpRecv          map[*types2.TypeParam]*types2.TypeParam
 
 	grew   bool // a summary or candidate set grew during this pass
 	report bool // the final pass: report errors
@@ -338,6 +340,154 @@ func (a *analyzer) litFunc(lit *ast.FuncLit, pkg *pkgInfo, outer string) *functi
 }
 
 // ----------------------------------------------------------------------------
+// Type parameters
+
+// tparamTypes returns the concrete types a type parameter is instantiated
+// with anywhere in the program. A generic function body is analysed once,
+// so where an instantiation matters (whether a conversion to an interface
+// boxes the value in the frame) the analysis asks about all of them.
+func (a *analyzer) tparamTypes(tp *types2.TypeParam) []types2.Type {
+	if a.tpArgs == nil {
+		a.computeTparamArgs()
+	}
+	var out []types2.Type
+	seen := map[types2.Type]bool{}
+	var walk func(tp *types2.TypeParam)
+	walk = func(tp *types2.TypeParam) {
+		for _, t := range a.tpArgs[a.tpCanon(tp)] {
+			if seen[t] {
+				continue
+			}
+			seen[t] = true
+			if inner, ok := types2.Unalias(t).(*types2.TypeParam); ok {
+				walk(inner)
+				continue
+			}
+			out = append(out, t)
+		}
+	}
+	walk(tp)
+	return out
+}
+
+// tpCanon maps a method's receiver type parameter to the type parameter of
+// the type it belongs to, which is what instantiations of the type record.
+func (a *analyzer) tpCanon(tp *types2.TypeParam) *types2.TypeParam {
+	if c := a.tpRecv[tp]; c != nil {
+		return c
+	}
+	return tp
+}
+
+func (a *analyzer) computeTparamArgs() {
+	a.tpArgs = map[*types2.TypeParam][]types2.Type{}
+	a.tpRecv = map[*types2.TypeParam]*types2.TypeParam{}
+	for obj := range a.funcs {
+		sig := obj.Type().(*types2.Signature)
+		rp := sig.RecvTypeParams()
+		if rp == nil || sig.Recv() == nil {
+			continue
+		}
+		rt := sig.Recv().Type()
+		if p, ok := rt.(*types2.Pointer); ok {
+			rt = p.Elem()
+		}
+		n, ok := types2.Unalias(rt).(*types2.Named)
+		if !ok {
+			continue
+		}
+		tps := n.Origin().TypeParams()
+		for i := 0; i < rp.Len() && tps != nil && i < tps.Len(); i++ {
+			a.tpRecv[rp.At(i)] = tps.At(i)
+		}
+	}
+	for id, inst := range a.instances {
+		var tps *types2.TypeParamList
+		switch obj := a.uses[id].(type) {
+		case *types2.Func:
+			tps = obj.Origin().Type().(*types2.Signature).TypeParams()
+		case *types2.TypeName:
+			if n, ok := types2.Unalias(obj.Type()).(*types2.Named); ok {
+				tps = n.Origin().TypeParams()
+			}
+		}
+		if tps == nil || inst.TypeArgs == nil {
+			continue
+		}
+		for i := 0; i < tps.Len() && i < inst.TypeArgs.Len(); i++ {
+			tp := a.tpCanon(tps.At(i))
+			a.tpArgs[tp] = append(a.tpArgs[tp], inst.TypeArgs.At(i))
+		}
+	}
+	// The type arguments of instantiated types that appear anywhere, which
+	// the instances of identifiers do not all list (a method's receiver
+	// type in a call, a type inferred into a type).
+	for _, tv := range a.types {
+		a.noteNamedArgs(tv.Type, map[types2.Type]bool{})
+	}
+}
+
+// noteNamedArgs records the type arguments of every instantiated named type
+// within T.
+func (a *analyzer) noteNamedArgs(T types2.Type, seen map[types2.Type]bool) {
+	if T == nil || seen[T] {
+		return
+	}
+	seen[T] = true
+	switch t := types2.Unalias(T).(type) {
+	case *types2.Named:
+		if ta := t.TypeArgs(); ta != nil {
+			tps := t.Origin().TypeParams()
+			for i := 0; i < ta.Len() && tps != nil && i < tps.Len(); i++ {
+				tp := tps.At(i)
+				if !containsType(a.tpArgs[tp], ta.At(i)) {
+					a.tpArgs[tp] = append(a.tpArgs[tp], ta.At(i))
+				}
+				a.noteNamedArgs(ta.At(i), seen)
+			}
+		}
+	case *types2.Pointer:
+		a.noteNamedArgs(t.Elem(), seen)
+	case *types2.Slice:
+		a.noteNamedArgs(t.Elem(), seen)
+	case *types2.Array:
+		a.noteNamedArgs(t.Elem(), seen)
+	case *types2.Signature:
+		for i := 0; i < t.Params().Len(); i++ {
+			a.noteNamedArgs(t.Params().At(i).Type(), seen)
+		}
+		for i := 0; i < t.Results().Len(); i++ {
+			a.noteNamedArgs(t.Results().At(i).Type(), seen)
+		}
+	}
+}
+
+func containsType(ts []types2.Type, t types2.Type) bool {
+	for _, u := range ts {
+		if types2.Identical(u, t) {
+			return true
+		}
+	}
+	return false
+}
+
+// isDirectType is isDirect, answering for a type parameter from its
+// instantiations: direct only if every instantiation is.
+func (a *analyzer) isDirectType(T types2.Type) bool {
+	tp, ok := types2.Unalias(T).(*types2.TypeParam)
+	if !ok {
+		d, _ := isDirect(T)
+		return d
+	}
+	for _, t := range a.tparamTypes(tp) {
+		if d, _ := isDirect(t); !d {
+			return false
+		}
+	}
+	return true
+}
+
+// ----------------------------------------------------------------------------
 // Candidates for dynamic calls
 
 // noteConversion records that values of type T are converted to an
@@ -404,8 +554,11 @@ func (a *analyzer) ifaceCandidates(name string, byName bool) []candidate {
 		// what it points to. A method that may be promoted from an
 		// embedded field gets something reachable from it.
 		for _, f := range a.byName[name] {
-			mode := recvEither
-			if _, ptr := f.sig.Recv().Type().(*types2.Pointer); ptr {
+			// The receiver's own type says how it sits behind the data
+			// word: a pointer or a word-sized value is the data word, a
+			// larger value is boxed.
+			mode := recvBoxed
+			if a.isDirectType(f.sig.Recv().Type()) {
 				mode = recvExact
 			}
 			if a.isEmbedded(f.sig.Recv().Type()) {
@@ -472,7 +625,6 @@ type recvMode uint8
 const (
 	recvExact  recvMode = iota // the data word is the receiver
 	recvBoxed                  // the data word points at the receiver
-	recvEither                 // one of the two
 	recvReach                  // unknown: anything reachable from the data word
 )
 
@@ -691,6 +843,9 @@ func isDirect(T types2.Type) (direct, known bool) {
 	if _, ok := types2.Unalias(T).(*types2.TypeParam); ok {
 		return false, false
 	}
+	if isZeroSize(T) {
+		return true, true // a box of nothing: no memory to outlive
+	}
 	switch u := T.Underlying().(type) {
 	case *types2.Basic:
 		return u.Kind() != types2.String && u.Kind() != types2.UntypedString, true
@@ -710,6 +865,22 @@ func isDirect(T types2.Type) (direct, known bool) {
 		return false, false
 	}
 	return false, true
+}
+
+// isZeroSize reports whether values of T occupy no memory.
+func isZeroSize(T types2.Type) bool {
+	switch u := T.Underlying().(type) {
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if !isZeroSize(u.Field(i).Type()) {
+				return false
+			}
+		}
+		return true
+	case *types2.Array:
+		return u.Len() == 0 || isZeroSize(u.Elem())
+	}
+	return false
 }
 
 // pointerElem returns the element type of a pointer-like type (a pointer,

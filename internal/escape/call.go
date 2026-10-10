@@ -215,14 +215,12 @@ func (w *walker) apply(f *function, args []tset, pos token.Pos, label string, mo
 		if k.idx == 0 {
 			switch mode {
 			case recvBoxed:
-				return w.walkPath(w.load(args[0]), k.path, k.ge)
-			case recvEither:
-				return w.walkPath(union(args[0], w.load(args[0])), k.path, k.ge)
+				return w.walkKey(w.load(args[0]), k)
 			case recvReach:
 				return w.reach(args[0])
 			}
 		}
-		return w.walkPath(args[k.idx], k.path, k.ge)
+		return w.walkKey(args[k.idx], k)
 	}
 	for _, k := range sortedKeys(f.sum.escapes) {
 		r := f.sum.escapes[k]
@@ -308,8 +306,30 @@ func filterRecv(ts tset, f *function) tset {
 // summaries of every function of that type used as a value. Results may
 // point anywhere the arguments or the func value reach.
 func (w *walker) dynFuncCall(t callTarget, args []tset, pos token.Pos, nres int) []tset {
+	res := make([]tset, nres)
+	for i := range res {
+		res[i] = tset{heapTok}
+	}
+	var captured tset // computed once, if needed
+	// A func value that can only be closure records made here can only
+	// call those literals.
+	var only map[*ast.FuncLit]bool
+	for _, tk := range t.fv {
+		lit := w.recLit[tk.loc]
+		if tk.kind != tFrame || tk.path != "" || lit == nil {
+			only = nil
+			break
+		}
+		if only == nil {
+			only = map[*ast.FuncLit]bool{}
+		}
+		only[lit] = true
+	}
 	for _, fv := range w.a.funcCandidates(t.sig) {
 		f := fv.f
+		if only != nil && !only[f.lit] {
+			continue
+		}
 		label := fmt.Sprintf("%s (which may call %s)", t.name, f.name)
 		fargs, mode := args, recvExact
 		switch fv.kind {
@@ -323,14 +343,25 @@ func (w *walker) dynFuncCall(t callTarget, args []tset, pos token.Pos, nres int)
 		case fvIfaceExpr:
 			mode = recvReach
 		}
-		w.apply(f, fargs, pos, label, mode, nres)
-	}
-	// A closure's record itself is never visible to its body, only what it
-	// holds: captured variables' addresses and a bound receiver.
-	reach := w.reach(union(append(append([]tset(nil), args...), w.load(t.fv))...))
-	res := make([]tset, nres)
-	for i := range res {
-		res[i] = union(reach, tset{heapTok})
+		r := w.apply(f, fargs, pos, label, mode, nres)
+		var outer tset
+		if f.lit != nil {
+			// What a literal returns of the frames around it: known if it
+			// was walked here, else anything its record leads to. (The
+			// record itself is never visible to its body.)
+			if sc := w.scopes[f.lit]; sc != nil {
+				outer = sc.outerRet
+			} else {
+				if captured == nil {
+					captured = append(w.reach(w.load(t.fv)), heapTok)
+				}
+				outer = captured
+			}
+		}
+		for i := range res {
+			res[i].addAll(r[i])
+			res[i].addAll(outer)
+		}
 	}
 	return res
 }
@@ -439,7 +470,20 @@ func lessKey(a, b pkey) bool {
 	if a.path != b.path {
 		return a.path < b.path
 	}
-	return !a.ge && b.ge
+	if a.ge != b.ge {
+		return !a.ge && b.ge
+	}
+	if a.filtAt != b.filtAt {
+		return a.filtAt < b.filtAt
+	}
+	return filtName(a.filt) < filtName(b.filt)
+}
+
+func filtName(t types2.Type) string {
+	if t == nil {
+		return ""
+	}
+	return types2.TypeString(t, nil)
 }
 
 func sortedKeys(m map[pkey]*reason) []pkey {

@@ -28,9 +28,23 @@ const (
 	MaxFloat64             = 0x1p1023 * (1 + (1 - 0x1p-52))
 	SmallestNonzeroFloat64 = 0x1p-1022 * 0x1p-52
 	MaxFloat32             = 0x1p127 * (1 + (1 - 0x1p-23))
-	MaxInt64               = 1<<63 - 1
-	MinInt64               = -1 << 63
-	MaxUint64              = 1<<64 - 1
+	SmallestNonzeroFloat32 = 0x1p-126 * 0x1p-23
+
+	MaxInt    = 1<<63 - 1
+	MinInt    = -1 << 63
+	MaxInt8   = 1<<7 - 1
+	MinInt8   = -1 << 7
+	MaxInt16  = 1<<15 - 1
+	MinInt16  = -1 << 15
+	MaxInt32  = 1<<31 - 1
+	MinInt32  = -1 << 31
+	MaxInt64  = 1<<63 - 1
+	MinInt64  = -1 << 63
+	MaxUint   = 1<<64 - 1
+	MaxUint8  = 1<<8 - 1
+	MaxUint16 = 1<<16 - 1
+	MaxUint32 = 1<<32 - 1
+	MaxUint64 = 1<<64 - 1
 )
 
 // Float64bits returns the IEEE 754 bits of f.

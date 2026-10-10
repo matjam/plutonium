@@ -46,7 +46,7 @@ func main() {
 	const N = 4096
 	var ref [N]int
 	var present [N]bool
-	m := hash.NewMap[int, int](ca, 0)
+	m := hash.NewMap[int, int](0, ca)
 	count := 0
 	for step := 0; step < 200000; step++ {
 		k := int(rnd() % N)
@@ -96,7 +96,7 @@ func main() {
 	// String keys built in a buffer.
 	var store [1 << 16]byte
 	used := 0
-	sm := hash.NewMap[string, int](ca, 16)
+	sm := hash.NewMap[string, int](16, ca)
 	for i := 0; i < 2000; i++ {
 		b := strconv.AppendInt(store[used:used], int64(i), 10)
 		s := unsafe.String(&b[0], len(b))
@@ -118,7 +118,7 @@ func main() {
 	sm.Free()
 
 	// Named integer keys, bool, float keys.
-	im := hash.NewMap[ID, string](ca, 0)
+	im := hash.NewMap[ID, string](0, ca)
 	im.Set(ID(-1), "minus one")
 	im.Set(ID(1<<20), "big")
 	s1, _ := im.Get(-1)
@@ -126,7 +126,7 @@ func main() {
 	_, ok3 := im.Get(2)
 	fmt.Printf("%s %s %t\n", s1, s2, ok3)
 	im.Free()
-	fm := hash.NewMap[float64, int](ca, 0)
+	fm := hash.NewMap[float64, int](0, ca)
 	negz := 0.0
 	negz = -negz
 	fm.Set(0.0, 1)
@@ -135,7 +135,7 @@ func main() {
 	f0, _ := fm.Get(0)
 	fmt.Printf("floats len=%d zero=%d\n", fm.Len(), f0)
 	fm.Free()
-	bm := hash.NewMap[bool, int](ca, 0)
+	bm := hash.NewMap[bool, int](0, ca)
 	bm.Set(true, 1)
 	bm.Set(false, 2)
 	bt, _ := bm.Get(true)
@@ -144,7 +144,7 @@ func main() {
 
 	// Pointer keys.
 	var objs [10]int
-	pm := hash.NewMap[*int, int](ca, 0)
+	pm := hash.NewMap[*int, int](0, ca)
 	for i := range objs {
 		pm.Set(&objs[i], i*10)
 	}
@@ -154,7 +154,7 @@ func main() {
 
 	// Struct keys with a hash function, and with a Hash method.
 	var pt hash.Map[point, int]
-	pt.InitFunc(ca, 0, hashPoint)
+	pt.InitFunc(0, hashPoint, ca)
 	for x := 0; x < 50; x++ {
 		for y := 0; y < 50; y++ {
 			pt.Set(point{x, y}, x*100+y)
@@ -164,7 +164,7 @@ func main() {
 	fmt.Printf("points %d %d\n", pt.Len(), q)
 	pt.Free()
 	var nm hash.Map[name, int]
-	nm.Init(ca, 4)
+	nm.Init(4, ca)
 	nm.Set(name{"alice"}, 1)
 	nm.Set(name{"bob"}, 2)
 	nb, _ := nm.Get(name{"bob"})
@@ -172,7 +172,7 @@ func main() {
 	nm.Free()
 
 	// Sets.
-	set := hash.NewSet[uint8](ca, 0)
+	set := hash.NewSet[uint8](0, ca)
 	for i := 0; i < 1000; i++ {
 		set.Add(uint8(i * 7))
 	}

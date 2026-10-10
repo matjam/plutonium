@@ -41,6 +41,9 @@ var runCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if cfg.Kernel {
+			return fmt.Errorf("pluto run cannot run a kernel; use pluto build --mode kernel")
+		}
 		tmp, err := os.MkdirTemp("", "pluto-run-")
 		if err != nil {
 			return err
@@ -66,9 +69,9 @@ func init() {
 	for _, c := range []*cobra.Command{buildCmd, runCmd} {
 		c.Flags().StringP("output", "o", "a.out", "output file")
 		c.Flags().String("target", "x86_64-linux", "target triple: x86_64-linux or x86_64-none")
-		c.Flags().String("mode", "", "build mode: hosted or freestanding (default from the target)")
+		c.Flags().String("mode", "", "build mode: hosted, freestanding or kernel (default from the target)")
 		c.Flags().StringSlice("tags", nil, "additional build tags")
-		c.Flags().String("ldscript", "", "linker script")
+		c.Flags().String("ldscript", "", "linker script (kernel mode has a default, see abi.md section 10.3)")
 		c.Flags().String("format", "elf", "output format: elf or binary")
 		c.Flags().BoolP("verbose", "v", false, "print the assembler and linker commands")
 		c.Flags().IntP("opt", "O", 2, "optimisation level: 0, 1 or 2")
@@ -76,6 +79,10 @@ func init() {
 		c.Flags().String("ssa", "", "dump the SSA of this function (or all) after each pass")
 		c.Flags().Bool("work", false, "keep the temporary work directory")
 		c.Flags().BoolP("compile", "c", false, "write the object file instead of linking")
+		c.Flags().BoolP("debug", "g", true, "emit DWARF debugging information (-g=false to omit it)")
+		c.Flags().BoolP("strip", "s", false, "omit DWARF and the symbol table (panic traces still work)")
+		c.Flags().Bool("trace", true, "emit the table panics use to print stack traces (--trace=false to omit it)")
+		c.Flags().String("alloc", "", "default allocator: debug for the checking allocator (hosted builds; tune with $PLUTO_DEBUGALLOC)")
 		c.Flags().Bool("gencheck", false, "prototype: tag heap pointers with generations and check every access")
 	}
 	rootCmd.AddCommand(buildCmd, runCmd)
@@ -99,6 +106,10 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 	ssaDump, _ := f.GetString("ssa")
 	work, _ := f.GetBool("work")
 	compileOnly, _ := f.GetBool("compile")
+	debug, _ := f.GetBool("debug")
+	strip, _ := f.GetBool("strip")
+	trace, _ := f.GetBool("trace")
+	allocator, _ := f.GetString("alloc")
 	genCheck, _ := f.GetBool("gencheck")
 
 	arch, osName, ok := strings.Cut(target, "-")
@@ -106,10 +117,14 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 		return nil, fmt.Errorf("unsupported target %q (supported: x86_64-linux, x86_64-none)", target)
 	}
 	freestanding := osName == "none"
+	kernel := false
 	switch mode {
 	case "":
 	case "freestanding":
 		freestanding = true
+	case "kernel":
+		freestanding = true
+		kernel = true
 	case "hosted":
 		if osName == "none" {
 			return nil, fmt.Errorf("hosted mode needs an operating system target")
@@ -126,6 +141,7 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 		Dir:          dir,
 		Output:       output,
 		Freestanding: freestanding,
+		Kernel:       kernel,
 		Tags:         tags,
 		OptLevel:     optLevel,
 		LinkerScript: ldscript,
@@ -135,7 +151,16 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 		Verbose:      verbose,
 		KeepWork:     work,
 		CompileOnly:  compileOnly,
+		NoDWARF:      !debug,
+		Strip:        strip,
+		NoTrace:      !trace,
+		Alloc:        allocator,
 		GenCheck:     genCheck,
+	}
+	if root := os.Getenv("PLUTOROOT"); root != "" {
+		if abs, err := filepath.Abs(root); err == nil {
+			cfg.StdlibDir = abs
+		}
 	}
 	switch asm {
 	case "":

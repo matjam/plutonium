@@ -39,24 +39,17 @@ func Use(a Allocator) Restore {
 // Restore reinstates the previous default allocator.
 func (r Restore) Restore() { SetDefault(r.prev) }
 
-// New allocates a zeroed T from the default allocator.
-func New[T any]() *T {
+// New allocates a zeroed T from a, by default the default allocator.
+func New[T any](a Allocator = Default()) *T {
 	var zero T
-	return (*T)(must(Default(), unsafe.Sizeof(zero), unsafe.Alignof(zero)))
+	return (*T)(must(a, unsafe.Sizeof(zero), unsafe.Alignof(zero), rt.CallerPC()))
 }
 
-// NewIn allocates a zeroed T from a.
-func NewIn[T any](a Allocator) *T {
-	var zero T
-	return (*T)(must(a, unsafe.Sizeof(zero), unsafe.Alignof(zero)))
-}
-
-// Free returns p, allocated by New, to the default allocator. If T has a
-// Drop method it is called first.
-func Free[T any](p *T) { FreeIn(Default(), p) }
-
-// FreeIn returns p, allocated from a, to a.
-func FreeIn[T any](a Allocator, p *T) {
+// Free returns p, allocated by New, to the allocator it came from: a, by
+// default the default allocator. If T has a Drop method it is called first.
+// The call's site is published through rt.AllocSite while the allocator
+// runs (if rt.TrackSites).
+func Free[T any](p *T, a Allocator = Default()) {
 	if p == nil {
 		return
 	}
@@ -64,26 +57,53 @@ func FreeIn[T any](a Allocator, p *T) {
 		d.Drop()
 	}
 	var zero T
+	if rt.TrackSites {
+		rt.SetAllocSite(rt.CallerPC())
+	}
 	a.Free(unsafe.Pointer(p), unsafe.Sizeof(zero), unsafe.Alignof(zero))
+	if rt.TrackSites {
+		rt.SetAllocSite(0)
+	}
 }
 
-// Raw allocates size zeroed bytes aligned to align from a, for code that
-// lays out a variable-sized object itself. Like New, it panics if a is nil
-// or out of memory. Return the memory with a.Free(p, size, align).
-func Raw(a Allocator, size, align uintptr) unsafe.Pointer { return must(a, size, align) }
+// Raw allocates size zeroed bytes aligned to align from a (by default the
+// default allocator), for code that lays out a variable-sized object
+// itself. Like New, it panics if a is nil or out of memory. Return the
+// memory with a.Free(p, size, align).
+func Raw(size, align uintptr, a Allocator = Default()) unsafe.Pointer {
+	return must(a, size, align, rt.CallerPC())
+}
 
-func must(a Allocator, size, align uintptr) unsafe.Pointer {
+// must allocates for the call that returns to pc (see rt.AllocSite and
+// rt.TrackSites).
+func must(a Allocator, size, align, pc uintptr) unsafe.Pointer {
 	if a == nil {
 		panic("no allocator: call alloc.SetDefault before allocating")
 	}
 	if size == 0 {
 		size = 1
 	}
+	if rt.TrackSites {
+		rt.SetAllocSite(pc)
+	}
 	p := a.Alloc(size, align)
+	if rt.TrackSites {
+		rt.SetAllocSite(0)
+	}
 	if p == nil {
 		panic("out of memory")
 	}
 	return p
+}
+
+// ReportLeaks prints the allocations the default allocator still holds, if
+// it keeps track of them (the debug allocator, pluto/alloc/debug, does), and
+// returns how many there are. Other allocators print nothing and report 0.
+func ReportLeaks() int {
+	if r, ok := Default().(interface{ ReportLeaks() int }); ok {
+		return r.ReportLeaks()
+	}
+	return 0
 }
 
 // ----------------------------------------------------------------------------
@@ -115,7 +135,7 @@ type Slab struct {
 
 // NewSlab returns a slab allocator drawing pages from pages.
 func NewSlab(pages PageProvider) *Slab {
-	s := NewIn[Slab](bootstrap{pages})
+	s := New[Slab](bootstrap{pages})
 	s.pages = pages
 	return s
 }

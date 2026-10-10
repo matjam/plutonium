@@ -23,6 +23,8 @@ type walker struct {
 	grew   bool // a location's contents grew during this walk
 	static bool // package initialisation: &T{} and slice literals are static
 
+	recLit  map[*loc]*ast.FuncLit // closure records made here, and their literals
+
 	tracked map[*types2.Var]bool // locals followed along the control flow
 	env     env                  // what they hold at the current point
 	targets []*flowTarget        // enclosing breakable statements
@@ -40,6 +42,7 @@ func newWalker(a *analyzer, f *function) *walker {
 		locs:   map[*types2.Var]*loc{},
 		tmps:   map[tmpKey]*loc{},
 		scopes: map[*ast.FuncLit]*scope{},
+		recLit: map[*loc]*ast.FuncLit{},
 	}
 	w.top = &scope{fn: f}
 	if f.decl != nil {
@@ -446,10 +449,18 @@ func (w *walker) returnVal(sc *scope, k int, v tset, pos token.Pos) {
 		case tFrame:
 			if t.loc.level >= sc.level {
 				w.errorf(pos, fmt.Sprintf("ret|%p", t.loc), "%s escapes: it is returned from %s%s", t.loc.desc, w.scopeName(sc), t.loc.hintText())
+			} else if sc.outerRet.add(t.untag()) {
+				// A literal returning something of an enclosing frame.
+				w.grew = true
 			}
 		case tParam:
-			if t.sc == sc && sc.fn.sum.addResult(k, keyOf(t), t.tag) {
-				w.a.grew = true
+			switch {
+			case t.sc == sc:
+				if sc.fn.sum.addResult(k, keyOf(t), t.tag) {
+					w.a.grew = true
+				}
+			case sc.outerRet.add(t.untag()):
+				w.grew = true
 			}
 		case tHeap:
 			if sc.fn.sum.addResultHeap(k, t.tag) {

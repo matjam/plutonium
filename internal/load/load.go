@@ -32,6 +32,10 @@ type Config struct {
 	Tags   map[string]bool // build tags that are set
 	Stdlib fs.FS           // root of the standard library; its top directory is "pluto"
 	Sizes  types2.Sizes
+	// Preload lists standard library packages to load, and so initialise,
+	// right after pluto/rt and pluto/alloc, whether or not the program
+	// imports them (pluto/alloc/debug for --alloc=debug).
+	Preload []string
 }
 
 // A Package is a loaded, type-checked package.
@@ -179,9 +183,9 @@ func newLoader(cfg *Config) *loader {
 // compiler calls into the runtime for panics, memory copies and
 // allocation, and it holds the entry point. Loading it first puts it (and
 // its imports) first in initialisation order. pluto/alloc installs the
-// default allocator in hosted builds.
+// default allocator in hosted builds; Config.Preload packages come next.
 func (l *loader) loadRuntime() error {
-	for _, p := range []string{"pluto/rt", "pluto/alloc"} {
+	for _, p := range append([]string{"pluto/rt", "pluto/alloc"}, l.cfg.Preload...) {
 		src, dir, err := l.resolve(p)
 		if err != nil {
 			return err

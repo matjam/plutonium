@@ -52,6 +52,14 @@ type tok struct {
 	idx  int    // tParam: parameter index, receiver first
 	ge   bool   // tParam: the path or any extension of it
 
+	// tParam: a type assertion to the interface filt, applied when the path
+	// was filtAt bytes long, constrains the dynamic type of the interface
+	// value found there. A caller drops the frame boxes whose type does not
+	// implement filt, so that x.(error) inside fmt does not make every
+	// boxed string escape.
+	filt   types2.Type
+	filtAt int
+
 	// In a struct value, the field path (as in locations, up to
 	// maxFieldNest fields) of the field that holds the pointer; empty when
 	// unknown or the value is not a struct. Struct values are told apart
@@ -135,6 +143,7 @@ func (t tok) extend(step string) tok {
 		// least two loads, so the pointers it reaches are all reachable
 		// from the memory the first load's result points to.
 		t.ge = true
+		t.filt, t.filtAt = nil, 0 // the cut may lose where the filter applied
 		if i := strings.IndexByte(t.path, '*'); i >= 0 {
 			t.path = t.path[:i+1] + "*"
 		} else {
@@ -290,6 +299,10 @@ type scope struct {
 	node    ast.Node // the FuncDecl, FuncLit or nil for package initialisation
 	results []*loc
 	named   bool // the results have names
+
+	// What a function literal returns that belongs to an enclosing frame:
+	// addresses of its locations and its parameters' pointers.
+	outerRet tset
 }
 
 // contains reports whether pos lies inside the scope's source.
@@ -300,12 +313,16 @@ func (sc *scope) contains(pos token.Pos) bool {
 // A pkey names pointers relative to a parameter: those found by following
 // path from parameter idx, or any extension of it when ge is set.
 type pkey struct {
-	idx  int
-	path string
-	ge   bool
+	idx    int
+	path   string
+	ge     bool
+	filt   types2.Type // see tok
+	filtAt int
 }
 
-func keyOf(t tok) pkey { return pkey{idx: t.idx, path: t.path, ge: t.ge} }
+func keyOf(t tok) pkey {
+	return pkey{idx: t.idx, path: t.path, ge: t.ge, filt: t.filt, filtAt: t.filtAt}
+}
 
 // An edge records that a function stores pointers derived from one
 // parameter into memory reached from another.

@@ -119,3 +119,68 @@ func main() int64 {
 		}
 	}
 }
+
+// TestSlotLeavesCover checks that every slot lowering gives leaves has
+// leaves and pads that tile it, so SROA can split it: padding inside
+// structs and aligned values, and the gaps between sret results.
+func TestSlotLeavesCover(t *testing.T) {
+	prog := lowerSource(t, `package main
+
+type S struct {
+	a int8
+	b int64
+	c [2]int16
+	d bool
+}
+
+type A struct {
+	x aligned[int32, 16]
+	y int8
+}
+
+type E struct{}
+
+type W struct {
+	e E
+	n int32
+	f E
+}
+
+//pu:noinline
+func many(n int64) (bool, int64, string, int32) { return n > 0, n, "s", int32(n) }
+
+//pu:noinline
+func mk(n int64) (S, A) {
+	var a A
+	a.y = int8(n)
+	return S{a: int8(n), b: n, d: true}, a
+}
+
+//pu:noinline
+func wrap(w W) W { w.n++; return w }
+
+func main() {
+	ok, n, s, m := many(3)
+	x, a := mk(n)
+	w := wrap(W{n: m})
+	println(ok, s, x.a, x.b, x.c[1], x.d, a.y, w.n)
+}
+`)
+	padded := 0
+	for _, f := range prog.Funcs {
+		for _, s := range f.Slots {
+			if len(s.Leaves) == 0 {
+				continue
+			}
+			if len(s.Pads) > 0 {
+				padded++
+			}
+			if !s.LeavesCover() {
+				t.Errorf("%s: slot %s (size %d): leaves %v and pads %v do not tile it", f.Name, s, s.Size, s.Leaves, s.Pads)
+			}
+		}
+	}
+	if padded == 0 {
+		t.Error("no slot has padding; the test no longer exercises pads")
+	}
+}
