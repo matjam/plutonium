@@ -181,16 +181,20 @@ type I interface {
 func TestParseRepoSources(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
 	var files []string
-	for _, dir := range []string{"pluto", "examples", "testdata"} {
-		_ = filepath.WalkDir(filepath.Join(root, dir), func(path string, d fs.DirEntry, err error) error {
+	for _, dir := range []string{"lib", "examples", "testdata", "bench", "cmd"} {
+		n := len(files)
+		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, d fs.DirEntry, err error) error {
 			if err == nil && !d.IsDir() && strings.HasSuffix(path, ".p") && !strings.Contains(path, "invalid") {
 				files = append(files, path)
 			}
-			return nil
+			return err
 		})
-	}
-	if len(files) == 0 {
-		t.Skip("no .p files found")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(files) == n {
+			t.Errorf("no .p files under %s", dir)
+		}
 	}
 	for _, path := range files {
 		src, err := os.ReadFile(path)
