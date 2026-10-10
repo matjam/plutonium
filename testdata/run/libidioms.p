@@ -119,7 +119,7 @@ func insertionSort[T any](data []T, less func(a, b T) bool) {
 type pair struct{ k, v int }
 
 func main() {
-	println("fold", equalFoldASCII("Hello", "hELLO"), equalFoldASCII("abc", "abd"), equalFoldASCII("x\xffy", "x\xffy"), equalFoldASCII("x\xffy", "X\xffz"))
+	println("fold", equalFoldASCII("Hello", "hELLO"), equalFoldASCII("abc", "abd"), equalFoldASCII("xÿy", "xÿy"), equalFoldASCII("xÿy", "Xÿz"))
 
 	var backing [4]int
 	st := stack[int]{data: backing[:0]}

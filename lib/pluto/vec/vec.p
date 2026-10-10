@@ -19,6 +19,7 @@ package vec
 
 import (
 	"pluto/alloc"
+	"pluto/rt"
 	"unsafe"
 )
 
@@ -180,9 +181,13 @@ func (v *Vec[T]) Truncate(n int) {
 // Clear removes all elements, keeping the storage.
 func (v *Vec[T]) Clear() { v.Truncate(0) }
 
-// Free returns v's storage to its allocator and leaves v empty. The
-// allocator is kept, so v can be reused.
+// Free drops v's elements (releasing the strings in them, language spec
+// section 6.10), returns its storage to its allocator and leaves v empty.
+// The allocator is kept, so v can be reused.
 func (v *Vec[T]) Free() {
+	if len(v.data) > 0 && rt.HoldsStrings[T]() {
+		rt.ReleaseValues(&v.data[0], len(v.data))
+	}
 	v.release()
 	v.data = nil
 }
@@ -222,7 +227,11 @@ func (v *Vec[T]) realloc(c int) {
 		panic("vec: out of memory")
 	}
 	nd := unsafe.Slice((*T)(p), c)[:len(v.data)]
-	copy(nd, v.data)
+	if len(v.data) > 0 {
+		// The elements move: their strings keep their counts, and the old
+		// array is freed without releasing them.
+		rt.MoveValues(&nd[0], &v.data[0], len(v.data))
+	}
 	v.release()
 	v.data = nd
 }

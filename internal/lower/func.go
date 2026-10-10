@@ -60,6 +60,9 @@ type fnState struct {
 	// allocating string operations in kernel mode.
 	allocOK       bool
 	allocReported bool
+	// bytewise is set in functions marked //pu:bytewise, whose string
+	// slice expressions are not checked for rune boundaries.
+	bytewise bool
 }
 
 type blockState struct {
@@ -308,6 +311,7 @@ func (l *Lowerer) newFnState(job *funcJob) *fnState {
 	if job.parent != nil {
 		f.NoSSE = job.parent.f.NoSSE
 		s.allocOK = job.parent.allocOK
+		s.bytewise = job.parent.bytewise
 	}
 	for range f.Blocks {
 		s.blocks = append(s.blocks, &blockState{})
@@ -415,6 +419,8 @@ func (s *fnState) applyPragmas(doc *ast.CommentGroup) {
 			s.f.NoSSE = false
 		case "alloc":
 			s.allocOK = true
+		case "bytewise":
+			s.bytewise = true
 		}
 	}
 }

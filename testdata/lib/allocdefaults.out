@@ -5,11 +5,11 @@ vec          default 4/4 explicit 3/3
 1 1 true
 hash         default 5/5 explicit 4/4
 built on explicit / built on default
-Builder      default 6/6 explicit 6/6
+Builder      default 6/5 explicit 6/5
 open /nonexistent/allocdefaults: no such file or directory true open true
-os.Open      default 7/7 explicit 7/7
+os.Open      default 8/7 explicit 7/6
 stat x: invalid argument
-PathError    default 7/7 explicit 8/8
+PathError    default 9/8 explicit 8/7
 wrapped: plain 1
 other
-Errorf/Join  default 8/8 explicit 10/10
+Errorf/Join  default 11/10 explicit 12/11

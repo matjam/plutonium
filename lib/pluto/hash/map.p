@@ -146,26 +146,27 @@ func (m *Map[K, V]) reserve(capacity int) {
 // one without handling it here is a compile error.
 func (m *Map[K, V]) hash(k K) uint64 {
 	switch m.how {
+	// The key is read through its address in the form
+	// *(*T)(unsafe.Pointer(&k)), which the compiler knows does not change
+	// k, so a string key is borrowed without being counted.
 	case word:
-		p := unsafe.Pointer(&k)
 		var x uint64
 		switch m.ksize {
 		case 1:
-			x = uint64(*(*uint8)(p))
+			x = uint64(*(*uint8)(unsafe.Pointer(&k)))
 		case 2:
-			x = uint64(*(*uint16)(p))
+			x = uint64(*(*uint16)(unsafe.Pointer(&k)))
 		case 4:
-			x = uint64(*(*uint32)(p))
+			x = uint64(*(*uint32)(unsafe.Pointer(&k)))
 		default:
-			x = *(*uint64)(p)
+			x = *(*uint64)(unsafe.Pointer(&k))
 		}
 		return Uint64(x, m.seed)
 	case float:
-		p := unsafe.Pointer(&k)
 		if m.ksize == 4 {
-			return Float64(float64(*(*float32)(p)), m.seed)
+			return Float64(float64(*(*float32)(unsafe.Pointer(&k))), m.seed)
 		}
-		return Float64(*(*float64)(p), m.seed)
+		return Float64(*(*float64)(unsafe.Pointer(&k)), m.seed)
 	case str:
 		return String(*(*string)(unsafe.Pointer(&k)), m.seed)
 	case hasher:
@@ -302,9 +303,15 @@ func (m *Map[K, V]) Clear() {
 	m.n = 0
 }
 
-// Free returns the table to the allocator and leaves the map empty. The
-// map keeps its allocator and hash function, so it can be reused.
+// Free drops the entries (releasing the strings in their keys and values,
+// language spec section 6.10), returns the table to the allocator and
+// leaves the map empty. The map keeps its allocator and hash function, so
+// it can be reused.
 func (m *Map[K, V]) Free() {
+	if len(m.slots) > 0 && rt.HoldsStrings[slot[K, V]]() {
+		// Empty slots are zero, so every slot can be released.
+		rt.ReleaseValues(&m.slots[0], len(m.slots))
+	}
 	m.release()
 	m.slots = nil
 	m.meta = nil
@@ -348,7 +355,9 @@ func (m *Map[K, V]) resize(size int) {
 		for meta[j] != metaEmpty {
 			j = (j + 1) & mask
 		}
-		slots[j] = oldSlots[i]
+		// The entry moves: its strings keep their counts, and the old
+		// table is freed without releasing them.
+		rt.MoveValues(&slots[j], &oldSlots[i], 1)
 		meta[j] = oldMeta[i]
 	}
 	m.release()

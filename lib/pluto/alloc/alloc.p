@@ -46,9 +46,10 @@ func New[T any](a Allocator = Default()) *T {
 }
 
 // Free returns p, allocated by New, to the allocator it came from: a, by
-// default the default allocator. If T has a Drop method it is called first.
-// The call's site is published through rt.AllocSite while the allocator
-// runs (if rt.TrackSites).
+// default the default allocator. If T has a Drop method it is called first,
+// and the strings in *p are released (language spec section 6.10). The
+// call's site is published through rt.AllocSite while the allocator runs
+// (if rt.TrackSites).
 func Free[T any](p *T, a Allocator = Default()) {
 	if p == nil {
 		return
@@ -56,6 +57,7 @@ func Free[T any](p *T, a Allocator = Default()) {
 	if d, ok := any(p).(interface{ Drop() }); ok {
 		d.Drop()
 	}
+	rt.ReleaseValues(p, 1)
 	var zero T
 	if rt.TrackSites {
 		rt.SetAllocSite(rt.CallerPC())

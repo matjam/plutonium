@@ -32,6 +32,9 @@ const (
 	// BadMainSignature: func main with parameters, or with results other
 	// than a single int64.
 	BadMainSignature
+	// InvalidUTF8String: a string literal that is not valid UTF-8, which
+	// no string may hold.
+	InvalidUTF8String
 )
 
 // Packed types, bit fields, volatile, aligned and ring.

@@ -3,7 +3,7 @@ guarded: live 0 (0 bytes), quarantined 4, guarded 4, allocs 55
 after reuse: live 0 (0 bytes), quarantined 8, guarded 8, allocs 255
 sizes and alignments ok: true
 canary: live 0 (0 bytes), quarantined 0, guarded 0, allocs 55
-in use: live 5 (16878 bytes), quarantined 7, guarded 12, allocs 276
+in use: live 5 (16910 bytes), quarantined 7, guarded 12, allocs 276
 7 1000 100 100 9
 alloc.ReportLeaks with the debug allocator: 0
 alloc.ReportLeaks with the slab allocator: 0

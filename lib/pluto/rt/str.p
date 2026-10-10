@@ -389,6 +389,18 @@ func runesFromString(p *byte, n int) (*rune, int) {
 	return (*rune)(q), count
 }
 
+// checkRuneBounds panics unless lo and hi, bounds of a slice of the n
+// bytes at p already checked against n, are each at the start of a rune or
+// at n. The compiler calls it for strings whose flags do not say ASCII.
+func checkRuneBounds(p *byte, n, lo, hi int) {
+	if lo < n && *(*byte)(unsafe.Add(unsafe.Pointer(p), lo))&0xC0 == 0x80 {
+		panicSliceRune(lo)
+	}
+	if hi < n && *(*byte)(unsafe.Add(unsafe.Pointer(p), hi))&0xC0 == 0x80 {
+		panicSliceRune(hi)
+	}
+}
+
 // panicSliceRune reports a string slice expression whose bound i falls
 // inside a rune's encoding.
 func panicSliceRune(i int) {
@@ -438,8 +450,19 @@ func MakeString(p *byte, n int, ctl uintptr, ascii bool) string {
 
 // StringControl returns the control word of s: the address of its buffer's
 // header with the flag bits, or only the flags for a string nobody counts.
+// The compiler expands it inline.
 func StringControl(s string) uintptr {
 	return (*strWords)(unsafe.Pointer(&s)).ctl
+}
+
+// KnownASCII reports whether s's flags say that every byte of s is ASCII.
+// It is set for strings whose bytes were checked when they were made (every
+// string but views from unsafe.String and substrings of non-ASCII strings),
+// so a false result means only "maybe not". The library uses it for fast
+// paths: an ASCII string's runes are its bytes. The compiler expands it
+// inline.
+func KnownASCII(s string) bool {
+	return (*strWords)(unsafe.Pointer(&s)).ctl&strNonASCII == 0
 }
 
 // RetainString takes a reference to the buffer of a counted control word.

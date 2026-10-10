@@ -187,7 +187,15 @@ func (s *fnState) lv(e ast.Expr) lvalue {
 		case *types2.Wrapper:
 			base = pt.Elem()
 		}
-		return lvalue{ptr: p.v, T: base}
+		// *(*T)(unsafe.Pointer(&x)) reads a stable variable x as a T: it
+		// is as stable as x.
+		stable := false
+		if amp := reinterpretedAddr(e, s.info); amp != nil {
+			if v := rootVar(amp.X, s.info); v != nil && s.vars[v] != nil {
+				stable = s.stableVar(v)
+			}
+		}
+		return lvalue{ptr: p.v, T: base, stable: stable}
 	case *ast.SelectorExpr:
 		return s.selectorLV(e)
 	case *ast.IndexExpr:
@@ -1015,6 +1023,9 @@ func (s *fnState) sliceExpr(e *ast.SliceExpr, T types2.Type) value {
 		ok = s.newValue(ssa.OpAnd, ssa.TBool, ok, s.newValue(ssa.OpLequ, ssa.TBool, hi, mx))
 		ok = s.newValue(ssa.OpAnd, ssa.TBool, ok, s.newValue(ssa.OpLequ, ssa.TBool, lo, hi))
 		s.panicUnless(ok, e.Pos(), func() { s.callRuntimeNoReturn("panicSlice", lo, hi, mx) })
+	}
+	if isStr && s.f.Pragmas&ssa.PragmaNoBounds == 0 && !s.bytewise && (e.Low != nil || e.High != nil) {
+		s.runeBoundaryCheck(e, base, length, lo, hi, ctl)
 	}
 	ptr := s.elemAddr(base, lo, elem)
 	n := s.newValue(ssa.OpSub, ssa.TI64, hi, lo)

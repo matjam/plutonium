@@ -127,13 +127,20 @@ func Getenv(key string) string {
 	}
 }
 
-// cstring views a NUL-terminated C string.
+// cstring returns a NUL-terminated C string from the process's arguments or
+// environment, which live as long as the program. If it is valid UTF-8 the
+// string views it, uncounted; otherwise it is a copy with U+FFFD for each
+// invalid byte, as string(b) makes, since a string must hold valid UTF-8.
 func cstring(p *byte) string {
 	n := 0
 	for *(*byte)(unsafe.Add(unsafe.Pointer(p), n)) != 0 {
 		n++
 	}
-	return unsafe.String(p, n)
+	valid, ascii := rt.ValidUTF8(p, n)
+	if !valid {
+		return rt.StringFromBytes(p, n, alloc.Default())
+	}
+	return rt.MakeString(p, n, 0, ascii)
 }
 
 // Open opens a file for reading, allocating as OpenFile does.
@@ -168,33 +175,26 @@ func OpenFile(name string, flags int, perm uint32, a alloc.Allocator = alloc.Def
 }
 
 // PathError records an error and the operation and file path that caused
-// it.
-//
-// Its message, "op path: err", is formatted once, when the error is made,
-// into the same block of memory as the PathError, and Op and Path view that
-// copy; so the error stays valid however long the caller's path string
-// lives. Make one with NewPathError, and release it with
-// errors.Free (or by resetting the arena it came from).
+// it. Op and Path are strings the error keeps (language spec section 6.10),
+// so the error stays valid however long the caller's own copies live. Make
+// one with NewPathError, and release it with errors.Free (or by resetting
+// the arena it came from).
 type PathError struct {
 	Op   string
 	Path string
 	Err  error
 
-	msg  string
-	a    alloc.Allocator // allocator that owns the PathError, or nil
-	size uintptr
+	a alloc.Allocator // allocator that owns the PathError, or nil
 }
 
-// Error returns "op path: err". A PathError not made by NewPathError has no
-// stored message and reports Err's message.
+// Error returns "op path: err", a new string, as Go's does.
+//
+//pu:alloc
 func (e *PathError) Error() string {
-	if e.msg != "" {
-		return e.msg
+	if e.Err == nil {
+		return e.Op + " " + e.Path
 	}
-	if e.Err != nil {
-		return e.Err.Error()
-	}
-	return e.Op
+	return e.Op + " " + e.Path + ": " + e.Err.Error()
 }
 
 // Unwrap returns the underlying error.
@@ -206,43 +206,24 @@ func (e *PathError) Timeout() bool {
 	return ok && t.Timeout()
 }
 
-// Free returns the PathError's memory to the allocator it came from. It
-// does not free Err; errors.Free frees the whole chain.
+// Free releases the PathError's strings and returns its memory to the
+// allocator it came from. It does not free Err; errors.Free frees the whole
+// chain.
 func (e *PathError) Free() {
 	if e.a == nil {
 		return
 	}
-	var hdr PathError
-	e.a.Free(unsafe.Pointer(e), e.size, unsafe.Alignof(hdr))
+	alloc.Free(e, e.a)
 }
 
-// NewPathError returns a PathError for op on path failing with err, with
-// its message, "op path: err", allocated in one block from a, by default
-// the default allocator.
+// NewPathError returns a PathError for op on path failing with err,
+// allocated from a, by default the default allocator. It keeps op and path
+// without copying their bytes.
 func NewPathError(op, path string, err error, a alloc.Allocator = alloc.Default()) *PathError {
-	var hdr PathError
-	errMsg := ""
-	if err != nil {
-		errMsg = err.Error()
-	}
-	n := len(op) + 1 + len(path) + 2 + len(errMsg)
-	off := unsafe.Sizeof(hdr)
-	total := off + uintptr(n)
-	p := alloc.Raw(total, unsafe.Alignof(hdr), a)
-	text := unsafe.Slice((*byte)(unsafe.Add(p, off)), n)
-	k := copy(text, op)
-	text[k] = ' '
-	k++
-	k += copy(text[k:], path)
-	text[k], text[k+1] = ':', ' '
-	copy(text[k+2:], errMsg)
-	msg := unsafe.String(unsafe.SliceData(text), n)
-	e := (*PathError)(p)
-	e.Op = msg[:len(op)]
-	e.Path = msg[len(op)+1 : len(op)+1+len(path)]
+	e := alloc.New[PathError](a)
+	e.Op = op
+	e.Path = path
 	e.Err = err
-	e.msg = msg
 	e.a = a
-	e.size = total
 	return e
 }

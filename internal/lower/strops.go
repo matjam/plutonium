@@ -1,6 +1,8 @@
 package lower
 
 import (
+	"go/constant"
+
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
@@ -128,6 +130,35 @@ func (s *fnState) stringConversion(e *ast.CallExpr, to, from types2.Type) (value
 	return value{}, false
 }
 
+// runeBoundaryCheck makes s[lo:hi] panic unless both bounds are at the
+// start of a rune or at the end (language spec section 6.10). A string
+// whose flags say it is ASCII needs no check, so the test of the bytes is a
+// call made only for others. A bound that is the constant 0, or left out,
+// needs none either.
+func (s *fnState) runeBoundaryCheck(e *ast.SliceExpr, base, length, lo, hi, ctl *ssa.Value) {
+	if tv := s.info.Types[e.X]; tv.Value != nil && strFlags(constant.StringVal(tv.Value)) == 0 {
+		return // an ASCII constant
+	}
+	if e.Low == nil || isZeroConst(s.info, e.Low) {
+		lo = length
+	}
+	if e.High == nil {
+		hi = length
+	}
+	if lo == length && hi == length {
+		return
+	}
+	nonASCII := s.newValue(ssa.OpNe, ssa.TBool, s.newValue(ssa.OpAnd, ssa.TI64, ctl, s.constInt(ssa.TI64, strNonASCII)), s.constInt(ssa.TI64, 0))
+	s.ifThen(nonASCII, func() {
+		s.callRuntime("checkRuneBounds", nil, []*ssa.Value{base, length, lo, hi})
+	})
+}
+
+func isZeroConst(info *types2.Info, e ast.Expr) bool {
+	c, ok := constIndex(info, e)
+	return ok && c == 0
+}
+
 // countIntrinsics are the generic functions of pluto/rt that give library
 // containers the compiler's string drop glue (pluto/rt/str.p).
 var countIntrinsics = map[string]bool{
@@ -136,7 +167,20 @@ var countIntrinsics = map[string]bool{
 
 // countIntrinsic expands a call of one of the countIntrinsics.
 func (s *fnState) countIntrinsic(fn *types2.Func, e *ast.CallExpr, id *ast.Ident) ([]value, bool) {
-	if fn.Pkg() == nil || fn.Pkg().Path() != "pluto/rt" || !countIntrinsics[fn.Name()] {
+	if fn.Pkg() == nil || fn.Pkg().Path() != "pluto/rt" {
+		return nil, false
+	}
+	switch fn.Name() {
+	case "StringControl", "KnownASCII":
+		// Read the control word without taking the argument's address.
+		ctl := s.stringCtl(s.exprAs(e.Args[0], types2.Typ[types2.String]))
+		if fn.Name() == "StringControl" {
+			return []value{scalarValue(ctl, types2.Typ[types2.Uintptr])}, true
+		}
+		bit := s.newValue(ssa.OpAnd, ssa.TI64, ctl, s.constInt(ssa.TI64, strNonASCII))
+		return []value{scalarValue(s.newValue(ssa.OpEq, ssa.TBool, bit, s.constInt(ssa.TI64, 0)), types2.Typ[types2.Bool])}, true
+	}
+	if !countIntrinsics[fn.Name()] {
 		return nil, false
 	}
 	targs := s.instanceArgs(id)

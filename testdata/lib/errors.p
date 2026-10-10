@@ -163,10 +163,11 @@ func main() {
 		errors.Is(syscall.ENOSYS, errors.ErrUnsupported))
 	fmt.Println("errno temp:", syscall.EINTR.Temporary(), syscall.EAGAIN.Timeout(), syscall.ENOENT.Temporary())
 
-	// os.Open fails with a PathError that copies the path.
+	// os.Open fails with a PathError that keeps the path string: string(b)
+	// copied the bytes, so changing them later does not change the error.
 	var name [32]byte
 	n := copy(name[:], "/nonexistent/pluto.conf")
-	_, err := os.Open(unsafe.String(&name[0], n))
+	_, err := os.Open(string(name[:n]))
 	copy(name[:], "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
 	fmt.Println("open:", err)
 	var pe *os.PathError

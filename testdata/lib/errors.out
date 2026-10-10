@@ -18,7 +18,7 @@ startup: startup: load config: open /nonexistent/app.conf: no such file or direc
 startup is: true true false
 startup as: true open /nonexistent/app.conf
 startup errno: ENOENT 2
-chain length: 4 allocations: 3 live: true
+chain length: 4 allocations: 6 live: true
 after free live: 0
 multi: both: empty input and input/output error
 multi is: true true false true
@@ -29,7 +29,7 @@ read timed out
 joined is: true true false
 joined as: true read timed out
 join nil: true
-after free live: 0 allocations: 5
+after free live: 0 allocations: 10
 plain: code 42 true
 printf: %!w(error)|656d70747920696e707574|696E7075742F6F7574707574206572726F72
 errorbuf: device sda: input/output error true true

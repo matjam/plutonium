@@ -205,12 +205,24 @@ func analyzeVars(body ast.Node, info *types2.Info) map[*types2.Var]*varFacts {
 		return f
 	}
 	var lits []*ast.FuncLit
+	// Reading x through *(*T)(unsafe.Pointer(&x)) uses the address only to
+	// reinterpret the value, so it does not let anything change x. Such
+	// reads are found at the * (seen before the & inside it), unless the
+	// expression is assigned to.
+	readOnly := map[*ast.UnaryExpr]bool{}
+	written := map[ast.Expr]bool{}
 	ast.Inspect(body, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.FuncLit:
 			lits = append(lits, n)
+		case *ast.StarExpr:
+			if !written[n] {
+				if amp := reinterpretedAddr(n, info); amp != nil {
+					readOnly[amp] = true
+				}
+			}
 		case *ast.UnaryExpr:
-			if n.Op == token.AND {
+			if n.Op == token.AND && !readOnly[n] {
 				if v := rootVar(n.X, info); v != nil {
 					get(v).addrTaken = true
 				}
@@ -239,6 +251,7 @@ func analyzeVars(body ast.Node, info *types2.Info) map[*types2.Var]*varFacts {
 			}
 		case *ast.AssignStmt:
 			for _, lhs := range n.Lhs {
+				written[ast.Unparen(lhs)] = true
 				if id, ok := lhs.(*ast.Ident); ok && n.Tok == token.DEFINE {
 					if _, isDef := info.Defs[id]; isDef {
 						continue
@@ -278,6 +291,27 @@ func analyzeVars(body ast.Node, info *types2.Info) map[*types2.Var]*varFacts {
 		})
 	}
 	return facts
+}
+
+// reinterpretedAddr returns the &x of a read *(*T)(unsafe.Pointer(&x)), or
+// nil if e is not one.
+func reinterpretedAddr(e *ast.StarExpr, info *types2.Info) *ast.UnaryExpr {
+	conv, ok := ast.Unparen(e.X).(*ast.CallExpr)
+	if !ok || len(conv.Args) != 1 || !info.Types[conv.Fun].IsType() {
+		return nil
+	}
+	ptr, ok := ast.Unparen(conv.Args[0]).(*ast.CallExpr)
+	if !ok || len(ptr.Args) != 1 || !info.Types[ptr.Fun].IsType() {
+		return nil
+	}
+	if b, ok := info.Types[ptr.Fun].Type.Underlying().(*types2.Basic); !ok || b.Kind() != types2.UnsafePointer {
+		return nil
+	}
+	amp, ok := ast.Unparen(ptr.Args[0]).(*ast.UnaryExpr)
+	if !ok || amp.Op != token.AND {
+		return nil
+	}
+	return amp
 }
 
 // rootVar returns the variable whose storage an expression denotes part

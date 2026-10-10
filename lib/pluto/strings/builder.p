@@ -2,42 +2,53 @@ package strings
 
 import (
 	"pluto/alloc"
+	"pluto/rt"
 	"pluto/unicode/utf8"
 	"unsafe"
 )
 
-// A Builder builds a string by appending to a byte buffer. It is how
-// Plutonium code joins strings at run time, since s + t is not allowed for
-// non-constant strings.
-//
-// The buffer is either the caller's (NewBuilder) or comes from the
-// Builder's allocator. A Builder grows by allocating a buffer twice as large
-// from its allocator, copying, and freeing the old buffer if the allocator
-// owned it.
+// A Builder builds a string by appending to a buffer, and String returns the
+// result without copying it: the string shares the Builder's buffer, which
+// is a counted string buffer (language spec section 6.10), and keeps it
+// alive after the Builder grows, is reset or is freed.
 //
 // A Builder gets its allocator once: from Init, or, if Init was never
 // called, from alloc.Default() the first time it has to grow. The zero
 // Builder is ready to use and allocates from the default allocator:
 //
 //	var b strings.Builder
-//	b.Init(&arena) // the buffer and all growth come from arena
-//	b.Grow(64)
 //	defer b.Free()
+//	b.WriteString("hello, ")
+//	b.WriteString(name)
+//	greeting := b.String()
 //
 // A Builder from NewBuilder writes into the caller's buffer and never
 // allocates unless Init gives it an allocator: without one, a write that
-// does not fit in the buffer's capacity panics, as append does. A Builder
-// must not be copied after first use.
+// does not fit in the buffer's capacity panics, as append does, and String
+// copies the bytes into a new string from the default allocator, since the
+// caller's buffer may change. A Builder must not be copied after first use.
+//
+// The bytes written need not be valid UTF-8 one at a time, but String
+// replaces each byte that does not begin a valid UTF-8 sequence with U+FFFD,
+// as string(b) does; it checks only the bytes written since the last call.
 type Builder struct {
-	buf   []byte
+	buf   []byte          // the bytes so far, within the buffer
+	ctl   uintptr         // reference to the counted buffer, or 0
 	a     alloc.Allocator // allocator that grows the buffer, or nil
-	owned bool            // buf came from a and must be freed to it
 	fixed bool            // NewBuilder: grow only with an allocator from Init
+
+	// String has shared buf[:len(buf)] with a string, so those bytes must
+	// not change: a reset starts a new buffer.
+	shared bool
+	// buf[:valid] is known to be valid UTF-8, ending at a rune boundary,
+	// and nonASCII says whether a byte >= 0x80 is among it.
+	valid    int
+	nonASCII bool
 }
 
 // NewBuilder returns a Builder that writes into buf, starting empty. It
-// never allocates: writes beyond cap(buf) panic, unless Init gives it an
-// allocator to grow from.
+// never allocates to grow: writes beyond cap(buf) panic, unless Init gives
+// it an allocator to grow from.
 func NewBuilder(buf []byte) Builder {
 	return Builder{buf: buf[:0], fixed: true}
 }
@@ -56,37 +67,82 @@ func (b *Builder) Init(a alloc.Allocator = alloc.Default()) {
 	b.a = a
 }
 
-// String returns the accumulated string. It is a view of the buffer, not a
-// copy: it stays valid until the Builder is Reset, grown or freed, or the
-// caller's buffer is reused.
+// String returns the accumulated string. It shares the Builder's buffer
+// rather than copying it, unless the buffer is the caller's (NewBuilder) or
+// the bytes are not valid UTF-8; either way the string stays valid after
+// the Builder changes or is freed.
+//
+//pu:alloc
 func (b *Builder) String() string {
-	if len(b.buf) == 0 {
+	n := len(b.buf)
+	if n == 0 {
 		return ""
 	}
-	return unsafe.String(unsafe.SliceData(b.buf), len(b.buf))
+	b.check()
+	if b.valid < n || b.ctl == 0 {
+		// Not valid UTF-8, or a buffer nobody counts: a copy.
+		a := b.a
+		if a == nil {
+			a = alloc.Default()
+		}
+		return rt.StringFromBytes(unsafe.SliceData(b.buf), n, a)
+	}
+	b.shared = true
+	return rt.MakeString(unsafe.SliceData(b.buf), n, b.ctl, !b.nonASCII)
 }
 
-// Bytes returns the accumulated bytes, a view of the buffer like String.
+// check extends the prefix of the buffer known to be valid UTF-8 over the
+// bytes written since, stopping at the first invalid sequence.
+func (b *Builder) check() {
+	for b.valid < len(b.buf) {
+		c := b.buf[b.valid]
+		if c < utf8.RuneSelf {
+			b.valid++
+			continue
+		}
+		r, size := utf8.DecodeRune(b.buf[b.valid:])
+		if r == utf8.RuneError && size == 1 {
+			return
+		}
+		b.nonASCII = true
+		b.valid += size
+	}
+}
+
+// Bytes returns the accumulated bytes, a view of the buffer that is valid
+// until the next change to the Builder.
 func (b *Builder) Bytes() []byte { return b.buf }
 
-// Len returns the number of accumulated bytes; b.Len() == len(b.String()).
+// Len returns the number of accumulated bytes; b.Len() == len(b.String())
+// when the bytes are valid UTF-8.
 func (b *Builder) Len() int { return len(b.buf) }
 
 // Cap returns the capacity of the builder's underlying byte slice.
 func (b *Builder) Cap() int { return cap(b.buf) }
 
-// Reset empties the Builder, keeping its buffer and allocator.
-func (b *Builder) Reset() { b.buf = b.buf[:0] }
-
-// Free returns an allocated buffer to its allocator and leaves the Builder
-// empty with no buffer; it keeps its allocator for later writes. A
-// caller-provided buffer is not freed.
-func (b *Builder) Free() {
-	if b.owned {
-		b.a.Free(unsafe.Pointer(unsafe.SliceData(b.buf)), uintptr(cap(b.buf)), 1)
+// Reset empties the Builder. It keeps its buffer and allocator, unless a
+// string from String shares the buffer: then the next write starts a new
+// one, and the string keeps the old.
+func (b *Builder) Reset() {
+	if b.shared {
+		b.Free()
+		return
 	}
-	b.buf = nil
-	b.owned = false
+	b.buf = b.buf[:0]
+	b.valid, b.nonASCII = 0, false
+}
+
+// Free drops the Builder's reference to its buffer and leaves it empty with
+// no buffer; strings made with String keep the buffer alive. It keeps its
+// allocator for later writes. A caller-provided buffer is not freed.
+func (b *Builder) Free() {
+	if b.ctl != 0 {
+		rt.ReleaseString(b.ctl)
+	}
+	b.buf, b.ctl = nil, 0
+	b.shared = false
+	b.valid, b.nonASCII = 0, false
+	b.fixed = false
 }
 
 // Grow makes room for at least n more bytes, growing the buffer from the
@@ -117,22 +173,24 @@ func (b *Builder) grow(n int) {
 	if c < 16 {
 		c = 16
 	}
+	if len(b.buf) == 0 && n > c/2 {
+		c = n // a first write of a known size gets exactly that
+	}
 	b.realloc(c)
 }
 
-// realloc moves the contents into a new buffer of capacity c from b.a.
+// realloc moves the contents into a new counted buffer of capacity c from
+// b.a. The old buffer is released; a string from String keeps it alive.
 func (b *Builder) realloc(c int) {
-	p := b.a.Alloc(uintptr(c), 1)
-	if p == nil {
-		panic("strings.Builder: out of memory")
-	}
-	nb := unsafe.Slice((*byte)(p), c)[:len(b.buf)]
+	p, ctl := rt.NewStringBuffer(c, b.a)
+	nb := unsafe.Slice(p, c)[:len(b.buf)]
 	copy(nb, b.buf)
-	if b.owned {
-		b.a.Free(unsafe.Pointer(unsafe.SliceData(b.buf)), uintptr(cap(b.buf)), 1)
+	if b.ctl != 0 {
+		rt.ReleaseString(b.ctl)
 	}
-	b.buf = nb
-	b.owned = true
+	b.buf, b.ctl = nb, ctl
+	b.shared = false
+	b.fixed = false
 }
 
 // Write appends the contents of p to b's buffer. It always returns len(p),
@@ -171,11 +229,17 @@ func (b *Builder) WriteRune(r rune) (int, error) {
 }
 
 // WriteString appends the contents of s to b's buffer. It returns the
-// length of s and a nil error.
+// length of s and a nil error. A string is valid UTF-8, so when the bytes
+// before it are, the check that String makes skips it.
 func (b *Builder) WriteString(s string) (int, error) {
 	if cap(b.buf)-len(b.buf) < len(s) {
 		b.grow(len(s))
 	}
+	whole := b.valid == len(b.buf)
 	b.buf = append(b.buf, s...)
+	if whole {
+		b.valid = len(b.buf)
+		b.nonASCII = b.nonASCII || !rt.KnownASCII(s)
+	}
 	return len(s), nil
 }

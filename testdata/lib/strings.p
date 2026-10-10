@@ -27,7 +27,8 @@ func main() {
 		}
 		fmt.Printf("%d %d %d %d %d\n", strings.IndexByte(h, 'c'), strings.LastIndexByte(h, 'c'), strings.IndexRune(h, '本'), strings.IndexRune(h, 'ö'), strings.IndexRune(h, 'b'))
 	}
-	fmt.Printf("%d %d\n", strings.IndexRune("a\xffb", 0xFFFD), strings.IndexRune("abc", -1))
+	// string(b) replaces the invalid byte with U+FFFD (language spec section 6.10).
+	fmt.Printf("%d %d\n", strings.IndexRune(string([]byte{'a', 0xff, 'b'}), 0xFFFD), strings.IndexRune("abc", -1))
 	sp := []string{"", "  ", " a ", "\t\n hello world \r\n", " x ", "　日本　 ", "abc"}
 	for _, s := range sp {
 		fmt.Printf("[%s]\n", strings.TrimSpace(s))

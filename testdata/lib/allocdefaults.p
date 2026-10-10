@@ -85,6 +85,9 @@ func main() {
 	var b2 strings.Builder
 	b2.Grow(8)
 	b2.WriteString("built on default")
+	// The strings share the builders' buffers, and the interface boxes of
+	// this Println keep them until main returns (language spec section
+	// 4.4), so each allocator has one buffer still live in the reports.
 	fmt.Println(b.String(), "/", b2.String())
 	b.Free()
 	b2.Free()

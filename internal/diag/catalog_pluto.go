@@ -80,6 +80,15 @@ func init() {
 			Fix:  &Fix{Intro: "Either form works", Code: "func main() { ... }\nfunc main() int64 { return 0 }"},
 			Spec: pspec("2", "Source files and packages"),
 		},
+		&Entry{
+			Code: CheckerCode(typerr.InvalidUTF8String), Name: "InvalidUTF8String",
+			Text:    "Every string in Plutonium holds valid UTF-8 text, so a string literal whose escapes spell out bytes that are not valid UTF-8 is an error. Here the escapes make a byte or a sequence of bytes that does not encode a character.\nBinary data belongs in a []byte or a byte array, which may hold any bytes. To write the character itself, use its \\u escape or type it.",
+			Why:     "Go strings may hold any bytes. Plutonium guarantees that a string is text, so that ranging over it, slicing it between runes and the library's rune functions never meet broken encodings, and so that ASCII strings can be recognized once and taken fast paths for.",
+			Fix:     &Fix{Intro: "Keep binary data in bytes", Code: "magic := []byte{0x7f, 'E', 'L', 'F'}"},
+			Spec:    pspec("6.10", "Strings"),
+			Example: "const magic = \"\\x7fELF\\xff\"",
+			Fixed:   "var magic = [4]byte{0x7f, 'E', 'L', 0xff}",
+		},
 
 		// Packed types and wrappers.
 		&Entry{
