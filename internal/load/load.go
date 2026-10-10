@@ -21,8 +21,10 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/parser"
+	"github.com/matjam/plutonium/internal/syntax/scanner"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
 )
@@ -85,7 +87,7 @@ func Load(cfg *Config, dir string) (*Program, error) {
 		return nil, err
 	}
 	if main.Types.Name() != "main" {
-		return nil, fmt.Errorf("%s: package %s is not a main package", dir, main.Types.Name())
+		return nil, fail(diag.NotMainPackage, "%s: package %s is not a main package", dir, main.Types.Name())
 	}
 	return &Program{Fset: l.fset, Main: main, Packages: l.order}, nil
 }
@@ -121,7 +123,7 @@ func LoadTest(cfg *Config, target string, gen func(*token.FileSet, *Package) ([]
 			return nil, err
 		}
 		if st, err := os.Stat(absDir); err != nil || !st.IsDir() {
-			return nil, fmt.Errorf("%s: not a package directory", target)
+			return nil, fail(diag.NotPackageDir, "%s: not a package directory", target)
 		}
 		l.modRoot, l.modPath, err = findModule(absDir)
 		if err != nil {
@@ -131,7 +133,7 @@ func LoadTest(cfg *Config, target string, gen func(*token.FileSet, *Package) ([]
 		if l.modRoot == "" {
 			ipath = filepath.Base(absDir)
 			if isStdPath(ipath) || ipath == "main" {
-				return nil, fmt.Errorf("%s: a package outside a module cannot be tested from a directory named %q", target, ipath)
+				return nil, fail(diag.TestDirName, "%s: a package outside a module cannot be tested from a directory named %q", target, ipath)
 			}
 		}
 	}
@@ -144,7 +146,7 @@ func LoadTest(cfg *Config, target string, gen func(*token.FileSet, *Package) ([]
 		return nil, err
 	}
 	if pkg.Types.Name() == "main" {
-		return nil, fmt.Errorf("%s: testing a main package is not supported; move the code under test into a package of its own", target)
+		return nil, fail(diag.TestMainPackage, "%s: testing a main package is not supported; move the code under test into a package of its own", target)
 	}
 	mainSrc, err := gen(l.fset, pkg)
 	if err != nil {
@@ -265,10 +267,10 @@ func (e memEntry) Info() (fs.FileInfo, error) { return nil, fs.ErrInvalid }
 func (l *loader) resolve(importPath string) (source, string, error) {
 	if importPath == "pluto" || strings.HasPrefix(importPath, "pluto/") {
 		if l.cfg.Stdlib == nil {
-			return nil, "", fmt.Errorf("no standard library configured for %q", importPath)
+			return nil, "", fail(diag.StdPackageMissing, "no standard library configured for %q", importPath)
 		}
 		if _, err := fs.Stat(l.cfg.Stdlib, importPath); err != nil {
-			return nil, "", fmt.Errorf("standard library package %q not found", importPath)
+			return nil, "", fail(diag.StdPackageMissing, "standard library package %q not found", importPath)
 		}
 		return fsDir{l.cfg.Stdlib, importPath}, "$PLUTOROOT/" + importPath, nil
 	}
@@ -276,14 +278,31 @@ func (l *loader) resolve(importPath string) (source, string, error) {
 		rel := strings.TrimPrefix(strings.TrimPrefix(importPath, l.modPath), "/")
 		dir := filepath.Join(l.modRoot, filepath.FromSlash(rel))
 		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
-			return nil, "", fmt.Errorf("package %q not found (looked in %s)", importPath, dir)
+			return nil, "", fail(diag.PackageNotFound, "package %q not found (looked in %s)", importPath, dir)
 		}
 		return osDir(dir), dir, nil
 	}
 	if l.modRoot == "" {
-		return nil, "", fmt.Errorf("cannot import %q: no pluto.mod declares a module, so only pluto/ packages can be imported", importPath)
+		return nil, "", fail(diag.ImportNoModule, "cannot import %q: no pluto.mod declares a module, so only pluto/ packages can be imported", importPath)
 	}
-	return nil, "", fmt.Errorf("cannot import %q: it is outside module %s", importPath, l.modPath)
+	return nil, "", fail(diag.ImportOutside, "cannot import %q: it is outside module %s", importPath, l.modPath)
+}
+
+// fail returns a diagnostic without a position in the source.
+func fail(code diag.Code, format string, args ...any) *diag.Diagnostic {
+	return diag.New(token.Position{}, code, format, args...)
+}
+
+// prefixed returns err with prefix and ": " before its message, keeping
+// its code if it is a diagnostic.
+func prefixed(prefix string, err error) error {
+	var d *diag.Diagnostic
+	if errors.As(err, &d) {
+		c := *d
+		c.Msg = prefix + ": " + d.Msg
+		return &c
+	}
+	return fmt.Errorf("%s: %w", prefix, err)
 }
 
 func (l *loader) load(importPath string, src source, dir string) (*Package, error) {
@@ -291,7 +310,7 @@ func (l *loader) load(importPath string, src source, dir string) (*Package, erro
 		return p, nil
 	}
 	if l.loading[importPath] {
-		return nil, fmt.Errorf("import cycle through %q", importPath)
+		return nil, fail(diag.ImportCycle, "import cycle through %q", importPath)
 	}
 	l.loading[importPath] = true
 	defer delete(l.loading, importPath)
@@ -321,7 +340,7 @@ func (l *loader) load(importPath string, src source, dir string) (*Package, erro
 		}
 		isrc, idir, err := l.resolve(p)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", importPath, err)
+			return nil, prefixed(importPath, err)
 		}
 		dep, err := l.load(p, isrc, idir)
 		if err != nil {
@@ -339,7 +358,7 @@ func (l *loader) load(importPath string, src source, dir string) (*Package, erro
 		Selections: map[*ast.SelectorExpr]*types2.Selection{},
 		Scopes:     map[ast.Node]*types2.Scope{},
 	}
-	var errs []error
+	var errs []error // types2.Error
 	conf := types2.Config{
 		Importer: importerFunc(func(p string) (*types2.Package, error) {
 			if p == "unsafe" {
@@ -359,7 +378,12 @@ func (l *loader) load(importPath string, src source, dir string) (*Package, erro
 	}
 	pkg.Types, _ = conf.Check(importPath, l.fset, pkg.Files, pkg.Info)
 	if len(errs) > 0 {
-		return nil, errors.Join(errs...)
+		ctx := &diag.CheckContext{Fset: l.fset, Files: pkg.Files, Pkg: pkg.Types, Info: pkg.Info}
+		list := make(diag.List, len(errs))
+		for i, err := range errs {
+			list[i] = diag.FromChecker(err, ctx)
+		}
+		return nil, list
 	}
 	l.packages[importPath] = pkg
 	l.order = append(l.order, pkg)
@@ -370,9 +394,9 @@ func (l *loader) load(importPath string, src source, dir string) (*Package, erro
 func (l *loader) parse(pkg *Package, src source) error {
 	entries, err := src.list()
 	if err != nil {
-		return fmt.Errorf("reading package %q: %w", pkg.Path, err)
+		return fail(diag.ReadPackage, "reading package %q: %v", pkg.Path, err)
 	}
-	var errs []error
+	var errs diag.List
 	for _, e := range entries {
 		name := e.Name()
 		isTest := strings.HasSuffix(name, "_test.p")
@@ -397,7 +421,7 @@ func (l *loader) parse(pkg *Package, src source) error {
 		}
 		ok, err := l.constraintMatches(data, isAsm)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", src.name(name), err))
+			errs = append(errs, fail(diag.BadConstraint, "%s: %v", src.name(name), err))
 			continue
 		}
 		if !ok {
@@ -412,9 +436,13 @@ func (l *loader) parse(pkg *Package, src source) error {
 			continue
 		}
 		f, err := parser.ParseFile(l.fset, src.name(name), data, parser.ParseComments)
-		if err != nil {
-			errs = append(errs, err)
+		if list, ok := err.(scanner.ErrorList); ok {
+			for _, e := range list {
+				errs = append(errs, diag.FromSyntax(e, data))
+			}
 			continue
+		} else if err != nil {
+			return err
 		}
 		pkg.Files = append(pkg.Files, f)
 		if isTest {
@@ -422,21 +450,21 @@ func (l *loader) parse(pkg *Package, src source) error {
 		}
 	}
 	if len(errs) > 0 {
-		return errors.Join(errs...)
+		return errs
 	}
 	if len(pkg.Files) == 0 {
-		return fmt.Errorf("package %q: no Plutonium source files for this build", pkg.Path)
+		return fail(diag.NoSourceFiles, "package %q: no Plutonium source files for this build", pkg.Path)
 	}
 	for _, f := range pkg.Tests {
 		if n := f.Name.Name; strings.HasSuffix(n, "_test") {
-			return fmt.Errorf("%s: package %s: external test packages are not supported; declare the test in package %s",
+			return fail(diag.ExternalTestPkg, "%s: package %s: external test packages are not supported; declare the test in package %s",
 				l.fset.File(f.Pos()).Name(), n, strings.TrimSuffix(n, "_test"))
 		}
 	}
 	name := pkg.Files[0].Name.Name
 	for _, f := range pkg.Files[1:] {
 		if f.Name.Name != name {
-			return fmt.Errorf("package %q: files declare both package %s and %s", pkg.Path, name, f.Name.Name)
+			return fail(diag.MixedPackages, "package %q: files declare both package %s and %s", pkg.Path, name, f.Name.Name)
 		}
 	}
 	return nil
@@ -500,10 +528,10 @@ func findModule(dir string) (root, modPath string, err error) {
 			line, _, _ := strings.Cut(string(data), "\n")
 			fields := strings.Fields(line)
 			if len(fields) != 2 || fields[0] != "module" {
-				return "", "", fmt.Errorf("%s: first line must be \"module <path>\"", filepath.Join(d, "pluto.mod"))
+				return "", "", fail(diag.BadModFile, "%s: first line must be \"module <path>\"", filepath.Join(d, "pluto.mod"))
 			}
 			if fields[1] == "pluto" || strings.HasPrefix(fields[1], "pluto/") {
-				return "", "", fmt.Errorf("%s: module path %q is reserved for the standard library", filepath.Join(d, "pluto.mod"), fields[1])
+				return "", "", fail(diag.ReservedModule, "%s: module path %q is reserved for the standard library", filepath.Join(d, "pluto.mod"), fields[1])
 			}
 			return d, fields[1], nil
 		}
