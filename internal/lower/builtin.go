@@ -1,8 +1,11 @@
 package lower
 
 import (
+	"fmt"
+
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
+	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
 )
 
@@ -402,9 +405,62 @@ func (s *fnState) conversion(e *ast.CallExpr) value {
 // ring[T, N]
 
 // ringCall expands a call of a built-in ring method inline.
-func (s *fnState) ringCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.Selection, w *types2.Wrapper) []value {
-	recv := s.methodReceiver(se.X, sel) // pointer to the ring
-	p := recv.v
+func (s *fnState) ringCall(e *ast.CallExpr, se *ast.SelectorExpr, fn *types2.Func, path []int, w *types2.Wrapper) []value {
+	recv := s.methodReceiver(se.X, fn, path) // pointer to the ring
+	var args []value
+	if fn.Name() == "Push" {
+		args = append(args, s.materialize(s.exprAs(e.Args[0], s.subst(w.Elem()))))
+	}
+	return s.ringOp(fn.Name(), recv.v, w, args, e.Pos())
+}
+
+// ringOf returns the ring type of fn if it is a built-in ring method, or
+// nil.
+func (s *fnState) ringOf(fn *types2.Func) *types2.Wrapper {
+	return ringMethodRing(fn, s.subst)
+}
+
+// ringMethodRing returns the ring type of fn if it is a built-in ring
+// method, or nil. subst instantiates the type of fn's receiver.
+func ringMethodRing(fn *types2.Func, subst func(types2.Type) types2.Type) *types2.Wrapper {
+	recv := fn.Type().(*types2.Signature).Recv()
+	if fn.Pkg() != nil || recv == nil {
+		return nil
+	}
+	p, ok := subst(recv.Type()).(*types2.Pointer)
+	if !ok {
+		return nil
+	}
+	if w, ok := p.Elem().Underlying().(*types2.Wrapper); ok && w.Kind() == types2.WrapRing {
+		return w
+	}
+	return nil
+}
+
+// ringMethodFunc returns a function performing ring method fn of ring
+// type w on the ring its receiver points at, for a ring method used as a
+// value or called through an interface; calls name the method directly
+// and are expanded inline instead.
+func (l *Lowerer) ringMethodFunc(fn *types2.Func, w *types2.Wrapper) (*ssa.Sym, *types2.Signature) {
+	ptr := types2.NewPointer(w)
+	obj, _, _ := types2.LookupFieldOrMethod(ptr, false, nil, fn.Name())
+	full := obj.(*types2.Func).Type().(*types2.Signature)
+	name := fmt.Sprintf("builtin.(*ring[%s,%d]).%s", typeString(w.Elem()), w.N(), fn.Name())
+	if sym := l.funcs[name]; sym != nil {
+		return sym, full
+	}
+	sym := l.out.Sym(name, ssa.SymFunc)
+	l.funcs[name] = sym
+	l.queue = append(l.queue, &funcJob{sym: sym, sig: full, build: func(s *fnState) {
+		in := s.incomingArgs(full)
+		s.returnValues(s.ringOp(fn.Name(), in[0].v, w, in[1:], token.NoPos))
+	}})
+	return sym, full
+}
+
+// ringOp expands ring method name on the ring that p points at, with the
+// arguments already evaluated.
+func (s *fnState) ringOp(name string, p *ssa.Value, w *types2.Wrapper, args []value, pos token.Pos) []value {
 	et := s.subst(w.Elem())
 	n := w.N()
 	mask := s.constInt(ssa.TI64, n-1)
@@ -419,7 +475,7 @@ func (s *fnState) ringCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.Se
 	boolT := types2.Typ[types2.Bool]
 	intT := types2.Typ[types2.Int]
 
-	switch name := sel.Obj().Name(); name {
+	switch name {
 	case "Len":
 		d := s.newValue(ssa.OpSub, ssa.TI64, s.load(ssa.TI64, headPtr), s.load(ssa.TI64, tailPtr))
 		return []value{scalarValue(d, intT)}
@@ -436,7 +492,7 @@ func (s *fnState) ringCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.Se
 		s.store(ssa.TI64, tailPtr, s.constInt(ssa.TI64, 0))
 		return nil
 	case "Push":
-		v := s.materialize(s.exprAs(e.Args[0], et))
+		v := args[0]
 		res := s.temp(boolT, "ok")
 		s.store(ssa.TBool, res, s.constBool(false))
 		head := s.load(ssa.TI64, headPtr)
@@ -464,7 +520,7 @@ func (s *fnState) ringCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.Se
 		})
 		return []value{s.loadFrom(out, et), scalarValue(s.load(ssa.TBool, res), boolT)}
 	}
-	s.l.errorf(e.Pos(), "lower: unknown ring method %s", sel.Obj().Name())
+	s.l.errorf(pos, "lower: unknown ring method %s", name)
 	return nil
 }
 

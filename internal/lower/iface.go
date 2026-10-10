@@ -470,7 +470,19 @@ func (l *Lowerer) itabAdapter(T types2.Type, m *types2.Func) *ssa.Sym {
 		l.errs = append(l.errs, fmt.Errorf("lower: %s has no method %s", T, m.Name()))
 		return sym
 	}
-	msig := fn.Type().(*types2.Signature)
+	if isIfaceMethod(fn) {
+		// Promoted from an embedded interface field: call through it.
+		sig := fn.Type().(*types2.Signature)
+		plain := types2.NewSignatureType(nil, nil, nil, sig.Params(), sig.Results(), sig.Variadic())
+		adapter := adapterSignature(plain)
+		l.queue = append(l.queue, &funcJob{sym: sym, sig: adapter, build: func(s *fnState) {
+			in := s.incomingArgs(adapter)
+			iface := recvBase(T, index)
+			iv := s.receiverFromData(in[0].v, T, index, iface)
+			s.returnValues(s.ifaceCall(iv, iface, fn, plain, in[1:], token.NoPos))
+		}})
+		return sym
+	}
 	// The method's signature as seen through T (instantiated receiver).
 	var targs []types2.Type
 	if n, ok := types2.Unalias(derefType(recvBase(T, index))).(*types2.Named); ok && n.TypeArgs() != nil {
@@ -478,11 +490,9 @@ func (l *Lowerer) itabAdapter(T types2.Type, m *types2.Func) *ssa.Sym {
 			targs = append(targs, n.TypeArgs().At(i))
 		}
 	}
-	full := l.methodSig(fn, targs)
+	target, full := l.methodFunc(fn, targs, ringMethodRing(fn, func(t types2.Type) types2.Type { return t }))
 	plain := types2.NewSignatureType(nil, nil, nil, full.Params(), full.Results(), full.Variadic())
 	adapter := adapterSignature(plain)
-	_ = msig
-	target := l.funcSym(fn, targs)
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: adapter, build: func(s *fnState) {
 		in := s.incomingArgs(adapter)
 		data := in[0].v

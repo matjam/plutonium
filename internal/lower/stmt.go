@@ -818,25 +818,34 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 	default:
 		fun := ast.Unparen(call.Fun)
 		if se, ok := fun.(*ast.SelectorExpr); ok {
-			if sel := s.info.Selections[se]; sel != nil && sel.Kind() == types2.MethodVal && !isInterface(s.typeOf(se.X)) && ringOf(s.typeOf(se.X), sel) == nil {
-				fn := sel.Obj().(*types2.Func)
-				recv := s.saveValue(s.methodReceiver(se.X, sel))
-				targs := s.methodTypeArgs(fn, se, s.typeOf(se.X))
-				sym := s.l.funcSym(fn, targs)
-				full := s.l.methodSig(fn, targs)
-				sig := s.subst(funTV.Type).(*types2.Signature)
-				args := s.saveValues(s.callArgs(call, sig))
-				run = func(s *fnState) {
-					r := s.loadFrom(recv.v, recv.T)
-					s.emitCall(callee{sym: sym}, full, &r, s.loadValues(args), call.Pos())
+			if sel := s.info.Selections[se]; sel != nil && sel.Kind() == types2.MethodVal && !isInterface(s.typeOf(se.X)) {
+				fn, path, ok := s.selectedMethod(se, sel)
+				if !ok {
+					return
 				}
-				break
+				// A method promoted from an embedded interface is deferred
+				// as a method value, below.
+				if !isIfaceMethod(fn) {
+					recv := s.saveValue(s.methodReceiver(se.X, fn, path))
+					var targs []types2.Type
+					w := s.ringOf(fn)
+					if w == nil {
+						targs = s.methodTypeArgs(fn, se, s.typeOf(se.X))
+					}
+					sym, full := s.l.methodFunc(fn, targs, w)
+					sig := s.subst(funTV.Type).(*types2.Signature)
+					args := s.saveValues(s.callArgs(call, sig))
+					run = func(s *fnState) {
+						r := s.loadFrom(recv.v, recv.T)
+						s.emitCall(callee{sym: sym}, full, &r, s.loadValues(args), call.Pos())
+					}
+				}
 			}
 		}
 		if run != nil {
 			break
 		}
-		if id := identOf(fun); id != nil {
+		if id := staticFuncIdent(fun, s.info); id != nil {
 			if fn, ok := s.info.Uses[id].(*types2.Func); ok {
 				sym := s.l.funcSym(fn, s.instanceArgs(id))
 				sig := s.subst(funTV.Type).(*types2.Signature)

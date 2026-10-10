@@ -442,9 +442,11 @@ func (s *fnState) selector(e *ast.SelectorExpr, T types2.Type) value {
 	case types2.MethodVal:
 		return scalarValue(s.methodValue(e, sel), T)
 	case types2.MethodExpr:
-		fn := sel.Obj().(*types2.Func)
-		targs := s.withMethodTypeArgs(fn, e.Sel, s.recvTypeArgs(sel.Recv()))
-		return scalarValue(s.funcValue(fn, targs, e.Pos()), T)
+		sym := s.methodExpr(e, sel)
+		if sym == nil {
+			return s.zeroValue(T)
+		}
+		return scalarValue(s.symAddr(s.l.closureRecord(sym)), T)
 	}
 	return s.zeroValue(T)
 }
@@ -1079,6 +1081,16 @@ func unpackIndex(e ast.Expr) indexed {
 		return indexed{e.X, nil}
 	}
 	return indexed{}
+}
+
+// staticFuncIdent is identOf for a callee, except that it returns nil for
+// a method selection (x.m or T.m), which names a method rather than a
+// function that can be called directly.
+func staticFuncIdent(e ast.Expr, info *types2.Info) *ast.Ident {
+	if se, ok := ast.Unparen(e).(*ast.SelectorExpr); ok && info.Selections[se] != nil {
+		return nil
+	}
+	return identOf(e)
 }
 
 func identOf(e ast.Expr) *ast.Ident {
