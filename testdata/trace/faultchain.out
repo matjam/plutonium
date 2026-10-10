@@ -1,5 +1,5 @@
 panic: runtime error: invalid memory address or nil pointer dereference
 [signal SIGSEGV: segmentation violation addr=0x8 pc=PC]
-    main.value ($FILE:12)
-    main.walk ($FILE:18)
-    main.main ($FILE:27)
+    main.value (./main.p:12)
+    main.walk (./main.p:18)
+    main.main (./main.p:27)

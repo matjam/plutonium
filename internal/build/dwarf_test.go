@@ -495,9 +495,11 @@ func TestGDB(t *testing.T) {
 	}
 	for _, level := range []int{0, 2} {
 		dir, _, _ := buildFiles(t, map[string][]byte{"main.p": src}, build.Config{OptLevel: level})
-		file := filepath.Join(dir, "main.p")
-		out, err := exec.Command(gdb, "-nx", "-batch", "-iex", "set debuginfod enabled off",
-			"-ex", "run", "-ex", "bt", filepath.Join(dir, "prog")).CombinedOutput()
+		file := "./main.p"
+		cmd := exec.Command(gdb, "-nx", "-batch", "-iex", "set debuginfod enabled off",
+			"-ex", "run", "-ex", "bt", filepath.Join(dir, "prog"))
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("O%d: gdb: %v\n%s", level, err, out)
 		}
