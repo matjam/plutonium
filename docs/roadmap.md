@@ -34,8 +34,9 @@ later takes the next free number and is listed in the section where it belongs.
    sections 4.4, 4.5 and 6.3), with the explanatory messages of section 6.9. Returned closures are built
    in a region the caller provides (section 4.5), and what a region cannot hold is checked (E3100 to
    E3102, lowering); the rest is E3001 to E3008 (`internal/escape`, a whole-program analysis without
-   annotations; docs/plans/2026-10-09-memory-safety-design.md section 4). This is the compile-time half
-   of "a view may not outlive what it looks at" (item 20).
+   annotations; docs/plans/2026-10-09-memory-safety-design.md section 4). The address of a variable in a
+   call's region cannot leave the function that declares it (E3001), so it never reaches the call's
+   next run. This is the compile-time half of "a view may not outlive what it looks at" (item 20).
 
 ## Kernel enablement
 

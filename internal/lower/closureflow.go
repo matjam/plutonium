@@ -1404,21 +1404,30 @@ func (s *fnState) ownVar(f *closureFlow, v *types2.Var) bool {
 	return v.Pos() >= lo && v.Pos() < hi && f.ownFrame(v.Pos())
 }
 
-// checkLoopRegions reports the closures of calls in a loop that are kept
-// past the iteration: the call's region is reused by the next one.
-func (s *fnState) checkLoopRegions(f *closureFlow) {
-	// A loop's iteration runs its condition, post statement and body; its
-	// variables, the range statement's and the init statement's included,
-	// are per iteration as in Go.
-	type span struct{ lo, hi, vlo token.Pos }
-	var loops []span
-	var lits []span
-	ast.Inspect(f.body, func(n ast.Node) bool {
+// A loopSpan is a loop of a function body. An iteration runs the code from
+// lo to hi, and makes the variables declared from vlo to hi anew.
+type loopSpan struct {
+	lo, hi, vlo token.Pos
+	forStmt     token.Pos // a for statement, whose init statement's variables carry their value to the next iteration
+	label       string    // a loop that a goto back to this label makes
+	gotoAt      token.Pos // and the goto
+}
+
+// loopSpans lists the loops of body, outside function literals nested in
+// it: for and range statements, and the loops a goto makes by jumping back
+// to a label before it. lits lists the literals.
+func loopSpans(body ast.Node) (loops, lits []loopSpan) {
+	labels := map[string]token.Pos{}
+	ast.Inspect(body, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.FuncLit:
-			lits = append(lits, span{n.Pos(), n.End(), n.Pos()})
+			lits = append(lits, loopSpan{lo: n.Pos(), hi: n.End(), vlo: n.Pos()})
 			return false
 		case *ast.ForStmt:
+			// An iteration runs the condition, the body and the post
+			// statement. The init statement's variables are per iteration
+			// as in Go, but each starts with the value the previous
+			// iteration's had.
 			lo := n.Body.Pos()
 			if n.Post != nil {
 				lo = n.Post.Pos()
@@ -1426,16 +1435,41 @@ func (s *fnState) checkLoopRegions(f *closureFlow) {
 			if n.Cond != nil {
 				lo = n.Cond.Pos()
 			}
-			loops = append(loops, span{lo, n.Body.End(), n.Pos()})
+			loops = append(loops, loopSpan{lo: lo, hi: n.Body.End(), vlo: lo, forStmt: n.Pos()})
 		case *ast.RangeStmt:
-			loops = append(loops, span{n.Body.Pos(), n.Body.End(), n.Pos()})
+			loops = append(loops, loopSpan{lo: n.Body.Pos(), hi: n.Body.End(), vlo: n.Pos()})
+		case *ast.LabeledStmt:
+			labels[n.Label.Name] = n.Pos()
+		case *ast.BranchStmt:
+			// Inspect visits in source order, so a label already seen
+			// is before the goto.
+			if lp, ok := labels[identName(n.Label)]; ok && n.Tok == token.GOTO {
+				loops = append(loops, loopSpan{lo: lp, hi: n.End(), vlo: lp, label: n.Label.Name, gotoAt: n.Pos()})
+			}
 		}
 		return true
 	})
-	in := func(p token.Pos, sp span) bool { return p >= sp.lo && p < sp.hi }
+	return loops, lits
+}
+
+func identName(id *ast.Ident) string {
+	if id == nil {
+		return ""
+	}
+	return id.Name
+}
+
+// checkLoopRegions reports the closures of calls in a loop that are kept
+// past the iteration: the call's region is reused by the next one. Passed
+// back to the same call, such a closure would be read through after the
+// call refilled its region, which is why nothing a call builds in its
+// region may reach the call's next run.
+func (s *fnState) checkLoopRegions(f *closureFlow) {
+	loops, lits := loopSpans(f.body)
+	in := func(p, lo, hi token.Pos) bool { return p >= lo && p < hi }
 	inLit := func(p token.Pos) bool {
 		for _, sp := range lits {
-			if in(p, sp) {
+			if in(p, sp.lo, sp.hi) {
 				return true
 			}
 		}
@@ -1446,24 +1480,43 @@ func (s *fnState) checkLoopRegions(f *closureFlow) {
 		if !ok || inLit(c.Pos()) {
 			continue
 		}
-		var loop *span
+		// A variable keeps the closure from one run of the call to the
+		// next unless every loop the call is in declares it anew.
+		var around []*loopSpan
 		for i := range loops {
-			if in(c.Pos(), loops[i]) && (loop == nil || loops[i].lo > loop.lo) {
-				loop = &loops[i]
+			if in(c.Pos(), loops[i].lo, loops[i].hi) {
+				around = append(around, &loops[i])
 			}
 		}
-		if loop == nil {
+		if around == nil {
 			continue
 		}
 		bit := f.firstSrc() + k
-		var where string
 		var kept *types2.Var
+		var loop *loopSpan
 		for v, m := range f.vars {
-			if m.has(bit) && v.Name() != "_" && !in(v.Pos(), span{loop.vlo, loop.hi, 0}) && !inLit(v.Pos()) && (kept == nil || v.Pos() < kept.Pos()) {
-				kept = v
+			if !m.has(bit) || v.Name() == "_" || inLit(v.Pos()) || kept != nil && v.Pos() >= kept.Pos() {
+				continue
+			}
+			for _, sp := range around {
+				if !in(v.Pos(), sp.vlo, sp.hi) {
+					kept, loop = v, sp
+					break
+				}
 			}
 		}
+		if loop == nil {
+			loop = around[len(around)-1]
+			for _, sp := range around {
+				if sp.lo > loop.lo {
+					loop = sp
+				}
+			}
+		}
+		var where string
 		switch {
+		case kept != nil && loop.forStmt.IsValid() && kept.Pos() >= loop.forStmt && kept.Pos() < loop.lo:
+			where = fmt.Sprintf("%s, a variable of the for statement (%s), which passes its value on to the next iteration", kept.Name(), s.l.shortPos(kept.Pos()))
 		case kept != nil:
 			where = fmt.Sprintf("%s, declared outside the loop (%s)", kept.Name(), s.l.shortPos(kept.Pos()))
 		case f.pool.has(bit):
@@ -1476,11 +1529,28 @@ func (s *fnState) checkLoopRegions(f *closureFlow) {
 		}
 		s.l.flowReported[c.Pos()] = true
 		call := shortExpr(c)
+		what := "this iteration of the loop"
+		text := ""
+		if loop.label != "" {
+			what = "this run of the loop that goto " + loop.label + " makes"
+			text = fmt.Sprintf("The goto at %s jumps back to the label %s, before the call, which makes a loop. ", s.l.shortPos(loop.gotoAt), loop.label)
+		}
+		text += fmt.Sprintf("A function that returns a closure builds it in a region its caller provides (spec section 4.5). The region of a call in a loop is part of this frame, and the call uses the same region on every iteration, so the closure %s returns on one iteration is overwritten on the next. Keeping it past the iteration, in %s, would leave it changing under you.", call, where)
+		fix := "\nUse the closure within the iteration, or declare the variable that holds it inside the loop."
+		for _, a := range c.Args {
+			if f.expr(a).has(bit) {
+				// it = Filter(it, f): each closure would hold the one
+				// before, a chain as long as the loop runs.
+				text += fmt.Sprintf(" Here the closure is passed back to %s, so each one would hold the one the call made before, in the region the call is about to refill: the chain grows with every iteration, and no region of fixed size can hold it.", shortExpr(c.Fun))
+				fix = "\nCompose a fixed number of closures, or keep what each step needs in a slice and return one closure that applies every step."
+				break
+			}
+		}
 		// Reported only if the callee builds closures (finishRegions).
 		s.l.regionPending = append(s.l.regionPending, []regionCand{{key: f.callKey(c), pos: c.Pos(), d: &diag.Diagnostic{
 			Code: diag.ClosureRegionLoop,
-			Msg:  fmt.Sprintf("cannot keep the closure %s returns past this iteration of the loop: it is stored in %s", call, where),
-			Text: fmt.Sprintf("A function that returns a closure builds it in a region its caller provides (spec section 4.5). The region of a call in a loop is part of this frame, and the call uses the same region on every iteration, so the closure %s returns on one iteration is overwritten on the next. Keeping it past the iteration, in %s, would leave it changing under you.\nUse the closure within the iteration, or declare the variable that holds it inside the loop.", call, where),
+			Msg:  fmt.Sprintf("cannot keep the closure %s returns past %s: it is stored in %s", call, what, where),
+			Text: text + fix,
 		}}})
 	}
 }

@@ -327,10 +327,15 @@ regard to order, and reports what a region cannot hold:
   range-over-func loop, which is a function of its own whose frame is gone when it returns (E3100); and
   a function whose results hold a closure only through a pointer, for which its callers provide no region
   (E3100). Make the closure in the function that returns it, and return it by value.
-- A closure that a call in a loop returns, kept past the iteration in a variable declared outside the loop
-  or in memory reached through a pointer (E3101): every iteration's call reuses the call's region, so the
-  next iteration would overwrite it. A function literal in a loop is built the same way, one record per
-  literal, reused on every iteration.
+- A closure that a call in a loop returns, kept past the iteration in a variable declared outside the loop,
+  in a variable of the `for` statement (which passes its value on to the next iteration), or in memory
+  reached through a pointer (E3101): every iteration's call reuses the call's region, so the next
+  iteration would overwrite it. A loop made by a `goto` back to a label before the call counts too. This
+  rules out composing closures in a loop, `it = Filter(it, f)`: each call's closure would hold the one
+  the same call made before, in the region the call is about to refill, a chain as long as the loop runs
+  that no region of fixed size can hold. Compose a fixed number of them, or keep what each step needs in a
+  slice and return one closure that applies every step. A function literal in a loop is built the same
+  way, one record per literal, reused on every iteration.
 - A function that returns the closures of a call that can reach the same function again, directly, through
   other functions, or through a func value or interface whose implementations do, when any of them builds
   a closure: its region would have to hold itself, and no fixed size fits (E3102). Build the closures in a
@@ -339,6 +344,12 @@ regard to order, and reports what a region cannot hold:
 A call through a func value or an interface is assumed to return and keep anything passed to it, so the
 check may reject a function that would never return or keep the record at run time. Storing a record in
 a package-level variable or through a pointer is not checked yet (roadmap item 5).
+
+Since no closure a call builds in its region reaches the call's next run, the region can be released and
+refilled when the call runs again: the arguments of that run cannot refer to it. The address of a
+variable in a region (a variable that a returned closure captures, whose address the function also
+returns or stores) is a view of the caller's frame at that call, like a loop variable's: it must not be
+kept where the call's next run can see it, which is checked with the other frame views (roadmap item 5).
 
 A capturing closure is a view of the enclosing frame (section 6.3). Captured owners stay where they are
 declared:

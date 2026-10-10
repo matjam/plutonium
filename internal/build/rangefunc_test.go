@@ -172,7 +172,7 @@ func main() {
 		return
 	}
 }
-`, "defer in the body of a range-over-func loop must be followed by"},
+`, "defer inside a loop is not supported"}, // the goto makes a loop in the body
 		{"defer in a loop in the body", `
 func main() {
 	for x := range seq {

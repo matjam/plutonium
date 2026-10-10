@@ -19,3 +19,6 @@ $DIR/main.p:5:3: defer inside a loop is not supported in Plutonium (it would nee
         }
     (see "Defer statements" in the Go spec; Plutonium adds this limit)
     (run "pluto explain E2530" for a longer explanation)
+
+$DIR/main.p:12:2: defer inside a loop is not supported in Plutonium (it would need unbounded stack); move the loop body into a function
+    (explained above; run "pluto explain E2530" for more)

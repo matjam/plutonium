@@ -530,6 +530,16 @@ func install() alloc.Restore {
 }
 func main() { install().Restore() }`, []string{"cannot return alloc.Use(&a)"}},
 
+	{"address of a variable a returned closure captures", `
+func f(n int) (func() int, *int) {
+	return func() int { return n }, &n
+}
+func main() {
+	g, p := f(1)
+	*p = 2
+	println(g())
+}`, []string{"cannot return &n"}},
+
 	{"go statement whose function keeps its packed variadic arguments", `
 var kept []int
 func keep(xs ...int) { kept = xs }
