@@ -135,7 +135,8 @@ panic: runtime error: index out of range [4] with length 4
   the same at every optimisation level.
 - The panic's own frames in package `pluto/rt` are left out, and so is generated code with no source
   position, such as the wrapper that calls a method through an interface.
-- The walk stops at `pluto.main` (which runs initialisation and `main.main`), at code that is not
+- The walk stops at `pluto.main` (which runs initialisation and `main.main`; where `main.main` is
+  inlined into it, `main.main` and its inlined calls are still printed), at code that is not
   Plutonium (assembly, C, a kernel's entry point), or after 64 frames, which it reports with
   `...additional frames elided...`.
 
@@ -151,9 +152,16 @@ panic: runtime error: invalid memory address or nil pointer dereference
     ...
 ```
 
-and the trace from the faulting instruction, then exits with status 2. A fault within 4 KiB of address
-zero is reported as a nil dereference; one just below the stack pointer as `stack overflow`; any other as
-`unexpected fault address`. A fault in a function's prologue, before its frame is complete, is unwound
+and the trace from the faulting instruction, then exits with status 2 without running the exit hook
+(`rt.SetExitHook`). A fault within 4 KiB of address zero is reported as a nil dereference; one just below
+the stack pointer as `stack overflow`; any other as `unexpected fault address`.
+
+There is one handler. For `SIGSEGV` and `SIGBUS` it first calls the function registered with
+`rt.SetFaultHandler`, if any, with the fault address, the faulting instruction and whether the access was
+a write. The debug allocator registers one ([debug-allocator.md](debug-allocator.md#faults-and-the-runtime)):
+if the address is in its heap it prints its diagnosis (`panic: debug allocator: use after free: ...`, with
+where the block was allocated and freed) in place of the runtime's message, and the signal line and the
+trace follow as usual. A fault in a function's prologue, before its frame is complete, is unwound
 correctly too. Only the main thread has the alternate stack: on another thread the handler runs on that
 thread's own stack, which works for every fault except running out of that stack, which kills the
 process with the signal.
@@ -169,6 +177,14 @@ rt.Traceback(pc, sp, bp uintptr) // the faulting RIP, RSP and RBP
 ```
 
 A frame of a `//pu:interrupt` function ends the walk, since the code it interrupted is not its caller.
+
+### Naming one address
+
+`rt.PrintPC(pc)` prints the function and line of a single address from the same table, as a trace would
+name its innermost frame (`main.makeNode (/home/me/prog/main.p:12)`), or `pc 0x...` if the table does not
+describe it. The debug allocator prints allocation and free sites, recorded with `rt.CallerPC`, this way
+([debug-allocator.md](debug-allocator.md#allocation-sites)). `rt.SetSymbolizer` replaces the lookup, for
+code the table does not cover.
 
 ### The trace table
 

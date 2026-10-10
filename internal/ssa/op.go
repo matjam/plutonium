@@ -47,6 +47,8 @@ const (
 	OpSymAddr    // address of global symbol Aux (*Sym)
 	OpFuncAddr   // address of function Aux (*Sym), as a function value code pointer
 	OpClosurePtr // the closure context pointer the caller passed (internal ABI)
+	OpReturnAddr // the function's return address (a code address in its caller)
+	OpCodeAddr   // the address of the code at this point (an OpReturnAddr once inlined)
 
 	// Integer arithmetic. Operands and result share the type.
 	OpAdd
@@ -152,6 +154,8 @@ var opTable = [opTableSize]OpInfo{
 	OpSymAddr:    {Name: "SymAddr", Args: 0},
 	OpFuncAddr:   {Name: "FuncAddr", Args: 0},
 	OpClosurePtr: {Name: "ClosurePtr", Args: 0, Flags: fNoCSE},
+	OpReturnAddr: {Name: "ReturnAddr", Args: 0},
+	OpCodeAddr:   {Name: "CodeAddr", Args: 0, Flags: fNoCSE},
 
 	OpAdd:    {Name: "Add", Args: 2, Flags: fCommutative},
 	OpSub:    {Name: "Sub", Args: 2},

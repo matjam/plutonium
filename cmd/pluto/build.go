@@ -79,6 +79,7 @@ func init() {
 		c.Flags().BoolP("debug", "g", true, "emit DWARF debugging information (-g=false to omit it)")
 		c.Flags().BoolP("strip", "s", false, "omit DWARF and the symbol table (panic traces still work)")
 		c.Flags().Bool("trace", true, "emit the table panics use to print stack traces (--trace=false to omit it)")
+		c.Flags().String("alloc", "", "default allocator: debug for the checking allocator (hosted builds; tune with $PLUTO_DEBUGALLOC)")
 	}
 	rootCmd.AddCommand(buildCmd, runCmd)
 }
@@ -104,6 +105,7 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 	debug, _ := f.GetBool("debug")
 	strip, _ := f.GetBool("strip")
 	trace, _ := f.GetBool("trace")
+	allocator, _ := f.GetString("alloc")
 
 	arch, osName, ok := strings.Cut(target, "-")
 	if !ok || arch != "x86_64" || (osName != "linux" && osName != "none") {
@@ -142,6 +144,7 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 		NoDWARF:      !debug,
 		Strip:        strip,
 		NoTrace:      !trace,
+		Alloc:        allocator,
 	}
 	if root := os.Getenv("PLUTOROOT"); root != "" {
 		if abs, err := filepath.Abs(root); err == nil {

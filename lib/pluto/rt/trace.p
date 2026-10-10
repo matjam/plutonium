@@ -73,7 +73,12 @@ func traceback(pc, sp, bp uintptr, exact, skipRuntime bool) {
 			return
 		}
 		name := traceString(tab, *(*uint32)(unsafe.Add(fn, 12)))
-		if name == "pluto.main" || name == "pluto/rt.start" {
+		if name == "pluto.main" {
+			// main.main may be inlined into it.
+			printInlinedMain(tab, fn, look)
+			return
+		}
+		if name == "pluto/rt.start" {
 			return
 		}
 		if skipRuntime && hasPrefix(name, "pluto/rt.") {
@@ -167,19 +172,73 @@ func findFunc(tab unsafe.Pointer, pc uintptr) unsafe.Pointer {
 }
 
 // printFrame prints the frames at pc in function fn: one for each inlined
-// call it is in, innermost first, then fn itself.
+// call it is in, innermost first, then fn itself, named name.
 func printFrame(tab, fn unsafe.Pointer, name string, pc uintptr) {
+	file, line := printInlined(tab, fn, pc, 0)
+	printLocation(name, file, line)
+}
+
+// printInlined prints a frame for each inlined call the code at pc in fn is
+// in, innermost first, up to and including inline site last (1-based within
+// fn; 0 for all of them). It returns the file and line in the code the last
+// one printed was inlined into.
+func printInlined(tab, fn unsafe.Pointer, pc uintptr, last int) (string, int) {
 	file, line, inl := findLine(tab, fn, pc-*(*uintptr)(fn))
-	firstInl := int(*(*uint32)(unsafe.Add(fn, 28)))
-	inlines := unsafe.Add(tab, int(*(*uint32)(unsafe.Add(tab, 12))))
 	for inl != 0 {
-		site := unsafe.Add(inlines, (firstInl+inl-1)*traceInlineSize)
+		site := inlineSite(tab, fn, inl)
 		printLocation(traceString(tab, *(*uint32)(unsafe.Add(site, 4))), file, line)
 		file = traceString(tab, *(*uint32)(unsafe.Add(site, 8)))
 		line = int(*(*uint32)(unsafe.Add(site, 12)))
+		if inl == last {
+			break
+		}
 		inl = int(*(*uint32)(site))
 	}
-	printLocation(name, file, line)
+	return file, line
+}
+
+// printInlinedMain prints the frames at pc in pluto.main (fn) if pc is in
+// the code of main.main inlined there: main.main and the calls inlined into
+// it. The rest of pluto.main, which initialises packages, is not part of
+// the program's stack as its author sees it and prints nothing.
+func printInlinedMain(tab, fn unsafe.Pointer, pc uintptr) {
+	_, _, inl := findLine(tab, fn, pc-*(*uintptr)(fn))
+	for inl != 0 {
+		site := inlineSite(tab, fn, inl)
+		if strequal(traceString(tab, *(*uint32)(unsafe.Add(site, 4))), "main.main") {
+			printInlined(tab, fn, pc, inl)
+			return
+		}
+		inl = int(*(*uint32)(site))
+	}
+}
+
+// inlineSite returns the entry of fn's inline site inl (1-based).
+func inlineSite(tab, fn unsafe.Pointer, inl int) unsafe.Pointer {
+	firstInl := int(*(*uint32)(unsafe.Add(fn, 28)))
+	inlines := unsafe.Add(tab, int(*(*uint32)(unsafe.Add(tab, 12))))
+	return unsafe.Add(inlines, (firstInl+inl-1)*traceInlineSize)
+}
+
+// traceSymbolize is the default Symbolizer (see PrintPC): it names the code
+// at pc from the trace table. Where pc lies in inlined code it reports the
+// innermost function, the one whose source the code was compiled from, as
+// the first line of a stack trace would.
+func traceSymbolize(pc uintptr) (string, string, int, bool) {
+	tab := traceTable()
+	fn := findFunc(tab, pc)
+	if fn == nil {
+		return "", "", 0, false
+	}
+	name := traceString(tab, *(*uint32)(unsafe.Add(fn, 12)))
+	file, line, inl := findLine(tab, fn, pc-*(*uintptr)(fn))
+	if inl != 0 {
+		name = traceString(tab, *(*uint32)(unsafe.Add(inlineSite(tab, fn, inl), 4)))
+	}
+	if line <= 0 {
+		return "", "", 0, false
+	}
+	return name, file, line, true
 }
 
 // printLocation prints one frame. Generated code with no source position,

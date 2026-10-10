@@ -53,3 +53,29 @@ func TestBranchRelaxation(t *testing.T) {
 		t.Errorf("relocs %+v, want one at offset 8", code.Relocs)
 	}
 }
+
+// TestRIPRelative checks the symbol-less RIP-relative operand OpCodeAddr
+// uses: lea 0(%rip) yields the address of the next instruction.
+func TestRIPRelative(t *testing.T) {
+	m := Mem{Base: NoReg, Index: NoReg, RIP: true}
+	b := &MBlock{Insts: []*MInst{
+		{Op: MLEA, Size: 8, Dst: RegOp(RAX), Src: MemOp(m)},
+		{Op: MLEA, Size: 8, Dst: RegOp(R12), Src: MemOp(m)},
+		{Op: MRET},
+	}}
+	code, err := encodeFunc(&MFunc{}, []*MBlock{b})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []byte{
+		0x48, 0x8D, 0x05, 0, 0, 0, 0, // lea 0(%rip), %rax
+		0x4C, 0x8D, 0x25, 0, 0, 0, 0, // lea 0(%rip), %r12
+		0xC3,
+	}
+	if !bytes.Equal(code.Bytes, want) || len(code.Relocs) != 0 {
+		t.Errorf("code % x, relocs %v\nwant % x", code.Bytes, code.Relocs, want)
+	}
+	if got := m.String(); got != "0(%rip)" {
+		t.Errorf("operand prints as %q", got)
+	}
+}

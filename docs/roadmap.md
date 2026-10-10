@@ -50,8 +50,11 @@ tooling, platforms and libraries.
     parameters and results, hidden result pointers, several results as a struct, export wrappers and
     func-value thunks (abi.md section 9.1); `.c` and `.o` files in packages are linked (section 9.2).
     Tested against GCC and Clang. Strings, slices, interfaces, func values and C varargs are rejected.
-13. **Debugging** (in progress): DWARF line tables and CFI, symbolised stack traces on panic, and the
-    debug allocator; specified in [debugging.md](spec/debugging.md). Implementation items 41 to 43.
+13. **Debugging** (done): DWARF line tables and CFI, symbolised stack traces on panic and on faults,
+    and the debug allocator, which reports through the same fault path and names its sites from the
+    same table; specified in [debugging.md](spec/debugging.md) and
+    [debug-allocator.md](spec/debug-allocator.md). Implementation items 41 to 43; what remains is listed
+    there and in debugging.md section 8.
 
 ## Concurrency
 
@@ -125,9 +128,14 @@ tooling, platforms and libraries.
     own. A per-thread alternate signal stack for puroutine worker threads remains.
 42. **DWARF line tables and CFI** (done): compile units, subprograms, inlined calls, line table and
     `.debug_frame` for `gdb` and `perf` (`-g`, default on; `-s` strips). Variable and type information
-    remains.
-43. **Debug allocator** (planned, design in item 13): guard pages, poisoning of freed memory, a
-    use-after-free quarantine and double-free detection.
+    remains, and with it DWARF enumeration types (`DW_TAG_enumeration_type`) for enums: no type is
+    emitted yet for anything to refer to.
+43. **Debug allocator** (done): `pluto/alloc/debug` and `--alloc=debug` ([debug-allocator.md](spec/debug-allocator.md)):
+    guard pages, canaries, poisoning and a quarantine for freed memory, a side table that catches double,
+    wrong-size and invalid frees, and leak reports at exit, with allocation and free sites named by
+    function and line. Heap faults go through the runtime's single fault handler, which prints the
+    allocator's diagnosis and then the stack trace. Not yet safe for concurrent use (one lock, a no-op
+    until puroutines run in parallel).
 44. **`println` of floats matching Go** (planned): `rt.printFloat` prints six fixed decimals; Go prints
     `+1.500000e+000` style.
 45. **`time`** (planned): monotonic and wall clocks, durations, timers over the scheduler.

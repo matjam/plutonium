@@ -627,6 +627,12 @@ func (s *isel) entry() {
 				r := s.newReg(ssa.TPtr)
 				s.copyReg(r, closureReg, 8)
 				s.vregs[v.ID] = r
+			case ssa.OpReturnAddr:
+				// The return address sits just below the incoming stack
+				// arguments.
+				r := s.newReg(v.Type)
+				s.load(r, Mem{Base: NoReg, Index: NoReg, ArgSlot: true, ArgOff: -8}, v.Type)
+				s.vregs[v.ID] = r
 			}
 		}
 	}
@@ -644,6 +650,14 @@ func (s *isel) interruptEntry() {
 	}
 	for _, b := range s.f.Blocks {
 		for _, v := range b.Values {
+			if v.Op == ssa.OpReturnAddr {
+				// The handler returns to the interrupted RIP, the
+				// first word of the frame.
+				r := s.newReg(v.Type)
+				s.load(r, Mem{Base: NoReg, Index: NoReg, ArgSlot: true, ArgOff: frameOff}, v.Type)
+				s.vregs[v.ID] = r
+				continue
+			}
 			if v.Op != ssa.OpArg {
 				continue
 			}
@@ -701,13 +715,16 @@ func (s *isel) value(v *ssa.Value) error {
 	}
 	size := sizeOf(v.Type)
 	switch v.Op {
-	case ssa.OpPhi, ssa.OpInitMem, ssa.OpVarDef, ssa.OpVolatileRead, ssa.OpArg, ssa.OpClosurePtr, ssa.OpUnreachableValue:
+	case ssa.OpPhi, ssa.OpInitMem, ssa.OpVarDef, ssa.OpVolatileRead, ssa.OpArg, ssa.OpClosurePtr, ssa.OpReturnAddr, ssa.OpUnreachableValue:
 		// Handled elsewhere or produce no code.
 		if v.Op == ssa.OpUnreachableValue && !v.Type.IsMem() {
 			r := s.def(v)
 			s.emit(&MInst{Op: MDEF, ImplicitDefs: []Reg{r}})
 		}
 		return nil
+
+	case ssa.OpCodeAddr:
+		s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(s.def(v)), Src: MemOp(Mem{Base: NoReg, Index: NoReg, RIP: true})})
 
 	case ssa.OpCopy:
 		if v.Type.IsMem() {

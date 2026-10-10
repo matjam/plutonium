@@ -53,11 +53,19 @@ type Config struct {
 	// information names standard library files under it rather than
 	// $PLUTOROOT.
 	StdlibDir string
+	// Alloc selects the default allocator of a hosted program: "" for the
+	// slab allocator, "debug" for the checking allocator in
+	// pluto/alloc/debug (settings from $PLUTO_DEBUGALLOC at run time).
+	Alloc string
 }
 
 // Build compiles and links a program.
 func Build(cfg *Config) error {
-	prog, err := load.Load(loadConfig(cfg), cfg.Dir)
+	lcfg, err := loadConfig(cfg)
+	if err != nil {
+		return err
+	}
+	prog, err := load.Load(lcfg, cfg.Dir)
 	if err != nil {
 		return err
 	}
@@ -67,7 +75,7 @@ func Build(cfg *Config) error {
 var sizes = types2.SizesFor("gc", "amd64")
 
 // loadConfig returns the package loader's configuration for a build.
-func loadConfig(cfg *Config) *load.Config {
+func loadConfig(cfg *Config) (*load.Config, error) {
 	tags := map[string]bool{"amd64": true}
 	if cfg.Freestanding {
 		tags["none"] = true
@@ -79,7 +87,20 @@ func loadConfig(cfg *Config) *load.Config {
 	for _, t := range cfg.Tags {
 		tags[t] = true
 	}
-	return &load.Config{Tags: tags, Stdlib: cfg.Stdlib, Sizes: sizes}
+	var preload []string
+	switch cfg.Alloc {
+	case "":
+	case "debug":
+		if cfg.Freestanding {
+			return nil, fmt.Errorf("--alloc=debug needs a hosted build; a freestanding program installs the debug allocator itself with alloc.SetDefault(debug.New(...))")
+		}
+		tags["allocdebug"] = true
+		tags["allocsites"] = true
+		preload = append(preload, "pluto/alloc/debug")
+	default:
+		return nil, fmt.Errorf("unknown allocator %q (supported: debug)", cfg.Alloc)
+	}
+	return &load.Config{Tags: tags, Stdlib: cfg.Stdlib, Sizes: sizes, Preload: preload}, nil
 }
 
 // buildProgram compiles and links a loaded program.
