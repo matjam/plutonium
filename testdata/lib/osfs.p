@@ -32,14 +32,13 @@ func bytesOf(s string) []byte { return unsafe.Slice(unsafe.StringData(s), len(s)
 func str(b []byte) string { return unsafe.String(unsafe.SliceData(b), len(b)) }
 
 func main() {
-	var tb [256]byte
-	dir, err := os.MkdirTemp("", "osfs-*-test", tb[:])
+	dir, err := os.MkdirTemp("", "osfs-*-test")
 	check("MkdirTemp", err)
 	println("temp has prefix", strings.HasPrefix(dir, os.TempDir()), strings.HasSuffix(dir, "-test"))
 	fi, err := os.Stat(dir)
 	check("Stat dir", err)
 	var mb [16]byte
-	println("dir mode", str(fi.Mode().Perm().AppendString(mb[:0])), fi.IsDir())
+	println("dir mode", fi.Mode().Perm().String(), fi.IsDir())
 	println("dir mode string", str(fi.Mode().AppendString(mb[:0])))
 
 	// WriteFile, ReadFile and Stat.
@@ -123,12 +122,13 @@ func main() {
 	errors.Free(err)
 
 	// The working directory.
-	var wb, wb2 [4096]byte
-	old, err := os.Getwd(wb[:])
+	old, err := os.Getwd()
 	check("Getwd", err)
 	check("Chdir", os.Chdir(nested))
-	cwd, err := os.Getwd(wb2[:])
+	var wb [4096]byte
+	cwdb, err := os.AppendWd(wb[:0])
 	check("Getwd 2", err)
+	cwd := str(cwdb)
 	println("chdir", strings.HasSuffix(cwd, "/x/y/z"))
 	data, err = os.ReadFile("deep.txt")
 	check("relative ReadFile", err)

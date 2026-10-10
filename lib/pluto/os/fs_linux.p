@@ -75,8 +75,17 @@ func (m FileMode) Perm() FileMode { return m & ModePerm }
 // Type returns the type bits of m.
 func (m FileMode) Type() FileMode { return m & ModeType }
 
-// AppendString appends m as Go's FileMode.String formats it, such as
-// "drwxr-xr-x" or "-rw-r--r--", and returns the extended buffer.
+// String returns m as Go's FileMode.String formats it, such as
+// "drwxr-xr-x" or "-rw-r--r--", in a new string.
+//
+//pu:alloc
+func (m FileMode) String() string {
+	var buf [32]byte
+	return string(m.AppendString(buf[:0]))
+}
+
+// AppendString appends m as String formats it and returns the extended
+// buffer; it allocates nothing.
 func (m FileMode) AppendString(dst []byte) []byte {
 	const str = "dalTLDpSugct?"
 	typed := false
@@ -498,14 +507,29 @@ func Chmod(name string, mode FileMode, a alloc.Allocator = alloc.Default()) erro
 	return nil
 }
 
-// Getwd stores the working directory in buf and returns it, a view of buf.
-// It fails with ERANGE if buf is too short; maxPath bytes always suffice.
-func Getwd(buf []byte) (string, error) {
-	n, err := syscall.Getcwd(buf)
+// Getwd returns the working directory, a new string from the current
+// allocator.
+//
+//pu:alloc
+func Getwd() (string, error) {
+	var buf [maxPath]byte
+	b, err := AppendWd(buf[:0])
 	if err != nil {
 		return "", err
 	}
-	return unsafe.String(unsafe.SliceData(buf), n-1), nil
+	return string(b), nil
+}
+
+// AppendWd appends the working directory to dst, within its capacity, and
+// allocates nothing. It fails with ERANGE if the room left is too short;
+// maxPath bytes always suffice.
+func AppendWd(dst []byte) ([]byte, error) {
+	room := dst[len(dst):cap(dst)]
+	n, err := syscall.Getcwd(room)
+	if err != nil {
+		return dst, err
+	}
+	return dst[:len(dst)+n-1], nil
 }
 
 // Chdir changes the working directory.
@@ -531,17 +555,32 @@ func TempDir() string {
 
 // MkdirTemp creates a new directory in dir (TempDir if dir is "") whose
 // name is pattern with its last "*" replaced by a random string (or the
-// random string appended if pattern has no "*"), and returns its path,
-// built in buf. The directory has permissions 0o700; removing it is the
-// caller's job.
-func MkdirTemp(dir, pattern string, buf []byte, a alloc.Allocator = alloc.Default()) (string, error) {
+// random string appended if pattern has no "*"), and returns its path, a
+// new string. The directory has permissions 0o700; removing it is the
+// caller's job. Errors, and the path, come from a, by default the default
+// allocator.
+//
+//pu:alloc
+func MkdirTemp(dir, pattern string, a alloc.Allocator = alloc.Default()) (string, error) {
+	var buf [maxPath]byte
+	b, err := AppendMkdirTemp(buf[:0], dir, pattern, a)
+	if err != nil {
+		return "", err
+	}
+	return rt.StringFromBytes(unsafe.SliceData(b), len(b), a), nil
+}
+
+// AppendMkdirTemp is MkdirTemp building the path in dst, within its
+// capacity, instead of a new string: it allocates only for an error.
+func AppendMkdirTemp(dst []byte, dir, pattern string, a alloc.Allocator = alloc.Default()) ([]byte, error) {
+	buf := dst[len(dst):cap(dst)]
 	if dir == "" {
 		dir = TempDir()
 	}
 	prefix, suffix := pattern, ""
 	for i := len(pattern) - 1; i >= 0; i-- {
 		if pattern[i] == '/' {
-			return "", NewPathError("mkdirtemp", pattern, ErrPatternHasSeparator, a)
+			return dst, NewPathError("mkdirtemp", pattern, ErrPatternHasSeparator, a)
 		}
 		if pattern[i] == '*' {
 			prefix, suffix = pattern[:i], pattern[i+1:]
@@ -557,7 +596,7 @@ func MkdirTemp(dir, pattern string, buf []byte, a alloc.Allocator = alloc.Defaul
 		}
 		name := buf[:0]
 		if cap(name) < len(dir)+1+len(prefix)+20+len(suffix) {
-			return "", NewPathError("mkdirtemp", dir, syscall.ENAMETOOLONG, a)
+			return dst, NewPathError("mkdirtemp", dir, syscall.ENAMETOOLONG, a)
 		}
 		name = append(name, dir...)
 		if len(dir) > 0 && dir[len(dir)-1] != '/' {
@@ -576,13 +615,13 @@ func MkdirTemp(dir, pattern string, buf []byte, a alloc.Allocator = alloc.Defaul
 			err = syscall.Mkdirat(syscall.AT_FDCWD, p, 0o700)
 		}
 		if err == nil {
-			return s, nil
+			return dst[:len(dst)+len(name)], nil
 		}
 		if err != syscall.EEXIST {
-			return "", NewPathError("mkdirtemp", s, err, a)
+			return dst, NewPathError("mkdirtemp", s, err, a) // copies s
 		}
 	}
-	return "", NewPathError("mkdirtemp", dir, syscall.EEXIST, a)
+	return dst, NewPathError("mkdirtemp", dir, syscall.EEXIST, a)
 }
 
 // ErrPatternHasSeparator is reported by MkdirTemp for a pattern with a "/".

@@ -217,11 +217,17 @@ func (e *PathError) Free() {
 }
 
 // NewPathError returns a PathError for op on path failing with err,
-// allocated from a, by default the default allocator. It keeps op and path
-// without copying their bytes.
+// allocated from a, by default the default allocator. It keeps op, and
+// keeps a counted path without copying it; a path nobody counts (a literal,
+// or a view made with unsafe.String, which may be of memory that is about
+// to change) is copied into a string from a, so that the error stays valid
+// however long the caller's path lives.
 func NewPathError(op, path string, err error, a alloc.Allocator = alloc.Default()) *PathError {
 	e := alloc.New[PathError](a)
 	e.Op = op
+	if path != "" && rt.StringControl(path) < 8 {
+		path = rt.StringFromBytes(unsafe.StringData(path), len(path), a)
+	}
 	e.Path = path
 	e.Err = err
 	e.a = a

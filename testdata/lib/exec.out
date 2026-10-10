@@ -18,6 +18,7 @@ directory: true exec true
 bad path: true
 lookpath sh true true
 lookpath relative true true
+append lookpath sh true true
 wait before start true
 run true start again true
 output with stdout true

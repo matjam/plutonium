@@ -26,6 +26,9 @@ func TestClean(t *testing.T) {
 	var buf [128]byte
 	for _, tt := range tests {
 		if got := str(AppendClean(buf[:0], tt.in)); got != tt.want {
+			t.Errorf("AppendClean(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+		if got := Clean(tt.in); got != tt.want {
 			t.Errorf("Clean(%q) = %q, want %q", tt.in, got, tt.want)
 		}
 		// Appending keeps what dst holds.
@@ -48,8 +51,21 @@ func TestJoin(t *testing.T) {
 	var buf [128]byte
 	for _, tt := range tests {
 		if got := str(AppendJoin(buf[:0], tt.elem...)); got != tt.want {
+			t.Errorf("AppendJoin(%d elements) = %q, want %q", len(tt.elem), got, tt.want)
+		}
+		if got := Join(tt.elem...); got != tt.want {
 			t.Errorf("Join(%d elements) = %q, want %q", len(tt.elem), got, tt.want)
 		}
+	}
+	// A path longer than the stack buffer.
+	long := Join(Clean(string(make([]byte, 300))), "x/../y")
+	if len(long) != 302 || long[300:] != "/y" {
+		t.Errorf("long Join: %d bytes, ends %q", len(long), long[len(long)-2:])
+	}
+	// A clean path is returned as it is.
+	p := "/usr/lib"
+	if Clean(p) != p || Join("", p) != p {
+		t.Error("Clean or Join of a clean path changed it")
 	}
 }
 
@@ -88,10 +104,13 @@ func TestBaseDirExtSplit(t *testing.T) {
 			t.Errorf("Split(%q) = %q, %q, want %q, %q", tt.in, d, f, tt.sdir, tt.sfile)
 		}
 	}
-	// Go's Dir cleans; AppendDir does too, Dir does not.
+	// Go's Dir cleans, and so do Dir and AppendDir.
 	var buf [64]byte
 	if got := str(AppendDir(buf[:0], "a/./b/../c/d")); got != "a/c" {
 		t.Errorf("AppendDir = %q, want a/c", got)
+	}
+	if got := Dir("a/./b/../c/d"); got != "a/c" {
+		t.Errorf("Dir = %q, want a/c", got)
 	}
 	if !IsAbs("/a") || IsAbs("a") || IsAbs("") {
 		t.Error("IsAbs")
@@ -123,14 +142,19 @@ func TestRel(t *testing.T) {
 			continue
 		}
 		if err != nil || got != tt.want {
-			t.Errorf("Rel(%q, %q) = %q, %v, want %q", tt.root, tt.path, got, err, tt.want)
+			t.Errorf("AppendRel(%q, %q) = %q, %v, want %q", tt.root, tt.path, got, err, tt.want)
 		}
+		if s, err := Rel(tt.root, tt.path); err != nil || s != tt.want {
+			t.Errorf("Rel(%q, %q) = %q, %v, want %q", tt.root, tt.path, s, err, tt.want)
+		}
+	}
+	if _, err := Rel("a", "/a"); err == nil {
+		t.Error("Rel(a, /a): no error")
 	}
 }
 
 func TestAbs(t *testing.T) {
-	var wd [4096]byte
-	cwd, err := os.Getwd(wd[:])
+	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,6 +167,12 @@ func TestAbs(t *testing.T) {
 	b, _ = AppendAbs(buf[:0], "/a//b/")
 	if str(b) != "/a/b" {
 		t.Errorf("Abs(/a//b/) = %q", str(b))
+	}
+	if s, err := Abs("x/../y"); err != nil || s != str(w) {
+		t.Errorf("Abs(x/../y) = %q, %v; want %q", s, err, str(w))
+	}
+	if s, _ := Abs("/a//b/"); s != "/a/b" {
+		t.Errorf("Abs(/a//b/) = %q", s)
 	}
 }
 
@@ -182,8 +212,7 @@ func TestMatch(t *testing.T) {
 }
 
 func TestWalkDir(t *testing.T) {
-	var tb [256]byte
-	root, err := os.MkdirTemp("", "walk-*", tb[:])
+	root, err := os.MkdirTemp("", "walk-*")
 	if err != nil {
 		t.Fatal(err)
 	}

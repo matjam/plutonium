@@ -13,7 +13,8 @@
 //     the interface's data word: errors.As(err, &e) with a `var e
 //     exec.ExitError`, then e.ExitCode().
 //   - Output and CombinedOutput return a vec.Vec[byte] the caller owns.
-//   - LookPath builds the path in a buffer the caller provides.
+//   - LookPath returns a string as Go's does; AppendLookPath builds the path
+//     in a buffer the caller provides instead.
 package exec
 
 import (
@@ -211,12 +212,13 @@ func (c *Cmd) start(out, errOut sink) error {
 
 	// The program's path, NUL-terminated.
 	var pathBuf [4096]byte
-	path, err := LookPath(c.Path, pathBuf[:len(pathBuf)-1])
+	pathb, err := AppendLookPath(pathBuf[:0:len(pathBuf)-1], c.Path)
 	if err != nil {
 		return err
 	}
-	pathBuf[len(path)] = 0
-	cpath := pathBuf[:len(path)+1]
+	cpath := append(pathBuf[:len(pathb)], 0)
+	// A view of pathBuf for errors, which copy it (os.NewPathError).
+	path := unsafe.String(unsafe.SliceData(pathb), len(pathb))
 	var dirBuf [4096]byte
 	var cdir []byte
 	if c.Dir != "" {
@@ -629,10 +631,12 @@ func text(i int, prefix string, n int) string {
 
 // LookPath finds the executable file to run for file: file itself if it
 // contains a slash, otherwise the first executable regular file named file
-// in a directory of $PATH. The path is built in buf, and the result is a
-// view of buf (or of file). A failure is a *os.PathError from the default
-// allocator wrapping ErrNotFound or the reason file cannot be run.
-func LookPath(file string, buf []byte) (string, error) {
+// in a directory of $PATH. The result is file itself or a new string. A
+// failure is a *os.PathError from the default allocator wrapping
+// ErrNotFound or the reason file cannot be run.
+//
+//pu:alloc
+func LookPath(file string) (string, error) {
 	for i := 0; i < len(file); i++ {
 		if file[i] == '/' {
 			if err := executable(file); err != nil {
@@ -641,9 +645,32 @@ func LookPath(file string, buf []byte) (string, error) {
 			return file, nil
 		}
 	}
-	if file == "" {
-		return "", os.NewPathError("exec", file, ErrNotFound)
+	var buf [4096]byte
+	b, err := AppendLookPath(buf[:0], file)
+	if err != nil {
+		return "", err
 	}
+	return string(b), nil
+}
+
+// AppendLookPath is LookPath appending the path it finds to dst, within its
+// capacity; it allocates only for an error.
+func AppendLookPath(dst []byte, file string) ([]byte, error) {
+	for i := 0; i < len(file); i++ {
+		if file[i] == '/' {
+			if err := executable(file); err != nil {
+				return dst, os.NewPathError("exec", file, err)
+			}
+			if cap(dst)-len(dst) < len(file) {
+				return dst, os.NewPathError("exec", file, syscall.ENAMETOOLONG)
+			}
+			return append(dst, file...), nil
+		}
+	}
+	if file == "" {
+		return dst, os.NewPathError("exec", file, ErrNotFound)
+	}
+	buf := dst[len(dst):cap(dst)]
 	path := os.Getenv("PATH")
 	for path != "" {
 		dir := path
@@ -663,7 +690,7 @@ func LookPath(file string, buf []byte) (string, error) {
 			b = append(b, file...)
 			full := unsafe.String(unsafe.SliceData(b), len(b))
 			if executable(full) == nil {
-				return full, nil
+				return dst[:len(dst)+len(b)], nil
 			}
 		}
 		if rest == "" {
@@ -671,7 +698,7 @@ func LookPath(file string, buf []byte) (string, error) {
 		}
 		path = rest
 	}
-	return "", os.NewPathError("exec", file, ErrNotFound)
+	return dst, os.NewPathError("exec", file, ErrNotFound)
 }
 
 // executable reports why path is not an executable regular file, or nil.

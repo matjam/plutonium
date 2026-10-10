@@ -4,8 +4,9 @@
 // It follows Go's package time where it can. The differences:
 //
 //   - There are no time zones: every Time is in UTC.
-//   - Duration has no String method, since a string needs storage; use
-//     AppendString to format one into a buffer.
+//   - Duration.String and Time.Format(RFC3339Nano)'s counterpart,
+//     Time.RFC3339, return new strings; AppendString and AppendRFC3339
+//     format into a caller's buffer without allocating.
 //   - ParseDuration reports one of three static errors rather than an error
 //     that quotes its input.
 //   - Sleep blocks the calling thread (there are no timers yet).
@@ -115,8 +116,22 @@ func (d Duration) Abs() Duration {
 	return -d
 }
 
-// AppendString appends d formatted as Go's Duration.String formats it, such
-// as "72h3m0.5s", "1.5µs" or "0s", and returns the extended buffer.
+// String returns d formatted as Go's Duration.String formats it, such as
+// "72h3m0.5s", "1.5µs" or "0s": a new string from the current allocator
+// ("0s" is static).
+//
+//pu:alloc
+func (d Duration) String() string {
+	if d == 0 {
+		return "0s"
+	}
+	var arr [32]byte
+	n := d.format(&arr)
+	return string(arr[n:])
+}
+
+// AppendString appends d formatted as String formats it and returns the
+// extended buffer; it allocates nothing.
 func (d Duration) AppendString(dst []byte) []byte {
 	var arr [32]byte
 	n := d.format(&arr)

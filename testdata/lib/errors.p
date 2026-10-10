@@ -197,7 +197,10 @@ func main() {
 	fmt.Println("startup:", err)
 	fmt.Println("startup is:", errors.Is(err, os.ErrNotExist), errors.Is(err, syscall.ENOENT), errors.Is(err, ErrEmpty))
 	var pe2 *os.PathError
-	fmt.Println("startup as:", errors.As(err, &pe2), pe2.Op, pe2.Path)
+	// Printed from a function literal: the interface boxes of its Println
+	// hold copies of the path string until it returns (language spec
+	// section 4.4), not until main does, so the free below frees it.
+	func() { fmt.Println("startup as:", errors.As(err, &pe2), pe2.Op, pe2.Path) }()
 	if errno, ok := errors.AsType[syscall.Errno](err); ok {
 		fmt.Println("startup errno:", errno.Name(), int(errno))
 	}

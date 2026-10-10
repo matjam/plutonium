@@ -1,11 +1,12 @@
 // Package filepath manipulates slash-separated file paths, as Go's
 // path/filepath does on Unix.
 //
-// Functions whose result is part of their argument (Base, Ext, Split,
-// Dir) return views of it. Functions that build a new path (Join, Clean,
-// Abs, Rel) append it to a caller's buffer, as strconv's Append functions
-// do: AppendJoin, AppendClean, AppendAbs, AppendRel. Dir does not clean
-// its result as Go's does; for a clean path the two agree.
+// Functions whose result is part of their argument (Base, Ext, Split)
+// return substrings of it. Join, Clean, Dir, Abs and Rel return strings as
+// Go's do, allocated from the current allocator only when the result is
+// not already a substring of an argument; their Append forms (AppendJoin,
+// AppendClean, AppendDir, AppendAbs, AppendRel) write into a caller's
+// buffer and never allocate, for kernel code and hot paths.
 package filepath
 
 import (
@@ -82,19 +83,14 @@ func Split(path string) (dir, file string) {
 	return path[:i+1], path[i+1:]
 }
 
-// Dir returns all but the last element of path: the directory part,
-// without its trailing slashes, "." if there is none and "/" for the root.
-// Unlike Go's Dir it does not clean the result; it equals Go's for a clean
-// path. Use AppendDir for Go's exact result.
+// Dir returns all but the last element of path, cleaned, as Go's Dir does:
+// "." if there is none. For a path whose directory part is already clean
+// it is a substring of path and allocates nothing.
+//
+//pu:alloc
 func Dir(path string) string {
 	dir, _ := Split(path)
-	for len(dir) > 1 && dir[len(dir)-1] == '/' {
-		dir = dir[:len(dir)-1]
-	}
-	if dir == "" {
-		return "."
-	}
-	return dir
+	return Clean(dir)
 }
 
 // AppendDir appends Go's Dir of path, the cleaned directory part, to dst.
@@ -213,11 +209,11 @@ func AppendAbs(dst []byte, path string) ([]byte, error) {
 		return AppendClean(dst, path), nil
 	}
 	var wd [4096]byte
-	cwd, err := os.Getwd(wd[:])
+	cwdb, err := os.AppendWd(wd[:0])
 	if err != nil {
 		return dst, err
 	}
-	return AppendJoin(dst, cwd, path), nil
+	return AppendJoin(dst, unsafe.String(unsafe.SliceData(cwdb), len(cwdb)), path), nil
 }
 
 // AppendRel appends a relative path that is lexically equivalent to targ

@@ -2671,7 +2671,7 @@ hold, and most have a `Clone`.
 | `pluto/io` | `Reader`, `Writer`, buffered I/O |
 | `pluto/os` | files (`os.File`, an owner that closes on drop), `Stat`, whole-file reads and writes, directories (`ReadDir` returns a `DirEntries` owner), removal, renaming, temporary directories, the working directory, pipes, processes, arguments, environment, exit (hosted) |
 | `pluto/os/exec` | running commands: `Cmd` (an owner), pipes copied inside `Wait`, `ExitError` in the data word (hosted) |
-| `pluto/path/filepath` | slash-separated paths: views (`Base`, `Dir`, `Ext`, `Split`) and `Append` forms (`AppendJoin`, `AppendClean`, `AppendRel`, `AppendAbs`), `Match`, `WalkDir` |
+| `pluto/path/filepath` | slash-separated paths: substrings (`Base`, `Ext`, `Split`), `Join`, `Clean`, `Dir`, `Rel` and `Abs` returning strings, with `Append` forms that write into a caller's buffer, `Match`, `WalkDir` |
 | `pluto/time` | `Duration`, `Time` in UTC with a monotonic reading, `Now`, `Since`, `Sleep` |
 | `pluto/flag` | command-line flags; a `FlagSet` owns its flags and their variables |
 | `pluto/syscall` | raw Linux system calls (hosted) |

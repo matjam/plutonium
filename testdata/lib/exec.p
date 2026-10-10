@@ -118,12 +118,14 @@ func main() {
 	c.Drop()
 
 	// LookPath.
-	var buf [256]byte
-	p, err := exec.LookPath("sh", buf[:])
+	p, err := exec.LookPath("sh")
 	println("lookpath sh", strings.HasSuffix(p, "/sh"), err == nil)
-	p, err = exec.LookPath("./relative", buf[:])
+	p, err = exec.LookPath("./relative")
 	println("lookpath relative", p == "", err != nil)
 	errors.Free(err)
+	var buf [256]byte
+	b, err := exec.AppendLookPath(buf[:0], "sh")
+	println("append lookpath sh", strings.HasSuffix(string(b), "/sh"), err == nil)
 
 	// Misuse.
 	c = sh("true")
