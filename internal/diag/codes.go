@@ -95,8 +95,13 @@ const (
 	ToolNotFound    Code = "E5008" // as, ld or cc is not installed
 )
 
-// Ownership and lifetimes: E3000-E3999, reserved for the ownership and
-// escape checks.
+// Ownership and lifetimes: E3000-E3999, for the ownership and escape
+// checks.
+
+// Closures and their records (E3100-E3199).
+const (
+	ClosureReturned Code = "E3100" // a function returns a closure record made in its frame
+)
 
 // Errors in the compiler itself.
 const (

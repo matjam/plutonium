@@ -223,6 +223,15 @@ therefore valid only while the enclosing function is running:
 
 A function literal that captures nothing is an ordinary function value and may be used anywhere.
 
+A capturing closure, like a method value, is a closure record in the frame of the function that makes it:
+the code to run, with where each captured variable is (or a copy of the receiver). The compiler reports
+every function that may return a record made in its own frame (E3100), whether it returns the closure
+directly or inside a variable, a struct, an array, an interface, memory reached through a pointer, or the
+result of a call that may return its argument. The check follows values through assignments and calls
+without regard to order, and assumes that a call through a func value or an interface may return
+anything passed to it, so it may reject a function that would never return the record at run time.
+Storing a record in a package-level variable or through a pointer is not checked yet (roadmap item 5).
+
 **Closure constructors.** A function whose body is a single `return` of a function literal that captures
 the function's parameters (its receiver, parameters or named results), or of a call of another such
 function, is a closure constructor. Go's iterator constructors are the common case:
@@ -1914,6 +1923,14 @@ count.p:9:9: cannot return the function literal: it uses total, a local variable
         func (c *Counter) Add(n int) int { c.total += n; return c.total }
     (see "Ownership" in the language spec, section 6.3)
 ```
+
+When the closure is returned inside something else, the first line names what is returned and where the
+literal is: `cannot return h: it holds the function literal at count.p:12, which uses total, a local
+variable of counter`. A method value reads `cannot return the method value c.get: its closure record is
+in f's frame`, with "a method value is a closure record, holding the method to call and a copy of the
+receiver" as the explanation and a method expression (`(*Counter).Get`) as the fix. The closure a closure
+constructor builds in the function's frame reads `cannot return Count(m): Count builds its closure in
+f's frame`. These are E3100.
 
 **Returning an interface that holds a frame copy, or lends an owner.**
 
