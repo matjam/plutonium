@@ -60,7 +60,7 @@ type Lowerer struct {
 	exports        map[*ssa.Sym][]string // extra symbol names from //pu:export
 	interruptSyms  map[*ssa.Sym]bool     // //pu:interrupt functions
 	cfuncs         map[*ssa.Sym]bool     // //pu:extern symbols, called with the C convention
-	statics      int                   // anonymous static objects created
+	statics        int                   // anonymous static objects created
 	types          *typeTable
 
 	errs []error
