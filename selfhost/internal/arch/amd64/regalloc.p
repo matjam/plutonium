@@ -128,6 +128,44 @@ func bitIndex(b uint64) int {
 	return n
 }
 
+// postorder returns the indices of f's blocks in a postorder of the CFG
+// from the entry, followed by any unreachable blocks. Visiting blocks in
+// this order, successors before predecessors except along back edges,
+// lets backward dataflow converge in a few passes whatever the layout.
+func postorder(f *MFunc, index *hash.Map[*MBlock, int]) []int {
+	order := make([]int, 0, len(f.Blocks))
+	seen := make([]bool, len(f.Blocks))
+	type frame struct {
+		b    *MBlock
+		next int
+	}
+	var stack []frame
+	visit := func(b *MBlock) {
+		seen[compat.MapAt(index, b)] = true
+		stack = compat.Append(stack, frame{b: b})
+		for len(stack) > 0 {
+			top := &stack[len(stack)-1]
+			if top.next < len(top.b.Succs) {
+				s := top.b.Succs[top.next]
+				top.next++
+				if !seen[compat.MapAt(index, s)] {
+					seen[compat.MapAt(index, s)] = true
+					stack = compat.Append(stack, frame{b: s})
+				}
+				continue
+			}
+			order = compat.Append(order, compat.MapAt(index, top.b))
+			stack = stack[:len(stack)-1]
+		}
+	}
+	for _, b := range f.Blocks {
+		if !seen[compat.MapAt(index, b)] {
+			visit(b)
+		}
+	}
+	return order
+}
+
 // liveness computes the registers live out of each block.
 func liveness(f *MFunc) []regSet {
 	n := f.numRegIndexes()
@@ -157,9 +195,10 @@ func liveness(f *MFunc) []regSet {
 		index.Set(b, i)
 	}
 	tmp := newRegSet(n)
+	order := postorder(f, index)
 	for changed := true; changed; {
 		changed = false
-		for i := len(f.Blocks) - 1; i >= 0; i-- {
+		for _, i := range order {
 			b := f.Blocks[i]
 			for _, s := range b.Succs {
 				if liveOut[i].unionChanged(liveIn[compat.MapAt(index, s)]) {
@@ -201,6 +240,13 @@ type allocator struct {
 
 	moves                                                                     []*MInst
 	coalescedMoves, constrainedMoves, frozenMoves, worklistMoves, activeMoves *hash.Map[*MInst, bool]
+
+	// moveOrder is each move's index in moves, and pending a min-heap of
+	// the indices of moves added to worklistMoves, so that coalesce finds
+	// the first worklist move in program order without scanning moves.
+	// Entries for moves that have left the worklist are skipped lazily.
+	moveOrder *hash.Map[*MInst, int]
+	pending   intHeap
 
 	adjSet    *hash.Map[edge, bool]
 	adjList   *hash.Map[Reg, []Reg]
@@ -258,7 +304,7 @@ func newAllocator(f *MFunc, class RegClass, spillTemps *hash.Map[Reg, bool]) *al
 		simplifyWL: compat.NewMap[Reg, bool](0), freezeWL: compat.NewMap[Reg, bool](0), spillWL: compat.NewMap[Reg, bool](0),
 		coalesced: compat.NewMap[Reg, bool](0), colored: compat.NewMap[Reg, bool](0), onStack: compat.NewMap[Reg, bool](0),
 		coalescedMoves: compat.NewMap[*MInst, bool](0), constrainedMoves: compat.NewMap[*MInst, bool](0), frozenMoves: compat.NewMap[*MInst, bool](0),
-		worklistMoves: compat.NewMap[*MInst, bool](0), activeMoves: compat.NewMap[*MInst, bool](0),
+		worklistMoves: compat.NewMap[*MInst, bool](0), activeMoves: compat.NewMap[*MInst, bool](0), moveOrder: compat.NewMap[*MInst, int](0),
 		adjSet: compat.NewMapFunc[edge, bool](0, func(k edge) uint64 {
 			h := uint64(0)
 			h = compat.Mix(h, compat.HashAny(k.a))
@@ -328,8 +374,9 @@ func (a *allocator) build(liveOut []regSet) {
 				live.remove(f.regIndex(in.Src.Reg))
 				a.moveList.Set(in.Dst.Reg, compat.Append(compat.MapAt(a.moveList, in.Dst.Reg), in))
 				a.moveList.Set(in.Src.Reg, compat.Append(compat.MapAt(a.moveList, in.Src.Reg), in))
-				a.worklistMoves.Set(in, true)
+				a.moveOrder.Set(in, len(a.moves))
 				a.moves = compat.Append(a.moves, in)
+				a.addWorklistMove(in)
 			}
 			for _, d := range defs {
 				live.add(f.regIndex(d))
@@ -454,7 +501,7 @@ func (a *allocator) enableMoves(nodes []Reg) {
 		for _, m := range a.nodeMoves(n) {
 			if compat.MapAt(a.activeMoves, m) {
 				compat.MapDelete(a.activeMoves, m)
-				a.worklistMoves.Set(m, true)
+				a.addWorklistMove(m)
 			}
 		}
 	}
@@ -495,18 +542,64 @@ func (a *allocator) conservative(nodes []Reg) bool {
 	return k < a.k
 }
 
-func (a *allocator) firstMove(set *hash.Map[*MInst, bool]) *MInst {
-	// Deterministic: the first move in program order.
-	for _, m := range a.moves {
-		if compat.MapAt(set, m) {
+func (a *allocator) addWorklistMove(m *MInst) {
+	a.worklistMoves.Set(m, true)
+	a.pending.push(compat.MapAt(a.moveOrder, m))
+}
+
+// firstMove returns the worklist move that comes first in program order,
+// which keeps allocation deterministic.
+func (a *allocator) firstMove() *MInst {
+	for len(a.pending) > 0 {
+		if m := a.moves[a.pending[0]]; compat.MapAt(a.worklistMoves, m) {
 			return m
 		}
+		a.pending.pop()
 	}
 	return nil
 }
 
+// intHeap is a binary min-heap of ints.
+type intHeap []int
+
+func (h *intHeap) push(x int) {
+	*h = compat.Append(*h, x)
+	s := *h
+	for i := len(s) - 1; i > 0; {
+		p := (i - 1) / 2
+		if s[p] <= s[i] {
+			break
+		}
+		s[p], s[i] = s[i], s[p]
+		i = p
+	}
+}
+
+// pop removes the smallest element.
+func (h *intHeap) pop() {
+	s := *h
+	n := len(s) - 1
+	s[0] = s[n]
+	s = s[:n]
+	for i := 0; ; {
+		c := 2*i + 1
+		if c >= n {
+			break
+		}
+		if c+1 < n && s[c+1] < s[c] {
+			c++
+		}
+		if s[i] <= s[c] {
+			break
+		}
+		s[i], s[c] = s[c], s[i]
+		i = c
+	}
+	*h = s
+}
+
 func (a *allocator) coalesce() {
-	m := a.firstMove(a.worklistMoves)
+	m := a.firstMove()
 	compat.MapDelete(a.worklistMoves, m)
 	x := a.getAlias(m.Dst.Reg)
 	y := a.getAlias(m.Src.Reg)
