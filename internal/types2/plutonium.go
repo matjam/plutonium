@@ -8,6 +8,7 @@ package types2
 // checker can treat them as ordinary Go.
 
 import (
+	"bytes"
 	"slices"
 	"strconv"
 
@@ -49,6 +50,35 @@ func Subst(ctxt *Context, t Type, tparams []*TypeParam, targs []Type) Type {
 		ctxt = NewContext()
 	}
 	return (*Checker)(nil).subst(nopos, t, makeSubstMap(tparams, targs), nil, ctxt)
+}
+
+// SubstLocal is Subst for types that appear in the body of a generic
+// function, where named types declared in the body may mention the
+// function's type parameters. local is called for each named type that has
+// no type parameters of its own; it returns the type to use instead (such
+// a local type instantiated for targs), or nil to keep it. Aliases without
+// type parameters are replaced by the substituted type they stand for when
+// that differs.
+func SubstLocal(ctxt *Context, t Type, tparams []*TypeParam, targs []Type, local func(*Named) Type) Type {
+	if len(tparams) == 0 {
+		return t
+	}
+	if ctxt == nil {
+		ctxt = NewContext()
+	}
+	s := subster{pos: nopos, smap: makeSubstMap(tparams, targs), ctxt: ctxt, local: local}
+	return s.typ(t)
+}
+
+// TypeStringSuffixed is TypeString, with suffix(obj) written after the name
+// of each named type, so that types of the same name declared in different
+// functions can be told apart.
+func TypeStringSuffixed(t Type, qf Qualifier, suffix func(*TypeName) string) string {
+	var buf bytes.Buffer
+	w := newTypeWriter(&buf, qf)
+	w.nameSuffix = suffix
+	w.typ(t)
+	return buf.String()
 }
 
 // allocatorType returns pluto/rt.Allocator, the type of the optional final

@@ -17,6 +17,7 @@ package lower
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/matjam/plutonium/internal/load"
@@ -62,6 +63,9 @@ type Lowerer struct {
 	cfuncs         map[*ssa.Sym]bool     // //pu:extern symbols, called with the C convention
 	statics        int                   // anonymous static objects created
 	types          *typeTable
+
+	// instances of types declared in generic functions (typeMap.local)
+	localTypes map[localKey]*types2.Named
 
 	errs []error
 }
@@ -117,6 +121,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		globals:        map[*types2.Var]*ssa.Sym{},
 		strs:           map[string]*ssa.Sym{},
 		closureRecords: map[*ssa.Sym]*ssa.Sym{},
+		localTypes:     map[localKey]*types2.Named{},
 		exports:        map[*ssa.Sym][]string{},
 		interruptSyms:  map[*ssa.Sym]bool{},
 		cfuncs:         map[*ssa.Sym]bool{},
@@ -191,9 +196,28 @@ func pkgPath(pkg *types2.Package) string {
 	return pkg.Path()
 }
 
-// typeString formats a type for symbol names: fully qualified by import path.
+// typeString formats a type for symbol names: fully qualified by import
+// path, and with a type declared inside a function told apart from others
+// of the same name by its position.
 func typeString(T types2.Type) string {
-	return types2.TypeString(T, func(p *types2.Package) string { return p.Path() })
+	return types2.TypeStringSuffixed(T, func(p *types2.Package) string { return p.Path() }, localSuffix)
+}
+
+// localSuffix returns "·pos" for a type declared inside a function (or an
+// instance of one, see typeMap.local), and "" for any other type name.
+func localSuffix(obj *types2.TypeName) string {
+	// An instance of a generic type has a type name of its own, outside
+	// any scope; its origin's is the declared one.
+	switch t := obj.Type().(type) {
+	case *types2.Named:
+		obj = t.Origin().Obj()
+	case *types2.Alias:
+		obj = t.Origin().Obj()
+	}
+	if obj.Pkg() == nil || obj.Parent() == obj.Pkg().Scope() {
+		return ""
+	}
+	return "·" + strconv.Itoa(int(obj.Pos()))
 }
 
 // funcSymName returns the symbol name of a function or method instance.
@@ -356,6 +380,16 @@ type typeMap struct {
 	l       *Lowerer
 	tparams []*types2.TypeParam
 	targs   []types2.Type
+
+	// The source range of the generic function: types declared in it
+	// are instantiated with it (see local).
+	start, end token.Pos
+}
+
+// A localKey names an instance of a type declared in a generic function.
+type localKey struct {
+	obj   *types2.TypeName
+	targs string
 }
 
 func newTypeMap(l *Lowerer, fn *types2.Func, targs []types2.Type) *typeMap {
@@ -374,14 +408,41 @@ func newTypeMap(l *Lowerer, fn *types2.Func, targs []types2.Type) *typeMap {
 	if len(tps) != len(targs) {
 		panic(fmt.Sprintf("lower: %s has %d type parameters, got %d type arguments", fn, len(tps), len(targs)))
 	}
-	return &typeMap{l: l, tparams: tps, targs: targs}
+	m := &typeMap{l: l, tparams: tps, targs: targs}
+	if d := l.decls[fn.Origin()]; d != nil {
+		m.start, m.end = d.decl.Pos(), d.decl.End()
+	}
+	return m
 }
 
 func (m *typeMap) subst(T types2.Type) types2.Type {
 	if m == nil || T == nil {
 		return T
 	}
-	return types2.Subst(m.l.ctxt, T, m.tparams, m.targs)
+	return types2.SubstLocal(m.l.ctxt, T, m.tparams, m.targs, m.local)
+}
+
+// local instantiates a type declared inside the generic function, which
+// may mention the function's type parameters: each instance of the
+// function has its own copy of the type, as in Go. It returns nil for any
+// other named type.
+func (m *typeMap) local(t *types2.Named) types2.Type {
+	obj := t.Obj()
+	if obj.Pos() < m.start || obj.Pos() >= m.end || obj.Pkg() == nil || obj.Parent() == obj.Pkg().Scope() {
+		return nil
+	}
+	key := localKey{obj, typeList(m.targs)}
+	if n := m.l.localTypes[key]; n != nil {
+		return n
+	}
+	// The instance keeps the declaration's position, so localSuffix
+	// still tells it apart from types of the same name elsewhere; the
+	// type arguments in its name tell the instances apart.
+	tn := types2.NewTypeName(obj.Pos(), obj.Pkg(), obj.Name()+"["+key.targs+"]", nil)
+	n := types2.NewNamed(tn, nil, nil)
+	m.l.localTypes[key] = n
+	n.SetUnderlying(m.subst(t.Underlying()))
+	return n
 }
 
 // ----------------------------------------------------------------------------
