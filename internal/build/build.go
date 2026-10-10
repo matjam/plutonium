@@ -95,20 +95,7 @@ func loadConfig(cfg *Config) (*load.Config, error) {
 	if err := cfg.Check(); err != nil {
 		return nil, err
 	}
-	tags := map[string]bool{"amd64": true}
-	if cfg.Freestanding || cfg.Kernel {
-		tags["none"] = true
-		tags["freestanding"] = true
-		if cfg.Kernel {
-			tags["kernel"] = true
-		}
-	} else {
-		tags["linux"] = true
-		tags["hosted"] = true
-	}
-	for _, t := range cfg.Tags {
-		tags[t] = true
-	}
+	tags := load.BuildTags(cfg.Freestanding, cfg.Kernel, cfg.Tags)
 	var preload []string
 	if cfg.Alloc == "debug" {
 		tags["allocdebug"] = true
