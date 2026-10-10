@@ -107,15 +107,26 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		return nil
 
 	case "print", "println":
-		for i, a := range s.argSources(e.Args) {
+		// As in Go, every argument is evaluated before anything is printed,
+		// so an argument that prints or changes a later argument's operands
+		// has finished by the time output starts.
+		srcs := s.argSources(e.Args)
+		vals := make([]value, len(srcs))
+		nodes := make([]ast.Node, len(srcs))
+		for i, a := range srcs {
+			if a.e != nil {
+				vals[i] = s.materialize(s.printOperand(a.e))
+				nodes[i] = a.e
+			} else {
+				vals[i] = s.materialize(a.v)
+				nodes[i] = e
+			}
+		}
+		for i, v := range vals {
 			if i > 0 && b.Name() == "println" {
 				s.callRuntime("printSpace", nil)
 			}
-			if a.e != nil {
-				s.printArg(a.e)
-			} else {
-				s.printValue(a.v, unwrap(a.v.T), e)
-			}
+			s.printValue(v, unwrap(v.T), nodes[i])
 		}
 		if b.Name() == "println" {
 			s.callRuntime("printNewline", nil)
@@ -283,12 +294,6 @@ func (s *fnState) appendCall(e *ast.CallExpr, T types2.Type) value {
 func (s *fnState) appendCheck(newLen, c *ssa.Value, e *ast.CallExpr) {
 	ok := s.newValue(ssa.OpLequ, ssa.TBool, newLen, c)
 	s.panicUnless(ok, e.Pos(), func() { s.callRuntimeNoReturn("panicAppend", newLen, c) })
-}
-
-// printArg prints one argument of print or println.
-func (s *fnState) printArg(a ast.Expr) {
-	v := s.printOperand(a)
-	s.printValue(v, v.T, a)
 }
 
 // printOperand evaluates an argument of print or println, giving untyped
