@@ -12,7 +12,7 @@ $DIR/main.p:38:6: joined allocates (it is marked //pu:alloc), which kernel code 
         var buf [32]byte
         msg := fmt.Bprintf(buf[:0], "irq %d", n)
     (see "Allocation in kernel mode" in the Plutonium spec, section 12.7)
-    (run "pluto explain E2544" for a longer explanation)
+    (run "pluto explain E2545" for a longer explanation)
 
 $DIR/main.p:9:9: string concatenation allocates, which kernel code may only do in a function marked //pu:alloc
     This string operation makes a new string, and a new string needs memory from
@@ -34,10 +34,10 @@ $DIR/main.p:9:9: string concatenation allocates, which kernel code may only do i
             return dev.name + ": " + dev.state.String()
         }
     (see "Allocation in kernel mode" in the Plutonium spec, section 12.7)
-    (run "pluto explain E2543" for a longer explanation)
+    (run "pluto explain E2544" for a longer explanation)
 
 $DIR/main.p:13:9: conversion to string allocates, which kernel code may only do in a function marked //pu:alloc
-    (explained above; run "pluto explain E2543" for more)
+    (explained above; run "pluto explain E2544" for more)
 
 $DIR/main.p:17:9: Sprintf allocates (it is marked //pu:alloc), which kernel code may only call from a function marked //pu:alloc
-    (explained above; run "pluto explain E2544" for more)
+    (explained above; run "pluto explain E2545" for more)

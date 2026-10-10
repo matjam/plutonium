@@ -109,7 +109,7 @@ const (
 	_
 	_
 	kindArray
-	_
+	kindChan
 	kindFunc
 	kindInterface
 	_
@@ -545,6 +545,8 @@ func kindOf(T types2.Type) byte {
 		return kindArray
 	case *types2.Signature:
 		return kindFunc
+	case *types2.Chan:
+		return kindChan
 	case *types2.Interface:
 		return kindInterface
 	case *types2.Pointer:
@@ -642,7 +644,7 @@ func (s *fnState) dataWord(v value, T types2.Type) *ssa.Value {
 		return box
 	}
 	// Box the value in this frame.
-	box := s.temp(T, "box")
+	box := s.lastingTemp(T, "box")
 	s.storeTo(box, v, T)
 	return box
 }

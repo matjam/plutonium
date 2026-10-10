@@ -19,9 +19,9 @@ const (
 	sysExitGroup   = 231
 )
 
-// A hosted program runs on one thread until its scheduler starts another
-// and calls SetThreaded, so string counts start with plain arithmetic
-// (str.p).
+// A hosted program runs on one thread, with no puroutines, until it starts
+// its first puroutine, when the runtime calls SetThreaded; string counts
+// start with plain arithmetic (str.p).
 const atomicCountsAtStart = false
 
 var (
@@ -46,11 +46,14 @@ func mainStackSize() uintptr
 //pu:noreturn
 func start(sp unsafe.Pointer) {
 	argc = *(*int)(sp)
+	bootTask.stackHi = uintptr(sp) // so a go statement can tell a closure in this stack
 	argv = unsafe.Add(sp, 8)
 	envp = unsafe.Add(sp, 8*(argc+2))
 	installFaultHandlers()
 	if size := mainStackSize(); size > 0 {
-		runOnStack(reserveStack(size))
+		top := reserveStack(size)
+		bootTask.stackHi = top // main runs here instead
+		runOnStack(top)
 	}
 	stackHi = uintptr(sp)
 	stackLo = systemStackLimit(stackHi)
@@ -226,7 +229,7 @@ func signalName(sig int) string {
 //
 //pu:noreturn
 func defaultPanic(p *Panic) {
-	p.Print(nil)
+	p.Print(Console{})
 	exit(2)
 }
 
@@ -279,6 +282,7 @@ func exit(code int) {
 //
 //pu:noreturn
 func Exit(code int) {
+	flushStackCache()
 	if h := exitHook; h != nil {
 		exitHook = nil
 		code = h(code)

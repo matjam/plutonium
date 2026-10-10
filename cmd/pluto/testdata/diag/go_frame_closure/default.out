@@ -1,0 +1,28 @@
+$DIR/main.p:17:5: cannot start square with go: it holds a function literal that captures out (main.p:16), whose closure record lives in the starting frame (spec section 4.7)
+    A function literal that captures variables, and a method value such as
+    c.handle, keep their closure record (the code to call, with the captured
+    variables or a copy of the receiver) in the frame of the function that makes
+    them. A func value points to that record. A go statement copies its function
+    and arguments, but copying a func value copies only the pointer, so the
+    puroutine may call through it after the frame is gone.
+    The compiler reports this wherever it can tell: a capturing literal or a
+    method value passed to go, or a local variable assigned only once, from one
+    of them. Elsewhere the go statement checks when it runs, and panics.
+    Go moves captured variables and the receivers of method values to the heap.
+    Plutonium never allocates behind the program's back, so the record stays in
+    its frame (spec section 4.5).
+    Pass the values the function needs, and start a function that takes them:
+        go func(n int, out chan int) {
+            out <- n * n
+        }(n, out)
+    (see "go starts a puroutine" in the Plutonium spec, section 4.7)
+    (run "pluto explain E2594" for a longer explanation)
+
+$DIR/main.p:20:9: cannot pass the method value c.add to a puroutine: its closure record lives in the starting frame (spec section 4.7)
+    (explained above; run "pluto explain E2594" for more)
+
+$DIR/main.p:24:9: cannot pass again to a puroutine: it holds the method value c.add, whose closure record lives in the starting frame (spec section 4.7)
+    (explained above; run "pluto explain E2594" for more)
+
+$DIR/main.p:26:9: cannot pass a function literal that captures n (main.p:26) to a puroutine: its closure record lives in the starting frame (spec section 4.7)
+    (explained above; run "pluto explain E2594" for more)

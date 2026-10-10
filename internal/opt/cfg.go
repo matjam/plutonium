@@ -3,34 +3,56 @@ package opt
 import "github.com/matjam/plutonium/internal/ssa"
 
 // SimplifyCFG folds branches on constants, merges a block into its only
-// predecessor when that predecessor has no other successor, and skips
-// empty forwarding blocks. It runs to a fixed point.
+// predecessor when that predecessor has no other successor, skips empty
+// forwarding blocks, and threads branches on phis of constants
+// (thread.go). It runs to a fixed point.
 func SimplifyCFG(f *ssa.Func) {
 	for changed := true; changed; {
 		changed = false
+		step := false
 		for _, b := range f.Blocks {
 			if foldConstBranch(b) {
-				changed = true
+				step = true
 			}
 		}
-		if changed {
+		if step {
 			f.RemoveDeadBlocks()
+			verifyStep(f, "foldConstBranch")
+			changed = true
 		}
-		verifyStep(f, "foldConstBranch")
+		step = false
 		for _, b := range f.Blocks {
 			if mergeIntoPred(f, b) {
-				changed = true
+				step = true
 				break // f.Blocks changed
 			}
 		}
-		verifyStep(f, "mergeIntoPred")
+		if step {
+			verifyStep(f, "mergeIntoPred")
+			changed = true
+		}
+		step = false
 		for _, b := range f.Blocks {
 			if skipEmpty(f, b) {
-				changed = true
+				step = true
 				break
 			}
 		}
-		verifyStep(f, "skipEmpty")
+		if step {
+			verifyStep(f, "skipEmpty")
+			changed = true
+		}
+		step = false
+		for _, b := range f.Blocks {
+			if threadPhiBranch(f, b) {
+				step = true
+				break
+			}
+		}
+		if step {
+			verifyStep(f, "threadPhiBranch")
+			changed = true
+		}
 		f.RemoveDeadBlocks()
 	}
 	ssa.CopyElim(f)
@@ -53,6 +75,11 @@ func foldConstBranch(b *ssa.Block) bool {
 		return false
 	}
 	c := b.Controls[0]
+	for c.Op == ssa.OpCopy {
+		// Left by mergeIntoPred, which turns single-argument phis into
+		// copies.
+		c = c.Args[0]
+	}
 	if c.Op != ssa.OpConst {
 		// if (x) then T else T: either way.
 		if b.Succs[0].B == b.Succs[1].B && !hasPhis(b.Succs[0].B) {

@@ -1,0 +1,14 @@
+$DIR/main.p:17:5: second is a second //pu:scheduler variable; the first is first at $DIR/main.p:12:5: a program binds one scheduler (language spec section 4.7)
+    A program binds its scheduler with one package-level variable marked
+    //pu:scheduler, whose type, not an interface, implements rt.Scheduler:
+    NewTask, FreeTask, Spawn, Park, Wake and Yield. The runtime calls its
+    methods directly. This variable does not qualify, or the program marks more
+    than one.
+    The scheduler is chosen when the program is linked, like the panic handler,
+    so the runtime calls it without an indirection and a program cannot run
+    without one.
+    (see "go starts a puroutine" in the Plutonium spec, section 4.7)
+    (run "pluto explain E2592" for a longer explanation)
+
+$DIR/main.p:12:5: //pu:scheduler variable first of type main.half does not implement rt.Scheduler (missing method FreeTask)
+    (explained above; run "pluto explain E2592" for more)

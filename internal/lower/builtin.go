@@ -42,7 +42,17 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		case *types2.Pointer:
 			arr := unwrap(u.Elem()).Underlying().(*types2.Array)
 			return one(scalarValue(s.constInt(ssa.TI64, arr.Len()), T))
+		case *types2.Chan:
+			fn := "chanlen"
+			if b.Name() == "cap" {
+				fn = "chancap"
+			}
+			return one(scalarValue(s.callRuntime(fn, []*ssa.Type{ssa.TI64}, []*ssa.Value{x.v})[0], T))
 		}
+
+	case "close":
+		s.callRuntime("closechan", nil, []*ssa.Value{s.scalar(e.Args[0])})
+		return nil
 
 	case "append":
 		return one(s.appendCall(e, T))
@@ -105,11 +115,12 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		return one(scalarValue(ptr, T))
 
 	case "make":
+		if _, isChan := unwrap(T).Underlying().(*types2.Chan); isChan {
+			return one(s.makeChan(e, T))
+		}
 		st, isSlice := unwrap(T).Underlying().(*types2.Slice)
 		if !isSlice {
-			// The checker rejects channel and map types. Channels (roadmap
-			// item 15) will allocate here, from the optional final
-			// allocator as slices do: make(chan T, n, a).
+			// The checker rejects map types.
 			s.l.unsupportedf(e.Pos(), "make of %s is not supported", T)
 			return nil
 		}

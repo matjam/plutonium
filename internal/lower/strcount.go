@@ -222,6 +222,18 @@ func (s *fnState) takeRef(v value, T types2.Type) {
 	}
 }
 
+// takeRefAt is takeRef for a copy of v already stored at dst, which is
+// where a retain is made: v itself need not be in memory.
+func (s *fnState) takeRefAt(v value, dst *ssa.Value, T types2.Type) {
+	switch {
+	case v.cnt == cntStatic:
+	case v.cnt == cntOwned && v.tmp != nil && !v.tmp.consumed:
+		v.tmp.consumed = true
+	default:
+		s.retainAt(dst, T)
+	}
+}
+
 // storeCounted stores v into the place lv, whose type is counted, with the
 // semantics of assignment: the place takes a reference for v and drops the
 // one it held. init says the place holds the zero value, so there is

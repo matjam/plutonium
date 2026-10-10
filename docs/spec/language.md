@@ -227,6 +227,31 @@ therefore valid only while the enclosing function is running:
 
 A function literal that captures nothing is an ordinary function value and may be used anywhere.
 
+**Closure constructors.** A function whose body is a single `return` of a function literal that captures
+the function's parameters (its receiver, parameters or named results), or of a call of another such
+function, is a closure constructor. Go's iterator constructors are the common case:
+
+```go
+func (v *Vec[T]) All() iter.Seq2[int, T] {
+	return func(yield func(int, T) bool) {
+		for i := 0; i < len(v.data); i++ {
+			if !yield(i, v.data[i]) {
+				return
+			}
+		}
+	}
+}
+```
+
+Returning the literal would make it outlive the constructor's frame, so each call of a closure
+constructor is compiled where it is made instead: the arguments are stored in fresh variables of the
+caller's frame, and the literal's closure is built in that frame and captures them there. The result is
+an ordinary closure of the caller, valid while the caller runs, and `for i, x := range v.All()` costs no
+allocation. Each call site has its own variables: a call in a loop reuses them on every iteration, as a
+function literal in a loop does. A closure constructor can only be called directly; using it as a func
+value or a method value, or calling it through an interface, is a compile error (E2543), since there is no
+caller's frame to build the closure in.
+
 A capturing closure is a view of the enclosing frame (section 6.3). Captured owners stay where they are
 declared:
 
@@ -265,30 +290,65 @@ runs. An argument of owner type is moved into the new puroutine, which drops it 
 of the spawning frame cannot be passed at all (section 6.3), since the puroutine may outlive the frame.
 
 - Each puroutine has a fixed-size stack: stacks cannot grow or move, because nothing knows where the
-  pointers into them are. A guard page below the stack turns an overflow into a fault. The default size
-  is 64 KiB; `rt.Go(f, size)` starts a puroutine with an explicit stack size instead. For a
-  spawned function whose call graph has no recursion and no indirect calls, the compiler computes the
-  stack it needs and uses that instead; otherwise it uses the default, and `-stackreport` lists the
-  functions it could not size.
+  pointers into them are. A guard page below the stack turns an overflow into a fault, reported as a
+  stack overflow with the puroutine's trace. The default size is 64 KiB; `rt.Go(f, size)` starts a
+  puroutine with an explicit stack size instead (at least `rt.MinStackSize`, 8 KiB). For a spawned
+  function whose call graph has no recursion and no indirect calls, the compiler computes the stack it
+  needs and uses that instead, without a guard page; otherwise it uses the default, and `-stackreport`
+  lists the functions it could not size (planned, roadmap item 18; today every puroutine gets the
+  default or `rt.Go`'s size).
 - A function literal that captures variables cannot be started with `go`: its captures live in the
   spawning frame, which may be gone before the puroutine runs (section 4.5). Pass the values as
-  arguments: `go func(n int) { work(n) }(n)`.
-- Puroutines run in parallel and are preempted: one that runs for a full time slice without blocking is
-  suspended at whatever instruction it has reached and another runs in its place. Since there is no
-  garbage collector, every instruction is a safe place to stop; the full register state is saved. Code in
-  the runtime that must not be interrupted (scheduler and allocator locks) disables preemption for its
-  own duration. Blocking on a channel, a lock or I/O, or calling `rt.Yield()`, gives up the processor
-  early.
+  arguments: `go func(n int) { work(n) }(n)`. The same holds for a method value `x.M`, whose closure
+  record holds a copy of the receiver in the frame that made it. Wherever the compiler can tell that a
+  `go` statement's function, or one of its func-typed arguments, is such a closure, it is a compile
+  error: a capturing literal or a method value written in the `go` statement, or a local variable whose
+  only assignment is its declaration from one of them (directly or through other such variables). Any
+  other func value whose closure record lies in the starting puroutine's stack (one that reached the
+  `go` statement through a parameter, a field or a variable assigned more than once) panics when the
+  `go` statement runs, and so does `rt.Go` with one.
+- Puroutines run in parallel and are preempted: one that runs for a full time slice (10 ms in hosted
+  builds) without blocking is suspended at whatever instruction it has reached and another runs in its
+  place, even in a loop that makes no calls. Since there is no garbage collector, every instruction is a
+  safe place to stop; the full register state is saved. Code that must not be interrupted (scheduler and
+  allocator locks, `rt.DisablePreemption`) disables preemption for its own duration; a preemption that
+  arrives meanwhile happens when it is enabled again. Blocking on a channel, a lock or I/O, or calling
+  `rt.Yield()`, gives up the processor early.
 
-The scheduler sits behind an interface in `pluto/rt` with four operations: start a puroutine, park the
-current one, make a parked one runnable, and yield. Hosted builds get a scheduler that runs puroutines on
-one worker thread per CPU. Each worker has its own run queue, and an idle worker steals half the queue of
-a busy one, so load spreads across processors without any work by the program. A worker that enters a
-blocking system call hands its queue to another worker, and waits for I/O go through one epoll poller.
-Preemption uses a timer signal. A freestanding program provides its own scheduler with `rt.SetScheduler`
-before its first `go` statement or channel operation (a kernel uses per-CPU run queues and its timer
-interrupt the same way); until then they panic with "no scheduler". A program that never uses `go` or
-channels contains none of this.
+The scheduler is split in two (abi.md section 12). The runtime, `pluto/rt`, provides the mechanism: the
+record of each puroutine (`rt.Task`), the context switch (`rt.Switch`), parking with a permit so that a
+wakeup that arrives first is never lost (`rt.Park`, `rt.Ready`), the preemption entry (`rt.Preempt`),
+and channels, `select` and `pluto/sync` built only on those. A **backend**, a type implementing
+`rt.Scheduler`, provides the policy and the memory: it allocates task records and stacks (`NewTask`,
+`FreeTask`), keeps run queues and decides what runs where (`Spawn`, `Park`, `Wake`, `Yield`), and drives
+preemption from a timer.
+
+The backend is bound when the program is linked: a package-level variable marked `//pu:scheduler`
+whose type (not an interface) implements `rt.Scheduler`. The runtime calls its methods directly.
+Hosted builds bind `pluto/rt`'s own backend unless the program binds one; a freestanding program, such
+as a kernel, that starts puroutines, uses channels or waits in `pluto/sync` without binding one fails to
+build, as does a program that binds two. A program that never uses `go` or channels contains none of
+this.
+
+```go
+//pu:scheduler
+var scheduler kernelScheduler // implements rt.Scheduler
+```
+
+The hosted backend runs puroutines on one worker thread per CPU (`$PLUTO_MAXPROCS` sets the number),
+made with `clone(2)` without a C library. Each worker has its own run queue, and an idle worker steals
+half the queue of a busy one, so load spreads across processors without any work by the program. A
+monitor thread preempts a puroutine that has run for 10 ms by sending its thread a signal, and hands the
+processor of a worker blocked in a system call (`rt.EnterSyscall`, which `pluto/os` file I/O uses) to
+another worker. Waits for I/O go through one epoll poller: `os.Pipe`'s descriptors are non-blocking,
+and a puroutine that reads an empty pipe or writes a full one parks there (`rt.PollWait`). When every
+puroutine waits for another and nothing waits for I/O or a system call, the program stops with "fatal
+error: all puroutines are asleep - deadlock!" and status 2, as in Go.
+
+A kernel implements the backend over its own per-CPU run queues and calls `rt.Preempt()` from its timer
+interrupt handler; the runtime keeps the current task in a per-CPU slot and masks interrupts while it
+holds its own locks, so interrupt handlers may make non-blocking channel operations and call
+`rt.Ready`. `testdata/kernel/sched` is such a kernel, booted under QEMU by the compiler's tests.
 
 **The sendable rule.** Values that cross between puroutines, as `go` arguments or channel elements, must
 be safe to use from several processors at once. A type is **sendable** unless it contains, directly or in
@@ -305,13 +365,24 @@ their bytes never change and their counts are atomic once a program has several 
 Views of heap and static memory (`*T`, `[]T`) are sendable and, like raw pointers in C, their data is not
 checked for races; their lifetime is checked at run time as for any heap view (section 6.3).
 
-Stacks come from the default allocator, or from `rt.Go(f, size, a)` with an explicit one, and are freed
-when the puroutine returns.
+The checker applies the rule to the arguments and receiver of every `go` statement and to the element
+type of every channel type, looking through struct fields, array elements and the referents of
+`owned`, `synced` and the transparent wrappers (`ring`, `volatile`, `aligned`), but not through views,
+interfaces or functions. Until the escape checks of section 6.3 land (roadmap item 5), the views of the
+frame it rejects are the ones written out: the address of a local variable or of a field or element of
+one (`&x`, `&t.f`, `&a[i]`), a slice of a local array, the address of a composite literal, and a
+pointer method called on a local variable (`go wg.Wait()`). Passing a local `sync.WaitGroup` by address,
+the usual Go idiom, is therefore an error: allocate it, or make it a package-level variable. In a generic
+function the rule is checked for each instantiation.
 
-What a kernel's scheduler must implement, and what the runtime gives it, is proposed in
-[the scheduler contract](../plans/2026-10-09-scheduler-contract.md); the standard library has no kernel
-scheduler. On PlutoniumOS a puroutine is a kernel task and there is one scheduler in the system, the
-kernel's. That task model is proposed in PlutoniumOS: docs/architecture/lightweight-tasks.md
+Stacks come from the default allocator (the starting puroutine's, if it installed one with `alloc.Use`),
+or from `rt.Go(f, size, a)` with an explicit one, and are freed when the puroutine returns. They belong
+to the runtime: the debug allocator does not count a stack still in use at exit as a leak.
+
+What a kernel's backend must implement, and what the runtime gives it, is specified in abi.md section 12;
+the design is in [the scheduler contract](../plans/2026-10-09-scheduler-contract.md). The standard library
+has no kernel scheduler. On PlutoniumOS a puroutine is a kernel task and there is one scheduler in the
+system, the kernel's. That task model is proposed in PlutoniumOS: docs/architecture/lightweight-tasks.md
 (github.com/matjam/plutoniumos, private).
 
 ### 4.8 Channels
@@ -321,12 +392,25 @@ kernel's. That task model is proposed in PlutoniumOS: docs/architecture/lightwei
 closing a closed or nil channel panic; receiving from a closed channel yields the zero value and `false`.
 
 `make(chan T)` and `make(chan T, n)` allocate the channel and its buffer from the current allocator, or
-from an allocator given as the final argument: `make(chan Msg, 16, arena)`.
+from an allocator given as the final argument: `make(chan Msg, 16, arena)`. A channel value is one word,
+the address of the channel. Operations on a nil channel block forever, `select {}` blocks forever, and a
+`select` with several ready cases picks one at random, as in Go.
 
 A channel value is a reference counted like `synced[T]` (section 6.5), since a channel always has
 several users: copying it counts a reference, and when the last reference goes away the channel and its
 buffer are freed. Values still buffered at that point are dropped first, so owners in the buffer are
 freed rather than leaked; their `Drop` runs on the puroutine that released the last reference.
+
+**Today** the compiler does not count channel references yet (roadmap item 48, with `synced[T]`). Until
+it does, a channel lives until the program frees it with `alloc.FreeChan(ch)`, which returns the channel
+and its buffer to the allocator they came from and discards buffered values; no puroutine may use the
+channel afterwards, and freeing one that puroutines wait on panics. A channel made in an arena needs no
+`FreeChan`. Programs in the common subset with Go leak their channels until they exit, as they do the
+memory of `new`. When counting lands, `FreeChan` goes away.
+
+The operations that may wait (a send or receive, a `range` over a channel, a `select` without a
+`default` case) call runtime functions marked `//pu:blocking`; a `select` with a `default` case and
+`close`, `len` and `cap` never wait, so interrupt handlers may use them (section 12.6).
 
 The element type must be sendable (section 4.7). Sending an owner moves it: after `ch <- b`, `b` holds
 nothing, and the receiver of `v := <-ch` owns it. In a `select`, the value of a send case is evaluated on
@@ -361,6 +445,49 @@ brief:
   for an interrupt handler and the code it interrupts on the same processor to share data.
 - Any scheduler, including a kernel's own (section 4.7), must make starting a puroutine and readying a
   parked one synchronising operations, so that these rules hold however puroutines are scheduled.
+
+### 4.10 Range over functions
+
+`for k, v := range f`, where `f` is a function `func(yield func(K, V) bool)` with zero, one or two
+parameters to `yield`, works as in Go 1.23. `pluto/iter` defines `Seq[V]` and `Seq2[K, V]`, and the
+library's containers have iterator methods (section 13). The loop body becomes a yield function, a
+closure built in the enclosing frame and passed to `f`, which is how Go compiles the loop too:
+
+- `f` may call `yield` as often as it likes while it runs, but may not keep it: `yield` is a closure of
+  the enclosing frame (section 4.5), and storing it where it outlives the call of `f` is an escape that
+  section 6.3 forbids. (The escape checks do not catch it yet.)
+- `break`, `continue`, `return`, `goto` and labelled `break` and `continue` out of the body work as in
+  Go: the body returns false, and once `f` returns the loop goes on at the target.
+- An iterator that calls `yield` when it may not panics with Go's message: after `yield` returned false
+  ("range function continued iteration after function for loop body returned false"), after the loop
+  ended ("... after whole loop exit"), or while the body is running ("... after loop body panic", which
+  Go reports for that state). A panic in the body stops the program (section 4.1); no iterator can
+  recover it.
+- A `defer` in the body defers a call of the enclosing function, as in Go: it runs when that function
+  returns. Plutonium gives each `defer` statement one slot in the function's frame, so a `defer` inside
+  any loop is a compile error, and in the body of a range-over-func loop, which runs once per iteration,
+  the `defer` must be followed on every path by leaving the loop: a `return`, a `panic`, or a `break`,
+  `continue` or `goto` to a statement outside the loop (E2533). A function literal deferred there may not
+  capture the body's own variables, the loop variables included, since the body's frame is gone when it
+  runs (E2534); pass them as arguments.
+
+```go
+func find(items *vec.Vec[*Item], id int) int {
+	for _, it := range items.All() {
+		if it.id == id {
+			it.mu.Lock()
+			defer it.mu.Unlock() // runs when find returns
+			return it.value
+		}
+	}
+	return -1
+}
+```
+
+Iterator constructors such as `items.All()` are closure constructors (section 4.5), so a loop over one
+allocates nothing. The optimiser inlines the iterator and then the loop body through their closures, so a
+loop over a simple iterator compiles to the loop the iterator runs: ranging over `v.All()` costs the same
+as ranging over `v.Slice()`.
 - Moving an owner is an ordinary write; the `go` statement or channel send that hands it to another
   puroutine is the synchronising operation. Every use of a `synced[T]` through any reference happens
   before its `Drop` runs and its memory is freed.
@@ -1987,9 +2114,12 @@ string's bytes when the last copy goes. This is the one place where Plutonium co
   compile-time concatenations, type names, enum names) live in read-only data and are **never counted**:
   their control word has no buffer, so copying or dropping one costs nothing. The zero string is static.
 - Counts are atomic once a program can run Plutonium code on several threads (memory-model.md section
-  3.7). A hosted program counts with plain arithmetic until its scheduler calls `rt.SetThreaded`, before
-  it starts a second thread; a freestanding program counts atomically from the start, since its kernel
-  starts processors on its own. Strings are therefore sendable (section 4.7).
+  3.7). A hosted program counts with plain arithmetic until it starts its first puroutine, when the
+  runtime switches to atomic counts (`rt.SetThreaded`); a freestanding program counts atomically from
+  the start, since its kernel starts processors on its own. Strings are therefore sendable (section
+  4.7). A `go` statement gives the new puroutine its own references to the strings in its arguments,
+  and a send gives the channel one, which the receiver takes over; `alloc.FreeChan` releases the strings
+  of values still buffered.
 
 **Strings and ownership.** A string is a value, not an owner: it never moves, a moved-from string does
 not exist, and copying is always allowed. A struct or array with string fields is a value too: it copies
@@ -2136,6 +2266,9 @@ func Synced[T any](a Allocator = Default()) synced[T]
 func Raw(size, align uintptr, a Allocator = Default()) unsafe.Pointer
 func New[T any](a Allocator = Default()) *T
 func Free[T any](p *T, a Allocator = Default())   // drops *p first if T is an owner
+
+// Until channel references are counted (section 4.8).
+func FreeChan[T any](ch chan T)
 ```
 
 `Use` scopes an allocator to a region of code without changing the code inside it. The override belongs
@@ -2155,10 +2288,12 @@ later frees into the arena, which does nothing (section 6.6).
 
 ### 7.2 The system allocator
 
-In hosted builds the default allocator is a slab allocator over `mmap`, safe to use from several
-puroutines at once: each worker thread allocates from its own cache in front of the shared slabs.
-`alloc.SetDefault` must likewise be given a thread-safe allocator once puroutines run in parallel; an
-arena installed with `alloc.Use` belongs to the puroutine that installed it. In freestanding builds there is
+In hosted builds the default allocator is `alloc.SyncSlab`, a slab allocator over `mmap` that is safe to
+use from several puroutines at once: each processor of the hosted scheduler allocates from its own cache
+of free slots, without locks, in front of shared free lists behind one runtime lock, and requests over
+2 KiB go straight to `mmap`. `alloc.SetDefault` must likewise be given a thread-safe allocator once
+puroutines run in parallel (`alloc.Slab`, which is not, suits a single processor or a lock of the
+kernel's own); an arena installed with `alloc.Use` belongs to the puroutine that installed it. In freestanding builds there is
 none: allocating before the program calls `alloc.SetDefault` panics with "no allocator". A kernel sets it
 once its page allocator is ready:
 
@@ -2194,8 +2329,8 @@ the kernel's page provider.
   site that made each one.
 
 Memory it returns is zeroed, like any allocator's. Every error stops the program as a panic does. It is
-not yet safe for concurrent use; its state sits behind one lock that becomes a real mutex when puroutines
-run in parallel. [debug-allocator.md](debug-allocator.md) has the details.
+safe for concurrent use: its state sits behind one runtime lock, and the site of each allocation is
+recorded per puroutine. [debug-allocator.md](debug-allocator.md) has the details.
 
 ## 8. Runtime faults and panic
 
@@ -2208,10 +2343,18 @@ The following stop the program through the same path as `panic`:
 - a union whose tag names no variant, in a type switch without a default case,
 - `append` beyond capacity,
 - an allocation with no allocator set,
-- a `go` statement or channel operation with no scheduler set,
 - sending on a closed channel, or closing a closed or nil channel,
+- an iterator calling the yield function of a range-over-func loop when it may not (section 4.10),
 - overflowing a puroutine's stack (the guard page faults),
+- a `go` statement whose function value, or a func-typed argument, has its closure record in the starting
+  puroutine's stack (section 4.7),
+- an operation that would park in interrupt context, when the scheduler can tell (`InInterrupt`, abi.md
+  section 12),
 - `panic(v)`.
+
+A program that needs a scheduler and binds none fails to build rather than panic (section 4.7). A panic
+in a puroutine other than the one that runs `main` names it: the built-in handler prints `puroutine N:`
+before the trace, and `rt.Panic.Puroutine` holds the number.
 
 A panic does not unwind: deferred functions do not run and owners are not dropped. The runtime writes
 the panic's message and calls the program's **panic handler** (section 8.1), which never returns. In
@@ -2280,12 +2423,17 @@ type Fault struct {
 	Signal int       // the signal that reported it in hosted builds, or 0
 }
 
-func (p *Panic) Print(w rt.Writer)      // the panic as a hosted program prints it, then the trace
-func (p *Panic) PrintTrace(w rt.Writer) // the stack trace alone
+func (p *Panic) Print[W rt.Writer](w W)      // the panic as a hosted program prints it, then the trace
+func (p *Panic) PrintTrace[W rt.Writer](w W) // the stack trace alone
 ```
 
 `rt.Writer` has the method of `io.Writer`, so any writer will do; `rt.Console{}` writes where `print`
-does (in freestanding builds, the function registered with `rt.SetConsole`). The message lives in a
+does (in freestanding builds, the function registered with `rt.SetConsole`; in hosted builds, standard
+error, with a system call that never waits). The methods are generic so that a writer of a known type is
+called directly: a call through the `rt.Writer` interface counts, for the check of section 12.6, as
+calling every writer the program has. For the same reason a hosted handler should write to `rt.Console{}`
+rather than `os.Stderr`: once a program makes a pipe, writing to an `os.File` may wait for the poller,
+and the check cannot tell which file is written. The message lives in a
 buffer of the runtime (1 KiB, longer messages are cut), and printing the trace reads the trace table and
 the stack (debugging.md section 5), so nothing allocates. Since a panic does not unwind, the stack the
 trace describes is still there while the handler runs.
@@ -2362,6 +2510,7 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | `//pu:noreturn` | function | the function never returns (lets the optimiser drop code after calls) |
 | `//pu:panic` | function | the program's panic handler, `func(p *rt.Panic)`; exactly one in freestanding and kernel builds (section 8.1) |
 | `//pu:blocking` | function (with or without a body) | calling it may wait (park the caller); interrupt handlers and the panic handler must not reach it (section 12.6) |
+| `//pu:scheduler` | package variable | the program's scheduler backend, of a type implementing `rt.Scheduler`; at most one in a program, replacing the hosted one (section 4.7) |
 | `//pu:nosimd` | function | the optimiser adds no vector instructions to it (implied by `//pu:interrupt`, and by kernel mode outside `//pu:fpu` functions) |
 | `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (section 12.3) |
 | `//pu:alloc` | function | allocates: may make strings in kernel mode, and only such functions may call it there (section 12.7) |
@@ -2369,8 +2518,9 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | `//pu:stack size` | `func main` | run the program on a stack of `size` bytes (`K`, `M` or `G` suffixes, 64K to 64G) that the hosted runtime reserves, maps as it is used and puts a 1 MiB guard region below; without it, main runs on the stack the system gave the process (usually 8 MiB). Hosted builds only |
 
 A program that recurses deeply checks how much stack remains with `rt.StackLeft()`, which returns the bytes
-between the caller's frame and the limit of the main thread's stack (the reserved stack's guard, or the
-process stack's resource limit), or `^uintptr(0)` where the limit is unknown. `rt.StackBounds` returns
+between the caller's frame and the limit of its stack: in a puroutine, the guard page below the
+puroutine's stack (section 4.7); on the main thread, the reserved stack's guard or the process stack's
+resource limit. It returns `^uintptr(0)` where the limit is unknown. `rt.StackBounds` returns
 the bounds, and a freestanding program that sets up its own stack records them with `rt.SetStackBounds`.
 
 ## 10. Assembly and C
@@ -2635,8 +2785,12 @@ A go statement on the path is reported the same way, as E2585 ("so it must not s
   noticing.)
 - **Assembly and C** are not looked into: a body-less function counts as not waiting unless its
   declaration is marked `//pu:blocking`.
-- **Non-blocking channel operations** must lower to runtime functions that are not marked
-  `//pu:blocking`, so that a `select` with `default` stays allowed.
+- **Non-blocking channel operations** lower to runtime functions that are not marked `//pu:blocking`
+  (`selectnb`, `closechan`), so that a `select` with `default` stays allowed; the waiting forms call
+  ones that are (`chansend1`, `chanrecv1`, `chanrecv2`, `selectgo`, `spawnGo`).
+- **The scheduler's `Wake`.** `rt.Ready` calls the bound scheduler's `Wake` (section 4.7), and interrupt
+  handlers may call `rt.Ready`, so `Wake` is checked as a root too, with the message "is the
+  scheduler's Wake, which interrupt handlers reach through rt.Ready".
 
 ### 12.7 Allocation in kernel mode
 
@@ -2672,8 +2826,8 @@ hold, and most have a `Clone`.
 
 | Package | Contents |
 |---|---|
-| `pluto/rt` | panic hook, program entry, memory copy and compare primitives the compiler calls, the scheduler interface, `Go`, `Yield` |
-| `pluto/sync` | `Mutex`, `RWMutex`, `WaitGroup`, `Once` over the scheduler |
+| `pluto/rt` | panic hook, program entry, memory copy and compare primitives the compiler calls, the scheduler contract (`Scheduler`, `Task`, `Switch`, `Park`, `Ready`, `Preempt`), `Go`, `Yield`, the hosted scheduler |
+| `pluto/sync` | `Mutex`, `RWMutex`, `WaitGroup` (with `Go`), `Once`, `Cond` over the scheduler; the operations that park are `//pu:blocking` |
 | `pluto/alloc` | allocators, the default allocator, `Use`/`Restore`, `Owned`/`Shared`/`Synced`, and the unchecked layer `Raw`/`New`/`Free` (section 7.1) |
 | `pluto/alloc/debug` | the checking allocator (section 7.3) |
 | `pluto/arena` | bump allocators; freeing into one does nothing, and `Reset` reclaims everything (section 6.6) |
@@ -2686,12 +2840,13 @@ hold, and most have a `Clone`.
 | `pluto/time` | `Duration`, `Time` in UTC with a monotonic reading, `Now`, `Since`, `Sleep` |
 | `pluto/flag` | command-line flags; a `FlagSet` owns its flags and their variables |
 | `pluto/syscall` | raw Linux system calls (hosted) |
-| `pluto/strings`, `pluto/bytes` | `strings.Builder`, which builds a string in a buffer it shares with the result (section 6.10); searching, comparison, case conversion, `Join`, `Repeat`, `Replace`, `FromUTF8` |
+| `pluto/strings`, `pluto/bytes` | `strings.Builder`, which builds a string in a buffer it shares with the result (section 6.10); searching, comparison, case conversion, `Join`, `Repeat`, `Replace`, `FromUTF8`; Go 1.24's iterators `Lines`, `SplitSeq`, `SplitAfterSeq`, `FieldsSeq`, `FieldsFuncSeq` |
 | `pluto/strconv` | `Itoa`, `FormatInt`, `Quote` returning strings, with `Append` forms that write into a caller's buffer; parsing |
+| `pluto/iter` | `Seq` and `Seq2` (section 4.10), and adaptors that allocate nothing: `Filter`, `Map`, `Limit`, `Concat` (each with a `2` form), `Enumerate`, `Keys`, `Values`, `Reduce`, `Count`, `Fill`. Go's `Pull` needs a coroutine per iterator and has no equivalent |
 | `pluto/bits` | bit operations (section 5.8) |
 | `pluto/math` | floating-point functions |
-| `pluto/hash` | `Map[K, V]` and `Set[K]`, owners that record their allocator |
-| `pluto/vec` | `Vec[T]`, a growable owner that records its allocator |
+| `pluto/hash` | `Map[K, V]` and `Set[K]`, owners that record their allocator; `All`, `Keys` and `Values` iterate in table order, the same for the same changes and seed |
+| `pluto/vec` | `Vec[T]`, a growable owner that records its allocator; `All`, `Values` and `Backward` iterate it, reading it as they go so the body may change it |
 | `pluto/sort` | sorting without allocation |
 | `pluto/sync/atomic` | atomic integers and pointers |
 | `pluto/unicode/utf8` | UTF-8 encoding and decoding |

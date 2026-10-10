@@ -186,6 +186,10 @@ func (b *Block) RemoveSucc(i int) {
 	b.Succs = b.Succs[:n]
 }
 
+// RemovePred removes predecessor i of b and the matching phi arguments,
+// leaving the predecessor's successor edge for the caller to redirect.
+func (b *Block) RemovePred(i int) { b.removePred(i) }
+
 // removePred removes predecessor i of b and the matching phi arguments.
 func (b *Block) removePred(i int) {
 	n := len(b.Preds) - 1
@@ -266,6 +270,13 @@ type Slot struct {
 	// padding between fields and after the last one. Lowering derives them
 	// from the type's layout, independently of the leaves.
 	Pads []Pad
+
+	// Closure marks a closure record: lowering stores its words when it
+	// makes the closure, each store writing the same value every time it
+	// runs, and nothing writes to it through its address afterwards. A
+	// load from it may therefore take the value of the store at the same
+	// offset, wherever the load is.
+	Closure bool
 
 	// Offset is assigned by frame layout, relative to the frame base.
 	Offset int64
@@ -380,6 +391,10 @@ const (
 	// PragmaNoSIMD (//pu:nosimd) keeps the optimiser from introducing
 	// vector instructions the function's own code does not ask for.
 	PragmaNoSIMD
+	// PragmaBlocking (//pu:blocking) marks a function that may park the
+	// running puroutine or block its thread, which interrupt context must
+	// not reach (language spec section 9).
+	PragmaBlocking
 )
 
 // MayVectorize reports whether optimisations may introduce vector

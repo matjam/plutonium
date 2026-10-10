@@ -21,15 +21,25 @@ import (
 // ordinary call site.
 const inlineBudget = 80
 
+// singleUseBudget is the largest callee inlined at the only call site of a
+// closure made in one place in the program, such as a loop body over a
+// function: the copy replaces the original rather than adding to it.
+const singleUseBudget = 600
+
 // Each caller has a growth budget: inlining into it stops once it would
 // grow past growthFactor times its size before inlining, or growthMin
 // values for a small one, and never past maxCallerSize. This applies to
-// //pu:inline callees too. Without it, a function making many calls to
-// inlinable functions grows without bound, and register allocation, which
-// is superlinear in the size of a function, comes to dominate the compile.
-// The values were chosen by measurement: none of the benchmarks reaches
-// the budget, and an inline-heavy fuzzer program that grew functions from
-// 1,000 to 20,000 values compiles in a tenth of the time.
+// //pu:inline callees and to calls through closures too. Without it, a
+// function making many calls to inlinable functions grows without bound,
+// and register allocation, which is superlinear in the size of a function,
+// comes to dominate the compile. The values were chosen by measurement:
+// none of the benchmarks reaches the budget, and an inline-heavy fuzzer
+// program that grew functions from 1,000 to 20,000 values compiles in a
+// tenth of the time.
+//
+// A caller's size before inlining counts the closures used once that it
+// makes (the bodies of its loops over functions, say), since they are
+// part of its source: inlining them moves code rather than copying it.
 const (
 	growthFactor  = 4
 	growthMin     = 5000
@@ -57,10 +67,30 @@ func Inline(p *ssa.Program) {
 			inCycle.Set(scc[0], true)
 		}
 	}
+	// The functions referred to once in the whole program (closures,
+	// mostly, such as the bodies of loops over functions): inlining such
+	// a function at its only call site does not duplicate it.
+	// A function called statically is not counted as used once.
+	refs := compat.NewMap[*ssa.Sym, int](0)
+	for _, f := range p.Funcs {
+		for _, b := range f.Blocks {
+			for _, v := range b.Values {
+				switch v.Op {
+				case ssa.OpFuncAddr:
+					*compat.MapSlot(refs, v.Aux.(*ssa.Sym))++
+				case ssa.OpCall:
+					*compat.MapSlot(refs, v.Aux.(*ssa.Sym)) += 2
+				}
+			}
+		}
+		if len(f.Exports) > 0 {
+			*compat.MapSlot(refs, f.Sym) += 2
+		}
+	}
 	sizes := compat.NewMap[*ssa.Func, int](0)
 	for _, scc := range sccs { // callees first
 		for _, f := range scc {
-			if inlineInto(f, funcs, sizes, inCycle, scc) {
+			if inlineInto(f, funcs, sizes, inCycle, scc, refs) {
 				cleanup(f)
 			}
 			sizes.Set(f, funcSize(f))
@@ -111,16 +141,40 @@ func funcSize(f *ssa.Func) int {
 	return n
 }
 
+// sourceSize is f's size before inlining for its growth budget: its own
+// size and that of each closure used once that it makes.
+func sourceSize(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], sizes *hash.Map[*ssa.Func, int], refs *hash.Map[*ssa.Sym, int]) int {
+	n := funcSize(f)
+	for _, b := range f.Blocks {
+		for _, v := range b.Values {
+			if v.Op != ssa.OpFuncAddr || compat.MapAt(refs, v.Aux.(*ssa.Sym)) != 1 {
+				continue
+			}
+			if g := compat.MapAt(funcs, v.Aux.(*ssa.Sym)); g != nil && g != f {
+				n += compat.MapAt(sizes, g)
+			}
+		}
+	}
+	return n
+}
+
 // inlineInto inlines eligible calls in f, reporting whether it changed f.
-func inlineInto(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], sizes *hash.Map[*ssa.Func, int], inCycle *hash.Map[*ssa.Func, bool], scc []*ssa.Func) bool {
+func inlineInto(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], sizes *hash.Map[*ssa.Func, int], inCycle *hash.Map[*ssa.Func, bool], scc []*ssa.Func, refs *hash.Map[*ssa.Sym, int]) bool {
 	changed := false
 	sameSCC := compat.NewMap[*ssa.Func, bool](0)
 	for _, g := range scc {
 		sameSCC.Set(g, true)
 	}
-	limit := min(maxCallerSize, max(growthMin, growthFactor*funcSize(f)))
-	for rounds := 0; rounds < 4; rounds++ {
-		var sites []*ssa.Value
+	limit := min(maxCallerSize, max(growthMin, growthFactor*sourceSize(f, funcs, sizes, refs)))
+	// Each round can expose more: a closure inlined in one round makes the
+	// calls through the closures it was given direct in the next (a loop
+	// over a function: first its iterator, then the loop body).
+	for rounds := 0; rounds < 8; rounds++ {
+		if ForwardClosureLoads(f) {
+			changed = true
+		}
+		var candidates []*ssa.Value
+		calls := compat.NewMap[*ssa.Func, int](0)
 		doomed := ssa.DoomedBlocks(f)
 		for _, b := range f.Blocks {
 			if doomed[b.ID] {
@@ -128,10 +182,7 @@ func inlineInto(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], sizes *hash.M
 				continue
 			}
 			for _, v := range b.Values {
-				if v.Op != ssa.OpCall {
-					continue
-				}
-				g := compat.MapAt(funcs, v.Aux.(*ssa.Sym))
+				g := callTarget(v, funcs)
 				if g == nil || g == f || compat.MapAt(sameSCC, g) && compat.MapAt(inCycle, g) {
 					continue
 				}
@@ -145,9 +196,18 @@ func inlineInto(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], sizes *hash.M
 					// are laid out for a different convention.
 					continue
 				}
-				if !shouldInline(g, compat.MapAt(sizes, g)) {
-					continue
-				}
+				candidates = compat.Append(candidates, v)
+				*compat.MapSlot(calls, g)++
+			}
+		}
+		var sites []*ssa.Value
+		for _, v := range candidates {
+			g := callTarget(v, funcs)
+			budget := inlineBudget
+			if compat.MapAt(refs, g.Sym) == 1 && compat.MapAt(calls, g) == 1 {
+				budget = singleUseBudget
+			}
+			if shouldInline(g, compat.MapAt(sizes, g), budget) {
 				sites = compat.Append(sites, v)
 			}
 		}
@@ -159,11 +219,11 @@ func inlineInto(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], sizes *hash.M
 		// The size is kept up to date by adding each callee's size
 		// rather than recounting, which would be quadratic.
 		sort.SortStableFunc(sites, func(a, b *ssa.Value) bool {
-			return compat.MapAt(sizes, compat.MapAt(funcs, a.Aux.(*ssa.Sym))) < compat.MapAt(sizes, compat.MapAt(funcs, b.Aux.(*ssa.Sym)))
+			return compat.MapAt(sizes, callTarget(a, funcs)) < compat.MapAt(sizes, callTarget(b, funcs))
 		})
 		size := funcSize(f)
 		for _, v := range sites {
-			g := compat.MapAt(funcs, v.Aux.(*ssa.Sym))
+			g := callTarget(v, funcs)
 			if size+compat.MapAt(sizes, g)-callSize > limit {
 				continue
 			}
@@ -180,6 +240,21 @@ func inlineInto(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], sizes *hash.M
 	return changed
 }
 
+// callTarget returns the function a call calls, if it is known and
+// compiled with the program: the target of a static call, or of a call
+// through a closure whose code pointer is known.
+func callTarget(v *ssa.Value, funcs *hash.Map[*ssa.Sym, *ssa.Func]) *ssa.Func {
+	switch v.Op {
+	case ssa.OpCall:
+		return compat.MapAt(funcs, v.Aux.(*ssa.Sym))
+	case ssa.OpCallInd:
+		if sym := closureCallee(v); sym != nil {
+			return compat.MapAt(funcs, sym)
+		}
+	}
+	return nil
+}
+
 // returns reports whether g has a return block.
 func returns(g *ssa.Func) bool {
 	for _, b := range g.Blocks {
@@ -190,7 +265,7 @@ func returns(g *ssa.Func) bool {
 	return false
 }
 
-func shouldInline(g *ssa.Func, size int) bool {
+func shouldInline(g *ssa.Func, size, budget int) bool {
 	switch {
 	case g.Pragmas&ssa.PragmaNoInline != 0, g.Pragmas&ssa.PragmaInterrupt != 0:
 		return false
@@ -202,7 +277,7 @@ func shouldInline(g *ssa.Func, size int) bool {
 	case len(g.Exports) > 0:
 		// Exported functions are still inlinable; their symbol stays too.
 	}
-	return size <= inlineBudget
+	return size <= budget
 }
 
 // inlineCall replaces call v in f with a copy of g's body.
@@ -240,6 +315,7 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 		ns := f.NewSlot(s.Name, s.Size, s.Align)
 		ns.Leaves = s.Leaves
 		ns.Pads = s.Pads
+		ns.Closure = s.Closure
 		slotMap.Set(s, ns)
 	}
 
@@ -255,6 +331,12 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 	valMap := compat.NewMap[*ssa.Value, *ssa.Value](0)
 	args := v.Args[:len(v.Args)-1]
 	mem := v.Args[len(v.Args)-1]
+	var ctx *ssa.Value
+	if v.Op == ssa.OpCallInd {
+		// A call through a closure: the code pointer, then the record.
+		ctx = args[1]
+		args = args[2:]
+	}
 	for _, gb := range g.Blocks {
 		nb := compat.MapAt(blockMap, gb)
 		for _, gv := range gb.Values {
@@ -265,6 +347,11 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 			case ssa.OpInitMem:
 				valMap.Set(gv, mem)
 				continue
+			case ssa.OpClosurePtr:
+				if ctx != nil {
+					valMap.Set(gv, ctx)
+					continue
+				}
 			}
 			op := gv.Op
 			if op == ssa.OpReturnAddr {
@@ -418,7 +505,10 @@ func callGraphSCCs(p *ssa.Program, funcs *hash.Map[*ssa.Sym, *ssa.Func]) [][]*ss
 		onStack.Set(f, true)
 		for _, b := range f.Blocks {
 			for _, v := range b.Values {
-				if v.Op != ssa.OpCall {
+				// A function whose address f takes may be called
+				// through a closure f makes: count it as a callee, so
+				// that it is optimised before f.
+				if v.Op != ssa.OpCall && v.Op != ssa.OpFuncAddr {
 					continue
 				}
 				g := compat.MapAt(funcs, v.Aux.(*ssa.Sym))

@@ -14,9 +14,10 @@ import (
 // counted strings (language spec section 6.10) with the debug allocator and
 // its leak report on, at -O0 and -O2: every string they make must be freed
 // exactly once, through copies, struct fields, arrays, slices, interface
-// boxes, closures, deferred calls, containers and every way out of a scope.
+// boxes, closures, deferred calls, containers, puroutines, channels, range
+// over functions and every way out of a scope.
 func TestStringsLeakFree(t *testing.T) {
-	for _, prog := range []string{"run/strcount", "lib/strbuild", "lib/strutf8", "lib/strcontainers", "run/fmtquote"} {
+	for _, prog := range []string{"run/strcount", "lib/strbuild", "lib/strutf8", "lib/strcontainers", "lib/strconc", "run/fmtquote"} {
 		file := filepath.Join("..", "..", "testdata", prog)
 		src, err := os.ReadFile(file + ".p")
 		if err != nil {

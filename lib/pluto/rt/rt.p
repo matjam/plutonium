@@ -369,6 +369,25 @@ func panicValue(v any) {
 	fatal(v)
 }
 
+// panicRangeState reports an iterator that called the yield function of a
+// range-over-func loop when it may not; state is the loop's state, numbered
+// as Go's abi.RF_* constants.
+func panicRangeState(state int) {
+	startPanic()
+	printString("runtime error: range function ")
+	switch state {
+	case 0:
+		printString("continued iteration after function for loop body returned false")
+	case 2:
+		printString("continued iteration after loop body panic")
+	case 3:
+		printString("continued iteration after whole loop exit")
+	default:
+		printString("recovered a loop body panic and did not resume panicking")
+	}
+	fatal(nil)
+}
+
 func panicMessage(a, b, c, d, e string) {
 	startPanic()
 	printString(a)
@@ -406,9 +425,9 @@ func printBool(b bool) {
 	}
 }
 
-func printInt(v int64)              { writeInt(nil, v) }
-func printUint(v uint64)            { writeUint(nil, v) }
-func printPointer(p unsafe.Pointer) { writePointer(nil, uintptr(p)) }
+func printInt(v int64)              { writeInt(Console{}, v) }
+func printUint(v uint64)            { writeUint(Console{}, v) }
+func printPointer(p unsafe.Pointer) { writePointer(Console{}, uintptr(p)) }
 
 // A Writer receives the text of a panic report (Panic.Print and
 // Panic.PrintTrace). It has the method of pluto/io.Writer, so any
@@ -418,8 +437,16 @@ type Writer interface {
 }
 
 // Console is a Writer that writes where print and println do: standard
-// error in hosted builds, the function registered with SetConsole in
+// error in hosted builds, with a write system call that never waits for
+// the scheduler, and the function registered with SetConsole in
 // freestanding builds.
+//
+// The functions below that format text for a Writer are generic in its
+// type, so that writing to the console calls Console.Write directly. The
+// interrupt-context check (language spec section 12.6) follows a call
+// through the Writer interface into every Writer the program has, which
+// may include files that wait for the poller; a direct call reaches only
+// the console.
 type Console struct{}
 
 // Write writes p to the console.
@@ -430,25 +457,20 @@ func (Console) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// writeBytes writes n bytes at p to w, or to the console if w is nil.
-func writeBytes(w Writer, p unsafe.Pointer, n int) {
-	if n <= 0 {
-		return
+// writeBytes writes n bytes at p to w.
+func writeBytes[W Writer](w W, p unsafe.Pointer, n int) {
+	if n > 0 {
+		w.Write(unsafe.Slice((*byte)(p), n))
 	}
-	if w == nil {
-		printBytes(p, n)
-		return
-	}
-	w.Write(unsafe.Slice((*byte)(p), n))
 }
 
-func writeString(w Writer, s string) {
+func writeString[W Writer](w W, s string) {
 	if len(s) > 0 {
 		writeBytes(w, unsafe.Pointer(unsafe.StringData(s)), len(s))
 	}
 }
 
-func writeInt(w Writer, v int64) {
+func writeInt[W Writer](w W, v int64) {
 	if v < 0 {
 		writeString(w, "-")
 		writeUint(w, uint64(-v))
@@ -457,7 +479,7 @@ func writeInt(w Writer, v int64) {
 	writeUint(w, uint64(v))
 }
 
-func writeUint(w Writer, v uint64) {
+func writeUint[W Writer](w W, v uint64) {
 	var buf [20]byte
 	i := len(buf)
 	for {
@@ -471,7 +493,7 @@ func writeUint(w Writer, v uint64) {
 	writeBytes(w, unsafe.Pointer(&buf[i]), len(buf)-i)
 }
 
-func writePointer(w Writer, v uintptr) {
+func writePointer[W Writer](w W, v uintptr) {
 	const digits = "0123456789abcdef"
 	var buf [18]byte
 	i := len(buf)
@@ -503,21 +525,36 @@ func memmove(dst, src unsafe.Pointer, n int) {
 	if n <= 0 || dst == src {
 		return
 	}
+	// Eight bytes at a time (x86-64 allows unaligned words), then the
+	// rest. Forward when dst is below src or the ranges do not overlap,
+	// backward otherwise, so every word is read before it is overwritten.
 	d := uintptr(dst)
 	s := uintptr(src)
 	if d < s || d >= s+uintptr(n) {
-		for i := 0; i < n; i++ {
+		i := 0
+		for ; i+8 <= n; i += 8 {
+			*(*uint64)(unsafe.Add(dst, i)) = *(*uint64)(unsafe.Add(src, i))
+		}
+		for ; i < n; i++ {
 			*(*byte)(unsafe.Add(dst, i)) = *(*byte)(unsafe.Add(src, i))
 		}
 		return
 	}
-	for i := n - 1; i >= 0; i-- {
+	i := n
+	for ; i >= 8; i -= 8 {
+		*(*uint64)(unsafe.Add(dst, i-8)) = *(*uint64)(unsafe.Add(src, i-8))
+	}
+	for i--; i >= 0; i-- {
 		*(*byte)(unsafe.Add(dst, i)) = *(*byte)(unsafe.Add(src, i))
 	}
 }
 
 func memclr(p unsafe.Pointer, n int) {
-	for i := 0; i < n; i++ {
+	i := 0
+	for ; i+8 <= n; i += 8 {
+		*(*uint64)(unsafe.Add(p, i)) = 0
+	}
+	for ; i < n; i++ {
 		*(*byte)(unsafe.Add(p, i)) = 0
 	}
 }
@@ -614,18 +651,44 @@ type Allocator interface {
 
 var defaultAllocator Allocator
 
-// DefaultAllocator returns the current default allocator, or nil.
-func DefaultAllocator() Allocator { return defaultAllocator }
+// DefaultAllocator returns the current default allocator: the running
+// puroutine's, if it installed one with UseAllocator, otherwise the
+// program-wide default. It returns nil if there is neither.
+func DefaultAllocator() Allocator {
+	if g := current(); g != nil && g.alloc != nil {
+		return g.alloc
+	}
+	return defaultAllocator
+}
 
-// SetDefaultAllocator replaces the default allocator.
+// SetDefaultAllocator replaces the program-wide default allocator.
 func SetDefaultAllocator(a Allocator) { defaultAllocator = a }
+
+// UseAllocator makes a the running puroutine's default allocator, in place
+// of the program-wide default, and returns the allocator it replaced
+// (nil if the puroutine had none of its own); UseAllocator(prev) restores
+// it. Other puroutines, including those this one starts, are not affected
+// (language spec section 7.1). Outside a puroutine (in a scheduler's own
+// context) it changes the program-wide default instead.
+func UseAllocator(a Allocator) Allocator {
+	g := current()
+	if g == nil {
+		prev := defaultAllocator
+		defaultAllocator = a
+		return prev
+	}
+	prev := g.alloc
+	g.alloc = a
+	return prev
+}
 
 // alloc implements new and make without an explicit allocator.
 func alloc(size, align uintptr) unsafe.Pointer {
-	if defaultAllocator == nil {
+	a := DefaultAllocator()
+	if a == nil {
 		panicMessage("no allocator: call alloc.SetDefault before allocating", "", "", "", "")
 	}
-	return allocAt(defaultAllocator, size, align, CallerPC())
+	return allocAt(a, size, align, CallerPC())
 }
 
 // allocWith implements new and make with an explicit allocator.
@@ -644,11 +707,11 @@ func allocAt(a Allocator, size, align, pc uintptr) unsafe.Pointer {
 		size = 1
 	}
 	if TrackSites {
-		allocSite = pc
+		SetAllocSite(pc)
 	}
 	p := a.Alloc(size, align)
 	if TrackSites {
-		allocSite = 0
+		SetAllocSite(0)
 	}
 	if p == nil {
 		panicMessage("out of memory", "", "", "", "")

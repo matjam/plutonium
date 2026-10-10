@@ -56,7 +56,7 @@ later takes the next free number and is listed in the section where it belongs.
     The library conventions and `errors.New` as a static error per call site (design 9.1) are done; the
     escape checks of item 5 remain. Reconciling allocated errors with the ownership model is
     **proposed** (language spec section 14.6): they become `synced` objects that `error` values count, so
-    each is released exactly once and `errors.Free` goes away. With counted strings (item 56) an error's
+    each is released exactly once and `errors.Free` goes away. With counted strings (item 57) an error's
     text is a string it keeps: `fmt.Errorf`'s message, `*os.PathError`'s path.
 12. **`//pu:extern` C struct classification** (done): System V eightbyte classification for aggregate
     parameters and results, hidden result pointers, several results as a struct, export wrappers and
@@ -73,35 +73,51 @@ later takes the next free number and is listed in the section where it belongs.
     and prints its trace without allocating; one panic at a time with a last resort for nested panics
     (language spec section 8.1). Replaces `rt.SetPanicHandler`. Tested under QEMU
     (`testdata/kernel/panic`: explicit panic, bounds error, page fault in an interrupt handler, nested
-    panic) and hosted. Hosted panics report CPU 0 until hosted programs have worker threads (item 14).
+    panic) and hosted. Hosted panics report CPU 0 and name the puroutine that panicked instead (item 14).
 55. **Interrupt context cannot block** (done): a whole-program check from every `//pu:interrupt` handler
     and the panic handler against blocking channel operations, `go`, `//pu:blocking` functions and
     allocators that may wait, conservative through interfaces and func values (language spec section
-    12.6). Channel operations and `go` are found in the source; until items 14 to 16 land they are
-    tested on the scan alone, and `pluto/sync` must mark its parking operations `//pu:blocking`.
+    12.6). Channel operations and `go` are found in the source, and their lowering calls `//pu:blocking`
+    runtime entries, so the walk sees them through library code too; `pluto/sync` marks its parking
+    operations `//pu:blocking`, and the bound scheduler's `Wake` is checked as interrupt context.
 
 ## Concurrency
 
-14. **Puroutines and the scheduler** (planned): `go`, `rt.Go`, fixed stacks with guard pages, the
-    four-operation scheduler interface, the hosted work-stealing scheduler with signal preemption, and
-    `rt.SetScheduler` for kernels. The type checker rejects `go` today.
-15. **Channels and `select`** (planned): `chan T`, send, receive, `close`, `range`, `select`, reference
-    counted channel objects. The type checker rejects channel types today.
-16. **`pluto/sync`** (planned): `Mutex`, `RWMutex`, `WaitGroup`, `Once` over the scheduler, with the
-    guarantees of memory-model.md section 3.4. Only `pluto/sync/atomic` exists.
-17. **Thread-safe default allocator** (planned): per-worker caches in front of shared slabs, and `Free`
-    synchronised before reuse (memory-model.md section 3.8). Today's `alloc.Slab` is single-threaded.
+14. **Puroutines and the scheduler** (done): `go`, `rt.Go`, fixed stacks with guard pages, the
+    runtime's task mechanism (`rt.Switch`, `rt.Park`/`rt.Ready` with a permit, `rt.Preempt`) and the
+    hosted work-stealing scheduler on Go's M/P/G design: per-processor run queues with stealing,
+    worker threads made with `clone`, preemption by `SIGURG` from a monitor thread every 10 ms, hand-off
+    of a processor blocked in a system call (`os` file I/O, `time.Sleep`, `Process.Wait` and the waits
+    of `os/exec`), an epoll poller for pipes from `os.Pipe` (`File.Fd` makes one blocking again, as in
+    Go, so `os/exec` can hand it to a child), and deadlock detection (language spec section 4.7; abi.md
+    section 12). `rt.StackLeft` measures a puroutine's own stack. The sendable rules are checked
+    (`shared[T]` never crosses, frame views are rejected syntactically, and closures in the current
+    frame are a compile error, E2594, where the compiler can tell, and panic at the `go` otherwise).
+    Follow-ups: timers and `ParkUntil` with item 45; traces of parked puroutines (`rt.TraceTask`); one
+    waiter per file in the poller, and closing a file does not wake it; a program that binds its own
+    hosted backend runs on one thread; spawning costs about twice Go's.
+15. **Channels and `select`** (done): `chan T`, send, receive, `close`, `range`, `select` with Go's
+    random choice, `len`, `cap` and `make(chan T, n, a)`, on Go's design (a lock per channel, waiters
+    queued in their frames, values copied directly to a waiting receiver). Channels are freed with
+    `alloc.FreeChan` until item 48 counts them. Buffered channels run at about a third of Go's speed.
+16. **`pluto/sync`** (done): `Mutex`, `RWMutex`, `WaitGroup` (with `Go`), `Once` and `Cond` over the
+    scheduler, with the guarantees of memory-model.md section 3.4. Parking operations are
+    `//pu:blocking`; `TryLock` is not.
+17. **Thread-safe default allocator** (done): `alloc.SyncSlab`, per-processor caches in front of shared
+    slabs, is the hosted default; the debug allocator's lock is real; allocation sites are per
+    puroutine (memory-model.md section 3.8).
 18. **Stack size analysis and `-stackreport`** (planned): compute the stack a spawned function needs when
-    its call graph has no recursion or indirect calls.
-53. **Scheduler contract for kernels** (proposed; [scheduler contract](plans/2026-10-09-scheduler-contract.md)):
-    the interface and rules any kernel implements to run puroutines, with no kernel scheduler in the
-    standard library: a permit-based `Park`/`Ready`, interrupt-safe `Ready`, backend-allocated task records
-    embedding `rt.Task`, a current-task slot, a preemption count, `rt.Preempt` on the interrupted task's
-    stack, stack requests carrying the proven bound, and link-time binding with `//pu:scheduler` instead of
-    `rt.SetScheduler`. These amend item 14 and should be settled before it lands. Its section 9 lists later
-    requirements from PlutoniumOS (a userland target, `//pu:nonblocking`, a `portable` constraint). The
-    PlutoniumOS task model they serve is in PlutoniumOS: docs/architecture/lightweight-tasks.md
-    (github.com/matjam/plutoniumos, private).
+    its call graph has no recursion or indirect calls. Stack requests already carry a `Proven` bound,
+    always 0 today.
+53. **Scheduler contract for kernels** (done; [scheduler contract](plans/2026-10-09-scheduler-contract.md),
+    abi.md section 12): the interface and rules any kernel implements to run puroutines, with no kernel
+    scheduler in the standard library: a permit-based `Park`/`Ready`, interrupt-safe `Ready`,
+    backend-allocated task records embedding `rt.Task`, a current-task slot (`%gs:8` in kernels), a
+    preemption count, `rt.Preempt` on the interrupted task's stack, stack requests carrying the proven
+    bound, and link-time binding with `//pu:scheduler`. A single-processor test kernel with timer
+    preemption runs under QEMU. Its section 9 lists later requirements from PlutoniumOS (a userland
+    target, `//pu:nonblocking`, a `portable` constraint). The PlutoniumOS task model they serve is in
+    PlutoniumOS: docs/architecture/lightweight-tasks.md (github.com/matjam/plutoniumos, private).
 
 ## Language
 
@@ -125,10 +141,17 @@ later takes the next free number and is listed in the section where it belongs.
 21. **Default parameter values** (done): language spec section 5.1, with the open questions settled
     there (variadic functions, function values, interface methods, generics, `f(g())`). The library's
     `F`/`FIn` pairs are single functions with a trailing allocator defaulting to `alloc.Default()`;
-    `new` and `make` take an optional allocator (section 4.2). `make(chan T, n, a)` parses the allocator
-    the same way and waits for item 15.
-22. **Range over func and iterators** (planned): `for x := range f` is rejected with "range over
-    functions is not supported yet".
+    `new` and `make` take an optional allocator (section 4.2), and so does `make(chan T, n, a)`.
+22. **Range over func and iterators** (done): language spec section 4.10. Loop bodies are yield
+    closures in the enclosing frame, with Go's exit codes and state checks; iterator constructors are
+    closure constructors (section 4.5), expanded in the caller. `pluto/iter` has `Seq`, `Seq2` and
+    allocation-free adaptors; `vec.Vec`, `hash.Map`, `hash.Set`, `strings` and `bytes` have iterators.
+    The inliner inlines calls through known closures and SimplifyCFG threads branches on phis of
+    constants, so a loop over `v.All()` compiles like one over `v.Slice()`. Follow-ups: the escape
+    checks (item 5) should reject an iterator that keeps `yield`; `defer` in a loop body runs at most
+    once per call (item 28); `ring[T, N]` has no iterator method yet; no `iter.Pull` without
+    coroutines; expanded closures are named after the caller (`main.main.func1`), not the
+    constructor, in traces.
 23. **Richer type descriptors** (done; abi.md section 5): element types, lengths, field offsets, types and
     names, the `*T` descriptor for types with pointer methods, and Go's `reflect` type names, emitted for
     converted types and the types they are made of, read through `rt.Type`. Field names follow
@@ -148,9 +171,11 @@ later takes the next free number and is listed in the section where it belongs.
 26. **`alloc.Use` signature** (done): the spec now gives the library's `Use(a) Restore` and
     `defer alloc.Use(a).Restore()` (language spec section 7.1); `Use(a) (restore func())` could not be
     written under section 4.5.
-27. **Per-puroutine `alloc.Use`** (planned): the override belongs to the puroutine that installs it; today
-    it replaces the program-wide default.
+27. **Per-puroutine `alloc.Use`** (done): the override belongs to the puroutine that installs it, and a
+    puroutine spawned under it starts with the program-wide default.
 28. **`defer` in loops** (planned, possibly never): rejected today because it needs unbounded stack.
+    In the body of a range-over-func loop a `defer` is accepted when every path after it leaves the
+    loop, so it runs at most once (language spec section 4.10).
 29. **`min`/`max` of strings and comparison of large arrays** (planned): rejected with "not supported
     yet".
 48. **Counted references and `weak[P]`** (planned; language spec sections 5.6 and 6.5): the allocation
@@ -171,7 +196,7 @@ later takes the next free number and is listed in the section where it belongs.
     - owning interfaces (`type R owner interface {...}`) that move owners in, and ordinary interfaces that
       lend them (section 4.4);
     - counted allocated errors (section 14.6; item 11).
-56. **Counted strings** (done; language spec section 6.10, abi.md section 1.1, memory-model.md section
+57. **Counted strings** (done; language spec section 6.10, abi.md section 1.1, memory-model.md section
     3.7): `string` is an immutable, reference-counted value of three words, `{ptr, len, ctl}`, whose
     control word points at the buffer's header (count, allocator, size) or holds only flags for a static
     or `unsafe.String` string, which is never counted. Runtime `+` and `+=` (one allocation for a chain),
@@ -186,14 +211,18 @@ later takes the next free number and is listed in the section where it belongs.
     `vec.Vec`, `hash.Map`, `hash.Set`, `alloc.Free`, `flag.FlagSet` and the error types release their
     strings. `fmt.Sprintf`, `strconv.Itoa`, `strings.Join` and the rest return strings again, as do
     `os.Getwd`, `filepath.Join` and `time.Duration.String`, with `Append` forms kept. In kernel mode the
-    allocating operations need `//pu:alloc` (E2543, E2544). Measured (2026-10-10, `bench`, Pu/Rust
+    allocating operations need `//pu:alloc` (E2544, E2545). Measured (2026-10-10, `bench`, Pu/Rust
     geomean): 1.03 before, 1.00 after, within the noise of a busy machine, since no benchmark builds
     strings in its loop. On a loop that passes struct fields to a search function, removing holds that
     no call can release (`opt.ElideStringHolds`) saves about 30%; atomic counts make a loop that stores
     a heap string five times slower than plain ones, which is why counts stay plain until
-    `rt.SetThreaded`. Remaining:
-    - the scheduler of item 14 must call `rt.SetThreaded` before its second thread runs, and puroutine
-      tests must cover strings sent between puroutines;
+    `rt.SetThreaded`, which the runtime calls when the first puroutine starts (a puroutine may preempt
+    another in the middle of a plain increment) and before it starts a thread. `go`
+    statements give the new puroutine references to the strings in their arguments, a send hands the
+    channel one, `alloc.FreeChan` releases the strings still buffered, and the bodies of range-over-func
+    loops count like the function they are in (`testdata/lib/strconc.p`, leak-checked). The storage that
+    a defer statement's arguments keep in such a body (interface boxes, literals, variadic arrays) is in
+    the enclosing function's frame, where the deferred call runs. Remaining:
     - interface boxes hold their string until the function returns; a box used only as a call's argument
       could be a statement temporary;
     - `(string, error)` has five leaves and returns through memory; a sixth result register would keep
@@ -257,24 +286,24 @@ later takes the next free number and is listed in the section where it belongs.
     and a fixed buffer. Kernel builds print the bits, as `pluto/fmt` does.
 45. **`time`** (in progress): `pluto/time` has `Duration` (with `String`, `AppendString` and `ParseDuration`),
     `Time` in UTC with a monotonic reading, the calendar, `Now`, `Since`, `Until` and a thread-blocking
-    `Sleep` (item 54). Time zones, layout-based formatting and timers over the scheduler remain.
+    `Sleep` (item 56) that hands its processor to another worker meanwhile (item 14). Time zones, layout-based formatting and timers over the scheduler remain.
 46. **`net`** (planned, hosted): sockets over the epoll poller of item 14.
-47. **`fmt.Sprintf` returns a string** (done, with item 56): `Sprintf`, `Sprint` and `Sprintln` return
+47. **`fmt.Sprintf` returns a string** (done, with item 57): `Sprintf`, `Sprint` and `Sprintln` return
     counted strings, built in a counted buffer of `pluto/fmt`'s own, so `fmt` still need not import
     `pluto/strings`; `Bprintf` keeps formatting into a caller's buffer. `selfhost/pu.Sprintf`, which
-    returns a `strings.Builder` for translated code (item 52), can go (item 56).
+    returns a `strings.Builder` for translated code (item 52), can go (item 57).
 51. **Owner types in the library** (planned; language spec sections 6.4 and 6.6): declare `vec.Vec`,
     `hash.Map`, `hash.Set`, `strings.Builder` and growable arenas `owner`, and turn their `Free` methods
     into `Drop`; make `os.File` an owner returned by value from `Open`, `Create` and `OpenFile` that
     closes on drop; add `Clone` to `Vec` and `Map`. (`strings.Buf`, an owning string buffer, is not
-    needed now that strings are counted, item 56: `strings.Builder`'s `String` shares its buffer.) Done ahead of the keyword (item 52): `Drop` on `vec.Vec`,
+    needed now that strings are counted, item 57: `strings.Builder`'s `String` shares its buffer.) Done ahead of the keyword (item 52): `Drop` on `vec.Vec`,
     `hash.Map`, `hash.Set` and `strings.Builder` (beside `Free`), `Clone` on `Vec`, `Map` and `Set`,
     `Map.At`, zero `Vec`s and `Map`s that take the default allocator when they first grow, and the
-    arenas' `New[T]()` and `Slice[T](n)` of section 4.2. `arena.Chunked` (item 54) already releases through `Drop`;
+    arenas' `New[T]()` and `Slice[T](n)` of section 4.2. `arena.Chunked` (item 56) already releases through `Drop`;
     declaring it `owner` is a one-line change to its type declaration, as it is for `os.DirEntries`,
-    `exec.Cmd` and `flag.FlagSet` (item 54). Converting the OS layer: `Open`, `Create`, `OpenFile` and
+    `exec.Cmd` and `flag.FlagSet` (item 56). Converting the OS layer: `Open`, `Create`, `OpenFile` and
     `Pipe` return `os.File` by value. (`Getwd`, `MkdirTemp`, `exec.LookPath` and the `filepath`
-    functions return strings since item 56.)
+    functions return strings since item 57.)
 52. **The `pu` mirror package for self-hosting** (done; migrating the compiler to it is not started): a
     Go package `pu` with `Map`, `Vec`, `Buf` and the other library owners, mirroring the Plutonium API,
     which the compiler's Go sources migrate to so that go2pu translates them one to one. Specified as an
@@ -282,13 +311,13 @@ later takes the next free number and is listed in the section where it belongs.
     `internal/pu` has `Vec`, `Map`, `Set`, their iterators, `Buf`, `Sprintf` and `New`, each with a
     `noCopy` marker so that go vet reports copies (Go's use after move). go2pu maps each name to
     `vec.Vec`, `hash.Map`, `hash.Set`, `hash.Iter`, `hash.SetIter` and `strings.Builder` (`strings.Buf` once
-    it exists), `Sprintf` to `selfhost/pu.Sprintf` (which `fmt.Sprintf` can replace, item 56), and `New` to `selfhost/pu.New`, which allocates in the phase arena (the
+    it exists), `Sprintf` to `selfhost/pu.Sprintf` (which `fmt.Sprintf` can replace, item 57), and `New` to `selfhost/pu.New`, which allocates in the phase arena (the
     default allocator the driver installs): under the accepted `new` proposal `new(T)` returns
     `owned[T]`, which a `*T` field cannot hold, so arena allocation is written `pu.New` in Go.
     `TestPuMirrorsLibrary` checks every name and method against the library; the `pudemo` demo prints
     the same output from Go and from its translation at `-O0` and `-O2`. go2pu's translation of escaping
     `&T{...}` and of variables Go moves to the heap emits `pu.New` too, instead of `new`.
-54. **Self-hosting prerequisites** (in progress): the compiler and library work of phases 0 and 1 of
+56. **Self-hosting prerequisites** (in progress): the compiler and library work of phases 0 and 1 of
     [the self-hosting plan](plans/2026-10-09-self-hosting-plan.md) (section 8).
     - Single-pointer structs in an interface's data word (done): a struct with one field, or an array of
       length 1, that is a single pointer is direct, as in Go (language spec section 4.4,
@@ -319,7 +348,7 @@ later takes the next free number and is listed in the section where it belongs.
       (item 45), `pluto/flag` and `io.ReadAll` complete it. Errors are `syscall.Errno` and
       `*os.PathError`. Tested by `testdata/lib/osfs.p`, `exec.p` and `time.p` and the `filepath` and
       `flag` package tests. What is left for item 51: `os.File` returned by value as an owner (today
-      `*File` from an allocator, freed with `alloc.Free`). Text results are strings since item 56. When
+      `*File` from an allocator, freed with `alloc.Free`). Text results are strings since item 57. When
       allocated errors become counted (section 14.6,
       accepted), the `errors.Free` calls in `os.ReadDir` and `filepath.WalkDir` go away.
     - Constant package (done): `internal/constant`, written in Go for go2pu to translate, has

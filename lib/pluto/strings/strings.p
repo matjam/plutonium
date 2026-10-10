@@ -8,8 +8,9 @@
 //     from the current allocator; they return their argument itself when
 //     nothing changes. Each has an Append form (AppendRepeat, AppendJoin,
 //     ...) that writes into a caller's byte slice and allocates nothing;
-//   - Split and Fields fill a caller's []string (SplitInto, FieldsInto) or
-//     are walked with an iterator (SplitIter, FieldsIter);
+//   - Split and Fields fill a caller's []string (SplitInto, FieldsInto), are
+//     ranged over as in Go 1.24 (SplitSeq, FieldsSeq, Lines), or are walked
+//     a step at a time with an explicit iterator (SplitIter, FieldsIter);
 //   - a Builder builds a string in a buffer that its String method shares
 //     with the result instead of copying.
 //

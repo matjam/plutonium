@@ -199,7 +199,7 @@ type FlagSet struct {
 	actual   vec.Vec[*Flag] // flags that were set
 	args     []string       // arguments after the flags
 	output   io.Writer
-	osArgs   vec.Vec[string] // the process's arguments, for CommandLine
+	osArgs   vec.Vec[string]  // the process's arguments, for CommandLine
 	strs     vec.Vec[*string] // the string variables String allocated in mem
 }
 

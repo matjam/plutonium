@@ -137,6 +137,11 @@ func (s *fnState) addVar(addr *ssa.Value, T types2.Type) {
 // frameSlot returns a new slot for a counted T that lives until the
 // function returns.
 func (s *fnState) frameSlot(T types2.Type, name string) *ssa.Value {
+	if o := s.lastingFrame; o != nil && o != s {
+		// A defer statement's argument in a range-over-func loop body:
+		// it lives until the function the deferred call runs in returns.
+		return s.outerPtr(o.frameSlot(T, name), o)
+	}
 	addr := s.temp(T, name)
 	s.addFrameSlot(addr, 0, T)
 	return addr
@@ -209,7 +214,7 @@ func analyzeVars(body ast.Node, info *types2.Info) map[*types2.Var]*varFacts {
 		}
 		return f
 	}
-	var lits []*ast.FuncLit
+	var bodies []ast.Node // function literals and range-over-func loops
 	// Reading x through *(*T)(unsafe.Pointer(&x)) uses the address only to
 	// reinterpret the value, so it does not let anything change x. Such
 	// reads are found at the * (seen before the & inside it), unless the
@@ -219,7 +224,7 @@ func analyzeVars(body ast.Node, info *types2.Info) map[*types2.Var]*varFacts {
 	ast.Inspect(body, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.FuncLit:
-			lits = append(lits, n)
+			bodies = append(bodies, n)
 		case *ast.StarExpr:
 			if !written[n] {
 				if amp := reinterpretedAddr(n, info); amp != nil {
@@ -271,6 +276,13 @@ func analyzeVars(body ast.Node, info *types2.Info) map[*types2.Var]*varFacts {
 				get(v).assigned = true
 			}
 		case *ast.RangeStmt:
+			if tv, ok := info.Types[n.X]; ok && tv.Type != nil {
+				if _, isFunc := tv.Type.Underlying().(*types2.Signature); isFunc {
+					// The body of a range over a function is a yield
+					// function that reaches the variables around it.
+					bodies = append(bodies, n)
+				}
+			}
 			if n.Tok == token.ASSIGN {
 				for _, e := range []ast.Expr{n.Key, n.Value} {
 					if e != nil {
@@ -283,13 +295,13 @@ func analyzeVars(body ast.Node, info *types2.Info) map[*types2.Var]*varFacts {
 		}
 		return true
 	})
-	for _, lit := range lits {
-		ast.Inspect(lit.Body, func(n ast.Node) bool {
+	for _, b := range bodies {
+		ast.Inspect(b, func(n ast.Node) bool {
 			id, ok := n.(*ast.Ident)
 			if !ok {
 				return true
 			}
-			if v, ok := info.Uses[id].(*types2.Var); ok && !v.IsField() && (v.Pos() < lit.Pos() || v.Pos() >= lit.End()) {
+			if v, ok := info.Uses[id].(*types2.Var); ok && !v.IsField() && (v.Pos() < b.Pos() || v.Pos() >= b.End()) {
 				get(v).captured = true
 			}
 			return true

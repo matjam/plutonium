@@ -34,10 +34,30 @@ type fnState struct {
 	deferBits *ssa.Value // address of the defer bitmask slot, created on first defer
 	loopDepth int
 	closures  int // counter for naming closures
+	goStmts   int // counter for naming go statement thunks
+
+	// Range over functions (rangefunc.go). rf is set in the yield function
+	// lowered from the body of a range-over-func loop; capPtrs maps the
+	// addresses it reaches in the enclosing function to the pointers it
+	// loads from its closure record, and initMem is its entry memory.
+	rf      *rangeFunc
+	capPtrs map[*ssa.Value]*ssa.Value
+	initMem *ssa.Value
+	// In a function containing range-over-func loops: the address of the
+	// variable through which a loop body asks for return, break, continue
+	// or goto out of the loop, and the codes handed out for those exits.
+	rangeNext  *ssa.Value
+	rangeCodes map[any]int64
+	rangeLoops int // counter for naming loop bodies
 
 	// staticLits makes &T{...} allocate static storage: set while lowering
 	// package initialisation, whose objects outlive the init function.
 	staticLits bool
+	// lastingFrame, set while a defer statement's arguments are evaluated
+	// in a range-over-func loop body, is the function whose frame holds
+	// the storage they keep (interface boxes, literals, variadic arrays),
+	// since the deferred call runs after the body has returned.
+	lastingFrame *fnState
 
 	// pos is the expression or statement being lowered, for errors
 	// found below the AST (float operations in kernel mode).
@@ -85,6 +105,9 @@ type target struct {
 	contTo   *ssa.Block // nil for switch
 	isSwitch bool
 	depth    int // cleanup entries below this one stay open on a break or continue
+	// rf is set for the range-over-func loop whose body is being lowered:
+	// break and continue return from the yield function instead.
+	rf *rangeFunc
 }
 
 type labelInfo struct {
@@ -345,8 +368,11 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 		f.Pos, f.End = job.decl.Pos(), job.decl.End()
 		s.applyPragmas(job.decl.Doc)
 		s.checkStackDirective(job.decl.Doc)
+		l.checkCtorBody(job)
 	} else if job.lit != nil {
 		f.Pos, f.End = job.lit.Pos(), job.lit.End()
+	} else {
+		f.Pos, f.End = job.pos, job.end
 	}
 	if job.pkg != nil {
 		f.Pkg = job.pkg.Path
@@ -362,6 +388,9 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 
 	l.sigs[job.sym] = job.sig
 	if job.build != nil {
+		if job.setup != nil {
+			job.setup(s)
+		}
 		s.startBody()
 		root := s.pushCleanup(nil, true)
 		job.build(s)
@@ -427,6 +456,8 @@ func (s *fnState) applyPragmas(doc *ast.CommentGroup) {
 			s.f.Pragmas |= ssa.PragmaInterrupt
 		case "nosimd":
 			s.f.Pragmas |= ssa.PragmaNoSIMD
+		case "blocking":
+			s.f.Pragmas |= ssa.PragmaBlocking
 		case "fpu":
 			s.f.NoSSE = false
 		case "alloc":

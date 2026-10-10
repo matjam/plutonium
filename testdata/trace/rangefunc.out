@@ -1,0 +1,5 @@
+1
+panic: runtime error: range function continued iteration after function for loop body returned false
+    main.main-range1 (./main.p:11)
+    main.bad (./main.p:7)
+    main.main (./main.p:11)

@@ -40,6 +40,9 @@ type Panic struct {
 	// CPU is the processor that panicked: in kernel mode the number the
 	// kernel gave it with SetCPU (0 until it does); otherwise 0.
 	CPU int
+	// Puroutine is the ID of the puroutine that panicked (Task.ID): 1 for
+	// the one that runs main, 0 outside any (a scheduler's own context).
+	Puroutine uint64
 
 	// Where the stack trace starts: the faulting instruction (exact),
 	// or a return address in the runtime's panic functions, whose frames
@@ -98,6 +101,7 @@ var (
 func startPanic() {
 	me := selfID() + 1
 	if casUint64(&panicOwner, 0, me) {
+		DisablePreemption() // the panic stays on this thread or processor
 		msgLen = 0
 		capturing = true
 		return
@@ -157,6 +161,9 @@ func raise(p *Panic) {
 		p.Message = unsafe.String(&msgBuf[0], n)
 	}
 	p.CPU = cpuNumber()
+	if t := current(); t != nil {
+		p.Puroutine = t.id
+	}
 	callPanicHandler(p)
 	lastResort() // the compiler checks that the handler cannot return
 }
@@ -190,10 +197,13 @@ func PanicFault(kind FaultKind, addr, pc, sp, bp uintptr) {
 func describeFault(kind FaultKind, addr, sp uintptr) {
 	switch kind {
 	case MemoryFault:
+		t := current()
 		switch {
-		case addr < sp+4096 && addr+65536 > sp || addr >= guardLo && addr < guardHi:
-			// Just below the stack pointer, or in the guard region of the
-			// stack //pu:stack reserved: the stack ran into its guard.
+		case addr < sp+4096 && addr+65536 > sp || addr >= guardLo && addr < guardHi,
+			t != nil && t.stackLo != 0 && addr < t.stackLo && addr+pageSize >= t.stackLo:
+			// Just below the stack pointer, in the guard region of the
+			// stack //pu:stack reserved, or in the guard page below a
+			// puroutine's stack: the stack ran into its guard.
 			printString("runtime error: stack overflow")
 		case addr < 4096:
 			printString("runtime error: invalid memory address or nil pointer dereference")
@@ -229,7 +239,12 @@ func Abort() {
 // Print writes the panic to w as a hosted program reports it: "panic: "
 // and the message, a line describing the fault if there was one, then the
 // stack trace.
-func (p *Panic) Print(w Writer) {
+//
+// Print is generic in the type of w so that a call with a writer of a
+// known type, such as Console, calls its Write directly: in a panic or
+// interrupt handler, a call through the Writer interface counts as
+// calling every Writer the program has (language spec section 12.6).
+func (p *Panic) Print[W Writer](w W) {
 	writeString(w, "panic: ")
 	writeString(w, p.Message)
 	writeString(w, "\n")
@@ -247,6 +262,11 @@ func (p *Panic) Print(w Writer) {
 		writePointer(w, p.Fault.PC)
 		writeString(w, "]\n")
 	}
+	if p.Puroutine > 1 {
+		writeString(w, "puroutine ")
+		writeUint(w, p.Puroutine)
+		writeString(w, ":\n")
+	}
 	p.PrintTrace(w)
 }
 
@@ -254,6 +274,7 @@ func (p *Panic) Print(w Writer) {
 // frame per line, innermost first, the way a hosted program prints it
 // (docs/spec/debugging.md). It reads the trace table and the stack and
 // allocates nothing; a program built with --trace=false prints nothing.
-func (p *Panic) PrintTrace(w Writer) {
+// Like Print, it is generic in the type of w.
+func (p *Panic) PrintTrace[W Writer](w W) {
 	traceback(w, p.pc, p.sp, p.bp, p.exact, p.skipRuntime)
 }

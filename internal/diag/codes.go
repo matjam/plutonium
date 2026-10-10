@@ -33,9 +33,12 @@ const (
 	DeferInLoop       Code = "E2530" // defer inside a loop
 	TooManyDefers     Code = "E2531" // more than 64 defers in one function
 	DeferBuiltin      Code = "E2532" // defer of a builtin such as copy
+	DeferInRangeFunc  Code = "E2533" // a defer in a range-over-func loop body that may run once per iteration
+	DeferLitCapture   Code = "E2534" // a literal deferred in a range-over-func loop body captures the body's variables
 	ErrorsNewValue    Code = "E2542" // errors.New used other than by calling it
-	KernelStringAlloc Code = "E2543" // an allocating string operation in kernel mode outside //pu:alloc
-	KernelAllocCall   Code = "E2544" // a //pu:alloc function called from kernel code without //pu:alloc
+	ClosureCtorValue  Code = "E2543" // a closure constructor used other than by calling it
+	KernelStringAlloc Code = "E2544" // an allocating string operation in kernel mode outside //pu:alloc
+	KernelAllocCall   Code = "E2545" // a //pu:alloc function called from kernel code without //pu:alloc
 	PerCPUInit        Code = "E2550" // a per-CPU variable with a non-constant initialiser
 	PerCPUMode        Code = "E2551" // //pu:percpu outside kernel mode
 	PerCPUSection     Code = "E2552" // //pu:percpu with //pu:section
@@ -50,6 +53,13 @@ const (
 	PanicHandlerRet   Code = "E2583" // a panic handler that can return
 	ContextWaits      Code = "E2584" // an interrupt handler or the panic handler can reach code that waits
 	ContextSpawns     Code = "E2585" // an interrupt handler or the panic handler can reach a go statement
+
+	// Puroutines and the scheduler.
+	GoCapturingLiteral Code = "E2590" // go of a function literal that captures variables
+	GoBuiltin          Code = "E2591" // go of a builtin function
+	BadScheduler       Code = "E2592" // a //pu:scheduler variable that cannot be the scheduler, or two of them
+	NoScheduler        Code = "E2593" // a program that needs a scheduler and binds none
+	GoFrameClosure     Code = "E2594" // go of, or with an argument that is, a closure whose record is in the frame
 )
 
 // Finding and loading packages.

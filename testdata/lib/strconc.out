@@ -1,0 +1,20 @@
+go: base+:t2/2/n2,x,y
+go: base:t1/1/static
+go: lit:t3/3/,base
+shared: 80000 shared between puroutines
+chan: one two2 true three reused
+msg: 1 first
+msg: 2 second
+closed: 0 true false
+range discard: 3
+select: got payload
+select: default payload
+select: received occupant true
+select: refilled
+select: left 1 0
+rangefunc: w3 w0w2w3
+rangefunc: w4 at 4 missing
+rangefunc nested: w1w2
+rangefunc goto: w2!
+splitseq: 3 c
+deferred: w1?

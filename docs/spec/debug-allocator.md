@@ -251,10 +251,16 @@ memory access fault, and an exit hook with `rt.SetExitHook`. On a fault the runt
 
 ## Concurrency
 
-The allocator is not safe for concurrent use yet. Every entry point takes the allocator's lock first
-(`lock` and `unlock` in `debug.p`), which does nothing while puroutines do not run in parallel. When they
-do, a single mutex there is enough: the side table, the quarantine and the block cache are all reached
-only through it. The fault handler and the exit hook must take it as well.
+The allocator is safe for concurrent use. Every entry point takes the allocator's lock first (an
+`rt.Lock`: a futex in hosted builds, a spin lock with interrupts masked in kernels), and the side table,
+the quarantine and the block cache are reached only through it. The exit hook takes it too. The fault
+handler tries it for a while and then describes the fault without it, since the faulting thread may
+already hold it.
+
+Allocation sites belong to the puroutine that allocates, so sites stay right while puroutines allocate in
+parallel. A puroutine's stack is allocated with the site `rt.StackSite`, printed as "the runtime, as a
+puroutine's stack"; leak reports leave stacks out, since a puroutine that is still finishing at exit
+holds its own.
 
 ## Cost
 

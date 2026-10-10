@@ -46,15 +46,22 @@ const strHeaderSize = 32
 // whose processors the kernel starts, count atomically from the start.
 var atomicCounts = atomicCountsAtStart
 
-// SetThreaded makes string reference counts atomic from now on. A scheduler
-// calls it before the program's second thread runs Plutonium code; a kernel
-// in freestanding mode need not, since its counts are atomic already. It
+// SetThreaded makes string reference counts atomic from now on. The runtime
+// calls it when the first puroutine starts (a puroutine may preempt another
+// in the middle of a plain increment) and before it starts a thread; a
+// program that runs Plutonium code on another thread by other means calls
+// it first. Freestanding programs count atomically from the start. It
 // cannot be undone.
 func SetThreaded() { atomicCounts = true }
 
-// xadd64 atomically adds delta to *p and returns the new value
-// (str_amd64.s).
-func xadd64(p *int64, delta int64) int64
+// addCount atomically adds delta to the count of h and returns the new
+// count. xadd64's locked instruction is a full barrier, which gives the
+// release and acquire ordering memory-model.md section 3.7 asks of it.
+//
+//pu:inline
+func addCount(h *strHeader, delta int64) int64 {
+	return int64(xadd64((*uint64)(unsafe.Pointer(&h.count)), delta))
+}
 
 // strRetain takes a reference to the buffer of the string whose control
 // word is ctl. The compiler calls it when a string is copied into a place
@@ -65,7 +72,7 @@ func strRetain(ctl uintptr) {
 	if ctl > strFlagMask {
 		h := (*strHeader)(unsafe.Pointer(ctl &^ strFlagMask))
 		if atomicCounts {
-			xadd64(&h.count, 1)
+			addCount(h, 1)
 		} else {
 			h.count++
 		}
@@ -89,7 +96,7 @@ func strFree(ctl uintptr) {
 	h := (*strHeader)(unsafe.Pointer(ctl &^ strFlagMask))
 	var n int64
 	if atomicCounts {
-		n = xadd64(&h.count, -1)
+		n = addCount(h, -1)
 	} else {
 		h.count--
 		n = h.count
@@ -108,11 +115,17 @@ func strFree(ctl uintptr) {
 // allocator, publishing pc as the allocation's site. The buffer holds one
 // reference. It returns the bytes and the control word, without flags.
 func strAlloc(n int, pc uintptr) (*byte, uintptr) {
-	a := defaultAllocator
+	return strAllocFrom(currentAllocator(), n, pc)
+}
+
+// currentAllocator returns the running puroutine's default allocator, the
+// one new strings come from, and panics if there is none.
+func currentAllocator() Allocator {
+	a := DefaultAllocator()
 	if a == nil {
 		panicMessage("no allocator: call alloc.SetDefault before building strings", "", "", "", "")
 	}
-	return strAllocFrom(a, n, pc)
+	return a
 }
 
 func strAllocFrom(a Allocator, n int, pc uintptr) (*byte, uintptr) {
@@ -249,16 +262,19 @@ func runeLen(r rune) int {
 // buffer, with each byte that does not start a valid UTF-8 sequence
 // replaced by U+FFFD, as ranging over the bytes would decode it.
 func stringFromBytes(p *byte, n int) (*byte, int, uintptr) {
-	return stringFromBytesAt(p, n, CallerPC())
+	if n == 0 {
+		return nil, 0, 0
+	}
+	return stringFromBytesAt(p, n, currentAllocator(), CallerPC())
 }
 
-func stringFromBytesAt(p *byte, n int, pc uintptr) (*byte, int, uintptr) {
+func stringFromBytesAt(p *byte, n int, a Allocator, pc uintptr) (*byte, int, uintptr) {
 	if n == 0 {
 		return nil, 0, 0
 	}
 	valid, ascii := scanUTF8(p, n)
 	if valid {
-		q, ctl := strAlloc(n, pc)
+		q, ctl := strAllocFrom(a, n, pc)
 		memmove(unsafe.Pointer(q), unsafe.Pointer(p), n)
 		if !ascii {
 			ctl |= strNonASCII
@@ -276,7 +292,7 @@ func stringFromBytesAt(p *byte, n int, pc uintptr) (*byte, int, uintptr) {
 		}
 		i += size
 	}
-	q, ctl := strAlloc(m, pc)
+	q, ctl := strAllocFrom(a, m, pc)
 	off := 0
 	for i := 0; i < n; {
 		r, size := decodeRune(p, n, i)
@@ -353,11 +369,7 @@ func bytesFromString(p *byte, n int) *byte {
 	if n == 0 {
 		return &zerobase
 	}
-	a := defaultAllocator
-	if a == nil {
-		panicMessage("no allocator: call alloc.SetDefault before allocating", "", "", "", "")
-	}
-	q := allocAt(a, uintptr(n), 1, CallerPC())
+	q := allocAt(currentAllocator(), uintptr(n), 1, CallerPC())
 	memmove(q, unsafe.Pointer(p), n)
 	return (*byte)(q)
 }
@@ -374,11 +386,7 @@ func runesFromString(p *byte, n int) (*rune, int) {
 	if count == 0 {
 		return (*rune)(unsafe.Pointer(&zerobase)), 0
 	}
-	a := defaultAllocator
-	if a == nil {
-		panicMessage("no allocator: call alloc.SetDefault before allocating", "", "", "", "")
-	}
-	q := allocAt(a, uintptr(4*count), 4, CallerPC())
+	q := allocAt(currentAllocator(), uintptr(4*count), 4, CallerPC())
 	k := 0
 	for i := 0; i < n; {
 		r, size := decodeRune(p, n, i)
@@ -516,10 +524,7 @@ func StringFromBytes(p *byte, n int, a Allocator) string {
 	if a == nil {
 		panicMessage("StringFromBytes: nil allocator", "", "", "", "")
 	}
-	saved := defaultAllocator
-	defaultAllocator = a
-	q, m, ctl := stringFromBytesAt(p, n, CallerPC())
-	defaultAllocator = saved
+	q, m, ctl := stringFromBytesAt(p, n, a, CallerPC())
 	s := MakeString(q, m, ctl, ctl&strNonASCII == 0)
 	strRelease(ctl)
 	return s

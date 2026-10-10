@@ -11,7 +11,7 @@ $DIR/main.p:5:15: string literal "\x7fELF\xff" is not valid UTF-8; use a []byte 
     Keep binary data in bytes:
         magic := []byte{0x7f, 'E', 'L', 'F'}
     (see "Strings" in the Plutonium spec, section 6.10)
-    (run "pluto explain E2010" for a longer explanation)
+    (run "pluto explain E2012" for a longer explanation)
 
 $DIR/main.p:9:21: string literal "\xed\xa0\x80" is not valid UTF-8; use a []byte for binary data
-    (explained above; run "pluto explain E2010" for more)
+    (explained above; run "pluto explain E2012" for more)

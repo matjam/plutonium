@@ -2,6 +2,7 @@ package os
 
 import (
 	"pluto/errors"
+	"pluto/rt"
 	"pluto/syscall"
 )
 
@@ -32,14 +33,17 @@ func (p *Process) Signal(sig Signal) error {
 func (p *Process) Kill() error { return p.Signal(Kill) }
 
 // Wait waits for the process to exit and returns its state. A process can
-// be waited for once.
+// be waited for once. The wait is announced to the scheduler
+// (rt.EnterSyscall), so other puroutines keep running.
 func (p *Process) Wait() (ProcessState, error) {
 	if p.done {
 		return ProcessState{}, ErrProcessDone
 	}
 	var status int32
 	for {
+		rt.EnterSyscall()
 		_, err := syscall.Wait4(p.Pid, &status, 0)
+		rt.ExitSyscall()
 		if err == syscall.EINTR {
 			continue
 		}

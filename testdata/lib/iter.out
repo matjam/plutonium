@@ -1,0 +1,34 @@
+filter/map: 0 4 16 36 64
+limit: 0 1 2 3
+concat: 0 1 0 1 2
+enumerate/map2/limit2: 0:0 1:1 4:2
+concat2/filter2/keys/values: k0 k1 k0 k1 v0 v1 v0 v1
+reduce 110 count 7
+fill 4 0 1 4 9
+fill short 2
+fill none 0
+early 56
+all: 0=0 1=10 2=20 3=30 4=40 5=50
+values: 0 10 20 30 40 50
+backward: 5=50 4=40 3=30 2=20
+growing: 1 2 4 8 16 32 64 128 256 512
+shrinking: 9=512 7=128 6=64 5=32 4=16 3=8 2=4 1=2 0=1 len 2
+collect: 0 2 4 6 8 0 1 2
+map entries 10 same order true
+keys: eight five four nine one seven six three two zero
+sum after set 4500
+found odd true
+insert 5 10 30
+set 6 21
+lines: [one]4 [two]4 []1 [three]5
+split: [a] [b] [] [c]
+split empty: []
+split runes: [h] [é] [l] [l] [o]
+split after: [a,] [b,] [c]
+fields: [the] [quick] [brown] [fox]
+fields func: [a] [b] [c]
+bytes lines: 15/15 10/10
+bytes split: [x=1] [y=22] [z=333]
+bytes split after: [x=1;] [y=22;] [z=333]
+bytes fields: [x=1;y=22;z=333] [next] [line]
+bytes fields func: [x] [1] [y] [22] [z] [333]

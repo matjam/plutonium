@@ -63,6 +63,10 @@ type Lowerer struct {
 	errorSites     map[*ast.CallExpr]*ssa.Sym // static error of each errors.New call site
 	perCPUSelfSym  *ssa.Sym                   // pluto.percpu.self, once a per-CPU variable exists
 	types          *typeTable
+	ctors          map[*types2.Func]*ctorInfo // closure constructors (ctor.go), nil for other functions
+	ctorMisused    map[*types2.Func]bool      // closure constructors already reported
+	sched          *schedBinding              // the //pu:scheduler variable, or nil
+	schedMissing   bool                       // the missing-scheduler error has been reported
 
 	// panicFn is the program's panic handler (panic.go).
 	panicFn *types2.Func
@@ -106,6 +110,12 @@ type funcJob struct {
 	parent   *fnState
 
 	build func(s *fnState) // for synthesized functions (init, wrappers)
+	// setup, if set, runs before build in the entry block, ahead of the
+	// zeroing of counted slots (strscope.go): incoming arguments and the
+	// closure pointer, which the entry block must define.
+	setup func(s *fnState)
+	pos   token.Pos // for synthesized functions with a source extent
+	end   token.Pos
 }
 
 // Lower lowers a loaded program.
@@ -135,6 +145,8 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		globals:        map[*types2.Var]*ssa.Sym{},
 		strs:           map[string]*ssa.Sym{},
 		closureRecords: map[*ssa.Sym]*ssa.Sym{},
+		ctors:          map[*types2.Func]*ctorInfo{},
+		ctorMisused:    map[*types2.Func]bool{},
 		localTypes:     map[localKey]*types2.Named{},
 		countedTypes:   map[string]bool{},
 		errorSites:     map[*ast.CallExpr]*ssa.Sym{},
@@ -165,6 +177,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 	}
 
 	l.findPanicHandler()
+	l.findScheduler()
 	l.lowerGlobals()
 	l.lowerEntry()
 	l.checkInterrupts()
@@ -332,6 +345,9 @@ func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 		}
 	}
 	if d != nil && d.decl.Body == nil {
+		if method, optional, ok := schedHook(d.decl); ok {
+			return l.schedHookSym(fn, method, optional)
+		}
 		if name, ok := externName(d.decl); ok {
 			sym := l.out.Sym(name, ssa.SymExtern)
 			l.cfuncs[sym] = true

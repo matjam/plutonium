@@ -217,8 +217,8 @@ func (s *fnState) lv(e ast.Expr) lvalue {
 			return lvalue{ptr: slot, T: T, stable: true}
 		}
 		v := s.materialize(s.compositeLit(e, T))
-		if !v.addr {
-			tmp := s.temp(T, "lit")
+		if !v.addr || s.lastingFrame != nil {
+			tmp := s.lastingTemp(T, "lit")
 			s.storeTo(tmp, v, T)
 			return lvalue{ptr: tmp, T: T}
 		}
@@ -246,7 +246,7 @@ func (s *fnState) lv(e ast.Expr) lvalue {
 // a package-level variable.
 func (s *fnState) varLV(obj *types2.Var, at ast.Node) lvalue {
 	T := s.subst(obj.Type())
-	if addr := s.vars[obj]; addr != nil {
+	if addr := s.lookupVar(obj); addr != nil {
 		return lvalue{ptr: addr, T: T, stable: s.stableVar(obj)}
 	}
 	if obj.Pkg() != nil && obj.Pkg().Scope().Lookup(obj.Name()) == obj {
@@ -563,6 +563,9 @@ func (s *fnState) unary(e *ast.UnaryExpr, T types2.Type) value {
 		return scalarValue(s.newValue(ssa.OpCom, x.Type, x), T)
 	case token.NOT:
 		return scalarValue(s.newValue(ssa.OpNot, ssa.TBool, s.scalar(e.X)), T)
+	case token.ARROW:
+		v, _ := s.recv(e, false)
+		return v
 	}
 	s.l.unsupportedf(e.Pos(), "unsupported unary operator %s", e.Op)
 	return s.zeroValue(T)
@@ -1076,8 +1079,8 @@ func (s *fnState) compositeLitOf(e *ast.CompositeLit, T types2.Type) value {
 			return scalarValue(slot, T)
 		}
 		v = s.materialize(v)
-		if !v.addr {
-			tmp := s.temp(elem, "lit")
+		if !v.addr || s.lastingFrame != nil {
+			tmp := s.lastingTemp(elem, "lit")
 			s.storeTo(tmp, v, elem)
 			return scalarValue(tmp, T)
 		}
@@ -1136,7 +1139,7 @@ func (s *fnState) compositeLitOf(e *ast.CompositeLit, T types2.Type) value {
 			arr = s.frameSlot(arrT, "lit")
 			s.releaseAt(arr, arrT)
 		default:
-			arr = s.temp(arrT, "lit")
+			arr = s.lastingTemp(arrT, "lit")
 		}
 		s.zero(arr, s.l.sizeof(arrT))
 		s.fillElems(arr, e.Elts, et)

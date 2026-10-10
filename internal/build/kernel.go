@@ -29,9 +29,17 @@ func checkPerCPU(path string) error {
 			return &diag.Diagnostic{Code: diag.PerCPUNotAtZero,
 				Msg: fmt.Sprintf("%s: %s is at %#x: the linker script must link section .percpu at address 0, with the Plutonium object first (abi.md section 10.6)", path, perCPUSelf, s.Value)}
 		}
+		if s.Name == perCPUTask && s.Value != 8 {
+			return &diag.Diagnostic{Code: diag.PerCPUNotAtZero,
+				Msg: fmt.Sprintf("%s: %s is at %#x, not 8: the linker script must link section .percpu at address 0, with the Plutonium object first (abi.md sections 10.6 and 12.3)", path, perCPUTask, s.Value)}
+		}
 	}
 	return nil
 }
+
+// perCPUTask is the current-task slot of kernel builds, at offset 8 of
+// every per-CPU block (abi.md section 12.3).
+const perCPUTask = "pluto/rt.currentTask"
 
 // KernelLinkerScript is the linker script for --mode kernel builds that do
 // not pass --ldscript (abi.md section 10.3). It links the kernel in the

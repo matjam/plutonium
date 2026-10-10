@@ -266,7 +266,7 @@ func (s *fnState) rangeEnum(st *ast.RangeStmt, label *types2.Label) {
 			}
 			s.storeLV(*keyLV, s.assignConvert(scalarValue(v, T), unwrap(keyLV.T), st))
 		}
-		s.stmtList(st.Body.List)
+		s.block(st.Body, st.Body.List)
 	})
 }
 
