@@ -86,6 +86,11 @@ const (
 	MCALL // Sym or register/memory target
 	MRET
 	MUD2
+	MIRETQ // return from an interrupt handler
+
+	// Interrupt handler entry and exit.
+	MCLD    // clear the direction flag
+	MMOVUPS // unaligned 128-bit move between an XMM register and memory
 
 	// Stack.
 	MPUSH
@@ -119,6 +124,7 @@ var mopNames = map[MOp]string{
 	MCVTF2F: "cvts2s", MMOVQ: "movq",
 	MUNPCKLPD: "unpcklpd", MMOVHPD: "movhpd", MPSHUFD: "pshufd",
 	MJMP: "jmp", MJCC: "j", MCALL: "call", MRET: "ret", MUD2: "ud2",
+	MIRETQ: "iretq", MCLD: "cld", MMOVUPS: "movups",
 	MPUSH: "push", MPOP: "pop", MREPMOVSB: "rep movsb", MREPSTOSB: "rep stosb",
 	MCOPY: "copy", MPCOPY: "pcopy", MDEF: "def", MUSE: "use", MLABEL: "label",
 	MSPILL: "spill", MRELOAD: "reload", MLOADCONSTF: "loadconstf", MEPILOGUE: "epilogue",
@@ -263,9 +269,16 @@ type MFunc struct {
 	frameFP   bool         // use RBP as a frame pointer (over-aligned slots)
 	maxAlign  int64        // largest slot alignment
 	outArgs   int64        // bytes of outgoing stack arguments
-	usedSaved []Reg        // callee-saved registers the function changes
+	usedSaved []Reg        // callee-saved registers the function changes (every changed GPR for interrupt handlers)
 	frameSize int64        // bytes below the saved registers, excluding them
+
+	// Interrupt handlers (//pu:interrupt): errCode is set when the CPU
+	// pushes an error code; savedXMM lists the XMM registers the handler or
+	// its callees may change, saved in xmmSave.
 	interrupt bool
+	errCode   bool
+	savedXMM  []Reg
+	xmmSave   *ssa.Slot
 	nextSlot  int
 	consts    []Const
 	constSyms map[[16]byte]*ssa.Sym
@@ -438,6 +451,10 @@ func (in *MInst) String() string {
 		return fmt.Sprintf("loadconstf $%#x, %s", in.Imm, in.Dst.format(size))
 	case MPSHUFD:
 		return fmt.Sprintf("pshufd $%#x, %s, %s", in.Imm, in.Src.format(size), in.Dst.format(size))
+	case MIRETQ, MCLD:
+		return in.Op.String()
+	case MMOVUPS:
+		return fmt.Sprintf("movups %s, %s", in.Src.format(16), in.Dst.format(16))
 	}
 	var args []string
 	if in.Src.Kind != OpdNone {

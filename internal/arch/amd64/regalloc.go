@@ -707,7 +707,9 @@ func applyColors(f *MFunc, color map[Reg]Reg) {
 			}
 			var defs []Reg
 			for _, r := range in.Defs(defs) {
-				if isCalleeSaved(r) && in.Op != MCALL {
+				// An interrupt handler preserves every register, including
+				// those its callees may change.
+				if f.interrupt || isCalleeSaved(r) && in.Op != MCALL {
 					used[r] = true
 				}
 			}
@@ -716,6 +718,19 @@ func applyColors(f *MFunc, color map[Reg]Reg) {
 		b.Insts = out
 	}
 	f.usedSaved = nil
+	f.savedXMM = nil
+	if f.interrupt {
+		for r := RAX; r <= X15; r++ {
+			switch {
+			case !used[r] || r == RSP:
+			case r.PhysClass() == ClassXMM:
+				f.savedXMM = append(f.savedXMM, r)
+			default:
+				f.usedSaved = append(f.usedSaved, r)
+			}
+		}
+		return
+	}
 	for _, r := range calleeSaved {
 		if used[r] {
 			f.usedSaved = append(f.usedSaved, r)
