@@ -641,6 +641,13 @@ func init() {
 			Spec: pspec("4.7", "go starts a puroutine"),
 		},
 		&Entry{
+			Code: SchedulerTimers, Name: "SchedulerTimers",
+			Text: "Timers need two things from the scheduler: a clock, its Now method, which returns monotonic nanoseconds, and a way to be called back, its ArmTimer method, which asks for rt.RunTimers to be called once a deadline has passed. This program uses timers (time.Sleep, a time.Timer or Ticker, rt.ParkUntil or rt.Now), and the bound scheduler lacks one of them.",
+			Why:  "The scheduler contract keeps timers optional, so a kernel that never sleeps needs no clock. A program that does sleep must get its clock from the kernel, because only the kernel knows which timer hardware it drives.",
+			Fix:  &Fix{Intro: "Give the scheduler a clock, and run the timers from the timer interrupt", Code: "func (kernelSched) Now() int64 { return int64(ticks) * 1000000 }\n\nfunc (kernelSched) ArmTimer(deadline int64) { next = deadline }\n\n// in the timer interrupt handler:\nif kernelSched{}.Now() >= next {\n\trt.RunTimers()\n}"},
+			Spec: pspec("4.7", "go starts a puroutine"),
+		},
+		&Entry{
 			Code: InterruptHandlerV, Name: "InterruptHandlerV",
 			Text: "An interrupt handler saves every register and returns with iretq, so ordinary code cannot call it, and it is not an ordinary func value. Use x86.HandlerAddr to get its address for the interrupt table.",
 			Fix:  &Fix{Intro: "Take its address for the table", Code: "addr := x86.HandlerAddr(timer)"},

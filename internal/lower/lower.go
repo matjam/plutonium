@@ -67,6 +67,7 @@ type Lowerer struct {
 	ctorMisused    map[*types2.Func]bool      // closure constructors already reported
 	sched          *schedBinding              // the //pu:scheduler variable, or nil
 	schedMissing   bool                       // the missing-scheduler error has been reported
+	schedNoTimers  bool                       // the scheduler-without-timers error has been reported
 
 	// panicFn is the program's panic handler (panic.go).
 	panicFn *types2.Func
@@ -343,8 +344,8 @@ func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 		}
 	}
 	if d != nil && d.decl.Body == nil {
-		if method, optional, ok := schedHook(d.decl); ok {
-			return l.schedHookSym(fn, method, optional)
+		if method, mode, ok := schedHook(d.decl); ok {
+			return l.schedHookSym(fn, method, mode)
 		}
 		if name, ok := externName(d.decl); ok {
 			sym := l.out.Sym(name, ssa.SymExtern)
