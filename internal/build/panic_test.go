@@ -9,6 +9,7 @@ import (
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
+	"github.com/matjam/plutonium/internal/diag"
 )
 
 // hostedPanicSource is a hosted program with its own panic handler, which
@@ -105,6 +106,56 @@ fatal: panic while handling a panic
 			if status != c.status || !regexp.MustCompile(re).MatchString(out) {
 				t.Errorf("%s -O%d: status %d, output:\n%s\nwant status %d and a match for\n%s", c.scenario, level, status, out, c.status, re)
 			}
+		}
+	}
+}
+
+// TestHostedPanicHandlerPipe checks why a panic handler may write to
+// os.Stderr, as TestHostedPanicHandler's does: File.Write reaches the
+// poller only through the ioWaiter interface, which only os.Pipe fills in.
+// Without a pipe the program has no ioWaiter to call and builds. With one,
+// the interrupt-context check follows that interface call into
+// poller.waitIO and reports the handler, since it cannot tell which File
+// the handler writes to.
+func TestHostedPanicHandlerPipe(t *testing.T) {
+	const handler = `package main
+
+import (
+	"pluto/os"
+	"pluto/rt"
+)
+
+//pu:panic
+func onPanic(p *rt.Panic) {
+	os.Stderr.WriteString("panicked\n")
+	os.Exit(3)
+}
+
+func main() {
+	%s
+	panic("boom")
+}
+`
+	_, out, status := buildFiles(t, map[string][]byte{"main.p": []byte(strings.Replace(handler, "%s", "println(\"no pipe\")", 1))}, build.Config{})
+	if status != 3 || out != "no pipe\npanicked\n" {
+		t.Errorf("without a pipe: status %d, output %q; want 3, %q", status, out, "no pipe\npanicked\n")
+	}
+
+	err := buildError(t, strings.Replace(handler, "%s", "r, w, _ := os.Pipe()\n\tr.Close()\n\tw.Close()", 1))
+	if err == nil {
+		t.Fatal("built a panic handler that may wait in the poller")
+	}
+	var b strings.Builder
+	diag.Print(&b, err, false)
+	msg := strings.Join(strings.Fields(b.String()), " ")
+	for _, want := range []string{
+		"main.p:10:2: onPanic is the panic handler, so it must not wait",
+		"onPanic calls os.Stderr.WriteString (main.p:10), which calls f.Write",
+		"which may be os.poller.waitIO, which calls rt.PollWait",
+		"f.poll.waitIO calls through an interface, so it counts as calling the waitIO method of every type the program converts to os.ioWaiter.",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error does not contain %q:\n%s", want, b.String())
 		}
 	}
 }
