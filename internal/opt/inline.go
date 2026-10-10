@@ -250,7 +250,7 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 				c := *gv.Call
 				nv.Call = &c
 			}
-			nv.Pos, nv.Inl = gv.Pos, inl(gv.Inl)
+			nv.Pos, nv.Inl = gv.Pos, inl.Map(gv.Inl)
 			if op == ssa.OpCodeAddr && gv.Op == ssa.OpReturnAddr {
 				// It stands for a return address, which names the call:
 				// give it the call's position, so that the address minus

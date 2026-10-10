@@ -11,6 +11,12 @@ func g(b []byte) { println(len(b), cap(b), b == nil) }
 
 func two() ([]int, int) { return nil, 7 }
 
+// spread takes a converted nil slice followed by more arguments, whose
+// positions a one-word nil would shift.
+func spread(s []string, n int, xs ...string) {
+	println(len(s), cap(s), s == nil, n, len(xs))
+}
+
 func main() {
 	g(nil)
 	println(len(f()), f() == nil)
@@ -27,4 +33,12 @@ func main() {
 	println(len(a), n, a == nil)
 	var p *int = nil
 	println(p == nil)
+
+	// Converted nil.
+	spread([]string(nil), 5, "a", "b")
+	words := []string{"x", "y", "z"}
+	spread([]string(nil), 6, words...)
+	c := []int(nil)
+	println(len(c), cap(c), c == nil)
+	g([]byte(nil))
 }

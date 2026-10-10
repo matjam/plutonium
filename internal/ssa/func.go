@@ -388,9 +388,23 @@ func (f *Func) SetPos(p token.Pos) token.Pos {
 	return old
 }
 
+// An InlineBase maps the inline sites of an inlined function to those of
+// the function it was inlined into (see AddInline).
+type InlineBase int32
+
+// Map returns the Inl in f of a value whose Inl in g was inl.
+func (base InlineBase) Map(inl int32) int32 {
+	if inl == 0 {
+		return int32(base)
+	}
+	return inl + int32(base)
+}
+
 // AddInline records that call, a call in f, is being replaced by the body of
-// g. It returns the function that maps a value's Inl in g to its Inl in f.
-func (f *Func) AddInline(call *Value, g *Func) func(inl int32) int32 {
+// g. It returns the mapping of a value's Inl in g to its Inl in f. (A value
+// rather than a closure, so that the self-hosted translation can return
+// it: Plutonium closures do not outlive their frame.)
+func (f *Func) AddInline(call *Value, g *Func) InlineBase {
 	base := int32(len(f.Inlines)) + 1 // index of the new site
 	f.Inlines = append(f.Inlines, InlineSite{Parent: call.Inl, Func: g.Name, Pos: call.Pos})
 	for _, s := range g.Inlines {
@@ -401,12 +415,7 @@ func (f *Func) AddInline(call *Value, g *Func) func(inl int32) int32 {
 		}
 		f.Inlines = append(f.Inlines, s)
 	}
-	return func(inl int32) int32 {
-		if inl == 0 {
-			return base
-		}
-		return inl + base
-	}
+	return InlineBase(base)
 }
 
 func (f *Func) newValue(op Op, t *Type, b *Block) *Value {

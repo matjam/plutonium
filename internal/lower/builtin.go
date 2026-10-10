@@ -396,6 +396,12 @@ func (s *fnState) conversion(e *ast.CallExpr) value {
 		}
 	}
 
+	// nil converted to a slice (or another aggregate) is its zero value,
+	// not a one-word nil.
+	if b, ok := fu.(*types2.Basic); ok && b.Kind() == types2.UntypedNil && s.l.scalarType(to) == nil {
+		return s.zeroValue(to)
+	}
+
 	v := s.expr(arg)
 	if v.addr {
 		// Aggregates convert between identical layouts unchanged.
