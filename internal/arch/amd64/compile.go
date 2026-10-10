@@ -133,11 +133,86 @@ func encodeFunc(f *MFunc, order []*MBlock) (*Code, error) {
 	if e.err != nil {
 		return nil, e.err
 	}
-	for _, fx := range e.fixups {
-		rel := int64(fx.target.offset - fx.end)
-		binary32(e.code[fx.at:], rel)
+	return relax(e), nil
+}
+
+// relax rewrites the long branches of an encoded function as 2-byte short
+// branches wherever the target is within reach. Every branch starts
+// short; a branch whose target is out of range becomes long, which can only
+// push other targets further away, so the loop ends. Code between branches
+// is copied unchanged and its relocations move with it.
+func relax(e *encoder) *Code {
+	fx := e.fixups
+	short := make([]bool, len(fx))
+	for i := range short {
+		short[i] = true
 	}
-	return &Code{Bytes: e.code, Relocs: e.relocs}, nil
+	saving := func(i int) int {
+		if fx[i].jcc {
+			return 4 // 0F 8x rel32 -> 7x rel8
+		}
+		return 3 // E9 rel32 -> EB rel8
+	}
+	// shift[i] is the bytes saved by the short branches before fixup i.
+	shift := make([]int, len(fx)+1)
+	newPos := func(off int) int {
+		// The number of branches starting before off.
+		lo, hi := 0, len(fx)
+		for lo < hi {
+			m := (lo + hi) / 2
+			if fx[m].start < off {
+				lo = m + 1
+			} else {
+				hi = m
+			}
+		}
+		return off - shift[lo]
+	}
+	for changed := true; changed; {
+		changed = false
+		for i := range fx {
+			shift[i+1] = shift[i]
+			if short[i] {
+				shift[i+1] += saving(i)
+			}
+		}
+		for i := range fx {
+			if !short[i] {
+				continue
+			}
+			rel := newPos(fx[i].target.offset) - (newPos(fx[i].start) + 2)
+			if rel < -128 || rel > 127 {
+				short[i] = false
+				changed = true
+			}
+		}
+	}
+
+	out := make([]byte, 0, len(e.code))
+	prev := 0
+	for i, f := range fx {
+		out = append(out, e.code[prev:f.start]...)
+		target := newPos(f.target.offset)
+		switch {
+		case short[i] && f.jcc:
+			out = append(out, 0x70+byte(f.cond), byte(int8(target-(len(out)+2))))
+		case short[i]:
+			out = append(out, 0xEB, byte(int8(target-(len(out)+2))))
+		case f.jcc:
+			out = append(out, 0x0F, 0x80+byte(f.cond), 0, 0, 0, 0)
+			binary32(out[len(out)-4:], int64(target-len(out)))
+		default:
+			out = append(out, 0xE9, 0, 0, 0, 0)
+			binary32(out[len(out)-4:], int64(target-len(out)))
+		}
+		prev = f.end
+	}
+	out = append(out, e.code[prev:]...)
+	relocs := e.relocs
+	for i := range relocs {
+		relocs[i].Off = newPos(relocs[i].Off)
+	}
+	return &Code{Bytes: out, Relocs: relocs}
 }
 
 func binary32(b []byte, v int64) {

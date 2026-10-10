@@ -167,15 +167,27 @@ runs.
 - A function literal that captures variables cannot be started with `go`: its captures live in the
   spawning frame, which may be gone before the puroutine runs (section 4.5). Pass the values as
   arguments: `go func(n int) { work(n) }(n)`.
-- Scheduling is cooperative: a puroutine runs until it blocks on a channel, a lock or I/O, or calls
-  `rt.Yield()`. Preempting a puroutine that never blocks is up to the platform (for example a kernel's
-  timer interrupt).
+- Puroutines run in parallel and are preempted: one that runs for a full time slice without blocking is
+  suspended at whatever instruction it has reached and another runs in its place. Since there is no
+  garbage collector, every instruction is a safe place to stop; the full register state is saved. Code in
+  the runtime that must not be interrupted (scheduler and allocator locks) disables preemption for its
+  own duration. Blocking on a channel, a lock or I/O, or calling `rt.Yield()`, gives up the processor
+  early.
 
 The scheduler sits behind an interface in `pluto/rt` with four operations: start a puroutine, park the
 current one, make a parked one runnable, and yield. Hosted builds get a scheduler that runs puroutines on
-a pool of OS threads. A freestanding program provides its own with `rt.SetScheduler` before its first
-`go` statement or channel operation; until then they panic with "no scheduler". A program that never uses
-`go` or channels contains none of this.
+one worker thread per CPU. Each worker has its own run queue, and an idle worker steals half the queue of
+a busy one, so load spreads across processors without any work by the program. A worker that enters a
+blocking system call hands its queue to another worker, and waits for I/O go through one epoll poller.
+Preemption uses a timer signal. A freestanding program provides its own scheduler with `rt.SetScheduler`
+before its first `go` statement or channel operation (a kernel uses per-CPU run queues and its timer
+interrupt the same way); until then they panic with "no scheduler". A program that never uses `go` or
+channels contains none of this.
+
+Values that cross between puroutines must be safe to use from several processors at once. A
+`shared[T]`, or any value containing one, cannot be passed to a `go` statement or sent on a channel, since
+its reference count is not atomic: use `synced[T]` (section 5.6). Raw pointers are not checked, as in C;
+data they reach must be protected with `pluto/sync` or `pluto/sync/atomic`.
 
 Stacks come from the default allocator, or from `rt.Go(f, size, a)` with an explicit one, and are freed
 when the puroutine returns.
@@ -425,7 +437,9 @@ func Shared[T any](a Allocator = Default()) shared[T]
 func Synced[T any](a Allocator = Default()) synced[T]
 ```
 
-`Use` scopes an allocator to a region of code without changing the code inside it:
+`Use` scopes an allocator to a region of code without changing the code inside it. The override belongs
+to the puroutine that calls `Use`: `Default()` returns it there and the program-wide default everywhere
+else, and a new puroutine starts with the program-wide default.
 
 ```go
 func handle(req *Request) {
@@ -436,7 +450,10 @@ func handle(req *Request) {
 
 ### 6.2 The system allocator
 
-In hosted builds the default allocator is a slab allocator over `mmap`. In freestanding builds there is
+In hosted builds the default allocator is a slab allocator over `mmap`, safe to use from several
+puroutines at once: each worker thread allocates from its own cache in front of the shared slabs.
+`alloc.SetDefault` must likewise be given a thread-safe allocator once puroutines run in parallel; an
+arena installed with `alloc.Use` belongs to the puroutine that installed it. In freestanding builds there is
 none: allocating before the program calls `alloc.SetDefault` panics with "no allocator". A kernel sets it
 once its page allocator is ready:
 
