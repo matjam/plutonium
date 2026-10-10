@@ -373,15 +373,18 @@ position-independent code (section 7).
 
 ### 10.4 Interrupt handlers
 
-`//pu:interrupt` (planned; today the directive is accepted but compiles an ordinary function ending in
-`ret`, which must become a compile error until this is implemented) makes a function an x86-64 interrupt
-or exception handler:
+`//pu:interrupt` makes a function an x86-64 interrupt or exception handler. It is available in every
+build mode (a hosted program can compile one but has no way to install it).
 
 ```go
+package x86
+
 type InterruptFrame struct {
 	RIP, CS, RFLAGS, RSP, SS uint64
 }
+```
 
+```go
 //pu:interrupt
 func timer(f *x86.InterruptFrame)
 
@@ -389,20 +392,49 @@ func timer(f *x86.InterruptFrame)
 func pageFault(f *x86.InterruptFrame, code uint64) // vectors that push an error code
 ```
 
+A handler is a plain function (not a method, not generic) with a body, no results, and either one
+parameter, the address of the interrupt frame, or two, the frame and the error code. The frame parameter
+may be any pointer type, `unsafe.Pointer` or `uintptr`; the error code is `uint64` or `uintptr`. The
+signature decides the stack layout, so a handler with an error code must be installed only on the
+vectors whose exceptions push one (8, 10 to 14, 17, 21, 29 and 30), and a handler without one on every
+other vector, including software `int $n`. This follows GCC's and Clang's
+`__attribute__((interrupt))`. Anything else is a compile error, as is `//pu:interrupt` combined with
+`//pu:inline`.
+
 The compiler generates the entry and exit:
 
-1. On entry RSP points at the error code (if the signature has one) or at the saved RIP. The prologue
-   pushes every general-purpose register the handler, or anything it calls, may change: all caller-saved
-   registers (RAX, RCX, RDX, RSI, RDI, R8 to R11) plus the callee-saved registers it uses.
-2. It executes `cld`, aligns RSP to 16 bytes, and passes the address of the `InterruptFrame` in RDI and
-   the error code in RSI.
-3. The epilogue restores the registers and RSP, discards the error code (`add $8, %rsp`), and returns
-   with `iretq`.
-4. In kernel mode no vector registers are saved; a `//pu:interrupt` function in a mode that allows floats
-   must not use them, and the compiler reports an error if it does.
+1. On entry RSP points at the error code, if the signature has one, or at the saved RIP. In 64-bit mode
+   the CPU aligns RSP to 16 bytes before pushing the frame, so RSP is 8 modulo 16 on entry without an
+   error code (five words pushed, the same as after a `call`) and 0 with one (six words). The compiler
+   uses this to size the frame; it does not realign at run time.
+2. The prologue pushes every general-purpose register the handler changes. A handler that makes a call
+   also saves every caller-saved register (RAX, RCX, RDX, RSI, RDI, R8 to R11), since the callee may
+   change them; callees preserve the callee-saved ones. It then allocates the frame, padded so that RSP
+   is 16-byte aligned at every call, and executes `cld`.
+3. The prologue saves, with `movups` into the frame, the XMM registers the handler changes: the ones
+   its own code uses, and all of XMM0 to XMM15 if it makes a call, because any Plutonium, C or assembly
+   callee may use them. A handler that neither calls nor uses floats touches no vector register. Saving
+   XMM registers needs SSE enabled (CR4.OSFXSR); a kernel that leaves SSE off must keep its handlers free
+   of calls and floats until kernel mode (section 10.2) removes floats from the whole program. x87, AVX
+   upper halves and MXCSR are not saved: Plutonium code does not change them, and legacy SSE instructions
+   leave the upper halves of the YMM registers alone.
+4. The handler's parameters are the frame's address (the saved RIP, `8(%rsp)` on entry when there is an
+   error code, `(%rsp)` otherwise) and the error code (`(%rsp)` on entry). They are not passed in
+   registers.
+5. The epilogue restores the XMM registers, frees the frame, pops the saved registers in reverse order,
+   discards the error code (`add $8, %rsp`) if there is one, and returns with `iretq`. Changes the handler
+   makes to `*f` (for example advancing `RIP` past a faulting instruction) take effect then.
 
-Handlers cannot be called directly or used as func values; their address is taken with
-`x86.HandlerAddr(timer)` for the IDT.
+Handlers are never inlined, cannot be called directly (including with `defer`) and cannot be used as
+func values, all compile errors; their address is taken with `x86.HandlerAddr(timer)`, which yields a
+`uintptr` for the IDT gate. `x86.HandlerAddr` with anything other than the name of a `//pu:interrupt`
+function is a compile error. `//pu:export name` on a handler gives its code a second global symbol, for
+assembly stubs that refer to it.
+
+The handler may call ordinary functions: they run on a 16-byte aligned stack with the direction flag
+clear, as section 2 requires, and every register they may change is restored before `iretq`. In kernel
+mode (planned) floats are rejected everywhere outside `//pu:fpu` functions, so handlers will save no
+vector registers there.
 
 ### 10.5 `pluto/arch/x86` intrinsics
 
@@ -431,7 +463,7 @@ also has an assembly body for when its address is taken. Privileged instructions
 | `ReadGSBase() uintptr`, `WriteGSBase(v uintptr)` | `rdmsr`/`wrmsr` of `IA32_GS_BASE` (or `rdgsbase`/`wrgsbase` with `--cpu` support for FSGSBASE) |
 | `GSLoad64(off uintptr) uint64`, `GSLoad32`, `GSStore64(off uintptr, v uint64)`, `GSStore32` | `mov %gs:(%rdi), ...` |
 | `FPUBegin(area *FPUState)`, `FPUEnd(area *FPUState)` | `fxsave`/`fxrstor` (or `xsave`/`xrstor`), with `clts` |
-| `HandlerAddr(h any) uintptr` | `lea handler(%rip), %rax`; `h` must name a `//pu:interrupt` function, checked at compile time |
+| `HandlerAddr(h any) uintptr` | `lea handler(%rip), %rax`; `h` must name a `//pu:interrupt` function, checked at compile time (implemented, with `InterruptFrame`; the rest of this table is proposed) |
 
 ```go
 type DescriptorTablePointer packed [10]byte {

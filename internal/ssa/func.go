@@ -312,6 +312,9 @@ type Func struct {
 	Params  []*Type  // flattened parameter types
 	Results []*Type  // flattened result types
 	ABI     ABI
+	// ParamOnStack forces parameters to the stack, as CallInfo.OnStack does
+	// for calls (ABIC functions only; nil otherwise).
+	ParamOnStack []bool
 	Pragmas Pragma
 	Section string
 	Pos     token.Pos

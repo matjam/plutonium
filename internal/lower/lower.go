@@ -58,7 +58,8 @@ type Lowerer struct {
 	strs           map[string]*ssa.Sym
 	closureRecords map[*ssa.Sym]*ssa.Sym // static closure record per function used as a value
 	exports        map[*ssa.Sym][]string // extra symbol names from //pu:export
-	statics        int                   // anonymous static objects created
+	interruptSyms  map[*ssa.Sym]bool     // //pu:interrupt functions
+	statics       int                   // anonymous static objects created
 	types          *typeTable
 
 	errs []error
@@ -104,6 +105,7 @@ func Lower(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 		strs:           map[string]*ssa.Sym{},
 		closureRecords: map[*ssa.Sym]*ssa.Sym{},
 		exports:        map[*ssa.Sym][]string{},
+		interruptSyms:  map[*ssa.Sym]bool{},
 	}
 	l.types = newTypeTable(l)
 	if l.sizes == nil {
@@ -124,6 +126,7 @@ func Lower(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 
 	l.lowerGlobals()
 	l.lowerEntry()
+	l.checkInterrupts()
 	l.lowerExports()
 	for {
 		for len(l.queue) > 0 && len(l.errs) < 50 {
@@ -273,6 +276,9 @@ func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 	}
 	sym := l.out.Sym(name, ssa.SymFunc)
 	l.funcs[name] = sym
+	if d != nil && hasDirective(d.decl.Doc, "interrupt") {
+		l.interruptSyms[sym] = true
+	}
 	if d == nil {
 		l.errs = append(l.errs, fmt.Errorf("lower: no source for function %s", name))
 		return sym

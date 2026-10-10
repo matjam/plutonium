@@ -23,8 +23,8 @@ tooling, platforms and libraries.
 2. **Interface boxes in package initialisers** (planned): `var x any = "s"` boxes the string in the init
    function's frame and leaves a dangling pointer (seen in `-S` output, including `pluto/alloc.Pages`);
    give such boxes static storage as `&T{}` already gets, or reject them.
-3. **`//pu:interrupt` compiles as an ordinary function** (planned): the directive is accepted but the
-   function ends in `ret` with no register saves; reject it until abi.md section 10.4 is implemented.
+3. **`//pu:interrupt` compiles as an ordinary function** (done): handlers now get the entry and exit
+   sequence of abi.md section 10.4 (item 9).
 4. **`//pu:extern` and `//pu:export` with aggregates** (planned): they use the internal ABI, which differs
    from System V for slices, structs and more than two results; reject them until C classification lands
    (item 12).
@@ -40,8 +40,10 @@ tooling, platforms and libraries.
    (language spec section 11.2, abi.md section 10).
 8. **`pluto/arch/x86` intrinsics** (proposed): `cli`, `sti`, `hlt`, port I/O, MSRs, control registers,
    `invlpg`, descriptor tables, `cpuid`, `rdtsc`, `swapgs`, GS access, expanded inline as compiler barriers.
-9. **`//pu:interrupt`** (planned): interrupt and exception handlers with full register save, `cld`,
-   stack alignment and `iretq` (abi.md section 10.4).
+9. **`//pu:interrupt`** (done): interrupt and exception handlers with register saves (XMM included when
+   the handler calls or uses floats), `cld`, stack alignment, the error-code variant and `iretq` (abi.md
+   section 10.4), with `x86.InterruptFrame` and `x86.HandlerAddr`. Tested by booting a kernel under QEMU
+   (`testdata/kernel/irq`). Kernel mode (item 7) will drop the XMM saves.
 10. **Per-CPU variables, `//pu:percpu`** (proposed): a `.percpu` section linked at 0, accessed through `GS`
     (abi.md section 10.6).
 11. **Error design** (in progress): how errors are made, wrapped and given context without hidden

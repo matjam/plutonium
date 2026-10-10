@@ -54,6 +54,9 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 	// Static calls of declared functions.
 	if id := identOf(fun); id != nil {
 		if fn, ok := s.info.Uses[id].(*types2.Func); ok {
+			if fn.Pkg() != nil && fn.Pkg().Path()+"."+fn.Name() == handlerAddrFunc {
+				return []value{s.handlerAddr(e, s.typeOf(e))}
+			}
 			if res, ok := s.intrinsic(fn, e); ok {
 				return res
 			}
@@ -162,6 +165,9 @@ func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature) []value {
 
 // emitCall emits a call and returns its results as values.
 func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []value, pos token.Pos) []value {
+	if c.sym != nil {
+		s.checkNotHandler(c.sym, pos, "called")
+	}
 	abi := s.l.lowerSig(sig)
 	var flat []*ssa.Value
 	var sretBuf *ssa.Value
@@ -444,8 +450,9 @@ func ringOf(recvT types2.Type, sel *types2.Selection) *types2.Wrapper {
 
 // funcValue returns a func value for a declared function: the address of a
 // static closure record holding its code pointer.
-func (s *fnState) funcValue(fn *types2.Func, targs []types2.Type) *ssa.Value {
+func (s *fnState) funcValue(fn *types2.Func, targs []types2.Type, pos token.Pos) *ssa.Value {
 	sym := s.l.funcSym(fn, targs)
+	s.checkNotHandler(sym, pos, "used as a func value")
 	return s.symAddr(s.l.closureRecord(sym))
 }
 

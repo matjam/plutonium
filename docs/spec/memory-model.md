@@ -268,7 +268,7 @@ non-synchronising.
 
 ### 6.1 Interrupt handlers on the same processor
 
-An interrupt handler (`//pu:interrupt`, planned) runs on the processor it interrupts, between two
+An interrupt handler (`//pu:interrupt`) runs on the processor it interrupts, between two
 instructions of the interrupted code. A processor observes its own memory accesses in program order, so
 only the compiler can make the handler see the interrupted code's accesses out of order, or not at all
 (a value still in a register). The rules:
