@@ -385,8 +385,8 @@ scheduler (no `go` statement, no channel operation or `pluto/sync` wait that can
 `time.After`, `AfterFunc` or `rt.ParkUntil`) has no other puroutine to run, so there `Sleep` waits in
 the kernel on the program's only thread (`clock_nanosleep`), and the scheduler, monitor and poller
 threads are neither started nor linked. The compiler decides this once it has lowered the whole
-program, from whether the runtime's `startTasks` is reachable (`rt.Sleep`, a body-less function marked
-`//pu:schedlate`, takes the direct body or the parking one then); the default hosted backend is the
+program, from whether the runtime's `startTasks` is reachable (`rt.Sleep`, a body-less function the
+compiler knows by name, takes the direct body or the parking one then); the default hosted backend is the
 only one it applies to, so a program that binds its own scheduler, a kernel included, always parks.
 `time.Timer`, `time.Ticker`,
 `time.After` and `time.Tick` deliver the time on a channel, so a `select` waits for a timer like any
