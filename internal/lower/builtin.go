@@ -398,7 +398,19 @@ func (s *fnState) printValue(v value, T types2.Type, a ast.Node) {
 		case info&types2.IsBoolean != 0:
 			s.callRuntime("printBool", nil, []*ssa.Value{v.v})
 		case info&types2.IsFloat != 0:
-			s.callRuntime("printFloat", nil, []*ssa.Value{s.convertScalar(v.v, T, types2.Typ[types2.Float64])})
+			// The runtime takes the bits, so a float32 is formatted as
+			// one (shortest digits for its precision). In kernel mode,
+			// passing a float is a float use like any other, allowed
+			// only in //pu:fpu functions, as for pluto/fmt.
+			if s.f.NoSSE {
+				s.floatErrorAt(a.Pos(), v.v.Type, "argument")
+			}
+			size := v.v.Type.Size
+			bits := s.newValue(ssa.OpBitcast, ssa.IntType(size), v.v)
+			if size < 8 {
+				bits = s.newValue(ssa.OpZeroExt, ssa.TI64, bits)
+			}
+			s.callRuntime("printFloat", nil, []*ssa.Value{bits, s.constInt(ssa.TI64, 8*size)})
 		case info&types2.IsUnsigned != 0:
 			s.callRuntime("printUint", nil, []*ssa.Value{s.convertScalar(v.v, T, types2.Typ[types2.Uint64])})
 		case info&types2.IsInteger != 0:

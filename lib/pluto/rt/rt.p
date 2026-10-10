@@ -55,20 +55,32 @@ func itabTable() unsafe.Pointer
 
 // findItab returns the itab for concrete type typ and interface iface, or
 // nil if typ does not implement iface.
+//
+// The itab table is an open-addressing hash table that the compiler lays
+// out (internal/lower/iface.go, itabSlots): a power-of-two number of slots,
+// then the slots, each an itab pointer or nil. A lookup starts at the slot
+// itabHash picks from the two descriptors' hashes and probes forward until
+// it finds the itab or an empty slot; at least half the slots are empty.
 func findItab(typ, iface *typeDesc) *itab {
 	if typ == nil {
 		return nil
 	}
 	table := itabTable()
-	n := *(*int)(table)
+	mask := *(*uint)(table) - 1
 	entries := unsafe.Add(table, 8)
-	for i := 0; i < n; i++ {
+	h := typ.hash*0x9E3779B1 ^ iface.hash
+	h ^= h >> 15
+	h *= 0x85EBCA6B
+	h ^= h >> 13
+	for i := uint(h) & mask; ; i = (i + 1) & mask {
 		t := *(**itab)(unsafe.Add(entries, i*8))
+		if t == nil {
+			return nil
+		}
 		if t.typ == typ && t.iface == iface {
 			return t
 		}
 	}
-	return nil
 }
 
 // assertItab implements x.(I) for a non-empty interface I.
@@ -486,32 +498,6 @@ func writePointer(w Writer, v uintptr) {
 	i--
 	buf[i] = '0'
 	writeBytes(w, unsafe.Pointer(&buf[i]), len(buf)-i)
-}
-
-func printFloat(f float64) {
-	// Enough for diagnostics: sign, integer part, six decimals.
-	if f != f {
-		printString("NaN")
-		return
-	}
-	if f < 0 {
-		printString("-")
-		f = -f
-	}
-	if f > 1e18 {
-		printString("+Inf")
-		return
-	}
-	ip := uint64(f)
-	printUint(ip)
-	printString(".")
-	frac := f - float64(ip)
-	for i := 0; i < 6; i++ {
-		frac *= 10
-		d := uint64(frac)
-		printUint(d)
-		frac -= float64(d)
-	}
 }
 
 func printString(s string) {

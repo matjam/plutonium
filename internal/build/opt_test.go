@@ -2,6 +2,7 @@ package build_test
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -630,5 +631,31 @@ func main() { axpy() }
 	}
 	if asm := funcListing(t, text, "main.axpy"); !strings.Contains(asm, "mulpd") {
 		t.Errorf("axpy: want packed code\n%s", asm)
+	}
+}
+
+// TestInlineGrowthBudget checks the inliner's per-caller growth budget: a
+// caller making many calls to a large //pu:inline function inlines only
+// as many as fit, and the small callee is inlined first, so none of its
+// calls remain.
+func TestInlineGrowthBudget(t *testing.T) {
+	var sb strings.Builder
+	sb.WriteString("package main\n\nvar g [8]int\n\n//pu:inline\nfunc big(k int) {\n")
+	for i := 0; i < 150; i++ {
+		fmt.Fprintf(&sb, "\tg[%d] = g[%d]*k + %d\n", i%8, (i+3)%8, i)
+	}
+	sb.WriteString("}\n\nfunc small(k int) int { return k*3 + 1 }\n\n//pu:noinline\nfunc f(k int) int {\n\tn := 0\n")
+	const calls = 20
+	for i := 0; i < calls; i++ {
+		sb.WriteString("\tbig(k)\n\tn += small(n)\n")
+	}
+	sb.WriteString("\treturn n\n}\n\nfunc main() { println(f(2), g[1]) }\n")
+	asm := listFunc(t, sb.String(), "main.f")
+	left := strings.Count(asm, "call main.big")
+	if left == 0 || left == calls {
+		t.Errorf("f: %d of %d calls to big left; want the budget to stop inlining part way", left, calls)
+	}
+	if strings.Contains(asm, "call main.small") {
+		t.Errorf("f: small not inlined everywhere")
 	}
 }

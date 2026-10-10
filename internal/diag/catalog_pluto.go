@@ -539,6 +539,12 @@ func init() {
 			Spec: pspec("12.5", "Per-CPU variables"),
 		},
 		&Entry{
+			Code: StackDirective, Name: "StackDirective",
+			Text: "//pu:stack sets the size of the stack a hosted program runs on: the runtime reserves that much address space before main starts. It belongs on func main in package main, and takes a size in bytes, with an optional K, M or G suffix, from 64K to 64G. A freestanding program sets up its own stack, so the directive has nothing to act on there.",
+			Fix:  &Fix{Intro: "Put it on main", Code: "//pu:stack 256M\nfunc main() { ... }"},
+			Spec: pspec("9", "Directives"),
+		},
+		&Entry{
 			Code: InterruptDecl, Name: "InterruptDecl",
 			Text: "A //pu:interrupt function is entered by the processor, not called by Plutonium code. So it must be a plain function with a body: not a method, not generic, and not marked //pu:inline, since the processor needs one fixed address to jump to.",
 			Spec: pspec("12.4", "pluto/arch/x86"),

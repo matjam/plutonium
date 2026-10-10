@@ -9,6 +9,7 @@ import (
 	"pluto/sort"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
+	"selfhost/pu"
 )
 
 // expandPCopies turns each parallel copy into a sequence of copies that has
@@ -42,7 +43,7 @@ func expandPCopies(f *MFunc) {
 					if blocked {
 						continue
 					}
-					out = compat.Append(out, new(MInst{Op: MCOPY, Size: 8, Dst: RegOp(m.dst), Src: RegOp(m.src)}))
+					out = compat.Append(out, pu.New(MInst{Op: MCOPY, Size: 8, Dst: RegOp(m.dst), Src: RegOp(m.src)}))
 					pending = compat.Append(pending[:i], pending[i+1:]...)
 					progress = true
 					i--
@@ -52,7 +53,7 @@ func expandPCopies(f *MFunc) {
 					// Save one destination's value and redirect its readers.
 					m := pending[0]
 					t := f.newVRegLike(m.dst)
-					out = compat.Append(out, new(MInst{Op: MCOPY, Size: 8, Dst: RegOp(t), Src: RegOp(m.dst)}))
+					out = compat.Append(out, pu.New(MInst{Op: MCOPY, Size: 8, Dst: RegOp(t), Src: RegOp(m.dst)}))
 					for j := range pending {
 						if pending[j].src == m.dst {
 							pending[j].src = t
@@ -298,7 +299,7 @@ func newAllocator(f *MFunc, class RegClass, spillTemps *hash.Map[Reg, bool]) *al
 	if class == ClassGP && f.frameFP {
 		colors = colors[:len(colors)-1] // RBP is the frame pointer
 	}
-	a := new(allocator{
+	a := pu.New(allocator{
 		f: f, class: class, k: len(colors), colors: colors,
 		precolored: compat.NewMap[Reg, bool](0),
 		simplifyWL: compat.NewMap[Reg, bool](0), freezeWL: compat.NewMap[Reg, bool](0), spillWL: compat.NewMap[Reg, bool](0),
@@ -765,7 +766,7 @@ func (a *allocator) rewrite(spillTemps *hash.Map[Reg, bool]) {
 					t := f.newVRegLike(r)
 					spillTemps.Set(t, true)
 					reload.Set(r, t)
-					out = compat.Append(out, new(MInst{Op: MRELOAD, Size: f.spillSize(r), Dst: RegOp(t), Slot: slot}))
+					out = compat.Append(out, pu.New(MInst{Op: MRELOAD, Size: f.spillSize(r), Dst: RegOp(t), Slot: slot}))
 				}
 			}
 			buf = in.Defs(buf[:0])
@@ -794,7 +795,7 @@ func (a *allocator) rewrite(spillTemps *hash.Map[Reg, bool]) {
 			// the stores come out in a fixed order.
 			for _, r := range buf {
 				if t, ok := compat.MapGet(store, r); ok {
-					out = compat.Append(out, new(MInst{Op: MSPILL, Size: f.spillSize(r), Src: RegOp(t), Slot: compat.MapAt(slots, r)}))
+					out = compat.Append(out, pu.New(MInst{Op: MSPILL, Size: f.spillSize(r), Src: RegOp(t), Slot: compat.MapAt(slots, r)}))
 					compat.MapDelete(store, r)
 				}
 			}

@@ -192,8 +192,9 @@ An interface value is `{tab, data}`.
 - For the empty interface, `tab` is the dynamic type's **type descriptor**. For other interfaces it is
   an **itab**, whose first word is the type descriptor. A nil interface has `tab == nil`.
 - `data` holds the value's bits when the dynamic type is **direct** (integers, floats, booleans,
-  pointers, func values, `owned`/`shared`/`synced`, packed values of up to 8 bytes): zero-extended
-  integers and booleans, float bits, or the address. For every other type `data` points at a copy of the
+  pointers, func values, `owned`/`shared`/`synced`, packed values of up to 8 bytes, and structs with one
+  field or arrays of length 1 that hold a single pointer): zero-extended integers and booleans, float
+  bits, or the address. For every other type `data` points at a copy of the
   value in the frame of the function that made the conversion (language spec section 4.4).
 
 Type descriptor, 72 bytes, read-only, named `type:<type>` (mirrored by `pluto/rt.typeDesc`, read through
@@ -240,8 +241,17 @@ payload) and a word that is 1 when the payload is an empty interface and 2 when 
 Itab, named `itab:<type>,<interface>`: the type descriptor, the interface's descriptor, then one code
 pointer per interface method in method order. Each code pointer is an adapter that takes the data word as
 its first argument (in place of the receiver) followed by the method's arguments, and is called with RAX
-set to 0. `pluto.itabs` lists every itab for the run-time lookup that type assertions to non-empty
-interfaces use.
+set to 0. `pluto.itabs` holds every itab for the run-time lookup that conversions between non-empty
+interfaces and type assertions to them use. It is an open-addressing hash table: a word holding the
+number of slots `n`, a power of two at least twice the number of itabs, then `n` slots, each an itab
+address or 0. With `t` and `i` the `hash` words of the concrete type's and the interface's descriptors,
+the lookup computes, in 32-bit arithmetic,
+
+```
+h = t*0x9E3779B1 ^ i;  h ^= h >> 15;  h *= 0x85EBCA6B;  h ^= h >> 13
+```
+
+and probes slots `h & (n-1)`, `h+1 & (n-1)`, ... until it finds the itab or a 0 slot.
 
 ## 6. Stack frames
 
@@ -339,6 +349,7 @@ functions without `//pu:fpu` (no floats, section 10.2) never use it.
 | type descriptor | `type:<type>` |
 | itab | `itab:<type>,<interface>` |
 | itab table | `pluto.itabs`, `pluto.itabtable` |
+| main's stack size from `//pu:stack` (0 if none), a function returning a `uintptr` | `pluto.mainstack` |
 | string data | `.str.N` (local) |
 | static object (a `&T{}` in a package initialiser) | `.static.N` (local) |
 | float constant | `pluto.const.<hex>` |

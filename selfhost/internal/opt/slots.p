@@ -6,6 +6,7 @@ import (
 	"pluto/hash"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
+	"selfhost/pu"
 )
 
 // slotRef is a pointer value known to be a stack slot's address plus a
@@ -60,7 +61,7 @@ func analyzeSlots(f *ssa.Func) *hash.Map[*ssa.Slot, *slotInfo] {
 		if i := compat.MapAt(infos, s); i != nil {
 			return i
 		}
-		i := new(slotInfo{slot: s})
+		i := pu.New(slotInfo{slot: s})
 		infos.Set(s, i)
 		return i
 	}

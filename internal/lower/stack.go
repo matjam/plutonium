@@ -1,0 +1,110 @@
+package lower
+
+import (
+	"strconv"
+	"strings"
+
+	"github.com/matjam/plutonium/internal/diag"
+	"github.com/matjam/plutonium/internal/syntax/ast"
+	"github.com/matjam/plutonium/internal/types2"
+)
+
+// The //pu:stack directive on main.main sets the size of the stack the
+// hosted runtime runs the program on (language spec section 9): it reserves
+// that much address space, maps it lazily and puts a guard region below it,
+// instead of using the stack the system gave the process (usually 8 MiB).
+// A compiler or anything else that recurses deeply asks for a large one:
+//
+//	//pu:stack 256M
+//	func main() { ... }
+
+const (
+	minMainStack = 64 << 10 // smallest //pu:stack size
+	maxMainStack = 64 << 30 // largest
+	pageSize     = 4096
+)
+
+// isStackDirective reports whether d (a directive without "//pu:") is
+// //pu:stack.
+func isStackDirective(d string) bool { return d == "stack" || strings.HasPrefix(d, "stack ") }
+
+// mainStackSize returns the stack size main's //pu:stack directive asks for,
+// rounded up to whole pages, or 0 if it has none. It reports a malformed
+// directive, and one in a freestanding build, which has no runtime to
+// reserve the stack.
+func (l *Lowerer) mainStackSize(mainFn *types2.Func) uint64 {
+	d := l.decls[mainFn]
+	if d == nil || d.decl.Doc == nil {
+		return 0
+	}
+	for _, c := range d.decl.Doc.List {
+		dir, ok := strings.CutPrefix(c.Text, "//pu:")
+		if !ok || !isStackDirective(strings.TrimSpace(dir)) {
+			continue
+		}
+		if l.cfg.Freestanding {
+			l.errorf(c.Pos(), diag.StackDirective, "//pu:stack is not supported in freestanding builds (the program sets up its own stack)")
+			return 0
+		}
+		size, err := parseStackSize(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(dir), "stack")))
+		if err != "" {
+			l.errorf(c.Pos(), diag.StackDirective, "//pu:stack: %s", err)
+			return 0
+		}
+		return size
+	}
+	return 0
+}
+
+// parseStackSize parses the size of a //pu:stack directive: a decimal number
+// of bytes with an optional K, M or G suffix (powers of 1024), between 64K
+// and 64G. It returns the size rounded up to a whole page, or an error
+// message.
+func parseStackSize(s string) (uint64, string) {
+	if s == "" {
+		return 0, "missing size (for example //pu:stack 256M)"
+	}
+	mult := uint64(1)
+	switch s[len(s)-1] {
+	case 'K', 'k':
+		mult = 1 << 10
+	case 'M', 'm':
+		mult = 1 << 20
+	case 'G', 'g':
+		mult = 1 << 30
+	}
+	digits := s
+	if mult != 1 {
+		digits = s[:len(s)-1]
+	}
+	n, err := strconv.ParseUint(digits, 10, 64)
+	if err != nil {
+		return 0, "invalid size " + strconv.Quote(s) + " (want a number of bytes with an optional K, M or G suffix)"
+	}
+	if n > maxMainStack/mult || n*mult > maxMainStack {
+		return 0, "size " + s + " is larger than 64G"
+	}
+	size := n * mult
+	if size < minMainStack {
+		return 0, "size " + s + " is smaller than 64K"
+	}
+	return (size + pageSize - 1) &^ (pageSize - 1), ""
+}
+
+// checkStackDirective reports a //pu:stack directive on a function other
+// than main.main, where it would have no effect.
+func (s *fnState) checkStackDirective(doc *ast.CommentGroup) {
+	if doc == nil {
+		return
+	}
+	for _, c := range doc.List {
+		dir, ok := strings.CutPrefix(c.Text, "//pu:")
+		if !ok || !isStackDirective(strings.TrimSpace(dir)) {
+			continue
+		}
+		mainFn, _ := s.l.prog.Main.Types.Scope().Lookup("main").(*types2.Func)
+		if mainFn == nil || s.f.Name != funcSymName(mainFn, nil) {
+			s.l.errorf(c.Pos(), diag.StackDirective, "//pu:stack applies only to func main in package main")
+		}
+	}
+}

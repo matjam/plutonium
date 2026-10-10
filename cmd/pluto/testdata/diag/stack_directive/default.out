@@ -1,0 +1,14 @@
+$DIR/main.p:6:1: //pu:stack: invalid size "2T" (want a number of bytes with an optional K, M or G suffix)
+    //pu:stack sets the size of the stack a hosted program runs on: the runtime
+    reserves that much address space before main starts. It belongs on func main
+    in package main, and takes a size in bytes, with an optional K, M or G
+    suffix, from 64K to 64G. A freestanding program sets up its own stack, so
+    the directive has nothing to act on there.
+    Put it on main:
+        //pu:stack 256M
+        func main() { ... }
+    (see "Directives" in the Plutonium spec, section 9)
+    (run "pluto explain E2560" for a longer explanation)
+
+$DIR/main.p:3:1: //pu:stack applies only to func main in package main
+    (explained above; run "pluto explain E2560" for more)

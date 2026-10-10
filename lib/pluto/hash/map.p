@@ -44,9 +44,13 @@ type slot[K comparable, V any] struct {
 // deletion, kept at most 3/4 full; when it fills, it allocates a table twice
 // as large from its allocator, moves the entries and frees the old table.
 //
-// The zero Map is empty and can be read (Get, Len, Iter), but must be
-// initialised with Init, InitFunc or NewMap before Set. A Map must not be
-// copied after first use; pass a *Map. It is not safe for concurrent use.
+// The zero Map is empty and ready to use: the first Set initialises it as
+// Init with the default allocator would. A Map must not be copied after
+// first use; pass a *Map. It is not safe for concurrent use.
+//
+// A Map owns its table, so it is an owner (language spec section 6.4): Drop
+// releases it, and Clone copies it. Declaring the type owner is a one-line
+// change once the keyword lands (roadmap item 51).
 //
 // Keys are hashed according to their type: integers, booleans, pointers,
 // floats and strings (and types defined on them) out of the box; a key type
@@ -214,6 +218,10 @@ func (m *Map[K, V]) Get(k K) (V, bool) {
 	return zero, false
 }
 
+// At returns the value stored for k, or the zero V if k is not in the map:
+// m[k] as a method call, for code translated from Go (internal/pu).
+func (m *Map[K, V]) At(k K) V { return m.Index(k) }
+
 // Index returns the value stored for k, or the zero V if k is not in the
 // map; it is what m[k] calls (language spec section 6.7).
 func (m *Map[K, V]) Index(k K) V {
@@ -273,7 +281,11 @@ func (m *Map[K, V]) Upsert(k K) (p *V, inserted bool) {
 func (m *Map[K, V]) slot(k K) *V {
 	if m.n >= m.limit {
 		if m.how == hashMethod.none {
-			panic("hash: Set on a Map without an allocator (use NewMap or Init)")
+			// A zero Map: initialise it with the default allocator.
+			if alloc.Default() == nil {
+				panic("hash: no allocator (call alloc.SetDefault, or give the Map one with Init)")
+			}
+			m.Init(0)
 		}
 		size := 2 * len(m.slots)
 		if size < 8 {
@@ -344,6 +356,24 @@ func (m *Map[K, V]) Free() {
 	m.meta = nil
 	m.n = 0
 	m.limit = 0
+}
+
+// Drop returns the table to the allocator and leaves the map empty: the
+// owner's release (Free under its spec name).
+func (m *Map[K, V]) Drop() { m.Free() }
+
+// Clone returns an independent copy of m, with the same hashing, whose
+// table comes from a (by default the default allocator). Keys and values
+// are copied as values.
+func (m *Map[K, V]) Clone(a alloc.Allocator = alloc.Default()) Map[K, V] {
+	out := Map[K, V]{a: a, seed: m.seed, how: m.how, ksize: m.ksize, fn: m.fn}
+	if len(m.slots) > 0 {
+		out.resize(len(m.slots)) // the same size: the same layout
+		copy(out.slots, m.slots)
+		copy(out.meta, m.meta)
+		out.n = m.n
+	}
+	return out
 }
 
 // tableSize returns the bytes and alignment of a table of size slots: the
@@ -465,6 +495,14 @@ func (s *Set[K]) Clear() { s.m.Clear() }
 
 // Free returns the table to the allocator and leaves the set empty.
 func (s *Set[K]) Free() { s.m.Free() }
+
+// Drop releases the set's table: the owner's release.
+func (s *Set[K]) Drop() { s.m.Free() }
+
+// Clone returns an independent copy of s whose table comes from a.
+func (s *Set[K]) Clone(a alloc.Allocator = alloc.Default()) Set[K] {
+	return Set[K]{m: s.m.Clone(a)}
+}
 
 // A SetIter walks the elements of a Set in an unspecified order.
 type SetIter[K comparable] struct {

@@ -195,8 +195,9 @@ func describeFault(kind FaultKind, addr, sp uintptr) {
 	switch kind {
 	case MemoryFault:
 		switch {
-		case addr < sp+4096 && addr+65536 > sp:
-			// Just below the stack pointer: the stack ran into its guard.
+		case addr < sp+4096 && addr+65536 > sp || addr >= guardLo && addr < guardHi:
+			// Just below the stack pointer, or in the guard region of the
+			// stack //pu:stack reserved: the stack ran into its guard.
 			printString("runtime error: stack overflow")
 		case addr < 4096:
 			printString("runtime error: invalid memory address or nil pointer dereference")

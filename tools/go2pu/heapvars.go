@@ -73,7 +73,7 @@ func (t *fileTr) heapDefine(n *ast.AssignStmt) (string, bool) {
 		lhs[i] = t.text(l)
 		rhs[i] = t.render(n.Rhs[i])
 		if id, ok := l.(*ast.Ident); ok && t.isHeapDef(id) {
-			rhs[i] = "new(" + rhs[i] + ")"
+			rhs[i] = t.puNew(rhs[i])
 		}
 	}
 	return strings.Join(lhs, ", ") + " := " + strings.Join(rhs, ", "), true
@@ -108,11 +108,11 @@ func (t *fileTr) heapVarDecl(d *ast.GenDecl) (string, bool) {
 		name := vs.Names[0].Name
 		switch {
 		case len(vs.Values) == 0:
-			out = append(out, fmt.Sprintf("%s := new(%s)", name, t.render(vs.Type)))
+			out = append(out, fmt.Sprintf("%s := %s.Alloc[%s]()", name, t.use(puPkg, "pu"), t.render(vs.Type)))
 		case vs.Type != nil:
-			out = append(out, fmt.Sprintf("%s := new(%s(%s))", name, convType(t.render(vs.Type)), t.render(vs.Values[0])))
+			out = append(out, fmt.Sprintf("%s := %s", name, t.puNew(convType(t.render(vs.Type))+"("+t.render(vs.Values[0])+")")))
 		default:
-			out = append(out, fmt.Sprintf("%s := new(%s)", name, t.render(vs.Values[0])))
+			out = append(out, fmt.Sprintf("%s := %s", name, t.puNew(t.render(vs.Values[0]))))
 		}
 	}
 	if !found {
@@ -137,7 +137,7 @@ func (t *fileTr) heapParams(typ *ast.FuncType, recv *ast.FieldList, body *ast.Bl
 			for _, id := range f.Names {
 				if t.isHeapDef(id) {
 					ids = append(ids, id)
-					prologue = append(prologue, fmt.Sprintf("%s := new(go%s)", id.Name, id.Name))
+					prologue = append(prologue, fmt.Sprintf("%s := %s", id.Name, t.puNew("go"+id.Name)))
 				}
 			}
 		}

@@ -74,5 +74,5 @@ func (p *printer) printFloat(f float64, bitSize int, verb rune) {
 		p.writeBytes(padded[:k])
 		return
 	}
-	p.field(body)
+	p.fieldNoZero(body)
 }

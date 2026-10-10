@@ -17,6 +17,12 @@
 // an error's message. %w is accepted only by Errorf and ErrorBuf.Errorf
 // (see errorf.p), where it prints the error like %v and wraps it.
 //
+// Strings and runes quote as Go's do: %q uses strconv.Quote's escapes,
+// %+q escapes everything outside ASCII, %#q backquotes a string that
+// strconv.CanBackquote accepts, and %#U adds the quoted character if it
+// is printable. Width, precision and the - and 0 flags apply as in Go;
+// widths count runes, and a byte that is not valid UTF-8 is one rune.
+//
 // Formatting never allocates: output goes through the printer's fixed
 // buffer.
 package fmt
@@ -25,6 +31,7 @@ import (
 	"pluto/io"
 	"pluto/rt"
 	"pluto/strconv"
+	"pluto/unicode/utf8"
 	"unsafe"
 )
 
@@ -117,41 +124,82 @@ func (p *printer) pad(n int, c byte) {
 	}
 }
 
-// field writes s padded to the current width.
+// writePadding writes n bytes of padding, as Go's writePadding does: zeros
+// with the 0 flag unless the field is left-justified, spaces otherwise.
+func (p *printer) writePadding(n int) {
+	if p.zero && !p.minus {
+		p.pad(n, '0')
+	} else {
+		p.pad(n, ' ')
+	}
+}
+
+// padBefore writes the padding that goes before a field of n runes, and
+// padAfter the padding that goes after it (the - flag).
+func (p *printer) padBefore(n int) {
+	if p.hasWid && !p.minus {
+		p.writePadding(p.wid - n)
+	}
+}
+
+func (p *printer) padAfter(n int) {
+	if p.hasWid && p.minus {
+		p.writePadding(p.wid - n)
+	}
+}
+
+// field writes s padded to the current width in runes, as Go's pad does.
+// Bytes that are not valid UTF-8 count as one rune each.
 func (p *printer) field(s []byte) {
-	n := runeCount(s)
-	if !p.hasWid || n >= p.wid {
-		p.writeBytes(s)
-		return
+	n := 0
+	if p.hasWid {
+		n = utf8.RuneCount(s)
 	}
-	if p.minus {
-		p.writeBytes(s)
-		p.pad(p.wid-n, ' ')
-		return
-	}
-	p.pad(p.wid-n, ' ')
+	p.padBefore(n)
 	p.writeBytes(s)
+	p.padAfter(n)
+}
+
+// fieldNoZero is field for numbers, which handle the 0 flag themselves
+// (or ignore it): any padding it adds is spaces.
+func (p *printer) fieldNoZero(s []byte) {
+	zero := p.zero
+	p.zero = false
+	p.field(s)
+	p.zero = zero
 }
 
 func (p *printer) fieldString(s string) {
 	p.field(unsafe.Slice(unsafe.StringData(s), len(s)))
 }
 
-func runeCount(b []byte) int {
-	n := 0
-	for _, c := range b {
-		if c&0xC0 != 0x80 {
-			n++
-		}
-	}
-	return n
-}
-
 // ----------------------------------------------------------------------------
 // Integers
 
+// fmtInteger formats the magnitude u of an integer whose sign is neg, as
+// Go's fmtInteger does. The precision, or the width with the 0 flag, is
+// the minimum number of digits (less one for a sign); the # flag adds a
+// 0b, 0 or 0x prefix and %O a 0o prefix, outside those digits. The
+// leading zeros are written as they go, so neither has a limit.
 func (p *printer) fmtInteger(u uint64, neg bool, base int, verb rune, upper bool) {
-	var digits [80]byte
+	prec := 0
+	if p.hasPrec {
+		prec = p.prec
+		// Precision 0 and value 0 print nothing but the padding.
+		if prec == 0 && u == 0 {
+			zero := p.zero
+			p.zero = false
+			p.writePadding(p.wid)
+			p.zero = zero
+			return
+		}
+	} else if p.zero && !p.minus && p.hasWid {
+		prec = p.wid
+		if neg || p.plus || p.space {
+			prec-- // leave room for the sign
+		}
+	}
+	var digits [64]byte
 	n := strconv.PutUint(digits[:], u, base)
 	body := digits[len(digits)-n:]
 	if upper {
@@ -161,86 +209,57 @@ func (p *printer) fmtInteger(u uint64, neg bool, base int, verb rune, upper bool
 			}
 		}
 	}
-	// Precision: minimum number of digits.
-	var out [100]byte
-	i := len(out)
-	for k := len(body) - 1; k >= 0; k-- {
-		i--
-		out[i] = body[k]
-	}
-	if p.hasPrec {
-		if p.prec == 0 && u == 0 {
-			i = len(out)
-		}
-		for len(out)-i < p.prec && i > 4 {
-			i--
-			out[i] = '0'
-		}
-	}
-	// Zero padding to width (not with precision or left alignment).
-	zeroPad := p.zero && p.hasWid && !p.minus && !p.hasPrec
-	prefixLen := 0
-	if neg || p.plus || p.space {
-		prefixLen++
-	}
-	if p.sharp || verb == 'O' {
-		switch base {
-		case 2, 16:
-			prefixLen += 2
-		case 8:
-			if verb == 'O' {
-				prefixLen += 2
-			} else if out[i] != '0' {
-				prefixLen++
-			}
-		}
-	}
-	if zeroPad {
-		for len(out)-i+prefixLen < p.wid && i > 4 {
-			i--
-			out[i] = '0'
-		}
-	}
-	if p.sharp || verb == 'O' {
-		switch base {
-		case 16:
-			i--
-			if upper {
-				out[i] = 'X'
-			} else {
-				out[i] = 'x'
-			}
-			i--
-			out[i] = '0'
-		case 2:
-			i--
-			out[i] = 'b'
-			i--
-			out[i] = '0'
-		case 8:
-			if verb == 'O' {
-				i--
-				out[i] = 'o'
-				i--
-				out[i] = '0'
-			} else if out[i] != '0' {
-				i--
-				out[i] = '0'
-			}
-		}
-	}
+	zeros := max(prec-n, 0)
+
+	// The prefix, in the order it is written: sign, 0o, then # prefix.
+	var prefix [5]byte
+	k := 0
 	switch {
 	case neg:
-		i--
-		out[i] = '-'
+		prefix[k] = '-'
+		k++
 	case p.plus:
-		i--
-		out[i] = '+'
+		prefix[k] = '+'
+		k++
 	case p.space:
-		i--
-		out[i] = ' '
+		prefix[k] = ' '
+		k++
 	}
-	p.field(out[i:])
+	if verb == 'O' {
+		prefix[k], prefix[k+1] = '0', 'o'
+		k += 2
+	}
+	if p.sharp {
+		switch base {
+		case 2:
+			prefix[k], prefix[k+1] = '0', 'b'
+			k += 2
+		case 8:
+			// A leading 0, unless there is one already.
+			if zeros == 0 && body[0] != '0' {
+				prefix[k] = '0'
+				k++
+			}
+		case 16:
+			prefix[k] = '0'
+			if upper {
+				prefix[k+1] = 'X'
+			} else {
+				prefix[k+1] = 'x'
+			}
+			k += 2
+		}
+	}
+
+	width := k + zeros + n
+	zero := p.zero
+	p.zero = false
+	p.padBefore(width)
+	p.writeBytes(prefix[:k])
+	p.pad(zeros, '0')
+	p.writeBytes(body)
+	p.padAfter(width)
+	p.zero = zero
 }
 
 func (p *printer) printInt(v int64, verb rune) {
@@ -249,12 +268,17 @@ func (p *printer) printInt(v int64, verb rune) {
 	if neg {
 		u = uint64(-v)
 	}
-	if verb == 'v' {
+	switch verb {
+	case 'v':
 		// Signed integers print in decimal even for %#v.
 		p.fmtInteger(u, neg, 10, verb, false)
-		return
+	case 'c', 'q', 'U':
+		// These take the value's bits, as Go's do: a negative value is
+		// beyond utf8.MaxRune, and %U prints its two's complement.
+		p.printNumber(uint64(v), false, verb)
+	default:
+		p.printNumber(u, neg, verb)
 	}
-	p.printNumber(u, neg, verb)
 }
 
 // printNumber formats an unsigned integer, or the magnitude of a signed
@@ -278,9 +302,9 @@ func (p *printer) printNumber(u uint64, neg bool, verb rune) {
 	case 'X':
 		p.fmtInteger(u, neg, 16, verb, true)
 	case 'c':
-		p.fmtChar(rune(u))
+		p.fmtC(u)
 	case 'q':
-		p.fmtQuoteChar(rune(u))
+		p.fmtQc(u)
 	case 'U':
 		p.fmtUnicode(u)
 	default:
@@ -296,105 +320,101 @@ func (p *printer) fmt0x64(u uint64, leading0x bool) {
 	p.sharp = sharp
 }
 
-func (p *printer) fmtChar(r rune) {
-	var b [4]byte
-	n := encodeRune(b[:], r)
+// toRune converts the value of %c or %q to a rune, as Go's fmtC and fmtQc
+// do: a value beyond utf8.MaxRune is utf8.RuneError.
+func toRune(u uint64) rune {
+	if u > utf8.MaxRune {
+		return utf8.RuneError
+	}
+	return rune(u)
+}
+
+// writeRune writes the UTF-8 encoding of r, or of utf8.RuneError if r is
+// not a valid code point.
+func (p *printer) writeRune(r rune) {
+	var b [utf8.UTFMax]byte
+	n := utf8.EncodeRune(b[:], r)
+	p.writeBytes(b[:n])
+}
+
+// fmtC formats u as the character it encodes (%c).
+func (p *printer) fmtC(u uint64) {
+	var b [utf8.UTFMax]byte
+	n := utf8.EncodeRune(b[:], toRune(u))
 	p.field(b[:n])
 }
 
-func (p *printer) fmtQuoteChar(r rune) {
-	var b [16]byte
+// fmtQc formats u as a single-quoted Go character literal (%q), as
+// strconv.QuoteRune does, or strconv.QuoteRuneToASCII with the + flag. A
+// value that is not a valid code point is quoted as utf8.RuneError.
+func (p *printer) fmtQc(u uint64) {
+	r := toRune(u)
+	if !utf8.ValidRune(r) {
+		r = utf8.RuneError
+	}
 	n := 0
-	b[n] = '\''
-	n++
-	switch r {
-	case '\'':
-		b[n], b[n+1] = '\\', '\''
-		n += 2
-	case '\\':
-		b[n], b[n+1] = '\\', '\\'
-		n += 2
-	case '\n':
-		b[n], b[n+1] = '\\', 'n'
-		n += 2
-	case '\t':
-		b[n], b[n+1] = '\\', 't'
-		n += 2
-	default:
-		n += encodeRune(b[n:], r)
+	if p.hasWid {
+		n = 2 + p.escapedRune(r, '\'', false)
 	}
-	b[n] = '\''
-	n++
-	p.field(b[:n])
+	p.padBefore(n)
+	p.writeByte('\'')
+	p.escapedRune(r, '\'', true)
+	p.writeByte('\'')
+	p.padAfter(n)
 }
 
+// fmtUnicode formats u as a Unicode code point, U+0078, with at least
+// the precision's hexadecimal digits (four by default). The # flag adds
+// the character, quoted, if it is printable: U+0078 'x'. The 0 flag does
+// not apply.
 func (p *printer) fmtUnicode(u uint64) {
-	var b [32]byte
-	b[0], b[1] = 'U', '+'
-	var hex [16]byte
-	n := strconv.PutUint(hex[:], u, 16)
-	i := 2
-	for k := n; k < 4; k++ {
-		b[i] = '0'
-		i++
+	prec := 4
+	if p.hasPrec && p.prec > 4 {
+		prec = p.prec
 	}
-	for _, c := range hex[len(hex)-n:] {
-		if c >= 'a' {
-			c -= 'a' - 'A'
-		}
-		b[i] = c
-		i++
+	digits := 1
+	for v := u; v >= 16; v >>= 4 {
+		digits++
 	}
-	p.field(b[:i])
-}
-
-func encodeRune(b []byte, r rune) int {
-	switch {
-	case r < 0x80:
-		b[0] = byte(r)
-		return 1
-	case r < 0x800:
-		b[0] = byte(0xC0 | r>>6)
-		b[1] = byte(0x80 | r&0x3F)
-		return 2
-	case r < 0x10000:
-		b[0] = byte(0xE0 | r>>12)
-		b[1] = byte(0x80 | (r>>6)&0x3F)
-		b[2] = byte(0x80 | r&0x3F)
-		return 3
+	zeros := max(prec-digits, 0)
+	quoted := p.sharp && u <= utf8.MaxRune && strconv.IsPrint(rune(u))
+	n := 2 + zeros + digits
+	if quoted {
+		n += 4 // " 'x'"
 	}
-	b[0] = byte(0xF0 | r>>18)
-	b[1] = byte(0x80 | (r>>12)&0x3F)
-	b[2] = byte(0x80 | (r>>6)&0x3F)
-	b[3] = byte(0x80 | r&0x3F)
-	return 4
+	zero := p.zero
+	p.zero = false
+	p.padBefore(n)
+	p.writeString("U+")
+	p.pad(zeros, '0')
+	const udigits = "0123456789ABCDEF"
+	for s := (digits - 1) * 4; s >= 0; s -= 4 {
+		p.writeByte(udigits[u>>uint(s)&0xF])
+	}
+	if quoted {
+		p.writeString(" '")
+		p.writeRune(rune(u))
+		p.writeByte('\'')
+	}
+	p.padAfter(n)
+	p.zero = zero
 }
 
 // ----------------------------------------------------------------------------
 // Strings
 
 func (p *printer) printString(s string, verb rune) {
-	if verb == 'v' && p.sharpV {
-		p.writeQuoted(s)
-		return
-	}
 	switch verb {
-	case 'v', 's':
-		if p.hasPrec && p.prec < len(s) {
-			// Truncate to prec runes.
-			n, i := 0, 0
-			for i < len(s) && n < p.prec {
-				i++
-				for i < len(s) && s[i]&0xC0 == 0x80 {
-					i++
-				}
-				n++
-			}
-			s = s[:i]
+	case 'v':
+		if p.sharpV {
+			p.fmtQ(s)
+		} else {
+			p.fmtS(s)
 		}
-		p.fieldString(s)
+	case 's':
+		p.fmtS(s)
 	case 'q':
-		p.writeQuoted(s)
+		p.fmtQ(s)
 	case 'x', 'X':
 		p.fmtSbx(s, verb == 'X')
 	default:
@@ -419,7 +439,7 @@ func (p *printer) fmtSbx(s string, upper bool) {
 	width := 2 * length
 	if width == 0 {
 		if p.hasWid {
-			p.pad(p.wid, ' ')
+			p.writePadding(p.wid)
 		}
 		return
 	}
@@ -432,7 +452,7 @@ func (p *printer) fmtSbx(s string, upper bool) {
 		width += 2
 	}
 	if p.hasWid && p.wid > width && !p.minus {
-		p.pad(p.wid-width, ' ')
+		p.writePadding(p.wid - width)
 	}
 	if p.sharp {
 		p.writeByte('0')
@@ -450,36 +470,156 @@ func (p *printer) fmtSbx(s string, upper bool) {
 		p.writeByte(hex[s[i]&15])
 	}
 	if p.hasWid && p.wid > width && p.minus {
-		p.pad(p.wid-width, ' ')
+		p.writePadding(p.wid - width)
 	}
 }
 
-func (p *printer) writeQuoted(s string) {
-	p.writeByte('"')
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch c {
-		case '"', '\\':
-			p.writeByte('\\')
-			p.writeByte(c)
-		case '\n':
-			p.writeString(`\n`)
-		case '\t':
-			p.writeString(`\t`)
-		case '\r':
-			p.writeString(`\r`)
-		default:
-			if c < 0x20 || c == 0x7F {
-				const hex = "0123456789abcdef"
-				p.writeString(`\x`)
-				p.writeByte(hex[c>>4])
-				p.writeByte(hex[c&15])
-			} else {
-				p.writeByte(c)
+// truncate cuts s to the precision, if any, in runes; a byte that is not
+// valid UTF-8 counts as one rune.
+func (p *printer) truncate(s string) string {
+	if p.hasPrec {
+		n := p.prec
+		for i := 0; i < len(s); {
+			n--
+			if n < 0 {
+				return s[:i]
 			}
+			_, w := utf8.DecodeRuneInString(s[i:])
+			i += w
 		}
 	}
-	p.writeByte('"')
+	return s
+}
+
+// fmtS formats a string (%s, %v): truncated to the precision, then padded.
+func (p *printer) fmtS(s string) {
+	p.fieldString(p.truncate(s))
+}
+
+// fmtQ formats a string as a double-quoted Go string literal (%q), as Go's
+// fmtQ does: truncated to the precision first, then quoted by
+// strconv.Quote's rules, or strconv.QuoteToASCII's with the + flag. With
+// the # flag a string that strconv.CanBackquote accepts is backquoted
+// instead. The output is streamed: padding a field counts its runes in a
+// first pass that writes nothing.
+func (p *printer) fmtQ(s string) {
+	s = p.truncate(s)
+	if p.sharp && strconv.CanBackquote(s) {
+		n := 0
+		if p.hasWid {
+			n = 2 + utf8.RuneCountInString(s)
+		}
+		p.padBefore(n)
+		p.writeByte('`')
+		p.writeString(s)
+		p.writeByte('`')
+		p.padAfter(n)
+		return
+	}
+	n := 0
+	if p.hasWid {
+		n = p.quote(s, false)
+	}
+	p.padBefore(n)
+	p.quote(s, true)
+	p.padAfter(n)
+}
+
+// quote writes s as a double-quoted string literal and returns the number
+// of runes in the literal; with emit false it only counts them. A byte
+// that is not valid UTF-8 is written as \x and two hex digits.
+func (p *printer) quote(s string, emit bool) int {
+	n := 2
+	if emit {
+		p.writeByte('"')
+	}
+	for i := 0; i < len(s); {
+		r, w := utf8.DecodeRuneInString(s[i:])
+		if w == 1 && r == utf8.RuneError {
+			n += p.escapeHex('x', uint64(s[i]), 2, emit)
+		} else {
+			n += p.escapedRune(r, '"', emit)
+		}
+		i += w
+	}
+	if emit {
+		p.writeByte('"')
+	}
+	return n
+}
+
+// escapedRune writes r as it appears inside a literal delimited by quote,
+// as strconv's appendEscapedRune does: printable runes as themselves
+// (only ASCII ones with the + flag), others as escapes. It returns the
+// number of runes written; with emit false it only counts them.
+func (p *printer) escapedRune(r rune, quote byte, emit bool) int {
+	if r == rune(quote) || r == '\\' { // always backslashed
+		if emit {
+			p.writeByte('\\')
+			p.writeByte(byte(r))
+		}
+		return 2
+	}
+	if p.plus {
+		if r < utf8.RuneSelf && strconv.IsPrint(r) {
+			if emit {
+				p.writeByte(byte(r))
+			}
+			return 1
+		}
+	} else if strconv.IsPrint(r) {
+		if emit {
+			p.writeRune(r)
+		}
+		return 1
+	}
+	var c byte
+	switch r {
+	case '\a':
+		c = 'a'
+	case '\b':
+		c = 'b'
+	case '\f':
+		c = 'f'
+	case '\n':
+		c = 'n'
+	case '\r':
+		c = 'r'
+	case '\t':
+		c = 't'
+	case '\v':
+		c = 'v'
+	}
+	if c != 0 {
+		if emit {
+			p.writeByte('\\')
+			p.writeByte(c)
+		}
+		return 2
+	}
+	switch {
+	case r < ' ' || r == 0x7f:
+		return p.escapeHex('x', uint64(byte(r)), 2, emit)
+	case !utf8.ValidRune(r):
+		return p.escapeHex('u', 0xFFFD, 4, emit)
+	case r < 0x10000:
+		return p.escapeHex('u', uint64(r), 4, emit)
+	}
+	return p.escapeHex('U', uint64(r), 8, emit)
+}
+
+// escapeHex writes a backslash, c and v in n lowercase hex digits, and
+// returns the number of bytes; with emit false it only counts them.
+func (p *printer) escapeHex(c byte, v uint64, n int, emit bool) int {
+	if emit {
+		const lowerhex = "0123456789abcdef"
+		p.writeByte('\\')
+		p.writeByte(c)
+		for s := (n - 1) * 4; s >= 0; s -= 4 {
+			p.writeByte(lowerhex[v>>uint(s)&0xF])
+		}
+	}
+	return 2 + n
 }
 
 func (p *printer) printBool(b bool, verb rune) {
@@ -499,9 +639,7 @@ func (p *printer) printBool(b bool, verb rune) {
 func (p *printer) badVerb(verb rune) {
 	p.erroring = true
 	p.writeString("%!")
-	var b [4]byte
-	n := encodeRune(b[:], verb)
-	p.writeBytes(b[:n])
+	p.writeRune(verb)
 	p.writeByte('(')
 	if t := p.curT; t != nil {
 		p.writeString(t.Name())
@@ -539,7 +677,7 @@ func (p *printer) printArg(arg any, verb rune) {
 	p.curT, p.curP = t, uintptr(ptr)
 	switch verb {
 	case 'T':
-		p.fieldString(t.Name())
+		p.fmtS(t.Name())
 		return
 	case 'p':
 		p.fmtPointer(t, ptr, 'p')
@@ -675,6 +813,7 @@ func (p *printer) doPrintf(format string, args []any) {
 				argi++
 				if p.wid < 0 {
 					p.minus = true
+					p.zero = false // Do not pad with zeros to the right.
 					p.wid = -p.wid
 				}
 			}

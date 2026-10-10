@@ -24,6 +24,13 @@ type Closer interface {
 	Close() error
 }
 
+// Whence values for Seek.
+const (
+	SeekStart   = 0 // relative to the start of the file
+	SeekCurrent = 1 // relative to the current offset
+	SeekEnd     = 2 // relative to the end
+)
+
 // EOF is the error returned by Read when no more input is available.
 // Functions return EOF itself, never wrapped, so callers may test for it
 // with ==.

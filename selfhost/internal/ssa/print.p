@@ -6,11 +6,12 @@ import (
 	"pluto/fmt"
 	"pluto/math"
 	"selfhost/compat"
+	"selfhost/pu"
 )
 
 // String formats the function as text, for tests and debugging.
 func (f *Func) String() string {
-	sb := new(compat.Builder)
+	sb := pu.Alloc[compat.Builder]()
 	fmt.Fprintf(sb, "func %s", f.Name)
 	sb.WriteByte('(')
 	for i, t := range f.Params {
@@ -70,7 +71,7 @@ func (f *Func) writeBlock(sb *compat.Builder, b *Block) {
 
 // LongString formats a value with its operation and arguments.
 func (v *Value) LongString() string {
-	sb := new(compat.Builder)
+	sb := pu.Alloc[compat.Builder]()
 	fmt.Fprintf(sb, "%s = %s", v, v.Op)
 	if v.Type != nil {
 		fmt.Fprintf(sb, " <%s>", v.Type)

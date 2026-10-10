@@ -26,8 +26,12 @@ import (
 )
 
 // A Vec is a growable sequence of T whose storage comes from an allocator.
-// The zero Vec is empty and has no allocator: it can be read but must be
-// given one with Init before it can grow.
+// The zero Vec is empty and ready to use: unless Init gives it an allocator
+// first, it takes the default allocator the first time it grows.
+//
+// A Vec owns its storage, so it is an owner (language spec section 6.4):
+// Drop releases it. Declaring the type owner is a one-line change once the
+// keyword lands (roadmap item 51).
 type Vec[T any] struct {
 	data []T
 	a    alloc.Allocator
@@ -209,6 +213,19 @@ func (v *Vec[T]) Free() {
 	v.data = nil
 }
 
+// Drop returns v's storage to its allocator and leaves v empty: the owner's
+// release (Free under its spec name).
+func (v *Vec[T]) Drop() { v.Free() }
+
+// Clone returns an independent copy of v, allocating from a (by default
+// the default allocator), with capacity for exactly its elements. Elements
+// are copied as values.
+func (v *Vec[T]) Clone(a alloc.Allocator = alloc.Default()) Vec[T] {
+	out := WithCapacity[T](len(v.data), a)
+	out.data = append(out.data, v.data...)
+	return out
+}
+
 // Map returns a new Vec, allocating from a (by default the default
 // allocator), that holds f applied to each element of v in order. v is
 // unchanged.
@@ -236,7 +253,10 @@ func (v *Vec[T]) grow(n int) {
 // realloc moves the elements into new storage of capacity c.
 func (v *Vec[T]) realloc(c int) {
 	if v.a == nil {
-		panic("vec: Vec has no allocator (create it with vec.New or call Init)")
+		v.a = alloc.Default()
+		if v.a == nil {
+			panic("vec: no allocator (call alloc.SetDefault, or give the Vec one with Init)")
+		}
 	}
 	var zero T
 	p := v.a.Alloc(storageSize[T](c), unsafe.Alignof(zero))

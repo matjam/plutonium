@@ -1,0 +1,2 @@
+$DIR/main.p:6:1: //pu:stack: invalid size "2T" (want a number of bytes with an optional K, M or G suffix)
+$DIR/main.p:3:1: //pu:stack applies only to func main in package main

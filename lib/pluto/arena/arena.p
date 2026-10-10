@@ -1,4 +1,6 @@
-// Package arena provides a bump allocator over a caller-provided buffer.
+// Package arena provides bump allocators: Arena, over a caller-provided
+// buffer, and Chunked, which grows by taking chunks from a parent allocator
+// and supports Mark/Release (chunked.p).
 //
 // An Arena hands out memory from the front of its buffer and never frees
 // individual allocations (except the most recent one, see Free); Reset

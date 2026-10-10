@@ -27,6 +27,7 @@ var translations = []struct {
 	{dir: "testdata/amd64demo", demo: true},
 	{dir: "testdata/optdemo", demo: true},
 	{dir: "testdata/rewrites", demo: true},
+	{dir: "testdata/pudemo", demo: true}, // internal/pu, translated name for name
 }
 
 const selfhostDir = "../../selfhost"
@@ -163,7 +164,7 @@ func TestHandFixNotes(t *testing.T) {
 		"encoding/binary.BigEndian.PutUint32: no translation",
 		"conversion between string and []rune",
 		"complex: Plutonium has no complex numbers",
-		"pluto/os has no Args",
+		"pluto/os has no Hostname",
 		`no Plutonium package for import "iter"`,
 	} {
 		if !strings.Contains(all, want) {
@@ -176,7 +177,7 @@ func TestHandFixNotes(t *testing.T) {
 	// x is captured by a closure that outlives main, so it moves to the
 	// heap.
 	src := string(res.Files[0].Src)
-	for _, want := range []string{"x := new(1)", "(*x)++", "goIt1 := compat.MapIter(m)"} {
+	for _, want := range []string{"x := pu.New(1)", "(*x)++", "goIt1 := compat.MapIter(m)"} {
 		if !strings.Contains(src, want) {
 			t.Errorf("translation lacks %q:\n%s", want, src)
 		}
