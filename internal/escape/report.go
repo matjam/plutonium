@@ -53,7 +53,8 @@ type viewErr struct {
 	where storeKind
 	via   string // storeParam: the parameter the memory is reached through
 
-	// sinkCall: the function called and what it does with the view.
+	// sinkCall, and sinkLoop when a callee keeps the view (dst is then
+	// empty): the function called and what it does with the view.
 	callee, calleeWhy string
 	// sinkGo and sinkSend: the call or the channel, as written.
 	call *ast.CallExpr
@@ -566,27 +567,66 @@ func (a *analyzer) handOffFixes(d *diag.Diagnostic, e *viewErr, l *loc, how stri
 	d.Fix = &diag.Fix{Intro: "Pass the value itself. This copies it, or moves it if it is an owner", Code: code}
 }
 
-// loopDiag explains a view of a loop's storage kept past the iteration.
+// loopDiag explains a view of a loop's storage kept past the iteration. The
+// view is kept either by a store in the function itself (e.dst says where)
+// or by a callee (e.callee and e.calleeWhy say what it does).
 func (a *analyzer) loopDiag(d *diag.Diagnostic, e *viewErr, x string, add func(string)) {
 	l, q := e.l, e.qual
 	line := a.line(e.loop.Pos())
+	// head starts the message and holder is what would see the next
+	// iteration's value. keeps is the callee's own sentence, if a callee
+	// keeps the view.
+	head := fmt.Sprintf("cannot keep %s in %s after this iteration", x, e.dst)
+	holder := e.dst
+	var keeps string
+	if e.callee != "" {
+		head = fmt.Sprintf("cannot pass %s to %s, which keeps it after this iteration", x, e.callee)
+		holder = "what " + e.callee + " kept"
+		keeps = fmt.Sprintf("%s %s.", e.callee, e.calleeWhy)
+	}
 	if v := e.iterVar; l.kind == lkClosure && v != nil {
 		name, T := v.Name(), typeText(v.Type(), q)
-		d.Msg = fmt.Sprintf("cannot keep %s in %s after this iteration: it uses %s, which the loop at line %d reuses in every iteration", x, e.dst, name, line)
-		add(fmt.Sprintf("A function literal refers to the variables it uses where they live, and %s lives in %s frame, where every iteration of the loop at line %d reuses the same memory for it. When the next iteration starts, the literal kept in %s would see that iteration's %s, not this one's.", name, possessive(l.fn), line, e.dst, name))
-		d.Fix = &diag.Fix{Intro: fmt.Sprintf("If the function literal is needed only in this iteration, call it before the iteration ends. To use %s later, keep its value instead of the function literal", name), Code: fmt.Sprintf("var saved %s // declared before the loop\n...\nsaved = %s", T, name)}
+		kept := "the literal kept in " + e.dst
+		if e.callee != "" {
+			kept = "the literal kept by " + e.callee
+		}
+		d.Msg = fmt.Sprintf("%s: it uses %s, which the loop at line %d reuses in every iteration", head, name, line)
+		add(sentence(
+			fmt.Sprintf("A function literal refers to the variables it uses where they live, and %s lives in %s frame, where every iteration of the loop at line %d reuses the same memory for it.", name, possessive(l.fn), line),
+			keeps,
+			fmt.Sprintf("When the next iteration starts, %s would see that iteration's %s, not this one's.", kept, name)))
+		saved := fmt.Sprintf("var saved %s // declared before the loop\n...\nsaved = %s", T, name)
+		if e.callee != "" {
+			d.Fix = &diag.Fix{Intro: fmt.Sprintf("If %s needs the function literal only during the call, change it so it does not keep it. To use %s later, keep its value instead of the function literal", e.callee, name), Code: saved}
+			d.More = []*diag.Fix{{Intro: fmt.Sprintf("Or have the function literal take %s as a parameter, and pass it where the literal is called.", name)}}
+			return
+		}
+		d.Fix = &diag.Fix{Intro: fmt.Sprintf("If the function literal is needed only in this iteration, call it before the iteration ends. To use %s later, keep its value instead of the function literal", name), Code: saved}
 		d.More = []*diag.Fix{{Intro: fmt.Sprintf("Or pass %s to the function literal as a parameter when it is called", name), Code: fmt.Sprintf("%s = func(%s %s) { ... }\n...\n%s(%s)", e.dst, name, T, e.dst, name)}}
 		return
 	}
 	if l.isVarLoc() {
 		name := l.v.Name()
-		d.Msg = fmt.Sprintf("cannot keep %s in %s after this iteration: the loop at line %d reuses %s in every iteration", x, e.dst, line, name)
-		add(sentence(a.subject(x, e.expr, l, q), fmt.Sprintf("%s lives in %s frame, where every iteration of the loop at line %d reuses the same memory for it. When the next iteration starts, %s would see that iteration's %s, not this one's.", name, possessive(l.fn), line, e.dst, name)))
-		d.Fix = &diag.Fix{Intro: fmt.Sprintf("If %s is needed only in this iteration, use it before the iteration ends. To use the value later, keep the value instead of a view of it", e.dst), Code: fmt.Sprintf("var saved %s // declared before the loop\n...\nsaved = %s", varType(l, q), name)}
+		d.Msg = fmt.Sprintf("%s: the loop at line %d reuses %s in every iteration", head, line, name)
+		add(sentence(a.subject(x, e.expr, l, q),
+			fmt.Sprintf("%s lives in %s frame, where every iteration of the loop at line %d reuses the same memory for it.", name, possessive(l.fn), line),
+			keeps,
+			fmt.Sprintf("When the next iteration starts, %s would see that iteration's %s, not this one's.", holder, name)))
+		saved := fmt.Sprintf("var saved %s // declared before the loop\n...\nsaved = %s", varType(l, q), name)
+		if e.callee != "" {
+			d.Fix = &diag.Fix{Intro: fmt.Sprintf("If %s needs the view only during the call, change it so it does not keep it. To use the value later, keep the value instead of a view of it", e.callee), Code: saved}
+			return
+		}
+		d.Fix = &diag.Fix{Intro: fmt.Sprintf("If %s is needed only in this iteration, use it before the iteration ends. To use the value later, keep the value instead of a view of it", e.dst), Code: saved}
 		return
 	}
-	d.Msg = fmt.Sprintf("cannot keep %s in %s after this iteration: the loop at line %d makes it in the same memory in every iteration", x, e.dst, line)
+	d.Msg = fmt.Sprintf("%s: the loop at line %d makes it in the same memory in every iteration", head, line)
 	add(a.intro(l, q))
-	add(fmt.Sprintf("Every iteration of the loop at line %d reuses that memory. When the next iteration starts, %s would see that iteration's value, not this one's.", line, e.dst))
+	add(sentence(fmt.Sprintf("Every iteration of the loop at line %d reuses that memory.", line), keeps,
+		fmt.Sprintf("When the next iteration starts, %s would see that iteration's value, not this one's.", holder)))
+	if e.callee != "" {
+		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Change %s so it does not keep the view, or pass a copy of the value instead of a view of it.", e.callee)}
+		return
+	}
 	d.Fix = &diag.Fix{Intro: fmt.Sprintf("Use %s before the iteration ends, or keep a copy of the value instead of a view of it.", x)}
 }

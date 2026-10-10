@@ -188,7 +188,7 @@ func (w *walker) iterVarOf(s *loc, L *loopInfo) *types2.Var {
 // loopErr reports that a view of s, stored in d at pos, is kept past L's
 // iterations.
 func (w *walker) loopErr(s *loc, L *loopInfo, d dest, pos token.Pos) {
-	e := &viewErr{sink: sinkLoop, pos: pos, expr: d.src, l: s, fn: w.scopeName(w.sc), dst: d.text, loop: L.node}
+	e := &viewErr{sink: sinkLoop, pos: pos, expr: d.src, l: s, fn: w.scopeName(w.sc), dst: d.text, callee: d.callee, calleeWhy: d.calleeWhy, loop: L.node}
 	if s.kind == lkClosure {
 		e.iterVar = w.iterVarOf(s, L)
 	}

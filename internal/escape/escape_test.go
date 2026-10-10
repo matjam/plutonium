@@ -443,6 +443,49 @@ func main() {
 	println(p.n)
 }`, []string{"cannot keep &T{...} in p after this iteration: the loop at line 6 makes it in the same memory in every iteration"}},
 
+	// Loops: a called function keeps the view, so the message names the
+	// callee, not a destination.
+	{"pointer to a body variable kept by a callee", `
+func put(buf []*int, i int, p *int) { buf[i] = p }
+func main() {
+	var arr [4]*int
+	buf := arr[:]
+	for i := 0; i < 3; i++ {
+		v := i
+		put(buf, i, &v)
+	}
+	println(len(arr))
+}`, []string{"main.p:9:3: cannot pass &v to put, which keeps it after this iteration: the loop at line 7 reuses v in every iteration\n",
+		"&v is a pointer to v. v lives in main's frame, where every iteration of the loop at line 7 reuses the same memory for it. put stores it in buf[i] (main.p:3). When the next iteration starts, what put kept would see that iteration's v, not this one's.",
+		"If put needs the view only during the call, change it so it does not keep it. To use the value later, keep the value instead of a view of it:", "saved = v", "E3006"}},
+
+	{"closure using the loop variable kept by a callee", `
+func put(fs []func() int, i int, f func() int) { fs[i] = f }
+func main() {
+	var fs [3]func() int
+	for i := 0; i < 3; i++ {
+		f := func() int { return i * 10 }
+		put(fs[:], i, f)
+	}
+	println(fs[0]())
+}`, []string{"main.p:8:3: cannot pass f to put, which keeps it after this iteration: it uses i, which the loop at line 6 reuses in every iteration\n",
+		"i lives in main's frame, where every iteration of the loop at line 6 reuses the same memory for it. put stores it in fs[i] (main.p:3). When the next iteration starts, the literal kept by put would see that iteration's i, not this one's.",
+		"If put needs the function literal only during the call, change it so it does not keep it. To use i later, keep its value instead of the function literal:",
+		"Or have the function literal take i as a parameter, and pass it where the literal is called.", "E3006"}},
+
+	{"composite literal kept by a callee", `
+type T struct{ n int }
+func put(ps []*T, i int, p *T) { ps[i] = p }
+func main() {
+	var ps [3]*T
+	for i := 0; i < 3; i++ {
+		put(ps[:], i, &T{i})
+	}
+	println(ps[0].n)
+}`, []string{"main.p:8:3: cannot pass &T{...} to put, which keeps it after this iteration: the loop at line 7 makes it in the same memory in every iteration\n",
+		"Every iteration of the loop at line 7 reuses that memory. put stores it in ps[i] (main.p:4). When the next iteration starts, what put kept would see that iteration's value, not this one's.",
+		"Change put so it does not keep the view, or pass a copy of the value instead of a view of it."}},
+
 	{"closure stored through a parameter", `
 type H struct{ f func() int }
 func set(h *H) {

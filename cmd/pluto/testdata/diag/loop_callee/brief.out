@@ -1,0 +1,3 @@
+$DIR/main.p:22:3: cannot pass &v to put, which keeps it after this iteration: the loop at line 20 reuses v in every iteration
+$DIR/main.p:24:3: cannot pass f to putFn, which keeps it after this iteration: it uses i, which the loop at line 20 reuses in every iteration
+$DIR/main.p:25:3: cannot pass &Point{...} to putPoint, which keeps it after this iteration: the loop at line 20 makes it in the same memory in every iteration
