@@ -38,21 +38,34 @@ The stack must be 16-byte aligned before a CALL instruction.
 
 ## Stack Frame Layout
 
+Functions do not keep a frame pointer unless they realign the stack. The usual frame is:
+
 ```
 High address
-+------------------+
-| args from caller |  (if any)
-+------------------+
-| return address   |  <- pushed by CALL
-+------------------+
-| saved RBP        |  <- pushed in prologue (PUSH RBP)
-+------------------+  <- RBP points here
-| local variables  |  (alloca'd stack slots)
-| (negative from   |
-|  RBP)            |
-+------------------+  <- RSP (aligned to 16 bytes)
++--------------------+
+| args from caller   |  (if any)
++--------------------+  <- CFA: RSP before the CALL
+| return address     |  <- pushed by CALL
++--------------------+
+| saved registers    |  callee-saved registers the function uses, pushed
+|                    |  in the order RBX, RBP, R12, R13, R14, R15
++--------------------+
+| stack slots        |  locals, temporaries, spills
++--------------------+
+| outgoing arguments |  (if any)
++--------------------+  <- RSP (16-byte aligned at calls; never moved in the body)
 Low address
 ```
+
+The prologue is the pushes followed by `sub rsp, N`; a leaf function with nothing on the stack has none.
+RBP is an ordinary callee-saved register in such frames.
+
+A function with a stack slot aligned to more than 16 bytes keeps RBP as a frame pointer:
+`push rbp; mov rbp, rsp`, the other pushes, `and rsp, -align; sub rsp, N`. Its incoming stack arguments
+are at RBP + 16.
+
+Debuggers find these frames through DWARF call frame information, and the runtime through its trace
+table; see [debugging.md](debugging.md).
 
 ## Slice Layout
 

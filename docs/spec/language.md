@@ -482,13 +482,18 @@ The following stop the program through the same path as `panic`:
 - overflowing a puroutine's stack (the guard page faults),
 - `panic(v)`.
 
-Panicking prints `panic: ` followed by the value (and, for faults, what failed and where) and stops. It
-does not unwind and deferred functions do not run. In hosted builds the process exits with status 2. In
-freestanding builds the compiler calls the function registered with `rt.SetPanicHandler`; the default
-handler disables interrupts and halts the processor.
+Panicking prints `panic: ` followed by the value (and, for faults, what failed and where), then a stack
+trace with the function, file and line of each frame, and stops. It does not unwind and deferred functions
+do not run. In hosted builds the process exits with status 2. In freestanding builds the compiler calls
+the function registered with `rt.SetPanicHandler`; the default handler disables interrupts and halts the
+processor.
 
 Dereferencing a nil pointer is not checked by the compiler; it faults in hardware wherever address zero is
-unmapped, which is true in hosted builds and should be arranged by kernels.
+unmapped, which is true in hosted builds and should be arranged by kernels. In hosted builds the runtime
+reports such faults, and stack overflows, like a panic, with a trace from the faulting instruction.
+
+Stack traces, DWARF debugging information (`-g`, on by default; `-s` strips it) and the debug allocator
+are described in [debugging.md](debugging.md).
 
 Bounds checks can be removed from a function with `//pu:nobounds`, for code that has been proven correct
 and must be as fast as possible. The optimiser removes most bounds checks by itself.
