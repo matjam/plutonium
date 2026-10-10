@@ -1,0 +1,16 @@
+fold true false true false
+stack 40 true 30 true 2 4 0
+sizeOf 40 48 0
+hash 4294967298 true 42 true 4 true false
+word the 3
+word quick 5
+word brown 5
+word fox 3
+3index 2 3 1 4
+reversed 0 9 5
+sorted 0 1 2 3 4 5 9
+1:1 1:4 2:3 3:0 3:2 
+clear 1 0 0 5 1 25 a
+unsafe hello 5 101 108
+aliased jello
+splitn 3 a b c,d

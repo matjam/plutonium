@@ -1,0 +1,28 @@
+: dec=65533,0 last=65533,0 b=65533,0 count=0 0 valid=true true full=false false
+61: dec=97,1 last=97,1 b=97,1 count=1 1 valid=true true full=true true
+68c3a96c6c6f: dec=104,1 last=111,1 b=104,1 count=5 5 valid=true true full=true true
+e697a5e69cace8aa9e: dec=26085,3 last=35486,3 b=26085,3 count=3 3 valid=true true full=true true
+ff: dec=65533,1 last=65533,1 b=65533,1 count=1 1 valid=false false full=true true
+e697: dec=65533,1 last=65533,1 b=65533,1 count=2 2 valid=false false full=false false
+61c08062: dec=97,1 last=98,1 b=97,1 count=4 4 valid=false false full=true true
+f09f988078: dec=128512,4 last=120,1 b=128512,4 count=2 2 valid=true true full=true true
+eda080: dec=65533,1 last=65533,1 b=65533,1 count=3 3 valid=false false full=true true
+f4908080: dec=65533,1 last=65533,1 b=65533,1 count=4 4 valid=false false full=true true
+6162f09f98: dec=97,1 last=65533,1 b=97,1 count=5 5 valid=false false full=true true
+0: len=1 enc=1 00 valid=true
+97: len=1 enc=1 61 valid=true
+127: len=1 enc=1 7f valid=true
+128: len=2 enc=2 c280 valid=true
+2047: len=2 enc=2 dfbf valid=true
+2048: len=3 enc=3 e0a080 valid=true
+65535: len=3 enc=3 efbfbf valid=true
+65536: len=4 enc=4 f0908080 valid=true
+1114111: len=4 enc=4 f48fbfbf valid=true
+1114112: len=-1 enc=3 efbfbd valid=false
+-1: len=-1 enc=3 efbfbd valid=false
+55296: len=-1 enc=3 efbfbd valid=false
+57343: len=-1 enc=3 efbfbd valid=false
+233: len=2 enc=2 c3a9 valid=true
+19990: len=3 enc=3 e4b896 valid=true
+00617fc280dfbfe0a080efbfbff0908080f48fbfbfefbfbdefbfbdefbfbdefbfbdc3a9e4b896
+false true

@@ -1,0 +1,9 @@
+-1 -1 false -1 -1 [] [] [] [|false] [|false] [] false
+0 8 false -1 -1 [abc] [abc456] [123abc456] [3abc456|true] [123abc4|true] [23abc456] false
+-1 -1 false -1 -1 [abc] [abc] [abc] [abc|false] [abc|false] [abc] false
+6 8 true 0 9 [日本123語] [日本123語] [日本123] [日本123語|false] [日本123語|false] [本123語] true
+0 1 false -1 -1 [] [] [99] [99|false] [99|false] [] false
+112 111 -1 112
+3 5
+3
+6 10

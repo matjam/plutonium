@@ -1,0 +1,17 @@
+len=1000 cap=1024 at10=100 live=8192 calls=9
+sum=332833500
+pop=998001 true len=999
+-1 0 42 1004 9 16 99
+removed 0 -1 len=5 first=99 last=16
+len=8 last=9
+cleared len=0 pop ok=false cap=1024
+freed live=0 len=0 cap=0
+reuse 5 live=32
+big len=100 total=29800 used=10160
+align ok=true gap=8 used=16
+after free last used=8
+after release used=8 avail=65528 cap=65536
+too big nil=true
+new in arena=true len=10
+zeroed=0
+0,1,2,3,4,5,6,7,8,9, len=140 used=268

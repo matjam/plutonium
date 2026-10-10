@@ -1,0 +1,18 @@
+int map ok len=2736 count=2736 seen=2736
+cleared len=0 has=false
+freed live=0
+strings len=2000 1234=1234,true 9999=0,false
+upsert false true 1235 7 len=2001
+ptr 8 nil=true
+minus one big false
+floats len=2 zero=2
+bool len=2 true=1
+ptr keys 10 70
+points 2500 1234
+hasher 2 2
+set len=256 has(7)=true add again=false del=true has=false
+set total=32633
+cbf29ce484222325 a430d84680aabd0b
+false true
+live=0
+zero map get=false len=0

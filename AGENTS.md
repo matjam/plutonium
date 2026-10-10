@@ -36,6 +36,10 @@ End-to-end tests live in `internal/build`:
 - `testdata/run/*.p` are programs in the common subset of Go and Plutonium. Their
   expected output (`*.out`) comes from running them with Go:
   `go test ./internal/build -run TestRun -update`. Each runs at -O0 and -O2.
+- `testdata/lib/*.p` exercise the standard library (they import `pluto/...`, so
+  Go cannot regenerate their output). Check a new or changed `.out` against Go
+  running the same program with its imports pointed at Go's packages, or by
+  hand for Plutonium-only APIs.
 - `examples/*/main.p` are checked against `examples/*/expected` (first line
   `exit N` for a non-zero exit status).
 

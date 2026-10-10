@@ -7,6 +7,7 @@
 *.out
 # ...except the expected output of the end-to-end test programs.
 !testdata/run/*.out
+!testdata/lib/*.out
 
 # Editor artifacts
 .idea/
