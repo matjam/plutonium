@@ -151,6 +151,60 @@ func (s *isel) markFused() {
 			s.fused[c.ID] = true
 		}
 	}
+	// An integer compare used only by Selects in its own block is
+	// re-evaluated into the flags at each Select (cmp; cmov) rather than
+	// materialised with setcc.
+	selUses := map[*ssa.Value]int32{}
+	for _, b := range s.f.Blocks {
+		for _, v := range b.Values {
+			if v.Op == ssa.OpSelect && v.Args[0].Block == b && v.Args[1] != v.Args[0] && v.Args[2] != v.Args[0] {
+				selUses[v.Args[0]]++
+			}
+		}
+	}
+	for c, n := range selUses {
+		if isCompare(c.Op) && !c.Args[0].Type.IsFloat() && c.Uses == n {
+			s.fused[c.ID] = true
+		}
+	}
+	// A scaled term or x*3/5/9 feeding only an add in the same block
+	// becomes part of that add's LEA.
+	for _, b := range s.f.Blocks {
+		for _, v := range b.Values {
+			if v.Op != ssa.OpAdd || v.Type.Size != 4 && v.Type.Size != 8 {
+				continue
+			}
+			x, y := v.Args[0], v.Args[1]
+			for _, a := range []*ssa.Value{x, y} {
+				if a.Op == ssa.OpConst || a.Uses != 1 || a.Block != b || x == y {
+					continue
+				}
+				if _, sc := leaScale(a); sc > 1 {
+					s.fused[a.ID] = true
+					break
+				}
+				if _, sc := leaMul(a); sc > 0 && a == x && y.Op == ssa.OpConst && fitsImm32(y.AuxInt) {
+					s.fused[a.ID] = true
+					break
+				}
+			}
+		}
+	}
+	// x&y compared with zero by a fused compare is folded into TEST.
+	for _, b := range s.f.Blocks {
+		for _, c := range b.Values {
+			if !s.fused[c.ID] || c.Op != ssa.OpEq && c.Op != ssa.OpNe {
+				continue
+			}
+			a, z := c.Args[0], c.Args[1]
+			if a.Op == ssa.OpConst {
+				a, z = z, a
+			}
+			if z.Op == ssa.OpConst && z.AuxInt == 0 && a.Op == ssa.OpAnd && a.Uses == 1 && a.Block == b && a.Type.Size >= 1 {
+				s.fused[a.ID] = true
+			}
+		}
+	}
 	// An index scaled by 2, 4 or 8 that is only ever used to index
 	// addresses goes into the addressing mode instead of a register.
 	idxUses := map[*ssa.Value]int32{}
@@ -187,6 +241,66 @@ func scaledIndex(v *ssa.Value) (*ssa.Value, uint8) {
 		}
 	}
 	return v, 1
+}
+
+// leaScale returns x and scale when integer v is x*2, x*4 or x*8 (as a
+// multiply or a shift), for use as a LEA index; scale is 1 otherwise.
+func leaScale(v *ssa.Value) (*ssa.Value, uint8) {
+	if v.Type.Size != 4 && v.Type.Size != 8 {
+		return v, 1
+	}
+	switch v.Op {
+	case ssa.OpMul:
+		if c := v.Args[1]; c.Op == ssa.OpConst && (c.AuxInt == 2 || c.AuxInt == 4 || c.AuxInt == 8) {
+			return v.Args[0], uint8(c.AuxInt)
+		}
+	case ssa.OpShl:
+		if c := v.Args[1]; c.Op == ssa.OpConst && c.AuxInt >= 1 && c.AuxInt <= 3 {
+			return v.Args[0], uint8(1) << c.AuxInt
+		}
+	}
+	return v, 1
+}
+
+// leaMul returns x and s when integer v is x*3, x*5 or x*9, which LEA
+// computes as x + x*s; s is 0 otherwise.
+func leaMul(v *ssa.Value) (*ssa.Value, uint8) {
+	if v.Op != ssa.OpMul || v.Type.Size != 4 && v.Type.Size != 8 {
+		return v, 0
+	}
+	if c := v.Args[1]; c.Op == ssa.OpConst && (c.AuxInt == 3 || c.AuxInt == 5 || c.AuxInt == 9) {
+		return v.Args[0], uint8(c.AuxInt - 1)
+	}
+	return v, 0
+}
+
+// leaAdd selects add v as one LEA when an operand was fused into it,
+// reporting whether it did.
+func (s *isel) leaAdd(v *ssa.Value) bool {
+	size := sizeOf(v.Type)
+	x, y := v.Args[0], v.Args[1]
+	if s.fused[y.ID] {
+		x, y = y, x
+	}
+	if !s.fused[x.ID] {
+		return false
+	}
+	m := Mem{Base: NoReg, Index: NoReg}
+	if ix, sc := leaScale(x); sc > 1 {
+		m.Index, m.Scale = s.reg(ix), sc
+	} else {
+		ix, sc := leaMul(x)
+		m.Base, m.Index, m.Scale = s.reg(ix), s.reg(ix), sc
+	}
+	if y.Op == ssa.OpConst && fitsImm32(y.AuxInt) {
+		m.Disp = y.AuxInt
+	} else if m.Base == NoReg {
+		m.Base = s.reg(y)
+	} else {
+		panic("amd64: x*3/5/9 fused into an add of a register")
+	}
+	s.emit(&MInst{Op: MLEA, Size: size, Dst: RegOp(s.def(v)), Src: MemOp(m)})
+	return true
 }
 
 // index returns the register and scale for index value v of an address.
@@ -426,6 +540,9 @@ func (s *isel) value(v *ssa.Value) error {
 		s.copyReg(s.def(v), s.reg(v.Args[0]), size)
 
 	case ssa.OpAdd, ssa.OpSub, ssa.OpAnd, ssa.OpOr, ssa.OpXor:
+		if v.Op == ssa.OpAdd && s.leaAdd(v) {
+			break
+		}
 		op := map[ssa.Op]MOp{ssa.OpAdd: MADD, ssa.OpSub: MSUB, ssa.OpAnd: MAND, ssa.OpOr: MOR, ssa.OpXor: MXOR}[v.Op]
 		d := s.def(v)
 		s.copyReg(d, s.reg(v.Args[0]), size)
@@ -442,6 +559,12 @@ func (s *isel) value(v *ssa.Value) error {
 	case ssa.OpMul:
 		d := s.def(v)
 		opSize := max(size, 2)
+		if x, sc := leaMul(v); sc > 0 {
+			// x*3/5/9 in one cycle instead of three.
+			r := s.reg(x)
+			s.emit(&MInst{Op: MLEA, Size: size, Dst: RegOp(d), Src: MemOp(Mem{Base: r, Index: r, Scale: sc})})
+			break
+		}
 		if c := v.Args[1]; c.Op == ssa.OpConst && fitsImm32(c.AuxInt) {
 			s.emit(&MInst{Op: MIMUL3, Size: opSize, Dst: RegOp(d), Src: RegOp(s.reg(v.Args[0])), Imm: c.AuxInt})
 			break
@@ -696,6 +819,15 @@ func (s *isel) intCompare(v *ssa.Value) Cond {
 	}
 	size := sizeOf(a.Type)
 	if b.Op == ssa.OpConst && b.AuxInt == 0 && (cond == CondE || cond == CondNE) {
+		if a.Op == ssa.OpAnd && s.fused[a.ID] {
+			// x&y == 0 is TEST x, y.
+			x, y := a.Args[0], a.Args[1]
+			if x.Op == ssa.OpConst {
+				x, y = y, x
+			}
+			s.emit(&MInst{Op: MTEST, Size: size, Dst: RegOp(s.reg(x)), Src: s.operand(y)})
+			return cond
+		}
 		r := s.reg(a)
 		s.emit(&MInst{Op: MTEST, Size: size, Dst: RegOp(r), Src: RegOp(r)})
 		return cond

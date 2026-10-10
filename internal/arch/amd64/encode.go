@@ -300,7 +300,8 @@ func (e *encoder) encode(in *MInst) {
 	case MMOVZX, MMOVSX:
 		e.encodeExtend(in)
 	case MLEA:
-		e.emitInsn(insn{w: true, opcode: []byte{0x8D}, reg: in.Dst.Reg, rm: rmMem(in.Src.Mem)})
+		// A 32-bit LEA computes the low half of the sum and zero-extends.
+		e.emitInsn(insn{w: in.Size != 4, opcode: []byte{0x8D}, reg: in.Dst.Reg, rm: rmMem(in.Src.Mem)})
 	case MADD:
 		e.alu(0, in)
 	case MOR:

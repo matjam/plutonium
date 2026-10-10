@@ -90,24 +90,46 @@ func (l *Lowerer) isNoReturn(fn *types2.Func) bool {
 	return false
 }
 
+// An argSource is one argument of a call: an expression still to be
+// evaluated, or a value already computed (one result of f(g()) where g
+// returns several).
+type argSource struct {
+	e ast.Expr
+	v value
+}
+
+// argSources returns the arguments of a call, spreading the results of a
+// lone multi-value call argument.
+func (s *fnState) argSources(args []ast.Expr) []argSource {
+	if len(args) == 1 {
+		if call, ok := ast.Unparen(args[0]).(*ast.CallExpr); ok {
+			if tup, ok := s.info.Types[call].Type.(*types2.Tuple); ok && tup.Len() > 1 {
+				var out []argSource
+				for _, r := range s.callResults(call) {
+					out = append(out, argSource{v: r})
+				}
+				return out
+			}
+		}
+	}
+	out := make([]argSource, len(args))
+	for i, a := range args {
+		out[i] = argSource{e: a}
+	}
+	return out
+}
+
 // callArgs evaluates a call's arguments in order, packing variadic
 // arguments into a slice whose backing array lives in this frame.
 func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature) []value {
 	params := sig.Params()
 	n := params.Len()
-
-	// f(g()) where g returns several values.
-	if len(e.Args) == 1 && n > 1 {
-		if call, ok := ast.Unparen(e.Args[0]).(*ast.CallExpr); ok {
-			if tup, ok := s.info.Types[call].Type.(*types2.Tuple); ok && tup.Len() > 1 {
-				res := s.callResults(call)
-				out := make([]value, len(res))
-				for i, r := range res {
-					out[i] = s.assignConvert(r, s.subst(params.At(i).Type()), call)
-				}
-				return out
-			}
+	args := s.argSources(e.Args)
+	as := func(a argSource, T types2.Type) value {
+		if a.e != nil {
+			return s.exprAs(a.e, T)
 		}
+		return s.assignConvert(a.v, T, e)
 	}
 
 	var out []value
@@ -115,13 +137,13 @@ func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature) []value {
 	if sig.Variadic() && !e.Ellipsis.IsValid() {
 		fixed = n - 1
 	}
-	for i := 0; i < fixed && i < len(e.Args); i++ {
-		out = append(out, s.materialize(s.exprAs(e.Args[i], s.subst(params.At(i).Type()))))
+	for i := 0; i < fixed && i < len(args); i++ {
+		out = append(out, s.materialize(as(args[i], s.subst(params.At(i).Type()))))
 	}
 	if sig.Variadic() && !e.Ellipsis.IsValid() {
 		sliceT := s.subst(params.At(n - 1).Type())
 		et := sliceT.Underlying().(*types2.Slice).Elem()
-		extra := e.Args[fixed:]
+		extra := args[min(fixed, len(args)):]
 		if len(extra) == 0 {
 			out = append(out, s.zeroValue(sliceT))
 		} else {
@@ -129,7 +151,7 @@ func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature) []value {
 			arr := s.temp(arrT, "varargs")
 			esize := s.l.sizeof(et)
 			for i, a := range extra {
-				s.storeTo(s.offPtr(arr, int64(i)*esize), s.exprAs(a, et), et)
+				s.storeTo(s.offPtr(arr, int64(i)*esize), as(a, et), et)
 			}
 			nv := s.constInt(ssa.TI64, int64(len(extra)))
 			out = append(out, s.makeSlice(arr, nv, nv, sliceT))

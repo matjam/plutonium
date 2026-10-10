@@ -107,11 +107,15 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		return nil
 
 	case "print", "println":
-		for i, a := range e.Args {
+		for i, a := range s.argSources(e.Args) {
 			if i > 0 && b.Name() == "println" {
 				s.callRuntime("printSpace", nil)
 			}
-			s.printArg(a)
+			if a.e != nil {
+				s.printArg(a.e)
+			} else {
+				s.printValue(a.v, unwrap(a.v.T), e)
+			}
 		}
 		if b.Name() == "println" {
 			s.callRuntime("printNewline", nil)

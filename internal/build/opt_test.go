@@ -36,6 +36,48 @@ func listFunc(t *testing.T, src, name string) string {
 	return text
 }
 
+func TestBranchElim(t *testing.T) {
+	const src = `package main
+
+var data [64]int64
+
+//pu:noinline
+func step(n int64) int64 {
+	steps := int64(0)
+	for n != 1 {
+		if n%2 == 0 {
+			n = n / 2
+		} else {
+			n = 3*n + 1
+		}
+		steps++
+	}
+	return steps
+}
+
+//pu:noinline
+func child(root int64) int64 {
+	c := 2*root + 1
+	if data[c] < data[c+1] {
+		c++
+	}
+	return data[c]
+}
+
+func main() { println(step(7), child(3)) }
+`
+	// The parity test becomes a cmov, leaving only the loop branch; 3n+1
+	// is one LEA.
+	asm := listFunc(t, src, "main.step")
+	if !strings.Contains(asm, "cmov") || strings.Contains(asm, "imul") || strings.Count(asm, "\tj") > 2 {
+		t.Errorf("step: want branch-free code with cmov and lea\n%s", asm)
+	}
+	// The selected child indexes memory, so it stays a branch.
+	if asm := listFunc(t, src, "main.child"); strings.Contains(asm, "cmov") {
+		t.Errorf("child: selected index feeds a load; want a branch\n%s", asm)
+	}
+}
+
 func TestProveBoundsChecks(t *testing.T) {
 	tests := []struct {
 		name, body string

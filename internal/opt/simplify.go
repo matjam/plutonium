@@ -11,20 +11,25 @@ import (
 // reductions, and rewrites division by constants as multiplication. It runs
 // to a fixed point.
 func Simplify(f *ssa.Func) {
-	for round := 0; round < 20; round++ {
-		changed := false
-		for _, b := range f.Blocks {
-			for i := 0; i < len(b.Values); i++ {
-				v := b.Values[i]
-				if simplifyValue(f, v) {
-					changed = true
+	// Division by a constant is expanded only once the other rules have
+	// settled, so that rules matching a division (x % 2^k == 0) see it
+	// before it turns into shifts and multiplies.
+	for _, expand := range []bool{false, true} {
+		for round := 0; round < 20; round++ {
+			changed := false
+			for _, b := range f.Blocks {
+				for i := 0; i < len(b.Values); i++ {
+					v := b.Values[i]
+					if simplifyValue(f, v, expand) {
+						changed = true
+					}
 				}
 			}
+			if !changed {
+				break
+			}
+			ssa.CopyElim(f)
 		}
-		if !changed {
-			break
-		}
-		ssa.CopyElim(f)
 	}
 	ssa.DeadCode(f)
 }
@@ -59,7 +64,8 @@ func newBefore(v *ssa.Value, op ssa.Op, t *ssa.Type, args ...*ssa.Value) *ssa.Va
 func constBefore(f *ssa.Func, t *ssa.Type, c int64) *ssa.Value { return f.ConstInt(t, c) }
 
 // simplifyValue applies one rewrite to v, reporting whether it did.
-func simplifyValue(f *ssa.Func, v *ssa.Value) bool {
+// expand enables the expansion of division by constants.
+func simplifyValue(f *ssa.Func, v *ssa.Value, expand bool) bool {
 	if v.Op == ssa.OpCopy {
 		return false
 	}
@@ -77,7 +83,7 @@ func simplifyValue(f *ssa.Func, v *ssa.Value) bool {
 	case ssa.OpShl, ssa.OpShrL, ssa.OpShrA, ssa.OpRotl:
 		return simplifyShift(f, v)
 	case ssa.OpDiv, ssa.OpDivu, ssa.OpMod, ssa.OpModu:
-		return simplifyDivide(f, v)
+		return simplifyDivide(f, v, expand)
 	case ssa.OpNeg:
 		a := v.Args[0]
 		switch {
@@ -464,7 +470,7 @@ func simplifyShift(f *ssa.Func, v *ssa.Value) bool {
 // ----------------------------------------------------------------------------
 // Division
 
-func simplifyDivide(f *ssa.Func, v *ssa.Value) bool {
+func simplifyDivide(f *ssa.Func, v *ssa.Value, expand bool) bool {
 	t := v.Type
 	a, b := v.Args[0], v.Args[1]
 	if !isConst(b) || b.AuxInt == 0 {
@@ -492,6 +498,9 @@ func simplifyDivide(f *ssa.Func, v *ssa.Value) bool {
 		}
 	}
 
+	if !expand {
+		return false
+	}
 	w := uint(t.Size * 8)
 	if !signed {
 		c := ssa.ZeroExt(t, b.AuxInt)

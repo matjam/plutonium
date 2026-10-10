@@ -47,8 +47,9 @@ func ForLevel(level int) *Pipeline {
 		p.add(Pass{"cse", CSE})
 		p.add(Pass{"schedule", ssa.Schedule})
 		p.addProgram(ProgramPass{"inline", Inline})
-		p.add(Pass{"simplify2", Simplify})
 		p.add(Pass{"prove", Prove})
+		p.add(Pass{"simplify2", Simplify})
+		p.add(Pass{"branchelim", BranchElim})
 		p.add(Pass{"simplifycfg2", SimplifyCFG})
 		p.add(Pass{"deadcode2", ssa.DeadCode})
 	}

@@ -27,6 +27,7 @@ func Prove(f *ssa.Func) {
 		busy:   map[*ssa.Value]bool{},
 	}
 	p.walk(f.Entry)
+	ssa.CopyElim(f)
 }
 
 // rng is an inclusive range of signed 64-bit values.
@@ -73,6 +74,9 @@ func (p *prover) walk(b *ssa.Block) {
 			p.assume(pb.Controls[0], e.I == 0)
 		}
 	}
+	for _, v := range b.Values {
+		p.rewrite(v)
+	}
 	if b.Kind == ssa.BlockIf && b.Controls[0].Op != ssa.OpConst {
 		if val, ok := p.decide(b.Controls[0]); ok {
 			b.SetControl(p.f.ConstBool(val))
@@ -82,6 +86,73 @@ func (p *prover) walk(b *ssa.Block) {
 		p.walk(c)
 	}
 	p.facts = p.facts[:n]
+}
+
+// rewrite simplifies v using what is known where it is defined: a value
+// with a single possible value becomes that constant, and a signed division
+// by 2^k whose dividend is non-negative or has its low k bits clear drops
+// its rounding fix-up.
+func (p *prover) rewrite(v *ssa.Value) {
+	if !word(v) || v.Op == ssa.OpConst {
+		return
+	}
+	if r := p.rangeOf(v); r.lo == r.hi {
+		if v.Op == ssa.OpPhi {
+			// Phis stay at the head of their block; copyelim removes this.
+			v.CopyOf(p.f.ConstInt(v.Type, r.lo))
+			return
+		}
+		v.Reset(ssa.OpConst)
+		v.AuxInt = r.lo
+		return
+	}
+	// x/2^k expands to (x + (x>>63 >>> (64-k))) >> k.
+	if v.Op != ssa.OpShrA || v.Args[0].Op != ssa.OpAdd || v.Args[1].Op != ssa.OpConst {
+		return
+	}
+	k := v.Args[1].AuxInt
+	add := v.Args[0]
+	for i, bias := range add.Args {
+		x := add.Args[1-i]
+		if bias.Op != ssa.OpShrL || bias.Args[1].Op != ssa.OpConst || bias.Args[1].AuxInt != 64-k {
+			continue
+		}
+		sign := bias.Args[0]
+		if sign.Op != ssa.OpShrA || sign.Args[0] != x || sign.Args[1].Op != ssa.OpConst || sign.Args[1].AuxInt != 63 {
+			continue
+		}
+		if p.rangeOf(x).nonneg() || p.lowBitsClear(x, k) {
+			v.SetArg(0, x)
+			return
+		}
+	}
+}
+
+// lowBitsClear reports whether the facts say x&m == 0 for an m covering
+// the low k bits.
+func (p *prover) lowBitsClear(x *ssa.Value, k int64) bool {
+	if k <= 0 || k >= 64 {
+		return false
+	}
+	low := int64(1)<<k - 1
+	for _, ft := range p.facts {
+		if ft.r != relEq {
+			continue
+		}
+		and, zero := ft.x, ft.y
+		if and.Op == ssa.OpConst {
+			and, zero = zero, and
+		}
+		if zero.Op != ssa.OpConst || zero.AuxInt != 0 || and.Op != ssa.OpAnd {
+			continue
+		}
+		for i, m := range and.Args {
+			if and.Args[1-i] == x && m.Op == ssa.OpConst && m.AuxInt&low == low {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // word reports whether v is a 64-bit integer, the only kind Prove reasons
