@@ -238,7 +238,9 @@ func (check *Checker) caseValues(x *operand, values []ast.Expr, seen valueMap) {
 L:
 	for _, e := range values {
 		var v operand
-		check.expr(nil, &v, e)
+		if !check.enumCaseName(&v, x, e) {
+			check.expr(nil, &v, e)
+		}
 		if !x.isValid() || !v.isValid() {
 			continue L
 		}
@@ -601,12 +603,14 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 		check.multipleDefaults(s.Body.List)
 
 		seen := make(valueMap) // map of seen case values to positions and types
+		hasDefault := false
 		for i, c := range s.Body.List {
 			clause, _ := c.(*ast.CaseClause)
 			if clause == nil {
 				check.error(c, InvalidSyntaxTree, "incorrect expression switch case")
 				continue
 			}
+			hasDefault = hasDefault || clause.List == nil
 			check.caseValues(&x, clause.List, seen)
 			check.openScope(clause, "case")
 			inner := inner
@@ -617,6 +621,9 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 			}
 			check.stmtList(inner, clause.Body)
 			check.closeScope()
+		}
+		if s.Tag != nil && !hasDefault {
+			check.enumExhaustive(s, &x, seen)
 		}
 
 	case *ast.TypeSwitchStmt:

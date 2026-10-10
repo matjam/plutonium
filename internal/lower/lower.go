@@ -173,9 +173,10 @@ func pkgPath(pkg *types2.Package) string {
 	return pkg.Path()
 }
 
-// typeString formats a type for symbol names: fully qualified by import path.
+// typeString formats a type for symbol names: fully qualified by import
+// path, with types declared in functions told apart by position.
 func typeString(T types2.Type) string {
-	return types2.TypeString(T, func(p *types2.Package) string { return p.Path() })
+	return types2.SymbolString(T, func(p *types2.Package) string { return p.Path() })
 }
 
 // funcSymName returns the symbol name of a function or method instance.
@@ -261,6 +262,11 @@ func directives(doc *ast.CommentGroup) []string {
 func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 	fn = fn.Origin()
 	d := l.decls[fn]
+	if d == nil {
+		if en := enumOfMethod(fn); en != nil {
+			return l.enumString(fn, en)
+		}
+	}
 	if d != nil && d.decl.Body == nil {
 		if name, ok := externName(d.decl); ok {
 			return l.out.Sym(name, ssa.SymExtern)

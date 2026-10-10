@@ -1,0 +1,43 @@
+Green Blue 1 Red
+OK EPERM ENOENT EIO
+Less Equal Greater -1
+Zero Mid Huge
+low HIGH
+green blue
+len 3 4 3
+zero Red Red Equal OK
+Red is warm, next Green, less than Blue true
+Green is cool, next Blue, less than Blue true
+Blue is cool, next Red, less than Blue false
+compare Less Equal Greater
+Color(0) = Red true
+Color(2) = Blue true
+Color(3) = Red false
+Color(-1) = Red false
+Color(257) = Red false
+Errno(0) = OK true, Size = Zero true
+Errno(1) = EPERM true, Size = Zero false
+Errno(2) = ENOENT true, Size = Zero false
+Errno(3) = OK false, Size = Zero false
+Errno(4) = OK false, Size = Zero false
+Errno(5) = EIO true, Size = Zero false
+Errno(6) = OK false, Size = Zero false
+Errno(1000) = OK false, Size = Mid true
+Errno(1099511627776) = OK false, Size = Huge true
+Order(-2) = Equal false
+Order(-1) = Less true
+Order(0) = Equal true
+Order(1) = Greater true
+Order(2) = Equal false
+Order(c) = Greater true; constant Color(2) = Blue
+ints 2 5 -1
+OK=0 EPERM=1 ENOENT=2 EIO=5 Less=-1 Equal=0 Greater=1 Zero=0 Huge=1099511627776 Mid=1000 count 3
+Color Blue; Errno EIO; other; end
+equal true false
+stringer Greater
+max Green
+method value Red
+reg 0x5e: Blue Less EIO
+raw Color(?) invalid 3
+mask 111 volatile Green
+South Down local South Down

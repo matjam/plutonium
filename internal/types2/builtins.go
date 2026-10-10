@@ -42,6 +42,18 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 		check.hasCallOrRecv = false
 	}
 
+	// Plutonium: len(E) of an enum type E is its member count, a constant.
+	if id == _Len && len(argList) == 1 && check.denotesType(argList[0]) {
+		_, en := check.enumTypeOperand(argList[0], "invalid argument for built-in len")
+		if en == nil {
+			return
+		}
+		x.mode_ = constant_
+		x.typ_ = Typ[UntypedInt]
+		x.val = constant.MakeInt64(int64(en.Len()))
+		return true
+	}
+
 	// Evaluate arguments for built-ins that use ordinary (value) arguments.
 	// For built-ins with special argument handling (make, new, etc.),
 	// evaluation is done by the respective built-in code.
