@@ -39,6 +39,9 @@ type Config struct {
 	// (prototype, gencheck.go). The standard library must be built with the
 	// gencheck tag so that its allocator tags pointers.
 	GenCheck bool
+	// NoFieldNames leaves the field names out of type descriptors, so %+v
+	// prints struct fields without them (pluto build --fieldnames=false).
+	NoFieldNames bool
 }
 
 // A Lowerer lowers one program.
@@ -66,6 +69,18 @@ type Lowerer struct {
 	perCPUSelfSym  *ssa.Sym                   // pluto.percpu.self, once a per-CPU variable exists
 	genPanic       *ssa.Sym                   // pluto/rt.panicStale, under GenCheck
 	types          *typeTable
+
+	// panicFn is the program's panic handler (panic.go).
+	panicFn *types2.Func
+	// What the interrupt-context check (context.go) needs to know about
+	// the lowered program: the declared function behind each symbol, the
+	// source and signature of each lowered function, the functions whose
+	// values are taken, and what each indirect call can reach.
+	symFuncs   map[*ssa.Sym]*types2.Func
+	bodies     map[*ssa.Sym]funcBody
+	sigs       map[*ssa.Sym]*types2.Signature
+	funcValues map[*ssa.Sym]*types2.Signature
+	sites      map[*ssa.Value]*callSite
 
 	// instances of types declared in generic functions (typeMap.local)
 	localTypes map[localKey]*types2.Named
@@ -129,6 +144,11 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		exports:        map[*ssa.Sym][]string{},
 		interruptSyms:  map[*ssa.Sym]bool{},
 		cfuncs:         map[*ssa.Sym]bool{},
+		symFuncs:       map[*ssa.Sym]*types2.Func{},
+		bodies:         map[*ssa.Sym]funcBody{},
+		sigs:           map[*ssa.Sym]*types2.Signature{},
+		funcValues:     map[*ssa.Sym]*types2.Signature{},
+		sites:          map[*ssa.Value]*callSite{},
 	}
 	l.types = newTypeTable(l)
 	if l.sizes == nil {
@@ -147,6 +167,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		}
 	}
 
+	l.findPanicHandler()
 	l.lowerGlobals()
 	l.lowerEntry()
 	l.checkInterrupts()
@@ -163,6 +184,10 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		}
 	}
 	l.types.emit()
+	if len(l.errs) == 0 {
+		l.checkPanicHandler()
+		l.checkContexts()
+	}
 	if len(l.errs) > 0 {
 		return nil, l.errs
 	}
@@ -312,9 +337,12 @@ func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 		if name, ok := externName(d.decl); ok {
 			sym := l.out.Sym(name, ssa.SymExtern)
 			l.cfuncs[sym] = true
+			l.symFuncs[sym] = fn
 			return sym
 		}
-		return l.out.Sym(funcSymName(fn, targs), ssa.SymExtern)
+		sym := l.out.Sym(funcSymName(fn, targs), ssa.SymExtern)
+		l.symFuncs[sym] = fn
+		return sym
 	}
 	name := funcSymName(fn, targs)
 	if sym := l.funcs[name]; sym != nil {
@@ -322,6 +350,7 @@ func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 	}
 	sym := l.out.Sym(name, ssa.SymFunc)
 	l.funcs[name] = sym
+	l.symFuncs[sym] = fn
 	if d != nil && hasDirective(d.decl.Doc, "interrupt") {
 		l.interruptSyms[sym] = true
 	}

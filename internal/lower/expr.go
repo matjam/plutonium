@@ -250,6 +250,9 @@ func (s *fnState) declareVar(obj *types2.Var) *ssa.Value {
 // indexLV returns the element an index expression on an array, pointer to
 // array or slice denotes, after a bounds check.
 func (s *fnState) indexLV(e *ast.IndexExpr) lvalue {
+	if s.isContainerIndex(e) {
+		return s.containerLV(e)
+	}
 	xt := s.typeOf(e.X)
 	u := unwrap(xt).Underlying()
 	if p, ok := u.(*types2.Pointer); ok {
@@ -414,6 +417,9 @@ func pointerElem(T types2.Type) types2.Type {
 
 // selector lowers a selector used as a value.
 func (s *fnState) selector(e *ast.SelectorExpr, T types2.Type) value {
+	if v, ok := s.info.Uses[e.Sel].(*types2.Variant); ok {
+		return s.variantValue(e, v, T)
+	}
 	if id, ok := e.X.(*ast.Ident); ok {
 		if _, isPkg := s.info.Uses[id].(*types2.PkgName); isPkg {
 			switch obj := s.info.Uses[e.Sel].(type) {
@@ -454,6 +460,7 @@ func (s *fnState) selector(e *ast.SelectorExpr, T types2.Type) value {
 		if sym == nil {
 			return s.zeroValue(T)
 		}
+		s.l.funcValues[sym] = T.Underlying().(*types2.Signature)
 		return scalarValue(s.symAddr(s.l.closureRecord(sym)), T)
 	}
 	return s.zeroValue(T)
@@ -484,8 +491,8 @@ func isAddressable(e ast.Expr, info *types2.Info) bool {
 		}
 	case *ast.IndexExpr:
 		t := info.Types[e.X].Type
-		if t == nil {
-			return false
+		if t == nil || types2.IndexesByMethod(t) {
+			return false // an element of a container is a copy (indexing.go)
 		}
 		switch u := t.Underlying().(type) {
 		case *types2.Slice, *types2.Pointer:
@@ -835,6 +842,8 @@ func (s *fnState) equal(x, y value, T types2.Type, pos token.Pos) *ssa.Value {
 		return s.equalArrayLoop(x.v, y.v, u.Len(), et, pos)
 	case *types2.Packed, *types2.Wrapper:
 		return s.callRuntime("memequal", []*ssa.Type{ssa.TBool}, []*ssa.Value{x.v, y.v, s.constInt(ssa.TI64, s.l.sizeof(T))})[0]
+	case *types2.TaggedUnion:
+		return s.unionEqual(x, y, unwrap(T), pos)
 	}
 	s.l.unsupportedf(pos, "cannot compare values of type %s", T)
 	return s.constBool(false)
@@ -987,6 +996,17 @@ func (s *fnState) sliceExpr(e *ast.SliceExpr, T types2.Type) value {
 // Composite literals
 
 func (s *fnState) compositeLit(e *ast.CompositeLit, T types2.Type) value {
+	if e.Type != nil {
+		if v := s.variantOf(e.Type); v != nil {
+			return s.variantLit(e, v, unwrap(T))
+		}
+	}
+	return s.compositeLitOf(e, T)
+}
+
+// compositeLitOf lowers the elements of a composite literal as a literal of
+// type T.
+func (s *fnState) compositeLitOf(e *ast.CompositeLit, T types2.Type) value {
 	T = unwrap(T)
 	u := T.Underlying()
 	if p, ok := u.(*types2.Pointer); ok {

@@ -55,6 +55,8 @@ Sizes and alignments follow Go's gc compiler on amd64. `int`, `uint`, `uintptr` 
 | `ring[T, N]` | 16 + N × size(T) | max(8, align(T)) | `{head, tail uint64; buf [N]T}` |
 | packed type | its backing, or its field width rounded up to bytes | backing's | bit-exact, language spec section 5.5 |
 | enum type | its underlying integer's | its underlying integer's | the member's value, language spec section 5.9 |
+| union | tag, then the largest payload at its alignment, rounded up to the alignment | max(tag size, largest payload alignment) | `{tag uint8 (uint16 above 256 variants); payload}`, below |
+| packed union | its backing | backing's | a packed type whose tag field selects the variant, language spec section 5.10 |
 | `chan T` (planned) | 8 | 8 | address of the channel object |
 
 `owned[T]`, `shared[T]`, `synced[T]` and `weak[P]` point at the object. The allocation behind them begins
@@ -62,6 +64,16 @@ with a hidden header at a negative offset from the object: one word recording it
 `owned[T]`, and for the counted kinds the allocator, the strong count and the weak count (language spec
 section 5.6; planned with the move checker). Owner types declared with `owner` (language spec section
 6.4) have the layout of their underlying type; ownership adds no bytes.
+
+A union (language spec section 5.10) is its tag at offset 0, numbering the variants from 0 in declaration
+order, and the payload of the variant it holds at the first offset after the tag that satisfies the
+largest payload alignment. The bytes after a shorter payload, and between the tag and the payload, are
+padding: their contents are unspecified, and equality compares the tag and then the payload. For example
+`union { Off; Probing struct{ attempt int }; Ready struct{ irq uint8; base uintptr } }` is 24 bytes, with
+the tag at 0 and the payload at 8, and `union { None; Some uint8 }` is 2 bytes with the payload at 1. The
+layout of ordinary unions is internal: the compiler may later store an empty variant in a payload's
+unused values instead of a tag, and unions are not allowed in `//pu:extern` and `//pu:export`
+signatures (section 9.1). Packed unions are exactly their backing.
 
 Package-level variables are in `.data` (constant initialiser, written into the image; this includes
 arrays and structs whose elements are constants), `.bss` (no initialiser, or one computed by the package
@@ -111,6 +123,7 @@ booleans, pointers and floats, each with its offset in the value.
 | array of more than 4 elements | none: held in memory |
 | `volatile[T]`, `aligned[T, N]` | those of `T` |
 | packed type of 1, 2, 4 or 8 bytes | 1 integer |
+| union | integers whatever the payload holds: the bytes before the payload (the tag and padding), then the payload's bytes, each as 8-byte words and then a 4-, 2- and 1-byte piece for what remains; none (held in memory) for more than 16. `union { Ok int; Err int }` is two leaves, the tag word and the payload |
 | `ring[T, N]`, other packed types | none: held in memory |
 
 A value **fits in registers** when it has between 1 and 4 leaves (`maxRegLeaves` in
@@ -183,25 +196,52 @@ An interface value is `{tab, data}`.
   integers and booleans, float bits, or the address. For every other type `data` points at a copy of the
   value in the frame of the function that made the conversion (language spec section 4.4).
 
-Type descriptor, 40 bytes, read-only, named `type:<type>` (mirrored by `pluto/rt.typeDesc`):
+Type descriptor, 72 bytes, read-only, named `type:<type>` (mirrored by `pluto/rt.typeDesc`, read through
+`rt.Type`):
 
 | Offset | Field | |
 |---|---|---|
-| 0 | `size uintptr` | 0 for interface types |
+| 0 | `size uintptr` | 16 for interface types |
 | 8 | `hash uint32` | FNV-1a of the type string |
-| 12 | `kind uint8` | Go's reflect numbering, plus 27 packed, 28 ring, 29 owned |
-| 13 | `flags uint8` | 1 = direct |
-| 16 | `name string` | the type as written, package-qualified by name |
-| 32 | `equal func(a, b unsafe.Pointer) bool` | closure record, or nil if not comparable or direct |
+| 12 | `kind uint8` | Go's reflect numbering, plus 27 packed, 28 ring, 29 owned, 30 union |
+| 13 | `flags uint8` | 1 = direct, 2 = interface type with methods (its values hold an itab), 4 = the type has methods |
+| 14 | `align uint8` | alignment in bytes (0 if 256 or more) |
+| 16 | `name string` | the type as Go's `reflect.Type.String` writes it: `main.T`, `[]uint8`, `hash.Map[string,int]`, `interface {}`, `struct { A int }` |
+| 32 | `equal func(a, b unsafe.Pointer) bool` | closure record, or nil if not comparable or direct, or if the type is only part of a converted type |
+| 40 | `elem *typeDesc` | element type of an array, slice or ring; the type a pointer, `owned`, `shared`, `synced` or `weak` points at; nil otherwise |
+| 48 | `len uintptr` | array length, ring capacity, or number of struct fields |
+| 56 | `fields *fieldDesc` | the struct's field descriptors, `len` of them; nil otherwise |
+| 64 | `ptrTo *typeDesc` | the descriptor of `*T` when `*T` has methods that `T` lacks; nil otherwise |
+
+Field descriptor, 40 bytes, an array of them per struct type named `typefields:<type>`:
+
+| Offset | Field | |
+|---|---|---|
+| 0 | `typ *typeDesc` | the field's type (without `volatile` or `aligned`) |
+| 8 | `offset uintptr` | byte offset in the struct |
+| 16 | `name string` | the field's name; empty when the build strips names |
+| 32 | `flags uint8` | 1 = exported, 2 = embedded |
+
+Descriptors are emitted only for types converted to an interface and for the types they are made of: the
+element, pointee and field types of a descriptor, and `*T` when `ptrTo` is set, have descriptors too, so
+that `pluto/fmt` can walk any value it is given. The concrete types among them take part in the itab
+table like converted types, so a field of a type with a `String` method can be printed with it.
+
+Field names are kept unless the build passes `--fieldnames=false`; they are left out by default in kernel
+mode (`--mode kernel`, where `--fieldnames=true` keeps them), since a kernel image rarely prints `%+v`.
+Without names, `%+v` and `%#v` print fields as `%v` does.
+
+The descriptor of a union (kind 30) is 96 bytes, continuing with the payload's offset (`uintptr` at 72), a
+pointer to a table of the variants in tag order (at 80) and their number (`int` at 88). Each table entry is
+32 bytes: the variant's name (`string`), its payload's type descriptor (nil for a variant without a
+payload) and a word that is 1 when the payload is an empty interface and 2 when it is another interface.
+`pluto/rt.UnionInfo` reads them, and `fmt` prints a union with them.
 
 Itab, named `itab:<type>,<interface>`: the type descriptor, the interface's descriptor, then one code
 pointer per interface method in method order. Each code pointer is an adapter that takes the data word as
 its first argument (in place of the receiver) followed by the method's arguments, and is called with RAX
 set to 0. `pluto.itabs` lists every itab for the run-time lookup that type assertions to non-empty
 interfaces use.
-
-Richer descriptors (element types, field offsets and names, used by `fmt` for composite values) are
-planned; see the roadmap.
 
 ## 6. Stack frames
 
@@ -364,7 +404,8 @@ an export is a second symbol on the same code, as before. Otherwise lowering cla
   parameter.
 - **Rejected,** at the declaration, even if nothing calls it: `string` and slices (no C type; pass
   `unsafe.StringData(s)` or `unsafe.SliceData(b)` and the length), interfaces, func values (a func value
-  points at a closure record, not at code), maps and channels, anywhere in a by-value parameter or result,
+  points at a closure record, not at code), maps, channels and unions (their layout is not part of the
+  ABI; pass a struct of a tag and the payload), anywhere in a by-value parameter or result,
   including inside structs; arrays as a whole parameter or result (C cannot pass them by value; wrap them
   in a struct or pass a pointer); zero-size types; types aligned to more than 8 bytes; variadic functions
   (C varargs are not supported); generic functions; `//pu:extern` on a function with a body; and two
@@ -548,7 +589,14 @@ function is a compile error. `//pu:export name` on a handler gives its code a se
 assembly stubs that refer to it.
 
 The handler may call ordinary functions: they run on a 16-byte aligned stack with the direction flag
-clear, as section 2 requires, and every register they may change is restored before `iretq`.
+clear, as section 2 requires, and every register they may change is restored before `iretq`. Nothing it
+can reach may wait or start a puroutine: no blocking channel operation, no call of a `//pu:blocking`
+function, no `go` statement, no allocator that may wait. The compiler checks this over the whole program
+(language spec section 12.6), and the same for the panic handler, which can run on top of a handler.
+
+A panic inside a handler, or a fault an exception handler reports with `rt.PanicFault`, goes to the
+program's `//pu:panic` handler (language spec section 8.1), with a stack trace that starts at the
+faulting instruction and ends at the handler's frame.
 
 ### 10.5 `pluto/arch/x86` intrinsics
 
@@ -638,6 +686,9 @@ var runQueue RunQueue
   initialiser runs once, before any processor has its own block, so it could only initialise one copy.
   Anything else is a compile error, as is `//pu:percpu` together with `//pu:section`.
 - Outside kernel mode `//pu:percpu` is a compile error.
+- The runtime has one per-CPU variable of its own, the processor's number that `rt.SetCPU` records and
+  panics report (language spec section 8.1), so every kernel-mode image has a `.percpu` section and its
+  linker script must place it as below.
 
 **Setting up GS.** The kernel gives each processor its block and points GS at it, before that processor
 touches a per-CPU variable:

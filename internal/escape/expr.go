@@ -592,6 +592,18 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 	return out
 }
 
+// elemOrPointee returns what a pointer, slice or string's memory holds:
+// the element or pointee type, or byte for a string.
+func elemOrPointee(T types2.Type) types2.Type {
+	if el := pointerElem(T); el != nil {
+		return el
+	}
+	if el := elemType(T); el != nil {
+		return el
+	}
+	return types2.Typ[types2.Byte]
+}
+
 func isUnsafePointer(T types2.Type) bool {
 	b, ok := underlying(T).(*types2.Basic)
 	return ok && b.Kind() == types2.UnsafePointer
@@ -620,6 +632,12 @@ func (w *walker) explicitConv(e *ast.CallExpr, to types2.Type) tset {
 			}
 		}
 		if isUnsafePointer(from) || isUnsafePointer(to) {
+			// The address keeps its path while no pointers can be read
+			// through it under the new type; reinterpreted as memory that
+			// holds pointers, its field paths no longer mean anything.
+			if isUnsafePointer(to) || !hasPointers(elemOrPointee(to)) {
+				return v
+			}
 			return collapse(v)
 		}
 	}

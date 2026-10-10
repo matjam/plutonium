@@ -228,11 +228,11 @@ const (
 // box, a closure record, a slice literal's backing array).
 type loc struct {
 	kind     locKind
-	v        *types2.Var    // lkVar, lkParam, lkResult
-	node     ast.Node       // temporaries: the expression that makes it
-	fn       string         // the function whose frame holds it, for messages
-	captures []*types2.Var  // lkClosure: the variables the literal uses
-	pos      token.Pos      // where it is declared or made
+	v        *types2.Var     // lkVar, lkParam, lkResult
+	node     ast.Node        // temporaries: the expression that makes it
+	fn       string          // the function whose frame holds it, for messages
+	captures []*types2.Var   // lkClosure: the variables the literal uses
+	pos      token.Pos       // where it is declared or made
 	level    int             // nesting depth of the function literal that owns it; 0 for the declared function
 	contents map[string]tset // what the storage may hold, by field path within it
 
@@ -432,7 +432,7 @@ type function struct {
 	// //pu:resultholds: parameters kept only while the result lives, by
 	// index (receiver first).
 	resultHolds map[int]bool
-	inits    bool // the initialisers of a package's variables
+	inits       bool // the initialisers of a package's variables
 }
 
 // paramName names parameter idx of f (receiver first), for messages.

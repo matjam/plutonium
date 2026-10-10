@@ -85,7 +85,7 @@ Compiler error messages are not affected.
 
 The compiler writes DWARF version 4 into its object file; the linker concatenates and relocates it.
 
-- **Compile units**: one per package, named by the import path, with `DW_AT_language` Go, `.` as
+- **Compile units**: one per package, named by the import path, with `DW_AT_language` Go, no
   `DW_AT_comp_dir` (the build directory with `--trimpath=false`), and the package's functions as
   `DW_AT_ranges`. Generated functions with
   no package (`pluto.main`, method wrappers) are in a unit named `pluto`.
@@ -102,8 +102,11 @@ The compiler writes DWARF version 4 into its object file; the linker concatenate
 - **Call frame information**: `.debug_frame`, one CIE and one FDE per function (section 4).
 - **Not emitted yet**: types, variables and parameters (`info locals`, `print x`), and column numbers.
 
-File names are relative (section 2.1), and the compilation directory `.` makes a debugger resolve them
-against its own working directory. Run the debugger from the module root (for a program outside a module,
+File names are relative (section 2.1), and with no compilation directory a debugger resolves them against
+its own working directory. The line table splits each name into a directory (`.` for `./main.p`) and a
+base name, so gdb, `ld` and `addr2line` print the names the trace table prints. A compilation directory
+of `.` would add nothing for a debugger, and `ld` and the other binutils tools would prepend it to the
+line table's directory and report `././main.p`. Run the debugger from the module root (for a program outside a module,
 its directory) and it finds the program's source; from anywhere else, or for the standard library, add the
 roots to its source path:
 
@@ -118,7 +121,7 @@ on the machine that built it (and the standard library's only when `PLUTOROOT` w
 Absolute paths are not the `-g` default, although they need no `directory`: DWARF is on by default, and a
 default build that recorded the build directory would make every binary depend on where it was built,
 which is what self-hosting (stage 2 and stage 3 must be byte-identical) and reproducible builds cannot
-have. Go makes the same choice for DWARF: its compilation directory is always `.`.
+have. Go makes the same choice for DWARF, with `.` as its compilation directory.
 
 ### What works
 
@@ -166,7 +169,9 @@ body's. The FDEs encode exactly these states with `DW_CFA_def_cfa*`, `DW_CFA_off
 
 A panic, a runtime fault (an index or slice out of range, division by zero, a failed type assertion,
 `append` beyond capacity and the rest in [language.md section 8](language.md#8-runtime-faults-and-panic))
-or, in hosted builds, a hardware fault prints its message and then the stack, innermost frame first:
+or, in hosted builds, a hardware fault goes to the panic handler (language spec section 8.1). The built-in
+handler of hosted programs, and `rt.Panic.Print`, print the message and then the stack, innermost frame
+first:
 
 ```
 panic: runtime error: index out of range [4] with length 4
@@ -214,25 +219,36 @@ and the trace from the faulting instruction, then exits with status 2 without ru
 (`rt.SetExitHook`). A fault within 4 KiB of address zero is reported as a nil dereference; one just below
 the stack pointer as `stack overflow`; any other as `unexpected fault address`.
 
+The signal handler does not print this itself: it raises a panic, with the fault in `rt.Panic.Fault`
+(kind, address, faulting instruction, signal) and a trace that starts at the faulting instruction, and
+calls the panic handler (language spec section 8.1). The output above is the built-in handler's; a
+program with a `//pu:panic` handler of its own gets the same information.
+
 There is one handler. For `SIGSEGV` and `SIGBUS` it first calls the function registered with
 `rt.SetFaultHandler`, if any, with the fault address, the faulting instruction and whether the access was
 a write. The debug allocator registers one ([debug-allocator.md](debug-allocator.md#faults-and-the-runtime)):
-if the address is in its heap it prints its diagnosis (`panic: debug allocator: use after free: ...`, with
-where the block was allocated and freed) in place of the runtime's message, and the signal line and the
-trace follow as usual. A fault in a function's prologue, before its frame is complete, is unwound
+if the address is in its heap its diagnosis (`debug allocator: use after free: ...`, with where the block
+was allocated and freed) becomes the panic's message in place of the runtime's, and the signal line and
+the trace follow as usual. A fault in a function's prologue, before its frame is complete, is unwound
 correctly too. Only the main thread has the alternate stack: on another thread the handler runs on that
 thread's own stack, which works for every fault except running out of that stack, which kills the
 process with the signal.
 
 ### Freestanding builds
 
-Walking the stack allocates nothing and needs no operating system: it reads the trace table and the stack,
-and prints through `rt.SetConsole`'s writer before calling the panic handler. A kernel's exception handlers
-can print the trace of the interrupted code with
+Walking the stack allocates nothing and needs no operating system: it reads the trace table and the stack.
+A freestanding program's panic handler (language spec section 8.1) prints the trace where it likes with
+`p.PrintTrace(w)`, or the whole report, message, fault and trace, with `p.Print(w)`, to any `rt.Writer`;
+`rt.Console{}` writes through `rt.SetConsole`'s writer. Since a panic does not unwind, the frames the
+trace describes are still on the stack while the handler runs. A kernel's exception handlers turn a fault
+into a panic whose trace starts at the faulting instruction with
 
 ```go
-rt.Traceback(pc, sp, bp uintptr) // the faulting RIP, RSP and RBP
+rt.PanicFault(kind rt.FaultKind, addr, pc, sp, bp uintptr) // the fault, and the faulting RIP, RSP and RBP
 ```
+
+or print the trace of the interrupted code to the console without panicking with
+`rt.Traceback(pc, sp, bp uintptr)`.
 
 A frame of a `//pu:interrupt` function ends the walk, since the code it interrupted is not its caller.
 

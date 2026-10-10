@@ -27,7 +27,8 @@ type lvalue struct {
 	ptr *ssa.Value  // address of the storage (of the packed container for bit fields)
 	T   types2.Type // declared type of the storage; may be volatile[T] or aligned[T, N]
 
-	bits *bitRef // non-nil for a packed field
+	bits *bitRef       // non-nil for a packed field
+	elem *containerRef // non-nil for a container element, x[k] (indexing.go); ptr is nil
 }
 
 // A bitRef locates a packed field inside its container's storage.
@@ -65,6 +66,9 @@ func (s *fnState) markVolatileLoad(ld *ssa.Value) {
 
 // loadLV reads an lvalue.
 func (s *fnState) loadLV(lv lvalue) value {
+	if lv.elem != nil {
+		return s.containerLoad(lv.elem)
+	}
 	if lv.bits != nil {
 		return scalarValue(s.loadBits(lv), lv.bits.T)
 	}
@@ -84,6 +88,10 @@ func (s *fnState) loadLV(lv lvalue) value {
 
 // storeLV writes val to an lvalue.
 func (s *fnState) storeLV(lv lvalue, val value) {
+	if lv.elem != nil {
+		s.containerStore(lv.elem, val)
+		return
+	}
 	if lv.bits != nil {
 		s.storeBits(lv, val.v)
 		return

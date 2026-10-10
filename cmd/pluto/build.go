@@ -108,6 +108,7 @@ func init() {
 		c.Flags().Bool("trimpath", true, "record source paths relative to the module root and the standard library (--trimpath=false for absolute paths)")
 		c.Flags().String("alloc", "", "default allocator: debug for the checking allocator (hosted builds; tune with $PLUTO_DEBUGALLOC)")
 		c.Flags().Bool("gencheck", false, "prototype: tag heap pointers with generations and check every access")
+		c.Flags().Bool("fieldnames", true, "record struct field names in type descriptors, for %+v and %#v (default true, false in kernel mode)")
 		c.Flags().Bool("brief", false, briefUsage)
 	}
 	rootCmd.AddCommand(buildCmd, runCmd)
@@ -137,6 +138,13 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 	trimpath, _ := f.GetBool("trimpath")
 	allocator, _ := f.GetString("alloc")
 	genCheck, _ := f.GetBool("gencheck")
+	fieldNames := "" // the mode's default
+	if f.Changed("fieldnames") {
+		fieldNames = "off"
+		if on, _ := f.GetBool("fieldnames"); on {
+			fieldNames = "on"
+		}
+	}
 
 	arch, osName, ok := strings.Cut(target, "-")
 	if !ok || arch != "x86_64" || (osName != "linux" && osName != "none") {
@@ -183,6 +191,7 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 		NoTrimPath:   !trimpath,
 		Alloc:        allocator,
 		GenCheck:     genCheck,
+		FieldNames:   fieldNames,
 	}
 	if root := os.Getenv("PLUTOROOT"); root != "" {
 		if abs, err := filepath.Abs(root); err == nil {

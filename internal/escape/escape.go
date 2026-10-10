@@ -673,9 +673,9 @@ type candidate struct {
 type recvMode uint8
 
 const (
-	recvExact  recvMode = iota // the data word is the receiver
-	recvBoxed                  // the data word points at the receiver
-	recvReach                  // unknown: anything reachable from the data word
+	recvExact recvMode = iota // the data word is the receiver
+	recvBoxed                 // the data word points at the receiver
+	recvReach                 // unknown: anything reachable from the data word
 )
 
 // isEmbedded reports whether a receiver's base type is embedded in some

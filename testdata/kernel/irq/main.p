@@ -24,6 +24,19 @@ func serialWrite(p unsafe.Pointer, n int) {
 	}
 }
 
+// onPanic reports a panic over the serial port and leaves QEMU through the
+// isa-debug-exit device with status 3.
+//
+//pu:panic
+func onPanic(p *rt.Panic) {
+	p.Print(rt.Console{})
+	for {
+		outb(0xf4, 1)
+		x86.Cli()
+		x86.Hlt()
+	}
+}
+
 // An IDT gate is 16 bytes: the handler address split around the selector
 // and type fields.
 var idt [256][2]uint64

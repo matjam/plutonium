@@ -155,3 +155,72 @@ const (
 	// constraint is not marked owner.
 	OwnerTypeArg
 )
+
+// The indexing interface: index expressions on library containers.
+const (
+	_ Code = 2450 + iota
+
+	// MissingIndexMethod: an index expression on a container that lacks
+	// the method this use of it calls (Index, SetIndex or IndexOk).
+	MissingIndexMethod
+	// BadIndexMethod: an indexing method with the wrong signature.
+	BadIndexMethod
+	// IndexMethodMismatch: indexing methods of one type that disagree on
+	// the key or element type.
+	IndexMethodMismatch
+	// ContainerIndexAddress: &x[k] where x is a container.
+	ContainerIndexAddress
+	// ContainerElemAssign: an assignment to a field or element of x[k]
+	// where x is a container.
+	ContainerElemAssign
+	// RangeOverContainer: a range over a container.
+	RangeOverContainer
+	// UnaddressableContainer: an index expression on a container that is
+	// not addressable, whose method has a pointer receiver.
+	UnaddressableContainer
+)
+
+// Unions.
+const (
+	_ Code = 2400 + iota
+
+	// MisplacedUnion: a union type outside a type definition.
+	MisplacedUnion
+	// GenericPackedUnion: a packed union with type parameters.
+	GenericPackedUnion
+	// EmptyUnion: a union without variants.
+	EmptyUnion
+	// BadVariantDecl: a union variant without a name, named _, with a tag,
+	// or sharing a case clause of a packed union with another variant.
+	BadVariantDecl
+	// TooManyVariants: a union with more variants than its tag can number.
+	TooManyVariants
+	// UnionOwnerPayload: a variant payload that holds an owned, shared or
+	// synced pointer, which needs the ownership checker.
+	UnionOwnerPayload
+	// BadUnionTag: a packed union without a backing type, or without
+	// exactly one bool, integer or enum tag field before its variants.
+	BadUnionTag
+	// BadVariantCase: a tag value of a packed union variant that is not a
+	// constant, does not fit the tag, or selects another variant too.
+	BadVariantCase
+	// VariantNotType: a union variant used as a type.
+	VariantNotType
+	// UnknownVariant: a variant name that the union does not have, or a
+	// variant literal on a type that is not a union.
+	UnknownVariant
+	// UnexportedVariant: an unexported variant of another package's union.
+	UnexportedVariant
+	// UnionLiteral: a composite literal of a union type itself, of a
+	// variant without a payload, or one that sets a packed union's tag.
+	UnionLiteral
+	// NotAVariant: a case of a type switch on a union, or the type of an
+	// assertion on one, that does not name one of its variants.
+	NotAVariant
+	// MissingVariantCase: a type switch on a union without a default case
+	// that leaves out variants.
+	MissingVariantCase
+	// PackedUnionNoDefault: a type switch on a packed union without a
+	// default case whose cases do not cover every value of its tag.
+	PackedUnionNoDefault
+)

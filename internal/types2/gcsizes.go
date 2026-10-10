@@ -69,6 +69,9 @@ func (s *gcSizes) Alignof(T Type) (result int64) {
 		}
 	case *Packed:
 		return t.align
+	case *TaggedUnion:
+		_, _, _, al := unionLayout(s, t)
+		return al
 	case *TypeParam, *Union:
 		panic("unreachable")
 	}
@@ -189,6 +192,9 @@ func (s *gcSizes) Sizeof(T Type) int64 {
 		}
 	case *Packed:
 		return (t.bits + 7) / 8
+	case *TaggedUnion:
+		_, _, size, _ := unionLayout(s, t)
+		return size
 	case *TypeParam, *Union:
 		panic("unreachable")
 	}

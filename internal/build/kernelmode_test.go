@@ -15,14 +15,36 @@ import (
 	"github.com/matjam/plutonium/internal/build"
 )
 
-// kernelCompile compiles src as a kernel-mode main package to an object
-// file and returns the machine code listing.
+// panicHandlerSource is the panic handler that freestanding and kernel
+// test programs, which must have one, are built with.
+const panicHandlerSource = `package main
+
+import "pluto/rt"
+
+//pu:panic
+func testPanicHandler(p *rt.Panic) {
+	for {
+	}
+}
+`
+
+// writePanicHandler adds panicHandlerSource to the main package in dir.
+func writePanicHandler(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "panic_handler.p"), []byte(panicHandlerSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// kernelCompile compiles src as a kernel-mode main package, with a panic
+// handler, to an object file and returns the machine code listing.
 func kernelCompile(t *testing.T, src string, optLevel int) (string, error) {
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "main.p"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	writePanicHandler(t, dir)
 	var listing bytes.Buffer
 	cfg := &build.Config{Dir: dir, Output: filepath.Join(dir, "k.o"), Stdlib: plutonium.Stdlib(),
 		OptLevel: optLevel, Kernel: true, Listing: &listing, CompileOnly: true}
@@ -329,6 +351,7 @@ func TestKernelNoXMM(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "main.p"), []byte(kernelProgram), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		writePanicHandler(t, dir)
 		var listing bytes.Buffer
 		obj := filepath.Join(dir, "k.o")
 		cfg := &build.Config{Dir: dir, Output: obj, Stdlib: plutonium.Stdlib(),
@@ -367,6 +390,7 @@ func TestKernelSmoke(t *testing.T) {
 	dir := filepath.Join("..", "..", "testdata", "kernel", "smoke")
 	const want = "hello from kernel mode\n" +
 		"fmt -42 works 0xff true\n" +
+		"fmt {1 -2} {3 4} [{5 6}]\n" +
 		"cpu0 initial -1 7 9\n" +
 		"cpu1 initial -1 0 true\n" +
 		"cpu0 again 0 11 1 true\n" +
@@ -460,6 +484,7 @@ func main() {
 	if err := os.WriteFile(filepath.Join(dir, "main.p"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	writePanicHandler(t, dir)
 	var buf bytes.Buffer
 	cfg := &build.Config{Dir: dir, Output: filepath.Join(dir, "k.o"), Stdlib: plutonium.Stdlib(),
 		OptLevel: 2, Freestanding: true, Listing: &buf, CompileOnly: true}

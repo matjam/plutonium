@@ -172,8 +172,25 @@ func (w *typeWriter) typ(typ Type) {
 		}
 		w.byte(']')
 
+	case *TaggedUnion:
+		w.string("union{")
+		for i, v := range t.variants {
+			if i > 0 {
+				w.string("; ")
+			}
+			w.string(v.name)
+			if !v.bare {
+				w.byte(' ')
+				w.typ(v.typ)
+			}
+		}
+		w.byte('}')
+
 	case *Packed:
 		w.string("packed")
+		if t.variants != nil {
+			w.string(" union")
+		}
 		switch t.order {
 		case ast.BigEndian:
 			w.string(" be")
@@ -185,22 +202,21 @@ func (w *typeWriter) typ(typ Type) {
 			w.typ(t.backing)
 		}
 		w.string(" {")
-		for i, f := range t.fields {
-			if i > 0 {
-				w.byte(';')
+		w.packedFields(t.fields)
+		for _, v := range t.variants {
+			w.string("; ")
+			w.string(v.name)
+			w.string(" case")
+			for i, c := range v.cases {
+				if i > 0 {
+					w.byte(',')
+				}
+				w.byte(' ')
+				w.string(c.val.String())
 			}
-			w.byte(' ')
-			w.string(f.obj.name)
-			w.byte(' ')
-			if f.isBits {
-				w.string("bits[")
-				w.typ(f.obj.typ)
-				w.string(", ")
-				w.string(strconv.FormatInt(f.width, 10))
-				w.byte(']')
-			} else {
-				w.typ(f.obj.typ)
-			}
+			w.string(" {")
+			w.packedFields(v.typ.(*Packed).fields[1:])
+			w.string(" }")
 		}
 		w.string(" }")
 
@@ -489,6 +505,28 @@ func (w *typeWriter) tParamList(list []*TypeParam) {
 		w.typ(prev)
 	}
 	w.byte(']')
+}
+
+// packedFields writes the fields of a packed type, each after a blank and
+// separated by semicolons.
+func (w *typeWriter) packedFields(fields []*PackedField) {
+	for i, f := range fields {
+		if i > 0 {
+			w.byte(';')
+		}
+		w.byte(' ')
+		w.string(f.obj.name)
+		w.byte(' ')
+		if f.isBits {
+			w.string("bits[")
+			w.typ(f.obj.typ)
+			w.string(", ")
+			w.string(strconv.FormatInt(f.width, 10))
+			w.byte(']')
+		} else {
+			w.typ(f.obj.typ)
+		}
+	}
 }
 
 func (w *typeWriter) typeName(obj *TypeName) {

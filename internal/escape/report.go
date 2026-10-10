@@ -59,8 +59,8 @@ type viewErr struct {
 	call *ast.CallExpr
 	ch   ast.Expr
 
-	loop    ast.Node     // sinkLoop: the loop whose iterations reuse l
-	iterVar *types2.Var  // sinkLoop with a closure: the loop's variable it uses
+	loop    ast.Node    // sinkLoop: the loop whose iterations reuse l
+	iterVar *types2.Var // sinkLoop with a closure: the loop's variable it uses
 	qual    types2.Qualifier
 }
 

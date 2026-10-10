@@ -13,18 +13,18 @@ import (
 
 // A callTarget is what a call expression calls.
 type callTarget struct {
-	static  *function // a declared function or method, or nil
-	name    string    // for messages
-	sig     *types2.Signature
+	static   *function // a declared function or method, or nil
+	name     string    // for messages
+	sig      *types2.Signature
 	recv     tset // the receiver, for method calls
 	recvExpr ast.Expr
 	hasRecv  bool
-	method  string // dynamic method calls: the method name
-	byName  bool   // a method call through a type parameter
-	fv      tset   // calls through a func value: the value
-	dynFunc bool
-	ring    *types2.Selection // a built-in ring method
-	ringX   ast.Expr
+	method   string // dynamic method calls: the method name
+	byName   bool   // a method call through a type parameter
+	fv       tset   // calls through a func value: the value
+	dynFunc  bool
+	ring     *types2.Selection // a built-in ring method
+	ringX    ast.Expr
 }
 
 // call evaluates a call expression and returns what each result may point
@@ -508,6 +508,12 @@ func (w *walker) builtin(e *ast.CallExpr) []tset {
 		v := w.value(e.Args[0])
 		for _, a := range e.Args[1:] {
 			w.value(a)
+		}
+		if name != "Add" && !hasPointers(elemOrPointee(w.typeOf(e))) {
+			// The same address, seen as memory that holds no pointers:
+			// nothing can be loaded from it as a pointer, so its path
+			// stays exact.
+			return []tset{v}
 		}
 		return []tset{collapse(v)}
 	}

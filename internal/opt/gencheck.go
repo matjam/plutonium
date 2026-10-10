@@ -47,8 +47,8 @@ func GenCheck(f *ssa.Func) {
 type genChecker struct {
 	f        *ssa.Func
 	maskOnly bool
-	parts    map[*ssa.Value]*genParts // per root pointer, in mask-only functions
-	plain    map[*ssa.Value]bool      // values that are plain addresses already
+	parts    map[*ssa.Value]*genParts  // per root pointer, in mask-only functions
+	plain    map[*ssa.Value]bool       // values that are plain addresses already
 	checked  map[*ssa.Value]*ssa.Value // roots checked in the current run of blocks, and their plain address
 }
 

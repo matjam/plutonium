@@ -217,6 +217,11 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 			}
 		}
 
+		// Plutonium: len of a container calls its Len method (indexing.go).
+		if mode == invalid && id == _Len && LenByMethod(x.typ()) && check.containerLen(x) {
+			mode = value
+		}
+
 		if mode == invalid {
 			// avoid error if underlying type is invalid
 			if isValid(x.typ().Underlying()) {
@@ -1123,6 +1128,13 @@ func (check *Checker) hasVarSize(t Type) bool {
 	case *Struct:
 		for _, f := range t.fields {
 			if check.hasVarSize(f.typ) {
+				return true
+			}
+		}
+
+	case *TaggedUnion:
+		for _, v := range t.variants {
+			if check.hasVarSize(v.typ) {
 				return true
 			}
 		}

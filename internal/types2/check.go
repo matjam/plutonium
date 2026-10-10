@@ -123,11 +123,11 @@ type Checker struct {
 	fset *token.FileSet
 	pkg  *Package
 	*Info
-	nextID  uint64                 // unique Id for type parameters (first valid Id is 1)
-	ownerRHS map[*Struct]bool      // struct types that define a named type (plutonium_owner.go)
-	objMap  map[Object]*declInfo   // maps package-level objects and (non-interface) methods to declaration info
-	objList []Object               // source-ordered keys of objMap
-	impMap  map[importKey]*Package // maps (import path, source directory) to (complete or fake) package
+	nextID   uint64                 // unique Id for type parameters (first valid Id is 1)
+	ownerRHS map[*Struct]bool       // struct types that define a named type (plutonium_owner.go)
+	objMap   map[Object]*declInfo   // maps package-level objects and (non-interface) methods to declaration info
+	objList  []Object               // source-ordered keys of objMap
+	impMap   map[importKey]*Package // maps (import path, source directory) to (complete or fake) package
 	// see TODO in validtype.go
 	// valids instanceLookup // valid *Named (incl. instantiated) types per the validType check
 
@@ -178,6 +178,21 @@ type Checker struct {
 	// (comma-ok) context, or nil. A non-constant conversion to an enum
 	// type is valid only as that expression.
 	commaOkExpr ast.Expr
+
+	// Plutonium: the expression lhsVar is evaluating as the target of an
+	// assignment, or nil. An index expression on a container is a call of
+	// SetIndex there and of Index elsewhere (see containerIndex).
+	lhsExpr ast.Expr
+
+	// Plutonium: index expressions that call a container's indexing
+	// methods, so that taking their address or assigning to a part of one
+	// can be explained (see indexing.go).
+	containerIndexes map[ast.Expr]Type // to the container's type
+
+	// Plutonium: type switches on union values that name every variant
+	// (or cover every tag value of a packed union) without a default
+	// case. Such a switch is a terminating statement if every case is.
+	exhaustive map[*ast.TypeSwitchStmt]bool
 
 	// Plutonium: the declared function or method each identifier names
 	// when it is used as a value or callee, so that a call can find the

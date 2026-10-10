@@ -551,6 +551,12 @@ func writeObject(buf *bytes.Buffer, obj Object, qf Qualifier) {
 		buf.WriteString("label")
 		typ = nil
 
+	case *Variant:
+		buf.WriteString("variant")
+		if obj.bare {
+			typ = nil
+		}
+
 	case *Builtin:
 		buf.WriteString("builtin")
 		typ = nil

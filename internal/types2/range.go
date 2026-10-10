@@ -80,6 +80,8 @@ func (check *Checker) rangeStmt(inner stmtContext, rangeStmt *ast.RangeStmt, noN
 			return check.allowVersion(v)
 		})
 		switch {
+		case !ok && check.hasIndexMethod(&x):
+			check.softErrorf(&x, RangeOverContainer, "cannot range over %s: ranging over a container needs an iterator, which is not supported yet", &x)
 		case !ok && cause != "":
 			check.softErrorf(&x, InvalidRangeExpr, "cannot range over %s: %s", &x, cause)
 		case !ok:

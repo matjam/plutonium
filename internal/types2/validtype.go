@@ -56,6 +56,13 @@ func (check *Checker) validType0(pos token.Pos, typ Type, nest, path []*Named) b
 			}
 		}
 
+	case *TaggedUnion:
+		for _, v := range t.variants {
+			if !check.validType0(pos, v.typ, nest, path) {
+				return false
+			}
+		}
+
 	case *Union:
 		for _, t := range t.terms {
 			if !check.validType0(pos, t.typ, nest, path) {

@@ -765,26 +765,62 @@ func (p *parser) parseStructType() *ast.StructType {
 //
 //	packed [le|be] [BackingType] { FieldDecl ... }
 //
-// The byte-order annotation and the backing type are both optional.
-func (p *parser) parsePackedType() *ast.PackedType {
+// The byte-order annotation and the backing type are both optional. After
+// "packed", "union" begins a packed union unless "{" follows it (then it
+// names the backing type).
+func (p *parser) parsePackedType() ast.Expr {
 	if p.trace {
 		defer un(trace(p, "PackedType"))
 	}
 
 	pos := p.expect(token.PACKED)
-	order := ast.NativeEndian
-	if p.tok == token.IDENT && (p.lit == "le" || p.lit == "be") {
-		if p.lit == "le" {
-			order = ast.LittleEndian
-		} else {
-			order = ast.BigEndian
-		}
+	if p.tok == token.IDENT && p.lit == "union" {
+		upos := p.pos
 		p.next()
+		if p.tok != token.LBRACE {
+			return p.parsePackedUnion(pos, upos)
+		}
+		// packed union { ... }: a packed type whose backing type is
+		// named union.
+		backing := &ast.Ident{NamePos: upos, Name: "union"}
+		return p.parsePackedBody(pos, ast.NativeEndian, backing)
 	}
+	order := p.parseByteOrder()
 	var backing ast.Expr
 	if p.tok != token.LBRACE {
 		backing = p.parseType()
 	}
+	return p.parsePackedBody(pos, order, backing)
+}
+
+// parseByteOrder parses an optional "le" or "be" annotation.
+func (p *parser) parseByteOrder() ast.Endianness {
+	if p.tok != token.IDENT {
+		return ast.NativeEndian
+	}
+	switch p.lit {
+	case "le":
+		p.next()
+		return ast.LittleEndian
+	case "be":
+		p.next()
+		return ast.BigEndian
+	}
+	return ast.NativeEndian
+}
+
+// parsePackedUnion parses the rest of "packed union [le|be] Backing { ... }"
+// after "union".
+func (p *parser) parsePackedUnion(packedPos, unionPos token.Pos) *ast.UnionType {
+	u := &ast.UnionType{Packed: packedPos, Union: unionPos, Order: p.parseByteOrder()}
+	if p.tok != token.LBRACE {
+		u.Backing = p.parseType()
+	}
+	return p.parseUnionBody(u, true)
+}
+
+// parsePackedBody parses the braced fields of a packed type.
+func (p *parser) parsePackedBody(pos token.Pos, order ast.Endianness, backing ast.Expr) *ast.PackedType {
 	lbrace := p.expect(token.LBRACE)
 	var list []*ast.Field
 	for p.tok == token.IDENT {
@@ -852,25 +888,27 @@ func (p *parser) parsePackedFieldDecl() *ast.Field {
 		names = append(names, p.parseIdent())
 	}
 
-	var typ ast.Expr
+	typ := p.parsePackedFieldType()
+	comment := p.expectSemi()
+	return &ast.Field{Doc: doc, Names: names, Type: typ, Comment: comment}
+}
+
+// parsePackedFieldType parses the type of a packed field: a type, or a
+// group of flags "bits { A B C }".
+func (p *parser) parsePackedFieldType() ast.Expr {
 	if p.tok == token.IDENT && p.lit == "bits" {
 		bitsPos := p.pos
 		p.next()
 		if p.tok == token.LBRACE {
-			typ = p.parseBitsGroup(bitsPos)
-		} else {
-			var x ast.Expr = &ast.Ident{NamePos: bitsPos, Name: "bits"}
-			if p.tok == token.LBRACK {
-				x = p.parseTypeInstance(x)
-			}
-			typ = x
+			return p.parseBitsGroup(bitsPos)
 		}
-	} else {
-		typ = p.parseType()
+		var x ast.Expr = &ast.Ident{NamePos: bitsPos, Name: "bits"}
+		if p.tok == token.LBRACK {
+			x = p.parseTypeInstance(x)
+		}
+		return x
 	}
-
-	comment := p.expectSemi()
-	return &ast.Field{Doc: doc, Names: names, Type: typ, Comment: comment}
+	return p.parseType()
 }
 
 // parseBitsGroup parses the body of "bits { A B C }" after the bits keyword.
@@ -950,7 +988,7 @@ func (p *parser) parseParamDecl(name *ast.Ident, typeSetsOK bool) (f field) {
 		case token.IDENT, token.MUL, token.ARROW, token.FUNC, token.CHAN, token.MAP, token.STRUCT, token.PACKED, token.ENUM, token.INTERFACE, token.LPAREN:
 			// name type, or name "owner" constraint (a type parameter
 			// that admits owners)
-			f.owner, f.typ = p.parseOwnerType()
+			f.owner, f.typ = p.parseOwnerType(p.parseType)
 
 		case token.LBRACK:
 			// name "[" type1, ..., typeN "]" or name "[" n "]" type
@@ -1700,6 +1738,11 @@ func (p *parser) parseTypeAssertion(x ast.Expr) ast.Expr {
 		p.next()
 	} else {
 		typ = p.parseType()
+		if p.tok == token.PERIOD {
+			// Plutonium: a union variant, u.(U[int].V) or u.(pkg.U.V).
+			p.next()
+			typ = &ast.SelectorExpr{X: typ, Sel: p.parseIdent()}
+		}
 	}
 	rparen := p.expect(token.RPAREN)
 
@@ -2768,24 +2811,104 @@ func (p *parser) parseGenericType(spec *ast.TypeSpec, openPos token.Pos, name0 *
 		spec.Assign = p.pos
 		p.next()
 	}
-	spec.Owner, spec.Type = p.parseOwnerType()
+	spec.Owner, spec.Type = p.parseOwnerType(p.parseTypeSpecType)
 }
 
-// parseOwnerType parses a type that may follow "owner", in a type
-// definition or a type parameter's constraint, and returns the position of
-// "owner" (NoPos if there is none). "owner" is not reserved: it is the
-// keyword only when a type follows it, and otherwise names a type.
-func (p *parser) parseOwnerType() (token.Pos, ast.Expr) {
+// parseOwnerType parses, with typ, a type that may follow "owner", in a
+// type definition or a type parameter's constraint, and returns the
+// position of "owner" (NoPos if there is none). "owner" is not reserved: it
+// is the keyword only when a type follows it, and otherwise names a type.
+func (p *parser) parseOwnerType(typ func() ast.Expr) (token.Pos, ast.Expr) {
 	if p.tok != token.IDENT || p.lit != "owner" {
-		return token.NoPos, p.parseType()
+		return token.NoPos, typ()
 	}
 	pos := p.pos
 	p.next()
 	switch p.tok {
 	case token.IDENT, token.LBRACK, token.STRUCT, token.PACKED, token.ENUM, token.MUL, token.FUNC, token.INTERFACE, token.MAP, token.CHAN, token.ARROW, token.LPAREN:
-		return pos, p.parseType()
+		return pos, typ()
 	}
 	return token.NoPos, p.parseQualifiedIdent(&ast.Ident{NamePos: pos, Name: "owner"})
+}
+
+// parseTypeSpecType parses the type of a type declaration. There, and only
+// there, "union" followed by "{" begins a union type: union is not a
+// keyword, so Go code that uses it as an identifier still parses.
+func (p *parser) parseTypeSpecType() ast.Expr {
+	if p.tok != token.IDENT || p.lit != "union" {
+		return p.parseType()
+	}
+	pos := p.pos
+	p.next()
+	if p.tok == token.LBRACE {
+		return p.parseUnionBody(&ast.UnionType{Union: pos}, false)
+	}
+	// A type named union.
+	typ := p.parseTypeName(&ast.Ident{NamePos: pos, Name: "union"})
+	if p.tok == token.LBRACK {
+		typ = p.parseTypeInstance(typ)
+	}
+	return typ
+}
+
+// parseUnionBody parses the braced body of a union type into u. The
+// variants of an ordinary union are parsed like struct fields; a packed
+// union has tag fields followed by variants with case clauses.
+func (p *parser) parseUnionBody(u *ast.UnionType, packed bool) *ast.UnionType {
+	if p.trace {
+		defer un(trace(p, "UnionType"))
+	}
+
+	lbrace := p.expect(token.LBRACE)
+	var list []*ast.Field
+	if packed {
+		for p.tok == token.IDENT {
+			list = append(list, p.parsePackedUnionFieldDecl())
+		}
+	} else {
+		for p.tok == token.IDENT || p.tok == token.MUL || p.tok == token.LPAREN {
+			list = append(list, p.parseFieldDecl())
+		}
+	}
+	rbrace := p.expect(token.RBRACE)
+	u.Fields = &ast.FieldList{Opening: lbrace, List: list, Closing: rbrace}
+	return u
+}
+
+// parsePackedUnionFieldDecl parses a tag field or a variant of a packed
+// union. A variant is "Name case v1, v2 { fields }".
+func (p *parser) parsePackedUnionFieldDecl() *ast.Field {
+	if p.trace {
+		defer un(trace(p, "PackedUnionFieldDecl"))
+	}
+
+	doc := p.leadComment
+	names := []*ast.Ident{p.parseIdent()}
+	for p.tok == token.COMMA {
+		p.next()
+		names = append(names, p.parseIdent())
+	}
+	if p.tok != token.CASE {
+		typ := p.parsePackedFieldType()
+		comment := p.expectSemi()
+		return &ast.Field{Doc: doc, Names: names, Type: typ, Comment: comment}
+	}
+
+	vc := &ast.VariantCase{Case: p.pos}
+	p.next()
+	old := p.exprLev
+	p.exprLev = -1 // the body's "{" is not a composite literal
+	vc.Values = p.parseList(true)
+	p.exprLev = old
+	lbrace := p.expect(token.LBRACE)
+	var list []*ast.Field
+	for p.tok == token.IDENT {
+		list = append(list, p.parsePackedFieldDecl())
+	}
+	rbrace := p.expect(token.RBRACE)
+	vc.Fields = &ast.FieldList{Opening: lbrace, List: list, Closing: rbrace}
+	comment := p.expectSemi()
+	return &ast.Field{Doc: doc, Names: names, Type: vc, Comment: comment}
 }
 
 func (p *parser) parseTypeSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.Spec {
@@ -2855,7 +2978,7 @@ func (p *parser) parseTypeSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.
 			spec.Assign = p.pos
 			p.next()
 		}
-		spec.Owner, spec.Type = p.parseOwnerType()
+		spec.Owner, spec.Type = p.parseOwnerType(p.parseTypeSpecType)
 	}
 
 	spec.Comment = p.expectSemi()

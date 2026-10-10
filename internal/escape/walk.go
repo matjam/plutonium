@@ -23,7 +23,7 @@ type walker struct {
 	grew   bool // a location's contents grew during this walk
 	static bool // package initialisation: &T{} and slice literals are static
 
-	recLit  map[*loc]*ast.FuncLit // closure records made here, and their literals
+	recLit map[*loc]*ast.FuncLit // closure records made here, and their literals
 
 	tracked map[*types2.Var]bool // locals followed along the control flow
 	env     env                  // what they hold at the current point

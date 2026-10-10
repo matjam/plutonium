@@ -205,6 +205,11 @@ func (check *Checker) indexExpr(x *operand, e *indexedExpr) (isFuncInst bool) {
 		}
 	}
 
+	// Plutonium: other types are indexed through their methods (indexing.go).
+	if !valid && IndexesByMethod(x.typ()) && check.containerIndex(x, e) {
+		return false
+	}
+
 	if !valid {
 		// types2 uses the position of '[' for the error
 		check.errorf(x, NonIndexableOperand, "cannot index %s", x)

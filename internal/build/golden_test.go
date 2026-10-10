@@ -14,7 +14,8 @@ var update = flag.Bool("update", false, "regenerate testdata/run/*.out by runnin
 // TestRun compiles and runs every program in testdata/run and compares its
 // output with the .out file next to it. The programs are written in the
 // common subset of Go and Plutonium, so -update produces the expected output
-// by running them with the Go toolchain.
+// by running them with the Go toolchain. A program may import pluto/fmt,
+// which Go runs as its fmt.
 func TestRun(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join("..", "..", "testdata", "run", "*.p"))
 	if err != nil {
@@ -63,6 +64,8 @@ func runWithGo(t *testing.T, file string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// pluto/fmt is Plutonium's fmt: Go runs the program with its own.
+	src = []byte(strings.ReplaceAll(string(src), `"pluto/fmt"`, `"fmt"`))
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), src, 0o644); err != nil {
 		return "", err
 	}

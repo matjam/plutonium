@@ -21,23 +21,62 @@ import (
 // Otherwise the data word points at a copy of the value in the stack frame of
 // the function that made the interface value.
 //
-// Type descriptor layout (40 bytes), mirrored by pluto/rt.typeDesc:
+// Type descriptor layout (72 bytes), mirrored by pluto/rt.typeDesc (abi.md
+// section 5):
 //
-//	0  size  uintptr
-//	8  hash  uint32
-//	12 kind  uint8
-//	13 flags uint8   (1 = direct)
-//	16 name  string
-//	32 equal func(a, b unsafe.Pointer) bool   (nil if not comparable or direct)
+//	0  size   uintptr
+//	8  hash   uint32
+//	12 kind   uint8
+//	13 flags  uint8   (1 = direct, 2 = interface with methods, 4 = has methods)
+//	14 align  uint8
+//	16 name   string  (as Go's reflect writes it)
+//	32 equal  func(a, b unsafe.Pointer) bool   (nil if not comparable or direct)
+//	40 elem   *typeDesc  (array, slice, pointer, ring, owned and counted references)
+//	48 len    uintptr    (array length, ring capacity, number of struct fields)
+//	56 fields *fieldDesc (struct fields, or nil)
+//	64 ptrTo  *typeDesc  (*T, if *T has methods T lacks, or nil)
+//
+// Field descriptor layout (40 bytes), an array of them per struct type:
+//
+//	0  typ    *typeDesc
+//	8  offset uintptr
+//	16 name   string  (empty when the build strips field names)
+//	32 flags  uint8   (1 = exported, 2 = embedded)
+//
+// The descriptors of a type's elements, fields and pointer are emitted with
+// it, so that pluto/fmt can walk a value of the type; only types converted
+// to an interface, and the types they are made of, have descriptors.
+//
+// The descriptor of a union (kind 30) continues, mirrored by
+// pluto/rt.unionDesc, with
+//
+//	72 payload  uintptr        offset of the payload
+//	80 variants *[n]variant    one entry per variant, in tag order
+//	88 count    int            n
+//
+// and each variant entry (32 bytes) is
+//
+//	0  name  string
+//	16 typ   *typeDesc        the payload's descriptor; nil without a payload
+//	24 iface uintptr          1 if the payload is an empty interface, 2 another interface
 //
 // Itab layout: type descriptor, interface descriptor, then one code pointer
 // per interface method in method order. Each code pointer is an adapter
 // taking the data word as its first argument.
 
 const (
-	descSize   = 40
-	itabHeader = 16
-	flagDirect = 1
+	descSize      = 72
+	unionDescSize = descSize + 24
+	variantSize   = 32
+	fieldDescSize = 40
+	itabHeader    = 16
+
+	flagDirect       = 1
+	flagIfaceMethods = 2
+	flagMethods      = 4
+
+	fieldExported = 1
+	fieldEmbedded = 2
 )
 
 // Kind numbers in type descriptors (Go's reflect numbering, plus Plutonium's).
@@ -71,12 +110,28 @@ const (
 	kindPacked
 	kindRing
 	kindOwned
+	kindUnion
 )
 
 type descInfo struct {
-	T     types2.Type
-	sym   *ssa.Sym
-	equal *ssa.Sym // closure record of the equality function, or nil
+	T      types2.Type
+	sym    *ssa.Sym
+	equal  *ssa.Sym // closure record of the equality function, or nil
+	eqDone bool     // equal has been decided
+
+	elem   *ssa.Sym // element or pointee descriptor, or nil
+	n      int64    // array length, ring capacity or number of fields
+	fields []fieldInfo
+	ptrTo  *ssa.Sym // descriptor of *T, or nil
+}
+
+// A fieldInfo is one entry of a struct type's field descriptors.
+type fieldInfo struct {
+	typ      *ssa.Sym
+	offset   int64
+	name     string
+	exported bool
+	embedded bool
 }
 
 type itabInfo struct {
@@ -110,18 +165,118 @@ func (l *Lowerer) isDirect(T types2.Type) bool {
 	return t != nil && t.Size <= 8
 }
 
-// desc returns the descriptor symbol of T.
+// desc returns the descriptor symbol of T, a type converted to an
+// interface.
 func (tt *typeTable) desc(T types2.Type) *ssa.Sym {
+	return tt.descOf(T, true)
+}
+
+// descOf returns the descriptor symbol of T. A descriptor made only because
+// T is an element, field or pointee of a converted type has no equality
+// function (eq is false) until T itself is converted.
+func (tt *typeTable) descOf(T types2.Type, eq bool) *ssa.Sym {
 	key := typeString(T)
-	if d := tt.descs[key]; d != nil {
-		return d.sym
+	d := tt.descs[key]
+	if d == nil {
+		d = &descInfo{T: T, sym: tt.l.out.Sym("type:"+key, ssa.SymData)}
+		tt.descs[key] = d
+		tt.describe(d)
 	}
-	d := &descInfo{T: T, sym: tt.l.out.Sym("type:"+key, ssa.SymData)}
-	tt.descs[key] = d
-	if !tt.l.isDirect(T) && types2.Comparable(T) && !isInterface(T) {
-		d.equal = tt.l.closureRecord(tt.l.equalFunc(T))
+	if eq && !d.eqDone {
+		d.eqDone = true
+		if !tt.l.isDirect(T) && types2.Comparable(T) && !isInterface(T) {
+			d.equal = tt.l.closureRecord(tt.l.equalFunc(T))
+		}
+	}
+	if u, ok := T.Underlying().(*types2.TaggedUnion); ok {
+		// fmt prints a union's variant and payload from its descriptor.
+		for i := 0; i < u.NumVariants(); i++ {
+			if v := u.Variant(i); v.HasPayload() {
+				tt.desc(v.Payload())
+			}
+		}
 	}
 	return d.sym
+}
+
+// describe fills in the parts of d that refer to other types: its element,
+// fields and pointer type, whose descriptors are made too.
+func (tt *typeTable) describe(d *descInfo) {
+	T := d.T
+	switch u := T.Underlying().(type) {
+	case *types2.Array:
+		d.elem, d.n = tt.descOf(unwrap(u.Elem()), false), u.Len()
+	case *types2.Slice:
+		d.elem = tt.descOf(unwrap(u.Elem()), false)
+	case *types2.Pointer:
+		d.elem = tt.descOf(unwrap(u.Elem()), false)
+	case *types2.Wrapper:
+		if u.IsPointer() || u.Kind() == types2.WrapRing {
+			d.elem = tt.descOf(unwrap(u.Elem()), false)
+		}
+		if u.Kind() == types2.WrapRing {
+			d.n = u.N()
+		}
+	case *types2.Struct:
+		vars := make([]*types2.Var, u.NumFields())
+		for i := range vars {
+			vars[i] = u.Field(i)
+		}
+		offs := tt.l.sizes.Offsetsof(vars)
+		d.n = int64(len(vars))
+		for i, f := range vars {
+			fi := fieldInfo{
+				typ:      tt.descOf(unwrap(f.Type()), false),
+				offset:   offs[i],
+				exported: f.Exported(),
+				embedded: f.Embedded(),
+			}
+			if !tt.l.cfg.NoFieldNames {
+				fi.name = f.Name()
+			}
+			d.fields = append(d.fields, fi)
+		}
+	}
+	// pluto/fmt reaches the methods of *T, such as a container's formatting
+	// methods, through ptrTo when it has the address of a T.
+	if n, ok := types2.Unalias(T).(*types2.Named); ok && !isInterface(T) && !isPointerLike(T) {
+		P := types2.NewPointer(T)
+		if types2.NewMethodSet(P).Len() > types2.NewMethodSet(n).Len() {
+			d.ptrTo = tt.descOf(P, false)
+		}
+	}
+}
+
+// unionDesc fills in the union part of the descriptor data of a union type
+// u (named key): the payload offset and the table of variants.
+func (tt *typeTable) unionDesc(data *ssa.Data, key string, u *types2.TaggedUnion) {
+	l := tt.l
+	_, off := types2.UnionLayout(l.sizes, u)
+	n := u.NumVariants()
+	binary.LittleEndian.PutUint64(data.Bytes[descSize:], uint64(off))
+	binary.LittleEndian.PutUint64(data.Bytes[descSize+16:], uint64(n))
+	table := &ssa.Data{Sym: l.out.Sym("variants:"+key, ssa.SymData), Size: int64(variantSize * n), Align: 8, ReadOnly: true}
+	table.Bytes = make([]byte, table.Size)
+	for i := range n {
+		v := u.Variant(i)
+		base := int64(variantSize * i)
+		binary.LittleEndian.PutUint64(table.Bytes[base+8:], uint64(len(v.Name())))
+		table.Relocs = append(table.Relocs, ssa.DataReloc{Off: base, Sym: l.stringData(v.Name())})
+		if !v.HasPayload() {
+			continue
+		}
+		P := v.Payload()
+		table.Relocs = append(table.Relocs, ssa.DataReloc{Off: base + 16, Sym: tt.descs[typeString(P)].sym})
+		if iface, ok := P.Underlying().(*types2.Interface); ok {
+			kind := uint64(2)
+			if iface.Empty() {
+				kind = 1
+			}
+			binary.LittleEndian.PutUint64(table.Bytes[base+24:], kind)
+		}
+	}
+	l.out.Data = append(l.out.Data, table)
+	data.Relocs = append(data.Relocs, ssa.DataReloc{Off: descSize + 8, Sym: table.Sym})
 }
 
 // itab returns the itab symbol for concrete type T and interface I.
@@ -185,26 +340,46 @@ func (tt *typeTable) emit() {
 	sort.Strings(keys)
 	for _, k := range keys {
 		d := tt.descs[k]
-		data := &ssa.Data{Sym: d.sym, Size: descSize, Align: 8, ReadOnly: true}
-		buf := make([]byte, descSize)
-		size := int64(0)
-		if !isInterface(d.T) {
-			size = l.sizeof(d.T)
+		descLen := int64(descSize)
+		u, isUnion := d.T.Underlying().(*types2.TaggedUnion)
+		if isUnion {
+			descLen = unionDescSize
 		}
-		binary.LittleEndian.PutUint64(buf[0:], uint64(size))
+		data := &ssa.Data{Sym: d.sym, Size: descLen, Align: 8, ReadOnly: true}
+		buf := make([]byte, descLen)
+		binary.LittleEndian.PutUint64(buf[0:], uint64(l.sizeof(d.T)))
 		h := fnv.New32a()
 		h.Write([]byte(k))
 		binary.LittleEndian.PutUint32(buf[8:], h.Sum32())
 		buf[12] = kindOf(d.T)
 		if l.isDirect(d.T) {
-			buf[13] = flagDirect
+			buf[13] |= flagDirect
 		}
-		name := types2.TypeString(d.T, func(p *types2.Package) string { return p.Name() })
+		if isInterface(d.T) {
+			if !d.T.Underlying().(*types2.Interface).Empty() {
+				buf[13] |= flagIfaceMethods
+			}
+		} else if types2.NewMethodSet(d.T).Len() > 0 {
+			buf[13] |= flagMethods
+		}
+		if a := l.alignof(d.T); a < 256 {
+			buf[14] = byte(a)
+		}
+		name := reflectName(d.T)
 		binary.LittleEndian.PutUint64(buf[24:], uint64(len(name)))
+		binary.LittleEndian.PutUint64(buf[48:], uint64(d.n))
 		data.Bytes = buf
 		data.Relocs = append(data.Relocs, ssa.DataReloc{Off: 16, Sym: l.stringData(name)})
-		if d.equal != nil {
-			data.Relocs = append(data.Relocs, ssa.DataReloc{Off: 32, Sym: d.equal})
+		for _, r := range []struct {
+			off int64
+			sym *ssa.Sym
+		}{{32, d.equal}, {40, d.elem}, {56, tt.fieldsData(k, d)}, {64, d.ptrTo}} {
+			if r.sym != nil {
+				data.Relocs = append(data.Relocs, ssa.DataReloc{Off: r.off, Sym: r.sym})
+			}
+		}
+		if isUnion {
+			tt.unionDesc(data, k, u)
 		}
 		l.out.Data = append(l.out.Data, data)
 	}
@@ -232,6 +407,38 @@ func (tt *typeTable) emit() {
 		table.Relocs = append(table.Relocs, ssa.DataReloc{Off: int64(8 * (i + 1)), Sym: it.sym})
 	}
 	l.out.Data = append(l.out.Data, table)
+}
+
+// fieldsData emits the field descriptors of the struct type d describes,
+// whose descriptor key is key, and returns their symbol; nil for a type
+// without fields.
+func (tt *typeTable) fieldsData(key string, d *descInfo) *ssa.Sym {
+	if len(d.fields) == 0 {
+		return nil
+	}
+	l := tt.l
+	sym := l.out.Sym("typefields:"+key, ssa.SymData)
+	data := &ssa.Data{Sym: sym, Size: int64(fieldDescSize * len(d.fields)), Align: 8, ReadOnly: true}
+	data.Bytes = make([]byte, data.Size)
+	for i, f := range d.fields {
+		off := int64(fieldDescSize * i)
+		data.Relocs = append(data.Relocs, ssa.DataReloc{Off: off, Sym: f.typ})
+		binary.LittleEndian.PutUint64(data.Bytes[off+8:], uint64(f.offset))
+		if f.name != "" {
+			data.Relocs = append(data.Relocs, ssa.DataReloc{Off: off + 16, Sym: l.stringData(f.name)})
+			binary.LittleEndian.PutUint64(data.Bytes[off+24:], uint64(len(f.name)))
+		}
+		var flags byte
+		if f.exported {
+			flags |= fieldExported
+		}
+		if f.embedded {
+			flags |= fieldEmbedded
+		}
+		data.Bytes[off+32] = flags
+	}
+	l.out.Data = append(l.out.Data, data)
+	return sym
 }
 
 func kindOf(T types2.Type) byte {
@@ -285,6 +492,8 @@ func kindOf(T types2.Type) byte {
 		return kindStruct
 	case *types2.Packed:
 		return kindPacked
+	case *types2.TaggedUnion:
+		return kindUnion
 	case *types2.Wrapper:
 		if u.Kind() == types2.WrapRing {
 			return kindRing
@@ -429,8 +638,9 @@ func (s *fnState) ifaceToIface(v value, to types2.Type, pos ast.Node) value {
 	return aggValue(tmp, to)
 }
 
-// ifaceCall calls method fn on interface value iv.
-func (s *fnState) ifaceCall(iv value, I types2.Type, fn *types2.Func, sig *types2.Signature, args []value, pos token.Pos) []value {
+// ifaceCall calls method fn on interface value iv. desc is the call as
+// written (w.Write), for the interrupt-context check.
+func (s *fnState) ifaceCall(iv value, I types2.Type, fn *types2.Func, sig *types2.Signature, args []value, pos token.Pos, desc string) []value {
 	iface := I.Underlying().(*types2.Interface)
 	idx := -1
 	for i := 0; i < iface.NumMethods(); i++ {
@@ -447,7 +657,8 @@ func (s *fnState) ifaceCall(iv value, I types2.Type, fn *types2.Func, sig *types
 	code := s.load(ssa.TPtr, s.offPtr(tab, int64(itabHeader+8*idx)))
 	adapterSig := adapterSignature(sig)
 	recv := scalarValue(data, types2.Typ[types2.UnsafePointer])
-	return s.emitCall(callee{code: code, ctx: s.constInt(ssa.TPtr, 0)}, adapterSig, &recv, args, pos)
+	site := &callSite{desc: desc, iface: I, method: idx}
+	return s.emitCall(callee{code: code, ctx: s.constInt(ssa.TPtr, 0), site: site}, adapterSig, &recv, args, pos)
 }
 
 // adapterSignature is sig with an unsafe.Pointer receiver: the data word.
@@ -481,7 +692,7 @@ func (l *Lowerer) itabAdapter(T types2.Type, m *types2.Func) *ssa.Sym {
 			in := s.incomingArgs(adapter)
 			iface := recvBase(T, index)
 			iv := s.receiverFromData(in[0].v, T, index, iface)
-			s.returnValues(s.ifaceCall(iv, iface, fn, plain, in[1:], token.NoPos))
+			s.returnValues(s.ifaceCall(iv, iface, fn, plain, in[1:], token.NoPos, fn.Name()))
 		}})
 		return sym
 	}
@@ -576,11 +787,12 @@ func (l *Lowerer) ifaceMethodValueWrapper(I types2.Type, fn *types2.Func) *ssa.S
 	}
 	sig := fn.Type().(*types2.Signature)
 	plain := types2.NewSignatureType(nil, nil, nil, sig.Params(), sig.Results(), sig.Variadic())
+	l.funcValues[sym] = plain
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: plain, build: func(s *fnState) {
 		ctx := s.newValue(ssa.OpClosurePtr, ssa.TPtr)
 		args := s.incomingArgs(plain)
 		iv := aggValue(s.offPtr(ctx, 8), I)
-		s.returnValues(s.ifaceCall(iv, I, fn, plain, args, token.NoPos))
+		s.returnValues(s.ifaceCall(iv, I, fn, plain, args, token.NoPos, fn.Name()))
 	}})
 	return sym
 }
@@ -591,6 +803,9 @@ func (l *Lowerer) ifaceMethodValueWrapper(I types2.Type, fn *types2.Func) *ssa.S
 // typeAssert lowers x.(T). With commaOk it returns the value and a bool;
 // otherwise a failed assertion panics.
 func (s *fnState) typeAssert(e *ast.TypeAssertExpr, commaOk bool) (value, *ssa.Value) {
+	if types2.UnionVariants(s.typeOf(e.X)) != nil {
+		return s.unionAssert(e, commaOk)
+	}
 	iv := s.expr(e.X)
 	I := s.typeOf(e.X)
 	T := s.subst(s.info.Types[e.Type].Type)
@@ -682,6 +897,7 @@ func (l *Lowerer) equalFunc(T types2.Type) *ssa.Sym {
 	params := types2.NewTuple(types2.NewParam(token.NoPos, nil, "a", up), types2.NewParam(token.NoPos, nil, "b", up))
 	results := types2.NewTuple(types2.NewParam(token.NoPos, nil, "", types2.Typ[types2.Bool]))
 	sig := types2.NewSignatureType(nil, nil, nil, params, results, false)
+	l.funcValues[sym] = sig
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: sig, build: func(s *fnState) {
 		in := s.incomingArgs(sig)
 		a := s.loadFrom(in[0].v, T)

@@ -595,10 +595,27 @@ func simplifyShift(f *ssa.Func, v *ssa.Value) bool {
 	if (v.Op == ssa.OpShl || v.Op == ssa.OpShrL) && cnt >= w {
 		return replaceConst(v, 0)
 	}
-	// (x << c1) << c2 = x << (c1+c2), and the same for right shifts.
+	// An arithmetic shift by w or more fills with the sign bit, as a shift
+	// by w-1 does.
+	if v.Op == ssa.OpShrA && cnt >= w {
+		v.SetArgs(a, constBefore(f, ssa.TI64, int64(w-1)))
+		return true
+	}
+	// (x << c1) << c2 = x << (c1+c2), and the same for right shifts. Both
+	// counts are below w here, so the sum cannot wrap; a sum of w or more
+	// shifts every bit out (or, for an arithmetic shift, fills with the
+	// sign bit).
 	if a.Op == v.Op && v.Op != ssa.OpRotl && isConst(a.Args[1]) {
-		total := cnt + ssa.ZeroExt(a.Args[1].Type, a.Args[1].AuxInt)
-		if total < w {
+		c1 := ssa.ZeroExt(a.Args[1].Type, a.Args[1].AuxInt)
+		if c1 < w {
+			total := cnt + c1
+			switch {
+			case total < w:
+			case v.Op == ssa.OpShrA:
+				total = w - 1
+			default:
+				return replaceConst(v, 0)
+			}
 			v.SetArgs(a.Args[0], constBefore(f, ssa.TI64, int64(total)))
 			return true
 		}
