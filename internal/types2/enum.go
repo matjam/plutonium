@@ -329,12 +329,12 @@ func (check *Checker) missingCases(at positioner, x *operand, missing []string) 
 	if len(missing) == 0 {
 		return
 	}
-	what := "case"
+	what, them := "case", "it"
 	if len(missing) > 1 {
-		what = "cases"
+		what, them = "cases", "them"
 	}
-	check.errorf(at, InvalidExprSwitch, "missing %s in switch on %s (%s): %s (add them or a default case)",
-		what, x.expr, x.typ(), strings.Join(missing, ", "))
+	check.errorf(at, InvalidExprSwitch, "missing %s in switch on %s (%s): %s (add %s or a default case)",
+		what, x.expr, x.typ(), strings.Join(missing, ", "), them)
 }
 
 // enumConversion checks the conversion E(x) to enum type T, where x is not

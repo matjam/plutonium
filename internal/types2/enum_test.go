@@ -184,7 +184,7 @@ func TestEnumErrors(t *testing.T) {
 		{"self reference", "type E enum { A; B = len(E) }", "invalid use of E in the declaration of enum E"},
 		{"self member", "type E enum { A; B = E.A + 1 }", "invalid recursive type: E refers to itself"},
 		{"non-exhaustive", "func f(c Color) {\n\tswitch c {\n\tcase Red:\n\t}\n}", "missing cases in switch on c (Color): Green, Blue (add them or a default case)"},
-		{"non-exhaustive one", "func f(c Color) {\n\tswitch c {\n\tcase Red, Color.Green:\n\t}\n}", "missing case in switch on c (Color): Blue"},
+		{"non-exhaustive one", "func f(c Color) {\n\tswitch c {\n\tcase Red, Color.Green:\n\t}\n}", "missing case in switch on c (Color): Blue (add it or a default case)"},
 		{"bare name outside switch", "func f() Color { return Red }", "undefined: Red (did you mean Color.Red?)"},
 		{"bare name comparison", "func f(c Color) bool { return c == Blue }", "undefined: Blue (did you mean Color.Blue?)"},
 		{"bare name nested in case", "func f(c Color) {\n\tswitch c {\n\tcase (Red):\n\tdefault:\n\t}\n}", "undefined: Red"},
