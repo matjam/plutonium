@@ -1,8 +1,11 @@
 # Removing `append`
 
 **Date:** 2026-10-10
-**Status:** proposal (survey and design). Nothing is implemented. Section 8 lists the decisions that need
-sign-off.
+**Status:** decided 2026-10-10 (all of section 8 accepted) and implemented (roadmap item 58). The open
+question at the end of section 8 was settled the same day: `bytes.Buffer` grows as Go's does, and bounded
+writes use `vec.Fixed[byte]`. Two details differ from the text below: `vec.NewFixed` takes its room from
+`len(storage)`, not the capacity, and the `os` and `exec` functions read a path into their own buffer and
+append it whole, so they never store part of one.
 
 ## 1. Summary
 

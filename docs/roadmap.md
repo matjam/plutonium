@@ -268,6 +268,15 @@ later takes the next free number and is listed in the section where it belongs.
       `String`, `Bytes`, `RuneString`, `Join`, `Sprintf`, `selfhost/pu.Sprintf` and `internal/pu.Sprintf`
       returning a `Buf`), and translate `fmt.Sprintf` to `pluto/fmt`.
 
+58. **No `append`** (done; language spec sections 3, 4.3 and 13.2; [plan](plans/2026-10-10-remove-append.md)):
+    every call of the built-in is E2013 with the fix for its idiom, since a slice is a view that cannot
+    grow. The library's `Append` functions keep Go's names and append to a `vec.Vec[byte]` (grows) or a
+    new `vec.Fixed[byte]` (bounded over a caller's array, never allocates, records truncation);
+    `fmt.Appendf`, `Append` and `Appendln` replace `Bprintf` and `Bprint`; `slices.Insert`, `Replace` and
+    `AppendSeq` became `vec.Vec` methods; `strings.NewBuilder(buf)` is gone; `bytes.Buffer` grows as Go's
+    does; range over a `vec.Vec` reads its length once. The kernel's interrupt-context walk judges each
+    instantiation of a generic function apart, so `AppendInt` into a `Fixed` is allowed in a handler.
+
 ## Tooling
 
 30. **`pluto fmt`** (in progress): the formatter, from the forked Go printer.
@@ -324,7 +333,7 @@ later takes the next free number and is listed in the section where it belongs.
 46. **`net`** (planned, hosted): sockets over the epoll poller of item 14.
 47. **`fmt.Sprintf` returns a string** (done, with item 57): `Sprintf`, `Sprint` and `Sprintln` return
     counted strings, built in a counted buffer of `pluto/fmt`'s own, so `fmt` still need not import
-    `pluto/strings`; `Bprintf` keeps formatting into a caller's buffer. `selfhost/pu.Sprintf`, which
+    `pluto/strings`; `Appendf` (which replaced `Bprintf`, item 58) formats into a `vec.Vec` or `vec.Fixed`. `selfhost/pu.Sprintf`, which
     returns a `strings.Builder` for translated code (item 52), can go (item 57).
 51. **Owner types in the library** (planned; language spec sections 6.4 and 6.6): declare `vec.Vec`,
     `hash.Map`, `hash.Set`, `strings.Builder` and growable arenas `owner`, and turn their `Free` methods
