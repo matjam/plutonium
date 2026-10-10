@@ -1019,6 +1019,11 @@ func (s *fnState) compositeLit(e *ast.CompositeLit, T types2.Type) value {
 			}
 		}
 		return s.loadLV(lv)
+
+	case *types2.Wrapper:
+		if u.Kind() == types2.WrapRing && len(e.Elts) == 0 {
+			return s.zeroValue(T) // ring[T, N]{}: the empty ring
+		}
 	}
 	s.l.errorf(e.Pos(), "lower: unsupported composite literal of type %s", T)
 	return s.zeroValue(T)

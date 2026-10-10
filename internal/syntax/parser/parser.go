@@ -1685,7 +1685,10 @@ func (p *parser) parseIndexOrSliceOrInstance(x ast.Expr) ast.Expr {
 		for p.tok == token.COMMA {
 			p.next()
 			if p.tok != token.RBRACK && p.tok != token.EOF {
-				args = append(args, p.parseType())
+				// Plutonium type constructors take constant arguments
+				// (ring[T, 8], aligned[T, 4]), so later arguments are
+				// types or expressions too, as in parseTypeInstance.
+				args = append(args, p.parseRhs())
 			}
 		}
 	}

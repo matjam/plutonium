@@ -84,6 +84,45 @@ var x packed { a, b uint8 }
 	}
 }
 
+// TestParseTypeConstructorExprs checks that type constructors with constant
+// arguments parse in expression position, as composite literal types and
+// conversions, not only in declarations.
+func TestParseTypeConstructorExprs(t *testing.T) {
+	src := `package p
+
+func f(x uint32) {
+	r := ring[int, 8]{}
+	a := aligned[uint32, 4](x)
+	b := aligned[[4]byte, 16]{1, 2}
+	m := Map[string, []int]{}
+	_, _, _, _ = r, a, b, m
+}
+`
+	f, err := ParseFile(token.NewFileSet(), "ctor.p", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lists []*ast.IndexListExpr
+	ast.Inspect(f, func(n ast.Node) bool {
+		if ix, ok := n.(*ast.IndexListExpr); ok {
+			lists = append(lists, ix)
+		}
+		return true
+	})
+	if len(lists) != 4 {
+		t.Fatalf("got %d instance expressions, want 4", len(lists))
+	}
+	for i, want := range []string{"8", "4", "16"} {
+		lit, ok := lists[i].Indices[1].(*ast.BasicLit)
+		if !ok || lit.Value != want {
+			t.Errorf("instance %d: second argument %#v, want constant %s", i, lists[i].Indices[1], want)
+		}
+	}
+	if _, ok := lists[3].Indices[1].(*ast.ArrayType); !ok {
+		t.Errorf("Map[string, []int]: second argument %T, want *ast.ArrayType", lists[3].Indices[1])
+	}
+}
+
 func TestParseGoSyntax(t *testing.T) {
 	src := `package main
 
