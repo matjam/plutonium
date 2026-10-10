@@ -296,8 +296,8 @@ when the puroutine returns.
 What a kernel's scheduler must implement, and what the runtime gives it, is proposed in
 [the scheduler contract](../plans/2026-10-09-scheduler-contract.md); the standard library has no kernel
 scheduler. On PlutoniumOS a puroutine is a kernel task and there is one scheduler in the system, the
-kernel's ([lightweight tasks](../plans/2026-10-09-lightweight-tasks.md), proposed; moving to the
-PlutoniumOS repository).
+kernel's. That task model is proposed in PlutoniumOS: docs/architecture/lightweight-tasks.md
+(github.com/matjam/plutoniumos, private).
 
 ### 4.8 Channels
 

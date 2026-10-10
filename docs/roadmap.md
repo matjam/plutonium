@@ -87,8 +87,8 @@ later takes the next free number and is listed in the section where it belongs.
     stack, stack requests carrying the proven bound, and link-time binding with `//pu:scheduler` instead of
     `rt.SetScheduler`. These amend item 14 and should be settled before it lands. Its section 9 lists later
     requirements from PlutoniumOS (a userland target, `//pu:nonblocking`, a `portable` constraint). The
-    PlutoniumOS task model they serve is in [lightweight tasks](plans/2026-10-09-lightweight-tasks.md),
-    moving to the PlutoniumOS repository.
+    PlutoniumOS task model they serve is in PlutoniumOS: docs/architecture/lightweight-tasks.md
+    (github.com/matjam/plutoniumos, private).
 
 ## Language
 

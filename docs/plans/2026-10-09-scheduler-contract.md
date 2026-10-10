@@ -12,11 +12,11 @@ standard library beyond `pluto/rt`. There is deliberately no kernel scheduler li
 library: code that ordinary applications cannot use belongs in the kernel that uses it, not in
 Plutonium.
 
-The first such kernel is PlutoniumOS, whose task model is described in
-[2026-10-09-lightweight-tasks.md](2026-10-09-lightweight-tasks.md) (to move to the PlutoniumOS repository
-as `docs/architecture/lightweight-tasks.md`). Its requirements are the main input to this note, but nothing
-here is specific to it. A second backend is the PlutoniumOS userland runtime, whose "scheduler" is a set of
-system calls; the contract has to fit that case too, and the third is the hosted M:N scheduler.
+The first such kernel is PlutoniumOS, whose task model is described in PlutoniumOS:
+docs/architecture/lightweight-tasks.md (github.com/matjam/plutoniumos, private). Its requirements are the
+main input to this note, but nothing here is specific to it. A second backend is the PlutoniumOS userland
+runtime, whose "scheduler" is a set of system calls; the contract has to fit that case too, and the third
+is the hosted M:N scheduler.
 
 ## Contents
 
@@ -330,7 +330,7 @@ description, not code:
 ## 9. Later Plutonium-side requirements from PlutoniumOS
 
 Not part of the contract, and not needed before PlutoniumOS's later phases, but they are Plutonium work
-and are listed here so the PlutoniumOS note can move out of this repository whole:
+and are listed here because the PlutoniumOS task model lives in the PlutoniumOS repository:
 
 | Requirement | Why | PlutoniumOS phase |
 |---|---|---|
