@@ -1018,7 +1018,14 @@ func (check *Checker) rawExpr(T *target, x *operand, e ast.Expr, hint Type, allo
 	keep := check.keepWrapper
 	check.keepWrapper = false
 
+	if !check.enter(e) {
+		x.invalidate()
+		x.typ_ = Typ[Invalid]
+		x.expr = e
+		return expression
+	}
 	kind := check.exprInternal(T, x, e, hint)
+	check.leave()
 
 	if !allowGeneric {
 		check.nonGeneric(T, x)

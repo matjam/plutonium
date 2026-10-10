@@ -1834,6 +1834,12 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | `//pu:nosimd` | function | the optimiser adds no vector instructions to it (implied by `//pu:interrupt`, and by kernel mode outside `//pu:fpu` functions) |
 | `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (section 12.3) |
 | `//pu:percpu` | package variable | one copy per processor, addressed through `GS`; kernel mode only (section 12.5) |
+| `//pu:stack size` | `func main` | run the program on a stack of `size` bytes (`K`, `M` or `G` suffixes, 64K to 64G) that the hosted runtime reserves, maps as it is used and puts a 1 MiB guard region below; without it, main runs on the stack the system gave the process (usually 8 MiB). Hosted builds only |
+
+A program that recurses deeply checks how much stack remains with `rt.StackLeft()`, which returns the bytes
+between the caller's frame and the limit of the main thread's stack (the reserved stack's guard, or the
+process stack's resource limit), or `^uintptr(0)` where the limit is unknown. `rt.StackBounds` returns
+the bounds, and a freestanding program that sets up its own stack records them with `rt.SetStackBounds`.
 
 ## 10. Assembly and C
 

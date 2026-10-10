@@ -312,6 +312,7 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 	if job.decl != nil {
 		f.Pos = job.decl.Pos()
 		s.applyPragmas(job.decl.Doc)
+		s.checkStackDirective(job.decl.Doc)
 	} else if job.lit != nil {
 		f.Pos = job.lit.Pos()
 	}

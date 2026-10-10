@@ -186,7 +186,28 @@ type Config struct {
 	// of an error message. ErrorURL must be a format string containing
 	// exactly one "%s" format, e.g. "[go.dev/e/%s]".
 	_ErrorURL string
+
+	// Plutonium: MaxNesting limits how deeply the checker descends into
+	// nested expressions and type expressions; a deeper construct is
+	// reported as an error instead of being checked. 0 means
+	// DefaultMaxNesting, which matches the parser's own limit.
+	MaxNesting int
+
+	// Plutonium: if StackCheck != nil, it is called every few levels of
+	// nesting and reports whether enough stack remains to go deeper; when
+	// it returns false the construct is reported as nested too deeply. A
+	// compiler running on a fixed stack sets it from pluto/rt.StackLeft;
+	// the Go-hosted compiler, whose stacks grow, leaves it nil.
+	StackCheck func() bool
 }
+
+// DefaultMaxNesting is the nesting limit when Config.MaxNesting is 0: the
+// parser's maximum nesting depth.
+const DefaultMaxNesting = 100000
+
+// stackCheckEvery is how many levels of nesting pass between calls of
+// Config.StackCheck.
+const stackCheckEvery = 16
 
 // Info holds result type information for a type-checked package.
 // Only the information for which a map is provided is collected.

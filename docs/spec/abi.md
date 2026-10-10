@@ -309,6 +309,7 @@ functions without `//pu:fpu` (no floats, section 10.2) never use it.
 | type descriptor | `type:<type>` |
 | itab | `itab:<type>,<interface>` |
 | itab table | `pluto.itabs`, `pluto.itabtable` |
+| main's stack size from `//pu:stack` (0 if none), a function returning a `uintptr` | `pluto.mainstack` |
 | string data | `.str.N` (local) |
 | static object (a `&T{}` in a package initialiser) | `.static.N` (local) |
 | float constant | `pluto.const.<hex>` |

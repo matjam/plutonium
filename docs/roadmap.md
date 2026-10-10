@@ -207,3 +207,10 @@ later takes the next free number and is listed in the section where it belongs.
     - Itab lookup (done): `rt.findItab`, behind conversions between non-empty interfaces and assertions
       to interface types, probes a hash table the compiler lays out (abi.md section 5) instead of
       scanning every itab. Tested by `testdata/run/itablookup.p` and `lower.TestItabTable`.
+    - Large stack for the compiler (done): `//pu:stack 256M` on `func main` makes the hosted runtime
+      reserve a lazily mapped stack with a 1 MiB guard region and run the program on it (language spec
+      section 9); `rt.StackLeft`, `rt.StackBounds` and `rt.SetStackBounds` report what remains. The type
+      checker stops at `Config.MaxNesting` levels of nested expressions and types (default 100,000, the
+      parser's limit) and calls `Config.StackCheck`, the hook the self-hosted compiler points at
+      `rt.StackLeft`, every 16 levels. Tested by `testdata/lib/mainstack.p`, `build.TestMainStack*` and
+      `types2.TestNestingLimit`.

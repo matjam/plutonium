@@ -379,6 +379,17 @@ func (l *Lowerer) lowerEntry() {
 		addr := s.symAddr(l.out.Sym("pluto.itabs", ssa.SymData))
 		s.returnValues([]value{scalarValue(addr, types2.Typ[types2.UnsafePointer])})
 	}})
+	// pluto.mainstack returns the size of the stack main runs on, from
+	// main's //pu:stack directive, or 0 for the stack the system gave the
+	// process. The hosted runtime reserves the stack before calling
+	// pluto.main.
+	stack := l.mainStackSize(mainFn)
+	uptr := types2.Typ[types2.Uintptr]
+	sizeSig := types2.NewSignatureType(nil, nil, nil, nil,
+		types2.NewTuple(types2.NewParam(token.NoPos, nil, "", uptr)), false)
+	l.queue = append(l.queue, &funcJob{sym: l.out.Sym("pluto.mainstack", ssa.SymFunc), sig: sizeSig, build: func(s *fnState) {
+		s.returnValues([]value{scalarValue(s.constInt(ssa.TI64, int64(stack)), uptr)})
+	}})
 
 	sym := l.out.Sym("pluto.main", ssa.SymFunc)
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: sig, build: func(s *fnState) {
