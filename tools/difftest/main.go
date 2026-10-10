@@ -33,7 +33,7 @@ func main() {
 	pu := flag.String("pu", "", "Plutonium compiler binary (default: build ./cmd/pluto)")
 	work := flag.String("work", "", "scratch directory (default: a new temporary directory)")
 	show := flag.Bool("print", false, "print the program for -seed and exit")
-	rangeWrites := flag.Bool("rangewrites", false, "let loops write to the array they range over")
+	rangeWrites := flag.Bool("rangewrites", true, "let loops write to the array they range over (false for compilers that range over arrays in place)")
 	file := flag.String("file", "", "check (and with -reduce, reduce) this program instead of generating")
 	flag.Parse()
 

@@ -12,7 +12,7 @@ import (
 type Options struct {
 	// RangeWrites lets a loop that ranges over an array with a value
 	// variable write to that array. Go ranges over a copy of the array;
-	// Plutonium currently ranges in place.
+	// Plutonium ranged in place until main's ee9b93a.
 	RangeWrites bool
 }
 
