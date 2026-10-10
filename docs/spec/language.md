@@ -1,157 +1,486 @@
-# Plutonium Language Specification
+# The Plutonium Language
 
-**Version:** 0.1 (draft)  
-**Date:** 2026-03-14
+**Version:** 0.2 (draft)
+**Date:** 2026-10-09
 
-## Overview
+Plutonium is a systems programming language with Go's syntax and most of Go's semantics, minus the parts
+that need a garbage collector, a scheduler or runtime type metadata. It is meant for operating system
+kernels, drivers, boot code, allocators and other code that runs without a managed runtime. It is the
+language PlutoniumOS is written in.
 
-Plutonium is a kernel-safe subset of Go designed for systems software: operating system kernels, drivers, boot code, allocators, schedulers, and other code that cannot depend on a managed runtime.
+This document describes Plutonium as differences from Go. **Where this document is silent, the
+[Go language specification](https://go.dev/ref/spec) as of Go 1.27 applies.** Plutonium has one language
+version: every Go feature up to 1.27 that is not removed or changed below is part of the language.
 
-Plutonium source files use the `.pu` extension. All compiler directives use the `//pu:` prefix.
+## Contents
 
-## Goals
+1. [Goals](#1-goals)
+2. [Source files and packages](#2-source-files-and-packages)
+3. [What Plutonium removes from Go](#3-what-plutonium-removes-from-go)
+4. [What Plutonium changes](#4-what-plutonium-changes)
+5. [What Plutonium adds](#5-what-plutonium-adds)
+6. [Memory and allocation](#6-memory-and-allocation)
+7. [Runtime faults and panic](#7-runtime-faults-and-panic)
+8. [Directives](#8-directives)
+9. [Assembly and C](#9-assembly-and-c)
+10. [The unsafe package](#10-the-unsafe-package)
+11. [Build modes and targets](#11-build-modes-and-targets)
+12. [Standard library](#12-standard-library)
 
-- No garbage collector
-- No hidden heap allocation  
-- No goroutines or channels
-- No reflection or runtime type metadata
-- No implicit scheduler
-- Explicit, predictable, low-level semantics
-- Compatible with Go syntax where practical
+## 1. Goals
 
-## File Structure
+- Read like Go. A Go programmer should understand Plutonium code without a manual.
+- Compile like C: no garbage collector, no scheduler, no hidden allocation, no runtime the program did
+  not ask for.
+- Make the costs visible. Every allocation is a call you can see; every memory-mapped register access is
+  marked in its type.
+- Give kernel code the tools it needs in the language: bit-exact layouts, volatile access, alignment
+  control, ring buffers, and a fatal-error path that works before any allocator exists.
+- Generate fast code. The compiler has its own optimising backend and is measured against Rust.
 
-A Plutonium source file begins with a package declaration, followed by optional import declarations, followed by top-level declarations.
+## 2. Source files and packages
 
-```
+Source files use the `.p` extension and are UTF-8. Packages, imports, visibility and initialization order
+follow Go. Standard library packages live under the `pluto/` import path (`pluto/fmt`, `pluto/alloc`).
+
+A program's entry point is `main` in package `main`. It may return nothing, as in Go, or an `int64`, which
+becomes the process exit status in hosted builds:
+
+```go
 package main
 
-import "pluto/os"
+import "pluto/fmt"
 
-func main() {
-    os.Exit(0)
+func main() int64 {
+	fmt.Printf("hello, %s\n", "world")
+	return 0
 }
 ```
 
-## Directives
+Files are selected for a build by `//pu:build` constraints, which use Go's boolean syntax, and by file
+name suffixes such as `_amd64.p` or `_linux.p`. See [Build modes and targets](#11-build-modes-and-targets)
+for the tags that are set.
 
-All Plutonium compiler directives use the `//pu:` prefix:
+```go
+//pu:build amd64 && !freestanding
+```
 
-| Directive | Meaning |
-|---|---|
-| `//pu:build <expr>` | Build constraint |
-| `//pu:nosplit` | Do not insert stack split check |
-| `//pu:noescape` | Pointer arguments do not escape to heap |
-| `//pu:noinline` | Do not inline this function |
-| `//pu:inline` | Force inline this function |
-| `//pu:static` | Force static placement of variable |
+## 3. What Plutonium removes from Go
 
-## Types
+Each of these is a compile error that names the construct and the reason.
 
-### Primitive Types
-
-| Type | Size | Description |
+| Removed | Reason | Use instead |
 |---|---|---|
-| `bool` | 1 | Boolean |
-| `int8` | 1 | Signed 8-bit integer |
-| `int16` | 2 | Signed 16-bit integer |
-| `int32` | 4 | Signed 32-bit integer |
-| `int64` | 8 | Signed 64-bit integer |
-| `uint8`, `byte` | 1 | Unsigned 8-bit integer |
-| `uint16` | 2 | Unsigned 16-bit integer |
-| `uint32` | 4 | Unsigned 32-bit integer |
-| `uint64` | 8 | Unsigned 64-bit integer |
-| `int` | 8 | Platform-width signed integer |
-| `uint` | 8 | Platform-width unsigned integer |
-| `uintptr` | 8 | Unsigned integer large enough to hold a pointer |
-| `float32` | 4 | IEEE 754 32-bit float |
-| `float64` | 8 | IEEE 754 64-bit float |
-| `rune` | 4 | Alias for int32; represents a Unicode code point |
+| `go` statements | needs a scheduler | the OS's threads or tasks |
+| `chan T`, `<-`, `select`, `close` | needs a scheduler | `ring[T, N]`, OS queues |
+| `map[K]V`, `delete` | needs a garbage-collected hash table | `pluto/hash` |
+| `recover` | needs an unwinder; `panic` aborts (section 7) | return errors |
+| `import "reflect"` | needs runtime type metadata | type switches, generics |
+| `complex64`, `complex128`, `complex`, `real`, `imag` | rarely useful in systems code; keeps the backend small | a struct of two floats |
+| runtime string concatenation (`s + t` where either is not a constant) | allocates | `pluto/strings.Builder` with an allocator |
+| conversions between `string` and `[]byte` or `[]rune`, and `string(r)` for a non-constant rune | allocate a copy | `unsafe.String`, `unsafe.StringData`, `pluto/strings` |
+| `append` beyond capacity | the slice does not know its allocator | `pluto/vec.Vec[T]` (section 6) |
 
-### Composite Types
+Constant string concatenation (`const greeting = "hello, " + name`) remains, since it happens at compile
+time.
 
-- **Pointers:** `*T` — pointer to T
-- **Arrays:** `[N]T` — fixed-size array, stack-allocated
-- **Slices:** `[]T` — fat pointer `{ptr *T, len int64, cap int64}`. No implicit heap allocation; backing array must be supplied by the caller.
-- **Structs:** `struct { ... }` with field access and embedding
-- **Interfaces:** Compile-time dispatch only. No `interface{}` or `any`.
+## 4. What Plutonium changes
 
-### Forbidden Types
+### 4.1 `panic` aborts
 
-| Type | Reason |
-|---|---|
-| `chan T` | Requires runtime scheduler |
-| `map[K]V` | Requires GC-managed hash table; use `pluto/hash` |
-| `interface{}` / `any` | Requires runtime type metadata |
+`panic(v)` stops the program. It does not unwind the stack and deferred calls do not run. See
+[section 7](#7-runtime-faults-and-panic).
 
-## Memory Model
+### 4.2 `new` and `make` allocate from an allocator
 
-Stack allocation is the only implicit form of allocation. All other allocation is explicit:
-
-- **Stack:** Default for local variables and function calls
-- **Static:** Package-level `var` of non-pointer types, `const`
-- **Arena:** Via `pluto/mem.Arena` backed by a user-supplied buffer
-- **Custom allocators:** Functions that accept `unsafe.Pointer` parameters
-
-`new(T)` and `make([]T, n)` are compile errors.
-
-## Generics
-
-Type parameters are supported on functions and struct types. They are expanded via compile-time monomorphization — no runtime type information is generated.
+`new(T)` and `make([]T, len)` / `make([]T, len, cap)` allocate from the current allocator
+(section 6). Each accepts an optional final allocator argument:
 
 ```go
-func Max[T int32 | int64](a, b T) T {
-    if a > b { return a }
-    return b
+n := new(Node)                  // current allocator
+m := new(Node, arena)           // explicit allocator
+buf := make([]byte, 4096)       // current allocator
+tmp := make([]byte, 0, 64, scratch)
+```
+
+The checker tells an allocator from a capacity by its type. Memory from `new` and `make` is zeroed and is
+not freed automatically; free it with `alloc.Free` or use `owned[T]` (section 5.6).
+
+### 4.3 `append` works within capacity
+
+`append(s, x...)` stores into `s`'s spare capacity and returns the longer slice. If the result would exceed
+`cap(s)`, the program panics. Growable sequences are `pluto/vec.Vec[T]`, which records its allocator.
+
+### 4.4 Interfaces hold a word or a frame pointer
+
+Interfaces, including `any` and `error`, work as in Go: method sets, implicit satisfaction, type
+assertions, type switches. An interface value is two words: a pointer to a static method table (or, for
+`any`, a type descriptor) and a data word.
+
+- A value that fits in a word (integers, floats, booleans, pointers, and `owned`/`shared`/`synced`
+  pointers) is stored in the data word.
+- A larger value (a string, slice, array or struct) is copied into a temporary in the stack frame of the
+  function that performs the conversion, and the data word points at that copy. The interface value is
+  valid until that function returns, exactly like a pointer to a local variable.
+
+Returning an interface that holds such a frame copy, or storing it in a package-level variable, is a
+compile error where the compiler can see it. To keep a large value in an interface beyond the current
+function, store a pointer to it instead.
+
+Type descriptors exist only for types that are converted to an interface. There is no reflection.
+
+### 4.5 Closures do not outlive their frame
+
+Function literals may capture variables of the enclosing function, by reference as in Go. Captured
+variables stay in the enclosing frame; nothing is moved to the heap. A closure that captures variables is
+therefore valid only while the enclosing function is running:
+
+- Calling it, passing it as an argument, assigning it to a local variable, and deferring it are allowed.
+- Returning it, storing it in a package-level variable, or storing it through a pointer is a compile
+  error.
+
+A function literal that captures nothing is an ordinary function value and may be used anywhere.
+
+### 4.6 Integer behaviour
+
+As in Go, signed and unsigned arithmetic wraps on overflow, shifts by at least the width of the operand
+yield 0 (or -1 for a negative signed value shifted right), and integer division by zero panics.
+`int`, `uint` and `uintptr` are 64 bits wide on all current targets.
+
+## 5. What Plutonium adds
+
+### 5.1 Default parameter values
+
+The trailing parameters of a function may have default values. A call may omit any suffix of the
+defaulted parameters; the default expressions are evaluated at each call, in the callee's package scope,
+after the explicit arguments.
+
+```go
+func New[T any](a Allocator = Default()) *T
+
+n := alloc.New[Node]()          // a = alloc.Default(), evaluated now
+m := alloc.New[Node](arena)
+```
+
+A default may refer to package-level names visible where the function is declared, but not to other
+parameters. Variadic functions cannot have defaults. Function types do not record defaults: a function
+value is called with all of its arguments.
+
+### 5.2 `volatile[T]`
+
+A variable of type `volatile[T]` is accessed with exactly one load or store per read or write, in program
+order. The compiler never removes, merges or reorders volatile accesses, and never moves other memory
+accesses across them. `T` must be an integer, boolean, pointer or integer-backed packed type.
+
+```go
+type UART struct {
+	data   volatile[uint8]
+	status volatile[uint8]
+}
+
+func put(u *UART, b uint8) {
+	for u.status&0x20 == 0 {
+	}
+	u.data = b
 }
 ```
 
-## Assembly Integration
-
-Functions declared without a body in a `.pu` file are assembly stubs, implemented in a `.s` file in the same package:
+Reading a `volatile[T]` yields a `T`, and any value assignable to `T` may be assigned to it. Taking the
+address keeps the qualifier: `&u.data` has type `*volatile[uint8]`. A pointer to MMIO is made with a
+conversion:
 
 ```go
-// math.pu
-func addU64(a, b uint64) uint64
+lapic := (*volatile[uint32])(unsafe.Pointer(uintptr(0xFEE000B0)))
+*lapic = 0 // end of interrupt
 ```
 
-```asm
-// math_amd64.s
-//pu:build amd64
+Volatile is not atomic and implies no barrier between processors. Use `pluto/sync/atomic` for that.
 
-TEXT ·addU64(SB), NOSPLIT, $0-24
-    MOVQ a+0(FP), AX
-    ADDQ b+8(FP), AX
-    MOVQ AX, ret+16(FP)
-    RET
+### 5.3 `aligned[T, N]`
+
+`aligned[T, N]` stores a `T` on an `N`-byte boundary. `N` must be a constant power of two. The type is
+`N`-aligned wherever it appears: in a package variable, a local variable, a struct field, an array element
+or an allocation. Its size is `T`'s size rounded up to a multiple of `N`. As with `volatile`, it reads and
+writes as `T`.
+
+```go
+var pml4 aligned[[512]uint64, 4096]
+var dma  aligned[[2048]byte, 64]
 ```
 
-## Forbidden Constructs
+### 5.4 `ring[T, N]`
 
-The following constructs are compile errors in Plutonium:
+`ring[T, N]` is a fixed-capacity ring buffer stored inline: two `uint64` indexes followed by `[N]T`.
+`N` must be a constant power of two. The zero value is an empty ring.
 
-| Construct | Error message |
+| Method | Result |
 |---|---|
-| `go f()` | goroutines are not permitted |
-| `chan T` | channel types are not permitted |
-| `select { }` | select is not permitted |
-| `map[K]V` | use pluto/hash instead |
-| `new(T)` | no implicit heap allocation |
-| `make([]T, n)` | no implicit heap allocation |
-| `interface{}` / `any` | no runtime type metadata |
-| `panic(...)` | no runtime unwinder |
-| `recover()` | no runtime unwinder |
-| `import "reflect"` | requires runtime metadata |
+| `Push(v T) bool` | appends `v`; `false` if full |
+| `Pop() (T, bool)` | removes the oldest element; `false` if empty |
+| `Peek() (T, bool)` | the oldest element without removing it |
+| `Len() int` | number of elements |
+| `Cap() int` | `N` |
+| `Full() bool`, `Empty() bool` | |
+| `Reset()` | empties the ring |
 
-## Build Tags
+All methods have pointer receivers and are expanded inline. A ring is not safe for concurrent use; a
+single-producer, single-consumer queue between an interrupt handler and a task can be built from
+`volatile` indexes.
 
-Build tags use the `//pu:build` directive with Go 1.17+ boolean syntax:
+### 5.5 `packed` types
 
+A packed type lays out fields at exact bit positions, for hardware registers, descriptor tables, on-disk
+structures and protocol headers.
+
+```go
+packed [le|be] [Backing] { fields }
 ```
-//pu:build amd64
-//pu:build amd64 && linux
-//pu:build amd64 || arm64
-//pu:build !freestanding
+
+- **Backing** is an integer type, a byte array `[N]byte`, or `[]byte`; it may be omitted. With an integer
+  or array backing the type is exactly that size and fields must fit. With `[]byte` or no backing the size
+  is the total field width rounded up to whole bytes.
+- **Layout** is LSB-first in declaration order: the first field starts at bit 0. There is no padding
+  between fields except where a field's type is `aligned[T, N]`, which moves it to an `N`-byte boundary.
+- **Fields** are one of:
+  - `name bits[T, N]`: an `N`-bit field read as `T`. `T` is an integer type at least `N` bits wide, or
+    `bool` with `N` equal to 1. Unsigned fields read zero-extended, signed fields sign-extended. Writes keep
+    the low `N` bits of the value.
+  - `name bits { A B C }`: a group of one-bit `bool` flags, accessed as `x.name.A`.
+  - `name T` where `T` is an integer, boolean, float, packed type or array of those: a byte-level field
+    of `T`'s full size, at the next bit position (it need not be byte-aligned).
+  - `_` names reserve bits.
+- **Byte order**: `le` and `be` say how the backing is stored in memory. Field bit positions always count
+  from the least significant bit of the value after byte-swapping. With no annotation the target's native
+  order applies, and accesses compile to plain loads, masks and shifts.
+- **Conversions**: a packed type converts to and from an integer type of the same size, or a byte array
+  of the same length. That is how a raw register value becomes a typed view.
+- **Literals** name their fields: `ControlReg{mode: 5, enable: true}`.
+- Packed values are comparable; comparison compares the storage, and reserved bits are always zero.
+
+```go
+type ControlReg packed uint32 {
+	mode     bits[uint, 4]
+	enable   bits[bool, 1]
+	priority bits[uint, 3]
+	_        bits[uint, 24]
+}
+
+type IPv4Header packed be [20]byte {
+	ihl      bits[uint8, 4]
+	version  bits[uint8, 4]
+	tos      uint8
+	length   uint16
+	// ...
+}
+
+reg := ControlReg(mmio.Load())
+reg.enable = true
+mmio.Store(uint32(reg))
 ```
 
-File name suffixes are also honored: `foo_amd64.pu`, `foo_linux.pu`, `foo_amd64.s`.
+### 5.6 Owned and counted pointers
+
+Raw pointers `*T` work as in C: they never free anything and may point at the stack, statics, memory-mapped
+devices or the heap. For heap objects whose lifetime the compiler should manage there are three pointer
+types:
+
+| Type | Meaning |
+|---|---|
+| `owned[T]` | The only owner of a heap `T`. Freed when its owner goes out of scope. |
+| `shared[T]` | A reference-counted heap `T` used on one processor. Freed when the last reference goes. |
+| `synced[T]` | Like `shared[T]` but the count is atomic, so references may cross processors. |
+
+All three are one word, dereference like `*T` (`p.field`, `*p`, method calls), and are created by
+`alloc.Owned[T]()`, `alloc.Shared[T]()` and `alloc.Synced[T]()`, each with an optional allocator argument.
+Each allocation records its allocator in a hidden header word, so it is freed to the right allocator even
+if the default has changed since.
+
+**owned[T]** has move semantics. Assigning it, passing it to an `owned[T]` parameter, returning it, or
+storing it in an `owned[T]` field moves ownership and makes the source unusable; using a moved-from
+variable is a compile error. When an `owned[T]` variable goes out of scope still holding its value, the
+compiler calls `Drop()` on it (if `T` has a `Drop()` method) and frees it. Struct fields of type
+`owned[T]` are dropped when the struct that holds them is dropped or freed.
+
+```go
+type Tree struct {
+	left, right owned[Tree]
+	key         int
+}
+
+func build(depth int) owned[Tree] {
+	t := alloc.Owned[Tree]()
+	if depth > 0 {
+		t.left = build(depth - 1)   // moves into the field
+		t.right = build(depth - 1)
+	}
+	return t                        // moves to the caller
+}                                   // nothing freed: t was moved
+```
+
+An `owned[T]` converts to `*T` to lend the object to code that does not take ownership. Such a borrowed
+pointer must not outlive the owner; the compiler does not check this.
+
+**shared[T]** and **synced[T]** count references. Copying one increments the count; a reference going
+out of scope or being overwritten decrements it; at zero `Drop()` runs and the object is freed. Cycles
+are not collected.
+
+### 5.7 Standard bit operations
+
+The `pluto/bits` package mirrors Go's `math/bits` (`OnesCount`, `LeadingZeros`, `TrailingZeros`,
+`RotateLeft`, `ReverseBytes`, `Len`, `Add64`, `Mul64` and so on) and adds bit manipulation through a
+pointer: `bits.Set(&flags, 3)`, `bits.Clear`, `bits.Toggle`, `bits.Test`, `bits.Extract(x, lo, width)`,
+`bits.Insert`. The compiler expands them to single instructions where the target has one. These replace
+the March draft's `bits[V]` lens type.
+
+## 6. Memory and allocation
+
+Plutonium never allocates heap memory unless the program asks: through `new`, `make`, the `pluto/alloc`
+functions, `owned`/`shared`/`synced` constructors, or library code that takes an allocator. Local
+variables, temporaries and interface frame copies live on the stack. Package-level variables live in
+static storage (`.data` or `.bss`).
+
+### 6.1 Allocators
+
+```go
+package alloc
+
+type Allocator interface {
+	Alloc(size, align uintptr) unsafe.Pointer      // zeroed memory, or nil
+	Free(p unsafe.Pointer, size, align uintptr)
+}
+
+func Default() Allocator                // the current allocator
+func SetDefault(a Allocator)            // replaces it for all later allocations
+func Use(a Allocator) (restore func())  // replaces it until restore is called
+
+func New[T any](a Allocator = Default()) *T
+func Free[T any](p *T, a Allocator = Default())   // calls p.Drop() first if T has one
+func Owned[T any](a Allocator = Default()) owned[T]
+func Shared[T any](a Allocator = Default()) shared[T]
+func Synced[T any](a Allocator = Default()) synced[T]
+```
+
+`Use` scopes an allocator to a region of code without changing the code inside it:
+
+```go
+func handle(req *Request) {
+	defer alloc.Use(req.arena)()
+	parse(req) // every allocation through Default() lands in the arena
+}
+```
+
+### 6.2 The system allocator
+
+In hosted builds the default allocator is a slab allocator over `mmap`. In freestanding builds there is
+none: allocating before the program calls `alloc.SetDefault` panics with "no allocator". A kernel sets it
+once its page allocator is ready:
+
+```go
+func kernelMain(info *BootInfo) {
+	pages := initPageFrames(info.memoryMap)
+	alloc.SetDefault(slab.New(pages))
+	// new, make and the alloc functions work from here on
+}
+```
+
+The slab allocator takes its pages from an `alloc.PageProvider`, so a kernel can reuse it on top of its own
+physical page allocator.
+
+## 7. Runtime faults and panic
+
+The following stop the program through the same path as `panic`:
+
+- an index or slice expression out of range,
+- integer division or remainder by zero,
+- a failed type assertion with a single result,
+- `append` beyond capacity,
+- an allocation with no allocator set,
+- `panic(v)`.
+
+Panicking prints `panic: ` followed by the value (and, for faults, what failed and where) and stops. It
+does not unwind and deferred functions do not run. In hosted builds the process exits with status 2. In
+freestanding builds the compiler calls the function registered with `rt.SetPanicHandler`; the default
+handler disables interrupts and halts the processor.
+
+Dereferencing a nil pointer is not checked by the compiler; it faults in hardware wherever address zero is
+unmapped, which is true in hosted builds and should be arranged by kernels.
+
+Bounds checks can be removed from a function with `//pu:nobounds`, for code that has been proven correct
+and must be as fast as possible. The optimiser removes most bounds checks by itself.
+
+## 8. Directives
+
+Directives are line comments starting with `//pu:` with no space, placed in the doc comment of the
+declaration they apply to (or at the top of the file for `//pu:build`).
+
+| Directive | Applies to | Meaning |
+|---|---|---|
+| `//pu:build expr` | file | include the file only when `expr` holds |
+| `//pu:inline` | function | always inline calls to this function |
+| `//pu:noinline` | function | never inline it |
+| `//pu:nobounds` | function | omit bounds checks in its body |
+| `//pu:extern name` | body-less function | the function is the external symbol `name` (C ABI) |
+| `//pu:export name` | function | also export the function under the symbol `name` |
+| `//pu:section name` | function or package variable | place it in the named section |
+| `//pu:interrupt` | function | an x86-64 interrupt handler: saves all registers, returns with `iretq` |
+| `//pu:noreturn` | function | the function never returns (lets the optimiser drop code after calls) |
+
+## 9. Assembly and C
+
+A function declared without a body is implemented outside Plutonium.
+
+- **Assembly**: a `.s` file in the same package, in GNU assembler syntax, assembled by the system
+  assembler. The symbol of a Plutonium function is its import path and name, `"pluto/syscall.Syscall"`,
+  quoted in assembly because of the slash. Methods are `"path.Type.Method"` (value receiver) and
+  `"path.(*Type).Method"` (pointer receiver).
+- **C**: with `//pu:extern name`, the function is the C symbol `name`. Plutonium uses the System V AMD64
+  calling convention everywhere, so C code compiled separately, such as the reference Lua interpreter,
+  links in directly. `//pu:export name` makes a Plutonium function callable from C under `name`.
+
+```go
+//pu:extern lua_pushinteger
+func pushInteger(L *State, n int64)
+```
+
+The full calling convention and data layouts are in [abi.md](abi.md).
+
+## 10. The unsafe package
+
+`unsafe` is Go's: `Pointer`, `Sizeof`, `Alignof`, `Offsetof`, `Add`, `Slice`, `SliceData`, `String`,
+`StringData`. Converting between `unsafe.Pointer`, `uintptr` and pointer types follows Go's rules,
+without Go's restrictions that exist only for the garbage collector. Every package that uses raw memory
+imports `unsafe`, so such code is easy to find.
+
+## 11. Build modes and targets
+
+| Mode | Meaning | Tags set |
+|---|---|---|
+| `hosted` (default) | a Linux program: `_start` sets up arguments and calls `main` | `linux`, `hosted` |
+| `freestanding` | no operating system; the program provides its entry point and linker script | `freestanding`, `none` |
+
+Targets are named by triples: `x86_64-linux` (default) and `x86_64-none`; `aarch64-linux` and
+`aarch64-none` are planned. The architecture tag (`amd64`, `arm64`) is always set.
+
+Output formats are ELF executables (default), flat binaries (`-format binary`) and PE32+ for UEFI
+(`-format pe32+`).
+
+## 12. Standard library
+
+| Package | Contents |
+|---|---|
+| `pluto/rt` | panic hook, program entry, memory copy and compare primitives the compiler calls |
+| `pluto/alloc` | allocators, the default allocator, `New`/`Free`/`Owned`/`Shared`/`Synced` |
+| `pluto/fmt` | `Printf`, `Fprintf`, `Sprintf` into a caller's buffer, `Println`; integer, float, string, pointer verbs with width, precision and flags |
+| `pluto/io` | `Reader`, `Writer`, buffered I/O |
+| `pluto/os` | files, arguments, environment, exit (hosted) |
+| `pluto/syscall` | raw Linux system calls (hosted) |
+| `pluto/strings`, `pluto/bytes` | searching, comparison, `Builder` with an allocator |
+| `pluto/bits` | bit operations (section 5.7) |
+| `pluto/math` | floating-point functions |
+| `pluto/hash` | hash maps and sets with an allocator |
+| `pluto/vec` | growable `Vec[T]` with an allocator |
+| `pluto/sort` | sorting without allocation |
+| `pluto/sync/atomic` | atomic integers and pointers |
+| `pluto/unicode/utf8` | UTF-8 encoding and decoding |
+
+`pluto/os` and `pluto/syscall` are not available in freestanding builds.
