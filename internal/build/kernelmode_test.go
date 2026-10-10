@@ -372,7 +372,8 @@ func TestKernelSmoke(t *testing.T) {
 		"cpu0 again 0 11 1 true\n" +
 		"cpuid true sse off true\n" +
 		"fmt float %!v(float64=0x4020000000000000)\n" +
-		"fpu result bits 4620693217682128896\n" // 1.5*4 + 2 = 8.0
+		"fpu result bits 4620693217682128896\n" + // 1.5*4 + 2 = 8.0
+		"println float float64=0x4020000000000000 float32=0x3f000000\n"
 	for _, level := range []int{0, 2} {
 		t.Run("O"+string(rune('0'+level)), func(t *testing.T) {
 			// The ELF image links with the per-CPU check; the flat binary

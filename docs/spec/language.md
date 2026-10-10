@@ -1921,7 +1921,8 @@ is an error, while one passed by reference is not. Float types may still appear,
 values (whole structs, fields, array elements, zero values) is allowed, since it uses integer registers.
 Because the compiler only generates the functions a program reaches, a float function in an imported
 package that the kernel never calls costs nothing, and the standard library keeps its float code behind
-`//pu:build !kernel` (in `pluto/fmt`, a float argument prints as its bits in kernel builds). Package-level
+`//pu:build !kernel` (in `pluto/fmt`, a float argument prints as its bits in kernel builds, and so does
+a float passed to `print` or `println` from a `//pu:fpu` function). Package-level
 arrays and structs initialised with constants, such as `pluto/math`'s coefficient tables, are written into
 the image, so importing such a package adds no float code to package initialisation.
 

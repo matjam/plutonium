@@ -192,8 +192,10 @@ later takes the next free number and is listed in the section where it belongs.
     function and line. Heap faults go through the runtime's single fault handler, which prints the
     allocator's diagnosis and then the stack trace. Not yet safe for concurrent use (one lock, a no-op
     until puroutines run in parallel).
-44. **`println` of floats matching Go** (planned): `rt.printFloat` prints six fixed decimals; Go prints
-    `+1.500000e+000` style.
+44. **`println` of floats matching Go** (done): `print` and `println` write the shortest form that reads
+    back to the same value, in strconv's `g` format, as Go's runtime does (`1.5`, `1e+21`, `-0`), for
+    float32 at float32 precision. The digits come from Go's unrounded scaling, with integer arithmetic
+    and a fixed buffer. Kernel builds print the bits, as `pluto/fmt` does.
 45. **`time`** (planned): monotonic and wall clocks, durations, timers over the scheduler.
 46. **`net`** (planned, hosted): sockets over the epoll poller of item 14.
 47. **`fmt.Sprintf` returns a `strings.Buf`** (planned): settled by the ownership model (language spec
