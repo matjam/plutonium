@@ -10,7 +10,7 @@ import "unsafe"
 // registers.
 
 var (
-	panicHandler func()
+	panicHandler  func()
 	consoleWriter func(p unsafe.Pointer, n int)
 )
 

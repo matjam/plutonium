@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/matjam/plutonium/internal/ssa"
+	"github.com/matjam/plutonium/internal/syntax/token"
 )
 
 // isel selects machine instructions for one SSA function.
@@ -23,17 +24,29 @@ type isel struct {
 	fused  []bool
 	folded []bool // loads folded into their user as a memory operand
 	loops  *ssa.LoopNest
+
+	// Source position of the value being selected, given to every
+	// instruction emitted for it.
+	pos token.Pos
+	inl int32
+
+	// noSSE keeps the function out of the XMM registers (ssa.Func.NoSSE):
+	// float-typed values that are only moved live in general-purpose
+	// registers, and any float computation is an error.
+	noSSE bool
 }
 
 // Select converts an SSA function into machine IR.
 func Select(f *ssa.Func) (*MFunc, error) {
 	mf := newMFunc(f.Name)
 	mf.Sym = f.Sym
+	mf.Pos = f.Pos
 	mf.Slots = append(mf.Slots, f.Slots...)
 	mf.interrupt = f.Pragmas&ssa.PragmaInterrupt != 0
 	// Lowering checks a handler's signature: a frame pointer, then
 	// optionally the error code.
 	mf.errCode = mf.interrupt && len(f.Params) == 2
+	mf.noSSE = f.NoSSE
 	for _, s := range f.Slots {
 		mf.maxAlign = max(mf.maxAlign, s.Align)
 	}
@@ -46,6 +59,7 @@ func Select(f *ssa.Func) (*MFunc, error) {
 		fused:  make([]bool, f.NumValues()),
 		folded: make([]bool, f.NumValues()),
 		loops:  f.Loops(),
+		noSSE:  f.NoSSE,
 	}
 	for i := range s.vregs {
 		s.vregs[i] = NoReg
@@ -82,38 +96,84 @@ func Select(f *ssa.Func) (*MFunc, error) {
 	// phis, which get their registers up front).
 	for _, b := range f.ReversePostOrder() {
 		s.cur = s.blocks[b.ID]
+		s.pos, s.inl = blockPos(b)
 		if b == f.Entry {
+			s.pos, s.inl = f.Pos, 0
 			s.entry()
 		}
 		for _, v := range b.Values {
+			if v.Pos.IsValid() && !isLazy(v) && v.Op != ssa.OpPhi {
+				s.pos, s.inl = v.Pos, v.Inl
+			}
+			for _, a := range v.Args {
+				// An instruction that does a folded load faults where the
+				// load would have, so it takes the load's position.
+				if s.folded[a.ID] && a.Pos.IsValid() {
+					s.pos, s.inl = a.Pos, a.Inl
+				}
+			}
 			if err := s.value(v); err != nil {
 				return nil, err
 			}
 		}
+		for _, c := range b.Controls {
+			if c.Pos.IsValid() && !isLazy(c) && c.Op != ssa.OpPhi && !c.Type.IsMem() {
+				s.pos, s.inl = c.Pos, c.Inl
+			}
+		}
+		if b.Kind == ssa.BlockRet && b.Pos.IsValid() {
+			s.pos, s.inl = b.Pos, 0
+		}
 		if err := s.terminator(b); err != nil {
+			return nil, err
+		}
+	}
+	if s.noSSE {
+		if err := checkNoSSE(mf); err != nil {
 			return nil, err
 		}
 	}
 	return mf, nil
 }
 
-func classOfType(t *ssa.Type) RegClass {
-	if t.IsFloat() || t.IsVec() {
+// classOfType returns the register class for values of type t: XMM for
+// floats, unless the function may not use SSE, and for vectors (which a
+// NoSSE function never has; checkNoSSE would refuse them).
+func (s *isel) classOfType(t *ssa.Type) RegClass {
+	if t.IsVec() || t.IsFloat() && !s.noSSE {
 		return ClassXMM
 	}
 	return ClassGP
 }
 
+// usesSSE reports whether t needs an SSE register: a vector, or a float
+// in a function that may use them.
+func (s *isel) usesSSE(t *ssa.Type) bool { return t.IsVec() || t.IsFloat() && !s.noSSE }
+
 func (s *isel) emit(in *MInst) *MInst {
+	if !in.Pos.IsValid() {
+		in.Pos, in.Inl = s.pos, s.inl
+	}
 	s.cur.Insts = append(s.cur.Insts, in)
 	return in
+}
+
+// blockPos returns the first source position in b, for the instructions
+// emitted before the first value that has one.
+func blockPos(b *ssa.Block) (token.Pos, int32) {
+	for _, v := range b.Values {
+		if v.Pos.IsValid() && !isLazy(v) && v.Op != ssa.OpPhi {
+			return v.Pos, v.Inl
+		}
+	}
+	return b.Pos, 0
 }
 
 func (s *isel) newReg(t *ssa.Type) Reg {
 	if t.IsVec() {
 		return s.mf.newWideVReg()
 	}
-	return s.mf.newVReg(classOfType(t))
+	return s.mf.newVReg(s.classOfType(t))
 }
 
 // sizeOf returns the machine operand size for a type: 1, 2, 4 or 8.
@@ -136,7 +196,8 @@ func (s *isel) copyReg(dst, src Reg, size uint8) {
 // at its definition.
 func isLazy(v *ssa.Value) bool {
 	switch v.Op {
-	case ssa.OpConst, ssa.OpConstFloat, ssa.OpSlotAddr, ssa.OpSymAddr, ssa.OpFuncAddr, ssa.OpOffPtr, ssa.OpAddPtr:
+	case ssa.OpConst, ssa.OpConstFloat, ssa.OpSlotAddr, ssa.OpSymAddr, ssa.OpFuncAddr, ssa.OpOffPtr, ssa.OpAddPtr,
+		ssa.OpPerCPUOffset:
 		return true
 	case ssa.OpVPack:
 		return isConstVec(v)
@@ -468,6 +529,12 @@ func (s *isel) reg(v *ssa.Value) Reg {
 		return r
 	case ssa.OpConstFloat:
 		r := s.newReg(v.Type)
+		if s.noSSE {
+			// Only bits are moved here (lowering rejects float
+			// constants in such functions; zero values remain).
+			s.loadConst(r, int64(floatBits(v)), sizeOf(v.Type))
+			return r
+		}
 		s.loadFloatConst(r, v)
 		return r
 	case ssa.OpVPack:
@@ -483,11 +550,40 @@ func (s *isel) reg(v *ssa.Value) Reg {
 		r := s.newReg(ssa.TPtr)
 		s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(r), Src: MemOp(Mem{Base: NoReg, Index: NoReg, Sym: v.Aux.(*ssa.Sym)})})
 		return r
+	case ssa.OpPerCPUOffset:
+		// lea sym, r with an absolute disp32: the symbol's link-time
+		// value, its offset in the per-CPU block.
+		r := s.newReg(v.Type)
+		s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(r), Src: MemOp(Mem{Base: NoReg, Index: NoReg, Sym: v.Aux.(*ssa.Sym), Abs: true})})
+		return r
 	}
 	// Address arithmetic.
 	r := s.newReg(ssa.TPtr)
-	s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(r), Src: MemOp(s.addr(v))})
+	s.lea(r, s.addr(v))
 	return r
+}
+
+// lea computes the address of memory operand m into dst. LEA ignores
+// segment overrides, so a GS-relative operand (a per-CPU variable) is
+// turned into an ordinary address first: the per-CPU block's own address,
+// read from %gs:0, plus the operand's offset.
+func (s *isel) lea(dst Reg, m Mem) {
+	if m.Seg == SegGS {
+		self := s.mf.newVReg(ClassGP)
+		s.emit(&MInst{Op: MMOV, Size: 8, Dst: RegOp(self), Src: MemOp(Mem{Base: NoReg, Index: NoReg, Seg: SegGS})})
+		m.Seg = SegNone
+		switch {
+		case m.Base == NoReg:
+			m.Base = self
+		case m.Index == NoReg:
+			m.Index, m.Scale = self, 1
+		default:
+			s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(dst), Src: MemOp(m)})
+			s.emit(&MInst{Op: MADD, Size: 8, Dst: RegOp(dst), Src: RegOp(self)})
+			return
+		}
+	}
+	s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(dst), Src: MemOp(m)})
 }
 
 func (s *isel) loadConst(r Reg, c int64, size uint8) {
@@ -578,7 +674,13 @@ func (s *isel) addr(p *ssa.Value) Mem {
 	case ssa.OpSlotAddr:
 		return Mem{Base: NoReg, Index: NoReg, Slot: p.Aux.(*ssa.Slot)}
 	case ssa.OpSymAddr:
-		return Mem{Base: NoReg, Index: NoReg, Sym: p.Aux.(*ssa.Sym)}
+		sym := p.Aux.(*ssa.Sym)
+		if sym.PerCPU {
+			// %gs:sym: the symbol's address is its offset in the
+			// per-CPU block, which GS points at.
+			return Mem{Base: NoReg, Index: NoReg, Sym: sym, Seg: SegGS}
+		}
+		return Mem{Base: NoReg, Index: NoReg, Sym: sym}
 	case ssa.OpOffPtr:
 		m := s.addr(p.Args[0])
 		if fitsImm32(m.Disp + p.AuxInt) {
@@ -587,6 +689,14 @@ func (s *isel) addr(p *ssa.Value) Mem {
 		}
 	case ssa.OpAddPtr:
 		base, idx := p.Args[0], p.Args[1]
+		if idx.Op == ssa.OpPerCPUOffset && s.vregs[idx.ID] == NoReg {
+			// A per-CPU variable's address: base (the block) plus the
+			// symbol as an absolute displacement.
+			if m := s.addr(base); m.Sym == nil && m.Seg == SegNone && m.Slot == nil && !m.ArgSlot && !m.OutArg {
+				m.Sym = idx.Aux.(*ssa.Sym)
+				return m
+			}
+		}
 		if idx.Op == ssa.OpConst {
 			m := s.addr(base)
 			if fitsImm32(m.Disp + idx.AuxInt) {
@@ -670,6 +780,12 @@ func (s *isel) entry() {
 				r := s.newReg(ssa.TPtr)
 				s.copyReg(r, closureReg, 8)
 				s.vregs[v.ID] = r
+			case ssa.OpReturnAddr:
+				// The return address sits just below the incoming stack
+				// arguments.
+				r := s.newReg(v.Type)
+				s.load(r, Mem{Base: NoReg, Index: NoReg, ArgSlot: true, ArgOff: -8}, v.Type)
+				s.vregs[v.ID] = r
 			}
 		}
 	}
@@ -687,6 +803,14 @@ func (s *isel) interruptEntry() {
 	}
 	for _, b := range s.f.Blocks {
 		for _, v := range b.Values {
+			if v.Op == ssa.OpReturnAddr {
+				// The handler returns to the interrupted RIP, the
+				// first word of the frame.
+				r := s.newReg(v.Type)
+				s.load(r, Mem{Base: NoReg, Index: NoReg, ArgSlot: true, ArgOff: frameOff}, v.Type)
+				s.vregs[v.ID] = r
+				continue
+			}
 			if v.Op != ssa.OpArg {
 				continue
 			}
@@ -707,7 +831,7 @@ func (s *isel) copyRegTyped(dst, src Reg, t *ssa.Type) {
 }
 
 func (s *isel) load(r Reg, m Mem, t *ssa.Type) {
-	if t.IsFloat() || t.IsVec() {
+	if s.usesSSE(t) {
 		s.emit(&MInst{Op: MMOVSF, Size: sizeOf(t), Dst: RegOp(r), Src: MemOp(m)})
 		return
 	}
@@ -731,7 +855,7 @@ func (s *isel) store(m Mem, v *ssa.Value) {
 		}
 		return
 	}
-	if v.Type.IsFloat() || v.Type.IsVec() {
+	if s.usesSSE(v.Type) {
 		s.emit(&MInst{Op: MMOVSF, Size: sizeOf(v.Type), Dst: MemOp(m), Src: RegOp(s.reg(v))})
 		return
 	}
@@ -748,18 +872,24 @@ func (s *isel) def(v *ssa.Value) Reg {
 }
 
 func (s *isel) value(v *ssa.Value) error {
+	if s.noSSE && needsSSE(v) {
+		return fmt.Errorf("amd64: %s: %s needs SSE, which this function may not use (kernel mode without //pu:fpu)", s.f.Name, v.LongString())
+	}
 	if isLazy(v) || s.fused[v.ID] || s.folded[v.ID] {
 		return nil
 	}
 	size := sizeOf(v.Type)
 	switch v.Op {
-	case ssa.OpPhi, ssa.OpInitMem, ssa.OpVarDef, ssa.OpVolatileRead, ssa.OpArg, ssa.OpClosurePtr, ssa.OpUnreachableValue:
+	case ssa.OpPhi, ssa.OpInitMem, ssa.OpVarDef, ssa.OpVolatileRead, ssa.OpArg, ssa.OpClosurePtr, ssa.OpReturnAddr, ssa.OpUnreachableValue:
 		// Handled elsewhere or produce no code.
 		if v.Op == ssa.OpUnreachableValue && !v.Type.IsMem() {
 			r := s.def(v)
 			s.emit(&MInst{Op: MDEF, ImplicitDefs: []Reg{r}})
 		}
 		return nil
+
+	case ssa.OpCodeAddr:
+		s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(s.def(v)), Src: MemOp(Mem{Base: NoReg, Index: NoReg, RIP: true})})
 
 	case ssa.OpCopy:
 		if v.Type.IsMem() {
@@ -912,7 +1042,7 @@ func (s *isel) value(v *ssa.Value) error {
 		s.emit(&MInst{Op: MCVTF2F, Size: size, SrcSize: sizeOf(v.Args[0].Type), Dst: RegOp(s.def(v)), Src: RegOp(s.reg(v.Args[0]))})
 	case ssa.OpBitcast:
 		a := v.Args[0]
-		if a.Type.IsFloat() != v.Type.IsFloat() {
+		if s.usesSSE(a.Type) != s.usesSSE(v.Type) {
 			s.emit(&MInst{Op: MMOVQ, Size: size, Dst: RegOp(s.def(v)), Src: RegOp(s.reg(a))})
 		} else {
 			s.copyReg(s.def(v), s.reg(a), size)
@@ -940,13 +1070,15 @@ func (s *isel) value(v *ssa.Value) error {
 	case ssa.OpMove:
 		s.move(v.Args[0], v.Args[1], v.AuxInt)
 	case ssa.OpFill:
-		s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(RDI), Src: MemOp(s.addr(v.Args[0]))})
+		s.lea(RDI, s.addr(v.Args[0]))
 		s.copyReg(RCX, s.reg(v.Args[2]), 8)
 		s.copyReg(RAX, s.reg(v.Args[1]), 8)
 		s.emit(&MInst{Op: MREPSTOSB, ImplicitUses: []Reg{RDI, RCX, RAX}, ImplicitDefs: []Reg{RDI, RCX}})
 
 	case ssa.OpCall, ssa.OpCallInd:
 		s.call(v)
+	case ssa.OpIntrinsic:
+		return s.intrinsic(v)
 	case ssa.OpSelectN:
 		if v.Type.IsMem() {
 			return nil
@@ -1295,7 +1427,7 @@ func (s *isel) zero(p *ssa.Value, n int64) {
 		}
 		return
 	}
-	s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(RDI), Src: MemOp(s.addr(p))})
+	s.lea(RDI, s.addr(p))
 	s.loadConst(RCX, n, 8)
 	s.loadConst(RAX, 0, 8)
 	s.emit(&MInst{Op: MREPSTOSB, ImplicitUses: []Reg{RDI, RCX, RAX}, ImplicitDefs: []Reg{RDI, RCX}})
@@ -1318,8 +1450,8 @@ func (s *isel) move(dst, src *ssa.Value, n int64) {
 		}
 		return
 	}
-	s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(RDI), Src: MemOp(s.addr(dst))})
-	s.emit(&MInst{Op: MLEA, Size: 8, Dst: RegOp(RSI), Src: MemOp(s.addr(src))})
+	s.lea(RDI, s.addr(dst))
+	s.lea(RSI, s.addr(src))
 	s.loadConst(RCX, n, 8)
 	s.emit(&MInst{Op: MREPMOVSB, ImplicitUses: []Reg{RDI, RSI, RCX}, ImplicitDefs: []Reg{RDI, RSI, RCX}})
 }

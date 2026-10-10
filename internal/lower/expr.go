@@ -11,6 +11,10 @@ import (
 
 // expr lowers an expression to a value.
 func (s *fnState) expr(e ast.Expr) value {
+	if p := e.Pos(); p.IsValid() {
+		defer s.f.SetPos(s.f.SetPos(p))
+	}
+	defer s.at(e.Pos())()
 	tv := s.info.Types[e]
 	if tv.Value != nil {
 		return s.constValue(tv.Value, s.typeOf(e), e)
@@ -318,6 +322,9 @@ func (s *fnState) panicUnless(cond *ssa.Value, pos token.Pos, raise func()) {
 	s.seal(fail)
 	s.startBlock(fail)
 	fail.Pos = pos
+	if pos.IsValid() {
+		defer s.f.SetPos(s.f.SetPos(pos))
+	}
 	raise()
 	s.seal(cont)
 	s.startBlock(cont)
@@ -444,6 +451,18 @@ func (s *fnState) selector(e *ast.SelectorExpr, T types2.Type) value {
 	case types2.MethodExpr:
 		fn := sel.Obj().(*types2.Func)
 		targs := s.withMethodTypeArgs(fn, e.Sel, s.recvTypeArgs(sel.Recv()))
+		if len(sel.Index()) > 1 {
+			s.l.errorf(e.Pos(), "method expression %s of a promoted method is not supported yet", e.Sel.Name)
+			return s.zeroValue(T)
+		}
+		_, exprPtr := sel.Recv().Underlying().(*types2.Pointer)
+		_, methPtr := fn.Type().(*types2.Signature).Recv().Type().(*types2.Pointer)
+		if exprPtr && !methPtr {
+			// (*T).M of a value method takes a *T: call M with *p.
+			sig := s.subst(T).Underlying().(*types2.Signature)
+			wrapper := s.l.derefMethodWrapper(fn, targs, sig)
+			return scalarValue(s.symAddr(s.l.closureRecord(wrapper)), T)
+		}
 		return scalarValue(s.funcValue(fn, targs, e.Pos()), T)
 	}
 	return s.zeroValue(T)
@@ -496,7 +515,7 @@ func isAddressable(e ast.Expr, info *types2.Info) bool {
 func (s *fnState) unary(e *ast.UnaryExpr, T types2.Type) value {
 	switch e.Op {
 	case token.AND:
-		return scalarValue(s.lv(e.X).ptr, T)
+		return scalarValue(s.absAddr(s.lv(e.X).ptr), T)
 	case token.ADD:
 		return s.expr(e.X)
 	case token.SUB:
@@ -891,7 +910,7 @@ func (s *fnState) sliceExpr(e *ast.SliceExpr, T types2.Type) value {
 		base, length, capacity = s.sliceParts(sl)
 		elem = u.Elem()
 	case *types2.Array:
-		base = s.lv(e.X).ptr
+		base = s.absAddr(s.lv(e.X).ptr)
 		length = s.constInt(ssa.TI64, u.Len())
 		capacity = length
 		elem = u.Elem()
@@ -1019,6 +1038,11 @@ func (s *fnState) compositeLit(e *ast.CompositeLit, T types2.Type) value {
 			}
 		}
 		return s.loadLV(lv)
+
+	case *types2.Wrapper:
+		if u.Kind() == types2.WrapRing && len(e.Elts) == 0 {
+			return s.zeroValue(T) // ring[T, N]{}: the empty ring
+		}
 	}
 	s.l.errorf(e.Pos(), "lower: unsupported composite literal of type %s", T)
 	return s.zeroValue(T)

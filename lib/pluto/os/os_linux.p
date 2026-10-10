@@ -3,7 +3,7 @@
 //
 // Errors follow pluto/errors. Opening a file reports a *PathError that
 // records the operation and the path; it comes from the same allocator as
-// the File (the default allocator, or the one given to OpenFileIn). Reads,
+// the File (the default allocator, or the one given to OpenFile). Reads,
 // writes and Close report the syscall.Errno alone, so that the I/O path
 // never allocates; Read reports io.EOF at the end of input.
 package os
@@ -136,35 +136,32 @@ func cstring(p *byte) string {
 	return unsafe.String(p, n)
 }
 
-// Open opens a file for reading.
-func Open(name string) (*File, error) {
-	return OpenFile(name, syscall.O_RDONLY, 0)
+// Open opens a file for reading, allocating as OpenFile does.
+func Open(name string, a alloc.Allocator = alloc.Default()) (*File, error) {
+	return OpenFile(name, syscall.O_RDONLY, 0, a)
 }
 
-// Create creates or truncates a file for writing.
-func Create(name string) (*File, error) {
-	return OpenFile(name, syscall.O_WRONLY|syscall.O_CREAT|syscall.O_TRUNC, 0o644)
+// Create creates or truncates a file for writing, allocating as OpenFile
+// does.
+func Create(name string, a alloc.Allocator = alloc.Default()) (*File, error) {
+	return OpenFile(name, syscall.O_WRONLY|syscall.O_CREAT|syscall.O_TRUNC, 0o644, a)
 }
 
 // OpenFile opens a file with the given flags and permissions. The File, or
-// on failure the *PathError, is allocated from the default allocator; free
-// the File with alloc.Free after Close, and the error with errors.Free.
-func OpenFile(name string, flags int, perm uint32) (*File, error) {
-	return OpenFileIn(alloc.Default(), name, flags, perm)
-}
-
-// OpenFileIn is OpenFile with the File or the *PathError allocated from a.
-func OpenFileIn(a alloc.Allocator, name string, flags int, perm uint32) (*File, error) {
+// on failure the *PathError, is allocated from a, by default the default
+// allocator; free the File with alloc.Free after Close, and the error with
+// errors.Free.
+func OpenFile(name string, flags int, perm uint32, a alloc.Allocator = alloc.Default()) (*File, error) {
 	var path [4096]byte
 	if len(name) >= len(path) {
-		return nil, NewPathErrorIn(a, "open", name, syscall.ENAMETOOLONG)
+		return nil, NewPathError("open", name, syscall.ENAMETOOLONG, a)
 	}
 	copy(path[:], name)
 	fd, err := syscall.Open(path[:len(name)+1], flags, perm)
 	if err != nil {
-		return nil, NewPathErrorIn(a, "open", name, err)
+		return nil, NewPathError("open", name, err, a)
 	}
-	f := alloc.NewIn[File](a)
+	f := alloc.New[File](a)
 	f.fd = fd
 	f.name = name
 	return f, nil
@@ -176,7 +173,7 @@ func OpenFileIn(a alloc.Allocator, name string, flags int, perm uint32) (*File, 
 // Its message, "op path: err", is formatted once, when the error is made,
 // into the same block of memory as the PathError, and Op and Path view that
 // copy; so the error stays valid however long the caller's path string
-// lives. Make one with NewPathError or NewPathErrorIn, and release it with
+// lives. Make one with NewPathError, and release it with
 // errors.Free (or by resetting the arena it came from).
 type PathError struct {
 	Op   string
@@ -219,14 +216,10 @@ func (e *PathError) Free() {
 	e.a.Free(unsafe.Pointer(e), e.size, unsafe.Alignof(hdr))
 }
 
-// NewPathError returns a PathError allocated from the default allocator.
-func NewPathError(op, path string, err error) *PathError {
-	return NewPathErrorIn(alloc.Default(), op, path, err)
-}
-
-// NewPathErrorIn returns a PathError for op on path failing with err, with
-// its message, "op path: err", allocated from a in one block.
-func NewPathErrorIn(a alloc.Allocator, op, path string, err error) *PathError {
+// NewPathError returns a PathError for op on path failing with err, with
+// its message, "op path: err", allocated in one block from a, by default
+// the default allocator.
+func NewPathError(op, path string, err error, a alloc.Allocator = alloc.Default()) *PathError {
 	var hdr PathError
 	errMsg := ""
 	if err != nil {
@@ -235,7 +228,7 @@ func NewPathErrorIn(a alloc.Allocator, op, path string, err error) *PathError {
 	n := len(op) + 1 + len(path) + 2 + len(errMsg)
 	off := unsafe.Sizeof(hdr)
 	total := off + uintptr(n)
-	p := alloc.Raw(a, total, unsafe.Alignof(hdr))
+	p := alloc.Raw(total, unsafe.Alignof(hdr), a)
 	text := unsafe.Slice((*byte)(unsafe.Add(p, off)), n)
 	k := copy(text, op)
 	text[k] = ' '

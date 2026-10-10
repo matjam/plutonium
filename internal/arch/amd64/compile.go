@@ -13,6 +13,7 @@ type Code struct {
 	Relocs []Reloc
 	Consts []Const // read-only constants the code refers to
 	Asm    string  // machine IR listing, when requested
+	Debug  *FuncDebug
 }
 
 // A Const is a 16-byte, 16-aligned read-only constant. Its symbol name
@@ -124,16 +125,21 @@ func layoutBlocks(f *MFunc) []*MBlock {
 // jumps where the target is near.
 func encodeFunc(f *MFunc, order []*MBlock) (*Code, error) {
 	e := &encoder{}
+	var insts []*MInst
 	for _, b := range order {
 		b.offset = len(e.code)
 		for _, in := range b.Insts {
+			insts = append(insts, in)
+			e.marks = append(e.marks, len(e.code))
 			e.encode(in)
 		}
 	}
 	if e.err != nil {
 		return nil, e.err
 	}
-	return relax(e), nil
+	code := relax(e)
+	code.Debug = funcDebug(f, insts, e.marks, len(code.Bytes))
+	return code, nil
 }
 
 // relax rewrites the long branches of an encoded function as 2-byte short
@@ -211,6 +217,9 @@ func relax(e *encoder) *Code {
 	relocs := e.relocs
 	for i := range relocs {
 		relocs[i].Off = newPos(relocs[i].Off)
+	}
+	for i := range e.marks {
+		e.marks[i] = newPos(e.marks[i])
 	}
 	return &Code{Bytes: out, Relocs: relocs}
 }

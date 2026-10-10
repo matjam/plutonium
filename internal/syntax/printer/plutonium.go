@@ -34,6 +34,76 @@ func (p *printer) packedType(x *ast.PackedType) {
 	p.fieldList(x.Fields, true, false)
 }
 
+// enumType prints "enum [Base] { members }". Members are laid out like a
+// const block: names in one column, "= value" in the next, comments after.
+// An enum written on one line without comments stays on one line, with
+// members separated by "; ".
+func (p *printer) enumType(x *ast.EnumType) {
+	p.setPos(x.Enum)
+	p.print(token.ENUM)
+	if x.Base != nil {
+		p.print(blank)
+		p.expr(x.Base)
+	}
+	p.print(blank)
+	p.setPos(x.Lbrace)
+	p.print(token.LBRACE)
+
+	hasComments := p.commentBefore(p.posFor(x.Rbrace))
+	if !hasComments && p.lineFor(x.Lbrace) == p.lineFor(x.Rbrace) {
+		for i, m := range x.Members {
+			if i > 0 {
+				p.print(token.SEMICOLON)
+			}
+			p.print(blank)
+			p.enumMember(m, blank)
+		}
+		if len(x.Members) > 0 {
+			p.print(blank)
+		}
+		p.setPos(x.Rbrace)
+		p.print(token.RBRACE)
+		return
+	}
+
+	p.print(indent)
+	if hasComments || len(x.Members) > 0 {
+		p.print(formfeed)
+	}
+	var line int
+	for i, m := range x.Members {
+		if i > 0 {
+			p.linebreak(p.lineFor(m.Pos()), 1, ignore, p.linesFrom(line) > 0)
+		}
+		p.setComment(m.Doc)
+		p.recordLine(&line)
+		extraTabs := p.enumMember(m, vtab)
+		if m.Comment != nil {
+			for ; extraTabs > 0; extraTabs-- {
+				p.print(vtab)
+			}
+			p.setComment(m.Comment)
+		}
+	}
+	p.print(unindent, formfeed)
+	p.setPos(x.Rbrace)
+	p.print(token.RBRACE)
+}
+
+// enumMember prints one member, with sep before its "= value", and returns
+// the number of columns left empty before a line comment.
+func (p *printer) enumMember(m *ast.EnumMember, sep whiteSpace) (extraTabs int) {
+	p.expr(m.Name)
+	if m.Value == nil {
+		return 2
+	}
+	p.print(sep)
+	p.setPos(m.Assign)
+	p.print(token.ASSIGN, blank)
+	p.expr(m.Value)
+	return 1
+}
+
 // bitsGroup prints a group of one-bit flags in a packed type:
 // "bits { A B C }". A group written on one line stays on one line; a group
 // spread over several lines keeps the source's line breaks between names,

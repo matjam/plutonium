@@ -250,6 +250,10 @@ func (f *Func) verifyTypes(v *Value, fail func(string, ...any)) {
 		if !v.Type.IsPtr() {
 			fail("%s: address op must produce a pointer", v.LongString())
 		}
+	case OpReturnAddr, OpCodeAddr:
+		if v.Type.Size != 8 || v.Type.IsFloat() {
+			fail("%s: return address must be a word", v.LongString())
+		}
 	case OpPhi, OpCopy:
 		for _, a := range v.Args {
 			if a != nil && !a.Type.Same(v.Type) {

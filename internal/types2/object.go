@@ -7,6 +7,7 @@ package types2
 import (
 	"bytes"
 	"fmt"
+	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"go/constant"
 	"strings"
@@ -390,6 +391,11 @@ type Func struct {
 	origin      *Func // if non-nil, the Func from which this one was instantiated
 	hasPtrRecv_ bool  // only valid for methods that don't have a type yet; use hasPtrRecv() to read
 	nointerface bool
+
+	// Plutonium: the default values of the trailing parameters of a
+	// declared function or method (language spec section 5.1); see
+	// Defaults.
+	defaults []ast.Expr
 }
 
 // NewFunc returns a new function with the given signature, representing
@@ -402,7 +408,7 @@ func NewFunc(pos token.Pos, pkg *Package, name string, sig *Signature) *Func {
 	if sig != nil {
 		typ = sig
 	}
-	return &Func{object{nil, pos, pkg, name, typ, 0, nopos}, nil, false, false}
+	return &Func{object: object{nil, pos, pkg, name, typ, 0, nopos}}
 }
 
 // Signature returns the signature (type) of the function or method.

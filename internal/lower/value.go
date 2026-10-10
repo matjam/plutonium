@@ -180,6 +180,9 @@ func (s *fnState) constValue(c constant.Value, T types2.Type, pos ast.Node) valu
 		s.l.errorf(pos.Pos(), "lower: constant of non-scalar type %s", T)
 		return s.zeroValue(T)
 	}
+	if t.IsFloat() && s.f.NoSSE {
+		s.floatErrorAt(pos.Pos(), t, "constant")
+	}
 	switch c.Kind() {
 	case constant.Bool:
 		return scalarValue(s.constBool(constant.BoolVal(c)), T)

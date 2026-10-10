@@ -75,15 +75,28 @@ type typeWriter struct {
 	paramNames   bool           // if set, write function parameter names, otherwise, write types only
 	tpSubscripts bool           // if set, write type parameter indices as subscripts
 	pkgInfo      bool           // package-annotate first unexported-type field to avoid confusing type description
+	localSuffix  bool           // Plutonium: tell apart types declared in functions (see SymbolString)
+}
+
+// SymbolString is like [TypeString] but gives every type declared inside a
+// function a suffix made from its position, so that two local types with
+// the same name in different functions have different strings. Compilers
+// use it to name symbols such as type descriptors.
+func SymbolString(typ Type, qf Qualifier) string {
+	var buf bytes.Buffer
+	w := newTypeWriter(&buf, qf)
+	w.localSuffix = true
+	w.typ(typ)
+	return buf.String()
 }
 
 func newTypeWriter(buf *bytes.Buffer, qf Qualifier) *typeWriter {
-	return &typeWriter{buf, make(map[Type]bool), qf, nil, nil, true, false, false}
+	return &typeWriter{buf, make(map[Type]bool), qf, nil, nil, true, false, false, false}
 }
 
 func newTypeHasher(buf *bytes.Buffer, ctxt *Context) *typeWriter {
 	assert(ctxt != nil)
-	return &typeWriter{buf, make(map[Type]bool), nil, ctxt, nil, false, false, false}
+	return &typeWriter{buf, make(map[Type]bool), nil, ctxt, nil, false, false, false, false}
 }
 
 func (w *typeWriter) byte(b byte) {
@@ -476,6 +489,9 @@ func (w *typeWriter) tParamList(list []*TypeParam) {
 func (w *typeWriter) typeName(obj *TypeName) {
 	w.string(packagePrefix(obj.pkg, w.qf))
 	w.string(obj.name)
+	if w.localSuffix && obj.pkg != nil && obj.parent != nil && obj.parent != obj.pkg.scope {
+		w.string("·" + strconv.Itoa(int(obj.pos)))
+	}
 }
 
 func (w *typeWriter) tuple(tup *Tuple, variadic bool) {

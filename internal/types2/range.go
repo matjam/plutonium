@@ -32,7 +32,21 @@ func (check *Checker) rangeStmt(inner stmtContext, rangeStmt *ast.RangeStmt, noN
 	// described situation.
 
 	check.hasCallOrRecv = false
-	check.expr(nil, &x, rangeVar)
+	if check.denotesType(rangeVar) {
+		// Plutonium: range E iterates the members of enum type E, like a
+		// range over an integer whose values are the members.
+		if T, en := check.enumTypeOperand(rangeVar, "cannot range over a type"); en != nil {
+			x.mode_ = value
+			x.typ_ = T
+		}
+		x.expr = rangeVar
+	} else {
+		check.expr(nil, &x, rangeVar)
+		if x.isValid() && isEnum(x.typ()) {
+			check.errorf(&x, InvalidRangeExpr, "cannot range over %s: range over the enum type instead (for v := range %s)", &x, x.typ())
+			x.invalidate()
+		}
+	}
 
 	if isTypes2 && x.isValid() && sValue == nil && !check.hasCallOrRecv {
 		if t, ok := arrayPtrDeref(x.typ().Underlying()).(*Array); ok {

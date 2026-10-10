@@ -209,7 +209,9 @@ func operandString(x *operand, qf Qualifier) string {
 				switch x.typ().(type) {
 				case *Alias, *Named:
 					what := compositeKind(x.typ())
-					if what == "" {
+					if isEnum(x.typ()) {
+						what = "enum"
+					} else if what == "" {
 						// x.typ must be basic type
 						what = x.typ().Underlying().(*Basic).name
 					}

@@ -29,7 +29,10 @@ import (
 // Config controls lowering.
 type Config struct {
 	Freestanding bool
-	Sizes        types2.Sizes
+	// Kernel compiles for ring 0 (--mode kernel): functions not marked
+	// //pu:fpu may not use floating point, and //pu:percpu is allowed.
+	Kernel bool
+	Sizes  types2.Sizes
 }
 
 // An Error is a lowering error at a source position.
@@ -56,11 +59,13 @@ type Lowerer struct {
 	queue          []*funcJob
 	globals        map[*types2.Var]*ssa.Sym
 	strs           map[string]*ssa.Sym
-	closureRecords map[*ssa.Sym]*ssa.Sym // static closure record per function used as a value
-	exports        map[*ssa.Sym][]string // extra symbol names from //pu:export
-	interruptSyms  map[*ssa.Sym]bool     // //pu:interrupt functions
-	cfuncs         map[*ssa.Sym]bool     // //pu:extern symbols, called with the C convention
-	statics        int                   // anonymous static objects created
+	closureRecords map[*ssa.Sym]*ssa.Sym      // static closure record per function used as a value
+	exports        map[*ssa.Sym][]string      // extra symbol names from //pu:export
+	interruptSyms  map[*ssa.Sym]bool          // //pu:interrupt functions
+	cfuncs         map[*ssa.Sym]bool          // //pu:extern symbols, called with the C convention
+	statics        int                        // anonymous static objects created
+	errorSites     map[*ast.CallExpr]*ssa.Sym // static error of each errors.New call site
+	perCPUSelfSym  *ssa.Sym                   // pluto.percpu.self, once a per-CPU variable exists
 	types          *typeTable
 
 	errs []error
@@ -105,6 +110,7 @@ func Lower(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 		globals:        map[*types2.Var]*ssa.Sym{},
 		strs:           map[string]*ssa.Sym{},
 		closureRecords: map[*ssa.Sym]*ssa.Sym{},
+		errorSites:     map[*ast.CallExpr]*ssa.Sym{},
 		exports:        map[*ssa.Sym][]string{},
 		interruptSyms:  map[*ssa.Sym]bool{},
 		cfuncs:         map[*ssa.Sym]bool{},
@@ -179,9 +185,10 @@ func pkgPath(pkg *types2.Package) string {
 	return pkg.Path()
 }
 
-// typeString formats a type for symbol names: fully qualified by import path.
+// typeString formats a type for symbol names: fully qualified by import
+// path, with types declared in functions told apart by position.
 func typeString(T types2.Type) string {
-	return types2.TypeString(T, func(p *types2.Package) string { return p.Path() })
+	return types2.SymbolString(T, func(p *types2.Package) string { return p.Path() })
 }
 
 // funcSymName returns the symbol name of a function or method instance.
@@ -205,6 +212,11 @@ func funcSymName(fn *types2.Func, targs []types2.Type) string {
 		name := rt.String()
 		if n, ok := types2.Unalias(rt).(*types2.Named); ok {
 			name = n.Obj().Name()
+			if tn := n.Obj(); tn.Parent() != nil && tn.Pkg() != nil && tn.Parent() != tn.Pkg().Scope() {
+				// Methods of types declared in functions (enum String
+				// methods) need names that tell such types apart.
+				name += fmt.Sprintf("·%d", tn.Pos())
+			}
 		}
 		if nr := sig.RecvTypeParams().Len(); nr > 0 && sig.TypeParams().Len() > 0 && len(targs) >= nr {
 			name += "[" + typeList(targs[:nr]) + "]"
@@ -267,6 +279,11 @@ func directives(doc *ast.CommentGroup) []string {
 func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 	fn = fn.Origin()
 	d := l.decls[fn]
+	if d == nil {
+		if en := enumOfMethod(fn); en != nil {
+			return l.enumString(fn, en)
+		}
+	}
 	if d != nil && d.decl.Body == nil {
 		if name, ok := externName(d.decl); ok {
 			sym := l.out.Sym(name, ssa.SymExtern)
