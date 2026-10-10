@@ -12,9 +12,10 @@
 // the build strips field names (--fieldnames=false, the default in kernel
 // mode). Containers print through their methods: a Mapper (hash.Map) like
 // a Go map, map[k:v] with sorted keys, and a Lister (vec.Vec) like a slice.
-// %s, %q, %x and %X apply to an error's message. %w is accepted only by
-// Errorf and ErrorBuf.Errorf (see errorf.p), where it prints the error like
-// %v and wraps it.
+// A union without a String method prints as the variant it holds, followed
+// by its payload in parentheses: Some(5), None. %s, %q, %x and %X apply to
+// an error's message. %w is accepted only by Errorf and ErrorBuf.Errorf
+// (see errorf.p), where it prints the error like %v and wraps it.
 //
 // Formatting never allocates: output goes through the printer's fixed
 // buffer.

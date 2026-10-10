@@ -1132,6 +1132,13 @@ func (check *Checker) hasVarSize(t Type) bool {
 			}
 		}
 
+	case *TaggedUnion:
+		for _, v := range t.variants {
+			if check.hasVarSize(v.typ) {
+				return true
+			}
+		}
+
 	case *TypeParam:
 		return true
 	}

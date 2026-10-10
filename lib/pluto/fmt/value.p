@@ -100,6 +100,15 @@ func (p *printer) printKind(t *rt.Type, ptr unsafe.Pointer, verb rune, depth int
 		p.fmtPointer(t, ptr, verb)
 	case rt.KindUnsafePointer, rt.KindFunc:
 		p.fmtPointer(t, ptr, verb)
+	case rt.KindUnion:
+		// The variant's name, then its payload in parentheses.
+		variant, payload, hasPayload := rt.UnionInfo(rt.Make(t, t.Word(ptr)))
+		p.writeString(variant)
+		if hasPayload {
+			p.writeByte('(')
+			p.printArg(payload, verb)
+			p.writeByte(')')
+		}
 	case rt.KindPacked:
 		if t.Direct() {
 			p.printNumber(loadUint(ptr, t.Size()), false, verb)

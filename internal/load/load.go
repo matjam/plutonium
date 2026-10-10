@@ -519,15 +519,58 @@ var knownSuffixTags = map[string]bool{
 	"linux": true, "none": true,
 }
 
+// BuildTags returns the build tags that are set for a build mode on
+// x86-64: hosted Linux, or freestanding (and kernel) with no operating
+// system, plus the extra tags.
+func BuildTags(freestanding, kernel bool, extra []string) map[string]bool {
+	tags := map[string]bool{"amd64": true}
+	if freestanding || kernel {
+		tags["none"] = true
+		tags["freestanding"] = true
+		if kernel {
+			tags["kernel"] = true
+		}
+	} else {
+		tags["linux"] = true
+		tags["hosted"] = true
+	}
+	for _, t := range extra {
+		tags[t] = true
+	}
+	return tags
+}
+
+// MatchFile reports whether a Plutonium source file belongs in a build with
+// the given tags: its name suffixes (name_tag.p, name_os_arch.p) and its
+// //pu:build line must both allow it. Editors use it to choose a file's
+// package the way the loader does.
+func MatchFile(tags map[string]bool, name string, src []byte) (bool, error) {
+	if !nameMatches(tags, name) {
+		return false, nil
+	}
+	return constraintMatches(tags, src, path.Ext(name) == ".s")
+}
+
+// FindModule walks up from the absolute directory dir looking for
+// pluto.mod, and returns the directory holding it and the module path, or
+// two empty strings if there is none.
+func FindModule(dir string) (root, modPath string, err error) { return findModule(dir) }
+
+func (l *loader) nameMatches(name string) bool { return nameMatches(l.cfg.Tags, name) }
+
+func (l *loader) constraintMatches(data []byte, isAsm bool) (bool, error) {
+	return constraintMatches(l.cfg.Tags, data, isAsm)
+}
+
 // nameMatches applies file name suffix rules: name_tag.p and name_os_arch.p,
 // and the same before _test.p.
-func (l *loader) nameMatches(name string) bool {
+func nameMatches(tags map[string]bool, name string) bool {
 	base := strings.TrimSuffix(name, path.Ext(name))
 	base = strings.TrimSuffix(base, "_test")
 	parts := strings.Split(base, "_")
 	n := len(parts)
 	for i := n - 1; i >= 1 && i >= n-2; i-- {
-		if t := parts[i]; knownSuffixTags[t] && !l.cfg.Tags[t] {
+		if t := parts[i]; knownSuffixTags[t] && !tags[t] {
 			return false
 		}
 	}
@@ -536,7 +579,7 @@ func (l *loader) nameMatches(name string) bool {
 
 // constraintMatches evaluates the //pu:build line (or #pu:build in assembly)
 // before the package clause.
-func (l *loader) constraintMatches(data []byte, isAsm bool) (bool, error) {
+func constraintMatches(tags map[string]bool, data []byte, isAsm bool) (bool, error) {
 	sc := bufio.NewScanner(strings.NewReader(string(data)))
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -558,7 +601,7 @@ func (l *loader) constraintMatches(data []byte, isAsm bool) (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("bad build constraint %q: %w", expr, err)
 		}
-		return c.Eval(func(tag string) bool { return l.cfg.Tags[tag] }), nil
+		return c.Eval(func(tag string) bool { return tags[tag] }), nil
 	}
 	return true, nil
 }

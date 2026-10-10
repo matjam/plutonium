@@ -223,10 +223,15 @@ type PageProtector interface {
 ```
 
 it gets guard pages and inaccessible freed blocks; otherwise every allocation is canary-guarded. A kernel
-can call `debug.DescribeFault(addr, pc, write)` from its page fault handler: it prints the message for a
-fault in one of the allocator's blocks and returns true, or returns false. `CheckHeap` and `ReportLeaks`
-can be called whenever the kernel likes, and `rt.Traceback` prints the trace of the faulting code after
-it. Hosted builds wire up the equivalent automatically ([Faults](#faults-and-the-runtime)).
+can call `debug.DescribeFault(addr, pc, write)` from its page fault handler: for a fault in one of the
+allocator's blocks it starts a panic (`rt.BeginPanic`) whose message is the diagnosis and returns true, or
+returns false having done nothing. Either way the kernel then calls `rt.PanicFault`, which raises the
+panic, with the allocator's message or the runtime's, and a trace from the faulting instruction (language
+spec section 8.1). `CheckHeap` and `ReportLeaks` can be called whenever the kernel likes. Hosted builds
+wire up the equivalent automatically ([Faults](#faults-and-the-runtime)).
+
+Every error the allocator finds is a panic: it writes its message after `rt.BeginPanic` and raises it
+with `rt.Abort`, so it reaches the program's panic handler like any other.
 
 ## Faults and the runtime
 
@@ -235,12 +240,14 @@ A hosted program has one fault handler, the runtime's, installed at startup for 
 `debug.New` registers `DescribeFault` with `rt.SetFaultHandler`, which makes it the first to hear of a
 memory access fault, and an exit hook with `rt.SetExitHook`. On a fault the runtime
 
-1. calls `DescribeFault`, which prints the heap diagnosis if the address lies in one of the allocator's
-   blocks; otherwise the runtime prints its own message (a nil dereference, a stack overflow, an
-   unexpected fault address);
-2. prints the signal, the fault address and the faulting instruction's address, then the stack trace
-   from the faulting instruction;
-3. exits with status 2, without running the exit hook, so a crashed program does not also report leaks.
+1. starts a panic and calls `DescribeFault`, which writes the heap diagnosis as the panic's message if
+   the address lies in one of the allocator's blocks; otherwise the runtime writes its own (a nil
+   dereference, a stack overflow, an unexpected fault address);
+2. calls the panic handler, which in a program without one of its own prints the message, the signal,
+   the fault address and the faulting instruction's address, then the stack trace from the faulting
+   instruction;
+3. and exits with status 2, without running the exit hook, so a crashed program does not also report
+   leaks.
 
 ## Concurrency
 

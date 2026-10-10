@@ -188,6 +188,11 @@ type Checker struct {
 	// can be explained (see indexing.go).
 	containerIndexes map[ast.Expr]Type // to the container's type
 
+	// Plutonium: type switches on union values that name every variant
+	// (or cover every tag value of a packed union) without a default
+	// case. Such a switch is a terminating statement if every case is.
+	exhaustive map[*ast.TypeSwitchStmt]bool
+
 	// Plutonium: the declared function or method each identifier names
 	// when it is used as a value or callee, so that a call can find the
 	// default values of its callee (see calleeFunc).

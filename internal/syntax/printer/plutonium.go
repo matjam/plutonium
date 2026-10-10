@@ -17,21 +17,64 @@ import (
 func (p *printer) packedType(x *ast.PackedType) {
 	p.setPos(x.Packed)
 	p.print(token.PACKED)
-	switch x.Order {
+	p.packedLayout(x.Order, x.Backing, x.Fields)
+}
+
+// packedLayout prints the byte order, the backing type and the fields of a
+// packed type or packed union.
+func (p *printer) packedLayout(order ast.Endianness, backing ast.Expr, fields *ast.FieldList) {
+	switch order {
 	case ast.LittleEndian:
 		p.print(blank, &ast.Ident{Name: "le"})
 	case ast.BigEndian:
 		p.print(blank, &ast.Ident{Name: "be"})
 	}
-	if x.Backing != nil {
+	if backing != nil {
 		p.print(blank)
-		p.expr(x.Backing)
+		p.expr(backing)
 	}
-	if p.fieldListIsOneLine(x.Fields, false) {
+	p.blankFieldList(fields)
+}
+
+// blankFieldList prints a field list after a blank, in the one-line form as
+// well as the multi-line one.
+func (p *printer) blankFieldList(fields *ast.FieldList) {
+	if p.fieldListIsOneLine(fields, false) {
 		// fieldList prints its own blank only in the multi-line form.
 		p.print(blank)
 	}
+	p.fieldList(fields, true, false)
+}
+
+// unionType prints "union { variants }" like a struct type, and
+// "packed union [le|be] Backing { fields }" like a packed type.
+func (p *printer) unionType(x *ast.UnionType) {
+	if x.Packed.IsValid() {
+		p.setPos(x.Packed)
+		p.print(token.PACKED, blank)
+	}
+	p.setPos(x.Union)
+	p.print(&ast.Ident{NamePos: x.Union, Name: "union"})
+	if x.Packed.IsValid() {
+		p.packedLayout(x.Order, x.Backing, x.Fields)
+		return
+	}
 	p.fieldList(x.Fields, true, false)
+}
+
+// variantCase prints the body of a packed union variant:
+// "case v1, v2 { fields }".
+func (p *printer) variantCase(x *ast.VariantCase) {
+	p.setPos(x.Case)
+	p.print(token.CASE)
+	for i, v := range x.Values {
+		if i > 0 {
+			p.print(token.COMMA)
+		}
+		p.print(blank)
+		p.expr(v)
+	}
+	p.blankFieldList(x.Fields)
 }
 
 // enumType prints "enum [Base] { members }". Members are laid out like a

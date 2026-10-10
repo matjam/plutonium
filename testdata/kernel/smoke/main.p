@@ -28,6 +28,19 @@ func serialWrite(p unsafe.Pointer, n int) {
 	}
 }
 
+// onPanic reports a panic over the serial port and leaves QEMU through the
+// isa-debug-exit device with status 3.
+//
+//pu:panic
+func onPanic(p *rt.Panic) {
+	p.Print(rt.Console{})
+	for {
+		x86.Outl(0xf4, 3)
+		x86.Cli()
+		x86.Hlt()
+	}
+}
+
 //pu:percpu
 var cpuID int = -1
 

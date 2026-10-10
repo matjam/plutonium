@@ -19,7 +19,8 @@ type containerRef struct {
 	iface *value      // the container, when it is an interface value
 	T     types2.Type // the container's type
 	key   value
-	at    ast.Node
+	at    ast.Expr // the index expression, or the operand of len
+	x     ast.Expr // the container operand
 }
 
 // isContainerIndex reports whether e calls a container's indexing methods.
@@ -94,8 +95,9 @@ func (s *fnState) containerCall(r *containerRef, name string, args []value) []va
 		args[i] = s.materialize(s.assignConvert(args[i], sig.Params().At(i).Type(), r.at))
 	}
 	pos := r.at.Pos()
+	desc := types2.ExprString(r.at) + " (" + name + ")" // for the interrupt-context check
 	if r.iface != nil {
-		return s.ifaceCall(*r.iface, r.T, fn, sig, args, pos)
+		return s.ifaceCall(*r.iface, r.T, fn, sig, args, pos, desc)
 	}
 	obj, path, _ := types2.LookupFieldOrMethod(unwrap(r.base.T), true, nil, name)
 	fn = obj.(*types2.Func)
@@ -103,12 +105,13 @@ func (s *fnState) containerCall(r *containerRef, name string, args []value) []va
 	recv := s.receiverAt(r.base, wantPtr, path)
 	if isIfaceMethod(fn) {
 		// Promoted from an embedded interface field.
-		return s.ifaceCall(recv, recv.T, fn, sig, args, pos)
+		return s.ifaceCall(recv, recv.T, fn, sig, args, pos, desc)
 	}
 	targs := s.containerTypeArgs(fn, r.base.T)
 	sym := s.l.funcSym(fn, targs)
 	full := s.l.methodSig(fn, targs)
-	return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn)}, full, &recv, args, pos)
+	site := &callSite{desc: desc, recv: types2.ExprString(r.x)}
+	return s.emitCall(callee{sym: sym, noReturn: s.l.isNoReturn(fn), site: site}, full, &recv, args, pos)
 }
 
 // containerLoad reads x[k]: x.Index(k).
@@ -149,9 +152,9 @@ func (s *fnState) containerLen(x ast.Expr, pos token.Pos) value {
 // container evaluates the container operand x once, as the receiver of
 // its methods: its storage if it is addressable, the target of a pointer,
 // an interface value, or a temporary holding any other value.
-func (s *fnState) container(x ast.Expr, at ast.Node) *containerRef {
+func (s *fnState) container(x ast.Expr, at ast.Expr) *containerRef {
 	T := unwrap(s.typeOf(x))
-	r := &containerRef{T: T, at: at}
+	r := &containerRef{T: T, at: at, x: x}
 	switch {
 	case isInterface(T):
 		iv := s.materialize(s.expr(x))

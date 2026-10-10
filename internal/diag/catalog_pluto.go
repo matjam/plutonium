@@ -341,6 +341,108 @@ func init() {
 			Example: "v := load()[\"key\"]",
 		},
 
+		// Unions.
+		&Entry{
+			Code: CheckerCode(typerr.MisplacedUnion), Name: "MisplacedUnion",
+			Text:    "A union type can only be the type of a type definition, type U union { ... }. It cannot be written inline in a variable or field, or be an alias, because its variants are reached through its name (U.V).",
+			Spec:    pspec("5.10", "Unions"),
+			Example: "type Alias = union { A int; B }",
+			Fixed:   "type Shape union {\n\tA int\n\tB\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.GenericPackedUnion), Name: "GenericPackedUnion",
+			Text: "A packed union cannot have type parameters. Its layout is fixed bit by bit by its backing type, its tag and its fields, so it cannot depend on a type argument. An ordinary union can be generic.",
+			Spec: pspec("5.10", "Unions"),
+		},
+		&Entry{
+			Code: CheckerCode(typerr.EmptyUnion), Name: "EmptyUnion",
+			Text:    "A union value holds one of its variants, so a union needs at least one. Variants are written like struct fields: a name, and a payload type if the variant carries data.",
+			Spec:    pspec("5.10", "Unions"),
+			Example: "type Option union {}",
+			Fixed:   "type Option union {\n\tNone\n\tSome int\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.BadVariantDecl), Name: "BadVariantDecl",
+			Text:    "Each variant of a union has a name of its own, which is not _, followed by its payload type if it has one. Variants have no tags, and in a packed union each variant has its own case clause.",
+			Spec:    pspec("5.10", "Unions"),
+			Example: "type Value union {\n\t*Node\n\t_ int\n}",
+			Fixed:   "type Value union {\n\tRef  *Node\n\tSize int\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.TooManyVariants), Name: "TooManyVariants",
+			Text: "A union numbers its variants with a tag of at most 16 bits, so it can have at most 65536 variants. Group related variants into a variant whose payload is another union or an enum.",
+			Spec: pspec("5.10", "Unions"),
+		},
+		&Entry{
+			Code: CheckerCode(typerr.UnionOwnerPayload), Name: "UnionOwnerPayload",
+			Text: "This payload holds an owned, shared or synced pointer, directly or in a field, an array element or another union. Such a pointer owns, or counts references to, what it points at. A union holding one must release the payload of the variant it holds when the union is dropped or given a new variant, so it must be declared owner like a struct, and that needs the ownership checker, which the compiler does not have yet.\nUntil it does, hold a plain pointer in the payload and free the object yourself.",
+			Why:  "In Go, the garbage collector frees what any value points at. Plutonium has no garbage collector, so the compiler must release what a union owns; until it can, it rejects the union rather than leak the payload or free it twice.",
+			Fix:  &Fix{Intro: "Hold a plain pointer, and free it explicitly", Code: "type Slot union {\n\tEmpty\n\tFull *Buffer\n}"},
+			Spec: pspec("5.10", "Unions"),
+			Example: "type Slot union {\n\tEmpty\n\tFull owned[Buffer]\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.BadUnionTag), Name: "BadUnionTag",
+			Text: "A packed union has a backing type, which fixes its size, and exactly one named field before its variants: the tag. The tag is a bool, integer or enum field that occupies the same bits in every variant, and each variant lists the tag values that select it.",
+			Spec: pspec("5.10", "Unions"),
+			Example: "type PTE packed union uint64 {\n\tSwapped case false { slot bits[uint64, 63] }\n}",
+			Fixed:   "type PTE packed union uint64 {\n\tpresent bits[bool, 1]\n\n\tSwapped case false { slot bits[uint64, 63] }\n\tMapped case true { frame bits[uint64, 40] }\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.BadVariantCase), Name: "BadVariantCase",
+			Text:    "The values after case in a packed union variant are the tag values that select it. Each must be a constant of the tag's type that fits in the tag's bits, and no value may select two variants, so that every bit pattern means at most one variant.",
+			Spec:    pspec("5.10", "Unions"),
+			Example: "type Desc packed union uint8 {\n\tkind bits[uint8, 2]\n\tA case 1 {}\n\tB case 1, 4 {}\n}",
+			Fixed:   "type Desc packed union uint8 {\n\tkind bits[uint8, 2]\n\tA case 1 {}\n\tB case 2, 3 {}\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.VariantNotType), Name: "VariantNotType",
+			Text:    "A variant of a union is not a type. U.V(x) and U.V{...} make a value of the union type U holding the variant, and a type switch on a union gives you the payload of the variant it holds, which has the payload's own type.\nTo keep a payload in a variable, give the variable the payload's type.",
+			Why:     "Go has no unions. Keeping variants out of the type system means a payload always has its own type and methods, and generic unions need no special rules.",
+			Spec:    pspec("5.10", "Unions"),
+			Example: "var r DeviceState.Ready",
+			Fixed:   "var st DeviceState = DeviceState.Ready{irq: 11}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.UnknownVariant), Name: "UnknownVariant",
+			Text: "The union has no variant with this name, or the type before the dot is not a union, so it has no variants at all. The message lists the variants the union has.",
+			Spec: pspec("5.10", "Unions"),
+		},
+		&Entry{
+			Code: CheckerCode(typerr.UnexportedVariant), Name: "UnexportedVariant",
+			Text: "Union variants follow Go's rule for names: a variant whose name starts with a lower-case letter is visible only inside its own package. A switch in another package that cannot name it needs a default case.",
+			Spec: pspec("5.10", "Unions"),
+		},
+		&Entry{
+			Code: CheckerCode(typerr.UnionLiteral), Name: "UnionLiteral",
+			Text:    "A union value holds one of its variants, so a literal must name the variant: U.V{...} for a variant whose payload is a struct, array or packed type, or U.V(payload) for any variant with a payload. A variant without a payload is the value U.V itself. In a packed union, the variant sets the tag, so its literal cannot.",
+			Spec:    pspec("5.10", "Unions"),
+			Example: "st := DeviceState{}",
+			Fixed:   "st := DeviceState.Off\nst = DeviceState.Probing{attempt: 1}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.NotAVariant), Name: "NotAVariant",
+			Text:    "A type switch on a union value, and a type assertion on one, name the union's own variants: U.V, or in a case of the switch the bare name V. A union value is never nil, and a variant of another union, or a type, can never match.\nA bare variant name is accepted only in the cases of a type switch, where the switch says which union is meant.",
+			Spec:    pspec("5.10", "Unions"),
+			Example: "switch v := st.(type) {\ncase int:\n\t...\n}",
+			Fixed:   "switch v := st.(type) {\ncase Probing:\n\t...\ndefault:\n\t...\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.MissingVariantCase), Name: "MissingVariantCase",
+			Text: "A type switch on a union value that has no default case must name every variant. That way, adding a variant to the union shows every switch that needs to handle it.\nAdd a case for each missing variant, or a default case if the remaining variants share one action. A switch that names every variant needs no default to end a function.",
+			Why:  "Go cannot check this for interfaces, whose set of types is open. A union's variants are a closed set, so the compiler can tell when one is forgotten.",
+			Spec: pspec("5.10", "Unions"),
+			Example: "switch s := st.(type) {\ncase Off:\n\tstart()\ncase Probing:\n\tretry(s.attempt)\n}",
+			Fixed:   "switch s := st.(type) {\ncase Off:\n\tstart()\ncase Probing:\n\tretry(s.attempt)\ncase Ready, Failed:\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.PackedUnionNoDefault), Name: "PackedUnionNoDefault",
+			Text:    "A packed union's bits usually come from hardware or from converting a raw value, so its tag may hold any value its bits allow, including values no variant names. A type switch without a default case must therefore cover every value of the tag; this one does not.\nAdd a default case that handles the other values.",
+			Spec:    pspec("5.10", "Unions"),
+			Example: "switch d.(type) {\ncase Seg:\n\t...\ncase Int:\n\t...\n}",
+			Fixed:   "switch d.(type) {\ncase Seg:\n\t...\ncase Int:\n\t...\ndefault:\n\treturn errBadDescriptor\n}",
+		},
+
 		// Rules checked while compiling.
 		&Entry{
 			Code: NotYetSupported, Name: "NotYetSupported",
@@ -458,5 +560,56 @@ func init() {
 			Fix:  &Fix{Intro: "Take its address for the table", Code: "addr := x86.HandlerAddr(timer)"},
 			Spec: pspec("11.4", "pluto/arch/x86"),
 		},
+		&Entry{
+			Code: NoPanicHandler, Name: "NoPanicHandler",
+			Text: "A freestanding or kernel build has no operating system to report a crash to, so the program itself must say what happens when it panics (print to a serial port or screen, then halt). It does so with one function marked //pu:panic.",
+			Why:  whyPanicHandler,
+			Fix:  &Fix{Intro: "Mark one function with //pu:panic", Code: "//pu:panic\nfunc onPanic(p *rt.Panic) { ... }"},
+			Spec: pspec("8.1", "Panics in freestanding programs"),
+			Example: "package main\n\nfunc main() {}",
+			Fixed:   "package main\n\nimport (\n\t\"pluto/arch/x86\"\n\t\"pluto/rt\"\n)\n\n//pu:panic\nfunc onPanic(p *rt.Panic) {\n\tp.Print(rt.Console{})\n\tfor {\n\t\tx86.Cli()\n\t\tx86.Hlt()\n\t}\n}\n\nfunc main() {}",
+		},
+		&Entry{
+			Code: DupPanicHandler, Name: "DupPanicHandler",
+			Text: "A program has exactly one panic handler, and another function is already marked //pu:panic. Remove //pu:panic from all but one of them.",
+			Why:  whyPanicHandler,
+			Spec: pspec("8.1", "Panics in freestanding programs"),
+		},
+		&Entry{
+			Code: PanicHandlerDecl, Name: "PanicHandlerDecl",
+			Text: "The runtime calls the panic handler, the function marked //pu:panic, with a description of the panic, and never expects it to return. It is a plain function with a body, not a method, not generic and not also an interrupt handler, that takes a *rt.Panic and returns nothing.",
+			Why:  whyPanicHandler,
+			Fix:  &Fix{Intro: "Declare it", Code: "//pu:panic\nfunc onPanic(p *rt.Panic) { ... }"},
+			Spec: pspec("8.1", "Panics in freestanding programs"),
+		},
+		&Entry{
+			Code: PanicHandlerRet, Name: "PanicHandlerRet",
+			Text: "A panic stops the program: it does not unwind, so there is nothing for the panic handler to return to. Every path through it must end in an endless loop or in a call of a function that never returns: one marked //pu:noreturn, such as os.Exit, or one whose every path ends the same way. A call through a func value or an interface, and recursion, count as returning.",
+			Why:  whyPanicHandler,
+			Fix:  &Fix{Intro: "End the handler by halting", Code: "for {\n\tx86.Cli()\n\tx86.Hlt()\n}"},
+			Spec: pspec("8.1", "Panics in freestanding programs"),
+			Example: "//pu:panic\nfunc onPanic(p *rt.Panic) {\n\tp.Print(rt.Console{})\n}",
+			Fixed:   "//pu:panic\nfunc onPanic(p *rt.Panic) {\n\tp.Print(rt.Console{})\n\tfor {\n\t\tx86.Cli()\n\t\tx86.Hlt()\n\t}\n}",
+		},
+		&Entry{
+			Code: ContextWaits, Name: "ContextWaits",
+			Text: "Interrupt handlers run on top of whatever code the CPU was executing, and the panic handler on top of whatever panicked. If either waits, for a lock or for room in a channel, the code it interrupted can never resume to release it, and the CPU stops. So nothing they can reach may call a function marked //pu:blocking (such as sync.Mutex.Lock), send or receive on a channel outside a select with a default case, run a select without one, or allocate from an allocator that may wait.\nCalls through interfaces and func values count as calling every method or function they could reach in the program.",
+			Why:  whyContext,
+			Fix:  &Fix{Intro: "To hand work to normal code, use a non-blocking send", Code: "select { case work <- item: default: }"},
+			Spec: pspec("12.6", "Interrupts"),
+		},
+		&Entry{
+			Code: ContextSpawns, Name: "ContextSpawns",
+			Text: "Interrupt handlers run on top of whatever code the CPU was executing, and the panic handler on top of whatever panicked. Starting a puroutine allocates its stack and takes the scheduler's locks, which the interrupted code may hold, so nothing they can reach may use a go statement.",
+			Why:  whyContext,
+			Fix:  &Fix{Intro: "To hand work to a puroutine, wake one that waits for it, or send without waiting", Code: "select { case work <- item: default: }"},
+			Spec: pspec("12.6", "Interrupts"),
+		},
 	)
 }
+
+// whyPanicHandler is why the panic handler is chosen at compile time.
+const whyPanicHandler = "A kernel has no operating system to fall back on when it panics, so Plutonium makes the program choose what happens at compile time, and checks the choice: the runtime calls the handler directly, with nothing to register, so it works from the first instruction."
+
+// whyContext is why interrupt context is checked at compile time.
+const whyContext = "A kernel that waits in an interrupt handler hangs, often only under load and far from the cause, so Plutonium checks the whole program at compile time instead."
