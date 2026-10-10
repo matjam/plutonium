@@ -648,7 +648,16 @@ const maxLeakLines = 64
 // It prints nothing when there are none.
 func (d *Allocator) ReportLeaks() int {
 	d.lock()
-	n := d.live
+	// Puroutine stacks (allocated at rt.StackSite) belong to the runtime,
+	// which frees each when its puroutine ends; one that is still running,
+	// or blocked when main returns, is not the program's leak.
+	n, bytes := d.live, d.liveBytes
+	for i := 0; i < d.nrecs; i++ {
+		if r := &d.recs[i]; r.state == stateLive && r.pc == rt.StackSite {
+			n--
+			bytes -= r.size
+		}
+	}
 	if n == 0 {
 		d.unlock()
 		return 0
@@ -661,12 +670,12 @@ func (d *Allocator) ReportLeaks() int {
 		print(" allocations")
 	}
 	print(" still live, ")
-	printDec(d.liveBytes)
+	printDec(bytes)
 	print(" bytes:\n")
 	shown := 0
 	for i := 0; i < d.nrecs && shown < maxLeakLines; i++ {
 		r := &d.recs[i]
-		if r.state != stateLive {
+		if r.state != stateLive || r.pc == rt.StackSite {
 			continue
 		}
 		shown++
@@ -715,9 +724,10 @@ func (d *Allocator) Stats() Stats {
 // DescribeFault explains a memory access fault at addr, by the instruction
 // at pc, if addr lies in a block of a debug allocator: a guard page of a live
 // allocation (an overflow or underflow) or a freed block (a use after free).
-// It prints a "panic: " message and returns true, or returns false if addr
-// is not in any block. Hosted builds call it from the fault handler; a
-// kernel can call it from its page fault handler.
+// It starts a panic (rt.BeginPanic), writes the panic's message and
+// returns true, or returns false having done nothing if addr is not in any
+// block. Hosted builds call it from the fault handler; a kernel can call it
+// from its page fault handler, then raise the panic with rt.PanicFault.
 func DescribeFault(addr, pc uintptr, write bool) bool {
 	for d := all; d != nil; d = d.next {
 		// The faulting code may hold the lock (a fault inside the

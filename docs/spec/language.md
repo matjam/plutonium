@@ -92,7 +92,8 @@ time.
 ### 4.1 `panic` aborts
 
 `panic(v)` stops the program. It does not unwind the stack, deferred calls do not run, and owners are not
-dropped (section 6.4). See [section 8](#8-runtime-faults-and-panic).
+dropped (section 6.4). It calls the program's panic handler, which never returns. See
+[section 8](#8-runtime-faults-and-panic).
 
 ### 4.2 `new` and `make` allocate from an allocator
 
@@ -1969,25 +1970,136 @@ The following stop the program through the same path as `panic`:
 - overflowing a puroutine's stack (the guard page faults),
 - `panic(v)`.
 
-Panicking prints `panic: ` followed by the value (and, for faults, what failed and where), then a stack
-trace with the function, file and line of each frame, and stops. It does not unwind: deferred functions
-do not run and owners are not dropped. In hosted builds the process exits with status 2. In freestanding
-builds the compiler calls
-the function registered with `rt.SetPanicHandler`; the default handler disables interrupts and halts the
-processor.
+A panic does not unwind: deferred functions do not run and owners are not dropped. The runtime writes
+the panic's message and calls the program's **panic handler** (section 8.1), which never returns. In
+hosted builds without a handler of their own, the built-in one prints `panic: ` followed by the value
+(and, for faults, what failed and where), then a stack trace with the function, file and line of each
+frame, and the process exits with status 2.
 
 Dereferencing a nil pointer is not checked by the compiler; it faults in hardware wherever address zero is
 unmapped, which is true in hosted builds and should be arranged by kernels. In hosted builds the runtime
-reports such faults, and stack overflows, like a panic, with a trace from the faulting instruction. Heap
-misuse through raw pointers is not checked either, except by the debug allocator (section 7.3), which
-reports it through the same path: a fault in its heap is described by the allocator first, then the
-trace follows.
+turns such faults, and stack overflows, into a panic, with a trace from the faulting instruction; a kernel
+does the same from its exception handlers with `rt.PanicFault` (section 8.1). Heap misuse through raw
+pointers is not checked either, except by the debug allocator (section 7.3), which reports it through the
+same path: a fault in its heap is described by the allocator, and that description is the panic's
+message.
 
 Stack traces and DWARF debugging information (`-g`, on by default; `-s` strips it) are described in
 [debugging.md](debugging.md); the debug allocator in [debug-allocator.md](debug-allocator.md).
 
 Bounds checks can be removed from a function with `//pu:nobounds`, for code that has been proven correct
 and must be as fast as possible. The optimiser removes most bounds checks by itself.
+
+### 8.1 Panics in freestanding programs
+
+A program says what happens when it panics by marking one function `//pu:panic`:
+
+```go
+//pu:panic
+func onPanic(p *rt.Panic) {
+	p.Print(serial)           // "panic: ...", the fault if any, the stack trace
+	for {
+		x86.Cli()
+		x86.Hlt()
+	}
+}
+```
+
+- **One handler.** Freestanding and kernel builds must have exactly one; none, or more than one, is a
+  build error, since such a program has no operating system to report a crash to. A hosted program may
+  define one to replace the built-in handler, which prints the panic and exits with status 2.
+- **Its declaration.** A plain function with a body, not a method, not generic, not also
+  `//pu:interrupt`, declared `func name(p *rt.Panic)`.
+- **It never returns.** A panic has nothing to return to. The compiler checks that every path through the
+  handler ends in an endless loop or in a call of a function that never returns: one marked
+  `//pu:noreturn` (`os.Exit`, an assembly halt routine), or one whose every path ends that way, which the
+  compiler infers. A call that the compiler cannot see through (through a func value or interface, or
+  into recursion) counts as returning.
+- **A direct call.** The runtime's panic path calls the handler directly; nothing is registered at run
+  time, so it works from the first instruction of the program, before any initialisation.
+- **It must not wait.** The handler runs on top of whatever panicked, possibly an interrupt handler or
+  code holding a lock, so the rules of section 12.6 apply to it as to an interrupt handler.
+
+`rt.Panic` describes the panic:
+
+```go
+type Panic struct {
+	Message string // "runtime error: index out of range [4] with length 4", or the value passed to panic
+	Value   any    // the value passed to panic, nil for runtime errors and faults
+	Fault   Fault  // the hardware fault, if the panic came from one; Fault.Kind is NoFault otherwise
+	CPU     int    // the processor that panicked: in kernel mode its number from rt.SetCPU, otherwise 0
+}
+
+type Fault struct {
+	Kind   FaultKind // NoFault, MemoryFault, DivideFault or IllegalInstruction
+	Addr   uintptr   // the address accessed, for a MemoryFault, if known
+	PC     uintptr   // the faulting instruction
+	Signal int       // the signal that reported it in hosted builds, or 0
+}
+
+func (p *Panic) Print(w rt.Writer)      // the panic as a hosted program prints it, then the trace
+func (p *Panic) PrintTrace(w rt.Writer) // the stack trace alone
+```
+
+`rt.Writer` has the method of `io.Writer`, so any writer will do; `rt.Console{}` writes where `print`
+does (in freestanding builds, the function registered with `rt.SetConsole`). The message lives in a
+buffer of the runtime (1 KiB, longer messages are cut), and printing the trace reads the trace table and
+the stack (debugging.md section 5), so nothing allocates. Since a panic does not unwind, the stack the
+trace describes is still there while the handler runs.
+
+Hardware faults reach the handler too. In hosted builds the runtime's signal handler does it. A kernel's
+exception handlers call
+
+```go
+rt.PanicFault(kind rt.FaultKind, addr, pc, sp, bp uintptr) // never returns
+```
+
+with the faulting state from the interrupt frame, and the trace starts at the faulting instruction:
+
+```go
+//pu:interrupt
+func pageFault(f *x86.InterruptFrame, code uint64) {
+	rt.PanicFault(rt.MemoryFault, uintptr(x86.ReadCR2()), uintptr(f.RIP), uintptr(f.RSP), 0)
+}
+```
+
+Tools that describe an error at length, such as the debug allocator, start the panic with
+`rt.BeginPanic()`, print the description with `print` (which then goes into the panic's message), and
+raise it with `rt.Abort()` or, for a fault, `rt.PanicFault`.
+
+The runtime guards the handler:
+
+- **One panic at a time.** The first processor (or, hosted, thread) to panic takes an atomic flag and runs
+  the handler. One that panics while another handles a panic stops: a kernel's processor disables
+  interrupts and halts, a hosted thread blocks until the first ends the process. In kernel mode the
+  runtime tells processors apart by the number each one gives itself with `rt.SetCPU(n)`, which a kernel
+  calls on every processor once its GS base points at its per-CPU block (section 12.5); until the first
+  call, every processor counts as CPU 0. Freestanding builds outside kernel mode count all processors as
+  one.
+- **A last resort.** A panic inside the handler, or while a panic's message is being written, does not
+  call the handler again: in freestanding and kernel builds the processor disables interrupts and halts
+  (`cli` then `hlt` in a loop), touching no memory or device; in hosted builds the runtime writes `fatal:
+  panic while handling a panic` to standard error with a raw system call and exits with status 2.
+
+Errors name the rule they break and say what to do. Their codes are E2580 (no handler), E2581 (a second
+handler), E2582 (a declaration that cannot be the handler) and E2583 (a handler that can return); for
+example, a kernel without a handler:
+
+```
+kernel: no panic handler is defined
+    A kernel build has no operating system to report a crash to, so the program
+    itself must say what happens when it panics (print to a serial port or
+    screen, then halt).
+    A kernel has no operating system to fall back on when it panics, so
+    Plutonium makes the program choose what happens at compile time, and checks
+    the choice: the runtime calls the handler directly, with nothing to
+    register, so it works from the first instruction.
+    Mark one function with //pu:panic:
+        //pu:panic
+        func onPanic(p *rt.Panic) { ... }
+    (see "Panics in freestanding programs" in the Plutonium spec, section 8.1)
+    (run "pluto explain E2580" for a longer explanation)
+```
 
 ## 9. Directives
 
@@ -2005,6 +2117,8 @@ declaration they apply to (or at the top of the file for `//pu:build`).
 | `//pu:section name` | function or package variable | place it in the named section |
 | `//pu:interrupt` | function | an x86-64 interrupt handler: saves every register it may change, returns with `iretq` (section 12.4) |
 | `//pu:noreturn` | function | the function never returns (lets the optimiser drop code after calls) |
+| `//pu:panic` | function | the program's panic handler, `func(p *rt.Panic)`; exactly one in freestanding and kernel builds (section 8.1) |
+| `//pu:blocking` | function (with or without a body) | calling it may wait (park the caller); interrupt handlers and the panic handler must not reach it (section 12.6) |
 | `//pu:nosimd` | function | the optimiser adds no vector instructions to it (implied by `//pu:interrupt`, and by kernel mode outside `//pu:fpu` functions) |
 | `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (section 12.3) |
 | `//pu:percpu` | package variable | one copy per processor, addressed through `GS`; kernel mode only (section 12.5) |
@@ -2082,7 +2196,8 @@ enabled and no vector state saved on entry. It differs from `freestanding` in th
 Kernel mode also enables per-CPU variables (section 12.5). `pluto/arch/x86` (section 12.4) and
 `//pu:interrupt` handlers work in every mode; in kernel mode a handler without `//pu:fpu` saves no vector
 registers. `pluto/os` and `pluto/syscall` are unavailable, as in every freestanding build. `pluto run`
-refuses kernel builds.
+refuses kernel builds. Like every freestanding program, a kernel must define its panic handler (section
+8.1).
 
 ### 12.3 Floating point in kernel mode
 
@@ -2193,6 +2308,80 @@ changes. Only constant initialisers are allowed, and `//pu:percpu` is a compile 
 mode. Code that reads and then writes a per-CPU variable must not migrate to another processor in
 between, so it runs with preemption or interrupts disabled. Details, including how a kernel sets up each
 processor's block, are in [abi.md section 10.6](abi.md#106-per-cpu-variables).
+
+### 12.6 Interrupts
+
+A function marked `//pu:interrupt` is an interrupt or exception handler, entered by the processor rather
+than called; [abi.md section 10.4](abi.md#104-interrupt-handlers) gives its signature, entry and exit.
+
+**Interrupt context cannot block.** A handler runs on top of whatever code the processor was executing.
+If it waits, for a lock or for room in a channel, the interrupted code can never resume to release it, and
+the processor stops. So nothing an interrupt handler can reach, and nothing the panic handler (section
+8.1) can reach, may:
+
+- send or receive on a channel, except as a case of a `select` with a `default` case; run a `select`
+  without a `default` case; or range over a channel;
+- call a function marked `//pu:blocking`: those that park the caller, such as `pluto/sync`'s
+  `Mutex.Lock` and `WaitGroup.Wait` and the runtime's parking operations, and any function a program
+  marks;
+- start a puroutine (`go`), which allocates a stack and takes the scheduler's locks;
+- allocate from an allocator that may wait (below).
+
+Operations that do not wait are allowed: `select` with `default`, `TryLock`, readying a parked
+puroutine, atomics, and spin locks that disable interrupts while held. To hand work to normal code, a
+handler sends without waiting:
+
+```go
+select {
+case work <- item:
+default: // full: drop it, or count the loss
+}
+```
+
+The compiler checks this over the whole program. From each interrupt handler the program uses and from
+the panic handler it follows every call, through every package, and reports the first path it finds to
+an operation above, naming each call on the way:
+
+```
+irq.p:5:3: keyboard is an interrupt handler, so it must not wait
+    Interrupt handlers run on top of whatever code the CPU was executing. If a
+    handler waits, for a lock or for room in a channel, the interrupted code can
+    never resume to release it, and the CPU stops.
+    keyboard calls readConfig (irq.p:5), which waits on cfgMutex (config.p:22).
+    A kernel that waits in an interrupt handler hangs, often only under load and
+    far from the cause, so Plutonium checks the whole program at compile time
+    instead.
+    To hand work to normal code, use a non-blocking send:
+        select { case work <- item: default: }
+    (see "Interrupts" in the Plutonium spec, section 12.6)
+    (run "pluto explain E2584" for a longer explanation)
+```
+
+A go statement on the path is reported the same way, as E2585 ("so it must not start a puroutine").
+
+- **What is followed.** Direct calls, method calls, deferred calls and the calls the compiler adds for
+  `new`, `make`, interface conversions and panics. It does not enter a `//pu:blocking` function, and a
+  path from an interrupt handler stops at the panic handler, which is checked on its own.
+- **Calls through interfaces and func values** cannot be resolved exactly, so the compiler is
+  conservative, using what it knows about the whole program. A call of method `m` through an interface
+  type `I` may reach `m` of every type the program converts to `I`, whether directly, from another
+  interface, or by a type assertion (the method tables the program contains). A call through a func value
+  of type `F` may reach every function of type `F` whose value the program takes anywhere (as a func
+  value, a method value or a method expression, or a function literal). The message says when a path goes
+  through such a call. To make a handler's call exact, call the function directly.
+- **Allocation.** An allocator is not marked as a whole: `new` and `make` call the allocator's `Alloc`
+  through the `alloc.Allocator` interface, and the check follows that call into every allocator the
+  program installs. An allocator whose `Alloc` or `Free` may wait, because it takes a `//pu:blocking`
+  lock (a slab cache refilled under a `sync.Mutex`), is reported like any other function that may wait;
+  one that uses a spin lock with interrupts disabled, or none, is allowed. So `//pu:blocking` belongs on
+  the primitives that park, and no allocator needs a marking of its own. (The alternative, forbidding all
+  allocation in interrupt context unless an allocator is marked safe, was rejected: it would forbid the
+  common, safe case of a lock-free per-CPU cache, and the marking could be wrong without the compiler
+  noticing.)
+- **Assembly and C** are not looked into: a body-less function counts as not waiting unless its
+  declaration is marked `//pu:blocking`.
+- **Non-blocking channel operations** must lower to runtime functions that are not marked
+  `//pu:blocking`, so that a `select` with `default` stays allowed.
 
 ## 13. Standard library
 

@@ -35,15 +35,27 @@ var (
 // other the system call is announced to the scheduler (rt.EnterSyscall),
 // which hands the worker's processor to another worker if the call blocks.
 type File struct {
-	fd       int
-	name     string
-	nonblock bool // the descriptor is in non-blocking mode: wait in the poller
+	fd   int
+	name string
+	// poll waits for the descriptor when it is in non-blocking mode (a
+	// pipe from Pipe), or is nil. It is an interface that only Pipe fills
+	// in, so that in a program that never makes a pipe, File's methods do
+	// not reach the scheduler's parking (the interrupt-context check
+	// follows interface calls into the types the program converts).
+	poll ioWaiter
 }
 
-// wait parks until f is ready for reading or writing, after a non-blocking
-// call found it was not.
-func (f *File) wait(write bool) {
-	if !rt.PollWait(f.fd, write) {
+// An ioWaiter parks the running puroutine until a non-blocking descriptor
+// is ready for reading or writing.
+type ioWaiter interface {
+	waitIO(fd int, write bool)
+}
+
+// poller waits in the scheduler's epoll poller.
+type poller struct{}
+
+func (poller) waitIO(fd int, write bool) {
+	if !rt.PollWait(fd, write) {
 		rt.Yield() // no poller (a program's own scheduler): try again later
 	}
 }
@@ -65,19 +77,19 @@ func (f *File) Name() string { return f.name }
 func (f *File) Write(p []byte) (int, error) {
 	n := 0
 	for n < len(p) {
-		if !f.nonblock {
+		if f.poll == nil {
 			rt.EnterSyscall()
 		}
 		m, err := syscall.Write(f.fd, p[n:])
-		if !f.nonblock {
+		if f.poll == nil {
 			rt.ExitSyscall()
 		}
 		if err != nil {
 			if err == syscall.EINTR {
 				continue
 			}
-			if err == syscall.EAGAIN && f.nonblock {
-				f.wait(true)
+			if err == syscall.EAGAIN && f.poll != nil {
+				f.poll.waitIO(f.fd, true)
 				continue
 			}
 			return n, err
@@ -98,18 +110,18 @@ func (f *File) WriteString(s string) (int, error) {
 // Read reads up to len(p) bytes.
 func (f *File) Read(p []byte) (int, error) {
 	for {
-		if !f.nonblock {
+		if f.poll == nil {
 			rt.EnterSyscall()
 		}
 		n, err := syscall.Read(f.fd, p)
-		if !f.nonblock {
+		if f.poll == nil {
 			rt.ExitSyscall()
 		}
 		if err == syscall.EINTR {
 			continue
 		}
-		if err == syscall.EAGAIN && f.nonblock {
-			f.wait(false)
+		if err == syscall.EAGAIN && f.poll != nil {
+			f.poll.waitIO(f.fd, false)
 			continue
 		}
 		if err == nil && n == 0 && len(p) > 0 {
@@ -134,9 +146,9 @@ func Pipe(a alloc.Allocator = alloc.Default()) (r, w *File, err error) {
 		return nil, nil, err
 	}
 	r = alloc.New[File](a)
-	r.fd, r.name, r.nonblock = int(fds[0]), "|0", true
+	r.fd, r.name, r.poll = int(fds[0]), "|0", poller{}
 	w = alloc.New[File](a)
-	w.fd, w.name, w.nonblock = int(fds[1]), "|1", true
+	w.fd, w.name, w.poll = int(fds[1]), "|1", poller{}
 	return r, w, nil
 }
 

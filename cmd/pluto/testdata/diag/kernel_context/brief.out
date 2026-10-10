@@ -1,0 +1,2 @@
+$DIR/main.p:14:1: onPanic is the panic handler, so it must never return
+$DIR/main.p:31:2: keyboard is an interrupt handler, so it must not wait

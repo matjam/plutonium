@@ -14,6 +14,8 @@ const (
 	sysMprotect    = 10
 	sysMunmap      = 11
 	sysRtSigaction = 13
+	sysPause       = 34
+	sysGettid      = 186
 	sysExitGroup   = 231
 )
 
@@ -33,7 +35,7 @@ func programMain() int64
 //pu:noreturn
 func start(sp unsafe.Pointer) {
 	argc = *(*int)(sp)
-	bootTask.stackHi = uintptr(sp)
+	bootTask.stackHi = uintptr(sp) // so a go statement can tell a closure in this stack
 	argv = unsafe.Add(sp, 8)
 	envp = unsafe.Add(sp, 8*(argc+2))
 	installFaultHandlers()
@@ -42,8 +44,8 @@ func start(sp unsafe.Pointer) {
 
 // ----------------------------------------------------------------------------
 // Hardware faults. A nil dereference, a stack overflow into a guard page or
-// an overflowing division raises a signal; the handler reports it like a
-// panic, with a stack trace from the faulting instruction. A memory access
+// an overflowing division raises a signal; the handler raises a panic for
+// it, with a stack trace from the faulting instruction. A memory access
 // fault is first offered to the handler registered with SetFaultHandler
 // (the debug allocator's), which can explain a fault in its heap.
 
@@ -95,10 +97,11 @@ func installFaultHandlers() {
 
 // sigpanic is the fault handler, called by the kernel with the signal
 // number, its siginfo_t and the interrupted context (a ucontext_t). It
-// prints the panic message (the fault handler's description of a memory
-// access fault, if it recognises the address, or the runtime's own), then
-// the signal, then the stack trace from the faulting instruction, and exits
-// with status 2 without running the exit hook.
+// raises a panic describing the fault, with the stack trace from the
+// faulting instruction: the fault handler's description of a memory
+// access fault if it recognises the address, or the runtime's own. The
+// default panic handler prints it and exits with status 2 without running
+// the exit hook.
 //
 //pu:export
 //pu:noreturn
@@ -109,49 +112,77 @@ func sigpanic(sig int32, info, ctx unsafe.Pointer) {
 	sp := *(*uintptr)(unsafe.Add(ctx, 40+15*8))      // gregs[REG_RSP]
 	bp := *(*uintptr)(unsafe.Add(ctx, 40+10*8))      // gregs[REG_RBP]
 	errCode := *(*uintptr)(unsafe.Add(ctx, 40+19*8)) // gregs[REG_ERR]
-	panicBegin()
+	startPanic()
+	kind := IllegalInstruction
 	switch sig {
 	case sigSEGV, sigBUS:
+		kind = MemoryFault
 		if h := faultHandler; h != nil && h(addr, pc, errCode&pfWrite != 0) {
-			break // h printed the message
+			break // h wrote the message
 		}
-		g := current()
-		if addr < sp+4096 && addr+65536 > sp || g != nil && g.stackLo != 0 && addr < g.stackLo && addr+pageSize >= g.stackLo {
-			// Just below the stack pointer: the stack ran into its guard.
-			printString("panic: runtime error: stack overflow\n")
-			break
-		}
-		if addr < 4096 {
-			printString("panic: runtime error: invalid memory address or nil pointer dereference\n")
-		} else {
-			printString("panic: runtime error: unexpected fault address ")
-			printPointer(unsafe.Pointer(addr))
-			printNewline()
-		}
+		describeFault(kind, addr, sp)
 	case sigFPE:
-		printString("panic: runtime error: integer divide error\n")
+		kind = DivideFault
+		describeFault(kind, addr, sp)
 	default:
-		printString("panic: runtime error: illegal instruction\n")
+		describeFault(kind, addr, sp)
 	}
-	printString("[signal ")
+	var p Panic
+	p.Fault = Fault{Kind: kind, Addr: addr, PC: pc, Signal: int(sig)}
+	p.pc, p.sp, p.bp, p.exact = pc, sp, bp, true
+	raise(&p)
+}
+
+// signalName names a signal for Panic.Print, or returns "".
+func signalName(sig int) string {
 	switch sig {
 	case sigSEGV:
-		printString("SIGSEGV: segmentation violation")
+		return "SIGSEGV: segmentation violation"
 	case sigBUS:
-		printString("SIGBUS: bus error")
+		return "SIGBUS: bus error"
 	case sigFPE:
-		printString("SIGFPE: floating-point exception")
-	default:
-		printString("SIGILL: illegal instruction")
+		return "SIGFPE: floating-point exception"
+	case sigILL:
+		return "SIGILL: illegal instruction"
 	}
-	printString(" addr=")
-	printPointer(unsafe.Pointer(addr))
-	printString(" pc=")
-	printPointer(unsafe.Pointer(pc))
-	printString("]\n")
-	if !tracing {
-		Traceback(pc, sp, bp)
+	return ""
+}
+
+// defaultPanic is the panic handler of a hosted program that does not
+// define one: it prints the panic to standard error and exits with status
+// 2, without running the exit hook.
+//
+//pu:noreturn
+func defaultPanic(p *Panic) {
+	p.Print(nil)
+	exit(2)
+}
+
+// selfID identifies the calling thread: its Linux thread ID.
+func selfID() uint64 { return uint64(syscall3(sysGettid, 0, 0, 0)) }
+
+// cpuNumber is the CPU number a hosted panic reports: 0, as hosted
+// programs run on a single thread.
+func cpuNumber() int { return 0 }
+
+// otherPanicking stops a thread that panics while another handles a
+// panic: it waits until that one ends the process.
+//
+//pu:noreturn
+func otherPanicking() {
+	for {
+		syscall3(sysPause, 0, 0, 0)
 	}
+}
+
+// lastResort ends the process after a panic inside the panic handler, or
+// while a panic's message was being written: it writes a fixed message
+// with a raw system call and exits with status 2.
+//
+//pu:noreturn
+func lastResort() {
+	const msg = "fatal: panic while handling a panic\n"
+	syscall3(sysWrite, 2, uintptr(unsafe.Pointer(unsafe.StringData(msg))), uintptr(len(msg)))
 	exit(2)
 }
 
@@ -196,12 +227,8 @@ func SetExitHook(h func(code int) int) func(code int) int {
 	return prev
 }
 
-// abort ends the process after a panic.
-//
-//pu:noreturn
-func abort() { exit(2) }
-
-func printBytes(p unsafe.Pointer, n int) {
+// consoleWrite writes n bytes at p to standard error.
+func consoleWrite(p unsafe.Pointer, n int) {
 	for n > 0 {
 		r := int(syscall3(sysWrite, 2, uintptr(p), uintptr(n)))
 		if r <= 0 {
@@ -245,10 +272,11 @@ func Mprotect(p unsafe.Pointer, n uintptr, prot int) bool {
 // Memory faults
 
 // A FaultHandler is told about a memory access fault: an access to addr by
-// the instruction at pc, a write if write is set. If it recognises addr it
-// prints a description of the fault, starting with "panic: ", and returns
-// true; otherwise it prints nothing and returns false. The program stops
-// either way.
+// the instruction at pc, a write if write is set. It runs while the panic
+// that reports the fault is being written: if it recognises addr it
+// prints a description of the fault, which becomes the panic's message
+// (Panic.Message, so without "panic: "), and returns true; otherwise it
+// prints nothing and returns false. The program stops either way.
 type FaultHandler func(addr, pc uintptr, write bool) bool
 
 var faultHandler FaultHandler
@@ -256,6 +284,7 @@ var faultHandler FaultHandler
 // SetFaultHandler makes h the first to hear of memory access faults
 // (SIGSEGV and SIGBUS). The runtime's fault handler, installed at start,
 // calls h before anything else; if h does not recognise the fault the
-// runtime prints its own message. The signal and the stack trace follow,
-// and the program exits with status 2, as a panic does.
+// runtime writes its own message. The panic then goes to the panic
+// handler, with the fault in Panic.Fault and the stack trace starting at
+// the faulting instruction.
 func SetFaultHandler(h FaultHandler) { faultHandler = h }

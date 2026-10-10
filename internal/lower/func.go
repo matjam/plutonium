@@ -328,6 +328,7 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 		s.checkFloatSignature()
 	}
 
+	l.sigs[job.sym] = job.sig
 	if job.build != nil {
 		job.build(s)
 	} else {
@@ -338,6 +339,7 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 		} else {
 			body = job.lit.Body
 		}
+		l.bodies[job.sym] = funcBody{body: body, info: s.info}
 		if hasDefer(body) {
 			s.deferBits = s.temp(types2.Typ[types2.Uint64], "deferbits")
 			s.store(ssa.TI64, s.deferBits, s.constInt(ssa.TI64, 0))

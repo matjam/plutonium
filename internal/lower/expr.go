@@ -457,6 +457,7 @@ func (s *fnState) selector(e *ast.SelectorExpr, T types2.Type) value {
 		if sym == nil {
 			return s.zeroValue(T)
 		}
+		s.l.funcValues[sym] = T.Underlying().(*types2.Signature)
 		return scalarValue(s.symAddr(s.l.closureRecord(sym)), T)
 	}
 	return s.zeroValue(T)

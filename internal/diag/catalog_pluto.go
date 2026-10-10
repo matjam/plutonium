@@ -537,5 +537,56 @@ func init() {
 			Fix:  &Fix{Intro: "Take its address for the table", Code: "addr := x86.HandlerAddr(timer)"},
 			Spec: pspec("11.4", "pluto/arch/x86"),
 		},
+		&Entry{
+			Code: NoPanicHandler, Name: "NoPanicHandler",
+			Text: "A freestanding or kernel build has no operating system to report a crash to, so the program itself must say what happens when it panics (print to a serial port or screen, then halt). It does so with one function marked //pu:panic.",
+			Why:  whyPanicHandler,
+			Fix:  &Fix{Intro: "Mark one function with //pu:panic", Code: "//pu:panic\nfunc onPanic(p *rt.Panic) { ... }"},
+			Spec: pspec("8.1", "Panics in freestanding programs"),
+			Example: "package main\n\nfunc main() {}",
+			Fixed:   "package main\n\nimport (\n\t\"pluto/arch/x86\"\n\t\"pluto/rt\"\n)\n\n//pu:panic\nfunc onPanic(p *rt.Panic) {\n\tp.Print(rt.Console{})\n\tfor {\n\t\tx86.Cli()\n\t\tx86.Hlt()\n\t}\n}\n\nfunc main() {}",
+		},
+		&Entry{
+			Code: DupPanicHandler, Name: "DupPanicHandler",
+			Text: "A program has exactly one panic handler, and another function is already marked //pu:panic. Remove //pu:panic from all but one of them.",
+			Why:  whyPanicHandler,
+			Spec: pspec("8.1", "Panics in freestanding programs"),
+		},
+		&Entry{
+			Code: PanicHandlerDecl, Name: "PanicHandlerDecl",
+			Text: "The runtime calls the panic handler, the function marked //pu:panic, with a description of the panic, and never expects it to return. It is a plain function with a body, not a method, not generic and not also an interrupt handler, that takes a *rt.Panic and returns nothing.",
+			Why:  whyPanicHandler,
+			Fix:  &Fix{Intro: "Declare it", Code: "//pu:panic\nfunc onPanic(p *rt.Panic) { ... }"},
+			Spec: pspec("8.1", "Panics in freestanding programs"),
+		},
+		&Entry{
+			Code: PanicHandlerRet, Name: "PanicHandlerRet",
+			Text: "A panic stops the program: it does not unwind, so there is nothing for the panic handler to return to. Every path through it must end in an endless loop or in a call of a function that never returns: one marked //pu:noreturn, such as os.Exit, or one whose every path ends the same way. A call through a func value or an interface, and recursion, count as returning.",
+			Why:  whyPanicHandler,
+			Fix:  &Fix{Intro: "End the handler by halting", Code: "for {\n\tx86.Cli()\n\tx86.Hlt()\n}"},
+			Spec: pspec("8.1", "Panics in freestanding programs"),
+			Example: "//pu:panic\nfunc onPanic(p *rt.Panic) {\n\tp.Print(rt.Console{})\n}",
+			Fixed:   "//pu:panic\nfunc onPanic(p *rt.Panic) {\n\tp.Print(rt.Console{})\n\tfor {\n\t\tx86.Cli()\n\t\tx86.Hlt()\n\t}\n}",
+		},
+		&Entry{
+			Code: ContextWaits, Name: "ContextWaits",
+			Text: "Interrupt handlers run on top of whatever code the CPU was executing, and the panic handler on top of whatever panicked. If either waits, for a lock or for room in a channel, the code it interrupted can never resume to release it, and the CPU stops. So nothing they can reach may call a function marked //pu:blocking (such as sync.Mutex.Lock), send or receive on a channel outside a select with a default case, run a select without one, or allocate from an allocator that may wait.\nCalls through interfaces and func values count as calling every method or function they could reach in the program.",
+			Why:  whyContext,
+			Fix:  &Fix{Intro: "To hand work to normal code, use a non-blocking send", Code: "select { case work <- item: default: }"},
+			Spec: pspec("12.6", "Interrupts"),
+		},
+		&Entry{
+			Code: ContextSpawns, Name: "ContextSpawns",
+			Text: "Interrupt handlers run on top of whatever code the CPU was executing, and the panic handler on top of whatever panicked. Starting a puroutine allocates its stack and takes the scheduler's locks, which the interrupted code may hold, so nothing they can reach may use a go statement.",
+			Why:  whyContext,
+			Fix:  &Fix{Intro: "To hand work to a puroutine, wake one that waits for it, or send without waiting", Code: "select { case work <- item: default: }"},
+			Spec: pspec("12.6", "Interrupts"),
+		},
 	)
 }
+
+// whyPanicHandler is why the panic handler is chosen at compile time.
+const whyPanicHandler = "A kernel has no operating system to fall back on when it panics, so Plutonium makes the program choose what happens at compile time, and checks the choice: the runtime calls the handler directly, with nothing to register, so it works from the first instruction."
+
+// whyContext is why interrupt context is checked at compile time.
+const whyContext = "A kernel that waits in an interrupt handler hangs, often only under load and far from the cause, so Plutonium checks the whole program at compile time instead."

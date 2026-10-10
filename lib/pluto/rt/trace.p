@@ -28,67 +28,23 @@ const (
 	maxTraceFrames     = 64
 )
 
-// tracing is set while a trace is printed, so that a fault while walking a
-// damaged stack does not start another trace.
-var tracing bool
-
-// fatal prints the stack of the code that panicked and stops the program.
-// The panic functions call it after printing their message.
-//
-//pu:noreturn
-func fatal() {
-	panicBegin()
-	if !tracing {
-		tracing = true
-		var fr [3]uintptr
-		callerFrame(&fr)
-		printPuroutine()
-		traceback(fr[0], fr[1], fr[2], false, true)
-	}
-	abort()
-}
-
-// panicOwner identifies the thread that is panicking (panicThread), or is
-// zero.
-var panicOwner uint64
-
-// panicBegin lets one thread at a time print a panic. A second panic on
-// the same thread (a fault while printing the first) carries on; one on
-// another thread waits for the first to stop the program.
-func panicBegin() {
-	me := uint64(panicThread())
-	for {
-		o := load64(&panicOwner)
-		if o == me {
-			return
-		}
-		if o != 0 {
-			otherPanic()
-		}
-		if cas64(&panicOwner, 0, me) {
-			DisablePreemption()
-			return
-		}
-	}
-}
-
 // Traceback prints the stack trace of the machine state pc, sp and bp (the
 // RBP register), as captured by a fault or interrupt handler at the
-// faulting instruction. A kernel calls it from its exception handlers.
+// faulting instruction, to the console. A kernel can call it from its
+// exception handlers; to stop with a panic instead, call PanicFault.
 func Traceback(pc, sp, bp uintptr) {
-	tracing = true
-	printPuroutine()
-	traceback(pc, sp, bp, true, false)
+	traceback(nil, pc, sp, bp, true, false)
 }
 
-// traceback walks the stack from pc, sp and bp. exact says pc is the
-// faulting instruction rather than a return address. skipRuntime omits the
-// innermost frames of package rt, which belong to the panic itself.
-func traceback(pc, sp, bp uintptr, exact, skipRuntime bool) {
+// traceback prints to w (the console if nil) the stack walked from pc, sp
+// and bp. exact says pc is the faulting instruction rather than a return
+// address. skipRuntime omits the innermost frames of package rt, which
+// belong to the panic itself.
+func traceback(w Writer, pc, sp, bp uintptr, exact, skipRuntime bool) {
 	tab := traceTable()
 	for depth := 0; ; depth++ {
 		if depth == maxTraceFrames {
-			printString("    ...additional frames elided...\n")
+			writeString(w, "    ...additional frames elided...\n")
 			return
 		}
 		look := pc
@@ -112,17 +68,18 @@ func traceback(pc, sp, bp uintptr, exact, skipRuntime bool) {
 		name := traceString(tab, *(*uint32)(unsafe.Add(fn, 12)))
 		if name == "pluto.main" {
 			// main.main may be inlined into it.
-			printInlinedMain(tab, fn, look)
+			printInlinedMain(w, tab, fn, look)
 			return
 		}
 		if name == "pluto/rt.start" || name == "pluto/rt.taskMain" {
-			return // the bottom of the main thread's or a puroutine's stack
+			// The bottom of the main thread's or a puroutine's stack.
+			return
 		}
 		if skipRuntime && hasPrefix(name, "pluto/rt.") {
 			// part of the panic
 		} else {
 			skipRuntime = false
-			printFrame(tab, fn, name, look)
+			printFrame(w, tab, fn, name, look)
 		}
 		flags := *(*uint8)(unsafe.Add(fn, 23))
 		if flags&traceFlagInterrupt != 0 {
@@ -210,20 +167,20 @@ func findFunc(tab unsafe.Pointer, pc uintptr) unsafe.Pointer {
 
 // printFrame prints the frames at pc in function fn: one for each inlined
 // call it is in, innermost first, then fn itself, named name.
-func printFrame(tab, fn unsafe.Pointer, name string, pc uintptr) {
-	file, line := printInlined(tab, fn, pc, 0)
-	printLocation(name, file, line)
+func printFrame(w Writer, tab, fn unsafe.Pointer, name string, pc uintptr) {
+	file, line := printInlined(w, tab, fn, pc, 0)
+	printLocation(w, name, file, line)
 }
 
 // printInlined prints a frame for each inlined call the code at pc in fn is
 // in, innermost first, up to and including inline site last (1-based within
 // fn; 0 for all of them). It returns the file and line in the code the last
 // one printed was inlined into.
-func printInlined(tab, fn unsafe.Pointer, pc uintptr, last int) (string, int) {
+func printInlined(w Writer, tab, fn unsafe.Pointer, pc uintptr, last int) (string, int) {
 	file, line, inl := findLine(tab, fn, pc-*(*uintptr)(fn))
 	for inl != 0 {
 		site := inlineSite(tab, fn, inl)
-		printLocation(traceString(tab, *(*uint32)(unsafe.Add(site, 4))), file, line)
+		printLocation(w, traceString(tab, *(*uint32)(unsafe.Add(site, 4))), file, line)
 		file = traceString(tab, *(*uint32)(unsafe.Add(site, 8)))
 		line = int(*(*uint32)(unsafe.Add(site, 12)))
 		if inl == last {
@@ -238,12 +195,12 @@ func printInlined(tab, fn unsafe.Pointer, pc uintptr, last int) (string, int) {
 // the code of main.main inlined there: main.main and the calls inlined into
 // it. The rest of pluto.main, which initialises packages, is not part of
 // the program's stack as its author sees it and prints nothing.
-func printInlinedMain(tab, fn unsafe.Pointer, pc uintptr) {
+func printInlinedMain(w Writer, tab, fn unsafe.Pointer, pc uintptr) {
 	_, _, inl := findLine(tab, fn, pc-*(*uintptr)(fn))
 	for inl != 0 {
 		site := inlineSite(tab, fn, inl)
 		if strequal(traceString(tab, *(*uint32)(unsafe.Add(site, 4))), "main.main") {
-			printInlined(tab, fn, pc, inl)
+			printInlined(w, tab, fn, pc, inl)
 			return
 		}
 		inl = int(*(*uint32)(site))
@@ -281,17 +238,17 @@ func traceSymbolize(pc uintptr) (string, string, int, bool) {
 // printLocation prints one frame. Generated code with no source position,
 // such as the wrapper that calls a method through an interface, is left
 // out.
-func printLocation(name, file string, line int) {
+func printLocation(w Writer, name, file string, line int) {
 	if line <= 0 {
 		return
 	}
-	printString("    ")
-	printString(name)
-	printString(" (")
-	printString(file)
-	printString(":")
-	printInt(int64(line))
-	printString(")\n")
+	writeString(w, "    ")
+	writeString(w, name)
+	writeString(w, " (")
+	writeString(w, file)
+	writeString(w, ":")
+	writeInt(w, int64(line))
+	writeString(w, ")\n")
 }
 
 // findLine returns the file, line and inlined call (1-based within the

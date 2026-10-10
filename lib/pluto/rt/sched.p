@@ -206,7 +206,11 @@ func schedPark(t *Task)
 //pu:schedhook Wake
 func schedWake(t *Task)
 
-//pu:schedhook Yield
+// Yield is optional only for the build check: runtime locks, which every
+// program uses, may yield when they release, but only once tasks have
+// started, which needs the other hooks.
+//
+//pu:schedhook Yield optional
 func schedYield(t *Task)
 
 //pu:schedhook Start optional
@@ -239,7 +243,6 @@ func startTasks() {
 	t.ctx.task = t
 	t.ctx.onCPU = 1
 	preemptParkFn = preemptPark
-	yieldFn = Yield
 	setCurrent(t)
 	tasking = true
 }
@@ -285,16 +288,11 @@ func EnablePreemption() {
 // yields if a preemption was refused during it.
 func enablePreempt(t *Task) {
 	dec32(&t.locks)
-	if t.locks == 0 && t.pending != 0 && yieldFn != nil {
+	if t.locks == 0 && t.pending != 0 && tasking {
 		t.pending = 0
-		yieldFn()
+		Yield()
 	}
 }
-
-// yieldFn is Yield once tasks have started. Runtime locks, used by every
-// program, re-enable preemption through enablePreempt; the variable keeps
-// them from pulling the scheduler into programs that never start a task.
-var yieldFn func()
 
 // ----------------------------------------------------------------------------
 // Switching
@@ -657,19 +655,6 @@ func (l *Lock) Unlock() {
 }
 
 // ----------------------------------------------------------------------------
-// Panics in tasks
-
-// printPuroutine prints which puroutine a panic or fault stopped, before
-// its stack trace, for every one but the first.
-func printPuroutine() {
-	t := current()
-	if t == nil || t.id <= 1 {
-		return
-	}
-	printString("puroutine ")
-	printUint(t.id)
-	printString(":\n")
-}
 
 // fastrand returns a pseudo-random number from t's generator (xorshift64*),
 // for select's order.

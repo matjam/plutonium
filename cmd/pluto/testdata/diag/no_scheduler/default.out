@@ -1,3 +1,17 @@
+freestanding: no panic handler is defined
+    A freestanding build has no operating system to report a crash to, so the
+    program itself must say what happens when it panics (print to a serial port
+    or screen, then halt).
+    A kernel has no operating system to fall back on when it panics, so
+    Plutonium makes the program choose what happens at compile time, and checks
+    the choice: the runtime calls the handler directly, with nothing to
+    register, so it works from the first instruction.
+    Mark one function with //pu:panic:
+        //pu:panic
+        func onPanic(p *rt.Panic) { ... }
+    (see "Panics in freestanding programs" in the Plutonium spec, section 8.1)
+    (run "pluto explain E2580" for a longer explanation)
+
 $DIR/main.p:1:1: this program starts puroutines, uses channels or waits in pluto/sync, so it needs a scheduler, and none is bound: mark a package-level variable whose type implements rt.Scheduler with //pu:scheduler (language spec section 4.7; hosted builds bind one by default)
     This program starts puroutines, uses channels or waits in pluto/sync, so it
     needs a scheduler, and none is bound. Hosted builds bind one by default; a
@@ -9,4 +23,4 @@ $DIR/main.p:1:1: this program starts puroutines, uses channels or waits in pluto
         //pu:scheduler
         var scheduler kernelScheduler
     (see "go starts a puroutine" in the Plutonium spec, section 4.7)
-    (run "pluto explain E2583" for a longer explanation)
+    (run "pluto explain E2593" for a longer explanation)

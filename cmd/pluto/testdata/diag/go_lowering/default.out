@@ -14,10 +14,10 @@ $DIR/main.p:6:6: a function literal that captures variables cannot be started wi
             }(i, out)
         }
     (see "go starts a puroutine" in the Plutonium spec, section 4.7)
-    (run "pluto explain E2580" for a longer explanation)
+    (run "pluto explain E2590" for a longer explanation)
 
 $DIR/main.p:10:2: go with the built-in println is not supported; start a function that calls it
     A go statement cannot start a built-in function such as println or close
     directly. Wrap it in a function and start that.
     (see "go starts a puroutine" in the Plutonium spec, section 4.7)
-    (run "pluto explain E2581" for a longer explanation)
+    (run "pluto explain E2591" for a longer explanation)

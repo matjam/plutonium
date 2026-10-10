@@ -41,10 +41,16 @@ const (
 	InterruptSig      Code = "E2571" // a handler with the wrong parameters or results
 	HandlerAddrArg    Code = "E2572" // x86.HandlerAddr of something other than a handler
 	InterruptHandlerV Code = "E2573" // a handler called, or used as a value
-	GoCapturingLiteral Code = "E2580" // go of a function literal that captures variables
-	GoBuiltin         Code = "E2581" // go of a builtin function
-	BadScheduler      Code = "E2582" // a //pu:scheduler variable that cannot be the scheduler, or two of them
-	NoScheduler       Code = "E2583" // a program that needs a scheduler and binds none
+	NoPanicHandler    Code = "E2580" // a freestanding or kernel build without a //pu:panic function
+	DupPanicHandler   Code = "E2581" // more than one //pu:panic function
+	PanicHandlerDecl  Code = "E2582" // a //pu:panic function that cannot be the panic handler
+	PanicHandlerRet   Code = "E2583" // a panic handler that can return
+	ContextWaits      Code = "E2584" // an interrupt handler or the panic handler can reach code that waits
+	ContextSpawns     Code = "E2585" // an interrupt handler or the panic handler can reach a go statement
+	GoCapturingLiteral Code = "E2590" // go of a function literal that captures variables
+	GoBuiltin         Code = "E2591" // go of a builtin function
+	BadScheduler      Code = "E2592" // a //pu:scheduler variable that cannot be the scheduler, or two of them
+	NoScheduler       Code = "E2593" // a program that needs a scheduler and binds none
 )
 
 // Finding and loading packages.

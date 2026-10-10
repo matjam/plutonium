@@ -94,7 +94,7 @@ func (s *fnState) goStmt(st *ast.GoStmt) {
 				iv := s.materialize(s.expr(se.X))
 				vals = append(vals, iv)
 				emit = func(ts *fnState, in []value, pos token.Pos) {
-					ts.ifaceCall(in[0], recvT, fn, sig, in[1:], pos)
+					ts.ifaceCall(in[0], recvT, fn, sig, in[1:], pos, fn.Name())
 				}
 				vals = append(vals, s.callArgs(call, sig, nil)...)
 			default:
@@ -107,7 +107,7 @@ func (s *fnState) goStmt(st *ast.GoStmt) {
 				if isIfaceMethod(m) {
 					rT := recv.T
 					emit = func(ts *fnState, in []value, pos token.Pos) {
-						ts.ifaceCall(in[0], rT, m, sig, in[1:], pos)
+						ts.ifaceCall(in[0], rT, m, sig, in[1:], pos, m.Name())
 					}
 					vals = append(vals, s.callArgs(call, sig, nil)...)
 				} else {

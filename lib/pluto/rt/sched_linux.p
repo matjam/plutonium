@@ -28,7 +28,6 @@ const (
 	sysSchedGetaffinity = 204
 	sysNanosleep        = 35
 	sysGetpid           = 39
-	sysGettid           = 186
 	sysFutex            = 202
 	sysTgkill           = 234
 	sysClockGettime     = 228
@@ -348,7 +347,9 @@ func hostedReady(t *Task) {
 	}
 	wakep()
 	if cur != nil {
-		enablePreempt(cur)
+		// Wake never switches (scheduler contract, rule 4): a preemption
+		// that is pending waits for the caller's next EnablePreemption.
+		dec32(&cur.locks)
 	}
 }
 
@@ -702,7 +703,9 @@ func EnterSyscall() {
 	}
 	mp := getm()
 	g := mp.curg
-	if g == nil || g.insyscall {
+	if g == nil || g.insyscall || g.locks != 0 {
+		// With preemption disabled (a panic, a runtime critical section)
+		// the P stays put, so that ExitSyscall never switches away.
 		return
 	}
 	inc32(&g.locks)
@@ -1062,7 +1065,7 @@ func allocStack(total uintptr, a Allocator) unsafe.Pointer {
 		}
 		c.lock.Unlock()
 	}
-	mem := allocAt(a, total, pageSize, 0)
+	mem := allocAt(a, total, pageSize, StackSite)
 	protectGuard(mem, false)
 	return mem
 }
@@ -1100,24 +1103,6 @@ func flushStackCache() {
 		c.a.Free(c.mem[c.n], c.total, pageSize)
 	}
 	c.lock.Unlock()
-}
-
-// panicThread identifies the thread that is panicking.
-func panicThread() uintptr {
-	if hs.started {
-		return uintptr(unsafe.Pointer(getm()))
-	}
-	return 1
-}
-
-// otherPanic is called by a thread that panics while another prints its
-// panic: it waits for that one to end the process.
-//
-//pu:noreturn
-func otherPanic() {
-	for {
-		nanosleep(1000000000)
-	}
 }
 
 // ----------------------------------------------------------------------------

@@ -8,7 +8,7 @@ $DIR/main.p:17:5: second is a second //pu:scheduler variable; the first is first
     so the runtime calls it without an indirection and a program cannot run
     without one.
     (see "go starts a puroutine" in the Plutonium spec, section 4.7)
-    (run "pluto explain E2582" for a longer explanation)
+    (run "pluto explain E2592" for a longer explanation)
 
 $DIR/main.p:12:5: //pu:scheduler variable first of type main.half does not implement rt.Scheduler (missing method FreeTask)
-    (explained above; run "pluto explain E2582" for more)
+    (explained above; run "pluto explain E2592" for more)

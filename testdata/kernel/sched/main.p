@@ -30,6 +30,18 @@ func serialWrite(p unsafe.Pointer, n int) {
 	}
 }
 
+// onPanic prints the panic and leaves QEMU with status 3.
+//
+//pu:panic
+func onPanic(p *rt.Panic) {
+	p.Print(rt.Console{})
+	for {
+		x86.Outl(0xf4, 3)
+		x86.Cli()
+		x86.Hlt()
+	}
+}
+
 // ----------------------------------------------------------------------------
 // Memory: pages from a static arena, never returned (enough for a test).
 

@@ -913,9 +913,10 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 					sym, full := s.l.methodFunc(fn, targs, w)
 					sig := s.subst(funTV.Type).(*types2.Signature)
 					args := s.saveValues(s.callArgs(call, sig, def))
+					site := &callSite{desc: types2.ExprString(call.Fun), recv: types2.ExprString(se.X)}
 					run = func(s *fnState) {
 						r := s.loadFrom(recv.v, recv.T)
-						s.emitCall(callee{sym: sym}, full, &r, s.loadValues(args), call.Pos())
+						s.emitCall(callee{sym: sym, site: site}, full, &r, s.loadValues(args), call.Pos())
 					}
 				}
 			}
@@ -932,7 +933,8 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 				sym := s.l.funcSym(fn, targs)
 				sig := s.subst(funTV.Type).(*types2.Signature)
 				args := s.saveValues(s.callArgs(call, sig, &defaultsOf{fn, targs}))
-				run = func(s *fnState) { s.emitCall(callee{sym: sym}, sig, nil, s.loadValues(args), call.Pos()) }
+				site := &callSite{desc: types2.ExprString(call.Fun)}
+				run = func(s *fnState) { s.emitCall(callee{sym: sym, site: site}, sig, nil, s.loadValues(args), call.Pos()) }
 				break
 			}
 		}
@@ -940,9 +942,10 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 		sig := s.typeOf(call.Fun).Underlying().(*types2.Signature)
 		fv := s.saveValue(scalarValue(s.scalar(call.Fun), s.typeOf(call.Fun)))
 		args := s.saveValues(s.callArgs(call, sig, nil))
+		site := &callSite{desc: types2.ExprString(call.Fun), fsig: sig}
 		run = func(s *fnState) {
 			f := s.loadFrom(fv.v, fv.T).v
-			s.emitCall(callee{code: s.load(ssa.TPtr, f), ctx: f}, sig, nil, s.loadValues(args), call.Pos())
+			s.emitCall(callee{code: s.load(ssa.TPtr, f), ctx: f, site: site}, sig, nil, s.loadValues(args), call.Pos())
 		}
 	}
 

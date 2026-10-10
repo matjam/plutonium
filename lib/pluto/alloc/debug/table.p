@@ -176,11 +176,14 @@ func findNot(p, n uintptr, b byte) uintptr {
 
 // ----------------------------------------------------------------------------
 // Messages. They are printed piece by piece, since the allocator cannot
-// allocate to format them, and end with rt.Abort.
+// allocate to format them, as the message of a panic (rt.BeginPanic), and
+// end with rt.Abort (or, for a fault, the runtime's fault handler raises
+// the panic).
 
 // failHead starts a fatal message.
 func failHead(what string) {
-	print("panic: debug allocator: ")
+	rt.BeginPanic()
+	print("debug allocator: ")
 	print(what)
 }
 
@@ -209,8 +212,12 @@ func printHex(v uintptr) {
 // function and line of the call, or its address if rt.PrintPC cannot name
 // it.
 func printRet(ret uintptr) {
-	if ret == 0 {
+	switch ret {
+	case 0:
 		print("an unknown site")
+		return
+	case rt.StackSite:
+		print("the runtime, as a puroutine's stack")
 		return
 	}
 	rt.PrintPC(ret - 1)
