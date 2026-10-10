@@ -15,7 +15,15 @@ func halt()
 
 func init() {
 	rt.SetConsole(consoleWrite)
-	rt.SetPanicHandler(halt)
+}
+
+// onPanic prints the panic through the console, as a hosted program
+// would, and stops.
+//
+//pu:panic
+func onPanic(p *rt.Panic) {
+	p.Print(rt.Console{})
+	halt()
 }
 
 func get(xs []int, i int) int {

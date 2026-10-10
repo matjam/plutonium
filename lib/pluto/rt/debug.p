@@ -4,7 +4,8 @@ import "unsafe"
 
 // Support for debugging tools such as the debug allocator
 // (pluto/alloc/debug): where an allocation came from, how to print a
-// program counter, and stopping the program after a diagnostic.
+// program counter. Stopping the program after a diagnostic (BeginPanic and
+// Abort) is in panic.p.
 
 // CallerPC returns the return address of the function that calls it: a
 // program counter just after the call instruction in that function's caller.
@@ -66,11 +67,3 @@ func PrintPC(pc uintptr) {
 	printInt(int64(line))
 	printString(")")
 }
-
-// Abort stops the program the way a panic does, after the caller has
-// printed its own message: it prints the stack trace of its caller, then in
-// hosted builds the process exits with status 2 without running exit
-// hooks; freestanding builds call the panic handler.
-//
-//pu:noreturn
-func Abort() { fatal() }

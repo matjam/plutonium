@@ -93,6 +93,9 @@ func (s *StdSizes) Alignof(T Type) (result int64) {
 		if t.Info()&IsString != 0 {
 			return s.WordSize
 		}
+	case *TaggedUnion:
+		_, _, _, al := unionLayout(s, t)
+		return al
 	case *TypeParam, *Union:
 		panic("unreachable")
 	}
@@ -222,6 +225,9 @@ func (s *StdSizes) Sizeof(T Type) int64 {
 		// StdSizes.Sizeof won't be called for them.
 		assert(!isTypeParam(T))
 		return s.WordSize * 2
+	case *TaggedUnion:
+		_, _, size, _ := unionLayout(s, t)
+		return size
 	case *TypeParam, *Union:
 		panic("unreachable")
 	}

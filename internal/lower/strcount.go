@@ -90,6 +90,10 @@ func (l *Lowerer) counted(T types2.Type) bool {
 		case types2.WrapAligned, types2.WrapVolatile, types2.WrapRing:
 			c = l.counted(u.Elem())
 		}
+	case *types2.TaggedUnion:
+		for i := 0; i < u.NumVariants() && !c; i++ {
+			c = u.Variant(i).HasPayload() && l.counted(u.Variant(i).Payload())
+		}
 	}
 	l.countedTypes[key] = c
 	return c
@@ -138,6 +142,18 @@ func (s *fnState) eachString(ptr *ssa.Value, T types2.Type, f func(ctl *ssa.Valu
 			return
 		}
 		s.eachString(ptr, et, f)
+	case *types2.TaggedUnion:
+		// Only the payload of the variant the tag names holds references.
+		ul := s.l.unionLayoutOf(T, s.pos)
+		tag := s.unionTag(ul, aggValue(ptr, T))
+		for i := 0; i < u.NumVariants(); i++ {
+			v := u.Variant(i)
+			if P := s.subst(v.Payload()); v.HasPayload() && s.l.counted(P) {
+				s.ifThen(s.newValue(ssa.OpEq, ssa.TBool, tag, s.constInt(ul.tag, int64(i))), func() {
+					s.eachString(s.offPtr(ptr, ul.payload), P, f)
+				})
+			}
+		}
 	}
 }
 

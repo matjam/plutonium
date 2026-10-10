@@ -1,0 +1,34 @@
+$DIR/main.p:14:1: onPanic is the panic handler, so it must never return
+    A panic stops the program: it does not unwind, so there is nothing for the
+    handler to return to. Every path through it must end in an endless loop, or
+    in a call of a function that never returns: one marked //pu:noreturn, or one
+    whose every path ends the same way. A call through a func value or an
+    interface, and recursion, count as returning.
+    onPanic can return here (main.p:14).
+    A kernel has no operating system to fall back on when it panics, so
+    Plutonium makes the program choose what happens at compile time, and checks
+    the choice: the runtime calls the handler directly, with nothing to
+    register, so it works from the first instruction.
+    End it by halting:
+        for {
+            x86.Cli()
+            x86.Hlt()
+        }
+    (see "Panics in freestanding programs" in the Plutonium spec, section 8.1)
+    (run "pluto explain E2583" for a longer explanation)
+
+$DIR/main.p:31:2: keyboard is an interrupt handler, so it must not wait
+    Interrupt handlers run on top of whatever code the CPU was executing. If a
+    handler waits, for a lock or for room in a channel, the interrupted code can
+    never resume to release it, and the CPU stops.
+    keyboard calls readConfig (main.p:31), which calls cfgLock.Lock (main.p:27),
+    which may be (*Mutex).Lock, which may wait.
+    cfgLock.Lock calls through an interface, so it counts as calling the Lock
+    method of every type the program converts to main.Locker.
+    A kernel that waits in an interrupt handler hangs, often only under load and
+    far from the cause, so Plutonium checks the whole program at compile time
+    instead.
+    To hand work to normal code, use a non-blocking send:
+        select { case work <- item: default: }
+    (see "Interrupts" in the Plutonium spec, section 12.6)
+    (run "pluto explain E2584" for a longer explanation)

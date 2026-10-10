@@ -392,10 +392,11 @@ func runesFromString(p *byte, n int) (*rune, int) {
 // panicSliceRune reports a string slice expression whose bound i falls
 // inside a rune's encoding.
 func panicSliceRune(i int) {
-	printString("panic: runtime error: slice bound ")
+	startPanic()
+	printString("runtime error: slice bound ")
 	printInt(int64(i))
-	printString(" is not at the start of a rune: a string holds valid UTF-8, so it can only be sliced between runes\n")
-	fatal()
+	printString(" is not at the start of a rune: a string holds valid UTF-8, so it can only be sliced between runes")
+	fatal(nil)
 }
 
 // ----------------------------------------------------------------------------

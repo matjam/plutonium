@@ -187,9 +187,9 @@ func (s *fnState) finishEntry() {
 
 // varFacts records what a function body does with a local variable.
 type varFacts struct {
-	assigned   bool // assigned after its declaration
-	addrTaken  bool // its address is taken, so others can change it
-	captured   bool // a function literal refers to it
+	assigned  bool // assigned after its declaration
+	addrTaken bool // its address is taken, so others can change it
+	captured  bool // a function literal refers to it
 }
 
 // analyzeVars scans a function body for the facts about its variables

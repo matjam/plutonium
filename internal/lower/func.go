@@ -58,7 +58,7 @@ type fnState struct {
 	labelScopes map[*types2.Label]ast.Node
 	// allocOK is set in functions marked //pu:alloc, which may use
 	// allocating string operations in kernel mode.
-	allocOK      bool
+	allocOK       bool
 	allocReported bool
 }
 
@@ -290,11 +290,11 @@ func (l *Lowerer) newFnState(job *funcJob) *fnState {
 	f := ssa.NewFunc(job.sym.Name)
 	f.Sym = job.sym
 	s := &fnState{
-		l:      l,
-		pkg:    job.pkg,
-		f:      f,
-		job:    job,
-		tmap:   job.tmap,
+		l:         l,
+		pkg:       job.pkg,
+		f:         f,
+		job:       job,
+		tmap:      job.tmap,
 		vars:      map[*types2.Var]*ssa.Value{},
 		labels:    map[*types2.Label]*labelInfo{},
 		ownedVars: map[*types2.Var]bool{},
@@ -345,6 +345,7 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 		s.checkFloatSignature()
 	}
 
+	l.sigs[job.sym] = job.sig
 	if job.build != nil {
 		s.startBody()
 		root := s.pushCleanup(nil, true)
@@ -357,6 +358,7 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 		} else {
 			body = job.lit.Body
 		}
+		l.bodies[job.sym] = funcBody{body: body, info: s.info}
 		s.varFacts = analyzeVars(body, s.info)
 		s.labelScopes = labelBlocks(body, s.info)
 		s.bindParams()

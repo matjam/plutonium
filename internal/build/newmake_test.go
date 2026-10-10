@@ -42,13 +42,18 @@ func serialWrite(p unsafe.Pointer, n int) {
 	}
 }
 
-func exit() { outb(0xF4, 1) }
+//pu:panic
+func onPanic(p *rt.Panic) {
+	p.Print(rt.Console{})
+	for {
+		outb(0xF4, 1)
+	}
+}
 
 type node struct{ next *node }
 
 func main() int64 {
 	rt.SetConsole(serialWrite)
-	rt.SetPanicHandler(exit)
 	println("before")
 	n := new(node)
 	println("unreachable", n)
@@ -90,8 +95,8 @@ func main() int64 {
 	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 3 {
 		t.Fatalf("qemu: %v (want exit status 3)\nserial: %s\nstderr: %s", err, stdout.String(), stderr.String())
 	}
-	// The message, then the stack trace: the new on line 25.
-	want := regexp.MustCompile(`\Abefore\npanic: no allocator: call alloc\.SetDefault before allocating\n    main\.main \(\S*/main\.p:25\)\n\z`)
+	// The message, then the stack trace: the new on line 30.
+	want := regexp.MustCompile(`\Abefore\npanic: no allocator: call alloc\.SetDefault before allocating\n    main\.main \(\S*/main\.p:30\)\n\z`)
 	if got := stdout.String(); !want.MatchString(got) {
 		t.Errorf("serial output %q, want a match for %q", got, want)
 	}

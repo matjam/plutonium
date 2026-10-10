@@ -170,7 +170,7 @@ func (s *fnState) countIntrinsic(fn *types2.Func, e *ast.CallExpr, id *ast.Ident
 }
 
 // checkAllocOp reports an allocating string operation in kernel mode
-// outside a function marked //pu:alloc (language spec section 12.6).
+// outside a function marked //pu:alloc (language spec section 12.7).
 func (s *fnState) checkAllocOp(pos token.Pos, what string) {
 	if !s.l.cfg.Kernel || s.allocOK || s.allocReported {
 		return

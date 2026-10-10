@@ -258,6 +258,10 @@ func (w *monoGraph) assign(pkg *Package, pos token.Pos, tpar *TypeParam, targ Ty
 			for i := 0; i < typ.NumFields(); i++ {
 				do(typ.Field(i).Type())
 			}
+		case *TaggedUnion:
+			for _, v := range typ.variants {
+				do(v.typ)
+			}
 		}
 	}
 	do(targ)
