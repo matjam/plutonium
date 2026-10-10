@@ -135,6 +135,26 @@ later takes the next free number and is listed in the section where it belongs.
     target, `//pu:nonblocking`, a `portable` constraint). The PlutoniumOS task model they serve is in
     PlutoniumOS: docs/architecture/lightweight-tasks.md (github.com/matjam/plutoniumos, private).
 
+63. **`sync.Scope`** (in progress; [scoped tasks plan](plans/2026-10-10-scoped-puroutines.md), revised;
+    false-friends audit F10; complete-spec gap G35): a type whose name says that it joins. `s.Task(f)` starts
+    a task that is joined before the scope ends, so the task may use variables of the enclosing frame; the
+    sharing check reuses the lock inference of item 59 (E3401 to E3406). A scoped task starts with the
+    program-wide default allocator like every task (G35). `sync.WaitGroup` keeps Go's behavior and today's
+    escape errors. A join on `rt.Goexit` comes with item 58's follow-up.
+66. **Large task stacks** (in progress; false-friends audit F8, complete-spec gap G36; with item 18): a
+    hosted task whose stack size cannot be computed gets 64 MiB of address space reserved with a guard
+    region below, committed as it is touched (about two million tasks fit in a 47-bit address space). The
+    specification promises hosted tasks at least this much and makes overflow a panic that names the size
+    and how to ask for more (`rt.Go(f, size)`). Kernel builds keep computed or explicit sizes and
+    `-stackreport`.
+67. **Counted channels, and a channel owns its timer** (in progress; item 48, false-friends audit F6 and
+    F7): a channel is a counted reference, freed with its last reference, and `alloc.FreeChan` goes away.
+    The channel of a timer owns the timer: when the last reference goes, the timer is stopped and freed
+    with it. `time.After` and `time.Tick` free themselves when the `select` drops its temporary, `Timer` and
+    `Ticker` hold a reference to their channel like any other value, and `alloc.Free(t)` goes away. The
+    runtime's own pointer from the timer heap to the channel is not counted. Replaces the leak notes of
+    items 15 and 45.
+
 ## Language
 
 19. **Methods with type parameters** (done): merged on 2026-10-09; method values must be instantiated.
@@ -211,7 +231,7 @@ later takes the next free number and is listed in the section where it belongs.
     loop, so it runs at most once (language spec section 4.10).
 29. **`min`/`max` of strings and comparison of large arrays** (planned): rejected with "not supported
     yet".
-58. **Deferred calls on a panic, and `rt.Goexit`** (done; language spec sections 8.2 and 8.3;
+58. **Deferred calls on a panic, and `rt.Goexit`** (done, `71d0441`; language spec sections 8.2 and 8.3;
     false-friends audit F4 and F5): a hosted panic runs the panicking task's deferred calls, innermost
     frame first, before the panic handler, from defer records the trace table lists (no unwinding, no
     `recover`, owners not dropped); faults resume on the task's stack to run them; a panic in a deferred
@@ -221,7 +241,7 @@ later takes the next free number and is listed in the section where it belongs.
     Freestanding and kernel builds are unchanged. Follow-ups: owner drops on `Goexit` come with item 20's
     drops, which run on the same return paths; `sync.Scope`'s join on `Goexit` likewise (scoped-puroutines
     D7).
-59. **Data race freedom** (done; language spec section 6.11,
+59. **Data race freedom** (done, `6e74756`, with the spec in `23e57de`; language spec section 6.11,
     memory-model.md section 4.1; memory safety design section 7, D5(b) and D7; complete-spec gap G32):
     `internal/race`, a whole-program analysis after the escape analysis, infers which `sync.Mutex` or
     `sync.RWMutex` guards each piece of shared data from the locks held at its writes (a must-hold flow
@@ -312,6 +332,68 @@ later takes the next free number and is listed in the section where it belongs.
     `vec.WithCapacity[T](c)`, owners, or an array for a constant size; go2pu translates it to
     `compat.Make`.
 
+60. **Counted `map[K]V`** (in progress; complete-spec gaps G15 to G17, spec section 7.10): the built-in map
+    returns as a counted reference with Go's semantics. `make(map[K]V)`, `make(map[K]V, n)` and
+    `make(map[K]V, n, a)` take an allocator as `make(chan T, n, a)` does, and a map literal allocates from
+    the current allocator (G17). Indexing, `v, ok := m[k]`, `delete`, `len` and `range` work as in Go;
+    `clear(m)` deletes every entry and releases counted keys and values (G28). Neither keys nor values may
+    be owners: the error points to `hash.Map`, whose `Ptr`, `Remove` and `Pop` look at or take out an owner
+    (G15). A map may be passed to another task, and its contents fall under the race rules of item 59 as
+    the contents of a `synced[T]` do (G16). Iteration follows item 64.
+61. **Remove `string([]byte)`, `[]byte(s)`, `[]rune(s)` and integer-to-string conversions** (in progress:
+    `string(b)` is E2015 on an unmerged branch; false-friends audit F2; complete-spec gaps G10 and G11):
+    each is a compile error whose message shows the replacement. `strings.FromUTF8(b)` converts bytes that
+    should be text, `strings.FromUTF8Lossy(b)` where replacing invalid bytes is acceptable, `strings.Bytes(s)`
+    returns a `vec.Vec[byte]`, `copy(buf[:], s)` fills a caller's buffer without allocating, and
+    `for i, r := range s` or `strings.Runes(s)` give runes (the functions are added where they do not
+    exist). `string(runes)` and `string(r)` stay. A conversion from an integer type to `string` accepts only
+    `rune` and untyped constants; `string(rune(i))` and `strconv.Itoa(i)` are the fixes. Supersedes the
+    conversions that item 57 brought back.
+62. **The `task` rename** (planned; complete-spec gaps G1 to G3): `task f(x)` starts a task. `task` is a
+    contextual keyword: it begins a statement when it starts the statement and the next token is an
+    identifier or `func`, and is an ordinary identifier everywhere else (G2). `go` stays reserved, and
+    `go f()` is a compile error that names `task` (G1). `enum` and `packed` stay reserved keywords;
+    `union`, `owner` and `task` stay contextual (G3). The word "task" replaces "puroutine" everywhere: the
+    language, `rt.Task`, `s.Task` (item 63), `wg.Task` (which replaces `wg.Go`), diagnostics, traces, the
+    catalog, the specifications, the examples and the documents.
+64. **Go's map iteration guarantees and per-map seeds** (planned; false-friends audit F3 and F17): a
+    deletion never moves another entry, so every entry present when a loop starts and not deleted before the
+    loop reaches it is visited exactly once; when the table grows during an iteration the iterator keeps
+    walking the old table and looks each key up in the new one, as Go's does. The old table stays alive
+    while an iteration that saw it runs. In hosted builds each map is seeded from a random value the
+    runtime reads at startup, mixed with a counter; kernels and reproducible builds keep `InitSeed`.
+    Applies to `hash.Map`, `hash.Set` and the built-in map (item 60).
+70. **`portable`** (planned; complete-spec gap G19; [scheduler contract](plans/2026-10-09-scheduler-contract.md)
+    section 9): a predeclared constraint for typed IPC between PlutoniumOS processes. A type is portable
+    when it contains no pointers, views, counted values (strings included, since their buffers live in the
+    sender's address space), interfaces, func values or channels at any depth. The check is inferred, like
+    sendability, and needs no annotation. A library interface that says how to transfer handles and
+    page-owning owners follows with the PlutoniumOS IPC design.
+71. **Generation checks by default for hosted builds** (in progress; memory safety decision D3(b),
+    complete-spec gap G31, spec section 18.11): a use of freed heap memory is a run-time panic in the
+    language's definition. Hosted builds enable the checks by default once loop-invariant hoisting and a
+    second measurement land (item 20); kernel and freestanding builds stay unchecked until a kernel tag
+    encoding exists. A build without the checks is a documented unchecked mode, not a dialect.
+72. **Arena epochs** (done, `3410025`; memory safety decision D4, ABI section 1.3): `arena.Chunked` carries
+    a per-arena epoch under `--gencheck`, so a use of memory in a reset arena panics at run time, and
+    `alloc.SyncSlab` tags its allocations with generations. Part of item 20.
+73. **Verify the order of evaluation against gc** (planned; complete-spec gap G24): the specification states
+    gc's order, not Go's weaker wording: calls, method calls and receives first, left to right, then the
+    other operands, so `[]int{a, f()}` with an `f` that changes `a` gives `[2 2]`. Survey `internal/lower`
+    and add `testdata/run` and difftest cases (composite literals, assignments, `x[i] = f()` and operands
+    of operators). Any difference from gc is a false friend and is fixed by matching gc.
+75. **Language checks from the complete-spec gap answers** (planned): `//go:` line comments are a compile
+    error that names the `//pu:` equivalent (G4); `iota` in an enum is an error (G7); a package initializer
+    that allocates in a freestanding build is a compile error that points to initializing in the entry
+    function (G22); an expression that moves a variable and uses it elsewhere is an error whatever the
+    order (G25); a consuming method used as a method value is an error (G26); an exhaustive enum switch
+    ends a function as a union switch does, and a call of an inferred no-return function does not (G27);
+    `clear` on a slice of owners drops each element (G28); the directive groups of G37 (`section` among the
+    linkage requests, `noreturn` and `noescape` for bodies the compiler cannot see, `nosimd` with the
+    kernel group, `nobounds` retiring into `nochecks`) with AGENTS.md, spec section 20.3 and
+    `internal/lsp/hover.go` changing together. Each is checked against the compiler when the work starts,
+    and those already enforced are struck from the list.
+
 ## Tooling
 
 30. **`pluto fmt`** (in progress): the formatter, from the forked Go printer.
@@ -323,6 +405,14 @@ later takes the next free number and is listed in the section where it belongs.
 34. **Incremental builds and caching** (planned): per-package object caching keyed by source and flags;
     every build compiles the whole program today.
 35. **`-race`-style tooling** (planned): a race detector for hosted builds, after puroutines exist.
+
+76. **The complete language specification** (in progress; [plan](plans/2026-10-10-complete-spec.md)): a
+    self-contained definition of the decided language that does not defer to Go's specification, in one file
+    per chapter under `docs/spec/language/` with section numbers unique across the spec. Phase 1 (outline,
+    gap list, decisions in plan section 3.10, chapter stubs) is done; phase 2 (six writers, one per part) is
+    in progress; phase 3 is the integration: the grammar, `TestSpecReferences` over the chapter files, the
+    renumbering sweep and the catalog's citations. Making `memory-model.md` and `abi.md` self-contained
+    (gap G41) is part of it.
 
 ## Platforms and formats
 
@@ -450,3 +540,19 @@ later takes the next free number and is listed in the section where it belongs.
       compares `ParseFloat` and `AppendFloat` with Go's over a million random and hard inputs, and
       the golden test maps `pluto/unicode`, `slices`, `cmp` and `container/heap` to Go's packages so
       that `testdata/run` programs are checked by running them with Go.
+
+65. **Range over a vector reads the length once** (done, `dad7c36`; false-friends audit F11): `All`,
+    `Values` and `Backward` of `vec.Vec` read the length when the loop starts, as `range` over a slice does,
+    and stop early if the vector has shrunk below the next index. A worklist that should see its own pushes
+    uses an index loop. `ring[T, N]` is not a Go type and keeps its documented behavior.
+68. **`bytes.Buffer` grows** (done, `9c6cdcc`; false-friends audit F9): Go's growing buffer with `NewBuffer`
+    and `NewBufferString`, recording its allocator like `strings.Builder`. Bounded writes into a caller's
+    array use `vec.Fixed[byte]`.
+69. **Go's error types in `os` and `strconv`** (planned, after counted errors, item 11; false-friends audit
+    F15): file I/O returns `*os.PathError` and the parsing functions return `*strconv.NumError`, allocated
+    only on failure, so `errors.As` and `Error()` give Go's results. `io.EOF` and `os.ErrClosed` stay
+    sentinels.
+74. **`strings.Truncate` and `utf8.RuneStartBefore`** (planned; false-friends audit F12, complete-spec gap
+    G30): `strings.Truncate(s string, n int) string` returns the longest prefix of at most `n` bytes that
+    ends on a rune boundary, and `utf8.RuneStartBefore(s string, i int) int` rounds a byte offset down to
+    the start of a rune. The panic for `s[i:j]` off a rune boundary names them.

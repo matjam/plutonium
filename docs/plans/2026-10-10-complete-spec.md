@@ -2,8 +2,10 @@
 
 **Date:** 2026-10-10
 **Status:** phase 1 of 2: the outline, the sources and status of every section, the questions the
-language has not answered yet, licensing, file structure and the split of the writing work. Nothing in
-the spec changes until the gap list (section 3) is answered.
+language has not answered yet, licensing, file structure and the split of the writing work. The gap list
+(section 3) was answered on 2026-10-10; the decisions are in section 3.10. The roadmap items (6.1 step 3,
+roadmap items 60 to 76) and the chapter stubs (6.1 step 4, `docs/spec/language/`) are in place; the
+memory-safety branch has merged. Phase 2 can start.
 
 ## 1. Why
 
@@ -1084,6 +1086,90 @@ The spec says 64 bits "on all current targets", like Go's "implementation-specif
 
 **Recommendation: (a).** Both planned targets are 64-bit, and a fixed width removes a portability
 question from every program (**Plain**). A 32-bit target would then be a deliberate language change.
+
+### 3.10 Decisions
+
+**Date:** 2026-10-10. The user decided all forty-two gaps, each as the recommendation given above, with
+two notes: G24 is conditional on confirming that lowering matches gc (writers state gc's order, and the
+roadmap has a verification item, 73), and G19 is structural now with a library interface later. This
+table is the answer sheet: a writer reads it instead of the gap texts, and goes back to section 3 only
+for the reasoning. A gap with several parts lists each part. Where the recommendation names no option
+letter, the table gives the recommendation itself. Roadmap items that track the implementation are in
+`docs/roadmap.md` (items 60 to 76).
+
+| Gap | Decision |
+|---|---|
+| G1 | (a) `go` stays a reserved keyword whose only use is a compile error that points to `task`. |
+| G2 | (a) `task` begins a task statement when it starts a statement and the next token is an identifier or `func`; otherwise it is the identifier. `task (f)(x)` is written `task f(x)`. |
+| G3 | (a) `enum` and `packed` are reserved keywords; `union`, `owner` and `task` are contextual. |
+| G4 | (a) A `//go:` line comment is a compile error that names the `//pu:` equivalent, in the family of E2600. |
+| G5 | (a) Struct tags stay: part of type identity, otherwise ignored, available to type descriptors. |
+| G6 | State Go's minimums as the requirement (integers of at least 256 bits, floats with at least a 256-bit mantissa and a 16-bit exponent) and leave the exact precision to the implementation. |
+| G7 | (a) `iota` is an error in an enum; a member without a value is one more than the previous member. |
+| G8 | (a) An out-of-range float to integer conversion gives an implementation-dependent value, as in Go, and never faults. |
+| G9 | (a) `int`, `uint` and `uintptr` are 64 bits everywhere, by a language rule. |
+| G10 | (b) `[]byte(s)` and `[]rune(s)` are removed; the error shows `strings.Bytes(s)`, `copy(buf[:], s)`, `for i, r := range s` or `strings.Runes(s)`. `string(runes)` stays. |
+| G11 | (b) A conversion to `string` accepts only `rune` values and untyped constants; other integer types are an error that shows `string(rune(i))` and `strconv.Itoa(i)`. |
+| G12 | (a) A struct may embed `owned[T]`, `shared[T]` or `synced[T]`, promoting `T`'s methods as an embedded `*T` does; a struct embedding `owned[T]` must be declared `owner`. |
+| G13 | (a) An owner type is comparable when its underlying type is; comparing reads and moves nothing. `owned`, `shared`, `synced` and `weak` compare by address and with `nil`. |
+| G14 | (a) Converting a value into an owner type is allowed only in the package that declares the owner type; converting an owner to a non-owner type reads the value and moves nothing; converting between owner types with the same underlying type moves. |
+| G15 | (a) Keys and values of a built-in map may not be owners (the error points to `hash.Map`); counted values are allowed and count as they are copied. |
+| G16 | (a) A map is sendable, and its contents fall under the race rules of section 19.3 as the contents of a `synced[T]` do. |
+| G17 | (a) `make(map[K]V)`, `make(map[K]V, n)` and `make(map[K]V, n, a)`, with the rule channels use to tell a capacity from an allocator; a map literal allocates from the current allocator. |
+| G18 | (b) Go's method-set rule: a value-receiver method of an owner type consumes its receiver and never satisfies an interface method, ordinary or owning; the error at the conversion shows `&b`. |
+| G19 | Structural now (a): portable means no pointers, views, counted values (strings included), interfaces, func values or channels at any depth. A library interface for transferring handles and page-owning owners (b) follows with the PlutoniumOS IPC design; the spec says structural only and notes the extension point. |
+| G20 | (a) `owned`, `shared` and `synced` cannot hold an interface type; the error points to owning interfaces. |
+| G21 | (a) Package-level owners are never dropped when the program ends; the debug allocator reports memory still held by package variables apart from leaks. |
+| G22 | (b) A package initializer that allocates is a compile error in freestanding builds, with the fix of initializing in the entry function after `alloc.SetDefault`; hosted builds allocate from the default allocator. |
+| G23 | (a) `_ = x` is a read that moves nothing; `_ = open()` drops the temporary result at the end of the statement. |
+| G24 | (c), conditional: state gc's order (calls, method calls and receives first, left to right, then the other operands), once a survey confirms that lowering evaluates this way. Writers state gc's order; roadmap item 73 verifies it, and a mismatch is fixed by matching gc. |
+| G25 | (a) An expression that moves a variable and uses it anywhere else is a compile error, whatever the order; permuting assignments stay allowed. |
+| G26 | (a) A consuming method used as a method value is a compile error; the method expression and the direct call still work. |
+| G27 | (i)(a) An exhaustive enum switch terminates, as a union switch does. (ii)(b) A call of an inferred no-return function does not terminate; Go's list only. |
+| G28 | (a) `clear(s)` assigns the zero value to each element, dropping owners first; `clear(m)` deletes every entry and releases counted keys and values. |
+| G29 | (b) Iterators over owners yield views (`*T`); a container hands owners out with methods (`Pop`, `Remove`); `Seq[V any]` is unchanged. |
+| G30 | `strings.Truncate(s string, n int) string` (longest prefix of at most `n` bytes ending on a rune boundary) and `utf8.RuneStartBefore(s string, i int) int`. |
+| G31 | (a) A use of freed heap memory is defined as a run-time panic; a build without the checks is a documented unchecked mode; whether a mode enables them by default follows D3 (hosted first, kernels once a tag encoding fits them). |
+| G32 | (a) A package variable written after initialization by code that more than one task can reach must have a `pluto/sync/atomic` type or be guarded by an inferred lock (landed, roadmap 59). |
+| G33 | Keep Go's limited-consequences rule for unsafe code, and state that safe code is free of data races; the compiler may not assume race freedom where unsafe code can still race. |
+| G34 | (a), with (b) for what (a) cannot see: allocations through `Default()` while a `Restore` that views a local arena is live are views of that arena for the escape analysis; arena epochs catch the rest. |
+| G35 | (b) Every task, scoped or not, starts with the program-wide default allocator; a task that wants an arena installs its own. |
+| G36 | (a) Hosted tasks whose stack size cannot be computed get 64 MiB of address space with a guard region, committed as it is touched. The spec states that hosted tasks have at least this much and that overflow is a panic; the number lives in the toolchain section. |
+| G37 | `section` joins the linkage requests; `noreturn` and `noescape` join the group for bodies the compiler cannot see; `nosimd` joins the kernel group; `resultholds` is standard library only (E3008 elsewhere); `nobounds` retires into `nochecks` when that lands, with E2601 naming the replacement. AGENTS.md, section 20.3 and `internal/lsp/hover.go` change together. |
+| G38 | (a) One language version: the spec header carries a version number, and no module records a language version until a release needs one. |
+| G39 | (b) The standard library moves to the package documentation; appendix F keeps only the names the language depends on. |
+| G40 | (b) The spec states each rule and its error code; the message texts live in the catalog and the golden tests; chapter 21 states what every message must contain. |
+| G41 | (a) The memory model and the ABI become self-contained in phase 2, with no deference to Go's documents. |
+| G42 | (a) Catalog citations of the Go spec point to the Plutonium section that defines the rule; a quoted Go sentence stays only where it is still true of Plutonium. |
+
+**Design principles, inputs for every writer.** The four rules and four standing principles of
+`docs/spec/language.md` (introduction and section 1.1) decide the cases a chapter leaves open. Each
+chapter states its rules in their terms, and a writer who finds a rule that conflicts with one raises it
+instead of resolving it silently.
+
+The four rules (the goals table of section 3 gives the short names):
+
+1. **Go-familiar, not Go-compatible.** Go's syntax and idioms wherever they fit; compiling Go source
+   unchanged is not a goal.
+2. **No false friends.** A difference from Go that a Go programmer would not expect is visible in the
+   source (a different name, syntax or type, or a compile error that explains it). Code that looks like Go
+   and compiles does what Go would do.
+3. **No annotations for ordinary code.** What the compiler can work out, it works out; directives state
+   only what it cannot see.
+4. **Go as a test oracle.** Programs in the common subset of Go and Plutonium are kept as tests; the subset
+   checks the compiler and is not a design constraint.
+
+The four standing principles of section 1.1:
+
+1. **Doubt resolves to a compile error.** Every static analysis rejects what it cannot prove safe; a false
+   positive is fixed by improving the analysis, not by weakening the rule.
+2. **Run-time checks change what a bug does, never what correct code means.** Generation and arena-epoch
+   checks are on by default for hosted builds once their cost is acceptable and off for kernels until a
+   kernel tag encoding exists; correct programs behave identically with and without them.
+3. **Mechanism in the language, policy in the kernel.** The runtime provides mechanisms with hooks; the
+   kernel supplies policy. Application code never sees the hooks.
+4. **Bounded checks fail loudly, never silently.** At the end of a check's range the memory is retired or
+   the field widened; a stale pointer never passes.
 
 ## 4. Licensing
 
