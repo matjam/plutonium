@@ -28,6 +28,7 @@ type Config struct {
 	Dir          string // main package directory
 	Output       string // output file
 	Freestanding bool
+	Kernel       bool     // --mode kernel: freestanding, ring 0, no FPU (implies Freestanding)
 	Tags         []string // extra build tags
 	OptLevel     int      // 0 = none, 1 = basic, 2 = full
 	LinkerScript string
@@ -54,9 +55,12 @@ var sizes = types2.SizesFor("gc", "amd64")
 // loadConfig returns the package loader's configuration for a build.
 func loadConfig(cfg *Config) *load.Config {
 	tags := map[string]bool{"amd64": true}
-	if cfg.Freestanding {
+	if cfg.Freestanding || cfg.Kernel {
 		tags["none"] = true
 		tags["freestanding"] = true
+		if cfg.Kernel {
+			tags["kernel"] = true
+		}
 	} else {
 		tags["linux"] = true
 		tags["hosted"] = true
@@ -69,7 +73,7 @@ func loadConfig(cfg *Config) *load.Config {
 
 // buildProgram compiles and links a loaded program.
 func buildProgram(cfg *Config, prog *load.Program) error {
-	sp, err := lower.Lower(&lower.Config{Freestanding: cfg.Freestanding, Sizes: sizes}, prog)
+	sp, err := lower.Lower(&lower.Config{Freestanding: cfg.Freestanding || cfg.Kernel, Kernel: cfg.Kernel, Sizes: sizes}, prog)
 	if err != nil {
 		return err
 	}
@@ -123,9 +127,16 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 	}
 
 	args := []string{"-static", "-nostdlib", "-z", "noexecstack", "-o", cfg.Output}
-	if cfg.LinkerScript != "" {
+	switch {
+	case cfg.LinkerScript != "":
 		args = append(args, "-T", cfg.LinkerScript)
-	} else {
+	case cfg.Kernel:
+		script := filepath.Join(work, "kernel.ld")
+		if err := os.WriteFile(script, []byte(KernelLinkerScript), 0o644); err != nil {
+			return err
+		}
+		args = append(args, "-z", "max-page-size=0x1000", "-T", script)
+	default:
 		args = append(args, "-e", "_start")
 	}
 	if cfg.Format == "binary" {

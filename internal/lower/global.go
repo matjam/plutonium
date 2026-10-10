@@ -46,12 +46,20 @@ func (l *Lowerer) lowerGlobals() {
 				d.Size = 1
 			}
 			l.out.Data = append(l.out.Data, d)
-			// Static initialisation from a constant.
+			// Static initialisation from a constant, or from a literal
+			// array or struct made of constants.
 			for _, init := range p.Info.InitOrder {
 				if len(init.Lhs) == 1 && init.Lhs[0] == v {
 					if tv := p.Info.Types[init.Rhs]; tv.Value != nil {
 						if l.staticConst(d, tv.Value, T) {
 							static[v] = true
+						}
+					} else if _, ok := ast.Unparen(init.Rhs).(*ast.CompositeLit); ok {
+						d.Bytes = make([]byte, d.Size)
+						if l.staticValue(p, d, init.Rhs, T, 0) {
+							static[v] = true
+						} else {
+							d.Bytes, d.Relocs = nil, nil
 						}
 					}
 				}
@@ -142,6 +150,77 @@ func (l *Lowerer) staticConst(d *ssa.Data, c constant.Value, T types2.Type) bool
 	return true
 }
 
+// staticValue writes the value of e, of type T, into d.Bytes at offset
+// off, reporting whether e is a constant or a literal array or struct
+// whose elements are, recursively, such values. Elements a literal leaves
+// out stay zero.
+func (l *Lowerer) staticValue(p *load.Package, d *ssa.Data, e ast.Expr, T types2.Type, off int64) bool {
+	T = unwrap(T)
+	if tv := p.Info.Types[e]; tv.Value != nil {
+		var c ssa.Data
+		if !l.staticConst(&c, tv.Value, T) {
+			return false
+		}
+		copy(d.Bytes[off:], c.Bytes)
+		for _, r := range c.Relocs {
+			r.Off += off
+			d.Relocs = append(d.Relocs, r)
+		}
+		return true
+	}
+	lit, ok := ast.Unparen(e).(*ast.CompositeLit)
+	if !ok {
+		return false
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Array:
+		et := u.Elem()
+		size := l.sizeof(et)
+		var i int64
+		for _, elt := range lit.Elts {
+			val := elt
+			if kv, ok := elt.(*ast.KeyValueExpr); ok {
+				if i, ok = constIndex(p.Info, kv.Key); !ok {
+					return false
+				}
+				val = kv.Value
+			}
+			if !l.staticValue(p, d, val, et, off+i*size) {
+				return false
+			}
+			i++
+		}
+		return true
+	case *types2.Struct:
+		fields := make([]*types2.Var, u.NumFields())
+		for i := range fields {
+			fields[i] = u.Field(i)
+		}
+		offs := l.sizes.Offsetsof(fields)
+		for i, elt := range lit.Elts {
+			idx, val := i, elt
+			if kv, ok := elt.(*ast.KeyValueExpr); ok {
+				key, _ := kv.Key.(*ast.Ident)
+				idx = -1
+				for j, f := range fields {
+					if key != nil && f.Name() == key.Name {
+						idx = j
+					}
+				}
+				if idx < 0 {
+					return false
+				}
+				val = kv.Value
+			}
+			if !l.staticValue(p, d, val, fields[idx].Type(), off+offs[idx]) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 // initSymName names a package's synthesized initialisation function. User
 // init functions are named path.init.0, path.init.1, ... so they cannot
 // clash with it or with each other.
@@ -166,6 +245,10 @@ func (l *Lowerer) queueInit(p *load.Package, static map[*types2.Var]bool) {
 		s.staticLits = true
 		for _, init := range p.Info.InitOrder {
 			if len(init.Lhs) == 1 && static[init.Lhs[0]] {
+				continue
+			}
+			if len(init.Lhs) == 1 && init.Lhs[0].Name() == "_" && p.Info.Types[init.Rhs].Value != nil {
+				// var _ = constant has no effect.
 				continue
 			}
 			if len(init.Lhs) == 1 {

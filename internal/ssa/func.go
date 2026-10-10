@@ -316,6 +316,17 @@ type Func struct {
 	Section string
 	Pos     token.Pos
 
+	// NoSSE forbids the function any SSE, x87 or other vector state: it
+	// runs where nothing saves those registers (kernel mode without
+	// //pu:fpu, abi.md section 10.2). Lowering rejects float operations in
+	// such a function; no pass may introduce float or vector operations
+	// into it (a vectoriser must leave it alone, and the inliner never
+	// inlines a function without NoSSE into one with it); and the backend
+	// keeps float-typed loads, stores, copies and zero constants in
+	// general-purpose registers and fails on anything else that would
+	// need an XMM register.
+	NoSSE bool
+
 	Blocks []*Block
 	Entry  *Block
 	Slots  []*Slot

@@ -24,6 +24,7 @@ func (s *fnState) ensureBlock() {
 }
 
 func (s *fnState) stmt(st ast.Stmt) {
+	defer s.at(st.Pos())()
 	if _, isLabel := st.(*ast.LabeledStmt); !isLabel {
 		s.ensureBlock()
 	}

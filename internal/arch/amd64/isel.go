@@ -23,6 +23,11 @@ type isel struct {
 	fused  []bool
 	folded []bool // loads folded into their user as a memory operand
 	loops  *ssa.LoopNest
+
+	// noSSE keeps the function out of the XMM registers (ssa.Func.NoSSE):
+	// float-typed values that are only moved live in general-purpose
+	// registers, and any float computation is an error.
+	noSSE bool
 }
 
 // Select converts an SSA function into machine IR.
@@ -43,6 +48,7 @@ func Select(f *ssa.Func) (*MFunc, error) {
 		fused:  make([]bool, f.NumValues()),
 		folded: make([]bool, f.NumValues()),
 		loops:  f.Loops(),
+		noSSE:  f.NoSSE,
 	}
 	for i := range s.vregs {
 		s.vregs[i] = NoReg
@@ -69,7 +75,7 @@ func Select(f *ssa.Func) (*MFunc, error) {
 	for _, b := range f.Blocks {
 		for _, v := range b.Values {
 			if v.Op == ssa.OpPhi && !v.Type.IsMem() {
-				s.vregs[v.ID] = mf.newVReg(classOfType(v.Type))
+				s.vregs[v.ID] = s.newReg(v.Type)
 			}
 		}
 	}
@@ -91,22 +97,33 @@ func Select(f *ssa.Func) (*MFunc, error) {
 			return nil, err
 		}
 	}
+	if s.noSSE {
+		if err := checkNoSSE(mf); err != nil {
+			return nil, err
+		}
+	}
 	return mf, nil
 }
 
-func classOfType(t *ssa.Type) RegClass {
-	if t.IsFloat() {
+// classOfType returns the register class for values of type t: XMM for
+// floats, unless the function may not use SSE.
+func (s *isel) classOfType(t *ssa.Type) RegClass {
+	if t.IsFloat() && !s.noSSE {
 		return ClassXMM
 	}
 	return ClassGP
 }
+
+// usesSSE reports whether t needs an SSE register: a float in a function
+// that may use them.
+func (s *isel) usesSSE(t *ssa.Type) bool { return t.IsFloat() && !s.noSSE }
 
 func (s *isel) emit(in *MInst) *MInst {
 	s.cur.Insts = append(s.cur.Insts, in)
 	return in
 }
 
-func (s *isel) newReg(t *ssa.Type) Reg { return s.mf.newVReg(classOfType(t)) }
+func (s *isel) newReg(t *ssa.Type) Reg { return s.mf.newVReg(s.classOfType(t)) }
 
 // sizeOf returns the machine operand size for a type: 1, 2, 4 or 8.
 func sizeOf(t *ssa.Type) uint8 {
@@ -390,6 +407,12 @@ func (s *isel) reg(v *ssa.Value) Reg {
 		return r
 	case ssa.OpConstFloat:
 		r := s.newReg(v.Type)
+		if s.noSSE {
+			// Only bits are moved here (lowering rejects float
+			// constants in such functions; zero values remain).
+			s.loadConst(r, int64(floatBits(v)), sizeOf(v.Type))
+			return r
+		}
 		s.loadFloatConst(r, v)
 		return r
 	case ssa.OpFuncAddr:
@@ -589,7 +612,7 @@ func (s *isel) copyRegTyped(dst, src Reg, t *ssa.Type) {
 }
 
 func (s *isel) load(r Reg, m Mem, t *ssa.Type) {
-	if t.IsFloat() {
+	if s.usesSSE(t) {
 		s.emit(&MInst{Op: MMOVSF, Size: sizeOf(t), Dst: RegOp(r), Src: MemOp(m)})
 		return
 	}
@@ -604,7 +627,7 @@ func (s *isel) load(r Reg, m Mem, t *ssa.Type) {
 }
 
 func (s *isel) store(m Mem, v *ssa.Value) {
-	if v.Type.IsFloat() {
+	if s.usesSSE(v.Type) {
 		s.emit(&MInst{Op: MMOVSF, Size: sizeOf(v.Type), Dst: MemOp(m), Src: RegOp(s.reg(v))})
 		return
 	}
@@ -621,6 +644,9 @@ func (s *isel) def(v *ssa.Value) Reg {
 }
 
 func (s *isel) value(v *ssa.Value) error {
+	if s.noSSE && needsSSE(v) {
+		return fmt.Errorf("amd64: %s: %s needs SSE, which this function may not use (kernel mode without //pu:fpu)", s.f.Name, v.LongString())
+	}
 	if isLazy(v) || s.fused[v.ID] || s.folded[v.ID] {
 		return nil
 	}
@@ -763,7 +789,7 @@ func (s *isel) value(v *ssa.Value) error {
 		s.emit(&MInst{Op: MCVTF2F, Size: size, SrcSize: sizeOf(v.Args[0].Type), Dst: RegOp(s.def(v)), Src: RegOp(s.reg(v.Args[0]))})
 	case ssa.OpBitcast:
 		a := v.Args[0]
-		if a.Type.IsFloat() != v.Type.IsFloat() {
+		if s.usesSSE(a.Type) != s.usesSSE(v.Type) {
 			s.emit(&MInst{Op: MMOVQ, Size: size, Dst: RegOp(s.def(v)), Src: RegOp(s.reg(a))})
 		} else {
 			s.copyReg(s.def(v), s.reg(a), size)

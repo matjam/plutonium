@@ -41,6 +41,9 @@ var runCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if cfg.Kernel {
+			return fmt.Errorf("pluto run cannot run a kernel; use pluto build --mode kernel")
+		}
 		tmp, err := os.MkdirTemp("", "pluto-run-")
 		if err != nil {
 			return err
@@ -66,9 +69,9 @@ func init() {
 	for _, c := range []*cobra.Command{buildCmd, runCmd} {
 		c.Flags().StringP("output", "o", "a.out", "output file")
 		c.Flags().String("target", "x86_64-linux", "target triple: x86_64-linux or x86_64-none")
-		c.Flags().String("mode", "", "build mode: hosted or freestanding (default from the target)")
+		c.Flags().String("mode", "", "build mode: hosted, freestanding or kernel (default from the target)")
 		c.Flags().StringSlice("tags", nil, "additional build tags")
-		c.Flags().String("ldscript", "", "linker script")
+		c.Flags().String("ldscript", "", "linker script (kernel mode has a default, see abi.md section 10.3)")
 		c.Flags().String("format", "elf", "output format: elf or binary")
 		c.Flags().BoolP("verbose", "v", false, "print the assembler and linker commands")
 		c.Flags().IntP("opt", "O", 2, "optimisation level: 0, 1 or 2")
@@ -104,10 +107,14 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 		return nil, fmt.Errorf("unsupported target %q (supported: x86_64-linux, x86_64-none)", target)
 	}
 	freestanding := osName == "none"
+	kernel := false
 	switch mode {
 	case "":
 	case "freestanding":
 		freestanding = true
+	case "kernel":
+		freestanding = true
+		kernel = true
 	case "hosted":
 		if osName == "none" {
 			return nil, fmt.Errorf("hosted mode needs an operating system target")
@@ -124,6 +131,7 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 		Dir:          dir,
 		Output:       output,
 		Freestanding: freestanding,
+		Kernel:       kernel,
 		Tags:         tags,
 		OptLevel:     optLevel,
 		LinkerScript: ldscript,

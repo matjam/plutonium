@@ -11,6 +11,7 @@ import (
 
 // expr lowers an expression to a value.
 func (s *fnState) expr(e ast.Expr) value {
+	defer s.at(e.Pos())()
 	tv := s.info.Types[e]
 	if tv.Value != nil {
 		return s.constValue(tv.Value, s.typeOf(e), e)

@@ -29,7 +29,10 @@ import (
 // Config controls lowering.
 type Config struct {
 	Freestanding bool
-	Sizes        types2.Sizes
+	// Kernel compiles for ring 0 (--mode kernel): functions not marked
+	// //pu:fpu may not use floating point, and //pu:percpu is allowed.
+	Kernel bool
+	Sizes  types2.Sizes
 }
 
 // An Error is a lowering error at a source position.
