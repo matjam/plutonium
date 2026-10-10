@@ -21,7 +21,7 @@ import (
 func checkerCodes(t *testing.T) map[string]typerr.Code {
 	t.Helper()
 	byName := map[string]typerr.Code{}
-	for v := -1; v < 3000; v++ {
+	for v := -1; v < 4000; v++ {
 		if s := typerr.Code(v).String(); !strings.HasPrefix(s, "Code(") {
 			byName[s] = typerr.Code(v)
 		}

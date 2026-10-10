@@ -1,0 +1,83 @@
+$DIR/main.p:13:2: Conn must be declared owner: its field buf is a Buf, which is an owner
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. A struct that contains one owns that
+    memory too, and copying the struct would copy the owner, leaving two values
+    that both free it.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Plutonium does not make Conn an owner silently; say so in its declaration:
+        type Conn owner struct {
+            ...
+        }
+    Conn values then move, and buf is dropped when a Conn is. If Conn should
+    only look at a value that something else owns, store a pointer:
+        buf *Buf
+    (see "Owners" in the Plutonium spec, section 6.4)
+    (run "pluto explain E3202" for a longer explanation)
+
+$DIR/main.p:16:12: owner cannot qualify a slice type
+    owner marks a type whose values own something and move instead of being
+    copied. A slice is a view: it looks at an array that something else owns,
+    and never frees it.
+    To attach a resource to a Bytes, wrap both in an owner:
+        type Handle owner struct {
+            v  Bytes
+            fd int32
+        }
+    (see "Owners" in the Plutonium spec, section 6.4)
+    (run "pluto explain E3204" for a longer explanation)
+
+$DIR/main.p:18:11: owner cannot qualify an enum type
+    owner marks a type whose values own something and move instead of being
+    copied. An enum is a set of integer constants, and its values are always
+    copied.
+    To attach a resource to a Kind, wrap both in an owner:
+        type Handle owner struct {
+            v  Kind
+            fd int32
+        }
+    (see "Owners" in the Plutonium spec, section 6.4)
+    (run "pluto explain E3204" for a longer explanation)
+
+$DIR/main.p:35:2: cannot use Buf as T in Fill: Buf is an owner and T does not allow owners
+    Inside the generic code, values of T are copied freely. Copying an owner
+    would leave several values that all free the same memory.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    If the generic code moves each value of T at most once, allow owners in its
+    declaration:
+        [T owner any]
+    Otherwise use copies made explicitly with Clone, or pointers to the owners.
+    (see "Owners" in the Plutonium spec, section 6.4)
+    (run "pluto explain E3207" for a longer explanation)
+
+$DIR/main.p:25:18: Drop must have no parameters and no results
+    Drop runs automatically when an owner is destroyed. The compiler calls it
+    with nothing and ignores any result.
+    Declare it without parameters and results:
+        func (x *Closer) Drop()
+    If this method is not meant to run when a value is destroyed, give it
+    another name.
+    (see "Owners" in the Plutonium spec, section 6.4)
+    (run "pluto explain E3206" for a longer explanation)
+
+$DIR/main.p:7:16: File has a Drop method but is not declared owner
+    Drop runs automatically when a value is destroyed. That only makes sense for
+    a type whose values have exactly one owner: if File values were copied as
+    ordinary values are, every copy would run Drop and release the same
+    resource.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Declare the type as an owner, so that its values move instead of being
+    copied:
+        type File owner struct {
+            ...
+        }
+    (see "Owners" in the Plutonium spec, section 6.4)
+    (run "pluto explain E3201" for a longer explanation)

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/types2"
 )
 
@@ -75,19 +76,18 @@ func id[T owner, U owner any](x T, u U) (T, U) {
 	}
 }
 
-// mustFailExactly checks that src fails to type-check with exactly want
-// (after the position) as its first error.
+// mustFailExactly checks that src fails to type-check with exactly want as
+// its first error, printed as pluto prints it: the message (after the
+// position), then its explanation.
 func mustFailExactly(t *testing.T, src, want string) {
 	t.Helper()
 	_, _, err := checkSrc(t, src)
 	if err == nil {
 		t.Fatalf("expected an error, got none")
 	}
-	got := err.Error()
-	if i := strings.Index(got, ": "); i >= 0 {
-		got = got[i+2:]
-	}
-	if got != want {
+	d := diag.FromChecker(err, nil)
+	got := d.Msg + "\n" + diag.Explanation(d)
+	if strings.TrimSpace(got) != strings.TrimSpace(want) {
 		t.Fatalf("error:\n%s\nwant:\n%s", got, want)
 	}
 }
@@ -99,15 +99,21 @@ type File struct{ fd int32 }
 
 func (f *File) Drop() {}
 `, `File has a Drop method but is not declared owner
-    Drop runs automatically when a value is destroyed. That only makes sense
-    for a type whose values have exactly one owner: if File values were copied
-    as ordinary values are, every copy would run Drop and release the same
+    Drop runs automatically when a value is destroyed. That only makes sense for
+    a type whose values have exactly one owner: if File values were copied as
+    ordinary values are, every copy would run Drop and release the same
     resource.
-    Declare the type as an owner, so that its values move instead of being copied:
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Declare the type as an owner, so that its values move instead of being
+    copied:
         type File owner struct {
             ...
         }
-    (see "Ownership" in the language spec, section 6.4)`)
+    (see "Owners" in the Plutonium spec, section 6.4)
+    (run "pluto explain E3201" for a longer explanation)`)
 
 	mustFailExactly(t, `package p
 
@@ -117,17 +123,23 @@ type Conn struct {
 	buf Buf
 }
 `, `Conn must be declared owner: its field buf is a Buf, which is an owner
-    An owner owns memory and frees it when dropped, so it moves instead of
-    being copied. A struct that contains one owns that memory too, and copying
-    the struct would copy the owner, leaving two values that both free it.
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. A struct that contains one owns that
+    memory too, and copying the struct would copy the owner, leaving two values
+    that both free it.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
     Plutonium does not make Conn an owner silently; say so in its declaration:
         type Conn owner struct {
             ...
         }
-    Conn values then move, and buf is dropped when a Conn is.
-    If Conn should only look at a value that something else owns, store a pointer:
+    Conn values then move, and buf is dropped when a Conn is. If Conn should
+    only look at a value that something else owns, store a pointer:
         buf *Buf
-    (see "Ownership" in the language spec, section 6.4)`)
+    (see "Owners" in the Plutonium spec, section 6.4)
+    (run "pluto explain E3202" for a longer explanation)`)
 
 	mustFailExactly(t, `package p
 
@@ -138,12 +150,14 @@ type Kind owner enum {
 `, `owner cannot qualify an enum type
     owner marks a type whose values own something and move instead of being
     copied. An enum is a set of integer constants, and its values are always
-    copied. To attach a resource to a Kind, wrap both in an owner:
+    copied.
+    To attach a resource to a Kind, wrap both in an owner:
         type Handle owner struct {
             v  Kind
             fd int32
         }
-    (see "Ownership" in the language spec, section 6.4)`)
+    (see "Owners" in the Plutonium spec, section 6.4)
+    (run "pluto explain E3204" for a longer explanation)`)
 
 	mustFail(t, `package p
 

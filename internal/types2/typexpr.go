@@ -467,7 +467,7 @@ func (check *Checker) instantiatedType(ix *indexedExpr) (res Type) {
 				if i < len(ix.indices) {
 					pos = ix.indices[i].Pos()
 				}
-				check.softErrorf(atPos(pos), InvalidTypeArg, "%v", err)
+				check.reportTypeArg(atPos(pos), err, name)
 			} else {
 				check.mono.recordInstance(check.pkg, ix.Pos(), tparams, targs, ix.indices)
 			}

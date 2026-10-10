@@ -224,8 +224,8 @@ func (check *Checker) verify(pos token.Pos, tparams []*TypeParam, targs []Type, 
 		// the parameterized type.
 		bound := check.subst(pos, tpar.bound, smap, nil, ctxt)
 		if check != nil {
-			if why := check.ownerTypeArg(tpar, targs[i]); why != "" {
-				return i, errors.New(why)
+			if oe := check.ownerTypeArg(tpar, targs[i]); oe != nil {
+				return i, oe
 			}
 		}
 		var cause string

@@ -1,5 +1,10 @@
 package diag
 
+import typerr "github.com/matjam/plutonium/internal/types2/errors"
+
+// whyOwners is why Plutonium has owners where Go has none.
+const whyOwners = "Go copies such values freely and its garbage collector frees what they refer to when nothing refers to it any more. Plutonium has no garbage collector: an owner frees what it owns when it is dropped, so there must be exactly one."
+
 // The explanations of the ownership and lifetime rules (language spec
 // section 6). The errors themselves carry explanations specialised to the
 // code at fault, built where they are found; these texts are what pluto
@@ -55,6 +60,59 @@ func init() {
 			Spec: pspec("4.5", "Closures do not outlive their frame"),
 			Example: "var first func() int\nfor i := 0; i < 3; i++ {\n\tif i == 0 {\n\t\tfirst = func() int { return i * 10 }\n\t}\n}",
 			Fixed:   "var first int\nfor i := 0; i < 3; i++ {\n\tif i == 0 {\n\t\tfirst = i * 10\n\t}\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.DropNotOwner), Name: "DropNotOwner",
+			Text: "A method named Drop runs automatically when a value is destroyed. That only makes sense for a type whose values have exactly one owner: if the values were copied as ordinary values are, every copy would run Drop and release the same resource. A type with a Drop method must be declared owner, so that its values move instead of being copied.",
+			Why:  whyOwners,
+			Spec: pspec("6.4", "Owners"),
+			Example: "type File struct{ fd int32 }\n\nfunc (f *File) Drop() { syscall.Close(f.fd) }",
+			Fixed:   "type File owner struct{ fd int32 }\n\nfunc (f *File) Drop() { syscall.Close(f.fd) }",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.MustBeOwner), Name: "MustBeOwner",
+			Text: "An owner owns memory or another resource and releases it when it is dropped, so it moves instead of being copied. A struct with an owner field, an array of owners, an interface that embeds an owning interface, or a type defined from an owner owns the same things, and copying it would leave two values that both release them. Plutonium never makes a type an owner silently: its declaration must say owner.\nIf the type should only look at a value that something else owns, store a pointer to it instead.",
+			Why:  whyOwners,
+			Spec: pspec("6.4", "Owners"),
+			Example: "type Conn struct {\n\tbuf strings.Buf\n}",
+			Fixed:   "type Conn owner struct {\n\tbuf strings.Buf\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.UnnamedOwnerStruct), Name: "UnnamedOwnerStruct",
+			Text: "A struct that contains an owner owns what that owner owns, so it must be an owner too, and only a named type can be declared an owner. A struct type written without a name, as the type of a variable or a field, cannot have owner fields.\nDeclare a named owner type for the struct.",
+			Why:  whyOwners,
+			Spec: pspec("6.4", "Owners"),
+			Example: "var conn struct {\n\tbuf strings.Buf\n}",
+			Fixed:   "type Conn owner struct {\n\tbuf strings.Buf\n}\n\nvar conn Conn",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.BadOwnerKind), Name: "BadOwnerKind",
+			Text: "owner may mark a struct, an array, an integer, a pointer or unsafe.Pointer, or an interface type. Other kinds cannot own anything: a slice or an unsafe string is a view of memory something else owns; numbers, booleans, enums, packed types and strings are values that copy; owned, shared, synced and weak already have kinds of their own.\nTo attach a resource to such a value, wrap both in a struct declared owner.",
+			Spec: pspec("6.4", "Owners"),
+			Example: "type Bytes owner []byte",
+			Fixed:   "type Bytes owner struct {\n\tb []byte\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.OwnerAlias), Name: "OwnerAlias",
+			Text: "owner can only appear in a type definition, type T owner .... An alias (type A = T) is another name for an existing type and has that type's kind; it cannot add a mark of its own.",
+			Spec: pspec("6.4", "Owners"),
+			Example: "type A = owner Buf",
+			Fixed:   "type A = Buf // an owner if Buf is",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.BadDropSignature), Name: "BadDropSignature",
+			Text: "Drop runs automatically when an owner is destroyed. The compiler calls it with no arguments and ignores any result, so it must have no parameters and no results. If the method is not meant to run when a value is destroyed, give it another name.",
+			Spec: pspec("6.4", "Owners"),
+			Example: "func (f *File) Drop() error",
+			Fixed:   "func (f *File) Drop()\nfunc (f *File) Close() error",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.OwnerTypeArg), Name: "OwnerTypeArg",
+			Text: "Generic code copies the values of a type parameter freely unless its constraint is marked owner. Copying an owner would leave several values that all free the same memory, so an owner type can only be the type argument of a type parameter declared [T owner any] (or owner with another constraint). Inside such code, values of T move as owners do.\nIf the generic code moves each value at most once, mark its type parameter owner. Otherwise pass pointers to the owners, or copies made with Clone.",
+			Why:  whyOwners,
+			Spec: pspec("6.4", "Owners"),
+			Example: "func Fill[T any](s []T, v T)\n\nFill(bufs, strings.Buf{})",
+			Fixed:   "func Fill[T owner any](s []T, v T)",
 		},
 		&Entry{
 			Code: BadResultHolds, Name: "BadResultHolds",
