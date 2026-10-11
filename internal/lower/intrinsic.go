@@ -59,11 +59,15 @@ var intrinsics = map[string]intrinsicFn{
 	"pluto/rt.CallerPC": func(s *fnState, _ []*ssa.Value, results []types2.Type) []*ssa.Value {
 		return []*ssa.Value{s.newValue(ssa.OpReturnAddr, s.l.scalarType(results[0]))}
 	},
-	"pluto/bits.Mul64": func(s *fnState, args []*ssa.Value, _ []types2.Type) []*ssa.Value {
-		hi := s.newValue(ssa.OpMulHiu, ssa.TI64, args[0], args[1])
-		lo := s.newValue(ssa.OpMul, ssa.TI64, args[0], args[1])
-		return []*ssa.Value{hi, lo}
-	},
+	"pluto/bits.Mul64": mul64,
+	"pluto/rt.mul64":   mul64,
+}
+
+// mul64 is the 128-bit product of two uint64s, (hi, lo).
+func mul64(s *fnState, args []*ssa.Value, _ []types2.Type) []*ssa.Value {
+	hi := s.newValue(ssa.OpMulHiu, ssa.TI64, args[0], args[1])
+	lo := s.newValue(ssa.OpMul, ssa.TI64, args[0], args[1])
+	return []*ssa.Value{hi, lo}
 }
 
 // x86Path is the import path of the x86 intrinsics package.

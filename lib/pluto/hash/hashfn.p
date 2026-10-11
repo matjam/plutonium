@@ -5,100 +5,34 @@
 // fast mixing functions in the style of wyhash; FNV1a and FNV1aString are
 // the classic 64-bit FNV-1a, for formats that specify it.
 //
-// Map and Set are open-addressing tables with linear probing. They take a
-// seed but, with no source of randomness in the library, use a fixed one by
-// default: do not use them to index attacker-controlled keys without a
-// secret seed (InitSeed) or a keyed hash function.
+// Map and Set are open-addressing tables with linear probing, the tables of
+// the built-in map[K]V held as owners. They take a seed but use a fixed one
+// by default, so that they iterate in the same order in every run: do not
+// use them to index attacker-controlled keys without a secret seed
+// (InitSeed) or a keyed hash function. map[K]V seeds each map at random.
 package hash
 
 import (
-	"pluto/bits"
+	"pluto/rt"
 	"unsafe"
 )
 
-// Mixing constants from wyhash (public domain).
-const (
-	wyp0 = 0xa0761d6478bd642f
-	wyp1 = 0xe7037ed1a0b428db
-	wyp2 = 0x8ebc6af09c88c6e3
-	wyp3 = 0x589965cc75374cc3
-)
-
-// mix multiplies a and b to 128 bits and folds the halves together.
-func mix(a, b uint64) uint64 {
-	hi, lo := bits.Mul64(a, b)
-	return hi ^ lo
-}
-
-// load64 reads 8 bytes at p+i, little-endian, without alignment.
-func load64(p unsafe.Pointer, i int) uint64 {
-	b := (*[8]byte)(unsafe.Add(p, i))
-	return uint64(b[0]) | uint64(b[1])<<8 | uint64(b[2])<<16 | uint64(b[3])<<24 |
-		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56
-}
-
-// load32 reads 4 bytes at p+i, little-endian, without alignment.
-func load32(p unsafe.Pointer, i int) uint64 {
-	b := (*[4]byte)(unsafe.Add(p, i))
-	return uint64(b[0]) | uint64(b[1])<<8 | uint64(b[2])<<16 | uint64(b[3])<<24
-}
-
-// memhash hashes n bytes at p.
-func memhash(p unsafe.Pointer, n int, seed uint64) uint64 {
-	seed ^= wyp0
-	var a, b uint64
-	switch {
-	case n == 0:
-		return mix(seed^wyp1, wyp1)
-	case n < 4:
-		q := (*[3]byte)(p)
-		a = uint64(q[0])<<16 | uint64(q[n>>1])<<8 | uint64(q[n-1])
-	case n <= 8:
-		a = load32(p, 0)
-		b = load32(p, n-4)
-	case n <= 16:
-		a = load64(p, 0)
-		b = load64(p, n-8)
-	default:
-		i := 0
-		for ; n-i > 16; i += 16 {
-			seed = mix(load64(p, i)^wyp1, load64(p, i+8)^seed)
-		}
-		a = load64(p, n-16)
-		b = load64(p, n-8)
-	}
-	return mix(wyp1^uint64(n), mix(a^wyp1, b^seed))
-}
-
-// String returns a 64-bit hash of s.
-func String(s string, seed uint64) uint64 {
-	if len(s) == 0 {
-		return memhash(nil, 0, seed)
-	}
-	return memhash(unsafe.Pointer(unsafe.StringData(s)), len(s), seed)
-}
+// String returns a 64-bit hash of s: the hash map[string]V uses.
+func String(s string, seed uint64) uint64 { return rt.StringHash(s, seed) }
 
 // Bytes returns a 64-bit hash of b. It equals String of the same bytes.
 func Bytes(b []byte, seed uint64) uint64 {
-	if len(b) == 0 {
-		return memhash(nil, 0, seed)
-	}
-	return memhash(unsafe.Pointer(unsafe.SliceData(b)), len(b), seed)
+	return rt.MemHash(unsafe.Pointer(unsafe.SliceData(b)), len(b), seed)
 }
 
 // Uint64 returns a 64-bit hash of x.
-func Uint64(x, seed uint64) uint64 {
-	return mix(mix(x^wyp0, seed^wyp1), wyp2^8)
-}
+func Uint64(x, seed uint64) uint64 { return rt.Uint64Hash(x, seed) }
 
 // Float64 returns a 64-bit hash of f, giving 0 and -0 the same hash, as
 // they compare equal. NaNs hash to arbitrary values (a NaN is not equal to
 // itself, so a map can never find one again).
 func Float64(f float64, seed uint64) uint64 {
-	if f == 0 {
-		f = 0 // -0 becomes +0
-	}
-	return Uint64(*(*uint64)(unsafe.Pointer(&f)), seed)
+	return rt.FloatHash(*(*uint64)(unsafe.Pointer(&f)), 8, seed)
 }
 
 const (

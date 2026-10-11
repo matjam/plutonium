@@ -43,6 +43,7 @@ const (
 
 	fieldExported = 1
 	fieldEmbedded = 2
+	fieldBlank    = 4 // a field named _, which comparison skips
 )
 
 type itab struct {
@@ -148,8 +149,10 @@ const (
 	KindFloat32       = 13
 	KindFloat64       = 14
 	KindArray         = 17
+	KindChan          = 18
 	KindFunc          = 19
 	KindInterface     = 20
+	KindMap           = 21
 	KindPointer       = 22
 	KindSlice         = 23
 	KindString        = 24

@@ -4,7 +4,6 @@ import (
 	"pluto/alloc"
 	"pluto/iter"
 	"pluto/rt"
-	"unsafe"
 )
 
 // A Hasher is a key type that hashes itself. A Map whose key type
@@ -14,49 +13,23 @@ type Hasher interface {
 	Hash(seed uint64) uint64
 }
 
-// DefaultSeed is the seed maps use unless given one.
-const DefaultSeed = 0x2d358dccaa6c78a5
-
-// A hashMethod says how a Map hashes its keys, chosen once when the Map is
-// initialised.
-type hashMethod enum {
-	none   // not initialised
-	word   // integer, pointer, bool: hash the key's bytes as an integer
-	float  // float32 or float64
-	str    // string
-	hasher // the key implements Hasher
-	custom // a function given to InitFunc
-}
-
-// Slot metadata. A full slot stores 0x80 | the top 7 bits of its hash so
-// most mismatches are rejected without comparing keys.
-const (
-	metaEmpty = 0
-	metaFull  = 0x80
-)
-
-type slot[K comparable, V any] struct {
-	key K
-	val V
-}
+// DefaultSeed is the seed a Map uses unless given one.
+const DefaultSeed = rt.DefaultMapSeed
 
 // A Map is a hash map from K to V whose table comes from an allocator. It
-// is an open-addressing table with linear probing and backward-shift
-// deletion, kept at most 3/4 full; when it fills, it allocates a table twice
-// as large from its allocator, moves the entries and frees the old table.
+// is the table of the built-in map[K]V (pluto/rt.MapTable) held directly as
+// an owner: open addressing with linear probing, kept at most 3/4 full, that
+// allocates a table twice as large from its allocator when it fills, moves
+// the entries and frees the old table.
 //
 // The zero Map is empty and ready to use: the first Set initialises it as
 // Init with the default allocator would. A Map must not be copied after
 // first use; pass a *Map. It is not safe for concurrent use.
 //
-// A Map owns its table, so it is an owner (language spec section 7.18): Drop
-// releases it, and Clone copies it. Declaring the type owner is a one-line
-// change once the keyword lands (roadmap item 51).
-//
 // Keys are hashed according to their type: integers, booleans, pointers,
-// floats and strings (and types defined on them) out of the box; a key type
-// with a Hash(seed uint64) uint64 method uses it; any other key type needs
-// a hash function given to InitFunc.
+// floats and strings, and structs, arrays and interfaces of comparable
+// types, as map[K]V hashes them; a key type with a Hash(seed uint64) uint64
+// method uses it; InitFunc takes a hash function.
 //
 // m[k] reads like a Go map element (the zero V for a missing key),
 // m[k] = v stores, v, ok := m[k] reports whether k is present, m[k] += 1
@@ -64,17 +37,11 @@ type slot[K comparable, V any] struct {
 // not allowed; Ptr and Upsert return pointers into the table.
 //
 // A Map owns its table, so it is an owner (language spec section 7.18): it
-// moves instead of being copied, and Drop releases the table.
+// moves instead of being copied, and Drop releases the table. Unlike
+// map[K]V, it uses a fixed seed (DefaultSeed) unless given one with
+// InitSeed, so its iteration order is the same in every run.
 type Map[K comparable, V any] owner struct {
-	slots []slot[K, V]
-	meta  []uint8
-	n     int // number of entries
-	limit int // grow when n reaches limit
-	a     alloc.Allocator
-	seed  uint64
-	how   hashMethod
-	ksize uintptr // key size, for hashMethod.word and float
-	fn    func(K) uint64
+	t rt.MapTable[K, V]
 }
 
 // NewMap returns an empty Map that allocates from a (by default the default
@@ -87,351 +54,111 @@ func NewMap[K comparable, V any](capacity int, a alloc.Allocator = alloc.Default
 
 // Init prepares a zero Map to allocate from a (by default the default
 // allocator), with room for capacity entries before it grows. It panics if
-// the key type has no default hash (use InitFunc) or if m already holds a
-// table.
+// m already holds a table.
 func (m *Map[K, V]) Init(capacity int, a alloc.Allocator = alloc.Default()) {
 	m.InitSeed(capacity, DefaultSeed, a)
 }
 
 // InitSeed is Init with a hash seed.
 func (m *Map[K, V]) InitSeed(capacity int, seed uint64, a alloc.Allocator = alloc.Default()) {
-	m.setup(a, seed)
+	if a == nil {
+		panic("hash: Init with a nil allocator")
+	}
 	var zero K
 	if _, ok := any(zero).(Hasher); ok {
-		m.how = hashMethod.hasher
-	} else {
-		kind, size, _, _ := rt.TypeInfo(any(zero))
-		switch kind {
-		case rt.KindBool, rt.KindInt, rt.KindInt8, rt.KindInt16, rt.KindInt32, rt.KindInt64,
-			rt.KindUint, rt.KindUint8, rt.KindUint16, rt.KindUint32, rt.KindUint64, rt.KindUintptr,
-			rt.KindPointer, rt.KindUnsafePointer:
-			m.how = hashMethod.word
-			m.ksize = size
-		case rt.KindFloat32, rt.KindFloat64:
-			m.how = hashMethod.float
-			m.ksize = size
-		case rt.KindString:
-			m.how = hashMethod.str
-		default:
-			panic("hash: key type has no default hash function; use Map.InitFunc")
-		}
+		m.t.InitSeeded(capacity, hasherHash[K], seed, a)
+		return
 	}
-	m.reserve(capacity)
+	m.t.Init(capacity, seed, a)
 }
+
+// hasherHash hashes a key that implements Hasher.
+func hasherHash[K comparable](k K, seed uint64) uint64 { return any(k).(Hasher).Hash(seed) }
 
 // InitFunc prepares a zero Map to allocate from a (by default the default
 // allocator) and hash keys with hash, which must give equal keys equal
 // hashes. The Map keeps hash, so it must not be a closure that outlives its
 // frame.
 func (m *Map[K, V]) InitFunc(capacity int, hash func(K) uint64, a alloc.Allocator = alloc.Default()) {
-	m.setup(a, DefaultSeed)
-	m.how = hashMethod.custom
-	m.fn = hash
-	m.reserve(capacity)
-}
-
-func (m *Map[K, V]) setup(a alloc.Allocator, seed uint64) {
-	if len(m.slots) != 0 {
-		panic("hash: Init on a Map that holds a table")
-	}
 	if a == nil {
 		panic("hash: Init with a nil allocator")
 	}
-	m.a = a
-	m.seed = seed
-}
-
-// reserve allocates a table with room for capacity entries, if needed.
-func (m *Map[K, V]) reserve(capacity int) {
-	if capacity <= 0 {
-		return
-	}
-	size := 8
-	for size*3/4 < capacity {
-		size <<= 1
-	}
-	if size > len(m.slots) {
-		m.resize(size)
-	}
-}
-
-// hash returns the hash of k. The switch lists every hashMethod, so adding
-// one without handling it here is a compile error.
-func (m *Map[K, V]) hash(k K) uint64 {
-	switch m.how {
-	// The key is read through its address in the form
-	// *(*T)(unsafe.Pointer(&k)), which the compiler knows does not change
-	// k, so a string key is borrowed without being counted.
-	case word:
-		var x uint64
-		switch m.ksize {
-		case 1:
-			x = uint64(*(*uint8)(unsafe.Pointer(&k)))
-		case 2:
-			x = uint64(*(*uint16)(unsafe.Pointer(&k)))
-		case 4:
-			x = uint64(*(*uint32)(unsafe.Pointer(&k)))
-		default:
-			x = *(*uint64)(unsafe.Pointer(&k))
-		}
-		return Uint64(x, m.seed)
-	case float:
-		if m.ksize == 4 {
-			return Float64(float64(*(*float32)(unsafe.Pointer(&k))), m.seed)
-		}
-		return Float64(*(*float64)(unsafe.Pointer(&k)), m.seed)
-	case str:
-		return String(*(*string)(unsafe.Pointer(&k)), m.seed)
-	case hasher:
-		return any(k).(Hasher).Hash(m.seed)
-	case custom:
-		return m.fn(k)
-	case none:
-	}
-	panic("hash: Map used before Init")
+	m.t.InitFunc(capacity, hash, a)
 }
 
 // Len returns the number of entries.
-func (m *Map[K, V]) Len() int { return m.n }
-
-// find returns the slot index holding k, or -1.
-func (m *Map[K, V]) find(k K) int {
-	if m.n == 0 {
-		return -1
-	}
-	h := m.hash(k)
-	mask := len(m.slots) - 1
-	tag := uint8(metaFull | h>>57)
-	for i := int(h) & mask; ; i = (i + 1) & mask {
-		t := m.meta[i]
-		if t == metaEmpty {
-			return -1
-		}
-		if t == tag && m.slots[i].key == k {
-			return i
-		}
-	}
-}
+func (m *Map[K, V]) Len() int { return m.t.Len() }
 
 // Get returns the value stored for k and true, or the zero V and false if k
 // is not in the map.
-func (m *Map[K, V]) Get(k K) (V, bool) {
-	if i := m.find(k); i >= 0 {
-		return m.slots[i].val, true
-	}
-	var zero V
-	return zero, false
-}
+func (m *Map[K, V]) Get(k K) (V, bool) { return m.t.Get(k) }
 
 // At returns the value stored for k, or the zero V if k is not in the map:
-// m[k] as a method call, for code translated from Go (internal/pu).
-func (m *Map[K, V]) At(k K) V { return m.Index(k) }
+// m[k] as a method call.
+func (m *Map[K, V]) At(k K) V { return m.t.Index(k) }
 
 // Index returns the value stored for k, or the zero V if k is not in the
-// map; it is what m[k] calls (language spec section 11.11).
-func (m *Map[K, V]) Index(k K) V {
-	if i := m.find(k); i >= 0 {
-		return m.slots[i].val
-	}
-	var zero V
-	return zero
-}
+// map; it is what m[k] calls (language spec section 6.7).
+func (m *Map[K, V]) Index(k K) V { return m.t.Index(k) }
 
 // IndexOk is Get; it is what v, ok := m[k] calls.
-func (m *Map[K, V]) IndexOk(k K) (V, bool) { return m.Get(k) }
+func (m *Map[K, V]) IndexOk(k K) (V, bool) { return m.t.Get(k) }
 
 // SetIndex is Set; it is what m[k] = v calls.
-func (m *Map[K, V]) SetIndex(k K, v V) { *m.slot(k) = v }
+func (m *Map[K, V]) SetIndex(k K, v V) { m.t.Set(k, v) }
 
 // Has reports whether k is in the map.
-func (m *Map[K, V]) Has(k K) bool { return m.find(k) >= 0 }
+func (m *Map[K, V]) Has(k K) bool { return m.t.Has(k) }
 
 // FmtSlots and FmtSlot let pluto/fmt print m like a Go map, map[k:v], with
 // its keys sorted (fmt.Mapper). FmtSlots returns the number of slots, and
 // FmtSlot pointers to the key and value in slot i, if it is full.
-func (m *Map[K, V]) FmtSlots() int { return len(m.slots) }
+func (m *Map[K, V]) FmtSlots() int { return m.t.Slots() }
 
 // FmtSlot: see FmtSlots.
 func (m *Map[K, V]) FmtSlot(i int) (k, v any, ok bool) {
-	if m.meta[i] == metaEmpty {
+	kp, vp, full := m.t.Slot(i)
+	if !full {
 		return nil, nil, false
 	}
-	return &m.slots[i].key, &m.slots[i].val, true
+	return kp, vp, true
 }
 
 // Ptr returns a pointer to the value stored for k, or nil. The pointer is
 // valid until the map is next modified.
-func (m *Map[K, V]) Ptr(k K) *V {
-	if i := m.find(k); i >= 0 {
-		return &m.slots[i].val
-	}
-	return nil
-}
+func (m *Map[K, V]) Ptr(k K) *V { return m.t.Ptr(k) }
 
 // Set stores v for k, replacing any value already stored.
-func (m *Map[K, V]) Set(k K, v V) {
-	*m.slot(k) = v
-}
+func (m *Map[K, V]) Set(k K, v V) { m.t.Set(k, v) }
 
 // Upsert returns a pointer to the value for k, adding k with the zero V if
 // it is not present; inserted reports whether it was added. The pointer is
 // valid until the map is next modified.
-func (m *Map[K, V]) Upsert(k K) (p *V, inserted bool) {
-	n := m.n
-	p = m.slot(k)
-	return p, m.n != n
-}
+func (m *Map[K, V]) Upsert(k K) (p *V, inserted bool) { return m.t.Upsert(k) }
 
-// slot returns the value slot for k, inserting k if needed.
-func (m *Map[K, V]) slot(k K) *V {
-	if m.n >= m.limit {
-		if m.how == hashMethod.none {
-			// A zero Map: initialise it with the default allocator.
-			if alloc.Default() == nil {
-				panic("hash: no allocator (call alloc.SetDefault, or give the Map one with Init)")
-			}
-			m.Init(0)
-		}
-		size := 2 * len(m.slots)
-		if size < 8 {
-			size = 8
-		}
-		m.resize(size)
-	}
-	h := m.hash(k)
-	mask := len(m.slots) - 1
-	tag := uint8(metaFull | h>>57)
-	for i := int(h) & mask; ; i = (i + 1) & mask {
-		t := m.meta[i]
-		if t == metaEmpty {
-			m.meta[i] = tag
-			m.slots[i].key = k
-			m.n++
-			return &m.slots[i].val
-		}
-		if t == tag && m.slots[i].key == k {
-			return &m.slots[i].val
-		}
-	}
-}
-
-// Delete removes k from the map and reports whether it was present.
-func (m *Map[K, V]) Delete(k K) bool {
-	i := m.find(k)
-	if i < 0 {
-		return false
-	}
-	// Backward-shift deletion: move later entries of the same probe run
-	// into the hole so lookups never need tombstones.
-	mask := len(m.slots) - 1
-	j := i
-	for {
-		j = (j + 1) & mask
-		if m.meta[j] == metaEmpty {
-			break
-		}
-		home := int(m.hash(m.slots[j].key)) & mask
-		// The entry at j may move to i if its home is not in (i, j]
-		// (cyclically).
-		if (j > i && (home <= i || home > j)) || (j < i && home <= i && home > j) {
-			m.slots[i] = m.slots[j]
-			m.meta[i] = m.meta[j]
-			i = j
-		}
-	}
-	var zero slot[K, V]
-	m.slots[i] = zero
-	m.meta[i] = metaEmpty
-	m.n--
-	return true
-}
+// Delete removes k from the map and reports whether it was present. No
+// other entry moves, so deleting during a range over the map is safe (see
+// All).
+func (m *Map[K, V]) Delete(k K) bool { return m.t.Delete(k) }
 
 // Clear removes all entries, keeping the table.
-func (m *Map[K, V]) Clear() {
-	clear(m.slots)
-	clear(m.meta)
-	m.n = 0
-}
+func (m *Map[K, V]) Clear() { m.t.Clear() }
 
 // Free drops the entries (releasing the strings in their keys and values,
 // language spec section 18.8), returns the table to the allocator and
 // leaves the map empty. The map keeps its allocator and hash function, so
 // it can be reused.
-func (m *Map[K, V]) Free() {
-	if len(m.slots) > 0 && rt.HoldsStrings[slot[K, V]]() {
-		// Empty slots are zero, so every slot can be released.
-		rt.ReleaseValues(&m.slots[0], len(m.slots))
-	}
-	m.release()
-	m.slots = nil
-	m.meta = nil
-	m.n = 0
-	m.limit = 0
-}
+func (m *Map[K, V]) Free() { m.t.Free() }
 
 // Drop returns the table to the allocator and leaves the map empty: the
 // owner's release (Free under its spec name).
-func (m *Map[K, V]) Drop() { m.Free() }
+func (m *Map[K, V]) Drop() { m.t.Free() }
 
 // Clone returns an independent copy of m, with the same hashing, whose
 // table comes from a (by default the default allocator). Keys and values
 // are copied as values.
 func (m *Map[K, V]) Clone(a alloc.Allocator = alloc.Default()) Map[K, V] {
-	out := Map[K, V]{a: a, seed: m.seed, how: m.how, ksize: m.ksize, fn: m.fn}
-	if len(m.slots) > 0 {
-		out.resize(len(m.slots)) // the same size: the same layout
-		copy(out.slots, m.slots)
-		copy(out.meta, m.meta)
-		out.n = m.n
-	}
-	return out
-}
-
-// tableSize returns the bytes and alignment of a table of size slots: the
-// slots followed by one metadata byte per slot.
-func tableSize[K comparable, V any](size int) (uintptr, uintptr) {
-	var s slot[K, V]
-	return uintptr(size) * (unsafe.Sizeof(s) + 1), unsafe.Alignof(s)
-}
-
-func (m *Map[K, V]) release() {
-	if len(m.slots) == 0 {
-		return
-	}
-	n, align := tableSize[K, V](len(m.slots))
-	m.a.Free(unsafe.Pointer(unsafe.SliceData(m.slots)), n, align)
-}
-
-// resize moves the entries into a new table of size slots (a power of two).
-func (m *Map[K, V]) resize(size int) {
-	n, align := tableSize[K, V](size)
-	p := m.a.Alloc(n, align)
-	if p == nil {
-		panic("hash: out of memory")
-	}
-	var s slot[K, V]
-	slots := unsafe.Slice((*slot[K, V])(p), size)
-	meta := unsafe.Slice((*uint8)(unsafe.Add(p, uintptr(size)*unsafe.Sizeof(s))), size)
-	oldSlots, oldMeta := m.slots, m.meta
-	mask := size - 1
-	for i := range oldSlots {
-		if oldMeta[i] == metaEmpty {
-			continue
-		}
-		h := m.hash(oldSlots[i].key)
-		j := int(h) & mask
-		for meta[j] != metaEmpty {
-			j = (j + 1) & mask
-		}
-		// The entry moves: its strings keep their counts, and the old
-		// table is freed without releasing them.
-		rt.MoveValues(&slots[j], &oldSlots[i], 1)
-		meta[j] = oldMeta[i]
-	}
-	m.release()
-	m.slots = slots
-	m.meta = meta
-	m.limit = size / 4 * 3
+	return Map[K, V]{t: m.t.Clone(a)}
 }
 
 // An Iter walks the entries of a Map in the order All describes. The map
@@ -440,6 +167,7 @@ func (m *Map[K, V]) resize(size int) {
 type Iter[K comparable, V any] struct {
 	m *Map[K, V]
 	i int
+	v *V
 }
 
 // Iter returns an iterator over m's entries:
@@ -452,12 +180,13 @@ func (m *Map[K, V]) Iter() Iter[K, V] { return Iter[K, V]{m: m} }
 
 // Next returns the next entry, or false when there are no more.
 func (it *Iter[K, V]) Next() (K, V, bool) {
-	m := it.m
-	for it.i < len(m.slots) {
+	t := &it.m.t
+	for it.i < t.Slots() {
 		i := it.i
 		it.i++
-		if m.meta[i] != metaEmpty {
-			return m.slots[i].key, m.slots[i].val, true
+		if k, v, ok := t.Slot(i); ok {
+			it.v = v
+			return *k, *v, true
 		}
 	}
 	var k K
@@ -466,7 +195,7 @@ func (it *Iter[K, V]) Next() (K, V, bool) {
 }
 
 // Value returns a pointer to the value of the entry Next last returned.
-func (it *Iter[K, V]) Value() *V { return &it.m.slots[it.i-1].val }
+func (it *Iter[K, V]) Value() *V { return it.v }
 
 // All returns an iterator over m's keys and values:
 //
@@ -479,13 +208,17 @@ func (it *Iter[K, V]) Value() *V { return &it.m.slots[it.i-1].val }
 // every run of a program that makes the same changes with the same seed.
 // Iter, Keys and Values use the same order.
 //
-// The body may set the value of the current key. Adding or deleting keys
-// during the loop is safe but may move entries, which the loop then visits
-// twice or not at all.
+// Changes during the loop follow Go's rules for maps: an entry that is
+// there when the loop starts and is not deleted before the loop reaches it
+// is visited exactly once, a deleted one is not visited, and one added
+// during the loop may or may not be.
 func (m *Map[K, V]) All() iter.Seq2[K, V] {
 	return func(yield func(K, V) bool) {
-		for i := 0; i < len(m.slots); i++ {
-			if m.meta[i] != metaEmpty && !yield(m.slots[i].key, m.slots[i].val) {
+		var it rt.MapIter[K, V]
+		it.Start(&m.t)
+		for {
+			k, v, ok := it.Next()
+			if !ok || !yield(k, v) {
 				return
 			}
 		}
@@ -495,8 +228,11 @@ func (m *Map[K, V]) All() iter.Seq2[K, V] {
 // Keys returns an iterator over m's keys, in the order All uses.
 func (m *Map[K, V]) Keys() iter.Seq[K] {
 	return func(yield func(K) bool) {
-		for i := 0; i < len(m.slots); i++ {
-			if m.meta[i] != metaEmpty && !yield(m.slots[i].key) {
+		var it rt.MapIter[K, V]
+		it.Start(&m.t)
+		for {
+			k, ok := it.NextKey()
+			if !ok || !yield(k) {
 				return
 			}
 		}
@@ -506,8 +242,11 @@ func (m *Map[K, V]) Keys() iter.Seq[K] {
 // Values returns an iterator over m's values, in the order All uses.
 func (m *Map[K, V]) Values() iter.Seq[V] {
 	return func(yield func(V) bool) {
-		for i := 0; i < len(m.slots); i++ {
-			if m.meta[i] != metaEmpty && !yield(m.slots[i].val) {
+		var it rt.MapIter[K, V]
+		it.Start(&m.t)
+		for {
+			_, v, ok := it.Next()
+			if !ok || !yield(v) {
 				return
 			}
 		}

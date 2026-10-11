@@ -243,8 +243,14 @@ func (a *analyzer) litAddrsCaptures(lit *ast.FuncLit, fn ast.Node) bool {
 			case *ast.ParenExpr:
 				e = x.X
 			case *ast.SelectorExpr:
+				if sel := a.selections[x]; sel != nil && sel.Indirect() {
+					return false // a field reached through a pointer, not the variable
+				}
 				e = x.X
 			case *ast.IndexExpr:
+				if _, arr := underlying(a.types[x.X].Type).(*types2.Array); !arr {
+					return false // an element of a slice or through a pointer
+				}
 				e = x.X
 			case *ast.Ident:
 				v, ok := a.uses[x].(*types2.Var)

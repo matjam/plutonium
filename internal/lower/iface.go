@@ -43,7 +43,7 @@ import (
 //	0  typ    *typeDesc
 //	8  offset uintptr
 //	16 name   string  (empty when the build strips field names)
-//	40 flags  uint8   (1 = exported, 2 = embedded)
+//	40 flags  uint8   (1 = exported, 2 = embedded, 4 = named _)
 //
 // The descriptors of a type's elements, fields and pointer are emitted with
 // it, so that pluto/fmt can walk a value of the type; only types converted
@@ -90,6 +90,7 @@ const (
 
 	fieldExported = 1
 	fieldEmbedded = 2
+	fieldBlank    = 4
 )
 
 // Kind numbers in type descriptors (Go's reflect numbering, plus Plutonium's).
@@ -114,7 +115,7 @@ const (
 	kindChan
 	kindFunc
 	kindInterface
-	_
+	kindMap
 	kindPointer
 	kindSlice
 	kindString
@@ -146,6 +147,7 @@ type fieldInfo struct {
 	name     string
 	exported bool
 	embedded bool
+	blank    bool // named _, which comparison and hashing skip
 }
 
 type itabInfo struct {
@@ -238,6 +240,22 @@ func (tt *typeTable) describe(d *descInfo) {
 		if u.Kind() == types2.WrapRing {
 			d.n = u.N()
 		}
+	case *types2.Map:
+		// The value's descriptor, the key and value as the two fields of
+		// a table slot (pluto/rt, map.p), and the slot's size as the
+		// length, so that the runtime can walk a map's table for
+		// pluto/fmt.
+		K, V := unwrap(u.Key()), unwrap(u.Elem())
+		fields := []*types2.Var{
+			types2.NewField(token.NoPos, nil, "key", K, false),
+			types2.NewField(token.NoPos, nil, "val", V, false),
+		}
+		offs := tt.l.sizes.Offsetsof(fields)
+		d.elem, d.n = tt.descOf(V, false), tt.l.sizeof(types2.NewStruct(fields, nil))
+		d.fields = []fieldInfo{
+			{typ: tt.descOf(K, false), offset: offs[0], name: "key"},
+			{typ: d.elem, offset: offs[1], name: "val"},
+		}
 	case *types2.Struct:
 		vars := make([]*types2.Var, u.NumFields())
 		for i := range vars {
@@ -251,6 +269,7 @@ func (tt *typeTable) describe(d *descInfo) {
 				offset:   offs[i],
 				exported: f.Exported(),
 				embedded: f.Embedded(),
+				blank:    f.Name() == "_",
 			}
 			if !tt.l.cfg.NoFieldNames {
 				fi.name = f.Name()
@@ -514,6 +533,9 @@ func (tt *typeTable) fieldsData(key string, d *descInfo) *ssa.Sym {
 		if f.embedded {
 			flags |= fieldEmbedded
 		}
+		if f.blank {
+			flags |= fieldBlank
+		}
 		data.Bytes[off+fieldFlags] = flags
 	}
 	l.out.Data = append(l.out.Data, data)
@@ -563,6 +585,8 @@ func kindOf(T types2.Type) byte {
 		return kindFunc
 	case *types2.Chan:
 		return kindChan
+	case *types2.Map:
+		return kindMap
 	case *types2.Interface:
 		return kindInterface
 	case *types2.Pointer:

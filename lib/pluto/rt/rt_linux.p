@@ -34,6 +34,18 @@ var (
 //pu:extern pluto.main
 func programMain() int64
 
+// initMapSeed seeds the hashing of map[K]V (map.p) with the 16 random bytes
+// Linux puts on the initial stack for the program (AT_RANDOM), so that
+// keys an attacker chooses do not collide and iteration order differs from
+// run to run, as in Go.
+func initMapSeed() {
+	const atRandom = 25
+	if p := auxval(atRandom); p != 0 {
+		b := (*[2]uint64)(unsafe.Pointer(p))
+		mapSeedBase = mix(b[0]^wyp0, b[1]^wyp1)
+	}
+}
+
 // mainStackSize returns the size of the stack main asked for with
 // //pu:stack, or 0 to run on the stack the system gave the process.
 //
@@ -49,6 +61,7 @@ func start(sp unsafe.Pointer) {
 	bootTask.stackHi = uintptr(sp) // so a go statement can tell a closure in this stack
 	argv = unsafe.Add(sp, 8)
 	envp = unsafe.Add(sp, 8*(argc+2))
+	initMapSeed()
 	installFaultHandlers()
 	if size := mainStackSize(); size > 0 {
 		top := reserveStack(size)
