@@ -499,10 +499,7 @@ func (c *Cmd) wait(out, errOut sink) error {
 	c.finished = true
 	copyErr := c.pump(out, errOut)
 	c.closeParentEnds()
-	state, err := c.Process.Wait()
-	if err != nil {
-		return err
-	}
+	state := c.Process.Wait() or return
 	c.ProcessState = state
 	if !state.Success() {
 		return ExitError(uint64(uint32(state.Pid()))<<32 | uint64(state.Sys()))

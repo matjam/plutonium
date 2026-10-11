@@ -284,13 +284,8 @@ func statAt(name []byte, sname string, flags int, op string, a alloc.Allocator) 
 // has only bytes, or returns a *PathError.
 func fstatat(name []byte, sname string, st *syscall.Stat_t, flags int, op string, a alloc.Allocator) error {
 	var buf [maxPath]byte
-	p, err := cpathBytes(name, &buf)
-	if err != nil {
-		return newPathError(op, name, sname, err, a)
-	}
-	if err := syscall.Fstatat(syscall.AT_FDCWD, p, st, flags); err != nil {
-		return newPathError(op, name, sname, err, a)
-	}
+	p := cpathBytes(name, &buf) or return newPathError(op, name, sname, err, a)
+	syscall.Fstatat(syscall.AT_FDCWD, p, st, flags) or return newPathError(op, name, sname, err, a)
 	return nil
 }
 
@@ -330,16 +325,13 @@ func ReadFileBytes(name []byte, a alloc.Allocator = alloc.Default()) (vec.Vec[by
 
 func readFile(name []byte, sname string, a alloc.Allocator) (vec.Vec[byte], error) {
 	data := vec.New[byte](a)
-	f, err := openFile(name, sname, syscall.O_RDONLY, 0, a)
-	if err != nil {
-		return data, err
-	}
+	f := openFile(name, sname, syscall.O_RDONLY, 0, a) or return data, err
 	defer alloc.Free(f, a)
 	defer f.Close()
 	if fi, err := f.Stat(); err == nil && fi.size > 0 && fi.size < 1<<40 {
 		data.Reserve(int(fi.size) + 1)
 	}
-	if err := readAll(f, &data); err != nil {
+	readAll(f, &data) or {
 		data.Free()
 		return data, newPathError("read", name, sname, err, a)
 	}
@@ -373,11 +365,8 @@ func WriteFileBytes(name []byte, data []byte, perm FileMode, a alloc.Allocator =
 }
 
 func writeFile(name []byte, sname string, data []byte, perm FileMode, a alloc.Allocator) error {
-	f, err := openFile(name, sname, syscall.O_WRONLY|syscall.O_CREAT|syscall.O_TRUNC, uint32(perm.Perm()), a)
-	if err != nil {
-		return err
-	}
-	_, err = f.Write(data)
+	f := openFile(name, sname, syscall.O_WRONLY|syscall.O_CREAT|syscall.O_TRUNC, uint32(perm.Perm()), a) or return
+	_, err := f.Write(data)
 	cerr := f.Close()
 	alloc.Free(f, a)
 	if err == nil {
@@ -401,13 +390,8 @@ func MkdirBytes(name []byte, perm FileMode, a alloc.Allocator = alloc.Default())
 
 func mkdir(name []byte, sname string, perm FileMode, a alloc.Allocator) error {
 	var buf [maxPath]byte
-	p, err := cpathBytes(name, &buf)
-	if err == nil {
-		err = syscall.Mkdirat(syscall.AT_FDCWD, p, uint32(perm.Perm()))
-	}
-	if err != nil {
-		return newPathError("mkdir", name, sname, err, a)
-	}
+	p := cpathBytes(name, &buf) or return newPathError("mkdir", name, sname, err, a)
+	syscall.Mkdirat(syscall.AT_FDCWD, p, uint32(perm.Perm())) or return newPathError("mkdir", name, sname, err, a)
 	return nil
 }
 
@@ -424,13 +408,8 @@ func MkdirAllBytes(path []byte, perm FileMode, a alloc.Allocator = alloc.Default
 
 func mkdirAllPath(path []byte, spath string, perm FileMode, a alloc.Allocator) error {
 	var buf [maxPath]byte
-	p, err := cpathBytes(path, &buf)
-	if err != nil {
-		return newPathError("mkdir", path, spath, err, a)
-	}
-	if err := mkdirAll(p, len(path), uint32(perm.Perm())); err != nil {
-		return newPathError("mkdir", path, spath, err, a)
-	}
+	p := cpathBytes(path, &buf) or return newPathError("mkdir", path, spath, err, a)
+	mkdirAll(p, len(path), uint32(perm.Perm())) or return newPathError("mkdir", path, spath, err, a)
 	return nil
 }
 
@@ -627,17 +606,9 @@ func RenameBytes(oldpath, newpath []byte, a alloc.Allocator = alloc.Default()) e
 
 func rename(oldpath []byte, soldpath string, newpath []byte, a alloc.Allocator) error {
 	var ob, nb [maxPath]byte
-	op, err := cpathBytes(oldpath, &ob)
-	if err != nil {
-		return newPathError("rename", oldpath, soldpath, err, a)
-	}
-	np, err := cpathBytes(newpath, &nb)
-	if err == nil {
-		err = syscall.Renameat(syscall.AT_FDCWD, op, syscall.AT_FDCWD, np)
-	}
-	if err != nil {
-		return newPathError("rename", oldpath, soldpath, err, a)
-	}
+	op := cpathBytes(oldpath, &ob) or return newPathError("rename", oldpath, soldpath, err, a)
+	np := cpathBytes(newpath, &nb) or return newPathError("rename", oldpath, soldpath, err, a)
+	syscall.Renameat(syscall.AT_FDCWD, op, syscall.AT_FDCWD, np) or return newPathError("rename", oldpath, soldpath, err, a)
 	return nil
 }
 

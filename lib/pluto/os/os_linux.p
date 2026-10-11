@@ -507,14 +507,8 @@ func OpenFileBytes(name []byte, flags int, perm uint32, a alloc.Allocator = allo
 // caller has only bytes), and returns a File without its name.
 func openFile(name []byte, sname string, flags int, perm uint32, a alloc.Allocator) (*File, error) {
 	var buf [maxPath]byte
-	path, err := cpathBytes(name, &buf)
-	if err != nil {
-		return nil, newPathError("open", name, sname, err, a)
-	}
-	fd, err := syscall.Open(path, flags|syscall.O_CLOEXEC, perm)
-	if err != nil {
-		return nil, newPathError("open", name, sname, err, a)
-	}
+	path := cpathBytes(name, &buf) or return newPathError("open", name, sname, err, a)
+	fd := syscall.Open(path, flags|syscall.O_CLOEXEC, perm) or return newPathError("open", name, sname, err, a)
 	f := alloc.New[File](a)
 	f.fd = fd
 	return f, nil

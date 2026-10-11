@@ -51,10 +51,7 @@ type boolFlag interface {
 type boolValue struct{ p *bool }
 
 func (b *boolValue) Set(s string) error {
-	v, err := parseBool(s)
-	if err != nil {
-		return err
-	}
+	v := parseBool(s) or return
 	*b.p = v
 	return nil
 }
@@ -84,8 +81,7 @@ type intValue struct {
 }
 
 func (v *intValue) Set(s string) error {
-	x, err := strconv.ParseInt(s, 0, 64) // int is 64 bits on every target
-	if err != nil {
+	x := strconv.ParseInt(s, 0, 64) or { // int is 64 bits on every target
 		if err == strconv.ErrRange {
 			return errRange
 		}
@@ -115,8 +111,7 @@ type uintValue struct {
 }
 
 func (v *uintValue) Set(s string) error {
-	x, err := strconv.ParseUint(s, 0, 64)
-	if err != nil {
+	x := strconv.ParseUint(s, 0, 64) or {
 		if err == strconv.ErrRange {
 			return errRange
 		}
@@ -154,10 +149,7 @@ type durationValue struct {
 }
 
 func (v *durationValue) Set(s string) error {
-	d, err := time.ParseDuration(s)
-	if err != nil {
-		return errParse
-	}
+	d := time.ParseDuration(s) or return errParse
 	*v.p = d
 	return nil
 }
@@ -289,9 +281,7 @@ func (f *FlagSet) Set(name, value string) error {
 	if fl == nil {
 		return fmt.Errorf("no such flag -%s", name)
 	}
-	if err := fl.Value.Set(value); err != nil {
-		return err
-	}
+	fl.Value.Set(value) or return
 	for _, a := range f.actual.Slice() {
 		if a == fl {
 			return nil
@@ -596,11 +586,9 @@ func (f *FlagSet) parseOne() (bool, error) {
 	}
 	if bv, ok := fl.Value.(boolFlag); ok && bv.IsBoolFlag() {
 		if hasValue {
-			if err := fl.Value.Set(value); err != nil {
-				return false, f.failf("invalid boolean value %q for -%s: %v", value, name, err)
-			}
-		} else if err := fl.Value.Set("true"); err != nil {
-			return false, f.failf("invalid boolean flag %s: %v", name, err)
+			fl.Value.Set(value) or return f.failf("invalid boolean value %q for -%s: %v", value, name, err)
+		} else {
+			fl.Value.Set("true") or return f.failf("invalid boolean flag %s: %v", name, err)
 		}
 	} else {
 		if !hasValue && len(f.args) > 0 {
@@ -610,9 +598,7 @@ func (f *FlagSet) parseOne() (bool, error) {
 		if !hasValue {
 			return false, f.failf("flag needs an argument: -%s", name)
 		}
-		if err := fl.Value.Set(value); err != nil {
-			return false, f.failf("invalid value %q for flag -%s: %v", value, name, err)
-		}
+		fl.Value.Set(value) or return f.failf("invalid value %q for flag -%s: %v", value, name, err)
 	}
 	for _, a := range f.actual.Slice() {
 		if a == fl {
