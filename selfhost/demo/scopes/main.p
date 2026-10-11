@@ -16,7 +16,7 @@ const n = 8
 
 func work(x int) int { return x*x + 1 }
 
-// deferred: Add before the loop's task statement, defer wg.Done() first.
+// deferred: Add before the loop's go statement, defer wg.Done() first.
 func deferred() [n]int {
 	var wg sync.Scope
 	var out [n]int
@@ -43,7 +43,7 @@ func atEnd() [n]int {
 }
 
 // args: the literal's parameters stand for the loop variable, whose value
-// the task statement passed.
+// the go statement passed.
 func args() [n]int {
 	var wg sync.Scope
 	var out [n]int
