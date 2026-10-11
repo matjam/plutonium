@@ -10,14 +10,16 @@ import (
 	"selfhost/pu"
 )
 
-// GenCheck inserts the generation checks of the generational-reference
-// prototype (lower/gencheck.go, lib/pluto/alloc/gen.p) in functions marked
-// with ssa.PragmaGenCheck. It runs after inlining and scalar replacement,
-// so that the checks neither make functions look too big to inline nor
-// keep frame slots from being split, and it skips accesses whose address is
-// derived from a frame slot or a symbol.
+// GenCheck inserts the generation checks of generational references
+// (lower/gencheck.go, lib/pluto/alloc/gen.p, abi.md section 1.3) in
+// functions marked with ssa.PragmaGenCheck. It runs after inlining and
+// scalar replacement, so that the checks neither make functions look too
+// big to inline nor keep frame slots from being split, and it skips
+// accesses whose address is derived from a frame slot or a symbol.
 //
-// Each memory access through any other pointer p becomes:
+// Each memory access through any other pointer p uses p's address without
+// its tag, computed once where p is defined, and is preceded by a check of
+// p somewhere before it:
 //
 //	t := p >> 48
 //	if t != 0 {
@@ -26,40 +28,49 @@ import (
 //	}
 //	access p &^ tag
 //
-// The tag and the plain address are computed once, where p is defined. The
-// check itself is not repeated in the same straight-line code until a call,
-// which might free p. Functions marked ssa.PragmaGenMaskOnly (the runtime
-// and the allocator) only remove tags.
+// A check of p stays valid until something that may free (GenFrees):
+// a call to a function that may free, an indirect call, an intrinsic, a
+// volatile access. Where checks go:
+//
+//   - An access needs no check of its own if p was checked on every path
+//     to it since the last such barrier (a forward dataflow over the
+//     whole function). Accesses through the same p in one block share the
+//     first one's check.
+//   - In a loop without barriers, the accesses through a p defined outside
+//     the loop are checked once, before the loop, if the loop surely
+//     reaches one of them on its first iteration once its header lets it
+//     in (genPlacer.hoist): the check is guarded by the header's test as
+//     the first iteration evaluates it, so a loop that runs no iteration
+//     checks nothing, and a program never panics over a pointer it would
+//     not have used. A loop leaving by a runtime panic before it reaches
+//     the access may report the stale pointer instead; a loop that never
+//     reaches it nor leaves (with no calls in it, so that it runs forever
+//     doing nothing another task can see) panics where it would have hung.
+//   - Memory the function holds (genPlacer.holds: a new allocation, or an
+//     owned[T] parameter, not yet passed to a call or stored) can be freed
+//     only by an arena reset or through synchronization with another task,
+//     so its check survives barriers that may free other memory but reset
+//     nothing (isReset), in loops as well.
+//
+// Functions marked ssa.PragmaGenMaskOnly (the runtime and the allocator)
+// only remove tags.
 func GenCheck(f *ssa.Func) {
 	if f.Pragmas&(ssa.PragmaGenCheck|ssa.PragmaGenMaskOnly) == 0 {
 		return
 	}
-	g := &genChecker{
-		f:        f,
-		maskOnly: f.Pragmas&ssa.PragmaGenMaskOnly != 0 || os.Getenv("PLUTO_GENCHECK_MASKONLY") != "",
-		parts:    compat.NewMap[*ssa.Value, *genParts](0),
-		plain:    compat.NewMap[*ssa.Value, bool](0),
+	if f.Pragmas&ssa.PragmaGenMaskOnly != 0 || os.Getenv("PLUTO_GENCHECK_MASKONLY") != "" {
+		genMaskOnly(f)
+		return
 	}
-	// The blocks a check splits off are walked as part of the block they
-	// come from.
-	for _, b := range compat.Append([]*ssa.Block(nil), f.Blocks...) {
-		g.block(b)
+	g := &genPlacer{
+		f:     f,
+		roots: compat.NewMap[*ssa.Value, int](0),
+		parts: compat.NewMap[*ssa.Value, *genParts](0),
+		at:    compat.NewMap[*ssa.Value, []*genSite](0),
+		kind:  compat.NewMap[*ssa.Value, uint8](0),
 	}
+	g.run()
 	f.InvalidateCFG()
-}
-
-type genChecker struct {
-	f        *ssa.Func
-	maskOnly bool
-	parts    *hash.Map[*ssa.Value, *genParts]  // per root pointer, in mask-only functions
-	plain    *hash.Map[*ssa.Value, bool]       // values that are plain addresses already
-	checked  *hash.Map[*ssa.Value, *ssa.Value] // roots checked in the current run of blocks, and their plain address
-}
-
-// genParts are a pointer's address without its tag, computed where the
-// pointer is defined (mask-only functions).
-type genParts struct {
-	addr *ssa.Value
 }
 
 const (
@@ -68,49 +79,792 @@ const (
 	genGranuleLog = 4
 )
 
-// block checks the accesses of b. Splitting b for a check moves the rest of
-// it to a new block, which block then continues with.
-func (g *genChecker) block(b *ssa.Block) {
-	g.checked = compat.NewMap[*ssa.Value, *ssa.Value](0)
-	for i := 0; i < len(b.Values); i++ {
-		v := b.Values[i]
-		if v.Op.IsCall() {
-			g.checked = compat.NewMap[*ssa.Value, *ssa.Value](0)
-			continue
+// genParts are a pointer's bits as an integer and its address without its
+// tag, computed right after the pointer is defined.
+type genParts struct {
+	bits  *ssa.Value // Bitcast <i64> p
+	plain *ssa.Value // the address without its tag, as an i64
+	addr  *ssa.Value // the same, as a pointer
+}
+
+// A genSite is a place where a pointer may need its check: an access
+// through it, or the end of a loop's preheader a check was hoisted to.
+type genSite struct {
+	v     *ssa.Value // the access (for a hoisted check, the one it was hoisted from)
+	arg   int        // the address argument of v; -1 for a hoisted check
+	steps []*ssa.Value
+	root  *ssa.Value
+	block *ssa.Block // v's block, or the preheader
+	// guard, for a hoisted check, is the condition under which the check
+	// runs (nil: always); mem is the memory state at the end of block.
+	guard, mem *ssa.Value
+	covered    bool // a check before the loop takes its place
+	need       bool // a check is emitted here
+}
+
+type genPlacer struct {
+	f      *ssa.Func
+	dom    *ssa.DomTree
+	ln     *ssa.LoopNest
+	sites  []*genSite
+	at     *hash.Map[*ssa.Value, []*genSite] // access sites by access
+	hoists *hash.Map[*ssa.Block, []*genSite] // hoisted sites by preheader
+	roots  *hash.Map[*ssa.Value, int]        // root pointers, numbered
+	rootOf []*ssa.Value
+	parts  *hash.Map[*ssa.Value, *genParts]
+	// barrier and reset are, by block ID, whether the block holds a
+	// barrier, and one that may reset (isReset).
+	barrier, reset    []bool
+	inlFree, inlReset []bool
+	split             []*ssa.Block // preheaders made by splitting an edge
+	cond              *hash.Map[*ssa.Loop, *genCond]
+
+	// Roots the function holds (genPlacer.holds): a new allocation, from
+	// where it is made (freshAt), or an owner parameter, from the entry
+	// (owned); and where each stops being held (escapeAt).
+	freshAt  *hash.Map[*ssa.Value, int]
+	owned    []int
+	escapeAt *hash.Map[*ssa.Value, []int]
+	// heldOut is, by block ID, the roots held at the end of the block.
+	heldOut   [][]uint64
+	escBlocks *hash.Map[int, []*ssa.Block]
+	words     int
+	// kind is, for each barrier, genFree or genReset.
+	kind *hash.Map[*ssa.Value, uint8]
+}
+
+const (
+	genFree  = 1 // a barrier: may free
+	genReset = 2 // may reset, too: isReset
+)
+
+// genCond is a loop's entry condition, once computed.
+type genCond struct {
+	ok bool
+	v  *ssa.Value // nil: the loop always runs its first iteration's body
+}
+
+func (g *genPlacer) run() {
+	g.inlFree = genInlinedFrom(g.f, genFreeFuncs)
+	g.inlReset = genInlinedFrom(g.f, genResetFuncs)
+	g.splitPreheaders()
+	g.dom = g.f.Dom()
+	g.ln = g.f.Loops()
+	g.collect()
+	if len(g.sites) == 0 {
+		g.unsplit()
+		return
+	}
+	g.words = (len(g.rootOf) + 63) / 64
+	g.holds()
+	g.hoists = compat.NewMap[*ssa.Block, []*genSite](0)
+	g.cond = compat.NewMap[*ssa.Loop, *genCond](0)
+	// Which roots are held at the end of each block does not depend on
+	// the checks: hoisting asks it of preheaders.
+	g.heldOut = g.dataflow(false)
+	for _, l := range g.ln.Loops { // inner loops first
+		g.hoist(l)
+	}
+	g.dataflow(true)
+	g.emit()
+	g.unsplit()
+	// The tagged addresses the accesses used, and the entry conditions of
+	// hoisting that went further out, are left without uses.
+	ssa.DeadCode(g.f)
+}
+
+// isBarrier reports whether v may make a checked pointer stale.
+func (g *genPlacer) isBarrier(v *ssa.Value) bool {
+	if v.Op == ssa.OpCall {
+		if v.Call != nil && v.Call.NoReturn {
+			return false
 		}
-		var addrArgs []int
-		switch v.Op {
-		case ssa.OpLoad, ssa.OpStore, ssa.OpZero, ssa.OpFill:
-			addrArgs = []int{0}
-		case ssa.OpMove:
-			addrArgs = []int{0, 1}
-		default:
-			continue
+		return !compat.MapAt(g.f.GenNoFree, v.Aux.(*ssa.Sym))
+	}
+	return genBarrierOp(v, g.inlFree, false)
+}
+
+// isReset reports whether v may make stale memory it is not given a
+// pointer to: the barriers that end the checks of held roots too.
+func (g *genPlacer) isReset(v *ssa.Value) bool {
+	if v.Op == ssa.OpCall {
+		if v.Call != nil && v.Call.NoReturn {
+			return false
 		}
-		for _, ai := range addrArgs {
-			root, steps := addrRoot(v.Args[ai])
-			if isStaticAddr(root) || compat.MapAt(g.plain, root) || isUntagPattern(root) {
-				continue
+		return !compat.MapAt(g.f.GenNoReset, v.Aux.(*ssa.Sym))
+	}
+	return genBarrierOp(v, g.inlReset, true)
+}
+
+// splitPreheaders gives each loop entered by one edge, from a block with
+// other successors, a block of its own on that edge, where checks hoisted
+// out of the loop can go.
+func (g *genPlacer) splitPreheaders() {
+	ln := g.f.Loops()
+	var edges [][2]*ssa.Block
+	for _, l := range ln.Loops {
+		h := l.Header
+		var from *ssa.Block
+		n := 0
+		for _, e := range h.Preds {
+			if !l.Contains(ln, e.B) {
+				from = e.B
+				n++
 			}
-			var addr *ssa.Value
-			if g.maskOnly {
-				addr = g.partsOf(root).addr
-			} else {
-				addr = compat.MapAt(g.checked, root)
-				if addr == nil {
-					b, addr = g.check(b, v, root)
-					i = 0
-					g.checked.Set(root, addr)
-				}
-			}
-			v.SetArg(ai, g.rebuild(b, v, addr, steps))
 		}
-		// Checks and rebuilt addresses went in before v.
-		for b.Values[i] != v {
-			i++
+		if n == 1 && len(from.Succs) > 1 {
+			edges = compat.Append(edges, [2]*ssa.Block{from, h})
+		}
+	}
+	for _, e := range edges {
+		from, h := e[0], e[1]
+		for i, s := range from.Succs {
+			if s.B == h {
+				g.split = compat.Append(g.split, splitEdge(g.f, from, i))
+				break
+			}
 		}
 	}
 }
+
+// splitEdge puts a new empty block on edge i of b.
+func splitEdge(f *ssa.Func, b *ssa.Block, i int) *ssa.Block {
+	e := b.Succs[i]
+	n := f.NewBlock(ssa.BlockPlain)
+	n.CopyPos(e.B)
+	b.Succs[i] = ssa.Edge{B: n, I: 0}
+	n.Preds = compat.Clone([]ssa.Edge{{B: b, I: i}})
+	n.Succs = compat.Clone([]ssa.Edge{{B: e.B, I: e.I}})
+	e.B.Preds[e.I] = ssa.Edge{B: n, I: 0}
+	return n
+}
+
+// unsplit removes the blocks splitPreheaders made that nothing went into.
+func (g *genPlacer) unsplit() {
+	if len(g.split) == 0 {
+		return
+	}
+	gone := compat.NewMap[*ssa.Block, bool](0)
+	for _, n := range g.split {
+		if len(n.Values) != 0 || n.Kind != ssa.BlockPlain || len(n.Preds) != 1 || len(n.Succs) != 1 {
+			continue
+		}
+		p, s := n.Preds[0], n.Succs[0]
+		p.B.Succs[p.I] = ssa.Edge{B: s.B, I: s.I}
+		s.B.Preds[s.I] = ssa.Edge{B: p.B, I: p.I}
+		gone.Set(n, true)
+	}
+	if compat.MapLen(gone) == 0 {
+		return
+	}
+	keep := g.f.Blocks[:0]
+	for _, b := range g.f.Blocks {
+		if !compat.MapAt(gone, b) {
+			keep = compat.Append(keep, b)
+		}
+	}
+	clear(g.f.Blocks[len(keep):])
+	g.f.Blocks = keep
+	g.f.InvalidateCFG()
+}
+
+// collect finds the accesses that need a check and the blocks that hold
+// barriers.
+func (g *genPlacer) collect() {
+	g.barrier = compat.Make[bool](g.f.NumBlocks())
+	g.reset = compat.Make[bool](g.f.NumBlocks())
+	for _, b := range g.f.Blocks {
+		for _, v := range b.Values {
+			if g.isReset(v) {
+				g.reset[b.ID] = true
+				g.barrier[b.ID] = true
+				g.kind.Set(v, genReset)
+			} else if g.isBarrier(v) {
+				g.barrier[b.ID] = true
+				g.kind.Set(v, genFree)
+			}
+			addrArgs := genAddrArgs(v)
+			for _, ai := range addrArgs {
+				root, steps := addrRoot(v.Args[ai])
+				if isStaticAddr(root) || isUntagPattern(root) {
+					continue
+				}
+				if _, ok := compat.MapGet(g.roots, root); !ok {
+					g.roots.Set(root, len(g.rootOf))
+					g.rootOf = compat.Append(g.rootOf, root)
+				}
+				s := pu.New(genSite{v: v, arg: ai, steps: steps, root: root, block: b})
+				g.sites = compat.Append(g.sites, s)
+				g.at.Set(v, compat.Append(compat.MapAt(g.at, v), s))
+			}
+		}
+	}
+}
+
+// hoist moves the checks of pointers defined outside loop l to l's
+// preheader: of every such pointer if l has no barriers, and of those the
+// function holds throughout l if none of its barriers may reset.
+func (g *genPlacer) hoist(l *ssa.Loop) {
+	barriers := false
+	for _, b := range l.Blocks {
+		if g.reset[b.ID] {
+			return
+		}
+		barriers = barriers || g.barrier[b.ID]
+	}
+	h := l.Header
+	var pre *ssa.Block
+	pi := -1
+	for i, e := range h.Preds {
+		if l.Contains(g.ln, e.B) {
+			continue
+		}
+		if pre != nil {
+			return // entered from more than one place
+		}
+		pre, pi = e.B, i
+	}
+	if pre == nil || len(pre.Succs) != 1 || !g.dom.Reachable(pre) {
+		return
+	}
+	// The sites in l, by invariant root, in the order first seen.
+	var order []*ssa.Value
+	byRoot := compat.NewMap[*ssa.Value, []*genSite](0)
+	for _, s := range g.sites {
+		if s.covered || !l.Contains(g.ln, s.block) || l.Contains(g.ln, s.root.Block) ||
+			!g.dom.Dominates(s.root.Block, pre) || barriers && !g.heldIn(l, pre, s.root) {
+			continue
+		}
+		if compat.MapAt(byRoot, s.root) == nil {
+			order = compat.Append(order, s.root)
+		}
+		byRoot.Set(s.root, compat.Append(compat.MapAt(byRoot, s.root), s))
+	}
+	for _, r := range order {
+		sites := compat.MapAt(byRoot, r)
+		// An unguarded site in the header, before its test, runs whenever
+		// the loop is entered: one check before the loop covers all.
+		var from *genSite
+		for _, s := range sites {
+			if s.block == h && s.guard == nil {
+				from = s
+				break
+			}
+		}
+		if from != nil {
+			for _, s := range sites {
+				s.covered = true
+			}
+			g.addHoist(pre, from, nil)
+			continue
+		}
+		// Otherwise an unguarded site the first iteration surely reaches
+		// lets a check run before the loop when the header lets that
+		// iteration in, which covers every site past the header.
+		for _, s := range sites {
+			if s.guard == nil && g.reaches(l, s.block) {
+				from = s
+				break
+			}
+		}
+		if from != nil {
+			if c := g.entryCond(l, pre, pi); c.ok {
+				for _, s := range sites {
+					if s.block != h {
+						s.covered = true
+					}
+				}
+				g.addHoist(pre, from, c.v)
+				continue
+			}
+		}
+		// A check hoisted out of an inner loop, guarded by a condition
+		// that does not change in l, moves out of l on its own.
+		for _, s := range sites {
+			if s.covered || s.guard == nil || !g.reaches(l, s.block) || !g.invariant(l, s.guard) {
+				continue
+			}
+			var entry *ssa.Value
+			if s.block != h {
+				c := g.entryCond(l, pre, pi)
+				if !c.ok {
+					continue
+				}
+				entry = c.v
+			}
+			guard := g.cloneInvariant(l, pre, s.guard)
+			if entry != nil {
+				guard = g.newValue(pre, s.v, ssa.OpAnd, ssa.TBool, guard, entry)
+			}
+			s.covered = true
+			g.addHoist(pre, s, guard)
+		}
+	}
+}
+
+// addHoist adds a check of from's root at the end of pre.
+func (g *genPlacer) addHoist(pre *ssa.Block, from *genSite, guard *ssa.Value) {
+	s := pu.New(genSite{v: from.v, arg: -1, root: from.root, block: pre, guard: guard, mem: g.memOut(pre)})
+	g.sites = compat.Append(g.sites, s)
+	g.hoists.Set(pre, compat.Append(compat.MapAt(g.hoists, pre), s))
+}
+
+// reaches reports whether, once loop l has let its first iteration in
+// past its header's test, it surely reaches block a before it leaves,
+// other than by a runtime panic.
+func (g *genPlacer) reaches(l *ssa.Loop, a *ssa.Block) bool {
+	h := l.Header
+	for _, e := range h.Preds {
+		if l.Contains(g.ln, e.B) && !g.dom.Dominates(a, e.B) {
+			return false // an iteration may go round without it
+		}
+	}
+	for _, b := range l.Blocks {
+		for _, e := range b.Succs {
+			if l.Contains(g.ln, e.B) || b == h || g.dom.Dominates(a, b) || genIsPanicBlock(e.B) {
+				continue
+			}
+			return false
+		}
+	}
+	return true
+}
+
+// entryCond returns the condition, evaluated at the end of pre, under
+// which loop l's header lets its first iteration into the loop: its test
+// with each of its phis replaced by the value it has on entry.
+func (g *genPlacer) entryCond(l *ssa.Loop, pre *ssa.Block, pi int) *genCond {
+	if c := compat.MapAt(g.cond, l); c != nil {
+		return c
+	}
+	c := pu.New(genCond{})
+	g.cond.Set(l, c)
+	h := l.Header
+	if h.Kind != ssa.BlockIf {
+		c.ok = h.Kind == ssa.BlockPlain
+		return c
+	}
+	in0 := l.Contains(g.ln, h.Succs[0].B)
+	in1 := l.Contains(g.ln, h.Succs[1].B)
+	if in0 && in1 {
+		c.ok = true
+		return c
+	}
+	budget := 32
+	if !g.cloneable(l, h.Controls[0], true, &budget) {
+		return c
+	}
+	memo := compat.NewMap[*ssa.Value, *ssa.Value](0)
+	v := g.cloneEntry(l, pre, pi, h.Controls[0], memo)
+	if !in0 {
+		v = g.newValue(pre, h.Controls[0], ssa.OpNot, ssa.TBool, v)
+	}
+	c.ok, c.v = true, v
+	return c
+}
+
+// genPure reports whether op computes its result from its arguments only,
+// and cannot trap.
+func genPure(op ssa.Op) bool {
+	switch op {
+	case ssa.OpConst, ssa.OpConstFloat, ssa.OpAdd, ssa.OpSub, ssa.OpMul,
+		ssa.OpAnd, ssa.OpOr, ssa.OpXor, ssa.OpAndNot, ssa.OpShl, ssa.OpShrL,
+		ssa.OpShrA, ssa.OpNeg, ssa.OpCom, ssa.OpEq, ssa.OpNe, ssa.OpLess,
+		ssa.OpLeq, ssa.OpLessu, ssa.OpLequ, ssa.OpFEq, ssa.OpFNe, ssa.OpFLess,
+		ssa.OpFLeq, ssa.OpNot, ssa.OpSelect, ssa.OpSignExt, ssa.OpZeroExt,
+		ssa.OpTrunc, ssa.OpBitcast, ssa.OpOffPtr, ssa.OpAddPtr, ssa.OpCopy:
+		return true
+	}
+	return false
+}
+
+// cloneable reports whether v can be computed before loop l: it is
+// defined outside l, or is a pure function of such values and, with
+// entry set, of the phis of l's header.
+func (g *genPlacer) cloneable(l *ssa.Loop, v *ssa.Value, entry bool, budget *int) bool {
+	if !l.Contains(g.ln, v.Block) {
+		return true
+	}
+	*budget--
+	if *budget < 0 {
+		return false
+	}
+	if v.Op == ssa.OpPhi {
+		return entry && v.Block == l.Header
+	}
+	if !genPure(v.Op) {
+		return false
+	}
+	for _, a := range v.Args {
+		if !g.cloneable(l, a, entry, budget) {
+			return false
+		}
+	}
+	return true
+}
+
+// invariant reports whether v can be computed before loop l without the
+// header's phis.
+func (g *genPlacer) invariant(l *ssa.Loop, v *ssa.Value) bool {
+	budget := 32
+	return g.cloneable(l, v, false, &budget)
+}
+
+// cloneEntry computes v at the end of pre for the first iteration of l.
+func (g *genPlacer) cloneEntry(l *ssa.Loop, pre *ssa.Block, pi int, v *ssa.Value, memo *hash.Map[*ssa.Value, *ssa.Value]) *ssa.Value {
+	if !l.Contains(g.ln, v.Block) {
+		return v
+	}
+	if w := compat.MapAt(memo, v); w != nil {
+		return w
+	}
+	var w *ssa.Value
+	if v.Op == ssa.OpPhi {
+		w = v.Args[pi]
+	} else {
+		args := compat.Make[*ssa.Value](len(v.Args))
+		for i, a := range v.Args {
+			args[i] = g.cloneEntry(l, pre, pi, a, memo)
+		}
+		w = g.newValue(pre, v, v.Op, v.Type, args...)
+		w.AuxInt, w.Aux = v.AuxInt, v.Aux
+	}
+	memo.Set(v, w)
+	return w
+}
+
+// cloneInvariant computes v, invariant in l, at the end of pre.
+func (g *genPlacer) cloneInvariant(l *ssa.Loop, pre *ssa.Block, v *ssa.Value) *ssa.Value {
+	return g.cloneEntry(l, pre, -1, v, compat.NewMap[*ssa.Value, *ssa.Value](0))
+}
+
+// newValue appends a value to b, at pos's position.
+func (g *genPlacer) newValue(b *ssa.Block, pos *ssa.Value, op ssa.Op, t *ssa.Type, args ...*ssa.Value) *ssa.Value {
+	v := b.NewValue(op, t, args...)
+	v.CopyPos(pos)
+	return v
+}
+
+// memOut returns the memory state at the end of b.
+func (g *genPlacer) memOut(b *ssa.Block) *ssa.Value {
+	for ; b != nil; b = g.dom.Idom(b) {
+		for i := len(b.Values) - 1; i >= 0; i-- {
+			if v := b.Values[i]; v.Type.IsMem() {
+				return v
+			}
+		}
+	}
+	panic("opt: no memory state in the entry block")
+}
+
+// heldIn reports whether the function holds root r from the end of pre
+// throughout loop l.
+func (g *genPlacer) heldIn(l *ssa.Loop, pre *ssa.Block, r *ssa.Value) bool {
+	i := compat.MapAt(g.roots, r)
+	out := g.heldOut[pre.ID]
+	if out == nil || out[g.words+i/64]&(1<<(i%64)) == 0 {
+		return false
+	}
+	for _, b := range compat.MapAt(g.escBlocks, i) {
+		if l.Contains(g.ln, b) {
+			return false
+		}
+	}
+	return true
+}
+
+// dataflow computes, forward over the function, the roots checked since
+// the last barrier that ended their check (avail) and the roots the
+// function holds (held), and returns both as they are at the end of each
+// block, by block ID: avail in the first g.words words, held after. With
+// decide set, it marks the sites that need a check: those whose root is
+// not available on every path to them.
+func (g *genPlacer) dataflow(decide bool) [][]uint64 {
+	f := g.f
+	n := 2 * g.words
+	order := f.ReversePostOrder()
+	out := compat.Make[[]uint64](f.NumBlocks())
+	cur := compat.Make[uint64](n)
+	// A function too big for the dataflow starts each block with nothing
+	// checked or held.
+	if len(order)*n > 1<<21 {
+		for _, b := range order {
+			clear(cur)
+			if b == f.Entry {
+				g.entryState(cur)
+			}
+			g.transfer(b, cur, decide)
+			out[b.ID] = compat.Append([]uint64(nil), cur...)
+		}
+		return out
+	}
+	in := compat.Make[[]uint64](f.NumBlocks())
+	for _, b := range order {
+		in[b.ID] = compat.Make[uint64](n)
+		out[b.ID] = compat.Make[uint64](n)
+		if b != f.Entry {
+			for i := range out[b.ID] {
+				out[b.ID][i] = ^uint64(0)
+			}
+		}
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, b := range order {
+			g.meet(b, in[b.ID], out)
+			copy(cur, in[b.ID])
+			g.transfer(b, cur, false)
+			if !equalBits(cur, out[b.ID]) {
+				copy(out[b.ID], cur)
+				changed = true
+			}
+		}
+	}
+	if decide {
+		for _, b := range order {
+			copy(cur, in[b.ID])
+			g.transfer(b, cur, true)
+		}
+	}
+	return out
+}
+
+// entryState sets what is checked and held on entry: the owner
+// parameters are held.
+func (g *genPlacer) entryState(cur []uint64) {
+	clear(cur)
+	for _, i := range g.owned {
+		cur[g.words+i/64] |= 1 << (i % 64)
+	}
+}
+
+// meet sets in to the intersection of the states the predecessors of b
+// end with.
+func (g *genPlacer) meet(b *ssa.Block, in []uint64, out [][]uint64) {
+	if b == g.f.Entry {
+		g.entryState(in)
+		return
+	}
+	first := true
+	for _, e := range b.Preds {
+		o := out[e.B.ID]
+		if o == nil {
+			continue // unreachable
+		}
+		if first {
+			copy(in, o)
+			first = false
+			continue
+		}
+		for i := range in {
+			in[i] &= o[i]
+		}
+	}
+	if first {
+		clear(in)
+	}
+}
+
+// transfer applies b's checks, escapes, barriers and allocations to cur;
+// with decide set, it marks the sites that need a check.
+func (g *genPlacer) transfer(b *ssa.Block, cur []uint64, decide bool) {
+	avail, held := cur[:g.words], cur[g.words:]
+	site := func(s *genSite) {
+		if s.covered {
+			return
+		}
+		i := compat.MapAt(g.roots, s.root)
+		have := avail[i/64]&(1<<(i%64)) != 0
+		if decide {
+			s.need = !have
+		}
+		if s.guard == nil {
+			avail[i/64] |= 1 << (i % 64)
+		}
+	}
+	for _, v := range b.Values {
+		for _, s := range compat.MapAt(g.at, v) {
+			site(s)
+		}
+		for _, i := range compat.MapAt(g.escapeAt, v) {
+			held[i/64] &^= 1 << (i % 64)
+		}
+		switch compat.MapAt(g.kind, v) {
+		case genReset:
+			clear(avail)
+		case genFree:
+			for k := range avail {
+				avail[k] &= held[k]
+			}
+		}
+		if i, ok := compat.MapGet(g.freshAt, v); ok {
+			// A new allocation is current when the allocator hands it
+			// out.
+			avail[i/64] |= 1 << (i % 64)
+			held[i/64] |= 1 << (i % 64)
+		}
+	}
+	for _, s := range compat.MapAt(g.hoists, b) {
+		site(s)
+	}
+}
+
+// holds finds the roots the function holds: new allocations (the result
+// of an Allocator's Alloc, or of genFreshFuncs) and owner parameters, up
+// to where a pointer to them, or into them, escapes (genPlacer.escapes).
+// Nothing can free memory the function holds without being given a
+// pointer to it, except by resetting an arena, so a check of such a root
+// stays valid across barriers that do not reset (isReset).
+func (g *genPlacer) holds() {
+	g.freshAt = compat.NewMap[*ssa.Value, int](0)
+	g.escapeAt = compat.NewMap[*ssa.Value, []int](0)
+	g.escBlocks = compat.NewMap[int, []*ssa.Block](0)
+	owner := compat.NewMap[int64, bool](0)
+	for _, a := range g.f.GenOwnerArgs {
+		owner.Set(a, true)
+	}
+	var cands []int
+	for i, r := range g.rootOf {
+		if r.Op == ssa.OpSelectN && r.AuxInt == 1 && genFreshCall(r.Args[0]) || r.Op == ssa.OpArg && compat.MapAt(owner, r.AuxInt) {
+			cands = compat.Append(cands, i)
+		}
+	}
+	if len(cands) == 0 {
+		return
+	}
+	users := compat.NewMap[*ssa.Value, []*ssa.Value](0)
+	ctl := compat.NewMap[*ssa.Value, []*ssa.Block](0)
+	for _, b := range g.f.Blocks {
+		for _, v := range b.Values {
+			for _, a := range v.Args {
+				users.Set(a, compat.Append(compat.MapAt(users, a), v))
+			}
+		}
+		for _, c := range b.Controls {
+			ctl.Set(c, compat.Append(compat.MapAt(ctl, c), b))
+		}
+	}
+	for _, i := range cands {
+		r := g.rootOf[i]
+		esc, ok := escapes(r, users, ctl)
+		if !ok {
+			continue
+		}
+		if r.Op == ssa.OpArg {
+			g.owned = compat.Append(g.owned, i)
+		} else {
+			g.freshAt.Set(r, i)
+		}
+		for _, u := range esc {
+			g.escapeAt.Set(u, compat.Append(compat.MapAt(g.escapeAt, u), i))
+			g.escBlocks.Set(i, compat.Append(compat.MapAt(g.escBlocks, i), u.Block))
+		}
+	}
+}
+
+// escapes returns the values at which root r, or a pointer derived from
+// it, leaves the function's hands: a call it is passed to, a store of it
+// into memory. ok is false if r is used in a way not followed here (a
+// phi, a conversion to an integer), and is then never held.
+func escapes(r *ssa.Value, users *hash.Map[*ssa.Value, []*ssa.Value], ctl *hash.Map[*ssa.Value, []*ssa.Block]) (esc []*ssa.Value, ok bool) {
+	seen := compat.MapOf[*ssa.Value, bool](
+		compat.Pair[*ssa.Value, bool]{r, true},
+	)
+	work := []*ssa.Value{r}
+	for len(work) > 0 {
+		w := work[len(work)-1]
+		work = work[:len(work)-1]
+		for _, b := range compat.MapAt(ctl, w) {
+			if b.Kind != ssa.BlockRet {
+				return nil, false
+			}
+		}
+		for _, u := range compat.MapAt(users, w) {
+			switch u.Op {
+			case ssa.OpLoad, ssa.OpZero, ssa.OpFill:
+				for _, a := range u.Args[1:] {
+					if a == w {
+						return nil, false
+					}
+				}
+			case ssa.OpStore:
+				if u.Args[1] == w {
+					esc = compat.Append(esc, u)
+				}
+			case ssa.OpMove, ssa.OpEq, ssa.OpNe:
+			case ssa.OpOffPtr, ssa.OpAddPtr:
+				if u.Args[0] != w {
+					return nil, false
+				}
+				if !compat.MapAt(seen, u) {
+					seen.Set(u, true)
+					work = compat.Append(work, u)
+				}
+			case ssa.OpCall, ssa.OpCallInd:
+				esc = compat.Append(esc, u)
+			default:
+				return nil, false
+			}
+		}
+	}
+	return esc, true
+}
+
+func equalBits(a, b []uint64) bool {
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// emit inserts the checks decided on and gives every access the address
+// without its tag.
+func (g *genPlacer) emit() {
+	for _, r := range g.rootOf {
+		g.partsOf(r)
+	}
+	// Hoisted checks first: an access's check splits the block before
+	// it, which leaves the end of the block where it was.
+	for _, s := range g.sites {
+		if s.arg < 0 && s.need {
+			g.check(s.block, nil, s)
+		}
+	}
+	for _, s := range g.sites {
+		if s.arg >= 0 && s.need {
+			g.check(s.v.Block, s.v, s)
+		}
+	}
+	for _, s := range g.sites {
+		if s.arg >= 0 {
+			s.v.SetArg(s.arg, g.rebuild(s.v.Block, s.v, compat.MapAt(g.parts, s.root).addr, s.steps))
+		}
+	}
+}
+
+// genAddrArgs returns the arguments of v that are addresses it accesses
+// through, which may need a check: none for a load from static data.
+func genAddrArgs(v *ssa.Value) []int {
+	switch v.Op {
+	case ssa.OpLoad:
+		if v.AuxInt&ssa.MemStatic != 0 {
+			return nil
+		}
+		return genArg0
+	case ssa.OpStore, ssa.OpZero, ssa.OpFill:
+		return genArg0
+	case ssa.OpMove:
+		return genArgs01
+	}
+	return nil
+}
+
+var (
+	genArg0   = []int{0}
+	genArgs01 = []int{0, 1}
+)
 
 // addrRoot follows offsets and indexing back to the pointer an address is
 // derived from.
@@ -134,35 +888,43 @@ func isUntagPattern(p *ssa.Value) bool {
 		s.Args[0].Op == ssa.OpShl && constEq(s.Args[0].Args[1], 64-genTagShift)
 }
 
-// partsOf returns the pure parts of root's check, emitting them right
-// after root's definition the first time.
-func (g *genChecker) partsOf(root *ssa.Value) *genParts {
+// partsOf returns root's genParts, emitting them right after root's
+// definition the first time.
+func (g *genPlacer) partsOf(root *ssa.Value) *genParts {
 	if p := compat.MapAt(g.parts, root); p != nil {
 		return p
 	}
-	f := g.f
-	b := root.Block
-	at := g.after(root)
-	emit := func(op ssa.Op, t *ssa.Type, args ...*ssa.Value) *ssa.Value {
-		if at == nil {
-			return b.NewValue(op, t, args...)
-		}
-		return b.NewValueBefore(at, op, t, args...)
-	}
-	i64 := func(c int64) *ssa.Value { return f.ConstInt(ssa.TI64, c) }
-	p := pu.New(genParts{})
-	ai := emit(ssa.OpBitcast, ssa.TI64, root)
-	shl := emit(ssa.OpShl, ssa.TI64, ai, i64(64-genTagShift))
-	plain := emit(ssa.OpShrL, ssa.TI64, shl, i64(64-genTagShift))
-	p.addr = emit(ssa.OpBitcast, ssa.TPtr, plain)
-	g.plain.Set(p.addr, true)
+	p := genPartsAfter(g.f, root)
 	g.parts.Set(root, p)
 	return p
 }
 
-// after returns the value new values go before so that they follow v in
-// its block (past any phis), or nil to append them.
-func (g *genChecker) after(v *ssa.Value) *ssa.Value {
+// genPartsAfter emits root's parts right after its definition.
+func genPartsAfter(f *ssa.Func, root *ssa.Value) *genParts {
+	b := root.Block
+	at := valueAfter(root)
+	emit := func(op ssa.Op, t *ssa.Type, args ...*ssa.Value) *ssa.Value {
+		var v *ssa.Value
+		if at == nil {
+			v = b.NewValue(op, t, args...)
+		} else {
+			v = b.NewValueBefore(at, op, t, args...)
+		}
+		v.CopyPos(root)
+		return v
+	}
+	shift := f.ConstInt(ssa.TI64, 64-genTagShift)
+	p := pu.New(genParts{})
+	p.bits = emit(ssa.OpBitcast, ssa.TI64, root)
+	shl := emit(ssa.OpShl, ssa.TI64, p.bits, shift)
+	p.plain = emit(ssa.OpShrL, ssa.TI64, shl, shift)
+	p.addr = emit(ssa.OpBitcast, ssa.TPtr, p.plain)
+	return p
+}
+
+// valueAfter returns the value new values go before so that they follow v
+// in its block (past any phis), or nil to append them.
+func valueAfter(v *ssa.Value) *ssa.Value {
 	b := v.Block
 	i := 0
 	for b.Values[i] != v {
@@ -179,7 +941,7 @@ func (g *genChecker) after(v *ssa.Value) *ssa.Value {
 }
 
 // rebuild reapplies the offsets of steps to m, before v.
-func (g *genChecker) rebuild(b *ssa.Block, v, m *ssa.Value, steps []*ssa.Value) *ssa.Value {
+func (g *genPlacer) rebuild(b *ssa.Block, v, m *ssa.Value, steps []*ssa.Value) *ssa.Value {
 	for i := len(steps) - 1; i >= 0; i-- {
 		st := steps[i]
 		if st.Op == ssa.OpOffPtr {
@@ -188,27 +950,31 @@ func (g *genChecker) rebuild(b *ssa.Block, v, m *ssa.Value, steps []*ssa.Value) 
 		} else {
 			m = b.NewValueBefore(v, ssa.OpAddPtr, ssa.TPtr, m, st.Args[1])
 		}
-		g.plain.Set(m, true)
+		m.CopyPos(v)
 	}
 	return m
 }
 
-// check splits b before v to check p's generation. It returns the block
-// that now holds v and p's address without its tag, which is p itself when
-// p has no tag.
-func (g *genChecker) check(b *ssa.Block, v, p *ssa.Value) (*ssa.Block, *ssa.Value) {
+// check splits b before at (at its end if at is nil) to check s's root.
+func (g *genPlacer) check(b *ssa.Block, at *ssa.Value, s *genSite) {
 	f := g.f
+	p := s.root
+	parts := compat.MapAt(g.parts, p)
+	pos := s.v
+	mem := s.mem
+	if at != nil {
+		mem = at.MemArg()
+	}
 	i64 := func(c int64) *ssa.Value { return f.ConstInt(ssa.TI64, c) }
-	mem := v.MemArg()
-	ai := b.NewValueBefore(v, ssa.OpBitcast, ssa.TI64, p)
-	tag := b.NewValueBefore(v, ssa.OpShrL, ssa.TI64, ai, i64(genTagShift))
-	tagged := b.NewValueBefore(v, ssa.OpNe, ssa.TBool, tag, i64(0))
 
-	// Split b before v.
+	// Split b before at: cont takes the rest of b and its ending.
 	cont := f.NewBlock(b.Kind)
-	idx := 0
-	for b.Values[idx] != v {
-		idx++
+	idx := len(b.Values)
+	if at != nil {
+		idx = 0
+		for b.Values[idx] != at {
+			idx++
+		}
 	}
 	rest := b.Values[idx:]
 	b.Values = b.Values[:idx:idx]
@@ -222,45 +988,78 @@ func (g *genChecker) check(b *ssa.Block, v, p *ssa.Value) (*ssa.Block, *ssa.Valu
 	b.SetControl()
 	for len(b.Succs) > 0 {
 		e := b.Succs[0]
-		s := e.B
-		cont.Succs = compat.Append(cont.Succs, ssa.Edge{B: s, I: e.I})
-		s.Preds[e.I] = ssa.Edge{B: cont, I: len(cont.Succs) - 1}
+		cont.Succs = compat.Append(cont.Succs, ssa.Edge{B: e.B, I: e.I})
+		e.B.Preds[e.I] = ssa.Edge{B: cont, I: len(cont.Succs) - 1}
 		b.Succs = b.Succs[1:]
 	}
 
+	tag := g.newValue(b, pos, ssa.OpShrL, ssa.TI64, parts.bits, i64(genTagShift))
+	tagged := g.newValue(b, pos, ssa.OpNe, ssa.TBool, tag, i64(0))
+	if s.guard != nil {
+		tagged = g.newValue(b, pos, ssa.OpAnd, ssa.TBool, s.guard, tagged)
+	}
 	chk := f.NewBlock(ssa.BlockIf)
 	fail := f.NewBlock(ssa.BlockExit)
-	chk.CopyPos(b)
-	fail.CopyPos(b)
+	chk.Pos, chk.Inl = pos.Pos, pos.Inl
+	fail.Pos, fail.Inl = pos.Pos, pos.Inl
 	b.Kind = ssa.BlockIf
 	b.Likely = ssa.Unknown
 	b.SetControl(tagged)
-	b.AddEdgeTo(chk)  // cont.Preds[0] is b, the untagged path
-	b.AddEdgeTo(cont) // (added below as Preds[1] from chk)
+	b.AddEdgeTo(chk)
+	b.AddEdgeTo(cont)
 
 	// The generation of the 16-byte granule p points into, in the chunk's
 	// header: chunk + 2*((p & 0xffff) >> 4).
-	shl := chk.NewValue(ssa.OpShl, ssa.TI64, ai, i64(64-genTagShift))
-	plain := chk.NewValue(ssa.OpShrL, ssa.TI64, shl, i64(64-genTagShift))
-	chunk := chk.NewValue(ssa.OpAnd, ssa.TI64, plain, i64(-(1 << genChunkLog)))
-	idx16 := chk.NewValue(ssa.OpShrL, ssa.TI64, ai, i64(genGranuleLog-1))
-	off := chk.NewValue(ssa.OpAnd, ssa.TI64, idx16, i64((1<<genChunkLog-1)>>(genGranuleLog-1)&^1))
-	gaddr := chk.NewValue(ssa.OpBitcast, ssa.TPtr, chk.NewValue(ssa.OpAdd, ssa.TI64, chunk, off))
-	gen := chk.NewValue(ssa.OpZeroExt, ssa.TI64, chk.NewValue(ssa.OpLoad, ssa.TI16, gaddr, mem))
-	ok := chk.NewValue(ssa.OpEq, ssa.TBool, gen, tag)
-	plainPtr := chk.NewValue(ssa.OpBitcast, ssa.TPtr, plain)
+	chunk := g.newValue(chk, pos, ssa.OpAnd, ssa.TI64, parts.plain, i64(-(1 << genChunkLog)))
+	idx16 := g.newValue(chk, pos, ssa.OpShrL, ssa.TI64, parts.bits, i64(genGranuleLog-1))
+	off := g.newValue(chk, pos, ssa.OpAnd, ssa.TI64, idx16, i64((1<<genChunkLog-1)>>(genGranuleLog-1)&^1))
+	gaddr := g.newValue(chk, pos, ssa.OpBitcast, ssa.TPtr, g.newValue(chk, pos, ssa.OpAdd, ssa.TI64, chunk, off))
+	gen := g.newValue(chk, pos, ssa.OpZeroExt, ssa.TI64, g.newValue(chk, pos, ssa.OpLoad, ssa.TI16, gaddr, mem))
+	ok := g.newValue(chk, pos, ssa.OpEq, ssa.TBool, gen, tag)
 	chk.SetControl(ok)
 	chk.Likely = ssa.Likely
 	chk.AddEdgeTo(cont)
 	chk.AddEdgeTo(fail)
 
-	call := fail.NewValue(ssa.OpCall, ssa.TupleOf(compat.Clone([]*ssa.Type{ssa.TMem})...), p, mem)
+	call := g.newValue(fail, pos, ssa.OpCall, ssa.TupleOf(compat.Clone([]*ssa.Type{ssa.TMem})...), p, mem)
 	call.Aux = f.GenPanic
 	call.Call = pu.New(ssa.CallInfo{ABI: ssa.ABIInternal, NoReturn: true})
-	fail.SetControl(fail.NewValueI(ssa.OpSelectN, ssa.TMem, 0, call))
+	sel := g.newValue(fail, pos, ssa.OpSelectN, ssa.TMem, call)
+	fail.SetControl(sel)
+}
 
-	// The address in cont: p if it had no tag, its plain form if it had.
-	addr := cont.NewValueBefore(cont.Values[0], ssa.OpPhi, ssa.TPtr, p, plainPtr)
-	g.plain.Set(addr, true)
-	return cont, addr
+// genMaskOnly removes the tag from the address of every access through a
+// pointer that may have one, without checking it (the runtime and the
+// allocator, and PLUTO_GENCHECK_MASKONLY, which measures the masking's
+// cost alone).
+func genMaskOnly(f *ssa.Func) {
+	parts := compat.NewMap[*ssa.Value, *genParts](0)
+	type use struct {
+		v     *ssa.Value
+		arg   int
+		root  *ssa.Value
+		steps []*ssa.Value
+	}
+	var uses []use
+	for _, b := range f.Blocks {
+		for _, v := range b.Values {
+			addrArgs := genAddrArgs(v)
+			for _, ai := range addrArgs {
+				root, steps := addrRoot(v.Args[ai])
+				if isStaticAddr(root) || isUntagPattern(root) {
+					continue
+				}
+				uses = compat.Append(uses, use{v, ai, root, steps})
+			}
+		}
+	}
+	g := &genPlacer{f: f}
+	for _, u := range uses {
+		p := compat.MapAt(parts, u.root)
+		if p == nil {
+			p = genPartsAfter(f, u.root)
+			parts.Set(u.root, p)
+		}
+		u.v.SetArg(u.arg, g.rebuild(u.v.Block, u.v, p.addr, u.steps))
+	}
 }

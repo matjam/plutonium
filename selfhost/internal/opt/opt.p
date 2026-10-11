@@ -101,7 +101,9 @@ func ForLevel(level int) *Pipeline {
 		p.add(Pass{"deadcode2", ssa.DeadCode})
 	}
 	// Last, so that inlining and scalar replacement see the code without
-	// them; a no-op unless the build asked for generation checks.
+	// them; a no-op unless the build asked for generation checks. GenFrees
+	// finds the calls that cannot free, which checks may stay valid across.
+	p.steps = compat.Append(p.steps, step{prog: pu.New(ProgramPass{"genfrees", GenFrees})})
 	p.add(Pass{"gencheck", GenCheck})
 	return p
 }

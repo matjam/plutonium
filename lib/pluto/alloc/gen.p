@@ -52,7 +52,11 @@ func genTag(p unsafe.Pointer) unsafe.Pointer {
 
 // genRelease checks that p, a tagged pointer to a slot of size slot being
 // freed, is current, and moves the slot to the next generation. It reports
-// false when the slot is worn out and must not be reused.
+// false when the slot is worn out and must not be reused. It is on every
+// Free's path, so it is inlined into the slabs' Free; the compiler knows it
+// by name (opt.genFreeFuncs), as what makes memory stale.
+//
+//pu:inline
 func genRelease(p unsafe.Pointer, slot uintptr) bool {
 	raw := *(*uintptr)(unsafe.Pointer(&p)) // the bits, tag included
 	tag := raw >> genTagShift

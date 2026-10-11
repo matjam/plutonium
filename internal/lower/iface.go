@@ -725,7 +725,7 @@ func (s *fnState) typeDescOf(tab *ssa.Value, I types2.Type) *ssa.Value {
 	res := s.temp(types2.Typ[types2.UnsafePointer], "desc")
 	s.store(ssa.TPtr, res, s.constInt(ssa.TPtr, 0))
 	notNil := s.newValue(ssa.OpNe, ssa.TBool, tab, s.constInt(ssa.TPtr, 0))
-	s.ifThen(notNil, func() { s.store(ssa.TPtr, res, s.load(ssa.TPtr, tab)) })
+	s.ifThen(notNil, func() { s.store(ssa.TPtr, res, s.loadStatic(ssa.TPtr, tab)) })
 	return s.load(ssa.TPtr, res)
 }
 
@@ -766,11 +766,27 @@ func (s *fnState) ifaceCall(iv value, I types2.Type, fn *types2.Func, sig *types
 		return nil
 	}
 	tab, data := s.ifaceParts(iv)
-	code := s.load(ssa.TPtr, s.offPtr(tab, int64(itabHeader+8*idx)))
+	code := s.loadStatic(ssa.TPtr, s.offPtr(tab, int64(itabHeader+8*idx)))
 	adapterSig := adapterSignature(sig)
 	recv := scalarValue(data, types2.Typ[types2.UnsafePointer])
 	site := &callSite{desc: desc, iface: I, method: idx}
-	return s.emitCall(callee{code: code, ctx: s.constInt(ssa.TPtr, 0), site: site}, adapterSig, &recv, args, pos)
+	return s.emitCall(callee{code: code, ctx: s.constInt(ssa.TPtr, 0), site: site, alloc: allocMethod(I, fn)}, adapterSig, &recv, args, pos)
+}
+
+// allocMethod reports which method of pluto/rt.Allocator (alloc.Allocator)
+// a call of method fn on interface I goes to, if any.
+func allocMethod(I types2.Type, fn *types2.Func) ssa.AllocMethod {
+	n, ok := types2.Unalias(I).(*types2.Named)
+	if !ok || n.Obj().Name() != "Allocator" || n.Obj().Pkg() == nil || n.Obj().Pkg().Path() != "pluto/rt" {
+		return ssa.AllocNone
+	}
+	switch fn.Name() {
+	case "Alloc":
+		return ssa.AllocAlloc
+	case "Free":
+		return ssa.AllocFree
+	}
+	return ssa.AllocNone
 }
 
 // adapterSignature is sig with an unsafe.Pointer receiver: the data word.

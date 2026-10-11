@@ -20,6 +20,8 @@ type callee struct {
 	// deferred marks a deferred call, after which the caller does not
 	// check for rt.Goexit: it runs its remaining deferred calls first.
 	deferred bool
+	// alloc marks a call to an Allocator's Alloc or Free method.
+	alloc ssa.AllocMethod
 }
 
 // callExpr lowers a call expression and returns its single result (or the
@@ -458,7 +460,7 @@ func (s *fnState) callValue(c callee, flat []*ssa.Value, results []*ssa.Type) *s
 	}
 	call.AddArg(s.mem())
 	s.callLog = append(s.callLog, call) // for string holds (strcount.go)
-	call.Call = &ssa.CallInfo{ABI: ssa.ABIInternal, Results: results, NoReturn: c.noReturn}
+	call.Call = &ssa.CallInfo{ABI: ssa.ABIInternal, Results: results, NoReturn: c.noReturn, Alloc: c.alloc}
 	return call
 }
 

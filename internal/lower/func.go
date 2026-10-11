@@ -293,6 +293,14 @@ func (s *fnState) load(t *ssa.Type, ptr *ssa.Value) *ssa.Value {
 	return s.newValue(ssa.OpLoad, t, ptr, s.mem())
 }
 
+// loadStatic loads from static data the compiler lays out (an itab or a
+// type descriptor), which no generation check need guard.
+func (s *fnState) loadStatic(t *ssa.Type, ptr *ssa.Value) *ssa.Value {
+	v := s.load(t, ptr)
+	v.AuxInt |= ssa.MemStatic
+	return v
+}
+
 func (s *fnState) store(t *ssa.Type, ptr, val *ssa.Value) {
 	st := s.newValue(ssa.OpStore, ssa.TMem, ptr, val, s.mem())
 	st.Aux = t
@@ -562,6 +570,13 @@ func (s *fnState) bindParams() {
 			continue
 		}
 		addr := s.temp(p.typ, varName(v))
+		if v != nil && s.l.cfg.GenCheck && len(p.leaves) == 1 {
+			if w, ok := unwrap(s.subst(v.Type())).Underlying().(*types2.Wrapper); ok && w.Kind() == types2.WrapOwned {
+				// The function holds the box: nothing it does not pass
+				// it to can free it (opt.GenCheck).
+				s.f.GenOwnerArgs = append(s.f.GenOwnerArgs, int64(argIdx))
+			}
+		}
 		for _, lf := range p.leaves {
 			s.store(lf.t, s.offPtr(addr, lf.off), nextArg(lf.t))
 		}

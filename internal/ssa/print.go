@@ -82,6 +82,9 @@ func (v *Value) LongString() string {
 		if v.AuxInt&MemVolatile != 0 {
 			sb.WriteString(" [volatile]")
 		}
+		if v.AuxInt&MemStatic != 0 {
+			sb.WriteString(" [static]")
+		}
 	default:
 		if v.AuxInt != 0 {
 			fmt.Fprintf(&sb, " [%d]", v.AuxInt)

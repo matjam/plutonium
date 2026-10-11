@@ -386,7 +386,21 @@ type CallInfo struct {
 	// Implicit marks a call the compiler made up, into the runtime, rather
 	// than one written in the source (string counting, bounds failures).
 	Implicit bool
+	// Alloc marks a call through the Allocator interface (pluto/rt) to its
+	// Alloc or Free method. An allocator's Alloc takes back no memory it
+	// handed out, and its Free only the memory it is given (language spec
+	// section 7.1), which generation checks rely on (opt.GenCheck).
+	Alloc AllocMethod
 }
+
+// An AllocMethod names the Allocator method a call goes to.
+type AllocMethod uint8
+
+const (
+	AllocNone AllocMethod = iota
+	AllocAlloc
+	AllocFree
+)
 
 // A StrHold is a reference a function takes, for the duration of a
 // statement, to a string or a shared, synced or weak reference it borrowed
@@ -469,6 +483,19 @@ type Func struct {
 	// GenPanic is the function a failed generation check calls (with
 	// PragmaGenCheck).
 	GenPanic *Sym
+
+	// GenNoFree holds the functions whose calls cannot make a checked
+	// pointer stale (opt.GenFrees): a generation check done before such a
+	// call still holds after it. Every other call ends what was checked.
+	// It is shared by all the functions of a program.
+	GenNoFree map[*Sym]bool
+	// GenNoReset holds the functions whose calls cannot make stale memory
+	// they were not given a pointer to: they may free what they are
+	// passed, but reset no arena and synchronize with no other task.
+	GenNoReset map[*Sym]bool
+	// GenOwnerArgs are the parameters (OpArg AuxInt) that hold an
+	// owned[T] the function was given, under generation checks.
+	GenOwnerArgs []int64
 
 	// StrHolds lists the references lowering took to keep a borrowed string
 	// alive across calls that might release it (internal/lower/strcount.go);

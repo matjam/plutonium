@@ -165,6 +165,11 @@ type Intrinsic string
 // Memory access flags in OpLoad / OpStore AuxInt.
 const (
 	MemVolatile int64 = 1 << iota // never removed, merged or reordered
+	// MemStatic marks a load from memory that is never freed, whose
+	// address carries no generation tag: an itab or a type descriptor,
+	// which the compiler lays out in static data. Generation checks
+	// (opt.GenCheck) leave it alone.
+	MemStatic
 )
 
 var opTable = [opTableSize]OpInfo{
