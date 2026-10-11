@@ -615,6 +615,11 @@
           "comment": "task starts a task statement at the start of a statement when an identifier or func follows (language spec 4.6); task := x, task.Run() and task = x use it as a name. A struct field or parameter named task on a line of its own, followed by its type, is highlighted too: a grammar cannot tell it from a statement.",
           "match": "(?:^|(?<=[;{]))\\s*(task)\\b(?=\\s+(?:func\\b|[A-Za-z_]))",
           "captures": { "1": { "name": "keyword.control.task.plutonium" } }
+        },
+        {
+          "comment": "or begins an or clause directly after the call that ends a simple statement (language spec 4.6, 11.27): after a closing parenthesis, before the clause. or := x and f(or) use it as a name.",
+          "match": "(?<=\\))\\s*(or)\\b(?=\\s*(?:\\{|[A-Za-z_]))",
+          "captures": { "1": { "name": "keyword.control.or.plutonium" } }
         }
       ]
     },

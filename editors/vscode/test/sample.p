@@ -238,6 +238,16 @@ func (v *Vec[T]) Map[U any](fn func(T) U, a alloc.Allocator = alloc.Default()) V
 //  ^^^^ !keyword
     task.Run()
 //  ^^^^ !keyword
+    n := strconv.Atoi(s) or return
+//                       ^^ keyword.control.or
+//                          ^^^^^^ keyword.control
+    cfg := load(path, 1) or {
+//                       ^^ keyword.control.or
+    }
+    or := 3
+//  ^^ !keyword
+    f(or)
+//    ^^ !keyword
     defer close(ch)
 //        ^^^^^ support.function.builtin
     select {

@@ -19,6 +19,9 @@ func (s *server) hover(p *TextDocumentPositionParams) (*Hover, *rpcError) {
 	}
 	h := directiveHover(f, off)
 	if h == nil {
+		h = orHover(f, off)
+	}
+	if h == nil {
 		h = s.objectHover(f, off)
 	}
 	// The explanation of an error here comes first.
@@ -318,4 +321,28 @@ func directiveHover(f *srcFile, off int) *Hover {
 		}
 	}
 	return nil
+}
+
+// orHoverText explains the contextual keyword or (language spec 11.27).
+const orHoverText = "`or`: an or clause. The clause runs when the call before `or` returns an error as its last result; in it, `err` is that error. Otherwise the call's other results are assigned or declared. The clause must leave, by `return`, `break`, `continue`, `goto` or `panic`. `or return` passes the error up as the function's last result, and `or return E` returns `E` as it (see section 11.27 of the language specification)."
+
+// orHover explains the or of an or statement under the cursor.
+func orHover(f *srcFile, off int) *Hover {
+	pos := f.tok.Pos(off)
+	var or *ast.OrStmt
+	ast.Inspect(f.ast, func(n ast.Node) bool {
+		if or != nil || n == nil || n.Pos() > pos || n.End() < pos {
+			return false
+		}
+		if st, ok := n.(*ast.OrStmt); ok && st.Or <= pos && pos <= st.Or+2 {
+			or = st
+		}
+		return true
+	})
+	if or == nil {
+		return nil
+	}
+	start := f.tok.Offset(or.Or)
+	r := f.rangeOf(start, start+2)
+	return &Hover{Contents: MarkupContent{Kind: "markdown", Value: orHoverText}, Range: &r}
 }

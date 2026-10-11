@@ -23,6 +23,10 @@ func (s *server) completion(p *TextDocumentPositionParams) (*CompletionList, *rp
 	var items []CompletionItem
 	if start > 0 && f.src[start-1] == '.' {
 		items = selectorCompletions(f, start-1)
+	} else if afterCall(f, start) {
+		// Only an or clause follows a call on its line (language spec
+		// 11.27).
+		items = []CompletionItem{orItem}
 	} else {
 		items = scopeCompletions(f, f.tok.Pos(off))
 	}
@@ -32,6 +36,37 @@ func (s *server) completion(p *TextDocumentPositionParams) (*CompletionList, *rp
 		}
 	}
 	return list, nil
+}
+
+// orItem is the completion of the contextual keyword or after a call.
+var orItem = CompletionItem{
+	Label:  "or",
+	Kind:   CompletionKeyword,
+	Detail: "or clause: runs when the call returns an error",
+}
+
+// afterCall reports whether the word being typed at start follows, on its
+// line, the closing parenthesis of a call: the place of an or clause.
+func afterCall(f *srcFile, start int) bool {
+	i := start
+	for i > 0 && (f.src[i-1] == ' ' || f.src[i-1] == '\t') {
+		i--
+	}
+	if i == 0 || f.src[i-1] != ')' {
+		return false
+	}
+	rparen := f.tok.Pos(i - 1)
+	found := false
+	ast.Inspect(f.ast, func(n ast.Node) bool {
+		if found || n == nil || n.Pos() > rparen || n.End() <= rparen {
+			return false
+		}
+		if call, ok := n.(*ast.CallExpr); ok && call.Rparen == rparen {
+			found = true
+		}
+		return true
+	})
+	return found
 }
 
 // inCommentOrString reports whether off lies inside a comment or a string
