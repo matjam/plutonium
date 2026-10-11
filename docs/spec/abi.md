@@ -1004,7 +1004,9 @@ methods and writes only `Link` and `Data`, two words for its own use (a run-queu
 
 These two offsets are fixed, for a kernel's assembly; the rest of the record (the task's ID, the permit
 word, the preemption count and pending flag, the stack bounds, the `alloc.Use` override, channel and
-select bookkeeping) is private and may change. `t.SetStack(lo, hi)` records the stack in a record
+select bookkeeping, the fields of scoped tasks, `join` and `joins`, and the count of drops in progress,
+`drops` and `dropCounted`, section 12.10)
+is private and may change. `t.SetStack(lo, hi)` records the stack in a record
 `NewTask` returns; the runtime places the go statement's arguments at the top of it, then the first
 frame below them.
 
@@ -1260,3 +1262,43 @@ scheduler, so reaching it means the program starts one. `sleepDirect` sleeps unt
 sleeps has one thread and links `startTasks`, `startHosted`, `sysmonMain` and `startPoller` out.
 `sleepParked` is `ParkUntil` in a loop. A late hook that finds the scheduler started after it chose the
 direct body is a compiler failure.
+
+### 12.10 Scoped tasks
+
+A `sync.Scope` (language spec section 4.11) holds one `rt.Join`, which counts the tasks started for it that
+have not yet returned. Only the runtime changes the count, under a lock in the `Join`:
+
+| Part | |
+|---|---|
+| `rt.Join` | the count `n`, a lock, the task parked in `Wait` (`waiter`), and the links of its owner's chain (`next`, `owner`). It lives in the frame of the function that declares the `Scope`. |
+| `rt.spawnScoped(j, ...)` | what a scoped `s.Task(f)` call becomes. Lowering builds the argument block and thunk of a `go` statement in place, with the address of each shared captured variable and the value of each taken one (language spec section 4.11), and calls this instead of `spawnGo`. It counts the task in `j` before the task can run. `sync.Scope.Task`, for a `Scope` the compiler cannot see in the starting frame, calls `rt.TaskJoined(j, f)`, which checks `f` as a `go` statement does. |
+| `rt.taskMain` | after the thunk returns, it uncounts the task with `joinExit`, which wakes the waiter when the count reaches zero and touches nothing of the `Join` afterwards, since the waiter's frame may be reused at once. |
+| `rt.JoinWait(j)` | `Wait` and `Drop`: returns at once (after one lock) when the count is zero, otherwise parks with the reason `sync.Scope.Wait` (`rt.WaitScope`). A second task waiting on the same `Join` panics with "sync: two tasks wait on one Scope". |
+
+**The join chain.** Each task record keeps the chain of `Join`s whose tasks it started (`rt.Task.joins`), and
+the `Join` that counts the task itself (`rt.Task.join`). A `Join` is put on its owner's chain when its first
+scoped task starts, and taken off when a `Wait` or drop finds it at zero. A kernel calls
+`rt.WaitScopes(t *rt.Task)` for a task `t` that is not running: it parks the caller until every task started
+for a `Join` on `t`'s chain has returned, and empties the chain.
+
+**The rule for backends.** A backend must not free or reuse the stack of a task that has not returned
+normally until `rt.WaitScopes` has returned for it, since scoped tasks may still use variables in that
+stack. A task that returns normally has joined its `Scope`s through their drops and needs nothing. Hosted
+builds never need the call: `rt.Goexit` and `testing`'s `FailNow` leave frames through their ordinary
+return paths, so each drop joins (language spec section 8.3), and a hosted panic runs deferred calls (not
+drops) and then ends the process, so no frame is reclaimed while tasks run.
+
+**Drops in progress at exit.** The compiler calls `rt.dropBegin` at the start of every drop glue function and
+of every last release of a `shared` or `synced` object (before its drop, until its memory is returned), and
+`rt.dropEnd` at the end; the runtime does the same around the free of a string's buffer. `rt.Task.drops`
+counts the drops a task is inside, and a global count the tasks that are inside one once tasks have
+started (`rt.taskMain` uncounts a task that leaves one with `rt.Goexit`). When `main` returns, `rt.start`
+calls `rt.mainReturned`, which calls the function the hosted scheduler stored when it started, so a
+program without puroutines, and a kernel, carry none of this. That function parks the main task, with the
+reason `exit` (`rt.WaitExit`), until the count is zero; the scheduler's monitor readies it, so that drop
+glue never calls into the scheduler (language spec section 15.4). `os.Exit` and `rt.Exit` do not wait.
+A `sync.Scope` that moves while tasks it started may run stops the program (`rt.joinMoved`, which the
+compiler calls before any move of a value that holds a `Scope`).
+
+Wait reasons in a deadlock trace: `sync.Scope.Wait` for a task parked in `Wait` or a drop, and `exit` for
+`main` waiting for drops in progress.

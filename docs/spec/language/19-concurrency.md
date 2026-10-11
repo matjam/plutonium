@@ -208,7 +208,9 @@ write of the data holds for writing (`Lock`, not `RLock`). The data is safe when
 write, holds its guard; a read may hold it with `RLock`. Data that every access reads or changes with
 `pluto/sync/atomic` operations (the methods of `atomic.Int64` and the other atomic types, or functions
 such as `atomic.AddInt64(&x, 1)`) needs no lock. A field of a struct is one piece of data, and all the
-elements of an array or slice together are one piece; writing a whole struct writes all its fields.
+elements of an array or slice together are one piece, except that elements selected by different constant
+indexes (`table[0]`, `table[1]`) are different pieces; an element selected by a variable index counts as
+every element. Writing a whole struct writes all its fields.
 Values of `pluto/sync` and `pluto/sync/atomic` types synchronize themselves through their methods, and
 assigning a whole new value to one is an ordinary write.
 
@@ -342,12 +344,16 @@ func process(items []Item, results []Result) {
 }
 ```
 
-**Which tasks are scoped.** A Scope is **local** when it is a local variable of the function, or a field
-or element of one at a constant path (`t.s`, `scopes[2]`), so that the compiler knows where it lives and
-that it lives until the end of its block. A task is **scoped** when it is started by `s.Task(f)` on a
-local Scope `s`. A Scope reached through a pointer, or stored in heap memory, still waits when it is
-dropped, but the tasks it starts are not scoped: `f` may not use the frame, as for a task statement
-(section 19.1). A task statement never starts a scoped task. `sync.WaitGroup` behaves exactly as Go's
+**Which tasks are scoped.** A Scope is **local** when it is a local variable or parameter of the function
+of type `sync.Scope`, named directly, so that the compiler knows where it lives and that it lives until
+the end of its block. A task is **scoped** when it is started by `s.Task(func() {...})`, with a function
+literal written in the call, on a local Scope `s`, in the function that declares `s` or inside the literal
+of another scoped task there. Every other `Task` call starts a task that is not scoped: on a Scope
+reached through a pointer, stored in a field or element, or in heap memory; with a func value that is not
+a literal written in the call; inside an ordinary function literal, on a Scope declared outside it; and
+`go s.Task(f)` or `defer s.Task(f)`. Such a Scope still counts the task and waits for it when it is
+dropped, but `f` may not use the frame, as for a task statement (section 19.1): a capturing literal is an
+error where the compiler can tell, and a run-time panic otherwise. A task statement never starts a scoped task. `sync.WaitGroup` behaves exactly as Go's
 (`Add`, `Done`, `Wait`, and `Task` for Go's `Go`): it never waits on its own, and the tasks it counts are
 not scoped.
 
@@ -376,23 +382,29 @@ and views derived from parameters. None of these is an escape (section 18.3): a 
 task is bounded by the join, which comes before the function returns.
 
 - **Variables that end before the join are taken.** A captured variable whose block may end before the
-  task is joined, such as a loop variable, or a variable declared in the loop body when the `Wait` is
-  after the loop, is **taken** by the task when `s.Task` runs: a value is copied, an owner is moved, and
-  the task uses its own copy. This gives Go 1.22's per-iteration meaning to the source as written. The
-  copy cannot be observed, since the sharing rules below reject a variable that the starting function and
-  the task both use after `s.Task` unless neither writes it. A taken variable must be sendable (section
-  19.2), and a taken owner is dropped by the task when it returns.
+  task is joined is **taken** by the task when `s.Task` runs: a value is copied, an owner is moved, and
+  the task uses its own copy. A variable is taken when it is declared in a block nested inside the
+  Scope's block (a loop body, or the variables of a loop, such as `i` in `for i := ...`), unless an
+  `s.Wait()` later in that same block joins the task before the block can end, with no `return`, `break`,
+  `continue`, `goto` or label between the statement holding the call and the `Wait`. This gives Go 1.22's
+  per-iteration meaning to the source as written. A taken variable must be sendable (section 19.2), and a
+  variable of a type that is not sendable may not be used by a scoped task at all. A taken owner is no
+  longer the starting function's (using it afterwards is a use after move, section 18.5), and the task
+  drops what is left of it when its literal returns.
+- **A taken variable that the task changes** (assigns, increments, or takes the address of), and that the
+  starting function uses again after the `s.Task` call (later in the source, or anywhere in the loop
+  around it), is error E3407: the starting function would not see the change. Owners are exempt, since
+  the starting function cannot use a moved owner.
 - **Views of storage that ends before the join** are error E3401. Taking a variable copies it, not what a
   view in it points to: a slice of an array declared in the loop body, taken into a task that runs past
   the iteration, still looks at that array. Use the array itself in the literal, which the task then
   takes, or wait inside the loop.
 - **Captured owners.** A captured owner whose block outlives the join stays where it is, and the literal
-  may use it. Since a scoped literal runs exactly once, it may also move the owner, which counts as a move
-  at the `s.Task` call (section 18.5).
+  may use it but not move it (E3305, as in any literal): the starting function drops it at the end of its
+  block. An owner the task takes is the task's own, and its literal may move it.
 - **Func values.** A literal written as the argument of `s.Task` gets a closure record of its own in each
-  task, holding the addresses of the shared variables and its own copies of the taken ones. A func value
-  made elsewhere (a variable, a parameter, a method value) is used through its record, which must last
-  until the join, by the rules of section 18.3.
+  task, built on the task's stack, holding the addresses of the shared variables and its own copies of the
+  taken ones.
 
 **Sharing.** During an interval, every place that a scoped task uses and that anyone writes (the
 starting function, a task, or several tasks of one `s.Task` in a loop) must be one of:
@@ -409,9 +421,14 @@ starting function, a task, or several tasks of one `s.Task` in a loop) must be o
 A place that nobody writes during the interval may be read by everyone. Anything else is error E3402,
 which names both accesses.
 
-**Partitions.** In these forms, `i` is the task's own copy of the variable of the innermost loop around
-the `s.Task`, the `s.Task` runs at most once per iteration, and nothing writes `x`, `k` or `m` during the
-interval:
+**Partitions.** In these forms, `i` is the task's own copy of the variable of a loop around the `s.Task`
+inside the Scope's block, and every such loop's variable indexes the access (so `grid[y][x]` on a
+`[H][W]T` array, with tasks started in two nested loops, is partitioned). A loop's variable tells its
+iterations apart when it is the key of a `range` over an integer, an array, a pointer to an array, a slice
+or a string, or the variable of `for i := a; cond; i++` (or `i--`, `i += c`, `i -= c`, the last two for
+`int` and `int64` only) that the loop changes only in its post statement and whose body has no label.
+Different constant indexes (`x[0]`, `x[1]`) are different elements for any two parties, and nothing
+writes `x`, `k` or `m` during the interval:
 
 | Accesses in the task | Loop | Why the parts are disjoint |
 |---|---|---|
@@ -420,22 +437,26 @@ interval:
 | `x[i : i+c]` or `x[i : min(i+c, n)]` | `for i := a; cond; i += c` | windows start `c` apart and are at most `c` long |
 | `x[:m]` in one party, `x[m:]` or `x[m+d:]` in another | any | the two parts meet at `m` |
 
-Here `c` and `d` are positive constants, or variables nothing writes during the interval, which the
-compiler checks are positive before the first `s.Task` (the program panics otherwise). The index
-arithmetic of these forms is checked for overflow, and a loop step other than `++` or `--` too, so that
-parts cannot wrap around onto each other. A closure that passes `&x[i]` or a window of one of these forms
-to a named function counts as making that access. Bounds checks keep a task inside its window, so once it
-has one it may index within it freely. Indexing a library container (`results[i]` on a `vec.Vec`, section
-11.11, Indexing library containers) counts as `x[i]` when the container's indexing methods touch only that
-element. A partition covers the storage of the elements, not memory that pointers in them point to. Writes
-that the compiler cannot prove disjoint are error E3403; a `[][]T` written as `grid[y][x]` is one, since
-two rows may be the same slice, and a flat slice with a window per row, or a local `[H][W]T` array, is the
-fix.
+Here `c` and `d` are positive constants, or for `c` a variable the loop does not change, which is checked
+to be positive before each task starts (the program panics otherwise). The steps `i += c` and `i -= c` of
+these loops, and the additions, subtractions and multiplications in the index and slice expressions of a
+task that use their variables, panic on overflow, so that parts cannot wrap around onto each other. A
+closure that passes `&x[i]` or a window of one of these forms to a named function counts as making that
+access. Bounds checks keep a task inside its window, so once it has one it may index within it freely,
+also through a local variable that holds the window. A partition covers the storage of the elements, not
+memory that pointers in them point to. Writes that the compiler cannot prove disjoint are error E3403; a
+`[][]T` written as `grid[y][x]` is one, since two rows may be the same slice, and a flat slice with a
+window per row, or a local `[H][W]T` array, is the fix. Indexing a library container (`results[i]` on a
+`vec.Vec`, section 11.11, Indexing library containers) is not partitioned: tasks that write one are
+E3402 or E3403.
 
 **Memory reached through views.** A captured slice or pointer is shared like the variable holding it, and
-so is what it points to. Two views may point to the same memory, so a write through a view of element type
-`T` conflicts with an access by another party through any view that can reach a `T`. In safe code memory
-of one type is never seen as another type, so `results []Result` and `items []Item` never conflict.
+so is what it points to. Two views of memory that the starting function's caller, a package variable or
+the heap provides (through parameters, package variables, or pointers the compiler cannot follow) may
+point to the same memory, so a write through one such view of type `T` conflicts with an access by
+another party through another that can reach a `T`. In safe code memory of one type is never seen as
+another type, so `results []Result` and `items []Item` never conflict, while `out[i] = f(in[i])` with
+`in, out []int` is E3402: the caller could pass overlapping slices.
 
 **Memory outside the frame.** Package variables, and heap memory that the frame does not reach, follow
 section 19.3, which applies to scoped and unscoped tasks alike. Since rule 2 of that section never lets a
@@ -449,10 +470,11 @@ variables without a lock or an atomic is error E3406.
 
 **What the starting function may not do meanwhile.** During an interval, for each variable a running
 task uses, moving it, dropping it (`x.Drop()`), or assigning a new value to it when it is an owner (which
-drops the old one) is error E3404, since the task could use freed memory. Moving the Scope, or assigning a
-new Scope to its variable, while tasks it started may run is error E3405: the tasks find the Scope at its
-address. Once everything is joined, both are allowed. Reading a variable nobody writes, and calling
-`s.Task` again, are allowed.
+drops the old one) is error E3404, since the task could use freed memory. Moving a Scope on which the
+function calls `Task` (assigning, passing or returning it) is error E3405: the tasks find the Scope at its
+address. A Scope that moves while tasks it started may run, which the compiler cannot see when a helper
+started them through a pointer, stops the program. Calling `s.Drop()` by hand is allowed, and waits.
+Reading a variable nobody writes, and calling `s.Task` again, are allowed.
 
 **Non-local exits.** Every path out of the Scope's block drops it, so `return`, `break`, `continue` and
 `goto` join. `rt.Goexit` leaves every frame through its ordinary return path, so the Scope's drop joins

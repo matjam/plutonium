@@ -507,7 +507,8 @@ of the spawning frame cannot be passed at all (section 6.3), since the puroutine
   roadmap item 18; today every puroutine gets the default or `rt.Go`'s size).
 - A function literal that captures variables cannot be started with `go`: its captures live in the
   spawning frame, which may be gone before the puroutine runs (section 4.5). Pass the values as
-  arguments: `go func(n int) { work(n) }(n)`. The same holds for a method value `x.M`, whose closure
+  arguments: `go func(n int) { work(n) }(n)`, or start the literal with `s.Task` on a `sync.Scope` of
+  the function, which waits for it (section 4.11). The same holds for a method value `x.M`, whose closure
   record holds a copy of the receiver in the frame that made it. Wherever the compiler can tell that a
   `go` statement's function, or one of its func-typed arguments, is such a closure, it is a compile
   error: a capturing literal or a method value written in the `go` statement, or a local variable whose
@@ -646,8 +647,14 @@ analysis (section 6.11) checks views of other memory where they cross: the argum
 `go` statement, values sent on a channel, and, through interface values, every type the program converts
 to that interface. Packed variadic arguments of a `go` statement are copied into the new puroutine, so
 each one crosses as a value. Passing a local `sync.WaitGroup` by address, the usual Go idiom, is an error
-(E3004): use a package-level variable, or the `sync.Scope` of scoped puroutines once it lands. In a
-generic function the rule is checked for each instantiation.
+(E3004): use a package-level variable, or start the work with a `sync.Scope` declared in the function
+(section 4.11), whose `s.Task(func() {...})` starts puroutines that may use the function's variables
+because the `Scope` waits for them. In a generic function the rule is checked for each instantiation.
+
+**Program exit.** When `main` returns the program exits without waiting for other puroutines, as in Go,
+except that a drop another puroutine has begun (a `Drop` method that is running, or the release of the
+last reference to a counted object) completes first (language/15-program-initialization-and-execution.md,
+section 15.4).
 
 The large stacks of hosted puroutines are reserved from the operating system, not an allocator. Other
 stacks come from the default allocator (the starting puroutine's, if it installed one with
@@ -733,6 +740,8 @@ brief:
 
 - `go` statements, channel operations, `pluto/sync` locks, `WaitGroup` and `Once`, and
   `pluto/sync/atomic` operations synchronise exactly as in Go. Atomics are sequentially consistent.
+- `sync.Scope` (section 4.11): `s.Task` synchronizes like a `go` statement, and the return of each task
+  started by `s` is synchronized before the return of the `Wait` or drop that waits for it.
 - Safe code cannot race: the compiler rejects data races (section 6.11). In unsafe code a data race is
   a bug but not undefined behaviour. A racy read of a naturally aligned value of at most a
   word observes some value that was written to it; larger values (strings, slices, interfaces, structs)
@@ -792,6 +801,170 @@ An iterator such as `items.All()` builds its closure in a region of the caller's
 loop over one allocates nothing. The optimiser inlines the iterator and then the loop body through their closures, so a
 loop over a simple iterator compiles to the loop the iterator runs: ranging over `v.All()` costs the same
 as ranging over `v.Slice()`.
+
+### 4.11 Scoped puroutines
+
+A `go` statement cannot start a puroutine that uses the starting function's variables, since the puroutine
+may outlive the frame (section 4.7). A `sync.Scope` can: it waits for every puroutine it started before
+the block that declares it ends, so those puroutines may use the frame. It is Rust's `thread::scope`,
+as a type.
+
+```go
+type Scope owner struct { /* a count kept by the runtime */ }
+
+func (s *Scope) Task(f func()) // starts f on a new puroutine that s waits for
+func (s *Scope) Wait()         // returns when every puroutine s started has returned
+func (s *Scope) Drop()         // waits as Wait does
+```
+
+The zero `Scope` is ready to use. There is no `Add` or `Done`: only the runtime counts the puroutines of a
+`Scope`, from before one starts until its function has returned, so `Wait` returning proves that all of them
+have returned. `sync.WaitGroup` is unchanged and behaves exactly as Go's: it waits only where the program
+calls `Wait`, and a `go` statement that it counts follows the rules of section 4.7.
+
+```go
+func process(items []Item, results []Result) {
+	var s sync.Scope
+	for i, it := range items {
+		s.Task(func() { results[i] = work(it) }) // uses results, i and it
+	}
+	s.Wait() // optional: s waits when process returns in any case
+}
+
+func crawl(urls []string) (int, error) {
+	jobs := make(chan string, 16)
+	var mu sync.Mutex
+	var total int
+	var first error
+	var s sync.Scope
+	for w := 0; w < 8; w++ {
+		s.Task(func() {
+			for u := range jobs {
+				n, err := fetch(u)
+				mu.Lock()
+				total += n
+				if err != nil && first == nil {
+					first = err
+				}
+				mu.Unlock()
+			}
+		})
+	}
+	for _, u := range urls {
+		jobs <- u
+	}
+	close(jobs)
+	s.Wait() // before the return below reads total and first
+	return total, first
+}
+
+func load(paths []string, out []Data) error {
+	var s sync.Scope
+	for i, p := range paths {
+		if stopped() {
+			return errStopped // the drop of s waits here, before load returns
+		}
+		s.Task(func() { out[i] = read(p) })
+	}
+	s.Wait()
+	return check(out) // reads what the tasks wrote: the join orders it
+}
+```
+
+**Which calls are scoped.** A call `s.Task(f)` is scoped when `s` is a local variable or parameter of type
+`sync.Scope` named by an identifier (not a field, not through a pointer), `f` is a function literal written
+in the call, and the call is in the function that declares `s` or inside the literal of another scoped
+task there (a task may start more tasks on the outer `Scope`; they are counted while their starter is, so
+the count cannot reach zero in between). Everything else starts the puroutine through the library method,
+under the rules of a `go` statement: a `Scope` reached through a pointer or a field, a function that is not
+a literal, a `Task` call inside an ordinary function literal on a `Scope` declared outside it, and
+`go s.Task(f)` or `defer s.Task(f)`. Such a function may not capture variables (E2594 where the compiler
+can tell, a run-time panic otherwise), and the `Scope` still waits for it when it is dropped.
+
+**What a scoped task may use.** Any variable of the starting function and anything it points to. Views of
+the frame (`&mu`, `results[i]`, a slice of a local array) are fine, and the literal captures variables by
+reference. The escape analysis (section 6.3) does not treat a scoped `Task` call as a place where views
+escape. A captured variable whose block may end before the task is joined is **taken**: its value is copied
+into the task when `Task` runs. A variable is taken when it is declared in a block nested inside the
+`Scope`'s block (a loop body, or the variables of the loop itself, such as `i` in `for i := ...`), unless an
+`s.Wait()` later in that same block joins the task before the block can end (with no `return`, `break`,
+`continue`, `goto` or label between the statement holding the call and the `Wait`). Taking gives each
+iteration its own variable, as Go 1.22 does, which a reference cannot, since every iteration reuses the same
+frame memory (section 4.5). A taken string gets a reference of its own. A taken owner moves into the task,
+so the starting function cannot use it afterwards (the use-after-move error of section 6.4, "taken by the
+task started by s.Task"), and the task drops what is left when its function returns. A taken value must be
+sendable (section 4.7); a `shared[T]` captured by a task is a compile error whether it is taken or not.
+
+- E3401: a taken variable holds a view (a pointer, slice or closure) of storage in a loop that starts the
+  task while the `Scope` is declared outside the loop. The next iteration reuses that storage while the
+  task may still use it. Use the variable itself in the literal (the task copies it), or call `s.Wait()` at
+  the end of the loop body.
+- E3407: a task changes a variable it takes (assigns it, increments it, takes its address) and the starting
+  function uses the variable again afterwards, later in the source or anywhere in the loop around the call.
+  The starting function would not see the change. Owners are exempt: the starting function cannot use a
+  moved owner anyway.
+
+**The join.** `s.Wait()` returns when every puroutine started by `s` has returned. `s.Drop()` may be called
+by hand and waits the same way. Since a `Scope` is an owner (section 6.4), it is dropped when its block ends
+on every path out of it: falling off the end, `return`, `break`, `continue`, `goto`, and `rt.Goexit`
+(section 8.3). Among the variables of one block the `Scope`s are dropped first, before the block's other
+variables (which are dropped in reverse order of declaration, as before), so a task has returned before
+anything it may use is dropped. In a function's outermost block the drop runs after the deferred calls, as
+for every owner; deferred calls therefore run while tasks may still be running, and the race check treats
+them that way. A function that reads what its tasks wrote calls `Wait` before it reads, as `crawl` does.
+Two puroutines may not wait on one `Scope` at once; the second panics with "sync: two tasks wait on one
+Scope".
+
+**Moving a `Scope`.** A `Scope` that has started tasks cannot be moved: assigned, passed or returned
+(E3405). It stays in the function that starts the tasks, which is what lets the compiler see where they
+are joined. `s.Drop()` written out is allowed, and waits.
+
+**No data races.** The compiler proves that a scoped task does not race with the starting function or with
+other tasks, with no annotations. The check is part of the race analysis of section 6.11, which has the
+full rules. In short, a place that two parties may use at the same time, one of them writing, must be
+guarded by a lock the compiler infers, be used atomically, or be partitioned. The **parties** of a
+function are its own code and each task call. A task runs from its `Task` call until `s` waits for it
+(`Wait`, `Drop`, or the end of the `Scope`'s block); a task started in a loop with no `Wait` inside runs at
+the same time as itself. A task's own variables, and the variables it takes, race with nothing. The
+partitions accepted, where `i` is the variable of each loop between the `Scope`'s block and the call:
+
+| Form | Disjoint because |
+|---|---|
+| `x[i]` | each task has its own `i` |
+| `x[i*k : i*k+k]`, `x[i*k : (i+1)*k]` | windows of `k` elements at different `i` |
+| `x[i : i+c]`, `x[i : min(i+c, n)]` in a loop that steps by `c` | windows at different `i` |
+| `x[0]` and `x[1]` | different constant indexes are different elements |
+| `x[:m]` in one party, `x[m:]` or `x[m+d:]` (`d` a positive constant) in another | the halves do not meet |
+
+Every such loop must index the access with its variable, so `grid[y][x]` on a `[H][W]T` array, with tasks
+started in two nested loops, is accepted. A `[][]T` written as `out[i][j]` is not partitioned, since two
+rows may be one slice. Views that the starting function's caller, a package variable or the heap provides
+may point to the same memory as each other, so two uses through different such views conflict when their
+types may overlap: `out[i] = f(in[i])` with `in, out []int` is rejected (the caller could pass overlapping
+slices), and is accepted with `in []Item, out []Result`. A loop that steps by a variable (`i += k`) gets a
+run-time check before each task starts that `k` is positive ("runtime error: the step of a loop that
+starts tasks of a sync.Scope is not positive: N"), since the partitions rely on different iterations having
+different `i`. After `s.Wait()`, or at the end of the `Scope`'s block, the starting function may read what
+the tasks wrote without a lock: the join is a synchronizing operation (memory-model.md section 3.9).
+
+- E3402: two parties may use one place at once, one of them writing, with no lock they both hold. The
+  message names both uses, such as "x is read here while the task started at main.p:12 may write it".
+- E3403: several instances of one task write elements the partition cannot tell apart.
+- E3404: the starting function moves or drops a variable that a running task may use.
+- E3406: a function calls a func-valued parameter from tasks that may run at the same time, and a caller
+  passes a function that writes a variable it captures, or a package variable, without a lock. The message
+  names the function and the write: "Map calls f from several tasks at once, and the function literal
+  passed here writes count".
+
+**Leaving a function other than by returning.** `rt.Goexit` and `testing`'s `FailNow` leave frames through
+their ordinary return paths (section 8.3), so each `Scope`'s drop joins. A hosted panic runs the deferred
+calls (not drops) and ends the program (section 8.2), so no frame is reclaimed while tasks run. A kernel
+that reclaims the frames of a task that did not return normally must not free or reuse its stack until
+`rt.WaitScopes` has returned for it (abi.md section 12.10).
+
+**Cost.** A scoped `Task` call costs what a `go` statement costs plus a locked increment and decrement of
+the count. Dropping a `Scope` whose tasks have all returned costs one lock. A program that starts no
+tasks contains none of this.
 
 ## 5. What Plutonium adds
 
@@ -2776,7 +2949,8 @@ and what to write instead.
 
 **Puroutines.** The compiler finds every puroutine the program may start: each `go` statement, and each
 function value passed to a function that starts a puroutine with it (`rt.Go`, `time.AfterFunc`,
-`sync.WaitGroup.Go`, or a function of the program's own that passes a func parameter on to one of these;
+`sync.WaitGroup.Go`, `sync.Scope.Task`, or a function of the program's own that passes a func parameter
+on to one of these;
 found by following func parameters, section 4.7). The **main puroutine** runs package initialisation
 and `main`. A `go` statement that may run more than once (in a loop, or in a function other than `main`)
 may start several puroutines that run the same code at once. Package initialisation, and the part of
@@ -2800,9 +2974,10 @@ later, anywhere, so what the method does counts as done with no lock held.
 that every write of the data holds for writing (a `sync.RWMutex`'s `Lock`, not `RLock`). The data is then
 safe when every access, read or write, holds its guard (a read may hold it with `RLock`). Data that every
 access changes or reads with `pluto/sync/atomic` operations (the `atomic.Int64` types' methods, or
-`atomic.AddInt64(&x, 1)` and the other functions) needs no lock. A field of a struct, and all the
-elements of an array or slice together, are one piece of data each; writing a whole struct writes all its
-fields. Values of `pluto/sync` and `pluto/sync/atomic` types synchronise themselves through their methods;
+`atomic.AddInt64(&x, 1)` and the other functions) needs no lock. A field of a struct is one piece of
+data, and so are all the elements of an array or slice together, except that elements selected by different
+constant indexes (`table[0]`, `table[1]`) are different pieces; an element selected by a variable index
+counts as every element. Writing a whole struct writes all its fields. Values of `pluto/sync` and `pluto/sync/atomic` types synchronise themselves through their methods;
 assigning a whole new value to one is a write like any other.
 
 **Rule 1: package variables** (gap G32 of the complete-spec plan, adopted). A package variable (or a
@@ -2903,9 +3078,31 @@ responsibility: memory reached through `unsafe.Pointer` or `rt.Pinned`, function
 (assembly and C), and the runtime's own variables. A data race in unsafe code has the limited
 consequences of the memory model (section 4 there), never undefined behaviour.
 
-**Scoped puroutines.** The sharing check of `sync.Scope` (docs/plans/2026-10-10-scoped-puroutines.md,
-section 4.5) uses the same lock inference for locals of the frame that scoped puroutines share; its
-errors are E3401 to E3406 once it lands.
+**Scoped puroutines.** A task started by `s.Task` on a local `sync.Scope` (section 4.11) may use the
+variables of the starting function, so the races to rule out include locals of the frame. For the
+whole-program rules above, a scoped task's code counts as part of the code that starts it (it runs before
+the `Scope`'s block ends), with no locks held. In addition, each function that starts scoped tasks is
+checked for races among its **parties**: its own code and each task call. A task runs from its `Task`
+call until its `Scope` waits for it (`Wait`, a drop, or the end of the `Scope`'s block), found by a flow
+analysis of the function: paths join by union, a `Wait` in one branch joins only on that branch, a `Wait`
+in a loop joins the tasks of each iteration before the next, and deferred calls run with every task still
+running. A task started while an earlier task from the same call may still run runs at the same time as
+itself. Calls are followed through summaries (what a callee does with what its parameters reach, and the
+locks it holds), and package variables and synced objects that callees use count too.
+
+Two uses by parties that may run at the same time conflict when one writes, they are not both atomic or
+methods of `pluto/sync` types, they may reach the same memory, and no lock is held by both (exclusively,
+by a writer). Locks are inferred as above, with no annotation. Index and slice expressions select parts of
+elements, so that a task's `results[i]`, a window `x[i*k : i*k+k]` or `x[:m]` against `x[m:]` do not
+conflict (the table in section 4.11); a part covers the element's own storage, not what a pointer stored in
+it points to. The errors are E3401 (a taken variable holds a view of storage the next iteration reuses),
+E3402 (two parties may use one place at once, one writing), E3403 (instances of one task write elements
+the partition cannot tell apart), E3404 (the starting function moves or drops what a running task may
+use), E3405 (a `Scope` that has started tasks is moved), E3406 (a function calls a func-valued parameter
+from tasks that may run at once, and a caller passes a function that writes without a lock) and E3407 (a
+task changes a variable it takes). Reads after the join are ordered: after `s.Wait()` or the end of the
+`Scope`'s block the starting function may read what the tasks wrote without a lock (memory-model.md section
+3.9).
 
 ## 7. Memory and allocation
 
@@ -3321,9 +3518,9 @@ code that cannot reach it has none. The match is conservative where generic code
 binary checks after some calls in the library (in `pluto/fmt`, through generic iterators) that never
 reach `Goexit`; a check costs a call and a branch.
 
-Since every frame leaves through its return path, a frame that holds a `sync.Scope` (scoped tasks, the
-scoped-puroutines design note) joins its tasks there, as on any return: `Goexit` needs no list of scopes
-to wait for. That list (`rt.WaitScopes`) remains for kernels that abandon a task's stack without
+Since every frame leaves through its return path, a frame that holds a `sync.Scope` (section 4.11) joins
+its tasks there, as on any return: `Goexit` needs no list of scopes to wait for. That list
+(`rt.WaitScopes`, abi.md section 12.10) remains for kernels that abandon a task's stack without
 returning.
 
 ## 9. Directives

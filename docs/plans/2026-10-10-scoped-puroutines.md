@@ -1,7 +1,10 @@
 # Scoped puroutines: design
 
 **Date:** 2026-10-10 (revised 2026-10-10)
-**Status:** proposal, not implemented. Revised under the no-false-friends rule (language spec,
+**Status:** implemented (phase 1) on 2026-10-10; the language spec (chapter 19, section 19.4, and in the
+older single-file spec sections 4.11 and 6.11) is the authority, and section 14 lists where the
+implementation differs from this text. go2pu's rewrite of a
+local `sync.WaitGroup` into a `sync.Scope` (D10) is done as well. Phase 2 (section 10) is not. Revised under the no-false-friends rule (language spec,
 introduction; `docs/plans/2026-10-10-go-false-friends.md`, case F10): scoped puroutines are started by
 a new type, `sync.Scope`, and `sync.WaitGroup` keeps Go's behavior. The earlier surface decisions (D1
 and D2: a WaitGroup that joins what it is handed) are superseded; section 13 records them and why.
@@ -887,3 +890,47 @@ not have, and `sync.WaitGroup` behaves exactly as Go's.
 | D1 (b'): `sync.WaitGroup` joins the puroutines it is handed, through a second counter only the runtime changes, with a wait inserted at the end of its block | D1 (a) and D2: `sync.Scope` | 2026-10-10 | the project owner, by adopting the no-false-friends rule | A WaitGroup that waits at the end of its block changes when a Go function returns, and nothing in the source shows it. It was chosen so that Go source compiles unchanged, which is no longer a goal. |
 | D2 (a): the classic form (`go` with `defer wg.Done()` first or `wg.Done()` last) is scoped as well as `wg.Go`; a latch that calls `Done` and runs on is not | D2 and D10: only `s.Go` starts scoped puroutines; go2pu rewrites the classic form | 2026-10-10 | as above | It depended on D1 (b'), and whether a puroutine was joined depended on where `Done` appeared in its body, which a reader would have to know. |
 | Goal 1: the idiom, `wg.Go` and `go worker(&wg, ...)` compile unchanged, and go2pu translates them as the identity | Goals 1 and 2 (section 2) | 2026-10-10 | as above | Compiling Go source unchanged is no longer a goal of the language; Go code is kept as a test oracle instead. |
+
+## 14. Implementation notes
+
+Phase 1 is implemented. Where it differs from the text above:
+
+- **The method is `Task`, not `Go`.** The project owner chose the name `s.Task(f)` after the design was
+  written. Read `s.Go` as `s.Task` throughout this note; the type's other methods are as designed.
+- **Error codes E3401 to E3407.** E3407 (ScopeTakenWrite) is new: a task changes a variable it takes, and the
+  starting function uses it again, so it would not see the change. E3401 is ScopeOutlivesVar, E3402
+  ScopeRace, E3403 ScopeNotPartitioned, E3404 ScopeMoveInUse, E3405 ScopeMoved and E3406
+  ScopeConcurrentCall.
+- **E3402 and E3403 come from `internal/race`** (`scope.go`), which already had the lock inference, not from
+  a new `internal/share`.
+- **The interval analysis is a flow of running tasks in the race walker**, not a separate `internal/scope`
+  package. `internal/scoped` only finds the scoped `Task` calls and the taken variables; the move checker,
+  the escape analysis, the race check and lowering all use it.
+- **The join chain** (D7) is pushed when a `Join`'s first scoped task starts, not at block entry, and taken
+  off when a `Wait` or drop finds the `Join` at zero. `FailNow` uses `rt.Goexit` (F5), so it needs no
+  `rt.WaitScopes`; the chain serves kernels only (abi.md section 12.10).
+- **Program exit completes drops in progress** (language spec section 15.4, which was decided with the
+  complete spec). This was not in the design. The compiler brackets every drop glue function and every
+  last release of a counted object with `rt.dropBegin` and `rt.dropEnd`, and `main`'s return waits until no
+  other task is inside one; it waits for nothing else. This replaced a 100 ms sleep in a test, where a
+  task's last release raced the debug allocator's leak report.
+- **Which Scopes are local.** Only a variable or parameter of type `sync.Scope` named directly; a Scope in a
+  field or array element (section 4.2's `t.s`, `scopes[2]`) starts tasks through the library method, as a
+  Scope reached through a pointer does. The argument of a scoped `Task` must be a function literal written
+  in the call; any other func value starts the task through the library method, under the rules of a `go`
+  statement (section 6's "func values built elsewhere" is not done).
+- **A scoped literal may not move an owner it shares** (E3305, as before); it may move one it takes.
+- **Every loop between the Scope's block and the call** must index an access for instances of one task to
+  be apart, not only the innermost: `grid[y][x]` on a `[H][W]T` array, started in two nested loops, is
+  accepted.
+- **A loop that steps by a variable** (`i += k`) is checked at run time before each task starts that `k` is
+  positive, and the steps `i += c` of such loops and the index arithmetic of the tasks that uses their
+  variables panic on overflow (int and int64 only; windows over other types are not partitions).
+- **Moving a Scope** with tasks is E3405 whenever the function calls `Task` on it, scoped or not, and a
+  run-time check (`rt.joinMoved`) stops a program that moves a Scope that a helper started tasks for
+  through a pointer.
+- **The type rule for views** (section 4.5) applies to every view of memory that the caller, a package
+  variable or the heap provides, so same-typed `in` and `out` slices are rejected
+  (`out[i] = f(in[i])` with `[]int`) and different element types are accepted.
+- **The array rule of language spec section 6.11 changed:** elements selected by different constant indexes
+  are different pieces of data, for the package-variable and synced-object rules too.

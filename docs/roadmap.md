@@ -141,12 +141,25 @@ later takes the next free number and is listed in the section where it belongs.
     target, `//pu:nonblocking`, a `portable` constraint). The PlutoniumOS task model they serve is in
     PlutoniumOS: docs/architecture/lightweight-tasks.md (github.com/matjam/plutoniumos, private).
 
-63. **`sync.Scope`** (in progress; [scoped tasks plan](plans/2026-10-10-scoped-puroutines.md), revised;
-    false-friends audit F10; complete-spec gap G35): a type whose name says that it joins. `s.Task(f)` starts
-    a task that is joined before the scope ends, so the task may use variables of the enclosing frame; the
-    sharing check reuses the lock inference of item 59 (E3401 to E3406). A scoped task starts with the
-    program-wide default allocator like every task (G35). `sync.WaitGroup` keeps Go's behavior and today's
-    escape errors. A join on `rt.Goexit` comes with item 58's follow-up.
+63. **`sync.Scope`** (done; language spec section 19.4, memory-model.md section 3.9, abi.md section 12.10;
+    [scoped tasks plan](plans/2026-10-10-scoped-puroutines.md), phase 1; false-friends audit F10;
+    complete-spec gap G35): an owner whose drop waits, with `Task(f)`, `Wait` and `Drop` and no `Add` or
+    `Done`; `sync.WaitGroup` keeps Go's behavior. A `s.Task(func() {...})` on a local `Scope` is lowered in
+    place like a `go` statement and counted by an `rt.Join` that only the runtime changes, so the literal
+    may use the starting function's variables; `internal/scoped` finds the scoped calls and the **taken**
+    variables, copied (owners moved) into the task so that each loop iteration has its own, as in Go 1.22.
+    The Scope is dropped first among its block's variables, on every path out including `rt.Goexit`; a
+    per-task chain of Joins and `rt.WaitScopes` serve kernels. The race analysis (`internal/race`,
+    `scope.go`) checks the parties of each function that starts tasks with a flow analysis of the running
+    tasks, the inferred locks of item 59, and partitions of arrays and slices by the loop variable, windows
+    and split points; constant indexes now separate elements for every race rule (E3401 to E3407; E3407, a
+    task changing a variable it takes, is new). A scoped task starts with the program-wide default
+    allocator (G35). When `main` returns, a drop another task has begun completes first (language spec
+    section 15.4). go2pu rewrites a local `sync.WaitGroup` into a `Scope` when every goroutine it counts
+    calls `Done` last. Follow-ups: phase 2 of the design (a Scope reached through a pointer, helpers that
+    start tasks for their caller's Scope, an error-collecting scope); `Index` and `SetIndex` of library
+    containers are not partitioned, so `vec.Vec` writes from several tasks are rejected; the type rule for
+    views rejects same-typed `in` and `out` slices (`out[i] = f(in[i])` with `[]int`).
 66. **Large task stacks** (done except the overflow message; false-friends audit F8, complete-spec gap
     G36; language spec sections 4.7 and 12.1, abi.md sections 12.1 and 12.7): a hosted task whose stack
     size cannot be computed gets 64 MiB of address space reserved with a 1 MiB guard region below,
@@ -257,8 +270,7 @@ later takes the next free number and is listed in the section where it belongs.
     deferred calls and released its variables, through the frames' own return paths, checked only after
     calls that may reach it; `testing`'s `FailNow` family uses it, so a test's deferred calls run.
     Freestanding and kernel builds are unchanged. Follow-ups: owner drops on `Goexit` come with item 20's
-    drops, which run on the same return paths; `sync.Scope`'s join on `Goexit` likewise (scoped-puroutines
-    D7).
+    drops, which run on the same return paths. `sync.Scope`'s join on `Goexit` is done (item 63).
 59. **Data race freedom** (done, `6e74756`, with the spec in `23e57de`; language spec section 6.11,
     memory-model.md section 4.1; memory safety design section 7, D5(b) and D7; complete-spec gap G32):
     `internal/race`, a whole-program analysis after the escape analysis, infers which `sync.Mutex` or
@@ -268,8 +280,8 @@ later takes the next free number and is listed in the section where it belongs.
     E3503) and views that cross to another puroutine while what they point to may change (E3501; the
     type rule accepts structs never changed once shared, or guarded by their own lock), and fields of a
     `synced[T]` object used without the lock of the same object (E3502, E3503). Follow-ups: maps join the
-    `synced[T]` rule when they return (gap G16); `sync.Scope`'s sharing check reuses the lock inference
-    (E3401 to E3406).
+    `synced[T]` rule when they return (gap G16). `sync.Scope`'s sharing check reuses the lock inference
+    (done, item 63).
 48. **Counted references and `weak[P]`** (done; language spec sections 5.6 and 6.5, abi.md section
     1.2): the allocation header (strong and weak counts, allocator), counted by the machinery of counted
     strings (borrowed parameters, owned results, statement temporaries), `Drop` at zero strong count and
