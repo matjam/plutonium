@@ -352,6 +352,12 @@ type fileTr struct {
 	extra  []string        // generated declarations
 	gen    map[string]bool // generated declaration names
 	noted  map[string]bool
+
+	// The error propagations that become or statements (orclause.go):
+	// the statement that becomes one, and the if statement, which goes
+	// (nil) or becomes one itself.
+	orAssign map[*ast.AssignStmt]*orRewrite
+	orIf     map[*ast.IfStmt]*orRewrite
 }
 
 func (t *fileTr) translate() ([]byte, error) {
@@ -360,6 +366,7 @@ func (t *fileTr) translate() ([]byte, error) {
 	t.subst = map[ast.Node]string{}
 	t.gen = map[string]bool{}
 	t.noted = map[string]bool{}
+	t.findOrRewrites()
 	for _, imp := range t.file.Imports {
 		p := strings.Trim(imp.Path.Value, `"`)
 		name := path.Base(p)

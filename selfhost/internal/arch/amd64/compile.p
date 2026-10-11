@@ -35,9 +35,7 @@ func Compile(f *ssa.Func, listing bool) (*Code, error) {
 		return nil, err
 	}
 	expandPCopies(mf)
-	if err := allocate(mf); err != nil {
-		return nil, err
-	}
+	allocate(mf) or return
 	layoutFrame(mf)
 	insertFrame(mf)
 	order := layoutBlocks(mf)

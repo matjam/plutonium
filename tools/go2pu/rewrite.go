@@ -49,7 +49,17 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 	case *ast.SelectorExpr:
 		return t.qualified(n)
 	case *ast.AssignStmt:
+		if r := t.orAssign[n]; r != nil {
+			return t.orText(r), true
+		}
 		return t.assign(n)
+	case *ast.IfStmt:
+		if r, ok := t.orIf[n]; ok {
+			if r == nil {
+				return "", true // the propagation of an or statement before it
+			}
+			return t.orText(r), true
+		}
 	case *ast.RangeStmt:
 		t.checkHeapRange(n)
 		if _, ok := t.typeOf(n.X).Underlying().(*types.Signature); ok {

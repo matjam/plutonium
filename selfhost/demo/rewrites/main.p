@@ -10,6 +10,7 @@ import (
 	"pluto/fmt"
 	"pluto/io"
 	"pluto/sort"
+	"pluto/strconv"
 	"selfhost/compat"
 	"selfhost/pu"
 )
@@ -220,6 +221,63 @@ func keep(gon int) *holder {
 	return h
 }
 
+// parsePair passes errors up unchanged: go2pu writes the propagations as
+// or clauses. The wrapped error and the named results stay as they are.
+func parsePair(a, b string) (int, error) {
+	x, err := strconv.Atoi(a)
+	if err != nil {
+		return 0, err
+	}
+	check(x) or return
+	y, err := strconv.Atoi(b)
+	if err != nil {
+		return -1, fmt.Errorf("second: %w", err)
+	}
+	return x + y, nil
+}
+
+func double(s string) (int, string, error) {
+	n := strconv.Atoi(s) or return
+	return n * 2, s, nil
+}
+
+func check(n int) error {
+	if n < 0 {
+		return errBase
+	}
+	return nil
+}
+
+func checkAll(ns []int) error {
+	for _, n := range ns {
+		check(n) or return
+	}
+	return nil
+}
+
+func lookup(t *table, name string) (n *node, err error) {
+	if _, err = strconv.Atoi(name); err != nil {
+		return nil, err
+	}
+	return t.byName[name], nil
+}
+
+func propagate() {
+	fmt.Println(parsePair("1", "2"))
+	fmt.Println(double("21"))
+	d, ds, err := double("z")
+	fmt.Println(d, ds == "", err != nil)
+	_, err = parsePair("x", "2")
+	fmt.Println(err != nil)
+	_, err = parsePair("-1", "2")
+	fmt.Println(err)
+	_, err = parsePair("1", "y")
+	fmt.Println(err != nil)
+	fmt.Println(checkAll([]int{1, 2}), checkAll([]int{1, -2}))
+	_, err = lookup(&table{}, "q")
+	fmt.Println(err != nil)
+}
+
 func main() {
 	h := keep(41)
 	fmt.Println(*h.p, h.q.x, h.q.y, *h.r)
@@ -230,6 +288,7 @@ func main() {
 	p := pair(4, 5)
 	n := newNode("solo")
 	fmt.Println(p[0]+p[1], n.Name())
+	propagate()
 }
 
 // goWriteLEheaderPtr encodes x as encoding/binary.Write does, little-endian.

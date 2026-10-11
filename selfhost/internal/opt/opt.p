@@ -118,9 +118,7 @@ var checkSSA = os.Getenv("PLUTO_SSACHECK") != ""
 
 // verify checks f's invariants and its source positions.
 func verify(f *ssa.Func) error {
-	if err := f.Verify(); err != nil {
-		return err
-	}
+	f.Verify() or return
 	return f.VerifyPos()
 }
 

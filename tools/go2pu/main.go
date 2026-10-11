@@ -27,7 +27,12 @@
 //     counts is started by wg.Go(f) or by a go statement of a function
 //     literal that begins with defer wg.Done() or ends with wg.Done(): the
 //     goroutines become wg.Task calls that may use the function's
-//     variables, which the translation then leaves in the frame (scope.go).
+//     variables, which the translation then leaves in the frame (scope.go);
+//   - x, err := f() followed by if err != nil { return 0, err }, and
+//     if err := g(); err != nil { return err }, become x := f() or return
+//     and g() or return when the return passes err up unchanged with zero
+//     values, the results are unnamed, and err is used nowhere else
+//     (orclause.go).
 //
 // Constructs it cannot translate (closures and interface values that escape
 // their frame, recover, reflection, goroutines and WaitGroups outside the

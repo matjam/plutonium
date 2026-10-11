@@ -114,9 +114,7 @@ func Select(f *ssa.Func) (*MFunc, error) {
 					s.pos, s.inl = a.Pos, a.Inl
 				}
 			}
-			if err := s.value(v); err != nil {
-				return nil, err
-			}
+			s.value(v) or return
 		}
 		for _, c := range b.Controls {
 			if c.Pos.IsValid() && !isLazy(c) && c.Op != ssa.OpPhi && !c.Type.IsMem() {
@@ -126,14 +124,10 @@ func Select(f *ssa.Func) (*MFunc, error) {
 		if b.Kind == ssa.BlockRet && b.Pos.IsValid() {
 			s.pos, s.inl = b.Pos, b.Inl
 		}
-		if err := s.terminator(b); err != nil {
-			return nil, err
-		}
+		s.terminator(b) or return
 	}
 	if s.noSSE {
-		if err := checkNoSSE(mf); err != nil {
-			return nil, err
-		}
+		checkNoSSE(mf) or return
 	}
 	return mf, nil
 }
