@@ -41,6 +41,41 @@ func main() {
 	}
 }
 
+// A deferred clear of a slice of owners runs when the function returns,
+// dropping each element in index order before it becomes the zero value
+// (spec 12.19, 13.3). The caller's copy of the array is then dropped, zeroed,
+// when the call ends.
+func TestClearOwnersDeferred(t *testing.T) {
+	testguard.Parallel(t)
+	src := `package main
+
+import "pluto/fmt"
+
+type Box owner struct {
+	id int
+}
+
+func (b *Box) Drop() { fmt.Println(b.id) }
+
+func f(xs [2]Box) {
+	defer clear(xs[:])
+	fmt.Println("in f")
+}
+
+func main() {
+	f([2]Box{{1}, {2}})
+	fmt.Println("after f")
+}`
+	want := "in f\n1\n2\n0\n0\nafter f\n"
+	for _, opt := range []int{0, 2} {
+		prog := buildConc(t, src, build.Config{OptLevel: opt})
+		out, status := runConc(t, prog)
+		if status != 0 || out != want {
+			t.Fatalf("-O%d: status %d, output %q; want %q", opt, status, out, want)
+		}
+	}
+}
+
 // Elements beyond len(s) are not changed, an element that is an owner with owner
 // fields drops Drop first and then its fields, a slice that is nil or empty
 // does nothing, and a type parameter whose type set is slices clears like the

@@ -1298,13 +1298,7 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 				et := s.subst(unwrap(s.typeOf(call.Args[0])).Underlying().(*types2.Slice).Elem())
 				xv := s.saveValue(s.materialize(s.expr(call.Args[0])))
 				run = func(s *fnState, rec *ssa.Value) {
-					p, n, _ := s.sliceParts(s.loadSaved(xv, rec))
-					if s.l.counted(et) {
-						// Clearing an element drops what it held.
-						s.releaseRange(p, n, et)
-					}
-					bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(et)))
-					s.callRuntime("memclr", nil, []*ssa.Value{s.checkedLen(p, n), bytes})
+					s.clearSlice(s.loadSaved(xv, rec), et)
 				}
 			}
 		case "copy":
@@ -1317,17 +1311,8 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 				src = s.expr(call.Args[1])
 			}
 			srv := s.saveValue(s.materialize(src))
-			et := s.subst(unwrap(s.typeOf(call.Args[0])).Underlying().(*types2.Slice).Elem())
 			run = func(s *fnState, rec *ssa.Value) {
-				dp, dn, _ := s.sliceParts(s.loadSaved(dsv, rec))
-				var sp, sn *ssa.Value
-				if srcStr {
-					sp, sn = s.stringParts(s.loadSaved(srv, rec))
-				} else {
-					sp, sn, _ = s.sliceParts(s.loadSaved(srv, rec))
-				}
-				n := s.minInt(dn, sn)
-				s.copyElems(s.checkedLen(dp, n), s.checkedLen(sp, n), n, et)
+				s.copySlice(s.loadSaved(dsv, rec), s.loadSaved(srv, rec), srcStr)
 			}
 		case "delete":
 			m := mapOf(s.typeOf(call.Args[0]))

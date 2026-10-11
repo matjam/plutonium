@@ -61,16 +61,7 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 	case "copy":
 		dst := s.expr(e.Args[0])
 		src := s.expr(e.Args[1])
-		dp, dn, _ := s.sliceParts(dst)
-		var sp, sn *ssa.Value
-		if isString(s.typeOf(e.Args[1])) {
-			sp, sn = s.stringParts(src)
-		} else {
-			sp, sn, _ = s.sliceParts(src)
-		}
-		n := s.minInt(dn, sn)
-		et := s.subst(unwrap(s.typeOf(e.Args[0])).Underlying().(*types2.Slice).Elem())
-		s.copyElems(s.checkedLen(dp, n), s.checkedLen(sp, n), n, et)
+		n := s.copySlice(dst, src, isString(s.typeOf(e.Args[1])))
 		return one(scalarValue(n, T))
 
 	case "Drop":
@@ -101,25 +92,8 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 			return nil
 		}
 		x := s.expr(e.Args[0])
-		p, n, _ := s.sliceParts(x)
 		et := s.subst(unwrap(s.typeOf(e.Args[0])).Underlying().(*types2.Slice).Elem())
-		if s.l.needsDrop(et) {
-			// Each owner is dropped in index order, and its Drop method runs
-			// before its place becomes the zero value (spec 13.3).
-			s.countedLoop(n, nil, func(i *ssa.Value) {
-				off := s.newValue(ssa.OpMul, ssa.TI64, i, s.constInt(ssa.TI64, s.l.sizeof(et)))
-				q := s.newValue(ssa.OpAddPtr, ssa.TPtr, p, off)
-				s.dropAt(q, et)
-				s.zero(q, s.l.sizeof(et))
-			})
-			return nil
-		}
-		if s.l.counted(et) {
-			// Clearing an element drops what it held.
-			s.releaseRange(p, n, et)
-		}
-		bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(et)))
-		s.callRuntime("memclr", nil, []*ssa.Value{s.checkedLen(p, n), bytes})
+		s.clearSlice(x, et)
 		return nil
 
 	case "min", "max":
@@ -358,6 +332,49 @@ func (s *fnState) copyElems(dst, src, n *ssa.Value, et types2.Type) {
 	}
 	bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(et)))
 	s.callRuntime("memmove", nil, []*ssa.Value{dst, src, bytes})
+}
+
+// clearSlice clears the slice x refers to, whose elements are of type et. Each
+// owner is dropped in index order, and its Drop method runs before its place
+// becomes the zero value (section 13.3); other counted elements are released.
+// Shared by clear(s) and the deferred clear, which loads its argument from the
+// defer record when the function returns (section 12.19).
+func (s *fnState) clearSlice(x value, et types2.Type) {
+	p, n, _ := s.sliceParts(x)
+	if s.l.needsDrop(et) {
+		// Each owner is dropped in index order, and its Drop method runs
+		// before its place becomes the zero value (section 13.3).
+		s.countedLoop(n, nil, func(i *ssa.Value) {
+			off := s.newValue(ssa.OpMul, ssa.TI64, i, s.constInt(ssa.TI64, s.l.sizeof(et)))
+			q := s.newValue(ssa.OpAddPtr, ssa.TPtr, p, off)
+			s.dropAt(q, et)
+			s.zero(q, s.l.sizeof(et))
+		})
+		return
+	}
+	if s.l.counted(et) {
+		// Clearing an element drops what it held.
+		s.releaseRange(p, n, et)
+	}
+	bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(et)))
+	s.callRuntime("memclr", nil, []*ssa.Value{s.checkedLen(p, n), bytes})
+}
+
+// copySlice copies the first min(len(dst), len(src)) elements of src into dst
+// and returns that count. If srcStr, src is a string, not a slice. Shared by
+// copy(dst, src) and the deferred copy (section 12.19).
+func (s *fnState) copySlice(dst, src value, srcStr bool) *ssa.Value {
+	dp, dn, _ := s.sliceParts(dst)
+	var sp, sn *ssa.Value
+	if srcStr {
+		sp, sn = s.stringParts(src)
+	} else {
+		sp, sn, _ = s.sliceParts(src)
+	}
+	n := s.minInt(dn, sn)
+	et := s.subst(unwrap(dst.T).Underlying().(*types2.Slice).Elem())
+	s.copyElems(s.checkedLen(dp, n), s.checkedLen(sp, n), n, et)
+	return n
 }
 
 // printOperand evaluates an argument of print or println, giving untyped
