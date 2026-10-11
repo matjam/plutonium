@@ -5,7 +5,8 @@
 language has not answered yet, licensing, file structure and the split of the writing work. The gap list
 (section 3) was answered on 2026-10-10; the decisions are in section 3.10. The roadmap items (6.1 step 3,
 roadmap items 60 to 76) and the chapter stubs (6.1 step 4, `docs/spec/language/`) are in place; the
-memory-safety branch has merged. Phase 2 can start.
+memory-safety branch has merged. Phases 2 and 3 are done: the chapters are in `docs/spec/language/`, and
+section 6.5 lists the implementation gaps the integrated specification defines.
 
 ## 1. Why
 
@@ -1420,3 +1421,42 @@ One agent, after every part has landed:
 4. Catalog entries that cite the Go spec move to Plutonium sections (G42).
 5. Old `language.md` text that moved to package documentation (G39) lands in the packages' doc comments.
 6. The full verification checklist of AGENTS.md.
+
+### 6.5 Phase 3 result: implementation gaps
+
+Phase 3 integrated the chapters on 2026-10-10. The specification now defines the decided language; the
+compiler does not yet meet it in the places below. Each item names the section that states the rule, so
+that an implementation agent works from the text. Items marked *verified* were confirmed with a program
+compiled by the compiler at the time of the integration; the others come from the chapter writers or from
+reading the code.
+
+| # | Gap | Section |
+|---|---|---|
+| 1 | Order of evaluation: operands other than calls, method calls and receives are read after the calls; `x := []int{a, f()}` with `f` incrementing `a` gives `[2 2]`. Lowering gives `[1 2]` (*verified*; roadmap 73). | 11.26 |
+| 2 | A pointer-receiver method on an owner temporary (`readAll(f).Slice()`), with views of it limited to the statement. | 11.14, 12.4 |
+| 3 | Composite literal keys that name promoted fields crash the compiler (writers' report). | 11.3 |
+| 4 | Package initialization order: `pluto/rt` and `pluto/alloc` first, then the remaining packages by import path, each after its imports. | 15.3 |
+| 5 | `len` of a `ring[T, N]` (*verified*: "invalid argument for built-in len"). | 13.6, 7.17 |
+| 6 | `defer` of the built-ins that may not be deferred directly is E2532, with the fix to wrap them. | 12.19, chapter 13 |
+| 7 | An exhaustive enum switch is a terminating statement (*verified*: "missing return"), and it panics for a value that is not a member, as a union switch does for a tag that names no variant. | 12.1, 12.9, 7.12 |
+| 8 | `append`, `recover`, `complex`, `real`, `imag`, `complex64` and `complex128` are not predeclared: a program may declare them, and a use without a declaration is the error that names the replacement. Today `append` stays predeclared so that E2013 can name it. | 10.3, 13.1 |
+| 9 | Every nil dereference panics: an explicit check where the offset of an access from the pointer can exceed the unmapped region below address zero. | 17.5 |
+| 10 | No untagged heap or arena memory in checked builds: slab allocations over 2 KiB, arena chunks over 56 KiB and the buffer of a fixed `arena.Arena` get generations or epochs. | 18.11, abi.md 1.3 |
+| 11 | Sendability looks through pointers and slices: a `*S` whose `S` holds a `shared[T]` is not sendable. | 8.8, 19.2 |
+| 12 | An owner's sendability is decided by what it holds: a view field that holds only memory the owner allocated moves with it; any other view field is checked where the owner crosses. Today owners of packages that import `unsafe` are exempt (`internal/race`). | 8.8 |
+| 13 | A channel or map in an ordinary interface is lent, as a `shared[T]` is: `func f() any { return make(chan int) }` is E3001 (*verified*: compiles today). The data word holds it (escape already treats it as direct). | 7.9 |
+| 14 | Operators other than comparison do not apply to an owner: `*f + 1` for `type Fd owner int32` is an error (*verified*: accepted today). | 11.18, 7.18 |
+| 15 | A `//go:` line comment is an error in the E2600 family that names the `//pu:` equivalent (*verified*: `//go:noinline` is accepted silently). | 4.1, 20.3 |
+| 16 | `portable` as a predeclared constraint, structural, with no owner portable. | 8.9 |
+| 17 | Task stacks come from the program-wide default allocator (or the backend's memory), never from the starting task's `alloc.Use` override. | 19.1 |
+| 18 | The stack overflow panic names the size of the stack and how to ask for more; a function whose frame is larger than the guard region probes its stack so that it cannot step over the guard. | 19.1, 17.5 |
+| 19 | `time.NewTimer`, `time.NewTicker` and `time.AfterFunc` return `owned[Timer]` and `owned[Ticker]`, which stop and free the timer when dropped; no library type needs a `Free` call. | 19.6, F.7 |
+| 20 | The `task` statement and the rename sweep: `task f(x)` as a contextual keyword, `go f()` an error that names `task`, "task N" in traces and deadlock reports, `rt.Panic.Task`, E-code texts (*verified*: `task` does not parse). | 12.12, 4.5, 4.6, 17.1 |
+| 21 | The built-in `map[K]V` (in progress): one word, a counted table; iteration order unspecified with the guarantees of 12.10 and a per-map seed in hosted builds; the owner-in-map error shows a `synced[T]` element. | 7.10, 12.10, 13.5, 13.7 |
+| 22 | `error` values count a `shared` or `synced` reference they hold; library error types (`*os.PathError`, `*strconv.NumError`) are counted objects (roadmap 11). | 16.7, 16.5 |
+| 23 | Generation checks on by default in hosted builds (in progress). | 18.11, 21.5 |
+| 24 | A package-level initializer that allocates is a compile error in freestanding builds (to verify). | 15.2 |
+| 25 | Embedding `shared[T]` and `synced[T]` in a struct, promoting `T`'s methods (embedding `owned[T]` works). To verify. | 7.6, 7.19 |
+
+Counted channels with their timers (`bdb7683`), 64 MiB lazily mapped hosted task stacks (`173c2f6`) and
+`sync.Scope` (`a7948f6`) landed before the integration and are not gaps.
