@@ -7,6 +7,6 @@ func worker(done chan bool) { done <- true }
 
 func main() {
 	done := make(chan bool)
-	go worker(done)
+	task worker(done)
 	<-done
 }

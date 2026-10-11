@@ -14,20 +14,20 @@ func main() {
 	out := make(chan int, 1)
 	done := make(chan bool, 3)
 	square := func() { out <- n * n }
-	go square()
+	task square()
 
 	var c counter
-	go run(c.add, done)
+	task run(c.add, done)
 
 	inc := c.add
 	again := inc
-	go run(again, done)
+	task run(again, done)
 
-	go run(func() { n++ }, done)
+	task run(func() { n++ }, done)
 
 	// Not reported: assigned twice, so only the go statement can tell.
 	maybe := func() {}
 	maybe = func() { n-- }
-	go run(maybe, done)
+	task run(maybe, done)
 	println(<-out, <-done)
 }

@@ -662,7 +662,7 @@ func main() {
 	{"go statement whose function keeps its packed variadic arguments", `
 var kept []int
 func keep(xs ...int) { kept = xs }
-func main() { go keep(1, 2) }`, []string{"cannot pass the variadic arguments of keep to a go statement"}},
+func main() { task keep(1, 2) }`, []string{"cannot pass the variadic arguments of keep to a go statement"}},
 
 	{"constructor yielding the address of what it captures", `
 var saved *int
@@ -1226,7 +1226,7 @@ func sum(done chan int, xs ...int) {
 }
 func main() {
 	d := make(chan int)
-	go sum(d, 1, 2, 3)
+	task sum(d, 1, 2, 3)
 	println(<-d)
 }`},
 	{"constructor yielding copies of what it captures", `

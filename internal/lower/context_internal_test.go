@@ -28,7 +28,7 @@ func selNoWait() { select { case work <- 1: default: } }
 func selBody()  { select { case v := <-work: work <- v; default: } }
 func rangeCh()  { for v := range work { _ = v } }
 func rangeArr() { for v := range [3]int{} { _ = v } }
-func spawn()    { go send() }
+func spawn()    { task send() }
 func literal()  { f := func() { work <- 1 }; _ = f }
 func plain()    { println(len(work)) }
 

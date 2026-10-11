@@ -20,9 +20,9 @@ func main() {
 	done := make(chan int)
 	n := &nodes[0]
 	n.next = &nodes[1]
-	go worker(n, done)
+	task worker(n, done)
 	println(<-done)
-	go worker(n.next, done)
+	task worker(n.next, done)
 	println(<-done)
 }
 

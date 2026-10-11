@@ -39,7 +39,7 @@ func SynchFifo() {
 	start := in
 	for i := 0; i < N; i++ {
 		out := make(chan int)
-		go Chain(ch, i, in, out)
+		task Chain(ch, i, in, out)
 		in = out
 	}
 	start <- 0

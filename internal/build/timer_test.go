@@ -71,7 +71,7 @@ func main() {
 	start := time.Now()
 	wg.Add(20)
 	for i := 19; i >= 0; i-- {
-		go sleeper(i)
+		task sleeper(i)
 	}
 	wg.Wait()
 	el := time.Since(start)
@@ -86,7 +86,7 @@ func main() {
 
 	wg.Add(1000)
 	for i := 0; i < 1000; i++ {
-		go many(time.Duration(i%50+1) * time.Millisecond)
+		task many(time.Duration(i%50+1) * time.Millisecond)
 	}
 	wg.Wait()
 	println("never early", early.Load() == 0)
@@ -115,7 +115,7 @@ func main() {
 	}
 
 	// The channel wins against a long timer, which is then stopped.
-	go later(c)
+	task later(c)
 	t := time.NewTimer(time.Hour)
 	select {
 	case v := <-c:
@@ -213,13 +213,13 @@ func main() {
 	shared = time.NewTimer(time.Hour)
 	wg.Add(8)
 	for i := 0; i < 8; i++ {
-		go churn(i)
+		task churn(i)
 	}
 	wg.Wait()
 
 	wg.Add(4)
 	for i := 0; i < 4; i++ {
-		go hammer(i)
+		task hammer(i)
 	}
 	wg.Wait()
 	shared.Stop()
@@ -369,7 +369,7 @@ func main() {
 	c0 := cpuMicros()
 	wg.Add(100)
 	for i := 0; i < 100; i++ {
-		go sleeper()
+		task sleeper()
 	}
 	wg.Wait()
 	println("idle while sleeping", cpuMicros()-c0 < 100000)
@@ -388,7 +388,7 @@ func later(c chan int) {
 
 func main() {
 	c := make(chan int)
-	go later(c)
+	task later(c)
 	println("received", <-c)
 }
 `},

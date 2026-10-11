@@ -44,7 +44,7 @@ func main() {
 
 	defer r.All()
 	fill(&global, 2)
-	go global.Values()
+	task global.Values()
 	println("done")
 }
 

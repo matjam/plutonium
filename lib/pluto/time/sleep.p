@@ -213,7 +213,7 @@ func startFuncRunner() {
 	funcs.started = true
 	funcs.lock.Unlock()
 	if start {
-		go runFuncs()
+		task runFuncs()
 	}
 }
 
@@ -266,7 +266,7 @@ func runFuncs() {
 		f := t.f
 		funcs.lock.Unlock()
 		for i := 0; i < n; i++ {
-			go f()
+			task f()
 		}
 		funcs.lock.Lock()
 		t.fires -= n

@@ -65,9 +65,9 @@ func main() {
 	wdone := make(chan int)
 	rdone := make(chan int)
 	ddone := make(chan int)
-	go reader(a, rdone)
-	go writer(a, wdone)
-	go drain(b, 4000000, ddone)
+	task reader(a, rdone)
+	task writer(a, wdone)
+	task drain(b, 4000000, ddone)
 	<-wdone
 	println("drained", <-ddone)
 	println("reply", <-rdone)
@@ -118,7 +118,7 @@ func main() {
 	}
 	res := make(chan bool)
 	for i := 0; i < 3; i++ {
-		go read(r, res)
+		task read(r, res)
 	}
 	settle()
 	r.Close()
@@ -136,7 +136,7 @@ func main() {
 		println("pipe:", err.Error())
 		return
 	}
-	go write(w, res)
+	task write(w, res)
 	settle()
 	w.Close()
 	if <-res {
@@ -175,7 +175,7 @@ func main() {
 			println("pipe:", err.Error())
 			return
 		}
-		go read(r, res)
+		task read(r, res)
 		if i%2 == 0 {
 			rt.Yield()
 		}

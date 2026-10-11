@@ -15,8 +15,8 @@ var data = [3]int{1, 2, 3}
 
 func main() {
 	done := make(chan int)
-	go worker(data[:], 0, done)
+	task worker(data[:], 0, done)
 	println(<-done)
-	go worker(data[:], 1, done)
+	task worker(data[:], 1, done)
 	println(<-done)
 }

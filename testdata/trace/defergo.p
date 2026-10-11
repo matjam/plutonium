@@ -19,6 +19,6 @@ var data = [3]int{1, 2, 3}
 func main() {
 	defer println("main deferred: not run")
 	done := make(chan int)
-	go worker(data[:], done)
+	task worker(data[:], done)
 	println(<-done)
 }

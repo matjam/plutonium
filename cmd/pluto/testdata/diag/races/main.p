@@ -38,10 +38,10 @@ func bump(c *Counter, done chan bool) {
 func main() {
 	done := make(chan bool)
 	for i := 0; i < 2; i++ {
-		go handle(done)
-		go add(done)
+		task handle(done)
+		task add(done)
 	}
-	go bump(&counter, done)
+	task bump(&counter, done)
 	for i := 0; i < 5; i++ {
 		<-done
 	}

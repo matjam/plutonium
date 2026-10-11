@@ -34,9 +34,9 @@ func select6() {
 	c1 := make(chan bool)
 	c2 := make(chan bool)
 	c3 := make(chan bool)
-	go recvOnce(c1)
-	go selector(c1, c2, c3)
-	go sendOnce(c2)
+	task recvOnce(c1)
+	task selector(c1, c2, c3)
+	task sendOnce(c2)
 	<-c3
 	c1 <- true
 	c1 <- true
@@ -65,13 +65,13 @@ func recv3(c <-chan int) {
 
 func send1(recv func(<-chan int)) {
 	c := make(chan int)
-	go recv(c)
+	task recv(c)
 	c <- 1
 }
 
 func send2(recv func(<-chan int)) {
 	c := make(chan int)
-	go recv(c)
+	task recv(c)
 	select {
 	case c <- 1:
 	}
@@ -79,7 +79,7 @@ func send2(recv func(<-chan int)) {
 
 func send3(recv func(<-chan int)) {
 	c := make(chan int)
-	go recv(c)
+	task recv(c)
 	c2 := make(chan int)
 	select {
 	case c <- 1:

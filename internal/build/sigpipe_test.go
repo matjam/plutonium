@@ -64,7 +64,7 @@ func main() {
 	r.Close()
 	done := make(chan bool)
 	for i := 0; i < 8; i++ {
-		go write(w, done)
+		task write(w, done)
 	}
 	n := 0
 	for i := 0; i < 8; i++ {

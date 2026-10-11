@@ -122,7 +122,7 @@ func child() { time.Sleep(time.Millisecond) }
 func main() {
 	println("sleeping")
 	start := time.Now()
-	go child()
+	task child()
 	time.Sleep(500 * time.Millisecond)` + check + `}
 `},
 		{name: "chan", sched: true, src: `package main
@@ -152,7 +152,7 @@ func main() {
 	println("sleeping")
 	start := time.Now()
 	c := make(chan int)
-	go send(c)
+	task send(c)
 	<-c
 	time.Sleep(500 * time.Millisecond)` + check + `}
 `},

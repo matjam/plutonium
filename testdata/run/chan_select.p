@@ -98,7 +98,7 @@ func forever(ch chan int) {
 }
 
 func selectBreak() {
-	go forever(ch)
+	task forever(ch)
 
 	select {
 	case <-ch:

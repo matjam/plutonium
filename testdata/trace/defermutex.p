@@ -31,7 +31,7 @@ func main() {
 	xs := []int{0, 0}
 	update(xs, 1)
 	mu.Lock()
-	go worker(done)
+	task worker(done)
 	mu.Unlock()
 	update(xs, 2)
 }

@@ -179,7 +179,7 @@ func main() {
 	c := alloc.Synced[Counter]()
 	c.done = make(chan bool)
 	for i := 1; i <= 3; i++ {
-		go bump(c, i)
+		task bump(c, i)
 		<-c.done
 	}
 	c.mu.Lock()
@@ -188,7 +188,7 @@ func main() {
 	c = nil // the last reference: drops the Counter
 
 	leaving.Add(1)
-	go leave()
+	task leave()
 	leaving.Wait()
 	println("end")
 }

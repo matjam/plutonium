@@ -90,7 +90,7 @@ func dosplit(in dch, out dch2, wait chan int) {
 
 	in.req <- 0
 	release := make(chan int)
-	go dosplit(in, out, release)
+	task dosplit(in, out, release)
 	dat := <-in.dat
 	out[0].dat <- dat
 	if !both {
@@ -103,7 +103,7 @@ func dosplit(in dch, out dch2, wait chan int) {
 
 func split(in dch, out dch2) {
 	release := make(chan int)
-	go dosplit(in, out, release)
+	task dosplit(in, out, release)
 	release <- 0
 }
 
@@ -290,14 +290,14 @@ func printn(U PS, n int) {
 
 func Split(U PS) dch2 {
 	UU := mkdch2()
-	go split(U, UU)
+	task split(U, UU)
 	return UU
 }
 
 // Add two power series
 func Add(U, V PS) PS {
 	Z := mkPS()
-	go add2(U, V, Z)
+	task add2(U, V, Z)
 	return Z
 }
 
@@ -324,7 +324,7 @@ func add2(U, V, Z PS) {
 // Multiply a power series by a constant
 func Cmul(c rat, U PS) PS {
 	Z := mkPS()
-	go cmul(c, U, Z)
+	task cmul(c, U, Z)
 	return Z
 }
 
@@ -352,7 +352,7 @@ func Sub(U, V PS) PS {
 
 func Monmul(U PS, n int) PS {
 	Z := mkPS()
-	go monmul(U, n, Z)
+	task monmul(U, n, Z)
 	return Z
 }
 
@@ -371,7 +371,7 @@ func Xmul(U PS) PS {
 
 func Rep(c rat) PS {
 	Z := mkPS()
-	go repeat(c, Z)
+	task repeat(c, Z)
 	return Z
 }
 
@@ -379,7 +379,7 @@ func Rep(c rat) PS {
 
 func Mon(c rat, n int) PS {
 	Z := mkPS()
-	go mon(c, n, Z)
+	task mon(c, n, Z)
 	return Z
 }
 
@@ -395,7 +395,7 @@ func mon(c rat, n int, Z PS) {
 
 func Shift(c rat, U PS) PS {
 	Z := mkPS()
-	go shift(c, U, Z)
+	task shift(c, U, Z)
 	return Z
 }
 
@@ -411,7 +411,7 @@ func shift(c rat, U, Z PS) {
 
 func Mul(U, V PS) PS {
 	Z := mkPS()
-	go mul2(U, V, Z)
+	task mul2(U, V, Z)
 	return Z
 }
 
@@ -435,7 +435,7 @@ func mul2(U, V, Z PS) {
 
 func Diff(U PS) PS {
 	Z := mkPS()
-	go diff(U, Z)
+	task diff(U, Z)
 	return Z
 }
 
@@ -460,7 +460,7 @@ func diff(U, Z PS) {
 // Integrate, with const of integration
 func Integ(c rat, U PS) PS {
 	Z := mkPS()
-	go integ(c, U, Z)
+	task integ(c, U, Z)
 	return Z
 }
 
@@ -482,7 +482,7 @@ func integ(c rat, U, Z PS) {
 
 func Binom(c rat) PS {
 	Z := mkPS()
-	go binom(c, Z)
+	task binom(c, Z)
 	return Z
 }
 
@@ -508,7 +508,7 @@ func binom(c rat, Z PS) {
 
 func Recip(U PS) PS {
 	Z := mkPS()
-	go recip(U, Z)
+	task recip(U, Z)
 	return Z
 }
 
@@ -542,7 +542,7 @@ func Exp(U PS) PS {
 
 func Subst(U, V PS) PS {
 	Z := mkPS()
-	go subst(U, V, Z)
+	task subst(U, V, Z)
 	return Z
 }
 
@@ -565,7 +565,7 @@ func subst(U, V, Z PS) {
 
 func MonSubst(U PS, c0 rat, n int) PS {
 	Z := mkPS()
-	go monSubst(U, c0, n, Z)
+	task monSubst(U, c0, n, Z)
 	return Z
 }
 

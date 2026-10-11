@@ -1,4 +1,4 @@
-$DIR/main.p:17:5: cannot start square with go: it holds a function literal that captures out (main.p:16), whose closure record lives in the starting frame (spec section 12.12)
-$DIR/main.p:20:9: cannot pass the method value c.add to a puroutine: its closure record lives in the starting frame (spec section 12.12)
-$DIR/main.p:24:9: cannot pass again to a puroutine: it holds the method value c.add, whose closure record lives in the starting frame (spec section 12.12)
-$DIR/main.p:26:9: cannot pass a function literal that captures n (main.p:26) to a puroutine: its closure record lives in the starting frame (spec section 12.12)
+$DIR/main.p:17:7: cannot start square with go: it holds a function literal that captures out (main.p:16), whose closure record lives in the starting frame (spec section 12.12)
+$DIR/main.p:20:11: cannot pass the method value c.add to a puroutine: its closure record lives in the starting frame (spec section 12.12)
+$DIR/main.p:24:11: cannot pass again to a puroutine: it holds the method value c.add, whose closure record lives in the starting frame (spec section 12.12)
+$DIR/main.p:26:11: cannot pass a function literal that captures n (main.p:26) to a puroutine: its closure record lives in the starting frame (spec section 12.12)

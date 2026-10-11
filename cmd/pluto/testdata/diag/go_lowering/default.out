@@ -1,4 +1,4 @@
-$DIR/main.p:6:6: a function literal that captures variables cannot be started with go: out lives in the starting frame, which may be gone before the puroutine runs (spec section 12.12); pass them as arguments instead: go func(out chan int, i int) {...}(out, i)
+$DIR/main.p:6:8: a function literal that captures variables cannot be started with go: out lives in the starting frame, which may be gone before the puroutine runs (spec section 12.12); pass them as arguments instead: go func(out chan int, i int) {...}(out, i)
     A function literal that uses variables of the function around it reaches
     them in that function's stack frame. A go statement may start it after that
     function has returned, when the frame is gone.
@@ -12,7 +12,7 @@ $DIR/main.p:6:6: a function literal that captures variables cannot be started wi
     11.5).
     Pass the values as arguments:
         for i := 0; i < n; i++ {
-            go func(i int, out chan int) {
+            task func(i int, out chan int) {
                 out <- i * i
             }(i, out)
         }

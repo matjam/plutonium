@@ -44,7 +44,7 @@ func worker(id int, done chan bool) {
 func main() {
 	done := make(chan bool)
 	for id := 0; id < tasks; id++ {
-		go worker(id, done)
+		task worker(id, done)
 	}
 	for id := 0; id < tasks; id++ {
 		<-done

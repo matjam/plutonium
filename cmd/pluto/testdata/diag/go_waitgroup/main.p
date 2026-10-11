@@ -16,7 +16,7 @@ func main() {
 	var wg stdsync.WaitGroup
 	for i := 0; i < 4; i++ {
 		wg.Add(1)
-		go func() {
+		task func() {
 			defer wg.Done()
 			results[i] = i * i
 		}()
@@ -25,12 +25,12 @@ func main() {
 
 	var s stats
 	var hits atomic.Int64
-	go func() {
+	task func() {
 		s.mu.Lock()
 		s.n += int(hits.Load())
 		s.mu.Unlock()
 	}()
 
 	n := 1
-	go func() { println(n) }()
+	task func() { println(n) }()
 }

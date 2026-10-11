@@ -200,7 +200,7 @@ func writer(w *os.File, done chan int) {
 func main() {
 	r, w, _ := os.Pipe()
 	done := make(chan int)
-	go writer(w, done)
+	task writer(w, done)
 	var buf [8]byte
 	n, _ := r.Read(buf[:])
 	<-done

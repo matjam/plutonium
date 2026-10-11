@@ -47,8 +47,8 @@ func init() {
 			Text:    "A go statement starts a puroutine that runs on its own, and may still be running after the function that started it returns. A view of that function's frame passed to it could then point at reclaimed memory.\nPass the value itself, which copies it, or moves it if it is an owner. To run a method of an owned or synced box on the new puroutine, start it directly (go p.Serve()): the puroutine then takes the box itself, so there is no view of the frame. To let the new puroutine use the frame, start it with a sync.Scope declared in the function (s.Task(func() {...})), which waits for it before its block ends.",
 			Why:     whyFrame,
 			Spec:    pspec("18.3", "Views"),
-			Example: "go handle(&req)",
-			Fixed:   "go handle(req)",
+			Example: "task handle(&req)",
+			Fixed:   "task handle(req)",
 		},
 		&Entry{
 			Code: SendFrameView, Name: "SendFrameView",
@@ -127,8 +127,8 @@ func init() {
 			Text:    "A pointer or slice is handed to another puroutine, as an argument of a go statement or a value sent on a channel, but what it points to may change while both puroutines can use it. One puroutine could then read memory the other is writing, which is a data race.\nA view may cross to another puroutine only if what it points to cannot change while both may use it: a package variable that is not written once puroutines run, a struct type that no code changes through a pointer after making it, memory of a pluto/sync type, or the object of a synced[T]. Pass a copy of the value, move an owner such as a vec.Vec, or share the data through a synced[T] whose fields a lock guards.",
 			Why:     whyRace,
 			Spec:    pspec("19.3", "Data race freedom"),
-			Example: "func bump(c *Counter, done chan bool) {\n\tc.n++\n\tdone <- true\n}\n\nc := new(Counter)\ngo bump(c, done)",
-			Fixed:   "func bump(n int, done chan int) {\n\tdone <- n + 1\n}\n\ngo bump(c.n, done)\nc.n = <-done",
+			Example: "func bump(c *Counter, done chan bool) {\n\tc.n++\n\tdone <- true\n}\n\nc := new(Counter)\ntask bump(c, done)",
+			Fixed:   "func bump(n int, done chan int) {\n\tdone <- n + 1\n}\n\ntask bump(c.n, done)\nc.n = <-done",
 		},
 		&Entry{
 			Code: RaceNoLock, Name: "RaceNoLock",

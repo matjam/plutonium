@@ -39,7 +39,7 @@ func init() {
 			Why:     "Go moves such variables to the heap without saying so. Plutonium never allocates behind the program's back, so a local stays in its frame.",
 			Fix:     &Fix{Intro: "Start the work with a sync.Scope, which waits for it before its block ends", Code: "var s sync.Scope\ns.Task(func() { worker(&state) })"},
 			Spec:    pspec("18.3", "Views"),
-			Example: "var wg sync.WaitGroup\nwg.Add(1)\ngo worker(&wg)",
+			Example: "var wg sync.WaitGroup\nwg.Add(1)\ntask worker(&wg)",
 		},
 		&Entry{
 			Code: CheckerCode(typerr.RecoverNotPermitted), Name: "RecoverNotPermitted",
@@ -667,9 +667,9 @@ func init() {
 			Code: GoCapturingLiteral, Name: "GoCapturingLiteral",
 			Text:    "A function literal that uses variables of the function around it reaches them in that function's stack frame. A go statement may start it after that function has returned, when the frame is gone.\nStart the literal with a sync.Scope instead: s.Task(func() {...}) waits for it before s's block ends, so it may use the function's variables, a Mutex or a WaitGroup among them. Or pass the values the literal needs as arguments: they are copied when the go statement runs. Do not pass a Mutex, a WaitGroup or another sync type this way, since the copy is a different one.",
 			Why:     "Go moves captured variables to the heap. Plutonium never allocates behind the program's back, so captured variables stay in their frame (spec section 11.5).",
-			Fix:     &Fix{Intro: "Pass the values as arguments", Code: "for i := 0; i < n; i++ {\n\tgo func(i int, out chan int) {\n\t\tout <- i * i\n\t}(i, out)\n}"},
+			Fix:     &Fix{Intro: "Pass the values as arguments", Code: "for i := 0; i < n; i++ {\n\ttask func(i int, out chan int) {\n\t\tout <- i * i\n\t}(i, out)\n}"},
 			Spec:    pspec("12.12", "Task statements"),
-			Example: "for i := 0; i < n; i++ {\n\tgo func() {\n\t\tout <- i * i\n\t}()\n}",
+			Example: "for i := 0; i < n; i++ {\n\ttask func() {\n\t\tout <- i * i\n\t}()\n}",
 		},
 		&Entry{
 			Code: GoFrameClosure, Name: "GoFrameClosure",
@@ -678,9 +678,9 @@ func init() {
 				"Library functions that start a puroutine with a func argument, such as sync.WaitGroup.Go and time.AfterFunc, follow the same rule and the compiler reports them the same way.\n" +
 				"To let the puroutine use the function's variables, start a function literal with a sync.Scope declared in the function instead: s.Task(func() {...}) waits for it before s's block ends.",
 			Why:     "Go moves captured variables and the receivers of method values to the heap. Plutonium never allocates behind the program's back, so the record stays in its frame (spec section 11.5).",
-			Fix:     &Fix{Intro: "Pass the values the function needs, and start a function that takes them", Code: "go func(n int, out chan int) {\n\tout <- n * n\n}(n, out)"},
+			Fix:     &Fix{Intro: "Pass the values the function needs, and start a function that takes them", Code: "task func(n int, out chan int) {\n\tout <- n * n\n}(n, out)"},
 			Spec:    pspec("12.12", "Task statements"),
-			Example: "square := func() { out <- n * n }\ngo square()",
+			Example: "square := func() { out <- n * n }\ntask square()",
 		},
 		&Entry{
 			Code: GoBuiltin, Name: "GoBuiltin",

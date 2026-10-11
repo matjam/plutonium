@@ -182,7 +182,7 @@ func main() {
 		_ = o
 	}
 	leaving.Add(1)
-	go leave()
+	task leave()
 	leaving.Wait()
 	println("end")
 }

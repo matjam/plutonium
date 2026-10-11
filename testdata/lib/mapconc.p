@@ -62,7 +62,7 @@ func main() {
 	const n = 8
 	wg.Add(n)
 	for i := 0; i < n; i++ {
-		go worker(i)
+		task worker(i)
 	}
 	wg.Wait()
 

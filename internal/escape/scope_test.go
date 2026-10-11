@@ -37,7 +37,7 @@ func use(p *int) { println(*p) }
 func main() {
 	n := 1
 	p := &n
-	go use(p)
+	task use(p)
 	var s sync.Scope
 	s.Wait()
 }`, "Or start it with a sync.Scope, which waits for its tasks before its block ends, so that they may use main's variables: var s sync.Scope s.Task(func() { use(p) })"},

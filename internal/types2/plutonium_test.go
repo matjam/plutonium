@@ -157,10 +157,10 @@ func f(p *int)       {}
 func h(s S, c chan S) {}
 
 func g(p *int, c chan *int, s chan synced[int]) {
-	go f(p)
-	go f(&global)
+	task f(p)
+	task f(&global)
 	c <- p
-	go h(S{}, make(chan S, 1))
+	task h(S{}, make(chan S, 1))
 	select {
 	case v := <-c:
 		_ = v
@@ -177,13 +177,13 @@ func g(p *int, c chan *int, s chan synced[int]) {
 	cases := []struct{ name, src, want string }{
 		{"shared element", "package p\nvar c chan shared[int]", "channel element type shared[int] is not sendable"},
 		{"shared field", "package p\ntype S struct{ p shared[int] }\nvar c chan S", "it contains shared[int]"},
-		{"shared argument", "package p\nfunc f(x shared[int]) {}\nfunc g(x shared[int]) { go f(x) }", "go statement argument of type shared[int] is not sendable"},
-		{"local address", "package p\nfunc f(p *int) {}\nfunc g() { x := 1; go f(&x) }", "&x is passed to a go statement, but x lives in this function's frame"},
-		{"field address", "package p\ntype T struct{ a [2]int }\nfunc f(p *int) {}\nfunc g() { var t T; go f(&t.a[1]) }", "but t lives in this function's frame"},
-		{"literal address", "package p\ntype T struct{ a int }\nfunc f(p *T) {}\nfunc g() { go f(&T{}) }", "allocate it with new(T{...})"},
+		{"shared argument", "package p\nfunc f(x shared[int]) {}\nfunc g(x shared[int]) { task f(x) }", "go statement argument of type shared[int] is not sendable"},
+		{"local address", "package p\nfunc f(p *int) {}\nfunc g() { x := 1; task f(&x) }", "&x is passed to a go statement, but x lives in this function's frame"},
+		{"field address", "package p\ntype T struct{ a [2]int }\nfunc f(p *int) {}\nfunc g() { var t T; task f(&t.a[1]) }", "but t lives in this function's frame"},
+		{"literal address", "package p\ntype T struct{ a int }\nfunc f(p *T) {}\nfunc g() { task f(&T{}) }", "allocate it with new(T{...})"},
 		{"send local address", "package p\nfunc g(c chan *int) { x := 1; c <- &x }", "&x is sent on a channel"},
-		{"local array slice", "package p\nfunc f(b []int) {}\nfunc g() { var a [4]int; go f(a[:]) }", "is a slice of a"},
-		{"pointer method on local", "package p\ntype W struct{ n int }\nfunc (w *W) M() {}\nfunc g() { var w W; go w.M() }", "calls a pointer method on w"},
+		{"local array slice", "package p\nfunc f(b []int) {}\nfunc g() { var a [4]int; task f(a[:]) }", "is a slice of a"},
+		{"pointer method on local", "package p\ntype W struct{ n int }\nfunc (w *W) M() {}\nfunc g() { var w W; task w.M() }", "calls a pointer method on w"},
 		{"make chan args", "package p\nvar c = make(chan int, 1, 2, 3)", "expects 1 or 2 arguments and an optional allocator"},
 	}
 	for _, c := range cases {

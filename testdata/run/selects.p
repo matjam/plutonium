@@ -29,7 +29,7 @@ type msg struct {
 func main() {
 	a := make(chan int)
 	b := make(chan int)
-	go pinger(a, b)
+	task pinger(a, b)
 	gotA, gotB := false, false
 	for !gotA || !gotB {
 		select {
@@ -83,7 +83,7 @@ func main() {
 
 	out := make(chan int)
 	quit := make(chan bool)
-	go counter(0, out, quit)
+	task counter(0, out, quit)
 	total := 0
 	for i := 0; i < 10; i++ {
 		total += <-out

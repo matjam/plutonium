@@ -40,7 +40,7 @@ func handle() {
 func main() {
 	wg.Add(8)
 	for i := 0; i < 8; i++ {
-		go handle()
+		task handle()
 	}
 	wg.Wait()
 	println(hits)
@@ -69,7 +69,7 @@ func handle() {
 func main() {
 	wg.Add(8)
 	for i := 0; i < 8; i++ {
-		go handle()
+		task handle()
 	}
 	wg.Wait()
 	mu.Lock()
@@ -101,7 +101,7 @@ func add(n int) {
 func main() {
 	wg.Add(10)
 	for i := 1; i <= 10; i++ {
-		go add(i)
+		task add(i)
 	}
 	wg.Wait()
 	println(sum)
@@ -134,7 +134,7 @@ func total() int {
 func main() {
 	wg.Add(10)
 	for i := 1; i <= 10; i++ {
-		go add(i)
+		task add(i)
 	}
 	wg.Wait()
 	println(total())
@@ -164,7 +164,7 @@ func bump(i int) {
 func main() {
 	wg.Add(16)
 	for i := 0; i < 16; i++ {
-		go bump(i)
+		task bump(i)
 	}
 	wg.Wait()
 	rw.RLock()
@@ -199,7 +199,7 @@ func read(i int) int {
 func main() {
 	wg.Add(16)
 	for i := 0; i < 16; i++ {
-		go bump(i)
+		task bump(i)
 	}
 	wg.Wait()
 	println(read(0), read(7))
@@ -235,7 +235,7 @@ func record() {
 func main() {
 	wg.Add(4)
 	for i := 0; i < 4; i++ {
-		go record()
+		task record()
 	}
 	wg.Wait()
 	stats.lock()
@@ -272,7 +272,7 @@ func record() {
 func main() {
 	wg.Add(4)
 	for i := 0; i < 4; i++ {
-		go record()
+		task record()
 	}
 	wg.Wait()
 	stats.lock()
@@ -299,7 +299,7 @@ func main() {
 	done := make(chan bool)
 	c := &counter
 	for i := 0; i < 4; i++ {
-		go c.bump(done)
+		task c.bump(done)
 	}
 	for i := 0; i < 4; i++ {
 		<-done
@@ -337,7 +337,7 @@ func main() {
 	done := make(chan bool)
 	c := &counter
 	for i := 0; i < 4; i++ {
-		go c.bump(done)
+		task c.bump(done)
 	}
 	for i := 0; i < 4; i++ {
 		<-done
@@ -364,7 +364,7 @@ var job Job
 func main() {
 	jobs := make(chan *Job, 4)
 	out := make(chan int, 4)
-	go worker(jobs, out)
+	task worker(jobs, out)
 	for i := 1; i <= 3; i++ {
 		job.id, job.cost = i, 10
 		jobs <- &job
@@ -387,7 +387,7 @@ func worker(jobs chan Job, out chan int) {
 func main() {
 	jobs := make(chan Job, 4)
 	out := make(chan int, 4)
-	go worker(jobs, out)
+	task worker(jobs, out)
 	for i := 1; i <= 3; i++ {
 		jobs <- Job{id: i, cost: 10}
 	}
@@ -421,7 +421,7 @@ func work() {
 func main() {
 	wg.Add(4)
 	for i := 0; i < 4; i++ {
-		go work()
+		task work()
 	}
 	wg.Wait()
 	println(ops)
@@ -450,7 +450,7 @@ func work() {
 func main() {
 	wg.Add(4)
 	for i := 0; i < 4; i++ {
-		go work()
+		task work()
 	}
 	wg.Wait()
 	println(ops.Load())
@@ -483,7 +483,7 @@ func main() {
 	s := alloc.Synced[Stats]()
 	done := make(chan bool)
 	for i := 0; i < 4; i++ {
-		go record(s, done)
+		task record(s, done)
 	}
 	for i := 0; i < 4; i++ {
 		<-done
@@ -523,7 +523,7 @@ func main() {
 	s := alloc.Synced[Stats]()
 	done := make(chan bool)
 	for i := 0; i < 4; i++ {
-		go record(s, done)
+		task record(s, done)
 	}
 	for i := 0; i < 4; i++ {
 		<-done

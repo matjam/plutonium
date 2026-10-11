@@ -34,11 +34,11 @@ func main() {
 	dummy := make(chan int)
 
 	// warm up
-	go sender(c, 100000)
+	task sender(c, 100000)
 	a := receiver(c, dummy, 100000)
 
 	// second time
-	go sender(c, 100000)
+	task sender(c, 100000)
 	b := receiver(c, dummy, 100000)
 	println("received", a, b)
 }

@@ -24,7 +24,7 @@ func main() {
 	done := make(chan bool, 1)
 	defer func() { done <- true }()
 	defer println("main deferred")
-	go worker(done)
+	task worker(done)
 	finish()
 	println("not reached")
 }

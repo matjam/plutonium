@@ -1,4 +1,4 @@
-$DIR/main.p:17:5: cannot start square with go: it holds a function literal that captures out (main.p:16), whose closure record lives in the starting frame (spec section 12.12)
+$DIR/main.p:17:7: cannot start square with go: it holds a function literal that captures out (main.p:16), whose closure record lives in the starting frame (spec section 12.12)
     A function literal that captures variables, and a method value such as
     c.handle, keep their closure record (the code to call, with the captured
     variables or a copy of the receiver) in the frame of the function that makes
@@ -18,17 +18,17 @@ $DIR/main.p:17:5: cannot start square with go: it holds a function literal that 
     Plutonium never allocates behind the program's back, so the record stays in
     its frame (spec section 11.5).
     Pass the values the function needs, and start a function that takes them:
-        go func(n int, out chan int) {
+        task func(n int, out chan int) {
             out <- n * n
         }(n, out)
     (see "Task statements" in the Plutonium spec, section 12.12)
     (run "pluto explain E2594" for a longer explanation)
 
-$DIR/main.p:20:9: cannot pass the method value c.add to a puroutine: its closure record lives in the starting frame (spec section 12.12)
+$DIR/main.p:20:11: cannot pass the method value c.add to a puroutine: its closure record lives in the starting frame (spec section 12.12)
     (explained above; run "pluto explain E2594" for more)
 
-$DIR/main.p:24:9: cannot pass again to a puroutine: it holds the method value c.add, whose closure record lives in the starting frame (spec section 12.12)
+$DIR/main.p:24:11: cannot pass again to a puroutine: it holds the method value c.add, whose closure record lives in the starting frame (spec section 12.12)
     (explained above; run "pluto explain E2594" for more)
 
-$DIR/main.p:26:9: cannot pass a function literal that captures n (main.p:26) to a puroutine: its closure record lives in the starting frame (spec section 12.12)
+$DIR/main.p:26:11: cannot pass a function literal that captures n (main.p:26) to a puroutine: its closure record lives in the starting frame (spec section 12.12)
     (explained above; run "pluto explain E2594" for more)

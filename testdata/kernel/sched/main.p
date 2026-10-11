@@ -309,7 +309,7 @@ func main() int64 {
 	out := make(chan int, 10)
 	wg.Add(3)
 	for i := 0; i < 3; i++ {
-		go square(in, out)
+		task square(in, out)
 	}
 	for i := 1; i <= 10; i++ {
 		in <- i
@@ -339,8 +339,8 @@ func main() int64 {
 
 	startTimer()
 	done := make(chan bool)
-	go spin(done)
-	go set()
+	task spin(done)
+	task set()
 	<-done
 	println("spinner preempted by the timer")
 
@@ -352,7 +352,7 @@ func main() int64 {
 	// A select that waits on two channels, one fed by a puroutine.
 	a := make(chan int)
 	b := make(chan int)
-	go func(b chan<- int) { b <- 42 }(b)
+	task func(b chan<- int) { b <- 42 }(b)
 	select {
 	case v := <-a:
 		println("a", v)
@@ -366,7 +366,7 @@ func main() int64 {
 	println("slept", rt.Now()-start >= 20000000)
 	woke := make(chan int, 3)
 	for i := 3; i >= 1; i-- {
-		go sleepy(i, woke)
+		task sleepy(i, woke)
 	}
 	println("woke in order", <-woke, <-woke, <-woke)
 	select {

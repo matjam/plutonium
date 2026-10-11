@@ -18,13 +18,13 @@ func main() {
 	_ = jobs
 
 	x := 1
-	go work(&x)
+	task work(&x)
 
 	var buf [8]int
-	go sum(buf[:])
+	task sum(buf[:])
 
 	var c Counter
-	go c.Run()
+	task c.Run()
 
 	ptrs := make(chan *int, 1)
 	ptrs <- &x

@@ -105,22 +105,22 @@ func inExpression() {
 var interfaceHalter = halter{"interface"}
 
 func main() {
-	go direct()
+	task direct()
 	fmt.Println(<-done)
-	go viaValue(stop)
+	task viaValue(stop)
 	fmt.Println(<-done)
 	// Not halter{...}: the interface would box it in main's frame,
 	// which the puroutine may outlive; a package variable lives on.
 	h := &interfaceHalter
-	go viaInterface(h)
+	task viaInterface(h)
 	fmt.Println(<-done)
-	go viaTypeParam(halter{"type parameter"})
+	task viaTypeParam(halter{"type parameter"})
 	fmt.Println(<-done)
-	go viaRange()
+	task viaRange()
 	fmt.Println(<-done)
-	go inDefer()
+	task inDefer()
 	fmt.Println(<-done)
-	go inExpression()
+	task inExpression()
 	fmt.Println(<-done)
 	fmt.Println("main returns")
 }

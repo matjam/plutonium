@@ -111,6 +111,6 @@ func main() {
 	println(x(), y())
 	println(Through(AsGetter(9))())
 	defer Inner(1)()
-	go Inner(2)
+	task Inner(2)
 	println("end")
 }

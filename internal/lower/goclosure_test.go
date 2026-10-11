@@ -34,31 +34,31 @@ func TestGoFrameClosure(t *testing.T) {
 		name, body string
 		want       string // a fragment of the error, or "" for none
 	}{
-		{"var literal", "n := 1\nf := func() { n++ }\ngo f()", "cannot start f with go: it holds a function literal that captures n"},
-		{"var decl", "n := 1\nvar f = func() { n++ }\ngo f()", "cannot start f with go"},
-		{"typed var decl", "n := 1\nvar f func() = func() { n++ }\ngo run(f)", "cannot pass f to a puroutine"},
-		{"chain", "var c counter\nf := c.add\ng := f\ngo g()", "cannot start g with go: it holds the method value c.add"},
-		{"value receiver", "var c counter\ngo run(func() { _ = c.get() })", "cannot pass a function literal that captures c"},
-		{"variadic", "var c counter\ngo runAll(c.add)", "cannot pass the method value c.add"},
-		{"parenthesized", "var c counter\ngo run((c.add))", "cannot pass the method value c.add"},
-		{"defined in if", "n := 1\nif f := func() { n++ }; n > 0 {\n\tgo run(f)\n}", "cannot pass f"},
+		{"var literal", "n := 1\nf := func() { n++ }\ntask f()", "cannot start f with go: it holds a function literal that captures n"},
+		{"var decl", "n := 1\nvar f = func() { n++ }\ntask f()", "cannot start f with go"},
+		{"typed var decl", "n := 1\nvar f func() = func() { n++ }\ntask run(f)", "cannot pass f to a puroutine"},
+		{"chain", "var c counter\nf := c.add\ng := f\ntask g()", "cannot start g with go: it holds the method value c.add"},
+		{"value receiver", "var c counter\ntask run(func() { _ = c.get() })", "cannot pass a function literal that captures c"},
+		{"variadic", "var c counter\ntask runAll(c.add)", "cannot pass the method value c.add"},
+		{"parenthesized", "var c counter\ntask run((c.add))", "cannot pass the method value c.add"},
+		{"defined in if", "n := 1\nif f := func() { n++ }; n > 0 {\n\ttask run(f)\n}", "cannot pass f"},
 
-		{"no captures", "f := func() {}\ngo f()\ngo run(f)", ""},
-		{"function", "go run(run2)", ""},
-		{"assigned again", "n := 1\nf := func() {}\nf = func() { n++ }\ngo f()", ""},
-		{"address taken", "n := 1\nf := func() { n++ }\np := &f\n*p = func() {}\ngo f()", ""},
-		{"method on var", "n := 1\nf := task(func() { n++ })\nf.set(func() {})\ngo run(f)", ""},
-		{"range assigns", "n := 1\nf := func() { n++ }\nfor _, f = range []func(){nil} {\n}\ngo run(f)", ""},
-		{"multi value", "f, ok := pair()\ngo run(f)\n_ = ok", ""},
-		{"var without value", "n := 1\nvar f func()\nf = func() { n++ }\ngo run(f)", ""},
+		{"no captures", "f := func() {}\ntask f()\ntask run(f)", ""},
+		{"function", "task run(run2)", ""},
+		{"assigned again", "n := 1\nf := func() {}\nf = func() { n++ }\ntask f()", ""},
+		{"address taken", "n := 1\nf := func() { n++ }\np := &f\n*p = func() {}\ntask f()", ""},
+		{"method on var", "n := 1\nf := task(func() { n++ })\nf.set(func() {})\ntask run(f)", ""},
+		{"range assigns", "n := 1\nf := func() { n++ }\nfor _, f = range []func(){nil} {\n}\ntask run(f)", ""},
+		{"multi value", "f, ok := pair()\ntask run(f)\n_ = ok", ""},
+		{"var without value", "n := 1\nvar f func()\nf = func() { n++ }\ntask run(f)", ""},
 		{"parameter", "start(func() {})", ""},
-		{"field", "var s struct{ f func() }\nn := 1\ns.f = func() { n++ }\ngo run(s.f)", ""},
+		{"field", "var s struct{ f func() }\nn := 1\ns.f = func() { n++ }\ntask run(s.f)", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			src := goClosureDecls +
 				"func run2() {}\n\nfunc pair() (func(), bool) { return nil, true }\n\n" +
-				"func start(f func()) { go run(f) }\n\n" +
+				"func start(f func()) { task run(f) }\n\n" +
 				"func main() {\n\t" + strings.ReplaceAll(c.body, "\n", "\n\t") + "\n}\n"
 			got := lowerModeError(t, src, hosted)
 			if c.want == "" {
@@ -109,8 +109,8 @@ func TestGoFuncCall(t *testing.T) {
 				"type counter struct{ n int }\n\nfunc (c *counter) add() { c.n++ }\n\n" +
 				"func run(f func()) { f() }\n\nfunc run2() {}\n\n" +
 				"func start(f func()) {\n\tvar wg sync.WaitGroup\n\twg.Go(f)\n\twg.Wait()\n}\n\n" +
-				"func spawn(n int, f func(), more ...func()) {\n\tfor _, g := range more {\n\t\tg()\n\t}\n\tgo f()\n}\n\n" +
-				"func spawnT[T any](x T, f func()) { go run(f) }\n\n" +
+				"func spawn(n int, f func(), more ...func()) {\n\tfor _, g := range more {\n\t\tg()\n\t}\n\ttask f()\n}\n\n" +
+				"func spawnT[T any](x T, f func()) { task run(f) }\n\n" +
 				"func later(f func()) { time.AfterFunc(time.Second, f) }\n\n" +
 				"var _ = rt.MinStackSize\n\nvar _ = time.Second\n\n" +
 				"func main() {\n\t" + strings.ReplaceAll(c.body, "\n", "\n\t") + "\n}\n"
@@ -141,32 +141,32 @@ func TestGoCapturingLiteralFix(t *testing.T) {
 		{
 			name:    "wait group",
 			imports: "\"pluto/sync\"",
-			body:    "var wg sync.WaitGroup\ngo func() { defer wg.Done() }()",
-			want:    []string{"wg has type sync.WaitGroup, which must not be copied, so start the literal with a sync.Scope, which waits for it and lets it use wg: var s sync.Scope; s.Task(func() {...})", "var wg sync.WaitGroup // at package level", "go func(wg *sync.WaitGroup) {"},
+			body:    "var wg sync.WaitGroup\ntask func() { defer wg.Done() }()",
+			want:    []string{"wg has type sync.WaitGroup, which must not be copied, so start the literal with a sync.Scope, which waits for it and lets it use wg: var s sync.Scope; s.Task(func() {...})", "var wg sync.WaitGroup // at package level", "task func(wg *sync.WaitGroup) {"},
 			notWant: []string{"pluto/sync", "pass it as an argument"},
 		},
 		{
 			name:    "alias",
 			imports: "stdsync \"pluto/sync\"",
-			body:    "var mu stdsync.Mutex\ngo func() { mu.Lock() }()",
+			body:    "var mu stdsync.Mutex\ntask func() { mu.Lock() }()",
 			want:    []string{"mu has type stdsync.Mutex, which must not be copied", "var s stdsync.Scope", "var mu stdsync.Mutex // at package level"},
 		},
 		{
 			name:    "struct holding a mutex",
 			imports: "\"pluto/sync\"",
-			body:    "var s struct{ mu sync.Mutex }\ngo func() { s.mu.Lock() }()",
+			body:    "var s struct{ mu sync.Mutex }\ntask func() { s.mu.Lock() }()",
 			want:    []string{"holds a value of type sync.Mutex and must not be copied", "declare it at package level and pass a pointer"},
 		},
 		{
 			name:    "atomic array",
 			imports: "\"pluto/sync/atomic\"",
-			body:    "var a [2]atomic.Int32\ngo func() { a[0].Add(1) }()",
+			body:    "var a [2]atomic.Int32\ntask func() { a[0].Add(1) }()",
 			want:    []string{"holds a value of type atomic.Int32 and must not be copied"},
 		},
 		{
 			name:    "copyable",
 			imports: "\"pluto/sync\"",
-			body:    "n := 1\nvar l sync.Locker\ngo func() { _ = n; _ = l }()",
+			body:    "n := 1\nvar l sync.Locker\ntask func() { _ = n; _ = l }()",
 			want:    []string{"pass them as arguments instead: go func(n int, l sync.Locker) {...}(n, l)"},
 			notWant: []string{"at package level"},
 		},

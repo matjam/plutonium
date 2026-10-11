@@ -48,8 +48,8 @@ func main() {
 	c := make(chan int)
 	ready := make(chan *rt.Task)
 	sleeping := make(chan *rt.Task)
-	go blocked(c, ready)
-	go asleep(sleeping)
+	task blocked(c, ready)
+	task asleep(sleeping)
 	parked := <-ready
 	sleeper := <-sleeping
 	for !parked.Parked() || !sleeper.Parked() {
@@ -108,10 +108,10 @@ func condition() {
 
 func main() {
 	wg.Add(1)
-	go lockTwice()
-	go readLocked()
-	go waitGroup()
-	go condition()
+	task lockTwice()
+	task readLocked()
+	task waitGroup()
+	task condition()
 	wg.Wait()
 }
 `

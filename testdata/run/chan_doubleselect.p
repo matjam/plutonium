@@ -73,12 +73,12 @@ func main() {
 	c4 := make(chan int)
 	done := make(chan bool)
 	cmux := make(chan int)
-	go sender(iterations, c1, c2, c3, c4)
-	go mux(cmux, c1, done)
-	go mux(cmux, c2, done)
-	go mux(cmux, c3, done)
-	go mux(cmux, c4, done)
-	go closer(done, cmux)
+	task sender(iterations, c1, c2, c3, c4)
+	task mux(cmux, c1, done)
+	task mux(cmux, c2, done)
+	task mux(cmux, c3, done)
+	task mux(cmux, c4, done)
+	task closer(done, cmux)
 	// We keep the recver because it might catch more bugs in the future.
 	// However, the result of the bug linked to at the top is that we'll
 	// end up panicking with: "throw: bad g->status in ready".

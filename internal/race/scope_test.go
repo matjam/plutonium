@@ -508,8 +508,8 @@ func two(done chan bool) {
 
 func main() {
 	done := make(chan bool)
-	go one(done)
-	go two(done)
+	task one(done)
+	task two(done)
 	<-done
 	<-done
 }`},

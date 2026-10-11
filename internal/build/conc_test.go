@@ -176,8 +176,8 @@ func set() { flag.Store(1) }
 
 func main() {
 	done := make(chan bool)
-	go spin(done)
-	go set()
+	task spin(done)
+	task set()
 	<-done
 	println("preempted")
 }
@@ -209,7 +209,7 @@ func main() {
 	n := rt.StackLeft()
 	println("main", n > 15<<20 && n <= 16<<20)
 	done := make(chan bool)
-	go left(done)
+	task left(done)
 	println("go", <-done)
 	rt.Go(big, 1<<20)
 	<-bigDone
@@ -225,7 +225,7 @@ func set() { flag.Store(1) }
 
 // The main puroutine spins too; the one it started must still run.
 func main() {
-	go set()
+	task set()
 	for flag.Load() == 0 {
 	}
 	println("main preempted")
@@ -265,8 +265,8 @@ func writer() {
 func main() {
 	syscall.Syscall(syscall.SYS_PIPE2, uintptr(unsafe.Pointer(&fds[0])), 0, 0)
 	done := make(chan string)
-	go reader(done)
-	go writer()
+	task reader(done)
+	task writer()
 	<-done
 }
 `},
@@ -299,7 +299,7 @@ func main() {
 		println("pipe:", err.Error())
 		return
 	}
-	go writer(w)
+	task writer(w)
 	var buf [256]byte
 	total := 0
 	for {
@@ -348,7 +348,7 @@ func main() {
 		return
 	}
 	done := make(chan int)
-	go drain(r, done)
+	task drain(r, done)
 	c := exec.Command("sh", "-c", "head -c 200000 /dev/zero")
 	c.Stdout = w
 	err = c.Run()
@@ -402,7 +402,7 @@ func pong(in, out chan int) {
 func main() {
 	a := make(chan int)
 	b := make(chan int)
-	go pong(a, b)
+	task pong(a, b)
 	v := 0
 	for i := 0; i < 200000; i++ {
 		a <- v
@@ -420,7 +420,8 @@ func main() {
 import "pluto/rt"
 
 func run(f *func()) {
-	go (*f)()
+	g := *f
+	task g()
 }
 
 // The escape analysis rejects passing the literal to a function that
@@ -489,7 +490,7 @@ func main() {
 	mine.next = alloc.Default()
 	r := alloc.Use(&mine)
 	done := make(chan int) // from mine: 1
-	go other(done)         // its stack is reserved from the system, not an allocator
+	task other(done)         // its stack is reserved from the system, not an allocator
 	<-done
 	println("while used", mine.n)
 	r.Restore()
@@ -580,7 +581,7 @@ func main() {
 	const n = 64
 	wg.Add(n)
 	for i := 0; i < n; i++ {
-		go work(i)
+		task work(i)
 	}
 	wg.Wait()
 	mu.Lock()
@@ -650,7 +651,7 @@ func main() {
 	const n = 48
 	wg.Add(n)
 	for i := 0; i < n; i++ {
-		go churn(i)
+		task churn(i)
 	}
 	wg.Wait()
 	println("corrupt blocks", bad.Load())
@@ -696,7 +697,7 @@ func main() {
 	out := make(chan int, 100)
 	wg.Add(4)
 	for i := 0; i < 4; i++ {
-		go worker(in, out)
+		task worker(in, out)
 	}
 	for i := 0; i < 100; i++ {
 		in <- i

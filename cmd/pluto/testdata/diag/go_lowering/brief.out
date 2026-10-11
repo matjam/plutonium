@@ -1,2 +1,2 @@
-$DIR/main.p:6:6: a function literal that captures variables cannot be started with go: out lives in the starting frame, which may be gone before the puroutine runs (spec section 12.12); pass them as arguments instead: go func(out chan int, i int) {...}(out, i)
+$DIR/main.p:6:8: a function literal that captures variables cannot be started with go: out lives in the starting frame, which may be gone before the puroutine runs (spec section 12.12); pass them as arguments instead: go func(out chan int, i int) {...}(out, i)
 $DIR/main.p:10:2: go with the built-in println is not supported; start a function that calls it

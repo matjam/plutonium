@@ -52,12 +52,12 @@ func large(done chan<- int) { done <- big() }
 
 func main() {
 	done := make(chan int)
-	go run(100000, done)
+	task run(100000, done)
 	println("depth", <-done)
 	ok := make(chan bool)
-	go room(ok)
+	task room(ok)
 	println("room", <-ok)
-	go large(done)
+	task large(done)
 	println("large", <-done)
 }
 `
@@ -92,7 +92,7 @@ func run(done chan bool) {
 
 func main() {
 	done := make(chan bool)
-	go run(done)
+	task run(done)
 	<-done
 }
 `
@@ -146,7 +146,7 @@ func main() {
 	const n = 10000
 	wg.Add(n)
 	for i := 0; i < n; i++ {
-		go sleeper()
+		task sleeper()
 	}
 	wg.Wait()
 	growth := maxRSS() - base

@@ -44,11 +44,11 @@ func main() {
 	c := make(chan int)
 	d := make(chan int)
 	done := make(chan int)
-	go middle(a)
-	go send(b)
-	go choose(c, d)
-	go nilrecv()
-	go nilsend()
-	go nocases()
+	task middle(a)
+	task send(b)
+	task choose(c, d)
+	task nilrecv()
+	task nilsend()
+	task nocases()
 	<-done
 }

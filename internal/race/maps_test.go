@@ -27,8 +27,8 @@ func count(words [3]string, m map[string]int, done chan bool) {
 func main() {
 	m := map[string]int{}
 	done := make(chan bool)
-	go count([3]string{"a", "b", "a"}, m, done)
-	go count([3]string{"b", "c", "c"}, m, done)
+	task count([3]string{"a", "b", "a"}, m, done)
+	task count([3]string{"b", "c", "c"}, m, done)
 	<-done
 	<-done
 	println(len(m))
@@ -52,8 +52,8 @@ func fill(done chan bool) {
 
 func main() {
 	done := make(chan bool)
-	go fill(done)
-	go fill(done)
+	task fill(done)
+	task fill(done)
 	<-done
 	<-done
 	println(cache["x"])
@@ -70,7 +70,7 @@ func drain(m map[int]bool, done chan bool) {
 func main() {
 	m := map[int]bool{1: true, 2: true}
 	done := make(chan bool)
-	go drain(m, done)
+	task drain(m, done)
 	for i := 0; i < 10; i++ {
 		m[i] = true
 	}
@@ -92,8 +92,8 @@ func main() {
 	jobs := make(chan job, 2)
 	done := make(chan bool)
 	r := map[string]int{}
-	go work(jobs, done)
-	go work(jobs, done)
+	task work(jobs, done)
+	task work(jobs, done)
 	jobs <- job{results: r}
 	jobs <- job{results: r}
 	<-done
@@ -110,7 +110,7 @@ func keep(m map[int]*int, done chan bool) {
 func main() {
 	done := make(chan bool)
 	m := map[int]*int{}
-	go keep(m, done)
+	task keep(m, done)
 	data[0] = 1
 	<-done
 }`, []string{"E3501"}},
@@ -137,8 +137,8 @@ func fill(k string, done chan bool) {
 
 func main() {
 	done := make(chan bool)
-	go fill("a", done)
-	go fill("b", done)
+	task fill("a", done)
+	task fill("b", done)
 	<-done
 	<-done
 	mu.Lock()
@@ -178,8 +178,8 @@ func work(done chan bool) {
 
 func main() {
 	done := make(chan bool)
-	go work(done)
-	go work(done)
+	task work(done)
+	task work(done)
 	<-done
 	<-done
 	println(counter.Get("x"))
@@ -200,7 +200,7 @@ func add(m map[string]int, k string) { m[k]++ }
 func main() {
 	done := make(chan int)
 	for i := 0; i < 4; i++ {
-		go count([3]string{"a", "b", "a"}, done)
+		task count([3]string{"a", "b", "a"}, done)
 	}
 	local := map[string]int{}
 	add(local, "x")
@@ -219,8 +219,8 @@ func main() {
 	m := map[string]int{"a": 1}
 	m["b"] = 2
 	done := make(chan int)
-	go lookup(m, done)
-	go lookup(m, done)
+	task lookup(m, done)
+	task lookup(m, done)
 	println(<-done, <-done)
 }`},
 }

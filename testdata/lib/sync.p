@@ -123,7 +123,7 @@ func main() {
 	const workers = 8
 	wg.Add(workers)
 	for i := 0; i < workers; i++ {
-		go adder(10000)
+		task adder(10000)
 	}
 	wg.Wait()
 	// mu guards counter (every write holds it), so reads hold it too.
@@ -141,10 +141,10 @@ func main() {
 
 	rwDone.Add(6)
 	for i := 0; i < 4; i++ {
-		go reader(20000)
+		task reader(20000)
 	}
-	go writer(5000)
-	go writer(5000)
+	task writer(5000)
+	task writer(5000)
 	rwDone.Wait()
 	rw.RLock()
 	println("rwmutex", pair[0], pair[1], "torn reads", torn.Load(), "reads", reads.Load())
@@ -163,14 +163,14 @@ func main() {
 
 	onceWG.Add(10)
 	for i := 0; i < 10; i++ {
-		go useOnce()
+		task useOnce()
 	}
 	onceWG.Wait()
 	println("once ran", initRuns.Load())
 
 	qWG.Add(3)
 	for i := 0; i < 3; i++ {
-		go consume()
+		task consume()
 	}
 	produce(10000)
 	qWG.Wait()

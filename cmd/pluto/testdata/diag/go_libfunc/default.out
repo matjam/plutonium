@@ -18,7 +18,7 @@ $DIR/main.p:15:8: cannot pass a function literal that captures n (main.p:15) to 
     Plutonium never allocates behind the program's back, so the record stays in
     its frame (spec section 11.5).
     Pass the values the function needs, and start a function that takes them:
-        go func(n int, out chan int) {
+        task func(n int, out chan int) {
             out <- n * n
         }(n, out)
     (see "Task statements" in the Plutonium spec, section 12.12)

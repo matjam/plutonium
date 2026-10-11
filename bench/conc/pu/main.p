@@ -27,7 +27,7 @@ func pong(in, out chan int) {
 func pingpong(n int) int64 {
 	a := make(chan int)
 	b := make(chan int)
-	go pong(a, b)
+	task pong(a, b)
 	start := now()
 	v := 0
 	for i := 0; i < n; i++ {
@@ -50,7 +50,7 @@ func drain(in chan int, done chan int) {
 func buffered(n int) int64 {
 	c := make(chan int, 1024)
 	done := make(chan int)
-	go drain(c, done)
+	task drain(c, done)
 	start := now()
 	for i := 0; i < n; i++ {
 		c <- i
@@ -70,7 +70,7 @@ func spawn(n int) int64 {
 	for i := 0; i < n; i += 1000 {
 		wg.Add(1000)
 		for j := 0; j < 1000; j++ {
-			go nothing()
+			task nothing()
 		}
 		wg.Wait()
 	}
@@ -96,7 +96,7 @@ func mutex(workers, n int) int64 {
 	start := now()
 	mwg.Add(workers)
 	for i := 0; i < workers; i++ {
-		go locker(n)
+		task locker(n)
 	}
 	mwg.Wait()
 	return (now() - start) / int64(workers*n)

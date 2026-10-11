@@ -166,7 +166,7 @@ func main() {
 	out := make(chan int, 10)
 	wg.Add(3)
 	for i := 0; i < 3; i++ {
-		go square(in, out)
+		task square(in, out)
 	}
 	for i := 1; i <= 10; i++ {
 		in <- i
@@ -182,14 +182,14 @@ func main() {
 	// Yield interleaves: the puroutine that yields fewer times finishes
 	// first, whichever started first.
 	names := make(chan string, 2)
-	go ticker(0, 50, names)
-	go ticker(1, 5, names)
+	task ticker(0, 50, names)
+	task ticker(1, 5, names)
 	println(<-names, <-names)
 
 	// A select that waits on two channels.
 	a := make(chan int)
 	b := make(chan int)
-	go func(b chan int) { b <- 7 }(b)
+	task func(b chan int) { b <- 7 }(b)
 	select {
 	case v := <-a:
 		println("a", v)
@@ -200,7 +200,7 @@ func main() {
 	start := rt.Now()
 	woke := make(chan int, 3)
 	for i := 3; i >= 1; i-- {
-		go sleepy(i, woke)
+		task sleepy(i, woke)
 	}
 	println("woke in order", <-woke, <-woke, <-woke)
 	select {

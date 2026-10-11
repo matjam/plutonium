@@ -78,20 +78,20 @@ func main() {
 	// An owned box moves into the puroutine, which drops it.
 	p := newServer("owned")
 	expect()
-	go p.Serve()
+	task p.Serve()
 	served.Wait()
 	dropped.Wait()
 
 	// A temporary box moves too, and so do arguments.
 	expect()
-	go newServer("temporary").Add(5)
+	task newServer("temporary").Add(5)
 	served.Wait()
 	dropped.Wait()
 
 	// The puroutine drops the box even when the method ends it with Goexit.
 	q := newServer("owned-leave")
 	expect()
-	go q.Leave()
+	task q.Leave()
 	served.Wait()
 	dropped.Wait()
 
@@ -101,11 +101,11 @@ func main() {
 	y.name = "synced"
 	for i := 0; i < 3; i++ {
 		served.Add(1)
-		go y.Serve()
+		task y.Serve()
 		served.Wait()
 	}
 	expect()
-	go y.Add(10)
+	task y.Add(10)
 	served.Wait()
 	y = nil
 	dropped.Wait()
@@ -114,7 +114,7 @@ func main() {
 	f := Farm{main: alloc.Synced[Server]()}
 	f.main.name = "farm"
 	expect()
-	go f.main.Serve()
+	task f.main.Serve()
 	served.Wait()
 	println("farm still holds", f.main.name, f.n)
 	f.main = nil
@@ -123,7 +123,7 @@ func main() {
 	z := alloc.Synced[Server]()
 	z.name = "synced-leave"
 	expect()
-	go z.Leave()
+	task z.Leave()
 	served.Wait()
 	z = nil
 	dropped.Wait()

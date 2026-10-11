@@ -49,7 +49,7 @@ func (wg *WaitGroup) Go(f func()) {
 	// The compiler cannot check that the frame does wait, so wg is hidden
 	// from the escape analysis (rt.Pinned); sync.Scope is the checked form
 	// (docs/plans/2026-10-10-scoped-puroutines.md).
-	go runDone(rt.Pinned(wg), f)
+	task runDone(rt.Pinned(wg), f)
 }
 
 func runDone(wg *WaitGroup, f func()) {

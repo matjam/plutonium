@@ -22,7 +22,7 @@ func handle(done chan bool) {
 func main() {
 	done := make(chan bool)
 	for i := 0; i < 4; i++ {
-		go handle(done)
+		task handle(done)
 	}
 	for i := 0; i < 4; i++ {
 		<-done
@@ -49,8 +49,8 @@ func add() {
 
 func main() {
 	wg.Add(2)
-	go add()
-	go add()
+	task add()
+	task add()
 	wg.Wait()
 	println(count)
 }`, []string{"main.p:22:10: count is read here without holding mu, which guards it",
@@ -81,8 +81,8 @@ func writer(done chan bool) {
 
 func main() {
 	done := make(chan bool)
-	go reader(done)
-	go writer(done)
+	task reader(done)
+	task writer(done)
 	<-done
 	<-done
 }`, []string{"table[0] is written here with no lock that guards it", "while holding rw only for reading"}},
@@ -111,8 +111,8 @@ func two(done chan bool) {
 
 func main() {
 	done := make(chan bool)
-	go one(done)
-	go two(done)
+	task one(done)
+	task two(done)
 	<-done
 	<-done
 }`, []string{"n is written here with no lock that guards it", "holding a", "holding b", "Here no one lock is held at every write"}},
@@ -135,8 +135,8 @@ func bump(done chan bool) {
 
 func main() {
 	done := make(chan bool)
-	go bump(done)
-	go bump(done)
+	task bump(done)
+	task bump(done)
 	<-done
 	<-done
 }`, []string{"main.p:13:2: n is written here with no lock that guards it"}},
@@ -165,8 +165,8 @@ func bad(done chan bool) {
 
 func main() {
 	done := make(chan bool)
-	go good(done)
-	go bad(done)
+	task good(done)
+	task bad(done)
 	<-done
 	<-done
 }`, []string{"main.p:9:20: n is written here with no lock that guards it", "in incLocked"}},
@@ -183,8 +183,8 @@ func handle(done chan bool) {
 
 func main() {
 	done := make(chan bool)
-	go handle(done)
-	go handle(done)
+	task handle(done)
+	task handle(done)
 	<-done
 	<-done
 	println(hits)
@@ -202,8 +202,8 @@ func bump(c *Counter, done chan bool) {
 
 func main() {
 	done := make(chan bool)
-	go bump(&counter, done)
-	go bump(&counter, done)
+	task bump(&counter, done)
+	task bump(&counter, done)
 	<-done
 	<-done
 }`, []string{"main.p:13:2: &counter is a view of Counter that may change while another puroutine uses it, so it cannot be passed to a new puroutine",
@@ -235,7 +235,7 @@ var c Counter
 
 func main() {
 	done := make(chan bool)
-	go work(&c, done)
+	task work(&c, done)
 	<-done
 	println(c.Peek())
 }`, []string{"main.p:26:2: &c is a view of Counter that may change while another puroutine uses it",
@@ -249,7 +249,7 @@ var job Job
 func main() {
 	ch := make(chan *Job, 1)
 	done := make(chan bool)
-	go show(ch, done)
+	task show(ch, done)
 	job.id = 1
 	ch <- &job
 	job.id = 2
@@ -274,7 +274,7 @@ func sum(xs []int, out chan int) {
 func main() {
 	xs := new([3]int)[:]
 	out := make(chan int)
-	go sum(xs, out)
+	task sum(xs, out)
 	xs[0] = 5
 	println(<-out)
 }`, []string{"xs is a view of int that may change while another puroutine uses it"}},
@@ -291,7 +291,7 @@ func show(c *Config, done chan bool) {
 
 func main() {
 	done := make(chan bool)
-	go show(&cfg, done)
+	task show(&cfg, done)
 	cfg.limit = 3
 	<-done
 }`, []string{"&cfg is a view of Config", "It points to the package variable cfg, which is written at main.p:14 while puroutines run."}},
@@ -313,7 +313,7 @@ var tv T
 func main() {
 	done := make(chan bool)
 	var s stringer = &tv
-	go show(s, done)
+	task show(s, done)
 	<-done
 }`, []string{"s (holding a *T) is a view of T"}},
 
@@ -340,8 +340,8 @@ func read(s synced[Stats], done chan bool) {
 func main() {
 	var s synced[Stats]
 	done := make(chan bool)
-	go record(s, done)
-	go read(s, done)
+	task record(s, done)
+	task read(s, done)
 	<-done
 	<-done
 }`, []string{"the field hits of a synced[Stats] is written here with no lock that guards it"}},
@@ -369,8 +369,8 @@ func peek(s synced[Stats], done chan bool) {
 func main() {
 	var s synced[Stats]
 	done := make(chan bool)
-	go record(s, done)
-	go peek(s, done)
+	task record(s, done)
+	task peek(s, done)
 	<-done
 	<-done
 }`, []string{"the field hits of a synced[Stats] is read here without holding mu, which guards it"}},
@@ -427,8 +427,8 @@ var c Counter
 
 func main() {
 	done := make(chan bool)
-	go work(&c, done)
-	go work(&c, done)
+	task work(&c, done)
+	task work(&c, done)
 	<-done
 	<-done
 	println(c.Get())
@@ -445,7 +445,7 @@ func (c *Counter) bump(done chan int) {
 func main() {
 	done := make(chan int)
 	c := new(Counter)
-	go c.bump(done)
+	task c.bump(done)
 	println(<-done)
 }`},
 
@@ -508,7 +508,7 @@ func work(id int, done chan bool) {
 	select {
 	case done <- true:
 	default:
-		go func() { done <- true }()
+		task func() { done <- true }()
 	}
 outer:
 	for i := range arr {
@@ -535,8 +535,8 @@ outer:
 
 func main() {
 	done := make(chan bool)
-	go work(0, done)
-	go work(1, done)
+	task work(0, done)
+	task work(1, done)
 	<-done
 	<-done
 	mu.Lock()
@@ -565,8 +565,8 @@ func show(t *Table, done chan int) { done <- t.rows[3] }
 
 func main() {
 	done := make(chan int)
-	go show(&table, done)
-	go show(&table, done)
+	task show(&table, done)
+	task show(&table, done)
 	println(<-done + <-done)
 }`},
 
@@ -588,8 +588,8 @@ func add() {
 
 func main() {
 	wg.Add(2)
-	go add()
-	go add()
+	task add()
+	task add()
 	wg.Wait()
 	mu.Lock()
 	println(count)
@@ -619,8 +619,8 @@ func get(i int) int {
 
 func main() {
 	done := make(chan bool)
-	go put(1, 2, done)
-	go put(2, 3, done)
+	task put(1, 2, done)
+	task put(2, 3, done)
 	<-done
 	<-done
 	println(get(1) + get(2))
@@ -650,8 +650,8 @@ func writer(done chan int) {
 
 func main() {
 	done := make(chan int)
-	go reader(done)
-	go writer(done)
+	task reader(done)
+	task writer(done)
 	<-done
 	<-done
 }`},
@@ -676,8 +676,8 @@ func work(done chan bool) {
 
 func main() {
 	done := make(chan bool)
-	go work(done)
-	go work(done)
+	task work(done)
+	task work(done)
 	<-done
 	<-done
 }`},
@@ -713,7 +713,7 @@ func worker(v int, done chan bool) {
 func main() {
 	done := make(chan bool)
 	for i := 0; i < 4; i++ {
-		go worker(i, done)
+		task worker(i, done)
 	}
 	for i := 0; i < 4; i++ {
 		<-done
@@ -741,8 +741,8 @@ func try(done chan bool) {
 
 func main() {
 	done := make(chan bool)
-	go try(done)
-	go try(done)
+	task try(done)
+	task try(done)
 	<-done
 	<-done
 }`},
@@ -759,8 +759,8 @@ func handle(done chan bool) {
 
 func main() {
 	done := make(chan bool)
-	go handle(done)
-	go handle(done)
+	task handle(done)
+	task handle(done)
 	<-done
 	<-done
 	println(hits.Load())
@@ -774,8 +774,8 @@ func use(done chan int) { done <- limit }
 func main() {
 	limit = 10
 	done := make(chan int)
-	go use(done)
-	go use(done)
+	task use(done)
+	task use(done)
 	println(<-done + <-done)
 }`},
 
@@ -801,7 +801,7 @@ func walk(n *Node, p Point, done chan string) {
 func main() {
 	done := make(chan string)
 	list := &a
-	go walk(list, Point{1, 2}, done)
+	task walk(list, Point{1, 2}, done)
 	println(<-done)
 	ch := make(chan *Node, 1)
 	ch <- list
@@ -824,8 +824,8 @@ var (
 
 func main() {
 	wg.Add(2)
-	go work(&wg, &mu)
-	go work(&wg, &mu)
+	task work(&wg, &mu)
+	task work(&wg, &mu)
 	wg.Wait()
 }`},
 
@@ -842,8 +842,8 @@ func sum(xs []int, out chan int) {
 
 func main() {
 	out := make(chan int)
-	go sum(table, out)
-	go sum(table[1:], out)
+	task sum(table, out)
+	task sum(table[1:], out)
 	println(<-out + <-out)
 }`},
 
@@ -861,7 +861,7 @@ func logger(done chan bool) {
 
 func main() {
 	done := make(chan bool)
-	go logger(done)
+	task logger(done)
 	<-done
 }`},
 
@@ -883,8 +883,8 @@ func record(s synced[Stats], done chan bool) {
 func main() {
 	var s synced[Stats]
 	done := make(chan bool)
-	go record(s, done)
-	go record(s, done)
+	task record(s, done)
+	task record(s, done)
 	<-done
 	<-done
 	s.mu.Lock()

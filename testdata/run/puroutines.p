@@ -83,8 +83,8 @@ var t9Show = T{9}
 func main() {
 	c := make(chan int)
 	r := make(chan int, 1)
-	go producer(100, c)
-	go sum(c, r)
+	task producer(100, c)
+	task sum(c, r)
 	println("sum", <-r)
 
 	b := make(chan pair, 3)
@@ -103,38 +103,38 @@ func main() {
 	}
 
 	d := make(chan string)
-	go vari(d, 1, 2, 3, 4)
+	task vari(d, 1, 2, 3, 4)
 	println(<-d)
-	go vari(d)
+	task vari(d)
 	println(<-d)
 	// Not []int{5, 6}: that array would be in main's frame, which the
 	// puroutine may outlive. Nor a slice main may still change: a view
 	// crosses to another puroutine only if what it points to cannot change
 	// while both use it, as a package variable nothing writes.
-	go vari(d, fiveSix...)
+	task vari(d, fiveSix...)
 	println(<-d)
 
 	bd := make(chan bool)
-	go T{7}.show(bd)
+	task T{7}.show(bd)
 	<-bd
 	// Package variables: the puroutines may outlive main's frame.
 	t := &tBump
-	go t.bump(bd)
+	task t.bump(bd)
 	<-bd
 	// Not T{9}: the interface would box it in main's frame.
 	t9 := &t9Show
 	var sh shower = t9
-	go sh.show(bd)
+	task sh.show(bd)
 	<-bd
 
 	f := func(x int, out chan int) { out <- x * 2 }
-	go f(21, r)
+	task f(21, r)
 	println(<-r)
 
-	go func(x int, r chan int) { r <- x + 1 }(41, r)
+	task func(x int, r chan int) { r <- x + 1 }(41, r)
 	println(<-r)
 
-	go both(two())
+	task both(two())
 	println(<-bothOut)
 
 	var bg big
@@ -142,15 +142,15 @@ func main() {
 		bg.a[i] = i * i
 	}
 	bg.s = "squares"
-	go bigArg(bg, r)
+	task bigArg(bg, r)
 	bg.a[0] = 1000 // the puroutine has its own copy
 	println(<-r)
 
 	gs := make(chan string, 1)
-	go gen("generic", gs)
+	task gen("generic", gs)
 	println(<-gs)
 	gp := make(chan pair, 1)
-	go gen(pair{1, 1, "p"}, gp)
+	task gen(pair{1, 1, "p"}, gp)
 	println((<-gp).s)
 
 	// Channels are comparable, and nil until made.

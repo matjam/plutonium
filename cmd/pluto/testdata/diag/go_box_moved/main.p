@@ -9,6 +9,6 @@ func (s *Server) Serve() { println("serving", s.name) }
 func main() {
 	p := new(Server)
 	p.name = "files"
-	go p.Serve()
+	task p.Serve()
 	println(p.name)
 }

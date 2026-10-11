@@ -66,7 +66,7 @@ func syncedInBuffer() {
 func handoff() {
 	c := make(chan string)
 	done := make(chan bool)
-	go func(c <-chan string, done chan<- bool) {
+	task func(c <-chan string, done chan<- bool) {
 		for s := range c {
 			println("got", s)
 		}
@@ -137,7 +137,7 @@ func server(reqs <-chan chan int) {
 
 func replies() {
 	reqs := make(chan chan int)
-	go server(reqs)
+	task server(reqs)
 	for i := 0; i < 3; i++ {
 		r := make(chan int)
 		reqs <- r
@@ -164,7 +164,7 @@ func mailbox() {
 	m := alloc.Synced[Mailbox]()
 	m.c = make(chan string, 2)
 	done := make(chan int)
-	go m.Serve(done)
+	task m.Serve(done)
 	m.c <- heap("abc")
 	m.c <- "de"
 	close(m.c)

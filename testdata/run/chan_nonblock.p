@@ -111,7 +111,7 @@ func main() {
 		default:
 		}
 
-		go i32receiver(c32, sync)
+		task i32receiver(c32, sync)
 		try := 0
 	Send32:
 		for {
@@ -129,7 +129,7 @@ func main() {
 		}
 		<-sync
 
-		go i32sender(c32, sync)
+		task i32sender(c32, sync)
 		if buffer > 0 {
 			<-sync
 		}
@@ -155,7 +155,7 @@ func main() {
 			<-sync
 		}
 
-		go i64receiver(c64, sync)
+		task i64receiver(c64, sync)
 		try = 0
 	Send64:
 		for {
@@ -172,7 +172,7 @@ func main() {
 		}
 		<-sync
 
-		go i64sender(c64, sync)
+		task i64sender(c64, sync)
 		if buffer > 0 {
 			<-sync
 		}
@@ -197,7 +197,7 @@ func main() {
 			<-sync
 		}
 
-		go breceiver(cb, sync)
+		task breceiver(cb, sync)
 		try = 0
 	SendBool:
 		for {
@@ -214,7 +214,7 @@ func main() {
 		}
 		<-sync
 
-		go bsender(cb, sync)
+		task bsender(cb, sync)
 		if buffer > 0 {
 			<-sync
 		}
@@ -239,7 +239,7 @@ func main() {
 			<-sync
 		}
 
-		go sreceiver(cs, sync)
+		task sreceiver(cs, sync)
 		try = 0
 	SendString:
 		for {
@@ -256,7 +256,7 @@ func main() {
 		}
 		<-sync
 
-		go ssender(cs, sync)
+		task ssender(cs, sync)
 		if buffer > 0 {
 			<-sync
 		}

@@ -39,10 +39,10 @@ func goStatements() {
 	base := heap("base")
 	results := make(chan string, 8)
 	wg.Add(3)
-	go worker(results, base, tagged{tag: heap("t1"), n: 1, note: "static"})
-	go worker(results, base+"+", tagged{tag: "t2", n: 2, note: heap("n2")}, heap("x"), "y")
+	task worker(results, base, tagged{tag: heap("t1"), n: 1, note: "static"})
+	task worker(results, base+"+", tagged{tag: "t2", n: 2, note: heap("n2")}, heap("x"), "y")
 	t := tagged{tag: heap("t3"), n: 3}
-	go worker(results, "lit", t, base)
+	task worker(results, "lit", t, base)
 	base = "changed" // the puroutines hold their own references
 	t.tag = "gone"
 	wg.Wait()
@@ -88,7 +88,7 @@ func sharedCounts() {
 	shared := heap("shared between puroutines")
 	done := make(chan int)
 	for i := 0; i < 4; i++ {
-		go copier(shared, 20000, done)
+		task copier(shared, 20000, done)
 	}
 	total := 0
 	for i := 0; i < 4; i++ {
@@ -133,7 +133,7 @@ func channels() {
 
 	// Unbuffered, from another puroutine, received with range.
 	un := make(chan string)
-	go func(c chan<- string, n int) {
+	task func(c chan<- string, n int) {
 		for i := 0; i < n; i++ {
 			c <- "item " + strconv.Itoa(i)
 		}

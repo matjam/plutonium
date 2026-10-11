@@ -10,8 +10,8 @@ func (s *Server) Serve() { println("serving", s.name) }
 // receiver of a go statement. A synced one can.
 func main() {
 	z := alloc.Shared[Server]()
-	go z.Serve()
+	task z.Serve()
 
 	y := alloc.Synced[Server]()
-	go y.Serve()
+	task y.Serve()
 }
