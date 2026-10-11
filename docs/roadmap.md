@@ -1,6 +1,6 @@
 # Plutonium roadmap
 
-**Updated:** 2026-10-10
+**Updated:** 2026-10-11
 
 Every known gap between the specification and the compiler and standard library, in priority order. The
 specification ([language.md](spec/language.md), version 0.3, with the binary interface in
@@ -31,20 +31,20 @@ The implementation gaps of
 | Gap | Subject | Item | Section |
 |---|---|---|---|
 | 1 | Order of evaluation (done) | 73 | 11.26 |
-| 2 | Pointer-receiver method on an owner temporary | 78 | 11.14, 12.4 |
-| 3 | Composite literal keys that name promoted fields | 79 | 11.3 |
+| 2 | Pointer-receiver method on an owner temporary (done) | 78 | 11.14, 12.4 |
+| 3 | Composite literal keys that name promoted fields (done) | 79 | 11.3 |
 | 4 | Package initialization order (done) | 80 | 15.3 |
-| 5 | `len` of a `ring[T, N]` | 81 | 13.6, 7.17 |
+| 5 | `len` of a `ring[T, N]` (done) | 81 | 13.6, 7.17 |
 | 6 | `defer` of built-ins that may not be deferred | 82 | 12.19 |
-| 7 | Exhaustive enum switch is a terminating statement | 75 | 12.1, 12.9, 7.12 |
-| 8 | `append` and the others are not predeclared | 83 | 10.3, 13.1 |
+| 7 | Exhaustive enum switch is a terminating statement (done) | 75 | 12.1, 12.9, 7.12 |
+| 8 | `append` and the others are not predeclared (done) | 83 | 10.3, 13.1 |
 | 9 | Every nil dereference panics (done) | 84 | 17.5 |
 | 10 | No untagged heap or arena memory in checked builds | 85 | 18.11 |
-| 11 | Sendability looks through pointers and slices | 86 | 8.8, 19.2 |
-| 12 | An owner's sendability is decided by what it holds | 87 | 8.8 |
-| 13 | A channel or map in an ordinary interface is lent | 88 | 7.9 |
-| 14 | Operators other than comparison do not apply to an owner | 89 | 11.18, 7.18 |
-| 15 | A `//go:` line comment is an error | 75 | 4.1, 20.3 |
+| 11 | Sendability looks through pointers and slices (done) | 86 | 8.8, 19.2 |
+| 12 | An owner's sendability is decided by what it holds (done) | 87 | 8.8 |
+| 13 | A channel or map in an ordinary interface is lent (done) | 88 | 7.9 |
+| 14 | Operators other than comparison do not apply to an owner (done) | 89 | 11.18, 7.18 |
+| 15 | A `//go:` line comment is an error (done) | 75 | 4.1, 20.3 |
 | 16 | `portable` (done) | 70 | 8.9 |
 | 17 | Task stacks from the program-wide default allocator (done) | 90 | 19.1 |
 | 18 | Stack overflow message and stack probes (done) | 91 | 19.1, 17.5 |
@@ -52,14 +52,17 @@ The implementation gaps of
 | 20 | The `task` statement and the rename sweep (done) | 62 | 12.12, 4.5, 4.6, 17.1 |
 | 21 | The built-in `map[K]V` (done) | 60 | 7.10, 12.10, 13.5, 13.7 |
 | 22 | Counted `error` values and library error types | 11, 69 | 16.7, 16.5 |
-| 23 | Package initializer that allocates, in a freestanding build | 75 | 15.2 |
-| 24 | Embedding `shared[T]` and `synced[T]` | 92 | 7.6, 7.19 |
+| 23 | Package initializer that allocates, in a freestanding build (done) | 75 | 15.2 |
+| 24 | Embedding `shared[T]` and `synced[T]` (done) | 92 | 7.6, 7.19 |
 | 31 | The `or` clause (done) | 99 | 11.27, 4.6 |
 | 32 | Package initialization starts no task (decision G44 pending) | 100 | 15.2, 15.3, 19.1, 19.3 |
+| 33 | `clear` of a slice of owners drops each element | 75 | 13.3 |
 
 The pass that aligned the documents with the chapters found six more, items 93 to 98; they are rows 25 to
 30 of complete-spec section 6.5. Row 31, item 99, is the `or` clause, decided later the same day. Row 32,
-item 100, comes from the pass that removed the specification's internal contradictions.
+item 100, comes from the pass that removed the specification's internal contradictions. Row 33, item 75, is
+the `clear` of a slice of owners, found when the spec fix pass checked item 75's sub-items against the
+compiler (2026-10-11).
 
 ## Wrong code and silent failures
 
@@ -83,40 +86,41 @@ item 100, comes from the pass that removed the specification's internal contradi
     an `f` that changes `a` gives `[2 2]`. Open: survey the rest of `internal/lower` and add `testdata/run`
     and difftest cases (assignments, `x[i] = f()`, operands of operators); every difference from the
     specified order is a false friend and is fixed.
-78. **A pointer-receiver method on an owner temporary** (planned, gap 2; sections 11.14 and 12.4):
+78. **A pointer-receiver method on an owner temporary** (done, gap 2, `04d7cf95`; sections 11.14 and 12.4):
     `readAll(f).Slice()`, with views of the temporary limited to the statement.
-79. **Composite literal keys that name promoted fields** (planned, gap 3; section 11.3): the compiler
-    crashes; it must accept or report an error.
+79. **Composite literal keys that name promoted fields** (done, gap 3, `42dc6640`; section 11.3): the key
+    selects the promoted field; lowering used to crash on it.
 80. **Package initialization order** (done, gap 4, `4aa24f2`; section 15.3): `pluto/rt` and `pluto/alloc`
     first, then the remaining packages by import path, each after its imports.
-81. **`len` of a `ring[T, N]`** (planned, gap 5; sections 13.6 and 7.17): verified to be rejected today.
+81. **`len` of a `ring[T, N]`** (done, gap 5, `36160adc`; sections 13.6 and 7.17): `len(r)` calls `r.Len()`,
+    as for a library container; `cap(r)` stays an error.
 82. **`defer` of built-ins that may not be deferred** (planned, gap 6; section 12.19, chapter 13): E2532,
     with the fix to wrap the call in a function literal.
 83. **`append`, `recover`, `complex`, `real`, `imag`, `complex64` and `complex128` are not predeclared**
-    (planned, gap 8; sections 10.3 and 13.1): a program may declare them, and a use without a declaration
-    is the error that names the replacement. `append` stays predeclared today so that E2013 can name it.
+    (done, gap 8, `4e0cb95c`; sections 10.3 and 13.1): a program may declare them, and a use without a
+    declaration is the error that names the replacement.
 84. **Every nil dereference panics** (done, gap 9, `64e41b2`; section 17.5): an access whose offset from the
     pointer can reach past the unmapped page compares the pointer with nil first.
 85. **No untagged heap or arena memory in checked builds** (planned, gap 10; section 18.11, abi.md section
     1.3): slab allocations over 2 KiB, arena chunks over 56 KiB and the buffer of a fixed `arena.Arena` get
     generations or epochs.
-86. **Sendability looks through pointers and slices** (planned, gap 11; sections 8.8 and 19.2): a `*S`
-    whose `S` holds a `shared[T]` is not sendable.
-87. **An owner's sendability is decided by what it holds** (planned, gap 12; section 8.8): a view field that
-    holds only memory the owner allocated moves with it; any other view field is checked where the owner
-    crosses. Today owners of packages that import `unsafe` are exempt (`internal/race`).
-88. **A channel or map in an ordinary interface is lent** (planned, gap 13; section 7.9): as a `shared[T]`
-    is, so `func f() any { return make(chan int) }` is E3001 (verified: it compiles today).
-89. **Operators other than comparison do not apply to an owner** (planned, gap 14; sections 11.18 and
-    7.18): `*f + 1` for `type Fd owner int32` is an error (verified: accepted today).
+86. **Sendability looks through pointers and slices** (done, gap 11, `29b06f73`; sections 8.8 and 19.2): a
+    `*S` whose `S` holds a `shared[T]` is not sendable.
+87. **An owner's sendability is decided by what it holds** (done, gap 12, `44e0ac24`; section 8.8): a view
+    field that holds only memory the owner allocated moves with it; any other view field is checked where
+    the owner crosses.
+88. **A channel or map in an ordinary interface is lent** (done, gap 13, `2c5ad38f`; section 7.9): as a
+    `shared[T]` is, so `func f() any { return make(chan int) }` is E3001.
+89. **Operators other than comparison do not apply to an owner** (done, gap 14, `1ddde0ac`; sections 11.18
+    and 7.18): `*f + 1` for `type Fd owner int32` is E3214, naming the conversion that reads the value.
 90. **Task stacks from the program-wide default allocator** (done, gap 17, `cb9e3ef`; section 19.1, abi.md
     section 12.1): never from the starting task's `alloc.Use` override.
 91. **Stack overflow message and probes** (done, gap 18; sections 19.1 and 17.5, abi.md section 6): the
     panic names the size of the stack and how to ask for more (`rt.Go(f, size)` for a task, `//pu:stack`
     for `main`), and a function whose frame leaves its first call more than a page below its pushes probes
     each page of the frame in its prologue, so that it cannot step over the guard.
-92. **Embedding `shared[T]` and `synced[T]`** (planned, gap 24; sections 7.6 and 7.19): embedding promotes
-    `T`'s methods, as `owned[T]` does. To verify.
+92. **Embedding `shared[T]` and `synced[T]`** (done, gap 24, `2a0c6a21`; sections 7.6 and 7.19): embedding
+    promotes `T`'s methods, as `owned[T]` does; verified by `embedshared.p`.
 94. **Any two functions exported under one symbol are E2512** (planned; section 20.4): `internal/lower`
     reports it only for wrapped exports.
 95. **Channel reference counts** (decided, gap 26; sections 18.7 and 19.8): the specification follows the code.
@@ -281,16 +285,19 @@ item 100, comes from the pass that removed the specification's internal contradi
     1.02x over `bench/`. Open: item 85.
 72. **Arena epochs** (done, `3410025`; section 18.11, abi.md section 1.3): `arena.Chunked` carries a
     per-arena epoch; `alloc.SyncSlab` tags its allocations.
-75. **Language checks the integration left open** (planned, gaps 7, 15 and 23; each is checked against the
-    compiler when the work starts, and those already enforced are struck): a `//go:` line comment is an
-    error that names the `//pu:` equivalent (sections 4.1 and 20.3); `iota` in an enum is an error
-    (7.12, 10.7); a package initializer that allocates in a freestanding build is an error (15.2); an
-    expression that moves a variable and uses it elsewhere is an error whatever the order (11.26, 18.5); a
-    consuming method used as a method value is an error (11.9); an exhaustive enum switch is a terminating
-    statement and panics for a value that is not a member, as a union switch does (12.1, 12.9, 7.12);
-    `clear` on a slice of owners drops each element (13.3); the directive groups of section 20.3
-    (`section`, `noreturn`, `noescape`, `nosimd`, `nochecks`, with `nobounds` retired into `nochecks`, E2601)
-    with AGENTS.md and `internal/lsp/hover.go` changing together.
+75. **Language checks the integration left open** (done, gaps 7, 15 and 23 and the directive group; each
+    sub-item was checked against the compiler before it was struck): a `//go:` line comment is an error
+    that names the `//pu:` equivalent (sections 4.1 and 20.3, E2604, `57a292e4`); `iota` in an enum is an
+    error (7.12, 10.7, E0036); a package initializer that allocates in a freestanding build is an error
+    (15.2, E2586, `15290dd6`); an expression that moves a variable and uses it elsewhere is an error
+    whatever the order (11.26, 18.5, E3301); an exhaustive enum switch is a terminating statement and
+    panics for a value that is not a member, as a union switch does (12.1, 12.9, 7.12, `b87fbac2`); the
+    directive groups of section 20.3 (`section`, `noreturn`, `noescape`, `nosimd`, `nochecks`, with
+    `nobounds` retired into `nochecks`, E2601, `45f1758`), with AGENTS.md and `internal/lsp/hover.go` in
+    step. Open: a consuming method used as a method value is an error (11.9; G26, decision (a): the method
+    expression and the direct call still work; the compiler accepts it today); `clear` on a slice of
+    owners drops each element (13.3; the compiler zeroes the elements without dropping them, and the drops
+    run at the scope's end, on the zero values; row 33).
 77. **No `append`** (done, `38f6777`, `fa4bdcc`, `57e4f05`; sections 13.1, 7.5 and 18.10,
     [plan](plans/2026-10-10-remove-append.md)): every call is E2013 with the fix for its idiom; `vec.Vec`
     grows, `vec.Fixed` is bounded; `fmt.Appendf` replaces `Bprintf`; `make([]T, ...)` is E2014 (fix

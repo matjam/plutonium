@@ -1479,7 +1479,9 @@ One agent, after every part has landed:
 
 Phase 3 integrated the chapters on 2026-10-10, and the pass that aligned the companion documents, the
 plans and the README with them (2026-10-10) added rows 25 to 30. Row 32 came with the pass that removed the specification's internal contradictions (the `> **Open (G44)` block of section 15.2). Row 31 came with the `or` clause,
-decided by the user later the same day. The specification now defines the decided language; the
+decided by the user later the same day. Row 33 came with the spec fix pass of 2026-10-11, which checked the
+sub-items of roadmap item 75 against the compiler and found that `clear` of a slice of owners zeroes without
+dropping. The specification now defines the decided language; the
 compiler does not yet meet it in the places below. Each item names the section that states the rule, so
 that an implementation agent works from the text. Items marked *verified* were confirmed with a program
 compiled by the compiler at the time of the integration; the others come from the chapter writers or from
@@ -1488,20 +1490,20 @@ reading the code.
 | # | Gap | Section | Roadmap item |
 |---|---|---|---|
 | 1 | Order of evaluation: operands other than calls, method calls and receives are read after the calls; `x := []int{a, f()}` with `f` incrementing `a` gives `[2 2]`. Lowering gives `[1 2]` (*verified*; roadmap 73). (done: `f74c4a4`). | 11.26 | 73 |
-| 2 | A pointer-receiver method on an owner temporary (`readAll(f).Slice()`), with views of it limited to the statement. | 11.14, 12.4 | 78 |
-| 3 | Composite literal keys that name promoted fields crash the compiler (writers' report). | 11.3 | 79 |
+| 2 | A pointer-receiver method on an owner temporary (`readAll(f).Slice()`), with views of it limited to the statement. (done: `04d7cf95`). | 11.14, 12.4 | 78 |
+| 3 | Composite literal keys that name promoted fields crash the compiler (writers' report). (done: `42dc6640`). | 11.3 | 79 |
 | 4 | Package initialization order: `pluto/rt` and `pluto/alloc` first, then the remaining packages by import path, each after its imports (done: `4aa24f2`). | 15.3 | 80 |
-| 5 | `len` of a `ring[T, N]` (*verified*: "invalid argument for built-in len"). | 13.6, 7.17 | 81 |
+| 5 | `len` of a `ring[T, N]` (*verified*: "invalid argument for built-in len"). (done: `36160adc`). | 13.6, 7.17 | 81 |
 | 6 | `defer` of the built-ins that may not be deferred directly is E2532, with the fix to wrap them. | 12.19, chapter 13 | 82 |
-| 7 | An exhaustive enum switch is a terminating statement (*verified*: "missing return"), and it panics for a value that is not a member, as a union switch does for a tag that names no variant. | 12.1, 12.9, 7.12 | 75 |
-| 8 | `append`, `recover`, `complex`, `real`, `imag`, `complex64` and `complex128` are not predeclared: a program may declare them, and a use without a declaration is the error that names the replacement. Today `append` stays predeclared so that E2013 can name it. | 10.3, 13.1 | 83 |
+| 7 | An exhaustive enum switch is a terminating statement (*verified*: "missing return"), and it panics for a value that is not a member, as a union switch does for a tag that names no variant. (done: `b87fbac2`). | 12.1, 12.9, 7.12 | 75 |
+| 8 | `append`, `recover`, `complex`, `real`, `imag`, `complex64` and `complex128` are not predeclared: a program may declare them, and a use without a declaration is the error that names the replacement. Today `append` stays predeclared so that E2013 can name it. (done: `4e0cb95c`). | 10.3, 13.1 | 83 |
 | 9 | Every nil dereference panics: an explicit check where the offset of an access from the pointer can exceed the unmapped region below address zero (done: `64e41b2`). | 17.5 | 84 |
 | 10 | No untagged heap or arena memory in checked builds: slab allocations over 2 KiB, arena chunks over 56 KiB and the buffer of a fixed `arena.Arena` get generations or epochs. | 18.11, abi.md 1.3 | 85 |
-| 11 | Sendability looks through pointers and slices: a `*S` whose `S` holds a `shared[T]` is not sendable. | 8.8, 19.2 | 86 |
-| 12 | An owner's sendability is decided by what it holds: a view field that holds only memory the owner allocated moves with it; any other view field is checked where the owner crosses. Today owners of packages that import `unsafe` are exempt (`internal/race`). | 8.8 | 87 |
-| 13 | A channel or map in an ordinary interface is lent, as a `shared[T]` is: `func f() any { return make(chan int) }` is E3001 (*verified*: compiles today). The data word holds it (escape already treats it as direct). | 7.9 | 88 |
-| 14 | Operators other than comparison do not apply to an owner: `*f + 1` for `type Fd owner int32` is an error (*verified*: accepted today). | 11.18, 7.18 | 89 |
-| 15 | A `//go:` line comment is an error in the E2600 family that names the `//pu:` equivalent (*verified*: `//go:noinline` is accepted silently). | 4.1, 20.3 | 75 |
+| 11 | Sendability looks through pointers and slices: a `*S` whose `S` holds a `shared[T]` is not sendable. (done: `29b06f73`). | 8.8, 19.2 | 86 |
+| 12 | An owner's sendability is decided by what it holds: a view field that holds only memory the owner allocated moves with it; any other view field is checked where the owner crosses. Today owners of packages that import `unsafe` are exempt (`internal/race`). (done: `44e0ac24`; the `unsafe` exemption is gone). | 8.8 | 87 |
+| 13 | A channel or map in an ordinary interface is lent, as a `shared[T]` is: `func f() any { return make(chan int) }` is E3001 (*verified*: compiles today). The data word holds it (escape already treats it as direct). (done: `2c5ad38f`). | 7.9 | 88 |
+| 14 | Operators other than comparison do not apply to an owner: `*f + 1` for `type Fd owner int32` is an error (*verified*: accepted today). (done: `1ddde0ac`). | 11.18, 7.18 | 89 |
+| 15 | A `//go:` line comment is an error in the E2600 family that names the `//pu:` equivalent (*verified*: `//go:noinline` is accepted silently). (done: `57a292e4`, E2604). | 4.1, 20.3 | 75 |
 | 16 | `portable` as a predeclared constraint, structural, with no owner portable (done: `3146e99`). | 8.9 | 70 |
 | 17 | Task stacks come from the program-wide default allocator (or the backend's memory), never from the starting task's `alloc.Use` override (done: `cb9e3ef`). | 19.1 | 90 |
 | 18 | The stack overflow panic names the size of the stack and how to ask for more; a function whose frame is larger than the guard region probes its stack so that it cannot step over the guard. | 19.1, 17.5 | 91 |
@@ -1509,8 +1511,8 @@ reading the code.
 | 20 | The `task` statement and the rename sweep: `task f(x)` as a contextual keyword, `go f()` an error that names `task`, "task N" in traces and deadlock reports, `rt.Panic.Task`, E-code texts (done: `4cb685c`, `3967e27`, `523a21f`, `6798a0c`). | 12.12, 4.5, 4.6, 17.1 | 62 |
 | 21 | The built-in `map[K]V` (done: `7867af2`, `8fd4ab7`, `0f8bc1b`, `c491a67`). | 7.10, 12.10, 13.5, 13.7 | 60 |
 | 22 | `error` values count a `shared` or `synced` reference they hold; library error types (`*os.PathError`, `*strconv.NumError`) are counted objects (roadmap 11). | 16.7, 16.5 | 11, 69 |
-| 23 | A package-level initializer that allocates is a compile error in freestanding builds (to verify). | 15.2 | 75 |
-| 24 | Embedding `shared[T]` and `synced[T]` in a struct, promoting `T`'s methods (embedding `owned[T]` works). To verify. | 7.6, 7.19 | 92 |
+| 23 | A package-level initializer that allocates is a compile error in freestanding builds (to verify). (done: `15290dd6`, E2586). | 15.2 | 75 |
+| 24 | Embedding `shared[T]` and `synced[T]` in a struct, promoting `T`'s methods (embedding `owned[T]` works). To verify. (done: `2a0c6a21`, verified by `embedshared.p`). | 7.6, 7.19 | 92 |
 | 25 | Any two functions exported under one symbol are E2512. `internal/lower` reports it only for wrapped exports. | 20.4 | 94 |
 | 26 | ~~Channel reference counts are always atomic.~~ Closed by the specification: every count except `shared` is plain until the program starts its first task, then atomic (18.7), which is what `rt/chan.p` does. | 18.7, 19.8 | 95 |
 | 27 | The debug allocator reports package-variable memory apart from leaks. | 15.4, 18.6 | 96 |
@@ -1519,6 +1521,7 @@ reading the code.
 | 30 | `pluto doc` shows a package's documentation and the kind of each type; the compiler has no `doc` command. | 1.1, 18.1, F | 93 |
 | 31 | The `or` clause, decided by the user on 2026-10-10: `v := f() or return`, `or continue`, `or panic(err)` and `or { ... }` after a call whose last result is exactly `error`. Parser: `or` as a contextual keyword after the expression that ends a simple statement, `OrStmt` among the simple statements, syntax error E1013 for an operand that is not a call. Type checker: E2461 to E2465 (an `or` in a post statement is E2465), the implicit block that declares `err` (never reported unused), the leaving-statement rule (terminating statements plus `break` and `continue`), and the two short forms of an unbraced `return`. Move checker, escape analysis and lowering: the test after the call, the drop of the call's temporaries before the clause, nothing assigned or declared on the error path, and the clause as an ordinary return or branch (drops, scope joins, deferred calls). Also `pluto fmt`, the completion list of `internal/lsp`, and catalog entries for the new codes (`go generate` in `internal/types2/errors`). *Verified* with the compiler at the time of writing: every shape of section 11.27 fails at the `or` ("expected ';', found or") and nothing else in the examples fails to parse; the `if err != nil` forms of the complete program compile and run. | 11.27, 4.6, 12.1, 12.10, 12.14 | 99 |
 | 32 | Package initialization starts no task (decision G44, pending): a `task` statement, `s.Task`, `wg.Task` or a library task starter reachable from a package-level initializer or an `init` function is a compile error that names the start and the initializer, with the fix to start the task from `main`. The check follows calls through the whole program, as the allocation check of row 23 does, and needs an error code (the next free E3xxx or type checker code). Library packages whose initialization starts a task are changed first. | 15.2, 15.3, 19.1, 19.3 | 100 |
+| 33 | `clear` of a slice of owners drops each element before the place becomes the zero value (decision G28). *Verified* 2026-10-11: the compiler zeroes the elements without dropping them, and the drops run at the scope's end, on the zero values. | 13.3 | 75 |
 
 Counted channels with their timers (`bdb7683`), 64 MiB lazily mapped hosted task stacks (`173c2f6`) and
 `sync.Scope` (`a7948f6`) and generation checks by default in hosted builds (`766837b`) landed before the
@@ -1526,6 +1529,11 @@ integration and are not gaps.
 The built-in `map[K]V` (gap 21), `portable` (gap 16), the package initialization order (gap 4), the order of evaluation (gap 1), nil
 dereferences (gap 9), task stacks (gap 17) and the `task` statement (gap 20) landed after
 the integration; their rows stay so that the numbers do not change.
+The owner temporary (gap 2), the composite literal keys (gap 3), the `len` of a `ring` (gap 5), the
+exhaustive enum switch (gap 7), the non-predeclared built-ins (gap 8), sendability through pointers (gap
+11), the owner's sendability (gap 12), the lent channel in an interface (gap 13), the owner operators (gap
+14), the `//go:` comment (gap 15), the freestanding initializer (gap 23) and the embedded `shared` and
+`synced` (gap 24) landed with the passes of 2026-10-11; their rows stay so that the numbers do not change.
 
 Rows 25 to 30 were read from the code and the companion documents, not run. Each row has a roadmap item
 (`docs/roadmap.md`, "Gaps of the integrated specification"), which also records the commits of the work
