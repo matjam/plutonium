@@ -421,6 +421,8 @@ type Pragma uint16
 const (
 	PragmaInline Pragma = 1 << iota
 	PragmaNoInline
+	// PragmaNoBounds (//pu:nochecks) omits the index bounds, slice range and
+	// rune boundary checks in the function's body.
 	PragmaNoBounds
 	PragmaInterrupt
 	// PragmaNoSIMD (//pu:nosimd) keeps the optimiser from introducing
