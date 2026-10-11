@@ -1,0 +1,38 @@
+$DIR/main.p:9:11: recover is not permitted in Plutonium (a panic cannot be stopped; return errors instead)
+    In Plutonium, panic stops the program. A hosted program first runs the
+    pending deferred calls, as Go does, but control never returns to the
+    function that panicked, so there is nothing for recover to catch.
+    Report failures that the caller can handle by returning an error instead.
+    Resuming a function after a panic needs an unwinder, tables and runtime
+    support that a kernel cannot rely on, and a panic in kernel code means the
+    state is already wrong.
+    Return an error instead:
+        func parse(s string) (int, error) {
+            if s == "" {
+                return 0, errors.New("empty input")
+            }
+            ...
+        }
+    (see "Built-ins Plutonium does not have" in the Plutonium spec, section
+    13.1)
+    (run "pluto explain E2004" for a longer explanation)
+
+$DIR/main.p:16:18: complex numbers are not permitted in Plutonium (they are rarely useful in systems code; use a struct of two floats)
+    Plutonium has no complex number types (complex64 and complex128) and no
+    complex, real or imag builtins.
+    Use a struct of two floats for the real and imaginary parts.
+    Complex numbers are rarely useful in systems code, and leaving them out
+    keeps the code generator small.
+    Use a struct:
+        type Complex struct{ Re, Im float64 }
+    (see "Numeric types" in the Plutonium spec, section 7.2)
+    (run "pluto explain E2006" for a longer explanation)
+
+$DIR/main.p:17:9: complex numbers are not permitted in Plutonium (they are rarely useful in systems code; use a struct of two floats)
+    (explained above; run "pluto explain E2006" for more)
+
+$DIR/main.p:22:8: complex numbers are not permitted in Plutonium (they are rarely useful in systems code; use a struct of two floats)
+    (explained above; run "pluto explain E2006" for more)
+
+$DIR/main.p:24:20: complex numbers are not permitted in Plutonium (they are rarely useful in systems code; use a struct of two floats)
+    (explained above; run "pluto explain E2006" for more)

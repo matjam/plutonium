@@ -9,6 +9,7 @@ import (
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/parser"
 	"github.com/matjam/plutonium/internal/syntax/token"
+	"github.com/matjam/plutonium/internal/testguard"
 	"github.com/matjam/plutonium/internal/types2"
 )
 
@@ -107,22 +108,57 @@ func f() int64 {
 `)
 }
 
-// TestComplexInConstraints checks that complex types may still name type
-// set terms, as constraints shared with Go code do, and that untyped
-// complex constants with a real value convert as in Go.
-func TestComplexInConstraints(t *testing.T) {
+// TestComplexConstants checks that untyped complex constants with a real
+// value convert as in Go.
+func TestComplexConstants(t *testing.T) {
 	mustCheck(t, `package p
 
-type Number interface {
-	~int | ~float64 | ~complex64 | ~complex128
+var b float64 = 2 + 0i
+`)
 }
 
-func Sq[T Number](x T) T { return x * x }
+// TestRemovedNames checks that append, recover, complex, real, imag,
+// complex64 and complex128 are not predeclared (language spec sections 10.3
+// and 13.1): a program may declare them, and its declarations hide nothing.
+func TestRemovedNames(t *testing.T) {
+	testguard.Parallel(t)
+	pkg, _ := mustCheck(t, `package p
 
-var a = Sq(3)
-var b float64 = 2 + 0i
-var c = real(1 + 2i)
+type complex128 struct{ re, im float64 }
+
+func complex(re, im float64) complex128 { return complex128{re, im} }
+func real(c complex128) float64          { return c.re }
+func imag(c complex128) float64          { return c.im }
+
+type complex64 = complex128
+
+func append(s []int, x int) int { return len(s) + x }
+
+func recover() bool { return false }
+
+func f() float64 {
+	var z complex64 = complex(1, 2)
+	n := append([]int{1}, 2)
+	if recover() {
+		return 0
+	}
+	return real(z) + imag(z) + float64(n)
+}
+
+func g() int {
+	append := 3
+	real := append * 2
+	return real
+}
 `)
+	for _, name := range []string{"append", "recover", "complex", "real", "imag", "complex64", "complex128"} {
+		if types2.Universe.Lookup(name) != nil {
+			t.Errorf("%s is predeclared", name)
+		}
+		if pkg.Scope().Lookup(name) == nil {
+			t.Errorf("%s: the package's declaration is missing", name)
+		}
+	}
 }
 
 func TestForbiddenConstructs(t *testing.T) {
@@ -134,6 +170,13 @@ func TestForbiddenConstructs(t *testing.T) {
 		{"complex constant", "package p\nfunc f() { x := 2i; _ = x }", "complex numbers are not permitted"},
 		{"complex type argument", "package p\nfunc id[T any](x T) T { return x }\nvar _ = id(2i)", "complex numbers are not permitted"},
 		{"complex conversion", "package p\nvar f float64\nvar _ = complex(f, f)", "complex numbers are not permitted"},
+		{"complex in a constraint", "package p\ntype N interface{ ~int | ~complex64 }", "complex numbers are not permitted"},
+		{"real", "package p\nvar _ = real(1 + 2i)", "complex numbers are not permitted"},
+		{"imag", "package p\nfunc f(x float64) float64 { return imag(x) }", "complex numbers are not permitted"},
+		{"append", "package p\nfunc f(s []int) []int { return append(s, 1) }", "append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)"},
+		{"append as a value", "package p\nvar g = append", "append is not permitted"},
+		{"recover in a defer", "package p\nfunc f() { defer recover() }", "recover is not permitted in Plutonium (a panic cannot be stopped; return errors instead)"},
+		{"append after the scope of a local append", "package p\nfunc f() {\n\t{\n\t\tappend := 1\n\t\t_ = append\n\t}\n\t_ = append\n}", "append is not permitted"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) { mustFail(t, c.src, c.want) })

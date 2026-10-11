@@ -1,0 +1,5 @@
+$DIR/main.p:9:11: recover is not permitted in Plutonium (a panic cannot be stopped; return errors instead)
+$DIR/main.p:16:18: complex numbers are not permitted in Plutonium (they are rarely useful in systems code; use a struct of two floats)
+$DIR/main.p:17:9: complex numbers are not permitted in Plutonium (they are rarely useful in systems code; use a struct of two floats)
+$DIR/main.p:22:8: complex numbers are not permitted in Plutonium (they are rarely useful in systems code; use a struct of two floats)
+$DIR/main.p:24:20: complex numbers are not permitted in Plutonium (they are rarely useful in systems code; use a struct of two floats)

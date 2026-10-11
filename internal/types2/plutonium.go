@@ -202,6 +202,26 @@ func isMainStatus(results *ast.FieldList) bool {
 	return ok && id.Name == "int64"
 }
 
+// removedName reports a use of a name that Go predeclares and Plutonium
+// does not, and that the program has not declared itself (language spec
+// sections 10.3 and 13.1): the functions append, recover, complex, real and
+// imag and the types complex64 and complex128. Each has an error of its
+// own that says what to write instead. It reports whether e is one.
+func (check *Checker) removedName(e *ast.Ident) bool {
+	switch e.Name {
+	case "append":
+		check.forbidden(e, AppendNotPermitted, "append is", "a slice cannot grow; use pluto/vec")
+	case "recover":
+		check.forbidden(e, RecoverNotPermitted, "recover is", "a panic cannot be stopped; return errors instead")
+	case "complex", "real", "imag", "complex64", "complex128":
+		// Reported with the complex values, once per line (reportComplex).
+		check.complexAt = append(check.complexAt, e.Pos())
+	default:
+		return false
+	}
+	return true
+}
+
 // complexReason is why complex numbers are not part of Plutonium.
 const complexReason = "they are rarely useful in systems code; use a struct of two floats"
 

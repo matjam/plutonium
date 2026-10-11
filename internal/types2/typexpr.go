@@ -26,6 +26,8 @@ func (check *Checker) ident(x *operand, e *ast.Ident, wantType bool) {
 	case nil:
 		if e.Name == "_" {
 			check.error(e, InvalidBlank, "cannot use _ as value or type")
+		} else if check.removedName(e) {
+			// reported
 		} else if isValidName(e.Name) {
 			check.errorf(e, UndeclaredName, "undefined: %s%s", e.Name, check.enumMemberHint(e.Name))
 		}

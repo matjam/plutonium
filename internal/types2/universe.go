@@ -74,6 +74,11 @@ var basicAliases = [...]*Basic{
 
 func defPredeclaredTypes() {
 	for _, t := range Typ {
+		if t.kind == Complex64 || t.kind == Complex128 {
+			// Plutonium: not declared; a use names the replacement
+			// (language spec section 10.3, removedName).
+			continue
+		}
 		def(NewTypeName(nopos, nil, t.name, t))
 	}
 
@@ -230,6 +235,13 @@ func defPredeclaredFuncs() {
 		id := builtinId(i)
 		if id == _Assert || id == _Trace {
 			continue // only define these in testing environment
+		}
+		switch id {
+		case _Append, _Recover, _Complex, _Real, _Imag:
+			// Plutonium: not declared, so that a program may declare
+			// them; a use without a declaration names the replacement
+			// (language spec sections 10.3 and 13.1, removedName).
+			continue
 		}
 		def(newBuiltin(id))
 	}

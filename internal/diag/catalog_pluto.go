@@ -102,10 +102,10 @@ func init() {
 				"Use a vec.Vec from pluto/vec, which owns its array and grows it from an allocator. " +
 				"To fill a slice's spare capacity without growing it, slice it longer and assign, or use copy.",
 			Why:     whyNoGC,
-			Fix:     &Fix{Intro: "To build a sequence that grows", Code: "import \"pluto/vec\"\n\nv := vec.New[int]()\ndefer v.Free()\nv.Push(1)\nv.Append(2, 3)"},
+			Fix:     &Fix{Intro: "To build a sequence that grows", Code: "import \"pluto/vec\"\n\nv := vec.New[int]()\nv.Push(1)\nv.Append(2, 3)"},
 			Spec:    pspec("13.1", "Built-ins Plutonium does not have"),
 			Example: "var s []int\ns = append(s, 1)\ns = append(s, 2, 3)",
-			Fixed:   "s := vec.New[int]()\ndefer s.Free()\ns.Push(1)\ns.Append(2, 3)",
+			Fixed:   "s := vec.New[int]()\ns.Push(1)\ns.Append(2, 3)",
 		},
 		&Entry{
 			Code: CheckerCode(typerr.MakeSliceNotPermitted), Name: "MakeSliceNotPermitted",
