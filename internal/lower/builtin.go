@@ -103,6 +103,17 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		x := s.expr(e.Args[0])
 		p, n, _ := s.sliceParts(x)
 		et := s.subst(unwrap(s.typeOf(e.Args[0])).Underlying().(*types2.Slice).Elem())
+		if s.l.needsDrop(et) {
+			// Each owner is dropped in index order, and its Drop method runs
+			// before its place becomes the zero value (spec 13.3).
+			s.countedLoop(n, nil, func(i *ssa.Value) {
+				off := s.newValue(ssa.OpMul, ssa.TI64, i, s.constInt(ssa.TI64, s.l.sizeof(et)))
+				q := s.newValue(ssa.OpAddPtr, ssa.TPtr, p, off)
+				s.dropAt(q, et)
+				s.zero(q, s.l.sizeof(et))
+			})
+			return nil
+		}
 		if s.l.counted(et) {
 			// Clearing an element drops what it held.
 			s.releaseRange(p, n, et)
