@@ -1,0 +1,5 @@
+$DIR/main.p:27:13: task statement argument of type *Node is not sendable: it contains shared[int], whose count is not atomic, so it cannot cross tasks; use synced[T] (spec section 19.2)
+$DIR/main.p:30:11: task statement argument of type []Node is not sendable: it contains shared[int], whose count is not atomic, so it cannot cross tasks; use synced[T] (spec section 19.2)
+$DIR/main.p:33:12: task statement argument of type *Holder is not sendable: it contains shared[int], whose count is not atomic, so it cannot cross tasks; use synced[T] (spec section 19.2)
+$DIR/main.p:36:13: task statement argument of type map[string]*Node is not sendable: it contains shared[int], whose count is not atomic, so it cannot cross tasks; use synced[T] (spec section 19.2)
+$DIR/main.p:38:14: channel element type *Node is not sendable: it contains shared[int], whose count is not atomic, so it cannot cross tasks; use synced[T] (spec section 19.2)

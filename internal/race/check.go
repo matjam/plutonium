@@ -11,6 +11,7 @@ import (
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
+	typerr "github.com/matjam/plutonium/internal/types2/errors"
 )
 
 // maxGroups bounds the tasks followed from the program's start.
@@ -425,6 +426,10 @@ func (a *analyzer) checkCrossings(cross []*crossing, written func(vpath) token.P
 		}
 		p := a.sendable(c.typ, c.vals, part, written)
 		if p == nil {
+			continue
+		}
+		if p.shared != nil {
+			a.add(fmt.Sprintf("send|%d", c.pos), a.sharedError(c, p))
 			continue
 		}
 		a.add(fmt.Sprintf("send|%d", c.pos), a.sendError(c, p))
@@ -978,6 +983,26 @@ func (a *analyzer) sendError(c *crossing, p *problem) *diag.Diagnostic {
 	d.Text = b.String()
 	d.Fix = &diag.Fix{Intro: "Pass a copy of the value instead of a pointer to it, or move an owner (such as a vec.Vec) to the task so that only it has the memory."}
 	d.More = []*diag.Fix{{Intro: "To share changing data between tasks, put it in a synced[T] and hold a sync.Mutex in it at every access, or use a package variable guarded by a lock."}}
+	return d
+}
+
+// sharedError reports a value that crosses to another task holding a
+// shared[T] in an interface (language spec section 8.8): the error the type
+// checker gives for a shared[T] it can see (E2010).
+func (a *analyzer) sharedError(c *crossing, p *problem) *diag.Diagnostic {
+	sh := types2.TypeString(p.shared, a.qualifier)
+	held := types2.TypeString(p.typ, a.qualifier)
+	what := "the value"
+	if c.expr != nil {
+		what = exprText(c.expr)
+	}
+	part := "it"
+	if p.part != what {
+		part = p.part
+	}
+	d := diag.New(a.pos(c.pos), diag.CheckerCode(typerr.NotSendable), "%s is not sendable: %s is an interface that may hold a %s, which contains %s, whose count is not atomic; use synced[T] (spec section 19.2)", what, part, held, sh)
+	d.Text = fmt.Sprintf("%s gives another task %s. The program converts a %s to that interface type, and a %s contains a %s, directly or through a field, element or pointer. Both tasks could then copy or drop that %s, changing its count without atomic operations.", capitalize(c.what), what, held, held, sh, sh)
+	d.Fix = &diag.Fix{Intro: "Use a synced[T] instead of the shared[T]: its count is atomic, so it may cross between tasks."}
 	return d
 }
 

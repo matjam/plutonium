@@ -292,6 +292,10 @@ type problem struct {
 	why   string      // when the use at fault is not a write: what is wrong
 	glob  *types2.Var // a package variable it points to that tasks write
 	gpos  token.Pos   // where that variable is written
+	// shared is a shared[T] that typ, a type converted to the interface
+	// part is, holds: its count is not atomic. The type checker cannot see
+	// what an interface holds.
+	shared types2.Type
 }
 
 // sendable checks a value of type T with origins vals that crosses to
@@ -361,13 +365,19 @@ func (a *analyzer) sendableIn(T types2.Type, vals origins, part string, written 
 			// The object moves with the owner: its own fields are values.
 			return a.sendableIn(u.Elem(), nil, "the object of "+part, written, seen, true)
 		case types2.WrapSynced, types2.WrapShared:
-			return nil // synced crosses; shared is the type checker's error
+			// synced crosses; a shared is the type checker's error, or
+			// the interface case's below.
+			return nil
 		}
 		return a.sendableIn(u.Elem(), vals, part, written, seen, typeOnly)
 	case *types2.Interface:
 		for _, C := range a.convertedTo(u) {
 			if seen[C] {
 				continue
+			}
+			if bad := types2.Unsendable(C); bad != nil {
+				// The type checker cannot see what an interface holds.
+				return &problem{part: part, typ: C, shared: bad}
 			}
 			seen[C] = true
 			p := a.sendableIn(C, nil, part+" (holding a "+types2.TypeString(C, a.qualifier)+")", written, seen, true)

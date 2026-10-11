@@ -1,0 +1,12 @@
+$DIR/main.p:23:4: &node is not sendable: it is an interface that may hold a *Node, which contains shared[int], whose count is not atomic; use synced[T] (spec section 19.2)
+    The value sent on c gives another task &node. The program converts a *Node
+    to that interface type, and a *Node contains a shared[int], directly or
+    through a field, element or pointer. Both tasks could then copy or drop that
+    shared[int], changing its count without atomic operations.
+    Go's garbage collector makes every pointer safe to share. Plutonium counts
+    shared references without atomic instructions, which is only correct on one
+    task.
+    Use a synced[T] instead of the shared[T]: its count is atomic, so it may
+    cross between tasks.
+    (see "Sendable types" in the Plutonium spec, section 8.8)
+    (run "pluto explain E2010" for a longer explanation)

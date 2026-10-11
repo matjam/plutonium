@@ -12,9 +12,15 @@ import (
 
 // Unsendable returns the part of T that keeps a value of type T from
 // crossing tasks: a shared[T] reference, whose count is not atomic,
-// directly or in any field or element. It returns nil if T is sendable.
-// Views (pointers, slices, strings), interfaces, functions and channels
-// are not looked into; a type parameter is judged when it is instantiated.
+// directly or in any field, element, payload, referent of a box, or target
+// of a pointer or slice (spec section 8.8); a map's key and element count
+// too. It returns nil if T is sendable. Two tasks that copy a shared[T]
+// out of memory they both reach through a pointer would change its count
+// without atomic operations. What an interface holds depends on the types
+// the whole program converts to it, which the race analysis checks;
+// functions and channels are sendable (a channel's element type is checked
+// where the channel type is written); a type parameter is judged when it
+// is instantiated.
 func Unsendable(T Type) Type { return unsendable(T, map[Type]bool{}) }
 
 func unsendable(T Type, seen map[Type]bool) Type {
@@ -27,9 +33,9 @@ func unsendable(T Type, seen map[Type]bool) Type {
 		if u.kind == WrapShared {
 			return T
 		}
-		if u.kind == WrapRing || u.IsBox() || u.isTransparent() {
-			return unsendable(u.elem, seen)
-		}
+		// volatile, aligned, ring, owned, synced, and weak, whose
+		// weak[shared[T]] counts as the shared reference does.
+		return unsendable(u.elem, seen)
 	case *Struct:
 		for _, f := range u.fields {
 			if bad := unsendable(f.typ, seen); bad != nil {
@@ -38,6 +44,21 @@ func unsendable(T Type, seen map[Type]bool) Type {
 		}
 	case *Array:
 		return unsendable(u.elem, seen)
+	case *Pointer:
+		return unsendable(u.base, seen)
+	case *Slice:
+		return unsendable(u.elem, seen)
+	case *Map:
+		if bad := unsendable(u.key, seen); bad != nil {
+			return bad
+		}
+		return unsendable(u.elem, seen)
+	case *TaggedUnion:
+		for _, v := range u.variants {
+			if bad := unsendable(v.typ, seen); bad != nil {
+				return bad
+			}
+		}
 	}
 	return nil
 }

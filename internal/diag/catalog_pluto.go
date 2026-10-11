@@ -18,7 +18,7 @@ func init() {
 	register(
 		&Entry{
 			Code: CheckerCode(typerr.NotSendable), Name: "NotSendable",
-			Text:    "A value that crosses tasks, as the argument or receiver of a task statement or as the element of a channel, must be sendable. This type holds a shared[T], whose reference count is changed with ordinary arithmetic, so two tasks copying or dropping references at once would corrupt it. Starting a method of a shared box with a task statement (task z.Serve()) hands the box itself to the new task, so it needs a synced box as well.\nUse synced[T], which counts atomically.",
+			Text:    "A value that crosses tasks, as the argument or receiver of a task statement or as the element of a channel, must be sendable. This type holds a shared[T], whose reference count is changed with ordinary arithmetic, so two tasks copying or dropping references at once would corrupt it. That holds through pointers, slices, maps and interfaces too: two tasks that reach one struct through a pointer could both copy the shared[T] out of it. Starting a method of a shared box with a task statement (task z.Serve()) hands the box itself to the new task, so it needs a synced box as well.\nUse synced[T], which counts atomically.",
 			Why:     "Go's garbage collector makes every pointer safe to share. Plutonium counts shared references without atomic instructions, which is only correct on one task.",
 			Fix:     &Fix{Intro: "Count the references atomically", Code: "type Job struct {\n\tdata synced[Buffer]\n}\n\njobs := make(chan Job, 16)"},
 			Spec:    pspec("8.8", "Sendable types"),
