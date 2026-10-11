@@ -1,0 +1,74 @@
+loops
+  consume 3
+  drop 3
+  drop 4
+  drop 1
+  consume 5
+  drop 5
+  consume 2
+  drop 2
+  drop 6
+  drop empty
+switches
+  consume 10
+  drop 10
+  drop empty
+  consume 20
+  drop 20
+  kept 11
+  drop 11
+  kept 12
+  drop 12
+short circuit
+  consume 13
+  drop 13
+  ate
+  maybe ate
+  drop 14
+  drop empty
+  consume 14
+  drop 14
+  maybe ate
+  drop empty
+  drop 13
+range over func
+  drop 16
+  consume 17
+  drop 17
+  consume 15
+  drop 15
+  drop 18
+  returned 2
+goto
+  consume 19
+  drop 19
+  last 20
+  drop 20
+closure
+  consume 22
+  drop 22
+  drop empty
+  drop 23
+pointer
+  consume 24
+  drop 24
+  drop empty
+  through pointer 25
+  drop 25
+deferred method
+  consume 26
+  drop 26
+  drop empty
+  drop 27
+select
+  received 7
+  consume 28
+  drop 28
+  drop 29
+  drop empty
+  consume 29
+  drop 29
+  drop empty
+  drop 28
+check
+  ok true

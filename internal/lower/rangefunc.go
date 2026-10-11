@@ -3,6 +3,7 @@ package lower
 import (
 	"fmt"
 
+	"github.com/matjam/plutonium/internal/moves"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -66,6 +67,9 @@ type rangeExit struct {
 	code   int64
 	level  *fnState // the function containing the target
 	action func(p *fnState)
+	// known is what the move checker knows of the variables at every
+	// statement that takes this exit (scope.go).
+	known moves.Known
 }
 
 // contains reports whether pos lies in the loop's body.
@@ -344,11 +348,12 @@ func (s *fnState) exitTo(level *fnState, key any, action func(p *fnState)) {
 		for _, ex := range cur.rf.exits {
 			if ex.key == key {
 				found = true
+				ex.known = moves.JoinKnown(ex.known, s.leaving)
 				break
 			}
 		}
 		if !found {
-			cur.rf.exits = append(cur.rf.exits, &rangeExit{key: key, code: code, level: level, action: action})
+			cur.rf.exits = append(cur.rf.exits, &rangeExit{key: key, code: code, level: level, action: action, known: s.leaving})
 		}
 	}
 	s.store(ssa.TI64, s.nextVar(), s.constInt(ssa.TI64, code))
@@ -411,7 +416,7 @@ func (s *fnState) takeExit(ex *rangeExit, next *ssa.Value) {
 	if ex.code != -1 {
 		s.store(ssa.TI64, next, s.constInt(ssa.TI64, 0))
 	}
-	ex.action(s)
+	s.leavingThrough(ex.known, func() { ex.action(s) })
 	s.b = nil
 }
 

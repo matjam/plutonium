@@ -1,6 +1,11 @@
 package lower
 
 import (
+	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/matjam/plutonium/internal/moves"
 	"github.com/matjam/plutonium/internal/scoped"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
@@ -18,17 +23,138 @@ import (
 //
 // A move clears the variable it moved out of (moves.Info.Moves), so that
 // destroying it at the end of its scope destroys the zero value, which
-// does nothing; the spec's drop flags are these cleared variables. Every
+// Drop accepts; the spec's drop flags are these cleared variables. Every
 // slot is cleared when the function is entered, so a scope exit never
 // destroys memory that was not given a value on the path to it.
+//
+// Where the move checker knows a variable holds nothing (moved away on
+// every path, or never given a value), it is not destroyed at all: an exit
+// skips the variables in moves.Info.Empty (or AtStmt, for a call that ends
+// with rt.Goexit), and an assignment whose target is in moves.Info.Fresh
+// does not destroy the old value. Only a variable that may have been moved
+// on some paths, or a place emptied by take, is destroyed holding the zero
+// value.
 
-// registerVar records an owner variable's storage in the innermost scope
-// that holds variables.
-func (s *fnState) registerVar(addr *ssa.Value, T types2.Type) {
+// registerVar records the storage of owner variable v in the innermost
+// scope that holds variables.
+func (s *fnState) registerVar(addr *ssa.Value, T types2.Type, v *types2.Var) {
 	if !s.l.needsDrop(T) {
 		return
 	}
-	s.addVar(addr, T)
+	s.addVar(addr, T, v)
+}
+
+// emptyAt returns what the move checker knows of the variables where
+// control leaves through n (a block, clause, statement with an implicit
+// block, return or branch statement): which parts of them may hold values.
+func (s *fnState) emptyAt(n ast.Node) moves.Known {
+	if s.l.moves == nil || n == nil {
+		return nil
+	}
+	return s.l.moves.Empty[n]
+}
+
+// leavingThrough runs release, which releases scopes, with what is known
+// of the variables there.
+func (s *fnState) leavingThrough(known moves.Known, release func()) {
+	saved := s.leaving
+	s.leaving = known
+	release()
+	s.leaving = saved
+}
+
+// destroyHeld destroys the T at ptr, of which only the parts h names may
+// hold values.
+func (s *fnState) destroyHeld(ptr *ssa.Value, T types2.Type, h moves.Held) {
+	if !h.Box {
+		s.destroyParts(ptr, T, h.Parts)
+		return
+	}
+	// An owned box whose object holds values only in h.Parts: drop those,
+	// then free the object, as its drop glue would (dropOwned).
+	w, ok := unwrap(T).Underlying().(*types2.Wrapper)
+	if !ok || w.Kind() != types2.WrapOwned {
+		s.destroyAt(ptr, T)
+		return
+	}
+	elem := s.subst(w.Elem())
+	obj := s.load(ssa.TPtr, ptr)
+	nonNil := s.newValue(ssa.OpNe, ssa.TBool, obj, s.constInt(ssa.TPtr, 0))
+	s.ifThen(nonNil, func() {
+		s.callRuntime("dropBegin", nil)
+		s.destroyParts(obj, elem, h.Parts)
+		s.callRuntime("boxFree", nil, []*ssa.Value{obj, s.constInt(ssa.TI64, 16),
+			s.constInt(ssa.TI64, s.l.sizeof(elem)), s.constInt(ssa.TI64, s.l.alignof(elem))})
+		s.callRuntime("dropEnd", nil)
+	})
+}
+
+// destroyParts destroys the parts of the T at ptr that parts name, in the
+// order destroying the whole would, and nothing else: the rest is known to
+// be zero. A T with a Drop method of its own is destroyed whole, since its
+// Drop runs on the whole value.
+func (s *fnState) destroyParts(ptr *ssa.Value, T types2.Type, parts []moves.Path) {
+	if len(parts) == 0 {
+		return
+	}
+	for _, p := range parts {
+		if len(p) == 0 {
+			s.destroyAt(ptr, T)
+			return
+		}
+	}
+	if dropMethod(T) != nil {
+		s.destroyAt(ptr, T)
+		return
+	}
+	// The parts below each step, by step.
+	below := func(step string) []moves.Path {
+		var out []moves.Path
+		for _, p := range parts {
+			if p[0] == step {
+				out = append(out, p[1:])
+			}
+		}
+		return out
+	}
+	switch u := unwrap(T).Underlying().(type) {
+	case *types2.Struct:
+		fields := make([]*types2.Var, u.NumFields())
+		for i := range fields {
+			fields[i] = u.Field(i)
+		}
+		offs := s.l.sizes.Offsetsof(fields)
+		for i, f := range fields {
+			if sub := below("." + strconv.Itoa(i)); sub != nil {
+				s.destroyParts(s.offPtr(ptr, offs[i]), s.subst(f.Type()), sub)
+			}
+		}
+	case *types2.Array:
+		var idx []int64
+		for _, p := range parts {
+			k, err := strconv.ParseInt(strings.Trim(p[0], "[]"), 10, 64)
+			if err != nil {
+				s.destroyAt(ptr, T) // an element whose index is not known
+				return
+			}
+			if !slices.Contains(idx, k) {
+				idx = append(idx, k)
+			}
+		}
+		slices.Sort(idx)
+		elem := s.subst(u.Elem())
+		for _, k := range idx {
+			s.destroyParts(s.offPtr(ptr, k*s.l.sizeof(elem)), elem, below("["+strconv.FormatInt(k, 10)+"]"))
+		}
+	default:
+		s.destroyAt(ptr, T)
+	}
+}
+
+// fresh reports whether the old value of the place an assignment stores
+// to is known to be nothing.
+func (s *fnState) fresh(lhs ast.Expr) bool {
+	return s.l.moves != nil && s.l.moves.Fresh[lhs]
 }
 
 // registerTemp records a temporary owner in the innermost entry. Outside

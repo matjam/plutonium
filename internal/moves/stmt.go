@@ -14,10 +14,19 @@ func (f *fn) block(b *ast.BlockStmt) {
 	for _, st := range b.List {
 		f.stmt(st, "")
 	}
+	f.recordExit(b)
 	f.blocks = f.blocks[:len(f.blocks)-1]
 }
 
 func (f *fn) stmt(st ast.Stmt, label string) {
+	if _, isLabel := st.(*ast.LabeledStmt); !isLabel && st != nil {
+		f.recordStmt(st)
+	}
+	switch st.(type) {
+	case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+		// The variables of its implicit block are dropped where it ends.
+		defer f.recordExit(st)
+	}
 	switch st := st.(type) {
 	case nil, *ast.EmptyStmt, *ast.BadStmt:
 	case *ast.ExprStmt:
@@ -28,6 +37,7 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 		f.assignStmt(st)
 	case *ast.IncDecStmt:
 		f.expr(st.X)
+		f.forget(st.X)
 	case *ast.BlockStmt:
 		f.block(st)
 	case *ast.IfStmt:
@@ -151,10 +161,16 @@ func (f *fn) declStmt(st *ast.DeclStmt) {
 		case len(vs.Values) == 1:
 			f.multi(vs.Values[0])
 		}
-		for _, name := range vs.Names {
+		for i, name := range vs.Names {
 			if v, ok := f.c.defs[name].(*types2.Var); ok {
 				f.assignVar(v)
 				f.declared(v)
+				switch {
+				case len(vs.Values) == 0:
+					f.declaredEmpty(v)
+				case len(vs.Values) == len(vs.Names):
+					f.valueFacts(v, vs.Values[i])
+				}
 			}
 		}
 	}
@@ -174,6 +190,7 @@ func (f *fn) assignStmt(st *ast.AssignStmt) {
 		// x op= y
 		f.expr(st.Lhs[0])
 		f.expr(st.Rhs[0])
+		f.forget(st.Lhs[0])
 		return
 	}
 	if len(st.Lhs) == len(st.Rhs) {
@@ -193,8 +210,13 @@ func (f *fn) assignStmt(st *ast.AssignStmt) {
 	} else {
 		f.multi(st.Rhs[0])
 	}
-	for _, l := range st.Lhs {
-		f.assignLHS(l, st.Tok)
+	for i, l := range st.Lhs {
+		f.assignTarget(l, st.Tok)
+		if id, ok := ast.Unparen(l).(*ast.Ident); ok && len(st.Lhs) == len(st.Rhs) {
+			if v := f.varOf(id); v != nil {
+				f.valueFacts(v, st.Rhs[i])
+			}
+		}
 	}
 }
 
@@ -258,6 +280,7 @@ func (f *fn) assignLHS(lhs ast.Expr, tok token.Token) {
 		return
 	}
 	f.expr(lhs)
+	f.forget(lhs)
 }
 
 // multi walks an expression with several results.
@@ -327,10 +350,11 @@ func (f *fn) loop(st ast.Node, label string, head, body, post func()) {
 	if entry != nil && back != nil {
 		// Mark what only the previous iteration moved.
 		for v, s := range at {
-			if _, before := entry[v]; !before && s.mv != nil {
+			if es, before := entry[v]; (!before || es.st == live) && s.st != live && s.mv != nil {
 				mv := *s.mv
 				mv.loop = true
-				at[v] = vstate{s.st, &mv}
+				s.mv = &mv
+				at[v] = s
 			}
 		}
 	}
@@ -375,6 +399,7 @@ func (f *fn) clauses(label string, list []ast.Stmt, clause func(ast.Stmt) []ast.
 		for _, s := range body {
 			f.stmt(s, "")
 		}
+		f.recordExit(c)
 		prev = nil
 		if n := len(body); n > 0 {
 			if b, ok := body[n-1].(*ast.BranchStmt); ok && b.Tok == token.FALLTHROUGH {
@@ -396,6 +421,9 @@ func (f *fn) branch(st *ast.BranchStmt) {
 	var label string
 	if st.Label != nil {
 		label = st.Label.Name
+	}
+	if st.Tok != token.FALLTHROUGH {
+		f.recordExit(st)
 	}
 	switch st.Tok {
 	case token.GOTO:
@@ -443,10 +471,14 @@ func (f *fn) labeled(l *types2.Label) *ast.LabeledStmt {
 }
 
 func (f *fn) returnStmt(st *ast.ReturnStmt) {
+	defer func() {
+		f.recordResults(st)
+		f.recordExit(st)
+	}()
 	if len(st.Results) == 0 {
 		// A bare return moves the named results to the caller.
 		for _, v := range f.results {
-			if s, ok := f.env[v]; ok && isOwner(v.Type()) && f.report && f.env != nil {
+			if s, ok := f.env[v]; ok && s.st != live && isOwner(v.Type()) && f.report && f.env != nil {
 				f.c.report(f.c.useDiag(&ast.Ident{NamePos: st.Pos(), Name: v.Name()}, v, s))
 			}
 		}
@@ -493,6 +525,11 @@ func (f *fn) deferStmt(st *ast.DeferStmt) {
 		f.use(id, v)
 		if f.report {
 			f.c.info.DeferredDrops[st.Call] = true
+		}
+		if f.env != nil {
+			s := f.env[v]
+			s.dd = true // empty.go
+			f.setState(v, s)
 		}
 	} else {
 		f.call(st.Call, mvArg)

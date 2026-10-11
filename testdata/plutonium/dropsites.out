@@ -1,0 +1,107 @@
+return
+  got 1
+  drop 1
+fresh variable
+  b 2
+  drop 2
+existing variable
+  drop 3
+  c 4
+  drop 4
+field
+  drop 5
+  p 7 6
+  drop 7
+  drop 6
+box field
+  drop 8
+  held 10 9
+  drop 10
+  drop 9
+array element
+  drop 11
+  arr 0 12 13
+  drop 12
+  drop 13
+argument
+  consume 14
+  drop 14
+  consume 15
+  drop 15
+  consume 16
+  drop 16
+several levels
+  c 17
+  kept 17
+  drop 17
+named results
+  drop 20
+  named 18 19 21
+  drop 21
+  drop 19
+  drop 18
+composite literal
+  pair 22 23
+  half 24
+  drop 24
+  drop 22
+  drop 23
+take
+  took 25
+  drop 25
+union
+  drop 26
+  open 27
+  drop 27
+owning interface
+  drop 28
+  r 29
+  q 30
+  asserted 30
+  drop 30
+  drop 29
+early return
+  consume 31
+  drop 31
+  consume 34
+  drop 34
+  early 32 33
+  drop 33
+  drop 32
+defer
+  deferred body 35
+  drop 35
+  consume 37
+  drop 37
+  deferred sees 36
+  drop 36
+goexit
+  consume 38
+  drop 38
+  drop 39
+  exited true
+loop
+  iteration 40
+  drop 40
+  consume 41
+  drop 41
+  consume 43
+  drop 43
+  drop 42
+consuming method and explicit drop
+  close 44
+  drop 44
+  drop 45
+temporaries
+  id 46
+  drop 46
+  drop 47
+new(v)
+  boxed 48
+  drop 48
+moved on some paths
+  consume 49
+  drop 49
+  drop empty
+check
+  ok true

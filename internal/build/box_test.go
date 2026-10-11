@@ -77,10 +77,14 @@ func main() {
 // unions (language spec sections 7.19 and 18.7) with the debug allocator and
 // its leak report on, at -O0 and -O2: every object must be dropped and its
 // memory freed exactly once, on every path out of a scope, through counts
-// and weak references, across tasks and through rt.Goexit.
+// and weak references, across tasks and through rt.Goexit. dropsites and
+// dropflow check every place an owner moves or is dropped (sections 18.5
+// and 18.6): each constructed owner is dropped once, and a variable or
+// place known to hold nothing is not dropped.
 func TestBoxesLeakFree(t *testing.T) {
 	testguard.Parallel(t)
-	for _, prog := range []string{"plutonium/boxes", "plutonium/newexpr", "plutonium/ownany", "plutonium/owniface", "plutonium/ownunion"} {
+	for _, prog := range []string{"plutonium/boxes", "plutonium/newexpr", "plutonium/ownany", "plutonium/owniface", "plutonium/ownunion",
+		"plutonium/dropsites", "plutonium/dropflow"} {
 		file := filepath.Join("..", "..", "testdata", prog)
 		src, err := os.ReadFile(file + ".p")
 		if err != nil {

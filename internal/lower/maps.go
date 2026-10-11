@@ -206,7 +206,7 @@ func (s *fnState) rangeMap(st *ast.RangeStmt, label *types2.Label) {
 	// that the loop walks the map it started with whatever the body
 	// assigns.
 	mapSlot := s.temp(xt, "rangemap")
-	s.addVar(mapSlot, xt)
+	s.addVar(mapSlot, xt, nil)
 	s.assign(lvalue{ptr: mapSlot, T: xt}, s.materialize(s.expr(st.X)), true)
 	mv := aggValue(mapSlot, xt)
 	if t := s.l.scalarType(xt); t != nil {
@@ -217,7 +217,7 @@ func (s *fnState) rangeMap(st *ast.RangeStmt, label *types2.Label) {
 	itT := s.l.mapIterType(m)
 	it := s.temp(itT, "mapiter")
 	s.zero(it, s.l.sizeof(itT))
-	s.addVar(it, itT)
+	s.addVar(it, itT, nil)
 	itPtr := scalarValue(it, types2.NewPointer(itT))
 	s.mapIterCall("Start", m, itT, itPtr, []value{s.mapTable(mv, m)}, st.Pos())
 

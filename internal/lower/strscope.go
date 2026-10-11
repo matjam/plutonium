@@ -37,6 +37,9 @@ type countedSlot struct {
 	// drops before its other variables: the Scope waits for the tasks it
 	// started, which may use them (language spec section 19.4).
 	first bool
+	// v is the owner variable the slot holds, which is not dropped where
+	// the move checker knows it holds nothing (scope.go).
+	v *types2.Var
 }
 
 // A cleanupEntry is one level of the cleanup stack.
@@ -61,7 +64,7 @@ func (s *fnState) popCleanup(e *cleanupEntry) {
 		return
 	}
 	if s.b != nil {
-		s.releaseEntry(e)
+		s.leavingThrough(s.emptyAt(e.node), func() { s.releaseEntry(e) })
 	}
 	s.closeHolds(e.slots)
 	s.cleanups = s.cleanups[:len(s.cleanups)-1]
@@ -89,13 +92,21 @@ func (s *fnState) releaseSome(slots []countedSlot, zero, scopes bool) {
 		if c.first != scopes || c.tmp != nil && c.tmp.consumed {
 			continue
 		}
+		held, known := s.leaving[c.v]
+		if c.v != nil && known && !held.Box && len(held.Parts) == 0 {
+			continue // it holds nothing (scope.go)
+		}
 		p := s.offPtr(c.base, c.off)
 		from := len(s.callLog)
 		restore := func() {}
 		if c.pos.IsValid() {
 			restore = s.at(c.pos) // errors name where the value was made
 		}
-		s.destroyAt(p, c.T) // an owner's drop glue, or a release (scope.go)
+		if c.v != nil && known {
+			s.destroyHeld(p, c.T, held)
+		} else {
+			s.destroyAt(p, c.T) // an owner's drop glue, or a release (scope.go)
+		}
 		restore()
 		if c.tmp != nil {
 			s.noteRelease(c.tmp, from)
@@ -148,9 +159,10 @@ func (s *fnState) addTemp(t *ownedTemp) {
 	s.l.internalf(s.pos, "counted temporary outside any statement")
 }
 
-// addVar registers a local variable's storage with the innermost scope.
-func (s *fnState) addVar(addr *ssa.Value, T types2.Type) {
-	c := countedSlot{base: addr, T: T, pos: s.pos, first: scoped.IsScopeType(T)}
+// addVar registers the storage of local variable v with the innermost
+// scope.
+func (s *fnState) addVar(addr *ssa.Value, T types2.Type, v *types2.Var) {
+	c := countedSlot{base: addr, T: T, pos: s.pos, first: scoped.IsScopeType(T), v: v}
 	s.zeroAtEntry(c)
 	for i := len(s.cleanups) - 1; i >= 0; i-- {
 		if s.cleanups[i].scope {

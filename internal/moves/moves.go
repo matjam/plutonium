@@ -11,7 +11,8 @@
 // states join, and a loop is walked until the states at its head stop
 // changing. Every error is explained with the line of the move that caused
 // it (spec section 21.1). Dropping what is left at the end of a scope is the
-// business of lowering.
+// business of lowering, which the checker tells what is known to hold
+// nothing (empty.go).
 package moves
 
 import (
@@ -43,7 +44,42 @@ type Info struct {
 	// every clause (language spec section 7.9).
 	AssertMoves map[*ast.TypeAssertExpr]bool
 	SwitchMoves map[*ast.TypeSwitchStmt]bool
+
+	// What is known to hold nothing (empty.go), so that lowering drops
+	// neither a variable that was moved away on every path, nor one that
+	// was never given a value, nor the parts of a variable or of a new
+	// box's object that were never given one. Empty maps a place where
+	// control leaves scopes (a block, a case or select clause, a statement
+	// with an implicit block, a return or a branch statement) to what is
+	// known there. AtStmt does the same for a call inside the statement
+	// that leaves the function because it ended with rt.Goexit.
+	// EmptyResults are the named results that hold nothing before a return
+	// statement replaces them, and Fresh the targets of assignments whose
+	// old value is known to be nothing.
+	Empty        map[ast.Node]Known
+	AtStmt       map[ast.Stmt]Known
+	EmptyResults map[*ast.ReturnStmt]VarSet
+	Fresh        map[ast.Expr]bool
 }
+
+// A VarSet is a set of variables.
+type VarSet map[*types2.Var]bool
+
+// Known maps variables to the only parts of them that may hold values.
+type Known map[*types2.Var]Held
+
+// Held says which parts of a variable may hold values: only Parts of the
+// variable, none if Parts is empty; or, if Box is set, the variable holds
+// an owned box whose object may hold values only in Parts.
+type Held struct {
+	Box   bool
+	Parts []Path
+}
+
+// A Path names a part of a value, one step at a time: ".i" is field i of a
+// struct, "[k]" element k of an array, and "[*]" an element whose index is
+// not known.
+type Path []string
 
 // Check runs the move checker over a loaded program and returns its errors
 // as a diag.List, or nil.
@@ -57,7 +93,9 @@ func Check(prog *load.Program) error {
 func Analyze(prog *load.Program) (*Info, error) {
 	c := &checker{
 		info: &Info{Moves: map[*ast.Ident]bool{}, Temps: map[ast.Expr]bool{}, DeferredDrops: map[*ast.CallExpr]bool{},
-			AssertMoves: map[*ast.TypeAssertExpr]bool{}, SwitchMoves: map[*ast.TypeSwitchStmt]bool{}},
+			AssertMoves: map[*ast.TypeAssertExpr]bool{}, SwitchMoves: map[*ast.TypeSwitchStmt]bool{},
+			Empty: map[ast.Node]Known{}, AtStmt: map[ast.Stmt]Known{}, EmptyResults: map[*ast.ReturnStmt]VarSet{},
+			Fresh: map[ast.Expr]bool{}},
 		fset:       prog.Fset,
 		types:      map[ast.Expr]types2.TypeAndValue{},
 		uses:       map[*ast.Ident]types2.Object{},
@@ -236,10 +274,21 @@ type move struct {
 type vstate struct {
 	st state
 	mv *move
+	// What is known to be zero, for drops (empty.go): z for the variable's
+	// own storage, bz for the object an owned box variable holds. nil
+	// means nothing is known.
+	z, bz *zset
+	// dd says that a deferred x.Drop() of the variable is registered on
+	// every path here.
+	dd bool
 }
 
-// An env maps the variables that do not hold a value to their state; a
-// variable not in it is live. A nil env is a point that cannot be reached.
+// plain reports whether s says nothing beyond live.
+func (s vstate) plain() bool { return s.st == live && s.z == nil && s.bz == nil && !s.dd }
+
+// An env maps the variables that do not hold a value, or of which more is
+// known (empty.go), to their state; a variable not in it is live. A nil env
+// is a point that cannot be reached.
 type env map[*types2.Var]vstate
 
 func (e env) clone() env {
@@ -263,27 +312,44 @@ func join(a, b env) env {
 	}
 	out := env{}
 	for v, sa := range a {
-		sb, ok := b[v]
-		switch {
-		case !ok:
-			out[v] = vstate{maybe, sa.mv}
-		case sa.st == moved && sb.st == moved:
-			out[v] = sa
-		default:
-			mv := sa.mv
-			if sa.st == maybe && sa.mv != nil && sa.mv.loop {
-				mv = sa.mv
-			} else if sb.st == maybe && sb.mv != nil && sb.mv.loop {
-				mv = sb.mv
-			}
-			out[v] = vstate{maybe, mv}
+		if s := joinState(sa, b[v]); !s.plain() {
+			out[v] = s
 		}
 	}
 	for v, sb := range b {
 		if _, ok := a[v]; !ok {
-			out[v] = vstate{maybe, sb.mv}
+			if s := joinState(vstate{}, sb); !s.plain() {
+				out[v] = s
+			}
 		}
 	}
+	return out
+}
+
+// joinState merges a variable's states on two paths; the zero vstate is
+// live with nothing more known.
+func joinState(sa, sb vstate) vstate {
+	var out vstate
+	switch {
+	case sa.st == live && sb.st == live:
+	case sa.st == live:
+		out = vstate{st: maybe, mv: sb.mv}
+	case sb.st == live:
+		out = vstate{st: maybe, mv: sa.mv}
+	case sa.st == moved && sb.st == moved:
+		out = vstate{st: moved, mv: sa.mv}
+	default:
+		mv := sa.mv
+		if sa.st == maybe && sa.mv != nil && sa.mv.loop {
+			mv = sa.mv
+		} else if sb.st == maybe && sb.mv != nil && sb.mv.loop {
+			mv = sb.mv
+		}
+		out = vstate{st: maybe, mv: mv}
+	}
+	out.z = sa.z.join(sb.z)
+	out.bz = sa.bz.join(sb.bz)
+	out.dd = sa.dd && sb.dd
 	return out
 }
 
@@ -292,7 +358,8 @@ func envEqual(a, b env) bool {
 		return false
 	}
 	for k, v := range a {
-		if u, ok := b[k]; !ok || u.st != v.st {
+		u, ok := b[k]
+		if !ok || u.st != v.st || u.dd != v.dd || !u.z.equal(v.z) || !u.bz.equal(v.bz) {
 			return false
 		}
 	}
@@ -329,6 +396,9 @@ type fn struct {
 	blocks  []*ast.BlockStmt
 	declIn  map[*types2.Var]*ast.BlockStmt
 	topBody *ast.BlockStmt
+	// noFacts are the variables for which nothing is known to be empty
+	// (empty.go).
+	noFacts map[*types2.Var]bool
 }
 
 // A target is a statement that break or continue may leave.
@@ -374,11 +444,13 @@ func (c *checker) checkFunc(ft *ast.FuncType, recv *ast.FieldList, body *ast.Blo
 		}
 		return true
 	})
+	f.findNoFacts(body)
 	if lit := c.litOf(body); lit != nil {
 		// A scoped task's literal owns the variables it takes.
 		if t := c.scoped.Lits[lit]; t != nil {
 			for v := range t.Taken {
 				f.vars[v] = true
+				f.noFacts[v] = true
 			}
 		}
 	}
@@ -397,6 +469,9 @@ func (f *fn) walk(body *ast.BlockStmt) {
 	f.env = env{}
 	f.targets = nil
 	f.blocks = nil
+	for _, v := range f.results {
+		f.declaredEmpty(v) // results start with nothing
+	}
 	f.block(body)
 }
 
@@ -431,15 +506,41 @@ func (f *fn) varOf(id *ast.Ident) *types2.Var {
 func (f *fn) captured(v *types2.Var) bool { return !f.vars[v] }
 
 // use checks that v holds a value at id.
-func (f *fn) use(id *ast.Ident, v *types2.Var) {
+func (f *fn) use(id *ast.Ident, v *types2.Var) { f.useKeeping(id, v, false) }
+
+// useKeeping is use; keep says the use only reads a part of v that is not
+// an owner, which cannot give v a value, so what is known to be zero in it
+// stays known (empty.go).
+func (f *fn) useKeeping(id *ast.Ident, v *types2.Var, keep bool) {
 	if f.env == nil || f.captured(v) || !isOwner(v.Type()) {
 		return
 	}
 	s, ok := f.env[v]
-	if !ok || !f.report {
+	if !ok {
+		return
+	}
+	if !keep && (s.z != nil || s.bz != nil) {
+		// Any other use may give it a value: nothing is known to be zero
+		// now.
+		s.z, s.bz = nil, nil
+		f.setState(v, s)
+	}
+	if s.st == live || !f.report {
 		return
 	}
 	f.c.report(f.c.useDiag(id, v, s))
+}
+
+// setState records v's state.
+func (f *fn) setState(v *types2.Var, s vstate) {
+	if f.env == nil {
+		return
+	}
+	if s.plain() {
+		delete(f.env, v)
+		return
+	}
+	f.env[v] = s
 }
 
 // moveVar moves v's value out at id.
@@ -456,7 +557,8 @@ func (f *fn) moveVar(id *ast.Ident, v *types2.Var, mv move) {
 	f.use(id, v)
 	if f.env != nil {
 		mv.pos = id.Pos()
-		f.env[v] = vstate{moved, &mv}
+		// The value left: the variable holds nothing (empty.go).
+		f.env[v] = vstate{st: moved, mv: &mv, z: emptyZ, dd: f.env[v].dd}
 	}
 	if f.report {
 		f.c.info.Moves[id] = true
@@ -474,13 +576,15 @@ func (f *fn) moveOut(id *ast.Ident, v *types2.Var, mv move) {
 	}
 	if f.env != nil {
 		mv.pos = id.Pos()
-		f.env[v] = vstate{moved, &mv}
+		// Where the assertion fails the variable still holds its value, so
+		// nothing is known to be empty.
+		f.env[v] = vstate{st: moved, mv: &mv, dd: f.env[v].dd}
 	}
 }
 
 // assignVar gives v a value.
 func (f *fn) assignVar(v *types2.Var) {
 	if f.env != nil {
-		delete(f.env, v)
+		f.setState(v, vstate{dd: f.env[v].dd})
 	}
 }

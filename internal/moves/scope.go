@@ -56,7 +56,7 @@ func (f *fn) scopedTask(t *scoped.Task) {
 		if !t.Taken[v] || !isOwner(v.Type()) || !f.vars[v] || f.env == nil {
 			continue
 		}
-		f.env[v] = vstate{moved, &move{pos: t.Call.Pos(), kind: mvTask, to: t.Scope.Var.Name() + ".Task"}}
+		f.env[v] = vstate{st: moved, mv: &move{pos: t.Call.Pos(), kind: mvTask, to: t.Scope.Var.Name() + ".Task"}}
 	}
 	if f.report {
 		sig, _ := f.c.typeOf(lit).(*types2.Signature)

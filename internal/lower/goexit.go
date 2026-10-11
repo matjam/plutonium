@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"github.com/matjam/plutonium/internal/moves"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -561,7 +562,13 @@ func (s *fnState) leaveForGoexit(pos token.Pos) {
 		s.emitReturnFor(token.NoPos, true)
 		s.results = saved
 	default:
-		s.emitReturnFor(pos, true)
+		// What the move checker knows holds nothing when the statement
+		// started, and the statement does not mention, still does.
+		var empty moves.Known
+		if s.l.moves != nil && s.curStmt != nil {
+			empty = s.l.moves.AtStmt[s.curStmt]
+		}
+		s.leavingThrough(empty, func() { s.emitReturnFor(pos, true) })
 	}
 	s.b = nil
 }

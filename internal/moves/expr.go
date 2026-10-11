@@ -24,10 +24,15 @@ func (f *fn) expr(e ast.Expr) {
 		f.temp(e)
 		f.compLit(e)
 	case *ast.SelectorExpr:
+		if f.readOnly(e) {
+			return
+		}
 		f.selector(e)
 	case *ast.IndexExpr:
 		if f.containerOfOwners(e) {
 			f.indexErr(e)
+		} else if f.readOnly(e) {
+			return
 		}
 		f.expr(e.X)
 		f.expr(e.Index)
@@ -44,6 +49,14 @@ func (f *fn) expr(e ast.Expr) {
 		f.expr(e.X)
 	case *ast.BinaryExpr:
 		f.expr(e.X)
+		if e.Op == token.LAND || e.Op == token.LOR {
+			// The right operand may not be evaluated: what it moves is
+			// moved on some paths only.
+			skipped := f.env.clone()
+			f.expr(e.Y)
+			f.env = join(f.env, skipped)
+			return
+		}
 		f.expr(e.Y)
 	case *ast.CallExpr:
 		f.temp(e)
@@ -267,6 +280,9 @@ func (f *fn) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.Selec
 	}
 	if recv == nil || pointerElem(recv) != nil || !isOwner(recv) || types2.IsInterface(recv) {
 		f.expr(se.X) // a pointer receiver borrows; an interface lends
+		if pointerElem(recv) != nil {
+			f.forget(se.X) // the method may change it (empty.go)
+		}
 		return
 	}
 	if len(sel.Index()) > 1 {
@@ -344,9 +360,17 @@ func (f *fn) builtin(e *ast.CallExpr) {
 			}
 			f.expr(a)
 		}
+	case "take":
+		// take(&place) borrows the place, and leaves it empty (empty.go).
+		if amp := f.takeArg(e); amp != nil {
+			f.take(amp)
+			return
+		}
+		for _, a := range e.Args {
+			f.expr(a)
+		}
 	default:
-		// take(&place) borrows the place; len, make and the rest only look
-		// at their operands.
+		// len, make and the rest only look at their operands.
 		for _, a := range e.Args {
 			f.expr(a)
 		}

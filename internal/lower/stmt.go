@@ -27,6 +27,11 @@ func (s *fnState) ensureBlock() {
 func (s *fnState) stmt(st ast.Stmt) {
 	defer s.at(st.Pos())()
 	if _, isLabel := st.(*ast.LabeledStmt); !isLabel {
+		saved := s.curStmt
+		s.curStmt = st
+		defer func() { s.curStmt = saved }()
+	}
+	if _, isLabel := st.(*ast.LabeledStmt); !isLabel {
 		s.ensureBlock()
 	}
 	if p := st.Pos(); p.IsValid() {
@@ -348,7 +353,7 @@ func (s *fnState) assignStmt(st *ast.AssignStmt) {
 			addr := s.declareVar(t.def)
 			s.assign(lvalue{ptr: addr, T: T}, s.assignConvert(vals[i], T, st), true)
 		default:
-			if T := unwrap(t.lv.T); t.lv.elem == nil && t.lv.bits == nil && !permutes && s.l.needsDrop(T) {
+			if T := unwrap(t.lv.T); t.lv.elem == nil && t.lv.bits == nil && !permutes && !s.fresh(st.Lhs[i]) && s.l.needsDrop(T) {
 				s.dropAt(t.lv.ptr, T)
 			}
 			s.assign(*t.lv, s.assignConvert(vals[i], targetType(i), st), false)
@@ -356,12 +361,27 @@ func (s *fnState) assignStmt(st *ast.AssignStmt) {
 	}
 }
 
-// dropResult destroys what result i holds before a return replaces it: a
-// named result given an owner earlier. Results start clear.
-func (s *fnState) dropResult(i int) {
-	if T := s.abi.results[i].typ; s.l.needsDrop(T) {
-		s.dropAt(s.results[i], T)
+// dropResult destroys what result i holds before the return statement st
+// replaces it: a named result given an owner earlier. Results start clear,
+// so an unnamed result, or a named one the move checker knows holds
+// nothing, is not destroyed.
+func (s *fnState) dropResult(st *ast.ReturnStmt, i int) {
+	T := s.abi.results[i].typ
+	if !s.l.needsDrop(T) {
+		return
 	}
+	results := s.signatureVars().results
+	if i >= len(results) {
+		return
+	}
+	v := results[i]
+	if v == nil || v.Name() == "" || v.Name() == "_" {
+		return
+	}
+	if s.l.moves != nil && s.l.moves.EmptyResults[st][v] {
+		return
+	}
+	s.dropAt(s.results[i], T)
 }
 
 // permutes reports whether an assignment's right-hand sides are its
@@ -1027,6 +1047,10 @@ func (s *fnState) branchStmt(st *ast.BranchStmt) {
 	if st.Label != nil {
 		label, _ = s.info.Uses[st.Label].(*types2.Label)
 	}
+	// What holds nothing at the jump is not destroyed by it (scope.go).
+	saved := s.leaving
+	s.leaving = s.emptyAt(st)
+	defer func() { s.leaving = saved }()
 	switch st.Tok {
 	case token.GOTO:
 		if s.rf != nil && !s.rf.contains(label.Pos()) {
@@ -1070,7 +1094,7 @@ func (s *fnState) branchStmt(st *ast.BranchStmt) {
 
 func (s *fnState) returnStmt(st *ast.ReturnStmt) {
 	if s.rf != nil {
-		s.rangeReturn(st)
+		s.leavingThrough(s.emptyAt(st), func() { s.rangeReturn(st) })
 		return
 	}
 	switch {
@@ -1089,7 +1113,7 @@ func (s *fnState) returnStmt(st *ast.ReturnStmt) {
 		moved := map[*types2.Var]bool{}
 		for i, v := range vals {
 			T := s.abi.results[i].typ
-			s.dropResult(i)
+			s.dropResult(st, i)
 			if s.moveOnReturn(st.Results[i], v, T, i, moved) {
 				continue
 			}
@@ -1100,11 +1124,11 @@ func (s *fnState) returnStmt(st *ast.ReturnStmt) {
 		vals := s.multiValue(st.Results[0], len(s.results))
 		for i, v := range vals {
 			T := s.abi.results[i].typ
-			s.dropResult(i)
+			s.dropResult(st, i)
 			s.assign(lvalue{ptr: s.results[i], T: T}, s.assignConvert(v, T, st), !named)
 		}
 	}
-	s.emitReturn(st.Pos())
+	s.leavingThrough(s.emptyAt(st), func() { s.emitReturn(st.Pos()) })
 }
 
 // namedResults reports whether the function's results are named, and so

@@ -2,6 +2,7 @@ package lower
 
 import (
 	"github.com/matjam/plutonium/internal/load"
+	"github.com/matjam/plutonium/internal/moves"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -81,6 +82,14 @@ type fnState struct {
 	// inTemp is the owner temporary being evaluated into its slot
 	// (scope.go).
 	inTemp ast.Expr
+	// leaving holds, while scopes are released for a jump or the end of a
+	// block, what the move checker knows there: the variables that hold
+	// nothing, which are not destroyed, and those that hold values only in
+	// some parts, of which only those are (scope.go). curStmt is the
+	// innermost statement being lowered, whose moves.Info.AtStmt a call
+	// ending with rt.Goexit uses.
+	leaving moves.Known
+	curStmt ast.Stmt
 
 	// evaluated holds the results of the calls, receives and logical
 	// operations evaluated ahead of the rest of their expression
@@ -465,7 +474,7 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 		if s.b != nil {
 			// Falling off the end: only valid for functions without results
 			// (the checker rejects missing returns otherwise).
-			s.emitReturn(body.Rbrace)
+			s.leavingThrough(s.emptyAt(body), func() { s.emitReturn(body.Rbrace) })
 		}
 		s.popCleanup(root)
 	}
@@ -608,7 +617,7 @@ func (s *fnState) bindParams() {
 			continue
 		}
 		if T := s.subst(v.Type()); s.l.needsDrop(T) {
-			s.ownedParams = append(s.ownedParams, countedSlot{base: s.vars[v], T: T, pos: v.Pos()})
+			s.ownedParams = append(s.ownedParams, countedSlot{base: s.vars[v], T: T, pos: v.Pos(), v: v})
 		}
 	}
 
@@ -681,6 +690,7 @@ type pendingReturn struct {
 	pos     token.Pos
 	results []*ssa.Value // the result variables it returns
 	gx      *ssa.Value   // its Goexit flag, if it may leave for Goexit
+	leaving moves.Known  // what is known of the parameters there
 }
 
 // emitReturn runs deferred calls and returns the result variables.
@@ -715,7 +725,7 @@ func (s *fnState) emitReturnFor(pos token.Pos, goexit bool) {
 	end := s.newBlock(ssa.BlockInvalid)
 	s.endPlain(end)
 	s.seal(end)
-	s.returns = append(s.returns, pendingReturn{b: end, pos: pos, results: s.results, gx: gx})
+	s.returns = append(s.returns, pendingReturn{b: end, pos: pos, results: s.results, gx: gx, leaving: s.leaving})
 }
 
 // finishReturns ends every return statement: it releases what the
@@ -726,7 +736,7 @@ func (s *fnState) finishReturns() {
 		if r.pos.IsValid() {
 			s.f.SetPos(r.pos)
 		}
-		s.releaseFrame()
+		s.leavingThrough(r.leaving, s.releaseFrame)
 		s.finishReturn(r)
 	}
 	s.returns = nil

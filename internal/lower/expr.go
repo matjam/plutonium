@@ -296,7 +296,7 @@ func (s *fnState) declareVar(obj *types2.Var) *ssa.Value {
 	addr := s.declareView(obj)
 	if T := s.subst(obj.Type()); s.l.needsDrop(T) {
 		s.zero(addr, s.l.sizeof(T))
-		s.registerVar(addr, T)
+		s.registerVar(addr, T, obj)
 	}
 	return addr
 }
@@ -323,7 +323,7 @@ func (s *fnState) declareView(obj *types2.Var) *ssa.Value {
 		// Released when its scope ends (strscope.go). A goto back over
 		// the declaration runs it again without leaving the scope: what
 		// the variable held is released first.
-		s.addVar(addr, T)
+		s.addVar(addr, T, nil)
 		s.ownedVars[obj] = true
 		if len(s.labelScopes) > 0 {
 			s.releaseAt(addr, T)
