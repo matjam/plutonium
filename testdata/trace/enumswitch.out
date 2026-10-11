@@ -1,0 +1,4 @@
+green
+panic: runtime error: value 7 of enum main.Color is not a member
+    main.name (./main.p:16)
+    main.main (./main.p:30)

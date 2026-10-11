@@ -320,6 +320,14 @@ func (check *Checker) enumExhaustive(s *ast.SwitchStmt, x *operand, seen valueMa
 			missing = append(missing, m.name)
 		}
 	}
+	if len(missing) == 0 {
+		// A value that is not a member panics (spec section 12.9), so
+		// the switch is a terminating statement when its clauses are.
+		if check.exhaustive == nil {
+			check.exhaustive = map[ast.Stmt]bool{}
+		}
+		check.exhaustive[s] = true
+	}
 	check.missingCases(atPos(s.Switch), x, missing)
 }
 

@@ -367,6 +367,20 @@ func panicUnionTag(union string, tag int64) {
 	fatal(nil)
 }
 
+// panicEnum reports a switch with no default case on a value of an enum
+// type that is not one of its members, which only unsafe code, raw bits
+// converted to a packed type or generic code on the underlying integer can
+// make (language spec section 12.9).
+func panicEnum(typ string, v int64) {
+	startPanic()
+	printString("runtime error: value ")
+	printInt(v)
+	printString(" of enum ")
+	printString(typ)
+	printString(" is not a member")
+	fatal(nil)
+}
+
 func panicValue(v any) {
 	startPanic()
 	switch x := v.(type) {

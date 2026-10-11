@@ -698,7 +698,7 @@ func (check *Checker) unionTypeSwitch(inner stmtContext, s *ast.TypeSwitchStmt, 
 // union without a default case.
 func (check *Checker) markExhaustive(s *ast.TypeSwitchStmt) {
 	if check.exhaustive == nil {
-		check.exhaustive = map[*ast.TypeSwitchStmt]bool{}
+		check.exhaustive = map[ast.Stmt]bool{}
 	}
 	check.exhaustive[s] = true
 }

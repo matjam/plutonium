@@ -52,7 +52,9 @@ func (check *Checker) isTerminating(s ast.Stmt, label string) bool {
 		}
 
 	case *ast.SwitchStmt:
-		return check.isTerminatingSwitch(s.Body, label, false)
+		// Plutonium: a switch on an enum value that lists every member
+		// needs no default case to be terminating (spec section 12.1).
+		return check.isTerminatingSwitch(s.Body, label, check.exhaustive[s])
 
 	case *ast.TypeSwitchStmt:
 		// Plutonium: a switch that names every variant of a union needs

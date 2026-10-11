@@ -797,7 +797,14 @@ func (s *fnState) switchStmt(st *ast.SwitchStmt, label *types2.Label) {
 			s.startBlock(next)
 		}
 	}
-	s.endPlain(defaultBody)
+	if st.Tag != nil && defaultBody == done && types2.EnumOf(tagT) != nil {
+		// The cases list every member (the checker makes sure), so only
+		// a value that is not a member gets here: the switch panics
+		// (language spec section 12.9).
+		s.invalidEnum(tagT, tag, st.Pos())
+	} else {
+		s.endPlain(defaultBody)
+	}
 
 	s.targets = append(s.targets, &target{label: label, breakTo: done, isSwitch: true, depth: len(s.cleanups)})
 	for i, c := range clauses {
@@ -823,6 +830,18 @@ func (s *fnState) switchStmt(st *ast.SwitchStmt, label *types2.Label) {
 	s.targets = s.targets[:len(s.targets)-1]
 	s.seal(done)
 	s.startBlock(done)
+}
+
+// invalidEnum ends the current block with a panic for a value v of enum
+// type T that is not a member, which only unsafe code, raw bits or generic
+// code on the underlying integer can make.
+func (s *fnState) invalidEnum(T types2.Type, v value, pos token.Pos) {
+	if pos.IsValid() {
+		defer s.f.SetPos(s.f.SetPos(pos))
+	}
+	n := s.convertScalar(v.v, T, types2.Typ[types2.Int64])
+	name := s.stringLeavesOf(s.typeName(T))
+	s.callRuntimeNoReturn("panicEnum", append(name, n)...)
 }
 
 func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {

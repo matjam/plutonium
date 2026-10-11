@@ -62,8 +62,9 @@ func warmth(c Color) string {
 		return "warm"
 	case Color.Green, Blue:
 		return "cool"
+	default: // a value that is not a member, from raw bits (without a default, the switch would panic)
+		return "invalid"
 	}
-	return "invalid"
 }
 
 func compare(a, b int) Order {
