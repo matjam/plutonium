@@ -142,6 +142,35 @@ contended mutex and ping-pong 5 to 40% slower (about 45 ns and 190 to 260 ns, wi
 Go's), starting a puroutine about twice Go's cost (230 to 300 ns), and buffered channel operations
 about 2.7 times Go's (about 87 ns).
 
+### Map micro-benchmarks
+
+`bench/maps` is not part of the harness either: it compares the built-in `map[K]V` (`pu/main.p`) with
+`pluto/hash.Map` (`hash/main.p`, the same table held as an owner) and with Go's map (`main.go`), printing
+nanoseconds per operation for each phase and a checksum all three must agree on:
+
+```sh
+(cd bench && GOAMD64=v1 go build -o /tmp/gomaps ./maps/)
+go run ./cmd/pluto build -O2 -o /tmp/pumaps ./bench/maps/pu
+go run ./cmd/pluto build -O2 -o /tmp/hashmaps ./bench/maps/hash
+GOMAXPROCS=1 /tmp/gomaps; /tmp/pumaps; /tmp/hashmaps
+```
+
+| Case | What it measures |
+|---|---|
+| `int-insert` | storing 1 M `uint64` keys into a map made without a size hint, so it grows |
+| `int-hit`, `int-miss` | looking up keys that are there, and keys that are not |
+| `int-delete` | deleting every other key |
+| `int-range` | ranging over the half that is left |
+| `str-count` | `counts[w]++` for 4 M words drawn from 50 k distinct strings |
+| `str-lookup` | looking up each of the 50 k words |
+
+On the AMD Ryzen 9 9900X3D, at the time of writing and with other work running on the machine (so the
+numbers move by 20% or more between runs; the minimum of five runs is shown), the built-in map takes 39,
+18, 15, 33 and 11 ns for the integer cases, against Go's 85, 59, 30, 98 and 15 ns, and 64 and 25 ns for
+the string cases against Go's 36 and 19 ns. `hash.Map` is within a few nanoseconds of the built-in map
+on integers, and slower at `str-count` (135 ns), where `m[k]++` on a library container calls `Index`
+and then `SetIndex`, two lookups, where the built-in map makes one.
+
 The LCG used by several benchmarks is
 `seed = seed*6364136223846793005 + 1442695040888963407` (uint64, wrapping), with
 `int64(seed >> 33)` as the output.
