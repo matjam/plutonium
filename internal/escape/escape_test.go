@@ -697,6 +697,17 @@ type N struct{ v int }
 func f() *N { return (*N)(new(N)) }
 func main() { _ = f() }`, []string{"the object of a temporary owned[N]"}},
 
+	{"temporary channel lent to an ordinary interface", `
+func f() any { return make(chan int) }
+func main() { _ = f() }`, []string{"cannot return make(chan int) as an interface: an ordinary interface only borrows the channel",
+		"Return the channel itself, changing the result type to chan int"}},
+
+	{"channel parameter lent to an ordinary interface", `
+var kept any
+func f(c chan int) { kept = c }
+func main() { f(nil) }`, []string{"cannot store c in package variable kept, which outlives c", "a counted reference to a channel",
+		"Store c itself, changing the type of kept to chan int"}},
+
 	{"box lent to an ordinary interface", `
 type N struct{ v int }
 func (n *N) Get() int { return n.v }

@@ -1064,6 +1064,28 @@ func isCounted(T types2.Type) bool {
 // heap memory (spec section 7.10).
 func isMap(T types2.Type) bool { return types2.MapOf(T) != nil }
 
+// isChan reports whether T is a channel type, a counted reference to a
+// channel in heap memory (spec section 7.11).
+func isChan(T types2.Type) bool {
+	if T == nil {
+		return false
+	}
+	_, ok := T.Underlying().(*types2.Chan)
+	return ok
+}
+
+// refNoun names what a map or channel value refers to, as the reports say
+// it: "map" or "channel"; "" for any other type.
+func refNoun(T types2.Type) string {
+	switch {
+	case isMap(T):
+		return "map"
+	case isChan(T):
+		return "channel"
+	}
+	return ""
+}
+
 // isDirect reports whether a value of T is stored in an interface's data
 // word itself rather than boxed in the frame. For type parameters it is
 // unknown: the second result is false.

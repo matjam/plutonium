@@ -689,10 +689,10 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 		return nil // an untyped constant becomes a word or a static string
 	}
 	w.a.noteConversion(from)
-	if x, ok := node.(ast.Expr); ok && (isBoxPtr(from) || isMap(from)) && !types2.IsOwner(to) {
+	if x, ok := node.(ast.Expr); ok && (isBoxPtr(from) || refNoun(from) != "") && !types2.IsOwner(to) {
 		// An ordinary interface lends: holding a box's pointer, or a
-		// map's, it is a view of the box's object or the map's table
-		// (language spec sections 18.5 and 7.10).
+		// map's or channel's, it is a view of the variable converted and
+		// counts no reference of its own (language spec section 7.9).
 		return w.boxView(x)
 	}
 	_, known := isDirect(from)

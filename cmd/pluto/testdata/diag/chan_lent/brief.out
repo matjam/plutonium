@@ -1,0 +1,3 @@
+$DIR/main.p:9:26: cannot return make(chan int) as an interface: an ordinary interface only borrows the channel, whose reference temp drops when it returns
+$DIR/main.p:11:37: cannot return c as an interface: an ordinary interface only borrows the channel, whose reference param drops when it returns
+$DIR/main.p:13:26: cannot store c in package variable kept, which outlives c

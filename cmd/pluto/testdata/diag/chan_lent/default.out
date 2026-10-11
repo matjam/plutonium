@@ -1,0 +1,49 @@
+$DIR/main.p:9:26: cannot return make(chan int) as an interface: an ordinary interface only borrows the channel, whose reference temp drops when it returns
+    The chan int made at main.p:9 is a temporary: nothing keeps a reference to
+    it after the statement, and an ordinary interface that lends it counts no
+    reference of its own, so the interface may not outlive that statement.
+    Converting make(chan int) to an ordinary interface lends it: the interface
+    points at the channel without a reference of its own.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return the channel itself, changing the result type to chan int: the caller
+    gets a reference of its own:
+        return make(chan int)
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)
+
+$DIR/main.p:11:37: cannot return c as an interface: an ordinary interface only borrows the channel, whose reference param drops when it returns
+    c (declared at main.p:11) is a chan int, a counted reference to a channel:
+    an ordinary interface that lends the channel does not count a reference of
+    its own, so it may not outlive c, whose reference is dropped at the end of
+    its scope in param. Converting c to an ordinary interface lends it: the
+    interface points at the channel without a reference of its own.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return the channel itself, changing the result type to chan int: the caller
+    gets a reference of its own:
+        return c
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)
+
+$DIR/main.p:13:26: cannot store c in package variable kept, which outlives c
+    c (declared at main.p:13) is a chan int, a counted reference to a channel:
+    an ordinary interface that lends the channel does not count a reference of
+    its own, so it may not outlive c, whose reference is dropped at the end of
+    its scope in store. When store returns, c drops its reference, and the
+    channel is freed if that was the last one, but package variables live for
+    the whole program, so package variable kept would be left pointing at
+    reclaimed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store c itself, changing the type of kept to chan int: it then counts a
+    reference of its own:
+        kept = c
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)

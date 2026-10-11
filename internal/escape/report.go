@@ -279,11 +279,19 @@ func (a *analyzer) intro(l *loc, q types2.Qualifier) string {
 		}
 		return fmt.Sprintf("%s (at %s) makes %s the default allocator, so what is allocated through the default allocator from there on (by new, a string operation, or a call that allocates and leaves out its allocator) lives in the arena, and is gone when the arena is.", exprText(l.node.(ast.Expr)), at, name)
 	case lkObject:
-		if l.v != nil && isMap(l.typ) {
-			return fmt.Sprintf("%s (declared at %s) is %s, a counted reference to a table: an ordinary interface that lends the map does not count a reference of its own, so it may not outlive %s, whose reference is dropped at the end of its scope in %s.", l.v.Name(), at, article(typeText(l.typ, q)), l.v.Name(), l.fn)
+		ref := refNoun(l.typ)
+		if l.v != nil && ref != "" {
+			what := "a table"
+			if ref == "channel" {
+				what = "a channel"
+			}
+			return fmt.Sprintf("%s (declared at %s) is %s, a counted reference to %s: an ordinary interface that lends the %s does not count a reference of its own, so it may not outlive %s, whose reference is dropped at the end of its scope in %s.", l.v.Name(), at, article(typeText(l.typ, q)), what, ref, l.v.Name(), l.fn)
 		}
 		if l.v != nil {
 			return fmt.Sprintf("%s (declared at %s) is %s: the object it refers to lives only while %s holds it, and is dropped when %s is dropped at the end of its scope in %s, or released when it is the last reference. A pointer into the object, or an interface that lends it, is a view that may not outlive %s.", l.v.Name(), at, article(typeText(l.typ, q)), l.v.Name(), l.v.Name(), l.fn, l.v.Name())
+		}
+		if ref != "" {
+			return fmt.Sprintf("The %s made at %s is a temporary: nothing keeps a reference to it after the statement, and an ordinary interface that lends it counts no reference of its own, so the interface may not outlive that statement.", typeText(l.typ, q), at)
 		}
 		return fmt.Sprintf("The %s made at %s is a temporary: nothing keeps it, so its object is dropped at the end of the statement, and a view of the object may not outlive that statement.", typeText(l.typ, q), at)
 	}
@@ -376,7 +384,7 @@ func (a *analyzer) subject(x string, e ast.Expr, l *loc, q types2.Qualifier) str
 		return x + " is a function literal that uses " + l.captureList() + "."
 	case l.kind == lkBox:
 		return x + " is an interface that points at a copy of its value in " + possessive(l.fn) + " frame."
-	case l.kind == lkObject && l.v != nil && isMap(l.typ) && x == l.v.Name():
+	case l.kind == lkObject && l.v != nil && refNoun(l.typ) != "" && x == l.v.Name():
 		return ""
 	}
 	return x + " points into " + a.noun(l, q) + "."
@@ -401,6 +409,8 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 	switch {
 	case l.kind == lkArena:
 		reclaimed = fmt.Sprintf("When %s returns, the arena %s is gone", l.fn, l.name())
+	case l.kind == lkObject && l.v != nil && refNoun(l.typ) != "":
+		reclaimed = fmt.Sprintf("When %s returns, %s drops its reference, and the %s is freed if that was the last one", l.fn, l.v.Name(), refNoun(l.typ))
 	case l.kind == lkObject && l.v != nil:
 		reclaimed = fmt.Sprintf("When %s returns, %s is dropped and the object freed", l.fn, l.v.Name())
 	case l.kind == lkObject:
@@ -424,19 +434,29 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 		if l.kind == lkBox && e.expr != nil && !isInterfaceExpr(a, e.expr) {
 			d.Msg = fmt.Sprintf("cannot return %s as an interface: the interface would hold a copy of it in %s frame", x, possessive(l.fn))
 		}
-		lends := l.kind == lkObject && e.expr != nil && !isInterfaceExpr(a, e.expr) && (isBoxPtr(a.types[e.expr].Type) || isMap(a.types[e.expr].Type))
-		lendsMap := lends && isMap(a.types[e.expr].Type)
+		var ref string // "map" or "channel" when the interface lends one
+		var exprT types2.Type
+		if e.expr != nil {
+			exprT = a.types[e.expr].Type
+		}
+		lends := l.kind == lkObject && e.expr != nil && !isInterfaceExpr(a, e.expr) && (isBoxPtr(exprT) || refNoun(exprT) != "")
+		if lends {
+			ref = refNoun(exprT)
+		}
+		lendsRef := ref != ""
 		if lends {
 			d.Msg = fmt.Sprintf("cannot return %s as an interface: an ordinary interface only borrows the box, which is dropped when %s returns", x, e.fn)
-			if lendsMap {
-				d.Msg = fmt.Sprintf("cannot return %s as an interface: an ordinary interface only borrows the map, whose reference %s drops when it returns", x, e.fn)
+			if lendsRef {
+				d.Msg = fmt.Sprintf("cannot return %s as an interface: an ordinary interface only borrows the %s, whose reference %s drops when it returns", x, ref, e.fn)
 			}
 		}
 		switch {
 		case l.kind == lkArena:
 			add(sentence(about, fmt.Sprintf("%s, so %s would point at memory that is no longer allocated.", reclaimed, x)))
-		case lendsMap:
+		case ref == "map":
 			add(sentence(about, fmt.Sprintf("Converting %s to an ordinary interface lends it: the interface points at the map's table without a reference of its own.", x)))
+		case ref == "channel":
+			add(sentence(about, fmt.Sprintf("Converting %s to an ordinary interface lends it: the interface points at the channel without a reference of its own.", x)))
 		case lends:
 			add(sentence(about, fmt.Sprintf("Converting %s to an ordinary interface lends it: the interface points at the object, and %s still owns it.", x, x)))
 		case l.kind == lkObject:
@@ -450,8 +470,8 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 		default:
 			add(sentence(about, fmt.Sprintf("That frame is reclaimed when %s returns, so %s would point at memory that no longer holds the value.", e.fn, pointer)))
 		}
-		if lendsMap {
-			d.Fix = &diag.Fix{Intro: fmt.Sprintf("Return the map itself, changing the result type to %s: the caller gets a reference of its own", typeText(a.types[e.expr].Type, q)), Code: "return " + x}
+		if lendsRef {
+			d.Fix = &diag.Fix{Intro: fmt.Sprintf("Return the %s itself, changing the result type to %s: the caller gets a reference of its own", ref, typeText(exprT, q)), Code: "return " + x}
 		} else if lends {
 			name := x
 			d.Fix = &diag.Fix{Intro: fmt.Sprintf("Return the box itself, changing the result type to %s", typeText(a.types[e.expr].Type, q)), Code: "return " + name}
@@ -619,6 +639,9 @@ func (a *analyzer) storeFixes(d *diag.Diagnostic, e *viewErr, l *loc, q types2.Q
 		arenaFixes(d, l)
 	case l.kind == lkStmtTemp:
 		d.Fix = stmtTempFix(l)
+	case l.kind == lkObject && l.v != nil && refNoun(l.typ) != "":
+		name := l.v.Name()
+		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Store %s itself, changing the type of %s to %s: it then counts a reference of its own", name, trimAddr(e.dst), typeText(l.typ, q)), Code: fmt.Sprintf("%s = %s", trimAddr(e.dst), name)}
 	case l.kind == lkObject && l.v != nil:
 		name := l.v.Name()
 		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Store %s itself, changing the type of %s to match: an owned box moves there, and a shared or synced one is counted", name, trimAddr(e.dst)), Code: fmt.Sprintf("%s = %s", trimAddr(e.dst), name)}
