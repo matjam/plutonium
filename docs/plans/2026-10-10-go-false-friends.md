@@ -2,7 +2,72 @@
 
 **Date:** 2026-10-10
 **Status:** audit and proposals. Nothing here is implemented. Section 5 lists the decisions that need
-sign-off.
+sign-off. (This line is out of date; see the Status block below.)
+
+> **Status (2026-10-10): partly implemented.** Every decision of section 5 was taken, and each except the
+> per-map seed (F17) is now a rule of the specification; the no-false-friends rule itself is section 1.2, and appendix A lists every
+> difference from Go that the audit found. Most are implemented. What the compiler still lacks is in
+> docs/roadmap.md: Go's map iteration guarantees and per-map seeds (item 64), computed task stack sizes
+> (item 18), counted errors with Go's `*os.PathError` and `*strconv.NumError` (F13 and F15; item 11), and
+> the `owned[Timer]` and `owned[Ticker]` results of `time.NewTimer`, `time.NewTicker` and
+> `time.AfterFunc` (docs/roadmap.md and section 6.5 of 2026-10-10-complete-spec.md). This document keeps
+> the audit and its reasoning.
+>
+> **Defined now by:** section 1.2 (Design rules), appendix A (Differences from Go), section 18.4 (Loop
+> iterations reuse their storage), section 11.24 (Conversions), section 7.3 (String types), section 12.10
+> (For statements), section 17.2 (Deferred calls on a panic), section 17.3 (Ending a task with
+> `rt.Goexit`), section 7.11 (Channel types), section 19.6 (Timers), section 19.1 (Tasks), section 19.4
+> (Scoped tasks), section 11.12 (Slice expressions), section 16.7 (Allocated errors and ownership),
+> section 16.5 (Errors with context), section 18.11 (Generation checks), section 13.7 (Making channels and
+> maps), section 13.9 (Allocation), appendix F.3 (Iterators and containers).
+>
+> **The specification supersedes these statements in this document:**
+> - Decisions adopted as written, by audit number (the specification states each as a rule): F1: sections
+>   18.4 and 11.4 (E3006); F2: sections 11.24, 7.3 and F.6; F3: section 12.10 (Maps) and 7.10; F4:
+>   section 17.2; F5: section 17.3; F6 and F7: sections 7.11, 19.6, 13.4 and F.7; F8: section 19.1
+>   (Stacks) and 21.4; F9: section 18.10 and F.3 (`vec.Fixed`); F10: section 19.4 and F.5; F11: section
+>   F.3 and 12.10 (Library containers); F12: sections A.5, 11.12 and 17.1; F13: section 16.7; F14:
+>   sections 18.3, 18.11 and 21.5; F15: section 16.5; F16: sections 13.9, 13.7 and 7.5; F18: sections
+>   18.6 and A.3; F19: section 16.3; F20: sections A.3 and 7.3; F21: section A.3 (Tasks and concurrency).
+>   F17 (the random per-map seed) is not stated in the specification, which leaves the iteration order
+>   and the hash seed unspecified (section 7.10); it is a library behavior tracked in docs/roadmap.md.
+> - "puroutine" everywhere (sections 1, 2, 3 F4, F5, F8, F10, F21, and 5), "scoped puroutines" and
+>   `go func(c chan int) { ... }(done)` (F8): the word is task, and the statement is `task f(x)`. `go f(x)`
+>   is a compile error that names `task`. Sections 12.12 and 19.1.
+> - "Stack traces and the deadlock message say `puroutine` ... keep the word" (F21, and decision 16): they
+>   say `task`. Sections A.3, 17.1 and 19.1.
+> - "a program's own `//pu:panic` handler may do the same with `p.RunDeferred()`" and "Freestanding and
+>   kernel builds keep today's behavior unless their handler asks" (F4, section 3 and decision 4): no
+>   function `RunDeferred` exists. The runtime runs the deferred calls before it calls any hosted
+>   handler, and a freestanding or kernel build runs no deferred calls on a panic. Section 17.2.
+> - "Each test then runs on its own puroutine, as in Go" (F5, section 3 and decision 5): tests run one
+>   after another on the task that runs `main`, and the test runner stops the exit with `rt.CatchGoexit`.
+>   Section 17.3.
+> - "`alloc.Free(t)` of a `Timer` or `Ticker` stays until its result type is decided" and "That choice is
+>   open" (F6, section 3 and decision 6): decided. `time.NewTimer`, `time.NewTicker` and `time.AfterFunc`
+>   return `owned[Timer]` and `owned[Ticker]`, which stop and free the timer when dropped. Nothing in the
+>   library needs a `Free` call. Sections 19.6, F.7 and A.3.
+> - "`fmt.Errorf` and `errors.Join` ... are allocated and freed only by `errors.Free` (spec section
+>   14.3)" (F13, section 3): there is no `errors.Free`. Allocated errors are counted objects that `error`
+>   values release. Section 16.7.
+> - "Add `strings.Truncate(s, n)` (or a `utf8` helper that rounds a byte offset down ...)" (F12): both
+>   exist. Sections A.5 and F.6.
+> - "adopt Go's iteration guarantees as the specification of `hash.Map`, `hash.Set` and `map[K]V`" (F3,
+>   decision 3): the specification states the guarantees for the built-in map; the library tables are
+>   documented with their packages. Sections 12.10 and 7.10.
+> - "`append`, `recover`, `reflect`, complex numbers, today's `map` | Compile errors with replacements"
+>   (section 4): the built-in `map[K]V` exists, as a counted reference with Go's semantics. Section 7.10.
+> - "`make` keeps channels (and maps, when they return)" (F16): maps are back, and `make(map[K]V, n, a)`
+>   takes an allocator. `make` of a slice is a compile error (E2014). Sections 13.7 and 7.5.
+> - "Capturing literals with `go` | Compile error (E2590)" (section 4): this is a `task` statement.
+>   Section 12.12.
+> - "spec section 4.1", "4.2", "4.4", "4.5", "4.7", "4.8", "4.10", "6.3", "6.10", "8", "8.2", "8.3",
+>   "12.1", "13.1", "14.1", "14.3", "14.5" and "14.6" (throughout, including decisions 2, 4, 5, 6, 7 and
+>   12): these are the numbers of the earlier language.md. They are now: panics and faults 17.1 and 17.5, `new` and `make`
+>   13.9 and 13.7, interfaces 7.9, closures and loop storage 11.5 and 18.4, tasks 12.12 and 19.1, channels
+>   7.11 and 19.8, defer 12.19, views 18.3, strings 7.3 and 18.8, deferred calls on a panic 17.2, `rt.Goexit`
+>   17.3, build modes 20.5, names from the operating system A.3, `errors.New` 16.3, errors with context 16.5
+>   and counted errors 16.7.
 
 ## 1. The rule
 

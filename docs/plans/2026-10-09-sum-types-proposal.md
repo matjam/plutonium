@@ -1,8 +1,44 @@
 # Sum types: a proposal
 
 **Date:** 2026-10-09
-**Status:** option A accepted and implemented; specified in language spec section 5.10. Section 9 lists
-where the implementation differs from the text below.
+**Status:** option A accepted and implemented; specified in language spec section 5.10 (now section 7.13;
+see the Status block below). Section 9 lists where the implementation differs from the text below.
+
+> **Status (2026-10-10): decided and implemented.** Option A (`union` with named variants, and the
+> packed form for hardware layouts) was accepted and is implemented. This document stays as the reasoning
+> for the choice. The specification now defines unions, and where its text differs from this proposal,
+> the specification wins. Follow-up work on the compiler is in docs/roadmap.md.
+>
+> **Defined now by:** section 7.13 (Unions), section 12.9 (Switch statements, union switches), section
+> 12.1 (Terminating statements), section 11.7 (Selectors), section 11.13 (Type assertions), section 10.8
+> (Type declarations), section 7.14 (`packed` types), section 8.4 (Assignability), section 8.10
+> (Comparable types), section 7.9 (Interface types), section 4.6 (Contextual keywords).
+>
+> **The specification supersedes these statements in this document:**
+> - "Each variant name declares a type, `U.Name`, whose underlying type is the payload; a value of a
+>   variant type converts implicitly to the union" (section 2, option A), "A value of variant type `U.V`
+>   is assignable to `U`" and "Variant types ... cannot have methods of their own" (section 3), and "`s`
+>   has type `DeviceState.Probing`" in the example (section 2): a variant is not a type (`var x U.V` is
+>   E2409). `U.V(x)` and `U.V{...}` construct a `U`, `U.V` alone is a function of type `func(P) U`, and
+>   nothing converts implicitly into a union. In a clause that names one variant, the variable has the
+>   payload type, not a variant type. Sections 7.13, 8.4 and 12.9. (Section 9, item 1 of this document
+>   already says so.)
+> - "`Result[int].Ok(5)` is a conversion to the variant type `Result[int].Ok`" (section 2): construction
+>   is a call whose argument must be assignable to the payload type. Section 7.13.
+> - "In-place update. `p, ok := (&u).(*U.V)` yields a pointer into the payload" (section 3), question 4
+>   (section 7) and "in-place update deferred" (section 9): updating a payload in place is not part of the
+>   language; assign a new variant instead. Section 7.13.
+> - "unqualified variant names ... only when the name is not shadowed" (section 7, question 2): in a case
+>   of a union switch, a bare variant name denotes the variant whatever else the name denotes in scope. It
+>   is accepted nowhere else, and not in a type assertion. Sections 12.9 and 11.13.
+> - "A variant payload may be an `owned[T]`. ... The move checker treats moving a payload out through a
+>   type switch as a move of the whole union" (section 5) and "Owner payloads are rejected" (section 9,
+>   item 6): a union with an owner payload is allowed and must be declared `owner union` (E2406). A type
+>   switch with a binding moves the payload into the clause and leaves the union empty. The comma-ok
+>   assertion moves the payload only where `ok` is true. Sections 7.13, 12.9 and 11.13.
+> - "language spec section 4.4", "section 5.5", "section 5.9" and "section 5.10" (header, sections 1, 4 and
+>   8): these are the numbers of the earlier language.md. Interfaces are section 7.9, packed types section
+>   7.14, enums section 7.12 and unions section 7.13.
 
 ## 1. The problem
 

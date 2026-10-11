@@ -1,7 +1,16 @@
 # Enums
 
 **Date:** 2026-10-09
-**Status:** implemented; specified in language spec section 5.9.
+**Status:** implemented; specified in language spec section 5.9 (see the Status block below).
+
+> **Status (2026-10-10): decided and implemented.** Enums are in the specification as described here, except for the points below; this note keeps the reasoning and the alternatives.
+>
+> **Defined now by:** section 7.12 (Enums), section 8.4 (Assignability), section 10.7 (Iota), section 11.7 (Selectors), section 11.24 (Conversions), section 12.1 (Terminating statements), section 12.9 (Switch statements), section 12.10 (For statements), section 13.6 (Length and capacity), section 15.1 (The zero value), section 17.1 (Panics).
+>
+> **The specification supersedes these statements in this document:**
+> - "language spec section 5.9" (the Status line) is section 7.12. The unions of the sum types proposal, cited as section 5.10 elsewhere, are section 7.13.
+> - Section 6 (Invalid values), "A switch with no matching case does nothing, as in Go ... Making them panic was rejected: it would add a check to every exhaustive switch": an exhaustive switch with no `default` case panics for a value that is not a member, in every function, and it is a terminating statement when its clauses are. A switch with a `default` case runs the default. Section 7.12, section 12.1 (item 7), section 12.9 and section 17.1.
+> - Section 3.2, "every other member without a value is one more than the previous member, like `iota`": `iota` is not defined in an enum, and using it in a member's value is a compile error. A member without a value is one more than the previous member, which numbers members without `iota`, section 7.12 and section 10.7 (Iota in enums).
 
 ## 1. The problem
 

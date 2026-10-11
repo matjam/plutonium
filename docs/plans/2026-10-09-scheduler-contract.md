@@ -10,7 +10,28 @@ with one change from this note: the runtime keeps the timers, so a backend provi
 and a timer (`ArmTimer`, serviced with `rt.RunTimers`), both optional, instead of `BlockUntil`;
 `rt.ParkUntil` is built on them. `rt.TraceTask` is implemented, as the generic
 `rt.TraceTask[W Writer](t *Task, w W)` of `Panic.PrintTrace` rather than with a `func(line []byte)`
-(debugging.md section 5). The rest of this note is the proposal as written.
+(debugging.md section 5). The rest of this note is the proposal as written (see the Status block below).
+
+> **Status (2026-10-10): decided and implemented.** The contract is in the specification under the names as implemented; this note keeps the reasoning and the alternatives.
+>
+> **Defined now by:** section 19.1 (Tasks), section 19.5 (The scheduler contract), section 19.6 (Timers), section 19.7 (Memory model), section 20.3 (Directives: `//pu:scheduler`, `//pu:blocking`), section 20.10 (Interrupts), and abi.md section 12 (normative; section 12.8 maps this note's names to the implemented ones).
+>
+> **The specification supersedes these statements in this document:**
+> - "language spec section 4.7" (the Status paragraph and section 5): the language side is section 12.12 (Task statements), section 19.1, section 19.5 and section 19.6. The memory model is section 19.7.
+> - "puroutine" and the `go` statement (introduction, sections 1, 2.1, 2.2, 3, 4 rule 6, 5, 7 and 9): the word is "task" and the statement is `task f(x)`, section 12.12. In rule 6 of section 4, "no `go`" means that `Wake` must not start a task (E2585). The panic text "cannot start puroutine" (section 3) uses the old word.
+> - Section 2.1, "The layout is fixed and documented in abi.md ... a backend may read every field and must write none except through the functions below": only `sp` (offset 0) and `onCPU` (offset 24) are fixed. The rest of the record is private and may change, and a backend writes only `Link` and `Data`, abi.md section 12.1.
+> - Section 2.2, `InitStack`, `Start` and `StackRequest{Size, Proven}`: the runtime builds the first frame between `NewTask` and `Spawn`, the backend method is `Spawn`, and a stack request also carries `Unsized` and the allocator, abi.md sections 12.1 and 12.8. The size follows section 19.1 (Stacks): the computed bound, `rt.Go(f, size)`, or otherwise at least 64 MiB of address space in hosted builds.
+> - Section 2.3, "`Switch(from, to *Task)` saves ... RBX, RBP, R12 to R15 and RSP": it is `rt.Switch(from, to *Context)`, it also saves RFLAGS, and it serves a backend's own loops as well as tasks, abi.md section 12.2.
+> - Sections 2.4, 3 and 6, `Block()`, `BlockUntil(deadline)` and "`ParkUntil(deadline)` ... through the backend's `BlockUntil`": the backend methods are `Park(t)`, `Yield(t)` and `Wake(t)`, and the runtime implements the permit and calls `Wake` only for a task that is fully parked. There is no `BlockUntil`: the runtime keeps the timers, `rt.ParkUntil` is `Park` with a runtime timer, and a backend that supports timers provides the optional methods `Now` and `ArmTimer`, section 19.5, section 19.6 and abi.md sections 12.5 and 12.9.
+> - Sections 2.5, 3 and 6, `DisablePreempt`, `EnablePreempt` and the backend's `Resched`: the names are `rt.DisablePreemption` and `rt.EnablePreemption`, there is no `Resched`, and a preemption that was pending makes the task yield when the count returns to zero, abi.md section 12.4.
+> - Sections 2.6 and 7 item 4, "a per-CPU slot `rt.current` at offset 8": the slot is the per-CPU variable `pluto/rt.currentTask` at `%gs:8` in kernel mode, and `%fs:8` for the hosted backend, abi.md section 12.3.
+> - Sections 2.7 and 3, `Exit()` and `rt.StackOverflow(t, addr)`: a task that exits is `Park(t)` with `t.Exited()` followed by `FreeTask(t)` from the runtime after the switch. There is no `rt.StackOverflow`: a kernel reports an overflow with `rt.PanicFault`, abi.md section 12.8 and section 17.5 (Faults). `rt.TraceTask` is generic over the writer, as the Status paragraph says.
+> - Section 3, `Now() int64` as a required method of `Scheduler`: `Now` and `ArmTimer` are optional and needed only by programs that use timers (E2595). `Init` and `InInterrupt` are optional too, section 19.5.
+> - Section 4 rule 6, "`Wake` and everything it calls must pass the interrupt-context check (no blocking, no allocation, no `go`)": the check rejects operations that wait and an allocator that may wait, not every allocation, section 20.10 (E2584, E2585).
+> - Section 4 rule 7, "or the backend accepts that an overflow corrupts memory (a test kernel may)": in kernel builds the scheduler backend provides the guard region, so that running past the end of a stack is reported as a stack overflow, section 19.1 (Stacks).
+> - Section 4 rule 8 and section 2.7, "`Exit` frees later": a backend must also not free or reuse the stack of a task that has not returned normally until `rt.WaitScopes` has returned for it, section 19.4 (Non-local exits) and abi.md section 12.10.
+> - Section 9, "`//pu:nonblocking`": this is not a directive of the language. The set in section 20.3 is complete, and `//pu:blocking` marks what a handler must not reach, section 20.10.
+> - Section 9, "A predeclared `portable` constraint (... types marked transferable such as handles and page-owning owners)": `portable` exists, but no owner is portable and a string is not portable, section 8.9 (Portable types).
 
 Plutonium provides puroutines, channels, `select` and `pluto/sync` as language and runtime mechanism, and
 a scheduler only for hosted Linux. A freestanding program that uses them, such as a kernel, supplies the

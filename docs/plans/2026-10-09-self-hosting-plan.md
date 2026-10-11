@@ -3,7 +3,92 @@
 **Date:** 2026-10-09
 **Status:** plan and analysis, with a working prototype (`tools/go2pu`, `selfhost/`). Section 10 lists the
 decisions for the user. Section 11 amends the plan for the ownership model (language spec section 6):
-the Go sources migrate to a `pu` package that mirrors the Plutonium library, so translation is one to one.
+the Go sources migrate to a `pu` package that mirrors the Plutonium library, so translation is one to one
+(see the Status block below for what the language specification now says).
+
+> **Status (2026-10-10): partly implemented.** The prototype and the first phases of section 8 are done
+> (the translated back end, growable arenas, the OS layer, the constant package and the `pu` mirror
+> package). The front half of the compiler, the driver, the bootstrap check and the cutover are not
+> started. The plan stays as the reasoning for the port. The language it assumes is now specified in full,
+> and some of its premises changed (below); what the compiler and library still lack is in
+> docs/roadmap.md.
+>
+> **Defined now by:** section 7.10 (Map types), section 13.1 (Built-ins Plutonium does not have),
+> section 13.7 (Making channels and maps), section 13.9 (Allocation), section 11.24 (Conversions),
+> section 7.3 (String types), section 18.8 (Strings), section 18.10 (No allocation without an owner or an
+> arena), section 11.4 (Function literals), section 11.5 (Closures and their regions), section 18.2
+> (Where variables live), section 18.3 (Views), section 16.2 (Where an error lives), section 16.3
+> (Sentinels and `errors.New`), section 16.7 (Allocated errors and ownership), section 7.13 (Unions),
+> section 7.18 (Owner types), section 12.12 (Task statements), section 19.1 (Tasks), appendix F.3
+> (Iterators and containers).
+>
+> **The specification supersedes these statements in this document:**
+> - "language spec section 6" (the ownership model), "section 6.3", "section 4.5", "section 4.2",
+>   "section 14" and "section 14.6" (this document's header and sections 3.1, 3.3, 3.5, 7, 8 and 11):
+>   these are the numbers of the earlier language.md. The ownership model is chapter 18 with sections 7.18
+>   and 8.7; where literals and locals live is sections 18.2 and 18.3; closures are sections 11.4 and
+>   11.5; `new` is section 13.9; errors are chapter 16, and counted errors are section 16.7.
+> - "maps are `*hash.Map`", "no built-in map syntax" and the idea that map syntax over an allocator "hides
+>   an allocator and a pointer" (sections 1, 3.1 and 7, gap 10): the language has the built-in `map[K]V`,
+>   a counted reference with Go's semantics (reads from a nil map, `v, ok := m[k]`, `delete`, `clear`,
+>   Go's iteration guarantees). `make(map[K]V, n, a)` takes an allocator. Neither keys nor values may be
+>   owners; `hash.Map` is the library table for owners. Sections 7.10, 12.10, 13.3, 13.5, 13.7 and F.3.
+>   The `compat.NewMap`, `MapAt` and `MapGet` rows of section 3.1 work around a language that has no map,
+>   and the single-result lookup and nil-safe reads that gap 10 asks of `hash.Map` are properties of the
+>   built-in map.
+> - "`pu.Map[K, V]` | `hash.Map[K, V]`" and "Map types become `pu.Map` values held by their owner"
+>   (sections 11.1 and 11.2, step 1): a Go `map[K]V` has the Plutonium counterpart `map[K]V` (section
+>   7.10). `hash.Map` remains for owners and for code that must avoid counting (appendix F.3). Whether the
+>   mirror package keeps `pu.Map` is not decided by the specification.
+> - "`append(s, x...)` | `compat.Append(s, x...)`", the 492 `append` calls, and gap 11 ("add
+>   `alloc.Append(a, s, xs...)`", "an allocator argument to the built-in `append` would be ambiguous";
+>   sections 2.3, 3.1, 7 and 10, decision 2): `append` is not a function of the language, and a slice never
+>   grows (E2013). A sequence that grows is a `vec.Vec[T]` (`Push`, `Append`), and an arena hands out
+>   slices with `a.Slice[T](n)`. A function that returns a slice grown from a freeing allocator would return
+>   an array that no owner has, which section 18.10 rules out. Sections 13.1, 7.5, 13.7 and 18.10.
+> - "`string(b)`, `[]byte(s)`, `string(r)` | `compat.String`, `compat.Bytes`, `compat.RuneString` |
+>   copies" and the conversion counts of section 2.3: `string([]byte)`, `[]byte(s)` and `[]rune(s)` are
+>   compile errors, because a Plutonium string always holds valid UTF-8 where a Go string holds any bytes.
+>   The replacements are `strings.FromUTF8`, `strings.FromUTF8Lossy`, `strings.Bytes`, `strings.Runes` and
+>   `copy(buf[:], s)`. `string(r)` stays. A string slice `s[i:j]` panics off a rune boundary, which Go
+>   code may do. Sections 11.24, 7.3, 11.12, F.6 and A.5.
+> - "`fmt.Sprintf` returns a `strings.Buf` and `Bprintf` formats into a buffer" (section 10, decision 12;
+>   the introduction and table of section 11), `pu.Buf` | `strings.Buf` (section 11.1), "the library has
+>   `Bprintf`" (gap 9): `fmt.Sprintf` returns a counted `string` (section 18.8). The growing text owner is
+>   `strings.Builder` (section 18.10), and the specification names no `strings.Buf`. `Bprintf` and `Bprint`
+>   are replaced by `fmt.Appendf`, `Append` and `Appendln`, which write into a `vec.Vec[byte]` or a
+>   `vec.Fixed[byte]` (sections 13.1 and F.3).
+> - "`errors.New` takes one of 512 static slots, meant for package-level sentinels", and the three run-time
+>   calls that "become `compat.NewError`" (sections 2.4, 3.1 and 3.5): `errors.New` works anywhere. Each
+>   call site is one static error, so there are no slots to exhaust. The text must be a constant (E2008);
+>   for any other text the error points to `fmt.Errorf`. Section 16.3.
+> - "`pluto/fmt.Errorf` allocates the error and its message from the default allocator", "the proposal of
+>   section 14.6 if it is signed off" (sections 3.5 and 11.3): the proposal is adopted. An allocated error
+>   is a counted object that `error` values count and release; there is no `errors.Free`; in an arena the
+>   free does nothing. Sections 16.7 and 18.9.
+> - "Returning `&T{...}` today compiles and returns a dangling pointer", "nothing reports it yet (roadmap
+>   item 5)" and "implement roadmap item 5 ... before any hand-written Plutonium is merged" (sections 2.5,
+>   7 gap 1, 8 and 9.4, decision 6): the language rejects every view of a frame that outlives it
+>   (E3001 to E3006), and it never moves a variable to the heap because its address is taken (sections 18.2
+>   and 18.3). Roadmap item 5 is done.
+> - "The idiomatic allocating form is `new(T{...})`" (gap 1) and "under the proposal ... `new` returns an
+>   `owned[T]`" (section 11.2): `new(T{...})` returns an `owned[T]`, not a `*T`, and does not store in a
+>   `*T` field. Views of arena memory come from `a.New[T]()`. Section 13.9.
+> - "keep Plutonium's rule (closures do not outlive their frame)", "Plutonium's rule only forbids returning
+>   or storing", the returned closures and iterators listed in section 3.6, and "iterator constructors that
+>   return closures capturing their parameters are expanded in the caller (language spec section 4.5)"
+>   (sections 3.6 and 8, gap 3): a function may return a closure. It is built in a region of the caller's
+>   frame, lives as long as that frame and costs no allocation. Storing a closure in a package variable or
+>   through a pointer is E3002, and what a region cannot hold is E3100 to E3102. A closure record is not
+>   "expanded in the caller". Conversion to a struct and an interface (section 5.4) is still needed for
+>   closures that the program stores, such as the `check.later` queue. Section 11.5.
+> - "Sum types (language, proposed)", "accept option A", "Today, without sum types" and "with the proposed
+>   union" (gap 13, section 5.3, decision 7): unions are decided and specified, section 7.13.
+> - "The compiler does not use puroutines", "puroutines have fixed stacks" and "Items 14 to 17
+>   (puroutines, channels, ...)" (sections 6.2, 7 gap 12 and 8): the word is task, started by
+>   `task f(x)`. A task has a fixed stack; a hosted task whose size cannot be computed gets at least 64 MiB
+>   of address space, committed as it is touched. The main thread's stack is set with `//pu:stack`.
+>   Sections 12.12, 19.1 and 20.3.
 
 The compiler is 56,548 lines of Go. The goal is a compiler written in Plutonium that compiles itself, can
 be built and maintained on PlutoniumOS, and produces byte-identical output when it rebuilds itself. This

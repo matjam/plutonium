@@ -7,6 +7,49 @@ writes use `vec.Fixed[byte]`. Two details differ from the text below: `vec.NewFi
 `len(storage)`, not the capacity, and the `os` and `exec` functions read a path into their own buffer and
 append it whole, so they never store part of one.
 
+> **Status (2026-10-10): decided and implemented.** The decisions of section 8 are rules of the
+> specification and are in the compiler and library. This document keeps the survey and the reasoning.
+> Where the specification's text differs from the text below, the specification wins; remaining
+> follow-ups are in docs/roadmap.md.
+>
+> **Defined now by:** section 13.1 (Built-ins Plutonium does not have), section 7.5 (Slice types),
+> section 13.7 (Making channels and maps, for `make` of a slice), section 13.2 (Copying slices),
+> section 11.24 (Conversions), section 18.10 (No allocation without an owner or an arena), section 20.11
+> (Allocation in kernel mode), appendix A.2 (Removed), appendix F.3 (Iterators and containers: `vec.Vec`,
+> `vec.Fixed`, `vec.Appender`, `vec.AppendString`), appendix F.6 (Strings).
+>
+> **The specification supersedes these statements in this document:**
+> - "`append` stays a predeclared built-in, as `recover` does, so a call finds it and gets this error
+>   instead of 'undefined: append'" and decision 1 ("`append` stays predeclared so the error can name
+>   it") (section 5.1 and section 8): `append` and `recover` are not predeclared. A use of the name in a
+>   program that declares no `append` of its own is E2013 (E2004 for `recover`); a program may declare its
+>   own `append`, which is then an ordinary identifier. Sections 13.1, 7.5 and 10.3.
+> - "`make([]T, n, cap)` still gives a slice with spare capacity, which a program fills by slicing"
+>   (section 7), and the `rangefuncgo.p` row, "collects results in `make([]int, 0, 64)`" (sections 2.1,
+>   class (a), and 6.2): `make` of a slice type is a compile error (E2014). The fix is `vec.Make[T](n)`,
+>   `vec.WithCapacity[T](c)`, an array for a constant size, or `a.Slice[T](n)` from an arena. Sections 13.7
+>   and 7.5.
+> - "`return string(b.Slice())`" in `FormatInt` (section 3.2) and "`vec.Fixed[byte]` and
+>   `string(f.Slice())`" (section 3.2, "What stays as it is"): `string([]byte)` is a compile error. A string
+>   is valid UTF-8, so the conversion is `strings.FromUTF8(b)` for text or `strings.FromUTF8Lossy(b)`
+>   where replacing invalid bytes is acceptable. Sections 11.24 and F.6.
+> - "`defer b.Free()`" and "`defer v.Free()`" (section 3.2, the growing example; section 5.1, the catalog
+>   `Fix` and `Fixed` texts): an owner such as `vec.Vec` is dropped at the end of its variable's scope and
+>   needs no `Free` call. Sections 7.18, 18.6 and 13.1.
+> - "as `map[K]V` is in section 3" (section 1): the built-in `map[K]V` is part of the language, a counted
+>   reference with Go's semantics. Section 7.10.
+> - "Today's kernel check looks only at calls of functions marked as allocating" (section 3.2, Cost): no
+>   function needs a marking. The compiler follows every allocation into the `Alloc` method of each
+>   allocator the program installs, and judges a generic function once for each set of type arguments.
+>   Section 20.11.
+> - "Section 3's row becomes `append`; section 4.3 keeps its number ... and becomes 'Slices do not grow'"
+>   (section 6.1, step 6), and "language spec section 4.3", "section 6.3", "6.1 and 6.6", "6.9", "section
+>   8's fault list" and "12.7" (sections 1, 2.4, 3.2 and 6.1): these are the numbers of the earlier
+>   language.md. The rule is section 13.1 (Built-ins Plutonium does not have) and section 7.5 (Slice
+>   types); no section is titled "Slices do not grow". The views rules are section 18.3, duplicating
+>   owners with `copy` is section 13.2 (E3306), the fault list is section 17.1, and allocation in kernel
+>   mode is section 20.11.
+
 ## 1. Summary
 
 Plutonium's `append` works only within a slice's capacity and panics past it (language spec section
