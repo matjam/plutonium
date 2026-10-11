@@ -10,3 +10,4 @@ selects -7
 loopVar 1
 loopVar 7
 loopVar 17
+untilOdd 1 3

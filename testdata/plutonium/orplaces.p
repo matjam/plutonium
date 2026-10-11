@@ -92,6 +92,26 @@ func loopVar() {
 	}
 }
 
+// untilOdd and untilOddInit leave their loops only by the break of a
+// clause: they return, and the code after their calls runs.
+func untilOdd(start int) int {
+	n := start
+	for {
+		n = half(n) or break
+	}
+	return n
+}
+
+func untilOddInit(start int) int {
+	n := start
+	for {
+		if v := half(n) or break; v > 0 {
+			n = v
+		}
+	}
+	return n
+}
+
 func main() {
 	places(4)
 	_, e := places(3)
@@ -104,4 +124,5 @@ func main() {
 	ch <- 7
 	fmt.Println("selects", selects(ch))
 	loopVar()
+	fmt.Println("untilOdd", untilOdd(8), untilOddInit(12))
 }
