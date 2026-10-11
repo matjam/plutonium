@@ -282,9 +282,8 @@ later takes the next free number and is listed in the section where it belongs.
     rejects package variables written by several puroutines without their guard or atomics (E3502,
     E3503) and views that cross to another puroutine while what they point to may change (E3501; the
     type rule accepts structs never changed once shared, or guarded by their own lock), and fields of a
-    `synced[T]` object used without the lock of the same object (E3502, E3503). Follow-ups: maps join the
-    `synced[T]` rule when they return (gap G16). `sync.Scope`'s sharing check reuses the lock inference
-    (done, item 63).
+    `synced[T]` object used without the lock of the same object (E3502, E3503). Maps joined with a rule of
+    their own (item 60, gap G16). `sync.Scope`'s sharing check reuses the lock inference (done, item 63).
 48. **Counted references and `weak[P]`** (done; language spec sections 7.19 and 18.7, abi.md section
     1.2): the allocation header (strong and weak counts, allocator), counted by the machinery of counted
     strings (borrowed parameters, owned results, statement temporaries), `Drop` at zero strong count and
@@ -361,14 +360,20 @@ later takes the next free number and is listed in the section where it belongs.
     `vec.WithCapacity[T](c)`, owners, or an array for a constant size; go2pu translates it to
     `compat.Make`.
 
-60. **Counted `map[K]V`** (in progress; complete-spec gaps G15 to G17, spec section 7.10): the built-in map
-    returns as a counted reference with Go's semantics. `make(map[K]V)`, `make(map[K]V, n)` and
-    `make(map[K]V, n, a)` take an allocator as `make(chan T, n, a)` does, and a map literal allocates from
-    the current allocator (G17). Indexing, `v, ok := m[k]`, `delete`, `len` and `range` work as in Go;
-    `clear(m)` deletes every entry and releases counted keys and values (G28). Neither keys nor values may
-    be owners: the error points to `hash.Map`, whose `Ptr`, `Remove` and `Pop` look at or take out an owner
-    (G15). A map may be passed to another task, and its contents fall under the race rules of item 59 as
-    the contents of a `synced[T]` do (G16). Iteration follows item 64.
+60. **Counted `map[K]V`** (done; complete-spec gaps G15 to G17; language spec sections 7.10, 13.5,
+    13.7 and 19.3; abi.md section 1.4): a map is a counted reference to a `pluto/rt.MapTable`, one word, counted as a
+    `synced` box with the elision of strings (borrowed parameters, owned results, uncounted stable locals,
+    holds elided across calls that cannot release). `make(map[K]V)`, `make(map[K]V, n)`,
+    `make(map[K]V, n, a)` and `make(map[K]V, a)` take an allocator as `make(chan T, n, a)` does, and a map
+    literal allocates from the current allocator (G17). Every Go operation works, `clear(m)` releasing
+    counted keys and values (G28); a nil map reads as empty and panics on a store; `fmt` prints maps with
+    sorted keys. Owner keys and elements are E3213 (G15). A map is sendable, and the contents of every
+    map of a type that crosses to another task are under the guard rule of item 59 (G16, language
+    spec section 19.3). A map converted to an ordinary interface is stored in the data word and lends the map,
+    as a `synced` box does. Views of a frame may not be keys or elements (E3001, E3002). go2pu translates
+    Go's maps as they are. Left: G15's error suggests counted references, not `hash.Map`, since
+    `hash.Map` does not take owner values yet (`Remove` and `Pop` for owners); the race rule groups maps by
+    type, so two maps of one type are guarded together when either crosses.
 61. **Remove `string([]byte)`, `[]byte(s)`, `[]rune(s)` and integer-to-string conversions** (done;
     language spec sections 11.24 and 18.8; false-friends audit F2, decisions 2 and 16; complete-spec gaps G10
     and G11): each is a compile error whose message shows the replacement. `string(b)` of a byte slice is
@@ -391,13 +396,16 @@ later takes the next free number and is listed in the section where it belongs.
     `union`, `owner` and `task` stay contextual (G3). The word "task" replaces "puroutine" everywhere: the
     language, `rt.Task`, `s.Task` (item 63), `wg.Task` (which replaces `wg.Go`), diagnostics, traces, the
     catalog, the specifications, the examples and the documents.
-64. **Go's map iteration guarantees and per-map seeds** (planned; false-friends audit F3 and F17): a
+64. **Go's map iteration guarantees and per-map seeds** (done; false-friends audit F3 and F17): a
     deletion never moves another entry, so every entry present when a loop starts and not deleted before the
     loop reaches it is visited exactly once; when the table grows during an iteration the iterator keeps
     walking the old table and looks each key up in the new one, as Go's does. The old table stays alive
     while an iteration that saw it runs. In hosted builds each map is seeded from a random value the
     runtime reads at startup, mixed with a counter; kernels and reproducible builds keep `InitSeed`.
-    Applies to `hash.Map`, `hash.Set` and the built-in map (item 60).
+    Applies to `hash.Map`, `hash.Set` and the built-in map (item 60). Done: deletion leaves a deleted mark
+    (or empties the slot when the next is empty), and a table rebuilt while walks run is kept, holding its
+    own references, until the last walk ends. Hosted seeds come from `AT_RANDOM`; kernels call
+    `rt.SetMapSeed`. `hash.Map` keeps its fixed seed (`DefaultSeed`) unless given one with `InitSeed`.
 70. **`portable`** (planned; complete-spec gap G19; [scheduler contract](plans/2026-10-09-scheduler-contract.md)
     section 9): a predeclared constraint for typed IPC between PlutoniumOS processes. A type is portable
     when it contains no pointers, views, counted values (strings included, since their buffers live in the

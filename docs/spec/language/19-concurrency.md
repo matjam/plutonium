@@ -255,8 +255,13 @@ the reference is first copied do not count. Calling a pointer method on the box 
 The contents of a built-in map are shared by every copy of the map, and a map may cross to another task
 (section 19.2). When copies of one map may be used by several tasks, its contents follow the same rule:
 the writes (assignments to elements, `delete`, `clear`) must hold one guard, and every read holds it too
-(E3502, E3503). A map used by one task at a time, or by the tasks of a `sync.Scope` under its partition
-rules, needs no lock.
+(E3502, E3503). The guard is a package-level lock or a lock of the struct the map is a field of. A map used
+by one task at a time, or by the tasks of a `sync.Scope` under its partition rules, needs no lock. Since
+any copy of a map reaches its table, the compiler treats the contents of all maps of one type as one piece
+of data once a map of that type crosses to another task (or a task reaches one through a package variable
+or memory it did not allocate): maps of that type that tasks fill for themselves after handing them to a
+function must then hold the guard too, or the shared map takes a type of its own. Maps a task fills before
+it shares them, and maps of types that never cross, need no lock.
 
 **An owner needs none of this.** An owner moves to the task that receives it, so only that task has it.
 `task c.bump()` on an `owned[Counter]` hands over the box, and no other task can reach the counter.

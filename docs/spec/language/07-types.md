@@ -938,7 +938,12 @@ argument.
 
 **Iteration.** The order in which a `range` clause visits the entries of a map is unspecified and may differ
 from one iteration to the next. Section 12.10 (For statements) states which entries a loop visits when the
-body adds or deletes entries.
+body adds or deletes entries. The implementation visits entries in the order of their slots in the table,
+which depends on the keys' hashes. Each map has its own hash seed: in hosted programs the seeds come from
+random bytes the operating system gives the program, so keys chosen by an attacker cannot be made to collide
+and the order differs from run to run; freestanding and kernel programs start from a fixed seed, so the
+order is the same in every run for the same operations, unless the kernel gives the runtime entropy with
+`rt.SetMapSeed`.
 
 **Owners are not keys or elements.** Neither the key type nor the element type of a map may be an owner.
 Reading an element copies it, and copying an owner would make a second owner. The error shows how to keep
