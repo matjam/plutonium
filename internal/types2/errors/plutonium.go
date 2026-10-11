@@ -203,6 +203,10 @@ const (
 	// MapOfOwner: a map type whose key or element type is an owner, which
 	// reading an element would copy.
 	MapOfOwner
+	// OwnerOperator: an operator other than a comparison applied to an
+	// operand of owner type, whose result would be a new owner made by
+	// arithmetic.
+	OwnerOperator
 )
 
 // The indexing interface: index expressions on library containers.

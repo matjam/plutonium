@@ -1,0 +1,5 @@
+$DIR/main.p:14:9: invalid operation: operator + does not apply to *f (variable of int32 type Fd), an owner; convert it to read its value: int32(*f)
+$DIR/main.p:19:8: invalid operation: operator - does not apply to f (variable of int32 type Fd), an owner; convert it to read its value: int32(f)
+$DIR/main.p:20:2: invalid operation: operator + does not apply to f (variable of int32 type Fd), an owner; convert it to read its value: int32(f)
+$DIR/main.p:21:2: invalid operation: operator << does not apply to f (variable of int32 type Fd), an owner; convert it to read its value: int32(f)
+$DIR/main.p:22:10: invalid operation: operator * does not apply to f (variable of int32 type Fd), an owner; convert it to read its value: int32(f)

@@ -2,6 +2,7 @@ package types2
 
 import (
 	"github.com/matjam/plutonium/internal/syntax/ast"
+	"github.com/matjam/plutonium/internal/syntax/token"
 	. "github.com/matjam/plutonium/internal/types2/errors"
 )
 
@@ -427,6 +428,20 @@ func (check *Checker) ownerConversion(x *operand, T Type) {
 			Intro: "Use a constructor from the package that declares " + t + ".",
 		}},
 	}, "cannot convert %s to owner type %s outside package %s", x, t, n.Origin().obj.pkg.name)
+}
+
+// ownerOperand reports the operator op applied to x, an operand of owner
+// type, and reports whether it did. Only comparisons apply to an owner
+// (language spec section 11.18): the result of any other operator would be
+// a new owner made by arithmetic. A conversion to a type that is not an
+// owner reads the value and moves nothing.
+func (check *Checker) ownerOperand(x *operand, op token.Token) bool {
+	if !x.isValid() || !IsOwner(x.typ()) {
+		return false
+	}
+	conv := check.sprintf("%s(%s)", x.typ().Underlying(), ExprString(x.expr))
+	check.errorf(x, OwnerOperator, invalidOp+"operator %s does not apply to %s, an owner; convert it to read its value: %s", op, x, conv)
+	return true
 }
 
 // checkMapOfOwner reports a map key or element type (what) T that is an

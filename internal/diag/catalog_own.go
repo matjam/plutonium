@@ -251,6 +251,14 @@ func init() {
 			Fixed:   "files := map[string]synced[os.File]{}",
 		},
 		&Entry{
+			Code: CheckerCode(typerr.OwnerOperator), Name: "OwnerOperator",
+			Text:    "An operator other than a comparison is applied to a value of an owner type. An owner may be compared, but no other operator applies to it, whatever its underlying type: f + 1 for type Fd owner int32 would be a new Fd made by arithmetic, a second owner of whatever the first refers to.\nConvert the owner to its underlying type, which reads its value and moves nothing, and apply the operator to the result.",
+			Why:     whyOwners,
+			Spec:    pspec("11.18", "Operators"),
+			Example: "func next(f *Fd) int32 {\n\treturn *f + 1\n}",
+			Fixed:   "func next(f *Fd) int32 {\n\treturn int32(*f) + 1\n}",
+		},
+		&Entry{
 			Code: BadResultHolds, Name: "BadResultHolds",
 			Text:    "//pu:resultholds p says that a function keeps its parameter p only for as long as its result lives: the result, an owner, holds p and gives it back when it is dropped, as alloc.Use's Restore does. The compiler then treats the call as returning p instead of keeping it. The directive must name a parameter, and the function must store that parameter in its result.",
 			Spec:    pspec("20.3", "Directives"),

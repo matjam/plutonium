@@ -181,6 +181,13 @@ func (check *Checker) unary(x *operand, e *ast.UnaryExpr) {
 		op = token.XOR
 	}
 
+	// Plutonium: no operator but a comparison applies to an owner
+	// (language spec section 11.18).
+	if check.ownerOperand(x, op) {
+		x.invalidate()
+		return
+	}
+
 	if !check.op(unaryOpPredicates, x, op) {
 		x.invalidate()
 		return
@@ -820,6 +827,13 @@ func (check *Checker) binary(x *operand, e ast.Expr, lhs, rhs ast.Expr, op token
 	if !y.isValid() {
 		x.invalidate()
 		x.expr = y.expr
+		return
+	}
+
+	// Plutonium: only comparisons apply to owners (language spec section
+	// 11.18).
+	if !isComparison(op) && (check.ownerOperand(x, op) || check.ownerOperand(&y, op)) {
+		x.invalidate()
 		return
 	}
 

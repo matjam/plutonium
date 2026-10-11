@@ -1,0 +1,25 @@
+$DIR/main.p:14:9: invalid operation: operator + does not apply to *f (variable of int32 type Fd), an owner; convert it to read its value: int32(*f)
+    An operator other than a comparison is applied to a value of an owner type.
+    An owner may be compared, but no other operator applies to it, whatever its
+    underlying type: f + 1 for type Fd owner int32 would be a new Fd made by
+    arithmetic, a second owner of whatever the first refers to.
+    Convert the owner to its underlying type, which reads its value and moves
+    nothing, and apply the operator to the result.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    (see "Operators" in the Plutonium spec, section 11.18)
+    (run "pluto explain E3214" for a longer explanation)
+
+$DIR/main.p:19:8: invalid operation: operator - does not apply to f (variable of int32 type Fd), an owner; convert it to read its value: int32(f)
+    (explained above; run "pluto explain E3214" for more)
+
+$DIR/main.p:20:2: invalid operation: operator + does not apply to f (variable of int32 type Fd), an owner; convert it to read its value: int32(f)
+    (explained above; run "pluto explain E3214" for more)
+
+$DIR/main.p:21:2: invalid operation: operator << does not apply to f (variable of int32 type Fd), an owner; convert it to read its value: int32(f)
+    (explained above; run "pluto explain E3214" for more)
+
+$DIR/main.p:22:10: invalid operation: operator * does not apply to f (variable of int32 type Fd), an owner; convert it to read its value: int32(f)
+    (explained above; run "pluto explain E3214" for more)
