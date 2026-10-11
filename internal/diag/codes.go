@@ -122,6 +122,7 @@ const (
 	BadResultHolds  Code = "E3007" // a //pu:resultholds directive that does not match the function
 
 	ResultHoldsOutsideStd Code = "E3008" // //pu:resultholds outside the standard library
+	TempViewKept          Code = "E3009" // a view of an owner temporary kept past its statement
 )
 
 // The move checker (internal/moves).

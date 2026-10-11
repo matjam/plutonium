@@ -67,6 +67,14 @@ func init() {
 			Fixed:   "var first int\nfor i := 0; i < 3; i++ {\n\tif i == 0 {\n\t\tfirst = i * 10\n\t}\n}",
 		},
 		&Entry{
+			Code: TempViewKept, Name: "TempViewKept",
+			Text:    "A pointer method is called on a temporary of owner type, such as the result of a call, and a view of the temporary that the method returns is kept: stored in a variable, in memory or in an interface, or returned. The temporary is dropped at the end of the statement that makes it (or of the if or switch statement whose header makes it), so what was kept would look at a value that has been dropped.\nPass the view to calls in the same statement, or keep the owner in a variable, which lives until the end of its scope, and call the method on the variable.",
+			Why:     "In Go a pointer method needs an addressable operand, so the result of a call has no pointer methods. Plutonium lets a temporary owner be the receiver for its statement, so that a call such as readAll(f).Slice() can be passed straight on, and drops the temporary when the statement ends, since nothing owns it.",
+			Spec:    pspec("11.14", "Calls"),
+			Example: "data := readAll(f).Slice()\nuse(data)",
+			Fixed:   "buf := readAll(f)\ndata := buf.Slice()\nuse(data)",
+		},
+		&Entry{
 			Code: ScopeOutlivesVar, Name: "ScopeOutlivesVar",
 			Text:    "A task started by s.Task holds a pointer, slice or function literal that looks at a variable whose storage is reused before s waits for the task. A variable declared in a loop body is new in each iteration in Go, but in Plutonium every iteration reuses the same memory, so a later iteration would overwrite what the task is still looking at.\nThe task takes its own copy of each such variable that it uses directly, so use the variable itself in the function literal rather than a view of it. Or wait for the task before the iteration ends, with s.Wait() at the end of the loop body.",
 			Why:     whyScope,

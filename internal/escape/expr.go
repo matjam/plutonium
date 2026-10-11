@@ -1020,7 +1020,15 @@ func (w *walker) receiver(x ast.Expr, sel *types2.Selection) tset {
 	case wantPtr && isAddr:
 		return cur
 	case wantPtr:
-		l := w.tmp(x, lkRecv)
+		kind := lkRecv
+		if types2.IsOwner(xt) {
+			// The owner temporary itself is the receiver, for the
+			// statement (language spec section 11.14).
+			kind = lkStmtTemp
+		}
+		l := w.tmp(x, kind)
+		l.typ = xt
+		l.method = fn.Name()
 		w.addContents(l, cur)
 		return tset{frameTok(l)}
 	case isAddr:
@@ -1132,6 +1140,10 @@ func (w *walker) store(targets, vals tset, pos token.Pos, d dest) {
 			for _, v := range vals {
 				switch v.kind {
 				case tFrame:
+					if st := w.stmtTempKept(v.loc, t.loc); st != nil {
+						frameErr(frameTok(st), storeStmt, "", w.sc)
+						continue
+					}
 					if v.loc.level > t.loc.level {
 						frameErr(v, storeOuter, "", w.sc)
 						continue

@@ -35,6 +35,8 @@ type walker struct {
 	loopOf  map[ast.Stmt]*loopInfo      // by statement
 	litList []*ast.FuncLit              // the function literals in the function
 	pending map[pendingKey]pendingStore // views of loop storage given to tracked locals
+
+	headers [][2]token.Pos // the init statements of if and switch statements (stmttemp.go)
 }
 
 type tmpKey struct {
@@ -354,6 +356,7 @@ func (w *walker) assignTo(lhs ast.Expr, val tset, from types2.Type, node ast.Nod
 				val = nil
 			}
 			l := w.varLoc(v)
+			val = w.checkStmtTemps(l, val, pos, dest{text: id.Name, src: src})
 			w.noteTracked(l, val, pos, dest{text: id.Name, src: src})
 			w.setVar(l, val)
 			return

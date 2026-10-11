@@ -87,6 +87,10 @@ type fnState struct {
 	// (order.go), until the expression uses them.
 	evaluated map[ast.Expr]evaluated
 
+	// header is the init statement of an if or switch statement about to
+	// be lowered, whose temporaries are the enclosing statement's.
+	header ast.Stmt
+
 	// pos is the expression or statement being lowered, for errors
 	// found below the AST (float operations in kernel mode).
 	pos token.Pos

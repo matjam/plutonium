@@ -453,3 +453,17 @@ func (check *Checker) checkMapOfOwner(at positioner, T Type, what string) {
 	}
 	check.explainf(at, MapOfOwner, ex, "map %s type %s is an owner, which a map cannot hold: reading the map copies its %ss", what, t, what)
 }
+
+// selectAddressable reports whether the operand x of the selector e may
+// have its address taken for a pointer-receiver method: x is a variable,
+// or e is called and x is a temporary of owner type, which is the
+// receiver for the duration of the statement (spec section 11.14).
+func (check *Checker) selectAddressable(x *operand, e *ast.SelectorExpr) bool {
+	return x.mode() == variable || x.mode() == value && e == check.calleeSel && IsOwner(x.typ())
+}
+
+// suspendedOwnerTemp reports whether x is a temporary of owner type whose
+// pointer method e the defer or task statement being checked calls.
+func (check *Checker) suspendedOwnerTemp(x *operand, e *ast.SelectorExpr) bool {
+	return check.suspended != nil && ast.Unparen(check.suspended.Fun) == e && x.mode() == value && IsOwner(x.typ())
+}

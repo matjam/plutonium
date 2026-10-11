@@ -32,13 +32,14 @@ func (s *fnState) stmt(st ast.Stmt) {
 	if p := st.Pos(); p.IsValid() {
 		s.f.SetPos(p)
 	}
-	if _, isLabel := st.(*ast.LabeledStmt); !isLabel {
+	if _, isLabel := st.(*ast.LabeledStmt); !isLabel && st != s.header {
 		// The statement's temporaries, and for a block or a statement
 		// with an implicit block its variables, are released at its end
 		// (strscope.go).
 		e := s.pushCleanup(st, isScopeStmt(st))
 		defer s.popCleanup(e)
 	}
+	s.header = nil
 	s.stmtFirst(st) // order.go
 	defer s.checkEvaluated()
 	switch st := st.(type) {
@@ -105,6 +106,14 @@ func (s *fnState) stmt(st ast.Stmt) {
 	default:
 		s.l.unsupportedf(st.Pos(), "unsupported statement %T", st)
 	}
+}
+
+// headerStmt lowers the init statement of an if or switch statement. Its
+// temporaries live until the whole statement ends (language spec section
+// 18.6): they are the enclosing statement's.
+func (s *fnState) headerStmt(st ast.Stmt) {
+	s.header = st
+	s.stmt(st)
 }
 
 // isScopeStmt reports whether st is a block or has an implicit block, whose
@@ -437,7 +446,7 @@ func (s *fnState) cond(e ast.Expr, yes, no *ssa.Block) {
 
 func (s *fnState) ifStmt(st *ast.IfStmt) {
 	if st.Init != nil {
-		s.stmt(st.Init)
+		s.headerStmt(st.Init)
 	}
 	then := s.newBlock(ssa.BlockInvalid)
 	done := s.newBlock(ssa.BlockInvalid)
@@ -719,7 +728,7 @@ func (s *fnState) rangeString(st *ast.RangeStmt, label *types2.Label) {
 
 func (s *fnState) switchStmt(st *ast.SwitchStmt, label *types2.Label) {
 	if st.Init != nil {
-		s.stmt(st.Init)
+		s.headerStmt(st.Init)
 	}
 	var tag value
 	var tagT types2.Type
@@ -798,7 +807,7 @@ func (s *fnState) switchStmt(st *ast.SwitchStmt, label *types2.Label) {
 
 func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 	if st.Init != nil {
-		s.stmt(st.Init)
+		s.headerStmt(st.Init)
 	}
 	var x ast.Expr
 	switch a := st.Assign.(type) {

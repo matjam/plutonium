@@ -174,7 +174,14 @@ func (check *Checker) suspendedCall(keyword string, call *ast.CallExpr) {
 	var x operand
 	var msg string
 	var code Code
-	switch check.rawExpr(nil, &x, call, nil, false) {
+	savedCall, savedKey := check.suspended, check.suspendedKey
+	check.suspended, check.suspendedKey = call, keyword
+	if keyword == "go" {
+		check.suspendedKey = "task" // the task statement
+	}
+	kind := check.rawExpr(nil, &x, call, nil, false)
+	check.suspended, check.suspendedKey = savedCall, savedKey
+	switch kind {
 	case conversion:
 		msg = "requires function call, not conversion"
 		code = InvalidDefer

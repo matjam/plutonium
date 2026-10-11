@@ -189,6 +189,17 @@ type Checker struct {
 	// SetIndex there and of Index elsewhere (see containerIndex).
 	lhsExpr ast.Expr
 
+	// Plutonium: the selector callExpr is evaluating as the function of a
+	// call, or nil. A pointer-receiver method may be called on a temporary
+	// of owner type (spec section 11.14), not otherwise selected on one.
+	calleeSel *ast.SelectorExpr
+
+	// Plutonium: the call of the defer or task statement being checked,
+	// and its keyword. Its receiver is evaluated when the statement runs,
+	// and the call made later, so it cannot be an owner temporary.
+	suspended    *ast.CallExpr
+	suspendedKey string
+
 	// Plutonium: index expressions that call a container's indexing
 	// methods, so that taking their address or assigning to a part of one
 	// can be explained (see indexing.go).

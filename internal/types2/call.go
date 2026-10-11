@@ -183,7 +183,13 @@ func (check *Checker) callExpr(x *operand, call *ast.CallExpr) exprKind {
 		x.expr = call.Fun
 		check.record(x)
 	} else {
+		saved := check.calleeSel
+		check.calleeSel, _ = ast.Unparen(call.Fun).(*ast.SelectorExpr)
+		if call == check.suspended {
+			check.calleeSel = nil
+		}
 		check.exprOrType(x, call.Fun, true)
+		check.calleeSel = saved
 	}
 	// x.typ may be generic
 
@@ -855,7 +861,10 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 		goto Error
 	}
 
-	obj, index, indirect = lookupFieldOrMethod(x.typ(), x.mode() == variable, check.pkg, sel, false)
+	// Plutonium: the receiver of a pointer-receiver method call may be a
+	// temporary of owner type, such as the result of a call; it is the
+	// receiver for the duration of the statement (spec section 11.14).
+	obj, index, indirect = lookupFieldOrMethod(x.typ(), check.selectAddressable(x, e), check.pkg, sel, false)
 	if obj == nil {
 		// Don't report another error if the underlying type was invalid (go.dev/issue/49541).
 		if !isValid(x.typ().Underlying()) {
@@ -871,6 +880,8 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 		if indirect {
 			if x.mode() == typexpr {
 				check.errorf(e.Sel, InvalidMethodExpr, "invalid method expression %s.%s (needs pointer receiver (*%s).%s)", x.typ(), sel, x.typ(), sel)
+			} else if check.suspendedOwnerTemp(x, e) {
+				check.errorf(e.Sel, InvalidMethodExpr, "cannot call pointer method %s on a temporary %s in a %s statement: the temporary is dropped when the statement ends, before the call runs; store it in a variable first", sel, x.typ(), check.suspendedKey)
 			} else {
 				check.errorf(e.Sel, InvalidMethodExpr, "cannot call pointer method %s on %s", sel, x.typ())
 			}

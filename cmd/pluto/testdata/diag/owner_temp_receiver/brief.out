@@ -1,0 +1,4 @@
+$DIR/main.p:35:16: cannot call pointer method Inc on P
+$DIR/main.p:36:18: cannot call pointer method Slice on Buf
+$DIR/main.p:38:19: cannot call pointer method Print on a temporary Buf in a defer statement: the temporary is dropped when the statement ends, before the call runs; store it in a variable first
+$DIR/main.p:39:18: cannot call pointer method Print on a temporary Buf in a task statement: the temporary is dropped when the statement ends, before the call runs; store it in a variable first

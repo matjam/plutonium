@@ -768,6 +768,145 @@ func f() vec.Vec[int] {
 	return v
 }
 func main() { _ = f() }`, []string{"cannot return v, which points into memory allocated from ar"}},
+
+	// Views of an owner temporary that a pointer method is called on
+	// (spec section 11.14).
+	{"owner temporary view kept in a local", `
+type Buf owner struct {
+	data [4]int
+	n    int
+}
+func (b *Buf) Slice() []int { return b.data[:b.n] }
+func (b *Buf) Ptr() *int { return &b.data[0] }
+func readAll(n int) Buf {
+	var b Buf
+	b.n = n
+	return b
+}
+func sum(s []int) int {
+	t := 0
+	for _, v := range s {
+		t += v
+	}
+	return t
+}
+func main() {
+	s := readAll(3).Slice()
+	println(len(s))
+}`, []string{"cannot store readAll(3).Slice() in s, which outlives the temporary", "The Buf that readAll(3) returns (at main.p:", "v := readAll(3)\n... v.Slice() ...", "E3009"}},
+	{"owner temporary view in a package variable", `
+type Buf owner struct {
+	data [4]int
+	n    int
+}
+func (b *Buf) Slice() []int { return b.data[:b.n] }
+func (b *Buf) Ptr() *int { return &b.data[0] }
+func readAll(n int) Buf {
+	var b Buf
+	b.n = n
+	return b
+}
+func sum(s []int) int {
+	t := 0
+	for _, v := range s {
+		t += v
+	}
+	return t
+}
+var keep *int
+func main() { keep = readAll(1).Ptr() }`, []string{"cannot store readAll(1).Ptr() in package variable keep, which outlives the temporary", "E3009"}},
+	{"owner temporary view in an interface", `
+type Buf owner struct {
+	data [4]int
+	n    int
+}
+func (b *Buf) Slice() []int { return b.data[:b.n] }
+func (b *Buf) Ptr() *int { return &b.data[0] }
+func readAll(n int) Buf {
+	var b Buf
+	b.n = n
+	return b
+}
+func sum(s []int) int {
+	t := 0
+	for _, v := range s {
+		t += v
+	}
+	return t
+}
+func main() {
+	var i any = readAll(1).Slice()
+	_ = i
+}`, []string{"cannot store readAll(1).Slice() in i, which outlives the temporary"}},
+	{"owner temporary view in a kept literal", `
+type Buf owner struct {
+	data [4]int
+	n    int
+}
+func (b *Buf) Slice() []int { return b.data[:b.n] }
+func (b *Buf) Ptr() *int { return &b.data[0] }
+func readAll(n int) Buf {
+	var b Buf
+	b.n = n
+	return b
+}
+func sum(s []int) int {
+	t := 0
+	for _, v := range s {
+		t += v
+	}
+	return t
+}
+type H struct{ s []int }
+func main() {
+	h := &H{s: readAll(1).Slice()}
+	_ = h
+}`, []string{"cannot store &H{...} in h, which outlives the temporary"}},
+	{"owner temporary view in a for init", `
+type Buf owner struct {
+	data [4]int
+	n    int
+}
+func (b *Buf) Slice() []int { return b.data[:b.n] }
+func (b *Buf) Ptr() *int { return &b.data[0] }
+func readAll(n int) Buf {
+	var b Buf
+	b.n = n
+	return b
+}
+func sum(s []int) int {
+	t := 0
+	for _, v := range s {
+		t += v
+	}
+	return t
+}
+func main() {
+	for v := readAll(2).Slice(); len(v) > 0; v = v[1:] {
+		println(v[0])
+	}
+}`, []string{"cannot store readAll(2).Slice() in v, which outlives the temporary"}},
+	{"owner temporary view returned", `
+type Buf owner struct {
+	data [4]int
+	n    int
+}
+func (b *Buf) Slice() []int { return b.data[:b.n] }
+func (b *Buf) Ptr() *int { return &b.data[0] }
+func readAll(n int) Buf {
+	var b Buf
+	b.n = n
+	return b
+}
+func sum(s []int) int {
+	t := 0
+	for _, v := range s {
+		t += v
+	}
+	return t
+}
+func get() []int { return readAll(2).Slice() }
+func main() { _ = get() }`, []string{"cannot return readAll(2).Slice(), which points into the temporary Buf that readAll(2) returns", "before the caller gets readAll(2).Slice()", "Return the Buf itself", "E3009"}},
 }
 
 func TestRejected(t *testing.T) {
@@ -1319,6 +1458,38 @@ func f(a, b string) string {
 	return a + b
 }
 func main() { _ = f("x", "y") }`},
+	{"owner temporary views within the statement", `
+type Buf owner struct {
+	data [4]int
+	n    int
+}
+func (b *Buf) Slice() []int { return b.data[:b.n] }
+func (b *Buf) Ptr() *int { return &b.data[0] }
+func readAll(n int) Buf {
+	var b Buf
+	b.n = n
+	return b
+}
+func sum(s []int) int {
+	t := 0
+	for _, v := range s {
+		t += v
+	}
+	return t
+}
+func main() {
+	println(sum(readAll(3).Slice()), len(readAll(2).Slice()), *readAll(1).Ptr())
+	if s := readAll(3).Slice(); len(s) > 0 {
+		println(s[0])
+	}
+	switch s := readAll(2).Slice(); len(s) {
+	case 2:
+		println(s[1])
+	}
+	for _, v := range readAll(2).Slice() {
+		println(v)
+	}
+}`},
 }
 
 func TestAccepted(t *testing.T) {

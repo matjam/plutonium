@@ -224,6 +224,7 @@ const (
 	lkCtor                       // the region a call that returns closures builds them in
 	lkObject                     // the heap object a box (owned, shared, synced) held in a frame refers to
 	lkArena                      // memory allocated from a local arena installed as the default allocator (arena.go)
+	lkStmtTemp                   // an owner temporary that a pointer method is called on, dropped at the end of its statement
 )
 
 // A loc is a piece of frame storage: a local variable, a parameter's slot,
@@ -235,6 +236,7 @@ type loc struct {
 	node     ast.Node        // temporaries: the expression that makes it
 	fn       string          // the function whose frame holds it, for messages
 	captures []*types2.Var   // lkClosure: the variables the literal uses
+	method   string          // lkStmtTemp: the pointer method called on the temporary
 	pos      token.Pos       // where it is declared or made
 	level    int             // nesting depth of the function literal that owns it; 0 for the declared function
 	contents map[string]tset // what the storage may hold, by field path within it

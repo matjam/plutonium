@@ -1,0 +1,112 @@
+$DIR/main.p:39:2: cannot store readAll(3).Slice() in s, which outlives the temporary
+    readAll(3).Slice() points into the temporary Buf that readAll(3) returns.
+    The Buf that readAll(3) returns (at main.p:39) is a temporary: nothing keeps
+    it, so it is the receiver of the method only until the end of the statement.
+    A view of it may be passed to calls in that statement but may not outlive
+    it. At the end of the statement, the temporary is dropped, but s lives
+    longer, so it would be left pointing at a value that has been dropped.
+    In Go a pointer method needs an addressable operand, so the result of a call
+    has no pointer methods. Plutonium lets a temporary owner be the receiver for
+    its statement, so that a call such as readAll(f).Slice() can be passed
+    straight on, and drops the temporary when the statement ends, since nothing
+    owns it.
+    Keep the owner in a variable, so that it lives until the end of its scope,
+    and call the method on the variable:
+        v := readAll(3)
+        ... v.Slice() ...
+    (see "Calls" in the Plutonium spec, section 11.14)
+    (run "pluto explain E3009" for a longer explanation)
+
+$DIR/main.p:41:2: cannot store readAll(2).Slice() in package variable keep, which outlives the temporary
+    readAll(2).Slice() points into the temporary Buf that readAll(2) returns.
+    The Buf that readAll(2) returns (at main.p:41) is a temporary: nothing keeps
+    it, so it is the receiver of the method only until the end of the statement.
+    A view of it may be passed to calls in that statement but may not outlive
+    it. At the end of the statement, the temporary is dropped, but package
+    variables live for the whole program, so package variable keep would be left
+    pointing at reclaimed memory.
+    In Go a pointer method needs an addressable operand, so the result of a call
+    has no pointer methods. Plutonium lets a temporary owner be the receiver for
+    its statement, so that a call such as readAll(f).Slice() can be passed
+    straight on, and drops the temporary when the statement ends, since nothing
+    owns it.
+    Keep the owner in a variable, so that it lives until the end of its scope,
+    and call the method on the variable:
+        v := readAll(2)
+        ... v.Slice() ...
+    (see "Calls" in the Plutonium spec, section 11.14)
+    (run "pluto explain E3009" for a longer explanation)
+
+$DIR/main.p:42:14: cannot store readAll(1).Slice() in i, which outlives the temporary
+    readAll(1).Slice() points into the temporary Buf that readAll(1) returns.
+    The Buf that readAll(1) returns (at main.p:42) is a temporary: nothing keeps
+    it, so it is the receiver of the method only until the end of the statement.
+    A view of it may be passed to calls in that statement but may not outlive
+    it. At the end of the statement, the temporary is dropped, but i lives
+    longer, so it would be left pointing at a value that has been dropped.
+    In Go a pointer method needs an addressable operand, so the result of a call
+    has no pointer methods. Plutonium lets a temporary owner be the receiver for
+    its statement, so that a call such as readAll(f).Slice() can be passed
+    straight on, and drops the temporary when the statement ends, since nothing
+    owns it.
+    Keep the owner in a variable, so that it lives until the end of its scope,
+    and call the method on the variable:
+        v := readAll(1)
+        ... v.Slice() ...
+    (see "Calls" in the Plutonium spec, section 11.14)
+    (run "pluto explain E3009" for a longer explanation)
+
+$DIR/main.p:44:2: cannot store &Holder{...} in h, which outlives the temporary
+    &Holder{...} points into the temporary Buf that readAll(1) returns. The Buf
+    that readAll(1) returns (at main.p:44) is a temporary: nothing keeps it, so
+    it is the receiver of the method only until the end of the statement. A view
+    of it may be passed to calls in that statement but may not outlive it. At
+    the end of the statement, the temporary is dropped, but h lives longer, so
+    it would be left pointing at a value that has been dropped.
+    In Go a pointer method needs an addressable operand, so the result of a call
+    has no pointer methods. Plutonium lets a temporary owner be the receiver for
+    its statement, so that a call such as readAll(f).Slice() can be passed
+    straight on, and drops the temporary when the statement ends, since nothing
+    owns it.
+    Keep the owner in a variable, so that it lives until the end of its scope,
+    and call the method on the variable:
+        v := readAll(1)
+        ... v.Slice() ...
+    (see "Calls" in the Plutonium spec, section 11.14)
+    (run "pluto explain E3009" for a longer explanation)
+
+$DIR/main.p:46:6: cannot store readAll(2).Slice() in v, which outlives the temporary
+    readAll(2).Slice() points into the temporary Buf that readAll(2) returns.
+    The Buf that readAll(2) returns (at main.p:46) is a temporary: nothing keeps
+    it, so it is the receiver of the method only until the end of the statement.
+    A view of it may be passed to calls in that statement but may not outlive
+    it. At the end of the statement, the temporary is dropped, but v lives
+    longer, so it would be left pointing at a value that has been dropped.
+    In Go a pointer method needs an addressable operand, so the result of a call
+    has no pointer methods. Plutonium lets a temporary owner be the receiver for
+    its statement, so that a call such as readAll(f).Slice() can be passed
+    straight on, and drops the temporary when the statement ends, since nothing
+    owns it.
+    Keep the owner in a variable, so that it lives until the end of its scope,
+    and call the method on the variable:
+        v := readAll(2)
+        ... v.Slice() ...
+    (see "Calls" in the Plutonium spec, section 11.14)
+    (run "pluto explain E3009" for a longer explanation)
+
+$DIR/main.p:52:9: cannot return readAll(2).Slice(), which points into the temporary Buf that readAll(2) returns
+    readAll(2).Slice() points into the temporary Buf that readAll(2) returns.
+    The Buf that readAll(2) returns (at main.p:52) is a temporary: nothing keeps
+    it, so it is the receiver of the method only until the end of the statement.
+    A view of it may be passed to calls in that statement but may not outlive
+    it. At the end of the statement, the temporary is dropped, before the caller
+    gets readAll(2).Slice(), so it would point at a value that has been dropped.
+    In Go a pointer method needs an addressable operand, so the result of a call
+    has no pointer methods. Plutonium lets a temporary owner be the receiver for
+    its statement, so that a call such as readAll(f).Slice() can be passed
+    straight on, and drops the temporary when the statement ends, since nothing
+    owns it.
+    Return the Buf itself, which moves it to the caller, or a copy of what the
+    view looks at.
+    (see "Calls" in the Plutonium spec, section 11.14)
+    (run "pluto explain E3009" for a longer explanation)

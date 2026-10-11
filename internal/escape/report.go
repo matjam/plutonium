@@ -37,6 +37,7 @@ const (
 	storeParam                   // memory reached through a parameter
 	storeHeap                    // memory that may be on the heap
 	storeOuter                   // the frame of the function around a literal
+	storeStmt                    // anything that outlives the statement making an owner temporary
 )
 
 // A viewErr is an escape, with what a message needs to explain it.
@@ -150,6 +151,8 @@ func (l *loc) name() string {
 		return l.v.Name()
 	case l.kind == lkClosure && len(l.captures) > 0:
 		return l.captures[0].Name()
+	case l.kind == lkStmtTemp:
+		return "the temporary"
 	}
 	return possessive(l.fn) + " frame"
 }
@@ -188,6 +191,8 @@ func (a *analyzer) noun(l *loc, q types2.Qualifier) string {
 		return "a temporary copy in " + frame
 	case lkRecv:
 		return "a temporary copy of a receiver in " + frame
+	case lkStmtTemp:
+		return "the temporary " + typeText(l.typ, q) + " that " + exprText(l.node.(ast.Expr)) + " returns"
 	case lkLit:
 		return "a composite literal in " + frame
 	case lkSliceLit:
@@ -247,6 +252,8 @@ func (a *analyzer) intro(l *loc, q types2.Qualifier) string {
 		return fmt.Sprintf("Taking the address of a value that is not a variable (at %s) copies the value to a temporary in %s frame.", at, possessive(l.fn))
 	case lkRecv:
 		return fmt.Sprintf("Calling a pointer method on a value that is not a variable (at %s) copies the value to a temporary in %s frame, and the method gets a pointer to the copy.", at, possessive(l.fn))
+	case lkStmtTemp:
+		return fmt.Sprintf("The %s that %s returns (at %s) is a temporary: nothing keeps it, so it is the receiver of the method only until the end of the statement. A view of it may be passed to calls in that statement but may not outlive it.", typeText(l.typ, q), exprText(l.node.(ast.Expr)), at)
 	case lkLit:
 		return fmt.Sprintf("A composite literal whose address is taken (at %s) is made in %s frame, as a local variable would be.", at, possessive(l.fn))
 	case lkSliceLit:
@@ -398,6 +405,8 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 		reclaimed = fmt.Sprintf("When %s returns, %s is dropped and the object freed", l.fn, l.v.Name())
 	case l.kind == lkObject:
 		reclaimed = "At the end of the statement, the temporary is dropped and its object freed"
+	case l.kind == lkStmtTemp:
+		reclaimed = "At the end of the statement, the temporary is dropped"
 	case !l.isVarLoc() && l.kind != lkClosure:
 		reclaimed = fmt.Sprintf("When %s returns, its frame is reclaimed", l.fn)
 	}
@@ -432,6 +441,8 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 			add(sentence(about, fmt.Sprintf("Converting %s to an ordinary interface lends it: the interface points at the object, and %s still owns it.", x, x)))
 		case l.kind == lkObject:
 			add(sentence(about, fmt.Sprintf("%s, so %s would point at freed memory.", reclaimed, x)))
+		case l.kind == lkStmtTemp:
+			add(sentence(about, fmt.Sprintf("%s, before the caller gets %s, so it would point at a value that has been dropped.", reclaimed, x)))
 		case l.isVarLoc():
 			add(sentence(about, fmt.Sprintf("Its memory is reclaimed when %s returns, so %s would point at memory that no longer holds %s.", e.fn, x, l.v.Name())))
 		case l.kind == lkClosure:
@@ -464,6 +475,8 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 			}
 		case storeOuter:
 			why = fmt.Sprintf("The function literal's frame is reclaimed each time the literal returns, but %s belongs to the function around it and lives longer.", e.dst)
+		case storeStmt:
+			why = fmt.Sprintf("%s, but %s lives longer, so it would be left pointing at a value that has been dropped.", reclaimed, e.dst)
 		}
 		add(sentence(about, why))
 		a.storeFixes(d, e, l, q)
@@ -491,6 +504,9 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 		a.loopDiag(d, e, x, add)
 	}
 	d.Text = strings.Join(text, "\n")
+	if l.kind == lkStmtTemp && e.sink != sinkLoop {
+		d.Code = diag.TempViewKept
+	}
 	return d
 }
 
@@ -578,6 +594,8 @@ func (a *analyzer) returnFixes(d *diag.Diagnostic, e *viewErr, l *loc, q types2.
 		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Return the box itself, changing the result type to %s", typeText(l.typ, q)), Code: "return " + exprText(l.node.(ast.Expr))}
 	case l.kind == lkArena:
 		arenaFixes(d, l)
+	case l.kind == lkStmtTemp:
+		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Return the %s itself, which moves it to the caller, or a copy of what the view looks at.", typeText(l.typ, q))}
 	case l.isVarLoc():
 		name := l.v.Name()
 		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Return values instead of views of %s, or allocate %s and return its owner, an owned[%s]", name, name, varType(l, q)), Code: fmt.Sprintf("%s := new(%s)\n...\nreturn %s", name, varType(l, q), name)}
@@ -599,6 +617,8 @@ func (a *analyzer) storeFixes(d *diag.Diagnostic, e *viewErr, l *loc, q types2.Q
 		d.More = []*diag.Fix{{Intro: fmt.Sprintf("Or allocate %s and store its owner, an owned[%s], which moves into %s", name, varType(l, q), trimAddr(e.dst)), Code: fmt.Sprintf("%s = new(%s)", trimAddr(e.dst), varType(l, q))}}
 	case l.kind == lkArena:
 		arenaFixes(d, l)
+	case l.kind == lkStmtTemp:
+		d.Fix = stmtTempFix(l)
 	case l.kind == lkObject && l.v != nil:
 		name := l.v.Name()
 		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Store %s itself, changing the type of %s to match: an owned box moves there, and a shared or synced one is counted", name, trimAddr(e.dst)), Code: fmt.Sprintf("%s = %s", trimAddr(e.dst), name)}
@@ -607,6 +627,16 @@ func (a *analyzer) storeFixes(d *diag.Diagnostic, e *viewErr, l *loc, q types2.Q
 		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Store values instead of views of %s, or allocate %s and store its owner, an owned[%s], which moves there", name, name, varType(l, q)), Code: fmt.Sprintf("%s = new(%s)", trimAddr(e.dst), varType(l, q))}
 	default:
 		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Store the value itself instead of a view of %s frame, or allocate it so that it lives as long as %s.", possessive(l.fn), e.dst)}
+	}
+}
+
+// stmtTempFix is the fix for a view of an owner temporary that outlives
+// its statement: keep the owner in a variable, which lives until the end
+// of its scope.
+func stmtTempFix(l *loc) *diag.Fix {
+	return &diag.Fix{
+		Intro: "Keep the owner in a variable, so that it lives until the end of its scope, and call the method on the variable",
+		Code:  fmt.Sprintf("v := %s\n... v.%s() ...", exprText(l.node.(ast.Expr)), l.method),
 	}
 }
 
