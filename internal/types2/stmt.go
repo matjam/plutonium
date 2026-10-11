@@ -98,9 +98,13 @@ const (
 	inTypeSwitch
 )
 
-func (check *Checker) simpleStmt(s ast.Stmt) {
+// simpleStmt checks the init or post statement s of an if, switch or for
+// statement. ctxt is the context of that statement: break and continue in
+// the clause of an or statement refer to the statements that enclose it
+// (language spec 11.27).
+func (check *Checker) simpleStmt(ctxt stmtContext, s ast.Stmt) {
 	if s != nil {
-		check.stmt(0, s)
+		check.stmt(ctxt, s)
 	}
 }
 
@@ -491,6 +495,9 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 			check.assignVar(s.Lhs[0], nil, &x, "assignment")
 		}
 
+	case *ast.OrStmt:
+		check.orStmt(inner, s)
+
 	case *ast.TaskStmt:
 		check.suspendedCall("task", s.Call)
 		check.taskStmtArgs(s.Call)
@@ -564,7 +571,7 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 		check.openScope(s, "if")
 		defer check.closeScope()
 
-		check.simpleStmt(s.Init)
+		check.simpleStmt(inner, s.Init)
 		var x operand
 		check.expr(nil, &x, s.Cond)
 		if x.isValid() && !allBoolean(x.typ()) {
@@ -583,11 +590,12 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 		}
 
 	case *ast.SwitchStmt:
+		outer := inner
 		inner |= breakOk
 		check.openScope(s, "switch")
 		defer check.closeScope()
 
-		check.simpleStmt(s.Init)
+		check.simpleStmt(outer, s.Init)
 		var x operand
 		if s.Tag != nil {
 			check.expr(nil, &x, s.Tag)
@@ -634,11 +642,12 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 		}
 
 	case *ast.TypeSwitchStmt:
+		outer := inner
 		inner |= breakOk | inTypeSwitch
 		check.openScope(s, "type switch")
 		defer check.closeScope()
 
-		check.simpleStmt(s.Init)
+		check.simpleStmt(outer, s.Init)
 
 		// A type switch guard must be of the form:
 		//
@@ -796,11 +805,12 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 		}
 
 	case *ast.ForStmt:
+		outer := inner
 		inner |= breakOk | continueOk
 		check.openScope(s, "for")
 		defer check.closeScope()
 
-		check.simpleStmt(s.Init)
+		check.simpleStmt(outer, s.Init)
 		if s.Cond != nil {
 			var x operand
 			check.expr(nil, &x, s.Cond)
@@ -808,7 +818,13 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 				check.error(s.Cond, InvalidCond, "non-boolean condition in for statement")
 			}
 		}
-		check.simpleStmt(s.Post)
+		check.simpleStmt(inner, s.Post)
+		// Plutonium: an or statement is not a post statement, since a
+		// break or continue in its clause would end or repeat the
+		// iteration that is ending (language spec 11.27).
+		if or, _ := s.Post.(*ast.OrStmt); or != nil {
+			check.errorf(atPos(or.Or), OrPostStmt, "an or statement cannot be the post statement of a for statement; test the error in the loop body")
+		}
 		// spec: "The init statement may be a short variable
 		// declaration, but the post statement must not."
 		if s, _ := s.Post.(*ast.AssignStmt); s != nil && s.Tok == token.DEFINE {

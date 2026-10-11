@@ -89,6 +89,7 @@ func init() {
 		typerr.MissingFieldOrMethod:      explainFieldOrMethod,
 		typerr.WrongArgCount:             explainArgCount,
 		typerr.WrongResultCount:          explainResultCount,
+		typerr.WrongAssignCount:          explainOrCount,
 		typerr.UnusedVar:                 explainUnusedVar,
 		typerr.UnusedImport:              explainUnusedImport,
 		typerr.MissingReturn:             explainMissingReturn,
@@ -883,6 +884,18 @@ func explainUnusedVar(s *spec) {
 var unusedImport = regexp.MustCompile(`^"([^"]+)" imported (?:as (\w+) )?and not used`)
 
 // explainUnusedImport explains an import the file does not use.
+// explainOrCount explains the left side of an or statement whose number of
+// operands differs from the number of values of the call (language spec
+// 11.27). Other assignment mismatches keep the catalog's text.
+func explainOrCount(s *spec) {
+	switch {
+	case strings.HasSuffix(s.first, "returns only an error; write it without a left side"):
+		s.d.Text = "In an or statement, the values of the call are its results other than the last, which is the error that the clause tests. This call returns only an error, so it has no values to assign: write the statement without a left side."
+	case strings.HasSuffix(s.first, "besides the error"):
+		s.d.Text = "In an or statement, the values of the call are its results other than the last, which is the error that the clause tests. The left side needs one operand for each value, and err, which the clause declares, is not one of them."
+	}
+}
+
 func explainUnusedImport(s *spec) {
 	m := unusedImport.FindStringSubmatch(s.first)
 	if m == nil {

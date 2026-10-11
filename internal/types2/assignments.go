@@ -9,6 +9,7 @@ package types2
 import (
 	"fmt"
 	"github.com/matjam/plutonium/internal/syntax/ast"
+	"github.com/matjam/plutonium/internal/syntax/token"
 	. "github.com/matjam/plutonium/internal/types2/errors"
 	"strings"
 )
@@ -534,6 +535,19 @@ func (check *Checker) assignVars(lhs, orig_rhs []ast.Expr) {
 }
 
 func (check *Checker) shortVarDecl(pos positioner, lhs, rhs []ast.Expr) {
+	// spec: "The scope of a constant or variable identifier declared inside
+	// a function begins at the end of the ConstSpec or VarSpec (ShortVarDecl
+	// for short variable declarations) and ends at the end of the innermost
+	// containing block."
+	check.shortVarDeclWith(pos, lhs, endPos(rhs[len(rhs)-1]), func(lhsVars []*Var) {
+		check.initVars(lhsVars, rhs, nil)
+	})
+}
+
+// shortVarDeclWith checks a short variable declaration of lhs, whose
+// variables init gives their values, and whose new variables come into
+// scope at scopePos.
+func (check *Checker) shortVarDeclWith(pos positioner, lhs []ast.Expr, scopePos token.Pos, init func(lhsVars []*Var)) {
 	top := len(check.delayed)
 	scope := check.scope
 
@@ -594,7 +608,7 @@ func (check *Checker) shortVarDecl(pos positioner, lhs, rhs []ast.Expr) {
 		}
 	}
 
-	check.initVars(lhsVars, rhs, nil)
+	init(lhsVars)
 
 	// process function literals in rhs expressions before scope changes
 	check.processDelayed(top)
@@ -605,11 +619,6 @@ func (check *Checker) shortVarDecl(pos positioner, lhs, rhs []ast.Expr) {
 	}
 
 	// declare new variables
-	// spec: "The scope of a constant or variable identifier declared inside
-	// a function begins at the end of the ConstSpec or VarSpec (ShortVarDecl
-	// for short variable declarations) and ends at the end of the innermost
-	// containing block."
-	scopePos := endPos(rhs[len(rhs)-1])
 	for _, obj := range newVars {
 		check.declare(scope, nil, obj, scopePos) // id = nil: recordDef already called
 	}

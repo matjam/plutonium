@@ -24,6 +24,10 @@ func (check *Checker) isTerminating(s ast.Stmt, label string) bool {
 		*ast.RangeStmt:
 		// no chance
 
+	case *ast.OrStmt:
+		// Plutonium: control goes on after an or statement whose call
+		// succeeds, although its clause leaves (language spec 12.1).
+
 	case *ast.LabeledStmt:
 		return check.isTerminating(s.Stmt, s.Label.Name)
 
@@ -124,6 +128,11 @@ func hasBreak(s ast.Stmt, label string, implicit bool) bool {
 	case *ast.LabeledStmt:
 		return hasBreak(s.Stmt, label, implicit)
 
+	case *ast.OrStmt:
+		// Plutonium: the clause of an or statement is at the place of the
+		// statement (language spec 11.27).
+		return hasBreak(s.Clause, label, implicit)
+
 	case *ast.BranchStmt:
 		if s.Tok == token.BREAK {
 			if s.Label == nil {
@@ -138,7 +147,7 @@ func hasBreak(s ast.Stmt, label string, implicit bool) bool {
 		return hasBreakList(s.List, label, implicit)
 
 	case *ast.IfStmt:
-		if hasBreak(s.Body, label, implicit) ||
+		if hasBreakInit(s.Init, label, implicit) || hasBreak(s.Body, label, implicit) ||
 			s.Else != nil && hasBreak(s.Else, label, implicit) {
 			return true
 		}
@@ -147,12 +156,12 @@ func hasBreak(s ast.Stmt, label string, implicit bool) bool {
 		return hasBreakList(s.Body, label, implicit)
 
 	case *ast.SwitchStmt:
-		if label != "" && hasBreak(s.Body, label, false) {
+		if hasBreakInit(s.Init, label, implicit) || label != "" && hasBreak(s.Body, label, false) {
 			return true
 		}
 
 	case *ast.TypeSwitchStmt:
-		if label != "" && hasBreak(s.Body, label, false) {
+		if hasBreakInit(s.Init, label, implicit) || label != "" && hasBreak(s.Body, label, false) {
 			return true
 		}
 
@@ -165,7 +174,7 @@ func hasBreak(s ast.Stmt, label string, implicit bool) bool {
 		}
 
 	case *ast.ForStmt:
-		if label != "" && hasBreak(s.Body, label, false) {
+		if hasBreakInit(s.Init, label, implicit) || label != "" && hasBreak(s.Body, label, false) {
 			return true
 		}
 
@@ -176,6 +185,15 @@ func hasBreak(s ast.Stmt, label string, implicit bool) bool {
 	}
 
 	return false
+}
+
+// hasBreakInit reports if the init statement s of an if, switch or for
+// statement is an or statement whose clause has a break referring to the
+// label-ed statement or implicit-ly the closest breakable statement that
+// encloses the whole statement (language spec 11.27).
+func hasBreakInit(s ast.Stmt, label string, implicit bool) bool {
+	or, _ := s.(*ast.OrStmt)
+	return or != nil && hasBreak(or.Clause, label, implicit)
 }
 
 func hasBreakList(list []ast.Stmt, label string, implicit bool) bool {

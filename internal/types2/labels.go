@@ -120,6 +120,29 @@ func (check *Checker) blockBranches(all *Scope, parent *block, lstmt *ast.Labele
 	}
 
 	var stmtBranches func(*ast.LabeledStmt, ast.Stmt)
+
+	// orBranches processes the clause of an or statement. A block clause
+	// is a block of its own; a break, continue or goto clause is in the
+	// current block, so that a break or continue refers to the statements
+	// that enclose the or statement, also when it is the init statement of
+	// an if, switch or for statement.
+	orBranches := func(s *ast.OrStmt) {
+		if blk, ok := s.Clause.(*ast.BlockStmt); ok {
+			blockBranches(nil, blk.List)
+			return
+		}
+		stmtBranches(nil, s.Clause)
+	}
+
+	// initBranches processes the init statement of an if, switch or for
+	// statement: the clause of an or statement there. Its variables are
+	// in scope only in the statement it belongs to.
+	initBranches := func(s ast.Stmt) {
+		if or, ok := s.(*ast.OrStmt); ok {
+			orBranches(or)
+		}
+	}
+
 	stmtBranches = func(lstmt *ast.LabeledStmt, s ast.Stmt) {
 		switch s := s.(type) {
 		case *ast.DeclStmt:
@@ -231,10 +254,20 @@ func (check *Checker) blockBranches(all *Scope, parent *block, lstmt *ast.Labele
 				recordVarDecl(s.Pos())
 			}
 
+		case *ast.OrStmt:
+			// Plutonium: the clause is at the place of the statement,
+			// where the variables it declares are not in scope yet
+			// (language spec 11.27).
+			orBranches(s)
+			if s.Tok == token.DEFINE {
+				recordVarDecl(s.Pos())
+			}
+
 		case *ast.BlockStmt:
 			blockBranches(lstmt, s.List)
 
 		case *ast.IfStmt:
+			initBranches(s.Init)
 			stmtBranches(lstmt, s.Body)
 			if s.Else != nil {
 				stmtBranches(lstmt, s.Else)
@@ -244,9 +277,11 @@ func (check *Checker) blockBranches(all *Scope, parent *block, lstmt *ast.Labele
 			blockBranches(nil, s.Body)
 
 		case *ast.SwitchStmt:
+			initBranches(s.Init)
 			stmtBranches(lstmt, s.Body)
 
 		case *ast.TypeSwitchStmt:
+			initBranches(s.Init)
 			stmtBranches(lstmt, s.Body)
 
 		case *ast.CommClause:
@@ -256,6 +291,7 @@ func (check *Checker) blockBranches(all *Scope, parent *block, lstmt *ast.Labele
 			stmtBranches(lstmt, s.Body)
 
 		case *ast.ForStmt:
+			initBranches(s.Init)
 			stmtBranches(lstmt, s.Body)
 
 		case *ast.RangeStmt:

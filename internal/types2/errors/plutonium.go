@@ -284,3 +284,25 @@ const (
 	// default case whose cases do not cover every value of its tag.
 	PackedUnionNoDefault
 )
+
+// Or statements (language spec 11.27).
+const (
+	_ Code = 2460 + iota
+
+	// OrNotFunctionCall: or after a conversion or a call of a built-in
+	// function, which have the form of a call and are not calls of
+	// functions.
+	OrNotFunctionCall
+	// OrNoError: or after a call whose last result is not exactly error,
+	// or that has no result.
+	OrNoError
+	// OrClauseCompletes: an or clause that can complete, so that control
+	// could reach the statement after it when the call failed.
+	OrClauseCompletes
+	// OrNoErrorResult: an unbraced return with no operands in an or
+	// clause, in a function whose last result is not error.
+	OrNoErrorResult
+	// OrPostStmt: an or statement as the post statement of a for
+	// statement.
+	OrPostStmt
+)

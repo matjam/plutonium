@@ -444,6 +444,50 @@ func init() {
 			Example: "v := load()[\"key\"]",
 		},
 
+		// Or statements.
+		&Entry{
+			Code: CheckerCode(typerr.OrNotFunctionCall), Name: "OrNotFunctionCall",
+			Text:    "An or clause tests the error that a function returns as its last result. A conversion, such as int64(x), and a call of a built-in function, such as len(s), are written like calls, but they call no function and return no error, so there is nothing for or to test.\nRemove the or clause, or call a function that returns an error.",
+			Spec:    pspec("11.27", "Or clauses"),
+			Example: "n := int64(count()) or return",
+			Fixed:   "n := int64(count())",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.OrNoError), Name: "OrNoError",
+			Text:    "The call before or must return a result of type error last, and the type must be error itself. A function that returns no error, or no result at all, cannot fail in a way that or can see. A type that implements error, a defined type based on error, or a type parameter is not accepted either.\nRemove the or clause, or change the function so that its last result has type error.",
+			Why:     "With the type exactly error, the test is always the nil test of one interface type, and err in the clause is the result itself, not a conversion of it.",
+			Fix:     &Fix{Intro: "Return the error as an error", Code: "func parse(s string) (int, error)"},
+			Spec:    pspec("11.27", "Or clauses"),
+			Example: "s := strconv.Itoa(5) or return",
+			Fixed:   "s := strconv.Itoa(5)",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.OrClauseCompletes), Name: "OrClauseCompletes",
+			Text:    "The clause of an or statement runs when the call failed, and the code after the statement uses the values the call did not produce. So the clause must leave: it must be a return, break, continue or goto statement, a call of panic, or a block that ends in one of these. An if statement in the block leaves only when it has an else branch and both branches leave. A call of a function that never returns, such as os.Exit or log.Fatal, does not count, since whether a function compiles must not depend on the body of another.\nEnd the clause with a return, break, continue, goto or panic.",
+			Why:     "The or clause is the short form of an if statement that tests an error and leaves. Requiring the exit on the line keeps the code after the statement from running with values that were never set.",
+			Fix:     &Fix{Intro: "End the clause with a statement that leaves", Code: "cfg := load(path) or {\n\tlog.Printf(\"loading: %v\", err)\n\treturn err\n}"},
+			Spec:    pspec("11.27", "Or clauses"),
+			Example: "cfg := load(path) or log.Printf(\"loading: %v\", err)",
+			Fixed:   "cfg := load(path) or {\n\tlog.Printf(\"loading: %v\", err)\n\treturn err\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.OrNoErrorResult), Name: "OrNoErrorResult",
+			Text:    "An unbraced return with no operands in an or clause returns err as the function's last result. This function has no result of type error last, so there is nowhere to put err, and returning without it would drop the error.\nHandle the error in a block clause, or return values that this function has.",
+			Why:     "The short form of return exists to pass an error up. In a function that cannot return one, the program must say what to do with the error.",
+			Fix:     &Fix{Intro: "Handle the error in a block clause", Code: "load(path) or {\n\tlog.Printf(\"loading: %v\", err)\n\treturn\n}"},
+			Spec:    pspec("11.27", "Or clauses"),
+			Example: "func main() {\n\tload(path) or return\n}",
+			Fixed:   "func main() {\n\tload(path) or panic(err)\n}",
+		},
+		&Entry{
+			Code: CheckerCode(typerr.OrPostStmt), Name: "OrPostStmt",
+			Text:    "The post statement of a for statement runs at the end of each iteration. An or statement cannot be the post statement, since a break or continue in its clause would end or repeat the iteration that is ending.\nTest the error at the end of the loop body instead.",
+			Fix:     &Fix{Intro: "Test the error in the body", Code: "for i := 0; i < n; {\n\t...\n\ti = next(i) or break\n}"},
+			Spec:    pspec("11.27", "Or clauses"),
+			Example: "for i := 0; i < n; i = next(i) or break {\n\t...\n}",
+			Fixed:   "for i := 0; i < n; {\n\t...\n\ti = next(i) or break\n}",
+		},
+
 		// Unions.
 		&Entry{
 			Code: CheckerCode(typerr.MisplacedUnion), Name: "MisplacedUnion",
