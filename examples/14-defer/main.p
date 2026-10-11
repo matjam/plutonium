@@ -8,7 +8,7 @@ import (
 // defer for scope-bound cleanup: deferred calls run in reverse order when
 // the function returns, with arguments evaluated at the defer statement.
 
-// Resource has a Drop method, so it is declared owner (language spec 6.4).
+// Resource has a Drop method, so it is declared owner (language spec section 7.18).
 type Resource owner struct {
 	name string
 	open bool

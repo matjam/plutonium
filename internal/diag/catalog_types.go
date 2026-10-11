@@ -21,16 +21,6 @@ type goDoc struct {
 	Examples []string // code with the error
 }
 
-// goQuoteFalse lists the codes whose quote from the Go spec does not hold
-// for Plutonium, so the explanation leaves it out.
-var goQuoteFalse = map[string]bool{
-	"InvalidComplex": true, // complex, real and imag do not exist
-	"InvalidReal":    true,
-	"InvalidImag":    true,
-	"InvalidGo":      true, // there is no task statement; tasks start with task
-	"TooNew":         true, // there is one language version
-}
-
 // goSections names the section of the Plutonium spec that states the rule
 // behind each go/types code that has no entry in goPlain.
 var goSections = map[string]string{
@@ -135,15 +125,13 @@ func init() {
 }
 
 // describeDoc turns go/types' description of a code into an explanation:
-// "UnusedImport occurs when ..." becomes "This error occurs when ...", and
-// a quote from the spec follows.
+// "UnusedImport occurs when ..." becomes "This error occurs when ...". The
+// quotes from Go's specification that go/types documents are left out; the
+// entry's Spec names the section of the Plutonium spec instead (goSections).
 func describeDoc(d goDoc) string {
 	text := d.Text
 	if rest, ok := strings.CutPrefix(text, d.Name+" "); ok {
 		text = "This error " + rest
-	}
-	if d.Spec != "" && !goQuoteFalse[d.Name] {
-		text += "\nThe Go spec says: " + d.Spec
 	}
 	return text
 }

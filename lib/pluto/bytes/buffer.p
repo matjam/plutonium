@@ -55,7 +55,7 @@ func (b *Buffer) Bytes() []byte { return b.buf.Slice()[b.off:] }
 // String returns the unread portion of the buffer as a new string, a copy
 // from the current allocator, as in Go; Bytes views it without copying.
 // Bytes that are not valid UTF-8 become U+FFFD (language spec section
-// 6.10).
+// 18.8).
 func (b *Buffer) String() string {
 	if b == nil {
 		// Special case, useful in debugging.

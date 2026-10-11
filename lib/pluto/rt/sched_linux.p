@@ -135,7 +135,7 @@ var hs struct {
 var m0 m
 
 // hosted is the default backend of hosted builds. A program may bind its
-// own with //pu:scheduler, which replaces it (language spec section 12.12).
+// own with //pu:scheduler, which replaces it (language spec section 19.5).
 //
 //pu:scheduler
 var hosted hostedSched

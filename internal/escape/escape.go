@@ -12,7 +12,7 @@
 //
 // It also rejects keeping a view of a loop's variables where the next
 // iteration can see it: every iteration reuses the same frame memory for
-// them, where Go gives each iteration its own (spec section 11.5).
+// them, where Go gives each iteration its own (spec section 18.4).
 //
 // The analysis is whole-program. It computes, for every function, a
 // summary of what it does with the pointers its caller passes (keeps them,

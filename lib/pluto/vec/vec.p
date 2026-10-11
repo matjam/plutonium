@@ -100,7 +100,7 @@ func (v *Vec[T]) At(i int) T { return v.data[i] }
 func (v *Vec[T]) Set(i int, x T) { v.data[i] = x }
 
 // Index returns element i; it is what v[i] calls (language spec section
-// 6.7). It panics if i is out of range.
+// 11.11). It panics if i is out of range.
 func (v *Vec[T]) Index(i int) T { return v.data[i] }
 
 // SetIndex sets element i to x; it is what v[i] = x calls. It panics if i

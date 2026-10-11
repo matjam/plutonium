@@ -26,7 +26,7 @@ func Sprintf(format string, args ...any) strings.Builder {
 // default allocator, which the driver points at the arena of the current
 // phase (alloc.Use). The variable is a view of that arena: it is never
 // freed on its own, and lives until the arena is reset or dropped
-// (language spec section 6.6).
+// (language spec section 18.10).
 func New[T owner any](v T) *T {
 	p := alloc.New[T]()
 	*p = v

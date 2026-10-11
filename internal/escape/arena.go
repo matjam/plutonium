@@ -7,7 +7,7 @@ import (
 )
 
 // Local arenas installed as the default allocator (language spec section
-// 7.1). alloc.Use(&a) makes a the running task's default allocator until
+// 18.9). alloc.Use(&a) makes a the running task's default allocator until
 // the Restore it returns is dropped; when a lives in the frame, what is
 // allocated through the default allocator in that window lives in a too,
 // and must not outlive it. The Restore is already a view of a

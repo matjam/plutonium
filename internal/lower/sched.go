@@ -167,7 +167,7 @@ func schedHook(fn *types2.Func) (method string, mode hookMode, ok bool) {
 // no scheduler, if the program does not start one, otherwise a call of
 // parked. A program that sleeps and does nothing else with tasks,
 // channels or timers thus links no scheduler thread (language spec section
-// 4.7).
+// 19.5).
 type lateHook struct {
 	sym            *ssa.Sym
 	sig            *types2.Signature

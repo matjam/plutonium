@@ -9,7 +9,7 @@ import (
 // String reference counting ("string drop glue").
 //
 // A string is an immutable, reference-counted value (language spec section
-// 6.10). This file and strscope.go are the whole of it in lowering, kept
+// 18.8). This file and strscope.go are the whole of it in lowering, kept
 // apart from the ownership work (moves and owner drops) on purpose: a
 // counted value is copied freely and never moved by the program, and its
 // drops are implicit.

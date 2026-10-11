@@ -80,7 +80,7 @@ func sleepThreads(t *testing.T, prog string) (threads int, out string) {
 // the kernel on its one thread, and links neither the scheduler's start nor
 // its monitor and poller threads, while a program that also uses tasks,
 // channels or timers keeps the scheduler and parks (language spec section
-// 4.7).
+// 19.5).
 func TestSleepWithoutScheduler(t *testing.T) {
 	testguard.Parallel(t)
 	const check = `

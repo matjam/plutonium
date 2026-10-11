@@ -115,7 +115,7 @@ func main() {
 
 // TestStringsKernelAlloc checks that kernel code builds strings as it
 // allocates with new and make, with no marking (language spec section
-// 12.7); that an interrupt handler may only where the allocator does not
+// 20.11); that an interrupt handler may only where the allocator does not
 // wait is checked in internal/lower (TestInterruptContext).
 func TestStringsKernelAlloc(t *testing.T) {
 	testguard.Parallel(t)

@@ -82,7 +82,7 @@ func FileInfoToDirEntryBytes(dir []byte, info FileInfo) DirEntry {
 // DirEntries is the result of ReadDir: the entries of a directory sorted by
 // name, and the memory their names live in. It owns both, and its entries
 // are valid until it is dropped. It is an owner (language spec section
-// 6.4).
+// 7.18).
 type DirEntries owner struct {
 	ents  vec.Vec[DirEntry]
 	names vec.Vec[byte]

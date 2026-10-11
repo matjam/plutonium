@@ -3,8 +3,8 @@ package rt
 import "unsafe"
 
 // ----------------------------------------------------------------------------
-// Boxes: owned[T], shared[T], synced[T] and weak[P] (language spec section
-// 5.6, abi.md section 1.2). Each is the address of a heap object. In front of
+// Boxes: owned[T], shared[T], synced[T] and weak[P] (language spec sections
+// 7.19 and 18.7, abi.md section 1.2). Each is the address of a heap object. In front of
 // the object is a header recording the allocator it came from, so that it is
 // freed to that allocator whatever the default is by then:
 //

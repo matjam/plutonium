@@ -8,7 +8,7 @@ import (
 )
 
 // The representation of a string (abi.md section 1, language spec section
-// 6.10): three words.
+// 18.8): three words.
 //
 //	0  data *byte   the first byte
 //	8  len  int     the length in bytes

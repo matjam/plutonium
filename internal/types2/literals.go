@@ -76,7 +76,7 @@ func (check *Checker) basicLit(x *operand, e *ast.BasicLit) {
 		return
 	}
 	// Plutonium: every string holds valid UTF-8 (language spec section
-	// 6.10), so a literal with escapes that make it invalid is an error.
+	// 4.11), so a literal with escapes that make it invalid is an error.
 	if e.Kind == token.STRING && !utf8.ValidString(constant.StringVal(x.val)) {
 		check.errorf(e, InvalidUTF8String, "string literal %s is not valid UTF-8; use a []byte for binary data", e.Value)
 		x.invalidate()

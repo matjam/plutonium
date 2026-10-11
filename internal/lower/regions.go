@@ -25,7 +25,7 @@ package lower
 // variables, and the receivers its method values copied) and drops the
 // regions nested in it, or 0 when there is nothing to release. The function
 // that fills the region sets it. The region belongs to the caller's frame
-// (language spec section 18.8): the caller zeroes it on entry, drops it
+// (language spec section 11.5): the caller zeroes it on entry, drops it
 // before each call refills it, and drops it when it returns.
 
 import (

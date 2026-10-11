@@ -8,7 +8,7 @@ import (
 )
 
 // Boxes: owned[T], shared[T], synced[T] and weak[P] (language spec sections
-// 5.6 and 6.5, abi.md section 1.2). Each is the address of a heap object
+// 7.19 and 18.7, abi.md section 1.2). Each is the address of a heap object
 // with a header in front that records its allocator (pluto/rt, box.p).
 //
 //   - owned[T] is an owner: it moves, and its drop glue drops the T and

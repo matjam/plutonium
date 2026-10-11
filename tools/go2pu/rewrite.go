@@ -105,7 +105,7 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 // checkBinaryString notes a string literal that holds bytes that are not
 // valid UTF-8: Go code keeping binary data in a string, which Plutonium
 // rejects, since every string holds valid UTF-8 (language spec section
-// 6.10). A conversion string(b) of such bytes would replace them with
+// 18.8). A conversion string(b) of such bytes would replace them with
 // U+FFFD, so the data belongs in a []byte.
 func (t *fileTr) checkBinaryString(lit *ast.BasicLit) {
 	if lit.Kind != token.STRING {

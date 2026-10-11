@@ -7,7 +7,7 @@ import (
 )
 
 // Sleeping and timers, over the scheduler's timers (rt.Timer, rt.ParkUntil;
-// language spec section 12.12). They work wherever the bound scheduler
+// language spec section 19.6). They work wherever the bound scheduler
 // provides a clock: hosted builds, and kernels whose scheduler implements
 // Now and ArmTimer (abi.md section 12.9).
 

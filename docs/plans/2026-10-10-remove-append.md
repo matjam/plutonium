@@ -1,7 +1,7 @@
 # Removing `append`
 
 **Date:** 2026-10-10
-**Status:** decided 2026-10-10 (all of section 8 accepted) and implemented (roadmap item 58). The open
+**Status:** decided 2026-10-10 (all of section 8 accepted) and implemented (roadmap item 77, which had the number 58 until the roadmap resolved its duplicate). The open
 question at the end of section 8 was settled the same day: `bytes.Buffer` grows as Go's does, and bounded
 writes use `vec.Fixed[byte]`. Two details differ from the text below: `vec.NewFixed` takes its room from
 `len(storage)`, not the capacity, and the `os` and `exec` functions read a path into their own buffer and
