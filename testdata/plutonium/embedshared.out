@@ -1,0 +1,10 @@
+true 0 w
+3 3 3
+after the copy's block 3
+4 true 4
+true
+task saw 1
+2 2
+end
+drop res 2
+drop res 1
