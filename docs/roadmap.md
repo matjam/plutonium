@@ -56,7 +56,7 @@ The implementation gaps of
 | 24 | Embedding `shared[T]` and `synced[T]` (done) | 92 | 7.6, 7.19 |
 | 31 | The `or` clause (done) | 99 | 11.27, 4.6 |
 | 32 | Package initialization starts no task (decision G44 pending) | 100 | 15.2, 15.3, 19.1, 19.3 |
-| 33 | `clear` of a slice of owners drops each element | 75 | 13.3 |
+| 33 | `clear` of a slice of owners drops each element (done) | 75 | 13.3 |
 
 The pass that aligned the documents with the chapters found six more, items 93 to 98; they are rows 25 to
 30 of complete-spec section 6.5. Row 31, item 99, is the `or` clause, decided later the same day. Row 32,
@@ -121,8 +121,8 @@ compiler (2026-10-11).
     each page of the frame in its prologue, so that it cannot step over the guard.
 92. **Embedding `shared[T]` and `synced[T]`** (done, gap 24, `2a0c6a21`; sections 7.6 and 7.19): embedding
     promotes `T`'s methods, as `owned[T]` does; verified by `embedshared.p`.
-94. **Any two functions exported under one symbol are E2512** (planned; section 20.4): `internal/lower`
-    reports it only for wrapped exports.
+94. **Any two functions exported under one symbol are E2512** (done, `5d25c7c6`; section 20.4):
+    `internal/lower` reports it for any two exports of one symbol, not only for wrapped exports.
 95. **Channel reference counts** (decided, gap 26; sections 18.7 and 19.8): the specification follows the code.
     Every count except `shared` is plain until the program starts its first task and atomic after, channels
     included (`lib/pluto/rt/chan.p` counts like a `synced[T]`); nothing is left to build.
@@ -296,8 +296,8 @@ compiler (2026-10-11).
     `nobounds` retired into `nochecks`, E2601, `45f1758`), with AGENTS.md and `internal/lsp/hover.go` in
     step. Open: a consuming method used as a method value is an error (11.9; G26, decision (a): the method
     expression and the direct call still work; the compiler accepts it today); `clear` on a slice of
-    owners drops each element (13.3; the compiler zeroes the elements without dropping them, and the drops
-    run at the scope's end, on the zero values; row 33).
+    owners drops each element (13.3; done, row 33, `2f0b88da`: each owner is dropped in index order, its
+    `Drop` method before its place becomes the zero value).
 77. **No `append`** (done, `38f6777`, `fa4bdcc`, `57e4f05`; sections 13.1, 7.5 and 18.10,
     [plan](plans/2026-10-10-remove-append.md)): every call is E2013 with the fix for its idiom; `vec.Vec`
     grows, `vec.Fixed` is bounded; `fmt.Appendf` replaces `Bprintf`; `make([]T, ...)` is E2014 (fix
