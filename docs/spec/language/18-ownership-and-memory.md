@@ -263,8 +263,9 @@ from a library container of owners (E3309; section 11.11, Indexing library conta
 **Captured owners.** A function literal may use a captured owner, call its methods, take its address and
 assign it a new value, which drops the old one. Moving a captured owner inside the literal is error
 E3305: the literal may run more than once, or never, so the enclosing function could not tell whether the
-variable still holds a value. Pass the owner to the literal as an argument instead. The one exception is a
-literal started by a `sync.Scope`, which runs exactly once (section 19.4).
+variable still holds a value. Pass the owner to the literal as an argument instead. The one exception is
+an owner that a task started by a `sync.Scope` takes: the task has its own, and its literal may move it
+(section 19.4, Scoped tasks, which states the rule for scoped tasks and owners).
 
 **Methods.** A method with a pointer receiver borrows its receiver. A method with a value receiver on an
 owner type consumes its receiver: calling it moves the owner into the method, which drops it when it
@@ -404,11 +405,17 @@ by converting a strong reference, `weak[shared[Node]](p)`. The rules:
    reference as a view of a local owner is (section 18.3).
 6. Cycles of strong references are never freed. A structure with back pointers makes them `weak`.
 
-A `synced` count is updated with atomic operations once the program has started its first task, and with
-plain arithmetic before; a freestanding program counts atomically from the start. The switch is invisible
-to the program (section 19.7, Memory model; memory-model.md section 3.7), and it applies alike to strings
-and maps, whose counts the table below describes. A `shared`
-count is always plain. `Upgrade` of a `weak[synced[T]]` is an atomic compare-and-swap that fails once the
+**When counts are atomic.** Every reference count except a `shared` count follows one rule: the count of a
+`synced` object, of a string buffer, of a map table, of a channel and of an allocated error is plain
+arithmetic until the program starts its first task or thread, and atomic from then on. A hosted program
+runs on one thread until it starts its first task, so the first task is the first moment a second
+processor, or a task that preempts the running one between the load and the store of a plain increment,
+could meet a count. The runtime makes the switch before the new task or thread can run, whatever the
+scheduler, and the switch cannot be undone (`rt.SetThreaded`, appendix F). A freestanding program counts
+atomically from the start, since its kernel may run code on other processors without telling the runtime.
+The switch is invisible to the program (section 19.7, Memory model; memory-model.md section 3.7). A
+`shared` count is never atomic. This is the only statement of the rule: the other sections cite it.
+`Upgrade` of a `weak[synced[T]]` is an atomic compare-and-swap once counts are atomic, and fails once the
 strong count is zero, so it never revives an object whose drop has begun.
 
 The representation of the boxes and of `weak[P]`, how they are used through `*T`'s methods and fields,
@@ -416,14 +423,14 @@ embedding, comparison, and the rule that a box cannot hold an interface type are
 (section 7.19, `owned`, `shared`, `synced` and `weak`).
 
 **Counted reference types.** Besides `shared[T]` and `synced[T]`, four built-in kinds of value share
-memory by counting:
+memory by counting. Their counts are atomic exactly when a `synced` count is (above):
 
 | Type | What is shared | Count | Rules |
 |---|---|---|---|
-| `string` | an immutable buffer of bytes | plain until the first task starts, then atomic | section 18.8 |
-| `map[K]V` | a hash table | plain until the first task starts, then atomic | section 7.10 (Map types) |
-| `chan T` | a channel and its buffer | atomic | section 19.8 (Channels) |
-| an allocated error | the error object | atomic | section 16.7 (Allocated errors and ownership) |
+| `string` | an immutable buffer of bytes | as for `synced` | section 18.8 |
+| `map[K]V` | a hash table | as for `synced` | section 7.10 (Map types) |
+| `chan T` | a channel and its buffer | as for `synced` | section 19.8 (Channels) |
+| an allocated error | the error object | as for `synced` | section 16.7 (Allocated errors and ownership) |
 
 Copies of a map share its table, so `m2 := m` and a function that fills its map parameter change the
 same table; the table is freed when its last reference goes. Keys and values of a built-in map may not be
@@ -457,7 +464,8 @@ string's bytes while a copy can still reach them.
   header that records the allocator, the size and a count of the strings that use it. A buffer never
   changes once a string uses it.
 - Copying a string adds one to the count. Dropping a copy subtracts one, and the last drop frees the
-  buffer to the allocator recorded in its header.
+  buffer to the allocator recorded in its header. The count is plain or atomic by the rule of section 18.7
+  (Shared ownership, When counts are atomic).
 - A substring `s[i:j]` shares `s`'s buffer and keeps it alive.
 - String literals, constants and every other string the compiler places in static storage are never
   counted: copying or dropping one costs nothing. The zero string is static.

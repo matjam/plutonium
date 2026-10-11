@@ -106,7 +106,8 @@ The language itself fixes these limits, which every implementation provides:
 - A function contains at most 64 `defer` statements, because each has a slot in the function's frame
   (E2531). A `defer` statement inside a loop is an error (section 12.19, Defer statements).
 - A task's stack is at least `rt.MinStackSize` bytes, 8 KiB. A hosted task whose needs cannot be computed
-  has at least the stack that section 19.1 (Tasks) states, and overflowing a task's stack is a panic with
+  has at least 64 MiB of stack where the address space allows; where it does not, the runtime reserves
+  smaller stacks, never below 64 KiB (section 19.1, Tasks). Overflowing a task's stack is a panic with
   a trace.
 - The size of a closure region is fixed at compile time (section 11.5, Closures and their regions). A
   program whose region cannot have a fixed size is an error, never a region that grows.

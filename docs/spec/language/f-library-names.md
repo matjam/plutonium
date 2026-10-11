@@ -52,7 +52,10 @@ variable marked `//pu:scheduler` directly.
 The runtime's other names that a scheduler uses are `rt.Task`, `rt.Context`, `rt.StackRequest`,
 `rt.MakeContext`, `rt.Switch`, `rt.Park`, `rt.Ready`, `rt.Preempt`, `rt.Yield`, `rt.DisablePreemption`,
 `rt.EnablePreemption`, `rt.BootTask`, `rt.Go(f, size, a)` with `rt.MinStackSize` (8 KiB), `rt.Timer`,
-`rt.Now`, `rt.ParkUntil`, `rt.RunTimers` and `rt.NoDeadline`. `rt.StackLeft`, `rt.StackBounds` and
+`rt.Now`, `rt.ParkUntil`, `rt.RunTimers` and `rt.NoDeadline`. `rt.Go` starts a task with a stack of an
+explicit size, as kernels and scheduler binders need; its third argument is optional, and names the
+allocator that supplies the stack (the program-wide default if omitted), for a scheduler that takes stack
+memory from the allocator a program asks for (section 19.1, Tasks). `rt.StackLeft`, `rt.StackBounds` and
 `rt.SetStackBounds` report and record the limits of a stack. `rt.Goexit` ends the calling task after
 running the deferred calls and drops of every frame; `rt.CatchGoexit` lets a runner stop that exit
 (section 17.3, Ending a task with rt.Goexit). `rt.Pinned` hides a pointer from the escape analysis, and is

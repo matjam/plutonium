@@ -55,9 +55,11 @@ The implementation gaps of
 | 23 | Package initializer that allocates, in a freestanding build | 75 | 15.2 |
 | 24 | Embedding `shared[T]` and `synced[T]` | 92 | 7.6, 7.19 |
 | 31 | The `or` clause | 99 | 11.27, 4.6 |
+| 32 | Package initialization starts no task (decision G44 pending) | 100 | 15.2, 15.3, 19.1, 19.3 |
 
 The pass that aligned the documents with the chapters found six more, items 93 to 98; they are rows 25 to
-30 of complete-spec section 6.5. Row 31, item 99, is the `or` clause, decided later the same day.
+30 of complete-spec section 6.5. Row 31, item 99, is the `or` clause, decided later the same day. Row 32,
+item 100, comes from the pass that removed the specification's internal contradictions.
 
 ## Wrong code and silent failures
 
@@ -116,15 +118,16 @@ The pass that aligned the documents with the chapters found six more, items 93 t
     `T`'s methods, as `owned[T]` does. To verify.
 94. **Any two functions exported under one symbol are E2512** (planned; section 20.4): `internal/lower`
     reports it only for wrapped exports.
-95. **Channel reference counts are always atomic** (planned; sections 18.7 and 19.8): `lib/pluto/rt/chan.p`
-    switches from plain to atomic counts like a `synced[T]`.
+95. **Channel reference counts** (decided, gap 26; sections 18.7 and 19.8): the specification follows the code.
+    Every count except `shared` is plain until the program starts its first task and atomic after, channels
+    included (`lib/pluto/rt/chan.p` counts like a `synced[T]`); nothing is left to build.
 96. **The debug allocator reports package-variable memory apart from leaks** (planned; sections 15.4 and
     18.6, debug-allocator.md).
 97. **`pluto vet -unsafe`** (planned; sections 18.12 and 21.1): lists, for each package, the functions that
     use unsafe code and the safe functions that call them. The compiler has no `vet` command yet.
-98. **Hosted task stacks under `RLIMIT_AS`** (planned, needs a decision; sections 19.1 and 21.4): the
-    runtime shrinks stacks below 64 MiB when the address-space limit is small, and the specification says
-    "at least 64 MiB" without a rule for the case where that is impossible.
+98. **Hosted task stacks under `RLIMIT_AS`** (decided, gap 29; sections 19.1 and 21.4): the specification
+    states what `173c2f6` does: at least 64 MiB where the address space allows, otherwise smaller
+    reservations, never below 64 KiB, and `rt.Go` asks for a size. Nothing is left to build.
 99. **The `or` clause** (planned, gap 31; section 11.27, decided 2026-10-10): `v := f() or return`,
     `or return E`, `or continue`, `or panic(err)` and `or { ... }` after a call whose last result is exactly
     `error`. The clause runs when the error is not `nil`, declares `err` in an implicit block, and must leave
@@ -136,6 +139,15 @@ The pass that aligned the documents with the chapters found six more, items 93 t
     catalog entries with a `cmd/pluto/testdata/diag` program per code. Tests: programs under
     `internal/build/testdata/lib` (Go cannot run them, so their output is checked by hand against the `if`
     forms), run at `-O0` and `-O2`.
+100. **Package initialization starts no task** (planned, gap 32, decision G44 pending; sections 15.2, 15.3,
+    19.1 and 19.3): a `task` statement, `s.Task`, `wg.Task` or a library function that starts a task with a
+    func argument, reached from a package-level initializer or an `init` function (directly or through the
+    functions it calls, over the whole program), is a compile error that names the start and the
+    initializer. This is what makes the rule that a package variable written only during initialization
+    needs no lock sound. Work: a new error code with a catalog entry and a `cmd/pluto/testdata/diag`
+    program; the whole-program reachability that the freestanding allocation check (item 75) also needs;
+    a survey of `lib/pluto` for packages that start a task in initialization. If the user decides that
+    initialization may start tasks, the item becomes the race analysis treating such a variable as shared.
 
 ## Kernel enablement
 
@@ -197,7 +209,7 @@ The pass that aligned the documents with the chapters found six more, items 93 t
     pointer, helpers that start tasks for their caller's Scope, an error-collecting scope; `Index` and
     `SetIndex` of library containers are not partitioned between tasks.
 66. **Large task stacks** (done except the overflow message, `173c2f6`; section 19.1, abi.md sections 12.1
-    and 12.7): 64 MiB lazily mapped hosted stacks, cached. Open: items 91 and 98.
+    and 12.7): 64 MiB lazily mapped hosted stacks, cached. Open: item 91.
 67. **Counted channels, and a channel owns its timer** (done except the timer owners, `bdb7683`; sections
     7.11, 19.6, 19.8, abi.md section 12.6): a channel is a counted reference freed with its last reference.
     Open (gap 19): `time.NewTimer`, `NewTicker` and `AfterFunc` return `*Timer` and `*Ticker` freed with

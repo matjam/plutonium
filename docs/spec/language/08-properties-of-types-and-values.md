@@ -443,7 +443,8 @@ target of a pointer or slice:
 Following the structure of the types:
 
 - Booleans, numbers, strings, enums, packed types, channels and function types are sendable. Strings are
-  sendable because their bytes never change and their counts are atomic once a program has several threads.
+  sendable because their bytes never change and their counts are atomic once a program has started a task
+  (section 18.7, Shared ownership).
 - An array, a `ring`, a `volatile` or an `aligned` type is sendable if its element type is. A struct is
   sendable if every field is, and a union if every payload is.
 - A pointer `*T` or a slice `[]T` is sendable if `T` is. The rule looks through pointers: a `*S` whose `S`
@@ -451,8 +452,8 @@ Following the structure of the types:
   its count without atomic operations. Whether the memory a view points to may be used by both tasks is
   checked where the value crosses, as below. `unsafe.Pointer` is sendable; what it points to is the
   responsibility of unsafe code (section 18.12, Safe and unsafe code).
-- A map `map[K]V` is sendable if `K` and `V` are. A map is a counted value whose count is atomic once a
-  program has several threads. Its contents fall under the race rules of section 19.3 (Data race freedom).
+- A map `map[K]V` is sendable if `K` and `V` are. A map is a counted value whose count follows
+  the rule of section 18.7 (Shared ownership). Its contents fall under the race rules of section 19.3 (Data race freedom).
 - `owned[T]` is sendable if `T` is. Sending it moves it, so only one task has it.
 - `synced[T]` and `weak[synced[T]]` are sendable if `T` is. The count is atomic. The data is not: the fields
   of `T` that change are guarded by a lock of the same object or used atomically (section 19.3).

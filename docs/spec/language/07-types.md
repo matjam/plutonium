@@ -790,7 +790,8 @@ holds comes from its type.
 - An **owning interface** is declared with the `owner` qualifier (section 7.18):
   `type Resource owner interface { Read(p []byte) (int, error) }`. It is an owner type. It moves, and dropping
   it drops the value inside it. Converting an owner to an owning interface moves the owner in. Converting a
-  `shared[T]` or `synced[T]` reference, a channel or a map copies it (count plus one). Converting a value or a view copies it, as
+  `shared[T]` or `synced[T]` reference, a channel or a map copies it (count plus one, plain or atomic as
+  section 18.7 says). Converting a value or a view copies it, as
   for any interface, and dropping the interface then does nothing for it.
 
 Every owner type satisfies the implicit `Drop` of an owning interface, whether or not it declares a `Drop`
@@ -894,8 +895,9 @@ share one table: assigning a map or passing it to a function gives the other sid
 function that receives a map and stores into it changes the caller's map. Each copy adds one to the count of
 references to the table, and each copy that is dropped subtracts one. The table is freed
 when the last reference goes, and the keys and elements in it are dropped first, so counted keys and elements
-release their references. The counts are plain arithmetic until the program starts a second thread and atomic
-after; the compiler leaves out counts that cannot be observed, as for strings (section 18.8, Strings). A map
+release their references. The count is plain or atomic by the rule of section 18.7 (Shared ownership, When
+counts are atomic); the compiler leaves out counts that cannot be observed, as for strings (section 18.8,
+Strings). A map
 that holds a counted reference to itself (through an interface, for example) is never freed, like any cycle of
 counted references; `weak` breaks cycles (section 7.19).
 
@@ -1016,7 +1018,8 @@ For example, if one task sends values on a channel and a second task receives th
 the order sent.
 
 **A counted reference.** A channel value is one word, a counted reference to the channel, because a channel
-always has several users. Copying a channel value adds a reference and dropping one subtracts a reference. When the
+always has several users. Copying a channel value adds a reference and dropping one subtracts a reference; the count is
+plain or atomic by the rule of section 18.7 (Shared ownership, When counts are atomic). When the
 last reference goes, the values still in the buffer are dropped, so owners in the buffer are freed rather than
 leaked and their `Drop` runs on the task that released the last reference, and then the channel and its buffer
 are freed. A channel made for a timer owns the timer and stops it when the channel is freed (section 19.6,
@@ -1612,7 +1615,7 @@ WeakType = "weak" "[" Type "]" .
 |---|---|---|
 | `owned[T]` | owner | The single owner of a heap `T`. Moves; when dropped, `T` is dropped and the memory freed. |
 | `shared[T]` | counted | A reference-counted heap `T` used by one task. The count is not atomic. |
-| `synced[T]` | counted | Like `shared[T]`, but the count is atomic, so references may cross tasks. |
+| `synced[T]` | counted | Like `shared[T]`, but the count is atomic (section 18.7), so references may cross tasks. |
 | `weak[P]` | counted (weak) | A back reference to the object of `P`, a `shared[T]` or `synced[T]`, that does not keep it alive. |
 
 `owned[T]` is one owner among many: `vec.Vec[T]`, `hash.Map[K, V]`, `strings.Builder` and `os.File` are owners

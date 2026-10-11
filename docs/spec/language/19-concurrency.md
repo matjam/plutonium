@@ -26,7 +26,7 @@ E2594), and how a method of a box hands the box to the task. The same rules appl
 that start a task with a func argument (`rt.Go`, `(*sync.WaitGroup).Task`, `time.AfterFunc`) and to every
 function of the program that passes a func parameter on to one of them; the compiler finds these functions
 itself. A task that uses its starting function's variables is started by a `sync.Scope` instead (section
-19.4).
+19.4). No task is started during package initialization (section 15.2, Panics and tasks).
 
 **How a task starts.** A new task begins with:
 
@@ -50,18 +50,26 @@ a task started by a `sync.Scope` (section 19.4); a program that waits for a task
 **Stacks.** Each task has a stack of fixed size, which never grows or moves: nothing in the program
 knows where the pointers into it are, so it cannot be moved. The size is chosen when the task starts:
 
-The stack's memory comes from the program-wide default allocator, or from the backend's own memory in a
-kernel (section 19.5), never from an allocator that the starting task installed with `alloc.Use`, since
-that may be a local arena that is reset while the new task still runs.
-
 1. When the call graph of the function started is bounded (no recursion, and no call through a func
    value or interface whose possible callees are not themselves bounded), the compiler computes the
    stack the task needs, locals included, and the task gets exactly that.
-2. `rt.Go(f, size)` starts `f` with a stack of `size` bytes, at least `rt.MinStackSize` (8 KiB).
-3. Otherwise, in hosted builds, the task gets at least 64 MiB of address space, with a guard region
-   below it, whose memory is committed only as it is touched. In freestanding and kernel builds it gets
-   the default task stack size that the implementation documents (section 21.4, Implementation limits).
-   `-stackreport` lists the tasks whose size could not be computed.
+2. `rt.Go(f, size)` starts `f` with a stack of `size` bytes, at least `rt.MinStackSize` (8 KiB). This is
+   how a program, a kernel or a scheduler binder asks for a size (appendix F).
+3. Otherwise, in hosted builds, the task gets at least 64 MiB of address space where the address space
+   allows, with a guard region below it, whose memory is committed only as it is touched. When it does
+   not allow (the process has an address-space limit), the runtime reserves smaller stacks, never below
+   64 KiB, and a program that needs a deeper stack asks for its size with `rt.Go`. In freestanding and
+   kernel builds the task gets the default task stack size that the implementation documents (section
+   21.4, Implementation limits). `-stackreport` lists the tasks whose size could not be computed.
+
+**Where a stack comes from.** A task's stack never comes from an allocator that the starting task
+installed with `alloc.Use`, since that may be a local arena that is reset while the new task still runs.
+In a hosted build the runtime supplies the stacks: reserved address space for stacks of unknown need, and
+otherwise the program-wide default allocator, through the runtime's own cache of stacks. A scheduler
+backend that a program binds, such as a kernel's (section 19.5), supplies stack memory itself, from pages
+it owns. `rt.Go(f, size, a)` has an optional third argument, the allocator that the stack comes from
+(the program-wide default when it is omitted); it must outlive the task, and a bound scheduler receives it
+in the stack request and may take the memory from it or from its own pages.
 
 Running past the end of a stack with a guard region is a fault, reported as a stack overflow panic with
 the task's trace and the size it had, and how to ask for more (section 17.5, Faults). In kernel builds
@@ -78,9 +86,10 @@ preemption that arrives meanwhile happens when it is enabled again. Blocking on 
 or calling `rt.Yield()`, gives up the processor early.
 
 **Deadlock.** In hosted builds, when every task waits for another task and none waits for I/O, a system
-call or an armed timer, the program stops with a fatal error that reports a deadlock, lists each task
-with what it waits for (a channel operation, a `select`, a lock, a `sync.Scope`) and its stack trace,
-and exits with status 2 (debugging.md section 5).
+call or an armed timer, the program ends with a fatal error and status 2 (section 17.1) after printing the
+state of every task: what it waits for (a channel operation, a `select`, a lock, a `sync.Scope`) and its
+stack trace. The wording of the report is not part of the language (section 21.1); debugging.md section 5
+describes what the hosted implementation prints.
 
 **Program exit.** When `main` returns, the program exits without waiting for other tasks. Section 15.4
 (Program execution) defines what runs and what does not: `main`'s own deferred calls and drops, a drop
@@ -113,8 +122,8 @@ Moving an owner to another task is safe because the sender loses it: only one ta
 and an owner that manages memory (`vec.Vec`, `hash.Map`, `strings.Builder`) takes that memory with it
 (section 8.8). A `synced[T]` and a
 map let several tasks reach the same memory, so what changes in it is subject to section 19.3. Strings
-are sendable because their bytes never change and their counts are atomic once a program has several
-tasks.
+are sendable because their bytes never change and their counts are atomic once a program has started a task
+(section 18.7, Shared ownership).
 
 The type part of the rule (`shared[T]`) is checked by the type checker on the arguments and receiver of
 every task statement and on the element type of every channel type, looking through struct fields, array
@@ -136,8 +145,8 @@ used only atomically, or guarded by a lock that every access holds.
 passed to a function that starts a task with it (section 19.1), and each `s.Task` call (section 19.4).
 The **main task** runs package initialization and `main`. A task statement that may run more than once
 (in a loop, or in a function that may be called more than once) may start several tasks that run the
-same code at once. Package initialization, and the part of `main` before the first statement that may
-start a task, run while no other task exists.
+same code at once. Package initialization, which may not start a task (section 15.2, Panics and tasks), and
+the part of `main` before the first statement that may start a task, run while no other task exists.
 
 **Accesses and locks.** For each task the compiler collects what it reads and writes, in its own code and
 in every function it calls (a call through an interface or func value reaches every function that could
@@ -357,9 +366,13 @@ task is bounded by the join, which comes before the function returns.
   view in it points to: a slice of an array declared in the loop body, taken into a task that runs past
   the iteration, still looks at that array. Use the array itself in the literal, which the task then
   takes, or wait inside the loop.
-- **Captured owners.** A captured owner whose block outlives the join stays where it is, and the literal
-  may use it but not move it (E3305, as in any literal): the starting function drops it at the end of its
-  block. An owner the task takes is the task's own, and its literal may move it.
+- **Owners.** This is the one rule for owners that scoped tasks capture. An owner the task takes is the
+  task's own: the starting function holds nothing in it afterward, and the literal may use it, move it
+  on, or let the task drop what is left of it. A captured owner whose block outlives the join stays where
+  it is, and the starting function drops it at the end of its block: the literal may use it, call its
+  methods, take its address and assign it a new value, but moving it inside the literal is E3305, as in
+  any literal. While a task that uses such an owner may run, the starting function may not move or drop
+  it either (E3404, below). Sections 11.5 and 18.5 cite this rule.
 - **Func values.** A literal written as the argument of `s.Task` gets a closure record of its own in each
   task, built on the task's stack, holding the addresses of the shared variables and its own copies of the
   taken ones.
@@ -610,7 +623,9 @@ in another. In brief:
   channel happens before a receive that returns because it is closed; for a channel of capacity `C`, the
   `k`-th receive happens before the `(k+C)`-th send completes. The `n`-th `Unlock` of a `sync.Mutex`
   happens before the `(n+1)`-th `Lock` returns, with the matching rules for `RWMutex`, `WaitGroup` and
-  `Once`. The return of a scoped task happens before the return of the `Wait` or drop that joins it.
+  `Once`. A `sync.Cond`'s `Wait` unlocks its lock and locks it again before it returns, so it synchronizes
+  through that lock as `Lock` and `Unlock` do, and a `Signal` or `Broadcast` that wakes a `Wait` happens
+  before that `Wait` returns. The return of a scoped task happens before the return of the `Wait` or drop that joins it.
   `pluto/sync/atomic` operations are sequentially consistent.
 - **Safe code has no data races** (section 19.3). The race rules use locks, atomics, moves and scoped
   joins to prove it, not the order that channels and `WaitGroup` give to plain data.
@@ -667,8 +682,8 @@ func produce(out chan<- vec.Vec[int]) {
 ```
 
 **Counting.** A channel is a counted reference whose last release drops the values still buffered and frees
-the channel (section 7.11, Channel types). Its count is always atomic, and a task waiting on a channel holds
-a reference to it while it waits.
+the channel (section 7.11, Channel types). Its count is plain or atomic by the rule of section 18.7 (Shared
+ownership, When counts are atomic), and a task waiting on a channel holds a reference to it while it waits.
 
 **Waiting.** The operations that may wait (a send or receive, a `range` over a channel, a `select` without
 a `default` case) park the calling task, so its processor runs other tasks. A `select` with a `default`

@@ -213,8 +213,19 @@ func kernelMain(info *BootInfo) {
 nothing, so sentinel errors are declared at package level in every build.
 
 **Panics and tasks.** A panic during initialization is a panic like any other (chapter 17, Run-time
-panics). An `init` function may start tasks; they run concurrently with the rest of initialization
-(section 15.3).
+panics). Initialization starts no task. A `task` statement, a call of `s.Task` on a `sync.Scope` or of
+`wg.Task` on a `sync.WaitGroup`, and a call of any other library function that starts a task with a func
+argument (`rt.Go`, `time.AfterFunc`; section 19.1, Tasks) is a compile error when a package-level
+initializer or an `init` function can reach it, directly or through the functions it calls. The compiler
+works this out from the whole program, as it does for allocation, and the error names the start and the
+initializer or `init` function that reaches it. The fix is to start the task from `main`, or from a
+function that `main` calls. The runtime's own threads are not tasks. The task that runs initialization is
+therefore the only task that exists while it runs, which is what lets a package variable that is written
+only during initialization be read by every task without a lock (section 19.3, Data race freedom).
+
+> **Open (G44).** Should initialization be allowed to start tasks? This text forbids it so that the rule
+> for variables written only during initialization is sound; allowing it would instead require those
+> variables to be guarded or atomic whenever an initializer starts a task. Pending the user's decision.
 
 ### 15.3 Program initialization
 
@@ -231,9 +242,9 @@ any) are already initialized is initialized. This step is repeated until all pac
 
 Package initialization (variable initialization and the invocation of `init` functions) happens in a
 single task, the task that goes on to run `main` (section 19.1, Tasks), sequentially, one package at a
-time. An `init` function may start other tasks, which run concurrently with the initialization code.
-However, initialization always sequences the `init` functions: it does not invoke the next one until the
-previous one has returned. Tasks that the initialization started may still be running when `main` begins.
+time. No other task exists while it runs, since initialization may not start one (section 15.2, Panics
+and tasks). It invokes the `init` functions in sequence: it does not invoke the next one until the
+previous one has returned. All initialization is complete before `main` begins.
 
 ### 15.4 Program execution
 

@@ -1478,7 +1478,7 @@ One agent, after every part has landed:
 ### 6.5 Phase 3 result: implementation gaps
 
 Phase 3 integrated the chapters on 2026-10-10, and the pass that aligned the companion documents, the
-plans and the README with them (2026-10-10) added rows 25 to 30. Row 31 came with the `or` clause,
+plans and the README with them (2026-10-10) added rows 25 to 30. Row 32 came with the pass that removed the specification's internal contradictions (the `> **Open (G44)` block of section 15.2). Row 31 came with the `or` clause,
 decided by the user later the same day. The specification now defines the decided language; the
 compiler does not yet meet it in the places below. Each item names the section that states the rule, so
 that an implementation agent works from the text. Items marked *verified* were confirmed with a program
@@ -1512,12 +1512,13 @@ reading the code.
 | 23 | A package-level initializer that allocates is a compile error in freestanding builds (to verify). | 15.2 | 75 |
 | 24 | Embedding `shared[T]` and `synced[T]` in a struct, promoting `T`'s methods (embedding `owned[T]` works). To verify. | 7.6, 7.19 | 92 |
 | 25 | Any two functions exported under one symbol are E2512. `internal/lower` reports it only for wrapped exports. | 20.4 | 94 |
-| 26 | Channel reference counts are always atomic. `rt/chan.p` switches from plain to atomic counts like a `synced[T]`. | 18.7, 19.8 | 95 |
+| 26 | ~~Channel reference counts are always atomic.~~ Closed by the specification: every count except `shared` is plain until the program starts its first task, then atomic (18.7), which is what `rt/chan.p` does. | 18.7, 19.8 | 95 |
 | 27 | The debug allocator reports package-variable memory apart from leaks. | 15.4, 18.6 | 96 |
 | 28 | `pluto vet -unsafe` lists the functions that use unsafe code and the safe functions that call them; the compiler has no `vet` command. | 18.12, 21.1 | 97 |
-| 29 | Hosted task stacks are at least 64 MiB; the runtime shrinks them under a small `RLIMIT_AS`. The specification gives no rule for the case where 64 MiB is impossible (a question for the user). | 19.1, 21.4 | 98 |
+| 29 | ~~Hosted task stacks are at least 64 MiB; the runtime shrinks them under a small `RLIMIT_AS`.~~ Closed by the specification: at least 64 MiB where the address space allows, otherwise smaller reservations, never below 64 KiB (19.1, 21.4), which is what `173c2f6` does. | 19.1, 21.4 | 98 |
 | 30 | `pluto doc` shows a package's documentation and the kind of each type; the compiler has no `doc` command. | 1.1, 18.1, F | 93 |
 | 31 | The `or` clause, decided by the user on 2026-10-10: `v := f() or return`, `or continue`, `or panic(err)` and `or { ... }` after a call whose last result is exactly `error`. Parser: `or` as a contextual keyword after the expression that ends a simple statement, `OrStmt` among the simple statements, syntax error E1013 for an operand that is not a call. Type checker: E2461 to E2465 (an `or` in a post statement is E2465), the implicit block that declares `err` (never reported unused), the leaving-statement rule (terminating statements plus `break` and `continue`), and the two short forms of an unbraced `return`. Move checker, escape analysis and lowering: the test after the call, the drop of the call's temporaries before the clause, nothing assigned or declared on the error path, and the clause as an ordinary return or branch (drops, scope joins, deferred calls). Also `pluto fmt`, the completion list of `internal/lsp`, and catalog entries for the new codes (`go generate` in `internal/types2/errors`). *Verified* with the compiler at the time of writing: every shape of section 11.27 fails at the `or` ("expected ';', found or") and nothing else in the examples fails to parse; the `if err != nil` forms of the complete program compile and run. | 11.27, 4.6, 12.1, 12.10, 12.14 | 99 |
+| 32 | Package initialization starts no task (decision G44, pending): a `task` statement, `s.Task`, `wg.Task` or a library task starter reachable from a package-level initializer or an `init` function is a compile error that names the start and the initializer, with the fix to start the task from `main`. The check follows calls through the whole program, as the allocation check of row 23 does, and needs an error code (the next free E3xxx or type checker code). Library packages whose initialization starts a task are changed first. | 15.2, 15.3, 19.1, 19.3 | 100 |
 
 Counted channels with their timers (`bdb7683`), 64 MiB lazily mapped hosted task stacks (`173c2f6`) and
 `sync.Scope` (`a7948f6`) and generation checks by default in hosted builds (`766837b`) landed before the

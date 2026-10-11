@@ -24,6 +24,24 @@ var (
 // specDir is the directory that holds the chapters of the spec.
 var specDir = filepath.Join("..", "..", "docs", "spec", "language")
 
+// pendingDecisions lists the open questions that the spec states in an
+// `> **Open (Gn).**` block because they wait for a decision of the user. Any
+// other open block fails TestSpecReferences. Remove an entry, and its block,
+// when the decision is recorded.
+var pendingDecisions = []string{
+	"G44", // 15.2: whether package initialization may start tasks
+}
+
+// pendingDecision reports whether line opens one of the pendingDecisions.
+func pendingDecision(line string) bool {
+	for _, g := range pendingDecisions {
+		if strings.HasPrefix(line, "> **Open ("+g+").**") {
+			return true
+		}
+	}
+	return false
+}
+
 // specHeadings returns the numbered headings of every chapter file of the
 // spec, as a map from section number to title with the backquotes removed.
 // It checks that each number appears once, in the file of its chapter.
@@ -58,7 +76,7 @@ func specHeadings(t *testing.T) map[string]string {
 			if inFence {
 				continue
 			}
-			if strings.HasPrefix(line, "> **Open") {
+			if strings.HasPrefix(line, "> **Open") && !pendingDecision(line) {
 				t.Errorf("docs/spec/language/%s: an open question remains: %s", f.Name(), line)
 			}
 			h := headingForm.FindStringSubmatch(line)

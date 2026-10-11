@@ -577,7 +577,7 @@ for i, r := range "añb" { // 0 'a', 1 'ñ', 3 'b'
 }
 ```
 
-**Maps.** For a map, the key and value are produced as copies, and counted values are counted. The iteration order over maps is not specified and is not guaranteed to be the same from one iteration to the next. These guarantees hold for every map, whatever the body does to it:
+**Maps.** For a map, the key and value are produced as copies, and counted values are counted. The iteration order over maps is not specified (section 7.10, Map types, says what the implementation does and how each map's hash seed is chosen). These guarantees hold for every map, whatever the body does to it:
 
 - Every entry that is present when the loop begins and is not removed before the loop reaches it is produced exactly once.
 - An entry that is removed before the loop reaches it is not produced. Removing the entry that was just produced, or any other entry, is allowed and never causes another entry to be skipped or produced twice.

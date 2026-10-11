@@ -90,9 +90,8 @@ each read observing the latest write to its location before it in that order.
 
 Package initialization runs in one task, the main task, which then calls `main`. Initializing a package
 is sequenced before initializing any package that imports it, and all initialization is sequenced before
-`main` starts (language spec section 15.3, Program initialization). An `init` function may start tasks
-(language spec section 15.2, Package initialization); such a task runs concurrently with the rest of
-initialization and may still be running when `main` begins.
+`main` starts (language spec section 15.3, Program initialization). Initialization starts no task
+(language spec section 15.2, Package initialization), so no other task exists while it runs.
 
 ### 3.2 Starting a task
 
@@ -211,7 +210,8 @@ tasks (language spec section 19.2, The sendable rule).
 are counted like a `synced[T]` object: every decrement is a release, and the decrement that reaches zero
 is also an acquire before the memory is freed, so every use through any copy happens before the free.
 
-**When counts are atomic.** The counts of `synced[T]` objects, string buffers and map tables use plain
+**When counts are atomic.** The counts of `synced[T]` objects, string buffers, map tables, channels and
+allocated errors use plain
 arithmetic until the program starts its first task, and atomic operations from then on (language spec
 section 18.7, Shared ownership); the switch cannot be observed by the program. A hosted program runs on
 one thread until it starts its first task, and the runtime calls `rt.SetThreaded` at that point, before
@@ -219,7 +219,7 @@ the task can run, whatever the scheduler. The task start that follows is the syn
 publishes every count written before it. A program that runs Plutonium code on another thread by other
 means calls `rt.SetThreaded` first. A freestanding program counts atomically from the start, since its
 kernel may run code on other processors without telling the runtime. `rt.SetThreaded` cannot be undone.
-Channel counts are always atomic (language spec section 19.8), and `shared[T]` counts are never atomic.
+`shared[T]` counts are never atomic.
 
 A string's bytes never change once a string uses them, so reading a shared string needs no lock. A map's
 contents are ordinary locations, shared by every copy of the map.
