@@ -54,7 +54,7 @@ The implementation gaps of
 | 22 | Counted `error` values and library error types | 11, 69 | 16.7, 16.5 |
 | 23 | Package initializer that allocates, in a freestanding build | 75 | 15.2 |
 | 24 | Embedding `shared[T]` and `synced[T]` | 92 | 7.6, 7.19 |
-| 31 | The `or` clause | 99 | 11.27, 4.6 |
+| 31 | The `or` clause (done) | 99 | 11.27, 4.6 |
 | 32 | Package initialization starts no task (decision G44 pending) | 100 | 15.2, 15.3, 19.1, 19.3 |
 
 The pass that aligned the documents with the chapters found six more, items 93 to 98; they are rows 25 to
@@ -129,17 +129,16 @@ item 100, comes from the pass that removed the specification's internal contradi
 98. **Hosted task stacks under `RLIMIT_AS`** (decided, gap 29; sections 19.1 and 21.4): the specification
     states what `173c2f6` does: at least 64 MiB where the address space allows, otherwise smaller
     reservations, never below 64 KiB, and `rt.Go` asks for a size. Nothing is left to build.
-99. **The `or` clause** (planned, gap 31; section 11.27, decided 2026-10-10): `v := f() or return`,
-    `or return E`, `or continue`, `or panic(err)` and `or { ... }` after a call whose last result is exactly
-    `error`. The clause runs when the error is not `nil`, declares `err` in an implicit block, and must leave
-    (terminating statements plus `break` and `continue`). Work: the parser (contextual keyword `or`,
-    `OrStmt` among the simple statements, E1013), the type checker (E2461 to E2465, the `err` block, the
-    leaving rule, the short forms of an unbraced `return`, no `or` in a post statement), the move checker,
-    escape analysis and lowering (the test, the drops of the call's temporaries before the clause, nothing
-    assigned on the error path, the clause as an ordinary exit), `pluto fmt`, the language server, and
-    catalog entries with a `cmd/pluto/testdata/diag` program per code. Tests: programs under
-    `internal/build/testdata/lib` (Go cannot run them, so their output is checked by hand against the `if`
-    forms), run at `-O0` and `-O2`.
+99. **The `or` clause** (done, gap 31; section 11.27, decided 2026-10-10): `v := f() or return`, `or return E`,
+    `or continue`, `or panic(err)` and `or { ... }` after a call whose last result is exactly `error`. The
+    parser (`OrStmt`, E1013), the type checker (E2461 to E2465, the `err` block, the leaving rule, the short
+    forms of an unbraced `return`), lowering and the move, escape and race analyses, `pluto fmt`, the language
+    server and the VS Code grammar implement it; go2pu writes plain propagations as `or return`, and the
+    library uses it in `os`, `os/exec`, `path/filepath` and `flag`. Tests: `testdata/plutonium/or*.p` at `-O0`
+    and `-O2` (`orowner.p` also under the debug allocator), `testdata/trace/orpanic.p`, a kernel-mode compile,
+    and `cmd/pluto/testdata/diag/or_rules` and `syntax_invalid_or`. The release of a counted `err` when the
+    clause is left waits for counted errors (items 11 and 69, gap 22): the clause uses the counting the other
+    statements use, so it counts errors when they are counted.
 100. **Package initialization starts no task** (planned, gap 32, decision G44 pending; sections 15.2, 15.3,
     19.1 and 19.3): a `task` statement, `s.Task`, `wg.Task` or a library function that starts a task with a
     func argument, reached from a package-level initializer or an `init` function (directly or through the
