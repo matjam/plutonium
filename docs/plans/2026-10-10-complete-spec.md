@@ -1454,9 +1454,9 @@ reading the code.
 | 20 | The `task` statement and the rename sweep: `task f(x)` as a contextual keyword, `go f()` an error that names `task`, "task N" in traces and deadlock reports, `rt.Panic.Task`, E-code texts (*verified*: `task` does not parse). | 12.12, 4.5, 4.6, 17.1 |
 | 21 | The built-in `map[K]V` (in progress): one word, a counted table; iteration order unspecified with the guarantees of 12.10 and a per-map seed in hosted builds; the owner-in-map error shows a `synced[T]` element. | 7.10, 12.10, 13.5, 13.7 |
 | 22 | `error` values count a `shared` or `synced` reference they hold; library error types (`*os.PathError`, `*strconv.NumError`) are counted objects (roadmap 11). | 16.7, 16.5 |
-| 23 | Generation checks on by default in hosted builds (in progress). | 18.11, 21.5 |
-| 24 | A package-level initializer that allocates is a compile error in freestanding builds (to verify). | 15.2 |
-| 25 | Embedding `shared[T]` and `synced[T]` in a struct, promoting `T`'s methods (embedding `owned[T]` works). To verify. | 7.6, 7.19 |
+| 23 | A package-level initializer that allocates is a compile error in freestanding builds (to verify). | 15.2 |
+| 24 | Embedding `shared[T]` and `synced[T]` in a struct, promoting `T`'s methods (embedding `owned[T]` works). To verify. | 7.6, 7.19 |
 
 Counted channels with their timers (`bdb7683`), 64 MiB lazily mapped hosted task stacks (`173c2f6`) and
-`sync.Scope` (`a7948f6`) landed before the integration and are not gaps.
+`sync.Scope` (`a7948f6`) and generation checks by default in hosted builds (`766837b`) landed before the
+integration and are not gaps.
