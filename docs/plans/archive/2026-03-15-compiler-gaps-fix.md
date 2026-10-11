@@ -1,5 +1,7 @@
 # Compiler Gap Fixes — Implementation Plan
 
+> **Historical:** superseded by the specification; see section 12.9 (Switch statements), section 12.10 (For statements), sections 12.15 to 12.18 (Break, continue, goto and fallthrough statements), section 12.19 (Defer statements) and chapter 21 (Implementation requirements). This is the fix list of one compiler audit in March 2026. What the compiler still lacks is tracked in `docs/roadmap.md`, not here. The specification is the single source of truth: where this document and the specification differ, the specification wins. This document is kept for the history of the March 2026 prototype and is not maintained.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Fix all critical and important gaps identified in the compiler audit.

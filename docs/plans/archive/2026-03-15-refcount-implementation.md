@@ -1,5 +1,7 @@
 # Automatic Reference Counting Implementation Plan
 
+> **Historical:** superseded by the specification; see section 7.19 (`owned`, `shared`, `synced` and `weak`), section 18.7 (Shared ownership) and section 18.8 (Strings). Counting is no longer applied to every pointer copy that the compiler decides is shared; it applies to the counted values the type system names (section 8.7), with a header laid out as `docs/spec/abi.md` section 1.2 describes. The specification is the single source of truth: where this document and the specification differ, the specification wins. This document is kept for the history of the March 2026 prototype and is not maintained.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Implement automatic reference counting so that when a heap-allocated pointer is copied to another variable, the compiler tracks shared ownership and frees only when the last reference goes out of scope.

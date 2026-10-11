@@ -82,11 +82,11 @@ the harness one at a time from a private module.
 
 - **binarytrees memory management.** C calls `malloc`/`free` (glibc), Rust
   drops `Box` values (system allocator), Go relies on its garbage collector,
-  and Plutonium allocates with `alloc.New[Node]()` and frees through the
-  compiler-inserted ownership scheme in
-  `docs/plans/2026-03-15-memory-lifecycle-design.md` (no explicit frees in the
-  source). The benchmark measures each language's allocation strategy, not
-  just code generation.
+  and Plutonium allocates with `alloc.New[Node]()` and frees the trees
+  explicitly, like the C version, because its nodes are raw pointers that are
+  views and are never freed by the compiler (an owner, `owned[T]`, is freed
+  when it is dropped: specification chapter 18). The benchmark measures each
+  language's allocation strategy, not just code generation.
 - **Go's collector runs on other cores** unless `GOMAXPROCS=1`, which is why the
   harness defaults to `-gomaxprocs 1`. On binarytrees this roughly halves
   Go's wall time when lifted (`-gomaxprocs 0`).

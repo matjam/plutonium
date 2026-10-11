@@ -1,5 +1,7 @@
 # Systems Programming Types — Design
 
+> **Historical:** superseded by the specification; see section 7.14 (`packed` types), section 7.15 (`volatile[T]`), section 7.16 (`aligned[T, N]`), section 7.17 (`ring[T, N]`) and section 18.9 (Allocators). The six systems types were designed here before they were built; the specification states the rules as decided, and where it differs from this design, the specification wins. This document is kept for the history of the March 2026 prototype and is not maintained.
+
 ## Overview
 
 Six additions to Plutonium for low-level systems programming: bit-level

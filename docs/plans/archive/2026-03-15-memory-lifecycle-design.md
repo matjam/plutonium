@@ -1,5 +1,7 @@
 # Memory Lifecycle and Allocator Architecture — Design
 
+> **Historical:** superseded by the specification; see chapter 18 (Ownership and memory), in particular section 18.1 (Values, views and owners), section 18.6 (Drops), section 18.7 (Shared ownership) and section 18.9 (Allocators). This design had the compiler infer ownership and insert allocation and deallocation (static RAII, with reference counting for pointers in containers). The specification replaces it: a type is an owner only if its declaration says `owner`, `owned[T]`, `shared[T]`, `synced[T]` and `weak[P]` are written in the source, moves are checked (section 18.5), and every allocation has an owner or an arena (section 18.10). The specification is the single source of truth: where this document and the specification differ, the specification wins. This document is kept for the history of the March 2026 prototype and is not maintained.
+
 ## Overview
 
 Plutonium manages memory without a garbage collector. The compiler

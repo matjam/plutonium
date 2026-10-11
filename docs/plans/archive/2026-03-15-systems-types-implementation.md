@@ -1,5 +1,7 @@
 # Systems Programming Types — Implementation Plan
 
+> **Historical:** superseded by the specification; see section 7.14 (`packed` types), section 7.15 (`volatile[T]`), section 7.16 (`aligned[T, N]`), section 7.17 (`ring[T, N]`) and section 18.9 (Allocators). This is the phased implementation plan for the systems types; all of it landed long ago, and the compiler is described by `AGENTS.md`. The specification is the single source of truth: where this document and the specification differ, the specification wins. This document is kept for the history of the March 2026 prototype and is not maintained.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Implement packed types with bitfields, volatile, aligned, ring buffers, bit-level views, and typed allocation primitives for Plutonium.
@@ -8,7 +10,7 @@
 
 **Tech Stack:** Go compiler (internal/), x86_64 codegen, Plutonium stdlib (.pu files)
 
-**Design doc:** `docs/plans/2026-03-15-systems-types-design.md`
+**Design doc:** `docs/plans/archive/2026-03-15-systems-types-design.md`
 
 ---
 

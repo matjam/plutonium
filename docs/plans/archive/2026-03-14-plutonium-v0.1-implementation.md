@@ -1,5 +1,7 @@
 # Plutonium v0.1 Compiler Implementation Plan
 
+> **Historical:** superseded by the specification; see chapter 21 (Implementation requirements) and the pipeline table in `AGENTS.md`. This is the task-by-task plan for the first compiler (scanner, parser, semantic analysis, monomorphization, IR, x86-64 code generation, ELF writer). The compiler that exists is built on forks of Go's syntax and type-checker packages, an SSA IR and an optimizer pipeline, so the packages, file names and steps below no longer describe it. The specification is the single source of truth: where this document and the specification differ, the specification wins. This document is kept for the history of the March 2026 prototype and is not maintained.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Build a working Plutonium compiler that can compile kernel-safe `.pu` source files to x86_64 ELF object files and link them into standalone Linux binaries with no libc dependency.

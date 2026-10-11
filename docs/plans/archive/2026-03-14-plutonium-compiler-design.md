@@ -1,5 +1,7 @@
 # Plutonium Compiler Design
 
+> **Historical:** superseded by the specification; see chapter 1 (Introduction), chapter 20 (System considerations) and chapter 21 (Implementation requirements) of `docs/spec/language.md`. This is the design of the March 2026 prototype: a freestanding subset of Go, with ownership inferred by the compiler and the library as it was then. The language described in it is not the language the specification defines (for example, memory is owned by types that say so, tasks replace goroutine-style `go` statements, and the standard library is Plutonium source under `lib/pluto/`). The specification is the single source of truth: where this document and the specification differ, the specification wins. This document is kept for the history of the March 2026 prototype and is not maintained.
+
 **Date:** 2026-03-14  
 **Status:** Approved
 

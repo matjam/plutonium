@@ -1,5 +1,7 @@
 # `any` Type, Variadic Arguments, and `fmt.Printf` Design
 
+> **Historical:** superseded by the specification; see section 7.9 (Interface types), section 7.13 (Unions), section 10.12 (Function declarations), section 11.15 (Passing arguments to `...` parameters) and section 18.10 (No allocation without an owner or an arena). In the specification `any` is an alias for the empty interface, not a tagged union (unions are the `union` types of section 7.13), and the formatting functions are documented with the package `pluto/fmt`. The specification is the single source of truth: where this document and the specification differ, the specification wins. This document is kept for the history of the March 2026 prototype and is not maintained.
+
 **Date:** 2026-03-15
 **Status:** Approved
 
