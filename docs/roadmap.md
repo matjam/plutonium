@@ -48,7 +48,7 @@ The implementation gaps of
 | 16 | `portable` (done) | 70 | 8.9 |
 | 17 | Task stacks from the program-wide default allocator (done) | 90 | 19.1 |
 | 18 | Stack overflow message and stack probes (done) | 91 | 19.1, 17.5 |
-| 19 | `NewTimer`, `NewTicker`, `AfterFunc` return owners | 67 | 19.6, F.7 |
+| 19 | `NewTimer`, `NewTicker`, `AfterFunc` return owners (done) | 67 | 19.6, F.7 |
 | 20 | The `task` statement and the rename sweep (done) | 62 | 12.12, 4.5, 4.6, 17.1 |
 | 21 | The built-in `map[K]V` (done) | 60 | 7.10, 12.10, 13.5, 13.7 |
 | 22 | Counted `error` values and library error types | 11, 69 | 16.7, 16.5 |
@@ -211,11 +211,10 @@ item 100, comes from the pass that removed the specification's internal contradi
     `SetIndex` of library containers are not partitioned between tasks.
 66. **Large task stacks** (done, `173c2f6`; section 19.1, abi.md sections 12.1 and 12.7): 64 MiB lazily
     mapped hosted stacks, cached.
-67. **Counted channels, and a channel owns its timer** (done except the timer owners, `bdb7683`; sections
-    7.11, 19.6, 19.8, abi.md section 12.6): a channel is a counted reference freed with its last reference.
-    Open (gap 19): `time.NewTimer`, `NewTicker` and `AfterFunc` return `*Timer` and `*Ticker` freed with
-    `alloc.Free`; the specification has them return `owned[Timer]` and `owned[Ticker]`, which stop and free
-    the timer when dropped (section F.7).
+67. **Counted channels, and a channel owns its timer** (done, `bdb7683`; sections 7.11, 19.6, 19.8, abi.md
+    section 12.6): a channel is a counted reference freed with its last reference. `time.NewTimer`,
+    `NewTicker` and `AfterFunc` return `owned[Timer]` and `owned[Ticker]`, which stop and free the timer
+    when dropped (section F.7, gap 19); nothing is freed by hand.
 
 ## Language
 

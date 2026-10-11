@@ -379,8 +379,7 @@ func main() int64 {
 	t1 := <-tk.C
 	t2 := <-tk.C
 	t3 := <-tk.C
-	tk.Stop()
-	alloc.Free(tk)
+	tk.Stop() // the owned[Ticker] is dropped at the end of its scope
 	println("ticker", t2.Sub(t1) >= 2*time.Millisecond, t3.After(t2))
 
 	// Scoped tasks (language spec section 4.11) on this scheduler: they use

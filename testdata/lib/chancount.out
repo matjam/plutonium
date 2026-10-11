@@ -26,6 +26,6 @@ range 6 true
 timeouts 499500
 after fired
 ticked
-timer fired after free
-ticker freed
+timer fired before its drop
+ticker dropped
 end

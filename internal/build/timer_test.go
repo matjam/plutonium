@@ -94,10 +94,7 @@ func main() {
 `},
 		{name: "select", want: "timeout true\nvalue 1\nstopped true\nticks true\n", src: `package main
 
-import (
-	"pluto/alloc"
-	"pluto/time"
-)
+import "pluto/time"
 
 func later(c chan int) {
 	time.Sleep(5 * time.Millisecond)
@@ -124,7 +121,6 @@ func main() {
 		println("timer")
 	}
 	println("stopped", t.Stop())
-	alloc.Free(t)
 
 	// A ticker and a timeout in one select loop.
 	tk := time.NewTicker(2 * time.Millisecond)
@@ -140,8 +136,6 @@ loop:
 		}
 	}
 	println("ticks", ticks > 0)
-	alloc.Free(tk)
-	alloc.Free(timeout)
 }
 `},
 		{name: "stopreset", want: "bad 0\n", src: `package main
@@ -154,10 +148,15 @@ import (
 )
 
 var (
-	bad    atomic.Int64
-	wg     sync.WaitGroup
-	shared *time.Timer
+	bad atomic.Int64
+	wg  sync.WaitGroup
 )
+
+// A sharedTimer is a timer that several tasks use: they hold synced
+// references to it, and the last one to go drops the timer.
+type sharedTimer owner struct {
+	t owned[time.Timer]
+}
 
 // churn re-arms its timer for a few microseconds, lets it race with the
 // expiry, and stops it: Stop always reports true (the timer was armed, or
@@ -192,25 +191,24 @@ func churn(id int) {
 		bad.Add(1)
 	default:
 	}
-	alloc.Free(t)
 	wg.Done()
 }
 
 // hammer resets and stops a timer that other tasks reset and stop.
-func hammer(id int) {
+func hammer(id int, shared synced[sharedTimer]) {
 	for i := 0; i < 2000; i++ {
 		if (i+id)%2 == 0 {
-			shared.Reset(time.Duration(i%7) * time.Microsecond)
+			shared.t.Reset(time.Duration(i%7) * time.Microsecond)
 		} else {
-			shared.Stop()
+			shared.t.Stop()
 		}
 	}
 	wg.Done()
 }
 
 func main() {
-	// Set before any task starts, so that they may all read it.
-	shared = time.NewTimer(time.Hour)
+	shared := alloc.Synced[sharedTimer]()
+	shared.t = time.NewTimer(time.Hour)
 	wg.Add(8)
 	for i := 0; i < 8; i++ {
 		task churn(i)
@@ -219,27 +217,23 @@ func main() {
 
 	wg.Add(4)
 	for i := 0; i < 4; i++ {
-		task hammer(i)
+		task hammer(i, shared)
 	}
 	wg.Wait()
-	shared.Stop()
+	shared.t.Stop()
 	select {
-	case <-shared.C:
+	case <-shared.t.C:
 		bad.Add(1)
 	default:
 	}
-	shared.Reset(time.Millisecond)
-	<-shared.C
-	alloc.Free(shared)
+	shared.t.Reset(time.Millisecond)
+	<-shared.t.C
 	println("bad", bad.Load())
 }
 `},
 		{name: "ticker", want: "five ticks true\nstopped\nbuffered 1\ntick true\nnil tick true\n", src: `package main
 
-import (
-	"pluto/alloc"
-	"pluto/time"
-)
+import "pluto/time"
 
 func main() {
 	start := time.Now()
@@ -264,7 +258,6 @@ func main() {
 	tk.Reset(time.Millisecond)
 	time.Sleep(20 * time.Millisecond)
 	println("buffered", len(tk.C))
-	alloc.Free(tk)
 
 	c := time.Tick(time.Millisecond)
 	a := <-c
@@ -276,7 +269,6 @@ func main() {
 		{name: "afterfunc", want: "ran true\nagain true\n", src: `package main
 
 import (
-	"pluto/alloc"
 	"pluto/sync/atomic"
 	"pluto/time"
 )
@@ -292,7 +284,7 @@ func f() {
 }
 
 func main() {
-	var ts [50]*time.Timer
+	var ts [50]owned[time.Timer]
 	for i := range ts {
 		ts[i] = time.AfterFunc(time.Duration(i%10)*time.Millisecond, f)
 	}
@@ -312,9 +304,6 @@ func main() {
 	ts[0].Reset(time.Millisecond)
 	<-done
 	println("again", count.Load() == int64(51-stopped))
-	for i := range ts {
-		alloc.Free(ts[i])
-	}
 }
 `},
 		{name: "afterfuncclosure", status: 2, want: "panic: a task started with a function value that captures variables or binds a method value: its closure record lives in the starting frame; pass the values as arguments\n", src: `package main
@@ -396,8 +385,8 @@ func main() {
 
 import "pluto/time"
 
-// The armed timer may wake something until it fires; once it has (into
-// its channel, which nobody reads), nothing can.
+// A timer that nobody keeps is dropped, and so stopped, at the end of its
+// statement: it wakes nothing.
 func main() {
 	time.NewTimer(30 * time.Millisecond)
 	c := make(chan int)
@@ -420,40 +409,70 @@ func main() {
 	runTimerCases(t, cases, build.Config{NoTrace: true})
 }
 
-// TestTimersDebugAlloc runs the timer programs that free what they
-// allocate under the debug allocator, which fails the program on a leak.
+// TestTimersDebugAlloc checks under the debug allocator, which fails the
+// program on a leak, that the owned[Timer] and owned[Ticker] that NewTimer,
+// NewTicker and AfterFunc return stop and free their timers when they are
+// dropped (language spec section 19.6), with nothing freed by hand.
 func TestTimersDebugAlloc(t *testing.T) {
 	prog := buildConc(t, `package main
 
 import (
-	"pluto/alloc"
 	"pluto/sync"
+	"pluto/sync/atomic"
 	"pluto/time"
 )
 
-var fired sync.WaitGroup
+var (
+	fired sync.WaitGroup
+	late  atomic.Int64
+)
 
-func f() { fired.Done() }
+func f()     { fired.Done() }
+func never() { late.Add(1) }
+
+func use(d time.Duration) {
+	t := time.NewTimer(d)
+	<-t.C
+} // t is dropped: stopped and freed
+
+// copied returns a copy of the channel of a timer that it drops before
+// the timer fires.
+func copied() <-chan time.Time {
+	t := time.NewTimer(time.Millisecond)
+	return t.C
+}
 
 func main() {
-	t := time.NewTimer(time.Millisecond)
-	<-t.C
-	alloc.Free(t)
+	use(time.Millisecond)
+	use(0)
+	c := copied()
 	tk := time.NewTicker(time.Millisecond)
 	<-tk.C
-	alloc.Free(tk)
 	fired.Add(1)
 	af := time.AfterFunc(time.Millisecond, f)
 	fired.Wait()
-	alloc.Free(af)
-	stopped := time.AfterFunc(time.Hour, f)
-	alloc.Free(stopped)
-	time.Sleep(time.Millisecond)
-	println("freed")
+	println("stop after it ran", af.Stop())
+	{
+		_ = time.AfterFunc(time.Millisecond, never) // dropped at once: never runs
+		dropped := time.AfterFunc(time.Millisecond, never)
+		_ = dropped
+	} // dropped is dropped here
+	time.NewTimer(time.Millisecond) // dropped at the end of the statement
+	time.Sleep(20 * time.Millisecond)
+	select {
+	case <-c:
+		println("the dropped timer fired")
+	default:
+		println("the copied channel got nothing")
+	}
+	println("dropped AfterFunc ran", late.Load())
+	pending := time.NewTimer(time.Hour) // dropped when main returns
+	println("pending", pending.Stop())
 }
 `, build.Config{OptLevel: 2, Alloc: "debug"})
 	out, status := runConc(t, prog, "PLUTO_DEBUGALLOC=leaks=fail")
-	if status != 0 || out != "freed\n" {
+	want := "stop after it ran false\nthe copied channel got nothing\ndropped AfterFunc ran 0\npending true\n"
+	if status != 0 || out != want {
 		t.Errorf("status %d, output:\n%s", status, out)
 	}
 }

@@ -247,15 +247,23 @@ func timeouts() {
 	<-tick
 	<-tick
 	println("ticked")
-	t := time.NewTimer(time.Millisecond)
-	c := t.C // the channel, and its timer, outlive the Timer
-	alloc.Free(t)
+	c := firedTimer()
 	<-c
-	println("timer fired after free")
-	tk := time.NewTicker(time.Hour)
-	tk.Stop()
-	alloc.Free(tk)
-	println("ticker freed")
+	println("timer fired before its drop")
+	{
+		tk := time.NewTicker(time.Hour)
+		tk.Stop()
+	} // dropping the owned[Ticker] frees it
+	println("ticker dropped")
+}
+
+// firedTimer returns a copy of the channel of a timer that has fired:
+// the channel, with the time in it, outlives the owned[Timer], which is
+// dropped (stopped and freed) when firedTimer returns.
+func firedTimer() <-chan time.Time {
+	t := time.NewTimer(time.Millisecond)
+	time.Sleep(5 * time.Millisecond)
+	return t.C
 }
 
 func main() {

@@ -78,12 +78,13 @@ func newTimerChan(d, period Duration, a alloc.Allocator) <-chan Time {
 // The Timer type represents a single event. When the Timer expires, the
 // current time is sent on C, unless the Timer was made by AfterFunc.
 //
-// NewTimer and AfterFunc allocate the Timer, and NewTimer its channel, from
-// the allocator they are given (the default allocator if none). C owns the
-// timer: it keeps running while anything holds a reference to C, and stops
-// when the last reference goes, as a Go timer that nothing refers to any
-// more does. Free the Timer with alloc.Free, passing the same allocator,
-// which releases its reference to C, and stops an AfterFunc timer (Drop).
+// NewTimer and AfterFunc return an owned[Timer], allocated, with NewTimer's
+// channel, from the allocator they are given (the default allocator if
+// none). Dropping it stops the timer and frees it (language spec section
+// 19.6): at the end of its variable's scope, unless it was moved. C is a
+// counted reference, so a receiver that copied C keeps the channel, not
+// the timer. A timer that several tasks use is put in a synced object
+// that holds the owned[Timer].
 //
 // As in Go 1.23, C has no stale values: once Stop or Reset has returned, a
 // receive from C gets only a time sent by a later expiry.
@@ -100,9 +101,9 @@ type Timer owner struct {
 }
 
 // NewTimer creates a new Timer that will send the current time on its
-// channel after at least duration d.
-func NewTimer(d Duration, a alloc.Allocator = alloc.Default()) *Timer {
-	t := alloc.New[Timer](a)
+// channel after at least duration d. Dropping the Timer stops it.
+func NewTimer(d Duration, a alloc.Allocator = alloc.Default()) owned[Timer] {
+	t := alloc.Owned[Timer](a)
 	t.C = newTimerChan(d, 0, a)
 	return t
 }
@@ -116,12 +117,14 @@ func After(d Duration) <-chan Time {
 }
 
 // timer returns the rt.Timer of t: its channel's, or its own for
-// AfterFunc.
+// AfterFunc. Arming the timer links it into the runtime's timer heap,
+// which the escape analysis cannot see the end of: Drop stops it before
+// the Timer's memory is freed, so the link never outlives the Timer.
 func (t *Timer) timer() *rt.Timer {
 	if t.C != nil {
 		return timerOf(t.C)
 	}
-	return &t.r
+	return rt.Pinned(&t.r)
 }
 
 // Stop prevents the Timer from firing. It returns true if the call stops
@@ -156,11 +159,15 @@ func (t *Timer) Reset(d Duration) bool {
 	return active
 }
 
-// Drop stops a timer made by AfterFunc, first waiting until the
-// tasks of expiries already past have started. alloc.Free calls it
-// before freeing the Timer; then C's reference is released, and a channel
-// timer stops with the last reference to its channel.
+// Drop stops the timer when its owner drops it. A timer made by AfterFunc
+// first waits until the tasks of expiries already past have started. Then
+// the Timer's reference to C is released: a receiver that copied C keeps
+// the channel, which gets no more values.
 func (t *Timer) Drop() {
+	if t.C != nil {
+		timerOf(t.C).Stop()
+		return
+	}
 	if t.f == nil {
 		return
 	}
@@ -177,8 +184,9 @@ func (t *Timer) Drop() {
 }
 
 // AfterFunc waits for the duration to elapse and then calls f in its own
-// task. It returns a Timer that can be used to cancel the call using
-// its Stop method; the Timer's C is nil.
+// task. It returns a Timer that can be used to cancel the call using its
+// Stop method; the Timer's C is nil. Dropping the Timer before it fires
+// stops it, so f never runs.
 //
 // As with a task statement, f must not capture variables or be a method
 // value made in the caller's frame, since it runs after the frame may be
@@ -186,13 +194,16 @@ func (t *Timer) Drop() {
 // task's stack (language spec section 19.1). The tasks are started
 // by one task of the time package's, which AfterFunc starts the first
 // time it is called and which then waits for expiries for good.
-func AfterFunc(d Duration, f func(), a alloc.Allocator = alloc.Default()) *Timer {
+func AfterFunc(d Duration, f func(), a alloc.Allocator = alloc.Default()) owned[Timer] {
 	rt.CheckGoFunc(f)
 	startFuncRunner()
-	t := alloc.New[Timer](a)
+	t := alloc.Owned[Timer](a)
 	t.f = f
-	t.r.Init(goFunc, unsafe.Pointer(t))
-	t.r.Reset(deadline(d), 0)
+	// The runtime's timer heap and the queue of expired timers refer to
+	// the Timer until Drop has stopped it and waited for its expiries.
+	r, arg := rt.Pinned(&t.r), unsafe.Pointer(&*t)
+	r.Init(goFunc, *rt.Pinned(&arg))
+	r.Reset(deadline(d), 0)
 	return t
 }
 
@@ -278,12 +289,19 @@ func runFuncs() {
 }
 
 // A Ticker holds a channel that delivers "ticks" of a clock at intervals.
-// NewTicker allocates it and its channel. As for Timer, C owns the ticker's
-// timer, which stops when the last reference to C goes; free the Ticker
-// with alloc.Free, which releases its reference. As with Timer, C has no
-// stale values after Stop or Reset.
+// NewTicker returns an owned[Ticker], allocated with its channel; dropping
+// it stops the ticker and frees it. As with Timer, C has no stale values
+// after Stop or Reset.
 type Ticker owner struct {
 	C <-chan Time
+}
+
+// Drop stops the ticker when its owner drops it; then the Ticker's
+// reference to C is released.
+func (t *Ticker) Drop() {
+	if t.C != nil {
+		timerOf(t.C).Stop()
+	}
 }
 
 // NewTicker returns a new Ticker containing a channel that will send the
@@ -291,11 +309,11 @@ type Ticker owner struct {
 // specified by the duration argument. The ticker will adjust the time
 // interval or drop ticks to make up for slow receivers. The duration d must
 // be greater than zero; if not, NewTicker will panic.
-func NewTicker(d Duration, a alloc.Allocator = alloc.Default()) *Ticker {
+func NewTicker(d Duration, a alloc.Allocator = alloc.Default()) owned[Ticker] {
 	if d <= 0 {
 		panic("non-positive interval for NewTicker")
 	}
-	t := alloc.New[Ticker](a)
+	t := alloc.Owned[Ticker](a)
 	t.C = newTimerChan(d, d, a)
 	return t
 }

@@ -10,10 +10,11 @@
 //     allocates.
 //   - ParseDuration reports one of three static errors rather than an error
 //     that quotes its input.
-//   - NewTimer, NewTicker and AfterFunc take an optional allocator, and the
-//     Timer or Ticker they return is freed with alloc.Free. A timer's
-//     channel owns the timer, which stops when the last reference to the
-//     channel goes: After and Tick need no freeing.
+//   - NewTimer, NewTicker and AfterFunc take an optional allocator, and
+//     return an owned[Timer] or owned[Ticker], which stops the timer and
+//     frees it when dropped. After and Tick return a channel that owns its
+//     timer, which stops when the last reference to the channel goes.
+//     Nothing is freed by hand.
 //   - AfterFunc's function must not capture variables, as with a task
 //     statement: it runs on a task of its own after the caller's
 //     frame may be gone.
