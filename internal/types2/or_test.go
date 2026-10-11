@@ -250,8 +250,8 @@ func g() int {
 	fail() or return
 	return 0
 }`, []string{
-			"3: E2464 the function has no results to carry err",
-			"7: E2464 the function has no result of type error last",
+			"3: E2464 f has no results, so no error result to carry err",
+			"7: E2464 g has no error result to carry err: its last result has type int",
 		}},
 		{`func f() (int, error) {
 	for i := 0; i < 3; i = pair() or break {

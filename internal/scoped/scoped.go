@@ -565,6 +565,12 @@ func (a *analyzer) changes(n ast.Node, v *types2.Var) bool {
 					found = true
 				}
 			}
+		case *ast.OrStmt:
+			for _, l := range x.Lhs {
+				if a.rootIs(l, v) {
+					found = true
+				}
+			}
 		case *ast.IncDecStmt:
 			if a.rootIs(x.X, v) {
 				found = true

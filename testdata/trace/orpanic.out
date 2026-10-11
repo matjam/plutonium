@@ -1,0 +1,4 @@
+3
+panic: not found
+    main.lookup (./main.p:19)
+    main.main (./main.p:25)

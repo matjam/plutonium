@@ -528,6 +528,16 @@ func (f *closureFlow) visit(n ast.Node) bool {
 				f.assign(lhs, m)
 			}
 		}
+	case *ast.OrStmt:
+		// The values and err come from the call (language spec section
+		// 11.27).
+		m := f.expr(n.Call)
+		for _, lhs := range n.Lhs {
+			f.assign(lhs, m)
+		}
+		if v, ok := f.info.Implicits[n].(*types2.Var); ok {
+			f.addVar(v, m)
+		}
 	case *ast.ValueSpec:
 		if len(n.Names) == len(n.Values) {
 			for i, id := range n.Names {
@@ -1136,6 +1146,14 @@ func (f *closureFlow) litResults(lit *ast.FuncLit) bitset {
 				m.union(f.expr(e))
 			}
 			named = named || len(n.Results) == 0
+		case *ast.OrStmt:
+			// A short form of return in the clause may return err
+			// (language spec section 11.27).
+			if r, ok := n.Clause.(*ast.ReturnStmt); ok && len(r.Results) == 0 {
+				if v, ok := f.info.Implicits[n].(*types2.Var); ok {
+					m.union(f.varOrigins(v))
+				}
+			}
 		}
 		return true
 	})
@@ -1371,6 +1389,24 @@ func (f *closureFlow) returns() []*ast.ReturnStmt {
 // them, every return does.
 func (f *closureFlow) returned(r *ast.ReturnStmt) []bitset {
 	var out []bitset
+	if st := f.orReturnOf(r); st != nil {
+		// A short form of return in an or clause (language spec section
+		// 11.27): the last result is err or E, the others are zero or
+		// the named results.
+		if form := types2.OrReturnForm(f.results, r, f.info.Types); form != types2.OrReturnPlain {
+			n := f.results.Len()
+			for i := 0; i < n-1; i++ {
+				out = append(out, f.varOrigins(f.results.At(i)))
+			}
+			var last bitset
+			if form == types2.OrReturnExpr {
+				last = f.expr(r.Results[0])
+			} else if v, ok := f.info.Implicits[st].(*types2.Var); ok {
+				last = f.varOrigins(v)
+			}
+			return append(out, last)
+		}
+	}
 	if len(r.Results) == 0 || hasDefer(f.body) {
 		for i := 0; i < f.results.Len(); i++ {
 			out = append(out, f.varOrigins(f.results.At(i)))
@@ -1379,6 +1415,18 @@ func (f *closureFlow) returned(r *ast.ReturnStmt) []bitset {
 	for _, e := range r.Results {
 		out = append(out, f.expr(e))
 	}
+	return out
+}
+
+// orReturnOf returns the or statement whose whole clause is r, or nil.
+func (f *closureFlow) orReturnOf(r *ast.ReturnStmt) *ast.OrStmt {
+	var out *ast.OrStmt
+	ast.Inspect(f.body, func(n ast.Node) bool {
+		if st, ok := n.(*ast.OrStmt); ok && st.Clause == r {
+			out = st
+		}
+		return out == nil
+	})
 	return out
 }
 

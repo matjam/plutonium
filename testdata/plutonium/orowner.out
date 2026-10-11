@@ -1,0 +1,39 @@
+opened plain
+close plain
+close xbad
+clause xbad
+close first
+now second
+close xthird
+kept second
+close second
+close discarded
+close xfailed
+strs ababab1! true
+temps clause
+drop node failed
+box clause kept
+drop node kept
+boxes true
+consume moved
+close moved
+consume moved
+close moved
+scopes 3 true 3
+scopes 0 true 6
+loop a iter a
+close a
+close iter a
+close xb
+close iter xb
+loop c iter c
+close c
+close iter c
+close xd
+close iter xd
+loop e iter e
+close e
+close iter e
+close xf
+close iter xf
+done

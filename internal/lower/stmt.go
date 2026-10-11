@@ -66,6 +66,8 @@ func (s *fnState) stmt(st ast.Stmt) {
 		s.declStmt(st.Decl.(*ast.GenDecl))
 	case *ast.AssignStmt:
 		s.assignStmt(st)
+	case *ast.OrStmt:
+		s.orStmt(st)
 	case *ast.IncDecStmt:
 		lv := s.lv(st.X)
 		T := unwrap(lv.T)

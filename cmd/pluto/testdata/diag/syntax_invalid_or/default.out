@@ -1,0 +1,33 @@
+$DIR/main.p:8:7: the operand of or is not a single call
+    An or clause tests the error that a call returns, so or must come right
+    after a call: a function, method or function value with its arguments. Here
+    something else is in front of or: an operator, parentheses, a selector, or a
+    list of values. Such an operand could hide which call's error the clause
+    tests.
+    Make the call alone the operand of or, and use its values in a statement
+    after it:
+        n := strconv.Atoi(s) or return
+        total := n + 1
+    (see "Or clauses" in the Plutonium spec, section 11.27)
+    (run "pluto explain E1013" for a longer explanation)
+
+$DIR/main.p:9:7: the operand of or is a call in parentheses; write the call without them
+    (explained above; run "pluto explain E1013" for more)
+
+$DIR/main.p:10:7: the operand of or is not a call; or must directly follow the call whose error it tests
+    (explained above; run "pluto explain E1013" for more)
+
+$DIR/main.p:12:2: or must be on the line where its call ends: a newline after the call ends the statement
+    The parser could not read this part of the file as Plutonium. The message
+    says what it expected and what it found instead. The mistake is often just
+    before the position shown, such as a missing bracket or operator on the line
+    before.
+    (see "Grammar" in the Plutonium spec, section E)
+    (run "pluto explain E1000" for a longer explanation)
+
+$DIR/main.p:13:14: expected end of statement, found or: an or clause follows only a call that stands alone or is on the right of = or :=
+    The parser expected one thing here and found another. The mistake is often
+    just before the position shown: a missing comma, bracket or operator, or a
+    keyword used as a name.
+    (see "Grammar" in the Plutonium spec, section E)
+    (run "pluto explain E1001" for a longer explanation)

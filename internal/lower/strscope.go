@@ -311,6 +311,18 @@ func analyzeVars(body ast.Node, info *types2.Info) map[*types2.Var]*varFacts {
 					get(v).assigned = true
 				}
 			}
+		case *ast.OrStmt:
+			for _, lhs := range n.Lhs {
+				written[ast.Unparen(lhs)] = true
+				if id, ok := lhs.(*ast.Ident); ok && n.Tok == token.DEFINE {
+					if _, isDef := info.Defs[id]; isDef {
+						continue
+					}
+				}
+				if v := rootVar(lhs, info); v != nil {
+					get(v).assigned = true
+				}
+			}
 		case *ast.IncDecStmt:
 			if v := rootVar(n.X, info); v != nil {
 				get(v).assigned = true

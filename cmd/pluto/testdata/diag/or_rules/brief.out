@@ -1,0 +1,9 @@
+$DIR/main.p:13:7: int64(g()) is a conversion, not a call of a function; or tests the error that a function returns
+$DIR/main.p:14:7: len(s) is a call of the built-in function len, which returns no error for or to test
+$DIR/main.p:15:7: the last result of strconv.Itoa(5) has type string, not error; or tests a last result of type error
+$DIR/main.p:16:14: the or clause can complete: it must leave with return, break, continue, goto or panic, so that the code after it does not run when f() fails
+$DIR/main.p:17:14: the or clause can complete: it must leave with return, break, continue, goto or panic, so that the code after it does not run when f() fails
+$DIR/main.p:18:2: assignment mismatch: 2 variables but strconv.Atoi(s) returns 1 value besides the error
+$DIR/main.p:19:29: an or statement cannot be the post statement of a for statement; test the error in the loop body
+$DIR/main.p:26:14: count has no error result to carry err: its last result has type int, and return with no operands would drop the error
+$DIR/main.p:31:9: main has no results, so no error result to carry err: return with no operands would drop the error

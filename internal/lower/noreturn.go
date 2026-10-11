@@ -162,24 +162,36 @@ func breaks(s ast.Stmt, label string, implicit bool) bool {
 		return s.Tok == token.BREAK && (s.Label == nil && implicit || s.Label != nil && s.Label.Name == label)
 	case *ast.BlockStmt:
 		return breaksList(s.List, label, implicit)
+	case *ast.OrStmt:
+		// The clause is at the place of the statement (language spec
+		// section 11.27).
+		return breaks(s.Clause, label, implicit)
 	case *ast.IfStmt:
-		return breaks(s.Body, label, implicit) || s.Else != nil && breaks(s.Else, label, implicit)
+		return breaksInit(s.Init, label, implicit) || breaks(s.Body, label, implicit) || s.Else != nil && breaks(s.Else, label, implicit)
 	case *ast.CaseClause:
 		return breaksList(s.Body, label, implicit)
 	case *ast.CommClause:
 		return breaksList(s.Body, label, implicit)
 	case *ast.SwitchStmt:
-		return label != "" && breaks(s.Body, label, false)
+		return breaksInit(s.Init, label, implicit) || label != "" && breaks(s.Body, label, false)
 	case *ast.TypeSwitchStmt:
-		return label != "" && breaks(s.Body, label, false)
+		return breaksInit(s.Init, label, implicit) || label != "" && breaks(s.Body, label, false)
 	case *ast.SelectStmt:
 		return label != "" && breaks(s.Body, label, false)
 	case *ast.ForStmt:
-		return label != "" && breaks(s.Body, label, false)
+		return breaksInit(s.Init, label, implicit) || label != "" && breaks(s.Body, label, false)
 	case *ast.RangeStmt:
 		return label != "" && breaks(s.Body, label, false)
 	}
 	return false
+}
+
+// breaksInit reports whether the init statement s of an if, switch or for
+// statement is an or statement whose clause breaks out of the statement
+// that encloses the whole statement (language spec section 11.27).
+func breaksInit(s ast.Stmt, label string, implicit bool) bool {
+	or, ok := s.(*ast.OrStmt)
+	return ok && breaks(or.Clause, label, implicit)
 }
 
 func breaksList(list []ast.Stmt, label string, implicit bool) bool {

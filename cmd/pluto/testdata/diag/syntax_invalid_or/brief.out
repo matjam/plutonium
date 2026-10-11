@@ -1,0 +1,5 @@
+$DIR/main.p:8:7: the operand of or is not a single call
+$DIR/main.p:9:7: the operand of or is a call in parentheses; write the call without them
+$DIR/main.p:10:7: the operand of or is not a call; or must directly follow the call whose error it tests
+$DIR/main.p:12:2: or must be on the line where its call ends: a newline after the call ends the statement
+$DIR/main.p:13:14: expected end of statement, found or: an or clause follows only a call that stands alone or is on the right of = or :=

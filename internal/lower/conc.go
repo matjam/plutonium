@@ -210,6 +210,14 @@ func (s *fnState) onlyValue(v *types2.Var) ast.Expr {
 					ok = false
 				}
 			}
+		case *ast.OrStmt:
+			// The value comes from a call that may fail (language spec
+			// section 11.27): it is not a plain initializer.
+			for _, lhs := range n.Lhs {
+				if id, isID := lhs.(*ast.Ident); isID && s.info.Defs[id] == v || uses(lhs) {
+					ok = false
+				}
+			}
 		case *ast.ValueSpec:
 			for i, name := range n.Names {
 				if s.info.Defs[name] == v {

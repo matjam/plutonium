@@ -1,0 +1,50 @@
+total 6
+skipBad 4 2
+error: number 2: invalid syntax
+empty: number 1: invalid syntax
+parseAll 2 true
+shortZero 0 true odd
+shortZero 2 ok <nil>
+shortExpr 0 half of 5: odd
+errOnly negative wrapped: odd <nil>
+plain -1 odd
+pair 3 3
+pair failed, x and s unchanged: 3 3
+if: small 1
+switch: small
+for: 1
+if: big 20
+switch: big
+if: small 0
+switch: small
+for: 0
+for: 1
+headers done
+switch: small 1
+after switch 1
+switch: big 20
+after switch 20
+type switch 1
+type switch 20
+switchBreak done
+branches 2
+case 1
+case 3
+goto 2
+shadow checked -2: negative inner <nil>
+deferred: res 7 err odd
+defers 7 odd
+deferred: res 8 err <nil>
+defers 8 <nil>
+order 0 odd
+index call 1
+halfLoud 4
+a 0 2
+generic 42 42 <nil>
+generic true true
+lit 40
+lit error true
+firstOdd 7 <nil>
+sumUntilBad 3
+shortInRange 0 true
+shortInRange 1 <nil>

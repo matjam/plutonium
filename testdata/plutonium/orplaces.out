@@ -1,0 +1,12 @@
+places 2 3 4 2
+places error odd
+captured odd
+deferred sees odd
+captured odd
+nested 2 -1
+both: odd odd <nil>
+selects 3
+selects -7
+loopVar 1
+loopVar 7
+loopVar 17

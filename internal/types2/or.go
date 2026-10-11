@@ -232,11 +232,12 @@ func (check *Checker) orReturn(ctxt stmtContext, s *ast.OrStmt, r *ast.ReturnStm
 	switch {
 	case len(r.Results) == 0:
 		if !lastErr {
-			what := "has no results"
-			if n > 0 {
-				what = "has no result of type error last"
+			name := check.funcName()
+			if n == 0 {
+				check.errorf(r, OrNoErrorResult, "%s has no results, so no error result to carry err: return with no operands would drop the error", name)
+			} else {
+				check.errorf(r, OrNoErrorResult, "%s has no error result to carry err: its last result has type %s, and return with no operands would drop the error", name, res.vars[n-1].typ)
 			}
-			check.errorf(r, OrNoErrorResult, "the function %s to carry err; return with no operands would drop the error", what)
 			return
 		}
 		check.orNamedResultsInScope(r, res.vars[:n-1])
@@ -270,6 +271,15 @@ func (check *Checker) orReturn(ctxt stmtContext, s *ast.OrStmt, r *ast.ReturnStm
 	}
 }
 
+// funcName names the function being checked: its name, or "the function
+// literal".
+func (check *Checker) funcName() string {
+	if d := check.decl; d != nil && d.fdecl != nil && check.sig.scope != nil && check.sig.scope.Pos() == d.fdecl.Type.Pos() {
+		return d.fdecl.Name.Name
+	}
+	return "the function literal"
+}
+
 // orNamedResultsInScope reports, for a short form of return, a named result
 // among vars (the results other than the last) that a declaration in the
 // clause's scope hides: the
@@ -288,4 +298,33 @@ func (check *Checker) orNamedResultsInScope(r *ast.ReturnStmt, vars []*Var) {
 			err.report()
 		}
 	}
+}
+
+// An OrReturn says which form a return statement that is the whole clause
+// of an or statement has (language spec 11.27).
+type OrReturn int
+
+const (
+	OrReturnPlain OrReturn = iota // an ordinary return statement
+	OrReturnErr                   // return: err is the last result
+	OrReturnExpr                  // return E: E is the last result
+)
+
+// OrReturnForm returns the form of the return statement r, the whole
+// clause of an or statement in a function with the results res. types
+// holds the types of the program's expressions.
+func OrReturnForm(res *Tuple, r *ast.ReturnStmt, types map[ast.Expr]TypeAndValue) OrReturn {
+	n := res.Len()
+	if n == 0 || !Identical(res.At(n-1).Type(), universeError) {
+		return OrReturnPlain
+	}
+	switch len(r.Results) {
+	case 0:
+		return OrReturnErr
+	case 1:
+		if _, tuple := types[r.Results[0]].Type.(*Tuple); n > 1 && !tuple {
+			return OrReturnExpr
+		}
+	}
+	return OrReturnPlain
 }

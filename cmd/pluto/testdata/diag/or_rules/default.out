@@ -1,0 +1,88 @@
+$DIR/main.p:13:7: int64(g()) is a conversion, not a call of a function; or tests the error that a function returns
+    An or clause tests the error that a function returns as its last result. A
+    conversion, such as int64(x), and a call of a built-in function, such as
+    len(s), are written like calls, but they call no function and return no
+    error, so there is nothing for or to test.
+    Remove the or clause, or call a function that returns an error.
+    (see "Or clauses" in the Plutonium spec, section 11.27)
+    (run "pluto explain E2461" for a longer explanation)
+
+$DIR/main.p:14:7: len(s) is a call of the built-in function len, which returns no error for or to test
+    (explained above; run "pluto explain E2461" for more)
+
+$DIR/main.p:15:7: the last result of strconv.Itoa(5) has type string, not error; or tests a last result of type error
+    The call before or must return a result of type error last, and the type
+    must be error itself. A function that returns no error, or no result at all,
+    cannot fail in a way that or can see. A type that implements error, a
+    defined type based on error, or a type parameter is not accepted either.
+    Remove the or clause, or change the function so that its last result has
+    type error.
+    With the type exactly error, the test is always the nil test of one
+    interface type, and err in the clause is the result itself, not a conversion
+    of it.
+    Return the error as an error:
+        func parse(s string) (int, error)
+    (see "Or clauses" in the Plutonium spec, section 11.27)
+    (run "pluto explain E2462" for a longer explanation)
+
+$DIR/main.p:16:14: the or clause can complete: it must leave with return, break, continue, goto or panic, so that the code after it does not run when f() fails
+    The clause of an or statement runs when the call failed, and the code after
+    the statement uses the values the call did not produce. So the clause must
+    leave: it must be a return, break, continue or goto statement, a call of
+    panic, or a block that ends in one of these. An if statement in the block
+    leaves only when it has an else branch and both branches leave. A call of a
+    function that never returns, such as os.Exit or log.Fatal, does not count,
+    since whether a function compiles must not depend on the body of another.
+    End the clause with a return, break, continue, goto or panic.
+    The or clause is the short form of an if statement that tests an error and
+    leaves. Requiring the exit on the line keeps the code after the statement
+    from running with values that were never set.
+    End the clause with a statement that leaves:
+        cfg := load(path) or {
+            log.Printf("loading: %v", err)
+            return err
+        }
+    (see "Or clauses" in the Plutonium spec, section 11.27)
+    (run "pluto explain E2463" for a longer explanation)
+
+$DIR/main.p:17:14: the or clause can complete: it must leave with return, break, continue, goto or panic, so that the code after it does not run when f() fails
+    (explained above; run "pluto explain E2463" for more)
+
+$DIR/main.p:18:2: assignment mismatch: 2 variables but strconv.Atoi(s) returns 1 value besides the error
+    In an or statement, the values of the call are its results other than the
+    last, which is the error that the clause tests. The left side needs one
+    operand for each value, and err, which the clause declares, is not one of
+    them.
+    (see "Assignment statements" in the Plutonium spec, section 12.7)
+    (run "pluto explain E0017" for a longer explanation)
+
+$DIR/main.p:19:29: an or statement cannot be the post statement of a for statement; test the error in the loop body
+    The post statement of a for statement runs at the end of each iteration. An
+    or statement cannot be the post statement, since a break or continue in its
+    clause would end or repeat the iteration that is ending.
+    Test the error at the end of the loop body instead.
+    Test the error in the body:
+        for i := 0; i < n; {
+            ...
+            i = next(i) or break
+        }
+    (see "Or clauses" in the Plutonium spec, section 11.27)
+    (run "pluto explain E2465" for a longer explanation)
+
+$DIR/main.p:26:14: count has no error result to carry err: its last result has type int, and return with no operands would drop the error
+    An unbraced return with no operands in an or clause returns err as the
+    function's last result. This function has no result of type error last, so
+    there is nowhere to put err, and returning without it would drop the error.
+    Handle the error in a block clause, or return values that this function has.
+    The short form of return exists to pass an error up. In a function that
+    cannot return one, the program must say what to do with the error.
+    Handle the error in a block clause:
+        load(path) or {
+            log.Printf("loading: %v", err)
+            return
+        }
+    (see "Or clauses" in the Plutonium spec, section 11.27)
+    (run "pluto explain E2464" for a longer explanation)
+
+$DIR/main.p:31:9: main has no results, so no error result to carry err: return with no operands would drop the error
+    (explained above; run "pluto explain E2464" for more)

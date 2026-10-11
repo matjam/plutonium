@@ -264,6 +264,8 @@ func (w *walker) stmt(st ast.Stmt, label string) {
 		w.declStmt(st)
 	case *ast.AssignStmt:
 		w.assignStmt(st)
+	case *ast.OrStmt:
+		w.orStmt(st)
 	case *ast.IncDecStmt:
 		w.readWrite(st.X, st.Pos())
 	case *ast.BlockStmt:
@@ -570,6 +572,55 @@ func (w *walker) returnStmt(st *ast.ReturnStmt) {
 	}
 	w.exit = join(w.exit, w.st)
 	w.st = &state{dead: true}
+}
+
+// orStmt walks an or statement (language spec section 11.27): the call,
+// then the clause, where err holds the last result and nothing on the left
+// is assigned, then the assignment of the other results. The clause leaves,
+// so the path out of it does not reach the statement after.
+func (w *walker) orStmt(st *ast.OrStmt) {
+	n := 1
+	if tup, ok := w.typeOf(st.Call).(*types2.Tuple); ok {
+		n = tup.Len()
+	}
+	vals := w.multi(st.Call, n)
+	after := w.st.clone()
+	errVar, _ := w.a.implicits[st].(*types2.Var)
+	if errVar != nil {
+		if w.frame != nil {
+			w.access(vpath{root: root{kind: rLocal, v: errVar}}, true, false, st.Or, errVar.Type(), false, "")
+		}
+		w.setVar(errVar, vals[n-1])
+	}
+	r, isReturn := st.Clause.(*ast.ReturnStmt)
+	form := types2.OrReturnPlain
+	if isReturn && w.fn.sig != nil {
+		form = types2.OrReturnForm(w.fn.sig.Results(), r, w.a.types)
+	}
+	if form != types2.OrReturnPlain {
+		// A short form of return: the last result is err or E, and the
+		// others are zero or the named results as they are.
+		k := w.fn.sig.Results().Len() - 1
+		var v origins
+		if form == types2.OrReturnExpr {
+			v = w.value(r.Results[0])
+			w.conv(r.Results[0], w.fn.sig.Results().At(k).Type())
+		} else if errVar != nil {
+			v = w.u.vars[errVar]
+		}
+		w.sum.addResult(k, v)
+		w.noteFreshResult(k, v)
+		w.exit = join(w.exit, w.st)
+		w.st = &state{dead: true}
+	} else {
+		w.stmt(st.Clause, "")
+	}
+	w.st = after
+	for i, l := range st.Lhs {
+		if i < n-1 {
+			w.assignTo(l, vals[i], st.Pos())
+		}
+	}
 }
 
 func (w *walker) declStmt(st *ast.DeclStmt) {

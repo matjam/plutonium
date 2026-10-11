@@ -196,6 +196,11 @@ func (s *fnState) stmtFirst(st ast.Stmt) {
 	case *ast.AssignStmt:
 		s.evalFirstAll(st.Lhs...)
 		s.evalFirstValues(st.Rhs, len(st.Lhs))
+	case *ast.OrStmt:
+		// The calls of the left side's operands; the call that or
+		// follows comes next, and the rest of the left side only where
+		// it succeeds (language spec section 11.27).
+		s.evalFirstAll(st.Lhs...)
 	case *ast.ReturnStmt:
 		s.evalFirstValues(st.Results, 1)
 	case *ast.SendStmt:

@@ -207,6 +207,8 @@ func (w *walker) labeled(st ast.Stmt, label string) {
 		w.declStmt(st)
 	case *ast.AssignStmt:
 		w.assignStmt(st)
+	case *ast.OrStmt:
+		w.orStmt(st)
 	case *ast.IncDecStmt:
 		w.value(st.X)
 	case *ast.BlockStmt:
@@ -332,6 +334,79 @@ func (w *walker) assignStmt(st *ast.AssignStmt) {
 			w.assignTo(l, vals[i], types[i], st.Rhs[0], st.Pos())
 		}
 	}
+}
+
+// orStmt walks an or statement (language spec section 11.27): the call,
+// then the clause, where err holds the last result and nothing on the left
+// is assigned, then the assignment of the other results. The clause leaves,
+// so the path out of it does not reach the statement after.
+func (w *walker) orStmt(st *ast.OrStmt) {
+	n := 1
+	if tup, ok := w.typeOf(st.Call).(*types2.Tuple); ok {
+		n = tup.Len()
+	}
+	vals, types := w.multi(st.Call, n)
+	if n == 1 {
+		types[0] = w.typeOf(st.Call)
+	}
+	entry := w.env.clone()
+	if v, ok := w.a.implicits[st].(*types2.Var); ok {
+		w.bindVar(v, w.conv(vals[n-1], types[n-1], v.Type(), st.Call), st.Or)
+	}
+	if r, ok := st.Clause.(*ast.ReturnStmt); ok {
+		if form := types2.OrReturnForm(w.sc.fn.sig.Results(), r, w.a.types); form != types2.OrReturnPlain {
+			w.orReturn(st, r, form)
+		} else {
+			w.stmt(r)
+		}
+	} else {
+		w.stmt(st.Clause)
+	}
+	w.env = entry
+	for i, l := range st.Lhs {
+		if i < n-1 {
+			w.assignTo(l, vals[i], types[i], st.Call, st.Pos())
+		}
+	}
+}
+
+// bindVar gives the variable v, declared at pos, the value val.
+func (w *walker) bindVar(v *types2.Var, val tset, pos token.Pos) {
+	switch {
+	case !hasPointers(v.Type()):
+	case w.isTracked(v):
+		w.setVar(w.varLoc(v), val)
+	default:
+		w.store(tset{frameTok(w.varLoc(v))}, val, pos, dest{text: v.Name()})
+	}
+}
+
+// orReturn walks a short form of return in the clause of st: the last
+// result is err, or E; the others keep what named results hold, or are
+// zero.
+func (w *walker) orReturn(st *ast.OrStmt, r *ast.ReturnStmt, form types2.OrReturn) {
+	sc := w.sc
+	res := sc.fn.sig.Results()
+	k := res.Len() - 1
+	var v tset
+	var expr ast.Expr
+	if form == types2.OrReturnExpr {
+		expr = r.Results[0]
+		v = w.conv(w.value(expr), w.typeOf(expr), res.At(k).Type(), expr)
+	} else if errVar, ok := w.a.implicits[st].(*types2.Var); ok {
+		expr = &ast.Ident{NamePos: r.Pos(), Name: "err"}
+		l := w.varLoc(errVar)
+		if w.isTracked(errVar) {
+			v = w.readVar(l)
+		} else {
+			v = w.load(tset{frameTok(l)})
+		}
+	}
+	w.returnVal(sc, k, v, r.Pos(), expr)
+	if sc.named {
+		w.addContents(sc.results[k], v)
+	}
+	w.env = nil
 }
 
 // assignTo stores val, of type from, into lhs.

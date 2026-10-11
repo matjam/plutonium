@@ -35,6 +35,8 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 		f.declStmt(st)
 	case *ast.AssignStmt:
 		f.assignStmt(st)
+	case *ast.OrStmt:
+		f.orStmt(st)
 	case *ast.IncDecStmt:
 		f.expr(st.X)
 		f.forget(st.X)
@@ -217,6 +219,34 @@ func (f *fn) assignStmt(st *ast.AssignStmt) {
 				f.valueFacts(v, st.Rhs[i])
 			}
 		}
+	}
+}
+
+// orStmt walks an or statement (language spec section 11.27): the call,
+// whose moves happen on both paths, then the clause, where nothing on the
+// left is assigned, then the assignment of the other results. The clause
+// leaves, so the path out of it does not reach the statement after.
+func (f *fn) orStmt(st *ast.OrStmt) {
+	f.expr(st.Call)
+	after := f.env.clone()
+	r, isReturn := st.Clause.(*ast.ReturnStmt)
+	form := types2.OrReturnPlain
+	if isReturn && f.sig != nil {
+		form = types2.OrReturnForm(f.sig.Results(), r, f.c.types)
+	}
+	if form != types2.OrReturnPlain {
+		// A short form of return: the error result is err or E, and the
+		// named results, if any, are returned as they are.
+		if form == types2.OrReturnExpr {
+			f.expr(r.Results[0])
+		}
+		f.returnStmt(&ast.ReturnStmt{Return: r.Return})
+	} else {
+		f.stmt(st.Clause, "")
+	}
+	f.env = after
+	for _, l := range st.Lhs {
+		f.assignLHS(l, st.Tok)
 	}
 }
 
