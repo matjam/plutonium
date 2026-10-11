@@ -273,3 +273,34 @@ func main() {
 		}
 	}
 }
+
+// TestGenCheckDefault checks that a hosted build without a setting has
+// generation checks, and that --gencheck=false is the unchecked mode, in
+// which a use of freed memory reads whatever the memory holds.
+func TestGenCheckDefault(t *testing.T) {
+	testguard.Parallel(t)
+	const src = `package main
+
+import "pluto/alloc"
+
+type Node struct{ val int }
+
+func main() {
+	a := alloc.New[Node]()
+	b := a
+	alloc.Free(a)
+	c := alloc.New[Node]() // reuses the slot
+	c.val = 9
+	println("stale", b.val)
+}
+`
+	// PLUTO_GENCHECK=0 runs the suite in the unchecked mode.
+	if os.Getenv("PLUTO_GENCHECK") != "0" {
+		if out, status := compileAndRun(t, src, 2); status != 2 || !strings.Contains(out, "use of freed memory") {
+			t.Errorf("default: status %d, output %q; want the use of freed memory to panic", status, out)
+		}
+	}
+	if out, status := runUnchecked(t, src, 2); status != 0 || out != "stale 9\n" {
+		t.Errorf("--gencheck=false: status %d, output %q; want %q", status, out, "stale 9\n")
+	}
+}

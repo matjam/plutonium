@@ -160,8 +160,12 @@ stack, static data, devices and large allocations carry.
 frame slot or a symbol. The check is: if the tag is non-zero, load the generation of the granule the
 address falls in (one shift and mask from the address) and compare; on a mismatch, panic with "use of
 freed memory". The pass (`opt.GenCheck`) runs last, after inlining and scalar replacement, so it checks
-only the memory accesses that survive optimization, and within a straight run of code it checks each
-base pointer once (the check is redone after a call, which may free). Converting a pointer to `uintptr`
+only the memory accesses that survive optimization. A check stays valid until the task could have caused
+or observed a free (a call that may free, an indirect call, assembly, an intrinsic); the pass drops checks
+that a dataflow over the function shows redundant, moves the checks of loop-invariant pointers before
+loops without such calls (guarded by the loop's entry test, so a loop that runs no iteration checks
+nothing), and keeps the check of memory the function holds (a new allocation, an owner parameter)
+across calls that may free other memory but reset no arena (ABI section 1.3). Converting a pointer to `uintptr`
 removes its tag (so a pointer rebuilt from an integer is unchecked, as unsafe code is), as does passing
 it to a function implemented outside Plutonium. `unsafe.Pointer` keeps the tag. The runtime and the
 allocator remove tags without checking.
@@ -203,12 +207,33 @@ align chunks. The main remaining costs are checks inside loops that a loop-invar
 (the base pointer does not change; only a call can free), and binarytrees' per-node checks, which a
 "checked once per function entry for pointers loaded from a non-escaping owner" rule would cut further.
 
-**Decided (D3).** Generation checks stay an opt-in build mode. They become the default for hosted builds
-once three things are done: loop-invariant hoisting of the checks (the next optimizer task), a second
-measurement, and generation tags in `alloc.SyncSlab`. The last is done (2026-10-10): `SyncSlab` tags its
-slots with the code `Slab` uses (a slot's granules are its freeing thread's until the slot is published,
-so moving it to the next generation needs no lock), and `--gencheck` builds use it as the default
-allocator, so they may allocate from any number of puroutines. The checks are not needed for memory the compiler can prove: values in owners
+**Decided (D3).** Generation checks became the default for hosted builds on 2026-10-10, once the three
+conditions set for it were met: generation tags in `alloc.SyncSlab` (a slot's granules are its freeing
+thread's until the slot is published, so moving it to the next generation needs no lock; checked builds
+use it as the default allocator, so they may allocate from any number of puroutines), placement of the
+checks out of loops and across calls that cannot free (ABI section 1.3), and a second measurement.
+`--gencheck=false` is the documented unchecked mode; freestanding and kernel builds stay unchecked until
+a kernel tag encoding exists (known hole 9).
+
+**Second measurement (2026-10-10).** The same programs, built with and without checks, minimum of five
+runs pinned to one core, user-space cycles and instructions from `perf_event_open`, on a shared machine
+(load average 2 to 3 during the run; the cycle ratios of runs taken under load swing by 10% or more):
+
+| benchmark | cycles | instructions | before placement (cycles, instructions) |
+|---|---:|---:|---:|
+| binarytrees | 1.25x | 1.54x | 1.37x, 1.64x |
+| strings | 1.10x | 0.995x | 1.32x, 1.50x |
+| spectralnorm | 1.00x | 1.05x | 1.01x, 1.33x |
+| fasta-lcg | 1.00x | 1.08x | 1.01x, 1.63x |
+| sha256 | 1.00x | 1.00x | 1.13x, 1.09x |
+| heapsort | 1.01x | 1.00x | 1.04x, 1.00x |
+| the other ten | 0.99x to 1.01x | 1.00x | 0.99x to 1.06x, 1.00x |
+| geometric mean | 1.021x | 1.035x | 1.051x, 1.116x |
+
+strings runs the same instructions with and without checks in its loop (one check before it); its
+cycles differ with the loop's placement in memory. binarytrees pays mostly for the allocator's tagging
+(genTag, genRelease and masking in the runtime: 1.4x in instructions with the checks themselves turned
+off), then for one check per node in each of its three walks. The checks are not needed for memory the compiler can prove: values in owners
 never freed early, and the frame (section 4).
 
 ## 6. Ownership: owners, moves, drops, sharing
@@ -451,7 +476,7 @@ with interrupted code is `volatile` word-sized or atomic, so it cannot tear (sec
 | Moves | compile time | none | none |
 | Drops | run time, where the program would free anyway | a call per owner per scope exit; within noise on the benchmarks | none (it is the program's own `Drop`) |
 | Move clearing (drop flags) | run time | a store per move, removed when dead | none |
-| Generation checks | run time, prototype | 1.0x to 1.8x, about 1.05x geometric mean in cycles | build flag (section 5) |
+| Generation checks | run time, default in hosted builds | 1.0x to 1.25x, about 1.02x geometric mean in cycles | `--gencheck=false` (section 5) |
 | Reference counts | run time, proposal | an add per copy, a sub and test per drop; atomic for `synced` | none; choose `shared` or a view |
 
 Decided (D6): `//pu:nochecks` on a function removes bounds and generation checks together and counts as
@@ -462,9 +487,10 @@ measuring, and it marks that function for the `pluto vet -unsafe` audit. Not imp
 
 ## 11. Known holes
 
-1. Views of heap memory are checked only by the opt-in generation checks (section 5); without them a
-   use after free through a `*T` or `[]T` into freed heap memory is undetected, as in C.
-2. (Closed 2026-10-10 for `arena.Chunked`, under `--gencheck`.) A view into an arena after `Reset` was
+1. Views of heap memory are checked by generation checks (section 5), the default of hosted builds;
+   without them (`--gencheck=false`, freestanding and kernel builds) a use after free through a `*T` or
+   `[]T` into freed heap memory is undetected, as in C.
+2. (Closed 2026-10-10 for `arena.Chunked`, in checked builds.) A view into an arena after `Reset` was
    undetected; arena epochs (section 5) catch it. A fixed `arena.Arena` stays unchecked.
 3. (Closed 2026-10-10, gap G34.) An owner allocated from a local arena installed with `alloc.Use` and
    returned from the function referred to an allocator that no longer exists. What is allocated through
@@ -508,7 +534,7 @@ Every decision was taken as recommended, with D7 changed to lock inference witho
 |---|---|---|---|
 | D1 | How unsafe code is marked | (a) as now: imports and directives, plus `pluto vet -unsafe` to list it; (b) an `unsafe` block or function keyword | (a): it is Go's model, and the audit list gives what a keyword would |
 | D2 | Drop flags | (a) clear the moved-from variable (implemented); (b) separate flag bits per variable, as Rust | (a): simpler, and the optimizer removes dead clears; requires `Drop` to accept the zero value, which the spec already demands |
-| D3 | Generation checks by default | (a) opt-in flag; (b) default for hosted builds; (c) default everywhere | (a) now, (b) after loop hoisting, a second measurement and `SyncSlab` support |
+| D3 | Generation checks by default | (a) opt-in flag; (b) default for hosted builds; (c) default everywhere | (b), done 2026-10-10 after check placement, a second measurement and `SyncSlab` support |
 | D4 | Arena views | (a) unchecked (prototype); (b) per-arena epoch in the tag | (b), with the same check sequence; implemented 2026-10-10 for `arena.Chunked` (section 5) |
 | D5 | Heap views across puroutines | (a) allowed, unchecked (current spec); (b) only immutable or through `synced` | (b), it closes the last race and tearing hole in safe code |
 | D6 | Turning checks off | (a) `//pu:nobounds` only; (b) add `//pu:nochecks` for bounds and generations | (b), counted as unsafe |

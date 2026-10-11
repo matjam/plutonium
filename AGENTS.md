@@ -37,6 +37,10 @@ compiler binary. Set `PLUTOROOT=$PWD/lib` to use the working tree instead.
 - Build and run a program: `PLUTOROOT=$PWD/lib /tmp/pluto run ./examples/07-hello/`
 - Listing / SSA dumps: `pluto build -S - ./dir`, `pluto build --ssa=main.main ./dir`
 - Check SSA invariants after every pass: `PLUTO_SSACHECK=1 go test ./internal/build/`
+- Hosted builds have generation checks by default (`docs/spec/abi.md` section 1.3);
+  `pluto build --gencheck=false` (and `pluto test -gencheck=false`) is the unchecked mode, and
+  `PLUTO_GENCHECK=0 go test ./internal/build/` runs the suite in it. Tests of code shapes the checks
+  add to build with `build.Config{NoGenCheck: true}` (`listFuncUnchecked`).
 - Format Plutonium source (gofmt's rules plus the Plutonium syntax):
   `pluto fmt -l <paths>` lists files that differ, `-w` rewrites them, `-d`
   shows a diff. The formatter is `internal/syntax/printer` and

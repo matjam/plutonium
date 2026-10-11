@@ -67,7 +67,7 @@ func main() {
 	}
 
 	// A leaf saves only what it changes and saves no XMM register.
-	leaf := lines(listFunc(t, src, "main.leaf"))
+	leaf := lines(listFuncUnchecked(t, src, "main.leaf"))
 	if got := pushes(leaf); len(got) == 0 || len(got) > 2 {
 		t.Errorf("leaf saves %v, want only the registers it uses\n%s", got, strings.Join(leaf, "\n"))
 	}
@@ -80,7 +80,7 @@ func main() {
 
 	// A handler that calls saves every caller-saved register, all sixteen
 	// XMM registers, and drops the error code before iretq.
-	caller := lines(listFunc(t, src, "main.caller"))
+	caller := lines(listFuncUnchecked(t, src, "main.caller"))
 	text := strings.Join(caller, "\n")
 	saved := pushes(caller)
 	for _, r := range []string{"rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11"} {
@@ -103,7 +103,7 @@ func main() {
 	}
 
 	// Float code in the handler itself saves the XMM registers it uses.
-	floats := strings.Join(lines(listFunc(t, src, "main.floats")), "\n")
+	floats := strings.Join(lines(listFuncUnchecked(t, src, "main.floats")), "\n")
 	if !strings.Contains(floats, "movups %xmm0,") {
 		t.Errorf("floats does not save the XMM registers it changes\n%s", floats)
 	}

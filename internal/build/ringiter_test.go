@@ -41,7 +41,7 @@ func main() {
 }
 `
 	for _, name := range []string{"main.sum", "main.total"} {
-		asm := listFunc(t, src, name)
+		asm := listFuncUnchecked(t, src, name)
 		for _, bad := range []string{"call", "rsp", "panicRangeState"} {
 			if strings.Contains(asm, bad) {
 				t.Errorf("%s: want a plain loop, found %q\n%s", name, bad, asm)

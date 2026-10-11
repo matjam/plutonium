@@ -167,9 +167,9 @@ release that reaches zero drops `T` and then releases the weak reference the str
 
 ### 1.3 Generation tags and arena epochs
 
-A hosted build with `--gencheck` (memory-safety design sections 5 and D4) tags heap pointers so that a
-use of memory that has been freed, or that an arena has taken back, panics instead of reading or writing
-whatever the memory holds by then. Bits 63..48 of a pointer hold a 16-bit tag (user-space addresses use
+A hosted build (unless built with `--gencheck=false`; memory-safety design sections 5, D3 and D4) tags
+heap pointers so that a use of memory that has been freed, or that an arena has taken back, panics
+instead of reading or writing whatever the memory holds by then. Bits 63..48 of a pointer hold a 16-bit tag (user-space addresses use
 47 bits):
 
 | Tag | Meaning |
@@ -191,11 +191,45 @@ if tag != 0 {
 access a
 ```
 
-The check is done once per pointer in a straight run of code, and again after each call. `copy`, `clear`
-and `print` of a string check their pointer at the call when the length is not zero (a pointer just past
-an allocation may point into another one's granule). The table entries of the chunk's first 512
-granules, which would describe the table itself, are never consulted; arenas keep their chunk header
-there.
+`copy`, `clear` and `print` of a string check their pointer at the call when the length is not zero (a
+pointer just past an allocation may point into another one's granule). The table entries of the chunk's
+first 512 granules, which would describe the table itself, are never consulted; arenas keep their chunk
+header there. Loads of itabs and type descriptors, which are static data, are not checked.
+
+**When a check stays valid.** A check is a statement about state the current task can see: the
+pointer's memory had not been freed when the task last could have caused or observed a free. It stays
+valid until the task reaches a point where it could have: a call to a function that may free (one that
+changes a granule's generation or epoch, `pluto/alloc.genRelease` and `pluto/arena.(*Chunked).endEpoch`,
+directly, through code inlined from them, or through its own calls), an indirect call, a call to a
+function without a body here (assembly or C, other than a few runtime routines that only read the
+thread's registers), an intrinsic, or a volatile access. Another task's free becomes visible to this
+one only through synchronization (atomics, locks, channels, the scheduler), all of which are such
+points, so preemption between a check and an access changes nothing: a free that races with an access,
+unsynchronized, is a data race the check could never have caught, since no check is atomic with the
+access it guards. A call that never returns, and code from which a function cannot return (a panic's
+path), is not such a point for its caller. `opt.GenFrees` computes which functions may free;
+`opt.GenCheck` places the checks:
+
+- **Redundant checks.** An access needs no check of its own if its base pointer was checked on every
+  path to it since the last such point (a forward dataflow over the function); accesses through the same
+  base in one block share the first one's check. Each access uses the base pointer's address without
+  its tag, computed once where the pointer is defined.
+- **Loops.** In a loop with no such point, the check of a base pointer defined outside the loop moves to
+  the loop's preheader when the first iteration surely reaches an access through it (the access
+  dominates every back edge, and the loop leaves only through its header's test or a runtime panic
+  before it), guarded by the header's test as the first iteration evaluates it. A loop that runs no
+  iteration therefore checks nothing, and no program panics over a stale pointer it would not have
+  used. A loop that would leave by a runtime panic before the access may report the stale pointer
+  instead; one that would run forever without reaching it, with no calls and nothing another task can
+  see, panics instead of hanging.
+- **Memory the function holds.** A new allocation (the result of an `Allocator`'s `Alloc`, `new`,
+  `alloc.New`, `alloc.Owned`) needs no check until something could free it, and an `owned[T]` parameter
+  needs one; until a pointer to it or into it is passed to a call or stored in memory, only a reset of
+  the arena it may live in can free it, so its check survives calls that may free other memory but
+  reset no arena and synchronize with no other task. An `Allocator`'s `Alloc` takes back nothing it
+  handed out and its `Free` only the memory it is given (language spec section 7.1); the arena's bulk
+  release (`pluto/arena.(*Chunked).release`, behind `Reset`, `Release` and `Drop`) is the reset. Loops
+  whose only such points free but do not reset keep a held pointer's check outside them too.
 
 - **Slab generations.** Each granule of a slot holds the slot's generation, which starts at 1. `Free`
   checks the pointer's tag against it (a double free panics) and moves the slot to the next generation;
@@ -227,9 +261,9 @@ there.
   allocation freed at F (file:line)" when that was a `Free`.
 
 Converting a pointer to `uintptr`, and passing it to a function implemented outside Plutonium, removes
-its tag; `unsafe.Pointer` keeps it. Without `--gencheck` (the default, and every freestanding and kernel
-build) pointers carry no tag and nothing is checked: a use of freed or reset memory is the documented
-unchecked mode of the language spec (section 6.3). `Chunked.SetPoison` then makes stale reads visible,
+its tag; `unsafe.Pointer` keeps it. With `--gencheck=false` (`PLUTO_GENCHECK=0` makes it the default of
+a test run), and in every freestanding and kernel build, pointers carry no tag and nothing is checked: a
+use of freed or reset memory is the documented unchecked mode of the language spec (section 6.3). `Chunked.SetPoison` then makes stale reads visible,
 and the debug allocator (language spec section 7.3), as an arena's parent, catches a use of chunks the
 arena gave back (`Trim`, `Drop`), though not of those `Reset` and `Release` keep.
 

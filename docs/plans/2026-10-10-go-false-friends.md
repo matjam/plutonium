@@ -361,9 +361,10 @@ fmt.Println(first[0])
 
 In Go, a slice taken before an `append` that grows keeps the old array alive. In Plutonium the old array
 is freed when the vector grows. For a local owner the compiler rejects the later use (spec section 6.3);
-through a pointer it cannot, and without `--gencheck` the read hits freed memory silently. **Risk:**
-medium. **Fix:** the accepted path of memory safety D3: generation checks become the default in hosted
-builds once loop hoisting and `SyncSlab` support land. Until then the debug allocator catches it.
+through a pointer it cannot, and in a build without generation checks the read hits freed memory
+silently. **Risk:** medium. **Fix:** the accepted path of memory safety D3, done 2026-10-10: generation
+checks are the default in hosted builds, so the read panics with "use of freed memory"; in the
+unchecked mode (`--gencheck=false`, freestanding and kernel builds) the debug allocator catches it.
 
 ### F15. Error types in `os` and `strconv`
 

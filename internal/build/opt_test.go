@@ -17,13 +17,28 @@ import (
 // name (for example "main.f").
 func listFunc(t *testing.T, src, name string) string {
 	t.Helper()
+	return listFuncWith(t, src, name, build.Config{})
+}
+
+// listFuncUnchecked is listFunc for a build without generation checks
+// (the unchecked mode), for tests of code shapes the checks would add to:
+// a check before a loop is a call to the panic path, which needs a frame.
+func listFuncUnchecked(t *testing.T, src, name string) string {
+	t.Helper()
+	return listFuncWith(t, src, name, build.Config{NoGenCheck: true})
+}
+
+// listFuncWith is listFunc with the settings of base.
+func listFuncWith(t *testing.T, src, name string, base build.Config) string {
+	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "main.p"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var listing bytes.Buffer
-	cfg := &build.Config{Dir: dir, Output: filepath.Join(dir, "prog"), Stdlib: plutonium.Stdlib(), OptLevel: 2, Listing: &listing}
-	if err := build.Build(cfg); err != nil {
+	cfg := base
+	cfg.Dir, cfg.Output, cfg.Stdlib, cfg.OptLevel, cfg.Listing = dir, filepath.Join(dir, "prog"), plutonium.Stdlib(), 2, &listing
+	if err := build.Build(&cfg); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	text := listing.String()
@@ -263,10 +278,10 @@ func main() {
 }
 `
 	// The plain read after the polling loop must read memory again.
-	if asm := listFunc(t, src, "main.poll"); strings.Count(asm, "main.buf+12") != 2 {
+	if asm := listFuncUnchecked(t, src, "main.poll"); strings.Count(asm, "main.buf+12") != 2 {
 		t.Errorf("poll: want buf[3] read before and after the loop\n%s", asm)
 	}
-	if asm := listFunc(t, src, "main.twice"); strings.Count(asm, "(%rdi)") != 2 {
+	if asm := listFuncUnchecked(t, src, "main.twice"); strings.Count(asm, "(%rdi)") != 2 {
 		t.Errorf("twice: want two volatile reads\n%s", asm)
 	}
 }
@@ -470,21 +485,21 @@ func main() {
 }
 `
 	// The second p.x is the first: the store to p.y cannot change it.
-	if asm := listFunc(t, src, "main.merge"); strings.Count(asm, "(%rdi)") != 2 {
+	if asm := listFuncUnchecked(t, src, "main.merge"); strings.Count(asm, "(%rdi)") != 2 {
 		t.Errorf("merge: want one load and one store\n%s", asm)
 	}
 	// p.y and p.m are stored back unchanged.
-	if asm := listFunc(t, src, "main.update"); strings.Count(asm, ", main.ps") != 2 {
+	if asm := listFuncUnchecked(t, src, "main.update"); strings.Count(asm, ", main.ps") != 2 {
 		t.Errorf("update: want two stores (x and n)\n%s", asm)
 	}
 	// p.x is forwarded past the store to p.n, and the first store to p.y
 	// is dead.
-	asm := listFunc(t, src, "main.forward")
+	asm := listFuncUnchecked(t, src, "main.forward")
 	if strings.Count(asm, "(%rdi)") != 3 || strings.Contains(asm, "(%rdi), %xmm") {
 		t.Errorf("forward: want three stores and no loads\n%s", asm)
 	}
 	// Constant indexes split the arrays once folded.
-	if asm := listFunc(t, src, "main.slots"); strings.Contains(asm, "rsp") {
+	if asm := listFuncUnchecked(t, src, "main.slots"); strings.Contains(asm, "rsp") {
 		t.Errorf("slots: want the arrays in registers\n%s", asm)
 	}
 }

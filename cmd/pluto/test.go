@@ -78,6 +78,7 @@ func runTests(args []string, stdout, stderr io.Writer) int {
 	optLevel := flags.Int("O", 2, "optimisation `level`")
 	flags.BoolVar(&briefErrors, "brief", briefErrors, briefUsage)
 	trimpath := flags.Bool("trimpath", true, "record source paths relative to the module root and the standard library")
+	genCheck := flags.Bool("gencheck", true, "check heap pointers' generations on every access (false: the unchecked mode)")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -96,7 +97,7 @@ func runTests(args []string, stdout, stderr io.Writer) int {
 	}
 	failed := false
 	for _, t := range targets {
-		base := build.Config{OptLevel: *optLevel, NoTrimPath: !*trimpath}
+		base := build.Config{OptLevel: *optLevel, NoTrimPath: !*trimpath, NoGenCheck: !*genCheck}
 		if !testPackage(t, &opts, base, stdout, stderr) {
 			failed = true
 		}

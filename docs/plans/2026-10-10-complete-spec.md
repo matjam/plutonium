@@ -296,7 +296,7 @@ Go's error types once errors are counted.
 | 18.8 Strings (counting, drop glue, borrowing parameters, count elision as far as it is visible) | old 6.10, 6.10.1 | main |
 | 18.9 Allocators (the interface, the default, `alloc.Use` and `Restore`, arenas) | old 7, 7.1, 7.2 | main; `Restore` as an owner: branch; open G34, G35 |
 | 18.10 No allocation without an owner or an arena | old 6.6 | decided (roadmap 50, 51; maps; counted errors) |
-| 18.11 Generation checks | memory-safety design 5 | branch (opt-in prototype); default and arena epochs decided (D3, D4); open G31 |
+| 18.11 Generation checks | memory-safety design 5 | main: the default for hosted builds (D3, 2026-10-10), arena epochs (D4); G31 taken as (a) |
 | 18.12 Safe and unsafe code | memory-safety design 2, D1, D6 | decided (`pluto vet -unsafe`, `//pu:nochecks` not implemented) |
 | 18.13 Examples | old 6.8 | mixed |
 
@@ -843,6 +843,10 @@ println(*first)         // (a): panics "use of freed memory"
 **Recommendation: (a).** **Safe** is the stated goal, and the spec is where it is stated. **Fast** is
 handled by check hoisting and `//pu:nochecks` where measured, **Kernel** by the unchecked mode until a
 kernel encoding exists. (b) gives up the goal in the definition of the language.
+
+Taken as (a) (2026-10-10): language spec sections 6.3 and 8 define the use as a panic, generation checks
+are the default for hosted builds, and `--gencheck=false`, with every freestanding and kernel build, is
+the documented unchecked mode.
 
 **G32. Can several tasks write a package variable?**
 The memory-safety design's section 7.3 says no, unless the variable is atomic or guarded, but that part

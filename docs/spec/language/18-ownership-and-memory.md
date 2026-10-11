@@ -549,7 +549,11 @@ func (r Restore) Restore()
 ```
 
 `Alloc` returns zeroed memory of at least `size` bytes aligned to `align`, or nil when it has none.
-Every allocation the language makes and finds nil panics with "out of memory".
+Every allocation the language makes and finds nil panics with "out of memory". An implementation of
+`Allocator`, which is unsafe code (section 18.12), must not take back in `Alloc` memory it has handed
+out, and must take back in `Free` only the memory it is given; an arena takes memory back in bulk only
+through its own methods (`Reset`, `Release`, `Drop`). Generation checks rely on this to keep a check of
+memory a function holds valid across calls that allocate or free other memory (section 18.11).
 
 **Choosing an allocator.** Every operation that allocates takes its memory from an allocator given
 explicitly, or from the **current allocator** that `alloc.Default()` returns:
@@ -688,6 +692,11 @@ pointer that may point to the heap compares the two. Arenas tag their memory wit
 when the arena takes the memory back. The encoding is in abi.md section 1.3. Pointers to frames, static
 storage and devices carry no tag and are not checked, since the rules of section 18.3 already cover them.
 A pointer converted to `uintptr` or passed to a function implemented outside Plutonium loses its tag.
+One check covers later accesses through the same pointer until the task does something that could free
+the memory or let it see another task's free: a call that may free, or an operation that synchronizes
+with another task. A free that races with an access, with no synchronization between them, is a data race
+(section 19.3), which no check could catch reliably. The implementation places the checks as sparingly as
+that allows, outside loops where it can (abi.md section 1.3).
 
 **Checked and unchecked builds.** Hosted builds are checked by default. Freestanding and kernel builds
 are unchecked until a tag encoding that fits kernels exists, since a kernel uses the pointer bits the

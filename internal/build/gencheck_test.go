@@ -15,17 +15,30 @@ import (
 	"github.com/matjam/plutonium/internal/testguard"
 )
 
-// runGenCheck builds src with the generational-reference prototype at the
-// given optimisation level and returns its output and exit status.
+// runGenCheck builds src with generation checks at the given optimisation
+// level and returns its output and exit status.
 func runGenCheck(t *testing.T, src string, optLevel int) (string, int) {
+	t.Helper()
+	return runGenMode(t, src, optLevel, build.Config{GenCheck: true})
+}
+
+// runUnchecked is runGenCheck for the unchecked mode.
+func runUnchecked(t *testing.T, src string, optLevel int) (string, int) {
+	t.Helper()
+	return runGenMode(t, src, optLevel, build.Config{NoGenCheck: true})
+}
+
+// runGenMode builds src with base's generation check setting and runs it.
+func runGenMode(t *testing.T, src string, optLevel int, base build.Config) (string, int) {
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "main.p"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out := filepath.Join(dir, "prog")
-	cfg := &build.Config{Dir: dir, Output: out, Stdlib: plutonium.Stdlib(), OptLevel: optLevel, GenCheck: true}
-	if err := build.Build(cfg); err != nil {
+	cfg := base
+	cfg.Dir, cfg.Output, cfg.Stdlib, cfg.OptLevel = dir, out, plutonium.Stdlib(), optLevel
+	if err := build.Build(&cfg); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	var stdout bytes.Buffer
@@ -299,8 +312,8 @@ func main() {
 		if out, status := runGenCheck(t, src, opt); status != 0 || out != "aligned\n" {
 			t.Errorf("-gencheck -O%d: status %d, output %q", opt, status, out)
 		}
-		if out, status := compileAndRun(t, src, opt); status != 0 || out != "aligned\n" {
-			t.Errorf("-O%d: status %d, output %q", opt, status, out)
+		if out, status := runUnchecked(t, src, opt); status != 0 || out != "aligned\n" {
+			t.Errorf("--gencheck=false -O%d: status %d, output %q", opt, status, out)
 		}
 	}
 }

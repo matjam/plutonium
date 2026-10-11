@@ -47,9 +47,15 @@ type Config struct {
 	KeepWork     bool // keep the temporary directory
 	CompileOnly  bool // write the object file to Output and stop
 
-	// GenCheck builds with the generational-reference prototype: the
-	// allocator tags heap pointers and every access checks the tag.
+	// GenCheck asks for generation checks (abi.md section 1.3): the
+	// allocators tag heap pointers and accesses check the tag. They are
+	// the default of hosted builds; asking for them in a freestanding or
+	// kernel build is an error.
 	GenCheck bool
+	// NoGenCheck builds a hosted program without generation checks: the
+	// documented unchecked mode (pluto build --gencheck=false), in which a
+	// use of freed heap memory is not detected.
+	NoGenCheck bool
 	// NoDWARF omits the DWARF debugging sections (pluto build -g=false).
 	NoDWARF bool
 	// Strip omits DWARF and the symbol table (pluto build -s). Panics still
@@ -106,16 +112,25 @@ func Build(cfg *Config) error {
 
 var sizes = types2.SizesFor("gc", "amd64")
 
-// forceGenCheck, set by the PLUTO_GENCHECK environment variable, builds every
-// program with the generational-reference prototype, so the whole test suite
-// can run under it.
-var forceGenCheck = os.Getenv("PLUTO_GENCHECK") != ""
+// genCheckDefault is whether hosted builds that ask for neither GenCheck
+// nor NoGenCheck get generation checks: yes, unless the PLUTO_GENCHECK
+// environment variable is 0, which runs a whole test suite in the
+// unchecked mode.
+var genCheckDefault = os.Getenv("PLUTO_GENCHECK") != "0"
 
-// genCheck reports whether a build uses the generation checks. The
-// prototype's tag layout assumes user-space addresses, so it is for hosted
-// builds only.
+// genCheck reports whether a build uses the generation checks. Their tag
+// layout assumes user-space addresses, so they are for hosted builds only
+// (memory-safety design, known hole 9).
 func (cfg *Config) genCheck() bool {
-	return (cfg.GenCheck || forceGenCheck) && !cfg.Freestanding && !cfg.Kernel
+	switch {
+	case cfg.Freestanding || cfg.Kernel:
+		return false
+	case cfg.GenCheck:
+		return true
+	case cfg.NoGenCheck:
+		return false
+	}
+	return genCheckDefault
 }
 
 // Check reports a setting of cfg that no build accepts, such as an unknown
@@ -131,7 +146,10 @@ func (cfg *Config) Check() error {
 		return fmt.Errorf("unknown allocator %q (supported: debug)", cfg.Alloc)
 	}
 	if cfg.GenCheck && (cfg.Freestanding || cfg.Kernel) {
-		return fmt.Errorf("-gencheck is a prototype for hosted builds only")
+		return fmt.Errorf("--gencheck is for hosted builds only: freestanding and kernel builds have no generation tags")
+	}
+	if cfg.GenCheck && cfg.NoGenCheck {
+		return fmt.Errorf("GenCheck and NoGenCheck both set")
 	}
 	switch cfg.FieldNames {
 	case "", "on", "off":

@@ -192,7 +192,7 @@ later takes the next free number and is listed in the section where it belongs.
 20. **Ownership: owners, moves and views** (in progress; language spec section 6;
     docs/plans/2026-10-09-memory-safety-design.md). Done: `owner` types and constraints, the move checker
     (`internal/moves`, E3301 to E3312), automatic drops on every path sharing the cleanup stack of counted
-    strings, `take`, `unsafe.Drop`, and generation checks as an opt-in prototype (`--gencheck`). Done
+    strings, `take`, `unsafe.Drop`, and generation checks (`--gencheck`, now the default). Done
     since: `owned[T]` (which `new` returns), `shared`, `synced` and `weak` (item 48), owning interfaces
     that drop what they hold through a drop slot in their itabs, owner unions (item 25), the
     complete-spec type-system decisions (G12 embedding boxes, G13 comparison, G14 owner conversions only
@@ -202,8 +202,11 @@ later takes the next free number and is listed in the section where it belongs.
     epochs for `arena.Chunked` under `--gencheck` (decision D4, ABI section 1.3), which catch at run time
     what the arena rule cannot see (arena memory stored into heap memory that outlives the arena, by the
     function or a callee), and generation tags in `alloc.SyncSlab`, now the default allocator of
-    `--gencheck` builds. Before generation checks become the default for hosted builds: loop-invariant
-    hoisting of the checks and a second measurement. Holds of `shared`, `synced` and `weak` references
+    checked builds. Generation checks are the default for hosted builds (D3, 2026-10-10;
+    `--gencheck=false` is the unchecked mode): `opt.GenCheck` drops redundant checks, moves the checks
+    of loop-invariant pointers before loops, and keeps the checks of memory a function holds across
+    calls that cannot reset an arena; the cost is 1.02x in cycles over `bench/` (geometric mean),
+    1.25x on binarytrees (memory-safety design section 5). Holds of `shared`, `synced` and `weak` references
     borrowed from memory a call could change go through `opt.ElideStringHolds` like strings'
     (2026-10-10): on a loop passing a `shared` and a `synced` field to functions that only read them,
     568 ms to 333 ms, and 1763 ms to 331 ms once atomic counts are on. The original list:
@@ -401,13 +404,14 @@ later takes the next free number and is listed in the section where it belongs.
     sender's address space), interfaces, func values or channels at any depth. The check is inferred, like
     sendability, and needs no annotation. A library interface that says how to transfer handles and
     page-owning owners follows with the PlutoniumOS IPC design.
-71. **Generation checks by default for hosted builds** (in progress; memory safety decision D3(b),
+71. **Generation checks by default for hosted builds** (done 2026-10-10; memory safety decision D3(b),
     complete-spec gap G31, spec section 18.11): a use of freed heap memory is a run-time panic in the
-    language's definition. Hosted builds enable the checks by default once loop-invariant hoisting and a
-    second measurement land (item 20); kernel and freestanding builds stay unchecked until a kernel tag
+    language's definition. Hosted builds enable the checks by default, with their placement optimized
+    (ABI section 1.3) and the cost measured at 1.02x in cycles (item 20); `--gencheck=false` turns them
+    off. Kernel and freestanding builds stay unchecked until a kernel tag
     encoding exists. A build without the checks is a documented unchecked mode, not a dialect.
 72. **Arena epochs** (done, `3410025`; memory safety decision D4, ABI section 1.3): `arena.Chunked` carries
-    a per-arena epoch under `--gencheck`, so a use of memory in a reset arena panics at run time, and
+    a per-arena epoch in checked builds, so a use of memory in a reset arena panics at run time, and
     `alloc.SyncSlab` tags its allocations with generations. Part of item 20.
 73. **Verify the order of evaluation against gc** (planned; complete-spec gap G24): the specification states
     gc's order, not Go's weaker wording: calls, method calls and receives first, left to right, then the

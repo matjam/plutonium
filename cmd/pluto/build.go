@@ -90,29 +90,34 @@ func flagErrorf(format string, args ...any) error {
 
 func init() {
 	for _, c := range []*cobra.Command{buildCmd, runCmd} {
-		c.Flags().StringP("output", "o", "a.out", "output file")
-		c.Flags().String("target", "x86_64-linux", "target triple: x86_64-linux or x86_64-none")
-		c.Flags().String("mode", "", "build mode: hosted, freestanding or kernel (default from the target)")
-		c.Flags().StringSlice("tags", nil, "additional build tags")
-		c.Flags().String("ldscript", "", "linker script (kernel mode has a default, see abi.md section 10.3)")
-		c.Flags().String("format", "elf", "output format: elf or binary")
-		c.Flags().BoolP("verbose", "v", false, "print the assembler and linker commands")
-		c.Flags().IntP("opt", "O", 2, "optimisation level: 0, 1 or 2")
-		c.Flags().StringP("asm", "S", "", "write a machine code listing to this file (- for stdout)")
-		c.Flags().String("ssa", "", "dump the SSA of this function (or all) after each pass")
-		c.Flags().Bool("inlinenotes", false, "print a note for each call to a //pu:inline function that was not inlined, and why")
-		c.Flags().Bool("work", false, "keep the temporary work directory")
-		c.Flags().BoolP("compile", "c", false, "write the object file instead of linking")
-		c.Flags().BoolP("debug", "g", true, "emit DWARF debugging information (-g=false to omit it)")
-		c.Flags().BoolP("strip", "s", false, "omit DWARF and the symbol table (panic traces still work)")
-		c.Flags().Bool("trace", true, "emit the table panics use to print stack traces (--trace=false to omit it)")
-		c.Flags().Bool("trimpath", true, "record source paths relative to the module root and the standard library (--trimpath=false for absolute paths)")
-		c.Flags().String("alloc", "", "default allocator: debug for the checking allocator (hosted builds; tune with $PLUTO_DEBUGALLOC)")
-		c.Flags().Bool("gencheck", false, "prototype: tag heap pointers with generations and check every access")
-		c.Flags().Bool("fieldnames", true, "record struct field names in type descriptors, for %+v and %#v (default true, false in kernel mode)")
-		c.Flags().Bool("brief", false, briefUsage)
+		addBuildFlags(c)
 	}
 	rootCmd.AddCommand(buildCmd, runCmd)
+}
+
+// addBuildFlags gives c the flags of pluto build.
+func addBuildFlags(c *cobra.Command) {
+	c.Flags().StringP("output", "o", "a.out", "output file")
+	c.Flags().String("target", "x86_64-linux", "target triple: x86_64-linux or x86_64-none")
+	c.Flags().String("mode", "", "build mode: hosted, freestanding or kernel (default from the target)")
+	c.Flags().StringSlice("tags", nil, "additional build tags")
+	c.Flags().String("ldscript", "", "linker script (kernel mode has a default, see abi.md section 10.3)")
+	c.Flags().String("format", "elf", "output format: elf or binary")
+	c.Flags().BoolP("verbose", "v", false, "print the assembler and linker commands")
+	c.Flags().IntP("opt", "O", 2, "optimisation level: 0, 1 or 2")
+	c.Flags().StringP("asm", "S", "", "write a machine code listing to this file (- for stdout)")
+	c.Flags().String("ssa", "", "dump the SSA of this function (or all) after each pass")
+	c.Flags().Bool("inlinenotes", false, "print a note for each call to a //pu:inline function that was not inlined, and why")
+	c.Flags().Bool("work", false, "keep the temporary work directory")
+	c.Flags().BoolP("compile", "c", false, "write the object file instead of linking")
+	c.Flags().BoolP("debug", "g", true, "emit DWARF debugging information (-g=false to omit it)")
+	c.Flags().BoolP("strip", "s", false, "omit DWARF and the symbol table (panic traces still work)")
+	c.Flags().Bool("trace", true, "emit the table panics use to print stack traces (--trace=false to omit it)")
+	c.Flags().Bool("trimpath", true, "record source paths relative to the module root and the standard library (--trimpath=false for absolute paths)")
+	c.Flags().String("alloc", "", "default allocator: debug for the checking allocator (hosted builds; tune with $PLUTO_DEBUGALLOC)")
+	c.Flags().Bool("gencheck", true, "check heap pointers' generations on every access, so a use of freed memory panics (hosted builds; --gencheck=false is the unchecked mode)")
+	c.Flags().Bool("fieldnames", true, "record struct field names in type descriptors, for %+v and %#v (default true, false in kernel mode)")
+	c.Flags().Bool("brief", false, briefUsage)
 }
 
 func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
@@ -140,6 +145,9 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 	trimpath, _ := f.GetBool("trimpath")
 	allocator, _ := f.GetString("alloc")
 	genCheck, _ := f.GetBool("gencheck")
+	// Unless asked, a build gets the mode's default: checks in hosted
+	// builds, none in freestanding and kernel ones.
+	askCheck, askNoCheck := f.Changed("gencheck") && genCheck, f.Changed("gencheck") && !genCheck
 	fieldNames := "" // the mode's default
 	if f.Changed("fieldnames") {
 		fieldNames = "off"
@@ -192,7 +200,8 @@ func buildConfig(cmd *cobra.Command, args []string) (*build.Config, error) {
 		NoTrace:      !trace,
 		NoTrimPath:   !trimpath,
 		Alloc:        allocator,
-		GenCheck:     genCheck,
+		GenCheck:     askCheck,
+		NoGenCheck:   askNoCheck,
 		FieldNames:   fieldNames,
 	}
 	if inlineNotes {
