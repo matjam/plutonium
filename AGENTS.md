@@ -8,19 +8,20 @@
 - Humans can commit on `main` directly.
 
 ## Project Overview
-Plutonium is a systems programming language: Go's syntax and most of its
-semantics, without a garbage collector or scheduler (see `docs/spec/language.md`).
-The compiler is written in Go. Pipeline:
+Plutonium is a systems programming language: Go-familiar, not Go-compatible,
+with no garbage collector, ownership visible in the types, and tasks and
+channels on a scheduler that only programs using them carry
+(`docs/spec/language.md`, chapter 1). The compiler is written in Go. Pipeline:
 
 | Stage | Package |
 |---|---|
 | scanner, parser, AST (forked from Go) | `internal/syntax/...` |
 | type checker (forked go/types + Plutonium types) | `internal/types2` |
 | package loading, build tags, `pluto.mod` | `internal/load` |
-| scoped tasks of `sync.Scope`, for the checks and lowering (language spec 19.4) | `internal/scoped` |
-| move checker for owners (language spec 6.4) | `internal/moves` |
-| stack escape analysis (language spec 6.3) | `internal/escape` |
-| data race check (language spec 6.11) | `internal/race` |
+| scoped tasks of `sync.Scope`, for the checks and lowering (spec 19.4) | `internal/scoped` |
+| move checker for owners (spec 18.5, 18.6) | `internal/moves` |
+| stack escape analysis (spec 18.3, 18.4, 11.5) | `internal/escape` |
+| data race check (spec 19.2, 19.3) | `internal/race` |
 | typed AST to SSA | `internal/lower` |
 | SSA IR, verifier, basic passes | `internal/ssa` |
 | optimiser pipeline | `internal/opt` |
@@ -30,6 +31,42 @@ The compiler is written in Go. Pipeline:
 
 The standard library is Plutonium source under `lib/pluto/`, embedded in the
 compiler binary. Set `PLUTOROOT=$PWD/lib` to use the working tree instead.
+
+## The specification
+
+The complete language specification is `docs/spec/language.md` (the contents
+page and version) and the 21 chapters and 7 appendices in
+`docs/spec/language/`. It is the single source of truth for the language:
+every other document, comment, diagnostic and test agrees with it or says
+plainly that it is historical.
+
+- Section numbers are unique across the specification. Cite them as
+  "section 18.7" (comments, catalog entries, plans). The catalog's `Spec`
+  field is written with `pspec(section, title)`, and `TestSpecReferences`
+  (`go test ./internal/diag/`) guards the specification: every reference in
+  the catalog names a section that exists, under the title given; each
+  section is numbered once, in the file of its chapter; no `> **Open` block
+  remains.
+- `docs/spec/abi.md` (binary interface), `memory-model.md`, `debugging.md`
+  and `debug-allocator.md` refine the specification for implementers. They
+  keep their section numbers, which the catalog, comments and tests cite, and
+  they never contradict a chapter.
+- The specification wins over the code. Where the compiler or the library
+  differs from the text, the code is fixed; the gap is listed in
+  `docs/roadmap.md` and in section 6.5 of
+  `docs/plans/2026-10-10-complete-spec.md` until it is closed. A change to the
+  specification is a user decision, recorded before any code moves. Do not
+  change a chapter to match the code.
+- Implementation agents work from the specification's text, by section number
+  (the task statement is section 12.12, ownership and escape analysis are
+  chapter 18, data race freedom is section 19.3, directives are section
+  20.3), not from plans or decision notes. The plans in `docs/plans/` are the
+  reasoning behind decisions; each starts with a Status block that names the
+  sections now defining its subject and the statements the specification
+  supersedes. `docs/plans/archive/` is historical.
+- Go is named in the specification only in chapter 1, appendix A and appendix
+  G. Elsewhere it states the Plutonium rule alone, and the word for a unit of
+  concurrent execution is "task", never "goroutine" or "puroutine".
 
 ## Build & Test
 - Build compiler: `go build -o /tmp/pluto ./cmd/pluto/`
@@ -96,7 +133,10 @@ requests: build constraints (`//pu:build`), inlining (`//pu:inline`,
 (`//pu:extern`, `//pu:export`). Hardware and binding directives
 (`//pu:interrupt`, `//pu:panic`, `//pu:scheduler`, `//pu:percpu`,
 `//pu:fpu`, `//pu:blocking`) are for kernels, where code must be precise
-about machine state.
+about machine state. Section 20.3 of the specification is the complete set;
+it also defines `//pu:section`, `//pu:nosimd`, `//pu:nochecks`,
+`//pu:noescape`, `//pu:noreturn` and `//pu:resultholds`, and an implementation
+defines no others.
 
 - A new directive is allowed only for a fact the compiler cannot derive:
   linkage, hardware state, ABI bindings, a body it cannot see (assembly,
@@ -110,8 +150,10 @@ about machine state.
   hook, intrinsics) is by name in a compiler table, not by directive.
 - Diagnostics explain what the program did and how to fix it in its own
   terms, without requiring knowledge of the implementation.
-- Update the table in `docs/spec/language.md` section 9 and the hover text
-  in `internal/lsp/hover.go` with any change.
+- Update the list of directives in section 20.3 of the specification
+  (`docs/spec/language/20-system-considerations.md`; a user decision comes
+  first, as for any specification change) and the hover text in
+  `internal/lsp/hover.go` with any change.
 
 ## Diagnostics
 
@@ -129,7 +171,10 @@ To add an error:
    (ownership and escape errors use E3000-E3999).
 2. Add a catalog entry (`internal/diag/catalog_pluto.go`, or
    `catalog_build.go`): `Text` in plain words, `Why` when Plutonium differs
-   from Go (no hidden allocation, no GC, kernel safety), `Spec`, and a
+   from Go (no hidden allocation, no GC, kernel safety), `Spec` (the section
+   of the language specification that states the rule, `pspec("18.3",
+   "Views")`; `TestSpecReferences` fails on a section that does not exist or
+   a title that does not match), and a
    `Fix` or `Example`/`Fixed`. Short sentences, no jargon without a
    definition, no em dashes, and American spelling, as in the go/types
    text the catalog builds on. `TestCatalogComplete` and `TestCatalogStyle`
@@ -154,7 +199,9 @@ Go's codes (E0001-E0999) take their text from go/types' documentation
 Every change must pass ALL of these before committing:
 
 1. **Tests**: `go test -count=1 ./...` — all packages must pass. This builds and
-   runs every example and every `testdata/run` program. It also checks that
+   runs every example and every `testdata/run` program. It includes
+   `TestSpecReferences` (`internal/diag`), which guards the specification's
+   numbering and the catalog's citations of it. It also checks that
    every `.p` file under `lib`, `examples`, `testdata` and `bench` is
    `pluto fmt` clean (`TestRepoFormatted` in `internal/syntax/format`); fix a
    failure with `pluto fmt -w lib testdata examples bench`. A file that must

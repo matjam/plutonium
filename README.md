@@ -1,304 +1,154 @@
 # Plutonium
 
-Plutonium is a kernel-safe subset of Go designed for systems software. It compiles `.pu` source files to relocatable ELF object files, targeting code that cannot depend on a managed runtime: OS kernels, drivers, allocators, schedulers, and bare-metal firmware.
+Plutonium is a systems programming language for operating system kernels, drivers, boot code and
+allocators, and for the ordinary programs that run on top of them. It is the language PlutoniumOS is
+written in. It reads like Go and compiles like C: no garbage collector, no hidden allocation, and a static
+binary with no libc and no runtime the program did not ask for. It gives Rust-level memory and race safety
+without a borrow checker and without annotations, and it makes every allocation and every owner visible in
+the source.
+
+Plutonium is Go-familiar, not Go-compatible. It uses Go's syntax and idioms where they fit, and where it
+behaves differently from Go in a way a Go programmer would not expect, the difference is visible in the
+source: a different name, a different syntax, a different type, or a compile error that explains it.
 
 This project was mostly coded using Claude Code's Opus model.
 
-## Why?
+## Goals
 
-Go is one of the most ergonomic systems languages ever designed. Clear syntax, fast compilation, great tooling. But it makes a hard trade-off: the runtime. Goroutines need a scheduler. The GC needs stop-the-world pauses. Strings and slices allocate behind your back. That runtime is the reason you can't write a page fault handler, a network driver, or a boot loader in Go.
+These are the goals of chapter 1 of the specification:
 
-Rust solves this problem, but at a cost: borrow checkers, lifetime annotations, trait bounds, turbofish syntax. It's a powerful language, but it's not a *readable* language -- not in the way Go is. If you've spent years writing Go, switching to Rust feels like trading clarity for control.
+- **Read like Go, and never mislead a Go reader.** Code that differs from Go looks different.
+- **Compile like C.** No garbage collector, no hidden allocation, no runtime the program did not ask for. A
+  program that never starts a task or makes a channel contains no scheduler.
+- **Make costs visible.** Every allocation has an owner or an arena, and the source says which. Every
+  memory-mapped register access is marked in its type.
+- **Make ownership visible.** Every piece of memory has one owner, named by its type, and is freed when that
+  owner is dropped. Looking, moving and sharing are written differently.
+- **Give kernel code the tools it needs in the language:** bit-exact layouts (`packed`), volatile access,
+  alignment control, ring buffers, and a fatal-error path that works before any allocator exists.
+- **Generate fast code.** An optimizing compiler can match the performance of Rust, and the compiler is
+  measured against it (`bench/`).
 
-Plutonium asks: what if you didn't have to choose?
+## The language in short
 
-Take Go's syntax and strip out everything that needs a runtime. No GC, no scheduler, no implicit heap allocation. Then add the things systems programmers need: packed bitfield types for hardware registers, volatile loads and stores for MMIO, built-in ring buffers, ownership you can read from the types, and direct syscall access. The result reads like Go but compiles like C: a static binary with no libc, no runtime, just your code and the kernel.
+**Values, views, owners and counted values.** Every type is one of four kinds, and the kind decides what
+assignment does (chapter 18).
 
-## Ownership
+| Kind | Examples | Assignment | Freed |
+|---|---|---|---|
+| value | numbers, booleans, enums, packed types, arrays and structs of values | copies | nothing to free |
+| view | `*T`, `[]T`, closures | copies the view | never; it looks at memory something else owns |
+| owner | `vec.Vec[T]`, `owned[T]`, `os.File`, a type declared `owner` | moves | when dropped, at the end of its scope |
+| counted value | `string`, `map[K]V`, `chan T`, `shared[T]`, `synced[T]` | copies and counts | when the last copy is dropped |
 
-Every type is a **value** (copied, as in Go), a **view** (`string`, `[]T`, `*T`: looks at memory someone else owns, never frees it), or an **owner** (declared with `owner`, such as `vec.Vec[T]`, `hash.Map[K, V]`, `strings.Buf`, `os.File`, `owned[T]`: moves on assignment and frees what it holds when it goes out of scope). Sharing is opt-in by type, with `shared[T]`, `synced[T]` and `weak[...]`.
+A view may not outlive what it looks at: the compiler rejects returning, storing or sending a view of a
+frame, and checks the use of a view of freed heap memory at run time. Doubt resolves to a compile error.
+The errors explain the rule in plain words and show a fix (`pluto explain E3001`).
 
-| You want to | Use | Cost |
-|---|---|---|
-| let a function use it for a while | view | free |
-| give it to exactly one new owner | move | free |
-| let several places keep it | shared/synced | count update |
+**Tasks, not goroutines.** `task f(x)` starts a task. Tasks run in parallel and are preempted, and
+communicate through channels and `select`. Safe code has no data races: the compiler rejects sharing that
+it cannot prove safe (chapter 19), and a `sync.Scope` lets tasks use the variables of the function that
+starts them and joins them when its scope ends. A kernel supplies its own scheduler.
 
-```go
-func render(items []Item) strings.Buf {
-	var b strings.Buf
-	for i := range items {
-		fmt.Fprintf(&b, "%s: %d\n", items[i].name, items[i].count)
-	}
-	return b // moves the buffer to the caller, which frees it when done
-}
-```
+**Strings and collections.** A `string` is immutable, holds valid UTF-8 and is reference counted. A slice
+is a view and never grows, so there is no `append`: a sequence that grows is a `vec.Vec[T]`, an owner. The
+built-in `map[K]V` is a counted reference; `hash.Map` holds owners.
 
-See section 6 of the [language specification](docs/spec/language.md) for the rules, and for the compile errors, which explain each rule in plain words with fixes.
+**Checks.** A use of freed heap or arena memory is a panic in hosted builds (generation checks, on by
+default). Kernel and freestanding builds run without them. Correct programs behave the same either way.
 
-The goal is a language suitable for:
+**For systems code.** `packed` types with bit-level layouts and endianness, `volatile[T]`, `aligned[T, N]`,
+`ring[T, N]`, enums, unions (including packed unions for page-table entries), default parameter values,
+allocators chosen per call, `//pu:` directives for linkage, interrupts and per-CPU data, assembly and C
+interop, and a kernel build mode.
 
-- **Kernel development.** Address hardware directly -- packed types with bit-level field layouts, endianness control, volatile I/O. No wrangling required to avoid the runtime because there is no runtime.
-- **Predictable real-time code.** No GC pauses, no scheduler preemption, no hidden allocations. If you need a tight timing loop -- game engines, audio processing, control systems -- the compiler won't surprise you.
-- **Firmware and bare-metal.** Freestanding build mode, `_start` entry point, static ELF binaries with no dependencies. Just your code on the metal.
-- **Userspace systems programs.** Not everything needs a runtime. CLI tools, daemons, embedded databases -- if you want small, predictable binaries that don't carry a GC, Plutonium compiles those too.
-
-Is the compiler optimizing? No, not yet -- it produces correct but unoptimized code. Will it eventually? Probably. Right now the focus is on getting the semantics right. Performance comes after correctness.
-
-Honestly, this started as an experiment -- kicking ideas around with Claude to see if an AI-assisted compiler for a Go-without-the-runtime language could actually work. Surprisingly, it does.
-
-## Status
-
-**v0.1 -- in active development.** The full compilation pipeline (parse -> type-check -> sema -> monomorphize -> IR -> x86_64 codegen -> ELF .o) is functional. Programs compile and run. 18 working examples cover arithmetic, control flow, pointers, generics, printf, packed bitfields, heap allocation, ring buffers, RAII auto-free, and reference counting.
-
-## What Plutonium Keeps From Go
-
-- Package system, imports, visibility rules (`Exported` vs `unexported`)
-- Functions, methods (value and pointer receivers), closures
-- Structs, embedding, arrays, slices, pointers
-- `for`, `if/else`, `switch/case`, `defer`, `:=` short declarations
-- Generics with type constraints (monomorphized at compile time)
-- Familiar `fmt.Printf` with `%d`, `%x`, `%s`, `%c`, `%p`
-
-Interfaces are partially supported today (compile-time dispatch for non-empty interfaces). Full structural interface support -- Go's implicit satisfaction model where types implement interfaces by convention, not declaration -- is a major goal. The `any` type and related semantics will likely evolve as that work progresses.
-
-## What Plutonium Adds
-
-| Feature | Description |
-|---|---|
-| `packed` types | Bit-level field layout for hardware registers with endianness control |
-| `volatile[T]` | Every read/write is exactly one load/store, never elided or reordered |
-| `aligned[T, N]` | Guarantees N-byte alignment for DMA buffers, SIMD, page tables |
-| `ring[T, N]` | Built-in lock-free ring buffer with compiler-inlined Push/Pop/Len |
-| `enum` types | Scoped members (`Color.Red`), exhaustive switches, checked conversions, generated `String` |
-| `union` types | Tagged unions with named variants (`Result[T]`, device states), exhaustive type switches, packed unions for page-table entries |
-| Default parameter values | `func New[T any](a Allocator = Default()) *T`; callers may omit trailing defaulted arguments |
-| `new(T, a)`, `make([]T, n, a)` | `new` and `make` allocate from the default allocator or one passed last |
-| `bits[V]` lens | Zero-cost bit-addressing over existing variables (Set/Clear/Test/Toggle) |
-| `owner` types | Values that move instead of copying and are dropped automatically at the end of their scope |
-| `owned[T]`, `shared[T]`, `synced[T]`, `weak[P]` | A heap box, single-task and atomic reference counts, and weak back references |
-| `any` tagged union | 16-byte `{typeID, data}` struct for type-safe variadic arguments |
-| `unsafe` package | `Sizeof`, `Alignof`, pointer casts -- typed, not opaque |
-
-## What Plutonium Rejects
-
-The compiler enforces kernel safety at compile time:
-
-| Forbidden construct | Reason |
-|---|---|
-| `task f()` | No scheduler |
-| `chan T` | No scheduler |
-| `select {}` | No scheduler |
-| `map[K]V` | Requires GC; use `pluto/hash` |
-| `interface{}` | No runtime type metadata yet; full structural interfaces are planned |
-| `panic(...)` | No runtime unwinder |
-| `recover()` | No runtime unwinder |
-| `import "reflect"` | Requires runtime metadata |
+Appendix A of the specification lists every difference from Go.
 
 ## Example
 
 ```go
 package main
 
-import "pluto/fmt"
+import (
+	"pluto/fmt"
+	"pluto/vec"
+)
 
-type ControlReg packed uint32 {
-    mode     bits[uint, 4]
-    enable   bits[bool, 1]
-    priority bits[uint, 3]
+// Words owns its vector: it moves instead of copying, and the vector is
+// freed when a Words goes out of scope.
+type Words owner struct {
+	list vec.Vec[string]
 }
 
-func fib(n int64) int64 {
-    a := int64(0)
-    b := int64(1)
-    for i := int64(2); i <= n; i++ {
-        next := a + b
-        a = b
-        b = next
-    }
-    return b
+// longest looks at the words and owns nothing.
+func longest(words []string) string {
+	best := ""
+	for _, w := range words {
+		if len(w) > len(best) {
+			best = w
+		}
+	}
+	return best
 }
 
-func main() int64 {
-    // Hardware register with bit-level field access
-    var reg ControlReg
-    reg.mode = 5
-    reg.enable = true
-    reg.priority = 7
-    fmt.Printf("mode=%d enable=%d priority=%d\n", reg.mode, reg.enable, reg.priority)
-
-    // Familiar Go-style code
-    for i := int64(1); i <= 5; i++ {
-        fmt.Printf("fib(%d) = %d\n", i, fib(i))
-    }
-    return 0
+func main() {
+	var w Words
+	for _, s := range []string{"owners", "move", "views", "look"} {
+		w.list.Push(s)
+	}
+	fmt.Println(longest(w.list.Slice()), w.list.Len())
 }
 ```
 
-## Building the Compiler
+More programs are in `examples/`.
 
-Requires Go 1.21 or later.
+## Building and running
+
+The compiler is written in Go (1.27 or later). The standard library is Plutonium source under `lib/pluto/`,
+embedded in the compiler binary.
 
 ```bash
 go build -o pluto ./cmd/pluto/
+
+pluto run ./examples/07-hello/              # build a hosted program and run it
+pluto build -o hello ./examples/07-hello/   # build a linked binary
+pluto build -S - ./examples/07-hello/       # print the listing instead
+pluto explain E3001                         # explain a compile error
 ```
 
-## Usage
+Set `PLUTOROOT=$PWD/lib` to use the library in the working tree instead of the embedded one. `pluto build
+--help` lists the flags: target and mode (`hosted`, `freestanding`, `kernel`), build tags, the allocator,
+optimization level and debug information.
 
-```bash
-# Build a package to a linked binary
-pluto build -o output ./path/to/package/
+Other commands:
 
-# Write the object file instead of linking, with build tags
-pluto build -c --tags freestanding -o kernel.o ./kernel/
+- `pluto fmt [-l] [-w] [-d] [path ...]` formats source files. Plain Go formats exactly as gofmt formats it.
+- `pluto test [packages]` runs the `Test` and `Benchmark` functions of `*_test.p` files with
+  `pluto/testing` and prints the results in the format of `go test`.
+- `pluto lsp` runs the language server on standard input and output, for the extension in `editors/vscode`.
 
-# Build a hosted program and run it
-pluto run ./path/to/package/ -- args...
+## Where things are
 
-# Format source files the way gofmt formats Go
-pluto fmt -l .            # list files whose formatting differs
-pluto fmt -w ./lib/       # rewrite them in place
-pluto fmt -d main.p       # show the changes as a diff
+| Path | Contents |
+|---|---|
+| `docs/spec/language.md` | The language specification: the contents page, and 21 chapters and 7 appendices in `docs/spec/language/` |
+| `docs/spec/abi.md`, `memory-model.md`, `debugging.md`, `debug-allocator.md` | The x86-64 binary interface, the memory model, debugging information, and the debug allocator, which refine the specification |
+| `docs/roadmap.md` | Every known gap between the specification and the compiler, in priority order |
+| `docs/plans/` | Working documents with a Status block that says what the specification supersedes; `archive/` holds the superseded March prototype plans |
+| `AGENTS.md` | Contributor guide: pipeline, build and test commands, verification checklist |
+| `cmd/pluto/`, `internal/` | The compiler: syntax, type checker, ownership and escape analyses, SSA, optimizer, x86-64 backend, ELF writer, driver, language server |
+| `lib/pluto/` | The standard library |
+| `examples/`, `bench/`, `testdata/` | Example programs, benchmarks against C, Rust and Go, end-to-end tests |
+| `selfhost/`, `tools/` | The compiler's sources translated to Plutonium (toward self-hosting), and development tools |
 
-# Run tests and benchmarks
-pluto test ./mypkg/
-pluto test -v -run 'TestParse/empty' ./mypkg/
-pluto test -run '^$' -bench . -count 3 ./...
+## Status
 
-# Run the language server for an editor (JSON-RPC on stdin and stdout)
-pluto lsp
+The specification (version 0.3) is the single source of truth: it defines the whole language and does not
+fall back on Go's specification. The compiler implements most of it and runs on `x86_64-linux` (hosted) and
+`x86_64-none` (freestanding and kernel). The places where the compiler still differs from the specification
+are listed in [`docs/roadmap.md`](docs/roadmap.md); the largest are the `task` statement (the compiler still
+spells it `go`) and the built-in `map[K]V` (the compiler still rejects it and points to `hash.Map`).
+Long-term, the compiler is meant to compile itself.
 
-# Print version
-pluto version
-```
-
-### pluto fmt
-
-`pluto fmt [-l] [-w] [-d] [path ...]` formats Plutonium source exactly as
-gofmt formats Go, including the Plutonium-only syntax (packed types, bits
-groups, enum types, type constructors such as `volatile[T]` and `ring[T, N]`), and
-normalises `//pu:build` lines like `//go:build`. A directory is walked for
-`.p` files; with no paths, or `-`, it formats standard input. `-l` lists files
-that differ, `-w` rewrites them, `-d` prints a unified diff (and exits with
-status 1 if there was one). Syntax errors exit with status 2.
-
-### pluto test
-
-Tests live in `*_test.p` files in the package they test, and use
-`pluto/testing`:
-
-```go
-package strings
-
-import "pluto/testing"
-
-func TestIndex(t *testing.T) {
-	if got := Index("chicken", "ken"); got != 4 {
-		t.Errorf("Index = %d, want 4", got)
-	}
-	t.Run("empty", func(t *testing.T) {
-		if Index("", "") != 0 {
-			t.Fatal("empty string not found in itself")
-		}
-	})
-}
-
-func BenchmarkIndex(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		Index("chicken", "ken")
-	}
-}
-```
-
-`pluto test [-run regexp] [-bench regexp] [-v] [-count n] [-O level] [packages]`
-builds one test binary per package (the package's files plus its `_test.p`
-files, and a generated `main`), runs it, and prints the results as `go test`
-does: `--- FAIL: TestX`, `ok  pkg 0.01s`, `FAIL`. The exit status is 1 if a
-package fails to build or a test fails. Packages are directories, standard
-library paths (`pluto/strings`), or either followed by `/...`. Benchmarks run
-only with `-bench`. Below the top level, `-run` patterns are literal text with
-optional `^` and `$` anchors.
-
-`testing.T` has `Error`, `Errorf`, `Fatal`, `Fatalf`, `Log`, `Logf`, `Fail`,
-`FailNow`, `Failed`, `Skip`, `Skipf`, `SkipNow`, `Helper`, `Name` and `Run`;
-`testing.B` adds `N`, `ResetTimer`, `StartTimer`, `StopTimer` and
-`ReportAllocs`. Messages are formatted with `pluto/fmt` into fixed buffers,
-so testing allocates nothing; they carry no file:line prefix. Since `panic`
-aborts, a test that panics ends the binary: each test is announced before it
-runs, and `pluto test` reports the panic as a failure of that test. `FailNow`
-returns to the test runner directly, so the test function's deferred calls do
-not run. Tests must be in the package itself; external `_test` packages are
-not supported, and a package that `pluto/testing` depends on (such as
-`pluto/fmt`) cannot be tested this way.
-
-### pluto lsp
-
-`pluto lsp` is a Language Server Protocol server on standard input and
-output, for editors: diagnostics (type-checking only, as you type, with error
-codes and explanations), hover (declarations, doc comments, ownership kinds,
-enum members, `//pu:` directives), go to definition (into the standard
-library too), references, document and workspace symbols, completion,
-signature help, rename, formatting and an "explain this error" code action.
-It reads its target, mode and tags from the client's settings
-(`initializationOptions` or `workspace/didChangeConfiguration` under
-`plutonium`), and logs to standard error (`-v` for every request). The VS
-Code extension in `editors/vscode` runs it. The server is `internal/lsp`.
-
-## Project Structure
-
-```
-cmd/pluto/          # Compiler CLI (pluto build, pluto compile, pluto version)
-internal/
-  ast/              # Abstract syntax tree node types
-  buildtag/         # //pu:build constraint parsing and evaluation
-  codegen/          # Codegen interface and x86_64 backend
-    x86_64/
-      encoder/      # x86_64 instruction encoding
-      regalloc/     # Linear scan register allocator
-  config/           # Compiler configuration (target, tags)
-  diag/             # Diagnostic message formatting
-  ir/               # Plutonium IR: types, instructions, basic blocks
-  mono/             # Generic monomorphization pass
-  obj/elf/          # ELF64 relocatable object file writer
-  parser/           # .pu source parser (produces AST)
-  scanner/          # Lexical scanner (produces tokens)
-  sema/             # Kernel-safety validation pass
-  token/            # Token types and file position tracking
-  types/            # Type checker and type system
-pluto/              # Standard library (.pu source)
-  alloc/            # Slab allocator with reference counting
-  bytes/            # Byte slice utilities
-  fmt/              # Formatted output (Printf, PrintInt, Println)
-  io/               # I/O primitives (Reader, Writer interfaces)
-  mem/              # Arena bump-pointer allocator
-  os/               # OS interface (write, exit)
-  strings/          # String utilities (Len, Equal, Contains, TrimSpace)
-  syscall/          # Raw Linux syscall wrappers
-docs/
-  spec/
-    language.md     # Language specification
-    abi.md          # x86_64 ABI and calling convention
-examples/           # 18 working examples (exit through strings)
-testdata/
-  programs/hello/   # End-to-end pipeline test
-  invalid/          # Programs that must be rejected
-```
-
-## Long-Term Vision
-
-Plutonium is intended to be self-hosting: the compiler itself will be written in Plutonium and compiled by a prior version. The roadmap:
-
-- **v0.1:** Full compilation pipeline to ELF .o; all forbidden constructs rejected at compile time
-- **v0.2:** Linker integration; `pluto/os` fully compiled; hello world binary runs on Linux x86_64
-- **v0.3:** Self-hosting bootstrap; compiler compiled by itself
-- **v1.0:** Production-ready for kernel and firmware development
-
-## Language Specification
-
-See [`docs/spec/language.md`](docs/spec/language.md) for the full language specification.
-
-See [`docs/spec/abi.md`](docs/spec/abi.md) for the x86_64 ABI and calling convention.
-
-See [`docs/spec/memory-model.md`](docs/spec/memory-model.md) for the memory model.
-
-See [`docs/roadmap.md`](docs/roadmap.md) for every known gap between the specification and the compiler, in priority order.
+The specification adapts text from The Go Programming Language Specification under CC BY 4.0; appendix G of
+the specification and `docs/spec/LICENSE-go` say what the licenses require.
