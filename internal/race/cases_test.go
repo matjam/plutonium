@@ -375,7 +375,7 @@ func main() {
 	<-done
 }`, []string{"the field hits of a synced[Stats] is read here without holding mu, which guards it"}},
 
-	{"task started by WaitGroup.Go", `
+	{"task started by WaitGroup.Task", `
 import "pluto/sync"
 
 var (
@@ -387,10 +387,10 @@ func bump() { n++ }
 
 func main() {
 	for i := 0; i < 3; i++ {
-		wg.Go(bump)
+		wg.Task(bump)
 	}
 	wg.Wait()
-}`, []string{"main.p:9:15: n is written here with no lock that guards it", "n is written at main.p:9 in bump by the puroutine started by a call of sync.(*WaitGroup).Go at main.p:13 with no lock held"}},
+}`, []string{"main.p:9:15: n is written here with no lock that guards it", "n is written at main.p:9 in bump by the puroutine started by a call of sync.(*WaitGroup).Task at main.p:13 with no lock held"}},
 }
 
 // Programs that are free of races: each must pass.

@@ -47,9 +47,9 @@ type Panic struct {
 	// CPU is the processor that panicked: in kernel mode the number the
 	// kernel gave it with SetCPU (0 until it does); otherwise 0.
 	CPU int
-	// Puroutine is the ID of the puroutine that panicked (Task.ID): 1 for
+	// Task is the ID of the puroutine that panicked (Task.ID): 1 for
 	// the one that runs main, 0 outside any (a scheduler's own context).
-	Puroutine uint64
+	Task uint64
 	// During is the panic whose deferred calls the task was running when
 	// this one happened, or nil. Only hosted builds run deferred calls on
 	// a panic (language spec section 17.1).
@@ -192,7 +192,7 @@ func raise(p *Panic) {
 	p.CPU = cpuNumber()
 	t := current()
 	if t != nil {
-		p.Puroutine = t.id
+		p.Task = t.id
 	}
 	if deferOnPanic && t != nil {
 		switch {
@@ -369,9 +369,9 @@ func (p *Panic) Print[W Writer](w W) {
 		writePointer(w, f.Fault.PC)
 		writeString(w, "]\n")
 	}
-	if p.Puroutine > 1 {
+	if p.Task > 1 {
 		writeString(w, "puroutine ")
-		writeUint(w, p.Puroutine)
+		writeUint(w, p.Task)
 		writeString(w, ":\n")
 	}
 	p.PrintTrace(w)

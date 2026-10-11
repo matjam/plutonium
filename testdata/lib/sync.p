@@ -177,8 +177,8 @@ func main() {
 	println("cond sum", qsum.Load())
 
 	for i := 0; i < 5; i++ {
-		goWG.Go(bump)
+		goWG.Task(bump)
 	}
 	goWG.Wait()
-	println("WaitGroup.Go ran", goRuns.Load())
+	println("WaitGroup.Task ran", goRuns.Load())
 }

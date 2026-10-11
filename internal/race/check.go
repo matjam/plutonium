@@ -359,7 +359,7 @@ func (a *analyzer) reachProp(f *function, memo map[*function]bool, own func(*fun
 }
 
 // userStart names where a task starts in the program's own code: the go
-// statement, or, for a task the standard library starts (WaitGroup.Go,
+// statement, or, for a task the standard library starts (WaitGroup.Task,
 // time.AfterFunc), the call of the library function that leads to it.
 func (a *analyzer) userStart(sp *spawn) (token.Pos, string) {
 	if !a.inStd(sp.pos) {

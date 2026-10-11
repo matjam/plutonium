@@ -675,7 +675,7 @@ func init() {
 			Code: GoFrameClosure, Name: "GoFrameClosure",
 			Text: "A function literal that captures variables, and a method value such as c.handle, keep their closure record (the code to call, with the captured variables or a copy of the receiver) in the frame of the function that makes them. A func value points to that record. A go statement copies its function and arguments, but copying a func value copies only the pointer, so the puroutine may call through it after the frame is gone.\n" +
 				"The compiler reports this wherever it can tell: a capturing literal or a method value passed to go, or a local variable assigned only once, from one of them. Elsewhere the go statement checks when it runs, and panics.\n" +
-				"Library functions that start a puroutine with a func argument, such as sync.WaitGroup.Go and time.AfterFunc, follow the same rule and the compiler reports them the same way.\n" +
+				"Library functions that start a puroutine with a func argument, such as sync.WaitGroup.Task and time.AfterFunc, follow the same rule and the compiler reports them the same way.\n" +
 				"To let the puroutine use the function's variables, start a function literal with a sync.Scope declared in the function instead: s.Task(func() {...}) waits for it before s's block ends.",
 			Why:     "Go moves captured variables and the receivers of method values to the heap. Plutonium never allocates behind the program's back, so the record stays in its frame (spec section 11.5).",
 			Fix:     &Fix{Intro: "Pass the values the function needs, and start a function that takes them", Code: "task func(n int, out chan int) {\n\tout <- n * n\n}(n, out)"},

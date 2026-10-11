@@ -2,4 +2,4 @@ mutex counter 80000
 rwmutex 10000 10000 torn reads 0 reads 80000
 once ran 1
 cond sum 50005000
-WaitGroup.Go ran 5
+WaitGroup.Task ran 5

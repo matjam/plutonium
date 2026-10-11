@@ -1,4 +1,4 @@
-$DIR/main.p:15:8: cannot pass a function literal that captures n (main.p:15) to wg.Go, which starts a puroutine with it: its closure record lives in the starting frame (spec section 12.12)
+$DIR/main.p:15:10: cannot pass a function literal that captures n (main.p:15) to wg.Task, which starts a puroutine with it: its closure record lives in the starting frame (spec section 12.12)
     A function literal that captures variables, and a method value such as
     c.handle, keep their closure record (the code to call, with the captured
     variables or a copy of the receiver) in the frame of the function that makes
@@ -9,8 +9,8 @@ $DIR/main.p:15:8: cannot pass a function literal that captures n (main.p:15) to 
     method value passed to go, or a local variable assigned only once, from one
     of them. Elsewhere the go statement checks when it runs, and panics.
     Library functions that start a puroutine with a func argument, such as
-    sync.WaitGroup.Go and time.AfterFunc, follow the same rule and the compiler
-    reports them the same way.
+    sync.WaitGroup.Task and time.AfterFunc, follow the same rule and the
+    compiler reports them the same way.
     To let the puroutine use the function's variables, start a function literal
     with a sync.Scope declared in the function instead: s.Task(func() {...})
     waits for it before s's block ends.
@@ -24,7 +24,7 @@ $DIR/main.p:15:8: cannot pass a function literal that captures n (main.p:15) to 
     (see "Task statements" in the Plutonium spec, section 12.12)
     (run "pluto explain E2594" for a longer explanation)
 
-$DIR/main.p:18:8: cannot pass work to wg.Go, which starts a puroutine with it: it holds a function literal that captures n (main.p:17), whose closure record lives in the starting frame (spec section 12.12)
+$DIR/main.p:18:10: cannot pass work to wg.Task, which starts a puroutine with it: it holds a function literal that captures n (main.p:17), whose closure record lives in the starting frame (spec section 12.12)
     (explained above; run "pluto explain E2594" for more)
 
 $DIR/main.p:21:30: cannot pass the method value c.add to time.AfterFunc, which starts a puroutine with it: its closure record lives in the starting frame (spec section 12.12)

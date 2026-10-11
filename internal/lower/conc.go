@@ -94,7 +94,7 @@ func (s *fnState) frameClosureArgs(args []ast.Expr, dest string) bool {
 }
 
 // goFuncCall checks a call of a function that starts puroutines with
-// some of its func arguments (sync.WaitGroup.Go, time.AfterFunc, rt.Go,
+// some of its func arguments (sync.WaitGroup.Task, time.AfterFunc, rt.Go,
 // and any function that passes a func parameter on to one of them or to a
 // go statement; the closure flow summaries find them): the arguments that
 // are known to be closure records in this frame are compile errors, as in

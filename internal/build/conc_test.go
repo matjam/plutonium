@@ -440,12 +440,12 @@ import (
 	"pluto/sync"
 )
 
-// The compiler rejects a capturing literal passed to wg.Go, or to a
-// function that passes it on to wg.Go, where it can see the call
+// The compiler rejects a capturing literal passed to wg.Task, or to a
+// function that passes it on to wg.Task, where it can see the call
 // (TestGoFuncCall), and the escape analysis rejects it anywhere else;
 // rt.Pinned hides it from both, so the check when Go runs catches it.
 func start(wg *sync.WaitGroup, f func()) {
-	wg.Go(f)
+	wg.Task(f)
 }
 
 func main() {

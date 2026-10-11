@@ -28,7 +28,7 @@ import (
 //   - a channel send or receive outside a select with a default case, a
 //     select without one, or a range over a channel;
 //   - a go statement, or a call of the runtime's spawn, which every way of
-//     starting a puroutine ends in (rt.Go, sync.WaitGroup.Go).
+//     starting a puroutine ends in (rt.Go, sync.WaitGroup.Task).
 //
 // Whether a library function may wait is not marked on it: the walk goes
 // through it to the runtime operation it reaches. Messages name the path

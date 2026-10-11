@@ -86,10 +86,10 @@ func TestGoFuncCall(t *testing.T) {
 		name, body string
 		want       string // a fragment of the error, or "" for none
 	}{
-		{"wait group literal", "var wg sync.WaitGroup\nn := 0\nwg.Go(func() { n++ })", "cannot pass a function literal that captures n"},
-		{"wait group local", "var wg sync.WaitGroup\nn := 0\nf := func() { n++ }\nwg.Go(f)", "cannot pass f to wg.Go, which starts a puroutine with it"},
-		{"pointer receiver", "wg := new(sync.WaitGroup)\nn := 0\nwg.Go(func() { n++ })", "to wg.Go, which starts a puroutine with it"},
-		{"method value", "var c counter\nvar wg sync.WaitGroup\nwg.Go(c.add)", "cannot pass the method value c.add"},
+		{"wait group literal", "var wg sync.WaitGroup\nn := 0\nwg.Task(func() { n++ })", "cannot pass a function literal that captures n"},
+		{"wait group local", "var wg sync.WaitGroup\nn := 0\nf := func() { n++ }\nwg.Task(f)", "cannot pass f to wg.Task, which starts a puroutine with it"},
+		{"pointer receiver", "wg := new(sync.WaitGroup)\nn := 0\nwg.Task(func() { n++ })", "to wg.Task, which starts a puroutine with it"},
+		{"method value", "var c counter\nvar wg sync.WaitGroup\nwg.Task(c.add)", "cannot pass the method value c.add"},
 		{"after func", "n := 0\ntime.AfterFunc(time.Second, func() { n++ })", "to time.AfterFunc, which starts a puroutine with it"},
 		{"rt go", "n := 0\nrt.Go(func() { n++ }, rt.MinStackSize)", "to rt.Go, which starts a puroutine with it"},
 		{"through a function", "n := 0\nstart(func() { n++ })", "to start, which starts a puroutine with it"},
@@ -97,8 +97,8 @@ func TestGoFuncCall(t *testing.T) {
 		{"generic", "n := 0\nspawnT(1, func() { n++ })", "to spawnT, which starts a puroutine with it"},
 		{"through an after func", "n := 0\nlater(func() { n++ })", "to later, which starts a puroutine with it"},
 
-		{"no captures", "var wg sync.WaitGroup\nwg.Go(func() {})\nwg.Wait()\ntime.AfterFunc(time.Second, func() {})", ""},
-		{"function", "var wg sync.WaitGroup\nwg.Go(run2)\nwg.Wait()", ""},
+		{"no captures", "var wg sync.WaitGroup\nwg.Task(func() {})\nwg.Wait()\ntime.AfterFunc(time.Second, func() {})", ""},
+		{"function", "var wg sync.WaitGroup\nwg.Task(run2)\nwg.Wait()", ""},
 		{"parameter", "start(func() {})", ""},
 		{"other function", "n := 0\nrun(func() { n++ })", ""},
 		{"other parameter", "n := 0\nspawn(1, run2, func() { n++ })", ""},
@@ -108,7 +108,7 @@ func TestGoFuncCall(t *testing.T) {
 			src := "package main\n\nimport (\n\t\"pluto/rt\"\n\t\"pluto/sync\"\n\t\"pluto/time\"\n)\n\n" +
 				"type counter struct{ n int }\n\nfunc (c *counter) add() { c.n++ }\n\n" +
 				"func run(f func()) { f() }\n\nfunc run2() {}\n\n" +
-				"func start(f func()) {\n\tvar wg sync.WaitGroup\n\twg.Go(f)\n\twg.Wait()\n}\n\n" +
+				"func start(f func()) {\n\tvar wg sync.WaitGroup\n\twg.Task(f)\n\twg.Wait()\n}\n\n" +
 				"func spawn(n int, f func(), more ...func()) {\n\tfor _, g := range more {\n\t\tg()\n\t}\n\ttask f()\n}\n\n" +
 				"func spawnT[T any](x T, f func()) { task run(f) }\n\n" +
 				"func later(f func()) { time.AfterFunc(time.Second, f) }\n\n" +

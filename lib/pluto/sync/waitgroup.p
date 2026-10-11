@@ -39,10 +39,10 @@ func (wg *WaitGroup) Add(delta int) {
 // Done decrements the counter by one.
 func (wg *WaitGroup) Done() { wg.Add(-1) }
 
-// Go starts f in a new puroutine counted by wg, as Go 1.25's
-// WaitGroup.Go does: Add(1), then Done when f returns. f must not capture
+// Task starts f in a new puroutine counted by wg, as Go 1.25's
+// WaitGroup.Task does: Add(1), then Done when f returns. f must not capture
 // variables (language spec section 12.12).
-func (wg *WaitGroup) Go(f func()) {
+func (wg *WaitGroup) Task(f func()) {
 	wg.Add(1)
 	// The puroutine uses wg until its Done, which a Wait on wg waits for:
 	// a WaitGroup in a frame that waits before returning outlives it.

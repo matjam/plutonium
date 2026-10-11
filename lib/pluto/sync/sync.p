@@ -5,7 +5,7 @@
 // They are built on the runtime's two scheduler operations, rt.Park and
 // rt.Ready, so they work on any scheduler, the hosted one or a kernel's. A
 // puroutine that has to wait parks; it never spins its processor for long.
-// The operations that may park (Lock, RLock, Wait, Once.Do, WaitGroup.Go)
+// The operations that may park (Lock, RLock, Wait, Once.Do, WaitGroup.Task)
 // must not be used in interrupt context, which the compiler checks by
 // following the calls of interrupt handlers into rt.Park; Unlock, TryLock,
 // Signal, Broadcast, Add and Done never park.

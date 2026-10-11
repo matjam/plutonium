@@ -12,10 +12,10 @@ func (c *counter) add() { c.n++ }
 func main() {
 	var wg sync.WaitGroup
 	n := 0
-	wg.Go(func() { n++ })
+	wg.Task(func() { n++ })
 
 	work := func() { n-- }
-	wg.Go(work)
+	wg.Task(work)
 
 	var c counter
 	time.AfterFunc(time.Second, c.add)
@@ -23,6 +23,6 @@ func main() {
 	time.AfterFunc(time.Second, func() { println(n) })
 
 	// Not reported: captures nothing.
-	wg.Go(func() { println("hello") })
+	wg.Task(func() { println("hello") })
 	wg.Wait()
 }

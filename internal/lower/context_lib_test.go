@@ -23,9 +23,9 @@ func TestInterruptContextLibrary(t *testing.T) {
 			"keyboard calls readConfig (main.p:28), which waits on mu (main.p:19)."}, []string{"acquire"}},
 		{"park until", "rt.ParkUntil(rt.Now() + 1)", []string{
 			"keyboard calls rt.ParkUntil (main.p:28), which may wait."}, []string{"park ("}},
-		{"wait group go", "wg.Go(work)", []string{
+		{"wait group go", "wg.Task(work)", []string{
 			"keyboard is an interrupt handler, so it must not start a puroutine",
-			"keyboard calls wg.Go (main.p:28), which starts a puroutine.",
+			"keyboard calls wg.Task (main.p:28), which starts a puroutine.",
 			`(run "pluto explain E2585"`}, []string{"spawn"}},
 		{"rt go", "rt.Go(work, rt.MinStackSize)", []string{
 			"keyboard calls rt.Go (main.p:28), which starts a puroutine."}, nil},
