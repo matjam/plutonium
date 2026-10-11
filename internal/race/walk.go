@@ -1497,6 +1497,16 @@ func (a *analyzer) addrTaken(v *types2.Var) {
 	a.addrGlobals[v] = true
 }
 
+// literalFields returns the fields that the key of a struct literal of
+// type T selects, through embedded structs (types2.LiteralFields).
+func (w *walker) literalFields(T types2.Type, key *ast.Ident) []*types2.Var {
+	var pkg *types2.Package
+	if f, ok := w.a.uses[key].(*types2.Var); ok {
+		pkg = f.Pkg()
+	}
+	return types2.LiteralFields(T, pkg, key.Name)
+}
+
 // compLit walks a composite literal and returns its value's origins.
 func (w *walker) compLit(e *ast.CompositeLit) origins {
 	T := w.typeOf(e)
@@ -1513,6 +1523,18 @@ func (w *walker) compLit(e *ast.CompositeLit) origins {
 				x = kv.Value
 				if id, ok := kv.Key.(*ast.Ident); ok {
 					name = id.Name
+					if path := w.literalFields(T, id); len(path) > 1 {
+						// A promoted field (language spec section
+						// 11.3): held in the embedded fields around it.
+						f := path[len(path)-1]
+						v := w.value(x)
+						w.conv(x, f.Type())
+						for i := len(path) - 1; i >= 0; i-- {
+							v = v.tagged(path[i].Name())
+						}
+						out.addAll(v)
+						continue
+					}
 				}
 			} else if i < u.NumFields() {
 				name = u.Field(i).Name()

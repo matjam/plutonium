@@ -1202,20 +1202,14 @@ func (s *fnState) compositeLitOf(e *ast.CompositeLit, T types2.Type) value {
 		}
 		offs := s.l.sizes.Offsetsof(fields)
 		for i, elt := range e.Elts {
-			idx := i
-			val := elt
-			if kv, ok := elt.(*ast.KeyValueExpr); ok {
-				key := kv.Key.(*ast.Ident)
-				for j, f := range fields {
-					if f.Name() == key.Name {
-						idx = j
-						break
-					}
-				}
-				val = kv.Value
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				ft := s.subst(fields[i].Type())
+				s.assign(lvalue{ptr: s.offPtr(tmp, offs[i]), T: ft}, s.compositeElem(elt, ft), true)
+				continue
 			}
-			ft := s.subst(fields[idx].Type())
-			s.assign(lvalue{ptr: s.offPtr(tmp, offs[idx]), T: ft}, s.compositeElem(val, ft), true)
+			off, ft := s.literalField(T, kv.Key.(*ast.Ident))
+			s.assign(lvalue{ptr: s.offPtr(tmp, off), T: ft}, s.compositeElem(kv.Value, ft), true)
 		}
 		return s.litValue(tmp, T)
 
@@ -1279,6 +1273,48 @@ func (s *fnState) compositeLitOf(e *ast.CompositeLit, T types2.Type) value {
 	}
 	s.l.unsupportedf(e.Pos(), "unsupported composite literal of type %s", T)
 	return s.zeroValue(T)
+}
+
+// literalField returns the offset in a struct of type T, and the type, of
+// the field that the key of a struct literal names: a field of T, or a
+// field promoted through embedded structs, which are not pointers
+// (language spec section 11.3).
+func (s *fnState) literalField(T types2.Type, key *ast.Ident) (int64, types2.Type) {
+	off, ft, ok := s.l.literalField(s.info, T, key)
+	if !ok {
+		s.l.internalf(key.Pos(), "no field %s in struct literal of type %s", key.Name, T)
+		return 0, types2.Typ[types2.Int]
+	}
+	return off, ft
+}
+
+// literalField is fnState.literalField for package initialization, with
+// the package's type information: ok is false if key names no field.
+func (l *Lowerer) literalField(info *types2.Info, T types2.Type, key *ast.Ident) (off int64, ft types2.Type, ok bool) {
+	var pkg *types2.Package
+	if f, ok := info.Uses[key].(*types2.Var); ok {
+		pkg = f.Pkg()
+	}
+	path := types2.LiteralFields(T, pkg, key.Name)
+	if len(path) == 0 {
+		return 0, nil, false
+	}
+	cur := T
+	for _, f := range path {
+		st, ok := unwrap(cur).Underlying().(*types2.Struct)
+		if !ok {
+			return 0, nil, false
+		}
+		fields := make([]*types2.Var, st.NumFields())
+		for j := range fields {
+			fields[j] = st.Field(j)
+			if fields[j] == f {
+				off += l.sizes.Offsetsof(fields[:j+1])[j]
+			}
+		}
+		cur = f.Type()
+	}
+	return off, cur, true
 }
 
 // compositeElem lowers one element of a composite literal; nested literals

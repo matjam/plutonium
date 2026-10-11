@@ -769,6 +769,19 @@ func f() vec.Vec[int] {
 }
 func main() { _ = f() }`, []string{"cannot return v, which points into memory allocated from ar"}},
 
+	{"view stored in a promoted field of a literal", `
+type In struct{ p *int }
+type Out struct {
+	n int
+	In
+}
+var g Out
+func f() {
+	x := 1
+	g = Out{p: &x}
+}
+func main() { f() }`, []string{"cannot store Out{...} in package variable g, which outlives x"}},
+
 	// Views of an owner temporary that a pointer method is called on
 	// (spec section 11.14).
 	{"owner temporary view kept in a local", `

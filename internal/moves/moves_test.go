@@ -221,6 +221,18 @@ func f() (b Buf) {
 	return
 }
 func main() { _ = f() }`, []string{"b was moved into take2"}},
+
+	{"owner moved into a promoted field of a literal", `
+type Wrap owner struct {
+	Conn
+	n int
+}
+func main() {
+	b := Buf{n: 1}
+	w := Wrap{buf: b, n: 2}
+	_ = w
+	_ = look(&b)
+}`, []string{"b was moved", "E3301"}},
 }
 
 func TestRejected(t *testing.T) {

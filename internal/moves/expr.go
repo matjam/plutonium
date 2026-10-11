@@ -394,10 +394,14 @@ func (f *fn) compLit(e *ast.CompositeLit) {
 			if kv, ok := el.(*ast.KeyValueExpr); ok {
 				x = kv.Value
 				if id, ok := kv.Key.(*ast.Ident); ok {
-					for j := 0; j < u.NumFields(); j++ {
-						if u.Field(j).Name() == id.Name {
-							ft = u.Field(j).Type()
-						}
+					var pkg *types2.Package
+					if v, ok := f.c.uses[id].(*types2.Var); ok {
+						pkg = v.Pkg()
+					}
+					// The field may be promoted through embedded
+					// structs (language spec section 11.3).
+					if path := types2.LiteralFields(T, pkg, id.Name); len(path) > 0 {
+						ft = path[len(path)-1].Type()
 					}
 				}
 			} else if i < u.NumFields() {

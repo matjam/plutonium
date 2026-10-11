@@ -819,6 +819,10 @@ func (w *walker) compLit(e *ast.CompositeLit) tset {
 							fi, fT = j, u.Field(j).Type()
 						}
 					}
+					if fi < 0 {
+						val.addAll(w.promotedElem(T, id, x))
+						continue
+					}
 				}
 			} else if i < u.NumFields() {
 				fi, fT = i, u.Field(i).Type()
@@ -858,6 +862,44 @@ func (w *walker) compLit(e *ast.CompositeLit) tset {
 		}
 	}
 	return val
+}
+
+// promotedElem evaluates the element x of a struct literal of type T whose
+// key names a field promoted through embedded structs (language spec
+// section 11.3), as a store into that field of the embedded field that
+// holds it.
+func (w *walker) promotedElem(T types2.Type, key *ast.Ident, x ast.Expr) tset {
+	var pkg *types2.Package
+	if f, ok := w.objOf(key).(*types2.Var); ok {
+		pkg = f.Pkg()
+	}
+	path := types2.LiteralFields(T, pkg, key.Name)
+	if len(path) == 0 {
+		return w.elem(x, nil)
+	}
+	f := path[len(path)-1]
+	ev := w.elem(x, f.Type())
+	outer := make([]*types2.Var, 0, len(path)-1)
+	for i := len(path) - 2; i >= 0; i-- {
+		outer = append(outer, path[i])
+	}
+	w.a.storeField(f, ev, outer)
+	// Tag the value with the field's place: innermost field first.
+	cur := T
+	idx := make([]int, len(path))
+	for i, g := range path {
+		s, _ := underlying(cur).(*types2.Struct)
+		for j := 0; s != nil && j < s.NumFields(); j++ {
+			if s.Field(j) == g {
+				idx[i] = j
+			}
+		}
+		cur = g.Type()
+	}
+	for i := len(idx) - 1; i >= 0; i-- {
+		ev = tagField(ev, idx[i])
+	}
+	return ev
 }
 
 func (w *walker) elems(elts []ast.Expr, T types2.Type) tset {

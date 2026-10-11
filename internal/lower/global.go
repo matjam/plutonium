@@ -322,21 +322,18 @@ func (l *Lowerer) staticValue(p *load.Package, d *ssa.Data, e ast.Expr, T types2
 		}
 		offs := l.sizes.Offsetsof(fields)
 		for i, elt := range lit.Elts {
-			idx, val := i, elt
 			if kv, ok := elt.(*ast.KeyValueExpr); ok {
 				key, _ := kv.Key.(*ast.Ident)
-				idx = -1
-				for j, f := range fields {
-					if key != nil && f.Name() == key.Name {
-						idx = j
-					}
-				}
-				if idx < 0 {
+				if key == nil {
 					return false
 				}
-				val = kv.Value
+				foff, ft, ok := l.literalField(p.Info, T, key)
+				if !ok || !l.staticValue(p, d, kv.Value, ft, off+foff) {
+					return false
+				}
+				continue
 			}
-			if !l.staticValue(p, d, val, fields[idx].Type(), off+offs[idx]) {
+			if !l.staticValue(p, d, elt, fields[i].Type(), off+offs[i]) {
 				return false
 			}
 		}
