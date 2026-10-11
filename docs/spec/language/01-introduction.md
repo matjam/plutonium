@@ -119,8 +119,9 @@ guarantees without writing annotations.
 
 **Plutonium is defined here, not by reference to Go.** Plutonium descends from Go, and many of its rules
 are Go's. This manual states each of them in full. Where it is silent, the language has no rule: it does
-not fall back on Go's specification. Notes that begin "As in Go" or "Unlike Go" follow a complete rule and
-tell a Go reader how it relates to Go. They explain; they never define.
+not fall back on Go's specification. Go is named only in this chapter, in appendix A (Differences from
+Go), which lists every difference for readers who know Go, and in appendix G (Attribution). The other
+chapters state the Plutonium rule alone.
 
 **One language version.** The manual carries a version number in its header. Every feature in it is part
 of the language. A module does not record a language version, and no feature is enabled by one. A release
@@ -150,9 +151,6 @@ describes. This manual states each rule and its code. The text of the message is
 `task` is the statement that starts one (section 12.12, Task statements). *Reserved* and *contextual*
 words are defined in section 4.5 (Keywords) and section 4.6 (Contextual keywords).
 
-**Open questions.** A block that begins `> **Open (Gn).**` marks a question that the language has not
-decided. Nothing in such a block is a rule.
-
 ### 1.4 Terms
 
 These terms are used throughout. Each is defined in full in the section cited.
@@ -173,6 +171,9 @@ These terms are used throughout. Each is defined in full in the section cited.
   Copying it adds a reference, dropping a copy releases one, and the memory is freed when the last
   reference goes. Strings, channels, maps, and `shared[T]`, `synced[T]` and `weak[P]` references are
   counted values (section 8.7, Values, views, owners and counted values; section 18.7, Shared ownership).
+- **Box.** One of `owned[T]`, `shared[T]` and `synced[T]`: one word, the address of a heap object that the
+  box owns (`owned[T]`) or counts (`shared[T]`, `synced[T]`). A `weak[P]` is a weak reference to the
+  object of a counted box, not a box itself (section 7.19, `owned`, `shared`, `synced` and `weak`).
 - **Kind.** Whether a type is a value, a view, an owner or a counted value. The kind of a type decides how
   its values are copied, moved and released (section 8.7).
 - **Frame.** The memory of one call of a function: its parameters, results, local variables and
@@ -183,8 +184,12 @@ These terms are used throughout. Each is defined in full in the section cited.
 - **Move.** Passing an owner from one place to another. The source then holds nothing, and using it before
   it is assigned again is a compile error (section 18.5, Moves).
 - **Drop.** The end of an owner's life: its `Drop` method runs if it has one, its fields are dropped, and
-  its memory is released. The compiler drops every owner a variable still holds when the variable's
-  scope ends (section 18.6, Drops).
+  its memory is released. Dropping a counted value releases its reference. The compiler drops every owner
+  and counted value a variable still holds when the variable's scope ends (section 18.6, Drops).
+- **Scope.** The part of the source in which a declared identifier denotes what it declares (chapter 10,
+  Declarations and scope). The end of a variable's scope is where what it holds is dropped. The library
+  type `sync.Scope` is named for this: its tasks are joined when its own scope ends (section 19.4, Scoped
+  tasks).
 - **Temporary.** A value that an expression produces and nothing stores. A temporary owner is dropped at
   the end of the statement that made it (section 12.4, Expression statements; section 18.6).
 - **Place.** A variable, a field of an addressable struct, an element of an array or slice, or the
@@ -194,6 +199,8 @@ These terms are used throughout. Each is defined in full in the section cited.
   frees everything at once (section 18.9, Allocators).
 - **Sendable.** A type whose values may cross from one task to another, as arguments of a task statement
   or elements of a channel (section 8.8, Sendable types; section 19.2, The sendable rule).
+- **Portable.** A type whose values may be sent between address spaces, because they refer to nothing in
+  the sender's memory (section 8.9, Portable types).
 - **Hosted, freestanding and kernel builds.** Hosted programs run under an operating system. Freestanding
   and kernel programs run without one and supply their own entry point (section 20.5, Build modes and
   targets).
@@ -202,6 +209,8 @@ These terms are used throughout. Each is defined in full in the section cited.
 - **Safe and unsafe code.** Code that the compiler checks against data races and the misuse of memory is
   safe. Code that uses package `unsafe`, the unchecked layer of the allocator interface, or functions
   written outside Plutonium is unsafe (section 18.12, Safe and unsafe code).
+- **Checked and unchecked mode.** A checked build makes a use of freed heap or arena memory a run-time
+  panic. A build without those checks is the unchecked mode, in which such a use has no defined effect.
+  Correct programs behave the same in both (section 18.11, Generation checks).
 
-Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see
-[Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

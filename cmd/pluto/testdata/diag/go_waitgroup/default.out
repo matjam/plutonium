@@ -14,7 +14,7 @@ $DIR/main.p:19:6: a function literal that captures variables cannot be started w
     before its block ends, so they may use wg where it is.
     Go moves captured variables to the heap. Plutonium never allocates behind
     the program's back, so captured variables stay in their frame (spec section
-    4.5).
+    11.5).
     Start the literal with a stdsync.Scope:
         var s stdsync.Scope
         s.Task(func() {
@@ -25,7 +25,7 @@ $DIR/main.p:19:6: a function literal that captures variables cannot be started w
         go func(wg *stdsync.WaitGroup, i int) {
             ...
         }(&wg, i)
-    (see "go starts a puroutine" in the Plutonium spec, section 4.7)
+    (see "Task statements" in the Plutonium spec, section 12.12)
     (run "pluto explain E2590" for a longer explanation)
 
 $DIR/main.p:28:5: a function literal that captures variables cannot be started with go: s lives in the starting frame, which may be gone before the puroutine runs (spec section 4.7); s has type stats, which holds a value of type stdsync.Mutex and must not be copied, so start the literal with a stdsync.Scope, which waits for it and lets it use s: var sc stdsync.Scope; sc.Task(func() {...})
@@ -44,7 +44,7 @@ $DIR/main.p:28:5: a function literal that captures variables cannot be started w
     its block ends, so they may use s where it is.
     Go moves captured variables to the heap. Plutonium never allocates behind
     the program's back, so captured variables stay in their frame (spec section
-    4.5).
+    11.5).
     Start the literal with a stdsync.Scope:
         var sc stdsync.Scope
         sc.Task(func() {
@@ -56,7 +56,7 @@ $DIR/main.p:28:5: a function literal that captures variables cannot be started w
         go func(s *stats, hits *atomic.Int64) {
             ...
         }(&s, &hits)
-    (see "go starts a puroutine" in the Plutonium spec, section 4.7)
+    (see "Task statements" in the Plutonium spec, section 12.12)
     (run "pluto explain E2590" for a longer explanation)
 
 $DIR/main.p:35:5: a function literal that captures variables cannot be started with go: n lives in the starting frame, which may be gone before the puroutine runs (spec section 4.7); pass it as an argument instead: go func(n int) {...}(n)
@@ -70,12 +70,12 @@ $DIR/main.p:35:5: a function literal that captures variables cannot be started w
     or another sync type this way, since the copy is a different one.
     Go moves captured variables to the heap. Plutonium never allocates behind
     the program's back, so captured variables stay in their frame (spec section
-    4.5).
+    11.5).
     Pass the values as arguments:
         for i := 0; i < n; i++ {
             go func(i int, out chan int) {
                 out <- i * i
             }(i, out)
         }
-    (see "go starts a puroutine" in the Plutonium spec, section 4.7)
+    (see "Task statements" in the Plutonium spec, section 12.12)
     (run "pluto explain E2590" for a longer explanation)

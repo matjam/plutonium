@@ -15,7 +15,8 @@ $DIR/main.p:10:6: append is not permitted in Plutonium (a slice cannot grow; use
         s := vec.New[int]()
         defer s.Free()
         s.Push(1)
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Built-ins Plutonium does not have" in the Plutonium spec, section
+    13.1)
     (run "pluto explain E2013" for a longer explanation)
 
 $DIR/main.p:11:6: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
@@ -35,7 +36,8 @@ $DIR/main.p:11:6: append is not permitted in Plutonium (a slice cannot grow; use
         s := vec.New[int]()
         defer s.Free()
         s.Append(2, 3)
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Built-ins Plutonium does not have" in the Plutonium spec, section
+    13.1)
     (run "pluto explain E2013" for a longer explanation)
 
 $DIR/main.p:13:6: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
@@ -56,7 +58,8 @@ $DIR/main.p:13:6: append is not permitted in Plutonium (a slice cannot grow; use
         b := vec.New[byte]()
         defer b.Free()
         vec.AppendString(&b, "yz")
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Built-ins Plutonium does not have" in the Plutonium spec, section
+    13.1)
     (run "pluto explain E2013" for a longer explanation)
 
 $DIR/main.p:14:7: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
@@ -76,7 +79,8 @@ $DIR/main.p:14:7: append is not permitted in Plutonium (a slice cannot grow; use
 
         c := slices.Clone(s)
         defer c.Free()
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Built-ins Plutonium does not have" in the Plutonium spec, section
+    13.1)
     (run "pluto explain E2013" for a longer explanation)
 
 $DIR/main.p:15:7: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
@@ -96,7 +100,8 @@ $DIR/main.p:15:7: append is not permitted in Plutonium (a slice cannot grow; use
 
         d := slices.Concat(s, c)
         defer d.Free()
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Built-ins Plutonium does not have" in the Plutonium spec, section
+    13.1)
     (run "pluto explain E2013" for a longer explanation)
 
 $DIR/main.p:16:6: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
@@ -114,7 +119,8 @@ $DIR/main.p:16:6: append is not permitted in Plutonium (a slice cannot grow; use
         import "pluto/slices"
 
         s = slices.Delete(s, 1, 2)
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Built-ins Plutonium does not have" in the Plutonium spec, section
+    13.1)
     (run "pluto explain E2013" for a longer explanation)
 
 $DIR/main.p:18:9: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
@@ -135,7 +141,8 @@ $DIR/main.p:18:9: append is not permitted in Plutonium (a slice cannot grow; use
         b := vec.NewFixed(buf[:])
         b.Append('a', 'b')
         // b.Slice() holds the elements; b.Truncated() reports what did not fit
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Built-ins Plutonium does not have" in the Plutonium spec, section
+    13.1)
     (run "pluto explain E2013" for a longer explanation)
 
 $DIR/main.p:20:12: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
@@ -151,5 +158,6 @@ $DIR/main.p:20:12: append is not permitted in Plutonium (a slice cannot grow; us
     code can run inside a kernel.
     Make l.items a vec.Vec[int], which grows from an allocator:
         l.items.Push(4)
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Built-ins Plutonium does not have" in the Plutonium spec, section
+    13.1)
     (run "pluto explain E2013" for a longer explanation)

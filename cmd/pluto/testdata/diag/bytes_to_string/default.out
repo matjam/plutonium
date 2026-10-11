@@ -25,7 +25,7 @@ $DIR/main.p:8:9: string(b) of a byte slice is not permitted in Plutonium (it wou
         import "pluto/strings"
 
         return strings.FromUTF8Lossy(b)
-    (see "Strings" in the Plutonium spec, section 6.10)
+    (see "Conversions" in the Plutonium spec, section 11.24)
     (run "pluto explain E2015" for a longer explanation)
 
 $DIR/main.p:12:9: string(b) of a byte slice is not permitted in Plutonium (it would replace bytes that are not UTF-8; use strings.FromUTF8 or strings.FromUTF8Lossy)
@@ -55,7 +55,7 @@ $DIR/main.p:12:9: string(b) of a byte slice is not permitted in Plutonium (it wo
         import "pluto/strings"
 
         return strings.FromUTF8Lossy(buf[:n])
-    (see "Strings" in the Plutonium spec, section 6.10)
+    (see "Conversions" in the Plutonium spec, section 11.24)
     (run "pluto explain E2015" for a longer explanation)
 
 $DIR/main.p:18:11: string(b) of a byte slice is not permitted in Plutonium (it would replace bytes that are not UTF-8; use strings.FromUTF8 or strings.FromUTF8Lossy)
@@ -84,7 +84,7 @@ $DIR/main.p:18:11: string(b) of a byte slice is not permitted in Plutonium (it w
         import "pluto/strings"
 
         text := strings.FromUTF8Lossy(line)
-    (see "Strings" in the Plutonium spec, section 6.10)
+    (see "Conversions" in the Plutonium spec, section 11.24)
     (run "pluto explain E2015" for a longer explanation)
 
 $DIR/main.p:26:10: string(b) of a byte slice is not permitted in Plutonium (it would replace bytes that are not UTF-8; use strings.FromUTF8 or strings.FromUTF8Lossy)
@@ -113,5 +113,5 @@ $DIR/main.p:26:10: string(b) of a byte slice is not permitted in Plutonium (it w
         import "pluto/strings"
 
         strings.FromUTF8Lossy(raw[:4])
-    (see "Strings" in the Plutonium spec, section 6.10)
+    (see "Conversions" in the Plutonium spec, section 11.24)
     (run "pluto explain E2015" for a longer explanation)

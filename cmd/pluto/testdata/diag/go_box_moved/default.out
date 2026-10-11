@@ -13,5 +13,5 @@ $DIR/main.p:13:10: p was moved to the puroutine started by go p.Serve() at line 
         p := alloc.Synced[Server]()
     If this is the last use of p, move it before line 12, where p still holds
     its value.
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Moves" in the Plutonium spec, section 18.5)
     (run "pluto explain E3301" for a longer explanation)

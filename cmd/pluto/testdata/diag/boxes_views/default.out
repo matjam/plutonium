@@ -13,7 +13,7 @@ $DIR/main.p:17:9: cannot return &n.val, which points into the object n refers to
     Return n itself: an owned box moves to the caller, and a shared or synced
     one gives the caller its own reference:
         return n
-    (see "Views" in the Plutonium spec, section 6.3)
+    (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3001" for a longer explanation)
 
 $DIR/main.p:23:2: cannot store (*Node)(n) in package variable kept, which outlives n
@@ -32,7 +32,7 @@ $DIR/main.p:23:2: cannot store (*Node)(n) in package variable kept, which outliv
     Store n itself, changing the type of kept to match: an owned box moves
     there, and a shared or synced one is counted:
         kept = n
-    (see "Views" in the Plutonium spec, section 6.3)
+    (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3002" for a longer explanation)
 
 $DIR/main.p:29:9: cannot return n as an interface: an ordinary interface only borrows the box, which is dropped when lend returns
@@ -54,7 +54,7 @@ $DIR/main.p:29:9: cannot return n as an interface: an ordinary interface only bo
         type I owner interface {
             ...
         }
-    (see "Views" in the Plutonium spec, section 6.3)
+    (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3001" for a longer explanation)
 
 $DIR/main.p:34:9: cannot return (*Node)(new(Node)), which points into the object of a temporary owned[Node] in temp's frame
@@ -70,5 +70,5 @@ $DIR/main.p:34:9: cannot return (*Node)(new(Node)), which points into the object
     code.
     Return the box itself, changing the result type to owned[Node]:
         return new(Node)
-    (see "Views" in the Plutonium spec, section 6.3)
+    (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3001" for a longer explanation)

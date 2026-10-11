@@ -30,13 +30,13 @@ ellipsis `…` is also used elsewhere in this manual to denote enumerations or c
 further specified. The character `…` (as opposed to the three characters `...`) is not a token of the
 language.
 
-**Plutonium's additions.** The notation is the same for the syntax Plutonium adds to Go's. Each chapter
-that defines new syntax gives its productions: the keywords in section 4.5 (Keywords) and 4.6
-(Contextual keywords), the type forms in chapter 7 (Types), default parameter values in section 10.13
-(Default parameter values), and the task statement in section 12.12 (Task statements). A word that is
-reserved or contextual appears in a production as a quoted token like any other, for example `"enum"` or
-`"owner"`. Section 4.6 says where a contextual word is a keyword and where it is an ordinary identifier.
-Appendix E collects all productions.
+**Where productions are given.** Each chapter that defines syntax gives its productions, and each
+production is defined in one place: the lexical tokens in chapters 3 and 4, the types in chapter 7
+(Types), declarations in chapter 10 (Declarations and scope), expressions in chapter 11 (Expressions),
+statements in chapter 12 (Statements) and packages in chapter 14 (Packages). A word that is reserved or
+contextual appears in a production as a quoted token like any other, for example `"enum"` or `"owner"`.
+Section 4.6 (Contextual keywords) says where a contextual word is a keyword and where it is an ordinary
+identifier. Appendix E (Grammar) collects all productions.
 
 **Other notation in this manual.**
 
@@ -46,5 +46,4 @@ Appendix E collects all productions.
   specification).
 - A reference such as "section 11.12" names a section of this manual by number.
 
-Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see
-[Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

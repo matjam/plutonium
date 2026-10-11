@@ -23,9 +23,9 @@ type Entry struct {
 	Why string
 	// Fix is the usual fix, or nil.
 	Fix *Fix
-	// Spec names the section of the specification that has the rule, as
-	// `"Assignability" in the Go spec; Plutonium follows Go here` or
-	// `section 4.5 of the Plutonium spec`.
+	// Spec names the section of the specification that has the rule, in
+	// the form pspec produces: `"Assignability" in the Plutonium spec,
+	// section 8.4`.
 	Spec string
 
 	// Example is a program, or part of one, with the error, and Fixed is

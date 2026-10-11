@@ -27,11 +27,10 @@ directive_args    = ( " " | "\t" ) { unicode_char } .
 A comment that is a note, not a directive, starts with `// ` (a space after the slashes) or is a general
 comment. `// pu:inline` is a note and `//pu:inline` is a directive.
 
-**Go directives.** A line comment whose first characters are `//go:` is a compile error. Plutonium does
-not use Go's directives, and a comment that looks like one but does nothing would be a false friend (section
-1.2, Design rules). The error names the `//pu:` directive that does the same job, such as `//pu:build` for
-`//go:build` and `//pu:noinline` for `//go:noinline`. It belongs to the family of E2600 (unknown
-directive).
+**`//go:` comments.** A line comment whose first characters are `//go:` is a compile error. The error
+names the `//pu:` directive that does the same job, such as `//pu:build` for `//go:build` and
+`//pu:noinline` for `//go:noinline`, or says that there is none. It belongs to the family of E2600
+(unknown directive), and section 20.3 (Directives) gives the full rule.
 
 ```
 go_comment = "//go:" { unicode_char } .   /* always an error */
@@ -116,12 +115,12 @@ continue     for          import       return       var
 enum         packed
 ```
 
-The first 25 are the keywords of Go. Plutonium adds `enum` (section 7.12, Enums) and `packed` (section
-7.14, `packed` types). Both begin type literals, and reserving them keeps the grammar simple.
+`enum` (section 7.12, Enums) and `packed` (section 7.14, `packed` types) begin type forms, and reserving
+them keeps the grammar simple.
 
-The keyword `go` begins no construct. Plutonium starts a task with the `task` statement (section 12.12,
-Task statements). `go` stays reserved so that a Go program's `go f()` is a compile error whose message
-points to `task`, and so that no variable named `go` can be misread by a Go reader.
+The keyword `go` begins no construct. A task is started with the `task` statement (section 12.12, Task
+statements). A statement that begins with `go` is a compile error whose message points to `task`, and
+`go` cannot name a variable.
 
 ```go
 go worker(jobs)   // error: go starts no task here; write: task worker(jobs)
@@ -148,20 +147,9 @@ ordinary identifier: it may name a variable, a field, a type, a function or a pa
 common identifiers in existing code (set types, ownership fields, job queues), and reserving them would
 break that code.
 
-```
-EnumType        = "enum" [ Type ] "{" { EnumMember ";" } "}" .
-PackedType      = "packed" [ "le" | "be" ] [ Type ] "{" { PackedFieldDecl ";" } "}" .
-PackedUnionType = "packed" "union" [ "le" | "be" ] Type "{" TagField ";" { PackedVariant ";" } "}" .
-UnionType       = "union" "{" { VariantDecl ";" } "}" .
-BitsType        = "bits" "[" Type "," Expression "]" | "bits" "{" { identifier } "}" .
-TypeDef         = identifier [ TypeParameters ] [ "owner" ] Type .
-TypeParamDecl   = IdentifierList [ "owner" ] TypeConstraint .
-TaskStmt        = "task" Expression .
-```
-
-The productions above show the syntax that the reserved and contextual words begin. Sections 7.12 (Enums),
-7.13 (Unions), 7.14 (`packed` types), 7.18 (Owner types), 10.8 (Type declarations), 10.9 (Type parameter
-declarations) and 12.12 (Task statements) define the complete forms and the productions they use.
+The forms these words begin, with their productions, are defined in sections 7.12 (Enums), 7.13
+(Unions), 7.14 (`packed` types), 7.18 (Owner types), 10.8 (Type declarations), 10.9 (Type parameter
+declarations) and 12.12 (Task statements).
 
 **`owner`.** In a type definition or a type parameter declaration, `owner` is the keyword when the token
 after it is an identifier, `[`, `*`, `(`, `<-`, or one of the keywords `struct`, `interface`, `func`,
@@ -486,5 +474,4 @@ will appear as two code points if placed in a string literal.
 The value of a string literal is an untyped string constant (chapter 5, Constants). A string literal is
 static and uncounted when it is used as a string value (section 18.8, Strings).
 
-Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see
-[Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

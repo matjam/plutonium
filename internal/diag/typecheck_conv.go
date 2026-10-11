@@ -8,7 +8,7 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
-// The conversions of Go that Plutonium removes (language spec section 3):
+// The conversions of Go that Plutonium removes (language spec section 11.24):
 // each fix is written with the conversion's own argument.
 
 // conversionAt returns the conversion call whose type name is at the

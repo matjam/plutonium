@@ -43,5 +43,4 @@ func f() {
 } // a is dropped here
 ```
 
-Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see
-[Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

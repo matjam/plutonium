@@ -2,9 +2,9 @@
 
 An expression specifies the computation of a value by applying operators and functions to operands.
 
-Every expression is either a **place** or a **temporary**. A place is a variable, a field of a place, an element of an array place or of a slice, or the variable a pointer points to. A temporary is a value that an expression makes and that is not stored anywhere yet: the result of a call, a conversion, a concatenation, a composite literal or a receive. A temporary lives until the end of the statement that makes it (18.6).
+Every expression is either a **place** or a **temporary**. A place is a variable, a field of a place, an element of an array place or of a slice, or the variable a pointer points to. A temporary is a value that an expression makes and that is not stored anywhere yet: the result of a call, a conversion, a concatenation, a composite literal or a receive. A temporary lives until the end of the statement that makes it (section 18.6, Drops).
 
-An expression whose type is an owner type (7.18) never copies its value. When the expression is a whole variable and its value is passed on, the variable is **moved** (18.5). The contexts that pass a value on are assignment, passing as an argument, returning, sending, storing in a field, element or composite literal, and converting to an owning interface. In every other context the owner is read in place: as the operand of a comparison, a selector, an index expression or a method call with a pointer receiver. Values of counted types (strings, `shared`, `synced`, channels, maps) are copied freely and count each copy (18.7, 18.8).
+An expression whose type is an owner type (section 7.18, Owner types) never copies its value. When the expression is a whole variable and its value is passed on, the variable is **moved** (section 18.5, Moves). The contexts that pass a value on are assignment, passing as an argument, returning, sending, storing in a field, element or composite literal, and converting to an owning interface. In every other context the owner is read in place: as the operand of a comparison, a selector, an index expression or a method call with a pointer receiver. Values of counted types (strings, `shared`, `synced`, channels, maps) are copied freely and count each copy (section 18.7, Shared ownership; section 18.8, Strings).
 
 ### 11.1 Operands
 
@@ -17,13 +17,13 @@ BasicLit    = int_lit | float_lit | rune_lit | string_lit .
 OperandName = identifier | QualifiedIdent .
 ```
 
-An operand name denoting a generic function may be followed by a list of type arguments (11.16). The resulting operand is an instantiated function.
+An operand name denoting a generic function may be followed by a list of type arguments (section 11.16, Instantiations). The resulting operand is an instantiated function.
 
-The blank identifier may appear as an operand only on the left-hand side of an assignment (12.7).
+The blank identifier may appear as an operand only on the left-hand side of an assignment (section 12.7, Assignment statements).
 
-There are no imaginary literals (4.9), so `BasicLit` has no `imaginary_lit`.
+There are no imaginary literals (section 4.9, Floating-point literals), so `BasicLit` has no `imaginary_lit`.
 
-An operand that names a variable of owner type is a read or a move, depending on the context in which it appears (the introduction of this chapter). Using a variable after it was moved is an error (18.5).
+An operand that names a variable of owner type is a read or a move, depending on the context in which it appears (the introduction of this chapter). Using a variable after it was moved is an error (section 18.5, Moves).
 
 An implementation need not report an error if an operand's type is a type parameter with an empty type set. Functions with such type parameters cannot be instantiated, and any attempt is an error at the instantiation site.
 
@@ -35,7 +35,7 @@ A qualified identifier is an identifier qualified with a package name prefix. Bo
 QualifiedIdent = PackageName "." identifier .
 ```
 
-A qualified identifier accesses an identifier in a different package, which must be imported (14.3). The identifier must be exported (10.4) and declared in the package block of that package.
+A qualified identifier accesses an identifier in a different package, which must be imported (section 14.3, Import declarations). The identifier must be exported (section 10.4, Exported identifiers) and declared in the package block of that package.
 
 ```go
 math.Sin // denotes the Sin function in package math
@@ -57,11 +57,11 @@ FieldName    = identifier .
 Element      = Expression | LiteralValue .
 ```
 
-Unless the `LiteralType` is a type parameter, its underlying type must be a struct, array, slice, map, packed or ring type (the syntax enforces this constraint except when the type is given as a `TypeName`). If the `LiteralType` is a type parameter, all types in its type set must have the same underlying type, which must be a valid composite literal type. A value of an enum type is not written as a composite literal (7.12). A value of a union type is written with one of its variants, `U.V(x)` or `U.V{...}` (11.7, 7.13); `U{...}` is an error.
+Unless the `LiteralType` is a type parameter, its underlying type must be a struct, array, slice, map, packed or ring type (the syntax enforces this constraint except when the type is given as a `TypeName`). If the `LiteralType` is a type parameter, all types in its type set must have the same underlying type, which must be a valid composite literal type. A value of an enum type is not written as a composite literal (section 7.12, Enums). A value of a union type is written with one of its variants, `U.V(x)` or `U.V{...}` (section 11.7, Selectors; section 7.13, Unions); `U{...}` is an error.
 
 The types of the elements and keys must be assignable to the respective field, element and key types of the `LiteralType`. There is no additional conversion. The key is interpreted as a field selector for struct literals, an index for array and slice literals, and a key for map literals. It is an error to specify multiple elements with the same field selector or constant key value.
 
-A literal may omit the element list. For a struct, array, packed or ring type, such a literal evaluates to the zero value of its type (15.1). For a slice or map type it evaluates to an empty value that is not nil: `[]int{}` is a slice of length 0 that is not `nil`, and `map[string]int{}` is a new empty map.
+A literal may omit the element list. For a struct, array, packed or ring type, such a literal evaluates to the zero value of its type (section 15.1, The zero value). For a slice or map type it evaluates to an empty value that is not nil: `[]int{}` is a slice of length 0 that is not `nil`, and `map[string]int{}` is a new empty map.
 
 **Parsing ambiguity.** A parsing ambiguity arises when a composite literal using the `TypeName` form of the `LiteralType` appears as an operand between the keyword and the opening brace of the block of an `if`, `for` or `switch` statement, and the composite literal is not enclosed in parentheses, square brackets or curly braces. In this rare case, the opening brace of the literal is parsed as the one that begins the block of statements. To resolve the ambiguity, the composite literal must appear within parentheses.
 
@@ -109,7 +109,7 @@ obj := Object{"edge", "black"}
 line3 := Line{Object: obj, name: "diagonal"} // error: name denotes a field inside Object
 ```
 
-An element of owner type that is a whole variable is moved into the literal. A struct literal that holds an owner therefore has an owner type, which must be declared with `owner` (7.18). A literal of a struct type with counted fields (strings, `shared`, `synced`, channels, maps) copies them and counts each copy.
+An element of owner type that is a whole variable is moved into the literal. A struct literal that holds an owner therefore has an owner type, which must be declared with `owner` (section 7.18, Owner types). A literal of a struct type with counted fields (strings, `shared`, `synced`, channels, maps) copies them and counts each copy.
 
 ```go
 c := Conn{buf: b} // moves b into the literal; Conn is declared owner
@@ -129,7 +129,7 @@ intSet := [6]int{1, 2, 3, 5}      // len(intSet) == 6
 days := [...]string{"Sat", "Sun"} // len(days) == 2
 ```
 
-An array literal is a value. An array literal whose elements are owners is an owner (7.4).
+An array literal is a value. An array literal whose elements are owners is an owner (section 7.4, Array types).
 
 A slice literal describes the entire underlying array literal. Thus the length and capacity of a slice literal are the maximum element index plus one. A slice literal of the form `[]T{x1, x2, … xn}` is shorthand for a slice operation applied to an array:
 
@@ -138,18 +138,18 @@ tmp := [n]T{x1, x2, … xn}
 tmp[0:n]
 ```
 
-The array of a slice literal is a temporary variable of the frame of the function that evaluates the literal, and the slice is a view of it (18.3). The slice may be used within the function and passed down to calls. Returning it, or keeping it where it can outlive the frame, is an error (E3001, E3002). In the initializer of a package-level variable the array is static storage, so the slice may be kept. To keep a slice of values beyond the frame, store the values in an owner such as `vec.Vec[T]` (13.1). A slice literal whose elements are owners is an error (E3312), because a slice is a view and owns nothing; write an array literal instead.
+The array of a slice literal is a temporary variable of the frame of the function that evaluates the literal, and the slice is a view of it (section 18.3, Views). The slice may be used within the function and passed down to calls. Returning it, or keeping it where it can outlive the frame, is an error (E3001, E3002). In the initializer of a package-level variable the array is static storage, so the slice may be kept. To keep a slice of values beyond the frame, store the values in an owner such as `vec.Vec[T]` (section 13.1, Built-ins Plutonium does not have). A slice literal whose elements are owners is an error (E3312), because a slice is a view and owns nothing; write an array literal instead.
 
-**Taking the address of a literal.** Taking the address of a composite literal generates a pointer to a unique variable initialized with the literal's value. The variable lives where the literal is evaluated: in the frame, or in static storage in a package-level initializer. The pointer is a view (18.3) and is subject to its rules; `return &T{}` is an error (E3001). To make a variable that outlives the frame, write `new(T{...})`, which returns an `owned[T]` (13.9).
+**Taking the address of a literal.** Taking the address of a composite literal generates a pointer to a unique variable initialized with the literal's value. The variable lives where the literal is evaluated: in the frame, or in static storage in a package-level initializer. The pointer is a view (section 18.3, Views) and is subject to its rules; `return &T{}` is an error (E3001). To make a variable that outlives the frame, write `new(T{...})`, which returns an `owned[T]` (section 13.9, Allocation).
 
 ```go
 var pointer *Point3D = &Point3D{y: 1000}   // a view of a variable in this frame
 box := new(Point3D{y: 1000})               // an owned[Point3D] on the heap
 ```
 
-**Map literals.** For map literals, each element must have a key. A map literal makes a new map each time it is evaluated, allocating its table from the current allocator (18.9). The map is a counted reference (7.10). The keys and the values of a map may not be owners (7.10); counted values are allowed and are counted as the literal copies them. For non-constant map keys, see 11.26.
+**Map literals.** For map literals, each element must have a key. A map literal makes a new map each time it is evaluated, allocating its table from the current allocator (section 18.9, Allocators). The map is a counted reference (section 7.10, Map types). The keys and the values of a map may not be owners (section 7.10, Map types); counted values are allowed and are counted as the literal copies them. For non-constant map keys, see section 11.26.
 
-**Packed and ring literals.** A literal of a packed type names the fields it sets, `ControlReg{mode: 5, enable: true}` (E2105 otherwise), and a literal of a ring type is empty (E2110) (7.14, 7.17).
+**Packed and ring literals.** A literal of a packed type names the fields it sets, `ControlReg{mode: 5, enable: true}` (E2105 otherwise), and a literal of a ring type is empty (E2110) (section 7.14, `packed` types; section 7.17, `ring[T, N]`).
 
 **Elision of element types.** Within a composite literal of array, slice or map type `T`, elements or map keys that are themselves composite literals may elide the respective literal type if it is identical to the element or key type of `T`. Similarly, elements or keys that are addresses of composite literals may elide the `&T` when the element or key type is `*T`.
 
@@ -187,7 +187,7 @@ noteFrequency := map[string]float32{
 
 ### 11.4 Function literals
 
-A function literal represents an anonymous function. Function literals cannot declare type parameters, and their parameters cannot have default values (10.13).
+A function literal represents an anonymous function. Function literals cannot declare type parameters, and their parameters cannot have default values (section 10.13, Default parameter values).
 
 ```
 FunctionLit = "func" Signature FunctionBody .
@@ -204,11 +204,11 @@ f := func(x, y int) int { return x + y }
 func(ch chan int) { ch <- ACK }(replyChan)
 ```
 
-Function literals are closures: they may refer to variables declared in a surrounding function. Those variables are shared between the surrounding function and the function literal, which means the literal refers to them where they live, by reference. A captured variable stays in the frame of the function that declares it. Nothing is moved to the heap because a literal captures it (18.2).
+Function literals are closures: they may refer to variables declared in a surrounding function. Those variables are shared between the surrounding function and the function literal, which means the literal refers to them where they live, by reference. A captured variable stays in the frame of the function that declares it. Nothing is moved to the heap because a literal captures it (section 18.2, Where variables live).
 
-A function literal that captures no variable is an ordinary function value and may be used anywhere. A function literal that captures variables is a **closure record**: the code to run together with where each captured variable is. The record is built in the frame of the function that evaluates the literal, and it is a view of that frame (18.3). 11.5 states where such a record may go.
+A function literal that captures no variable is an ordinary function value and may be used anywhere. A function literal that captures variables is a **closure record**: the code to run together with where each captured variable is. The record is built in the frame of the function that evaluates the literal, and it is a view of that frame (section 18.3, Views). Section 11.5 states where such a record may go.
 
-**Captured owners.** Captured owners stay where they are declared. The literal may use a captured owner, call its methods, take its address and assign a new value to it, which drops the old value (18.6). Moving a captured owner inside the literal (passing it by value, returning it, sending it) is an error (E3305). The literal may run several times, or not at all, so the enclosing function could not tell whether the variable still holds a value. Pass the owner to the literal as an argument, or move it before or after the literal runs. The enclosing function still owns the captured variable and drops it at the end of its scope. A deferred literal runs before the function's own variables are dropped, so it may use them. It may not use an owner declared in an inner block, which is dropped when that block ends (E3311).
+**Captured owners.** Captured owners stay where they are declared. The literal may use a captured owner, call its methods, take its address and assign a new value to it, which drops the old value (section 18.6, Drops). Moving a captured owner inside the literal (passing it by value, returning it, sending it) is an error (E3305). The literal may run several times, or not at all, so the enclosing function could not tell whether the variable still holds a value. The one exception is a literal started by a `sync.Scope`, which runs exactly once (section 19.4, Scoped tasks). Pass the owner to the literal as an argument, or move it before or after the literal runs. The enclosing function still owns the captured variable and drops it at the end of its scope. A deferred literal runs before the function's own variables are dropped, so it may use them. It may not use an owner declared in an inner block, which is dropped when that block ends (E3311).
 
 ```go
 func process(items []Item) vec.Vec[int] {
@@ -220,7 +220,7 @@ func process(items []Item) vec.Vec[int] {
 }
 ```
 
-**Loop variables.** Every iteration of a loop reuses the memory of the variables declared in the loop's header and body (18.4). A function literal that uses such a variable is valid for one iteration. Calling it, passing it down and storing it in a variable declared in the body are allowed. Keeping it where the next iteration can see it is an error (E3006). A program that compiles behaves as if each iteration had variables of its own, as in Go.
+**Loop variables.** Every iteration of a loop reuses the memory of the variables declared in the loop's header and body (section 18.4, Loop iterations reuse their storage). A function literal that uses such a variable is valid for one iteration. Calling it, passing it down and storing it in a variable declared in the body are allowed. Keeping it where the next iteration can see it is an error (E3006). Section 18.4 (Loop iterations reuse their storage) gives the rule in full.
 
 ```go
 var first func() int
@@ -235,7 +235,7 @@ for i := 0; i < 3; i++ {
 
 ### 11.5 Closures and their regions
 
-This section defines where closure records may live. The captured variables of a closure record stay in a frame (11.4), so a closure is valid while that frame is.
+This section defines where closure records may live. The captured variables of a closure record stay in a frame (section 11.4, Function literals), so a closure is valid while that frame is.
 
 **Uses within a frame.** These uses of a closure are allowed:
 
@@ -245,11 +245,11 @@ This section defines where closure records may live. The captured variables of a
 - deferring it;
 - returning it, as described below.
 
-Storing it in a package-level variable, or through a pointer into memory that may outlive the frame, is an error (E3002). Starting it with a `task` statement is an error (12.12).
+Storing it in a package-level variable, or through a pointer into memory that may outlive the frame, is an error (E3002). Starting it with a `task` statement is an error (section 12.12, Task statements).
 
 **Returned closures.** Any function may return a closure. A function whose results can hold a closure (a func result, an interface, or a struct or array that holds one) builds the closures it may return in a **region** of memory that its caller provides. The region holds the closure records, the variables they capture, and the regions of the calls whose closures the function returns in turn.
 
-The caller reserves the region in its own frame, like a local variable. The closure therefore lives as long as the caller's frame, captures by reference exactly as in Go, and costs no allocation. A caller that returns the closure in turn passes part of its own region down instead, so a chain of such calls reserves the space once, in the frame where the closure is last used. Iterators are the common case, written as in Go, with whatever checks and early returns they need:
+The caller reserves the region in its own frame, like a local variable. The closure therefore lives as long as the caller's frame, captures by reference, and costs no allocation. A caller that returns the closure in turn passes part of its own region down instead, so a chain of such calls reserves the space once, in the frame where the closure is last used. Iterators are the common case, written with whatever checks and early returns they need:
 
 ```go
 func Chunk[Slice ~[]E, E any](s Slice, n int) iter.Seq[Slice] {
@@ -269,19 +269,19 @@ func Chunk[Slice ~[]E, E any](s Slice, n int) iter.Seq[Slice] {
 
 The region holds only what is listed above. A returned closure that points to another variable of the function through a pointer it captures (`p := &x`, where the closure uses `p` but not `x`) would point into a frame that is gone. That is an error (E3001). What calling the closure returns, or passes to `yield`, may be in the region too (a closure built there, or the address of a variable it captures), and is valid as long as the caller's frame, like the closure itself.
 
-The size of a region is fixed when compiling. A call through a func value or an interface reserves the largest region of any function of its signature. A function that returns closures is an ordinary function: it can be used as a func value, a method value or an interface method, and it may be inlined. A loop over `v.All()` can therefore compile to the loop that `All` runs. Strings that the closures capture are counted as in any variable (18.8). The region holds references to them, released when the call runs again and refills the region, and when the caller returns.
+The size of a region is fixed when compiling. A call through a func value or an interface reserves the largest region of any function of its signature. A function that returns closures is an ordinary function: it can be used as a func value, a method value or an interface method, and it may be inlined. A loop over `v.All()` can therefore compile to the loop that `All` runs. Strings that the closures capture are counted as in any variable (section 18.8, Strings). The region holds references to them, released when the call runs again and refills the region, and when the caller returns.
 
 **What a region cannot hold.** The compiler follows closures through variables, fields, elements, interfaces, pointers and calls, without regard to the order of statements. It reports these cases:
 
-- A function that returns a closure made by a function literal nested in it, or in the body of a range-over-func loop (12.11). The literal is a function of its own, whose frame is gone when it returns. Also a function whose results hold a closure only through a pointer, for which its callers provide no region (E3100). The fix is to make the closure in the function that returns it, and to return it by value.
-- A closure that a call in a loop returns, kept past the iteration in a variable declared outside the loop, in a variable of the `for` statement (which passes its value on to the next iteration), or in memory reached through a pointer (E3101). Every iteration's call reuses the call's region, so the next iteration would overwrite it. A loop made by a `goto` back to a label before the call counts too (12.17). This rules out composing closures in a loop, `it = Filter(it, f)`: each call's closure would hold the one the same call made before, in the region that the call is about to refill. That is a chain as long as the loop runs, which no region of fixed size can hold. Compose a fixed number of closures, or keep what each step needs in a slice and return one closure that applies every step. Composing closures within the iteration, and passing them to functions that call or range over them, is allowed. The compiler follows what each function does with the closures it is given, and what those closures do when called. A closure is kept if any of them stores it, or what it holds, in a package-level variable or through a pointer, or passes it to a func value or an interface.
+- A function that returns a closure made by a function literal nested in it, or in the body of a range-over-func loop (section 12.11, Range over functions). The literal is a function of its own, whose frame is gone when it returns. Also a function whose results hold a closure only through a pointer, for which its callers provide no region (E3100). The fix is to make the closure in the function that returns it, and to return it by value.
+- A closure that a call in a loop returns, kept past the iteration in a variable declared outside the loop, in a variable of the `for` statement (which passes its value on to the next iteration), or in memory reached through a pointer (E3101). Every iteration's call reuses the call's region, so the next iteration would overwrite it. A loop made by a `goto` back to a label before the call counts too (section 12.17, Goto statements). This rules out composing closures in a loop, `it = Filter(it, f)`: each call's closure would hold the one the same call made before, in the region that the call is about to refill. That is a chain as long as the loop runs, which no region of fixed size can hold. Compose a fixed number of closures, or keep what each step needs in a slice and return one closure that applies every step. Composing closures within the iteration, and passing them to functions that call or range over them, is allowed. The compiler follows what each function does with the closures it is given, and what those closures do when called. A closure is kept if any of them stores it, or what it holds, in a package-level variable or through a pointer, or passes it to a func value or an interface.
 - A function that returns the closures of a call that can reach the same function again, directly, through other functions, or through a func value or interface whose implementations do, when any of them builds a closure (E3102). Its region would have to hold itself, and no fixed size fits. Build the closures in a loop, or keep their state in a value the caller owns.
 
 A function literal in a loop is built the same way: one record per literal, reused on every iteration.
 
-A call through a func value or an interface is assumed to return and keep anything passed to it. This follows the principle that doubt resolves to a compile error (1.1), so the check may reject a function that would never return or keep the record at run time.
+A call through a func value or an interface is assumed to return and keep anything passed to it. This follows the principle that doubt resolves to a compile error (section 1.2, Design rules), so the check may reject a function that would never return or keep the record at run time.
 
-**Refilling.** No closure that a call builds in its region reaches the next run of that call, by the rules above. The region is therefore released and refilled when the call runs again, and the arguments of that run cannot refer to it. The address of a variable in a region (a variable that a returned closure captures, whose address the function also returns or stores) is a view of the caller's frame at that call, like a loop variable's. It must not be kept where the next run of the call can see it. That is checked with the other frame views (18.3).
+**Refilling.** No closure that a call builds in its region reaches the next run of that call, by the rules above. The region is therefore released and refilled when the call runs again, and the arguments of that run cannot refer to it. The address of a variable in a region (a variable that a returned closure captures, whose address the function also returns or stores) is a view of the caller's frame at that call, like a loop variable's. It must not be kept where the next run of the call can see it. That is checked with the other frame views (section 18.3, Views).
 
 ### 11.6 Primary expressions
 
@@ -327,25 +327,25 @@ For a primary expression `x` that is not a package name, the selector expression
 x.f
 ```
 
-denotes the field or method `f` of the value `x` (or sometimes `*x`; see below). The identifier `f` is called the (field or method) selector. It must not be the blank identifier. The type of the selector expression is the type of `f`. If `x` is a package name, see 11.2.
+denotes the field or method `f` of the value `x` (or sometimes `*x`; see below). The identifier `f` is called the (field or method) selector. It must not be the blank identifier. The type of the selector expression is the type of `f`. If `x` is a package name, see section 11.2.
 
 A selector `f` may denote a field or method `f` of a type `T`, or it may refer to a field or method `f` of a nested embedded field of `T`. The number of embedded fields traversed to reach `f` is called its depth in `T`. The depth of a field or method `f` declared in `T` is zero. The depth of a field or method `f` declared in an embedded field `A` in `T` is the depth of `f` in `A` plus one.
 
 The following rules apply to selectors:
 
 1. For a value `x` of type `T` or `*T` where `T` is not a pointer or interface type, `x.f` denotes the field or method at the shallowest depth in `T` where there is such an `f`. If there is not exactly one `f` with shallowest depth, the selector expression is illegal.
-2. For a value `x` of type `I` where `I` is an interface type, `x.f` denotes the actual method with name `f` of the dynamic value of `x`. If there is no method with name `f` in the method set of `I` (8.6), the selector expression is illegal.
+2. For a value `x` of type `I` where `I` is an interface type, `x.f` denotes the actual method with name `f` of the dynamic value of `x`. If there is no method with name `f` in the method set of `I` (section 8.6, Method sets), the selector expression is illegal.
 3. As an exception, if the type of `x` is a defined pointer type and `(*x).f` is a valid selector expression denoting a field (but not a method), `x.f` is shorthand for `(*x).f`.
-4. For a value `x` of type `owned[T]`, `shared[T]` or `synced[T]` (7.19), `x.f` is shorthand for `(*x).f`, where `*x` is the object of the box, and `x.f` may denote a method with a pointer receiver of `T`. A struct may embed one of these types. Its selectors then promote the fields and methods of `T` as an embedded `*T` does (7.6).
+4. For a value `x` of type `owned[T]`, `shared[T]` or `synced[T]` (section 7.19, `owned`, `shared`, `synced` and `weak`), `x.f` is shorthand for `(*x).f`, where `*x` is the object of the box, and `x.f` may denote a method with a pointer receiver of `T`. A struct may embed one of these types. Its selectors then promote the fields and methods of `T` as an embedded `*T` does (section 7.6, Struct types).
 5. In all other cases, `x.f` is illegal.
 
-The `Drop` method of an embedded owner is never promoted (10.14).
+The `Drop` method of an embedded owner is never promoted (section 10.14, Method declarations).
 
-If `x` is of pointer type and has the value `nil` and `x.f` denotes a struct field, assigning to or evaluating `x.f` is a run-time panic (17.5). If `x` is of interface type and has the value `nil`, calling or evaluating the method `x.f` is a run-time panic. The same holds for a nil box.
+If `x` is of pointer type and has the value `nil` and `x.f` denotes a struct field, assigning to or evaluating `x.f` is a run-time panic (section 17.5, Faults). If `x` is of interface type and has the value `nil`, calling or evaluating the method `x.f` is a run-time panic. The same holds for a nil box.
 
-**Selecting a field of an owner.** Reading a field of a variable of owner type reads it in place. If the field is a value, the selector yields a copy of the field. If the field is itself an owner, the selector cannot move it out (E3303). Use `take(&x.f)` to move the value out and leave the zero value behind (13.10).
+**Selecting a field of an owner.** Reading a field of a variable of owner type reads it in place. If the field is a value, the selector yields a copy of the field. If the field is itself an owner, the selector cannot move it out (E3303). Use `take(&x.f)` to move the value out and leave the zero value behind (section 13.10, Moving out of a place).
 
-**Enum members and union variants.** If `x` is the name of an enum type `E`, then `E.M` denotes the member `M` of `E`, a typed constant of type `E` (7.12). If `x` is the name of a union type `U`, then `U.V` denotes the variant `V` of `U`. It is used as `U.V` for a variant without a payload, as the call `U.V(p)` or the literal `U.V{...}` for a variant with a payload, and as the function value `U.V` of type `func(P) U` (7.13). In both cases `x` may be qualified by a package (`pkg.E.M`, `pkg.U.V`), instantiated (`Result[int].Ok`), or an alias. On a type name, a member or variant takes precedence over a method of the same name. Members and variants enter no scope, and an unexported member or variant is not visible in other packages. A variant is not a type, so `var v U.V` is an error (E2409).
+**Enum members and union variants.** If `x` is the name of an enum type `E`, then `E.M` denotes the member `M` of `E`, a typed constant of type `E` (section 7.12, Enums). If `x` is the name of a union type `U`, then `U.V` denotes the variant `V` of `U`. It is used as `U.V` for a variant without a payload, as the call `U.V(p)` or the literal `U.V{...}` for a variant with a payload, and as the function value `U.V` of type `func(P) U` (section 7.13, Unions). In both cases `x` may be qualified by a package (`pkg.E.M`, `pkg.U.V`), instantiated (`Result[int].Ok`), or an alias. On a type name, a member or variant takes precedence over a method of the same name. Members and variants enter no scope, and an unexported member or variant is not visible in other packages. A variant is not a type, so `var v U.V` is an error (E2409).
 
 For example, given the declarations
 
@@ -393,7 +393,7 @@ q.x // (*(*q).T0).x        (*q).x is a valid field selector
 p.M0() // ((*p).T0).M0()      M0 expects *T0 receiver
 p.M1() // ((*p).T1).M1()      M1 expects T1 receiver
 p.M2() // p.M2()              M2 expects *T2 receiver
-t.M2() // (&t).M2()           M2 expects *T2 receiver, see 11.14
+t.M2() // (&t).M2()           M2 expects *T2 receiver, see section 11.14
 ```
 
 but the following is invalid:
@@ -404,7 +404,7 @@ q.M0() // (*q).M0 is valid but not a field selector
 
 ### 11.8 Method expressions
 
-If `M` is in the method set of type `T` (8.6), `T.M` is a function that is callable as a regular function with the same arguments as `M`, prefixed by an additional argument that is the receiver of the method.
+If `M` is in the method set of type `T` (section 8.6, Method sets), `T.M` is a function that is callable as a regular function with the same arguments as `M`, prefixed by an additional argument that is the receiver of the method.
 
 ```
 MethodExpr   = ReceiverType "." MethodName .
@@ -440,13 +440,13 @@ For a method with a value receiver, one can derive a function with an explicit p
 
 The final case, a value-receiver function for a pointer-receiver method, is illegal because pointer-receiver methods are not in the method set of the value type.
 
-Function values derived from methods are called with function call syntax. The receiver is provided as the first argument to the call. That is, given `f := T.Mv`, `f` is invoked as `f(t, 7)`, not `t.f(7)`. To construct a function that binds the receiver, use a function literal or a method value (11.9).
+Function values derived from methods are called with function call syntax. The receiver is provided as the first argument to the call. That is, given `f := T.Mv`, `f` is invoked as `f(t, 7)`, not `t.f(7)`. To construct a function that binds the receiver, use a function literal or a method value (section 11.9, Method values).
 
-If `T` is an owner type and `Mv` has a value receiver, `Mv` consumes its receiver (8.6). The function `T.Mv` then consumes its first argument, which is moved into the call like any other owner argument (11.14). For `Conn.Close(c)` the variable `c` is moved.
+If `T` is an owner type and `Mv` has a value receiver, `Mv` consumes its receiver (section 8.6, Method sets). The function `T.Mv` then consumes its first argument, which is moved into the call like any other owner argument (section 11.14, Calls). For `Conn.Close(c)` the variable `c` is moved.
 
 It is legal to derive a function value from a method of an interface type. The resulting function takes an explicit receiver of that interface type.
 
-A function value derived from a method has every parameter of the method. Default parameter values are not part of a function type, so none are applied (10.13).
+A function value derived from a method has every parameter of the method. Default parameter values are not part of a function type, so none are applied (section 10.13, Default parameter values).
 
 ### 11.9 Method values
 
@@ -512,9 +512,9 @@ var i interface{ M(int) } = myVal
 f := i.M; f(7) // like i.M(7)
 ```
 
-**Where the record lives.** A method value is a closure record (11.4). It holds a copy of the receiver, or the address of the receiver variable for a pointer method of an addressable value. The record is built in the frame of the function that evaluates the method value, and it is a view of that frame (18.3). The rules of 11.5 apply to it. A copy of the receiver that holds strings counts them, and releases them when the record's storage is released. A method value cannot be started with a `task` statement (12.12). Default parameter values are not applied to a call of a method value (10.13). A method value of a method with its own type parameters must be instantiated (10.15).
+**Where the record lives.** A method value is a closure record (section 11.4, Function literals). It holds a copy of the receiver, or the address of the receiver variable for a pointer method of an addressable value. The record is built in the frame of the function that evaluates the method value, and it is a view of that frame (section 18.3, Views). The rules of section 11.5 apply to it. A copy of the receiver that holds strings counts them, and releases them when the record's storage is released. A method value cannot be started with a `task` statement (section 12.12, Task statements). Default parameter values are not applied to a call of a method value (section 10.13, Default parameter values). A method value of a method with its own type parameters must be instantiated (section 10.15, Methods with type parameters).
 
-**Consuming methods.** A method with a value receiver on an owner type consumes its receiver (8.6). Such a method has no method value. `c.Close`, where `Close` consumes `c`, is an error. A record that held `c` would own it, and every call of the record would consume it again. Call the method directly, `c.Close()`, or use the method expression, `Conn.Close(c)` (11.8).
+**Consuming methods.** A method with a value receiver on an owner type consumes its receiver (section 8.6, Method sets). Such a method has no method value. `c.Close`, where `Close` consumes `c`, is an error. A record that held `c` would own it, and every call of the record would consume it again. Call the method directly, `c.Close()`, or use the method expression, `Conn.Close(c)` (section 11.8, Method expressions).
 
 ```go
 type Conn owner struct{ fd int32 }
@@ -536,7 +536,7 @@ A primary expression of the form
 a[x]
 ```
 
-denotes the element of the array, pointer to array, slice, string or map `a` indexed by `x`. The value `x` is called the index or map key, respectively. Indexing a value of any other type is possible only for library containers (11.11). The following rules apply.
+denotes the element of the array, pointer to array, slice, string or map `a` indexed by `x`. The value `x` is called the index or map key, respectively. Indexing a value of any other type is possible only for library containers (section 11.11, Indexing library containers). The following rules apply.
 
 If `a` is neither a map nor a type parameter:
 
@@ -548,7 +548,7 @@ If `a` is neither a map nor a type parameter:
 For `a` of array type `A`:
 
 - a constant index must be in range;
-- if `x` is out of range at run time, a run-time panic occurs (17.1);
+- if `x` is out of range at run time, a run-time panic occurs (section 17.1, Panics);
 - `a[x]` is the array element at index `x`, and the type of `a[x]` is the element type of `A`.
 
 For `a` of pointer to array type, `a[x]` is shorthand for `(*a)[x]`.
@@ -591,11 +591,11 @@ var v, ok = a[x]
 
 yields an additional untyped boolean value. The value of `ok` is `true` if the key `x` is present in the map, and `false` otherwise.
 
-Assigning to an element of a `nil` map causes a run-time panic. A map element is not addressable: `&m[k]` and the assignment `m[k].f = v` are errors. The statements `m[k] = v`, `m[k] += v` and `m[k]++` are allowed (12.6, 12.7).
+Assigning to an element of a `nil` map causes a run-time panic. A map element is not addressable: `&m[k]` and the assignment `m[k].f = v` are errors. The statements `m[k] = v`, `m[k] += v` and `m[k]++` are allowed (section 12.6, IncDec statements; section 12.7, Assignment statements).
 
-**Elements that are owners.** An index expression yields a copy of the element when it is read. For an element of owner type that would be a second owner, so reading such an element as a value is an error (E3303), as moving an owner out of any place other than a whole variable is (18.5). The elements of an array or slice of owners are used in place: `a[x].M()` calls a method with a pointer receiver on the element, and `&a[x]` is a view of it. To move an element out, use `take(&a[x])` (13.10). Assigning to such an element, `a[x] = v`, drops the old value first and moves `v` in (12.7).
+**Elements that are owners.** An index expression yields a copy of the element when it is read. For an element of owner type that would be a second owner, so reading such an element as a value is an error (E3303), as moving an owner out of any place other than a whole variable is (section 18.5, Moves). The elements of an array or slice of owners are used in place: `a[x].M()` calls a method with a pointer receiver on the element, and `&a[x]` is a view of it. To move an element out, use `take(&a[x])` (section 13.10, Moving out of a place). Assigning to such an element, `a[x] = v`, drops the old value first and moves `v` in (section 12.7, Assignment statements).
 
-**Counted elements.** Reading an element that is a string, `shared`, `synced`, channel or map copies it and counts the copy (18.7, 18.8).
+**Counted elements.** Reading an element that is a string, `shared`, `synced`, channel or map copies it and counts the copy (section 18.7, Shared ownership; section 18.8, Strings).
 
 ### 11.11 Indexing library containers
 
@@ -610,8 +610,7 @@ The growable containers of the standard library (`vec.Vec[T]`, `hash.Map[K, V]`)
 | `len(x)` | `x.Len()` | |
 
 ```go
-counts := hash.NewMap[string, int](0)
-defer counts.Free()
+counts := hash.NewMap[string, int](0) // dropped, and its table freed, when the function returns
 counts["a"] = 1      // counts.SetIndex("a", 1)
 counts["a"] += 2     // counts.SetIndex("a", counts.Index("a")+2)
 n := counts["zzz"]   // 0: hash.Map's Index returns the zero value for a missing key
@@ -634,9 +633,9 @@ for i := 0; i < len(v); i++ { ... }
 
 **Ownership.** The receiver is borrowed for the call (a view, 18.3), so indexing never moves the container. `x[k] = v` moves `v` into the container when `V` is an owner, and `SetIndex` drops the value it replaces. `Index` returns a copy, which for an owner `V` would be a second owner. Reading `x[k]` from a container of owners is therefore an error (E3309). Such code uses `Ptr` to look at an element, or a method that takes it out (`Remove`, `Pop`).
 
-**Deleting** from a container is a method, `m.Delete(k)`. The predeclared `delete` is for the built-in map (13.5).
+**Deleting** from a container is a method, `m.Delete(k)`. The predeclared `delete` is for the built-in map (section 13.5, Deletion of map elements).
 
-**Range.** A `for` statement over a value of such a type ranges over its `All` method (12.10).
+**Range.** A `for` statement over a value of such a type ranges over its `All` method (section 12.10, For statements).
 
 **Generics.** `pluto/container` declares the constraints: `Indexable[K, V]` (`Index` and `SetIndex`), `Reader[K, V]`, `Lookup[K, V]` (`IndexOk`), `Sized` (`Len`) and `Iterable[K, V]` (`All`, for range). A value of a type parameter so constrained supports the corresponding syntax. The library's containers declare their methods on pointer receivers, so their pointers satisfy the constraints:
 
@@ -703,7 +702,7 @@ var s []int
 s3 := s[:0] // s3 == nil
 ```
 
-**Slices are views.** A slice that a slice expression makes is a view (18.3) of the array it shares. If the array is a local variable, the slice is a view of the frame. A slice of a string shares the string's buffer and keeps it alive, as a copy of the string does (18.8). A slice of an array of owners is a view of the owners and does not own them.
+**Slices are views.** A slice that a slice expression makes is a view (section 18.3, Views) of the array it shares. If the array is a local variable, the slice is a view of the frame. A slice of a string shares the string's buffer and keeps it alive, as a copy of the string does (section 18.8, Strings). A slice of an array of owners is a view of the owners and does not own them.
 
 **Full slice expressions.** For an array, pointer to array or slice `a` (but not a string), the primary expression
 
@@ -729,7 +728,7 @@ As for simple slice expressions, if `a` is a pointer to an array, `a[low : high 
 
 The indices are in range if `0 <= low <= high <= max <= cap(a)`, otherwise they are out of range. A constant index must be non-negative and representable by a value of type `int`. For arrays, constant indices must also be in range. If multiple indices are constant, the constants that are present must be in range relative to each other. If the indices are out of range at run time, a run-time panic occurs.
 
-**Strings slice on rune boundaries.** Every string holds valid UTF-8 (7.3). A string is therefore sliced only between runes. A byte offset `k` of a string `s` is a **rune boundary** if `k` is 0, if `k` is `len(s)`, or if the byte `s[k]` is not a UTF-8 continuation byte (a byte of the form `10xxxxxx`). In `s[low : high]`, both `low` and `high` must be rune boundaries of `s`. If either is not, a run-time panic occurs (17.1). The message names the offset and the helper function to use, for example:
+**Strings slice on rune boundaries.** Every string holds valid UTF-8 (section 7.3, String types). A string is therefore sliced only between runes. A byte offset `k` of a string `s` is a **rune boundary** if `k` is 0, if `k` is `len(s)`, or if the byte `s[k]` is not a UTF-8 continuation byte (a byte of the form `10xxxxxx`). In `s[low : high]`, both `low` and `high` must be rune boundaries of `s`. If either is not, a run-time panic occurs (section 17.1, Panics). The message names the offset and the helper function to use, for example:
 
 ```
 panic: slice bound 2 is not at the start of a rune: a string holds valid UTF-8, so it can only be sliced between runes (use strings.Truncate to cut at a byte count)
@@ -737,7 +736,7 @@ panic: slice bound 2 is not at the start of a rune: a string holds valid UTF-8, 
 
 If `s` and both indices are constant, the check is made when compiling and a failure is an error. An ASCII string has a rune boundary at every offset, so slicing it never panics for this reason. The check is part of the meaning of the expression. An implementation may leave it out only where the bound is known to be a rune boundary.
 
-This is the one documented exception to the rule that code which looks like Go does what Go would do (A.5). Go slices bytes and may leave half a rune at the end of a string. The standard library provides the fix. `strings.Truncate(s string, n int) string` returns the longest prefix of `s` of at most `n` bytes that ends on a rune boundary, and `utf8.RuneStartBefore(s string, i int) int` returns the greatest rune boundary of `s` that is at most `i`:
+This is the one documented exception to the no-false-friends rule (section 1.2, Design rules; appendix A, section A.5). The standard library provides the fix. `strings.Truncate(s string, n int) string` returns the longest prefix of `s` of at most `n` bytes that ends on a rune boundary, and `utf8.RuneStartBefore(s string, i int) int` returns the greatest rune boundary of `s` that is at most `i`:
 
 ```go
 if len(title) > 40 {
@@ -745,7 +744,7 @@ if len(title) > 40 {
 }
 ```
 
-A string made with `unsafe.String` (20.1) may hold bytes that are not valid UTF-8. Slicing such a string uses the same boundary rule on its bytes.
+A string made with `unsafe.String` (section 20.1, Package `unsafe`) may hold bytes that are not valid UTF-8. Slicing such a string uses the same boundary rule on its bytes.
 
 ### 11.13 Type assertions
 
@@ -759,7 +758,7 @@ asserts that `x` is not `nil` and that the value stored in `x` is of type `T`. T
 
 More precisely, if `T` is not an interface type, `x.(T)` asserts that the dynamic type of `x` is identical to the type `T`. In this case, `T` must implement the (interface) type of `x`. Otherwise the type assertion is invalid, since it is not possible for `x` to store a value of type `T`. If `T` is an interface type, `x.(T)` asserts that the dynamic type of `x` implements the interface `T`.
 
-If the type assertion holds, the value of the expression is the value stored in `x`, and its type is `T`. If the type assertion is false, a run-time panic occurs (17.1). In other words, even though the dynamic type of `x` is known only at run time, the type of `x.(T)` is known to be `T` in a correct program.
+If the type assertion holds, the value of the expression is the value stored in `x`, and its type is `T`. If the type assertion is false, a run-time panic occurs (section 17.1, Panics). In other words, even though the dynamic type of `x` is known only at run time, the type of `x.(T)` is known to be `T` in a correct program.
 
 ```go
 var x interface{} = 7 // x has dynamic type int and value 7
@@ -785,13 +784,13 @@ var v, ok interface{} = x.(T) // dynamic types of v and ok are T and bool
 
 yields an additional untyped boolean value. The value of `ok` is `true` if the assertion holds. Otherwise it is `false` and the value of `v` is the zero value for type `T`. No run-time panic occurs in this case.
 
-**Unions.** For an expression `u` of union type `U` and a variant `V` of `U`, `u.(U.V)` yields the payload of `V` and panics if `u` holds another variant. The form `p, ok := u.(U.V)` reports instead, with `p` the zero payload when `ok` is false. A bare variant name is not accepted in an assertion (7.13).
+**Unions.** For an expression `u` of union type `U` and a variant `V` of `U`, `u.(U.V)` yields the payload of `V` and panics if `u` holds another variant. The form `p, ok := u.(U.V)` reports instead, with `p` the zero payload when `ok` is false. A bare variant name is not accepted in an assertion (section 7.13, Unions).
 
-**Owners.** An ordinary interface (`any`, `error`, `io.Reader`, any interface type not declared `owner`) only lends the value it holds (7.9). Asserting an ordinary interface to an owner type is an error (E3308), since the result would be a second owner of the lent value. Assert it to an interface type and use the value's methods instead.
+**Owners.** An ordinary interface (`any`, `error`, `io.Reader`, any interface type not declared `owner`) only lends the value it holds (section 7.9, Interface types). Asserting an ordinary interface to an owner type is an error (E3308), since the result would be a second owner of the lent value. Assert it to an interface type and use the value's methods instead.
 
-A type assertion from an **owning interface** to an owner type moves the value out of the interface. The operand `x` must be a whole variable or a temporary, and it holds nothing afterward. In the comma-ok form `v, ok := x.(T)`, `x` is moved only where `ok` is true, and it is still usable on the path where `ok` is false. The same holds for an owner union: `f, ok := s.(Slot.Open)` moves the payload out only where `ok` is true, and the single-value form `f := s.(Slot.Open)` moves it out and leaves `s` empty (7.13, 18.5).
+A type assertion from an **owning interface** to an owner type moves the value out of the interface. The operand `x` must be a whole variable or a temporary, and it holds nothing afterward. In the comma-ok form `v, ok := x.(T)`, `x` is moved only where `ok` is true, and it is still usable on the path where `ok` is false. The same holds for an owner union: `f, ok := s.(Slot.Open)` moves the payload out only where `ok` is true, and the single-value form `f := s.(Slot.Open)` moves it out and leaves `s` empty (section 7.13, Unions; section 18.5, Moves).
 
-**Frame copies.** An interface that holds a value larger than a word holds a copy of it in the frame (7.9). Asserting it to its type yields a copy of that value, which is subject to the rules of its own type.
+**Frame copies.** An interface that holds a value larger than a word holds a copy of it in the frame (section 7.9, Interface types). Asserting it to its type yields a copy of that value, which is subject to the rules of its own type.
 
 ### 11.14 Calls
 
@@ -801,7 +800,7 @@ Given an expression `f` of function type `F`,
 f(a1, a2, … an)
 ```
 
-calls `f` with arguments `a1, a2, … an`. Except for one special case, arguments must be single-valued expressions assignable to the parameter types of `F`, and are evaluated before the function is called (11.26). The type of the expression is the result type of `F`. A method invocation is similar, but the method itself is specified as a selector upon a value of the receiver type for the method.
+calls `f` with arguments `a1, a2, … an`. Except for one special case, arguments must be single-valued expressions assignable to the parameter types of `F`, and are evaluated before the function is called (section 11.26, Order of evaluation). The type of the expression is the result type of `F`. A method invocation is similar, but the method itself is specified as a selector upon a value of the receiver type for the method.
 
 ```go
 math.Atan2(x, y) // function call
@@ -809,9 +808,9 @@ var pt *Point
 pt.Scale(3.5) // method call with receiver pt
 ```
 
-If `f` denotes a generic function, it must be instantiated (11.16) before it can be called or used as a function value. If the type of `f` is a type parameter, all types in its type set must have the same underlying type, which must be a function type, and the function call must be valid for that type.
+If `f` denotes a generic function, it must be instantiated (section 11.16, Instantiations) before it can be called or used as a function value. If the type of `f` is a type parameter, all types in its type set must have the same underlying type, which must be a function type, and the function call must be valid for that type.
 
-In a function call, the function value and the arguments are evaluated in the order of 11.26. After they are evaluated, new storage is allocated for the function's variables, which includes its parameters and results. Then the arguments of the call are passed to the function, which means that they are assigned to their corresponding function parameters, and the called function begins execution. The return parameters of the function are passed back to the caller when the function returns. Calling a nil function value causes a run-time panic.
+In a function call, the function value and the arguments are evaluated in the order of section 11.26. After they are evaluated, new storage is allocated for the function's variables, which includes its parameters and results. Then the arguments of the call are passed to the function, which means that they are assigned to their corresponding function parameters, and the called function begins execution. The return parameters of the function are passed back to the caller when the function returns. Calling a nil function value causes a run-time panic.
 
 **The special case.** As a special case, if the return values of a function or method `g` are equal in number and individually assignable to the parameters of another function or method `f`, then the call `f(g(parameters_of_g))` invokes `f` after passing the return values of `g` to the parameters of `f` in order. The call of `f` must contain no parameters other than the call of `g`, and `g` must have at least one return value. If `f` has a final `...` parameter, it is assigned the return values of `g` that remain after assignment of regular parameters. If `g` returns fewer values than `f` has parameters, the remaining parameters of `f` take their default values, provided they all have one.
 
@@ -829,12 +828,12 @@ if Join(Split(value, len(value)/2)) != value {
 }
 ```
 
-**Default parameter values.** A call may omit any suffix of the parameters that have default values (10.13). Each omitted parameter takes its default as follows:
+**Default parameter values.** A call may omit any suffix of the parameters that have default values (section 10.13, Default parameter values). Each omitted parameter takes its default as follows:
 
 - The default expression is evaluated by this call, after all explicit arguments, in the order of the parameters. Its temporaries live in the caller's frame.
 - The names in the default are resolved in the package that declares the callee, so a call from another package may run the callee's unexported helpers.
-- For a `defer` statement, the defaults are evaluated with the other arguments when the statement runs (12.19).
-- The type arguments of the callee's instance are the type arguments the default sees. Omitted parameters take no part in type inference (11.17), so a type parameter that appears only in omitted parameters must be given explicitly.
+- For a `defer` statement, the defaults are evaluated with the other arguments when the statement runs (section 12.19, Defer statements).
+- The type arguments of the callee's instance are the type arguments the default sees. Omitted parameters take no part in type inference (section 11.17, Type inference), so a type parameter that appears only in omitted parameters must be given explicitly.
 - Defaults apply to calls that name a declared function or method directly: `f(x)`, `pkg.F(x)`, `F[T](x)` and `v.M(x)`, including promoted methods and methods with type parameters. A function value, a method value, a method expression and a call through an interface have every parameter, since function types do not record defaults. After `g := pkg.F`, the value `g` is called with every argument.
 
 ```go
@@ -853,19 +852,19 @@ var p Point
 p.Scale(3.5)
 ```
 
-The receiver of a pointer-receiver method may also be a temporary of owner type, such as the result of a call. The temporary is the receiver for the duration of the statement. A view of it, such as the slice that `readAll(f).Slice()` returns, may be passed to calls in the same statement and may not be kept (18.3, 18.6). For a temporary of any other type, a pointer-receiver method needs an addressable operand, and the result of a call is not addressable.
+The receiver of a pointer-receiver method may also be a temporary of owner type, such as the result of a call. The temporary is the receiver for the duration of the statement. A view of it, such as the slice that `readAll(f).Slice()` returns, may be passed to calls in the same statement and may not be kept (section 18.3, Views; section 18.6, Drops). For a temporary of any other type, a pointer-receiver method needs an addressable operand, and the result of a call is not addressable.
 
 There is no distinct method type and there are no method literals.
 
-**Passing arguments.** An argument is assigned to its parameter (12.7), with these consequences for the kinds of 8.7:
+**Passing arguments.** An argument is assigned to its parameter (section 12.7, Assignment statements), with these consequences for the kinds of section 8.7:
 
 - A value is copied.
-- An owner that is a whole variable is **moved** into the parameter (18.5). The callee drops it when it returns, unless it moves it on. An owner that is not a whole variable (a field, an element, `*p`) cannot be moved out (E3303). Use `take` (13.10).
-- A string is **borrowed**: the caller keeps it alive for the call, and the callee counts only the copies it keeps (18.8). A `shared`, `synced` or `weak` reference, a channel or a map is copied, and the copy is counted.
-- A view is passed unchanged. Passing a view down to a call is always allowed (18.3). If the callee keeps it, the callee's summary decides whether the view may outlive what it looks at.
-- A receiver with a value receiver on an owner type is moved into the call like an argument (8.6).
+- An owner that is a whole variable is **moved** into the parameter (section 18.5, Moves). The callee drops it when it returns, unless it moves it on. An owner that is not a whole variable (a field, an element, `*p`) cannot be moved out (E3303). Use `take` (section 13.10, Moving out of a place).
+- A string is **borrowed**: the caller keeps it alive for the call, and the callee counts only the copies it keeps (section 18.8, Strings). A `shared`, `synced` or `weak` reference, a channel or a map is copied, and the copy is counted.
+- A view is passed unchanged. Passing a view down to a call is always allowed (section 18.3, Views). If the callee keeps it, the callee's summary decides whether the view may outlive what it looks at.
+- A receiver with a value receiver on an owner type is moved into the call like an argument (section 8.6, Method sets).
 
-**Results.** A result of owner type is handed to the caller. A result that the call expression does not store is a temporary. It is dropped at the end of the statement that evaluates the call (12.4, 18.6).
+**Results.** A result of owner type is handed to the caller. A result that the call expression does not store is a temporary. It is dropped at the end of the statement that evaluates the call (section 12.4, Expression statements; section 18.6, Drops).
 
 **Moves and uses in one expression.** An expression that moves a variable and uses the same variable anywhere else in the expression is an error, whatever the order of evaluation. A use is any read, borrow or move, including a use inside a function literal in the expression. The fix is a line before the expression:
 
@@ -876,9 +875,9 @@ n := buf.Len()
 send(buf, n)         // allowed
 ```
 
-The rule does not depend on 11.26, so a reader need not know the order of evaluation to know whether the code compiles. Assigning the result back to the moved variable is not a use (`v = grow(v)`). Permuting assignments (`a, b = b, a`) are not affected (12.7).
+The rule does not depend on 11.26, so a reader need not know the order of evaluation to know whether the code compiles. Assigning the result back to the moved variable is not a use (`v = grow(v)`). Permuting assignments (`a, b = b, a`) are not affected (section 12.7, Assignment statements).
 
-An explicit call `x.Drop()` on an owner variable ends its life (18.6). Calling `Drop` in any other way is an error (E3307).
+An explicit call `x.Drop()` on an owner variable ends its life (section 18.6, Drops). Calling `Drop` in any other way is an error (E3307).
 
 ### 11.15 Passing arguments to `...` parameters
 
@@ -905,7 +904,7 @@ Greeting("goodbye:", s...)
 
 within `Greeting`, `who` has the same value as `s` with the same underlying array.
 
-The array that holds the actual arguments is a temporary in the frame of the caller (static storage in a package-level initializer), and the slice is a view of it (18.3). The callee may use it and pass it down. It may not keep it. Owners cannot be passed as variadic arguments, since the slice would be a view that owns nothing (E3310). A function with a `...` parameter cannot have parameters with default values (10.13).
+The array that holds the actual arguments is a temporary in the frame of the caller (static storage in a package-level initializer), and the slice is a view of it (section 18.3, Views). The callee may use it and pass it down. It may not keep it. Owners cannot be passed as variadic arguments, since the slice would be a view that owns nothing (E3310). A function with a `...` parameter cannot have parameters with default values (section 10.13, Default parameter values).
 
 ### 11.16 Instantiations
 
@@ -925,9 +924,9 @@ type parameter list    type arguments    after substitution
 [P comparable]         any               any satisfies (but does not implement) comparable
 ```
 
-An owner type satisfies a constraint only if the constraint is marked `owner` (10.9). A type parameter without `owner` cannot be instantiated with an owner type (E3207). A union type is a valid type argument, and unions cannot appear in constraints. A method with type parameters of its own is instantiated with them after its receiver's type arguments (10.15).
+An owner type satisfies a constraint only if the constraint is marked `owner` (section 10.9, Type parameter declarations). A type parameter without `owner` cannot be instantiated with an owner type (E3207). A union type is a valid type argument, and unions cannot appear in constraints. A method with type parameters of its own is instantiated with them after its receiver's type arguments (section 10.15, Methods with type parameters).
 
-When using a generic function or method, type arguments may be provided explicitly, or they may be partially or completely inferred (11.17) from the context in which the function is used. Provided that they can be inferred, type argument lists may be omitted entirely if the function is
+When using a generic function or method, type arguments may be provided explicitly, or they may be partially or completely inferred (section 11.17, Type inference) from the context in which the function is used. Provided that they can be inferred, type argument lists may be omitted entirely if the function is
 
 - called with ordinary arguments,
 - assigned to a variable with a known type,
@@ -1005,7 +1004,7 @@ Type inference supports calls of generic functions and any use of a generic func
 
 Type inference operates on a set of equations specific to each of these cases. The equations are as follows (type argument lists are omitted for clarity):
 
-- In a function call `f(a0, a1, …)` where `f` or a function argument `ai` is a generic function: each pair `(ai, pi)` of corresponding function arguments and parameters of `f`, where `ai` is not an untyped constant, yields an equation `typeof(pi) ≡A typeof(ai)`. If `ai` is an untyped constant `cj`, and `typeof(pi)` is a bound type parameter `Pk`, the pair `(cj, Pk)` is collected separately from the type equations. Parameters that the call omits because they have default values (10.13) yield no equation.
+- In a function call `f(a0, a1, …)` where `f` or a function argument `ai` is a generic function: each pair `(ai, pi)` of corresponding function arguments and parameters of `f`, where `ai` is not an untyped constant, yields an equation `typeof(pi) ≡A typeof(ai)`. If `ai` is an untyped constant `cj`, and `typeof(pi)` is a bound type parameter `Pk`, the pair `(cj, Pk)` is collected separately from the type equations. Parameters that the call omits because they have default values (section 10.13, Default parameter values) yield no equation.
 - In a context where a generic function `f` must be assignable to a (non-generic) function type `T`: `typeof(f) ≡A T`.
 
 Additionally, each type parameter `Pk` and corresponding type constraint `Ck` yields the type equation `Pk ≡C Ck`.
@@ -1013,7 +1012,7 @@ Additionally, each type parameter `Pk` and corresponding type constraint `Ck` yi
 Type inference gives precedence to type information obtained from typed operands before considering untyped constants. Therefore, inference proceeds in two phases:
 
 1. The type equations are solved for the bound type parameters using type unification. If unification fails, type inference fails.
-2. For each bound type parameter `Pk` for which no type argument has been inferred yet and for which one or more pairs `(cj, Pk)` with that same type parameter were collected, determine the constant kind of the constants `cj` in all those pairs the same way as for constant expressions (11.25). The type argument for `Pk` is the default type for the determined constant kind. If a constant kind cannot be determined due to conflicting constant kinds, type inference fails.
+2. For each bound type parameter `Pk` for which no type argument has been inferred yet and for which one or more pairs `(cj, Pk)` with that same type parameter were collected, determine the constant kind of the constants `cj` in all those pairs the same way as for constant expressions (section 11.25, Constant expressions). The type argument for `Pk` is the default type for the determined constant kind. If a constant kind cannot be determined due to conflicting constant kinds, type inference fails.
 
 If not all type arguments have been found after these two phases, type inference fails.
 
@@ -1044,7 +1043,7 @@ The rules for when two types unify follow.
 
 Two types that are not bound type parameters **unify exactly** if any of the following conditions is true:
 
-- Both types are identical (8.3).
+- Both types are identical (section 8.3, Type identity).
 - Both types have identical structure and their element types unify exactly.
 - Exactly one type is an unbound type parameter, and all the types in its type set unify with the other type per the unification rules for `≡A` (loose unification at the top level and exact unification for element types).
 
@@ -1085,7 +1084,7 @@ mul_op     = "*" | "/" | "%" | "<<" | ">>" | "&" | "&^" .
 unary_op   = "+" | "-" | "!" | "^" | "*" | "&" | "<-" .
 ```
 
-Comparisons are discussed in 11.20. For other binary operators, the operand types must be identical unless the operation involves shifts or untyped constants. For operations involving constants only, see 11.25.
+Comparisons are discussed in section 11.20. For other binary operators, the operand types must be identical unless the operation involves shifts or untyped constants. For operations involving constants only, see section 11.25.
 
 Except for shift operations, if one operand is an untyped constant and the other operand is not, the constant is implicitly converted to the type of the other operand.
 
@@ -1111,13 +1110,20 @@ var w int64 = 1.0 << 33 // 1.0<<33 is a constant shift expression; w == 1<<33
 var x = a[1.0<<s]       // panics: 1.0 has type int, but 1<<33 overflows array bounds
 ```
 
-The results are given for 64-bit `int`, which is the width of `int` on every target (7.2).
+The results are given for 64-bit `int`, which is the width of `int` on every target (section 7.2, Numeric types).
 
-Operands of owner type are compared (11.20) and nothing else.
+**Owners.** Operands of an owner type may be compared (section 11.20, Comparison operators), and no other binary or unary operator applies to them, whatever the underlying type: `f + 1` for `type Fd owner int32` is an error, since its result would be a new owner made by arithmetic. The arithmetic is written on the value read out by a conversion, which moves nothing (section 11.24, Conversions):
 
-> **Open (G13).** The decisions make an owner type comparable when its underlying type is, and say nothing about the arithmetic, bitwise and shift operators on an owner type with a numeric underlying type, such as `type Fd owner int32`. The result of `f + 1` would be a new `Fd`, a new owner made outside the declaring package, which G14 forbids for conversions. Recommendation: the operators other than comparison do not apply to operands of owner type. Convert first, `int32(f) + 1`, which reads `f` and moves nothing (11.24). Until this is decided, this chapter does not define those operators for owners.
+```go
+type Fd owner int32
 
-**Operator precedence.** Unary operators have the highest precedence. As the `++` and `--` operators form statements, not expressions (12.6), they fall outside the operator hierarchy. As a consequence, the statement `*p++` is the same as `(*p)++`.
+func next(f *Fd) int32 {
+	// return *f + 1      // error: + does not apply to an owner
+	return int32(*f) + 1 // reads the number; f still holds its owner
+}
+```
+
+**Operator precedence.** Unary operators have the highest precedence. As the `++` and `--` operators form statements, not expressions (section 12.6, IncDec statements), they fall outside the operator hierarchy. As a consequence, the statement `*p++` is the same as `(*p)++`.
 
 There are five precedence levels for binary operators. Multiplication operators bind strongest, followed by addition operators, comparison operators, `&&` (logical AND), and finally `||` (logical OR):
 
@@ -1162,7 +1168,7 @@ Arithmetic operators apply to numeric values and yield a result of the same type
 >>   right shift            integer >> integer >= 0
 ```
 
-There are no complex types (7.2), so no arithmetic operator applies to one. The arithmetic, bitwise and shift operators do not apply to enum values (E2316). An enum value may be a shift count or an index. Convert an enum to an integer type first (11.24).
+There are no complex types (section 7.2, Numeric types), so no arithmetic operator applies to one. The arithmetic, bitwise and shift operators do not apply to enum values (E2316). An enum value may be a shift count or an index. Convert an enum to an integer type first (section 11.24, Conversions).
 
 If the operand type is a type parameter, the operator must apply to each type in that type set. The operands are represented as values of the type argument that the type parameter is instantiated with, and the operation is computed with the precision of that type argument. For example, given the function
 
@@ -1205,7 +1211,7 @@ int32             -2147483648
 int64    -9223372036854775808
 ```
 
-If the divisor is a constant, it must not be zero. If the divisor is zero at run time, a run-time panic occurs (17.1). If the dividend is non-negative and the divisor is a constant power of 2, the division may be replaced by a right shift, and computing the remainder may be replaced by a bitwise AND operation:
+If the divisor is a constant, it must not be zero. If the divisor is zero at run time, a run-time panic occurs (section 17.1, Panics). If the dividend is non-negative and the divisor is a constant power of 2, the division may be replaced by a right shift, and computing the remainder may be replaced by a bitwise AND operation:
 
 ```
  x     x / 4     x % 4     x >> 2     x & 3
@@ -1255,7 +1261,7 @@ s := "hi" + string(c)
 s += " and good bye"
 ```
 
-String addition creates a new string by concatenating the operands. If both operands are constants, the result is a constant in static storage (11.25). Otherwise the new string is a counted string (18.8) whose bytes are allocated from the current allocator (18.9). It is freed when its last copy goes. The result of concatenating valid UTF-8 is valid UTF-8. In kernel mode the allocation follows the rules of any allocation (20.11). With no allocator set, the operation panics (18.9).
+String addition creates a new string by concatenating the operands. If both operands are constants, the result is a constant in static storage (section 11.25, Constant expressions). Otherwise the new string is a counted string (section 18.8, Strings) whose bytes are allocated from the current allocator (section 18.9, Allocators). It is freed when its last copy goes. The result of concatenating valid UTF-8 is valid UTF-8. In kernel mode the allocation follows the rules of any allocation (section 20.11, Allocation in kernel mode). With no allocator set, the operation panics (section 18.9, Allocators).
 
 ### 11.20 Comparison operators
 
@@ -1272,36 +1278,7 @@ Comparison operators compare two operands and yield an untyped boolean value.
 
 In any comparison, the first operand must be assignable to the type of the second operand, or vice versa.
 
-The equality operators `==` and `!=` apply to operands of comparable types. The ordering operators `<`, `<=`, `>` and `>=` apply to operands of ordered types. These terms and the result of the comparisons are defined as follows:
-
-- Boolean types are comparable. Two boolean values are equal if they are either both `true` or both `false`.
-- Integer types are comparable and ordered. Two integer values are compared in the usual way.
-- Floating-point types are comparable and ordered. Two floating-point values are compared as defined by the IEEE 754 standard.
-- String types are comparable and ordered. Two string values are compared lexically byte-wise.
-- Enum types are comparable and ordered. Two enum values are compared as the integers they are (7.12).
-- Pointer types are comparable. Two pointer values are equal if they point to the same variable or if both have value `nil`. Pointers to distinct zero-size variables may or may not be equal.
-- Channel types are comparable. Two channel values are equal if they refer to the same channel, that is, if they were created by the same call to `make` or if both have value `nil`.
-- `owned[T]`, `shared[T]`, `synced[T]` and `weak[P]` are comparable. Two values are equal if they refer to the same object, which is the same address, or if both are `nil` (7.19).
-- Interface types that are not type parameters are comparable. Two interface values are equal if they have identical dynamic types and equal dynamic values or if both have value `nil`.
-- A value `x` of non-interface type `X` and a value `t` of interface type `T` can be compared if type `X` is comparable and `X` implements `T`. They are equal if `t`'s dynamic type is identical to `X` and `t`'s dynamic value is equal to `x`.
-- Struct types are comparable if all their field types are comparable. Two struct values are equal if their corresponding non-blank field values are equal. The fields are compared in source order, and comparison stops as soon as two field values differ (or all fields have been compared).
-- Array types are comparable if their array element types are comparable. Two array values are equal if their corresponding element values are equal. The elements are compared in ascending index order, and comparison stops as soon as two element values differ (or all elements have been compared).
-- Union types are comparable if every payload type is comparable. Two values are equal when they hold the same variant with equal payloads (7.13).
-- Packed types are comparable. Two values are equal when their storage is equal (7.14).
-- Type parameters are comparable if they are strictly comparable (below).
-
-**Owners.** An owner type is comparable if its underlying type is comparable. Comparing reads both operands in place and moves neither (18.5). A comparison of two owners of the same type, such as two file descriptors declared `type Fd owner int32`, compares their underlying values.
-
-```go
-var f, g Fd
-if f == g { … }     // reads f and g; neither is moved
-var root owned[Node]
-if root == nil { … } // tests whether the box is empty
-```
-
-A comparison of two interface values with identical dynamic types causes a run-time panic if that type is not comparable. This behavior applies not only to direct interface value comparisons but also when comparing arrays of interface values or structs with interface-valued fields.
-
-Slice, map and function types are not comparable. However, as a special case, a slice, map or function value may be compared to the predeclared identifier `nil`. Comparison of pointer, channel, box and interface values to `nil` is also allowed and follows from the general rules above.
+The equality operators `==` and `!=` apply to operands of comparable types, and the ordering operators `<`, `<=`, `>` and `>=` to operands of ordered types. Which types are comparable and ordered, how values of each are compared, and when a comparison panics are defined in section 8.10 (Comparable types). Comparing operands of an owner type reads both in place and moves neither (section 18.5, Moves). A slice, map or function value may be compared only to the predeclared identifier `nil`.
 
 ```go
 const c = 3 < 4 // c is the untyped boolean constant true
@@ -1317,12 +1294,7 @@ var (
 )
 ```
 
-A type is **strictly comparable** if it is comparable and not an interface type nor composed of interface types. Specifically:
-
-- Boolean, numeric, string, enum, pointer, channel and box types are strictly comparable.
-- Struct types are strictly comparable if all their field types are strictly comparable.
-- Array types are strictly comparable if their array element types are strictly comparable.
-- Type parameters are strictly comparable if all types in their type set are strictly comparable.
+Strict comparability, which the constraint `comparable` uses, is defined in section 8.10.
 
 ### 11.21 Logical operators
 
@@ -1338,9 +1310,9 @@ Logical operators apply to boolean values and yield a result of the same type as
 
 For an operand `x` of type `T`, the address operation `&x` generates a pointer of type `*T` to `x`. The operand must be **addressable**, that is, either a variable, pointer indirection, or slice indexing operation; or a field selector of an addressable struct operand; or an array indexing operation of an addressable array. The object of a box (`*p` for a `p` of type `owned[T]`, `shared[T]` or `synced[T]`) is a variable. As an exception to the addressability requirement, `x` may also be a (possibly parenthesized) composite literal. If the evaluation of `x` would cause a run-time panic, then the evaluation of `&x` does too.
 
-These are not addressable: a map element (E2454 for a container element), the bytes of a string, a constant, a call result, and a payload selected from a union. A temporary of owner type is the receiver of a pointer-receiver method (11.14) and is not otherwise addressable.
+These are not addressable: a map element (E2454 for a container element), the bytes of a string, a constant, a call result, and a payload selected from a union. A temporary of owner type is the receiver of a pointer-receiver method (section 11.14, Calls) and is not otherwise addressable.
 
-For an operand `x` of pointer type `*T`, the pointer indirection `*x` denotes the variable of type `T` pointed to by `x`. If `x` is `nil`, an attempt to evaluate `*x` causes a run-time panic (17.5).
+For an operand `x` of pointer type `*T`, the pointer indirection `*x` denotes the variable of type `T` pointed to by `x`. If `x` is `nil`, an attempt to evaluate `*x` causes a run-time panic (section 17.5, Faults).
 
 ```go
 &x
@@ -1354,9 +1326,9 @@ var x *int = nil
 &*x // causes a run-time panic
 ```
 
-**`&x` is a view of `x` where it lives.** A pointer is a view (18.3). Where a variable lives is decided by its declaration: a local variable or parameter lives in its function's frame, a package variable in static storage, a field in its struct, and an element in its array (18.2). Taking an address never moves a variable to the heap, and `return &x` does not copy `x` to the caller. For a local variable it is an error (E3001), because the view would outlive the frame. The fixes are to return `x` itself, which moves or copies it to the caller, or to allocate it with `new` (13.9). A pointer to a variable declared in a loop is valid for one iteration (18.4). A pointer to a volatile or aligned variable keeps the qualifier: `&u.data` has type `*volatile[uint8]` (7.15).
+**`&x` is a view of `x` where it lives.** A pointer is a view (section 18.3, Views). Where a variable lives is decided by its declaration: a local variable or parameter lives in its function's frame, a package variable in static storage, a field in its struct, and an element in its array (section 18.2, Where variables live). Taking an address never moves a variable to the heap, and `return &x` does not copy `x` to the caller. For a local variable it is an error (E3001), because the view would outlive the frame. The fixes are to return `x` itself, which moves or copies it to the caller, or to allocate it with `new` (section 13.9, Allocation). A pointer to a variable declared in a loop is valid for one iteration (section 18.4, Loop iterations reuse their storage). A pointer to a volatile or aligned variable keeps the qualifier: `&u.data` has type `*volatile[uint8]` (section 7.15, `volatile[T]`).
 
-**Owners.** `*p` of a pointer to an owner is a place, so it cannot be moved out of (E3303). Assigning to it, `*p = v`, drops the old value and moves `v` in (12.7). The conversion `(*T)(p)` and the expression `&*p` give a `*T` view of the object of a box (7.19).
+**Owners.** `*p` of a pointer to an owner is a place, so it cannot be moved out of (E3303). Assigning to it, `*p = v`, drops the old value and moves `v` in (section 12.7, Assignment statements). The conversion `(*T)(p)` and the expression `&*p` give a `*T` view of the object of a box (section 7.19, `owned`, `shared`, `synced` and `weak`).
 
 ### 11.23 Receive operator
 
@@ -1382,9 +1354,9 @@ var x, ok T = <-ch
 
 yields an additional untyped boolean result reporting whether the communication succeeded. The value of `ok` is `true` if the value received was delivered by a successful send operation to the channel, or `false` if it is a zero value generated because the channel is closed and empty.
 
-**Owners.** Receiving an owner moves it to the receiver: after `ch <- b` in one task, the receiver of `v := <-ch` owns the value (12.5, 19.2). A receive whose value is not stored is a temporary, and the owner is dropped at the end of the statement. A zero value that a closed channel yields for an owner element type holds nothing.
+**Owners.** Receiving an owner moves it to the receiver: after `ch <- b` in one task, the receiver of `v := <-ch` owns the value (section 12.5, Send statements; section 19.2, The sendable rule). A receive whose value is not stored is a temporary, and the owner is dropped at the end of the statement. A zero value that a closed channel yields for an owner element type holds nothing.
 
-A receive may wait. It is not allowed in code that must not wait, such as an interrupt handler (20.10). A receive in a `select` with a `default` case never waits (12.13).
+A receive may wait. It is not allowed in code that must not wait, such as an interrupt handler (section 20.10, Interrupts). A receive in a `select` with a `default` case never waits (section 12.13, Select statements).
 
 ### 11.24 Conversions
 
@@ -1409,7 +1381,7 @@ func()(x)       // function signature func() x
 func() int(x)   // x is converted to func() int (unambiguous)
 ```
 
-**Constant conversions.** A constant value `x` can be converted to type `T` if `x` is representable by a value of `T` (8.5). Converting a constant to a type that is not a type parameter yields a typed constant.
+**Constant conversions.** A constant value `x` can be converted to type `T` if `x` is representable by a value of `T` (section 8.5, Representability). Converting a constant to a type that is not a type parameter yields a typed constant.
 
 ```go
 uint(iota)              // iota value of type uint
@@ -1436,15 +1408,15 @@ the conversion `P(1.1)` results in a non-constant value of type `P`, and the val
 
 **Non-constant conversions.** A non-constant value `x` can be converted to type `T` in any of these cases:
 
-- `x` is assignable to `T` (8.4).
-- Ignoring struct tags (below), `x`'s type and `T` are not type parameters but have identical underlying types (8.2).
+- `x` is assignable to `T` (section 8.4, Assignability).
+- Ignoring struct tags (below), `x`'s type and `T` are not type parameters but have identical underlying types (section 8.2, Underlying types).
 - Ignoring struct tags, `x`'s type and `T` are pointer types that are not named types, and their pointer base types are not type parameters but have identical underlying types.
 - `x`'s type and `T` are both integer or floating-point types.
 - `x` is a value of type `rune`, or a slice of runes, and `T` is a string type (below).
 - `x` is a slice, `T` is an array or a pointer to an array, and the slice and array types have identical element types (below).
 - `x` is an integer or an enum value, and `T` is an enum type (below).
 - `x` is an enum value, and `T` is an integer or floating-point type.
-- `x` and `T` are related by the rules for packed types (7.14) or union types (7.13).
+- `x` and `T` are related by the rules for packed types (section 7.14, `packed` types) or union types (section 7.13, Unions).
 - `x` is a value, and `T` is an owner type, or `x` is an owner and `T` is not (below).
 
 Additionally, if `T` or `x`'s type `V` are type parameters, `x` can also be converted to type `T` if one of the following conditions applies:
@@ -1477,7 +1449,7 @@ var person = (*Person)(data) // ignoring tags, the underlying types are identica
 
 Specific rules apply to (non-constant) conversions between numeric types or to and from a string type. These conversions may change the representation of `x` and incur a run-time cost. All other conversions only change the type but not the representation of `x`.
 
-There is no linguistic mechanism to convert between pointers and integers. The package `unsafe` implements this functionality under restricted circumstances (20.1).
+There is no linguistic mechanism to convert between pointers and integers. The package `unsafe` implements this functionality under restricted circumstances (section 20.1, Package `unsafe`).
 
 **Conversions between numeric types.** For the conversion of non-constant numeric values, these rules apply:
 
@@ -1486,7 +1458,7 @@ There is no linguistic mechanism to convert between pointers and integers. The p
 3. When converting an integer or floating-point number to a floating-point type, the result value is rounded to the precision specified by the destination type. For instance, the value of a variable `x` of type `float32` may be stored using additional precision beyond that of an IEEE 754 32-bit number, but `float32(x)` represents the result of rounding `x`'s value to 32-bit precision. Similarly, `x + 0.1` may use more than 32 bits of precision, but `float32(x + 0.1)` does not.
 4. In all non-constant conversions involving floating-point values, if the result type cannot represent the value, the conversion succeeds but the result value is implementation-dependent. This includes the conversion of a NaN or an infinity to an integer. The conversion never faults and never panics.
 
-**Conversions to and from a string type.** A conversion to a string type allocates a counted string (18.8) from the current allocator (18.9), except where it is constant or yields a one-byte ASCII string, which is static. The string is valid UTF-8.
+**Conversions to and from a string type.** A conversion to a string type allocates a counted string (section 18.8, Strings) from the current allocator (section 18.9, Allocators), except where it is constant or yields a one-byte ASCII string, which is static. The string is valid UTF-8.
 
 - A value of type `rune`, or an untyped constant, converts to a string that holds the UTF-8 encoding of the code point. Values outside the range of valid Unicode code points, and surrogate halves, are converted to `"�"`. A value of any other integer type is an error. Write `string(rune(i))` to convert the code point `i`, or `strconv.Itoa(i)` to write the number.
 
@@ -1517,10 +1489,10 @@ string([]myRune{0x266b, 0x266c}) // "♫♬" == "♫♬"
 myString([]myRune{0x1f30e})      // "\U0001f30e" == "🌎"
 ```
 
-- A conversion from a slice of bytes to a string, `string(b)`, is an error. A string holds valid UTF-8 (7.3), and a slice of bytes may hold any bytes, so the conversion would have to change them. Use `strings.FromUTF8(b)`, which returns a string and an error, when the bytes should be text. Use `strings.FromUTF8Lossy(b)`, which replaces each byte that does not begin a valid UTF-8 sequence with U+FFFD, where replacement is acceptable. For binary data keep the bytes in a `[]byte`, a `vec.Vec[byte]` or an array: a `[32]byte` is a valid map key.
-- Conversions of a string to a slice, `[]byte(s)` and `[]rune(s)`, are errors. A slice is a view, and the conversion would have to make an array that nothing owns. The fixes are `strings.Bytes(s)`, which returns a `vec.Vec[byte]`; `copy(buf[:], s)`, which fills a buffer the caller owns without allocating; and `for i, r := range s` or `strings.Runes(s)` for runes (12.10).
+- A conversion from a slice of bytes to a string, `string(b)`, is an error. A string holds valid UTF-8 (section 7.3, String types), and a slice of bytes may hold any bytes, so the conversion would have to change them. Use `strings.FromUTF8(b)`, which returns a string and an error, when the bytes should be text. Use `strings.FromUTF8Lossy(b)`, which replaces each byte that does not begin a valid UTF-8 sequence with U+FFFD, where replacement is acceptable. For binary data keep the bytes in a `[]byte`, a `vec.Vec[byte]` or an array: a `[32]byte` is a valid map key.
+- Conversions of a string to a slice, `[]byte(s)` and `[]rune(s)`, are errors. A slice is a view, and the conversion would have to make an array that nothing owns. The fixes are `strings.Bytes(s)`, which returns a `vec.Vec[byte]`; `copy(buf[:], s)`, which fills a buffer the caller owns without allocating; and `for i, r := range s` or `strings.Runes(s)` for runes (section 12.10, For statements).
 
-**Conversions from slice to array or array pointer.** Converting a slice to an array yields an array containing the elements of the underlying array of the slice. Similarly, converting a slice to an array pointer yields a pointer to the underlying array of the slice, which is a view of it (18.3). In both cases, if the length of the slice is less than the length of the array, a run-time panic occurs. A conversion to an array copies the elements, so it is an error when the element type is an owner, which would be duplicated.
+**Conversions from slice to array or array pointer.** Converting a slice to an array yields an array containing the elements of the underlying array of the slice. Similarly, converting a slice to an array pointer yields a pointer to the underlying array of the slice, which is a view of it (section 18.3, Views). In both cases, if the length of the slice is less than the length of the array, a run-time panic occurs. A conversion to an array copies the elements, so it is an error when the element type is an owner, which would be duplicated.
 
 ```go
 var buf [4]byte
@@ -1544,7 +1516,7 @@ t2 := (*[1]string)(t) // panics: len([1]string) > len(t)
 
 **Enums.** `E(c)` for an integer constant `c` is valid if `c` is the value of a member of `E`, and gives that member. For a non-constant integer `n`, `E(n)` is valid only in the comma-ok form `v, ok := E(n)` (or with `=`, or `var v, ok = E(n)`). The value `ok` reports whether `n` equals a member's value, and `v` is that member, or the zero value if `ok` is false (E2314 for the form without `ok`). Floats and other non-integer types do not convert to an enum (E2313). An enum converts to any integer or floating-point type as its underlying integer does. Conversions to and from an enum with the same underlying type go through the integer type. See 7.12.
 
-**Owners.** Three rules decide the conversions that involve an owner type (7.18).
+**Owners.** Three rules decide the conversions that involve an owner type (section 7.18, Owner types).
 
 1. Converting a value to an owner type makes a new owner. It is allowed only in the package that declares the owner type, where the invariants of the type are kept. In any other package it is an error (E3212).
 2. Converting an owner to a type that is not an owner reads the value and moves nothing. The result is a plain value with no `Drop`.
@@ -1557,13 +1529,13 @@ func (f *Frame) Drop() { freeFrame(uintptr(*f)) } // rule 2: reads the number
 func Alloc() Frame     { return Frame(nextFree()) } // rule 1: makes an owner from a number
 ```
 
-Converting an owner to an interface type lends it when the interface is ordinary, and moves it when the interface is owning (7.9). A value-receiver method of an owner type never satisfies an interface method (8.6), so the conversion is an error when the interface needs one.
+Converting an owner to an interface type lends it when the interface is ordinary, and moves it when the interface is owning (section 7.9, Interface types). A value-receiver method of an owner type never satisfies an interface method (section 8.6, Method sets), so the conversion is an error when the interface needs one.
 
-**Packed types and unions.** A packed type converts to and from an integer type of its size and from a byte array of its length (7.14). A packed union converts to and from its backing type, and a payload converts back to its union (7.13). A union does not convert implicitly from anything; a value of another union type with identical variants converts explicitly.
+**Packed types and unions.** A packed type converts to and from an integer type of its size and from a byte array of its length (section 7.14, `packed` types). A packed union converts to and from its backing type, and a payload converts back to its union (section 7.13, Unions). A union does not convert implicitly from anything; a value of another union type with identical variants converts explicitly.
 
 ### 11.25 Constant expressions
 
-Constant expressions may contain only constant operands and are evaluated at compile time. The constant operands are literals, constant identifiers, `iota`, enum members, the results of constant conversions, and calls of the built-in functions that have constant results: `len` and `cap` of an array or of a constant string that contain no channel receives and no function calls, `len(E)` of an enum type `E` (7.12), `min` and `max` of constants, and the functions of package `unsafe` that report sizes and offsets (20.1).
+Constant expressions may contain only constant operands and are evaluated at compile time. The constant operands are literals, constant identifiers, `iota`, enum members, the results of constant conversions, and calls of the built-in functions that have constant results: `len` and `cap` of an array or of a constant string that contain no channel receives and no function calls, `len(E)` of an enum type `E` (section 7.12, Enums), `min` and `max` of constants, and the functions of package `unsafe` that report sizes and offsets (section 20.1, Package `unsafe`).
 
 Untyped boolean, numeric and string constants may be used as operands wherever it is legal to use an operand of boolean, numeric or string type, respectively.
 
@@ -1625,7 +1597,7 @@ An implementation may use rounding while computing untyped floating-point consta
 
 ### 11.26 Order of evaluation
 
-At package level, initialization dependencies determine the evaluation order of individual initialization expressions in variable declarations (15.2). Otherwise, the operands of an expression, assignment or return statement are evaluated in two steps.
+At package level, initialization dependencies determine the evaluation order of individual initialization expressions in variable declarations (section 15.2, Package initialization). Otherwise, the operands of an expression, assignment or return statement are evaluated in two steps.
 
 1. All function calls, method calls, receive operations and binary logical operations are evaluated first, in lexical left-to-right order. A call happens after the calls in its own operands: the function value and the arguments are evaluated, then the call is made. A binary logical operation (`&&`, `||`) is a sequence point. Its left operand is evaluated completely before the right operand is evaluated, and the right operand is evaluated only if the operator requires it.
 2. Then the remaining operands are evaluated in lexical left-to-right order, using the values the calls left behind. These are the reads of variables, field selectors, index expressions, slice expressions, pointer indirections, conversions, and the arithmetic, comparison and other operators.
@@ -1652,10 +1624,10 @@ The same rule applies to the operands of the left-hand side of an assignment. In
 
 **Other rules.**
 
-- The explicit arguments of a call are evaluated first. The default expressions of omitted parameters are evaluated after them, left to right, and before the call is made (11.14).
-- In a `task` or `defer` statement, the function value and the arguments are evaluated when the statement runs, by the same rule (12.12, 12.19).
+- The explicit arguments of a call are evaluated first. The default expressions of omitted parameters are evaluated after them, left to right, and before the call is made (section 11.14, Calls).
+- In a `task` or `defer` statement, the function value and the arguments are evaluated when the statement runs, by the same rule (section 12.12, Task statements; section 12.19, Defer statements).
 - An operand that panics when it is evaluated (an index out of range, a nil dereference, a division by zero) panics at its place in this order, that is, after the calls of the expression.
-- An owner variable that an expression moves is moved when the call or assignment that takes it is performed. A moved variable cannot be used elsewhere in the same expression (11.14), so the time of the move cannot be observed. The temporaries of an expression are dropped at the end of the statement (18.6).
+- An owner variable that an expression moves is moved when the call or assignment that takes it is performed. A moved variable cannot be used elsewhere in the same expression (section 11.14, Calls), so the time of the move cannot be observed. The temporaries of an expression are dropped at the end of the statement (section 18.6, Drops).
 - Floating-point operations within a single expression are evaluated according to the associativity of the operators. Explicit parentheses affect the evaluation by overriding the default associativity. In the expression `x + (y + z)` the addition `y + z` is performed before adding `x`.
 
 At package level, initialization dependencies override the left-to-right rule for individual initialization expressions, but not for operands within each expression:
@@ -1672,6 +1644,4 @@ func sqr(x int) int { return x * x }
 
 The function calls happen in the order `u()`, `sqr()`, `v()`, `f()`, `v()` and `g()`.
 
-Go leaves the order of the operands in step 2 unspecified, so that `[]int{a, f()}` may be `[1 2]` or `[2 2]` there. The order stated here is the order the gc compiler uses, so programs that rely on it behave the same in both languages.
-
-Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see [Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

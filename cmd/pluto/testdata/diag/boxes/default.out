@@ -4,7 +4,7 @@ $DIR/main.p:14:12: weak takes shared[T] or synced[T], not Node
     references.
     Name the counted reference type the weak reference comes from:
         weak[shared[Node]]
-    (see "Shared ownership" in the Plutonium spec, section 6.5)
+    (see "owned, shared, synced and weak" in the Plutonium spec, section 7.19)
     (run "pluto explain E3211" for a longer explanation)
 
 $DIR/main.p:9:13: owned cannot hold an interface type (Reader): use an owning interface
@@ -17,7 +17,7 @@ $DIR/main.p:9:13: owned cannot hold an interface type (Reader): use an owning in
         }
     To put the value itself in a box, use its own type: owned[File] rather than
     owned[Reader].
-    (see "owned, shared, synced and weak" in the Plutonium spec, section 5.6)
+    (see "owned, shared, synced and weak" in the Plutonium spec, section 7.19)
     (run "pluto explain E3210" for a longer explanation)
 
 $DIR/main.p:24:19: cannot use b (variable of struct type Buf) as Finisher value in variable declaration: Buf does not implement Finisher (method Finish has a value receiver of owner type Buf, so calling it would consume the owner; it cannot implement an interface method: declare it on *Buf and convert a pointer)
@@ -33,5 +33,5 @@ $DIR/main.p:24:19: cannot use b (variable of struct type Buf) as Finisher value 
         func (b *Buf) Finish(...) ...
 
         ... = &b
-    (see "Implementing an interface" in the Go spec; Plutonium follows Go here)
+    (see "Interface types" in the Plutonium spec, section 7.9)
     (run "pluto explain E0021" for a longer explanation)

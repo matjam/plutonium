@@ -14,5 +14,5 @@ $DIR/main.p:13:2: onPanic is the panic handler, so it must not wait
     Write to rt.Console{} instead of os.Stderr in a panic or interrupt handler;
     os.File writes may wait for the poller:
         p.Print(rt.Console{})
-    (see "Interrupts" in the Plutonium spec, section 12.6)
+    (see "Interrupts" in the Plutonium spec, section 20.10)
     (run "pluto explain E2584" for a longer explanation)

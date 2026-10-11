@@ -9,5 +9,5 @@ kernel: no panic handler is defined
     Mark one function with //pu:panic:
         //pu:panic
         func onPanic(p *rt.Panic) { ... }
-    (see "Panics in freestanding programs" in the Plutonium spec, section 8.1)
+    (see "Panics in freestanding programs" in the Plutonium spec, section 17.4)
     (run "pluto explain E2580" for a longer explanation)

@@ -9,7 +9,7 @@ freestanding: no panic handler is defined
     Mark one function with //pu:panic:
         //pu:panic
         func onPanic(p *rt.Panic) { ... }
-    (see "Panics in freestanding programs" in the Plutonium spec, section 8.1)
+    (see "Panics in freestanding programs" in the Plutonium spec, section 17.4)
     (run "pluto explain E2580" for a longer explanation)
 
 $DIR/main.p:1:1: this program starts puroutines, uses channels or waits in pluto/sync, so it needs a scheduler, and none is bound: mark a package-level variable whose type implements rt.Scheduler with //pu:scheduler (language spec section 4.7; hosted builds bind one by default)
@@ -22,5 +22,5 @@ $DIR/main.p:1:1: this program starts puroutines, uses channels or waits in pluto
     Bind the kernel's scheduler:
         //pu:scheduler
         var scheduler kernelScheduler
-    (see "go starts a puroutine" in the Plutonium spec, section 4.7)
+    (see "The scheduler contract" in the Plutonium spec, section 19.5)
     (run "pluto explain E2593" for a longer explanation)

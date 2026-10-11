@@ -7,7 +7,7 @@ $DIR/main.p:6:1: //pu:stack: invalid size "2T" (want a number of bytes with an o
     Put it on main:
         //pu:stack 256M
         func main() { ... }
-    (see "Directives" in the Plutonium spec, section 9)
+    (see "Directives" in the Plutonium spec, section 20.3)
     (run "pluto explain E2560" for a longer explanation)
 
 $DIR/main.p:3:1: //pu:stack applies only to func main in package main

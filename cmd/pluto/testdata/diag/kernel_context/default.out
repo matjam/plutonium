@@ -14,7 +14,7 @@ $DIR/main.p:14:1: onPanic is the panic handler, so it must never return
             x86.Cli()
             x86.Hlt()
         }
-    (see "Panics in freestanding programs" in the Plutonium spec, section 8.1)
+    (see "Panics in freestanding programs" in the Plutonium spec, section 17.4)
     (run "pluto explain E2583" for a longer explanation)
 
 $DIR/main.p:31:2: keyboard is an interrupt handler, so it must not wait
@@ -30,5 +30,5 @@ $DIR/main.p:31:2: keyboard is an interrupt handler, so it must not wait
     instead.
     To hand work to normal code, use a non-blocking send:
         select { case work <- item: default: }
-    (see "Interrupts" in the Plutonium spec, section 12.6)
+    (see "Interrupts" in the Plutonium spec, section 20.10)
     (run "pluto explain E2584" for a longer explanation)

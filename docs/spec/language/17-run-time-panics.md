@@ -29,9 +29,9 @@ A panic in a task other than the one that runs `main` names the task: the built-
 - An index expression out of range on an array, a slice or a string (section 11.10, Index expressions).
 - A slice expression whose bounds are out of range (section 11.12, Slice expressions).
 - A slice expression on a string with a bound that is not at the start of a rune. A string holds valid
-  UTF-8 and can be sliced only between runes. This is the one rule where Plutonium's behavior differs
-  from Go's without a compile error (appendix A.5). The standard library provides `strings.Truncate`
-  and `utf8.RuneStartBefore` for cutting at a rune boundary, and the message names them.
+  UTF-8 and can be sliced only between runes. This is the one documented exception to the no-false-friends
+  rule (section 1.2, Design rules; appendix A, section A.5). The standard library provides
+  `strings.Truncate` and `utf8.RuneStartBefore` for cutting at a rune boundary, and the message names them.
 - A conversion of a slice to an array type with a different length (section 11.24, Conversions).
 
 *Arithmetic.*
@@ -47,10 +47,12 @@ dependent value and neither panics nor faults (section 11.24).
 
 - A failed type assertion with a single result, on an interface or on a union (section 11.13, Type
   assertions).
-- A type switch on a union value whose tag names no variant, when the switch has no `default` case. Only
-  unsafe code or memory corruption can make such a value.
+- A type switch on a union value whose tag names no variant, and an expression switch on an enum value that
+  is not a member, when the switch has no `default` case (section 12.9, Switch statements). Only unsafe
+  code, raw bits converted to a packed type, or generic code working on the underlying integer can make
+  such a value.
 - A comparison of two interface values that have identical dynamic types that are not comparable, and
-  the use of such a value as a map key (section 11.20, Comparison operators).
+  the use of such a value as a map key (section 8.10, Comparable types).
 - An assignment to an entry of a nil map.
 - A dereference of a nil pointer, of a nil `owned`, `shared` or `synced` value, and a call of a nil function
   value (section 17.5, Faults).
@@ -87,9 +89,10 @@ A deadlock is not a panic. When every task waits for another and nothing can wak
 with a fatal error and status 2 (section 19.1, Tasks). A stop by `rt.Abort` or `rt.PanicFault` ends the
 program through the same panic handler (section 17.4).
 
-**Omitting checks.** A directive can remove the bounds checks from one function (section 20.3,
-Directives), for code that has been proved correct and must be as fast as possible. An index out of range
-in such a function does not panic, and what it does is not defined. This is the only place where a panic
+**Omitting checks.** The directive `//pu:nochecks` removes the bounds checks and the generation checks
+from one function (section 20.3, Directives), for code that has been proved correct and must be as fast
+as possible. It makes the function unsafe code (section 18.12, Safe and unsafe code). An index out of
+range in such a function does not panic, and what it does is not defined. This is the only place where a panic
 of this list depends on the program's own marking, and it is the program's promise, not a feature of the
 language, that the bounds hold.
 
@@ -281,33 +284,25 @@ divide error, an illegal instruction. The fault becomes a panic with a `rt.Fault
 the address, the faulting instruction and, in hosted builds, the signal. The panic's trace starts at the
 faulting instruction.
 
-**Nil dereference.** Dereferencing a nil pointer is not checked by the compiler. It faults in hardware
-wherever address zero is unmapped, which is true in hosted builds and which a kernel arranges. The
-runtime then turns the fault into a panic. The same holds for a nil `owned`, `shared` or `synced` value,
-and for a call of a nil function value.
-
-> **Open (G43).** An access through a nil pointer faults only if the address it computes is unmapped. A
-> field at a large offset, or an element of a large array reached through a nil pointer to it, can lie
-> beyond the unmapped region. Question: does the language promise a panic for every dereference of a nil
-> pointer, and if so, does the compiler add an explicit check where the offset exceeds the size of the
-> unmapped region? Recommendation: yes, as Go does. The compiler checks explicitly when the offset of an
-> access from the pointer can exceed 4 KiB, and relies on the fault otherwise, so that the promise holds
-> without a check on ordinary accesses (serving **Safe** and **Fast**). Until this is decided, the
-> promise is made for accesses within the first page.
+**Nil dereference.** Every dereference of a nil pointer panics: a load or store through it, a selector of
+a field through it, and an index or slice of a nil pointer to an array. The same holds for a nil `owned`,
+`shared` or `synced` value, and for a call of a nil function value. The implementation relies on the
+hardware where it can: address zero and the region above it are unmapped (in hosted builds, and in a
+kernel, which must arrange it), so an access at a small offset from a nil pointer faults, and the runtime
+turns the fault into this panic. Where the offset of an access from the pointer can exceed the size of
+that unmapped region (a field at a large offset, or an element of a large array reached through a pointer
+to it), the compiler checks the pointer explicitly before the access. Ordinary accesses therefore cost no
+check, and no nil dereference reads or writes memory.
 
 **Divide errors.** An integer division by zero is checked before the hardware sees it and panics as
 section 17.1 says. A divide error that the hardware reports anyway (from assembly or unsafe code) becomes a
 fault of kind `DivideFault`. The division of the most negative integer by -1 gives the most negative
 integer and does not fault (section 11.19).
 
-**Stack overflow.** The stack of a task is fixed. It cannot grow or move, since nothing knows where the
-pointers into it are. A guard region below the stack turns an overflow into a fault, which the runtime
-reports as a stack overflow with the task's trace. A hosted task whose stack size cannot be computed has
-a stack of at least the hosted task stack size of section 20.5 (Build modes and targets), reserved as
-address space and committed as it is touched. The message names the size the task had and how to ask for
-more (`rt.Go(f, size)`; section 19.1, Tasks). The main task runs on the process stack, or on the stack that
-`//pu:stack` asks for (section 20.3, Directives); a program that recurses deeply asks `rt.StackLeft()` for
-the bytes that remain. A stack overflow runs no deferred calls (section 17.2).
+**Stack overflow.** The stack of a task has a fixed size and a guard region below it (section 19.1,
+Tasks). Running into the guard region is a fault, which the runtime reports as a stack overflow with the
+task's trace, the size of the stack it had and how to ask for more. A program that recurses deeply asks
+`rt.StackLeft()` for the bytes that remain. A stack overflow runs no deferred calls (section 17.2).
 
 **Illegal instruction.** A fault of kind `IllegalInstruction` is reported the same way. Only unsafe code
 and corrupt memory produce one.
@@ -334,25 +329,15 @@ A use is a read, a write, or a drop that updates a count. Dropping a string or a
 an arena has taken back is a use, since the drop changes its count. A string made in an arena between
 `m := a.Mark()` and `a.Release(m)` must go out of scope before the `Release`.
 
-The panic for arena memory names the call that ended the arena's epoch, such as `Reset`. Epochs and
-generations are finite counters that never let a stale view pass by accident: when the range of one ends,
-the memory is retired or the field is widened (chapter 1, Introduction). The range of the hosted
-encoding is documented in the ABI (`abi.md` section 1.3).
+The panic for arena memory names the call that ended the arena's epoch, such as `Reset`.
 
 The compiler rejects most stale views before the program runs. A view of a frame is checked at compile
 time (section 18.3, Views), and so is a view of a local owner after the owner moved, was dropped or was
 assigned. The run-time check covers the views that the compiler cannot follow: heap memory reached
 through pointers, and arena memory.
 
-**Checked and unchecked builds.** Hosted builds enable the checks by default. Freestanding and kernel
-builds run without them until a tag encoding that fits a kernel exists. A build without the checks is the
-**unchecked mode**. It is not a dialect: a correct program behaves identically with and without the checks,
-because the checks change what a bug does and never what correct code means (section 21.3, Acceptance
-does not depend on optimization). In the unchecked mode a use of a stale view has no defined effect. It
-reads or writes whatever memory now lies there, and the compiler may not assume that it does not happen.
-A directive can omit the checks from one function (section 20.3), and the debug allocator narrows the
-unchecked mode by catching uses of memory that was returned to it (`debug-allocator.md`). Section 18.11
-(Generation checks) defines how the checks work.
+**Checked and unchecked builds.** The checks are made in a checked build. Section 18.11 (Generation checks)
+defines how they work, which builds are checked by default, and the unchecked mode, in which a use of a
+stale view has no defined effect.
 
-> Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see
-> [Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

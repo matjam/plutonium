@@ -29,11 +29,9 @@ f() || g()                 // f() || g()
 x == y+1 && <-chanInt > 0  // (x == (y+1)) && ((<-chanInt) > 0)
 ```
 
-The unary operators are `+`, `-`, `!`, `^`, `*`, `&` and `<-`. Plutonium adds no operators, so the table is
-the same as Go's. What each operator accepts is defined in section 11.18 (Operators) and the sections that
+The unary operators are `+`, `-`, `!`, `^`, `*`, `&` and `<-`. What each operator accepts is defined in section 11.18 (Operators) and the sections that
 follow it: arithmetic operators (11.19), comparison operators (11.20), logical operators (11.21), address
 operators (11.22) and the receive operator (11.23). An operator that does not apply to a kind of type, such
 as arithmetic on an enum or on an owner, is a compile error there. It does not change the precedence.
 
-Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see
-[Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

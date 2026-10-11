@@ -10,7 +10,7 @@ $DIR/main.p:27:7: cannot move s: it starts tasks at main.p:26, which find it at 
     the compiler checks that nothing they use ends or moves first.
     Keep s where it is and wait for its tasks before it goes:
         s.Wait()
-    (see "Scoped puroutines" in the Plutonium spec, section 4.11)
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
     (run "pluto explain E3405" for a longer explanation)
 
 $DIR/main.p:39:11: b was taken by the task started by s.Task at line 38, so it can no longer be used here
@@ -23,7 +23,7 @@ $DIR/main.p:39:11: b was taken by the task started by s.Task at line 38, so it c
     one.
     If this is the last use of b, move it before line 38, where b still holds
     its value.
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Moves" in the Plutonium spec, section 18.5)
     (run "pluto explain E3301" for a longer explanation)
 
 $DIR/main.p:18:3: the task started here takes v, a view of buf, which the loop at main.p:15 reuses before s waits for the task
@@ -41,5 +41,5 @@ $DIR/main.p:18:3: the task started here takes v, a view of buf, which the loop a
     Use buf itself in the function literal, so that the task gets its own copy
     of it, or wait for the task inside the loop:
         s.Wait() // at the end of the loop body
-    (see "Scoped puroutines" in the Plutonium spec, section 4.11)
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
     (run "pluto explain E3401" for a longer explanation)

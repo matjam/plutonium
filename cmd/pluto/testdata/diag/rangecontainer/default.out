@@ -13,7 +13,7 @@ $DIR/main.p:30:17: cannot range over t (variable of struct type table): table ha
                 // call yield for each key and value
             }
         }
-    (see "Indexing library containers" in the Plutonium spec, section 6.7)
+    (see "For statements" in the Plutonium spec, section 12.10)
     (run "pluto explain E2456" for a longer explanation)
 
 $DIR/main.p:34:17: cannot range over l: method All of list must have the form All() iter.Seq[V] or All() iter.Seq2[K, V]
@@ -21,7 +21,7 @@ $DIR/main.p:34:17: cannot range over l: method All of list must have the form Al
     arguments and return an iterator: a function of the form func(yield func(K,
     V) bool), such as iter.Seq[V] or iter.Seq2[K, V]. This type's All method has
     another form.
-    (see "Indexing library containers" in the Plutonium spec, section 6.7)
+    (see "For statements" in the Plutonium spec, section 12.10)
     (run "pluto explain E2458" for a longer explanation)
 
 $DIR/main.p:37:17: cannot range over get(): method All of seq has a pointer receiver, and get() is not addressable
@@ -35,7 +35,7 @@ $DIR/main.p:37:17: cannot range over get(): method All of seq has a pointer rece
         for k, v := range m {
             use(k, v)
         }
-    (see "Indexing library containers" in the Plutonium spec, section 6.7)
+    (see "For statements" in the Plutonium spec, section 12.10)
     (run "pluto explain E2459" for a longer explanation)
 
 $DIR/main.p:40:20: cannot range over load(): method All of hash.Map[string, int] has a pointer receiver, and load() is not addressable

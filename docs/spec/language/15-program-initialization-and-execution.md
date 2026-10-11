@@ -169,8 +169,8 @@ lexical order of the file names.
 
 **Where the variables live.** Package-level variables live in static storage, zeroed before any
 initialization runs (section 18.2, Where variables live). The literals in package-level initializers are
-static too: a composite literal whose address is taken (`&T{...}`), a slice literal, an interface box
-made by converting a value to an interface, a method value's record, and a function literal that
+static too: a composite literal whose address is taken (`&T{...}`), a slice literal, the copy that
+converting a value to an interface makes, a method value's record, and a function literal that
 captures nothing are placed in static storage and last as long as the program (sections 11.3, 7.9 and
 11.9). A view of one of them has no lifetime to check (section 18.3, Views). The initializer of a
 variable such as
@@ -196,7 +196,7 @@ reach one. The compiler works this out from the whole program; no annotation say
   initialization runs, and no console to report the failure on. The error names the allocation and the
   package variable or `init` function that reaches it. The fix is to initialize the variable in the
   program's entry function, after the program has called `alloc.SetDefault`. The check does not follow
-  what an earlier `init` function installs: doubt resolves to an error (chapter 1, Introduction).
+  what an earlier `init` function installs: doubt resolves to an error (section 1.2, Design rules).
 
 ```go
 var cache = make(map[string]int) // error in a freestanding build: allocates before an allocator exists
@@ -270,7 +270,7 @@ every function does: its deferred calls run, and the owners its variables hold a
   (section 19.1, Tasks).
 - Package-level variables are not dropped. A package-level owner is never dropped, in any order, when the
   program ends; the process exit reclaims its memory and descriptors. A program that must flush or close
-  what a package variable holds does it in `main`, with a deferred call, as it would in Go. The debug
+  what a package variable holds does it in `main`, with a deferred call. The debug
   allocator reports memory that package variables still hold apart from leaks (`debug-allocator.md`).
 
 ```go
@@ -301,11 +301,8 @@ returns from its body, so `os.Exit` needs no annotation.
 is left the program ends with a fatal error and status 2.
 
 **Stacks.** The task that runs `main` runs on the stack the operating system gave the process, or on a
-stack of the size that a `//pu:stack` directive on `main` asks for (section 20.3, Directives). Every other
-task in a hosted build has a stack of at least the hosted task stack size of section 20.5 (Build modes and
-targets), reserved as address space with a guard region below it and committed as it is touched; a task
-whose need the compiler can compute may get exactly that. A task that overflows its stack causes a
-run-time panic (section 17.5, Faults). Sections 19.1 and 21.4 give the rest.
+stack of the size that a `//pu:stack` directive on `main` asks for (section 20.3, Directives). The stacks
+of other tasks, and what happens when a task overflows its stack, are defined in section 19.1 (Tasks).
 
 **Freestanding builds.** A freestanding program provides its own entry point (section 20.5). The entry
 point runs package initialization and calls `main`, or runs package initialization and then calls the
@@ -313,5 +310,4 @@ program's own functions. A kernel does not return from its entry point, so the r
 returning apply to hosted programs and to freestanding programs that call `main` and let it return.
 Every freestanding program defines its panic handler (section 17.4, Panics in freestanding programs).
 
-> Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see
-> [Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

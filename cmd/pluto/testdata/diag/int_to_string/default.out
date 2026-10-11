@@ -17,7 +17,7 @@ $DIR/main.p:10:19: string(i) of an integer other than a rune is not permitted in
         import "pluto/strconv"
 
         strconv.Itoa(n)
-    (see "Strings" in the Plutonium spec, section 6.10)
+    (see "Conversions" in the Plutonium spec, section 11.24)
     (run "pluto explain E2017" for a longer explanation)
 
 $DIR/main.p:14:9: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))
@@ -39,7 +39,7 @@ $DIR/main.p:14:9: string(i) of an integer other than a rune is not permitted in 
         import "pluto/strconv"
 
         strconv.FormatUint(uint64(b), 10)
-    (see "Strings" in the Plutonium spec, section 6.10)
+    (see "Conversions" in the Plutonium spec, section 11.24)
     (run "pluto explain E2017" for a longer explanation)
 
 $DIR/main.p:18:9: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))
@@ -61,7 +61,7 @@ $DIR/main.p:18:9: string(i) of an integer other than a rune is not permitted in 
         import "pluto/strconv"
 
         strconv.FormatInt(w, 10)
-    (see "Strings" in the Plutonium spec, section 6.10)
+    (see "Conversions" in the Plutonium spec, section 11.24)
     (run "pluto explain E2017" for a longer explanation)
 
 $DIR/main.p:18:20: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))
@@ -83,7 +83,7 @@ $DIR/main.p:18:20: string(i) of an integer other than a rune is not permitted in
         import "pluto/strconv"
 
         strconv.FormatUint(uint64(u), 10)
-    (see "Strings" in the Plutonium spec, section 6.10)
+    (see "Conversions" in the Plutonium spec, section 11.24)
     (run "pluto explain E2017" for a longer explanation)
 
 $DIR/main.p:22:9: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))
@@ -105,7 +105,7 @@ $DIR/main.p:22:9: string(i) of an integer other than a rune is not permitted in 
         import "pluto/strconv"
 
         strconv.FormatInt(int64(s), 10)
-    (see "Strings" in the Plutonium spec, section 6.10)
+    (see "Conversions" in the Plutonium spec, section 11.24)
     (run "pluto explain E2017" for a longer explanation)
 
 $DIR/main.p:22:20: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))
@@ -127,7 +127,7 @@ $DIR/main.p:22:20: string(i) of an integer other than a rune is not permitted in
         import "pluto/strconv"
 
         strconv.FormatUint(big, 10)
-    (see "Strings" in the Plutonium spec, section 6.10)
+    (see "Conversions" in the Plutonium spec, section 11.24)
     (run "pluto explain E2017" for a longer explanation)
 
 $DIR/main.p:33:22: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))
@@ -149,5 +149,5 @@ $DIR/main.p:33:22: string(i) of an integer other than a rune is not permitted in
         import "pluto/strconv"
 
         strconv.Itoa(big)
-    (see "Strings" in the Plutonium spec, section 6.10)
+    (see "Conversions" in the Plutonium spec, section 11.24)
     (run "pluto explain E2017" for a longer explanation)

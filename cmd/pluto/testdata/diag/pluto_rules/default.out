@@ -1,7 +1,7 @@
 $DIR/main.p:19:34: parameter limit has no default value but follows parameter factor, which has one
     A call may leave out only trailing parameters. So once a parameter has a
     default value, every parameter after it needs one too.
-    (see "Default parameter values" in the Plutonium spec, section 5.1)
+    (see "Default parameter values" in the Plutonium spec, section 10.13)
     (run "pluto explain E2203" for a longer explanation)
 
 $DIR/main.p:12:2: missing cases in switch on c (Color): Green, Blue (add them or a default case)
@@ -12,7 +12,7 @@ $DIR/main.p:12:2: missing cases in switch on c (Color): Green, Blue (add them or
     members share one action.
     Go does not check this. Plutonium does, because an enum is a closed set of
     values, so the compiler can tell when one is forgotten.
-    (see "Enums" in the Plutonium spec, section 5.9)
+    (see "Switch statements" in the Plutonium spec, section 12.9)
     (run "pluto explain E2312" for a longer explanation)
 
 $DIR/main.p:21:50: errors.New needs a constant message, since each call site makes one static error; use fmt.Errorf to build a message at run time
@@ -26,7 +26,7 @@ $DIR/main.p:21:50: errors.New needs a constant message, since each call site mak
     instead, which costs nothing and can never fail.
     To include values in the message:
         return fmt.Errorf("open %s: not found", name)
-    (see "Sentinels and errors.New" in the Plutonium spec, section 14.1)
+    (see "Sentinels and errors.New" in the Plutonium spec, section 16.3)
     (run "pluto explain E2008" for a longer explanation)
 
 $DIR/main.p:24:12: map types are not permitted in Plutonium (maps need a garbage-collected hash table; use pluto/hash)
@@ -44,5 +44,5 @@ $DIR/main.p:24:12: map types are not permitted in Plutonium (maps need a garbage
         m := hash.NewMap[string, int](0)
         defer m.Free()
         m["a"] = 1
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Map types" in the Plutonium spec, section 7.10)
     (run "pluto explain E2001" for a longer explanation)

@@ -15,7 +15,7 @@ $DIR/main.p:9:9: make of a slice is not permitted in Plutonium (a slice is a vie
         import "pluto/vec"
 
         return vec.Make[E](n)
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Making channels and maps" in the Plutonium spec, section 13.7)
     (run "pluto explain E2014" for a longer explanation)
 
 $DIR/main.p:14:9: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
@@ -36,7 +36,7 @@ $DIR/main.p:14:9: make of a slice is not permitted in Plutonium (a slice is a vi
 
         buf := vec.Make[byte](n)
         defer buf.Free()
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Making channels and maps" in the Plutonium spec, section 13.7)
     (run "pluto explain E2014" for a longer explanation)
 
 $DIR/main.p:15:10: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
@@ -57,7 +57,7 @@ $DIR/main.p:15:10: make of a slice is not permitted in Plutonium (a slice is a v
 
         list := vec.WithCapacity[string](n)
         defer list.Free()
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Making channels and maps" in the Plutonium spec, section 13.7)
     (run "pluto explain E2014" for a longer explanation)
 
 $DIR/main.p:16:10: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
@@ -79,7 +79,7 @@ $DIR/main.p:16:10: make of a slice is not permitted in Plutonium (a slice is a v
         both := vec.Make[int](2)
         defer both.Free()
         both.Reserve(n - 2)
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Making channels and maps" in the Plutonium spec, section 13.7)
     (run "pluto explain E2014" for a longer explanation)
 
 $DIR/main.p:19:8: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
@@ -100,7 +100,7 @@ $DIR/main.p:19:8: make of a slice is not permitted in Plutonium (a slice is a vi
 
         in := vec.Make[int](n, &a)
         defer in.Free()
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Making channels and maps" in the Plutonium spec, section 13.7)
     (run "pluto explain E2014" for a longer explanation)
 
 $DIR/main.p:20:11: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
@@ -118,5 +118,5 @@ $DIR/main.p:20:11: make of a slice is not permitted in Plutonium (a slice is a v
     code can run inside a kernel.
     The size is a constant, so an array needs no allocation:
         var table [64]uint16
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Making channels and maps" in the Plutonium spec, section 13.7)
     (run "pluto explain E2014" for a longer explanation)

@@ -19,61 +19,20 @@ function returns may use that function's variables. Section 19.7 summarizes the 
 
 ### 19.1 Tasks
 
-**Starting a task.** The statement `task f(x, y)` (section 12.12) starts a new task that runs the call
-`f(x, y)`. The function value and the arguments are evaluated in the starting task, as for an ordinary
-call, and copied into the new task before the statement completes. The starting task then goes on
-without waiting. When `f` returns, the new task ends; its results, if any, are discarded, which drops
-those that hold owners or counted values.
-
-- An argument of a value type is copied. An argument of a counted type gives the new task a reference of
-  its own, taken before the task starts.
-- An argument of an owner type is moved into the new task (section 18.5, Moves). The new task drops it
-  when `f` returns, unless `f` moves it on.
-- The array of a variadic call's packed arguments is copied into the new task, so each element crosses
-  as a value.
-- Every argument, and the receiver of a method, must be sendable (section 19.2). A view of the starting
-  function's frame cannot be passed at all (E3004, or E2011 where the type checker sees it directly),
-  since the task may outlive the frame.
-
-**The function started.** A function value whose closure record lies in the starting task's frame
-cannot be started, since the frame may be gone before the task runs:
-
-- a function literal that captures variables, written in the task statement, is error E2590;
-- a method value, or a local variable whose only assignment is its declaration from a capturing literal
-  or method value (directly or through other such variables), started or passed as a func-typed
-  argument, is error E2594;
-- any other func value whose record lies in the starting task's stack (one that reached the task
-  statement through a parameter, a field, or a variable assigned more than once) makes the task statement
-  panic when it runs.
-
-Pass the values the function needs as arguments instead: `task func(n int) { work(n) }(n)`. A function
-literal that captures nothing is an ordinary function value and may be started. A task that uses its
-starting function's variables is started by a `sync.Scope` instead (section 19.4).
-
-Functions that start a task with one of their func arguments are checked in the same way at each call:
-`rt.Go`, `(*sync.WaitGroup).Task`, `time.AfterFunc`, and any function of the program that passes a func
-parameter on to a task statement or to one of these. The compiler finds these functions itself by
-following each func parameter through the function's body; nothing marks them.
-
-**A method of a box.** `task p.Serve()`, where `Serve` has a pointer receiver and `p` is an `owned[T]`
-or a `synced[T]`, hands the box itself to the new task, so the object lives as long as the task needs it:
-
-- An `owned[T]` moves into the task, as an owner argument does: `p` holds nothing afterwards, and the
-  task drops the box when `Serve` returns. The receiver must be a whole variable or a temporary, since an
-  owner moves only out of a whole variable (section 18.5).
-- A `synced[T]` is copied: the task holds a reference of its own, taken before it starts and released
-  when the method returns. A field or element may be the receiver.
-- A `shared[T]` is not sendable (E2010).
-
-The method must be declared on `T`, not promoted from a field, and the box type must not be a named
-type. Any other pointer receiver is a view into an object, and crosses under the rules of section 19.3.
-Starting a method value (`task f()` with `f := p.Serve`) is error E2594.
+**Starting a task.** The statement `task f(x, y)` starts a new task that runs the call `f(x, y)`. Section
+12.12 (Task statements) defines what the statement does: how its arguments are evaluated and copied, moved
+or counted into the new task, which arguments are sendable, which function values may be started (E2590,
+E2594), and how a method of a box hands the box to the task. The same rules apply to the library functions
+that start a task with a func argument (`rt.Go`, `(*sync.WaitGroup).Task`, `time.AfterFunc`) and to every
+function of the program that passes a func parameter on to one of them; the compiler finds these functions
+itself. A task that uses its starting function's variables is started by a `sync.Scope` instead (section
+19.4).
 
 **How a task starts.** A new task begins with:
 
 - its own stack (below), on which its frames live;
 - the program-wide default allocator as its current allocator, whatever override the starting task
-  installed with `alloc.Use` (section 18.9, Allocators);
+  installed with `alloc.Use` (section 18.9, Allocators). This holds for every task, scoped or not;
 - preemption enabled, and, in kernel builds, interrupts enabled whatever the state of the starting task.
   A kernel installs its interrupt table before it starts its first task.
 
@@ -91,6 +50,10 @@ a task started by a `sync.Scope` (section 19.4); a program that waits for a task
 **Stacks.** Each task has a stack of fixed size, which never grows or moves: nothing in the program
 knows where the pointers into it are, so it cannot be moved. The size is chosen when the task starts:
 
+The stack's memory comes from the program-wide default allocator, or from the backend's own memory in a
+kernel (section 19.5), never from an allocator that the starting task installed with `alloc.Use`, since
+that may be a local arena that is reset while the new task still runs.
+
 1. When the call graph of the function started is bounded (no recursion, and no call through a func
    value or interface whose possible callees are not themselves bounded), the compiler computes the
    stack the task needs, locals included, and the task gets exactly that.
@@ -104,12 +67,6 @@ Running past the end of a stack with a guard region is a fault, reported as a st
 the task's trace and the size it had, and how to ask for more (section 17.5, Faults). In kernel builds
 the scheduler backend provides the guard (section 19.5). `rt.StackLeft()` returns the bytes left between
 the caller's frame and the limit of its stack, for code that recurses deeply.
-
-> **Open.** Which allocator provides a task's stack when the starting task has installed an override
-> with `alloc.Use`. The text this chapter replaces took it from the starting task's current allocator,
-> which can be a local arena that is reset or dropped while the task still runs; G35 starts every task
-> with the program-wide default allocator, and the same reasoning suggests the program-wide default (or
-> the allocator given to `rt.Go`) for the stack. Not decided.
 
 **Parallelism and preemption.** Tasks run in parallel on the processors the backend uses. A task that
 runs for a full time slice (10 ms in hosted builds) without blocking is suspended wherever it is, even in
@@ -125,14 +82,12 @@ call or an armed timer, the program stops with a fatal error that reports a dead
 with what it waits for (a channel operation, a `select`, a lock, a `sync.Scope`) and its stack trace,
 and exits with status 2 (debugging.md section 5).
 
-**Program exit.** When `main` returns, it does so as any function does: its deferred calls run and its
-variables are dropped, and a `sync.Scope` among them waits for its tasks then (section 19.4). Then the
-program exits, with the status `main` returned (section 15.4, Program execution). The return of `main`
-waits for no other task: tasks still running are stopped where they are, and their deferred calls and
-drops do not run. Package-level owners are never dropped (section 18.6, Drops). `os.Exit` ends the
-program at once, from any task, running nothing. If the task that runs `main` calls `rt.Goexit`, `main`
-does not return: the other tasks go on, and once none is left, or all wait for good, the program stops
-with a fatal error and status 2.
+**Program exit.** When `main` returns, the program exits without waiting for other tasks. Section 15.4
+(Program execution) defines what runs and what does not: `main`'s own deferred calls and drops, a drop
+that another task has begun, and nothing else of the other tasks. `os.Exit` ends the program at once, from
+any task, running nothing. If the task that runs `main` calls `rt.Goexit`, `main` does not return: the
+other tasks go on, and once none is left, or all wait for good, the program stops with a fatal error and
+status 2 (section 17.3, Ending a task with `rt.Goexit`).
 
 ### 19.2 The sendable rule
 
@@ -144,27 +99,27 @@ A value **crosses** to another task when it is
 - held inside an interface, struct or array that crosses;
 - a variable that a scoped task takes (section 19.4).
 
-Every value that crosses must be **sendable** (section 8.8, Sendable types). A type is sendable unless it
-contains, directly or in any field, element, payload or box referent:
+Every value that crosses must be **sendable** (section 8.8, Sendable types), and may not hold a view that
+the other task could use while it changes:
 
-- a `shared[T]` or a `weak[shared[T]]`, whose counts are not atomic: error E2010 at the task statement,
-  at the channel type whose element is not sendable, or at the send;
+- a type that holds a `shared[T]` or a `weak[shared[T]]`, directly or through a field, element, payload,
+  box or pointer, is not sendable (section 8.8): error E2010 at the task statement, at the channel type
+  whose element is not sendable, or at the send;
 - a view of the starting or sending function's frame: E3004 for a task statement and E3005 for a send
   (E2011 where the type checker sees it directly);
 - a view of heap or static memory that may change while both tasks can use it: E3501 (section 19.3).
 
-Values, strings, owners whose contents are sendable, `synced[T]` and `weak[synced[T]]` with a sendable
-`T`, channels, maps, and function values that capture nothing are sendable. Moving an owner to another
-task is safe because the sender loses it: only one task can use it afterwards, and a library owner that
-manages memory (`vec.Vec`, `hash.Map`, `strings.Builder`) takes that memory with it. A `synced[T]` and a
+Moving an owner to another task is safe because the sender loses it: only one task can use it afterwards,
+and an owner that manages memory (`vec.Vec`, `hash.Map`, `strings.Builder`) takes that memory with it
+(section 8.8). A `synced[T]` and a
 map let several tasks reach the same memory, so what changes in it is subject to section 19.3. Strings
 are sendable because their bytes never change and their counts are atomic once a program has several
 tasks.
 
 The type part of the rule (`shared[T]`) is checked by the type checker on the arguments and receiver of
 every task statement and on the element type of every channel type, looking through struct fields, array
-elements, union payloads, the referents of `owned` and `synced`, and the transparent wrappers `ring`,
-`volatile` and `aligned`. The view part is checked by the frame rules (section 18.3, Views) and the race
+elements, union payloads, the referents of boxes, pointers and slices, and the transparent wrappers
+`ring`, `volatile` and `aligned`. The view part is checked by the frame rules (section 18.3, Views) and the race
 rules (section 19.3) where values cross, and, through interface values, for every type the program
 converts to that interface. In a generic function the rule is checked for each instantiation.
 
@@ -315,9 +270,8 @@ preemption disabled. A data race in unsafe code has the limited consequences of 
 ### 19.4 Scoped tasks
 
 A `sync.Scope` starts tasks that may use the variables of the function that starts them, and waits for
-all of them before its own scope ends. It is how Plutonium writes Go's `sync.WaitGroup` idiom for tasks
-that share a frame: the type's name says that it waits, where a `WaitGroup` waits only where `Wait` is
-called.
+all of them before its own scope ends. It is the type for tasks that share a frame: its name says that it
+waits, where a `sync.WaitGroup` waits only where `Wait` is called.
 
 ```go
 package sync
@@ -353,9 +307,8 @@ reached through a pointer, stored in a field or element, or in heap memory; with
 a literal written in the call; inside an ordinary function literal, on a Scope declared outside it; and
 `go s.Task(f)` or `defer s.Task(f)`. Such a Scope still counts the task and waits for it when it is
 dropped, but `f` may not use the frame, as for a task statement (section 19.1): a capturing literal is an
-error where the compiler can tell, and a run-time panic otherwise. A task statement never starts a scoped task. `sync.WaitGroup` behaves exactly as Go's
-(`Add`, `Done`, `Wait`, and `Task` for Go's `Go`): it never waits on its own, and the tasks it counts are
-not scoped.
+error where the compiler can tell, and a run-time panic otherwise. A task statement never starts a scoped task. `sync.WaitGroup`
+(`Add`, `Done`, `Wait` and `Task`) never waits on its own, and the tasks it counts are not scoped.
 
 **Joins.** A scoped task is **joined** at the points where the starting function knows it has returned:
 
@@ -386,8 +339,8 @@ task is bounded by the join, which comes before the function returns.
   the task uses its own copy. A variable is taken when it is declared in a block nested inside the
   Scope's block (a loop body, or the variables of a loop, such as `i` in `for i := ...`), unless an
   `s.Wait()` later in that same block joins the task before the block can end, with no `return`, `break`,
-  `continue`, `goto` or label between the statement holding the call and the `Wait`. This gives Go 1.22's
-  per-iteration meaning to the source as written. A taken variable must be sendable (section 19.2), and a
+  `continue`, `goto` or label between the statement holding the call and the `Wait`. Each task therefore
+  sees the value its own iteration had. A taken variable must be sendable (section 19.2), and a
   variable of a type that is not sendable may not be used by a scoped task at all. A taken owner is no
   longer the starting function's (using it afterwards is a use after move, section 18.5), and the task
   drops what is left of it when its literal returns.
@@ -613,17 +566,21 @@ case <-t.C:
 }
 ```
 
-**The channel owns its timer.** A timer belongs to the channel it delivers on, which is a counted
-reference (section 19.8). When the last reference to the channel goes, the timer is stopped and freed with
-it. `time.After` in a `select` therefore frees its timer when the `select` drops the temporary channel,
-and a `Timer` or `Ticker` holds a reference to its channel like any other value that contains one. The
-runtime's own link from its timer heap to the channel is not counted. Once `Stop` or `Reset` has returned,
-a timer's channel holds no value from before the call.
+**Who owns a timer.** `time.NewTimer`, `time.NewTicker` and `time.AfterFunc` return an `owned[Timer]` or
+`owned[Ticker]`, an owner like any other: when it is dropped, at the end of its variable's scope unless it
+was moved, the timer is stopped and freed. The channel in its field `C` is a counted reference, so a
+receiver that copied it keeps the channel, not the timer. `time.After` and `time.Tick` return only a
+channel, and that channel owns its timer: when the last reference to the channel goes, the timer is
+stopped and freed with it, so `time.After` in a `select` frees its timer when the `select` drops the
+temporary channel. The runtime's own link from its timer heap to the channel is not counted. Once `Stop`
+or `Reset` has returned, a timer's channel holds no value from before the call. No timer is freed by hand:
+nothing in the library has a `Free` that a program must call.
 
 `time.AfterFunc(d, f)` starts `f` on a task of its own once the timer expires. Like a function given to a
-task statement, `f` must not capture variables (section 19.1). The function does not run where the timer
-fires, which may be an interrupt handler in a kernel: an expired timer is queued for a task of
-`pluto/time`, which starts each function.
+task statement, `f` must not capture variables (section 12.12, Task statements). Dropping the
+`owned[Timer]` it returns before the timer fires stops it, so `f` never runs. The function does not run
+where the timer fires, which may be an interrupt handler in a kernel: an expired timer is queued for a task
+of `pluto/time`, which starts each function.
 
 **The mechanism.** The runtime's clock is `rt.Now()`, monotonic nanoseconds, the same on every processor.
 An `rt.Timer` calls a function once its deadline has passed, and again every period if it has one;
@@ -704,11 +661,9 @@ func produce(out chan<- vec.Vec[int]) {
 }
 ```
 
-**Counting.** A channel value is one word, a counted reference to the channel. Copying it adds a
-reference; dropping a copy releases one, atomically. When the last reference goes, the values still in
-the buffer are dropped (owners are dropped, counted values released) by the task that released it, and
-the channel and its buffer are freed to the allocator they came from. A task waiting on a channel holds a
-reference to it while it waits.
+**Counting.** A channel is a counted reference whose last release drops the values still buffered and frees
+the channel (section 7.11, Channel types). Its count is always atomic, and a task waiting on a channel holds
+a reference to it while it waits.
 
 **Waiting.** The operations that may wait (a send or receive, a `range` over a channel, a `select` without
 a `default` case) park the calling task, so its processor runs other tasks. A `select` with a `default`
@@ -716,5 +671,4 @@ case, `close`, `len` and `cap` never wait, which is what lets interrupt handlers
 A task parked on a channel is listed in a deadlock report with what it waits for: a receive, a send, a
 `select`, or one of these on a nil channel.
 
-> Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see
-> [Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

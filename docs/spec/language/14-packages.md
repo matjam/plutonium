@@ -145,8 +145,7 @@ package arch
 
 A `//pu:build` line after the package clause is an error (E2602), and so is an expression that does not
 parse (E4013). A line comment that begins with `//go:` is an error in the family of E2600 (section 20.3,
-Directives): code that looks like Go's build line and does something else is a false friend, so the error
-names `//pu:build`.
+Directives), and for `//go:build` the error names `//pu:build`.
 
 **File names.** A file name selects too. Take the name without its extension and without a final `_test`.
 If the last, or the second to last, of the parts separated by underscores is one of `amd64`, `arm64`,
@@ -204,5 +203,4 @@ func main() {
 When `main` returns, the program ends. The tasks that are still blocked in `generate` and `filter` are
 abandoned (section 15.4).
 
-> Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see
-> [Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

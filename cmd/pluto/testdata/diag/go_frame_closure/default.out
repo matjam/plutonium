@@ -16,12 +16,12 @@ $DIR/main.p:17:5: cannot start square with go: it holds a function literal that 
     waits for it before s's block ends.
     Go moves captured variables and the receivers of method values to the heap.
     Plutonium never allocates behind the program's back, so the record stays in
-    its frame (spec section 4.5).
+    its frame (spec section 11.5).
     Pass the values the function needs, and start a function that takes them:
         go func(n int, out chan int) {
             out <- n * n
         }(n, out)
-    (see "go starts a puroutine" in the Plutonium spec, section 4.7)
+    (see "Task statements" in the Plutonium spec, section 12.12)
     (run "pluto explain E2594" for a longer explanation)
 
 $DIR/main.p:20:9: cannot pass the method value c.add to a puroutine: its closure record lives in the starting frame (spec section 4.7)

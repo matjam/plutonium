@@ -16,12 +16,12 @@ $DIR/main.p:15:8: cannot pass a function literal that captures n (main.p:15) to 
     waits for it before s's block ends.
     Go moves captured variables and the receivers of method values to the heap.
     Plutonium never allocates behind the program's back, so the record stays in
-    its frame (spec section 4.5).
+    its frame (spec section 11.5).
     Pass the values the function needs, and start a function that takes them:
         go func(n int, out chan int) {
             out <- n * n
         }(n, out)
-    (see "go starts a puroutine" in the Plutonium spec, section 4.7)
+    (see "Task statements" in the Plutonium spec, section 12.12)
     (run "pluto explain E2594" for a longer explanation)
 
 $DIR/main.p:18:8: cannot pass work to wg.Go, which starts a puroutine with it: it holds a function literal that captures n (main.p:17), whose closure record lives in the starting frame (spec section 4.7)

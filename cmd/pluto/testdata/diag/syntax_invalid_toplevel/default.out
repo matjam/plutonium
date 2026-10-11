@@ -5,6 +5,5 @@ $DIR/main.p:3:1: expected declaration, found limit
     var, type and func.
     To declare a package-level variable, use var:
         var limit = 10
-    (see "Declarations and scope" and "Short variable declarations" in the Go
-    spec; Plutonium follows Go here)
+    (see "Short variable declarations" in the Plutonium spec, section 10.11)
     (run "pluto explain E1003" for a longer explanation)

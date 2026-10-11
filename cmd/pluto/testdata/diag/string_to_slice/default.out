@@ -23,7 +23,7 @@ $DIR/main.p:7:7: []byte(s) is not permitted in Plutonium (the copy would belong 
         var buf [64]byte
         n := copy(buf[:], s)
         b := buf[:n]
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Conversions" in the Plutonium spec, section 11.24)
     (run "pluto explain E2016" for a longer explanation)
 
 $DIR/main.p:12:7: []rune(s) is not permitted in Plutonium (the copy would belong to no one; use strings.Runes, or range over the string)
@@ -52,7 +52,7 @@ $DIR/main.p:12:7: []rune(s) is not permitted in Plutonium (the copy would belong
 
         r := strings.Runes(s)
         // r.Slice() is the []rune
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Conversions" in the Plutonium spec, section 11.24)
     (run "pluto explain E2016" for a longer explanation)
 
 $DIR/main.p:17:13: []rune(s) is not permitted in Plutonium (the copy would belong to no one; use strings.Runes, or range over the string)
@@ -74,7 +74,7 @@ $DIR/main.p:17:13: []rune(s) is not permitted in Plutonium (the copy would belon
         import "pluto/unicode/utf8"
 
         n := utf8.RuneCountInString(s)
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Conversions" in the Plutonium spec, section 11.24)
     (run "pluto explain E2016" for a longer explanation)
 
 $DIR/main.p:22:20: []byte(s) is not permitted in Plutonium (the copy would belong to no one; use strings.Bytes, or copy into a buffer)
@@ -97,7 +97,7 @@ $DIR/main.p:22:20: []byte(s) is not permitted in Plutonium (the copy would belon
             b := s[i]
             ...
         }
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Conversions" in the Plutonium spec, section 11.24)
     (run "pluto explain E2016" for a longer explanation)
 
 $DIR/main.p:25:20: []rune(s) is not permitted in Plutonium (the copy would belong to no one; use strings.Runes, or range over the string)
@@ -120,7 +120,7 @@ $DIR/main.p:25:20: []rune(s) is not permitted in Plutonium (the copy would belon
         for i, r := range s {
             ...
         }
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Conversions" in the Plutonium spec, section 11.24)
     (run "pluto explain E2016" for a longer explanation)
 
 $DIR/main.p:32:9: []byte(s) is not permitted in Plutonium (the copy would belong to no one; use strings.Bytes, or copy into a buffer)
@@ -148,5 +148,5 @@ $DIR/main.p:32:9: []byte(s) is not permitted in Plutonium (the copy would belong
         var buf [64]byte
         n := copy(buf[:], "header")
         b := buf[:n]
-    (see "What Plutonium removes from Go" in the Plutonium spec, section 3)
+    (see "Conversions" in the Plutonium spec, section 11.24)
     (run "pluto explain E2016" for a longer explanation)

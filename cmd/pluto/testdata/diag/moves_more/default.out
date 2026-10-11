@@ -11,7 +11,7 @@ $DIR/main.p:18:2: cannot call f.Drop(): f is a *File, which only points at a Fil
         v.Drop() // v is the File variable itself
     To leave an empty value behind instead:
         old := take(f)
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Drops" in the Plutonium spec, section 18.6)
     (run "pluto explain E3307" for a longer explanation)
 
 $DIR/main.p:27:9: cannot copy the elements of bufs in a range loop: Buf is an owner type
@@ -27,7 +27,7 @@ $DIR/main.p:27:9: cannot copy the elements of bufs in a range loop: Buf is an ow
             b := &bufs[i]
             ...
         }
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Moves" in the Plutonium spec, section 18.5)
     (run "pluto explain E3304" for a longer explanation)
 
 $DIR/main.p:32:2: cannot copy elements of type Buf: each element is an owner
@@ -45,7 +45,7 @@ $DIR/main.p:32:2: cannot copy elements of type Buf: each element is an owner
         for i := range src {
             dst[i] = src[i].Clone()
         }
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Moves" in the Plutonium spec, section 18.5)
     (run "pluto explain E3306" for a longer explanation)
 
 $DIR/main.p:35:7: cannot assert x to Buf: x is an any, which only lends the value it holds
@@ -62,7 +62,7 @@ $DIR/main.p:35:7: cannot assert x to Buf: x is an any, which only lends the valu
         }
     or move it into an owning interface in the first place:
         type Text owner interface{ String() string }
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Type assertions" in the Plutonium spec, section 11.13)
     (run "pluto explain E3308" for a longer explanation)
 
 $DIR/main.p:39:11: cannot read v[0]: the elements of v are owners, and v[0] would be a copy
@@ -78,7 +78,7 @@ $DIR/main.p:39:11: cannot read v[0]: the elements of v are owners, and v[0] woul
     To move it out, use a method that removes or replaces it, or take it through
     such a pointer:
         elem := take(v.Ptr(0))
-    (see "Indexing library containers" in the Plutonium spec, section 6.7)
+    (see "Indexing library containers" in the Plutonium spec, section 11.11)
     (run "pluto explain E3309" for a longer explanation)
 
 $DIR/main.p:43:6: cannot pass one to all as a variadic argument: Buf is an owner type
@@ -90,7 +90,8 @@ $DIR/main.p:43:6: cannot pass one to all as a variadic argument: Buf is an owner
     one.
     Pass the owners one at a time to a parameter that takes them by value, or
     collect them in an owner such as a vec.Vec.
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Passing arguments to ... parameters" in the Plutonium spec, section
+    11.15)
     (run "pluto explain E3310" for a longer explanation)
 
 $DIR/main.p:46:10: a slice literal cannot hold owners: Buf is an owner type, and nothing would drop the elements
@@ -102,7 +103,7 @@ $DIR/main.p:46:10: a slice literal cannot hold owners: Buf is an owner type, and
     one.
     Use an array literal, which owns its elements:
         [...]Buf{...}
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Composite literals" in the Plutonium spec, section 11.3)
     (run "pluto explain E3312" for a longer explanation)
 
 $DIR/main.p:51:3: the deferred call uses f, which is dropped at the end of its block (line 52)
@@ -115,5 +116,5 @@ $DIR/main.p:51:3: the deferred call uses f, which is dropped at the end of its b
     one.
     Declare f at the top level of the function, or do the work at the end of the
     block instead of deferring it.
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Defer statements" in the Plutonium spec, section 12.19)
     (run "pluto explain E3311" for a longer explanation)

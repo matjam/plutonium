@@ -10,7 +10,7 @@ $DIR/main.p:3:1: unknown directive //pu:interupt (did you mean //pu:interrupt?)
     unnoticed.
     Use the spelling the compiler knows:
         //pu:interrupt
-    (see "Directives" in the Plutonium spec, section 9)
+    (see "Directives" in the Plutonium spec, section 20.3)
     (run "pluto explain E2600" for a longer explanation)
 
 $DIR/main.p:6:1: //pu:alloc was removed: kernel code may allocate strings anywhere the allocator may be called
@@ -22,7 +22,7 @@ $DIR/main.p:6:1: //pu:alloc was removed: kernel code may allocate strings anywhe
     the compiler works.
     Delete the line:
         //pu:alloc (delete this line)
-    (see "Directives" in the Plutonium spec, section 9)
+    (see "Directives" in the Plutonium spec, section 20.3)
     (run "pluto explain E2601" for a longer explanation)
 
 $DIR/main.p:9:1: //pu:noreturn is inferred for a function with a body: delete it
@@ -39,7 +39,7 @@ $DIR/main.p:9:1: //pu:noreturn is inferred for a function with a body: delete it
             for {
             }
         }
-    (see "Directives" in the Plutonium spec, section 9)
+    (see "Directives" in the Plutonium spec, section 20.3)
     (run "pluto explain E2601" for a longer explanation)
 
 $DIR/main.p:15:1: //pu:percpu is in the wrong place: it goes in the doc comment of a package-level variable, not of a function
@@ -50,7 +50,7 @@ $DIR/main.p:15:1: //pu:percpu is in the wrong place: it goes in the doc comment 
     Move it:
         //pu:percpu
         var v T
-    (see "Directives" in the Plutonium spec, section 9)
+    (see "Directives" in the Plutonium spec, section 20.3)
     (run "pluto explain E2602" for a longer explanation)
 
 $DIR/main.p:18:1: //pu:inline is in the wrong place: it goes in the doc comment of a function, not of a package-level variable
@@ -61,7 +61,7 @@ $DIR/main.p:18:1: //pu:inline is in the wrong place: it goes in the doc comment 
     Move it:
         //pu:inline
         func f() { ... }
-    (see "Directives" in the Plutonium spec, section 9)
+    (see "Directives" in the Plutonium spec, section 20.3)
     (run "pluto explain E2602" for a longer explanation)
 
 $DIR/main.p:21:1: //pu:noinline takes no argument, found "because it is hot"
@@ -73,7 +73,7 @@ $DIR/main.p:21:1: //pu:noinline takes no argument, found "because it is hot"
     Write the directive alone, and the explanation above it:
         // because it is hot
         //pu:noinline
-    (see "Directives" in the Plutonium spec, section 9)
+    (see "Directives" in the Plutonium spec, section 20.3)
     (run "pluto explain E2603" for a longer explanation)
 
 $DIR/main.p:25:2: //pu:noinline is in the wrong place: it goes in the doc comment of a function, directly above it; it is not above any declaration here
@@ -85,5 +85,5 @@ $DIR/main.p:25:2: //pu:noinline is in the wrong place: it goes in the doc commen
     Move it:
         //pu:noinline
         func f() { ... }
-    (see "Directives" in the Plutonium spec, section 9)
+    (see "Directives" in the Plutonium spec, section 20.3)
     (run "pluto explain E2602" for a longer explanation)

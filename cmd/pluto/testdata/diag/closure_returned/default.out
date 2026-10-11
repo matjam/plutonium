@@ -18,8 +18,7 @@ $DIR/main.p:17:9: cannot return h: it holds the function literal at main.p:16, w
         func (s *state) call() {
             ... s.n ...
         }
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3100" for a longer explanation)
 
 $DIR/main.p:43:9: cannot return h: it holds the method value b.get (main.p:42), whose closure record is in PtrMethod's frame
@@ -37,8 +36,7 @@ $DIR/main.p:43:9: cannot return h: it holds the method value b.get (main.p:42), 
     Return the receiver and let the caller call the method, or return a method
     expression, which takes the receiver as its first argument:
         m := (*box).get // m(x, ...) calls x.get(...)
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3100" for a longer explanation)
 
 $DIR/main.p:51:9: cannot return g: it holds the function literal at main.p:49, which uses n, a local variable of Nested
@@ -62,8 +60,7 @@ $DIR/main.p:51:9: cannot return g: it holds the function literal at main.p:49, w
         func (s *state) call() {
             ... s.n ...
         }
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3100" for a longer explanation)
 
 $DIR/main.p:57:10: cannot return the function literal: it uses x, a local variable of FromLoop
@@ -87,8 +84,7 @@ $DIR/main.p:57:10: cannot return the function literal: it uses x, a local variab
         func (s *state) call() {
             ... s.x ...
         }
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3100" for a longer explanation)
 
 $DIR/main.p:32:9: cannot return h: it holds a closure that counter() (main.p:31) builds in PtrCall's frame
@@ -102,6 +98,5 @@ $DIR/main.p:32:9: cannot return h: it holds a closure that counter() (main.p:31)
     Go moves the captured variables and the closure to the heap. Plutonium never
     allocates behind the program's back, so the record lives in a frame: the
     maker's, or the region its caller provides.
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3100" for a longer explanation)

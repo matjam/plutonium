@@ -112,7 +112,7 @@ func (f *File) Drop() {}
         type File owner struct {
             ...
         }
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Owner types" in the Plutonium spec, section 7.18)
     (run "pluto explain E3201" for a longer explanation)`)
 
 	mustFailExactly(t, `package p
@@ -138,7 +138,7 @@ type Conn struct {
     Conn values then move, and buf is dropped when a Conn is. If Conn should
     only look at a value that something else owns, store a pointer:
         buf *Buf
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Owner types" in the Plutonium spec, section 7.18)
     (run "pluto explain E3202" for a longer explanation)`)
 
 	mustFailExactly(t, `package p
@@ -156,7 +156,7 @@ type Kind owner enum {
             v  Kind
             fd int32
         }
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Owner types" in the Plutonium spec, section 7.18)
     (run "pluto explain E3204" for a longer explanation)`)
 
 	mustFail(t, `package p

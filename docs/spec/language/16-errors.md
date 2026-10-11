@@ -46,9 +46,9 @@ A counted object is a heap object that the `error` values referring to it count,
 the last of them goes (section 16.7).
 
 Returning a struct as an `error`, or a pointer to a local variable or to a composite literal, breaks the
-rule. The first would box a copy of the struct in the returning function's frame, and the second would
-point into that frame. Both are compile errors (E3001, sections 7.9 and 18.3). `return PathError{...}` and
-`return &PathError{...}`, written as in Go, are caught this way.
+rule. The first would copy the struct into the returning function's frame, and the second would point
+into that frame. Both are compile errors (E3001, sections 7.9 and 18.3). `return PathError{...}` and
+`return &PathError{...}` are caught this way.
 
 ```go
 type pathError struct{ op, path string }
@@ -56,16 +56,16 @@ type pathError struct{ op, path string }
 func (e pathError) Error() string { return e.op + " " + e.path }
 
 func open() error {
-	return pathError{"open", "x"} // error E3001: the box would live in open's frame
+	return pathError{"open", "x"} // error E3001: the copy would live in open's frame
 }
 ```
 
-An error value that a package-level initializer makes needs no such care. Its box is static
+An error value that a package-level initializer makes needs no such care. Its copy is static
 (section 15.2, Package initialization), so `var ErrBadMagic error = formatError{want: 0x7f}` is valid.
 
 ### 16.3 Sentinels and `errors.New`
 
-`errors.New(text)` works anywhere, as in Go: in a package-level variable and inside a function.
+`errors.New(text)` works anywhere: in a package-level variable and inside a function.
 
 ```go
 package main
@@ -100,9 +100,6 @@ before an allocator exists.
 
 A sentinel may also be written as a static literal, `var ErrClosed = &errors.Text{Msg: "file already
 closed"}`.
-
-In Go each evaluation of `errors.New` returns a new error. No correct program can tell the difference,
-except by comparing two results of one call site.
 
 ### 16.4 Error codes
 
@@ -156,11 +153,10 @@ an error.
   returns the buffer as the error. Code that keeps such an error longer wraps it with `fmt.Errorf`, which
   copies the message.
 
-**Go's error types.** The functions of the standard library report failures with the error types that
-their Go counterparts use, so that `errors.As` and `Error()` give Go's results. A failed file operation
-returns a `*os.PathError`, with the operation, the path and the cause. A failed parse in `strconv` returns
-a `*strconv.NumError`. `errors.Is(err, strconv.ErrSyntax)` and `errors.Is(err, os.ErrNotExist)` hold as
-in Go. These errors are counted objects, allocated only when an operation fails. The sentinels `io.EOF`
+**Library error types.** The functions of the standard library report failures with error types that
+record the context. A failed file operation returns a `*os.PathError`, with the operation, the path and
+the cause. A failed parse in `strconv` returns a `*strconv.NumError`. `errors.Is(err, strconv.ErrSyntax)`
+and `errors.Is(err, os.ErrNotExist)` hold for them. These errors are counted objects, allocated only when an operation fails. The sentinels `io.EOF`
 and `os.ErrClosed` stay sentinels. A successful operation allocates nothing.
 
 ```go
@@ -189,8 +185,8 @@ with `Unwrap() error` or `Unwrap() []error`, in a preorder walk.
   type of `target` is comparable, so it never panics.
 - `errors.As` is generic: `func As[E any](err error, target *E) bool`. It finds the first error in the
   tree of `err` whose dynamic type is assignable to `E`, stores it in `*target`, and reports `true`; it
-  reports `false` if there is none. The Go spelling `errors.As(err, &perr)` works without reflection, with
-  `E` inferred from the type of `target`.
+  reports `false` if there is none. The call `errors.As(err, &perr)` works without reflection, with `E`
+  inferred from the type of `target`.
 - `errors.AsType[E error](err error) (E, bool)` returns the first error of type `E` and whether there was
   one.
 
@@ -245,7 +241,7 @@ that refers to it goes, and no code releases it by hand.
    overwriting it, decrements the count. At zero the error's `Drop` runs, which drops the errors it wraps,
    and the memory is freed to the allocator recorded in the object (section 18.7, Shared ownership). In an
    arena, freeing does nothing and the arena reclaims the memory when it is reset.
-3. Every other error value copies as in Go: codes, sentinels, and errors that live in a field of an owner.
+3. Every other error value copies as a value: codes, sentinels, and errors that live in a field of an owner.
    Whether an `error` value is counted is a property of its dynamic type, so a program whose errors are
    only codes, as a kernel's are, pays nothing beyond one predictable test when it copies or drops a
    non-nil error.
@@ -277,5 +273,4 @@ func run(name string) error {
 }
 ```
 
-> Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see
-> [Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

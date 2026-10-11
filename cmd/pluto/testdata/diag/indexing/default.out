@@ -11,7 +11,7 @@ $DIR/main.p:20:8: invalid operation: cannot take address of v[0]: it is a copy r
     Ask for the pointer by name:
         p := v.Ptr(i)
         p.count++
-    (see "Indexing library containers" in the Plutonium spec, section 6.7)
+    (see "Indexing library containers" in the Plutonium spec, section 11.11)
     (run "pluto explain E2454" for a longer explanation)
 
 $DIR/main.p:21:2: cannot assign to v[0].x: v[0] is a copy returned by the Index method of vec.Vec[point]
@@ -24,7 +24,7 @@ $DIR/main.p:21:2: cannot assign to v[0].x: v[0] is a copy returned by the Index 
         p := v[i]
         p.x = 1
         v[i] = p
-    (see "Indexing library containers" in the Plutonium spec, section 6.7)
+    (see "Indexing library containers" in the Plutonium spec, section 11.11)
     (run "pluto explain E2455" for a longer explanation)
 
 $DIR/main.p:25:2: cannot assign to t["a"]: table has no method SetIndex
@@ -40,7 +40,7 @@ $DIR/main.p:25:2: cannot assign to t["a"]: table has no method SetIndex
         func (m *Table) IndexOk(k string) (int, bool) {
             ...
         }
-    (see "Indexing library containers" in the Plutonium spec, section 6.7)
+    (see "Indexing library containers" in the Plutonium spec, section 11.11)
     (run "pluto explain E2451" for a longer explanation)
 
 $DIR/main.p:26:11: cannot use comma-ok on t["b"]: table has no method IndexOk
@@ -54,5 +54,5 @@ $DIR/main.p:29:6: cannot read load()["a"]: method Index of hash.Map[string, int]
     Store it in a variable first:
         m := load()
         v := m["key"]
-    (see "Indexing library containers" in the Plutonium spec, section 6.7)
+    (see "Indexing library containers" in the Plutonium spec, section 11.11)
     (run "pluto explain E2457" for a longer explanation)

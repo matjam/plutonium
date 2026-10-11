@@ -73,5 +73,4 @@ These requirements apply both to literal constants and to the result of evaluati
 The exact precision beyond these minimums is left to the implementation. Chapter 21 (Implementation
 requirements, section 21.4) states the limits that an implementation must document.
 
-Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see
-[Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

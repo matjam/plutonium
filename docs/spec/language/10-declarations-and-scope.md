@@ -86,7 +86,7 @@ func f() {
 }
 ```
 
-As in Go, `_ = x` is the way to mark a variable as used.
+`_ = x` is the way to mark a variable as used.
 
 ### 10.3 Predeclared identifiers
 
@@ -126,9 +126,8 @@ functions are the built-in functions of chapter 13: `cap` and `len` (section 13.
 A predeclared identifier is not a keyword. A program may declare an identifier with the same name in the
 package block or an inner block, and the declaration hides the predeclared one there.
 
-**Names that are not declared.** Go's built-in functions `append`, `recover`, `complex`, `real` and `imag`
-and its types `complex64` and `complex128` do not exist in Plutonium and are not declared in the universe
-block. A program may use these names for its own declarations. A use of one of them without a declaration
+**Names that are not declared.** The functions `append`, `recover`, `complex`, `real` and `imag` and the
+types `complex64` and `complex128` do not exist and are not declared in the universe block. A program may use these names for its own declarations. A use of one of them without a declaration
 is a compile error that says what to write instead (section 13.1, Built-ins Plutonium does not have). The
 words `owner`, `union`, `task`, `bits`, `le` and `be` are contextual keywords, not predeclared identifiers
 (section 4.6, Contextual keywords).
@@ -282,8 +281,11 @@ alias declarations and type definitions.
 TypeDecl  = "type" ( TypeSpec | "(" { TypeSpec ";" } ")" ) .
 TypeSpec  = AliasDecl | TypeDef .
 AliasDecl = identifier [ TypeParameters ] "=" Type .
-TypeDef   = identifier [ TypeParameters ] [ "owner" ] Type .
+TypeDef   = identifier [ TypeParameters ] DefinedType .
 ```
+
+`DefinedType`, the type of a definition with its optional `owner` qualifier, is given at the start of
+chapter 7 (Types).
 
 **Alias declarations.** An alias declaration binds an identifier to the given type. Within the scope of the
 identifier, it serves as an alias for the given type.
@@ -531,9 +533,8 @@ type Constraint ~int     // illegal: ~int is not in a type parameter list
 ```
 
 The predeclared interface type `comparable` denotes the set of all non-interface types that are *strictly
-comparable* (section 11.20, Comparison operators). An owner type is comparable when its underlying type
-is; comparing reads both operands and moves neither. The predeclared interface type `portable` denotes the types that may cross between
-address spaces (section 8.9, Portable types).
+comparable* (section 8.10, Comparable types). The predeclared interface type `portable` denotes the types
+that may cross between address spaces (section 8.9, Portable types).
 
 Even though interfaces that are not type parameters are comparable, they are not strictly comparable and
 therefore they do not implement `comparable`. However, they satisfy `comparable`.
@@ -731,9 +732,10 @@ the defaulted parameters. The default expressions are evaluated at each call, in
 callee, after the explicit arguments.
 
 ```
-ParameterDecl = [ IdentifierList ] [ "..." ] Type [ DefaultValue ] .
-DefaultValue  = "=" Expression .
+DefaultValue = "=" Expression .
 ```
+
+A `DefaultValue` follows the type in a `ParameterDecl` (section 7.8, Function types).
 
 A defaulted parameter is written `name T = expr`, or `T = expr` in a list of unnamed parameters. A
 `ParameterDecl` with a default value declares one parameter.
@@ -934,5 +936,4 @@ instantiation is an ordinary function in the program. The rules are:
 - The type arguments of a call are inferred as for a generic function (section 11.17, Type inference).
 - A generic method may have default parameter values (section 10.13).
 
-Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see
-[Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

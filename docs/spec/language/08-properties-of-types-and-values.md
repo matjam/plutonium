@@ -13,7 +13,7 @@ such value contains a complete copy of all its data, and variables of such types
 instance, an array variable provides the storage (the variables) for all elements of the array. The respective
 zero values are specific to the value's types; they are never `nil`.
 
-Non-nil pointer, function, slice, string, map, channel and box (`owned`, `shared`, `synced`, `weak`) values
+Non-nil pointer, function, slice, string, map, channel, box (`owned`, `shared`, `synced`) and `weak` values
 contain references to underlying data which may be shared by multiple values:
 
 - A pointer value is a reference to the variable holding the pointer base type value.
@@ -47,6 +47,7 @@ words:
 | pointer, `unsafe.Pointer`, `owned[T]`, `shared[T]`, `synced[T]`, `weak[P]` | 1 | the address of the object, or zero |
 | function | 1 | the address of the closure record (section 7.8) |
 | channel | 1 | the address of the channel |
+| map | 1 | the address of the counted table (section 7.10) |
 | string | 3 | the address of the first byte, the length in bytes, the control word (section 7.3) |
 | slice | 3 | the address of the first element, the length, the capacity |
 | interface | 2 | the type descriptor or method table, the data word (section 7.9) |
@@ -58,9 +59,6 @@ Size and alignment guarantees). `volatile[T]` and `aligned[T, N]` are laid out a
 `N`-byte boundary. An enum is its underlying integer. A packed type occupies its backing, or its field width
 rounded up to whole bytes (section 7.14). Sizes and alignments are guaranteed by section 20.2; the binary
 layout, calling convention and data formats are specified in abi.md.
-
-A map value is a counted reference to a table (section 7.10); the table above leaves out its size, which is
-not decided.
 
 The zero value of every type is defined in section 15.1 (The zero value).
 
@@ -220,7 +218,7 @@ of the following conditions applies:
 Assignability depends on types only. Whether an assignment copies, moves or counts follows from the kind of
 the type (section 8.7) and is defined in section 12.7 (Assignment statements) and section 18.5 (Moves).
 
-Four rules differ from what a reader of Go might expect:
+Four rules deserve particular attention:
 
 - **An untyped constant is not assignable to an enum type.** `var c Color = 1` and `c == 1` are errors
   (E2316), because a constant that is not a member's value would make a value that is not a member, and a
@@ -343,7 +341,7 @@ func demo(b Buf) int {
 }
 ```
 
-**`Drop`.** A method named `Drop` is never promoted from an embedded field. When the outer type is destroyed,
+**`Drop`.** A method named `Drop` is never promoted from an embedded field. When the outer type is dropped,
 its own `Drop` (if any) runs and then the embedded field is dropped like any other field (section 7.18).
 
 **Methods with type parameters.** A method with type parameters of its own is in the method set but does not
@@ -352,21 +350,21 @@ count towards implementing an interface (section 10.15, Methods with type parame
 ### 8.7 Values, views, owners and counted values
 
 Every type has a **kind**. The kind says what happens to a value of the type when it is assigned, passed,
-returned and destroyed, and so which rules of chapter 18 (Ownership and memory) apply to it. There are four
+returned and dropped, and so which rules of chapter 18 (Ownership and memory) apply to it. There are four
 kinds.
 
 - A **value** is only bits. It is copied on assignment, on passing and on return, and nothing happens when it
   goes out of scope.
 - A **counted value** is a value that refers to shared memory and counts the values that refer to it. It is
-  copied like a value, and each copy adds one to the count. When a copy is destroyed it subtracts one, and the
+  copied like a value, and each copy adds one to the count. When a copy is dropped it subtracts one, and the
   last one frees the memory. Strings, channels, maps and the `shared`, `synced` and `weak` types are counted
   values. Counting is not chosen by the program: it follows from the type.
 - A **view** looks at memory that something else owns. It is copied like a value. It never frees anything, and
   dropping one does nothing. It may not outlive what it looks at (section 18.3, Views).
 - An **owner** holds memory or another resource and releases it when it is dropped. Assigning it **moves** it:
   the bytes go to the new place and the old place holds nothing. A moved-from variable may not be used until
-  it is given a new value. Copies are made only by calling `Clone`. An owner that is destroyed is **dropped**:
-  its `Drop` method runs, if it has one, and then its fields are dropped in declaration order and its array
+  it is given a new value. Copies are made only by calling `Clone`. At the end of its life an owner is
+  **dropped**: its `Drop` method runs, if it has one, and then its fields are dropped in declaration order and its array
   elements in index order.
 
 | Kind | Assignment, passing, returning | When it ends | Zero value |
@@ -391,7 +389,7 @@ kinds.
 | `*T`, `unsafe.Pointer` | view |
 | `[]T` | view |
 | function types | view |
-| an interface type not declared `owner` | view |
+| an interface type not declared `owner` | view (an `error` counts a counted box it holds, section 16.7) |
 | an interface type declared `owner` | owner |
 | `[N]T`, `volatile[T]`, `aligned[T, N]`, `ring[T, N]` | the kind of `T` |
 | a struct type | the strongest kind among its fields; an owner only if declared `owner` |
@@ -405,7 +403,7 @@ The kinds are ordered from the strongest to the weakest: owner, view, counted va
 composite type is the strongest kind of its components. A struct with a counted field and a view field is a
 view, and copying it still adds a count for the counted field. A type that contains a counted value anywhere,
 or an owner, has **drop glue**: the code that the compiler generates to release the counts and run the `Drop`
-methods when a value of the type is destroyed. When a value of such a type is destroyed is defined in section
+methods when a value of the type is dropped. When a value of such a type is dropped is defined in section
 18.6 (Drops) and section 18.8 (Strings).
 
 Three rules keep the table honest:
@@ -415,7 +413,7 @@ Three rules keep the table honest:
   type that looks like a plain struct and moves would be a false friend. The types that are owners by
   construction are `owned[T]`, an array, a `ring` or an `aligned` of an owner, and an owning interface.
   Section 7.18 (Owner types) gives the full rules.
-- **Function and interface types are views.** A value of such a type may be a closure or a boxed copy that
+- **Function and interface types are views.** A value of such a type may be a closure or a frame copy that
   refers to a frame, so the type has the kind that the strictest value could have. The escape analysis
   (section 18.3) checks each value by what it refers to: a function value that captures nothing may be
   returned or stored anywhere, as the type's kind alone would not allow.
@@ -437,7 +435,8 @@ statements) or an element sent on a channel (section 12.5, Send statements). A v
 to use from several processors at once. A type is **sendable** if values of the type may cross, subject to the
 conditions on views below.
 
-A type is sendable unless it contains, directly or in any field, element, payload or referent of a box:
+A type is sendable unless it contains, directly or in any field, element, payload, referent of a box, or
+target of a pointer or slice:
 
 - a `shared[T]` or a `weak[shared[T]]`, whose counts are not changed atomically (E2010).
 
@@ -447,28 +446,26 @@ Following the structure of the types:
   sendable because their bytes never change and their counts are atomic once a program has several threads.
 - An array, a `ring`, a `volatile` or an `aligned` type is sendable if its element type is. A struct is
   sendable if every field is, and a union if every payload is.
+- A pointer `*T` or a slice `[]T` is sendable if `T` is. The rule looks through pointers: a `*S` whose `S`
+  holds a `shared[T]` is not sendable, since two tasks that copy the field out of the one `S` would change
+  its count without atomic operations. Whether the memory a view points to may be used by both tasks is
+  checked where the value crosses, as below. `unsafe.Pointer` is sendable; what it points to is the
+  responsibility of unsafe code (section 18.12, Safe and unsafe code).
 - A map `map[K]V` is sendable if `K` and `V` are. A map is a counted value whose count is atomic once a
   program has several threads. Its contents fall under the race rules of section 19.3 (Data race freedom).
 - `owned[T]` is sendable if `T` is. Sending it moves it, so only one task has it.
 - `synced[T]` and `weak[synced[T]]` are sendable if `T` is. The count is atomic. The data is not: the fields
   of `T` that change are guarded by a lock of the same object or used atomically (section 19.3).
-- An owner type declared with fields is sendable if its fields are, with one exception. A view field of an
-  owner declared in a package that uses package `unsafe` to manage memory (`vec.Vec`, `hash.Map`,
-  `strings.Builder`) points into memory the owner owns, and it moves with the owner; only what that memory
-  holds is checked.
+- An owner type is sendable if what it holds is sendable: its fields, and through a view field, the type
+  the view points to. Sendability depends only on the types and the memory an owner holds, never on which
+  packages its package imports. A view field that holds only memory the owner's own code allocated (inferred
+  as a heap-only field is, section 18.3, Views) points into memory the owner owns, and that memory moves
+  with the owner, so only what it holds is checked; this is how `vec.Vec`, `hash.Map` and
+  `strings.Builder` cross. A view field that may hold other memory is checked where the owner crosses, as
+  any view is.
 - An interface type is sendable if every type that the program converts to it, directly or through another
   interface, is. An owning interface moves when it crosses.
-- A pointer, slice or `unsafe.Pointer` type is sendable. The memory it points to is checked where a value
-  crosses, as below.
 - A type parameter is checked for each type it is instantiated with.
-
-> **Open (new).** Whether the referent of a pointer or slice must itself be a sendable type. A `*S` where `S`
-> has a `shared[T]` field is not looked through today, although two tasks that copy the field out would change
-> its count without atomic operations.
-
-> **Open (new).** Owners declared in packages that use `unsafe` are treated as owning their views, which makes
-> the sendability of a library type depend on its imports. Whether the language should have an explicit
-> statement of this fact is not decided.
 
 **Views that cross.** A value of a sendable type crosses only if it contains no view of the frame of the
 function that sends it (section 18.3, Views; E3004, E3005), and every view it contains points to memory that
@@ -504,11 +501,13 @@ directly or at any depth:
 
 - a pointer, `unsafe.Pointer`, a view (slice or pointer), or a function value;
 - a counted value, including a string, a channel, a map, and the types `shared`, `synced` and `weak`;
-- an `owned[T]`;
+- an owner: a type declared `owner`, an `owned[T]`, an owning interface, or a type built from them;
 - an interface value.
 
 A string is not portable because its bytes live in the sender's memory. A `uintptr` is a number and is
-portable, but its value means nothing to a receiver in another address space.
+portable, but its value means nothing to a receiver in another address space. An owner is not portable even
+when it is built from numbers, such as `type Frame owner uintptr`: sending it to another address space would
+also transfer the duty to drop it, which the structural rule does not express.
 
 `portable` is a predeclared constraint satisfied by exactly the portable types. It is used like `comparable`:
 it can be a type constraint and nothing else (section 7.9, Interface types), so that a function can accept
@@ -524,15 +523,9 @@ func Send[T portable](port int, v T) {}   // Send(1, Header{}) compiles; Send(1,
 ```
 
 The rule is structural. The library that sends values between address spaces is specified with the operating
-system's interface for typed communication between processes. That design may add a way for a type to declare
-how its values are transferred, so that handles and owners of pages can cross; the structural rule is then the
-part that needs no declaration.
-
-> **Open (G19).** Whether an owner type is portable. As written, the rule makes `type Frame owner uintptr`
-> portable, because it is built from a number. Moving it to another address space also transfers the duty to
-> drop it, which the structural rule does not address. The decision names handles and page-owning owners as
-> the extension that follows with the typed communication design, so the structural rule may have to exclude
-> owner types until then.
+system's interface for typed communication between processes. That design will define how a type declares the
+transfer of its values, so that handles and owners of pages can cross; until it does, no owner is portable,
+and the structural rule is the part that needs no declaration.
 
 ### 8.10 Comparable types
 
@@ -553,8 +546,8 @@ defined as follows; the operators themselves are in section 11.20 (Comparison op
   have value `nil`. Pointers to distinct zero-size variables may or may not be equal.
 - Channel types are comparable. Two channel values are equal if they were created by the same call to `make`
   or if both have value `nil`.
-- The types `owned[T]`, `shared[T]`, `synced[T]` and `weak[P]` are comparable. Two values of the same box type
-  are equal if they hold the same address, which includes both being `nil`. A box can be compared to `nil`. A
+- Boxes (`owned[T]`, `shared[T]`, `synced[T]`) and `weak[P]` are comparable. Two values of the same type are
+  equal if they hold the same address, which includes both being `nil`. Each can be compared to `nil`. A
   comparison reads both operands and moves neither.
 - Interface types that are not type parameters are comparable. Two interface values are equal if they have
   identical dynamic types and equal dynamic values or if both have value `nil`.
@@ -595,13 +588,13 @@ comparable. This behavior applies not only to direct interface value comparisons
 arrays of interface values or structs with interface-valued fields.
 
 Slice, map and function types are not comparable. However, as a special case, a slice, map or function value
-may be compared to the predeclared identifier `nil`. Comparison of pointer, channel, box and interface values
-to `nil` is also allowed and follows from the general rules above.
+may be compared to the predeclared identifier `nil`. Comparison of pointer, channel, box, `weak` and interface
+values to `nil` is also allowed and follows from the general rules above.
 
 A type is **strictly comparable** if it is comparable and not an interface type nor composed of interface
 types. Specifically:
 
-- Boolean, numeric, string, enum, packed, pointer, channel and box types are strictly comparable.
+- Boolean, numeric, string, enum, packed, pointer, channel, box and `weak` types are strictly comparable.
 - Struct types are strictly comparable if all their field types are strictly comparable.
 - Array types are strictly comparable if their array element types are strictly comparable.
 - Union types are strictly comparable if all their payload types are strictly comparable.
@@ -618,14 +611,13 @@ assignability (section 8.4), representability (section 8.5) and the kinds of sec
 depend on the kind of a type are these:
 
 - Converting a value of non-owner type to an owner type is allowed only in the package that declares the owner
-  type, where its invariants are kept. Converting an owner to a non-owner type reads its value and moves
-  nothing; the result is a plain value with no `Drop`. Converting between two owner types with the same
-  underlying type moves (E3212).
+  type, where its invariants are kept (E3212). Converting an owner to a non-owner type reads its value and
+  moves nothing; the result is a plain value with no `Drop`. Converting between two owner types with the same
+  underlying type moves.
 - A box never converts to or from a pointer, except through `(*T)(p)`, `&*p` and `unsafe`. A `weak[P]` is made
   by converting a reference (section 7.19).
 - Strings convert to and from runes, and are never converted to or from byte slices (section 7.3).
 
 ---
 
-Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see
-[Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

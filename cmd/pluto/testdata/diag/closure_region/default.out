@@ -9,8 +9,7 @@ $DIR/main.p:49:10: chain cannot return the closures of this call: the call reach
     a value the caller owns, such as a struct with a method.
     Go allocates each closure on the heap, however deep the recursion. Plutonium
     builds closures in frames, whose sizes are fixed when compiling.
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3102" for a longer explanation)
 
 $DIR/main.p:57:11: even cannot return the closures of this call: the call reaches even again, so its region would have no fixed size
@@ -24,8 +23,7 @@ $DIR/main.p:57:11: even cannot return the closures of this call: the call reache
     a value the caller owns, such as a struct with a method.
     Go allocates each closure on the heap, however deep the recursion. Plutonium
     builds closures in frames, whose sizes are fixed when compiling.
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3102" for a longer explanation)
 
 $DIR/main.p:17:10: cannot keep the closure counterFrom(n) returns past this iteration of the loop: it is stored in last, declared outside the loop (main.p:15)
@@ -39,8 +37,7 @@ $DIR/main.p:17:10: cannot keep the closure counterFrom(n) returns past this iter
     inside the loop.
     Go allocates each closure on the heap. Plutonium builds it in the caller's
     frame, which has room for one closure per call site.
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3101" for a longer explanation)
 
 $DIR/main.p:29:9: cannot keep the closure counterFrom(n) returns past this iteration of the loop: it is stored in b, declared outside the loop (main.p:27)
@@ -54,8 +51,7 @@ $DIR/main.p:29:9: cannot keep the closure counterFrom(n) returns past this itera
     inside the loop.
     Go allocates each closure on the heap. Plutonium builds it in the caller's
     frame, which has room for one closure per call site.
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3101" for a longer explanation)
 
 $DIR/main.p:79:8: cannot keep the closure filter(...) returns past this iteration of the loop: it is stored in it, declared outside the loop (main.p:77)
@@ -72,8 +68,7 @@ $DIR/main.p:79:8: cannot keep the closure filter(...) returns past this iteratio
     and return one closure that applies every step.
     Go allocates each closure on the heap. Plutonium builds it in the caller's
     frame, which has room for one closure per call site.
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3101" for a longer explanation)
 
 $DIR/main.p:94:31: cannot keep the closure wrap(g, i) returns past this iteration of the loop: it is stored in g, a variable of the for statement (main.p:94), which passes its value on to the next iteration
@@ -90,8 +85,7 @@ $DIR/main.p:94:31: cannot keep the closure wrap(g, i) returns past this iteratio
     and return one closure that applies every step.
     Go allocates each closure on the heap. Plutonium builds it in the caller's
     frame, which has room for one closure per call site.
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3101" for a longer explanation)
 
 $DIR/main.p:107:6: cannot keep the closure wrap(g, i) returns past this run of the loop that goto again makes: it is stored in g, declared outside the loop (main.p:104)
@@ -109,6 +103,5 @@ $DIR/main.p:107:6: cannot keep the closure wrap(g, i) returns past this run of t
     and return one closure that applies every step.
     Go allocates each closure on the heap. Plutonium builds it in the caller's
     frame, which has room for one closure per call site.
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3101" for a longer explanation)

@@ -10,7 +10,7 @@ at run time, and which code the compiler does not check.
 The rules are inferred from the program. Ordinary code needs no annotations and no knowledge of how the
 compiler checks them; each rule that rejects a program does so with an error code (chapter 21,
 Implementation requirements) whose explanation names the variables and lines involved and shows a fix.
-Following section 1.1 (Scope and goals), every analysis in this chapter rejects what it cannot prove
+Following section 1.2 (Design rules), every analysis in this chapter rejects what it cannot prove
 safe, and whether a program is accepted never depends on optimization (section 21.3, Acceptance does not
 depend on optimization).
 
@@ -46,10 +46,9 @@ of each type; in short:
 | let several places keep it | `shared[T]`, `synced[T]`, a map or a channel | a count update per copy |
 | keep text | `string` | a count update per stored copy of a string made at run time; none for literals |
 
-**Why three kinds and not one.** In Go, a map, slice or string looks like a value but refers to memory
-that only the garbage collector frees. `t := s` shares an array; `&x` on a local may move `x` to the heap
-without saying so. With no collector, the program must say what it does: a view only looks, an owner
-only owns, and sharing is chosen by type. Counting everything, as some languages do, costs an update on
+**Why three kinds and not one.** With no garbage collector, nothing frees memory that the program has
+stopped using unless the program says who is responsible for it. So the program says what each value
+does with memory: a view only looks, an owner only owns, and sharing is chosen by type. Counting everything, as some languages do, costs an update on
 every copy and makes the place where memory is freed depend on which copy happens to go last, which a
 kernel cannot accept; Plutonium counts only the types that ask for it (section 18.7) and strings
 (section 18.8).
@@ -174,7 +173,7 @@ closure that uses one of those variables, `&x`, a slice of a local array declare
 interface holding a copy made in the body) is therefore valid for one iteration.
 
 - Using such a view within the iteration (calling the closure, passing the pointer down, storing it in a
-  variable declared in the body) is allowed and behaves as Go 1.22's per-iteration variables do.
+  variable declared in the body) is allowed and behaves as if each iteration had variables of its own.
 - Keeping it where the next iteration can see it is error E3006: in a variable, element or field
   declared outside the loop body or in the loop's header, or anywhere a view of the frame may not go at
   all (section 18.3).
@@ -197,8 +196,8 @@ for i := 0; i < 3; i++ {
 }
 ```
 
-The rule means that every loop that compiles behaves as Go 1.22's loops do: no program can observe that
-the storage is shared. A closure returned by a call in a loop is covered by the region rule of section
+The rule means that every loop that compiles behaves as if each iteration had variables of its own: no
+program can observe that the storage is shared. A closure returned by a call in a loop is covered by the region rule of section
 11.5 (E3101). Tasks started by a `sync.Scope` in a loop take their own copies of the iteration's
 variables instead (section 19.4, Scoped tasks).
 
@@ -209,7 +208,8 @@ variables instead (section 19.4, Scoped tasks).
 - assigned to a variable or other place (`n := m`, `n = m`, `c.buf = b`, `s[i] = b`, `*p = b`);
 - passed by value as an argument, including as the receiver of a method with a value receiver;
 - returned, including as a named result by a bare `return`;
-- sent on a channel (section 12.5, Send statements), or passed to a task statement (section 19.1);
+- sent on a channel (section 12.5, Send statements), or passed to a task statement (section 12.12, Task
+  statements);
 - stored in a composite literal (`Conn{buf: b}`);
 - converted to an owning interface (section 7.9);
 - given to `new(v)` (section 13.9, Allocation);
@@ -226,7 +226,7 @@ it until the variable is given a new value.
   and selecting a field to read it;
 - converting it to an ordinary interface such as `any` or `error`, which lends it: the interface is a
   view of the variable (section 7.9);
-- comparing it with `==` or `!=`, where its type is comparable (section 11.20, Comparison operators);
+- comparing it with `==` or `!=`, where its type is comparable (section 8.10, Comparable types);
 - converting it to a type that is not an owner type, which yields a plain value with no `Drop` (section
   11.24, Conversions);
 - `len`, `cap` and other operations that only read;
@@ -370,10 +370,7 @@ the shared object (section 18.7).
 
 **`owned[T]`.** The box `owned[T]` is the single owner of one heap object of type `T` (section 7.19,
 `owned`, `shared`, `synced` and `weak`). `new(T)` and `alloc.Owned[T]()` return one. It moves like any
-owner, dereferences like a `*T`, and dropping it drops the `T` and frees the memory. It has two methods of
-its own: `Drop`, and, when `T` is not an owner type, `Clone()`, which returns a new box from the current
-allocator holding a copy of the object. For an owner `T` with a `Clone` method of its own, write
-`new(p.Clone())`.
+owner, and dropping it drops the `T` and frees the memory.
 
 **Counted references.** Shared ownership is chosen by type, never by default:
 
@@ -408,34 +405,15 @@ by converting a strong reference, `weak[shared[Node]](p)`. The rules:
 6. Cycles of strong references are never freed. A structure with back pointers makes them `weak`.
 
 A `synced` count is updated with atomic operations once the program has started its first task, and with
-plain arithmetic before (the switch is invisible to the program, section 19.7, Memory model). A `shared`
+plain arithmetic before; a freestanding program counts atomically from the start. The switch is invisible
+to the program (section 19.7, Memory model; memory-model.md section 3.7), and it applies alike to strings
+and maps, whose counts the table below describes. A `shared`
 count is always plain. `Upgrade` of a `weak[synced[T]]` is an atomic compare-and-swap that fails once the
 strong count is zero, so it never revives an object whose drop has begun.
 
-**Representation.** Each of these types is one word, the address of the object. The allocation begins
-with a header in front of the object: for `owned[T]`, the allocator the object came from; for
-`shared[T]` and `synced[T]`, the strong count, the weak count and the allocator (abi.md section 1.2). A
-`weak[P]` is the same address as its `P`. Freeing goes to the recorded allocator even if the default has
-changed since. The zero value of each is nil; dropping a nil reference does nothing, and dereferencing
-one faults as a nil pointer does (section 17.5, Faults).
-
-**Using a box.** `owned[T]`, `shared[T]` and `synced[T]` dereference like `*T`: `p.field`, `*p`, `p[i]`,
-`len(p)` and `range p` when `T` is an array, and calls of `*T`'s methods. `&*p` and the conversion
-`(*T)(p)` lend a `*T` view to code that does not take ownership; a `*T` never becomes a box (E3212).
-`shared[T]` and `synced[T]` have no methods of their own, so they never hide one of `T`'s, and their
-counts change only by copying and dropping. A `weak[P]` does not dereference; its one method is
-`Upgrade`.
-
-**Embedding.** A struct may embed `owned[T]`, `shared[T]` or `synced[T]` as Go code embeds `*T`, which
-promotes `T`'s methods. A struct that embeds an `owned[T]` has an owner field and must be declared
-`owner` (E3202). The box's own `Drop` and `Clone` are never promoted.
-
-**Comparison.** `owned`, `shared`, `synced` and `weak` references compare by address, with each other
-and with `nil`. Comparing reads and moves nothing.
-
-**No boxes of interfaces.** `owned`, `shared` and `synced` cannot hold an interface type (E3210). An
-owning interface (`type R owner interface { ... }`) is the one way to own a value behind an interface; it
-holds a `shared` or `synced` reference as well as an owner.
+The representation of the boxes and of `weak[P]`, how they are used through `*T`'s methods and fields,
+embedding, comparison, and the rule that a box cannot hold an interface type are defined with the types
+(section 7.19, `owned`, `shared`, `synced` and `weak`).
 
 **Counted reference types.** Besides `shared[T]` and `synced[T]`, four built-in kinds of value share
 memory by counting:
@@ -448,9 +426,9 @@ memory by counting:
 | an allocated error | the error object | atomic | section 16.7 (Allocated errors and ownership) |
 
 Copies of a map share its table, so `m2 := m` and a function that fills its map parameter change the
-same table, as in Go; the table is freed when its last reference goes. Keys and values of a built-in map
-may not be owners (the error points to the library's `hash.Map`); counted keys and values are counted as
-they are copied in and out, and released when entries are deleted, by `clear(m)`, or with the table. A
+same table; the table is freed when its last reference goes. Keys and values of a built-in map may not be
+owners (section 7.10, Map types: the error shows a `synced[T]` element instead); counted keys and values
+are counted as they are copied in and out, and released when entries are deleted, by `clear(m)`, or with the table. A
 channel's last reference drops the values still in its buffer and frees the channel (section 19.8).
 Counted values are released by the same rules as `shared` references: a store takes a reference for the
 new value and releases the old one, a parameter is borrowed, and a result hands its reference to the
@@ -468,7 +446,7 @@ copied far more often than changed.
 ### 18.8 Strings
 
 A `string` is an immutable sequence of bytes that holds valid UTF-8 (section 7.3, String types). Strings
-copy as freely as integers: assignment, passing, returning and storing work as in Go, and nothing frees a
+copy as freely as integers: assignment, passing, returning and storing copy them, and nothing frees a
 string's bytes while a copy can still reach them.
 
 **Buffers and counts.**
@@ -484,13 +462,14 @@ string's bytes while a copy can still reach them.
 - String literals, constants and every other string the compiler places in static storage are never
   counted: copying or dropping one costs nothing. The zero string is static.
 - A string made with `unsafe.String(p, n)` is not counted. It is a view of the memory at `p`, which must
-  outlive every copy of it (section 18.3); if the bytes are not valid UTF-8, the behavior of string
-  operations on it is not defined (section 20.1).
+  outlive every copy of it (section 18.3); section 20.1 (Package `unsafe`) says what follows if the bytes
+  are not valid UTF-8.
 
 **Strings and ownership.** A string is a counted value, not an owner: it never moves, and copying is
 always allowed. A struct or array with string fields is a counted value too: it copies freely, each copy
-counting its strings, and needs no `owner` declaration. When such a value is destroyed, its drop glue
-releases its strings. Values are destroyed:
+counting its strings, and needs no `owner` declaration. When such a value is dropped, its drop glue
+releases its strings. A counted value is dropped at the points where an owner would be (section 18.6,
+Drops):
 
 - at the end of a variable's scope, on every path out of it, and at the end of each iteration for a
   variable declared in a loop body;
@@ -517,7 +496,7 @@ through the memory the program uses. The compiler removes count updates that can
 a string down costs nothing; a string read from memory a call could change is held for the statement
 unless no call made while it is held can release a string; copying a temporary into a variable hands its
 reference over; `return x` hands over `x`'s reference. One consequence is visible in memory use: a string
-converted to an interface is copied into a box in the converting function's frame, which holds a
+converted to an interface is copied into the converting function's frame, which holds a
 reference until the function returns or the same conversion runs again (section 7.9).
 
 **Arenas.** A string built while an arena is the current allocator has its buffer in the arena. Dropping
@@ -682,14 +661,17 @@ println(*first)               // panic: use of freed memory
 
 **The rule.** A use of heap memory through a view after the memory has been freed (a load, a store, or
 the release of a count it holds) is a run-time panic, "use of freed memory" (section 17.1, Panics). The
-same holds for memory of an `arena.Chunked` after the arena has taken it back with `Reset`, `Release` or
-`Drop`, or freed it: the panic names the call that took it back. Freeing memory a second time through the
+same holds for the memory of any arena (an `arena.Chunked`, or an `arena.Arena` over a fixed buffer) after
+the arena has taken it back with `Reset`, `Release` or `Drop`, or freed it: the panic names the call that
+took it back. Freeing memory a second time through the
 unchecked layer is a use too.
 
 **How it is checked.** In a checked build, a heap pointer carries a tag that names the generation of its
 allocation, and the allocator gives the memory a new generation when it frees it; each access through a
 pointer that may point to the heap compares the two. Arenas tag their memory with an epoch, which ends
-when the arena takes the memory back. The encoding is in abi.md section 1.3. Pointers to frames, static
+when the arena takes the memory back. The rule covers all heap and arena memory, whatever its size: large
+allocations, large arena chunks and the buffer of a fixed `arena.Arena` carry tags or epochs too, so no
+memory that the program can free or reset escapes the check. The encoding is in abi.md section 1.3. Pointers to frames, static
 storage and devices carry no tag and are not checked, since the rules of section 18.3 already cover them.
 A pointer converted to `uintptr` or passed to a function implemented outside Plutonium loses its tag.
 One check covers later accesses through the same pointer until the task does something that could free
@@ -715,13 +697,6 @@ the chunk instead.
 
 In the unchecked mode, the debug allocator (section 18.9) narrows the gap by catching uses of memory
 returned to it.
-
-> **Open (G31).** The tag encoding of abi.md section 1.3 gives no tag to slab allocations over 2 KiB, to
-> arena chunks over 56 KiB, or to the buffer of a fixed `arena.Arena`, so a use of that memory after it
-> is freed, or after the arena is reset, is not detected even in a checked build. For a fixed
-> `arena.Arena`, a stale `*T` from `a.New[T]()` can then read memory that a later allocation uses as
-> another type. Whether the rule above is met by tagging this memory too, by making the operations that
-> reuse it (a fixed arena's `Reset` and `Release`) unsafe code, or by narrowing the rule, is not decided.
 
 ### 18.12 Safe and unsafe code
 

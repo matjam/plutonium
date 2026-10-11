@@ -9,8 +9,7 @@ $DIR/main.p:54:7: cannot keep the closure count(n) returns past this iteration o
     inside the loop.
     Go allocates each closure on the heap. Plutonium builds it in the caller's
     frame, which has room for one closure per call site.
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3101" for a longer explanation)
 
 $DIR/main.p:63:9: cannot keep the closure count(n) returns past this iteration of the loop: it is stored in memory reached through a pointer
@@ -33,8 +32,7 @@ $DIR/main.p:95:11: cannot keep the closure count(n) returns past this iteration 
     inside the loop.
     Go allocates each closure on the heap. Plutonium builds it in the caller's
     frame, which has room for one closure per call site.
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3101" for a longer explanation)
 
 $DIR/main.p:108:9: cannot keep the closure count(n) returns past this iteration of the loop: it is stored in out, declared outside the loop (main.p:106)
@@ -48,8 +46,7 @@ $DIR/main.p:108:9: cannot keep the closure count(n) returns past this iteration 
     inside the loop.
     Go allocates each closure on the heap. Plutonium builds it in the caller's
     frame, which has room for one closure per call site.
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3101" for a longer explanation)
 
 $DIR/main.p:122:12: cannot keep the closure count(n) returns past this iteration of the loop: it is stored in memory reached through a pointer
@@ -69,8 +66,7 @@ $DIR/main.p:135:15: cannot keep the closure ret(count(n)) returns past this iter
     inside the loop.
     Go allocates each closure on the heap. Plutonium builds it in the caller's
     frame, which has room for one closure per call site.
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3101" for a longer explanation)
 
 $DIR/main.p:142:27: cannot keep the closure count(n) returns past this iteration of the loop: it is stored in last, declared outside the loop (main.p:140)
@@ -84,8 +80,7 @@ $DIR/main.p:142:27: cannot keep the closure count(n) returns past this iteration
     inside the loop.
     Go allocates each closure on the heap. Plutonium builds it in the caller's
     frame, which has room for one closure per call site.
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3101" for a longer explanation)
 
 $DIR/main.p:142:23: cannot keep the closure ret(count(n)) returns past this iteration of the loop: it is stored in last, declared outside the loop (main.p:140)
@@ -99,8 +94,7 @@ $DIR/main.p:142:23: cannot keep the closure ret(count(n)) returns past this iter
     inside the loop.
     Go allocates each closure on the heap. Plutonium builds it in the caller's
     frame, which has room for one closure per call site.
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3101" for a longer explanation)
 
 $DIR/main.p:164:10: cannot keep the closure own(n) returns past this iteration of the loop: it is stored in last, declared outside the loop (main.p:162)
@@ -114,8 +108,7 @@ $DIR/main.p:164:10: cannot keep the closure own(n) returns past this iteration o
     inside the loop.
     Go allocates each closure on the heap. Plutonium builds it in the caller's
     frame, which has room for one closure per call site.
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3101" for a longer explanation)
 
 $DIR/main.p:171:11: cannot keep the closure ownGen(n) returns past this iteration of the loop: it is stored in memory reached through a pointer
@@ -129,6 +122,5 @@ $DIR/main.p:171:11: cannot keep the closure ownGen(n) returns past this iteratio
     inside the loop.
     Go allocates each closure on the heap. Plutonium builds it in the caller's
     frame, which has room for one closure per call site.
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
     (run "pluto explain E3101" for a longer explanation)

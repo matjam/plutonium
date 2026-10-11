@@ -41,14 +41,11 @@ func good() owned[int] {
 }
 ```
 
-As in Go, a variable's address may be taken and passed down to calls. Unlike Go, returning it past the
-variable's life is a compile error, not an implicit allocation.
+A variable's address may be taken and passed down to calls. Keeping it past the variable's life is a
+compile error, never an implicit allocation.
 
 **Loops reuse storage.** Every iteration of a loop uses the same storage for the variables declared in its
-header and in its body (section 18.4, Loop iterations reuse their storage). A view of such a variable is
-valid for one iteration, and keeping it where a later iteration can see it is a compile error. Unlike Go
-1.22, the loop does not create a fresh variable for each iteration, and code that depends on that is
-rejected, not silently different.
+header and in its body (section 18.4, Loop iterations reuse their storage).
 
 **Types of variables.** The *static type* (or just *type*) of a variable is the type given in its
 declaration, the type provided in the `new` call or composite literal, or the type of an element of a
@@ -74,7 +71,7 @@ value is the zero value for its type (section 15.1, The zero value).
 The kind of the variable's type decides what assigning to and leaving the variable does (section 8.7,
 Values, views, owners and counted values):
 
-- A value is copied.
+- A value or a view is copied.
 - An owner is moved, and the variable it came from holds nothing until a new value is assigned to it
   (section 18.5, Moves). A variable that still holds an owner when its scope ends drops it (section 18.6,
   Drops).
@@ -87,5 +84,4 @@ Data race freedom).
 **Per-processor variables.** In kernel builds, a package-level variable marked `//pu:percpu` has one copy
 per processor (section 20.9, Per-CPU variables).
 
-Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see
-[Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

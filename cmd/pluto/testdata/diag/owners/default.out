@@ -14,7 +14,7 @@ $DIR/main.p:13:2: Conn must be declared owner: its field buf is a Buf, which is 
     Conn values then move, and buf is dropped when a Conn is. If Conn should
     only look at a value that something else owns, store a pointer:
         buf *Buf
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Owner types" in the Plutonium spec, section 7.18)
     (run "pluto explain E3202" for a longer explanation)
 
 $DIR/main.p:16:12: owner cannot qualify a slice type
@@ -26,7 +26,7 @@ $DIR/main.p:16:12: owner cannot qualify a slice type
             v  Bytes
             fd int32
         }
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Owner types" in the Plutonium spec, section 7.18)
     (run "pluto explain E3204" for a longer explanation)
 
 $DIR/main.p:18:11: owner cannot qualify an enum type
@@ -38,7 +38,7 @@ $DIR/main.p:18:11: owner cannot qualify an enum type
             v  Kind
             fd int32
         }
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Owner types" in the Plutonium spec, section 7.18)
     (run "pluto explain E3204" for a longer explanation)
 
 $DIR/main.p:35:2: cannot use Buf as T in Fill: Buf is an owner and T does not allow owners
@@ -52,7 +52,7 @@ $DIR/main.p:35:2: cannot use Buf as T in Fill: Buf is an owner and T does not al
     declaration:
         [T owner any]
     Otherwise use copies made explicitly with Clone, or pointers to the owners.
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Owner types" in the Plutonium spec, section 7.18)
     (run "pluto explain E3207" for a longer explanation)
 
 $DIR/main.p:25:18: Drop must have no parameters and no results
@@ -62,7 +62,7 @@ $DIR/main.p:25:18: Drop must have no parameters and no results
         func (x *Closer) Drop()
     If this method is not meant to run when a value is destroyed, give it
     another name.
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Owner types" in the Plutonium spec, section 7.18)
     (run "pluto explain E3206" for a longer explanation)
 
 $DIR/main.p:7:16: File has a Drop method but is not declared owner
@@ -79,5 +79,5 @@ $DIR/main.p:7:16: File has a Drop method but is not declared owner
         type File owner struct {
             ...
         }
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Owner types" in the Plutonium spec, section 7.18)
     (run "pluto explain E3201" for a longer explanation)

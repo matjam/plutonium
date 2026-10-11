@@ -9,46 +9,84 @@ import (
 )
 
 var (
-	// headingForm matches a numbered heading of the spec: "## 12. Build
-	// modes and targets" or "### 12.4 `pluto/arch/x86`".
-	headingForm = regexp.MustCompile(`^#{2,6} (\d+(?:\.\d+)*)\.? (.+)$`)
+	// headingForm matches a numbered heading of the spec: "## 20. System
+	// considerations", "### 20.8 `pluto/arch/x86`" or, in an appendix,
+	// "### A.2 Removed".
+	headingForm = regexp.MustCompile(`^#{2,6} ((?:\d+|[A-Z])(?:\.\d+)*)\.? (.+)$`)
 	// pspecForm matches what pspec produces.
-	pspecForm = regexp.MustCompile(`^"(.+)" in the Plutonium spec, section (\d+(?:\.\d+)*)$`)
+	pspecForm = regexp.MustCompile(`^"(.+)" in the Plutonium spec, section ((?:\d+|[A-Z])(?:\.\d+)*)$`)
+	// chapterFile matches the name of a chapter file of the spec,
+	// "11-expressions.md" or "a-differences-from-go.md", and captures the
+	// chapter number or appendix letter.
+	chapterFile = regexp.MustCompile(`^(\d\d|[a-z])-[a-z0-9-]+\.md$`)
 )
 
-// specHeadings returns the numbered headings of docs/spec/file, as a map
-// from section number to title with the backquotes removed.
-func specHeadings(t *testing.T, file string) map[string]string {
+// specDir is the directory that holds the chapters of the spec.
+var specDir = filepath.Join("..", "..", "docs", "spec", "language")
+
+// specHeadings returns the numbered headings of every chapter file of the
+// spec, as a map from section number to title with the backquotes removed.
+// It checks that each number appears once, in the file of its chapter.
+func specHeadings(t *testing.T) map[string]string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "spec", file))
+	files, err := os.ReadDir(specDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	headings := map[string]string{}
-	inFence := false
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, "```") {
-			inFence = !inFence
+	where := map[string]string{}
+	for _, f := range files {
+		m := chapterFile.FindStringSubmatch(f.Name())
+		if m == nil {
+			t.Errorf("docs/spec/language/%s: not a chapter file (NN-title.md or x-title.md)", f.Name())
 			continue
 		}
-		if inFence {
-			continue
+		chapter := strings.TrimLeft(m[1], "0")
+		if len(m[1]) == 1 {
+			chapter = strings.ToUpper(m[1])
 		}
-		if m := headingForm.FindStringSubmatch(line); m != nil {
-			headings[m[1]] = strings.ReplaceAll(strings.TrimSpace(m[2]), "`", "")
+		data, err := os.ReadFile(filepath.Join(specDir, f.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		inFence := false
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(line, "```") {
+				inFence = !inFence
+				continue
+			}
+			if inFence {
+				continue
+			}
+			if strings.HasPrefix(line, "> **Open") {
+				t.Errorf("docs/spec/language/%s: an open question remains: %s", f.Name(), line)
+			}
+			h := headingForm.FindStringSubmatch(line)
+			if h == nil {
+				continue
+			}
+			number := h[1]
+			if first, _, _ := strings.Cut(number, "."); first != chapter {
+				t.Errorf("docs/spec/language/%s: section %s belongs in the file of chapter %s", f.Name(), number, first)
+			}
+			if prev, dup := where[number]; dup {
+				t.Errorf("docs/spec/language/%s: section %s is numbered again (first in %s)", f.Name(), number, prev)
+			}
+			where[number] = f.Name()
+			headings[number] = strings.ReplaceAll(strings.TrimSpace(h[2]), "`", "")
 		}
 	}
 	return headings
 }
 
 // TestSpecReferences checks that every reference to the Plutonium spec in
-// the catalog names a section that exists in docs/spec/language.md, under
+// the catalog names a section that exists in docs/spec/language/, under
 // the title the reference gives. A renumbering of the spec fails here, so
 // the references are updated with it.
 func TestSpecReferences(t *testing.T) {
-	headings := specHeadings(t, "language.md")
-	if len(headings) < 20 {
-		t.Fatalf("found %d numbered headings in docs/spec/language.md; is the heading form parsed correctly?", len(headings))
+	headings := specHeadings(t)
+	if len(headings) < 200 {
+		t.Fatalf("found %d numbered headings in docs/spec/language; is the heading form parsed correctly?", len(headings))
 	}
 	checked := 0
 	for _, code := range Codes() {
@@ -58,9 +96,8 @@ func TestSpecReferences(t *testing.T) {
 		}
 		m := pspecForm.FindStringSubmatch(e.Spec)
 		if m == nil {
-			// The other forms cite the Go spec, quote it, or point at the
-			// whole of the Plutonium spec. Any other mention of a section
-			// of the Plutonium spec must be in pspec's form.
+			// The other forms point at the whole of the Plutonium spec. Any
+			// mention of a section of it must be in pspec's form.
 			if strings.Contains(e.Spec, "Plutonium spec") && strings.Contains(e.Spec, "section") {
 				t.Errorf("%s (%s): spec reference %q is not in the form pspec produces", code, e.Name, e.Spec)
 			}
@@ -71,9 +108,9 @@ func TestSpecReferences(t *testing.T) {
 		got, ok := headings[section]
 		switch {
 		case !ok:
-			t.Errorf("%s (%s): docs/spec/language.md has no section %s (cited as %q)", code, e.Name, section, title)
+			t.Errorf("%s (%s): docs/spec/language has no section %s (cited as %q)", code, e.Name, section, title)
 		case got != title:
-			t.Errorf("%s (%s): section %s of docs/spec/language.md is %q, not %q", code, e.Name, section, got, title)
+			t.Errorf("%s (%s): section %s of docs/spec/language is %q, not %q", code, e.Name, section, got, title)
 		}
 	}
 	if checked == 0 {

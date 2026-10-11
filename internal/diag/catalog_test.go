@@ -219,7 +219,7 @@ Written correctly:
     defer counts.Free()
     counts["a"]++
 
-See "What Plutonium removes from Go" in the Plutonium spec, section 3.
+See "Map types" in the Plutonium spec, section 7.10.
 `
 	if text != want {
 		t.Errorf("Explain(e2001):\n%s\nwant:\n%s", text, want)

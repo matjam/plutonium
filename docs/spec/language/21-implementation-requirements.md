@@ -24,7 +24,7 @@ Every compile error an implementation reports about a program is a **diagnostic*
 
    | Codes | Rules |
    |---|---|
-   | E0001 to E0999 | the type rules that Plutonium shares with Go |
+   | E0001 to E0999 | the general rules of types, declarations, expressions and statements |
    | E1000 to E1999 | syntax |
    | E2000 to E2499 | Plutonium rules checked together with types |
    | E2500 to E2999 | Plutonium rules checked later: calls, closures, directives, kernel mode, tasks |
@@ -37,15 +37,15 @@ Every compile error an implementation reports about a program is a **diagnostic*
 3. **A one-line message** that says what is wrong, in the program's own terms: its identifiers, its types,
    its lines. The message never needs knowledge of how the implementation works. It does not mention
    intermediate representations, passes, registers or optimizations.
-4. **An explanation** of its own, in the same terms, that says why the rule exists where Plutonium differs
-   from Go (no hidden allocation, no garbage collector, kernel safety), what the program did, and, for an
+4. **An explanation** of its own, in the same terms, that says why the rule exists where the reason is not
+   evident from the rule (no hidden allocation, no garbage collector, kernel safety), what the program did, and, for an
    error that follows a path (an escape, a move, a wait in interrupt context), the path itself, one
    step at a time.
 5. **A fix**: code that the programmer could write instead, with the program's names where they are known.
    An error that has several ways out shows each.
 6. **A pointer to the specification**: the number and title of the section that defines the rule, in the
-   form `"Slice expressions" in the Plutonium specification, section 11.12`. A rule that Plutonium
-   shares with Go points to the section of this specification that states it, never to Go's.
+   form `"Slice expressions" in the Plutonium spec, section 11.12`. Every rule points to the section of
+   this specification that states it, and to no other document.
 
 The implementation also provides:
 

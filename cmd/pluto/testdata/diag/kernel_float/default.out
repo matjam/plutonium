@@ -12,5 +12,5 @@ $DIR/main.p:5:34: float64 constant is not allowed in kernel mode (no FPU state i
     x86.FPUBegin and x86.FPUEnd:
         //pu:fpu
         func scale(...)
-    (see "Floating point in kernel mode" in the Plutonium spec, section 12.3)
+    (see "Floating point in kernel mode" in the Plutonium spec, section 20.7)
     (run "pluto explain E2520" for a longer explanation)

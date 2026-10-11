@@ -19,7 +19,7 @@ $DIR/main.p:9:2: hits is written here with no lock that guards it, while another
         mu.Unlock()
     Or, for a number, use an atomic type from pluto/sync/atomic, such as
     atomic.Int64, and its methods at every access.
-    (see "Data races" in the Plutonium spec, section 6.11)
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
     (run "pluto explain E3502" for a longer explanation)
 
 $DIR/main.p:44:2: &counter is a view of Counter that may change while another puroutine uses it, so it cannot be passed to a new puroutine
@@ -45,7 +45,7 @@ $DIR/main.p:44:2: &counter is a view of Counter that may change while another pu
     To share changing data between puroutines, put it in a synced[T] and hold a
     sync.Mutex in it at every access, or use a package variable guarded by a
     lock.
-    (see "Data races" in the Plutonium spec, section 6.11)
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
     (run "pluto explain E3501" for a longer explanation)
 
 $DIR/main.p:48:10: count is read here without holding mu, which guards it
@@ -63,5 +63,5 @@ $DIR/main.p:48:10: count is read here without holding mu, which guards it
         mu.Lock()
         v := count
         mu.Unlock()
-    (see "Data races" in the Plutonium spec, section 6.11)
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
     (run "pluto explain E3503" for a longer explanation)

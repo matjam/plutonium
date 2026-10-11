@@ -15,7 +15,7 @@ $DIR/main.p:17:20: channel element type Job is not sendable: it contains shared[
         }
 
         jobs := make(chan Job, 16)
-    (see "go starts a puroutine" in the Plutonium spec, section 4.7)
+    (see "Sendable types" in the Plutonium spec, section 8.8)
     (run "pluto explain E2010" for a longer explanation)
 
 $DIR/main.p:21:10: &x is passed to a go statement, but x lives in this function's frame, which the receiving puroutine may outlive (spec section 6.3); allocate it with new, whose owned[T] then moves to the puroutine, or make it a package-level variable
@@ -33,7 +33,7 @@ $DIR/main.p:21:10: &x is passed to a go statement, but x lives in this function'
     Start the work with a sync.Scope, which waits for it before its block ends:
         var s sync.Scope
         s.Task(func() { worker(&state) })
-    (see "Views" in the Plutonium spec, section 6.3)
+    (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E2011" for a longer explanation)
 
 $DIR/main.p:24:9: buf[:] is passed to a go statement, but it is a slice of buf, which lives in this function's frame and which the receiving puroutine may outlive (spec section 6.3)

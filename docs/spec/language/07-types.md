@@ -1,7 +1,7 @@
 ## 7. Types
 
 A type determines a set of values together with operations and methods specific to those values. It also
-determines how its values behave when they are copied, moved and destroyed: its **kind** (section 8.7, Values,
+determines how its values behave when they are copied, moved and dropped: its **kind** (section 8.7, Values,
 views, owners and counted values). A type may be denoted by a type name, if it has one, which must be followed
 by type arguments if the type is generic. A type may also be specified using a type literal, which composes a
 type from existing types.
@@ -129,8 +129,8 @@ func demo() (int, byte) {
 **Valid UTF-8.** Every string value holds valid UTF-8. A string literal or constant that is not valid UTF-8 is
 a compile error (E2012), and no conversion produces such a string. Binary data belongs in `[]byte`, `[N]byte`
 or a growable owner of bytes from the library. The one way to make a string over bytes of unknown content is
-`unsafe.String` (section 20.1, Package unsafe): the result is a view of those bytes, and if they are not valid
-UTF-8 the behavior of string operations and of `range` on the string is undefined.
+`unsafe.String` (section 20.1, Package unsafe): the result is a view of those bytes. It is unsafe code, and
+the program must ensure that the bytes are valid UTF-8; section 20.1 says what follows if they are not.
 
 **Length and indexing.** The length of a string `s` can be discovered using the built-in function `len`
 (section 13.6, Length and capacity). It counts bytes. The length is a compile-time constant if the string is a
@@ -141,14 +141,14 @@ is invalid. A `range` clause over a string yields runes (section 12.10, For stat
 **Slicing on rune boundaries.** A slice expression `s[i:j]` on a string must start and end on a rune boundary:
 `i` and `j` must each be the index of the first byte of an encoded rune, or equal to `len(s)`. Otherwise the
 expression panics (section 11.12, Slice expressions). This keeps every substring valid UTF-8, which is the
-invariant above. The same expression in Go slices any bytes. This is the one documented exception to the rule
-that code that looks like Go does what Go does, and appendix A (Differences from Go) lists it. To cut a string
-at a byte count without splitting a rune, use `strings.Truncate(s, n)`, or `utf8.RuneStartBefore(s, i)` to
-find the boundary at or before byte `i`. The panic message names these functions.
+invariant above. It is the one documented exception to the no-false-friends rule (section 1.2, Design
+rules; appendix A, section A.5). To cut a string at a byte count without splitting a rune, use
+`strings.Truncate(s, n)`, or `utf8.RuneStartBefore(s, i)` to find the boundary at or before byte `i`. The
+panic message names these functions.
 
-**Counted values.** A string is a value that holds memory. A string made at run time owns a **buffer** with a
-count of the string values that use it. Copying a string adds one to the count, and destroying a copy
-subtracts one; the last one frees the buffer. A substring `s[i:j]` shares the buffer of `s`. Strings made from
+**Counted values.** A string made at run time refers to a **buffer** with a count of the string values that
+use it. Copying a string adds one to the count, and dropping a copy subtracts one; the last one frees the
+buffer. A substring `s[i:j]` shares the buffer of `s`. Strings made from
 literals and constants are static: they have no buffer and are never counted. The counting is automatic and a
 string copies as freely as an integer; its kind is counted (section 8.7). Section 18.8 (Strings) gives the
 rules for when counts change and what the compiler may leave out.
@@ -234,8 +234,9 @@ SliceType = "[" "]" ElementType .
 
 A slice never grows. It has no storage of its own: the array behind it belongs to something else (an array
 variable, a composite literal, an owner such as a growable vector from the library, or an arena) and a slice
-can only look at it. There is no built-in `append`: every call of `append` is a compile error (E2013) that
-shows the library function to use. A sequence that must grow is held by an owner that grows (the library's
+can only look at it. There is no built-in `append`: the name is not predeclared, and a call of `append` in a
+program that declares no `append` of its own is a compile error (E2013) that shows the library function to
+use (section 13.1, Built-ins Plutonium does not have). A sequence that must grow is held by an owner that grows (the library's
 `vec.Vec[T]`), and `v.Slice()` lends its elements as a slice.
 
 The length of a slice `s` can be discovered by the built-in function `len`. It can change by slicing within
@@ -405,8 +406,8 @@ struct {
 **Recursive types.** A struct type `T` may not contain a field of type `T`, or of a type containing `T` as a
 component, directly or indirectly, if those containing types hold their components inline. A type holds its
 components inline if it is an array, a struct, a union, a `ring`, a `volatile` or an `aligned` type. A
-pointer, slice, map, channel, function, interface or box type (`owned`, `shared`, `synced`, `weak`) holds its
-component at an address, so it ends the cycle.
+pointer, slice, map, channel, function or interface type, a box (`owned`, `shared`, `synced`) and a `weak`
+reference hold their component at an address, so they end the cycle.
 
 ```go
 // invalid struct types
@@ -480,8 +481,11 @@ Signature     = Parameters [ Result ] .
 Result        = Parameters | Type .
 Parameters    = "(" [ ParameterList [ "," ] ] ")" .
 ParameterList = ParameterDecl { "," ParameterDecl } .
-ParameterDecl = [ IdentifierList ] [ "..." ] Type .
+ParameterDecl = [ IdentifierList ] [ "..." ] Type [ DefaultValue ] .
 ```
+
+A `DefaultValue` is allowed only in the parameters of a function or method declaration (section 10.13,
+Default parameter values); a function type has none.
 
 Within a list of parameters or results, the names (IdentifierList) must either all be present or all be
 absent. If present, each name stands for one item (parameter or result) of the specified type and all
@@ -776,15 +780,17 @@ result types, since defaults are not part of the signature.
 holds comes from its type.
 
 - An **ordinary interface** is any interface type not declared `owner`: `any`, `error`, `io.Reader`. It never
-  owns what it holds. Converting an owner, or a `shared[T]` or `synced[T]` reference, to an ordinary interface
-  **lends** it: the interface is a view of the variable that was converted, valid while that variable holds
+  owns what it holds. Converting an owner, or a counted reference held in one word (a `shared[T]` or
+  `synced[T]` reference, a channel or a map), to an ordinary interface **lends** it: the interface is a view of the variable that was converted, valid while that variable holds
   the value, and the variable is not moved. That is what makes `fmt.Println(buf)` work on an owner without
   giving it away. Such an interface follows the view rules of section 18.3 (Views): it cannot be returned or
-  stored beyond the life of the variable.
+  stored beyond the life of the variable. The interface `error`, and every interface that embeds it, is the
+  one exception for counted references: it counts a `shared[T]` or `synced[T]` reference it holds, as
+  section 16.7 (Allocated errors and ownership) defines.
 - An **owning interface** is declared with the `owner` qualifier (section 7.18):
   `type Resource owner interface { Read(p []byte) (int, error) }`. It is an owner type. It moves, and dropping
   it drops the value inside it. Converting an owner to an owning interface moves the owner in. Converting a
-  `shared[T]` or `synced[T]` reference copies it (count plus one). Converting a value or a view copies it, as
+  `shared[T]` or `synced[T]` reference, a channel or a map copies it (count plus one). Converting a value or a view copies it, as
   for any interface, and dropping the interface then does nothing for it.
 
 Every owner type satisfies the implicit `Drop` of an owning interface, whether or not it declares a `Drop`
@@ -825,17 +831,19 @@ type descriptor instead, and the drop code is found there. The layout is in abi.
 The data word holds the value itself when the dynamic type is one word that the language stores directly:
 
 - an integer, floating-point or boolean value, an enum value, or a packed value of up to eight bytes;
-- a pointer, an `unsafe.Pointer`, a function value, or an `owned`, `shared`, `synced` or `weak` reference;
+- a pointer, an `unsafe.Pointer`, a function value, a channel, a map, a box (`owned`, `shared`, `synced`) or a
+  `weak` reference;
 - a struct with exactly one field, or an array of length 1, whose field or element is a single pointer in the
   sense of the second item, or recursively another such struct or array. An error type
   `type wrapErr struct{ d *detail }` can therefore be returned as an `error`, and two interface values holding
-  one are equal when they hold the same pointer. A struct with one integer field is not covered: it is boxed
-  like any other struct.
+  one are equal when they hold the same pointer. A struct with one integer field is not covered: it is copied
+  into the frame like any other struct.
 
-> **Open (new).** Whether a channel or a map converted to an interface is stored in the data word, as a
-> pointer is, or copied into a frame box, as a string is. A frame box holds a count of its own until the
-> function returns and makes the interface a view of the frame. The answer decides whether
-> `func f() any { return make(chan int) }` compiles.
+A channel or a map in the data word of an ordinary interface is lent, as a `shared[T]` or `synced[T]`
+reference is: the interface is a view of the variable that was converted and holds no count of its own. An
+`any` made from a channel in a package-level variable may be kept anywhere, while
+`func f() any { return make(chan int) }` is a compile error, since the interface would outlive the
+temporary channel (section 18.3, Views).
 
 A larger value (a string, a slice, a larger array, struct or union) is copied into a temporary in the frame of
 the function that performs the conversion, and the data word points at that copy. The interface value is valid
@@ -847,7 +855,7 @@ An interface that holds such a frame copy is a view of the frame (section 18.3).
 package-level variable or on the heap, or passing it to a function that keeps it, is a compile error. To keep
 a large value in an interface beyond the current function, store a pointer to memory that lives long enough
 instead, or move an owner into an owning interface. A value larger than a word that is moved into an owning
-interface is boxed in the frame like any other, so to return an owning interface, box the owner first:
+interface is copied into the frame like any other, so to return an owning interface, box the owner first:
 `new(f)` is an `owned[File]`, one word, and its methods are `*File`'s.
 
 The initializer of a package-level variable is the exception: it runs once and its results must outlive
@@ -881,10 +889,10 @@ map[*T]struct{ x, y float64 }
 map[string]interface{}
 ```
 
-**A counted reference.** A map value is a counted reference to a hash table, built the way a string is. Copies
-of a map value share one table: assigning a map or passing it to a function gives the other side the same
-table, so that a function that receives a map and stores into it changes the caller's map. Each copy adds one
-to the count of references to the table, and each copy that is destroyed subtracts one. The table is freed
+**A counted reference.** A map value is one word, the address of a counted hash table. Copies of a map value
+share one table: assigning a map or passing it to a function gives the other side the same table, so that a
+function that receives a map and stores into it changes the caller's map. Each copy adds one to the count of
+references to the table, and each copy that is dropped subtracts one. The table is freed
 when the last reference goes, and the keys and elements in it are dropped first, so counted keys and elements
 release their references. The counts are plain arithmetic until the program starts a second thread and atomic
 after; the compiler leaves out counts that cannot be observed, as for strings (section 18.8, Strings). A map
@@ -929,26 +937,20 @@ the table from the current allocator (section 18.9, Allocators), as `make(map[K]
 argument.
 
 **Iteration.** The order in which a `range` clause visits the entries of a map is unspecified and may differ
-from one iteration to the next. Every entry that is present when the loop starts and is not deleted before the
-loop reaches it is visited exactly once. An entry that is added during the loop may or may not be visited.
-Deleting an entry during the loop is allowed (section 12.10, For statements).
+from one iteration to the next. Section 12.10 (For statements) states which entries a loop visits when the
+body adds or deletes entries.
 
 **Owners are not keys or elements.** Neither the key type nor the element type of a map may be an owner.
-Reading an element copies it, and copying an owner would make a second owner. The error points to
-`hash.Map[K, V]`, an owner that provides `Ptr`, `Remove` and `Pop` for looking at an element or taking it out.
-Counted values (strings, `shared`, `synced`, channels and maps) are allowed and are counted as they are
-copied.
+Reading an element copies it, and copying an owner would make a second owner. The error shows how to keep
+owners in a map: make the element a counted box, `map[K]synced[T]` (or `map[K]shared[T]` for a map that
+stays in one task), whose copies count instead of duplicating the owner. Counted values (strings, `shared`,
+`synced`, channels and maps) are allowed and are counted as they are copied.
 
 **Concurrency.** A map is sendable if its key and element types are (section 8.8). Its contents fall under the
 race rules of section 19.3 (Data race freedom), as the contents of a `synced[T]` do: writes from two tasks
 must be guarded by a lock that the compiler infers, partitioned in a scope, or confined to one task.
 
-> **Open (new).** The size of a map value. The decision says a map is a counted handle built like a string;
-> whether it is one word (the address of the table, as a channel is) or has a control word like a string is
-> not stated. This section and section 8.1 assume nothing about it beyond "a reference".
-
-`hash.Map[K, V]` from the library remains the owner type for code that must choose its allocator, hold owners
-or avoid counting.
+The library's `hash.Map[K, V]` is an owner, for code that must hold owners in place or avoid counting.
 
 **Kind.** A map is a counted value (section 8.7).
 
@@ -1008,8 +1010,8 @@ and `len` by any number of tasks without further synchronization. Channels act a
 For example, if one task sends values on a channel and a second task receives them, the values are received in
 the order sent.
 
-**A counted reference.** A channel value is a counted reference to the channel, because a channel always has
-several users. Copying a channel value adds a reference and destroying one subtracts a reference. When the
+**A counted reference.** A channel value is one word, a counted reference to the channel, because a channel
+always has several users. Copying a channel value adds a reference and dropping one subtracts a reference. When the
 last reference goes, the values still in the buffer are dropped, so owners in the buffer are freed rather than
 leaked and their `Drop` runs on the task that released the last reference, and then the channel and its buffer
 are freed. A channel made for a timer owns the timer and stops it when the channel is freed (section 19.6,
@@ -1067,7 +1069,8 @@ identifier naming a member of `E` denotes that member, whatever else the name de
 `case Red, Green:`. Bare member names are not accepted anywhere else. A switch on an enum value that has no
 `default` case must list every member among its constant case values; otherwise it is a compile error naming
 the missing members (E2312). Such an exhaustive switch is a terminating statement when every clause is
-(section 12.1, Terminating statements).
+(section 12.1, Terminating statements), and it panics for a value that is not a member (section 12.9,
+Switch statements).
 
 **Operations.** Enum values compare with `==`, `!=`, `<`, `<=`, `>`, `>=`. Arithmetic, bitwise operators,
 `++`, `--` and shifting an enum value are errors (E2316); an enum value may be a shift count or an index. An
@@ -1095,7 +1098,8 @@ directly in an interface's data word, satisfies constraints by its underlying ty
 element of a `volatile` or `aligned` type. A packed field of enum type (section 7.14) is a bit field as wide
 as the members need (unsigned, or two's complement if a member is negative); `f bits[E, N]` gives a wider
 field. A value that is not a member can arise only through `unsafe`, packed values converted from raw bits,
-and generic code operating on the underlying type; such a value matches no case of a switch. `type F E`
+and generic code operating on the underlying type. Such a value matches no member's case: a switch with a
+`default` case runs the default, and an exhaustive switch without one panics (section 12.9). `type F E`
 declares an ordinary integer type with `E`'s underlying type and no members.
 
 Enums do not provide bit-flag sets; packed `bits` groups do that (section 7.14).
@@ -1192,15 +1196,11 @@ a value of another union type with identical variants converts only explicitly (
 **Zero value.** The first variant, with its payload's zero value. Put the idle or empty state first.
 
 **Type switches.** `switch v := u.(type)` on a union value selects the variant `u` holds. Each case names
-variants: `U.V` (or `pkg.U.V`, `U[T].V`), or the bare name `V`, which in a case of such a switch denotes the
-variant whatever else the name denotes in scope, as an enum member does in an expression switch. Bare names
-are accepted nowhere else. In a clause naming one variant, `v` has that variant's payload type (`struct{}` for
-a variant without a payload); in a clause naming several, and in the default clause, it has type `U`. A union
-value is never nil, so there is no `nil` case; naming a variant twice is an error, and `fallthrough` is not
-allowed. A switch without a `default` case must name every variant, or it is a compile error that lists the
+variants, as `U.V` or by the bare name `V`; in a clause naming one variant, `v` has that variant's payload
+type. A switch without a `default` case must name every variant, or it is a compile error that lists the
 missing ones (E2414). Such an exhaustive switch is a terminating statement when every clause is, so a function
-may end with it (section 12.1). A tag that names no variant can only come from `unsafe` code; the switch then
-panics.
+may end with it (section 12.1). Section 12.9 (Switch statements) gives the full rules, including the panic for
+a tag that names no variant, which only `unsafe` code can make.
 
 **Assertions.** `u.(U.V)` yields the payload of `V`, and panics (section 17.1, Panics) if `u` holds another
 variant; `p, ok := u.(U.V)` reports instead, with `p` the zero payload when `ok` is false. A bare variant name
@@ -1518,11 +1518,9 @@ left holds nothing. Copies are made only by calling `Clone`. The rules for moves
 (Moves) and section 18.6 (Drops). This section says which types are owners and where the word `owner` may
 appear.
 
-`owner` is a contextual keyword (appendix B). It precedes the type in a type definition:
-
-```
-OwnerType = "owner" Type .
-```
+`owner` is a contextual keyword (section 4.6, Contextual keywords). It precedes the type in a type definition,
+as the production `DefinedType` at the start of this chapter shows, and the constraint in a type parameter
+declaration (section 10.9, Type parameter declarations).
 
 ```go
 type File owner struct {
@@ -1563,7 +1561,7 @@ makes it one:
   their element type already says so. So is `owned[T]` for every `T` (section 7.19).
 - **`Drop`.** A method named `Drop` must have no parameters and no results (E3206), and may be declared only
   on a type declared `owner` (on `T` or `*T`, E3201). An owner without a `Drop` method is valid: its values
-  still move, and dropping one drops its fields. `Drop` is called by the compiler when an owner is destroyed.
+  still move, and dropping one drops its fields. `Drop` is called by the compiler when an owner is dropped.
   Programs do not call it except as `x.Drop()` on an owner variable, which ends the variable's life early
   (section 18.6).
 - **Generics.** A type parameter admits owner types only if its constraint is marked `owner`: `[T owner any]`,
@@ -1585,7 +1583,8 @@ The library's `vec.Vec[T]`, `hash.Map[K, V]`, `strings.Builder` and `os.File` ar
 declares the owner type; an owner converts to a non-owner type by reading its value, without moving it; and
 two owner types with the same underlying type convert by moving (section 11.24, Conversions). An owner type is
 comparable when its underlying type is, and comparing reads the operands without moving them (section 8.10,
-Comparable types).
+Comparable types). No other operator applies to an owner, even one with a numeric underlying type: the
+arithmetic is done on the value read out by a conversion, `int32(fd) + 1` (section 11.18, Operators).
 
 **The zero value** of an owner holds nothing, and dropping it does nothing (section 15.1, The zero value). A
 `Drop` method must treat the zero value as empty.
@@ -1596,7 +1595,8 @@ Comparable types).
 
 Pointers `*T` are views (section 7.7): they never free anything and may point at the stack, statics,
 memory-mapped devices or the heap. Four predeclared types hold heap objects whose lifetime the compiler
-manages. Their rules are in sections 18.5 to 18.7; this section describes the types.
+manages. `owned[T]`, `shared[T]` and `synced[T]` are called **boxes**; `weak[P]` is a weak reference to the
+object of a counted box. Their rules are in sections 18.5 to 18.7; this section describes the types.
 
 ```
 BoxType  = ( "owned" | "shared" | "synced" ) "[" Type "]" .
@@ -1605,7 +1605,7 @@ WeakType = "weak" "[" Type "]" .
 
 | Type | Kind (section 8.7) | Meaning |
 |---|---|---|
-| `owned[T]` | owner | The single owner of a heap `T`, the box. Moves; when dropped, `T` is dropped and the memory freed. |
+| `owned[T]` | owner | The single owner of a heap `T`. Moves; when dropped, `T` is dropped and the memory freed. |
 | `shared[T]` | counted | A reference-counted heap `T` used by one task. The count is not atomic. |
 | `synced[T]` | counted | Like `shared[T]`, but the count is atomic, so references may cross tasks. |
 | `weak[P]` | counted (weak) | A back reference to the object of `P`, a `shared[T]` or `synced[T]`, that does not keep it alive. |
@@ -1686,5 +1686,4 @@ func build(depth int) owned[Tree] {
 
 ---
 
-Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see
-[Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

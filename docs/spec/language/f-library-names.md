@@ -1,8 +1,7 @@
 ## F. Library names the language relies on
 
-The standard library is not part of this specification. Each package documents itself, as Go's packages
-do, and a Go programmer looks for the verbs of `fmt` or the functions of `os` in the package
-documentation, not here. This appendix lists only the names that the language itself depends on: names
+The standard library is not part of this specification. Each package documents itself (`pluto doc`), and
+the verbs of `fmt` or the functions of `os` are found in the package documentation, not here. This appendix lists only the names that the language itself depends on: names
 that the compiler calls or checks, names that a rule of the language mentions, and names that an error
 sends the programmer to. A conforming implementation provides each of them, in the package shown, with the
 meaning given here. Everything else about these packages is for their documentation.
@@ -17,27 +16,9 @@ handler). The others are **ordinary library names** that the language gives mean
 The runtime is the part of the library that the compiler knows by name. It provides mechanisms, and a
 kernel supplies policy through hooks (section 1.2, Design rules). Application code never calls the hooks.
 
-**The panic handler.** The program's panic handler (section 17.4, Panics in freestanding programs) is a
-function `func(p *rt.Panic)`:
-
-```go
-type Panic struct {
-	Message string // "runtime error: index out of range [4] with length 4", or the value passed to panic
-	Value   any    // the value passed to panic, nil for run-time errors and faults
-	Fault   Fault  // the hardware fault, if the panic came from one
-	CPU     int    // the processor that panicked: in kernel mode its number from rt.SetCPU, otherwise 0
-}
-
-type Fault struct {
-	Kind   FaultKind // NoFault, MemoryFault, DivideFault or IllegalInstruction
-	Addr   uintptr   // the address accessed, for a MemoryFault, if known
-	PC     uintptr   // the faulting instruction
-	Signal int       // the signal that reported it in hosted builds, or 0
-}
-
-func (p *Panic) Print[W Writer](w W)      // the panic as a hosted program prints it, then the trace
-func (p *Panic) PrintTrace[W Writer](w W) // the stack trace alone
-```
+**The panic handler.** The program's panic handler is a function `func(p *rt.Panic)`. The types
+`rt.Panic` and `rt.Fault`, with the fields `Message`, `Value`, `Fault`, `CPU`, `Task` and `During`, and the
+methods `Print` and `PrintTrace`, are defined in section 17.4 (Panics in freestanding programs).
 
 `rt.Writer` has the method of `io.Writer`. `rt.Console{}` writes where `print` does: in a freestanding
 build, the function registered with `rt.SetConsole`, and in a hosted build, standard error with a system
@@ -228,10 +209,12 @@ converting an integer to a string with `string(i)`.
 
 `time.Sleep` parks the calling task until a deadline, so it may not be reached from interrupt context.
 `time.Timer`, `time.Ticker`, `time.After` and `time.Tick` deliver the time on a channel, so a `select`
-waits for a timer like any other case. A timer's channel owns the timer: when the last reference to the
-channel goes away, the timer is stopped and freed with it (section 19.6, Timers). `time.AfterFunc(d, f)`
-starts `f` as a task when the timer expires, so `f` is subject to the rules of the `task` statement for
-func arguments: the compiler rejects a function that captures variables from a frame. Underneath is the
+waits for a timer like any other case. `time.NewTimer`, `time.NewTicker` and `time.AfterFunc` return an
+`owned[Timer]` or `owned[Ticker]`, which stops and frees the timer when it is dropped; `time.After` and
+`time.Tick` return a counted channel that owns its timer, stopped and freed with the channel's last
+reference (section 19.6, Timers). `time.AfterFunc(d, f)` starts `f` as a task when the timer expires, so
+`f` is subject to the rules of the `task` statement for func arguments: the compiler rejects a function
+that captures variables from a frame. No library type needs a `Free` call. Underneath is the
 runtime's mechanism (section F.1): a monotonic clock, `rt.Now()`, timers that never allocate, and
 `rt.ParkUntil`. A kernel's scheduler provides the clock and the hardware with `Now` and `ArmTimer`.
 

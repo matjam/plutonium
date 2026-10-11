@@ -4,7 +4,7 @@ $DIR/main.p:22:1: missing return
     with results must end in a return, a panic, or a loop that never exits.
     Return a value at the end, for example:
         return 0
-    (see "Terminating statements" in the Go spec; Plutonium follows Go here)
+    (see "Terminating statements" in the Plutonium spec, section 12.1)
     (run "pluto explain E0102" for a longer explanation)
 
 $DIR/main.p:27:10: cannot use name (variable of type string) as int value in assignment
@@ -13,7 +13,7 @@ $DIR/main.p:27:10: cannot use name (variable of type string) as int value in ass
     automatically.
     To parse a number from text:
         n, err := strconv.Atoi(name)
-    (see "Assignability" in the Go spec; Plutonium follows Go here)
+    (see "Assignability" in the Plutonium spec, section 8.4)
     (run "pluto explain E0023" for a longer explanation)
 
 $DIR/main.p:29:9: invalid operation: count + total (mismatched types int and int64)
@@ -22,13 +22,13 @@ $DIR/main.p:29:9: invalid operation: count + total (mismatched types int and int
     This holds even between number types such as int and int64.
     Convert one operand to the other's type:
         int64(count) + total
-    (see "Arithmetic operators" in the Go spec; Plutonium follows Go here)
+    (see "Arithmetic operators" in the Plutonium spec, section 11.19)
     (run "pluto explain E0046" for a longer explanation)
 
 $DIR/main.p:30:10: undefined: cuont
     cuont is not declared in any scope that reaches line 30. Did you mean count
     (declared on line 25)? Names are case-sensitive.
-    (see "Declarations and scope" in the Go spec; Plutonium follows Go here)
+    (see "Declarations and scope" in the Plutonium spec, section 10)
     (run "pluto explain E0075" for a longer explanation)
 
 $DIR/main.p:31:23: too many arguments in call to perimeter
@@ -37,7 +37,7 @@ $DIR/main.p:31:23: too many arguments in call to perimeter
     perimeter is declared on line 11 with 1 parameter: (side int) int. This call
     passes 2 arguments. Remove the extra arguments, or check that you are
     calling the function you meant.
-    (see "Calls" in the Go spec; Plutonium follows Go here)
+    (see "Calls" in the Plutonium spec, section 11.14)
     (run "pluto explain E0126" for a longer explanation)
 
 $DIR/main.p:32:16: cannot use Square{…} (value of struct type Square) as Shape value in variable declaration: Square does not implement Shape (missing method Area)
@@ -50,7 +50,7 @@ $DIR/main.p:32:16: cannot use Square{…} (value of struct type Square) as Shape
         func (s Square) Area() int {
             ...
         }
-    (see "Implementing an interface" in the Go spec; Plutonium follows Go here)
+    (see "Interface types" in the Plutonium spec, section 7.9)
     (run "pluto explain E0021" for a longer explanation)
 
 $DIR/main.p:33:7: in call to Zero, cannot infer T (declared at $DIR/main.p:13:11)
@@ -60,7 +60,7 @@ $DIR/main.p:33:7: in call to Zero, cannot infer T (declared at $DIR/main.p:13:11
     left out), so the compiler cannot tell which type to use.
     Give the type arguments in square brackets, with the types you want:
         Zero[T]()
-    (see "Type inference" in the Go spec; Plutonium follows Go here)
+    (see "Type inference" in the Plutonium spec, section 11.17)
     (run "pluto explain E0138" for a longer explanation)
 
 $DIR/main.p:34:6: declared and not used: spare
@@ -71,7 +71,7 @@ $DIR/main.p:34:6: declared and not used: spare
     you only need the other values.
     To keep it for now:
         _ = spare
-    (see "Variable declarations" in the Go spec; Plutonium follows Go here)
+    (see "Variable declarations" in the Plutonium spec, section 10.10)
     (run "pluto explain E0101" for a longer explanation)
 
 $DIR/main.p:3:8: "pluto/strings" imported and not used
@@ -79,5 +79,5 @@ $DIR/main.p:3:8: "pluto/strings" imported and not used
     strings. Plutonium, like Go, treats an unused import as an error, so that
     each file's imports show what it depends on. Delete the import, or use the
     package.
-    (see "Import declarations" in the Go spec; Plutonium follows Go here)
+    (see "Import declarations" in the Plutonium spec, section 14.3)
     (run "pluto explain E0008" for a longer explanation)

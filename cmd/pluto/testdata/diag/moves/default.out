@@ -12,7 +12,7 @@ $DIR/main.p:25:10: m was moved to n at line 24, so it can no longer be used here
         n := &m
     If this is the last use of m, move it before line 24, where m still holds
     its value.
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Moves" in the Plutonium spec, section 18.5)
     (run "pluto explain E3301" for a longer explanation)
 
 $DIR/main.p:31:10: b may have been moved at line 29, so it cannot be used here
@@ -27,7 +27,7 @@ $DIR/main.p:31:10: b may have been moved at line 29, so it cannot be used here
     one.
     Use b before line 29, or give it a new value on the path that moves it:
         b = Buf{}
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Moves" in the Plutonium spec, section 18.5)
     (run "pluto explain E3302" for a longer explanation)
 
 $DIR/main.p:34:10: cannot move t.left out of t: t.left is a field, not a variable
@@ -43,7 +43,7 @@ $DIR/main.p:34:10: cannot move t.left out of t: t.left is a field, not a variabl
         v := &t.left
     To copy it:
         v := t.left.Clone()
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Moves" in the Plutonium spec, section 18.5)
     (run "pluto explain E3303" for a longer explanation)
 
 $DIR/main.p:39:9: out was moved into flush (its parameter takes a Buf by value) at line 39 in the previous iteration of this loop
@@ -64,7 +64,7 @@ $DIR/main.p:39:9: out was moved into flush (its parameter takes a Buf by value) 
         out = Buf{}
     Or move a copy at line 39:
         out.Clone()
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Moves" in the Plutonium spec, section 18.5)
     (run "pluto explain E3302" for a longer explanation)
 
 $DIR/main.p:43:23: cannot move c inside a function literal: the literal may run more than once, or never
@@ -79,6 +79,5 @@ $DIR/main.p:43:23: cannot move c inside a function literal: the literal may run 
     Pass the value to the literal as an argument:
         do := func(c Buf) { ... }
         do(c)
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Function literals" in the Plutonium spec, section 11.4)
     (run "pluto explain E3305" for a longer explanation)

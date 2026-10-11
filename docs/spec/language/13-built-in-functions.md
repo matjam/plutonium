@@ -30,19 +30,20 @@ The functions of package `unsafe` are described in section 20.1 (Package `unsafe
 
 ### 13.1 Built-ins Plutonium does not have
 
-Go has five built-in functions that Plutonium does not: `append`, `recover`, `complex`, `real` and `imag`.
-The names are not functions of the language. A call of one of them, when the program has not declared
-the name itself, is a compile error with a code of its own that says why the function does not exist and
-what to use instead. A program may declare its own `append`, `recover`, `complex`, `real` or `imag`, which
-then hides the name as any declaration does (section 10.5, Uniqueness of identifiers).
+The names `append`, `recover`, `complex`, `real` and `imag` are not functions of the language and are not
+predeclared (section 10.3, Predeclared identifiers). A use of one of them, when the program has not
+declared the name itself, is a compile error with a code of its own that says why the function does not
+exist and what to use instead. A program may declare its own `append`, `recover`, `complex`, `real` or
+`imag`, which is then an ordinary identifier (chapter 10, Declarations and scope).
 
 **`append` (E2013).** A slice is a view of an array that something else owns (section 18.3, Views). It
 cannot grow, because growing needs a new array, and a new array would belong to no one (section 18.10,
-No allocation without an owner or an arena). Every call of `append` is an error, whatever its arguments.
+No allocation without an owner or an arena). Every use of the undeclared name `append` is an error, whatever
+its arguments.
 A sequence that grows is a `vec.Vec[T]`, an owner (section 7.18, Owner types). The error names the form of
 the idiom at hand:
 
-| Go | Plutonium | Allocates |
+| Instead of | Write | Allocates |
 |---|---|---|
 | `v = append(v, x)`, `v = append(v, xs...)` | `v.Push(x)`, `v.Append(xs...)` on a `vec.Vec[T]` | when it grows |
 | `b = append(b, s...)` with a string `s` | `vec.AppendString(&b, s)` | when `b` is a `vec.Vec` that grows |
@@ -53,9 +54,9 @@ the idiom at hand:
 | `s = append(s, x)` within a capacity the code chose | `s = s[:len(s)+1]; s[len(s)-1] = x` | no |
 
 Everything else that slices do they still do: indexing, slicing within the capacity, `copy`, `clear` and
-`range`. The functions of the standard library that Go names `Append...` (`strconv.AppendInt`,
-`fmt.Appendf`) keep their names and append to a `vec.Vec[byte]` or to a `vec.Fixed[byte]`, a bounded
-vector over a caller's array that never allocates.
+`range`. The functions of the standard library named `Append...` (`strconv.AppendInt`, `fmt.Appendf`)
+append to a `vec.Vec[byte]` or to a `vec.Fixed[byte]`, a bounded vector over a caller's array that never
+allocates.
 
 ```go
 package main
@@ -64,7 +65,6 @@ import "pluto/vec"
 
 func main() {
 	v := vec.New[int]()
-	defer v.Free()
 	v.Push(1)
 	v.Push(2)
 	// v = append(v, 3)   // error E2013: a slice cannot grow
@@ -302,7 +302,7 @@ conflict.
 slice made by `make` would belong to no one (section 18.10, No allocation without an owner or an arena).
 The error names the form that fits the idiom:
 
-| Go | Plutonium | Allocates |
+| Instead of | Write | Allocates |
 |---|---|---|
 | `make([]T, n)` | `vec.Make[T](n)`, a `vec.Vec[T]` of `n` zero elements | yes, an owner |
 | `make([]T, 0, c)` | `vec.WithCapacity[T](c)`, an empty `vec.Vec[T]` with room for `c` elements | yes, an owner |
@@ -323,10 +323,9 @@ func main() {
 	big := make(map[string]int, 1000)
 	done := make(chan struct{})
 
-	buf := vec.Make[byte](4096) // Go's make([]byte, 4096)
-	defer buf.Free()
+	buf := vec.Make[byte](4096) // 4096 zero bytes, owned by buf
 
-	_, _, _, _ = c, m, big, done
+	_, _, _, _, _ = c, m, big, done, buf
 	// s := make([]int, 10)     // error E2014: use vec.Make
 }
 ```
@@ -334,7 +333,7 @@ func main() {
 ### 13.8 Min and max
 
 The built-in functions `min` and `max` compute the smallest, or largest, value of a fixed number of
-arguments of ordered types (section 11.20, Comparison operators). There must be at least one argument.
+arguments of ordered types (section 8.10, Comparable types). There must be at least one argument.
 A call with an argument that is not ordered, or with a slice argument (`min(s...)`), is an error (E0150).
 
 The same type rules as for operators apply: for ordered arguments `x` and `y`, `min(x, y)` is valid if
@@ -408,8 +407,8 @@ allocator that returns no memory (section 17.1, Panics).
 
 **The result** is the single owner of the new variable. Dropping it drops the `T` and frees the memory to
 the allocator recorded in the box's header (section 18.6, Drops). The result dereferences like a `*T`:
-`p.field`, `*p` and the methods of `*T` work on it, so `n := new(Node); n.val = 1` reads as it does in Go.
-It is not a `*T`. Storing it in a variable of type `*T`, returning it as a `*T`, or passing it where a
+`p.field`, `*p` and the methods of `*T` work on it, so `n := new(Node); n.val = 1` works as written. It is
+not a `*T`. Storing it in a variable of type `*T`, returning it as a `*T`, or passing it where a
 `*T` is expected is an assignability error (section 8.4, Assignability), so code that keeps the pointer
 of a `new` shows where an owner must go. `(*T)(n)` and `&*n` lend a `*T` view of the variable, bounded by
 the owner it came from (section 18.3, Views).
@@ -500,9 +499,9 @@ panic("unreachable")
 panic(errors.New("cannot parse"))
 ```
 
-`panic` is the only built-in for failure. Go's `recover` does not exist (section 13.1, Built-ins
-Plutonium does not have), so a panic cannot be caught: it ends the program (section 17.1). Code that must go on after a failure returns an
-`error` (chapter 16, Errors). The run-time errors of chapter 17 (Run-time panics) are panics in exactly
+`panic` is the only built-in for failure. There is no `recover` (section 13.1, Built-ins Plutonium does not
+have), so a panic cannot be caught: it ends the program (section 17.1). Code that must go on after a failure
+returns an `error` (chapter 16, Errors). The run-time errors of chapter 17 (Run-time panics) are panics in exactly
 this sense.
 
 ### 13.12 Bootstrapping
@@ -545,5 +544,4 @@ message of a panic bypasses this mechanism, so that a panic can always report it
 Nothing in these functions allocates. They are documented for use during bootstrapping and in the panic
 path; programs write text with the packages of the standard library.
 
-> Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see
-> [Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

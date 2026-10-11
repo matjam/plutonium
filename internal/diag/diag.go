@@ -10,7 +10,7 @@
 //	    name holds text. ...
 //	    To parse a number from text:
 //	        n, err := strconv.Atoi(name)
-//	    (see "Assignability" in the Go spec; Plutonium follows Go here)
+//	    (see "Assignability" in the Plutonium spec, section 8.4)
 //	    (run "pluto explain E0024" for a longer explanation)
 //
 // The first line is exactly what Error returns and what --brief prints, so

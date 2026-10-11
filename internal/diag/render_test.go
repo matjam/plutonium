@@ -34,13 +34,13 @@ func TestPrint(t *testing.T) {
     x is declared on line 4, but its value is never used.
     To keep it for now:
         _ = x
-    (see "Variable declarations" in the Go spec; Plutonium follows Go here)
+    (see "Variable declarations" in the Plutonium spec, section 10.10)
     (run "pluto explain E0101" for a longer explanation)
 
 main.p:5:2: non-boolean condition in if statement
     The condition of an if or for statement must be a bool. Plutonium, like Go,
     does not treat numbers or pointers as true or false; compare explicitly.
-    (see "If statements" in the Go spec; Plutonium follows Go here)
+    (see "If statements" in the Plutonium spec, section 12.8)
     (run "pluto explain E0105" for a longer explanation)
 
 main.p:9:2: non-boolean condition in if statement
@@ -83,7 +83,7 @@ func TestPrintUncoded(t *testing.T) {
 		"    Every source file starts with a package clause, such as package main, before\n" +
 		"    anything else except comments. All files in one directory belong to the same\n" +
 		"    package.\n" +
-		"    (see \"Package clause\" in the Go spec; Plutonium follows Go here)\n" +
+		"    (see \"Package clause\" in the Plutonium spec, section 14.2)\n" +
 		"    (run \"pluto explain E1009\" for a longer explanation)\n"
 	if b.String() != want {
 		t.Errorf("got:\n%s\nwant:\n%s", b.String(), want)

@@ -17,7 +17,7 @@ $DIR/main.p:5:3: defer inside a loop is not supported in Plutonium (it would nee
             defer f.Close()
             ...
         }
-    (see "Defer statements" in the Go spec; Plutonium adds this limit)
+    (see "Defer statements" in the Plutonium spec, section 12.19)
     (run "pluto explain E2530" for a longer explanation)
 
 $DIR/main.p:12:2: defer inside a loop is not supported in Plutonium (it would need unbounded stack); move the loop body into a function

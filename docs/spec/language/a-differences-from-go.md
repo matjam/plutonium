@@ -42,7 +42,8 @@ Go. It does not limit the language.
 | `string(b)` for a `[]byte` | compile error: Go keeps the bytes, a Plutonium string holds only valid UTF-8 | `strings.FromUTF8(b)` for bytes that should be text; `strings.FromUTF8Lossy(b)` where replacing invalid bytes is acceptable; an array key for binary data | 11.24, 7.3 |
 | `[]byte(s)`, `[]rune(s)` | compile error: the slice would belong to no one | `strings.Bytes(s)`; `copy(buf[:], s)` into the caller's buffer; `for i, r := range s` or `strings.Runes(s)` | 11.24 |
 | `string(i)` for an integer `i` | compile error unless `i` is a `rune` or an untyped constant | `string(rune(i))`, `strconv.Itoa(i)` | 11.24 |
-| `recover` | not a built-in function: a panic never returns to the code that panicked | return errors | 13.1, 17.1 |
+| `recover` | not a built-in function: a panic never returns to the code that panicked; a program may declare its own `recover` | return errors | 13.1, 17.1 |
+| a variable, field or function named `enum` or `packed` | compile error: both are reserved keywords | another name | 4.5 |
 | `complex64`, `complex128`, `complex`, `real`, `imag`, imaginary literals | removed | a struct of two floats | 7.2, 13.1, 4.9 |
 | `import "reflect"` | compile error: there is no run-time type metadata for programs | type switches, generics | 14.3 |
 | `go f(x)` | compile error that names `task` | `task f(x)` | 12.12, 4.6 |
@@ -64,10 +65,10 @@ The rows in this table are behaviors that differ from Go's. Each says how the di
 |---|---|---|---|
 | `new(T)` returns `*T` | returns `owned[T]`, the single owner of the new variable; it dereferences like `*T` | a different type: storing it in a `*T` variable is a compile error | 13.9, 7.19 |
 | a variable whose address escapes moves to the heap | a variable lives where its declaration puts it, never on the heap by itself | returning, storing or sending a view of a frame is a compile error (E3001 to E3006) | 6, 18.2, 18.3 |
-| each iteration of a `for` loop has its own copy of the loop variables | every iteration reuses the same storage | keeping a closure, pointer or interface box of a loop variable where the next iteration can see it is a compile error (E3006) | 12.10, 18.4 |
+| each iteration of a `for` loop has its own copy of the loop variables | every iteration reuses the same storage | keeping a closure, pointer or interface copy of a loop variable where the next iteration can see it is a compile error (E3006) | 12.10, 18.4 |
 | a function literal can be stored anywhere | a closure that captures variables is valid while its frame is; a returned closure is built in a region its caller provides | storing one in a package variable, or returning it in a way no region can hold, is a compile error (E3100 to E3102) | 11.4, 11.5 |
-| an interface holding a large value boxes it on the heap | the box is in the frame of the function that converts | returning or storing such an interface where it outlives the frame is a compile error | 7.9 |
-| converting a value to an interface copies it | converting an owner or a counted reference to an ordinary interface lends it | asserting an owner back out of an ordinary interface is a compile error (E3308) | 7.9, 11.13 |
+| an interface holding a large value boxes it on the heap | the copy is in the frame of the function that converts | returning or storing such an interface where it outlives the frame is a compile error | 7.9 |
+| converting a value to an interface copies it | converting an owner, a box, a channel or a map to an ordinary interface lends it: the interface is a view of the converted variable | asserting an owner back out of an ordinary interface is a compile error (E3308); returning `any(make(chan int))` is a compile error (E3001) | 7.9, 11.13 |
 | a struct is always copyable | a struct with an owner field must be declared `owner`, and copying it is a move | a use after the move is a compile error (E3301, E3302) | 7.6, 7.18, 18.5 |
 | `os.File` is used through `*os.File` | `os.File` is an owner that closes when its variable goes out of scope | a different type: `os.Open` returns an `os.File`, not a pointer | 18.6 |
 | the garbage collector frees memory | an allocation has an owner, an arena, or a count; the last copy of a counted string or reference frees it | allocation functions take an optional allocator argument, and the names say what owns | 18.1, 18.9, 18.10 |
@@ -87,7 +88,8 @@ The rows in this table are behaviors that differ from Go's. Each says how the di
 |---|---|---|---|
 | `map[K]V` is a reference to a table the collector frees | `map[K]V` is a counted reference; the table is freed with its last reference; iteration follows Go's guarantees | `make(map[K]V, n, a)` takes an optional allocator; keys and values cannot be owners | 7.10, 13.7 |
 | a map can be passed to any goroutine | a map is sendable, and its contents fall under the race rules | writes from two tasks need a lock the compiler infers, a partition in a scope, or one task | 7.10, 19.3 |
-| `make(chan T, n)` and the channel is collected | `make(chan T, n, a)` takes an optional allocator; the channel is a counted reference, freed with its last reference, and owns its timer | sending an owner moves it | 7.11, 12.5, 19.6 |
+| `make(chan T, n)` and the channel is collected | `make(chan T, n, a)` takes an optional allocator; the channel is a counted reference, freed with its last reference; the channel of `time.After` and `time.Tick` owns its timer | sending an owner moves it | 7.11, 12.5, 19.6 |
+| `time.NewTimer`, `time.NewTicker` and `time.AfterFunc` return `*Timer` and `*Ticker` | they return `owned[Timer]` and `owned[Ticker]`, which stop and free the timer when dropped | a different type; a timer whose variable goes out of scope is stopped | 19.6 |
 | `errors.New` returns a new error at every call | the same error at every run of one call site, a different error for each call site | observable only by comparing two results of one call site; `errors.New` must be called directly with a constant text | 16.3 |
 | an error value with context lives on the heap | an error returned from a function is a value that fits in a word, or a pointer to storage that outlives the function; allocated errors are counted | the rule of section 16.2; returning a struct or a pointer to a local as `error` is a compile error | 16.2, 16.7 |
 | an exhaustive `switch` does not end a function | an exhaustive `switch` on an enum or a union does | a function can omit the final `return` | 12.1 |

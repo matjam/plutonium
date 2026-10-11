@@ -18,7 +18,7 @@ $DIR/main.p:21:9: cannot return fmt.Sprintf("item %d", n), which points into mem
     Or install an arena that outlives the result, such as one the caller passes
     in, or make the copy that must outlive the arena after the Restore is
     dropped.
-    (see "Views" in the Plutonium spec, section 6.3)
+    (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3001" for a longer explanation)
 
 $DIR/main.p:31:9: cannot return v, which points into memory allocated from a, a local arena of items
@@ -40,7 +40,7 @@ $DIR/main.p:31:9: cannot return v, which points into memory allocated from a, a 
     Or install an arena that outlives the result, such as one the caller passes
     in, or make the copy that must outlive the arena after the Restore is
     dropped.
-    (see "Views" in the Plutonium spec, section 6.3)
+    (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3001" for a longer explanation)
 
 $DIR/main.p:39:2: cannot store s + "!" in package variable saved, which outlives a
@@ -64,5 +64,5 @@ $DIR/main.p:39:2: cannot store s + "!" in package variable saved, which outlives
     Or install an arena that outlives the result, such as one the caller passes
     in, or make the copy that must outlive the arena after the Restore is
     dropped.
-    (see "Views" in the Plutonium spec, section 6.3)
+    (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3002" for a longer explanation)

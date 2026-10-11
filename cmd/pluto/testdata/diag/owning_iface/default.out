@@ -11,7 +11,7 @@ $DIR/main.p:20:20: f was moved to r at line 19, so it can no longer be used here
         r := &f
     If this is the last use of f, move it before line 19, where f still holds
     its value.
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Moves" in the Plutonium spec, section 18.5)
     (run "pluto explain E3301" for a longer explanation)
 
 $DIR/main.p:33:7: cannot assert n to owned[File]: n is a Namer, which only lends the value it holds
@@ -28,7 +28,7 @@ $DIR/main.p:33:7: cannot assert n to owned[File]: n is a Namer, which only lends
         }
     or move it into an owning interface in the first place:
         type Text owner interface{ String() string }
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Type assertions" in the Plutonium spec, section 11.13)
     (run "pluto explain E3308" for a longer explanation)
 
 $DIR/main.p:42:10: r may have been moved at line 39, so it cannot be used here
@@ -43,7 +43,7 @@ $DIR/main.p:42:10: r may have been moved at line 39, so it cannot be used here
     one.
     Use r before line 39, or give it a new value on the path that moves it:
         r = ...
-    (see "Owners" in the Plutonium spec, section 6.4)
+    (see "Moves" in the Plutonium spec, section 18.5)
     (run "pluto explain E3302" for a longer explanation)
 
 $DIR/main.p:27:9: cannot return n, which points into the object f refers to, which f keeps alive in lent
@@ -61,5 +61,5 @@ $DIR/main.p:27:9: cannot return n, which points into the object f refers to, whi
     Return f itself: an owned box moves to the caller, and a shared or synced
     one gives the caller its own reference:
         return f
-    (see "Views" in the Plutonium spec, section 6.3)
+    (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3001" for a longer explanation)

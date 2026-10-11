@@ -13,8 +13,8 @@ $DIR/main.p:22:3: cannot pass &v to put, which keeps it after this iteration: th
         var saved int // declared before the loop
         ...
         saved = v
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Loop iterations reuse their storage" in the Plutonium spec, section
+    18.4)
     (run "pluto explain E3006" for a longer explanation)
 
 $DIR/main.p:24:3: cannot pass f to putFn, which keeps it after this iteration: it uses i, which the loop at line 20 reuses in every iteration
@@ -36,8 +36,8 @@ $DIR/main.p:24:3: cannot pass f to putFn, which keeps it after this iteration: i
         saved = i
     Or have the function literal take i as a parameter, and pass it where the
     literal is called.
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Loop iterations reuse their storage" in the Plutonium spec, section
+    18.4)
     (run "pluto explain E3006" for a longer explanation)
 
 $DIR/main.p:25:3: cannot pass &Point{...} to putPoint, which keeps it after this iteration: the loop at line 20 makes it in the same memory in every iteration
@@ -53,6 +53,6 @@ $DIR/main.p:25:3: cannot pass &Point{...} to putPoint, which keeps it after this
     allocated behind the program's back.
     Change putPoint so it does not keep the view, or pass a copy of the value
     instead of a view of it.
-    (see "Closures do not outlive their frame" in the Plutonium spec, section
-    4.5)
+    (see "Loop iterations reuse their storage" in the Plutonium spec, section
+    18.4)
     (run "pluto explain E3006" for a longer explanation)

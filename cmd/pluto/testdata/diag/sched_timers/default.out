@@ -16,5 +16,5 @@ $DIR/main.p:20:5: this program uses timers (time.Sleep, a time.Timer or Ticker, 
         if kernelSched{}.Now() >= next {
             rt.RunTimers()
         }
-    (see "go starts a puroutine" in the Plutonium spec, section 4.7)
+    (see "The scheduler contract" in the Plutonium spec, section 19.5)
     (run "pluto explain E2595" for a longer explanation)

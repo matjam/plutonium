@@ -15,5 +15,5 @@ $DIR/main.p:13:5: go statement receiver of type shared[Server] is not sendable: 
         }
 
         jobs := make(chan Job, 16)
-    (see "go starts a puroutine" in the Plutonium spec, section 4.7)
+    (see "Sendable types" in the Plutonium spec, section 8.8)
     (run "pluto explain E2010" for a longer explanation)

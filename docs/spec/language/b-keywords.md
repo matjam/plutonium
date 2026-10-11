@@ -1,7 +1,7 @@
 ## B. Keywords and contextual keywords
 
 **Reserved keywords.** These 27 words are reserved and may not be used as identifiers (section 4.5,
-Keywords). The first 25 are Go's. Plutonium adds `enum` and `packed`.
+Keywords).
 
 | Keyword | Used for | Section |
 |---|---|---|
@@ -50,5 +50,4 @@ identifiers (appendix D). `owned`, `shared`, `synced`, `weak`, `volatile`, `alig
 predeclared type constructors (section 10.3, Predeclared identifiers). A `//pu:` comment is a directive,
 not a word of the language (section 20.3, Directives).
 
-Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see
-[Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

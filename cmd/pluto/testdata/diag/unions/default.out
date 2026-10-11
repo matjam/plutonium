@@ -14,7 +14,7 @@ $DIR/main.p:11:2: union Slot must be declared owner: its variant Full holds an o
     If the union should only look at a value something else owns, hold a
     pointer:
         Full *int
-    (see "Unions" in the Plutonium spec, section 5.10)
+    (see "Unions" in the Plutonium spec, section 7.13)
     (run "pluto explain E2406" for a longer explanation)
 
 $DIR/main.p:22:2: missing case in type switch on st (DeviceState): Failed (add it or a default case)
@@ -26,7 +26,7 @@ $DIR/main.p:22:2: missing case in type switch on st (DeviceState): Failed (add i
     default to end a function.
     Go cannot check this for interfaces, whose set of types is open. A union's
     variants are a closed set, so the compiler can tell when one is forgotten.
-    (see "Unions" in the Plutonium spec, section 5.10)
+    (see "Switch statements" in the Plutonium spec, section 12.9)
     (run "pluto explain E2414" for a longer explanation)
 
 $DIR/main.p:32:2: type switch on packed union d (Desc) needs a default case: its 2-bit tag kind can hold 4 values, and its cases cover 2
@@ -35,7 +35,7 @@ $DIR/main.p:32:2: type switch on packed union d (Desc) needs a default case: its
     variant names. A type switch without a default case must therefore cover
     every value of the tag; this one does not.
     Add a default case that handles the other values.
-    (see "Unions" in the Plutonium spec, section 5.10)
+    (see "Switch statements" in the Plutonium spec, section 12.9)
     (run "pluto explain E2415" for a longer explanation)
 
 $DIR/main.p:42:20: DeviceState.Probing is a variant of union DeviceState, not a type (its payload has type struct{attempt int})
@@ -46,7 +46,7 @@ $DIR/main.p:42:20: DeviceState.Probing is a variant of union DeviceState, not a 
     Go has no unions. Keeping variants out of the type system means a payload
     always has its own type and methods, and generic unions need no special
     rules.
-    (see "Unions" in the Plutonium spec, section 5.10)
+    (see "Unions" in the Plutonium spec, section 7.13)
     (run "pluto explain E2409" for a longer explanation)
 
 $DIR/main.p:43:8: cannot write a composite literal of union type DeviceState: name the variant it holds (Off, Probing and Failed)
@@ -55,5 +55,5 @@ $DIR/main.p:43:8: cannot write a composite literal of union type DeviceState: na
     U.V(payload) for any variant with a payload. A variant without a payload is
     the value U.V itself. In a packed union, the variant sets the tag, so its
     literal cannot.
-    (see "Unions" in the Plutonium spec, section 5.10)
+    (see "Unions" in the Plutonium spec, section 7.13)
     (run "pluto explain E2412" for a longer explanation)

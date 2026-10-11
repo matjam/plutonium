@@ -43,7 +43,7 @@ identifiers). A program may redeclare any of them in the package block or an inn
 
 | Identifier | Meaning | Section |
 |---|---|---|
-| `nil` | the zero value of pointers, functions, interfaces, slices, maps and channels | 15.1 The zero value |
+| `nil` | the zero value of pointers, `unsafe.Pointer`, functions, interfaces, slices, maps, channels, boxes and `weak` references | 15.1 The zero value |
 
 **Functions.**
 
@@ -63,14 +63,13 @@ identifiers). A program may redeclare any of them in the package block or an inn
 | `take` | moves a value out of a place, leaving the zero value | 13.10 Moving out of a place |
 
 **Names that are not declared.** `append`, `recover`, `complex`, `real`, `imag`, `complex64` and
-`complex128` are Go's predeclared identifiers that Plutonium does not have. A use of one without a
-declaration of the program's own is a compile error that names the replacement (section 13.1, Built-ins
-Plutonium does not have).
+`complex128` are not predeclared, and a program may declare them. A use of one without a declaration of
+the program's own is a compile error that names the replacement (section 13.1, Built-ins Plutonium does
+not have).
 
 **Not in the universe block.** The functions of package `unsafe` (`Pointer`, `Sizeof`, `Alignof`,
 `Offsetof`, `Add`, `Slice`, `SliceData`, `String`, `StringData` and `Drop`) are declared by importing
 `unsafe` (section 20.1, Package `unsafe`). The contextual keywords `owner`, `union`, `task`, `bits`, `le`
 and `be` are not declared at all (section 4.6, Contextual keywords).
 
-Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see
-[Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

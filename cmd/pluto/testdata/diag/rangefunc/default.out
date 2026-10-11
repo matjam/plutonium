@@ -19,7 +19,7 @@ $DIR/main.p:17:3: defer in the body of a range-over-func loop must be followed b
                 return item.Value
             }
         }
-    (see "Range over functions" in the Plutonium spec, section 4.10)
+    (see "Range over functions" in the Plutonium spec, section 12.11)
     (run "pluto explain E2533" for a longer explanation)
 
 $DIR/main.p:24:10: a function literal deferred in a range-over-func loop body cannot capture x, a variable of the loop body: the deferred call runs after the body has returned
@@ -38,5 +38,5 @@ $DIR/main.p:24:10: a function literal deferred in a range-over-func loop body ca
                 return
             }
         }
-    (see "Range over functions" in the Plutonium spec, section 4.10)
+    (see "Range over functions" in the Plutonium spec, section 12.11)
     (run "pluto explain E2534" for a longer explanation)

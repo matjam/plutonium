@@ -28,7 +28,7 @@ func SliceData(slice []ArbitraryType) *ArbitraryType
 func String(ptr *byte, len IntegerType) string
 func StringData(str string) *byte
 
-func Drop(p *ArbitraryType) // destroys *p; Plutonium only
+func Drop(p *ArbitraryType) // drops *p
 ```
 
 **Pointer.** A `Pointer` is a pointer type, but a `Pointer` value may not be dereferenced. Any pointer
@@ -41,8 +41,7 @@ and `weak`).
 
 Converting between `Pointer` and `uintptr` converts between an address and an integer holding it. There
 is no garbage collector and memory never moves, so an address stays valid exactly as long as the object
-it names. The rules that Go places on such conversions to keep its collector working do not exist here.
-The program is responsible for the rest: the address must name an object of the type it is converted to,
+it names, and the conversions have no further restriction. The program is responsible for the rest: the address must name an object of the type it is converted to,
 suitably aligned, that is alive whenever the result is used.
 
 ```go
@@ -105,7 +104,7 @@ the result is unspecified and may be `nil`. The bytes must not be modified. The 
 reference: the string must stay alive for as long as the pointer is used. Reading or writing the words of
 a string through `unsafe` bypasses its count (section 18.8).
 
-**Drop.** `Drop(p)` destroys `*p` as the end of its owner's life would: it calls `T`'s `Drop` method if
+**Drop.** `Drop(p)` drops `*p` as the end of its owner's life would: it calls `T`'s `Drop` method if
 there is one, then drops the fields of `*p` in the order of section 18.6 (Drops). It is the operation that
 the unchecked allocation layer is written with (`alloc.Free`, a container dropping its elements). Nothing
 stops `*p` from being used or dropped again afterwards, and nothing frees the memory: freeing is the
@@ -118,32 +117,13 @@ func release[T owner any](p *T, a alloc.Allocator) {
 }
 ```
 
-**What counts as unsafe code.** Code is **safe** when nothing it does can corrupt memory or race,
-whatever its inputs (section 18.12, Safe and unsafe code). The implementation guarantees this for every
-function that uses none of the following, which together make up **unsafe code**:
-
-- package `unsafe`: `unsafe.Pointer`, `Add`, `Slice`, `SliceData`, `String`, `StringData`, `Drop`, and
-  conversions between pointers and `uintptr`;
-- the unchecked allocation layer of `pluto/alloc`: `alloc.Raw`, `alloc.New`, `alloc.Free`, and an
-  allocator's `Alloc` and `Free` methods called directly (appendix F, Library names the language relies
-  on);
-- functions without a body (assembly, `//pu:extern`), and the directives that make promises the compiler
-  takes on trust: `//pu:noescape`, `//pu:resultholds` and `//pu:nochecks` (section 20.3, Directives);
-- `rt.Pinned`, which hides a pointer from the escape analysis;
-- `volatile[T]` accessed at a fixed address, package `pluto/arch/x86`, and memory made from an integer
-  (device registers, DMA buffers).
-
-Unsafe code needs no keyword. Every use is an import of `unsafe` or `pluto/arch/x86`, a call into the
-unchecked layer of `pluto/alloc`, or a `//pu:` directive, so it is found by searching the imports and the
-directives. The implementation provides a tool that lists, per package, the functions that use unsafe
-code and the safe functions that call them, so that a reviewer can audit the unsafe surface (section 21.5,
-Run-time checks and the unchecked mode).
-
-A function that wraps unsafe code in a safe interface, as `vec.Vec` and `hash.Map` do, is responsible for
-upholding the invariants that make the interface safe. A violation inside unsafe code is a bug in that
-code; the guarantees of safe code are made on the assumption that unsafe code keeps its promises. Most
-unsafe code lives in the standard library: allocators, containers, the printing of values from type
-descriptors, and the runtime. Application code built on the library needs none.
+**What counts as unsafe code.** Everything in package `unsafe` is unsafe code. Section 18.12 (Safe and
+unsafe code) lists the rest (the unchecked allocation layer, functions without a body, the directives that
+make promises, `rt.Pinned`, `pluto/arch/x86` and memory made from an integer) and states what safe code is
+guaranteed. Unsafe code needs no keyword: every use is an import of `unsafe` or `pluto/arch/x86`, a call
+into the unchecked layer of `pluto/alloc`, or a `//pu:` directive, so it is found by searching the imports
+and the directives, and the implementation provides a tool that lists it (section 21.5, Run-time checks
+and the unchecked mode).
 
 ### 20.2 Size and alignment guarantees
 
@@ -207,9 +187,7 @@ word, or the contents of padding.
 A **directive** is a line comment that starts with `//pu:` and no space. It sits in the doc comment of the
 declaration it applies to, or, for `//pu:build`, before the package clause.
 
-```
-Directive = "//pu:" name [ " " argument ] .
-```
+The syntax of a directive comment is given in section 4.1 (Comments).
 
 A comment that is only a note starts with `// ` (a slash pair and a space), and is not a directive.
 
@@ -241,12 +219,11 @@ longer needed; `nobounds`, which `nochecks` replaces; and `noreturn` and `noesca
 a body, where the compiler infers the fact.
 
 **`//go:` comments.** A line comment that starts with `//go:` and no space is a compile error, reported
-with the directive errors above. Go's compiler directives look like comments and do something else in
-Go, so a file that kept them would look as if it were built the way Go builds it. The error names the
-`//pu:` directive that does the same job where there is one: `//go:build` is `//pu:build`,
+with the directive errors above, so that such a comment never sits in a file looking as if it had an
+effect. The error names the `//pu:` directive that does the same job where there is one: `//go:build` is `//pu:build`,
 `//go:noinline` is `//pu:noinline`, and `//go:noescape` is `//pu:noescape` (for functions without a
-body). For the rest (`//go:generate`, `//go:embed`, `//go:linkname`, `//go:nosplit`) the error says that
-Plutonium has no equivalent.
+body). For the rest (`//go:generate`, `//go:embed`, `//go:linkname`, `//go:nosplit`) the error says that there
+is no equivalent.
 
 The directives, in groups by the reason each exists:
 
@@ -689,5 +666,4 @@ may wait. A function that reaches its destination through an `io.Writer` counts,
 section 20.10, as calling the `Write` method of every `io.Writer` the program makes. In a handler,
 format with the `strconv` functions into a `vec.Fixed`.
 
-Adapted in part from the Go specification, copyright The Go Authors, CC BY 4.0; see
-[Attribution](../language.md#attribution).
+Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

@@ -3,5 +3,5 @@ $DIR/main.p:8:3: expected '}', found 'EOF'
     }, so the parser reached the end of the file looking for it. Add the missing
     } where the block should end; the mistake is somewhere between line 5 and
     the end of the file.
-    (see "Blocks" in the Go spec; Plutonium follows Go here)
+    (see "Blocks" in the Plutonium spec, section 9)
     (run "pluto explain E1002" for a longer explanation)
