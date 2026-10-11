@@ -33,9 +33,9 @@ the Go sources migrate to a `pu` package that mirrors the Plutonium library, so 
 >   a counted reference with Go's semantics (reads from a nil map, `v, ok := m[k]`, `delete`, `clear`,
 >   Go's iteration guarantees). `make(map[K]V, n, a)` takes an allocator. Neither keys nor values may be
 >   owners; `hash.Map` is the library table for owners. Sections 7.10, 12.10, 13.3, 13.5, 13.7 and F.3.
->   The `compat.NewMap`, `MapAt` and `MapGet` rows of section 3.1 work around a language that has no map,
->   and the single-result lookup and nil-safe reads that gap 10 asks of `hash.Map` are properties of the
->   built-in map.
+>   The `compat.NewMap`, `MapAt` and `MapGet` rows of section 3.1 worked around a language that had no map
+>   (go2pu now translates Go's maps unchanged, and the table has one row for them), and the single-result
+>   lookup and nil-safe reads that gap 10 asks of `hash.Map` are properties of the built-in map.
 > - "`pu.Map[K, V]` | `hash.Map[K, V]`" and "Map types become `pu.Map` values held by their owner"
 >   (sections 11.1 and 11.2, step 1): a Go `map[K]V` has the Plutonium counterpart `map[K]V` (section
 >   7.10). `hash.Map` remains for owners and for code that must avoid counting (appendix F.3). Whether the

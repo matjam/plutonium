@@ -96,7 +96,13 @@ func main() {
 	for _, s := range []string{"owners", "move", "views", "look"} {
 		w.list.Push(s)
 	}
-	fmt.Println(longest(w.list.Slice()), w.list.Len())
+
+	// A map is a counted reference: copies share one table.
+	counts := make(map[string]int)
+	for _, s := range w.list.Slice() {
+		counts[s[:1]]++
+	}
+	fmt.Println(longest(w.list.Slice()), w.list.Len(), len(counts))
 }
 ```
 
@@ -146,8 +152,8 @@ Other commands:
 The specification (version 0.3) is the single source of truth: it defines the whole language and does not
 fall back on Go's specification. The compiler implements most of it and runs on `x86_64-linux` (hosted) and
 `x86_64-none` (freestanding and kernel). The places where the compiler still differs from the specification
-are listed in [`docs/roadmap.md`](docs/roadmap.md); the largest are the `task` statement (the compiler still
-spells it `go`) and the built-in `map[K]V` (the compiler still rejects it and points to `hash.Map`).
+are listed in [`docs/roadmap.md`](docs/roadmap.md); the largest is the `task` statement, which the compiler
+still spells `go`.
 Long-term, the compiler is meant to compile itself.
 
 The specification adapts text from The Go Programming Language Specification under CC BY 4.0; appendix G of

@@ -51,7 +51,7 @@ The 24 implementation gaps of
 | 18 | Stack overflow message and stack probes | 91 | 19.1, 17.5 |
 | 19 | `NewTimer`, `NewTicker`, `AfterFunc` return owners | 67 | 19.6, F.7 |
 | 20 | The `task` statement and the rename sweep | 62 | 12.12, 4.5, 4.6, 17.1 |
-| 21 | The built-in `map[K]V` | 60 | 7.10, 12.10, 13.5, 13.7 |
+| 21 | The built-in `map[K]V` (done) | 60 | 7.10, 12.10, 13.5, 13.7 |
 | 22 | Counted `error` values and library error types | 11, 69 | 16.7, 16.5 |
 | 23 | Package initializer that allocates, in a freestanding build | 75 | 15.2 |
 | 24 | Embedding `shared[T]` and `synced[T]` | 92 | 7.6, 7.19 |
@@ -213,8 +213,7 @@ The pass that aligned the documents with the chapters found six more, items 93 t
     paths; `testing`'s `FailNow` uses it. Freestanding and kernel builds are unchanged.
 59. **Data race freedom** (done, `6e74756`, `23e57de`; section 19.3, memory-model.md section 4.1, error
     codes E3401 to E3407 and E3501 to E3503): `internal/race` infers which lock guards which data and
-    rejects racing package variables and views that cross tasks. Follow-up: maps join the `synced[T]`
-    rule when item 60 lands.
+    rejects racing package variables and views that cross tasks; maps have a rule of their own (item 60).
 48. **Counted references and `weak[P]`** (done, `1b25e7d`; sections 7.19 and 18.7, abi.md section 1.2):
     allocation header, borrowed parameters and owned results, atomic `synced` counts once the program
     starts a task, `weak[P]` upgrade. Leak-checked under the debug allocator.
@@ -227,10 +226,14 @@ The pass that aligned the documents with the chapters found six more, items 93 t
     (`opt.ElideStringHolds`). Open: interface boxes hold their string until the function returns;
     `(string, error)` returns through memory; Linux file names that are not UTF-8 need a decision (bytes, a
     path type, or refusal); `tools/go2pu` and `selfhost/compat` can drop helpers for what is native.
-60. **Counted `map[K]V`** (in progress, gap 21; sections 7.10, 12.10, 13.5, 13.7, 13.3): one word, a counted
-    table; `make(map[K]V, n, a)`; a literal allocates from the current allocator; neither keys nor values
-    may be owners (the error points to `hash.Map`); a map may be passed to another task, and its contents
-    fall under the race rules of item 59. The compiler rejects `map` types with E2001 until this lands.
+60. **Counted `map[K]V`** (done, gap 21, `7867af2`, `8fd4ab7`, `0f8bc1b`, `c491a67`, `3c094e3`; sections 7.10,
+    12.10, 13.3, 13.5, 13.7 and 19.3, abi.md section 1.4): one word, a counted reference to a
+    `pluto/rt.MapTable`; `make(map[K]V, n, a)` takes an allocator and a literal allocates from the current
+    allocator; owner keys and elements are E3213; a map is sendable, and the contents of the maps of a type
+    that crosses to another task fall under the guard rule of item 59; go2pu translates Go's maps as they
+    are. Left: the owner error suggests counted references, since `hash.Map` does not take owner values yet
+    (`Remove` and `Pop` for owners); the race rule groups maps by type, so two maps of one type are guarded
+    together when either crosses.
 61. **Removed conversions** (done, `080e49b`, `d611757`, `271e57f`; sections 11.24 and 18.8): `string(b)`
     is E2015, `[]byte(s)` and `[]rune(s)` are E2016, `string(i)` of a non-rune integer is E2017; the
     messages show the replacement (`strings.FromUTF8`, `strings.Bytes`, `strconv.Itoa`).
@@ -240,12 +243,11 @@ The pass that aligned the documents with the chapters found six more, items 93 t
     "puroutine" in what the program prints and exposes: "task N" in traces, "all tasks are asleep" and the
     `main called rt.Goexit` fatal error in deadlock reports, `rt.Panic.Task` (today `Puroutine`),
     thunk names, `(*sync.WaitGroup).Task` (today `Go`), the texts of E-codes, and `testdata` outputs.
-64. **Map iteration guarantees and per-map seeds** (planned; sections 12.10 and 7.10): a deletion never
-    moves another entry; every entry present when a loop starts and not deleted before it is reached is
-    visited exactly once; a growing table is walked old-then-lookup. The specification states the guarantees
-    only for the built-in map; for the library tables, and for the random per-map seed of hosted builds
-    (kernels and reproducible builds keep `InitSeed`), which section 7.10 leaves unspecified, the package
-    documentation states them. Applies to `hash.Map`, `hash.Set` and the built-in map.
+64. **Map iteration guarantees and per-map seeds** (done, `7867af2`; sections 12.10 and 7.10): a deletion
+    never moves another entry, every entry present when a loop starts and not deleted before it is reached
+    is visited exactly once, and a table rebuilt during a walk is kept until the last walk ends. Hosted maps
+    are seeded from `AT_RANDOM`; kernels call `rt.SetMapSeed`; `hash.Map` keeps its fixed seed unless given
+    one with `InitSeed`. Applies to `hash.Map`, `hash.Set` and the built-in map.
 70. **`portable`** (planned, gap 16; section 8.9, [scheduler contract](plans/2026-10-09-scheduler-contract.md)
     section 9): a predeclared structural constraint; no owner is portable. Needed by the PlutoniumOS IPC
     design.
@@ -329,7 +331,7 @@ The pass that aligned the documents with the chapters found six more, items 93 t
     `OpenFile` and `Pipe`, closing on drop.
 52. **The `pu` mirror package for self-hosting** (done, `de6aa50`; migrating the compiler to it is not
     started; [plan](plans/2026-10-09-self-hosting-plan.md)): a Go package `pu` with the library owners,
-    which go2pu maps one to one. With item 60 a Go `map` translates to the built-in map.
+    which go2pu maps one to one. A Go `map` translates to the built-in map unchanged (item 60).
 56. **Self-hosting prerequisites** (in progress; [plan](plans/2026-10-09-self-hosting-plan.md)): done are
     single-pointer structs in an interface's data word (`bcfe96f`, section 7.9), itab lookup by hash
     (`79a4326`, abi.md section 5), `//pu:stack` for `main` (`b951dd2`, section 20.3), growable arenas
