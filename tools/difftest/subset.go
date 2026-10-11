@@ -32,7 +32,7 @@ type subsetRules struct {
 	ReturnedClosures bool
 	// RangeFunc lets loops range over functions (Go 1.23).
 	RangeFunc bool
-	// Maps lets programs make and use maps (language spec section 4.11),
+	// Maps lets programs make and use maps (language spec section 7.10),
 	// printing only what does not depend on iteration order.
 	Maps bool
 }

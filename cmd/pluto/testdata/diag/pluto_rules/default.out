@@ -29,20 +29,17 @@ $DIR/main.p:21:50: errors.New needs a constant message, since each call site mak
     (see "Sentinels and errors.New" in the Plutonium spec, section 16.3)
     (run "pluto explain E2008" for a longer explanation)
 
-$DIR/main.p:24:12: map types are not permitted in Plutonium (maps need a garbage-collected hash table; use pluto/hash)
-    Plutonium has no built-in map type. A Go map grows by allocating memory
-    behind the program's back, and the old memory is freed by the garbage
-    collector.
-    Use a hash map from pluto/hash, which takes an allocator, so you can see and
-    control where its memory comes from.
-    Plutonium has no garbage collector and never allocates memory unless the
-    program asks for it in the code, so that every cost is visible and the same
-    code can run inside a kernel.
-    To use a hash map:
-        import "pluto/hash"
-
-        m := hash.NewMap[string, int](0)
-        defer m.Free()
-        m["a"] = 1
+$DIR/main.p:26:22: map element type file is an owner, which a map cannot hold: reading the map copies its elements
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. A map copies its keys and elements as
+    Go's does: v := m[k] and range give copies, and m2 := m shares the table.
+    Two copies of an owner would both release what it owns, so a map cannot hold
+    one.
+    Go's garbage collector frees what a map's values refer to. Plutonium frees
+    memory when its owner is dropped, so a map, whose elements are copied
+    freely, can hold values and counted references but not owners.
+    Store a counted reference to the value instead, which copies by counting and
+    releases the value with its last copy:
+        m := map[string]synced[file]{}
     (see "Map types" in the Plutonium spec, section 7.10)
-    (run "pluto explain E2001" for a longer explanation)
+    (run "pluto explain E3213" for a longer explanation)

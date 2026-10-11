@@ -98,7 +98,7 @@ func (m *Map[K, V]) Get(k K) (V, bool) { return m.t.Get(k) }
 func (m *Map[K, V]) At(k K) V { return m.t.Index(k) }
 
 // Index returns the value stored for k, or the zero V if k is not in the
-// map; it is what m[k] calls (language spec section 6.7).
+// map; it is what m[k] calls (language spec section 11.11).
 func (m *Map[K, V]) Index(k K) V { return m.t.Index(k) }
 
 // IndexOk is Get; it is what v, ok := m[k] calls.

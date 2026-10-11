@@ -3,7 +3,7 @@ package main
 import "fmt"
 
 // Maps are counted references to hash tables in Plutonium (language spec
-// section 4.12), with Go's semantics: copies alias one table, a function
+// section 7.10), with Go's semantics: copies alias one table, a function
 // changes its caller's map, a nil map reads as empty. The generator
 // exercises every operation and prints only what does not depend on the
 // order a range visits keys in: lengths, lookups of given keys, and sums

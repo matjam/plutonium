@@ -897,7 +897,7 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 // staticTypeSwitch lowers a type switch on any(v), or another conversion
 // to an interface, of a value v whose type is known when the function is
 // compiled: in generic code, a value of a type parameter's type. The clause
-// that matches is known, so only it is lowered (spec section 5.7: such a
+// that matches is known, so only it is lowered (such a
 // switch folds at compile time), and the conversion is made only if a
 // binding needs it. It reports false for any other type switch.
 func (s *fnState) staticTypeSwitch(st *ast.TypeSwitchStmt, x ast.Expr, label *types2.Label) bool {

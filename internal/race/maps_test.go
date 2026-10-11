@@ -7,7 +7,7 @@ import (
 	"github.com/matjam/plutonium/internal/testguard"
 )
 
-// Maps shared between tasks (language spec section 6.11, gap G16): the
+// Maps shared between tasks (language spec section 19.3, gap G16): the
 // contents of maps of a type that crosses to another task are guarded by
 // an inferred lock; maps that stay with one task need none.
 

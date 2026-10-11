@@ -64,7 +64,7 @@ type mapSlot[K comparable, V any] struct {
 // hold. The zero MapTable is empty and must be initialised (Init, InitFunc
 // or InitSeeded) before anything is stored. It is not safe for concurrent
 // use: a map that several tasks share is guarded by a lock (spec section
-// 6.11).
+// 19.3).
 type MapTable[K comparable, V any] owner struct {
 	slots   []mapSlot[K, V] // a power of two of them, or none
 	meta    []uint8         // one per slot, in the same allocation after the slots
@@ -226,7 +226,7 @@ func (t *MapTable[K, V]) hash(k K) uint64 {
 // It makes no call through a func value or an interface, so the compiler
 // knows that looking a key up releases nothing, and a map read from memory
 // a call could change is passed to it without counting (spec section
-// 6.10.1). The key is read through its address in the form
+// 18.8). The key is read through its address in the form
 // *(*T)(unsafe.Pointer(&k)), which the compiler knows does not change k,
 // so a string key is borrowed without being counted.
 func (t *MapTable[K, V]) typeHash(k K) uint64 {

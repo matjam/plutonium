@@ -27,7 +27,7 @@ func runDebugAllocArgs(t *testing.T, prog string, args ...string) (string, int) 
 }
 
 // TestMapsLeakFree runs the programs that make, copy, store, range over
-// and drop built-in maps (language spec section 4.12) with the debug
+// and drop built-in maps (language spec section 7.10) with the debug
 // allocator and its leak report on, at -O0 and -O2: every table, box and
 // string they make must be freed exactly once, through copies, struct
 // fields, arrays, maps of maps, deletion, clear, rebuilds during range
@@ -141,7 +141,7 @@ func main() {
 }
 
 // TestMapHoldElision checks that maps are counted like strings and boxes
-// (language spec section 6.10.1): a map passed down is borrowed without
+// (language spec section 18.8): a map passed down is borrowed without
 // counting, and one read from memory a call could change is held only
 // across calls that may release it.
 func TestMapHoldElision(t *testing.T) {

@@ -575,7 +575,7 @@ func (a *analyzer) isMapID(id int) bool {
 }
 
 // checkMaps applies the guard rule to the contents of maps (language spec
-// section 6.11, gap G16): a map is a counted reference that may cross to
+// section 19.3, gap G16): a map is a counted reference that may cross to
 // other tasks, so the contents of every map of a type that crosses, as a
 // go statement's argument, a value sent on a channel, or inside one, or
 // that a task reaches through a package variable or memory it did not

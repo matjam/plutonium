@@ -233,7 +233,7 @@ is ever freed individually. `selfhost/compat` holds the few functions that need 
 
 | Go | Translation | Notes |
 |---|---|---|
-| `map[K]V` and every map operation | unchanged | Plutonium's `map[K]V` is a counted reference with Go's semantics (language spec section 4.11); until 2026-10-10 maps went to `*hash.Map` through `compat.NewMap`, `MapAt` and friends |
+| `map[K]V` and every map operation | unchanged | Plutonium's `map[K]V` is a counted reference with Go's semantics (language spec section 7.10); until 2026-10-10 maps went to `*hash.Map` through `compat.NewMap`, `MapAt` and friends |
 | `append(s, x...)` | `compat.Append(s, x...)` | grows from `alloc.Default()` beyond capacity; never frees the old array (it may be shared) |
 | `append(b, s...)` (string) | `compat.AppendString(b, s)` | |
 | `s + t`, `s += t` | `compat.Concat(s, t)` | chains flattened into one call |

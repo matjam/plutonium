@@ -1,4 +1,4 @@
-// Maps across puroutines (language spec sections 4.12 and 6.11): a map
+// Maps across puroutines (language spec sections 7.10 and 19.3): a map
 // guarded by a mutex that several puroutines write, maps that each
 // puroutine makes for itself and hands to main under the same mutex, and
 // maps sent on a channel. Counts are atomic once puroutines run; every map

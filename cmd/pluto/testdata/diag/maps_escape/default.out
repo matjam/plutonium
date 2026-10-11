@@ -11,7 +11,7 @@ $DIR/main.p:18:9: cannot return m as an interface: an ordinary interface only bo
     Return the map itself, changing the result type to map[string]int: the
     caller gets a reference of its own:
         return m
-    (see "Views" in the Plutonium spec, section 6.3)
+    (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3001" for a longer explanation)
 
 $DIR/main.p:24:2: cannot store &n in local["n"], which outlives n
@@ -28,7 +28,7 @@ $DIR/main.p:24:2: cannot store &n in local["n"], which outlives n
     Or keep what the map refers to in memory that lives as long as the map, such
     as a package variable, or in a counted reference (shared[T] or synced[T])
     stored in the map.
-    (see "Views" in the Plutonium spec, section 6.3)
+    (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3002" for a longer explanation)
 
 $DIR/main.p:25:2: cannot pass &n to remember, which keeps it after returning
@@ -41,7 +41,7 @@ $DIR/main.p:25:2: cannot pass &n to remember, which keeps it after returning
     If remember should keep its own copy of n, change it to take the value, not
     a pointer, or an owner it can keep: an owned[int] from new, a shared[int],
     or a library owner such as a vec.Vec.
-    (see "Views" in the Plutonium spec, section 6.3)
+    (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3003" for a longer explanation)
 
 $DIR/main.p:28:30: cannot store {...} in an element of the map literal, which outlives buf
@@ -58,5 +58,5 @@ $DIR/main.p:28:30: cannot store {...} in an element of the map literal, which ou
     Or keep what the map refers to in memory that lives as long as the map, such
     as a package variable, or in a counted reference (shared[T] or synced[T])
     stored in the map.
-    (see "Views" in the Plutonium spec, section 6.3)
+    (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3002" for a longer explanation)
