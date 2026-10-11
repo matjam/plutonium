@@ -12,7 +12,7 @@ $DIR/main.p:1:1: //go:build is a Go directive; write //pu:build
 $DIR/main.p:8:1: //go:generate is a Go directive, and Plutonium has no equivalent; delete it
     Plutonium does not read //go: comments, so this one would do nothing, and no
     //pu: directive does what //go:generate does in Go. The directives are:
-    blocking, build, export, extern, fpu, inline, interrupt, nobounds, noescape,
+    blocking, build, export, extern, fpu, inline, interrupt, nochecks, noescape,
     noinline, noreturn, nosimd, panic, percpu, resultholds, scheduler, section,
     stack.
     Go ignores //go: comments it does not know, which makes a typo easy to miss.
@@ -35,7 +35,7 @@ $DIR/main.p:10:1: //go:noinline is a Go directive; write //pu:noinline
 $DIR/main.p:13:1: //go:nosplit is a Go directive, and Plutonium has no equivalent; delete it
     Plutonium does not read //go: comments, so this one would do nothing, and no
     //pu: directive does what //go:nosplit does in Go. The directives are:
-    blocking, build, export, extern, fpu, inline, interrupt, nobounds, noescape,
+    blocking, build, export, extern, fpu, inline, interrupt, nochecks, noescape,
     noinline, noreturn, nosimd, panic, percpu, resultholds, scheduler, section,
     stack.
     Go ignores //go: comments it does not know, which makes a typo easy to miss.

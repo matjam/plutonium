@@ -28,7 +28,7 @@ func TestCheck(t *testing.T) {
 		src  string
 		want []string // "code: message", in order
 	}{
-		{"fine", "//pu:build amd64\n\npackage p\n\n//pu:noinline\nfunc f() {}\n\n//pu:extern strlen\nfunc g()\n\n//pu:export\nfunc h() {}\n\n//pu:percpu\nvar v int\n\nvar (\n\t//pu:scheduler\n\ts int\n\t//pu:section .data\n\tw int\n)\n\n//pu:stack 1M\nfunc main() {}\n", nil},
+		{"fine", "//pu:build amd64\n\npackage p\n\n//pu:noinline\nfunc f() {}\n\n//pu:extern strlen\nfunc g()\n\n//pu:export\nfunc h() {}\n\n//pu:nochecks\nfunc k() {}\n\n//pu:percpu\nvar v int\n\nvar (\n\t//pu:scheduler\n\ts int\n\t//pu:section .data\n\tw int\n)\n\n//pu:stack 1M\nfunc main() {}\n", nil},
 		{"typo", "package p\n\n//pu:interupt\nfunc f() {}\n", []string{"E2600: unknown directive //pu:interupt (did you mean //pu:interrupt?)"}},
 		{"go noinline", "package p\n\n//go:noinline\nfunc f() {}\n", []string{"E2604: //go:noinline is a Go directive; write //pu:noinline"}},
 		{"go build", "//go:build linux\n\npackage p\n", []string{"E2604: //go:build is a Go directive; write //pu:build"}},
@@ -44,6 +44,8 @@ func TestCheck(t *testing.T) {
 		{"schedhook", "package p\n\n//pu:schedhook\nfunc f()\n\n//pu:schedlate\nfunc g()\n", []string{
 			"E2601: //pu:schedhook was removed: the compiler knows the runtime's scheduler hooks by name",
 			"E2601: //pu:schedlate was removed: the compiler knows the runtime's scheduler hooks by name"}},
+		{"nobounds", "package p\n\n//pu:nobounds\nfunc f() {}\n", []string{"E2601: //pu:nobounds was replaced by //pu:nochecks"}},
+		{"nochecks arg", "package p\n\n//pu:nochecks fast\nfunc f() {}\n", []string{`E2603: //pu:nochecks takes no argument, found "fast"`}},
 		{"noreturn body", "package p\n\n//pu:noreturn\nfunc f() {\n\tfor {\n\t}\n}\n", []string{"E2601: //pu:noreturn is inferred for a function with a body: delete it"}},
 		{"noreturn bodyless", "package p\n\n//pu:noreturn\nfunc f()\n", nil},
 		{"noescape body", "package p\n\n//pu:noescape\nfunc f(p *int) {}\n", []string{"E2601: //pu:noescape is inferred for a function with a body: delete it"}},

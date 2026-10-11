@@ -2,7 +2,7 @@ $DIR/main.p:3:1: unknown directive //pu:interupt (did you mean //pu:interrupt?)
     The compiler has no directive named interupt, so this comment would do
     nothing. It is close to interrupt.
     The directives are: blocking, build, export, extern, fpu, inline, interrupt,
-    nobounds, noescape, noinline, noreturn, nosimd, panic, percpu, resultholds,
+    nochecks, noescape, noinline, noreturn, nosimd, panic, percpu, resultholds,
     scheduler, section, stack.
     A comment that is only a note should start with // and a space.
     Go ignores unknown //go: comments, which makes a typo easy to miss.
@@ -64,7 +64,21 @@ $DIR/main.p:18:1: //pu:inline is in the wrong place: it goes in the doc comment 
     (see "Directives" in the Plutonium spec, section 20.3)
     (run "pluto explain E2602" for a longer explanation)
 
-$DIR/main.p:21:1: //pu:noinline takes no argument, found "because it is hot"
+$DIR/main.p:21:1: //pu:nobounds was replaced by //pu:nochecks
+    //pu:nobounds was replaced by //pu:nochecks: nochecks removes the bounds
+    checks and the generation checks from the function's body, and marks the
+    function unsafe code (language spec section 18.12, Safe and unsafe code).
+    Change the name; the function keeps its meaning, with the generation checks
+    off as well.
+    Plutonium asks for a directive only for a fact the compiler cannot derive
+    from the program, so that using the language does not need knowledge of how
+    the compiler works.
+    Use the replacement:
+        //pu:nochecks
+    (see "Directives" in the Plutonium spec, section 20.3)
+    (run "pluto explain E2601" for a longer explanation)
+
+$DIR/main.p:27:1: //pu:noinline takes no argument, found "because it is hot"
     //pu:noinline stands alone on its line. Text after its name is not a
     comment, and the compiler would not see the directive at all. Put an
     explanation on a line of its own.
@@ -76,7 +90,7 @@ $DIR/main.p:21:1: //pu:noinline takes no argument, found "because it is hot"
     (see "Directives" in the Plutonium spec, section 20.3)
     (run "pluto explain E2603" for a longer explanation)
 
-$DIR/main.p:25:2: //pu:noinline is in the wrong place: it goes in the doc comment of a function, directly above it; it is not above any declaration here
+$DIR/main.p:31:2: //pu:noinline is in the wrong place: it goes in the doc comment of a function, directly above it; it is not above any declaration here
     A directive does something only where the compiler looks for it.
     //pu:noinline goes in the doc comment of a function, directly above it; it
     is not above any declaration here.

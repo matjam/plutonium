@@ -266,7 +266,7 @@ var directives = map[string]string{
 	"build":       "include the file only when the build constraint holds",
 	"inline":      "always inline calls to this function",
 	"noinline":    "never inline this function",
-	"nobounds":    "omit bounds checks in the function's body",
+	"nochecks":    "remove the bounds checks and the generation checks from the function's body",
 	"extern":      "the body-less function is the external symbol with this name, called with the C ABI",
 	"export":      "also export the function under this symbol name, callable from C",
 	"section":     "place the function or package variable in the named section",

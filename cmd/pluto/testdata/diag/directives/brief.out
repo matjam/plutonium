@@ -3,5 +3,6 @@ $DIR/main.p:6:1: //pu:alloc was removed: kernel code may allocate strings anywhe
 $DIR/main.p:9:1: //pu:noreturn is inferred for a function with a body: delete it
 $DIR/main.p:15:1: //pu:percpu is in the wrong place: it goes in the doc comment of a package-level variable, not of a function
 $DIR/main.p:18:1: //pu:inline is in the wrong place: it goes in the doc comment of a function, not of a package-level variable
-$DIR/main.p:21:1: //pu:noinline takes no argument, found "because it is hot"
-$DIR/main.p:25:2: //pu:noinline is in the wrong place: it goes in the doc comment of a function, directly above it; it is not above any declaration here
+$DIR/main.p:21:1: //pu:nobounds was replaced by //pu:nochecks
+$DIR/main.p:27:1: //pu:noinline takes no argument, found "because it is hot"
+$DIR/main.p:31:2: //pu:noinline is in the wrong place: it goes in the doc comment of a function, directly above it; it is not above any declaration here

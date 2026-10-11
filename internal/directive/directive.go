@@ -64,7 +64,7 @@ var directives = map[string]info{
 	"build":     {atFile, needsArg, "a build constraint such as amd64 && !kernel"},
 	"inline":    {atFunc, noArg, ""},
 	"noinline":  {atFunc, noArg, ""},
-	"nobounds":  {atFunc, noArg, ""},
+	"nochecks":  {atFunc, noArg, ""},
 	"extern":    {atFunc, needsArg, "the name of the C symbol"},
 	"export":    {atFunc, optionalArg, ""},
 	"section":   {atFunc | atVar, needsArg, "the name of the section"},
@@ -83,7 +83,7 @@ var directives = map[string]info{
 	"stack":       {atFunc, checkedElse, ""},
 }
 
-// retired maps a removed directive to what replaced it, finishing the
+// retired maps a removed directive to why it was removed, finishing the
 // sentence "//pu:name was removed: ".
 var retired = map[string]string{
 	"alloc":     "kernel code may allocate strings anywhere the allocator may be called",
@@ -91,6 +91,13 @@ var retired = map[string]string{
 	"gofunc":    "the compiler finds which functions start tasks with their func arguments",
 	"schedhook": "the compiler knows the runtime's scheduler hooks by name",
 	"schedlate": "the compiler knows the runtime's scheduler hooks by name",
+	"nobounds":  "nochecks removes the bounds checks and the generation checks from the function's body, and marks the function unsafe code (language spec section 18.12, Safe and unsafe code).",
+}
+
+// replacedBy marks the removed directives that another directive replaces,
+// mapping the old name to the new one.
+var replacedBy = map[string]string{
+	"nobounds": "nochecks",
 }
 
 // Names returns the names of the directives the compiler knows, sorted.
@@ -198,6 +205,12 @@ type ownerInfo struct {
 // checkOne checks one directive comment.
 func checkOne(pos token.Position, name, arg string, owner ownerInfo, hasOwner, beforePackage bool) *diag.Diagnostic {
 	if reason, gone := retired[name]; gone {
+		if new, ok := replacedBy[name]; ok {
+			d := diag.New(pos, diag.RetiredDirective, "//pu:%s was replaced by //pu:%s", name, new)
+			d.Text = "//pu:" + name + " was replaced by //pu:" + new + ": " + reason + " Change the name; the function keeps its meaning, with the generation checks off as well."
+			d.Fix = &diag.Fix{Intro: "Use the replacement", Code: Prefix + new}
+			return d
+		}
 		d := diag.New(pos, diag.RetiredDirective, "//pu:%s was removed: %s", name, reason)
 		d.Text = "//pu:" + name + " is no longer needed: " + reason + ". Delete the line; the program means the same without it."
 		d.Fix = &diag.Fix{Intro: "Delete the line", Code: Prefix + name + " (delete this line)"}

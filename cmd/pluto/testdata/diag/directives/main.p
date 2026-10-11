@@ -18,6 +18,12 @@ func notAVariable() {}
 //pu:inline
 var notAFunction int
 
+//pu:nobounds
+func oldName() {}
+
+//pu:nochecks
+func unchecked() {}
+
 //pu:noinline because it is hot
 func hot() {}
 
