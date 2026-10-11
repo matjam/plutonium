@@ -1288,6 +1288,54 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 				s.seal(dead)
 				s.startBlock(dead)
 			}
+		case "clear":
+			if m := mapOf(s.typeOf(call.Args[0])); m != nil {
+				mv := s.saveValue(s.materialize(s.expr(call.Args[0])))
+				run = func(s *fnState, rec *ssa.Value) {
+					s.mapClearVals(m, s.loadSaved(mv, rec), call.Pos())
+				}
+			} else {
+				et := s.subst(unwrap(s.typeOf(call.Args[0])).Underlying().(*types2.Slice).Elem())
+				xv := s.saveValue(s.materialize(s.expr(call.Args[0])))
+				run = func(s *fnState, rec *ssa.Value) {
+					p, n, _ := s.sliceParts(s.loadSaved(xv, rec))
+					if s.l.counted(et) {
+						// Clearing an element drops what it held.
+						s.releaseRange(p, n, et)
+					}
+					bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(et)))
+					s.callRuntime("memclr", nil, []*ssa.Value{s.checkedLen(p, n), bytes})
+				}
+			}
+		case "copy":
+			dsv := s.saveValue(s.materialize(s.expr(call.Args[0])))
+			srcStr := isString(s.typeOf(call.Args[1]))
+			var src value
+			if srcStr {
+				src = s.exprAs(call.Args[1], types2.Typ[types2.String])
+			} else {
+				src = s.expr(call.Args[1])
+			}
+			srv := s.saveValue(s.materialize(src))
+			et := s.subst(unwrap(s.typeOf(call.Args[0])).Underlying().(*types2.Slice).Elem())
+			run = func(s *fnState, rec *ssa.Value) {
+				dp, dn, _ := s.sliceParts(s.loadSaved(dsv, rec))
+				var sp, sn *ssa.Value
+				if srcStr {
+					sp, sn = s.stringParts(s.loadSaved(srv, rec))
+				} else {
+					sp, sn, _ = s.sliceParts(s.loadSaved(srv, rec))
+				}
+				n := s.minInt(dn, sn)
+				s.copyElems(s.checkedLen(dp, n), s.checkedLen(sp, n), n, et)
+			}
+		case "delete":
+			m := mapOf(s.typeOf(call.Args[0]))
+			mv := s.saveValue(s.materialize(s.expr(call.Args[0])))
+			kv := s.saveValue(s.materialize(s.exprAs(call.Args[1], s.subst(m.Key()))))
+			run = func(s *fnState, rec *ssa.Value) {
+				s.mapDeleteVals(m, s.loadSaved(mv, rec), s.loadSaved(kv, rec), call.Pos())
+			}
 		default:
 			s.l.errorf(st.Pos(), diag.DeferBuiltin, "defer of builtin %s is not supported", name)
 			return

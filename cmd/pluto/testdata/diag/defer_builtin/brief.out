@@ -1,0 +1,2 @@
+$DIR/main.p:9:2: defer of builtin len is not supported
+$DIR/main.p:10:2: defer of builtin cap is not supported

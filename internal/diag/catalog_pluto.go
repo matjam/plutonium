@@ -643,7 +643,7 @@ func init() {
 		&Entry{
 			Code: DeferBuiltin, Name: "DeferBuiltin",
 			Text: "This builtin cannot be deferred directly. Wrap the call in a function literal and defer that.",
-			Fix:  &Fix{Intro: "Defer a function literal", Code: "defer func() { copy(dst, src) }()"},
+			Fix:  &Fix{Intro: "Defer a function literal", Code: "defer func() { n = len(s) }()"},
 			Spec: pspec("12.19", "Defer statements"),
 		},
 		&Entry{

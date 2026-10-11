@@ -12,13 +12,13 @@ import (
 func TestUnsupportedErrors(t *testing.T) {
 	testguard.Parallel(t)
 	cases := []struct{ name, src, want string }{
-		{"deferred copy", `package main
+		{"deferred len", `package main
 
 func main() {
-	var a, b [2]int
-	defer copy(a[:], b[:])
+	var a [2]int
+	defer len(a)
 }
-`, "defer of builtin copy is not supported"},
+`, "defer of builtin len is not supported"},
 		{"non-exhaustive enum switch", `package main
 
 type Color enum { Red; Green; Blue }

@@ -193,6 +193,12 @@ func (check *Checker) suspendedCall(keyword string, call *ast.CallExpr) {
 			code = InvalidGo
 		}
 	case expression:
+		if keyword == "defer" {
+			// A deferred call discards its result, as any deferred call
+			// does (section 12.19). A value-producing builtin that cannot
+			// be deferred is reported by lowering (E2532).
+			return
+		}
 		msg = "discards result of"
 		code = UnusedResults
 	case statement:

@@ -1,0 +1,10 @@
+$DIR/main.p:9:2: defer of builtin len is not supported
+    This builtin cannot be deferred directly. Wrap the call in a function
+    literal and defer that.
+    Defer a function literal:
+        defer func() { n = len(s) }()
+    (see "Defer statements" in the Plutonium spec, section 12.19)
+    (run "pluto explain E2532" for a longer explanation)
+
+$DIR/main.p:10:2: defer of builtin cap is not supported
+    (explained above; run "pluto explain E2532" for more)

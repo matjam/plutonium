@@ -1,0 +1,7 @@
+delete 1 0 2 0
+clearmap 0
+clearints 0 0 0 3
+clearstr 0 0 2
+copyints 9 8 7 0
+copystr x y 
+copybytes 104 105 33

@@ -182,7 +182,14 @@ func (s *fnState) mapDelete(e *ast.CallExpr) {
 	m := mapOf(s.typeOf(e.Args[0]))
 	mv := s.hold(s.materialize(s.expr(e.Args[0])))
 	k := s.hold(s.materialize(s.exprAs(e.Args[1], s.subst(m.Key()))))
-	s.mapCall("mapDelete", m, []value{s.mapTable(mv, m), k}, e.Pos())
+	s.mapDeleteVals(m, mv, k, e.Pos())
+}
+
+// mapDeleteVals deletes the entry k from the map mv of type m, whose values
+// are already evaluated and held: for the deferred delete, which loads its
+// arguments from the defer record when the function returns (section 12.19).
+func (s *fnState) mapDeleteVals(m *types2.Map, mv, k value, pos token.Pos) {
+	s.mapCall("mapDelete", m, []value{s.mapTable(mv, m), k}, pos)
 }
 
 // mapClear lowers clear(m): every entry is deleted, releasing what the
@@ -190,7 +197,14 @@ func (s *fnState) mapDelete(e *ast.CallExpr) {
 func (s *fnState) mapClear(e *ast.CallExpr) {
 	m := mapOf(s.typeOf(e.Args[0]))
 	mv := s.materialize(s.expr(e.Args[0]))
-	s.mapCall("mapClear", m, []value{s.mapTable(mv, m)}, e.Pos())
+	s.mapClearVals(m, mv, e.Pos())
+}
+
+// mapClearVals clears the map mv of type m, whose value is already
+// evaluated and held: for the deferred clear, which loads its argument from
+// the defer record when the function returns (section 12.19).
+func (s *fnState) mapClearVals(m *types2.Map, mv value, pos token.Pos) {
+	s.mapCall("mapClear", m, []value{s.mapTable(mv, m)}, pos)
 }
 
 // rangeMap lowers a range over a map. The loop holds a reference to the
