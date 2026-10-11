@@ -1,7 +1,7 @@
 package types2
 
 // Plutonium rules for values that cross tasks (language spec sections
-// 4.7, 4.8 and 6.3): task statement arguments and channel elements must be
+// 12.12, 19.2 and 18.3): task statement arguments and channel elements must be
 // sendable, and must not be views of the sending function's frame.
 
 import (

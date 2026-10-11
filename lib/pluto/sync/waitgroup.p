@@ -48,7 +48,7 @@ func (wg *WaitGroup) Task(f func()) {
 	// a WaitGroup in a frame that waits before returning outlives it.
 	// The compiler cannot check that the frame does wait, so wg is hidden
 	// from the escape analysis (rt.Pinned); sync.Scope is the checked form
-	// (docs/plans/2026-10-10-scoped-tasks.md).
+	// (docs/plans/2026-10-10-scoped-puroutines.md).
 	task runDone(rt.Pinned(wg), f)
 }
 

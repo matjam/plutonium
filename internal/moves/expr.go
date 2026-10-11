@@ -260,7 +260,7 @@ func (f *fn) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.Selec
 	if kind == mvGo && pointerElem(recv) != nil {
 		if w := types2.GoBoxReceiver(sel); w != nil && w.Kind() == types2.WrapOwned {
 			// task p.Serve() moves the owned box into the task, which
-			// drops it when the method returns (language spec 4.7).
+			// drops it when the method returns (language spec section 12.12).
 			f.consume(se.X, f.c.typeOf(se.X), move{kind: mvGoRecv, to: exprText(se), typ: f.c.typeOf(se.X)})
 			return
 		}

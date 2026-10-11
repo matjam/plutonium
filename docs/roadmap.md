@@ -21,8 +21,7 @@ The order puts wrong code first (the compiler must never produce it, AGENTS.md r
 integrated specification defines (complete-spec section 6.5, the implementation brief), then what a kernel
 needs, then concurrency, the rest of the language, tooling, platforms and libraries. Item numbers are stable
 because other documents cite them; an item added later takes the next free number and is listed in the
-section where it belongs. Words: the specification calls a unit of concurrent execution a *task*; what the
-compiler and the runtime print still says "puroutine" in places until item 62 is finished.
+section where it belongs.
 
 ## Gaps of the integrated specification
 
@@ -31,7 +30,7 @@ The 24 implementation gaps of
 
 | Gap | Subject | Item | Section |
 |---|---|---|---|
-| 1 | Order of evaluation | 73 | 11.26 |
+| 1 | Order of evaluation (done) | 73 | 11.26 |
 | 2 | Pointer-receiver method on an owner temporary | 78 | 11.14, 12.4 |
 | 3 | Composite literal keys that name promoted fields | 79 | 11.3 |
 | 4 | Package initialization order (done) | 80 | 15.3 |
@@ -50,7 +49,7 @@ The 24 implementation gaps of
 | 17 | Task stacks from the program-wide default allocator | 90 | 19.1 |
 | 18 | Stack overflow message and stack probes | 91 | 19.1, 17.5 |
 | 19 | `NewTimer`, `NewTicker`, `AfterFunc` return owners | 67 | 19.6, F.7 |
-| 20 | The `task` statement and the rename sweep | 62 | 12.12, 4.5, 4.6, 17.1 |
+| 20 | The `task` statement and the rename sweep (done) | 62 | 12.12, 4.5, 4.6, 17.1 |
 | 21 | The built-in `map[K]V` (done) | 60 | 7.10, 12.10, 13.5, 13.7 |
 | 22 | Counted `error` values and library error types | 11, 69 | 16.7, 16.5 |
 | 23 | Package initializer that allocates, in a freestanding build | 75 | 15.2 |
@@ -76,10 +75,10 @@ The pass that aligned the documents with the chapters found six more, items 93 t
 
 ## Gaps the integrated specification defines (complete-spec section 6.5)
 
-73. **Order of evaluation** (planned, gap 1; section 11.26): operands other than calls, method calls and
-    receives are read after the calls, so `[]int{a, f()}` with an `f` that changes `a` gives `[2 2]`.
-    Lowering gives `[1 2]` (verified). Survey `internal/lower`; add `testdata/run` and difftest cases
-    (composite literals, assignments, `x[i] = f()`, operands of operators); every difference from the
+73. **Order of evaluation** (done, gap 1, `f74c4a4`; section 11.26): calls, method calls, receives and
+    logical operations are evaluated first, left to right, then the other operands, so `[]int{a, f()}` with
+    an `f` that changes `a` gives `[2 2]`. Open: survey the rest of `internal/lower` and add `testdata/run`
+    and difftest cases (assignments, `x[i] = f()`, operands of operators); every difference from the
     specified order is a false friend and is fixed.
 78. **A pointer-receiver method on an owner temporary** (planned, gap 2; sections 11.14 and 12.4):
     `readAll(f).Slice()`, with views of the temporary limited to the statement.
@@ -237,14 +236,12 @@ The pass that aligned the documents with the chapters found six more, items 93 t
 61. **Removed conversions** (done, `080e49b`, `d611757`, `271e57f`; sections 11.24 and 18.8): `string(b)`
     is E2015, `[]byte(s)` and `[]rune(s)` are E2016, `string(i)` of a non-rune integer is E2017; the
     messages show the replacement (`strings.FromUTF8`, `strings.Bytes`, `strconv.Itoa`).
-62. **The `task` statement and the rename sweep** (in progress, gap 20; sections 12.12, 4.5, 4.6, 17.1,
-    19.4): `task f(x)` starts a task; `task` is a contextual keyword that begins a statement when the next
-    token is an identifier or `func`; `go f()` is E1012 and names `task`. Done: the statement in the parser,
-    checker, formatter, language server and go2pu (`4cb685c`), programs, tests and catalog examples
-    converted (`3967e27`), `(*sync.WaitGroup).Task` and `rt.Panic.Task` (`523a21f`). Left: the word "task"
-    in what the program prints ("task N" in traces and "all tasks are asleep" and the `main called
-    rt.Goexit` fatal error in deadlock reports, still "puroutine" in `lib/pluto/rt`), thunk names
-    (`<function>.go<N>`), the texts of E-codes and the diagnostics goldens that show them.
+62. **The `task` statement and the rename sweep** (done, gap 20, `4cb685c`, `3967e27`, `523a21f`, `6798a0c`;
+    sections 12.12, 4.5, 4.6, 17.1, 19.4): `task f(x)` starts a task; `task` is a contextual keyword that
+    begins a statement when the next token is an identifier or `func`; `go f()` is E1012 and names `task`.
+    The word "task" replaced "puroutine" in the runtime's messages and traces, `(*sync.WaitGroup).Task`,
+    `rt.Panic.Task`, the diagnostics and their goldens. The generated thunks keep the name
+    `<function>.go<N>` (abi.md section 12.6), which the specification does not fix.
 64. **Map iteration guarantees and per-map seeds** (done, `7867af2`; sections 12.10 and 7.10): a deletion
     never moves another entry, every entry present when a loop starts and not deleted before it is reached
     is visited exactly once, and a table rebuilt during a walk is kept until the last walk ends. Hosted maps
