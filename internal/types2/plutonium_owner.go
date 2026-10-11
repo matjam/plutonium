@@ -424,3 +424,28 @@ func (check *Checker) ownerConversion(x *operand, T Type) {
 		}},
 	}, "cannot convert %s to owner type %s outside package %s", x, t, n.Origin().obj.pkg.name)
 }
+
+// checkMapOfOwner reports a map key or element type (what) T that is an
+// owner (gap G15 of the complete-spec plan, spec section 7.10): reading an
+// element copies it, as in Go, and an owner cannot be copied.
+func (check *Checker) checkMapOfOwner(at positioner, T Type, what string) {
+	if !isValid(T) || !IsOwner(T) {
+		return
+	}
+	t := check.sprintf("%s", T)
+	ref := "synced[" + t + "]"
+	if w, ok := Unalias(T).(*Wrapper); ok && w.kind == WrapOwned {
+		ref = "synced[" + check.sprintf("%s", w.elem) + "]"
+	}
+	ex := &Explanation{
+		Text: whatOwners + " A map copies its keys and elements as Go's does: v := m[k] and range give copies, and m2 := m shares the table. Two copies of an owner would both release what it owns, so a map cannot hold one.",
+		Fixes: []ExplainFix{{
+			Intro: "Store a counted reference to the value instead, which copies by counting and releases the value with its last copy",
+			Code:  "m := map[string]" + ref + "{}",
+		}},
+	}
+	if what == "key" {
+		ex.Fixes = []ExplainFix{{Intro: "Key the map by a value that identifies the owner, such as a name or an ID, and keep the owners elsewhere."}}
+	}
+	check.explainf(at, MapOfOwner, ex, "map %s type %s is an owner, which a map cannot hold: reading the map copies its %ss", what, t, what)
+}

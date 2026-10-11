@@ -20,9 +20,11 @@ func grow(n int, factor int = 2, limit int) int { return n * factor }
 
 func fail(name string) error { return errors.New("no such file: " + name) }
 
+type file owner struct{ fd int }
+
 func main() {
-	counts := map[string]int{}
-	_ = counts
+	files := map[string]file{}
+	_ = files
 	_ = describe(Color.Green)
 	_ = grow(1, 2, 3)
 	_ = fail("x")

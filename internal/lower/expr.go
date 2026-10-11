@@ -317,6 +317,9 @@ func (s *fnState) indexLV(e *ast.IndexExpr) lvalue {
 	if s.isContainerIndex(e) {
 		return s.containerLV(e)
 	}
+	if s.isMapIndex(e) {
+		return s.mapLV(e)
+	}
 	xt := s.typeOf(e.X)
 	u := asPointer(unwrap(xt).Underlying())
 	if p, ok := u.(*types2.Pointer); ok {
@@ -1211,6 +1214,9 @@ func (s *fnState) compositeLitOf(e *ast.CompositeLit, T types2.Type) value {
 		if u.Kind() == types2.WrapRing && len(e.Elts) == 0 {
 			return s.zeroValue(T) // ring[T, N]{}: the empty ring
 		}
+
+	case *types2.Map:
+		return s.mapLit(e, T)
 	}
 	s.l.unsupportedf(e.Pos(), "unsupported composite literal of type %s", T)
 	return s.zeroValue(T)

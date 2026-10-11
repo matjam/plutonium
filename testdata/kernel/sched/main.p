@@ -322,6 +322,21 @@ func main() int64 {
 	}
 	println("sum of squares", sum)
 
+	// Maps in kernel mode: no floating point in their hashing, and the
+	// fixed seed of builds without a source of entropy.
+	counts := map[int]int{}
+	for i := 0; i < 100; i++ {
+		counts[i%7] += i
+	}
+	for k := range counts {
+		if k%2 == 1 {
+			delete(counts, k)
+		}
+	}
+	names := map[string]int{"a": 1}
+	names["b"] = 2
+	println("map", len(counts), counts[0], counts[6], names["b"], len(names))
+
 	startTimer()
 	done := make(chan bool)
 	go spin(done)

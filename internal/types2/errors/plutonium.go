@@ -10,9 +10,9 @@ package errors
 const (
 	_ Code = 2000 + iota
 
-	// MapNotPermitted: a map type, which needs a garbage-collected hash
-	// table.
-	MapNotPermitted
+	// 2001 was MapNotPermitted, from before map[K]V returned as a counted
+	// reference type.
+	_
 	// 2002 and 2003 were ChanNotPermitted and GoNotPermitted, from before
 	// the compiler supported channels and go statements.
 	_
@@ -196,6 +196,9 @@ const (
 	// OwnerConversion: a conversion of a value into an owner type outside
 	// the package that declares it, or of a view into a box.
 	OwnerConversion
+	// MapOfOwner: a map type whose key or element type is an owner, which
+	// reading an element would copy.
+	MapOfOwner
 )
 
 // The indexing interface: index expressions on library containers.

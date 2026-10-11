@@ -28,6 +28,7 @@ func TestKernelScheduler(t *testing.T) {
 	}
 	dir := filepath.Join("..", "..", "testdata", "kernel", "sched")
 	const want = "sum of squares 385\n" +
+		"map 4 735 721 2 2\n" +
 		"spinner preempted by the timer\n" +
 		"ticks from the interrupt handler true true true\n" +
 		"b 42\n" +

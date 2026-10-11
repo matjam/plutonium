@@ -1,0 +1,4 @@
+0 0
+panic: assignment to entry in nil map
+    main.(*registry).add (./main.p:11)
+    main.main (./main.p:20)

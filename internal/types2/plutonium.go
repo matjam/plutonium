@@ -296,3 +296,15 @@ func (check *Checker) checkImportPath(spec *ast.ImportSpec, path string) bool {
 	}
 	return true
 }
+
+// MapOf returns the map type of T: its underlying type if that is a map,
+// or for a type parameter the map type underlying every type in its type
+// set. It returns nil otherwise.
+func MapOf(T Type) *Map {
+	if T == nil {
+		return nil
+	}
+	u, _ := commonUnder(T, nil)
+	m, _ := u.(*Map)
+	return m
+}

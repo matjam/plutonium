@@ -103,6 +103,8 @@ func (l *Lowerer) counted(T types2.Type) bool {
 		}
 	case *types2.Chan:
 		c = true // a channel is a counted reference (box.go)
+	case *types2.Map:
+		c = true // a counted reference to its table (maps.go)
 	}
 	l.countedTypes[key] = c
 	return c
@@ -166,6 +168,8 @@ func (s *fnState) eachString(ptr *ssa.Value, T types2.Type, f func(r countedRef)
 		s.eachString(ptr, et, f)
 	case *types2.Chan:
 		f(countedRef{addr: ptr, ch: types2.NewChan(u.Dir(), s.subst(u.Elem()))})
+	case *types2.Map:
+		f(countedRef{addr: ptr, box: s.l.mapBox(types2.NewMap(s.subst(u.Key()), s.subst(u.Elem())))})
 	case *types2.TaggedUnion:
 		// Only the payload of the variant the tag names holds references.
 		ul := s.l.unionLayoutOf(T, s.pos)
@@ -275,6 +279,10 @@ func (s *fnState) retainWord(p *ssa.Value, T types2.Type) {
 	}
 	if w, ok := unwrap(T).Underlying().(*types2.Wrapper); ok && w.IsCounted() {
 		s.boxRetain(p, types2.NewWrapper(w.Kind(), s.subst(w.Elem()), 0))
+		return
+	}
+	if m := mapOf(T); m != nil {
+		s.boxRetain(p, s.l.mapBox(types2.NewMap(s.subst(m.Key()), s.subst(m.Elem()))))
 		return
 	}
 	s.l.internalf(s.pos, "counted value of type %s in a register", T)

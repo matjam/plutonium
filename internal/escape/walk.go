@@ -341,6 +341,13 @@ func (w *walker) assignTo(lhs ast.Expr, val tset, from types2.Type, node ast.Nod
 	to := w.lhsType(lhs)
 	val = w.conv(val, from, to, node)
 	src, _ := node.(ast.Expr)
+	if ix, ok := ast.Unparen(lhs).(*ast.IndexExpr); ok {
+		if m := types2.MapOf(w.typeOf(ix.X)); m != nil {
+			// m[k] = v stores the key as well as the value.
+			kv := w.conv(w.value(ix.Index), w.typeOf(ix.Index), m.Key(), ix.Index)
+			w.store(tset{heapTok}, kv, pos, dest{text: "a key of " + exprText(ix.X), src: ix.Index, inMap: "key"})
+		}
+	}
 	if id, ok := ast.Unparen(lhs).(*ast.Ident); ok {
 		if v, ok := w.objOf(id).(*types2.Var); ok && w.isTracked(v) {
 			if !hasPointers(to) {
@@ -363,6 +370,9 @@ func (w *walker) assignTo(lhs ast.Expr, val tset, from types2.Type, node ast.Nod
 	}
 	d := w.destOf(lhs)
 	d.src = src
+	if ix, ok := ast.Unparen(lhs).(*ast.IndexExpr); ok && isMap(w.typeOf(ix.X)) {
+		d.inMap = "element"
+	}
 	w.store(target, val, pos, d)
 }
 
@@ -393,6 +403,15 @@ func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
 		val, valT = w.load(xv), u.Elem()
 	case *types2.Chan:
 		key, keyT = tset{heapTok}, u.Elem()
+	case *types2.Map:
+		key, keyT = tset{heapTok}, u.Key()
+		val, valT = tset{heapTok}, u.Elem()
+	case *types2.Interface:
+		if m := types2.MapOf(xt); m != nil {
+			// A type parameter whose types are all maps.
+			key, keyT = tset{heapTok}, m.Key()
+			val, valT = tset{heapTok}, m.Elem()
+		}
 	case *types2.Signature:
 		// Range over a function: the iterator passes its yield values,
 		// made from what its closure reaches or from the heap.

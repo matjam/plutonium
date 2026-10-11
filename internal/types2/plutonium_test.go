@@ -127,7 +127,7 @@ var c = real(1 + 2i)
 
 func TestForbiddenConstructs(t *testing.T) {
 	cases := []struct{ name, src, want string }{
-		{"map", "package p\nvar m map[int]int", "map types are not permitted"},
+		{"map of owner", "package p\ntype F owner struct{}\nvar m map[int]F", "map element type F is an owner"},
 		{"reflect", "package p\nimport \"reflect\"\nvar _ = reflect.TypeOf", "import of reflect is not permitted"},
 		{"recover", "package p\nfunc f() { defer func() { _ = recover() }() }", "recover is not permitted"},
 		{"complex variable", "package p\nfunc f(c complex128) complex128 { return c * c }", "complex numbers are not permitted"},

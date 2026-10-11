@@ -3,7 +3,7 @@ package rt
 import "unsafe"
 
 // ----------------------------------------------------------------------------
-// Hash tables: the table behind map[K]V (language spec section 4.11) and
+// Hash tables: the table behind map[K]V (language spec section 7.10) and
 // pluto/hash.Map.
 //
 // A map value is a counted reference to a MapTable in a box with the header
@@ -21,7 +21,7 @@ import "unsafe"
 // rebuilt: twice as large if at least half of them are entries, otherwise
 // the same size without the deleted marks.
 //
-// Iteration follows Go's rules (language spec section 4.11): an entry
+// Iteration follows Go's rules (language spec section 7.10): an entry
 // present when the walk starts and not deleted before it is reached is
 // produced exactly once, a deleted one is not produced, and one added
 // during the walk may or may not be. A walk follows the slots of the table
@@ -105,7 +105,7 @@ var (
 // operating system; a kernel with a source of entropy calls it early, and
 // one without leaves the fixed default, which makes iteration order the
 // same in every run but lets keys chosen by an attacker collide (spec
-// section 4.11).
+// section 7.10).
 func SetMapSeed(seed uint64) { mapSeedBase = seed }
 
 // nextMapSeed returns a new map's seed: the base mixed with a counter, so

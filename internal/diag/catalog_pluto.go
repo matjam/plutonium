@@ -17,15 +17,6 @@ const whyNoGC = "Plutonium has no garbage collector and never allocates memory u
 func init() {
 	register(
 		&Entry{
-			Code: CheckerCode(typerr.MapNotPermitted), Name: "MapNotPermitted",
-			Text:    "Plutonium has no built-in map type. A Go map grows by allocating memory behind the program's back, and the old memory is freed by the garbage collector.\nUse a hash map from pluto/hash, which takes an allocator, so you can see and control where its memory comes from.",
-			Why:     whyNoGC,
-			Fix:     &Fix{Intro: "To use a hash map", Code: "import \"pluto/hash\"\n\nm := hash.NewMap[string, int](0)\ndefer m.Free()\nm[\"a\"] = 1"},
-			Spec:    pspec("7.10", "Map types"),
-			Example: "counts := map[string]int{}\ncounts[\"a\"]++",
-			Fixed:   "counts := hash.NewMap[string, int](0)\ndefer counts.Free()\ncounts[\"a\"]++",
-		},
-		&Entry{
 			Code: CheckerCode(typerr.NotSendable), Name: "NotSendable",
 			Text:    "A value that crosses puroutines, as the argument or receiver of a go statement or as the element of a channel, must be sendable. This type holds a shared[T], whose reference count is changed with ordinary arithmetic, so two puroutines copying or dropping references at once would corrupt it. Starting a method of a shared box with go (go z.Serve()) hands the box itself to the new puroutine, so it needs a synced box as well.\nUse synced[T], which counts atomically.",
 			Why:     "Go's garbage collector makes every pointer safe to share. Plutonium counts shared references without atomic instructions, which is only correct on one puroutine.",

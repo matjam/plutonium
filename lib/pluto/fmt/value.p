@@ -136,6 +136,14 @@ func (p *printer) printKind(t *rt.Type, ptr unsafe.Pointer, verb rune, depth int
 			return
 		}
 		p.printOpaque(t)
+	case rt.KindMap:
+		m := *(*unsafe.Pointer)(ptr)
+		if m == nil && p.sharpV {
+			p.writeString(t.Name())
+			p.writeString("(nil)")
+			return
+		}
+		p.printMap(t, builtinMap{t: t, m: m}, verb, depth)
 	default:
 		p.printOpaque(t)
 	}
@@ -304,7 +312,7 @@ func (p *printer) printStruct(t *rt.Type, ptr unsafe.Pointer, verb rune, depth i
 	if pt := t.PtrTo(); pt != nil {
 		switch c := rt.Make(pt, ptr).(type) {
 		case Mapper:
-			p.printMap(t, c, verb, depth)
+			p.printMap(t, mapperSlots{c}, verb, depth)
 			return
 		case Lister:
 			p.printLister(t, c, verb, depth)
@@ -351,48 +359,88 @@ func (p *printer) printLister(t *rt.Type, c Lister, verb rune, depth int) {
 	}
 }
 
+// mapSlots is a table of key-value pairs that printMap walks: a Mapper, or
+// a built-in map.
+type mapSlots interface {
+	slots() int
+	// slot returns the types and addresses of the key and value in slot
+	// i, if it is full.
+	slot(i int) (kt *rt.Type, k unsafe.Pointer, vt *rt.Type, v unsafe.Pointer, ok bool)
+}
+
+// mapperSlots walks a Mapper.
+type mapperSlots struct{ m Mapper }
+
+func (s mapperSlots) slots() int { return s.m.FmtSlots() }
+
+func (s mapperSlots) slot(i int) (*rt.Type, unsafe.Pointer, *rt.Type, unsafe.Pointer, bool) {
+	k, v, ok := s.m.FmtSlot(i)
+	if !ok {
+		return nil, nil, nil, nil, false
+	}
+	kt, kp := rt.TypeOf(k)
+	vt, vp := rt.TypeOf(v)
+	return kt.Elem(), kp, vt.Elem(), vp, true
+}
+
+// builtinMap walks the table of a map[K]V of type t, at m (nil for a nil
+// map).
+type builtinMap struct {
+	t *rt.Type
+	m unsafe.Pointer
+}
+
+func (b builtinMap) slots() int { return rt.MapSlots(b.m) }
+
+func (b builtinMap) slot(i int) (*rt.Type, unsafe.Pointer, *rt.Type, unsafe.Pointer, bool) {
+	k, v, ok := rt.MapSlot(b.t, b.m, i)
+	if !ok {
+		return nil, nil, nil, nil, false
+	}
+	return b.t.Field(0).Type, k, b.t.Field(1).Type, v, true
+}
+
 // printMap formats a container of type t that holds key-value pairs, in
 // increasing order of key as Go's fmt sorts map keys. It allocates nothing:
 // each step scans the slots for the least key after the previous one.
-func (p *printer) printMap(t *rt.Type, m Mapper, verb rune, depth int) {
+func (p *printer) printMap(t *rt.Type, m mapSlots, verb rune, depth int) {
 	if p.sharpV {
 		p.writeString(t.Name())
 		p.writeByte('{')
 	} else {
 		p.writeString("map[")
 	}
-	slots := m.FmtSlots()
+	slots := m.slots()
 	last := -1
-	var lastK any
+	var lastK unsafe.Pointer
 	for count := 0; ; count++ {
 		best := -1
-		var bestK, bestV any
+		var kt, vt *rt.Type
+		var bestK, bestV unsafe.Pointer
 		for i := 0; i < slots; i++ {
-			k, v, ok := m.FmtSlot(i)
+			skt, k, svt, v, ok := m.slot(i)
 			if !ok {
 				continue
 			}
 			// Order by key, then by slot, so that equal keys (NaNs) each
 			// print once.
 			if last >= 0 {
-				if c := compareKeys(k, lastK); c < 0 || c == 0 && i <= last {
+				if c := compareValues(skt, k, lastK); c < 0 || c == 0 && i <= last {
 					continue
 				}
 			}
-			if best >= 0 && compareKeys(k, bestK) >= 0 {
+			if best >= 0 && compareValues(skt, k, bestK) >= 0 {
 				continue
 			}
-			best, bestK, bestV = i, k, v
+			best, kt, bestK, vt, bestV = i, skt, k, svt, v
 		}
 		if best < 0 {
 			break
 		}
 		p.listSep(count)
-		kt, kp := rt.TypeOf(bestK)
-		vt, vp := rt.TypeOf(bestV)
-		p.printValue(kt.Elem(), kp, verb, depth+1, false)
+		p.printValue(kt, bestK, verb, depth+1, false)
 		p.writeByte(':')
-		p.printValue(vt.Elem(), vp, verb, depth+1, false)
+		p.printValue(vt, bestV, verb, depth+1, false)
 		last, lastK = best, bestK
 	}
 	if p.sharpV {
@@ -400,13 +448,6 @@ func (p *printer) printMap(t *rt.Type, m Mapper, verb rune, depth int) {
 	} else {
 		p.writeByte(']')
 	}
-}
-
-// compareKeys compares two map keys, each given as a pointer to the key.
-func compareKeys(a, b any) int {
-	t, pa := rt.TypeOf(a)
-	_, pb := rt.TypeOf(b)
-	return compareValues(t.Elem(), pa, pb)
 }
 
 // compareValues orders two values of type t as Go's fmt orders map keys:

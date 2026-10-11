@@ -1,0 +1,62 @@
+$DIR/main.p:18:9: cannot return m as an interface: an ordinary interface only borrows the map, whose reference lend drops when it returns
+    m (declared at main.p:17) is a map[string]int, a counted reference to a
+    table: an ordinary interface that lends the map does not count a reference
+    of its own, so it may not outlive m, whose reference is dropped at the end
+    of its scope in lend. Converting m to an ordinary interface lends it: the
+    interface points at the map's table without a reference of its own.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return the map itself, changing the result type to map[string]int: the
+    caller gets a reference of its own:
+        return m
+    (see "Views" in the Plutonium spec, section 6.3)
+    (run "pluto explain E3001" for a longer explanation)
+
+$DIR/main.p:24:2: cannot store &n in local["n"], which outlives n
+    &n is a pointer to n. n is a local variable of main (declared at main.p:22).
+    When main returns, n's memory is reclaimed, but a map keeps its keys and
+    elements in a table on the heap, which every copy of the map shares and
+    which may live longer, so it would be left pointing at reclaimed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store the value itself instead of a view of n, changing the map's element
+    type to match.
+    Or keep what the map refers to in memory that lives as long as the map, such
+    as a package variable, or in a counted reference (shared[T] or synced[T])
+    stored in the map.
+    (see "Views" in the Plutonium spec, section 6.3)
+    (run "pluto explain E3002" for a longer explanation)
+
+$DIR/main.p:25:2: cannot pass &n to remember, which keeps it after returning
+    &n is a pointer to n. n is a local variable of main (declared at main.p:22).
+    remember stores p in m["last"] (main.p:14), so &n would outlive n.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If remember should keep its own copy of n, change it to take the value, not
+    a pointer, or an owner it can keep: an owned[int] from new, a shared[int],
+    or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 6.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:28:30: cannot store {...} in an element of the map literal, which outlives buf
+    {...} points into buf. buf is a local array of main (declared at main.p:27).
+    When main returns, buf's memory is reclaimed, but a map keeps its keys and
+    elements in a table on the heap, which every copy of the map shares and
+    which may live longer, so it would be left pointing at reclaimed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store the value itself instead of a view of buf, changing the map's element
+    type to match.
+    Or keep what the map refers to in memory that lives as long as the map, such
+    as a package variable, or in a counted reference (shared[T] or synced[T])
+    stored in the map.
+    (see "Views" in the Plutonium spec, section 6.3)
+    (run "pluto explain E3002" for a longer explanation)

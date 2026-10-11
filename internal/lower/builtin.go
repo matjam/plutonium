@@ -26,6 +26,9 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		if tv, ok := s.info.Types[e.Args[0]]; ok && b.Name() == "len" && types2.LenByMethod(tv.Type) {
 			return one(s.containerLen(e.Args[0], e.Pos()))
 		}
+		if mapOf(s.typeOf(e.Args[0])) != nil {
+			return one(s.mapLen(e.Args[0], T))
+		}
 		x := s.expr(e.Args[0])
 		xt := unwrap(s.typeOf(e.Args[0]))
 		switch u := asPointer(xt.Underlying()).(type) {
@@ -88,7 +91,15 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		s.zero(ptr, s.l.sizeof(T))
 		return one(v)
 
+	case "delete":
+		s.mapDelete(e)
+		return nil
+
 	case "clear":
+		if mapOf(s.typeOf(e.Args[0])) != nil {
+			s.mapClear(e)
+			return nil
+		}
 		x := s.expr(e.Args[0])
 		p, n, _ := s.sliceParts(x)
 		et := s.subst(unwrap(s.typeOf(e.Args[0])).Underlying().(*types2.Slice).Elem())
@@ -139,7 +150,10 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		if _, isChan := unwrap(T).Underlying().(*types2.Chan); isChan {
 			return one(s.makeChan(e, T))
 		}
-		// The checker rejects make of a map or a slice (E2014).
+		if mapOf(T) != nil {
+			return one(s.makeMap(e, T))
+		}
+		// The checker rejects make of a slice (E2014).
 		s.l.unsupportedf(e.Pos(), "make of %s is not supported", T)
 		return nil
 

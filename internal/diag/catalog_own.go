@@ -235,6 +235,14 @@ func init() {
 			Fixed:   "fd, err := sys.Open(\"/dev/null\")",
 		},
 		&Entry{
+			Code: CheckerCode(typerr.MapOfOwner), Name: "MapOfOwner",
+			Text:    "A map copies its keys and elements as Go's map does: v := m[k] and range give copies of them. An owner cannot be copied, because two copies would both release what it owns, so neither the key type nor the element type of a map may be an owner.\nStore a counted reference to the value instead: a synced[T] or shared[T] copies by counting, and the last copy releases the value.",
+			Why:     "Go's garbage collector frees what a map's values refer to. Plutonium frees memory when its owner is dropped, so a map, whose elements are copied freely, can hold values and counted references but not owners.",
+			Spec:    pspec("7.10", "Map types"),
+			Example: "files := map[string]os.File{}",
+			Fixed:   "files := map[string]synced[os.File]{}",
+		},
+		&Entry{
 			Code: BadResultHolds, Name: "BadResultHolds",
 			Text:    "//pu:resultholds p says that a function keeps its parameter p only for as long as its result lives: the result, an owner, holds p and gives it back when it is dropped, as alloc.Use's Restore does. The compiler then treats the call as returning p instead of keeping it. The directive must name a parameter, and the function must store that parameter in its result.",
 			Spec:    pspec("20.3", "Directives"),

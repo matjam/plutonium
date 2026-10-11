@@ -414,6 +414,11 @@ func (w *walker) value1(e ast.Expr) tset {
 		if isBoxPtr(xt) {
 			return w.load(w.pointee(x)) // an element of a box's array
 		}
+		if isMap(xt) {
+			// A map holds only what may be stored in heap memory (store).
+			w.value(x)
+			return tset{heapTok}
+		}
 		switch u := underlying(xt).(type) {
 		case *types2.Basic:
 			w.value(x)
@@ -565,6 +570,12 @@ func (w *walker) place(e ast.Expr) (tset, bool) {
 		if isBoxPtr(w.typeOf(e.X)) {
 			return w.pointee(e.X), true
 		}
+		if isMap(w.typeOf(e.X)) {
+			// A map's table is heap memory that any copy of the map may
+			// reach, however long it lives.
+			w.value(e.X)
+			return tset{heapTok}, true
+		}
 		switch u := underlying(w.typeOf(e.X)).(type) {
 		case *types2.Array:
 			return w.place(e.X)
@@ -678,9 +689,10 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 		return nil // an untyped constant becomes a word or a static string
 	}
 	w.a.noteConversion(from)
-	if x, ok := node.(ast.Expr); ok && isBoxPtr(from) && !types2.IsOwner(to) {
-		// An ordinary interface lends: holding a box's pointer, it is a
-		// view of the box's object (language spec section 18.5).
+	if x, ok := node.(ast.Expr); ok && (isBoxPtr(from) || isMap(from)) && !types2.IsOwner(to) {
+		// An ordinary interface lends: holding a box's pointer, or a
+		// map's, it is a view of the box's object or the map's table
+		// (language spec sections 18.5 and 7.10).
 		return w.boxView(x)
 	}
 	_, known := isDirect(from)
@@ -821,6 +833,16 @@ func (w *walker) compLit(e *ast.CompositeLit) tset {
 		}
 	case *types2.Array:
 		val = w.elems(e.Elts, u.Elem())
+	case *types2.Map:
+		// The keys and elements are stored in the map's table, heap
+		// memory that any copy of the map may reach.
+		for _, el := range e.Elts {
+			if p, ok := el.(*ast.KeyValueExpr); ok {
+				w.store(tset{heapTok}, w.elem(p.Key, u.Key()), p.Key.Pos(), dest{text: "a key of the map literal", src: p.Key, inMap: "key"})
+				w.store(tset{heapTok}, w.elem(p.Value, u.Elem()), p.Value.Pos(), dest{text: "an element of the map literal", src: p.Value, inMap: "element"})
+			}
+		}
+		return union(tset{heapTok}, w.arenaAt(e.Pos()))
 	case *types2.Slice:
 		val = w.elems(e.Elts, u.Elem())
 		if w.static {
@@ -1044,9 +1066,11 @@ func (w *walker) multi(e ast.Expr, n int) ([]tset, []types2.Type) {
 
 // A dest describes memory being stored into, for messages.
 type dest struct {
-	text   string   // "n.next", "package variable G"
-	global bool     // a package variable
-	src    ast.Expr // the value stored, as written, if known
+	text   string // "n.next", "package variable G"
+	global bool   // a package variable
+	inMap  string // a map's "key" or "element" a store goes to, or ""
+
+	src ast.Expr // the value stored, as written, if known
 	// Set when a callee does the store: the callee and what it does.
 	callee, calleeWhy string
 }
@@ -1089,7 +1113,7 @@ func (w *walker) store(targets, vals tset, pos token.Pos, d dest) {
 		w.escapeParam(v, func() string { return why(v, v.sc.fn.paramDesc(keyOf(v)))() })
 	}
 	frameErr := func(v tok, where storeKind, via string, owner *scope) {
-		e := &viewErr{sink: sinkStore, pos: pos, expr: d.src, l: v.loc, fn: w.scopeName(owner), dst: d.text, where: where, via: via}
+		e := &viewErr{sink: sinkStore, pos: pos, expr: d.src, l: v.loc, fn: w.scopeName(owner), dst: d.text, where: where, via: via, inMap: d.inMap}
 		if d.global {
 			e.where = storeGlobal
 		}

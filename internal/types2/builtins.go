@@ -524,13 +524,15 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 			// any other type was excluded above
 			panic("unreachable")
 		}
-		// Plutonium: making a slice or a channel takes an optional final
-		// allocator argument, told from a size by its type (spec sections
-		// 4.2 and 4.8): make([]T, n, c, a), make(chan T, n, a).
+		// Plutonium: making a slice, a map or a channel takes an optional
+		// final allocator argument, told from a size by its type (spec
+		// section 13.7): make([]T, n, c, a),
+		// make(map[K]V, n, a), make(chan T, n, a).
 		max := min + 1
 		_, isSlice := u.(*Slice)
 		_, isChan := u.(*Chan)
-		takesAlloc := isSlice || isChan
+		_, isMap := u.(*Map)
+		takesAlloc := isSlice || isChan || isMap
 		if takesAlloc {
 			max++
 		}

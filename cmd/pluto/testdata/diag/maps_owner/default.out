@@ -1,0 +1,28 @@
+$DIR/main.p:10:17: map key type File is an owner, which a map cannot hold: reading the map copies its keys
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. A map copies its keys and elements as
+    Go's does: v := m[k] and range give copies, and m2 := m shares the table.
+    Two copies of an owner would both release what it owns, so a map cannot hold
+    one.
+    Go's garbage collector frees what a map's values refer to. Plutonium frees
+    memory when its owner is dropped, so a map, whose elements are copied
+    freely, can hold values and counted references but not owners.
+    Key the map by a value that identifies the owner, such as a name or an ID,
+    and keep the owners elsewhere.
+    (see "Maps" in the Plutonium spec, section 4.12)
+    (run "pluto explain E3213" for a longer explanation)
+
+$DIR/main.p:13:21: map element type File is an owner, which a map cannot hold: reading the map copies its elements
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. A map copies its keys and elements as
+    Go's does: v := m[k] and range give copies, and m2 := m shares the table.
+    Two copies of an owner would both release what it owns, so a map cannot hold
+    one.
+    Go's garbage collector frees what a map's values refer to. Plutonium frees
+    memory when its owner is dropped, so a map, whose elements are copied
+    freely, can hold values and counted references but not owners.
+    Store a counted reference to the value instead, which copies by counting and
+    releases the value with its last copy:
+        m := map[string]synced[File]{}
+    (see "Maps" in the Plutonium spec, section 4.12)
+    (run "pluto explain E3213" for a longer explanation)

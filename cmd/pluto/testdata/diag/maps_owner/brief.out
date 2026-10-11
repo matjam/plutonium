@@ -1,0 +1,2 @@
+$DIR/main.p:10:17: map key type File is an owner, which a map cannot hold: reading the map copies its keys
+$DIR/main.p:13:21: map element type File is an owner, which a map cannot hold: reading the map copies its elements

@@ -1053,12 +1053,16 @@ func isInterface(T types2.Type) bool {
 	return ok
 }
 
-// isCounted reports whether T is owned[T], shared[T] or synced[T]: pointers
-// that can only point to the heap.
+// isCounted reports whether T is owned[T], shared[T], synced[T] or a map:
+// pointers that can only point to the heap.
 func isCounted(T types2.Type) bool {
 	w, ok := T.Underlying().(*types2.Wrapper)
-	return ok && w.IsBox()
+	return ok && w.IsBox() || isMap(T)
 }
+
+// isMap reports whether T is a map type, a counted reference to a table in
+// heap memory (spec section 7.10).
+func isMap(T types2.Type) bool { return types2.MapOf(T) != nil }
 
 // isDirect reports whether a value of T is stored in an interface's data
 // word itself rather than boxed in the frame. For type parameters it is

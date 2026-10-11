@@ -64,6 +64,9 @@ func (s *fnState) stmt(st ast.Stmt) {
 		if lv.bits != nil {
 			T = lv.bits.T
 		}
+		if lv.elem != nil && lv.elem.mapT != nil {
+			lv = s.mapElemPtr(lv) // one lookup (maps.go)
+		}
 		old := s.loadLV(lv)
 		one := s.constValue(constOne, T, st)
 		op := token.ADD
@@ -192,7 +195,7 @@ func (s *fnState) multiValue(e ast.Expr, n int) []value {
 			return []value{s.materialize(v), scalarValue(ok, types2.Typ[types2.Bool])}
 		}
 	case *ast.IndexExpr:
-		if s.isContainerIndex(x) {
+		if s.isContainerIndex(x) || s.isMapIndex(x) {
 			return s.containerIndexOk(x)
 		}
 	}
@@ -215,6 +218,31 @@ func (s *fnState) assignStmt(st *ast.AssignStmt) {
 			T = lv.bits.T
 		}
 		op := compoundOp(st.Tok)
+		if lv.elem != nil && lv.elem.mapT != nil {
+			// m[k] op= y: y first, then one lookup of the element, which
+			// nothing changes before it is stored (maps.go).
+			var y value
+			if op == token.SHL || op == token.SHR {
+				y = s.materialize(s.expr(st.Rhs[0]))
+			} else {
+				y = s.materialize(s.exprAs(st.Rhs[0], T))
+			}
+			y = s.holdOwned(y)
+			lv = s.mapElemPtr(lv)
+			old := s.loadLV(lv)
+			if isString(T) {
+				s.storeCounted(lv, s.concatValues([]value{old, y}, T), false)
+				return
+			}
+			var res *ssa.Value
+			if op == token.SHL || op == token.SHR {
+				res = s.shift(op, old.v, T, y.v, y.T, st.Pos())
+			} else {
+				res = s.arith(op, old.v, y.v, T, st.Pos())
+			}
+			s.storeLV(lv, scalarValue(res, T))
+			return
+		}
 		if isString(T) && lv.bits == nil {
 			s.concatAssign(lv, st.Rhs[0], st.Pos())
 			return
@@ -614,6 +642,10 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 	case *types2.Chan:
 		s.rangeChan(st, label)
 		return
+
+	case *types2.Map:
+		s.rangeMap(st, label)
+		return
 	}
 	s.l.unsupportedf(st.Pos(), "cannot range over %s", xt)
 }
@@ -775,6 +807,9 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 		s.unionTypeSwitch(st, x, label)
 		return
 	}
+	if s.staticTypeSwitch(st, x, label) {
+		return
+	}
 	I := s.typeOf(x)
 	iv := s.materialize(s.expr(x))
 	moves := s.l.moves != nil && s.l.moves.SwitchMoves[st]
@@ -857,6 +892,86 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 	s.targets = s.targets[:len(s.targets)-1]
 	s.seal(done)
 	s.startBlock(done)
+}
+
+// staticTypeSwitch lowers a type switch on any(v), or another conversion
+// to an interface, of a value v whose type is known when the function is
+// compiled: in generic code, a value of a type parameter's type. The clause
+// that matches is known, so only it is lowered (spec section 5.7: such a
+// switch folds at compile time), and the conversion is made only if a
+// binding needs it. It reports false for any other type switch.
+func (s *fnState) staticTypeSwitch(st *ast.TypeSwitchStmt, x ast.Expr, label *types2.Label) bool {
+	conv, ok := ast.Unparen(x).(*ast.CallExpr)
+	if !ok || len(conv.Args) != 1 || !s.info.Types[conv.Fun].IsType() || s.callsFunction(conv.Args[0]) {
+		return false
+	}
+	I := s.typeOf(x)
+	C := s.typeOf(conv.Args[0])
+	if !isInterface(I) || isInterface(C) {
+		return false
+	}
+	if b, ok := C.Underlying().(*types2.Basic); ok && b.Info()&types2.IsUntyped != 0 {
+		return false
+	}
+	var chosen *ast.CaseClause
+	var only types2.Type // the clause's one type, if it names one
+	for _, c := range st.Body.List {
+		cc := c.(*ast.CaseClause)
+		if cc.List == nil {
+			continue
+		}
+		for _, e := range cc.List {
+			tv := s.info.Types[e]
+			if tv.IsNil() {
+				continue
+			}
+			T := s.subst(tv.Type)
+			var match bool
+			if iface, ok := T.Underlying().(*types2.Interface); ok {
+				match = types2.Implements(C, iface)
+			} else {
+				match = types2.Identical(C, T)
+			}
+			if match {
+				chosen = cc
+				if len(cc.List) == 1 {
+					only = T
+				}
+				break
+			}
+		}
+		if chosen != nil {
+			break
+		}
+	}
+	if chosen == nil {
+		for _, c := range st.Body.List {
+			if cc := c.(*ast.CaseClause); cc.List == nil {
+				chosen = cc
+			}
+		}
+	}
+	done := s.newBlock(ssa.BlockInvalid)
+	s.targets = append(s.targets, &target{label: label, breakTo: done, isSwitch: true, depth: len(s.cleanups)})
+	if chosen != nil {
+		clause := s.pushCleanup(chosen, true)
+		if v, ok := s.info.Implicits[chosen].(*types2.Var); ok {
+			T := s.subst(v.Type())
+			addr := s.declareVar(v)
+			if only != nil && !isInterface(only) {
+				s.assign(lvalue{ptr: addr, T: T}, s.exprAs(conv.Args[0], T), true)
+			} else {
+				s.assign(lvalue{ptr: addr, T: T}, s.exprAs(x, T), true)
+			}
+		}
+		s.stmtList(chosen.Body)
+		s.popCleanup(clause)
+	}
+	s.endPlain(done)
+	s.targets = s.targets[:len(s.targets)-1]
+	s.seal(done)
+	s.startBlock(done)
+	return true
 }
 
 func (s *fnState) labelBlock(l *types2.Label) *ssa.Block {

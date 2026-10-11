@@ -121,7 +121,8 @@ type Lowerer struct {
 	// instances of types declared in generic functions (typeMap.local)
 	localTypes map[localKey]*types2.Named
 
-	countedTypes map[string]bool // counted, by type (strcount.go)
+	countedTypes map[string]bool        // counted, by type (strcount.go)
+	mapTypes     map[string]types2.Type // pluto/rt.MapTable and MapIter instances (maps.go)
 
 	errs diag.List
 }
@@ -194,6 +195,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		noRet:          map[*types2.Func]int{},
 		localTypes:     map[localKey]*types2.Named{},
 		countedTypes:   map[string]bool{},
+		mapTypes:       map[string]types2.Type{},
 		errorSites:     map[*ast.CallExpr]*ssa.Sym{},
 		exports:        map[*ssa.Sym][]string{},
 		interruptSyms:  map[*ssa.Sym]bool{},

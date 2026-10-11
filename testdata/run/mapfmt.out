@@ -1,0 +1,18 @@
+map[] map[] 0
+map[] map[]
+map[apple:1 banana:2 fig:7 pear:3]
+map[apple:1 banana:2 fig:7 pear:3]|map[%!d(string=apple):1 %!d(string=banana):2 %!d(string=fig):7 %!d(string=pear):3]|map[6170706c65:1 62616e616e61:2 666967:7 70656172:3]
+map[string]int{"apple":1, "banana":2, "fig":7, "pear":3}
+map[string]int(nil)
+map[-4:16 -1:1 2:4 5:25 8:64 11:121 14:196 17:289 20:400]
+map[-1:false 0:true 2.5:true]
+map[false:0 true:1]
+map[{1 2}:c {1 9}:a {2 1}:b]
+map[[a z]:2 [b a]:1]
+map[<nil>:0 1:2 3:1]
+map[a:map[] b:map[1:[] 2:[x y]]]
+{r map[a:false z:true] 2}
+{Name:r Tags:map[a:false z:true] Count:2}
+map[p:<nil>]
+map[3:2 9:1] 12
+map[apple:1 banana:2 fig:7 pear:3]

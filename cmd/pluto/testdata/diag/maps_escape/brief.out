@@ -1,0 +1,4 @@
+$DIR/main.p:18:9: cannot return m as an interface: an ordinary interface only borrows the map, whose reference lend drops when it returns
+$DIR/main.p:24:2: cannot store &n in local["n"], which outlives n
+$DIR/main.p:25:2: cannot pass &n to remember, which keeps it after returning
+$DIR/main.p:28:30: cannot store {...} in an element of the map literal, which outlives buf

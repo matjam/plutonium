@@ -373,7 +373,6 @@ func (check *Checker) typInternal(e0 ast.Expr, def *TypeName) (T Type) {
 		return typ
 
 	case *ast.MapType:
-		check.forbidden(e, MapNotPermitted, "map types are", "maps need a garbage-collected hash table; use pluto/hash")
 		typ := new(Map)
 		typ.key = check.varType(e.Key)
 		typ.elem = check.varType(e.Value)
@@ -392,6 +391,10 @@ func (check *Checker) typInternal(e0 ast.Expr, def *TypeName) (T Type) {
 				}
 				check.errorf(e.Key, IncomparableMapKey, "invalid map key type %s%s", typ.key, why)
 			}
+			// Plutonium: reading a map element copies it, so neither keys
+			// nor elements may be owners (spec section 7.10).
+			check.checkMapOfOwner(e.Key, typ.key, "key")
+			check.checkMapOfOwner(e.Value, typ.elem, "element")
 		}).describef(e.Key, "check map key %s", typ.key)
 
 		return typ

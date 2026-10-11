@@ -51,7 +51,9 @@ type viewErr struct {
 	// sinkStore and sinkLoop: where it is stored.
 	dst   string
 	where storeKind
-	via   string // storeParam: the parameter the memory is reached through
+	inMap string // a map's key, element or literal is stored into, "key" or "element", or ""
+
+	via string // storeParam: the parameter the memory is reached through
 
 	// sinkCall, and sinkLoop when a callee keeps the view (dst is then
 	// empty): the function called and what it does with the view.
@@ -91,6 +93,9 @@ func exprText(e ast.Expr) string {
 	}
 	if _, ok := ast.Unparen(e).(*ast.FuncLit); ok {
 		return "the function literal"
+	}
+	if cl, ok := ast.Unparen(e).(*ast.CompositeLit); ok && cl.Type == nil {
+		return "{...}" // an element of a literal, its type elided
 	}
 	s := types2.ExprString(e)
 	return strings.ReplaceAll(s, "…", "...")
@@ -267,6 +272,9 @@ func (a *analyzer) intro(l *loc, q types2.Qualifier) string {
 		}
 		return fmt.Sprintf("%s (at %s) makes %s the default allocator, so what is allocated through the default allocator from there on (by new, a string operation, or a call that allocates and leaves out its allocator) lives in the arena, and is gone when the arena is.", exprText(l.node.(ast.Expr)), at, name)
 	case lkObject:
+		if l.v != nil && isMap(l.typ) {
+			return fmt.Sprintf("%s (declared at %s) is %s, a counted reference to a table: an ordinary interface that lends the map does not count a reference of its own, so it may not outlive %s, whose reference is dropped at the end of its scope in %s.", l.v.Name(), at, article(typeText(l.typ, q)), l.v.Name(), l.fn)
+		}
 		if l.v != nil {
 			return fmt.Sprintf("%s (declared at %s) is %s: the object it refers to lives only while %s holds it, and is dropped when %s is dropped at the end of its scope in %s, or released when it is the last reference. A pointer into the object, or an interface that lends it, is a view that may not outlive %s.", l.v.Name(), at, article(typeText(l.typ, q)), l.v.Name(), l.v.Name(), l.fn, l.v.Name())
 		}
@@ -361,6 +369,8 @@ func (a *analyzer) subject(x string, e ast.Expr, l *loc, q types2.Qualifier) str
 		return x + " is a function literal that uses " + l.captureList() + "."
 	case l.kind == lkBox:
 		return x + " is an interface that points at a copy of its value in " + possessive(l.fn) + " frame."
+	case l.kind == lkObject && l.v != nil && isMap(l.typ) && x == l.v.Name():
+		return ""
 	}
 	return x + " points into " + a.noun(l, q) + "."
 }
@@ -405,13 +415,19 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 		if l.kind == lkBox && e.expr != nil && !isInterfaceExpr(a, e.expr) {
 			d.Msg = fmt.Sprintf("cannot return %s as an interface: the interface would hold a copy of it in %s frame", x, possessive(l.fn))
 		}
-		lends := l.kind == lkObject && e.expr != nil && !isInterfaceExpr(a, e.expr) && isBoxPtr(a.types[e.expr].Type)
+		lends := l.kind == lkObject && e.expr != nil && !isInterfaceExpr(a, e.expr) && (isBoxPtr(a.types[e.expr].Type) || isMap(a.types[e.expr].Type))
+		lendsMap := lends && isMap(a.types[e.expr].Type)
 		if lends {
 			d.Msg = fmt.Sprintf("cannot return %s as an interface: an ordinary interface only borrows the box, which is dropped when %s returns", x, e.fn)
+			if lendsMap {
+				d.Msg = fmt.Sprintf("cannot return %s as an interface: an ordinary interface only borrows the map, whose reference %s drops when it returns", x, e.fn)
+			}
 		}
 		switch {
 		case l.kind == lkArena:
 			add(sentence(about, fmt.Sprintf("%s, so %s would point at memory that is no longer allocated.", reclaimed, x)))
+		case lendsMap:
+			add(sentence(about, fmt.Sprintf("Converting %s to an ordinary interface lends it: the interface points at the map's table without a reference of its own.", x)))
 		case lends:
 			add(sentence(about, fmt.Sprintf("Converting %s to an ordinary interface lends it: the interface points at the object, and %s still owns it.", x, x)))
 		case l.kind == lkObject:
@@ -423,7 +439,9 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 		default:
 			add(sentence(about, fmt.Sprintf("That frame is reclaimed when %s returns, so %s would point at memory that no longer holds the value.", e.fn, pointer)))
 		}
-		if lends {
+		if lendsMap {
+			d.Fix = &diag.Fix{Intro: fmt.Sprintf("Return the map itself, changing the result type to %s: the caller gets a reference of its own", typeText(a.types[e.expr].Type, q)), Code: "return " + x}
+		} else if lends {
 			name := x
 			d.Fix = &diag.Fix{Intro: fmt.Sprintf("Return the box itself, changing the result type to %s", typeText(a.types[e.expr].Type, q)), Code: "return " + name}
 			d.More = []*diag.Fix{{Intro: "Or declare the interface as an owning interface, which takes ownership of what is converted into it (language spec section 18.5)", Code: "type I owner interface {\n\t...\n}"}}
@@ -441,6 +459,9 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 			why = fmt.Sprintf("%s, but %s is reached through %s, which points to memory that %s caller owns and that lives longer. It would be left pointing at reclaimed memory.", reclaimed, e.dst, e.via, possessive(e.fn))
 		case storeHeap:
 			why = fmt.Sprintf("%s, but %s may be on the heap and live longer, so it would be left pointing at reclaimed memory.", reclaimed, e.dst)
+			if e.inMap != "" {
+				why = fmt.Sprintf("%s, but a map keeps its keys and elements in a table on the heap, which every copy of the map shares and which may live longer, so it would be left pointing at reclaimed memory.", reclaimed)
+			}
 		case storeOuter:
 			why = fmt.Sprintf("The function literal's frame is reclaimed each time the literal returns, but %s belongs to the function around it and lives longer.", e.dst)
 		}
@@ -567,6 +588,9 @@ func (a *analyzer) returnFixes(d *diag.Diagnostic, e *viewErr, l *loc, q types2.
 
 func (a *analyzer) storeFixes(d *diag.Diagnostic, e *viewErr, l *loc, q types2.Qualifier) {
 	switch {
+	case e.inMap != "":
+		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Store the value itself instead of a view of %s, changing the map's %s type to match.", l.name(), e.inMap)}
+		d.More = []*diag.Fix{{Intro: "Or keep what the map refers to in memory that lives as long as the map, such as a package variable, or in a counted reference (shared[T] or synced[T]) stored in the map."}}
 	case l.kind == lkClosure:
 		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Store a value that carries its own state instead of the function literal, such as a struct with a method, or make %s a package variable if it must outlive %s.", l.captureList(), l.fn)}
 	case l.isVarLoc() && addrOfVar(e.expr, l) && !strings.Contains(trimAddr(e.dst), " "):

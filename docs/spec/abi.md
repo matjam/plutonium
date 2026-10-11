@@ -61,7 +61,7 @@ rules that come after the table.
 | union | tag, then the largest payload at its alignment, rounded up to the alignment | max(tag size, largest payload alignment) | `{tag uint8 (uint16 above 256 variants); payload}`, below |
 | packed union | its backing | backing's | a packed type whose tag field selects the variant, language spec section 7.13 |
 | `chan T` | 8 | 8 | address of the channel object (`rt.hchan`, section 12.6) |
-| `map[K]V` | 8 | 8 | address of the counted table (language spec section 7.10) |
+| `map[K]V` | 8 | 8 | address of the map's table, `rt.MapTable[K, V]`, in a counted box; 0 for a nil map (section 1.4; language spec section 7.10) |
 
 **Layout rules.** An interface is two words, and its representation is the subject of section 5. A string
 and a slice are three words, laid out as the table shows.
@@ -276,6 +276,38 @@ use of freed or reset memory is the documented unchecked mode of the language sp
 and the debug allocator (language spec section 7.3), as an arena's parent, catches a use of chunks the
 arena gave back (`Trim`, `Drop`), though not of those `Reset` and `Release` keep.
 
+### 1.4 Maps
+
+A map value (language spec section 7.10) is the address of a `pluto/rt.MapTable[K, V]` that is the object
+of a box with the header of a `synced[T]` (section 1.2): copying a map retains it and dropping one
+releases it exactly as for a `synced[rt.MapTable[K, V]]`, with atomic counts once `rt.SetThreaded` has
+been called, and the last release drops the table (`MapTable.Drop`, which frees the slots and releases
+the keys and elements) and frees the box. A nil map is 0.
+
+The table starts with these fields, whatever `K` and `V` are (`rt.MapSlots` reads them):
+
+| Offset | Field | |
+|---|---|---|
+| 0 | `slots []slot` | `size` slots of `struct{ key K; val V }`, a power of two, or none |
+| 24 | `meta []uint8` | one metadata byte per slot, in the same allocation right after the slots |
+| 48 | `size int` | the number of slots |
+| 56 | `n int` | the number of entries |
+
+followed by the count of entries and deleted marks, the rebuild limit, the allocator, the hash seed, how
+keys are hashed (by their type, or by a function for `pluto/hash.Map`), the key's type descriptor, and the
+walks running with the tables kept for them. A metadata byte is 0 for an empty slot, 1 for a deleted
+entry, and `0x80 | h>>57` for a full one, where `h` is the key's 64-bit hash. Probing is linear from
+`h & (size-1)`. Empty and deleted slots hold zero bytes. The table is rebuilt when full and deleted slots
+reach three quarters of `size`: twice as large if at least half of them are entries, otherwise the same
+size without the deleted marks.
+
+Keys are hashed with a seed per map: in hosted builds the seeds come from the 16 bytes of `AT_RANDOM` the
+kernel puts on the initial stack, mixed with a counter; in freestanding builds from a fixed value unless
+the program calls `rt.SetMapSeed`. Integers, booleans, pointers and channels hash their bits; floats their
+bits with `-0` taken as `0`; strings their bytes; structs and arrays of plain memory their bytes; other
+keys (structs and arrays with strings, floats, interfaces, padding or blank fields, and interfaces) walk
+their type descriptor (section 5) and hash each part.
+
 ## 2. Registers
 
 | Register | Internal ABI | System V |
@@ -456,9 +488,9 @@ Type descriptor, 88 bytes, read-only, named `type:<type>` (mirrored by `pluto/rt
 | 14 | `align uint8` | alignment in bytes (0 if 256 or more) |
 | 16 | `name string` | the type's name, written as described below |
 | 40 | `equal func(a, b unsafe.Pointer) bool` | closure record, or nil if not comparable or direct, or if the type is only part of a converted type |
-| 48 | `elem *typeDesc` | element type of an array, slice or ring; the type a pointer, `owned`, `shared`, `synced` or `weak` points at; nil otherwise |
-| 56 | `len uintptr` | array length, ring capacity, or number of struct fields |
-| 64 | `fields *fieldDesc` | the struct's field descriptors, `len` of them; nil otherwise |
+| 48 | `elem *typeDesc` | element type of an array, slice, ring or map; the type a pointer, `owned`, `shared`, `synced` or `weak` points at; nil otherwise |
+| 56 | `len uintptr` | array length, ring capacity, number of struct fields, or a map's slot size |
+| 64 | `fields *fieldDesc` | the struct's field descriptors, `len` of them; for a map, two: the key and the element as fields of a table slot (section 1.4); nil otherwise |
 | 72 | `ptrTo *typeDesc` | the descriptor of `*T` when `*T` has methods that `T` lacks; nil otherwise |
 | 80 | `drop uintptr` | code address of the drop adapter of `T`, set for every type converted into an owning interface (with or without methods) when a `T` needs a drop; 0 otherwise |
 
@@ -501,7 +533,7 @@ Field descriptor, 48 bytes, an array of them per struct type named `typefields:<
 | 0 | `typ *typeDesc` | the field's type (without `volatile` or `aligned`) |
 | 8 | `offset uintptr` | byte offset in the struct |
 | 16 | `name string` | the field's name; empty when the build strips names |
-| 40 | `flags uint8` | 1 = exported, 2 = embedded |
+| 40 | `flags uint8` | 1 = exported, 2 = embedded, 4 = named `_` (comparison and map hashing skip it) |
 
 Descriptors are emitted only for types converted to an interface and for the types they are made of: the
 element, pointee and field types of a descriptor, and `*T` when `ptrTo` is set, have descriptors too, so

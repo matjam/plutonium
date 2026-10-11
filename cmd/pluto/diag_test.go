@@ -95,9 +95,9 @@ func TestExplain(t *testing.T) {
 			t.Errorf("%s: explanation starts %q", c, firstLine(b.String()))
 		}
 	}
-	out, status := runPluto(t, ".", "explain", "e23", "2001")
-	if status != 0 || !strings.HasPrefix(out, "E0023: IncompatibleAssign\n") || !strings.Contains(out, "\nE2001: MapNotPermitted\n") {
-		t.Errorf("pluto explain e23 2001: status %d, output\n%s", status, out)
+	out, status := runPluto(t, ".", "explain", "e23", "3213")
+	if status != 0 || !strings.HasPrefix(out, "E0023: IncompatibleAssign\n") || !strings.Contains(out, "\nE3213: MapOfOwner\n") {
+		t.Errorf("pluto explain e23 3213: status %d, output\n%s", status, out)
 	}
 	out, status = runPluto(t, ".", "explain", "E7777")
 	if status != 1 || !strings.Contains(out, `no such error code "E7777"`) {

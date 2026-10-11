@@ -21,6 +21,10 @@ type containerRef struct {
 	key   value
 	at    ast.Expr // the index expression, or the operand of len
 	x     ast.Expr // the container operand
+
+	// A built-in map (maps.go): its type, and its value, evaluated once.
+	mapT *types2.Map
+	mapV *value
 }
 
 // isContainerIndex reports whether e calls a container's indexing methods.
@@ -121,6 +125,12 @@ func (s *fnState) containerCall(r *containerRef, name string, args []value) []va
 
 // containerLoad reads x[k]: x.Index(k).
 func (s *fnState) containerLoad(r *containerRef) value {
+	if r.mapT != nil {
+		if res := s.mapCallRef(r, "mapAccess"); len(res) == 1 {
+			return res[0]
+		}
+		return s.zeroValue(s.subst(r.mapT.Elem()))
+	}
 	res := s.containerCall(r, types2.IndexMethodName, []value{r.key})
 	if len(res) != 1 {
 		return s.zeroValue(types2.Typ[types2.Int])
@@ -130,13 +140,23 @@ func (s *fnState) containerLoad(r *containerRef) value {
 
 // containerStore writes x[k] = v: x.SetIndex(k, v).
 func (s *fnState) containerStore(r *containerRef, v value) {
+	if r.mapT != nil {
+		s.mapCallRef(r, "mapAssign", v)
+		return
+	}
 	s.containerCall(r, types2.SetIndexMethodName, []value{r.key, v})
 }
 
 // containerIndexOk lowers v, ok := x[k]: x.IndexOk(k).
 func (s *fnState) containerIndexOk(e *ast.IndexExpr) []value {
-	lv := s.containerLV(e)
-	res := s.containerCall(lv.elem, types2.IndexOkMethodName, []value{lv.elem.key})
+	var res []value
+	if s.isMapIndex(e) {
+		lv := s.mapLV(e)
+		res = s.mapCallRef(lv.elem, "mapAccessOk")
+	} else {
+		lv := s.containerLV(e)
+		res = s.containerCall(lv.elem, types2.IndexOkMethodName, []value{lv.elem.key})
+	}
 	for i := range res {
 		res[i] = s.materialize(res[i])
 	}
