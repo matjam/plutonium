@@ -15,7 +15,6 @@ import "strings"
 //   - conversions from []byte to string (removed, F2, E2015), and from a
 //     string to []byte or []rune (removed, G10, E2016), and string(i) of an
 //     integer that is not a rune (removed, G11, E2017);
-//   - maps (removed until map[K]V returns);
 //   - new, and pointers or slices of a function's frame that outlive it:
 //     functions return values, never views (spec section 18.3);
 //   - a function value, pointer or interface box made in a loop body and
@@ -33,6 +32,9 @@ type subsetRules struct {
 	ReturnedClosures bool
 	// RangeFunc lets loops range over functions (Go 1.23).
 	RangeFunc bool
+	// Maps lets programs make and use maps (language spec section 4.11),
+	// printing only what does not depend on iteration order.
+	Maps bool
 }
 
 var subset = subsetRules{
@@ -40,6 +42,7 @@ var subset = subsetRules{
 	ByteSlicing:      false,
 	ReturnedClosures: true,
 	RangeFunc:        true,
+	Maps:             true,
 }
 
 // outsideSubset lists text in Plutonium's output that means a program is

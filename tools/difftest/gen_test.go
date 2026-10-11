@@ -73,9 +73,16 @@ func TestGenerateSubset(t *testing.T) {
 				}
 			case *ast.CallExpr:
 				if id, ok := n.Fun.(*ast.Ident); ok && (id.Name == "append" || id.Name == "make" || id.Name == "new") {
+					if _, isMap := n.Args[0].(*ast.MapType); id.Name == "make" && isMap && subset.Maps {
+						break // make(map[K]V, n)
+					}
 					t.Fatalf("seed %d: calls %s", seed, id.Name)
 				}
-			case *ast.MapType, *ast.ChanType, *ast.GoStmt:
+			case *ast.MapType:
+				if !subset.Maps {
+					t.Fatalf("seed %d: has a %T", seed, n)
+				}
+			case *ast.ChanType, *ast.GoStmt:
 				t.Fatalf("seed %d: has a %T", seed, n)
 			}
 			return true

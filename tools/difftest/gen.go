@@ -169,6 +169,9 @@ func (g *gen) program(seed int64) string {
 	var funcs strings.Builder
 	funcs.WriteString(f2iFunc)
 	funcs.WriteString(strFuncs)
+	if subset.Maps {
+		funcs.WriteString(mapFuncs)
+	}
 	if g.chance(3) {
 		out.WriteString("type Ifc interface {\n\tGet(x int) int\n}\n\ntype N int32\n\n")
 		g.ifc = &typ{kind: kIface, name: "Ifc"}
@@ -1897,7 +1900,7 @@ func (g *gen) stmt() bool {
 	g.addCost(1)
 	deep := g.cx.depth >= maxDepth
 	for {
-		switch k := g.r.Intn(150); {
+		switch k := g.r.Intn(153); {
 		case k < 20:
 			g.declStmt()
 			return false
@@ -2012,6 +2015,11 @@ func (g *gen) stmt() bool {
 		case k < 145:
 			g.aliasStmt()
 			return false
+		case k < 148:
+			if subset.Maps {
+				g.mapStmt()
+				return false
+			}
 		default:
 			if g.makerStmt() {
 				return false
