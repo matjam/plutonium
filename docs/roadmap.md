@@ -35,7 +35,7 @@ The implementation gaps of
 | 3 | Composite literal keys that name promoted fields (done) | 79 | 11.3 |
 | 4 | Package initialization order (done) | 80 | 15.3 |
 | 5 | `len` of a `ring[T, N]` (done) | 81 | 13.6, 7.17 |
-| 6 | `defer` of built-ins that may not be deferred | 82 | 12.19 |
+| 6 | `defer` of built-ins that may not be deferred (done) | 82 | 12.19 |
 | 7 | Exhaustive enum switch is a terminating statement (done) | 75 | 12.1, 12.9, 7.12 |
 | 8 | `append` and the others are not predeclared (done) | 83 | 10.3, 13.1 |
 | 9 | Every nil dereference panics (done) | 84 | 17.5 |
@@ -94,8 +94,9 @@ compiler (2026-10-11).
     first, then the remaining packages by import path, each after its imports.
 81. **`len` of a `ring[T, N]`** (done, gap 5, `36160adc`; sections 13.6 and 7.17): `len(r)` calls `r.Len()`,
     as for a library container; `cap(r)` stays an error.
-82. **`defer` of built-ins that may not be deferred** (planned, gap 6; section 12.19, chapter 13): E2532,
-    with the fix to wrap the call in a function literal.
+82. **`defer` of built-ins that may not be deferred** (done, gap 6, `65d7a432`; section 12.19, chapter 13):
+    `clear`, `copy` and `delete` run at the function's return with their arguments evaluated when the defer
+    ran; every other builtin is E2532, with the fix to wrap the call in a function literal.
 83. **`append`, `recover`, `complex`, `real`, `imag`, `complex64` and `complex128` are not predeclared**
     (done, gap 8, `4e0cb95c`; sections 10.3 and 13.1): a program may declare them, and a use without a
     declaration is the error that names the replacement.
