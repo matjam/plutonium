@@ -287,15 +287,66 @@ func PanicFault(kind FaultKind, addr, pc, sp, bp uintptr) {
 
 // stackOverflow reports whether a memory fault at addr, with the stack
 // pointer at sp, is the stack running into its guard: just below the
-// stack pointer, in the guard region of the stack //pu:stack reserved, or
-// in the guard region below a task's stack (a page, unless the
-// backend recorded more with SetStackGuard).
+// stack pointer, in the guard region of the stack //pu:stack reserved, in
+// the guard region below a task's stack (a page, unless the backend
+// recorded more with SetStackGuard), or below the stack pointer on the
+// main thread's stack, down to the gap below its limit. A function with a
+// frame larger than a page probes it page by page from the top (language
+// spec section 17.5), so its fault is in a guard, however far below the
+// stack pointer.
 func stackOverflow(addr, sp uintptr) bool {
-	t := current()
-	if t != nil && t.stackLo != 0 && addr < t.stackLo && addr+max(t.guard, pageSize) >= t.stackLo {
+	if overflowedTask(addr) != nil {
 		return true
 	}
-	return addr < sp+4096 && addr+65536 > sp || addr >= guardLo && addr < guardHi
+	const mainGap = 2 << 20 // Linux's gap below the stack, and room for the environment above
+	onMain := stackLo != 0 && sp <= stackHi && sp+mainGap >= stackLo
+	return addr < sp+4096 && addr+65536 > sp || addr >= guardLo && addr < guardHi ||
+		onMain && addr < sp && addr+mainGap >= stackLo
+}
+
+// overflowedTask returns the running task if addr is in the guard region
+// below its stack, and nil otherwise.
+func overflowedTask(addr uintptr) *Task {
+	t := current()
+	if t != nil && t.stackLo != 0 && addr < t.stackLo && addr+max(t.guard, pageSize) >= t.stackLo {
+		return t
+	}
+	return nil
+}
+
+// describeOverflow writes the rest of a stack overflow's message: the size
+// of the stack that overflowed and how to ask for a larger one (language
+// spec section 19.1).
+func describeOverflow(addr uintptr) {
+	if t := overflowedTask(addr); t != nil {
+		printString(" (the task's stack is ")
+		printSize(t.stackHi - t.stackLo)
+		printString("; start the task with rt.Go(f, size) for a larger one)")
+		return
+	}
+	if stackSize == 0 {
+		printString(" (ask for a larger stack with //pu:stack on func main)")
+		return
+	}
+	printString(" (main's stack is ")
+	printSize(stackSize)
+	printString("; ask for a larger one with //pu:stack on func main)")
+}
+
+// printSize writes a size in bytes, rounded to whole MiB from 1 MiB up and
+// to whole KiB from 1 KiB up.
+func printSize(n uintptr) {
+	switch {
+	case n >= 1<<20:
+		printUint(uint64((n + 1<<19) >> 20))
+		printString(" MiB")
+	case n >= 1<<10:
+		printUint(uint64((n + 1<<9) >> 10))
+		printString(" KiB")
+	default:
+		printUint(uint64(n))
+		printString(" bytes")
+	}
 }
 
 // describeFault writes the runtime's message for a fault.
@@ -305,6 +356,7 @@ func describeFault(kind FaultKind, addr, sp uintptr) {
 		switch {
 		case stackOverflow(addr, sp):
 			printString("runtime error: stack overflow")
+			describeOverflow(addr)
 		case addr < 4096:
 			printString("runtime error: invalid memory address or nil pointer dereference")
 		default:

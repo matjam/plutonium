@@ -149,7 +149,9 @@ func TestTraceStackOverflow(t *testing.T) {
 		lines := strings.Split(strings.TrimSuffix(got, "\n"), "\n")
 		frame := "    main.recurse (./main.p:"
 		ok := len(lines) == 2+64+1 &&
-			lines[0] == "panic: runtime error: stack overflow" &&
+			// The size is the process stack's resource limit (ulimit -s).
+			strings.HasPrefix(lines[0], "panic: runtime error: stack overflow (main's stack is ") &&
+			strings.HasSuffix(lines[0], "; ask for a larger one with //pu:stack on func main)") &&
 			strings.HasPrefix(lines[1], "[signal SIGSEGV") &&
 			strings.HasPrefix(lines[2], frame) &&
 			lines[3] == frame+"6)" && lines[65] == frame+"6)" &&
@@ -194,7 +196,7 @@ func main() {
 		// the function rt.Go started.
 		frame := "    main.recurse (./main.p:"
 		ok := status == 2 && len(lines) > 10 &&
-			lines[0] == "panic: runtime error: stack overflow" &&
+			lines[0] == "panic: runtime error: stack overflow (the task's stack is 24 KiB; start the task with rt.Go(f, size) for a larger one)" &&
 			strings.HasPrefix(lines[1], "[signal SIGSEGV") &&
 			lines[2] == "task 2:" &&
 			strings.HasPrefix(lines[3], frame) &&

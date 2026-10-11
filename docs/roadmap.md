@@ -47,7 +47,7 @@ The implementation gaps of
 | 15 | A `//go:` line comment is an error | 75 | 4.1, 20.3 |
 | 16 | `portable` (done) | 70 | 8.9 |
 | 17 | Task stacks from the program-wide default allocator (done) | 90 | 19.1 |
-| 18 | Stack overflow message and stack probes | 91 | 19.1, 17.5 |
+| 18 | Stack overflow message and stack probes (done) | 91 | 19.1, 17.5 |
 | 19 | `NewTimer`, `NewTicker`, `AfterFunc` return owners | 67 | 19.6, F.7 |
 | 20 | The `task` statement and the rename sweep (done) | 62 | 12.12, 4.5, 4.6, 17.1 |
 | 21 | The built-in `map[K]V` (done) | 60 | 7.10, 12.10, 13.5, 13.7 |
@@ -111,9 +111,10 @@ item 100, comes from the pass that removed the specification's internal contradi
     7.18): `*f + 1` for `type Fd owner int32` is an error (verified: accepted today).
 90. **Task stacks from the program-wide default allocator** (done, gap 17, `cb9e3ef`; section 19.1, abi.md
     section 12.1): never from the starting task's `alloc.Use` override.
-91. **Stack overflow message and probes** (planned, gap 18; sections 19.1 and 17.5): the panic names the
-    size of the stack and how to ask for more (`rt.Go(f, size)`), and a function whose frame is larger
-    than the guard region probes its stack so that it cannot step over the guard.
+91. **Stack overflow message and probes** (done, gap 18; sections 19.1 and 17.5, abi.md section 6): the
+    panic names the size of the stack and how to ask for more (`rt.Go(f, size)` for a task, `//pu:stack`
+    for `main`), and a function whose frame leaves its first call more than a page below its pushes probes
+    each page of the frame in its prologue, so that it cannot step over the guard.
 92. **Embedding `shared[T]` and `synced[T]`** (planned, gap 24; sections 7.6 and 7.19): embedding promotes
     `T`'s methods, as `owned[T]` does. To verify.
 94. **Any two functions exported under one symbol are E2512** (planned; section 20.4): `internal/lower`
@@ -208,8 +209,8 @@ item 100, comes from the pass that removed the specification's internal contradi
     (`internal/scoped`, `internal/race`). Follow-ups (phase 2 of the plan): a Scope reached through a
     pointer, helpers that start tasks for their caller's Scope, an error-collecting scope; `Index` and
     `SetIndex` of library containers are not partitioned between tasks.
-66. **Large task stacks** (done except the overflow message, `173c2f6`; section 19.1, abi.md sections 12.1
-    and 12.7): 64 MiB lazily mapped hosted stacks, cached. Open: item 91.
+66. **Large task stacks** (done, `173c2f6`; section 19.1, abi.md sections 12.1 and 12.7): 64 MiB lazily
+    mapped hosted stacks, cached.
 67. **Counted channels, and a channel owns its timer** (done except the timer owners, `bdb7683`; sections
     7.11, 19.6, 19.8, abi.md section 12.6): a channel is a counted reference freed with its last reference.
     Open (gap 19): `time.NewTimer`, `NewTicker` and `AfterFunc` return `*Timer` and `*Ticker` freed with

@@ -112,6 +112,7 @@ const (
 	MRELOAD     // load register from spill slot
 	MLOADCONSTF // load a float constant into an XMM register (Imm holds the bits)
 	MEPILOGUE   // restore callee-saved registers and the stack pointer, then RET
+	MSTACKPROBE // read one word in each page of the Imm bytes below RSP, from the top down (frame.go)
 
 	// System instructions (pluto/arch/x86 intrinsics). Fixed registers are
 	// in ImplicitUses and ImplicitDefs.
@@ -156,7 +157,7 @@ var mopNames = map[MOp]string{
 	MIRETQ: "iretq", MCLD: "cld", MMOVUPS: "movups",
 	MPUSH: "push", MPOP: "pop", MREPMOVSB: "rep movsb", MREPSTOSB: "rep stosb",
 	MCOPY: "copy", MPCOPY: "pcopy", MDEF: "def", MUSE: "use", MLABEL: "label",
-	MSPILL: "spill", MRELOAD: "reload", MLOADCONSTF: "loadconstf", MEPILOGUE: "epilogue",
+	MSPILL: "spill", MRELOAD: "reload", MLOADCONSTF: "loadconstf", MEPILOGUE: "epilogue", MSTACKPROBE: "stackprobe",
 	MCLI: "cli", MSTI: "sti", MSTIHLT: "sti; hlt", MHLT: "hlt", MPAUSE: "pause",
 	MSAVEFLAGS: "pushfq; pop", MRESTOREFLAGS: "push; popfq", MIN: "in", MOUT: "out",
 	MRDMSR: "rdmsr", MWRMSR: "wrmsr", MRDCR: "movfromcr", MWRCR: "movtocr", MINVLPG: "invlpg",
@@ -511,6 +512,8 @@ func (m Mem) String() string {
 func (in *MInst) String() string {
 	size := int(in.Size)
 	switch in.Op {
+	case MSTACKPROBE:
+		return fmt.Sprintf("lea -%d(%%rsp), %%r11; mov %%rsp, %%r10; 1: sub $%d, %%r10; test %%r10, (%%r10); cmp %%r11, %%r10; ja 1b", in.Imm, probeInterval)
 	case MJMP:
 		return fmt.Sprintf("jmp %s", in.Target)
 	case MJCC:

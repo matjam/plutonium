@@ -322,9 +322,17 @@ panic: runtime error: invalid memory address or nil pointer dereference
 
 and the trace from the faulting instruction, then exits with status 2 without running the exit hook
 (`rt.SetExitHook`). A fault within 4 KiB of address zero is reported as a nil dereference; one just below
-the stack pointer, or in the guard page below the running task's stack, as `stack overflow` (with the
-task's trace, the size of the stack it had and how to ask for more: language spec sections 17.5 and
-19.1); any other as `unexpected fault address`.
+the stack pointer, in the guard region below the running task's stack or below the main thread's,
+as `stack overflow`; any other as `unexpected fault address`. A stack overflow's message names the size
+of the stack and how to ask for a larger one (language spec section 19.1):
+
+```
+panic: runtime error: stack overflow (the task's stack is 64 MiB; start the task with rt.Go(f, size) for a larger one)
+panic: runtime error: stack overflow (main's stack is 8 MiB; ask for a larger one with //pu:stack on func main)
+```
+
+A function whose frame is larger than a page probes it in its prologue (abi.md section 6), so the fault
+is in a guard region however far below the stack pointer the frame reaches.
 
 The signal handler does not print this itself: it raises a panic, with the fault in `rt.Panic.Fault`
 (kind, address, faulting instruction, signal) and a trace that starts at the faulting instruction, and

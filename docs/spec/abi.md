@@ -623,9 +623,27 @@ push %rbp; mov %rsp, %rbp; push <saved>; and $-align, %rsp; sub $frameSize, %rsp
 Incoming stack arguments are then at `16(%rbp)`, `24(%rbp)`, and so on, and the epilogue restores RSP from
 RBP.
 
-**No red zone.** Generated code never reads or writes below RSP: a function that needs stack memory
+**No red zone.** Generated code never writes below RSP: a function that needs stack memory
 subtracts from RSP first, and a leaf without a frame uses only registers. This holds in every build
-mode, which is why kernel mode needs no change to frame layout (section 10.1).
+mode, which is why kernel mode needs no change to frame layout (section 10.1). The one read below RSP
+is a stack probe.
+
+**Stack probes.** The smallest guard region below a stack is one page (language spec section 19.1), so a
+function whose frame (the bytes the prologue subtracts, plus the realignment of a frame-pointer frame)
+leaves its first call's return address more than a page below the last register it pushed probes the
+frame before it subtracts: it reads one word in each page, from the top down, each read within a page
+of the one before, so that the first read past the end of the stack faults in the guard and is reported
+as a stack overflow (language spec section 17.5). Up to four probes are written out as
+`test %rsp, -4096k(%rsp)`; more use a loop in R10 and R11, which hold no argument at entry:
+
+```
+lea -size(%rsp), %r11; mov %rsp, %r10
+1: sub $4096, %r10; test %r10, (%r10); cmp %r11, %r10; ja 1b
+```
+
+An interrupt handler always writes its probes out, since its prologue saves only the registers it uses.
+The probes change only the flags, and leave RSP alone, so the call frame information needs no rule for
+them.
 
 The prologue pushes the saved registers in the order RBX, RBP, R12, R13, R14, R15. There is no
 frame-pointer chain: debuggers walk these frames with the DWARF call frame information in

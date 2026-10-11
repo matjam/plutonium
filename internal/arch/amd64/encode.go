@@ -530,6 +530,8 @@ func (e *encoder) encode(in *MInst) {
 		e.byte(0xFB)
 	case MSTIHLT:
 		e.byte(0xFB, 0xF4)
+	case MSTACKPROBE:
+		e.stackProbeLoop(in.Imm)
 	case MHLT:
 		e.byte(0xF4)
 	case MPAUSE:
@@ -680,4 +682,25 @@ func (e *encoder) encodeExtend(in *MInst) {
 	default:
 		e.fail("amd64: bad extension %s", in)
 	}
+}
+
+// stackProbeLoop emits the probe loop of a large frame's prologue (frame.go):
+//
+//	lea  -size(%rsp), %r11
+//	mov  %rsp, %r10
+//	1: sub $4096, %r10
+//	test %r10, (%r10)
+//	cmp  %r11, %r10
+//	ja   1b
+//
+// R10 and R11 hold no argument at a function's entry, and the loop leaves
+// RSP alone, so the unwind tables need no rule for it.
+func (e *encoder) stackProbeLoop(size int64) {
+	e.encode(&MInst{Op: MLEA, Size: 8, Dst: RegOp(R11), Src: MemOp(BaseMem(RSP, -size))})
+	e.encode(&MInst{Op: MMOV, Size: 8, Dst: RegOp(R10), Src: RegOp(RSP)})
+	loop := len(e.code)
+	e.encode(&MInst{Op: MSUB, Size: 8, Dst: RegOp(R10), Src: ImmOp(probeInterval)})
+	e.encode(&MInst{Op: MTEST, Size: 8, Dst: MemOp(BaseMem(R10, 0)), Src: RegOp(R10)})
+	e.encode(&MInst{Op: MCMP, Size: 8, Dst: RegOp(R10), Src: RegOp(R11)})
+	e.byte(0x70+byte(CondA), byte(int8(loop-(len(e.code)+2))))
 }

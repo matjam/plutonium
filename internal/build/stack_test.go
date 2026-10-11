@@ -32,8 +32,72 @@ func main() {
 `
 	for _, level := range []int{0, 2} {
 		out, status := compileAndRun(t, src, level)
-		if status != 2 || !strings.HasPrefix(out, "panic: runtime error: stack overflow\n") {
+		want := "panic: runtime error: stack overflow (main's stack is 1 MiB; ask for a larger one with //pu:stack on func main)\n"
+		if status != 2 || !strings.HasPrefix(out, want) {
 			t.Errorf("-O%d: exit status %d, output starts %q; want 2 and a stack overflow", level, status, firstLine(out))
+		}
+	}
+}
+
+// TestLargeFrameOverflow checks that a function whose 2 MiB frame is
+// larger than the guard region below its stack (one page below a stack
+// from rt.Go, 1 MiB below a hosted task's or a //pu:stack one) probes its
+// frame, so that running out of stack faults in the guard and is reported
+// as a stack overflow that names the stack's size and how to ask for more
+// (language spec sections 17.5 and 19.1), rather than writing below the
+// guard into other memory.
+func TestLargeFrameOverflow(t *testing.T) {
+	testguard.Parallel(t)
+	const big = `
+// big has a 2 MiB frame.
+//
+//pu:noinline
+func big(n int) int {
+	var buf [2 << 20]byte
+	buf[n&1023] = byte(n)
+	if n > 1000 {
+		return int(buf[(n+1)&1023])
+	}
+	return big(n+1) + int(buf[(n+1)&1023])
+}
+`
+	cases := []struct{ name, src, want string }{
+		{"rt.Go", `package main
+
+import "pluto/rt"
+` + big + `
+func run() { println(big(1000)) }
+
+func main() {
+	done := make(chan int)
+	rt.Go(run, 64<<10)
+	<-done
+}
+`, "panic: runtime error: stack overflow (the task's stack is 72 KiB; start the task with rt.Go(f, size) for a larger one)"},
+		{"task statement", `package main
+` + big + `
+func run(done chan int) { done <- big(0) }
+
+func main() {
+	done := make(chan int)
+	task run(done)
+	println(<-done)
+}
+`, "panic: runtime error: stack overflow (the task's stack is 64 MiB; start the task with rt.Go(f, size) for a larger one)"},
+		{"main", `package main
+` + big + `
+//pu:stack 4M
+func main() { println(big(0)) }
+`, "panic: runtime error: stack overflow (main's stack is 4 MiB; ask for a larger one with //pu:stack on func main)"},
+	}
+	for _, c := range cases {
+		for _, level := range []int{0, 2} {
+			prog := buildConc(t, c.src, build.Config{OptLevel: level})
+			out, status := runConc(t, prog)
+			lines := strings.Split(out, "\n")
+			if status != 2 || len(lines) < 3 || lines[0] != c.want || !strings.HasPrefix(lines[1], "[signal SIGSEGV") {
+				t.Errorf("%s, -O%d: status %d, output:\n%s\nwant first line:\n%s", c.name, level, status, out, c.want)
+			}
 		}
 	}
 }

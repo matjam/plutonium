@@ -103,7 +103,7 @@ func main() {
 			lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
 			frame := "    main.recurse (./main.p:"
 			ok := status == 2 && len(lines) == 2+1+64+1 &&
-				lines[0] == "panic: runtime error: stack overflow" &&
+				lines[0] == "panic: runtime error: stack overflow (the task's stack is 64 MiB; start the task with rt.Go(f, size) for a larger one)" &&
 				strings.HasPrefix(lines[1], "[signal SIGSEGV") &&
 				lines[2] == "task 2:" &&
 				strings.HasPrefix(lines[3], frame) &&

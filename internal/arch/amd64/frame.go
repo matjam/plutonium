@@ -170,8 +170,54 @@ func framePrologue(f *MFunc) []*MInst {
 	if f.frameFP {
 		out = append(out, &MInst{Op: MAND, Size: 8, Dst: RegOp(RSP), Src: ImmOp(-f.maxAlign)})
 	}
+	drop := f.frameSize
+	if f.frameFP {
+		drop += f.maxAlign // the realignment may move RSP down by almost this much more
+	}
+	out = append(out, stackProbes(drop, f.interrupt)...)
 	if f.frameSize > 0 {
 		out = append(out, &MInst{Op: MSUB, Size: 8, Dst: RegOp(RSP), Src: ImmOp(f.frameSize)})
+	}
+	return out
+}
+
+// Stack probes (language spec sections 19.1 and 17.5). A stack has a guard
+// region below it that faults, and the fault is reported as a stack
+// overflow. The smallest guard is one page (a stack from an allocator), so
+// a frame larger than a page could step over it and reach whatever memory
+// lies below. Such a function reads one word in each page of its frame in
+// its prologue, from the top down, before it moves RSP: each read is
+// within a page of an address already touched (the return address, the
+// pushes, the previous read), so the first one past the end of the stack
+// lands in the guard.
+
+// probeInterval is the distance between probes: the smallest guard
+// region a stack has.
+const probeInterval = 4096
+
+// probeUnroll is the most probes written out one by one; a larger frame
+// probes in a loop.
+const probeUnroll = 4
+
+// stackProbes returns the instructions that probe the drop bytes below
+// RSP that the prologue is about to allocate. Without probes, the lowest
+// address the function touches first is the return address its first
+// call pushes, drop+8 bytes below RSP; with them, each probe is at most a
+// page below the last, and the last is within a page of that return
+// address. An interrupt handler has no free register for the loop (its
+// prologue saves only what it uses), so its probes are always written out.
+func stackProbes(drop int64, interrupt bool) []*MInst {
+	n := (drop+8+probeInterval-1)/probeInterval - 1
+	if n <= 0 {
+		return nil
+	}
+	if n > probeUnroll && !interrupt {
+		return []*MInst{{Op: MSTACKPROBE, Imm: n * probeInterval}}
+	}
+	out := make([]*MInst, n)
+	for k := range out {
+		// test %rsp, -off(%rsp): reads the word and changes only the flags.
+		out[k] = &MInst{Op: MTEST, Size: 8, Dst: MemOp(BaseMem(RSP, -int64(k+1)*probeInterval)), Src: RegOp(RSP)}
 	}
 	return out
 }

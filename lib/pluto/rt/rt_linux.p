@@ -111,14 +111,14 @@ func reserveStack(size uintptr) uintptr {
 	}
 	syscall3(sysMprotect, r, stackGuard, ProtNone)
 	guardLo, guardHi = r, r+stackGuard
-	stackLo, stackHi = r+stackGuard, r+total
+	stackLo, stackHi, stackSize = r+stackGuard, r+total, size
 	return r + total
 }
 
 // systemStackLimit returns the lowest address the process stack may grow
 // to, given an address near its top: the stack's resource limit below it,
-// less a margin for the arguments and environment above. It returns 0 if
-// the limit is unknown or unlimited.
+// less a margin for the arguments and environment above, and records the
+// limit in stackSize. It returns 0 if the limit is unknown or unlimited.
 func systemStackLimit(top uintptr) uintptr {
 	const (
 		sysPrlimit64 = 302
@@ -132,6 +132,7 @@ func systemStackLimit(top uintptr) uintptr {
 	if lim[0] == ^uint64(0) || uintptr(lim[0]) >= top || lim[0] <= margin {
 		return 0
 	}
+	stackSize = uintptr(lim[0])
 	return top - uintptr(lim[0]) + margin
 }
 
