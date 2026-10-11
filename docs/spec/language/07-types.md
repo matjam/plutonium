@@ -1064,7 +1064,7 @@ or of `int8` to `int64` if a member is negative. The first member is 0 unless gi
 a value is one more than the previous member. A value is a constant integer expression, evaluated in the scope
 enclosing the declaration; it must be representable in the underlying type and may not refer to the enum being
 declared. The predeclared identifier `iota` is not defined in a member's value, and using it there is an
-error: a member without a value is already one more than the previous. Two members may not share a name or a
+error (E0036): a member without a value is already one more than the previous. Two members may not share a name or a
 value, `_` is not a member name, and **one member must have the value 0**: it is the zero value of the type.
 An enum has at least one member.
 

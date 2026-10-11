@@ -460,10 +460,11 @@ Following the structure of the types:
 - An owner type is sendable if what it holds is sendable: its fields, and through a view field, the type
   the view points to. Sendability depends only on the types and the memory an owner holds, never on which
   packages its package imports. A view field that holds only memory the owner's own code allocated (inferred
-  as a heap-only field is, section 18.3, Views) points into memory the owner owns, and that memory moves
-  with the owner, so only what it holds is checked; this is how `vec.Vec`, `hash.Map` and
-  `strings.Builder` cross. A view field that may hold other memory is checked where the owner crosses, as
-  any view is.
+   as a heap-only field is, section 18.3, Views) points into memory the owner owns, and that memory moves
+   with the owner, so only what it holds is checked; this is how `vec.Vec`, `hash.Map` and
+   `strings.Builder` cross. The rule assumes the code that fills the owner does not alias its allocation:
+   no pointer to the owner's memory outlives the filling except through the owner itself. A view field that
+   may hold other memory is checked where the owner crosses, as any view is.
 - An interface type is sendable if every type that the program converts to it, directly or through another
   interface, is. An owning interface moves when it crosses.
 - A type parameter is checked for each type it is instantiated with.

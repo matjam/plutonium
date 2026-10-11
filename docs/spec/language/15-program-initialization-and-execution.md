@@ -192,7 +192,7 @@ reach one. The compiler works this out from the whole program; no annotation say
   `var names = vec.New[string]()` are valid. The objects they create belong to package variables and live as long as the
   program (section 15.4).
 - In a freestanding build, which includes every kernel (section 20.5, Build modes and targets), an
-  initializer that allocates is a compile error. A freestanding program has no allocator when package
+  initializer that allocates is a compile error (E2586). A freestanding program has no allocator when package
   initialization runs, and no console to report the failure on. The error names the allocation and the
   package variable or `init` function that reaches it. The fix is to initialize the variable in the
   program's entry function, after the program has called `alloc.SetDefault`. The check does not follow

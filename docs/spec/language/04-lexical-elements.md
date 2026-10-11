@@ -140,7 +140,7 @@ ordinary identifier: it may name a variable, a field, a type, a function or a pa
 | `owner` | before a type in a type definition, and before the constraint of a type parameter | section 7.18 (Owner types) |
 | `union` | as the type of a type definition when `{` follows it, and after `packed` when something other than `{` follows it | section 7.13 (Unions) |
 | `task` | at the start of a statement when the next token is an identifier or `func` | section 12.12 (Task statements) |
-| `or` | directly after the expression that ends a simple statement | section 11.27 (Or clauses) |
+| `or` | directly after a call, where the call is a statement on its own or is on the right of `=` or `:=` | section 11.27 (Or clauses) |
 | `bits` | as the type of a field of a packed type, when `[` or `{` follows it | section 7.14 (`packed` types) |
 | `le`, `be` | directly after `packed`, or after `packed union` | section 7.14, section 7.13 |
 
@@ -184,13 +184,12 @@ task := next           // a short variable declaration
 task[i] = v            // an assignment to an element
 ```
 
-**`or`.** In the position where a simple statement ends (an expression statement, or the right side of an
-assignment or a short variable declaration), the identifier `or` begins an or clause (section 11.27). In
-every other position `or` is an identifier. No statement of the language has an identifier directly after
-its final expression, so the rule never changes the meaning of code that uses `or` as a name. A statement
-that starts with `or`, an argument named `or` and a variable on the right of `:=` are all identifiers. The
-`or` of a clause must be on the line where the expression ends, since a newline would end the statement
-(section 4.3).
+**`or`.** Directly after a call that is a statement on its own, or a call on the right of `=` or `:=`,
+the identifier `or` begins an or clause (section 11.27, Or clauses). In every other position `or` is an
+identifier. No valid expression continues a call with a bare identifier, so the rule never changes the
+meaning of code that uses `or` as a name. A statement that starts with `or`, an argument named `or`, and a
+variable on the right of `:=` are all identifiers. The `or` of a clause must be on the line where the call
+ends, since a newline would end the statement (section 4.3).
 
 ```
 n := strconv.Atoi(s) or continue   // an or clause

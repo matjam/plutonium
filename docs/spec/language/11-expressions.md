@@ -97,9 +97,9 @@ type Line struct {
 one may write
 
 ```go
-origin := Point3D{}                                      // zero value for Point3D
-line1 := Line{Object{}, origin, Point3D{y: -4, z: 12.3}} // zero value for line1.q.x
-line2 := Line{name: "diagonal", q: Point3D{1, 1, 1}}     // zero value for line2.Object.color, line2.p
+origin := Point3D{}                                               // zero value for Point3D
+line1 := Line{Object{}, origin, Point3D{y: -4, z: 12.3}}      // zero value for line1.q.x
+line2 := Line{name: "diagonal", q: Point3D{x: 1, y: 1, z: 1}} // zero value for line2.Object.color, line2.p
 ```
 
 but field selectors may not denote overlapping fields:
@@ -1112,7 +1112,7 @@ var x = a[1.0<<s]       // panics: 1.0 has type int, but 1<<33 overflows array b
 
 The results are given for 64-bit `int`, which is the width of `int` on every target (section 7.2, Numeric types).
 
-**Owners.** Operands of an owner type may be compared (section 11.20, Comparison operators), and no other binary or unary operator applies to them, whatever the underlying type: `f + 1` for `type Fd owner int32` is an error, since its result would be a new owner made by arithmetic. The arithmetic is written on the value read out by a conversion, which moves nothing (section 11.24, Conversions):
+**Owners.** Operands of an owner type may be compared (section 11.20, Comparison operators), and no other binary or unary operator applies to them, whatever the underlying type, except that a variable of one may be addressed (section 11.22, Address operators): `f + 1` for `type Fd owner int32` is an error, since its result would be a new owner made by arithmetic. The arithmetic is written on the value read out by a conversion, which moves nothing (section 11.24, Conversions):
 
 ```go
 type Fd owner int32
@@ -1685,9 +1685,12 @@ if err != nil {
 **The name `err`.** The clause is in an implicit block (chapter 9, Blocks). In it, `err` is declared as a variable of type `error` that holds the last result. It hides any `err` of an enclosing block. It is not in scope in the call, whose operands are evaluated before the clause runs, and not after the statement. It is an ordinary variable: the clause may assign it, and a block clause may declare an `err` of its own in the block, which hides this one. The compiler does not report an unused `err`. The variables that a short variable declaration declares come into scope after the whole statement, clause included (chapter 10, Declarations and scope, rule 7), so the clause cannot use them. A name in the clause that is the name of a new variable denotes what it denoted before the statement.
 
 ```go
-cfg := load(path) or {
-	println(cfg.name) // error: cfg is not declared here; the clause runs when load failed
-	return err
+func f(path string) error {
+	cfg := load(path) or {
+		println(cfg.name) // error: cfg is not declared here; the clause runs when load failed
+		return err
+	}
+	return nil
 }
 ```
 

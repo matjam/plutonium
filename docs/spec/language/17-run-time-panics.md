@@ -291,8 +291,10 @@ hardware where it can: address zero and the region above it are unmapped (in hos
 kernel, which must arrange it), so an access at a small offset from a nil pointer faults, and the runtime
 turns the fault into this panic. Where the offset of an access from the pointer can exceed the size of
 that unmapped region (a field at a large offset, or an element of a large array reached through a pointer
-to it), the compiler checks the pointer explicitly before the access. Ordinary accesses therefore cost no
-check, and no nil dereference reads or writes memory.
+to it), the compiler checks the pointer explicitly before the access. A slice of an array through a
+pointer is checked explicitly as well, however small the array: forming the slice computes its base
+address but reads no memory, so no fault would report the nil. Ordinary accesses therefore cost no check,
+and no nil dereference reads or writes memory.
 
 **Divide errors.** An integer division by zero is checked before the hardware sees it and panics as
 section 17.1 says. A divide error that the hardware reports anyway (from assembly or unsafe code) becomes a

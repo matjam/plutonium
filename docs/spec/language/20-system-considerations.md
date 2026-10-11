@@ -213,6 +213,7 @@ misspelled directive never silently does nothing:
 | E2601 | a retired directive: one removed because the compiler now works the fact out, or replaced |
 | E2602 | a directive in a place it does not apply to: not in the doc comment of the right kind of declaration, or `//pu:build` after the package clause |
 | E2603 | an argument the directive does not take, or lacks |
+| E2604 | a line comment that starts with `//go:` and no space |
 
 The retired directives are `alloc`, `bytewise`, `gofunc`, `schedhook` and `schedlate`, which are no
 longer needed; `nobounds`, which `nochecks` replaces; and `noreturn` and `noescape` on a function that has
