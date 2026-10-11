@@ -16,6 +16,9 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 	if s, ok := t.subst[n]; ok {
 		return s, true
 	}
+	if e, ok := t.scopeEdits[n]; ok {
+		return t.scopeRewrite(n, e), true
+	}
 	switch n := n.(type) {
 	case *ast.BasicLit:
 		t.checkBinaryString(n)

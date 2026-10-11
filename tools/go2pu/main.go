@@ -22,12 +22,17 @@
 //   - bytes.Buffer and strings.Builder become compat.Buffer;
 //   - sort.Slice with a comparison of x[i] and x[j] becomes sort.SortFunc;
 //   - encoding/binary.Write of a fixed-size struct becomes a generated
-//     field-by-field encoder.
+//     field-by-field encoder;
+//   - a local sync.WaitGroup becomes a sync.Scope when every goroutine it
+//     counts is started by wg.Go(f) or by a go statement of a function
+//     literal that begins with defer wg.Done() or ends with wg.Done(): the
+//     goroutines become wg.Task calls that may use the function's
+//     variables, which the translation then leaves in the frame (scope.go).
 //
 // Constructs it cannot translate (closures and interface values that escape
-// their frame, recover, reflection, goroutines, maps modified while ranged
-// over) are marked with a "go2pu:" comment and listed on standard error, as
-// are string literals that are not valid UTF-8: binary data kept in a
+// their frame, recover, reflection, goroutines and WaitGroups outside the
+// forms above, maps modified while ranged over) are marked with a "go2pu:"
+// comment and listed on standard error, as are string literals that are not valid UTF-8: binary data kept in a
 // string, which Plutonium strings cannot hold (language spec section 6.10).
 //
 // Usage:

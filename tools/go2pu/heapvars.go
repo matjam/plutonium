@@ -27,7 +27,7 @@ func (tc *translator) findHeapVars() map[*types.Var]bool {
 		if !ok || v.IsField() || v.Parent() == tc.pkg.Scope() {
 			continue
 		}
-		if tc.esc.has(tc.fset, id.Pos(), "moved to heap: "+id.Name, "") {
+		if tc.esc.has(tc.fset, id.Pos(), "moved to heap: "+id.Name, "") && !tc.scopeVars[v] && !tc.scopeOnlyEscape(v, id) {
 			heap[v] = true
 		}
 	}

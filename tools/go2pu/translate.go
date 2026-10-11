@@ -104,6 +104,8 @@ var stdMap = map[string]string{
 	"strings":         "pluto/strings",
 	"unicode/utf8":    "pluto/unicode/utf8",
 	"unsafe":          "unsafe",
+	"sync":            "pluto/sync",
+	"sync/atomic":     "pluto/sync/atomic",
 	"encoding/binary": "",
 	"debug/elf":       "$MOD/elf",
 }
@@ -221,6 +223,7 @@ func TranslateDir(cfg *Config, dir string) (*Result, error) {
 		Uses:       map[*ast.Ident]types.Object{},
 		Selections: map[*ast.SelectorExpr]*types.Selection{},
 		Implicits:  map[ast.Node]types.Object{},
+		Scopes:     map[ast.Node]*types.Scope{},
 	}
 	conf := types.Config{Importer: importer.ForCompiler(fset, "source", nil)}
 	pkg, err := conf.Check(goPath, fset, files, info)
@@ -235,6 +238,8 @@ func TranslateDir(cfg *Config, dir string) (*Result, error) {
 	res := &Result{GoPath: goPath}
 	tc := &translator{cfg: cfg, fset: fset, info: info, pkg: pkg, esc: esc, exports: plutoExports(cfg.PlutoRoot)}
 	res.OutPath = tc.mapPath(goPath)
+	tc.indexParents(files)
+	tc.planScopes(files, res)
 	tc.heap = tc.findHeapVars()
 	outDir, err := res.Dir(cfg.OutDir)
 	if err != nil {
@@ -301,13 +306,21 @@ func goFiles(dir string) ([]string, error) {
 
 // A translator holds what the files of one package share.
 type translator struct {
-	cfg     *Config
-	fset    *token.FileSet
-	info    *types.Info
-	pkg     *types.Package
-	esc     escapes
-	heap    map[*types.Var]bool // variables Go moves to the heap
-	exports map[string]map[string]bool
+	cfg    *Config
+	fset   *token.FileSet
+	info   *types.Info
+	pkg    *types.Package
+	esc    escapes
+	heap   map[*types.Var]bool // variables Go moves to the heap
+	parent map[ast.Node]ast.Node
+	usesOf map[*types.Var][]*ast.Ident // the uses of each variable, in source order
+	defOf  map[*types.Var]*ast.Ident   // the declaring identifier of each variable
+
+	// The local WaitGroups rewritten to Scopes (scope.go).
+	scopeEdits map[ast.Node]scopeEdit
+	scopedLits map[*ast.FuncLit]bool // the literals that become tasks
+	scopeVars  map[*types.Var]bool   // the variables that become Scopes
+	exports    map[string]map[string]bool
 }
 
 // mapPath returns the Plutonium import path for a Go import path, or "" if
@@ -331,11 +344,9 @@ func (tc *translator) mapPath(p string) string {
 // fileTr translates one file.
 type fileTr struct {
 	*translator
-	file   *ast.File
-	src    []byte
-	res    *Result
-	parent map[ast.Node]ast.Node
-
+	file    *ast.File
+	src     []byte
+	res     *Result
 	local   map[string]string // Go import path -> local name in this file
 	needed  map[string]string // Plutonium import path -> local name
 	subst   map[ast.Node]string
@@ -351,19 +362,6 @@ func (t *fileTr) translate() ([]byte, error) {
 	t.subst = map[ast.Node]string{}
 	t.gen = map[string]bool{}
 	t.noted = map[string]bool{}
-	t.parent = map[ast.Node]ast.Node{}
-	var stack []ast.Node
-	ast.Inspect(t.file, func(n ast.Node) bool {
-		if n == nil {
-			stack = stack[:len(stack)-1]
-			return true
-		}
-		if len(stack) > 0 {
-			t.parent[n] = stack[len(stack)-1]
-		}
-		stack = append(stack, n)
-		return true
-	})
 	for _, imp := range t.file.Imports {
 		p := strings.Trim(imp.Path.Value, `"`)
 		name := path.Base(p)
@@ -497,6 +495,9 @@ func (t *fileTr) splice(n ast.Node) string {
 	var b strings.Builder
 	at := start
 	for _, e := range edits {
+		if e.text == "" {
+			e.start, e.end = t.wholeLines(e.start, e.end, at, t.off(n.End()))
+		}
 		if e.start < at {
 			continue // nested inside an earlier edit (comments)
 		}
@@ -506,6 +507,23 @@ func (t *fileTr) splice(n ast.Node) string {
 	}
 	b.Write(t.src[at:t.off(n.End())])
 	return b.String()
+}
+
+// wholeLines widens the removal of src[start:end] to the lines it occupies
+// when nothing else is on them, so a removed statement leaves no blank
+// line. lo and hi bound the text being edited.
+func (t *fileTr) wholeLines(start, end, lo, hi int) (int, int) {
+	s, e := start, end
+	for s > lo && (t.src[s-1] == ' ' || t.src[s-1] == '\t') {
+		s--
+	}
+	for e < hi && (t.src[e] == ' ' || t.src[e] == '\t') {
+		e++
+	}
+	if s > lo && t.src[s-1] == '\n' && e < hi && t.src[e] == '\n' {
+		return s, e + 1
+	}
+	return start, end
 }
 
 // list renders expressions separated by commas.
@@ -518,7 +536,7 @@ func (t *fileTr) list(es []ast.Expr) string {
 }
 
 // typeOf returns the type of e, or nil.
-func (t *fileTr) typeOf(e ast.Expr) types.Type { return t.info.TypeOf(e) }
+func (t *translator) typeOf(e ast.Expr) types.Type { return t.info.TypeOf(e) }
 
 // isMapValue reports whether e is a value of map type.
 func (t *fileTr) isMapValue(e ast.Expr) bool {
