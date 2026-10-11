@@ -30,6 +30,8 @@ func register(d *Allocator) {
 // atExit checks every debug allocator's heap and reports its leaks as its
 // options say.
 func atExit(code int) int {
+	// Let the puroutines that are finishing release what they hold.
+	rt.SettleTasks()
 	failed := false
 	for d := all; d != nil; d = d.next {
 		d.CheckHeap()

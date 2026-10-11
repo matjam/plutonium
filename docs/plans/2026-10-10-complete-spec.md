@@ -307,7 +307,7 @@ Old 6.9 (the exact texts of ownership diagnostics) leaves the spec for the catal
 
 | Section | Source | Status |
 |---|---|---|
-| 19.1 Tasks (stacks, preemption, parallelism, deadlock report) | old 4.7 | main (as puroutines; rename decided); stack sizes decided (false-friends F8, roadmap 18); open G36 |
+| 19.1 Tasks (stacks, preemption, parallelism, deadlock report) | old 4.7 | main (as puroutines; rename decided); 64 MiB lazily mapped hosted stacks on main (G36 (a), roadmap 66); computed sizes planned (roadmap 18) |
 | 19.2 The sendable rule | old 4.7 | main (views of changing memory: old 6.11) |
 | 19.3 Data race freedom (heap views, `synced[T]` contents, inferred lock guarding, package variables) | memory-safety design 7, D5, D7; old 6.11 | main (roadmap 59); G32 decided (a) |
 | 19.4 Scoped tasks (`sync.Scope`, `s.Task(f)`, joins, the sharing check) | scoped-puroutines plan (revised) | decided (no roadmap item); open G35 |

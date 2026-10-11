@@ -14,6 +14,7 @@ const (
 	sysMprotect    = 10
 	sysMunmap      = 11
 	sysRtSigaction = 13
+	sysMadvise     = 28
 	sysPause       = 34
 	sysGettid      = 186
 	sysExitGroup   = 231

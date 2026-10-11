@@ -455,7 +455,7 @@ func main() {
 	wg.Wait()
 }
 `},
-		{name: "allocuse", want: "while used 2\nafter 2 restored true\n", src: `package main
+		{name: "allocuse", want: "while used 1\nafter 1 restored true\n", src: `package main
 
 import (
 	"pluto/alloc"
@@ -489,7 +489,7 @@ func main() {
 	mine.next = alloc.Default()
 	r := alloc.Use(&mine)
 	done := make(chan int) // from mine: 1
-	go other(done)         // the new puroutine's stack, from mine: 2
+	go other(done)         // its stack is reserved from the system, not an allocator
 	<-done
 	println("while used", mine.n)
 	r.Restore()
@@ -675,8 +675,8 @@ func TestParallelAlloc(t *testing.T) {
 }
 
 // TestConcDebugAlloc runs concurrent programs that free everything they
-// allocate, stacks and channels included, under the debug allocator with
-// leaks failing the program.
+// allocate, channels included, under the debug allocator with leaks
+// failing the program.
 func TestConcDebugAlloc(t *testing.T) {
 	prog := buildConc(t, `package main
 

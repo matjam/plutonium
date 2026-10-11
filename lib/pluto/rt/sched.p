@@ -21,8 +21,17 @@ import "unsafe"
 // starts puroutines or uses channels without binding one fails to build.
 
 // DefaultStackSize is the stack size of a puroutine started by a go
-// statement (language spec section 4.7).
+// statement whose stack the compiler could not compute, in builds whose
+// scheduler cannot reserve a large stack lazily: kernels and programs that
+// bind their own backend (language spec section 4.7).
 const DefaultStackSize = 64 << 10
+
+// HostedStackSize is the address space the hosted backend reserves for
+// such a puroutine's stack, committed as the stack grows into it, with a
+// guard region below. An address-space limit (RLIMIT_AS, ulimit -v) that
+// the reservations do not fit in makes them smaller, down to
+// DefaultStackSize.
+const HostedStackSize = 64 << 20
 
 // MinStackSize is the smallest stack Go accepts; smaller requests are
 // rounded up to it.
@@ -73,6 +82,7 @@ type Task struct {
 	resumePC uintptr
 	stackLo  uintptr
 	stackHi  uintptr
+	guard    uintptr        // bytes of guard region below stackLo (SetStackGuard)
 	fn       unsafe.Pointer // closure record of a func(unsafe.Pointer)
 	arg      unsafe.Pointer
 	alloc    Allocator // alloc.Use override, or nil for the program-wide default
@@ -120,6 +130,11 @@ func (t *Task) SetStack(lo, hi uintptr) {
 // Stack returns the task's stack as SetStack recorded it.
 func (t *Task) Stack() (lo, hi uintptr) { return t.stackLo, t.stackHi }
 
+// SetStackGuard records that n bytes below the task's stack are a guard
+// region, inaccessible, so that a fault there is reported as a stack
+// overflow. A backend that sets none has a guard of one page, or none.
+func (t *Task) SetStackGuard(n uintptr) { t.guard = n }
+
 // A StackRequest describes the stack a new task needs.
 type StackRequest struct {
 	// Size is how many bytes of stack the task may use. If Proven is set
@@ -128,6 +143,12 @@ type StackRequest struct {
 	// (where the backend can make one) turns an overflow into a fault.
 	Size   uintptr
 	Proven bool
+	// Unsized is set for a go statement whose stack the compiler could
+	// not compute (recursion, or calls it cannot follow): Size is then
+	// DefaultStackSize. A backend that can reserve address space and
+	// commit it as it is touched gives such a task a large stack instead:
+	// the hosted backend reserves HostedStackSize.
+	Unsized bool
 	// Alloc is the allocator the program asked for: the default
 	// allocator, or the one given to Go. The backend should take the
 	// stack from it.
@@ -628,9 +649,9 @@ func CheckGoFunc(f func()) {
 // block, args, which is copied onto the new task's stack. bound is the
 // stack the compiler proved the call needs, or 0 if it could not.
 func spawnGo(fn, args unsafe.Pointer, argSize, argAlign, bound uintptr) {
-	req := StackRequest{Size: DefaultStackSize, Alloc: DefaultAllocator()}
+	req := StackRequest{Size: DefaultStackSize, Unsized: true, Alloc: DefaultAllocator()}
 	if bound != 0 {
-		req.Size, req.Proven = bound, true
+		req.Size, req.Proven, req.Unsized = bound, true, false
 	}
 	spawn(fn, args, argSize, argAlign, req)
 }

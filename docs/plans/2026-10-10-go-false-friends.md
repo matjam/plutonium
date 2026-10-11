@@ -480,6 +480,9 @@ thing is.
    reference to `C`, as in Go 1.23.
 7. **F8.** Computed stack sizes where the call graph allows (roadmap item 18), and a 64 MiB lazily
    mapped stack for the rest in hosted builds. Recommended; the size is open.
+   **Implemented** for the lazily mapped stacks (64 MiB, gap G36 (a); language spec sections 4.7 and
+   12.1, roadmap item 66): the probe above and a 128 KiB local array in a puroutine work. Computed sizes
+   (item 18) and an overflow message that names the size are not done.
 8. **F9.** `bytes.Buffer` becomes Go's growing buffer; bounded writes use `vec.Fixed[byte]`.
    Recommended.
 9. **F10.** Scoped puroutines through `sync.Scope`; `sync.WaitGroup` keeps Go's behavior. See the

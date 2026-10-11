@@ -156,8 +156,11 @@ unknown. Size 0 is treated as 1, as `new` and `alloc.New` do, and alignment 0 as
 
 ### Leaks
 
-At normal exit (main returns, or `os.Exit`), hosted builds check the canaries and poison of every block
-and then list the allocations still live:
+At normal exit (main returns, or `os.Exit`), hosted builds first wait, for at most about a second, until
+every other puroutine has returned or waits (on a channel, a lock, a timer, I/O or a system call), so that
+one that has sent its last value but not yet returned releases its arguments and variables
+(`rt.SettleTasks`); a puroutine blocked for good keeps what it holds, which is listed. Then they check the
+canaries and poison of every block and list the allocations still live:
 
 ```
 debug allocator: 2 allocations still live, 34 bytes:
@@ -258,9 +261,10 @@ handler tries it for a while and then describes the fault without it, since the 
 already hold it.
 
 Allocation sites belong to the puroutine that allocates, so sites stay right while puroutines allocate in
-parallel. A puroutine's stack is allocated with the site `rt.StackSite`, printed as "the runtime, as a
-puroutine's stack"; leak reports leave stacks out, since a puroutine that is still finishing at exit
-holds its own.
+parallel. A puroutine's stack from an allocator (one `rt.Go` sized, for example; the stacks hosted `go`
+statements reserve come from the system, not an allocator) is allocated with the site `rt.StackSite`,
+printed as "the runtime, as a puroutine's stack"; leak reports leave stacks out, since a puroutine that
+is still finishing at exit holds its own.
 
 ## Cost
 

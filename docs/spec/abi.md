@@ -1010,7 +1010,11 @@ frame below them.
 
 A stack request (`rt.StackRequest`) carries the size the task may use, `Proven` when the compiler has
 shown the call graph never needs more (then no guard page is needed; the compiler does not compute such
-bounds yet, roadmap item 18), and the allocator the program asked for.
+bounds yet, roadmap item 18), `Unsized` for a go statement whose stack the compiler could not size (the
+size is then `rt.DefaultStackSize`, and a backend that can reserve address space lazily gives the task a
+large stack instead, as the hosted one does), and the allocator the program asked for.
+`t.SetStackGuard(n)` records that the `n` bytes below the stack are an inaccessible guard region, so that
+a fault anywhere in it is reported as a stack overflow; without it the guard is taken to be one page.
 
 ### 12.2 Contexts and the switch frame
 
@@ -1130,8 +1134,8 @@ defaults, and a copy of the array behind variadic arguments) into an argument bl
 frame, laid out like a struct, and calls `rt.spawnGo(thunk, block, size, align, bound)`, where `thunk`
 is the closure record of a generated `func(p unsafe.Pointer)` named `<function>.go<N>` that loads the
 values from `p` and makes the call, and `bound` is the proven stack size (0 today). `spawnGo` asks the
-backend for a task with the default stack (64 KiB) from the current default allocator, copies the block
-to the top of the stack and calls `Spawn`. Before it, a func value that is the function started or a
+backend for a task with an unsized stack (`Unsized`, `rt.DefaultStackSize`, the current default
+allocator), copies the block to the top of the stack and calls `Spawn`. Before it, a func value that is the function started or a
 func-typed argument is passed to `rt.checkGoFunc`, which panics if its closure record lies in the
 starting task's stack.
 
@@ -1170,7 +1174,7 @@ A blocked operation's waiting record (`sudog`) lives in the waiting task's frame
 | monitor | a thread that preempts a task after 10 ms (`SIGURG`) and hands the P of a worker that has been in a system call (`rt.EnterSyscall` to `rt.ExitSyscall`) for 20 µs, when other work waits, to another worker |
 | poller | a thread blocked in `epoll_wait` on descriptors registered once, edge-triggered, for reading and writing. `rt.PollOpen(fd)` makes a `rt.PollDesc` (kept on a free list, never unmapped) holding a queue of read waiters, a queue of write waiters and a flag for each direction for an event that arrived with nobody waiting; `Wait(write)` parks until an event (registering the descriptor on the first wait), `Evict` wakes the waiters with `rt.PollClosed` and `Release` deregisters it. While timers are armed it waits at most until the earliest deadline of every P (`epoll_pwait2`, or `epoll_wait` in milliseconds rounded up before Linux 5.11), then runs the expired timers itself; an eventfd in the epoll set wakes it when an earlier timer is armed |
 | timers | a heap per P (section 12.9), which its worker runs each time it looks for a puroutine; a spinning worker runs the expired timers of the other Ps too, and their puroutines come to its own P. `rt.Now` reads `CLOCK_MONOTONIC` through the vDSO's `__vdso_clock_gettime` (found from `AT_SYSINFO_EHDR`), or with the system call if there is none |
-| stacks | a guard page, the stack, then the backend's task record, from the requested allocator; stacks of the default size from the program-wide default allocator are cached rather than unmapped |
+| stacks | an unsized request gets a reserved stack: `rt.HostedStackSize` (64 MiB) mapped `MAP_NORESERVE \| MAP_STACK` with a 1 MiB guard region (`PROT_NONE`) below and one more page above, whose end holds the backend's task record; under `RLIMIT_AS` the stacks take half the limit at full size, then halve as they use up the rest, down to 64 KiB with a guard of at least a page. Reserved stacks are cached (8 per P, 64 shared); one going into a cache gets `madvise(MADV_DONTNEED)` below its top 16 KiB if its task was seen below that when it parked, yielded or was preempted, or on every 16th use. Any other request gets a guard page, the stack, then the task record, from the requested allocator; stacks of one size from the program-wide default allocator are cached rather than freed |
 | deadlock | when every worker is idle, nothing waits in the poller or a system call and no timer is armed: "fatal error: all puroutines are asleep - deadlock!", then each puroutine's number, wait reason and trace (`rt.TraceTask`; the backend keeps a list of its tasks in creation order for this, and `BootTask` comes first), status 2. The poller checks again after it runs timers, since a timer that fires may leave nothing to wake |
 | `SIGPIPE` | caught at startup (every hosted program, not only those that start puroutines) by a handler that returns, so a write to a pipe with no reader fails with `EPIPE`; `pluto/os` calls `rt.DieFromSigpipe` (default action, then `tgkill` of the calling thread) for `EPIPE` on descriptors 1 and 2 |
 

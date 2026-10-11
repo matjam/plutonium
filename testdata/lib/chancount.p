@@ -272,8 +272,7 @@ func main() {
 	rangeReassign()
 	timeouts()
 	// A puroutine releases its arguments after its function returns, which
-	// may be after main has received its last value: give them time to
-	// finish before the leak check at exit.
-	time.Sleep(50 * time.Millisecond)
+	// may be after main has received its last value: the debug allocator
+	// lets such puroutines finish before its leak check (rt.SettleTasks).
 	println("end")
 }

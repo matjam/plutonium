@@ -122,7 +122,12 @@ later takes the next free number and is listed in the section where it belongs.
     puroutine (memory-model.md section 3.8).
 18. **Stack size analysis and `-stackreport`** (planned): compute the stack a spawned function needs when
     its call graph has no recursion or indirect calls. Stack requests already carry a `Proven` bound,
-    always 0 today.
+    always 0 today. In hosted builds item 66 makes this an optimization (a smaller stack from the
+    allocator instead of a reserved one); it matters for kernels. A sound bound must cover what lands on
+    a task's stack outside the call graph (the preemption frame, the fault path that raises a panic, a
+    kernel's interrupt frames) and the panic path, which runs deferred calls through func values: with
+    calls through func values and interfaces counted as unbounded, as the allocator's are, almost no
+    hosted task function is bounded.
 53. **Scheduler contract for kernels** (done; [scheduler contract](plans/2026-10-09-scheduler-contract.md),
     abi.md section 12): the interface and rules any kernel implements to run puroutines, with no kernel
     scheduler in the standard library: a permit-based `Park`/`Ready`, interrupt-safe `Ready`,
@@ -142,12 +147,20 @@ later takes the next free number and is listed in the section where it belongs.
     sharing check reuses the lock inference of item 59 (E3401 to E3406). A scoped task starts with the
     program-wide default allocator like every task (G35). `sync.WaitGroup` keeps Go's behavior and today's
     escape errors. A join on `rt.Goexit` comes with item 58's follow-up.
-66. **Large task stacks** (in progress; false-friends audit F8, complete-spec gap G36; with item 18): a
-    hosted task whose stack size cannot be computed gets 64 MiB of address space reserved with a guard
-    region below, committed as it is touched (about two million tasks fit in a 47-bit address space). The
-    specification promises hosted tasks at least this much and makes overflow a panic that names the size
-    and how to ask for more (`rt.Go(f, size)`). Kernel builds keep computed or explicit sizes and
-    `-stackreport`.
+66. **Large task stacks** (done except the overflow message; false-friends audit F8, complete-spec gap
+    G36; language spec sections 4.7 and 12.1, abi.md sections 12.1 and 12.7): a hosted task whose stack
+    size cannot be computed gets 64 MiB of address space reserved with a 1 MiB guard region below,
+    committed as it is touched (`rt.HostedStackSize`; about two million tasks fit in a 47-bit address
+    space, and `vm.max_map_count` allows half as many tasks as its value). Reserved stacks are cached, and
+    give back what a task committed deep in them when the runtime saw it there or every 16th use; under
+    `RLIMIT_AS` they get smaller as they use up half the limit. Starting 10,000 tasks that sleep costs
+    about 2.3 µs each against 2.1 µs with 64 KiB stacks from the allocator (fastest of 7 runs), with the
+    same resident set (37 MiB for all 10,000), and starting and ending a task from the cache costs about
+    0.3 µs against 0.4 µs (`TestManyTasks`, `TestTaskDeepStack`, `TestTaskStackOverflow`). The debug
+    allocator lets finishing tasks return before its leak report (`rt.SettleTasks`). Overflow is the same stack overflow panic as before;
+    naming the size and how to ask for more (`rt.Go(f, size)`) remains. Kernel builds and programs that
+    bind their own scheduler keep 64 KiB (`rt.DefaultStackSize`) or explicit sizes; computed sizes and
+    `-stackreport` are item 18.
 67. **Counted channels, and a channel owns its timer** (done except `alloc.Free(t)`; item 48,
     false-friends audit F6 and F7; language spec sections 4.7 and 4.8, abi.md section 12.6): a channel is
     a counted reference, counted like a `synced[T]` by the machinery of counted strings, and freed with its

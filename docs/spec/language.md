@@ -495,13 +495,16 @@ of the spawning frame cannot be passed at all (section 6.3), since the puroutine
   `time.AfterFunc`.
 
 - Each puroutine has a fixed-size stack: stacks cannot grow or move, because nothing knows where the
-  pointers into them are. A guard page below the stack turns an overflow into a fault, reported as a
-  stack overflow with the puroutine's trace. The default size is 64 KiB; `rt.Go(f, size)` starts a
+  pointers into them are. A guard region below the stack turns an overflow into a fault, reported as a
+  stack overflow with the puroutine's trace. In hosted builds a puroutine started with `go` has at least
+  64 MiB of stack (section 12.1): address space reserved for it, committed only as the stack grows into
+  it, so a puroutine that stays shallow uses a page or two of memory and one that recurses deeply works
+  as a goroutine would. Where the scheduler cannot reserve address space (kernels, and programs that
+  bind their own scheduler) the default is 64 KiB (`rt.DefaultStackSize`). `rt.Go(f, size)` starts a
   puroutine with an explicit stack size instead (at least `rt.MinStackSize`, 8 KiB). For a spawned
-  function whose call graph has no recursion and no indirect calls, the compiler computes the stack it
-  needs and uses that instead, without a guard page; otherwise it uses the default, and `-stackreport`
-  lists the functions it could not size (planned, roadmap item 18; today every puroutine gets the
-  default or `rt.Go`'s size).
+  function whose call graph has no recursion and no indirect calls, the compiler is to compute the stack
+  it needs and use that instead, and `-stackreport` to list the functions it could not size (planned,
+  roadmap item 18; today every puroutine gets the default or `rt.Go`'s size).
 - A function literal that captures variables cannot be started with `go`: its captures live in the
   spawning frame, which may be gone before the puroutine runs (section 4.5). Pass the values as
   arguments: `go func(n int) { work(n) }(n)`. The same holds for a method value `x.M`, whose closure
@@ -646,9 +649,11 @@ each one crosses as a value. Passing a local `sync.WaitGroup` by address, the us
 (E3004): use a package-level variable, or the `sync.Scope` of scoped puroutines once it lands. In a
 generic function the rule is checked for each instantiation.
 
-Stacks come from the default allocator (the starting puroutine's, if it installed one with `alloc.Use`),
-or from `rt.Go(f, size, a)` with an explicit one, and are freed when the puroutine returns. They belong
-to the runtime: the debug allocator does not count a stack still in use at exit as a leak.
+The large stacks of hosted puroutines are reserved from the operating system, not an allocator. Other
+stacks come from the default allocator (the starting puroutine's, if it installed one with
+`alloc.Use`), or from `rt.Go(f, size, a)` with an explicit one. Stacks are freed when the puroutine
+returns. They belong to the runtime: the debug allocator does not count a stack still in use at exit as a
+leak.
 
 What a kernel's backend must implement, and what the runtime gives it, is specified in abi.md section 12;
 the design is in [the scheduler contract](../plans/2026-10-09-scheduler-contract.md). The standard library
@@ -3425,6 +3430,17 @@ The mode is chosen with `--mode`; by default it follows the target (`hosted` for
 
 Targets are named by triples: `x86_64-linux` (default) and `x86_64-none`; `aarch64-linux` and
 `aarch64-none` are planned. The architecture tag (`amd64`, `arm64`) is always set.
+
+**Stacks of hosted puroutines.** A puroutine that a `go` statement starts in a hosted build gets 64 MiB
+of address space for its stack (`rt.HostedStackSize`), with a guard region of 1 MiB below it, mapped
+without reserving memory: a page of the stack takes memory only once the stack has touched it. About two
+million such stacks fit in the 47-bit address space of x86-64 Linux, but each stack is two mappings, so
+Linux's limit on the number of mappings (`vm.max_map_count`: 65530 by the kernel's default, often raised
+by distributions) allows at most half as many puroutines at once. Under an address-space limit (`RLIMIT_AS`, `ulimit -v`), the stacks may take half of it at full size;
+after that each new one is halved until it fits what is left of that half, down to 64 KiB, so many
+puroutines still fit, each with a smaller stack. Stacks are reused for later puroutines; the memory a
+puroutine committed deep in its stack goes back to the system before the stack is reused if the
+runtime saw the puroutine there (when it parked or was preempted), and in any case once every 16 uses.
 
 Output formats are ELF executables (default) and flat binaries (`--format binary`). PE32+ for UEFI
 (`--format pe32+`) is planned; it needs position-independent code (abi.md section 7).

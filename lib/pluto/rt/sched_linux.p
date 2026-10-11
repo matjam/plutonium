@@ -22,7 +22,10 @@ import "unsafe"
 // preempts a puroutine that has run for 10ms by sending its thread SIGURG;
 // the handler redirects it into asyncPreempt (preemptAsync). I/O waits go
 // through one epoll poller thread. Task records live at the top of their
-// stacks, which come from the allocator the program asked for.
+// stacks. A go statement whose stack the compiler could not compute gets a
+// large stack of address space reserved from the system and committed as
+// it is touched (reserveTaskStack); an explicit or computed size comes
+// from the allocator the program asked for.
 
 const (
 	sysSchedGetaffinity = 204
@@ -92,6 +95,8 @@ type p struct {
 	link        *p
 	stacks      [pStackCacheMax]unsafe.Pointer // cached stacks (allocStack)
 	nstacks     int
+	lazy        [pStackCacheMax]reservedStack // cached reserved stacks (reserveTaskStack)
+	nlazy       int
 	timers      timerHeap // timers armed by puroutines running here
 
 	// sysmon's view of the P.
@@ -307,7 +312,12 @@ type hostedTask struct {
 	task  Task // at offset 0
 	mem   unsafe.Pointer
 	total uintptr
-	alloc Allocator
+	alloc Allocator // nil for a reserved stack (reserveTaskStack)
+
+	// A reserved stack's uses since it was trimmed, and the lowest stack
+	// pointer seen (noteStackDepth).
+	uses  uint32
+	lowSP uintptr
 
 	// Every live task but BootTask is on a list in order of creation, for
 	// the report of a deadlock (allTasks.lock guards the links).
@@ -320,16 +330,32 @@ var allTasks struct {
 }
 
 func (*hostedSched) NewTask(req StackRequest) *Task {
-	size := (req.Size + pageSize - 1) &^ (pageSize - 1)
 	rec := (unsafe.Sizeof(hostedTask{}) + 15) &^ 15
-	total := (pageSize + size + rec + pageSize - 1) &^ (pageSize - 1)
-	mem := allocStack(total, req.Alloc)
-	ht := (*hostedTask)(unsafe.Add(mem, total-rec))
-	memclr(unsafe.Pointer(ht), int(rec))
-	ht.mem = mem
-	ht.total = total
-	ht.alloc = req.Alloc
-	ht.task.SetStack(uintptr(mem)+pageSize, uintptr(unsafe.Pointer(ht)))
+	var ht *hostedTask
+	if req.Unsized {
+		rs := reserveTaskStack()
+		if rs.mem == nil {
+			return nil
+		}
+		ht = (*hostedTask)(unsafe.Add(rs.mem, rs.total-rec))
+		memclr(unsafe.Pointer(ht), int(rec))
+		ht.mem = rs.mem
+		ht.total = rs.total
+		ht.uses = rs.uses
+		ht.lowSP = uintptr(unsafe.Pointer(ht))
+		ht.task.SetStack(uintptr(rs.mem)+rs.guard, uintptr(unsafe.Pointer(ht)))
+		ht.task.SetStackGuard(rs.guard)
+	} else {
+		size := (req.Size + pageSize - 1) &^ (pageSize - 1)
+		total := (pageSize + size + rec + pageSize - 1) &^ (pageSize - 1)
+		mem := allocStack(total, req.Alloc)
+		ht = (*hostedTask)(unsafe.Add(mem, total-rec))
+		memclr(unsafe.Pointer(ht), int(rec))
+		ht.mem = mem
+		ht.total = total
+		ht.alloc = req.Alloc
+		ht.task.SetStack(uintptr(mem)+pageSize, uintptr(unsafe.Pointer(ht)))
+	}
 	allTasks.lock.Lock()
 	ht.allPrev = allTasks.tail
 	if allTasks.tail != nil {
@@ -340,6 +366,43 @@ func (*hostedSched) NewTask(req StackRequest) *Task {
 	allTasks.tail = ht
 	allTasks.lock.Unlock()
 	return &ht.task
+}
+
+// SettleTasks waits, for at most about a second, until every task but the
+// caller has returned or waits: on a channel, a lock, a timer or I/O, or in
+// a system call. The debug allocator calls it before its leak report at
+// exit: a task that has done its last synchronizing operation still
+// releases its arguments and variables as it returns, which the report
+// would otherwise race, while a task blocked for good keeps what it holds,
+// which the report lists. It does nothing in a program that never started
+// a task, or with a backend other than the hosted one, which keeps no list
+// of tasks here.
+func SettleTasks() {
+	if !tasking {
+		return
+	}
+	deadline := nanotime() + 1000000000
+	for !tasksSettled() && nanotime() < deadline {
+		Yield()
+		nanosleep(50000)
+	}
+}
+
+// tasksSettled reports whether every task but the running one has
+// returned or waits.
+func tasksSettled() bool {
+	self := current()
+	settled := true
+	allTasks.lock.Lock()
+	for ht := allTasks.head; ht != nil; ht = ht.allNext {
+		t := &ht.task
+		if t != self && t.status != tExiting && !t.insyscall && load32(&t.wake) != wakeParked {
+			settled = false
+			break
+		}
+	}
+	allTasks.lock.Unlock()
+	return settled
 }
 
 func (*hostedSched) FreeTask(t *Task) {
@@ -356,6 +419,10 @@ func (*hostedSched) FreeTask(t *Task) {
 		allTasks.tail = ht.allPrev
 	}
 	allTasks.lock.Unlock()
+	if ht.alloc == nil {
+		releaseTaskStack(reservedStack{mem: ht.mem, total: ht.total, guard: ht.task.guard, uses: ht.uses}, ht.lowSP)
+		return
+	}
 	freeStack(ht.mem, ht.total, ht.alloc)
 }
 
@@ -363,9 +430,15 @@ func (*hostedSched) Spawn(t *Task) { hostedReady(t) }
 
 func (*hostedSched) Wake(t *Task) { hostedReady(t) }
 
-func (*hostedSched) Park(t *Task) { Switch(&t.ctx, &getm().g0) }
+func (*hostedSched) Park(t *Task) {
+	noteStackDepth(t)
+	Switch(&t.ctx, &getm().g0)
+}
 
-func (*hostedSched) Yield(t *Task) { Switch(&t.ctx, &getm().g0) }
+func (*hostedSched) Yield(t *Task) {
+	noteStackDepth(t)
+	Switch(&t.ctx, &getm().g0)
+}
 
 // hostedReady queues t on the current worker's P, or on the global queue
 // from a thread without one, and wakes an idle worker to steal it.
@@ -1171,6 +1244,194 @@ func freeStack(mem unsafe.Pointer, total uintptr, a Allocator) {
 	}
 	protectGuard(mem, true)
 	a.Free(mem, total, pageSize)
+}
+
+// ----------------------------------------------------------------------------
+// Reserved stacks
+//
+// A go statement whose stack the compiler could not compute gets
+// HostedStackSize bytes of address space (language spec section 4.7),
+// mapped without reserving memory and with an inaccessible guard region
+// below (reservedGuard): the system commits a page only when
+// the stack first touches it, so a puroutine that stays shallow costs a
+// page or two of memory however deep it could go. Above the stack is one
+// more page, which the task record shares with the top of the stack.
+//
+// Mapping, protecting and unmapping cost three system calls, so stacks are
+// cached like the allocator's, a few per P in front of a shared cache. A
+// cached stack must not keep the pages a puroutine that recursed deeply
+// left behind, but giving them back (madvise) costs a system call too, more
+// than the rest of starting and ending a puroutine: so a stack gives back
+// what lies below its top (reservedKeep) only when its puroutine was seen
+// below that (its lowest stack pointer when it parked, yielded or was
+// preempted, lowSP) or, to bound what a puroutine that went deep without
+// stopping leaves behind, on every reservedTrim'th use. Under an
+// address-space limit, stacks get smaller as they use it up
+// (reservedSize).
+
+const (
+	reservedKeep = 16 << 10 // the top of a cached stack left committed
+	reservedTrim = 16       // uses of a stack between unconditional trims
+)
+
+// A reservedStack is a cached reserved stack: its mapping, the guard region
+// at the bottom of it, and how many puroutines have used it since it was
+// last trimmed.
+type reservedStack struct {
+	mem   unsafe.Pointer
+	total uintptr
+	guard uintptr
+	uses  uint32
+}
+
+// reservedGuard returns the guard region below a reserved stack of size
+// bytes: stackGuard (1 MiB, as large as Linux's gap below the process
+// stack, so that a frame larger than a page still lands in it), less for a
+// stack made smaller by an address-space limit, but at least a page.
+func reservedGuard(size uintptr) uintptr {
+	return max(min(size/64, stackGuard), pageSize)
+}
+
+var reserved struct {
+	lock  Lock
+	n     int
+	cache [stackCacheMax]reservedStack
+
+	limit  uintptr // the address-space limit, ^0 if none; 0 until read
+	mapped uintptr // bytes of reserved stacks mapped, cached ones included
+	max    uintptr // the largest stack to try: smaller once a mapping failed
+}
+
+// reserveTaskStack returns a reserved stack, or one with a nil mem if none
+// can be mapped.
+func reserveTaskStack() reservedStack {
+	pp := pinP()
+	if pp != nil && pp.nlazy > 0 {
+		pp.nlazy--
+		rs := pp.lazy[pp.nlazy]
+		unpinP()
+		return rs
+	}
+	unpinP()
+	c := &reserved
+	c.lock.Lock()
+	if c.n > 0 {
+		c.n--
+		rs := c.cache[c.n]
+		c.lock.Unlock()
+		return rs
+	}
+	size := reservedSize()
+	c.lock.Unlock()
+	const (
+		protRW     = 0x3
+		mapFlags   = 0x22 | 0x4000 | 0x20000 // private, anonymous, no reserve, stack
+		sysMmapErr = ^uintptr(4095)
+	)
+	for {
+		guard := reservedGuard(size)
+		total := guard + size + pageSize
+		r := syscall6(sysMmap, 0, total, protRW, mapFlags, ^uintptr(0), 0)
+		if r <= sysMmapErr {
+			if syscall3(sysMprotect, r, guard, ProtNone) != 0 {
+				syscall3(sysMunmap, r, total, 0)
+				return reservedStack{}
+			}
+			c.lock.Lock()
+			c.mapped += total
+			c.lock.Unlock()
+			return reservedStack{mem: unsafe.Pointer(r), total: total, guard: guard}
+		}
+		// Out of address space (or of memory, with overcommit off):
+		// reserve less, for this stack and those that follow.
+		if size <= DefaultStackSize {
+			return reservedStack{}
+		}
+		size /= 2
+		c.lock.Lock()
+		c.max = min(c.max, size)
+		c.lock.Unlock()
+	}
+}
+
+// reservedSize returns the size of the next stack to reserve; reserved.lock
+// is held. It is HostedStackSize unless the process has an address-space
+// limit (RLIMIT_AS, ulimit -v): then reserved stacks may take half of it at
+// full size, and beyond that each new one is halved until it fits in what
+// is left of the half, down to DefaultStackSize. The first stacks are as
+// large as without a limit, so a program with a few deep puroutines works
+// the same, and many puroutines still fit, each with a smaller stack.
+func reservedSize() uintptr {
+	c := &reserved
+	if c.limit == 0 {
+		const (
+			sysPrlimit64 = 302
+			rlimitAS     = 9
+		)
+		c.limit = ^uintptr(0)
+		var lim [2]uint64 // soft and hard limits
+		if syscall6(sysPrlimit64, 0, rlimitAS, 0, uintptr(unsafe.Pointer(&lim)), 0, 0) == 0 && lim[0] != ^uint64(0) {
+			c.limit = uintptr(lim[0])
+		}
+		c.max = HostedStackSize
+	}
+	size := c.max
+	if c.limit != ^uintptr(0) {
+		for size > DefaultStackSize && c.mapped+reservedGuard(size)+size+pageSize > c.limit/2 {
+			size /= 2
+		}
+	}
+	return size
+}
+
+// releaseTaskStack caches the reserved stack rs, or unmaps it if the caches
+// are full. lowSP is the lowest stack pointer its puroutine was seen at.
+func releaseTaskStack(rs reservedStack, lowSP uintptr) {
+	const madvDontneed = 4
+	lo := uintptr(rs.mem) + rs.guard
+	keep := uintptr(rs.mem) + rs.total - pageSize - reservedKeep
+	rs.uses++
+	if (lowSP < keep || rs.uses >= reservedTrim) && keep > lo {
+		// Give back what the puroutine touched below the top.
+		syscall3(sysMadvise, lo, keep-lo, madvDontneed)
+		rs.uses = 0
+	}
+	pp := pinP()
+	if pp != nil && pp.nlazy < pStackCacheMax {
+		pp.lazy[pp.nlazy] = rs
+		pp.nlazy++
+		unpinP()
+		return
+	}
+	unpinP()
+	c := &reserved
+	c.lock.Lock()
+	if c.n < stackCacheMax {
+		c.cache[c.n] = rs
+		c.n++
+		c.lock.Unlock()
+		return
+	}
+	c.mapped -= rs.total
+	c.lock.Unlock()
+	syscall3(sysMunmap, uintptr(rs.mem), rs.total, 0)
+}
+
+// noteStackDepth records how deep the running puroutine t has gone, for a
+// reserved stack's trim (releaseTaskStack). The backend's Park and Yield
+// call it, on t's stack. Only a task on a reserved stack has a guard
+// region recorded (NewTask); the others, BootTask among them, are left
+// alone.
+//
+//pu:inline
+func noteStackDepth(t *Task) {
+	if t.guard == 0 {
+		return
+	}
+	ht := (*hostedTask)(unsafe.Pointer(t))
+	if sp := getsp(); sp < ht.lowSP {
+		ht.lowSP = sp
+	}
 }
 
 // flushStackCache frees the cached stacks at exit, so that an allocator

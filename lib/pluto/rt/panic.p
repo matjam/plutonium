@@ -288,11 +288,14 @@ func PanicFault(kind FaultKind, addr, pc, sp, bp uintptr) {
 // stackOverflow reports whether a memory fault at addr, with the stack
 // pointer at sp, is the stack running into its guard: just below the
 // stack pointer, in the guard region of the stack //pu:stack reserved, or
-// in the guard page below a puroutine's stack.
+// in the guard region below a puroutine's stack (a page, unless the
+// backend recorded more with SetStackGuard).
 func stackOverflow(addr, sp uintptr) bool {
 	t := current()
-	return addr < sp+4096 && addr+65536 > sp || addr >= guardLo && addr < guardHi ||
-		t != nil && t.stackLo != 0 && addr < t.stackLo && addr+pageSize >= t.stackLo
+	if t != nil && t.stackLo != 0 && addr < t.stackLo && addr+max(t.guard, pageSize) >= t.stackLo {
+		return true
+	}
+	return addr < sp+4096 && addr+65536 > sp || addr >= guardLo && addr < guardHi
 }
 
 // describeFault writes the runtime's message for a fault.
