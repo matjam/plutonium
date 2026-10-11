@@ -166,7 +166,6 @@ func TestHandFixNotes(t *testing.T) {
 		"closure escapes its frame (passed to a function that keeps it)",
 		"in an interface: Plutonium boxes it",
 		"recover:",
-		"go statement",
 		"channel type",
 		"range over a function",
 		"defer in a loop",
@@ -188,7 +187,7 @@ func TestHandFixNotes(t *testing.T) {
 	// x is captured by a closure that outlives main, so it moves to the
 	// heap. Maps translate as they are, deleting while ranging included.
 	src := string(res.Files[0].Src)
-	for _, want := range []string{"x := pu.New(1)", "(*x)++", "m := map[string]int{\"a\": 1}", "for k := range m {\n\t\tdelete(m, k)", `compat.Runes("é")`} {
+	for _, want := range []string{"x := pu.New(1)", "(*x)++", "m := map[string]int{\"a\": 1}", "for k := range m {\n\t\tdelete(m, k)", `compat.Runes("é")`, "task func(v int) { ch <- v }(c())"} {
 		if !strings.Contains(src, want) {
 			t.Errorf("translation lacks %q:\n%s", want, src)
 		}

@@ -610,7 +610,12 @@
       "patterns": [
         { "name": "keyword.bits.plutonium", "match": "\\b(?:bits)\\b(?=\\s*[\\[{])" },
         { "name": "keyword.owner.plutonium", "match": "\\b(?:owner)\\b(?=\\s+(?:struct|interface|union|packed|enum|any|comparable|portable)\\b)" },
-        { "name": "keyword.union.plutonium", "match": "\\b(?:union)\\b(?=\\s*\\{)" }
+        { "name": "keyword.union.plutonium", "match": "\\b(?:union)\\b(?=\\s*\\{)" },
+        {
+          "comment": "task starts a task statement at the start of a statement when an identifier or func follows (language spec 4.6); task := x, task.Run() and task = x use it as a name. A struct field or parameter named task on a line of its own, followed by its type, is highlighted too: a grammar cannot tell it from a statement.",
+          "match": "(?:^|(?<=[;{]))\\s*(task)\\b(?=\\s+(?:func\\b|[A-Za-z_]))",
+          "captures": { "1": { "name": "keyword.control.task.plutonium" } }
+        }
       ]
     },
 

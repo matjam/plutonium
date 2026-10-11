@@ -52,6 +52,7 @@ const (
 	DeclarationErrors                                 // report declaration errors
 	SpuriousErrors                                    // same as AllErrors, for backward-compatibility
 	SkipObjectResolution                              // skip deprecated identifier resolution; see ParseFile
+	AllowGoStmt                                       // accept go statements (as TaskStmt with Go set); for tools and tests that read Go source
 	AllErrors            = SpuriousErrors             // report all errors (not just the first 10 on different lines)
 )
 

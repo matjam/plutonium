@@ -198,12 +198,12 @@ func (a *analyzer) walk(fn ast.Node, n ast.Node, outer *Task, loops []ast.Stmt) 
 			}
 			a.function(x, x.Body)
 			return false
-		case *ast.GoStmt, *ast.DeferStmt:
+		case *ast.TaskStmt, *ast.DeferStmt:
 			// A Task call that a go or defer statement makes runs at a
 			// time the compiler does not follow: it starts the task as a
 			// go statement does.
 			var call *ast.CallExpr
-			if g, ok := x.(*ast.GoStmt); ok {
+			if g, ok := x.(*ast.TaskStmt); ok {
 				call = g.Call
 			} else {
 				call = x.(*ast.DeferStmt).Call

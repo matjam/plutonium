@@ -218,12 +218,12 @@ func checkFixedPoint(t *testing.T, name string, src []byte) {
 // sorted first, since the formatter sorts them.
 func sameAST(name string, a, b []byte) error {
 	fsetA := token.NewFileSet()
-	fa, err := parser.ParseFile(fsetA, name, a, parser.ParseComments)
+	fa, err := parser.ParseFile(fsetA, name, a, parser.ParseComments|parser.AllowGoStmt)
 	if err != nil {
 		return err
 	}
 	ast.SortImports(fsetA, fa)
-	fb, err := parser.ParseFile(token.NewFileSet(), name, b, parser.ParseComments)
+	fb, err := parser.ParseFile(token.NewFileSet(), name, b, parser.ParseComments|parser.AllowGoStmt)
 	if err != nil {
 		return fmt.Errorf("%s: formatted output does not parse: %v", name, err)
 	}

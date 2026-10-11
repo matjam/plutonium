@@ -1,0 +1,2 @@
+$DIR/main.p:10:2: go starts no task here; write: task worker(jobs)
+$DIR/main.p:11:2: go starts no task here; write task in place of go

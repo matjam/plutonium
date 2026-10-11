@@ -484,9 +484,9 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 			check.assignVar(s.Lhs[0], nil, &x, "assignment")
 		}
 
-	case *ast.GoStmt:
+	case *ast.TaskStmt:
 		check.suspendedCall("go", s.Call)
-		check.goStmtArgs(s.Call)
+		check.taskStmtArgs(s.Call)
 
 	case *ast.DeferStmt:
 		check.suspendedCall("defer", s.Call)

@@ -52,7 +52,7 @@ func (s *fnState) checkSendable(T types2.Type, pos token.Pos, what string) {
 
 // goFrameClosures reports the func values of a go statement that are known
 // to be closure records in this frame: the function started (fun, unless
-// it is a function literal, which goStmt checks, or a method call) and the
+// it is a function literal, which taskStmt checks, or a method call) and the
 // func-typed arguments. It reports whether there were any. Those it cannot
 // tell about are checked when the go statement runs.
 func (s *fnState) goFrameClosures(fun ast.Expr, args []ast.Expr) bool {
@@ -365,7 +365,7 @@ func (s *fnState) goCapturingLiteral(lit *ast.FuncLit, caps []*types2.Var) {
 	}
 	d.More = []*diag.Fix{{
 		Intro: "Or declare it at package level and pass a pointer",
-		Code:  strings.Join(news, "\n") + fmt.Sprintf("\ngo func(%s) {\n\t...\n}(%s)", strings.Join(params, ", "), strings.Join(args, ", ")),
+		Code:  strings.Join(news, "\n") + fmt.Sprintf("\ntask func(%s) {\n\t...\n}(%s)", strings.Join(params, ", "), strings.Join(args, ", ")),
 	}}
 	s.l.report(lit.Pos(), d)
 }
@@ -377,13 +377,13 @@ type goArg struct {
 	off int64
 }
 
-// goStmt lowers go f(args). The function value (or receiver) and the
+// taskStmt lowers go f(args). The function value (or receiver) and the
 // arguments are evaluated here and copied into a block that the runtime
 // copies onto the new puroutine's stack; a generated function, the thunk,
 // runs first on the new puroutine, loads them from there and makes the
 // call. Variadic arguments are copied with their array, which would
 // otherwise stay in this frame.
-func (s *fnState) goStmt(st *ast.GoStmt) {
+func (s *fnState) taskStmt(st *ast.TaskStmt) {
 	call := st.Call
 	fun := ast.Unparen(call.Fun)
 	if lit, ok := fun.(*ast.FuncLit); ok {

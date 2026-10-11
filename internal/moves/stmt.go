@@ -119,7 +119,7 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 		f.env = nil
 	case *ast.DeferStmt:
 		f.deferStmt(st)
-	case *ast.GoStmt:
+	case *ast.TaskStmt:
 		f.call(st.Call, mvGo)
 	case *ast.SendStmt:
 		f.expr(st.Chan)

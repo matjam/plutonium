@@ -42,7 +42,7 @@ func initialize() {
 		log.Fatalf("%s", err)
 	}
 
-	file, err := parser.ParseFile(fset, filename, src, parser.ParseComments|parser.SkipObjectResolution)
+	file, err := parser.ParseFile(fset, filename, src, parser.ParseComments|parser.SkipObjectResolution|parser.AllowGoStmt)
 	if err != nil {
 		log.Fatalf("%s", err)
 	}

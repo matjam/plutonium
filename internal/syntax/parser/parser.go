@@ -36,6 +36,7 @@ import (
 // The parser structure holds the parser's internal state.
 type parser struct {
 	file    *token.File
+	src     []byte
 	errors  scanner.ErrorList
 	scanner scanner.Scanner
 
@@ -67,6 +68,11 @@ type parser struct {
 	exprLev int  // < 0: in control clause, >= 0: in expression
 	inRhs   bool // if set, the parser is parsing a rhs expression
 
+	// pre, if not nil, is an operand the parser has already read (the
+	// identifier "task" at the start of a statement) and that
+	// parseUnaryExpr returns as the start of the next operand.
+	pre ast.Expr
+
 	imports []*ast.ImportSpec // list of imports
 
 	// nestLev is used to track and limit the recursion depth
@@ -76,6 +82,7 @@ type parser struct {
 
 func (p *parser) init(file *token.File, src []byte, mode Mode) {
 	p.file = file
+	p.src = src
 	eh := func(pos token.Position, msg string) { p.errors.Add(pos, msg) }
 	p.scanner.Init(p.file, src, eh, scanner.ScanComments)
 
@@ -2005,6 +2012,11 @@ func (p *parser) parseUnaryExpr() ast.Expr {
 		defer un(trace(p, "UnaryExpr"))
 	}
 
+	if x := p.pre; x != nil {
+		p.pre = nil
+		return p.parsePrimaryExpr(x)
+	}
+
 	switch p.tok {
 	case token.ADD, token.SUB, token.NOT, token.XOR, token.AND, token.TILDE:
 		pos, op := p.pos, p.tok
@@ -2226,6 +2238,43 @@ func (p *parser) parseCallExpr(callType string) *ast.CallExpr {
 	return nil
 }
 
+// parseTaskStmt parses a statement that starts with the identifier "task".
+// "task" is a contextual keyword (language spec 4.6): followed by an
+// identifier or "func" it begins a task statement, and otherwise it is an
+// ordinary identifier that starts a simple statement.
+func (p *parser) parseTaskStmt() ast.Stmt {
+	if p.trace {
+		defer un(trace(p, "TaskStmt"))
+	}
+
+	pos := p.pos
+	p.next()
+	if p.tok != token.IDENT && p.tok != token.FUNC {
+		// An identifier named task: hand it to the expression parser as
+		// the first operand of a simple statement.
+		p.pre = &ast.Ident{NamePos: pos, Name: "task"}
+		s, _ := p.parseSimpleStmt(labelOk)
+		if _, isLabeledStmt := s.(*ast.LabeledStmt); !isLabeledStmt {
+			p.expectSemi()
+		}
+		return s
+	}
+
+	call := p.parseCallExpr("task")
+	p.expectSemi()
+	if call == nil {
+		return &ast.BadStmt{From: pos, To: pos + 4} // len("task")
+	}
+
+	return &ast.TaskStmt{Task: pos, Call: call}
+}
+
+// parseGoStmt parses a statement that starts with the reserved word go. A
+// go statement starts no task (language spec 4.5): the parser reports an
+// error that names the task statement and goes on as if "task" had been
+// written, so that the checker finds nothing more to report. With the mode
+// AllowGoStmt (tools that read Go source) it reports nothing; the statement
+// keeps the spelling "go", which the printer reproduces.
 func (p *parser) parseGoStmt() ast.Stmt {
 	if p.trace {
 		defer un(trace(p, "GoStmt"))
@@ -2235,10 +2284,34 @@ func (p *parser) parseGoStmt() ast.Stmt {
 	call := p.parseCallExpr("go")
 	p.expectSemi()
 	if call == nil {
+		if p.mode&AllowGoStmt == 0 {
+			p.error(pos, "go starts no task here; write task in place of go")
+		}
 		return &ast.BadStmt{From: pos, To: pos + 2} // len("go")
 	}
+	if p.mode&AllowGoStmt == 0 {
+		if text := p.callText(call); text != "" {
+			p.error(pos, "go starts no task here; write: task "+text)
+		} else {
+			p.error(pos, "go starts no task here; write task in place of go")
+		}
+	}
 
-	return &ast.GoStmt{Go: pos, Call: call}
+	return &ast.TaskStmt{Task: pos, Go: true, Call: call}
+}
+
+// callText returns the source text of a call that fits on one line, and ""
+// for any other.
+func (p *parser) callText(call *ast.CallExpr) string {
+	from, to := p.file.Offset(call.Pos()), p.file.Offset(call.End())
+	if from < 0 || to > len(p.src) || from >= to {
+		return ""
+	}
+	text := string(p.src[from:to])
+	if strings.ContainsAny(text, "\n") {
+		return ""
+	}
+	return text
 }
 
 func (p *parser) parseDeferStmt() ast.Stmt {
@@ -2654,6 +2727,10 @@ func (p *parser) parseStmt() (s ast.Stmt) {
 
 	if p.trace {
 		defer un(trace(p, "Statement"))
+	}
+
+	if p.tok == token.IDENT && p.lit == "task" {
+		return p.parseTaskStmt()
 	}
 
 	switch p.tok {

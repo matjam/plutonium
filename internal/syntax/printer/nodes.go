@@ -1461,8 +1461,12 @@ func (p *printer) stmt(stmt ast.Stmt, nextIsRBrace bool) {
 		p.print(s.Tok, blank)
 		p.exprList(s.TokPos, s.Rhs, depth, 0, token.NoPos, false)
 
-	case *ast.GoStmt:
-		p.print(token.GO, blank)
+	case *ast.TaskStmt:
+		if s.Go {
+			p.print(token.GO, blank)
+		} else {
+			p.print(&ast.Ident{NamePos: s.Task, Name: "task"}, blank)
+		}
 		p.expr(s.Call)
 
 	case *ast.DeferStmt:

@@ -1,0 +1,14 @@
+$DIR/main.p:10:2: go starts no task here; write: task worker(jobs)
+    A task is started with the task statement, written like a call: task
+    worker(jobs). The word go is reserved so that a statement that starts with
+    it gets this message, but it starts nothing in Plutonium.
+    Plutonium has no goroutines. A task runs on its own fixed-size stack and is
+    scheduled by the runtime library, so the statement that starts one has its
+    own name.
+    To start a task, write task in place of go:
+        task worker(jobs)
+    (see "Task statements" in the Plutonium spec, section 12.12)
+    (run "pluto explain E1012" for a longer explanation)
+
+$DIR/main.p:11:2: go starts no task here; write task in place of go
+    (explained above; run "pluto explain E1012" for more)

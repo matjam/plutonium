@@ -307,11 +307,13 @@ func local(s *types2.Scope, pkg *types2.Package) bool {
 	return s != types2.Universe && (pkg == nil || s != pkg.Scope() && s.Parent() != pkg.Scope())
 }
 
-// keywords are the language's keywords.
+// keywords are the words completion offers as keywords: the reserved words,
+// except go, which starts no statement (language spec 4.5), and task, the
+// contextual keyword that starts a task statement (language spec 4.6).
 var keywords = func() []string {
-	var kws []string
+	kws := []string{"task"}
 	for tok := token.Token(0); tok < 256; tok++ {
-		if tok.IsKeyword() {
+		if tok.IsKeyword() && tok != token.GO {
 			kws = append(kws, tok.String())
 		}
 	}

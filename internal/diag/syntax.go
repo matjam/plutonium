@@ -95,6 +95,15 @@ func init() {
 			Text: "Methods may have type parameters of their own, but an interface cannot declare such a method. A call through an interface does not know which type's method it reaches, so it could not pick an instance of a generic method.",
 			Spec: pspec("10.15", "Methods with type parameters"),
 		},
+		&Entry{
+			Code: GoStatement, Name: "GoStatement",
+			Text:    "A task is started with the task statement, written like a call: task worker(jobs). The word go is reserved so that a statement that starts with it gets this message, but it starts nothing in Plutonium.",
+			Why:     "Plutonium has no goroutines. A task runs on its own fixed-size stack and is scheduled by the runtime library, so the statement that starts one has its own name.",
+			Fix:     &Fix{Intro: "To start a task, write task in place of go", Code: "task worker(jobs)"},
+			Spec:    pspec("12.12", "Task statements"),
+			Example: "go worker(jobs)",
+			Fixed:   "task worker(jobs)",
+		},
 	)
 }
 
@@ -103,6 +112,10 @@ func init() {
 func FromSyntax(e *scanner.Error, src []byte) *Diagnostic {
 	d := &Diagnostic{Pos: e.Pos, Msg: e.Msg, Code: syntaxCode(e.Msg)}
 	switch d.Code {
+	case GoStatement:
+		if _, call, ok := strings.Cut(e.Msg, "write: "); ok && strings.HasPrefix(call, "task ") {
+			d.Fix = &Fix{Intro: "To start a task, write task in place of go", Code: call}
+		}
 	case StmtOutsideFunc:
 		if line := sourceLine(src, e.Pos.Line); strings.Contains(line, ":=") {
 			name, value, _ := strings.Cut(line, ":=")
@@ -143,6 +156,8 @@ func syntaxCode(msg string) Code {
 		return BadDefaultSyntax
 	case has("interface method must have no type parameters"):
 		return IfaceMethodTParams
+	case strings.HasPrefix(msg, "go starts no task"):
+		return GoStatement
 	case has("literal not terminated") || has("illegal character") || has("illegal rune") ||
 		has("invalid digit") || has("has no digits") || has("exponent") || has("escape sequence") ||
 		has("curly quotation") || has("comment not terminated") || has("radix point") ||

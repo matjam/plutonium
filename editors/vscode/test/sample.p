@@ -229,9 +229,15 @@ func (v *Vec[T]) Map[U any](fn func(T) U, a alloc.Allocator = alloc.Default()) V
 //    ^^^ keyword.operator.assignment.compound
     x <<= 1
 //    ^^^ keyword.operator.assignment.compound
-    go worker(ch)
-//  ^^ keyword.control
-//     ^^^^^^ entity.name.function
+    task worker(ch)
+//  ^^^^ keyword.control.task
+//       ^^^^^^ entity.name.function
+    task func() { }()
+//  ^^^^ keyword.control.task
+    task := worker
+//  ^^^^ !keyword
+    task.Run()
+//  ^^^^ !keyword
     defer close(ch)
 //        ^^^^^ support.function.builtin
     select {

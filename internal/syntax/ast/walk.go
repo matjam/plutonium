@@ -233,7 +233,7 @@ func Walk(v Visitor, node Node) {
 		walkList(v, n.Lhs)
 		walkList(v, n.Rhs)
 
-	case *GoStmt:
+	case *TaskStmt:
 		Walk(v, n.Call)
 
 	case *DeferStmt:

@@ -148,7 +148,7 @@ func TestKeywords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, w := range []string{"bits", "owner", "union", "le", "be"} {
+	for _, w := range []string{"bits", "owner", "union", "task", "le", "be"} {
 		if !regexp.MustCompile(`[\\(|]` + w + `[\\)|]`).Match(data) {
 			t.Errorf("contextual keyword %q does not appear in %s", w, grammarFile)
 		}

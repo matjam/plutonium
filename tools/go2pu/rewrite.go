@@ -91,7 +91,7 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 	case *ast.ReturnStmt:
 		t.checkReturnBoxes(n)
 	case *ast.GoStmt:
-		t.note(n, "go statement: puroutines are planned (roadmap item 14)")
+		return "task " + t.render(n.Call), true
 	case *ast.ChanType:
 		t.note(n, "channel type: channels are planned (roadmap item 15)")
 	case *ast.DeferStmt:

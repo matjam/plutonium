@@ -576,7 +576,7 @@ func (f *closureFlow) visit(n ast.Node) bool {
 		}
 	case *ast.SendStmt:
 		f.assign(&ast.StarExpr{X: n.Chan}, f.expr(n.Value))
-	case *ast.GoStmt:
+	case *ast.TaskStmt:
 		// The puroutine runs the function with the arguments, which must
 		// outlive this frame.
 		m := f.expr(n.Call.Fun)

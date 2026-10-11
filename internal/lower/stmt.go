@@ -94,8 +94,8 @@ func (s *fnState) stmt(st ast.Stmt) {
 		s.returnStmt(st)
 	case *ast.DeferStmt:
 		s.deferStmt(st)
-	case *ast.GoStmt:
-		s.goStmt(st)
+	case *ast.TaskStmt:
+		s.taskStmt(st)
 	case *ast.SendStmt:
 		s.sendStmt(st)
 	case *ast.SelectStmt:

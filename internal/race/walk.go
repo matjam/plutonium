@@ -336,8 +336,8 @@ func (w *walker) stmt(st ast.Stmt, label string) {
 				w.value(arg)
 			}
 		}
-	case *ast.GoStmt:
-		w.goStmt(st)
+	case *ast.TaskStmt:
+		w.taskStmt(st)
 	case *ast.SendStmt:
 		w.value(st.Chan)
 		v := w.value(st.Value)
@@ -835,7 +835,7 @@ func (w *walker) cond(e ast.Expr) (t, f *state) {
 // ----------------------------------------------------------------------------
 // Tasks and channels
 
-func (w *walker) goStmt(st *ast.GoStmt) {
+func (w *walker) taskStmt(st *ast.TaskStmt) {
 	c := st.Call
 	desc := "go " + exprText(c.Fun)
 	if tv := w.a.types[c.Fun]; tv.IsBuiltin() || tv.IsType() {

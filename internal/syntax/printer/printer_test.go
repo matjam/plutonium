@@ -46,7 +46,7 @@ const (
 // if any.
 func format(src []byte, mode checkMode) ([]byte, error) {
 	// parse src
-	f, err := parser.ParseFile(fset, "", src, parser.ParseComments|parser.SkipObjectResolution)
+	f, err := parser.ParseFile(fset, "", src, parser.ParseComments|parser.SkipObjectResolution|parser.AllowGoStmt)
 	if err != nil {
 		return nil, fmt.Errorf("parse: %s\n%s", err, src)
 	}
@@ -68,7 +68,7 @@ func format(src []byte, mode checkMode) ([]byte, error) {
 
 	// make sure formatted output is syntactically correct
 	res := buf.Bytes()
-	if _, err := parser.ParseFile(fset, "", res, parser.ParseComments|parser.SkipObjectResolution); err != nil {
+	if _, err := parser.ParseFile(fset, "", res, parser.ParseComments|parser.SkipObjectResolution|parser.AllowGoStmt); err != nil {
 		return nil, fmt.Errorf("re-parse: %s\n%s", err, buf.Bytes())
 	}
 
@@ -205,7 +205,7 @@ func TestLineComments(t *testing.T) {
 	`
 
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "", src, parser.ParseComments|parser.SkipObjectResolution)
+	f, err := parser.ParseFile(fset, "", src, parser.ParseComments|parser.SkipObjectResolution|parser.AllowGoStmt)
 	if err != nil {
 		panic(err) // error in test
 	}
@@ -246,7 +246,7 @@ func init() {
 func TestBadNodes(t *testing.T) {
 	const src = "package p\n("
 	const res = "package p\nBadDecl\n"
-	f, err := parser.ParseFile(fset, "", src, parser.ParseComments|parser.SkipObjectResolution)
+	f, err := parser.ParseFile(fset, "", src, parser.ParseComments|parser.SkipObjectResolution|parser.AllowGoStmt)
 	if err == nil {
 		t.Error("expected illegal program") // error in test
 	}
@@ -269,7 +269,7 @@ func testComment(t *testing.T, f *ast.File, srclen int, comment *ast.Comment) {
 		if err := Fprint(&buf, fset, f); err != nil {
 			t.Error(err)
 		}
-		if _, err := parser.ParseFile(fset, "", buf.Bytes(), parser.SkipObjectResolution); err != nil {
+		if _, err := parser.ParseFile(fset, "", buf.Bytes(), parser.SkipObjectResolution|parser.AllowGoStmt); err != nil {
 			t.Fatalf("incorrect program for pos = %d:\n%s", comment.Slash, buf.String())
 		}
 		// Position information is just an offset.
@@ -300,7 +300,7 @@ func fibo(n int) {
 }
 `
 
-	f, err := parser.ParseFile(fset, "", src, parser.ParseComments|parser.SkipObjectResolution)
+	f, err := parser.ParseFile(fset, "", src, parser.ParseComments|parser.SkipObjectResolution|parser.AllowGoStmt)
 	if err != nil {
 		t.Error(err) // error in test
 	}
@@ -363,7 +363,7 @@ func (t *t) foo(a, b, c int) int {
 `
 
 	// parse original
-	f1, err := parser.ParseFile(fset, "src", src, parser.ParseComments|parser.SkipObjectResolution)
+	f1, err := parser.ParseFile(fset, "src", src, parser.ParseComments|parser.SkipObjectResolution|parser.AllowGoStmt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +377,7 @@ func (t *t) foo(a, b, c int) int {
 
 	// parse pretty printed original
 	// (//line directives must be interpreted even w/o parser.ParseComments set)
-	f2, err := parser.ParseFile(fset, "", buf.Bytes(), parser.SkipObjectResolution)
+	f2, err := parser.ParseFile(fset, "", buf.Bytes(), parser.SkipObjectResolution|parser.AllowGoStmt)
 	if err != nil {
 		t.Fatalf("%s\n%s", err, buf.Bytes())
 	}
@@ -445,7 +445,7 @@ func g() {
 `
 
 	// parse original
-	f1, err := parser.ParseFile(fset, "src.go", orig, parser.SkipObjectResolution)
+	f1, err := parser.ParseFile(fset, "src.go", orig, parser.SkipObjectResolution|parser.AllowGoStmt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +487,7 @@ type T struct {
 }
 `
 
-	f, err := parser.ParseFile(fset, "src.go", orig, parser.ParseComments|parser.SkipObjectResolution)
+	f, err := parser.ParseFile(fset, "src.go", orig, parser.ParseComments|parser.SkipObjectResolution|parser.AllowGoStmt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,7 +512,7 @@ var decls = []string{
 
 func TestDeclLists(t *testing.T) {
 	for _, src := range decls {
-		file, err := parser.ParseFile(fset, "", "package p;"+src, parser.ParseComments|parser.SkipObjectResolution)
+		file, err := parser.ParseFile(fset, "", "package p;"+src, parser.ParseComments|parser.SkipObjectResolution|parser.AllowGoStmt)
 		if err != nil {
 			panic(err) // error in test
 		}
@@ -538,7 +538,7 @@ var stmts = []string{
 
 func TestStmtLists(t *testing.T) {
 	for _, src := range stmts {
-		file, err := parser.ParseFile(fset, "", "package p; func _() {"+src+"}", parser.ParseComments|parser.SkipObjectResolution)
+		file, err := parser.ParseFile(fset, "", "package p; func _() {"+src+"}", parser.ParseComments|parser.SkipObjectResolution|parser.AllowGoStmt)
 		if err != nil {
 			panic(err) // error in test
 		}
@@ -567,7 +567,7 @@ func TestBaseIndent(t *testing.T) {
 		panic(err) // error in test
 	}
 
-	file, err := parser.ParseFile(fset, filename, src, parser.SkipObjectResolution)
+	file, err := parser.ParseFile(fset, filename, src, parser.SkipObjectResolution|parser.AllowGoStmt)
 	if err != nil {
 		panic(err) // error in test
 	}
@@ -675,7 +675,7 @@ func TestWriteErrors(t *testing.T) {
 	if err != nil {
 		panic(err) // error in test
 	}
-	file, err := parser.ParseFile(fset, filename, src, parser.SkipObjectResolution)
+	file, err := parser.ParseFile(fset, filename, src, parser.SkipObjectResolution|parser.AllowGoStmt)
 	if err != nil {
 		panic(err) // error in test
 	}
@@ -728,7 +728,7 @@ type bar int	// comment2
 	)
 
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "input.go", input, parser.ParseComments|parser.SkipObjectResolution)
+	f, err := parser.ParseFile(fset, "input.go", input, parser.ParseComments|parser.SkipObjectResolution|parser.AllowGoStmt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -759,7 +759,7 @@ type bar int	// comment2
 func TestIssue11151(t *testing.T) {
 	const src = "package p\t/*\r/1\r*\r/2*\r\r\r\r/3*\r\r+\r\r/4*/\n"
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "", src, parser.ParseComments|parser.SkipObjectResolution)
+	f, err := parser.ParseFile(fset, "", src, parser.ParseComments|parser.SkipObjectResolution|parser.AllowGoStmt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -773,7 +773,7 @@ func TestIssue11151(t *testing.T) {
 	}
 
 	// the resulting program must be valid
-	_, err = parser.ParseFile(fset, "", got, parser.SkipObjectResolution)
+	_, err = parser.ParseFile(fset, "", got, parser.SkipObjectResolution|parser.AllowGoStmt)
 	if err != nil {
 		t.Errorf("%v\norig: %q\ngot : %q", err, src, got)
 	}
@@ -785,7 +785,7 @@ func TestParenthesizedDecl(t *testing.T) {
 	// a package with multiple specs in a single declaration
 	const src = "package p; var ( a float64; b int )"
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "", src, parser.SkipObjectResolution)
+	f, err := parser.ParseFile(fset, "", src, parser.SkipObjectResolution|parser.AllowGoStmt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -825,7 +825,7 @@ func f() {
         }
 }`
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "", src, parser.SkipObjectResolution)
+	file, err := parser.ParseFile(fset, "", src, parser.SkipObjectResolution|parser.AllowGoStmt)
 	if err != nil {
 		panic(err)
 	}
@@ -855,7 +855,7 @@ func TestSourcePosNewline(t *testing.T) {
 	fname := "foo\nbar/bar.go"
 	src := `package bar`
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, fname, src, parser.ParseComments|parser.AllErrors|parser.SkipObjectResolution)
+	f, err := parser.ParseFile(fset, fname, src, parser.ParseComments|parser.AllErrors|parser.SkipObjectResolution|parser.AllowGoStmt)
 	if err != nil {
 		t.Fatal(err)
 	}

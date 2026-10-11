@@ -509,7 +509,7 @@ func (a *analyzer) unitSpawns(u *unit) bool {
 		}
 		ast.Inspect(f.body, func(n ast.Node) bool {
 			switch n := n.(type) {
-			case *ast.GoStmt:
+			case *ast.TaskStmt:
 				found = true
 			case *ast.Ident:
 				if fn, ok := a.uses[n].(*types2.Func); ok && fn.Name() == "checkGoFunc" && fn.Pkg() != nil && fn.Pkg().Path() == "pluto/rt" {

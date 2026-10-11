@@ -18,6 +18,7 @@ const (
 	MissingPackage     Code = "E1009" // a file that does not start with a package clause
 	BadDefaultSyntax   Code = "E1010" // "a, b T = x": a default after several names
 	IfaceMethodTParams Code = "E1011" // an interface method with type parameters
+	GoStatement        Code = "E1012" // a statement that starts with go
 )
 
 // Plutonium rules checked while compiling, after type checking. E2540 and

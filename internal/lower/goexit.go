@@ -148,7 +148,7 @@ func (l *Lowerer) analyzeGoexit() {
 					walk(info, x.Body, newValue(sig))
 				}
 				return false
-			case *ast.GoStmt:
+			case *ast.TaskStmt:
 				// The call runs on another task; only its operands are
 				// evaluated here.
 				markCalled(info, x.Call.Fun)

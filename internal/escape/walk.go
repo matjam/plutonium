@@ -260,8 +260,8 @@ func (w *walker) labeled(st ast.Stmt, label string) {
 		w.env = nil
 	case *ast.DeferStmt:
 		w.call(st.Call)
-	case *ast.GoStmt:
-		w.goStmt(st)
+	case *ast.TaskStmt:
+		w.taskStmt(st)
 	case *ast.SendStmt:
 		w.value(st.Chan)
 		v := w.value(st.Value)
@@ -580,7 +580,7 @@ func (w *walker) scopeName(sc *scope) string {
 	return sc.fn.name
 }
 
-func (w *walker) goStmt(st *ast.GoStmt) {
+func (w *walker) taskStmt(st *ast.TaskStmt) {
 	e := st.Call
 	ve := func(x ast.Expr) *viewErr {
 		return &viewErr{sink: sinkGo, pos: st.Pos(), expr: x, call: e, fn: w.scopeName(w.sc)}

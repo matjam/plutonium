@@ -88,7 +88,7 @@ func blockingOps(fb funcBody) []blockOp {
 		switch n := n.(type) {
 		case *ast.FuncLit:
 			return false
-		case *ast.GoStmt:
+		case *ast.TaskStmt:
 			ops = append(ops, blockOp{n.Pos(), "starts a puroutine", opSpawn})
 		case *ast.SendStmt:
 			ops = append(ops, blockOp{n.Pos(), "sends on " + types2.ExprString(n.Chan), opWait})

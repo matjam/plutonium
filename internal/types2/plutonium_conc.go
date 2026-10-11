@@ -83,9 +83,9 @@ func GoBoxReceiver(sel *Selection) *Wrapper {
 	return w
 }
 
-// goStmtArgs checks what a go statement hands to the new puroutine: its
+// taskStmtArgs checks what a go statement hands to the new puroutine: its
 // arguments, and the receiver of a method it calls.
-func (check *Checker) goStmtArgs(call *ast.CallExpr) {
+func (check *Checker) taskStmtArgs(call *ast.CallExpr) {
 	for _, a := range call.Args {
 		if T := check.exprType(a); T != nil {
 			if tup, ok := T.(*Tuple); ok {
