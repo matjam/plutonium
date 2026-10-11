@@ -1,5 +1,6 @@
 open two connections
   using conn 1
+  using conn 2
 a block drops what it holds when it ends
   using conn 3
   conn 3 closed

@@ -19,6 +19,7 @@ import (
 	"sort"
 
 	"github.com/matjam/plutonium/internal/diag"
+	"github.com/matjam/plutonium/internal/escape"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/scoped"
 	"github.com/matjam/plutonium/internal/syntax/ast"
@@ -89,9 +90,19 @@ func Check(prog *load.Program) error {
 }
 
 // Analyze runs the move checker and returns what lowering needs, and the
-// errors as a diag.List, or nil.
+// errors as a diag.List, or nil. It runs the escape analysis for what it
+// knows of calls, and leaves its errors to escape.Check.
 func Analyze(prog *load.Program) (*Info, error) {
+	calls, _ := escape.Analyze(prog)
+	return AnalyzeWith(prog, calls)
+}
+
+// AnalyzeWith is Analyze, given what the escape analysis found about calls
+// (escape.Analyze): which addresses of a local variable a call keeps past
+// its return (empty.go).
+func AnalyzeWith(prog *load.Program, calls *escape.Calls) (*Info, error) {
 	c := &checker{
+		calls: calls,
 		info: &Info{Moves: map[*ast.Ident]bool{}, Temps: map[ast.Expr]bool{}, DeferredDrops: map[*ast.CallExpr]bool{},
 			AssertMoves: map[*ast.TypeAssertExpr]bool{}, SwitchMoves: map[*ast.TypeSwitchStmt]bool{},
 			Empty: map[ast.Node]Known{}, AtStmt: map[ast.Stmt]Known{}, EmptyResults: map[*ast.ReturnStmt]VarSet{},
@@ -169,6 +180,7 @@ type checker struct {
 
 	scoped     *scoped.Info // the scoped tasks of sync.Scope (scope.go)
 	taskBodies map[*ast.BlockStmt]*ast.FuncLit
+	calls      *escape.Calls // what calls keep of their arguments (empty.go)
 }
 
 // report records an error once per position and code.
@@ -399,6 +411,9 @@ type fn struct {
 	// noFacts are the variables for which nothing is known to be empty
 	// (empty.go).
 	noFacts map[*types2.Var]bool
+	// argKey maps call arguments without their parentheses to the
+	// expressions the escape analysis keys them by (empty.go).
+	argKey map[ast.Expr]ast.Expr
 }
 
 // A target is a statement that break or continue may leave.
@@ -411,7 +426,8 @@ type target struct {
 
 // checkFunc checks a function body with signature sig.
 func (c *checker) checkFunc(ft *ast.FuncType, recv *ast.FieldList, body *ast.BlockStmt, sig *types2.Signature) {
-	f := &fn{c: c, sig: sig, vars: map[*types2.Var]bool{}, heads: map[ast.Node]env{}, declIn: map[*types2.Var]*ast.BlockStmt{}, topBody: body}
+	f := &fn{c: c, sig: sig, vars: map[*types2.Var]bool{}, heads: map[ast.Node]env{}, declIn: map[*types2.Var]*ast.BlockStmt{}, topBody: body,
+		argKey: keysOf(c, body)}
 	// The function's own variables: parameters, results, and everything
 	// declared in its body outside nested literals.
 	for _, l := range []*ast.FieldList{recv, ft.Params, ft.Results} {

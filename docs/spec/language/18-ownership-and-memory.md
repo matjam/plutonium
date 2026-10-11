@@ -308,7 +308,10 @@ the end of each iteration for a variable declared in a loop body. In detail:
   19.4).
 - Parameters are dropped when the function returns, after its local variables. Results are moved to the
   caller and not dropped.
-- A variable that was moved on some paths is dropped only on the paths where it still holds a value.
+- A variable or place the compiler knows holds nothing (moved away on every path, never given a value,
+  a part a composite literal or `new(T)` left zero, a place emptied by `take`) is not dropped, and an
+  assignment to it does not drop its old value. Where a variable may have been moved on some paths only,
+  it is dropped holding the zero value.
 - Leaving several scopes at once drops what each holds, innermost first. A `goto` back to a label before
   a variable's declaration drops the variable first, since its declaration runs again.
 - Deferred calls run before the function's own variables are dropped, so a deferred call may use them.
@@ -354,7 +357,9 @@ declared only on an owner type (E3201). It is called by the compiler; the progra
 counts as a move, and leaves `x` not dropped again. Calling `Drop` any other way (through a pointer, a
 method value or an ordinary interface) is error E3307, since the real owner would drop the value a second
 time. `Drop` must treat the zero value as empty, since a moved-from variable, the result of `take`, a
-variable that was never filled and memory from every allocator all hold the zero value. `Drop` cannot
+variable that was never filled and memory from every allocator all hold the zero value. Since a
+value known to hold nothing is not dropped (above), a variable never given anything but the zero value
+is never dropped: an owner type whose `Drop` must run has to hold a value. `Drop` cannot
 report failure: a type whose release can fail provides a method such as `Close() error` for callers that
 care, after which `Drop` has nothing left to do.
 

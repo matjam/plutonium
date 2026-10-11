@@ -45,6 +45,7 @@ func main() {
 	a := open(1)
 	b := open(2)
 	use(&a) // a view: borrows, does not move
+	use(&b)
 
 	fmt.Println("a block drops what it holds when it ends")
 	{
@@ -53,7 +54,7 @@ func main() {
 	} // conn 3 is closed here
 
 	fmt.Println("hand b to a function that consumes it")
-	finish(b) // b moves into finish; using b after this line would not compile
+	finish(b) // b moves into finish; using b, or a view of it, after this line would not compile
 
 	fmt.Println("new returns an owned[node], a unique box on the heap")
 	n := new(node)

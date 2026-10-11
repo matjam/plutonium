@@ -18,6 +18,7 @@ type callTarget struct {
 	sig      *types2.Signature
 	recv     tset // the receiver, for method calls
 	recvExpr ast.Expr
+	recvKey  ast.Expr // the receiver as written (recvExpr may add &)
 	hasRecv  bool
 	method   string // dynamic method calls: the method name
 	byName   bool   // a method call through a type parameter
@@ -50,9 +51,17 @@ func (w *walker) call(e *ast.CallExpr) []tset {
 		w.noteArena(e, args[0])
 	}
 	cs := &callSite{pos: e.Pos(), exprs: argExprs(e, t.sig)}
+	cs.keys = cs.exprs
+	if n := t.sig.Params().Len(); t.sig.Variadic() && !e.Ellipsis.IsValid() && len(e.Args) >= n {
+		cs.packed, cs.packedAt = e.Args[n-1:], n-1
+		if t.hasRecv {
+			cs.packedAt++
+		}
+	}
 	if t.hasRecv {
 		args = append([]tset{t.recv}, args...)
 		cs.exprs = append([]ast.Expr{t.recvExpr}, cs.exprs...)
+		cs.keys = append([]ast.Expr{t.recvKey}, cs.keys...)
 	}
 	nres := t.sig.Results().Len()
 	switch {
@@ -71,6 +80,13 @@ func (w *walker) call(e *ast.CallExpr) []tset {
 type callSite struct {
 	pos   token.Pos
 	exprs []ast.Expr
+	// keys are the argument expressions as written, receiver first, for
+	// the facts recorded about them (facts.go); nil if not recorded.
+	// packed are the arguments packed into the variadic parameter at
+	// index packedAt of keys.
+	keys     []ast.Expr
+	packed   []ast.Expr
+	packedAt int
 }
 
 func (cs *callSite) expr(i int) ast.Expr {
@@ -110,7 +126,7 @@ func (w *walker) target(e *ast.CallExpr) callTarget {
 					if p := pointerElem(w.typeOf(se.X)); p != nil {
 						_, byName = types2.Unalias(p).(*types2.TypeParam)
 					}
-					return callTarget{sig: sig, recv: w.receiver(se.X, sel), hasRecv: true, recvExpr: se.X,
+					return callTarget{sig: sig, recv: w.receiver(se.X, sel), hasRecv: true, recvExpr: se.X, recvKey: se.X,
 						method: fn.Name(), byName: byName, name: types2.ExprString(se)}
 				}
 				f := w.a.funcs[fn.Origin()]
@@ -118,7 +134,7 @@ func (w *walker) target(e *ast.CallExpr) callTarget {
 				if recvVar != nil && pointerElem(recvVar.Type()) != nil && pointerElem(w.typeOf(se.X)) == nil {
 					recvExpr = &ast.UnaryExpr{OpPos: se.X.Pos(), Op: token.AND, X: se.X}
 				}
-				return callTarget{static: f, sig: sig, recv: w.receiver(se.X, sel), hasRecv: true, recvExpr: recvExpr, name: w.funcLabel(f, fn)}
+				return callTarget{static: f, sig: sig, recv: w.receiver(se.X, sel), hasRecv: true, recvExpr: recvExpr, recvKey: se.X, name: w.funcLabel(f, fn)}
 			case sel.Kind() == types2.MethodExpr:
 				// T.M(recv, args...): the receiver is the first argument.
 				f := w.a.funcs[fn.Origin()]
@@ -221,6 +237,7 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 	passErr := func(i int, why string) *viewErr {
 		return &viewErr{sink: sinkCall, pos: pos, expr: cs.expr(i), fn: w.scopeName(w.sc), callee: label, calleeWhy: why}
 	}
+	w.a.noteCall(f, cs, mode)
 	if f == nil {
 		// Not a function the analysis has seen: assume the worst.
 		const why = "is a function the compiler cannot see into, so it may keep it"
@@ -352,6 +369,16 @@ func (w *walker) dynIface(t callTarget, args []tset, cs *callSite, nres int) []t
 	return res
 }
 
+// boundKeys returns the argument keys of a call through a method value
+// fun, whose bound receiver comes first: facts about it are facts about
+// the func value, which holds the receiver.
+func boundKeys(cs *callSite, fun ast.Expr) []ast.Expr {
+	if cs.keys == nil {
+		return nil
+	}
+	return append([]ast.Expr{fun}, cs.keys...)
+}
+
 // filterRecv drops from an interface data word the pointers to frame
 // locations whose dynamic type does not have method f.
 func filterRecv(ts tset, f *function) tset {
@@ -434,12 +461,12 @@ func (w *walker) dynFuncCall(t callTarget, args []tset, cs *callSite, fun ast.Ex
 		case fvBound:
 			// A method value: the closure record holds the receiver.
 			fargs = append([]tset{w.load(t.fv)}, args...)
-			fcs = &callSite{pos: cs.pos, exprs: append([]ast.Expr{fun}, cs.exprs...)}
+			fcs = &callSite{pos: cs.pos, exprs: append([]ast.Expr{fun}, cs.exprs...), keys: boundKeys(cs, fun), packed: cs.packed, packedAt: cs.packedAt + 1}
 		case fvBoundIface:
 			// The record holds an interface, whose data word leads to the
 			// receiver.
 			fargs, mode = append([]tset{w.load(t.fv)}, args...), recvReach
-			fcs = &callSite{pos: cs.pos, exprs: append([]ast.Expr{fun}, cs.exprs...)}
+			fcs = &callSite{pos: cs.pos, exprs: append([]ast.Expr{fun}, cs.exprs...), keys: boundKeys(cs, fun), packed: cs.packed, packedAt: cs.packedAt + 1}
 		case fvIfaceExpr:
 			mode = recvReach
 		}

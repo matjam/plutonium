@@ -46,6 +46,10 @@ func (f *fn) expr(e ast.Expr) {
 	case *ast.StarExpr:
 		f.expr(e.X)
 	case *ast.UnaryExpr:
+		if e.Op == token.AND {
+			f.addrOf(e) // empty.go
+			return
+		}
 		f.expr(e.X)
 	case *ast.BinaryExpr:
 		f.expr(e.X)

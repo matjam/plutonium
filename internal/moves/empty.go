@@ -27,8 +27,12 @@ import (
 //
 // The facts are kept only for the function's own variables that nothing
 // else can change behind the walk: not those a function literal uses, whose
-// address is taken (&x, x[:] of an array, a method value), or that a
-// deferred call other than x.Drop() uses.
+// address is kept (&x or x[:] of an array anywhere but as the argument of
+// a call that the escape analysis says keeps no pointer to it, a method
+// value, a pointer-receiver method call whose method keeps its receiver),
+// or that a deferred call other than x.Drop() uses. An address that lasts
+// only for a call is a use of the variable there, after which nothing is
+// known to be zero in it until it is moved or given a new value.
 
 // A zset says what is known to be zero in a variable's storage, or in the
 // object an owned box holds: everything but the paths written. A path is a
@@ -133,17 +137,21 @@ func (f *fn) findNoFacts(body *ast.BlockStmt) {
 			return false
 		case *ast.UnaryExpr:
 			// take(&place) uses the address only while it empties the
-			// place (takeArg).
-			if n.Op == token.AND && !taken[n] {
+			// place (takeArg). An address passed to a call that keeps no
+			// pointer to it lasts only for the call (transient).
+			if n.Op == token.AND && !taken[n] && !f.transient(n) {
 				mark(n.X)
 			}
 		case *ast.SliceExpr:
-			if _, ok := f.c.typeOf(n.X).Underlying().(*types2.Array); ok {
+			if _, ok := f.c.typeOf(n.X).Underlying().(*types2.Array); ok && !f.transient(n) {
 				mark(n.X)
 			}
 		case *ast.CallExpr:
-			if se, ok := ast.Unparen(n.Fun).(*ast.SelectorExpr); ok {
+			if se := funSelector(n.Fun); se != nil {
 				called[se] = true
+				if f.keepsReceiver(n, se) {
+					mark(se.X)
+				}
 			}
 			if amp := f.takeArg(n); amp != nil {
 				taken[amp] = true
@@ -397,6 +405,32 @@ func (f *fn) take(amp *ast.UnaryExpr) {
 	f.setState(v, s)
 }
 
+// addrOf walks &x. Through the address, the program may write the part of
+// a variable that x names, and only that part: what is known to be zero in
+// the rest stays known.
+func (f *fn) addrOf(amp *ast.UnaryExpr) {
+	v, path, box, ok := f.placePath(amp.X)
+	if !ok || !f.tracked(v) || f.env == nil {
+		f.expr(amp.X)
+		return
+	}
+	before := f.env[v]
+	f.expr(amp.X)
+	if f.env == nil || mentions(f.c, amp.X, v) > 1 {
+		return
+	}
+	s := f.env[v]
+	if s.st != live {
+		return // a use after a move, reported
+	}
+	if box {
+		s.z, s.bz = before.z, before.bz.with(path)
+	} else {
+		s.z = before.z.with(path)
+	}
+	f.setState(v, s)
+}
+
 // without returns z with the parts within path p emptied.
 func (z *zset) without(p Path) *zset {
 	if z == nil || slices.Contains(p, "[*]") {
@@ -601,4 +635,98 @@ func JoinKnown(a, b Known) Known {
 		out[v] = Held{Box: ha.Box, Parts: emptyZ.add(ha.Parts).add(hb.Parts).paths}
 	}
 	return out
+}
+
+// ----------------------------------------------------------------------------
+// Views that last only for a call
+
+// transient reports whether the view e, an argument of a call, lasts only
+// for the call: the escape analysis says the callee keeps no pointer to
+// what e points to, or the call is len, cap, copy or clear.
+func (f *fn) transient(e ast.Expr) bool {
+	key := f.argKey[e]
+	if key == nil {
+		return false
+	}
+	if key == builtinUse {
+		return true
+	}
+	af := f.c.calls.Arg(key)
+	return af != nil && !af.Self
+}
+
+// keepsReceiver reports whether the method call se(...) takes the address of
+// its receiver se.X, or of the object of the owned box se.X, and may keep
+// it past the call. A scoped task's call (s.Task) is checked by the rules
+// for scoped tasks (section 19.4).
+func (f *fn) keepsReceiver(call *ast.CallExpr, se *ast.SelectorExpr) bool {
+	sel := f.c.selections[se]
+	if sel == nil || sel.Kind() != types2.MethodVal || f.c.scoped.Tasks[call] != nil {
+		return false
+	}
+	fun, _ := sel.Obj().(*types2.Func)
+	if fun == nil || fun.Pkg() == nil || fun.Name() == "Drop" || types2.BoxMethodOf(fun) != nil {
+		return false // built-in methods, and Drop, keep nothing
+	}
+	recv := methodRecv(fun)
+	ownedRecv := isOwnedBox(f.c.typeOf(se.X)) && pointerElem(recv) != nil
+	if !implicitAddr(f.c, se, recv) && !ownedRecv {
+		return false
+	}
+	af := f.c.calls.Arg(se.X)
+	return af == nil || af.Self
+}
+
+// builtinUse stands for the key of an argument of a built-in function
+// that keeps nothing (keysOf).
+var builtinUse ast.Expr = &ast.BadExpr{}
+
+// keysOf maps the arguments and receivers of the calls in body, with their
+// parentheses removed, to the expressions the escape analysis records facts
+// under, or to builtinUse for the arguments of len, cap, copy and clear.
+func keysOf(c *checker, body ast.Node) map[ast.Expr]ast.Expr {
+	out := map[ast.Expr]ast.Expr{}
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if id, ok := ast.Unparen(call.Fun).(*ast.Ident); ok && c.types[call.Fun].IsBuiltin() {
+			switch id.Name {
+			case "len", "cap", "copy", "clear":
+				for _, a := range call.Args {
+					out[ast.Unparen(a)] = builtinUse
+				}
+			}
+			return true
+		}
+		for _, a := range call.Args {
+			out[ast.Unparen(a)] = a
+		}
+		if se := funSelector(call.Fun); se != nil {
+			out[ast.Unparen(se.X)] = se.X
+		}
+		return true
+	})
+	return out
+}
+
+// implicitAddr reports whether the method call or value se takes the
+// address of its receiver expression.
+func implicitAddr(c *checker, se *ast.SelectorExpr, recv types2.Type) bool {
+	xt := c.typeOf(se.X)
+	return recv != nil && pointerElem(recv) != nil && pointerElem(xt) == nil && !types2.IsInterface(xt) && !isOwnedBox(xt)
+}
+
+// funSelector returns the selector x.M that the function of a call names,
+// with any type arguments (x.M[T]) removed, or nil.
+func funSelector(fun ast.Expr) *ast.SelectorExpr {
+	switch ix := ast.Unparen(fun).(type) {
+	case *ast.IndexExpr:
+		fun = ix.X
+	case *ast.IndexListExpr:
+		fun = ix.X
+	}
+	se, _ := ast.Unparen(fun).(*ast.SelectorExpr)
+	return se
 }

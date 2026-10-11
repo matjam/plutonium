@@ -192,8 +192,8 @@ func main() {}`, `14 fresh: c
 func main() {
 	a := C{id: 1}
 	p := &a
-	use(a)
 	_ = p
+	use(a)
 	b := C{id: 2}
 	f := func() { b.Set(3) }
 	use(b)
@@ -217,6 +217,46 @@ func f2(c C) bool { return true }`, `13 *ast.BlockStmt: d={}
 31 *ast.BlockStmt: d={}
 31 *ast.IfStmt: d={}
 31 stmt *ast.IfStmt: d={}`},
+		{"addresses for a call", `
+func look(c *C) int  { return c.id }
+func keepC(c *C) *C  { return c }
+func (c *C) Me() *C { return c }
+func main() {
+	a := C{id: 1}
+	_ = look(&a)
+	use(a)
+	var p Pair
+	p.x = C{id: 2}
+	_ = look(&p.y)
+	b := C{id: 3}
+	q := keepC(&b)
+	_ = q
+	use(b)
+	c := C{id: 4}
+	c.Set(5)
+	use(c)
+	d := C{id: 6}
+	_ = d.Me()
+	use(d)
+	var arr [2]C
+	_ = len(arr[:])
+}`, `16 *ast.BlockStmt: a={} c={} p={.0,.1}
+20 stmt *ast.DeclStmt: a={}
+21 fresh: p.x
+21 stmt *ast.AssignStmt: a={}
+22 stmt *ast.AssignStmt: a={}
+23 stmt *ast.AssignStmt: a={} p={.0,.1}
+24 stmt *ast.AssignStmt: a={} p={.0,.1}
+25 stmt *ast.AssignStmt: a={} p={.0,.1}
+26 stmt *ast.ExprStmt: a={} p={.0,.1}
+27 stmt *ast.AssignStmt: a={} p={.0,.1}
+28 stmt *ast.ExprStmt: a={} p={.0,.1}
+29 stmt *ast.ExprStmt: a={} p={.0,.1}
+30 stmt *ast.AssignStmt: a={} c={} p={.0,.1}
+31 stmt *ast.AssignStmt: a={} c={} p={.0,.1}
+32 stmt *ast.ExprStmt: a={} c={} p={.0,.1}
+33 stmt *ast.DeclStmt: a={} c={} p={.0,.1}
+34 stmt *ast.AssignStmt: a={} c={} p={.0,.1}`},
 		{"loops, switches and branches", `
 func main() {
 	for i := 0; i < 3; i++ {

@@ -182,8 +182,11 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 	// The move checker's account of moves tells lowering where owners are
 	// destroyed. Lowering reports the constructs Plutonium does not
 	// support; the escape analysis assumes a program without them. The
-	// errors of both lifetime checks are reported together.
-	info, moveErr := moves.Analyze(prog)
+	// errors of both lifetime checks are reported together. The move
+	// checker uses what the escape analysis finds about calls, to follow
+	// views of local owners (spec section 18.3).
+	calls, escErr := escape.Analyze(prog)
+	info, moveErr := moves.AnalyzeWith(prog, calls)
 	sp, err := lower.Lower(&lower.Config{
 		Freestanding: cfg.Freestanding || cfg.Kernel,
 		Kernel:       cfg.Kernel,
@@ -195,7 +198,7 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 	if err != nil {
 		return err
 	}
-	if err := joinLifetimeErrors(moveErr, escape.Check(prog)); err != nil {
+	if err := joinLifetimeErrors(moveErr, escErr); err != nil {
 		return err
 	}
 	// Data races, once every view is known to stay within its lifetime.

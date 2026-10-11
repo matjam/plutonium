@@ -103,5 +103,14 @@ moved on some paths
   consume 49
   drop 49
   drop empty
+borrow then move
+  show 50
+  name 51
+  consume 51
+  drop 51
+  show 52
+  consume 52
+  drop 52
+  drop 50
 check
   ok true

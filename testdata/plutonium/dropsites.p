@@ -57,6 +57,9 @@ func open(id int) Conn { return mk(id) }
 
 func consume(c Conn) { println("  consume", c.id) }
 
+// show borrows its argument for the call only.
+func show(c *Conn) { println("  show", c.id) }
+
 func keep(c Conn) Conn { return c }
 
 func pass(c Conn) { consume(c) } // c moved on: not dropped here
@@ -288,6 +291,21 @@ func main() {
 			consume(c)
 		}
 	} // c may hold a value: dropped, and holds the zero value here
+
+	println("borrow then move")
+	{
+		b := mk(50)
+		show(&b) // a view for the call only
+		n := new(node)
+		n.conn = b // b holds nothing from here on, and is not dropped
+		c := mk(51)
+		println("  name", c.Name())
+		consume(c)
+		var arr [2]Conn
+		arr[0] = mk(52)
+		show(&arr[0])
+		consume(take(&arr[0])) // arr holds nothing again
+	}
 
 	println("check")
 	ok := true

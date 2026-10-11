@@ -52,7 +52,12 @@ func Check(prog *load.Program) error {
 // check is Check; userResultHolds lets packages outside the standard
 // library use //pu:resultholds, for tests of the directive.
 func check(prog *load.Program, userResultHolds bool) error {
-	a := newAnalyzer(prog, userResultHolds)
+	return newAnalyzer(prog, userResultHolds).finish()
+}
+
+// finish runs the analysis and returns its errors, sorted, as a diag.List,
+// or nil.
+func (a *analyzer) finish() error {
 	a.run()
 	sort.SliceStable(a.errs, func(i, j int) bool {
 		pi, pj := a.errs[i].Pos, a.errs[j].Pos
@@ -111,6 +116,10 @@ type analyzer struct {
 	// userResultHolds allows //pu:resultholds outside the standard
 	// library (tests of the directive).
 	userResultHolds bool
+
+	// calls collects what the reporting pass learns about call
+	// arguments (facts.go), when the move checker asks for it.
+	calls *Calls
 
 	grew   bool // a summary or candidate set grew during this pass
 	report bool // the final pass: report errors
