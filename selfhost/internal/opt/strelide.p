@@ -11,7 +11,7 @@ import (
 // ElideStringHolds removes the references lowering takes to keep a
 // borrowed string, shared, synced or weak reference, or channel, alive
 // while calls run (ssa.StrHold) when none of those calls can release one
-// (language spec sections 6.5 and 6.10.1).
+// (language spec sections 18.7 and 18.8).
 //
 // A function may release a reference if it calls one of the runtime's release
 // functions, makes an indirect call (through a func value or an interface,

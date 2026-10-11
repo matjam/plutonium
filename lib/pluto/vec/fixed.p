@@ -15,6 +15,19 @@ import "unsafe"
 //	var mem [64]byte
 //	f := vec.NewFixed(mem[:]) // bounded: never allocates
 //	strconv.AppendInt(&f, n, 10)
+//
+// A Fixed stores what fits, drops the rest and records it (Truncated);
+// TryPush refuses instead, and Reset empties it and clears the record. A
+// Fixed holds a view of the array and owns nothing, so it copies freely and
+// must not outlive the array. The Append functions return nothing, or only
+// their error: strconv.AppendInt, AppendUint, AppendBool, AppendFloat and
+// AppendQuote; utf8.AppendRune; strings.AppendUpper, AppendLower,
+// AppendRepeat, AppendJoin and AppendReplace; fmt.Appendf, Append and
+// Appendln; time.Duration.AppendString, time.Time.AppendRFC3339 and
+// os.FileMode.AppendString; filepath.AppendClean, AppendJoin, AppendDir,
+// AppendAbs and AppendRel; and AppendString, which appends a string's
+// bytes. Each is compiled once for each destination type a program uses
+// with it, so its calls are direct.
 type Appender[T any] interface {
 	Push(x T)
 	Append(xs ...T)
