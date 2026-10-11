@@ -376,7 +376,14 @@ func (p *parser) expectSemi() (comment *ast.CommentGroup) {
 		}
 		return comment
 	default:
-		p.errorExpected(p.pos, "';'")
+		if p.isOr() {
+			// or after a statement that takes no or clause, such as a
+			// var declaration or a defer statement (language spec 11.27):
+			// it is an identifier there.
+			p.error(p.pos, "expected end of statement, found or: an or clause follows only a call that stands alone or is on the right of = or :=")
+		} else {
+			p.errorExpected(p.pos, "';'")
+		}
 		p.advance(stmtStart)
 		return nil
 	}
@@ -2174,8 +2181,16 @@ func (p *parser) parseSimpleStmt(mode int) (ast.Stmt, bool) {
 			isRange = true
 		} else {
 			y = p.parseList(true)
+			if p.isOr() && (tok == token.DEFINE || tok == token.ASSIGN) {
+				return p.parseOrStmt(x, pos, tok, y), false
+			}
 		}
 		return &ast.AssignStmt{Lhs: x, TokPos: pos, Tok: tok, Rhs: y}, isRange
+	}
+
+	if p.isOr() {
+		// An or statement without a left side (language spec 11.27).
+		return p.parseOrStmt(nil, token.NoPos, token.ILLEGAL, x), false
 	}
 
 	if len(x) > 1 {
@@ -2220,6 +2235,92 @@ func (p *parser) parseSimpleStmt(mode int) (ast.Stmt, bool) {
 
 	// expression
 	return &ast.ExprStmt{X: x[0]}, false
+}
+
+// isOr reports whether the current token is the identifier "or", which
+// begins an or clause where a simple statement ends (language spec 4.6).
+func (p *parser) isOr() bool {
+	return p.tok == token.IDENT && p.lit == "or"
+}
+
+// parseOrStmt parses the rest of an or statement (language spec 11.27),
+// from the "or" that follows the expressions rhs on the right of a simple
+// statement. lhs is nil for a statement without a left side; tokPos and
+// tok are then invalid.
+func (p *parser) parseOrStmt(lhs []ast.Expr, tokPos token.Pos, tok token.Token, rhs []ast.Expr) ast.Stmt {
+	if p.trace {
+		defer un(trace(p, "OrStmt"))
+	}
+
+	orPos := p.pos
+	p.next() // or
+	var call *ast.CallExpr
+	if len(rhs) == 1 {
+		call, _ = rhs[0].(*ast.CallExpr)
+	}
+	if call == nil {
+		p.error(rhs[0].Pos(), orOperandMsg(rhs))
+	}
+	clause := p.parseOrClause(orPos)
+	if call == nil || clause == nil {
+		from := rhs[0].Pos()
+		if len(lhs) > 0 {
+			from = lhs[0].Pos()
+		}
+		to := orPos + 2 // len("or")
+		if clause != nil {
+			to = clause.End()
+		}
+		return &ast.BadStmt{From: from, To: to}
+	}
+	return &ast.OrStmt{Lhs: lhs, TokPos: tokPos, Tok: tok, Call: call, Or: orPos, Clause: clause}
+}
+
+// orOperandMsg returns the message for an operand of "or" that is not a
+// call: the message starts with "the operand of or", which gives it its
+// code (E1013).
+func orOperandMsg(rhs []ast.Expr) string {
+	if len(rhs) > 1 {
+		return "the operand of or is a list of values; or follows a single call"
+	}
+	switch x := rhs[0].(type) {
+	case *ast.ParenExpr:
+		if _, ok := ast.Unparen(x).(*ast.CallExpr); ok {
+			return "the operand of or is a call in parentheses; write the call without them"
+		}
+	case *ast.SelectorExpr, *ast.IndexExpr, *ast.IndexListExpr, *ast.SliceExpr, *ast.TypeAssertExpr, *ast.StarExpr:
+		return "the operand of or is not a call; or must directly follow the call whose error it tests"
+	}
+	return "the operand of or is not a single call"
+}
+
+// parseOrClause parses the clause of an or statement, after "or":
+// a block, a return, break, continue or goto statement, or an expression.
+// It leaves the semicolon that ends the statement to the caller. It
+// returns nil after reporting a clause missing from the line of the or.
+func (p *parser) parseOrClause(orPos token.Pos) ast.Stmt {
+	switch p.tok {
+	case token.LBRACE:
+		// The statements of a block clause are ordinary statements, even
+		// in the header of an if, for or switch statement.
+		prev := p.exprLev
+		p.exprLev = 0
+		b := p.parseBlockStmt()
+		p.exprLev = prev
+		return b
+	case token.RETURN:
+		return p.parseReturn()
+	case token.BREAK, token.CONTINUE, token.GOTO:
+		return p.parseBranch(p.tok)
+	case token.SEMICOLON, token.RBRACE, token.EOF:
+		if p.tok == token.SEMICOLON && p.lit != "\n" {
+			p.error(p.pos, "or must be followed by a clause: a block, a return, break, continue or goto statement, or a call such as panic(err)")
+		} else {
+			p.error(orPos, "or must be followed by its clause on the same line")
+		}
+		return nil
+	}
+	return &ast.ExprStmt{X: p.parseRhs()}
 }
 
 func (p *parser) parseCallExpr(callType string) *ast.CallExpr {
@@ -2267,6 +2368,33 @@ func (p *parser) parseTaskStmt() ast.Stmt {
 	}
 
 	return &ast.TaskStmt{Task: pos, Call: call}
+}
+
+// parseOrLine parses a statement that starts with the identifier "or". It is
+// an ordinary identifier there (language spec 4.6), unless a keyword that
+// begins a clause, or another identifier, follows it: no statement starts
+// that way, and the line is an or clause separated from its call by a
+// newline, which ends the statement before it (language spec 11.27).
+func (p *parser) parseOrLine() ast.Stmt {
+	pos := p.pos
+	p.next()
+	switch p.tok {
+	case token.RETURN, token.BREAK, token.CONTINUE, token.GOTO, token.IDENT:
+		p.error(pos, "or must be on the line where its call ends: a newline after the call ends the statement")
+		clause := p.parseOrClause(pos)
+		p.expectSemi()
+		to := pos + 2 // len("or")
+		if clause != nil {
+			to = clause.End()
+		}
+		return &ast.BadStmt{From: pos, To: to}
+	}
+	p.pre = &ast.Ident{NamePos: pos, Name: "or"}
+	s, _ := p.parseSimpleStmt(labelOk)
+	if _, isLabeledStmt := s.(*ast.LabeledStmt); !isLabeledStmt {
+		p.expectSemi()
+	}
+	return s
 }
 
 // parseGoStmt parses a statement that starts with the reserved word go. A
@@ -2334,14 +2462,19 @@ func (p *parser) parseReturnStmt() *ast.ReturnStmt {
 		defer un(trace(p, "ReturnStmt"))
 	}
 
+	s := p.parseReturn()
+	p.expectSemi()
+	return s
+}
+
+// parseReturn parses a return statement up to the semicolon that ends it.
+func (p *parser) parseReturn() *ast.ReturnStmt {
 	pos := p.pos
 	p.expect(token.RETURN)
 	var x []ast.Expr
 	if p.tok != token.SEMICOLON && p.tok != token.RBRACE {
 		x = p.parseList(true)
 	}
-	p.expectSemi()
-
 	return &ast.ReturnStmt{Return: pos, Results: x}
 }
 
@@ -2350,13 +2483,19 @@ func (p *parser) parseBranchStmt(tok token.Token) *ast.BranchStmt {
 		defer un(trace(p, "BranchStmt"))
 	}
 
+	s := p.parseBranch(tok)
+	p.expectSemi()
+	return s
+}
+
+// parseBranch parses a break, continue, goto or fallthrough statement up
+// to the semicolon that ends it.
+func (p *parser) parseBranch(tok token.Token) *ast.BranchStmt {
 	pos := p.expect(tok)
 	var label *ast.Ident
 	if tok == token.GOTO || ((tok == token.CONTINUE || tok == token.BREAK) && p.tok == token.IDENT) {
 		label = p.parseIdent()
 	}
-	p.expectSemi()
-
 	return &ast.BranchStmt{TokPos: pos, Tok: tok, Label: label}
 }
 
@@ -2731,6 +2870,9 @@ func (p *parser) parseStmt() (s ast.Stmt) {
 
 	if p.tok == token.IDENT && p.lit == "task" {
 		return p.parseTaskStmt()
+	}
+	if p.isOr() {
+		return p.parseOrLine()
 	}
 
 	switch p.tok {

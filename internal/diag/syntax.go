@@ -104,6 +104,14 @@ func init() {
 			Example: "go worker(jobs)",
 			Fixed:   "task worker(jobs)",
 		},
+		&Entry{
+			Code: OrOperand, Name: "OrOperand",
+			Text:    "An or clause tests the error that a call returns, so or must come right after a call: a function, method or function value with its arguments. Here something else is in front of or: an operator, parentheses, a selector, or a list of values. Such an operand could hide which call's error the clause tests.",
+			Fix:     &Fix{Intro: "Make the call alone the operand of or, and use its values in a statement after it", Code: "n := strconv.Atoi(s) or return\ntotal := n + 1"},
+			Spec:    pspec("11.27", "Or clauses"),
+			Example: "total := strconv.Atoi(s) + 1 or return",
+			Fixed:   "n := strconv.Atoi(s) or return\ntotal := n + 1",
+		},
 	)
 }
 
@@ -158,6 +166,8 @@ func syntaxCode(msg string) Code {
 		return IfaceMethodTParams
 	case strings.HasPrefix(msg, "go starts no task"):
 		return GoStatement
+	case strings.HasPrefix(msg, "the operand of or"):
+		return OrOperand
 	case has("literal not terminated") || has("illegal character") || has("illegal rune") ||
 		has("invalid digit") || has("has no digits") || has("exponent") || has("escape sequence") ||
 		has("curly quotation") || has("comment not terminated") || has("radix point") ||

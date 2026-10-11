@@ -233,6 +233,11 @@ func Walk(v Visitor, node Node) {
 		walkList(v, n.Lhs)
 		walkList(v, n.Rhs)
 
+	case *OrStmt:
+		walkList(v, n.Lhs)
+		Walk(v, n.Call)
+		Walk(v, n.Clause)
+
 	case *TaskStmt:
 		Walk(v, n.Call)
 

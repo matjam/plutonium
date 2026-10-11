@@ -1461,6 +1461,18 @@ func (p *printer) stmt(stmt ast.Stmt, nextIsRBrace bool) {
 		p.print(s.Tok, blank)
 		p.exprList(s.TokPos, s.Rhs, depth, 0, token.NoPos, false)
 
+	case *ast.OrStmt:
+		const depth = 1
+		if len(s.Lhs) > 0 {
+			p.exprList(s.Pos(), s.Lhs, depth, 0, s.TokPos, false)
+			p.print(blank)
+			p.setPos(s.TokPos)
+			p.print(s.Tok, blank)
+		}
+		p.expr0(s.Call, depth)
+		p.print(blank, &ast.Ident{NamePos: s.Or, Name: "or"}, blank)
+		p.stmt(s.Clause, false)
+
 	case *ast.TaskStmt:
 		if s.Go {
 			p.print(token.GO, blank)

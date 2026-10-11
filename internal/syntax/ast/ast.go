@@ -805,6 +805,19 @@ type (
 		Rhs    []Expr
 	}
 
+	// An OrStmt node represents an or statement (language spec 11.27): a
+	// call, standing alone or on the right of = or :=, followed by "or"
+	// and a clause that runs when the call's last result, an error, is
+	// not nil.
+	OrStmt struct {
+		Lhs    []Expr      // left side; nil without one
+		TokPos token.Pos   // position of Tok; invalid without a left side
+		Tok    token.Token // ASSIGN or DEFINE; ILLEGAL without a left side
+		Call   *CallExpr   // the call that "or" follows
+		Or     token.Pos   // position of "or"
+		Clause Stmt        // *BlockStmt, *ReturnStmt, *BranchStmt or *ExprStmt
+	}
+
 	// A TaskStmt node represents a task statement.
 	TaskStmt struct {
 		Task token.Pos // position of "task" (or of "go", when Go is set)
@@ -910,15 +923,21 @@ type (
 
 // Pos and End implementations for statement nodes.
 
-func (s *BadStmt) Pos() token.Pos        { return s.From }
-func (s *DeclStmt) Pos() token.Pos       { return s.Decl.Pos() }
-func (s *EmptyStmt) Pos() token.Pos      { return s.Semicolon }
-func (s *LabeledStmt) Pos() token.Pos    { return s.Label.Pos() }
-func (s *ExprStmt) Pos() token.Pos       { return s.X.Pos() }
-func (s *SendStmt) Pos() token.Pos       { return s.Chan.Pos() }
-func (s *IncDecStmt) Pos() token.Pos     { return s.X.Pos() }
-func (s *AssignStmt) Pos() token.Pos     { return s.Lhs[0].Pos() }
-func (s *TaskStmt) Pos() token.Pos       { return s.Task }
+func (s *BadStmt) Pos() token.Pos     { return s.From }
+func (s *DeclStmt) Pos() token.Pos    { return s.Decl.Pos() }
+func (s *EmptyStmt) Pos() token.Pos   { return s.Semicolon }
+func (s *LabeledStmt) Pos() token.Pos { return s.Label.Pos() }
+func (s *ExprStmt) Pos() token.Pos    { return s.X.Pos() }
+func (s *SendStmt) Pos() token.Pos    { return s.Chan.Pos() }
+func (s *IncDecStmt) Pos() token.Pos  { return s.X.Pos() }
+func (s *AssignStmt) Pos() token.Pos  { return s.Lhs[0].Pos() }
+func (s *TaskStmt) Pos() token.Pos    { return s.Task }
+func (s *OrStmt) Pos() token.Pos {
+	if len(s.Lhs) > 0 {
+		return s.Lhs[0].Pos()
+	}
+	return s.Call.Pos()
+}
 func (s *DeferStmt) Pos() token.Pos      { return s.Defer }
 func (s *ReturnStmt) Pos() token.Pos     { return s.Return }
 func (s *BranchStmt) Pos() token.Pos     { return s.TokPos }
@@ -948,6 +967,7 @@ func (s *IncDecStmt) End() token.Pos {
 }
 func (s *AssignStmt) End() token.Pos { return s.Rhs[len(s.Rhs)-1].End() }
 func (s *TaskStmt) End() token.Pos   { return s.Call.End() }
+func (s *OrStmt) End() token.Pos     { return s.Clause.End() }
 func (s *DeferStmt) End() token.Pos  { return s.Call.End() }
 func (s *ReturnStmt) End() token.Pos {
 	if n := len(s.Results); n > 0 {
@@ -1005,6 +1025,7 @@ func (*SendStmt) stmtNode()       {}
 func (*IncDecStmt) stmtNode()     {}
 func (*AssignStmt) stmtNode()     {}
 func (*TaskStmt) stmtNode()       {}
+func (*OrStmt) stmtNode()         {}
 func (*DeferStmt) stmtNode()      {}
 func (*ReturnStmt) stmtNode()     {}
 func (*BranchStmt) stmtNode()     {}

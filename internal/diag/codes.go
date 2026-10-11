@@ -19,6 +19,7 @@ const (
 	BadDefaultSyntax   Code = "E1010" // "a, b T = x": a default after several names
 	IfaceMethodTParams Code = "E1011" // an interface method with type parameters
 	GoStatement        Code = "E1012" // a statement that starts with go
+	OrOperand          Code = "E1013" // an operand of or that is not a call
 )
 
 // Plutonium rules checked while compiling, after type checking. E2540 and
