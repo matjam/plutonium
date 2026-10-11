@@ -149,7 +149,7 @@ root, and with `--trimpath=false` from elsewhere):
 - `bt` through every frame, with or without a frame pointer, with inlined calls as frames of their own,
   including `main.main` where it is inlined into `pluto.main`;
 - `info line`, `list`, `disassemble /s`, `info frame`, `up` and `down`;
-- in a task, `bt` through its frames to the task statement's thunk (`main.main.go1`, at the line of
+- in a task, `bt` through its frames to the task statement's thunk (`main.main.task1`, at the line of
   the task statement) and `pluto/rt.taskMain`, ending at the runtime's entry `goStart`, whose call frame
   information marks it as the outermost frame. Each worker thread is a gdb thread (`info threads`);
   the backtrace of a parked task is not reachable from gdb yet.
@@ -245,7 +245,7 @@ panic: runtime error: index out of range [3] with length 3
 task 3:
     main.level2 (./main.p:7)
     main.worker (./main.p:11)
-    main.main.go2 (./main.p:20)
+    main.main.task2 (./main.p:20)
 ```
 
 One panic is handled at a time: a task that panics on another thread while one is reported waits
@@ -290,11 +290,11 @@ task 1 [chan receive]:
 task 2 [chan receive]:
     main.receive (./main.p:8)
     main.middle (./main.p:12)
-    main.main.go1 (./main.p:47)
+    main.main.task1 (./main.p:47)
 
 task 3 [chan send]:
     main.send (./main.p:16)
-    main.main.go2 (./main.p:48)
+    main.main.task2 (./main.p:48)
 ```
 
 The reasons are `chan receive`, `chan send`, their `(nil chan)` forms, `select`, `select (no cases)`,

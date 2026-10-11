@@ -4,4 +4,4 @@ panic: runtime error: invalid memory address or nil pointer dereference
 task 3:
     main.second (./main.p:12)
     main.worker (./main.p:16)
-    main.main.go2 (./main.p:25)
+    main.main.task2 (./main.p:25)

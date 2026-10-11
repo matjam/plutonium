@@ -1,0 +1,11 @@
+Red #ff0000
+Green #00ff00
+Blue #0000ff
+zero value: Red of 3 colors
+1 is Green
+7 is not a color
+Circle({1}) area 3.14
+Rect({2 3}) area 6.00
+Dot area 0.00
+ok: 42
+error: divide by zero

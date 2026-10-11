@@ -533,7 +533,7 @@ func TestGDB(t *testing.T) {
 		}
 		want := regexp.MustCompile(`#0 +main\.level2 \(\) at \./main\.p:7\n` +
 			`#1 +(0x[0-9a-f]+ in )?main\.worker \(\) at \./main\.p:11\n` +
-			`#2 +(0x[0-9a-f]+ in )?main\.main\.go1 \(\) at \./main\.p:18\n` +
+			`#2 +(0x[0-9a-f]+ in )?main\.main\.task1 \(\) at \./main\.p:18\n` +
 			`#3 +0x[0-9a-f]+ in pluto/rt\.taskMain \(\)`)
 		if !want.Match(out) || strings.Contains(string(out), "Backtrace stopped") || strings.Contains(string(out), "corrupt stack") {
 			t.Errorf("O%d: gdb backtrace of a task:\n%s", level, out)

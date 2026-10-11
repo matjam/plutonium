@@ -1,0 +1,14 @@
+open two connections
+  using conn 1
+a block drops what it holds when it ends
+  using conn 3
+  conn 3 closed
+hand b to a function that consumes it
+  finishing conn 2
+  conn 2 closed
+new returns an owned[node], a unique box on the heap
+  conn 4 closed
+  node holds conn 5
+end of main: variables are dropped in reverse order
+  conn 5 closed
+  conn 1 closed

@@ -1,0 +1,8 @@
+error: empty name | is ErrEmpty: true
+ok: pluto
+error: name "plutonium" too long (9 > 8) | is ErrEmpty: false
+find "grace": not found
+is ErrNotFound: true
+is ErrEmpty: false
+cause: not found
+find ada: <nil>

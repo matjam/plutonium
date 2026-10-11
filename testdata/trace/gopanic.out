@@ -3,4 +3,4 @@ panic: runtime error: index out of range [3] with length 3
 task 3:
     main.level2 (./main.p:7)
     main.worker (./main.p:11)
-    main.main.go2 (./main.p:20)
+    main.main.task2 (./main.p:20)

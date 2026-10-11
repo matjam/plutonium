@@ -6,24 +6,24 @@ task 1 [chan receive]:
 task 2 [chan receive]:
     main.receive (./main.p:8)
     main.middle (./main.p:12)
-    main.main.go1 (./main.p:47)
+    main.main.task1 (./main.p:47)
 
 task 3 [chan send]:
     main.send (./main.p:16)
-    main.main.go2 (./main.p:48)
+    main.main.task2 (./main.p:48)
 
 task 4 [select]:
     main.choose (./main.p:20)
-    main.main.go3 (./main.p:49)
+    main.main.task3 (./main.p:49)
 
 task 5 [chan receive (nil chan)]:
     main.nilrecv (./main.p:29)
-    main.main.go4 (./main.p:50)
+    main.main.task4 (./main.p:50)
 
 task 6 [chan send (nil chan)]:
     main.nilsend (./main.p:34)
-    main.main.go5 (./main.p:51)
+    main.main.task5 (./main.p:51)
 
 task 7 [select (no cases)]:
     main.nocases (./main.p:38)
-    main.main.go6 (./main.p:52)
+    main.main.task6 (./main.p:52)

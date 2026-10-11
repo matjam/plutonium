@@ -5,4 +5,4 @@ panic: runtime error: index out of range [3] with length 3
 task 2:
     main.check (./main.p:8)
     main.worker (./main.p:14)
-    main.main.go1 (./main.p:22)
+    main.main.task1 (./main.p:22)

@@ -562,8 +562,8 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 	}
 
 	// The thunk: func(p unsafe.Pointer), which loads the values and calls.
-	s.goStmts++
-	name := fmt.Sprintf("%s.go%d", s.f.Name, s.goStmts)
+	s.taskStmts++
+	name := fmt.Sprintf("%s.task%d", s.f.Name, s.taskStmts)
 	thunk := s.l.out.Sym(name, ssa.SymFunc)
 	unsafePtr := types2.Typ[types2.UnsafePointer]
 	tsig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(types2.NewParam(token.NoPos, nil, "p", unsafePtr)), nil, false)

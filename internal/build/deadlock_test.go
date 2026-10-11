@@ -16,7 +16,7 @@ func TestTraceTask(t *testing.T) {
 		{name: "tracetask", want: `reason: chan receive
     main.inner (./main.p:14)
     main.blocked (./main.p:19)
-    main.main.go1 (./main.p:31)
+    main.main.task1 (./main.p:31)
 reason: sleep
 `, src: `package main
 
@@ -129,23 +129,23 @@ task 2 [sync.Mutex.Lock]:
     pluto/sync.(*Mutex).lockSlow (pluto/sync/mutex.p:N)
     pluto/sync.(*Mutex).Lock (pluto/sync/mutex.p:N)
     main.lockTwice (./main.p:13)
-    main.main.go1 (./main.p:34)
+    main.main.task1 (./main.p:34)
 
 task 3 [sync.RWMutex.Lock]:
     pluto/sync.(*sema).acquire (pluto/sync/mutex.p:N)
     pluto/sync.(*RWMutex).Lock (pluto/sync/rwmutex.p:N)
     main.readLocked (./main.p:18)
-    main.main.go2 (./main.p:35)
+    main.main.task2 (./main.p:35)
 
 task 4 [sync.WaitGroup.Wait]:
     pluto/sync.(*WaitGroup).Wait (pluto/sync/waitgroup.p:N)
     main.waitGroup (./main.p:22)
-    main.main.go3 (./main.p:36)
+    main.main.task3 (./main.p:36)
 
 task 5 [sync.Cond.Wait]:
     pluto/sync.(*Cond).Wait (pluto/sync/waitgroup.p:N)
     main.condition (./main.p:29)
-    main.main.go4 (./main.p:37)
+    main.main.task4 (./main.p:37)
 `
 		if status != 2 || got != want {
 			t.Errorf("O%d: status %d, output:\n%s\nwant status 2, output:\n%s", level, status, got, want)

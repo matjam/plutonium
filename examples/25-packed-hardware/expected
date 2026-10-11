@@ -1,0 +1,6 @@
+status word 0x0000642d ready=true error=false channel=5 count=200
+raw 0x642d: busy=true, 7 bits set
+channel is 3
+header on the wire: 00 5d c0 04
+version 4, length 1500
+descriptor is 8 bytes, no padding
