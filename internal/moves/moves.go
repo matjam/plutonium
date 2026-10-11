@@ -98,8 +98,8 @@ func Analyze(prog *load.Program) (*Info, error) {
 }
 
 // AnalyzeWith is Analyze, given what the escape analysis found about calls
-// (escape.Analyze): which addresses of a local variable a call keeps past
-// its return (empty.go).
+// (escape.Analyze): which views of a local owner a call keeps past its
+// return (views.go).
 func AnalyzeWith(prog *load.Program, calls *escape.Calls) (*Info, error) {
 	c := &checker{
 		calls: calls,
@@ -180,7 +180,7 @@ type checker struct {
 
 	scoped     *scoped.Info // the scoped tasks of sync.Scope (scope.go)
 	taskBodies map[*ast.BlockStmt]*ast.FuncLit
-	calls      *escape.Calls // what calls keep of their arguments (empty.go)
+	calls      *escape.Calls // what calls keep of their arguments (views.go)
 }
 
 // report records an error once per position and code.
@@ -228,7 +228,7 @@ func (c *checker) checkPackageVars(d *ast.GenDecl) {
 	if d.Tok != token.VAR {
 		return
 	}
-	f := &fn{c: c, report: true, env: env{}, vars: map[*types2.Var]bool{}, heads: map[ast.Node]env{}}
+	f := &fn{c: c, report: true, env: env{}, vars: map[*types2.Var]bool{}, heads: map[ast.Node]env{}, checkedAt: map[*ast.Ident]ast.Expr{}}
 	for _, s := range d.Specs {
 		vs := s.(*ast.ValueSpec)
 		for i, val := range vs.Values {
@@ -272,6 +272,9 @@ const (
 	mvAssert                      // asserted out of an owning interface
 	mvGoRecv                      // the owned box a task statement calls a method of
 	mvTask                        // taken by a scoped task (s.Task)
+	mvNewValue                    // given a new value (views.go)
+	mvTake                        // emptied by take(&x) (views.go)
+	mvScopeEnd                    // dropped at the end of its block (views.go)
 )
 
 // A move records where and how a variable's value left it.
@@ -293,10 +296,17 @@ type vstate struct {
 	// dd says that a deferred x.Drop() of the variable is registered on
 	// every path here.
 	dd bool
+	// views are the views of the function's owners the variable may hold,
+	// and pin, for an owner, a view of it kept where the walk cannot follow
+	// (views.go).
+	views []view
+	pin   *pinMark
 }
 
 // plain reports whether s says nothing beyond live.
-func (s vstate) plain() bool { return s.st == live && s.z == nil && s.bz == nil && !s.dd }
+func (s vstate) plain() bool {
+	return s.st == live && s.z == nil && s.bz == nil && !s.dd && len(s.views) == 0 && s.pin == nil
+}
 
 // An env maps the variables that do not hold a value, or of which more is
 // known (empty.go), to their state; a variable not in it is live. A nil env
@@ -362,6 +372,11 @@ func joinState(sa, sb vstate) vstate {
 	out.z = sa.z.join(sb.z)
 	out.bz = sa.bz.join(sb.bz)
 	out.dd = sa.dd && sb.dd
+	out.views = joinViews(sa.views, sb.views)
+	out.pin = sa.pin
+	if out.pin == nil {
+		out.pin = sb.pin
+	}
 	return out
 }
 
@@ -371,7 +386,8 @@ func envEqual(a, b env) bool {
 	}
 	for k, v := range a {
 		u, ok := b[k]
-		if !ok || u.st != v.st || u.dd != v.dd || !u.z.equal(v.z) || !u.bz.equal(v.bz) {
+		if !ok || u.st != v.st || u.dd != v.dd || !u.z.equal(v.z) || !u.bz.equal(v.bz) ||
+			!viewsEqual(u.views, v.views) || (u.pin == nil) != (v.pin == nil) {
 			return false
 		}
 	}
@@ -411,9 +427,19 @@ type fn struct {
 	// noFacts are the variables for which nothing is known to be empty
 	// (empty.go).
 	noFacts map[*types2.Var]bool
-	// argKey maps call arguments without their parentheses to the
-	// expressions the escape analysis keys them by (empty.go).
-	argKey map[ast.Expr]ast.Expr
+	// kept are the variables whose own storage something other than the
+	// walk may use: an address kept, a function literal or a deferred call
+	// that uses them (empty.go).
+	kept map[*types2.Var]bool
+
+	// For views (views.go): argKey maps call arguments without their
+	// parentheses to the expressions the escape analysis keys them by;
+	// checkedAt is, for each identifier, the largest expression naming a
+	// part of it, where its views are checked; writing is the target of
+	// the assignment being walked, which is written rather than read.
+	argKey    map[ast.Expr]ast.Expr
+	checkedAt map[*ast.Ident]ast.Expr
+	writing   ast.Expr
 }
 
 // A target is a statement that break or continue may leave.
@@ -427,7 +453,7 @@ type target struct {
 // checkFunc checks a function body with signature sig.
 func (c *checker) checkFunc(ft *ast.FuncType, recv *ast.FieldList, body *ast.BlockStmt, sig *types2.Signature) {
 	f := &fn{c: c, sig: sig, vars: map[*types2.Var]bool{}, heads: map[ast.Node]env{}, declIn: map[*types2.Var]*ast.BlockStmt{}, topBody: body,
-		argKey: keysOf(c, body)}
+		argKey: keysOf(c, body), checkedAt: map[*ast.Ident]ast.Expr{}}
 	// The function's own variables: parameters, results, and everything
 	// declared in its body outside nested literals.
 	for _, l := range []*ast.FieldList{recv, ft.Params, ft.Results} {
@@ -466,7 +492,7 @@ func (c *checker) checkFunc(ft *ast.FuncType, recv *ast.FieldList, body *ast.Blo
 		if t := c.scoped.Lits[lit]; t != nil {
 			for v := range t.Taken {
 				f.vars[v] = true
-				f.noFacts[v] = true
+				f.noFacts[v], f.kept[v] = true, true
 			}
 		}
 	}
@@ -571,10 +597,13 @@ func (f *fn) moveVar(id *ast.Ident, v *types2.Var, mv move) {
 		return
 	}
 	f.use(id, v)
+	f.checkView(id)
 	if f.env != nil {
 		mv.pos = id.Pos()
-		// The value left: the variable holds nothing (empty.go).
-		f.env[v] = vstate{st: moved, mv: &mv, z: emptyZ, dd: f.env[v].dd}
+		// The value left: the variable holds nothing (empty.go), and the
+		// views of it are stale (views.go).
+		f.env[v] = vstate{st: moved, mv: &mv, z: emptyZ, dd: f.env[v].dd, pin: f.env[v].pin}
+		f.invalidate(v, mv)
 	}
 	if f.report {
 		f.c.info.Moves[id] = true
@@ -594,13 +623,15 @@ func (f *fn) moveOut(id *ast.Ident, v *types2.Var, mv move) {
 		mv.pos = id.Pos()
 		// Where the assertion fails the variable still holds its value, so
 		// nothing is known to be empty.
-		f.env[v] = vstate{st: moved, mv: &mv, dd: f.env[v].dd}
+		f.env[v] = vstate{st: moved, mv: &mv, dd: f.env[v].dd, pin: f.env[v].pin}
+		f.invalidate(v, mv)
 	}
 }
 
-// assignVar gives v a value.
+// assignVar gives v a value. It holds no views until the assignment says
+// which (views.go).
 func (f *fn) assignVar(v *types2.Var) {
 	if f.env != nil {
-		f.setState(v, vstate{dd: f.env[v].dd})
+		f.setState(v, vstate{dd: f.env[v].dd, pin: f.env[v].pin})
 	}
 }

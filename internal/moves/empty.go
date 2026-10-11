@@ -116,10 +116,26 @@ func (z *zset) equal(o *zset) bool {
 
 // findNoFacts collects the variables of body for which nothing is known to
 // be empty, because something other than the walk may change them.
+// It also collects the variables whose own storage something other than
+// the walk may read or write (f.kept), whose views the walk cannot follow
+// (views.go).
 func (f *fn) findNoFacts(body *ast.BlockStmt) {
 	f.noFacts = map[*types2.Var]bool{}
-	mark := func(e ast.Node) {
+	f.kept = map[*types2.Var]bool{}
+	all := func(e ast.Node) {
 		ast.Inspect(e, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok {
+				if v, ok := f.c.objOf(id).(*types2.Var); ok && f.vars[v] {
+					f.noFacts[v] = true
+					f.kept[v] = true
+				}
+			}
+			return true
+		})
+	}
+	// mark marks the variables in the place x whose address is kept.
+	mark := func(x ast.Expr) {
+		ast.Inspect(x, func(n ast.Node) bool {
 			if id, ok := n.(*ast.Ident); ok {
 				if v, ok := f.c.objOf(id).(*types2.Var); ok && f.vars[v] {
 					f.noFacts[v] = true
@@ -127,13 +143,16 @@ func (f *fn) findNoFacts(body *ast.BlockStmt) {
 			}
 			return true
 		})
+		if v, _, box, ok := f.placePath(x); ok && !box && f.vars[v] {
+			f.kept[v] = true
+		}
 	}
 	called := map[*ast.SelectorExpr]bool{}
 	taken := map[*ast.UnaryExpr]bool{}
 	ast.Inspect(body, func(n ast.Node) bool {
 		switch n := n.(type) {
 		case *ast.FuncLit:
-			mark(n)
+			all(n)
 			return false
 		case *ast.UnaryExpr:
 			// take(&place) uses the address only while it empties the
@@ -165,7 +184,7 @@ func (f *fn) findNoFacts(body *ast.BlockStmt) {
 			}
 		case *ast.DeferStmt:
 			if v, _ := f.deferredDrop(n.Call); v == nil {
-				mark(n.Call)
+				all(n.Call)
 			}
 		}
 		return true

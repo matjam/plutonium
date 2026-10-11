@@ -1,0 +1,9 @@
+$DIR/main.p:27:3: p holds a view of c (&c, line 25), which was moved into consume (its parameter takes a Conn by value) at line 26, so p can no longer be used here
+$DIR/main.p:33:2: s holds a view of arr (arr[:], line 31), which was given a new value at line 32, so s can no longer be used here
+$DIR/main.p:39:10: m holds a view of d (d.Name, line 37), which was dropped by d.Drop() at line 38, so m can no longer be used here
+$DIR/main.p:46:10: h.p holds a view of e (&e, line 43), which was moved into consume (its parameter takes a Conn by value) at line 44, so h.p can no longer be used here
+$DIR/main.p:55:10: h2.p holds a view of f (&f, line 51), which may have been moved into consume (its parameter takes a Conn by value) at line 53, so h2.p cannot be used here
+$DIR/main.p:61:10: q holds a view of g (g.Self(), line 59), which was given a new value at line 60, so q can no longer be used here
+$DIR/main.p:69:10: r holds a view of k (&k, line 67), which was dropped at the end of its block at line 68, so r can no longer be used here
+$DIR/main.p:75:10: l is moved into consume (its parameter takes a Conn by value) here, but a view of it (&l, line 73) was stored in pl at line 73, where the compiler cannot check its uses
+$DIR/main.p:83:10: o is moved into consume (its parameter takes a Conn by value) here, but a view of it (&o, line 82) was stored in *pp at line 82, where the compiler cannot check its uses

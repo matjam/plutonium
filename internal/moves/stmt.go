@@ -14,6 +14,15 @@ func (f *fn) block(b *ast.BlockStmt) {
 	for _, st := range b.List {
 		f.stmt(st, "")
 	}
+	if b != f.topBody {
+		// The owners declared in the block are dropped here: views of
+		// them are stale (views.go).
+		for v, in := range f.declIn {
+			if in == b {
+				f.invalidate(v, move{kind: mvScopeEnd, pos: b.Rbrace})
+			}
+		}
+	}
 	f.recordExit(b)
 	f.blocks = f.blocks[:len(f.blocks)-1]
 }
@@ -111,6 +120,11 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 			}
 			if v, ok := f.c.implicits[cc].(*types2.Var); ok {
 				f.assignVar(v)
+				if mayView(v.Type()) && f.env != nil {
+					s := f.env[v]
+					s.views = sortViews(whole(f.viewsOf(x)))
+					f.setState(v, s)
+				}
 			}
 			return cc.Body
 		})
@@ -150,6 +164,15 @@ func (f *fn) declStmt(st *ast.DeclStmt) {
 	}
 	for _, s := range gd.Specs {
 		vs := s.(*ast.ValueSpec)
+		views := make([][]view, len(vs.Names)) // views.go
+		for i, name := range vs.Names {
+			switch {
+			case len(vs.Values) == len(vs.Names):
+				views[i] = f.viewsTo(vs.Values[i], f.lhsType(name))
+			case len(vs.Values) == 1:
+				views[i] = whole(f.viewsOf(vs.Values[0]))
+			}
+		}
 		switch {
 		case len(vs.Values) == len(vs.Names):
 			for i, val := range vs.Values {
@@ -166,6 +189,8 @@ func (f *fn) declStmt(st *ast.DeclStmt) {
 		for i, name := range vs.Names {
 			if v, ok := f.c.defs[name].(*types2.Var); ok {
 				f.assignVar(v)
+				f.renew(name, v)
+				f.storeViews(name, views[i])
 				f.declared(v)
 				switch {
 				case len(vs.Values) == 0:
@@ -195,14 +220,25 @@ func (f *fn) assignStmt(st *ast.AssignStmt) {
 		f.forget(st.Lhs[0])
 		return
 	}
+	// The views each target receives, as the values are before the
+	// statement moves anything (views.go).
+	vs := make([][]view, len(st.Lhs))
+	for i, l := range st.Lhs {
+		if len(st.Lhs) == len(st.Rhs) {
+			vs[i] = f.viewsTo(st.Rhs[i], f.lhsType(l))
+		} else {
+			vs[i] = whole(f.viewsOf(st.Rhs[0]))
+		}
+	}
 	if len(st.Lhs) == len(st.Rhs) {
 		if len(st.Lhs) > 1 && f.permutes(st) {
 			// a, b = b, a: nothing is duplicated or lost.
 			for _, r := range st.Rhs {
 				f.expr(r)
 			}
-			for _, l := range st.Lhs {
+			for i, l := range st.Lhs {
 				f.assignLHS(l, st.Tok)
+				f.storeViews(l, vs[i])
 			}
 			return
 		}
@@ -214,6 +250,7 @@ func (f *fn) assignStmt(st *ast.AssignStmt) {
 	}
 	for i, l := range st.Lhs {
 		f.assignTarget(l, st.Tok)
+		f.storeViews(l, vs[i])
 		if id, ok := ast.Unparen(l).(*ast.Ident); ok && len(st.Lhs) == len(st.Rhs) {
 			if v := f.varOf(id); v != nil {
 				f.valueFacts(v, st.Rhs[i])
@@ -296,6 +333,7 @@ func (f *fn) assignLHS(lhs ast.Expr, tok token.Token) {
 		}
 		if v := f.varOf(id); v != nil {
 			f.assignVar(v)
+			f.renew(id, v)
 			if tok == token.DEFINE {
 				f.declared(v)
 			}
@@ -309,8 +347,20 @@ func (f *fn) assignLHS(lhs ast.Expr, tok token.Token) {
 		f.expr(ix.Index)
 		return
 	}
+	// A part of a variable is written, not read: the views it held are
+	// not used (views.go).
+	f.writing = ast.Unparen(lhs)
 	f.expr(lhs)
+	f.writing = nil
 	f.forget(lhs)
+}
+
+// renew records that the owner v, at id, is given a new value: the views
+// of its old one are stale (views.go).
+func (f *fn) renew(id *ast.Ident, v *types2.Var) {
+	if isOwner(v.Type()) && !f.captured(v) {
+		f.invalidate(v, move{kind: mvNewValue, pos: id.Pos()})
+	}
 }
 
 // multi walks an expression with several results.
@@ -358,6 +408,9 @@ func (f *fn) rangeStmt(st *ast.RangeStmt, label string) {
 			if e != nil {
 				f.assignLHS(e, st.Tok)
 			}
+		}
+		if st.Value != nil && mayView(f.c.typeOf(st.Value)) {
+			f.storeViews(st.Value, whole(f.viewsOf(st.X))) // views.go
 		}
 	}, func() {
 		f.block(st.Body)

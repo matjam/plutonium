@@ -113,7 +113,7 @@ defined there.
 **A local owner's memory.** A view obtained from an owner held in a local variable (`v.Slice()`,
 `b.Bytes()`, `&m`, `p.field` through an `owned[T]`, `&*p`) is bounded by that variable. It follows the
 frame rules above, and in addition it may not be used after the variable has been moved, dropped or given
-a new value in the same function. A view of a temporary owner (`makeVec().Slice()`) may not outlive the
+a new value in the same function (E3313). A view of a temporary owner (`makeVec().Slice()`) may not outlive the
 statement that made the temporary (section 18.6). A view obtained through a counted reference held in a
 local variable is bounded by that reference in the same way.
 

@@ -3,12 +3,14 @@ package main
 // Drops of owners along every kind of control flow (language spec section
 // 18.6): each constructed owner is dropped exactly once, including where a
 // variable is moved inside a loop, a switch or select clause, the right
-// operand of && or ||, a range-over-func loop body, after a goto, and where
-// something other than the variable itself (a closure, a pointer, a
-// deferred method call) gives it a value after a move. Conn's Drop prints
-// its id, and "drop empty" for the zero value, which a variable holds where
-// it may have been moved on some paths only. The program also runs under
-// the debug allocator, which fails on a leak.
+// operand of && or ||, a range-over-func loop body, after a goto, where
+// something other than the variable itself (a closure, a deferred method
+// call) gives it a value after a move, and where a pointer writes it
+// before one (a view may not be used after the move, section 18.3). Conn's
+// Drop prints its id, and "drop empty" for the zero value, which a
+// variable holds where it may have been moved on some paths only, or where
+// its address was kept. The program also runs under the debug allocator,
+// which fails on a leak.
 
 type Conn owner struct{ id int }
 
@@ -127,9 +129,9 @@ func closures() {
 func pointers() {
 	c := mk(24)
 	p := &c
-	consume(c)
-	*p = mk(25)
+	*p = mk(25) // drops 24, through the view
 	println("  through pointer", p.id)
+	consume(c) // the last use of p was before the move (section 18.3)
 }
 
 func deferredReset() {

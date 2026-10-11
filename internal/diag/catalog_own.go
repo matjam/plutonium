@@ -364,5 +364,21 @@ func init() {
 			Example: "bufs := []strings.Buf{a, b}",
 			Fixed:   "bufs := [2]strings.Buf{a, b}",
 		},
+		&Entry{
+			Code: StaleView, Name: "StaleView",
+			Text:    "A view taken from an owner held in a local variable (&c, a slice of a local array of owners, a method value c.M, c.Slice()) looks at memory that the variable owns. It may be used only while the variable keeps the value the view was taken from. Once the variable is moved, dropped or given a new value, the view looks at memory that was released, or at a value that belongs to something else.\nUse the view before the owner is moved, or move the owner only after the last use of the view. If both are needed, move a copy made with Clone.",
+			Why:     "Go keeps memory alive for as long as any pointer refers to it. Plutonium has no garbage collector: an owner releases its memory when it is dropped, so a view must not be used after the value it looks at has gone.",
+			Spec:    pspec("18.3", "Views"),
+			Example: "p := &c\nconsume(c)\np.Write(data)",
+			Fixed:   "p := &c\np.Write(data)\nconsume(c)",
+		},
+		&Entry{
+			Code: LostView, Name: "LostView",
+			Text:    "A view of an owner held in a local variable may be used only while the variable keeps the value the view was taken from. The compiler follows views through local variables, their fields, and the calls that store them into other arguments. A view stored anywhere else (through a pointer, in a variable that a function literal uses or whose address is kept, or by a call the compiler cannot see into) cannot be followed, so the owner may not be moved, dropped or given a new value while that view could still be used.\nKeep the view in a local variable or a field of one, or move the owner only where no such view of it exists.",
+			Why:     "Go keeps memory alive for as long as any pointer refers to it. Plutonium has no garbage collector: an owner releases its memory when it is dropped, so a view must not be used after the value it looks at has gone.",
+			Spec:    pspec("18.3", "Views"),
+			Example: "pp := &h\n*pp = &c\nconsume(c)",
+			Fixed:   "h = &c\nuse(h)\nconsume(c)",
+		},
 	)
 }

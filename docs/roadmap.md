@@ -220,7 +220,8 @@ item 100, comes from the pass that removed the specification's internal contradi
 19. **Methods with type parameters** (done, `4f98246`; section 10.15): method values must be instantiated.
 20. **Ownership: owners, moves and views** (in progress; chapter 18, sections 7.18, 7.19 and 8.7,
     [design](plans/2026-10-09-memory-safety-design.md)): done are `owner` types, the move checker
-    (`internal/moves`, E3301 to E3312), automatic drops on every path, `take`, `unsafe.Drop`, `owned[T]`,
+    (`internal/moves`, E3301 to E3314, including views of local owners used after a move, section 18.3),
+    automatic drops on every path, `take`, `unsafe.Drop`, `owned[T]`,
     `shared`, `synced`, `weak`, owning interfaces, owner unions, the local-arena rule (section 18.9), and
     generation checks and arena epochs (items 71 and 72). Commits: `ca7e064`, `dc808a9`, `01daa4b`,
     `1b25e7d`, `052c091`. Open: items 78, 85 to 89 and 92, and the library owners of item 51.

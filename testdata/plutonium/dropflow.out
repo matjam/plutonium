@@ -50,11 +50,11 @@ closure
   drop empty
   drop 23
 pointer
-  consume 24
   drop 24
-  drop empty
   through pointer 25
+  consume 25
   drop 25
+  drop empty
 deferred method
   consume 26
   drop 26

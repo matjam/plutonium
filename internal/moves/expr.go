@@ -9,6 +9,10 @@ import (
 // expr walks an expression whose value is used where it is, or copied into
 // something that does not own it (an ordinary interface lends it).
 func (f *fn) expr(e ast.Expr) {
+	switch e.(type) {
+	case *ast.Ident, *ast.SelectorExpr, *ast.IndexExpr:
+		f.checkView(e) // views.go
+	}
 	switch e := e.(type) {
 	case nil:
 	case *ast.Ident:
@@ -90,6 +94,7 @@ func (f *fn) consume(e ast.Expr, dst types2.Type, mv move) {
 	if e == nil {
 		return
 	}
+	f.checkView(e)
 	if !isOwner(dst) || !isOwner(f.c.typeOf(e)) {
 		f.expr(e)
 		return
@@ -211,6 +216,10 @@ func (f *fn) call(e *ast.CallExpr, kind moveKind) {
 		f.builtin(e)
 		return
 	}
+	// What the callee stores of its arguments into the memory of others
+	// (views.go), as the arguments are before the call moves any.
+	stores := f.argViews(e)
+	defer f.callStores(stores)
 	name := exprText(e.Fun)
 	if se, ok := ast.Unparen(e.Fun).(*ast.SelectorExpr); ok {
 		if sel := f.c.selections[se]; sel != nil && sel.Kind() == types2.MethodVal {
@@ -368,6 +377,13 @@ func (f *fn) builtin(e *ast.CallExpr) {
 		// take(&place) borrows the place, and leaves it empty (empty.go).
 		if amp := f.takeArg(e); amp != nil {
 			f.take(amp)
+			if id, ok := ast.Unparen(amp.X).(*ast.Ident); ok {
+				if v := f.varOf(id); v != nil && !f.captured(v) {
+					// The whole variable now holds the zero value: views of
+					// what it held are stale (views.go).
+					f.invalidate(v, move{kind: mvTake, pos: id.Pos(), to: exprText(e)})
+				}
+			}
 			return
 		}
 		for _, a := range e.Args {
@@ -455,6 +471,7 @@ func (f *fn) funcLit(lit *ast.FuncLit) {
 		}
 		return true
 	})
+	f.litPins(lit) // views.go
 	if f.report {
 		sig, _ := f.c.typeOf(lit).(*types2.Signature)
 		f.c.checkFunc(lit.Type, nil, lit.Body, sig)

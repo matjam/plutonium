@@ -142,6 +142,8 @@ const (
 	VariadicOwners   Code = "E3310" // owners passed as variadic arguments
 	DeferInnerOwner  Code = "E3311" // a deferred call using an owner of an inner block
 	SliceLitOwners   Code = "E3312" // a slice literal with owner elements
+	StaleView        Code = "E3313" // a view of a local owner used after the owner moved, was dropped or given a new value
+	LostView         Code = "E3314" // an owner moved while a view of it is kept where the compiler cannot follow it
 )
 
 // Scoped tasks (sync.Scope, language spec section 19.4): what their

@@ -86,8 +86,90 @@ func (c *checker) howMoved(mv *move) string {
 		return "moved into the method value " + mv.to
 	case mvAssert:
 		return "moved out by the type assertion " + mv.to
+	case mvNewValue:
+		return "given a new value"
+	case mvTake:
+		return "emptied by " + mv.to
+	case mvScopeEnd:
+		return "dropped at the end of its block"
 	}
 	return "moved"
+}
+
+// staleDiag explains a read of e, part of variable v, that may hold a view
+// w whose owner has lost the value it looked at (language spec section
+// 18.3).
+func (c *checker) staleDiag(e ast.Expr, v *types2.Var, w view) *diag.Diagnostic {
+	name, owner := exprText(e), w.of.Name()
+	made, at := c.line(w.pos), c.line(w.stale.pos)
+	how := c.howMoved(w.stale)
+	var d *diag.Diagnostic
+	if w.maybe {
+		d = c.newDiag(e.Pos(), diag.StaleView, "%s holds a view of %s (%s, line %d), which may have been %s at line %d, so %s cannot be used here", name, owner, w.text, made, how, at, name)
+	} else {
+		d = c.newDiag(e.Pos(), diag.StaleView, "%s holds a view of %s (%s, line %d), which was %s at line %d, so %s can no longer be used here", name, owner, w.text, made, how, at, name)
+	}
+	holder := name
+	if name != v.Name() {
+		holder = name + ", part of " + v.Name() + ","
+	}
+	lost := fmt.Sprintf("At line %d %s was %s", at, owner, how)
+	if w.maybe {
+		lost = fmt.Sprintf("At line %d %s was %s on some paths to this point", at, owner, how)
+	}
+	d.Text = fmt.Sprintf("%s looks at memory that %s owns, without owning it: the view was made by %s at line %d. A view of an owner held in a local variable may be used only while the variable keeps the value the view was made from. %s, so the view may look at memory that was released, or at a value that now belongs to something else.", holder, owner, w.text, made, lost)
+	switch w.stale.kind {
+	case mvNewValue:
+		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Use %s before line %d, or give %s its new value only after the last use of %s", name, at, owner, name)}
+		d.More = []*diag.Fix{{Intro: fmt.Sprintf("Or make the view again after line %d", at), Code: fmt.Sprintf("%s = %s", name, w.text)}}
+	case mvScopeEnd:
+		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Declare %s in a block that encloses every use of %s, or use %s only inside the block of %s", owner, name, name, owner)}
+	default:
+		act := "move " + owner
+		switch w.stale.kind {
+		case mvDrop:
+			act = "drop " + owner
+		case mvTake:
+			act = "empty " + owner
+		}
+		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Use %s before line %d, or %s only after the last use of %s", name, at, act, name)}
+		if hasClone(w.of.Type()) && w.stale.kind != mvDrop && w.stale.kind != mvTake {
+			d.More = []*diag.Fix{{Intro: fmt.Sprintf("Or move a copy at line %d, so that %s keeps its value", at, owner), Code: owner + ".Clone()"}}
+		}
+	}
+	return d
+}
+
+// lostVerb says how an owner loses its value, for a sentence about it: "is
+// moved into consume (...)".
+func (c *checker) lostVerb(mv move) string {
+	return "is " + c.howMoved(&mv)
+}
+
+// pinnedDiag explains moving, dropping or replacing the value of v while a
+// view of it is kept where the move checker cannot follow it.
+func (c *checker) pinnedDiag(v *types2.Var, p *pinMark, mv move) *diag.Diagnostic {
+	owner := v.Name()
+	d := c.newDiag(mv.pos, diag.LostView, "%s %s here, but a view of it (%s, line %d) was %s at line %d, where the compiler cannot check its uses", owner, c.lostVerb(mv), p.text, c.line(p.pos), p.how, c.line(p.where))
+	d.Text = fmt.Sprintf("A view of an owner held in a local variable may be used only while the variable keeps the value the view was made from. The compiler follows views through local variables and their fields, and into the arguments of the calls that store them there, but the view of %s made by %s at line %d went into memory it does not follow, so it cannot check that the view is not used after line %d.", owner, p.text, c.line(p.pos), c.line(mv.pos))
+	d.Fix = &diag.Fix{Intro: fmt.Sprintf("Keep the view in a local variable or a field of one, where the compiler follows it, or do not %s while the view is kept", strings.TrimPrefix(c.lostVerbBase(mv), "is "))}
+	return d
+}
+
+// lostVerbBase says what the program does to an owner, for a fix: "move
+// c", "give c a new value".
+func (c *checker) lostVerbBase(mv move) string {
+	switch mv.kind {
+	case mvNewValue:
+		return "give it a new value"
+	case mvScopeEnd:
+		return "let its block end"
+	case mvDrop:
+		return "drop it"
+	case mvTake:
+		return "empty it with take"
+	}
+	return "move it"
 }
 
 // newValue writes a value of type T for a fix that gives a moved-from
