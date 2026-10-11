@@ -152,8 +152,7 @@ Other commands:
 The specification (version 0.3) is the single source of truth: it defines the whole language and does not
 fall back on Go's specification. The compiler implements most of it and runs on `x86_64-linux` (hosted) and
 `x86_64-none` (freestanding and kernel). The places where the compiler still differs from the specification
-are listed in [`docs/roadmap.md`](docs/roadmap.md); the largest is the `task` statement, which the compiler
-still spells `go`.
+are listed in [`docs/roadmap.md`](docs/roadmap.md), each with the section of the specification it implements.
 Long-term, the compiler is meant to compile itself.
 
 The specification adapts text from The Go Programming Language Specification under CC BY 4.0; appendix G of

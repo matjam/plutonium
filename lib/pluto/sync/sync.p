@@ -1,6 +1,6 @@
 // Package sync provides mutual exclusion locks, wait groups, one-time
 // initialisation and condition variables, as Go's sync package does
-// (language spec section F, memory-model.md section 3.4).
+// (language spec section F.5, memory-model.md section 3.4).
 //
 // They are built on the runtime's two scheduler operations, rt.Park and
 // rt.Ready, so they work on any scheduler, the hosted one or a kernel's. A

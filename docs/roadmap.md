@@ -21,8 +21,8 @@ The order puts wrong code first (the compiler must never produce it, AGENTS.md r
 integrated specification defines (complete-spec section 6.5, the implementation brief), then what a kernel
 needs, then concurrency, the rest of the language, tooling, platforms and libraries. Item numbers are stable
 because other documents cite them; an item added later takes the next free number and is listed in the
-section where it belongs. Words: the specification calls a unit of concurrent execution a *task*; the
-compiler still spells the statement that starts one `go` until item 62 lands.
+section where it belongs. Words: the specification calls a unit of concurrent execution a *task*; what the
+compiler and the runtime print still says "puroutine" in places until item 62 is finished.
 
 ## Gaps of the integrated specification
 
@@ -46,7 +46,7 @@ The 24 implementation gaps of
 | 13 | A channel or map in an ordinary interface is lent | 88 | 7.9 |
 | 14 | Operators other than comparison do not apply to an owner | 89 | 11.18, 7.18 |
 | 15 | A `//go:` line comment is an error | 75 | 4.1, 20.3 |
-| 16 | `portable` | 70 | 8.9 |
+| 16 | `portable` (done) | 70 | 8.9 |
 | 17 | Task stacks from the program-wide default allocator | 90 | 19.1 |
 | 18 | Stack overflow message and stack probes | 91 | 19.1, 17.5 |
 | 19 | `NewTimer`, `NewTicker`, `AfterFunc` return owners | 67 | 19.6, F.7 |
@@ -237,20 +237,23 @@ The pass that aligned the documents with the chapters found six more, items 93 t
 61. **Removed conversions** (done, `080e49b`, `d611757`, `271e57f`; sections 11.24 and 18.8): `string(b)`
     is E2015, `[]byte(s)` and `[]rune(s)` are E2016, `string(i)` of a non-rune integer is E2017; the
     messages show the replacement (`strings.FromUTF8`, `strings.Bytes`, `strconv.Itoa`).
-62. **The `task` statement and the rename sweep** (planned, gap 20; sections 12.12, 4.5, 4.6, 17.1, 19.4):
-    `task f(x)` starts a task; `task` is a contextual keyword that begins a statement when the next token
-    is an identifier or `func`; `go f()` is an error that names `task`. The word "task" replaces
-    "puroutine" in what the program prints and exposes: "task N" in traces, "all tasks are asleep" and the
-    `main called rt.Goexit` fatal error in deadlock reports, `rt.Panic.Task` (today `Puroutine`),
-    thunk names, `(*sync.WaitGroup).Task` (today `Go`), the texts of E-codes, and `testdata` outputs.
+62. **The `task` statement and the rename sweep** (in progress, gap 20; sections 12.12, 4.5, 4.6, 17.1,
+    19.4): `task f(x)` starts a task; `task` is a contextual keyword that begins a statement when the next
+    token is an identifier or `func`; `go f()` is E1012 and names `task`. Done: the statement in the parser,
+    checker, formatter, language server and go2pu (`4cb685c`), programs, tests and catalog examples
+    converted (`3967e27`), `(*sync.WaitGroup).Task` and `rt.Panic.Task` (`523a21f`). Left: the word "task"
+    in what the program prints ("task N" in traces and "all tasks are asleep" and the `main called
+    rt.Goexit` fatal error in deadlock reports, still "puroutine" in `lib/pluto/rt`), thunk names
+    (`<function>.go<N>`), the texts of E-codes and the diagnostics goldens that show them.
 64. **Map iteration guarantees and per-map seeds** (done, `7867af2`; sections 12.10 and 7.10): a deletion
     never moves another entry, every entry present when a loop starts and not deleted before it is reached
     is visited exactly once, and a table rebuilt during a walk is kept until the last walk ends. Hosted maps
     are seeded from `AT_RANDOM`; kernels call `rt.SetMapSeed`; `hash.Map` keeps its fixed seed unless given
     one with `InitSeed`. Applies to `hash.Map`, `hash.Set` and the built-in map.
-70. **`portable`** (planned, gap 16; section 8.9, [scheduler contract](plans/2026-10-09-scheduler-contract.md)
-    section 9): a predeclared structural constraint; no owner is portable. Needed by the PlutoniumOS IPC
-    design.
+70. **`portable`** (done, gap 16, `3146e99`; section 8.9, E2018,
+    [scheduler contract](plans/2026-10-09-scheduler-contract.md) section 9): a predeclared structural
+    constraint; no owner is portable. Needed by the PlutoniumOS IPC design. The transfer of handles and
+    page-owning owners between address spaces waits for the PlutoniumOS IPC design.
 71. **Generation checks by default for hosted builds** (done, `766837b`, `b7a42d8`; sections 18.11 and
     21.5, abi.md section 1.3): a use of freed heap memory is a run-time panic; `--gencheck=false` is the
     unchecked mode; kernel and freestanding builds stay unchecked until a kernel tag encoding exists. Cost

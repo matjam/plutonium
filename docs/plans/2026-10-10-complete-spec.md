@@ -1501,11 +1501,11 @@ reading the code.
 | 13 | A channel or map in an ordinary interface is lent, as a `shared[T]` is: `func f() any { return make(chan int) }` is E3001 (*verified*: compiles today). The data word holds it (escape already treats it as direct). | 7.9 | 88 |
 | 14 | Operators other than comparison do not apply to an owner: `*f + 1` for `type Fd owner int32` is an error (*verified*: accepted today). | 11.18, 7.18 | 89 |
 | 15 | A `//go:` line comment is an error in the E2600 family that names the `//pu:` equivalent (*verified*: `//go:noinline` is accepted silently). | 4.1, 20.3 | 75 |
-| 16 | `portable` as a predeclared constraint, structural, with no owner portable. | 8.9 | 70 |
+| 16 | `portable` as a predeclared constraint, structural, with no owner portable (done: `3146e99`). | 8.9 | 70 |
 | 17 | Task stacks come from the program-wide default allocator (or the backend's memory), never from the starting task's `alloc.Use` override. | 19.1 | 90 |
 | 18 | The stack overflow panic names the size of the stack and how to ask for more; a function whose frame is larger than the guard region probes its stack so that it cannot step over the guard. | 19.1, 17.5 | 91 |
 | 19 | `time.NewTimer`, `time.NewTicker` and `time.AfterFunc` return `owned[Timer]` and `owned[Ticker]`, which stop and free the timer when dropped; no library type needs a `Free` call. | 19.6, F.7 | 67 |
-| 20 | The `task` statement and the rename sweep: `task f(x)` as a contextual keyword, `go f()` an error that names `task`, "task N" in traces and deadlock reports, `rt.Panic.Task`, E-code texts (*verified*: `task` does not parse). | 12.12, 4.5, 4.6, 17.1 | 62 |
+| 20 | The `task` statement and the rename sweep: `task f(x)` as a contextual keyword, `go f()` an error that names `task`, "task N" in traces and deadlock reports, `rt.Panic.Task`, E-code texts (the statement, `WaitGroup.Task` and `rt.Panic.Task` are done: `4cb685c`, `3967e27`, `523a21f`; the words in traces, deadlock reports, thunk names and E-code texts are not). | 12.12, 4.5, 4.6, 17.1 | 62 |
 | 21 | The built-in `map[K]V` (done: `7867af2`, `8fd4ab7`, `0f8bc1b`, `c491a67`). | 7.10, 12.10, 13.5, 13.7 | 60 |
 | 22 | `error` values count a `shared` or `synced` reference they hold; library error types (`*os.PathError`, `*strconv.NumError`) are counted objects (roadmap 11). | 16.7, 16.5 | 11, 69 |
 | 23 | A package-level initializer that allocates is a compile error in freestanding builds (to verify). | 15.2 | 75 |
@@ -1520,8 +1520,8 @@ reading the code.
 Counted channels with their timers (`bdb7683`), 64 MiB lazily mapped hosted task stacks (`173c2f6`) and
 `sync.Scope` (`a7948f6`) and generation checks by default in hosted builds (`766837b`) landed before the
 integration and are not gaps.
-The built-in `map[K]V` (gap 21) landed after the integration; its row stays so that the numbers do not
-change.
+The built-in `map[K]V` (gap 21), `portable` (gap 16) and the `task` statement (gap 20, in part) landed after
+the integration; their rows stay so that the numbers do not change.
 
 Rows 25 to 30 were read from the code and the companion documents, not run. Each row has a roadmap item
 (`docs/roadmap.md`, "Gaps of the integrated specification"), which also records the commits of the work
