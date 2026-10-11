@@ -3,7 +3,6 @@
 package opt
 
 import (
-	"pluto/hash"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 	"selfhost/pu"
@@ -56,28 +55,28 @@ func unrollLoop(f *ssa.Func, l *ssa.Loop, limit int) bool {
 	if h.Kind != ssa.BlockIf || len(h.Preds) != 2 || len(l.Blocks) > unrollMaxBlock {
 		return false
 	}
-	in := compat.NewMap[*ssa.Block, bool](0)
+	in := map[*ssa.Block]bool{}
 	for _, b := range l.Blocks {
-		in.Set(b, true)
+		in[b] = true
 	}
 	body, exit := h.Succs[0].B, h.Succs[1].B
-	if !compat.MapAt(in, body) || compat.MapAt(in, exit) || len(body.Preds) != 1 {
+	if !in[body] || in[exit] || len(body.Preds) != 1 {
 		return false
 	}
 	latch := -1
 	for i, e := range h.Preds {
-		if compat.MapAt(in, e.B) {
+		if in[e.B] {
 			latch = i
 		}
 	}
-	if latch < 0 || compat.MapAt(in, h.Preds[1-latch].B) {
+	if latch < 0 || in[h.Preds[1-latch].B] {
 		return false
 	}
 	pre := 1 - latch
 	// The header's false branch is the only way out.
 	for _, b := range l.Blocks {
 		for i, e := range b.Succs {
-			if !compat.MapAt(in, e.B) && (b != h || i != 1) {
+			if !in[e.B] && (b != h || i != 1) {
 				return false
 			}
 		}
@@ -103,9 +102,9 @@ func unrollLoop(f *ssa.Func, l *ssa.Loop, limit int) bool {
 
 	// Copy k of a value is maps[k][v]; values from outside the loop are
 	// their own copies.
-	maps := compat.Make[*hash.Map[*ssa.Value, *ssa.Value]](trip + 1)
+	maps := compat.Make[map[*ssa.Value]*ssa.Value](trip + 1)
 	get := func(k int, v *ssa.Value) *ssa.Value {
-		if w, ok := compat.MapGet(maps[k], v); ok {
+		if w, ok := maps[k][v]; ok {
 			return w
 		}
 		return v
@@ -114,21 +113,21 @@ func unrollLoop(f *ssa.Func, l *ssa.Loop, limit int) bool {
 	var prevLatch *ssa.Block // copy of the latch block, jumping to the next header
 	latchBlock, latchSucc := h.Preds[latch].B, h.Preds[latch].I
 	for k := 0; k <= trip; k++ {
-		maps[k] = compat.NewMap[*ssa.Value, *ssa.Value](0)
-		blocks := compat.NewMap[*ssa.Block, *ssa.Block](0)
+		maps[k] = map[*ssa.Value]*ssa.Value{}
+		blocks := map[*ssa.Block]*ssa.Block{}
 		// The header: phis take the value of this iteration.
 		hk := f.NewBlock(ssa.BlockPlain)
 		hk.CopyPos(h)
 		heads[k] = hk
-		blocks.Set(h, hk)
+		blocks[h] = hk
 		for _, v := range h.Values {
 			if v.Op != ssa.OpPhi {
 				break
 			}
 			if k == 0 {
-				maps[k].Set(v, v.Args[pre])
+				maps[k][v] = v.Args[pre]
 			} else {
-				maps[k].Set(v, get(k-1, v.Args[latch]))
+				maps[k][v] = get(k-1, v.Args[latch])
 			}
 		}
 		copyBlock := func(b, nb *ssa.Block) {
@@ -143,7 +142,7 @@ func unrollLoop(f *ssa.Func, l *ssa.Loop, limit int) bool {
 					c := pu.New(*v.Call)
 					nv.Call = c
 				}
-				maps[k].Set(v, nv)
+				maps[k][v] = nv
 			}
 		}
 		copyBlock(h, hk)
@@ -155,57 +154,48 @@ func unrollLoop(f *ssa.Func, l *ssa.Loop, limit int) bool {
 				nb := f.NewBlock(b.Kind)
 				nb.Likely = b.Likely
 				nb.CopyPos(b)
-				blocks.Set(b, nb)
+				blocks[b] = nb
 				copyBlock(b, nb)
 			}
 		}
 		// Arguments and controls, now that every copy exists.
-		{
-			goIt1 := compat.MapIter(blocks)
-			for b, nb, goOk2 := goIt1.Next(); goOk2; b, nb, goOk2 = goIt1.Next() {
-				for _, v := range b.Values {
-					if b == h && v.Op == ssa.OpPhi {
-						continue
-					}
-					nv := compat.MapAt(maps[k], v)
-					for _, a := range v.Args {
-						nv.AddArg(get(k, a))
-					}
+		for b, nb := range blocks {
+			for _, v := range b.Values {
+				if b == h && v.Op == ssa.OpPhi {
+					continue
 				}
-				if b != h {
-					ctl := compat.Make[*ssa.Value](len(b.Controls))
-					for i, c := range b.Controls {
-						ctl[i] = get(k, c)
-					}
-					nb.SetControl(ctl...)
+				nv := maps[k][v]
+				for _, a := range v.Args {
+					nv.AddArg(get(k, a))
 				}
+			}
+			if b != h {
+				ctl := compat.Make[*ssa.Value](len(b.Controls))
+				for i, c := range b.Controls {
+					ctl[i] = get(k, c)
+				}
+				nb.SetControl(ctl...)
 			}
 		}
 		// Edges inside this copy keep their order, so phis stay aligned.
-		{
-			goIt3 := compat.MapIter(blocks)
-			for b, nb, goOk4 := goIt3.Next(); goOk4; b, nb, goOk4 = goIt3.Next() {
-				if b == h {
-					continue
-				}
-				nb.Preds = compat.Make[ssa.Edge](len(b.Preds))
-				nb.Succs = compat.Make[ssa.Edge](len(b.Succs))
+		for b, nb := range blocks {
+			if b == h {
+				continue
 			}
+			nb.Preds = compat.Make[ssa.Edge](len(b.Preds))
+			nb.Succs = compat.Make[ssa.Edge](len(b.Succs))
 		}
-		{
-			goIt5 := compat.MapIter(blocks)
-			for b, nb, goOk6 := goIt5.Next(); goOk6; b, nb, goOk6 = goIt5.Next() {
-				if b == h {
-					continue
+		for b, nb := range blocks {
+			if b == h {
+				continue
+			}
+			for i, e := range b.Succs {
+				if e.B == h {
+					continue // the back edge, wired below
 				}
-				for i, e := range b.Succs {
-					if e.B == h {
-						continue // the back edge, wired below
-					}
-					nc := compat.MapAt(blocks, e.B)
-					nb.Succs[i] = ssa.Edge{B: nc, I: e.I}
-					nc.Preds[e.I] = ssa.Edge{B: nb, I: i}
-				}
+				nc := blocks[e.B]
+				nb.Succs[i] = ssa.Edge{B: nc, I: e.I}
+				nc.Preds[e.I] = ssa.Edge{B: nb, I: i}
 			}
 		}
 		// Enter this iteration's header from the previous iteration's
@@ -219,10 +209,10 @@ func unrollLoop(f *ssa.Func, l *ssa.Loop, limit int) bool {
 			hk.Preds = compat.Append(hk.Preds, ssa.Edge{B: prevLatch, I: latchSucc})
 		}
 		if k < trip {
-			nbody := compat.MapAt(blocks, body)
+			nbody := blocks[body]
 			hk.Succs = compat.Append(hk.Succs, ssa.Edge{B: nbody, I: 0})
 			nbody.Preds[0] = ssa.Edge{B: hk, I: 0}
-			prevLatch = compat.MapAt(blocks, latchBlock)
+			prevLatch = blocks[latchBlock]
 		} else {
 			// The last header leaves the loop in h's place.
 			xe := h.Succs[1]
@@ -233,7 +223,7 @@ func unrollLoop(f *ssa.Func, l *ssa.Loop, limit int) bool {
 
 	// Uses of the header's values after the loop see the last copy.
 	for _, b := range f.Blocks {
-		if compat.MapAt(in, b) {
+		if in[b] {
 			continue
 		}
 		for _, v := range b.Values {

@@ -24,13 +24,8 @@ import (
 // stored there, and removes the stores of records nothing reads. It reports
 // whether it changed f.
 func ForwardClosureLoads(f *ssa.Func) bool {
-	stored := compat.NewMapFunc[slotRef, *ssa.Value](0, func(k slotRef) uint64 {
-		h := uint64(0)
-		h = compat.Mix(h, compat.HashAny(k.slot))
-		h = compat.Mix(h, compat.HashAny(k.off))
-		return h
-	}) // nil when the stores disagree
-	unknown := compat.NewMap[*ssa.Slot, bool](0) // written other than by plain stores
+	stored := map[slotRef]*ssa.Value{} // nil when the stores disagree
+	unknown := map[*ssa.Slot]bool{}    // written other than by plain stores
 	var loads []*ssa.Value
 	for _, b := range f.Blocks {
 		for _, v := range b.Values {
@@ -41,14 +36,14 @@ func ForwardClosureLoads(f *ssa.Func) bool {
 					continue
 				}
 				val := v.Args[1]
-				if prev, seen := compat.MapGet(stored, r); v.IsVolatile() || !invariant(val) || seen && (prev == nil || !sameInvariant(prev, val)) {
-					stored.Set(r, nil)
+				if prev, seen := stored[r]; v.IsVolatile() || !invariant(val) || seen && (prev == nil || !sameInvariant(prev, val)) {
+					stored[r] = nil
 					continue
 				}
-				stored.Set(r, val)
+				stored[r] = val
 			case ssa.OpZero, ssa.OpMove:
 				if r, ok := closureRef(v.Args[0]); ok {
-					unknown.Set(r.slot, true)
+					unknown[r.slot] = true
 				}
 			case ssa.OpLoad:
 				if _, ok := closureRef(v.Args[0]); ok && !v.IsVolatile() {
@@ -60,8 +55,8 @@ func ForwardClosureLoads(f *ssa.Func) bool {
 	changed := false
 	for _, v := range loads {
 		r, _ := closureRef(v.Args[0])
-		val := compat.MapAt(stored, r)
-		if val == nil || compat.MapAt(unknown, r.slot) || val.Type.Size != v.Type.Size {
+		val := stored[r]
+		if val == nil || unknown[r.slot] || val.Type.Size != v.Type.Size {
 			continue
 		}
 		v.CopyOf(rematerialize(f, val))
@@ -157,7 +152,7 @@ func dropWriteOnlyRecords(f *ssa.Func) bool {
 	changed := false
 	infos := analyzeSlots(f)
 	for _, s := range f.Slots {
-		in := compat.MapAt(infos, s)
+		in := infos[s]
 		if !s.Closure || in == nil || in.escapes || len(in.accesses) == 0 {
 			continue
 		}

@@ -3,7 +3,6 @@
 package opt
 
 import (
-	"pluto/hash"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 )
@@ -42,7 +41,7 @@ func RuneBounds(f *ssa.Func) {
 	if len(checks) == 0 {
 		return
 	}
-	r := &runeProver{dom: f.Dom(), busy: compat.NewMap[*ssa.Value, bool](0)}
+	r := &runeProver{dom: f.Dom(), busy: map[*ssa.Value]bool{}}
 	for _, c := range checks {
 		r.known = compat.Append(r.known, knownBounds{check: c, from: guardJoin(c.Block)})
 	}
@@ -68,20 +67,20 @@ const (
 // with what the end of the match is. Only the functions whose result is
 // always a boundary are listed; IndexByte and LastIndexByte return one
 // when the byte they look for is ASCII (asciiByteIndexers).
-var runeIndexers = compat.MapOf[string, matchEnd](
-	compat.Pair[string, matchEnd]{"pluto/strings.Index", endNeedle},
-	compat.Pair[string, matchEnd]{"pluto/strings.LastIndex", endNeedle},
-	compat.Pair[string, matchEnd]{"pluto/strings.IndexRune", endNone},
-	compat.Pair[string, matchEnd]{"pluto/strings.IndexAny", endNone},
-	compat.Pair[string, matchEnd]{"pluto/strings.LastIndexAny", endNone},
-	compat.Pair[string, matchEnd]{"pluto/strings.IndexFunc", endNone},
-	compat.Pair[string, matchEnd]{"pluto/strings.LastIndexFunc", endNone},
-)
+var runeIndexers = map[string]matchEnd{
+	"pluto/strings.Index":         endNeedle,
+	"pluto/strings.LastIndex":     endNeedle,
+	"pluto/strings.IndexRune":     endNone,
+	"pluto/strings.IndexAny":      endNone,
+	"pluto/strings.LastIndexAny":  endNone,
+	"pluto/strings.IndexFunc":     endNone,
+	"pluto/strings.LastIndexFunc": endNone,
+}
 
-var asciiByteIndexers = compat.MapOf[string, bool](
-	compat.Pair[string, bool]{"pluto/strings.IndexByte", true},
-	compat.Pair[string, bool]{"pluto/strings.LastIndexByte", true},
-)
+var asciiByteIndexers = map[string]bool{
+	"pluto/strings.IndexByte":     true,
+	"pluto/strings.LastIndexByte": true,
+}
 
 // A matchEnd says where the match of an index function ends.
 type matchEnd int
@@ -101,7 +100,7 @@ type knownBounds struct {
 type runeProver struct {
 	dom   *ssa.DomTree
 	known []knownBounds
-	busy  *hash.Map[*ssa.Value, bool] // phis assumed to be boundaries while proving them
+	busy  map[*ssa.Value]bool // phis assumed to be boundaries while proving them
 }
 
 // guardJoin returns the block where the check in b is known to have
@@ -158,10 +157,10 @@ func (r *runeProver) boundary(p, n, v *ssa.Value, at *ssa.Block, self *ssa.Value
 	}
 	switch v.Op {
 	case ssa.OpPhi:
-		if compat.MapAt(r.busy, v) {
+		if r.busy[v] {
 			return true
 		}
-		r.busy.Set(v, true)
+		r.busy[v] = true
 		ok := true
 		for i, a := range v.Args {
 			if !r.boundary(p, n, a, v.Block.Preds[i].B, self) {
@@ -169,7 +168,7 @@ func (r *runeProver) boundary(p, n, v *ssa.Value, at *ssa.Block, self *ssa.Value
 				break
 			}
 		}
-		compat.MapDelete(r.busy, v)
+		delete(r.busy, v)
 		return ok
 	case ssa.OpAdd:
 		for i, x := range v.Args {
@@ -196,10 +195,10 @@ func (r *runeProver) boundary(p, n, v *ssa.Value, at *ssa.Block, self *ssa.Value
 		}
 		call := v.Args[0]
 		name := calledName(call)
-		if _, ok := compat.MapGet(runeIndexers, name); ok && call.Args[0] == p && call.Args[1] == n {
+		if _, ok := runeIndexers[name]; ok && call.Args[0] == p && call.Args[1] == n {
 			return true
 		}
-		if compat.MapAt(asciiByteIndexers, name) && call.Args[0] == p && call.Args[1] == n && asciiConst(call.Args[3]) {
+		if asciiByteIndexers[name] && call.Args[0] == p && call.Args[1] == n && asciiConst(call.Args[3]) {
 			return true
 		}
 	}
@@ -255,11 +254,11 @@ func (r *runeProver) matchEnd(p, n, i, size *ssa.Value, at *ssa.Block) bool {
 	}
 	name := calledName(call)
 	switch {
-	case compat.MapAt(runeIndexers, name) == endNeedle:
+	case runeIndexers[name] == endNeedle:
 		if size != call.Args[4] {
 			return false
 		}
-	case compat.MapAt(asciiByteIndexers, name):
+	case asciiByteIndexers[name]:
 		if !isConstInt(size, 1) || !asciiConst(call.Args[3]) {
 			return false
 		}

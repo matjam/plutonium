@@ -1,3 +1,15 @@
+// Package compat gives code translated from Go by tools/go2pu the Go
+// semantics it relies on, on top of Plutonium's allocators: append that
+// grows, string concatenation and conversions that copy, fmt.Sprintf that
+// returns a new string, and errors made at run time. Go's maps need nothing
+// here: they translate to Plutonium's map[K]V as they are.
+//
+// Everything here allocates from alloc.Default() and never frees. That is
+// Go's garbage-collected model with the collector replaced by an arena: the
+// compiler installs an arena with alloc.Use for each phase and releases it
+// when the phase's results are no longer needed (see
+// docs/plans/2026-10-09-self-hosting-plan.md). Hand-written Plutonium should
+// use pluto/hash, pluto/vec and pluto/strings directly instead.
 package compat
 
 import (

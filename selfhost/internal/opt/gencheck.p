@@ -3,7 +3,6 @@
 package opt
 
 import (
-	"pluto/hash"
 	"pluto/os"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
@@ -64,10 +63,10 @@ func GenCheck(f *ssa.Func) {
 	}
 	g := &genPlacer{
 		f:     f,
-		roots: compat.NewMap[*ssa.Value, int](0),
-		parts: compat.NewMap[*ssa.Value, *genParts](0),
-		at:    compat.NewMap[*ssa.Value, []*genSite](0),
-		kind:  compat.NewMap[*ssa.Value, uint8](0),
+		roots: map[*ssa.Value]int{},
+		parts: map[*ssa.Value]*genParts{},
+		at:    map[*ssa.Value][]*genSite{},
+		kind:  map[*ssa.Value]uint8{},
 	}
 	g.run()
 	f.InvalidateCFG()
@@ -107,30 +106,30 @@ type genPlacer struct {
 	dom    *ssa.DomTree
 	ln     *ssa.LoopNest
 	sites  []*genSite
-	at     *hash.Map[*ssa.Value, []*genSite] // access sites by access
-	hoists *hash.Map[*ssa.Block, []*genSite] // hoisted sites by preheader
-	roots  *hash.Map[*ssa.Value, int]        // root pointers, numbered
+	at     map[*ssa.Value][]*genSite // access sites by access
+	hoists map[*ssa.Block][]*genSite // hoisted sites by preheader
+	roots  map[*ssa.Value]int        // root pointers, numbered
 	rootOf []*ssa.Value
-	parts  *hash.Map[*ssa.Value, *genParts]
+	parts  map[*ssa.Value]*genParts
 	// barrier and reset are, by block ID, whether the block holds a
 	// barrier, and one that may reset (isReset).
 	barrier, reset    []bool
 	inlFree, inlReset []bool
 	split             []*ssa.Block // preheaders made by splitting an edge
-	cond              *hash.Map[*ssa.Loop, *genCond]
+	cond              map[*ssa.Loop]*genCond
 
 	// Roots the function holds (genPlacer.holds): a new allocation, from
 	// where it is made (freshAt), or an owner parameter, from the entry
 	// (owned); and where each stops being held (escapeAt).
-	freshAt  *hash.Map[*ssa.Value, int]
+	freshAt  map[*ssa.Value]int
 	owned    []int
-	escapeAt *hash.Map[*ssa.Value, []int]
+	escapeAt map[*ssa.Value][]int
 	// heldOut is, by block ID, the roots held at the end of the block.
 	heldOut   [][]uint64
-	escBlocks *hash.Map[int, []*ssa.Block]
+	escBlocks map[int][]*ssa.Block
 	words     int
 	// kind is, for each barrier, genFree or genReset.
-	kind *hash.Map[*ssa.Value, uint8]
+	kind map[*ssa.Value]uint8
 }
 
 const (
@@ -157,8 +156,8 @@ func (g *genPlacer) run() {
 	}
 	g.words = (len(g.rootOf) + 63) / 64
 	g.holds()
-	g.hoists = compat.NewMap[*ssa.Block, []*genSite](0)
-	g.cond = compat.NewMap[*ssa.Loop, *genCond](0)
+	g.hoists = map[*ssa.Block][]*genSite{}
+	g.cond = map[*ssa.Loop]*genCond{}
 	// Which roots are held at the end of each block does not depend on
 	// the checks: hoisting asks it of preheaders.
 	g.heldOut = g.dataflow(false)
@@ -179,7 +178,7 @@ func (g *genPlacer) isBarrier(v *ssa.Value) bool {
 		if v.Call != nil && v.Call.NoReturn {
 			return false
 		}
-		return !compat.MapAt(g.f.GenNoFree, v.Aux.(*ssa.Sym))
+		return !g.f.GenNoFree[v.Aux.(*ssa.Sym)]
 	}
 	return genBarrierOp(v, g.inlFree, false)
 }
@@ -191,7 +190,7 @@ func (g *genPlacer) isReset(v *ssa.Value) bool {
 		if v.Call != nil && v.Call.NoReturn {
 			return false
 		}
-		return !compat.MapAt(g.f.GenNoReset, v.Aux.(*ssa.Sym))
+		return !g.f.GenNoReset[v.Aux.(*ssa.Sym)]
 	}
 	return genBarrierOp(v, g.inlReset, true)
 }
@@ -244,7 +243,7 @@ func (g *genPlacer) unsplit() {
 	if len(g.split) == 0 {
 		return
 	}
-	gone := compat.NewMap[*ssa.Block, bool](0)
+	gone := map[*ssa.Block]bool{}
 	for _, n := range g.split {
 		if len(n.Values) != 0 || n.Kind != ssa.BlockPlain || len(n.Preds) != 1 || len(n.Succs) != 1 {
 			continue
@@ -252,14 +251,14 @@ func (g *genPlacer) unsplit() {
 		p, s := n.Preds[0], n.Succs[0]
 		p.B.Succs[p.I] = ssa.Edge{B: s.B, I: s.I}
 		s.B.Preds[s.I] = ssa.Edge{B: p.B, I: p.I}
-		gone.Set(n, true)
+		gone[n] = true
 	}
-	if compat.MapLen(gone) == 0 {
+	if len(gone) == 0 {
 		return
 	}
 	keep := g.f.Blocks[:0]
 	for _, b := range g.f.Blocks {
-		if !compat.MapAt(gone, b) {
+		if !gone[b] {
 			keep = compat.Append(keep, b)
 		}
 	}
@@ -278,10 +277,10 @@ func (g *genPlacer) collect() {
 			if g.isReset(v) {
 				g.reset[b.ID] = true
 				g.barrier[b.ID] = true
-				g.kind.Set(v, genReset)
+				g.kind[v] = genReset
 			} else if g.isBarrier(v) {
 				g.barrier[b.ID] = true
-				g.kind.Set(v, genFree)
+				g.kind[v] = genFree
 			}
 			addrArgs := genAddrArgs(v)
 			for _, ai := range addrArgs {
@@ -289,13 +288,13 @@ func (g *genPlacer) collect() {
 				if isStaticAddr(root) || isUntagPattern(root) {
 					continue
 				}
-				if _, ok := compat.MapGet(g.roots, root); !ok {
-					g.roots.Set(root, len(g.rootOf))
+				if _, ok := g.roots[root]; !ok {
+					g.roots[root] = len(g.rootOf)
 					g.rootOf = compat.Append(g.rootOf, root)
 				}
 				s := pu.New(genSite{v: v, arg: ai, steps: steps, root: root, block: b})
 				g.sites = compat.Append(g.sites, s)
-				g.at.Set(v, compat.Append(compat.MapAt(g.at, v), s))
+				g.at[v] = compat.Append(g.at[v], s)
 			}
 		}
 	}
@@ -329,19 +328,19 @@ func (g *genPlacer) hoist(l *ssa.Loop) {
 	}
 	// The sites in l, by invariant root, in the order first seen.
 	var order []*ssa.Value
-	byRoot := compat.NewMap[*ssa.Value, []*genSite](0)
+	byRoot := map[*ssa.Value][]*genSite{}
 	for _, s := range g.sites {
 		if s.covered || !l.Contains(g.ln, s.block) || l.Contains(g.ln, s.root.Block) ||
 			!g.dom.Dominates(s.root.Block, pre) || barriers && !g.heldIn(l, pre, s.root) {
 			continue
 		}
-		if compat.MapAt(byRoot, s.root) == nil {
+		if byRoot[s.root] == nil {
 			order = compat.Append(order, s.root)
 		}
-		byRoot.Set(s.root, compat.Append(compat.MapAt(byRoot, s.root), s))
+		byRoot[s.root] = compat.Append(byRoot[s.root], s)
 	}
 	for _, r := range order {
-		sites := compat.MapAt(byRoot, r)
+		sites := byRoot[r]
 		// An unguarded site in the header, before its test, runs whenever
 		// the loop is entered: one check before the loop covers all.
 		var from *genSite
@@ -406,7 +405,7 @@ func (g *genPlacer) hoist(l *ssa.Loop) {
 func (g *genPlacer) addHoist(pre *ssa.Block, from *genSite, guard *ssa.Value) {
 	s := pu.New(genSite{v: from.v, arg: -1, root: from.root, block: pre, guard: guard, mem: g.memOut(pre)})
 	g.sites = compat.Append(g.sites, s)
-	g.hoists.Set(pre, compat.Append(compat.MapAt(g.hoists, pre), s))
+	g.hoists[pre] = compat.Append(g.hoists[pre], s)
 }
 
 // reaches reports whether, once loop l has let its first iteration in
@@ -434,11 +433,11 @@ func (g *genPlacer) reaches(l *ssa.Loop, a *ssa.Block) bool {
 // which loop l's header lets its first iteration into the loop: its test
 // with each of its phis replaced by the value it has on entry.
 func (g *genPlacer) entryCond(l *ssa.Loop, pre *ssa.Block, pi int) *genCond {
-	if c := compat.MapAt(g.cond, l); c != nil {
+	if c := g.cond[l]; c != nil {
 		return c
 	}
 	c := pu.New(genCond{})
-	g.cond.Set(l, c)
+	g.cond[l] = c
 	h := l.Header
 	if h.Kind != ssa.BlockIf {
 		c.ok = h.Kind == ssa.BlockPlain
@@ -454,7 +453,7 @@ func (g *genPlacer) entryCond(l *ssa.Loop, pre *ssa.Block, pi int) *genCond {
 	if !g.cloneable(l, h.Controls[0], true, &budget) {
 		return c
 	}
-	memo := compat.NewMap[*ssa.Value, *ssa.Value](0)
+	memo := map[*ssa.Value]*ssa.Value{}
 	v := g.cloneEntry(l, pre, pi, h.Controls[0], memo)
 	if !in0 {
 		v = g.newValue(pre, h.Controls[0], ssa.OpNot, ssa.TBool, v)
@@ -511,11 +510,11 @@ func (g *genPlacer) invariant(l *ssa.Loop, v *ssa.Value) bool {
 }
 
 // cloneEntry computes v at the end of pre for the first iteration of l.
-func (g *genPlacer) cloneEntry(l *ssa.Loop, pre *ssa.Block, pi int, v *ssa.Value, memo *hash.Map[*ssa.Value, *ssa.Value]) *ssa.Value {
+func (g *genPlacer) cloneEntry(l *ssa.Loop, pre *ssa.Block, pi int, v *ssa.Value, memo map[*ssa.Value]*ssa.Value) *ssa.Value {
 	if !l.Contains(g.ln, v.Block) {
 		return v
 	}
-	if w := compat.MapAt(memo, v); w != nil {
+	if w := memo[v]; w != nil {
 		return w
 	}
 	var w *ssa.Value
@@ -529,13 +528,13 @@ func (g *genPlacer) cloneEntry(l *ssa.Loop, pre *ssa.Block, pi int, v *ssa.Value
 		w = g.newValue(pre, v, v.Op, v.Type, args...)
 		w.AuxInt, w.Aux = v.AuxInt, v.Aux
 	}
-	memo.Set(v, w)
+	memo[v] = w
 	return w
 }
 
 // cloneInvariant computes v, invariant in l, at the end of pre.
 func (g *genPlacer) cloneInvariant(l *ssa.Loop, pre *ssa.Block, v *ssa.Value) *ssa.Value {
-	return g.cloneEntry(l, pre, -1, v, compat.NewMap[*ssa.Value, *ssa.Value](0))
+	return g.cloneEntry(l, pre, -1, v, map[*ssa.Value]*ssa.Value{})
 }
 
 // newValue appends a value to b, at pos's position.
@@ -560,12 +559,12 @@ func (g *genPlacer) memOut(b *ssa.Block) *ssa.Value {
 // heldIn reports whether the function holds root r from the end of pre
 // throughout loop l.
 func (g *genPlacer) heldIn(l *ssa.Loop, pre *ssa.Block, r *ssa.Value) bool {
-	i := compat.MapAt(g.roots, r)
+	i := g.roots[r]
 	out := g.heldOut[pre.ID]
 	if out == nil || out[g.words+i/64]&(1<<(i%64)) == 0 {
 		return false
 	}
-	for _, b := range compat.MapAt(g.escBlocks, i) {
+	for _, b := range g.escBlocks[i] {
 		if l.Contains(g.ln, b) {
 			return false
 		}
@@ -673,7 +672,7 @@ func (g *genPlacer) transfer(b *ssa.Block, cur []uint64, decide bool) {
 		if s.covered {
 			return
 		}
-		i := compat.MapAt(g.roots, s.root)
+		i := g.roots[s.root]
 		have := avail[i/64]&(1<<(i%64)) != 0
 		if decide {
 			s.need = !have
@@ -683,13 +682,13 @@ func (g *genPlacer) transfer(b *ssa.Block, cur []uint64, decide bool) {
 		}
 	}
 	for _, v := range b.Values {
-		for _, s := range compat.MapAt(g.at, v) {
+		for _, s := range g.at[v] {
 			site(s)
 		}
-		for _, i := range compat.MapAt(g.escapeAt, v) {
+		for _, i := range g.escapeAt[v] {
 			held[i/64] &^= 1 << (i % 64)
 		}
-		switch compat.MapAt(g.kind, v) {
+		switch g.kind[v] {
 		case genReset:
 			clear(avail)
 		case genFree:
@@ -697,14 +696,14 @@ func (g *genPlacer) transfer(b *ssa.Block, cur []uint64, decide bool) {
 				avail[k] &= held[k]
 			}
 		}
-		if i, ok := compat.MapGet(g.freshAt, v); ok {
+		if i, ok := g.freshAt[v]; ok {
 			// A new allocation is current when the allocator hands it
 			// out.
 			avail[i/64] |= 1 << (i % 64)
 			held[i/64] |= 1 << (i % 64)
 		}
 	}
-	for _, s := range compat.MapAt(g.hoists, b) {
+	for _, s := range g.hoists[b] {
 		site(s)
 	}
 }
@@ -716,32 +715,32 @@ func (g *genPlacer) transfer(b *ssa.Block, cur []uint64, decide bool) {
 // pointer to it, except by resetting an arena, so a check of such a root
 // stays valid across barriers that do not reset (isReset).
 func (g *genPlacer) holds() {
-	g.freshAt = compat.NewMap[*ssa.Value, int](0)
-	g.escapeAt = compat.NewMap[*ssa.Value, []int](0)
-	g.escBlocks = compat.NewMap[int, []*ssa.Block](0)
-	owner := compat.NewMap[int64, bool](0)
+	g.freshAt = map[*ssa.Value]int{}
+	g.escapeAt = map[*ssa.Value][]int{}
+	g.escBlocks = map[int][]*ssa.Block{}
+	owner := map[int64]bool{}
 	for _, a := range g.f.GenOwnerArgs {
-		owner.Set(a, true)
+		owner[a] = true
 	}
 	var cands []int
 	for i, r := range g.rootOf {
-		if r.Op == ssa.OpSelectN && r.AuxInt == 1 && genFreshCall(r.Args[0]) || r.Op == ssa.OpArg && compat.MapAt(owner, r.AuxInt) {
+		if r.Op == ssa.OpSelectN && r.AuxInt == 1 && genFreshCall(r.Args[0]) || r.Op == ssa.OpArg && owner[r.AuxInt] {
 			cands = compat.Append(cands, i)
 		}
 	}
 	if len(cands) == 0 {
 		return
 	}
-	users := compat.NewMap[*ssa.Value, []*ssa.Value](0)
-	ctl := compat.NewMap[*ssa.Value, []*ssa.Block](0)
+	users := map[*ssa.Value][]*ssa.Value{}
+	ctl := map[*ssa.Value][]*ssa.Block{}
 	for _, b := range g.f.Blocks {
 		for _, v := range b.Values {
 			for _, a := range v.Args {
-				users.Set(a, compat.Append(compat.MapAt(users, a), v))
+				users[a] = compat.Append(users[a], v)
 			}
 		}
 		for _, c := range b.Controls {
-			ctl.Set(c, compat.Append(compat.MapAt(ctl, c), b))
+			ctl[c] = compat.Append(ctl[c], b)
 		}
 	}
 	for _, i := range cands {
@@ -753,11 +752,11 @@ func (g *genPlacer) holds() {
 		if r.Op == ssa.OpArg {
 			g.owned = compat.Append(g.owned, i)
 		} else {
-			g.freshAt.Set(r, i)
+			g.freshAt[r] = i
 		}
 		for _, u := range esc {
-			g.escapeAt.Set(u, compat.Append(compat.MapAt(g.escapeAt, u), i))
-			g.escBlocks.Set(i, compat.Append(compat.MapAt(g.escBlocks, i), u.Block))
+			g.escapeAt[u] = compat.Append(g.escapeAt[u], i)
+			g.escBlocks[i] = compat.Append(g.escBlocks[i], u.Block)
 		}
 	}
 }
@@ -766,20 +765,18 @@ func (g *genPlacer) holds() {
 // it, leaves the function's hands: a call it is passed to, a store of it
 // into memory. ok is false if r is used in a way not followed here (a
 // phi, a conversion to an integer), and is then never held.
-func escapes(r *ssa.Value, users *hash.Map[*ssa.Value, []*ssa.Value], ctl *hash.Map[*ssa.Value, []*ssa.Block]) (esc []*ssa.Value, ok bool) {
-	seen := compat.MapOf[*ssa.Value, bool](
-		compat.Pair[*ssa.Value, bool]{r, true},
-	)
+func escapes(r *ssa.Value, users map[*ssa.Value][]*ssa.Value, ctl map[*ssa.Value][]*ssa.Block) (esc []*ssa.Value, ok bool) {
+	seen := map[*ssa.Value]bool{r: true}
 	work := []*ssa.Value{r}
 	for len(work) > 0 {
 		w := work[len(work)-1]
 		work = work[:len(work)-1]
-		for _, b := range compat.MapAt(ctl, w) {
+		for _, b := range ctl[w] {
 			if b.Kind != ssa.BlockRet {
 				return nil, false
 			}
 		}
-		for _, u := range compat.MapAt(users, w) {
+		for _, u := range users[w] {
 			switch u.Op {
 			case ssa.OpLoad, ssa.OpZero, ssa.OpFill:
 				for _, a := range u.Args[1:] {
@@ -796,8 +793,8 @@ func escapes(r *ssa.Value, users *hash.Map[*ssa.Value, []*ssa.Value], ctl *hash.
 				if u.Args[0] != w {
 					return nil, false
 				}
-				if !compat.MapAt(seen, u) {
-					seen.Set(u, true)
+				if !seen[u] {
+					seen[u] = true
 					work = compat.Append(work, u)
 				}
 			case ssa.OpCall, ssa.OpCallInd:
@@ -839,7 +836,7 @@ func (g *genPlacer) emit() {
 	}
 	for _, s := range g.sites {
 		if s.arg >= 0 {
-			s.v.SetArg(s.arg, g.rebuild(s.v.Block, s.v, compat.MapAt(g.parts, s.root).addr, s.steps))
+			s.v.SetArg(s.arg, g.rebuild(s.v.Block, s.v, g.parts[s.root].addr, s.steps))
 		}
 	}
 }
@@ -891,11 +888,11 @@ func isUntagPattern(p *ssa.Value) bool {
 // partsOf returns root's genParts, emitting them right after root's
 // definition the first time.
 func (g *genPlacer) partsOf(root *ssa.Value) *genParts {
-	if p := compat.MapAt(g.parts, root); p != nil {
+	if p := g.parts[root]; p != nil {
 		return p
 	}
 	p := genPartsAfter(g.f, root)
-	g.parts.Set(root, p)
+	g.parts[root] = p
 	return p
 }
 
@@ -959,7 +956,7 @@ func (g *genPlacer) rebuild(b *ssa.Block, v, m *ssa.Value, steps []*ssa.Value) *
 func (g *genPlacer) check(b *ssa.Block, at *ssa.Value, s *genSite) {
 	f := g.f
 	p := s.root
-	parts := compat.MapAt(g.parts, p)
+	parts := g.parts[p]
 	pos := s.v
 	mem := s.mem
 	if at != nil {
@@ -1033,7 +1030,7 @@ func (g *genPlacer) check(b *ssa.Block, at *ssa.Value, s *genSite) {
 // allocator, and PLUTO_GENCHECK_MASKONLY, which measures the masking's
 // cost alone).
 func genMaskOnly(f *ssa.Func) {
-	parts := compat.NewMap[*ssa.Value, *genParts](0)
+	parts := map[*ssa.Value]*genParts{}
 	type use struct {
 		v     *ssa.Value
 		arg   int
@@ -1055,10 +1052,10 @@ func genMaskOnly(f *ssa.Func) {
 	}
 	g := &genPlacer{f: f}
 	for _, u := range uses {
-		p := compat.MapAt(parts, u.root)
+		p := parts[u.root]
 		if p == nil {
 			p = genPartsAfter(f, u.root)
-			parts.Set(u.root, p)
+			parts[u.root] = p
 		}
 		u.v.SetArg(u.arg, g.rebuild(u.v.Block, u.v, p.addr, u.steps))
 	}

@@ -170,7 +170,6 @@ func TestHandFixNotes(t *testing.T) {
 		"channel type",
 		"range over a function",
 		"defer in a loop",
-		"map m modified while ranging over it",
 		"sort comparison uses its indexes",
 		"encoding/binary.BigEndian.PutUint32: no translation",
 		`string literal "\x7fELF\xff" is not valid UTF-8: keep binary data in a []byte`,
@@ -187,9 +186,9 @@ func TestHandFixNotes(t *testing.T) {
 		t.Errorf("output path %q", res.OutPath)
 	}
 	// x is captured by a closure that outlives main, so it moves to the
-	// heap.
+	// heap. Maps translate as they are, deleting while ranging included.
 	src := string(res.Files[0].Src)
-	for _, want := range []string{"x := pu.New(1)", "(*x)++", "goIt1 := compat.MapIter(m)", `compat.Runes("é")`} {
+	for _, want := range []string{"x := pu.New(1)", "(*x)++", "m := map[string]int{\"a\": 1}", "for k := range m {\n\t\tdelete(m, k)", `compat.Runes("é")`} {
 		if !strings.Contains(src, want) {
 			t.Errorf("translation lacks %q:\n%s", want, src)
 		}

@@ -16,7 +16,7 @@ import (
 // value. Volatile loads and values with side effects are never merged.
 func CSE(f *ssa.Func) {
 	dom := f.Dom()
-	table := compat.NewMap[string, *ssa.Value](0)
+	table := map[string]*ssa.Value{}
 	var walk func(b *ssa.Block)
 	walk = func(b *ssa.Block) {
 		var added []string
@@ -33,18 +33,18 @@ func CSE(f *ssa.Func) {
 				continue
 			}
 			k := cseKey(v)
-			if w, ok := compat.MapGet(table, k); ok {
+			if w, ok := table[k]; ok {
 				v.CopyOf(w)
 				continue
 			}
-			table.Set(k, v)
+			table[k] = v
 			added = compat.Append(added, k)
 		}
 		for _, c := range dom.Children(b) {
 			walk(c)
 		}
 		for _, k := range added {
-			compat.MapDelete(table, k)
+			delete(table, k)
 		}
 	}
 	// Constants live in the entry block and dominate everything: merge them

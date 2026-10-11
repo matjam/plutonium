@@ -4,7 +4,6 @@ package amd64
 
 import (
 	"pluto/fmt"
-	"pluto/hash"
 	"pluto/math"
 	"pluto/sort"
 	"selfhost/compat"
@@ -133,7 +132,7 @@ func bitIndex(b uint64) int {
 // from the entry, followed by any unreachable blocks. Visiting blocks in
 // this order, successors before predecessors except along back edges,
 // lets backward dataflow converge in a few passes whatever the layout.
-func postorder(f *MFunc, index *hash.Map[*MBlock, int]) []int {
+func postorder(f *MFunc, index map[*MBlock]int) []int {
 	order := compat.MakeCap[int](0, len(f.Blocks))
 	seen := compat.Make[bool](len(f.Blocks))
 	type frame struct {
@@ -142,25 +141,25 @@ func postorder(f *MFunc, index *hash.Map[*MBlock, int]) []int {
 	}
 	var stack []frame
 	visit := func(b *MBlock) {
-		seen[compat.MapAt(index, b)] = true
+		seen[index[b]] = true
 		stack = compat.Append(stack, frame{b: b})
 		for len(stack) > 0 {
 			top := &stack[len(stack)-1]
 			if top.next < len(top.b.Succs) {
 				s := top.b.Succs[top.next]
 				top.next++
-				if !seen[compat.MapAt(index, s)] {
-					seen[compat.MapAt(index, s)] = true
+				if !seen[index[s]] {
+					seen[index[s]] = true
 					stack = compat.Append(stack, frame{b: s})
 				}
 				continue
 			}
-			order = compat.Append(order, compat.MapAt(index, top.b))
+			order = compat.Append(order, index[top.b])
 			stack = stack[:len(stack)-1]
 		}
 	}
 	for _, b := range f.Blocks {
-		if !seen[compat.MapAt(index, b)] {
+		if !seen[index[b]] {
 			visit(b)
 		}
 	}
@@ -191,9 +190,9 @@ func liveness(f *MFunc) []regSet {
 			}
 		}
 	}
-	index := compat.NewMap[*MBlock, int](0)
+	index := map[*MBlock]int{}
 	for i, b := range f.Blocks {
-		index.Set(b, i)
+		index[b] = i
 	}
 	tmp := newRegSet(n)
 	order := postorder(f, index)
@@ -202,7 +201,7 @@ func liveness(f *MFunc) []regSet {
 		for _, i := range order {
 			b := f.Blocks[i]
 			for _, s := range b.Succs {
-				if liveOut[i].unionChanged(liveIn[compat.MapAt(index, s)]) {
+				if liveOut[i].unionChanged(liveIn[index[s]]) {
 					changed = true
 				}
 			}
@@ -229,47 +228,47 @@ type allocator struct {
 	k      int
 	colors []Reg // allocatable registers of the class
 
-	precolored *hash.Map[Reg, bool]
+	precolored map[Reg]bool
 	initial    []Reg
 
-	simplifyWL, freezeWL, spillWL *hash.Map[Reg, bool]
+	simplifyWL, freezeWL, spillWL map[Reg]bool
 	spilled                       []Reg
-	coalesced                     *hash.Map[Reg, bool]
-	colored                       *hash.Map[Reg, bool]
+	coalesced                     map[Reg]bool
+	colored                       map[Reg]bool
 	selectStack                   []Reg
-	onStack                       *hash.Map[Reg, bool]
+	onStack                       map[Reg]bool
 
 	moves                                                                     []*MInst
-	coalescedMoves, constrainedMoves, frozenMoves, worklistMoves, activeMoves *hash.Map[*MInst, bool]
+	coalescedMoves, constrainedMoves, frozenMoves, worklistMoves, activeMoves map[*MInst]bool
 
 	// moveOrder is each move's index in moves, and pending a min-heap of
 	// the indices of moves added to worklistMoves, so that coalesce finds
 	// the first worklist move in program order without scanning moves.
 	// Entries for moves that have left the worklist are skipped lazily.
-	moveOrder *hash.Map[*MInst, int]
+	moveOrder map[*MInst]int
 	pending   intHeap
 
-	adjSet    *hash.Map[edge, bool]
-	adjList   *hash.Map[Reg, []Reg]
-	degree    *hash.Map[Reg, int]
-	moveList  *hash.Map[Reg, []*MInst]
-	alias     *hash.Map[Reg, Reg]
-	color     *hash.Map[Reg, Reg]
-	cost      *hash.Map[Reg, float64]
-	spillTemp *hash.Map[Reg, bool] // registers created by spilling: never spill again
+	adjSet    map[edge]bool
+	adjList   map[Reg][]Reg
+	degree    map[Reg]int
+	moveList  map[Reg][]*MInst
+	alias     map[Reg]Reg
+	color     map[Reg]Reg
+	cost      map[Reg]float64
+	spillTemp map[Reg]bool // registers created by spilling: never spill again
 }
 
 // allocate assigns physical registers to every virtual register in f,
 // spilling to stack slots where needed.
 func allocate(f *MFunc) error {
-	spillTemps := compat.NewMap[Reg, bool](0)
+	spillTemps := map[Reg]bool{}
 	for round := 0; ; round++ {
 		if round > 50 {
 			return fmt.Errorf("amd64: register allocation of %s did not converge", f.Name)
 		}
 		liveOut := liveness(f)
 		done := true
-		var colorOf = compat.NewMap[Reg, Reg](0)
+		var colorOf = map[Reg]Reg{}
 		for _, class := range []RegClass{ClassGP, ClassXMM} {
 			a := newAllocator(f, class, spillTemps)
 			a.build(liveOut)
@@ -279,11 +278,8 @@ func allocate(f *MFunc) error {
 				done = false
 				continue
 			}
-			{
-				goIt1 := compat.MapIter(a.color)
-				for r, c, goOk2 := goIt1.Next(); goOk2; r, c, goOk2 = goIt1.Next() {
-					colorOf.Set(r, c)
-				}
+			for r, c := range a.color {
+				colorOf[r] = c
 			}
 		}
 		if !done {
@@ -294,36 +290,31 @@ func allocate(f *MFunc) error {
 	}
 }
 
-func newAllocator(f *MFunc, class RegClass, spillTemps *hash.Map[Reg, bool]) *allocator {
+func newAllocator(f *MFunc, class RegClass, spillTemps map[Reg]bool) *allocator {
 	colors := allocatable[class]
 	if class == ClassGP && f.frameFP {
 		colors = colors[:len(colors)-1] // RBP is the frame pointer
 	}
 	a := pu.New(allocator{
 		f: f, class: class, k: len(colors), colors: colors,
-		precolored: compat.NewMap[Reg, bool](0),
-		simplifyWL: compat.NewMap[Reg, bool](0), freezeWL: compat.NewMap[Reg, bool](0), spillWL: compat.NewMap[Reg, bool](0),
-		coalesced: compat.NewMap[Reg, bool](0), colored: compat.NewMap[Reg, bool](0), onStack: compat.NewMap[Reg, bool](0),
-		coalescedMoves: compat.NewMap[*MInst, bool](0), constrainedMoves: compat.NewMap[*MInst, bool](0), frozenMoves: compat.NewMap[*MInst, bool](0),
-		worklistMoves: compat.NewMap[*MInst, bool](0), activeMoves: compat.NewMap[*MInst, bool](0), moveOrder: compat.NewMap[*MInst, int](0),
-		adjSet: compat.NewMapFunc[edge, bool](0, func(k edge) uint64 {
-			h := uint64(0)
-			h = compat.Mix(h, compat.HashAny(k.a))
-			h = compat.Mix(h, compat.HashAny(k.b))
-			return h
-		}), adjList: compat.NewMap[Reg, []Reg](0), degree: compat.NewMap[Reg, int](0),
-		moveList: compat.NewMap[Reg, []*MInst](0), alias: compat.NewMap[Reg, Reg](0), color: compat.NewMap[Reg, Reg](0), cost: compat.NewMap[Reg, float64](0),
+		precolored: map[Reg]bool{},
+		simplifyWL: map[Reg]bool{}, freezeWL: map[Reg]bool{}, spillWL: map[Reg]bool{},
+		coalesced: map[Reg]bool{}, colored: map[Reg]bool{}, onStack: map[Reg]bool{},
+		coalescedMoves: map[*MInst]bool{}, constrainedMoves: map[*MInst]bool{}, frozenMoves: map[*MInst]bool{},
+		worklistMoves: map[*MInst]bool{}, activeMoves: map[*MInst]bool{}, moveOrder: map[*MInst]int{},
+		adjSet: map[edge]bool{}, adjList: map[Reg][]Reg{}, degree: map[Reg]int{},
+		moveList: map[Reg][]*MInst{}, alias: map[Reg]Reg{}, color: map[Reg]Reg{}, cost: map[Reg]float64{},
 		spillTemp: spillTemps,
 	})
 	for r := Reg(0); r < NumPhys; r++ {
 		if r.PhysClass() == class {
-			a.precolored.Set(r, true)
-			a.color.Set(r, r)
-			a.degree.Set(r, math.MaxInt32/2)
+			a.precolored[r] = true
+			a.color[r] = r
+			a.degree[r] = math.MaxInt32 / 2
 		}
 	}
 	for r := Reg(FirstVirtual); r < f.nextVReg; r++ {
-		if compat.MapAt(f.regClass, r) == class {
+		if f.regClass[r] == class {
 			a.initial = compat.Append(a.initial, r)
 		}
 	}
@@ -333,18 +324,18 @@ func newAllocator(f *MFunc, class RegClass, spillTemps *hash.Map[Reg, bool]) *al
 func (a *allocator) inClass(r Reg) bool { return a.f.classOf(r) == a.class && r != RSP }
 
 func (a *allocator) addEdge(u, v Reg) {
-	if u == v || compat.MapAt(a.adjSet, edge{u, v}) {
+	if u == v || a.adjSet[edge{u, v}] {
 		return
 	}
-	a.adjSet.Set(edge{u, v}, true)
-	a.adjSet.Set(edge{v, u}, true)
-	if !compat.MapAt(a.precolored, u) {
-		a.adjList.Set(u, compat.Append(compat.MapAt(a.adjList, u), v))
-		*compat.MapSlot(a.degree, u)++
+	a.adjSet[edge{u, v}] = true
+	a.adjSet[edge{v, u}] = true
+	if !a.precolored[u] {
+		a.adjList[u] = compat.Append(a.adjList[u], v)
+		a.degree[u]++
 	}
-	if !compat.MapAt(a.precolored, v) {
-		a.adjList.Set(v, compat.Append(compat.MapAt(a.adjList, v), u))
-		*compat.MapSlot(a.degree, v)++
+	if !a.precolored[v] {
+		a.adjList[v] = compat.Append(a.adjList[v], u)
+		a.degree[v]++
 	}
 }
 
@@ -363,19 +354,19 @@ func (a *allocator) build(liveOut []regSet) {
 			uses = in.Uses(uses[:0])
 			for _, r := range defs {
 				if a.inClass(r) && !r.IsPhys() {
-					*compat.MapSlot(a.cost, r) += weight
+					a.cost[r] += weight
 				}
 			}
 			for _, r := range uses {
 				if a.inClass(r) && !r.IsPhys() {
-					*compat.MapSlot(a.cost, r) += weight
+					a.cost[r] += weight
 				}
 			}
 			if in.isMove() && a.inClass(in.Dst.Reg) && a.inClass(in.Src.Reg) {
 				live.remove(f.regIndex(in.Src.Reg))
-				a.moveList.Set(in.Dst.Reg, compat.Append(compat.MapAt(a.moveList, in.Dst.Reg), in))
-				a.moveList.Set(in.Src.Reg, compat.Append(compat.MapAt(a.moveList, in.Src.Reg), in))
-				a.moveOrder.Set(in, len(a.moves))
+				a.moveList[in.Dst.Reg] = compat.Append(a.moveList[in.Dst.Reg], in)
+				a.moveList[in.Src.Reg] = compat.Append(a.moveList[in.Src.Reg], in)
+				a.moveOrder[in] = len(a.moves)
 				a.moves = compat.Append(a.moves, in)
 				a.addWorklistMove(in)
 			}
@@ -405,13 +396,13 @@ func (a *allocator) build(liveOut []regSet) {
 
 func (a *allocator) run() {
 	a.makeWorklist()
-	for compat.MapLen(a.simplifyWL) > 0 || compat.MapLen(a.worklistMoves) > 0 || compat.MapLen(a.freezeWL) > 0 || compat.MapLen(a.spillWL) > 0 {
+	for len(a.simplifyWL) > 0 || len(a.worklistMoves) > 0 || len(a.freezeWL) > 0 || len(a.spillWL) > 0 {
 		switch {
-		case compat.MapLen(a.simplifyWL) > 0:
+		case len(a.simplifyWL) > 0:
 			a.simplify()
-		case compat.MapLen(a.worklistMoves) > 0:
+		case len(a.worklistMoves) > 0:
 			a.coalesce()
-		case compat.MapLen(a.freezeWL) > 0:
+		case len(a.freezeWL) > 0:
 			a.freeze()
 		default:
 			a.selectSpill()
@@ -423,20 +414,20 @@ func (a *allocator) run() {
 func (a *allocator) makeWorklist() {
 	for _, n := range a.initial {
 		switch {
-		case compat.MapAt(a.degree, n) >= a.k:
-			a.spillWL.Set(n, true)
+		case a.degree[n] >= a.k:
+			a.spillWL[n] = true
 		case a.moveRelated(n):
-			a.freezeWL.Set(n, true)
+			a.freezeWL[n] = true
 		default:
-			a.simplifyWL.Set(n, true)
+			a.simplifyWL[n] = true
 		}
 	}
 }
 
 func (a *allocator) adjacent(n Reg) []Reg {
 	var out []Reg
-	for _, m := range compat.MapAt(a.adjList, n) {
-		if !compat.MapAt(a.onStack, m) && !compat.MapAt(a.coalesced, m) {
+	for _, m := range a.adjList[n] {
+		if !a.onStack[m] && !a.coalesced[m] {
 			out = compat.Append(out, m)
 		}
 	}
@@ -445,8 +436,8 @@ func (a *allocator) adjacent(n Reg) []Reg {
 
 func (a *allocator) nodeMoves(n Reg) []*MInst {
 	var out []*MInst
-	for _, m := range compat.MapAt(a.moveList, n) {
-		if compat.MapAt(a.activeMoves, m) || compat.MapAt(a.worklistMoves, m) {
+	for _, m := range a.moveList[n] {
+		if a.activeMoves[m] || a.worklistMoves[m] {
 			out = compat.Append(out, m)
 		}
 	}
@@ -457,14 +448,11 @@ func (a *allocator) moveRelated(n Reg) bool { return len(a.nodeMoves(n)) > 0 }
 
 // pick returns some element of a set, choosing the smallest register for
 // determinism.
-func pick(set *hash.Map[Reg, bool]) Reg {
+func pick(set map[Reg]bool) Reg {
 	best := NoReg
-	{
-		goIt3 := compat.MapIter(set)
-		for r, _, goOk4 := goIt3.Next(); goOk4; r, _, goOk4 = goIt3.Next() {
-			if best == NoReg || r < best {
-				best = r
-			}
+	for r := range set {
+		if best == NoReg || r < best {
+			best = r
 		}
 	}
 	return best
@@ -472,27 +460,27 @@ func pick(set *hash.Map[Reg, bool]) Reg {
 
 func (a *allocator) simplify() {
 	n := pick(a.simplifyWL)
-	compat.MapDelete(a.simplifyWL, n)
+	delete(a.simplifyWL, n)
 	a.selectStack = compat.Append(a.selectStack, n)
-	a.onStack.Set(n, true)
+	a.onStack[n] = true
 	for _, m := range a.adjacent(n) {
 		a.decrementDegree(m)
 	}
 }
 
 func (a *allocator) decrementDegree(m Reg) {
-	if compat.MapAt(a.precolored, m) {
+	if a.precolored[m] {
 		return
 	}
-	d := compat.MapAt(a.degree, m)
-	a.degree.Set(m, d-1)
+	d := a.degree[m]
+	a.degree[m] = d - 1
 	if d == a.k {
 		a.enableMoves(compat.Append(a.adjacent(m), m))
-		compat.MapDelete(a.spillWL, m)
+		delete(a.spillWL, m)
 		if a.moveRelated(m) {
-			a.freezeWL.Set(m, true)
+			a.freezeWL[m] = true
 		} else {
-			a.simplifyWL.Set(m, true)
+			a.simplifyWL[m] = true
 		}
 	}
 }
@@ -500,8 +488,8 @@ func (a *allocator) decrementDegree(m Reg) {
 func (a *allocator) enableMoves(nodes []Reg) {
 	for _, n := range nodes {
 		for _, m := range a.nodeMoves(n) {
-			if compat.MapAt(a.activeMoves, m) {
-				compat.MapDelete(a.activeMoves, m)
+			if a.activeMoves[m] {
+				delete(a.activeMoves, m)
 				a.addWorklistMove(m)
 			}
 		}
@@ -509,34 +497,34 @@ func (a *allocator) enableMoves(nodes []Reg) {
 }
 
 func (a *allocator) getAlias(n Reg) Reg {
-	for compat.MapAt(a.coalesced, n) {
-		n = compat.MapAt(a.alias, n)
+	for a.coalesced[n] {
+		n = a.alias[n]
 	}
 	return n
 }
 
 func (a *allocator) addWorkList(u Reg) {
-	if !compat.MapAt(a.precolored, u) && !a.moveRelated(u) && compat.MapAt(a.degree, u) < a.k {
-		compat.MapDelete(a.freezeWL, u)
-		a.simplifyWL.Set(u, true)
+	if !a.precolored[u] && !a.moveRelated(u) && a.degree[u] < a.k {
+		delete(a.freezeWL, u)
+		a.simplifyWL[u] = true
 	}
 }
 
 // ok is George's test: t can merge into precolored r.
 func (a *allocator) ok(t, r Reg) bool {
-	return compat.MapAt(a.degree, t) < a.k || compat.MapAt(a.precolored, t) || compat.MapAt(a.adjSet, edge{t, r})
+	return a.degree[t] < a.k || a.precolored[t] || a.adjSet[edge{t, r}]
 }
 
 // conservative is Briggs's test.
 func (a *allocator) conservative(nodes []Reg) bool {
 	k := 0
-	seen := compat.NewMap[Reg, bool](0)
+	seen := map[Reg]bool{}
 	for _, n := range nodes {
-		if compat.MapAt(seen, n) {
+		if seen[n] {
 			continue
 		}
-		seen.Set(n, true)
-		if compat.MapAt(a.degree, n) >= a.k {
+		seen[n] = true
+		if a.degree[n] >= a.k {
 			k++
 		}
 	}
@@ -544,15 +532,15 @@ func (a *allocator) conservative(nodes []Reg) bool {
 }
 
 func (a *allocator) addWorklistMove(m *MInst) {
-	a.worklistMoves.Set(m, true)
-	a.pending.push(compat.MapAt(a.moveOrder, m))
+	a.worklistMoves[m] = true
+	a.pending.push(a.moveOrder[m])
 }
 
 // firstMove returns the worklist move that comes first in program order,
 // which keeps allocation deterministic.
 func (a *allocator) firstMove() *MInst {
 	for len(a.pending) > 0 {
-		if m := a.moves[a.pending[0]]; compat.MapAt(a.worklistMoves, m) {
+		if m := a.moves[a.pending[0]]; a.worklistMoves[m] {
 			return m
 		}
 		a.pending.pop()
@@ -601,27 +589,27 @@ func (h *intHeap) pop() {
 
 func (a *allocator) coalesce() {
 	m := a.firstMove()
-	compat.MapDelete(a.worklistMoves, m)
+	delete(a.worklistMoves, m)
 	x := a.getAlias(m.Dst.Reg)
 	y := a.getAlias(m.Src.Reg)
 	u, v := x, y
-	if compat.MapAt(a.precolored, y) {
+	if a.precolored[y] {
 		u, v = y, x
 	}
 	switch {
 	case u == v:
-		a.coalescedMoves.Set(m, true)
+		a.coalescedMoves[m] = true
 		a.addWorkList(u)
-	case compat.MapAt(a.precolored, v) || compat.MapAt(a.adjSet, edge{u, v}):
-		a.constrainedMoves.Set(m, true)
+	case a.precolored[v] || a.adjSet[edge{u, v}]:
+		a.constrainedMoves[m] = true
 		a.addWorkList(u)
 		a.addWorkList(v)
-	case compat.MapAt(a.precolored, u) && a.allOK(v, u), !compat.MapAt(a.precolored, u) && a.conservative(compat.Append(a.adjacent(u), a.adjacent(v)...)):
-		a.coalescedMoves.Set(m, true)
+	case a.precolored[u] && a.allOK(v, u), !a.precolored[u] && a.conservative(compat.Append(a.adjacent(u), a.adjacent(v)...)):
+		a.coalescedMoves[m] = true
 		a.combine(u, v)
 		a.addWorkList(u)
 	default:
-		a.activeMoves.Set(m, true)
+		a.activeMoves[m] = true
 	}
 }
 
@@ -635,33 +623,33 @@ func (a *allocator) allOK(v, u Reg) bool {
 }
 
 func (a *allocator) combine(u, v Reg) {
-	if compat.MapAt(a.freezeWL, v) {
-		compat.MapDelete(a.freezeWL, v)
+	if a.freezeWL[v] {
+		delete(a.freezeWL, v)
 	} else {
-		compat.MapDelete(a.spillWL, v)
+		delete(a.spillWL, v)
 	}
-	a.coalesced.Set(v, true)
-	a.alias.Set(v, u)
-	a.moveList.Set(u, compat.Append(compat.MapAt(a.moveList, u), compat.MapAt(a.moveList, v)...))
+	a.coalesced[v] = true
+	a.alias[v] = u
+	a.moveList[u] = compat.Append(a.moveList[u], a.moveList[v]...)
 	a.enableMoves([]Reg{v})
 	for _, t := range a.adjacent(v) {
 		a.addEdge(t, u)
 		a.decrementDegree(t)
 	}
-	if compat.MapAt(a.degree, u) >= a.k && compat.MapAt(a.freezeWL, u) {
-		compat.MapDelete(a.freezeWL, u)
-		a.spillWL.Set(u, true)
+	if a.degree[u] >= a.k && a.freezeWL[u] {
+		delete(a.freezeWL, u)
+		a.spillWL[u] = true
 	}
 	// A spill temporary merged with another node keeps its protection.
-	if compat.MapAt(a.spillTemp, v) {
-		a.spillTemp.Set(u, true)
+	if a.spillTemp[v] {
+		a.spillTemp[u] = true
 	}
 }
 
 func (a *allocator) freeze() {
 	u := pick(a.freezeWL)
-	compat.MapDelete(a.freezeWL, u)
-	a.simplifyWL.Set(u, true)
+	delete(a.freezeWL, u)
+	a.simplifyWL[u] = true
 	a.freezeMoves(u)
 }
 
@@ -674,11 +662,11 @@ func (a *allocator) freezeMoves(u Reg) {
 		} else {
 			v = a.getAlias(y)
 		}
-		compat.MapDelete(a.activeMoves, m)
-		a.frozenMoves.Set(m, true)
-		if !compat.MapAt(a.precolored, v) && len(a.nodeMoves(v)) == 0 && compat.MapAt(a.degree, v) < a.k {
-			compat.MapDelete(a.freezeWL, v)
-			a.simplifyWL.Set(v, true)
+		delete(a.activeMoves, m)
+		a.frozenMoves[m] = true
+		if !a.precolored[v] && len(a.nodeMoves(v)) == 0 && a.degree[v] < a.k {
+			delete(a.freezeWL, v)
+			a.simplifyWL[v] = true
 		}
 	}
 }
@@ -689,24 +677,21 @@ func (a *allocator) selectSpill() {
 	best := NoReg
 	bestScore := math.Inf(1)
 	var cands []Reg
-	{
-		goIt5 := compat.MapIter(a.spillWL)
-		for r, _, goOk6 := goIt5.Next(); goOk6; r, _, goOk6 = goIt5.Next() {
-			cands = compat.Append(cands, r)
-		}
+	for r := range a.spillWL {
+		cands = compat.Append(cands, r)
 	}
 	sort.SortFunc(cands, func(a, b Reg) bool { return a < b })
 	for _, r := range cands {
-		score := compat.MapAt(a.cost, r) / float64(max(compat.MapAt(a.degree, r), 1))
-		if compat.MapAt(a.spillTemp, r) {
+		score := a.cost[r] / float64(max(a.degree[r], 1))
+		if a.spillTemp[r] {
 			score = math.Inf(1) / 2
 		}
 		if best == NoReg || score < bestScore {
 			best, bestScore = r, score
 		}
 	}
-	compat.MapDelete(a.spillWL, best)
-	a.simplifyWL.Set(best, true)
+	delete(a.spillWL, best)
+	a.simplifyWL[best] = true
 	a.freezeMoves(best)
 }
 
@@ -714,17 +699,17 @@ func (a *allocator) assignColors() {
 	for len(a.selectStack) > 0 {
 		n := a.selectStack[len(a.selectStack)-1]
 		a.selectStack = a.selectStack[:len(a.selectStack)-1]
-		compat.MapDelete(a.onStack, n)
-		used := compat.NewMap[Reg, bool](0)
-		for _, w := range compat.MapAt(a.adjList, n) {
+		delete(a.onStack, n)
+		used := map[Reg]bool{}
+		for _, w := range a.adjList[n] {
 			wa := a.getAlias(w)
-			if compat.MapAt(a.colored, wa) || compat.MapAt(a.precolored, wa) {
-				used.Set(compat.MapAt(a.color, wa), true)
+			if a.colored[wa] || a.precolored[wa] {
+				used[a.color[wa]] = true
 			}
 		}
 		chosen := NoReg
 		for _, c := range a.colors {
-			if !compat.MapAt(used, c) {
+			if !used[c] {
 				chosen = c
 				break
 			}
@@ -733,25 +718,22 @@ func (a *allocator) assignColors() {
 			a.spilled = compat.Append(a.spilled, n)
 			continue
 		}
-		a.colored.Set(n, true)
-		a.color.Set(n, chosen)
+		a.colored[n] = true
+		a.color[n] = chosen
 	}
-	{
-		goIt7 := compat.MapIter(a.coalesced)
-		for n, _, goOk8 := goIt7.Next(); goOk8; n, _, goOk8 = goIt7.Next() {
-			a.color.Set(n, compat.MapAt(a.color, a.getAlias(n)))
-		}
+	for n := range a.coalesced {
+		a.color[n] = a.color[a.getAlias(n)]
 	}
 }
 
 // rewrite spills the spilled registers to stack slots, giving each use
 // and definition a fresh short-lived register.
-func (a *allocator) rewrite(spillTemps *hash.Map[Reg, bool]) {
+func (a *allocator) rewrite(spillTemps map[Reg]bool) {
 	f := a.f
-	slots := compat.NewMap[Reg, *ssa.Slot](0)
+	slots := map[Reg]*ssa.Slot{}
 	for _, r := range a.spilled {
 		n := int64(f.spillSize(r))
-		slots.Set(r, f.newSlot(compat.Sprintf("spill%d", r-FirstVirtual), n, n))
+		slots[r] = f.newSlot(compat.Sprintf("spill%d", r-FirstVirtual), n, n)
 	}
 	var buf []Reg
 	for _, b := range f.Blocks {
@@ -759,33 +741,33 @@ func (a *allocator) rewrite(spillTemps *hash.Map[Reg, bool]) {
 		for _, in := range b.Insts {
 			// Uses: reload before.
 			buf = in.Uses(buf[:0])
-			reload := compat.NewMap[Reg, Reg](0)
+			reload := map[Reg]Reg{}
 			for _, r := range buf {
-				slot, spilled := compat.MapGet(slots, r)
-				if _, done := compat.MapGet(reload, r); spilled && !done {
+				slot, spilled := slots[r]
+				if _, done := reload[r]; spilled && !done {
 					t := f.newVRegLike(r)
-					spillTemps.Set(t, true)
-					reload.Set(r, t)
+					spillTemps[t] = true
+					reload[r] = t
 					out = compat.Append(out, pu.New(MInst{Op: MRELOAD, Size: f.spillSize(r), Dst: RegOp(t), Slot: slot}))
 				}
 			}
 			buf = in.Defs(buf[:0])
-			store := compat.NewMap[Reg, Reg](0)
+			store := map[Reg]Reg{}
 			for _, r := range buf {
-				if _, ok := compat.MapGet(slots, r); ok {
-					t, reused := compat.MapGet(reload, r)
+				if _, ok := slots[r]; ok {
+					t, reused := reload[r]
 					if !reused {
 						t = f.newVRegLike(r)
-						spillTemps.Set(t, true)
+						spillTemps[t] = true
 					}
-					store.Set(r, t)
+					store[r] = t
 				}
 			}
 			in.replaceRegs(func(r Reg) Reg {
-				if t, ok := compat.MapGet(store, r); ok {
+				if t, ok := store[r]; ok {
 					return t
 				}
-				if t, ok := compat.MapGet(reload, r); ok {
+				if t, ok := reload[r]; ok {
 					return t
 				}
 				return r
@@ -794,9 +776,9 @@ func (a *allocator) rewrite(spillTemps *hash.Map[Reg, bool]) {
 			// buf still holds the defs; walk them rather than the map so
 			// the stores come out in a fixed order.
 			for _, r := range buf {
-				if t, ok := compat.MapGet(store, r); ok {
-					out = compat.Append(out, pu.New(MInst{Op: MSPILL, Size: f.spillSize(r), Src: RegOp(t), Slot: compat.MapAt(slots, r)}))
-					compat.MapDelete(store, r)
+				if t, ok := store[r]; ok {
+					out = compat.Append(out, pu.New(MInst{Op: MSPILL, Size: f.spillSize(r), Src: RegOp(t), Slot: slots[r]}))
+					delete(store, r)
 				}
 			}
 		}
@@ -806,14 +788,14 @@ func (a *allocator) rewrite(spillTemps *hash.Map[Reg, bool]) {
 
 // applyColors replaces virtual registers by their colours and drops copies
 // that became no-ops.
-func applyColors(f *MFunc, color *hash.Map[Reg, Reg]) {
-	used := compat.NewMap[Reg, bool](0)
+func applyColors(f *MFunc, color map[Reg]Reg) {
+	used := map[Reg]bool{}
 	for _, b := range f.Blocks {
 		out := b.Insts[:0]
 		for _, in := range b.Insts {
 			in.replaceRegs(func(r Reg) Reg {
 				if r.IsVirtual() {
-					c, ok := compat.MapGet(color, r)
+					c, ok := color[r]
 					if !ok {
 						panic(compat.Sprintf("amd64: %s: no colour for %s", f.Name, r))
 					}
@@ -829,7 +811,7 @@ func applyColors(f *MFunc, color *hash.Map[Reg, Reg]) {
 				// An interrupt handler preserves every register, including
 				// those its callees may change.
 				if f.interrupt || isCalleeSaved(r) && in.Op != MCALL {
-					used.Set(r, true)
+					used[r] = true
 				}
 			}
 			out = compat.Append(out, in)
@@ -841,7 +823,7 @@ func applyColors(f *MFunc, color *hash.Map[Reg, Reg]) {
 	if f.interrupt {
 		for r := RAX; r <= X15; r++ {
 			switch {
-			case !compat.MapAt(used, r) || r == RSP:
+			case !used[r] || r == RSP:
 			case r.PhysClass() == ClassXMM:
 				// A NoSSE handler (kernel mode without //pu:fpu) uses no
 				// XMM register, and neither does anything it calls: non-fpu
@@ -858,7 +840,7 @@ func applyColors(f *MFunc, color *hash.Map[Reg, Reg]) {
 		return
 	}
 	for _, r := range calleeSaved {
-		if compat.MapAt(used, r) {
+		if used[r] {
 			f.usedSaved = compat.Append(f.usedSaved, r)
 		}
 	}

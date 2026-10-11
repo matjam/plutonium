@@ -77,20 +77,18 @@ func layoutBlocks(f *MFunc) []*MBlock {
 		}
 		return t
 	}
-	used := compat.MapOf[*MBlock, bool](
-		compat.Pair[*MBlock, bool]{f.Order[0], true},
-	)
+	used := map[*MBlock]bool{f.Order[0]: true}
 	for _, b := range f.Order {
 		for _, in := range b.Insts {
 			if in.Op == MJMP || in.Op == MJCC {
 				in.Target = forward(in.Target)
-				used.Set(in.Target, true)
+				used[in.Target] = true
 			}
 		}
 	}
 	var order []*MBlock
 	for _, b := range f.Order {
-		if compat.MapAt(used, b) {
+		if used[b] {
 			order = compat.Append(order, b)
 		}
 	}

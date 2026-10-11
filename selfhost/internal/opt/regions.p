@@ -58,26 +58,26 @@ func SplitRegions(f *ssa.Func) bool {
 // its address stays within one part.
 func splitRegion(f *ssa.Func, s *ssa.Slot) bool {
 	// The pointers into s, with their offsets.
-	off := compat.NewMap[*ssa.Value, int64](0)
+	off := map[*ssa.Value]int64{}
 	for grew := true; grew; {
 		grew = false
 		for _, b := range f.Blocks {
 			for _, v := range b.Values {
-				if _, ok := compat.MapGet(off, v); ok {
+				if _, ok := off[v]; ok {
 					continue
 				}
 				switch {
 				case v.Op == ssa.OpSlotAddr && v.Aux == s:
-					off.Set(v, 0)
+					off[v] = 0
 				case v.Op == ssa.OpOffPtr || v.Op == ssa.OpCopy:
-					o, ok := compat.MapGet(off, v.Args[0])
+					o, ok := off[v.Args[0]]
 					if !ok {
 						continue
 					}
 					if v.Op == ssa.OpOffPtr {
 						o += v.AuxInt
 					}
-					off.Set(v, o)
+					off[v] = o
 				default:
 					continue
 				}
@@ -85,7 +85,7 @@ func splitRegion(f *ssa.Func, s *ssa.Slot) bool {
 			}
 		}
 	}
-	if compat.MapLen(off) == 0 {
+	if len(off) == 0 {
 		return false
 	}
 	// partAt returns the part holding the size bytes at o, or the part a
@@ -101,17 +101,17 @@ func splitRegion(f *ssa.Func, s *ssa.Slot) bool {
 	}
 	// part[v] is the part a pointer with a use other than OffPtr points
 	// into.
-	part := compat.NewMap[*ssa.Value, int](0)
+	part := map[*ssa.Value]int{}
 	use := func(p *ssa.Value, size int64) bool {
-		o := compat.MapAt(off, p)
+		o := off[p]
 		i := partAt(o, size)
 		if i < 0 {
 			return false
 		}
-		if prev, ok := compat.MapGet(part, p); ok && prev != i {
+		if prev, ok := part[p]; ok && prev != i {
 			return false
 		}
-		part.Set(p, i)
+		part[p] = i
 		return true
 	}
 	// covers returns the parts that [o, o+size) covers exactly, if every
@@ -130,25 +130,25 @@ func splitRegion(f *ssa.Func, s *ssa.Slot) bool {
 	}
 	// zeros are the Zeros of several parts (the caller's zeroing of the
 	// whole region on entry), split into one per part.
-	zeros := compat.NewMap[*ssa.Value, []int](0)
+	zeros := map[*ssa.Value][]int{}
 	for _, b := range f.Blocks {
 		for _, v := range b.Values {
 			for k, a := range v.Args {
-				if _, ok := compat.MapGet(off, a); !ok {
+				if _, ok := off[a]; !ok {
 					continue
 				}
 				var ok bool
 				switch {
 				case v.Op == ssa.OpOffPtr || v.Op == ssa.OpCopy:
 					continue
-				case v.Op == ssa.OpZero && k == 0 && partAt(compat.MapAt(off, a), v.AuxInt) < 0:
-					*compat.MapSlot(zeros, v), ok = covers(compat.MapAt(off, a), v.AuxInt)
+				case v.Op == ssa.OpZero && k == 0 && partAt(off[a], v.AuxInt) < 0:
+					zeros[v], ok = covers(off[a], v.AuxInt)
 				case v.Op == ssa.OpRegion:
 					// A call takes a nested region as a whole.
 					for i, p := range s.Parts {
-						if p.Region && p.Off == compat.MapAt(off, a) {
-							if prev, seen := compat.MapGet(part, a); !seen || prev == i {
-								*compat.MapSlot(part, a), ok = i, true
+						if p.Region && p.Off == off[a] {
+							if prev, seen := part[a]; !seen || prev == i {
+								part[a], ok = i, true
 							}
 							break
 						}
@@ -170,7 +170,7 @@ func splitRegion(f *ssa.Func, s *ssa.Slot) bool {
 			}
 		}
 		for _, c := range b.Controls {
-			if _, ok := compat.MapGet(off, c); ok && !use(c, 0) {
+			if _, ok := off[c]; ok && !use(c, 0) {
 				return false
 			}
 		}
@@ -183,16 +183,13 @@ func splitRegion(f *ssa.Func, s *ssa.Slot) bool {
 		slots[i] = ns
 	}
 	var zs []*ssa.Value
-	{
-		goIt1 := compat.MapIter(zeros)
-		for z, _, goOk2 := goIt1.Next(); goOk2; z, _, goOk2 = goIt1.Next() {
-			zs = compat.Append(zs, z)
-		}
+	for z := range zeros {
+		zs = compat.Append(zs, z)
 	}
 	sort.SortFunc(zs, func(a, b *ssa.Value) bool { return a.ID < b.ID })
 	for _, z := range zs {
 		mem := z.Args[1]
-		for _, i := range compat.MapAt(zeros, z) {
+		for _, i := range zeros[z] {
 			if s.Parts[i].Closure {
 				// A record is written whole before it is read, and a
 				// closure slot must not be zeroed (ForwardClosureLoads).
@@ -208,19 +205,16 @@ func splitRegion(f *ssa.Func, s *ssa.Slot) bool {
 		z.CopyOf(mem)
 	}
 	var ptrs []*ssa.Value
-	{
-		goIt3 := compat.MapIter(part)
-		for v, _, goOk4 := goIt3.Next(); goOk4; v, _, goOk4 = goIt3.Next() {
-			ptrs = compat.Append(ptrs, v)
-		}
+	for v := range part {
+		ptrs = compat.Append(ptrs, v)
 	}
 	sort.SortFunc(ptrs, func(a, b *ssa.Value) bool { return a.ID < b.ID })
 	for _, v := range ptrs {
-		i := compat.MapAt(part, v)
+		i := part[v]
 		if addrs[i] == nil {
 			addrs[i] = slotAddr(f, slots[i])
 		}
-		rel := compat.MapAt(off, v) - s.Parts[i].Off
+		rel := off[v] - s.Parts[i].Off
 		if rel == 0 {
 			v.CopyOf(addrs[i])
 			continue

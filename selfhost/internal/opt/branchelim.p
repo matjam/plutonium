@@ -3,7 +3,6 @@
 package opt
 
 import (
-	"pluto/hash"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 )
@@ -14,11 +13,11 @@ import (
 // branches the hardware cannot predict, such as a test of a number's
 // parity, at the cost of always doing the work of both sides.
 func BranchElim(f *ssa.Func) {
-	users := compat.NewMap[*ssa.Value, []*ssa.Value](0)
+	users := map[*ssa.Value][]*ssa.Value{}
 	for _, b := range f.Blocks {
 		for _, v := range b.Values {
 			for _, a := range v.Args {
-				users.Set(a, compat.Append(compat.MapAt(users, a), v))
+				users[a] = compat.Append(users[a], v)
 			}
 		}
 	}
@@ -46,15 +45,15 @@ const maxSelects = 2
 // cmov cannot start early, whereas a predicted branch lets the processor
 // run ahead, so such selects are better left as branches (as in a binary
 // heap's choice of which child to visit next).
-func feedsAddress(v *ssa.Value, users *hash.Map[*ssa.Value, []*ssa.Value]) bool {
-	seen := compat.NewMap[*ssa.Value, bool](0)
+func feedsAddress(v *ssa.Value, users map[*ssa.Value][]*ssa.Value) bool {
+	seen := map[*ssa.Value]bool{}
 	var walk func(v *ssa.Value, depth int) bool
 	walk = func(v *ssa.Value, depth int) bool {
-		if compat.MapAt(seen, v) || depth > 6 {
+		if seen[v] || depth > 6 {
 			return false
 		}
-		seen.Set(v, true)
-		for _, u := range compat.MapAt(users, v) {
+		seen[v] = true
+		for _, u := range users[v] {
 			switch u.Op {
 			case ssa.OpAddPtr, ssa.OpOffPtr:
 				return true
@@ -74,7 +73,7 @@ func feedsAddress(v *ssa.Value, users *hash.Map[*ssa.Value, []*ssa.Value]) bool 
 	return walk(v, 0)
 }
 
-func elimBranch(b *ssa.Block, users *hash.Map[*ssa.Value, []*ssa.Value]) bool {
+func elimBranch(b *ssa.Block, users map[*ssa.Value][]*ssa.Value) bool {
 	if b.Kind != ssa.BlockIf || b.Likely != ssa.Unknown {
 		return false
 	}

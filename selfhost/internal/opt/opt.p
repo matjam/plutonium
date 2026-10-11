@@ -6,7 +6,6 @@ package opt
 
 import (
 	"pluto/fmt"
-	"pluto/hash"
 	"pluto/os"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
@@ -32,7 +31,7 @@ type Pipeline struct {
 
 	// For InlineNotes (inlinenotes.go): the inliner's reasons, set by
 	// ReportInlining, whether it ran, and the notes Run collected.
-	why     *hash.Map[*ssa.Value, string]
+	why     map[*ssa.Value]string
 	inlined bool
 	notes   []InlineNote
 }

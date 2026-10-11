@@ -3,7 +3,6 @@
 package ssa
 
 import (
-	"pluto/hash"
 	"selfhost/compat"
 	"selfhost/internal/syntax/token"
 	"selfhost/pu"
@@ -491,11 +490,11 @@ type Func struct {
 	// pointer stale (opt.GenFrees): a generation check done before such a
 	// call still holds after it. Every other call ends what was checked.
 	// It is shared by all the functions of a program.
-	GenNoFree *hash.Map[*Sym, bool]
+	GenNoFree map[*Sym]bool
 	// GenNoReset holds the functions whose calls cannot make stale memory
 	// they were not given a pointer to: they may free what they are
 	// passed, but reset no arena and synchronize with no other task.
-	GenNoReset *hash.Map[*Sym, bool]
+	GenNoReset map[*Sym]bool
 	// GenOwnerArgs are the parameters (OpArg AuxInt) that hold an
 	// owned[T] the function was given, under generation checks.
 	GenOwnerArgs []int64

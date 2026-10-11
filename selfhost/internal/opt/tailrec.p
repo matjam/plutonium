@@ -3,7 +3,6 @@
 package opt
 
 import (
-	"pluto/hash"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 )
@@ -102,18 +101,18 @@ func TailRec(f *ssa.Func) {
 	}
 	// Phis for every parameter and for memory; their other arguments come
 	// from the tail sites in order.
-	phiOf := compat.NewMap[*ssa.Value, *ssa.Value](0)
+	phiOf := map[*ssa.Value]*ssa.Value{}
 	paramPhis := compat.Make[*ssa.Value](len(params))
 	for i, a := range params {
 		if a != nil {
 			paramPhis[i] = newPhi(a.Type, a)
-			phiOf.Set(a, paramPhis[i])
+			phiOf[a] = paramPhis[i]
 		}
 	}
 	var memPhi *ssa.Value
 	if initMem != nil {
 		memPhi = newPhi(ssa.TMem, initMem)
-		phiOf.Set(initMem, memPhi)
+		phiOf[initMem] = memPhi
 	}
 	var accPhi *ssa.Value
 	if accOp != ssa.OpInvalid {
@@ -129,7 +128,7 @@ func TailRec(f *ssa.Func) {
 		if accPhi != nil {
 			acc = accPhi
 			if x := s.x; x != nil {
-				if p, ok := compat.MapGet(phiOf, x); ok {
+				if p, ok := phiOf[x]; ok {
 					x = p // x is a parameter itself
 				}
 				acc = b.NewValue(accOp, accPhi.Type, accPhi, x)
@@ -225,27 +224,24 @@ func identity(op ssa.Op) int64 {
 
 // replaceUses rewrites every use of a key of m, in values and controls, to
 // its value, except the uses by the replacement values themselves.
-func replaceUses(f *ssa.Func, m *hash.Map[*ssa.Value, *ssa.Value]) {
-	isNew := compat.NewMap[*ssa.Value, bool](0)
-	{
-		goIt1 := compat.MapIter(m)
-		for _, n, goOk2 := goIt1.Next(); goOk2; _, n, goOk2 = goIt1.Next() {
-			isNew.Set(n, true)
-		}
+func replaceUses(f *ssa.Func, m map[*ssa.Value]*ssa.Value) {
+	isNew := map[*ssa.Value]bool{}
+	for _, n := range m {
+		isNew[n] = true
 	}
 	for _, b := range f.Blocks {
 		for _, v := range b.Values {
-			if compat.MapAt(isNew, v) {
+			if isNew[v] {
 				continue
 			}
 			for i, a := range v.Args {
-				if n, ok := compat.MapGet(m, a); ok {
+				if n, ok := m[a]; ok {
 					v.SetArg(i, n)
 				}
 			}
 		}
 		for i, c := range b.Controls {
-			if n, ok := compat.MapGet(m, c); ok {
+			if n, ok := m[c]; ok {
 				cs := compat.Append([]*ssa.Value(nil), b.Controls...)
 				cs[i] = n
 				b.SetControl(cs...)

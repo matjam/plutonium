@@ -19,10 +19,10 @@ func SROA(f *ssa.Func) {
 		changed := false
 		// A slot on the other side of a copy rewritten this round has new
 		// accesses not in its list yet; it waits for the next round.
-		dirty := compat.NewMap[*ssa.Slot, bool](0)
+		dirty := map[*ssa.Slot]bool{}
 		for _, s := range compat.Append([]*ssa.Slot(nil), f.Slots...) {
-			in := compat.MapAt(infos, s)
-			if in == nil || in.escapes || compat.MapAt(dirty, s) || len(s.Leaves) < 2 && !singleLeafMismatch(s) {
+			in := infos[s]
+			if in == nil || in.escapes || dirty[s] || len(s.Leaves) < 2 && !singleLeafMismatch(s) {
 				continue
 			}
 			// Splitting keeps only the leaves, so they must account for
@@ -37,7 +37,7 @@ func SROA(f *ssa.Func) {
 				if a.v.Op == ssa.OpMove {
 					for _, p := range a.v.Args[:2] {
 						if r, ok := slotOf(p); ok {
-							dirty.Set(r, true)
+							dirty[r] = true
 						}
 					}
 				}

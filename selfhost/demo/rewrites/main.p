@@ -8,7 +8,6 @@ package main
 import (
 	"pluto/errors"
 	"pluto/fmt"
-	"pluto/hash"
 	"pluto/io"
 	"pluto/sort"
 	"selfhost/compat"
@@ -36,7 +35,7 @@ type header struct {
 }
 
 type table struct {
-	byName *hash.Map[string, *node]
+	byName map[string]*node
 	order  []string
 }
 
@@ -51,112 +50,85 @@ func pair(a, b int) []int { return compat.Clone([]int{a, b}) }
 
 func (t *table) add(n *node) {
 	if t.byName == nil {
-		t.byName = compat.NewMap[string, *node](0)
+		t.byName = make(map[string]*node)
 	}
-	t.byName.Set(n.name, n)
+	t.byName[n.name] = n
 	t.order = compat.Append(t.order, n.name)
 }
 
-func sortedKeys(m *hash.Map[string, int]) []string {
-	keys := compat.MakeCap[string](0, compat.MapLen(m))
-	{
-		goIt1 := compat.MapIter(m)
-		for k, _, goOk2 := goIt1.Next(); goOk2; k, _, goOk2 = goIt1.Next() {
-			keys = compat.Append(keys, k)
-		}
+func sortedKeys(m map[string]int) []string {
+	keys := compat.MakeCap[string](0, len(m))
+	for k := range m {
+		keys = compat.Append(keys, k)
 	}
 	sort.Strings(keys)
 	return keys
 }
 
 func maps() {
-	counts := compat.MapOf[string, int](
-		compat.Pair[string, int]{"a", 1},
-		compat.Pair[string, int]{"b", 2},
-	)
-	counts.Set("c", 3)
-	*compat.MapSlot(counts, "a") += 10
-	*compat.MapSlot(counts, "b")++
-	if v, ok := compat.MapGet(counts, "c"); ok {
+	counts := map[string]int{"a": 1, "b": 2}
+	counts["c"] = 3
+	counts["a"] += 10
+	counts["b"]++
+	if v, ok := counts["c"]; ok {
 		fmt.Println("c is", v)
 	}
-	var v, ok = compat.MapGet(counts, "zz")
-	fmt.Println("zz", v, ok, compat.MapLen(counts))
-	compat.MapDelete(counts, "b")
+	var v, ok = counts["zz"]
+	fmt.Println("zz", v, ok, len(counts))
+	delete(counts, "b")
 	for _, k := range sortedKeys(counts) {
-		fmt.Println(k, compat.MapAt(counts, k))
+		fmt.Println(k, counts[k])
 	}
 	sum := 0
-	{
-		goIt3 := compat.MapIter(counts)
-		for _, n, goOk4 := goIt3.Next(); goOk4; _, n, goOk4 = goIt3.Next() {
-			sum += n
-		}
+	for _, n := range counts {
+		sum += n
 	}
 	var k string
 	var n int
-	{
-		goIt5 := compat.MapIter(counts)
-		var goOk6 bool
-		for k, n, goOk6 = goIt5.Next(); goOk6; k, n, goOk6 = goIt5.Next() {
-			sum += n - n
-		}
+	for k, n = range counts {
+		sum += n - n
 	}
 	_ = k
 	fmt.Println("sum", sum)
 
 	// Labeled loops over a map.
 	found := 0
-	{
-		goIt7 := compat.MapIter(counts)
-	outer:
-		for key, _, goOk8 := goIt7.Next(); goOk8; key, _, goOk8 = goIt7.Next() {
-			for i := 0; i < 3; i++ {
-				if key == "a" {
-					found++
-					continue outer
-				}
+outer:
+	for key := range counts {
+		for i := 0; i < 3; i++ {
+			if key == "a" {
+				found++
+				continue outer
 			}
 		}
 	}
 	fmt.Println("found", found)
-	compat.MapClear(counts)
-	fmt.Println("cleared", compat.MapLen(counts))
+	clear(counts)
+	fmt.Println("cleared", len(counts))
 
-	var nilMap *hash.Map[string, int]
-	fmt.Println("nil map", compat.MapAt(nilMap, "x"), compat.MapLen(nilMap))
+	var nilMap map[string]int
+	fmt.Println("nil map", nilMap["x"], len(nilMap))
 
 	// Pointer and interface keys.
 	a, b := newNode("a"), newNode("b")
-	seen := compat.MapOf[*node, bool](
-		compat.Pair[*node, bool]{a, true},
-	)
-	seen.Set(b, true)
-	fmt.Println("seen", compat.MapAt(seen, a), compat.MapAt(seen, b), compat.MapAt(seen, newNode("c")))
-	byIface := compat.NewMap[named, int](0)
-	byIface.Set(named(a), 1)
-	byIface.Set(named(b), 2)
-	fmt.Println("iface", compat.MapAt(byIface, named(a)), compat.MapAt(byIface, named(b)), compat.MapLen(byIface))
+	seen := map[*node]bool{a: true}
+	seen[b] = true
+	fmt.Println("seen", seen[a], seen[b], seen[newNode("c")])
+	byIface := map[named]int{}
+	byIface[a] = 1
+	byIface[b] = 2
+	fmt.Println("iface", byIface[a], byIface[b], len(byIface))
 
 	// Literals with elided element types.
-	pts := compat.MapOf[string, point](
-		compat.Pair[string, point]{"o", point{0, 0}},
-		compat.Pair[string, point]{"x", point{1, 0}},
-	)
-	ptrs := compat.MapOf[string, *point](
-		compat.Pair[string, *point]{"p", pu.New(point{2, 3})},
-	)
-	nested := compat.MapOf[string, *hash.Map[string, bool]](
-		compat.Pair[string, *hash.Map[string, bool]]{"outer", compat.MapOf[string, bool](
-			compat.Pair[string, bool]{"inner", true},
-		)},
-	)
-	fmt.Println("lits", compat.MapAt(pts, "x").x, compat.MapAt(ptrs, "p").y, compat.MapAt(compat.MapAt(nested, "outer"), "inner"), compat.MapLen(compat.MapAt(nested, "none")))
+	pts := map[string]point{"o": {0, 0}, "x": {1, 0}}
+	ptrs := map[string]*point{"p": pu.New(point{2, 3})}
+	nested := map[string]map[string]bool{"outer": {"inner": true}}
+	fmt.Println("lits", pts["x"].x, ptrs["p"].y, nested["outer"]["inner"], len(nested["none"]))
 
 	var t table
 	t.add(a)
 	t.add(b)
-	fmt.Println("table", compat.MapAt(t.byName, "b").name, len(t.order))
+	fmt.Println("table", t.byName["b"].name, len(t.order))
 }
 
 func stringsAndBytes() {

@@ -3,7 +3,6 @@
 package opt
 
 import (
-	"pluto/hash"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 	"selfhost/pu"
@@ -34,35 +33,35 @@ type slotInfo struct {
 // analyzeSlots finds every slot whose address is only ever used directly
 // as the address of loads, stores, zeroing and moves, and lists those
 // accesses.
-func analyzeSlots(f *ssa.Func) *hash.Map[*ssa.Slot, *slotInfo] {
-	refs := compat.NewMap[*ssa.Value, slotRef](0)
+func analyzeSlots(f *ssa.Func) map[*ssa.Slot]*slotInfo {
+	refs := map[*ssa.Value]slotRef{}
 	var resolve func(v *ssa.Value) (slotRef, bool)
 	resolve = func(v *ssa.Value) (slotRef, bool) {
-		if r, ok := compat.MapGet(refs, v); ok {
+		if r, ok := refs[v]; ok {
 			return r, true
 		}
 		switch v.Op {
 		case ssa.OpSlotAddr:
 			r := slotRef{slot: v.Aux.(*ssa.Slot)}
-			refs.Set(v, r)
+			refs[v] = r
 			return r, true
 		case ssa.OpOffPtr:
 			if r, ok := resolve(v.Args[0]); ok {
 				r.off += v.AuxInt
-				refs.Set(v, r)
+				refs[v] = r
 				return r, true
 			}
 		}
 		return slotRef{}, false
 	}
 
-	infos := compat.NewMap[*ssa.Slot, *slotInfo](0)
+	infos := map[*ssa.Slot]*slotInfo{}
 	info := func(s *ssa.Slot) *slotInfo {
-		if i := compat.MapAt(infos, s); i != nil {
+		if i := infos[s]; i != nil {
 			return i
 		}
 		i := pu.New(slotInfo{slot: s})
-		infos.Set(s, i)
+		infos[s] = i
 		return i
 	}
 	for _, s := range f.Slots {
@@ -102,13 +101,10 @@ func analyzeSlots(f *ssa.Func) *hash.Map[*ssa.Slot, *slotInfo] {
 		}
 	}
 	// A volatile access pins the slot in memory.
-	{
-		goIt1 := compat.MapIter(infos)
-		for _, in, goOk2 := goIt1.Next(); goOk2; _, in, goOk2 = goIt1.Next() {
-			for _, a := range in.accesses {
-				if a.v.IsVolatile() {
-					in.escapes = true
-				}
+	for _, in := range infos {
+		for _, a := range in.accesses {
+			if a.v.IsVolatile() {
+				in.escapes = true
 			}
 		}
 	}
@@ -154,17 +150,17 @@ func zeroConst(f *ssa.Func, t *ssa.Type) *ssa.Value {
 
 // dropUnusedSlots removes slots no value refers to.
 func dropUnusedSlots(f *ssa.Func) {
-	used := compat.NewMap[*ssa.Slot, bool](0)
+	used := map[*ssa.Slot]bool{}
 	for _, b := range f.Blocks {
 		for _, v := range b.Values {
 			if s, ok := v.Aux.(*ssa.Slot); ok {
-				used.Set(s, true)
+				used[s] = true
 			}
 		}
 	}
 	keep := f.Slots[:0]
 	for _, s := range f.Slots {
-		if compat.MapAt(used, s) {
+		if used[s] {
 			keep = compat.Append(keep, s)
 		}
 	}

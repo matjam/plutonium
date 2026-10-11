@@ -3,7 +3,6 @@
 package opt
 
 import (
-	"pluto/hash"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 	"selfhost/pu"
@@ -69,18 +68,18 @@ var (
 // A loadFinder finds the loads that read a memory state.
 type loadFinder struct {
 	dom     *ssa.DomTree
-	readers *hash.Map[*ssa.Value, []*ssa.Value] // memory state -> loads of it
-	pos     []int                               // index of each value in its block
-	private *hash.Map[*ssa.Slot, bool]          // slots no call can reach (privateSlots)
+	readers map[*ssa.Value][]*ssa.Value // memory state -> loads of it
+	pos     []int                       // index of each value in its block
+	private map[*ssa.Slot]bool          // slots no call can reach (privateSlots)
 }
 
 func newLoadFinder(f *ssa.Func) *loadFinder {
-	lf := pu.New(loadFinder{dom: f.Dom(), readers: compat.NewMap[*ssa.Value, []*ssa.Value](0), pos: compat.Make[int](f.NumValues()), private: privateSlots(f)})
+	lf := pu.New(loadFinder{dom: f.Dom(), readers: map[*ssa.Value][]*ssa.Value{}, pos: compat.Make[int](f.NumValues()), private: privateSlots(f)})
 	for _, b := range f.Blocks {
 		for i, v := range b.Values {
 			lf.pos[v.ID] = i
 			if v.Op == ssa.OpLoad && !v.IsVolatile() {
-				lf.readers.Set(v.Args[1], compat.Append(compat.MapAt(lf.readers, v.Args[1]), v))
+				lf.readers[v.Args[1]] = compat.Append(lf.readers[v.Args[1]], v)
 			}
 		}
 	}
@@ -90,7 +89,7 @@ func newLoadFinder(f *ssa.Func) *loadFinder {
 // find returns a load other than v of the same bytes and type as v,
 // reading memory state m, that dominates v; or nil.
 func (lf *loadFinder) find(v, m *ssa.Value) *ssa.Value {
-	for _, w := range compat.MapAt(lf.readers, m) {
+	for _, w := range lf.readers[m] {
 		if w == v || w.Op != ssa.OpLoad || !w.Type.Same(v.Type) || !sameBytes(w.Args[0], v.Args[0]) {
 			continue
 		}
@@ -105,7 +104,7 @@ func (lf *loadFinder) find(v, m *ssa.Value) *ssa.Value {
 // them reads any of the n bytes at p.
 func (lf *loadFinder) otherReaders(m, p *ssa.Value, n int64) ([]*ssa.Value, bool) {
 	var out []*ssa.Value
-	for _, w := range compat.MapAt(lf.readers, m) {
+	for _, w := range lf.readers[m] {
 		if w.Op != ssa.OpLoad || w.Args[1] != m {
 			continue // merged away this round
 		}
@@ -120,13 +119,13 @@ func (lf *loadFinder) otherReaders(m, p *ssa.Value, n int64) ([]*ssa.Value, bool
 // addrReadsMemory reports whether p is computed, within block b, from a
 // value that reads or writes memory.
 func addrReadsMemory(p *ssa.Value, b *ssa.Block) bool {
-	seen := compat.NewMap[*ssa.Value, bool](0)
+	seen := map[*ssa.Value]bool{}
 	var walk func(x *ssa.Value) bool
 	walk = func(x *ssa.Value) bool {
-		if x.Block != b || x.Op == ssa.OpPhi || compat.MapAt(seen, x) {
+		if x.Block != b || x.Op == ssa.OpPhi || seen[x] {
 			return false
 		}
-		seen.Set(x, true)
+		seen[x] = true
 		if x.Op.HasMemArg() || x.Op == ssa.OpSelectN {
 			return true
 		}
@@ -210,43 +209,43 @@ func within(p *ssa.Value, n int64, q *ssa.Value, m int64) bool {
 // from and store to them, or passed only to calls that never return: no
 // call that returns can read or change them. The defer record is left
 // out, since the runtime finds it without being given its address.
-func privateSlots(f *ssa.Func) *hash.Map[*ssa.Slot, bool] {
-	private := compat.NewMap[*ssa.Slot, bool](0)
-	leaked := compat.NewMap[*ssa.Slot, bool](0)
+func privateSlots(f *ssa.Func) map[*ssa.Slot]bool {
+	private := map[*ssa.Slot]bool{}
+	leaked := map[*ssa.Slot]bool{}
 	if f.DeferRecord != nil {
-		leaked.Set(f.DeferRecord, true)
+		leaked[f.DeferRecord] = true
 	}
 	// derived maps an address to the slot it points into.
-	derived := compat.NewMap[*ssa.Value, *ssa.Slot](0)
+	derived := map[*ssa.Value]*ssa.Slot{}
 	use := func(s *ssa.Slot, u, w *ssa.Value) {
 		switch u.Op {
 		case ssa.OpLoad, ssa.OpZero:
 			if u.Args[0] != w {
-				leaked.Set(s, true)
+				leaked[s] = true
 			}
 		case ssa.OpStore:
 			if u.Args[1] == w {
-				leaked.Set(s, true)
+				leaked[s] = true
 			}
 		case ssa.OpMove:
 		case ssa.OpOffPtr, ssa.OpAddPtr:
 			if u.Args[0] != w {
-				leaked.Set(s, true)
+				leaked[s] = true
 			}
 		case ssa.OpCall, ssa.OpCallInd:
 			if u.Call == nil || !u.Call.NoReturn {
-				leaked.Set(s, true)
+				leaked[s] = true
 			}
 		default:
-			leaked.Set(s, true)
+			leaked[s] = true
 		}
 	}
 	for _, b := range f.Blocks {
 		for _, v := range b.Values {
 			if v.Op == ssa.OpSlotAddr {
 				s := v.Aux.(*ssa.Slot)
-				derived.Set(v, s)
-				private.Set(s, true)
+				derived[v] = s
+				private[s] = true
 			}
 		}
 	}
@@ -255,11 +254,11 @@ func privateSlots(f *ssa.Func) *hash.Map[*ssa.Slot, bool] {
 		changed = false
 		for _, b := range f.Blocks {
 			for _, v := range b.Values {
-				if v.Op != ssa.OpOffPtr && v.Op != ssa.OpAddPtr || compat.MapAt(derived, v) != nil {
+				if v.Op != ssa.OpOffPtr && v.Op != ssa.OpAddPtr || derived[v] != nil {
 					continue
 				}
-				if s := compat.MapAt(derived, v.Args[0]); s != nil {
-					derived.Set(v, s)
+				if s := derived[v.Args[0]]; s != nil {
+					derived[v] = s
 					changed = true
 				}
 			}
@@ -268,22 +267,19 @@ func privateSlots(f *ssa.Func) *hash.Map[*ssa.Slot, bool] {
 	for _, b := range f.Blocks {
 		for _, v := range b.Values {
 			for _, a := range v.Args {
-				if s := compat.MapAt(derived, a); s != nil {
+				if s := derived[a]; s != nil {
 					use(s, v, a)
 				}
 			}
 		}
 		for _, c := range b.Controls {
-			if s := compat.MapAt(derived, c); s != nil {
-				leaked.Set(s, true)
+			if s := derived[c]; s != nil {
+				leaked[s] = true
 			}
 		}
 	}
-	{
-		goIt1 := compat.MapIter(leaked)
-		for s, _, goOk2 := goIt1.Next(); goOk2; s, _, goOk2 = goIt1.Next() {
-			compat.MapDelete(private, s)
-		}
+	for s := range leaked {
+		delete(private, s)
 	}
 	return private
 }
@@ -295,7 +291,7 @@ func (lf *loadFinder) callPast(m, p *ssa.Value) *ssa.Value {
 		return nil
 	}
 	s, ok := objectOf(p).(*ssa.Slot)
-	if !ok || !compat.MapAt(lf.private, s) {
+	if !ok || !lf.private[s] {
 		return nil
 	}
 	return m.Args[0].MemArg()

@@ -154,53 +154,53 @@ func SplitCriticalEdges(f *Func) {
 // that cannot.
 func Schedule(f *Func) {
 	for _, b := range f.Blocks {
-		inBlock := compat.NewMap[*Value, bool](len(b.Values))
+		inBlock := make(map[*Value]bool, len(b.Values))
 		for _, v := range b.Values {
-			inBlock.Set(v, true)
+			inBlock[v] = true
 		}
 		// consumers[m] lists the operations in b that consume memory
 		// state m to produce the next one.
-		consumers := compat.NewMap[*Value, []*Value](0)
+		consumers := map[*Value][]*Value{}
 		for _, v := range b.Values {
 			if m := v.MemArg(); m != nil && v.Op.HasMemResult() {
-				consumers.Set(m, compat.Append(compat.MapAt(consumers, m), v))
+				consumers[m] = compat.Append(consumers[m], v)
 			}
 		}
 		// readers[w] lists the values that read memory without producing
 		// any (loads) and must run before write w.
-		readers := compat.NewMap[*Value, []*Value](0)
+		readers := map[*Value][]*Value{}
 		for _, v := range b.Values {
 			m := v.MemArg()
 			if m == nil || v.Op.HasMemResult() {
 				continue
 			}
 			for steps := 0; ; steps++ {
-				cs := compat.MapAt(consumers, m)
+				cs := consumers[m]
 				if len(cs) == 1 && steps < 1000 && !mayClobber(cs[0], v) {
 					m = cs[0]
 					continue
 				}
 				for _, w := range cs {
-					readers.Set(w, compat.Append(compat.MapAt(readers, w), v))
+					readers[w] = compat.Append(readers[w], v)
 				}
 				break
 			}
 		}
-		done := compat.NewMap[*Value, bool](len(b.Values))
+		done := make(map[*Value]bool, len(b.Values))
 		out := compat.MakeCap[*Value](0, len(b.Values))
 		var visit func(v *Value)
 		visit = func(v *Value) {
-			if compat.MapAt(done, v) {
+			if done[v] {
 				return
 			}
-			done.Set(v, true)
+			done[v] = true
 			if v.Op != OpPhi {
 				for _, a := range v.Args {
-					if compat.MapAt(inBlock, a) {
+					if inBlock[a] {
 						visit(a)
 					}
 				}
-				for _, r := range compat.MapAt(readers, v) {
+				for _, r := range readers[v] {
 					visit(r)
 				}
 			}

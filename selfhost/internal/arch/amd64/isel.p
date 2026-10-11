@@ -236,20 +236,17 @@ func (s *isel) markFused() {
 	// An integer compare used only by Selects in its own block is
 	// re-evaluated into the flags at each Select (cmp; cmov) rather than
 	// materialised with setcc.
-	selUses := compat.NewMap[*ssa.Value, int32](0)
+	selUses := map[*ssa.Value]int32{}
 	for _, b := range s.f.Blocks {
 		for _, v := range b.Values {
 			if v.Op == ssa.OpSelect && v.Args[0].Block == b && v.Args[1] != v.Args[0] && v.Args[2] != v.Args[0] {
-				*compat.MapSlot(selUses, v.Args[0])++
+				selUses[v.Args[0]]++
 			}
 		}
 	}
-	{
-		goIt1 := compat.MapIter(selUses)
-		for c, n, goOk2 := goIt1.Next(); goOk2; c, n, goOk2 = goIt1.Next() {
-			if isCompare(c.Op) && !c.Args[0].Type.IsFloat() && c.Uses == n {
-				s.fused[c.ID] = true
-			}
+	for c, n := range selUses {
+		if isCompare(c.Op) && !c.Args[0].Type.IsFloat() && c.Uses == n {
+			s.fused[c.ID] = true
 		}
 	}
 	// A scaled term or x*3/5/9 feeding only an add in the same block
@@ -301,20 +298,17 @@ func (s *isel) markFused() {
 	}
 	// An index scaled by 2, 4 or 8 that is only ever used to index
 	// addresses goes into the addressing mode instead of a register.
-	idxUses := compat.NewMap[*ssa.Value, int32](0)
+	idxUses := map[*ssa.Value]int32{}
 	for _, b := range s.f.Blocks {
 		for _, v := range b.Values {
 			if v.Op == ssa.OpAddPtr && v.Args[1] != v.Args[0] && v.Args[1].Op != ssa.OpConst {
-				*compat.MapSlot(idxUses, v.Args[1])++
+				idxUses[v.Args[1]]++
 			}
 		}
 	}
-	{
-		goIt3 := compat.MapIter(idxUses)
-		for v, n, goOk4 := goIt3.Next(); goOk4; v, n, goOk4 = goIt3.Next() {
-			if _, scale := scaledIndex(v); scale > 1 && int32(v.Uses) == n {
-				s.fused[v.ID] = true
-			}
+	for v, n := range idxUses {
+		if _, scale := scaledIndex(v); scale > 1 && int32(v.Uses) == n {
+			s.fused[v.ID] = true
 		}
 	}
 	// A vector lane that is only stored is stored straight from the
@@ -362,19 +356,19 @@ func bitTestOf(v *ssa.Value) *ssa.Value {
 func (s *isel) markFoldedLoads() {
 	for _, b := range s.f.Blocks {
 		// Loads since the last memory write, which may move down to here.
-		loadAfter := compat.NewMap[*ssa.Value, bool](0)
+		loadAfter := map[*ssa.Value]bool{}
 		for _, v := range b.Values {
 			if v.Op.HasMemResult() || v.Op.IsCall() {
-				compat.MapClear(loadAfter)
+				clear(loadAfter)
 				continue
 			}
 			if v.Op == ssa.OpLoad && !v.IsVolatile() && v.Uses == 1 {
-				loadAfter.Set(v, true)
+				loadAfter[v] = true
 				continue
 			}
 			// A float loaded into a vector's high lane: movhpd.
 			if v.Op == ssa.OpVPack && !isConstVec(v) {
-				if a := v.Args[1]; a != v.Args[0] && compat.MapAt(loadAfter, a) && a.Type.IsFloat() && a.Type.Size == 8 {
+				if a := v.Args[1]; a != v.Args[0] && loadAfter[a] && a.Type.IsFloat() && a.Type.Size == 8 {
 					s.folded[a.ID] = true
 				}
 				continue
@@ -386,7 +380,7 @@ func (s *isel) markFoldedLoads() {
 				if j == 0 && !v.Op.IsCommutative() || a == v.Args[1-j] {
 					continue
 				}
-				if compat.MapAt(loadAfter, a) && a.Type.Same(v.Type) {
+				if loadAfter[a] && a.Type.Same(v.Type) {
 					s.folded[a.ID] = true
 					break
 				}
@@ -626,17 +620,13 @@ func (s *isel) constMem(lo, hi uint64) Mem {
 	var b [16]byte
 	compat.PutUint64(b[:8], lo)
 	compat.PutUint64(b[8:], hi)
-	sym := compat.MapAt(s.mf.constSyms, b)
+	sym := s.mf.constSyms[b]
 	if sym == nil {
 		if s.mf.constSyms == nil {
-			s.mf.constSyms = compat.NewMapFunc[[16]byte, *ssa.Sym](0, func(k [16]byte) uint64 {
-				h := uint64(0)
-				h = compat.Mix(h, compat.HashBytes(k[:]))
-				return h
-			})
+			s.mf.constSyms = map[[16]byte]*ssa.Sym{}
 		}
 		sym = pu.New(ssa.Sym{Name: compat.Sprintf("pluto.const.%016x%016x", hi, lo), Kind: ssa.SymData})
-		s.mf.constSyms.Set(b, sym)
+		s.mf.constSyms[b] = sym
 		s.mf.consts = compat.Append(s.mf.consts, Const{Sym: sym, Bytes: b})
 	}
 	return Mem{Base: NoReg, Index: NoReg, Sym: sym}
@@ -924,13 +914,7 @@ func (s *isel) value(v *ssa.Value) error {
 		if v.Op == ssa.OpAdd && s.leaAdd(v) {
 			break
 		}
-		op := compat.MapAt(compat.MapOf[ssa.Op, MOp](
-			compat.Pair[ssa.Op, MOp]{ssa.OpAdd, MADD},
-			compat.Pair[ssa.Op, MOp]{ssa.OpSub, MSUB},
-			compat.Pair[ssa.Op, MOp]{ssa.OpAnd, MAND},
-			compat.Pair[ssa.Op, MOp]{ssa.OpOr, MOR},
-			compat.Pair[ssa.Op, MOp]{ssa.OpXor, MXOR},
-		), v.Op)
+		op := map[ssa.Op]MOp{ssa.OpAdd: MADD, ssa.OpSub: MSUB, ssa.OpAnd: MAND, ssa.OpOr: MOR, ssa.OpXor: MXOR}[v.Op]
 		x, src := s.aluArgs(v)
 		d := s.def(v)
 		s.copyReg(d, s.reg(x), size)
@@ -990,12 +974,7 @@ func (s *isel) value(v *ssa.Value) error {
 		s.emit(pu.New(MInst{Op: MXOR, Size: 1, Dst: RegOp(d), Src: ImmOp(1)}))
 
 	case ssa.OpFAdd, ssa.OpFSub, ssa.OpFMul, ssa.OpFDiv:
-		op := compat.MapAt(compat.MapOf[ssa.Op, MOp](
-			compat.Pair[ssa.Op, MOp]{ssa.OpFAdd, MADDSF},
-			compat.Pair[ssa.Op, MOp]{ssa.OpFSub, MSUBSF},
-			compat.Pair[ssa.Op, MOp]{ssa.OpFMul, MMULSF},
-			compat.Pair[ssa.Op, MOp]{ssa.OpFDiv, MDIVSF},
-		), v.Op)
+		op := map[ssa.Op]MOp{ssa.OpFAdd: MADDSF, ssa.OpFSub: MSUBSF, ssa.OpFMul: MMULSF, ssa.OpFDiv: MDIVSF}[v.Op]
 		x, src := s.aluArgs(v)
 		d := s.def(v)
 		s.copyReg(d, s.reg(x), size)
@@ -1168,12 +1147,7 @@ func (s *isel) divide(v *ssa.Value) {
 func (s *isel) shift(v *ssa.Value) {
 	size := sizeOf(v.Type)
 	width := int64(size) * 8
-	op := compat.MapAt(compat.MapOf[ssa.Op, MOp](
-		compat.Pair[ssa.Op, MOp]{ssa.OpShl, MSHL},
-		compat.Pair[ssa.Op, MOp]{ssa.OpShrL, MSHR},
-		compat.Pair[ssa.Op, MOp]{ssa.OpShrA, MSAR},
-		compat.Pair[ssa.Op, MOp]{ssa.OpRotl, MROL},
-	), v.Op)
+	op := map[ssa.Op]MOp{ssa.OpShl: MSHL, ssa.OpShrL: MSHR, ssa.OpShrA: MSAR, ssa.OpRotl: MROL}[v.Op]
 	d := s.def(v)
 	count := v.Args[1]
 	if count.Op == ssa.OpConst {
@@ -1403,7 +1377,7 @@ func (s *isel) bitScan(v *ssa.Value) {
 	s.loadConst(r, width-1, 8)
 	s.emit(pu.New(MInst{Op: MSUB, Size: max(opSize, 4), Dst: RegOp(r), Src: RegOp(d)}))
 	s.vregs[v.ID] = r
-	s.mf.regClass.Set(r, ClassGP)
+	s.mf.regClass[r] = ClassGP
 }
 
 // popCount emits the SWAR population count (baseline x86-64 has no POPCNT).

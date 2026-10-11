@@ -243,7 +243,7 @@ func (l *Loop) Contains(ln *LoopNest, b *Block) bool {
 func computeLoops(f *Func) *LoopNest {
 	d := f.Dom()
 	ln := pu.New(LoopNest{inner: compat.Make[*Loop](f.NumBlocks())})
-	byHeader := compat.NewMap[*Block, *Loop](0)
+	byHeader := map[*Block]*Loop{}
 
 	// Find back edges p -> h where h dominates p, and collect each loop body by
 	// walking predecessors back from p to h. Visit headers in postorder so inner
@@ -259,25 +259,23 @@ func computeLoops(f *Func) *LoopNest {
 			continue
 		}
 		l := pu.New(Loop{Header: h})
-		byHeader.Set(h, l)
+		byHeader[h] = l
 		ln.Loops = compat.Append(ln.Loops, l)
-		inLoop := compat.MapOf[*Block, bool](
-			compat.Pair[*Block, bool]{h, true},
-		)
+		inLoop := map[*Block]bool{h: true}
 		work := body
 		for len(work) > 0 {
 			b := work[len(work)-1]
 			work = work[:len(work)-1]
-			if compat.MapAt(inLoop, b) || !d.Reachable(b) {
+			if inLoop[b] || !d.Reachable(b) {
 				continue
 			}
-			inLoop.Set(b, true)
+			inLoop[b] = true
 			for _, e := range b.Preds {
 				work = compat.Append(work, e.B)
 			}
 		}
 		for _, b := range f.Blocks {
-			if compat.MapAt(inLoop, b) {
+			if inLoop[b] {
 				l.Blocks = compat.Append(l.Blocks, b)
 				if inner := ln.inner[b.ID]; inner == nil {
 					ln.inner[b.ID] = l
@@ -299,11 +297,11 @@ func computeLoops(f *Func) *LoopNest {
 			depth++
 		}
 		l.Depth = depth
-		seen := compat.NewMap[*Block, bool](0)
+		seen := map[*Block]bool{}
 		for _, b := range l.Blocks {
 			for _, e := range b.Succs {
-				if !l.Contains(ln, e.B) && !compat.MapAt(seen, e.B) {
-					seen.Set(e.B, true)
+				if !l.Contains(ln, e.B) && !seen[e.B] {
+					seen[e.B] = true
 					l.Exits = compat.Append(l.Exits, e.B)
 				}
 			}

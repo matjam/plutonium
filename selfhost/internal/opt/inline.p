@@ -3,7 +3,6 @@
 package opt
 
 import (
-	"pluto/hash"
 	"pluto/sort"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
@@ -58,49 +57,49 @@ func Inline(p *ssa.Program) {
 // inline is Inline. If why is not nil, it records in it why each call to
 // a //pu:inline function was left out of line, the last time the call was
 // considered (inlinenotes.go).
-func inline(p *ssa.Program, why *hash.Map[*ssa.Value, string]) {
-	funcs := compat.NewMap[*ssa.Sym, *ssa.Func](0)
+func inline(p *ssa.Program, why map[*ssa.Value]string) {
+	funcs := map[*ssa.Sym]*ssa.Func{}
 	for _, f := range p.Funcs {
-		funcs.Set(f.Sym, f)
+		funcs[f.Sym] = f
 	}
 	sccs := callGraphSCCs(p, funcs)
-	inCycle := compat.NewMap[*ssa.Func, bool](0)
+	inCycle := map[*ssa.Func]bool{}
 	for _, scc := range sccs {
 		if len(scc) > 1 {
 			for _, f := range scc {
-				inCycle.Set(f, true)
+				inCycle[f] = true
 			}
 		} else if callsSelf(scc[0]) {
-			inCycle.Set(scc[0], true)
+			inCycle[scc[0]] = true
 		}
 	}
 	// The functions referred to once in the whole program (closures,
 	// mostly, such as the bodies of loops over functions): inlining such
 	// a function at its only call site does not duplicate it.
 	// A function called statically is not counted as used once.
-	refs := compat.NewMap[*ssa.Sym, int](0)
+	refs := map[*ssa.Sym]int{}
 	for _, f := range p.Funcs {
 		for _, b := range f.Blocks {
 			for _, v := range b.Values {
 				switch v.Op {
 				case ssa.OpFuncAddr:
-					*compat.MapSlot(refs, v.Aux.(*ssa.Sym))++
+					refs[v.Aux.(*ssa.Sym)]++
 				case ssa.OpCall:
-					*compat.MapSlot(refs, v.Aux.(*ssa.Sym)) += 2
+					refs[v.Aux.(*ssa.Sym)] += 2
 				}
 			}
 		}
 		if len(f.Exports) > 0 {
-			*compat.MapSlot(refs, f.Sym) += 2
+			refs[f.Sym] += 2
 		}
 	}
-	sizes := compat.NewMap[*ssa.Func, int](0)
+	sizes := map[*ssa.Func]int{}
 	for _, scc := range sccs { // callees first
 		for _, f := range scc {
 			if inlineInto(f, funcs, sizes, inCycle, scc, refs, why) {
 				cleanup(f)
 			}
-			sizes.Set(f, funcSize(f))
+			sizes[f] = funcSize(f)
 		}
 	}
 }
@@ -156,15 +155,15 @@ func funcSize(f *ssa.Func) int {
 
 // sourceSize is f's size before inlining for its growth budget: its own
 // size and that of each closure used once that it makes.
-func sourceSize(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], sizes *hash.Map[*ssa.Func, int], refs *hash.Map[*ssa.Sym, int]) int {
+func sourceSize(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]int, refs map[*ssa.Sym]int) int {
 	n := funcSize(f)
 	for _, b := range f.Blocks {
 		for _, v := range b.Values {
-			if v.Op != ssa.OpFuncAddr || compat.MapAt(refs, v.Aux.(*ssa.Sym)) != 1 {
+			if v.Op != ssa.OpFuncAddr || refs[v.Aux.(*ssa.Sym)] != 1 {
 				continue
 			}
-			if g := compat.MapAt(funcs, v.Aux.(*ssa.Sym)); g != nil && g != f {
-				n += compat.MapAt(sizes, g)
+			if g := funcs[v.Aux.(*ssa.Sym)]; g != nil && g != f {
+				n += sizes[g]
 			}
 		}
 	}
@@ -172,11 +171,11 @@ func sourceSize(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], sizes *hash.M
 }
 
 // inlineInto inlines eligible calls in f, reporting whether it changed f.
-func inlineInto(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], sizes *hash.Map[*ssa.Func, int], inCycle *hash.Map[*ssa.Func, bool], scc []*ssa.Func, refs *hash.Map[*ssa.Sym, int], why *hash.Map[*ssa.Value, string]) bool {
+func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]int, inCycle map[*ssa.Func]bool, scc []*ssa.Func, refs map[*ssa.Sym]int, why map[*ssa.Value]string) bool {
 	changed := false
-	sameSCC := compat.NewMap[*ssa.Func, bool](0)
+	sameSCC := map[*ssa.Func]bool{}
 	for _, g := range scc {
-		sameSCC.Set(g, true)
+		sameSCC[g] = true
 	}
 	limit := min(maxCallerSize, max(growthMin, growthFactor*sourceSize(f, funcs, sizes, refs)))
 	// Each round can expose more: a closure inlined in one round makes the
@@ -190,7 +189,7 @@ func inlineInto(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], sizes *hash.M
 			changed = true
 		}
 		var candidates []*ssa.Value
-		calls := compat.NewMap[*ssa.Func, int](0)
+		calls := map[*ssa.Func]int{}
 		doomed := ssa.DoomedBlocks(f)
 		for _, b := range f.Blocks {
 			if doomed[b.ID] {
@@ -203,7 +202,7 @@ func inlineInto(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], sizes *hash.M
 				if g == nil {
 					continue
 				}
-				if g == f || compat.MapAt(sameSCC, g) && compat.MapAt(inCycle, g) {
+				if g == f || sameSCC[g] && inCycle[g] {
 					note(why, v, g, "the call is recursive")
 					continue
 				}
@@ -220,17 +219,17 @@ func inlineInto(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], sizes *hash.M
 					continue
 				}
 				candidates = compat.Append(candidates, v)
-				*compat.MapSlot(calls, g)++
+				calls[g]++
 			}
 		}
 		var sites []*ssa.Value
 		for _, v := range candidates {
 			g := callTarget(v, funcs)
 			budget := inlineBudget
-			if compat.MapAt(refs, g.Sym) == 1 && compat.MapAt(calls, g) == 1 {
+			if refs[g.Sym] == 1 && calls[g] == 1 {
 				budget = singleUseBudget
 			}
-			if shouldInline(g, compat.MapAt(sizes, g), budget) {
+			if shouldInline(g, sizes[g], budget) {
 				sites = compat.Append(sites, v)
 			} else {
 				note(why, v, g, notInlinable(g))
@@ -244,19 +243,19 @@ func inlineInto(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], sizes *hash.M
 		// The size is kept up to date by adding each callee's size
 		// rather than recounting, which would be quadratic.
 		sort.SortStableFunc(sites, func(a, b *ssa.Value) bool {
-			return compat.MapAt(sizes, callTarget(a, funcs)) < compat.MapAt(sizes, callTarget(b, funcs))
+			return sizes[callTarget(a, funcs)] < sizes[callTarget(b, funcs)]
 		})
 		size := funcSize(f)
 		for _, v := range sites {
 			g := callTarget(v, funcs)
-			if size+compat.MapAt(sizes, g)-callSize > limit {
+			if size+sizes[g]-callSize > limit {
 				if why != nil {
 					note(why, v, g, compat.Sprintf("%s would grow past its limit of %d values", f.Name, limit))
 				}
 				continue
 			}
 			inlineCall(f, v, g)
-			size += compat.MapAt(sizes, g) - callSize
+			size += sizes[g] - callSize
 			changed = true
 			if checkSSA {
 				if err := verify(f); err != nil {
@@ -271,13 +270,13 @@ func inlineInto(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], sizes *hash.M
 // callTarget returns the function a call calls, if it is known and
 // compiled with the program: the target of a static call, or of a call
 // through a closure whose code pointer is known.
-func callTarget(v *ssa.Value, funcs *hash.Map[*ssa.Sym, *ssa.Func]) *ssa.Func {
+func callTarget(v *ssa.Value, funcs map[*ssa.Sym]*ssa.Func) *ssa.Func {
 	switch v.Op {
 	case ssa.OpCall:
-		return compat.MapAt(funcs, v.Aux.(*ssa.Sym))
+		return funcs[v.Aux.(*ssa.Sym)]
 	case ssa.OpCallInd:
 		if sym := closureCallee(v); sym != nil {
-			return compat.MapAt(funcs, sym)
+			return funcs[sym]
 		}
 	}
 	return nil
@@ -338,26 +337,26 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 	}
 
 	// Copy g's slots.
-	slotMap := compat.NewMap[*ssa.Slot, *ssa.Slot](0)
+	slotMap := map[*ssa.Slot]*ssa.Slot{}
 	for _, s := range g.Slots {
 		ns := f.NewSlot(s.Name, s.Size, s.Align)
 		ns.Leaves = s.Leaves
 		ns.Pads = s.Pads
 		ns.Closure = s.Closure
 		ns.Parts = s.Parts
-		slotMap.Set(s, ns)
+		slotMap[s] = ns
 	}
 
 	// Copy g's blocks and values.
 	inl := f.AddInline(v, g)
-	blockMap := compat.NewMap[*ssa.Block, *ssa.Block](0)
+	blockMap := map[*ssa.Block]*ssa.Block{}
 	for _, gb := range g.Blocks {
 		nb := f.NewBlock(gb.Kind)
 		nb.Likely = gb.Likely
 		nb.Pos, nb.Inl = gb.Pos, inl.Map(gb.Inl)
-		blockMap.Set(gb, nb)
+		blockMap[gb] = nb
 	}
-	valMap := compat.NewMap[*ssa.Value, *ssa.Value](0)
+	valMap := map[*ssa.Value]*ssa.Value{}
 	args := v.Args[:len(v.Args)-1]
 	mem := v.Args[len(v.Args)-1]
 	var ctx *ssa.Value
@@ -367,7 +366,7 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 		args = args[2:]
 	}
 	for _, gb := range g.Blocks {
-		nb := compat.MapAt(blockMap, gb)
+		nb := blockMap[gb]
 		for _, gv := range gb.Values {
 			switch gv.Op {
 			case ssa.OpArg:
@@ -377,14 +376,14 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 					// inlined body's accesses mark its parts.
 					a = a.Args[0]
 				}
-				valMap.Set(gv, a)
+				valMap[gv] = a
 				continue
 			case ssa.OpInitMem:
-				valMap.Set(gv, mem)
+				valMap[gv] = mem
 				continue
 			case ssa.OpClosurePtr:
 				if ctx != nil {
-					valMap.Set(gv, ctx)
+					valMap[gv] = ctx
 					continue
 				}
 			}
@@ -398,7 +397,7 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 			nv.AuxInt = gv.AuxInt
 			nv.Aux = gv.Aux
 			if s, ok := gv.Aux.(*ssa.Slot); ok {
-				nv.Aux = compat.MapAt(slotMap, s)
+				nv.Aux = slotMap[s]
 			}
 			if gv.Call != nil {
 				c := pu.New(*gv.Call)
@@ -412,18 +411,18 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 				// to a line of g.
 				nv.CopyPos(v)
 			}
-			valMap.Set(gv, nv)
+			valMap[gv] = nv
 		}
 	}
 	lookup := func(gv *ssa.Value) *ssa.Value {
-		if nv, ok := compat.MapGet(valMap, gv); ok {
+		if nv, ok := valMap[gv]; ok {
 			return nv
 		}
 		panic(compat.Concat("inline: value ", gv.String(), " of ", g.Name, " has no copy"))
 	}
 	for _, gb := range g.Blocks {
 		for _, gv := range gb.Values {
-			nv := compat.MapAt(valMap, gv)
+			nv := valMap[gv]
 			if gv.Op == ssa.OpArg || gv.Op == ssa.OpInitMem {
 				continue
 			}
@@ -439,12 +438,12 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 	// phi's arguments stay in the order of its block's predecessors.
 	var rets []*ssa.Block
 	for _, gb := range g.Blocks {
-		nb := compat.MapAt(blockMap, gb)
+		nb := blockMap[gb]
 		for _, e := range gb.Succs {
-			nb.Succs = compat.Append(nb.Succs, ssa.Edge{B: compat.MapAt(blockMap, e.B), I: e.I})
+			nb.Succs = compat.Append(nb.Succs, ssa.Edge{B: blockMap[e.B], I: e.I})
 		}
 		for _, e := range gb.Preds {
-			nb.Preds = compat.Append(nb.Preds, ssa.Edge{B: compat.MapAt(blockMap, e.B), I: e.I})
+			nb.Preds = compat.Append(nb.Preds, ssa.Edge{B: blockMap[e.B], I: e.I})
 		}
 		switch gb.Kind {
 		case ssa.BlockRet:
@@ -461,7 +460,7 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 
 	// b jumps into the copy of g's entry.
 	b.Kind = ssa.BlockPlain
-	b.AddEdgeTo(compat.MapAt(blockMap, g.Entry))
+	b.AddEdgeTo(blockMap[g.Entry])
 
 	// Results.
 	nres := len(g.Results)
@@ -471,7 +470,7 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 	case 0:
 		// g never returns: after is unreachable.
 	case 1:
-		rb := compat.MapAt(blockMap, rets[0])
+		rb := blockMap[rets[0]]
 		rb.AddEdgeTo(after)
 		outMem = lookup(rets[0].Controls[0])
 		for i := 0; i < nres; i++ {
@@ -489,7 +488,7 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 		copy(vs[n:], vs[:len(vs)-n])
 		copy(vs, phis)
 		for _, gr := range rets {
-			rb := compat.MapAt(blockMap, gr)
+			rb := blockMap[gr]
 			rb.AddEdgeTo(after)
 			outMem.AddArg(lookup(gr.Controls[0]))
 			for i := 0; i < nres; i++ {
@@ -524,20 +523,20 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 // callGraphSCCs returns the strongly connected components of the call
 // graph in reverse topological order (callees before callers), by Tarjan's
 // algorithm.
-func callGraphSCCs(p *ssa.Program, funcs *hash.Map[*ssa.Sym, *ssa.Func]) [][]*ssa.Func {
-	index := compat.NewMap[*ssa.Func, int](0)
-	low := compat.NewMap[*ssa.Func, int](0)
-	onStack := compat.NewMap[*ssa.Func, bool](0)
+func callGraphSCCs(p *ssa.Program, funcs map[*ssa.Sym]*ssa.Func) [][]*ssa.Func {
+	index := map[*ssa.Func]int{}
+	low := map[*ssa.Func]int{}
+	onStack := map[*ssa.Func]bool{}
 	var stack []*ssa.Func
 	var out [][]*ssa.Func
 	next := 0
 	var strong func(f *ssa.Func)
 	strong = func(f *ssa.Func) {
-		index.Set(f, next)
-		low.Set(f, next)
+		index[f] = next
+		low[f] = next
 		next++
 		stack = compat.Append(stack, f)
-		onStack.Set(f, true)
+		onStack[f] = true
 		for _, b := range f.Blocks {
 			for _, v := range b.Values {
 				// A function whose address f takes may be called
@@ -546,24 +545,24 @@ func callGraphSCCs(p *ssa.Program, funcs *hash.Map[*ssa.Sym, *ssa.Func]) [][]*ss
 				if v.Op != ssa.OpCall && v.Op != ssa.OpFuncAddr {
 					continue
 				}
-				g := compat.MapAt(funcs, v.Aux.(*ssa.Sym))
+				g := funcs[v.Aux.(*ssa.Sym)]
 				if g == nil {
 					continue
 				}
-				if _, seen := compat.MapGet(index, g); !seen {
+				if _, seen := index[g]; !seen {
 					strong(g)
-					low.Set(f, min(compat.MapAt(low, f), compat.MapAt(low, g)))
-				} else if compat.MapAt(onStack, g) {
-					low.Set(f, min(compat.MapAt(low, f), compat.MapAt(index, g)))
+					low[f] = min(low[f], low[g])
+				} else if onStack[g] {
+					low[f] = min(low[f], index[g])
 				}
 			}
 		}
-		if compat.MapAt(low, f) == compat.MapAt(index, f) {
+		if low[f] == index[f] {
 			var scc []*ssa.Func
 			for {
 				g := stack[len(stack)-1]
 				stack = stack[:len(stack)-1]
-				onStack.Set(g, false)
+				onStack[g] = false
 				scc = compat.Append(scc, g)
 				if g == f {
 					break
@@ -573,7 +572,7 @@ func callGraphSCCs(p *ssa.Program, funcs *hash.Map[*ssa.Sym, *ssa.Func]) [][]*ss
 		}
 	}
 	for _, f := range p.Funcs {
-		if _, seen := compat.MapGet(index, f); !seen {
+		if _, seen := index[f]; !seen {
 			strong(f)
 		}
 	}

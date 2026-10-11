@@ -5,7 +5,6 @@ package objfile
 
 import (
 	"pluto/fmt"
-	"pluto/hash"
 	"pluto/io"
 	"pluto/sort"
 	"selfhost/compat"
@@ -46,12 +45,12 @@ type Symbol struct {
 // An Object collects sections and symbols.
 type Object struct {
 	Sections []*Section
-	syms     *hash.Map[string, *Symbol]
+	syms     map[string]*Symbol
 	order    []string
 }
 
 // New returns an empty object.
-func New() *Object { return pu.New(Object{syms: compat.NewMap[string, *Symbol](0)}) }
+func New() *Object { return pu.New(Object{syms: map[string]*Symbol{}}) }
 
 // Section returns the named section, creating it with the given attributes.
 func (o *Object) Section(name string, typ elf.SectionType, flags elf.SectionFlag, align uint64) *Section {
@@ -102,18 +101,18 @@ func (s *Section) Reserve(size, align uint64) uint64 {
 
 // Define defines a symbol.
 func (o *Object) Define(sym *Symbol) {
-	if old, ok := compat.MapGet(o.syms, sym.Name); ok {
+	if old, ok := o.syms[sym.Name]; ok {
 		*old = *sym
 		return
 	}
-	o.syms.Set(sym.Name, sym)
+	o.syms[sym.Name] = sym
 	o.order = compat.Append(o.order, sym.Name)
 }
 
 // Reference ensures a symbol exists, undefined if not defined later.
 func (o *Object) Reference(name string) {
-	if _, ok := compat.MapGet(o.syms, name); !ok {
-		o.syms.Set(name, pu.New(Symbol{Name: name, Bind: elf.STB_GLOBAL, Type: elf.STT_NOTYPE}))
+	if _, ok := o.syms[name]; !ok {
+		o.syms[name] = pu.New(Symbol{Name: name, Bind: elf.STB_GLOBAL, Type: elf.STT_NOTYPE})
 		o.order = compat.Append(o.order, name)
 	}
 }
@@ -152,15 +151,15 @@ func (o *Object) Write(w io.Writer) error {
 	// Symbols: null, locals, then globals.
 	names := compat.Append([]string(nil), o.order...)
 	sort.SortStableFunc(names, func(a, b string) bool {
-		return compat.MapAt(o.syms, a).Bind == elf.STB_LOCAL && compat.MapAt(o.syms, b).Bind != elf.STB_LOCAL
+		return o.syms[a].Bind == elf.STB_LOCAL && o.syms[b].Bind != elf.STB_LOCAL
 	})
-	symIndex := compat.NewMap[string, int](0)
+	symIndex := map[string]int{}
 	symtab := pu.Alloc[compat.Buffer]()
 	symtab.Write(compat.Make[byte](24)) // null symbol
 	firstGlobal := 1
 	for i, n := range names {
-		sym := compat.MapAt(o.syms, n)
-		symIndex.Set(n, i+1)
+		sym := o.syms[n]
+		symIndex[n] = i + 1
 		if sym.Bind == elf.STB_LOCAL {
 			firstGlobal = i + 2
 		}
@@ -207,7 +206,7 @@ func (o *Object) Write(w io.Writer) error {
 		}
 		buf := pu.Alloc[compat.Buffer]()
 		for _, r := range s.Relocs {
-			idx, ok := compat.MapGet(symIndex, r.Sym)
+			idx, ok := symIndex[r.Sym]
 			if !ok {
 				return fmt.Errorf("objfile: relocation against unknown symbol %q", r.Sym)
 			}

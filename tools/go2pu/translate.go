@@ -174,7 +174,6 @@ func (t *fileTr) puNew(e string) string {
 const (
 	puPkg     = "$MOD/pu"
 	compatPkg = "$MOD/compat"
-	hashPkg   = "pluto/hash"
 	ioPkg     = "pluto/io"
 	sortPkg   = "pluto/sort"
 )
@@ -344,16 +343,15 @@ func (tc *translator) mapPath(p string) string {
 // fileTr translates one file.
 type fileTr struct {
 	*translator
-	file    *ast.File
-	src     []byte
-	res     *Result
-	local   map[string]string // Go import path -> local name in this file
-	needed  map[string]string // Plutonium import path -> local name
-	subst   map[ast.Node]string
-	extra   []string        // generated declarations
-	gen     map[string]bool // generated declaration names
-	counter int
-	noted   map[string]bool
+	file   *ast.File
+	src    []byte
+	res    *Result
+	local  map[string]string // Go import path -> local name in this file
+	needed map[string]string // Plutonium import path -> local name
+	subst  map[ast.Node]string
+	extra  []string        // generated declarations
+	gen    map[string]bool // generated declaration names
+	noted  map[string]bool
 }
 
 func (t *fileTr) translate() ([]byte, error) {
@@ -450,11 +448,6 @@ func (t *fileTr) note(n ast.Node, format string, args ...any) {
 	}
 }
 
-func (t *fileTr) fresh(prefix string) string {
-	t.counter++
-	return fmt.Sprintf("%s%d", prefix, t.counter)
-}
-
 // text returns the source of n.
 func (t *fileTr) text(n ast.Node) string {
 	return string(t.src[t.off(n.Pos()):t.off(n.End())])
@@ -537,16 +530,6 @@ func (t *fileTr) list(es []ast.Expr) string {
 
 // typeOf returns the type of e, or nil.
 func (t *translator) typeOf(e ast.Expr) types.Type { return t.info.TypeOf(e) }
-
-// isMapValue reports whether e is a value of map type.
-func (t *fileTr) isMapValue(e ast.Expr) bool {
-	tv, ok := t.info.Types[e]
-	if !ok || !tv.IsValue() {
-		return false
-	}
-	_, isMap := tv.Type.Underlying().(*types.Map)
-	return isMap
-}
 
 func isString(T types.Type) bool {
 	b, ok := T.Underlying().(*types.Basic)

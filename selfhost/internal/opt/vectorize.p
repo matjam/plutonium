@@ -3,7 +3,6 @@
 package opt
 
 import (
-	"pluto/hash"
 	"pluto/math"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
@@ -76,7 +75,7 @@ type vecLoop struct {
 	h, body       *ssa.Block
 	preIdx, latch int // indexes into h.Preds
 	i, mem, n     *ssa.Value
-	accesses      *hash.Map[*ssa.Value, vecAccess]
+	accesses      map[*ssa.Value]vecAccess
 }
 
 func matchVecLoop(f *ssa.Func, h *ssa.Block) *vecLoop {
@@ -117,7 +116,7 @@ func matchVecLoop(f *ssa.Func, h *ssa.Block) *vecLoop {
 	}
 
 	// Classify the body.
-	vl.accesses = compat.NewMap[*ssa.Value, vecAccess](0)
+	vl.accesses = map[*ssa.Value]vecAccess{}
 	floatOps := 0
 	for _, v := range body.Values {
 		switch v.Op {
@@ -133,7 +132,7 @@ func matchVecLoop(f *ssa.Func, h *ssa.Block) *vecLoop {
 			if !ok || v.Op == ssa.OpStore && stride == 0 {
 				return nil
 			}
-			vl.accesses.Set(v, vecAccess{v: v, base: base, stride: stride, off: off})
+			vl.accesses[v] = vecAccess{v: v, base: base, stride: stride, off: off}
 		case ssa.OpFAdd, ssa.OpFSub, ssa.OpFMul, ssa.OpFDiv, ssa.OpFNeg, ssa.OpFSqrt, ssa.OpFAbs:
 			if !v.Type.Same(ssa.TF64) {
 				return nil
@@ -257,13 +256,10 @@ func fitsOffset(c int64) bool { return c > -1<<24 && c < 1<<24 }
 // bytes a store of another iteration writes.
 func (vl *vecLoop) independent() bool {
 	var all, stores []vecAccess
-	{
-		goIt1 := compat.MapIter(vl.accesses)
-		for _, a, goOk2 := goIt1.Next(); goOk2; _, a, goOk2 = goIt1.Next() {
-			all = compat.Append(all, a)
-			if a.v.Op == ssa.OpStore {
-				stores = compat.Append(stores, a)
-			}
+	for _, a := range vl.accesses {
+		all = compat.Append(all, a)
+		if a.v.Op == ssa.OpStore {
+			stores = compat.Append(stores, a)
 		}
 	}
 	for _, s := range stores {
@@ -350,17 +346,17 @@ func (vl *vecLoop) rewrite(f *ssa.Func) {
 	vb.AddEdgeTo(vh)
 
 	// Broadcasts of loop-invariant floats go before the loop.
-	splats := compat.NewMap[*ssa.Value, *ssa.Value](0)
-	vmap := compat.NewMap[*ssa.Value, *ssa.Value](0)
+	splats := map[*ssa.Value]*ssa.Value{}
+	vmap := map[*ssa.Value]*ssa.Value{}
 	vec := func(x *ssa.Value) *ssa.Value {
-		if v := compat.MapAt(vmap, x); v != nil {
+		if v := vmap[x]; v != nil {
 			return v
 		}
-		if s := compat.MapAt(splats, x); s != nil {
+		if s := splats[x]; s != nil {
 			return s
 		}
 		s := pre.NewValue(ssa.OpVPack, ssa.TF64x2, x, x)
-		splats.Set(x, s)
+		splats[x] = s
 		return s
 	}
 	// Each base's address for lane 0, i*stride from the base.
@@ -368,21 +364,16 @@ func (vl *vecLoop) rewrite(f *ssa.Func) {
 		base   *ssa.Value
 		stride int64
 	}
-	bases := compat.NewMapFunc[baseKey, *ssa.Value](0, func(k baseKey) uint64 {
-		h := uint64(0)
-		h = compat.Mix(h, compat.HashAny(k.base))
-		h = compat.Mix(h, compat.HashAny(k.stride))
-		return h
-	})
+	bases := map[baseKey]*ssa.Value{}
 	laneAddr := func(a vecAccess, lane int64) *ssa.Value {
 		p := a.base
 		if a.stride != 0 {
 			k := baseKey{a.base, a.stride}
-			if compat.MapAt(bases, k) == nil {
+			if bases[k] == nil {
 				idx := vb.NewValue(ssa.OpMul, ssa.TI64, vi, f.ConstInt(ssa.TI64, a.stride))
-				bases.Set(k, vb.NewValue(ssa.OpAddPtr, ssa.TPtr, a.base, idx))
+				bases[k] = vb.NewValue(ssa.OpAddPtr, ssa.TPtr, a.base, idx)
 			}
-			p = compat.MapAt(bases, k)
+			p = bases[k]
 		}
 		if off := a.off + lane*a.stride; off != 0 {
 			p = vb.NewValueI(ssa.OpOffPtr, ssa.TPtr, off, p)
@@ -390,45 +381,43 @@ func (vl *vecLoop) rewrite(f *ssa.Func) {
 		return p
 	}
 
-	memMap := compat.MapOf[*ssa.Value, *ssa.Value](
-		compat.Pair[*ssa.Value, *ssa.Value]{vl.mem, vm},
-	)
+	memMap := map[*ssa.Value]*ssa.Value{vl.mem: vm}
 	for _, v := range body.Values {
 		first := len(vb.Values)
 		switch v.Op {
 		case ssa.OpLoad:
-			a := compat.MapAt(vl.accesses, v)
-			m := compat.MapAt(memMap, v.Args[1])
+			a := vl.accesses[v]
+			m := memMap[v.Args[1]]
 			switch a.stride {
 			case 8:
-				vmap.Set(v, vb.NewValue(ssa.OpLoad, ssa.TF64x2, laneAddr(a, 0), m))
+				vmap[v] = vb.NewValue(ssa.OpLoad, ssa.TF64x2, laneAddr(a, 0), m)
 			case 0:
 				x := vb.NewValue(ssa.OpLoad, ssa.TF64, laneAddr(a, 0), m)
-				vmap.Set(v, vb.NewValue(ssa.OpVPack, ssa.TF64x2, x, x))
+				vmap[v] = vb.NewValue(ssa.OpVPack, ssa.TF64x2, x, x)
 			default:
 				x0 := vb.NewValue(ssa.OpLoad, ssa.TF64, laneAddr(a, 0), m)
 				x1 := vb.NewValue(ssa.OpLoad, ssa.TF64, laneAddr(a, 1), m)
-				vmap.Set(v, vb.NewValue(ssa.OpVPack, ssa.TF64x2, x0, x1))
+				vmap[v] = vb.NewValue(ssa.OpVPack, ssa.TF64x2, x0, x1)
 			}
 		case ssa.OpStore:
-			a := compat.MapAt(vl.accesses, v)
-			m := compat.MapAt(memMap, v.Args[2])
+			a := vl.accesses[v]
+			m := memMap[v.Args[2]]
 			x := vec(v.Args[1])
 			if a.stride == 8 {
-				memMap.Set(v, vb.NewValueA(ssa.OpStore, ssa.TMem, ssa.TF64x2, laneAddr(a, 0), x, m))
+				memMap[v] = vb.NewValueA(ssa.OpStore, ssa.TMem, ssa.TF64x2, laneAddr(a, 0), x, m)
 				break
 			}
 			for lane := int64(0); lane < 2; lane++ {
 				x := vb.NewValueI(ssa.OpVLane, ssa.TF64, lane, x)
 				m = vb.NewValueA(ssa.OpStore, ssa.TMem, ssa.TF64, laneAddr(a, lane), x, m)
 			}
-			memMap.Set(v, m)
+			memMap[v] = m
 		case ssa.OpFAdd, ssa.OpFSub, ssa.OpFMul, ssa.OpFDiv, ssa.OpFNeg, ssa.OpFSqrt, ssa.OpFAbs:
 			w := vb.NewValue(v.Op, ssa.TF64x2)
 			for _, a := range v.Args {
 				w.AddArg(vec(a))
 			}
-			vmap.Set(v, w)
+			vmap[v] = w
 		}
 		// The vector code for v takes v's position, so that a fault in a
 		// vector load or store names the line (and inlined call) of the
@@ -438,5 +427,5 @@ func (vl *vecLoop) rewrite(f *ssa.Func) {
 		}
 	}
 	vi.AddArg(vb.NewValue(ssa.OpAdd, ssa.TI64, vi, f.ConstInt(ssa.TI64, 2)))
-	vm.AddArg(compat.MapAt(memMap, vl.mem.Args[vl.latch]))
+	vm.AddArg(memMap[vl.mem.Args[vl.latch]])
 }

@@ -4,7 +4,6 @@ package opt
 
 import (
 	"pluto/bits"
-	"pluto/hash"
 	"pluto/math"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
@@ -26,8 +25,8 @@ func Prove(f *ssa.Func) {
 	p := &prover{
 		f:      f,
 		dom:    f.Dom(),
-		ranges: compat.NewMap[*ssa.Value, rng](0),
-		busy:   compat.NewMap[*ssa.Value, bool](0),
+		ranges: map[*ssa.Value]rng{},
+		busy:   map[*ssa.Value]bool{},
 	}
 	p.walk(f.Entry)
 	ssa.CopyElim(f)
@@ -62,8 +61,8 @@ type fact struct {
 type prover struct {
 	f      *ssa.Func
 	dom    *ssa.DomTree
-	ranges *hash.Map[*ssa.Value, rng] // static ranges, independent of facts
-	busy   *hash.Map[*ssa.Value, bool]
+	ranges map[*ssa.Value]rng // static ranges, independent of facts
+	busy   map[*ssa.Value]bool
 	facts  []fact
 }
 
@@ -382,16 +381,16 @@ func (p *prover) staticRange(v *ssa.Value) rng {
 	if !word(v) {
 		return fullRange
 	}
-	if r, ok := compat.MapGet(p.ranges, v); ok {
+	if r, ok := p.ranges[v]; ok {
 		return r
 	}
-	if compat.MapAt(p.busy, v) {
+	if p.busy[v] {
 		return fullRange
 	}
-	p.busy.Set(v, true)
+	p.busy[v] = true
 	r := p.computeRange(v)
-	compat.MapDelete(p.busy, v)
-	p.ranges.Set(v, r)
+	delete(p.busy, v)
+	p.ranges[v] = r
 	return r
 }
 

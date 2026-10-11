@@ -3,7 +3,6 @@
 package opt
 
 import (
-	"pluto/hash"
 	"pluto/sort"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
@@ -34,7 +33,7 @@ type InlineNote struct {
 // ReportInlining makes Run record why calls to //pu:inline functions were
 // left out of line, for InlineNotes.
 func (p *Pipeline) ReportInlining() {
-	p.why = compat.NewMap[*ssa.Value, string](0)
+	p.why = map[*ssa.Value]string{}
 }
 
 // InlineNotes returns, after Run, the calls to //pu:inline functions left
@@ -44,15 +43,15 @@ func (p *Pipeline) InlineNotes() []InlineNote { return p.notes }
 
 // note records why the call v to g was not inlined, if g is marked
 // //pu:inline and reasons are being recorded.
-func note(why *hash.Map[*ssa.Value, string], v *ssa.Value, g *ssa.Func, reason string) {
+func note(why map[*ssa.Value]string, v *ssa.Value, g *ssa.Func, reason string) {
 	if why != nil && g.Pragmas&ssa.PragmaInline != 0 {
-		why.Set(v, reason)
+		why[v] = reason
 	}
 }
 
 // noteBlock records reason for every call in b to a //pu:inline function,
 // or that the function never returns, for the call that ends a panic path.
-func noteBlock(why *hash.Map[*ssa.Value, string], b *ssa.Block, funcs *hash.Map[*ssa.Sym, *ssa.Func], reason string) {
+func noteBlock(why map[*ssa.Value]string, b *ssa.Block, funcs map[*ssa.Sym]*ssa.Func, reason string) {
 	if why == nil {
 		return
 	}
@@ -83,18 +82,18 @@ func notInlinable(g *ssa.Func) string {
 // collectInlineNotes lists the calls to //pu:inline functions in p and
 // their func values. why holds the inliner's reasons, or is nil if the
 // inliner did not run.
-func collectInlineNotes(p *ssa.Program, why *hash.Map[*ssa.Value, string], inlined bool) []InlineNote {
-	funcs := compat.NewMap[*ssa.Sym, *ssa.Func](0)
+func collectInlineNotes(p *ssa.Program, why map[*ssa.Value]string, inlined bool) []InlineNote {
+	funcs := map[*ssa.Sym]*ssa.Func{}
 	for _, f := range p.Funcs {
-		funcs.Set(f.Sym, f)
+		funcs[f.Sym] = f
 	}
 	// The static closure records of functions used as func values: a code
 	// pointer alone.
-	records := compat.NewMap[*ssa.Sym, *ssa.Func](0)
+	records := map[*ssa.Sym]*ssa.Func{}
 	for _, d := range p.Data {
 		if d.Size == 8 && len(d.Relocs) == 1 && d.Relocs[0].Off == 0 && d.Relocs[0].Addend == 0 {
-			if g := compat.MapAt(funcs, d.Relocs[0].Sym); g != nil {
-				records.Set(d.Sym, g)
+			if g := funcs[d.Relocs[0].Sym]; g != nil {
+				records[d.Sym] = g
 			}
 		}
 	}
@@ -103,20 +102,14 @@ func collectInlineNotes(p *ssa.Program, why *hash.Map[*ssa.Value, string], inlin
 		callee    *ssa.Func
 		funcValue bool
 	}
-	seen := compat.NewMapFunc[key, int](0, func(k key) uint64 {
-		h := uint64(0)
-		h = compat.Mix(h, compat.HashAny(k.pos))
-		h = compat.Mix(h, compat.HashAny(k.callee))
-		h = compat.Mix(h, compat.HashAny(k.funcValue))
-		return h
-	})
+	seen := map[key]int{}
 	var notes []InlineNote
 	var reasons [][]string // of each note
 	add := func(v *ssa.Value, g *ssa.Func, reason string, funcValue bool) {
 		k := key{v.Pos, g, funcValue}
-		i, ok := compat.MapGet(seen, k)
+		i, ok := seen[k]
 		if !ok {
-			seen.Set(k, len(notes))
+			seen[k] = len(notes)
 			notes = compat.Append(notes, InlineNote{Pos: v.Pos, Callee: g.Name, FuncValue: funcValue})
 			reasons = compat.Append(reasons, compat.Clone([]string{reason}))
 			return
@@ -137,9 +130,9 @@ func collectInlineNotes(p *ssa.Program, why *hash.Map[*ssa.Value, string], inlin
 				case ssa.OpFuncAddr, ssa.OpSymAddr:
 					// The code address, or a static closure record holding it.
 					sym := v.Aux.(*ssa.Sym)
-					g := compat.MapAt(funcs, sym)
+					g := funcs[sym]
 					if v.Op == ssa.OpSymAddr {
-						g = compat.MapAt(records, sym)
+						g = records[sym]
 					}
 					if g != nil && g.Pragmas&ssa.PragmaInline != 0 {
 						add(v, g, "calls through a func value are not inlined", true)
@@ -152,7 +145,7 @@ func collectInlineNotes(p *ssa.Program, why *hash.Map[*ssa.Value, string], inlin
 					// are not the program's to tune.
 					continue
 				}
-				reason := compat.MapAt(why, v)
+				reason := why[v]
 				switch {
 				case !inlined:
 					reason = "inlining runs only at -O2"

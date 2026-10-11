@@ -3,7 +3,6 @@
 package opt
 
 import (
-	"pluto/hash"
 	"pluto/strings"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
@@ -50,9 +49,9 @@ func GenFrees(p *ssa.Program) {
 	if !checked {
 		return
 	}
-	funcs := compat.NewMap[*ssa.Sym, *ssa.Func](0)
+	funcs := map[*ssa.Sym]*ssa.Func{}
 	for _, f := range p.Funcs {
-		funcs.Set(f.Sym, f)
+		funcs[f.Sym] = f
 	}
 	noFree := genSafeFuncs(p, funcs, false)
 	noReset := genSafeFuncs(p, funcs, true)
@@ -66,30 +65,30 @@ func GenFrees(p *ssa.Program) {
 
 // genSafeFuncs returns the functions that cannot free (or, with reset,
 // cannot reset), directly or through their calls.
-func genSafeFuncs(p *ssa.Program, funcs *hash.Map[*ssa.Sym, *ssa.Func], reset bool) *hash.Map[*ssa.Sym, bool] {
-	unsafe := compat.NewMap[*ssa.Func, bool](0)
-	callers := compat.NewMap[*ssa.Func, []*ssa.Func](0)
+func genSafeFuncs(p *ssa.Program, funcs map[*ssa.Sym]*ssa.Func, reset bool) map[*ssa.Sym]bool {
+	unsafe := map[*ssa.Func]bool{}
+	callers := map[*ssa.Func][]*ssa.Func{}
 	var work []*ssa.Func
 	for _, f := range p.Funcs {
 		if genDirect(f, funcs, callers, reset) {
-			unsafe.Set(f, true)
+			unsafe[f] = true
 			work = compat.Append(work, f)
 		}
 	}
 	for len(work) > 0 {
 		g := work[len(work)-1]
 		work = work[:len(work)-1]
-		for _, f := range compat.MapAt(callers, g) {
-			if !compat.MapAt(unsafe, f) {
-				unsafe.Set(f, true)
+		for _, f := range callers[g] {
+			if !unsafe[f] {
+				unsafe[f] = true
 				work = compat.Append(work, f)
 			}
 		}
 	}
-	safe := compat.NewMap[*ssa.Sym, bool](0)
+	safe := map[*ssa.Sym]bool{}
 	for _, f := range p.Funcs {
-		if !compat.MapAt(unsafe, f) {
-			safe.Set(f.Sym, true)
+		if !unsafe[f] {
+			safe[f.Sym] = true
 		}
 	}
 	return safe
@@ -100,40 +99,40 @@ func genSafeFuncs(p *ssa.Program, funcs *hash.Map[*ssa.Sym, *ssa.Func], reset bo
 // (lib/pluto/alloc/gen.p) and the arena's Reset, Release, Drop and Free
 // (lib/pluto/arena/epoch.p). Their code may be inlined into other
 // functions, so a store inlined from them counts as a free too.
-var genFreeFuncs = compat.MapOf[string, bool](
-	compat.Pair[string, bool]{"pluto/alloc.genRelease", true},
-	compat.Pair[string, bool]{"pluto/arena.(*Chunked).endEpoch", true},
-)
+var genFreeFuncs = map[string]bool{
+	"pluto/alloc.genRelease":          true,
+	"pluto/arena.(*Chunked).endEpoch": true,
+}
 
 // genResetFuncs take back every allocation of an arena past a point,
 // whoever holds it (lib/pluto/arena/chunked.p: Reset, Release and Drop).
-var genResetFuncs = compat.MapOf[string, bool](
-	compat.Pair[string, bool]{"pluto/arena.(*Chunked).release", true},
-)
+var genResetFuncs = map[string]bool{
+	"pluto/arena.(*Chunked).release": true,
+}
 
 // genQuietAsm are the runtime's assembly functions that neither free nor
 // synchronize with another task: they read the thread's registers, or
 // count what only the running puroutine reads (lib/pluto/rt/*_amd64.s).
-var genQuietAsm = compat.MapOf[string, bool](
-	compat.Pair[string, bool]{"pluto/rt.getg", true},
-	compat.Pair[string, bool]{"pluto/rt.getm", true},
-	compat.Pair[string, bool]{"pluto/rt.getsp", true},
-	compat.Pair[string, bool]{"pluto/rt.inc32", true},
-	compat.Pair[string, bool]{"pluto/rt.dec32", true},
-	compat.Pair[string, bool]{"pluto/rt.callerFrame", true},
-	compat.Pair[string, bool]{"pluto/rt.traceTable", true},
-	compat.Pair[string, bool]{"pluto/rt.goStartPC", true},
-	compat.Pair[string, bool]{"pluto/rt.asyncPreemptPC", true},
-)
+var genQuietAsm = map[string]bool{
+	"pluto/rt.getg":           true,
+	"pluto/rt.getm":           true,
+	"pluto/rt.getsp":          true,
+	"pluto/rt.inc32":          true,
+	"pluto/rt.dec32":          true,
+	"pluto/rt.callerFrame":    true,
+	"pluto/rt.traceTable":     true,
+	"pluto/rt.goStartPC":      true,
+	"pluto/rt.asyncPreemptPC": true,
+}
 
 // genDirect reports whether f may free (or reset) through its own code,
 // and records in callers the functions f calls that have a body.
-func genDirect(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], callers *hash.Map[*ssa.Func, []*ssa.Func], reset bool) bool {
+func genDirect(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, callers map[*ssa.Func][]*ssa.Func, reset bool) bool {
 	prims := genFreeFuncs
 	if reset {
 		prims = genResetFuncs
 	}
-	if compat.MapAt(prims, f.Name) {
+	if prims[f.Name] {
 		return true
 	}
 	inlined := genInlinedFrom(f, prims)
@@ -149,13 +148,13 @@ func genDirect(f *ssa.Func, funcs *hash.Map[*ssa.Sym, *ssa.Func], callers *hash.
 					continue
 				}
 				sym := v.Aux.(*ssa.Sym)
-				g := compat.MapAt(funcs, sym)
+				g := funcs[sym]
 				if g == nil {
-					if !compat.MapAt(genQuietAsm, sym.Name) {
+					if !genQuietAsm[sym.Name] {
 						direct = true // no body here
 					}
 				} else {
-					callers.Set(g, compat.Append(compat.MapAt(callers, g), f))
+					callers[g] = compat.Append(callers[g], f)
 				}
 				continue
 			}
@@ -213,11 +212,11 @@ func genBarrierOp(v *ssa.Value, inlined []bool, reset bool) bool {
 
 // genInlinedFrom returns, by 1-based inline site, whether the site's code
 // came from one of prims, directly or through further inlining.
-func genInlinedFrom(f *ssa.Func, prims *hash.Map[string, bool]) []bool {
+func genInlinedFrom(f *ssa.Func, prims map[string]bool) []bool {
 	r := compat.Make[bool](len(f.Inlines) + 1)
 	for i := range f.Inlines {
 		for s := int32(i + 1); s != 0; s = f.Inlines[s-1].Parent {
-			if compat.MapAt(prims, f.Inlines[s-1].Func) {
+			if prims[f.Inlines[s-1].Func] {
 				r[i+1] = true
 				break
 			}

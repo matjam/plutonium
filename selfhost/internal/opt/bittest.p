@@ -22,11 +22,11 @@ import (
 // Telling the root of a chain from its inner nodes needs the users of each
 // value, which the pass collects first.
 func BitTest(f *ssa.Func) {
-	users := compat.NewMap[*ssa.Value, []*ssa.Value](0)
+	users := map[*ssa.Value][]*ssa.Value{}
 	for _, b := range f.Blocks {
 		for _, v := range b.Values {
 			for _, a := range v.Args {
-				users.Set(a, compat.Append(compat.MapAt(users, a), v))
+				users[a] = compat.Append(users[a], v)
 			}
 		}
 	}
@@ -39,7 +39,7 @@ func BitTest(f *ssa.Func) {
 			}
 			// Only the root of a chain: no user continues it.
 			root := true
-			for _, u := range compat.MapAt(users, v) {
+			for _, u := range users[v] {
 				if u.Op == v.Op && v.Uses == 1 {
 					root = false
 				}

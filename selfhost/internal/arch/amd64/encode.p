@@ -383,13 +383,7 @@ func (e *encoder) encode(in *MInst) {
 			e.byte(0x66, 0x99)
 		}
 	case MSHL, MSHR, MSAR, MROL, MROR:
-		n := compat.MapAt(compat.MapOf[MOp, byte](
-			compat.Pair[MOp, byte]{MROL, 0},
-			compat.Pair[MOp, byte]{MROR, 1},
-			compat.Pair[MOp, byte]{MSHL, 4},
-			compat.Pair[MOp, byte]{MSHR, 5},
-			compat.Pair[MOp, byte]{MSAR, 7},
-		), in.Op)
+		n := map[MOp]byte{MROL: 0, MROR: 1, MSHL: 4, MSHR: 5, MSAR: 7}[in.Op]
 		b8 := size == 1
 		if in.Src.Kind == OpdImm {
 			op := byte(0xC1)

@@ -3,7 +3,6 @@
 package opt
 
 import (
-	"pluto/hash"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 )
@@ -68,24 +67,24 @@ func threadPhiBranch(f *ssa.Func, b *ssa.Block) bool {
 	}
 
 	// The values b's phis have along the threaded edge.
-	along := compat.NewMap[*ssa.Value, *ssa.Value](0)
+	along := map[*ssa.Value]*ssa.Value{}
 	for _, v := range b.Values {
-		along.Set(v, v.Args[i])
+		along[v] = v.Args[i]
 	}
 	valueAlong := func(a *ssa.Value) *ssa.Value {
-		if w, ok := compat.MapGet(along, a); ok {
+		if w, ok := along[a]; ok {
 			return w
 		}
 		return a
 	}
 
 	// Uses dominated by t read new phis in t, when t had b alone before.
-	var fresh *hash.Map[*ssa.Value, *ssa.Value]
+	var fresh map[*ssa.Value]*ssa.Value
 	if sole {
-		fresh = compat.NewMap[*ssa.Value, *ssa.Value](0)
+		fresh = map[*ssa.Value]*ssa.Value{}
 		for _, v := range b.Values {
 			if usedUnder(f, v, t, dom) {
-				fresh.Set(v, nil)
+				fresh[v] = nil
 			}
 		}
 	}
@@ -101,7 +100,7 @@ func threadPhiBranch(f *ssa.Func, b *ssa.Block) bool {
 		}
 	}
 	for _, v := range b.Values {
-		if _, ok := compat.MapGet(fresh, v); !ok {
+		if _, ok := fresh[v]; !ok {
 			continue
 		}
 		var phi *ssa.Value
@@ -111,10 +110,10 @@ func threadPhiBranch(f *ssa.Func, b *ssa.Block) bool {
 			phi = t.NewValue(ssa.OpPhi, v.Type)
 		}
 		phi.AddArg(v)
-		phi.AddArg(compat.MapAt(along, v))
-		fresh.Set(v, phi)
+		phi.AddArg(along[v])
+		fresh[v] = phi
 	}
-	if compat.MapLen(fresh) > 0 {
+	if len(fresh) > 0 {
 		replaceUsesUnder(f, fresh, t, dom)
 	}
 	f.InvalidateCFG()
@@ -189,21 +188,18 @@ func usedUnder(f *ssa.Func, v *ssa.Value, t *ssa.Block, dom *ssa.DomTree) bool {
 
 // replaceUsesUnder replaces the uses of each key of repl in blocks
 // dominated by t with its value, except in the replacements themselves.
-func replaceUsesUnder(f *ssa.Func, repl *hash.Map[*ssa.Value, *ssa.Value], t *ssa.Block, dom *ssa.DomTree) {
-	fresh := compat.NewMap[*ssa.Value, bool](0)
-	{
-		goIt1 := compat.MapIter(repl)
-		for _, w, goOk2 := goIt1.Next(); goOk2; _, w, goOk2 = goIt1.Next() {
-			fresh.Set(w, true)
-		}
+func replaceUsesUnder(f *ssa.Func, repl map[*ssa.Value]*ssa.Value, t *ssa.Block, dom *ssa.DomTree) {
+	fresh := map[*ssa.Value]bool{}
+	for _, w := range repl {
+		fresh[w] = true
 	}
 	for _, blk := range f.Blocks {
 		for _, w := range blk.Values {
-			if compat.MapAt(fresh, w) {
+			if fresh[w] {
 				continue
 			}
 			for j, a := range w.Args {
-				r, ok := compat.MapGet(repl, a)
+				r, ok := repl[a]
 				if !ok {
 					continue
 				}
@@ -220,7 +216,7 @@ func replaceUsesUnder(f *ssa.Func, repl *hash.Map[*ssa.Value, *ssa.Value], t *ss
 			cs := compat.Append([]*ssa.Value(nil), blk.Controls...)
 			changed := false
 			for j, a := range cs {
-				if r, ok := compat.MapGet(repl, a); ok {
+				if r, ok := repl[a]; ok {
 					cs[j] = r
 					changed = true
 				}

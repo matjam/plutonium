@@ -233,15 +233,7 @@ is ever freed individually. `selfhost/compat` holds the few functions that need 
 
 | Go | Translation | Notes |
 |---|---|---|
-| `map[K]V` (type) | `*hash.Map[K, V]` | a pointer, because Go maps are references |
-| `make(map[K]V, n)`, `map[K]V{}` | `compat.NewMap[K, V](n)` | interface keys hashed by dynamic value; struct and array keys get a generated hash function (`compat.NewMapFunc`) |
-| `map[K]V{k: v, ...}` | `compat.MapOf[K, V](compat.Pair[K, V]{k, v}, ...)` | elided element types made explicit |
-| `m[k]` | `compat.MapAt(m, k)` | zero value if absent; nil map allowed |
-| `v, ok := m[k]` | `v, ok := compat.MapGet(m, k)` | |
-| `m[k] = v` | `m.Set(k, v)` | |
-| `m[k] += v`, `m[k]++` | `*compat.MapSlot(m, k) += v` | |
-| `delete(m, k)`, `len(m)`, `clear(m)` | `compat.MapDelete`, `MapLen`, `MapClear` | nil-safe |
-| `for k, v := range m { ... }` | `{ it := compat.MapIter(m); for k, v, ok := it.Next(); ok; k, v, ok = it.Next() { ... } }` | labels move inside the block |
+| `map[K]V` and every map operation | unchanged | Plutonium's `map[K]V` is a counted reference with Go's semantics (language spec section 4.11); until 2026-10-10 maps went to `*hash.Map` through `compat.NewMap`, `MapAt` and friends |
 | `append(s, x...)` | `compat.Append(s, x...)` | grows from `alloc.Default()` beyond capacity; never frees the old array (it may be shared) |
 | `append(b, s...)` (string) | `compat.AppendString(b, s)` | |
 | `s + t`, `s += t` | `compat.Concat(s, t)` | chains flattened into one call |

@@ -48,31 +48,12 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 		}
 	case *ast.SelectorExpr:
 		return t.qualified(n)
-	case *ast.MapType:
-		return fmt.Sprintf("*%s.Map[%s, %s]", t.use(hashPkg, "hash"), t.render(n.Key), t.render(n.Value)), true
-	case *ast.IndexExpr:
-		if t.isMapValue(n.X) {
-			return fmt.Sprintf("%s.MapAt(%s, %s)", t.compat(), t.render(n.X), t.mapKey(n.X, n.Index)), true
-		}
 	case *ast.AssignStmt:
 		return t.assign(n)
-	case *ast.ValueSpec:
-		return t.valueSpec(n)
-	case *ast.IncDecStmt:
-		if idx, ok := ast.Unparen(n.X).(*ast.IndexExpr); ok && t.isMapValue(idx.X) {
-			return t.mapSlot(idx) + n.Tok.String(), true
-		}
 	case *ast.RangeStmt:
 		t.checkHeapRange(n)
-		if t.isMapValue(n.X) {
-			return t.rangeMap(n, ""), true
-		}
 		if _, ok := t.typeOf(n.X).Underlying().(*types.Signature); ok {
 			t.note(n, "range over a function: not supported yet (roadmap item 22)")
-		}
-	case *ast.LabeledStmt:
-		if r, ok := n.Stmt.(*ast.RangeStmt); ok && t.isMapValue(r.X) {
-			return t.rangeMap(r, n.Label.Name), true
 		}
 	case *ast.CallExpr:
 		return t.call(n)
@@ -87,9 +68,6 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 			return fmt.Sprintf("%s.Concat(%s)", t.compat(), strings.Join(parts, ", ")), true
 		}
 	case *ast.CompositeLit:
-		if s, ok := t.mapLiteral(n); ok {
-			return s, true
-		}
 		return t.heapLiteral(n)
 	case *ast.UnaryExpr:
 		if n.Op == token.AND && t.isHeapUse(n.X) {
@@ -178,135 +156,19 @@ func (t *fileTr) qualified(sel *ast.SelectorExpr) (string, bool) {
 	return "", false
 }
 
-// assign handles assignments to and comma-ok reads of map elements, and
-// += on strings.
+// assign handles variables Go moves to the heap, and += on strings. Maps
+// translate to Plutonium's map[K]V as they are.
 func (t *fileTr) assign(n *ast.AssignStmt) (string, bool) {
 	if n.Tok == token.DEFINE {
 		if s, ok := t.heapDefine(n); ok {
 			return s, true
 		}
 	}
-	if len(n.Lhs) == 2 && len(n.Rhs) == 1 {
-		if idx, ok := ast.Unparen(n.Rhs[0]).(*ast.IndexExpr); ok && t.isMapValue(idx.X) {
-			return fmt.Sprintf("%s, %s %s %s.MapGet(%s, %s)", t.render(n.Lhs[0]), t.render(n.Lhs[1]), n.Tok,
-				t.compat(), t.render(idx.X), t.mapKey(idx.X, idx.Index)), true
-		}
-	}
 	if n.Tok == token.ADD_ASSIGN && len(n.Lhs) == 1 && isString(t.typeOf(n.Lhs[0])) {
-		l := t.renderLHS(n.Lhs[0])
-		return fmt.Sprintf("%s = %s.Concat(%s, %s)", l, t.compat(), t.render(n.Lhs[0]), t.render(n.Rhs[0])), true
+		l := t.render(n.Lhs[0])
+		return fmt.Sprintf("%s = %s.Concat(%s, %s)", l, t.compat(), l, t.render(n.Rhs[0])), true
 	}
-	hasMap := false
-	for _, l := range n.Lhs {
-		if idx, ok := ast.Unparen(l).(*ast.IndexExpr); ok && t.isMapValue(idx.X) {
-			hasMap = true
-		}
-	}
-	if !hasMap {
-		return "", false
-	}
-	if len(n.Lhs) == 1 && n.Tok == token.ASSIGN {
-		idx := ast.Unparen(n.Lhs[0]).(*ast.IndexExpr)
-		return fmt.Sprintf("%s.Set(%s, %s)", t.render(idx.X), t.mapKey(idx.X, idx.Index), t.render(n.Rhs[0])), true
-	}
-	lhs := make([]string, len(n.Lhs))
-	for i, l := range n.Lhs {
-		lhs[i] = t.renderLHS(l)
-	}
-	return fmt.Sprintf("%s %s %s", strings.Join(lhs, ", "), n.Tok, t.list(n.Rhs)), true
-}
-
-// renderLHS renders an assignment target; a map element becomes the slot
-// that holds it.
-func (t *fileTr) renderLHS(e ast.Expr) string {
-	if idx, ok := ast.Unparen(e).(*ast.IndexExpr); ok && t.isMapValue(idx.X) {
-		return t.mapSlot(idx)
-	}
-	return t.render(e)
-}
-
-func (t *fileTr) mapSlot(idx *ast.IndexExpr) string {
-	return fmt.Sprintf("*%s.MapSlot(%s, %s)", t.compat(), t.render(idx.X), t.mapKey(idx.X, idx.Index))
-}
-
-// mapKey renders a key of map m, converted to the key type when it has
-// another type: Go converts it implicitly, but as an argument of a generic
-// compat function it would conflict with the key type inferred from m.
-func (t *fileTr) mapKey(m, k ast.Expr) string {
-	s := t.render(k)
-	mt, ok := t.typeOf(m).Underlying().(*types.Map)
-	kt := t.typeOf(k)
-	if !ok || kt == nil || types.Identical(kt, mt.Key()) {
-		return s
-	}
-	if b, ok := kt.(*types.Basic); ok && b.Info()&types.IsUntyped != 0 {
-		return s
-	}
-	return t.typeText(mt.Key()) + "(" + s + ")"
-}
-
-// valueSpec handles var v, ok = m[k].
-func (t *fileTr) valueSpec(n *ast.ValueSpec) (string, bool) {
-	if len(n.Names) != 2 || len(n.Values) != 1 {
-		return "", false
-	}
-	idx, ok := ast.Unparen(n.Values[0]).(*ast.IndexExpr)
-	if !ok || !t.isMapValue(idx.X) {
-		return "", false
-	}
-	typ := ""
-	if n.Type != nil {
-		typ = " " + t.render(n.Type)
-	}
-	return fmt.Sprintf("%s, %s%s = %s.MapGet(%s, %s)", n.Names[0].Name, n.Names[1].Name, typ, t.compat(),
-		t.render(idx.X), t.mapKey(idx.X, idx.Index)), true
-}
-
-// rangeMap translates a range over a map into a loop over its iterator.
-func (t *fileTr) rangeMap(r *ast.RangeStmt, label string) string {
-	it, ok := t.fresh("goIt"), t.fresh("goOk")
-	key, val := "_", "_"
-	if r.Key != nil {
-		key = t.render(r.Key)
-	}
-	if r.Value != nil {
-		val = t.render(r.Value)
-	}
-	t.checkMapModified(r)
-	var b strings.Builder
-	fmt.Fprintf(&b, "{\n%s := %s.MapIter(%s)\n", it, t.compat(), t.render(r.X))
-	def := ":="
-	if r.Tok == token.ASSIGN {
-		fmt.Fprintf(&b, "var %s bool\n", ok)
-		def = "="
-	}
-	if label != "" {
-		fmt.Fprintf(&b, "%s:\n", label)
-	}
-	fmt.Fprintf(&b, "for %s, %s, %s %s %s.Next(); %s; %s, %s, %s = %s.Next() %s\n}",
-		key, val, ok, def, it, ok, key, val, ok, it, t.render(r.Body))
-	return b.String()
-}
-
-// checkMapModified notes a range over a map whose body stores into or
-// deletes from the same map, which Go allows and hash.Map does not.
-func (t *fileTr) checkMapModified(r *ast.RangeStmt) {
-	m := t.text(r.X)
-	ast.Inspect(r.Body, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.AssignStmt:
-			for _, l := range n.Lhs {
-				if idx, ok := ast.Unparen(l).(*ast.IndexExpr); ok && t.isMapValue(idx.X) && t.text(idx.X) == m {
-					t.note(n, "map %s modified while ranging over it: hash.Map forbids this", m)
-				}
-			}
-		case *ast.CallExpr:
-			if id, ok := n.Fun.(*ast.Ident); ok && id.Name == "delete" && len(n.Args) > 0 && t.text(n.Args[0]) == m {
-				t.note(n, "map %s modified while ranging over it: hash.Map forbids this", m)
-			}
-		}
-		return true
-	})
+	return "", false
 }
 
 // concatOperands flattens a chain of string additions.
@@ -316,112 +178,6 @@ func (t *fileTr) concatOperands(e ast.Expr, out []ast.Expr) []ast.Expr {
 		return t.concatOperands(b.Y, out)
 	}
 	return append(out, e)
-}
-
-// newMap returns a call creating an empty map of type mt.
-func (t *fileTr) newMap(mt *types.Map, size string) string { return t.newMapAt(nil, mt, size) }
-
-func (t *fileTr) newMapAt(at ast.Node, mt *types.Map, size string) string {
-	k, v := t.typeText(mt.Key()), t.typeText(mt.Elem())
-	if h := t.keyHashFunc(at, mt.Key()); h != "" {
-		return fmt.Sprintf("%s.NewMapFunc[%s, %s](%s, %s)", t.compat(), k, v, size, h)
-	}
-	return fmt.Sprintf("%s.NewMap[%s, %s](%s)", t.compat(), k, v, size)
-}
-
-// keyHashFunc returns a function literal hashing keys of type K, for the
-// struct and array keys hash.Map cannot hash by itself, or "" for keys it
-// can. The literal captures nothing, so the map may keep it.
-func (t *fileTr) keyHashFunc(at ast.Node, K types.Type) string {
-	switch K.Underlying().(type) {
-	case *types.Struct, *types.Array:
-	default:
-		return ""
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "func(k %s) uint64 {\nh := uint64(0)\n", t.typeText(K))
-	if !t.hashComponents(&b, at, "k", K, 0) {
-		return ""
-	}
-	b.WriteString("return h\n}")
-	return b.String()
-}
-
-// hashComponents writes statements mixing the components of e (of type T)
-// into h. It reports false, after noting why, if a component cannot be
-// hashed.
-func (t *fileTr) hashComponents(b *strings.Builder, at ast.Node, e string, T types.Type, depth int) bool {
-	c := t.compat()
-	switch u := T.Underlying().(type) {
-	case *types.Basic, *types.Pointer, *types.Chan:
-		fmt.Fprintf(b, "h = %s.Mix(h, %s.HashAny(%s))\n", c, c, e)
-	case *types.Struct:
-		for i := 0; i < u.NumFields(); i++ {
-			f := u.Field(i)
-			if f.Name() == "_" {
-				continue
-			}
-			if !f.Exported() && f.Pkg() != t.pkg {
-				if at != nil {
-					t.note(at, "map key %s has an unexported field of another package: hand-fix its hash", T)
-				}
-				return false
-			}
-			if !t.hashComponents(b, at, e+"."+f.Name(), f.Type(), depth) {
-				return false
-			}
-		}
-	case *types.Array:
-		if eb, ok := u.Elem().Underlying().(*types.Basic); ok && eb.Kind() == types.Byte {
-			fmt.Fprintf(b, "h = %s.Mix(h, %s.HashBytes(%s[:]))\n", c, c, e)
-			return true
-		}
-		x := fmt.Sprintf("goX%d", depth)
-		fmt.Fprintf(b, "for _, %s := range %s {\n", x, e)
-		if !t.hashComponents(b, at, x, u.Elem(), depth+1) {
-			return false
-		}
-		b.WriteString("}\n")
-	default:
-		if at != nil {
-			t.note(at, "map key %s has a component of type %s with no hash: hand-fix", T, u)
-		}
-		return false
-	}
-	return true
-}
-
-// mapLiteral translates a map composite literal.
-func (t *fileTr) mapLiteral(n *ast.CompositeLit) (string, bool) {
-	T := t.typeOf(n)
-	if T == nil {
-		return "", false
-	}
-	mt, ok := T.Underlying().(*types.Map)
-	if !ok {
-		return "", false
-	}
-	k, v := t.typeText(mt.Key()), t.typeText(mt.Elem())
-	c := t.compat()
-	if len(n.Elts) == 0 {
-		return t.newMap(mt, "0"), true
-	}
-	var b strings.Builder
-	if h := t.keyHashFunc(n, mt.Key()); h != "" {
-		fmt.Fprintf(&b, "%s.MapOfFunc[%s, %s](%s,\n", c, k, v, h)
-	} else {
-		fmt.Fprintf(&b, "%s.MapOf[%s, %s](\n", c, k, v)
-	}
-	for _, e := range n.Elts {
-		kv, ok := e.(*ast.KeyValueExpr)
-		if !ok {
-			t.note(e, "map literal element without a key")
-			continue
-		}
-		fmt.Fprintf(&b, "%s.Pair[%s, %s]{%s, %s},\n", c, k, v, t.elided(kv.Key, mt.Key()), t.elided(kv.Value, mt.Elem()))
-	}
-	b.WriteString(")")
-	return b.String(), true
 }
 
 // heapLiteral allocates the composite literals Go's escape analysis moves
@@ -447,23 +203,6 @@ func (t *fileTr) heapLiteral(n *ast.CompositeLit) (string, bool) {
 		return fmt.Sprintf("%s.Clone(%s%s)", t.compat(), typ, t.splice(n)), true
 	}
 	return "", false
-}
-
-// elided renders a map literal key or value, giving an elided composite
-// literal its type, since it moves into a Pair literal where Go and
-// Plutonium do not allow elision.
-func (t *fileTr) elided(e ast.Expr, T types.Type) string {
-	lit, ok := e.(*ast.CompositeLit)
-	if !ok || lit.Type != nil {
-		return t.render(e)
-	}
-	if s, ok := t.rewrite(lit); ok {
-		return s // a map literal, or one that allocates
-	}
-	if p, ok := T.(*types.Pointer); ok {
-		return "&" + t.typeText(p.Elem()) + t.splice(lit)
-	}
-	return t.typeText(T) + t.splice(lit)
 }
 
 // call translates builtins and library calls that need it.
@@ -648,13 +387,6 @@ func (t *fileTr) builtin(n *ast.CallExpr, name string) (string, bool) {
 		return fmt.Sprintf("%s.Append(%s%s)", t.compat(), t.list(n.Args), dots), true
 	case "make":
 		T := t.typeOf(n)
-		if mt, ok := T.Underlying().(*types.Map); ok {
-			size := "0"
-			if len(n.Args) > 1 {
-				size = t.render(n.Args[1])
-			}
-			return t.newMapAt(n, mt, size), true
-		}
 		if st, ok := T.Underlying().(*types.Slice); ok {
 			// Plutonium has no make([]T, ...): compat.Make allocates as
 			// Go's does, from the default allocator.
@@ -666,15 +398,6 @@ func (t *fileTr) builtin(n *ast.CallExpr, name string) (string, bool) {
 				call = fmt.Sprintf("%s(%s)", t.typeText(T), call)
 			}
 			return call, true
-		}
-	case "len", "delete", "clear":
-		if len(n.Args) > 0 && t.isMapValue(n.Args[0]) {
-			fn := map[string]string{"len": "MapLen", "delete": "MapDelete", "clear": "MapClear"}[name]
-			args := t.render(n.Args[0])
-			if len(n.Args) == 2 {
-				args += ", " + t.mapKey(n.Args[0], n.Args[1])
-			}
-			return fmt.Sprintf("%s.%s(%s)", t.compat(), fn, args), true
 		}
 	case "recover":
 		t.note(n, "recover: Plutonium's panic does not unwind; restructure the error path")
@@ -1030,7 +753,7 @@ func (t *fileTr) typeText(T types.Type) string {
 	case *types.Array:
 		return fmt.Sprintf("[%d]%s", T.Len(), t.typeText(T.Elem()))
 	case *types.Map:
-		return fmt.Sprintf("*%s.Map[%s, %s]", t.use(hashPkg, "hash"), t.typeText(T.Key()), t.typeText(T.Elem()))
+		return fmt.Sprintf("map[%s]%s", t.typeText(T.Key()), t.typeText(T.Elem()))
 	case *types.Named:
 		return t.namedText(T.Obj(), T.TypeArgs())
 	case *types.TypeParam:

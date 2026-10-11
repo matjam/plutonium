@@ -17,14 +17,14 @@ import (
 func Mem2Reg(f *ssa.Func) {
 	infos := analyzeSlots(f)
 	var promote []*slotInfo
-	types := compat.NewMap[*ssa.Slot, *ssa.Type](0)
+	types := map[*ssa.Slot]*ssa.Type{}
 	for _, s := range f.Slots {
-		in := compat.MapAt(infos, s)
+		in := infos[s]
 		if in == nil || in.escapes {
 			continue
 		}
 		if t := scalarSlotType(in); t != nil {
-			types.Set(s, t)
+			types[s] = t
 			promote = compat.Append(promote, in)
 		}
 	}
@@ -36,42 +36,42 @@ func Mem2Reg(f *ssa.Func) {
 	df := dom.Frontiers(f)
 
 	// Which slot does each access touch?
-	accessSlot := compat.NewMap[*ssa.Value, *ssa.Slot](0)
+	accessSlot := map[*ssa.Value]*ssa.Slot{}
 	for _, in := range promote {
 		for _, a := range in.accesses {
-			accessSlot.Set(a.v, in.slot)
+			accessSlot[a.v] = in.slot
 		}
 	}
 
 	// Phi placement.
-	phiSlot := compat.NewMap[*ssa.Value, *ssa.Slot](0)
-	phiArgs := compat.NewMap[*ssa.Value, []*ssa.Value](0)
+	phiSlot := map[*ssa.Value]*ssa.Slot{}
+	phiArgs := map[*ssa.Value][]*ssa.Value{}
 	var phis []*ssa.Value // creation order, for a deterministic fill below
 	for _, in := range promote {
 		s := in.slot
 		var work []*ssa.Block
-		hasDef := compat.NewMap[*ssa.Block, bool](0)
+		hasDef := map[*ssa.Block]bool{}
 		for _, a := range in.accesses {
-			if a.v.Op != ssa.OpLoad && !compat.MapAt(hasDef, a.v.Block) {
-				hasDef.Set(a.v.Block, true)
+			if a.v.Op != ssa.OpLoad && !hasDef[a.v.Block] {
+				hasDef[a.v.Block] = true
 				work = compat.Append(work, a.v.Block)
 			}
 		}
-		hasPhi := compat.NewMap[*ssa.Block, bool](0)
+		hasPhi := map[*ssa.Block]bool{}
 		for len(work) > 0 {
 			b := work[len(work)-1]
 			work = work[:len(work)-1]
 			for _, y := range df[b.ID] {
-				if compat.MapAt(hasPhi, y) {
+				if hasPhi[y] {
 					continue
 				}
-				hasPhi.Set(y, true)
-				phi := newPhiAtStart(y, compat.MapAt(types, s))
-				phiSlot.Set(phi, s)
-				phiArgs.Set(phi, compat.Make[*ssa.Value](len(y.Preds)))
+				hasPhi[y] = true
+				phi := newPhiAtStart(y, types[s])
+				phiSlot[phi] = s
+				phiArgs[phi] = compat.Make[*ssa.Value](len(y.Preds))
 				phis = compat.Append(phis, phi)
-				if !compat.MapAt(hasDef, y) {
-					hasDef.Set(y, true)
+				if !hasDef[y] {
+					hasDef[y] = true
 					work = compat.Append(work, y)
 				}
 			}
@@ -79,31 +79,28 @@ func Mem2Reg(f *ssa.Func) {
 	}
 
 	// Renaming along the dominator tree.
-	cur := compat.NewMap[*ssa.Slot, *ssa.Value](0)
+	cur := map[*ssa.Slot]*ssa.Value{}
 	current := func(s *ssa.Slot) *ssa.Value {
-		if v := compat.MapAt(cur, s); v != nil {
+		if v := cur[s]; v != nil {
 			return v
 		}
 		// Read before any store on this path: the zero value.
-		z := zeroConst(f, compat.MapAt(types, s))
-		cur.Set(s, z)
+		z := zeroConst(f, types[s])
+		cur[s] = z
 		return z
 	}
 	var rename func(b *ssa.Block)
 	rename = func(b *ssa.Block) {
-		saved := compat.NewMap[*ssa.Slot, *ssa.Value](compat.MapLen(cur))
-		{
-			goIt1 := compat.MapIter(cur)
-			for k, v, goOk2 := goIt1.Next(); goOk2; k, v, goOk2 = goIt1.Next() {
-				saved.Set(k, v)
-			}
+		saved := make(map[*ssa.Slot]*ssa.Value, len(cur))
+		for k, v := range cur {
+			saved[k] = v
 		}
 		for _, v := range compat.Append([]*ssa.Value(nil), b.Values...) {
-			if s, ok := compat.MapGet(phiSlot, v); ok {
-				cur.Set(s, v)
+			if s, ok := phiSlot[v]; ok {
+				cur[s] = v
 				continue
 			}
-			s, ok := compat.MapGet(accessSlot, v)
+			s, ok := accessSlot[v]
 			if !ok {
 				continue
 			}
@@ -111,10 +108,10 @@ func Mem2Reg(f *ssa.Func) {
 			case ssa.OpLoad:
 				v.CopyOf(current(s))
 			case ssa.OpStore:
-				cur.Set(s, v.Args[1])
+				cur[s] = v.Args[1]
 				v.CopyOf(v.Args[2])
 			case ssa.OpZero:
-				cur.Set(s, zeroConst(f, compat.MapAt(types, s)))
+				cur[s] = zeroConst(f, types[s])
 				v.CopyOf(v.Args[1])
 			}
 		}
@@ -123,8 +120,8 @@ func Mem2Reg(f *ssa.Func) {
 				if v.Op != ssa.OpPhi {
 					break
 				}
-				if s, ok := compat.MapGet(phiSlot, v); ok {
-					compat.MapAt(phiArgs, v)[e.I] = current(s)
+				if s, ok := phiSlot[v]; ok {
+					phiArgs[v][e.I] = current(s)
 				}
 			}
 		}
@@ -136,7 +133,7 @@ func Mem2Reg(f *ssa.Func) {
 	rename(f.Entry)
 
 	for _, phi := range phis {
-		for _, a := range compat.MapAt(phiArgs, phi) {
+		for _, a := range phiArgs[phi] {
 			if a == nil {
 				// Predecessor not reached by renaming (unreachable).
 				a = zeroConst(f, phi.Type)

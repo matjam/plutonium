@@ -3,7 +3,6 @@
 package ssa
 
 import (
-	"pluto/hash"
 	"pluto/sort"
 	"selfhost/compat"
 	"selfhost/pu"
@@ -13,17 +12,17 @@ import (
 type Program struct {
 	Funcs []*Func
 	Data  []*Data
-	syms  *hash.Map[string, *Sym]
+	syms  map[string]*Sym
 }
 
 // NewProgram returns an empty program.
 func NewProgram() *Program {
-	return pu.New(Program{syms: compat.NewMap[string, *Sym](0)})
+	return pu.New(Program{syms: map[string]*Sym{}})
 }
 
 // Sym returns the symbol with the given name, creating it if needed.
 func (p *Program) Sym(name string, kind SymKind) *Sym {
-	if s := compat.MapAt(p.syms, name); s != nil {
+	if s := p.syms[name]; s != nil {
 		// A symbol first seen as external becomes defined when its
 		// definition appears.
 		if s.Kind == SymExtern && kind != SymExtern {
@@ -32,21 +31,18 @@ func (p *Program) Sym(name string, kind SymKind) *Sym {
 		return s
 	}
 	s := pu.New(Sym{Name: name, Kind: kind})
-	p.syms.Set(name, s)
+	p.syms[name] = s
 	return s
 }
 
 // LookupSym returns the named symbol or nil.
-func (p *Program) LookupSym(name string) *Sym { return compat.MapAt(p.syms, name) }
+func (p *Program) LookupSym(name string) *Sym { return p.syms[name] }
 
 // Syms returns all symbols sorted by name.
 func (p *Program) Syms() []*Sym {
-	out := compat.MakeCap[*Sym](0, compat.MapLen(p.syms))
-	{
-		goIt1 := compat.MapIter(p.syms)
-		for _, s, goOk2 := goIt1.Next(); goOk2; _, s, goOk2 = goIt1.Next() {
-			out = compat.Append(out, s)
-		}
+	out := compat.MakeCap[*Sym](0, len(p.syms))
+	for _, s := range p.syms {
+		out = compat.Append(out, s)
 	}
 	sort.SortFunc(out, func(a, b *Sym) bool { return a.Name < b.Name })
 	return out

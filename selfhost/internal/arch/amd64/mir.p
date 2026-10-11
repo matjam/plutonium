@@ -4,7 +4,6 @@ package amd64
 
 import (
 	"pluto/fmt"
-	"pluto/hash"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 	"selfhost/internal/syntax/token"
@@ -144,115 +143,37 @@ const (
 	MFXRSTOR // fxrstor64 from memory operand Src
 )
 
-var mopNames = compat.MapOf[MOp, string](
-	compat.Pair[MOp, string]{MMOV, "mov"},
-	compat.Pair[MOp, string]{MMOVZX, "movzx"},
-	compat.Pair[MOp, string]{MMOVSX, "movsx"},
-	compat.Pair[MOp, string]{MLEA, "lea"},
-	compat.Pair[MOp, string]{MADD, "add"},
-	compat.Pair[MOp, string]{MSUB, "sub"},
-	compat.Pair[MOp, string]{MAND, "and"},
-	compat.Pair[MOp, string]{MOR, "or"},
-	compat.Pair[MOp, string]{MXOR, "xor"},
-	compat.Pair[MOp, string]{MIMUL, "imul"},
-	compat.Pair[MOp, string]{MCMP, "cmp"},
-	compat.Pair[MOp, string]{MTEST, "test"},
-	compat.Pair[MOp, string]{MBT, "bt"},
-	compat.Pair[MOp, string]{MNEG, "neg"},
-	compat.Pair[MOp, string]{MNOT, "not"},
-	compat.Pair[MOp, string]{MBSWAP, "bswap"},
-	compat.Pair[MOp, string]{MSHL, "shl"},
-	compat.Pair[MOp, string]{MSHR, "shr"},
-	compat.Pair[MOp, string]{MSAR, "sar"},
-	compat.Pair[MOp, string]{MROL, "rol"},
-	compat.Pair[MOp, string]{MROR, "ror"},
-	compat.Pair[MOp, string]{MDIV, "div"},
-	compat.Pair[MOp, string]{MIDIV, "idiv"},
-	compat.Pair[MOp, string]{MCQO, "cqo"},
-	compat.Pair[MOp, string]{MMUL1, "mul"},
-	compat.Pair[MOp, string]{MIMUL1, "imul1"},
-	compat.Pair[MOp, string]{MIMUL3, "imul3"},
-	compat.Pair[MOp, string]{MSETCC, "set"},
-	compat.Pair[MOp, string]{MCMOVCC, "cmov"},
-	compat.Pair[MOp, string]{MBSF, "bsf"},
-	compat.Pair[MOp, string]{MBSR, "bsr"},
-	compat.Pair[MOp, string]{MPOPCNT, "popcnt"},
-	compat.Pair[MOp, string]{MMOVSF, "movs"},
-	compat.Pair[MOp, string]{MADDSF, "adds"},
-	compat.Pair[MOp, string]{MSUBSF, "subs"},
-	compat.Pair[MOp, string]{MMULSF, "muls"},
-	compat.Pair[MOp, string]{MDIVSF, "divs"},
-	compat.Pair[MOp, string]{MSQRTSF, "sqrts"},
-	compat.Pair[MOp, string]{MUCOMI, "ucomis"},
-	compat.Pair[MOp, string]{MXORPS, "xorps"},
-	compat.Pair[MOp, string]{MANDPS, "andps"},
-	compat.Pair[MOp, string]{MCVTSI2F, "cvtsi2s"},
-	compat.Pair[MOp, string]{MCVTTF2SI, "cvtts2si"},
-	compat.Pair[MOp, string]{MCVTF2F, "cvts2s"},
-	compat.Pair[MOp, string]{MMOVQ, "movq"},
-	compat.Pair[MOp, string]{MUNPCKLPD, "unpcklpd"},
-	compat.Pair[MOp, string]{MMOVHPD, "movhpd"},
-	compat.Pair[MOp, string]{MPSHUFD, "pshufd"},
-	compat.Pair[MOp, string]{MJMP, "jmp"},
-	compat.Pair[MOp, string]{MJCC, "j"},
-	compat.Pair[MOp, string]{MCALL, "call"},
-	compat.Pair[MOp, string]{MRET, "ret"},
-	compat.Pair[MOp, string]{MUD2, "ud2"},
-	compat.Pair[MOp, string]{MIRETQ, "iretq"},
-	compat.Pair[MOp, string]{MCLD, "cld"},
-	compat.Pair[MOp, string]{MMOVUPS, "movups"},
-	compat.Pair[MOp, string]{MPUSH, "push"},
-	compat.Pair[MOp, string]{MPOP, "pop"},
-	compat.Pair[MOp, string]{MREPMOVSB, "rep movsb"},
-	compat.Pair[MOp, string]{MREPSTOSB, "rep stosb"},
-	compat.Pair[MOp, string]{MCOPY, "copy"},
-	compat.Pair[MOp, string]{MPCOPY, "pcopy"},
-	compat.Pair[MOp, string]{MDEF, "def"},
-	compat.Pair[MOp, string]{MUSE, "use"},
-	compat.Pair[MOp, string]{MLABEL, "label"},
-	compat.Pair[MOp, string]{MSPILL, "spill"},
-	compat.Pair[MOp, string]{MRELOAD, "reload"},
-	compat.Pair[MOp, string]{MLOADCONSTF, "loadconstf"},
-	compat.Pair[MOp, string]{MEPILOGUE, "epilogue"},
-	compat.Pair[MOp, string]{MCLI, "cli"},
-	compat.Pair[MOp, string]{MSTI, "sti"},
-	compat.Pair[MOp, string]{MSTIHLT, "sti; hlt"},
-	compat.Pair[MOp, string]{MHLT, "hlt"},
-	compat.Pair[MOp, string]{MPAUSE, "pause"},
-	compat.Pair[MOp, string]{MSAVEFLAGS, "pushfq; pop"},
-	compat.Pair[MOp, string]{MRESTOREFLAGS, "push; popfq"},
-	compat.Pair[MOp, string]{MIN, "in"},
-	compat.Pair[MOp, string]{MOUT, "out"},
-	compat.Pair[MOp, string]{MRDMSR, "rdmsr"},
-	compat.Pair[MOp, string]{MWRMSR, "wrmsr"},
-	compat.Pair[MOp, string]{MRDCR, "movfromcr"},
-	compat.Pair[MOp, string]{MWRCR, "movtocr"},
-	compat.Pair[MOp, string]{MINVLPG, "invlpg"},
-	compat.Pair[MOp, string]{MLGDT, "lgdt"},
-	compat.Pair[MOp, string]{MLIDT, "lidt"},
-	compat.Pair[MOp, string]{MLTR, "ltr"},
-	compat.Pair[MOp, string]{MCPUID, "cpuid"},
-	compat.Pair[MOp, string]{MRDTSC, "rdtsc"},
-	compat.Pair[MOp, string]{MRDTSCP, "rdtscp"},
-	compat.Pair[MOp, string]{MSWAPGS, "swapgs"},
-	compat.Pair[MOp, string]{MCLTS, "clts"},
-	compat.Pair[MOp, string]{MFXSAVE, "fxsave64"},
-	compat.Pair[MOp, string]{MFXRSTOR, "fxrstor64"},
-)
+var mopNames = map[MOp]string{
+	MMOV: "mov", MMOVZX: "movzx", MMOVSX: "movsx", MLEA: "lea",
+	MADD: "add", MSUB: "sub", MAND: "and", MOR: "or", MXOR: "xor", MIMUL: "imul", MCMP: "cmp", MTEST: "test", MBT: "bt",
+	MNEG: "neg", MNOT: "not", MBSWAP: "bswap",
+	MSHL: "shl", MSHR: "shr", MSAR: "sar", MROL: "rol", MROR: "ror",
+	MDIV: "div", MIDIV: "idiv", MCQO: "cqo", MMUL1: "mul", MIMUL1: "imul1", MIMUL3: "imul3",
+	MSETCC: "set", MCMOVCC: "cmov", MBSF: "bsf", MBSR: "bsr", MPOPCNT: "popcnt",
+	MMOVSF: "movs", MADDSF: "adds", MSUBSF: "subs", MMULSF: "muls", MDIVSF: "divs", MSQRTSF: "sqrts",
+	MUCOMI: "ucomis", MXORPS: "xorps", MANDPS: "andps", MCVTSI2F: "cvtsi2s", MCVTTF2SI: "cvtts2si",
+	MCVTF2F: "cvts2s", MMOVQ: "movq",
+	MUNPCKLPD: "unpcklpd", MMOVHPD: "movhpd", MPSHUFD: "pshufd",
+	MJMP: "jmp", MJCC: "j", MCALL: "call", MRET: "ret", MUD2: "ud2",
+	MIRETQ: "iretq", MCLD: "cld", MMOVUPS: "movups",
+	MPUSH: "push", MPOP: "pop", MREPMOVSB: "rep movsb", MREPSTOSB: "rep stosb",
+	MCOPY: "copy", MPCOPY: "pcopy", MDEF: "def", MUSE: "use", MLABEL: "label",
+	MSPILL: "spill", MRELOAD: "reload", MLOADCONSTF: "loadconstf", MEPILOGUE: "epilogue",
+	MCLI: "cli", MSTI: "sti", MSTIHLT: "sti; hlt", MHLT: "hlt", MPAUSE: "pause",
+	MSAVEFLAGS: "pushfq; pop", MRESTOREFLAGS: "push; popfq", MIN: "in", MOUT: "out",
+	MRDMSR: "rdmsr", MWRMSR: "wrmsr", MRDCR: "movfromcr", MWRCR: "movtocr", MINVLPG: "invlpg",
+	MLGDT: "lgdt", MLIDT: "lidt", MLTR: "ltr", MCPUID: "cpuid", MRDTSC: "rdtsc", MRDTSCP: "rdtscp",
+	MSWAPGS: "swapgs", MCLTS: "clts", MFXSAVE: "fxsave64", MFXRSTOR: "fxrstor64",
+}
 
 // packedNames names the Size 16 (packed double) forms of the scalar float
 // operations in listings.
-var packedNames = compat.MapOf[MOp, string](
-	compat.Pair[MOp, string]{MMOVSF, "movupd"},
-	compat.Pair[MOp, string]{MADDSF, "addpd"},
-	compat.Pair[MOp, string]{MSUBSF, "subpd"},
-	compat.Pair[MOp, string]{MMULSF, "mulpd"},
-	compat.Pair[MOp, string]{MDIVSF, "divpd"},
-	compat.Pair[MOp, string]{MSQRTSF, "sqrtpd"},
-)
+var packedNames = map[MOp]string{
+	MMOVSF: "movupd", MADDSF: "addpd", MSUBSF: "subpd", MMULSF: "mulpd", MDIVSF: "divpd", MSQRTSF: "sqrtpd",
+}
 
 func (op MOp) String() string {
-	if s, ok := compat.MapGet(mopNames, op); ok {
+	if s, ok := mopNames[op]; ok {
 		return s
 	}
 	return compat.Sprintf("mop%d", op)
@@ -406,13 +327,13 @@ type MFunc struct {
 	Pos    token.Pos // the function's declaration, for the prologue
 
 	nextVReg  Reg
-	regClass  *hash.Map[Reg, RegClass]
-	wide      *hash.Map[Reg, bool] // XMM registers holding 16 bytes (vectors), spilled as such
-	frameFP   bool                 // use RBP as a frame pointer (over-aligned slots)
-	maxAlign  int64                // largest slot alignment
-	outArgs   int64                // bytes of outgoing stack arguments
-	usedSaved []Reg                // callee-saved registers the function changes (every changed GPR for interrupt handlers)
-	frameSize int64                // bytes below the saved registers, excluding them
+	regClass  map[Reg]RegClass
+	wide      map[Reg]bool // XMM registers holding 16 bytes (vectors), spilled as such
+	frameFP   bool         // use RBP as a frame pointer (over-aligned slots)
+	maxAlign  int64        // largest slot alignment
+	outArgs   int64        // bytes of outgoing stack arguments
+	usedSaved []Reg        // callee-saved registers the function changes (every changed GPR for interrupt handlers)
+	frameSize int64        // bytes below the saved registers, excluding them
 
 	// Interrupt handlers (//pu:interrupt): errCode is set when the CPU
 	// pushes an error code; savedXMM lists the XMM registers the handler or
@@ -427,18 +348,18 @@ type MFunc struct {
 	noSSE     bool
 	nextSlot  int
 	consts    []Const
-	constSyms *hash.Map[[16]byte, *ssa.Sym]
+	constSyms map[[16]byte]*ssa.Sym
 }
 
 func newMFunc(name string) *MFunc {
-	return pu.New(MFunc{Name: name, nextVReg: FirstVirtual, regClass: compat.NewMap[Reg, RegClass](0)})
+	return pu.New(MFunc{Name: name, nextVReg: FirstVirtual, regClass: map[Reg]RegClass{}})
 }
 
 // newVReg allocates a virtual register.
 func (f *MFunc) newVReg(c RegClass) Reg {
 	r := f.nextVReg
 	f.nextVReg++
-	f.regClass.Set(r, c)
+	f.regClass[r] = c
 	return r
 }
 
@@ -446,15 +367,15 @@ func (f *MFunc) newVReg(c RegClass) Reg {
 func (f *MFunc) newWideVReg() Reg {
 	r := f.newVReg(ClassXMM)
 	if f.wide == nil {
-		f.wide = compat.NewMap[Reg, bool](0)
+		f.wide = map[Reg]bool{}
 	}
-	f.wide.Set(r, true)
+	f.wide[r] = true
 	return r
 }
 
 // newVRegLike allocates a virtual register of r's class and width.
 func (f *MFunc) newVRegLike(r Reg) Reg {
-	if compat.MapAt(f.wide, r) {
+	if f.wide[r] {
 		return f.newWideVReg()
 	}
 	return f.newVReg(f.classOf(r))
@@ -462,7 +383,7 @@ func (f *MFunc) newVRegLike(r Reg) Reg {
 
 // spillSize returns the bytes a spill of r stores.
 func (f *MFunc) spillSize(r Reg) uint8 {
-	if compat.MapAt(f.wide, r) {
+	if f.wide[r] {
 		return 16
 	}
 	return 8
@@ -473,7 +394,7 @@ func (f *MFunc) classOf(r Reg) RegClass {
 	if r.IsPhys() {
 		return r.PhysClass()
 	}
-	return compat.MapAt(f.regClass, r)
+	return f.regClass[r]
 }
 
 // newSlot adds a stack slot.
@@ -642,11 +563,7 @@ func (in *MInst) String() string {
 		if in.Src.Kind == OpdImm {
 			port = in.Src.format(1)
 		}
-		suffix := compat.MapAt(compat.MapOf[uint8, string](
-			compat.Pair[uint8, string]{1, "b"},
-			compat.Pair[uint8, string]{2, "w"},
-			compat.Pair[uint8, string]{4, "l"},
-		), in.Size)
+		suffix := map[uint8]string{1: "b", 2: "w", 4: "l"}[in.Size]
 		if in.Op == MIN {
 			return compat.Sprintf("in%s %s, %%%s", suffix, port, RAX.Name(size))
 		}
@@ -665,7 +582,7 @@ func (in *MInst) String() string {
 	if in.Dst.Kind != OpdNone {
 		args = compat.Append(args, in.Dst.format(size))
 	}
-	if name, ok := compat.MapGet(packedNames, in.Op); ok && in.Size == 16 {
+	if name, ok := packedNames[in.Op]; ok && in.Size == 16 {
 		return compat.Sprintf("%s %s", name, compat.Join(args, ", "))
 	}
 	switch in.Op {

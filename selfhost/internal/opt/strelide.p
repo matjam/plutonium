@@ -3,7 +3,6 @@
 package opt
 
 import (
-	"pluto/hash"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 )
@@ -23,9 +22,9 @@ import (
 // It must run before inlining, which merges the runtime's calls into the
 // functions that make them.
 func ElideStringHolds(p *ssa.Program) {
-	funcs := compat.NewMap[*ssa.Sym, *ssa.Func](0)
+	funcs := map[*ssa.Sym]*ssa.Func{}
 	for _, f := range p.Funcs {
-		funcs.Set(f.Sym, f)
+		funcs[f.Sym] = f
 	}
 	may := releasers(p, funcs)
 	for _, f := range p.Funcs {
@@ -48,21 +47,21 @@ func ElideStringHolds(p *ssa.Program) {
 // releaseFuncs are the runtime functions that drop counted references:
 // strings, and the shared, synced and weak references and channels whose
 // release may free an object holding strings.
-var releaseFuncs = compat.MapOf[string, bool](
-	compat.Pair[string, bool]{"pluto/rt.strRelease", true},
-	compat.Pair[string, bool]{"pluto/rt.strFree", true},
-	compat.Pair[string, bool]{"pluto/rt.ReleaseString", true},
-	compat.Pair[string, bool]{"pluto/rt.boxReleaseStrong", true},
-	compat.Pair[string, bool]{"pluto/rt.weakRelease", true},
-	compat.Pair[string, bool]{"pluto/rt.boxFree", true},
-	compat.Pair[string, bool]{"pluto/rt.chanRelease", true},
-	compat.Pair[string, bool]{"pluto/rt.chanDrop", true},
-	compat.Pair[string, bool]{"pluto/rt.chanFree", true},
-)
+var releaseFuncs = map[string]bool{
+	"pluto/rt.strRelease":       true,
+	"pluto/rt.strFree":          true,
+	"pluto/rt.ReleaseString":    true,
+	"pluto/rt.boxReleaseStrong": true,
+	"pluto/rt.weakRelease":      true,
+	"pluto/rt.boxFree":          true,
+	"pluto/rt.chanRelease":      true,
+	"pluto/rt.chanDrop":         true,
+	"pluto/rt.chanFree":         true,
+}
 
 // mayReleaseCall reports whether call v may release a string, given what
 // is known of the functions so far.
-func mayReleaseCall(v *ssa.Value, funcs *hash.Map[*ssa.Sym, *ssa.Func], may *hash.Map[*ssa.Func, bool]) bool {
+func mayReleaseCall(v *ssa.Value, funcs map[*ssa.Sym]*ssa.Func, may map[*ssa.Func]bool) bool {
 	if v.Call != nil && v.Call.NoReturn {
 		return false
 	}
@@ -71,11 +70,11 @@ func mayReleaseCall(v *ssa.Value, funcs *hash.Map[*ssa.Sym, *ssa.Func], may *has
 		return true
 	case ssa.OpCall:
 		sym := v.Aux.(*ssa.Sym)
-		if compat.MapAt(releaseFuncs, sym.Name) {
+		if releaseFuncs[sym.Name] {
 			return true
 		}
-		if g := compat.MapAt(funcs, sym); g != nil {
-			return compat.MapAt(may, g)
+		if g := funcs[sym]; g != nil {
+			return may[g]
 		}
 	}
 	return false
@@ -83,9 +82,9 @@ func mayReleaseCall(v *ssa.Value, funcs *hash.Map[*ssa.Sym, *ssa.Func], may *has
 
 // releasers returns the functions that may release a string, directly or
 // through their calls.
-func releasers(p *ssa.Program, funcs *hash.Map[*ssa.Sym, *ssa.Func]) *hash.Map[*ssa.Func, bool] {
-	may := compat.NewMap[*ssa.Func, bool](0)
-	callers := compat.NewMap[*ssa.Func, []*ssa.Func](0)
+func releasers(p *ssa.Program, funcs map[*ssa.Sym]*ssa.Func) map[*ssa.Func]bool {
+	may := map[*ssa.Func]bool{}
+	callers := map[*ssa.Func][]*ssa.Func{}
 	var work []*ssa.Func
 	for _, f := range p.Funcs {
 		direct := false
@@ -97,26 +96,26 @@ func releasers(p *ssa.Program, funcs *hash.Map[*ssa.Sym, *ssa.Func]) *hash.Map[*
 				if v.Call != nil && v.Call.NoReturn {
 					continue
 				}
-				if v.Op == ssa.OpCallInd || compat.MapAt(releaseFuncs, v.Aux.(*ssa.Sym).Name) {
+				if v.Op == ssa.OpCallInd || releaseFuncs[v.Aux.(*ssa.Sym).Name] {
 					direct = true
 					continue
 				}
-				if g := compat.MapAt(funcs, v.Aux.(*ssa.Sym)); g != nil {
-					callers.Set(g, compat.Append(compat.MapAt(callers, g), f))
+				if g := funcs[v.Aux.(*ssa.Sym)]; g != nil {
+					callers[g] = compat.Append(callers[g], f)
 				}
 			}
 		}
 		if direct {
-			may.Set(f, true)
+			may[f] = true
 			work = compat.Append(work, f)
 		}
 	}
 	for len(work) > 0 {
 		g := work[len(work)-1]
 		work = work[:len(work)-1]
-		for _, f := range compat.MapAt(callers, g) {
-			if !compat.MapAt(may, f) {
-				may.Set(f, true)
+		for _, f := range callers[g] {
+			if !may[f] {
+				may[f] = true
 				work = compat.Append(work, f)
 			}
 		}
@@ -125,7 +124,7 @@ func releasers(p *ssa.Program, funcs *hash.Map[*ssa.Sym, *ssa.Func]) *hash.Map[*
 }
 
 // holdNeeded reports whether a call covered by h may release a string.
-func holdNeeded(h ssa.StrHold, funcs *hash.Map[*ssa.Sym, *ssa.Func], may *hash.Map[*ssa.Func, bool]) bool {
+func holdNeeded(h ssa.StrHold, funcs map[*ssa.Sym]*ssa.Func, may map[*ssa.Func]bool) bool {
 	for _, c := range h.Covered {
 		if mayReleaseCall(c, funcs, may) {
 			return true
@@ -140,13 +139,13 @@ func removeCalls(f *ssa.Func, dead []*ssa.Value) {
 	if len(dead) == 0 {
 		return
 	}
-	gone := compat.NewMap[*ssa.Value, bool](0)
+	gone := map[*ssa.Value]bool{}
 	for _, v := range dead {
-		gone.Set(v, true)
+		gone[v] = true
 	}
 	for _, b := range f.Blocks {
 		for _, v := range b.Values {
-			if v.Op == ssa.OpSelectN && compat.MapAt(gone, v.Args[0]) {
+			if v.Op == ssa.OpSelectN && gone[v.Args[0]] {
 				v.CopyOf(v.Args[0].MemArg())
 			}
 		}
@@ -154,7 +153,7 @@ func removeCalls(f *ssa.Func, dead []*ssa.Value) {
 	for _, b := range f.Blocks {
 		keep := b.Values[:0]
 		for _, v := range b.Values {
-			if compat.MapAt(gone, v) {
+			if gone[v] {
 				v.ResetArgs()
 				continue
 			}
