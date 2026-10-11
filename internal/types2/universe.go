@@ -27,6 +27,7 @@ var (
 	universeError      Type
 	universeAny        Object
 	universeComparable Object
+	universePortable   Object
 )
 
 // Typ contains the predeclared *Basic types indexed by their
@@ -110,7 +111,14 @@ func defPredeclaredTypes() {
 	// type comparable interface{} // marked as comparable
 	{
 		obj := NewTypeName(nopos, nil, "comparable", nil)
-		NewNamed(obj, &Interface{complete: true, tset: &_TypeSet{nil, allTermlist, true}}, nil)
+		NewNamed(obj, &Interface{complete: true, tset: &_TypeSet{terms: allTermlist, comparable: true}}, nil)
+		def(obj)
+	}
+
+	// type portable interface{} // marked as portable (spec 8.9)
+	{
+		obj := NewTypeName(nopos, nil, "portable", nil)
+		NewNamed(obj, &Interface{complete: true, tset: &_TypeSet{terms: allTermlist, portable: true}}, nil)
 		def(obj)
 	}
 }
@@ -256,6 +264,7 @@ func init() {
 	universeError = Universe.Lookup("error").Type()
 	universeAny = Universe.Lookup("any")
 	universeComparable = Universe.Lookup("comparable")
+	universePortable = Universe.Lookup("portable")
 }
 
 // Objects with names containing blanks are internal and not entered into

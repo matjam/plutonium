@@ -27,6 +27,7 @@ type _TypeSet struct {
 	methods    []*Func  // all methods of the interface; sorted by unique ID
 	terms      termlist // type terms of the type set
 	comparable bool     // invariant: !comparable || terms.isAll()
+	portable   bool     // only portable types are meant (spec 8.9); invariant: !portable || terms.isAll()
 }
 
 // IsEmpty reports whether s is the empty set.
@@ -36,7 +37,7 @@ func (s *_TypeSet) IsEmpty() bool { return s.terms.isEmpty() }
 func (s *_TypeSet) IsAll() bool { return s.IsMethodSet() && len(s.methods) == 0 }
 
 // IsMethodSet reports whether the interface t is fully described by its method set.
-func (s *_TypeSet) IsMethodSet() bool { return !s.comparable && s.terms.isAll() }
+func (s *_TypeSet) IsMethodSet() bool { return !s.comparable && !s.portable && s.terms.isAll() }
 
 // IsComparable reports whether each type in the set is comparable.
 func (s *_TypeSet) IsComparable(seen map[Type]bool) bool {
@@ -75,6 +76,12 @@ func (s *_TypeSet) String() string {
 	buf.WriteByte('{')
 	if s.comparable {
 		buf.WriteString("comparable")
+		if s.portable || hasMethods || hasTerms {
+			buf.WriteString("; ")
+		}
+	}
+	if s.portable {
+		buf.WriteString("portable")
 		if hasMethods || hasTerms {
 			buf.WriteString("; ")
 		}
@@ -254,7 +261,7 @@ func computeInterfaceTypeSet(check *Checker, pos token.Pos, ityp *Interface) *_T
 
 	// collect embedded elements
 	allTerms := allTermlist
-	allComparable := false
+	allComparable, allPortable := false, false
 	for i, typ := range ityp.embeddeds {
 		// The embedding position is nil for imported interfaces.
 		// We don't need to do version checks in those cases.
@@ -262,7 +269,7 @@ func computeInterfaceTypeSet(check *Checker, pos token.Pos, ityp *Interface) *_T
 		if ityp.embedPos != nil {
 			pos = (*ityp.embedPos)[i]
 		}
-		var comparable bool
+		var comparable, portable bool
 		var terms termlist
 		switch u := typ.Underlying().(type) {
 		case *Interface:
@@ -273,7 +280,7 @@ func computeInterfaceTypeSet(check *Checker, pos token.Pos, ityp *Interface) *_T
 			if pos.IsValid() && check != nil && check.isImportedConstraint(typ) && !check.verifyVersionf(atPos(pos), go1_18, "embedding constraint interface %s", typ) {
 				continue
 			}
-			comparable = tset.comparable
+			comparable, portable = tset.comparable, tset.portable
 			for _, m := range tset.methods {
 				addMethod(pos, m, false) // use embedding position pos rather than m.pos
 			}
@@ -286,7 +293,7 @@ func computeInterfaceTypeSet(check *Checker, pos token.Pos, ityp *Interface) *_T
 			if tset == &invalidTypeSet {
 				continue // ignore invalid unions
 			}
-			assert(!tset.comparable)
+			assert(!tset.comparable && !tset.portable)
 			assert(len(tset.methods) == 0)
 			terms = tset.terms
 		default:
@@ -302,10 +309,11 @@ func computeInterfaceTypeSet(check *Checker, pos token.Pos, ityp *Interface) *_T
 		// The type set of an interface is the intersection of the type sets of all its elements.
 		// Due to language restrictions, only embedded interfaces can add methods, they are handled
 		// separately. Here we only need to intersect the term lists and comparable bits.
-		allTerms, allComparable = intersectTermLists(allTerms, allComparable, terms, comparable)
+		allTerms, allComparable, allPortable = intersectTermLists(allTerms, allComparable, allPortable, terms, comparable, portable)
 	}
 
 	ityp.tset.comparable = allComparable
+	ityp.tset.portable = allPortable
 	if len(allMethods) != 0 {
 		sortMethods(allMethods)
 		ityp.tset.methods = allMethods
@@ -319,30 +327,34 @@ func computeInterfaceTypeSet(check *Checker, pos token.Pos, ityp *Interface) *_T
 //           The comparable type set may also be best represented as a term (using
 //           a special type).
 
-// intersectTermLists computes the intersection of two term lists and respective comparable bits.
-// xcomp, ycomp are valid only if xterms.isAll() and yterms.isAll() respectively.
-func intersectTermLists(xterms termlist, xcomp bool, yterms termlist, ycomp bool) (termlist, bool) {
+// intersectTermLists computes the intersection of two term lists and respective comparable and portable bits.
+// xcomp, xport, ycomp, yport are valid only if xterms.isAll() and yterms.isAll() respectively.
+func intersectTermLists(xterms termlist, xcomp, xport bool, yterms termlist, ycomp, yport bool) (termlist, bool, bool) {
 	terms := xterms.intersect(yterms)
-	// If one of xterms or yterms is marked as comparable,
-	// the result must only include comparable types.
-	comp := xcomp || ycomp
-	if comp && !terms.isAll() {
-		// only keep comparable terms
+	// If one of xterms or yterms is marked as comparable or portable,
+	// the result must only include comparable or portable types.
+	comp, port := xcomp || ycomp, xport || yport
+	if (comp || port) && !terms.isAll() {
+		// only keep comparable and portable terms
 		i := 0
 		for _, t := range terms {
 			assert(t.typ != nil)
-			if comparableType(t.typ, false /* strictly comparable */, nil) == nil {
-				terms[i] = t
-				i++
+			if comp && comparableType(t.typ, false /* strictly comparable */, nil) != nil {
+				continue
 			}
+			if port && portableType(t.typ, nil, map[Type]bool{}) != nil {
+				continue
+			}
+			terms[i] = t
+			i++
 		}
 		terms = terms[:i]
 		if !terms.isAll() {
-			comp = false
+			comp, port = false, false
 		}
 	}
-	assert(!comp || terms.isAll()) // comparable invariant
-	return terms, comp
+	assert((!comp && !port) || terms.isAll()) // comparable and portable invariant
+	return terms, comp, port
 }
 
 func compareFunc(a, b *Func) int {

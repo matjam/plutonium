@@ -406,7 +406,7 @@ later takes the next free number and is listed in the section where it belongs.
     (or empties the slot when the next is empty), and a table rebuilt while walks run is kept, holding its
     own references, until the last walk ends. Hosted seeds come from `AT_RANDOM`; kernels call
     `rt.SetMapSeed`. `hash.Map` keeps its fixed seed (`DefaultSeed`) unless given one with `InitSeed`.
-70. **`portable`** (planned; complete-spec gap G19; [scheduler contract](plans/2026-10-09-scheduler-contract.md)
+70. **`portable`** (done; spec section 8.9, error E2018; complete-spec gap G19; [scheduler contract](plans/2026-10-09-scheduler-contract.md)
     section 9): a predeclared constraint for typed IPC between PlutoniumOS processes. A type is portable
     when it contains no pointers, views, counted values (strings included, since their buffers live in the
     sender's address space), interfaces, func values or channels at any depth. The check is inferred, like

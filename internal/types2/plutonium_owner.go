@@ -399,6 +399,10 @@ func (check *Checker) reportTypeArg(at positioner, err error, what string) {
 		check.explainf(at, OwnerTypeArg, oe.ex, "cannot use %s as %s in %s: %s", check.sprintf("%s", oe.targ), oe.tpar.obj.name, what, oe.msg)
 		return
 	}
+	if pe, ok := err.(*portableArgError); ok {
+		check.reportPortable(at, pe, what)
+		return
+	}
 	check.softErrorf(at, InvalidTypeArg, "%s", err)
 }
 

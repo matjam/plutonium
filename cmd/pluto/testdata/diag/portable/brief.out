@@ -1,0 +1,5 @@
+$DIR/main.p:44:2: cannot use Named as T in Send: Named has field name of type string, which is not portable: a string's bytes live in the sender's address space
+$DIR/main.p:45:2: cannot use Linked as T in Send: Linked has field next of type *Linked, which is not portable: a pointer holds an address in the sender's address space
+$DIR/main.p:46:2: cannot use Reader as T in Send: Reader is not portable: an interface value refers to a type and to data in the sender's address space
+$DIR/main.p:47:2: cannot use Frame as T in Send: Frame is not portable: an owner must be dropped exactly once, and sending it would also transfer that duty, which the structural rule does not express
+$DIR/main.p:48:2: cannot use Outer as T in Send: Outer has field parts[].buf of type []byte, which is not portable: a slice refers to memory in the sender's address space

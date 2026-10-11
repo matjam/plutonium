@@ -139,7 +139,7 @@ A section can carry several statuses when its parts differ.
 | 8.6 Method sets (value receivers on owners consume; `Drop` is never promoted) | Go; old 6.4 | branch; open G18 |
 | 8.7 Values, views, owners and counted values (the kind of every type) | old 6 intro, 6.2, 6.3 | main; branch |
 | 8.8 Sendable types | old 4.7 | main; heap views across tasks decided (memory-safety D5); open G16 |
-| 8.9 Portable types | decisions (portable); scheduler-contract plan 9 | decided (name only, not implemented, no roadmap item); open G19 |
+| 8.9 Portable types | decisions (portable); scheduler-contract plan 9 | implemented (roadmap item 70); G19 (b), transfer of handles and owners, open |
 
 ### Chapter 9. Blocks
 

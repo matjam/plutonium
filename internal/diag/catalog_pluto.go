@@ -25,6 +25,15 @@ func init() {
 			Example: "type Job struct {\n\tdata shared[Buffer]\n}\n\njobs := make(chan Job, 16)",
 		},
 		&Entry{
+			Code: CheckerCode(typerr.NotPortable), Name: "NotPortable",
+			Text:    "A type parameter declared [T portable] stands for a value that can be sent between address spaces, such as two operating system processes that share no memory. Its value must mean the same to the receiver as to the sender, so it may refer to nothing in the sender's memory. A portable type is made only of numbers, booleans, enums and packed types, and of arrays, structs, unions, ring, volatile and aligned types of those. A pointer, slice, string, function value, channel, map, interface value, box (owned, shared, synced, weak) or owner anywhere inside the type makes it not portable. An owner is not portable even when it is built from numbers, because sending it would also transfer the duty to drop it.\nThe message names the first field that stops the type and says why. Replace it with data that holds its own contents, such as a fixed-size array of bytes and a length in place of a string.",
+			Why:     "Go has one address space, so any value can be passed anywhere and a string or pointer always means the same thing. A Plutonium kernel and its processes have separate address spaces, and the compiler checks what may cross instead of leaving the receiver to read a stale address.",
+			Fix:     &Fix{Intro: "Send the bytes in a fixed-size array, with their length as a number", Code: "type Header struct {\n\tname  [16]byte\n\tnameN uint8\n}"},
+			Spec:    pspec("8.9", "Portable types"),
+			Example: "type Header struct {\n\tname string\n}\n\nfunc Send[T portable](port int, v T) {}\n\nSend(1, Header{})",
+			Fixed:   "type Header struct {\n\tname  [16]byte\n\tnameN uint8\n}",
+		},
+		&Entry{
 			Code: CheckerCode(typerr.FrameViewSent), Name: "FrameViewSent",
 			Text:    "This value points into the current function's stack frame: the address of a local variable or of part of one, a slice of a local array, or the address of a composite literal. A go statement or a channel send hands it to another puroutine, which may still use it after this function has returned and its frame is gone.\nStart the work with a sync.Scope instead: it waits for the tasks it starts before its block ends, so they may use the function's variables. Or allocate the variable with new, so that it outlives the frame, or make it a package-level variable.",
 			Why:     "Go moves such variables to the heap without saying so. Plutonium never allocates behind the program's back, so a local stays in its frame.",

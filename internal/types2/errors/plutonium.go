@@ -61,6 +61,10 @@ const (
 	// or an untyped constant, which makes the character with that code
 	// where the program usually wants the digits.
 	IntToStringNotPermitted
+	// NotPortable: a type argument for a portable type parameter that
+	// holds a pointer, view, counted value, interface, function value or
+	// owner, which cannot be sent to another address space.
+	NotPortable
 )
 
 // Packed types, bit fields, volatile, aligned and ring.

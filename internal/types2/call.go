@@ -218,7 +218,7 @@ func (check *Checker) callExpr(x *operand, call *ast.CallExpr) exprKind {
 				}
 				if t, _ := T.Underlying().(*Interface); t != nil && !isTypeParam(T) {
 					if !t.IsMethodSet() {
-						check.errorf(call, MisplacedConstraintIface, "cannot use interface %s in conversion (contains specific type constraints or is comparable)", T)
+						check.errorf(call, MisplacedConstraintIface, "cannot use interface %s in conversion (contains specific type constraints or is comparable or portable)", T)
 						break
 					}
 				}

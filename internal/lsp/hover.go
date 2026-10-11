@@ -66,6 +66,12 @@ func (s *server) describe(b *strings.Builder, cur *types2.Package, obj types2.Ob
 		}
 	}
 
+	if obj.Parent() == types2.Universe {
+		if text := predeclaredDocs[obj.Name()]; text != "" {
+			fmt.Fprintf(b, "\n%s\n", text)
+		}
+	}
+
 	doc := s.ws.docOf(obj)
 	if pn, ok := obj.(*types2.PkgName); ok {
 		doc = s.ws.packageDoc(pn.Imported())
@@ -88,6 +94,12 @@ func (s *server) describe(b *strings.Builder, cur *types2.Package, obj types2.Ob
 			fmt.Fprintf(b, "\n%s\n", strings.Join(dirs, "  \n"))
 		}
 	}
+}
+
+// predeclaredDocs describes the predeclared identifiers whose meaning is
+// more than their declaration shows (spec section 10.3).
+var predeclaredDocs = map[string]string{
+	"portable": "**constraint** (spec section 8.9): satisfied by the types whose values can be sent between address spaces, such as two processes that share no memory. A portable type is built only from booleans, numbers, enums, packed types, and arrays, structs and unions of them. A pointer, slice, string, function value, channel, map, interface value, box or owner anywhere inside makes a type not portable. Use it as a type constraint only: `func Send[T portable](v T)`.",
 }
 
 // declString returns the declaration of an object as it would be written,

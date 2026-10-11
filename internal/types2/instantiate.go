@@ -224,6 +224,10 @@ func (check *Checker) verify(pos token.Pos, tparams []*TypeParam, targs []Type, 
 		// the parameterized type.
 		bound := check.subst(pos, tpar.bound, smap, nil, ctxt)
 		if check != nil {
+			// An owner is never portable: report that, not the owner rule.
+			if pe := check.portableTypeArg(tpar, bound, targs[i]); pe != nil {
+				return i, pe
+			}
 			if oe := check.ownerTypeArg(tpar, targs[i]); oe != nil {
 				return i, oe
 			}
@@ -329,10 +333,25 @@ func (check *Checker) implements(V, T Type, constraint bool, cause *string) bool
 		return false
 	}
 
+	// A portable constraint admits only portable types (spec 8.9).
+	checkPortability := func() bool {
+		if !Ti.IsPortable() {
+			return true
+		}
+		c := PortableCauseOf(V)
+		if c == nil {
+			return true
+		}
+		if cause != nil {
+			*cause = check.sprintf("%s does not %s portable: %s", V, verb, check.portableMessage(V, c))
+		}
+		return false
+	}
+
 	// V must also be in the set of types of T, if any.
 	// Constraints with empty type sets were already excluded above.
 	if !Ti.typeSet().hasTerms() {
-		return checkComparability() // nothing to do
+		return checkComparability() && checkPortability() // nothing to do
 	}
 
 	// If V is itself an interface, each of its possible types must be in the set
@@ -346,7 +365,7 @@ func (check *Checker) implements(V, T Type, constraint bool, cause *string) bool
 			}
 			return false
 		}
-		return checkComparability()
+		return checkComparability() && checkPortability()
 	}
 
 	// Otherwise, V's type must be included in the iface type set.
@@ -382,7 +401,7 @@ func (check *Checker) implements(V, T Type, constraint bool, cause *string) bool
 		return false
 	}
 
-	return checkComparability()
+	return checkComparability() && checkPortability()
 }
 
 // mentions reports whether type T "mentions" typ in an (embedded) element or term

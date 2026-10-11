@@ -465,7 +465,7 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 		if xi != nil && yi != nil {
 			xset := xi.typeSet()
 			yset := yi.typeSet()
-			if xset.comparable != yset.comparable {
+			if xset.comparable != yset.comparable || xset.portable != yset.portable {
 				return false
 			}
 			// For now we require terms to be equal.
@@ -693,7 +693,7 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 		if y, ok := y.(*Interface); ok {
 			xset := x.typeSet()
 			yset := y.typeSet()
-			if xset.comparable != yset.comparable {
+			if xset.comparable != yset.comparable || xset.portable != yset.portable {
 				return false
 			}
 			if !xset.terms.equal(yset.terms) {

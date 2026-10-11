@@ -30,7 +30,7 @@ func (check *Checker) ident(x *operand, e *ast.Ident, wantType bool) {
 			check.errorf(e, UndeclaredName, "undefined: %s%s", e.Name, check.enumMemberHint(e.Name))
 		}
 		return
-	case universeAny, universeComparable:
+	case universeAny, universeComparable, universePortable:
 		if !check.verifyVersionf(e, go1_18, "predeclared %s", e.Name) {
 			return // avoid follow-on errors
 		}
@@ -170,6 +170,8 @@ func (check *Checker) validVarType(e ast.Expr, typ Type) {
 			if !tset.IsMethodSet() {
 				if tset.comparable {
 					check.softErrorf(e, MisplacedConstraintIface, "cannot use type %s outside a type constraint: interface is (or embeds) comparable", typ)
+				} else if tset.portable {
+					check.softErrorf(e, MisplacedConstraintIface, "cannot use type %s outside a type constraint: interface is (or embeds) portable", typ)
 				} else {
 					check.softErrorf(e, MisplacedConstraintIface, "cannot use type %s outside a type constraint: interface contains type constraints", typ)
 				}

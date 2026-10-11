@@ -609,7 +609,7 @@
       "comment": "Words that are keywords only in context, so that they stay usable as identifiers elsewhere.",
       "patterns": [
         { "name": "keyword.bits.plutonium", "match": "\\b(?:bits)\\b(?=\\s*[\\[{])" },
-        { "name": "keyword.owner.plutonium", "match": "\\b(?:owner)\\b(?=\\s+(?:struct|interface|union|packed|enum|any|comparable)\\b)" },
+        { "name": "keyword.owner.plutonium", "match": "\\b(?:owner)\\b(?=\\s+(?:struct|interface|union|packed|enum|any|comparable|portable)\\b)" },
         { "name": "keyword.union.plutonium", "match": "\\b(?:union)\\b(?=\\s*\\{)" }
       ]
     },
@@ -622,7 +622,7 @@
 
     "builtin-types": {
       "name": "support.type.builtin.plutonium",
-      "match": "\\b(?:any|bool|byte|comparable|error|float32|float64|int|int8|int16|int32|int64|rune|string|uint|uint8|uint16|uint32|uint64|uintptr)\\b"
+      "match": "\\b(?:any|bool|byte|comparable|error|float32|float64|int|int8|int16|int32|int64|portable|rune|string|uint|uint8|uint16|uint32|uint64|uintptr)\\b"
     },
 
     "builtin-constants": {

@@ -1,0 +1,81 @@
+$DIR/main.p:44:2: cannot use Named as T in Send: Named has field name of type string, which is not portable: a string's bytes live in the sender's address space
+    A portable type can be sent between address spaces, such as two operating
+    system processes that share no memory. Its values mean the same to the
+    receiver as to the sender because they refer to nothing in the sender's
+    memory: they are made only of numbers, booleans, enums, packed types, and
+    arrays, structs and unions of those.
+    Go has one address space, so any value can be passed anywhere and a string
+    or pointer always means the same thing. A Plutonium kernel and its processes
+    have separate address spaces, and the compiler checks what may cross instead
+    of leaving the receiver to read a stale address.
+    Instead of name, send the bytes in a fixed-size array, with their length as
+    a number:
+        name [16]byte
+        nameLen uint8
+    (see "Portable types" in the Plutonium spec, section 8.9)
+    (run "pluto explain E2018" for a longer explanation)
+
+$DIR/main.p:45:2: cannot use Linked as T in Send: Linked has field next of type *Linked, which is not portable: a pointer holds an address in the sender's address space
+    A portable type can be sent between address spaces, such as two operating
+    system processes that share no memory. Its values mean the same to the
+    receiver as to the sender because they refer to nothing in the sender's
+    memory: they are made only of numbers, booleans, enums, packed types, and
+    arrays, structs and unions of those.
+    Go has one address space, so any value can be passed anywhere and a string
+    or pointer always means the same thing. A Plutonium kernel and its processes
+    have separate address spaces, and the compiler checks what may cross instead
+    of leaving the receiver to read a stale address.
+    Instead of next, send the value it points to, or an index or offset as a
+    number
+    (see "Portable types" in the Plutonium spec, section 8.9)
+    (run "pluto explain E2018" for a longer explanation)
+
+$DIR/main.p:46:2: cannot use Reader as T in Send: Reader is not portable: an interface value refers to a type and to data in the sender's address space
+    A portable type can be sent between address spaces, such as two operating
+    system processes that share no memory. Its values mean the same to the
+    receiver as to the sender because they refer to nothing in the sender's
+    memory: they are made only of numbers, booleans, enums, packed types, and
+    arrays, structs and unions of those.
+    Go has one address space, so any value can be passed anywhere and a string
+    or pointer always means the same thing. A Plutonium kernel and its processes
+    have separate address spaces, and the compiler checks what may cross instead
+    of leaving the receiver to read a stale address.
+    Instead, send a union with one variant for each type the interface can hold:
+        type Shape union {
+            Circle struct{ r float64 }
+            Rect   struct{ w, h float64 }
+        }
+    (see "Portable types" in the Plutonium spec, section 8.9)
+    (run "pluto explain E2018" for a longer explanation)
+
+$DIR/main.p:47:2: cannot use Frame as T in Send: Frame is not portable: an owner must be dropped exactly once, and sending it would also transfer that duty, which the structural rule does not express
+    A portable type can be sent between address spaces, such as two operating
+    system processes that share no memory. Its values mean the same to the
+    receiver as to the sender because they refer to nothing in the sender's
+    memory: they are made only of numbers, booleans, enums, packed types, and
+    arrays, structs and unions of those.
+    Go has one address space, so any value can be passed anywhere and a string
+    or pointer always means the same thing. A Plutonium kernel and its processes
+    have separate address spaces, and the compiler checks what may cross instead
+    of leaving the receiver to read a stale address.
+    Instead, send the plain data the owner is made of, in a struct that is not
+    declared owner, and let the receiver build its own owner
+    (see "Portable types" in the Plutonium spec, section 8.9)
+    (run "pluto explain E2018" for a longer explanation)
+
+$DIR/main.p:48:2: cannot use Outer as T in Send: Outer has field parts[].buf of type []byte, which is not portable: a slice refers to memory in the sender's address space
+    A portable type can be sent between address spaces, such as two operating
+    system processes that share no memory. Its values mean the same to the
+    receiver as to the sender because they refer to nothing in the sender's
+    memory: they are made only of numbers, booleans, enums, packed types, and
+    arrays, structs and unions of those.
+    Go has one address space, so any value can be passed anywhere and a string
+    or pointer always means the same thing. A Plutonium kernel and its processes
+    have separate address spaces, and the compiler checks what may cross instead
+    of leaving the receiver to read a stale address.
+    Instead of parts[].buf, send the elements in a fixed-size array, with their
+    count as a number:
+        buf [8]int32
+        bufLen uint8
+    (see "Portable types" in the Plutonium spec, section 8.9)
+    (run "pluto explain E2018" for a longer explanation)
