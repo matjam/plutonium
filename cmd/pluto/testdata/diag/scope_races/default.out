@@ -1,0 +1,106 @@
+$DIR/main.p:15:19: the tasks started at main.p:15 may write the same element of out
+    Each task writes out[i] at main.p:15, and several of them run at the same
+    time. Tasks may write one array or slice at once only when each writes
+    elements no other can reach, and the compiler can see that only for x[i], or
+    a window such as x[i*k:(i+1)*k] or x[i:i+k], where i is the variable of the
+    loop that starts them (each task takes its own i), or for x[:m] and x[m:].
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium
+    puroutines run in parallel with no such detector, so safe code must be free
+    of data races, and the compiler checks it from the program itself, with no
+    annotations.
+    Index by the loop variable:
+        s.Task(func() { out[i] = f(i) })
+    Or give each task a window and index within it:
+        row := out[i*w : (i+1)*w]
+    Or send the results on a channel and store them in the function that starts
+    the tasks.
+    (see "Scoped puroutines" in the Plutonium spec, section 4.11)
+    (run "pluto explain E3403" for a longer explanation)
+
+$DIR/main.p:26:9: results[0] is read here while the task started at main.p:24 may write it
+    The task started at main.p:24 writes results[i] at main.p:24, and s waits
+    for it where its block ends, at main.p:27. Meanwhile results[0] is read at
+    main.p:26 in first, so the two may run at the same time, one of them
+    writing: a data race.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium
+    puroutines run in parallel with no such detector, so safe code must be free
+    of data races, and the compiler checks it from the program itself, with no
+    annotations.
+    Wait for the tasks before using results[0]:
+        s.Wait()
+    Or lock one sync.Mutex around every use of it, in the tasks and here:
+        mu.Lock()
+        ...
+        mu.Unlock()
+    (see "Scoped puroutines" in the Plutonium spec, section 4.11)
+    (run "pluto explain E3402" for a longer explanation)
+
+$DIR/main.p:34:19: total is written by the tasks started at main.p:34 at the same time as each other
+    Each call of s.Task at main.p:34 starts a task, and they run at the same
+    time. Each writes total (main.p:34), and another reads it (main.p:34). Two
+    tasks using one place at once, one of them writing, is a data race: an
+    update can be lost, and a value larger than a word can be read half written.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium
+    puroutines run in parallel with no such detector, so safe code must be free
+    of data races, and the compiler checks it from the program itself, with no
+    annotations.
+    Lock a mutex around every use of total:
+        mu.Lock()
+        ...
+        mu.Unlock()
+    Or, for a number, use an atomic type such as atomic.Int64.
+    Or give each task its own element: results[i] = ..., where i is the loop
+    variable.
+    (see "Scoped puroutines" in the Plutonium spec, section 4.11)
+    (run "pluto explain E3402" for a longer explanation)
+
+$DIR/main.p:51:10: cannot move b here: the task started at main.p:50 may still be using it
+    The task started at main.p:50 writes b.n at main.p:50, and s waits for it
+    where its block ends, at main.p:52, so the task could use b after it has
+    moved or been freed.
+    Go keeps the variables a goroutine uses alive with its garbage collector,
+    however long the goroutine runs. Plutonium has none: a variable lives in its
+    function's frame until its block ends. A sync.Scope waits for the tasks it
+    started before its block ends, so they may use the function's variables, and
+    the compiler checks that nothing they use ends or moves first.
+    Wait for the task first:
+        s.Wait()
+    (see "Scoped puroutines" in the Plutonium spec, section 4.11)
+    (run "pluto explain E3404" for a longer explanation)
+
+$DIR/main.p:59:19: the task started at main.p:59 changes n, but has its own copy of it, so the change is not seen at main.p:60
+    n is declared in a block that may end before s waits for the task
+    (main.p:58), so the task takes its own copy of n when s.Task runs, as each
+    iteration of a Go loop has its own variables. The task changes its copy at
+    main.p:59, and taken uses n again at main.p:60, where it still holds its old
+    value.
+    Go keeps the variables a goroutine uses alive with its garbage collector,
+    however long the goroutine runs. Plutonium has none: a variable lives in its
+    function's frame until its block ends. A sync.Scope waits for the tasks it
+    started before its block ends, so they may use the function's variables, and
+    the compiler checks that nothing they use ends or moves first.
+    If only the task needs n, declare it inside the function literal; if taken
+    needs the result, give each task its own element of a variable declared
+    before the loop:
+        results[i] = ...
+    (see "Scoped puroutines" in the Plutonium spec, section 4.11)
+    (run "pluto explain E3407" for a longer explanation)
+
+$DIR/main.p:80:36: Map calls f from several tasks at once, and the function literal passed here writes calls
+    Map starts tasks that call f, several at the same time. The function literal
+    passed here writes calls at main.p:80 with no lock held, so the calls would
+    write it at the same time: a data race.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium
+    puroutines run in parallel with no such detector, so safe code must be free
+    of data races, and the compiler checks it from the program itself, with no
+    annotations.
+    Use an atomic type for it, or lock a mutex around the write:
+        mu.Lock()
+        ...
+        mu.Unlock()
+    (see "Scoped puroutines" in the Plutonium spec, section 4.11)
+    (run "pluto explain E3406" for a longer explanation)

@@ -17,6 +17,7 @@ type state struct {
 	spawned bool     // a task may have been started since entry
 	pubAll  bool     // every allocation may have been published (after a goto)
 	pub     map[ast.Node]bool
+	running runSet // the check of scoped tasks: the tasks that may be running (scope.go)
 }
 
 func (s *state) clone() *state {
@@ -44,6 +45,7 @@ func join(a, b *state) *state {
 	out.rel = a.rel.union(b.rel)
 	out.spawned = a.spawned || b.spawned
 	out.pubAll = a.pubAll || b.pubAll
+	out.running = a.running.union(b.running)
 	for k := range b.pub {
 		out.pub[k] = true
 	}
@@ -54,7 +56,7 @@ func (s *state) equal(t *state) bool {
 	if s.dead || t.dead {
 		return s.dead == t.dead
 	}
-	if !s.locks.equal(t.locks) || !s.rel.equal(t.rel) || s.spawned != t.spawned || s.pubAll != t.pubAll || len(s.pub) != len(t.pub) {
+	if !s.locks.equal(t.locks) || !s.rel.equal(t.rel) || s.spawned != t.spawned || s.pubAll != t.pubAll || len(s.pub) != len(t.pub) || !s.running.equal(t.running) {
 		return false
 	}
 	for k := range s.pub {
@@ -90,6 +92,14 @@ type walker struct {
 	depth      int               // nested applications of func-valued arguments
 	created    map[ast.Node]bool // allocations made by this function
 	lockedHere map[vpath]bool    // mutexes this function locks
+
+	// The check of scoped tasks (scope.go): the check, and the party whose
+	// code is walked; nil for a summary.
+	frame    *frameCheck
+	party    *party
+	noFilter bool // deferred calls at the exit: every Scope is still there
+	inlined  int  // depth of literals walked in place
+	conc     bool // a summary: the code walked runs in several scoped tasks at once
 }
 
 func newWalker(a *analyzer, fn *function) *walker {
@@ -161,9 +171,13 @@ func (w *walker) finish() {
 	w.exit = join(w.exit, w.st)
 	w.st = w.exit
 	if !w.st.dead {
+		// Deferred calls run before any variable of the function is
+		// dropped, a Scope included.
+		w.noFilter = true
 		for i := len(w.defers) - 1; i >= 0; i-- {
 			w.deferred(w.defers[i])
 		}
+		w.noFilter = false
 	}
 	if w.st.dead {
 		w.sum.exitLocks, w.sum.exitRel = nil, released{}
@@ -412,9 +426,18 @@ func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
 		it := w.methodCall(st.X, types2.RangeMethodName, nil, st.Pos())
 		w.callValue(it, loopBody(st), st.Pos(), nil, "the iterator of the range loop")
 	} else {
-		xv := w.value(st.X)
+		// Without a value variable the loop reads no element: an array's
+		// length is constant, so it does not even evaluate the array.
+		elems := st.Value != nil
+		var xv origins
+		if _, arr := underlying(xt).(*types2.Array); !arr || elems {
+			xv = w.value(st.X)
+		}
 		switch u := underlying(xt).(type) {
 		case *types2.Array:
+			if !elems {
+				break
+			}
 			if ps, ok := w.place(st.X); ok {
 				for _, p := range ps.ps {
 					w.access(p.extend("[]"), false, false, st.X.Pos(), u.Elem(), ps.sync, ps.key)
@@ -424,7 +447,7 @@ func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
 				val = xv
 			}
 		case *types2.Pointer:
-			if arr, ok := underlying(u.Elem()).(*types2.Array); ok {
+			if arr, ok := underlying(u.Elem()).(*types2.Array); ok && elems {
 				ps := xv.derefOr("*", w.unknownFor(st.X))
 				for _, p := range ps {
 					w.access(p.extend("[]"), false, false, st.X.Pos(), arr.Elem(), false, "")
@@ -432,6 +455,9 @@ func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
 				val = valuesAt(extendAll(ps, "[]"))
 			}
 		case *types2.Slice:
+			if !elems {
+				break
+			}
 			ps := xv.derefOr("%", w.unknownFor(st.X))
 			for _, p := range ps {
 				w.access(p, false, false, st.X.Pos(), u.Elem(), false, "")
@@ -545,6 +571,13 @@ func (w *walker) declStmt(st *ast.DeclStmt) {
 	}
 	for _, spec := range gd.Specs {
 		vs := spec.(*ast.ValueSpec)
+		if w.frame != nil {
+			for _, name := range vs.Names {
+				if v, ok := w.a.defs[name].(*types2.Var); ok {
+					w.newScope(v)
+				}
+			}
+		}
 		switch {
 		case len(vs.Values) == len(vs.Names):
 			for i, name := range vs.Names {
@@ -598,6 +631,10 @@ func (w *walker) assignTo(lhs ast.Expr, val origins, pos token.Pos) {
 			return
 		}
 		if v, ok := w.a.objOf(id).(*types2.Var); ok && !isGlobal(v) {
+			if w.frame != nil {
+				w.access(vpath{root: root{kind: rLocal, v: v}}, true, false, id.Pos(), v.Type(), false, "")
+				w.newScope(v)
+			}
 			w.setVar(v, val)
 			return
 		}
@@ -627,6 +664,11 @@ func (w *walker) readWrite(e ast.Expr, pos token.Pos) {
 	e = ast.Unparen(e)
 	if id, ok := e.(*ast.Ident); ok {
 		if v, ok := w.a.objOf(id).(*types2.Var); ok && !isGlobal(v) {
+			if w.frame != nil {
+				p := vpath{root: root{kind: rLocal, v: v}}
+				w.access(p, false, false, id.Pos(), v.Type(), false, "")
+				w.access(p, true, false, id.Pos(), v.Type(), false, "")
+			}
 			return
 		}
 	}
@@ -911,6 +953,10 @@ func (w *walker) access(p vpath, write, atomic bool, pos token.Pos, T types2.Typ
 	if inSync || w.quiet > 0 {
 		return
 	}
+	if w.frame != nil {
+		w.frame.note(w, &frameAcc{place: p, write: write, atomic: atomic, pos: pos, typ: T, locks: w.st.locks})
+		return
+	}
 	init := w.initializing(p, w.st)
 	if key != "" {
 		w.a.recordType(key, p, write, atomic, w.st.locks, pos, w.fn.name, init)
@@ -920,7 +966,7 @@ func (w *walker) access(p vpath, write, atomic bool, pos token.Pos, T types2.Typ
 		// no other task can reach it yet.
 		return
 	}
-	x := &access{place: p, write: write, atomic: atomic, locks: w.st.locks, rel: w.st.rel, pos: pos, pre: !w.st.spawned, tkey: key}
+	x := &access{place: p, write: write, atomic: atomic, locks: w.st.locks, rel: w.st.rel, pos: pos, pre: !w.st.spawned, tkey: key, typ: T}
 	if !write && !atomic && isSyncType(T) {
 		// Reading a whole synchronised value copies it, as any read does.
 		x.atomic = false
@@ -1078,6 +1124,9 @@ func (w *walker) value1(e ast.Expr) origins {
 				w.access(p, false, false, e.Pos(), obj.Type(), false, "")
 				return origins{{vp: p}}
 			}
+			if w.frame != nil {
+				w.frame.noteVar(w, obj, e)
+			}
 			return w.u.vars[obj]
 		case *types2.Func:
 			if f := w.a.funcs[obj.Origin()]; f != nil {
@@ -1165,15 +1214,20 @@ func (w *walker) value1(e ast.Expr) origins {
 		for _, i := range []ast.Expr{e.Low, e.High, e.Max} {
 			w.value(i)
 		}
+		part := w.slicePart(e)
 		switch u := underlying(w.typeOf(e.X)).(type) {
 		case *types2.Array:
 			if ps, ok := w.place(e.X); ok {
-				return addrsOf(extendAll(ps.ps, "[]"))
+				return addrsOf(extendAll(ps.ps, "[]"+part))
 			}
 			return w.value(e.X)
 		case *types2.Pointer:
 			if _, ok := underlying(u.Elem()).(*types2.Array); ok {
-				return addrsOf(extendAll(w.value(e.X).derefOr("*", w.unknownFor(e.X)), "[]"))
+				return addrsOf(extendAll(w.value(e.X).derefOr("*", w.unknownFor(e.X)), "[]"+part))
+			}
+		case *types2.Slice:
+			if part != "" {
+				return addrsOf(extendAll(w.value(e.X).derefOr("%", w.unknownFor(e.X)), part))
 			}
 		}
 		return w.value(e.X)
@@ -1302,20 +1356,25 @@ func (w *walker) place(e ast.Expr) (places, bool) {
 			return places{}, false
 		}
 		w.value(e.Index)
+		part := w.indexPart(e.Index)
 		switch u := underlying(w.typeOf(e.X)).(type) {
 		case *types2.Array:
 			ps, ok := w.place(e.X)
 			if !ok {
 				return places{}, false
 			}
-			ps.ps = extendAll(ps.ps, "[]")
+			ps.ps = extendAll(ps.ps, "[]"+part)
 			return ps, true
 		case *types2.Pointer:
 			if _, ok := underlying(u.Elem()).(*types2.Array); ok {
-				return places{ps: extendAll(w.value(e.X).derefOr("*", w.unknownFor(e.X)), "[]")}, true
+				return places{ps: extendAll(w.value(e.X).derefOr("*", w.unknownFor(e.X)), "[]"+part)}, true
 			}
 		case *types2.Slice:
-			return places{ps: w.value(e.X).derefOr("%", w.unknownFor(e.X))}, true
+			ps := w.value(e.X).derefOr("%", w.unknownFor(e.X))
+			if part != "" {
+				ps = extendAll(ps, part)
+			}
+			return places{ps: ps}, true
 		}
 		return places{}, false
 	case *ast.StarExpr:

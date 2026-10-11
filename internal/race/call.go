@@ -3,6 +3,7 @@ package race
 import (
 	"strings"
 
+	"github.com/matjam/plutonium/internal/scoped"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
@@ -33,6 +34,25 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 	tv := w.a.types[e.Fun]
 	if tv.IsType() {
 		return []origins{w.conversion(e, tv.Type)}
+	}
+	if t := w.a.scoped.Tasks[e]; t != nil {
+		w.scopedTaskCall(e, t)
+		return nil
+	}
+	if name, recv := scoped.ScopeMethod(w.a.selections, e); name == "Wait" || name == "Drop" {
+		if v := w.scopeVar(recv); v != nil {
+			defer w.scopeWait(v)
+		}
+	}
+	if w.frame != nil {
+		// x.Drop() or a method with a value receiver moves x.
+		if se, ok := ast.Unparen(e.Fun).(*ast.SelectorExpr); ok {
+			if id, ok := ast.Unparen(se.X).(*ast.Ident); ok && w.a.moves != nil && w.a.moves.Moves[id] {
+				if v, ok := w.a.objOf(id).(*types2.Var); ok && !isGlobal(v) {
+					w.frame.note(w, &frameAcc{place: vpath{root: root{kind: rLocal, v: v}}, write: true, move: true, drop: se.Sel.Name == "Drop", pos: id.Pos(), typ: v.Type(), locks: w.st.locks})
+				}
+			}
+		}
 	}
 	if b := w.builtin(e); b != nil {
 		return b
@@ -104,6 +124,10 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 	}
 	nres := t.sig.Results().Len()
 	switch {
+	case t.static != nil && w.frame != nil && t.static.lit != nil && t.static.unit == w.fn.unit && w.a.scoped.Lits[t.static.lit] == nil:
+		// A literal of the frame being checked, called where it is
+		// written: its uses of the frame are not in its summary.
+		return pad(w.inlineLit(t.static.lit, args, false), nres)
 	case t.static != nil:
 		res, after := w.apply(t.static, args, e.Pos(), t.name, w.st, &applyOpts{noLockEffect: t.syncRecv})
 		w.st = after
@@ -305,6 +329,9 @@ func (w *walker) builtin(e *ast.CallExpr) []origins {
 	one := func(o origins) []origins { return []origins{o} }
 	switch b.Name() {
 	case "len", "cap":
+		if tv := w.a.types[e]; tv.Value != nil {
+			return one(nil) // the length of an array: a constant
+		}
 		if len(e.Args) == 1 {
 			if T := w.typeOf(e.Args[0]); T != nil && b.Name() == "len" && types2.LenByMethod(T) {
 				w.methodCall(e.Args[0], types2.LenMethodName, nil, e.Pos())
@@ -792,6 +819,9 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 		// call, so the caller keeps an edge to it instead of a copy, and
 		// the edges are followed once per task in the end (check.go).
 		w.sum.addEdge(&edge{f: f, args: args, locks: base.locks, rel: base.rel, pre: !base.spawned})
+		if w.frame != nil {
+			w.frame.noteEdge(w, f, args, base.locks, pos)
+		}
 		for _, x := range s.accesses {
 			if x.place.root.kind != rParam {
 				continue
@@ -803,6 +833,10 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 			locks := compose(base.locks, substRel(x.rel, args), substLocks(x.locks, args))
 			rel := base.rel.union(substRel(x.rel, args))
 			for _, p := range ps {
+				if w.frame != nil {
+					w.frame.noteSub(w, p, x, locks, pos)
+					continue
+				}
 				if x.tkey != "" && p.root.kind != rParam {
 					init := w.initializing(p, base) && !s.pubParams.has(x.place.root.idx)
 					w.a.recordType(x.tkey, p, x.write, x.atomic, locks, x.pos, name, init)
@@ -819,6 +853,7 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 					rel:    rel,
 					pos:    x.pos,
 					pre:    !base.spawned && x.pre,
+					typ:    x.typ,
 				})
 			}
 		}
@@ -866,10 +901,18 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 					sig, _ = f.params[c.idx].Type().Underlying().(*types2.Signature)
 				}
 				w.depth++
-				saved := w.st
+				saved, savedConc := w.st, w.conc
 				w.st = in
+				if (c.conc || w.conc) && w.frame == nil {
+					w.conc = true
+					pname := "the function it is given"
+					if c.idx < len(f.params) && f.params[c.idx].Name() != "" {
+						pname = f.params[c.idx].Name()
+					}
+					w.a.noteConcCall(fv, pos, name, pname)
+				}
 				w.callValueIn(fv, nil, c.pos, sig, "a function passed to "+name)
-				w.st = saved
+				w.st, w.conc = saved, savedConc
 				w.depth--
 			}
 		}
@@ -992,11 +1035,22 @@ func (w *walker) callValueIn(fv origins, args []origins, pos token.Pos, sig *typ
 			}
 		case rLit:
 			if lit, ok := o.vp.root.node.(*ast.FuncLit); ok {
+				if w.frame != nil && w.a.lits[lit] != nil && w.a.lits[lit].unit == w.fn.unit && w.a.scoped.Lits[lit] == nil {
+					// A literal of the frame being checked: its uses of the
+					// frame are not in its summary.
+					res = unionResults(res, w.inlineLit(lit, args, false))
+					if out == nil {
+						out = w.st
+					} else {
+						out = join(out, w.st)
+					}
+					continue
+				}
 				applyTo(w.a.lits[lit], false)
 			}
 		case rParam:
 			if w.quiet == 0 {
-				w.sum.addCall(&paramCall{idx: o.vp.root.idx, locks: base.locks, rel: base.rel, pos: pos, pre: !base.spawned})
+				w.sum.addCall(&paramCall{idx: o.vp.root.idx, locks: base.locks, rel: base.rel, pos: pos, pre: !base.spawned, conc: w.conc})
 			}
 		}
 	}

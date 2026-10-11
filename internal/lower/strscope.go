@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"github.com/matjam/plutonium/internal/scoped"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -32,6 +33,10 @@ type countedSlot struct {
 	T    types2.Type
 	tmp  *ownedTemp // a temporary, which needs no release once consumed
 	pos  token.Pos  // where a variable is declared, for goto
+	// first says the slot holds a sync.Scope variable, which its block
+	// drops before its other variables: the Scope waits for the tasks it
+	// started, which may use them (language spec section 4.11).
+	first bool
 }
 
 // A cleanupEntry is one level of the cleanup stack.
@@ -71,9 +76,17 @@ func (s *fnState) releaseEntry(e *cleanupEntry) {
 // after, for code that may run again and fill them on some paths only;
 // a return need not.
 func (s *fnState) releaseSlots(slots []countedSlot, zero bool) {
+	for _, scopes := range [2]bool{true, false} {
+		s.releaseSome(slots, zero, scopes)
+	}
+}
+
+// releaseSome releases the slots that hold sync.Scope variables (scopes)
+// or the others, the last first.
+func (s *fnState) releaseSome(slots []countedSlot, zero, scopes bool) {
 	for i := len(slots) - 1; i >= 0; i-- {
 		c := slots[i]
-		if c.tmp != nil && c.tmp.consumed {
+		if c.first != scopes || c.tmp != nil && c.tmp.consumed {
 			continue
 		}
 		p := s.offPtr(c.base, c.off)
@@ -137,7 +150,7 @@ func (s *fnState) addTemp(t *ownedTemp) {
 
 // addVar registers a local variable's storage with the innermost scope.
 func (s *fnState) addVar(addr *ssa.Value, T types2.Type) {
-	c := countedSlot{base: addr, T: T, pos: s.pos}
+	c := countedSlot{base: addr, T: T, pos: s.pos, first: scoped.IsScopeType(T)}
 	s.zeroAtEntry(c)
 	for i := len(s.cleanups) - 1; i >= 0; i-- {
 		if s.cleanups[i].scope {

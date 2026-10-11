@@ -194,8 +194,9 @@ type access struct {
 	locks  lockset
 	rel    released
 	pos    token.Pos
-	pre    bool   // the program only: before any task was started
-	tkey   string // "field:T.f": the field of the object a pointer led to, for the type rule
+	pre    bool        // the program only: before any task was started
+	tkey   string      // "field:T.f": the field of the object a pointer led to, for the type rule
+	typ    types2.Type // the type of what is used, when known (scope.go)
 }
 
 // An accKey identifies what matters of an access for the rules; accesses
@@ -231,6 +232,7 @@ type paramCall struct {
 	rel   released
 	pos   token.Pos
 	pre   bool
+	conc  bool // made by scoped tasks that may run at the same time (scope.go)
 }
 
 // A spawn is a task start: a go statement, or a function value handed to
@@ -388,7 +390,7 @@ func (s *summary) addCall(c *paramCall) {
 	if s.callKeys == nil {
 		s.callKeys = map[string]bool{}
 	}
-	k := fmt.Sprintf("%d|%s|%s|%v", c.idx, c.locks, c.rel, c.pre)
+	k := fmt.Sprintf("%d|%s|%s|%v|%v", c.idx, c.locks, c.rel, c.pre, c.conc)
 	if s.callKeys[k] {
 		return
 	}

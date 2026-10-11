@@ -48,6 +48,8 @@ import (
 
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/load"
+	"github.com/matjam/plutonium/internal/moves"
+	"github.com/matjam/plutonium/internal/scoped"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
@@ -62,7 +64,16 @@ var debug = os.Getenv("PLUTO_RACE_DEBUG") != ""
 // Check analyses a loaded program that passed the escape analysis and
 // returns the races it finds, as a diag.List, or nil.
 func Check(prog *load.Program) error {
+	mv, _ := moves.Analyze(prog)
+	return CheckWith(prog, mv)
+}
+
+// CheckWith is Check, given the move checker's account of moves, which
+// tells where the code that starts scoped tasks moves or drops a variable
+// they may use (scope.go).
+func CheckWith(prog *load.Program, mv *moves.Info) error {
 	a := newAnalyzer(prog)
+	a.moves = mv
 	if debug {
 		fmt.Fprintf(os.Stderr, "race: %d units\n", len(a.units))
 	}
@@ -73,6 +84,7 @@ func Check(prog *load.Program) error {
 	}
 	a.run()
 	a.check()
+	a.checkScopes()
 	sort.SliceStable(a.errs, func(i, j int) bool {
 		pi, pj := a.errs[i].Pos, a.errs[j].Pos
 		if pi.Filename != pj.Filename {
@@ -129,6 +141,13 @@ type analyzer struct {
 	prog *load.Program
 	fset *token.FileSet
 
+	scoped *scoped.Info // the scoped tasks of sync.Scope (scope.go)
+	moves  *moves.Info  // what moves, for the uses of scoped tasks
+	// concCalls are the func values that callees call from several
+	// scoped tasks at once, with where they are passed (scope.go).
+	concCalls []concCall
+	concSeen  map[string]bool
+
 	types      map[ast.Expr]types2.TypeAndValue
 	uses       map[*ast.Ident]types2.Object
 	defs       map[*ast.Ident]types2.Object
@@ -169,6 +188,7 @@ type analyzer struct {
 
 func newAnalyzer(prog *load.Program) *analyzer {
 	a := &analyzer{
+		scoped:       scoped.Analyze(prog),
 		sharedMemo:   map[*function]bool{},
 		envMemo:      map[*function]bool{},
 		envUsed:      map[*function]bits{},

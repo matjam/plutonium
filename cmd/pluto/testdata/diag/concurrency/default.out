@@ -24,16 +24,15 @@ $DIR/main.p:21:10: &x is passed to a go statement, but x lives in this function'
     of a composite literal. A go statement or a channel send hands it to another
     puroutine, which may still use it after this function has returned and its
     frame is gone.
-    Allocate the variable with new, so that it outlives the frame, or make it a
+    Start the work with a sync.Scope instead: it waits for the tasks it starts
+    before its block ends, so they may use the function's variables. Or allocate
+    the variable with new, so that it outlives the frame, or make it a
     package-level variable.
     Go moves such variables to the heap without saying so. Plutonium never
     allocates behind the program's back, so a local stays in its frame.
-    Allocate it, then pass the pointer:
-        wg := new(sync.WaitGroup)
-        wg.Add(1)
-        go worker(wg)
-        wg.Wait()
-        alloc.Free(wg)
+    Start the work with a sync.Scope, which waits for it before its block ends:
+        var s sync.Scope
+        s.Task(func() { worker(&state) })
     (see "Views" in the Plutonium spec, section 6.3)
     (run "pluto explain E2011" for a longer explanation)
 

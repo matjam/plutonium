@@ -14,6 +14,8 @@ const whyOwners = "Go copies such values freely and its garbage collector frees 
 const whyFrame = "Go would move this memory to the heap, and its garbage collector would free it later. Plutonium has no garbage collector and never moves memory to the heap behind the program's back, so that every allocation is visible in the code."
 
 // whyRace is why Plutonium rejects data races at compile time.
+const whyScope = "Go keeps the variables a goroutine uses alive with its garbage collector, however long the goroutine runs. Plutonium has none: a variable lives in its function's frame until its block ends. A sync.Scope waits for the tasks it started before its block ends, so they may use the function's variables, and the compiler checks that nothing they use ends or moves first."
+
 const whyRace = "Go leaves data races to a run-time detector that a program must be run under, and a racing Go program can see values half written. Plutonium puroutines run in parallel with no such detector, so safe code must be free of data races, and the compiler checks it from the program itself, with no annotations."
 
 func init() {
@@ -42,7 +44,7 @@ func init() {
 		},
 		&Entry{
 			Code: GoFrameView, Name: "GoFrameView",
-			Text:    "A go statement starts a puroutine that runs on its own, and may still be running after the function that started it returns. A view of that function's frame passed to it could then point at reclaimed memory.\nPass the value itself, which copies it, or moves it if it is an owner. To run a method of an owned or synced box on the new puroutine, start it directly (go p.Serve()): the puroutine then takes the box itself, so there is no view of the frame.",
+			Text:    "A go statement starts a puroutine that runs on its own, and may still be running after the function that started it returns. A view of that function's frame passed to it could then point at reclaimed memory.\nPass the value itself, which copies it, or moves it if it is an owner. To run a method of an owned or synced box on the new puroutine, start it directly (go p.Serve()): the puroutine then takes the box itself, so there is no view of the frame. To let the new puroutine use the frame, start it with a sync.Scope declared in the function (s.Task(func() {...})), which waits for it before its block ends.",
 			Why:     whyFrame,
 			Spec:    pspec("6.3", "Views"),
 			Example: "go handle(&req)",
@@ -63,6 +65,62 @@ func init() {
 			Spec:    pspec("4.5", "Closures do not outlive their frame"),
 			Example: "var first func() int\nfor i := 0; i < 3; i++ {\n\tif i == 0 {\n\t\tfirst = func() int { return i * 10 }\n\t}\n}",
 			Fixed:   "var first int\nfor i := 0; i < 3; i++ {\n\tif i == 0 {\n\t\tfirst = i * 10\n\t}\n}",
+		},
+		&Entry{
+			Code: ScopeOutlivesVar, Name: "ScopeOutlivesVar",
+			Text:    "A task started by s.Task holds a pointer, slice or function literal that looks at a variable whose storage is reused before s waits for the task. A variable declared in a loop body is new in each iteration in Go, but in Plutonium every iteration reuses the same memory, so a later iteration would overwrite what the task is still looking at.\nThe task takes its own copy of each such variable that it uses directly, so use the variable itself in the function literal rather than a view of it. Or wait for the task before the iteration ends, with s.Wait() at the end of the loop body.",
+			Why:     whyScope,
+			Spec:    pspec("4.11", "Scoped puroutines"),
+			Example: "for _, line := range lines {\n\tvar buf [64]byte\n\tv := buf[:copy(buf[:], line)]\n\ts.Task(func() { send(v) })\n}",
+			Fixed:   "for _, line := range lines {\n\tvar buf [64]byte\n\tn := copy(buf[:], line)\n\ts.Task(func() { send(buf[:n]) })\n}",
+		},
+		&Entry{
+			Code: ScopeRace, Name: "ScopeRace",
+			Text:    "A task started by s.Task uses a variable, or memory a variable points to, at the same time as another task or the function that started it, and one of them writes it. Two tasks writing one place at once can lose an update, and a value larger than a word can be read half written: a data race.\nShare such a place only under one lock that every use holds (the compiler infers which), use a type from pluto/sync/atomic, give each task its own part of a slice or array (x[i] with i the loop variable), or read the result after s.Wait(), which waits for the tasks.",
+			Why:     whyRace,
+			Spec:    pspec("4.11", "Scoped puroutines"),
+			Example: "var total int\nfor _, n := range counts {\n\ts.Task(func() { total += n })\n}",
+			Fixed:   "var mu sync.Mutex\nvar total int\nfor _, n := range counts {\n\ts.Task(func() {\n\t\tmu.Lock()\n\t\ttotal += n\n\t\tmu.Unlock()\n\t})\n}",
+		},
+		&Entry{
+			Code: ScopeNotPartitioned, Name: "ScopeNotPartitioned",
+			Text:    "Several tasks started by s.Task write elements of one slice or array, and the compiler cannot see that no two of them write the same element. It can see that for x[i], where i is the variable of the loop that starts the tasks (each task takes its own i), for a window x[i*k:(i+1)*k] of such an i, and for x[:m] in one task and x[m:] in another.\nIndex by the loop variable, give each task a window of the slice and index within it, or send the results on a channel and store them in the function that started the tasks.",
+			Why:     whyRace,
+			Spec:    pspec("4.11", "Scoped puroutines"),
+			Example: "for i := range in {\n\ts.Task(func() { out[idx[i]] = f(in[i]) })\n}",
+			Fixed:   "for i := range in {\n\ts.Task(func() { out[i] = f(in[i]) })\n}",
+		},
+		&Entry{
+			Code: ScopeMoveInUse, Name: "ScopeMoveInUse",
+			Text:    "A variable is moved or dropped while tasks started by s.Task may still use it. Moving an owner leaves the variable empty, and dropping it frees what it owns, so the tasks would use freed memory.\nWait for the tasks first, with s.Wait(), then move or drop the variable.",
+			Why:     whyScope,
+			Spec:    pspec("4.11", "Scoped puroutines"),
+			Example: "s.Task(func() { fill(&buf) })\nconsume(buf)",
+			Fixed:   "s.Task(func() { fill(&buf) })\ns.Wait()\nconsume(buf)",
+		},
+		&Entry{
+			Code: ScopeMoved, Name: "ScopeMoved",
+			Text:    "A sync.Scope that has started tasks is moved: assigned, passed or returned. The tasks it started find it at its address, to tell it when they return, so after a move nothing would wait for them in the right place.\nKeep the Scope in the variable that started the tasks. To wait for the tasks elsewhere, pass the work instead, or call s.Wait() before the Scope goes.",
+			Why:     whyScope,
+			Spec:    pspec("4.11", "Scoped puroutines"),
+			Example: "var s sync.Scope\ns.Task(work)\nreturn s",
+			Fixed:   "var s sync.Scope\ns.Task(work)\ns.Wait()",
+		},
+		&Entry{
+			Code: ScopeConcurrentCall, Name: "ScopeConcurrentCall",
+			Text:    "A function literal is passed to a function that calls it from several tasks at once, and the literal writes a variable it captures. The calls would write that variable at the same time: a data race.\nUse an atomic type for the variable, or lock a mutex around the write in the literal.",
+			Why:     whyRace,
+			Spec:    pspec("4.11", "Scoped puroutines"),
+			Example: "count := 0\nparallel.Map(names, lens, func(s string) int { count++; return len(s) })",
+			Fixed:   "var count atomic.Int64\nparallel.Map(names, lens, func(s string) int { count.Add(1); return len(s) })",
+		},
+		&Entry{
+			Code: ScopeTakenWrite, Name: "ScopeTakenWrite",
+			Text:    "A task started by s.Task changes a variable that it takes: the variable's block (a loop body, or the loop's own variables) may end before s waits for the task, so the task gets its own copy of the variable when s.Task runs, as each iteration of a Go loop gets its own variables. The function that started the task uses the variable afterwards, and would not see the change.\nDeclare the variable inside the function literal if only the task needs it. If the function that started the task needs the result, declare the variable before the loop and give each task its own part of it (results[i] = ...), or wait for the task with s.Wait() in the same block, before the variable is used again.",
+			Why:     whyScope,
+			Spec:    pspec("4.11", "Scoped puroutines"),
+			Example: "for _, it := range items {\n\tn := 0\n\ts.Task(func() { n = work(it) })\n\ts.Wait()\n\tif ok {\n\t\tcontinue\n\t}\n\tprintln(n)\n}",
+			Fixed:   "for i, it := range items {\n\ts.Task(func() { results[i] = work(it) })\n}\ns.Wait()",
 		},
 		&Entry{
 			Code: RaceSendView, Name: "RaceSendView",

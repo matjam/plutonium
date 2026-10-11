@@ -11,6 +11,9 @@ $DIR/main.p:17:5: cannot start square with go: it holds a function literal that 
     Library functions that start a puroutine with a func argument, such as
     sync.WaitGroup.Go and time.AfterFunc, follow the same rule and the compiler
     reports them the same way.
+    To let the puroutine use the function's variables, start a function literal
+    with a sync.Scope declared in the function instead: s.Task(func() {...})
+    waits for it before s's block ends.
     Go moves captured variables and the receivers of method values to the heap.
     Plutonium never allocates behind the program's back, so the record stays in
     its frame (spec section 4.5).

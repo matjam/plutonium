@@ -226,7 +226,11 @@ func (s *fnState) assignStmt(st *ast.AssignStmt) {
 			res = s.shift(op, old.v, T, y.v, y.T, st.Pos())
 		} else {
 			y := s.exprAs(st.Rhs[0], T)
-			res = s.arith(op, old.v, y.v, T, st.Pos())
+			if s.l.scoped.Checked[st] {
+				res = s.checkedArith(op, old.v, y.v, T, st.Pos())
+			} else {
+				res = s.arith(op, old.v, y.v, T, st.Pos())
+			}
 		}
 		s.storeLV(lv, scalarValue(res, T))
 		return
@@ -1006,6 +1010,7 @@ func (s *fnState) moveOnReturn(e ast.Expr, v value, T types2.Type, i int, moved 
 	}
 	moved[obj] = true
 	addr := s.vars[obj]
+	s.checkScopeMove(addr, T)
 	s.move(s.results[i], addr, s.l.sizeof(T))
 	s.zero(addr, s.l.sizeof(T))
 	return true

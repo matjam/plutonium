@@ -181,7 +181,7 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 		return err
 	}
 	// Data races, once every view is known to stay within its lifetime.
-	if err := race.Check(prog); err != nil {
+	if err := race.CheckWith(prog, info); err != nil {
 		return err
 	}
 	if err := optimize(cfg, sp, prog); err != nil {

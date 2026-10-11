@@ -17,6 +17,7 @@ The compiler is written in Go. Pipeline:
 | scanner, parser, AST (forked from Go) | `internal/syntax/...` |
 | type checker (forked go/types + Plutonium types) | `internal/types2` |
 | package loading, build tags, `pluto.mod` | `internal/load` |
+| scoped tasks of `sync.Scope`, for the checks and lowering (language spec 19.4) | `internal/scoped` |
 | move checker for owners (language spec 6.4) | `internal/moves` |
 | stack escape analysis (language spec 6.3) | `internal/escape` |
 | data race check (language spec 6.11) | `internal/race` |

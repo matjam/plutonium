@@ -139,8 +139,20 @@ const (
 	SliceLitOwners   Code = "E3312" // a slice literal with owner elements
 )
 
-// Data races (internal/race): E3500-E3599. E3400-E3499 are kept for the
-// sharing check of scoped tasks.
+// Scoped puroutines (sync.Scope, language spec section 4.11): what their
+// tasks may use (internal/escape, internal/moves) and how they share the
+// frame (internal/race).
+const (
+	ScopeOutlivesVar    Code = "E3401" // a running scoped task holds a view of storage that ends before its join
+	ScopeRace           Code = "E3402" // the frame used by a scoped task and another party at once, one writing, without a common lock
+	ScopeNotPartitioned Code = "E3403" // writes to elements the compiler cannot prove each task has to itself
+	ScopeMoveInUse      Code = "E3404" // moving or dropping a variable that a running scoped task uses
+	ScopeMoved          Code = "E3405" // moving a Scope that has started tasks
+	ScopeConcurrentCall Code = "E3406" // a literal that writes its captures, passed where it is called by several tasks at once
+	ScopeTakenWrite     Code = "E3407" // a scoped task changes a variable it takes, which the starting function uses afterwards
+)
+
+// Data races (internal/race): E3500-E3599.
 const (
 	RaceSendView  Code = "E3501" // a view of memory that may change crosses to another task
 	RaceNoLock    Code = "E3502" // shared data written by several tasks with no one lock held at every write

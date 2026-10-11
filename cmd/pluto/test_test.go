@@ -95,6 +95,8 @@ func TestPlutoTest(t *testing.T) {
     2+2 != 5
     deferred in check(2)
     deferred in the test
+--- FAIL: TestScope (T)
+    stop while tasks run
 FAIL
 FAIL	example.com/testpkg/calc	T
 FAIL
@@ -126,6 +128,9 @@ FAIL
     deferred in check(2)
     deferred in the test
 --- FAIL: TestCleanup (T)
+=== RUN   TestScope
+    stop while tasks run
+--- FAIL: TestScope (T)
 FAIL
 FAIL	example.com/testpkg/calc	T
 FAIL

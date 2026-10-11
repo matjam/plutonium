@@ -37,6 +37,10 @@ func (w *walker) call(e *ast.CallExpr) []tset {
 	if tv.IsBuiltin() {
 		return w.builtin(e)
 	}
+	if st := w.a.scoped.Tasks[e]; st != nil {
+		w.scopedTask(e, st)
+		return nil
+	}
 	t := w.target(e)
 	if t.ring != nil {
 		return w.ringCall(e, t)

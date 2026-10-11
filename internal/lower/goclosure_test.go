@@ -142,14 +142,14 @@ func TestGoCapturingLiteralFix(t *testing.T) {
 			name:    "wait group",
 			imports: "\"pluto/sync\"",
 			body:    "var wg sync.WaitGroup\ngo func() { defer wg.Done() }()",
-			want:    []string{"wg has type sync.WaitGroup, which must not be copied", "var wg sync.WaitGroup // at package level; go func(wg *sync.WaitGroup) {...}(&wg)"},
+			want:    []string{"wg has type sync.WaitGroup, which must not be copied, so start the literal with a sync.Scope, which waits for it and lets it use wg: var s sync.Scope; s.Task(func() {...})", "var wg sync.WaitGroup // at package level", "go func(wg *sync.WaitGroup) {"},
 			notWant: []string{"pluto/sync", "pass it as an argument"},
 		},
 		{
 			name:    "alias",
 			imports: "stdsync \"pluto/sync\"",
 			body:    "var mu stdsync.Mutex\ngo func() { mu.Lock() }()",
-			want:    []string{"mu has type stdsync.Mutex, which must not be copied", "var mu stdsync.Mutex // at package level"},
+			want:    []string{"mu has type stdsync.Mutex, which must not be copied", "var s stdsync.Scope", "var mu stdsync.Mutex // at package level"},
 		},
 		{
 			name:    "struct holding a mutex",

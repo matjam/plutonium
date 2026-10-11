@@ -20,6 +20,9 @@ import (
 //	&      the address of what the path before it names
 //	#      memory an owner owns through its views: the steps after it are
 //	       not told apart, and it stands for all of that memory
+//	@P     after [] or %: the part P of those elements, which an index or
+//	       slice expression selects (scope.go): @c3 is element 3; the
+//	       others are told apart only by the check of scoped tasks
 //
 // A path that ends in & is a pointer to the place the path before it names;
 // any other path names the value stored at that place. Dereferencing a
@@ -63,7 +66,7 @@ type vpath struct {
 }
 
 func isDelim(c byte) bool {
-	return c == '.' || c == '*' || c == '%' || c == '[' || c == '&' || c == '$' || c == '#'
+	return c == '.' || c == '*' || c == '%' || c == '[' || c == '&' || c == '$' || c == '#' || c == '@'
 }
 
 // steps splits a path into its steps.
@@ -81,7 +84,7 @@ func steps(p string) []string {
 func stepEnd(p string, i int) int {
 	j := i + 1
 	switch p[i] {
-	case '.':
+	case '.', '@':
 		for j < len(p) && !isDelim(p[j]) {
 			j++
 		}
@@ -175,13 +178,113 @@ func (r root) key() string {
 func stripOwned(p string) string { return strings.TrimSuffix(p, "#") }
 
 // overlaps reports whether places a and b share memory: one is within the
-// other.
+// other, and no part of elements they select is known to be another's.
 func overlaps(a, b vpath) bool {
 	if a.root != b.root {
 		return false
 	}
 	pa, pb := stripOwned(a.path), stripOwned(b.path)
-	return within(pa, pb) || within(pb, pa)
+	sa, sb := stripParts(pa), stripParts(pb)
+	if !within(sa, sb) && !within(sb, sa) {
+		return false
+	}
+	return !partsDisjoint(pa, pb, nil)
+}
+
+// stripParts removes the part steps of a path.
+func stripParts(p string) string {
+	if strings.IndexByte(p, '@') < 0 {
+		return p
+	}
+	var b strings.Builder
+	for i := 0; i < len(p); {
+		j := stepEnd(p, i)
+		if p[i] != '@' {
+			b.WriteString(p[i:j])
+		}
+		i = j
+	}
+	return b.String()
+}
+
+// A part step is an element part (@c, a constant index; @t, the index
+// variable of a scoped task; @e, the variable of a split) or a window part (@k, @w: a window of a
+// scoped task; @lo, @hi: the two sides of a split), which moves the base
+// of the indexes after it.
+func elemPart(s string) bool { return len(s) > 1 && (s[1] == 'c' || s[1] == 't' || s[1] == 'e') }
+
+// lastLoad returns the index of the last step of ss that follows a
+// pointer, or -1.
+func lastLoad(ss []string) int {
+	n := -1
+	for k, s := range ss {
+		if s == "*" || s == "%" || s[0] == '$' || s == "#" {
+			n = k
+		}
+	}
+	return n
+}
+
+// alignParts walks the steps of two paths that overlap without their
+// parts, pairing the part steps after the last pointer each follows, and
+// calls pair for each pair (with "" for a part only one has). It stops,
+// returning false, where the parts make the rest incomparable: different
+// windows, or a window on one side only. Parts before a pointer is
+// followed say only which pointer was loaded, not where it points.
+func alignParts(pa, pb string, pair func(x, y string) bool) bool {
+	as, bs := steps(pa), steps(pb)
+	la, lb := lastLoad(as), lastLoad(bs)
+	i, j := 0, 0
+	for i < len(as) && j < len(bs) {
+		x, y := as[i], bs[j]
+		px, py := x[0] == '@', y[0] == '@'
+		after := i > la && j > lb
+		switch {
+		case px && py:
+			if after {
+				if pair(x, y) {
+					return true
+				}
+				if x != y && (!elemPart(x) || !elemPart(y)) {
+					return false
+				}
+			}
+			i++
+			j++
+		case px:
+			if after && !elemPart(x) {
+				return false
+			}
+			i++
+		case py:
+			if after && !elemPart(y) {
+				return false
+			}
+			j++
+		case x == y:
+			i++
+			j++
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+// partsDisjoint reports whether two places whose paths overlap without
+// their parts select elements that cannot meet: different constant
+// elements of one array or slice, or parts that disjoint (when not nil)
+// says are apart.
+func partsDisjoint(pa, pb string, disjoint func(a, b string) bool) bool {
+	if strings.IndexByte(pa, '@') < 0 || strings.IndexByte(pb, '@') < 0 {
+		return false
+	}
+	return alignParts(pa, pb, func(x, y string) bool {
+		if x != y && x[1] == 'c' && y[1] == 'c' {
+			return true
+		}
+		return disjoint != nil && disjoint(x, y)
+	})
 }
 
 // within reports whether place q is part of place p's own storage: p's

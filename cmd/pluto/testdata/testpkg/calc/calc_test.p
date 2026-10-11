@@ -1,6 +1,9 @@
 package calc
 
-import "pluto/testing"
+import (
+	"pluto/sync"
+	"pluto/testing"
+)
 
 func TestAdd(t *testing.T) {
 	if got := Add(2, 3); got != 5 {
@@ -45,6 +48,24 @@ func check(t *testing.T, n int) {
 		t.Fatalf("%d+%d != 5", n, n)
 	}
 	t.Log("not reached either")
+}
+
+// TestScope stops with Fatal while tasks of a sync.Scope may still run:
+// the test function leaves through its return path, so its deferred call
+// releases the tasks, and the Scope waits for them before the frame they
+// use is gone.
+func TestScope(t *testing.T) {
+	release := make(chan bool)
+	defer close(release)
+	var sums [4]int
+	var s sync.Scope
+	for i := range sums {
+		s.Task(func() {
+			<-release
+			sums[i] = Add(i, i)
+		})
+	}
+	t.Fatal("stop while tasks run")
 }
 
 func BenchmarkAdd(b *testing.B) {

@@ -2,9 +2,11 @@ $DIR/main.p:6:6: a function literal that captures variables cannot be started wi
     A function literal that uses variables of the function around it reaches
     them in that function's stack frame. A go statement may start it after that
     function has returned, when the frame is gone.
-    Pass the values the literal needs as arguments: they are copied when the go
-    statement runs. Do not pass a Mutex, a WaitGroup or another sync type this
-    way, since the copy is a different one: pass a pointer to it.
+    Start the literal with a sync.Scope instead: s.Task(func() {...}) waits for
+    it before s's block ends, so it may use the function's variables, a Mutex or
+    a WaitGroup among them. Or pass the values the literal needs as arguments:
+    they are copied when the go statement runs. Do not pass a Mutex, a WaitGroup
+    or another sync type this way, since the copy is a different one.
     Go moves captured variables to the heap. Plutonium never allocates behind
     the program's back, so captured variables stay in their frame (spec section
     4.5).

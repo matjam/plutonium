@@ -409,6 +409,10 @@ func (f *fn) elems(e *ast.CompositeLit, elem types2.Type, to string) {
 // funcLit checks a function literal where it is made: the owners it
 // captures must hold a value here, and its body is checked on its own.
 func (f *fn) funcLit(lit *ast.FuncLit) {
+	if t := f.c.scoped.Lits[lit]; t != nil {
+		f.scopedTask(t)
+		return
+	}
 	ast.Inspect(lit.Body, func(n ast.Node) bool {
 		id, ok := n.(*ast.Ident)
 		if !ok {

@@ -1,0 +1,3 @@
+$DIR/main.p:27:7: cannot move s: it starts tasks at main.p:26, which find it at its address
+$DIR/main.p:39:11: b was taken by the task started by s.Task at line 38, so it can no longer be used here
+$DIR/main.p:18:3: the task started here takes v, a view of buf, which the loop at main.p:15 reuses before s waits for the task

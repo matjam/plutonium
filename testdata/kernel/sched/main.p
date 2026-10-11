@@ -367,6 +367,29 @@ func main() int64 {
 	tk.Stop()
 	alloc.Free(tk)
 	println("ticker", t2.Sub(t1) >= 2*time.Millisecond, t3.After(t2))
+
+	// Scoped tasks (language spec section 4.11) on this scheduler: they use
+	// main's frame, and the Scope waits for them where its block ends.
+	// rt.WaitScopes, which a kernel calls before it reclaims the stack of a
+	// task that did not return, waits for the tasks of the Scopes the task
+	// started (abi.md section 12.10).
+	var cubes [4]int
+	{
+		var s sync.Scope
+		for i := range cubes {
+			s.Task(func() { cubes[i] = i * i * i })
+		}
+	}
+	println("cubes", cubes[0]+cubes[1]+cubes[2]+cubes[3])
+	var marked atomic.Int64
+	{
+		var s sync.Scope
+		for range 3 {
+			s.Task(func() { marked.Add(1) })
+		}
+		rt.WaitScopes(rt.CurrentTask())
+		println("waited", marked.Load())
+	}
 	x86.Cli()
 	println("done")
 	return 0

@@ -1,0 +1,6 @@
+$DIR/main.p:15:19: the tasks started at main.p:15 may write the same element of out
+$DIR/main.p:26:9: results[0] is read here while the task started at main.p:24 may write it
+$DIR/main.p:34:19: total is written by the tasks started at main.p:34 at the same time as each other
+$DIR/main.p:51:10: cannot move b here: the task started at main.p:50 may still be using it
+$DIR/main.p:59:19: the task started at main.p:59 changes n, but has its own copy of it, so the change is not seen at main.p:60
+$DIR/main.p:80:36: Map calls f from several tasks at once, and the function literal passed here writes calls

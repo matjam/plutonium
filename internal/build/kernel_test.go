@@ -35,6 +35,8 @@ func TestKernelScheduler(t *testing.T) {
 		"woke in order 1 2 3\n" +
 		"select timed out\n" +
 		"ticker true true\n" +
+		"cubes 36\n" +
+		"waited 3\n" +
 		"done\n"
 	for _, level := range []int{0, 2} {
 		t.Run("O"+string(rune('0'+level)), func(t *testing.T) {

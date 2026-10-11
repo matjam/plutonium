@@ -1,19 +1,26 @@
-$DIR/main.p:19:6: a function literal that captures variables cannot be started with go: wg lives in the starting frame, which may be gone before the puroutine runs (spec section 4.7); wg has type stdsync.WaitGroup, which must not be copied, so declare it at package level and pass a pointer: var wg stdsync.WaitGroup // at package level; go func(wg *stdsync.WaitGroup, i int) {...}(&wg, i)
+$DIR/main.p:19:6: a function literal that captures variables cannot be started with go: wg lives in the starting frame, which may be gone before the puroutine runs (spec section 4.7); wg has type stdsync.WaitGroup, which must not be copied, so start the literal with a stdsync.Scope, which waits for it and lets it use wg: var s stdsync.Scope; s.Task(func() {...})
     A function literal that uses variables of the function around it reaches
     them in that function's stack frame. A go statement may start it after that
     function has returned, when the frame is gone.
-    Pass the values the literal needs as arguments: they are copied when the go
-    statement runs. Do not pass a Mutex, a WaitGroup or another sync type this
-    way, since the copy is a different one: pass a pointer to it.
+    Start the literal with a sync.Scope instead: s.Task(func() {...}) waits for
+    it before s's block ends, so it may use the function's variables, a Mutex or
+    a WaitGroup among them. Or pass the values the literal needs as arguments:
+    they are copied when the go statement runs. Do not pass a Mutex, a WaitGroup
+    or another sync type this way, since the copy is a different one.
     wg holds a value of type stdsync.WaitGroup. Passing it as an argument would
     copy it, and a copy is a separate value: calling Done or Unlock on the copy
     never reaches the original, so a Wait or Lock on the original may never
-    return. Pass a pointer to one that outlives the puroutine instead: a package
-    variable, or a field of memory the puroutine owns.
+    return. A sync.Scope declared in this function waits for the tasks it starts
+    before its block ends, so they may use wg where it is.
     Go moves captured variables to the heap. Plutonium never allocates behind
     the program's back, so captured variables stay in their frame (spec section
     4.5).
-    Declare it at package level and pass a pointer:
+    Start the literal with a stdsync.Scope:
+        var s stdsync.Scope
+        s.Task(func() {
+            ...
+        })
+    Or declare it at package level and pass a pointer:
         var wg stdsync.WaitGroup // at package level
         go func(wg *stdsync.WaitGroup, i int) {
             ...
@@ -21,22 +28,29 @@ $DIR/main.p:19:6: a function literal that captures variables cannot be started w
     (see "go starts a puroutine" in the Plutonium spec, section 4.7)
     (run "pluto explain E2590" for a longer explanation)
 
-$DIR/main.p:28:5: a function literal that captures variables cannot be started with go: s lives in the starting frame, which may be gone before the puroutine runs (spec section 4.7); s has type stats, which holds a value of type stdsync.Mutex and must not be copied, so declare it at package level and pass a pointer: var s stats // at package level; go func(s *stats, hits *atomic.Int64) {...}(&s, &hits)
+$DIR/main.p:28:5: a function literal that captures variables cannot be started with go: s lives in the starting frame, which may be gone before the puroutine runs (spec section 4.7); s has type stats, which holds a value of type stdsync.Mutex and must not be copied, so start the literal with a stdsync.Scope, which waits for it and lets it use s: var sc stdsync.Scope; sc.Task(func() {...})
     A function literal that uses variables of the function around it reaches
     them in that function's stack frame. A go statement may start it after that
     function has returned, when the frame is gone.
-    Pass the values the literal needs as arguments: they are copied when the go
-    statement runs. Do not pass a Mutex, a WaitGroup or another sync type this
-    way, since the copy is a different one: pass a pointer to it.
+    Start the literal with a sync.Scope instead: s.Task(func() {...}) waits for
+    it before s's block ends, so it may use the function's variables, a Mutex or
+    a WaitGroup among them. Or pass the values the literal needs as arguments:
+    they are copied when the go statement runs. Do not pass a Mutex, a WaitGroup
+    or another sync type this way, since the copy is a different one.
     s holds a value of type stdsync.Mutex. Passing it as an argument would copy
     it, and a copy is a separate value: calling Done or Unlock on the copy never
-    reaches the original, so a Wait or Lock on the original may never return.
-    Pass a pointer to one that outlives the puroutine instead: a package
-    variable, or a field of memory the puroutine owns.
+    reaches the original, so a Wait or Lock on the original may never return. A
+    sync.Scope declared in this function waits for the tasks it starts before
+    its block ends, so they may use s where it is.
     Go moves captured variables to the heap. Plutonium never allocates behind
     the program's back, so captured variables stay in their frame (spec section
     4.5).
-    Declare it at package level and pass a pointer:
+    Start the literal with a stdsync.Scope:
+        var sc stdsync.Scope
+        sc.Task(func() {
+            ...
+        })
+    Or declare it at package level and pass a pointer:
         var s stats // at package level
         var hits atomic.Int64 // at package level
         go func(s *stats, hits *atomic.Int64) {
@@ -49,9 +63,11 @@ $DIR/main.p:35:5: a function literal that captures variables cannot be started w
     A function literal that uses variables of the function around it reaches
     them in that function's stack frame. A go statement may start it after that
     function has returned, when the frame is gone.
-    Pass the values the literal needs as arguments: they are copied when the go
-    statement runs. Do not pass a Mutex, a WaitGroup or another sync type this
-    way, since the copy is a different one: pass a pointer to it.
+    Start the literal with a sync.Scope instead: s.Task(func() {...}) waits for
+    it before s's block ends, so it may use the function's variables, a Mutex or
+    a WaitGroup among them. Or pass the values the literal needs as arguments:
+    they are copied when the go statement runs. Do not pass a Mutex, a WaitGroup
+    or another sync type this way, since the copy is a different one.
     Go moves captured variables to the heap. Plutonium never allocates behind
     the program's back, so captured variables stay in their frame (spec section
     4.5).

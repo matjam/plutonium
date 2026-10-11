@@ -74,7 +74,7 @@ func reader(done chan bool) {
 
 func writer(done chan bool) {
 	rw.RLock()
-	table[1] = 2
+	table[0] = 2
 	rw.RUnlock()
 	done <- true
 }
@@ -85,7 +85,7 @@ func main() {
 	go writer(done)
 	<-done
 	<-done
-}`, []string{"table[i] is written here with no lock that guards it", "while holding rw only for reading"}},
+}`, []string{"table[0] is written here with no lock that guards it", "while holding rw only for reading"}},
 
 	{"two different locks", `
 import "pluto/sync"

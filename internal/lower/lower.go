@@ -22,6 +22,7 @@ import (
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/moves"
+	"github.com/matjam/plutonium/internal/scoped"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -65,6 +66,7 @@ type Lowerer struct {
 	queue          []*funcJob
 	dropNeeds      map[string]bool // whether destroying a value of a type runs code, by type (drop.go)
 	moves          *moves.Info     // moves and temporaries (scope.go)
+	scoped         *scoped.Info    // the scoped tasks of sync.Scope (scope_task.go)
 	globals        map[*types2.Var]*ssa.Sym
 	strs           map[string]*ssa.Sym
 	closureRecords map[*ssa.Sym]*ssa.Sym      // static closure record per function used as a value
@@ -212,6 +214,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		// account of moves.
 		l.moves, _ = moves.Analyze(prog)
 	}
+	l.scoped = scoped.Analyze(prog)
 	for _, p := range prog.Packages {
 		l.pkgOf[p.Types] = p
 		for _, f := range p.Files {

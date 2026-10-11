@@ -629,6 +629,9 @@ func (s *fnState) binary(e *ast.BinaryExpr, T types2.Type) value {
 	}
 	x := s.exprAs(e.X, opT).v
 	y := s.exprAs(e.Y, opT).v
+	if s.l.scoped.Checked[e] {
+		return scalarValue(s.checkedArith(e.Op, x, y, opT, e.Pos()), T)
+	}
 	return scalarValue(s.arith(e.Op, x, y, opT, e.Pos()), T)
 }
 

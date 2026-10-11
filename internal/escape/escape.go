@@ -34,6 +34,7 @@ import (
 
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/load"
+	"github.com/matjam/plutonium/internal/scoped"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
@@ -72,8 +73,9 @@ type pkgInfo struct {
 }
 
 type analyzer struct {
-	prog *load.Program
-	fset *token.FileSet
+	scoped *scoped.Info // the scoped tasks of sync.Scope (scope.go)
+	prog   *load.Program
+	fset   *token.FileSet
 
 	// Type information of every package, merged: AST nodes are unique.
 	types      map[ast.Expr]types2.TypeAndValue
@@ -119,6 +121,7 @@ type analyzer struct {
 
 func newAnalyzer(prog *load.Program, userResultHolds bool) *analyzer {
 	a := &analyzer{
+		scoped:          scoped.Analyze(prog),
 		userResultHolds: userResultHolds,
 		prog:            prog,
 		fset:            prog.Fset,

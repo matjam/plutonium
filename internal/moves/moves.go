@@ -19,6 +19,7 @@ import (
 
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/load"
+	"github.com/matjam/plutonium/internal/scoped"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
@@ -64,6 +65,7 @@ func Analyze(prog *load.Program) (*Info, error) {
 		selections: map[*ast.SelectorExpr]*types2.Selection{},
 		implicits:  map[ast.Node]types2.Object{},
 		seen:       map[string]bool{},
+		scoped:     scoped.Analyze(prog),
 	}
 	for _, p := range prog.Packages {
 		for k, v := range p.Info.Types {
@@ -126,6 +128,9 @@ type checker struct {
 
 	errs diag.List
 	seen map[string]bool
+
+	scoped     *scoped.Info // the scoped tasks of sync.Scope (scope.go)
+	taskBodies map[*ast.BlockStmt]*ast.FuncLit
 }
 
 // report records an error once per position and code.
@@ -216,6 +221,7 @@ const (
 	mvMethodValue                 // bound into a method value
 	mvAssert                      // asserted out of an owning interface
 	mvGoRecv                      // the owned box a go statement calls a method of
+	mvTask                        // taken by a scoped task (s.Task)
 )
 
 // A move records where and how a variable's value left it.
@@ -368,6 +374,14 @@ func (c *checker) checkFunc(ft *ast.FuncType, recv *ast.FieldList, body *ast.Blo
 		}
 		return true
 	})
+	if lit := c.litOf(body); lit != nil {
+		// A scoped task's literal owns the variables it takes.
+		if t := c.scoped.Lits[lit]; t != nil {
+			for v := range t.Taken {
+				f.vars[v] = true
+			}
+		}
+	}
 	for i := 0; i < 50; i++ {
 		f.changed = false
 		f.walk(body)
@@ -430,6 +444,9 @@ func (f *fn) use(id *ast.Ident, v *types2.Var) {
 
 // moveVar moves v's value out at id.
 func (f *fn) moveVar(id *ast.Ident, v *types2.Var, mv move) {
+	if mv.kind != mvDrop && f.c.scoped.Scopes[v] != nil && f.report {
+		f.c.report(f.c.scopeMovedDiag(id, v, f.c.scoped.Scopes[v]))
+	}
 	if f.captured(v) {
 		if f.report {
 			f.c.report(f.c.capturedDiag(id, v))

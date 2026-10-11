@@ -178,6 +178,7 @@ func (x *expander) expand(f *function, env []origins, locks lockset, pre bool) {
 			continue
 		}
 		x.emit(&access{
+			typ:    acc.typ,
 			tkey:   acc.tkey,
 			place:  acc.place,
 			write:  acc.write,
@@ -671,7 +672,11 @@ func pathText(p string) string {
 		case strings.HasPrefix(s, "."):
 			b.WriteString(s)
 		case s == "[]" || s == "%":
-			b.WriteString("[i]")
+			if i+1 < len(ss) && strings.HasPrefix(ss[i+1], "@c") {
+				b.WriteString("[" + ss[i+1][2:] + "]")
+			} else {
+				b.WriteString("[i]")
+			}
 		case s == "*" || s[0] == '$':
 			if i == len(ss)-1 {
 				return "*(" + b.String() + ")"

@@ -49,6 +49,10 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 		fun = ix.X
 	}
 
+	if t := s.l.scoped.Tasks[e]; t != nil {
+		s.scopedTask(e, t)
+		return nil
+	}
 	s.goFuncCall(e, fun)
 
 	// Method calls, and constructions of union variants (U.V(payload)).

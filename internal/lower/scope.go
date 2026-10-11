@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"github.com/matjam/plutonium/internal/scoped"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/types2"
@@ -79,7 +80,54 @@ func (s *fnState) tempSlot(e ast.Expr, T types2.Type) *ssa.Value {
 
 // movedOut reads a variable whose value moves out at id, and clears it.
 func (s *fnState) movedOut(lv lvalue) value {
+	s.checkScopeMove(lv.ptr, lv.T)
 	v := s.materialize(s.loadLV(lv))
 	s.zero(lv.ptr, s.l.sizeof(unwrap(lv.T)))
 	return v
+}
+
+// checkScopeMove checks, before a value of type T at ptr moves, that no
+// sync.Scope in it has tasks running (rt.joinMoved): they would report to
+// the address it leaves.
+func (s *fnState) checkScopeMove(ptr *ssa.Value, T types2.Type) {
+	for _, off := range s.l.scopeOffsets(unwrap(T), 0) {
+		s.callRuntime("joinMoved", nil, []*ssa.Value{s.offPtr(ptr, off)})
+	}
+}
+
+// scopeOffsets returns the offsets of the sync.Scopes a value of type T
+// holds by value: T itself, its fields, and the elements of short arrays.
+func (l *Lowerer) scopeOffsets(T types2.Type, depth int) []int64 {
+	if scoped.IsScopeType(T) {
+		return []int64{0}
+	}
+	if depth > 4 || !types2.IsOwner(T) {
+		return nil
+	}
+	var out []int64
+	switch u := T.Underlying().(type) {
+	case *types2.Struct:
+		fields := make([]*types2.Var, u.NumFields())
+		for i := range fields {
+			fields[i] = u.Field(i)
+		}
+		offs := l.sizes.Offsetsof(fields)
+		for i, f := range fields {
+			for _, o := range l.scopeOffsets(unwrap(f.Type()), depth+1) {
+				out = append(out, offs[i]+o)
+			}
+		}
+	case *types2.Array:
+		inner := l.scopeOffsets(unwrap(u.Elem()), depth+1)
+		if len(inner) == 0 || u.Len() > 16 {
+			return nil
+		}
+		size := l.sizeof(u.Elem())
+		for i := int64(0); i < u.Len(); i++ {
+			for _, o := range inner {
+				out = append(out, i*size+o)
+			}
+		}
+	}
+	return out
 }

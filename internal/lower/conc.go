@@ -345,12 +345,28 @@ func (s *fnState) goCapturingLiteral(lit *ast.FuncLit, caps []*types2.Var) {
 	if unwrap(v.Type()) != bad {
 		what = fmt.Sprintf("%s has type %s, which holds a value of type %s and", v.Name(), str(v.Type()), str(bad))
 	}
-	d.Msg = prefix + fmt.Sprintf("%s must not be copied, so declare it at package level and pass a pointer: %s; go func(%s) {...}(%s)", what, news[0], strings.Join(params, ", "), strings.Join(args, ", "))
-	d.Text = diag.Lookup(diag.GoCapturingLiteral).Text + fmt.Sprintf("\n%s holds a value of type %s. Passing it as an argument would copy it, and a copy is a separate value: calling Done or Unlock on the copy never reaches the original, so a Wait or Lock on the original may never return. Pass a pointer to one that outlives the puroutine instead: a package variable, or a field of memory the puroutine owns.", v.Name(), str(bad))
-	d.Fix = &diag.Fix{
-		Intro: "Declare it at package level and pass a pointer",
-		Code:  strings.Join(news, "\n") + fmt.Sprintf("\ngo func(%s) {\n\t...\n}(%s)", strings.Join(params, ", "), strings.Join(args, ", ")),
+	sname := "s"
+	for _, c := range caps {
+		if c.Name() == "s" {
+			sname = "sc"
+		}
 	}
+	// The Scope's type as the file would write it: sync.Scope, or under
+	// the name the file imports pluto/sync by.
+	scope := "sync.Scope"
+	if n, ok := unwrap(bad).(*types2.Named); ok && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "pluto/sync" {
+		scope = q(n.Obj().Pkg()) + ".Scope"
+	}
+	d.Msg = prefix + fmt.Sprintf("%s must not be copied, so start the literal with a %s, which waits for it and lets it use %s: var %s %s; %s.Task(func() {...})", what, scope, v.Name(), sname, scope, sname)
+	d.Text = diag.Lookup(diag.GoCapturingLiteral).Text + fmt.Sprintf("\n%s holds a value of type %s. Passing it as an argument would copy it, and a copy is a separate value: calling Done or Unlock on the copy never reaches the original, so a Wait or Lock on the original may never return. A sync.Scope declared in this function waits for the tasks it starts before its block ends, so they may use %s where it is.", v.Name(), str(bad), v.Name())
+	d.Fix = &diag.Fix{
+		Intro: "Start the literal with a " + scope,
+		Code:  fmt.Sprintf("var %s %s\n%s.Task(func() {\n\t...\n})", sname, scope, sname),
+	}
+	d.More = []*diag.Fix{{
+		Intro: "Or declare it at package level and pass a pointer",
+		Code:  strings.Join(news, "\n") + fmt.Sprintf("\ngo func(%s) {\n\t...\n}(%s)", strings.Join(params, ", "), strings.Join(args, ", ")),
+	}}
 	s.l.report(lit.Pos(), d)
 }
 

@@ -456,6 +456,10 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 		d.Msg = fmt.Sprintf("cannot pass %s to a go statement: the new puroutine may outlive %s", x, l.name())
 		add(sentence(about, fmt.Sprintf("The puroutine started here runs on its own, and may still be running after %s returns and %s memory is reclaimed.", e.fn, possessive(l.name()))))
 		a.handOffFixes(d, e, l, "go")
+		if e.call != nil {
+			d.More = append(d.More, &diag.Fix{Intro: fmt.Sprintf("Or start it with a sync.Scope, which waits for its tasks before its block ends, so that they may use %s variables", possessive(e.fn)),
+				Code: fmt.Sprintf("var s sync.Scope\ns.Task(func() { %s })", exprText(e.call))})
+		}
 	case sinkSend:
 		d.Code = diag.SendFrameView
 		d.Msg = fmt.Sprintf("cannot send %s on %s: the receiver may outlive %s", x, exprText(e.ch), l.name())

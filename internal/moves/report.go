@@ -74,6 +74,8 @@ func (c *checker) howMoved(mv *move) string {
 		return "moved to the puroutine started"
 	case mvGoRecv:
 		return "moved to the puroutine started by go " + mv.to + "()"
+	case mvTask:
+		return "taken by the task started by " + mv.to
 	case mvStore:
 		return "moved into " + mv.to
 	case mvDrop:
