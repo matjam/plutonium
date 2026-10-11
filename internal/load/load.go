@@ -64,9 +64,11 @@ type AsmFile struct {
 
 // A Program is every package reachable from a main package.
 type Program struct {
-	Fset     *token.FileSet
-	Main     *Package
-	Packages []*Package // in dependency order: every package after its imports
+	Fset *token.FileSet
+	Main *Package
+	// Packages is every package in initialization order (language spec
+	// section 15.3), which puts every package after its imports.
+	Packages []*Package
 	// Root is the directory that the program's own source files are
 	// named relative to by TrimmedName: the module root (the directory
 	// holding pluto.mod), or the main package's directory when there is no
@@ -132,7 +134,7 @@ func Load(cfg *Config, dir string) (*Program, error) {
 	if root == "" {
 		root = absDir
 	}
-	return &Program{Fset: l.fset, Main: main, Packages: l.order, Root: root}, nil
+	return &Program{Fset: l.fset, Main: main, Packages: l.initOrder(), Root: root}, nil
 }
 
 // TestMainFile is the file name of the main package that LoadTest
@@ -200,7 +202,7 @@ func LoadTest(cfg *Config, target string, gen func(*token.FileSet, *Package) ([]
 	if err != nil {
 		return nil, err
 	}
-	return &Program{Fset: l.fset, Main: main, Packages: l.order, Root: root}, nil
+	return &Program{Fset: l.fset, Main: main, Packages: l.initOrder(), Root: root}, nil
 }
 
 func isStdPath(p string) bool { return p == "pluto" || strings.HasPrefix(p, "pluto/") }
@@ -227,11 +229,12 @@ func newLoader(cfg *Config) *loader {
 
 // loadRuntime loads the packages that are part of every program. The
 // compiler calls into the runtime for panics, memory copies and
-// allocation, and it holds the entry point. Loading it first puts it (and
-// its imports) first in initialisation order. pluto/alloc installs the
-// default allocator in hosted builds; Config.Preload packages come next.
+// allocation, and it holds the entry point. pluto/alloc installs the
+// default allocator in hosted builds; Config.Preload packages replace it
+// (pluto/alloc/debug). initOrder initializes these packages, and what they
+// import, before any other.
 func (l *loader) loadRuntime() error {
-	for _, p := range append([]string{"pluto/rt", "pluto/alloc"}, l.cfg.Preload...) {
+	for _, p := range l.runtimePackages() {
 		src, dir, err := l.resolve(p)
 		if err != nil {
 			return err
@@ -241,6 +244,61 @@ func (l *loader) loadRuntime() error {
 		}
 	}
 	return nil
+}
+
+// runtimePackages returns the import paths of the packages that
+// loadRuntime loads.
+func (l *loader) runtimePackages() []string {
+	return append([]string{"pluto/rt", "pluto/alloc"}, l.cfg.Preload...)
+}
+
+// initOrder returns the loaded packages in the order the program
+// initializes them (language spec section 15.3): first pluto/rt and
+// pluto/alloc (and the Preload packages, which install the default
+// allocator in their place) with the packages they import, then the
+// remaining packages. Within each group, given the packages sorted by
+// import path, each step initializes the first package in the list whose
+// imports are all initialized.
+func (l *loader) initOrder() []*Package {
+	runtime := map[*Package]bool{}
+	var mark func(p *Package)
+	mark = func(p *Package) {
+		if runtime[p] {
+			return
+		}
+		runtime[p] = true
+		for _, dep := range p.Imports {
+			mark(dep)
+		}
+	}
+	for _, ip := range l.runtimePackages() {
+		if p := l.packages[ip]; p != nil {
+			mark(p)
+		}
+	}
+	var first, rest []*Package
+	for _, p := range l.order {
+		if runtime[p] {
+			first = append(first, p)
+		} else {
+			rest = append(rest, p)
+		}
+	}
+	done := map[*Package]bool{}
+	var order []*Package
+	for _, group := range [][]*Package{first, rest} {
+		slices.SortFunc(group, func(a, b *Package) int { return strings.Compare(a.Path, b.Path) })
+		for range group {
+			for _, p := range group {
+				if !done[p] && !slices.ContainsFunc(p.Imports, func(dep *Package) bool { return !done[dep] }) {
+					done[p] = true
+					order = append(order, p)
+					break
+				}
+			}
+		}
+	}
+	return order
 }
 
 // dirPath returns the import path of the package in absDir: its path in

@@ -1,6 +1,45 @@
 package load
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
+
+// TestInitOrder checks the order of package initialization (language spec
+// section 15.3) on a graph of packages: pluto/rt, pluto/alloc, the Preload
+// packages and their imports first, then the rest by import path, each
+// after its imports.
+func TestInitOrder(t *testing.T) {
+	l := newLoader(&Config{Preload: []string{"pluto/alloc/debug"}})
+	add := func(path string, imports ...string) {
+		p := &Package{Path: path}
+		for _, ip := range imports {
+			p.Imports = append(p.Imports, l.packages[ip])
+		}
+		l.packages[path] = p
+		l.order = append(l.order, p) // as loaded: imports first
+	}
+	add("pluto/rt")
+	add("pluto/alloc", "pluto/rt")
+	add("pluto/unicode/utf8")
+	add("pluto/alloc/debug", "pluto/alloc", "pluto/unicode/utf8")
+	add("pluto/strings", "pluto/unicode/utf8")
+	add("example.com/m/d")
+	add("example.com/m/a", "example.com/m/d", "pluto/strings")
+	add("example.com/m/c")
+	add("main", "example.com/m/a", "example.com/m/c")
+	var got []string
+	for _, p := range l.initOrder() {
+		got = append(got, p.Path)
+	}
+	want := []string{
+		"pluto/rt", "pluto/alloc", "pluto/unicode/utf8", "pluto/alloc/debug",
+		"example.com/m/c", "example.com/m/d", "pluto/strings", "example.com/m/a", "main",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("initOrder:\n got %v\nwant %v", got, want)
+	}
+}
 
 // TestTrimmedName checks the file names recorded in debugging information
 // (docs/spec/debugging.md section 2.1).
