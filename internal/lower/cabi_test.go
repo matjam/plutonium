@@ -42,7 +42,11 @@ func TestCSignatureErrors(t *testing.T) {
 		{"export variadic", "//pu:export g\nfunc g(xs ...int) {}\n",
 			"//pu:export function g: variadic functions cannot cross to C"},
 		{"export name used twice", "type P struct{ A, B int32 }\n\n//pu:export g\nfunc g1(p P) int { return 0 }\n\n//pu:export g\nfunc g2(p P) int { return 1 }\n",
-			"//pu:export g: symbol already defined"},
+			"//pu:export g: main.g1 and main.g2 are both exported under one symbol"},
+		{"export name used twice, unwrapped", "//pu:export g\nfunc g1(a, b int64) int64 { return a + b }\n\n//pu:export g\nfunc g2(a, b int64) int64 { return a - b }\n",
+			"//pu:export g: main.g1 and main.g2 are both exported under one symbol"},
+		{"export name used twice, one wrapped", "type P struct{ A, B int32 }\n\n//pu:export g\nfunc g1(a, b int64) int64 { return a + b }\n\n//pu:export g\nfunc g2(p P) int { return 0 }\n",
+			"//pu:export g: main.g1 and main.g2 are both exported under one symbol"},
 		{"export interface method receiver", "type R struct{ s string }\n\n//pu:export g\nfunc (r R) g() {}\n",
 			"//pu:export function g: parameter 1: field s: string has no C equivalent"},
 	}

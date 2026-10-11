@@ -71,6 +71,7 @@ type Lowerer struct {
 	strs           map[string]*ssa.Sym
 	closureRecords map[*ssa.Sym]*ssa.Sym      // static closure record per function used as a value
 	exports        map[*ssa.Sym][]string      // extra symbol names from //pu:export
+	cnames         map[string]*ssa.Sym        // the function exporting each C symbol name
 	interruptSyms  map[*ssa.Sym]bool          // //pu:interrupt functions
 	cfuncs         map[*ssa.Sym]bool          // //pu:extern symbols, called with the C convention
 	statics        int                        // anonymous static objects created
@@ -202,6 +203,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		mapTypes:       map[string]types2.Type{},
 		errorSites:     map[*ast.CallExpr]*ssa.Sym{},
 		exports:        map[*ssa.Sym][]string{},
+		cnames:         map[string]*ssa.Sym{},
 		interruptSyms:  map[*ssa.Sym]bool{},
 		cfuncs:         map[*ssa.Sym]bool{},
 		symFuncs:       map[*ssa.Sym]*types2.Func{},

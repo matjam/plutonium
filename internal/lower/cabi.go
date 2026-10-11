@@ -384,6 +384,9 @@ func (l *Lowerer) checkCDecls() {
 // its signature, otherwise a wrapper that takes System V arguments, calls
 // sym and returns its results the System V way.
 func (l *Lowerer) cExport(fd *ast.FuncDecl, fn *types2.Func, sym *ssa.Sym, name string) {
+	if !l.claimCName(fd, sym, name) {
+		return
+	}
 	if hasDirective(fd.Doc, "interrupt") {
 		// An interrupt handler is entered by the CPU; the extra name is for
 		// assembly that refers to it.
@@ -408,6 +411,20 @@ func (l *Lowerer) cExport(fd *ast.FuncDecl, fn *types2.Func, sym *ssa.Sym, name 
 	l.queue = append(l.queue, &funcJob{sym: wrapper, sig: sig, build: func(s *fnState) {
 		s.exportWrapper(cs, sym, sig)
 	}})
+}
+
+// claimCName records that sym is exported under the C symbol name, reporting
+// E2512 when another function is already exported under it. It returns whether
+// sym may keep the name. It is checked before the internal-ABI short-circuit,
+// so two functions that agree with System V under one name are caught too.
+func (l *Lowerer) claimCName(fd *ast.FuncDecl, sym *ssa.Sym, name string) bool {
+	if other, taken := l.cnames[name]; taken && other != sym {
+		l.errorf(fd.Pos(), diag.DuplicateExport,
+			"//pu:export %s: %s and %s are both exported under one symbol", name, other.Name, sym.Name)
+		return false
+	}
+	l.cnames[name] = sym
+	return true
 }
 
 // cThunk returns an internal-ABI function that calls the C function csym,
