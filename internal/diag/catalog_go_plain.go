@@ -4,6 +4,18 @@ package diag
 // with an explanation in plain words, the section of the Plutonium spec
 // that has the rule, and a fix. Codes not listed here use go/types' description.
 var goPlain = map[string]Entry{
+	"InvalidLen": {
+		Text:    "len takes a string, an array or a pointer to one, a slice, a map, a channel, an owned, shared or synced array, or a value whose type has a method Len() int, such as a library container or a ring; len(E) of an enum type E is its number of members. A Len method with a pointer receiver needs an operand that is addressable or a pointer, as a method call would.\nPass a value of one of these types, or store the value in a variable first.",
+		Spec:    pspec("13.6", "Length and capacity"),
+		Example: "println(len(newRing()))",
+		Fixed:   "r := newRing()\nprintln(len(r))",
+	},
+	"InvalidCap": {
+		Text:    "cap takes an array or a pointer to one, a slice or a channel. Unlike len, it does not call methods: a library container or a ring reports its capacity with a method of its own.\nCall the type's Cap method instead.",
+		Spec:    pspec("13.6", "Length and capacity"),
+		Example: "println(cap(r))",
+		Fixed:   "println(r.Cap())",
+	},
 	"BrokenImport": {
 		Text: "The imported package could not be loaded. Check the import path: standard library packages are under pluto/, and the program's own packages are under the module path in pluto.mod.",
 		Spec: pspec("14.3", "Import declarations"),

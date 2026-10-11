@@ -1,0 +1,17 @@
+$DIR/main.p:15:14: invalid argument: mk() (value of type ring[int, 2]) for built-in len: len calls its Len method, which has a pointer receiver, so the operand must be addressable or a pointer
+    len takes a string, an array or a pointer to one, a slice, a map, a channel,
+    an owned, shared or synced array, or a value whose type has a method Len()
+    int, such as a library container or a ring; len(E) of an enum type E is its
+    number of members. A Len method with a pointer receiver needs an operand
+    that is addressable or a pointer, as a method call would.
+    Pass a value of one of these types, or store the value in a variable first.
+    (see "Length and capacity" in the Plutonium spec, section 13.6)
+    (run "pluto explain E0090" for a longer explanation)
+
+$DIR/main.p:16:14: invalid argument: r (variable of type ring[int, 4]) for built-in cap: cap does not call methods; call its Cap method
+    cap takes an array or a pointer to one, a slice or a channel. Unlike len, it
+    does not call methods: a library container or a ring reports its capacity
+    with a method of its own.
+    Call the type's Cap method instead.
+    (see "Length and capacity" in the Plutonium spec, section 13.6)
+    (run "pluto explain E0084" for a longer explanation)

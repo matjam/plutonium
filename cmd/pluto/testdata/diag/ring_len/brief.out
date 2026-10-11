@@ -1,0 +1,2 @@
+$DIR/main.p:15:14: invalid argument: mk() (value of type ring[int, 2]) for built-in len: len calls its Len method, which has a pointer receiver, so the operand must be addressable or a pointer
+$DIR/main.p:16:14: invalid argument: r (variable of type ring[int, 4]) for built-in cap: cap does not call methods; call its Cap method

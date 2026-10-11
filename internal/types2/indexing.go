@@ -76,12 +76,12 @@ func builtinLen(u Type) bool {
 		_, ok := u.base.Underlying().(*Array)
 		return ok
 	case *Wrapper:
-		// A ring's Len is built in and expanded inline; len(r) stays an
-		// error rather than becoming a method call.
+		// A ring is not built in for len: len(r) calls its Len method,
+		// as for a container (language spec section 13.6).
 		if u.IsPointer() {
 			return builtinLen(boxAsPointer(u))
 		}
-		return u.kind == WrapRing || u.isTransparent() && builtinLen(u.elem.Underlying())
+		return u.isTransparent() && builtinLen(u.elem.Underlying())
 	}
 	return false
 }
@@ -230,7 +230,7 @@ func (check *Checker) containerIndex(x *operand, e *indexedExpr) bool {
 // containerLen checks len(x) for an x whose type has a Len() int method
 // (LenByMethod). It reports whether x has one.
 func (check *Checker) containerLen(x *operand) bool {
-	if _, ok := x.typ().Underlying().(*Wrapper); ok {
+	if w, ok := x.typ().Underlying().(*Wrapper); ok && w.kind != WrapRing {
 		return false
 	}
 	sig, _ := check.indexMethod(x, LenMethodName)
@@ -239,6 +239,28 @@ func (check *Checker) containerLen(x *operand) bool {
 		return false
 	}
 	return true
+}
+
+// lenCapHint explains why len(x) or cap(x) is invalid for an x whose type
+// has methods for it (language spec section 13.6), or returns "".
+func (check *Checker) lenCapHint(x *operand, id builtinId) string {
+	if id == _Len {
+		if !LenByMethod(x.typ()) {
+			return ""
+		}
+		if w, ok := x.typ().Underlying().(*Wrapper); ok && w.kind != WrapRing {
+			return ""
+		}
+		if _, needPtr := check.indexMethod(x, LenMethodName); needPtr {
+			return "len calls its Len method, which has a pointer receiver, so the operand must be addressable or a pointer"
+		}
+		return ""
+	}
+	obj, _, _ := lookupFieldOrMethod(x.typ(), true, check.pkg, "Cap", false)
+	if _, ok := obj.(*Func); ok {
+		return "cap does not call methods; call its Cap method"
+	}
+	return ""
 }
 
 // containerPart returns the container index expression that e is a part

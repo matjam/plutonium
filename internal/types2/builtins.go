@@ -182,7 +182,12 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 				if id == _Len {
 					code = InvalidLen
 				}
-				check.errorf(x, code, invalidArg+"%s for built-in %s", x, bin.name)
+				switch why := check.lenCapHint(x, id); {
+				case why != "":
+					check.errorf(x, code, invalidArg+"%s for built-in %s: %s", x, bin.name, why)
+				default:
+					check.errorf(x, code, invalidArg+"%s for built-in %s", x, bin.name)
+				}
 			}
 			return
 		}

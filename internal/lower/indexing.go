@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
@@ -165,6 +166,22 @@ func (s *fnState) containerIndexOk(e *ast.IndexExpr) []value {
 
 // containerLen lowers len(x) for a container x: x.Len().
 func (s *fnState) containerLen(x ast.Expr, pos token.Pos) value {
+	T := unwrap(s.typeOf(x))
+	ptr := isPointerLike(T)
+	if ptr {
+		T = pointerElem(T)
+	}
+	if w, ok := unwrap(T).Underlying().(*types2.Wrapper); ok && w.Kind() == types2.WrapRing {
+		// A ring's Len is built in, expanded inline; the operand is
+		// addressable or a pointer to the ring (language spec section 13.6).
+		var p *ssa.Value
+		if ptr {
+			p = s.scalar(x)
+		} else {
+			p = s.lv(x).ptr
+		}
+		return s.ringOp(types2.LenMethodName, p, w, nil, pos)[0]
+	}
 	r := s.container(x, x)
 	res := s.containerCall(r, types2.LenMethodName, nil)
 	if len(res) != 1 {
