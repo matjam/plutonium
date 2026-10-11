@@ -76,6 +76,7 @@ func (a *analyzer) check() {
 	a.checkCrossings(cross, written)
 	a.checkGlobals(groups)
 	a.checkSynced(groups)
+	a.checkMaps(groups, cross)
 }
 
 // expandAll returns the accesses of a task whose summary is s: its own,
@@ -521,7 +522,7 @@ func (a *analyzer) checkSynced(groups []*group) {
 	for _, g := range groups {
 		for _, x := range g.accesses {
 			_, id, _, ok := syncedSplit(x.place)
-			if !ok {
+			if !ok || a.isMapID(id) {
 				continue
 			}
 			if byType[id] == nil {
@@ -565,6 +566,130 @@ func (a *analyzer) checkSynced(groups []*group) {
 		}, func(x *access) string { return a.syncedText(id, x.place.path) })
 	}
 }
+
+// isMapID reports whether type number id is a map type's: the place is a
+// map's contents, which checkMaps checks.
+func (a *analyzer) isMapID(id int) bool {
+	_, ok := a.typeIDs[id].(*types2.Map)
+	return ok
+}
+
+// checkMaps applies the guard rule to the contents of maps (language spec
+// section 6.11, gap G16): a map is a counted reference that may cross to
+// other tasks, so the contents of every map of a type that crosses, as a
+// go statement's argument, a value sent on a channel, or inside one, or
+// that a task reaches through a package variable or memory it did not
+// allocate, are one piece of data. Every write to it must hold one lock,
+// and every access must hold it too: a package-level lock, or a lock in
+// the struct the map is a field of. Maps of other types never reach a
+// second task, so each stays with the task that made it. Accesses that
+// fill a map before the function that made it hands it to anyone do not
+// count, nor does main's use before it starts a task.
+func (a *analyzer) checkMaps(groups []*group, cross []*crossing) {
+	// Allocations that cross: a map made at such a site may be shared
+	// between the tasks of one go statement.
+	crossed := map[ast.Node]bool{}
+	for _, c := range cross {
+		for _, o := range c.vals {
+			if o.vp.root.kind == rFresh {
+				crossed[o.vp.root.node] = true
+			}
+		}
+	}
+	marked := map[int]bool{}
+	for id := range a.crossMaps {
+		marked[id] = true
+	}
+	byType := map[int][]entry{}
+	var ids []int
+	single := map[*group]*group{} // a multi group's accesses to maps each task makes for itself
+	for _, g := range groups {
+		for _, x := range g.accesses {
+			base, id, _, ok := syncedSplit(x.place)
+			if !ok || !a.isMapID(id) {
+				continue
+			}
+			own := base.root.kind == rFresh && base.path == "" && !crossed[base.root.node]
+			if !g.main && !own {
+				marked[id] = true // a task reaches a map it did not make
+			}
+			eg := g
+			if own && g.multi {
+				// Each task the go statement starts makes its own map
+				// here: they do not meet each other in it.
+				if single[g] == nil {
+					single[g] = &group{pos: g.pos, desc: g.desc}
+				}
+				eg = single[g]
+			}
+			if byType[id] == nil {
+				ids = append(ids, id)
+			}
+			byType[id] = append(byType[id], entry{x, eg})
+		}
+	}
+	if marked[a.typeID(genericMap)] {
+		for _, id := range ids {
+			marked[id] = true
+		}
+	}
+	gid, hasGeneric := -1, false
+	for _, id := range ids {
+		if a.typeIDs[id] == genericMap {
+			gid, hasGeneric = id, true
+		}
+	}
+	sort.Ints(ids)
+	for _, id := range ids {
+		if !marked[id] || a.typeIDs[id] == genericMap {
+			continue
+		}
+		es := byType[id]
+		if hasGeneric {
+			es = append(append([]entry(nil), es...), byType[gid]...)
+		}
+		norm := make([]entry, len(es))
+		for i, e := range es {
+			base, _, _, _ := syncedSplit(e.x.place)
+			x := *e.x
+			x.place = vpath{root: root{kind: rLocal, v: mapVar}, path: fmt.Sprintf("$%d", id)}
+			// Locks: package-level ones, and those of the struct the map
+			// is a field of, relative to it.
+			holder, field := splitField(base)
+			var ls lockset
+			for _, l := range e.x.locks {
+				if field && l.place.root == holder.root && prefixOf(holder.path, l.place.path) && !strings.ContainsAny(l.place.path[len(holder.path):], "*%$#") {
+					ls = ls.with(vpath{root: root{kind: rLocal, v: mapVar}, path: l.place.path[len(holder.path):]}, l.excl)
+				} else if _, ok := globalLock(l); ok {
+					ls = ls.with(l.place, l.excl)
+				}
+			}
+			x.locks = ls
+			norm[i] = entry{&x, e.g}
+		}
+		T := a.typeIDs[id]
+		a.checkPlaces(norm, func(l lock) (string, bool) {
+			if l.place.root.kind == rLocal && l.place.root.v == mapVar {
+				return "rel:" + l.place.path, true
+			}
+			return globalLock(l)
+		}, func(*access) string { return "an element of a " + types2.TypeString(T, a.qualifier) })
+	}
+}
+
+// splitField splits the place of a map at its last field: the struct that
+// holds the map, and true, when the map is a field of one.
+func splitField(p vpath) (vpath, bool) {
+	ss := steps(p.path)
+	if len(ss) == 0 || !strings.HasPrefix(ss[len(ss)-1], ".") {
+		return p, false
+	}
+	n := len(p.path) - len(ss[len(ss)-1])
+	return vpath{root: p.root, path: p.path[:n]}, true
+}
+
+// mapVar stands for "the struct holding the map" in relative places.
+var mapVar = types2.NewVar(token.NoPos, nil, "the map's holder", nil)
 
 // syncedVar stands for "the synced object" in relative places.
 var syncedVar = types2.NewVar(token.NoPos, nil, "the synced object", nil)
@@ -757,7 +882,9 @@ func (a *analyzer) noLockError(p, other entry, es []entry, rel func(lock) (strin
 	b.WriteString("\nThe compiler infers which lock guards shared data from the locks held where it is written: a lock that every write holds. Here no one lock is held at every write.")
 	d.Text = b.String()
 	d.Fix = &diag.Fix{Intro: "Hold one sync.Mutex at every access, writes and reads (a sync.RWMutex's RLock is enough for reads)", Code: "mu.Lock()\n" + strings.TrimPrefix(exprLine(place), "") + "\nmu.Unlock()"}
-	d.More = []*diag.Fix{{Intro: "Or, for a number, use an atomic type from pluto/sync/atomic, such as atomic.Int64, and its methods at every access."}}
+	if !strings.HasPrefix(place, "an element of a map") {
+		d.More = []*diag.Fix{{Intro: "Or, for a number, use an atomic type from pluto/sync/atomic, such as atomic.Int64, and its methods at every access."}}
+	}
 	return d
 }
 
@@ -765,6 +892,9 @@ func (a *analyzer) noLockError(p, other entry, es []entry, rel func(lock) (strin
 func exprLine(place string) string {
 	if strings.HasPrefix(place, "the field") {
 		return "s.f = v"
+	}
+	if strings.HasPrefix(place, "an element of a map") {
+		return "m[k] = v"
 	}
 	return place + " = v"
 }

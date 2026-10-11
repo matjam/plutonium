@@ -40,6 +40,101 @@ func (a *analyzer) typeID(T types2.Type) int {
 	return len(a.typeIDs) - 1
 }
 
+// mapTypeID numbers a map type for paths: the contents of every map of
+// the type are one place of that number (checkMaps). Maps whose types
+// mention type parameters share one number, which the check counts with
+// every map type.
+func (a *analyzer) mapTypeID(m *types2.Map) int {
+	if mentionsTypeParam(m) {
+		return a.typeID(genericMap)
+	}
+	return a.typeID(m)
+}
+
+// genericMap stands for the map types of generic code.
+var genericMap = types2.NewMap(types2.Typ[types2.Invalid], types2.Typ[types2.Invalid])
+
+// mentionsTypeParam reports whether T mentions a type parameter.
+func mentionsTypeParam(T types2.Type) bool {
+	found := false
+	var walk func(T types2.Type, depth int)
+	walk = func(T types2.Type, depth int) {
+		if found || T == nil || depth > 8 {
+			return
+		}
+		switch t := types2.Unalias(T).(type) {
+		case *types2.TypeParam:
+			found = true
+		case *types2.Named:
+			if ta := t.TypeArgs(); ta != nil {
+				for i := 0; i < ta.Len(); i++ {
+					walk(ta.At(i), depth+1)
+				}
+			}
+		case *types2.Map:
+			walk(t.Key(), depth+1)
+			walk(t.Elem(), depth+1)
+		case *types2.Pointer:
+			walk(t.Elem(), depth+1)
+		case *types2.Slice:
+			walk(t.Elem(), depth+1)
+		case *types2.Array:
+			walk(t.Elem(), depth+1)
+		case *types2.Chan:
+			walk(t.Elem(), depth+1)
+		case *types2.Struct:
+			for i := 0; i < t.NumFields(); i++ {
+				walk(t.Field(i).Type(), depth+1)
+			}
+		case *types2.Wrapper:
+			walk(t.Elem(), depth+1)
+		}
+	}
+	walk(T, 0)
+	return found
+}
+
+// noteMapsIn records the map types a value of type T reaches, through
+// fields, elements, pointers, boxes and the types converted to the
+// interfaces in it: a value of type T crosses to another task, so maps of
+// those types may be shared (checkMaps).
+func (a *analyzer) noteMapsIn(T types2.Type, seen map[types2.Type]bool) {
+	if T == nil || seen[T] {
+		return
+	}
+	seen[T] = true
+	if tp, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+		for _, arg := range a.tpArgs[tp] {
+			a.noteMapsIn(arg, seen)
+		}
+		return
+	}
+	switch u := underlying(T).(type) {
+	case *types2.Map:
+		a.crossMaps[a.mapTypeID(u)] = true
+		a.noteMapsIn(u.Key(), seen)
+		a.noteMapsIn(u.Elem(), seen)
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			a.noteMapsIn(u.Field(i).Type(), seen)
+		}
+	case *types2.Array:
+		a.noteMapsIn(u.Elem(), seen)
+	case *types2.Slice:
+		a.noteMapsIn(u.Elem(), seen)
+	case *types2.Pointer:
+		a.noteMapsIn(u.Elem(), seen)
+	case *types2.Chan:
+		a.noteMapsIn(u.Elem(), seen)
+	case *types2.Wrapper:
+		a.noteMapsIn(u.Elem(), seen)
+	case *types2.Interface:
+		for _, C := range a.convertedTo(u) {
+			a.noteMapsIn(C, seen)
+		}
+	}
+}
+
 // typeKey names a type for the tables of writes: a generic type by its
 // origin, so that a write in a method of Vec[T] counts for every Vec.
 func typeKey(T types2.Type) string {
@@ -202,6 +297,7 @@ type problem struct {
 // sendable checks a value of type T with origins vals that crosses to
 // another task, and returns the first part that may not cross.
 func (a *analyzer) sendable(T types2.Type, vals origins, part string, written func(vpath) token.Pos) *problem {
+	a.noteMapsIn(T, map[types2.Type]bool{})
 	return a.sendableIn(T, vals, part, written, map[types2.Type]bool{}, false)
 }
 
@@ -226,6 +322,14 @@ func (a *analyzer) sendableIn(T types2.Type, vals origins, part string, written 
 	switch u := underlying(T).(type) {
 	case *types2.Basic, *types2.Chan, *types2.Signature:
 		return nil
+	case *types2.Map:
+		// A map crosses as a counted reference; its contents are shared
+		// and guarded by the map rule (checkMaps). The views stored in it
+		// cross with it.
+		if p := a.sendableIn(u.Key(), nil, "a key of "+part, written, seen, true); p != nil {
+			return p
+		}
+		return a.sendableIn(u.Elem(), nil, "an element of "+part, written, seen, true)
 	case *types2.Struct:
 		if seen[T] {
 			return nil

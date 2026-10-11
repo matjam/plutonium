@@ -4,7 +4,7 @@
 // run-time race detector to fall back on, so the compiler rejects every
 // program in which two tasks could use the same memory at once, one of them
 // writing, without synchronisation (language spec section 19.3, memory
-// safety design section 7). It does so with three rules, all inferred from
+// safety design section 7). It does so with four rules, all inferred from
 // the program without annotations:
 //
 //   - The sendable rule (E3501): a view (a pointer or slice, also inside an
@@ -25,6 +25,10 @@
 //   - synced[T] contents (E3502, E3503): the object of a synced[T] may be
 //     used by any task that holds a reference, so the same guard rule
 //     applies to its fields, with the lock found in the same object.
+//   - Map contents (E3502, E3503): a map is a counted reference, so the
+//     contents of every map of a type that crosses to another task are one
+//     piece of data under the guard rule, with the lock found in the struct
+//     the map is a field of or at package level (checkMaps).
 //
 // The analysis is whole-program and works on the typed syntax tree after
 // the escape analysis, and only when code reachable from the program's
@@ -176,7 +180,8 @@ type analyzer struct {
 	globalWrites map[*types2.Var]map[string]*writeSite
 	addrGlobals  map[*types2.Var]bool
 	converted    map[string]types2.Type              // types converted to interfaces
-	typeIDs      []types2.Type                       // referent types of synced[T], numbered for paths
+	typeIDs      []types2.Type                       // referent types of synced[T], and map types, numbered for paths
+	crossMaps    map[int]bool                        // map type numbers a crossing value reaches (checkMaps)
 	tpArgs       map[*types2.TypeParam][]types2.Type // the type arguments each type parameter is instantiated with
 	typeAcc      map[string][]*typeAccess            // uses of each field of objects, for the type rule
 	typeSeen     map[string]bool
@@ -210,6 +215,7 @@ func newAnalyzer(prog *load.Program) *analyzer {
 		errSeen:      map[string]bool{},
 		tpArgs:       map[*types2.TypeParam][]types2.Type{},
 		typeAcc:      map[string][]*typeAccess{},
+		crossMaps:    map[int]bool{},
 		typeSeen:     map[string]bool{},
 		resultNodes:  map[resultKey]ast.Node{},
 	}

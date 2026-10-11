@@ -467,6 +467,14 @@ func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
 			// Range over a function: it is called with the loop body as
 			// its yield function, which runs here.
 			w.callValue(xv, loopBody(st), st.Pos(), nil, "the iterator of the range loop")
+		default:
+			if types2.MapOf(xt) != nil {
+				ps := xv.derefOr(w.derefStep(xt), w.unknownFor(st.X))
+				for _, p := range ps {
+					w.access(p, false, false, st.X.Pos(), xt, false, "")
+				}
+				key, val = valuesAt(ps), valuesAt(ps)
+			}
 		}
 	}
 	w.loop(label, func() *state {
@@ -644,6 +652,11 @@ func (w *walker) assignTo(lhs ast.Expr, val origins, pos token.Pos) {
 		w.methodCall(ix.X, types2.SetIndexMethodName, []origins{nil, val}, pos)
 		return
 	}
+	isMap := w.isMapIndex(lhs)
+	if isMap {
+		// m[k] = v stores the key too.
+		w.publish(w.value(lhs.(*ast.IndexExpr).Index))
+	}
 	ps, ok := w.place(lhs)
 	if !ok {
 		w.value(lhs)
@@ -653,10 +666,17 @@ func (w *walker) assignTo(lhs ast.Expr, val origins, pos token.Pos) {
 	for _, p := range ps.ps {
 		w.access(p, true, false, lhs.Pos(), T, ps.sync, ps.key)
 	}
-	if !ps.sync {
+	if !ps.sync && !isMap {
+		// A map element is a copy: no view can see it change.
 		w.noteViewWrite(lhs, ps.ps, T)
 	}
 	w.store(ps.ps, val, pos)
+}
+
+// isMapIndex reports whether e indexes a map.
+func (w *walker) isMapIndex(e ast.Expr) bool {
+	ix, ok := ast.Unparen(e).(*ast.IndexExpr)
+	return ok && types2.MapOf(w.typeOf(ix.X)) != nil
 }
 
 // readWrite reads and writes e (x++, x += y).
@@ -688,7 +708,7 @@ func (w *walker) readWrite(e ast.Expr, pos token.Pos) {
 		w.access(p, false, false, e.Pos(), T, ps.sync, ps.key)
 		w.access(p, true, false, e.Pos(), T, ps.sync, ps.key)
 	}
-	if !ps.sync {
+	if !ps.sync && !w.isMapIndex(e) {
 		w.noteViewWrite(e, ps.ps, T)
 	}
 }
@@ -1071,6 +1091,12 @@ func (w *walker) derefStep(T types2.Type) string {
 		if u.Kind() == types2.WrapSynced {
 			return "$" + itoa(w.a.typeID(u.Elem()))
 		}
+	case *types2.Map:
+		return "$" + itoa(w.a.mapTypeID(u))
+	case *types2.Interface:
+		if m := types2.MapOf(T); m != nil {
+			return "$" + itoa(w.a.mapTypeID(m)) // a type parameter whose types are maps
+		}
 	}
 	return "*"
 }
@@ -1356,6 +1382,11 @@ func (w *walker) place(e ast.Expr) (places, bool) {
 			return places{}, false
 		}
 		w.value(e.Index)
+		if xt := w.typeOf(e.X); types2.MapOf(xt) != nil {
+			// The map's contents: one place for all its elements, like
+			// the object of a synced[T] (checkMaps).
+			return places{ps: w.value(e.X).derefOr(w.derefStep(xt), w.unknownFor(e.X))}, true
+		}
 		part := w.indexPart(e.Index)
 		switch u := underlying(w.typeOf(e.X)).(type) {
 		case *types2.Array:
@@ -1504,6 +1535,16 @@ func (w *walker) compLit(e *ast.CompositeLit) origins {
 			w.value(el)
 		}
 		return origins{{vp: site.addr()}}
+	case *types2.Map:
+		// A new map: its keys and elements are stored in its table.
+		site := w.alloc(e)
+		for _, el := range e.Elts {
+			if kv, ok := el.(*ast.KeyValueExpr); ok {
+				w.publish(w.value(kv.Key))
+				w.publish(w.value(kv.Value))
+			}
+		}
+		return origins{{vp: site}}
 	}
 	for _, el := range e.Elts {
 		out.addAll(w.value(el))

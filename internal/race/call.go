@@ -338,8 +338,25 @@ func (w *walker) builtin(e *ast.CallExpr) []origins {
 				return one(nil)
 			}
 		}
-		vals()
+		vs := vals()
+		if len(e.Args) == 1 {
+			if T := w.typeOf(e.Args[0]); types2.MapOf(T) != nil {
+				// len(m) reads the map's count, which writes change.
+				for _, p := range vs[0].derefOr(w.derefStep(T), w.unknownFor(e.Args[0])) {
+					w.access(p, false, false, e.Pos(), T, false, "")
+				}
+			}
+		}
 		return one(nil)
+	case "delete":
+		vs := vals()
+		if len(vs) == 2 {
+			T := w.typeOf(e.Args[0])
+			for _, p := range vs[0].derefOr(w.derefStep(T), w.unknownFor(e.Args[0])) {
+				w.access(p, true, false, e.Pos(), T, false, "")
+			}
+		}
+		return nil
 	case "new":
 		for _, a := range e.Args[1:] {
 			w.value(a)
@@ -354,6 +371,9 @@ func (w *walker) builtin(e *ast.CallExpr) []origins {
 		}
 		if _, ok := underlying(w.typeOf(e)).(*types2.Slice); ok {
 			return one(origins{{vp: w.alloc(e).addr()}})
+		}
+		if types2.MapOf(w.typeOf(e)) != nil {
+			return one(origins{{vp: w.alloc(e)}}) // a new map (checkMaps)
 		}
 		return one(nil)
 	case "append":
