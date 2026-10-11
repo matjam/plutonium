@@ -148,6 +148,7 @@ These have no counterpart in Go.
 | the indexing interface | `x[k]` on a library container calls its `Index`, `SetIndex` and `IndexOk` methods | 11.11 |
 | optional allocator arguments | `new(T, a)`, `make(chan T, n, a)`, `make(map[K]V, n, a)` | 13.7, 13.9 |
 | the `task` statement | replaces `go` | 12.12 |
+| the `or` clause | `v := f() or return`: after a call whose last result is `error`, a clause that runs when the error is not `nil` and must leave (`return`, `break`, `continue`, `goto`, `panic` or a block that ends in one); `err` is declared in it. Go has no `or`, so a Go reader meets it as new syntax, never as a changed meaning. `if err != nil { return err }` still works and means what it always did | 11.27, 4.6, 16.1 |
 | `sync.Scope` | tasks that may use the starting frame and are joined before its scope ends | 19.4 |
 | `portable` | a constraint for values that may cross between address spaces | 8.9 |
 | `main` returning `int64` | the exit status | 10.12, 15.4 |

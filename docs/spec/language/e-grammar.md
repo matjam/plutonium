@@ -5,7 +5,7 @@ production is defined in exactly one chapter, and the section that defines it is
 production here and the text of a chapter seem to differ, the chapter holds. The start symbol is
 `SourceFile` (section 14.1, Source file organization).
 
-Lowercase names are lexical tokens (chapters 3 and 4). A contextual keyword (`owner`, `union`, `task`,
+Lowercase names are lexical tokens (chapters 3 and 4). A contextual keyword (`owner`, `union`, `task`, `or`,
 `bits`, `le`, `be`) is written as a quoted token; it is an identifier token that the parser treats as a
 keyword only in the positions of section 4.6 (Contextual keywords). Semicolons in the productions may be
 omitted in the source as section 4.3 (Semicolons) describes.
@@ -364,6 +364,14 @@ From section 11.24 (Conversions):
 Conversion = Type "(" Expression [ "," ] ")" .
 ```
 
+From section 11.27 (Or clauses):
+
+```
+Call     = PrimaryExpr Arguments .
+OrStmt   = [ ExpressionList "=" | IdentifierList ":=" ] Call "or" OrClause .
+OrClause = Block | ReturnStmt | BreakStmt | ContinueStmt | GotoStmt | Expression .
+```
+
 ### E.5 Statements
 
 From section 12 (Statements):
@@ -373,7 +381,7 @@ Statement  = Declaration | LabeledStmt | SimpleStmt |
              TaskStmt | ReturnStmt | BreakStmt | ContinueStmt | GotoStmt |
              FallthroughStmt | Block | IfStmt | SwitchStmt | SelectStmt | ForStmt |
              DeferStmt .
-SimpleStmt = EmptyStmt | ExpressionStmt | SendStmt | IncDecStmt | Assignment | ShortVarDecl .
+SimpleStmt = EmptyStmt | ExpressionStmt | SendStmt | IncDecStmt | Assignment | ShortVarDecl | OrStmt .
 ```
 
 From section 12.2 (Empty statements):

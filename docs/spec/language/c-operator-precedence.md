@@ -34,4 +34,6 @@ follow it: arithmetic operators (11.19), comparison operators (11.20), logical o
 operators (11.22) and the receive operator (11.23). An operator that does not apply to a kind of type, such
 as arithmetic on an enum or on an owner, is a compile error there. It does not change the precedence.
 
+The word `or` of an or clause (section 11.27, Or clauses) is not an operator. It ends the right side of a simple statement and is not part of an expression, so it has no precedence.
+
 Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

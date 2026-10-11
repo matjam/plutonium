@@ -1644,4 +1644,202 @@ func sqr(x int) int { return x * x }
 
 The function calls happen in the order `u()`, `sqr()`, `v()`, `f()`, `v()` and `g()`.
 
+### 11.27 Or clauses
+
+A function that can fail returns an `error` as its last result (section 16.1, The error interface). Its caller tests the result and leaves when it finds an error. An *or clause* is the short form of that test and exit. It follows the call on the same line and says what to do when the call returns an error.
+
+```
+Call     = PrimaryExpr Arguments .
+OrStmt   = [ ExpressionList "=" | IdentifierList ":=" ] Call "or" OrClause .
+OrClause = Block | ReturnStmt | BreakStmt | ContinueStmt | GotoStmt | Expression .
+```
+
+An *or statement* is a simple statement (chapter 12, Statements). It may stand alone, or be the init statement of an `if`, `switch` or `for` statement (below). It is defined here, next to the calls it applies to. The word `or` is a contextual keyword (section 4.6, Contextual keywords). It is not an operator. It never appears inside an expression and has no precedence (appendix C).
+
+```go
+cfg := load(path) or return                                  // pass the error up unchanged
+cfg := load(path) or return fmt.Errorf("loading %v: %w", path, err)
+n := strconv.Atoi(line) or continue                          // skip this line
+f := os.Open(p) or panic(err)
+cfg := load(path) or {
+	log.Printf("loading %v: %v", path, err)
+	return err
+}
+```
+
+In each statement the call is made. If its last result is not `nil`, the clause runs, and in the clause `err` is that result. Otherwise the other results are assigned or declared, and the statement is done. In a function with the results `(int, error)`, the first statement does what this does, except that `err` is not visible after the statement:
+
+```go
+cfg, err := load(path)
+if err != nil {
+	return 0, err
+}
+```
+
+**The operand.** The operand of `or` is a call: a primary expression followed by arguments, written directly before `or`. It may call a function, a method, a method value or a function value (section 11.14, Calls), including a generic function after instantiation. Any other operand is a syntax error (E1013). An operator, a parenthesis or a selector in front of `or` could hide which call's error the clause tests. A conversion and a call of a built-in function have the form of a call and are not calls of functions: they are error E2461. The call, `or` and the first token of the clause are on one line: a newline after the closing parenthesis ends the statement, and a newline after `or` inserts a semicolon after it, as it does after any identifier (section 4.3, Semicolons). Both leave the statement unfinished and are syntax errors. The statements of a block clause may span lines.
+
+**The error result.** The last result of the call must have the type `error`, identical to it. A type that implements `error` is not accepted, nor is a defined type whose underlying type is the `error` interface, nor a type parameter whose constraint has an `Error` method. A call with no result is not accepted either (E2462). The type is exactly `error` so that the test is always the nil test of one interface type and `err` is the result itself, not a conversion of it.
+
+**Values.** The values of an or statement are the results of the call other than the last. With a left side, the number of operands must equal the number of values (E0017 otherwise). Each value is assigned to its operand in order (section 12.7, Assignment statements), or declares its variable (section 10.11, Short variable declarations, redeclaration included), as if the call returned only those values. A call with three results gives two values, so `a, b := f() or return` is the form for it. A call whose only result is the error has no values, and a left side is an error (E0017). Without a left side the values are discarded and dropped as the results of an expression statement are (section 12.4, Expression statements). A call that returns a value which matters together with an error, such as the count of bytes read before a failure, cannot use `or`, because the clause never sees the values. It uses an `if` statement.
+
+**The name `err`.** The clause is in an implicit block (chapter 9, Blocks). In it, `err` is declared as a variable of type `error` that holds the last result. It hides any `err` of an enclosing block. It is not in scope in the call, whose operands are evaluated before the clause runs, and not after the statement. It is an ordinary variable: the clause may assign it, and a block clause may declare an `err` of its own in the block, which hides this one. The compiler does not report an unused `err`. The variables that a short variable declaration declares come into scope after the whole statement, clause included (chapter 10, Declarations and scope, rule 7), so the clause cannot use them. A name in the clause that is the name of a new variable denotes what it denoted before the statement.
+
+```go
+cfg := load(path) or {
+	println(cfg.name) // error: cfg is not declared here; the clause runs when load failed
+	return err
+}
+```
+
+**Order of evaluation.** An or statement is evaluated in four steps (section 11.26, Order of evaluation).
+
+1. The calls of the statement are evaluated first, from left to right, as section 11.26 says. The call that `or` follows is evaluated completely: the function value, the arguments, then the call.
+2. The last result is compared with `nil`.
+3. If it is `nil`, the remaining operands of the left side are evaluated, and the values are assigned or declared, as in the statement without `or`. The clause does not run.
+4. If it is not `nil`, no other operand of the left side is evaluated, no variable is declared or assigned, and the old value of an owner operand is not dropped. The temporaries of the statement are dropped as at the end of a statement: the results of the call other than the last, and the temporaries of its operands (section 18.6, Drops). Then `err` is declared with the last result, and the clause runs.
+
+An operand of the left side that panics, such as an index out of range, therefore panics only when the call succeeded. A variable that the call moved (section 11.14, Calls) is moved in the clause too.
+
+**The clause must leave.** When the clause runs, control must not reach the code after the or statement. A clause that can complete is a compile error (E2463). A clause is accepted when it is a `return`, `break`, `continue` or `goto` statement, a call of the built-in function `panic`, or a block whose statement list ends in a statement that *leaves*. A statement leaves when it is:
+
+1. a terminating statement (section 12.1, Terminating statements);
+2. a `break` or `continue` statement;
+3. a block whose statement list ends in a statement that leaves; or
+4. an `if` statement with an `else` branch in which both branches leave.
+
+A `break` or `continue` is not a terminating statement, because terminating statements decide whether a function may end without a `return`. A clause may end in one because it too never reaches the next statement. As section 12.1 says, a call of a function that never returns does not leave, whatever can be inferred about that function. A clause that calls `os.Exit(1)` or `log.Fatal(err)` ends with a `return` or `panic` after it.
+
+An or statement is not a terminating statement, although its clause leaves, because control continues after it when the call succeeds.
+
+**Return in an unbraced clause.** An unbraced `return` clause has two short forms. Both make the `error` result of the function out of the clause.
+
+| The clause | When | It returns |
+|---|---|---|
+| `return` | the last result of the function is `error` | `err` as the last result. Every other result is its zero value if the results are unnamed, and keeps its current value if they are named. |
+| `return E` | the function has more than one result, the last is `error`, and `E` is one single-valued expression | the same, with the value of `E` as the last result |
+
+A `return` of any other form in an unbraced clause is an ordinary return statement (section 12.14, Return statements): `or return 0, err` in a function with the results `(int, error)`, and `or return E` in a function with one result, of any type. A `return` with no operands in a function whose last result is not exactly `error`, or that has no result, is error E2464. There is no error result to carry `err`, and returning without it would drop the error. A `return` inside a block clause is never a short form. It is an ordinary return statement with the meaning it has everywhere, so `or { return }` in a function with unnamed results is the usual error for missing results.
+
+The short form sets the last result by its position, whatever its name, so it works when the function has a named result `err` that the clause's `err` hides. Named results keep their values because they are variables of the function. The function may have set them for the caller, such as a count of items done before the failure, and a deferred call may read them. Replacing them with zeros would discard what an ordinary `return` in such a function never discards.
+
+```go
+func parseAll(fields []string) (parsed int, err error) {
+	for _, f := range fields {
+		strconv.Atoi(f) or return // parsed keeps the count so far, and err is set
+		parsed++
+	}
+	return
+}
+```
+
+The error is handed over unchanged: the same interface value, with the same dynamic type, and no copy (section 16.7, Allocated errors and ownership). `return E` evaluates `E` with `err` in scope, so `or return fmt.Errorf("loading %v: %w", path, err)` wraps it.
+
+**Leaving the statement.** The clause is an ordinary exit from the blocks that enclose it. Leaving it drops the owners and counted values of the scopes it leaves, innermost first, starting with `err` unless the clause moved it out (section 18.6, Drops). A `sync.Scope` of a block it leaves is joined (section 19.4, Scoped tasks). A `return` sets the results and then runs the deferred calls, as every `return` does (section 12.14; section 12.19, Defer statements). In the body of a range-over-func loop, `break`, `continue` and `return` in the clause act as they do anywhere in that body (section 12.11, Range over functions). The rules for `break`, `continue` and `goto` (sections 12.15 to 12.17) apply at the place of the clause, where the variables that the statement declares are not in scope yet, so `goto` over the declaration of one of them is an error.
+
+**Where an or statement may appear.** An or statement may be a statement of a block, and the init statement of an `if`, `switch` or `for` statement. It may not be the post statement of a `for` statement (E2465), since a `break` or `continue` there would end or repeat the iteration that is ending. It is not a `var` declaration, a `select` case, a `defer` statement or a `task` statement, and in those places `or` is an ordinary identifier, so its position is a syntax error (E1001). In an init statement the clause is outside the statement that the header belongs to. A `break` or `continue` in it refers to the innermost `for`, `switch` or `select` statement that contains the whole statement, and a label must name one of those. The variables that the init statement declares are in scope in the rest of the statement, not in the clause.
+
+```go
+if v := strconv.Atoi(s) or return; v > 0 { // v is in scope in the if and the else
+	use(v)
+}
+for _, line := range lines {
+	switch n := strconv.Atoi(line) or continue; { // continues the for statement
+	case n > 0:
+		use(n)
+	}
+}
+```
+
+**Other uses.**
+
+- **Panics and `rt.Goexit`.** `or panic(err)` panics as every call of `panic` does (section 17.1, Panics). A clause that calls `rt.Goexit` ends the task as it does anywhere else (section 17.3, Ending a task with `rt.Goexit`). An or statement adds no other way to end a task.
+- **Generic functions.** The type of the last result is the type after instantiation. An or statement may be in a generic function, and may call one.
+- **Kernel mode.** An or statement makes no call and no allocation of its own. It is a comparison with `nil`, the assignments of the values, and the code of the clause. It is valid in freestanding and kernel builds. In code that an interrupt handler or the panic handler can reach, the code of the clause must be valid there, since the rules about code that waits or starts tasks apply to it (section 20.10, Interrupts).
+- **Counted errors.** `err` holds a reference to the error object when the error is counted (section 16.7), and it is released when the clause is left, unless the clause hands it over.
+
+**Errors.** The or statement has these errors. Each is reported at the `or` or at the part it names.
+
+| Code | The program |
+|---|---|
+| E1013 | has an operand of `or` that is not a call |
+| E2461 | uses `or` on a conversion or a call of a built-in function |
+| E2462 | uses `or` on a call whose last result is not exactly `error`, or that has no result |
+| E2463 | has a clause that can complete |
+| E2464 | has an unbraced `return` with no operands in a function whose last result is not `error` |
+| E2465 | uses an or statement as the post statement of a `for` statement |
+
+```go
+func f() (int, error)
+
+func g() int
+
+func uses(s string) {
+	a := g() + g() or return          // error: the operand of or is not a single call (E1013)
+	b := (f()) or return              // error: the call is in parentheses (E1013)
+	c := int64(g()) or return         // error: a conversion is not a call of a function (E2461)
+	d := strconv.Itoa(5) or return    // error: Itoa returns no error (E2462)
+	e := f() or println(err)          // error: the clause can complete (E2463)
+	n, err := strconv.Atoi(s) or return // error: Atoi has one value besides the error (E0017)
+	for i := 0; i < 3; i = f() or break { // error: not a post statement (E2465)
+	}
+}
+
+func main() {
+	f() or return // error: main has no error result to carry err (E2464)
+}
+```
+
+A complete program:
+
+```go
+package main
+
+import (
+	"pluto/errors"
+	"pluto/fmt"
+	"pluto/strconv"
+	"pluto/strings"
+)
+
+var errEmpty = errors.New("no numbers")
+
+// sum adds the comma-separated numbers in text.
+func sum(text string) (int, error) {
+	total, count := 0, 0
+	for field := range strings.SplitSeq(text, ",") {
+		n := strconv.Atoi(strings.TrimSpace(field)) or return fmt.Errorf("number %d: %w", count+1, err)
+		total += n
+		count++
+	}
+	if count == 0 {
+		return 0, errEmpty
+	}
+	return total, nil
+}
+
+// skipBad adds the numbers of text that parse and counts the rest.
+func skipBad(text string) (total, bad int) {
+	for field := range strings.SplitSeq(text, ",") {
+		n := strconv.Atoi(strings.TrimSpace(field)) or {
+			bad++
+			continue
+		}
+		total += n
+	}
+	return
+}
+
+func main() int64 {
+	total := sum("1, 2, 3") or panic(err)
+	fmt.Println("total", total)
+	good, bad := skipBad("1, x, 3, y")
+	fmt.Println("skipBad", good, bad) // skipBad 4 2
+	sum("4, five") or {
+		fmt.Println("error:", err)
+		return 1
+	}
+	return 0
+}
+```
+
 Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

@@ -25,7 +25,7 @@ section where it belongs.
 
 ## Gaps of the integrated specification
 
-The 24 implementation gaps of
+The implementation gaps of
 [complete-spec section 6.5](plans/2026-10-10-complete-spec.md), and the item that tracks each:
 
 | Gap | Subject | Item | Section |
@@ -54,9 +54,10 @@ The 24 implementation gaps of
 | 22 | Counted `error` values and library error types | 11, 69 | 16.7, 16.5 |
 | 23 | Package initializer that allocates, in a freestanding build | 75 | 15.2 |
 | 24 | Embedding `shared[T]` and `synced[T]` | 92 | 7.6, 7.19 |
+| 31 | The `or` clause | 99 | 11.27, 4.6 |
 
 The pass that aligned the documents with the chapters found six more, items 93 to 98; they are rows 25 to
-30 of complete-spec section 6.5.
+30 of complete-spec section 6.5. Row 31, item 99, is the `or` clause, decided later the same day.
 
 ## Wrong code and silent failures
 
@@ -124,6 +125,17 @@ The pass that aligned the documents with the chapters found six more, items 93 t
 98. **Hosted task stacks under `RLIMIT_AS`** (planned, needs a decision; sections 19.1 and 21.4): the
     runtime shrinks stacks below 64 MiB when the address-space limit is small, and the specification says
     "at least 64 MiB" without a rule for the case where that is impossible.
+99. **The `or` clause** (planned, gap 31; section 11.27, decided 2026-10-10): `v := f() or return`,
+    `or return E`, `or continue`, `or panic(err)` and `or { ... }` after a call whose last result is exactly
+    `error`. The clause runs when the error is not `nil`, declares `err` in an implicit block, and must leave
+    (terminating statements plus `break` and `continue`). Work: the parser (contextual keyword `or`,
+    `OrStmt` among the simple statements, E1013), the type checker (E2461 to E2465, the `err` block, the
+    leaving rule, the short forms of an unbraced `return`, no `or` in a post statement), the move checker,
+    escape analysis and lowering (the test, the drops of the call's temporaries before the clause, nothing
+    assigned on the error path, the clause as an ordinary exit), `pluto fmt`, the language server, and
+    catalog entries with a `cmd/pluto/testdata/diag` program per code. Tests: programs under
+    `internal/build/testdata/lib` (Go cannot run them, so their output is checked by hand against the `if`
+    forms), run at `-O0` and `-O2`.
 
 ## Kernel enablement
 

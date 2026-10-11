@@ -8,8 +8,10 @@ Statement  = Declaration | LabeledStmt | SimpleStmt |
              FallthroughStmt | Block | IfStmt | SwitchStmt | SelectStmt | ForStmt |
              DeferStmt .
 
-SimpleStmt = EmptyStmt | ExpressionStmt | SendStmt | IncDecStmt | Assignment | ShortVarDecl .
+SimpleStmt = EmptyStmt | ExpressionStmt | SendStmt | IncDecStmt | Assignment | ShortVarDecl | OrStmt .
 ```
+
+The or statement is a call followed by a clause that runs when the call returns an error. It is defined with the calls in section 11.27 (Or clauses).
 
 The statement that starts a task is the `task` statement (section 12.12, Task statements). The reserved word `go` starts no statement: a statement that begins with it is an error that names `task` (section 4.5, Keywords).
 
@@ -31,6 +33,8 @@ A terminating statement interrupts the regular flow of control in a block. The f
 10. A labeled statement labeling a terminating statement.
 
 All other statements are not terminating. A statement list ends in a terminating statement if the list is not empty and its final non-empty statement is terminating.
+
+The clause of an or statement must end in a terminating statement, or in a `break` or a `continue` statement (section 11.27, Or clauses). The or statement itself is not a terminating statement: control continues after it when the call returns no error.
 
 A call of a function that never returns is not a terminating statement, whatever can be inferred about that function. Whether a function compiles must not depend on the body of another function, possibly in another package, so `os.Exit(1)` at the end of a function that has results needs a `return` or a `panic` after it.
 
@@ -497,7 +501,7 @@ for a < b {
 }
 ```
 
-**For statements with a `for` clause.** A `for` statement with a `ForClause` is also controlled by its condition, but additionally it may specify an init and a post statement, such as an assignment, an increment or decrement statement. The init statement may be a short variable declaration, but the post statement must not.
+**For statements with a `for` clause.** A `for` statement with a `ForClause` is also controlled by its condition, but additionally it may specify an init and a post statement, such as an assignment, an increment or decrement statement. The init statement may be a short variable declaration, but the post statement must not. The init statement may be an or statement (section 11.27, Or clauses); the post statement must not (E2465).
 
 ```
 ForClause = [ InitStmt ] ";" [ Condition ] ";" [ PostStmt ] .
@@ -950,6 +954,8 @@ func f(n int) (res int, err error) {
 	return
 }
 ```
+
+**In an or clause.** A `return` that is the whole of an unbraced or clause has two short forms that return the error of the call (section 11.27, Or clauses). In a block clause, `return` is an ordinary return statement.
 
 **Owners.** A result of owner type is handed to the caller. `return x`, where `x` is an owner variable, moves `x` to the caller, and `x` is not dropped. A bare `return` moves the named results. Returning an owner that is not a whole variable is an error (E3303); use `take`. The other variables of the function are dropped when it returns, after the deferred calls have run, parameters after locals (section 18.6, Drops). A result that is a view of the function's frame is an error (E3001), and so is a result that is a view of a local owner, which is dropped on return (section 18.3, Views).
 

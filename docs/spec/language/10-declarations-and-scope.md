@@ -34,6 +34,7 @@ Plutonium is lexically scoped using blocks (chapter 9, Blocks):
    containing block.
 8. The scope of a type identifier declared inside a function begins at the identifier in the TypeSpec and
    ends at the end of the innermost containing block.
+9. The scope of the variable `err` that an or clause declares is the clause (section 11.27, Or clauses).
 
 An identifier declared in a block may be redeclared in an inner block. While the identifier of the inner
 declaration is in scope, it denotes the entity declared by the inner declaration.

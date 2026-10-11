@@ -18,7 +18,10 @@ func Read(f *File, b []byte) (n int, err error)
 ```
 
 A function that can fail returns an `error` as its last result. The caller tests it against `nil`, and
-passes it up with `if err != nil { return err }`. There is no `try` operator and no exception.
+passes it up with `if err != nil { return err }`, or with the or clause, its short form
+(section 11.27, Or clauses): `v := f() or return`. There is no `try` operator and no exception. An or
+clause names its exit on the line that has it, and the error remains a value that the program tests and
+handles.
 
 A panic cannot be caught (section 13.1, Built-ins Plutonium does not have). Errors are therefore the only
 way to recover from a failure. A failure that a program must survive is an `error` result, and a failure
@@ -262,7 +265,8 @@ Converting an `error` to `any`, or to an interface that does not embed `error`, 
 7.9): the new interface does not count it, and may not outlive the `error` it came from.
 
 Code that handles errors does not change: `if err != nil { return err }` hands the error to the caller,
-and `errors.Is(err, os.ErrNotExist)` looks at `err` without taking it.
+`v := f() or return` does the same with the error unchanged (section 11.27, Or clauses), and
+`errors.Is(err, os.ErrNotExist)` looks at `err` without taking it.
 
 ```go
 func run(name string) error {

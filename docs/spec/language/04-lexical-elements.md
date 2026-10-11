@@ -140,16 +140,17 @@ ordinary identifier: it may name a variable, a field, a type, a function or a pa
 | `owner` | before a type in a type definition, and before the constraint of a type parameter | section 7.18 (Owner types) |
 | `union` | as the type of a type definition when `{` follows it, and after `packed` when something other than `{` follows it | section 7.13 (Unions) |
 | `task` | at the start of a statement when the next token is an identifier or `func` | section 12.12 (Task statements) |
+| `or` | directly after the expression that ends a simple statement | section 11.27 (Or clauses) |
 | `bits` | as the type of a field of a packed type, when `[` or `{` follows it | section 7.14 (`packed` types) |
 | `le`, `be` | directly after `packed`, or after `packed union` | section 7.14, section 7.13 |
 
-`enum` and `packed` are reserved, not contextual (section 4.5). The words `union`, `owner` and `task` are
-common identifiers in existing code (set types, ownership fields, job queues), and reserving them would
-break that code.
+`enum` and `packed` are reserved, not contextual (section 4.5). The words `union`, `owner`, `task` and `or`
+are common identifiers in existing code (set types, ownership fields, job queues, a bitwise `or`
+function), and reserving them would break that code.
 
 The forms these words begin, with their productions, are defined in sections 7.12 (Enums), 7.13
 (Unions), 7.14 (`packed` types), 7.18 (Owner types), 10.8 (Type declarations), 10.9 (Type parameter
-declarations) and 12.12 (Task statements).
+declarations), 11.27 (Or clauses) and 12.12 (Task statements).
 
 **`owner`.** In a type definition or a type parameter declaration, `owner` is the keyword when the token
 after it is an identifier, `[`, `*`, `(`, `<-`, or one of the keywords `struct`, `interface`, `func`,
@@ -181,6 +182,21 @@ task.Run()             // a method call on a variable named task
 task = next            // an assignment
 task := next           // a short variable declaration
 task[i] = v            // an assignment to an element
+```
+
+**`or`.** In the position where a simple statement ends (an expression statement, or the right side of an
+assignment or a short variable declaration), the identifier `or` begins an or clause (section 11.27). In
+every other position `or` is an identifier. No statement of the language has an identifier directly after
+its final expression, so the rule never changes the meaning of code that uses `or` as a name. A statement
+that starts with `or`, an argument named `or` and a variable on the right of `:=` are all identifiers. The
+`or` of a clause must be on the line where the expression ends, since a newline would end the statement
+(section 4.3).
+
+```
+n := strconv.Atoi(s) or continue   // an or clause
+or := 3                            // a short variable declaration of a variable named or
+f(or)                              // a call with an argument named or
+or.Close()                         // a method call on a variable named or
 ```
 
 **`bits`, `le` and `be`.** Inside a packed type, `le` and `be` directly after `packed` (or after

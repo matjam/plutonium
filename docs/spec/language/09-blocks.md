@@ -14,6 +14,7 @@ In addition to explicit blocks in the source code, there are implicit blocks:
 3. Each file has a *file block* containing all Plutonium source text in that file.
 4. Each `if`, `for` and `switch` statement is considered to be in its own implicit block.
 5. Each clause in a `switch` or `select` statement acts as an implicit block.
+6. Each or clause (section 11.27, Or clauses) is in an implicit block, which declares `err`.
 
 Blocks nest and influence scoping (chapter 10, Declarations and scope).
 
