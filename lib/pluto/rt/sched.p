@@ -102,6 +102,15 @@ type Task struct {
 	goexit    bool
 	panicking *Panic
 
+	// join counts the task for the sync.Scope that started it (join.p);
+	// joins is the chain of Joins whose tasks this task started; drops
+	// counts the drops it is inside, and dropCounted says it is counted in
+	// the tasks that main's return waits for (join.p).
+	join        *Join
+	joins       *Join
+	drops       int32
+	dropCounted bool
+
 	// Link and Data are the backend's: a run-queue link and a word for its
 	// own use. The runtime never touches them.
 	Link *Task
@@ -246,6 +255,19 @@ var (
 // variable so that the stub does not pull the scheduler into programs that
 // never start one; startTasks sets it.
 var preemptParkFn func() uintptr
+
+// exitWaitFn is waitDrops, which the program's start calls once main has
+// returned. It is a variable for the same reason; the hosted scheduler,
+// whose monitor wakes main (join.p), sets it when it starts.
+var exitWaitFn func()
+
+// mainReturned is called when main has returned, before the program exits:
+// drops that other tasks have begun complete first (join.p).
+func mainReturned() {
+	if f := exitWaitFn; f != nil {
+		f()
+	}
+}
 
 // startTasks starts the backend and adopts the running code as BootTask,
 // the running task on this processor, the first time a task operation
@@ -436,6 +458,8 @@ const (
 	WaitSleep                            // "sleep"
 	WaitIO                               // "IO wait"
 	WaitSystem                           // "system": a runtime helper, left out of deadlock reports
+	WaitScope                            // "sync.Scope.Wait"
+	WaitExit                             // "exit": main returned, waiting for drops other tasks began
 )
 
 // String returns the reason as a trace prints it.
@@ -469,6 +493,10 @@ func (r WaitReason) String() string {
 		return "IO wait"
 	case WaitSystem:
 		return "system"
+	case WaitScope:
+		return "sync.Scope.Wait"
+	case WaitExit:
+		return "exit"
 	}
 	return "waiting"
 }
@@ -671,6 +699,11 @@ func checkGoFunc(rec unsafe.Pointer) {
 }
 
 func spawn(fn, args unsafe.Pointer, argSize, argAlign uintptr, req StackRequest) {
+	spawnFor(nil, fn, args, argSize, argAlign, req)
+}
+
+// spawnFor starts a task counted by the Join j, or by none.
+func spawnFor(j *Join, fn, args unsafe.Pointer, argSize, argAlign uintptr, req StackRequest) {
 	// Once there are puroutines, a string's count may change on another
 	// thread, or in a puroutine that preempts this one between the load
 	// and the store of a plain increment: counts are atomic from now on
@@ -702,6 +735,11 @@ func spawn(fn, args unsafe.Pointer, argSize, argAlign uintptr, req StackRequest)
 	t.fn = fn
 	t.arg = unsafe.Pointer(argp)
 	t.locks = 1 // until taskMain: a backend switches to it with preemption off
+	t.join = j
+	t.joins = nil
+	t.drops = 0
+	t.dropCounted = false
+	t.alloc = nil // every task starts with the program-wide default allocator
 	t.ctx.task = t
 	entry := taskMain
 	t.ctx.sp = newContext(argp, uintptr(unsafe.Pointer(t)), *(*uintptr)(unsafe.Pointer(&entry)), 0)
@@ -716,6 +754,16 @@ func taskMain(t *Task, _ uintptr) {
 	var f func(unsafe.Pointer)
 	*(*unsafe.Pointer)(unsafe.Pointer(&f)) = t.fn
 	f(t.arg)
+	t.goexit = false
+	if j := t.join; j != nil {
+		t.join = nil
+		joinExit(j)
+	}
+	if t.dropCounted {
+		// A drop the task left with rt.Goexit.
+		t.drops = 0
+		dropDone(t)
+	}
 	inc32(&t.locks)
 	t.status = tExiting
 	schedPark(t)

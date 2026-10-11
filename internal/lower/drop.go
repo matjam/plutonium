@@ -72,7 +72,11 @@ func (l *Lowerer) dropGlue(T types2.Type) *ssa.Sym {
 	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(p), nil, false)
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: sig, build: func(s *fnState) {
 		in := s.incomingArgs(sig)
+		// A drop that has begun completes before the program exits
+		// (rt.dropBegin, language spec section 15.4).
+		s.callRuntime("dropBegin", nil)
 		s.dropFields(in[0].v, T)
+		s.callRuntime("dropEnd", nil)
 		s.returnValues(nil)
 	}})
 	return sym

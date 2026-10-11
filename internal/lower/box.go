@@ -109,9 +109,11 @@ func (l *Lowerer) releaseGlue(w *types2.Wrapper) *ssa.Sym {
 		obj := in[0].v
 		last := s.callRuntime("boxReleaseStrong", []*ssa.Type{ssa.TBool}, []*ssa.Value{obj, s.constBool(sync)})[0]
 		s.ifThen(last, func() {
+			s.callRuntime("dropBegin", nil)
 			s.destroyAt(obj, elem)
 			s.callRuntime("weakRelease", nil, []*ssa.Value{obj, s.constBool(sync),
 				s.constInt(ssa.TI64, s.l.sizeof(elem)), s.constInt(ssa.TI64, s.l.alignof(elem))})
+			s.callRuntime("dropEnd", nil)
 		})
 		s.returnValues(nil)
 	}})

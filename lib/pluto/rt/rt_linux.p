@@ -57,7 +57,9 @@ func start(sp unsafe.Pointer) {
 	}
 	stackHi = uintptr(sp)
 	stackLo = systemStackLimit(stackHi)
-	Exit(int(programMain()))
+	code := int(programMain())
+	mainReturned()
+	Exit(code)
 }
 
 // runOnStack switches to the stack whose highest address is top and calls
@@ -69,7 +71,11 @@ func runOnStack(top uintptr)
 // mainOnStack runs the program on the stack reserved for //pu:stack.
 //
 //pu:export
-func mainOnStack() { Exit(int(programMain())) }
+func mainOnStack() {
+	code := int(programMain())
+	mainReturned()
+	Exit(code)
+}
 
 // stackGuard is the inaccessible region below a reserved stack: as large as
 // Linux's own gap below the process stack, so that a frame larger than a

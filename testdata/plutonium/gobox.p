@@ -13,7 +13,6 @@ import (
 	"pluto/alloc"
 	"pluto/rt"
 	"pluto/sync"
-	"pluto/time"
 )
 
 // mu guards hits, which the puroutines holding a synced Server change.
@@ -130,8 +129,8 @@ func main() {
 	dropped.Wait()
 
 	// Drop reports before the memory is freed, and nothing in the program
-	// follows the puroutine's own release, so give the last puroutine time
-	// to finish before the leak check at exit.
-	time.Sleep(100 * time.Millisecond)
+	// follows the puroutine's own release: main's return waits for a drop
+	// another puroutine has begun (language spec section 15.4), so the
+	// leak check at exit sees the box freed.
 	println("end")
 }

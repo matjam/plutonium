@@ -111,7 +111,9 @@ func strFree(ctl uintptr) {
 		panicMessage("runtime error: string reference count below zero (a string was released twice)", "", "", "", "")
 	}
 	a := h.a
+	dropBegin()
 	a.Free(unsafe.Pointer(h), h.size, 8)
+	dropEnd()
 }
 
 // strAlloc allocates a counted buffer for n > 0 bytes from the current
