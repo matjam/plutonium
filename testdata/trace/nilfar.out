@@ -1,0 +1,4 @@
+3 3
+panic: runtime error: invalid memory address or nil pointer dereference
+    main.(*table).final (./main.p:18)
+    main.main (./main.p:27)

@@ -1,0 +1,5 @@
+7
+8000
+panic: runtime error: invalid memory address or nil pointer dereference
+    main.(*grid).set (./main.p:12)
+    main.main (./main.p:27)

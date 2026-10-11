@@ -895,7 +895,7 @@ func (s *fnState) receiverFromData(data *ssa.Value, T types2.Type, index []int, 
 			return scalarValue(data, recvT) // T is the pointer type
 		case isPointerLike(T):
 			// A value method called through a pointer: dereference.
-			return s.hold(s.materialize(s.loadFrom(data, pointerElem(T))))
+			return s.hold(s.materialize(s.loadLV(s.deref(data, pointerElem(T), token.NoPos))))
 		}
 		// The receiver is borrowed from the box, which the interface's
 		// holder keeps alive for the call.
@@ -908,7 +908,7 @@ func (s *fnState) receiverFromData(data *ssa.Value, T types2.Type, index []int, 
 	// A promoted method: walk the embedded fields.
 	var cur lvalue
 	if isPointerLike(T) {
-		cur = lvalue{ptr: data, T: pointerElem(T)}
+		cur = s.deref(data, pointerElem(T), token.NoPos)
 	} else if s.l.isDirect(T) {
 		tmp := s.temp(T, "recv")
 		s.storeTo(tmp, s.fromDataWord(data, T), T)
@@ -918,9 +918,12 @@ func (s *fnState) receiverFromData(data *ssa.Value, T types2.Type, index []int, 
 	}
 	cur = s.fieldPath(cur, index[:len(index)-1])
 	if isPointerLike(unwrap(cur.T)) {
-		cur = lvalue{ptr: s.loadLV(cur).v, T: pointerElem(unwrap(cur.T))}
+		cur = s.deref(s.loadLV(cur).v, pointerElem(unwrap(cur.T)), token.NoPos)
 	}
 	if wantPtr {
+		if cur.nilOff != 0 {
+			cur = s.nilGuard(cur)
+		}
 		return scalarValue(cur.ptr, recvT)
 	}
 	return s.hold(s.materialize(s.loadLV(cur)))

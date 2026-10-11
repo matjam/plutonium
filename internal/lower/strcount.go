@@ -328,6 +328,7 @@ func (s *fnState) storeCounted(lv lvalue, v value, init bool) {
 
 // assign stores v into lv, counting if lv's type is counted.
 func (s *fnState) assign(lv lvalue, v value, init bool) {
+	lv = s.nilGuard(lv)
 	// A container element (x[k] through SetIndex) is stored by a call,
 	// which takes its own reference.
 	if lv.bits == nil && lv.elem == nil && s.l.counted(unwrap(lv.T)) {

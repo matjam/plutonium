@@ -256,6 +256,16 @@ func panicIndex(i, n int) {
 	fatal(nil)
 }
 
+// panicNil reports a dereference of a nil pointer that the compiler checks
+// explicitly: one whose offset from the pointer can reach past the unmapped
+// region at address zero, where the hardware would not fault (language spec
+// section 17.5). The message is the one a fault in that region gets.
+func panicNil() {
+	startPanic()
+	printString("runtime error: invalid memory address or nil pointer dereference")
+	fatal(nil)
+}
+
 func panicSlice(lo, hi, max int) {
 	startPanic()
 	printString("runtime error: slice bounds out of range [")

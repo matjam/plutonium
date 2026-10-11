@@ -1,0 +1,72 @@
+package lower
+
+import (
+	"github.com/matjam/plutonium/internal/ssa"
+	"github.com/matjam/plutonium/internal/syntax/token"
+	"github.com/matjam/plutonium/internal/types2"
+)
+
+// Nil dereferences (language spec section 17.5). Address zero and the
+// nilGuardSize bytes above it are unmapped in every build (hosted programs
+// by the operating system, kernels by arrangement), so an access at a small
+// offset from a nil pointer faults, and the runtime reports the fault as a
+// nil dereference. Only an access whose offset from the pointer can reach
+// past that region needs an explicit check: a field at a large offset, or
+// an element of a large array reached through a pointer to it.
+//
+// A dereference does not check at once. The lvalue it makes remembers the
+// pointer (nilBase) and the static offset of its storage from it (nilOff);
+// field selection and constant indexes add to the offset, and the lvalue is
+// guarded when it is used (nilGuard): if the storage it denotes can reach
+// past the region, the pointer is compared with nil there, and the program
+// panics on the path where it is. Repeated checks of one pointer fold away
+// (opt.Prove).
+
+// nilGuardSize is the size of the unmapped region at address zero that
+// the runtime reports a fault in as a nil dereference (rt.describeFault).
+const nilGuardSize = 4096
+
+// deref returns the storage of type T that pointer p points to, to be
+// guarded by nilGuard before it is used.
+func (s *fnState) deref(p *ssa.Value, T types2.Type, pos token.Pos) lvalue {
+	lv := lvalue{ptr: p, T: T}
+	if mayBeNil(p) {
+		lv.nilBase, lv.nilPos = p, pos
+	}
+	return lv
+}
+
+// mayBeNil reports whether pointer p may be nil: anything but the address
+// of a frame slot or a symbol, or an offset from one.
+func mayBeNil(p *ssa.Value) bool {
+	for p.Op == ssa.OpOffPtr {
+		p = p.Args[0]
+	}
+	return p.Op != ssa.OpSlotAddr && p.Op != ssa.OpSymAddr
+}
+
+// nilGuard checks the pointer lv was reached through, if the storage lv
+// denotes extends past the unmapped region at address zero when the
+// pointer is nil, and returns lv as storage that needs no further check.
+func (s *fnState) nilGuard(lv lvalue) lvalue {
+	if lv.nilBase == nil {
+		return lv
+	}
+	if lv.nilOff+s.l.sizeof(s.subst(unwrap(lv.T))) > nilGuardSize {
+		s.nilCheck(lv.nilBase, lv.nilPos)
+	}
+	lv.nilBase = nil
+	return lv
+}
+
+// nilCheck panics if p is nil. The comparison is of p's bits as an
+// integer, so that opt.Prove folds a check that an earlier one implies.
+func (s *fnState) nilCheck(p *ssa.Value, pos token.Pos) {
+	if s.b == nil {
+		return
+	}
+	ok := s.newValue(ssa.OpNe, ssa.TBool, s.newValue(ssa.OpBitcast, ssa.TI64, p), s.constInt(ssa.TI64, 0))
+	s.panicUnless(ok, pos, func() {
+		s.callRuntimeNoReturn("panicNil")
+	})
+}

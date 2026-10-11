@@ -182,14 +182,18 @@ func (s *fnState) indexValue(e ast.Expr) *ssa.Value {
 // Addressable expressions
 
 // lv returns the storage location an addressable expression denotes.
-func (s *fnState) lv(e ast.Expr) lvalue {
+func (s *fnState) lv(e ast.Expr) lvalue { return s.nilGuard(s.lvRaw(e)) }
+
+// lvRaw is lv for a caller that selects a part of the storage: storage
+// reached through a pointer is not yet checked for nil (nilcheck.go).
+func (s *fnState) lvRaw(e ast.Expr) lvalue {
 	switch e.(type) {
 	case *ast.IndexExpr, *ast.CompositeLit:
 		s.callsFirst(e) // order.go
 	}
 	switch e := e.(type) {
 	case *ast.ParenExpr:
-		return s.lv(e.X)
+		return s.lvRaw(e.X)
 	case *ast.Ident:
 		obj, _ := s.info.Uses[e].(*types2.Var)
 		if obj == nil {
@@ -218,11 +222,13 @@ func (s *fnState) lv(e ast.Expr) lvalue {
 				stable = s.stableVar(v)
 			}
 		}
-		return lvalue{ptr: p.v, T: base, stable: stable}
+		lv := s.deref(p.v, base, e.Pos())
+		lv.stable = stable
+		return lv
 	case *ast.SelectorExpr:
-		return s.selectorLV(e)
+		return s.selectorRaw(e)
 	case *ast.IndexExpr:
-		return s.indexLV(e)
+		return s.indexRaw(e)
 	case *ast.CompositeLit:
 		T := s.typeOf(e)
 		if s.staticLits {
@@ -329,7 +335,10 @@ func (s *fnState) declareView(obj *types2.Var) *ssa.Value {
 
 // indexLV returns the element an index expression on an array, pointer to
 // array or slice denotes, after a bounds check.
-func (s *fnState) indexLV(e *ast.IndexExpr) lvalue {
+func (s *fnState) indexLV(e *ast.IndexExpr) lvalue { return s.nilGuard(s.indexRaw(e)) }
+
+// indexRaw is indexLV for lvRaw.
+func (s *fnState) indexRaw(e *ast.IndexExpr) lvalue {
 	if s.isContainerIndex(e) {
 		return s.containerLV(e)
 	}
@@ -343,19 +352,26 @@ func (s *fnState) indexLV(e *ast.IndexExpr) lvalue {
 	}
 	switch u := u.(type) {
 	case *types2.Array:
-		var base *ssa.Value
-		stable := false
+		var arr lvalue
 		if _, isPtr := asPointer(unwrap(xt).Underlying()).(*types2.Pointer); isPtr {
-			base = s.scalar(e.X)
+			arr = s.deref(s.scalar(e.X), u, e.Pos())
 		} else {
-			lv := s.lv(e.X)
-			base, stable = lv.ptr, lv.stable
+			arr = s.lvRaw(e.X)
 		}
 		i := s.indexValue(e.Index)
-		if c, ok := constIndex(s.info, e.Index); !ok || c >= u.Len() {
+		c, isConst := constIndex(s.info, e.Index)
+		if !isConst || c < 0 || c >= u.Len() {
+			// Any element may be the one indexed: the whole array must
+			// be within reach of a nil pointer's fault, or checked.
+			arr = s.nilGuard(arr)
 			s.boundsCheck(i, s.constInt(ssa.TI64, u.Len()), e.Index.Pos())
 		}
-		return lvalue{ptr: s.elemAddr(base, i, u.Elem()), T: s.subst(u.Elem()), stable: stable}
+		elem := s.subst(u.Elem())
+		lv := lvalue{ptr: s.elemAddr(arr.ptr, i, u.Elem()), T: elem, stable: arr.stable}
+		if arr.nilBase != nil {
+			lv.nilBase, lv.nilOff, lv.nilPos = arr.nilBase, arr.nilOff+c*s.l.sizeof(elem), arr.nilPos
+		}
+		return lv
 	case *types2.Slice:
 		sl := s.expr(e.X)
 		ptr := s.load(ssa.TPtr, sl.v)
@@ -423,7 +439,10 @@ func (s *fnState) panicUnless(cond *ssa.Value, pos token.Pos, raise func()) {
 // Selectors
 
 // selectorLV returns the storage a field selector denotes.
-func (s *fnState) selectorLV(e *ast.SelectorExpr) lvalue {
+func (s *fnState) selectorLV(e *ast.SelectorExpr) lvalue { return s.nilGuard(s.selectorRaw(e)) }
+
+// selectorRaw is selectorLV for lvRaw.
+func (s *fnState) selectorRaw(e *ast.SelectorExpr) lvalue {
 	if id, ok := e.X.(*ast.Ident); ok {
 		if _, isPkg := s.info.Uses[id].(*types2.PkgName); isPkg {
 			obj := s.info.Uses[e.Sel].(*types2.Var)
@@ -439,23 +458,28 @@ func (s *fnState) selectorLV(e *ast.SelectorExpr) lvalue {
 	var cur lvalue
 	xt := s.typeOf(e.X)
 	if isPointerLike(xt) {
-		cur = lvalue{ptr: s.scalar(e.X), T: pointerElem(xt)}
+		cur = s.deref(s.scalar(e.X), pointerElem(xt), e.Pos())
 	} else {
-		cur = s.lv(e.X)
+		cur = s.lvRaw(e.X)
 	}
 	return s.fieldPath(cur, sel.Index())
 }
 
 // fieldPath follows a field index path, dereferencing embedded pointers.
+// The storage it returns may need nilGuard before it is used.
 func (s *fnState) fieldPath(cur lvalue, path []int) lvalue {
 	for n, idx := range path {
+		if _, packed := unwrap(cur.T).Underlying().(*types2.Packed); packed || cur.bits != nil {
+			cur = s.nilGuard(cur)
+		}
 		if cur.bits != nil {
 			// A field of a packed field (a flag group or nested packed type).
 			cur = s.packedField(cur, cur.bits.T.Underlying().(*types2.Packed), idx)
 			continue
 		}
 		if n > 0 && isPointerLike(unwrap(cur.T)) {
-			cur = lvalue{ptr: s.loadLV(cur).v, T: pointerElem(unwrap(cur.T))}
+			pos := cur.nilPos
+			cur = s.deref(s.loadLV(cur).v, pointerElem(unwrap(cur.T)), pos)
 		}
 		switch u := unwrap(cur.T).Underlying().(type) {
 		case *types2.Struct:
@@ -464,7 +488,11 @@ func (s *fnState) fieldPath(cur lvalue, path []int) lvalue {
 				fields[i] = u.Field(i)
 			}
 			off := s.l.sizes.Offsetsof(fields)[idx]
-			cur = lvalue{ptr: s.offPtr(cur.ptr, off), T: s.subst(u.Field(idx).Type()), stable: cur.stable}
+			next := lvalue{ptr: s.offPtr(cur.ptr, off), T: s.subst(u.Field(idx).Type()), stable: cur.stable}
+			if cur.nilBase != nil {
+				next.nilBase, next.nilOff, next.nilPos = cur.nilBase, cur.nilOff+off, cur.nilPos
+			}
+			cur = next
 		case *types2.Packed:
 			cur = s.packedField(cur, u, idx)
 		default:
@@ -1044,6 +1072,8 @@ func (s *fnState) sliceParts(v value) (ptr, n, c *ssa.Value) {
 func (s *fnState) sliceExpr(e *ast.SliceExpr, T types2.Type) value {
 	xt := unwrap(s.typeOf(e.X))
 	var base, length, capacity, ctl *ssa.Value
+	var nilBase *ssa.Value // the pointer an array is reached through, if it may be nil
+	var nilPos token.Pos
 	var elem types2.Type
 	var str value
 	isStr := false
@@ -1060,13 +1090,21 @@ func (s *fnState) sliceExpr(e *ast.SliceExpr, T types2.Type) value {
 		base, length, capacity = s.sliceParts(sl)
 		elem = u.Elem()
 	case *types2.Array:
-		base = s.absAddr(s.lv(e.X).ptr)
+		// Slicing an array reached through a nil pointer panics however
+		// small the array (language spec section 17.5): the slice would
+		// have its length and no memory.
+		lv := s.lvRaw(e.X)
+		nilBase, nilPos = lv.nilBase, lv.nilPos
+		base = s.absAddr(lv.ptr)
 		length = s.constInt(ssa.TI64, u.Len())
 		capacity = length
 		elem = u.Elem()
 	case *types2.Pointer:
 		arr := unwrap(u.Elem()).Underlying().(*types2.Array)
 		base = s.scalar(e.X)
+		if mayBeNil(base) {
+			nilBase, nilPos = base, e.Pos()
+		}
 		length = s.constInt(ssa.TI64, arr.Len())
 		capacity = length
 		elem = arr.Elem()
@@ -1085,6 +1123,11 @@ func (s *fnState) sliceExpr(e *ast.SliceExpr, T types2.Type) value {
 	mx := capacity
 	if e.Max != nil {
 		mx = s.indexValue(e.Max)
+	}
+	if nilBase != nil {
+		// Checked after the indexes, so that an index read through the
+		// same pointer (a.d[:a.n]) shows it is not nil (opt.Prove).
+		s.nilCheck(nilBase, nilPos)
 	}
 	// 0 <= lo <= hi <= max <= cap
 	if s.f.Pragmas&ssa.PragmaNoBounds == 0 {

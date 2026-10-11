@@ -23,9 +23,11 @@ const (
 	genMax       = 0x8000                        // the first tag that is an arena epoch
 )
 
-// genSlots returns a chunk's generation array.
-func genSlots(chunk uintptr) *[genChunkSize / genGranule]uint16 {
-	return (*[genChunkSize / genGranule]uint16)(unsafe.Pointer(chunk))
+// genAt returns the generation of granule i of a chunk. It is a pointer to
+// the element rather than to the whole table, so that an access needs no
+// nil check (language spec section 17.5): chunk is never nil.
+func genAt(chunk, i uintptr) *uint16 {
+	return (*uint16)(unsafe.Add(unsafe.Pointer(chunk), i*2))
 }
 
 // genFirst returns the index of the first slot of size slot past the
@@ -36,9 +38,8 @@ func genFirst(slot uintptr) uintptr {
 
 // genInit gives every usable granule of a fresh chunk generation 1.
 func genInit(chunk unsafe.Pointer) {
-	gens := genSlots(uintptr(chunk))
-	for i := genHeader / genGranule; i < len(gens); i++ {
-		gens[i] = 1
+	for i := uintptr(genHeader / genGranule); i < genChunkSize/genGranule; i++ {
+		*genAt(uintptr(chunk), i) = 1
 	}
 }
 
@@ -46,7 +47,7 @@ func genInit(chunk unsafe.Pointer) {
 // generation.
 func genTag(p unsafe.Pointer) unsafe.Pointer {
 	a := uintptr(p)
-	g := uintptr(genSlots(a &^ (genChunkSize - 1))[(a&(genChunkSize-1))/genGranule])
+	g := uintptr(*genAt(a&^(genChunkSize-1), (a&(genChunkSize-1))/genGranule))
 	return unsafe.Pointer(a | g<<genTagShift)
 }
 
@@ -64,9 +65,9 @@ func genRelease(p unsafe.Pointer, slot uintptr) bool {
 		return true
 	}
 	a := uintptr(p) // the plain address
-	gens := genSlots(a &^ (genChunkSize - 1))
+	chunk := a &^ (genChunkSize - 1)
 	first := (a & (genChunkSize - 1)) / genGranule
-	if uintptr(gens[first]) != tag {
+	if uintptr(*genAt(chunk, first)) != tag {
 		panic("alloc: Free of memory that was already freed")
 	}
 	next := uint16(tag + 1)
@@ -74,7 +75,7 @@ func genRelease(p unsafe.Pointer, slot uintptr) bool {
 		next = 0 // worn out: no pointer matches
 	}
 	for i := first; i < first+slot/genGranule; i++ {
-		gens[i] = next
+		*genAt(chunk, i) = next
 	}
 	return next != 0
 }

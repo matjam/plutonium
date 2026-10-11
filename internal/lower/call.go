@@ -667,9 +667,9 @@ func (s *fnState) methodReceiver(x ast.Expr, fn *types2.Func, path []int) value 
 		return s.receiverAt(cur, wantPtr, path)
 	}
 	if isPointerLike(xt) {
-		cur = lvalue{ptr: s.scalar(x), T: pointerElem(xt)}
+		cur = s.deref(s.scalar(x), pointerElem(xt), x.Pos())
 	} else if isAddressable(x, s.info) {
-		cur = s.lv(x)
+		cur = s.lvRaw(x)
 	} else {
 		v := s.materialize(s.expr(x))
 		if wantPtr && s.l.counted(xt) {
@@ -698,10 +698,16 @@ func (s *fnState) receiverAt(cur lvalue, wantPtr bool, path []int) value {
 	if len(path) > 1 {
 		cur = s.fieldPath(cur, path[:len(path)-1])
 		if isPointerLike(unwrap(cur.T)) {
-			cur = lvalue{ptr: s.loadLV(cur).v, T: pointerElem(unwrap(cur.T))}
+			pos := cur.nilPos
+			cur = s.deref(s.loadLV(cur).v, pointerElem(unwrap(cur.T)), pos)
 		}
 	}
 	if wantPtr {
+		// A pointer receiver may be nil: only the address of a field
+		// reached through a pointer is checked.
+		if cur.nilOff != 0 {
+			cur = s.nilGuard(cur)
+		}
 		return scalarValue(s.absAddr(cur.ptr), types2.NewPointer(cur.T))
 	}
 	return s.loadLV(cur)
@@ -717,7 +723,7 @@ func (s *fnState) receiverFromValue(v value, fn *types2.Func, path []int) value 
 	var cur lvalue
 	switch {
 	case isPointerLike(v.T):
-		cur = lvalue{ptr: v.v, T: pointerElem(v.T)}
+		cur = s.deref(v.v, pointerElem(v.T), token.NoPos)
 	case s.l.counted(v.T):
 		// A copy the method may change: it holds references of its own.
 		cur = lvalue{ptr: s.holdOwned(v).v, T: v.T, stable: true}

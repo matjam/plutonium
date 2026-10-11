@@ -6,6 +6,7 @@ import (
 
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
+	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
 )
 
@@ -40,6 +41,13 @@ type lvalue struct {
 	// is not taken, or a temporary. Counted values read from it are
 	// borrowed without a retain (strcount.go).
 	stable bool
+
+	// nilBase is the pointer the storage was reached through, at offset
+	// nilOff from it, while that pointer may be nil and has not been
+	// checked (nilcheck.go); nilPos is where it was dereferenced.
+	nilBase *ssa.Value
+	nilOff  int64
+	nilPos  token.Pos
 }
 
 // A bitRef locates a packed field inside its container's storage.
@@ -77,6 +85,7 @@ func (s *fnState) markVolatileLoad(ld *ssa.Value) {
 
 // loadLV reads an lvalue.
 func (s *fnState) loadLV(lv lvalue) value {
+	lv = s.nilGuard(lv)
 	if lv.elem != nil {
 		return s.containerLoad(lv.elem)
 	}
@@ -113,6 +122,7 @@ func (s *fnState) loadLV(lv lvalue) value {
 
 // storeLV writes val to an lvalue.
 func (s *fnState) storeLV(lv lvalue, val value) {
+	lv = s.nilGuard(lv)
 	if lv.elem != nil {
 		s.containerStore(lv.elem, val)
 		return

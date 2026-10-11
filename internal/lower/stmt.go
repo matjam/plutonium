@@ -619,7 +619,7 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 		case *types2.Pointer:
 			arr := unwrap(u.Elem()).Underlying().(*types2.Array)
 			if hasValue {
-				base = s.scalar(st.X)
+				base = s.nilGuard(s.deref(s.scalar(st.X), arr, st.X.Pos())).ptr
 			}
 			n = s.constInt(ssa.TI64, arr.Len())
 			et = s.subst(arr.Elem())

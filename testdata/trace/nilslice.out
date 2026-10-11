@@ -1,0 +1,4 @@
+2
+panic: runtime error: invalid memory address or nil pointer dereference
+    main.view (./main.p:7)
+    main.main (./main.p:14)

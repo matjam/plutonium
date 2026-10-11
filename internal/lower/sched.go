@@ -312,7 +312,7 @@ func (l *Lowerer) schedHookSym(fn *types2.Func, method string, mode hookMode) *s
 		addr := s.symAddr(l.globalSym(b.v))
 		cur := lvalue{ptr: addr, T: T}
 		if isPointerLike(T) {
-			cur = lvalue{ptr: s.load(ssa.TPtr, addr), T: pointerElem(T)}
+			cur = s.deref(s.load(ssa.TPtr, addr), pointerElem(T), token.NoPos)
 		}
 		_, wantPtr := m.Type().(*types2.Signature).Recv().Type().(*types2.Pointer)
 		recv := s.receiverAt(cur, wantPtr, path)

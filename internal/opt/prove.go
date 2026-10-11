@@ -17,8 +17,11 @@ import (
 // which holds because i is an induction variable that starts at 0, only
 // grows, and cannot overflow while the loop condition holds.
 //
-// Only 64-bit integer comparisons are considered. SimplifyCFG removes the
-// folded branches.
+// Only 64-bit integer comparisons are considered, and the comparison of a
+// pointer's bits with zero that lowering emits as a nil check: a pointer
+// is not nil after an access at a small offset from it has completed,
+// since that access would have faulted (language spec section 17.5).
+// SimplifyCFG removes the folded branches.
 func Prove(f *ssa.Func) {
 	p := &prover{
 		f:      f,
@@ -62,12 +65,17 @@ type prover struct {
 	ranges map[*ssa.Value]rng // static ranges, independent of facts
 	busy   map[*ssa.Value]bool
 	facts  []fact
+	nonNil []*ssa.Value // pointers known not to be nil
 }
+
+// nilGuardSize is the size of the unmapped region at address zero: an
+// access at a smaller offset from a nil pointer faults (lower.nilGuardSize).
+const nilGuardSize = 4096
 
 // walk visits the dominator tree below b, carrying the facts that hold on
 // entry to each block.
 func (p *prover) walk(b *ssa.Block) {
-	n := len(p.facts)
+	n, nn := len(p.facts), len(p.nonNil)
 	if len(b.Preds) == 1 {
 		e := b.Preds[0]
 		if pb := e.B; pb.Kind == ssa.BlockIf && pb.Succs[0].B != pb.Succs[1].B {
@@ -76,6 +84,11 @@ func (p *prover) walk(b *ssa.Block) {
 	}
 	for _, v := range b.Values {
 		p.rewrite(v)
+	}
+	// Every access in b completes before b's branch and before the blocks
+	// b dominates run.
+	for _, v := range b.Values {
+		p.accessed(v)
 	}
 	if b.Kind == ssa.BlockIf && b.Controls[0].Op != ssa.OpConst {
 		if val, ok := p.decide(b.Controls[0]); ok {
@@ -86,6 +99,56 @@ func (p *prover) walk(b *ssa.Block) {
 		p.walk(c)
 	}
 	p.facts = p.facts[:n]
+	p.nonNil = p.nonNil[:nn]
+}
+
+// accessed records the pointers that memory access v shows not to be nil:
+// the base of an address at an offset below nilGuardSize.
+func (p *prover) accessed(v *ssa.Value) {
+	var addrs []*ssa.Value
+	switch v.Op {
+	case ssa.OpLoad, ssa.OpStore:
+		addrs = v.Args[:1]
+	case ssa.OpZero:
+		if v.AuxInt > 0 {
+			addrs = v.Args[:1]
+		}
+	case ssa.OpMove:
+		if v.AuxInt > 0 {
+			addrs = v.Args[:2]
+		}
+	}
+	for _, a := range addrs {
+		off := int64(0)
+		for a.Op == ssa.OpOffPtr && off >= 0 && off < nilGuardSize {
+			off += a.AuxInt
+			a = a.Args[0]
+		}
+		if off >= 0 && off < nilGuardSize {
+			p.nonNil = append(p.nonNil, a)
+		}
+	}
+}
+
+// decideNil decides a nil check, x != 0 or x == 0 for the bits x of a
+// pointer known not to be nil.
+func (p *prover) decideNil(c *ssa.Value) (val, ok bool) {
+	if (c.Op != ssa.OpEq && c.Op != ssa.OpNe) || len(c.Args) != 2 {
+		return false, false
+	}
+	x, y := c.Args[0], c.Args[1]
+	if x.Op == ssa.OpConst {
+		x, y = y, x
+	}
+	if y.Op != ssa.OpConst || y.AuxInt != 0 || x.Op != ssa.OpBitcast || !x.Args[0].Type.IsPtr() {
+		return false, false
+	}
+	for _, q := range p.nonNil {
+		if q == x.Args[0] {
+			return c.Op == ssa.OpNe, true
+		}
+	}
+	return false, false
 }
 
 // rewrite simplifies v using what is known where it is defined: a value
@@ -293,6 +356,9 @@ func (p *prover) decide(c *ssa.Value) (val, ok bool) {
 	if c.Op == ssa.OpNot {
 		val, ok = p.decide(c.Args[0])
 		return !val, ok
+	}
+	if val, ok = p.decideNil(c); ok {
+		return val, ok
 	}
 	if len(c.Args) != 2 || !word(c.Args[0]) || !word(c.Args[1]) {
 		return false, false
