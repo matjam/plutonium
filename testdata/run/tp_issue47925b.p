@@ -13,7 +13,7 @@ type I[T any] interface {
 type E[T any] interface {
 }
 
-//go:noinline
+//pu:noinline
 func f[T I[T]](x T) E[T] {
 	// contains a cast from nonempty to empty interface
 	return E[T](I[T](x))

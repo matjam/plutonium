@@ -1,0 +1,4 @@
+$DIR/main.p:1:1: //go:build is a Go directive; write //pu:build
+$DIR/main.p:8:1: //go:generate is a Go directive, and Plutonium has no equivalent; delete it
+$DIR/main.p:10:1: //go:noinline is a Go directive; write //pu:noinline
+$DIR/main.p:13:1: //go:nosplit is a Go directive, and Plutonium has no equivalent; delete it

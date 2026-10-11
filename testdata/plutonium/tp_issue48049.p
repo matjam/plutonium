@@ -24,7 +24,7 @@ type fooer2[T any] struct {
 	r []Fooer[T]
 }
 
-//go:noinline
+//pu:noinline
 func (mr fooer2[T]) Foo(p T) {
 	mr.r[0] = fooer1[T]{}
 	return

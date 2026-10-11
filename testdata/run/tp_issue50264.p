@@ -29,7 +29,7 @@ func Some[T any](v T) any {
 	return NoneType[T]{}.Recover()
 }
 
-//go:noinline
+//pu:noinline
 func Some2[T any](v T) any {
 	return v
 }

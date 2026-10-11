@@ -20,6 +20,18 @@ import (
 // Prefix starts every directive.
 const Prefix = "//pu:"
 
+// GoPrefix starts a Go directive, which is an error (language spec sections
+// 4.1 and 20.3).
+const GoPrefix = "//go:"
+
+// goEquivalents maps the Go directives that Plutonium has under its own
+// prefix to the //pu: directive, with where it applies when that differs.
+var goEquivalents = map[string]string{
+	"build":    "//pu:build",
+	"noinline": "//pu:noinline",
+	"noescape": "//pu:noescape, on a function without a body",
+}
+
 // A place is a kind of declaration a directive can apply to.
 type place int
 
@@ -157,6 +169,10 @@ func Check(fset *token.FileSet, f *ast.File) []*diag.Diagnostic {
 	var out []*diag.Diagnostic
 	for _, g := range f.Comments {
 		for _, c := range g.List {
+			if strings.HasPrefix(c.Text, GoPrefix) {
+				out = append(out, goDirective(fset.Position(c.Pos()), c.Text))
+				continue
+			}
 			name, arg, ok := Split(c.Text)
 			if !ok {
 				continue
@@ -235,6 +251,26 @@ func argCheck(pos token.Position, name, arg string, info info) *diag.Diagnostic 
 		return d
 	}
 	return nil
+}
+
+// goDirective reports a //go: comment, naming the //pu: directive that does
+// the same job, or saying that there is none.
+func goDirective(pos token.Position, text string) *diag.Diagnostic {
+	rest := strings.TrimPrefix(text, GoPrefix)
+	name, arg, _ := strings.Cut(strings.TrimSpace(rest), " ")
+	if pu, ok := goEquivalents[name]; ok {
+		d := diag.New(pos, diag.GoDirective, "//go:%s is a Go directive; write %s", name, pu)
+		code := Prefix + name
+		if arg = strings.TrimSpace(arg); arg != "" {
+			code += " " + arg
+		}
+		d.Text = "Plutonium does not read //go: comments, so this one would do nothing. Its directives start with //pu:, and " + GoPrefix + name + " is " + Prefix + name + " there."
+		d.Fix = &diag.Fix{Intro: "Use the //pu: directive", Code: code}
+		return d
+	}
+	d := diag.New(pos, diag.GoDirective, "//go:%s is a Go directive, and Plutonium has no equivalent; delete it", name)
+	d.Text = "Plutonium does not read //go: comments, so this one would do nothing, and no //pu: directive does what " + GoPrefix + name + " does in Go. The directives are: " + strings.Join(Names(), ", ") + "."
+	return d
 }
 
 func unknown(pos token.Position, name string) *diag.Diagnostic {

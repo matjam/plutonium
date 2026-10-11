@@ -72,6 +72,7 @@ const (
 	RetiredDirective   Code = "E2601" // a directive that was removed because the compiler now works it out
 	MisplacedDirective Code = "E2602" // a directive where it has no effect
 	DirectiveArgument  Code = "E2603" // a directive with an argument it does not take, or without one it needs
+	GoDirective        Code = "E2604" // a //go: line comment, which Plutonium does not read
 )
 
 // Finding and loading packages.

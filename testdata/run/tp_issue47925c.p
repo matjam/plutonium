@@ -15,7 +15,7 @@ type J[T any] interface {
 	bar()
 }
 
-//go:noinline
+//pu:noinline
 func f[T J[T]](x T) I[T] {
 	// contains a cast between two nonempty interfaces
 	return I[T](J[T](x))

@@ -11,12 +11,12 @@ package main
 type E[T any] interface {
 }
 
-//go:noinline
+//pu:noinline
 func f[T any](x E[T]) interface{} {
 	return x
 }
 
-//go:noinline
+//pu:noinline
 func g[T any](x interface{}) E[T] {
 	return x
 }
@@ -29,12 +29,12 @@ type myint int
 
 func (x myint) foo() {}
 
-//go:noinline
+//pu:noinline
 func h[T any](x I[T]) interface{ foo() } {
 	return x
 }
 
-//go:noinline
+//pu:noinline
 func i[T any](x interface{ foo() }) I[T] {
 	return x
 }

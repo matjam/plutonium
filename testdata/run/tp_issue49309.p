@@ -16,7 +16,7 @@ func myfunc(c string) {
 	test2(c)
 }
 
-//go:noinline
+//pu:noinline
 func test2(a interface{}) {
 	_ = a.(string)
 }

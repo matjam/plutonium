@@ -30,6 +30,12 @@ func TestCheck(t *testing.T) {
 	}{
 		{"fine", "//pu:build amd64\n\npackage p\n\n//pu:noinline\nfunc f() {}\n\n//pu:extern strlen\nfunc g()\n\n//pu:export\nfunc h() {}\n\n//pu:percpu\nvar v int\n\nvar (\n\t//pu:scheduler\n\ts int\n\t//pu:section .data\n\tw int\n)\n\n//pu:stack 1M\nfunc main() {}\n", nil},
 		{"typo", "package p\n\n//pu:interupt\nfunc f() {}\n", []string{"E2600: unknown directive //pu:interupt (did you mean //pu:interrupt?)"}},
+		{"go noinline", "package p\n\n//go:noinline\nfunc f() {}\n", []string{"E2604: //go:noinline is a Go directive; write //pu:noinline"}},
+		{"go build", "//go:build linux\n\npackage p\n", []string{"E2604: //go:build is a Go directive; write //pu:build"}},
+		{"go noescape", "package p\n\n//go:noescape\nfunc f(p *int)\n", []string{"E2604: //go:noescape is a Go directive; write //pu:noescape, on a function without a body"}},
+		{"go generate", "package p\n\n//go:generate stringer -type=T\n", []string{"E2604: //go:generate is a Go directive, and Plutonium has no equivalent; delete it"}},
+		{"go linkname in a body", "package p\n\nfunc f() {\n\t//go:linkname x y\n}\n", []string{"E2604: //go:linkname is a Go directive, and Plutonium has no equivalent; delete it"}},
+		{"go note with a space", "package p\n\n// go:noinline is how Go spells it\nfunc f() {}\n", nil},
 		{"far", "package p\n\n//pu:frobnicate\nfunc f() {}\n", []string{"E2600: unknown directive //pu:frobnicate"}},
 		{"empty", "package p\n\n//pu:\nfunc f() {}\n", []string{"E2600: //pu: names no directive"}},
 		{"alloc", "package p\n\n//pu:alloc\nfunc f() {}\n", []string{"E2601: //pu:alloc was removed: kernel code may allocate strings anywhere the allocator may be called"}},

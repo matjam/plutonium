@@ -39,7 +39,7 @@ type coder interface {
 
 var details = [3]detail{{"open", 2}, {"read", 5}, {"close", 9}}
 
-//go:noinline
+//pu:noinline
 func fail(i int) error {
 	if i < 0 {
 		return nil
@@ -47,18 +47,18 @@ func fail(i int) error {
 	return wrapErr{&details[i]}
 }
 
-//go:noinline
+//pu:noinline
 func failNested(i int) error { return nested{wrapErr{&details[i]}} }
 
-//go:noinline
+//pu:noinline
 func failHandle(i int) error { return handle{&details[i]} }
 
-//go:noinline
+//pu:noinline
 func asAny(i int) any { return wrapErr{&details[i]} }
 
 func double(x int) int { return 2 * x }
 
-//go:noinline
+//pu:noinline
 func makeApplier() applier { return fnBox{double} }
 
 // clobber overwrites the stack where the callees above had their frames.

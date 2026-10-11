@@ -12,7 +12,7 @@ type A[T interface{ []int | [5]int }] struct {
 	val T
 }
 
-//go:noinline
+//pu:noinline
 func (a A[T]) F() {
 	_ = &a.val[2]
 }

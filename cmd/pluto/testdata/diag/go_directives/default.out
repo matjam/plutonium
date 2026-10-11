@@ -1,0 +1,45 @@
+$DIR/main.p:1:1: //go:build is a Go directive; write //pu:build
+    Plutonium does not read //go: comments, so this one would do nothing. Its
+    directives start with //pu:, and //go:build is //pu:build there.
+    Go ignores //go: comments it does not know, which makes a typo easy to miss.
+    Plutonium directives change what the program means, so a comment that looks
+    like one is never ignored.
+    Use the //pu: directive:
+        //pu:build linux
+    (see "Directives" in the Plutonium spec, section 20.3)
+    (run "pluto explain E2604" for a longer explanation)
+
+$DIR/main.p:8:1: //go:generate is a Go directive, and Plutonium has no equivalent; delete it
+    Plutonium does not read //go: comments, so this one would do nothing, and no
+    //pu: directive does what //go:generate does in Go. The directives are:
+    blocking, build, export, extern, fpu, inline, interrupt, nobounds, noescape,
+    noinline, noreturn, nosimd, panic, percpu, resultholds, scheduler, section,
+    stack.
+    Go ignores //go: comments it does not know, which makes a typo easy to miss.
+    Plutonium directives change what the program means, so a comment that looks
+    like one is never ignored.
+    (see "Directives" in the Plutonium spec, section 20.3)
+    (run "pluto explain E2604" for a longer explanation)
+
+$DIR/main.p:10:1: //go:noinline is a Go directive; write //pu:noinline
+    Plutonium does not read //go: comments, so this one would do nothing. Its
+    directives start with //pu:, and //go:noinline is //pu:noinline there.
+    Go ignores //go: comments it does not know, which makes a typo easy to miss.
+    Plutonium directives change what the program means, so a comment that looks
+    like one is never ignored.
+    Use the //pu: directive:
+        //pu:noinline
+    (see "Directives" in the Plutonium spec, section 20.3)
+    (run "pluto explain E2604" for a longer explanation)
+
+$DIR/main.p:13:1: //go:nosplit is a Go directive, and Plutonium has no equivalent; delete it
+    Plutonium does not read //go: comments, so this one would do nothing, and no
+    //pu: directive does what //go:nosplit does in Go. The directives are:
+    blocking, build, export, extern, fpu, inline, interrupt, nobounds, noescape,
+    noinline, noreturn, nosimd, panic, percpu, resultholds, scheduler, section,
+    stack.
+    Go ignores //go: comments it does not know, which makes a typo easy to miss.
+    Plutonium directives change what the program means, so a comment that looks
+    like one is never ignored.
+    (see "Directives" in the Plutonium spec, section 20.3)
+    (run "pluto explain E2604" for a longer explanation)

@@ -15,7 +15,7 @@ type J[T any] interface {
 	bar()
 }
 
-//go:noinline
+//pu:noinline
 func f[T J[T]](x T, g func(T) T) I[T] {
 	// contains a cast between two nonempty interfaces
 	// Also make sure we don't evaluate g(x) twice.

@@ -810,6 +810,14 @@ func init() {
 			Fixed:   "//pu:noinline\nfunc g() { ... }\n\nfunc f() {\n\tg()\n}",
 		},
 		&Entry{
+			Code: GoDirective, Name: "GoDirective",
+			Text:    "A line comment that starts with //go: and no space is a Go directive. Plutonium does not read //go: comments, so this one would sit in the file looking as if it had an effect. Plutonium's directives start with //pu:, and the ones Go also has are spelt the same after the prefix: //pu:build, //pu:noinline, and //pu:noescape on a function without a body. Go's others, such as //go:generate, //go:embed, //go:linkname and //go:nosplit, have no equivalent.\nWrite the //pu: directive, or delete the line.",
+			Why:     "Go ignores //go: comments it does not know, which makes a typo easy to miss. Plutonium directives change what the program means, so a comment that looks like one is never ignored.",
+			Spec:    pspec("20.3", "Directives"),
+			Example: "//go:noinline\nfunc slow() { ... }",
+			Fixed:   "//pu:noinline\nfunc slow() { ... }",
+		},
+		&Entry{
 			Code: DirectiveArgument, Name: "DirectiveArgument",
 			Text:    "Some directives take an argument, such as the symbol name in //pu:extern, and the rest take none. This directive was given text it does not take, or lacks the argument it needs, so the compiler would not understand it. To explain why a directive is there, write an ordinary comment on a line of its own.",
 			Why:     "Go's //go: directives ignore text they do not expect. Plutonium directives change what the program means, so they are read exactly.",

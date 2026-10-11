@@ -28,12 +28,12 @@ type getter[T any] interface {
 	get() T
 }
 
-//go:noinline
+//pu:noinline
 func doGet[T any](i getter[T]) T {
 	return i.get()
 }
 
-//go:noline
+//pu:noinline
 func doGet2[T any](i interface{}) T {
 	i2 := i.(getter[T])
 	return i2.get()
