@@ -56,6 +56,7 @@ const (
 	PanicHandlerRet   Code = "E2583" // a panic handler that can return
 	ContextWaits      Code = "E2584" // an interrupt handler or the panic handler can reach code that waits
 	ContextSpawns     Code = "E2585" // an interrupt handler or the panic handler can reach a task statement
+	InitAllocates     Code = "E2586" // package initialization in a freestanding build can reach an allocation
 
 	// Tasks and the scheduler.
 	GoCapturingLiteral Code = "E2590" // go of a function literal that captures variables

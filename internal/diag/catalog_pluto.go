@@ -827,6 +827,14 @@ func init() {
 			Spec: pspec("20.10", "Interrupts"),
 		},
 		&Entry{
+			Code: InitAllocates, Name: "InitAllocates",
+			Text:    "In a freestanding build, which every kernel is, a package-level initializer or an init function can reach an allocation: new, make, a map literal, an operation that makes a string at run time, or a call that reaches one. A freestanding program has no allocator while its packages are initialized; its entry function installs one with alloc.SetDefault, after initialization has run. Initializers that need no allocation, such as composite literals, &T{...}, slice literals, conversions to an interface and errors.New, are placed in static storage and are allowed.\nDeclare the variable without an initializer, and set it in the entry function after alloc.SetDefault.",
+			Why:     "Go's runtime sets up its heap before any package is initialized. A freestanding Plutonium program brings its own allocator, so there is none until its own code installs it, and no console to report the failure on if an initializer tried.",
+			Spec:    pspec("15.2", "Package initialization"),
+			Example: "var cache = make(map[string]int)",
+			Fixed:   "var cache map[string]int\n\nfunc kernelMain(info *BootInfo) {\n\talloc.SetDefault(newSlab(info))\n\tcache = make(map[string]int)\n}",
+		},
+		&Entry{
 			Code: UnknownDirective, Name: "UnknownDirective",
 			Text:    "A comment that starts with //pu: and no space is a directive: an instruction to the compiler. This one has a name the compiler does not know, so it would do nothing. A misspelt directive that was ignored could silently leave out an interrupt handler, a per-CPU variable or an inlining request, so the compiler reports it.\nThe directives are: build, inline, noinline, nobounds, extern, export, section, interrupt, noreturn, noescape, resultholds, panic, blocking, scheduler, nosimd, fpu, percpu and stack.\nA comment that is only a note should start with // and a space.",
 			Why:     "Go ignores unknown //go: comments, which makes a typo easy to miss. Plutonium directives change what the program means, so a typo must not go unnoticed.",

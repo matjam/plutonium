@@ -358,10 +358,12 @@ func (l *Lowerer) queueInit(p *load.Package, static map[*types2.Var]bool) {
 			if fd, ok := d.(*ast.FuncDecl); ok && fd.Name.Name == "init" && fd.Recv == nil && fd.Body != nil {
 				isym := l.out.Sym(fmt.Sprintf("%s.init.%d", p.Path, len(inits)), ssa.SymFunc)
 				inits = append(inits, isym)
+				l.initRoots = append(l.initRoots, initRoot{sym: isym, pkg: p, decl: fd})
 				l.queue = append(l.queue, &funcJob{sym: isym, pkg: p, decl: fd, sig: sig})
 			}
 		}
 	}
+	l.initRoots = append(l.initRoots, initRoot{sym: sym, pkg: p})
 	l.queue = append(l.queue, &funcJob{sym: sym, pkg: p, sig: sig, build: func(s *fnState) {
 		s.staticLits = true
 		for _, init := range p.Info.InitOrder {

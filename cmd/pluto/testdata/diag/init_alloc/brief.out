@@ -1,0 +1,3 @@
+$DIR/main.p:20:11: the initializer of cache allocates, but a freestanding program has no allocator during package initialization
+$DIR/main.p:21:11: the initializer of names allocates, but a freestanding program has no allocator during package initialization
+$DIR/main.p:33:10: the init function at main.p:32 allocates, but a freestanding program has no allocator during package initialization

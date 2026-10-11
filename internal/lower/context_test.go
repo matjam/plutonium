@@ -136,7 +136,9 @@ func TestInterruptContextInstantiation(t *testing.T) {
 	const decls = "type slowAlloc struct{}\n\n" +
 		"func (slowAlloc) Alloc(size, align uintptr) unsafe.Pointer {\n\twait()\n\treturn nil\n}\n\n" +
 		"func (slowAlloc) Free(p unsafe.Pointer, size, align uintptr) {}\n\n" +
-		"func init() {\n\talloc.SetDefault(slowAlloc{})\n\tlogNum(1)\n}\n\n" +
+		// Not an init function: package initialization may not
+		// allocate in a kernel (language spec section 15.2).
+		"var setupFn = setup\n\nfunc setup() {\n\talloc.SetDefault(slowAlloc{})\n\tlogNum(1)\n}\n\n" +
 		"func logNum(n int) {\n\tv := vec.New[byte]()\n\tstrconv.AppendInt(&v, int64(n), 10)\n\tv.Free()\n}\n\n"
 	cases := []struct{ name, body, want string }{
 		{"fixed", "\tvar mem [24]byte\n\tb := vec.NewFixed(mem[:])\n\tstrconv.AppendInt(&b, 7, 10)\n", ""},

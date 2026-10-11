@@ -1,0 +1,60 @@
+$DIR/main.p:20:11: the initializer of cache allocates, but a freestanding program has no allocator during package initialization
+    A freestanding program, which every kernel is, has no allocator while its
+    packages are initialized: it installs one in its entry function with
+    alloc.SetDefault. Package initialization runs before that, so an allocation
+    there would have nowhere to come from, and no console to report the failure
+    on.
+    The initializer of cache makes a map (main.p:20).
+    Go's runtime sets up its heap before any package is initialized. A
+    freestanding Plutonium program brings its own allocator, so there is none
+    until its own code installs it, and no console to report the failure on if
+    an initializer tried.
+    Declare cache without an initializer, and set it in the program's entry
+    function after it has called alloc.SetDefault:
+        var cache map[string]int
+
+        func kernelMain(...) {
+            alloc.SetDefault(heap)
+            cache = ...
+        }
+    (see "Package initialization" in the Plutonium spec, section 15.2)
+    (run "pluto explain E2586" for a longer explanation)
+
+$DIR/main.p:21:11: the initializer of names allocates, but a freestanding program has no allocator during package initialization
+    A freestanding program, which every kernel is, has no allocator while its
+    packages are initialized: it installs one in its entry function with
+    alloc.SetDefault. Package initialization runs before that, so an allocation
+    there would have nowhere to come from, and no console to report the failure
+    on.
+    The initializer of names calls loadNames (main.p:21), which makes a map
+    (main.p:25).
+    Go's runtime sets up its heap before any package is initialized. A
+    freestanding Plutonium program brings its own allocator, so there is none
+    until its own code installs it, and no console to report the failure on if
+    an initializer tried.
+    Declare names without an initializer, and set it in the program's entry
+    function after it has called alloc.SetDefault:
+        var names []string
+
+        func kernelMain(...) {
+            alloc.SetDefault(heap)
+            names = ...
+        }
+    (see "Package initialization" in the Plutonium spec, section 15.2)
+    (run "pluto explain E2586" for a longer explanation)
+
+$DIR/main.p:33:10: the init function at main.p:32 allocates, but a freestanding program has no allocator during package initialization
+    A freestanding program, which every kernel is, has no allocator while its
+    packages are initialized: it installs one in its entry function with
+    alloc.SetDefault. Package initialization runs before that, so an allocation
+    there would have nowhere to come from, and no console to report the failure
+    on.
+    The init function makes a map (main.p:33).
+    Go's runtime sets up its heap before any package is initialized. A
+    freestanding Plutonium program brings its own allocator, so there is none
+    until its own code installs it, and no console to report the failure on if
+    an initializer tried.
+    Do the work of the init function in the program's entry function instead,
+    after it has called alloc.SetDefault.
+    (see "Package initialization" in the Plutonium spec, section 15.2)
+    (run "pluto explain E2586" for a longer explanation)

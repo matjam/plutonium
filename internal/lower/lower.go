@@ -118,6 +118,10 @@ type Lowerer struct {
 	gx        *goexitInfo
 	gxWrapped map[*ssa.Sym]*types2.Func
 
+	// initRoots are the parts of each package's initialization, which a
+	// freestanding build checks for allocation (initalloc.go).
+	initRoots []initRoot
+
 	// instances of types declared in generic functions (typeMap.local)
 	localTypes map[localKey]*types2.Named
 

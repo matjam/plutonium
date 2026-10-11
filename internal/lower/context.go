@@ -134,6 +134,7 @@ type hop struct {
 	from, to *ssa.Sym
 	pos      token.Pos
 	site     *callSite // nil for calls the compiler adds (new, make, panics)
+	alloc    bool      // a call of an rt.Allocator's Alloc method (initalloc.go)
 }
 
 // indirect reports whether the hop is a call through an interface or a
@@ -189,6 +190,7 @@ func (l *Lowerer) checkContexts() {
 			l.reportContext(g, wake, roleWake, path, last, op)
 		}
 	}
+	l.checkInitAlloc(g)
 }
 
 // A ctxRole says why a root of the walk must not wait.
