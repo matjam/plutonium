@@ -138,7 +138,7 @@ func self() *Task {
 // function returns. fn is the thunk's closure record and args its argument
 // block (internal/lower/conc.go).
 func spawnScoped(j *Join, fn, args unsafe.Pointer, argSize, argAlign, bound uintptr) {
-	req := StackRequest{Size: DefaultStackSize, Unsized: true, Alloc: DefaultAllocator()}
+	req := StackRequest{Size: DefaultStackSize, Unsized: true, Alloc: defaultAllocator}
 	if bound != 0 {
 		req.Size, req.Proven, req.Unsized = bound, true, false
 	}
@@ -155,7 +155,7 @@ func TaskJoined(j *Join, f func()) {
 	checkGoFunc(*(*unsafe.Pointer)(unsafe.Pointer(&f)))
 	joinEnter(j)
 	rec := *(*unsafe.Pointer)(unsafe.Pointer(&f))
-	spawnFor(j, rec, nil, 0, 1, StackRequest{Size: DefaultStackSize, Unsized: true, Alloc: DefaultAllocator()})
+	spawnFor(j, rec, nil, 0, 1, StackRequest{Size: DefaultStackSize, Unsized: true, Alloc: defaultAllocator})
 }
 
 // WaitScopes parks until every task started for a Join on t's chain has

@@ -181,3 +181,51 @@ func TestManyTasks(t *testing.T) {
 		t.Errorf("with ulimit -v 2000000: %v, output:\n%s", err, out.String())
 	}
 }
+
+// TestTaskStackNotInArena checks that a task started while the starting
+// task has a local arena installed with alloc.Use gets its stack from the
+// program-wide default allocator, never from the arena, which may be reset
+// while the new task still runs (language spec section 19.1).
+func TestTaskStackNotInArena(t *testing.T) {
+	testguard.Parallel(t)
+	const src = `package main
+
+import (
+	"pluto/alloc"
+	"pluto/arena"
+	"pluto/rt"
+	"unsafe"
+)
+
+var buf [1 << 20]byte
+
+var done chan uintptr
+
+// run reports where its stack is.
+func run() {
+	var x int
+	done <- uintptr(unsafe.Pointer(&x))
+}
+
+func main() {
+	done = make(chan uintptr) // before the arena is installed
+	a := arena.New(buf[:])
+	r := alloc.Use(&a)
+	rt.Go(run, 64<<10)
+	used := a.Used()
+	r.Restore()
+	p := <-done
+	lo := uintptr(unsafe.Pointer(&buf[0]))
+	println("arena used", used, "stack in arena", p >= lo && p < lo+uintptr(len(buf)))
+}
+`
+	for _, level := range []int{0, 2} {
+		prog := buildConc(t, src, build.Config{OptLevel: level})
+		for _, procs := range taskProcs {
+			out, status := runConc(t, prog, "PLUTO_MAXPROCS="+procs)
+			if want := "arena used 0 stack in arena false\n"; status != 0 || out != want {
+				t.Errorf("-O%d, %s processors: status %d, output:\n%s\nwant:\n%s", level, procs, status, out, want)
+			}
+		}
+	}
+}

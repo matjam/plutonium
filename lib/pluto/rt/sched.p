@@ -655,10 +655,13 @@ func preemptPark() uintptr {
 // Starting tasks
 
 // Go starts f as a new task with a stack of size bytes (at least
-// MinStackSize), allocated from a. It is the task statement with an explicit
-// stack (language spec section 19.1). f must not capture variables: Go
-// panics if f's closure record lies in the calling task's stack.
-func Go(f func(), size uintptr, a Allocator = DefaultAllocator()) {
+// MinStackSize), allocated from a, by default the program-wide default
+// allocator: never the override the caller installed with UseAllocator,
+// which may be a local arena reset while the new task still runs (language
+// spec section 19.1). It is the task statement with an explicit stack. f
+// must not capture variables: Go panics if f's closure record lies in the
+// calling task's stack.
+func Go(f func(), size uintptr, a Allocator = defaultAllocator) {
 	rec := *(*unsafe.Pointer)(unsafe.Pointer(&f))
 	checkGoFunc(rec)
 	spawn(rec, nil, 0, 1, StackRequest{Size: size, Alloc: a})
@@ -675,9 +678,11 @@ func CheckGoFunc(f func()) {
 // spawnGo implements the task statement: fn is the closure record of a
 // compiler-generated function that takes the address of the argument
 // block, args, which is copied onto the new task's stack. bound is the
-// stack the compiler proved the call needs, or 0 if it could not.
+// stack the compiler proved the call needs, or 0 if it could not. The
+// stack comes from the program-wide default allocator, whatever override
+// the starting task installed (language spec section 19.1).
 func spawnGo(fn, args unsafe.Pointer, argSize, argAlign, bound uintptr) {
-	req := StackRequest{Size: DefaultStackSize, Unsized: true, Alloc: DefaultAllocator()}
+	req := StackRequest{Size: DefaultStackSize, Unsized: true, Alloc: defaultAllocator}
 	if bound != 0 {
 		req.Size, req.Proven, req.Unsized = bound, true, false
 	}

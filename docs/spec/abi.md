@@ -1089,7 +1089,9 @@ A stack request (`rt.StackRequest`) carries the size the task may use, `Proven` 
 shown the call graph never needs more (then no guard page is needed; the compiler does not compute such
 bounds yet, roadmap item 18), `Unsized` for a go statement whose stack the compiler could not size (the
 size is then `rt.DefaultStackSize`, and a backend that can reserve address space lazily gives the task a
-large stack instead, as the hosted one does), and the allocator the program asked for.
+large stack instead, as the hosted one does), and the allocator to take the stack from: the one passed to
+`rt.Go`, otherwise the program-wide default, never the starting task's `alloc.Use` override (language
+spec section 19.1).
 `t.SetStackGuard(n)` records that the `n` bytes below the stack are an inaccessible guard region, so that
 a fault anywhere in it is reported as a stack overflow; without it the guard is taken to be one page.
 
