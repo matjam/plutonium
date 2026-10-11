@@ -42,7 +42,7 @@ func selfID() uint64 { return uint64(cpuNumber()) }
 
 // deferOnPanic says a panic runs the panicking task's deferred calls
 // before the panic handler: not in freestanding builds, whose handler must
-// work from any state (language spec section 8.1).
+// work from any state (language spec section 17.4).
 const deferOnPanic = false
 
 // signalName names a signal for Panic.Print: there are none.

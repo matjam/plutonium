@@ -14,7 +14,7 @@ import (
 // allocator, taken the first time the Buffer grows; Init chooses another.
 // The zero Buffer is empty and ready to use.
 //
-// A Buffer owns its storage, so it is an owner (language spec section 6.4):
+// A Buffer owns its storage, so it is an owner (language spec section 7.18):
 // Free (or Drop) returns the storage to its allocator. It must not be
 // copied after first use; pass a *Buffer. To write into a caller's array
 // without allocating, use a vec.Fixed[byte] and the Append functions

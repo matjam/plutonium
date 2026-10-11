@@ -9,7 +9,7 @@ import (
 
 // A Builder builds a string by appending to a buffer, and String returns the
 // result without copying it: the string shares the Builder's buffer, which
-// is a counted string buffer (language spec section 6.10), and keeps it
+// is a counted string buffer (language spec section 18.8), and keeps it
 // alive after the Builder grows, is reset or is freed.
 //
 // A Builder gets its allocator once: from Init, or, if Init was never

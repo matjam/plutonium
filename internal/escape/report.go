@@ -15,7 +15,7 @@ import (
 // slice, a closure, an interface's copy) reaching a place that outlives
 // what it looks at. The message names the expression, what it looks at and
 // where that lives, says why the place outlives it, and shows fixes as code
-// (language spec section 6.9).
+// (language spec section 21.1).
 
 // A sinkKind says where a view of the frame went.
 type sinkKind uint8
@@ -426,7 +426,7 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 		if lends {
 			name := x
 			d.Fix = &diag.Fix{Intro: fmt.Sprintf("Return the box itself, changing the result type to %s", typeText(a.types[e.expr].Type, q)), Code: "return " + name}
-			d.More = []*diag.Fix{{Intro: "Or declare the interface as an owning interface, which takes ownership of what is converted into it (language spec section 6.4)", Code: "type I owner interface {\n\t...\n}"}}
+			d.More = []*diag.Fix{{Intro: "Or declare the interface as an owning interface, which takes ownership of what is converted into it (language spec section 18.5)", Code: "type I owner interface {\n\t...\n}"}}
 		} else {
 			a.returnFixes(d, e, l, q)
 		}

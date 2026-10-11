@@ -157,7 +157,7 @@ func (s *fnState) rangeFuncStmt(st *ast.RangeStmt, label *types2.Label, sig *typ
 }
 
 // rangeContainer lowers a range over a container: over the iterator its
-// All method returns (language spec section 6.7). The checker accepted
+// All method returns (language spec section 11.11). The checker accepted
 // the loop only if All has the form All() func(yield func(...) bool).
 func (s *fnState) rangeContainer(st *ast.RangeStmt, label *types2.Label) {
 	r := s.container(st.X, st.X)

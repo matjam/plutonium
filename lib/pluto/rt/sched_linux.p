@@ -5,7 +5,7 @@ package rt
 import "unsafe"
 
 // ----------------------------------------------------------------------------
-// The hosted scheduler (language spec section 4.7). It is one
+// The hosted scheduler (language spec section 19.5). It is one
 // implementation of the Scheduler interface, started the first time a
 // program starts a puroutine or blocks; a program that never does links
 // none of it.
@@ -135,7 +135,7 @@ var hs struct {
 var m0 m
 
 // hosted is the default backend of hosted builds. A program may bind its
-// own with //pu:scheduler, which replaces it (language spec section 4.7).
+// own with //pu:scheduler, which replaces it (language spec section 12.12).
 //
 //pu:scheduler
 var hosted hostedSched
@@ -1264,7 +1264,7 @@ func freeStack(mem unsafe.Pointer, total uintptr, a Allocator) {
 // Reserved stacks
 //
 // A go statement whose stack the compiler could not compute gets
-// HostedStackSize bytes of address space (language spec section 4.7),
+// HostedStackSize bytes of address space (language spec section 19.1),
 // mapped without reserving memory and with an inaccessible guard region
 // below (reservedGuard): the system commits a page only when
 // the stack first touches it, so a puroutine that stays shallow costs a

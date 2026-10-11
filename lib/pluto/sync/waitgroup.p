@@ -41,7 +41,7 @@ func (wg *WaitGroup) Done() { wg.Add(-1) }
 
 // Go starts f in a new puroutine counted by wg, as Go 1.25's
 // WaitGroup.Go does: Add(1), then Done when f returns. f must not capture
-// variables (language spec section 4.7).
+// variables (language spec section 12.12).
 func (wg *WaitGroup) Go(f func()) {
 	wg.Add(1)
 	// The puroutine uses wg until its Done, which a Wait on wg waits for:

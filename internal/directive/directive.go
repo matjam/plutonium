@@ -46,7 +46,7 @@ type info struct {
 }
 
 // directives lists every directive the compiler knows. The spec's table
-// (docs/spec/language.md, section 9) and the hover text (internal/lsp) say
+// (docs/spec/language/20-system-considerations.md, section 20.3) and the hover text (internal/lsp) say
 // what each one means.
 var directives = map[string]info{
 	"build":     {atFile, needsArg, "a build constraint such as amd64 && !kernel"},

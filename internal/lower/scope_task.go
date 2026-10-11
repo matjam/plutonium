@@ -12,7 +12,7 @@ import (
 	typerr "github.com/matjam/plutonium/internal/types2/errors"
 )
 
-// Scoped tasks (language spec section 4.11).
+// Scoped tasks (language spec section 19.4).
 //
 // A call s.Task(func() {...}) on a sync.Scope declared in this function
 // (internal/scoped) starts the literal on a new task that s waits for
@@ -48,7 +48,7 @@ func (s *fnState) scopedTask(e *ast.CallExpr, t *scoped.Task) {
 			if t.Taken[v] {
 				what = "takes"
 			}
-			s.l.errorf(lit.Pos(), diag.CheckerCode(typerr.NotSendable), "the task started by %s %s %s, of type %s, which is not sendable: it contains %s, whose count is not atomic, so it cannot be used by two tasks; use synced[T] (spec section 4.7)", shortExpr(e.Fun), what, v.Name(), T, bad)
+			s.l.errorf(lit.Pos(), diag.CheckerCode(typerr.NotSendable), "the task started by %s %s %s, of type %s, which is not sendable: it contains %s, whose count is not atomic, so it cannot be used by two tasks; use synced[T] (spec section 19.2)", shortExpr(e.Fun), what, v.Name(), T, bad)
 			return
 		}
 	}

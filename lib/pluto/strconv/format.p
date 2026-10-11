@@ -8,7 +8,7 @@ import (
 	"unsafe"
 )
 
-// The functions that return new strings (language spec section 6.10). Each
+// The functions that return new strings (language spec section 18.8). Each
 // formats into a buffer on the stack and copies the result into a string
 // from the current allocator, or formats straight into a new string's
 // buffer of the size it has measured; FormatBool, and Itoa and

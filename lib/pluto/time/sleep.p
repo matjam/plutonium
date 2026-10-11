@@ -7,7 +7,7 @@ import (
 )
 
 // Sleeping and timers, over the scheduler's timers (rt.Timer, rt.ParkUntil;
-// language spec section 4.7). They work wherever the bound scheduler
+// language spec section 12.12). They work wherever the bound scheduler
 // provides a clock: hosted builds, and kernels whose scheduler implements
 // Now and ArmTimer (abi.md section 12.9).
 
@@ -183,7 +183,7 @@ func (t *Timer) Drop() {
 // As with a go statement, f must not capture variables or be a method
 // value made in the caller's frame, since it runs after the frame may be
 // gone: AfterFunc panics if f's closure record lies in the calling
-// puroutine's stack (language spec section 4.7). The puroutines are started
+// puroutine's stack (language spec section 19.1). The puroutines are started
 // by one puroutine of the time package's, which AfterFunc starts the first
 // time it is called and which then waits for expiries for good.
 func AfterFunc(d Duration, f func(), a alloc.Allocator = alloc.Default()) *Timer {

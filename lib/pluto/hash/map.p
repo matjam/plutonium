@@ -49,7 +49,7 @@ type slot[K comparable, V any] struct {
 // Init with the default allocator would. A Map must not be copied after
 // first use; pass a *Map. It is not safe for concurrent use.
 //
-// A Map owns its table, so it is an owner (language spec section 6.4): Drop
+// A Map owns its table, so it is an owner (language spec section 7.18): Drop
 // releases it, and Clone copies it. Declaring the type owner is a one-line
 // change once the keyword lands (roadmap item 51).
 //
@@ -60,10 +60,10 @@ type slot[K comparable, V any] struct {
 //
 // m[k] reads like a Go map element (the zero V for a missing key),
 // m[k] = v stores, v, ok := m[k] reports whether k is present, m[k] += 1
-// reads and stores, and len(m) is Len (language spec section 6.7). &m[k] is
+// reads and stores, and len(m) is Len (language spec section 11.11). &m[k] is
 // not allowed; Ptr and Upsert return pointers into the table.
 //
-// A Map owns its table, so it is an owner (language spec section 6.4): it
+// A Map owns its table, so it is an owner (language spec section 7.18): it
 // moves instead of being copied, and Drop releases the table.
 type Map[K comparable, V any] owner struct {
 	slots []slot[K, V]
@@ -228,7 +228,7 @@ func (m *Map[K, V]) Get(k K) (V, bool) {
 func (m *Map[K, V]) At(k K) V { return m.Index(k) }
 
 // Index returns the value stored for k, or the zero V if k is not in the
-// map; it is what m[k] calls (language spec section 6.7).
+// map; it is what m[k] calls (language spec section 11.11).
 func (m *Map[K, V]) Index(k K) V {
 	if i := m.find(k); i >= 0 {
 		return m.slots[i].val
@@ -354,7 +354,7 @@ func (m *Map[K, V]) Clear() {
 }
 
 // Free drops the entries (releasing the strings in their keys and values,
-// language spec section 6.10), returns the table to the allocator and
+// language spec section 18.8), returns the table to the allocator and
 // leaves the map empty. The map keeps its allocator and hash function, so
 // it can be reused.
 func (m *Map[K, V]) Free() {

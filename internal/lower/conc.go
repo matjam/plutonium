@@ -43,7 +43,7 @@ func (s *fnState) checkSendable(T types2.Type, pos token.Pos, what string) {
 		return
 	}
 	if bad := types2.Unsendable(T); bad != nil {
-		s.l.errorf(pos, diag.CheckerCode(typerr.NotSendable), "%s %s is not sendable: it contains %s, whose count is not atomic, so it cannot cross puroutines; use synced[T] (spec section 4.7)", what, T, bad)
+		s.l.errorf(pos, diag.CheckerCode(typerr.NotSendable), "%s %s is not sendable: it contains %s, whose count is not atomic, so it cannot cross puroutines; use synced[T] (spec section 19.2)", what, T, bad)
 	}
 }
 
@@ -59,7 +59,7 @@ func (s *fnState) goFrameClosures(fun ast.Expr, args []ast.Expr) bool {
 	found := false
 	if id, ok := fun.(*ast.Ident); ok {
 		if what := s.frameClosure(id, 0); what != "" {
-			s.l.errorf(id.Pos(), diag.GoFrameClosure, "cannot start %s with go: it holds %s, whose closure record lives in the starting frame (spec section 4.7)", id.Name, what)
+			s.l.errorf(id.Pos(), diag.GoFrameClosure, "cannot start %s with go: it holds %s, whose closure record lives in the starting frame (spec section 12.12)", id.Name, what)
 			found = true
 		}
 	}
@@ -85,9 +85,9 @@ func (s *fnState) frameClosureArgs(args []ast.Expr, dest string) bool {
 		}
 		found = true
 		if id, ok := ast.Unparen(a).(*ast.Ident); ok {
-			s.l.errorf(a.Pos(), diag.GoFrameClosure, "cannot pass %s to %s: it holds %s, whose closure record lives in the starting frame (spec section 4.7)", id.Name, dest, what)
+			s.l.errorf(a.Pos(), diag.GoFrameClosure, "cannot pass %s to %s: it holds %s, whose closure record lives in the starting frame (spec section 12.12)", id.Name, dest, what)
 		} else {
-			s.l.errorf(a.Pos(), diag.GoFrameClosure, "cannot pass %s to %s: its closure record lives in the starting frame (spec section 4.7)", what, dest)
+			s.l.errorf(a.Pos(), diag.GoFrameClosure, "cannot pass %s to %s: its closure record lives in the starting frame (spec section 12.12)", what, dest)
 		}
 	}
 	return found
@@ -313,7 +313,7 @@ func (s *fnState) goCapturingLiteral(lit *ast.FuncLit, caps []*types2.Var) {
 	q := s.sourceQualifier(lit.Pos())
 	str := func(T types2.Type) string { return types2.TypeString(T, q) }
 	d := &diag.Diagnostic{Code: diag.GoCapturingLiteral}
-	prefix := fmt.Sprintf("a function literal that captures variables cannot be started with go: %s lives in the starting frame, which may be gone before the puroutine runs (spec section 4.7); ", caps[0].Name())
+	prefix := fmt.Sprintf("a function literal that captures variables cannot be started with go: %s lives in the starting frame, which may be gone before the puroutine runs (spec section 12.12); ", caps[0].Name())
 
 	var params, args, news []string
 	var shared []*types2.Var
@@ -540,7 +540,7 @@ func (s *fnState) goStmt(st *ast.GoStmt) {
 	size := max(off, 1)
 	block := s.tempSize((size+7)&^7, max(align, 8), "goargs")
 	// The new puroutine owns a reference to every string in the block
-	// (language spec section 6.10), and its thunk drops them when the call
+	// (language spec section 18.8), and its thunk drops them when the call
 	// returns.
 	for _, a := range args {
 		dst := s.offPtr(block, a.off)

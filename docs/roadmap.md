@@ -22,7 +22,7 @@ later takes the next free number and is listed in the section where it belongs.
    plain loads on either side of a volatile polling loop stay separate (memory-model.md section 5.2).
 2. **Interface boxes in package initialisers** (done): `var x any = "s"` boxed the string in the init
    function's frame and left a dangling pointer; such boxes now get static storage as `&T{}` does
-   (language spec section 4.4, `testdata/run/initboxes.p`).
+   (language spec section 7.9, `testdata/run/initboxes.p`).
 3. **`//pu:interrupt` compiles as an ordinary function** (done): handlers now get the entry and exit
    sequence of abi.md section 10.4 (item 9).
 4. **`//pu:extern` and `//pu:export` with aggregates** (done): calls and entry points now follow System V
@@ -44,7 +44,7 @@ later takes the next free number and is listed in the section where it belongs.
    packed locations, volatile, interrupt and scheduler rules.
 7. **Kernel mode** (done): `--mode kernel` sets the `kernel` tag and links with a default top-2-GiB
    linker script; floating point is a compile error outside `//pu:fpu` functions, enforced through
-   `ssa.Func.NoSSE` in lowering, the inliner and the backend (language spec section 12.2, abi.md section
+   `ssa.Func.NoSSE` in lowering, the inliner and the backend (language spec section 20.6, abi.md section
    10). `pluto/fmt` formats floats only outside kernel mode. Tested by booting `testdata/kernel/smoke`
    under QEMU with SSE disabled.
 8. **`pluto/arch/x86` intrinsics** (done): every function of abi.md section 10.5 expands inline to an
@@ -60,7 +60,7 @@ later takes the next free number and is listed in the section where it belongs.
     allocation, given that frame-boxed interfaces cannot be returned; owned by a dedicated design note.
     The library conventions and `errors.New` as a static error per call site (design 9.1) are done; the
     escape checks of item 5 remain. Reconciling allocated errors with the ownership model is
-    **proposed** (language spec section 14.6): they become `synced` objects that `error` values count, so
+    **proposed** (language spec section 16.7): they become `synced` objects that `error` values count, so
     each is released exactly once and `errors.Free` goes away. With counted strings (item 57) an error's
     text is a string it keeps: `fmt.Errorf`'s message, `*os.PathError`'s path.
 12. **`//pu:extern` C struct classification** (done): System V eightbyte classification for aggregate
@@ -76,7 +76,7 @@ later takes the next free number and is listed in the section where it belongs.
     freestanding and kernel builds, linked as a direct call from the runtime's panic path, checked never
     to return (with inferred no-return functions); `rt.Panic` carries the message, value, fault and CPU
     and prints its trace without allocating; one panic at a time with a last resort for nested panics
-    (language spec section 8.1). Replaces `rt.SetPanicHandler`. Tested under QEMU
+    (language spec section 17.4). Replaces `rt.SetPanicHandler`. Tested under QEMU
     (`testdata/kernel/panic`: explicit panic, bounds error, page fault in an interrupt handler, nested
     panic) and hosted. Hosted panics report CPU 0 and name the puroutine that panicked instead (item 14).
 55. **Interrupt context cannot block** (done): a whole-program check from every `//pu:interrupt` handler
@@ -102,7 +102,7 @@ later takes the next free number and is listed in the section where it belongs.
     `rt.ParkUntil`), `time.Sleep` that waits in the kernel on the one thread, with no monitor or
     poller, in a program that never starts the scheduler (decided by the compiler from whether
     `rt.startTasks` is reachable; abi.md section 12.9), and deadlock detection that waits for armed
-    timers (language spec section 4.7; abi.md section 12), which lists every puroutine with what it
+    timers (language spec section 12.12; abi.md section 12), which lists every puroutine with what it
     waits for and its stack, as Go does (`rt.TraceTask`, `rt.ParkReason`; debugging.md section 5).
     `rt.StackLeft` measures a puroutine's own stack. The sendable rules are checked (`shared[T]` never
     crosses, frame views are rejected syntactically, and closures in the current frame are a compile
@@ -161,7 +161,7 @@ later takes the next free number and is listed in the section where it belongs.
     containers are not partitioned, so `vec.Vec` writes from several tasks are rejected; the type rule for
     views rejects same-typed `in` and `out` slices (`out[i] = f(in[i])` with `[]int`).
 66. **Large task stacks** (done except the overflow message; false-friends audit F8, complete-spec gap
-    G36; language spec sections 4.7 and 12.1, abi.md sections 12.1 and 12.7): a hosted task whose stack
+    G36; language spec section 19.1, abi.md sections 12.1 and 12.7): a hosted task whose stack
     size cannot be computed gets 64 MiB of address space reserved with a 1 MiB guard region below,
     committed as it is touched (`rt.HostedStackSize`; about two million tasks fit in a 47-bit address
     space, and `vm.max_map_count` allows half as many tasks as its value). Reserved stacks are cached, and
@@ -175,7 +175,7 @@ later takes the next free number and is listed in the section where it belongs.
     bind their own scheduler keep 64 KiB (`rt.DefaultStackSize`) or explicit sizes; computed sizes and
     `-stackreport` are item 18.
 67. **Counted channels, and a channel owns its timer** (done except `alloc.Free(t)`; item 48,
-    false-friends audit F6 and F7; language spec sections 4.7 and 4.8, abi.md section 12.6): a channel is
+    false-friends audit F6 and F7; language spec sections 12.12 and 7.11, abi.md section 12.6): a channel is
     a counted reference, counted like a `synced[T]` by the machinery of counted strings, and freed with its
     last reference, which drops the values still buffered; `alloc.FreeChan` is gone. The channel of a
     timer owns the timer: when the last reference goes, the timer is stopped and freed with it.
@@ -189,7 +189,7 @@ later takes the next free number and is listed in the section where it belongs.
 ## Language
 
 19. **Methods with type parameters** (done): merged on 2026-10-09; method values must be instantiated.
-20. **Ownership: owners, moves and views** (in progress; language spec section 6;
+20. **Ownership: owners, moves and views** (in progress; language spec section 18;
     docs/plans/2026-10-09-memory-safety-design.md). Done: `owner` types and constraints, the move checker
     (`internal/moves`, E3301 to E3312), automatic drops on every path sharing the cleanup stack of counted
     strings, `take`, `unsafe.Drop`, and generation checks (`--gencheck`, now the default). Done
@@ -198,7 +198,7 @@ later takes the next free number and is listed in the section where it belongs.
     complete-spec type-system decisions (G12 embedding boxes, G13 comparison, G14 owner conversions only
     in the declaring package, G18 value receivers of owners never satisfy interfaces, G20 no box of an
     interface), and the local-arena rule (G34): what is allocated through `Default()` while a local
-    arena is installed is a view of the arena (language spec section 7.1). Done since: per-arena
+    arena is installed is a view of the arena (language spec section 18.9). Done since: per-arena
     epochs for `arena.Chunked` under `--gencheck` (decision D4, ABI section 1.3), which catch at run time
     what the arena rule cannot see (arena memory stored into heap memory that outlives the arena, by the
     function or a callee), and generation tags in `alloc.SyncSlab`, now the default allocator of
@@ -224,11 +224,11 @@ later takes the next free number and is listed in the section where it belongs.
       (counted)`, `view`, `value`) in editor hover and `pluto doc`.
     Item 5 is the compile-time check for frame views. Items 48 to 51 are the counted references, the
     library and the proposals that go with this item.
-21. **Default parameter values** (done): language spec section 5.1, with the open questions settled
+21. **Default parameter values** (done): language spec section 10.13, with the open questions settled
     there (variadic functions, function values, interface methods, generics, `f(g())`). The library's
     `F`/`FIn` pairs are single functions with a trailing allocator defaulting to `alloc.Default()`;
     `new` and `make` take an optional allocator (section 4.2), and so does `make(chan T, n, a)`.
-22. **Range over func and iterators** (done): language spec section 4.10. Loop bodies are yield
+22. **Range over func and iterators** (done): language spec section 12.11. Loop bodies are yield
     closures in the enclosing frame, with Go's exit codes and state checks; iterators build their closures
     in a region the caller provides (section 4.5). `pluto/iter` has `Seq`, `Seq2` and
     allocation-free adaptors; `vec.Vec`, `hash.Map`, `hash.Set`, `strings` and `bytes` have iterators.
@@ -243,8 +243,8 @@ later takes the next free number and is listed in the section where it belongs.
     converted types and the types they are made of, read through `rt.Type`. Field names follow
     `--fieldnames` (off by default in kernel mode). Generic hashing in `hash` can now be built on them.
 24. **Compile-time type-switch folding** (planned): `switch any(x).(type)` on a type parameter decided per
-    instantiation, as language spec section 4.4 promises.
-25. **Enums and sum types** (done): enums (language spec section 5.9,
+    instantiation, as language spec section 7.9 promises.
+25. **Enums and sum types** (done): enums (language spec section 7.12,
     [design](plans/2026-10-09-enums-design.md)) and unions (section 5.10,
     [proposal](plans/2026-10-09-sum-types-proposal.md), option A): named variants, type switches with
     bare case names and exhaustiveness, assertions, comparison, generic unions such as `Result[T]`,
@@ -256,16 +256,16 @@ later takes the next free number and is listed in the section where it belongs.
     drops the payload of the variant it holds, and moves it out through a type switch binding or a
     comma-ok assertion; payloads holding counted references copy and count.
 26. **`alloc.Use` signature** (done): the spec now gives the library's `Use(a) Restore` and
-    `defer alloc.Use(a).Restore()` (language spec section 7.1); `Use(a) (restore func())` could not be
+    `defer alloc.Use(a).Restore()` (language spec section 18.9); `Use(a) (restore func())` could not be
     written under section 4.5.
 27. **Per-puroutine `alloc.Use`** (done): the override belongs to the puroutine that installs it, and a
     puroutine spawned under it starts with the program-wide default.
 28. **`defer` in loops** (planned, possibly never): rejected today because it needs unbounded stack.
     In the body of a range-over-func loop a `defer` is accepted when every path after it leaves the
-    loop, so it runs at most once (language spec section 4.10).
+    loop, so it runs at most once (language spec section 12.11).
 29. **`min`/`max` of strings and comparison of large arrays** (planned): rejected with "not supported
     yet".
-58. **Deferred calls on a panic, and `rt.Goexit`** (done, `71d0441`; language spec sections 8.2 and 8.3;
+58. **Deferred calls on a panic, and `rt.Goexit`** (done, `71d0441`; language spec sections 17.2 and 17.3;
     false-friends audit F4 and F5): a hosted panic runs the panicking task's deferred calls, innermost
     frame first, before the panic handler, from defer records the trace table lists (no unwinding, no
     `recover`, owners not dropped); faults resume on the task's stack to run them; a panic in a deferred
@@ -274,7 +274,7 @@ later takes the next free number and is listed in the section where it belongs.
     calls that may reach it; `testing`'s `FailNow` family uses it, so a test's deferred calls run.
     Freestanding and kernel builds are unchanged. Follow-ups: owner drops on `Goexit` come with item 20's
     drops, which run on the same return paths. `sync.Scope`'s join on `Goexit` is done (item 63).
-59. **Data race freedom** (done, `6e74756`, with the spec in `23e57de`; language spec section 6.11,
+59. **Data race freedom** (done, `6e74756`, with the spec in `23e57de`; language spec section 19.3,
     memory-model.md section 4.1; memory safety design section 7, D5(b) and D7; complete-spec gap G32):
     `internal/race`, a whole-program analysis after the escape analysis, infers which `sync.Mutex` or
     `sync.RWMutex` guards each piece of shared data from the locks held at its writes (a must-hold flow
@@ -285,14 +285,14 @@ later takes the next free number and is listed in the section where it belongs.
     `synced[T]` object used without the lock of the same object (E3502, E3503). Follow-ups: maps join the
     `synced[T]` rule when they return (gap G16). `sync.Scope`'s sharing check reuses the lock inference
     (done, item 63).
-48. **Counted references and `weak[P]`** (done; language spec sections 5.6 and 6.5, abi.md section
+48. **Counted references and `weak[P]`** (done; language spec sections 7.19 and 18.7, abi.md section
     1.2): the allocation header (strong and weak counts, allocator), counted by the machinery of counted
     strings (borrowed parameters, owned results, statement temporaries), `Drop` at zero strong count and
     the free at zero weak count, atomic `synced` counts once the program is threaded (as strings), `weak[P]`
     conversion and `Upgrade` (a compare-and-swap for `synced`), and the sendable rule of section 4.7.
     Leak-checked under the debug allocator (`TestBoxesLeakFree`).
     Channels are counted the same way (item 67).
-49. **Indexing interface** (done; language spec section 6.7): `x[k]`, `x[k] = v`, `v, ok := x[k]`,
+49. **Indexing interface** (done; language spec section 11.11): `x[k]`, `x[k] = v`, `v, ok := x[k]`,
     `x[k] op= v` and `len(x)` on types that are not built-in indexable call `Index`, `SetIndex`,
     `IndexOk` and `Len`; `vec.Vec` and `hash.Map` have them, and `pluto/container` declares the
     constraints for generic code. `&x[k]` and assigning to a part of `x[k]` are explained errors
@@ -301,11 +301,11 @@ later takes the next free number and is listed in the section where it belongs.
     is its constraint.
 50. **Ownership proposals** (done except allocated errors):
     - `new` returns `owned[T]` (done), with `a.New[T]()` and `a.Slice[T](n)` for arena-owned views
-      (language spec section 4.2);
+      (language spec section 13.9);
     - the predeclared `take(&place)` (done, section 6.4);
     - owning interfaces (done, section 4.4);
     - counted allocated errors (section 14.6; item 11).
-57. **Counted strings** (done; language spec section 6.10, abi.md section 1.1, memory-model.md section
+57. **Counted strings** (done; language spec section 18.8, abi.md section 1.1, memory-model.md section
     3.7): `string` is an immutable, reference-counted value of three words, `{ptr, len, ctl}`, whose
     control word points at the buffer's header (count, allocator, size) or holds only flags for a static
     or `unsafe.String` string, which is never counted. Runtime `+` and `+=` (one allocation for a chain),
@@ -349,7 +349,7 @@ later takes the next free number and is listed in the section where it belongs.
       `String`, `Bytes`, `RuneString`, `Join`, `Sprintf`, `selfhost/pu.Sprintf` and `internal/pu.Sprintf`
       returning a `Buf`), and translate `fmt.Sprintf` to `pluto/fmt`.
 
-58. **No `append`** (done; language spec sections 3, 4.3 and 13.2; [plan](plans/2026-10-10-remove-append.md)):
+58. **No `append`** (done; language spec sections 7.5 and 13.1; [plan](plans/2026-10-10-remove-append.md)):
     every call of the built-in is E2013 with the fix for its idiom, since a slice is a view that cannot
     grow. The library's `Append` functions keep Go's names and append to a `vec.Vec[byte]` (grows) or a
     new `vec.Fixed[byte]` (bounded over a caller's array, never allocates, records truncation);
@@ -370,7 +370,7 @@ later takes the next free number and is listed in the section where it belongs.
     (G15). A map may be passed to another task, and its contents fall under the race rules of item 59 as
     the contents of a `synced[T]` do (G16). Iteration follows item 64.
 61. **Remove `string([]byte)`, `[]byte(s)`, `[]rune(s)` and integer-to-string conversions** (done;
-    language spec sections 3 and 6.10; false-friends audit F2, decisions 2 and 16; complete-spec gaps G10
+    language spec sections 11.24 and 18.8; false-friends audit F2, decisions 2 and 16; complete-spec gaps G10
     and G11): each is a compile error whose message shows the replacement. `string(b)` of a byte slice is
     E2015 (it replaced bytes that are not UTF-8, so `string([]byte{0xfe}) == string([]byte{0xff})`):
     `strings.FromUTF8(b)` converts bytes that should be text and fails on the others,
@@ -497,7 +497,7 @@ later takes the next free number and is listed in the section where it belongs.
     counted strings, built in a counted buffer of `pluto/fmt`'s own, so `fmt` still need not import
     `pluto/strings`; `Appendf` (which replaced `Bprintf`, item 58) formats into a `vec.Vec` or `vec.Fixed`. `selfhost/pu.Sprintf`, which
     returns a `strings.Builder` for translated code (item 52), can go (item 57).
-51. **Owner types in the library** (planned; language spec sections 6.4 and 6.6): declare `vec.Vec`,
+51. **Owner types in the library** (planned; language spec sections 18.5 and 18.10): declare `vec.Vec`,
     `hash.Map`, `hash.Set`, `strings.Builder` and growable arenas `owner`, and turn their `Free` methods
     into `Drop`; make `os.File` an owner returned by value from `Open`, `Create` and `OpenFile` that
     closes on drop; add `Clone` to `Vec` and `Map`. (`strings.Buf`, an owning string buffer, is not
@@ -525,7 +525,7 @@ later takes the next free number and is listed in the section where it belongs.
 56. **Self-hosting prerequisites** (in progress): the compiler and library work of phases 0 and 1 of
     [the self-hosting plan](plans/2026-10-09-self-hosting-plan.md) (section 8).
     - Single-pointer structs in an interface's data word (done): a struct with one field, or an array of
-      length 1, that is a single pointer is direct, as in Go (language spec section 4.4,
+      length 1, that is a single pointer is direct, as in Go (language spec section 7.9,
       `types2.PointerShaped`), so an error wrapping one pointer can be returned. Tested by
       `testdata/run/directstruct.p` and unit tests in `types2` and `lower`.
     - Itab lookup (done): `rt.findItab`, behind conversions between non-empty interfaces and assertions

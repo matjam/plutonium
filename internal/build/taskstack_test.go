@@ -11,7 +11,7 @@ import (
 )
 
 // The stacks of hosted tasks whose size the compiler cannot compute
-// (language spec section 4.7, complete-spec gap G36): 64 MiB of address
+// (language spec section 19.1, complete-spec gap G36): 64 MiB of address
 // space each, committed as it is touched, with a guard region below.
 
 var taskProcs = []string{"1", "2", "24"}

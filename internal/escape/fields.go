@@ -22,7 +22,7 @@ import (
 // the assumption for a field when it sees anything else stored there; the
 // summaries are then computed again, until nothing changes. Writes through
 // memory reinterpreted with unsafe.Pointer are not seen: like the rest of
-// unsafe, they are the program's responsibility (spec section 11).
+// unsafe, they are the program's responsibility (spec section 20.1).
 
 // fieldKey returns the field a selection or a struct type's field i
 // refers to, the same for every instance of a generic type.

@@ -95,7 +95,7 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 	switch id {
 	case _Append:
 		// Plutonium: a slice is a view of an array something else owns,
-		// so it cannot grow (language spec section 3). append stays
+		// so it cannot grow (language spec section 13.1). append stays
 		// predeclared so that a call names it; the result keeps the first
 		// argument's type, so that the rest of the code checks as it would.
 		check.forbidden(call.Fun, AppendNotPermitted, "append is", "a slice cannot grow; use pluto/vec")
@@ -694,7 +694,7 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 			params = append(params, allocT)
 		}
 		// Plutonium: new returns the owner of the new variable, an
-		// owned[T] (language spec section 4.2).
+		// owned[T] (language spec section 13.9).
 		check.boxElem(arg, WrapOwned, T)
 		x.mode_ = value
 		x.typ_ = NewWrapper(WrapOwned, T, 0)
@@ -761,7 +761,7 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 	case _Take:
 		// take(p *T) T
 		// Plutonium: moves the value *p out and leaves the zero value
-		// behind (language spec section 6.4).
+		// behind (language spec section 18.5).
 		var elem Type
 		if p, ok := x.typ().Underlying().(*Pointer); ok {
 			elem = p.base

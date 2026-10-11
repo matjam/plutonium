@@ -3,7 +3,7 @@ package rt
 import "unsafe"
 
 // ----------------------------------------------------------------------------
-// Joins: the tasks a sync.Scope starts (language spec section 4.11).
+// Joins: the tasks a sync.Scope starts (language spec section 19.4).
 //
 // A Join counts the tasks started for it that have not yet returned. Only
 // the runtime changes the count: spawnScoped (or TaskJoined) counts a task
@@ -272,7 +272,7 @@ func waitDrops() {
 // sync.Scope with a variable step that is not positive: its iterations
 // would not have different values of the loop variable, which the
 // compiler relies on to keep the tasks' parts of a slice apart (language
-// spec section 4.11).
+// spec section 19.4).
 func panicTaskStep(n int) {
 	startPanic()
 	printString("runtime error: the step of a loop that starts tasks of a sync.Scope is not positive: ")

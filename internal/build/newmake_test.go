@@ -19,7 +19,7 @@ import (
 
 // TestFreestandingNoAllocator boots a freestanding program under QEMU that
 // calls new before alloc.SetDefault: it must panic with "no allocator"
-// (language spec section 7.2). The boot code and linker script are those of
+// (language spec section 18.9). The boot code and linker script are those of
 // testdata/kernel/irq; the program's panic handler leaves QEMU through the
 // isa-debug-exit device with status 3.
 func TestFreestandingNoAllocator(t *testing.T) {
@@ -105,7 +105,7 @@ func main() int64 {
 }
 
 // TestNoAllocator checks that new and make panic when there is nothing to
-// allocate from (language spec sections 7.2 and 8): with "no allocator"
+// allocate from (language spec sections 18.9 and 17.1): with "no allocator"
 // when the default allocator has not been set, as in a freestanding program
 // before alloc.SetDefault, and with a message of its own when the explicit
 // allocator is nil.

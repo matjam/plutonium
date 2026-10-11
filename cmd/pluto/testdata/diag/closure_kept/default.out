@@ -1,6 +1,6 @@
 $DIR/main.p:54:7: cannot keep the closure count(n) returns past this iteration of the loop: it is stored in memory reached through a pointer
     A function that returns a closure builds it in a region its caller provides
-    (spec section 4.5). The region of a call in a loop is part of this frame,
+    (spec section 11.5). The region of a call in a loop is part of this frame,
     and the call uses the same region on every iteration, so the closure
     count(n) returns on one iteration is overwritten on the next. Keeping it
     past the iteration, in memory reached through a pointer, would leave it
@@ -23,7 +23,7 @@ $DIR/main.p:85:8: cannot keep the closure count(n) returns past this iteration o
 
 $DIR/main.p:95:11: cannot keep the closure count(n) returns past this iteration of the loop: it is stored in out, declared outside the loop (main.p:93)
     A function that returns a closure builds it in a region its caller provides
-    (spec section 4.5). The region of a call in a loop is part of this frame,
+    (spec section 11.5). The region of a call in a loop is part of this frame,
     and the call uses the same region on every iteration, so the closure
     count(n) returns on one iteration is overwritten on the next. Keeping it
     past the iteration, in out, declared outside the loop (main.p:93), would
@@ -37,7 +37,7 @@ $DIR/main.p:95:11: cannot keep the closure count(n) returns past this iteration 
 
 $DIR/main.p:108:9: cannot keep the closure count(n) returns past this iteration of the loop: it is stored in out, declared outside the loop (main.p:106)
     A function that returns a closure builds it in a region its caller provides
-    (spec section 4.5). The region of a call in a loop is part of this frame,
+    (spec section 11.5). The region of a call in a loop is part of this frame,
     and the call uses the same region on every iteration, so the closure
     count(n) returns on one iteration is overwritten on the next. Keeping it
     past the iteration, in out, declared outside the loop (main.p:106), would
@@ -57,7 +57,7 @@ $DIR/main.p:135:19: cannot keep the closure count(n) returns past this iteration
 
 $DIR/main.p:135:15: cannot keep the closure ret(count(n)) returns past this iteration of the loop: it is stored in memory reached through a pointer
     A function that returns a closure builds it in a region its caller provides
-    (spec section 4.5). The region of a call in a loop is part of this frame,
+    (spec section 11.5). The region of a call in a loop is part of this frame,
     and the call uses the same region on every iteration, so the closure
     ret(count(n)) returns on one iteration is overwritten on the next. Keeping
     it past the iteration, in memory reached through a pointer, would leave it
@@ -71,7 +71,7 @@ $DIR/main.p:135:15: cannot keep the closure ret(count(n)) returns past this iter
 
 $DIR/main.p:142:27: cannot keep the closure count(n) returns past this iteration of the loop: it is stored in last, declared outside the loop (main.p:140)
     A function that returns a closure builds it in a region its caller provides
-    (spec section 4.5). The region of a call in a loop is part of this frame,
+    (spec section 11.5). The region of a call in a loop is part of this frame,
     and the call uses the same region on every iteration, so the closure
     count(n) returns on one iteration is overwritten on the next. Keeping it
     past the iteration, in last, declared outside the loop (main.p:140), would
@@ -85,7 +85,7 @@ $DIR/main.p:142:27: cannot keep the closure count(n) returns past this iteration
 
 $DIR/main.p:142:23: cannot keep the closure ret(count(n)) returns past this iteration of the loop: it is stored in last, declared outside the loop (main.p:140)
     A function that returns a closure builds it in a region its caller provides
-    (spec section 4.5). The region of a call in a loop is part of this frame,
+    (spec section 11.5). The region of a call in a loop is part of this frame,
     and the call uses the same region on every iteration, so the closure
     ret(count(n)) returns on one iteration is overwritten on the next. Keeping
     it past the iteration, in last, declared outside the loop (main.p:140),
@@ -99,7 +99,7 @@ $DIR/main.p:142:23: cannot keep the closure ret(count(n)) returns past this iter
 
 $DIR/main.p:164:10: cannot keep the closure own(n) returns past this iteration of the loop: it is stored in last, declared outside the loop (main.p:162)
     A function that returns a closure builds it in a region its caller provides
-    (spec section 4.5). The region of a call in a loop is part of this frame,
+    (spec section 11.5). The region of a call in a loop is part of this frame,
     and the call uses the same region on every iteration, so the closure own(n)
     returns on one iteration is overwritten on the next. Keeping it past the
     iteration, in last, declared outside the loop (main.p:162), would leave it
@@ -113,7 +113,7 @@ $DIR/main.p:164:10: cannot keep the closure own(n) returns past this iteration o
 
 $DIR/main.p:171:11: cannot keep the closure ownGen(n) returns past this iteration of the loop: it is stored in memory reached through a pointer
     A function that returns a closure builds it in a region its caller provides
-    (spec section 4.5). The region of a call in a loop is part of this frame,
+    (spec section 11.5). The region of a call in a loop is part of this frame,
     and the call uses the same region on every iteration, so the closure
     ownGen(n) returns on one iteration is overwritten on the next. Keeping it
     past the iteration, in memory reached through a pointer, would leave it

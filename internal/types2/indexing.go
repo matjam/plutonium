@@ -1,6 +1,6 @@
 package types2
 
-// The indexing interface (language spec section 6.7). Library containers
+// The indexing interface (language spec section 11.11). Library containers
 // such as vec.Vec and hash.Map are structs, so the built-in index
 // expression does not apply to them. Instead, on an operand whose type is
 // not a string, array, pointer to array, slice or map:

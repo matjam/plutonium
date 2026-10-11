@@ -1,2 +1,2 @@
-$DIR/main.p:17:5: second is a second //pu:scheduler variable; the first is first at $DIR/main.p:12:5: a program binds one scheduler (language spec section 4.7)
+$DIR/main.p:17:5: second is a second //pu:scheduler variable; the first is first at $DIR/main.p:12:5: a program binds one scheduler (language spec section 19.5)
 $DIR/main.p:12:5: //pu:scheduler variable first of type main.half does not implement rt.Scheduler (missing method FreeTask)

@@ -10,6 +10,11 @@
 //	b := vec.NewFixed(mem[:])
 //	strconv.AppendInt(&b, n, 10)
 //
+// A failed parse returns ErrSyntax or ErrRange itself, so that parsing never
+// allocates; NewNumError makes a *NumError, with the function name and the
+// input, from an allocator when a caller wants one. ParseFloat handles
+// decimal and hexadecimal input and rounds exactly, in every case.
+//
 // Parts of this package are adapted from Go's strconv package.
 // Copyright 2009 The Go Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license.

@@ -1,6 +1,6 @@
 package types2
 
-// Plutonium default parameter values (language spec section 5.1).
+// Plutonium default parameter values (language spec section 10.13).
 //
 // The trailing parameters of a function or method declaration may have
 // default values. A call that names the function directly (f(x), pkg.F(x),

@@ -142,10 +142,10 @@ root, and with `--trimpath=false` from elsewhere):
 - `bt` through every frame, with or without a frame pointer, with inlined calls as frames of their own,
   including `main.main` where it is inlined into `pluto.main`;
 - `info line`, `list`, `disassemble /s`, `info frame`, `up` and `down`;
-- in a puroutine, `bt` through its frames to the go statement's thunk (`main.main.go1`, at the line of
-  the go statement) and `pluto/rt.taskMain`, ending at the runtime's entry `goStart`, whose call frame
+- in a task, `bt` through its frames to the task statement's thunk (`main.main.go1`, at the line of
+  the task statement) and `pluto/rt.taskMain`, ending at the runtime's entry `goStart`, whose call frame
   information marks it as the outermost frame. Each worker thread is a gdb thread (`info threads`);
-  the backtrace of a parked puroutine is not reachable from gdb yet.
+  the backtrace of a parked task is not reachable from gdb yet.
 
 The hosted scheduler preempts with `SIGURG`, which gdb passes to the program without stopping, as it
 does for Go programs.
@@ -186,8 +186,8 @@ body's. The FDEs encode exactly these states with `DW_CFA_def_cfa*`, `DW_CFA_off
 ## 5. Stack traces
 
 A panic, a runtime fault (an index or slice out of range, division by zero, a failed type assertion
-and the rest in [language.md section 8](language.md#8-runtime-faults-and-panic))
-or, in hosted builds, a hardware fault goes to the panic handler (language spec section 8.1). The built-in
+and the rest in [language spec chapter 17](language/17-run-time-panics.md))
+or, in hosted builds, a hardware fault goes to the panic handler (language spec section 17.4). The built-in
 handler of hosted programs, and `rt.Panic.Print`, print the message and then the stack, innermost frame
 first:
 
@@ -212,37 +212,37 @@ panic: negative width
   instruction that failed).
 - A call that was inlined is reported as a frame of its own, as if it had not been inlined, so a trace is
   the same at every optimisation level.
-- A default argument ([language.md section 5.1](language.md#51-default-parameter-values)) is evaluated by
+- A default argument ([language spec section 10.13](language/10-declarations-and-scope.md)) is evaluated by
   the caller, and its code has the position of the call, so a panic in it is reported at the call's line.
 - A function literal is `<enclosing function>.func<N>`, and the body of a range-over-func loop is
   `<enclosing function>-range<N>`. A closure a function returns (an iterator such as `v.All()`,
-  language spec section 4.5) is named after that function, as in Go:
+  language spec section 11.5) is named after that function, as in Go:
   `pluto/vec.(*Vec).All[int].func1`, not `main.main.func1`, whichever function called it and provided
   the region it is built in, and also when the function was inlined into its caller.
 - The panic's own frames in package `pluto/rt` are left out, and so is generated code with no source
   position, such as the wrapper that calls a method through an interface.
 - The walk stops at `pluto.main` (which runs initialisation and `main.main`; where `main.main` is
-  inlined into it, `main.main` and its inlined calls are still printed), at the bottom of a puroutine
+  inlined into it, `main.main` and its inlined calls are still printed), at the bottom of a task
   (`pluto/rt.taskMain`), at code that is not Plutonium (assembly, C, a kernel's entry point), or after
   64 frames, which it reports with `...additional frames elided...`. A fault in an assembly leaf that
   the table does not describe (an atomic operation) is stepped over, since such a function has no
   frame: the walk continues from the return address at the stack pointer.
 
-A panic in any puroutine but the one that runs `main` names it before the trace (`rt.Panic.Puroutine`).
-The last frame is the go statement that started it, as its generated thunk, at the go statement's line:
+A panic in any task but the one that runs `main` names it before the trace (`rt.Panic.Task`).
+The last frame is the task statement that started it, as its generated thunk, at the task statement's line:
 
 ```
 panic: runtime error: index out of range [3] with length 3
-puroutine 3:
+task 3:
     main.level2 (./main.p:7)
     main.worker (./main.p:11)
     main.main.go2 (./main.p:20)
 ```
 
-One panic is handled at a time: a puroutine that panics on another thread while one is reported waits
+One panic is handled at a time: a task that panics on another thread while one is reported waits
 for the process to end.
 
-### Parked puroutines
+### Parked tasks
 
 `rt.TraceTask(t *rt.Task, w)` writes the trace of a task that is not running, in the same format and
 with the same rules, from the state its last switch saved in `t.Context()`: the stack pointer points at
@@ -257,33 +257,33 @@ set by `rt.ParkReason`; plain `Park` gives "waiting"). A task preempted in the m
 the preemption stub on top, where the walk stops, and one that has not run yet has no frames.
 
 The hosted scheduler uses it when the program deadlocks. It keeps every task on a list in the order they
-were started, and after "fatal error: all puroutines are asleep - deadlock!" prints each one's number,
-what it waits for and its trace, as Go prints "goroutine 1 [chan receive]:". The puroutine that runs
+were started, and after "fatal error: all tasks are asleep - deadlock!" prints each one's number,
+what it waits for and its trace, as Go prints "goroutine 1 [chan receive]:". The task that runs
 `main` comes first. Helpers of the runtime that wait for work (the runner of `time.AfterFunc` functions)
 are left out:
 
 ```
-fatal error: all puroutines are asleep - deadlock!
+fatal error: all tasks are asleep - deadlock!
 
-puroutine 1 [chan receive]:
+task 1 [chan receive]:
     main.main (./main.p:53)
 
-puroutine 2 [chan receive]:
+task 2 [chan receive]:
     main.receive (./main.p:8)
     main.middle (./main.p:12)
     main.main.go1 (./main.p:47)
 
-puroutine 3 [chan send]:
+task 3 [chan send]:
     main.send (./main.p:16)
     main.main.go2 (./main.p:48)
 ```
 
 The reasons are Go's: `chan receive`, `chan send`, their `(nil chan)` forms, `select`,
-`select (no cases)`, `sleep`, `IO wait` (a puroutine waiting in the poller; it keeps the program from
+`select (no cases)`, `sleep`, `IO wait` (a task waiting in the poller; it keeps the program from
 being reported as deadlocked), and for `pluto/sync` `sync.Mutex.Lock`, `sync.RWMutex.RLock`,
 `sync.RWMutex.Lock`, `sync.WaitGroup.Wait` and `sync.Cond.Wait`. A program built with `--trace=false`
 prints the numbers and reasons without frames. Tests: `testdata/trace/deadlockchan.p`, and
-`internal/build/deadlock_test.go` for puroutines parked in the library.
+`internal/build/deadlock_test.go` for tasks parked in the library.
 
 ### Hardware faults (hosted)
 
@@ -299,14 +299,14 @@ panic: runtime error: invalid memory address or nil pointer dereference
 
 and the trace from the faulting instruction, then exits with status 2 without running the exit hook
 (`rt.SetExitHook`). A fault within 4 KiB of address zero is reported as a nil dereference; one just below
-the stack pointer, or in the guard page below the running puroutine's stack, as `stack overflow`; any
+the stack pointer, or in the guard page below the running task's stack, as `stack overflow`; any
 other as `unexpected fault address`.
 
 The signal handler does not print this itself: it raises a panic, with the fault in `rt.Panic.Fault`
 (kind, address, faulting instruction, signal) and a trace that starts at the faulting instruction, and
-calls the panic handler (language spec section 8.1). The output above is the built-in handler's; a
+calls the panic handler (language spec section 17.4). The output above is the built-in handler's; a
 program with a `//pu:panic` handler of its own gets the same information. When the panic will run
-deferred calls (language spec section 8.2), the handler first describes the fault, then rewrites the
+deferred calls (language spec section 17.2), the handler first describes the fault, then rewrites the
 signal's saved context so that, once it returns, the task resumes on its own stack, below the 128-byte red
 zone, in a runtime function that raises the panic there: deferred calls never run on the signal stack or
 with the fault signals blocked. A stack overflow raises the panic in the handler, without deferred calls.
@@ -318,18 +318,18 @@ if the address is in its heap its diagnosis (`debug allocator: use after free: .
 was allocated and freed) becomes the panic's message in place of the runtime's, and the signal line and
 the trace follow as usual. A fault in a function's prologue, before its frame is complete, is unwound
 correctly too. Every thread has an alternate signal stack: the main thread's 16 KiB one, and 32 KiB for
-each worker thread of the hosted scheduler, so a puroutine that overflows its stack on any worker is
+each worker thread of the hosted scheduler, so a task that overflows its stack on any worker is
 reported with its trace. The scheduler's preemption signal (`SIGURG`) runs on the same stacks.
 
 ### Freestanding builds
 
 Walking the stack allocates nothing and needs no operating system: it reads the trace table and the stack.
-A freestanding program's panic handler (language spec section 8.1) prints the trace where it likes with
+A freestanding program's panic handler (language spec section 17.4) prints the trace where it likes with
 `p.PrintTrace(w)`, or the whole report, message, fault and trace, with `p.Print(w)`, to any `rt.Writer`;
 `rt.Console{}` writes through `rt.SetConsole`'s writer (in a hosted program, to standard error with a
 system call that never waits, which makes it the writer for a hosted panic handler too). Since a panic does not unwind, the frames the
 trace describes are still on the stack while the handler runs. (In hosted builds the deferred calls run
-before the handler, below those frames, which they leave as they were: language spec section 8.2.) A kernel's exception handlers turn a fault
+before the handler, below those frames, which they leave as they were: language spec section 17.2.) A kernel's exception handlers turn a fault
 into a panic whose trace starts at the faulting instruction with
 
 ```go
@@ -358,7 +358,7 @@ All integers are little-endian; offsets are from the start of the table.
 |---|---|
 | header (24 bytes) | `u32` number of functions, `u32` offset of the strings, `u32` offset of the line programs, `u32` offset of the inline sites, `u32` number of defer records, `u32` offset of the defer records |
 | functions (32 bytes each) | `u64` start address, `u32` size, `u32` name (string offset), `u32` frame size (the `sub rsp`), `u16` end of the prologue, `u8` saved-register mask (bit 0 RBX, 1 RBP, 2-5 R12-R15), `u8` flags (1 frame pointer, 2 interrupt handler), `u32` offset of its line program, `u32` index of its first inline site |
-| defer records (16 bytes each, by function) | `u32` index of a function with `defer` statements, `u32` offset of its defer record from RSP in its body, `u64` address of the function that runs the record's armed deferred calls (hosted builds; language spec section 8.2) |
+| defer records (16 bytes each, by function) | `u32` index of a function with `defer` statements, `u32` offset of its defer record from RSP in its body, `u64` address of the function that runs the record's armed deferred calls (hosted builds; language spec section 17.2) |
 | inline sites (16 bytes each) | `u32` parent site (1-based within the function, 0 for none), `u32` inlined function's name, `u32` call's file, `u32` call's line |
 | strings | `u16` length, then the bytes |
 | line programs | per function, rows covering its code from offset 0: `uvarint(zigzag(line delta) << 2 \| file changed << 1 \| site changed)`, then the new file (string offset) and the new inline site (1-based within the function, 0 for none) if they changed, then `uvarint` length of the row's code |
@@ -378,7 +378,7 @@ mask (pushes of RBX and RBP are one byte, of R12 to R15 two) and the frame-point
 Functions are found by a linear search, which is fast enough for printing a trace once. A sorted index
 would be needed for sampling profilers in the runtime; none exists yet.
 
-A hosted panic walks the same frames to run their deferred calls (language spec section 8.2): for each
+A hosted panic walks the same frames to run their deferred calls (language spec section 17.2): for each
 frame whose function has a defer record, the record lies at the frame's RSP plus the listed offset, its
 first word holds the armed bits, and the runtime calls the listed function with the record's address if
 any is set. Such a frame's runner is left out of traces, and a trace of a panic in a deferred call goes
@@ -445,9 +445,9 @@ the same versions for executables to match across machines.
   locations, first for parameters at -O0, where they live in stack slots.
 - Column numbers in the line table.
 - `.eh_frame`, so that a stripped binary can still be unwound by tools.
-- Traces of the other puroutines in a panic report (a panic handler can call `rt.TraceTask`, but the
+- Traces of the other tasks in a panic report (a panic handler can call `rt.TraceTask`, but the
   runtime keeps no list of tasks for it to walk outside the hosted deadlock report), and of parked
-  puroutines in gdb.
+  tasks in gdb.
 - A sorted function index in the trace table, for in-process sampling profilers.
 - Call frame information for `//pu:interrupt` handlers describes the interrupted RIP (and the error
   code's slot) but not the interrupted RSP, which the CPU saved in its frame; a debugger attached to a

@@ -30,7 +30,7 @@ type Appender[T any] interface {
 //
 // A Fixed holds a view of the caller's array and owns nothing, so it copies
 // freely and needs no Free; like any view, it must not outlive the array
-// (language spec section 6.3).
+// (language spec section 18.3).
 type Fixed[T any] struct {
 	buf       []T // the storage; len(buf) is the room
 	n         int // the elements are buf[:n]

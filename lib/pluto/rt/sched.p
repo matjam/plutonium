@@ -3,7 +3,7 @@ package rt
 import "unsafe"
 
 // ----------------------------------------------------------------------------
-// Tasks and the scheduler contract (language spec section 4.7, abi.md
+// Tasks and the scheduler contract (language spec section 19.5, abi.md
 // section 12).
 //
 // A puroutine is a task. The runtime provides the mechanism: the Task
@@ -23,7 +23,7 @@ import "unsafe"
 // DefaultStackSize is the stack size of a puroutine started by a go
 // statement whose stack the compiler could not compute, in builds whose
 // scheduler cannot reserve a large stack lazily: kernels and programs that
-// bind their own backend (language spec section 4.7).
+// bind their own backend (language spec section 19.1).
 const DefaultStackSize = 64 << 10
 
 // HostedStackSize is the address space the hosted backend reserves for
@@ -429,7 +429,7 @@ func newContext(top, a1, entry, a2 uintptr) uintptr {
 // Parking
 
 // Pinned returns p unchanged, hidden from the escape analysis (language
-// spec section 6.3). It is for a record in the caller's frame that the
+// spec section 18.3). It is for a record in the caller's frame that the
 // caller links into a structure other puroutines reach, such as a wait
 // queue, while it is parked, and that it unlinks (or has unlinked) before
 // it returns: the frame then outlives every use, which the analysis cannot
@@ -656,7 +656,7 @@ func preemptPark() uintptr {
 
 // Go starts f as a new puroutine with a stack of size bytes (at least
 // MinStackSize), allocated from a. It is the go statement with an explicit
-// stack (language spec section 4.7). f must not capture variables: Go
+// stack (language spec section 19.1). f must not capture variables: Go
 // panics if f's closure record lies in the calling task's stack.
 func Go(f func(), size uintptr, a Allocator = DefaultAllocator()) {
 	rec := *(*unsafe.Pointer)(unsafe.Pointer(&f))

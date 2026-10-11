@@ -780,7 +780,7 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 	moves := s.l.moves != nil && s.l.moves.SwitchMoves[st]
 	if moves {
 		// The owner moves out of x into the binding of whichever clause
-		// runs (language spec section 4.4): x holds nothing afterwards.
+		// runs (language spec section 7.9): x holds nothing afterwards.
 		copied := s.temp(I, "switched")
 		s.storeTo(copied, iv, I)
 		iv = aggValue(copied, I)
@@ -1119,7 +1119,7 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 	case s.l.moves != nil && s.l.moves.DeferredDrops[call]:
 		// defer x.Drop() on an owner variable: when the function returns,
 		// x's whole drop glue runs and x is left clear, so that the end of
-		// its scope destroys nothing (language spec section 6.4).
+		// its scope destroys nothing (language spec section 18.6).
 		lv := s.lv(ast.Unparen(call.Fun).(*ast.SelectorExpr).X)
 		T := unwrap(lv.T)
 		addr := s.saveValue(scalarValue(lv.ptr, types2.NewPointer(T)))

@@ -159,7 +159,7 @@ const (
 	RangeOverEnumValue
 )
 
-// Ownership (language spec section 6.4). Ownership and lifetime errors are
+// Ownership (language spec section 7.18). Ownership and lifetime errors are
 // E3000-E3999; the type checker's, about where owner may and must appear,
 // start at 3200, and the others are in internal/diag/codes.go.
 const (

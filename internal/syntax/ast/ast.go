@@ -207,7 +207,7 @@ type Field struct {
 	Comment *CommentGroup // line comments; or nil
 
 	// Plutonium: a parameter's default value, as in "a Allocator =
-	// Default()" (language spec section 5.1). Assign is the position of
+	// Default()" (language spec section 10.13). Assign is the position of
 	// the "=", and Default is nil for a parameter without one. The parser
 	// records defaults in parameter lists only, one parameter per field.
 	Assign  token.Pos

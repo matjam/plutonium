@@ -3,7 +3,7 @@ package rt
 import "unsafe"
 
 // ----------------------------------------------------------------------------
-// Timers (language spec section 4.7, abi.md section 12.9).
+// Timers (language spec section 12.12, abi.md section 12.9).
 //
 // A Timer calls a function once its deadline on the Now clock has passed,
 // and again every period if it has one. Timers live in heaps that never

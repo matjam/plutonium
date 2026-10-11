@@ -394,7 +394,7 @@ type Func struct {
 	nointerface bool
 
 	// Plutonium: the default values of the trailing parameters of a
-	// declared function or method (language spec section 5.1); see
+	// declared function or method (language spec section 10.13); see
 	// Defaults.
 	defaults []ast.Expr
 }

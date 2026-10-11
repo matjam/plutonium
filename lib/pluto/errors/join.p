@@ -14,7 +14,7 @@ import (
 // holding the error and its list of errors; its message is a string from
 // the same allocator. To use another allocator, install it around the call
 // with alloc.Use: Join is variadic, so it cannot take a defaulted allocator
-// parameter (see the language spec, section 5.1). The joined error owns the
+// parameter (see the language spec, section 10.13). The joined error owns the
 // errors it wraps; errors.Free releases them all.
 func Join(errs ...error) error {
 	a := alloc.Default()

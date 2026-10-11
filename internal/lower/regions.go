@@ -1,6 +1,6 @@
 package lower
 
-// Closure regions (language spec section 4.5, abi.md section 4.1).
+// Closure regions (language spec section 11.5, abi.md section 4.1).
 //
 // A function whose results can hold a func value, as a func, in an
 // interface, or in a field or element of a struct or array result, takes a
@@ -25,7 +25,7 @@ package lower
 // variables, and the receivers its method values copied) and drops the
 // regions nested in it, or 0 when there is nothing to release. The function
 // that fills the region sets it. The region belongs to the caller's frame
-// (language spec section 6.10): the caller zeroes it on entry, drops it
+// (language spec section 18.8): the caller zeroes it on entry, drops it
 // before each call refills it, and drops it when it returns.
 
 import (
@@ -750,7 +750,7 @@ func (l *Lowerer) regionCycle(rl *regionLayout, n *regionNested) {
 	l.report(n.pos, &diag.Diagnostic{
 		Code: diag.ClosureRegionCycle,
 		Msg:  fmt.Sprintf("%s cannot return the closures of this call: the call reaches %s again, so its region would have no fixed size", name, name),
-		Text: fmt.Sprintf("A function that returns a closure builds it in a region its caller provides, and the region holds the regions of the calls whose closures it returns in turn (spec section 4.5). %s returns closures that hold those of this call, and the call can reach %s again, directly, through other functions, or through a func value or an interface, so its region would have to hold itself.\nBuild the closures in a loop instead of by recursion, or keep their state in a value the caller owns, such as a struct with a method.", name, name),
+		Text: fmt.Sprintf("A function that returns a closure builds it in a region its caller provides, and the region holds the regions of the calls whose closures it returns in turn (spec section 11.5). %s returns closures that hold those of this call, and the call can reach %s again, directly, through other functions, or through a func value or an interface, so its region would have to hold itself.\nBuild the closures in a loop instead of by recursion, or keep their state in a value the caller owns, such as a struct with a method.", name, name),
 	})
 }
 

@@ -522,7 +522,7 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 
 	// x.Drop() on an owner variable ends its life: its whole drop glue
 	// runs (Drop, then its fields), and x is left clear, so that the end
-	// of its scope destroys nothing (language spec section 6.4).
+	// of its scope destroys nothing (language spec section 18.6).
 	if fn.Name() == "Drop" && len(e.Args) == 0 && s.isMove(se.X) {
 		lv := s.lv(se.X)
 		T := unwrap(lv.T)

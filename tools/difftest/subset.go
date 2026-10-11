@@ -17,7 +17,7 @@ import "strings"
 //     integer that is not a rune (removed, G11, E2017);
 //   - maps (removed until map[K]V returns);
 //   - new, and pointers or slices of a function's frame that outlive it:
-//     functions return values, never views (spec section 6.3);
+//     functions return values, never views (spec section 18.3);
 //   - a function value, pointer or interface box made in a loop body and
 //     kept past the iteration (F1);
 //   - goroutines, channels, recover, complex numbers, reflect.

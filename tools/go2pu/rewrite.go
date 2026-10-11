@@ -482,7 +482,7 @@ func (t *fileTr) call(n *ast.CallExpr) (string, bool) {
 	}
 	// x.Drop() on a heap variable: x is a pointer into the phase arena,
 	// which never drops what it holds, so the drop goes through the
-	// unchecked layer (language spec section 11).
+	// unchecked layer (language spec section 20.1).
 	if se, ok := fun.(*ast.SelectorExpr); ok && se.Sel.Name == "Drop" && len(n.Args) == 0 && t.isHeapUse(se.X) {
 		return fmt.Sprintf("%s.Drop(%s)", t.use("unsafe", "unsafe"), t.render(se.X)), true
 	}
@@ -524,7 +524,7 @@ func (t *fileTr) call(n *ast.CallExpr) (string, bool) {
 }
 
 // puOwners are the names of internal/pu whose Plutonium counterparts are
-// owner types (language spec section 6.4).
+// owner types (language spec section 18.5).
 var puOwners = map[string]bool{"Vec": true, "Map": true, "Set": true, "Buf": true}
 
 // ownerSpec declares a type owner when its values hold library owners: in
@@ -572,7 +572,7 @@ func holdsOwner(T types.Type, seen map[types.Type]bool) bool {
 // heapVariadic translates a call whose variadic arguments Go's escape
 // analysis moves to the heap (the callee keeps the slice). In Plutonium
 // they would be passed in an array in the caller's frame, which the
-// callee may not keep (language spec section 6.3), so the translation
+// callee may not keep (language spec section 18.3), so the translation
 // allocates the slice: f(a, b, c) becomes f(a, compat.Clone([]T{b, c})...).
 func (t *fileTr) heapVariadic(n *ast.CallExpr) (string, bool) {
 	if n.Ellipsis.IsValid() || !t.esc.has(t.fset, n.Lparen, "... argument", "escapes to heap") {

@@ -536,7 +536,7 @@ func (check *Checker) arguments(call *ast.CallExpr, sig *Signature, targs []Type
 		}
 		// standard_func(a, b, c)
 		// Plutonium: a call to a declared function may omit any suffix of
-		// its defaulted parameters (language spec section 5.1); check the
+		// its defaulted parameters (language spec section 10.13); check the
 		// arguments against the parameters they fill.
 		if nargs < npars && nargs >= npars-len(check.calleeDefaults(call)) {
 			sigParams = NewTuple(sig.params.vars[:nargs]...) // possibly nil!

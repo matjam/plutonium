@@ -3,7 +3,7 @@ package opt
 import "github.com/matjam/plutonium/internal/ssa"
 
 // RuneBounds removes the rune-boundary checks of string slice expressions
-// (language spec section 6.10) whose bounds it can prove are rune
+// (language spec section 18.8) whose bounds it can prove are rune
 // boundaries. Lowering checks s[lo:hi] of a string that may hold non-ASCII
 // bytes with a call of pluto/rt.checkRuneBounds(p, n, lo, hi), where p and
 // n are s's data and length; a bound needs no check if it is, on every

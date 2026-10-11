@@ -381,7 +381,7 @@ func prefixed(prefix string, err error) error {
 // internal turns an error from the compiler's later stages, which all mean
 // a bug in the compiler, into a diagnostic.
 // joinLifetimeErrors returns the errors of the move checker and the escape
-// analysis (language spec sections 6.3 and 6.4) as one list.
+// analysis (language spec sections 18.3 and 18.5) as one list.
 func joinLifetimeErrors(errs ...error) error {
 	var all diag.List
 	for _, err := range errs {

@@ -6,7 +6,7 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
-// The indexing interface (language spec section 6.7): an index expression
+// The indexing interface (language spec section 11.11): an index expression
 // on a library container is a call of one of its methods. The checker
 // decided which index expressions those are (types2.IndexesByMethod) and
 // which method each use calls; this file makes the calls.

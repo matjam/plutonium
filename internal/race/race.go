@@ -3,7 +3,7 @@
 // Plutonium tasks run in parallel, and there is no garbage collector or
 // run-time race detector to fall back on, so the compiler rejects every
 // program in which two tasks could use the same memory at once, one of them
-// writing, without synchronisation (language spec section 6.11, memory
+// writing, without synchronisation (language spec section 19.3, memory
 // safety design section 7). It does so with three rules, all inferred from
 // the program without annotations:
 //

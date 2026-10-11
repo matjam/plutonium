@@ -507,7 +507,7 @@ func (check *Checker) missingMethod(V, T Type, static bool, equivalent func(x, y
 			// receiver, and the built-in methods of owned, shared, synced
 			// and weak act on the reference itself: neither implements an
 			// interface method, whose call cannot give up what the
-			// interface holds (language spec section 6.4).
+			// interface holds (language spec section 18.5).
 			if consumesReceiver(f) {
 				state = consumes
 				break

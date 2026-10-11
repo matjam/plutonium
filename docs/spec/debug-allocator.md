@@ -157,9 +157,9 @@ unknown. Size 0 is treated as 1, as `new` and `alloc.New` do, and alignment 0 as
 ### Leaks
 
 At normal exit (main returns, or `os.Exit`), hosted builds first wait, for at most about a second, until
-every other puroutine has returned or waits (on a channel, a lock, a timer, I/O or a system call), so that
+every other task has returned or waits (on a channel, a lock, a timer, I/O or a system call), so that
 one that has sent its last value but not yet returned releases its arguments and variables
-(`rt.SettleTasks`); a puroutine blocked for good keeps what it holds, which is listed. Then they check the
+(`rt.SettleTasks`); a task blocked for good keeps what it holds, which is listed. Then they check the
 canaries and poison of every block and list the allocations still live:
 
 ```
@@ -230,7 +230,7 @@ can call `debug.DescribeFault(addr, pc, write)` from its page fault handler: for
 allocator's blocks it starts a panic (`rt.BeginPanic`) whose message is the diagnosis and returns true, or
 returns false having done nothing. Either way the kernel then calls `rt.PanicFault`, which raises the
 panic, with the allocator's message or the runtime's, and a trace from the faulting instruction (language
-spec section 8.1). `CheckHeap` and `ReportLeaks` can be called whenever the kernel likes. Hosted builds
+spec section 17.4). `CheckHeap` and `ReportLeaks` can be called whenever the kernel likes. Hosted builds
 wire up the equivalent automatically ([Faults](#faults-and-the-runtime)).
 
 Every error the allocator finds is a panic: it writes its message after `rt.BeginPanic` and raises it
@@ -260,10 +260,10 @@ the quarantine and the block cache are reached only through it. The exit hook ta
 handler tries it for a while and then describes the fault without it, since the faulting thread may
 already hold it.
 
-Allocation sites belong to the puroutine that allocates, so sites stay right while puroutines allocate in
-parallel. A puroutine's stack from an allocator (one `rt.Go` sized, for example; the stacks hosted `go`
+Allocation sites belong to the task that allocates, so sites stay right while tasks allocate in
+parallel. A task's stack from an allocator (one `rt.Go` sized, for example; the stacks hosted `go`
 statements reserve come from the system, not an allocator) is allocated with the site `rt.StackSite`,
-printed as "the runtime, as a puroutine's stack"; leak reports leave stacks out, since a puroutine that
+printed as "the runtime, as a task's stack"; leak reports leave stacks out, since a task that
 is still finishing at exit holds its own.
 
 ## Cost

@@ -415,7 +415,7 @@ func (check *Checker) typInternal(e0 ast.Expr, def *TypeName) (T Type) {
 		typ.dir = dir
 		typ.elem = check.varType(e.Value)
 		// Plutonium: channel elements cross puroutines, so the element
-		// type must be sendable (spec section 4.8).
+		// type must be sendable (spec section 7.11).
 		check.later(func() {
 			check.checkSendable(e.Value, typ.elem, "channel element type")
 		}).describef(e.Value, "check channel element %s", typ.elem)

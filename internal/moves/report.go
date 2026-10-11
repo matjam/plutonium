@@ -10,7 +10,7 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
-// Messages (language spec section 6.9). Each says what happened, explains
+// Messages (language spec section 21.1). Each says what happened, explains
 // the rule with the program's names and the line of the move, and shows
 // fixes as code.
 

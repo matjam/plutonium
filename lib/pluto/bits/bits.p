@@ -1,5 +1,12 @@
 // Package bits provides bit counting and manipulation, following Go's
 // math/bits, plus operations that change bits of a variable in place.
+//
+// The counting and arithmetic functions are those of math/bits
+// (OnesCount, LeadingZeros, TrailingZeros, RotateLeft, ReverseBytes, Len,
+// Add64, Mul64 and the others). Set, Clear, Toggle and Test change or read
+// one bit through a pointer (bits.Set(&flags, 3)), and Extract(x, lo,
+// width) and Insert read and write a field of bits. The compiler expands
+// them to single instructions where the target has one.
 package bits
 
 // Unsigned is any unsigned integer type.

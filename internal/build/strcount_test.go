@@ -12,7 +12,7 @@ import (
 )
 
 // TestStringsLeakFree runs the programs that build, copy, store and drop
-// counted strings (language spec section 6.10) with the debug allocator and
+// counted strings (language spec section 18.8) with the debug allocator and
 // its leak report on, at -O0 and -O2: every string they make must be freed
 // exactly once, through copies, struct fields, arrays, slices, interface
 // boxes, closures, deferred calls, containers, puroutines, channels, range

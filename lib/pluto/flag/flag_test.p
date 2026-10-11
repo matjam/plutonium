@@ -24,7 +24,7 @@ func TestParse(t *testing.T) {
 	d := fs.Duration("duration", 5*time.Second, "time.Duration value")
 	// The FlagSet keeps &sv in memory it allocated, which the escape
 	// analysis cannot tell is released before this frame ends, so sv is
-	// a package variable (language spec section 6.3).
+	// a package variable (language spec section 18.3).
 	fs.StringVar(&sv, "sv", "x", "a string variable")
 	args := []string{
 		"-bool", "-bool2=true", "--int", "22", "--int64", "0x23", "-uint", "24",

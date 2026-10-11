@@ -81,7 +81,7 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 
 	case "take":
 		// take(p): the value at p, which then holds the zero value
-		// (language spec section 6.4).
+		// (language spec section 18.5).
 		p := s.expr(e.Args[0])
 		ptr := s.checked(p.v)
 		v := s.materialize(s.loadLV(lvalue{ptr: ptr, T: T}))
@@ -615,7 +615,7 @@ func (s *fnState) ringIterator(name string, w *types2.Wrapper, p *ssa.Value, T t
 // (All or Values) of ring type w returns, of func type sig. The iterator is
 // a closure record holding the code pointer and the address of the ring,
 // built where All or Values is called, or, when ringMethodFunc's function
-// is called, in the region its caller provides (language spec section 5.4).
+// is called, in the region its caller provides (language spec section 7.17).
 //
 // The loop reads the ring as it goes. It keeps a position in the ring's
 // push count: each step skips to the oldest element if the body popped the

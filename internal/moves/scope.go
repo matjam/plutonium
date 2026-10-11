@@ -9,7 +9,7 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
-// Scoped tasks (language spec section 4.11).
+// Scoped tasks (language spec section 19.4).
 //
 // A task started by s.Task on a sync.Scope of this function takes the
 // variables it captures whose block may end before s waits for it

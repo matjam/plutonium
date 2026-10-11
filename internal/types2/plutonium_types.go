@@ -115,7 +115,7 @@ func BoxMethodOf(fn *Func) *Wrapper {
 // ringMethod indexes them. The compiler expands calls to them inline.
 //
 // All and Values return iterators, closures of the caller's frame built where
-// they are called (language spec section 5.4), so they can only be called.
+// they are called (language spec section 7.17), so they can only be called.
 var RingMethods = [...]string{"Push", "Pop", "Peek", "Len", "Cap", "Full", "Empty", "Reset", "All", "Values"}
 
 // IsRingIterator reports whether the ring method name returns an iterator.
@@ -627,7 +627,7 @@ func (check *Checker) wrapperType(ix *indexedExpr) Type {
 }
 
 // boxElem reports an interface type as the element of owned, shared or
-// synced (language spec section 5.6): an owning interface owns a value
+// synced (language spec section 7.19): an owning interface owns a value
 // behind an interface.
 func (check *Checker) boxElem(at positioner, kind WrapperKind, elem Type) {
 	if _, isTP := Unalias(elem).(*TypeParam); isTP || !IsInterface(elem) {

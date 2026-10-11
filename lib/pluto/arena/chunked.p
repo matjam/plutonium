@@ -37,7 +37,7 @@ import (
 //	}
 //	restore.Restore()
 //
-// A Chunked owns its chunks, so it is an owner (language spec section 6.4):
+// A Chunked owns its chunks, so it is an owner (language spec section 7.18):
 // it moves instead of being copied, and it is released by Drop.
 //
 // A Chunked is not safe for concurrent use.

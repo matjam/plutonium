@@ -8,7 +8,7 @@ import (
 // Plutonium: the checker recurses once per level of nesting in expressions
 // and type expressions. A compiler with a growing stack (Go's) can recurse
 // as deep as the parser allows; one on a fixed stack (the self-hosted
-// compiler, language spec section 9's //pu:stack) must stop before the stack
+// compiler, language spec section 20.3's //pu:stack) must stop before the stack
 // runs out. enter and leave bracket each level: past Config.MaxNesting, or
 // when Config.StackCheck says the stack is running low, the construct is
 // reported once and not checked.

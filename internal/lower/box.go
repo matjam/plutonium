@@ -22,7 +22,7 @@ import (
 // synced counts atomically once the program is threaded; shared never does,
 // which is why it may not cross tasks.
 //
-// A channel is counted in the same way (language spec section 4.8): its
+// A channel is counted in the same way (language spec section 7.11): its
 // count is in the runtime's hchan, atomic once the program is threaded, and
 // the last release drops the values still buffered and frees the channel
 // (chanRelease).

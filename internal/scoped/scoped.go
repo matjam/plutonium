@@ -1,13 +1,13 @@
 // Package scoped finds the scoped tasks of a program: the calls s.Task(f)
 // on a sync.Scope that the compiler can see in the starting frame
-// (language spec section 4.11), which the move checker, the escape and race
+// (language spec section 19.4), which the move checker, the escape and race
 // analyses and lowering treat as starting a task that may use the frame.
 //
 // A call s.Task(lit) is scoped when s is a local variable (or parameter)
 // of type sync.Scope, named directly, lit is a function literal, and the
 // call is written in the function that declares s or inside the literals
 // of other scoped tasks there. The Scope then waits for the task before
-// its block ends, on every path (its drop, spec section 6.4), so the task
+// its block ends, on every path (its drop, spec section 18.6), so the task
 // may use every variable that lasts until then.
 //
 // A captured variable whose block may end before the task is joined is

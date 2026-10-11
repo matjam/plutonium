@@ -2,7 +2,7 @@
 // and Fixed, a bounded vector over storage the caller provides.
 //
 // A Plutonium slice cannot grow, because it does not know where its memory
-// came from (language spec section 4.3). A Vec does: when it runs out of
+// came from (language spec section 7.5). A Vec does: when it runs out of
 // room it allocates a buffer twice as large from its allocator, copies the
 // elements and frees the old buffer.
 //
@@ -15,11 +15,38 @@
 //	for i, x := range v { ... } // v.All(), as over a slice
 //
 // v[i], v[i] = x and len(v) work as on a slice, through the methods Index,
-// SetIndex and Len (language spec section 6.7).
+// SetIndex and Len (language spec section 11.11).
 //
 // A Vec must not be copied after first use; pass a *Vec. Slices returned by
 // Slice and pointers returned by Ptr are invalidated by any call that grows
 // the Vec (Push, Append, Insert, Replace, Reserve) and by Free.
+//
+// # Append functions
+//
+// The library's Append functions write into a destination the caller
+// declares, whose type says whether it grows. They take the destination by
+// pointer, generic over Appender[byte], and return nothing or only their
+// error:
+//
+//	v := vec.New[byte]()      // grows from its allocator
+//	strconv.AppendInt(&v, n, 10)
+//
+//	var mem [64]byte
+//	f := vec.NewFixed(mem[:]) // bounded: never allocates
+//	fmt.Appendf(&f, "%d %q", n, name)
+//
+// A Fixed stores what fits in the caller's array, drops the rest and
+// records it (Truncated); TryPush refuses instead, and Reset empties it and
+// clears the record. A Fixed holds a view of the array and owns nothing, so
+// it copies freely and must not outlive the array. The Append functions are
+// strconv.AppendInt, AppendUint, AppendBool, AppendFloat and AppendQuote;
+// utf8.AppendRune; strings.AppendUpper, AppendLower, AppendRepeat,
+// AppendJoin and AppendReplace; fmt.Appendf, Append and Appendln;
+// time.Duration.AppendString, time.Time.AppendRFC3339 and
+// os.FileMode.AppendString; filepath.AppendClean, AppendJoin, AppendDir,
+// AppendAbs and AppendRel; and AppendString, which appends a string's
+// bytes. Each is compiled once for each destination type a program uses
+// with it, so its calls are direct.
 package vec
 
 import (
@@ -33,7 +60,7 @@ import (
 // The zero Vec is empty and ready to use: unless Init gives it an allocator
 // first, it takes the default allocator the first time it grows.
 //
-// A Vec owns its storage, so it is an owner (language spec section 6.4):
+// A Vec owns its storage, so it is an owner (language spec section 7.18):
 // it moves instead of being copied, and Drop releases it. Clone makes an
 // independent copy.
 type Vec[T any] owner struct {

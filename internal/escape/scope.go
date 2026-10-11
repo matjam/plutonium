@@ -10,7 +10,7 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
-// Scoped tasks (language spec section 4.11).
+// Scoped tasks (language spec section 19.4).
 //
 // A call s.Task(func() {...}) on a sync.Scope declared in the function
 // (internal/scoped) is not a sink: s waits for the task before its block

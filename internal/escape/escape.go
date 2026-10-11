@@ -12,7 +12,7 @@
 //
 // It also rejects keeping a view of a loop's variables where the next
 // iteration can see it: every iteration reuses the same frame memory for
-// them, where Go gives each iteration its own (spec section 4.5).
+// them, where Go gives each iteration its own (spec section 11.5).
 //
 // The analysis is whole-program. It computes, for every function, a
 // summary of what it does with the pointers its caller passes (keeps them,
@@ -23,7 +23,7 @@
 // followed along the control flow (flow.go); other storage is
 // flow-insensitive. Nothing has to be annotated.
 //
-// The rules are written up in docs/spec/language.md, section 6.3 ("Views"),
+// The rules are written up in docs/spec/language/18-ownership-and-memory.md, section 18.3 ("Views"),
 // and its diagnostics, codes E3001-E3006, in section 6.9.
 package escape
 
@@ -1010,7 +1010,7 @@ func hasPointersSeen(T types2.Type, seen map[types2.Type]bool) bool {
 	switch u := T.Underlying().(type) {
 	case *types2.Basic:
 		// A string made with unsafe.String is a view of the memory it was
-		// made from (spec section 6.10); other strings point only to
+		// made from (spec section 18.8); other strings point only to
 		// static bytes or counted buffers.
 		return u.Kind() == types2.String || u.Kind() == types2.UnsafePointer || u.Kind() == types2.UntypedString
 	case *types2.Pointer, *types2.Slice, *types2.Signature, *types2.Interface, *types2.Chan, *types2.Map:

@@ -13,7 +13,7 @@ import (
 // of the DirEntries that holds it.
 //
 // A file name is any bytes but NUL and '/', so it need not be valid UTF-8,
-// which a string must be (language spec section 6.10). RawName returns the
+// which a string must be (language spec section 18.8). RawName returns the
 // exact bytes. Name returns a string: the name itself if it is valid UTF-8,
 // and otherwise a copy of it with U+FFFD in place of each invalid byte.
 // Two different files can have the same Name that way; open them by RawName

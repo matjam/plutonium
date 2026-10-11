@@ -7,7 +7,7 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
-// Where owners are destroyed (language spec section 6.4).
+// Where owners are destroyed (language spec section 18.6).
 //
 // Owners share the cleanup stack of counted strings (strscope.go): an owner
 // variable is a slot of the innermost entry that holds variables, a

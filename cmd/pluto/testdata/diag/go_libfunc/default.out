@@ -1,4 +1,4 @@
-$DIR/main.p:15:8: cannot pass a function literal that captures n (main.p:15) to wg.Go, which starts a puroutine with it: its closure record lives in the starting frame (spec section 4.7)
+$DIR/main.p:15:8: cannot pass a function literal that captures n (main.p:15) to wg.Go, which starts a puroutine with it: its closure record lives in the starting frame (spec section 12.12)
     A function literal that captures variables, and a method value such as
     c.handle, keep their closure record (the code to call, with the captured
     variables or a copy of the receiver) in the frame of the function that makes
@@ -24,11 +24,11 @@ $DIR/main.p:15:8: cannot pass a function literal that captures n (main.p:15) to 
     (see "Task statements" in the Plutonium spec, section 12.12)
     (run "pluto explain E2594" for a longer explanation)
 
-$DIR/main.p:18:8: cannot pass work to wg.Go, which starts a puroutine with it: it holds a function literal that captures n (main.p:17), whose closure record lives in the starting frame (spec section 4.7)
+$DIR/main.p:18:8: cannot pass work to wg.Go, which starts a puroutine with it: it holds a function literal that captures n (main.p:17), whose closure record lives in the starting frame (spec section 12.12)
     (explained above; run "pluto explain E2594" for more)
 
-$DIR/main.p:21:30: cannot pass the method value c.add to time.AfterFunc, which starts a puroutine with it: its closure record lives in the starting frame (spec section 4.7)
+$DIR/main.p:21:30: cannot pass the method value c.add to time.AfterFunc, which starts a puroutine with it: its closure record lives in the starting frame (spec section 12.12)
     (explained above; run "pluto explain E2594" for more)
 
-$DIR/main.p:23:30: cannot pass a function literal that captures n (main.p:23) to time.AfterFunc, which starts a puroutine with it: its closure record lives in the starting frame (spec section 4.7)
+$DIR/main.p:23:30: cannot pass a function literal that captures n (main.p:23) to time.AfterFunc, which starts a puroutine with it: its closure record lives in the starting frame (spec section 12.12)
     (explained above; run "pluto explain E2594" for more)

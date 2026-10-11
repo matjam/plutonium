@@ -16,7 +16,7 @@
 //   - a Builder builds a string in a buffer that its String method shares
 //     with the result instead of copying.
 //
-// Strings hold valid UTF-8 (language spec section 6.10), and there is no
+// Strings hold valid UTF-8 (language spec section 18.8), and there is no
 // string(b) for a byte slice: FromUTF8 checks bytes and refuses what is not
 // text, and FromUTF8Lossy replaces it with U+FFFD. There are no Unicode tables
 // yet: white space follows unicode.IsSpace exactly, but case mapping and

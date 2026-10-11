@@ -2,7 +2,7 @@ package lower
 
 import "github.com/matjam/plutonium/internal/ssa"
 
-// Count elision across calls (language spec sections 6.5 and 6.10.1).
+// Count elision across calls (language spec sections 18.7 and 18.8).
 //
 // A string, a shared, synced or weak reference, or a channel, borrowed from memory a
 // call could change (a field reached through a pointer, a slice element, a

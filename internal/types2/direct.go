@@ -2,7 +2,7 @@ package types2
 
 // PointerShaped reports whether a value of type t is a single pointer at
 // run time, so that an interface holding one stores it in its data word
-// (language spec section 4.4). As in Go, that is:
+// (language spec section 7.9). As in Go, that is:
 //
 //   - a pointer, unsafe.Pointer, a function value, or an owned, shared or
 //     synced reference;

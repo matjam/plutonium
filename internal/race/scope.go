@@ -12,7 +12,7 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
-// Scoped tasks (language spec sections 4.11 and 6.11).
+// Scoped tasks (language spec sections 19.4 and 19.3).
 //
 // A task started by s.Task on a sync.Scope of the function (internal/
 // scoped) may use the function's frame: its variables, and what they point

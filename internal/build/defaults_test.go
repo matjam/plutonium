@@ -10,7 +10,7 @@ import (
 // TestCrossPackageDefaults calls functions and methods of another package
 // whose default values use that package's unexported names and imports,
 // which the calling package cannot name itself. The expected output was
-// worked out by hand from the language spec, section 5.1.
+// worked out by hand from the language spec, section 10.13.
 func TestCrossPackageDefaults(t *testing.T) {
 	testguard.Parallel(t)
 	files := map[string]string{

@@ -221,7 +221,7 @@ func (s *fnState) unionTypeSwitch(st *ast.TypeSwitchStmt, x ast.Expr, label *typ
 	moves := s.l.moves != nil && s.l.moves.SwitchMoves[st]
 	if moves {
 		// An owner union moves into the binding of the clause that runs
-		// (language spec section 5.10): x holds nothing afterwards.
+		// (language spec section 7.13): x holds nothing afterwards.
 		copied := s.temp(T, "switched")
 		s.storeTo(copied, u, T)
 		u = aggValue(copied, T)

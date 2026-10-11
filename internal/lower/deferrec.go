@@ -6,7 +6,7 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
-// Deferred calls when a hosted program panics (language spec section 8).
+// Deferred calls when a hosted program panics (language spec section 17.2).
 //
 // A panic does not unwind, but in a hosted build it runs the panicking
 // task's pending deferred calls, innermost frame first, before the panic

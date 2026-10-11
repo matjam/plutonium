@@ -1,4 +1,4 @@
-$DIR/main.p:19:6: a function literal that captures variables cannot be started with go: wg lives in the starting frame, which may be gone before the puroutine runs (spec section 4.7); wg has type stdsync.WaitGroup, which must not be copied, so start the literal with a stdsync.Scope, which waits for it and lets it use wg: var s stdsync.Scope; s.Task(func() {...})
+$DIR/main.p:19:6: a function literal that captures variables cannot be started with go: wg lives in the starting frame, which may be gone before the puroutine runs (spec section 12.12); wg has type stdsync.WaitGroup, which must not be copied, so start the literal with a stdsync.Scope, which waits for it and lets it use wg: var s stdsync.Scope; s.Task(func() {...})
     A function literal that uses variables of the function around it reaches
     them in that function's stack frame. A go statement may start it after that
     function has returned, when the frame is gone.
@@ -28,7 +28,7 @@ $DIR/main.p:19:6: a function literal that captures variables cannot be started w
     (see "Task statements" in the Plutonium spec, section 12.12)
     (run "pluto explain E2590" for a longer explanation)
 
-$DIR/main.p:28:5: a function literal that captures variables cannot be started with go: s lives in the starting frame, which may be gone before the puroutine runs (spec section 4.7); s has type stats, which holds a value of type stdsync.Mutex and must not be copied, so start the literal with a stdsync.Scope, which waits for it and lets it use s: var sc stdsync.Scope; sc.Task(func() {...})
+$DIR/main.p:28:5: a function literal that captures variables cannot be started with go: s lives in the starting frame, which may be gone before the puroutine runs (spec section 12.12); s has type stats, which holds a value of type stdsync.Mutex and must not be copied, so start the literal with a stdsync.Scope, which waits for it and lets it use s: var sc stdsync.Scope; sc.Task(func() {...})
     A function literal that uses variables of the function around it reaches
     them in that function's stack frame. A go statement may start it after that
     function has returned, when the frame is gone.
@@ -59,7 +59,7 @@ $DIR/main.p:28:5: a function literal that captures variables cannot be started w
     (see "Task statements" in the Plutonium spec, section 12.12)
     (run "pluto explain E2590" for a longer explanation)
 
-$DIR/main.p:35:5: a function literal that captures variables cannot be started with go: n lives in the starting frame, which may be gone before the puroutine runs (spec section 4.7); pass it as an argument instead: go func(n int) {...}(n)
+$DIR/main.p:35:5: a function literal that captures variables cannot be started with go: n lives in the starting frame, which may be gone before the puroutine runs (spec section 12.12); pass it as an argument instead: go func(n int) {...}(n)
     A function literal that uses variables of the function around it reaches
     them in that function's stack frame. A go statement may start it after that
     function has returned, when the frame is gone.

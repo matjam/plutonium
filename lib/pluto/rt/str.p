@@ -10,7 +10,7 @@ import "unsafe"
 // zero string, or a view from unsafe.String). Copies of a counted string
 // share its buffer, and the compiler calls strRetain and strRelease as they
 // are made and dropped; the last release frees the buffer. Every string
-// holds valid UTF-8 (language spec section 6.10).
+// holds valid UTF-8 (language spec section 18.8).
 //
 // The compiler lowers its own string operations to the functions below,
 // which return a new string as its three words, so that the value is not
@@ -143,7 +143,7 @@ func strAllocFrom(a Allocator, n int, pc uintptr) (*byte, uintptr) {
 	h.count = 1
 	// The buffer records its allocator to free itself to. A string from
 	// an arena must not outlive the arena, which the escape analysis does
-	// not check (language spec section 6.10), so a is hidden from it.
+	// not check (language spec section 18.8), so a is hidden from it.
 	h.a = *Pinned(&a)
 	h.size = size
 	// The control word keeps p's generation tag (-gencheck), so that
@@ -430,7 +430,7 @@ func MakeString(p *byte, n int, ctl uintptr, ascii bool) string {
 // inside a rune. It is for the library's byte-level searching
 // (pluto/strings), which compares and searches such slices, and returns
 // only what starts and ends at boundaries, since a match of valid UTF-8
-// does. A plain slice expression is checked (language spec section 6.10);
+// does. A plain slice expression is checked (language spec section 18.8);
 // the compiler leaves the check out where it can prove the bounds are
 // boundaries. The compiler expands SliceBytewise inline, the call in its
 // body too.

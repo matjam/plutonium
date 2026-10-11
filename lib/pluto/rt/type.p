@@ -30,7 +30,7 @@ func TypeOf(v any) (*Type, unsafe.Pointer) {
 
 // staticType returns the type descriptor or method table at p. Both are
 // static data, never in a frame; going through uintptr says so to the
-// escape analysis (language spec section 6.3), which otherwise could not
+// escape analysis (language spec section 18.3), which otherwise could not
 // tell the first word of an interface from the second.
 func staticType(p unsafe.Pointer) *Type {
 	return (*Type)(unsafe.Pointer(uintptr(p)))

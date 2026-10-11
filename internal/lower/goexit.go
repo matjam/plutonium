@@ -7,7 +7,7 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
-// rt.Goexit (language spec section 8.2).
+// rt.Goexit (language spec section 17.2).
 //
 // rt.Goexit ends the calling task after running the deferred calls of every
 // frame on it and releasing what each frame holds, as Go's runtime.Goexit

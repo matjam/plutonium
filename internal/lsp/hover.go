@@ -123,7 +123,7 @@ func declString(obj types2.Object, qf types2.Qualifier) string {
 	return types2.ObjectString(obj, qf)
 }
 
-// The kinds of section 6 of the specification, as hover shows them.
+// The kinds of section 8.7 of the specification, as hover shows them.
 const (
 	kindValue  = "value"
 	kindView   = "view"
@@ -149,7 +149,7 @@ func kindLine(t types2.Type) string {
 }
 
 // typeKind classifies a type as a value, view, owner or counted reference
-// (spec section 6).
+// (spec section 8.7).
 //
 // A named type is an owner if it is declared owner (or defined from
 // owned[T]), or if it has a Drop method, which only an owner may declare.
@@ -246,7 +246,7 @@ func (w *workspace) packageDoc(p *types2.Package) *ast.CommentGroup {
 	return nil
 }
 
-// directives gives the meaning of each //pu: directive (spec section 9).
+// directives gives the meaning of each //pu: directive (spec section 20.3).
 var directives = map[string]string{
 	"build":       "include the file only when the build constraint holds",
 	"inline":      "always inline calls to this function",
@@ -295,7 +295,7 @@ func directiveHover(f *srcFile, off int) *Hover {
 			}
 			meaning := directives[name]
 			if meaning == "" {
-				meaning = "not a directive the compiler knows (see section 9 of the language specification)"
+				meaning = "not a directive the compiler knows (see section 20.3 of the language specification)"
 			}
 			start := f.tok.Offset(c.Pos())
 			r := f.rangeOf(start, start+len(c.Text))

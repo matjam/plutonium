@@ -4,7 +4,7 @@ $DIR/main.p:17:9: cannot return h: it holds the function literal at main.p:16, w
     frame of the function that makes it: here Ptr. That frame is reclaimed when
     Ptr returns, and the record with it.
     Ptr's results can hold the closure only through a pointer, so its callers
-    provide no region to build it in (spec section 4.5). Return the closure
+    provide no region to build it in (spec section 11.5). Return the closure
     itself, an interface holding it, or a struct or array holding it, instead.
     Go moves the captured variables and the closure to the heap. Plutonium never
     allocates behind the program's back, so the record lives in a frame: the
@@ -27,7 +27,7 @@ $DIR/main.p:43:9: cannot return h: it holds the method value b.get (main.p:42), 
     PtrMethod. That frame is reclaimed when PtrMethod returns, and the record
     with it.
     PtrMethod's results can hold the closure only through a pointer, so its
-    callers provide no region to build it in (spec section 4.5). Return the
+    callers provide no region to build it in (spec section 11.5). Return the
     closure itself, an interface holding it, or a struct or array holding it,
     instead.
     Go moves the captured variables and the closure to the heap. Plutonium never
@@ -46,7 +46,7 @@ $DIR/main.p:51:9: cannot return g: it holds the function literal at main.p:49, w
     That frame is reclaimed when the function literal at main.p:49 returns, and
     the record with it.
     Nested builds the closures it returns in a region its caller provides (spec
-    section 4.5), but this one is made in the function literal at main.p:49,
+    section 11.5), but this one is made in the function literal at main.p:49,
     which is a function of its own. Make it in Nested itself.
     Go moves the captured variables and the closure to the heap. Plutonium never
     allocates behind the program's back, so the record lives in a frame: the
@@ -70,7 +70,7 @@ $DIR/main.p:57:10: cannot return the function literal: it uses x, a local variab
     That frame is reclaimed when the body of the loop at main.p:56 returns, and
     the record with it.
     FromLoop builds the closures it returns in a region its caller provides
-    (spec section 4.5), but this one is made in the body of the loop at
+    (spec section 11.5), but this one is made in the body of the loop at
     main.p:56, which is a function of its own. Make it in FromLoop itself.
     Go moves the captured variables and the closure to the heap. Plutonium never
     allocates behind the program's back, so the record lives in a frame: the
@@ -92,7 +92,7 @@ $DIR/main.p:32:9: cannot return h: it holds a closure that counter() (main.p:31)
     The region of this call is in PtrCall's frame, which is reclaimed when
     PtrCall returns.
     PtrCall's results can hold the closure only through a pointer, so its
-    callers provide no region to build it in (spec section 4.5). Return the
+    callers provide no region to build it in (spec section 11.5). Return the
     closure itself, an interface holding it, or a struct or array holding it,
     instead.
     Go moves the captured variables and the closure to the heap. Plutonium never

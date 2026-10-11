@@ -7,7 +7,7 @@ import (
 )
 
 // TestPointerShaped checks which types an interface holds in its data word
-// as a single pointer (language spec section 4.4).
+// as a single pointer (language spec section 7.9).
 func TestPointerShaped(t *testing.T) {
 	pkg, _ := mustCheck(t, `package p
 

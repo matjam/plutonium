@@ -3,7 +3,7 @@ package rt
 import "unsafe"
 
 // ----------------------------------------------------------------------------
-// Channels and select (language spec section 4.8), after Go's
+// Channels and select (language spec section 7.11), after Go's
 // implementation. They use only Park and Ready, so they work on any
 // scheduler. A puroutine that blocks puts a waiting record (sudog) on the
 // channel's queue; the record lives in the blocked puroutine's own frame
@@ -16,7 +16,7 @@ import "unsafe"
 // the call graph.
 
 // An hchan is a channel. A chan value is its address, and a counted
-// reference (language spec section 4.8): the compiler retains and releases
+// reference (language spec section 7.11): the compiler retains and releases
 // it as it does a synced[T] (chanRetain, chanRelease), and the last release
 // drops the values still buffered and frees the channel (chanFree). The
 // count is plain until the program starts its first task, then atomic, as

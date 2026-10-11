@@ -74,7 +74,7 @@ func main() {
 
 // TestBoxesLeakFree runs the programs that make, move, share and drop
 // owned, shared, synced and weak references, owning interfaces and owner
-// unions (language spec sections 5.6 and 6.5) with the debug allocator and
+// unions (language spec sections 7.19 and 18.7) with the debug allocator and
 // its leak report on, at -O0 and -O2: every object must be dropped and its
 // memory freed exactly once, on every path out of a scope, through counts
 // and weak references, across tasks and through rt.Goexit.
@@ -104,7 +104,7 @@ func TestBoxesLeakFree(t *testing.T) {
 }
 
 // TestBoxTasks runs the program that starts methods of owned and synced
-// boxes with go (language spec section 4.7) with the debug allocator and
+// boxes with go (language spec section 12.12) with the debug allocator and
 // its leak report on, at -O0 and -O2, with one, two and many processors: the
 // puroutine drops the owned box it was given, and the object of a synced
 // box is dropped once, by whoever holds the last reference.

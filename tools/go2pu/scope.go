@@ -12,7 +12,7 @@ import (
 // A Go program that waits for its goroutines with a sync.WaitGroup may let
 // them use the variables of the function that starts them. Plutonium
 // rejects that for a WaitGroup, which waits only where the program calls
-// Wait (language spec section 4.11), and accepts it for a sync.Scope, which
+// Wait (language spec section 19.4), and accepts it for a sync.Scope, which
 // also waits when its block ends, so the translation rewrites a local
 // WaitGroup into a Scope when it can do so exactly:
 //

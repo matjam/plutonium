@@ -8,7 +8,7 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
-// Closures returned in regions (language spec section 4.5).
+// Closures returned in regions (language spec section 11.5).
 //
 // A function whose results can hold a func value builds the closures it
 // returns in a region of its caller's frame (internal/lower/regions.go),

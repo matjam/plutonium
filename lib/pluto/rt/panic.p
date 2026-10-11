@@ -52,7 +52,7 @@ type Panic struct {
 	Puroutine uint64
 	// During is the panic whose deferred calls the task was running when
 	// this one happened, or nil. Only hosted builds run deferred calls on
-	// a panic (language spec section 8).
+	// a panic (language spec section 17.1).
 	During *Panic
 
 	// Where the stack trace starts: the faulting instruction (exact),
@@ -346,7 +346,7 @@ func Abort() {
 // Print is generic in the type of w so that a call with a writer of a
 // known type, such as Console, calls its Write directly: in a panic or
 // interrupt handler, a call through the Writer interface counts as
-// calling every Writer the program has (language spec section 12.6).
+// calling every Writer the program has (language spec section 20.10).
 func (p *Panic) Print[W Writer](w W) {
 	p.printMessages(w)
 	// The fault line describes the last fault among the panics, as Go's

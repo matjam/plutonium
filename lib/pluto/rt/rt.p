@@ -455,7 +455,7 @@ type Writer interface {
 //
 // The functions below that format text for a Writer are generic in its
 // type, so that writing to the console calls Console.Write directly. The
-// interrupt-context check (language spec section 12.6) follows a call
+// interrupt-context check (language spec section 20.10) follows a call
 // through the Writer interface into every Writer the program has, which
 // may include files that wait for the poller; a direct call reaches only
 // the console.
@@ -806,7 +806,7 @@ func SetDefaultAllocator(a Allocator) { defaultAllocator = a }
 // of the program-wide default, and returns the allocator it replaced
 // (nil if the puroutine had none of its own); UseAllocator(prev) restores
 // it. Other puroutines, including those this one starts, are not affected
-// (language spec section 7.1). Outside a puroutine (in a scheduler's own
+// (language spec section 18.9). Outside a puroutine (in a scheduler's own
 // context) it changes the program-wide default instead.
 func UseAllocator(a Allocator) Allocator {
 	g := current()

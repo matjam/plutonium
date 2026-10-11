@@ -6,7 +6,7 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
-// Destroying values (language spec section 6.4).
+// Destroying values (language spec section 18.6).
 //
 // A value is destroyed when the variable holding it goes out of scope, when
 // a place holding it is given a new value, and at the end of the statement

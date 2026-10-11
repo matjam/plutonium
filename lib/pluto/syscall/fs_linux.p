@@ -174,7 +174,7 @@ func Getdents64(fd int, buf []byte) (int, error) {
 // ParseDirent returns the first entry of a buffer filled by Getdents64: its
 // name (a view of buf), its type (DT_*), and the length of the record. The
 // name is bytes, not a string: a file name is any bytes but NUL and '/', and
-// need not be valid UTF-8 (language spec section 6.10).
+// need not be valid UTF-8 (language spec section 18.8).
 func ParseDirent(buf []byte) (name []byte, typ uint8, reclen int) {
 	// struct linux_dirent64: ino u64, off i64, reclen u16, type u8, name.
 	reclen = int(buf[16]) | int(buf[17])<<8

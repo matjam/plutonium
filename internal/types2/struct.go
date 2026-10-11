@@ -128,7 +128,7 @@ func (check *Checker) structType(styp *Struct, e *ast.StructType) {
 			name := embeddedFieldIdent(f.Type)
 			if w, ok := Unalias(typ).(*Wrapper); ok && w.IsPointer() {
 				// owned[T], shared[T] and synced[T] embed like *T: the
-				// field is named T (language spec section 5.6).
+				// field is named T (language spec section 7.19).
 				if ix, ok := f.Type.(*ast.IndexExpr); ok {
 					name = embeddedFieldIdent(ix.Index)
 				}

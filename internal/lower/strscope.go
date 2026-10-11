@@ -35,7 +35,7 @@ type countedSlot struct {
 	pos  token.Pos  // where a variable is declared, for goto
 	// first says the slot holds a sync.Scope variable, which its block
 	// drops before its other variables: the Scope waits for the tasks it
-	// started, which may use them (language spec section 4.11).
+	// started, which may use them (language spec section 19.4).
 	first bool
 }
 

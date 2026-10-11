@@ -1,6 +1,6 @@
 package lower
 
-// Link-time binding of the scheduler backend (language spec section 4.7,
+// Link-time binding of the scheduler backend (language spec section 19.5,
 // abi.md section 12). A package-level variable marked //pu:scheduler, whose
 // type implements pluto/rt.Scheduler, is the program's backend. The runtime
 // declares body-less hooks (schedPark, schedWake and the rest, listed in
@@ -42,7 +42,7 @@ func (l *Lowerer) findScheduler() {
 		}
 	}
 	for _, b := range own[min(len(own), 1):] {
-		l.errorf(b.pos, diag.BadScheduler, "%s is a second //pu:scheduler variable; the first is %s at %s: a program binds one scheduler (language spec section 4.7)",
+		l.errorf(b.pos, diag.BadScheduler, "%s is a second //pu:scheduler variable; the first is %s at %s: a program binds one scheduler (language spec section 19.5)",
 			b.v.Name(), own[0].v.Name(), l.fset.Position(own[0].pos))
 		l.schedMissing = true // no "none is bound" on top
 	}
@@ -279,7 +279,7 @@ func (l *Lowerer) schedHookSym(fn *types2.Func, method string, mode hookMode) *s
 	if l.sched == nil && mode != hookOptional && !l.schedMissing {
 		l.schedMissing = true
 		l.errorf(l.prog.Main.Files[0].Package, diag.NoScheduler, "this program starts puroutines, uses channels or waits in pluto/sync, so it needs a scheduler, and none is bound: "+
-			"mark a package-level variable whose type implements rt.Scheduler with //pu:scheduler (language spec section 4.7; hosted builds bind one by default)")
+			"mark a package-level variable whose type implements rt.Scheduler with //pu:scheduler (language spec section 19.5; hosted builds bind one by default)")
 	}
 	if b := l.sched; b != nil && mode == hookTimers && !l.schedNoTimers {
 		var missing []string

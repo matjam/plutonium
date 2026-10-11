@@ -3,7 +3,7 @@
 //
 // An error value is an interface, and Plutonium copies a value larger than a
 // word into the converting function's frame when it makes an interface (see
-// the language spec, section 4.4). So every error that leaves a function is
+// the language spec, section 7.9). So every error that leaves a function is
 // either a word-sized value (such as syscall.Errno) or a pointer to storage
 // that outlives the call:
 //

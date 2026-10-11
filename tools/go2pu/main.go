@@ -33,7 +33,7 @@
 // their frame, recover, reflection, goroutines and WaitGroups outside the
 // forms above, maps modified while ranged over) are marked with a "go2pu:"
 // comment and listed on standard error, as are string literals that are not valid UTF-8: binary data kept in a
-// string, which Plutonium strings cannot hold (language spec section 6.10).
+// string, which Plutonium strings cannot hold (language spec section 18.8).
 //
 // Usage:
 //

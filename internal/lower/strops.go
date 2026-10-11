@@ -75,7 +75,7 @@ func (s *fnState) concatAssign(lv lvalue, rhs ast.Expr, pos token.Pos) {
 // allocates: string(runes), and string(r) for a rune that is not a constant.
 // It reports false for any other conversion. (The checker rejects the
 // conversions of a string to a byte or rune slice, and of a byte slice or a
-// non-rune integer to a string; language spec section 3.)
+// non-rune integer to a string; language spec section 11.24.)
 func (s *fnState) stringConversion(e *ast.CallExpr, to, from types2.Type) (value, bool) {
 	if !isString(to) || isString(from) {
 		return value{}, false
@@ -97,7 +97,7 @@ func (s *fnState) stringConversion(e *ast.CallExpr, to, from types2.Type) (value
 }
 
 // runeBoundaryCheck makes s[lo:hi] panic unless both bounds are at the
-// start of a rune or at the end (language spec section 6.10). A string
+// start of a rune or at the end (language spec section 18.8). A string
 // whose flags say it is ASCII needs no check, so the test of the bytes is a
 // call made only for others. A bound that is the constant 0, or left out,
 // needs none either.

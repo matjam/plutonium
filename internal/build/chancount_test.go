@@ -10,7 +10,7 @@ import (
 )
 
 // TestChannelsLeakFree runs the program that makes, copies, sends and drops
-// channels (language spec section 4.8) with the debug allocator and its
+// channels (language spec section 7.11) with the debug allocator and its
 // leak report on, at -O0 and -O2, with one, two and many processors: every
 // channel must be freed exactly once, with the values still in its buffer
 // and its timer, through copies, struct fields, containers, channels of

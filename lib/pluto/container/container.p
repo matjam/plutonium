@@ -1,5 +1,5 @@
 // Package container declares the constraints of the indexing interface
-// (language spec section 6.7), for generic code over library containers.
+// (language spec section 11.11), for generic code over library containers.
 //
 // A container is indexed through its methods: x[k] calls x.Index(k),
 // x[k] = v calls x.SetIndex(k, v), v, ok := x[k] calls x.IndexOk(k), and

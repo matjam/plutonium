@@ -5,7 +5,51 @@
 // records the operation and the path; it comes from the same allocator as
 // the File (the default allocator, or the one given to OpenFile). Reads,
 // writes and Close report the syscall.Errno alone, so that the I/O path
-// never allocates; Read reports io.EOF at the end of input.
+// never allocates; Read reports io.EOF at the end of input, and an
+// operation on a closed File reports ErrClosed. An Errno that the table
+// does not know reports "unknown error".
+//
+// # Names from the operating system
+//
+// A string holds only valid UTF-8 (language spec section 7.3), but Linux
+// does not promise it: a file name is any bytes except NUL and '/', and so
+// are a symbolic link's target, the working directory, a command-line
+// argument and an environment variable. Bytes that the system hands back
+// become a string only through validation, which replaces each byte that
+// does not begin a valid UTF-8 sequence with U+FFFD, as
+// strings.FromUTF8Lossy does. A name that is valid UTF-8 comes back as it
+// is. The conversion is lossy: two different files can give the same
+// string, and a lossy name must not be used to open, rename or remove the
+// file it came from.
+//
+// The exact bytes are available next to every string that can be lossy:
+//
+//	DirEntry.Name, FileInfo.Name      DirEntry.RawName
+//	Readlink                          AppendReadlink, ReadlinkBytes
+//	Getwd (and filepath.Abs)          AppendWd (and filepath.AppendAbs)
+//	Arg, Args (and flag.Arg)          ArgBytes, ArgsBytes (and flag.ArgBytes)
+//	Getenv, LookupEnv, Environ,       GetenvBytes, LookupEnvBytes,
+//	TempDir                           EnvironBytes, TempDirBytes
+//	MkdirTemp (and exec.LookPath)     AppendMkdirTemp (and exec.AppendLookPath)
+//
+// filepath.WalkDirBytes passes each path as its exact bytes. PathError.Path
+// and File.Name have no byte form: the caller has the bytes it passed. The
+// views RawName, ArgBytes and GetenvBytes are valid as long as what they
+// view: the DirEntries that holds the entry, or the life of the program for
+// the arguments and the environment.
+//
+// The core operations on a path have a form that takes the path as a
+// []byte, named with the suffix Bytes: OpenBytes, OpenFileBytes,
+// CreateBytes, StatBytes, LstatBytes, ReadDirBytes, ReadlinkBytes,
+// ReadFileBytes, WriteFileBytes, MkdirBytes, MkdirAllBytes, RemoveBytes,
+// RemoveAllBytes, RenameBytes, ChmodBytes and ChdirBytes. A program that
+// must handle any file writes os.OpenBytes(e.RawName()), joined to the
+// directory, where it would write os.Open(e.Name()). ReadDir sorts by the
+// exact bytes of the names, and os/exec passes the environment to a child
+// unchanged. The functions that must not store a partial path (AppendWd,
+// AppendReadlink, ReadlinkBytes, AppendMkdirTemp, exec.AppendLookPath)
+// leave the destination as it was and return ENAMETOOLONG (ERANGE for
+// AppendWd) when the path does not fit in a vec.Fixed.
 package os
 
 import (
@@ -294,7 +338,7 @@ func NArgs() int {
 
 // Arg returns command-line argument i (Arg(0) is the program name). An
 // argument is any bytes but NUL, so it need not be valid UTF-8; a string
-// must be (language spec section 6.10), so Arg replaces each invalid byte
+// must be (language spec section 18.8), so Arg replaces each invalid byte
 // with U+FFFD, as strings.FromUTF8Lossy does. ArgBytes returns the exact bytes.
 func Arg(i int) string { return lossyView(ArgBytes(i)) }
 
@@ -412,7 +456,7 @@ func Open(name string, a alloc.Allocator = alloc.Default()) (*File, error) {
 }
 
 // OpenBytes is Open for a file name that is bytes, which need not be valid
-// UTF-8 (language spec section 6.10). A name on Linux is any bytes but NUL
+// UTF-8 (language spec section 18.8). A name on Linux is any bytes but NUL
 // and a string can hold only valid UTF-8, so a file named "\xff.txt" can
 // be opened only this way. The core operations of this package that take a
 // path have a Bytes form like this one (OpenFileBytes, CreateBytes,
@@ -477,7 +521,7 @@ func openFile(name []byte, sname string, flags int, perm uint32, a alloc.Allocat
 }
 
 // PathError records an error and the operation and file path that caused
-// it. Op and Path are strings the error keeps (language spec section 6.10),
+// it. Op and Path are strings the error keeps (language spec section 18.8),
 // so the error stays valid however long the caller's own copies live. Make
 // one with NewPathError, and release it with errors.Free (or by resetting
 // the arena it came from).

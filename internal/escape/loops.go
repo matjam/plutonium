@@ -16,7 +16,7 @@ import (
 // each, and every iteration reuses that memory. A view of a loop's
 // variables (a pointer, a slice of an array, a function literal that uses
 // them) is therefore valid for one iteration only: it may not be kept
-// anywhere the next iteration can see it (spec section 4.5).
+// anywhere the next iteration can see it (spec section 11.5).
 //
 // The iteration storage of a loop is every variable it declares (in its
 // header or its body) and every temporary its condition, post statement

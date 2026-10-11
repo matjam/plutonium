@@ -8,7 +8,7 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
-// The sendable rule for views (language spec section 4.7). A view crossing
+// The sendable rule for views (language spec section 19.2). A view crossing
 // to another task must point to memory that cannot change while both may
 // use it. The analysis knows that of:
 //

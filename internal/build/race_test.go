@@ -9,7 +9,7 @@ import (
 
 // A raceCase is a program with a data race, which must not compile, and
 // the same program fixed, which must compile and print want with one, two
-// and 24 processors (language spec section 6.11).
+// and 24 processors (language spec section 19.3).
 type raceCase struct {
 	name    string
 	racy    string

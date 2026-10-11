@@ -16,7 +16,7 @@ const maxWrapped = 8
 // an error whose memory comes from the default allocator, alloc.Default().
 // To use another allocator, install it around the call with alloc.Use:
 // Errorf is variadic, so it cannot take a defaulted allocator parameter
-// (see the language spec, section 5.1).
+// (see the language spec, section 10.13).
 //
 // As in Go, the %w verb formats an error operand like %v and makes the
 // result wrap it: with one %w the error has an Unwrap() error method, with
@@ -25,7 +25,7 @@ const maxWrapped = 8
 // whole chain.
 //
 // The message is formatted when the error is made, into a string (language
-// spec section 6.10), which the error keeps: it does not depend on the
+// spec section 18.8), which the error keeps: it does not depend on the
 // operands staying alive, and Error returns it without copying. Freeing the
 // error releases it.
 func Errorf(format string, args ...any) error {
@@ -122,7 +122,7 @@ const errorBufSize = 200
 //	return p.errBuf.Errorf("line %d: unexpected %q", p.line, tok)
 //
 // An ErrorBuf in a function's own frame must not be returned (see the
-// language spec, section 4.4).
+// language spec, section 7.9).
 type ErrorBuf struct {
 	text [errorBufSize]byte
 	n    int

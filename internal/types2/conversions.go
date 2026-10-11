@@ -171,7 +171,7 @@ func (x *operand) convertibleTo(check *Checker, T Type, cause *string) bool {
 		}
 	}
 
-	// Plutonium: boxes (language spec section 5.6). owned[T], shared[T]
+	// Plutonium: boxes (language spec section 7.19). owned[T], shared[T]
 	// and synced[T] convert to a *T view; a shared[T] or synced[T] converts
 	// to a weak reference; and, as unsafe code, every box converts to and
 	// from unsafe.Pointer.

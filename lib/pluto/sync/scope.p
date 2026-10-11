@@ -24,7 +24,7 @@ import "pluto/rt"
 // Unlike a sync.WaitGroup, which waits only where the program calls Wait,
 // a Scope declared in a function lets its tasks use that function's
 // variables: the compiler checks that they do so without data races
-// (spec section 6.11). A Scope reached through a pointer still waits when
+// (spec section 19.3). A Scope reached through a pointer still waits when
 // it is dropped, but the compiler cannot see where, so its tasks follow
 // the rules of a go statement: f may not capture variables.
 type Scope owner struct {

@@ -133,7 +133,7 @@ func (w *walker) pointee(x ast.Expr) tset {
 }
 
 // boxView returns what a view of the object of the box x points to
-// (language spec section 6.5, rule 5): a view through a box may not outlive
+// (language spec section 18.7, rule 5): a view through a box may not outlive
 // the box it was made through. A box held in a local variable or a
 // parameter of this frame (owned parameters are the callee's own) bounds
 // the view by that variable; a temporary box bounds it by the frame, where
@@ -680,7 +680,7 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 	w.a.noteConversion(from)
 	if x, ok := node.(ast.Expr); ok && isBoxPtr(from) && !types2.IsOwner(to) {
 		// An ordinary interface lends: holding a box's pointer, it is a
-		// view of the box's object (language spec section 6.4).
+		// view of the box's object (language spec section 18.5).
 		return w.boxView(x)
 	}
 	_, known := isDirect(from)
@@ -752,7 +752,7 @@ func (w *walker) explicitConv(e *ast.CallExpr, to types2.Type) tset {
 		return nil
 	}
 	if from != nil {
-		// string(runes) copies into a counted buffer (spec section 6.10).
+		// string(runes) copies into a counted buffer (spec section 18.8).
 		if isString(to) && !isString(from) {
 			return nil
 		}

@@ -39,7 +39,7 @@ type Restore owner struct {
 // puroutine it starts begins with the program-wide default.
 //
 // a may be a local arena: the Restore holds a, so the compiler checks that
-// the Restore does not outlive it (language spec section 7.1).
+// the Restore does not outlive it (language spec section 18.9).
 //
 //pu:resultholds a
 func Use(a Allocator) Restore {
@@ -59,7 +59,7 @@ func (r *Restore) Drop() {
 
 // New allocates a zeroed T from a, by default the default allocator. T may
 // be an owner: the memory itself has no owner until the caller gives it one
-// (language spec section 6.6).
+// (language spec section 18.10).
 func New[T owner any](a Allocator = Default()) *T {
 	var p *T // only for its element's size: Sizeof does not evaluate *p
 	return (*T)(must(a, unsafe.Sizeof(*p), unsafe.Alignof(*p), rt.CallerPC()))
@@ -76,7 +76,7 @@ func Owned[T owner any](a Allocator = Default()) owned[T] {
 // Shared allocates a zeroed T from a, by default the current allocator, and
 // returns the first reference to it. Copies of a shared[T] count their
 // references without atomics, so they stay in one task; the last one drops
-// the T and frees it (language spec section 6.5).
+// the T and frees it (language spec section 18.7).
 func Shared[T owner any](a Allocator = Default()) shared[T] {
 	var p *T
 	return shared[T](rt.NewBox(a, true, unsafe.Sizeof(*p), unsafe.Alignof(*p)))
@@ -92,7 +92,7 @@ func Synced[T owner any](a Allocator = Default()) synced[T] {
 // Free returns p, allocated by New, to the allocator it came from: a, by
 // default the default allocator. *p is destroyed first: if T is an owner,
 // its Drop method, then its fields; otherwise the strings in it are
-// released (language spec sections 6.4 and 6.10). The call's site is
+// released (language spec sections 18.5 and 18.8). The call's site is
 // published through rt.AllocSite while the allocator runs (if
 // rt.TrackSites).
 func Free[T owner any](p *T, a Allocator = Default()) {

@@ -22,7 +22,7 @@ func (check *Checker) forbidden(at positioner, code Code, what, reason string) {
 }
 
 // removedConversion reports the conversions of Go that Plutonium does not
-// have, once they have checked as Go's would (language spec section 3).
+// have, once they have checked as Go's would (language spec section A.2).
 // V is the type of the argument and T the type converted to.
 //
 //   - string(b) of a byte slice replaces what is not valid UTF-8, so two
@@ -148,7 +148,7 @@ func SubstLocal(ctxt *Context, t Type, tparams []*TypeParam, targs []Type, local
 }
 
 // allocatorType returns pluto/rt.Allocator, the type of the optional final
-// argument of new and make (language spec section 4.2), or nil if package
+// argument of new and make (language spec section 13.9), or nil if package
 // pluto/rt cannot be found.
 func (check *Checker) allocatorType() Type {
 	rt := check.pkg

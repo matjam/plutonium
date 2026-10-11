@@ -88,7 +88,7 @@ func boxInit(p unsafe.Pointer, a Allocator, hdr, off uintptr) unsafe.Pointer {
 	obj := unsafe.Add(p, off)
 	// The header records its allocator to free the object to. A box from
 	// a local arena must not outlive the arena, which the escape analysis
-	// checks where the arena is installed (language spec section 7.1), so
+	// checks where the arena is installed (language spec section 18.9), so
 	// a is hidden from it here.
 	*(*Allocator)(unsafe.Add(obj, -16)) = *Pinned(&a)
 	if hdr == countedHeader {

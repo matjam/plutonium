@@ -424,7 +424,7 @@ func run(f *func()) {
 }
 
 // The escape analysis rejects passing the literal to a function that
-// starts it (spec section 6.3); rt.Pinned hides it, so the check at run
+// starts it (spec section 18.3); rt.Pinned hides it, so the check at run
 // time is what stops it.
 func main() {
 	n := 1

@@ -22,7 +22,7 @@ import (
 // (vec.Vec or DirEntries) that records its allocator.
 //
 // Names and paths. A file name on Linux is any bytes but NUL and '/'. A
-// string holds only valid UTF-8 (language spec section 6.10), so every name
+// string holds only valid UTF-8 (language spec section 18.8), so every name
 // or path this package hands back as a string (DirEntry.Name, Readlink,
 // Getwd, FileInfo.Name, PathError.Path, File.Name, Arg, Getenv) has each
 // invalid byte replaced by U+FFFD, as strings.FromUTF8Lossy does, and the exact bytes

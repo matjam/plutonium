@@ -76,7 +76,7 @@ type printer struct {
 	// and is valid only while that function runs: printValue restores the
 	// previous one before returning. It is kept as a uintptr so that the
 	// compiler does not count it as a pointer kept beyond the call
-	// (language spec section 6.3); nothing reads it outside that window.
+	// (language spec section 18.3); nothing reads it outside that window.
 	curT     *rt.Type
 	curP     uintptr
 	erroring bool // printing a bad verb's value: call no methods

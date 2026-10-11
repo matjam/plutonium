@@ -2,7 +2,7 @@ package arena
 
 import "unsafe"
 
-// Typed allocation in an arena (language spec section 4.2). Memory that
+// Typed allocation in an arena (language spec section 13.9). Memory that
 // only an arena owns is handed out as views: they need no owner of their
 // own, and stay valid until the arena is reset, released past them, or
 // dropped.

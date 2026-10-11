@@ -22,7 +22,7 @@ var SkipAll = errors.New("skip everything and stop the walk")
 // valid only during the call.
 //
 // A file name need not be valid UTF-8, but a string must be, so path has
-// each invalid byte replaced by U+FFFD (language spec section 6.10), and so
+// each invalid byte replaced by U+FFFD (language spec section 18.8), and so
 // has d.Name(). Such a path cannot be opened; d.RawName() and
 // WalkDirBytes give the exact bytes.
 type WalkDirFunc func(path string, d *os.DirEntry, err error) error

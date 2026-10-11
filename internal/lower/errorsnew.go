@@ -14,7 +14,7 @@ import (
 
 // errorsNew lowers a call errors.New(c), whose message the checker requires
 // to be a constant, to the address of a static, read-only errors.Text{Msg:
-// c} that belongs to the call site (language spec section 14.1). The same
+// c} that belongs to the call site (language spec section 16.3). The same
 // call site always yields the same error, in every instance of a generic
 // function and however often it runs; different call sites yield different
 // errors, as errors.New gives distinct errors in Go.

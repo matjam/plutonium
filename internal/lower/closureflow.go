@@ -5,7 +5,7 @@ package lower
 // A function literal that captures variables and a method value are
 // closure records in the frame of the function that makes them, and the
 // closures a call returns are in a region of the caller's frame (language
-// spec sections 4.5 and 6.3, regions.go). This file finds the records that
+// spec sections 11.5 and 18.3, regions.go). This file finds the records that
 // may reach a function's results: returned directly, or through variables,
 // fields, elements, interfaces, pointers and calls. planClosures puts those
 // the function makes, and the variables they capture, in the region its
@@ -1630,7 +1630,7 @@ func (s *fnState) checkLoopRegions(f *closureFlow) {
 			what = "this run of the loop that goto " + loop.label + " makes"
 			text = fmt.Sprintf("The goto at %s jumps back to the label %s, before the call, which makes a loop. ", s.l.shortPos(loop.gotoAt), loop.label)
 		}
-		text += fmt.Sprintf("A function that returns a closure builds it in a region its caller provides (spec section 4.5). The region of a call in a loop is part of this frame, and the call uses the same region on every iteration, so the closure %s returns on one iteration is overwritten on the next. Keeping it past the iteration, in %s, would leave it changing under you.", call, where)
+		text += fmt.Sprintf("A function that returns a closure builds it in a region its caller provides (spec section 11.5). The region of a call in a loop is part of this frame, and the call uses the same region on every iteration, so the closure %s returns on one iteration is overwritten on the next. Keeping it past the iteration, in %s, would leave it changing under you.", call, where)
 		fix := "\nUse the closure within the iteration, or declare the variable that holds it inside the loop."
 		for _, a := range c.Args {
 			if f.expr(a).has(bit) {
@@ -1674,9 +1674,9 @@ func (f *closureFlow) diagnose(e ast.Expr, what string, src ast.Node, name strin
 	if region {
 		maker = f.container(src)
 	}
-	why := fmt.Sprintf("\n%s's results can hold the closure only through a pointer, so its callers provide no region to build it in (spec section 4.5). Return the closure itself, an interface holding it, or a struct or array holding it, instead.", name)
+	why := fmt.Sprintf("\n%s's results can hold the closure only through a pointer, so its callers provide no region to build it in (spec section 11.5). Return the closure itself, an interface holding it, or a struct or array holding it, instead.", name)
 	if region {
-		why = fmt.Sprintf("\n%s builds the closures it returns in a region its caller provides (spec section 4.5), but this one is made in %s, which is a function of its own. Make it in %s itself.", name, maker, name)
+		why = fmt.Sprintf("\n%s builds the closures it returns in a region its caller provides (spec section 11.5), but this one is made in %s, which is a function of its own. Make it in %s itself.", name, maker, name)
 	}
 	switch src := src.(type) {
 	case *ast.FuncLit:

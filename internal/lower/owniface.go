@@ -6,7 +6,7 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
-// Owning interfaces (language spec section 4.4): type R owner interface
+// Owning interfaces (language spec section 7.9): type R owner interface
 // {...} owns the value converted into it, and dropping it drops that value,
 // whatever its dynamic type. The itab of an owning interface has one more
 // slot after the methods, the drop adapter of the dynamic type, which takes

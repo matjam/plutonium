@@ -9,7 +9,7 @@ import (
 )
 
 // TestScopeTasks runs the programs that start tasks with sync.Scope
-// (language spec section 4.11) with the debug allocator and its leak report
+// (language spec section 19.4) with the debug allocator and its leak report
 // on, at -O0 and -O2, with one, two and many processors: the tasks use the
 // frames of the functions that start them, every Scope waits for its tasks
 // on every path out of its block (return, break, rt.Goexit), and the owners

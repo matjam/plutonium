@@ -10,7 +10,7 @@ import (
 )
 
 // The //pu:stack directive on main.main sets the size of the stack the
-// hosted runtime runs the program on (language spec section 9): it reserves
+// hosted runtime runs the program on (language spec section 20.3): it reserves
 // that much address space, maps it lazily and puts a guard region below it,
 // instead of using the stack the system gave the process (usually 8 MiB).
 // A compiler or anything else that recurses deeply asks for a large one:

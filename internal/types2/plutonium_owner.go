@@ -5,7 +5,7 @@ import (
 	. "github.com/matjam/plutonium/internal/types2/errors"
 )
 
-// Owners (language spec section 6.4).
+// Owners (language spec section 7.18).
 //
 // A type is an owner only if its definition says so: type T owner .... The
 // checker records the mark on the TypeName, so that every instance of a

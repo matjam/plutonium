@@ -78,7 +78,7 @@ func TestPanicHandlerDecl(t *testing.T) {
 			"kernel: no panic handler is defined\n",
 			"    A kernel build has no operating system to report a crash to",
 			"        //pu:panic\n        func onPanic(p *rt.Panic) { ... }\n",
-			`(see "Panics in freestanding programs" in the Plutonium spec, section 8.1)`,
+			`(see "Panics in freestanding programs" in the Plutonium spec, section 17.4)`,
 			`(run "pluto explain E2580" for a longer explanation)`}},
 		{"freestanding without", freestanding, "func main() {}\n", []string{
 			"freestanding: no panic handler is defined\n    A freestanding build has no operating system"}},

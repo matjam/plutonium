@@ -82,7 +82,7 @@ func (check *Checker) rangeStmt(inner stmtContext, rangeStmt *ast.RangeStmt, noN
 		reported := false
 		if !ok && RangesByMethod(x.typ()) {
 			// Plutonium: a range over a container ranges over x.All()
-			// (language spec section 6.7).
+			// (language spec section 11.11).
 			k, v, ok, reported = check.rangeMethod(&x)
 		}
 		switch {

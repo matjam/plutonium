@@ -186,7 +186,7 @@ const (
 )
 
 // A FlagSet is a set of defined flags. It owns their memory, so it is an
-// owner (language spec section 6.4), released by Drop.
+// owner (language spec section 7.18), released by Drop.
 type FlagSet owner struct {
 	// Usage prints a usage message when parsing fails; nil means the
 	// default, a header and PrintDefaults.
@@ -218,7 +218,7 @@ func NewFlagSet(name string, handling ErrorHandling, a alloc.Allocator = alloc.D
 }
 
 // Drop frees the FlagSet's flags and the variables it allocated, releasing
-// the strings in them (language spec section 6.10), whose memory the arena
+// the strings in them (language spec section 18.8), whose memory the arena
 // frees without looking at it.
 func (f *FlagSet) Drop() {
 	for _, fl := range f.flags.Slice() {
@@ -713,7 +713,7 @@ func Args() []string { return CommandLine.Args() }
 func NArg() int { return CommandLine.NArg() }
 
 // Arg returns argument i after the flags, or "". An argument is any bytes
-// but NUL, and a string holds only valid UTF-8 (language spec section 6.10),
+// but NUL, and a string holds only valid UTF-8 (language spec section 18.8),
 // so a command-line argument that is not valid UTF-8 (a file name, say)
 // comes back with U+FFFD for each invalid byte; ArgBytes returns it exactly.
 func Arg(i int) string { return CommandLine.Arg(i) }

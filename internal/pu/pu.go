@@ -11,7 +11,7 @@
 //	pu.Sprintf(format, args...)                             pu.Sprintf in selfhost/pu (fmt.Sprintf once it exists)
 //	pu.New(v)                                               pu.New(v) in selfhost/pu: v copied into the phase arena
 //
-// The types are owners in Plutonium (language spec section 6.4): a value
+// The types are owners in Plutonium (language spec section 18.5): a value
 // holds its storage, moves on assignment, and is released by Drop. In Go
 // the collector owns everything and Drop only empties the value; each type
 // embeds a noCopy marker, so go vet's copylocks check reports a copy, which
@@ -19,7 +19,7 @@
 // languages.
 //
 // Pointer graphs (AST nodes, types, SSA values) stay *T, allocated with New:
-// in Plutonium they are views of the phase arena (spec section 6.6, "an
+// in Plutonium they are views of the phase arena (spec section 18.10, "an
 // owner or an arena"), which the driver installs as the default allocator
 // for each phase. Under the accepted proposal new(T) returns owned[T],
 // which cannot be stored in a *T field, so arena allocation is written as

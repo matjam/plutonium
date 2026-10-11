@@ -139,7 +139,7 @@ const (
 	SliceLitOwners   Code = "E3312" // a slice literal with owner elements
 )
 
-// Scoped puroutines (sync.Scope, language spec section 4.11): what their
+// Scoped puroutines (sync.Scope, language spec section 19.4): what their
 // tasks may use (internal/escape, internal/moves) and how they share the
 // frame (internal/race).
 const (

@@ -3,7 +3,7 @@
 // The differences from Go:
 //
 //   - Command returns a Cmd, not a *Cmd. A Cmd owns the array behind its
-//     Args, so it is an owner (language spec section 6.4): drop it with Drop
+//     Args, so it is an owner (language spec section 7.18): drop it with Drop
 //     when done, and do not copy it once started.
 //   - Without goroutines, the copying between the child's standard streams
 //     and Stdin, Stdout and Stderr happens inside Wait (and Run, Output,

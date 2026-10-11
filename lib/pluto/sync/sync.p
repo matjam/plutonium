@@ -1,6 +1,6 @@
 // Package sync provides mutual exclusion locks, wait groups, one-time
 // initialisation and condition variables, as Go's sync package does
-// (language spec section 13, memory-model.md section 3.4).
+// (language spec section F, memory-model.md section 3.4).
 //
 // They are built on the runtime's two scheduler operations, rt.Park and
 // rt.Ready, so they work on any scheduler, the hosted one or a kernel's. A
@@ -13,7 +13,7 @@
 // As in Go, none of these types may be copied after first use, and their
 // zero values are ready to use. A program that waits on a value in a frame
 // must not let another puroutine reach it after the frame returns: allocate
-// it, or make it a package-level variable (language spec section 6.3).
+// it, or make it a package-level variable (language spec section 18.3).
 package sync
 
 import "pluto/rt"

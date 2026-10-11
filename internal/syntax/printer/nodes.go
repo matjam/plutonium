@@ -377,7 +377,7 @@ func (p *printer) parameters(fields *ast.FieldList, mode paramMode) {
 			}
 			// parameter type
 			p.expr(stripParensAlways(par.Type))
-			// Plutonium default parameter values (spec section 5.1):
+			// Plutonium default parameter values (spec section 10.13):
 			// "a Allocator = Default()".
 			if par.Default != nil {
 				p.print(blank)

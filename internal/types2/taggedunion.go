@@ -270,7 +270,7 @@ func (check *Checker) unionType(e *ast.UnionType, def *TypeName) Type {
 }
 
 // checkOwnerPayload reports a variant whose payload is an owner in a union
-// not declared owner (language spec sections 5.10 and 6.4): the union owns
+// not declared owner (language spec sections 7.13 and 18.5): the union owns
 // the payload of the variant it holds and drops it, so it moves like any
 // owner, and must say so.
 func (check *Checker) checkOwnerPayload(at positioner, def *TypeName, v *Variant) bool {

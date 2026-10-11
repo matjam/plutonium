@@ -50,7 +50,7 @@ $DIR/main.p:29:9: cannot return n as an interface: an ordinary interface only bo
     Return the box itself, changing the result type to owned[Node]:
         return n
     Or declare the interface as an owning interface, which takes ownership of
-    what is converted into it (language spec section 6.4):
+    what is converted into it (language spec section 18.5):
         type I owner interface {
             ...
         }

@@ -43,7 +43,7 @@ func TestInterruptContext(t *testing.T) {
 			"main.p:42:2: " + irqWait,
 			"    keyboard calls wait (main.p:42), which may wait.\n",
 			"    To hand work to normal code, use a non-blocking send:\n        select { case work <- item: default: }\n",
-			`(see "Interrupts" in the Plutonium spec, section 12.6)`,
+			`(see "Interrupts" in the Plutonium spec, section 20.10)`,
 			`(run "pluto explain E2584" for a longer explanation)`}},
 		{"method", "//pu:interrupt\nfunc keyboard(f *x86.InterruptFrame) {\n\tmu.Lock()\n}\n", []string{
 			"main.p:42:2: " + irqWait,
@@ -91,7 +91,7 @@ func TestInterruptContext(t *testing.T) {
 			"onPanic is the panic handler, so it must not wait\n" +
 				"    A panic can happen anywhere: in an interrupt handler, or while the code\n",
 			"onPanic calls wait (main.p:", "Report the panic with code that does not wait",
-			`(see "Interrupts" in the Plutonium spec, section 12.6)`}},
+			`(see "Interrupts" in the Plutonium spec, section 20.10)`}},
 		// Allowed: a lock that does not wait, and func values that are
 		// never set to anything that does.
 		{"trylock", "var hook func()\n\nfunc quick() {}\n\nfunc init() { hook = quick }\n\n" +

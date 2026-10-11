@@ -139,7 +139,7 @@ func down(h Interface, i0, n int) bool {
 // first. less must be a strict weak ordering and must not change the
 // elements. The zero Heap has no less function; make one with New.
 //
-// A Heap owns its storage, so it is an owner (language spec section 6.4):
+// A Heap owns its storage, so it is an owner (language spec section 7.18):
 // Drop releases it. It must not be copied after first use; pass a *Heap.
 type Heap[T any] owner struct {
 	items vec.Vec[T]

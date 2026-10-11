@@ -8,7 +8,7 @@ import (
 )
 
 // TestRemovedConversions checks the conversions of Go that Plutonium does
-// not have (language spec section 3), and that the neighbours that stay are
+// not have (language spec section 11.24), and that the neighbours that stay are
 // still accepted.
 func TestRemovedConversions(t *testing.T) {
 	testguard.Parallel(t)

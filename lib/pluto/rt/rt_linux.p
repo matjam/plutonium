@@ -306,7 +306,7 @@ func selfID() uint64 { return uint64(syscall3(sysGettid, 0, 0, 0)) }
 func cpuNumber() int { return 0 }
 
 // deferOnPanic says a panic runs the panicking task's deferred calls
-// before the panic handler: hosted builds only (language spec section 8).
+// before the panic handler: hosted builds only (language spec section 17.1).
 const deferOnPanic = true
 
 // otherPanicking stops a thread that panics while another handles a

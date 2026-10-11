@@ -1,5 +1,5 @@
 // Package moves checks that owners are used as owners: a value of an owner
-// type (language spec section 6.4) moves when it is assigned, passed,
+// type (language spec section 18.5) moves when it is assigned, passed,
 // returned, sent or stored, and the variable it left holds nothing until it
 // is given a new value. Using such a variable is an error, as is moving an
 // owner out of anything but a whole variable, copying owners with copy or
@@ -10,7 +10,7 @@
 // point is live, moved, or moved on some paths only; where paths meet the
 // states join, and a loop is walked until the states at its head stop
 // changing. Every error is explained with the line of the move that caused
-// it (spec section 6.9). Dropping what is left at the end of a scope is the
+// it (spec section 21.1). Dropping what is left at the end of a scope is the
 // business of lowering.
 package moves
 
@@ -25,7 +25,7 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
-// Info is what lowering needs to know to destroy owners (spec section 6.4):
+// Info is what lowering needs to know to destroy owners (spec section 18.6):
 // the uses of variables that move their value out, after which lowering
 // clears the variable so that dropping it at the end of its scope does
 // nothing, and the owner values an expression makes that nothing stores,
@@ -40,7 +40,7 @@ type Info struct {
 	// owner out of the owning interface variable x: x is cleared where the
 	// assertion succeeds. SwitchMoves are the type switches with a binding
 	// on an owning interface variable, which move it into the binding in
-	// every clause (language spec section 4.4).
+	// every clause (language spec section 7.9).
 	AssertMoves map[*ast.TypeAssertExpr]bool
 	SwitchMoves map[*ast.TypeSwitchStmt]bool
 }

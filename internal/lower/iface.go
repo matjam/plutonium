@@ -624,7 +624,7 @@ func (s *fnState) toInterface(v value, from, I types2.Type) value {
 	handsOver := v.cnt == cntOwned && v.tmp != nil && !v.tmp.consumed
 	if types2.IsOwner(I) && s.l.isDirect(from) && s.l.counted(from) && !handsOver && v.cnt != cntStatic {
 		// An owning interface holds a reference of its own to a shared,
-		// synced or weak object (language spec section 4.4).
+		// synced or weak object (language spec section 7.9).
 		s.retainWord(data, from)
 	} else if types2.IsOwner(I) && v.cnt == cntOwned && v.tmp != nil {
 		v.tmp.consumed = true // the interface takes over the temporary's reference
@@ -946,7 +946,7 @@ func (s *fnState) typeAssert(e *ast.TypeAssertExpr, commaOk bool) (value, *ssa.V
 	v, ok := s.assertTo(iv, I, T, commaOk, e.Pos())
 	if s.l.moves != nil && s.l.moves.AssertMoves[e] && ok != nil {
 		// v, ok := x.(T) moves the owner out of the owning interface x
-		// where it succeeds (language spec section 4.4).
+		// where it succeeds (language spec section 7.9).
 		lv := s.lv(e.X)
 		s.ifThen(ok, func() { s.zero(lv.ptr, s.l.sizeof(I)) })
 	}
