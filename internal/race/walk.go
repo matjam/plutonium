@@ -1297,9 +1297,9 @@ func (w *walker) value1(e ast.Expr) origins {
 }
 
 // fieldValue returns the value of a field selection whose places are ps.
-// A view field of an owner that manages its memory with unsafe code points
-// into memory the owner owns: everything it reaches is one place, the
-// owner's.
+// A view field of an owner that owns what it points to (ownedview.go)
+// points into memory the owner owns: everything it reaches is one place,
+// the owner's.
 func (w *walker) fieldValue(ps places, e *ast.SelectorExpr) origins {
 	sel := w.a.selections[e]
 	idx := sel.Index()
@@ -1309,7 +1309,7 @@ func (w *walker) fieldValue(ps places, e *ast.SelectorExpr) origins {
 			T = f.Type()
 		}
 	}
-	if w.a.ownsViews(T) && isView(w.typeOf(e)) {
+	if w.a.ownsField(T, fieldOf(T, idx[len(idx)-1])) {
 		var out origins
 		for _, p := range ps.ps {
 			out.add(origin{vp: p.extend("#").addr()})

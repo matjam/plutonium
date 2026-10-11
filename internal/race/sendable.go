@@ -340,11 +340,10 @@ func (a *analyzer) sendableIn(T types2.Type, vals origins, part string, written 
 		}
 		seen[T] = true
 		defer delete(seen, T)
-		owns := a.ownsViews(T)
 		for i := 0; i < u.NumFields(); i++ {
 			f := u.Field(i)
 			sub := "the field " + f.Name() + " of " + part
-			if owns && isView(f.Type()) {
+			if a.ownsField(T, f) {
 				// Memory the owner owns moves with it: only what that
 				// memory holds is checked.
 				if p := a.sendableIn(viewElem(f.Type()), nil, "an element of "+sub, written, seen, true); p != nil {
@@ -484,18 +483,13 @@ func viewElem(T types2.Type) types2.Type {
 	return nil
 }
 
-// ownsViews reports whether T is an owner that manages its memory with
-// unsafe code (vec.Vec, hash.Map, strings.Builder): it owns what its view
-// fields point to, and moving it moves that memory too.
-func (a *analyzer) ownsViews(T types2.Type) bool {
-	if T == nil || !types2.IsOwner(T) {
-		return false
-	}
-	n, ok := types2.Unalias(T).(*types2.Named)
-	if !ok || n.Obj().Pkg() == nil {
-		return false
-	}
-	return a.unsafePkgs[n.Origin().Obj().Pkg()]
+// ownsField reports whether f, a field of T, is a view field of an owner
+// that owns what it points to (vec.Vec's array, hash.Map's table,
+// strings.Builder's buffer): moving the owner moves that memory too
+// (ownedview.go). Sendability depends only on the types and the memory an
+// owner holds (language spec section 8.8).
+func (a *analyzer) ownsField(T types2.Type, f *types2.Var) bool {
+	return T != nil && f != nil && types2.IsOwner(T) && isView(f.Type()) && a.ownedView(f)
 }
 
 // convertedTo returns the types converted to interfaces that implement

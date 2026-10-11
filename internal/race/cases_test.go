@@ -210,6 +210,106 @@ func main() {
 		"It points to the package variable counter, which is written at main.p:7 while tasks run.",
 		"A Counter is changed through a pointer at main.p:7 (its field n, in bump) without a lock of the same Counter held", "E3501"}},
 
+	{"owner's view field of memory it did not allocate", `
+import (
+	"pluto/alloc"
+	"unsafe"
+)
+
+type Counter struct{ n int }
+
+func bump(c *Counter) { c.n++ }
+
+type View owner struct {
+	c *Counter
+}
+
+func newView(c *Counter) View { return View{c: c} }
+
+func read(v View) { println(v.c.n, unsafe.Sizeof(v)) }
+
+func main() {
+	c := alloc.New[Counter]()
+	task read(newView(c))
+	bump(c)
+}`, []string{"main.p:21:2: the field c of newView(c) is a view of Counter that may change while another task uses it", "E3501"}},
+
+	{"owner's view field whose address is taken", `
+import "pluto/alloc"
+
+type Counter struct{ n int }
+
+func bump(c *Counter) { c.n++ }
+
+type View owner struct {
+	c *Counter
+}
+
+func (v *View) Init() {
+	v.c = alloc.New[Counter]()
+	set(&v.c)
+}
+
+var last *Counter
+
+func set(p **Counter) { last = *p }
+
+func read(v View) { println(v.c.n) }
+
+func main() {
+	var v View
+	v.Init()
+	bump(last)
+	task read(v)
+}`, []string{"is a view of Counter that may change while another task uses it", "E3501"}},
+
+	{"owner's memory also kept in a package variable", `
+import "pluto/alloc"
+
+type Counter struct{ n int }
+
+func bump(c *Counter) { c.n++ }
+
+type View owner struct {
+	c *Counter
+}
+
+var keep []*Counter
+
+func (v *View) Init() {
+	c := alloc.New[Counter]()
+	keep = []*Counter{c}
+	v.c = c
+}
+
+func read(v View) { println(v.c.n) }
+
+func main() {
+	var v View
+	v.Init()
+	bump(keep[0])
+	task read(v)
+}`, []string{"is a view of Counter that may change while another task uses it", "E3501"}},
+
+	{"owner filled with memory its function keeps", `
+import "pluto/alloc"
+
+type Counter struct{ n int }
+
+func bump(c *Counter) { c.n++ }
+
+type View owner struct {
+	c *Counter
+}
+
+func read(v View) { println(v.c.n) }
+
+func main() {
+	c := alloc.New[Counter]()
+	task read(View{c: c})
+	bump(c)
+}`, []string{"is a view of Counter that may change while another task uses it", "E3501"}},
+
 	{"object read without its own mutex", `
 import "pluto/sync"
 
@@ -398,6 +498,121 @@ var accepted = []struct {
 	name string
 	src  string
 }{
+	{"library owners cross with the memory they own", `
+import (
+	"pluto/bytes"
+	"pluto/hash"
+	"pluto/os"
+	"pluto/strings"
+	"pluto/vec"
+)
+
+func useVec(v vec.Vec[int])           { println(v.Len()) }
+func useMap(m hash.Map[string, int])  { println(m.Len()) }
+func useBuilder(b strings.Builder)    { println(b.Len()) }
+func useBuffer(b bytes.Buffer)        { println(b.Len()) }
+func useFile(f *os.File, done chan bool) { println(f.Name()); done <- true }
+
+func main() {
+	v := vec.New[int]()
+	v.Push(1)
+	task useVec(v)
+	m := hash.NewMap[string, int](4)
+	m.Set("a", 1)
+	task useMap(m)
+	var b strings.Builder
+	b.WriteString("x")
+	task useBuilder(b)
+	var buf bytes.Buffer
+	buf.WriteString("y")
+	task useBuffer(buf)
+	done := make(chan bool)
+	task useFile(os.Stdout, done)
+	<-done
+}`},
+
+	{"an owner's view field filled by an allocating helper", `
+import (
+	"pluto/alloc"
+	"unsafe"
+)
+
+type Counter struct{ n int }
+
+func bump(c *Counter) { c.n++ }
+
+type Pool owner struct {
+	items []Counter
+	a     alloc.Allocator
+}
+
+func grow(a alloc.Allocator, n int) []Counter {
+	var c Counter
+	p := a.Alloc(uintptr(n)*unsafe.Sizeof(c), unsafe.Alignof(c))
+	return unsafe.Slice((*Counter)(p), n)
+}
+
+func (p *Pool) Init(n int) {
+	p.a = alloc.Default()
+	items := grow(p.a, n)
+	p.items = items[:n]
+	for i := range p.items {
+		bump(&p.items[i])
+	}
+}
+
+func (p *Pool) Drop() {
+	p.items = nil
+}
+
+func use(p Pool) { println(len(p.items)) }
+
+func main() {
+	var p Pool
+	p.Init(4)
+	task use(p)
+}`},
+
+	{"an owner's view field of memory it allocated moves with it", `
+import "pluto/alloc"
+
+type node struct {
+	next *node
+	v    int
+}
+
+type List owner struct {
+	head *node
+}
+
+func (l *List) Push(v int) {
+	n := alloc.New[node]()
+	n.v, n.next = v, l.head
+	l.head = n
+}
+
+func (l *List) Drop() {
+	for l.head != nil {
+		n := l.head
+		l.head = n.next
+		alloc.Free(n)
+	}
+}
+
+func sum(l List) {
+	t := 0
+	for n := l.head; n != nil; n = n.next {
+		t += n.v
+	}
+	println(t)
+}
+
+func main() {
+	var l List
+	l.Push(1)
+	l.Push(2)
+	task sum(l)
+}`},
 	{"object guarded by its own mutex crosses", `
 import "pluto/sync"
 

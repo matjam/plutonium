@@ -170,8 +170,8 @@ type analyzer struct {
 	program             *function
 	inits               []*function
 
-	unsafePkgs map[*types2.Package]bool
-	declPkg    map[*types2.Package]*load.Package
+	owned   ownedViews // view fields that own what they point to (ownedview.go)
+	declPkg map[*types2.Package]*load.Package
 
 	// Writes through views, by the type and field written (sendable.go),
 	// and writes of package variables, which count when their address is
@@ -207,7 +207,6 @@ func newAnalyzer(prog *load.Program) *analyzer {
 		funcs:        map[*types2.Func]*function{},
 		lits:         map[*ast.FuncLit]*function{},
 		byName:       map[string][]*function{},
-		unsafePkgs:   map[*types2.Package]bool{},
 		declPkg:      map[*types2.Package]*load.Package{},
 		viewWrites:   map[string]*writeSite{},
 		globalWrites: map[*types2.Var]map[string]*writeSite{},
@@ -253,11 +252,6 @@ func newAnalyzer(prog *load.Program) *analyzer {
 			}
 		}
 		a.declPkg[p.Types] = p
-		for _, imp := range p.Types.Imports() {
-			if imp.Path() == "unsafe" {
-				a.unsafePkgs[p.Types] = true
-			}
-		}
 	}
 	a.program = &function{name: "the program", program: true, sum: &summary{}}
 	for _, p := range prog.Packages {
