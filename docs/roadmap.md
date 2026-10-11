@@ -34,7 +34,7 @@ The 24 implementation gaps of
 | 1 | Order of evaluation | 73 | 11.26 |
 | 2 | Pointer-receiver method on an owner temporary | 78 | 11.14, 12.4 |
 | 3 | Composite literal keys that name promoted fields | 79 | 11.3 |
-| 4 | Package initialization order | 80 | 15.3 |
+| 4 | Package initialization order (done) | 80 | 15.3 |
 | 5 | `len` of a `ring[T, N]` | 81 | 13.6, 7.17 |
 | 6 | `defer` of built-ins that may not be deferred | 82 | 12.19 |
 | 7 | Exhaustive enum switch is a terminating statement | 75 | 12.1, 12.9, 7.12 |
@@ -85,8 +85,8 @@ The pass that aligned the documents with the chapters found six more, items 93 t
     `readAll(f).Slice()`, with views of the temporary limited to the statement.
 79. **Composite literal keys that name promoted fields** (planned, gap 3; section 11.3): the compiler
     crashes; it must accept or report an error.
-80. **Package initialization order** (planned, gap 4; section 15.3): `pluto/rt` and `pluto/alloc` first,
-    then the remaining packages by import path, each after its imports.
+80. **Package initialization order** (done, gap 4, `4aa24f2`; section 15.3): `pluto/rt` and `pluto/alloc`
+    first, then the remaining packages by import path, each after its imports.
 81. **`len` of a `ring[T, N]`** (planned, gap 5; sections 13.6 and 7.17): verified to be rejected today.
 82. **`defer` of built-ins that may not be deferred** (planned, gap 6; section 12.19, chapter 13): E2532,
     with the fix to wrap the call in a function literal.

@@ -1489,7 +1489,7 @@ reading the code.
 | 1 | Order of evaluation: operands other than calls, method calls and receives are read after the calls; `x := []int{a, f()}` with `f` incrementing `a` gives `[2 2]`. Lowering gives `[1 2]` (*verified*; roadmap 73). | 11.26 | 73 |
 | 2 | A pointer-receiver method on an owner temporary (`readAll(f).Slice()`), with views of it limited to the statement. | 11.14, 12.4 | 78 |
 | 3 | Composite literal keys that name promoted fields crash the compiler (writers' report). | 11.3 | 79 |
-| 4 | Package initialization order: `pluto/rt` and `pluto/alloc` first, then the remaining packages by import path, each after its imports. | 15.3 | 80 |
+| 4 | Package initialization order: `pluto/rt` and `pluto/alloc` first, then the remaining packages by import path, each after its imports (done: `4aa24f2`). | 15.3 | 80 |
 | 5 | `len` of a `ring[T, N]` (*verified*: "invalid argument for built-in len"). | 13.6, 7.17 | 81 |
 | 6 | `defer` of the built-ins that may not be deferred directly is E2532, with the fix to wrap them. | 12.19, chapter 13 | 82 |
 | 7 | An exhaustive enum switch is a terminating statement (*verified*: "missing return"), and it panics for a value that is not a member, as a union switch does for a tag that names no variant. | 12.1, 12.9, 7.12 | 75 |
@@ -1520,7 +1520,8 @@ reading the code.
 Counted channels with their timers (`bdb7683`), 64 MiB lazily mapped hosted task stacks (`173c2f6`) and
 `sync.Scope` (`a7948f6`) and generation checks by default in hosted builds (`766837b`) landed before the
 integration and are not gaps.
-The built-in `map[K]V` (gap 21), `portable` (gap 16) and the `task` statement (gap 20, in part) landed after
+The built-in `map[K]V` (gap 21), `portable` (gap 16), the package initialization order (gap 4) and the `task`
+statement (gap 20, in part) landed after
 the integration; their rows stay so that the numbers do not change.
 
 Rows 25 to 30 were read from the code and the companion documents, not run. Each row has a roadmap item
