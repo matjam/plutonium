@@ -82,6 +82,11 @@ type fnState struct {
 	// (scope.go).
 	inTemp ast.Expr
 
+	// evaluated holds the results of the calls, receives and logical
+	// operations evaluated ahead of the rest of their expression
+	// (order.go), until the expression uses them.
+	evaluated map[ast.Expr]evaluated
+
 	// pos is the expression or statement being lowered, for errors
 	// found below the AST (float operations in kernel mode).
 	pos token.Pos

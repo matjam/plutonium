@@ -11,6 +11,13 @@ import (
 
 // expr lowers an expression to a value.
 func (s *fnState) expr(e ast.Expr) value {
+	if res, ok := s.takeEvaluated(e); ok {
+		// Evaluated ahead of its expression (order.go).
+		if len(res) == 0 {
+			return value{}
+		}
+		return res[0]
+	}
 	if p := e.Pos(); p.IsValid() {
 		defer s.f.SetPos(s.f.SetPos(p))
 	}
@@ -23,6 +30,11 @@ func (s *fnState) expr(e ast.Expr) value {
 	if s.isTemp(e) {
 		// An owner nothing takes: destroyed when the statement ends.
 		return s.loadFrom(s.tempSlot(e, T), T)
+	}
+	switch e.(type) {
+	case *ast.CompositeLit, *ast.BinaryExpr, *ast.IndexExpr, *ast.SliceExpr:
+		// Calls in the operands come first (order.go).
+		s.callsFirst(e)
 	}
 
 	switch e := e.(type) {
@@ -171,6 +183,10 @@ func (s *fnState) indexValue(e ast.Expr) *ssa.Value {
 
 // lv returns the storage location an addressable expression denotes.
 func (s *fnState) lv(e ast.Expr) lvalue {
+	switch e.(type) {
+	case *ast.IndexExpr, *ast.CompositeLit:
+		s.callsFirst(e) // order.go
+	}
 	switch e := e.(type) {
 	case *ast.ParenExpr:
 		return s.lv(e.X)

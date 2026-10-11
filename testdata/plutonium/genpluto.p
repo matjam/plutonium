@@ -181,5 +181,8 @@ func main() {
 	p := NewOf(Slot[int]{val: 5})
 	println(p.val, *NewOf(3), *NewOf("q"))
 	l := Build(1, 2, 3)
-	println(l.v, l.next.v, l.next.next.v, FreeAll(l))
+	// FreeAll is called before the operands are read (spec section
+	// 11.26), so the list is read in a statement of its own.
+	println(l.v, l.next.v, l.next.next.v)
+	println(FreeAll(l))
 }

@@ -39,6 +39,8 @@ func (s *fnState) stmt(st ast.Stmt) {
 		e := s.pushCleanup(st, isScopeStmt(st))
 		defer s.popCleanup(e)
 	}
+	s.stmtFirst(st) // order.go
+	defer s.checkEvaluated()
 	switch st := st.(type) {
 	case *ast.EmptyStmt:
 	case *ast.ExprStmt:
@@ -145,6 +147,7 @@ func (s *fnState) declStmt(d *ast.GenDecl) {
 				}
 			}
 		case len(vs.Values) == len(vs.Names):
+			s.evalFirstAll(vs.Values...) // order.go
 			vals := make([]value, len(vars))
 			for i, e := range vs.Values {
 				T := s.typeOf(e)
@@ -160,6 +163,7 @@ func (s *fnState) declStmt(d *ast.GenDecl) {
 				}
 			}
 		default: // var a, b = f()
+			s.evalFirstValues(vs.Values, len(vars))
 			vals := s.multiValue(vs.Values[0], len(vars))
 			for i, v := range vars {
 				if v != nil {
@@ -1195,6 +1199,9 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 	}
 	bit := len(root.defers)
 	call := st.Call
+	// The function value and the arguments are evaluated now, calls first
+	// (order.go).
+	s.callsFirst(call)
 
 	var run func(s *fnState, rec *ssa.Value)
 	funTV := s.info.Types[call.Fun]

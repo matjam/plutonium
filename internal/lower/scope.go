@@ -68,6 +68,9 @@ func (s *fnState) isMove(e ast.Expr) bool {
 // tempSlot evaluates the temporary e into a slot of the statement and
 // returns the slot's address.
 func (s *fnState) tempSlot(e ast.Expr, T types2.Type) *ssa.Value {
+	if slot := s.takeEvaluatedSlot(e); slot != nil {
+		return slot // evaluated ahead of its expression (order.go)
+	}
 	saved := s.inTemp
 	s.inTemp = e
 	v := s.expr(e)

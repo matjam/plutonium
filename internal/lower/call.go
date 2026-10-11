@@ -36,6 +36,11 @@ func (s *fnState) callExpr(e *ast.CallExpr) value {
 
 // callResults lowers a call and returns all of its results.
 func (s *fnState) callResults(e *ast.CallExpr) []value {
+	if res, ok := s.takeEvaluated(e); ok {
+		return res // evaluated ahead of its expression (order.go)
+	}
+	// The calls in the function value and the arguments come first.
+	s.callsFirst(e)
 	funTV := s.info.Types[e.Fun]
 	if funTV.IsType() {
 		return []value{s.conversion(e)}

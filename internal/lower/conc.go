@@ -400,6 +400,9 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 	if s.goFrameClosures(fun, call.Args) {
 		return
 	}
+	// The function value and the arguments are evaluated now, calls first
+	// (order.go).
+	s.callsFirst(call)
 
 	var vals []value                                      // receiver or func value first, then the arguments
 	var emit func(ts *fnState, in []value, pos token.Pos) // makes the call in the thunk
