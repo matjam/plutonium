@@ -38,7 +38,7 @@ The 24 implementation gaps of
 | 6 | `defer` of built-ins that may not be deferred | 82 | 12.19 |
 | 7 | Exhaustive enum switch is a terminating statement | 75 | 12.1, 12.9, 7.12 |
 | 8 | `append` and the others are not predeclared | 83 | 10.3, 13.1 |
-| 9 | Every nil dereference panics | 84 | 17.5 |
+| 9 | Every nil dereference panics (done) | 84 | 17.5 |
 | 10 | No untagged heap or arena memory in checked builds | 85 | 18.11 |
 | 11 | Sendability looks through pointers and slices | 86 | 8.8, 19.2 |
 | 12 | An owner's sendability is decided by what it holds | 87 | 8.8 |
@@ -46,7 +46,7 @@ The 24 implementation gaps of
 | 14 | Operators other than comparison do not apply to an owner | 89 | 11.18, 7.18 |
 | 15 | A `//go:` line comment is an error | 75 | 4.1, 20.3 |
 | 16 | `portable` (done) | 70 | 8.9 |
-| 17 | Task stacks from the program-wide default allocator | 90 | 19.1 |
+| 17 | Task stacks from the program-wide default allocator (done) | 90 | 19.1 |
 | 18 | Stack overflow message and stack probes | 91 | 19.1, 17.5 |
 | 19 | `NewTimer`, `NewTicker`, `AfterFunc` return owners | 67 | 19.6, F.7 |
 | 20 | The `task` statement and the rename sweep (done) | 62 | 12.12, 4.5, 4.6, 17.1 |
@@ -92,8 +92,8 @@ The pass that aligned the documents with the chapters found six more, items 93 t
 83. **`append`, `recover`, `complex`, `real`, `imag`, `complex64` and `complex128` are not predeclared**
     (planned, gap 8; sections 10.3 and 13.1): a program may declare them, and a use without a declaration
     is the error that names the replacement. `append` stays predeclared today so that E2013 can name it.
-84. **Every nil dereference panics** (planned, gap 9; section 17.5): an explicit check where the offset of
-    an access from the pointer can exceed the unmapped region below address zero.
+84. **Every nil dereference panics** (done, gap 9, `64e41b2`; section 17.5): an access whose offset from the
+    pointer can reach past the unmapped page compares the pointer with nil first.
 85. **No untagged heap or arena memory in checked builds** (planned, gap 10; section 18.11, abi.md section
     1.3): slab allocations over 2 KiB, arena chunks over 56 KiB and the buffer of a fixed `arena.Arena` get
     generations or epochs.
@@ -106,8 +106,8 @@ The pass that aligned the documents with the chapters found six more, items 93 t
     is, so `func f() any { return make(chan int) }` is E3001 (verified: it compiles today).
 89. **Operators other than comparison do not apply to an owner** (planned, gap 14; sections 11.18 and
     7.18): `*f + 1` for `type Fd owner int32` is an error (verified: accepted today).
-90. **Task stacks from the program-wide default allocator** (planned, gap 17; section 19.1, abi.md section
-    12.1): never from the starting task's `alloc.Use` override (`rt.spawnGo` takes the override today).
+90. **Task stacks from the program-wide default allocator** (done, gap 17, `cb9e3ef`; section 19.1, abi.md
+    section 12.1): never from the starting task's `alloc.Use` override.
 91. **Stack overflow message and probes** (planned, gap 18; sections 19.1 and 17.5): the panic names the
     size of the stack and how to ask for more (`rt.Go(f, size)`), and a function whose frame is larger
     than the guard region probes its stack so that it cannot step over the guard.

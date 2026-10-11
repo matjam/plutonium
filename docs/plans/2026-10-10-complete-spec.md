@@ -1494,7 +1494,7 @@ reading the code.
 | 6 | `defer` of the built-ins that may not be deferred directly is E2532, with the fix to wrap them. | 12.19, chapter 13 | 82 |
 | 7 | An exhaustive enum switch is a terminating statement (*verified*: "missing return"), and it panics for a value that is not a member, as a union switch does for a tag that names no variant. | 12.1, 12.9, 7.12 | 75 |
 | 8 | `append`, `recover`, `complex`, `real`, `imag`, `complex64` and `complex128` are not predeclared: a program may declare them, and a use without a declaration is the error that names the replacement. Today `append` stays predeclared so that E2013 can name it. | 10.3, 13.1 | 83 |
-| 9 | Every nil dereference panics: an explicit check where the offset of an access from the pointer can exceed the unmapped region below address zero. | 17.5 | 84 |
+| 9 | Every nil dereference panics: an explicit check where the offset of an access from the pointer can exceed the unmapped region below address zero (done: `64e41b2`). | 17.5 | 84 |
 | 10 | No untagged heap or arena memory in checked builds: slab allocations over 2 KiB, arena chunks over 56 KiB and the buffer of a fixed `arena.Arena` get generations or epochs. | 18.11, abi.md 1.3 | 85 |
 | 11 | Sendability looks through pointers and slices: a `*S` whose `S` holds a `shared[T]` is not sendable. | 8.8, 19.2 | 86 |
 | 12 | An owner's sendability is decided by what it holds: a view field that holds only memory the owner allocated moves with it; any other view field is checked where the owner crosses. Today owners of packages that import `unsafe` are exempt (`internal/race`). | 8.8 | 87 |
@@ -1502,7 +1502,7 @@ reading the code.
 | 14 | Operators other than comparison do not apply to an owner: `*f + 1` for `type Fd owner int32` is an error (*verified*: accepted today). | 11.18, 7.18 | 89 |
 | 15 | A `//go:` line comment is an error in the E2600 family that names the `//pu:` equivalent (*verified*: `//go:noinline` is accepted silently). | 4.1, 20.3 | 75 |
 | 16 | `portable` as a predeclared constraint, structural, with no owner portable (done: `3146e99`). | 8.9 | 70 |
-| 17 | Task stacks come from the program-wide default allocator (or the backend's memory), never from the starting task's `alloc.Use` override. | 19.1 | 90 |
+| 17 | Task stacks come from the program-wide default allocator (or the backend's memory), never from the starting task's `alloc.Use` override (done: `cb9e3ef`). | 19.1 | 90 |
 | 18 | The stack overflow panic names the size of the stack and how to ask for more; a function whose frame is larger than the guard region probes its stack so that it cannot step over the guard. | 19.1, 17.5 | 91 |
 | 19 | `time.NewTimer`, `time.NewTicker` and `time.AfterFunc` return `owned[Timer]` and `owned[Ticker]`, which stop and free the timer when dropped; no library type needs a `Free` call. | 19.6, F.7 | 67 |
 | 20 | The `task` statement and the rename sweep: `task f(x)` as a contextual keyword, `go f()` an error that names `task`, "task N" in traces and deadlock reports, `rt.Panic.Task`, E-code texts (done: `4cb685c`, `3967e27`, `523a21f`, `6798a0c`). | 12.12, 4.5, 4.6, 17.1 | 62 |
@@ -1520,8 +1520,8 @@ reading the code.
 Counted channels with their timers (`bdb7683`), 64 MiB lazily mapped hosted task stacks (`173c2f6`) and
 `sync.Scope` (`a7948f6`) and generation checks by default in hosted builds (`766837b`) landed before the
 integration and are not gaps.
-The built-in `map[K]V` (gap 21), `portable` (gap 16), the package initialization order (gap 4), the order of evaluation (gap 1) and
-the `task` statement (gap 20) landed after
+The built-in `map[K]V` (gap 21), `portable` (gap 16), the package initialization order (gap 4), the order of evaluation (gap 1), nil
+dereferences (gap 9), task stacks (gap 17) and the `task` statement (gap 20) landed after
 the integration; their rows stay so that the numbers do not change.
 
 Rows 25 to 30 were read from the code and the companion documents, not run. Each row has a roadmap item
