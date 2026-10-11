@@ -3,10 +3,14 @@
 **Version:** 0.2 (draft)
 **Date:** 2026-10-10
 
-This document describes how Plutonium code is laid out and called on x86-64, as implemented by the
-compiler in `internal/lower` (signature lowering, data layout, symbols) and `internal/arch/amd64`
-(registers, frames, encoding). Sections marked **planned** or **proposed** describe behaviour the
-compiler does not have yet.
+This document describes how Plutonium code is laid out and called on x86-64. The language
+specification ([language.md](language.md) and its chapters) is the source of truth: this document refines
+it for the x86-64 binary interface, as section 21.6 (Layouts and calling conventions) of the
+specification requires, and where the two disagree the specification wins. Sections cited as "language
+spec section N.M" are sections of the specification. The compiler implements this interface in
+`internal/lower` (signature lowering, data layout, symbols) and `internal/arch/amd64` (registers, frames,
+encoding). Sections marked **planned** or **proposed** describe parts of the interface that are not
+fixed yet.
 
 There are two calling conventions:
 
@@ -38,7 +42,8 @@ applies to C calls and entry points.
 
 Sizes are in bytes. `int`, `uint`, `uintptr` and pointers are 8 bytes, and the machine word is 8 bytes. The
 alignment of a scalar is its size. The layout of an aggregate follows from the layout of its parts by the
-rules that come after the table.
+rules that come after the table. The sizes and alignments are those that language spec section 20.2 (Size
+and alignment guarantees) guarantees; this section adds the order of the words and the field offsets.
 
 | Type | Size | Align | Layout |
 |---|---|---|---|
@@ -54,8 +59,8 @@ rules that come after the table.
 | `[N]T` | N × size(T) | align(T) | |
 | struct | the end of the last field, rounded up to the struct's alignment (below) | the largest field alignment, at least 1 | fields in declaration order, each at the next multiple of its alignment (below) |
 | `volatile[T]` | size(T) | align(T) | as `T` |
-| `aligned[T, N]` | size(T) rounded up to N | N | as `T` |
-| `ring[T, N]` | 16 + N × size(T) | max(8, align(T)) | `{head, tail uint64; buf [N]T}` |
+| `aligned[T, N]` | size(T) rounded up to N | max(N, align(T)) | as `T` |
+| `ring[T, N]` | 16 + N × size(T), rounded up to the alignment | max(8, align(T)) | `{head, tail uint64; buf [N]T}` |
 | packed type | its backing, or its field width rounded up to bytes | backing's | bit-exact, language spec section 7.14 |
 | enum type | its underlying integer's | its underlying integer's | the member's value, language spec section 7.12 |
 | union | tag, then the largest payload at its alignment, rounded up to the alignment | max(tag size, largest payload alignment) | `{tag uint8 (uint16 above 256 variants); payload}`, below |
@@ -81,8 +86,10 @@ and a slice are three words, laid out as the table shows.
   them, because the size of a type is always a multiple of its alignment. Its alignment is that of `T`,
   and its size is `N` times size(T).
 - **Wrappers.** `volatile[T]` is laid out as `T`. `aligned[T, N]` is laid out as `T`, placed at a multiple
-  of `N` bytes, with a size that is size(T) rounded up to a multiple of `N`, so an array of them has no
-  padding between its elements. `ring[T, N]` is laid out as `struct { head, tail uint64; buf [N]T }`.
+  of `N` bytes (or of `T`'s alignment, if that is larger), with a size that is size(T) rounded up to a
+  multiple of `N`, so an array of them has no padding between its elements. `ring[T, N]` is laid out as
+  `struct { head, tail uint64; buf [N]T }`, so `buf` starts at offset 16, or at `T`'s alignment if that
+  is larger, and the size is rounded up to the alignment.
 - **Named types.** A named type, an owner type and an enum type have the layout of their underlying type.
 
 For example, `struct { a int8; b int64; c int8 }` has `b` at offset 8 and `c` at offset 16, an alignment
@@ -91,7 +98,7 @@ of 8, and a size of 24; `struct { a, c int8; b int64 }` has `b` at offset 8 and 
 zero-size last field).
 
 `owned[T]`, `shared[T]`, `synced[T]` and `weak[P]` point at the object, with a header in front of it
-(section 1.2). Owner types declared with `owner` (language spec section 18.5) have the layout of their
+(section 1.2). Owner types declared with `owner` (language spec section 7.18) have the layout of their
 underlying type; ownership adds no bytes.
 
 A union (language spec section 7.13) is its tag at offset 0, numbering the variants from 0 in declaration
@@ -100,13 +107,13 @@ largest payload alignment. The bytes after a shorter payload, and between the ta
 padding: their contents are unspecified, and equality compares the tag and then the payload. For example
 `union { Off; Probing struct{ attempt int }; Ready struct{ irq uint8; base uintptr } }` is 24 bytes, with
 the tag at 0 and the payload at 8, and `union { None; Some uint8 }` is 2 bytes with the payload at 1. The
-layout of ordinary unions is internal: the compiler may later store an empty variant in a payload's
-unused values instead of a tag, and unions are not allowed in `//pu:extern` and `//pu:export`
-signatures (section 9.1). Packed unions are exactly their backing.
+layout of ordinary unions is not part of the C interface, and a program may not depend on it (language
+spec sections 20.2 and 21.6): unions are not allowed in `//pu:extern` and `//pu:export` signatures
+(section 9.1). Packed unions are exactly their backing.
 
-Package-level variables are in `.data` (constant initialiser, written into the image; this includes
-arrays and structs whose elements are constants), `.bss` (no initialiser, or one computed by the package
-initialiser), `.percpu` (`//pu:percpu`, section 10.6) or the section named by `//pu:section`. Read-only
+Package-level variables are in `.data` (constant initializer, written into the image; this includes
+arrays and structs whose elements are constants), `.bss` (no initializer, or one computed by the package
+initializer), `.percpu` (`//pu:percpu`, section 10.6) or the section named by `//pu:section`. Read-only
 data (string bytes, type descriptors, itabs, closure records) is in `.rodata`.
 
 ### 1.1 Strings
@@ -138,9 +145,10 @@ Substrings share the header: `s[i:j]` keeps `ctl` and moves `ptr`. Copying a cou
 `count` and dropping it subtracts one (`pluto/rt.strRetain` and `strRelease`, expanded inline); the
 release that reaches zero frees the allocation to `a`. The count is updated with plain arithmetic until
 `rt.SetThreaded` runs (when the program starts its first task or thread), and with `lock xadd`
-after; freestanding programs use `lock xadd` from the start (memory-model.md section 3.7).
+after; freestanding programs use `lock xadd` from the start (language spec section 18.7; memory-model.md
+section 3.7).
 
-Static strings in data (a package variable initialised with a constant, a type name in a descriptor, an
+Static strings in data (a package variable initialized with a constant, a type name in a descriptor, an
 enum's names) are written as all three words, with a control word that holds only the flags, computed
 when compiling.
 
@@ -162,22 +170,23 @@ the address and `T`. The strong count counts `shared` or `synced` references; th
 one to the strong count and dropping one subtracts one (`pluto/rt.boxRetain`, `boxReleaseStrong`); the
 release that reaches zero drops `T` and then releases the weak reference the strong ones held
 (`weakRelease`), which frees the memory when the weak count reaches zero. `synced` counts are updated with
-`lock xadd` once `rt.SetThreaded` has been called (memory-model.md section 3.7), and `Upgrade` with
-`lock cmpxchg`; `shared` counts never are. A `weak[P]` is the same address as its `P`. Dropping an
+`lock xadd` once `rt.SetThreaded` has been called, and from the start in freestanding programs (language
+spec section 18.7; memory-model.md section 3.7), and `Upgrade` with `lock cmpxchg`; `shared` counts never
+are. A `weak[P]` is the same address as its `P`. Dropping an
 `owned[T]` drops `T` and frees the memory (`pluto/rt.boxFree`).
 
 ### 1.3 Generation tags and arena epochs
 
-A hosted build (unless built with `--gencheck=false`; memory-safety design sections 5, D3 and D4) tags
-heap pointers so that a use of memory that has been freed, or that an arena has taken back, panics
-instead of reading or writing whatever the memory holds by then. Bits 63..48 of a pointer hold a 16-bit tag (user-space addresses use
-47 bits):
+A hosted build is checked by default (language spec sections 18.11 and 21.5; memory-safety design
+sections 5, D3 and D4): it tags heap pointers so that a use of memory that has been freed, or that an
+arena has taken back, panics instead of reading or writing whatever the memory holds by then. Bits
+63..48 of a pointer hold a 16-bit tag (user-space addresses use 47 bits):
 
 | Tag | Meaning |
 |---|---|
-| `0` | not checked: the stack, static data, devices, slab allocations over 2 KiB, arena chunks over 56 KiB, a fixed `arena.Arena`'s buffer, pointers made from a `uintptr` |
-| `0x0001` to `0x7fff` | a slab generation (`alloc.Slab`, `alloc.SyncSlab`) |
-| `0x8000` to `0xffff` | an arena epoch (`arena.Chunked`) |
+| `0` | not checked: the stack, static data, devices, pointers made from a `uintptr` |
+| `0x0001` to `0x7fff` | an allocation's generation (`alloc.Slab`, `alloc.SyncSlab`, and every other heap allocation, whatever its size) |
+| `0x8000` to `0xffff` | an arena epoch (`arena.Chunked`, and the buffer of a fixed `arena.Arena`) |
 
 Checked memory is in 64 KiB-aligned chunks whose first 8 KiB hold one `uint16` per 16-byte granule of
 the chunk. Every load and store through a pointer that is not statically a frame slot or a symbol checks
@@ -221,14 +230,15 @@ path), is not such a point for its caller. `opt.GenFrees` computes which functio
   before it), guarded by the header's test as the first iteration evaluates it. A loop that runs no
   iteration therefore checks nothing, and no program panics over a stale pointer it would not have
   used. A loop that would leave by a runtime panic before the access may report the stale pointer
-  instead; one that would run forever without reaching it, with no calls and nothing another task can
-  see, panics instead of hanging.
+  instead. A loop whose first iteration could run forever without reaching the access keeps the check
+  at the access, since a program that never uses freed memory behaves the same with and without the
+  checks (language spec section 18.11).
 - **Memory the function holds.** A new allocation (the result of an `Allocator`'s `Alloc`, `new`,
   `alloc.New`, `alloc.Owned`) needs no check until something could free it, and an `owned[T]` parameter
   needs one; until a pointer to it or into it is passed to a call or stored in memory, only a reset of
   the arena it may live in can free it, so its check survives calls that may free other memory but
   reset no arena and synchronize with no other task. An `Allocator`'s `Alloc` takes back nothing it
-  handed out and its `Free` only the memory it is given (language spec section 7.1); the arena's bulk
+  handed out and its `Free` only the memory it is given (language spec section 18.9); the arena's bulk
   release (`pluto/arena.(*Chunked).release`, behind `Reset`, `Release` and `Drop`) is the reset. Loops
   whose only such points free but do not reset keep a held pointer's check outside them too.
 
@@ -246,7 +256,8 @@ path), is not such a point for its caller. `opt.GenFrees` computes which functio
   allocation takes a new one, so a stale pointer does not match the memory once it is handed out again.
   Epochs are program-wide because a new arena is often given the chunk a dropped one had. The counter
   wraps after 32768 epochs, after which a pointer that old can match again. This is accepted for the
-  hosted 16-bit encoding only (language spec section 1.2, principle 4: bounded checks fail loudly).
+  hosted 16-bit encoding only (language spec section 1.2, principle 4: bounded checks fail loudly;
+  sections 18.11 and 21.5).
   **Requirement on the future kernel tag encoding:** reaching the end of the epoch range must retire the
   chunk (never hand it out again) or widen the tag, as a slab retires a slot at `0x8000`, so that a stale
   pointer cannot match after a wrap.
@@ -261,20 +272,23 @@ path), is not such a point for its caller. `opt.GenFrees` computes which functio
   last took back memory of that epoch (`rt.EpochEnded` records it); "use of freed memory: an arena
   allocation freed at F (file:line)" when that was a `Free`.
 
-**Requirement: no untagged heap or arena memory.** The language promises that a use of freed heap memory,
-or of arena memory after the arena took it back, panics in a checked build, whatever the allocation's size
-(language spec section 18.11). Tag `0` for slab allocations over 2 KiB, arena chunks over 56 KiB and the
-buffer of a fixed `arena.Arena` is therefore an implementation gap, not part of the encoding: those
-allocations must carry a generation or an epoch too (large allocations in their own 64 KiB-aligned chunks
-with a granule table, or a per-allocation tag; a fixed arena's buffer given epochs as a `Chunked` chunk
-is). Only the stack, static data, devices and pointers made from a `uintptr` stay at tag `0`.
+**No untagged heap or arena memory.** A use of freed heap memory, or of arena memory after the arena took
+it back, panics in a checked build, whatever the allocation's size (language spec section 18.11). Every
+heap allocation therefore carries a generation and all arena memory an epoch, large ones included: slab
+allocations over 2 KiB and arena chunks over 56 KiB, which do not fit the slab and epoch chunks above,
+are tagged like the others, and a fixed `arena.Arena`'s buffer has epochs as a `Chunked` chunk does. How
+a large allocation holds its tags (its own 64 KiB-aligned chunks with a granule table, or a
+per-allocation tag) is not fixed yet. Only the stack, static data, devices and pointers made from a
+`uintptr` have tag `0`.
 
 Converting a pointer to `uintptr`, and passing it to a function implemented outside Plutonium, removes
-its tag; `unsafe.Pointer` keeps it. With `--gencheck=false` (`PLUTO_GENCHECK=0` makes it the default of
-a test run), and in every freestanding and kernel build, pointers carry no tag and nothing is checked: a
-use of freed or reset memory is the documented unchecked mode of the language spec (section 6.3). `Chunked.SetPoison` then makes stale reads visible,
-and the debug allocator (language spec section 7.3), as an arena's parent, catches a use of chunks the
-arena gave back (`Trim`, `Drop`), though not of those `Reset` and `Release` keep.
+its tag; `unsafe.Pointer` keeps it (language spec sections 18.11 and 20.1). A function marked
+`//pu:nochecks` makes no checks (language spec section 18.12). With `--gencheck=false`
+(`PLUTO_GENCHECK=0` makes it the default of a test run), and in every freestanding and kernel build,
+pointers carry no tag and nothing is checked: a use of freed or reset memory is then the documented
+unchecked mode (language spec sections 18.11 and 21.5). `Chunked.SetPoison` then makes stale reads
+visible, and the debug allocator (language spec section 18.9), as an arena's parent, catches a use of
+chunks the arena gave back (`Trim`, `Drop`), though not of those `Reset` and `Release` keep.
 
 ### 1.4 Maps
 
@@ -326,7 +340,7 @@ The direction flag is clear on entry to and exit from every function, as in Syst
 `rep movsb` and `rep stosb` for block copies and clears, which rely on it.
 
 The backend targets baseline x86-64 (SSE2). Integers and pointers live in general-purpose registers;
-floats live in XMM registers and use scalar SSE instructions, except in loops the optimiser vectorises,
+floats live in XMM registers and use scalar SSE instructions, except in loops the optimizer vectorizes,
 which compute two `float64` lanes at once with SSE2 packed doubles (each lane exactly as the scalar code
 would). Packed values never cross a call or a function boundary. Memory copies and clears never use XMM
 registers: they are sequences of 1 to 8 byte `MOV`s through a general-purpose register up to 64 bytes, and
@@ -450,7 +464,7 @@ drop word, if there is one. The drop before a call comes after its arguments are
 call built in the region on its previous run can reach those arguments (language spec section 11.5,
 E3101), so dropping and refilling the region cannot change them. A region that turns out to hold nothing
 to release has these drops left out.
-Calls made while initialising packages get regions in static storage, which are never dropped.
+Calls made while initializing packages get regions in static storage, which are never dropped.
 
 The caller reserves the region in its frame, one per call site, reused on every execution of the call,
 or passes a part of its own region when it may return the call's closures in turn. A call of a known
@@ -470,11 +484,13 @@ An interface value is `{tab, data}`.
 
 - For the empty interface, `tab` is the dynamic type's **type descriptor**. For other interfaces it is
   an **itab**, whose first word is the type descriptor. A nil interface has `tab == nil`.
-- `data` holds the value's bits when the dynamic type is **direct** (integers, floats, booleans,
-  pointers, func values, channels, maps, `owned`/`shared`/`synced`, `weak`, packed values of up to 8 bytes,
-  and structs with one field or arrays of length 1 that hold a single pointer): zero-extended integers and booleans, float
-  bits, or the address. For every other type `data` points at a copy of the
-  value in the frame of the function that made the conversion (language spec section 7.9).
+- `data` holds the value's bits when the dynamic type is **direct** (integers, floats, booleans, enums,
+  pointers, `unsafe.Pointer`, func values, channels, maps, `owned`/`shared`/`synced`, `weak`, packed
+  values of up to 8 bytes, and structs with one field or arrays of length 1 whose field or element is one
+  of these pointer-shaped types or, recursively, such a struct or array): zero-extended integers and
+  booleans, float bits, or the address. For every other type `data` points at a copy of the value in the
+  frame of the function that made the conversion, or in static storage for a conversion in the
+  initializer of a package-level variable (language spec section 7.9).
 
 Type descriptor, 88 bytes, read-only, named `type:<type>` (mirrored by `pluto/rt.typeDesc`, read through
 `rt.Type`). Its strings are static (section 1.1):
@@ -659,20 +675,20 @@ functions without `//pu:fpu` (no floats, section 10.2) never use it.
 | method of a generic type instance | `pluto/vec.(*Vec).Push[int]`: the receiver's type arguments, then the method's own, in the brackets |
 | function literal | `<enclosing symbol>.func<N>` |
 | a closure a function returns (language spec section 11.5) | `<function symbol>.func<N>`, e.g. `main.Count.func1` or `pluto/vec.(*Vec).All[int].func1`: named after the function that makes it, not the caller whose region it is built in, and shared by every call |
-| the closure of a `ring` iterator (section 5.4) | `builtin.(*ring[T,N]).All.func1`, or `.Values.func1` |
+| the closure of a `ring` iterator (language spec section 7.17) | `builtin.(*ring[T,N]).All.func1`, or `.Values.func1` |
 | task statement thunk (section 12.6) | `<enclosing symbol>.go<N>` |
 | bound method wrapper | `<method symbol>-fm` |
 | a region's drop function (section 4.1) | `<function symbol>·rdrop`; `pluto.noRegionDrop` for the regions that turned out to need none |
 | static closure record | `<function symbol>·f` |
 | package-level variable | `path.Name` |
-| package initialiser | `path.init·pkg`; user `init` functions are `path.init.0`, `path.init.1`, ... |
-| program entry (runs every initialiser, then `main.main`) | `pluto.main` |
+| package initializer | `path.init·pkg`; user `init` functions are `path.init.0`, `path.init.1`, ... |
+| program entry (runs every initializer, then `main.main`) | `pluto.main` |
 | type descriptor | `type:<type>` |
 | itab | `itab:<type>,<interface>` |
 | itab table | `pluto.itabs`, `pluto.itabtable` |
 | main's stack size from `//pu:stack` (0 if none), a function returning a `uintptr` | `pluto.mainstack` |
 | string data | `.str.N` (local) |
-| static object (a `&T{}` in a package initialiser) | `.static.N` (local) |
+| static object (a `&T{}` in a package initializer) | `.static.N` (local) |
 | float constant | `pluto.const.<hex>` |
 | per-CPU block's self word (offset 0 of `.percpu`) | `pluto.percpu.self` |
 
@@ -685,7 +701,7 @@ Plutonium calls it.
 
 Hosted programs start at `_start` (`lib/pluto/rt/sys_linux_amd64.s`), which aligns the stack and calls
 `pluto/rt.start`; that calls `pluto.main` and exits with its result. Freestanding programs provide their
-own entry point, which must call `pluto.main` (or the package initialisers and `main.main`) on a 16-byte
+own entry point, which must call `pluto.main` (or the package initializers and `main.main`) on a 16-byte
 aligned stack with the direction flag clear.
 
 ## 9. Compatibility with System V
@@ -734,14 +750,15 @@ an export is a second symbol on the same code, as before. Otherwise lowering cla
   eightbyte in RAX, and three `int64` results are returned through a hidden pointer.
 - **Receivers.** A method with `//pu:extern` or `//pu:export` takes its receiver as the first C
   parameter.
-- **Rejected,** at the declaration, even if nothing calls it: `string` and slices (no C type; pass
+- **Rejected,** at the declaration, even if nothing calls it (language spec section 20.4; E2511 unless
+  noted): `string` and slices (no C type; pass
   `unsafe.StringData(s)` or `unsafe.SliceData(b)` and the length), interfaces, func values (a func value
   points at a closure record, not at code), maps, channels and unions (their layout is not part of the
   ABI; pass a struct of a tag and the payload), anywhere in a by-value parameter or result,
   including inside structs; arrays as a whole parameter or result (C cannot pass them by value; wrap them
   in a struct or pass a pointer); zero-size types; types aligned to more than 8 bytes; variadic functions
-  (C varargs are not supported); generic functions; `//pu:extern` on a function with a body; and two
-  wrapped exports of the same name.
+  (C varargs are not supported); generic functions (E2513 with `//pu:export`); `//pu:extern` on a
+  function with a body (E2510); and two functions exported under one symbol (E2512).
 
 Strings and slices were rejected rather than passed as their structs because no C declaration of a
 function taking `const char *, size_t` would match: both are 24-byte MEMORY structs copied to the stack,
@@ -790,7 +807,8 @@ vector state.
 - Any operation on `float32` or `float64` values (arithmetic, comparisons, conversion to or from
   integers or between float sizes, float constants, float parameters, results and call arguments, and
   converting a float to an interface) in a function compiled in kernel mode without `//pu:fpu` is a
-  compile error, reported once per function at the first such use, for example `float64 arithmetic is not
+  compile error (E2520, language spec section 20.7), reported once per function at the first such use,
+  for example `float64 arithmetic is not
   allowed in kernel mode (no FPU state is saved; mark the function //pu:fpu to use floats)`. Parameters,
   results and arguments are judged after flattening (section 3.1): a float leaf passed in an XMM register
   is an error, a struct passed by reference is not. Floats may still appear in types, and copying a
@@ -798,8 +816,8 @@ vector state.
   zero constants that scalar replacement makes) in general-purpose registers.
 - The check applies to functions the program uses. Lowering only compiles functions that are reachable
   from the program's roots, so an unused float function in an imported package costs nothing. Package
-  variables initialised with constants, including arrays and structs of them, are written into the image
-  rather than by the package initialiser, so importing `pluto/math` adds no float code. `pluto/fmt`
+  variables initialized with constants, including arrays and structs of them, are written into the image
+  rather than by the package initializer, so importing `pluto/math` adds no float code. `pluto/fmt`
   passes floats as bits and keeps its float formatting under `//pu:build !kernel`; a kernel build prints a
   float argument as `%!v(float64=0x...)`.
 - Block copies and clears avoid XMM registers in every mode (section 2: `MOV` through a general-purpose
@@ -813,10 +831,10 @@ vector state.
 `ssa.Func.NoSSE`. It is the contract between the passes:
 
 - lowering rejects float operations in such a function, as above;
-- no optimisation pass may introduce float or vector operations into a `NoSSE` function. A vectoriser
-  must skip `NoSSE` functions entirely (block copies, clears and fills included). The loop vectoriser
+- no optimization pass may introduce float or vector operations into a `NoSSE` function. A vectorizer
+  must skip `NoSSE` functions entirely (block copies, clears and fills included). The loop vectorizer
   (`opt.Vectorize`) asks `ssa.Func.MayVectorize`, which is false for `NoSSE` functions and for those
-  marked `//pu:nosimd` (`ssa.PragmaNoSIMD`) or `//pu:interrupt`. `//pu:fpu` functions may be vectorised:
+  marked `//pu:nosimd` (`ssa.PragmaNoSIMD`) or `//pu:interrupt`. `//pu:fpu` functions may be vectorized:
   `FPUBegin` saves the whole vector state;
 - the inliner never inlines a function without `NoSSE` (a `//pu:fpu` function) into one with it, so FPU
   code stays in functions the caller has to bracket with `FPUBegin`/`FPUEnd`. It may inline in the other
@@ -882,8 +900,8 @@ may be any pointer type, `unsafe.Pointer` or `uintptr`; the error code is `uint6
 signature decides the stack layout, so a handler with an error code must be installed only on the
 vectors whose exceptions push one (8, 10 to 14, 17, 21, 29 and 30), and a handler without one on every
 other vector, including software `int $n`. This follows GCC's and Clang's
-`__attribute__((interrupt))`. Anything else is a compile error, as is `//pu:interrupt` combined with
-`//pu:inline`.
+`__attribute__((interrupt))`. Anything else is a compile error (E2570, E2571; language spec section
+20.10), as is `//pu:interrupt` combined with `//pu:inline`.
 
 The compiler generates the entry and exit:
 
@@ -917,16 +935,17 @@ The compiler generates the entry and exit:
    makes to `*f` (for example advancing `RIP` past a faulting instruction) take effect then.
 
 Handlers are never inlined, cannot be called directly (including with `defer`) and cannot be used as
-func values, all compile errors; their address is taken with `x86.HandlerAddr(timer)`, which yields a
-`uintptr` for the IDT gate. `x86.HandlerAddr` with anything other than the name of a `//pu:interrupt`
-function is a compile error. `//pu:export name` on a handler gives its code a second global symbol, for
+func values, all compile errors (E2573); their address is taken with `x86.HandlerAddr(timer)`, which
+yields a `uintptr` for the IDT gate. `x86.HandlerAddr` with anything other than the name of a
+`//pu:interrupt` function is a compile error (E2572). `//pu:export name` on a handler gives its code a second global symbol, for
 assembly stubs that refer to it.
 
 The handler may call ordinary functions: they run on a 16-byte aligned stack with the direction flag
 clear, as section 2 requires, and every register they may change is restored before `iretq`. Nothing it
 can reach may wait or start a task: no blocking channel operation, no call that reaches the
-runtime's `park` or a `//pu:blocking` function, no `go` statement, no allocator that may wait. The compiler checks this over the whole program
-(language spec section 20.10), and the same for the panic handler, which can run on top of a handler.
+runtime's `park` or a `//pu:blocking` function, no allocator that may wait (E2584), and no task
+statement or other start of a task (E2585). The compiler checks this over the whole program (language
+spec section 20.10), and the same for the panic handler, which can run on top of a handler.
 
 A panic inside a handler, or a fault an exception handler reports with `rt.PanicFault`, goes to the
 program's `//pu:panic` handler (language spec section 17.4), with a stack trace that starts at the
@@ -934,7 +953,8 @@ faulting instruction and ends at the handler's frame.
 
 ### 10.5 `pluto/arch/x86` intrinsics
 
-Each function in `pluto/arch/x86` is expanded inline to the instructions shown. Lowering turns a call
+Each function in `pluto/arch/x86` (language spec section 20.8) is expanded inline to the instructions
+shown. Lowering turns a call
 into one `ssa.OpIntrinsic` (named, for example, `x86.Cli`), which takes the current memory state and
 produces the next one, as a call does: no load or store is moved, merged or removed across it, so every
 intrinsic is a compiler barrier (memory model section 5.2). It has side effects, so it is never removed,
@@ -988,7 +1008,7 @@ are useful outside ring 0.
 
 ### 10.6 Per-CPU variables
 
-A package-level variable marked `//pu:percpu` has one copy per processor:
+A package-level variable marked `//pu:percpu` has one copy per processor (language spec section 20.9):
 
 ```go
 //pu:percpu
@@ -1016,10 +1036,10 @@ var runQueue RunQueue
   that point and adds the offset (`mov %gs:pluto.percpu.self, r; lea sym(r), r`): an ordinary pointer into
   the current processor's copy, which keeps referring to that copy after GS changes (a migration, or
   `Swapgs`).
-- Only constant initialisers are allowed (constants, and arrays and structs of them): the package
-  initialiser runs once, before any processor has its own block, so it could only initialise one copy.
-  Anything else is a compile error, as is `//pu:percpu` together with `//pu:section`.
-- Outside kernel mode `//pu:percpu` is a compile error.
+- Only constant initializers are allowed (constants, and arrays and structs of them): the package
+  initializer runs once, before any processor has its own block, so it could only initialize one copy.
+  Anything else is a compile error (E2550), as is `//pu:percpu` together with `//pu:section` (E2552).
+- Outside kernel mode `//pu:percpu` is a compile error (E2551).
 - The runtime has two per-CPU variables of its own: the processor's number that `rt.SetCPU` records and
   panics report (language spec section 17.4), and the current-task slot `pluto/rt.currentTask` (section
   12.3), which `pluto build` places at offset 8, right after the self word, so that a kernel's assembly
@@ -1043,7 +1063,7 @@ touches a per-CPU variable:
 a Linux process, setting the GS base with `arch_prctl(ARCH_SET_GS)`.
 
 Code that reads and then writes a per-CPU variable, or uses its address, must not migrate in between:
-it runs with preemption disabled (memory model section 6.4).
+it runs with preemption or interrupts disabled (language spec section 20.9; memory model section 6.4).
 
 ## 11. Linux system calls
 
@@ -1060,7 +1080,8 @@ Linux system calls use their own convention, implemented in assembly in `pluto/s
 ## 12. Tasks and the scheduler
 
 How tasks are represented and switched, and what a scheduler backend implements (language spec
-section 4.7). The runtime side is `lib/pluto/rt/sched.p`, `chan.p`, `timer.p` and `ctx_amd64.s`; the
+chapter 19, Concurrency; section 19.5, The scheduler contract, summarizes this section, which is
+normative). The runtime side is `lib/pluto/rt/sched.p`, `chan.p`, `timer.p` and `ctx_amd64.s`; the
 hosted backend is `sched_linux.p` and `timer_linux.p`; `testdata/kernel/sched` and
 `testdata/plutonium/customsched.p` are complete small
 backends. The design is in [the scheduler contract](../plans/2026-10-09-scheduler-contract.md); where
@@ -1086,12 +1107,12 @@ is private and may change. `t.SetStack(lo, hi)` records the stack in a record
 frame below them.
 
 A stack request (`rt.StackRequest`) carries the size the task may use, `Proven` when the compiler has
-shown the call graph never needs more (then no guard page is needed; the compiler does not compute such
-bounds yet, roadmap item 18), `Unsized` for a go statement whose stack the compiler could not size (the
-size is then `rt.DefaultStackSize`, and a backend that can reserve address space lazily gives the task a
-large stack instead, as the hosted one does), and the allocator to take the stack from: the one passed to
-`rt.Go`, otherwise the program-wide default, never the starting task's `alloc.Use` override (language
-spec section 19.1).
+computed the stack of a bounded call graph and the task needs no more (then no guard page is needed;
+language spec section 19.1; roadmap item 18), `Unsized` for a task statement whose stack the compiler
+could not size (the size is then `rt.DefaultStackSize`, and a backend that can reserve address space
+lazily gives the task a large stack instead, as the hosted one must), and the allocator the stack comes
+from: the one given to `rt.Go`, or else the program-wide default allocator, never an override that the
+starting task installed with `alloc.Use` (language spec section 19.1).
 `t.SetStackGuard(n)` records that the `n` bytes below the stack are an inaccessible guard region, so that
 a fault anywhere in it is reported as a stack overflow; without it the guard is taken to be one page.
 
@@ -1145,13 +1166,14 @@ The runtime reads the running task from a slot, with no call into the backend:
 
 `rt.Switch` writes the slot. Until the first task operation (the first task statement or the first
 operation that may park), the runtime does not read it: the running code is `rt.BootTask()`, the task
-that runs package initialisation and `main`. At that point it calls the backend's `Init`, if it has one,
+that runs package initialization and `main`. At that point it calls the backend's `Init`, if it has one,
 and adopts the running code as `BootTask` on this processor; a kernel points GS at the processor's
 per-CPU block before then.
 
 ### 12.4 Preemption
 
-Each task has a preemption-disable count, raised by `rt.DisablePreemption`, by runtime locks, by
+A task is preempted after a time slice wherever it is (language spec section 19.1). Each task has a
+preemption-disable count, raised by `rt.DisablePreemption`, by runtime locks, by
 `pluto/alloc`'s per-processor caches (`rt.ProcPin`) and while the task is switched out. A preemption
 that arrives while it is non-zero sets a pending flag, and the task yields when the count returns to
 zero. `rt.Park` with a non-zero count panics with "blocking with preemption disabled".
@@ -1186,11 +1208,13 @@ Optional methods, called if the type has them: `Init()`, once before the first t
 `InInterrupt() bool`, which lets the runtime refuse operations that would park in interrupt context.
 Two more, `Now() int64` and `ArmTimer(deadline int64)`, give the runtime a clock and a timer (section
 12.9); a program that uses timers needs both, and a build whose scheduler lacks either fails with E2595.
-The backend is bound with `//pu:scheduler` (language spec section 12.12): the compiler gives each of the
+The backend is bound with `//pu:scheduler`, a package-level variable whose type (not an interface)
+implements `rt.Scheduler` (language spec sections 19.5 and 20.3; E2592 for two bindings or one of the
+wrong type, E2593 for a freestanding program that needs a scheduler and binds none): the compiler gives each of the
 runtime's hooks (`schedNewTask`, `schedPark` and the rest, body-less functions of `sched.p` that the
 compiler knows by name) a body that calls the bound variable's method directly.
 
-The rules a backend follows (memory-model.md sections 3.6 and 6.3):
+The rules a backend follows (language spec section 19.5; memory-model.md sections 3.6 and 6.3):
 
 1. Every task passed to `Spawn`, `Wake` or `FreeTask` is switched out. The runtime implements the park
    permit: `rt.Ready` that comes before `rt.Park` is never lost, and `Wake` is called only for a task
@@ -1202,9 +1226,10 @@ The rules a backend follows (memory-model.md sections 3.6 and 6.3):
    same processor or another.
 4. `Wake` may be called in interrupt context and from threads that run no tasks: it must not block,
    allocate or switch. The compiler checks it like an interrupt handler (language spec section 20.10).
-5. Switch only with `rt.Switch`, which keeps the current-task slot and `onCPU` right.
-6. The backend's own run-queue locks disable interrupts where `Wake` takes them from an interrupt
-   handler; runtime locks (`rt.Lock`) do so in kernel mode already.
+5. Switch only with `rt.Switch`, which keeps the current-task slot and `onCPU` right, and preempt only
+   through `rt.Preempt` (section 12.4).
+6. The backend's own locks disable preemption, and also interrupts where `Wake` takes them from an
+   interrupt handler; runtime locks (`rt.Lock`) do both in kernel mode already.
 
 ### 12.6 What the compiler generates
 
@@ -1212,16 +1237,21 @@ The rules a backend follows (memory-model.md sections 3.6 and 6.3):
 defaults, and a copy of the array behind variadic arguments) into an argument block in the starting
 frame, laid out like a struct, and calls `rt.spawnGo(thunk, block, size, align, bound)`, where `thunk`
 is the closure record of a generated `func(p unsafe.Pointer)` named `<function>.go<N>` that loads the
-values from `p` and makes the call, and `bound` is the proven stack size (0 today). `spawnGo` asks the
-backend for a task with an unsized stack (`Unsized`, `rt.DefaultStackSize`, the current default
-allocator), copies the block to the top of the stack and calls `Spawn`. Before it, a func value that is the function started or a
+values from `p` and makes the call, and `bound` is the stack size the compiler computed for the call graph
+of the function started, or 0 when that graph is not bounded (language spec section 19.1; roadmap item
+18). `spawnGo` asks the backend for a task with a stack of `bound` bytes (`Proven`), or, when `bound` is
+0, an unsized one (`Unsized`, `rt.DefaultStackSize`); either comes from the program-wide default
+allocator, never from an override that the starting task installed with `alloc.Use`. It copies the
+block to the top of the stack and calls `Spawn`. Before it, a func value that is the function started or a
 func-typed argument is passed to `rt.checkGoFunc`, which panics if its closure record lies in the
-starting task's stack.
+starting task's stack (language spec section 12.12).
 
 **Channels.** A channel is the address of an `rt.hchan`: a runtime lock, the buffer's count, capacity,
 indices and element size, the buffer, queues of waiting senders and receivers, the allocator it came
-from, then the reference count (at offset 136) and the channel's timer or nil. The count is changed as a
-`synced[T]` object's is (section 1.2): `chanRetain(c)` takes a reference, and a release calls the
+from, then the reference count (at offset 136) and the channel's timer or nil. The count is always changed
+with `lock xadd`, in every build and before the first task starts too (language spec sections 18.7 and
+19.8), and a task waiting on a channel holds a reference to it while it waits: `chanRetain(c)` takes a
+reference, and a release calls the
 release glue the compiler makes for the element type, `chan T·release(c)`, which calls
 `chanRelease(c) bool` and, for the last reference, drops the values still buffered (`chanBuffered(c)`
 gives the buffer, the first index, the count and the capacity) and calls `chanFree(c)`, which stops and
@@ -1253,7 +1283,7 @@ A blocked operation's waiting record (`sudog`) lives in the waiting task's frame
 | monitor | a thread that preempts a task after 10 ms (`SIGURG`) and hands the P of a worker that has been in a system call (`rt.EnterSyscall` to `rt.ExitSyscall`) for 20 µs, when other work waits, to another worker |
 | poller | a thread blocked in `epoll_wait` on descriptors registered once, edge-triggered, for reading and writing. `rt.PollOpen(fd)` makes a `rt.PollDesc` (kept on a free list, never unmapped) holding a queue of read waiters, a queue of write waiters and a flag for each direction for an event that arrived with nobody waiting; `Wait(write)` parks until an event (registering the descriptor on the first wait), `Evict` wakes the waiters with `rt.PollClosed` and `Release` deregisters it. While timers are armed it waits at most until the earliest deadline of every P (`epoll_pwait2`, or `epoll_wait` in milliseconds rounded up before Linux 5.11), then runs the expired timers itself; an eventfd in the epoll set wakes it when an earlier timer is armed |
 | timers | a heap per P (section 12.9), which its worker runs each time it looks for a task; a spinning worker runs the expired timers of the other Ps too, and their tasks come to its own P. `rt.Now` reads `CLOCK_MONOTONIC` through the vDSO's `__vdso_clock_gettime` (found from `AT_SYSINFO_EHDR`), or with the system call if there is none |
-| stacks | an unsized request gets a reserved stack: `rt.HostedStackSize` (64 MiB) mapped `MAP_NORESERVE \| MAP_STACK` with a 1 MiB guard region (`PROT_NONE`) below and one more page above, whose end holds the backend's task record; under `RLIMIT_AS` the stacks take half the limit at full size, then halve as they use up the rest, down to 64 KiB with a guard of at least a page. Reserved stacks are cached (8 per P, 64 shared); one going into a cache gets `madvise(MADV_DONTNEED)` below its top 16 KiB if its task was seen below that when it parked, yielded or was preempted, or on every 16th use. Any other request gets a guard page, the stack, then the task record, from the requested allocator; stacks of one size from the program-wide default allocator are cached rather than freed |
+| stacks | an unsized request gets a reserved stack: `rt.HostedStackSize` (64 MiB) mapped `MAP_NORESERVE \| MAP_STACK` with a 1 MiB guard region (`PROT_NONE`) below and one more page above, whose end holds the backend's task record, so every such task has at least 64 MiB of address space (language spec section 19.1). Reserved stacks are cached (8 per P, 64 shared); one going into a cache gets `madvise(MADV_DONTNEED)` below its top 16 KiB if its task was seen below that when it parked, yielded or was preempted, or on every 16th use. Any other request gets a guard page, the stack, then the task record, from the requested allocator; stacks of one size from the program-wide default allocator are cached rather than freed |
 | deadlock | when every worker is idle, nothing waits in the poller or a system call and no timer is armed: "fatal error: all tasks are asleep - deadlock!", then each task's number, wait reason and trace (`rt.TraceTask`; the backend keeps a list of its tasks in creation order for this, and `BootTask` comes first), status 2. The poller checks again after it runs timers, since a timer that fires may leave nothing to wake |
 | `SIGPIPE` | caught at startup (every hosted program, not only those that start tasks) by a handler that returns, so a write to a pipe with no reader fails with `EPIPE`; `pluto/os` calls `rt.DieFromSigpipe` (default action, then `tgkill` of the calling thread) for `EPIPE` on descriptors 1 and 2 |
 
@@ -1278,7 +1308,7 @@ task keeps running on the original stack, and the worker's scheduling loop gets 
 
 ### 12.9 Timers
 
-The runtime implements timers on the backend's clock. `rt.Now()` is the clock: monotonic nanoseconds,
+The runtime implements timers on the backend's clock (language spec section 19.6). `rt.Now()` is the clock: monotonic nanoseconds,
 the same on every processor, from the backend's `Now` method. An `rt.Timer` calls a function once its
 deadline has passed, and again every period if it has one:
 
@@ -1332,7 +1362,7 @@ the P that arms it, and stays there until it fires or is stopped, whichever work
 (`internal/lower/sched.go`), which knows it by name, gives it its body after every other function has
 been lowered: a call of `sleepDirect` if the backend is the default
 hosted one (the `//pu:scheduler` variable of `pluto/rt`) and `rt.startTasks` was never reached, otherwise
-a call of `sleepParked`. `startTasks` is what a `go` statement, a blocking channel operation or `pluto/sync`
+a call of `sleepParked`. `startTasks` is what a task statement, a blocking channel operation or `pluto/sync`
 wait (through `Park`), `ParkUntil`, an armed `Timer` and the poller all call before they use the
 scheduler, so reaching it means the program starts one. `sleepDirect` sleeps until an absolute
 `CLOCK_MONOTONIC` time with `clock_nanosleep`, repeated if a signal interrupts it, so a program that only
@@ -1348,7 +1378,7 @@ have not yet returned. Only the runtime changes the count, under a lock in the `
 | Part | |
 |---|---|
 | `rt.Join` | the count `n`, a lock, the task parked in `Wait` (`waiter`), and the links of its owner's chain (`next`, `owner`). It lives in the frame of the function that declares the `Scope`. |
-| `rt.spawnScoped(j, ...)` | what a scoped `s.Task(f)` call becomes. Lowering builds the argument block and thunk of a `go` statement in place, with the address of each shared captured variable and the value of each taken one (language spec section 19.4), and calls this instead of `spawnGo`. It counts the task in `j` before the task can run. `sync.Scope.Task`, for a `Scope` the compiler cannot see in the starting frame, calls `rt.TaskJoined(j, f)`, which checks `f` as a `go` statement does. |
+| `rt.spawnScoped(j, ...)` | what a scoped `s.Task(f)` call becomes. Lowering builds the argument block and thunk of a task statement in place, with the address of each shared captured variable and the value of each taken one (language spec section 19.4), and calls this instead of `spawnGo`. It counts the task in `j` before the task can run. `sync.Scope.Task`, for a `Scope` the compiler cannot see in the starting frame, calls `rt.TaskJoined(j, f)`, which checks `f` as a task statement does (language spec section 12.12). |
 | `rt.taskMain` | after the thunk returns, it uncounts the task with `joinExit`, which wakes the waiter when the count reaches zero and touches nothing of the `Join` afterwards, since the waiter's frame may be reused at once. |
 | `rt.JoinWait(j)` | `Wait` and `Drop`: returns at once (after one lock) when the count is zero, otherwise parks with the reason `sync.Scope.Wait` (`rt.WaitScope`). A second task waiting on the same `Join` panics with "sync: two tasks wait on one Scope". |
 

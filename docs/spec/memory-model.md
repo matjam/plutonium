@@ -6,13 +6,19 @@
 This document defines when a read of memory in one task, or on one processor, is guaranteed to observe
 a write made by another, what safe code is promised about data races, what a race in unsafe code may and
 may not do, and which transformations the compiler may make. It also gives the rules for interrupt
-handlers, device memory and kernels that bring their own scheduler. It is complete on its own: no other
-document's memory model applies where this one is silent. Section 19.7 of the language specification
-(Memory model) summarizes it; where the two differ, this document holds.
+handlers, device memory and kernels that bring their own scheduler.
+
+The language specification ([language.md](language.md)) is the source of truth. Section 19.7 (Memory
+model) states the rules of the memory model, and chapters 18 (Ownership and memory) and 19 (Concurrency)
+state the rules they rest on: what may cross between tasks, which data races the compiler rejects, how
+counted values are counted, and what the scheduler must do. This document refines those rules for
+implementers of the compiler, the runtime, allocators and scheduler backends, with the detail the
+specification leaves to it. Where this document and the specification differ, the specification holds,
+and this document is to be corrected. No other memory model applies where both are silent.
 
 Terms from the language specification are used with their meaning there: a **task** (section 19.1,
-Tasks), an **owner** and a **move** (sections 18.1 and 18.5), a **counted value** (section 18.1), **safe
-code** and **unsafe code** (section 18.12).
+Tasks), an **owner** and a **move** (sections 18.1 and 18.5), a **counted value** (sections 8.7 and
+18.1), **sendable** (section 8.8), **safe code** and **unsafe code** (section 18.12).
 
 ## Contents
 
@@ -22,15 +28,16 @@ code** and **unsafe code** (section 18.12).
 4. [Data races](#4-data-races)
 5. [What the compiler may and may not do](#5-what-the-compiler-may-and-may-not-do)
 6. [Kernels: interrupts, processors and schedulers](#6-kernels-interrupts-processors-and-schedulers)
-7. [Notes for Go programmers](#7-notes-for-go-programmers)
+7. [Differences from other languages](#7-differences-from-other-languages)
 
 ## 1. Advice
 
 Memory that several tasks use must be shared in a way that orders their accesses. In safe code the
-compiler enforces this (section 4.1), and the ways it accepts are few: move an owner from one task to
-another (on a channel or as a task argument), share data that never changes while shared, use
-`pluto/sync/atomic` operations, hold the lock the compiler infers to guard the data, or, for the variables
-of one function, start the tasks with a `sync.Scope` and partition what they write. A program that needs
+compiler enforces this (section 4.1; language spec section 19.3, Data race freedom), and the ways it
+accepts are few: move an owner from one task to another (on a channel or as a task argument), share data
+that never changes while shared, use `pluto/sync/atomic` operations, hold the lock the compiler infers to
+guard the data, or, for the variables of one function, start the tasks with a `sync.Scope` and partition
+what they write (language spec section 19.4, Scoped tasks). A program that needs
 the rest of this document to explain why it works is too clever.
 
 `volatile[T]` is not a way to synchronize processors. It orders the accesses to one device, and between
@@ -83,8 +90,9 @@ each read observing the latest write to its location before it in that order.
 
 Package initialization runs in one task, the main task, which then calls `main`. Initializing a package
 is sequenced before initializing any package that imports it, and all initialization is sequenced before
-`main` starts (language spec section 15.3, Program initialization). A task started during initialization
-runs concurrently with the rest of it.
+`main` starts (language spec section 15.3, Program initialization). An `init` function may start tasks
+(language spec section 15.2, Package initialization); such a task runs concurrently with the rest of
+initialization and may still be running when `main` begins.
 
 ### 3.2 Starting a task
 
@@ -136,6 +144,9 @@ section 3.6. Their guarantees hold whichever scheduler backend is bound:
   started with `wg.Task(f)` is synchronized before the return of every `wg.Wait()` it unblocks.
 - **Once.** The return of the single call of `f()` from `once.Do(f)` is synchronized before the return of
   every call of `once.Do`.
+- **Cond.** `c.Wait()` unlocks `c.L` and locks it again before it returns, so it synchronizes through
+  `c.L` as `Lock` and `Unlock` do. A `c.Signal()` or `c.Broadcast()` that wakes a waiting `c.Wait()` is
+  synchronized before that `Wait` returns (section 3.6, park and ready).
 - **Scope.** See section 3.9.
 
 ### 3.5 `pluto/sync/atomic`
@@ -197,30 +208,46 @@ holds it.
 tasks (language spec section 19.2, The sendable rule).
 
 **Strings and maps.** A string's buffer (language spec section 18.8) and a map's table (section 7.10)
-are counted like a `synced[T]` object, with one difference. Once the program can run Plutonium code on
-more than one thread, every count update is atomic, every decrement is a release, and the decrement that
-reaches zero is also an acquire before the memory is freed, so every use through any copy happens before
-the free. Before that, counts use plain arithmetic: a hosted program runs on one thread until it starts
-its first task, and the runtime calls `rt.SetThreaded` at that point, before the task can run, whatever
-the scheduler. The task start that follows is the synchronizing operation that publishes every count
-written before it. A program that runs Plutonium code on another thread by other means calls
-`rt.SetThreaded` first. A freestanding program counts atomically from the start, since its kernel may run
-code on other processors without telling the runtime. `rt.SetThreaded` cannot be undone. `synced` counts
-switch to atomic at the same point.
+are counted like a `synced[T]` object: every decrement is a release, and the decrement that reaches zero
+is also an acquire before the memory is freed, so every use through any copy happens before the free.
+
+**When counts are atomic.** The counts of `synced[T]` objects, string buffers and map tables use plain
+arithmetic until the program starts its first task, and atomic operations from then on (language spec
+section 18.7, Shared ownership); the switch cannot be observed by the program. A hosted program runs on
+one thread until it starts its first task, and the runtime calls `rt.SetThreaded` at that point, before
+the task can run, whatever the scheduler. The task start that follows is the synchronizing operation that
+publishes every count written before it. A program that runs Plutonium code on another thread by other
+means calls `rt.SetThreaded` first. A freestanding program counts atomically from the start, since its
+kernel may run code on other processors without telling the runtime. `rt.SetThreaded` cannot be undone.
+Channel counts are always atomic (language spec section 19.8), and `shared[T]` counts are never atomic.
 
 A string's bytes never change once a string uses them, so reading a shared string needs no lock. A map's
 contents are ordinary locations, shared by every copy of the map.
 
-**Allocated errors** (language spec section 16.7) are `synced` objects and follow its rules.
+**Allocated errors** (language spec section 16.7, Allocated errors and ownership) are `synced` objects
+and follow its rules.
 
 ### 3.8 Allocators
 
-An allocator used by several tasks must make each `Free(p, ...)` synchronized before any later `Alloc`
-that returns memory overlapping `p`, and must zero memory before returning it. Under that rule a task that
-receives freshly allocated memory never observes writes from the memory's previous user. The hosted
-default allocator meets it; an allocator that is not safe for concurrent use (`alloc.Slab` without a lock,
-an `arena.Arena`) may be used by one task at a time only, which is why every task starts with the
-program-wide default allocator (language spec section 18.9, Allocators).
+An allocator returns zeroed memory, never takes back in `Alloc` memory it has handed out, and takes back
+in `Free` only the memory it is given (language spec section 18.9, Allocators). An allocator used by
+several tasks must also make each `Free(p, ...)` synchronized before any later `Alloc` that returns memory
+overlapping `p`. Under these rules a task that receives freshly allocated memory never observes writes
+from the memory's previous user. The hosted default allocator meets them, and an allocator given to
+`alloc.SetDefault` must meet them once tasks run in parallel. An allocator that is not safe for
+concurrent use (`alloc.Slab` without a lock, an `arena.Arena`) may be used by one task at a time only,
+which is why every task starts with the program-wide default allocator, never with an override that the
+starting task installed with `alloc.Use` (language spec section 19.1, Tasks).
+
+An arena takes its memory back only in bulk, through `Reset`, `Release` or `Drop`. Strings and counted
+boxes made in an arena are dropped before the arena takes back their memory, since dropping one writes its
+count (language spec section 18.9).
+
+In a checked build, freeing memory gives it a new generation, and taking arena memory back ends its epoch
+(language spec section 18.11, Generation checks). A use through a view after the free or the reset is a
+run-time panic when the free is ordered before the use: by being in the same task, or through a
+synchronizing operation of section 3. A free that races with a use is a data race, which no check catches
+reliably; safe code cannot make one (section 4.1).
 
 ### 3.9 Ending a scoped task
 
@@ -230,23 +257,37 @@ that waits for it, and before the end of the drop of `s`, wherever the drop runs
 on a `return`, `break`, `continue` or `goto` out of it, or as `rt.Goexit` leaves the frame. So the
 starting function observes every write of its scoped tasks after the join.
 
+A panic reclaims no frame: the panicking task's stack is not reused while the program runs, so scoped
+tasks still running use valid memory until the program ends (language spec section 19.4).
+
 ### 3.10 Timers
 
 A `time.Timer` or `time.Ticker` delivers its time with a send on its channel, and `time.AfterFunc` starts
-its function as a new task, so they synchronize as sections 3.3 and 3.2 say. A runtime timer (`rt.Timer`)
-runs its function with the lock of its timer heap held: once `Stop` or `Reset` has returned, the function
-is not running, and a run of it that started before the call happened before the call returned.
+its function as a new task, so they synchronize as sections 3.3 and 3.2 say (language spec section 19.6,
+Timers). A runtime timer (`rt.Timer`) runs its function with the lock of its timer heap held (abi.md
+section 12.9): once `Stop` or `Reset` has returned, the function is not running, and a run of it that
+started before the call happened before the call returned.
 
 ## 4. Data races
 
 ### 4.1 Safe code is free of data races
 
 Every execution of a program made only of safe code is data-race-free, and so sequentially consistent
-(section 2). The compiler rejects every program in which two tasks could make conflicting accesses that
-are not ordered (language spec sections 19.2 to 19.4): tasks share memory only through owners moved from
-one to another, through memory that does not change while shared, through atomic operations, through
-package variables, `synced[T]` objects and maps whose every access holds the lock the compiler infers to
-guard them, and through the variables of a function whose `sync.Scope` joins the tasks that use them.
+(section 2). A data race in safe code is not a run-time condition at all: the compiler rejects, over the
+whole program and with no annotations, every program in which two tasks could make conflicting accesses
+that are not ordered (language spec sections 19.2 to 19.4). Every piece of memory that tasks share is
+then one of these:
+
+- an owner moved from one task to another, which only the receiving task can then reach;
+- memory that does not change while shared, such as a package variable written only during package
+  initialization or by `main` before it starts its first task;
+- data that every access reads or changes with `pluto/sync/atomic` operations;
+- data guarded by a lock that every access holds, the lock being inferred by the compiler: a package
+  variable (rule 1 of language spec section 19.3), an object reached through a pointer that crosses to
+  another task, whose changing fields are guarded by a lock of the same object or a package-level lock
+  (rule 2), and the object of a `synced[T]` or the contents of a map that several tasks use (rule 3);
+- a variable of a function whose `sync.Scope` joins the tasks that use it, synchronized by its type,
+  guarded by a lock, or partitioned among the tasks (language spec section 19.4).
 
 The proof uses locks, atomic operations, moves, the absence of writes, and scoped joins. It does not use
 the order that channel operations, `sync.WaitGroup.Wait` and other ends of tasks impose on plain shared
@@ -256,10 +297,12 @@ and holds the guarding lock as well.
 
 ### 4.2 Unsafe code, and word-sized locations
 
-Unsafe code can race, and so can the runtime, which implements the rules above with its own locks and
-with preemption disabled. A data race is a bug, but it is not undefined behavior of the program: the
-compiler may not assume that races are absent and use that to justify any transformation (section 5.2).
-A race has the consequences of sections 4.2 to 4.4 and no others.
+The race rules do not check unsafe code (language spec section 18.12, Safe and unsafe code): memory
+reached through `unsafe.Pointer` or `rt.Pinned`, functions without a body, and the variables and records
+of the runtime, which implements the rules above with its own locks and with preemption disabled (language
+spec section 19.3). Such code can race. A data race is a bug, but it is not undefined behavior of
+the program: the compiler may not assume that races are absent and use that to justify any
+transformation (section 5.2). A race has the consequences of sections 4.2 to 4.4 and no others.
 
 A plain read of a naturally aligned location of at most 8 bytes (every integer, float, boolean, pointer,
 `uintptr`, `unsafe.Pointer`, func value, channel, map, `owned`, `shared`, `synced` and `weak` reference,
@@ -305,7 +348,10 @@ any way that preserves the behavior of the task running alone:
 - remove a read whose value is already known (loads from the same memory state, a load of a value just
   stored);
 - remove a write that is overwritten before any synchronizing operation, call or volatile access;
-- move plain reads earlier and plain writes later within these bounds.
+- move plain reads earlier and plain writes later within these bounds;
+- in a checked build, let one generation or epoch check of a heap pointer cover later accesses through the
+  same pointer, until a call that may free memory or an operation that synchronizes with another task
+  (language spec section 18.11, Generation checks).
 
 A consequence: a loop that spins on a plain variable written by another task may never observe the write,
 because the read can be moved out of the loop. Spin on an atomic read instead. (Safe code cannot write
@@ -371,8 +417,10 @@ order, or not at all (a value still in a register). The rules:
 - A handler's entry is synchronized after every operation of the interrupted code that came before the
   interrupted instruction, and its return (`iretq`) is synchronized before every operation that comes
   after it. This is exact on one processor because the hardware keeps program order there; it is what
-  lets a handler and the interrupted code use volatile accesses as a single-producer, single-consumer
-  queue (language spec section 7.17, `ring[T, N]`).
+  lets a handler and the interrupted code build a single-producer, single-consumer queue from volatile
+  indexes. A `ring[T, N]` by itself is not safe for concurrent use (language spec section 7.17).
+- A new task starts with interrupts enabled, whatever the state of the task that started it (language
+  spec section 19.1, Tasks), so a section with interrupts disabled never extends into a task it starts.
 
 Nothing about interrupts orders memory between processors. A handler that shares data with code running
 on other processors needs atomics, or a spin lock taken with interrupts disabled.
@@ -412,8 +460,12 @@ a task another is still saving; the park permit orders `rt.Ready` before the ret
 6. **Keep the stacks of joined frames.** A backend must not free or reuse the stack of a task that ended
    without returning from its frames until `rt.WaitScopes` has returned for it, so that the scoped tasks
    of those frames (section 3.9) never use reclaimed memory.
+7. **Never wait in `Wake`.** Interrupt handlers reach the backend's `Wake` through `rt.Ready`, so `Wake`
+   never blocks, allocates or switches, and the compiler checks it as it checks an interrupt handler
+   (language spec sections 19.5 and 20.10).
 
-A backend that meets these rules gives tasks the same memory model as the hosted backend. Rules 3 and 4
+A backend that meets these rules gives tasks the memory model of this document (language spec section
+19.7), whatever its policy, as the hosted backend does. Rules 3 and 4
 are met by switching only with `rt.Switch` and preempting only through `rt.Preempt`.
 
 ### 6.4 Per-CPU data
@@ -426,24 +478,13 @@ interrupts on the same processor. Changing the GS base (`x86.WriteGSBase`, `x86.
 barrier like every `pluto/arch/x86` intrinsic, so no per-CPU access moves across it; a pointer taken with
 `&v` before the change still refers to the copy it was taken from.
 
-## 7. Notes for Go programmers
+## 7. Differences from other languages
 
-This section is not normative. For code in the common subset of Go and Plutonium, the guarantees above
-are the ones Go's memory model gives: the same synchronizing operations, sequentially consistent atomics,
-and races that may tear values larger than a word. The differences:
-
-| Topic | Go | Plutonium |
-|---|---|---|
-| Data races in code without `unsafe` | possible; found at run time by the race detector | rejected at compile time (section 4.1) |
-| Races in unsafe code | not undefined behavior; word-sized values observe some write; larger values may tear | the same (sections 4.2 and 4.3) |
-| Order from channels and `WaitGroup.Wait` | used by programs to share plain variables | holds, but the compiler's race check does not accept it for shared variables; it accepts locks, atomics, moves and scoped joins (section 4.1) |
-| Packed fields | no packed types | the whole packed value is one location (section 4.3) |
-| Volatile | no volatile accesses | ordered by the compiler; not synchronizing between processors (section 4.4) |
-| Finalizers and the collector | `runtime.SetFinalizer` synchronizes | none; owners are dropped by the task that holds them, and counted objects have the drop ordering of section 3.7 |
-| Strings and maps | collected | counted, atomically once the program has several threads (section 3.7) |
-| Scoped tasks | no equivalent | the join of a `sync.Scope` is synchronizing (section 3.9) |
-| Interrupt handlers and schedulers | built into the runtime | section 6 |
-| `Fence` | not provided | `atomic.Fence`, sequentially consistent |
+This section is not normative. [Appendix A](language/a-differences-from-go.md) of the language
+specification lists every rule of Plutonium, those of this document included, that differs from the
+language whose syntax it follows: data races rejected at compile time in safe code, counted strings, maps
+and channels instead of a collector, scoped tasks, packed and volatile types, and the kernel facilities of
+section 6.
 
 ---
 

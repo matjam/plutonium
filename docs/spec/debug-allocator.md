@@ -1,10 +1,23 @@
 # The debug allocator
 
-Plutonium's raw pointers are unchecked, so a program can write past the end of an allocation, use memory
-after freeing it, free it twice or free something it never allocated. The debug allocator,
-`pluto/alloc/debug`, is the backstop: an `alloc.Allocator` that turns each of these into an immediate,
-deterministic stop with a message saying what went wrong and where, and that lists the allocations still
-live at exit.
+The language specification ([language.md](language.md)) is the source of truth. This document describes the
+library `pluto/alloc/debug` and how it relates to the rules of the language: allocators (section 18.9),
+generation checks (section 18.11), safe and unsafe code (section 18.12), faults (section 17.5) and the use of
+freed memory (section 17.6). Where this document disagrees with the specification, the specification
+wins.
+
+Safe code cannot write past the end of an allocation, free memory twice or free something it never
+allocated (section 18.12). A use of freed memory through a view is a run-time panic by the definition of
+the language (section 17.6), and the generation checks make it one: hosted builds have them by default,
+and `pluto build --gencheck=false` is the unchecked mode (sections 18.11 and 21.5). Unsafe code, such as the
+unchecked allocation layer (`alloc.Raw`, `alloc.New`, `alloc.Free` and an allocator's methods called
+directly, section 18.10), can do all of these things, and so can any build without the checks.
+
+The debug allocator, `pluto/alloc/debug`, is the backstop for that code: an `alloc.Allocator` that turns
+each of these mistakes into an immediate, deterministic stop with a message saying what went wrong and
+where, and that lists the allocations still live at exit. It is opt-in (`--alloc=debug`), and it does not
+replace the generation checks. In the unchecked mode, and in freestanding and kernel builds, which are
+unchecked, it catches uses of the memory that was returned to it (section 18.11).
 
 It is meant for testing and debugging. It is much slower than the slab allocator and uses far more memory
 (see [Cost](#cost)).
@@ -18,9 +31,10 @@ pluto build --alloc=debug ./cmd/server
 pluto run --alloc=debug ./cmd/server
 ```
 
-The flag makes the debug allocator the default allocator before any package initialisation runs, with no
-code changes. It sets two build tags: `allocdebug`, which links in `pluto/alloc/debug` and installs it,
-and `allocsites`, which makes allocations record where they were made. Settings are read at startup from
+The flag makes the debug allocator the default allocator before any package initialization runs, with no
+code changes. It does not change the checking mode: the generation checks stay on unless the build also
+says `--gencheck=false`. It sets two build tags: `allocdebug`, which links in `pluto/alloc/debug` and
+installs it, and `allocsites`, which makes allocations record where they were made. Settings are read at startup from
 the `PLUTO_DEBUGALLOC` environment variable (below).
 
 A build flag rather than an environment variable turns it on because then a normal build carries none of
@@ -28,8 +42,8 @@ it: the package is not linked, and the call-site bookkeeping in `new`, `make` an
 functions compiles away. Tuning is by environment variable so one debug build can be rerun with different
 settings, as with `ASAN_OPTIONS`.
 
-A program can also install it itself, in which case it should do so before allocating anything, since
-memory from the previous allocator cannot be freed through it:
+A program can also install it itself with `alloc.SetDefault` (section 18.9), in which case it should do so
+before allocating anything, since memory from the previous allocator cannot be freed through it:
 
 ```go
 o := debug.DefaultOptions()
@@ -57,10 +71,10 @@ provider with `debug.New(debug.Options{Pages: pages, ...})`; see [Freestanding b
 | Free of an interior or unknown pointer | the side table has no allocation there | at the free |
 | Leaks | the side table lists every live allocation | at exit, or `alloc.ReportLeaks()` |
 
-Every error stops the program the way a panic does: the message starts with `panic: `, a stack trace
-follows ([debugging.md](debugging.md#5-stack-traces)), deferred calls do not run, and the exit status
-is 2. For an error found by a fault, the allocator's description comes first, then the signal line and
-the trace from the faulting instruction, as for any other fault
+Every error is a panic (section 17.1): the message starts with `panic: `, a stack trace follows
+([debugging.md](debugging.md#5-stack-traces)), deferred calls do not run (section 17.2: a heap error that the
+debug allocator reports runs none), and the exit status is 2. For an error found by a fault, the
+allocator's description comes first, then the signal line and the trace from the faulting instruction, as for any other fault
 ([Faults](#faults-and-the-runtime)). For an error found in `Free` or by a heap check, the trace is that
 of the call that found it, so it starts with the allocator's own frames. The examples below show only
 the allocator's lines.
@@ -103,6 +117,10 @@ quarantine.
 
 ### Use after free
 
+The language makes every use of freed memory a panic (section 17.6), and the generation checks of section
+18.11 are how a checked build does it. The debug allocator finds the same mistake without a tag in the
+pointer, and also describes where the block was allocated and freed.
+
 Freeing fills the allocation with `PoisonByte` (`0xDD`) and, for a page-guarded block, makes its pages
 inaccessible, so any later access faults:
 
@@ -115,9 +133,11 @@ panic: debug allocator: use after free: write at 0x7fd24f8e7ff8, offset 16 of th
     main.main (./main.p:22)
 ```
 
-A canary-guarded block stays readable: a stale read sees poison (an `int64` reads `0xdddddddddddddddd`, a
-pointer is non-canonical and faults if followed), and a stale write is found when the block leaves
-quarantine or by the heap check at exit:
+A canary-guarded block is not made inaccessible. The allocator fills it with poison, so that stale data is
+recognizable (an `int64` reads `0xdddddddddddddddd`, a pointer is non-canonical and faults if followed),
+and finds a stale write when the block leaves quarantine or by the heap check at exit. The language rule is
+that the access itself is a panic (sections 17.6 and 18.11); this message is the allocator's report of a
+stale write that it finds later:
 
 ```
 panic: debug allocator: write after free: the 24-byte allocation at 0x7c1b8e1f0010 (allocation #2) was written at offset 16 after it was freed
@@ -151,16 +171,30 @@ panic: debug allocator: invalid free of 0x7a0d560d9ffa: it points at offset 4 of
 panic: debug allocator: invalid free of 0x410040: it was not allocated by this allocator, or was freed long enough ago to leave quarantine
 ```
 
-A double free is recognised while the first free is still in quarantine; after that the pointer is simply
+A double free is recognized while the first free is still in quarantine; after that the pointer is simply
 unknown. Size 0 is treated as 1, as `new` and `alloc.New` do, and alignment 0 as 1.
 
 ### Leaks
+
+A leak is an allocation that is still live when the program exits. The language has no memory that nothing
+frees (section 18.10): an owner frees its memory when it is dropped (section 18.6), and a counted value
+(a string, a box, a channel, a map) when its last reference is released (sections 18.8 and 18.10).
+A leak therefore means that the owner or the last reference was never dropped. The usual causes are:
+
+- a cycle of strong references, which is never freed (section 18.7; `weak` breaks cycles);
+- an owner in a frame that did not return: a task that was still running or waiting when `main` returned
+  (section 15.4), a frame left by `os.Exit`, which drops nothing (section 18.6), or a task blocked for good;
+- memory from the unchecked layer (`alloc.Raw`, `alloc.New`) that its code never gave back with
+  `alloc.Free` or gave to an owner (section 18.10);
+- a package-level owner, which is never dropped (sections 15.4 and 18.6). The debug allocator reports memory
+  that package variables still hold apart from leaks: the program cannot drop it, so it is not a mistake.
 
 At normal exit (main returns, or `os.Exit`), hosted builds first wait, for at most about a second, until
 every other task has returned or waits (on a channel, a lock, a timer, I/O or a system call), so that
 one that has sent its last value but not yet returned releases its arguments and variables
 (`rt.SettleTasks`); a task blocked for good keeps what it holds, which is listed. Then they check the
-canaries and poison of every block and list the allocations still live:
+canaries and poison of every block and list the allocations still live. An owner that `main` drops as it
+returns (section 15.4) has already freed its memory by then, so it does not appear:
 
 ```
 debug allocator: 2 allocations still live, 34 bytes:
@@ -176,8 +210,8 @@ and returns the count (0, printing nothing, for allocators that do not track all
 
 ### Zeroing
 
-The `Allocator` interface promises zeroed memory, and the debug allocator keeps that promise: fresh pages
-come zeroed from the page provider, reused page-guarded blocks are zeroed explicitly, and canary-guarded
+The `Allocator` interface promises zeroed memory (section 18.9), and the debug allocator keeps that
+promise: fresh pages come zeroed from the page provider, reused page-guarded blocks are zeroed explicitly, and canary-guarded
 blocks come from a slab allocator that clears slots when they are freed. Only the bytes around an
 allocation hold canaries.
 
@@ -254,16 +288,18 @@ memory access fault, and an exit hook with `rt.SetExitHook`. On a fault the runt
 
 ## Concurrency
 
-The allocator is safe for concurrent use. Every entry point takes the allocator's lock first (an
+The allocator is safe for concurrent use, as section 18.9 requires of the program-wide default once tasks run
+in parallel. As an implementation of `alloc.Allocator` it is unsafe code (section 18.12) and keeps the
+contract of section 18.9: `Alloc` never takes back memory it has handed out, and `Free` takes back only the
+memory it is given, which it holds in quarantine before reusing it. Every entry point takes the allocator's lock first (an
 `rt.Lock`: a futex in hosted builds, a spin lock with interrupts masked in kernels), and the side table,
 the quarantine and the block cache are reached only through it. The exit hook takes it too. The fault
 handler tries it for a while and then describes the fault without it, since the faulting thread may
 already hold it.
 
 Allocation sites belong to the task that allocates, so sites stay right while tasks allocate in
-parallel. A task's stack from an allocator (one `rt.Go` sized, for example; the stacks hosted `go`
-statements reserve come from the system, not an allocator) is allocated with the site `rt.StackSite`,
-printed as "the runtime, as a task's stack"; leak reports leave stacks out, since a task that
+parallel. A task's stack that the runtime takes from an allocator (section 19.1) is allocated with the site
+`rt.StackSite`, printed as "the runtime, as a task's stack"; leak reports leave stacks out, since a task that
 is still finishing at exit holds its own.
 
 ## Cost
