@@ -88,6 +88,9 @@ func ForLevel(level int) *Pipeline {
 		p.add(Pass{"sroa2", SROA})
 		p.add(Pass{"mem2reg2", Mem2Reg})
 		p.add(Pass{"simplify4", Simplify})
+		// Branches on what memopt found constant (a slot's cleared
+		// bytes, seen past calls) go, with the calls they guarded.
+		p.add(Pass{"simplifycfg3", SimplifyCFG})
 		p.add(Pass{"cse2", CSE})
 		p.add(Pass{"loopidiom", LoopIdiom})
 		p.add(Pass{"vectorize", Vectorize})

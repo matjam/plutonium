@@ -13,6 +13,7 @@ import (
 // chain:
 //
 //   - a load of what a store just wrote becomes the stored value;
+//   - a load of bytes a Zero just cleared becomes the constant 0;
 //   - a load becomes an earlier load of the same bytes when only writes
 //     that cannot touch those bytes lie between them;
 //   - a store of the value just loaded from the same address, with nothing
@@ -22,7 +23,9 @@ import (
 //
 // Two accesses are known apart when they are at non-overlapping constant
 // offsets from the same pointer, or in different stack slots or globals.
-// Volatile accesses, calls, phis and other memory operations end a walk.
+// Volatile accesses, calls, phis and other memory operations end a walk,
+// except that a load from a stack slot whose address the function keeps to
+// itself sees past calls, which cannot reach the slot.
 func MemOpt(f *ssa.Func) {
 	// A rewrite leaves copies in the memory chain, which end the walks of
 	// later values; the next round sees past them.
@@ -68,10 +71,11 @@ type loadFinder struct {
 	dom     *ssa.DomTree
 	readers *hash.Map[*ssa.Value, []*ssa.Value] // memory state -> loads of it
 	pos     []int                               // index of each value in its block
+	private *hash.Map[*ssa.Slot, bool]          // slots no call can reach (privateSlots)
 }
 
 func newLoadFinder(f *ssa.Func) *loadFinder {
-	lf := pu.New(loadFinder{dom: f.Dom(), readers: compat.NewMap[*ssa.Value, []*ssa.Value](0), pos: compat.Make[int](f.NumValues())})
+	lf := pu.New(loadFinder{dom: f.Dom(), readers: compat.NewMap[*ssa.Value, []*ssa.Value](0), pos: compat.Make[int](f.NumValues()), private: privateSlots(f)})
 	for _, b := range f.Blocks {
 		for i, v := range b.Values {
 			lf.pos[v.ID] = i
@@ -165,7 +169,21 @@ func forwardLoad(v *ssa.Value, lf *loadFinder) bool {
 		}
 		q, size, ok := written(m)
 		if !ok {
+			if c := lf.callPast(m, p); c != nil {
+				m = c
+				continue
+			}
+			if c := lf.phiPast(m, p, n); c != nil {
+				m = c
+				continue
+			}
 			break
+		}
+		if m.Op == ssa.OpZero && v.Type.IsInteger() && within(p, n, q, size) {
+			// Bytes a Zero cleared read as zero.
+			v.Reset(ssa.OpConst)
+			v.AuxInt = 0
+			return true
 		}
 		if m.Op == ssa.OpStore && sameBytes(p, q) {
 			if !m.Args[1].Type.Same(v.Type) || !lf.near(m, v) {
@@ -180,6 +198,136 @@ func forwardLoad(v *ssa.Value, lf *loadFinder) bool {
 		m = m.MemArg()
 	}
 	return false
+}
+
+// within reports whether the n bytes at p lie inside the m bytes at q.
+func within(p *ssa.Value, n int64, q *ssa.Value, m int64) bool {
+	lp, lq := locOf(p), locOf(q)
+	return lp.Base == lq.Base && n >= 0 && m >= 0 && lq.Off <= lp.Off && lp.Off+n <= lq.Off+m
+}
+
+// privateSlots returns the stack slots whose address is used only to load
+// from and store to them, or passed only to calls that never return: no
+// call that returns can read or change them. The defer record is left
+// out, since the runtime finds it without being given its address.
+func privateSlots(f *ssa.Func) *hash.Map[*ssa.Slot, bool] {
+	private := compat.NewMap[*ssa.Slot, bool](0)
+	leaked := compat.NewMap[*ssa.Slot, bool](0)
+	if f.DeferRecord != nil {
+		leaked.Set(f.DeferRecord, true)
+	}
+	// derived maps an address to the slot it points into.
+	derived := compat.NewMap[*ssa.Value, *ssa.Slot](0)
+	use := func(s *ssa.Slot, u, w *ssa.Value) {
+		switch u.Op {
+		case ssa.OpLoad, ssa.OpZero:
+			if u.Args[0] != w {
+				leaked.Set(s, true)
+			}
+		case ssa.OpStore:
+			if u.Args[1] == w {
+				leaked.Set(s, true)
+			}
+		case ssa.OpMove:
+		case ssa.OpOffPtr, ssa.OpAddPtr:
+			if u.Args[0] != w {
+				leaked.Set(s, true)
+			}
+		case ssa.OpCall, ssa.OpCallInd:
+			if u.Call == nil || !u.Call.NoReturn {
+				leaked.Set(s, true)
+			}
+		default:
+			leaked.Set(s, true)
+		}
+	}
+	for _, b := range f.Blocks {
+		for _, v := range b.Values {
+			if v.Op == ssa.OpSlotAddr {
+				s := v.Aux.(*ssa.Slot)
+				derived.Set(v, s)
+				private.Set(s, true)
+			}
+		}
+	}
+	// Offsets from an address may come before it in f.Blocks.
+	for changed := true; changed; {
+		changed = false
+		for _, b := range f.Blocks {
+			for _, v := range b.Values {
+				if v.Op != ssa.OpOffPtr && v.Op != ssa.OpAddPtr || compat.MapAt(derived, v) != nil {
+					continue
+				}
+				if s := compat.MapAt(derived, v.Args[0]); s != nil {
+					derived.Set(v, s)
+					changed = true
+				}
+			}
+		}
+	}
+	for _, b := range f.Blocks {
+		for _, v := range b.Values {
+			for _, a := range v.Args {
+				if s := compat.MapAt(derived, a); s != nil {
+					use(s, v, a)
+				}
+			}
+		}
+		for _, c := range b.Controls {
+			if s := compat.MapAt(derived, c); s != nil {
+				leaked.Set(s, true)
+			}
+		}
+	}
+	{
+		goIt1 := compat.MapIter(leaked)
+		for s, _, goOk2 := goIt1.Next(); goOk2; s, _, goOk2 = goIt1.Next() {
+			compat.MapDelete(private, s)
+		}
+	}
+	return private
+}
+
+// callPast returns the memory state before m, if m is the memory a call
+// returns and p points into a slot no call can reach; or nil.
+func (lf *loadFinder) callPast(m, p *ssa.Value) *ssa.Value {
+	if m.Op != ssa.OpSelectN || m.AuxInt != 0 || !m.Args[0].Op.IsCall() {
+		return nil
+	}
+	s, ok := objectOf(p).(*ssa.Slot)
+	if !ok || !compat.MapAt(lf.private, s) {
+		return nil
+	}
+	return m.Args[0].MemArg()
+}
+
+// phiPast returns the memory state that every argument of the memory phi
+// m comes from without a write to the n bytes at p, or nil.
+func (lf *loadFinder) phiPast(m, p *ssa.Value, n int64) *ssa.Value {
+	if m.Op != ssa.OpPhi || !m.Type.IsMem() {
+		return nil
+	}
+	var from *ssa.Value
+	for _, a := range m.Args {
+		for i := 0; i < maxMemWalk && a != from; i++ {
+			if q, size, ok := written(a); ok && disjoint(p, n, q, size) {
+				a = a.MemArg()
+			} else if c := lf.callPast(a, p); c != nil {
+				a = c
+			} else {
+				break
+			}
+		}
+		if a == m {
+			return nil
+		}
+		if from == nil {
+			from = a
+		} else if a != from {
+			return nil
+		}
+	}
+	return from
 }
 
 // redundantStore drops a store of the value loaded from the same address
