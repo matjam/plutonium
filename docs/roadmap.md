@@ -94,7 +94,7 @@ compiler (2026-10-11).
     first, then the remaining packages by import path, each after its imports.
 81. **`len` of a `ring[T, N]`** (done, gap 5, `36160adc`; sections 13.6 and 7.17): `len(r)` calls `r.Len()`,
     as for a library container; `cap(r)` stays an error.
-82. **`defer` of built-ins that may not be deferred** (done, gap 6, `65d7a432`; section 12.19, chapter 13):
+82. **`defer` of built-ins that may not be deferred** (done, gap 6, `e92486fc`, `6a5d201c`; section 12.19, chapter 13):
     `clear`, `copy` and `delete` run at the function's return with their arguments evaluated when the defer
     ran; every other builtin is E2532, with the fix to wrap the call in a function literal.
 83. **`append`, `recover`, `complex`, `real`, `imag`, `complex64` and `complex128` are not predeclared**

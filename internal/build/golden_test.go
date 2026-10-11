@@ -77,7 +77,7 @@ func runWithGo(file string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	src, err := os.ReadFile(file)
 	if err != nil {
 		return "", err
