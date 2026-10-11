@@ -13,7 +13,7 @@ const (
 // A Mutex is a mutual exclusion lock. The zero value is unlocked.
 //
 // An uncontended Lock and Unlock are one atomic instruction each. A
-// puroutine that finds the mutex locked spins briefly, then parks; Unlock
+// task that finds the mutex locked spins briefly, then parks; Unlock
 // wakes the first waiter, which competes for the mutex again and, if it
 // loses, waits at the front of the queue. The n-th Unlock is synchronised
 // before the m-th Lock returns, for n < m (memory-model.md section 3.4).
@@ -60,7 +60,7 @@ func (m *Mutex) lockSlow() {
 		}
 		var w waiter
 		w.t = self()
-		// w is queued only while this puroutine is parked: the waker pops
+		// w is queued only while this task is parked: the waker pops
 		// it before readying it (rt.Pinned).
 		if front {
 			m.q.pushFront(rt.Pinned(&w))
@@ -129,7 +129,7 @@ func (s *sema) acquire(r rt.WaitReason) {
 	}
 	var w waiter
 	w.t = self()
-	s.q.push(rt.Pinned(&w)) // popped before this puroutine is readied
+	s.q.push(rt.Pinned(&w)) // popped before this task is readied
 	s.mu.Unlock()
 	rt.ParkReason(r)
 }

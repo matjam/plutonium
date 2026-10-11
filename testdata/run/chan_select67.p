@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE file.
 
 // Adapted from Go's test/chan/select6.go, select7.go and zerosize.go for
-// the common subset of Go and Plutonium: the puroutines take their
+// the common subset of Go and Plutonium: the tasks take their
 // channels as arguments instead of capturing them, and select7 does
 // without runtime.Gosched.
 

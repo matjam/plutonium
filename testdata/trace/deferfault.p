@@ -4,7 +4,7 @@ package main
 // dereference, which the hardware reports with SIGSEGV, in the body of a
 // range-over-func loop. The runtime leaves the signal handler and runs the
 // deferred calls of the iterator, of the function the loop is in, and of
-// main on the faulting puroutine's own stack.
+// main on the faulting task's own stack.
 
 type node struct {
 	next *node

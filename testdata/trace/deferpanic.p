@@ -1,6 +1,6 @@
 package main
 
-// A panic runs the panicking puroutine's deferred calls, innermost frame
+// A panic runs the panicking task's deferred calls, innermost frame
 // first and each frame's last first, before the panic is reported. Their
 // arguments were evaluated at the defer statements; deferred calls that
 // had not been reached do not run, and nor do those of frames that have

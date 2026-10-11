@@ -31,7 +31,7 @@ func main() { _ = x86.HandlerAddr(keyboard) }
 `
 
 // TestInterruptContext checks that nothing an interrupt handler or the
-// panic handler can reach may wait or start a puroutine.
+// panic handler can reach may wait or start a task.
 func TestInterruptContext(t *testing.T) {
 	const irqWait = "keyboard is an interrupt handler, so it must not wait\n" +
 		"    Interrupt handlers run on top of whatever code the CPU was executing."

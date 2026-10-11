@@ -9,7 +9,7 @@
 //
 //   - The sendable rule (E3501): a view (a pointer or slice, also inside an
 //     interface, struct or array) that crosses to another task, as an
-//     argument of a go statement or a value sent on a channel, must point
+//     argument of a task statement or a value sent on a channel, must point
 //     to memory that is safe for both: memory of a synchronised type
 //     (pluto/sync, pluto/sync/atomic, the runtime's records, channels), a
 //     package variable that no task writes once tasks run, the object of
@@ -444,7 +444,7 @@ func (a *analyzer) objOf(id *ast.Ident) types2.Object {
 }
 
 // mayStartTasks reports whether code reachable from the program's start
-// may start a task: a go statement, or the runtime's check that a func
+// may start a task: a task statement, or the runtime's check that a func
 // value may start one (rt.Go, time.AfterFunc). Calls through func values
 // may reach any function of their type used as a value. It records the
 // units reachable, the only ones analysed.

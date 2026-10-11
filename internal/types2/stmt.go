@@ -178,7 +178,7 @@ func (check *Checker) suspendedCall(keyword string, call *ast.CallExpr) {
 	case conversion:
 		msg = "requires function call, not conversion"
 		code = InvalidDefer
-		if keyword == "go" {
+		if keyword == "task" {
 			code = InvalidGo
 		}
 	case expression:
@@ -485,7 +485,7 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 		}
 
 	case *ast.TaskStmt:
-		check.suspendedCall("go", s.Call)
+		check.suspendedCall("task", s.Call)
 		check.taskStmtArgs(s.Call)
 
 	case *ast.DeferStmt:

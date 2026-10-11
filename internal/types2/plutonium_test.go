@@ -140,7 +140,7 @@ func TestForbiddenConstructs(t *testing.T) {
 	}
 }
 
-// TestConcurrencyRules checks what may cross puroutines (language spec
+// TestConcurrencyRules checks what may cross tasks (language spec
 // sections 4.7, 4.8 and 6.3): sendable types, and no views of the frame
 // that the checker can see.
 func TestConcurrencyRules(t *testing.T) {
@@ -177,8 +177,8 @@ func g(p *int, c chan *int, s chan synced[int]) {
 	cases := []struct{ name, src, want string }{
 		{"shared element", "package p\nvar c chan shared[int]", "channel element type shared[int] is not sendable"},
 		{"shared field", "package p\ntype S struct{ p shared[int] }\nvar c chan S", "it contains shared[int]"},
-		{"shared argument", "package p\nfunc f(x shared[int]) {}\nfunc g(x shared[int]) { task f(x) }", "go statement argument of type shared[int] is not sendable"},
-		{"local address", "package p\nfunc f(p *int) {}\nfunc g() { x := 1; task f(&x) }", "&x is passed to a go statement, but x lives in this function's frame"},
+		{"shared argument", "package p\nfunc f(x shared[int]) {}\nfunc g(x shared[int]) { task f(x) }", "task statement argument of type shared[int] is not sendable"},
+		{"local address", "package p\nfunc f(p *int) {}\nfunc g() { x := 1; task f(&x) }", "&x is passed to a task statement, but x lives in this function's frame"},
 		{"field address", "package p\ntype T struct{ a [2]int }\nfunc f(p *int) {}\nfunc g() { var t T; task f(&t.a[1]) }", "but t lives in this function's frame"},
 		{"literal address", "package p\ntype T struct{ a int }\nfunc f(p *T) {}\nfunc g() { task f(&T{}) }", "allocate it with new(T{...})"},
 		{"send local address", "package p\nfunc g(c chan *int) { x := 1; c <- &x }", "&x is sent on a channel"},

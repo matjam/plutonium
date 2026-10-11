@@ -103,7 +103,7 @@ about machine state.
   C), or an explicit request from the programmer.
 - Anything the compiler can work out from the program is inferred, not
   annotated: which functions never return, which may wait, which start
-  puroutines with their arguments, which string slices are on rune
+  tasks with their arguments, which string slices are on rune
   boundaries. If inference is not yet good enough, improve the compiler
   (or the language) rather than adding a directive.
 - The runtime's contract with the compiler (scheduler hooks, the panic

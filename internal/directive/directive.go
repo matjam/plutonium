@@ -76,7 +76,7 @@ var directives = map[string]info{
 var retired = map[string]string{
 	"alloc":     "kernel code may allocate strings anywhere the allocator may be called",
 	"bytewise":  "the compiler proves that string slice bounds fall on rune boundaries",
-	"gofunc":    "the compiler finds which functions start puroutines with their func arguments",
+	"gofunc":    "the compiler finds which functions start tasks with their func arguments",
 	"schedhook": "the compiler knows the runtime's scheduler hooks by name",
 	"schedlate": "the compiler knows the runtime's scheduler hooks by name",
 }

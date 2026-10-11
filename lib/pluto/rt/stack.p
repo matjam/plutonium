@@ -26,7 +26,7 @@ func SetStackBounds(lo, hi uintptr) { stackLo, stackHi = lo, hi }
 // StackLeft returns how many bytes of stack remain below the caller's
 // frame before the stack's limit, or ^uintptr(0) if that is unknown: the
 // limit is unknown, or the caller is running neither on the main thread's
-// stack nor on a puroutine's (whose limit is its guard page). Deeply
+// stack nor on a task's (whose limit is its guard page). Deeply
 // recursive code (a type checker walking nested types) calls it to stop
 // with an error before it overflows the stack:
 //

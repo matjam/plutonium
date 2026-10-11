@@ -1,12 +1,12 @@
-$DIR/main.p:6:8: a function literal that captures variables cannot be started with go: out lives in the starting frame, which may be gone before the puroutine runs (spec section 12.12); pass them as arguments instead: go func(out chan int, i int) {...}(out, i)
+$DIR/main.p:6:8: a function literal that captures variables cannot be started with a task statement: out lives in the starting frame, which may be gone before the task runs (spec section 12.12); pass them as arguments instead: task func(out chan int, i int) {...}(out, i)
     A function literal that uses variables of the function around it reaches
-    them in that function's stack frame. A go statement may start it after that
-    function has returned, when the frame is gone.
+    them in that function's stack frame. A task statement may start it after
+    that function has returned, when the frame is gone.
     Start the literal with a sync.Scope instead: s.Task(func() {...}) waits for
     it before s's block ends, so it may use the function's variables, a Mutex or
     a WaitGroup among them. Or pass the values the literal needs as arguments:
-    they are copied when the go statement runs. Do not pass a Mutex, a WaitGroup
-    or another sync type this way, since the copy is a different one.
+    they are copied when the task statement runs. Do not pass a Mutex, a
+    WaitGroup or another sync type this way, since the copy is a different one.
     Go moves captured variables to the heap. Plutonium never allocates behind
     the program's back, so captured variables stay in their frame (spec section
     11.5).
@@ -19,8 +19,8 @@ $DIR/main.p:6:8: a function literal that captures variables cannot be started wi
     (see "Task statements" in the Plutonium spec, section 12.12)
     (run "pluto explain E2590" for a longer explanation)
 
-$DIR/main.p:10:2: go with the built-in println is not supported; start a function that calls it
-    A go statement cannot start a built-in function such as println or close
+$DIR/main.p:10:2: task with the built-in println is not supported; start a function that calls it
+    A task statement cannot start a built-in function such as println or close
     directly. Wrap it in a function and start that.
     (see "Task statements" in the Plutonium spec, section 12.12)
     (run "pluto explain E2591" for a longer explanation)

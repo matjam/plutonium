@@ -160,10 +160,10 @@ func TestTraceStackOverflow(t *testing.T) {
 	}
 }
 
-// TestTracePuroutineOverflow checks that a puroutine that runs into the
+// TestTraceTaskOverflow checks that a task that runs into the
 // guard page below its stack, on a worker thread with its own signal
-// stack, is reported as a stack overflow with the puroutine's trace.
-func TestTracePuroutineOverflow(t *testing.T) {
+// stack, is reported as a stack overflow with the task's trace.
+func TestTraceTaskOverflow(t *testing.T) {
 	testguard.Parallel(t)
 	src := `package main
 
@@ -196,7 +196,7 @@ func main() {
 		ok := status == 2 && len(lines) > 10 &&
 			lines[0] == "panic: runtime error: stack overflow" &&
 			strings.HasPrefix(lines[1], "[signal SIGSEGV") &&
-			lines[2] == "puroutine 2:" &&
+			lines[2] == "task 2:" &&
 			strings.HasPrefix(lines[3], frame) &&
 			lines[len(lines)-1] == "    main.run (./main.p:14)"
 		if !ok {

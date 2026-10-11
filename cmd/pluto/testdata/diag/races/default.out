@@ -1,16 +1,16 @@
-$DIR/main.p:9:2: hits is written here with no lock that guards it, while another puroutine may use it
-    hits is written at main.p:9 in handle by the puroutine started by go handle
-    at main.p:41 with no lock held, and another puroutine started there writes
-    it at main.p:9 in handle. Two puroutines may run these at the same time, one
-    of them writing, which is a data race: the other may see a value half
-    written, or lose an update.
+$DIR/main.p:9:2: hits is written here with no lock that guards it, while another task may use it
+    hits is written at main.p:9 in handle by the task started by task handle at
+    main.p:41 with no lock held, and another task started there writes it at
+    main.p:9 in handle. Two tasks may run these at the same time, one of them
+    writing, which is a data race: the other may see a value half written, or
+    lose an update.
     The compiler infers which lock guards shared data from the locks held where
     it is written: a lock that every write holds. Here no one lock is held at
     every write.
     Go leaves data races to a run-time detector that a program must be run
-    under, and a racing Go program can see values half written. Plutonium
-    puroutines run in parallel with no such detector, so safe code must be free
-    of data races, and the compiler checks it from the program itself, with no
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
     annotations.
     Hold one sync.Mutex at every access, writes and reads (a sync.RWMutex's
     RLock is enough for reads):
@@ -22,42 +22,41 @@ $DIR/main.p:9:2: hits is written here with no lock that guards it, while another
     (see "Data race freedom" in the Plutonium spec, section 19.3)
     (run "pluto explain E3502" for a longer explanation)
 
-$DIR/main.p:44:2: &counter is a view of Counter that may change while another puroutine uses it, so it cannot be passed to a new puroutine
-    The argument &counter of go bump gives another puroutine &counter, a
-    *Counter: after this, both puroutines can reach the same Counter. It points
-    to the package variable counter, which is written at main.p:34 while
-    puroutines run. A Counter is changed through a pointer at main.p:34 (its
-    field n, in bump) without a lock of the same Counter held, so the compiler
-    cannot tell that this one stays the same while the other puroutine uses it.
-    A view may cross to another puroutine only if what it points to cannot
-    change while both may use it, or every change is synchronized: a package
-    variable that is not written once puroutines run, a struct whose fields are
-    never changed once it is shared or are used only under a lock of the same
-    struct or atomically, memory of a pluto/sync type, or the object of a
-    synced[T].
+$DIR/main.p:44:2: &counter is a view of Counter that may change while another task uses it, so it cannot be passed to a new task
+    The argument &counter of task bump gives another task &counter, a *Counter:
+    after this, both tasks can reach the same Counter. It points to the package
+    variable counter, which is written at main.p:34 while tasks run. A Counter
+    is changed through a pointer at main.p:34 (its field n, in bump) without a
+    lock of the same Counter held, so the compiler cannot tell that this one
+    stays the same while the other task uses it.
+    A view may cross to another task only if what it points to cannot change
+    while both may use it, or every change is synchronized: a package variable
+    that is not written once tasks run, a struct whose fields are never changed
+    once it is shared or are used only under a lock of the same struct or
+    atomically, memory of a pluto/sync type, or the object of a synced[T].
     Go leaves data races to a run-time detector that a program must be run
-    under, and a racing Go program can see values half written. Plutonium
-    puroutines run in parallel with no such detector, so safe code must be free
-    of data races, and the compiler checks it from the program itself, with no
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
     annotations.
     Pass a copy of the value instead of a pointer to it, or move an owner (such
-    as a vec.Vec) to the puroutine so that only it has the memory.
-    To share changing data between puroutines, put it in a synced[T] and hold a
+    as a vec.Vec) to the task so that only it has the memory.
+    To share changing data between tasks, put it in a synced[T] and hold a
     sync.Mutex in it at every access, or use a package variable guarded by a
     lock.
     (see "Data race freedom" in the Plutonium spec, section 19.3)
     (run "pluto explain E3501" for a longer explanation)
 
 $DIR/main.p:48:10: count is read here without holding mu, which guards it
-    Every write to count that another puroutine may run at the same time holds
-    mu: main.p:22 in add (the puroutine started by go add at main.p:42). So the
+    Every write to count that another task may run at the same time holds mu:
+    main.p:22 in add (the task started by task add at main.p:42). So the
     compiler infers that mu guards count, and every read must hold it too: a
     read without it may run while a write is half done.
-    Here the main puroutine reads it at main.p:48 in main with no lock held.
+    Here the main task reads it at main.p:48 in main with no lock held.
     Go leaves data races to a run-time detector that a program must be run
-    under, and a racing Go program can see values half written. Plutonium
-    puroutines run in parallel with no such detector, so safe code must be free
-    of data races, and the compiler checks it from the program itself, with no
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
     annotations.
     Hold the lock while reading:
         mu.Lock()

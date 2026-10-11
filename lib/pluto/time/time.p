@@ -14,12 +14,12 @@
 //     Timer or Ticker they return is freed with alloc.Free. A timer's
 //     channel owns the timer, which stops when the last reference to the
 //     channel goes: After and Tick need no freeing.
-//   - AfterFunc's function must not capture variables, as with a go
-//     statement: it runs on a puroutine of its own after the caller's
+//   - AfterFunc's function must not capture variables, as with a task
+//     statement: it runs on a task of its own after the caller's
 //     frame may be gone.
 //
-// Sleep and the timers park puroutines on the scheduler's timers (rt.Timer,
-// rt.ParkUntil): a sleeping puroutine holds no thread. They work in hosted
+// Sleep and the timers park tasks on the scheduler's timers (rt.Timer,
+// rt.ParkUntil): a sleeping task holds no thread. They work in hosted
 // builds and in freestanding ones whose scheduler provides a clock (abi.md
 // section 12.9). Now, Since and Until read the wall clock and exist in
 // hosted builds only (time_linux.p); in freestanding builds the times that

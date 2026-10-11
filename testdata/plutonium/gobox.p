@@ -1,10 +1,10 @@
 package main
 
-// go p.Serve() on a box (language spec section 4.7): the new puroutine
-// takes the box itself. An owned[T] moves into it, so the puroutine owns
+// task p.Serve() on a box (language spec section 4.7): the new task
+// takes the box itself. An owned[T] moves into it, so the task owns
 // the object and drops it when the method returns; a synced[T] is counted
 // for it, so the object lives until the last reference is gone, whichever
-// puroutine holds it last. A shared[T] cannot cross puroutines (see
+// task holds it last. A shared[T] cannot cross tasks (see
 // cmd/pluto/testdata/diag/gobox_shared.p). Every Drop reports on a wait
 // group, so main can wait for it; the program also runs under the debug
 // allocator, which fails on a leak, with one, two and many processors.
@@ -15,7 +15,7 @@ import (
 	"pluto/sync"
 )
 
-// mu guards hits, which the puroutines holding a synced Server change.
+// mu guards hits, which the tasks holding a synced Server change.
 type Server owner struct {
 	name string
 	mu   sync.Mutex
@@ -45,7 +45,7 @@ func (s *Server) Add(n int) {
 	served.Done()
 }
 
-// Leave ends its puroutine with rt.Goexit: the box is dropped (or released)
+// Leave ends its task with rt.Goexit: the box is dropped (or released)
 // all the same.
 func (s *Server) Leave() {
 	println("leave", s.name)
@@ -75,7 +75,7 @@ func expect() {
 }
 
 func main() {
-	// An owned box moves into the puroutine, which drops it.
+	// An owned box moves into the task, which drops it.
 	p := newServer("owned")
 	expect()
 	task p.Serve()
@@ -88,14 +88,14 @@ func main() {
 	served.Wait()
 	dropped.Wait()
 
-	// The puroutine drops the box even when the method ends it with Goexit.
+	// The task drops the box even when the method ends it with Goexit.
 	q := newServer("owned-leave")
 	expect()
 	task q.Leave()
 	served.Wait()
 	dropped.Wait()
 
-	// A synced box is counted for each puroutine: main keeps its own
+	// A synced box is counted for each task: main keeps its own
 	// reference, and the object is dropped when the last one goes.
 	y := alloc.Synced[Server]()
 	y.name = "synced"
@@ -129,8 +129,8 @@ func main() {
 	dropped.Wait()
 
 	// Drop reports before the memory is freed, and nothing in the program
-	// follows the puroutine's own release: main's return waits for a drop
-	// another puroutine has begun (language spec section 15.4), so the
+	// follows the task's own release: main's return waits for a drop
+	// another task has begun (language spec section 15.4), so the
 	// leak check at exit sees the box freed.
 	println("end")
 }

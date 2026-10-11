@@ -136,7 +136,7 @@ func (w *frameWalk) name() string {
 }
 
 // bottom reports whether the current frame is the first of the main
-// thread's stack or of a puroutine's.
+// thread's stack or of a task's.
 func (w *frameWalk) bottom() bool {
 	name := w.name()
 	return name == "pluto.main" || name == "pluto/rt.start" || name == "pluto/rt.taskMain"

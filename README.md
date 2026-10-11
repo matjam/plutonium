@@ -76,7 +76,7 @@ Interfaces are partially supported today (compile-time dispatch for non-empty in
 | `new(T, a)`, `make([]T, n, a)` | `new` and `make` allocate from the default allocator or one passed last |
 | `bits[V]` lens | Zero-cost bit-addressing over existing variables (Set/Clear/Test/Toggle) |
 | `owner` types | Values that move instead of copying and are dropped automatically at the end of their scope |
-| `owned[T]`, `shared[T]`, `synced[T]`, `weak[P]` | A heap box, single-puroutine and atomic reference counts, and weak back references |
+| `owned[T]`, `shared[T]`, `synced[T]`, `weak[P]` | A heap box, single-task and atomic reference counts, and weak back references |
 | `any` tagged union | 16-byte `{typeID, data}` struct for type-safe variadic arguments |
 | `unsafe` package | `Sizeof`, `Alignof`, pointer casts -- typed, not opaque |
 
@@ -86,7 +86,7 @@ The compiler enforces kernel safety at compile time:
 
 | Forbidden construct | Reason |
 |---|---|
-| `go f()` | No scheduler |
+| `task f()` | No scheduler |
 | `chan T` | No scheduler |
 | `select {}` | No scheduler |
 | `map[K]V` | Requires GC; use `pluto/hash` |

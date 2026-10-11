@@ -6,7 +6,7 @@ import "unsafe"
 // Tasks and the scheduler contract (language spec section 19.5, abi.md
 // section 12).
 //
-// A puroutine is a task. The runtime provides the mechanism: the Task
+// The runtime provides the mechanism: the Task
 // record every task carries, the context switch, parking with a per-task
 // permit so that no wakeup is lost, preemption, and channels and pluto/sync
 // built only on Park and Ready. A Scheduler, the backend, provides the
@@ -18,16 +18,16 @@ import "unsafe"
 // compiler generates the sched* hooks below to call its methods directly.
 // Hosted builds bind the work-stealing backend in sched_linux.p unless the
 // program binds its own; a freestanding program, such as a kernel, that
-// starts puroutines or uses channels without binding one fails to build.
+// starts tasks or uses channels without binding one fails to build.
 
-// DefaultStackSize is the stack size of a puroutine started by a go
+// DefaultStackSize is the stack size of a task started by a task
 // statement whose stack the compiler could not compute, in builds whose
 // scheduler cannot reserve a large stack lazily: kernels and programs that
 // bind their own backend (language spec section 19.1).
 const DefaultStackSize = 64 << 10
 
 // HostedStackSize is the address space the hosted backend reserves for
-// such a puroutine's stack, committed as the stack grows into it, with a
+// such a task's stack, committed as the stack grows into it, with a
 // guard region below. An address-space limit (RLIMIT_AS, ulimit -v) that
 // the reservations do not fit in makes them smaller, down to
 // DefaultStackSize.
@@ -67,7 +67,7 @@ const (
 	wakeParked  = 2 // switched out in Park: Ready hands it to the backend
 )
 
-// A Task is the runtime's record of a puroutine. The backend allocates it,
+// A Task is the runtime's record of a task. The backend allocates it,
 // embedded at offset 0 of its own task record, together with the stack
 // (Scheduler.NewTask); the runtime owns every field. Backends keep track of
 // tasks through their own records, or through Link and Data.
@@ -152,7 +152,7 @@ type StackRequest struct {
 	// (where the backend can make one) turns an overflow into a fault.
 	Size   uintptr
 	Proven bool
-	// Unsized is set for a go statement whose stack the compiler could
+	// Unsized is set for a task statement whose stack the compiler could
 	// not compute (recursion, or calls it cannot follow): Size is then
 	// DefaultStackSize. A backend that can reserve address space and
 	// commit it as it is touched gives such a task a large stack instead:
@@ -271,7 +271,7 @@ func mainReturned() {
 
 // startTasks starts the backend and adopts the running code as BootTask,
 // the running task on this processor, the first time a task operation
-// needs it: the first go statement, or the first operation that may park.
+// needs it: the first task statement, or the first operation that may park.
 // A kernel points GS at this processor's per-CPU block before then.
 func startTasks() {
 	if tasking {
@@ -430,7 +430,7 @@ func newContext(top, a1, entry, a2 uintptr) uintptr {
 
 // Pinned returns p unchanged, hidden from the escape analysis (language
 // spec section 18.3). It is for a record in the caller's frame that the
-// caller links into a structure other puroutines reach, such as a wait
+// caller links into a structure other tasks reach, such as a wait
 // queue, while it is parked, and that it unlinks (or has unlinked) before
 // it returns: the frame then outlives every use, which the analysis cannot
 // see. Like the rest of unsafe, the caller takes responsibility for that.
@@ -654,8 +654,8 @@ func preemptPark() uintptr {
 // ----------------------------------------------------------------------------
 // Starting tasks
 
-// Go starts f as a new puroutine with a stack of size bytes (at least
-// MinStackSize), allocated from a. It is the go statement with an explicit
+// Go starts f as a new task with a stack of size bytes (at least
+// MinStackSize), allocated from a. It is the task statement with an explicit
 // stack (language spec section 19.1). f must not capture variables: Go
 // panics if f's closure record lies in the calling task's stack.
 func Go(f func(), size uintptr, a Allocator = DefaultAllocator()) {
@@ -664,15 +664,15 @@ func Go(f func(), size uintptr, a Allocator = DefaultAllocator()) {
 	spawn(rec, nil, 0, 1, StackRequest{Size: size, Alloc: a})
 }
 
-// CheckGoFunc panics as a go statement does if f's closure record lies in
-// the calling task's stack, for a library that starts f on a puroutine
+// CheckGoFunc panics as a task statement does if f's closure record lies in
+// the calling task's stack, for a library that starts f on a task
 // later from another one (time.AfterFunc): a function literal that
 // captures variables, or a method value, made in the caller's frame.
 func CheckGoFunc(f func()) {
 	checkGoFunc(*(*unsafe.Pointer)(unsafe.Pointer(&f)))
 }
 
-// spawnGo implements the go statement: fn is the closure record of a
+// spawnGo implements the task statement: fn is the closure record of a
 // compiler-generated function that takes the address of the argument
 // block, args, which is copied onto the new task's stack. bound is the
 // stack the compiler proved the call needs, or 0 if it could not.
@@ -694,7 +694,7 @@ func checkGoFunc(rec unsafe.Pointer) {
 	}
 	p := uintptr(rec)
 	if p >= getsp() && p < t.stackHi {
-		panicMessage("go of a function value that captures variables or binds a method value: its closure record lives in the starting frame; pass the values as arguments", "", "", "", "")
+		panicMessage("a task started with a function value that captures variables or binds a method value: its closure record lives in the starting frame; pass the values as arguments", "", "", "", "")
 	}
 }
 
@@ -704,15 +704,15 @@ func spawn(fn, args unsafe.Pointer, argSize, argAlign uintptr, req StackRequest)
 
 // spawnFor starts a task counted by the Join j, or by none.
 func spawnFor(j *Join, fn, args unsafe.Pointer, argSize, argAlign uintptr, req StackRequest) {
-	// Once there are puroutines, a string's count may change on another
-	// thread, or in a puroutine that preempts this one between the load
+	// Once there are tasks, a string's count may change on another
+	// thread, or in a task that preempts this one between the load
 	// and the store of a plain increment: counts are atomic from now on
 	// (str.p), whatever the scheduler.
 	SetThreaded()
 	startTasks()
 	checkBlocking()
 	if req.Alloc == nil {
-		panicMessage("no allocator for the puroutine's stack: call alloc.SetDefault", "", "", "", "")
+		panicMessage("no allocator for the task's stack: call alloc.SetDefault", "", "", "", "")
 	}
 	if req.Size < MinStackSize && !req.Proven {
 		req.Size = MinStackSize
@@ -724,7 +724,7 @@ func spawnFor(j *Join, fn, args unsafe.Pointer, argSize, argAlign uintptr, req S
 	req.Size += (argSize + argAlign + 15) &^ 15
 	t := schedNewTask(req)
 	if t == nil {
-		panicMessage("out of memory starting a puroutine", "", "", "", "")
+		panicMessage("out of memory starting a task", "", "", "", "")
 	}
 	argp := (t.stackHi - argSize) &^ (argAlign - 1)
 	if argSize > 0 {

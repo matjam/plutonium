@@ -514,8 +514,8 @@ func TestGDB(t *testing.T) {
 		t.Errorf("gdb backtrace through inlined calls:\n%s", out)
 	}
 
-	// A breakpoint in a puroutine: the backtrace runs through the function
-	// the go statement started and the go statement's own frame, and ends
+	// A breakpoint in a task: the backtrace runs through the function
+	// the task statement started and the task statement's own frame, and ends
 	// cleanly at the runtime's entry, whose call frame information marks
 	// it as the outermost frame.
 	src, err = os.ReadFile(filepath.Join("..", "..", "testdata", "trace", "gopanic.p"))
@@ -536,7 +536,7 @@ func TestGDB(t *testing.T) {
 			`#2 +(0x[0-9a-f]+ in )?main\.main\.go1 \(\) at \./main\.p:18\n` +
 			`#3 +0x[0-9a-f]+ in pluto/rt\.taskMain \(\)`)
 		if !want.Match(out) || strings.Contains(string(out), "Backtrace stopped") || strings.Contains(string(out), "corrupt stack") {
-			t.Errorf("O%d: gdb backtrace of a puroutine:\n%s", level, out)
+			t.Errorf("O%d: gdb backtrace of a task:\n%s", level, out)
 		}
 	}
 

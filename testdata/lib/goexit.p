@@ -1,6 +1,6 @@
 package main
 
-// rt.Goexit ends the calling puroutine after the deferred calls of every
+// rt.Goexit ends the calling task after the deferred calls of every
 // function on it have run, innermost first, however the functions were
 // called: directly, through a func value, an interface, a type parameter
 // or a range-over-func loop. A deferred call that calls Goexit lets the
@@ -100,7 +100,7 @@ func inExpression() {
 	fmt.Println("not reached:", s)
 }
 
-// Set when it is declared: a view another puroutine uses must point to
+// Set when it is declared: a view another task uses must point to
 // memory nothing changes while both may use it.
 var interfaceHalter = halter{"interface"}
 
@@ -110,7 +110,7 @@ func main() {
 	task viaValue(stop)
 	fmt.Println(<-done)
 	// Not halter{...}: the interface would box it in main's frame,
-	// which the puroutine may outlive; a package variable lives on.
+	// which the task may outlive; a package variable lives on.
 	h := &interfaceHalter
 	task viaInterface(h)
 	fmt.Println(<-done)

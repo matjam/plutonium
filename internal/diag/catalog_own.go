@@ -16,7 +16,7 @@ const whyFrame = "Go would move this memory to the heap, and its garbage collect
 // whyRace is why Plutonium rejects data races at compile time.
 const whyScope = "Go keeps the variables a goroutine uses alive with its garbage collector, however long the goroutine runs. Plutonium has none: a variable lives in its function's frame until its block ends. A sync.Scope waits for the tasks it started before its block ends, so they may use the function's variables, and the compiler checks that nothing they use ends or moves first."
 
-const whyRace = "Go leaves data races to a run-time detector that a program must be run under, and a racing Go program can see values half written. Plutonium puroutines run in parallel with no such detector, so safe code must be free of data races, and the compiler checks it from the program itself, with no annotations."
+const whyRace = "Go leaves data races to a run-time detector that a program must be run under, and a racing Go program can see values half written. Plutonium tasks run in parallel with no such detector, so safe code must be free of data races, and the compiler checks it from the program itself, with no annotations."
 
 func init() {
 	register(
@@ -44,7 +44,7 @@ func init() {
 		},
 		&Entry{
 			Code: GoFrameView, Name: "GoFrameView",
-			Text:    "A go statement starts a puroutine that runs on its own, and may still be running after the function that started it returns. A view of that function's frame passed to it could then point at reclaimed memory.\nPass the value itself, which copies it, or moves it if it is an owner. To run a method of an owned or synced box on the new puroutine, start it directly (go p.Serve()): the puroutine then takes the box itself, so there is no view of the frame. To let the new puroutine use the frame, start it with a sync.Scope declared in the function (s.Task(func() {...})), which waits for it before its block ends.",
+			Text:    "A task statement starts a task that runs on its own, and may still be running after the function that started it returns. A view of that function's frame passed to it could then point at reclaimed memory.\nPass the value itself, which copies it, or moves it if it is an owner. To run a method of an owned or synced box on the new task, start it directly (task p.Serve()): the task then takes the box itself, so there is no view of the frame. To let the new task use the frame, start it with a sync.Scope declared in the function (s.Task(func() {...})), which waits for it before its block ends.",
 			Why:     whyFrame,
 			Spec:    pspec("18.3", "Views"),
 			Example: "task handle(&req)",
@@ -124,7 +124,7 @@ func init() {
 		},
 		&Entry{
 			Code: RaceSendView, Name: "RaceSendView",
-			Text:    "A pointer or slice is handed to another puroutine, as an argument of a go statement or a value sent on a channel, but what it points to may change while both puroutines can use it. One puroutine could then read memory the other is writing, which is a data race.\nA view may cross to another puroutine only if what it points to cannot change while both may use it: a package variable that is not written once puroutines run, a struct type that no code changes through a pointer after making it, memory of a pluto/sync type, or the object of a synced[T]. Pass a copy of the value, move an owner such as a vec.Vec, or share the data through a synced[T] whose fields a lock guards.",
+			Text:    "A pointer or slice is handed to another task, as an argument of a task statement or a value sent on a channel, but what it points to may change while both tasks can use it. One task could then read memory the other is writing, which is a data race.\nA view may cross to another task only if what it points to cannot change while both may use it: a package variable that is not written once tasks run, a struct type that no code changes through a pointer after making it, memory of a pluto/sync type, or the object of a synced[T]. Pass a copy of the value, move an owner such as a vec.Vec, or share the data through a synced[T] whose fields a lock guards.",
 			Why:     whyRace,
 			Spec:    pspec("19.3", "Data race freedom"),
 			Example: "func bump(c *Counter, done chan bool) {\n\tc.n++\n\tdone <- true\n}\n\nc := new(Counter)\ntask bump(c, done)",
@@ -132,15 +132,15 @@ func init() {
 		},
 		&Entry{
 			Code: RaceNoLock, Name: "RaceNoLock",
-			Text:    "Data that several puroutines use is written without a lock that guards it: a package variable written by code more than one puroutine runs, or a field of a synced[T] object. Two puroutines could write it, or one write it while another reads it, at the same time.\nThe compiler infers which lock guards the data from the locks held where it is written: a sync.Mutex (or the write lock of a sync.RWMutex) that every write holds. Hold the same lock at every write and every read, or use an atomic type from pluto/sync/atomic.",
+			Text:    "Data that several tasks use is written without a lock that guards it: a package variable written by code more than one task runs, or a field of a synced[T] object. Two tasks could write it, or one write it while another reads it, at the same time.\nThe compiler infers which lock guards the data from the locks held where it is written: a sync.Mutex (or the write lock of a sync.RWMutex) that every write holds. Hold the same lock at every write and every read, or use an atomic type from pluto/sync/atomic.",
 			Why:     whyRace,
 			Spec:    pspec("19.3", "Data race freedom"),
-			Example: "var hits int\n\nfunc handle() {\n\thits++\n}\n\n// started with go handle() from several places",
+			Example: "var hits int\n\nfunc handle() {\n\thits++\n}\n\n// started with task handle() from several places",
 			Fixed:   "var (\n\tmu   sync.Mutex\n\thits int\n)\n\nfunc handle() {\n\tmu.Lock()\n\thits++\n\tmu.Unlock()\n}",
 		},
 		&Entry{
 			Code: RaceUnguarded, Name: "RaceUnguarded",
-			Text:    "Data that several puroutines use is read without the lock that guards it. Every write to it holds the same lock, so the compiler infers that the lock guards it, and every read must hold it too: a read without it may run while a write is half done.\nHold the lock (a sync.RWMutex's RLock is enough) around the read. If the writes use atomic operations, read it with an atomic operation too.",
+			Text:    "Data that several tasks use is read without the lock that guards it. Every write to it holds the same lock, so the compiler infers that the lock guards it, and every read must hold it too: a read without it may run while a write is half done.\nHold the lock (a sync.RWMutex's RLock is enough) around the read. If the writes use atomic operations, read it with an atomic operation too.",
 			Why:     whyRace,
 			Spec:    pspec("19.3", "Data race freedom"),
 			Example: "wg.Wait()\nprintln(counter)",

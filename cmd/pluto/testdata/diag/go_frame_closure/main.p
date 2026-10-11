@@ -25,7 +25,7 @@ func main() {
 
 	task run(func() { n++ }, done)
 
-	// Not reported: assigned twice, so only the go statement can tell.
+	// Not reported: assigned twice, so only the task statement can tell.
 	maybe := func() {}
 	maybe = func() { n-- }
 	task run(maybe, done)

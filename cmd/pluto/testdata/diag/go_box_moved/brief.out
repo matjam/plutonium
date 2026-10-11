@@ -1,1 +1,1 @@
-$DIR/main.p:13:10: p was moved to the puroutine started by go p.Serve() at line 12, so it can no longer be used here
+$DIR/main.p:13:10: p was moved to the task started by task p.Serve() at line 12, so it can no longer be used here

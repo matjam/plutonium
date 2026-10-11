@@ -5,9 +5,9 @@ $DIR/main.p:15:19: the tasks started at main.p:15 may write the same element of 
     a window such as x[i*k:(i+1)*k] or x[i:i+k], where i is the variable of the
     loop that starts them (each task takes its own i), or for x[:m] and x[m:].
     Go leaves data races to a run-time detector that a program must be run
-    under, and a racing Go program can see values half written. Plutonium
-    puroutines run in parallel with no such detector, so safe code must be free
-    of data races, and the compiler checks it from the program itself, with no
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
     annotations.
     Index by the loop variable:
         s.Task(func() { out[i] = f(i) })
@@ -24,9 +24,9 @@ $DIR/main.p:26:9: results[0] is read here while the task started at main.p:24 ma
     main.p:26 in first, so the two may run at the same time, one of them
     writing: a data race.
     Go leaves data races to a run-time detector that a program must be run
-    under, and a racing Go program can see values half written. Plutonium
-    puroutines run in parallel with no such detector, so safe code must be free
-    of data races, and the compiler checks it from the program itself, with no
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
     annotations.
     Wait for the tasks before using results[0]:
         s.Wait()
@@ -43,9 +43,9 @@ $DIR/main.p:34:19: total is written by the tasks started at main.p:34 at the sam
     tasks using one place at once, one of them writing, is a data race: an
     update can be lost, and a value larger than a word can be read half written.
     Go leaves data races to a run-time detector that a program must be run
-    under, and a racing Go program can see values half written. Plutonium
-    puroutines run in parallel with no such detector, so safe code must be free
-    of data races, and the compiler checks it from the program itself, with no
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
     annotations.
     Lock a mutex around every use of total:
         mu.Lock()
@@ -94,9 +94,9 @@ $DIR/main.p:80:36: Map calls f from several tasks at once, and the function lite
     passed here writes calls at main.p:80 with no lock held, so the calls would
     write it at the same time: a data race.
     Go leaves data races to a run-time detector that a program must be run
-    under, and a racing Go program can see values half written. Plutonium
-    puroutines run in parallel with no such detector, so safe code must be free
-    of data races, and the compiler checks it from the program itself, with no
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
     annotations.
     Use an atomic type for it, or lock a mutex around the write:
         mu.Lock()

@@ -12,9 +12,9 @@ freestanding: no panic handler is defined
     (see "Panics in freestanding programs" in the Plutonium spec, section 17.4)
     (run "pluto explain E2580" for a longer explanation)
 
-$DIR/main.p:1:1: this program starts puroutines, uses channels or waits in pluto/sync, so it needs a scheduler, and none is bound: mark a package-level variable whose type implements rt.Scheduler with //pu:scheduler (language spec section 19.5; hosted builds bind one by default)
-    This program starts puroutines, uses channels or waits in pluto/sync, so it
-    needs a scheduler, and none is bound. Hosted builds bind one by default; a
+$DIR/main.p:1:1: this program starts tasks, uses channels or waits in pluto/sync, so it needs a scheduler, and none is bound: mark a package-level variable whose type implements rt.Scheduler with //pu:scheduler (language spec section 19.5; hosted builds bind one by default)
+    This program starts tasks, uses channels or waits in pluto/sync, so it needs
+    a scheduler, and none is bound. Hosted builds bind one by default; a
     freestanding program, such as a kernel, provides its own: a package-level
     variable marked //pu:scheduler whose type implements rt.Scheduler.
     Plutonium carries a scheduler only in programs that ask for one, and a

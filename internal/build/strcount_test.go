@@ -15,7 +15,7 @@ import (
 // counted strings (language spec section 18.8) with the debug allocator and
 // its leak report on, at -O0 and -O2: every string they make must be freed
 // exactly once, through copies, struct fields, arrays, slices, interface
-// boxes, closures, deferred calls, containers, puroutines, channels, range
+// boxes, closures, deferred calls, containers, tasks, channels, range
 // over functions and every way out of a scope.
 func TestStringsLeakFree(t *testing.T) {
 	testguard.Parallel(t)

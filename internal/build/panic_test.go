@@ -165,7 +165,7 @@ func main() {
 }
 
 // TestHostedPanicConsolePipe checks that the runtime's own console output
-// does not reach the poller: a program with a pipe, puroutines (so the
+// does not reach the poller: a program with a pipe, tasks (so the
 // hosted scheduler's Wake is checked) and a File converted to rt.Writer
 // builds, with a panic handler that prints through rt.Console. print,
 // println and Panic.Print with a Console call Console.Write directly

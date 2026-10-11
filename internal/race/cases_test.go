@@ -27,8 +27,8 @@ func main() {
 	for i := 0; i < 4; i++ {
 		<-done
 	}
-}`, []string{"main.p:5:2: hits is written here with no lock that guards it, while another puroutine may use it",
-		"hits is written at main.p:5 in handle by the puroutine started by go handle at main.p:12 with no lock held, and another puroutine started there writes it at main.p:5 in handle.",
+}`, []string{"main.p:5:2: hits is written here with no lock that guards it, while another task may use it",
+		"hits is written at main.p:5 in handle by the task started by task handle at main.p:12 with no lock held, and another task started there writes it at main.p:5 in handle.",
 		"E3502"}},
 
 	{"read without the inferred lock", `
@@ -54,8 +54,8 @@ func main() {
 	wg.Wait()
 	println(count)
 }`, []string{"main.p:22:10: count is read here without holding mu, which guards it",
-		"Every write to count that another puroutine may run at the same time holds mu: main.p:12 in add",
-		"Here the main puroutine reads it at main.p:22 in main with no lock held.", "mu.Lock()\n", "E3503"}},
+		"Every write to count that another task may run at the same time holds mu: main.p:12 in add",
+		"Here the main task reads it at main.p:22 in main with no lock held.", "mu.Lock()\n", "E3503"}},
 
 	{"write under a read lock", `
 import "pluto/sync"
@@ -188,7 +188,7 @@ func main() {
 	<-done
 	<-done
 	println(hits)
-}`, []string{"hits is read here without an atomic operation, but other puroutines change it with atomic operations"}},
+}`, []string{"hits is read here without an atomic operation, but other tasks change it with atomic operations"}},
 
 	{"view of changing memory to go", `
 type Counter struct{ n int }
@@ -206,8 +206,8 @@ func main() {
 	task bump(&counter, done)
 	<-done
 	<-done
-}`, []string{"main.p:13:2: &counter is a view of Counter that may change while another puroutine uses it, so it cannot be passed to a new puroutine",
-		"It points to the package variable counter, which is written at main.p:7 while puroutines run.",
+}`, []string{"main.p:13:2: &counter is a view of Counter that may change while another task uses it, so it cannot be passed to a new task",
+		"It points to the package variable counter, which is written at main.p:7 while tasks run.",
 		"A Counter is changed through a pointer at main.p:7 (its field n, in bump) without a lock of the same Counter held", "E3501"}},
 
 	{"object read without its own mutex", `
@@ -238,7 +238,7 @@ func main() {
 	task work(&c, done)
 	<-done
 	println(c.Peek())
-}`, []string{"main.p:26:2: &c is a view of Counter that may change while another puroutine uses it",
+}`, []string{"main.p:26:2: &c is a view of Counter that may change while another task uses it",
 		"Its field n is changed at main.p:11 (in (*Counter).Add) and read at main.p:15 (in (*Counter).Peek) without a lock that every change holds."}},
 
 	{"view sent on a channel", `
@@ -259,8 +259,8 @@ func main() {
 func show(ch chan *Job, done chan bool) {
 	println((<-ch).id)
 	done <- true
-}`, []string{"main.p:11:5: &job is a view of Job that may change while another puroutine uses it, so it cannot be sent on a channel",
-		"It points to the package variable job, which is written at main.p:10 while puroutines run."}},
+}`, []string{"main.p:11:5: &job is a view of Job that may change while another task uses it, so it cannot be sent on a channel",
+		"It points to the package variable job, which is written at main.p:10 while tasks run."}},
 
 	{"slice of a changing array", `
 func sum(xs []int, out chan int) {
@@ -277,7 +277,7 @@ func main() {
 	task sum(xs, out)
 	xs[0] = 5
 	println(<-out)
-}`, []string{"xs is a view of int that may change while another puroutine uses it"}},
+}`, []string{"xs is a view of int that may change while another task uses it"}},
 
 	{"view of a package variable written later", `
 type Config struct{ limit int }
@@ -294,7 +294,7 @@ func main() {
 	task show(&cfg, done)
 	cfg.limit = 3
 	<-done
-}`, []string{"&cfg is a view of Config", "It points to the package variable cfg, which is written at main.p:14 while puroutines run."}},
+}`, []string{"&cfg is a view of Config", "It points to the package variable cfg, which is written at main.p:14 while tasks run."}},
 
 	{"interface holding a changing pointer", `
 type T struct{ n int }
@@ -390,7 +390,7 @@ func main() {
 		wg.Task(bump)
 	}
 	wg.Wait()
-}`, []string{"main.p:9:15: n is written here with no lock that guards it", "n is written at main.p:9 in bump by the puroutine started by a call of sync.(*WaitGroup).Task at main.p:13 with no lock held"}},
+}`, []string{"main.p:9:15: n is written here with no lock that guards it", "n is written at main.p:9 in bump by the task started by a call of sync.(*WaitGroup).Task at main.p:13 with no lock held"}},
 }
 
 // Programs that are free of races: each must pass.

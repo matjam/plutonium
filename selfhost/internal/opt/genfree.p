@@ -112,7 +112,7 @@ var genResetFuncs = map[string]bool{
 
 // genQuietAsm are the runtime's assembly functions that neither free nor
 // synchronize with another task: they read the thread's registers, or
-// count what only the running puroutine reads (lib/pluto/rt/*_amd64.s).
+// count what only the running task reads (lib/pluto/rt/*_amd64.s).
 var genQuietAsm = map[string]bool{
 	"pluto/rt.getg":           true,
 	"pluto/rt.getm":           true,

@@ -1,7 +1,7 @@
 package main
 
-// A deadlock prints the stack of every parked puroutine, with what it waits
-// for, in the order the puroutines were started. The frames of the runtime
+// A deadlock prints the stack of every parked task, with what it waits
+// for, in the order the tasks were started. The frames of the runtime
 // that park it are left out.
 
 func receive(c chan int) int {

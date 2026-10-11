@@ -34,8 +34,8 @@ func AllocSite() uintptr {
 }
 
 // StackSite is the site AllocSite reports while the runtime allocates a
-// puroutine's stack. Such memory belongs to the runtime, which frees it
-// when the puroutine ends; leak reports leave it out.
+// task's stack. Such memory belongs to the runtime, which frees it
+// when the task ends; leak reports leave it out.
 const StackSite = 1
 
 // SetAllocSite publishes pc as the site of the allocation or free about to

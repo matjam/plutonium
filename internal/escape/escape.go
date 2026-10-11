@@ -8,7 +8,7 @@
 // rejects every program in which such a pointer could be used after that:
 // returned, stored in a package variable or in memory that may be on the
 // heap, stored through a pointer the caller supplied, sent on a channel or
-// handed to a go statement.
+// handed to a task statement.
 //
 // It also rejects keeping a view of a loop's variables where the next
 // iteration can see it: every iteration reuses the same frame memory for

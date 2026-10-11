@@ -4,7 +4,7 @@
 
 // Adapted from Go's test/chan/nonblock.go for the common subset of Go and
 // Plutonium: sleep is a short busy wait, during which other processors
-// steal the waiting puroutine (and on one processor, preemption lets it
+// steal the waiting task (and on one processor, preemption lets it
 // run), instead of a time.Tick and runtime.Gosched; and the test prints a
 // line when it is done.
 

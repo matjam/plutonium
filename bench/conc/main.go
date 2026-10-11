@@ -1,5 +1,5 @@
 // Concurrency micro-benchmarks, the Go version of pu/main.p: channel
-// ping-pong, buffered channel throughput, puroutine (goroutine) start
+// ping-pong, buffered channel throughput, task (goroutine) start
 // cost, and mutex throughput uncontended and under contention. Each
 // prints nanoseconds per operation.
 package main

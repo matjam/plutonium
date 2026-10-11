@@ -40,7 +40,7 @@ const (
 )
 
 // A SyncSlab is the size-class allocator of Slab made safe for use by
-// several puroutines at once (language spec section 18.9). Each processor of
+// several tasks at once (language spec section 18.9). Each processor of
 // the hosted scheduler (a P, rt.ProcPin) has a cache of free slots per size
 // class, used without locks; the caches refill from, and overflow to,
 // shared free lists behind one runtime lock, which also serve threads that

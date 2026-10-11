@@ -1,12 +1,12 @@
 # Plutonium runtime: asynchronous preemption outside kernel mode.
 #
 # rt.Preempt, called from a signal handler (hosted) or a timer interrupt
-# handler, records the interrupted instruction's address in the puroutine
+# handler, records the interrupted instruction's address in the task
 # and makes the interrupted code resume here instead, with every register as
-# it was. This saves the whole register state on the puroutine's own stack,
+# it was. This saves the whole register state on the task's own stack,
 # yields, and on resumption restores it and returns to the interrupted
 # instruction. Every instruction is a safe point: nothing needs to know
-# where the puroutine stopped.
+# where the task stopped.
 #
 # Layout below the interrupted RSP: 128 bytes of red zone, which C code
 # compiled for hosted builds may use and which is left alone; the resume

@@ -57,10 +57,10 @@ func TestMapsLeakFree(t *testing.T) {
 	}
 }
 
-// TestMapTasks runs the program that shares a map between puroutines under
-// a mutex and hands maps from one puroutine to another on a channel, with
+// TestMapTasks runs the program that shares a map between tasks under
+// a mutex and hands maps from one task to another on a channel, with
 // the debug allocator and its leak report on, at -O0 and -O2, with one, two
-// and many processors: counts turn atomic when the first puroutine starts,
+// and many processors: counts turn atomic when the first task starts,
 // and every map is freed once, by whoever drops the last reference.
 func TestMapTasks(t *testing.T) {
 	testguard.Parallel(t)

@@ -8,7 +8,7 @@ import (
 	"github.com/matjam/plutonium/internal/testguard"
 )
 
-// TestTraceTask checks rt.TraceTask: the trace of a parked puroutine, taken
+// TestTraceTask checks rt.TraceTask: the trace of a parked task, taken
 // from another, with the runtime's frames left out, and the wait reason.
 func TestTraceTask(t *testing.T) {
 	testguard.Parallel(t)
@@ -25,11 +25,11 @@ import (
 	"pluto/time"
 )
 
-// Each puroutine sends its task record to main, which waits for both to
+// Each task sends its task record to main, which waits for both to
 // park.
 
-// inner and blocked are named in the trace of the puroutine parked in
-// inner, with the go statement's function at the bottom.
+// inner and blocked are named in the trace of the task parked in
+// inner, with the task statement's function at the bottom.
 func inner(c chan int) {
 	<-c
 }
@@ -65,13 +65,13 @@ func main() {
 }
 
 // Frames of the standard library carry its line numbers, which change as the
-// library does; the deadlock report of puroutines parked in pluto/sync is
+// library does; the deadlock report of tasks parked in pluto/sync is
 // compared with them masked.
 var libLine = regexp.MustCompile(`\((pluto/[a-z/]+\.p):[0-9]+\)`)
 
-// TestDeadlockSync checks the deadlock report for puroutines parked in
+// TestDeadlockSync checks the deadlock report for tasks parked in
 // pluto/sync, at -O0 and -O2, where inlining changes which frames the
-// library's functions appear in: the same puroutines, reasons and program
+// library's functions appear in: the same tasks, reasons and program
 // frames.
 func TestDeadlockSync(t *testing.T) {
 	testguard.Parallel(t)
@@ -119,30 +119,30 @@ func main() {
 		prog := buildConc(t, src, build.Config{OptLevel: level})
 		got, status := runConc(t, prog)
 		got = libLine.ReplaceAllString(got, "($1:N)")
-		const want = `fatal error: all puroutines are asleep - deadlock!
+		const want = `fatal error: all tasks are asleep - deadlock!
 
-puroutine 1 [sync.WaitGroup.Wait]:
+task 1 [sync.WaitGroup.Wait]:
     pluto/sync.(*WaitGroup).Wait (pluto/sync/waitgroup.p:N)
     main.main (./main.p:38)
 
-puroutine 2 [sync.Mutex.Lock]:
+task 2 [sync.Mutex.Lock]:
     pluto/sync.(*Mutex).lockSlow (pluto/sync/mutex.p:N)
     pluto/sync.(*Mutex).Lock (pluto/sync/mutex.p:N)
     main.lockTwice (./main.p:13)
     main.main.go1 (./main.p:34)
 
-puroutine 3 [sync.RWMutex.Lock]:
+task 3 [sync.RWMutex.Lock]:
     pluto/sync.(*sema).acquire (pluto/sync/mutex.p:N)
     pluto/sync.(*RWMutex).Lock (pluto/sync/rwmutex.p:N)
     main.readLocked (./main.p:18)
     main.main.go2 (./main.p:35)
 
-puroutine 4 [sync.WaitGroup.Wait]:
+task 4 [sync.WaitGroup.Wait]:
     pluto/sync.(*WaitGroup).Wait (pluto/sync/waitgroup.p:N)
     main.waitGroup (./main.p:22)
     main.main.go3 (./main.p:36)
 
-puroutine 5 [sync.Cond.Wait]:
+task 5 [sync.Cond.Wait]:
     pluto/sync.(*Cond).Wait (pluto/sync/waitgroup.p:N)
     main.condition (./main.p:29)
     main.main.go4 (./main.p:37)

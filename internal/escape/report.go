@@ -24,7 +24,7 @@ const (
 	sinkReturn sinkKind = iota // returned
 	sinkStore                  // stored in memory that outlives the frame
 	sinkCall                   // passed to a function that keeps it
-	sinkGo                     // passed to a go statement
+	sinkGo                     // passed to a task statement
 	sinkSend                   // sent on a channel
 	sinkLoop                   // kept in a variable the next iteration of a loop can see
 )
@@ -474,9 +474,9 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 		a.passFixes(d, e, l, q)
 	case sinkGo:
 		d.Code = diag.GoFrameView
-		d.Msg = fmt.Sprintf("cannot pass %s to a go statement: the new puroutine may outlive %s", x, l.name())
-		add(sentence(about, fmt.Sprintf("The puroutine started here runs on its own, and may still be running after %s returns and %s memory is reclaimed.", e.fn, possessive(l.name()))))
-		a.handOffFixes(d, e, l, "go")
+		d.Msg = fmt.Sprintf("cannot pass %s to a task statement: the new task may outlive %s", x, l.name())
+		add(sentence(about, fmt.Sprintf("The task started here runs on its own, and may still be running after %s returns and %s memory is reclaimed.", e.fn, possessive(l.name()))))
+		a.handOffFixes(d, e, l, "task")
 		if e.call != nil {
 			d.More = append(d.More, &diag.Fix{Intro: fmt.Sprintf("Or start it with a sync.Scope, which waits for its tasks before its block ends, so that they may use %s variables", possessive(e.fn)),
 				Code: fmt.Sprintf("var s sync.Scope\ns.Task(func() { %s })", exprText(e.call))})
@@ -632,7 +632,7 @@ func (a *analyzer) handOffFixes(d *diag.Diagnostic, e *viewErr, l *loc, how stri
 	val := strings.TrimPrefix(exprText(e.expr), "&")
 	code := ""
 	switch how {
-	case "go":
+	case "task":
 		if e.call != nil {
 			var args []string
 			for _, arg := range e.call.Args {
@@ -642,7 +642,7 @@ func (a *analyzer) handOffFixes(d *diag.Diagnostic, e *viewErr, l *loc, how stri
 					args = append(args, exprText(arg))
 				}
 			}
-			code = fmt.Sprintf("go %s(%s)", exprText(e.call.Fun), strings.Join(args, ", "))
+			code = fmt.Sprintf("task %s(%s)", exprText(e.call.Fun), strings.Join(args, ", "))
 		}
 	case "send":
 		code = fmt.Sprintf("%s <- %s", exprText(e.ch), val)

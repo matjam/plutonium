@@ -14,7 +14,7 @@ import (
 // leak report on, at -O0 and -O2, with one, two and many processors: every
 // channel must be freed exactly once, with the values still in its buffer
 // and its timer, through copies, struct fields, containers, channels of
-// channels, puroutine arguments and a time.After in a select loop.
+// channels, task arguments and a time.After in a select loop.
 func TestChannelsLeakFree(t *testing.T) {
 	testguard.Parallel(t)
 	const prog = "lib/chancount"

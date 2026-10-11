@@ -595,7 +595,7 @@ func (t *fileTr) escapeContext(lit *ast.FuncLit) string {
 		case *ast.ReturnStmt:
 			return "returned"
 		case *ast.GoStmt:
-			return "started as a puroutine"
+			return "started as a task"
 		case *ast.KeyValueExpr, *ast.CompositeLit:
 			return "stored in a composite literal"
 		case *ast.CallExpr:

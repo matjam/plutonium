@@ -1196,7 +1196,7 @@ func selfSafe(v, t tok) bool {
 }
 
 // sink records that the pointers in v are kept beyond the frame: sent on a
-// channel, handed to a go statement or to a callee that keeps it. e
+// channel, handed to a task statement or to a callee that keeps it. e
 // describes the sink for an error; its l is filled in for each frame
 // location. act is a format for summary reasons, with %s for what escapes,
 // and tail follows the position: "passes %s to g" and ", which stores it

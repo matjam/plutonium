@@ -34,7 +34,7 @@ func (p *Process) Kill() error { return p.Signal(Kill) }
 
 // Wait waits for the process to exit and returns its state. A process can
 // be waited for once. The wait is announced to the scheduler
-// (rt.EnterSyscall), so other puroutines keep running.
+// (rt.EnterSyscall), so other tasks keep running.
 func (p *Process) Wait() (ProcessState, error) {
 	if p.done {
 		return ProcessState{}, ErrProcessDone

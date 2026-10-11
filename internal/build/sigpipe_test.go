@@ -37,7 +37,7 @@ func main() {
 }
 `},
 		// The signal is raised on the thread that writes, which may be any
-		// worker: write from several puroutines.
+		// worker: write from several tasks.
 		{name: "epipe-workers", want: "epipe 8\n", src: `package main
 
 import (

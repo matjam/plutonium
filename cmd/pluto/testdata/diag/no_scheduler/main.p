@@ -1,6 +1,6 @@
 package main
 
-// A freestanding program that starts a puroutine without binding a
+// A freestanding program that starts a task without binding a
 // scheduler.
 
 func worker(done chan bool) { done <- true }

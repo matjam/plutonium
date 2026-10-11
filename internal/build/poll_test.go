@@ -7,10 +7,10 @@ import (
 )
 
 // TestPoller checks the epoll poller: separate read and write waiters on
-// one descriptor, and Close waking the puroutines parked on it.
+// one descriptor, and Close waking the tasks parked on it.
 func TestPoller(t *testing.T) {
 	runConcCases(t, []concCase{
-		// One end of a socket pair has a puroutine waiting to read and
+		// One end of a socket pair has a task waiting to read and
 		// another waiting to write (the socket buffer is full) at the same
 		// time. A third drains the other end and then answers.
 		{name: "readwrite", want: "drained 4000000\nreply 4\n", src: `package main
@@ -102,7 +102,7 @@ func write(w *os.File, res chan bool) {
 	}
 }
 
-// settle lets the puroutines run until they are parked in the poller.
+// settle lets the tasks run until they are parked in the poller.
 func settle() {
 	for i := 0; i < 10; i++ {
 		rt.Yield()
@@ -149,7 +149,7 @@ func main() {
 	println("later closed", e1 != os.ErrClosed, e2 == os.ErrClosed && r.Close() == os.ErrClosed)
 }
 `},
-		// Many rounds of a puroutine reading while the program closes the
+		// Many rounds of a task reading while the program closes the
 		// file, with and without giving the reader time to park: the
 		// poller's records and the descriptors are reused every round, and
 		// the read must report ErrClosed each time.

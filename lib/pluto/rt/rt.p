@@ -793,7 +793,7 @@ type Allocator interface {
 var defaultAllocator Allocator
 
 // DefaultAllocator returns the current default allocator: the running
-// puroutine's, if it installed one with UseAllocator, otherwise the
+// task's, if it installed one with UseAllocator, otherwise the
 // program-wide default. It returns nil if there is neither.
 func DefaultAllocator() Allocator {
 	if g := current(); g != nil && g.alloc != nil {
@@ -805,11 +805,11 @@ func DefaultAllocator() Allocator {
 // SetDefaultAllocator replaces the program-wide default allocator.
 func SetDefaultAllocator(a Allocator) { defaultAllocator = a }
 
-// UseAllocator makes a the running puroutine's default allocator, in place
+// UseAllocator makes a the running task's default allocator, in place
 // of the program-wide default, and returns the allocator it replaced
-// (nil if the puroutine had none of its own); UseAllocator(prev) restores
-// it. Other puroutines, including those this one starts, are not affected
-// (language spec section 18.9). Outside a puroutine (in a scheduler's own
+// (nil if the task had none of its own); UseAllocator(prev) restores
+// it. Other tasks, including those this one starts, are not affected
+// (language spec section 18.9). Outside a task (in a scheduler's own
 // context) it changes the program-wide default instead.
 func UseAllocator(a Allocator) Allocator {
 	g := current()

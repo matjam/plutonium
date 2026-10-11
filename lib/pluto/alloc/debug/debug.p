@@ -23,7 +23,7 @@
 // Memory returned by Alloc is zeroed, as the Allocator interface promises.
 //
 // An Allocator is not safe for concurrent use. Every exported method takes
-// the allocator's lock first (see lock), which is a no-op until puroutines
+// the allocator's lock first (see lock), which is a no-op until tasks
 // run in parallel.
 package debug
 
@@ -648,8 +648,8 @@ const maxLeakLines = 64
 // It prints nothing when there are none.
 func (d *Allocator) ReportLeaks() int {
 	d.lock()
-	// Puroutine stacks (allocated at rt.StackSite) belong to the runtime,
-	// which frees each when its puroutine ends; one that is still running,
+	// Task stacks (allocated at rt.StackSite) belong to the runtime,
+	// which frees each when its task ends; one that is still running,
 	// or blocked when main returns, is not the program's leak.
 	n, bytes := d.live, d.liveBytes
 	for i := 0; i < d.nrecs; i++ {

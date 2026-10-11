@@ -10,7 +10,7 @@ import "unsafe"
 // One epoll instance and one thread blocked in epoll_wait serve every
 // descriptor. It follows Go's pollDesc: a descriptor is registered once,
 // for reading and writing, with edge-triggered notification; each has a
-// PollDesc that holds the puroutines waiting to read, those waiting to
+// PollDesc that holds the tasks waiting to read, those waiting to
 // write, and whether an event has arrived with nobody waiting. A read and a
 // write may wait at the same time. Closing a descriptor evicts its
 // waiters (PollDesc.Evict).
@@ -51,7 +51,7 @@ var poller struct {
 	until       uint64 // the deadline the poller sleeps until, or NoDeadline while it looks for one
 }
 
-// A pollWaiter lives in the frame of the puroutine it describes, which is
+// A pollWaiter lives in the frame of the task it describes, which is
 // parked while the record is on a queue.
 type pollWaiter struct {
 	g    *Task
@@ -66,8 +66,8 @@ type PollDesc struct {
 	closing    bool
 	rready     bool    // a read event arrived while nobody waited
 	wready     bool    // a write event arrived while nobody waited
-	rq         uintptr // *pollWaiter: puroutines waiting to read
-	wq         uintptr // *pollWaiter: puroutines waiting to write
+	rq         uintptr // *pollWaiter: tasks waiting to read
+	wq         uintptr // *pollWaiter: tasks waiting to write
 	link       *PollDesc
 }
 
@@ -102,7 +102,7 @@ func PollOpen(fd int) *PollDesc {
 }
 
 // Release deregisters the descriptor and returns the record to the free
-// list. No puroutine may be waiting or about to wait on it: pluto/os calls
+// list. No task may be waiting or about to wait on it: pluto/os calls
 // it when the last operation on a closed file has finished.
 func (pd *PollDesc) Release() {
 	pd.lock.Lock()
@@ -123,12 +123,12 @@ func (pd *PollDesc) Release() {
 	pollPool.lock.Unlock()
 }
 
-// Wait parks the running puroutine until the descriptor is ready for
+// Wait parks the running task until the descriptor is ready for
 // reading (or for writing, if write is set) and returns PollReady. It
 // returns at once when an event arrived since the last wait, and the
 // descriptor may still not be ready (the event may be stale): the caller
 // tries its operation again and waits again if it would still block. Any
-// number of puroutines may wait to read and any number to write; an event
+// number of tasks may wait to read and any number to write; an event
 // wakes all those waiting for it. PollClosed is returned if Evict was
 // called, whether before or during the wait; PollUnavailable if there is
 // no poller.
@@ -185,7 +185,7 @@ func (pd *PollDesc) Wait(write bool) int {
 	return PollReady
 }
 
-// Evict wakes every puroutine waiting on the descriptor, and makes this and
+// Evict wakes every task waiting on the descriptor, and makes this and
 // later waits return PollClosed. pluto/os calls it when a file is closed.
 func (pd *PollDesc) Evict() {
 	pd.lock.Lock()
@@ -195,7 +195,7 @@ func (pd *PollDesc) Evict() {
 	pd.lock.Unlock()
 }
 
-// ready records an event from the poller thread: it wakes the puroutines
+// ready records an event from the poller thread: it wakes the tasks
 // waiting for it, or remembers it for the next wait.
 func (pd *PollDesc) ready(read, write bool) {
 	pd.lock.Lock()
@@ -216,9 +216,9 @@ func (pd *PollDesc) ready(read, write bool) {
 	pd.lock.Unlock()
 }
 
-// wakeWaiters readies every puroutine on the queue and empties it. The pd's
+// wakeWaiters readies every task on the queue and empties it. The pd's
 // lock is held. A waiter's record is gone once it runs, so each next
-// pointer is read before its puroutine is readied.
+// pointer is read before its task is readied.
 func wakeWaiters(q *uintptr) {
 	w := (*pollWaiter)(unsafe.Pointer(*q))
 	*q = 0

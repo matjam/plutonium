@@ -165,7 +165,7 @@ func schedHook(fn *types2.Func) (method string, mode hookMode, ok bool) {
 // scheduler is known only once every function it reaches has been lowered,
 // so the hook gets its body then: a call of direct, a function that needs
 // no scheduler, if the program does not start one, otherwise a call of
-// parked. A program that sleeps and does nothing else with puroutines,
+// parked. A program that sleeps and does nothing else with tasks,
 // channels or timers thus links no scheduler thread (language spec section
 // 4.7).
 type lateHook struct {
@@ -210,7 +210,7 @@ func (l *Lowerer) lateHookSym(fn *types2.Func, direct, parked string) *ssa.Sym {
 }
 
 // startsScheduler reports whether the lowered program starts the
-// scheduler: it reaches rt.startTasks, from a go statement, a blocking
+// scheduler: it reaches rt.startTasks, from a task statement, a blocking
 // channel operation or wait, a timer, or the poller.
 func (l *Lowerer) startsScheduler() bool {
 	return l.funcs[funcSymName(l.rtFunc("startTasks"), nil)] != nil
@@ -278,7 +278,7 @@ func (l *Lowerer) schedHookSym(fn *types2.Func, method string, mode hookMode) *s
 	sig := fn.Type().(*types2.Signature)
 	if l.sched == nil && mode != hookOptional && !l.schedMissing {
 		l.schedMissing = true
-		l.errorf(l.prog.Main.Files[0].Package, diag.NoScheduler, "this program starts puroutines, uses channels or waits in pluto/sync, so it needs a scheduler, and none is bound: "+
+		l.errorf(l.prog.Main.Files[0].Package, diag.NoScheduler, "this program starts tasks, uses channels or waits in pluto/sync, so it needs a scheduler, and none is bound: "+
 			"mark a package-level variable whose type implements rt.Scheduler with //pu:scheduler (language spec section 19.5; hosted builds bind one by default)")
 	}
 	if b := l.sched; b != nil && mode == hookTimers && !l.schedNoTimers {

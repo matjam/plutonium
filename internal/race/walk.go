@@ -837,7 +837,7 @@ func (w *walker) cond(e ast.Expr) (t, f *state) {
 
 func (w *walker) taskStmt(st *ast.TaskStmt) {
 	c := st.Call
-	desc := "go " + exprText(c.Fun)
+	desc := "task " + exprText(c.Fun)
 	if tv := w.a.types[c.Fun]; tv.IsBuiltin() || tv.IsType() {
 		w.call(c)
 		return
@@ -850,7 +850,7 @@ func (w *walker) taskStmt(st *ast.TaskStmt) {
 		all = append(all, t.recv)
 		RT := w.typeOf(t.recvExpr)
 		if wr, ok := underlying(RT).(*types2.Wrapper); ok && wr.IsPointer() {
-			// go p.M() on an owned or synced box hands the box itself to the
+			// task p.M() on an owned or synced box hands the box itself to the
 			// task: it moves, or is counted (language spec section 19.2).
 		} else if t.static != nil && len(t.static.params) > 0 && t.static.sig.Recv() != nil {
 			RT = t.static.params[0].Type()

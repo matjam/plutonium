@@ -1,14 +1,14 @@
-$DIR/main.p:13:7: go statement receiver of type shared[Server] is not sendable: a shared reference's count is not atomic, so it cannot cross puroutines; use synced[T] (spec section 19.2)
-    A value that crosses puroutines, as the argument or receiver of a go
-    statement or as the element of a channel, must be sendable. This type holds
-    a shared[T], whose reference count is changed with ordinary arithmetic, so
-    two puroutines copying or dropping references at once would corrupt it.
-    Starting a method of a shared box with go (go z.Serve()) hands the box
-    itself to the new puroutine, so it needs a synced box as well.
+$DIR/main.p:13:7: task statement receiver of type shared[Server] is not sendable: a shared reference's count is not atomic, so it cannot cross tasks; use synced[T] (spec section 19.2)
+    A value that crosses tasks, as the argument or receiver of a task statement
+    or as the element of a channel, must be sendable. This type holds a
+    shared[T], whose reference count is changed with ordinary arithmetic, so two
+    tasks copying or dropping references at once would corrupt it. Starting a
+    method of a shared box with a task statement (task z.Serve()) hands the box
+    itself to the new task, so it needs a synced box as well.
     Use synced[T], which counts atomically.
     Go's garbage collector makes every pointer safe to share. Plutonium counts
     shared references without atomic instructions, which is only correct on one
-    puroutine.
+    task.
     Count the references atomically:
         type Job struct {
             data synced[Buffer]

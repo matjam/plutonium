@@ -906,7 +906,7 @@ var ErrPatternHasSeparator = errors.New("pattern contains path separator")
 
 // Pipe returns a connected pair of Files: reads from r return bytes
 // written to w. The Files are allocated from a, as Open's are. Their
-// descriptors are non-blocking: a puroutine that reads an empty pipe, or
+// descriptors are non-blocking: a task that reads an empty pipe, or
 // writes a full one, parks in the scheduler's poller and leaves its worker
 // free for others (Fd makes them blocking again).
 func Pipe(a alloc.Allocator = alloc.Default()) (r *File, w *File, err error) {

@@ -20,8 +20,8 @@ const (
 	sysExitGroup   = 231
 )
 
-// A hosted program runs on one thread, with no puroutines, until it starts
-// its first puroutine, when the runtime calls SetThreaded; string counts
+// A hosted program runs on one thread, with no tasks, until it starts
+// its first task, when the runtime calls SetThreaded; string counts
 // start with plain arithmetic (str.p).
 const atomicCountsAtStart = false
 
@@ -58,7 +58,7 @@ func mainStackSize() uintptr
 //pu:export
 func start(sp unsafe.Pointer) {
 	argc = *(*int)(sp)
-	bootTask.stackHi = uintptr(sp) // so a go statement can tell a closure in this stack
+	bootTask.stackHi = uintptr(sp) // so a task statement can tell a closure in this stack
 	argv = unsafe.Add(sp, 8)
 	envp = unsafe.Add(sp, 8*(argc+2))
 	initMapSeed()

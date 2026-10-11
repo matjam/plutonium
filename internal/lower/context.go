@@ -18,7 +18,7 @@ import (
 // waits for may be held by the code it interrupted, which cannot run until
 // it returns. checkContexts walks the whole program's call graph from
 // every //pu:interrupt handler and from the panic handler and reports the
-// first path to an operation that may wait or start a puroutine:
+// first path to an operation that may wait or start a task:
 //
 //   - a call of a function marked //pu:blocking, which the walk does not
 //     enter: the runtime's park, which every wait in the library ends in
@@ -27,8 +27,8 @@ import (
 //     kernel's own lock or an assembly routine that waits;
 //   - a channel send or receive outside a select with a default case, a
 //     select without one, or a range over a channel;
-//   - a go statement, or a call of the runtime's spawn, which every way of
-//     starting a puroutine ends in (rt.Go, sync.WaitGroup.Task).
+//   - a task statement, or a call of the runtime's spawn, which every way of
+//     starting a task ends in (rt.Go, sync.WaitGroup.Task).
 //
 // Whether a library function may wait is not marked on it: the walk goes
 // through it to the runtime operation it reaches. Messages name the path
@@ -58,7 +58,7 @@ type callSite struct {
 }
 
 // A funcBody is the source of a lowered function, which the walk scans for
-// channel operations and go statements.
+// channel operations and task statements.
 type funcBody struct {
 	body *ast.BlockStmt
 	info *types2.Info
@@ -69,10 +69,10 @@ type opKind int
 
 const (
 	opWait  opKind = iota // may wait: a lock, a channel, a select
-	opSpawn               // starts a puroutine
+	opSpawn               // starts a task
 )
 
-// A blockOp is a channel operation or go statement in a function's body.
+// A blockOp is a channel operation or task statement in a function's body.
 type blockOp struct {
 	pos  token.Pos
 	what string // "sends on work"
@@ -80,7 +80,7 @@ type blockOp struct {
 }
 
 // blockingOps lists the operations in a function body that may wait or
-// start a puroutine. Function literals are functions of their own.
+// start a task. Function literals are functions of their own.
 func blockingOps(fb funcBody) []blockOp {
 	var ops []blockOp
 	var visit func(n ast.Node) bool
@@ -89,7 +89,7 @@ func blockingOps(fb funcBody) []blockOp {
 		case *ast.FuncLit:
 			return false
 		case *ast.TaskStmt:
-			ops = append(ops, blockOp{n.Pos(), "starts a puroutine", opSpawn})
+			ops = append(ops, blockOp{n.Pos(), "starts a task", opSpawn})
 		case *ast.SendStmt:
 			ops = append(ops, blockOp{n.Pos(), "sends on " + types2.ExprString(n.Chan), opWait})
 		case *ast.UnaryExpr:
@@ -151,7 +151,7 @@ type callGraph struct {
 }
 
 // checkContexts checks that no interrupt handler, and not the panic
-// handler, can reach an operation that waits or starts a puroutine.
+// handler, can reach an operation that waits or starts a task.
 func (l *Lowerer) checkContexts() {
 	g := &callGraph{l: l, funcs: l.funcsBySym(), edges: map[*ssa.Sym][]hop{}, ifaceTargets: map[string][]*ssa.Sym{}}
 	for sym := range l.funcValues {
@@ -222,7 +222,7 @@ type ctxNode struct {
 }
 
 // search walks the calls from root breadth first, not entering skip, and
-// returns the first function found that may wait or start a puroutine,
+// returns the first function found that may wait or start a task,
 // with either the call of the //pu:blocking function it makes (last) or
 // the operation in its body (op).
 func (g *callGraph) search(root, skip *ssa.Sym) (*ctxNode, *hop, *blockOp) {
@@ -331,7 +331,7 @@ func plainSig(sig *types2.Signature) *types2.Signature {
 }
 
 // isSpawn reports whether sym is the runtime's spawn, which starts every
-// puroutine.
+// task.
 func isSpawn(sym *ssa.Sym) bool { return sym.Name == "pluto/rt.spawn" }
 
 // isBlocking reports whether sym is a function marked //pu:blocking.
@@ -434,7 +434,7 @@ func (l *Lowerer) reportContext(g *callGraph, root *ssa.Sym, rl ctxRole, n *ctxN
 	}
 	code, verb := diag.ContextWaits, "wait"
 	if kind == opSpawn {
-		code, verb = diag.ContextSpawns, "start a puroutine"
+		code, verb = diag.ContextSpawns, "start a task"
 	}
 	var why string
 	switch {
@@ -449,7 +449,7 @@ func (l *Lowerer) reportContext(g *callGraph, root *ssa.Sym, rl ctxRole, n *ctxN
 			"can never resume to release it, and the CPU stops."
 	case !isPanic:
 		why = "Interrupt handlers run on top of whatever code the CPU was executing. " +
-			"Starting a puroutine allocates its stack and takes the scheduler's locks, " +
+			"Starting a task allocates its stack and takes the scheduler's locks, " +
 			"which the interrupted code may hold, and then the CPU stops."
 	case kind == opWait:
 		why = "A panic can happen anywhere: in an interrupt handler, or while the code " +
@@ -458,7 +458,7 @@ func (l *Lowerer) reportContext(g *callGraph, root *ssa.Sym, rl ctxRole, n *ctxN
 			"again, and the program hangs instead of reporting the panic."
 	default:
 		why = "A panic can happen anywhere: in an interrupt handler, or while the code " +
-			"that panicked holds a lock. Starting a puroutine allocates and takes the " +
+			"that panicked holds a lock. Starting a task allocates and takes the " +
 			"scheduler's locks, which the code that panicked may hold."
 	}
 	text := why + "\n" + path
@@ -526,7 +526,7 @@ var allocCalls = map[string]bool{
 
 // hopPhrase describes one call of a path, following "which": "calls
 // readConfig (irq.p:5)". final marks the call that waits or starts a
-// puroutine (kind).
+// task (kind).
 func (l *Lowerer) hopPhrase(h *hop, final bool, kind opKind) string {
 	at := l.shortPos(h.pos)
 	var s string
@@ -544,7 +544,7 @@ func (l *Lowerer) hopPhrase(h *hop, final bool, kind opKind) string {
 	}
 	switch {
 	case final && kind == opSpawn:
-		s += ", which starts a puroutine"
+		s += ", which starts a task"
 	case final:
 		s += ", which may wait"
 	}

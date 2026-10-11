@@ -214,13 +214,13 @@ const (
 	mvRecv                        // the receiver of a method with a value receiver
 	mvReturn                      // returned
 	mvSend                        // sent on a channel
-	mvGo                          // passed to a go statement
+	mvGo                          // passed to a task statement
 	mvStore                       // stored in a field, element or composite literal
 	mvDrop                        // m.Drop()
 	mvConv                        // converted to another owner type
 	mvMethodValue                 // bound into a method value
 	mvAssert                      // asserted out of an owning interface
-	mvGoRecv                      // the owned box a go statement calls a method of
+	mvGoRecv                      // the owned box a task statement calls a method of
 	mvTask                        // taken by a scoped task (s.Task)
 )
 

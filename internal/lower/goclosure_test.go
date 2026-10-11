@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// goClosureDecls are declarations the go statement closure tests share.
+// goClosureDecls are declarations the task statement closure tests share.
 const goClosureDecls = `package main
 
 type counter struct{ n int }
@@ -24,9 +24,9 @@ func runAll(fs ...func()) {}
 
 `
 
-// TestGoFrameClosure checks which func values of a go statement the
+// TestGoFrameClosure checks which func values of a task statement the
 // compiler can tell are closure records in the starting frame: those are
-// compile errors, and the rest are left to the check when the go statement
+// compile errors, and the rest are left to the check when the task statement
 // runs.
 func TestGoFrameClosure(t *testing.T) {
 	const code = `(run "pluto explain E2594"`
@@ -34,10 +34,10 @@ func TestGoFrameClosure(t *testing.T) {
 		name, body string
 		want       string // a fragment of the error, or "" for none
 	}{
-		{"var literal", "n := 1\nf := func() { n++ }\ntask f()", "cannot start f with go: it holds a function literal that captures n"},
-		{"var decl", "n := 1\nvar f = func() { n++ }\ntask f()", "cannot start f with go"},
-		{"typed var decl", "n := 1\nvar f func() = func() { n++ }\ntask run(f)", "cannot pass f to a puroutine"},
-		{"chain", "var c counter\nf := c.add\ng := f\ntask g()", "cannot start g with go: it holds the method value c.add"},
+		{"var literal", "n := 1\nf := func() { n++ }\ntask f()", "cannot start f with a task statement: it holds a function literal that captures n"},
+		{"var decl", "n := 1\nvar f = func() { n++ }\ntask f()", "cannot start f with a task statement"},
+		{"typed var decl", "n := 1\nvar f func() = func() { n++ }\ntask run(f)", "cannot pass f to a task"},
+		{"chain", "var c counter\nf := c.add\ng := f\ntask g()", "cannot start g with a task statement: it holds the method value c.add"},
 		{"value receiver", "var c counter\ntask run(func() { _ = c.get() })", "cannot pass a function literal that captures c"},
 		{"variadic", "var c counter\ntask runAll(c.add)", "cannot pass the method value c.add"},
 		{"parenthesized", "var c counter\ntask run((c.add))", "cannot pass the method value c.add"},
@@ -74,11 +74,11 @@ func TestGoFrameClosure(t *testing.T) {
 	}
 }
 
-// TestGoFuncCall checks calls of functions that start puroutines with
+// TestGoFuncCall checks calls of functions that start tasks with
 // their func arguments, the library's and the program's own, which the
-// compiler finds by following the func parameters into go statements and
+// compiler finds by following the func parameters into task statements and
 // into such calls: the arguments the compiler can tell are closure records
-// in the frame are compile errors, as in a go statement, and the rest are
+// in the frame are compile errors, as in a task statement, and the rest are
 // left to the run-time check.
 func TestGoFuncCall(t *testing.T) {
 	const code = `(run "pluto explain E2594"`
@@ -87,15 +87,15 @@ func TestGoFuncCall(t *testing.T) {
 		want       string // a fragment of the error, or "" for none
 	}{
 		{"wait group literal", "var wg sync.WaitGroup\nn := 0\nwg.Task(func() { n++ })", "cannot pass a function literal that captures n"},
-		{"wait group local", "var wg sync.WaitGroup\nn := 0\nf := func() { n++ }\nwg.Task(f)", "cannot pass f to wg.Task, which starts a puroutine with it"},
-		{"pointer receiver", "wg := new(sync.WaitGroup)\nn := 0\nwg.Task(func() { n++ })", "to wg.Task, which starts a puroutine with it"},
+		{"wait group local", "var wg sync.WaitGroup\nn := 0\nf := func() { n++ }\nwg.Task(f)", "cannot pass f to wg.Task, which starts a task with it"},
+		{"pointer receiver", "wg := new(sync.WaitGroup)\nn := 0\nwg.Task(func() { n++ })", "to wg.Task, which starts a task with it"},
 		{"method value", "var c counter\nvar wg sync.WaitGroup\nwg.Task(c.add)", "cannot pass the method value c.add"},
-		{"after func", "n := 0\ntime.AfterFunc(time.Second, func() { n++ })", "to time.AfterFunc, which starts a puroutine with it"},
-		{"rt go", "n := 0\nrt.Go(func() { n++ }, rt.MinStackSize)", "to rt.Go, which starts a puroutine with it"},
-		{"through a function", "n := 0\nstart(func() { n++ })", "to start, which starts a puroutine with it"},
-		{"go statement", "n := 0\nspawn(1, func() { n++ })", "to spawn, which starts a puroutine with it"},
-		{"generic", "n := 0\nspawnT(1, func() { n++ })", "to spawnT, which starts a puroutine with it"},
-		{"through an after func", "n := 0\nlater(func() { n++ })", "to later, which starts a puroutine with it"},
+		{"after func", "n := 0\ntime.AfterFunc(time.Second, func() { n++ })", "to time.AfterFunc, which starts a task with it"},
+		{"rt go", "n := 0\nrt.Go(func() { n++ }, rt.MinStackSize)", "to rt.Go, which starts a task with it"},
+		{"through a function", "n := 0\nstart(func() { n++ })", "to start, which starts a task with it"},
+		{"task statement", "n := 0\nspawn(1, func() { n++ })", "to spawn, which starts a task with it"},
+		{"generic", "n := 0\nspawnT(1, func() { n++ })", "to spawnT, which starts a task with it"},
+		{"through an after func", "n := 0\nlater(func() { n++ })", "to later, which starts a task with it"},
 
 		{"no captures", "var wg sync.WaitGroup\nwg.Task(func() {})\nwg.Wait()\ntime.AfterFunc(time.Second, func() {})", ""},
 		{"function", "var wg sync.WaitGroup\nwg.Task(run2)\nwg.Wait()", ""},
@@ -128,7 +128,7 @@ func TestGoFuncCall(t *testing.T) {
 	}
 }
 
-// TestGoCapturingLiteralFix checks the fix suggested for a go statement
+// TestGoCapturingLiteralFix checks the fix suggested for a task statement
 // that starts a function literal capturing variables: the values are passed
 // as arguments, except a variable that holds a sync type, which would be
 // copied into a different one, so a pointer to it is passed. Types are
@@ -167,7 +167,7 @@ func TestGoCapturingLiteralFix(t *testing.T) {
 			name:    "copyable",
 			imports: "\"pluto/sync\"",
 			body:    "n := 1\nvar l sync.Locker\ntask func() { _ = n; _ = l }()",
-			want:    []string{"pass them as arguments instead: go func(n int, l sync.Locker) {...}(n, l)"},
+			want:    []string{"pass them as arguments instead: task func(n int, l sync.Locker) {...}(n, l)"},
 			notWant: []string{"at package level"},
 		},
 	}

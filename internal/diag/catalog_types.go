@@ -27,7 +27,7 @@ var goQuoteFalse = map[string]bool{
 	"InvalidComplex": true, // complex, real and imag do not exist
 	"InvalidReal":    true,
 	"InvalidImag":    true,
-	"InvalidGo":      true, // there is no go statement; tasks start with task
+	"InvalidGo":      true, // there is no task statement; tasks start with task
 	"TooNew":         true, // there is one language version
 }
 

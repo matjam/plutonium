@@ -1,6 +1,6 @@
 package lower
 
-// Lowering of go statements, channel operations and select (language spec
+// Lowering of task statements, channel operations and select (language spec
 // sections 4.7 and 4.8). Channels are pointers to the runtime's hchan;
 // every operation is a call into pluto/rt (chan.p), and select is one call
 // over an array of cases laid out in the selecting frame. Operations that
@@ -36,34 +36,34 @@ func chanElem(T types2.Type) types2.Type {
 	return unwrap(T).Underlying().(*types2.Chan).Elem()
 }
 
-// checkSendable reports a type that crosses puroutines in an instance of a
+// checkSendable reports a type that crosses tasks in an instance of a
 // generic function but is not sendable; the checker reports the others.
 func (s *fnState) checkSendable(T types2.Type, pos token.Pos, what string) {
 	if s.tmap == nil {
 		return
 	}
 	if bad := types2.Unsendable(T); bad != nil {
-		s.l.errorf(pos, diag.CheckerCode(typerr.NotSendable), "%s %s is not sendable: it contains %s, whose count is not atomic, so it cannot cross puroutines; use synced[T] (spec section 19.2)", what, T, bad)
+		s.l.errorf(pos, diag.CheckerCode(typerr.NotSendable), "%s %s is not sendable: it contains %s, whose count is not atomic, so it cannot cross tasks; use synced[T] (spec section 19.2)", what, T, bad)
 	}
 }
 
 // ----------------------------------------------------------------------------
-// go statements
+// task statements
 
-// goFrameClosures reports the func values of a go statement that are known
+// goFrameClosures reports the func values of a task statement that are known
 // to be closure records in this frame: the function started (fun, unless
 // it is a function literal, which taskStmt checks, or a method call) and the
 // func-typed arguments. It reports whether there were any. Those it cannot
-// tell about are checked when the go statement runs.
+// tell about are checked when the task statement runs.
 func (s *fnState) goFrameClosures(fun ast.Expr, args []ast.Expr) bool {
 	found := false
 	if id, ok := fun.(*ast.Ident); ok {
 		if what := s.frameClosure(id, 0); what != "" {
-			s.l.errorf(id.Pos(), diag.GoFrameClosure, "cannot start %s with go: it holds %s, whose closure record lives in the starting frame (spec section 12.12)", id.Name, what)
+			s.l.errorf(id.Pos(), diag.GoFrameClosure, "cannot start %s with a task statement: it holds %s, whose closure record lives in the starting frame (spec section 12.12)", id.Name, what)
 			found = true
 		}
 	}
-	if s.frameClosureArgs(args, "a puroutine") {
+	if s.frameClosureArgs(args, "a task") {
 		found = true
 	}
 	return found
@@ -71,7 +71,7 @@ func (s *fnState) goFrameClosures(fun ast.Expr, args []ast.Expr) bool {
 
 // frameClosureArgs reports the func-typed arguments of a call that are
 // known to be closure records in this frame, for a call that hands them to
-// dest, which starts a puroutine with them. It reports whether there were
+// dest, which starts a task with them. It reports whether there were
 // any.
 func (s *fnState) frameClosureArgs(args []ast.Expr, dest string) bool {
 	found := false
@@ -93,12 +93,12 @@ func (s *fnState) frameClosureArgs(args []ast.Expr, dest string) bool {
 	return found
 }
 
-// goFuncCall checks a call of a function that starts puroutines with
+// goFuncCall checks a call of a function that starts tasks with
 // some of its func arguments (sync.WaitGroup.Task, time.AfterFunc, rt.Go,
 // and any function that passes a func parameter on to one of them or to a
-// go statement; the closure flow summaries find them): the arguments that
+// task statement; the closure flow summaries find them): the arguments that
 // are known to be closure records in this frame are compile errors, as in
-// a go statement. The functions still check the rest when they run.
+// a task statement. The functions still check the rest when they run.
 func (s *fnState) goFuncCall(e *ast.CallExpr, fun ast.Expr) {
 	var cands []int
 	for i, a := range e.Args {
@@ -133,7 +133,7 @@ func (s *fnState) goFuncCall(e *ast.CallExpr, fun ast.Expr) {
 			args = append(args, e.Args[i])
 		}
 	}
-	s.frameClosureArgs(args, types2.ExprString(e.Fun)+", which starts a puroutine with it")
+	s.frameClosureArgs(args, types2.ExprString(e.Fun)+", which starts a task with it")
 }
 
 // frameClosure describes e if it is known to be a func value whose closure
@@ -304,7 +304,7 @@ func (s *fnState) sourceQualifier(pos token.Pos) types2.Qualifier {
 	}
 }
 
-// goCapturingLiteral reports a go statement that starts a function literal
+// goCapturingLiteral reports a task statement that starts a function literal
 // capturing the variables caps. The usual fix passes them as arguments; a
 // variable that holds a Mutex, a WaitGroup or another synchronization type
 // cannot be passed by value, since the copy is a different one, so for
@@ -313,7 +313,7 @@ func (s *fnState) goCapturingLiteral(lit *ast.FuncLit, caps []*types2.Var) {
 	q := s.sourceQualifier(lit.Pos())
 	str := func(T types2.Type) string { return types2.TypeString(T, q) }
 	d := &diag.Diagnostic{Code: diag.GoCapturingLiteral}
-	prefix := fmt.Sprintf("a function literal that captures variables cannot be started with go: %s lives in the starting frame, which may be gone before the puroutine runs (spec section 12.12); ", caps[0].Name())
+	prefix := fmt.Sprintf("a function literal that captures variables cannot be started with a task statement: %s lives in the starting frame, which may be gone before the task runs (spec section 12.12); ", caps[0].Name())
 
 	var params, args, news []string
 	var shared []*types2.Var
@@ -335,7 +335,7 @@ func (s *fnState) goCapturingLiteral(lit *ast.FuncLit, caps []*types2.Var) {
 		if len(caps) == 1 {
 			them = it
 		}
-		d.Msg = prefix + fmt.Sprintf("pass %s instead: go func(%s) {...}(%s)", them, strings.Join(params, ", "), strings.Join(args, ", "))
+		d.Msg = prefix + fmt.Sprintf("pass %s instead: task func(%s) {...}(%s)", them, strings.Join(params, ", "), strings.Join(args, ", "))
 		s.l.report(lit.Pos(), d)
 		return
 	}
@@ -370,17 +370,17 @@ func (s *fnState) goCapturingLiteral(lit *ast.FuncLit, caps []*types2.Var) {
 	s.l.report(lit.Pos(), d)
 }
 
-// A goArg is a value a go statement evaluates in the starting frame and
-// copies into the new puroutine's argument block.
+// A goArg is a value a task statement evaluates in the starting frame and
+// copies into the new task's argument block.
 type goArg struct {
 	v   value
 	off int64
 }
 
-// taskStmt lowers go f(args). The function value (or receiver) and the
+// taskStmt lowers task f(args). The function value (or receiver) and the
 // arguments are evaluated here and copied into a block that the runtime
-// copies onto the new puroutine's stack; a generated function, the thunk,
-// runs first on the new puroutine, loads them from there and makes the
+// copies onto the new task's stack; a generated function, the thunk,
+// runs first on the new task, loads them from there and makes the
 // call. Variadic arguments are copied with their array, which would
 // otherwise stay in this frame.
 func (s *fnState) taskStmt(st *ast.TaskStmt) {
@@ -394,7 +394,7 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 	}
 	funTV := s.info.Types[call.Fun]
 	if funTV.IsBuiltin() {
-		s.l.errorf(st.Pos(), diag.GoBuiltin, "go with the built-in %s is not supported; start a function that calls it", identOf(fun).Name)
+		s.l.errorf(st.Pos(), diag.GoBuiltin, "task with the built-in %s is not supported; start a function that calls it", identOf(fun).Name)
 		return
 	}
 	if s.goFrameClosures(fun, call.Args) {
@@ -409,7 +409,7 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 	var sig *types2.Signature
 	var checkFunc *ssa.Value // a func value to check at run time
 	nlead := 0               // values before the arguments
-	boxRecv := false         // the receiver is the owned or synced box itself (go p.Serve())
+	boxRecv := false         // the receiver is the owned or synced box itself (task p.Serve())
 
 	if se, ok := fun.(*ast.SelectorExpr); ok {
 		if sel := s.info.Selections[se]; sel != nil && sel.Kind() == types2.MethodVal {
@@ -432,7 +432,7 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 				var recv value
 				var boxElem types2.Type
 				if types2.GoBoxReceiver(sel) != nil && !isIfaceMethod(m) {
-					// The puroutine takes the box itself, which the type
+					// The task takes the box itself, which the type
 					// checker has made sendable: an owned box moves into
 					// it, a synced one is counted for it (language spec
 					// section 4.7). The thunk calls the method on the
@@ -459,7 +459,7 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 						targs = s.methodTypeArgs(m, se, recvT)
 						def = &defaultsOf{m, targs}
 					}
-					sym, full := s.l.methodFunc(m, targs, w, se.Sel.Pos(), "started with go")
+					sym, full := s.l.methodFunc(m, targs, w, se.Sel.Pos(), "started by a task statement")
 					noReturn := s.l.isNoReturn(m)
 					emit = func(ts *fnState, in []value, pos token.Pos) {
 						r := in[0]
@@ -477,13 +477,13 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 	if emit == nil {
 		if id := staticFuncIdent(fun, s.info); id != nil {
 			if fn, ok := s.info.Uses[id].(*types2.Func); ok {
-				if s.l.errorsNewValue(fn, call.Pos(), "started with go") {
+				if s.l.errorsNewValue(fn, call.Pos(), "started by a task statement") {
 					return
 				}
 				targs := s.instanceArgs(id)
 				sig = s.subst(funTV.Type).(*types2.Signature)
 				sym := s.l.funcSym(fn, targs)
-				s.checkNotHandler(sym, call.Pos(), "started with go")
+				s.checkNotHandler(sym, call.Pos(), "started by a task statement")
 				noReturn := s.l.isNoReturn(fn)
 				emit = func(ts *fnState, in []value, pos token.Pos) {
 					ts.emitCall(callee{sym: sym, noReturn: noReturn}, sig, nil, in, pos)
@@ -511,7 +511,7 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 	}
 	var checkArgs []*ssa.Value // func value arguments, checked like the callee
 	for _, v := range vals[nlead:] {
-		s.checkSendable(v.T, call.Pos(), "go statement argument of type")
+		s.checkSendable(v.T, call.Pos(), "task statement argument of type")
 		if _, isFunc := unwrap(v.T).Underlying().(*types2.Signature); isFunc && !v.addr {
 			checkArgs = append(checkArgs, v.v)
 		}
@@ -542,7 +542,7 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 	}
 	size := max(off, 1)
 	block := s.tempSize((size+7)&^7, max(align, 8), "goargs")
-	// The new puroutine owns a reference to every string in the block
+	// The new task owns a reference to every string in the block
 	// (language spec section 18.8), and its thunk drops them when the call
 	// returns.
 	for _, a := range args {
@@ -583,7 +583,7 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 		if boxRecv {
 			// The box moves from the argument block to a slot of this
 			// frame, so that it is dropped (or released) when the thunk
-			// returns, including when the method ends the puroutine with
+			// returns, including when the method ends the task with
 			// rt.Goexit.
 			slot := ts.frameSlot(args[0].v.T, "box")
 			ts.store(ssa.TPtr, slot, loaded[0].v)
@@ -603,9 +603,9 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 		ts.returnValues(nil)
 	}})
 
-	// A func value whose closure record is in this puroutine's stack (a
+	// A func value whose closure record is in this task's stack (a
 	// literal that captures variables, a method value) would dangle in the
-	// new puroutine: checkGoFunc panics on one, for the function started
+	// new task: checkGoFunc panics on one, for the function started
 	// and for every func-typed argument.
 	if checkFunc != nil {
 		s.callRuntime("checkGoFunc", nil, []*ssa.Value{checkFunc})

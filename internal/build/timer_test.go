@@ -196,7 +196,7 @@ func churn(id int) {
 	wg.Done()
 }
 
-// hammer resets and stops a timer that other puroutines reset and stop.
+// hammer resets and stops a timer that other tasks reset and stop.
 func hammer(id int) {
 	for i := 0; i < 2000; i++ {
 		if (i+id)%2 == 0 {
@@ -209,7 +209,7 @@ func hammer(id int) {
 }
 
 func main() {
-	// Set before any puroutine starts, so that they may all read it.
+	// Set before any task starts, so that they may all read it.
 	shared = time.NewTimer(time.Hour)
 	wg.Add(8)
 	for i := 0; i < 8; i++ {
@@ -317,7 +317,7 @@ func main() {
 	}
 }
 `},
-		{name: "afterfuncclosure", status: 2, want: "panic: go of a function value that captures variables or binds a method value: its closure record lives in the starting frame; pass the values as arguments\n", src: `package main
+		{name: "afterfuncclosure", status: 2, want: "panic: a task started with a function value that captures variables or binds a method value: its closure record lives in the starting frame; pass the values as arguments\n", src: `package main
 
 import (
 	"pluto/rt"
@@ -362,7 +362,7 @@ func sleeper() {
 	wg.Done()
 }
 
-// While every puroutine sleeps, no thread spins: the workers, the
+// While every task sleeps, no thread spins: the workers, the
 // monitor and the poller all wait in the kernel.
 func main() {
 	time.Sleep(time.Millisecond) // start the scheduler first
@@ -379,7 +379,7 @@ func main() {
 
 import "pluto/time"
 
-// A puroutine that sleeps before it sends keeps the program from being
+// A task that sleeps before it sends keeps the program from being
 // reported as deadlocked while main waits.
 func later(c chan int) {
 	time.Sleep(30 * time.Millisecond)
@@ -392,7 +392,7 @@ func main() {
 	println("received", <-c)
 }
 `},
-		{name: "deadlockafter", status: 2, want: "fatal error: all puroutines are asleep - deadlock!\n\npuroutine 1 [chan receive]:\n", src: `package main
+		{name: "deadlockafter", status: 2, want: "fatal error: all tasks are asleep - deadlock!\n\ntask 1 [chan receive]:\n", src: `package main
 
 import "pluto/time"
 
@@ -404,7 +404,7 @@ func main() {
 	<-c
 }
 `},
-		{name: "deadlockstopped", status: 2, want: "fatal error: all puroutines are asleep - deadlock!\n\npuroutine 1 [chan receive]:\n", src: `package main
+		{name: "deadlockstopped", status: 2, want: "fatal error: all tasks are asleep - deadlock!\n\ntask 1 [chan receive]:\n", src: `package main
 
 import "pluto/time"
 

@@ -14,7 +14,7 @@ const (
 	// reference type.
 	_
 	// 2002 and 2003 were ChanNotPermitted and GoNotPermitted, from before
-	// the compiler supported channels and go statements.
+	// the compiler supported channels and task statements.
 	_
 	_
 	// RecoverNotPermitted: recover, which needs stack unwinding.
@@ -32,12 +32,12 @@ const (
 	// BadMainSignature: func main with parameters, or with results other
 	// than a single int64.
 	BadMainSignature
-	// NotSendable: a value that crosses puroutines (a go statement's
+	// NotSendable: a value that crosses tasks (a task statement's
 	// argument or receiver, or a channel's element type) of a type that
 	// holds a shared[T].
 	NotSendable
 	// FrameViewSent: a view of the current frame (&x of a local, a slice
-	// of a local array, &T{...}) passed to a go statement or sent on a
+	// of a local array, &T{...}) passed to a task statement or sent on a
 	// channel.
 	FrameViewSent
 	// InvalidUTF8String: a string literal that is not valid UTF-8, which

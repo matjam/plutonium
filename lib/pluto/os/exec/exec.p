@@ -442,7 +442,7 @@ func cArrays(args, env []string, envBytes [][]byte, a alloc.Allocator) (unsafe.P
 
 // readFull reads into b until it is full or the descriptor reaches EOF,
 // and returns how much it read. The reads are announced to the scheduler
-// (rt.EnterSyscall), so other puroutines keep running while it waits.
+// (rt.EnterSyscall), so other tasks keep running while it waits.
 func readFull(fd int, b []byte) (int, error) {
 	n := 0
 	for n < len(b) {

@@ -26,7 +26,7 @@ import "pluto/rt"
 // variables: the compiler checks that they do so without data races
 // (spec section 19.3). A Scope reached through a pointer still waits when
 // it is dropped, but the compiler cannot see where, so its tasks follow
-// the rules of a go statement: f may not capture variables.
+// the rules of a task statement: f may not capture variables.
 type Scope owner struct {
 	j rt.Join
 }

@@ -17,9 +17,9 @@ import (
 // TestKernelScheduler boots testdata/kernel/sched, a kernel-mode image
 // that binds its own scheduler (a per-CPU round-robin run queue with
 // preemption from the PIT timer interrupt), under QEMU, and checks that
-// puroutines, channels, select and pluto/sync run on it: a spinning
-// puroutine with no calls is preempted, and the timer handler wakes a
-// parked puroutine with a non-blocking channel send.
+// tasks, channels, select and pluto/sync run on it: a spinning
+// task with no calls is preempted, and the timer handler wakes a
+// parked task with a non-blocking channel send.
 func TestKernelScheduler(t *testing.T) {
 	testguard.Parallel(t)
 	qemu, err := exec.LookPath("qemu-system-x86_64")

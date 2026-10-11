@@ -235,15 +235,15 @@ type paramCall struct {
 	conc  bool // made by scoped tasks that may run at the same time (scope.go)
 }
 
-// A spawn is a task start: a go statement, or a function value handed to
+// A spawn is a task start: a task statement, or a function value handed to
 // the runtime's task start (rt.Go, time.AfterFunc).
 type spawn struct {
-	pos   token.Pos // the go statement or the call that starts the task
+	pos   token.Pos // the task statement or the call that starts the task
 	root  origins   // the function the task runs: rFunc, rLit, or a parameter
 	args  []origins // its arguments, receiver first
 	multi bool      // may run more than once, so several instances at a time
 	via   []frame
-	desc  string // "go worker(...)"
+	desc  string // "task worker(...)"
 }
 
 func (s *spawn) key() string {
@@ -267,7 +267,7 @@ func (s *spawn) key() string {
 // statement, a value sent on a channel. The sendable rule applies to it.
 type crossing struct {
 	pos  token.Pos
-	what string // "the argument p of go worker", "the value sent on ch"
+	what string // "the argument p of task worker", "the value sent on ch"
 	typ  types2.Type
 	vals origins
 	expr ast.Expr

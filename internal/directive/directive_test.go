@@ -34,7 +34,7 @@ func TestCheck(t *testing.T) {
 		{"empty", "package p\n\n//pu:\nfunc f() {}\n", []string{"E2600: //pu: names no directive"}},
 		{"alloc", "package p\n\n//pu:alloc\nfunc f() {}\n", []string{"E2601: //pu:alloc was removed: kernel code may allocate strings anywhere the allocator may be called"}},
 		{"bytewise", "package p\n\n//pu:bytewise\nfunc f() {}\n", []string{"E2601: //pu:bytewise was removed: the compiler proves that string slice bounds fall on rune boundaries"}},
-		{"gofunc", "package p\n\n//pu:gofunc\nfunc f() {}\n", []string{"E2601: //pu:gofunc was removed: the compiler finds which functions start puroutines with their func arguments"}},
+		{"gofunc", "package p\n\n//pu:gofunc\nfunc f() {}\n", []string{"E2601: //pu:gofunc was removed: the compiler finds which functions start tasks with their func arguments"}},
 		{"schedhook", "package p\n\n//pu:schedhook\nfunc f()\n\n//pu:schedlate\nfunc g()\n", []string{
 			"E2601: //pu:schedhook was removed: the compiler knows the runtime's scheduler hooks by name",
 			"E2601: //pu:schedlate was removed: the compiler knows the runtime's scheduler hooks by name"}},

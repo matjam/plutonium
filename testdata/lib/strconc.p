@@ -1,4 +1,4 @@
-// Counted strings (language spec section 6.10) across puroutines, channels,
+// Counted strings (language spec section 6.10) across tasks, channels,
 // select, and range over functions: every string made here must be freed
 // exactly once (TestStringsLeakFree runs this with the debug allocator).
 // With the imports changed to Go's packages, Go prints the same.
@@ -16,7 +16,7 @@ import (
 func heap(s string) string { return strings.Clone(s) }
 
 // ----------------------------------------------------------------------------
-// go statements
+// task statements
 
 var wg sync.WaitGroup
 
@@ -43,7 +43,7 @@ func goStatements() {
 	task worker(results, base+"+", tagged{tag: "t2", n: 2, note: heap("n2")}, heap("x"), "y")
 	t := tagged{tag: heap("t3"), n: 3}
 	task worker(results, "lit", t, base)
-	base = "changed" // the puroutines hold their own references
+	base = "changed" // the tasks hold their own references
 	t.tag = "gone"
 	wg.Wait()
 	var got [3]string
@@ -69,7 +69,7 @@ func sortStrings(s []string) {
 // Shared strings on several threads: counts are atomic once the scheduler
 // has started its workers.
 
-// Each puroutine gets the string as an argument (a package variable that
+// Each task gets the string as an argument (a package variable that
 // main writes while they run would be a data race) and copies it over and
 // over, so the counts of one buffer change on several threads at once.
 func copier(shared string, rounds int, done chan<- int) {
@@ -85,7 +85,7 @@ func copier(shared string, rounds int, done chan<- int) {
 }
 
 func sharedCounts() {
-	shared := heap("shared between puroutines")
+	shared := heap("shared between tasks")
 	done := make(chan int)
 	for i := 0; i < 4; i++ {
 		task copier(shared, 20000, done)
@@ -131,7 +131,7 @@ func channels() {
 	left <- msg{1, heap("left behind")}
 	left <- msg{2, strconv.Itoa(12345)}
 
-	// Unbuffered, from another puroutine, received with range.
+	// Unbuffered, from another task, received with range.
 	un := make(chan string)
 	task func(c chan<- string, n int) {
 		for i := 0; i < n; i++ {

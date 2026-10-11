@@ -106,7 +106,7 @@ func TestBoxesLeakFree(t *testing.T) {
 // TestBoxTasks runs the program that starts methods of owned and synced
 // boxes with go (language spec section 12.12) with the debug allocator and
 // its leak report on, at -O0 and -O2, with one, two and many processors: the
-// puroutine drops the owned box it was given, and the object of a synced
+// task drops the owned box it was given, and the object of a synced
 // box is dropped once, by whoever holds the last reference.
 func TestBoxTasks(t *testing.T) {
 	testguard.Parallel(t)

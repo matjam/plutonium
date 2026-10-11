@@ -17,7 +17,7 @@ import (
 // A call s.Task(func() {...}) on a sync.Scope declared in this function
 // (internal/scoped) starts the literal on a new task that s waits for
 // before its block ends, so the literal may use this frame. It is lowered
-// in place, as a go statement is (conc.go), without calling Scope.Task:
+// in place, as a task statement is (conc.go), without calling Scope.Task:
 //
 //   - The argument block holds, for each variable the literal captures,
 //     its address, or, for a variable the task takes (its block may end

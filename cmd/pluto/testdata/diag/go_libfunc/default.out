@@ -1,19 +1,20 @@
-$DIR/main.p:15:10: cannot pass a function literal that captures n (main.p:15) to wg.Task, which starts a puroutine with it: its closure record lives in the starting frame (spec section 12.12)
+$DIR/main.p:15:10: cannot pass a function literal that captures n (main.p:15) to wg.Task, which starts a task with it: its closure record lives in the starting frame (spec section 12.12)
     A function literal that captures variables, and a method value such as
     c.handle, keep their closure record (the code to call, with the captured
     variables or a copy of the receiver) in the frame of the function that makes
-    them. A func value points to that record. A go statement copies its function
-    and arguments, but copying a func value copies only the pointer, so the
-    puroutine may call through it after the frame is gone.
+    them. A func value points to that record. A task statement copies its
+    function and arguments, but copying a func value copies only the pointer, so
+    the task may call through it after the frame is gone.
     The compiler reports this wherever it can tell: a capturing literal or a
-    method value passed to go, or a local variable assigned only once, from one
-    of them. Elsewhere the go statement checks when it runs, and panics.
-    Library functions that start a puroutine with a func argument, such as
+    method value passed to a task statement, or a local variable assigned only
+    once, from one of them. Elsewhere the task statement checks when it runs,
+    and panics.
+    Library functions that start a task with a func argument, such as
     sync.WaitGroup.Task and time.AfterFunc, follow the same rule and the
     compiler reports them the same way.
-    To let the puroutine use the function's variables, start a function literal
-    with a sync.Scope declared in the function instead: s.Task(func() {...})
-    waits for it before s's block ends.
+    To let the task use the function's variables, start a function literal with
+    a sync.Scope declared in the function instead: s.Task(func() {...}) waits
+    for it before s's block ends.
     Go moves captured variables and the receivers of method values to the heap.
     Plutonium never allocates behind the program's back, so the record stays in
     its frame (spec section 11.5).
@@ -24,11 +25,11 @@ $DIR/main.p:15:10: cannot pass a function literal that captures n (main.p:15) to
     (see "Task statements" in the Plutonium spec, section 12.12)
     (run "pluto explain E2594" for a longer explanation)
 
-$DIR/main.p:18:10: cannot pass work to wg.Task, which starts a puroutine with it: it holds a function literal that captures n (main.p:17), whose closure record lives in the starting frame (spec section 12.12)
+$DIR/main.p:18:10: cannot pass work to wg.Task, which starts a task with it: it holds a function literal that captures n (main.p:17), whose closure record lives in the starting frame (spec section 12.12)
     (explained above; run "pluto explain E2594" for more)
 
-$DIR/main.p:21:30: cannot pass the method value c.add to time.AfterFunc, which starts a puroutine with it: its closure record lives in the starting frame (spec section 12.12)
+$DIR/main.p:21:30: cannot pass the method value c.add to time.AfterFunc, which starts a task with it: its closure record lives in the starting frame (spec section 12.12)
     (explained above; run "pluto explain E2594" for more)
 
-$DIR/main.p:23:30: cannot pass a function literal that captures n (main.p:23) to time.AfterFunc, which starts a puroutine with it: its closure record lives in the starting frame (spec section 12.12)
+$DIR/main.p:23:30: cannot pass a function literal that captures n (main.p:23) to time.AfterFunc, which starts a task with it: its closure record lives in the starting frame (spec section 12.12)
     (explained above; run "pluto explain E2594" for more)

@@ -4,7 +4,7 @@
 //
 // They are built on the runtime's two scheduler operations, rt.Park and
 // rt.Ready, so they work on any scheduler, the hosted one or a kernel's. A
-// puroutine that has to wait parks; it never spins its processor for long.
+// task that has to wait parks; it never spins its processor for long.
 // The operations that may park (Lock, RLock, Wait, Once.Do, WaitGroup.Task)
 // must not be used in interrupt context, which the compiler checks by
 // following the calls of interrupt handlers into rt.Park; Unlock, TryLock,
@@ -12,7 +12,7 @@
 //
 // As in Go, none of these types may be copied after first use, and their
 // zero values are ready to use. A program that waits on a value in a frame
-// must not let another puroutine reach it after the frame returns: allocate
+// must not let another task reach it after the frame returns: allocate
 // it, or make it a package-level variable (language spec section 18.3).
 package sync
 
@@ -24,8 +24,8 @@ type Locker interface {
 	Unlock()
 }
 
-// A waiter is a parked puroutine in a waitQueue. It lives in the parked
-// puroutine's frame.
+// A waiter is a parked task in a waitQueue. It lives in the parked
+// task's frame.
 type waiter struct {
 	t    *rt.Task
 	next *waiter
@@ -86,11 +86,11 @@ func fail(msg string) {
 	panic(msg)
 }
 
-// self returns the running puroutine, which must exist to wait.
+// self returns the running task, which must exist to wait.
 func self() *rt.Task {
 	t := rt.CurrentTask()
 	if t == nil {
-		fail("sync: wait outside a puroutine")
+		fail("sync: wait outside a task")
 	}
 	return t
 }

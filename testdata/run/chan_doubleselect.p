@@ -4,7 +4,7 @@
 
 // Adapted from Go's test/chan/doubleselect.go for the common subset of Go
 // and Plutonium: no flag or runtime packages, a slice instead of a map,
-// and the closing puroutine takes its channels as arguments.
+// and the closing task takes its channels as arguments.
 
 // Test the situation in which two cases of a select can
 // both end up running. See http://codereview.appspot.com/180068.

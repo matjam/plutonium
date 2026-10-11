@@ -61,7 +61,7 @@ func syncedInBuffer() {
 	println("box gone")
 }
 
-// An unbuffered channel hands values over between puroutines; each holds
+// An unbuffered channel hands values over between tasks; each holds
 // its own reference to the channels it was given.
 func handoff() {
 	c := make(chan string)
@@ -75,7 +75,7 @@ func handoff() {
 	c <- heap("x")
 	c <- "y"
 	close(c)
-	c = nil // the puroutine's reference keeps the channel
+	c = nil // the task's reference keeps the channel
 	<-done
 }
 
@@ -126,7 +126,7 @@ func nested() {
 	println("nested", <-got, len(cc))
 }
 
-// A reply channel per request, sent to a server puroutine.
+// A reply channel per request, sent to a server task.
 func server(reqs <-chan chan int) {
 	n := 0
 	for r := range reqs {
@@ -146,7 +146,7 @@ func replies() {
 	close(reqs)
 }
 
-// A synced box holding a channel, started with go: the puroutine holds a
+// A synced box holding a channel, started with task: the task holds a
 // reference to the box, and the box to the channel.
 type Mailbox owner struct {
 	c chan string
@@ -271,8 +271,8 @@ func main() {
 	owning()
 	rangeReassign()
 	timeouts()
-	// A puroutine releases its arguments after its function returns, which
+	// A task releases its arguments after its function returns, which
 	// may be after main has received its last value: the debug allocator
-	// lets such puroutines finish before its leak check (rt.SettleTasks).
+	// lets such tasks finish before its leak check (rt.SettleTasks).
 	println("end")
 }

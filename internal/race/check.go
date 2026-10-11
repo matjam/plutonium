@@ -16,7 +16,7 @@ import (
 // maxGroups bounds the tasks followed from the program's start.
 const maxGroups = 2000
 
-// A group is one task of the program, or one go statement's tasks: the
+// A group is one task of the program, or one task statement's tasks: the
 // accesses they make, with the locks held relative to the task's start.
 type group struct {
 	main     bool
@@ -28,9 +28,9 @@ type group struct {
 
 func (g *group) name(a *analyzer) string {
 	if g.main {
-		return "the main puroutine"
+		return "the main task"
 	}
-	return fmt.Sprintf("the puroutine started by %s at %s", g.desc, a.short(g.pos))
+	return fmt.Sprintf("the task started by %s at %s", g.desc, a.short(g.pos))
 }
 
 // check runs the three rules over the whole program.
@@ -577,7 +577,7 @@ func (a *analyzer) isMapID(id int) bool {
 // checkMaps applies the guard rule to the contents of maps (language spec
 // section 19.3, gap G16): a map is a counted reference that may cross to
 // other tasks, so the contents of every map of a type that crosses, as a
-// go statement's argument, a value sent on a channel, or inside one, or
+// task statement's argument, a value sent on a channel, or inside one, or
 // that a task reaches through a package variable or memory it did not
 // allocate, are one piece of data. Every write to it must hold one lock,
 // and every access must hold it too: a package-level lock, or a lock in
@@ -587,7 +587,7 @@ func (a *analyzer) isMapID(id int) bool {
 // count, nor does main's use before it starts a task.
 func (a *analyzer) checkMaps(groups []*group, cross []*crossing) {
 	// Allocations that cross: a map made at such a site may be shared
-	// between the tasks of one go statement.
+	// between the tasks of one task statement.
 	crossed := map[ast.Node]bool{}
 	for _, c := range cross {
 		for _, o := range c.vals {
@@ -615,7 +615,7 @@ func (a *analyzer) checkMaps(groups []*group, cross []*crossing) {
 			}
 			eg := g
 			if own && g.multi {
-				// Each task the go statement starts makes its own map
+				// Each task the task statement starts makes its own map
 				// here: they do not meet each other in it.
 				if single[g] == nil {
 					single[g] = &group{pos: g.pos, desc: g.desc}
@@ -838,7 +838,7 @@ func (a *analyzer) where(x *access) string {
 func (a *analyzer) noLockError(p, other entry, es []entry, rel func(lock) (string, bool), text func(*access) string) *diag.Diagnostic {
 	place := text(p.x)
 	verb := "written"
-	d := diag.New(a.pos(p.x.pos), diag.RaceNoLock, "%s is %s here with no lock that guards it, while another puroutine may use it", place, verb)
+	d := diag.New(a.pos(p.x.pos), diag.RaceNoLock, "%s is %s here with no lock that guards it, while another task may use it", place, verb)
 	held := guards(p.x, true, rel)
 	shared := guards(p.x, false, rel)
 	var b strings.Builder
@@ -865,7 +865,7 @@ func (a *analyzer) noLockError(p, other entry, es []entry, rel func(lock) (strin
 		ov = "writes"
 	}
 	if other.g == p.g {
-		fmt.Fprintf(&b, ", and another puroutine started there %s it at %s", ov, a.where(other.x))
+		fmt.Fprintf(&b, ", and another task started there %s it at %s", ov, a.where(other.x))
 	} else {
 		fmt.Fprintf(&b, ", and %s %s it at %s", other.g.name(a), ov, a.where(other.x))
 	}
@@ -878,7 +878,7 @@ func (a *analyzer) noLockError(p, other entry, es []entry, rel func(lock) (strin
 		sort.Strings(names)
 		fmt.Fprintf(&b, " holding %s", strings.Join(names, " and "))
 	}
-	b.WriteString(". Two puroutines may run these at the same time, one of them writing, which is a data race: the other may see a value half written, or lose an update.")
+	b.WriteString(". Two tasks may run these at the same time, one of them writing, which is a data race: the other may see a value half written, or lose an update.")
 	b.WriteString("\nThe compiler infers which lock guards shared data from the locks held where it is written: a lock that every write holds. Here no one lock is held at every write.")
 	d.Text = b.String()
 	d.Fix = &diag.Fix{Intro: "Hold one sync.Mutex at every access, writes and reads (a sync.RWMutex's RLock is enough for reads)", Code: "mu.Lock()\n" + strings.TrimPrefix(exprLine(place), "") + "\nmu.Unlock()"}
@@ -909,12 +909,12 @@ func (a *analyzer) unguardedError(p entry, writes []entry, g map[string]bool, re
 	guard := strings.Join(names, " or ")
 	var d *diag.Diagnostic
 	if g["atomic"] && len(g) == 1 {
-		d = diag.New(a.pos(p.x.pos), diag.RaceUnguarded, "%s is read here without an atomic operation, but other puroutines change it with atomic operations", place)
+		d = diag.New(a.pos(p.x.pos), diag.RaceUnguarded, "%s is read here without an atomic operation, but other tasks change it with atomic operations", place)
 	} else {
 		d = diag.New(a.pos(p.x.pos), diag.RaceUnguarded, "%s is read here without holding %s, which guards it", place, guard)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Every write to %s that another puroutine may run at the same time holds %s:", place, guard)
+	fmt.Fprintf(&b, "Every write to %s that another task may run at the same time holds %s:", place, guard)
 	sort.Slice(writes, func(i, j int) bool { return writes[i].x.pos < writes[j].x.pos })
 	n := 0
 	seen := map[token.Pos]bool{}
@@ -957,27 +957,27 @@ func (a *analyzer) sendError(c *crossing, p *problem) *diag.Diagnostic {
 	elem := types2.TypeString(p.elem, a.qualifier)
 	var d *diag.Diagnostic
 	if c.expr != nil && p.part == exprText(c.expr) {
-		d = diag.New(a.pos(c.pos), diag.RaceSendView, "%s is a view of %s that may change while another puroutine uses it, so it cannot be %s", p.part, elem, crossVerb(c))
+		d = diag.New(a.pos(c.pos), diag.RaceSendView, "%s is a view of %s that may change while another task uses it, so it cannot be %s", p.part, elem, crossVerb(c))
 	} else {
-		d = diag.New(a.pos(c.pos), diag.RaceSendView, "%s is a view of %s that may change while another puroutine uses it, so %s cannot be %s", p.part, elem, exprText(c.expr), crossVerb(c))
+		d = diag.New(a.pos(c.pos), diag.RaceSendView, "%s is a view of %s that may change while another task uses it, so %s cannot be %s", p.part, elem, exprText(c.expr), crossVerb(c))
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s gives another puroutine %s, a %s: after this, both puroutines can reach the same %s.", capitalize(c.what), p.part, types2.TypeString(p.typ, a.qualifier), elem)
+	fmt.Fprintf(&b, "%s gives another task %s, a %s: after this, both tasks can reach the same %s.", capitalize(c.what), p.part, types2.TypeString(p.typ, a.qualifier), elem)
 	if p.glob != nil {
-		fmt.Fprintf(&b, " It points to the package variable %s, which is written at %s while puroutines run.", p.glob.Name(), a.short(p.gpos))
+		fmt.Fprintf(&b, " It points to the package variable %s, which is written at %s while tasks run.", p.glob.Name(), a.short(p.gpos))
 	}
 	switch {
 	case p.why != "":
-		fmt.Fprintf(&b, " %s is not safe to use from two puroutines at once. %s", elem, p.why)
+		fmt.Fprintf(&b, " %s is not safe to use from two tasks at once. %s", elem, p.why)
 	case p.write != nil:
-		fmt.Fprintf(&b, " A %s is changed through a pointer at %s (%s, in %s) without a lock of the same %s held, so the compiler cannot tell that this one stays the same while the other puroutine uses it.", elem, a.short(p.write.pos), p.write.expr, p.write.fn, elem)
+		fmt.Fprintf(&b, " A %s is changed through a pointer at %s (%s, in %s) without a lock of the same %s held, so the compiler cannot tell that this one stays the same while the other task uses it.", elem, a.short(p.write.pos), p.write.expr, p.write.fn, elem)
 	case p.glob == nil:
-		fmt.Fprintf(&b, " Nothing shows that this %s stays the same while the other puroutine uses it.", elem)
+		fmt.Fprintf(&b, " Nothing shows that this %s stays the same while the other task uses it.", elem)
 	}
-	b.WriteString("\nA view may cross to another puroutine only if what it points to cannot change while both may use it, or every change is synchronized: a package variable that is not written once puroutines run, a struct whose fields are never changed once it is shared or are used only under a lock of the same struct or atomically, memory of a pluto/sync type, or the object of a synced[T].")
+	b.WriteString("\nA view may cross to another task only if what it points to cannot change while both may use it, or every change is synchronized: a package variable that is not written once tasks run, a struct whose fields are never changed once it is shared or are used only under a lock of the same struct or atomically, memory of a pluto/sync type, or the object of a synced[T].")
 	d.Text = b.String()
-	d.Fix = &diag.Fix{Intro: "Pass a copy of the value instead of a pointer to it, or move an owner (such as a vec.Vec) to the puroutine so that only it has the memory."}
-	d.More = []*diag.Fix{{Intro: "To share changing data between puroutines, put it in a synced[T] and hold a sync.Mutex in it at every access, or use a package variable guarded by a lock."}}
+	d.Fix = &diag.Fix{Intro: "Pass a copy of the value instead of a pointer to it, or move an owner (such as a vec.Vec) to the task so that only it has the memory."}
+	d.More = []*diag.Fix{{Intro: "To share changing data between tasks, put it in a synced[T] and hold a sync.Mutex in it at every access, or use a package variable guarded by a lock."}}
 	return d
 }
 
@@ -985,7 +985,7 @@ func crossVerb(c *crossing) string {
 	if strings.HasPrefix(c.what, "the value sent") {
 		return "sent on a channel"
 	}
-	return "passed to a new puroutine"
+	return "passed to a new task"
 }
 
 func capitalize(s string) string {

@@ -157,7 +157,7 @@ type closureFlow struct {
 	storeTo   map[int]bitset          // values stored through each parameter
 	callArgs  map[int]bitset          // the parameters passed to calls of each func parameter
 	storeAny  bitset                  // values kept where callers cannot see: through other pointers, in package variables, by unknown code
-	started   bitset                  // values a puroutine may be started with
+	started   bitset                  // values a task may be started with
 	changed   bool
 	foreign   []ast.Node // nested literals and range-over-func bodies (ownFrame)
 }
@@ -173,7 +173,7 @@ type flowSummary struct {
 	builds   bool           // it may build closures in the region its caller provides
 	keepsOwn bool           // and may store them, or what they hold, through pointers
 	callArgs map[int]bitset // the parameters it passes to calls of each func parameter
-	starts   bitset         // func parameters it may start puroutines with (gofunc)
+	starts   bitset         // func parameters it may start tasks with (gofunc)
 	all      bool           // unknown: every parameter does everything
 
 	// -1 once final; otherwise the depth of the outermost summary being
@@ -255,7 +255,7 @@ func mayHoldFunc(T types2.Type, seen map[types2.Type]bool) bool {
 	switch t := types2.Unalias(T).Underlying().(type) {
 	case *types2.Basic:
 		// An unsafe.Pointer may hold a closure record (rt.Go passes one to
-		// the check that it may start a puroutine).
+		// the check that it may start a task).
 		return t.Kind() == types2.UnsafePointer
 	case *types2.Signature, *types2.Interface, *types2.TypeParam:
 		return true
@@ -577,7 +577,7 @@ func (f *closureFlow) visit(n ast.Node) bool {
 	case *ast.SendStmt:
 		f.assign(&ast.StarExpr{X: n.Chan}, f.expr(n.Value))
 	case *ast.TaskStmt:
-		// The puroutine runs the function with the arguments, which must
+		// The task runs the function with the arguments, which must
 		// outlive this frame.
 		m := f.expr(n.Call.Fun)
 		for _, a := range n.Call.Args {
@@ -984,7 +984,7 @@ func (f *closureFlow) callFuncs(m, in bitset) bitset {
 	return r
 }
 
-// start records that a puroutine may be started with the func values with
+// start records that a task may be started with the func values with
 // origins m.
 func (f *closureFlow) start(m bitset) {
 	if f.started.union(m) {
@@ -993,9 +993,9 @@ func (f *closureFlow) start(m bitset) {
 }
 
 // isGoFuncCheck reports whether g is the runtime's check that a func value
-// may start a puroutine (pluto/rt's checkGoFunc, which rt.Go and
+// may start a task (pluto/rt's checkGoFunc, which rt.Go and
 // rt.CheckGoFunc call): a function that passes a parameter to it starts
-// puroutines with that parameter, as one that passes it to a go statement
+// tasks with that parameter, as one that passes it to a task statement
 // does.
 func isGoFuncCheck(g *types2.Func) bool {
 	return g.Name() == "checkGoFunc" && g.Pkg() != nil && g.Pkg().Path() == "pluto/rt"

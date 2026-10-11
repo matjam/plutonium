@@ -18,8 +18,8 @@ func init() {
 	register(
 		&Entry{
 			Code: CheckerCode(typerr.NotSendable), Name: "NotSendable",
-			Text:    "A value that crosses puroutines, as the argument or receiver of a go statement or as the element of a channel, must be sendable. This type holds a shared[T], whose reference count is changed with ordinary arithmetic, so two puroutines copying or dropping references at once would corrupt it. Starting a method of a shared box with go (go z.Serve()) hands the box itself to the new puroutine, so it needs a synced box as well.\nUse synced[T], which counts atomically.",
-			Why:     "Go's garbage collector makes every pointer safe to share. Plutonium counts shared references without atomic instructions, which is only correct on one puroutine.",
+			Text:    "A value that crosses tasks, as the argument or receiver of a task statement or as the element of a channel, must be sendable. This type holds a shared[T], whose reference count is changed with ordinary arithmetic, so two tasks copying or dropping references at once would corrupt it. Starting a method of a shared box with a task statement (task z.Serve()) hands the box itself to the new task, so it needs a synced box as well.\nUse synced[T], which counts atomically.",
+			Why:     "Go's garbage collector makes every pointer safe to share. Plutonium counts shared references without atomic instructions, which is only correct on one task.",
 			Fix:     &Fix{Intro: "Count the references atomically", Code: "type Job struct {\n\tdata synced[Buffer]\n}\n\njobs := make(chan Job, 16)"},
 			Spec:    pspec("8.8", "Sendable types"),
 			Example: "type Job struct {\n\tdata shared[Buffer]\n}\n\njobs := make(chan Job, 16)",
@@ -35,7 +35,7 @@ func init() {
 		},
 		&Entry{
 			Code: CheckerCode(typerr.FrameViewSent), Name: "FrameViewSent",
-			Text:    "This value points into the current function's stack frame: the address of a local variable or of part of one, a slice of a local array, or the address of a composite literal. A go statement or a channel send hands it to another puroutine, which may still use it after this function has returned and its frame is gone.\nStart the work with a sync.Scope instead: it waits for the tasks it starts before its block ends, so they may use the function's variables. Or allocate the variable with new, so that it outlives the frame, or make it a package-level variable.",
+			Text:    "This value points into the current function's stack frame: the address of a local variable or of part of one, a slice of a local array, or the address of a composite literal. A task statement or a channel send hands it to another task, which may still use it after this function has returned and its frame is gone.\nStart the work with a sync.Scope instead: it waits for the tasks it starts before its block ends, so they may use the function's variables. Or allocate the variable with new, so that it outlives the frame, or make it a package-level variable.",
 			Why:     "Go moves such variables to the heap without saying so. Plutonium never allocates behind the program's back, so a local stays in its frame.",
 			Fix:     &Fix{Intro: "Start the work with a sync.Scope, which waits for it before its block ends", Code: "var s sync.Scope\ns.Task(func() { worker(&state) })"},
 			Spec:    pspec("18.3", "Views"),
@@ -665,7 +665,7 @@ func init() {
 		},
 		&Entry{
 			Code: GoCapturingLiteral, Name: "GoCapturingLiteral",
-			Text:    "A function literal that uses variables of the function around it reaches them in that function's stack frame. A go statement may start it after that function has returned, when the frame is gone.\nStart the literal with a sync.Scope instead: s.Task(func() {...}) waits for it before s's block ends, so it may use the function's variables, a Mutex or a WaitGroup among them. Or pass the values the literal needs as arguments: they are copied when the go statement runs. Do not pass a Mutex, a WaitGroup or another sync type this way, since the copy is a different one.",
+			Text:    "A function literal that uses variables of the function around it reaches them in that function's stack frame. A task statement may start it after that function has returned, when the frame is gone.\nStart the literal with a sync.Scope instead: s.Task(func() {...}) waits for it before s's block ends, so it may use the function's variables, a Mutex or a WaitGroup among them. Or pass the values the literal needs as arguments: they are copied when the task statement runs. Do not pass a Mutex, a WaitGroup or another sync type this way, since the copy is a different one.",
 			Why:     "Go moves captured variables to the heap. Plutonium never allocates behind the program's back, so captured variables stay in their frame (spec section 11.5).",
 			Fix:     &Fix{Intro: "Pass the values as arguments", Code: "for i := 0; i < n; i++ {\n\ttask func(i int, out chan int) {\n\t\tout <- i * i\n\t}(i, out)\n}"},
 			Spec:    pspec("12.12", "Task statements"),
@@ -673,10 +673,10 @@ func init() {
 		},
 		&Entry{
 			Code: GoFrameClosure, Name: "GoFrameClosure",
-			Text: "A function literal that captures variables, and a method value such as c.handle, keep their closure record (the code to call, with the captured variables or a copy of the receiver) in the frame of the function that makes them. A func value points to that record. A go statement copies its function and arguments, but copying a func value copies only the pointer, so the puroutine may call through it after the frame is gone.\n" +
-				"The compiler reports this wherever it can tell: a capturing literal or a method value passed to go, or a local variable assigned only once, from one of them. Elsewhere the go statement checks when it runs, and panics.\n" +
-				"Library functions that start a puroutine with a func argument, such as sync.WaitGroup.Task and time.AfterFunc, follow the same rule and the compiler reports them the same way.\n" +
-				"To let the puroutine use the function's variables, start a function literal with a sync.Scope declared in the function instead: s.Task(func() {...}) waits for it before s's block ends.",
+			Text: "A function literal that captures variables, and a method value such as c.handle, keep their closure record (the code to call, with the captured variables or a copy of the receiver) in the frame of the function that makes them. A func value points to that record. A task statement copies its function and arguments, but copying a func value copies only the pointer, so the task may call through it after the frame is gone.\n" +
+				"The compiler reports this wherever it can tell: a capturing literal or a method value passed to a task statement, or a local variable assigned only once, from one of them. Elsewhere the task statement checks when it runs, and panics.\n" +
+				"Library functions that start a task with a func argument, such as sync.WaitGroup.Task and time.AfterFunc, follow the same rule and the compiler reports them the same way.\n" +
+				"To let the task use the function's variables, start a function literal with a sync.Scope declared in the function instead: s.Task(func() {...}) waits for it before s's block ends.",
 			Why:     "Go moves captured variables and the receivers of method values to the heap. Plutonium never allocates behind the program's back, so the record stays in its frame (spec section 11.5).",
 			Fix:     &Fix{Intro: "Pass the values the function needs, and start a function that takes them", Code: "task func(n int, out chan int) {\n\tout <- n * n\n}(n, out)"},
 			Spec:    pspec("12.12", "Task statements"),
@@ -684,7 +684,7 @@ func init() {
 		},
 		&Entry{
 			Code: GoBuiltin, Name: "GoBuiltin",
-			Text: "A go statement cannot start a built-in function such as println or close directly. Wrap it in a function and start that.",
+			Text: "A task statement cannot start a built-in function such as println or close directly. Wrap it in a function and start that.",
 			Spec: pspec("12.12", "Task statements"),
 		},
 		&Entry{
@@ -695,7 +695,7 @@ func init() {
 		},
 		&Entry{
 			Code: NoScheduler, Name: "NoScheduler",
-			Text: "This program starts puroutines, uses channels or waits in pluto/sync, so it needs a scheduler, and none is bound. Hosted builds bind one by default; a freestanding program, such as a kernel, provides its own: a package-level variable marked //pu:scheduler whose type implements rt.Scheduler.",
+			Text: "This program starts tasks, uses channels or waits in pluto/sync, so it needs a scheduler, and none is bound. Hosted builds bind one by default; a freestanding program, such as a kernel, provides its own: a package-level variable marked //pu:scheduler whose type implements rt.Scheduler.",
 			Why:  "Plutonium carries a scheduler only in programs that ask for one, and a kernel supplies its own, so a freestanding program must say which.",
 			Fix:  &Fix{Intro: "Bind the kernel's scheduler", Code: "//pu:scheduler\nvar scheduler kernelScheduler"},
 			Spec: pspec("19.5", "The scheduler contract"),
@@ -777,9 +777,9 @@ func init() {
 		},
 		&Entry{
 			Code: ContextSpawns, Name: "ContextSpawns",
-			Text: "Interrupt handlers run on top of whatever code the CPU was executing, and the panic handler on top of whatever panicked. Starting a puroutine allocates its stack and takes the scheduler's locks, which the interrupted code may hold, so nothing they can reach may use a go statement.",
+			Text: "Interrupt handlers run on top of whatever code the CPU was executing, and the panic handler on top of whatever panicked. Starting a task allocates its stack and takes the scheduler's locks, which the interrupted code may hold, so nothing they can reach may use a task statement.",
 			Why:  whyContext,
-			Fix:  &Fix{Intro: "To hand work to a puroutine, wake one that waits for it, or send without waiting", Code: "select { case work <- item: default: }"},
+			Fix:  &Fix{Intro: "To hand work to a task, wake one that waits for it, or send without waiting", Code: "select { case work <- item: default: }"},
 			Spec: pspec("20.10", "Interrupts"),
 		},
 		&Entry{
@@ -793,7 +793,7 @@ func init() {
 		},
 		&Entry{
 			Code: RetiredDirective, Name: "RetiredDirective",
-			Text:    "This directive was removed because the compiler now works out for itself what it used to be told. Delete the line; the program means the same without it.\nRemoved directives and what replaced them:\n//pu:alloc: kernel code may allocate strings anywhere the allocator may be called.\n//pu:bytewise: the compiler proves that string slice bounds fall on rune boundaries.\n//pu:gofunc: the compiler finds which functions start puroutines with their func arguments.\n//pu:schedhook and //pu:schedlate: the compiler knows the runtime's scheduler hooks by name.\n//pu:noreturn on a function with a body: the compiler finds that a function never returns when its body ends in a terminating statement. The directive is still needed on a function without a body, written in assembly or C.",
+			Text:    "This directive was removed because the compiler now works out for itself what it used to be told. Delete the line; the program means the same without it.\nRemoved directives and what replaced them:\n//pu:alloc: kernel code may allocate strings anywhere the allocator may be called.\n//pu:bytewise: the compiler proves that string slice bounds fall on rune boundaries.\n//pu:gofunc: the compiler finds which functions start tasks with their func arguments.\n//pu:schedhook and //pu:schedlate: the compiler knows the runtime's scheduler hooks by name.\n//pu:noreturn on a function with a body: the compiler finds that a function never returns when its body ends in a terminating statement. The directive is still needed on a function without a body, written in assembly or C.",
 			Why:     "Plutonium asks for a directive only for a fact the compiler cannot derive from the program, so that using the language does not need knowledge of how the compiler works.",
 			Fix:     &Fix{Intro: "Delete the directive", Code: "func halt() {\n\tfor {\n\t}\n}"},
 			Spec:    pspec("20.3", "Directives"),

@@ -1,7 +1,7 @@
 # Plutonium runtime: worker threads and thread-local storage for the hosted
 # scheduler (sched_linux.p). The FS base of every thread the runtime runs
 # points at its worker (an m): %fs:0 holds the m's own address and %fs:8 the
-# puroutine it is running (abi.md section 12.3).
+# task it is running (abi.md section 12.3).
 #pu:build linux && amd64
 
 	.cfi_sections .debug_frame
@@ -14,7 +14,7 @@
 	movq	%fs:0, %rax
 	ret
 
-# getg() *G: the puroutine the current thread runs, or nil on its
+# getg() *G: the task the current thread runs, or nil on its
 # scheduling context.
 	.globl "pluto/rt.getg"
 	.type "pluto/rt.getg", @function

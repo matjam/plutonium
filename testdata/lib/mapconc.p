@@ -1,7 +1,7 @@
-// Maps across puroutines (language spec sections 7.10 and 19.3): a map
-// guarded by a mutex that several puroutines write, maps that each
-// puroutine makes for itself and hands to main under the same mutex, and
-// maps sent on a channel. Counts are atomic once puroutines run; every map
+// Maps across tasks (language spec sections 7.10 and 19.3): a map
+// guarded by a mutex that several tasks write, maps that each
+// task makes for itself and hands to main under the same mutex, and
+// maps sent on a channel. Counts are atomic once tasks run; every map
 // and string made here must be freed exactly once (TestMapTasks runs this
 // with the debug allocator, with one, two and many processors). With the
 // imports changed to Go's packages, Go prints the same.
@@ -15,7 +15,7 @@ import (
 )
 
 // The compiler infers one guard for the contents of all maps of a type that
-// crosses between puroutines (whatever the type's name), so the shared map
+// crosses between tasks (whatever the type's name), so the shared map
 // has a type of its own, map[string]int64, apart from the map[string]int
 // that each worker fills and hands over.
 type counter map[string]int64
@@ -52,7 +52,7 @@ func worker(id int) {
 		own[k] += id + 1
 	}
 	shared.hand(id, own)
-	// Drop this puroutine's reference before main may exit: main waits
+	// Drop this task's reference before main may exit: main waits
 	// only for Done, and the leak check runs when it exits.
 	own = nil
 	wg.Done()

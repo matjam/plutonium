@@ -29,14 +29,14 @@ type Restore owner struct {
 	cur  Allocator // the allocator Use installed; nil once restored
 }
 
-// Use makes a the running puroutine's default allocator until the returned
+// Use makes a the running task's default allocator until the returned
 // Restore is dropped, or its Restore method is called:
 //
 //	defer alloc.Use(arena).Restore()
 //
-// The override belongs to the puroutine that calls Use: Default returns a
+// The override belongs to the task that calls Use: Default returns a
 // there and the program-wide default (SetDefault) everywhere else, and a
-// puroutine it starts begins with the program-wide default.
+// task it starts begins with the program-wide default.
 //
 // a may be a local arena: the Restore holds a, so the compiler checks that
 // the Restore does not outlive it (language spec section 18.9).

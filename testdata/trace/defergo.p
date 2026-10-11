@@ -1,6 +1,6 @@
 package main
 
-// A panic runs the deferred calls of the puroutine that panicked only: the
+// A panic runs the deferred calls of the task that panicked only: the
 // deferred call of main, which waits for the worker, does not run.
 
 func check(xs []int, i int) int {

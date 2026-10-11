@@ -1,2 +1,2 @@
 freestanding: no panic handler is defined
-$DIR/main.p:1:1: this program starts puroutines, uses channels or waits in pluto/sync, so it needs a scheduler, and none is bound: mark a package-level variable whose type implements rt.Scheduler with //pu:scheduler (language spec section 19.5; hosted builds bind one by default)
+$DIR/main.p:1:1: this program starts tasks, uses channels or waits in pluto/sync, so it needs a scheduler, and none is bound: mark a package-level variable whose type implements rt.Scheduler with //pu:scheduler (language spec section 19.5; hosted builds bind one by default)

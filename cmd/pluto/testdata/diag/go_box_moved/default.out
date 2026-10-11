@@ -1,15 +1,15 @@
-$DIR/main.p:13:10: p was moved to the puroutine started by go p.Serve() at line 12, so it can no longer be used here
+$DIR/main.p:13:10: p was moved to the task started by task p.Serve() at line 12, so it can no longer be used here
     owned[Server] is an owner type: its values own what they hold and release it
-    when they are dropped. Starting a method of an owned box with go moves the
-    box into the new puroutine, which drops it when the method returns, instead
-    of copying it, so that what it owns has exactly one owner. Since line 12, p
-    holds nothing.
+    when they are dropped. Starting a method of an owned box with a task
+    statement moves the box into the new task, which drops it when the method
+    returns, instead of copying it, so that what it owns has exactly one owner.
+    Since line 12, p holds nothing.
     Go copies such values freely and its garbage collector frees what they refer
     to when nothing refers to it any more. Plutonium has no garbage collector:
     an owner frees what it owns when it is dropped, so there must be exactly
     one.
-    To keep using p while the puroutine runs, make it a synced box: the
-    puroutine then takes a reference of its own:
+    To keep using p while the task runs, make it a synced box: the task then
+    takes a reference of its own:
         p := alloc.Synced[Server]()
     If this is the last use of p, move it before line 12, where p still holds
     its value.

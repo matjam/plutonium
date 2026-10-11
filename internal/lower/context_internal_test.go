@@ -10,9 +10,9 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
-// TestBlockingOps checks which channel operations and go statements the
+// TestBlockingOps checks which channel operations and task statements the
 // interrupt-context check finds in a function body. Lowering does not
-// support channels and go statements yet, so this checks the scan
+// support channels and task statements yet, so this checks the scan
 // directly on type-checked source.
 func TestBlockingOps(t *testing.T) {
 	const src = `package main
@@ -40,7 +40,7 @@ func main() {}
 		t.Fatal(err)
 	}
 	info := &types2.Info{Types: map[ast.Expr]types2.TypeAndValue{}}
-	// The checker reports channels and go statements until puroutines
+	// The checker reports channels and task statements until tasks
 	// exist; it records their types all the same.
 	conf := types2.Config{Error: func(error) {}}
 	_, _ = conf.Check("main", fset, []*ast.File{file}, info)
@@ -53,7 +53,7 @@ func main() {}
 		"selBody":   "sends on work",
 		"rangeCh":   "ranges over channel work",
 		"rangeArr":  "",
-		"spawn":     "starts a puroutine",
+		"spawn":     "starts a task",
 		"literal":   "",
 		"plain":     "",
 	}
@@ -67,7 +67,7 @@ func main() {}
 			var got []string
 			for _, op := range ops {
 				got = append(got, op.what)
-				if (op.kind == opSpawn) != (op.what == "starts a puroutine") {
+				if (op.kind == opSpawn) != (op.what == "starts a task") {
 					t.Errorf("%s: %q has kind %d", fd.Name.Name, op.what, op.kind)
 				}
 			}

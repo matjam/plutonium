@@ -71,9 +71,9 @@ func (c *checker) howMoved(mv *move) string {
 	case mvSend:
 		return "moved by the send on " + mv.to
 	case mvGo:
-		return "moved to the puroutine started"
+		return "moved to the task started"
 	case mvGoRecv:
-		return "moved to the puroutine started by go " + mv.to + "()"
+		return "moved to the task started by task " + mv.to + "()"
 	case mvTask:
 		return "taken by the task started by " + mv.to
 	case mvStore:
@@ -153,7 +153,7 @@ func (c *checker) useDiag(id *ast.Ident, v *types2.Var, s vstate) *diag.Diagnost
 	case mvArg, mvGo:
 		what = "Passing an owner by value moves it"
 	case mvGoRecv:
-		what = "Starting a method of an owned box with go moves the box into the new puroutine, which drops it when the method returns,"
+		what = "Starting a method of an owned box with a task statement moves the box into the new task, which drops it when the method returns,"
 	case mvRecv:
 		what = "Calling a method with a value receiver moves the receiver into the method"
 	case mvSend:
@@ -197,7 +197,7 @@ func (c *checker) useDiag(id *ast.Ident, v *types2.Var, s vstate) *diag.Diagnost
 		}
 		fixes = append(fixes, &diag.Fix{Intro: fmt.Sprintf("Declare %s with a pointer receiver so that calling it does not consume %s", method, name), Code: fmt.Sprintf("func (x *%s) %s(...)", c.typeName(T), method)})
 	case mvGoRecv:
-		fixes = append(fixes, &diag.Fix{Intro: fmt.Sprintf("To keep using %s while the puroutine runs, make it a synced box: the puroutine then takes a reference of its own", name), Code: fmt.Sprintf("%s := alloc.Synced[%s]()", name, boxElem(c, T))})
+		fixes = append(fixes, &diag.Fix{Intro: fmt.Sprintf("To keep using %s while the task runs, make it a synced box: the task then takes a reference of its own", name), Code: fmt.Sprintf("%s := alloc.Synced[%s]()", name, boxElem(c, T))})
 	default:
 		if hasClone(T) {
 			fixes = append(fixes, &diag.Fix{Intro: fmt.Sprintf("If both need a value, move a copy at line %d", at), Code: name + ".Clone()"})

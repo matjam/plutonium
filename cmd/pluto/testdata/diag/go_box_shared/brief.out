@@ -1,1 +1,1 @@
-$DIR/main.p:13:7: go statement receiver of type shared[Server] is not sendable: a shared reference's count is not atomic, so it cannot cross puroutines; use synced[T] (spec section 19.2)
+$DIR/main.p:13:7: task statement receiver of type shared[Server] is not sendable: a shared reference's count is not atomic, so it cannot cross tasks; use synced[T] (spec section 19.2)

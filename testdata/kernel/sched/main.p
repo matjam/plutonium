@@ -2,7 +2,7 @@
 // scheduler contract (language spec section 4.7, abi.md section 12) with a
 // round-robin scheduler on one processor: per-CPU state reached through
 // GS, a FIFO run queue, an idle loop that halts, and preemption from the
-// PIT timer interrupt. Puroutines, channels, select and pluto/sync run on
+// PIT timer interrupt. Tasks, channels, select and pluto/sync run on
 // it; the timer handler sends on a channel with a non-blocking select.
 // The PIT's tick count is the scheduler's clock (Now), and the handler
 // runs the runtime's timers when the deadline given to ArmTimer has
@@ -222,8 +222,8 @@ func timer(f *x86.InterruptFrame) {
 }
 
 // maskPICs masks every line of both PICs. The firmware leaves the PIT's
-// IRQ 0 unmasked on vector 8, and a new puroutine starts with interrupts
-// enabled, so without this a tick that arrives between the first go
+// IRQ 0 unmasked on vector 8, and a new task starts with interrupts
+// enabled, so without this a tick that arrives between the first task
 // statement and startTimer (which a busy host makes likely, as QEMU's
 // clock is the host's) is delivered before there is an IDT, and the
 // machine triple-faults.
@@ -280,7 +280,7 @@ func square(in <-chan int, out chan<- int) {
 	wg.Done()
 }
 
-// flag is atomic: two puroutines use it.
+// flag is atomic: two tasks use it.
 var flag atomic.Uint32
 
 // spin never waits in its loop: only the timer's preemption lets set run.
@@ -344,12 +344,12 @@ func main() int64 {
 	<-done
 	println("spinner preempted by the timer")
 
-	// Ticks sent from the interrupt handler wake a parked puroutine.
+	// Ticks sent from the interrupt handler wake a parked task.
 	first := <-tickCh
 	second := <-tickCh
 	println("ticks from the interrupt handler", first > 0, second > first, tickSends >= 2)
 
-	// A select that waits on two channels, one fed by a puroutine.
+	// A select that waits on two channels, one fed by a task.
 	a := make(chan int)
 	b := make(chan int)
 	task func(b chan<- int) { b <- 42 }(b)

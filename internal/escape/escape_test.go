@@ -377,8 +377,8 @@ type P struct{ x, y int }
 func box[T any](x T) any { return x }
 func main() { _, _ = box(1), box(P{1, 2}) }`, []string{"cannot return x as an interface: the interface would hold a copy of it in box's frame"}},
 
-	// go statements and channels are rejected by the checker until the
-	// scheduler exists; the analysis already treats a go statement's
+	// task statements and channels are rejected by the checker until the
+	// scheduler exists; the analysis already treats a task statement's
 	// operands and a sent value as escaping.
 
 	{"string over a frame buffer kept", `
@@ -659,10 +659,10 @@ func main() {
 	println(g())
 }`, []string{"cannot return &n"}},
 
-	{"go statement whose function keeps its packed variadic arguments", `
+	{"task statement whose function keeps its packed variadic arguments", `
 var kept []int
 func keep(xs ...int) { kept = xs }
-func main() { task keep(1, 2) }`, []string{"cannot pass the variadic arguments of keep to a go statement"}},
+func main() { task keep(1, 2) }`, []string{"cannot pass the variadic arguments of keep to a task statement"}},
 
 	{"constructor yielding the address of what it captures", `
 var saved *int
@@ -1216,7 +1216,7 @@ func main() {
 	n := 1
 	println(mk(&n)())
 }`},
-	{"go statement copies packed variadic arguments", `
+	{"task statement copies packed variadic arguments", `
 func sum(done chan int, xs ...int) {
 	t := 0
 	for _, x := range xs {

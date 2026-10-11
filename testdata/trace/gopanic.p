@@ -1,7 +1,7 @@
 package main
 
-// A panic in a puroutine names the puroutine and prints its stack, which
-// ends at the function the go statement started.
+// A panic in a task names the task and prints its stack, which
+// ends at the function the task statement started.
 
 func level2(xs []int, i int) int {
 	return xs[i] * 2

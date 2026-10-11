@@ -32,7 +32,7 @@ func main() {
 	<-done
 	<-done
 	println(len(m))
-}`, []string{"main.p:4:3: an element of a map[string]int is written here with no lock that guards it, while another puroutine may use it",
+}`, []string{"main.p:4:3: an element of a map[string]int is written here with no lock that guards it, while another task may use it",
 		"m[k] = v", "E3502"}},
 
 	{"read of a shared map without the inferred lock", `

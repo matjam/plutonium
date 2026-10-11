@@ -130,16 +130,16 @@ go run ./cmd/pluto build -O2 -o /tmp/puconc ./bench/conc/pu
 
 | Case | What it measures |
 |---|---|
-| `pingpong` | a round trip over two unbuffered channels between two puroutines |
-| `buffered` | a value sent through a channel with a buffer of 1024 to a puroutine that drains it |
-| `spawn` | starting a puroutine that signals a `WaitGroup`, in batches of 1000 |
+| `pingpong` | a round trip over two unbuffered channels between two tasks |
+| `buffered` | a value sent through a channel with a buffer of 1024 to a task that drains it |
+| `spawn` | starting a task that signals a `WaitGroup`, in batches of 1000 |
 | `mutex-1` | an uncontended `Mutex` lock and unlock |
-| `mutex-8` | the same with eight puroutines contending for one mutex |
+| `mutex-8` | the same with eight tasks contending for one mutex |
 
 `PLUTO_MAXPROCS` (like `GOMAXPROCS`) limits the processors the hosted scheduler uses. On a 24-thread
 AMD Ryzen 9 9900X3D, at the time of writing, the uncontended mutex runs at Go's speed (8 ns), the
 contended mutex and ping-pong 5 to 40% slower (about 45 ns and 190 to 260 ns, with more spread than
-Go's), starting a puroutine about twice Go's cost (230 to 300 ns), and buffered channel operations
+Go's), starting a task about twice Go's cost (230 to 300 ns), and buffered channel operations
 about 2.7 times Go's (about 87 ns).
 
 ### Map micro-benchmarks

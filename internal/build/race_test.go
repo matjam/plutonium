@@ -46,7 +46,7 @@ func main() {
 	println(hits)
 }
 `,
-		wantErr: "hits is written here with no lock that guards it, while another puroutine may use it",
+		wantErr: "hits is written here with no lock that guards it, while another task may use it",
 		fixed: `package main
 
 import "pluto/sync"
@@ -172,7 +172,7 @@ func main() {
 	rw.RUnlock()
 }
 `,
-		wantErr: "table[i] is written here with no lock that guards it, while another puroutine may use it",
+		wantErr: "table[i] is written here with no lock that guards it, while another task may use it",
 		fixed: `package main
 
 import "pluto/sync"
@@ -243,7 +243,7 @@ func main() {
 	stats.unlock()
 }
 `,
-		wantErr: "stats.hits is written here with no lock that guards it, while another puroutine may use it",
+		wantErr: "stats.hits is written here with no lock that guards it, while another task may use it",
 		fixed: `package main
 
 import "pluto/sync"
@@ -307,7 +307,7 @@ func main() {
 	println(c.n)
 }
 `,
-		wantErr: "counter.n is written here with no lock that guards it, while another puroutine may use it",
+		wantErr: "counter.n is written here with no lock that guards it, while another task may use it",
 		fixed: `package main
 
 import "pluto/sync"
@@ -373,7 +373,7 @@ func main() {
 	println(<-out + <-out + <-out)
 }
 `,
-		wantErr: "&job is a view of Job that may change while another puroutine uses it, so it cannot be sent on a channel",
+		wantErr: "&job is a view of Job that may change while another task uses it, so it cannot be sent on a channel",
 		fixed: `package main
 
 type Job struct{ id, cost int }
@@ -427,7 +427,7 @@ func main() {
 	println(ops)
 }
 `,
-		wantErr: "ops is read here without an atomic operation, but other puroutines change it with atomic operations",
+		wantErr: "ops is read here without an atomic operation, but other tasks change it with atomic operations",
 		fixed: `package main
 
 import (
@@ -493,7 +493,7 @@ func main() {
 	s.mu.Unlock()
 }
 `,
-		wantErr: "the field hits of a synced[Stats] is written here with no lock that guards it, while another puroutine may use it",
+		wantErr: "the field hits of a synced[Stats] is written here with no lock that guards it, while another task may use it",
 		fixed: `package main
 
 import (

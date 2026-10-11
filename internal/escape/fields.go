@@ -219,7 +219,7 @@ func (a *analyzer) storeField(f *types2.Var, v tset, outer []*types2.Var) {
 // passable reports whether every call of f is seen by the analysis, so
 // that what its parameters hold is known from the calls (passArgs).
 // Functions called from outside Plutonium (exported, interrupt handlers)
-// and from go statements are not.
+// and from task statements are not.
 func (f *function) passable() bool { return !f.external }
 
 // passArgs records what a call passes for f's parameters: a parameter

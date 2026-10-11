@@ -1,6 +1,6 @@
 // A program that binds its own scheduler backend with //pu:scheduler,
 // replacing the hosted one: a single processor with a FIFO run queue, as a
-// small kernel's would be. Puroutines, channels, select and pluto/sync run
+// small kernel's would be. Tasks, channels, select and pluto/sync run
 // on it unchanged. Its clock is CLOCK_MONOTONIC, and its idle loop sleeps
 // until the deadline the runtime gave ArmTimer, then runs the timers, so
 // time.Sleep and time.After work on the runtime's shared timer heap.
@@ -40,14 +40,14 @@ var sched = roundRobin{due: rt.NoDeadline}
 
 var idleStack [16 << 10]byte
 
-// Init runs once, before the first go statement or blocking operation.
+// Init runs once, before the first task statement or blocking operation.
 func (s *roundRobin) Init() {
 	rt.MakeContext(&s.idle, unsafe.Pointer(&idleStack[0]), uintptr(len(idleStack)), idleLoop)
 }
 
 // idleLoop runs whatever is runnable. With nothing to run, it sleeps until
 // the earliest timer is due and runs the timers; with no timer either,
-// every puroutine waits for another.
+// every task waits for another.
 func idleLoop() {
 	for {
 		t := sched.pop()
@@ -179,7 +179,7 @@ func main() {
 	}
 	println("sum of squares", sum)
 
-	// Yield interleaves: the puroutine that yields fewer times finishes
+	// Yield interleaves: the task that yields fewer times finishes
 	// first, whichever started first.
 	names := make(chan string, 2)
 	task ticker(0, 50, names)

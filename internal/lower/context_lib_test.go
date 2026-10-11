@@ -24,11 +24,11 @@ func TestInterruptContextLibrary(t *testing.T) {
 		{"park until", "rt.ParkUntil(rt.Now() + 1)", []string{
 			"keyboard calls rt.ParkUntil (main.p:28), which may wait."}, []string{"park ("}},
 		{"wait group go", "wg.Task(work)", []string{
-			"keyboard is an interrupt handler, so it must not start a puroutine",
-			"keyboard calls wg.Task (main.p:28), which starts a puroutine.",
+			"keyboard is an interrupt handler, so it must not start a task",
+			"keyboard calls wg.Task (main.p:28), which starts a task.",
 			`(run "pluto explain E2585"`}, []string{"spawn"}},
 		{"rt go", "rt.Go(work, rt.MinStackSize)", []string{
-			"keyboard calls rt.Go (main.p:28), which starts a puroutine."}, nil},
+			"keyboard calls rt.Go (main.p:28), which starts a task."}, nil},
 		{"channel", "ch <- 1", []string{"keyboard sends on ch (main.p:28)."}, nil},
 
 		{"trylock and unlock", "if mu.TryLock() {\n\t\tmu.Unlock()\n\t}", nil, nil},

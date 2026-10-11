@@ -1,7 +1,7 @@
 package main
 
-// A hardware fault in a puroutine, on a worker thread with its own signal
-// stack, is reported with the puroutine and its stack.
+// A hardware fault in a task, on a worker thread with its own signal
+// stack, is reported with the task and its stack.
 
 type node struct {
 	next *node
@@ -26,5 +26,5 @@ func main() {
 	println(<-done)
 }
 
-// Package variables: the puroutines may outlive main's frame.
+// Package variables: the tasks may outlive main's frame.
 var nodes [2]node

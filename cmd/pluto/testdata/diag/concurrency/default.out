@@ -1,14 +1,14 @@
-$DIR/main.p:17:20: channel element type Job is not sendable: it contains shared[int], whose count is not atomic, so it cannot cross puroutines; use synced[T] (spec section 19.2)
-    A value that crosses puroutines, as the argument or receiver of a go
-    statement or as the element of a channel, must be sendable. This type holds
-    a shared[T], whose reference count is changed with ordinary arithmetic, so
-    two puroutines copying or dropping references at once would corrupt it.
-    Starting a method of a shared box with go (go z.Serve()) hands the box
-    itself to the new puroutine, so it needs a synced box as well.
+$DIR/main.p:17:20: channel element type Job is not sendable: it contains shared[int], whose count is not atomic, so it cannot cross tasks; use synced[T] (spec section 19.2)
+    A value that crosses tasks, as the argument or receiver of a task statement
+    or as the element of a channel, must be sendable. This type holds a
+    shared[T], whose reference count is changed with ordinary arithmetic, so two
+    tasks copying or dropping references at once would corrupt it. Starting a
+    method of a shared box with a task statement (task z.Serve()) hands the box
+    itself to the new task, so it needs a synced box as well.
     Use synced[T], which counts atomically.
     Go's garbage collector makes every pointer safe to share. Plutonium counts
     shared references without atomic instructions, which is only correct on one
-    puroutine.
+    task.
     Count the references atomically:
         type Job struct {
             data synced[Buffer]
@@ -18,12 +18,12 @@ $DIR/main.p:17:20: channel element type Job is not sendable: it contains shared[
     (see "Sendable types" in the Plutonium spec, section 8.8)
     (run "pluto explain E2010" for a longer explanation)
 
-$DIR/main.p:21:12: &x is passed to a go statement, but x lives in this function's frame, which the receiving puroutine may outlive (spec section 18.3); allocate it with new, whose owned[T] then moves to the puroutine, or make it a package-level variable
+$DIR/main.p:21:12: &x is passed to a task statement, but x lives in this function's frame, which the receiving task may outlive (spec section 18.3); allocate it with new, whose owned[T] then moves to the task, or make it a package-level variable
     This value points into the current function's stack frame: the address of a
     local variable or of part of one, a slice of a local array, or the address
-    of a composite literal. A go statement or a channel send hands it to another
-    puroutine, which may still use it after this function has returned and its
-    frame is gone.
+    of a composite literal. A task statement or a channel send hands it to
+    another task, which may still use it after this function has returned and
+    its frame is gone.
     Start the work with a sync.Scope instead: it waits for the tasks it starts
     before its block ends, so they may use the function's variables. Or allocate
     the variable with new, so that it outlives the frame, or make it a
@@ -36,11 +36,11 @@ $DIR/main.p:21:12: &x is passed to a go statement, but x lives in this function'
     (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E2011" for a longer explanation)
 
-$DIR/main.p:24:11: buf[:] is passed to a go statement, but it is a slice of buf, which lives in this function's frame and which the receiving puroutine may outlive (spec section 18.3)
+$DIR/main.p:24:11: buf[:] is passed to a task statement, but it is a slice of buf, which lives in this function's frame and which the receiving task may outlive (spec section 18.3)
     (explained above; run "pluto explain E2011" for more)
 
-$DIR/main.p:27:7: go statement calls a pointer method on c, a variable in this function's frame, which the puroutine may outlive (spec section 18.3); make it a package-level variable, or give the puroutine a function that takes an owner
+$DIR/main.p:27:7: task statement calls a pointer method on c, a variable in this function's frame, which the task may outlive (spec section 18.3); make it a package-level variable, or give the task a function that takes an owner
     (explained above; run "pluto explain E2011" for more)
 
-$DIR/main.p:30:10: &x is sent on a channel, but x lives in this function's frame, which the receiving puroutine may outlive (spec section 18.3); allocate it with new, whose owned[T] then moves to the puroutine, or make it a package-level variable
+$DIR/main.p:30:10: &x is sent on a channel, but x lives in this function's frame, which the receiving task may outlive (spec section 18.3); allocate it with new, whose owned[T] then moves to the task, or make it a package-level variable
     (explained above; run "pluto explain E2011" for more)

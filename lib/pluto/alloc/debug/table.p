@@ -218,7 +218,7 @@ func printRet(ret uintptr) {
 		print("an unknown site")
 		return
 	case rt.StackSite:
-		print("the runtime, as a puroutine's stack")
+		print("the runtime, as a task's stack")
 		return
 	}
 	rt.PrintPC(ret - 1)

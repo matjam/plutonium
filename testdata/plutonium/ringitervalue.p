@@ -1,6 +1,6 @@
 // A ring's iterator methods used other than by calling them: as method
 // values, method expressions, through an interface, deferred and started
-// with go. The iterator's closure is built in the region the caller
+// with a task statement. The iterator's closure is built in the region the caller
 // provides (language spec sections 4.5 and 5.4).
 package main
 

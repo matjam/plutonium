@@ -1,7 +1,7 @@
 // More functions that return closures, built in regions their callers
 // provide (language spec section 4.5): large parameters, deferred updates,
 // method values, recursion that builds nothing, closures of closures,
-// several results, interfaces, defer and go.
+// several results, interfaces, defer and task.
 
 package main
 

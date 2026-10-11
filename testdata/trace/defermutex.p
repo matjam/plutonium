@@ -1,7 +1,7 @@
 package main
 
-// A panic runs the panicking puroutine's deferred calls while the other
-// puroutines go on: the deferred Unlock lets the waiting worker take the
+// A panic runs the panicking task's deferred calls while the other
+// tasks go on: the deferred Unlock lets the waiting worker take the
 // lock, and the deferred receive waits for it to finish before the panic
 // is reported.
 

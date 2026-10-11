@@ -53,7 +53,7 @@ type fnState struct {
 	gxBoundary gxBoundary
 	loopDepth  int
 	closures   int // counter for naming closures
-	goStmts    int // counter for naming go statement thunks
+	goStmts    int // counter for naming task statement thunks
 
 	// Range over functions (rangefunc.go). rf is set in the yield function
 	// lowered from the body of a range-over-func loop; capPtrs maps the

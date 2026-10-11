@@ -74,14 +74,14 @@ var (
 
 // A File is an open file descriptor.
 //
-// A read or write that has to wait does not hold up other puroutines: on a
-// descriptor in non-blocking mode (a pipe from Pipe) the puroutine parks
+// A read or write that has to wait does not hold up other tasks: on a
+// descriptor in non-blocking mode (a pipe from Pipe) the task parks
 // in the scheduler's poller until the descriptor is ready, and on any
 // other the system call is announced to the scheduler (rt.EnterSyscall),
 // which hands the worker's processor to another worker if the call blocks.
 //
 // A read and a write may wait on the same descriptor at once (a socket),
-// and so may any number of reads. Close wakes the puroutines waiting in the
+// and so may any number of reads. Close wakes the tasks waiting in the
 // poller: their Read or Write reports ErrClosed. A read or write that is
 // running on a descriptor in blocking mode cannot be woken; the descriptor
 // is closed when it returns. Once closed, every operation reports ErrClosed
@@ -114,7 +114,7 @@ const fdClosed = 1 << 31
 // An ioWaiter is the poller's record of a non-blocking descriptor
 // (*rt.PollDesc).
 type ioWaiter interface {
-	// Wait parks the running puroutine until the descriptor may be ready
+	// Wait parks the running task until the descriptor may be ready
 	// for reading or writing: rt.PollReady, rt.PollClosed after Evict, or
 	// rt.PollUnavailable if there is no poller.
 	Wait(write bool) int
@@ -300,7 +300,7 @@ func (f *File) read(p []byte) (int, error) {
 	}
 }
 
-// Close closes the file. Puroutines waiting to read or write it in the
+// Close closes the file. Tasks waiting to read or write it in the
 // poller are woken and report ErrClosed. If a read or write is running in a
 // system call, the descriptor is closed when it returns. Closing a closed
 // file reports ErrClosed.

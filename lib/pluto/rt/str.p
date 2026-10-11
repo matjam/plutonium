@@ -47,7 +47,7 @@ const strHeaderSize = 32
 var atomicCounts = atomicCountsAtStart
 
 // SetThreaded makes string reference counts atomic from now on. The runtime
-// calls it when the first puroutine starts (a puroutine may preempt another
+// calls it when the first task starts (a task may preempt another
 // in the middle of a plain increment) and before it starts a thread; a
 // program that runs Plutonium code on another thread by other means calls
 // it first. Freestanding programs count atomically from the start. It
@@ -123,7 +123,7 @@ func strAlloc(n int, pc uintptr) (*byte, uintptr) {
 	return strAllocFrom(currentAllocator(), n, pc)
 }
 
-// currentAllocator returns the running puroutine's default allocator, the
+// currentAllocator returns the running task's default allocator, the
 // one new strings come from, and panics if there is none.
 func currentAllocator() Allocator {
 	a := DefaultAllocator()

@@ -1,4 +1,4 @@
-// go statements of every form, and channels of several element types.
+// task statements of every form, and channels of several element types.
 
 package main
 
@@ -74,8 +74,8 @@ func bigArg(b big, out chan int) {
 
 func gen[E any](v E, out chan E) { out <- v }
 
-// Package variables, which the puroutines may outlive main's frame for,
-// set before any puroutine starts: another puroutine may use a view of
+// Package variables, which the tasks may outlive main's frame for,
+// set before any task starts: another task may use a view of
 // memory nothing changes.
 var tBump T
 var t9Show = T{9}
@@ -108,8 +108,8 @@ func main() {
 	task vari(d)
 	println(<-d)
 	// Not []int{5, 6}: that array would be in main's frame, which the
-	// puroutine may outlive. Nor a slice main may still change: a view
-	// crosses to another puroutine only if what it points to cannot change
+	// task may outlive. Nor a slice main may still change: a view
+	// crosses to another task only if what it points to cannot change
 	// while both use it, as a package variable nothing writes.
 	task vari(d, fiveSix...)
 	println(<-d)
@@ -117,7 +117,7 @@ func main() {
 	bd := make(chan bool)
 	task T{7}.show(bd)
 	<-bd
-	// Package variables: the puroutines may outlive main's frame.
+	// Package variables: the tasks may outlive main's frame.
 	t := &tBump
 	task t.bump(bd)
 	<-bd
@@ -143,7 +143,7 @@ func main() {
 	}
 	bg.s = "squares"
 	task bigArg(bg, r)
-	bg.a[0] = 1000 // the puroutine has its own copy
+	bg.a[0] = 1000 // the task has its own copy
 	println(<-r)
 
 	gs := make(chan string, 1)

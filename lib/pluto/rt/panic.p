@@ -47,7 +47,7 @@ type Panic struct {
 	// CPU is the processor that panicked: in kernel mode the number the
 	// kernel gave it with SetCPU (0 until it does); otherwise 0.
 	CPU int
-	// Task is the ID of the puroutine that panicked (Task.ID): 1 for
+	// Task is the ID of the task that panicked (Task.ID): 1 for
 	// the one that runs main, 0 outside any (a scheduler's own context).
 	Task uint64
 	// During is the panic whose deferred calls the task was running when
@@ -288,7 +288,7 @@ func PanicFault(kind FaultKind, addr, pc, sp, bp uintptr) {
 // stackOverflow reports whether a memory fault at addr, with the stack
 // pointer at sp, is the stack running into its guard: just below the
 // stack pointer, in the guard region of the stack //pu:stack reserved, or
-// in the guard region below a puroutine's stack (a page, unless the
+// in the guard region below a task's stack (a page, unless the
 // backend recorded more with SetStackGuard).
 func stackOverflow(addr, sp uintptr) bool {
 	t := current()
@@ -370,7 +370,7 @@ func (p *Panic) Print[W Writer](w W) {
 		writeString(w, "]\n")
 	}
 	if p.Task > 1 {
-		writeString(w, "puroutine ")
+		writeString(w, "task ")
 		writeUint(w, p.Task)
 		writeString(w, ":\n")
 	}

@@ -1,7 +1,7 @@
 package types2
 
-// Plutonium rules for values that cross puroutines (language spec sections
-// 4.7, 4.8 and 6.3): go statement arguments and channel elements must be
+// Plutonium rules for values that cross tasks (language spec sections
+// 4.7, 4.8 and 6.3): task statement arguments and channel elements must be
 // sendable, and must not be views of the sending function's frame.
 
 import (
@@ -11,7 +11,7 @@ import (
 )
 
 // Unsendable returns the part of T that keeps a value of type T from
-// crossing puroutines: a shared[T] reference, whose count is not atomic,
+// crossing tasks: a shared[T] reference, whose count is not atomic,
 // directly or in any field or element. It returns nil if T is sendable.
 // Views (pointers, slices, strings), interfaces, functions and channels
 // are not looked into; a type parameter is judged when it is instantiated.
@@ -43,24 +43,24 @@ func unsendable(T Type, seen map[Type]bool) Type {
 }
 
 // checkSendable reports a value of type T, described by what, that would
-// cross puroutines but is not sendable.
+// cross tasks but is not sendable.
 func (check *Checker) checkSendable(at positioner, T Type, what string) {
 	if !isValid(T) {
 		return
 	}
 	if bad := Unsendable(T); bad != nil {
 		if Identical(bad, T) {
-			check.errorf(at, NotSendable, "%s %s is not sendable: a shared reference's count is not atomic, so it cannot cross puroutines; use synced[T] (spec section 19.2)", what, T)
+			check.errorf(at, NotSendable, "%s %s is not sendable: a shared reference's count is not atomic, so it cannot cross tasks; use synced[T] (spec section 19.2)", what, T)
 		} else {
-			check.errorf(at, NotSendable, "%s %s is not sendable: it contains %s, whose count is not atomic, so it cannot cross puroutines; use synced[T] (spec section 19.2)", what, T, bad)
+			check.errorf(at, NotSendable, "%s %s is not sendable: it contains %s, whose count is not atomic, so it cannot cross tasks; use synced[T] (spec section 19.2)", what, T, bad)
 		}
 	}
 }
 
 // GoBoxReceiver returns the box type when sel, the selection a go
 // statement's function is, calls a pointer method of T directly on an
-// owned[T], shared[T] or synced[T] (go p.Serve()), and nil otherwise. The
-// puroutine then takes the box itself (spec section 12.12): an owned box
+// owned[T], shared[T] or synced[T] (task p.Serve()), and nil otherwise. The
+// task then takes the box itself (spec section 12.12): an owned box
 // moves into it, which drops the box when the method returns, and a synced
 // one is counted for it; a shared one is not sendable. A box of a named
 // type, or a method promoted from a field, takes the ordinary rule for a
@@ -83,20 +83,20 @@ func GoBoxReceiver(sel *Selection) *Wrapper {
 	return w
 }
 
-// taskStmtArgs checks what a go statement hands to the new puroutine: its
+// taskStmtArgs checks what a task statement hands to the new task: its
 // arguments, and the receiver of a method it calls.
 func (check *Checker) taskStmtArgs(call *ast.CallExpr) {
 	for _, a := range call.Args {
 		if T := check.exprType(a); T != nil {
 			if tup, ok := T.(*Tuple); ok {
 				for _, v := range tup.vars {
-					check.checkSendable(a, v.typ, "go statement argument of type")
+					check.checkSendable(a, v.typ, "task statement argument of type")
 				}
 				continue
 			}
-			check.checkSendable(a, T, "go statement argument of type")
+			check.checkSendable(a, T, "task statement argument of type")
 		}
-		check.checkFrameView(a, "passed to a go statement")
+		check.checkFrameView(a, "passed to a task statement")
 	}
 	if se, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr); ok {
 		if sel := check.Selections[se]; sel != nil && sel.kind == MethodVal {
@@ -104,24 +104,24 @@ func (check *Checker) taskStmtArgs(call *ast.CallExpr) {
 			if sig != nil && sig.recv != nil {
 				if _, ptr := sig.recv.typ.(*Pointer); ptr {
 					if GoBoxReceiver(sel) != nil {
-						// The box itself goes to the puroutine.
+						// The box itself goes to the task.
 						if T := check.exprType(se.X); T != nil {
-							check.checkSendable(se.X, T, "go statement receiver of type")
+							check.checkSendable(se.X, T, "task statement receiver of type")
 						}
 					} else if !isPointerTyped(check.exprType(se.X)) {
 						if root := check.frameRoot(se.X); root != nil {
-							check.errorf(se.X, FrameViewSent, "go statement calls a pointer method on %s, a variable in this function's frame, which the puroutine may outlive (spec section 18.3); make it a package-level variable, or give the puroutine a function that takes an owner", root.name)
+							check.errorf(se.X, FrameViewSent, "task statement calls a pointer method on %s, a variable in this function's frame, which the task may outlive (spec section 18.3); make it a package-level variable, or give the task a function that takes an owner", root.name)
 						}
 					}
 				} else if T := check.exprType(se.X); T != nil {
-					check.checkSendable(se.X, T, "go statement receiver of type")
+					check.checkSendable(se.X, T, "task statement receiver of type")
 				}
 			}
 		}
 	}
 }
 
-// checkFrameView reports e, a value handed to another puroutine, if it is
+// checkFrameView reports e, a value handed to another task, if it is
 // a view of the current function's frame that the compiler can see
 // syntactically: the address of a local variable or of a part of one, a
 // slice of a local array, or the address of a composite literal. Other
@@ -134,17 +134,17 @@ func (check *Checker) checkFrameView(e ast.Expr, what string) {
 			return
 		}
 		if _, lit := ast.Unparen(x.X).(*ast.CompositeLit); lit {
-			check.errorf(x, FrameViewSent, "%s is %s, but it points into this function's frame, which the receiving puroutine may outlive (spec section 18.3); allocate it with new(T{...}), whose owned[T] then moves to the puroutine", ExprString(x), what)
+			check.errorf(x, FrameViewSent, "%s is %s, but it points into this function's frame, which the receiving task may outlive (spec section 18.3); allocate it with new(T{...}), whose owned[T] then moves to the task", ExprString(x), what)
 			return
 		}
 		if root := check.frameRoot(x.X); root != nil {
-			check.errorf(x, FrameViewSent, "%s is %s, but %s lives in this function's frame, which the receiving puroutine may outlive (spec section 18.3); allocate it with new, whose owned[T] then moves to the puroutine, or make it a package-level variable", ExprString(x), what, root.name)
+			check.errorf(x, FrameViewSent, "%s is %s, but %s lives in this function's frame, which the receiving task may outlive (spec section 18.3); allocate it with new, whose owned[T] then moves to the task, or make it a package-level variable", ExprString(x), what, root.name)
 		}
 	case *ast.SliceExpr:
 		if T := check.exprType(x.X); T != nil {
 			if _, arr := T.Underlying().(*Array); arr {
 				if root := check.frameRoot(x.X); root != nil {
-					check.errorf(x, FrameViewSent, "%s is %s, but it is a slice of %s, which lives in this function's frame and which the receiving puroutine may outlive (spec section 18.3)", ExprString(x), what, root.name)
+					check.errorf(x, FrameViewSent, "%s is %s, but it is a slice of %s, which lives in this function's frame and which the receiving task may outlive (spec section 18.3)", ExprString(x), what, root.name)
 				}
 			}
 		}

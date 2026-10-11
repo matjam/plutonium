@@ -1,6 +1,6 @@
 package main
 
-// A panic while the tasks of a sync.Scope run: the puroutine that panics
+// A panic while the tasks of a sync.Scope run: the task that panics
 // runs its deferred calls, but no variable is dropped, so the Scope does
 // not wait, and the program stops. The tasks use main's frame, which is
 // never reclaimed while they could still run.

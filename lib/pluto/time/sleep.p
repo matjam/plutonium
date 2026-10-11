@@ -23,10 +23,10 @@ func deadline(d Duration) int64 {
 	return rt.NoDeadline - 1
 }
 
-// Sleep pauses the calling puroutine for at least d. A negative or zero d
-// returns at once. The puroutine parks with a timer, so its processor runs
-// other puroutines meanwhile, and a program whose puroutines all sleep
-// uses no processor time. A program that starts no puroutine, uses no
+// Sleep pauses the calling task for at least d. A negative or zero d
+// returns at once. The task parks with a timer, so its processor runs
+// other tasks meanwhile, and a program whose tasks all sleep
+// uses no processor time. A program that starts no task, uses no
 // channel, timer or wait, and has the default hosted scheduler has none to
 // run: there Sleep waits in the kernel on the program's only thread, and
 // the scheduler's threads are not started (rt.Sleep).
@@ -90,8 +90,8 @@ func newTimerChan(d, period Duration, a alloc.Allocator) <-chan Time {
 type Timer owner struct {
 	C <-chan Time
 
-	// AfterFunc: the timer, the function, the expiries whose puroutine
-	// has not started yet, and the link in the queue of the puroutine
+	// AfterFunc: the timer, the function, the expiries whose task
+	// has not started yet, and the link in the queue of the task
 	// that starts them (funcs). fires and link are guarded by funcs.lock.
 	r     rt.Timer
 	f     func()
@@ -128,7 +128,7 @@ func (t *Timer) timer() *rt.Timer {
 // the timer: the timer had not expired, or had expired and its time had
 // not been received (Stop takes it from C). For a timer made by AfterFunc,
 // a false result means the function has been or will be started on its own
-// puroutine. Stop does not wait for that function.
+// task. Stop does not wait for that function.
 func (t *Timer) Stop() bool {
 	if t.C == nil && t.f == nil {
 		panic("time: Stop called on uninitialized Timer")
@@ -157,7 +157,7 @@ func (t *Timer) Reset(d Duration) bool {
 }
 
 // Drop stops a timer made by AfterFunc, first waiting until the
-// puroutines of expiries already past have started. alloc.Free calls it
+// tasks of expiries already past have started. alloc.Free calls it
 // before freeing the Timer; then C's reference is released, and a channel
 // timer stops with the last reference to its channel.
 func (t *Timer) Drop() {
@@ -177,14 +177,14 @@ func (t *Timer) Drop() {
 }
 
 // AfterFunc waits for the duration to elapse and then calls f in its own
-// puroutine. It returns a Timer that can be used to cancel the call using
+// task. It returns a Timer that can be used to cancel the call using
 // its Stop method; the Timer's C is nil.
 //
-// As with a go statement, f must not capture variables or be a method
+// As with a task statement, f must not capture variables or be a method
 // value made in the caller's frame, since it runs after the frame may be
 // gone: AfterFunc panics if f's closure record lies in the calling
-// puroutine's stack (language spec section 19.1). The puroutines are started
-// by one puroutine of the time package's, which AfterFunc starts the first
+// task's stack (language spec section 19.1). The tasks are started
+// by one task of the time package's, which AfterFunc starts the first
 // time it is called and which then waits for expiries for good.
 func AfterFunc(d Duration, f func(), a alloc.Allocator = alloc.Default()) *Timer {
 	rt.CheckGoFunc(f)
@@ -197,8 +197,8 @@ func AfterFunc(d Duration, f func(), a alloc.Allocator = alloc.Default()) *Timer
 }
 
 // funcs is the queue of AfterFunc timers that have expired, and the
-// puroutine that starts their functions. A timer's function runs where
-// timers run (possibly an interrupt handler) and cannot start a puroutine
+// task that starts their functions. A timer's function runs where
+// timers run (possibly an interrupt handler) and cannot start a task
 // itself.
 var funcs struct {
 	lock       rt.Lock
@@ -244,7 +244,7 @@ func goFunc(arg unsafe.Pointer, now int64) {
 }
 
 // runFuncs starts the functions of expired AfterFunc timers, each on a
-// puroutine of its own.
+// task of its own.
 func runFuncs() {
 	funcs.lock.Lock()
 	funcs.runner = rt.CurrentTask()

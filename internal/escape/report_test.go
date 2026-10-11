@@ -33,14 +33,14 @@ func TestHandOffMessages(t *testing.T) {
 	}
 	goErr := a.viewDiag(&viewErr{sink: sinkGo, pos: pos(30), expr: addr, l: l, fn: "serve", call: call, qual: q})
 	for _, want := range []string{
-		"cannot pass &req to a go statement: the new puroutine may outlive req",
+		"cannot pass &req to a task statement: the new task may outlive req",
 		"req is a local variable of serve (declared at srv.p:24)",
 		"may still be running after serve returns",
-		"Pass the value itself. This copies it, or moves it if it is an owner: go handle(req)",
+		"Pass the value itself. This copies it, or moves it if it is an owner: task handle(req)",
 		"E3004",
 	} {
 		if got := full(goErr); !strings.Contains(got, want) {
-			t.Errorf("go statement: %q not in\n%s", want, got)
+			t.Errorf("task statement: %q not in\n%s", want, got)
 		}
 	}
 	sendErr := a.viewDiag(&viewErr{sink: sinkSend, pos: pos(30), expr: addr, l: l, fn: "serve", ch: &ast.Ident{Name: "ch"}, qual: q})

@@ -3,7 +3,7 @@
 # pluto/sync/atomic, so it has its own. Every function here is opaque to the
 # compiler, so a call to one is a compiler barrier (memory-model.md 5.2).
 #
-# The saved context of a suspended puroutine (abi.md section 12) is its
+# The saved context of a suspended task (abi.md section 12) is its
 # stack pointer; below it on its stack lie the callee-saved registers and the
 # address to resume at.
 #pu:build amd64
@@ -73,7 +73,7 @@
 	ret
 
 # inc32(p *int32) and dec32(p *int32) change a counter that only the running
-# puroutine writes and only its own thread (or an interrupt or signal handler
+# task writes and only its own thread (or an interrupt or signal handler
 # on it) reads, such as G.locks: no lock prefix, but a compiler barrier, so
 # the change is in memory before the code it protects runs.
 	.globl "pluto/rt.inc32"

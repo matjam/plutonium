@@ -3,7 +3,7 @@
 // license that can be found in the LICENSE file.
 
 // Adapted from Go's test/chan/powser1.go for the common subset of Go and
-// Plutonium: each generator that was a function literal started with go
+// Plutonium: each generator that was a function literal started with task
 // (and captured its variables) is a named function that takes them as
 // arguments, the printing mode selected by os.Args and the unused
 // floating-point evaluator are left out, and the check prints its results.

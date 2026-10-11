@@ -105,7 +105,7 @@ func main() {
 			ok := status == 2 && len(lines) == 2+1+64+1 &&
 				lines[0] == "panic: runtime error: stack overflow" &&
 				strings.HasPrefix(lines[1], "[signal SIGSEGV") &&
-				lines[2] == "puroutine 2:" &&
+				lines[2] == "task 2:" &&
 				strings.HasPrefix(lines[3], frame) &&
 				lines[len(lines)-1] == "    ...additional frames elided..."
 			if !ok {

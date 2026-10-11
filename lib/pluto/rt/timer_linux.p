@@ -6,13 +6,13 @@ import "unsafe"
 
 // ----------------------------------------------------------------------------
 // Timers of the hosted backend (abi.md section 12.9). Each P has a heap
-// (p.timers) that the puroutines running on it arm their timers in. A
+// (p.timers) that the tasks running on it arm their timers in. A
 // worker runs its own P's expired timers each time it looks for a
-// puroutine to run, and a spinning worker runs those of the other Ps; a
-// timer's puroutine is then readied onto the running worker's P. While
+// task to run, and a spinning worker runs those of the other Ps; a
+// timer's task is then readied onto the running worker's P. While
 // workers sleep, the poller thread waits in epoll for the earliest
 // deadline of every P and runs the expired timers itself (their
-// puroutines go to the global queue, and an idle worker is woken). Timers
+// tasks go to the global queue, and an idle worker is woken). Timers
 // never move between heaps, since each heap has its own lock.
 
 const (
@@ -160,7 +160,7 @@ func pollTimers() int64 {
 		}
 	}
 	if fired {
-		// What the timers did may leave every puroutine asleep for good,
+		// What the timers did may leave every task asleep for good,
 		// with no worker left to notice.
 		hs.lock.Lock()
 		checkDead()

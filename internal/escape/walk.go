@@ -586,7 +586,7 @@ func (w *walker) taskStmt(st *ast.TaskStmt) {
 		return &viewErr{sink: sinkGo, pos: st.Pos(), expr: x, call: e, fn: w.scopeName(w.sc)}
 	}
 	if tv := w.a.types[e.Fun]; tv.IsBuiltin() || tv.IsType() {
-		w.sink(union(w.call(e)...), ve(nil), "passes %s to a go statement", "")
+		w.sink(union(w.call(e)...), ve(nil), "passes %s to a task statement", "")
 		return
 	}
 	t := w.target(e)
@@ -597,7 +597,7 @@ func (w *walker) taskStmt(st *ast.TaskStmt) {
 	args := w.args(e, t.sig)
 	exprs := argExprs(e, t.sig)
 	// The array behind packed variadic arguments is copied to the new
-	// puroutine (lower/conc.go), so only what its elements point to must
+	// task (lower/conc.go), so only what its elements point to must
 	// outlive this frame, unless the started function keeps the slice.
 	packed := t.sig.Variadic() && !e.Ellipsis.IsValid() && len(e.Args) >= t.sig.Params().Len()
 	for i, a := range args {
@@ -610,16 +610,16 @@ func (w *walker) taskStmt(st *ast.TaskStmt) {
 				a = w.load(a)
 			}
 		}
-		w.sink(a, ve(exprs[i]), "passes %s to a go statement", "")
+		w.sink(a, ve(exprs[i]), "passes %s to a task statement", "")
 	}
 	recv := e.Fun
 	if se, ok := ast.Unparen(e.Fun).(*ast.SelectorExpr); ok {
 		recv = se.X
 	}
 	if !w.goBoxReceiver(e, t) {
-		w.sink(t.recv, ve(recv), "passes %s to a go statement", "")
+		w.sink(t.recv, ve(recv), "passes %s to a task statement", "")
 	}
-	w.sink(t.fv, ve(e.Fun), "passes %s to a go statement", "")
+	w.sink(t.fv, ve(e.Fun), "passes %s to a task statement", "")
 	// What the started function's parameters hold, for heap-only fields.
 	all := args
 	if t.hasRecv {
@@ -643,9 +643,9 @@ func (w *walker) taskStmt(st *ast.TaskStmt) {
 	}
 }
 
-// goBoxReceiver reports whether the go statement e calls a pointer method
-// of an owned or synced box (go p.Serve()): the box itself goes to the new
-// puroutine, which keeps the object alive until the method returns, so the
+// goBoxReceiver reports whether the task statement e calls a pointer method
+// of an owned or synced box (task p.Serve()): the box itself goes to the new
+// task, which keeps the object alive until the method returns, so the
 // pointer into it is no view of this frame. A method that keeps its
 // receiver beyond that is checked as before.
 func (w *walker) goBoxReceiver(e *ast.CallExpr, t callTarget) bool {

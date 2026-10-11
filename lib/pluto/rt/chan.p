@@ -5,8 +5,8 @@ import "unsafe"
 // ----------------------------------------------------------------------------
 // Channels and select (language spec section 7.11), after Go's
 // implementation. They use only Park and Ready, so they work on any
-// scheduler. A puroutine that blocks puts a waiting record (sudog) on the
-// channel's queue; the record lives in the blocked puroutine's own frame
+// scheduler. A task that blocks puts a waiting record (sudog) on the
+// channel's queue; the record lives in the blocked task's own frame
 // (or, for select, in the select statement's case array), which stays put
 // while it is parked.
 //
@@ -30,8 +30,8 @@ type hchan struct {
 	closed   uint32
 	sendx    uint
 	recvx    uint
-	recvq    waitq // puroutines waiting to receive
-	sendq    waitq // puroutines waiting to send
+	recvq    waitq // tasks waiting to receive
+	sendq    waitq // tasks waiting to send
 	alloc    Allocator
 	memSize  uintptr
 	memAlign uintptr
@@ -52,7 +52,7 @@ type waitq struct {
 	last  *sudog
 }
 
-// A sudog is a puroutine waiting on a channel.
+// A sudog is a task waiting on a channel.
 type sudog struct {
 	g        *Task
 	next     *sudog
@@ -165,7 +165,7 @@ func chanBuffered(p unsafe.Pointer) (buf unsafe.Pointer, first, n, size int) {
 // chanFree frees the channel at p, whose last reference has gone and whose
 // buffered values have been dropped: it stops and frees the channel's
 // timer, then returns the channel and its buffer to the allocator they
-// came from. No puroutine can be waiting on it, since a waiting puroutine
+// came from. No task can be waiting on it, since a waiting task
 // holds a reference. It is out of line: a channel is freed rarely, and its
 // releases are everywhere.
 //
@@ -173,7 +173,7 @@ func chanBuffered(p unsafe.Pointer) (buf unsafe.Pointer, first, n, size int) {
 func chanFree(p unsafe.Pointer) {
 	c := (*hchan)(p)
 	if c.recvq.first != nil || c.sendq.first != nil {
-		panicMessage("runtime error: channel freed while puroutines wait on it", "", "", "", "")
+		panicMessage("runtime error: channel freed while tasks wait on it", "", "", "", "")
 	}
 	a := c.alloc
 	if tm := c.timer; tm != nil {
@@ -275,7 +275,7 @@ func (q *waitq) remove(sg *sudog) {
 }
 
 // trySend sends the value at ep on c, whose lock is held, if that can be
-// done without waiting. It returns whether it did, and the puroutine to
+// done without waiting. It returns whether it did, and the task to
 // wake once the lock is released. A send on a closed channel panics.
 func trySend(c *hchan, ep unsafe.Pointer) (bool, *Task) {
 	if c.closed != 0 {
@@ -303,7 +303,7 @@ func trySend(c *hchan, ep unsafe.Pointer) (bool, *Task) {
 
 // tryRecv receives from c, whose lock is held, into ep (unless ep is nil)
 // if that can be done without waiting. It returns whether it did, whether
-// a value was received (false: c is closed and empty), and the puroutine
+// a value was received (false: c is closed and empty), and the task
 // to wake once the lock is released.
 func tryRecv(c *hchan, ep unsafe.Pointer) (bool, bool, *Task) {
 	if sg := c.sendq.dequeue(); sg != nil {
@@ -384,7 +384,7 @@ func sendWait(c *hchan, ep unsafe.Pointer) {
 	sg.g = current()
 	sg.elem = ep
 	sg.c = c
-	// sg stays queued only while this puroutine is parked: the receiver
+	// sg stays queued only while this task is parked: the receiver
 	// dequeues it before waking it.
 	c.sendq.enqueue(Pinned(&sg))
 	c.lock.Unlock()
@@ -424,14 +424,14 @@ func recvWait(c *hchan, ep unsafe.Pointer) bool {
 	sg.g = current()
 	sg.elem = ep
 	sg.c = c
-	// As in sendWait: dequeued before this puroutine is woken.
+	// As in sendWait: dequeued before this task is woken.
 	c.recvq.enqueue(Pinned(&sg))
 	c.lock.Unlock()
 	ParkReason(WaitChanReceive)
 	return sg.success
 }
 
-// parkForever blocks the running puroutine for good, for reason r: an
+// parkForever blocks the running task for good, for reason r: an
 // operation on a nil channel, or select {}.
 func parkForever(r WaitReason) {
 	for {
@@ -481,7 +481,7 @@ func closechan(p unsafe.Pointer) {
 	for list != nil {
 		sg := list
 		list = sg.next
-		Ready(sg.g) // sg is not touched after this: its puroutine may run
+		Ready(sg.g) // sg is not touched after this: its task may run
 	}
 }
 
@@ -612,7 +612,7 @@ func selUnlock(scs []scase, lockorder []uint16, norder int) {
 
 // selectPoll looks for a case that can proceed at once, in poll order,
 // with every channel locked, and performs it. It returns the case's index
-// (or -1), whether a receive got a value, and a puroutine to wake once the
+// (or -1), whether a receive got a value, and a task to wake once the
 // locks are released.
 func selectPoll(scs []scase, pollorder, lockorder []uint16, norder int) (int, bool, *Task) {
 	for i := 0; i < norder; i++ {

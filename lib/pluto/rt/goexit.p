@@ -10,7 +10,7 @@ import "unsafe"
 // compiler checks the flag after every call that may end this way
 // (internal/lower/goexit.go). A frame that finds it set clears it
 // (takeGoexit), leaves through its ordinary return path and sets it again
-// for its caller (setGoexit). At the bottom of a task started by a go
+// for its caller (setGoexit). At the bottom of a task started by a task
 // statement, taskMain ends the task as if its function had returned; at
 // the bottom of the main task, pluto.main calls mainGoexit; CatchGoexit
 // stops the exit for a test runner.
@@ -20,13 +20,13 @@ import "unsafe"
 // as Go's runtime.Goexit does. Other tasks are not affected. Called from
 // the task that runs main, it ends that task: main does not return, and
 // the program goes on until every other task has ended or waits for good,
-// and then stops with "fatal error: no puroutines (main called rt.Goexit)
+// and then stops with "fatal error: no tasks (main called rt.Goexit)
 // - deadlock!" and status 2. A deferred call that calls Goexit does not
 // stop the deferred calls after it.
 func Goexit() {
 	t := current()
 	if t == nil {
-		panicMessage("rt.Goexit called outside a puroutine", "", "", "", "")
+		panicMessage("rt.Goexit called outside a task", "", "", "", "")
 	}
 	t.goexit = true
 }
@@ -79,7 +79,7 @@ func mainGoexit() {
 // noTasksLeft stops the program after main called Goexit and no other
 // task can run.
 func noTasksLeft() {
-	const msg = "fatal error: no puroutines (main called rt.Goexit) - deadlock!\n"
+	const msg = "fatal error: no tasks (main called rt.Goexit) - deadlock!\n"
 	consoleWrite(unsafe.Pointer(unsafe.StringData(msg)), len(msg))
 	exit(2)
 }

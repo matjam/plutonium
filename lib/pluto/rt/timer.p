@@ -10,7 +10,7 @@ import "unsafe"
 // allocate: each Timer is a node of an intrusive pairing heap, so adding,
 // stopping and firing one take no memory, and work from interrupt context
 // in a kernel. The hosted backend keeps a heap per processor, run by its
-// workers between puroutines and by the poller thread while they sleep
+// workers between tasks and by the poller thread while they sleep
 // (sched_linux.p). Every other backend shares one heap, which the program
 // runs with RunTimers when the deadline it was given through the backend's
 // ArmTimer has passed.
@@ -50,7 +50,7 @@ type Timer struct {
 }
 
 // Init sets the function t calls when it fires. f runs in whatever context
-// runs timers (a hosted worker between puroutines, the hosted poller
+// runs timers (a hosted worker between tasks, the hosted poller
 // thread, or a kernel's timer interrupt): it must not block, allocate or
 // use timers, and the compiler checks it like an interrupt handler when an
 // interrupt handler calls RunTimers. now is the Now reading that fired it.
@@ -98,7 +98,7 @@ func (t *Timer) Reset(when, period int64) bool {
 // Stop disarms t and reports whether it was armed. If t's function is
 // running, Stop waits for it to return; once Stop returns, the function is
 // not running and will not run until the next Reset. It never blocks a
-// puroutine, and may be called from an interrupt handler, but not from a
+// task, and may be called from an interrupt handler, but not from a
 // timer's function.
 func (t *Timer) Stop() bool {
 	t.mu.Lock()
@@ -303,11 +303,11 @@ func Now() int64 { return schedNow() }
 // Sleep pauses the running code for at least ns nanoseconds; ns must be
 // positive. The compiler gives it one of two bodies, once it knows what the
 // whole program does (internal/lower/sched.go). A program that never
-// starts the scheduler (no go statement, no blocking channel operation or
+// starts the scheduler (no task statement, no blocking channel operation or
 // pluto/sync wait, no timer, no ParkUntil) and has the default hosted
 // backend sleeps in sleepDirect: its only thread waits in the kernel, and
 // no monitor or poller thread exists. Any other program sleeps in
-// sleepParked, so that the processor runs other puroutines meanwhile.
+// sleepParked, so that the processor runs other tasks meanwhile.
 func Sleep(ns int64)
 
 // sleepParked parks the running task until ns nanoseconds have passed on

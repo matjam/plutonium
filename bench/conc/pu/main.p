@@ -1,5 +1,5 @@
 // Concurrency micro-benchmarks, the Plutonium version of ../main.go:
-// channel ping-pong, buffered channel throughput, puroutine start cost,
+// channel ping-pong, buffered channel throughput, task start cost,
 // and mutex throughput uncontended and under contention. Each prints
 // nanoseconds per operation.
 package main

@@ -159,9 +159,9 @@ func TestConcurrency(t *testing.T) {
 
 import "pluto/sync/atomic"
 
-// spin never waits in its loop: only preemption lets another puroutine
+// spin never waits in its loop: only preemption lets another task
 // run on its processor, and with one processor only that sets the flag.
-// The flag is atomic, since two puroutines use it.
+// The flag is atomic, since two tasks use it.
 var flag atomic.Int32
 var spins volatile[int64]
 
@@ -186,8 +186,8 @@ func main() {
 
 import "pluto/rt"
 
-// rt.StackLeft measures a puroutine's own stack, down to its guard page,
-// and main's reserved //pu:stack stack, which a go statement in main
+// rt.StackLeft measures a task's own stack, down to its guard page,
+// and main's reserved //pu:stack stack, which a task statement in main
 // leaves alone.
 func left(done chan bool) {
 	n := rt.StackLeft()
@@ -223,7 +223,7 @@ var flag atomic.Int32
 
 func set() { flag.Store(1) }
 
-// The main puroutine spins too; the one it started must still run.
+// The main task spins too; the one it started must still run.
 func main() {
 	task set()
 	for flag.Load() == 0 {
@@ -239,7 +239,7 @@ import (
 	"unsafe"
 )
 
-// A puroutine blocks in read on a pipe in blocking mode, announced with
+// A task blocks in read on a pipe in blocking mode, announced with
 // EnterSyscall. With one processor the writer can only run if the
 // scheduler hands the processor to another worker while read blocks.
 var fds [2]int32
@@ -326,7 +326,7 @@ import (
 // A pipe from os.Pipe handed to a child as its standard output: exec takes
 // its descriptor with Fd, which makes it blocking again, so the child
 // waits when the pipe is full instead of failing with EAGAIN. Meanwhile a
-// puroutine drains the read end through the poller while main waits for
+// task drains the read end through the poller while main waits for
 // the child.
 func drain(r *os.File, done chan int) {
 	var buf [4096]byte
@@ -383,7 +383,7 @@ func main() {
 	println("fair", na > 8000 && nb > 8000)
 }
 `},
-		{name: "deadlock", status: 2, want: "fatal error: all puroutines are asleep - deadlock!\n\npuroutine 1 [chan receive]:\n", src: `package main
+		{name: "deadlock", status: 2, want: "fatal error: all tasks are asleep - deadlock!\n\ntask 1 [chan receive]:\n", src: `package main
 
 func main() {
 	c := make(chan int)
@@ -415,7 +415,7 @@ func main() {
 	println("pingpong", v)
 }
 `},
-		{name: "nilclosure", status: 2, want: "panic: go of a function value that captures variables or binds a method value: its closure record lives in the starting frame; pass the values as arguments\n", src: `package main
+		{name: "nilclosure", status: 2, want: "panic: a task started with a function value that captures variables or binds a method value: its closure record lives in the starting frame; pass the values as arguments\n", src: `package main
 
 import "pluto/rt"
 
@@ -433,7 +433,7 @@ func main() {
 	run(rt.Pinned(&f))
 }
 `},
-		{name: "waitgroupgoclosure", status: 2, want: "panic: go of a function value that captures variables or binds a method value: its closure record lives in the starting frame; pass the values as arguments\n", src: `package main
+		{name: "waitgroupgoclosure", status: 2, want: "panic: a task started with a function value that captures variables or binds a method value: its closure record lives in the starting frame; pass the values as arguments\n", src: `package main
 
 import (
 	"pluto/rt"
@@ -535,7 +535,7 @@ func main() {
 	}, build.Config{NoTrace: true})
 }
 
-// TestWorkStealing starts many CPU-bound puroutines and checks that they
+// TestWorkStealing starts many CPU-bound tasks and checks that they
 // ran on more than one worker thread.
 func TestWorkStealing(t *testing.T) {
 	if runtime.NumCPU() < 2 {
@@ -595,7 +595,7 @@ func main() {
 	}
 }
 
-// parallelAllocProgram allocates and frees from many puroutines at once and
+// parallelAllocProgram allocates and frees from many tasks at once and
 // checks that no two live blocks overlap: each block is filled with its
 // owner's pattern and checked before it is freed.
 const parallelAllocProgram = `package main
@@ -608,7 +608,7 @@ import (
 )
 
 var wg sync.WaitGroup
-var bad atomic.Int64 // every puroutine counts here
+var bad atomic.Int64 // every task counts here
 
 func churn(id int) {
 	var live [32]unsafe.Pointer

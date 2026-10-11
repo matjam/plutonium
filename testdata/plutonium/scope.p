@@ -3,7 +3,7 @@ package main
 // sync.Scope (language spec section 4.11): tasks that use the variables of
 // the function that starts them, which waits for them before the Scope's
 // block ends. The examples of the design
-// (docs/plans/2026-10-10-scoped-puroutines.md, section 7). The program
+// (docs/plans/2026-10-10-scoped-tasks.md, section 7). The program
 // also runs under the debug allocator, which fails on a leak, with one, two
 // and many processors (internal/build/scope_test.go).
 

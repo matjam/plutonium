@@ -7,22 +7,22 @@ import "unsafe"
 // ----------------------------------------------------------------------------
 // The hosted scheduler (language spec section 19.5). It is one
 // implementation of the Scheduler interface, started the first time a
-// program starts a puroutine or blocks; a program that never does links
+// program starts a task or blocks; a program that never does links
 // none of it.
 //
 // It follows Go's design. A P is a processor: a run queue and the right to
-// run puroutines; there are as many as CPUs (or $PLUTO_MAXPROCS). An m is a
-// worker thread, made with clone(2) without libc; it runs puroutines while
-// it holds a P. Each P has a fixed ring of runnable puroutines that its m
+// run tasks; there are as many as CPUs (or $PLUTO_MAXPROCS). An m is a
+// worker thread, made with clone(2) without libc; it runs tasks while
+// it holds a P. Each P has a fixed ring of runnable tasks that its m
 // pushes to and pops from without locks, and that idle ms steal half of; a
-// locked global queue takes the overflow and puroutines readied by threads
-// with no P. A puroutine that makes a blocking system call between
+// locked global queue takes the overflow and tasks readied by threads
+// with no P. A task that makes a blocking system call between
 // EnterSyscall and ExitSyscall keeps its P only until the monitor thread
 // (sysmon) sees the call last, then the P moves to another m. sysmon also
-// preempts a puroutine that has run for 10ms by sending its thread SIGURG;
+// preempts a task that has run for 10ms by sending its thread SIGURG;
 // the handler redirects it into asyncPreempt (preemptAsync). I/O waits go
 // through one epoll poller thread. Task records live at the top of their
-// stacks. A go statement whose stack the compiler could not compute gets a
+// stacks. A task statement whose stack the compiler could not compute gets a
 // large stack of address space reserved from the system and committed as
 // it is touched (reserveTaskStack); an explicit or computed size comes
 // from the allocator the program asked for.
@@ -51,7 +51,7 @@ const (
 
 	maxProcs       = 256
 	runqSize       = 256
-	forcePreemptNS = 10000000 // a puroutine runs at most this long before it is preempted
+	forcePreemptNS = 10000000 // a task runs at most this long before it is preempted
 	syscallRetake  = 20000    // a P stays with a blocked system call at most this long if others want it
 	g0StackSize    = 256 << 10
 	sigStackSize   = 32 << 10
@@ -90,14 +90,14 @@ type p struct {
 	runqhead    uint32 // taken by the owner and by thieves (atomic)
 	runqtail    uint32 // advanced by the owner only (atomic)
 	runq        [runqSize]*Task
-	schedtick   uint32 // incremented each time the P starts running a puroutine
+	schedtick   uint32 // incremented each time the P starts running a task
 	syscalltick uint32 // incremented at each system call
 	link        *p
 	stacks      [pStackCacheMax]unsafe.Pointer // cached stacks (allocStack)
 	nstacks     int
 	lazy        [pStackCacheMax]reservedStack // cached reserved stacks (reserveTaskStack)
 	nlazy       int
-	timers      timerHeap // timers armed by puroutines running here
+	timers      timerHeap // timers armed by tasks running here
 
 	// sysmon's view of the P.
 	smSchedtick   uint32
@@ -127,7 +127,7 @@ var hs struct {
 	nmsys      uint32 // workers in system calls
 	pid        int
 
-	pollWaiting uint32 // puroutines waiting in the poller
+	pollWaiting uint32 // tasks waiting in the poller
 	sysmonWait  uint32
 	sysmonNote  uint32
 }
@@ -170,7 +170,7 @@ func setCurrent(t *Task) {
 }
 
 // startHosted turns the program's thread into the first worker, running
-// the main puroutine, and starts the monitor thread. Only the main thread
+// the main task, and starts the monitor thread. Only the main thread
 // exists when it runs.
 func startHosted() {
 	if hs.started {
@@ -226,7 +226,7 @@ func startHosted() {
 }
 
 // Init starts the backend, before the first task operation: the program's
-// thread becomes the first worker, still running the main puroutine, which
+// thread becomes the first worker, still running the main task, which
 // the runtime then adopts as BootTask.
 func (*hostedSched) Init() { startHosted() }
 
@@ -281,7 +281,7 @@ func newThread(fn func(mp *m), pp *p, spinning bool) {
 
 // installSigstack gives the calling thread an alternate signal stack, so
 // that the fault handler can report a stack overflow and the preemption
-// handler runs off the puroutine's stack.
+// handler runs off the task's stack.
 func installSigstack() {
 	st := stackT{sp: mustMmap(sigStackSize), size: sigStackSize}
 	syscall3(sysSigaltstack, uintptr(unsafe.Pointer(&st)), 0, 0)
@@ -297,7 +297,7 @@ func mstart(mp *m) {
 	schedLoop(mp)
 }
 
-// schedLoop runs puroutines on the worker mp, forever.
+// schedLoop runs tasks on the worker mp, forever.
 func schedLoop(mp *m) {
 	for {
 		t := findRunnable(mp)
@@ -474,7 +474,7 @@ func findRunnable(mp *m) *Task {
 			stopm(mp)
 			continue
 		}
-		// Expired timers ready their puroutines onto this P's queue.
+		// Expired timers ready their tasks onto this P's queue.
 		runTimersOf(pp, 0)
 		if g := runqget(pp); g != nil {
 			resetSpinning(mp)
@@ -497,7 +497,7 @@ func findRunnable(mp *m) *Task {
 			}
 			// Run the expired timers of the other Ps, whose workers are
 			// busy or asleep, as Go's stealing workers do: their
-			// puroutines come to this P.
+			// tasks come to this P.
 			if runOtherTimers(pp) {
 				if g := runqget(pp); g != nil {
 					resetSpinning(mp)
@@ -560,7 +560,7 @@ func findRunnable(mp *m) *Task {
 	}
 }
 
-// workAvailable reports whether any queue holds a puroutine.
+// workAvailable reports whether any queue holds a task.
 func workAvailable() bool {
 	if load32(&hs.runqsize) != 0 {
 		return true
@@ -641,11 +641,11 @@ func stopm(mp *m) {
 	mp.nextp = nil
 }
 
-// checkDead stops the program when no puroutine can ever run again: every
+// checkDead stops the program when no task can ever run again: every
 // worker is asleep (a worker in a system call is not: the call may
 // return), nothing waits in the poller, no timer is armed (its function
-// may wake a puroutine, or send on a channel one waits on) and no queue
-// holds a puroutine. Called with hs.lock held.
+// may wake a task, or send on a channel one waits on) and no queue
+// holds a task. Called with hs.lock held.
 func checkDead() {
 	if hs.mcount-hs.nmidle > 0 || load32(&hs.pollWaiting) != 0 || load32(&activeTimers) != 0 || workAvailable() {
 		return
@@ -661,12 +661,12 @@ func checkDead() {
 	if mainGoexited && !anyReported() {
 		noTasksLeft()
 	}
-	printString("fatal error: all puroutines are asleep - deadlock!\n")
+	printString("fatal error: all tasks are asleep - deadlock!\n")
 	reportParked()
 	exit(2)
 }
 
-// anyReported reports whether a deadlock report would list a puroutine.
+// anyReported reports whether a deadlock report would list a task.
 func anyReported() bool {
 	for ht := allTasks.head; ht != nil; ht = ht.allNext {
 		if t := &ht.task; t.waitReason != WaitSystem && t.ctx.sp != 0 {
@@ -676,7 +676,7 @@ func anyReported() bool {
 	return false
 }
 
-// reportParked prints each parked puroutine's wait and trace, as Go does
+// reportParked prints each parked task's wait and trace, as Go does
 // for a deadlock: its number, what it waits for, then its stack, innermost
 // frame first. BootTask, which runs main, comes first, then the others in
 // the order they were made; helpers of the runtime are left out. No task
@@ -692,7 +692,7 @@ func reportTask(t *Task) {
 	if t.waitReason == WaitSystem || t.ctx.sp == 0 {
 		return
 	}
-	printString("\npuroutine ")
+	printString("\ntask ")
 	printUint(t.id)
 	printString(" [")
 	printString(t.waitReason.String())
@@ -789,7 +789,7 @@ func runqget(pp *p) *Task {
 func runqempty(pp *p) bool { return load32(&pp.runqhead) == load32(&pp.runqtail) }
 
 // runqsteal moves half of p2's queue to pp's, which is empty, and returns
-// one of the puroutines taken.
+// one of the tasks taken.
 func runqsteal(pp, p2 *p) *Task {
 	t := pp.runqtail
 	var n uint32
@@ -872,10 +872,10 @@ func mrand(mp *m) uint64 {
 // ----------------------------------------------------------------------------
 // System calls
 
-// EnterSyscall tells the scheduler that the running puroutine is about to
+// EnterSyscall tells the scheduler that the running task is about to
 // make a system call that may block. Until ExitSyscall its worker's P may
-// move to another worker, so that the other puroutines keep running. The
-// puroutine is not preempted in between. It costs a few atomic operations,
+// move to another worker, so that the other tasks keep running. The
+// task is not preempted in between. It costs a few atomic operations,
 // and nothing before the scheduler has started.
 func EnterSyscall() {
 	if !hs.started {
@@ -898,7 +898,7 @@ func EnterSyscall() {
 }
 
 // ExitSyscall ends the system call EnterSyscall announced. If the P was
-// handed on meanwhile, the puroutine takes an idle one or waits for one.
+// handed on meanwhile, the task takes an idle one or waits for one.
 func ExitSyscall() {
 	if !hs.started {
 		return
@@ -976,7 +976,7 @@ func sysmonMain(mp *m) {
 	}
 }
 
-// retake preempts puroutines that have run too long and takes Ps away from
+// retake preempts tasks that have run too long and takes Ps away from
 // workers blocked in system calls. It reports whether it did anything.
 func retake(now int64) bool {
 	took := false
@@ -1033,7 +1033,7 @@ func handoffp(pp *p) {
 	hs.lock.Unlock()
 }
 
-// sigpreempt handles SIGURG, sent by sysmon to a worker whose puroutine has
+// sigpreempt handles SIGURG, sent by sysmon to a worker whose task has
 // run for a full time slice.
 func sigpreempt(sig int32, info, ctx unsafe.Pointer) {
 	preemptAsync((*uintptr)(unsafe.Add(ctx, 40+16*8))) // uc_mcontext.gregs[REG_RIP]
@@ -1263,22 +1263,22 @@ func freeStack(mem unsafe.Pointer, total uintptr, a Allocator) {
 // ----------------------------------------------------------------------------
 // Reserved stacks
 //
-// A go statement whose stack the compiler could not compute gets
+// A task statement whose stack the compiler could not compute gets
 // HostedStackSize bytes of address space (language spec section 19.1),
 // mapped without reserving memory and with an inaccessible guard region
 // below (reservedGuard): the system commits a page only when
-// the stack first touches it, so a puroutine that stays shallow costs a
+// the stack first touches it, so a task that stays shallow costs a
 // page or two of memory however deep it could go. Above the stack is one
 // more page, which the task record shares with the top of the stack.
 //
 // Mapping, protecting and unmapping cost three system calls, so stacks are
 // cached like the allocator's, a few per P in front of a shared cache. A
-// cached stack must not keep the pages a puroutine that recursed deeply
+// cached stack must not keep the pages a task that recursed deeply
 // left behind, but giving them back (madvise) costs a system call too, more
-// than the rest of starting and ending a puroutine: so a stack gives back
-// what lies below its top (reservedKeep) only when its puroutine was seen
+// than the rest of starting and ending a task: so a stack gives back
+// what lies below its top (reservedKeep) only when its task was seen
 // below that (its lowest stack pointer when it parked, yielded or was
-// preempted, lowSP) or, to bound what a puroutine that went deep without
+// preempted, lowSP) or, to bound what a task that went deep without
 // stopping leaves behind, on every reservedTrim'th use. Under an
 // address-space limit, stacks get smaller as they use it up
 // (reservedSize).
@@ -1289,7 +1289,7 @@ const (
 )
 
 // A reservedStack is a cached reserved stack: its mapping, the guard region
-// at the bottom of it, and how many puroutines have used it since it was
+// at the bottom of it, and how many tasks have used it since it was
 // last trimmed.
 type reservedStack struct {
 	mem   unsafe.Pointer
@@ -1373,8 +1373,8 @@ func reserveTaskStack() reservedStack {
 // limit (RLIMIT_AS, ulimit -v): then reserved stacks may take half of it at
 // full size, and beyond that each new one is halved until it fits in what
 // is left of the half, down to DefaultStackSize. The first stacks are as
-// large as without a limit, so a program with a few deep puroutines works
-// the same, and many puroutines still fit, each with a smaller stack.
+// large as without a limit, so a program with a few deep tasks works
+// the same, and many tasks still fit, each with a smaller stack.
 func reservedSize() uintptr {
 	c := &reserved
 	if c.limit == 0 {
@@ -1399,14 +1399,14 @@ func reservedSize() uintptr {
 }
 
 // releaseTaskStack caches the reserved stack rs, or unmaps it if the caches
-// are full. lowSP is the lowest stack pointer its puroutine was seen at.
+// are full. lowSP is the lowest stack pointer its task was seen at.
 func releaseTaskStack(rs reservedStack, lowSP uintptr) {
 	const madvDontneed = 4
 	lo := uintptr(rs.mem) + rs.guard
 	keep := uintptr(rs.mem) + rs.total - pageSize - reservedKeep
 	rs.uses++
 	if (lowSP < keep || rs.uses >= reservedTrim) && keep > lo {
-		// Give back what the puroutine touched below the top.
+		// Give back what the task touched below the top.
 		syscall3(sysMadvise, lo, keep-lo, madvDontneed)
 		rs.uses = 0
 	}
@@ -1431,7 +1431,7 @@ func releaseTaskStack(rs reservedStack, lowSP uintptr) {
 	syscall3(sysMunmap, uintptr(rs.mem), rs.total, 0)
 }
 
-// noteStackDepth records how deep the running puroutine t has gone, for a
+// noteStackDepth records how deep the running task t has gone, for a
 // reserved stack's trim (releaseTaskStack). The backend's Park and Yield
 // call it, on t's stack. Only a task on a reserved stack has a guard
 // region recorded (NewTask); the others, BootTask among them, are left

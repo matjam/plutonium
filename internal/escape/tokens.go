@@ -436,7 +436,7 @@ type function struct {
 	// index (receiver first).
 	resultHolds map[int]bool
 	// external: called from outside what the analysis sees (exported to C,
-	// an interrupt handler, started by a go statement).
+	// an interrupt handler, started by a task statement).
 	external bool
 	// builds: the function may return closures it builds in a region of
 	// its caller's frame (regions.go).
