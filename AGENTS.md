@@ -237,3 +237,83 @@ Every change must pass ALL of these before committing:
    a unit test for passes and backend details.
 4. **No silent failures**: unsupported constructs must produce a compile error,
    never wrong code. Grep new code for `TODO` and placeholder values.
+
+## Status and next steps
+
+Updated 2026-10-11. `docs/roadmap.md` tracks every item; `docs/decisions.md` holds the user's
+implementation decisions D1 to D5. This section says where the work stands and what comes next, in
+order.
+
+### Where things stand
+
+- The specification (version 0.3) is complete and consistent, and every language feature is
+  implemented from it except the gaps below. Every row of the roadmap's gap table is done except
+  gaps 10, 22 and 32. Of the items 93 to 98 that the document pass added, 94 is done, 95 and 98
+  are decided with nothing to build, and 93, 96 and 97 are planned (step 5).
+- Landed on 2026-10-11: `//pu:nochecks` (replacing `//pu:nobounds`), `clear` of a slice of owners
+  drops each element (gap 33), E2512 for any two exports of one symbol (item 94), `defer` of
+  `clear`, `copy` and `delete` (gap 6), `go test ./internal/build -run TestRun -update` translating
+  task statements for Go, and `strconv.Unquote`, `UnquoteChar` and `QuotedPrefix`.
+- `~/go/bin/pluto` is the installed compiler; reinstall it after each landing with
+  `GOBIN=$HOME/go/bin go install ./cmd/pluto`.
+
+### Next steps
+
+1. **Gap 22, counted errors** (roadmap items 11 and 69; sections 16.5 and 16.7; decision D1:
+   `errors.As` matches a `synced[T]` error against a `*T` target). The largest open item: the type
+   checker, lowering and the library, then the error types in `os` and `strconv`. Once it lands,
+   the `or` clause releases a counted `err` when the clause is left (item 99).
+2. **Gap 10, generation tags for large blocks** (item 85; section 18.11, abi.md section 1.3;
+   decision D3): large allocations get their own 64 KiB-aligned chunks with the tag table at the
+   base; fixed `arena.Arena` buffers stay unchecked, and the specification says so. Soundness work.
+3. **Gap 32, package initialization starts no task** (item 100; sections 15.2, 15.3, 19.1, 19.3;
+   decision D2). A compile error naming the start and the initializer, found by whole-program
+   reachability. Replace the `Open (G44)` block in
+   `docs/spec/language/15-program-initialization-and-execution.md` with the rule D2 states, and
+   remove the `G44` entry from the allowlist in `internal/diag/spec_test.go`. The rule is what keeps
+   section 19.3's unlocked package variables sound, so a missed case is a safety hole.
+4. **Two known bugs:** the escape analysis rejects a closure that returns a string (difftest seed
+   362192, present since `3265b8c`); `p := &mk().x`, where `mk` returns an owner, compiles and is
+   caught only by the run-time check.
+5. **Smaller items**, each with an exact oracle:
+   - `strconv` quoting, the rest: `QuoteToASCII`, `QuoteToGraphic`, `QuoteRuneToASCII`,
+     `QuoteRuneToGraphic` and the `Append` forms. They share `Quote`'s implementation in
+     `lib/pluto/strconv/format.p`, as Go's do. Test against Go in
+     `internal/build/strconv_diff_test.go`, whose corpus is hex-encoded so it can carry any byte.
+     Then mark strconv quoting done in the self-hosting plan's phase 1 row.
+   - The streaming hash (self-hosting plan phase 1), tested against Go.
+   - `pluto vet -unsafe` (item 97; sections 18.12 and 21.1). A function with `//pu:nochecks`
+     counts as unsafe code.
+   - `pluto doc` (item 93; sections 1.1, 18.1 and appendix F).
+   - The debug allocator reports package-variable memory apart from leaks (item 96; sections 15.4
+     and 18.6).
+6. **After the gap list is empty:** a tuning pass on a quiet machine (task spawn, about 2x Go;
+   buffered channels; the global task-list lock added for deadlock traces; string-key map hashing;
+   `strings.ReplaceAll`); a full difftest campaign with every feature enabled; one pass reading the
+   compiler against the specification in reverse, looking for code that does something the
+   specification does not say.
+7. **Self-hosting** (`docs/plans/2026-10-09-self-hosting-plan.md`): the rest of phase 1's library,
+   moving the compiler onto the `pu` package API, then the port. `types2` is the hard part.
+
+Known limits are recorded in the roadmap: `sync.Scope` phase 2 (a scope through a pointer, helpers
+that start tasks, same-type slice partitions, `vec.Vec` element partitions); the race rule groups
+maps by type; generated thunks are named `.task1`.
+
+### Working with agents
+
+- One agent per item, each in its own worktree from `origin/main`. The agent commits; the session
+  that dispatched it reviews the diff against the brief, runs the case the brief named, rebases,
+  runs the checklist below, and pushes.
+- Brief from the specification by section number. Name the code path to share when a new form of
+  an existing construct is added (a deferred built-in calls the statement's lowering): an agent
+  that copies the code instead produces a second version that misses later fixes.
+- In a differential test the expected value comes from Go itself, adjusted only where the
+  specification differs, never from a hand-written reimplementation.
+- `ulimit -v 6000000` goes on `go build` and `go test` commands only. On an agent process (such as
+  opencode, whose runtime reserves a large address space) it makes the agent fail with "out of
+  memory".
+- A local model (Qwen 3.8 27B through opencode, tried 2026-10-11) landed gap 6 and the `Unquote`
+  port, each after a review round that found a defect its own tests missed. It took one to two
+  hours per round, most of it in reasoning; its chat template defaults to `xhigh` effort and does
+  not honor `low`. Use such a model only for items with an exact oracle, never for the escape,
+  move, race or allocator work.

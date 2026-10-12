@@ -55,7 +55,7 @@ The implementation gaps of
 | 23 | Package initializer that allocates, in a freestanding build (done) | 75 | 15.2 |
 | 24 | Embedding `shared[T]` and `synced[T]` (done) | 92 | 7.6, 7.19 |
 | 31 | The `or` clause (done) | 99 | 11.27, 4.6 |
-| 32 | Package initialization starts no task (decision G44 pending) | 100 | 15.2, 15.3, 19.1, 19.3 |
+| 32 | Package initialization starts no task (decided, D2) | 100 | 15.2, 15.3, 19.1, 19.3 |
 | 33 | `clear` of a slice of owners drops each element (done) | 75 | 13.3 |
 
 The pass that aligned the documents with the chapters found six more, items 93 to 98; they are rows 25 to
@@ -144,15 +144,15 @@ compiler (2026-10-11).
     and `cmd/pluto/testdata/diag/or_rules` and `syntax_invalid_or`. The release of a counted `err` when the
     clause is left waits for counted errors (items 11 and 69, gap 22): the clause uses the counting the other
     statements use, so it counts errors when they are counted.
-100. **Package initialization starts no task** (planned, gap 32, decision G44 pending; sections 15.2, 15.3,
+100. **Package initialization starts no task** (planned, gap 32, decided by D2 in decisions.md; sections 15.2, 15.3,
     19.1 and 19.3): a `task` statement, `s.Task`, `wg.Task` or a library function that starts a task with a
     func argument, reached from a package-level initializer or an `init` function (directly or through the
     functions it calls, over the whole program), is a compile error that names the start and the
     initializer. This is what makes the rule that a package variable written only during initialization
     needs no lock sound. Work: a new error code with a catalog entry and a `cmd/pluto/testdata/diag`
     program; the whole-program reachability that the freestanding allocation check (item 75) also needs;
-    a survey of `lib/pluto` for packages that start a task in initialization. If the user decides that
-    initialization may start tasks, the item becomes the race analysis treating such a variable as shared.
+    a survey of `lib/pluto` for packages that start a task in initialization; removing the `Open (G44)`
+    allowlist entry in `internal/diag/spec_test.go` with the specification's replacement text.
 
 ## Kernel enablement
 
