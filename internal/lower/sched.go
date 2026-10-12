@@ -200,6 +200,7 @@ func (l *Lowerer) lateHookSym(fn *types2.Func, direct, parked string) *ssa.Sym {
 	}
 	sym := l.out.Sym(name, ssa.SymFunc)
 	l.funcs[name] = sym
+	l.gxWrapped[sym] = fn
 	h := &lateHook{sym: sym, sig: fn.Type().(*types2.Signature), direct: l.rtFunc(direct), parked: l.rtFunc(parked)}
 	if l.lateDone {
 		l.queueLateHook(h)
@@ -276,6 +277,7 @@ func (l *Lowerer) schedHookSym(fn *types2.Func, method string, mode hookMode) *s
 	sym := l.out.Sym(name, ssa.SymFunc)
 	l.funcs[name] = sym
 	sig := fn.Type().(*types2.Signature)
+	l.gxWrapped[sym] = fn
 	if l.sched == nil && mode != hookOptional && !l.schedMissing {
 		l.schedMissing = true
 		l.errorf(l.prog.Main.Files[0].Package, diag.NoScheduler, "this program starts tasks, uses channels or waits in pluto/sync, so it needs a scheduler, and none is bound: "+

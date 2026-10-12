@@ -286,6 +286,9 @@ compiler (2026-10-11).
 58. **Deferred calls on a panic, and `rt.Goexit`** (done, `71d0441`; sections 17.2 and 17.3): a hosted panic
     runs the task's deferred calls before the handler; `rt.Goexit` ends a task through its frames' return
     paths; `testing`'s `FailNow` uses it. Freestanding and kernel builds are unchanged.
+    Native-verified follow-up: callers propagate exits through bound scheduler methods and late
+    runtime hooks, including custom stack allocators and saved/deferred calls. Real source bodies
+    retain their own effects. See [verification](verification/2026-10-12-goexit-hooks.md).
 59. **Data race freedom** (done, `6e74756`, `23e57de`; section 19.3, memory-model.md section 4.1, error
     codes E3401 to E3407 and E3501 to E3503): `internal/race` infers which lock guards which data and
     rejects racing package variables and views that cross tasks; maps have a rule of their own (item 60).

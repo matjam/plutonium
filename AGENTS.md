@@ -258,6 +258,9 @@ order.
   checklist. Gap 32, the two known escape bugs and complete `strconv` quoting also pass native
   verification. Allocation-free streaming FNV, explicit-key SipHash and `pluto vet -unsafe` are native
   verified; `pluto doc` is now native verified, and package-variable reporting is next.
+  A follow-up to item 58 preserves `rt.Goexit` cleanup through bound scheduler and late runtime
+  hooks, including custom stack allocation. Full native gates pass; see the
+  [verification record](docs/verification/2026-10-12-goexit-hooks.md). Item 96 remains unfinished.
 - `~/go/bin/pluto` is the installed compiler; reinstall it after each landing with
   `GOBIN=$HOME/go/bin go install ./cmd/pluto`.
 

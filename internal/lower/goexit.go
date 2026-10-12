@@ -204,6 +204,29 @@ func (l *Lowerer) analyzeGoexit() {
 			}
 		}
 	}
+	// Bodyless compiler hooks execute their bound source implementation.
+	// Include those edges before propagating exits, so callers run cleanup
+	// instead of consuming a zero result returned by an exited hook.
+	for fn, declaration := range l.decls {
+		if declaration.decl.Body != nil {
+			continue
+		}
+		if method, _, ok := schedHook(fn); ok {
+			if target, _ := schedMethod(l.sched, method); target != nil {
+				n := newNode(fn.Type().(*types2.Signature))
+				n.edges = []gxEdge{{fn: target.Origin()}}
+				gx.funcs[fn] = n
+			}
+		} else if direct, parked, ok := lateHookNames(fn); ok {
+			n := newNode(fn.Type().(*types2.Signature))
+			for _, name := range []string{direct, parked} {
+				if target := l.rtFuncOrNil(name); target != nil {
+					n.edges = append(n.edges, gxEdge{fn: target.Origin()})
+				}
+			}
+			gx.funcs[fn] = n
+		}
+	}
 	// Declared functions and methods whose values the program takes.
 	for _, p := range l.prog.Packages {
 		for id, obj := range p.Info.Uses {

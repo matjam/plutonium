@@ -238,9 +238,9 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		}
 	}
 
-	l.analyzeGoexit()
 	l.findPanicHandler()
 	l.findScheduler()
+	l.analyzeGoexit()
 	l.lowerGlobals()
 	l.lowerEntry()
 	l.checkInterrupts()
