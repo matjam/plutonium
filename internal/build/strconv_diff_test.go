@@ -731,56 +731,14 @@ func hexAllGo(b []byte) string {
 	return s.String()
 }
 
-// unquotedValid reports whether the bytes of the quoted literal s, after its
-// escapes are interpreted, form valid UTF-8 (section 4.11).
-func unquotedValid(s string) bool {
-	if len(s) < 2 {
-		return false
-	}
-	quote := s[0]
-	end := strings.IndexByte(s[1:], quote)
-	if end < 0 {
-		return false
-	}
-	end += 2
-	switch quote {
-	case '`':
-		return utf8.ValidString(s[1 : end-1])
-	case '\'':
-		return true
-	case '"':
-		var b []byte
-		i := 1
-		for i < end-1 {
-			c := s[i]
-			if c < utf8.RuneSelf {
-				if c == '\\' {
-					r, mb, rest, err := strconv.UnquoteChar(s[i:], '"')
-					if err != nil {
-						return false
-					}
-					if r < utf8.RuneSelf || !mb {
-						b = append(b, byte(r))
-					} else {
-						b = utf8.AppendRune(b, r)
-					}
-					i = len(s) - len(rest)
-				} else {
-					b = append(b, c)
-					i++
-				}
-			} else {
-				_, size := utf8.DecodeRuneInString(s[i:])
-				if size == 1 {
-					return false
-				}
-				b = append(b, s[i:i+size]...)
-				i += size
-			}
-		}
-		return utf8.Valid(b)
-	}
-	return false
+// unquotedValid reports whether the double-quoted or backquoted literal lit,
+// which Go's Unquote accepts, is valid UTF-8 and decodes to valid UTF-8.
+// Plutonium rejects one that is not, as a string literal is rejected
+// (section 4.11); Go replaces a raw invalid byte with U+FFFD and returns the
+// byte an escape such as \xff names.
+func unquotedValid(lit string) bool {
+	r, err := strconv.Unquote(lit)
+	return err == nil && utf8.ValidString(lit) && utf8.ValidString(r)
 }
 
 func goUnquoteLine(s string) string {
@@ -813,7 +771,7 @@ func goPrefixLine(s string) string {
 	if err != nil {
 		return "e" + errClass(err)
 	}
-	if (s[0] == '"' || s[0] == '`') && !unquotedValid(s) {
+	if (s[0] == '"' || s[0] == '`') && !unquotedValid(p) {
 		return "es"
 	}
 	return "o" + hexAllGo([]byte(p))
@@ -848,6 +806,8 @@ func unquoteCorpus() []string {
 	return []string{
 		`"hello"`,
 		`""`,
+		`"a\"\xff"`,
+		`"\"\xc3\xbf\""`,
 		`"a\nb"`,
 		`"a\tb"`,
 		`"a\vb"`,
