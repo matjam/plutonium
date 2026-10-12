@@ -1,0 +1,4 @@
+package sample // import "example.com/docs"
+
+func (b Buffer) consume()
+    consume is an owner method.

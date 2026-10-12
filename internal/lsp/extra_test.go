@@ -208,11 +208,11 @@ func TestTypeKinds(t *testing.T) {
 	root := writeFiles(t, map[string]string{
 		"k.p": `package k
 
-type Node struct {
+type Node owner struct {
 	next owned[Node]
 }
 
-type Arr [2]Node
+type Arr owner [2]Node
 
 type Ref struct {
 	p *int
@@ -271,25 +271,43 @@ var (
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, e := range p.errors {
-		t.Logf("error: %s", e.diag.Msg)
+	if len(p.errors) != 0 {
+		t.Fatalf("invalid kind fixture: %v", p.errors)
 	}
-	for name, want := range map[string]string{
-		"o": kindOwner, "sh": kindShared, "sy": kindShared, "v": kindValue, "s": kindView, "sl": kindView,
-		"ch": kindShared, "f": "", "n": kindOwner, "a": kindOwner, "r": kindView, "c": kindValue,
-		"pl": kindValue, "i": "", "bt": kindValue, "us": kindValue, "ut": kindView,
+	for name, want := range map[string]types2.OwnershipKind{
+		"o": types2.KindOwner, "sh": types2.KindCounted, "sy": types2.KindCounted, "v": types2.KindValue, "s": types2.KindCounted, "sl": types2.KindView,
+		"ch": types2.KindCounted, "f": types2.KindView, "n": types2.KindOwner, "a": types2.KindOwner, "r": types2.KindView, "c": types2.KindCounted,
+		"pl": types2.KindValue, "i": types2.KindView, "bt": types2.KindValue, "us": types2.KindValue, "ut": types2.KindCounted,
 	} {
 		obj := p.types.Scope().Lookup(name)
 		if obj == nil {
 			t.Errorf("%s not declared", name)
 			continue
 		}
-		if got := typeKind(obj.Type(), 0); got != want {
+		if got := types2.KindOf(obj.Type()); got != want {
 			t.Errorf("kind of %s (%s) = %q, want %q", name, obj.Type(), got, want)
 		}
 	}
-	if typeKind(types2.Typ[types2.Invalid], 0) != "" || kindLine(types2.Typ[types2.Invalid]) != "" {
+	if types2.KindOf(types2.Typ[types2.Invalid]) != types2.KindUnknown || kindLine(types2.Typ[types2.Invalid]) != "" {
 		t.Error("invalid type has a kind")
+	}
+	for name, want := range map[string]string{
+		"sh": "**counted**: copies add counts and drops release counts",
+		"r":  "**view**: may contain borrowed references that must not outlive their source",
+		"n":  "**owner (moves)**: moves on assignment and is dropped when its lifetime ends",
+		"pl": "**value**: copied on assignment",
+	} {
+		if got := kindLine(p.types.Scope().Lookup(name).Type()); got != want {
+			t.Errorf("hover %s = %q, want %q", name, got, want)
+		}
+	}
+	weak := types2.NewWrapper(types2.WrapWeak, types2.NewWrapper(types2.WrapShared, types2.Typ[types2.Int], 0), 0)
+	if got := kindLine(weak); got != "**counted**: copies add counts and drops release counts" {
+		t.Errorf("weak hover = %q", got)
+	}
+	mixed := types2.NewStruct([]*types2.Var{types2.NewField(0, nil, "Text", types2.Typ[types2.String], false), types2.NewField(0, nil, "View", types2.NewSlice(types2.Typ[types2.Byte]), false)}, nil)
+	if got := kindLine(mixed); got != "**view**: may contain borrowed references that must not outlive their source" {
+		t.Errorf("mixed hover = %q", got)
 	}
 }
 

@@ -262,7 +262,7 @@ type Color enum {
 }
 
 // Buffer owns memory.
-type Buffer struct {
+type Buffer owner struct {
 	data []byte
 	Size int // Size is the size.
 }

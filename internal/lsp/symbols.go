@@ -88,7 +88,7 @@ func typeSymbol(f *srcFile, spec *ast.TypeSpec, node ast.Node) DocumentSymbol {
 		if kind == SymbolClass {
 			detail = types2.TypeString(obj.Type().Underlying(), qualifier(f.pkg.types))
 		}
-		if k := typeKind(obj.Type(), 0); k != "" {
+		if k := types2.KindOf(obj.Type()).String(); k != "" {
 			detail = strings.TrimSpace(k + " " + detail)
 		}
 	}

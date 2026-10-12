@@ -1,0 +1,25 @@
+package hash // import "pluto/hash"
+
+FNV32a [value]
+type FNV32a struct {
+	sum         uint32
+	initialized bool
+}
+    FNV32a is an allocation-free 32-bit FNV-1a stream. Its zero value is
+    ready to use. Assignment copies the stream independently. FNV is not
+    suitable for defending a hash table against attacker-chosen keys.
+
+func (h *FNV32a) Reset()
+    Reset discards the bytes written so far.
+
+func (h FNV32a) Sum32() uint32
+    Sum32 returns the hash without changing the stream.
+
+func (h *FNV32a) Write(b []byte) (int, error)
+    Write consumes all bytes of b and returns len(b), nil. It retains no view.
+
+func (h *FNV32a) WriteByte(c byte) error
+    WriteByte writes c and returns nil.
+
+func (h *FNV32a) WriteString(s string) (int, error)
+    WriteString consumes all bytes of s and returns len(s), nil.

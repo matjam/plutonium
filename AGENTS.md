@@ -247,8 +247,8 @@ order.
 ### Where things stand
 
 - The specification (version 0.3) is complete and consistent, and every language feature in the roadmap's gap table is
-  implemented and verified. Every row of that table is done. Of the items 93 to 98 that the document pass added, 94 and 97 are done, 95 and 98
-  are decided with nothing to build, and 93 and 96 are planned (step 5).
+  implemented and verified. Every row of that table is done. Of the items 93 to 98 that the document pass added, 93, 94 and 97 are done, 95 and 98
+  are decided with nothing to build, and 96 is planned (step 5).
 - Landed on 2026-10-11: `//pu:nochecks` (replacing `//pu:nobounds`), `clear` of a slice of owners
   drops each element (gap 33), E2512 for any two exports of one symbol (item 94), `defer` of
   `clear`, `copy` and `delete` (gap 6), `go test ./internal/build -run TestRun -update` translating
@@ -257,7 +257,7 @@ order.
   verification on 2026-10-12. Generation-directory checks (gap 10, item 85) also pass the full native
   checklist. Gap 32, the two known escape bugs and complete `strconv` quoting also pass native
   verification. Allocation-free streaming FNV, explicit-key SipHash and `pluto vet -unsafe` are native
-  verified; `pluto doc` is next.
+  verified; `pluto doc` is now native verified, and package-variable reporting is next.
 - `~/go/bin/pluto` is the installed compiler; reinstall it after each landing with
   `GOBIN=$HOME/go/bin go install ./cmd/pluto`.
 
@@ -383,7 +383,10 @@ output-equivalence proofs are recorded for the ordered tuning pass.
      `//pu:nochecks`; safe callers retain their labels and show direct or possible call paths.
      Exact CLI and source-graph oracles, full native gates and coverage nondecrease pass. See the
      [verification record](docs/verification/2026-10-12-vet-unsafe.md).
-   - `pluto doc` (item 93; sections 1.1, 18.1 and appendix F).
+   - **`pluto doc`: done.** Item 93 documents packages, symbols and methods without running or linking
+     source. Exact labels and editor hovers share the section 8.7 classifier; comments, defaults,
+     aliases, promotions and generic instances are covered by exact goldens. Native full gates and
+     a tracked-only archive pass. See the [verification record](docs/verification/2026-10-12-pluto-doc.md).
    - The debug allocator reports package-variable memory apart from leaks (item 96; sections 15.4
      and 18.6).
 6. **After the gap list is empty:** a tuning pass on a quiet machine (task spawn, about 2x Go;

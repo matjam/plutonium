@@ -394,7 +394,7 @@ func objectItem(obj types2.Object, cur *types2.Package) CompletionItem {
 		if _, ok := obj.Type().(*types2.TypeParam); ok {
 			it.Kind = CompletionTypeParam
 		}
-		if k := typeKind(obj.Type(), 0); k != "" {
+		if k := types2.KindOf(obj.Type()).String(); k != "" {
 			it.Detail = k
 		}
 	case *types2.PkgName:

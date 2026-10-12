@@ -1,0 +1,6 @@
+package sample // import "example.com/docs"
+
+OwnAlias [owner (moves)]
+type OwnAlias = Closeable
+
+func (Closeable).Close()

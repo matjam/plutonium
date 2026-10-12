@@ -1,0 +1,5 @@
+package sample // import "example.com/docs"
+
+Source: pluto/hash.FNV32a.Sum32
+func (h FNV32a) Sum32() uint32
+    Sum32 returns the hash without changing the stream.

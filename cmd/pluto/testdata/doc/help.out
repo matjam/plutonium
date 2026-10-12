@@ -1,0 +1,14 @@
+Show source documentation and declarations without running or linking the package.
+The package defaults to the current directory. Listings show exported names;
+-all includes private names. An explicit symbol may name a private declaration.
+Types are labelled value, view, owner (moves), or counted.
+
+Usage:
+  pluto doc [-all] [-tags=tags] [package-or-directory] [symbol[.method]] [flags]
+
+Flags:
+      --all           include private names
+      --brief         print each error on one line, without its explanation (default from $PLUTO_BRIEF)
+  -h, --help          help for doc
+      --mode string   source build mode: hosted, freestanding or kernel (default "hosted")
+      --tags string   additional build tags

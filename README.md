@@ -128,6 +128,10 @@ optimization level and debug information.
 
 Other commands:
 
+- `pluto doc [package-or-directory] [symbol[.method]]` shows package documentation and source
+  declarations, with each type labeled `value`, `view`, `owner (moves)` or `counted`. The package defaults
+  to `.`; for example, `pluto doc pluto/vec Vec` and `pluto doc pluto/hash FNV32a.Write`.
+  `-all` includes private names, and `-mode` and `-tags` select the source to document.
 - `pluto fmt [-l] [-w] [-d] [path ...]` formats source files. Plain Go formats exactly as gofmt formats it.
 - `pluto test [packages]` runs the `Test` and `Benchmark` functions of `*_test.p` files with
   `pluto/testing` and prints the results in the format of `go test`.

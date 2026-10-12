@@ -368,9 +368,12 @@ compiler (2026-10-11).
     [plan](plans/2026-10-10-complete-spec.md)): 21 chapters and 7 appendices in `docs/spec/language/`,
     guarded by `TestSpecReferences`; the companion documents, plans and README agree with it. Open
     questions stay in the plan's section 6.5, which is the implementation brief.
-93. **`pluto doc`** (planned; sections 1.1, 18.1 and F): shows a package's documentation and the kind of
-    each type (`value`, `view`, `owner (moves)`, `counted`). The specification points to it for everything
-    the standard library defines; the compiler has no `doc` command yet.
+93. **`pluto doc`** (done; sections 1.1, 18.1 and F): documents source packages without running or linking
+    them, with exact type labels (`value`, `view`, `owner (moves)`, `counted`). Optional symbols and
+    methods follow aliases, promotions and generic instantiations; defaults and source comments remain
+    visible. The shared classifier also corrects editor labels. Exact CLI goldens, native full tests,
+    zero lint, aggregate coverage nondecrease and all floors, SSA checks, generation-off tests and a
+    tracked-only archive pass. See the [verification record](verification/2026-10-12-pluto-doc.md).
 
 ## Platforms and formats
 

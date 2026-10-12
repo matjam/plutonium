@@ -138,112 +138,19 @@ func declString(obj types2.Object, qf types2.Qualifier) string {
 	return types2.ObjectString(obj, qf)
 }
 
-// The kinds of section 8.7 of the specification, as hover shows them.
-const (
-	kindValue  = "value"
-	kindView   = "view"
-	kindOwner  = "owner"
-	kindShared = "shared"
-)
-
-// kindLine describes the ownership kind of a type, or returns "" for a
-// type whose kind depends on how it is used (functions, interfaces, type
-// parameters).
+// kindLine uses the same static classification as pluto doc (section 18.1).
 func kindLine(t types2.Type) string {
-	switch typeKind(t, 0) {
-	case kindOwner:
-		return "**owner type** (moves): moves on assignment, freed automatically when its owner goes out of scope; copy it with `Clone`"
-	case kindView:
-		return "**view**: looks at memory something else owns; copying it is free, and it must not outlive that memory"
-	case kindShared:
-		return "**shared** (counted): copying it adds a reference; the object is freed when the last reference is dropped"
-	case kindValue:
+	switch types2.KindOf(t) {
+	case types2.KindOwner:
+		return "**owner (moves)**: moves on assignment and is dropped when its lifetime ends"
+	case types2.KindView:
+		return "**view**: may contain borrowed references that must not outlive their source"
+	case types2.KindCounted:
+		return "**counted**: copies add counts and drops release counts"
+	case types2.KindValue:
 		return "**value**: copied on assignment"
 	}
 	return ""
-}
-
-// typeKind classifies a type as a value, view, owner or counted reference
-// (spec section 8.7).
-//
-// A named type is an owner if it is declared owner (or defined from
-// owned[T]), or if it has a Drop method, which only an owner may declare.
-func typeKind(t types2.Type, depth int) string {
-	if depth > 8 {
-		return ""
-	}
-	switch t := types2.Unalias(t).(type) {
-	case *types2.Named:
-		if types2.IsOwner(t) {
-			return kindOwner
-		}
-		if obj, _, _ := types2.LookupFieldOrMethod(types2.NewPointer(t), false, t.Obj().Pkg(), "Drop"); obj != nil {
-			if _, ok := obj.(*types2.Func); ok {
-				return kindOwner
-			}
-		}
-		if types2.EnumOf(t) != nil {
-			return kindValue
-		}
-		return typeKind(t.Underlying(), depth+1)
-	case *types2.Basic:
-		switch {
-		case t.Kind() == types2.Invalid || t.Info()&types2.IsUntyped != 0 && t.Kind() == types2.UntypedNil:
-			return ""
-		case t.Kind() == types2.String || t.Kind() == types2.UnsafePointer:
-			return kindView
-		}
-		return kindValue
-	case *types2.Pointer, *types2.Slice:
-		return kindView
-	case *types2.Chan:
-		return kindShared
-	case *types2.Wrapper:
-		switch t.Kind() {
-		case types2.WrapOwned:
-			return kindOwner
-		case types2.WrapShared, types2.WrapSynced, types2.WrapWeak:
-			return kindShared
-		}
-		return typeKind(t.Elem(), depth+1)
-	case *types2.Packed:
-		return kindValue
-	case *types2.Array:
-		return aggregateKind(depth, t.Elem())
-	case *types2.Struct:
-		fields := make([]types2.Type, t.NumFields())
-		for i := range fields {
-			fields[i] = t.Field(i).Type()
-		}
-		return aggregateKind(depth, fields...)
-	case *types2.TaggedUnion:
-		payloads := make([]types2.Type, t.NumVariants())
-		for i := range payloads {
-			payloads[i] = t.Variant(i).Payload()
-		}
-		return aggregateKind(depth, payloads...)
-	}
-	return ""
-}
-
-// aggregateKind is the kind of a struct or array: an owner if it holds an
-// owner, else a view if it holds a view, else a value (counted references
-// in it are counted on copy, but the aggregate still copies).
-func aggregateKind(depth int, elems ...types2.Type) string {
-	kind := kindValue
-	for _, e := range elems {
-		switch typeKind(e, depth+1) {
-		case kindOwner:
-			return kindOwner
-		case kindView:
-			kind = kindView
-		case "":
-			if kind == kindValue {
-				kind = ""
-			}
-		}
-	}
-	return kind
 }
 
 // packageDoc returns the package comment of a checked package.

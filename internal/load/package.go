@@ -1,7 +1,9 @@
 package load
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 )
 
 // LoadPackage loads an ordinary package and its dependencies without requiring
@@ -19,6 +21,22 @@ func LoadPackage(cfg *Config, target string) (*Program, error) {
 		}
 		ipath = target
 	} else {
+		// An import path within the current module names the same source as
+		// its directory. Explicit directories continue to work without a
+		// module, including when the working directory is outside one.
+		if !filepath.IsAbs(target) && !strings.HasPrefix(target, ".") {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return nil, err
+			}
+			modRoot, modPath, err := findModule(cwd)
+			if err != nil {
+				return nil, err
+			}
+			if modPath != "" && (target == modPath || strings.HasPrefix(target, modPath+"/")) {
+				target = filepath.Join(modRoot, filepath.FromSlash(strings.TrimPrefix(target, modPath)))
+			}
+		}
 		abs, err := filepath.Abs(target)
 		if err != nil {
 			return nil, err

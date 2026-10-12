@@ -1,0 +1,4 @@
+package sample // import "example.com/docs"
+
+func (Reader).Read() int
+    Read gets a value.

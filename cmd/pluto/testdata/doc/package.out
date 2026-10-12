@@ -1,0 +1,140 @@
+package sample // import "example.com/docs"
+
+Package sample documents source without requiring an executable.
+
+Box [owner (moves)]
+type Box[T owner any] owner struct{ Value T }
+    Box preserves its owner constraint.
+
+Buffer [owner (moves)]
+type Buffer owner struct {
+	// Data is borrowed from this owner.
+	Data    []byte
+	private int
+}
+    Buffer owns its data.
+
+BufferAlias [owner (moves)]
+type BufferAlias = Buffer
+
+Callback [view]
+type Callback func(string)
+
+Channel [counted]
+type Channel chan string
+
+Choice [counted]
+type Choice union {
+	None
+	Some string
+}
+    Choice is a counted union.
+
+Closeable [owner (moves)]
+type Closeable owner interface{ Close() }
+
+Color [value]
+type Color enum {
+	// Red is the first color.
+	Red
+	Blue
+}
+    Color has documented enum members.
+
+CountAlias [counted]
+type CountAlias = Strings
+
+Error [view]
+type Error interface{ Error() string }
+
+const First = 0
+    First has its own documentation.
+
+Foreign [value]
+type Foreign = hash.FNV32a
+
+Generic [value]
+type Generic[T any] struct{ Value T }
+
+func Greet(name string = "world") string
+    Greet preserves source default expressions.
+
+GroupFallback [value]
+type GroupFallback int
+    Group fallback documents declarations with no specific comment.
+
+Grouped [value]
+type Grouped int
+    Grouped has specific trailing documentation.
+
+var Hidden []byte
+
+func Identity[T any](v T) T
+    Identity preserves generic parameter names.
+
+Larger [owner (moves)]
+type Larger owner struct{ Buffer }
+
+Map [counted]
+type Map map[string]int
+
+Mixed [view]
+type Mixed struct {
+	Strings
+	View []byte
+}
+    Mixed has view precedence over counted fields.
+
+OwnAlias [owner (moves)]
+type OwnAlias = Closeable
+
+Owned [owner (moves)]
+type Owned owned[int]
+
+Pointer [view]
+type Pointer *Buffer
+
+PointerAlias [view]
+type PointerAlias = *Buffer
+
+Reader [view]
+type Reader interface {
+	// Read gets a value.
+	Read() int
+}
+
+const Second = 1
+    Grouped declarations retain their shared documentation.
+
+Shared [counted]
+type Shared shared[int]
+
+StringGeneric [counted]
+type StringGeneric = Generic[string]
+
+Strings [counted]
+type Strings struct {
+	Text string
+	Ref  shared[int]
+}
+    Strings is a counted aggregate.
+
+Synced [counted]
+type Synced synced[int]
+
+Text [counted]
+type Text string
+
+var Title string
+    Title is counted text.
+
+Weak [counted]
+type Weak weak[shared[int]]
+
+func (b *Buffer) Drop()
+    Drop releases the buffer.
+
+func (b *Buffer) Len(extra int = 2) int
+    Len accepts a default argument.
+
+func (g *Generic[T]) Get(extra int = 1) T

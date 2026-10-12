@@ -1,0 +1,15 @@
+package sample // import "example.com/docs"
+
+Buffer [owner (moves)]
+type Buffer owner struct {
+	// Data is borrowed from this owner.
+	Data    []byte
+	private int
+}
+    Buffer owns its data.
+
+func (b *Buffer) Drop()
+    Drop releases the buffer.
+
+func (b *Buffer) Len(extra int = 2) int
+    Len accepts a default argument.

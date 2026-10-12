@@ -247,7 +247,7 @@ func TestHover(t *testing.T) {
 		n                  int
 		want               []string
 	}{
-		{"owner variable", main, "var b", 4, []string{"var b shapes.Buffer", "owner type", "moves on assignment, freed automatically"}},
+		{"owner variable", main, "var b", 4, []string{"var b shapes.Buffer", "owner (moves)", "moves on assignment and is dropped"}},
 		{"field", main, "b.Size", 2, []string{"field Size int", "Size is the size.", "**value**"}},
 		{"function with directive", main, "shapes.Area", 7, []string{"func shapes.Area(w int, h int) int", "Area computes an area.", "`//pu:noinline`: never inline"}},
 		{"enum member", main, "Color.Green", 6, []string{"const Color.Green shapes.Color = 1"}},

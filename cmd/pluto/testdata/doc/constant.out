@@ -1,0 +1,4 @@
+package sample // import "example.com/docs"
+
+const Second = 1
+    Grouped declarations retain their shared documentation.

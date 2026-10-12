@@ -1,0 +1,8 @@
+package sample // import "example.com/docs"
+
+StringGeneric [counted]
+type StringGeneric = Generic[string]
+
+Source: example.com/docs.Generic.Get
+func (g *Generic[T]) Get(extra int = 1) T
+Signature: func (*Generic[string]).Get(extra int) string

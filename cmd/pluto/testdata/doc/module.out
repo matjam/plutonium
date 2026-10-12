@@ -1,0 +1,8 @@
+package sample // import "example.com/docs"
+
+Choice [counted]
+type Choice union {
+	None
+	Some string
+}
+    Choice is a counted union.

@@ -1,0 +1,5 @@
+package sample // import "example.com/docs"
+
+Source: example.com/docs.Buffer.Len
+func (b *Buffer) Len(extra int = 2) int
+    Len accepts a default argument.

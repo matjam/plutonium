@@ -1,0 +1,11 @@
+package sample // import "example.com/docs"
+
+Color [value]
+type Color enum {
+	// Red is the first color.
+	Red
+	Blue
+}
+    Color has documented enum members.
+
+func (Color).String() string
