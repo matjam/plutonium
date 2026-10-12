@@ -76,9 +76,9 @@ func unhex(b byte) (v rune, ok bool) {
 //	'\u....'      a rune; multibyte
 //
 // A \xNN escape with NN >= 0x80 names a byte that is not a rune; UnquoteChar
-// returns it as a rune, not multibyte, the same value Go returns. It is the
-// caller's responsibility to make it valid UTF-8 (section 7.3) before it is
-// written into a string; Unquote does that, with U+FFFD.
+// returns it as a rune, not multibyte, the same value Go returns. In a
+// double-quoted literal the bytes must form valid UTF-8 (section 4.11); in a
+// single-quoted literal the value is the rune's code point.
 func UnquoteChar(s string, quote byte) (value rune, multibyte bool, tail string, err error) {
 	if len(s) == 0 {
 		err = ErrSyntax
@@ -191,12 +191,10 @@ func UnquoteChar(s string, quote byte) (value rune, multibyte bool, tail string,
 // unquote is the core of Unquote and QuotedPrefix. With unescape true it
 // returns the value s represents, escapes expanded; with it false it returns
 // the quoted prefix as the original text. rem is the rest of s after the
-// quoted string. The result is always valid UTF-8 (section 7.3): a byte that
-// does not begin a valid UTF-8 sequence is replaced by U+FFFD.
+// quoted string. A double-quoted or backquoted literal whose unescaped bytes
+// are not valid UTF-8 is a syntax error (section 4.11); a single-quoted
+// literal holds a rune and its value is the rune's UTF-8 encoding.
 func unquote(in string, unescape bool) (out string, rem string, err error) {
-	// buf holds the unescaped bytes on the paths that build them. It is at the
-	// top level so the deferred Free (which runs when the function returns) may
-	// use it; paths that do not build bytes leave it zero and never defer.
 	var buf vec.Vec[byte]
 	if len(in) < 2 {
 		return "", in, ErrSyntax
@@ -224,53 +222,62 @@ func unquote(in string, unescape bool) (out string, rem string, err error) {
 			}
 			out = rt.StringFromSlice(buf.Slice(), alloc.Default())
 		}
+		if !utf8.ValidString(out) {
+			return "", in, ErrSyntax
+		}
 		return out, in[end:], nil
 
 	case '"', '\'':
-		if !contains(in[:end], '\\') && !contains(in[:end], '\n') {
-			var valid bool
-			if quote == '"' {
-				valid = utf8.ValidString(in[1 : end-1])
-			} else {
-				r, n := utf8.DecodeRuneInString(in[1 : end-1])
-				valid = 1+n+1 == end && (r != utf8.RuneError || n != 1)
-			}
-			if valid {
-				out = in[:end]
-				if unescape {
-					out = out[1 : end-1]
-				}
-				return out, in[end:], nil
-			}
-		}
-
 		in0 := in
-		if unescape {
-			buf = vec.WithCapacity[byte](len(in0))
-			defer buf.Free()
-		}
+		buf = vec.WithCapacity[byte](len(in0))
+		defer buf.Free()
 		in = in[1:]
 		for len(in) > 0 && in[0] != quote {
-			r, multibyte, rest, e := UnquoteChar(in, quote)
-			if in[0] == '\n' || e != nil {
+			if in[0] == '\n' {
 				return "", in0, ErrSyntax
 			}
-			in = rest
-			if unescape {
-				if r < utf8.RuneSelf || !multibyte {
-					buf.Push(byte(r))
-				} else {
-					utf8.AppendRune(&buf, r)
+			c := in[0]
+			if c >= utf8.RuneSelf {
+				_, size := utf8.DecodeRuneInString(in)
+				if size == 1 {
+					return "", in0, ErrSyntax
 				}
-			}
-			if quote == '\'' {
-				break
+				for j := 0; j < size; j++ {
+					buf.Push(in[j])
+				}
+				in = in[size:]
+				if quote == '\'' {
+					break
+				}
+			} else if c == '\\' {
+				r, multibyte, rest, e := UnquoteChar(in, quote)
+				if e != nil {
+					return "", in0, ErrSyntax
+				}
+				if quote == '\'' || r >= utf8.RuneSelf && multibyte {
+					utf8.AppendRune(&buf, r)
+				} else {
+					buf.Push(byte(r))
+				}
+				in = rest
+				if quote == '\'' {
+					break
+				}
+			} else {
+				buf.Push(c)
+				in = in[1:]
+				if quote == '\'' {
+					break
+				}
 			}
 		}
 		if !(len(in) > 0 && in[0] == quote) {
 			return "", in0, ErrSyntax
 		}
 		in = in[1:]
+		if quote == '"' && !utf8.Valid(buf.Slice()) {
+			return "", in0, ErrSyntax
+		}
 		if unescape {
 			return rt.StringFromSlice(buf.Slice(), alloc.Default()), in, nil
 		}
@@ -294,9 +301,9 @@ func QuotedPrefix(s string) (string, error) {
 // string literals, and backquoted raw strings. A single-quoted literal must
 // hold exactly one character; the empty character literal is the empty string.
 //
-// Plutonium strings are valid UTF-8 (section 7.3). Where Go's result would
-// hold an invalid byte (a \xNN escape with NN >= 0x80), Unquote replaces each
-// such byte with U+FFFD.
+// Every string literal is valid UTF-8 (section 4.11). Unquote returns
+// ErrSyntax for a double-quoted or backquoted literal whose bytes, after its
+// escapes are interpreted, do not form valid UTF-8.
 func Unquote(s string) (string, error) {
 	out, rem, err := unquote(s, true)
 	if err != nil || rem != "" {

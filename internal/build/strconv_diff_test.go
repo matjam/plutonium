@@ -2,6 +2,7 @@ package build_test
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"math/big"
@@ -81,6 +82,35 @@ func hexAll[D vec.Appender[byte]](b []byte, out D) {
 	}
 }
 
+func hexVal(c byte) (int, bool) {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c - '0'), true
+	case c >= 'a' && c <= 'f':
+		return int(c-'a'+10), true
+	}
+	return 0, false
+}
+
+var hexBuf [4096]byte
+
+// hexDecode returns the bytes of the hex-encoded string s.
+func hexDecode(s string) string {
+	n := len(s) / 2
+	if n > len(hexBuf) {
+		return ""
+	}
+	for i := 0; i < n; i++ {
+		hi, ok1 := hexVal(s[2*i])
+		lo, ok2 := hexVal(s[2*i+1])
+		if !ok1 || !ok2 {
+			return ""
+		}
+		hexBuf[i] = byte(hi<<4 | lo)
+	}
+	return unsafe.String(unsafe.SliceData(hexBuf[:]), n)
+}
+
 func bitsOf(f float64) uint64 { return *(*uint64)(unsafe.Pointer(&f)) }
 func fromBits(b uint64) float64 { return *(*float64)(unsafe.Pointer(&b)) }
 
@@ -117,6 +147,7 @@ func main() {
 			continue
 		}
 		if mode == "unquote" {
+			line = hexDecode(line)
 			r, e := strconv.Unquote(line)
 			out := vec.NewFixed(scratch[:])
 			if e != nil {
@@ -130,6 +161,7 @@ func main() {
 			continue
 		}
 		if mode == "prefix" {
+			line = hexDecode(line)
 			p, e := strconv.QuotedPrefix(line)
 			out := vec.NewFixed(scratch[:])
 			if e != nil {
@@ -143,6 +175,7 @@ func main() {
 			continue
 		}
 		if mode == "char" {
+			line = hexDecode(line)
 			v, mb, tail, e := strconv.UnquoteChar(line, '"')
 			out := vec.NewFixed(scratch[:])
 			if e != nil {
@@ -678,25 +711,6 @@ func TestAppendFloatDifferential(t *testing.T) {
 	}
 }
 
-// lossy replaces each byte of s that does not begin a valid UTF-8 sequence
-// with U+FFFD, as pluto/strconv.Unquote and pluto/strings.FromUTF8Lossy do
-// (section 7.3). It is not strings.ToValidUTF8, which replaces each maximal
-// run of invalid bytes with a single replacement.
-func lossy(s string) string {
-	var b []byte
-	for i := 0; i < len(s); {
-		r, size := utf8.DecodeRuneInString(s[i:])
-		if r == utf8.RuneError && size == 1 {
-			b = utf8.AppendRune(b, '\uFFFD')
-			i++
-		} else {
-			b = append(b, s[i:i+size]...)
-			i += size
-		}
-	}
-	return string(b)
-}
-
 func errClass(err error) string {
 	switch err {
 	case strconv.ErrSyntax:
@@ -717,18 +731,90 @@ func hexAllGo(b []byte) string {
 	return s.String()
 }
 
+// unquotedValid reports whether the bytes of the quoted literal s, after its
+// escapes are interpreted, form valid UTF-8 (section 4.11).
+func unquotedValid(s string) bool {
+	if len(s) < 2 {
+		return false
+	}
+	quote := s[0]
+	end := strings.IndexByte(s[1:], quote)
+	if end < 0 {
+		return false
+	}
+	end += 2
+	switch quote {
+	case '`':
+		return utf8.ValidString(s[1 : end-1])
+	case '\'':
+		return true
+	case '"':
+		var b []byte
+		i := 1
+		for i < end-1 {
+			c := s[i]
+			if c < utf8.RuneSelf {
+				if c == '\\' {
+					r, mb, rest, err := strconv.UnquoteChar(s[i:], '"')
+					if err != nil {
+						return false
+					}
+					if r < utf8.RuneSelf || !mb {
+						b = append(b, byte(r))
+					} else {
+						b = utf8.AppendRune(b, r)
+					}
+					i = len(s) - len(rest)
+				} else {
+					b = append(b, c)
+					i++
+				}
+			} else {
+				_, size := utf8.DecodeRuneInString(s[i:])
+				if size == 1 {
+					return false
+				}
+				b = append(b, s[i:i+size]...)
+				i += size
+			}
+		}
+		return utf8.Valid(b)
+	}
+	return false
+}
+
 func goUnquoteLine(s string) string {
+	if len(s) == 0 {
+		return "es"
+	}
 	r, err := strconv.Unquote(s)
 	if err != nil {
 		return "e" + errClass(err)
 	}
-	return "o" + hexAllGo([]byte(lossy(r)))
+	if s[0] == '"' || s[0] == '`' {
+		if !unquotedValid(s) {
+			return "es"
+		}
+		return "o" + hexAllGo([]byte(r))
+	}
+	// Single-quoted: Go returns a raw byte for \xNN and octal escapes with
+	// value >= 0x80; Plutonium returns the rune's UTF-8 encoding.
+	if !utf8.ValidString(r) {
+		r = string(rune(r[0]))
+	}
+	return "o" + hexAllGo([]byte(r))
 }
 
 func goPrefixLine(s string) string {
+	if len(s) == 0 {
+		return "es"
+	}
 	p, err := strconv.QuotedPrefix(s)
 	if err != nil {
 		return "e" + errClass(err)
+	}
+	if (s[0] == '"' || s[0] == '`') && !unquotedValid(s) {
+		return "es"
 	}
 	return "o" + hexAllGo([]byte(p))
 }
@@ -745,11 +831,19 @@ func goCharLine(s string) string {
 	return fmt.Sprintf("o %d %s %d", v, m, len(tail))
 }
 
+func hexEncodeLines(lines []string) []string {
+	out := make([]string, len(lines))
+	for i, s := range lines {
+		out[i] = hex.EncodeToString([]byte(s))
+	}
+	return out
+}
+
 // unquoteCorpus returns full quoted strings, as pluto/strconv.Unquote and
 // QuotedPrefix take them. It covers every branch: double, single and backtick
 // quotes; known, hex, octal and unicode escapes; raw multibyte runes; invalid
-// UTF-8; and unterminated or malformed inputs. None of the lines contains a
-// newline, so the line-based harness can carry them.
+// UTF-8; and unterminated or malformed inputs. Lines are hex-encoded before
+// they reach the harness, so they may carry any byte.
 func unquoteCorpus() []string {
 	return []string{
 		`"hello"`,
@@ -803,6 +897,9 @@ func unquoteCorpus() []string {
 		`'a`,
 		`'\ud800'`,
 		`'\x4'`,
+		`'\377'`,
+		`"a\ab"`,
+		`"a\bb"`,
 		"`hello`",
 		"`a\\rb`",
 		"`a\rb`",
@@ -810,6 +907,9 @@ func unquoteCorpus() []string {
 		"`a b`",
 		"`a\"b`",
 		"`",
+		"\"a\nb\"",
+		"\"a\xffb\"",
+		"`a\xffb`",
 	}
 }
 
@@ -857,16 +957,17 @@ func charCorpus() []string {
 }
 
 // TestUnquoteDifferential compares pluto/strconv.Unquote with Go's over the
-// corpus. Where Go's result holds an invalid byte, the expected value is
-// lossy-converted first, as pluto/strconv.Unquote does (section 7.3).
+// corpus. A double-quoted or backquoted literal whose unescaped bytes are not
+// valid UTF-8 is a syntax error (section 4.11).
 func TestUnquoteDifferential(t *testing.T) {
 	testguard.Parallel(t)
 	corpus := unquoteCorpus()
+	hex := hexEncodeLines(corpus)
 	for _, level := range []int{0, 2} {
 		t.Run(fmt.Sprintf("O%d", level), func(t *testing.T) {
 			testguard.Parallel(t)
 			bin := buildStrconvHarness(t, level)
-			got := runHarness(t, bin, "unquote", corpus)
+			got := runHarness(t, bin, "unquote", hex)
 			bad := 0
 			for i, s := range corpus {
 				if want := goUnquoteLine(s); got[i] != want {
@@ -884,16 +985,17 @@ func TestUnquoteDifferential(t *testing.T) {
 }
 
 // TestQuotedPrefixDifferential compares pluto/strconv.QuotedPrefix with
-// Go's over the same corpus. The prefix is the original text, so it needs no
-// lossy conversion.
+// Go's over the same corpus. A double-quoted or backquoted prefix whose
+// unescaped bytes are not valid UTF-8 is a syntax error (section 4.11).
 func TestQuotedPrefixDifferential(t *testing.T) {
 	testguard.Parallel(t)
 	corpus := unquoteCorpus()
+	hex := hexEncodeLines(corpus)
 	for _, level := range []int{0, 2} {
 		t.Run(fmt.Sprintf("O%d", level), func(t *testing.T) {
 			testguard.Parallel(t)
 			bin := buildStrconvHarness(t, level)
-			got := runHarness(t, bin, "prefix", corpus)
+			got := runHarness(t, bin, "prefix", hex)
 			bad := 0
 			for i, s := range corpus {
 				if want := goPrefixLine(s); got[i] != want {
@@ -911,15 +1013,17 @@ func TestQuotedPrefixDifferential(t *testing.T) {
 }
 
 // TestUnquoteCharDifferential compares pluto/strconv.UnquoteChar with Go's
-// over the corpus, always with quote '"'.
+// over the corpus, always with quote '"'. UnquoteChar is unchanged by the
+// UTF-8 rule of section 4.11; it reports the byte or rune as Go does.
 func TestUnquoteCharDifferential(t *testing.T) {
 	testguard.Parallel(t)
 	corpus := charCorpus()
+	hex := hexEncodeLines(corpus)
 	for _, level := range []int{0, 2} {
 		t.Run(fmt.Sprintf("O%d", level), func(t *testing.T) {
 			testguard.Parallel(t)
 			bin := buildStrconvHarness(t, level)
-			got := runHarness(t, bin, "char", corpus)
+			got := runHarness(t, bin, "char", hex)
 			bad := 0
 			for i, s := range corpus {
 				if want := goCharLine(s); got[i] != want {
