@@ -414,7 +414,11 @@ compiler (2026-10-11).
     single-pointer structs in an interface's data word (`bcfe96f`, section 7.9), itab lookup by hash
     (`79a4326`, abi.md section 5), `//pu:stack` for `main` (`b951dd2`, section 20.3), growable arenas
     (`56d1d39`), the OS and process layer (`e5128d3`), `internal/constant` (`dee6b7d`), and the phase 1
-    libraries (`unicode`, `slices`, `cmp`, `container/heap`, `strconv.ParseFloat`).
+    libraries (`unicode`, `slices`, `cmp`, `container/heap`, `strconv.ParseFloat`). Complete
+    `strconv` quoting is native amd64 verified on 2026-10-12: all string/rune plain, ASCII and
+    graphic forms and their bounded/growable Appender forms match exact Go oracles at O0/O2.
+    Counted string buffers balance and bounded appends allocate nothing. See the
+    [verification record](verification/2026-10-12-strconv-quoting.md). Streaming hashing remains next.
 65. **Range over a vector reads its length once** (done, `dad7c36`; sections 12.10 and 11.11): `All`,
     `Values` and `Backward` of `vec.Vec` read the length when the loop starts.
 68. **`bytes.Buffer` grows** (done, `9c6cdcc`; sections 7.18 and F.3): `NewBuffer` and `NewBufferString`; a

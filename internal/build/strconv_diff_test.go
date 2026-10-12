@@ -43,6 +43,7 @@ import (
 	"pluto/os"
 	"pluto/errors"
 	"pluto/strconv"
+	"pluto/rt"
 	"pluto/vec"
 	"unsafe"
 )
@@ -112,6 +113,29 @@ func hexDecode(s string) string {
 	return unsafe.String(unsafe.SliceData(hexBuf[:]), n)
 }
 
+func quoteValue(api int, s string, r rune) string {
+	switch api {
+	case 0: return strconv.Quote(s)
+	case 1: return strconv.QuoteToASCII(s)
+	case 2: return strconv.QuoteToGraphic(s)
+	case 3: return strconv.QuoteRune(r)
+	case 4: return strconv.QuoteRuneToASCII(r)
+	case 5: return strconv.QuoteRuneToGraphic(r)
+	}
+	panic("bad quoting API")
+}
+
+func quoteAppend[D vec.Appender[byte]](dst D, api int, s string, r rune) {
+	switch api {
+	case 0: strconv.AppendQuote(dst, s)
+	case 1: strconv.AppendQuoteToASCII(dst, s)
+	case 2: strconv.AppendQuoteToGraphic(dst, s)
+	case 3: strconv.AppendQuoteRune(dst, r)
+	case 4: strconv.AppendQuoteRuneToASCII(dst, r)
+	case 5: strconv.AppendQuoteRuneToGraphic(dst, r)
+	}
+}
+
 func bitsOf(f float64) uint64 { return *(*uint64)(unsafe.Pointer(&f)) }
 func fromBits(b uint64) float64 { return *(*float64)(unsafe.Pointer(&b)) }
 
@@ -125,7 +149,7 @@ func main() {
 		os.Exit(3)
 	}
 	b := data.Slice()
-	var scratch [4096]byte
+	var scratch [16384]byte
 	for len(b) > 0 {
 		n := 0
 		for n < len(b) && b[n] != '\n' {
@@ -144,6 +168,44 @@ func main() {
 			out.Append(' ', class(e64), ' ')
 			strconv.AppendUint(&out, bitsOf(f32), 10)
 			out.Append(' ', class(e32), '\n')
+			put(out.Slice())
+			continue
+		}
+		if mode == "quote" {
+			i, j := 0, 0
+			for i < len(line) && line[i] != ' ' { i++ }
+			j = i+1
+			for j < len(line) && line[j] != ' ' { j++ }
+			api, _ := strconv.Atoi(line[:i])
+			capacity, _ := strconv.Atoi(line[i+1:j])
+			payload := line[j+1:]
+			var r rune
+			if api < 3 { payload = hexDecode(payload) } else {
+				n, _ := strconv.ParseInt(payload, 10, 32)
+				r = rune(n)
+			}
+			out := vec.NewFixed(scratch[:])
+			if capacity == -1 {
+				q := quoteValue(api, payload, r)
+				hexAll(unsafe.Slice(unsafe.StringData(q), len(q)), &out)
+				out.Push(' ')
+				strconv.AppendBool(&out, rt.KnownASCII(q))
+			} else if capacity == -2 {
+				v := vec.New[byte]()
+				v.Append('p', ':', 0xff)
+				quoteAppend(&v, api, payload, r)
+				hexAll(v.Slice(), &out)
+				vec.AppendString(&out, " false")
+			} else {
+				var mem [8192]byte
+				f := vec.NewFixed(mem[:capacity])
+				f.Append('p', ':', 0xff)
+				quoteAppend(&f, api, payload, r)
+				hexAll(f.Slice(), &out)
+				out.Push(' ')
+				strconv.AppendBool(&out, f.Truncated())
+			}
+			out.Push(10)
 			put(out.Slice())
 			continue
 		}
@@ -996,6 +1058,87 @@ func TestUnquoteCharDifferential(t *testing.T) {
 			}
 			if bad > 0 {
 				t.Errorf("%d of %d cases differ", bad, len(corpus))
+			}
+		})
+	}
+}
+
+// TestQuoteDifferential compares every string and Appender quoting API with
+// Go. The Fixed oracle is the byte prefix of Go's full appended result, even
+// when that prefix ends inside a UTF-8 rune or escape. Inputs and outputs are
+// hex encoded, including malformed bytes supplied through explicit unsafe views.
+func TestQuoteDifferential(t *testing.T) {
+	testguard.Parallel(t)
+	type quoteCase struct{ line, want string }
+	var cases []quoteCase
+	add := func(api int, input string, value string) {
+		ascii := true
+		for i := range len(value) {
+			ascii = ascii && value[i] < utf8.RuneSelf
+		}
+		cases = append(cases, quoteCase{fmt.Sprintf("%d -1 %s", api, input), hex.EncodeToString([]byte(value)) + " " + strconv.FormatBool(ascii)})
+		full := append([]byte{'p', ':', 0xff}, value...)
+		cases = append(cases, quoteCase{fmt.Sprintf("%d -2 %s", api, input), hex.EncodeToString(full) + " false"})
+		caps := make(map[int]bool)
+		for c := 0; c <= min(len(full)+1, 20); c++ {
+			caps[c] = true
+		}
+		for _, c := range []int{len(full) - 1, len(full), len(full) + 1, 244, 245, 246, 255, 256, 257, 258} {
+			if c >= 0 && c <= len(full)+1 {
+				caps[c] = true
+			}
+		}
+		// Ordered capacities keep failure reports reproducible.
+		for c := 0; c <= len(full)+1; c++ {
+			if !caps[c] {
+				continue
+			}
+			cases = append(cases, quoteCase{fmt.Sprintf("%d %d %s", api, c, input), hex.EncodeToString(full[:min(c, len(full))]) + " " + strconv.FormatBool(c < len(full))})
+		}
+	}
+	corpus := []string{"", "plain \"'\\", "\a\b\f\n\r\t\v\x00\x7f", "\u0085\u00ad\u2028\u2029", "é\u00a0😀\ufffd", "\u1680\u2000\u200a\u202f\u205f\u3000", "\u0378\u0600\ufeff\U000e0001\U0010ffff"}
+	for c := 0; c < 128; c++ {
+		corpus = append(corpus, string(byte(c)))
+	}
+	for _, b := range [][]byte{{0xff}, {0xc0, 0x80}, {0xc2}, {0xe2, 0x82}, {0xf0, 0x9f, 0x98}, {0xed, 0xa0, 0x80}, {0xf4, 0x90, 0x80, 0x80}, {'a', 0xff, 0xef, 0xbf, 0xbd, 0x80, 'z'}} {
+		corpus = append(corpus, string(b))
+	}
+	for _, n := range []int{62, 63, 64, 65, 244, 245, 246, 254, 255, 256, 257} {
+		corpus = append(corpus, strings.Repeat("a", n)+"é😀\u0085\u00a0", strings.Repeat("\u0085😀", n))
+	}
+	for _, s := range corpus {
+		for api, f := range []func(string) string{strconv.Quote, strconv.QuoteToASCII, strconv.QuoteToGraphic} {
+			add(api, hex.EncodeToString([]byte(s)), f(s))
+		}
+	}
+	runes := []rune{-2147483648, -1, 0xd7ff, 0xd800, 0xdfff, 0xe000, 0xfffd, 0xffff, 0x10000, 0x1f600, 0x10ffff, 0x110000, 2147483647, 0x85, 0xad, 0xa0, 0x1680, 0x2000, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0x378, 0xe0001}
+	for r := rune(0); r < 128; r++ {
+		runes = append(runes, r)
+	}
+	for _, r := range runes {
+		for api, f := range []func(rune) string{strconv.QuoteRune, strconv.QuoteRuneToASCII, strconv.QuoteRuneToGraphic} {
+			add(api+3, strconv.FormatInt(int64(r), 10), f(r))
+		}
+	}
+	lines := make([]string, len(cases))
+	for i, c := range cases {
+		lines[i] = c.line
+	}
+	for _, level := range []int{0, 2} {
+		t.Run(fmt.Sprintf("O%d", level), func(t *testing.T) {
+			testguard.Parallel(t)
+			got := runHarness(t, buildStrconvHarness(t, level), "quote", lines)
+			bad := 0
+			for i, c := range cases {
+				if got[i] != c.want {
+					bad++
+					if bad <= 20 {
+						t.Errorf("%s: got %q, want %q", c.line, got[i], c.want)
+					}
+				}
+			}
+			if bad > 0 {
+				t.Errorf("%d of %d quoting cases differ", bad, len(cases))
 			}
 		})
 	}

@@ -255,7 +255,8 @@ order.
   task statements for Go, and `strconv.Unquote`, `UnquoteChar` and `QuotedPrefix`.
 - Counted errors (gap 22, items 11 and 69) and counted `or` releases (item 99) completed native amd64
   verification on 2026-10-12. Generation-directory checks (gap 10, item 85) also pass the full native
-  checklist. Gap 32 and the two known escape bugs also pass native verification; smaller items are next.
+  checklist. Gap 32, the two known escape bugs and complete `strconv` quoting also pass native
+  verification; the streaming hash is next.
 - `~/go/bin/pluto` is the installed compiler; reinstall it after each landing with
   `GOBIN=$HOME/go/bin go install ./cmd/pluto`.
 
@@ -363,11 +364,12 @@ output-equivalence proofs are recorded for the ordered tuning pass.
    Native full tests, zero lint, aggregate coverage nondecrease and all floors, SSA checks and
    generation-off tests pass. See the [verification record](docs/verification/2026-10-12-escape-bugs.md).
 5. **Smaller items**, each with an exact oracle:
-   - `strconv` quoting, the rest: `QuoteToASCII`, `QuoteToGraphic`, `QuoteRuneToASCII`,
-     `QuoteRuneToGraphic` and the `Append` forms. They share `Quote`'s implementation in
-     `lib/pluto/strconv/format.p`, as Go's do. Test against Go in
-     `internal/build/strconv_diff_test.go`, whose corpus is hex-encoded so it can carry any byte.
-     Then mark strconv quoting done in the self-hosting plan's phase 1 row.
+   - **`strconv` quoting: done.** All string/rune plain, ASCII and graphic forms and their
+     `Append` forms share the rune-aware emitter in `lib/pluto/strconv/quote_format.p`.
+     Exact Go hex oracles cover unsafe malformed-byte views, Unicode classes, rune boundaries,
+     prefixed appends and bounded byte-prefix truncation at O0/O2. Strings use one counted buffer;
+     bounded appends allocate nothing. Full native gates pass; phase 1's quoting prerequisite is
+     complete. See the [verification record](docs/verification/2026-10-12-strconv-quoting.md).
    - The streaming hash (self-hosting plan phase 1), tested against Go.
    - `pluto vet -unsafe` (item 97; sections 18.12 and 21.1). A function with `//pu:nochecks`
      counts as unsafe code.
