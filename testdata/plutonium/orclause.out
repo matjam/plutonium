@@ -1,7 +1,7 @@
 total 6
 skipBad 4 2
-error: number 2: invalid syntax
-empty: number 1: invalid syntax
+error: number 2: strconv.Atoi: parsing "five": invalid syntax
+empty: number 1: strconv.Atoi: parsing "": invalid syntax
 parseAll 2 true
 shortZero 0 true odd
 shortZero 2 ok <nil>

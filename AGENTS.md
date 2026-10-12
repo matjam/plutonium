@@ -240,7 +240,7 @@ Every change must pass ALL of these before committing:
 
 ## Status and next steps
 
-Updated 2026-10-11. `docs/roadmap.md` tracks every item; `docs/decisions.md` holds the user's
+Updated 2026-10-12. `docs/roadmap.md` tracks every item; `docs/decisions.md` holds the user's
 implementation decisions D1 to D5. This section says where the work stands and what comes next, in
 order.
 
@@ -248,24 +248,23 @@ order.
 
 - The specification (version 0.3) is complete and consistent, and every language feature is
   implemented from it except the gaps below. Every row of the roadmap's gap table is done except
-  gaps 10, 22 and 32. Of the items 93 to 98 that the document pass added, 94 is done, 95 and 98
+  gaps 10 and 32. Of the items 93 to 98 that the document pass added, 94 is done, 95 and 98
   are decided with nothing to build, and 93, 96 and 97 are planned (step 5).
 - Landed on 2026-10-11: `//pu:nochecks` (replacing `//pu:nobounds`), `clear` of a slice of owners
   drops each element (gap 33), E2512 for any two exports of one symbol (item 94), `defer` of
   `clear`, `copy` and `delete` (gap 6), `go test ./internal/build -run TestRun -update` translating
   task statements for Go, and `strconv.Unquote`, `UnquoteChar` and `QuotedPrefix`.
+- Counted errors (gap 22, items 11 and 69) and counted `or` releases (item 99) completed native amd64
+  verification on 2026-10-12. Gap 10 is next.
 - `~/go/bin/pluto` is the installed compiler; reinstall it after each landing with
   `GOBIN=$HOME/go/bin go install ./cmd/pluto`.
 
 ### Next steps
 
-#### Handoff from the Mac, 2026-10-11
+#### Counted-error handoff completed on native amd64, 2026-10-12
 
-The user authorized committing and pushing the counted-error implementation to `main` for this
-handoff before the full native checklist. **Native amd64 verification is still pending.**
-Finish and verify this change on the amd64 development system before marking gap 22 done or starting
-gap 10. Remote `main` was fetched through `409c2c6`; the local gitignore commit was preserved by
-rebasing it (`2eef4e2`). The handoff includes that commit and the counted-error changes.
+The counted-error implementation (`e365a43f`) and native verification fixes implement sections 16.5
+to 16.7. **Gap 22 is done.** The remaining ordered work starts with gap 10.
 
 - `types2.IsCountedError` recognizes ordinary interfaces including `Error() string`. Lowering
   retains/releases their shared or synced dynamic values, using descriptor flag bits 8 and 16 and
@@ -275,6 +274,13 @@ rebasing it (`2eef4e2`). The handoff includes that commit and the counted-error 
   checks bound pointer and lending-interface results to the caller's error, including helper and
   indirect calls; counted targets keep independent references. `errors.As` now recursively walks
   single-error unwraps so its borrowed parameter provenance remains visible.
+- Native review removed an unsafe recursive-As exception. Whole-program summaries distinguish static
+  values from counted heap references, preserve definite and generic conversion effects through
+  helper calls, and retain nested receiver/parameter field provenance within the existing field bound.
+  Fresh unwrap children cannot supply borrowed targets; static children and children held by the root
+  pass. Strong-box fields also retain their root provenance. Exact shared/synced assertions take
+  independent references. Regressions include indirect calls, generic forwarding, temporary holders,
+  nested fields beyond the bound, maps, slices, dereferences, channels and bodyless results.
 - `fmt.Errorf`, `errors.Join`, `os.PathError` and `strconv.NumError` use counted boxes. There is no
   `errors.Free`, `PathError.Free` or `NumError.Free`. ParseInt, ParseUint, Atoi and ParseFloat wrap
   failed conversions in NumError; successful conversions do not allocate. File Read, Write and Close
@@ -295,29 +301,27 @@ rebasing it (`2eef4e2`). The handoff includes that commit and the counted-error 
   does. The focused Goexit and kernel-or checks pass. Kernel-or's call-shape expectation permits
   the guarded counting machinery introduced by section 16.7.
 
-Verification on the Mac uses the local arm64 Docker container `plutonium-native`: native Go 1.27.1,
-x86-64 cross binutils/cc, and qemu-x86_64 for generated Linux executables. CGO_ENABLED=0 is required
-because the cross cc/as cannot build Go's arm64 cgo runtime. The runtime regressions and focused
-library allocation tests pass. Host escape tests and the counted-error type test pass; golangci-lint
-v2.14.0 reports zero issues. Native timing and resident-memory verification is still required:
-QEMU changes both measurements, and TestTimers/sleeporder and TestManyTasks failed in the emulated
-run. The later broad test and coverage runs were stopped for this handoff; their cmd/pluto suites
-passed, but neither complete run finished. The complete host escape, lower, types2, diag and syntax/format
-suites pass. Do not weaken tests or treat emulated coverage as the final native result.
+Native Linux amd64 verification passes with Go 1.27.1 and golangci-lint 2.14.0: full tests, zero lint
+issues, aggregate coverage nondecrease with every package floor, `PLUTO_SSACHECK=1` and
+`PLUTO_GENCHECK=0` full build suites. Native timing and resident-memory checks pass with the default
+testguard caps; the earlier QEMU timing failures are absent. Coverage compared the complete native
+`e365a43f` baseline profile (with its known pre-fix oracle/import failures) with the passing current
+suite: aggregate 87.76000% to 87.78009%, escape 94.65352% to 94.69588%. Unchanged-package stochastic
+counter variations are documented in the verification record; deterministic EOF and out-of-order
+file-set contract tests also pass. No caps, tests or specification rules were weakened.
 
-On amd64, run the full checklist above, also `PLUTO_SSACHECK=1 go test ./internal/build/` and
-`PLUTO_GENCHECK=0 go test ./internal/build/`. Inspect any remaining failures, verify coverage has not
-decreased, update gap 22 in `docs/roadmap.md` and complete-spec section 6.5, and remove item 99's
-pending-counted-error sentence. Update the errors-design plan's Status block, commit any verification
-fixes and status updates, rebase against freshly fetched origin/main, push and reinstall `~/go/bin/pluto`.
-The remaining numbered work below has not been started in this session.
+The native pass also corrected flag range classification to use `errors.Is` for wrapped NumError,
+updated PathError extraction and intentional error-message oracles, and preserved the errpatterns
+oracle with recursive traversal while its root stays held. Default and brief diagnostics explain an
+unsafe user Unwrap and suggest a matching counted target or storing the child in the root. One
+conservative generic assertion precision limit is recorded under roadmap item 5 for the later
+compiler/specification review. The remaining numbered work below has not been started.
 
 #### Ordered work
 
-1. **Gap 22, counted errors** (roadmap items 11 and 69; sections 16.5 and 16.7; decision D1:
-   `errors.As` matches a `synced[T]` error against a `*T` target). The largest open item: the type
-   checker, lowering and the library, then the error types in `os` and `strconv`. Once it lands,
-   the `or` clause releases a counted `err` when the clause is left (item 99).
+1. **Gap 22, counted errors: done** (roadmap items 11 and 69; sections 16.5 and 16.7; decision D1:
+   `errors.As` matches a `synced[T]` error against a `*T` target). The type checker, lowering, library,
+   `os` and `strconv` error types and counted `or` releases (item 99) are verified on native amd64.
 2. **Gap 10, generation tags for large blocks** (item 85; section 18.11, abi.md section 1.3;
    decision D3): large allocations get their own 64 KiB-aligned chunks with the tag table at the
    base; fixed `arena.Arena` buffers stay unchecked, and the specification says so. Soundness work.

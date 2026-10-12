@@ -106,14 +106,16 @@ func is(err, target error) bool {
 }
 
 func as[E any](err error, target *E) bool {
-	for err != nil {
+	// Keep this error held while walking its children. Replacing err in
+	// a loop could release the object that holds a borrowed target.
+	if err != nil {
 		if e, ok := any(err).(E); ok {
 			*target = e
 			return true
 		}
 		switch x := err.(type) {
 		case interface{ Unwrap() error }:
-			err = x.Unwrap()
+			return as(x.Unwrap(), target)
 		case interface{ Unwrap() []error }:
 			for _, e := range x.Unwrap() {
 				if as(e, target) {

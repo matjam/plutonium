@@ -94,20 +94,14 @@ func (w *walker) bindParams(sc *scope) {
 		if !hasPointers(p.Type()) {
 			continue
 		}
-		switch s, isStruct := underlying(p.Type()).(*types2.Struct); {
+		switch _, isStruct := underlying(p.Type()).(*types2.Struct); {
 		case w.isTracked(p):
 			w.setVar(l, tset{paramTok(sc, i)})
 		case isStruct:
 			// Each field of a struct parameter holds the caller's pointers
 			// for that field only, so that a call can tell them apart
 			// (walkParam).
-			for fi := 0; fi < s.NumFields(); fi++ {
-				if hasPointers(s.Field(fi).Type()) {
-					if l.put(fieldStep(fi), tset{paramTok(sc, i).extend(fieldStep(fi))}) {
-						w.grew = true
-					}
-				}
-			}
+			w.bindParamFields(l, sc, i, p.Type(), "", 0)
 		default:
 			w.addContents(l, tset{paramTok(sc, i)})
 		}
@@ -125,6 +119,27 @@ func (w *walker) bindParams(sc *scope) {
 				sc.results = append(sc.results, &loc{kind: lkResultN, v: v, fn: w.scopeName(sc), level: sc.level})
 			}
 		}
+	}
+}
+
+// bindParamFields preserves nested by-value field selection up to the
+// existing field bound. Beyond it, the summary denotes any child, so a
+// conditional counted conversion cannot assume an ordinary static value.
+func (w *walker) bindParamFields(l *loc, sc *scope, idx int, T types2.Type, path string, depth int) {
+	if s, ok := underlying(T).(*types2.Struct); ok && depth < maxFieldNest {
+		for fi := 0; fi < s.NumFields(); fi++ {
+			if F := s.Field(fi).Type(); hasPointers(F) {
+				w.bindParamFields(l, sc, idx, F, path+fieldStep(fi), depth+1)
+			}
+		}
+		return
+	}
+	t := paramTok(sc, idx).extend(path)
+	if isStructValue(T) {
+		t = t.widen()
+	}
+	if l.put(path, tset{t}) {
+		w.grew = true
 	}
 }
 
@@ -644,7 +659,7 @@ func (w *walker) returnVal(sc *scope, k int, v tset, pos token.Pos, expr ast.Exp
 				w.grew = true
 			}
 		case tHeap:
-			if sc.fn.sum.addResultHeap(k, t.tag) {
+			if sc.fn.sum.addResultHeap(k, t.tag, t.counted) {
 				w.a.grew = true
 			}
 		}

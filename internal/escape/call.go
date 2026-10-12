@@ -50,7 +50,7 @@ func (w *walker) call(e *ast.CallExpr) []tset {
 	if len(w.arenas) > 0 && len(args) > 0 && w.isUse(e) {
 		w.noteArena(e, args[0])
 	}
-	cs := &callSite{pos: e.Pos(), exprs: argExprs(e, t.sig)}
+	cs := &callSite{pos: e.Pos(), exprs: argExprs(e, t.sig), sig: t.sig}
 	cs.keys = cs.exprs
 	if n := t.sig.Params().Len(); t.sig.Variadic() && !e.Ellipsis.IsValid() && len(e.Args) >= n {
 		cs.packed, cs.packedAt = e.Args[n-1:], n-1
@@ -80,6 +80,7 @@ func (w *walker) call(e *ast.CallExpr) []tset {
 type callSite struct {
 	pos   token.Pos
 	exprs []ast.Expr
+	sig   *types2.Signature
 	// keys are the argument expressions as written, receiver first, for
 	// the facts recorded about them (facts.go); nil if not recorded.
 	// packed are the arguments packed into the variadic parameter at
@@ -246,6 +247,9 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		}
 		for i := range res {
 			res[i] = tset{heapTok}
+			if cs.sig != nil && i < cs.sig.Results().Len() && types2.IsCountedError(cs.sig.Results().At(i).Type()) {
+				res[i] = countedHeap(res[i])
+			}
 		}
 		return res
 	}
@@ -253,24 +257,44 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		if k.idx >= len(args) {
 			return nil
 		}
+		v := w.walkParam(f, args[k.idx], k)
 		if k.idx == 0 {
 			switch mode {
 			case recvBoxed:
-				return w.walkParam(f, w.load(args[0]), k)
+				v = w.walkParam(f, w.load(args[0]), k)
 			case recvReach:
-				return w.reach(args[0])
+				v = w.reach(args[0])
 			}
 		}
-		return w.walkParam(f, args[k.idx], k)
+		if k.counts {
+			T := w.parameterValueType(f, cs, k)
+			if k.directCount || k.ge || T == nil || isCountedBox(T) {
+				v = countedHeap(v)
+			}
+			generic := T == nil
+			if T != nil {
+				_, generic = types2.Unalias(T).(*types2.TypeParam)
+			}
+			if generic || k.directCount || k.ge {
+				var out tset
+				for _, t := range v {
+					if t.kind == tParam {
+						t.counted = true
+						t.directCount = t.directCount || k.directCount
+					}
+					out.add(t)
+				}
+				v = out
+			}
+		}
+		return v
 	}
 	borrowArg := func(k pkey) tset {
 		v := arg(k)
 		if k.idx < len(f.params) && types2.IsCountedError(f.params[k.idx].Type()) {
 			// A pointer or lending interface derived from an error borrows
 			// the caller's reference, even through helper or indirect calls.
-			// As recursively visits subtrees of its borrowed root.
-			recursiveAs := f == w.f && f.obj != nil && f.obj.Pkg() != nil && f.obj.Pkg().Path() == "pluto/errors" && f.obj.Name() == "As"
-			if x := cs.expr(k.idx); x != nil && !recursiveAs {
+			if x := cs.expr(k.idx); x != nil {
 				v = w.borrowError(x, v)
 			}
 		}
@@ -292,7 +316,7 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		d := dest{callee: label, calleeWhy: r.text, src: cs.expr(e.src.idx)}
 		v := arg(e.src)
 		if T := w.storedType(f, cs, e.dst); T != nil {
-			if !types2.IsCountedError(T) && !isCounted(T) {
+			if !w.a.countedErrorResult(T) && !isCounted(T) {
 				v = borrowArg(e.src)
 			}
 		}
@@ -302,21 +326,61 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		rs := f.sum.results[i]
 		for _, k := range sortedRkeys(rs.from) {
 			v := arg(k.pkey)
-			if T := f.sig.Results().At(i).Type(); !types2.IsCountedError(T) && !isCounted(T) {
+			if T := f.sig.Results().At(i).Type(); !w.a.countedErrorResult(T) && !isCounted(T) {
 				v = borrowArg(k.pkey)
 			}
 			res[i].addAll(retag(v, k.tag))
 		}
-		tags := make([]string, 0, len(rs.heap))
-		for tag := range rs.heap {
-			tags = append(tags, tag)
+		keys := make([]heapResult, 0, len(rs.heap))
+		for key := range rs.heap {
+			keys = append(keys, key)
 		}
-		sort.Strings(tags)
-		for _, tag := range tags {
-			res[i].add(tok{kind: tHeap, tag: tag})
+		sort.Slice(keys, func(i, j int) bool {
+			if keys[i].tag != keys[j].tag {
+				return keys[i].tag < keys[j].tag
+			}
+			return !keys[i].counted && keys[j].counted
+		})
+		for _, key := range keys {
+			res[i].add(tok{kind: tHeap, tag: key.tag, counted: key.counted})
 		}
 	}
 	return res
+}
+
+// parameterValueType resolves the value selected from an actual argument
+// by a summary path, including fields passed by value.
+func (w *walker) parameterValueType(f *function, cs *callSite, k pkey) types2.Type {
+	if k.idx >= len(f.params) {
+		return nil
+	}
+	T := f.params[k.idx].Type()
+	if actual := w.typeOf(cs.expr(k.idx)); actual != nil {
+		T = actual
+	}
+	for isStructValue(T) {
+		i, rest, ok := cutFieldStep(k.path)
+		if !ok {
+			break
+		}
+		T, k.path = fieldType(T, i), rest
+	}
+	for _, step := range splitPath(k.path) {
+		if T == nil {
+			return nil
+		}
+		if step == "*" {
+			T = pointerElem(T)
+		} else {
+			i, _ := strconv.Atoi(strings.TrimSuffix(step, "."))
+			if fld := fieldType(T, i); fld != nil {
+				T = types2.NewPointer(fld)
+			} else {
+				return nil
+			}
+		}
+	}
+	return T
 }
 
 // storedType finds the type of the memory named by a summary's destination.
@@ -353,17 +417,23 @@ func (w *walker) storedType(f *function, cs *callSite, k pkey) types2.Type {
 // struct parameter's fields are told apart (bindParams): a path that starts
 // with a field step selects that field of the struct value passed.
 func (w *walker) walkParam(f *function, v tset, k pkey) tset {
-	if k.idx < len(f.params) && isStructValue(f.params[k.idx].Type()) {
-		if i, rest, ok := cutFieldStep(k.path); ok {
-			v = selectField(v, i)
-			n := len(k.path) - len(rest)
-			k.path = rest
-			if k.filt != nil {
-				if k.filtAt >= n {
-					k.filtAt -= n
-				} else {
-					k.filt, k.filtAt = nil, 0
+	if k.idx < len(f.params) {
+		T := f.params[k.idx].Type()
+		for isStructValue(T) {
+			if i, rest, ok := cutFieldStep(k.path); ok {
+				v = selectField(v, i)
+				T = fieldType(T, i)
+				n := len(k.path) - len(rest)
+				k.path = rest
+				if k.filt != nil {
+					if k.filtAt >= n {
+						k.filtAt -= n
+					} else {
+						k.filt, k.filtAt = nil, 0
+					}
 				}
+			} else {
+				break
 			}
 		}
 	}
@@ -392,10 +462,10 @@ func cutFieldStep(p string) (int, string, bool) {
 // dynIface applies a dynamic method call: the union of the summaries of
 // every method it may reach.
 func (w *walker) dynIface(t callTarget, args []tset, cs *callSite, nres int) []tset {
+	// Candidate summaries cover the whole program, including bodyless
+	// methods' conservative results. Adding an unknown heap result here
+	// would discard proof that a method only returns a receiver's field.
 	res := make([]tset, nres)
-	for i := range res {
-		res[i] = tset{heapTok}
-	}
 	for _, c := range w.a.ifaceCandidates(t.method, t.byName, t.sig) {
 		f := c.f
 		if len(f.params) != len(args) {
@@ -487,6 +557,9 @@ func (w *walker) dynFuncCall(t callTarget, args []tset, cs *callSite, fun ast.Ex
 	res := make([]tset, nres)
 	for i := range res {
 		res[i] = tset{heapTok}
+		if i < t.sig.Results().Len() && types2.IsCountedError(t.sig.Results().At(i).Type()) {
+			res[i] = countedHeap(res[i])
+		}
 	}
 	var captured tset // computed once, if needed
 	// A func value that can only be closure records made here can only
@@ -652,6 +725,12 @@ func (w *walker) ringCall(e *ast.CallExpr, t callTarget) []tset {
 func lessKey(a, b pkey) bool {
 	if a.idx != b.idx {
 		return a.idx < b.idx
+	}
+	if a.counts != b.counts {
+		return !a.counts && b.counts
+	}
+	if a.directCount != b.directCount {
+		return !a.directCount && b.directCount
 	}
 	if a.path != b.path {
 		return a.path < b.path

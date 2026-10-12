@@ -341,6 +341,22 @@ func (w *walker) value(e ast.Expr) tset {
 		if _, tuple := T.(*types2.Tuple); !tuple && !hasPointers(T) {
 			return nil
 		}
+		if types2.IsCountedError(T) {
+			switch x := ast.Unparen(e).(type) {
+			case *ast.SelectorExpr, *ast.IndexExpr, *ast.IndexListExpr, *ast.StarExpr:
+				// An error loaded from unknown heap memory may hold a
+				// counted object. Parameter paths still identify a holder.
+				r = countedHeap(r)
+			case *ast.UnaryExpr:
+				if x.Op == token.ARROW {
+					r = countedHeap(r)
+				}
+			case *ast.Ident:
+				if obj, ok := w.objOf(x).(*types2.Var); ok && isGlobal(obj) {
+					r = countedHeap(r)
+				}
+			}
+		}
 	}
 	return r
 }
@@ -370,7 +386,9 @@ func (w *walker) value1(e ast.Expr) tset {
 		switch sel.Kind() {
 		case types2.FieldVal:
 			p, isAddr := w.fieldPlace(e.X, sel.Index())
-			if f, ok := sel.Obj().(*types2.Var); ok && w.a.isHeapField(f) {
+			// Counted fields keep their children alive. Retain the
+			// receiver path so a borrowed result is bound to that holder.
+			if f, ok := sel.Obj().(*types2.Var); ok && w.a.isHeapField(f) && !types2.IsCountedError(f.Type()) && !isCountedBox(f.Type()) {
 				return tset{heapTok}
 			}
 			if isAddr {
@@ -484,7 +502,7 @@ func (w *walker) value1(e ast.Expr) tset {
 			return xv
 		}
 		to := w.typeOf(e.Type)
-		if types2.IsCountedError(to) {
+		if w.a.countedErrorResult(to) {
 			// A counted result holds its own reference. Remove only the
 			// bound attached to a borrowed error, retaining frame pointers
 			// carried by a non-counted dynamic value.
@@ -715,6 +733,24 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 	}
 	w.a.noteConversion(from)
 	countedError := types2.IsCountedError(to) && isCountedBox(from)
+	if countedError {
+		v = countedHeap(v)
+	}
+	if types2.IsCountedError(to) {
+		if _, generic := types2.Unalias(from).(*types2.TypeParam); generic || countedError {
+			// A generic caller decides whether the concrete argument is
+			// a strong box. Preserve this conversion in parameter summaries.
+			var out tset
+			for _, t := range v {
+				if t.kind == tParam {
+					t.counted = true
+					t.directCount = t.directCount || countedError
+				}
+				out.add(t)
+			}
+			v = out
+		}
+	}
 	if x, ok := node.(ast.Expr); ok && (isBoxPtr(from) || refNoun(from) != "") && !types2.IsOwner(to) && !countedError {
 		// An ordinary interface lends: holding a box's pointer, or a
 		// map's or channel's, it is a view of the variable converted and
@@ -757,12 +793,13 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 }
 
 // borrowError bounds a non-counted view by the error holding its reference.
-// Values derived entirely from borrowed parameters preserve the caller's
-// provenance, including errors.As's pointer result.
+// Borrowed parameters and non-counted heap references (such as static
+// sentinels) preserve their provenance. A counted heap reference needs a
+// holder, even if an Unwrap call made it while visiting a borrowed root.
 func (w *walker) borrowError(x ast.Expr, v tset) tset {
-	borrowed := len(v) > 0
+	borrowed := true
 	for _, t := range v {
-		borrowed = borrowed && t.kind == tParam
+		borrowed = borrowed && (t.kind == tParam || t.kind == tHeap && !t.counted)
 	}
 	if borrowed {
 		return v
@@ -773,6 +810,39 @@ func (w *walker) borrowError(x ast.Expr, v tset) tset {
 func isCountedBox(T types2.Type) bool {
 	w, ok := T.Underlying().(*types2.Wrapper)
 	return ok && (w.Kind() == types2.WrapShared || w.Kind() == types2.WrapSynced)
+}
+
+func countedHeap(v tset) tset {
+	var out tset
+	for _, t := range v {
+		if t.kind == tHeap {
+			t.counted = true
+		}
+		out.add(t)
+	}
+	return out
+}
+
+// countedErrorResult reports whether every instance of T keeps its own
+// reference when asserted from an error. Generic bodies have one summary,
+// so mixed counted and lending targets must retain the lending bound.
+func (a *analyzer) countedErrorResult(T types2.Type) bool {
+	if T == nil {
+		return false
+	}
+	if tp, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+		args := a.tparamTypes(tp)
+		if len(args) == 0 {
+			return false
+		}
+		for _, arg := range args {
+			if !types2.IsCountedError(arg) && !isCountedBox(arg) {
+				return false
+			}
+		}
+		return true
+	}
+	return types2.IsCountedError(T) || isCountedBox(T)
 }
 
 // elemOrPointee returns what a pointer, slice or string's memory holds:

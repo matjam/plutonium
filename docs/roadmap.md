@@ -1,6 +1,6 @@
 # Plutonium roadmap
 
-**Updated:** 2026-10-11
+**Updated:** 2026-10-12
 
 Every known gap between the specification and the compiler and standard library, in priority order. The
 specification ([language.md](spec/language.md), version 0.3, with the binary interface in
@@ -51,7 +51,7 @@ The implementation gaps of
 | 19 | `NewTimer`, `NewTicker`, `AfterFunc` return owners (done) | 67 | 19.6, F.7 |
 | 20 | The `task` statement and the rename sweep (done) | 62 | 12.12, 4.5, 4.6, 17.1 |
 | 21 | The built-in `map[K]V` (done) | 60 | 7.10, 12.10, 13.5, 13.7 |
-| 22 | Counted `error` values and library error types | 11, 69 | 16.7, 16.5 |
+| 22 | Counted `error` values and library error types (done) | 11, 69 | 16.7, 16.5 |
 | 23 | Package initializer that allocates, in a freestanding build (done) | 75 | 15.2 |
 | 24 | Embedding `shared[T]` and `synced[T]` (done) | 92 | 7.6, 7.19 |
 | 31 | The `or` clause (done) | 99 | 11.27, 4.6 |
@@ -78,6 +78,29 @@ compiler (2026-10-11).
    and 11.5): returning, storing or sending a view of a frame is a compile error (E3001 to E3008, closures
    in regions E3100 to E3102), by a whole-program analysis (`internal/escape`) with explanatory messages.
    The run-time half is item 71.
+
+   Known precision limit (section 16.6): a generic factory that returns either a counted assertion or
+   its ordinary parameter retains both branches in its summary. The static instantiation below is
+   conservatively rejected when `errors.As` borrows the returned child, although that child is static.
+   Heap provenance does not retain the exact dynamic type needed to rule out the assertion branch.
+   Preserve this case for the later compiler/specification review; normal static unwraps and root-held
+   children pass.
+
+   ```plutonium
+   package main
+   import "pluto/errors"
+   type E struct { n int }
+   func (*E) Error() string { return "error" }
+   var sentinel = &E{n: 42}
+   func box[T interface{ Error() string }](p T) error {
+       if s, ok := any(p).(synced[E]); ok { return s }
+       return p
+   }
+   type root int
+   func (root) Error() string { return "root" }
+   func (root) Unwrap() error { return box(sentinel) }
+   func main() { var p *E; errors.As(root(0), &p); println(p.n) }
+   ```
 
 ## Gaps the integrated specification defines (complete-spec section 6.5)
 
@@ -141,9 +164,9 @@ compiler (2026-10-11).
     server and the VS Code grammar implement it; go2pu writes plain propagations as `or return`, and the
     library uses it in `os`, `os/exec`, `path/filepath` and `flag`. Tests: `testdata/plutonium/or*.p` at `-O0`
     and `-O2` (`orowner.p` also under the debug allocator), `testdata/trace/orpanic.p`, a kernel-mode compile,
-    and `cmd/pluto/testdata/diag/or_rules` and `syntax_invalid_or`. The release of a counted `err` when the
-    clause is left waits for counted errors (items 11 and 69, gap 22): the clause uses the counting the other
-    statements use, so it counts errors when they are counted.
+    and `cmd/pluto/testdata/diag/or_rules` and `syntax_invalid_or`. A counted `err` is released when the
+    clause is left, including return and discard paths; the counted-error runtime tests verify this
+    under the debug allocator at both optimization levels (items 11 and 69, gap 22).
 100. **Package initialization starts no task** (planned, gap 32, decided by D2 in decisions.md; sections 15.2, 15.3,
     19.1 and 19.3): a `task` statement, `s.Task`, `wg.Task` or a library function that starts a task with a
     func argument, reached from a package-level initializer or an `init` function (directly or through the
@@ -167,11 +190,15 @@ compiler (2026-10-11).
    stack alignment, the error-code variant and `iretq`, tested under QEMU (`testdata/kernel/irq`).
 10. **Per-CPU variables, `//pu:percpu`** (done, `0c1fad1`; section 20.9, abi.md section 10.6): a
     `.percpu` section accessed through `GS`.
-11. **Errors** (in progress; chapter 16): the conventions of sections 16.1 to 16.6 and `errors.New` as a
-    static error per call site (section 16.3) are done (`72841e9`, `3f18f71`). Open: allocated errors are
-    counted objects that `error` values count, so each is released exactly once and no `errors.Free`
-    exists (section 16.7, gap 22): `fmt.Errorf` allocates its message as a counted string, and the library
-    error types are counted (item 69). The escape checks of item 5 cover the rest.
+11. **Errors** (done, `e365a43f`; chapter 16, native amd64 verified 2026-10-12): the conventions of
+    sections 16.1 to 16.6 and static `errors.New` calls (`72841e9`, `3f18f71`), plus counted allocated
+    errors (section 16.7, gap 22). Copying or dropping an `error` counts its shared/synced dynamic value;
+    there is no `errors.Free`. `fmt.Errorf`, `errors.Join` and the library error types are counted
+    (item 69). Borrowed `errors.As` targets remain bounded by the caller's held error, including
+    wrapped fields, trees and helpers; freshly allocated unwrap children require a counted target.
+    Exact shared/synced assertions and counted As targets retain independent references. Runtime
+    allocation/drop tests pass at O0/O2, including `or` releases, and full diagnostics cover unsafe
+    unwrap borrowing. The escape checks of item 5 cover the rest, with its recorded precision limit.
 12. **`//pu:extern` C struct classification** (done, `46aef18`; section 20.4, abi.md sections 9.1 and 9.2):
     eightbyte classification, hidden result pointers, export wrappers and func-value thunks; `.c` and `.o`
     files in packages are linked. Tested against GCC and Clang.
@@ -373,9 +400,11 @@ compiler (2026-10-11).
     `Values` and `Backward` of `vec.Vec` read the length when the loop starts.
 68. **`bytes.Buffer` grows** (done, `9c6cdcc`; sections 7.18 and F.3): `NewBuffer` and `NewBufferString`; a
     bounded write into a caller's array uses `vec.Fixed[byte]`.
-69. **Error types in `os` and `strconv`** (planned, after item 11, gap 22; sections 16.5 and 16.7): file I/O
-    returns `*os.PathError` and the parsers return `*strconv.NumError`, allocated only on failure as
-    counted objects. `io.EOF` and `os.ErrClosed` stay sentinels.
+69. **Error types in `os` and `strconv`** (done, `e365a43f`, native amd64 verified 2026-10-12; gap 22,
+    sections 16.5 and 16.7): failed file operations return counted `os.PathError` objects and failed
+    parsers return counted `strconv.NumError` objects. Successful operations do not allocate an error.
+    `io.EOF` and `os.ErrClosed` keep their sentinel identity. `flag` uses `errors.Is` to classify wrapped
+    numeric range failures; file and parse context, counted lifetimes and allocation counts are tested.
 74. **`strings.Truncate` and `utf8.RuneStartBefore`** (planned; section 18.8): `Truncate(s, n)` returns the
     longest prefix of at most `n` bytes that ends on a rune boundary, and `RuneStartBefore(s, i)` rounds a
     byte offset down to the start of a rune. The panic for `s[i:j]` off a rune boundary names them.

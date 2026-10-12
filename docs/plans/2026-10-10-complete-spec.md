@@ -1510,7 +1510,7 @@ reading the code.
 | 19 | `time.NewTimer`, `time.NewTicker` and `time.AfterFunc` return `owned[Timer]` and `owned[Ticker]`, which stop and free the timer when dropped; no library type needs a `Free` call. | 19.6, F.7 | 67 |
 | 20 | The `task` statement and the rename sweep: `task f(x)` as a contextual keyword, `go f()` an error that names `task`, "task N" in traces and deadlock reports, `rt.Panic.Task`, E-code texts (done: `4cb685c`, `3967e27`, `523a21f`, `6798a0c`). | 12.12, 4.5, 4.6, 17.1 | 62 |
 | 21 | The built-in `map[K]V` (done: `7867af2`, `8fd4ab7`, `0f8bc1b`, `c491a67`). | 7.10, 12.10, 13.5, 13.7 | 60 |
-| 22 | `error` values count a `shared` or `synced` reference they hold; library error types (`*os.PathError`, `*strconv.NumError`) are counted objects (roadmap 11). | 16.7, 16.5 | 11, 69 |
+| 22 | `error` values count a `shared` or `synced` reference they hold; library error types (`os.PathError`, `strconv.NumError`) are counted objects. Done: `e365a43f`, native amd64 verified 2026-10-12, including borrowed As provenance, independent counted targets and `or` releases. | 16.7, 16.5 | 11, 69 |
 | 23 | A package-level initializer that allocates is a compile error in freestanding builds (to verify). (done: `15290dd6`, E2586). | 15.2 | 75 |
 | 24 | Embedding `shared[T]` and `synced[T]` in a struct, promoting `T`'s methods (embedding `owned[T]` works). To verify. (done: `2a0c6a21`, verified by `embedshared.p`). | 7.6, 7.19 | 92 |
 | 25 | Any two functions exported under one symbol are E2512. `internal/lower` reports it only for wrapped exports. | 20.4 | 94 |

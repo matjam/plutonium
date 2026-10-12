@@ -130,7 +130,8 @@ func main() {
 
 	_, err = os.OpenBytes(join(pb[:], dir, nMiss[:]))
 	println("open missing", err != nil, errors.Is(err, os.ErrNotExist))
-	if pe, ok := err.(*os.PathError); ok {
+	var pe *os.PathError
+	if errors.As(err, &pe) {
 		println("error path valid", utf8.ValidString(pe.Path), pe.Op)
 		print("error text: ")
 		println(utf8.ValidString(err.Error()))

@@ -1,12 +1,10 @@
 # Error Handling in Plutonium: Design
 
 **Date:** 2026-10-09
-**Status:** library conventions implemented; 9.1 implemented, 9.2 with the memory-safety work, 9.3
-implemented (section 9). The `...In` functions this note describes have since become single functions
-with a defaulted allocator (spec 5.1); see section 10. Section 11 points to the proposed reconciliation
-with the ownership model (spec section 14.6), which awaits sign-off (see the Status block below).
+**Status:** implemented and verified on native amd64, 2026-10-12. The historical design below is
+superseded where the Status block names the specification's current rules.
 
-> **Status (2026-10-10): partly implemented.** The library conventions, `errors.New` as a static error per call site and the frame rules for returned errors are implemented. The reconciliation with the ownership model that section 11 proposed is decided and is in the specification as counted errors; it is not implemented yet, and `errors.Free` still exists in `pluto/errors`. What remains is in docs/roadmap.md.
+> **Status (2026-10-12): implemented.** Static sentinels, contextual counted errors, retain/release of shared and synced dynamic error values, independent counted assertions and As targets, and borrowed As lifetime checks implement sections 16.1 to 16.7. There is no `errors.Free`. Native full tests, lint, coverage, SSA checks and generation-check-disabled tests pass; debug-allocator regressions verify drops at O0 and O2. Roadmap gap 22 is closed. The generic assertion precision limitation is recorded under roadmap item 5.
 >
 > **Defined now by:** section 16.1 (The error interface), section 16.2 (Where an error lives), section 16.3 (Sentinels and `errors.New`), section 16.4 (Error codes), section 16.5 (Errors with context), section 16.6 (Wrapping, `Is` and `As`), section 16.7 (Allocated errors and ownership), section 7.9 (Interface types), section 15.2 (Package initialization), section 18.3 (Views), section 18.7 (Shared ownership), section 18.10 (No allocation without an owner or an arena), section 10.13 (Default parameter values), appendix F.4 (Errors).
 >

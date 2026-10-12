@@ -115,6 +115,7 @@ func containers() {
  held = nil
  println(drops)
 }
+
 func wrapping() {
  e := makeError(8)
  wrapped := fmt.Errorf("wrap: %w", e)
@@ -146,6 +147,54 @@ func main() {
 			exe := buildDebugAlloc(t, src, level)
 			got, status := runDebugAlloc(t, exe, "")
 			const want = "true 7 0\nfalse\ntrue\nerror 0\n1\ntrue 8 1\nwrap: error\nsentinel\n2\ntrue 0 2\n3\n"
+			if status != 0 || got != want {
+				t.Fatalf("exit %d, output %q; want %q", status, got, want)
+			}
+		})
+	}
+}
+
+// Independent counted targets must survive the temporary errors visited
+// by As, and exact assertions retain shared and synced dynamic references.
+func TestCountedErrorTargets(t *testing.T) {
+	testguard.Parallel(t)
+	const src = `package main
+import (
+ "pluto/alloc"
+ "pluto/errors"
+)
+var drops int
+type E owner struct { n int }
+func (e *E) Error() string { return "error" }
+func (e *E) Drop() { drops++ }
+type root int
+func (root) Error() string { return "root" }
+func (root) Unwrap() error { p := alloc.Synced[E](); p.n = 42; return p }
+func extract() synced[E] { var p synced[E]; println(errors.As(root(0), &p)); return p }
+func asserted() synced[E] { var e error = alloc.Synced[E](); return e.(synced[E]) }
+func sharedTarget() shared[E] { var e error = alloc.Shared[E](); return e.(shared[E]) }
+func run() {
+ p := extract()
+ println(p.n, drops)
+ p = nil
+ println(drops)
+ q := asserted()
+ println(q.n, drops)
+ q = nil
+ println(drops)
+ s := sharedTarget()
+ println(s.n, drops)
+ s = nil
+ println(drops)
+}
+func main() { run() }
+`
+	for _, level := range []int{0, 2} {
+		t.Run(string(rune('0'+level)), func(t *testing.T) {
+			testguard.Parallel(t)
+			exe := buildDebugAlloc(t, src, level)
+			got, status := runDebugAlloc(t, exe, "")
+			const want = "true\n42 0\n1\n0 1\n2\n0 2\n3\n"
 			if status != 0 || got != want {
 				t.Fatalf("exit %d, output %q; want %q", status, got, want)
 			}

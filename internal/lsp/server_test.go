@@ -327,3 +327,11 @@ func TestExitWithoutShutdown(t *testing.T) {
 		t.Errorf("Serve = %v, want %v", err, ErrExitWithoutShutdown)
 	}
 }
+
+func TestServeEOF(t *testing.T) {
+	// A disconnected client ends the server cleanly without requiring
+	// an exit notification. No cancellation races with the input EOF.
+	if err := Serve(context.Background(), strings.NewReader(""), io.Discard, Options{StdlibDir: libDir(t)}); err != nil {
+		t.Fatalf("Serve after client EOF = %v", err)
+	}
+}

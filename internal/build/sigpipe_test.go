@@ -19,6 +19,7 @@ func TestSigpipeReturnsEPIPE(t *testing.T) {
 		{name: "epipe", want: "pipe write: EPIPE true\nstill alive\n", src: `package main
 
 import (
+	"pluto/errors"
 	"pluto/os"
 	"pluto/syscall"
 )
@@ -31,7 +32,7 @@ func main() {
 	}
 	r.Close()
 	_, err = w.WriteString("hello")
-	println("pipe write: EPIPE", err == syscall.EPIPE)
+	println("pipe write: EPIPE", errors.Is(err, syscall.EPIPE))
 	w.Close()
 	println("still alive")
 }
@@ -41,13 +42,14 @@ func main() {
 		{name: "epipe-workers", want: "epipe 8\n", src: `package main
 
 import (
+	"pluto/errors"
 	"pluto/os"
 	"pluto/syscall"
 )
 
 func write(w *os.File, done chan bool) {
 	for j := 0; j < 100; j++ {
-		if _, err := w.WriteString("x"); err != syscall.EPIPE {
+		if _, err := w.WriteString("x"); !errors.Is(err, syscall.EPIPE) {
 			done <- false
 			return
 		}

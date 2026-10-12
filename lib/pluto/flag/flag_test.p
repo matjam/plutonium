@@ -1,7 +1,6 @@
 package flag
 
 import (
-	"pluto/errors"
 	"pluto/strings"
 	"pluto/testing"
 	"pluto/time"

@@ -73,6 +73,9 @@ func (w *walker) report(e *viewErr, key string) {
 	if !w.a.report {
 		return
 	}
+	if w.countedAsReport(e) {
+		return
+	}
 	if e.l != nil && e.l.kind == lkArena && (e.sink == sinkCall || e.sink == sinkStore && e.where == storeHeap) {
 		// Memory from a local arena stored into other heap memory, by this
 		// function or a callee: that memory was most likely allocated in

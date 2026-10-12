@@ -82,7 +82,7 @@ type intValue struct {
 
 func (v *intValue) Set(s string) error {
 	x := strconv.ParseInt(s, 0, 64) or { // int is 64 bits on every target
-		if err == strconv.ErrRange {
+		if errors.Is(err, strconv.ErrRange) {
 			return errRange
 		}
 		return errParse
@@ -112,7 +112,7 @@ type uintValue struct {
 
 func (v *uintValue) Set(s string) error {
 	x := strconv.ParseUint(s, 0, 64) or {
-		if err == strconv.ErrRange {
+		if errors.Is(err, strconv.ErrRange) {
 			return errRange
 		}
 		return errParse

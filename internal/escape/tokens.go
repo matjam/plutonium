@@ -46,12 +46,14 @@ const (
 // A tok is one thing a pointer-carrying value may point at. A value's
 // abstract form is a set of them; a value with no pointers has none.
 type tok struct {
-	kind tokKind
-	loc  *loc   // tFrame
-	path string // tFrame: the field within loc; tParam: the access path from the parameter
-	sc   *scope // tParam
-	idx  int    // tParam: parameter index, receiver first
-	ge   bool   // tParam: the path or any extension of it
+	kind        tokKind
+	counted     bool   // tHeap: a strong reference; tParam: conversion to a counted error
+	directCount bool   // tParam: the conversion's source is known to be shared or synced
+	loc         *loc   // tFrame
+	path        string // tFrame: the field within loc; tParam: the access path from the parameter
+	sc          *scope // tParam
+	idx         int    // tParam: parameter index, receiver first
+	ge          bool   // tParam: the path or any extension of it
 
 	// tParam: a type assertion to the interface filt, applied when the path
 	// was filtAt bytes long, constrains the dynamic type of the interface
@@ -319,15 +321,17 @@ func (sc *scope) contains(pos token.Pos) bool {
 // A pkey names pointers relative to a parameter: those found by following
 // path from parameter idx, or any extension of it when ge is set.
 type pkey struct {
-	idx    int
-	path   string
-	ge     bool
-	filt   types2.Type // see tok
-	filtAt int
+	idx         int
+	counts      bool // conversion of this parameter to a counted error
+	directCount bool // a definite strong-box conversion, rather than a generic one
+	path        string
+	ge          bool
+	filt        types2.Type // see tok
+	filtAt      int
 }
 
 func keyOf(t tok) pkey {
-	return pkey{idx: t.idx, path: t.path, ge: t.ge, filt: t.filt, filtAt: t.filtAt}
+	return pkey{idx: t.idx, counts: t.counted, directCount: t.directCount, path: t.path, ge: t.ge, filt: t.filt, filtAt: t.filtAt}
 }
 
 // An edge records that a function stores pointers derived from one
@@ -346,7 +350,12 @@ type summary struct {
 // struct result that holds it (or "").
 type resultSum struct {
 	from map[rkey]bool
-	heap map[string]bool
+	heap map[heapResult]bool
+}
+
+type heapResult struct {
+	tag     string
+	counted bool
 }
 
 type rkey struct {
@@ -392,18 +401,19 @@ func (s *summary) addResult(i int, k pkey, tag string) bool {
 	return true
 }
 
-func (s *summary) addResultHeap(i int, tag string) bool {
+func (s *summary) addResultHeap(i int, tag string, counted bool) bool {
 	for len(s.results) <= i {
 		s.results = append(s.results, resultSum{})
 	}
 	r := &s.results[i]
 	if r.heap == nil {
-		r.heap = map[string]bool{}
+		r.heap = map[heapResult]bool{}
 	}
-	if r.heap[tag] {
+	k := heapResult{tag, counted}
+	if r.heap[k] {
 		return false
 	}
-	r.heap[tag] = true
+	r.heap[k] = true
 	return true
 }
 

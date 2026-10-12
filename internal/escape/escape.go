@@ -278,7 +278,7 @@ func bodylessSummary(fn *function) summary {
 		}
 	}
 	for k := 0; k < fn.sig.Results().Len(); k++ {
-		s.addResultHeap(k, "")
+		s.addResultHeap(k, "", types2.IsCountedError(fn.sig.Results().At(k).Type()))
 	}
 	return s
 }
