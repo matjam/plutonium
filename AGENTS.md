@@ -298,22 +298,3 @@ order.
 Known limits are recorded in the roadmap: `sync.Scope` phase 2 (a scope through a pointer, helpers
 that start tasks, same-type slice partitions, `vec.Vec` element partitions); the race rule groups
 maps by type; generated thunks are named `.task1`.
-
-### Working with agents
-
-- One agent per item, each in its own worktree from `origin/main`. The agent commits; the session
-  that dispatched it reviews the diff against the brief, runs the case the brief named, rebases,
-  runs the checklist below, and pushes.
-- Brief from the specification by section number. Name the code path to share when a new form of
-  an existing construct is added (a deferred built-in calls the statement's lowering): an agent
-  that copies the code instead produces a second version that misses later fixes.
-- In a differential test the expected value comes from Go itself, adjusted only where the
-  specification differs, never from a hand-written reimplementation.
-- `ulimit -v 6000000` goes on `go build` and `go test` commands only. On an agent process (such as
-  opencode, whose runtime reserves a large address space) it makes the agent fail with "out of
-  memory".
-- A local model (Qwen 3.8 27B through opencode, tried 2026-10-11) landed gap 6 and the `Unquote`
-  port, each after a review round that found a defect its own tests missed. It took one to two
-  hours per round, most of it in reasoning; its chat template defaults to `xhigh` effort and does
-  not honor `low`. Use such a model only for items with an exact oracle, never for the escape,
-  move, race or allocator work.
