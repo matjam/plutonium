@@ -1,0 +1,5 @@
+$DIR/main.p:41:2: the init function of package main at main.p:38 can start a task during package initialization
+$DIR/main.p:8:13: the initializer of value can start a task during package initialization
+$DIR/main.p:9:17: the initializer of second can start a task during package initialization
+$DIR/main.p:10:13: the initializer of third can start a task during package initialization
+$DIR/main.p:11:9: the initializer of _ can start a task during package initialization

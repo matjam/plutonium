@@ -192,6 +192,7 @@ func (s *fnState) rangeOver(st *ast.RangeStmt, label *types2.Label, sig *types2.
 	rf.state = s.temp(types2.Typ[types2.Int], "rangestate")
 	s.rangeLoops++
 	sym := s.l.out.Sym(fmt.Sprintf("%s-range%d", s.f.Name, s.rangeLoops), ssa.SymFunc)
+	s.l.funcValues[sym] = ySig
 	var in []value // the yield function's parameters
 	s.l.lowerFunc(&funcJob{
 		sym: sym, pkg: s.pkg, sig: ySig, tmap: s.tmap, parent: s, pos: st.Pos(), end: st.End(),

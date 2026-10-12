@@ -28,9 +28,7 @@ var specDir = filepath.Join("..", "..", "docs", "spec", "language")
 // `> **Open (Gn).**` block because they wait for a decision of the user. Any
 // other open block fails TestSpecReferences. Remove an entry, and its block,
 // when the decision is recorded.
-var pendingDecisions = []string{
-	"G44", // 15.2: whether package initialization may start tasks
-}
+var pendingDecisions = []string{}
 
 // pendingDecision reports whether line opens one of the pendingDecisions.
 func pendingDecision(line string) bool {

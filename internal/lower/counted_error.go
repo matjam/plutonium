@@ -28,7 +28,7 @@ func (s *fnState) countError(ptr *ssa.Value, I types2.Type, retain bool) {
 			// Like a deferred call, implicit cleanup finishes before a
 			// Goexit is propagated. Checking here would recursively emit
 			// this frame's cleanup while already generating its release.
-			s.emitCall(callee{code: code, ctx: s.constInt(ssa.TPtr, 0), deferred: true}, sig, &recv, nil, token.NoPos)
+			s.emitCall(callee{code: code, ctx: s.constInt(ssa.TPtr, 0), deferred: true, site: &callSite{drop: true, dropType: I, countedDrop: true}}, sig, &recv, nil, token.NoPos)
 		})
 	})
 }

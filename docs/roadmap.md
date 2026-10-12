@@ -55,7 +55,7 @@ The implementation gaps of
 | 23 | Package initializer that allocates, in a freestanding build (done) | 75 | 15.2 |
 | 24 | Embedding `shared[T]` and `synced[T]` (done) | 92 | 7.6, 7.19 |
 | 31 | The `or` clause (done) | 99 | 11.27, 4.6 |
-| 32 | Package initialization starts no task (decided, D2) | 100 | 15.2, 15.3, 19.1, 19.3 |
+| 32 | Package initialization starts no task (done, D2) | 100 | 15.2, 15.3, 19.1, 19.3 |
 | 33 | `clear` of a slice of owners drops each element (done) | 75 | 13.3 |
 
 The pass that aligned the documents with the chapters found six more, items 93 to 98; they are rows 25 to
@@ -176,15 +176,16 @@ compiler (2026-10-11).
     and `cmd/pluto/testdata/diag/or_rules` and `syntax_invalid_or`. A counted `err` is released when the
     clause is left, including return and discard paths; the counted-error runtime tests verify this
     under the debug allocator at both optimization levels (items 11 and 69, gap 22).
-100. **Package initialization starts no task** (planned, gap 32, decided by D2 in decisions.md; sections 15.2, 15.3,
-    19.1 and 19.3): a `task` statement, `s.Task`, `wg.Task` or a library function that starts a task with a
-    func argument, reached from a package-level initializer or an `init` function (directly or through the
-    functions it calls, over the whole program), is a compile error that names the start and the
-    initializer. This is what makes the rule that a package variable written only during initialization
-    needs no lock sound. Work: a new error code with a catalog entry and a `cmd/pluto/testdata/diag`
-    program; the whole-program reachability that the freestanding allocation check (item 75) also needs;
-    a survey of `lib/pluto` for packages that start a task in initialization; removing the `Open (G44)`
-    allowlist entry in `internal/diag/spec_test.go` with the specification's replacement text.
+100. **Package initialization starts no task** (done, gap 32, decision D2; sections 15.2, 15.3,
+    19.1 and 19.3): E2587 names the task start and the package-variable initializer or explicit
+    `init`, with the fix to start it from `main`. Whole-program reachability runs before optimization
+    for every loaded package and every build mode. It follows function values, interfaces, generated
+    adapters, deferred calls and implicit drops, and continues past waits. Merely storing a callback
+    is legal. Blank initializer results are destroyed after evaluation and named stores, including
+    fresh owners from receives and assertions; counted temporaries are released before the next
+    initializer. Full default and brief diagnostics, O0/O2 regressions, library initializer coverage,
+    exact destruction counts and native verification pass. The obsolete G44 block and allowlist
+    entry are removed. See [verification](verification/2026-10-12-initialization-tasks.md).
 
 ## Kernel enablement
 

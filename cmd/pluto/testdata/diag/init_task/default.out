@@ -1,0 +1,59 @@
+$DIR/main.p:41:2: the init function of package main at main.p:38 can start a task during package initialization
+    Package initialization must finish before another task can read package
+    variables.
+    The init function of package main at main.p:38 calls scope.Task (main.p:41),
+    which starts a task.
+    Tasks may read package variables written only during initialization without
+    a lock. Finishing initialization before starting another task preserves that
+    data race rule.
+    Start the task from main or a function main calls
+    (see "Package initialization" in the Plutonium spec, section 15.2)
+    (run "pluto explain E2587" for a longer explanation)
+
+$DIR/main.p:8:13: the initializer of value can start a task during package initialization
+    Package initialization must finish before another task can read package
+    variables.
+    The initializer of value calls start (main.p:8), which starts a task
+    (main.p:29).
+    Tasks may read package variables written only during initialization without
+    a lock. Finishing initialization before starting another task preserves that
+    data race rule.
+    Start the task from main or a function main calls
+    (see "Package initialization" in the Plutonium spec, section 15.2)
+    (run "pluto explain E2587" for a longer explanation)
+
+$DIR/main.p:9:17: the initializer of second can start a task during package initialization
+    Package initialization must finish before another task can read package
+    variables.
+    The initializer of second calls pair (main.p:9), which calls start
+    (main.p:34), which starts a task (main.p:29).
+    Tasks may read package variables written only during initialization without
+    a lock. Finishing initialization before starting another task preserves that
+    data race rule.
+    Start the task from main or a function main calls
+    (see "Package initialization" in the Plutonium spec, section 15.2)
+    (run "pluto explain E2587" for a longer explanation)
+
+$DIR/main.p:10:13: the initializer of third can start a task during package initialization
+    Package initialization must finish before another task can read package
+    variables.
+    The initializer of third calls (*holder).Drop (main.p:10), which starts a
+    task (main.p:20).
+    Tasks may read package variables written only during initialization without
+    a lock. Finishing initialization before starting another task preserves that
+    data race rule.
+    Start the task from main or a function main calls
+    (see "Package initialization" in the Plutonium spec, section 15.2)
+    (run "pluto explain E2587" for a longer explanation)
+
+$DIR/main.p:11:9: the initializer of _ can start a task during package initialization
+    Package initialization must finish before another task can read package
+    variables.
+    The initializer of _ calls (*holder).Drop (main.p:11), which starts a task
+    (main.p:20).
+    Tasks may read package variables written only during initialization without
+    a lock. Finishing initialization before starting another task preserves that
+    data race rule.
+    Start the task from main or a function main calls
+    (see "Package initialization" in the Plutonium spec, section 15.2)
+    (run "pluto explain E2587" for a longer explanation)

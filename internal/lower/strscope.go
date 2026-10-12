@@ -150,7 +150,7 @@ func (s *fnState) releaseFrame() {
 
 // addTemp registers a temporary with the innermost entry.
 func (s *fnState) addTemp(t *ownedTemp) {
-	c := countedSlot{base: t.addr, T: t.T, tmp: t}
+	c := countedSlot{base: t.addr, T: t.T, tmp: t, pos: s.pos}
 	s.zeroAtEntry(c)
 	if n := len(s.cleanups); n > 0 {
 		s.cleanups[n-1].slots = append(s.cleanups[n-1].slots, c)
@@ -189,7 +189,7 @@ func (s *fnState) frameSlot(T types2.Type, name string) *ssa.Value {
 // addFrameSlot registers base+off, holding a T, to be released when the
 // function returns.
 func (s *fnState) addFrameSlot(base *ssa.Value, off int64, T types2.Type) {
-	c := countedSlot{base: base, off: off, T: T}
+	c := countedSlot{base: base, off: off, T: T, pos: s.pos}
 	s.zeroAtEntry(c)
 	s.frameSlots = append(s.frameSlots, c)
 }

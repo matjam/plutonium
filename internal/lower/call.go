@@ -294,6 +294,11 @@ func (s *fnState) moveToCall(firstValue, firstBlock int, call token.Pos) {
 
 // emitCall emits a call and returns its results as values.
 func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []value, pos token.Pos) []value {
+	// Compiler-generated indirect calls have the same reachability contract
+	// as source calls, including iterator yields and task thunks.
+	if c.sym == nil && c.site == nil {
+		c.site = &callSite{fsig: sig}
+	}
 	if c.sym != nil {
 		s.checkNotHandler(c.sym, pos, "called")
 		if s.l.isCFunc(c.sym) {
@@ -457,6 +462,8 @@ func (s *fnState) callValue(c callee, flat []*ssa.Value, results []*ssa.Type) *s
 	} else {
 		call = s.newValue(ssa.OpCallInd, rt, c.code, c.ctx)
 	}
+	// Keep diagnostic provenance separate from instruction line tables.
+	s.l.callOrigins[call] = s.pos
 	if c.site != nil {
 		s.l.sites[call] = c.site
 	}

@@ -108,11 +108,12 @@ type Lowerer struct {
 	// the lowered program: the declared function behind each symbol, the
 	// source and signature of each lowered function, the functions whose
 	// values are taken, and what each indirect call can reach.
-	symFuncs   map[*ssa.Sym]*types2.Func
-	bodies     map[*ssa.Sym]funcBody
-	sigs       map[*ssa.Sym]*types2.Signature
-	funcValues map[*ssa.Sym]*types2.Signature
-	sites      map[*ssa.Value]*callSite
+	symFuncs    map[*ssa.Sym]*types2.Func
+	bodies      map[*ssa.Sym]funcBody
+	sigs        map[*ssa.Sym]*types2.Signature
+	funcValues  map[*ssa.Sym]*types2.Signature
+	sites       map[*ssa.Value]*callSite
+	callOrigins map[*ssa.Value]token.Pos // source provenance for implicit calls
 
 	// rt.Goexit (goexit.go): which functions may end with it, and the
 	// declared function a generated method expression thunk calls.
@@ -211,6 +212,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		sigs:           map[*ssa.Sym]*types2.Signature{},
 		funcValues:     map[*ssa.Sym]*types2.Signature{},
 		sites:          map[*ssa.Value]*callSite{},
+		callOrigins:    map[*ssa.Value]token.Pos{},
 		gxWrapped:      map[*ssa.Sym]*types2.Func{},
 	}
 	l.types = newTypeTable(l)

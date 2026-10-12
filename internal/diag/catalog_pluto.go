@@ -835,6 +835,13 @@ func init() {
 			Fixed:   "var cache map[string]int\n\nfunc kernelMain(info *BootInfo) {\n\talloc.SetDefault(newSlab(info))\n\tcache = make(map[string]int)\n}",
 		},
 		&Entry{
+			Code: InitSpawns, Name: "InitSpawns",
+			Text: "Package initialization runs sequentially before main. Starting another task there could let it read package variables before initialization finishes. A package variable's initializer or an init function must not reach a task statement or a library call that starts a task. The check follows calls, including deferred calls, drops, interfaces and func values, through the complete program.",
+			Why:  "Tasks may read package variables written only during initialization without a lock. Finishing initialization before starting another task preserves that data race rule.",
+			Fix:  &Fix{Intro: "Start the task from main or a function main calls", Code: "func main() {\n\ttask worker()\n}"},
+			Spec: pspec("15.2", "Package initialization"),
+		},
+		&Entry{
 			Code: UnknownDirective, Name: "UnknownDirective",
 			Text:    "A comment that starts with //pu: and no space is a directive: an instruction to the compiler. This one has a name the compiler does not know, so it would do nothing. A misspelt directive that was ignored could silently leave out an interrupt handler, a per-CPU variable or an inlining request, so the compiler reports it.\nThe directives are: build, inline, noinline, nochecks, extern, export, section, interrupt, noreturn, noescape, resultholds, panic, blocking, scheduler, nosimd, fpu, percpu and stack.\nA comment that is only a note should start with // and a space.",
 			Why:     "Go ignores unknown //go: comments, which makes a typo easy to miss. Plutonium directives change what the program means, so a typo must not go unnoticed.",

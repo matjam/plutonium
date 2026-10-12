@@ -77,7 +77,7 @@ func (s *fnState) dropIface(ptr *ssa.Value, iface *types2.Interface) {
 		s.ifThen(s.newValue(ssa.OpNe, ssa.TBool, code, s.constInt(ssa.TPtr, 0)), func() {
 			sig := adapterSignature(types2.NewSignatureType(nil, nil, nil, nil, nil, false))
 			recv := scalarValue(s.load(ssa.TPtr, s.offPtr(ptr, 8)), types2.Typ[types2.UnsafePointer])
-			s.emitCall(callee{code: code, ctx: s.constInt(ssa.TPtr, 0)}, sig, &recv, nil, token.NoPos)
+			s.emitCall(callee{code: code, ctx: s.constInt(ssa.TPtr, 0), site: &callSite{drop: true, dropType: iface}}, sig, &recv, nil, token.NoPos)
 		})
 	})
 }

@@ -374,12 +374,19 @@ func (l *Lowerer) queueInit(p *load.Package, static map[*types2.Var]bool) {
 				// var _ = constant has no effect.
 				continue
 			}
+			// Each initializer is a statement for temporary lifetimes.
+			// Discarded counted results and temporary owners finish before
+			// the next variable or explicit init function runs.
+			entry := s.pushCleanup(init.Rhs, false)
 			if len(init.Lhs) == 1 {
 				v := init.Lhs[0]
 				val := s.exprAs(init.Rhs, v.Type())
 				if v.Name() != "_" {
 					s.assign(lvalue{ptr: s.symAddr(l.globalSym(v)), T: v.Type()}, val, true)
+				} else {
+					s.discardInitOwner(val, init.Rhs)
 				}
+				s.popCleanup(entry)
 				continue
 			}
 			vals := s.multiValue(init.Rhs, len(init.Lhs))
@@ -388,12 +395,31 @@ func (l *Lowerer) queueInit(p *load.Package, static map[*types2.Var]bool) {
 					s.assign(lvalue{ptr: s.symAddr(l.globalSym(v)), T: v.Type()}, s.assignConvert(vals[i], v.Type(), init.Rhs), true)
 				}
 			}
+			for i, v := range init.Lhs {
+				if v.Name() == "_" {
+					s.discardInitOwner(vals[i], init.Rhs)
+				}
+			}
+			s.popCleanup(entry)
 		}
 		for _, isym := range inits {
 			s.emitCall(callee{sym: isym}, sig, nil, nil, token.NoPos)
 		}
 		s.emitReturn(token.NoPos)
 	}})
+}
+
+// Drop an unstored owner result (section 18.6) before the next initializer
+// runs. This includes receives and assertions as well as calls; the move
+// checker rejects moving an existing package owner into a declaration.
+func (s *fnState) discardInitOwner(v value, rhs ast.Expr) {
+	if !s.l.needsDrop(v.T) {
+		return
+	}
+	defer s.at(rhs.Pos())()
+	slot := s.temp(v.T, "drop")
+	s.storeTo(slot, v, v.T)
+	s.destroyAt(slot, v.T)
 }
 
 // lowerEntry synthesizes pluto.main: run every package's initialisation in

@@ -310,7 +310,7 @@ func (l *Lowerer) regionNeedsDrop(k regionKey) bool {
 func (s *fnState) dropWith(w, p *ssa.Value) {
 	s.ifThen(s.newValue(ssa.OpNe, ssa.TBool, w, s.constInt(ssa.TPtr, 0)), func() {
 		code := s.load(ssa.TPtr, w)
-		call := s.callValue(callee{code: code, ctx: w}, []*ssa.Value{p}, nil)
+		call := s.callValue(callee{code: code, ctx: w, site: &callSite{fsig: s.l.dropSig()}}, []*ssa.Value{p}, nil)
 		s.setMem(s.newValue(ssa.OpSelectN, ssa.TMem, call))
 	})
 }

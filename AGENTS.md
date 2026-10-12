@@ -246,9 +246,8 @@ order.
 
 ### Where things stand
 
-- The specification (version 0.3) is complete and consistent, and every language feature is
-  implemented from it except the gaps below. Every row of the roadmap's gap table is done except
-  gap 32. Of the items 93 to 98 that the document pass added, 94 is done, 95 and 98
+- The specification (version 0.3) is complete and consistent, and every language feature in the roadmap's gap table is
+  implemented and verified. Every row of that table is done. Of the items 93 to 98 that the document pass added, 94 is done, 95 and 98
   are decided with nothing to build, and 93, 96 and 97 are planned (step 5).
 - Landed on 2026-10-11: `//pu:nochecks` (replacing `//pu:nobounds`), `clear` of a slice of owners
   drops each element (gap 33), E2512 for any two exports of one symbol (item 94), `defer` of
@@ -256,7 +255,7 @@ order.
   task statements for Go, and `strconv.Unquote`, `UnquoteChar` and `QuotedPrefix`.
 - Counted errors (gap 22, items 11 and 69) and counted `or` releases (item 99) completed native amd64
   verification on 2026-10-12. Generation-directory checks (gap 10, item 85) also pass the full native
-  checklist. Gap 32 is next.
+  checklist. Gap 32 also passes native verification; the two known bugs are next.
 - `~/go/bin/pluto` is the installed compiler; reinstall it after each landing with
   `GOBIN=$HOME/go/bin go install ./cmd/pluto`.
 
@@ -265,7 +264,7 @@ order.
 #### Counted-error handoff completed on native amd64, 2026-10-12
 
 The counted-error implementation (`e365a43f`) and native verification fixes implement sections 16.5
-to 16.7. **Gap 22 is done.** The remaining ordered work starts with gap 32.
+to 16.7. **Gap 22 is done.** Gap 32 subsequently completed native verification below.
 
 - `types2.IsCountedError` recognizes ordinary interfaces including `Error() string`. Lowering
   retains/releases their shared or synced dynamic values, using descriptor flag bits 8 and 16 and
@@ -347,12 +346,14 @@ output-equivalence proofs are recorded for the ordered tuning pass.
    approved shared-directory decision of 2026-10-12). Universal directory checks cover small and
    arbitrary contiguous large heap/Chunked blocks, nested backing and custom allocators. Fixed
    `arena.Arena` buffers stay unchecked. Native verification and measured costs are recorded above.
-3. **Gap 32, package initialization starts no task** (item 100; sections 15.2, 15.3, 19.1, 19.3;
-   decision D2). A compile error naming the start and the initializer, found by whole-program
-   reachability. Replace the `Open (G44)` block in
-   `docs/spec/language/15-program-initialization-and-execution.md` with the rule D2 states, and
-   remove the `G44` entry from the allowlist in `internal/diag/spec_test.go`. The rule is what keeps
-   section 19.3's unlocked package variables sound, so a missed case is a safety hole.
+3. **Gap 32, package initialization starts no task: done** (item 100; sections 15.2, 15.3, 19.1,
+   19.3; decision D2). E2587 follows whole-program reachability before optimization, including
+   indirect calls, deferred and implicit drops, all imported initializers and every build mode.
+   It names the initializer and task start and suggests moving the start to `main`. Native full
+   tests, zero lint, coverage nondecrease and all floors, SSA checks and generation-off tests pass.
+   Blank initializer values are destroyed after named stores; counted temporaries are released
+   before the next initializer. The obsolete G44 block and allowlist entry are removed.
+   See the [verification record](docs/verification/2026-10-12-initialization-tasks.md).
 4. **Two known bugs:** the escape analysis rejects a closure that returns a string (difftest seed
    362192, present since `3265b8c`); `p := &mk().x`, where `mk` returns an owner, compiles and is
    caught only by the run-time check.

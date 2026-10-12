@@ -50,11 +50,14 @@ import (
 
 // A callSite describes a call as written, for the walk and its messages.
 type callSite struct {
-	desc   string            // the callee as written ("cfg.load", "w.Write")
-	recv   string            // the receiver as written, for a static method call
-	iface  types2.Type       // for a call through an interface: its type
-	method int               // and the index of the method in it
-	fsig   *types2.Signature // for a call through a func value: its type
+	desc        string            // the callee as written ("cfg.load", "w.Write")
+	recv        string            // the receiver as written, for a static method call
+	iface       types2.Type       // for a call through an interface: its type
+	method      int               // and the index of the method in it
+	fsig        *types2.Signature // for a call through a func value: its type
+	drop        bool              // a dynamic interface's descriptor drop adapter
+	dropType    types2.Type       // interface whose dynamic value is dropped
+	countedDrop bool              // only shared/synced payloads are released
 }
 
 // A funcBody is the source of a lowered function, which the walk scans for
@@ -191,6 +194,7 @@ func (l *Lowerer) checkContexts() {
 		}
 	}
 	l.checkInitAlloc(g)
+	l.checkInitTasks(g)
 }
 
 // A ctxRole says why a root of the walk must not wait.
@@ -266,15 +270,23 @@ func (g *callGraph) callsOf(sym *ssa.Sym) []hop {
 				switch v.Op {
 				case ssa.OpCall:
 					if callee, ok := v.Aux.(*ssa.Sym); ok {
-						hops = append(hops, hop{from: sym, to: callee, pos: v.Pos, site: g.l.sites[v]})
+						if exported := g.l.cnames[callee.Name]; callee.Kind == ssa.SymExtern && exported != nil {
+							callee = exported
+						}
+						hops = append(hops, hop{from: sym, to: callee, pos: g.callPos(v), site: g.l.sites[v]})
 					}
 				case ssa.OpCallInd:
 					site := g.l.sites[v]
-					if site == nil {
+					if v.Args[0].Op == ssa.OpFuncAddr {
+						target := v.Args[0].Aux.(*ssa.Sym)
+						hops = append(hops, hop{from: sym, to: target, pos: g.callPos(v), site: site})
 						continue
 					}
+					if site == nil {
+						panic("lower: indirect call without call-graph metadata")
+					}
 					for _, t := range g.targets(site) {
-						hops = append(hops, hop{from: sym, to: t, pos: v.Pos, site: site})
+						hops = append(hops, hop{from: sym, to: t, pos: g.callPos(v), site: site})
 					}
 				}
 			}
@@ -286,6 +298,23 @@ func (g *callGraph) callsOf(sym *ssa.Sym) []hop {
 
 // targets returns the functions an indirect call may reach.
 func (g *callGraph) targets(site *callSite) []*ssa.Sym {
+	if site.drop {
+		var out []*ssa.Sym
+		for _, d := range g.l.types.descs {
+			if d.drop == nil || !types2.Implements(d.T, site.dropType.Underlying().(*types2.Interface)) {
+				continue
+			}
+			if site.countedDrop {
+				w, ok := d.T.Underlying().(*types2.Wrapper)
+				if !ok || w.Kind() != types2.WrapShared && w.Kind() != types2.WrapSynced {
+					continue
+				}
+			}
+			out = append(out, d.drop)
+		}
+		sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+		return out
+	}
 	if site.iface != nil {
 		key := fmt.Sprintf("%s.%d", typeString(site.iface), site.method)
 		if t, ok := g.ifaceTargets[key]; ok {
@@ -319,6 +348,13 @@ func (g *callGraph) targets(site *callSite) []*ssa.Sym {
 	return out
 }
 
+func (g *callGraph) callPos(v *ssa.Value) token.Pos {
+	if v.Pos.IsValid() {
+		return v.Pos
+	}
+	return g.l.callOrigins[v]
+}
+
 // plainSig returns sig with its receiver, if any, as the first parameter:
 // the type of the func value that calls it.
 func plainSig(sig *types2.Signature) *types2.Signature {
@@ -334,7 +370,13 @@ func plainSig(sig *types2.Signature) *types2.Signature {
 
 // isSpawn reports whether sym is the runtime's spawn, which starts every
 // task.
-func isSpawn(sym *ssa.Sym) bool { return sym.Name == "pluto/rt.spawn" }
+func isSpawn(sym *ssa.Sym) bool {
+	switch sym.Name {
+	case "pluto/rt.spawn", "pluto/rt.spawnScoped", "pluto/rt.spawnFor", "pluto/rt.TaskJoined":
+		return true
+	}
+	return false
+}
 
 // isBlocking reports whether sym is a function marked //pu:blocking.
 func (l *Lowerer) isBlocking(sym *ssa.Sym) bool {

@@ -223,10 +223,6 @@ function that `main` calls. The runtime's own threads are not tasks. The task th
 therefore the only task that exists while it runs, which is what lets a package variable that is written
 only during initialization be read by every task without a lock (section 19.3, Data race freedom).
 
-> **Open (G44).** Should initialization be allowed to start tasks? This text forbids it so that the rule
-> for variables written only during initialization is sound; allowing it would instead require those
-> variables to be guarded or atomic whenever an initializer starts a task. Pending the user's decision.
-
 ### 15.3 Program initialization
 
 The packages of a complete program are initialized stepwise, one package at a time. If a package has
