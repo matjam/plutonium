@@ -169,8 +169,10 @@ compiler (2026-10-11).
     included (`lib/pluto/rt/chan.p` counts like a `synced[T]`); nothing is left to build.
 96. **The debug allocator reports package-variable memory apart from leaks** (planned; sections 15.4 and
     18.6, debug-allocator.md).
-97. **`pluto vet -unsafe`** (planned; sections 18.12 and 21.1): lists, for each package, the functions that
-    use unsafe code and the safe functions that call them. The compiler has no `vet` command yet.
+97. **`pluto vet -unsafe`** (done; sections 18.12, 21.1 and 21.5): audits every source function and
+    initializer, with typed unsafe sites and safe caller paths, including possible indirect calls and
+    cleanup. Findings exit 0; source errors retain normal diagnostics. Native full verification passes;
+    [record](verification/2026-10-12-vet-unsafe.md).
 98. **Hosted task stacks under `RLIMIT_AS`** (decided, gap 29; sections 19.1 and 21.4): the specification
     states what `173c2f6` does: at least 64 MiB where the address space allows, otherwise smaller
     reservations, never below 64 KiB, and `rt.Go` asks for a size. Nothing is left to build.

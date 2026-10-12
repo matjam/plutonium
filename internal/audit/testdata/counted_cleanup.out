@@ -1,0 +1,47 @@
+package main
+  unsafe main.*E.Drop ./main.p:5:1
+    ./main.p:4:1: //pu:nochecks
+  safe main.initializer@./main.p:9:5 ./main.p:9:5
+    calls main.*E.Drop
+      ./main.p:9:9: may drop main.*E.Drop
+  safe main.branch ./main.p:13:1
+    calls main.*E.Drop
+      ./main.p:13:28: may drop main.*E.Drop
+  safe main.cleanup ./main.p:14:1
+    calls main.*E.Drop
+      ./main.p:14:18: may drop main.*E.Drop
+    calls pluto/alloc.Synced
+      ./main.p:14:21: call pluto/alloc.Synced
+  safe main.container ./main.p:15:1
+    calls main.*E.Drop
+      ./main.p:15:20: may drop main.*E.Drop
+    calls pluto/alloc.Synced
+      ./main.p:15:53: call pluto/alloc.Synced
+  safe main.channel ./main.p:16:1
+    calls main.*E.Drop
+      ./main.p:16:18: may drop main.*E.Drop
+    calls pluto/alloc.Synced
+      ./main.p:16:48: call pluto/alloc.Synced
+  safe main.dynamic ./main.p:18:1
+    calls main.*E.Drop
+      ./main.p:18:18: may drop main.*E.Drop
+    calls pluto/rt.addMapCount
+      ./main.p:18:18: may drop pluto/rt.*MapIter[K, V].Drop
+      pluto/rt/map.p:632:5: call pluto/rt.addMapCount
+    calls pluto/rt.*MapTable[K, V].freeRetired
+      ./main.p:18:18: may drop pluto/rt.*MapIter[K, V].Drop
+      pluto/rt/map.p:633:3: call pluto/rt.*MapTable[K, V].freeRetired
+    calls pluto/rt.freeMapTable
+      ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
+      pluto/rt/map.p:462:35: call pluto/rt.*MapTable[K, V].Free
+      pluto/rt/map.p:447:4: call pluto/rt.freeMapTable
+    calls pluto/rt.getg
+      ./main.p:18:18: may drop pluto/alloc.*Restore.Drop
+      pluto/alloc/alloc.p:55:3: call pluto/rt.UseAllocator
+      pluto/rt/rt.p:839:7: call pluto/rt.current
+      pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
+    calls pluto/rt.*MapTable[K, V].retireTable
+      ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
+      pluto/rt/map.p:462:35: call pluto/rt.*MapTable[K, V].Free
+      pluto/rt/map.p:445:4: call pluto/rt.*MapTable[K, V].retire
+      pluto/rt/map.p:563:37: call pluto/rt.*MapTable[K, V].retireTable

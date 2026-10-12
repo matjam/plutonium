@@ -1,0 +1,41 @@
+package main
+  unsafe main.genericPointer ./main.p:5:1
+    ./main.p:5:21: unsafe.Pointer
+    ./main.p:5:23: unsafe.Pointer
+    ./main.p:5:33: unsafe.Pointer
+    ./main.p:5:35: unsafe.Pointer
+    ./main.p:5:63: unsafe.Pointer
+  unsafe main.pointer ./main.p:6:1
+    ./main.p:6:14: unsafe.Pointer
+    ./main.p:6:16: unsafe.Pointer
+    ./main.p:6:46: unsafe.Pointer
+  unsafe main.sizes ./main.p:7:1
+    ./main.p:7:41: unsafe.Sizeof (layout query)
+    ./main.p:7:58: unsafe.Alignof (layout query)
+    ./main.p:7:76: unsafe.Offsetof (layout query)
+  unsafe main.primitives ./main.p:8:1
+    ./main.p:8:48: unsafe.Add
+    ./main.p:8:64: unsafe.Slice
+    ./main.p:8:80: unsafe.String
+    ./main.p:8:97: unsafe.SliceData
+    ./main.p:8:115: unsafe.StringData
+    ./main.p:8:132: unsafe.Drop
+  unsafe main.unchecked ./main.p:9:1
+    ./main.p:9:23: pluto/alloc.New
+    ./main.p:9:41: pluto/alloc.Free
+    ./main.p:9:58: pluto/alloc.Raw
+  unsafe main.direct ./main.p:10:1
+    ./main.p:10:34: unsafe.Pointer
+    ./main.p:10:37: direct Allocator.Alloc
+    ./main.p:10:51: direct Allocator.Free
+    ./main.p:10:58: unsafe.Pointer
+  unsafe main.saved ./main.p:11:1
+    ./main.p:11:47: may invoke direct Allocator.Alloc
+  unsafe main.pinned ./main.p:13:1
+    ./main.p:13:35: pluto/rt.Pinned
+  unsafe main.arch ./main.p:14:1
+    ./main.p:14:15: pluto/arch/x86.Pause
+  unsafe main.foreign ./main.p:17:1
+    ./main.p:15:1: //pu:noescape
+    ./main.p:16:1: //pu:extern
+    ./main.p:17:1: function without a body

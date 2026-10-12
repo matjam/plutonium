@@ -1,0 +1,65 @@
+package main
+  unsafe main.raw ./main.p:4:1
+    ./main.p:3:1: //pu:nochecks
+  safe main.wrapper ./main.p:5:1
+    calls main.raw
+      ./main.p:5:18: call main.raw
+  safe main.outer ./main.p:6:1
+    calls main.raw
+      ./main.p:6:16: call main.wrapper
+      ./main.p:5:18: call main.raw
+  safe main.recursive ./main.p:7:1
+    calls main.raw
+      ./main.p:7:33: call main.wrapper
+      ./main.p:5:18: call main.raw
+  safe main.callback ./main.p:8:1
+    calls main.S.Run
+      ./main.p:8:27: may call main.S.Run
+    calls main.raw
+      ./main.p:8:27: may call main.raw
+    calls main.store.func@./main.p:10:30
+      ./main.p:8:27: may call main.store.func@./main.p:10:30
+  safe main.pass ./main.p:9:1
+    calls main.S.Run
+      ./main.p:9:15: call main.callback
+      ./main.p:8:27: may call main.S.Run
+    calls main.raw
+      ./main.p:9:15: call main.callback
+      ./main.p:8:27: may call main.raw
+    calls main.store.func@./main.p:10:30
+      ./main.p:9:15: call main.callback
+      ./main.p:8:27: may call main.store.func@./main.p:10:30
+  unsafe main.store.func@./main.p:10:30 ./main.p:10:30
+    ./main.p:10:43: unsafe.Sizeof (layout query)
+  safe main.invoke ./main.p:11:1
+    calls main.S.Run
+      ./main.p:11:17: may call main.S.Run
+    calls main.raw
+      ./main.p:11:17: may call main.raw
+    calls main.store.func@./main.p:10:30
+      ./main.p:11:17: may call main.store.func@./main.p:10:30
+  unsafe main.unused ./main.p:12:1
+    ./main.p:12:21: unsafe.Add
+  unsafe main.S.Run ./main.p:16:1
+    ./main.p:15:1: //pu:nochecks
+  safe main.dynamic ./main.p:17:1
+    calls main.S.Run
+      ./main.p:17:21: may call main.S.Run
+  safe main.methodValue ./main.p:18:1
+    calls main.S.Run
+      ./main.p:18:37: may call main.S.Run
+    calls main.raw
+      ./main.p:18:37: may call main.raw
+    calls main.store.func@./main.p:10:30
+      ./main.p:18:37: may call main.store.func@./main.p:10:30
+  safe main.deferred ./main.p:20:1
+    calls main.raw
+      ./main.p:20:25: call main.raw
+  safe main.spawned ./main.p:21:1
+    calls main.raw
+      ./main.p:21:23: call main.raw
+  unsafe main.*O.Drop ./main.p:24:1
+    ./main.p:23:1: //pu:nochecks
+  safe main.cleanup ./main.p:25:1
+    calls main.*O.Drop
+      ./main.p:25:18: may drop main.*O.Drop

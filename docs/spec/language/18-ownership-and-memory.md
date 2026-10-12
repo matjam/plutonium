@@ -740,8 +740,8 @@ atomic operations (section 19.3).
 **Unsafe code** is code that uses any of the following:
 
 - package `unsafe`: `unsafe.Pointer` and its conversions to and from `uintptr`, `unsafe.Add`,
-  `unsafe.Slice`, `unsafe.String`, `unsafe.SliceData`, `unsafe.StringData` and `unsafe.Drop` (section
-  20.1);
+  `unsafe.Slice`, `unsafe.String`, `unsafe.SliceData`, `unsafe.StringData`, `unsafe.Drop`,
+  `unsafe.Sizeof`, `unsafe.Alignof` and `unsafe.Offsetof` (section 20.1);
 - package `pluto/arch/x86`, and memory made from an integer, such as device registers (section 20.8);
 - the unchecked allocation layer: `alloc.Raw`, `alloc.New`, `alloc.Free`, and an `Allocator`'s methods
   called directly (section 18.10);

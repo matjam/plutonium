@@ -1,0 +1,28 @@
+package main
+  unsafe main.raw ./main.p:3:1
+    ./main.p:2:1: //pu:nochecks
+  safe main.callback ./main.p:4:1
+    calls main.raw
+      ./main.p:4:39: may call main.raw
+  safe main.pass ./main.p:5:1
+    calls main.raw
+      ./main.p:5:15: call main.callback
+      ./main.p:4:39: may call main.raw
+  unsafe main.Inner[T].Run ./main.p:8:1
+    ./main.p:7:1: //pu:nochecks
+  safe main.promoted ./main.p:11:1
+    calls main.Inner[T].Run
+      ./main.p:11:26: call main.Inner[T].Run
+  safe main.interfaceCall ./main.p:12:1
+    calls main.Inner[T].Run
+      ./main.p:12:27: may call main.Inner[T].Run
+  safe main.expression ./main.p:13:1
+    calls main.Inner[T].Run
+      ./main.p:13:34: may call main.Inner[T].Run
+  safe main.Iter.All.func@./main.p:15:49 ./main.p:15:49
+    calls main.raw
+      ./main.p:15:74: call main.raw
+  safe main.iteration ./main.p:16:1
+    calls main.raw
+      ./main.p:16:20: may iterate main.Iter.All.func@./main.p:15:49
+      ./main.p:15:74: call main.raw

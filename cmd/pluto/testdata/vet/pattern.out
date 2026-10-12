@@ -1,0 +1,14 @@
+package example.com/audit
+  safe example.com/audit.unused ./sample.p:5:1
+    calls example.com/audit/dependency.Raw
+      ./sample.p:5:17: call example.com/audit/dependency.Raw
+  safe example.com/audit.Wrapper ./sample.p:7:1
+    calls example.com/audit/dependency.Raw
+      ./sample.p:7:18: call example.com/audit.unused
+      ./sample.p:5:17: call example.com/audit/dependency.Raw
+package example.com/audit/dependency
+  unsafe example.com/audit/dependency.Raw ./dependency/raw.p:4:1
+    ./dependency/raw.p:3:1: //pu:nochecks
+  unsafe example.com/audit/dependency.Foreign ./dependency/raw.p:7:1
+    ./dependency/raw.p:6:1: //pu:extern
+    ./dependency/raw.p:7:1: function without a body

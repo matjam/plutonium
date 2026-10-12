@@ -6,6 +6,10 @@ are done: the specification is in `docs/spec/language/` (contents page `docs/spe
 lists the implementation gaps it defines and is kept current, and `docs/roadmap.md` tracks them. (See the
 Status block below.)
 
+Implementation update, 2026-10-12: section 18.12's unsafe audit is implemented and native verified
+(roadmap item 97; sections 21.1 and 21.5). The historical section 2 status is superseded by the
+[verification record](../verification/2026-10-12-vet-unsafe.md).
+
 > **Status (2026-10-10): decided and implemented.** This plan produced the specification: the outline of
 > section 2, the gap list of section 3 with the decisions of section 3.10, and the writing work of section
 > 6 were all carried out. The text below stays as the record of how and why. It is not a second source
@@ -1518,7 +1522,7 @@ reading the code.
 | 25 | Any two functions exported under one symbol are E2512. `internal/lower` reports it only for wrapped exports. | 20.4 | 94 |
 | 26 | ~~Channel reference counts are always atomic.~~ Closed by the specification: every count except `shared` is plain until the program starts its first task, then atomic (18.7), which is what `rt/chan.p` does. | 18.7, 19.8 | 95 |
 | 27 | The debug allocator reports package-variable memory apart from leaks. | 15.4, 18.6 | 96 |
-| 28 | `pluto vet -unsafe` lists the functions that use unsafe code and the safe functions that call them; the compiler has no `vet` command. | 18.12, 21.1 | 97 |
+| 28 | `pluto vet -unsafe` lists typed unsafe sites and safe caller paths for all source functions and initializers. Done, native verified 2026-10-12; [record](../verification/2026-10-12-vet-unsafe.md). | 18.12, 21.1, 21.5 | 97 |
 | 29 | ~~Hosted task stacks are at least 64 MiB; the runtime shrinks them under a small `RLIMIT_AS`.~~ Closed by the specification: at least 64 MiB where the address space allows, otherwise smaller reservations, never below 64 KiB (19.1, 21.4), which is what `173c2f6` does. | 19.1, 21.4 | 98 |
 | 30 | `pluto doc` shows a package's documentation and the kind of each type; the compiler has no `doc` command. | 1.1, 18.1, F | 93 |
 | 31 | The `or` clause, decided by the user on 2026-10-10: `v := f() or return`, `or continue`, `or panic(err)` and `or { ... }` after a call whose last result is exactly `error`. Parser: `or` as a contextual keyword after the expression that ends a simple statement, `OrStmt` among the simple statements, syntax error E1013 for an operand that is not a call. Type checker: E2461 to E2465 (an `or` in a post statement is E2465), the implicit block that declares `err` (never reported unused), the leaving-statement rule (terminating statements plus `break` and `continue`), and the two short forms of an unbraced `return`. Move checker, escape analysis and lowering: the test after the call, the drop of the call's temporaries before the clause, nothing assigned or declared on the error path, and the clause as an ordinary return or branch (drops, scope joins, deferred calls). Also `pluto fmt`, the completion list of `internal/lsp`, and catalog entries for the new codes (`go generate` in `internal/types2/errors`). *Verified* with the compiler at the time of writing: every shape of section 11.27 fails at the `or` ("expected ';', found or") and nothing else in the examples fails to parse; the `if err != nil` forms of the complete program compile and run. | 11.27, 4.6, 12.1, 12.10, 12.14 | 99 |
