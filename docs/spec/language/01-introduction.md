@@ -109,11 +109,12 @@ guarantees without writing annotations.
    compiler cannot see. A kernel must decide for itself how time, scheduling and failure work, while an
    application should not have to know that these decisions exist.
 
-4. **Bounded checks fail loudly, never silently.** Where a check has a finite range (slab generations and
-   arena epochs, which use one program-wide counter so that a reused chunk cannot match a stale pointer),
-   reaching the end of the range retires the memory or widens the field. It never lets a stale pointer
-   pass. A check that can start passing stale pointers by accident gives a false assurance, which is worse
-   for a kernel than no check.
+4. **Bounded checks fail loudly, never silently.** Reaching the end of a finite generation or epoch range
+   retires the memory or widens the field, except for the documented hosted arena-epoch limit. Heap
+   generations never wrap. Arena epochs use one program-wide counter; the hosted 16-bit encoding accepts
+   that a stale pointer can match again after 32,768 epochs (sections 18.11 and 21.5). A kernel encoding
+   must retire the chunk or widen the field before a wrap. A check that can start passing stale pointers
+   by accident gives a false assurance, which is worse for a kernel than no check.
 
 ### 1.3 Relation to Go, and how to read this specification
 

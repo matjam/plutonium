@@ -20,7 +20,7 @@ import (
 // command's output.
 func TestBuildTest(t *testing.T) {
 	testguard.Parallel(t)
-	for _, pkg := range []string{"pluto/strings", "pluto/sort", "pluto/path/filepath", "pluto/flag"} {
+	for _, pkg := range []string{"pluto/strings", "pluto/sort", "pluto/path/filepath", "pluto/flag", "pluto/hash"} {
 		for _, level := range []int{0, 2} {
 			t.Run(pkg+"/O"+string(rune('0'+level)), func(t *testing.T) {
 				testguard.Parallel(t)

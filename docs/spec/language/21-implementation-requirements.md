@@ -134,10 +134,11 @@ without them. An implementation provides the choice per build, and `//pu:nocheck
   pointers that fits the kernel (the hosted encoding uses pointer bits that kernels use, abi.md section
   1.3).
 
-A check with a finite range fails loudly, never silently. When the range ends, the implementation retires
-the memory or widens the field. It never lets a stale pointer pass. The hosted 16-bit encoding accepts
-that a stale pointer can match again after 32,768 epochs; a kernel encoding must retire the memory when
-its range ends.
+Except for the hosted arena-epoch limit, a check with a finite range fails loudly, never silently:
+when the range ends, the implementation retires the memory or widens the field. Heap generations never
+wrap. The hosted 16-bit arena encoding accepts that a stale pointer can match again after 32,768 epochs;
+a kernel encoding must retire the memory or widen the field before its range wraps (section 18.11;
+abi.md section 1.3).
 
 The implementation provides a tool that lists unsafe code (section 20.1, Package `unsafe`): for each
 package, the functions that use unsafe code, and the safe functions that call them (`pluto vet -unsafe`).

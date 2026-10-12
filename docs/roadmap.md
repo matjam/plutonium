@@ -418,7 +418,12 @@ compiler (2026-10-11).
     `strconv` quoting is native amd64 verified on 2026-10-12: all string/rune plain, ASCII and
     graphic forms and their bounded/growable Appender forms match exact Go oracles at O0/O2.
     Counted string buffers balance and bounded appends allocate nothing. See the
-    [verification record](verification/2026-10-12-strconv-quoting.md). Streaming hashing remains next.
+    [verification record](verification/2026-10-12-strconv-quoting.md). Streaming hashing is also
+    native verified: zero-ready `hash.FNV32a`/`FNV64a` match Go, and explicit-key `hash.SipHash24`
+    matches official vectors and an independent one-shot Go oracle at O0/O2. Copies and sums
+    preserve independent state; public methods allocate nothing. Full native gates pass. See the
+    [verification record](verification/2026-10-12-streaming-hash.md). Compiler hashing migration,
+    explicit comparable-value encoding and key acquisition remain in the later port.
 65. **Range over a vector reads its length once** (done, `dad7c36`; sections 12.10 and 11.11): `All`,
     `Values` and `Backward` of `vec.Vec` read the length when the loop starts.
 68. **`bytes.Buffer` grows** (done, `9c6cdcc`; sections 7.18 and F.3): `NewBuffer` and `NewBufferString`; a

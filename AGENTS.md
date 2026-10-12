@@ -256,7 +256,8 @@ order.
 - Counted errors (gap 22, items 11 and 69) and counted `or` releases (item 99) completed native amd64
   verification on 2026-10-12. Generation-directory checks (gap 10, item 85) also pass the full native
   checklist. Gap 32, the two known escape bugs and complete `strconv` quoting also pass native
-  verification; the streaming hash is next.
+  verification. Allocation-free streaming FNV and explicit-key SipHash are native verified;
+  `pluto vet -unsafe` is next.
 - `~/go/bin/pluto` is the installed compiler; reinstall it after each landing with
   `GOBIN=$HOME/go/bin go install ./cmd/pluto`.
 
@@ -370,7 +371,13 @@ output-equivalence proofs are recorded for the ordered tuning pass.
      prefixed appends and bounded byte-prefix truncation at O0/O2. Strings use one counted buffer;
      bounded appends allocate nothing. Full native gates pass; phase 1's quoting prerequisite is
      complete. See the [verification record](docs/verification/2026-10-12-strconv-quoting.md).
-   - The streaming hash (self-hosting plan phase 1), tested against Go.
+   - **Streaming hash: done.** `hash.FNV32a` and
+     `hash.FNV64a` are zero-ready allocation-free streams matching Go; `hash.SipHash24` uses an
+     explicit copied 16-byte key and matches the official vectors and an independent Go oracle.
+     Sums preserve state, resets preserve the SipHash key, and uninitialized SipHash operations
+     fail explicitly. Full native gates and zero-allocation checks pass. Compiler hashing
+     migration remains part of the later port. See the
+     [verification record](docs/verification/2026-10-12-streaming-hash.md).
    - `pluto vet -unsafe` (item 97; sections 18.12 and 21.1). A function with `//pu:nochecks`
      counts as unsafe code.
    - `pluto doc` (item 93; sections 1.1, 18.1 and appendix F).

@@ -717,14 +717,14 @@ lets each build choose the mode (section 21.5, Run-time checks and the unchecked
 `//pu:nochecks` removes the checks from one function (section 18.12). The checks change only what a bug does: a program that never uses freed memory
 behaves the same in both modes.
 
-**Bounded checks fail loudly.** A generation or epoch field has a finite range. Reaching its end must
-retire the memory (never hand it out again) or widen the field, so that a stale pointer never matches
-memory that was reused. Heap allocations retire an address range before its generation wraps.
-Generation history survives address reuse by another allocator, a different allocation layout or a
-new mapping; reuse cannot restart the generation or make a stale view match payload bytes. Arena epochs come from
-one program-wide counter, so that a stale pointer into a chunk a new arena reuses does not match; the
-hosted encoding accepts a wrap after 32,768 epochs (abi.md section 1.3), and a kernel encoding must retire
-the chunk instead.
+**Bounded checks fail loudly.** Except for the hosted arena-epoch limit below, reaching the end of a
+finite generation or epoch range must retire the memory (never hand it out again) or widen the field,
+so that a stale pointer never matches memory that was reused. Heap allocations retire an address range
+before its generation wraps. Generation history survives address reuse by another allocator, a different
+allocation layout or a new mapping; reuse cannot restart the generation or make a stale view match
+payload bytes. Arena epochs come from one program-wide counter, so that before the counter wraps a stale
+pointer into a chunk a new arena reuses does not match. The hosted encoding accepts a wrap after 32,768
+epochs (abi.md section 1.3), and a kernel encoding must retire the chunk or widen the field before a wrap.
 
 In the unchecked mode, the debug allocator (section 18.9) narrows the gap by catching uses of memory
 returned to it.

@@ -1,9 +1,13 @@
 // Package hash provides hash functions and a hash map and set that take an
-// explicit allocator.
+// explicit allocator, together with allocation-free value streams.
 //
-// The hash functions are not cryptographic. String, Bytes and Uint64 are
+// String, Bytes and Uint64 are non-cryptographic
 // fast mixing functions in the style of wyhash; FNV1a and FNV1aString are
 // the classic 64-bit FNV-1a, for formats that specify it.
+// FNV32a and FNV64a stream FNV-1a from a ready-to-use zero value. SipHash24
+// streams SipHash-2-4 with an explicit 128-bit key; sums preserve the stream,
+// Reset preserves the key, and Seed returns a copy. Supply a secret
+// unpredictable key when defending a table against attacker-chosen keys.
 //
 // Map and Set are open-addressing tables with linear probing, the tables of
 // the built-in map[K]V held as owners. They take a seed but use a fixed one
