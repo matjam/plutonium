@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
@@ -71,6 +72,15 @@ func class(err error) byte {
 	return '?'
 }
 
+// hexAll appends the hex bytes of b to out, two lowercase digits per byte.
+func hexAll[D vec.Appender[byte]](b []byte, out D) {
+	const d = "0123456789abcdef"
+	for _, c := range b {
+		out.Push(d[c>>4])
+		out.Push(d[c&0xf])
+	}
+}
+
 func bitsOf(f float64) uint64 { return *(*uint64)(unsafe.Pointer(&f)) }
 func fromBits(b uint64) float64 { return *(*float64)(unsafe.Pointer(&b)) }
 
@@ -103,6 +113,53 @@ func main() {
 			out.Append(' ', class(e64), ' ')
 			strconv.AppendUint(&out, bitsOf(f32), 10)
 			out.Append(' ', class(e32), '\n')
+			put(out.Slice())
+			continue
+		}
+		if mode == "unquote" {
+			r, e := strconv.Unquote(line)
+			out := vec.NewFixed(scratch[:])
+			if e != nil {
+				out.Append('e', class(e))
+			} else {
+				out.Push('o')
+				hexAll(unsafe.Slice(unsafe.StringData(r), len(r)), &out)
+			}
+			out.Push(10)
+			put(out.Slice())
+			continue
+		}
+		if mode == "prefix" {
+			p, e := strconv.QuotedPrefix(line)
+			out := vec.NewFixed(scratch[:])
+			if e != nil {
+				out.Append('e', class(e))
+			} else {
+				out.Push('o')
+				hexAll(unsafe.Slice(unsafe.StringData(p), len(p)), &out)
+			}
+			out.Push(10)
+			put(out.Slice())
+			continue
+		}
+		if mode == "char" {
+			v, mb, tail, e := strconv.UnquoteChar(line, '"')
+			out := vec.NewFixed(scratch[:])
+			if e != nil {
+				out.Append('e', class(e))
+			} else {
+				out.Append('o', ' ')
+				strconv.AppendUint(&out, uint64(v), 10)
+				out.Push(' ')
+				if mb {
+					out.Push('1')
+				} else {
+					out.Push('0')
+				}
+				out.Push(' ')
+				strconv.AppendUint(&out, uint64(len(tail)), 10)
+			}
+			out.Push(10)
 			put(out.Slice())
 			continue
 		}
@@ -618,5 +675,263 @@ func TestAppendFloatDifferential(t *testing.T) {
 	}
 	if bad > 0 {
 		t.Errorf("%d of %d cases differ", bad, len(lines))
+	}
+}
+
+// lossy replaces each byte of s that does not begin a valid UTF-8 sequence
+// with U+FFFD, as pluto/strconv.Unquote and pluto/strings.FromUTF8Lossy do
+// (section 7.3). It is not strings.ToValidUTF8, which replaces each maximal
+// run of invalid bytes with a single replacement.
+func lossy(s string) string {
+	var b []byte
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			b = utf8.AppendRune(b, '\uFFFD')
+			i++
+		} else {
+			b = append(b, s[i:i+size]...)
+			i += size
+		}
+	}
+	return string(b)
+}
+
+func errClass(err error) string {
+	switch err {
+	case strconv.ErrSyntax:
+		return "s"
+	case strconv.ErrRange:
+		return "r"
+	}
+	return "?"
+}
+
+func hexAllGo(b []byte) string {
+	const d = "0123456789abcdef"
+	var s strings.Builder
+	for _, c := range b {
+		s.WriteByte(d[c>>4])
+		s.WriteByte(d[c&0xf])
+	}
+	return s.String()
+}
+
+func goUnquoteLine(s string) string {
+	r, err := strconv.Unquote(s)
+	if err != nil {
+		return "e" + errClass(err)
+	}
+	return "o" + hexAllGo([]byte(lossy(r)))
+}
+
+func goPrefixLine(s string) string {
+	p, err := strconv.QuotedPrefix(s)
+	if err != nil {
+		return "e" + errClass(err)
+	}
+	return "o" + hexAllGo([]byte(p))
+}
+
+func goCharLine(s string) string {
+	v, mb, tail, err := strconv.UnquoteChar(s, '"')
+	if err != nil {
+		return "e" + errClass(err)
+	}
+	m := "0"
+	if mb {
+		m = "1"
+	}
+	return fmt.Sprintf("o %d %s %d", v, m, len(tail))
+}
+
+// unquoteCorpus returns full quoted strings, as pluto/strconv.Unquote and
+// QuotedPrefix take them. It covers every branch: double, single and backtick
+// quotes; known, hex, octal and unicode escapes; raw multibyte runes; invalid
+// UTF-8; and unterminated or malformed inputs. None of the lines contains a
+// newline, so the line-based harness can carry them.
+func unquoteCorpus() []string {
+	return []string{
+		`"hello"`,
+		`""`,
+		`"a\nb"`,
+		`"a\tb"`,
+		`"a\vb"`,
+		`"a\fb"`,
+		`"a\rb"`,
+		`"a\\b"`,
+		`"a\"b"`,
+		`"a' b"`,
+		`"a\x41b"`,
+		`"a\x00b"`,
+		`"a\x7fb"`,
+		`"a\x80b"`,
+		`"a\xffb"`,
+		`"a\u00e9b"`,
+		`"a\U0001F600b"`,
+		`"\u0041"`,
+		`"\377"`,
+		`"\101"`,
+		`"\0"`,
+		`"é"`,
+		`"`,
+		`"abc"xyz`,
+		`x"abc"`,
+		`"a\Gb"`,
+		`"a\x4"`,
+		`"a\xG"`,
+		`"a\u12"`,
+		`"a\ud800"`,
+		`"a\U00110000"`,
+		`"a\777"`,
+		`"a\`,
+		`"a\"b`,
+		`"a\3778`,
+		`'a'`,
+		`''`,
+		`'\n'`,
+		`'é'`,
+		`'\xff'`,
+		`'"'`,
+		`'\''`,
+		`'\\'`,
+		`'\x41'`,
+		`'\101'`,
+		`'\0'`,
+		`'ab'`,
+		`'a b'`,
+		`'a`,
+		`'\ud800'`,
+		`'\x4'`,
+		"`hello`",
+		"`a\\rb`",
+		"`a\rb`",
+		"`a\\\\b`",
+		"`a b`",
+		"`a\"b`",
+		"`",
+	}
+}
+
+// charCorpus returns the sequences that follow the opening quote, as
+// pluto/strconv.UnquoteChar takes them (the harness calls it with quote '"').
+func charCorpus() []string {
+	return []string{
+		`A`,
+		`a`,
+		`é`,
+		`A0`,
+		`é0`,
+		`\a`,
+		`\b`,
+		`\f`,
+		`\n`,
+		`\r`,
+		`\t`,
+		`\v`,
+		`\\`,
+		`\"`,
+		`"`,
+		`\'`,
+		`\x41`,
+		`\x00`,
+		`\x7f`,
+		`\x80`,
+		`\xff`,
+		`\x4`,
+		`\xG`,
+		`\u0041`,
+		`\u00e9`,
+		`\u0000`,
+		`\ud800`,
+		`\u12`,
+		`\U0001F600`,
+		`\U00000041`,
+		`\U00110000`,
+		`\377`,
+		`\101`,
+		`\0`,
+		`\777`,
+		`\`,
+	}
+}
+
+// TestUnquoteDifferential compares pluto/strconv.Unquote with Go's over the
+// corpus. Where Go's result holds an invalid byte, the expected value is
+// lossy-converted first, as pluto/strconv.Unquote does (section 7.3).
+func TestUnquoteDifferential(t *testing.T) {
+	testguard.Parallel(t)
+	corpus := unquoteCorpus()
+	for _, level := range []int{0, 2} {
+		t.Run(fmt.Sprintf("O%d", level), func(t *testing.T) {
+			testguard.Parallel(t)
+			bin := buildStrconvHarness(t, level)
+			got := runHarness(t, bin, "unquote", corpus)
+			bad := 0
+			for i, s := range corpus {
+				if want := goUnquoteLine(s); got[i] != want {
+					bad++
+					if bad <= 20 {
+						t.Errorf("Unquote(%.200q): got %q, want %q", s, got[i], want)
+					}
+				}
+			}
+			if bad > 0 {
+				t.Errorf("%d of %d cases differ", bad, len(corpus))
+			}
+		})
+	}
+}
+
+// TestQuotedPrefixDifferential compares pluto/strconv.QuotedPrefix with
+// Go's over the same corpus. The prefix is the original text, so it needs no
+// lossy conversion.
+func TestQuotedPrefixDifferential(t *testing.T) {
+	testguard.Parallel(t)
+	corpus := unquoteCorpus()
+	for _, level := range []int{0, 2} {
+		t.Run(fmt.Sprintf("O%d", level), func(t *testing.T) {
+			testguard.Parallel(t)
+			bin := buildStrconvHarness(t, level)
+			got := runHarness(t, bin, "prefix", corpus)
+			bad := 0
+			for i, s := range corpus {
+				if want := goPrefixLine(s); got[i] != want {
+					bad++
+					if bad <= 20 {
+						t.Errorf("QuotedPrefix(%.200q): got %q, want %q", s, got[i], want)
+					}
+				}
+			}
+			if bad > 0 {
+				t.Errorf("%d of %d cases differ", bad, len(corpus))
+			}
+		})
+	}
+}
+
+// TestUnquoteCharDifferential compares pluto/strconv.UnquoteChar with Go's
+// over the corpus, always with quote '"'.
+func TestUnquoteCharDifferential(t *testing.T) {
+	testguard.Parallel(t)
+	corpus := charCorpus()
+	for _, level := range []int{0, 2} {
+		t.Run(fmt.Sprintf("O%d", level), func(t *testing.T) {
+			testguard.Parallel(t)
+			bin := buildStrconvHarness(t, level)
+			got := runHarness(t, bin, "char", corpus)
+			bad := 0
+			for i, s := range corpus {
+				if want := goCharLine(s); got[i] != want {
+					bad++
+					if bad <= 20 {
+						t.Errorf("UnquoteChar(%.200q): got %q, want %q", s, got[i], want)
+					}
+				}
+			}
+			if bad > 0 {
+				t.Errorf("%d of %d cases differ", bad, len(corpus))
+			}
+		})
 	}
 }
