@@ -640,12 +640,12 @@ func (w *walker) returnVal(sc *scope, k int, v tset, pos token.Pos, expr ast.Exp
 					sc.fn.builds = true
 					w.a.grew = true
 				}
-				w.regionReturn(sc, t, pos, expr)
+				w.regionReturn(sc, k, t, pos, expr)
 				continue
 			}
 			if t.loc.level >= sc.level {
 				w.report(&viewErr{sink: sinkReturn, pos: pos, expr: expr, l: t.loc, fn: w.scopeName(sc)}, fmt.Sprintf("ret|%p", t.loc))
-			} else if sc.outerRet.add(t.untag()) {
+			} else if w.outerReturn(sc, k, t) {
 				// A literal returning something of an enclosing frame.
 				w.grew = true
 			}
@@ -655,7 +655,7 @@ func (w *walker) returnVal(sc *scope, k int, v tset, pos token.Pos, expr ast.Exp
 				if sc.fn.sum.addResult(k, keyOf(t), t.tag) {
 					w.a.grew = true
 				}
-			case sc.outerRet.add(t.untag()):
+			case w.outerReturn(sc, k, t):
 				w.grew = true
 			}
 		case tHeap:

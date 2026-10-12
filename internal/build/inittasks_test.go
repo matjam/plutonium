@@ -151,7 +151,7 @@ func (t *T) Drop() { if t.active { task worker() } }
 func worker() {}
 func helper() int { var e error = fmt.Errorf("bad %d", 1); _ = e; return 1 }
 var ready = helper()
-func main() { var unrelated any = alloc.Synced[T](); _ = unrelated; println(ready) }
+func main() { held := alloc.Synced[T](); var unrelated any = held; _ = unrelated; println(ready) }
 `
 	for _, level := range []int{0, 2} {
 		t.Run(fmt.Sprintf("O%d", level), func(t *testing.T) {

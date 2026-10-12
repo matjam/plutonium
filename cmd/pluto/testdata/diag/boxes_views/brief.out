@@ -1,4 +1,4 @@
 $DIR/main.p:17:9: cannot return &n.val, which points into the object n refers to, which n keeps alive in field
 $DIR/main.p:23:2: cannot store (*Node)(n) in package variable kept, which outlives n
 $DIR/main.p:29:9: cannot return n as an interface: an ordinary interface only borrows the box, which is dropped when lend returns
-$DIR/main.p:34:9: cannot return (*Node)(new(Node)), which points into the object of a temporary owned[Node] in temp's frame
+$DIR/main.p:34:9: cannot return (*Node)(new(Node)), which points into the temporary owned[Node] that new(Node) returns

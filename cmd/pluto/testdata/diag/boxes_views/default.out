@@ -57,18 +57,17 @@ $DIR/main.p:29:9: cannot return n as an interface: an ordinary interface only bo
     (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3001" for a longer explanation)
 
-$DIR/main.p:34:9: cannot return (*Node)(new(Node)), which points into the object of a temporary owned[Node] in temp's frame
-    (*Node)(new(Node)) points into the object of a temporary owned[Node] in
-    temp's frame. The owned[Node] made at main.p:34 is a temporary: nothing
-    keeps it, so its object is dropped at the end of the statement, and a view
-    of the object may not outlive that statement. At the end of the statement,
-    the temporary is dropped and its object freed, so (*Node)(new(Node)) would
-    point at freed memory.
-    Go would move this memory to the heap, and its garbage collector would free
-    it later. Plutonium has no garbage collector and never moves memory to the
-    heap behind the program's back, so that every allocation is visible in the
-    code.
-    Return the box itself, changing the result type to owned[Node]:
-        return new(Node)
+$DIR/main.p:34:9: cannot return (*Node)(new(Node)), which points into the temporary owned[Node] that new(Node) returns
+    (*Node)(new(Node)) points into the temporary owned[Node] that new(Node)
+    returns. The owned[Node] made at main.p:34 is a temporary: nothing keeps it,
+    so its object is dropped at the end of the statement. A view of the object
+    may be passed to calls in that statement but may not outlive it. At the end
+    of the statement, the temporary is dropped, before the caller gets
+    (*Node)(new(Node)), so it would point at a value that has been dropped.
+    The view does not own the memory it looks at. Nothing keeps the temporary
+    after the statement, so a stored view would outlive the value that keeps its
+    memory alive.
+    Return the owned[Node] itself, which keeps its memory alive in the caller,
+    or a copy of what the view looks at.
     (see "Views" in the Plutonium spec, section 18.3)
-    (run "pluto explain E3001" for a longer explanation)
+    (run "pluto explain E3009" for a longer explanation)

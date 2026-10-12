@@ -68,9 +68,9 @@ func init() {
 		},
 		&Entry{
 			Code: TempViewKept, Name: "TempViewKept",
-			Text:    "A pointer method is called on a temporary of owner type, such as the result of a call, and a view of the temporary that the method returns is kept: stored in a variable, in memory or in an interface, or returned. The temporary is dropped at the end of the statement that makes it (or of the if or switch statement whose header makes it), so what was kept would look at a value that has been dropped.\nPass the view to calls in the same statement, or keep the owner in a variable, which lives until the end of its scope, and call the method on the variable.",
-			Why:     "In Go a pointer method needs an addressable operand, so the result of a call has no pointer methods. Plutonium lets a temporary owner be the receiver for its statement, so that a call such as readAll(f).Slice() can be passed straight on, and drops the temporary when the statement ends, since nothing owns it.",
-			Spec:    pspec("11.14", "Calls"),
+			Text:    "A view of a temporary owner or counted box is kept: stored in a variable, in memory or in an interface, or returned. The view may come from a field, an element, a pointer conversion or a method. The temporary is dropped at the end of the statement that makes it (or of the if or switch statement whose header makes it), so what was kept would look at a value that has been dropped.\nPass the view to calls in the same statement, or keep the owner in a variable, which lives until the end of its scope, and take the view through that variable.",
+			Why:     "The view does not own the memory it looks at. Nothing keeps the temporary after the statement, so a stored view would outlive the value that keeps its memory alive.",
+			Spec:    pspec("18.3", "Views"),
 			Example: "data := readAll(f).Slice()\nuse(data)",
 			Fixed:   "buf := readAll(f)\ndata := buf.Slice()\nuse(data)",
 		},

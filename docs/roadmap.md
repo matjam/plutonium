@@ -79,6 +79,14 @@ compiler (2026-10-11).
    in regions E3100 to E3102), by a whole-program analysis (`internal/escape`) with explanatory messages.
    The run-time half is item 71.
 
+   The two known escape bugs are fixed and verified on native amd64 (2026-10-12). Closure result
+   provenance is separate by result and field, so an unrelated captured region does not make an
+   independent counted string borrow that region (difftest seed 362192). Views through temporary
+   owners and counted boxes receive E3009 when stored beyond their statement (section 18.3),
+   including projected aggregates, arrays, generic helpers, interfaces and indirect calls. Counted
+   transfers keep independent references; immediate calls and full statement-header borrows pass.
+   See [the verification record](verification/2026-10-12-escape-bugs.md).
+
    Known precision limit (section 16.6): a generic factory that returns either a counted assertion or
    its ordinary parameter retains both branches in its summary. The static instantiation below is
    conservatively rejected when `errors.As` borrows the returned child, although that child is static.

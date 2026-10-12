@@ -49,6 +49,8 @@ type tok struct {
 	kind        tokKind
 	counted     bool   // tHeap: a strong reference; tParam: conversion to a counted error
 	directCount bool   // tParam: the conversion's source is known to be shared or synced
+	borrowed    bool   // tParam: the selected value lends its box payload
+	holder      *loc   // tHeap: holder to use only when borrowing this strong value
 	loc         *loc   // tFrame
 	path        string // tFrame: the field within loc; tParam: the access path from the parameter
 	sc          *scope // tParam
@@ -226,13 +228,19 @@ const (
 	lkCtor                       // the region a call that returns closures builds them in
 	lkObject                     // the heap object a box (owned, shared, synced) held in a frame refers to
 	lkArena                      // memory allocated from a local arena installed as the default allocator (arena.go)
-	lkStmtTemp                   // an owner temporary that a pointer method is called on, dropped at the end of its statement
+	lkStmtTemp                   // an owner or counted box temporary, dropped at the end of its statement
 )
 
 // A loc is a piece of frame storage: a local variable, a parameter's slot,
 // a result, or a temporary the compiler places in the frame (an interface
 // box, a closure record, a slice literal's backing array).
+type holderKey struct {
+	expr ast.Expr
+	path string
+}
+
 type loc struct {
+	holders  map[holderKey]*loc // immutable projected payload identities
 	kind     locKind
 	v        *types2.Var     // lkVar, lkParam, lkResult
 	node     ast.Node        // temporaries: the expression that makes it
@@ -249,6 +257,25 @@ type loc struct {
 	// pointer to the stored one.
 	typ types2.Type
 	box bool
+	// object marks a statement temporary's boxed payload, whose contents
+	// are heap memory even though its lifetime is bounded by the statement.
+	object bool
+	// dynamic is the projected payload's interface type when a different
+	// containing value bounds its lifetime.
+	dynamic types2.Type
+}
+
+func (l *loc) dynamicType() types2.Type {
+	if l == nil {
+		return nil
+	}
+	if l.dynamic != nil {
+		return l.dynamic
+	}
+	if l.typ == nil || l.box {
+		return l.typ
+	}
+	return types2.NewPointer(l.typ)
 }
 
 // put records that v is stored at field path p of l and reports whether
@@ -310,7 +337,7 @@ type scope struct {
 
 	// What a function literal returns that belongs to an enclosing frame:
 	// addresses of its locations and its parameters' pointers.
-	outerRet tset
+	outerRet map[int]tset
 }
 
 // contains reports whether pos lies inside the scope's source.
@@ -321,6 +348,7 @@ func (sc *scope) contains(pos token.Pos) bool {
 // A pkey names pointers relative to a parameter: those found by following
 // path from parameter idx, or any extension of it when ge is set.
 type pkey struct {
+	borrowed    bool // the selected value lends its box payload
 	idx         int
 	counts      bool // conversion of this parameter to a counted error
 	directCount bool // a definite strong-box conversion, rather than a generic one
@@ -331,7 +359,7 @@ type pkey struct {
 }
 
 func keyOf(t tok) pkey {
-	return pkey{idx: t.idx, counts: t.counted, directCount: t.directCount, path: t.path, ge: t.ge, filt: t.filt, filtAt: t.filtAt}
+	return pkey{idx: t.idx, counts: t.counted, directCount: t.directCount, borrowed: t.borrowed, path: t.path, ge: t.ge, filt: t.filt, filtAt: t.filtAt}
 }
 
 // An edge records that a function stores pointers derived from one
@@ -456,7 +484,13 @@ type function struct {
 	// regionLeaks: a function literal returned in a caller's region whose
 	// calls may give back memory of the region (regions.go).
 	regionLeaks bool
-	inits       bool // the initialisers of a package's variables
+	// outerResults identifies literal result fields that may refer to
+	// captured frame memory. Other results do not inherit the record's provenance.
+	outerResults map[int]map[string]bool
+	// outerRegionResults distinguishes addresses in captured region
+	// storage from copies of captured parameters' values.
+	outerRegionResults map[int]map[string]bool
+	inits              bool // the initialisers of a package's variables
 	// tracked is the walker's computeTracked result for the function's
 	// body, kept for later passes.
 	tracked map[*types2.Var]bool

@@ -185,7 +185,8 @@ func (w *walker) args(e *ast.CallExpr, sig *types2.Signature) []tset {
 			vals, types := w.multi(e.Args[0], tup.Len())
 			for i := range vals {
 				if i < n {
-					out[i] = w.conv(vals[i], types[i], params.At(i).Type(), e.Args[0])
+					v := w.argumentHolders(vals[i], e.Args[0], types[i], fmt.Sprintf("result%d/", i))
+					out[i] = w.conv(v, types[i], params.At(i).Type(), e.Args[0])
 				}
 			}
 			return out
@@ -203,7 +204,8 @@ func (w *walker) args(e *ast.CallExpr, sig *types2.Signature) []tset {
 		case i < n:
 			pt = params.At(i).Type()
 		}
-		v := w.conv(w.value(a), w.typeOf(a), pt, a)
+		v := w.argumentHolders(w.value(a), a, w.typeOf(a), "")
+		v = w.conv(v, w.typeOf(a), pt, a)
 		if variadic && i >= n-1 {
 			rest.addAll(v)
 			if !w.static && (i == len(e.Args)-1 || len(rest) > 0) {
@@ -257,7 +259,11 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		if k.idx >= len(args) {
 			return nil
 		}
-		v := w.walkParam(f, args[k.idx], k)
+		actual := args[k.idx]
+		if k.borrowed {
+			actual = borrowHolders(actual)
+		}
+		v := w.walkParam(f, actual, k)
 		if k.idx == 0 {
 			switch mode {
 			case recvBoxed:
@@ -290,7 +296,7 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		return v
 	}
 	borrowArg := func(k pkey) tset {
-		v := arg(k)
+		v := borrowHolders(arg(k))
 		if k.idx < len(f.params) && types2.IsCountedError(f.params[k.idx].Type()) {
 			// A pointer or lending interface derived from an error borrows
 			// the caller's reference, even through helper or indirect calls.
@@ -316,7 +322,7 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		d := dest{callee: label, calleeWhy: r.text, src: cs.expr(e.src.idx)}
 		v := arg(e.src)
 		if T := w.storedType(f, cs, e.dst); T != nil {
-			if !w.a.countedErrorResult(T) && !isCounted(T) {
+			if !w.genericIdentity(f, cs, e.src, T) && !w.a.countedErrorResult(T) && !isCounted(T) {
 				v = borrowArg(e.src)
 			}
 		}
@@ -326,7 +332,26 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		rs := f.sum.results[i]
 		for _, k := range sortedRkeys(rs.from) {
 			v := arg(k.pkey)
-			if T := f.sig.Results().At(i).Type(); !w.a.countedErrorResult(T) && !isCounted(T) {
+			T := f.sig.Results().At(i).Type()
+			if cs.sig != nil && i < cs.sig.Results().Len() {
+				T = cs.sig.Results().At(i).Type()
+			}
+			for path := k.tag; path != ""; {
+				field, rest, ok := cutFieldStep(path)
+				if !ok {
+					break
+				}
+				if selected := fieldType(T, field); selected != nil {
+					T = selected
+				} else {
+					break
+				}
+				path = rest
+			}
+			// A generic identity transfer keeps the selected value itself.
+			// Its concrete caller decides whether that value owns a reference;
+			// it has not borrowed a payload merely by forwarding it.
+			if !w.genericIdentity(f, cs, k.pkey, T) && !w.a.countedErrorResult(T) && !isCounted(T) {
 				v = borrowArg(k.pkey)
 			}
 			res[i].addAll(retag(v, k.tag))
@@ -346,6 +371,12 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		}
 	}
 	return res
+}
+
+// genericIdentity recognizes a transfer of the selected generic value itself.
+func (w *walker) genericIdentity(f *function, cs *callSite, k pkey, T types2.Type) bool {
+	_, generic := types2.Unalias(T).(*types2.TypeParam)
+	return generic && k.filt == nil && types2.Identical(T, w.parameterValueType(f, cs, k))
 }
 
 // parameterValueType resolves the value selected from an actual argument
@@ -507,11 +538,7 @@ func boundKeys(cs *callSite, fun ast.Expr) []ast.Expr {
 func filterRecv(ts tset, f *function) tset {
 	var out tset
 	for _, t := range ts {
-		if t.kind == tFrame && t.path == "" && t.loc.typ != nil && f.obj != nil && !containsTypeParam(t.loc.typ) {
-			dyn := t.loc.typ
-			if !t.loc.box {
-				dyn = types2.NewPointer(dyn)
-			}
+		if dyn := t.loc.dynamicType(); t.kind == tFrame && t.path == "" && dyn != nil && f.obj != nil && !containsTypeParam(dyn) {
 			sel := types2.NewMethodSet(dyn).Lookup(f.obj.Pkg(), f.obj.Name())
 			if sel == nil {
 				continue
@@ -597,26 +624,28 @@ func (w *walker) dynFuncCall(t callTarget, args []tset, cs *callSite, fun ast.Ex
 			mode = recvReach
 		}
 		r := w.apply(f, fargs, fcs, label, mode, nres)
-		var outer tset
-		if f.lit != nil {
-			// What a literal returns of the frames around it: known if it
-			// was walked here, else anything its record leads to. (The
-			// record itself is never visible to its body.)
-			if sc := w.scopes[f.lit]; sc != nil {
-				outer = sc.outerRet
-			} else {
-				if captured == nil {
-					captured = append(w.reach(w.load(t.fv)), heapTok)
-				}
-				outer = captured
-				if f.regionLeaks {
-					// Built in a region, it may return memory of the
-					// region itself, which the func value points to.
-					outer = union(outer, t.fv)
+		for i := range res {
+			var outer tset
+			if f.lit != nil {
+				// What a literal returns of the frames around it: known if it
+				// was walked here, else anything its record leads to. (The
+				// record itself is never visible to its body.)
+				if sc := w.scopes[f.lit]; sc != nil {
+					outer = sc.outerRet[i]
+				} else if len(f.outerResults[i]) != 0 {
+					if captured == nil {
+						captured = append(w.reach(w.load(t.fv)), heapTok)
+					}
+					for path := range f.outerResults[i] {
+						outer.addAll(retag(captured, path))
+					}
+					for path := range f.outerRegionResults[i] {
+						// Built in a region, it may return memory of the
+						// region itself, which the func value points to.
+						outer = union(outer, retag(t.fv, path))
+					}
 				}
 			}
-		}
-		for i := range res {
 			res[i].addAll(r[i])
 			res[i].addAll(outer)
 		}
@@ -731,6 +760,9 @@ func lessKey(a, b pkey) bool {
 	}
 	if a.directCount != b.directCount {
 		return !a.directCount && b.directCount
+	}
+	if a.borrowed != b.borrowed {
+		return !a.borrowed && b.borrowed
 	}
 	if a.path != b.path {
 		return a.path < b.path

@@ -55,6 +55,103 @@ func isGlobal(v *types2.Var) bool {
 	return v.Pkg() != nil && v.Parent() == v.Pkg().Scope()
 }
 
+// argumentHolders records the lifetime of strong values independently of
+// their heap contents. A later borrowed use activates it; copying the strong
+// value does not. Re-evaluating a named value replaces its previous holder.
+func (w *walker) argumentHolders(v tset, x ast.Expr, T types2.Type, identity string) tset {
+	var out tset
+	for _, t := range v {
+		if t.kind == tHeap {
+			t.holder = nil
+			var visit func(types2.Type, string, string)
+			visit = func(T types2.Type, tag, path string) {
+				if isBoxPtr(T) {
+					if t.tag == "" || tag == "" || strings.HasPrefix(t.tag, tag) || strings.HasPrefix(tag, t.tag) {
+						u := t
+						u.holder = w.argumentHolder(x, T, identity+path)
+						out.add(u)
+					}
+					return
+				}
+				switch T := underlying(T).(type) {
+				case *types2.Struct:
+					for i := 0; i < T.NumFields(); i++ {
+						visit(T.Field(i).Type(), capFields(tag+fieldStep(i)), path+fieldStep(i))
+					}
+				case *types2.Array:
+					visit(T.Elem(), tag, path+"[]")
+				}
+			}
+			visit(T, "", "")
+		}
+		out.add(t)
+	}
+	return out
+}
+
+func (w *walker) argumentHolder(x ast.Expr, T types2.Type, path string) *loc {
+	if path == "" && isBoxPtr(w.typeOf(x)) {
+		for _, t := range w.boxView(x) {
+			if t.kind == tFrame {
+				return t.loc
+			}
+		}
+		return nil
+	}
+	var base *loc
+	if root := w.frameRoot(x); root != nil {
+		base = w.varLoc(root)
+	} else if root := w.boxTemporary(x); root != nil || isTuple(w.typeOf(x)) {
+		if root == nil {
+			root = x
+		}
+		base = w.tmp(x, lkStmtTemp)
+		base.node, base.pos, base.typ = root, root.Pos(), w.typeOf(root)
+	} else {
+		return nil
+	}
+	if base.holders == nil {
+		base.holders = make(map[holderKey]*loc)
+	}
+	key := holderKey{x, path}
+	if l := base.holders[key]; l != nil {
+		return l
+	}
+	l := *base
+	l.holders = nil
+	l.object = true
+	if base.v != nil {
+		l.kind = lkObject
+	}
+	l.dynamic = types2.NewPointer(pointerElem(T))
+	base.holders[key] = &l
+	return &l
+}
+
+func isTuple(T types2.Type) bool {
+	_, ok := T.(*types2.Tuple)
+	return ok
+}
+
+// borrowHolders turns strong-value metadata into the lifetime of a view.
+// Parameter summaries remember this operation for callers whose actual
+// strong type is only known after generic instantiation.
+func borrowHolders(v tset) tset {
+	var out tset
+	for _, t := range v {
+		if t.kind == tHeap && t.holder != nil {
+			u := frameTok(t.holder)
+			u.tag = t.tag
+			out.add(u)
+		}
+		if t.kind == tParam {
+			t.borrowed = true
+		}
+		out.add(t)
+	}
+	return out
+}
+
 // varLoc returns the location of a local variable, creating it at the
 // level of the innermost scope that declares it.
 func (w *walker) varLoc(v *types2.Var) *loc {
@@ -99,7 +196,7 @@ func (w *walker) load(ts tset) tset {
 		case tHeap:
 			out.add(heapTok)
 		case tFrame:
-			if t.loc.kind == lkObject || t.loc.kind == lkArena {
+			if t.loc.kind == lkObject || t.loc.kind == lkArena || t.loc.object {
 				out.add(heapTok) // what a box's object or an arena holds is heap memory
 				continue
 			}
@@ -136,8 +233,9 @@ func (w *walker) pointee(x ast.Expr) tset {
 // (language spec section 18.7, rule 5): a view through a box may not outlive
 // the box it was made through. A box held in a local variable or a
 // parameter of this frame (owned parameters are the callee's own) bounds
-// the view by that variable; a temporary box bounds it by the frame, where
-// the statement drops it. A box reached any other way (a field of heap
+// the view by that variable; a temporary box bounds it by the statement
+// that drops it. A projected temporary is bounded by its
+// containing value's statement too. A box reached any other way (a field of heap
 // memory, a package variable) gives a view of heap memory, checked at run
 // time.
 func (w *walker) boxView(x ast.Expr) tset {
@@ -150,13 +248,70 @@ func (w *walker) boxView(x ast.Expr) tset {
 		return tset{frameTok(w.objLoc(v))}
 	case *ast.SelectorExpr, *ast.IndexExpr, *ast.StarExpr:
 		if root := w.frameRoot(e); root != nil {
-			return tset{frameTok(w.objLoc(root))}
+			l := w.tmp(x, lkObject)
+			vl := w.varLoc(root)
+			l.v, l.fn, l.pos, l.level, l.typ = root, vl.fn, vl.pos, vl.level, root.Type()
+			l.dynamic = w.typeOf(x)
+			if el := pointerElem(l.dynamic); el != nil {
+				l.dynamic = types2.NewPointer(el)
+			}
+			return tset{frameTok(l)}
+		}
+		if root := w.boxTemporary(e); root != nil {
+			return w.boxTempView(x, root)
 		}
 		return tset{heapTok}
 	}
-	l := w.tmp(x, lkObject)
-	l.typ = w.typeOf(x)
+	return w.boxTempView(x, x)
+}
+
+func (w *walker) boxTempView(x, root ast.Expr) tset {
+	kind := lkObject
+	_, array := underlying(w.typeOf(root)).(*types2.Array)
+	if isBoxPtr(w.typeOf(root)) || types2.IsOwner(w.typeOf(root)) || isStructValue(w.typeOf(root)) || array {
+		kind = lkStmtTemp
+	}
+	l := w.tmp(x, kind)
+	l.node, l.pos = root, root.Pos()
+	l.typ = w.typeOf(root)
+	l.object = true
+	if el := pointerElem(w.typeOf(x)); el != nil {
+		l.dynamic = types2.NewPointer(el)
+	}
 	return tset{frameTok(l)}
+}
+
+// boxTemporary finds the temporary that owns a projected box. Value
+// fields and array elements remain part of their owner; a raw pointer
+// reached through an object instead follows the runtime heap rules.
+func (w *walker) boxTemporary(x ast.Expr) ast.Expr {
+	switch e := ast.Unparen(x).(type) {
+	case *ast.Ident:
+		return nil
+	case *ast.SelectorExpr:
+		if sel := w.a.selections[e]; sel == nil || sel.Kind() != types2.FieldVal {
+			return nil
+		}
+		if pointerElem(w.typeOf(e.X)) == nil || isBoxPtr(w.typeOf(e.X)) {
+			return w.boxTemporary(e.X)
+		}
+	case *ast.IndexExpr:
+		if _, ok := underlying(w.typeOf(e.X)).(*types2.Array); ok {
+			return w.boxTemporary(e.X)
+		}
+	case *ast.StarExpr:
+		if isBoxPtr(w.typeOf(e.X)) {
+			return w.boxTemporary(e.X)
+		}
+	default:
+		if types2.IsOwner(w.typeOf(x)) || isBoxPtr(w.typeOf(x)) || isStructValue(w.typeOf(x)) {
+			return x
+		}
+		if _, ok := underlying(w.typeOf(x)).(*types2.Array); ok {
+			return x
+		}
+	}
+	return nil
 }
 
 // frameRoot returns the local variable a field or array element selection
@@ -285,11 +440,7 @@ func (a *analyzer) filterDyn(ts tset, I types2.Type, _ int) tset {
 	for _, t := range ts {
 		switch t.kind {
 		case tFrame:
-			if t.path == "" && t.loc.typ != nil && !containsTypeParam(t.loc.typ) {
-				dyn := t.loc.typ
-				if !t.loc.box {
-					dyn = types2.NewPointer(dyn)
-				}
+			if dyn := t.loc.dynamicType(); t.path == "" && dyn != nil && !containsTypeParam(dyn) {
 				if exact && !types2.Identical(dyn, I) && !types2.Identical(dyn, types2.NewPointer(I)) {
 					continue
 				}
@@ -1288,7 +1439,7 @@ func (w *walker) store(targets, vals tset, pos token.Pos, d dest) {
 		w.report(e, fmt.Sprintf("store|%p", v.loc))
 	}
 	for _, t := range targets {
-		if t.kind == tFrame && (t.loc.kind == lkObject || t.loc.kind == lkArena) {
+		if t.kind == tFrame && (t.loc.kind == lkObject || t.loc.kind == lkArena || t.loc.object) {
 			t = heapTok // a box's object, or an arena's memory, is not the frame's
 		}
 		switch t.kind {

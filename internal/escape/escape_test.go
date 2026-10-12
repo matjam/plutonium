@@ -253,7 +253,8 @@ func main() {
 
 	{"copy to heap slice", `
 func main() {
-	s := new([4]*int)[:]
+	box := new([4]*int)
+	s := box[:]
 	x := 1
 	src := [1]*int{&x}
 	copy(s, src[:])
@@ -695,7 +696,7 @@ func main() { f() }`, []string{"cannot store (*N)(n) in package variable G, whic
 	{"temporary box viewed", `
 type N struct{ v int }
 func f() *N { return (*N)(new(N)) }
-func main() { _ = f() }`, []string{"the object of a temporary owned[N]"}},
+func main() { _ = f() }`, []string{"the temporary owned[N]", "E3009"}},
 
 	{"temporary channel lent to an ordinary interface", `
 func f() any { return make(chan int) }

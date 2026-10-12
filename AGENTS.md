@@ -255,7 +255,7 @@ order.
   task statements for Go, and `strconv.Unquote`, `UnquoteChar` and `QuotedPrefix`.
 - Counted errors (gap 22, items 11 and 69) and counted `or` releases (item 99) completed native amd64
   verification on 2026-10-12. Generation-directory checks (gap 10, item 85) also pass the full native
-  checklist. Gap 32 also passes native verification; the two known bugs are next.
+  checklist. Gap 32 and the two known escape bugs also pass native verification; smaller items are next.
 - `~/go/bin/pluto` is the installed compiler; reinstall it after each landing with
   `GOBIN=$HOME/go/bin go install ./cmd/pluto`.
 
@@ -354,9 +354,14 @@ output-equivalence proofs are recorded for the ordered tuning pass.
    Blank initializer values are destroyed after named stores; counted temporaries are released
    before the next initializer. The obsolete G44 block and allowlist entry are removed.
    See the [verification record](docs/verification/2026-10-12-initialization-tasks.md).
-4. **Two known bugs:** the escape analysis rejects a closure that returns a string (difftest seed
-   362192, present since `3265b8c`); `p := &mk().x`, where `mk` returns an owner, compiles and is
-   caught only by the run-time check.
+4. **Two known escape bugs: done** (sections 11.5 and 18.3). Closure results track their actual
+   outer dependencies separately by result and field, so counted strings remain independent of an
+   unrelated closure capture (difftest seed 362192, present since `3265b8c`). Stored views through
+   temporary owners and counted boxes now receive E3009 at compile time. Projected aggregate,
+   array, generic, interface and indirect paths preserve the holder's lifetime; counted copies keep
+   independent references. Immediate calls and full `if`/`switch` header borrows remain valid.
+   Native full tests, zero lint, aggregate coverage nondecrease and all floors, SSA checks and
+   generation-off tests pass. See the [verification record](docs/verification/2026-10-12-escape-bugs.md).
 5. **Smaller items**, each with an exact oracle:
    - `strconv` quoting, the rest: `QuoteToASCII`, `QuoteToGraphic`, `QuoteRuneToASCII`,
      `QuoteRuneToGraphic` and the `Append` forms. They share `Quote`'s implementation in

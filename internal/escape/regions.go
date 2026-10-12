@@ -142,7 +142,7 @@ func closureLoc(l *loc) bool {
 // a literal returns it. Each literal is marked as built in a region, and
 // as passing on memory of the region when it may (regionLeaks), for the
 // calls of it (dynFuncCall) and the loops over it (yieldValues).
-func (w *walker) regionReturn(sc *scope, t tok, pos token.Pos, expr ast.Expr) {
+func (w *walker) regionReturn(sc *scope, k int, t tok, pos token.Pos, expr ast.Expr) {
 	r := w.reach(tset{t})
 	region := map[*loc]bool{}
 	for _, u := range r {
@@ -167,10 +167,44 @@ func (w *walker) regionReturn(sc *scope, t tok, pos token.Pos, expr ast.Expr) {
 		case u.kind != tFrame || region[u.loc]:
 		case u.loc.level >= sc.level:
 			w.report(&viewErr{sink: sinkReturn, pos: pos, expr: expr, l: u.loc, fn: w.scopeName(sc)}, fmt.Sprintf("ret|%p", u.loc))
-		case sc.outerRet.add(u.untag()):
+		case w.outerReturn(sc, k, u):
 			w.grew = true
 		}
 	}
+}
+
+// outerReturn records a literal result's dependence on an enclosing
+// frame. Calling a literal elsewhere cannot recover its captured values
+// exactly, but must distinguish these results from independent values
+// such as a counted string (sections 11.5 and 18.8).
+func (w *walker) outerReturn(sc *scope, k int, t tok) bool {
+	if sc.outerRet == nil {
+		sc.outerRet = map[int]tset{}
+	}
+	if sc.fn.outerResults == nil {
+		sc.fn.outerResults = map[int]map[string]bool{}
+	}
+	if sc.fn.outerResults[k] == nil {
+		sc.fn.outerResults[k] = map[string]bool{}
+	}
+	if !sc.fn.outerResults[k][t.tag] {
+		sc.fn.outerResults[k][t.tag] = true
+		w.a.grew = true
+	}
+	if t.kind == tFrame && !sc.fn.outerRegionResults[k][t.tag] {
+		if sc.fn.outerRegionResults == nil {
+			sc.fn.outerRegionResults = map[int]map[string]bool{}
+		}
+		if sc.fn.outerRegionResults[k] == nil {
+			sc.fn.outerRegionResults[k] = map[string]bool{}
+		}
+		sc.fn.outerRegionResults[k][t.tag] = true
+		w.a.grew = true
+	}
+	r := sc.outerRet[k]
+	grew := r.add(t)
+	sc.outerRet[k] = r
+	return grew
 }
 
 // regionLeaks reports whether calling the closure rec of lit, which sc's

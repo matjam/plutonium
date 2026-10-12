@@ -256,6 +256,9 @@ func (a *analyzer) intro(l *loc, q types2.Qualifier) string {
 	case lkRecv:
 		return fmt.Sprintf("Calling a pointer method on a value that is not a variable (at %s) copies the value to a temporary in %s frame, and the method gets a pointer to the copy.", at, possessive(l.fn))
 	case lkStmtTemp:
+		if l.object {
+			return fmt.Sprintf("The %s made at %s is a temporary: nothing keeps it, so its object is dropped at the end of the statement. A view of the object may be passed to calls in that statement but may not outlive it.", typeText(l.typ, q), at)
+		}
 		return fmt.Sprintf("The %s that %s returns (at %s) is a temporary: nothing keeps it, so it is the receiver of the method only until the end of the statement. A view of it may be passed to calls in that statement but may not outlive it.", typeText(l.typ, q), exprText(l.node.(ast.Expr)), at)
 	case lkLit:
 		return fmt.Sprintf("A composite literal whose address is taken (at %s) is made in %s frame, as a local variable would be.", at, possessive(l.fn))
@@ -618,7 +621,7 @@ func (a *analyzer) returnFixes(d *diag.Diagnostic, e *viewErr, l *loc, q types2.
 	case l.kind == lkArena:
 		arenaFixes(d, l)
 	case l.kind == lkStmtTemp:
-		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Return the %s itself, which moves it to the caller, or a copy of what the view looks at.", typeText(l.typ, q))}
+		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Return the %s itself, which keeps its memory alive in the caller, or a copy of what the view looks at.", typeText(l.typ, q))}
 	case l.isVarLoc():
 		name := l.v.Name()
 		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Return values instead of views of %s, or allocate %s and return its owner, an owned[%s]", name, name, varType(l, q)), Code: fmt.Sprintf("%s := new(%s)\n...\nreturn %s", name, varType(l, q), name)}
@@ -660,6 +663,9 @@ func (a *analyzer) storeFixes(d *diag.Diagnostic, e *viewErr, l *loc, q types2.Q
 // its statement: keep the owner in a variable, which lives until the end
 // of its scope.
 func stmtTempFix(l *loc) *diag.Fix {
+	if l.object {
+		return &diag.Fix{Intro: "Keep the owner in a variable, so that it lives until the end of its scope, and take the view through that variable", Code: fmt.Sprintf("v := %s\n... v ...", exprText(l.node.(ast.Expr)))}
+	}
 	return &diag.Fix{
 		Intro: "Keep the owner in a variable, so that it lives until the end of its scope, and call the method on the variable",
 		Code:  fmt.Sprintf("v := %s\n... v.%s() ...", exprText(l.node.(ast.Expr)), l.method),
