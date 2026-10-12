@@ -184,27 +184,82 @@ arena has taken back, panics instead of reading or writing whatever the memory h
 
 | Tag | Meaning |
 |---|---|
-| `0` | not checked: the stack, static data, devices, pointers made from a `uintptr` |
+| `0` | not checked: the stack, static data, devices, fixed `arena.Arena` allocations, pointers made from a `uintptr` |
 | `0x0001` to `0x7fff` | an allocation's generation (`alloc.Slab`, `alloc.SyncSlab`, and every other heap allocation, whatever its size) |
-| `0x8000` to `0xffff` | an arena epoch (`arena.Chunked`, and the buffer of a fixed `arena.Arena`) |
+| `0x8000` to `0xffff` | an arena epoch (`arena.Chunked`) |
 
-Checked memory is in 64 KiB-aligned chunks whose first 8 KiB hold one `uint16` per 16-byte granule of
-the chunk. Every load and store through a pointer that is not statically a frame slot or a symbol checks
-it, in the same sequence for both kinds of tag (`opt.GenCheck`):
+**Shared metadata directory.** The runtime maintains one directory for the program, indexed by the
+untagged address's 64 KiB interval. Each entry reaches the registered allocation or arena tables that
+cover that interval. A registration records its payload bounds, the address from which its granules
+are numbered, its `uint16` tag table, and the registration, tag and bounds of any backing allocation
+whose lifetime it depends on. Each table entry describes a 16-byte granule. Registrations can overlap
+when one allocator takes backing
+memory from another; their identities and tables remain distinct.
+
+Every load and store through a pointer that is not statically a frame slot or a symbol checks it in
+the same sequence for both kinds of tag (`opt.GenCheck`). The following defines the lookup's meaning;
+`registeredLive` reads a consistent metadata snapshot whose tables remain valid for the lookup:
 
 ```
 tag := p >> 48
+a := p & (1<<48 - 1)
 if tag != 0 {
-	a := p & (1<<48 - 1)
-	if *(*uint16)(a &^ 0xffff + 2*((a & 0xffff) >> 4)) != tag { panicStale(p) }
+	if !registeredLive(a, tag) { panicStale(p) }
 }
 access a
 ```
 
+`registeredLive(a, tag)` is true exactly when a live registration reached from `directory[a >> 16]`
+covers `a`, every backing allocation is still valid at `a` under its saved tag, and its table entry
+`(a - granuleOrigin) >> 4` equals `tag`. A missing registration or a dead backing allocation fails the
+check. Backing validity includes the backing table's granule at `a`, so a partial arena release makes
+dependent views into the reclaimed part stale even if other granules of the backing chunk remain
+live. Backing metadata is validated before reading a child table stored in that backing memory.
+The lookup never obtains a tag from unregistered payload bytes. A stale pointer therefore
+cannot match by reading data at an old table address after the raw address is reused for a different
+allocation layout. Pointer offsets, fields, elements and slices keep the allocation's tag; the
+directory reaches the right table for interior addresses as well as for the first byte.
+
+**Contiguous allocations.** Small slab chunks and `Chunked` chunks of at most 56 KiB of data may keep
+their tables in the first 8 KiB of a 64 KiB-aligned chunk. A large slab allocation or a large `Chunked`
+chunk has its own 64 KiB-aligned metadata base, with its header and granule table before its aligned
+payload. The table has enough entries for the complete payload, whatever its size. Its offsets and
+granule origin are recorded in its registration. Payload is contiguous: later 64 KiB boundaries are
+ordinary data, with no inserted headers or tables. Every directory interval touched by the payload
+reaches this registration. A custom allocator may use a different physical metadata layout, but must
+provide the same lookup and lifetime contract. Table storage and alignment padding do not change the
+requested size or alignment of the payload.
+
 `copy`, `clear` and `print` of a string check their pointer at the call when the length is not zero (a
-pointer just past an allocation may point into another one's granule). The table entries of the chunk's
-first 512 granules, which would describe the table itself, are never consulted; arenas keep their chunk
-header there. Loads of itabs and type descriptors, which are static data, are not checked.
+pointer just past an allocation may point into another one's granule). Metadata is not payload of its
+own registration; table entries for the prefix are never used to validate that registration's views.
+Loads of itabs and type descriptors, which are static data, are not checked. Generated checks and the
+runtime's explicit checks (`rt.checkLive`) use this same directory contract.
+
+**Publication and metadata lifetime.** Before a tagged pointer is returned or published, its table
+and all directory entries needed by its payload are initialized and visible to readers. Reclaiming
+memory invalidates the affected registration or granules before handing the memory to another user,
+returning it to a parent, or unmapping it. A reader ordered after that invalidation fails its check;
+it never faults while reading a freed table. Mutations on unrelated allocations cannot give a reader
+partially initialized bounds, an inconsistent table address, or reclaimed metadata.
+
+Directory nodes, registration records and tables stay valid for every reader that could still hold
+them. Atomic publication of a record alone does not satisfy this requirement if its table can be
+freed while a reader uses it. The implementation may retain stable metadata or protect readers while
+reclaiming it; the contract does not require a lock on every access. Returning payload pages does not
+erase address history. Metadata allocation and publication must not recursively enter an unfinished
+registration or call a parent allocator while holding a lock that such a call can acquire again.
+
+**Allocator composition.** A child registration keeps its backing allocation's registration valid.
+The child allocator saves the original tagged pointer returned by its parent, together with the
+size and alignment needed to free it; an aligned interior address is not a substitute. Dropping or
+resetting the child invalidates only the memory it takes back. Returning a backing allocation to its
+parent first invalidates its dependent child registrations, then frees it through the saved parent
+pointer. Invalidating a parent registration or its backing granules makes every affected dependent
+child view stale, even if the child's table still holds the old tag. A heap child and its overlapping
+heap ancestor have different generations;
+arena children use the program-wide epoch rule below. Registering or removing a child must never
+overwrite the metadata needed to validate a still-live parent or sibling.
 
 **When a check stays valid.** A check is a statement about state the current task can see: the
 pointer's memory had not been freed when the task last could have caused or observed a free. It stays
@@ -242,14 +297,27 @@ path), is not such a point for its caller. `opt.GenFrees` computes which functio
   release (`pluto/arena.(*Chunked).release`, behind `Reset`, `Release` and `Drop`) is the reset. Loops
   whose only such points free but do not reset keep a held pointer's check outside them too.
 
-- **Slab generations.** Each granule of a slot holds the slot's generation, which starts at 1. `Free`
-  checks the pointer's tag against it (a double free panics) and moves the slot to the next generation;
-  a slot that would reach `0x8000` is retired, never handed out again, so a stale pointer cannot match by
-  wrapping around.
+- **Heap generations and address history.** Each payload granule holds its allocation's generation.
+  A never-used address starts at generation 1. `Free` checks the allocation's pointer (a double free
+  panics), invalidates its old generation, and advances the generation for reuse. Heap generations
+  never wrap: before an address would require `0x8000`, the affected address range is retired from
+  future allocations. Existing live backing allocations are not freed by that retirement.
+
+  Generation history belongs to raw address ranges, not to an allocator instance or a mapping. It
+  survives an allocator's destruction, directory removal, unmapping, a change of size class or
+  layout, and reuse by another allocator or page provider. A new heap registration must use a
+  generation greater than every heap generation previously assigned at any raw address in its
+  payload. This also distinguishes overlapping live parent and child heap registrations. The
+  implementation may retain history per granule or conservatively for larger intervals, or retain
+  reservations whose histories cannot be lost. It must prevent a retired range being allocated
+  again, rather than restarting its history when pages return at that address. Arena epochs are in
+  the disjoint range below and do not erase heap-generation history.
 - **Arena epochs.** A `Chunked` takes each chunk of at most 56 KiB of data as a 64 KiB-aligned epoch
   chunk (asking its parent for 64 KiB alignment, or aligning within a larger block): the header
-  `{prev *chunk, size uintptr, raw unsafe.Pointer}` at offset 0, data from offset 8192. Allocations
-  start on a granule, so each granule belongs to one allocation. The arena's current epoch, taken from a
+  `{prev *chunk, size uintptr, raw unsafe.Pointer}` at offset 0, data from offset 8192. Larger chunks
+  use the contiguous layout above. Both layouts are registered in the directory and retain their
+  backing allocation's identity. Allocations start on a granule, so each granule in the arena's table
+  belongs to one allocation. The arena's current epoch, taken from a
   program-wide counter (`rt.NewEpoch`, `0x8000` plus the count modulo `0x8000`), goes into the granules
   of each allocation and the tag of its pointer. `Reset`, `Release`, `Drop` and a `Free` of the latest
   allocation zero the granules they take back (no pointer has tag 0) and end the epoch: the next
@@ -272,14 +340,15 @@ path), is not such a point for its caller. `opt.GenFrees` computes which functio
   last took back memory of that epoch (`rt.EpochEnded` records it); "use of freed memory: an arena
   allocation freed at F (file:line)" when that was a `Free`.
 
-**No untagged heap or arena memory.** A use of freed heap memory, or of arena memory after the arena took
-it back, panics in a checked build, whatever the allocation's size (language spec section 18.11). Every
-heap allocation therefore carries a generation and all arena memory an epoch, large ones included: slab
-allocations over 2 KiB and arena chunks over 56 KiB, which do not fit the slab and epoch chunks above,
-are tagged like the others, and a fixed `arena.Arena`'s buffer has epochs as a `Chunked` chunk does. How
-a large allocation holds its tags (its own 64 KiB-aligned chunks with a granule table, or a
-per-allocation tag) is not fixed yet. Only the stack, static data, devices and pointers made from a
-`uintptr` have tag `0`.
+**Heap and chunked arena coverage.** A use of freed heap memory, or of `arena.Chunked` memory after the
+arena took it back, panics in a checked build, whatever the allocation's size (language spec section
+18.11). Every ordinary heap allocation therefore carries a registered generation and all
+`arena.Chunked` memory a registered epoch, including slab allocations over 2 KiB and arena chunks
+over 56 KiB. The contract applies to custom allocators as well as to `Slab` and `SyncSlab` (language
+spec section 18.9). A fixed `arena.Arena` buffer is exempt: its allocations carry tag `0`, and use
+after the arena takes the memory back has no defined behavior, even in a checked build. Stack,
+static and device pointers and pointers made from a `uintptr` also have tag `0`; unsafe code that
+creates an untagged pointer has the responsibility stated in language spec section 18.12.
 
 Converting a pointer to `uintptr`, and passing it to a function implemented outside Plutonium, removes
 its tag; `unsafe.Pointer` keeps it (language spec sections 18.11 and 20.1). A function marked

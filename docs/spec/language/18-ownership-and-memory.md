@@ -547,6 +547,16 @@ out, and must take back in `Free` only the memory it is given; an arena takes me
 through its own methods (`Reset`, `Release`, `Drop`). Generation checks rely on this to keep a check of
 memory a function holds valid across calls that allocate or free other memory (section 18.11).
 
+**Checked allocator contract.** In a checked build, an allocator used for ordinary heap allocation
+must provide the generation and metadata lifetime contract of section 18.11 and abi.md section 1.3.
+This applies to custom allocators, to direct constructors and to allocations made through the current
+allocator, including its scoped overrides. The compiler and runtime provide the registration
+mechanism; its use by an allocator does not require a directive on ordinary program code. An
+implementation must not accept such an allocation and silently leave its views unchecked merely
+because the allocator is custom. `arena.Chunked` supplies epochs for its allocations; fixed
+`arena.Arena` buffers are the explicit exception. Unsafe code that makes or exposes an untagged
+pointer remains responsible for its lifetime (section 18.12).
+
 **Choosing an allocator.** Every operation that allocates takes its memory from an allocator given
 explicitly, or from the **current allocator** that `alloc.Default()` returns:
 
@@ -608,8 +618,8 @@ func name(n int) string {
 To keep something past the arena, allocate it from an allocator that outlives it, passed explicitly
 (`heap := alloc.Default()` before `Use`, then `vec.New[T](heap)`), or install an arena the caller
 provides. Memory from the arena that the function or a callee stores into other heap memory is not
-followed at compile time; the arena epochs of section 18.11 catch a use of it after the arena is reset,
-released past it or dropped.
+followed at compile time; the arena epochs of section 18.11 catch a use of `arena.Chunked` memory after
+the arena is reset, released past it or dropped. A fixed `arena.Arena` buffer has no epoch check.
 
 **Arenas.** An arena owns everything allocated in it and reclaims it all at once when it is reset or
 dropped. Freeing into an arena does nothing, so the same owner code works in an arena and on the general
@@ -674,17 +684,23 @@ println(*first)               // panic: use of freed memory
 
 **The rule.** A use of heap memory through a view after the memory has been freed (a load, a store, or
 the release of a count it holds) is a run-time panic, "use of freed memory" (section 17.1, Panics). The
-same holds for the memory of any arena (an `arena.Chunked`, or an `arena.Arena` over a fixed buffer) after
-the arena has taken it back with `Reset`, `Release` or `Drop`, or freed it: the panic names the call that
+same holds for the memory of an `arena.Chunked` after the arena has taken it back with `Reset`,
+`Release` or `Drop`, or freed it: the panic names the call that
 took it back. Freeing memory a second time through the
 unchecked layer is a use too.
 
 **How it is checked.** In a checked build, a heap pointer carries a tag that names the generation of its
 allocation, and the allocator gives the memory a new generation when it frees it; each access through a
 pointer that may point to the heap compares the two. Arenas tag their memory with an epoch, which ends
-when the arena takes the memory back. The rule covers all heap and arena memory, whatever its size: large
-allocations, large arena chunks and the buffer of a fixed `arena.Arena` carry tags or epochs too, so no
-memory that the program can free or reset escapes the check. The encoding is in abi.md section 1.3. Pointers to frames, static
+when the arena takes the memory back. The rule covers all heap and `arena.Chunked` memory, whatever its
+size: large allocations and large arena chunks carry tags or epochs too, with contiguous payload.
+A shared runtime metadata directory reaches the right tag table for every interior address, so
+checks do not depend on a table being stored at each boundary within the payload. Metadata remains
+valid while a check reads it, even after payload memory is returned to its allocator. A child
+allocator's views also depend on its backing allocation remaining live. The buffer of a fixed
+`arena.Arena` is exempt: its allocations carry no epoch, even in a checked build. A use of memory from
+that buffer after the arena has taken it back has no defined behavior. The escape rules of section 18.3
+still apply. The encoding is in abi.md section 1.3. Pointers to frames, static
 storage and devices carry no tag and are not checked, since the rules of section 18.3 already cover them.
 A pointer converted to `uintptr` or passed to a function implemented outside Plutonium loses its tag.
 One check covers later accesses through the same pointer until the task does something that could free
@@ -703,7 +719,9 @@ behaves the same in both modes.
 
 **Bounded checks fail loudly.** A generation or epoch field has a finite range. Reaching its end must
 retire the memory (never hand it out again) or widen the field, so that a stale pointer never matches
-memory that was reused. Slab allocations retire a slot before its generation wraps. Arena epochs come from
+memory that was reused. Heap allocations retire an address range before its generation wraps.
+Generation history survives address reuse by another allocator, a different allocation layout or a
+new mapping; reuse cannot restart the generation or make a stale view match payload bytes. Arena epochs come from
 one program-wide counter, so that a stale pointer into a chunk a new arena reuses does not match; the
 hosted encoding accepts a wrap after 32,768 epochs (abi.md section 1.3), and a kernel encoding must retire
 the chunk instead.

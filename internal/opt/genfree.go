@@ -98,6 +98,13 @@ func genSafeFuncs(p *ssa.Program, funcs map[*ssa.Sym]*ssa.Func, reset bool) map[
 // (lib/pluto/arena/epoch.p). Their code may be inlined into other
 // functions, so a store inlined from them counts as a free too.
 var genFreeFuncs = map[string]bool{
+	"pluto/rt.GenInvalidate":          true,
+	"pluto/rt.GenUnregister":          true,
+	"pluto/rt.GenFreeHeap":            true,
+	"pluto/rt.GenCustomFree":          true,
+	"pluto/rt.genCustomFreeLocked":    true,
+	"pluto/rt.genUnregisterLocked":    true,
+	"pluto/rt.GenAfterCustomFree":     true,
 	"pluto/alloc.genRelease":          true,
 	"pluto/arena.(*Chunked).endEpoch": true,
 }

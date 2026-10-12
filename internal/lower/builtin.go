@@ -331,7 +331,7 @@ func (s *fnState) copyElems(dst, src, n *ssa.Value, et types2.Type) {
 		s.releaseRange(dst, n, et)
 	}
 	bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(et)))
-	s.callRuntime("memmove", nil, []*ssa.Value{dst, src, bytes})
+	s.callRuntime("memmove", nil, []*ssa.Value{s.checkedLen(dst, bytes), s.checkedLen(src, bytes), bytes})
 }
 
 // clearSlice clears the slice x refers to, whose elements are of type et. Each
@@ -357,7 +357,7 @@ func (s *fnState) clearSlice(x value, et types2.Type) {
 		s.releaseRange(p, n, et)
 	}
 	bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(et)))
-	s.callRuntime("memclr", nil, []*ssa.Value{s.checkedLen(p, n), bytes})
+	s.callRuntime("memclr", nil, []*ssa.Value{s.checkedLen(p, bytes), bytes})
 }
 
 // copySlice copies the first min(len(dst), len(src)) elements of src into dst
@@ -373,7 +373,7 @@ func (s *fnState) copySlice(dst, src value, srcStr bool) *ssa.Value {
 	}
 	n := s.minInt(dn, sn)
 	et := s.subst(unwrap(dst.T).Underlying().(*types2.Slice).Elem())
-	s.copyElems(s.checkedLen(dp, n), s.checkedLen(sp, n), n, et)
+	s.copyElems(dp, sp, n, et)
 	return n
 }
 

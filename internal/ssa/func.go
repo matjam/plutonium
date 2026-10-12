@@ -485,6 +485,9 @@ type Func struct {
 	// GenPanic is the function a failed generation check calls (with
 	// PragmaGenCheck).
 	GenPanic *Sym
+	// GenLive performs the shared metadata-directory lookup (ABI 1.3).
+	GenLive  *Sym
+	GenRange *Sym
 
 	// GenNoFree holds the functions whose calls cannot make a checked
 	// pointer stale (opt.GenFrees): a generation check done before such a

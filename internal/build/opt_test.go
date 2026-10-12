@@ -358,11 +358,11 @@ func main() {
 }
 `
 	// q[2] folds into the add; p[1] is loaded before the store.
-	asm := listFunc(t, src, "main.f")
+	asm := listFuncUnchecked(t, src, "main.f")
 	if !strings.Contains(asm, "add8 16(") || strings.Index(asm, "8(%rdi), %rax") > strings.Index(asm, "$100") {
 		t.Errorf("f: want q[2] folded and p[1] loaded first\n%s", asm)
 	}
-	if asm := listFunc(t, src, "main.g"); !strings.Contains(asm, "muls8 (") && !strings.Contains(asm, "muls8 8(") {
+	if asm := listFuncUnchecked(t, src, "main.g"); !strings.Contains(asm, "muls8 (") && !strings.Contains(asm, "muls8 8(") {
 		t.Errorf("g: want a load folded into the multiply\n%s", asm)
 	}
 }

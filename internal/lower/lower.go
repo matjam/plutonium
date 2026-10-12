@@ -407,6 +407,15 @@ func directives(doc *ast.CommentGroup) []string {
 // receiver's type arguments for methods of generic types), queueing its body
 // for lowering the first time it is seen.
 func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
+	if sym := l.genAllocatorSym(fn, targs); sym != nil {
+		return sym
+	}
+	return l.rawFuncSym(fn, targs)
+}
+
+// rawFuncSym is the implementation symbol, before inferred allocator
+// registration wrappers. Assembly/C linkage keeps its original name.
+func (l *Lowerer) rawFuncSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 	fn = fn.Origin()
 	d := l.decls[fn]
 	if d == nil {

@@ -88,12 +88,12 @@ func main() {
 }
 `
 	for _, name := range []string{"main.pure", "main.send"} {
-		if list := listFunc(t, src, name); strings.Contains(list, "xadd64") || strings.Contains(list, "chanFree") {
+		if list := listFuncUnchecked(t, src, name); strings.Contains(list, "xadd64") || strings.Contains(list, "chanFree") {
 			t.Errorf("%s counts the channel it uses:\n%s", name, list)
 		}
 	}
 	// The count is at offset 136 of the channel (abi.md section 12.6).
-	if risky := listFunc(t, src, "main.risky"); !strings.Contains(risky, "136(") || !strings.Contains(risky, "chanFree") {
+	if risky := listFuncUnchecked(t, src, "main.risky"); !strings.Contains(risky, "136(") || !strings.Contains(risky, "chanFree") {
 		t.Errorf("main.risky does not keep the channel it passes alive:\n%s", risky)
 	}
 	for _, level := range []int{0, 2} {

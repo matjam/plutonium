@@ -54,10 +54,11 @@ const (
 // As in Slab, the free lists link free slots through their first word, as
 // uintptr addresses of memory nobody owns.
 type SyncSlab struct {
-	pages   PageProvider
-	lock    rt.Lock
-	central [numClasses]uintptr
-	caches  [rt.MaxProcs]syncCache
+	genOwner uintptr
+	pages    PageProvider
+	lock     rt.Lock
+	central  [numClasses]uintptr
+	caches   [rt.MaxProcs]syncCache
 }
 
 // A syncCache is one processor's free slots. It is padded to its own cache
@@ -72,54 +73,78 @@ type syncCache struct {
 func NewSyncSlab(pages PageProvider) *SyncSlab {
 	s := New[SyncSlab](bootstrap{pages})
 	s.pages = pages
+	if genCheck {
+		s.genOwner = rt.GenNewSlabOwner()
+	}
 	return s
 }
 
 // Alloc returns size zeroed bytes aligned to align.
 func (s *SyncSlab) Alloc(size, align uintptr) unsafe.Pointer {
+	if genCheck && !rt.GenRegisteredLive(unsafe.Pointer(s)) {
+		panic("alloc: allocator memory was reclaimed")
+	}
 	if size > 1<<maxClassShift || align > 1<<maxClassShift {
+		if genCheck {
+			return genLarge(s.pages, size, align)
+		}
 		return alignedPages(s.pages, size, align)
 	}
 	c := classOf(size, align)
-	var p uintptr
-	if id := rt.ProcPin(); id >= 0 {
-		pc := &s.caches[id]
-		if pc.free[c] == 0 {
-			s.refill(pc, c)
+	for {
+		var p uintptr
+		if id := rt.ProcPin(); id >= 0 {
+			pc := &s.caches[id]
+			if pc.free[c] == 0 {
+				s.refill(pc, c)
+			}
+			p = pc.free[c]
+			if p != 0 {
+				genBacking(unsafe.Pointer(p), s.genOwner)
+				pc.free[c] = *(*uintptr)(unsafe.Pointer(p))
+				pc.n[c]--
+			}
+		} else {
+			s.lock.Lock()
+			if s.central[c] == 0 {
+				s.grow(c)
+			}
+			p = s.central[c]
+			if p != 0 {
+				genBacking(unsafe.Pointer(p), s.genOwner)
+				s.central[c] = *(*uintptr)(unsafe.Pointer(p))
+			}
+			s.lock.Unlock()
 		}
-		p = pc.free[c]
-		if p != 0 {
-			pc.free[c] = *(*uintptr)(unsafe.Pointer(p))
-			pc.n[c]--
+		rt.ProcUnpin()
+		if p == 0 {
+			return nil
 		}
-	} else {
-		s.lock.Lock()
-		if s.central[c] == 0 {
-			s.grow(c)
+		genBacking(unsafe.Pointer(p), s.genOwner)
+		*(*uintptr)(unsafe.Pointer(p)) = 0 // the rest of the slot is already zero
+		if genCheck {
+			if tagged := genTag(unsafe.Pointer(p), uintptr(1)<<(minClassShift+c)); tagged != nil {
+				return tagged
+			}
+			continue
 		}
-		p = s.central[c]
-		if p != 0 {
-			s.central[c] = *(*uintptr)(unsafe.Pointer(p))
-		}
-		s.lock.Unlock()
+		return unsafe.Pointer(p)
 	}
-	rt.ProcUnpin()
-	if p == 0 {
-		return nil
-	}
-	*(*uintptr)(unsafe.Pointer(p)) = 0 // the rest of the slot is already zero
-	if genCheck {
-		return genTag(unsafe.Pointer(p))
-	}
-	return unsafe.Pointer(p)
 }
 
 // Free returns memory to its size class.
 func (s *SyncSlab) Free(p unsafe.Pointer, size, align uintptr) {
+	if genCheck && !rt.GenRegisteredLive(unsafe.Pointer(s)) {
+		panic("alloc: allocator memory was reclaimed")
+	}
 	if p == nil {
 		return
 	}
 	if size > 1<<maxClassShift || align > 1<<maxClassShift {
+		if genCheck {
+			genFreeLarge(s.pages, p, size)
+			return
+		}
 		s.pages.FreePages(p, (size+PageSize-1)/PageSize)
 		return
 	}
@@ -164,6 +189,7 @@ func (s *SyncSlab) refill(pc *syncCache, c int) {
 		if p == 0 {
 			break
 		}
+		genBacking(unsafe.Pointer(p), s.genOwner)
 		link := (*uintptr)(unsafe.Pointer(p))
 		s.central[c] = *link
 		*link = pc.free[c]
@@ -179,6 +205,7 @@ func (s *SyncSlab) drain(pc *syncCache, c int) {
 	s.lock.Lock()
 	for i := 0; i < syncBatch; i++ {
 		p := pc.free[c]
+		genBacking(unsafe.Pointer(p), s.genOwner)
 		link := (*uintptr)(unsafe.Pointer(p))
 		pc.free[c] = *link
 		pc.n[c]--
@@ -195,7 +222,7 @@ func (s *SyncSlab) grow(c int) {
 	first := uintptr(0)
 	slot := uintptr(1) << (minClassShift + c)
 	if genCheck {
-		chunk = genChunk(s.pages)
+		chunk = genChunk(s.pages, s.genOwner)
 		first = genFirst(slot)
 	} else {
 		chunk = s.pages.AllocPages(chunkPages)

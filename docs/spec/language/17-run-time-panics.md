@@ -82,7 +82,8 @@ dependent value and neither panics nor faults (section 11.24).
 
 *Memory.*
 
-- The use of freed memory, and the use of arena memory after its arena was reset (section 17.6).
+- The use of freed heap memory, and the use of `arena.Chunked` memory after its arena was reset
+  (section 17.6). Fixed `arena.Arena` buffers are exempt (section 18.11).
 - A stack overflow (section 17.5).
 
 A deadlock is not a panic. When every task waits for another and nothing can wake them, the program ends
@@ -318,8 +319,9 @@ that description is the panic's message.
 
 A **stale view** is a view of heap memory whose allocation has been freed, or moved by a growing owner,
 since the view was made; or a view, string or box into an arena that has been reset, released past the
-view, or dropped. A use of a stale view is a run-time panic. It is neither a read of whatever the memory
-holds now nor a fault.
+view, or dropped. A use of a stale view of heap or `arena.Chunked` memory is a run-time panic. It is
+neither a read of whatever the memory holds now nor a fault. Fixed `arena.Arena` buffers have no epoch
+check, so use after the arena takes back their memory has no defined effect (section 18.11).
 
 ```go
 first := &ix.words.Slice()[0] // a view of the vector's array
@@ -336,7 +338,7 @@ The panic for arena memory names the call that ended the arena's epoch, such as 
 The compiler rejects most stale views before the program runs. A view of a frame is checked at compile
 time (section 18.3, Views), and so is a view of a local owner after the owner moved, was dropped or was
 assigned. The run-time check covers the views that the compiler cannot follow: heap memory reached
-through pointers, and arena memory.
+through pointers, and `arena.Chunked` memory.
 
 **Checked and unchecked builds.** The checks are made in a checked build. Section 18.11 (Generation checks)
 defines how they work, which builds are checked by default, and the unchecked mode, in which a use of a

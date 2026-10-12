@@ -1,91 +1,128 @@
 package alloc
 
-import "unsafe"
+import (
+	"pluto/rt"
+	"unsafe"
+)
 
-// Generational references (prototype; see internal/opt/gencheck.go).
-//
-// With the gencheck tag, the slab takes its chunks 64 KiB-aligned. The
-// first 8 KiB of a chunk hold one uint16 generation for every 16-byte
-// granule of the chunk; the slots that overlap them are never handed out.
-// Every granule of a slot holds the slot's generation, so a pointer into
-// the middle of an allocation finds it as easily as one to its start. A
-// small allocation's pointer carries the generation in bits 63..48;
-// generations start at 1, so a zero tag means "not from the slab". Free
-// checks that the pointer is current and moves the slot to the next
-// generation, and retires a slot whose generation would wrap rather than
-// let an old pointer match again.
-
+// Slab chunks retain their existing metadata prefix, but every checked
+// access uses the runtime directory (ABI section 1.3). Persistent address
+// history belongs to the runtime, including after mappings are reused.
 const (
 	genChunkSize = 1 << 16
 	genGranule   = 16
-	genTagShift  = 48
-	genHeader    = genChunkSize / genGranule * 2 // bytes of generations per chunk
-	genMax       = 0x8000                        // the first tag that is an arena epoch
+	genHeader    = genChunkSize / genGranule * 2
 )
 
-// genAt returns the generation of granule i of a chunk. It is a pointer to
-// the element rather than to the whole table, so that an access needs no
-// nil check (language spec section 17.5): chunk is never nil.
-func genAt(chunk, i uintptr) *uint16 {
-	return (*uint16)(unsafe.Add(unsafe.Pointer(chunk), i*2))
+func genFirst(slot uintptr) uintptr { return (genHeader + slot - 1) / slot }
+
+func genChunk(pages PageProvider, owner uintptr) unsafe.Pointer {
+	p, raw, _ := genPages(pages, genChunkSize, genChunkSize)
+	if p != nil {
+		token := rt.GenRegister(unsafe.Add(p, genHeader), genChunkSize-genHeader, raw, 0)
+		rt.GenSlabOwner(token, owner)
+		*(*uintptr)(p) = token
+	}
+	return p
 }
 
-// genFirst returns the index of the first slot of size slot past the
-// generation array of its chunk.
-func genFirst(slot uintptr) uintptr {
-	return (genHeader + slot - 1) / slot
-}
-
-// genInit gives every usable granule of a fresh chunk generation 1.
-func genInit(chunk unsafe.Pointer) {
-	for i := uintptr(genHeader / genGranule); i < genChunkSize/genGranule; i++ {
-		*genAt(uintptr(chunk), i) = 1
+func genBacking(p unsafe.Pointer, owner uintptr) {
+	if genCheck && !rt.GenSlabBackingLive(p, owner) {
+		panic("alloc: slab backing memory was reclaimed")
 	}
 }
 
-// genTag returns p, a plain slot address, tagged with the slot's
-// generation.
-func genTag(p unsafe.Pointer) unsafe.Pointer {
-	a := uintptr(p)
-	g := uintptr(*genAt(a&^(genChunkSize-1), (a&(genChunkSize-1))/genGranule))
-	return unsafe.Pointer(a | g<<genTagShift)
+func genTag(p unsafe.Pointer, slot uintptr) unsafe.Pointer {
+	base := uintptr(p) &^ (genChunkSize - 1)
+	token := *(*uintptr)(unsafe.Pointer(base))
+	return rt.GenTagHeap(token, p, slot)
 }
 
-// genRelease checks that p, a tagged pointer to a slot of size slot being
-// freed, is current, and moves the slot to the next generation. It reports
-// false when the slot is worn out and must not be reused. It is on every
-// Free's path, so it is inlined into the slabs' Free; the compiler knows it
-// by name (opt.genFreeFuncs), as what makes memory stale.
-//
 //pu:inline
 func genRelease(p unsafe.Pointer, slot uintptr) bool {
-	raw := *(*uintptr)(unsafe.Pointer(&p)) // the bits, tag included
-	tag := raw >> genTagShift
-	if tag == 0 {
-		return true
-	}
-	a := uintptr(p) // the plain address
-	chunk := a &^ (genChunkSize - 1)
-	first := (a & (genChunkSize - 1)) / genGranule
-	if uintptr(*genAt(chunk, first)) != tag {
+	if !rt.GenRegisteredLive(p) {
 		panic("alloc: Free of memory that was already freed")
 	}
-	next := uint16(tag + 1)
-	if next == genMax {
-		next = 0 // worn out: no pointer matches
-	}
-	for i := first; i < first+slot/genGranule; i++ {
-		*genAt(chunk, i) = next
-	}
-	return next != 0
+	base := uintptr(p) &^ (genChunkSize - 1)
+	token := *(*uintptr)(unsafe.Pointer(base))
+	return rt.GenFreeHeap(token, p, slot)
 }
 
-// genChunk returns a 64 KiB-aligned chunk of zeroed pages from pages with
-// its generations set up.
-func genChunk(pages PageProvider) unsafe.Pointer {
-	chunk := alignedPages(pages, genChunkSize, genChunkSize)
-	if chunk != nil {
-		genInit(chunk)
+// genLargeHeader sits immediately before the aligned contiguous payload.
+// The granule table's physical prefix is mirrored by stable runtime
+// metadata, which remains readable after this complete mapping is freed.
+type genLargeHeader struct {
+	raw   unsafe.Pointer
+	pages uintptr
+	token uintptr
+}
+
+// genPages aligns inside a complete provider allocation. Keeping its
+// original tagged pointer avoids splitting nested arena allocations or
+// losing their lifetime identity while trimming alignment padding.
+func genPages(pages PageProvider, size, align uintptr) (unsafe.Pointer, unsafe.Pointer, uintptr) {
+	if size > ^uintptr(0)/4 || align > ^uintptr(0)/4 {
+		return nil, nil, 0
 	}
-	return chunk
+	n := (size + PageSize - 1) / PageSize
+	if align > PageSize {
+		n += align/PageSize - 1
+	}
+	raw := pages.AllocPages(n)
+	if raw == nil {
+		return nil, nil, 0
+	}
+	base := (uintptr(raw) + align - 1) &^ (align - 1)
+	return unsafe.Pointer(base), raw, n
+}
+
+func genLarge(pages PageProvider, size, align uintptr) unsafe.Pointer {
+	if size == 0 {
+		size = 1
+	}
+	if align < 16 {
+		align = 16
+	}
+	if size > ^uintptr(0)/4 || align > ^uintptr(0)/4 {
+		return nil
+	}
+	table := (size + 15) / 16 * 2
+	off := (64 + table + unsafe.Sizeof(genLargeHeader{}) + align - 1) &^ (align - 1)
+	n := off + size
+	base, raw, pageCount := genPages(pages, n, max(align, uintptr(genChunkSize)))
+	if base == nil {
+		return nil
+	}
+	p := unsafe.Add(base, off)
+	h := (*genLargeHeader)(unsafe.Add(p, -int(unsafe.Sizeof(genLargeHeader{}))))
+	h.raw, h.pages = raw, pageCount
+	h.token = rt.GenRegister(p, size, raw, 0)
+	if h.token == 0 {
+		pages.FreePages(raw, pageCount)
+		return nil
+	}
+	tagged := rt.GenTagHeap(h.token, p, size)
+	if tagged == nil {
+		// Exhausted address history: retain the complete mapping rather than
+		// returning its prefix or payload to the provider.
+		rt.GenQuarantine(h.token)
+		return nil
+	}
+	bits := *(*uintptr)(unsafe.Pointer(&tagged))
+	t := unsafe.Slice((*uint16)(unsafe.Add(base, 64)), (size+15)/16)
+	for i := range t {
+		t[i] = uint16(bits >> 48)
+	}
+	return tagged
+}
+
+func genFreeLarge(pages PageProvider, p unsafe.Pointer, size uintptr) {
+	if !rt.GenRegisteredLive(p) {
+		panic("alloc: Free of memory that was already freed")
+	}
+	h := (*genLargeHeader)(unsafe.Add(unsafe.Pointer(uintptr(p)), -int(unsafe.Sizeof(genLargeHeader{}))))
+	rt.GenFreeHeap(h.token, p, max(size, uintptr(1)))
+	raw, n, token := h.raw, h.pages, h.token
+	rt.GenUnregister(token)
+	pages.FreePages(raw, n)
 }

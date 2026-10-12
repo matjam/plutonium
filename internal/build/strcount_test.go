@@ -105,10 +105,17 @@ func main() {
 }
 `
 	for _, level := range []int{0, 2} {
-		exe := buildDebugAlloc(t, src, level)
-		got, status := runDebugAlloc(t, exe, "")
-		if status != 2 || !strings.Contains(got, "counted counted") || !strings.Contains(got, "debug allocator") {
-			t.Errorf("-O%d: exit status %d, output:\n%s", level, status, got)
+		for _, checked := range []bool{false, true} {
+			cfg := build.Config{OptLevel: level, GenCheck: checked, NoGenCheck: !checked}
+			exe := buildDebugAllocWith(t, src, cfg)
+			got, status := runDebugAlloc(t, exe, "")
+			want := "debug allocator"
+			if checked {
+				want = "use of freed memory"
+			}
+			if status != 2 || !strings.Contains(got, "counted counted") || !strings.Contains(got, want) {
+				t.Errorf("-O%d checked=%v: exit status %d, output:\n%s", level, checked, status, got)
+			}
 		}
 	}
 }

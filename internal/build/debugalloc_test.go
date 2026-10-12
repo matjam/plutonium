@@ -345,7 +345,15 @@ func TestDebugAllocErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testguard.Parallel(t)
-			prog := buildDebugAlloc(t, debugAllocProgram(tt.body), 2)
+			cfg := build.Config{OptLevel: 2}
+			// These deliberate unsafe operations exercise the debug tool's
+			// own quarantine and diagnostic contract in unchecked mode
+			// (debug-allocator.md sections 1 and 5). Checked counterparts
+			// are covered by the generation-directory regressions.
+			if strings.Contains(tt.name, "after free") || strings.Contains(tt.name, "overflow") || strings.Contains(tt.name, "underflow") || tt.name == "double free" || tt.name == "free with the wrong size" || tt.name == "free with the wrong alignment" || tt.name == "free of an interior pointer" || tt.name == "free of memory never allocated" {
+				cfg.NoGenCheck = true
+			}
+			prog := buildDebugAllocWith(t, debugAllocProgram(tt.body), cfg)
 			got, status := runDebugAlloc(t, prog, tt.settings)
 			if status != tt.status {
 				t.Errorf("exit status %d, want %d", status, tt.status)
@@ -359,6 +367,31 @@ func TestDebugAllocErrors(t *testing.T) {
 				t.Logf("output:\n%s", got)
 			}
 		})
+	}
+}
+
+// Checked builds reject invalid tagged accesses before the debug tool's
+// guard-page or canary diagnostic. Its unchecked tests above retain those
+// separate diagnostic oracles.
+func TestDebugAllocCheckedAccesses(t *testing.T) {
+	testguard.Parallel(t)
+	for _, tc := range []struct{ name, body, settings string }{
+		{"overflow", `*(*byte)(unsafe.Add(base, 10)) = 1`, ""},
+		{"canary overflow", `*(*byte)(unsafe.Add(base, 10)) = 1`, "canary"},
+		{"underflow", `println(*(*byte)(unsafe.Add(base, -1)))`, "underflow"},
+		{"canary underflow", `*(*byte)(unsafe.Add(base, -3)) = 1`, "canary"},
+		{"stale", `alloc.Free(n); println(n.v)`, ""},
+	} {
+		for _, level := range []int{0, 2} {
+			t.Run(tc.name+"/O"+strconv.Itoa(level), func(t *testing.T) {
+				testguard.Parallel(t)
+				prog := buildDebugAllocWith(t, debugAllocProgram(tc.body), build.Config{OptLevel: level, GenCheck: true})
+				out, status := runDebugAlloc(t, prog, tc.settings)
+				if status != 2 || !strings.HasPrefix(out, "panic: runtime error: use of freed memory:") {
+					t.Fatalf("want checked access panic: status %d, output %q", status, out)
+				}
+			})
+		}
 	}
 }
 
@@ -431,7 +464,7 @@ func TestDebugAllocSites(t *testing.T) {
 		t.Run("double free/O"+strconv.Itoa(level), func(t *testing.T) {
 			testguard.Parallel(t)
 			var listing bytes.Buffer
-			prog := buildDebugAllocWith(t, debugAllocSitesProgram(true), build.Config{OptLevel: level, Listing: &listing})
+			prog := buildDebugAllocWith(t, debugAllocSitesProgram(true), build.Config{OptLevel: level, Listing: &listing, NoGenCheck: true})
 			got, status := runDebugAlloc(t, prog, "")
 			want := `\Apanic: debug allocator: double free of 0x[0-9a-f]+ \(8-byte allocation #4\)\n` +
 				`  freed again at ` + siteRE("main.release", 18) + `\n` +
@@ -467,7 +500,7 @@ func TestDebugAllocSitesUnsymbolised(t *testing.T) {
 	for _, level := range []int{0, 2} {
 		t.Run("O"+strconv.Itoa(level), func(t *testing.T) {
 			testguard.Parallel(t)
-			prog := buildDebugAllocWith(t, debugAllocSitesProgram(true), build.Config{OptLevel: level, NoTrace: true})
+			prog := buildDebugAllocWith(t, debugAllocSitesProgram(true), build.Config{OptLevel: level, NoTrace: true, NoGenCheck: true})
 			got, status := runDebugAlloc(t, prog, "")
 			if status != 2 || !strings.Contains(got, "panic: debug allocator: double free of ") {
 				t.Fatalf("exit status %d, output:\n%s", status, got)

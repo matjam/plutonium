@@ -60,6 +60,9 @@ func SetThreaded() { atomicCounts = true }
 //
 //pu:inline
 func addCount(h *strHeader, delta int64) int64 {
+	if genCheck {
+		checkLive(unsafe.Pointer(h))
+	}
 	return int64(xadd64((*uint64)(unsafe.Pointer(&h.count)), delta))
 }
 
@@ -71,6 +74,9 @@ func addCount(h *strHeader, delta int64) int64 {
 func strRetain(ctl uintptr) {
 	if ctl > strFlagMask {
 		h := (*strHeader)(unsafe.Pointer(ctl &^ strFlagMask))
+		if genCheck {
+			checkLive(unsafe.Pointer(h))
+		}
 		if atomicCounts {
 			addCount(h, 1)
 		} else {

@@ -103,7 +103,7 @@ func boxInit(p unsafe.Pointer, a Allocator, hdr, off uintptr) unsafe.Pointer {
 // allocator in its header.
 func boxFree(obj unsafe.Pointer, hdr, size, align uintptr) {
 	if genCheck {
-		checkLive(obj)
+		checkLive(unsafe.Add(obj, -16))
 	}
 	off, align := boxOffset(hdr, align)
 	a := *(*Allocator)(unsafe.Add(obj, -16))
@@ -125,6 +125,9 @@ func countOf(obj unsafe.Pointer, weak bool) *uint64 {
 //
 //pu:inline
 func addBoxCount(c *uint64, delta int64, sync bool) int64 {
+	if genCheck {
+		checkLive(unsafe.Pointer(c))
+	}
 	if sync && atomicCounts {
 		return int64(xadd64(c, delta))
 	}
@@ -138,6 +141,9 @@ func addBoxCount(c *uint64, delta int64, sync bool) int64 {
 //pu:inline
 func boxRetain(obj unsafe.Pointer, weak, sync bool) {
 	if obj != nil {
+		if genCheck {
+			checkLive(unsafe.Add(obj, -16))
+		}
 		addBoxCount(countOf(obj, weak), 1, sync)
 	}
 }
@@ -152,7 +158,7 @@ func boxReleaseStrong(obj unsafe.Pointer, sync bool) bool {
 		return false
 	}
 	if genCheck {
-		checkLive(obj)
+		checkLive(unsafe.Add(obj, -16))
 	}
 	n := addBoxCount(countOf(obj, false), -1, sync)
 	if n < 0 {
@@ -168,7 +174,7 @@ func weakRelease(obj unsafe.Pointer, sync bool, size, align uintptr) {
 		return
 	}
 	if genCheck {
-		checkLive(obj)
+		checkLive(unsafe.Add(obj, -16))
 	}
 	n := addBoxCount(countOf(obj, true), -1, sync)
 	if n > 0 {
@@ -188,7 +194,7 @@ func boxUpgrade(obj unsafe.Pointer, sync bool) bool {
 		return false
 	}
 	if genCheck {
-		checkLive(obj)
+		checkLive(unsafe.Add(obj, -16))
 	}
 	c := countOf(obj, false)
 	if sync && atomicCounts {
@@ -212,5 +218,8 @@ func boxUpgrade(obj unsafe.Pointer, sync bool) bool {
 // BoxCounts returns the strong and weak counts of a shared or synced
 // object, for tests and debugging.
 func BoxCounts(obj unsafe.Pointer) (strong, weak int) {
+	if genCheck {
+		checkLive(unsafe.Add(obj, -16))
+	}
 	return int(*countOf(obj, false)), int(*countOf(obj, true))
 }

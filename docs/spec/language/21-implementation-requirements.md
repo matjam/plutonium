@@ -120,7 +120,8 @@ implementation checks, at run time, everything that chapter 17 (Run-time panics)
 slicing, division, type assertions, channel misuse, string slicing at a position that is not a rune
 boundary, stack overflow, and the use of memory that has been freed. A use of freed heap memory is a
 run-time panic by the definition of the language: the views of heap memory are checked by **generation
-checks**, and views into arenas by **arena epochs** (section 18.11, Generation checks).
+checks**, and views into `arena.Chunked` by **arena epochs**. Fixed `arena.Arena` buffers are exempt
+even in a checked build (section 18.11, Generation checks).
 
 An implementation provides a documented **unchecked mode**, in which the generation checks and the arena
 epoch checks are not performed. The unchecked mode is not a dialect: a correct program behaves

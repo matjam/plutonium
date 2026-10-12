@@ -180,14 +180,18 @@ const (
 // section 6.3) then does not count a slot handed back to Free as kept, nor
 // the free list as something a freed slot points to.
 type Slab struct {
-	pages PageProvider
-	free  [numClasses]uintptr
+	genOwner uintptr
+	pages    PageProvider
+	free     [numClasses]uintptr
 }
 
 // NewSlab returns a slab allocator drawing pages from pages.
 func NewSlab(pages PageProvider) *Slab {
 	s := New[Slab](bootstrap{pages})
 	s.pages = pages
+	if genCheck {
+		s.genOwner = rt.GenNewSlabOwner()
+	}
 	return s
 }
 
@@ -238,31 +242,50 @@ func classOf(size, align uintptr) int {
 
 // Alloc returns size zeroed bytes aligned to align.
 func (s *Slab) Alloc(size, align uintptr) unsafe.Pointer {
+	if genCheck && !rt.GenRegisteredLive(unsafe.Pointer(s)) {
+		panic("alloc: allocator memory was reclaimed")
+	}
 	if size > 1<<maxClassShift || align > 1<<maxClassShift {
+		if genCheck {
+			return genLarge(s.pages, size, align)
+		}
 		return alignedPages(s.pages, size, align)
 	}
 	c := classOf(size, align)
-	if s.free[c] == 0 {
-		s.refill(c)
+	for {
 		if s.free[c] == 0 {
-			return nil
+			s.refill(c)
+			if s.free[c] == 0 {
+				return nil
+			}
 		}
+		p := unsafe.Pointer(s.free[c])
+		genBacking(p, s.genOwner)
+		s.free[c] = *(*uintptr)(p)
+		*(*uintptr)(p) = 0 // the rest of the slot is already zero
+		if genCheck {
+			if tagged := genTag(p, uintptr(1)<<(minClassShift+c)); tagged != nil {
+				return tagged
+			}
+			continue
+		}
+		return p
 	}
-	p := unsafe.Pointer(s.free[c])
-	s.free[c] = *(*uintptr)(p)
-	*(*uintptr)(p) = 0 // the rest of the slot is already zero
-	if genCheck {
-		return genTag(p)
-	}
-	return p
 }
 
 // Free returns memory to its size class.
 func (s *Slab) Free(p unsafe.Pointer, size, align uintptr) {
+	if genCheck && !rt.GenRegisteredLive(unsafe.Pointer(s)) {
+		panic("alloc: allocator memory was reclaimed")
+	}
 	if p == nil {
 		return
 	}
 	if size > 1<<maxClassShift || align > 1<<maxClassShift {
+		if genCheck {
+			genFreeLarge(s.pages, p, size)
+			return
+		}
 		s.pages.FreePages(p, (size+PageSize-1)/PageSize)
 		return
 	}
@@ -286,7 +309,7 @@ func (s *Slab) refill(c int) {
 	var chunk unsafe.Pointer
 	first := uintptr(0)
 	if genCheck {
-		chunk = genChunk(s.pages)
+		chunk = genChunk(s.pages, s.genOwner)
 		first = genFirst(uintptr(1) << (minClassShift + c))
 	} else {
 		chunk = s.pages.AllocPages(chunkPages)

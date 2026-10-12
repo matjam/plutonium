@@ -39,7 +39,7 @@ The implementation gaps of
 | 7 | Exhaustive enum switch is a terminating statement (done) | 75 | 12.1, 12.9, 7.12 |
 | 8 | `append` and the others are not predeclared (done) | 83 | 10.3, 13.1 |
 | 9 | Every nil dereference panics (done) | 84 | 17.5 |
-| 10 | No untagged heap or arena memory in checked builds | 85 | 18.11 |
+| 10 | Checked heap and Chunked arena memory (done) | 85 | 18.11 |
 | 11 | Sendability looks through pointers and slices (done) | 86 | 8.8, 19.2 |
 | 12 | An owner's sendability is decided by what it holds (done) | 87 | 8.8 |
 | 13 | A channel or map in an ordinary interface is lent (done) | 88 | 7.9 |
@@ -125,9 +125,18 @@ compiler (2026-10-11).
     declaration is the error that names the replacement.
 84. **Every nil dereference panics** (done, gap 9, `64e41b2`; section 17.5): an access whose offset from the
     pointer can reach past the unmapped page compares the pointer with nil first.
-85. **No untagged heap or arena memory in checked builds** (planned, gap 10; section 18.11, abi.md section
-    1.3): slab allocations over 2 KiB, arena chunks over 56 KiB and the buffer of a fixed `arena.Arena` get
-    generations or epochs.
+85. **Generation checks for heap and Chunked arena memory** (done, gap 10, native verified 2026-10-12;
+    section 18.11, abi.md section 1.3): the approved shared directory covers every checked pointer,
+    small and arbitrary contiguous large Slab/Chunked blocks and inferred custom allocators.
+    Persistent address histories, stable reader metadata and saved backing incarnations prevent
+    reuse resurrection while preserving unaffected partial-release views. Fixed `arena.Arena`
+    buffers remain explicitly unchecked. Full native gates pass with unchanged caps; see the
+    [verification and measurement record](verification/2026-10-12-generation-directory.md).
+    Tuning remains ordered after the gap list: coherent whole-range/ancestor snapshots,
+    same-granule scalar checks, proven extent reuse and interval lookup hints without cached
+    liveness. Dense reads cost 16.498 ns versus prior checked 0.809 ns; consumed 1024-byte
+    copy/clear costs 1503.776 ns versus 49.247 ns. These scoped measurements are not application
+    ratios, and sparse mapping-layout differences are documented.
 86. **Sendability looks through pointers and slices** (done, gap 11, `29b06f73`; sections 8.8 and 19.2): a
     `*S` whose `S` holds a `shared[T]` is not sendable.
 87. **An owner's sendability is decided by what it holds** (done, gap 12, `44e0ac24`; section 8.8): a view
@@ -309,8 +318,9 @@ compiler (2026-10-11).
     page-owning owners between address spaces waits for the PlutoniumOS IPC design.
 71. **Generation checks by default for hosted builds** (done, `766837b`, `b7a42d8`; sections 18.11 and
     21.5, abi.md section 1.3): a use of freed heap memory is a run-time panic; `--gencheck=false` is the
-    unchecked mode; kernel and freestanding builds stay unchecked until a kernel tag encoding exists. Cost
-    1.02x over `bench/`. Open: item 85.
+    unchecked mode; kernel and freestanding builds stay unchecked until a kernel tag encoding exists.
+    Historical prefix-only measurements reported 1.02x over `bench/`. That result does not describe
+    the shared-directory implementation; item 85 records its current measured costs and tuning work.
 72. **Arena epochs** (done, `3410025`; section 18.11, abi.md section 1.3): `arena.Chunked` carries a
     per-arena epoch; `alloc.SyncSlab` tags its allocations.
 75. **Language checks the integration left open** (done, gaps 7, 15 and 23 and the directive group; each

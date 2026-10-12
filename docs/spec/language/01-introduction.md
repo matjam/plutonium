@@ -209,8 +209,9 @@ These terms are used throughout. Each is defined in full in the section cited.
 - **Safe and unsafe code.** Code that the compiler checks against data races and the misuse of memory is
   safe. Code that uses package `unsafe`, the unchecked layer of the allocator interface, or functions
   written outside Plutonium is unsafe (section 18.12, Safe and unsafe code).
-- **Checked and unchecked mode.** A checked build makes a use of freed heap or arena memory a run-time
-  panic. A build without those checks is the unchecked mode, in which such a use has no defined effect.
+- **Checked and unchecked mode.** A checked build makes a use of freed heap or `arena.Chunked` memory a
+  run-time panic. Fixed `arena.Arena` buffers are exempt. A build without those checks is the unchecked
+  mode, in which such a use has no defined effect.
   Correct programs behave the same in both (section 18.11, Generation checks).
 
 Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

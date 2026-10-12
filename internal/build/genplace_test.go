@@ -261,11 +261,11 @@ func main() {
 		want int
 		why  string
 	}{
-		{"main.sum", 1, "the slice's check moves out of the loop"},
-		{"main.walk", 1, "walk cannot free: n stays checked across the calls"},
-		{"main.build", 0, "a new allocation stays checked across calls that only allocate"},
+		{"main.sum", 1, "each indexed access checks its actual byte extent"},
+		{"main.walk", 4, "each accessed field and extent is checked, including both val accesses"},
+		{"main.build", 3, "each new allocation field store checks its actual extent"},
 		{"main.release", 2, "release frees: n is checked again after the first call"},
-		{"main.rows", 2, "m's check moves out of both loops, each row's out of the inner one"},
+		{"main.rows", 3, "each row pointer, row length and indexed element checks its actual extent"},
 	} {
 		asm := listGenFunc(t, src, c.fn)
 		if n := strings.Count(asm, "call pluto/rt.panicStale"); n != c.want {

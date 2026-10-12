@@ -120,6 +120,9 @@ func nextMapSeed() uint64 {
 //
 //pu:inline
 func addMapCount(c *uint64, delta int64) int64 {
+	if genCheck {
+		checkLive(unsafe.Pointer(c))
+	}
 	if atomicCounts {
 		return int64(xadd64(c, delta))
 	}

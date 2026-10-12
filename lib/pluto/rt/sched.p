@@ -435,7 +435,9 @@ func newContext(top, a1, entry, a2 uintptr) uintptr {
 // it returns: the frame then outlives every use, which the analysis cannot
 // see. Like the rest of unsafe, the caller takes responsibility for that.
 func Pinned[T any](p *T) *T {
-	return (*T)(unsafe.Pointer(uintptr(unsafe.Pointer(p))))
+	// Hiding frame provenance does not discard the generation identity.
+	bits := *(*uintptr)(unsafe.Pointer(&p))
+	return (*T)(unsafe.Pointer(bits))
 }
 
 // A WaitReason says what a parked task waits for. Traces of parked tasks

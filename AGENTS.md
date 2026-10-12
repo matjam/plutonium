@@ -248,14 +248,15 @@ order.
 
 - The specification (version 0.3) is complete and consistent, and every language feature is
   implemented from it except the gaps below. Every row of the roadmap's gap table is done except
-  gaps 10 and 32. Of the items 93 to 98 that the document pass added, 94 is done, 95 and 98
+  gap 32. Of the items 93 to 98 that the document pass added, 94 is done, 95 and 98
   are decided with nothing to build, and 93, 96 and 97 are planned (step 5).
 - Landed on 2026-10-11: `//pu:nochecks` (replacing `//pu:nobounds`), `clear` of a slice of owners
   drops each element (gap 33), E2512 for any two exports of one symbol (item 94), `defer` of
   `clear`, `copy` and `delete` (gap 6), `go test ./internal/build -run TestRun -update` translating
   task statements for Go, and `strconv.Unquote`, `UnquoteChar` and `QuotedPrefix`.
 - Counted errors (gap 22, items 11 and 69) and counted `or` releases (item 99) completed native amd64
-  verification on 2026-10-12. Gap 10 is next.
+  verification on 2026-10-12. Generation-directory checks (gap 10, item 85) also pass the full native
+  checklist. Gap 32 is next.
 - `~/go/bin/pluto` is the installed compiler; reinstall it after each landing with
   `GOBIN=$HOME/go/bin go install ./cmd/pluto`.
 
@@ -264,7 +265,7 @@ order.
 #### Counted-error handoff completed on native amd64, 2026-10-12
 
 The counted-error implementation (`e365a43f`) and native verification fixes implement sections 16.5
-to 16.7. **Gap 22 is done.** The remaining ordered work starts with gap 10.
+to 16.7. **Gap 22 is done.** The remaining ordered work starts with gap 32.
 
 - `types2.IsCountedError` recognizes ordinary interfaces including `Error() string`. Lowering
   retains/releases their shared or synced dynamic values, using descriptor flag bits 8 and 16 and
@@ -315,16 +316,37 @@ updated PathError extraction and intentional error-message oracles, and preserve
 oracle with recursive traversal while its root stays held. Default and brief diagnostics explain an
 unsafe user Unwrap and suggest a matching counted target or storing the child in the root. One
 conservative generic assertion precision limit is recorded under roadmap item 5 for the later
-compiler/specification review. The remaining numbered work below has not been started.
+compiler/specification review. The remaining unfinished numbered work below has not been started.
+
+#### Generation-directory handoff completed on native amd64, 2026-10-12
+
+**Gap 10 is done.** Sections 18.9 and 18.11, ABI sections 1.2 and 1.3, and memory-model
+section 3.8 define the approved shared metadata directory. All checked pointers use it, including
+contiguous large Slab/Chunked blocks and inferred custom allocators. Address histories persist across
+reuse; generations retire before 0x8000. Stable reader metadata and saved ancestor incarnations
+preserve partial-release validity. Fixed `arena.Arena` buffers remain explicitly unchecked.
+
+Native verification passes full tests from a tracked-only archive, zero lint issues, all package
+coverage floors and aggregate nondecrease (87.78009% to 87.86287%), full SSA checks and the full
+generation-off build suite. Default timeout and memory caps remain unchanged. Embedded-runtime
+hello and the installed `~/go/bin/pluto` match their exact oracle. The
+[verification record](docs/verification/2026-10-12-generation-directory.md) includes failed-run
+evidence and complete coverage comparison.
+
+Checked microbenchmarks expose substantial costs: dense uint64 reads 16.498 ns versus prior checked
+0.809 ns; 1024-byte consumed copy/clear 1503.776 ns versus 49.247 ns. These are scoped probes,
+not application-wide ratios or a near-Rust performance claim. Their sources, layout limits and
+output-equivalence proofs are recorded for the ordered tuning pass.
 
 #### Ordered work
 
 1. **Gap 22, counted errors: done** (roadmap items 11 and 69; sections 16.5 and 16.7; decision D1:
    `errors.As` matches a `synced[T]` error against a `*T` target). The type checker, lowering, library,
    `os` and `strconv` error types and counted `or` releases (item 99) are verified on native amd64.
-2. **Gap 10, generation tags for large blocks** (item 85; section 18.11, abi.md section 1.3;
-   decision D3): large allocations get their own 64 KiB-aligned chunks with the tag table at the
-   base; fixed `arena.Arena` buffers stay unchecked, and the specification says so. Soundness work.
+2. **Gap 10, generation tags for large blocks: done** (item 85; section 18.11, abi.md section 1.3;
+   approved shared-directory decision of 2026-10-12). Universal directory checks cover small and
+   arbitrary contiguous large heap/Chunked blocks, nested backing and custom allocators. Fixed
+   `arena.Arena` buffers stay unchecked. Native verification and measured costs are recorded above.
 3. **Gap 32, package initialization starts no task** (item 100; sections 15.2, 15.3, 19.1, 19.3;
    decision D2). A compile error naming the start and the initializer, found by whole-program
    reachability. Replace the `Open (G44)` block in
@@ -348,7 +370,9 @@ compiler/specification review. The remaining numbered work below has not been st
      and 18.6).
 6. **After the gap list is empty:** a tuning pass on a quiet machine (task spawn, about 2x Go;
    buffered channels; the global task-list lock added for deadlock traces; string-key map hashing;
-   `strings.ReplaceAll`); a full difftest campaign with every feature enabled; one pass reading the
+   `strings.ReplaceAll`; shared-directory range checks using one coherent registration/ancestor
+   snapshot, same-granule scalar checks, proven extent reuse and interval-node hints that never cache
+   liveness); a full difftest campaign with every feature enabled; one pass reading the
    compiler against the specification in reverse, looking for code that does something the
    specification does not say.
 7. **Self-hosting** (`docs/plans/2026-10-09-self-hosting-plan.md`): the rest of phase 1's library,

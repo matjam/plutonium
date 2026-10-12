@@ -22,8 +22,7 @@ import (
 //
 //	t := p >> 48
 //	if t != 0 {
-//		gen := *(*uint16)((p &^ tag &^ 0xffff) + 2*((p & 0xffff) >> 4))
-//		if gen != t { panicStale(p) }
+//		if !rt.GenRegisteredLive(p) { panicStale(p) }
 //	}
 //	access p &^ tag
 //
@@ -51,8 +50,10 @@ import (
 //     so its check survives barriers that may free other memory but reset
 //     nothing (isReset), in loops as well.
 //
-// Functions marked ssa.PragmaGenMaskOnly (the runtime and the allocator)
-// only remove tags.
+// Multi-byte accesses check every covered granule and both extent bounds.
+// Their checks use the actual derived address, including interior offsets.
+// Functions marked ssa.PragmaGenMaskOnly (allocator internals and the named
+// runtime metadata/bootstrap hooks) only remove tags.
 func GenCheck(f *ssa.Func) {
 	if f.Pragmas&(ssa.PragmaGenCheck|ssa.PragmaGenMaskOnly) == 0 {
 		return
@@ -63,7 +64,7 @@ func GenCheck(f *ssa.Func) {
 	}
 	g := &genPlacer{
 		f:     f,
-		roots: map[*ssa.Value]int{},
+		roots: map[genExtent]int{},
 		parts: map[*ssa.Value]*genParts{},
 		at:    map[*ssa.Value][]*genSite{},
 		kind:  map[*ssa.Value]uint8{},
@@ -72,11 +73,7 @@ func GenCheck(f *ssa.Func) {
 	f.InvalidateCFG()
 }
 
-const (
-	genTagShift   = 48
-	genChunkLog   = 16
-	genGranuleLog = 4
-)
+const genTagShift = 48
 
 // genParts are a pointer's bits as an integer and its address without its
 // tag, computed right after the pointer is defined.
@@ -93,12 +90,19 @@ type genSite struct {
 	arg   int        // the address argument of v; -1 for a hoisted check
 	steps []*ssa.Value
 	root  *ssa.Value
+	size  int64
 	block *ssa.Block // v's block, or the preheader
 	// guard, for a hoisted check, is the condition under which the check
 	// runs (nil: always); mem is the memory state at the end of block.
 	guard, mem *ssa.Value
 	covered    bool // a check before the loop takes its place
 	need       bool // a check is emitted here
+}
+
+// Equal addresses can share a check only for the same byte extent.
+type genExtent struct {
+	root *ssa.Value
+	size int64
 }
 
 type genPlacer struct {
@@ -108,8 +112,8 @@ type genPlacer struct {
 	sites  []*genSite
 	at     map[*ssa.Value][]*genSite // access sites by access
 	hoists map[*ssa.Block][]*genSite // hoisted sites by preheader
-	roots  map[*ssa.Value]int        // root pointers, numbered
-	rootOf []*ssa.Value
+	roots  map[genExtent]int         // actual addresses and extents, numbered
+	rootOf []genExtent
 	parts  map[*ssa.Value]*genParts
 	// barrier and reset are, by block ID, whether the block holds a
 	// barrier, and one that may reset (isReset).
@@ -121,7 +125,7 @@ type genPlacer struct {
 	// Roots the function holds (genPlacer.holds): a new allocation, from
 	// where it is made (freshAt), or an owner parameter, from the entry
 	// (owned); and where each stops being held (escapeAt).
-	freshAt  map[*ssa.Value]int
+	freshAt  map[*ssa.Value][]int
 	owned    []int
 	escapeAt map[*ssa.Value][]int
 	// heldOut is, by block ID, the roots held at the end of the block.
@@ -273,7 +277,7 @@ func (g *genPlacer) collect() {
 	g.barrier = compat.Make[bool](g.f.NumBlocks())
 	g.reset = compat.Make[bool](g.f.NumBlocks())
 	for _, b := range g.f.Blocks {
-		for _, v := range b.Values {
+		for _, v := range compat.Append([]*ssa.Value(nil), b.Values...) {
 			if g.isReset(v) {
 				g.reset[b.ID] = true
 				g.barrier[b.ID] = true
@@ -284,15 +288,21 @@ func (g *genPlacer) collect() {
 			}
 			addrArgs := genAddrArgs(v)
 			for _, ai := range addrArgs {
-				root, steps := addrRoot(v.Args[ai])
-				if isStaticAddr(root) || isUntagPattern(root) {
+				base, _ := addrRoot(v.Args[ai])
+				if isStaticAddr(base) || isUntagPattern(base) {
 					continue
 				}
-				if _, ok := g.roots[root]; !ok {
-					g.roots[root] = len(g.rootOf)
-					g.rootOf = compat.Append(g.rootOf, root)
+				root := v.Args[ai]
+				size := genAccessSize(v)
+				if size == 0 {
+					continue
 				}
-				s := pu.New(genSite{v: v, arg: ai, steps: steps, root: root, block: b})
+				extent := genExtent{root, size}
+				if _, ok := g.roots[extent]; !ok {
+					g.roots[extent] = len(g.rootOf)
+					g.rootOf = compat.Append(g.rootOf, extent)
+				}
+				s := pu.New(genSite{v: v, arg: ai, root: root, block: b, size: size})
 				g.sites = compat.Append(g.sites, s)
 				g.at[v] = compat.Append(g.at[v], s)
 			}
@@ -327,17 +337,18 @@ func (g *genPlacer) hoist(l *ssa.Loop) {
 		return
 	}
 	// The sites in l, by invariant root, in the order first seen.
-	var order []*ssa.Value
-	byRoot := map[*ssa.Value][]*genSite{}
+	var order []genExtent
+	byRoot := map[genExtent][]*genSite{}
 	for _, s := range g.sites {
 		if s.covered || !l.Contains(g.ln, s.block) || l.Contains(g.ln, s.root.Block) ||
-			!g.dom.Dominates(s.root.Block, pre) || barriers && !g.heldIn(l, pre, s.root) {
+			!g.dom.Dominates(s.root.Block, pre) || barriers && !g.heldIn(l, pre, s) {
 			continue
 		}
-		if byRoot[s.root] == nil {
-			order = compat.Append(order, s.root)
+		extent := genExtent{s.root, s.size}
+		if byRoot[extent] == nil {
+			order = compat.Append(order, extent)
 		}
-		byRoot[s.root] = compat.Append(byRoot[s.root], s)
+		byRoot[extent] = compat.Append(byRoot[extent], s)
 	}
 	for _, r := range order {
 		sites := byRoot[r]
@@ -403,7 +414,7 @@ func (g *genPlacer) hoist(l *ssa.Loop) {
 
 // addHoist adds a check of from's root at the end of pre.
 func (g *genPlacer) addHoist(pre *ssa.Block, from *genSite, guard *ssa.Value) {
-	s := pu.New(genSite{v: from.v, arg: -1, root: from.root, block: pre, guard: guard, mem: g.memOut(pre)})
+	s := pu.New(genSite{v: from.v, arg: -1, root: from.root, block: pre, guard: guard, mem: g.memOut(pre), size: from.size})
 	g.sites = compat.Append(g.sites, s)
 	g.hoists[pre] = compat.Append(g.hoists[pre], s)
 }
@@ -558,8 +569,8 @@ func (g *genPlacer) memOut(b *ssa.Block) *ssa.Value {
 
 // heldIn reports whether the function holds root r from the end of pre
 // throughout loop l.
-func (g *genPlacer) heldIn(l *ssa.Loop, pre *ssa.Block, r *ssa.Value) bool {
-	i := g.roots[r]
+func (g *genPlacer) heldIn(l *ssa.Loop, pre *ssa.Block, s *genSite) bool {
+	i := g.roots[genExtent{s.root, s.size}]
 	out := g.heldOut[pre.ID]
 	if out == nil || out[g.words+i/64]&(1<<(i%64)) == 0 {
 		return false
@@ -672,7 +683,7 @@ func (g *genPlacer) transfer(b *ssa.Block, cur []uint64, decide bool) {
 		if s.covered {
 			return
 		}
-		i := g.roots[s.root]
+		i := g.roots[genExtent{s.root, s.size}]
 		have := avail[i/64]&(1<<(i%64)) != 0
 		if decide {
 			s.need = !have
@@ -696,10 +707,9 @@ func (g *genPlacer) transfer(b *ssa.Block, cur []uint64, decide bool) {
 				avail[k] &= held[k]
 			}
 		}
-		if i, ok := g.freshAt[v]; ok {
-			// A new allocation is current when the allocator hands it
-			// out.
-			avail[i/64] |= 1 << (i % 64)
+		for _, i := range g.freshAt[v] {
+			// Freshness proves held lifetime, not the bounds of an
+			// arbitrary access. The first extent still needs its check.
 			held[i/64] |= 1 << (i % 64)
 		}
 	}
@@ -715,7 +725,7 @@ func (g *genPlacer) transfer(b *ssa.Block, cur []uint64, decide bool) {
 // pointer to it, except by resetting an arena, so a check of such a root
 // stays valid across barriers that do not reset (isReset).
 func (g *genPlacer) holds() {
-	g.freshAt = map[*ssa.Value]int{}
+	g.freshAt = map[*ssa.Value][]int{}
 	g.escapeAt = map[*ssa.Value][]int{}
 	g.escBlocks = map[int][]*ssa.Block{}
 	owner := map[int64]bool{}
@@ -723,7 +733,8 @@ func (g *genPlacer) holds() {
 		owner[a] = true
 	}
 	var cands []int
-	for i, r := range g.rootOf {
+	for i, extent := range g.rootOf {
+		r := extent.root
 		if r.Op == ssa.OpSelectN && r.AuxInt == 1 && genFreshCall(r.Args[0]) || r.Op == ssa.OpArg && owner[r.AuxInt] {
 			cands = compat.Append(cands, i)
 		}
@@ -744,7 +755,7 @@ func (g *genPlacer) holds() {
 		}
 	}
 	for _, i := range cands {
-		r := g.rootOf[i]
+		r := g.rootOf[i].root
 		esc, ok := escapes(r, users, ctl)
 		if !ok {
 			continue
@@ -752,7 +763,7 @@ func (g *genPlacer) holds() {
 		if r.Op == ssa.OpArg {
 			g.owned = compat.Append(g.owned, i)
 		} else {
-			g.freshAt[r] = i
+			g.freshAt[r] = compat.Append(g.freshAt[r], i)
 		}
 		for _, u := range esc {
 			g.escapeAt[u] = compat.Append(g.escapeAt[u], i)
@@ -820,7 +831,7 @@ func equalBits(a, b []uint64) bool {
 // without its tag.
 func (g *genPlacer) emit() {
 	for _, r := range g.rootOf {
-		g.partsOf(r)
+		g.partsOf(r.root)
 	}
 	// Hoisted checks first: an access's check splits the block before
 	// it, which leaves the end of the block where it was.
@@ -856,6 +867,18 @@ func genAddrArgs(v *ssa.Value) []int {
 		return genArgs01
 	}
 	return nil
+}
+
+func genAccessSize(v *ssa.Value) int64 {
+	switch v.Op {
+	case ssa.OpLoad:
+		return v.Type.Size
+	case ssa.OpStore:
+		return v.Args[1].Type.Size
+	case ssa.OpMove, ssa.OpZero, ssa.OpFill:
+		return v.AuxInt
+	}
+	return 1
 }
 
 var (
@@ -1005,14 +1028,19 @@ func (g *genPlacer) check(b *ssa.Block, at *ssa.Value, s *genSite) {
 	b.AddEdgeTo(chk)
 	b.AddEdgeTo(cont)
 
-	// The generation of the 16-byte granule p points into, in the chunk's
-	// header: chunk + 2*((p & 0xffff) >> 4).
-	chunk := g.newValue(chk, pos, ssa.OpAnd, ssa.TI64, parts.plain, i64(-(1 << genChunkLog)))
-	idx16 := g.newValue(chk, pos, ssa.OpShrL, ssa.TI64, parts.bits, i64(genGranuleLog-1))
-	off := g.newValue(chk, pos, ssa.OpAnd, ssa.TI64, idx16, i64((1<<genChunkLog-1)>>(genGranuleLog-1)&^1))
-	gaddr := g.newValue(chk, pos, ssa.OpBitcast, ssa.TPtr, g.newValue(chk, pos, ssa.OpAdd, ssa.TI64, chunk, off))
-	gen := g.newValue(chk, pos, ssa.OpZeroExt, ssa.TI64, g.newValue(chk, pos, ssa.OpLoad, ssa.TI16, gaddr, mem))
-	ok := g.newValue(chk, pos, ssa.OpEq, ssa.TBool, gen, tag)
+	// All tagged addresses use the directory. A lookup only reads stable
+	// metadata; the original memory state remains valid for the payload
+	// access, whose block is reached only after the lookup succeeds.
+	args, sym := []*ssa.Value{p}, f.GenLive
+	if s.size > 1 {
+		args, sym = compat.Append(args, i64(s.size)), f.GenRange
+	}
+	args = compat.Append(args, mem)
+	live := g.newValue(chk, pos, ssa.OpCall, ssa.TupleOf(compat.Clone([]*ssa.Type{ssa.TMem, ssa.TBool})...), args...)
+	live.Aux = sym
+	live.Call = pu.New(ssa.CallInfo{ABI: ssa.ABIInternal, Results: compat.Clone([]*ssa.Type{ssa.TBool}), Implicit: true})
+	ok := g.newValue(chk, pos, ssa.OpSelectN, ssa.TBool, live)
+	ok.AuxInt = 1
 	chk.SetControl(ok)
 	chk.Likely = ssa.Likely
 	chk.AddEdgeTo(cont)

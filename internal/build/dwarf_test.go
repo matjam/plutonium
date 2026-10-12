@@ -458,9 +458,12 @@ func TestGDB(t *testing.T) {
 			"-ex", "run",
 			"-ex", "bt",
 			"-ex", "delete",
-			"-ex", "break main.sum",
+			"-ex", "tbreak main.sum",
 			"-ex", "continue",
 			"-ex", "bt",
+			"-ex", "tbreak main.wide",
+			"-ex", "continue",
+			"-ex", "tbreak main.sum",
 			"-ex", "continue",
 			"-ex", "bt",
 			filepath.Join(dir, "prog"))

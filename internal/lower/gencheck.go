@@ -3,21 +3,21 @@ package lower
 import (
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/token"
+	"strings"
 )
 
-// Generational references (prototype, Config.GenCheck).
+// Generational references (ABI section 1.3).
 //
-// With the gencheck build tag, the slab allocator in pluto/alloc tags every
-// small allocation: bits 63..48 of the pointer it returns hold the slot's
-// generation. Slots live in 64 KiB-aligned chunks that start with one
-// uint16 generation per 16-byte granule, and Free increments the
-// generation of every granule of the slot. Pointers to the stack, static
-// data, devices and large allocations have a zero tag (lib/pluto/alloc/gen.p).
+// Checked heap and Chunked allocations carry a full 16-bit tag in bits
+// 63..48. Runtime directory lookup validates their stable shadow tables
+// and backing ancestors, including large contiguous allocations. Stack,
+// static, device and fixed Arena pointers have a zero tag.
 //
 // Lowering marks every function with ssa.PragmaGenCheck, and opt.GenCheck,
 // the last pass, checks the tag of each memory access whose address is not
-// statically a frame slot or a symbol (opt/gencheck.go). The runtime and the
-// allocator get ssa.PragmaGenMaskOnly: they remove tags without checking.
+// statically a frame slot or a symbol (opt/gencheck.go). The allocator and
+// named runtime directory/bootstrap machinery get ssa.PragmaGenMaskOnly. Ordinary
+// runtime helpers use the same checks as program code.
 //
 // Lowering itself handles what the pass cannot see: converting a pointer
 // to uintptr removes the tag, as does passing it to a function implemented
@@ -32,7 +32,7 @@ func (l *Lowerer) genPragmas(f *ssa.Func, pkgPath string) {
 	if !l.cfg.GenCheck {
 		return
 	}
-	if pkgPath == "pluto/rt" || pkgPath == "pluto/alloc" {
+	if pkgPath == "pluto/alloc" || pkgPath == "pluto/rt" && genRuntimeMetadata[strings.TrimPrefix(f.Name, "pluto/rt.")] {
 		f.Pragmas |= ssa.PragmaGenMaskOnly
 		return
 	}
@@ -41,6 +41,25 @@ func (l *Lowerer) genPragmas(f *ssa.Func, pkgPath string) {
 		l.genPanic = l.funcSym(l.rtFunc("panicStale"), nil)
 	}
 	f.GenPanic = l.genPanic
+	f.GenLive = l.funcSym(l.rtFunc("GenRegisteredLive"), nil)
+	f.GenRange = l.funcSym(l.rtFunc("GenRegisteredRangeLive"), nil)
+}
+
+// These compiler-owned runtime hooks only traverse permanent raw metadata
+// or bootstrap the check itself. They cannot recursively check themselves.
+var genRuntimeMetadata = map[string]bool{
+	"GenRegisteredLive": true, "GenRegisteredRangeLive": true, "GenRegister": true, "GenUnregister": true,
+	"GenQuarantine": true, "genMetadata": true, "genBucket": true,
+	"genPage": true, "genEntry": true, "genLive": true, "genReadTag": true,
+	"genBacking": true, "genPublish": true, "GenTagHeap": true,
+	"GenSetEpoch": true, "GenInvalidate": true, "genPointerRecord": true,
+	"GenFreeHeap": true, "GenCustomAlloc": true, "GenCustomFree": true,
+	"genCustomFreeLocked": true,
+	"genPoisonSlabLocked": true, "genRecordDead": true, "genPrune": true,
+	"GenNewSlabOwner": true, "genPoisonSlab": true, "genUnregisterLocked": true,
+	"GenAfterCustomFree": true, "GenSlabOwner": true, "GenSlabBackingLive": true,
+	"checkLive": true, "panicStale": true, "NewEpoch": true,
+	"EpochEnded": true, "epochSite": true,
 }
 
 // checked returns ptr ready for a runtime function that does not check
@@ -79,11 +98,11 @@ func (s *fnState) genCheck(p, n *ssa.Value, pos token.Pos) *ssa.Value {
 	s.endIf(tagged, check, cont)
 	s.seal(check)
 	s.startBlock(check)
-	chunk := s.newValue(ssa.OpAnd, ssa.TI64, plain, i64(-(1 << 16)))
-	off := s.newValue(ssa.OpAnd, ssa.TI64, s.newValue(ssa.OpShrL, ssa.TI64, ai, i64(3)), i64(0x1ffe))
-	gaddr := s.newValue(ssa.OpBitcast, ssa.TPtr, s.newValue(ssa.OpAdd, ssa.TI64, chunk, off))
-	gen := s.newValue(ssa.OpZeroExt, ssa.TI64, s.newValue(ssa.OpLoad, ssa.TI16, gaddr, s.mem()))
-	ok := s.newValue(ssa.OpEq, ssa.TBool, gen, tag)
+	name, args := "GenRegisteredLive", []*ssa.Value{p}
+	if n != nil {
+		name, args = "GenRegisteredRangeLive", append(args, n)
+	}
+	ok := s.callRuntime(name, []*ssa.Type{ssa.TBool}, args)[0]
 	s.panicUnless(ok, pos, func() {
 		s.callRuntimeNoReturn("panicStale", p)
 	})

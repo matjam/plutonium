@@ -80,15 +80,15 @@ func NewChunked(chunkSize uintptr = DefaultChunkSize, parent alloc.Allocator = a
 	if chunkSize < 256 {
 		chunkSize = 256
 	}
-	if genCheck && chunkSize > epochData {
-		chunkSize = epochData // standard chunks are epoch chunks (epoch.p)
+	if chunkSize > ^uintptr(0)/4 {
+		panic("arena: chunk size is too large")
 	}
 	return Chunked{parent: parent, chunkSize: (chunkSize + 15) &^ 15}
 }
 
 func (c *chunk) data() unsafe.Pointer {
 	if isEpoch(c) {
-		return unsafe.Add(unsafe.Pointer(c), epochTable)
+		return unsafe.Add(unsafe.Pointer(c), c.meta().dataOff)
 	}
 	return unsafe.Add(unsafe.Pointer(c), chunkHeader)
 }
@@ -149,7 +149,7 @@ func (a *Chunked) grow(need uintptr) bool {
 		if need > size {
 			size = (need + 15) &^ 15
 		}
-		if genCheck && size <= epochData {
+		if genCheck {
 			c = a.newEpochChunk(size)
 			if c == nil {
 				return false

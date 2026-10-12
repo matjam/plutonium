@@ -46,16 +46,15 @@ const genCheck = true
 
 // checkLive panics if p, a pointer the runtime is about to use for a
 // reference count or a box's header, carries a tag that its memory no
-// longer has: the compiler checks such accesses in Plutonium code, but not
-// in the runtime, which handles raw addresses (lib/pluto/alloc/gen.p).
+// longer has. Header and atomic count helpers validate their actual count
+// address before handing its untagged address to assembly.
 func checkLive(p unsafe.Pointer) {
 	raw := *(*uintptr)(unsafe.Pointer(&p))
 	tag := raw >> 48
 	if tag == 0 {
 		return
 	}
-	a := raw << 16 >> 16
-	if uintptr(*(*uint16)(unsafe.Pointer(a&^0xffff + (a&0xffff)>>4*2))) != tag {
+	if !GenRegisteredLive(p) {
 		panicStale(p)
 	}
 }

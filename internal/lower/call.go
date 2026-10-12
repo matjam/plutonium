@@ -582,7 +582,7 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 // records the method's own arguments, explicit or inferred, on se.Sel.
 func (s *fnState) methodTypeArgs(fn *types2.Func, se *ast.SelectorExpr, recvT types2.Type) []types2.Type {
 	targs := s.recvTypeArgs(fn.Type().(*types2.Signature).Recv().Type())
-	if len(targs) == 0 {
+	if len(targs) == 0 && fn.Origin().Type().(*types2.Signature).RecvTypeParams().Len() != 0 {
 		// The receiver's type arguments come from the receiver expression.
 		targs = s.recvTypeArgs(s.subst(recvT))
 	}
@@ -761,7 +761,7 @@ func (s *fnState) methodExpr(e *ast.SelectorExpr, sel *types2.Selection, sig *ty
 	var targs []types2.Type
 	if w == nil {
 		targs = s.recvTypeArgs(fn.Type().(*types2.Signature).Recv().Type())
-		if len(targs) == 0 {
+		if len(targs) == 0 && fn.Origin().Type().(*types2.Signature).RecvTypeParams().Len() != 0 {
 			targs = s.recvTypeArgs(R)
 		}
 		targs = s.withMethodTypeArgs(fn, e.Sel, targs)

@@ -3,6 +3,7 @@
 package amd64
 
 import (
+	"pluto/bits"
 	"pluto/fmt"
 	"pluto/math"
 	"pluto/sort"
@@ -109,23 +110,13 @@ func (s regSet) unionChanged(t regSet) bool {
 func (s regSet) copyFrom(t regSet) { copy(s, t) }
 
 func (s regSet) forEach(fn func(i int)) {
-	for w, bits := range s {
-		for bits != 0 {
-			b := bits & -bits
-			i := w*64 + bitIndex(b)
+	for w, word := range s {
+		for word != 0 {
+			i := w*64 + bits.TrailingZeros64(word)
 			fn(i)
-			bits &^= b
+			word &= word - 1
 		}
 	}
-}
-
-func bitIndex(b uint64) int {
-	n := 0
-	for b > 1 {
-		b >>= 1
-		n++
-	}
-	return n
 }
 
 // postorder returns the indices of f's blocks in a postorder of the CFG
@@ -343,10 +334,23 @@ func (a *allocator) build(liveOut []regSet) {
 	f := a.f
 	n := f.numRegIndexes()
 	live := newRegSet(n)
+	classMask := newRegSet(n)
+	for i := range n {
+		if a.inClass(f.indexReg(i)) {
+			classMask.add(i)
+		}
+	}
 	var defs, uses []Reg
 	for bi := len(f.Blocks) - 1; bi >= 0; bi-- {
 		b := f.Blocks[bi]
+		// Cross-class registers cannot form interference edges. Filter once
+		// per block instead of testing them for every definition's live scan.
+		// Spill rewriting may have added registers since liveness was computed;
+		// retain copyFrom's handling of a shorter liveOut set.
 		live.copyFrom(liveOut[bi])
+		for i := range live {
+			live[i] &= classMask[i]
+		}
 		weight := math.Pow(10, float64(min(b.Depth, 6)))
 		for ii := len(b.Insts) - 1; ii >= 0; ii-- {
 			in := b.Insts[ii]
@@ -371,24 +375,25 @@ func (a *allocator) build(liveOut []regSet) {
 				a.addWorklistMove(in)
 			}
 			for _, d := range defs {
-				live.add(f.regIndex(d))
+				if a.inClass(d) {
+					live.add(f.regIndex(d))
+				}
 			}
 			for _, d := range defs {
 				if !a.inClass(d) {
 					continue
 				}
 				live.forEach(func(i int) {
-					l := f.indexReg(i)
-					if a.inClass(l) {
-						a.addEdge(l, d)
-					}
+					a.addEdge(f.indexReg(i), d)
 				})
 			}
 			for _, d := range defs {
 				live.remove(f.regIndex(d))
 			}
 			for _, u := range uses {
-				live.add(f.regIndex(u))
+				if a.inClass(u) {
+					live.add(f.regIndex(u))
+				}
 			}
 		}
 	}

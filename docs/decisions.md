@@ -54,20 +54,30 @@ run a task on anyway.
 
 Lands with: roadmap item 100 (gap 32).
 
-## D3. Large blocks get their own generation-tagged chunks; fixed arenas stay unchecked (18.11, abi.md 1.3)
+## D3. Shared metadata checks large contiguous blocks; fixed arenas stay unchecked (18.9, 18.11, abi.md 1.3)
 
 Decision: slab allocations over 2 KiB and `arena.Chunked` chunks over 56 KiB are
-allocated as their own 64 KiB-aligned chunks with the generation tag table at the base of
-the chunk, so the generation check of abi.md 1.3 reaches them. The buffer of a fixed
+allocated with their own 64 KiB-aligned metadata base and granule table before contiguous
+payload. On 2026-10-12 the user explicitly chose a shared metadata directory for every
+checked pointer lookup. The directory reaches the correct registered table for any
+interior address without placing tables inside large payloads. The existing 16-bit tag
+values and address mask are preserved. The buffer of a fixed
 `arena.Arena` is exempt from the generation check, and the specification says so
-(sentences in 18.11 and abi.md 1.3).
+(sentences in 18.11 and abi.md 1.3). Metadata readers must remain safe during concurrent
+registration and reclamation; address generation history survives allocator and mapping
+reuse, retires before heap generations wrap, and preserves nested parent/child validity.
+Ordinary allocations through custom allocators meet the same checked contract (18.9).
 
 Why: 18.11 requires no untagged heap or arena memory in a checked build. A fixed arena is
 one user-owned buffer, and per-allocation tags for its allocations would mean the arena
 suballocates through the allocator (defeating the point) or pays a tag lookup and a tag
 write on every allocation. As written, abi.md 1.3 cannot be implemented for a fixed
 buffer, so the honest move is a documented exception. Kernels use fixed arenas for
-exactly this reason, and the exception names the cost instead of hiding it.
+exactly this reason, and the exception names the cost instead of hiding it. The shared
+directory avoids a second hole: an object spanning 64 KiB boundaries cannot contain
+tag tables at each boundary without corrupting its contiguous payload. The user accepts
+additional lookup cost, to be measured. The bit-47 flag with direct small-object checks
+and permanently segregated address reservations was considered and not chosen.
 
 Lands with: roadmap item 85 (gap 10).
 
@@ -107,3 +117,14 @@ Lands with: roadmap item 82 (gap 6).
 - Linux file names that are not valid UTF-8 (open part of roadmap item 57): byte paths,
   a dedicated path type, or refusing non-UTF-8 names. This needs a design of its own, not
   a one-line decision. The `os` package keeps treating paths as strings until it is made.
+
+## Superseded decisions
+
+### D3: lookup at each payload address's 64 KiB base
+
+The 2026-10-11 D3 wording assumed the existing check could reach every large allocation's
+table by masking each data address to its 64 KiB base. The user replaced that assumption
+on 2026-10-12 with a shared metadata directory. Contiguous objects larger than one chunk
+need the later boundaries for data, so a table at every boundary cannot represent them.
+Large allocation tables remain at their own metadata bases; directory lookup replaces
+the address-mask lookup. The fixed-arena exemption and all generation/epoch values remain.
