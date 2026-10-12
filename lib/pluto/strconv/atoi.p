@@ -4,11 +4,9 @@ import "pluto/errors"
 
 // ErrSyntax indicates that a value does not have the right syntax.
 //
-// The parse functions return ErrSyntax and ErrRange themselves, where Go
-// wraps them in a *NumError that records the function and the input. The
-// caller has both at hand and can add them when it wraps the error, so
-// parsing never allocates. errors.Is(err, strconv.ErrSyntax) works in both
-// languages.
+// Failed conversions return a counted NumError recording the function and
+// input. Use errors.Is to match its ErrSyntax or ErrRange reason. Successful
+// conversions do not allocate (language spec section 16.7).
 var ErrSyntax = errors.New("invalid syntax")
 
 // ErrRange indicates that a value is out of range.
@@ -17,6 +15,14 @@ var ErrRange = errors.New("value out of range")
 // ParseUint parses s in the given base (0 means: infer from a 0x, 0o, 0b or
 // 0 prefix) as an unsigned integer of bitSize bits (0 means 64).
 func ParseUint(s string, base int, bitSize int) (uint64, error) {
+	n, err := parseUint(s, base, bitSize)
+	if err != nil {
+		return n, NewNumError("ParseUint", s, err)
+	}
+	return n, nil
+}
+
+func parseUint(s string, base int, bitSize int) (uint64, error) {
 	if len(s) == 0 {
 		return 0, ErrSyntax
 	}
@@ -79,6 +85,14 @@ func ParseUint(s string, base int, bitSize int) (uint64, error) {
 
 // ParseInt parses s as a signed integer (see ParseUint).
 func ParseInt(s string, base int, bitSize int) (int64, error) {
+	n, err := parseInt(s, base, bitSize)
+	if err != nil {
+		return n, NewNumError("ParseInt", s, err)
+	}
+	return n, nil
+}
+
+func parseInt(s string, base int, bitSize int) (int64, error) {
 	if len(s) == 0 {
 		return 0, ErrSyntax
 	}
@@ -93,7 +107,7 @@ func ParseInt(s string, base int, bitSize int) (int64, error) {
 		neg = true
 		s = s[1:]
 	}
-	u, err := ParseUint(s, base, bitSize)
+	u, err := parseUint(s, base, bitSize)
 	if err != nil && err != ErrRange {
 		return 0, err
 	}
@@ -112,6 +126,9 @@ func ParseInt(s string, base int, bitSize int) (int64, error) {
 
 // Atoi is ParseInt(s, 10, 0) converted to int.
 func Atoi(s string) (int, error) {
-	n, err := ParseInt(s, 10, 0)
-	return int(n), err
+	n, err := parseInt(s, 10, 0)
+	if err != nil {
+		return int(n), NewNumError("Atoi", s, err)
+	}
+	return int(n), nil
 }

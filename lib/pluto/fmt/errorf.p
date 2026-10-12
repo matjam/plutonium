@@ -3,7 +3,6 @@ package fmt
 import (
 	"pluto/alloc"
 	"pluto/errors"
-	"pluto/rt"
 	"pluto/unicode/utf8"
 	"pluto/vec"
 	"unsafe"
@@ -20,9 +19,8 @@ const maxWrapped = 8
 //
 // As in Go, the %w verb formats an error operand like %v and makes the
 // result wrap it: with one %w the error has an Unwrap() error method, with
-// several an Unwrap() []error method (up to 8 operands are recorded). The
-// new error owns the errors it wraps, so errors.Free on it releases the
-// whole chain.
+// several an Unwrap() []error method (up to 8 operands are recorded).
+// Each wrapped error remains alive until its last reference is released.
 //
 // The message is formatted when the error is made, into a string (language
 // spec section 18.8), which the error keeps: it does not depend on the
@@ -41,68 +39,39 @@ func Errorf(format string, args ...any) error {
 	msg := w.string()
 	nw := p.wrapped.Len()
 
-	var one wrapError
-	var many wrapErrors
-	var e0 error
-	hdr, align := unsafe.Sizeof(one), unsafe.Alignof(one)
 	if nw > 1 {
-		hdr = unsafe.Sizeof(many) + uintptr(nw)*unsafe.Sizeof(e0)
-	}
-	mem := alloc.Raw(hdr, align, a)
-	if nw > 1 {
-		e := (*wrapErrors)(mem)
+		e := alloc.Synced[wrapErrors](a)
 		e.msg = msg
-		e.errs = unsafe.Slice((*error)(unsafe.Add(mem, unsafe.Sizeof(many))), nw)
-		copy(e.errs, ws[:nw])
-		e.a, e.size = a, hdr
+		copy(e.errs[:], ws[:nw])
+		e.n = nw
 		return e
 	}
-	e := (*wrapError)(mem)
+	e := alloc.Synced[wrapError](a)
 	e.msg = msg
 	if nw == 1 {
 		e.err = ws[0]
 	}
-	e.a, e.size = a, hdr
 	return e
 }
 
 // A wrapError is Errorf's result with at most one %w operand.
 type wrapError struct {
-	msg  string
-	err  error
-	a    alloc.Allocator
-	size uintptr
+	msg string
+	err error
 }
 
 func (e *wrapError) Error() string { return e.msg }
 func (e *wrapError) Unwrap() error { return e.err }
 
-// Free releases the message and returns the error's memory to its
-// allocator; errors.Free also frees the error it wraps.
-func (e *wrapError) Free() {
-	var hdr wrapError
-	rt.ReleaseValues(e, 1)
-	e.a.Free(unsafe.Pointer(e), e.size, unsafe.Alignof(hdr))
-}
-
 // A wrapErrors is Errorf's result with several %w operands.
 type wrapErrors struct {
 	msg  string
-	errs []error
-	a    alloc.Allocator
-	size uintptr
+	errs [maxWrapped]error
+	n    int
 }
 
 func (e *wrapErrors) Error() string   { return e.msg }
-func (e *wrapErrors) Unwrap() []error { return e.errs }
-
-// Free releases the message and returns the error's memory to its
-// allocator; errors.Free also frees the errors it wraps.
-func (e *wrapErrors) Free() {
-	var hdr wrapErrors
-	rt.ReleaseValues(e, 1)
-	e.a.Free(unsafe.Pointer(e), e.size, unsafe.Alignof(hdr))
-}
+func (e *wrapErrors) Unwrap() []error { return e.errs[:e.n] }
 
 // errorBufSize is the capacity of an ErrorBuf's message.
 const errorBufSize = 200

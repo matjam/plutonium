@@ -190,6 +190,8 @@ with `Unwrap() error` or `Unwrap() []error`, in a preorder walk.
   tree of `err` whose dynamic type is assignable to `E`, stores it in `*target`, and reports `true`; it
   reports `false` if there is none. The call `errors.As(err, &perr)` works without reflection, with `E`
   inferred from the type of `target`.
+  A counted `shared[T]` or `synced[T]` error also matches a `*T` target; the pointer stored in
+  the target borrows the object and remains valid while the counted error is held (section 16.7).
 - `errors.AsType[E error](err error) (E, bool)` returns the first error of type `E` and whether there was
   one.
 

@@ -483,7 +483,24 @@ func (w *walker) value1(e ast.Expr) tset {
 		if e.Type == nil {
 			return xv
 		}
-		return w.unbox(xv, w.typeOf(e.Type))
+		to := w.typeOf(e.Type)
+		if types2.IsCountedError(to) {
+			// A counted result holds its own reference. Remove only the
+			// bound attached to a borrowed error, retaining frame pointers
+			// carried by a non-counted dynamic value.
+			var held tset
+			for _, t := range xv {
+				if t.kind == tFrame && t.loc.kind == lkObject && types2.IsCountedError(t.loc.typ) {
+					continue
+				}
+				held.add(t)
+			}
+			return w.unbox(held, to)
+		}
+		if types2.IsCountedError(w.typeOf(e.X)) {
+			xv = w.borrowError(e.X, xv)
+		}
+		return w.unbox(xv, to)
 
 	case *ast.KeyValueExpr:
 		w.value(e.Key)
@@ -679,7 +696,15 @@ func fieldType(T types2.Type, idx int) types2.Type {
 // conv converts a value of type from to type to, boxing it in the frame
 // when to is an interface and the value does not fit in a word.
 func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
-	if from == nil || to == nil || !isInterface(to) || isInterface(from) {
+	if from == nil || to == nil || !isInterface(to) {
+		return v
+	}
+	if isInterface(from) {
+		if types2.IsCountedError(from) && !types2.IsCountedError(to) && !types2.IsOwner(to) {
+			if x, ok := node.(ast.Expr); ok {
+				return w.borrowError(x, v)
+			}
+		}
 		return v
 	}
 	if b, ok := from.(*types2.Basic); ok && b.Kind() == types2.UntypedNil {
@@ -689,7 +714,8 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 		return nil // an untyped constant becomes a word or a static string
 	}
 	w.a.noteConversion(from)
-	if x, ok := node.(ast.Expr); ok && (isBoxPtr(from) || refNoun(from) != "") && !types2.IsOwner(to) {
+	countedError := types2.IsCountedError(to) && isCountedBox(from)
+	if x, ok := node.(ast.Expr); ok && (isBoxPtr(from) || refNoun(from) != "") && !types2.IsOwner(to) && !countedError {
 		// An ordinary interface lends: holding a box's pointer, or a
 		// map's or channel's, it is a view of the variable converted and
 		// counts no reference of its own (language spec section 7.9).
@@ -728,6 +754,25 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 		out.addAll(v)
 	}
 	return out
+}
+
+// borrowError bounds a non-counted view by the error holding its reference.
+// Values derived entirely from borrowed parameters preserve the caller's
+// provenance, including errors.As's pointer result.
+func (w *walker) borrowError(x ast.Expr, v tset) tset {
+	borrowed := len(v) > 0
+	for _, t := range v {
+		borrowed = borrowed && t.kind == tParam
+	}
+	if borrowed {
+		return v
+	}
+	return union(v, w.boxView(x))
+}
+
+func isCountedBox(T types2.Type) bool {
+	w, ok := T.Underlying().(*types2.Wrapper)
+	return ok && (w.Kind() == types2.WrapShared || w.Kind() == types2.WrapSynced)
 }
 
 // elemOrPointee returns what a pointer, slice or string's memory holds:

@@ -104,7 +104,7 @@ func main() {
 	check("Rename", os.Rename(a, b))
 	_, err = os.Stat(a)
 	println("old name gone", errors.Is(err, os.ErrNotExist))
-	errors.Free(err)
+	err = nil
 	check("Chmod", os.Chmod(b, 0o600))
 	fi, err = os.Lstat(b)
 	check("Lstat", err)
@@ -114,16 +114,16 @@ func main() {
 	err = os.Mkdir(b, 0o755)
 	var pe *os.PathError
 	println("mkdir over file", errors.As(err, &pe), pe.Op, errors.Is(err, os.ErrExist), pe.Path == b)
-	errors.Free(err)
+	err = nil
 	err = os.Remove(join(rb[:], dir, "missing"))
 	println("remove missing", errors.Is(err, os.ErrNotExist))
-	errors.Free(err)
+	err = nil
 	err = os.Remove(join(rb[:], dir, "x"))
 	println("remove non-empty dir fails", err != nil)
-	errors.Free(err)
+	err = nil
 	_, err = os.ReadDir(b)
 	println("readdir of a file", errors.Is(err, os.ErrNotExist), err != nil)
-	errors.Free(err)
+	err = nil
 
 	// The working directory.
 	old, err := os.Getwd()
@@ -146,7 +146,7 @@ func main() {
 	check("RemoveAll", os.RemoveAll(dir))
 	_, err = os.Stat(dir)
 	println("all gone", errors.Is(err, os.ErrNotExist))
-	errors.Free(err)
+	err = nil
 	check("RemoveAll missing", os.RemoveAll(dir))
 
 	// Environment and process.

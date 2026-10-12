@@ -1,11 +1,10 @@
 // Package os provides files, arguments and process control for hosted
 // programs.
 //
-// Errors follow pluto/errors. Opening a file reports a *PathError that
-// records the operation and the path; it comes from the same allocator as
-// the File (the default allocator, or the one given to OpenFile). Reads,
-// writes and Close report the syscall.Errno alone, so that the I/O path
-// never allocates; Read reports io.EOF at the end of input, and an
+// Errors follow pluto/errors. Failed file operations report a counted
+// PathError recording the operation and path. Open uses the File's allocator;
+// Read, Write and Close use the default allocator. Successful I/O does not
+// allocate. Read reports io.EOF at the end of input, and an
 // operation on a closed File reports ErrClosed. An Errno that the table
 // does not know reports "unknown error".
 //
@@ -221,7 +220,7 @@ func (f *File) Write(p []byte) (int, error) {
 	}
 	n, err := f.write(p)
 	f.decref()
-	return n, err
+	return n, f.pathError("write", err)
 }
 
 func (f *File) write(p []byte) (int, error) {
@@ -272,7 +271,7 @@ func (f *File) Read(p []byte) (int, error) {
 	}
 	n, err := f.read(p)
 	f.decref()
-	return n, err
+	return n, f.pathError("read", err)
 }
 
 func (f *File) read(p []byte) (int, error) {
@@ -320,7 +319,16 @@ func (f *File) Close() error {
 	if f.poll != nil {
 		f.poll.Evict()
 	}
-	return f.decref()
+	return f.pathError("close", f.decref())
+}
+
+// pathError keeps operation and path context for failed system calls.
+// EOF and ErrClosed retain their sentinel identity.
+func (f *File) pathError(op string, err error) error {
+	if err == nil || err == io.EOF || err == ErrClosed {
+		return err
+	}
+	return NewPathError(op, f.name, err)
 }
 
 // IsEOF reports whether err is io.EOF.
@@ -482,8 +490,8 @@ func CreateBytes(name []byte, a alloc.Allocator = alloc.Default()) (*File, error
 
 // OpenFile opens a file with the given flags and permissions. The File, or
 // on failure the *PathError, is allocated from a, by default the default
-// allocator; free the File with alloc.Free after Close, and the error with
-// errors.Free.
+// allocator. Free the File with alloc.Free after Close. The counted error
+// releases its storage with its last reference.
 func OpenFile(name string, flags int, perm uint32, a alloc.Allocator = alloc.Default()) (*File, error) {
 	f, err := openFile(strBytes(name), name, flags, perm, a)
 	if f != nil {
@@ -517,14 +525,11 @@ func openFile(name []byte, sname string, flags int, perm uint32, a alloc.Allocat
 // PathError records an error and the operation and file path that caused
 // it. Op and Path are strings the error keeps (language spec section 18.8),
 // so the error stays valid however long the caller's own copies live. Make
-// one with NewPathError, and release it with errors.Free (or by resetting
-// the arena it came from).
+// one with NewPathError; its last counted reference releases it.
 type PathError struct {
 	Op   string
 	Path string
 	Err  error
-
-	a alloc.Allocator // allocator that owns the PathError, or nil
 }
 
 // Error returns "op path: err", a new string, as Go's does.
@@ -544,42 +549,31 @@ func (e *PathError) Timeout() bool {
 	return ok && t.Timeout()
 }
 
-// Free releases the PathError's strings and returns its memory to the
-// allocator it came from. It does not free Err; errors.Free frees the whole
-// chain.
-func (e *PathError) Free() {
-	if e.a == nil {
-		return
-	}
-	alloc.Free(e, e.a)
-}
-
 // NewPathError returns a PathError for op on path failing with err,
 // allocated from a, by default the default allocator. It keeps op, and
 // keeps a counted path without copying it; a path nobody counts (a literal,
 // or a view made with unsafe.String, which may be of memory that is about
 // to change) is copied into a string from a, so that the error stays valid
 // however long the caller's path lives.
-func NewPathError(op, path string, err error, a alloc.Allocator = alloc.Default()) *PathError {
-	e := alloc.New[PathError](a)
+func NewPathError(op, path string, err error, a alloc.Allocator = alloc.Default()) synced[PathError] {
+	e := alloc.Synced[PathError](a)
 	e.Op = op
 	e.Path = rt.KeepString(path, a)
 	e.Err = err
-	e.a = a
 	return e
 }
 
 // NewPathErrorBytes is NewPathError for a path that is bytes. The error
 // holds the path as a string, with each invalid byte replaced by U+FFFD
 // (a copy from a, which the error keeps).
-func NewPathErrorBytes(op string, path []byte, err error, a alloc.Allocator = alloc.Default()) *PathError {
+func NewPathErrorBytes(op string, path []byte, err error, a alloc.Allocator = alloc.Default()) synced[PathError] {
 	return NewPathError(op, lossyCopy(path, a), err, a)
 }
 
 // newPathError makes the error for an operation on name, whose string form
 // sname is "" if the caller has only bytes. A string path is kept (or
 // copied) as NewPathError does; bytes are copied with lossy replacement.
-func newPathError(op string, name []byte, sname string, err error, a alloc.Allocator) *PathError {
+func newPathError(op string, name []byte, sname string, err error, a alloc.Allocator) synced[PathError] {
 	if sname == "" && len(name) > 0 {
 		sname = lossyCopy(name, a)
 	}

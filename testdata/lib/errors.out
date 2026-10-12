@@ -29,7 +29,7 @@ read timed out
 joined is: true true false
 joined as: true read timed out
 join nil: true
-after free live: 0 allocations: 11
+after free live: 0 allocations: 12
 plain: code 42 true
 printf: %!w(*errors.Text=&{empty input})|656d70747920696e707574|696E7075742F6F7574707574206572726F72
 errorbuf: device sda: input/output error true true
@@ -38,5 +38,5 @@ custom is: true false
 uncomparable: false false
 readfull: 3 unexpected EOF true
 readfull: 0 EOF true
-atoi: invalid syntax true
-atoi: value out of range true
+atoi: strconv.Atoi: parsing "12x": invalid syntax true
+atoi: strconv.ParseInt: parsing "99999999999999999999": value out of range true

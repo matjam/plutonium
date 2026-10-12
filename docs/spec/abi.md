@@ -500,7 +500,7 @@ Type descriptor, 88 bytes, read-only, named `type:<type>` (mirrored by `pluto/rt
 | 0 | `size uintptr` | 16 for interface types |
 | 8 | `hash uint32` | FNV-1a of the type string |
 | 12 | `kind uint8` | the kind of the type (below) |
-| 13 | `flags uint8` | 1 = direct, 2 = interface type with methods (its values hold an itab), 4 = the type has methods |
+| 13 | `flags uint8` | 1 = direct, 2 = interface type with methods (its values hold an itab), 4 = the type has methods, 8 = shared reference, 16 = synced reference |
 | 14 | `align uint8` | alignment in bytes (0 if 256 or more) |
 | 16 | `name string` | the type's name, written as described below |
 | 40 | `equal func(a, b unsafe.Pointer) bool` | closure record, or nil if not comparable or direct, or if the type is only part of a converted type |
@@ -508,7 +508,7 @@ Type descriptor, 88 bytes, read-only, named `type:<type>` (mirrored by `pluto/rt
 | 56 | `len uintptr` | array length, ring capacity, number of struct fields, or a map's slot size |
 | 64 | `fields *fieldDesc` | the struct's field descriptors, `len` of them; for a map, two: the key and the element as fields of a table slot (section 1.4); nil otherwise |
 | 72 | `ptrTo *typeDesc` | the descriptor of `*T` when `*T` has methods that `T` lacks; nil otherwise |
-| 80 | `drop uintptr` | code address of the drop adapter of `T`, set for every type converted into an owning interface (with or without methods) when a `T` needs a drop; 0 otherwise |
+| 80 | `drop uintptr` | code address of the drop adapter of `T`, set for shared and synced references and for every type converted into an owning interface (with or without methods) when a `T` needs a drop; 0 otherwise |
 
 The kind numbers are:
 

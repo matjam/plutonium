@@ -1,6 +1,6 @@
 // Error handling conventions: sentinels, Errno, os.PathError, an error kept
 // in its owner's storage, wrapping across layers with fmt.Errorf, Join,
-// errors.Is/As/AsType/Unwrap/Free, fmt.ErrorBuf, and the io and strconv
+// errors.Is/As/AsType/Unwrap, counted cleanup, fmt.ErrorBuf, and the io and strconv
 // sentinels.
 //
 // errors.out was checked against Go running this file with each pluto/...
@@ -104,7 +104,7 @@ func startup(name string) error {
 }
 
 // ----------------------------------------------------------------------------
-// An allocator that counts what is outstanding, to check errors.Free.
+// An allocator that counts what is outstanding, to check counted cleanup.
 
 type counting struct {
 	base         alloc.Allocator
@@ -182,7 +182,7 @@ func main() {
 	}
 	fmt.Println("open is:", errors.Is(err, os.ErrNotExist), errors.Is(err, syscall.ENOENT), errors.Is(err, os.ErrExist))
 	fmt.Println("unwrap:", errors.Unwrap(err) == syscall.ENOENT, errors.Unwrap(errors.Unwrap(err)) == nil)
-	errors.Free(err)
+	err = nil
 
 	// A parser error with a line and column, in the parser's storage.
 	var p Parser
@@ -215,28 +215,30 @@ func main() {
 		depth++
 	}
 	fmt.Println("chain length:", depth, "allocations:", c.allocs, "live:", c.live > 0)
-	errors.Free(err)
+	err = nil
 	fmt.Println("after free live:", c.live)
 
 	// Errorf with several %w, and Join.
-	restore = alloc.Use(&c)
-	multi := fmt.Errorf("both: %w and %w", ErrEmpty, syscall.EIO)
-	joined := errors.Join(ErrTooDeep, nil, multi, slowRead)
-	restore.Restore()
-	fmt.Printf("multi: %v\n", multi)
-	fmt.Println("multi is:", errors.Is(multi, ErrEmpty), errors.Is(multi, syscall.EIO), errors.Is(multi, ErrTooDeep), errors.Unwrap(multi) == nil)
-	fmt.Printf("joined:\n%v\n", joined)
-	fmt.Println("joined is:", errors.Is(joined, syscall.EIO), errors.Is(joined, ErrTimeout), errors.Is(joined, io.EOF))
-	var te *timeoutError
-	fmt.Println("joined as:", errors.As(joined, &te), te.op)
-	fmt.Println("join nil:", errors.Join(nil, nil) == nil)
-	errors.Free(joined)
+	func() {
+		restore := alloc.Use(&c)
+		multi := fmt.Errorf("both: %w and %w", ErrEmpty, syscall.EIO)
+		joined := errors.Join(ErrTooDeep, nil, multi, slowRead)
+		restore.Restore()
+		fmt.Printf("multi: %v\n", multi)
+		fmt.Println("multi is:", errors.Is(multi, ErrEmpty), errors.Is(multi, syscall.EIO), errors.Is(multi, ErrTooDeep), errors.Unwrap(multi) == nil)
+		fmt.Printf("joined:\n%v\n", joined)
+		fmt.Println("joined is:", errors.Is(joined, syscall.EIO), errors.Is(joined, ErrTimeout), errors.Is(joined, io.EOF))
+		var te *timeoutError
+		fmt.Println("joined as:", errors.As(joined, &te), te.op)
+		fmt.Println("join nil:", errors.Join(nil, nil) == nil)
+		multi, joined = nil, nil
+	}()
 	fmt.Println("after free live:", c.live, "allocations:", c.allocs)
 
 	// Errorf without %w, and %w outside Errorf.
 	plain := fmt.Errorf("code %d", 42)
 	fmt.Println("plain:", plain, errors.Unwrap(plain) == nil)
-	errors.Free(plain)
+	plain = nil
 	fmt.Printf("printf: %w|%x|%X\n", ErrEmpty, ErrEmpty, syscall.EIO)
 
 	// An ErrorBuf owned by the caller.

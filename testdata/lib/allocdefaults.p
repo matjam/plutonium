@@ -103,23 +103,25 @@ func main() {
 	_, err2 := os.Open("/nonexistent/allocdefaults", exp)
 	var pe *os.PathError
 	fmt.Println(err, errors.As(err2, &pe), pe.Op, errors.Is(err2, os.ErrNotExist))
-	errors.Free(err)
-	errors.Free(err2)
+	err = nil
+	err2 = nil
 	report("os.Open")
 
-	pe = os.NewPathError("stat", "x", os.ErrInvalid, exp)
-	fmt.Println(pe)
-	errors.Free(pe)
+	pathErr := os.NewPathError("stat", "x", os.ErrInvalid, exp)
+	fmt.Println(pathErr)
+	pathErr = nil
 	report("PathError")
 
 	// Errorf and Join are variadic, so they cannot have a defaulted
 	// allocator: they use the default one, which alloc.Use replaces.
-	e1 := fmt.Errorf("plain %d", 1)
-	restore := alloc.Use(exp)
-	e2 := fmt.Errorf("wrapped: %w", e1)
-	e3 := errors.Join(e2, errors.New("other"))
-	restore.Restore()
-	fmt.Println(e3)
-	errors.Free(e3)
+	func() {
+		e1 := fmt.Errorf("plain %d", 1)
+		restore := alloc.Use(exp)
+		e2 := fmt.Errorf("wrapped: %w", e1)
+		e3 := errors.Join(e2, errors.New("other"))
+		restore.Restore()
+		fmt.Println(e3)
+		e1, e2, e3 = nil, nil, nil
+	}()
 	report("Errorf/Join")
 }

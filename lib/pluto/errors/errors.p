@@ -11,12 +11,12 @@
 //     or written as &errors.Text{...} in a package-level variable;
 //   - storage owned by a longer-lived object, such as a parser that keeps
 //     its last error in a field and returns a pointer to it;
-//   - memory from an allocator: fmt.Errorf, errors.Join and os.PathError
-//     take one (the default allocator unless the caller passes another).
+//   - counted objects: fmt.Errorf, errors.Join and library error types
+//     keep their context and the errors they wrap alive.
 //
-// Errors that own allocator memory have a Free method; Free releases a whole
-// chain. Wrapping an error hands it to the wrapper, so free only the
-// outermost one, or allocate errors from an arena and reset it.
+// Copies of an error count a shared or synced object that it holds. The
+// last reference drops the object and frees it to its original allocator
+// (language spec section 16.7). No manual release is needed.
 package errors
 
 import "pluto/rt"
@@ -117,7 +117,7 @@ func As[E any](err error, target *E) bool {
 	if target == nil {
 		panic("errors: target cannot be nil")
 	}
-	for err != nil {
+	if err != nil {
 		if e, ok := any(err).(E); ok {
 			*target = e
 			return true
@@ -127,7 +127,7 @@ func As[E any](err error, target *E) bool {
 		}
 		switch x := err.(type) {
 		case interface{ Unwrap() error }:
-			err = x.Unwrap()
+			return As(x.Unwrap(), target)
 		case interface{ Unwrap() []error }:
 			for _, e := range x.Unwrap() {
 				if e != nil && As(e, target) {
@@ -148,26 +148,4 @@ func AsType[E error](err error) (E, bool) {
 	var e E
 	ok := As(err, &e)
 	return e, ok
-}
-
-// Free releases the memory owned by err and by every error in its tree:
-// each error that has a Free method is freed, after the errors it wraps.
-// Static and word-sized errors have nothing to free and are skipped, so Free
-// accepts any error. err must not be used afterwards.
-func Free(err error) {
-	for err != nil {
-		var next error
-		switch x := err.(type) {
-		case interface{ Unwrap() error }:
-			next = x.Unwrap()
-		case interface{ Unwrap() []error }:
-			for _, e := range x.Unwrap() {
-				Free(e)
-			}
-		}
-		if f, ok := err.(interface{ Free() }); ok {
-			f.Free()
-		}
-		err = next
-	}
 }

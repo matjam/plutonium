@@ -41,6 +41,7 @@ const strconvHarness = `package main
 
 import (
 	"pluto/os"
+	"pluto/errors"
 	"pluto/strconv"
 	"pluto/vec"
 	"unsafe"
@@ -62,12 +63,12 @@ func flush() {
 }
 
 func class(err error) byte {
-	switch err {
-	case nil:
+	switch {
+	case err == nil:
 		return 'o'
-	case strconv.ErrSyntax:
+	case errors.Is(err, strconv.ErrSyntax):
 		return 's'
-	case strconv.ErrRange:
+	case errors.Is(err, strconv.ErrRange):
 		return 'r'
 	}
 	return '?'

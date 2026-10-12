@@ -153,7 +153,7 @@ var errNameTooLong = errors.New("file name too long")
 func (w *walker) report(path []byte, d *os.DirEntry, err error) error {
 	r := w.call(path, d, err)
 	if r == nil || r == SkipDir || r == SkipAll {
-		errors.Free(err)
+		err = nil
 	}
 	return r
 }

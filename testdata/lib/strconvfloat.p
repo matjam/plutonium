@@ -468,7 +468,7 @@ func testAtof() {
 		test := &atoftests[i]
 		out, err := strconv.ParseFloat(test.in, 64)
 		outs := format(out, 'g', -1, 64)
-		if outs != test.out || err != test.err {
+		if outs != test.out || !errors.Is(err, test.err) {
 			errorf("ParseFloat(%v, 64) = %v, %v want %v, %v", test.in, out, err, test.out, test.err)
 		}
 
@@ -480,7 +480,7 @@ func testAtof() {
 				continue
 			}
 			outs := format(float64(out32), 'g', -1, 32)
-			if outs != test.out || err != test.err {
+			if outs != test.out || !errors.Is(err, test.err) {
 				errorf("ParseFloat(%v, 32) = %v, %v want %v, %v  # %v", test.in, out32, err, test.out, test.err, out)
 			}
 		}
@@ -493,7 +493,7 @@ func testAtof() {
 			continue
 		}
 		outs := format(float64(out32), 'g', -1, 32)
-		if outs != test.out || err != test.err {
+		if outs != test.out || !errors.Is(err, test.err) {
 			errorf("ParseFloat(%v, 32) = %v, %v want %v, %v  # %v", test.in, out32, err, test.out, test.err, out)
 		}
 	}
@@ -650,7 +650,7 @@ func testTrailing() {
 			vec.AppendString(&b, test.in)
 			vec.AppendString(&b, suffix)
 			in := unsafe.String(&buf[0], b.Len())
-			if _, err := strconv.ParseFloat(in, 64); err != ErrSyntax {
+			if _, err := strconv.ParseFloat(in, 64); !errors.Is(err, ErrSyntax) {
 				errorf("ParseFloat(%q, 64): err = %v; want ErrSyntax", in, err)
 			}
 			n++
@@ -947,7 +947,7 @@ func testNumError() {
 		errorf("errors.Is does not see the reason")
 	}
 	var ne *strconv.NumError
-	if !errors.As(e, &ne) || ne != e {
+	if !errors.As(e, &ne) || ne != (*strconv.NumError)(e) {
 		errorf("errors.As does not find the NumError")
 	}
 	// Strings are valid UTF-8 (language spec section 6.10), so the input
@@ -956,13 +956,14 @@ func testNumError() {
 	if want := "strconv.ParseInt: parsing \"\\u0080é\\x01\": value out of range"; e2.Error() != want {
 		errorf("Error() = %q, want %q", e2.Error(), want)
 	}
+	e, e2 = nil, nil
 	a.Reset()
 	// With the default allocator, Free returns the memory.
 	e3 := strconv.NewNumError("ParseUint", "", ErrSyntax, alloc.Default())
 	if want := "strconv.ParseUint: parsing \"\": invalid syntax"; e3.Error() != want {
 		errorf("Error() = %q, want %q", e3.Error(), want)
 	}
-	e3.Free()
+	e3 = nil
 	var plain strconv.NumError
 	plain.Err = ErrRange
 	if plain.Error() != ErrRange.Error() {

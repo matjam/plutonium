@@ -2,7 +2,6 @@ package os
 
 import (
 	"pluto/alloc"
-	"pluto/errors"
 	"pluto/rt"
 	"pluto/syscall"
 	"pluto/vec"
@@ -186,7 +185,7 @@ func readDir(name []byte, sname string, a alloc.Allocator) (DirEntries, error) {
 			if fi, err := e.Info(a); err == nil {
 				e.typ = fi.mode.Type()
 			} else {
-				errors.Free(err)
+				err = nil
 			}
 		}
 	}

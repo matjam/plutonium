@@ -18,8 +18,9 @@ import (
 // shared, synced or weak reference or a channel, which are counted the same
 // way (box.go): string itself, and structs and arrays with a counted field
 // or element. Slices,
-// pointers and interfaces only look at counted values; the memory they look
-// at holds the references.
+// pointers and ordinary interfaces only look at counted values; the memory
+// they look at holds the references. Interfaces including error hold their
+// own shared or synced dynamic reference (section 16.7).
 //
 // Every place that holds a counted value (a variable, a field, an element,
 // an interface box, a result) owns one reference per string in it, or holds
@@ -105,6 +106,8 @@ func (l *Lowerer) counted(T types2.Type) bool {
 		c = true // a channel is a counted reference (box.go)
 	case *types2.Map:
 		c = true // a counted reference to its table (maps.go)
+	case *types2.Interface:
+		c = types2.IsCountedError(T)
 	}
 	l.countedTypes[key] = c
 	return c
@@ -117,9 +120,10 @@ func (l *Lowerer) counted(T types2.Type) bool {
 // of a string (box and ch nil), a shared, synced or weak reference, or a
 // channel (box.go).
 type countedRef struct {
-	addr *ssa.Value      // where the control word or reference is
-	box  *types2.Wrapper // the box's type, or nil
-	ch   *types2.Chan    // the channel's type, or nil
+	addr  *ssa.Value      // where the control word or reference is
+	box   *types2.Wrapper // the box's type, or nil
+	ch    *types2.Chan    // the channel's type, or nil
+	iface types2.Type     // a counted error interface, or nil
 }
 
 // eachString calls f for every counted reference in the T at ptr: strings,
@@ -170,6 +174,8 @@ func (s *fnState) eachString(ptr *ssa.Value, T types2.Type, f func(r countedRef)
 		f(countedRef{addr: ptr, ch: types2.NewChan(u.Dir(), s.subst(u.Elem()))})
 	case *types2.Map:
 		f(countedRef{addr: ptr, box: s.l.mapBox(types2.NewMap(s.subst(u.Key()), s.subst(u.Elem())))})
+	case *types2.Interface:
+		f(countedRef{addr: ptr, iface: T})
 	case *types2.TaggedUnion:
 		// Only the payload of the variant the tag names holds references.
 		ul := s.l.unionLayoutOf(T, s.pos)
@@ -210,6 +216,10 @@ func (s *fnState) forEach(ptr, n *ssa.Value, et types2.Type, f func(r countedRef
 
 // retainRef takes one more reference of r.
 func (s *fnState) retainRef(r countedRef) {
+	if r.iface != nil {
+		s.countError(r.addr, r.iface, true)
+		return
+	}
 	if r.ch != nil {
 		s.chanRetain(s.load(ssa.TPtr, r.addr))
 		return
@@ -223,6 +233,10 @@ func (s *fnState) retainRef(r countedRef) {
 
 // releaseRef drops the reference r.
 func (s *fnState) releaseRef(r countedRef) {
+	if r.iface != nil {
+		s.countError(r.addr, r.iface, false)
+		return
+	}
 	if r.ch != nil {
 		s.chanRelease(s.load(ssa.TPtr, r.addr), r.ch)
 		return

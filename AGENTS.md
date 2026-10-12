@@ -259,6 +259,61 @@ order.
 
 ### Next steps
 
+#### Handoff from the Mac, 2026-10-11
+
+The user authorized committing and pushing the counted-error implementation to `main` for this
+handoff before the full native checklist. **Native amd64 verification is still pending.**
+Finish and verify this change on the amd64 development system before marking gap 22 done or starting
+gap 10. Remote `main` was fetched through `409c2c6`; the local gitignore commit was preserved by
+rebasing it (`2eef4e2`). The handoff includes that commit and the counted-error changes.
+
+- `types2.IsCountedError` recognizes ordinary interfaces including `Error() string`. Lowering
+  retains/releases their shared or synced dynamic values, using descriptor flag bits 8 and 16 and
+  the dynamic drop adapter. Ordinary interfaces remain borrowed. Counted type-switch bindings and
+  counted interface assertions take their own references.
+- `errors.As` matches a shared/synced box against a borrowed `*T` target (D1; section 16.6). Escape
+  checks bound pointer and lending-interface results to the caller's error, including helper and
+  indirect calls; counted targets keep independent references. `errors.As` now recursively walks
+  single-error unwraps so its borrowed parameter provenance remains visible.
+- `fmt.Errorf`, `errors.Join`, `os.PathError` and `strconv.NumError` use counted boxes. There is no
+  `errors.Free`, `PathError.Free` or `NumError.Free`. ParseInt, ParseUint, Atoi and ParseFloat wrap
+  failed conversions in NumError; successful conversions do not allocate. File Read, Write and Close
+  wrap failed system calls in PathError, preserving EOF and ErrClosed sentinel identity.
+- New regressions are `internal/build/counted_errors_test.go`,
+  `internal/build/counted_patherrors_test.go`, `internal/escape/counted_error_test.go` and
+  `internal/types2/counted_error_test.go`. They cover
+  copies, overwrites, error-embedding interfaces, exact assertions versus As, shared and synced
+  payloads, arrays, maps, channels, wrapped trees, borrowed-pointer escape and counted targets.
+  The runtime tests include debug-allocator leak checks at O0 and O2. The `or` return and discard
+  paths release counted errors (item 99).
+- Counted variadic argument arrays intentionally live until their caller returns. Allocation
+  assertions in `testdata/lib/errors.p` and `allocdefaults.p` therefore run after helper frames
+  return. Join now allocates a separate Vec for its error list; the golden allocation counts increase
+  by one allocation and one matching free. NumError golden messages now include function and input.
+- The full run exposed recursive cleanup generation when an implicit error drop emitted a Goexit
+  check. Its indirect drop call now completes cleanup before propagating Goexit, as a deferred call
+  does. The focused Goexit and kernel-or checks pass. Kernel-or's call-shape expectation permits
+  the guarded counting machinery introduced by section 16.7.
+
+Verification on the Mac uses the local arm64 Docker container `plutonium-native`: native Go 1.27.1,
+x86-64 cross binutils/cc, and qemu-x86_64 for generated Linux executables. CGO_ENABLED=0 is required
+because the cross cc/as cannot build Go's arm64 cgo runtime. The runtime regressions and focused
+library allocation tests pass. Host escape tests and the counted-error type test pass; golangci-lint
+v2.14.0 reports zero issues. Native timing and resident-memory verification is still required:
+QEMU changes both measurements, and TestTimers/sleeporder and TestManyTasks failed in the emulated
+run. The later broad test and coverage runs were stopped for this handoff; their cmd/pluto suites
+passed, but neither complete run finished. The complete host escape, lower, types2, diag and syntax/format
+suites pass. Do not weaken tests or treat emulated coverage as the final native result.
+
+On amd64, run the full checklist above, also `PLUTO_SSACHECK=1 go test ./internal/build/` and
+`PLUTO_GENCHECK=0 go test ./internal/build/`. Inspect any remaining failures, verify coverage has not
+decreased, update gap 22 in `docs/roadmap.md` and complete-spec section 6.5, and remove item 99's
+pending-counted-error sentence. Update the errors-design plan's Status block, commit any verification
+fixes and status updates, rebase against freshly fetched origin/main, push and reinstall `~/go/bin/pluto`.
+The remaining numbered work below has not been started in this session.
+
+#### Ordered work
+
 1. **Gap 22, counted errors** (roadmap items 11 and 69; sections 16.5 and 16.7; decision D1:
    `errors.As` matches a `synced[T]` error against a `*T` target). The largest open item: the type
    checker, lowering and the library, then the error types in `os` and `strconv`. Once it lands,

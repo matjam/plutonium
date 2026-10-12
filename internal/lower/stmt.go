@@ -931,10 +931,10 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 			addr := s.declareVar(v)
 			switch {
 			case isInterface(T) && types2.Identical(T, I):
-				s.storeTo(addr, iv, T)
+				s.assign(lvalue{ptr: addr, T: T}, iv, true)
 			case isInterface(T):
 				vv, _ := s.assertTo(iv, I, T, true, cc.Pos())
-				s.storeTo(addr, vv, T)
+				s.assign(lvalue{ptr: addr, T: T}, vv, true)
 			default:
 				s.assign(lvalue{ptr: addr, T: T}, s.fromDataWord(data, T), true)
 			}

@@ -134,12 +134,12 @@ func main() {
 		println("error path valid", utf8.ValidString(pe.Path), pe.Op)
 		print("error text: ")
 		println(utf8.ValidString(err.Error()))
-		errors.Free(err)
+		err = nil
 	}
 	// The string API for the lossy name does not find the file.
 	_, err = os.Stat(dir + "/�.txt")
 	println("lossy name finds nothing", errors.Is(err, os.ErrNotExist))
-	errors.Free(err)
+	err = nil
 
 	// StatBytes and LstatBytes.
 	fi, err = os.StatBytes(join(pb[:], dir, nHalf[:]))
@@ -164,7 +164,7 @@ func main() {
 	check("RenameBytes", os.RenameBytes(join(pb[:], dir, nFF[:]), join(qb[:], dir, nFE[:])))
 	_, err = os.StatBytes(join(pb[:], dir, nFF[:]))
 	println("old name gone", errors.Is(err, os.ErrNotExist))
-	errors.Free(err)
+	err = nil
 	_, err = os.StatBytes(join(pb[:], dir, nFE[:]))
 	println("new name there", err == nil)
 
@@ -222,11 +222,11 @@ func main() {
 	println()
 	_, err = os.Readlink(dir + "/plain.txt")
 	println("Readlink of a file fails", err != nil)
-	errors.Free(err)
+	err = nil
 	short := vec.NewFixed(lb[:1])
 	err = os.AppendReadlink(&short, dir+"/link")
 	println("target too long for the buffer", err != nil, short.Len())
-	errors.Free(err)
+	err = nil
 
 	// Walking: WalkDir gives valid paths, WalkDirBytes the exact ones, which
 	// can be opened.
@@ -286,15 +286,15 @@ func main() {
 	check("RemoveBytes", os.RemoveBytes(join(pb[:], dir, nFE[:])))
 	_, err = os.StatBytes(join(pb[:], dir, nFE[:]))
 	println("removed", errors.Is(err, os.ErrNotExist))
-	errors.Free(err)
+	err = nil
 	check("RemoveAllBytes", os.RemoveAllBytes(deep[:len(deep)-4]))
 	_, err = os.StatBytes(deep[:len(deep)-4])
 	println("RemoveAllBytes removed the tree", errors.Is(err, os.ErrNotExist))
-	errors.Free(err)
+	err = nil
 	check("RemoveAll", os.RemoveAll(dir))
 	_, err = os.Stat(dir)
 	println("all gone", errors.Is(err, os.ErrNotExist))
-	errors.Free(err)
+	err = nil
 	_ = io.EOF
 }
 

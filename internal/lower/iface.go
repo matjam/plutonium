@@ -87,6 +87,8 @@ const (
 	flagDirect       = 1
 	flagIfaceMethods = 2
 	flagMethods      = 4
+	flagShared       = 8
+	flagSynced       = 16
 
 	fieldExported = 1
 	fieldEmbedded = 2
@@ -236,6 +238,9 @@ func (tt *typeTable) describe(d *descInfo) {
 	case *types2.Wrapper:
 		if u.IsPointer() || u.Kind() == types2.WrapRing {
 			d.elem = tt.descOf(unwrap(u.Elem()), false)
+		}
+		if u.Kind() == types2.WrapShared || u.Kind() == types2.WrapSynced {
+			d.drop = tt.l.ifaceDropAdapter(T)
 		}
 		if u.Kind() == types2.WrapRing {
 			d.n = u.N()
@@ -394,6 +399,14 @@ func (tt *typeTable) emit() {
 		binary.LittleEndian.PutUint64(buf[0:], uint64(l.sizeof(d.T)))
 		binary.LittleEndian.PutUint32(buf[8:], descHash(k))
 		buf[12] = kindOf(d.T)
+		if w, ok := d.T.Underlying().(*types2.Wrapper); ok {
+			switch w.Kind() {
+			case types2.WrapShared:
+				buf[13] |= flagShared
+			case types2.WrapSynced:
+				buf[13] |= flagSynced
+			}
+		}
 		if l.isDirect(d.T) {
 			buf[13] |= flagDirect
 		}
@@ -646,17 +659,26 @@ func (s *fnState) toInterface(v value, from, I types2.Type) value {
 	}
 	data := s.dataWord(v, from)
 	handsOver := v.cnt == cntOwned && v.tmp != nil && !v.tmp.consumed
-	if types2.IsOwner(I) && s.l.isDirect(from) && s.l.counted(from) && !handsOver && v.cnt != cntStatic {
+	counts := types2.IsCountedError(I) && isStrongBox(from)
+	if (types2.IsOwner(I) || counts) && s.l.isDirect(from) && s.l.counted(from) && !handsOver && v.cnt != cntStatic {
 		// An owning interface holds a reference of its own to a shared,
 		// synced or weak object (language spec section 7.9).
 		s.retainWord(data, from)
-	} else if types2.IsOwner(I) && v.cnt == cntOwned && v.tmp != nil {
+	} else if (types2.IsOwner(I) || counts) && v.cnt == cntOwned && v.tmp != nil {
 		v.tmp.consumed = true // the interface takes over the temporary's reference
 	}
 	tmp := s.temp(I, "iface")
 	s.store(ssa.TPtr, tmp, tab)
 	s.store(ssa.TPtr, s.offPtr(tmp, 8), data)
+	if types2.IsCountedError(I) {
+		return s.ownTemp(tmp, I)
+	}
 	return aggValue(tmp, I)
+}
+
+func isStrongBox(T types2.Type) bool {
+	w, ok := T.Underlying().(*types2.Wrapper)
+	return ok && (w.Kind() == types2.WrapShared || w.Kind() == types2.WrapSynced)
 }
 
 // dataWord returns an interface data word for a value of concrete type T.
@@ -771,6 +793,10 @@ func (s *fnState) ifaceToIface(v value, to types2.Type, pos ast.Node) value {
 	itab := s.callRuntime("convI2I", []*ssa.Type{ssa.TPtr}, []*ssa.Value{desc, s.symAddr(s.l.types.desc(to))})[0]
 	s.store(ssa.TPtr, tmp, itab)
 	s.store(ssa.TPtr, s.offPtr(tmp, 8), data)
+	if types2.IsCountedError(to) {
+		s.retainAt(tmp, to)
+		return s.ownTemp(tmp, to)
+	}
 	return aggValue(tmp, to)
 }
 
@@ -1006,12 +1032,20 @@ func (s *fnState) assertTo(iv value, I, T types2.Type, commaOk bool, pos token.P
 			s.panicUnless(ok, pos, func() {
 				s.callRuntimeNoReturn("panicAssert", s.typeDescOf(tab, I), s.symAddr(s.l.types.desc(T)))
 			})
+			if types2.IsCountedError(T) {
+				s.retainAt(res.v, T)
+				return s.ownTemp(res.v, T), nil
+			}
 			return res, nil
 		}
 		zero := s.zeroValue(T)
 		out := s.temp(T, "assert")
 		s.storeTo(out, zero, T)
 		s.ifThen(ok, func() { s.storeTo(out, res, T) })
+		if types2.IsCountedError(T) {
+			s.retainAt(out, T)
+			return s.ownTemp(out, T), ok
+		}
 		return s.loadFrom(out, T), ok
 	}
 
@@ -1040,7 +1074,21 @@ func (s *fnState) typeMatches(tab *ssa.Value, I, T types2.Type) *ssa.Value {
 	} else {
 		want = s.symAddr(s.l.types.itab(T, I))
 	}
-	return s.newValue(ssa.OpEq, ssa.TBool, tab, want)
+	match := s.newValue(ssa.OpEq, ssa.TBool, tab, want)
+	// errors.As exposes a borrowed *T for a shared[T] or synced[T]
+	// error (decision D1, section 16.6). Ordinary assertions still test
+	// exact dynamic type identity.
+	if s.pkg != nil && s.pkg.Path == "pluto/errors" && s.job.decl != nil && s.job.decl.Name.Name == "As" {
+		if p, ok := T.Underlying().(*types2.Pointer); ok {
+			desc := s.typeDescOf(tab, I)
+			for _, kind := range []types2.WrapperKind{types2.WrapShared, types2.WrapSynced} {
+				box := types2.NewWrapper(kind, p.Elem(), 0)
+				boxMatch := s.newValue(ssa.OpEq, ssa.TBool, desc, s.symAddr(s.l.types.desc(box)))
+				match = s.newValue(ssa.OpOr, ssa.TBool, match, boxMatch)
+			}
+		}
+	}
+	return match
 }
 
 // ifaceEqual compares two interface values of the same interface type.

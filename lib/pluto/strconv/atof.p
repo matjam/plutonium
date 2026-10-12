@@ -732,16 +732,18 @@ func atof64(s string) (f float64, n int, err error) {
 // ParseFloat recognizes the string "NaN", and the (possibly signed) strings "Inf" and "Infinity"
 // as their respective special floating point values. It ignores case when matching.
 //
-// Go wraps the error in a *NumError that records the function and the input;
-// like ParseInt, ParseFloat returns ErrSyntax and ErrRange themselves, so that
-// parsing never allocates. errors.Is(err, strconv.ErrSyntax) holds in both
-// languages. NewNumError makes the Go form when a caller wants it.
+// A failed conversion returns a counted NumError recording the function
+// and input. Use errors.Is to match ErrSyntax or ErrRange. Successful
+// conversions do not allocate (language spec section 16.7).
 //
 // [floating-point literals]: https://go.dev/ref/spec#Floating-point_literals
 func ParseFloat(s string, bitSize int) (float64, error) {
 	f, n, err := parseFloatPrefix(s, bitSize)
 	if n != len(s) {
-		return 0, ErrSyntax
+		return 0, NewNumError("ParseFloat", s, ErrSyntax)
+	}
+	if err != nil {
+		return f, NewNumError("ParseFloat", s, err)
 	}
 	return f, err
 }

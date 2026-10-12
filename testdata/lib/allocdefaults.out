@@ -12,4 +12,4 @@ stat x: invalid argument
 PathError    default 10/9 explicit 10/9
 wrapped: plain 1
 other
-Errorf/Join  default 12/11 explicit 14/13
+Errorf/Join  default 12/11 explicit 15/14

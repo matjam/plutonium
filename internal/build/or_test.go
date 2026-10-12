@@ -89,7 +89,9 @@ func main() {
 		}
 		fn := funcListing(t, listing, "main.sum")
 		for _, m := range re.FindAllStringSubmatch(fn, -1) {
-			if !strings.Contains(m[1], "main.read") {
+			// Section 16.7 adds guarded retain/release calls for counted
+			// errors, including the indirect dynamic drop adapter.
+			if !strings.Contains(m[1], "main.read") && m[1] != "pluto/rt.boxRetain" && m[1] != "pluto/rt.xadd64" && !strings.HasPrefix(m[1], "*%") {
 				t.Errorf("O%d: main.sum calls %s:\n%s", level, m[1], fn)
 			}
 		}

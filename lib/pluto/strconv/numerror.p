@@ -6,6 +6,7 @@ package strconv
 
 import (
 	"pluto/alloc"
+	"pluto/rt"
 	"pluto/unicode/utf8"
 	"unsafe"
 )
@@ -13,20 +14,15 @@ import (
 // A NumError records a failed conversion, as Go's does: the function that
 // failed, the input, and the reason (usually ErrSyntax or ErrRange).
 //
-// The parse functions return the reason itself, so that parsing does not
-// allocate; a caller that wants Go's *NumError makes one with NewNumError,
-// which formats the message, "strconv.ParseFloat: parsing "1x": invalid
-// syntax", once, into the same block as the NumError. Func and Num view that
-// block, so the error stays valid however long the input lives. Release it
-// with errors.Free (or by resetting the arena it came from).
+// Failed conversions return a counted NumError. NewNumError retains the
+// function and input strings and formats the message once. The last error
+// reference releases its storage (language spec section 16.7).
 type NumError struct {
 	Func string // the failing function (ParseBool, ParseInt, ParseUint, ParseFloat, ParseComplex)
 	Num  string // the input
 	Err  error  // the reason the conversion failed (ErrRange, ErrSyntax, ...)
 
-	msg  string
-	a    alloc.Allocator // allocator that owns the NumError, or nil
-	size uintptr
+	msg string
 }
 
 // Error returns "strconv.Func: parsing Num: Err", with Num quoted as a Go
@@ -45,22 +41,11 @@ func (e *NumError) Error() string {
 // Unwrap returns the reason, so that errors.Is(err, strconv.ErrRange) works.
 func (e *NumError) Unwrap() error { return e.Err }
 
-// Free returns the NumError's memory to the allocator it came from. It does
-// not free Err; errors.Free frees the whole chain.
-func (e *NumError) Free() {
-	if e.a == nil {
-		return
-	}
-	var hdr NumError
-	e.a.Free(unsafe.Pointer(e), e.size, unsafe.Alignof(hdr))
-}
-
 // NewNumError returns a NumError for the function fn failing on num with
-// err, allocated with its message in one block from a, by default the
+// err, with its counted object and message allocated from a, by default the
 // default allocator. For example, NewNumError("ParseFloat", s, ErrSyntax)
 // is the error Go's ParseFloat returns for a malformed s.
-func NewNumError(fn, num string, err error, a alloc.Allocator = alloc.Default()) *NumError {
-	var hdr NumError
+func NewNumError(fn, num string, err error, a alloc.Allocator = alloc.Default()) synced[NumError] {
 	errMsg := ""
 	if err != nil {
 		errMsg = err.Error()
@@ -71,15 +56,9 @@ func NewNumError(fn, num string, err error, a alloc.Allocator = alloc.Default())
 	var q quoter
 	q.quote(num)
 	n := len(prefix) + len(fn) + len(parsing) + q.n + 2 + len(errMsg)
-	// The block holds the NumError, a copy of num, then the message.
-	off := unsafe.Sizeof(hdr)
-	total := off + uintptr(len(num)) + uintptr(n)
-	p := alloc.Raw(total, unsafe.Alignof(hdr), a)
-	numText := unsafe.Slice((*byte)(unsafe.Add(p, off)), len(num))
-	copy(numText, num)
-	text := unsafe.Slice((*byte)(unsafe.Add(p, off+uintptr(len(num)))), n)
+	p, ctl := rt.NewStringBuffer(n, a)
+	text := unsafe.Slice(p, n)
 	k := copy(text, prefix)
-	fnAt := k
 	k += copy(text[k:], fn)
 	k += copy(text[k:], parsing)
 	q = quoter{buf: text[k : k+q.n]}
@@ -89,14 +68,13 @@ func NewNumError(fn, num string, err error, a alloc.Allocator = alloc.Default())
 	copy(text[k+2:], errMsg)
 	// The text is valid UTF-8: the function name, the quoted input (Quote
 	// output), the message, all valid strings, joined at their edges.
-	msg := unsafe.String(unsafe.SliceData(text), n)
-	e := (*NumError)(p)
-	e.Func = msg[fnAt : fnAt+len(fn)]
-	e.Num = unsafe.String(unsafe.SliceData(numText), len(num)) // a copy of num, valid
+	msg := rt.MakeString(p, n, ctl, false)
+	rt.ReleaseString(ctl)
+	e := alloc.Synced[NumError](a)
+	e.Func = rt.KeepString(fn, a)
+	e.Num = rt.KeepString(num, a)
 	e.Err = err
 	e.msg = msg
-	e.a = a
-	e.size = total
 	return e
 }
 

@@ -108,7 +108,7 @@ func TestErrors(t *testing.T) {
 		} else if o := out.String(); !strings.HasPrefix(o, tt.want) || !strings.HasPrefix(o[len(tt.want):], "\nUsage of e:\n") {
 			t.Errorf("output %q", out.String())
 		}
-		errors.Free(err)
+		err = nil
 		out.Free()
 		fs.Drop()
 	}
@@ -135,7 +135,7 @@ func TestSetAndPanics(t *testing.T) {
 	if err == nil || err.Error() != "no such flag -missing" {
 		t.Errorf("Set missing: %v", err)
 	}
-	errors.Free(err)
+	err = nil
 }
 
 func TestPrintDefaults(t *testing.T) {

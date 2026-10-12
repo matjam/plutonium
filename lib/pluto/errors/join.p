@@ -3,6 +3,7 @@ package errors
 import (
 	"pluto/alloc"
 	"pluto/rt"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -10,12 +11,11 @@ import (
 // discarded. Join returns nil if every value in errs is nil. The error's
 // message is the messages of the non-nil errors, each on its own line.
 //
-// The error is one block from the default allocator, alloc.Default(),
-// holding the error and its list of errors; its message is a string from
-// the same allocator. To use another allocator, install it around the call
+// The error, its list and its message use the default allocator,
+// alloc.Default(). To use another allocator, install it around the call
 // with alloc.Use: Join is variadic, so it cannot take a defaulted allocator
 // parameter (see the language spec, section 10.13). The joined error owns the
-// errors it wraps; errors.Free releases them all.
+// errors it wraps; their last references release them automatically.
 func Join(errs ...error) error {
 	a := alloc.Default()
 	n, size := 0, 0
@@ -55,40 +55,25 @@ func Join(errs ...error) error {
 		msg = rt.MakeString(buf, w, ctl, ascii)
 		rt.ReleaseString(ctl)
 	}
-	var hdr joinError
-	listOff := unsafe.Sizeof(hdr)
-	total := listOff + uintptr(n)*unsafe.Sizeof(errs[0])
-	p := alloc.Raw(total, unsafe.Alignof(hdr), a)
-	e := (*joinError)(p)
-	e.errs = unsafe.Slice((*error)(unsafe.Add(p, listOff)), n)
+	e := alloc.Synced[joinError](a)
+	e.errs = vec.Make[error](n, a)
+	list := e.errs.Slice()
 	k := 0
 	for _, err := range errs {
 		if err != nil {
-			e.errs[k] = err
+			list[k] = err
 			k++
 		}
 	}
 	e.msg = msg
-	e.a = a
-	e.size = total
 	return e
 }
 
 // A joinError is the result of Join.
-type joinError struct {
-	errs []error
+type joinError owner struct {
+	errs vec.Vec[error]
 	msg  string
-	a    alloc.Allocator
-	size uintptr
 }
 
 func (e *joinError) Error() string   { return e.msg }
-func (e *joinError) Unwrap() []error { return e.errs }
-
-// Free releases the message and returns the joined error's memory to its
-// allocator. It does not free the wrapped errors; errors.Free does.
-func (e *joinError) Free() {
-	var hdr joinError
-	rt.ReleaseValues(e, 1)
-	e.a.Free(unsafe.Pointer(e), e.size, unsafe.Alignof(hdr))
-}
+func (e *joinError) Unwrap() []error { return e.errs.Slice() }

@@ -104,18 +104,18 @@ func main() {
 	c = exec.Command("surely-not-a-command-anywhere")
 	err = c.Run()
 	println("not found:", errors.Is(err, exec.ErrNotFound), err.Error())
-	errors.Free(err)
+	err = nil
 	c.Drop()
 	c = exec.Command("/")
 	err = c.Run()
 	var pe *os.PathError
 	println("directory:", errors.As(err, &pe), pe.Op, errors.Is(err, os.ErrPermission) || err != nil)
-	errors.Free(err)
+	err = nil
 	c.Drop()
 	c = exec.Command("/dev/null/x")
 	err = c.Start()
 	println("bad path:", err != nil)
-	errors.Free(err)
+	err = nil
 	c.Drop()
 
 	// LookPath.
@@ -123,7 +123,7 @@ func main() {
 	println("lookpath sh", strings.HasSuffix(p, "/sh"), err == nil)
 	p, err = exec.LookPath("./relative")
 	println("lookpath relative", p == "", err != nil)
-	errors.Free(err)
+	err = nil
 	var buf [256]byte
 	b := vec.NewFixed(buf[:])
 	err = exec.AppendLookPath(&b, "sh")
@@ -132,7 +132,7 @@ func main() {
 	tb := vec.NewFixed(tiny[:])
 	err = exec.AppendLookPath(&tb, "sh")
 	println("append lookpath too long", err != nil, tb.Len())
-	errors.Free(err)
+	err = nil
 
 	// Misuse.
 	c = sh("true")

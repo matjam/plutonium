@@ -263,6 +263,19 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		}
 		return w.walkParam(f, args[k.idx], k)
 	}
+	borrowArg := func(k pkey) tset {
+		v := arg(k)
+		if k.idx < len(f.params) && types2.IsCountedError(f.params[k.idx].Type()) {
+			// A pointer or lending interface derived from an error borrows
+			// the caller's reference, even through helper or indirect calls.
+			// As recursively visits subtrees of its borrowed root.
+			recursiveAs := f == w.f && f.obj != nil && f.obj.Pkg() != nil && f.obj.Pkg().Path() == "pluto/errors" && f.obj.Name() == "As"
+			if x := cs.expr(k.idx); x != nil && !recursiveAs {
+				v = w.borrowError(x, v)
+			}
+		}
+		return v
+	}
 	// What the callee's parameters hold, for heap-only fields.
 	passed := args
 	if len(args) > 0 && mode != recvExact {
@@ -277,12 +290,22 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 	for _, e := range sortedEdges(f.sum.stores) {
 		r := f.sum.stores[e]
 		d := dest{callee: label, calleeWhy: r.text, src: cs.expr(e.src.idx)}
-		w.store(arg(e.dst), arg(e.src), pos, d)
+		v := arg(e.src)
+		if T := w.storedType(f, cs, e.dst); T != nil {
+			if !types2.IsCountedError(T) && !isCounted(T) {
+				v = borrowArg(e.src)
+			}
+		}
+		w.store(arg(e.dst), v, pos, d)
 	}
 	for i := 0; i < nres && i < len(f.sum.results); i++ {
 		rs := f.sum.results[i]
 		for _, k := range sortedRkeys(rs.from) {
-			res[i].addAll(retag(arg(k.pkey), k.tag))
+			v := arg(k.pkey)
+			if T := f.sig.Results().At(i).Type(); !types2.IsCountedError(T) && !isCounted(T) {
+				v = borrowArg(k.pkey)
+			}
+			res[i].addAll(retag(v, k.tag))
 		}
 		tags := make([]string, 0, len(rs.heap))
 		for tag := range rs.heap {
@@ -294,6 +317,36 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		}
 	}
 	return res
+}
+
+// storedType finds the type of the memory named by a summary's destination.
+// Prefer the argument's instantiated type for generic calls such as As.
+func (w *walker) storedType(f *function, cs *callSite, k pkey) types2.Type {
+	if k.idx >= len(f.params) {
+		return nil
+	}
+	T := f.params[k.idx].Type()
+	if x := cs.expr(k.idx); x != nil {
+		if actual := w.typeOf(x); actual != nil {
+			T = actual
+		}
+	}
+	for _, step := range splitPath(k.path) {
+		if step == "*" {
+			T = pointerElem(T)
+		} else {
+			i, _ := strconv.Atoi(strings.TrimSuffix(step, "."))
+			if fld := fieldType(T, i); fld != nil {
+				T = types2.NewPointer(fld)
+			} else {
+				return nil
+			}
+		}
+		if T == nil {
+			return nil
+		}
+	}
+	return pointerElem(T)
 }
 
 // walkParam follows k from v, the value passed for parameter k.idx of f. A
