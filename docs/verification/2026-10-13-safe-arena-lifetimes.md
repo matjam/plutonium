@@ -1,11 +1,11 @@
 # Safe arena lifetimes, native Linux amd64
 
-Status: native verified; tracked archive and final review passed. Landing and
-installation receipts follow shipping.
+Status: native verified, reviewed, landed on main and installed.
 The user approved D7's lifetime policy and concrete API split. Sections 17.6,
 18.9, 18.11, 18.12, 20.1 and 21.5, appendix F, ABI section 1.3 and memory-model
-section 3.8 define the behavior. The isolated implementation is uncommitted;
-no landing, installation or complete conformance claim is made here.
+section 3.8 define the behavior. The implementation landed as
+`218008141373138b78f3d2224850eaf4afbd2a19` on 2026-10-14. This verifies the
+arena feature's tested scope, not complete compiler/specification conformance.
 
 ## Behavior
 
@@ -272,8 +272,14 @@ Evidence is `/tmp/plutonium-arena-archive-{tests,build,hello}.*`.
 Final review approved the scoped implementation, tests, generated artifacts and
 preserved audit/cleanup history after archive acceptance. Fetch confirms the
 unchanged `deeadf80738a` origin/main basis; author email is
-`578676+matjam@users.noreply.github.com`. Shipping and installed-compiler
-acceptance remain to be recorded. Changed
+`578676+matjam@users.noreply.github.com`. The verified implementation was pushed
+to main and installed with `GOBIN=$HOME/go/bin go install ./cmd/pluto`.
+Installed embedded-runtime hello matches its exact oracle with `PLUTOROOT` unset.
+The installed safe/manual API smoke prints `7\n9\n` and `vet -unsafe` labels
+the Fixed function safe and the manual Arena function unsafe. Evidence is
+`/tmp/plutonium-arena-{commit,rebase,push,install,installed-hello}.*` and
+`/tmp/plutonium-arena-installed-api-{combined,cmp,vet}.*`.
+Changed
 lower/audit packages are not in the checked selfhost translation package list;
 translation freshness is still part of full verification. No timeout, memory,
 coverage target, negative test or specification rule has been weakened.

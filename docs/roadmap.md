@@ -39,7 +39,7 @@ The implementation gaps of
 | 7 | Exhaustive enum switch is a terminating statement (done) | 75 | 12.1, 12.9, 7.12 |
 | 8 | `append` and the others are not predeclared (done) | 83 | 10.3, 13.1 |
 | 9 | Every nil dereference panics (done) | 84 | 17.5 |
-| 10 | Checked heap and arena memory (D7 follow-up in progress) | 85 | 18.11 |
+| 10 | Checked heap and arena memory (D7 follow-up native verified) | 85 | 18.11 |
 | 11 | Sendability looks through pointers and slices (done) | 86 | 8.8, 19.2 |
 | 12 | An owner's sendability is decided by what it holds (done) | 87 | 8.8 |
 | 13 | A channel or map in an ordinary interface is lent (done) | 88 | 7.9 |
@@ -135,7 +135,7 @@ compiler (2026-10-11).
     pointer can reach past the unmapped page compares the pointer with nil first.
 85. **Generation checks for heap and arena memory** (previous scope native verified 2026-10-12;
     D7 safe/manual API and nonwrapping lifetime follow-up native verified
-    2026-10-14, gap10; tracked archive and final review passed;
+    2026-10-14, `2180081`, gap10; tracked archive, final review and installed smoke passed;
     section 18.11, abi.md section 1.3): the approved shared directory covers every checked pointer,
     small and arbitrary contiguous large Slab/Chunked blocks and inferred custom allocators.
     Persistent address histories, stable reader metadata and saved backing incarnations prevent
@@ -355,7 +355,7 @@ compiler (2026-10-11).
     Historical prefix-only measurements reported 1.02x over `bench/`. That result does not describe
     the shared-directory implementation; item 85 records its current measured costs and tuning work.
 72. **Arena epochs** (original `3410025` implementation; D7 nonwrapping follow-up under85,
-    native verified 2026-10-14; tracked archive and final review passed;
+    native verified 2026-10-14, `2180081`; tracked archive, final review and installed smoke passed;
     section 18.11, abi.md section 1.3): the isolated Fixed/Chunked implementation uses persistent
     noncolliding incarnations and fails before exhaustion can revive an old view. Native stale-view,
     reuse-exhaustion and live-prefix controls pass; see item85's verification record.

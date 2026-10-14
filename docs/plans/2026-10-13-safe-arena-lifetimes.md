@@ -6,12 +6,13 @@ The user subsequently approved the concrete safe/manual API split below.
 This plan records the reviewed mechanism and remaining verification work. The
 isolated implementation passes the all-package covered suite, every package
 coverage floor, zero lint, full SSA and generation-off build suites. Tracked-only
-archive verification and final review also pass. Landing and installation
-receipts remain to be recorded.
+archive verification and final review also pass. The implementation landed
+as `218008141373138b78f3d2224850eaf4afbd2a19` and its installed compiler passed
+the embedded-runtime hello and safe/manual API smoke checks.
 It supersedes the fixed-arena and hosted epoch-wrap exemptions in D3 and the
 earlier generation-directory verification scope. See the
 [verification record](../verification/2026-10-13-safe-arena-lifetimes.md) for the
-implementation's measured scope and preserved failures; no landing is claimed yet.
+implementation's measured scope, landing receipt and preserved failures.
 
 ## Required behavior and preserved pre-D7 failure
 
