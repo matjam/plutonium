@@ -72,11 +72,13 @@ func (l *Lowerer) dropGlue(T types2.Type) *ssa.Sym {
 	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(p), nil, false)
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: sig, build: func(s *fnState) {
 		in := s.incomingArgs(sig)
+		s.beginCleanupGoexit()
 		// A drop that has begun completes before the program exits
 		// (rt.dropBegin, language spec section 15.4).
 		s.callRuntime("dropBegin", nil)
 		s.dropFields(in[0].v, T)
 		s.callRuntime("dropEnd", nil)
+		s.finishCleanupGoexit()
 		s.returnValues(nil)
 	}})
 	return sym
@@ -91,6 +93,7 @@ func (s *fnState) dropAt(ptr *ssa.Value, T types2.Type) {
 	p := types2.NewVar(token.NoPos, nil, "p", types2.NewPointer(T))
 	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(p), nil, false)
 	s.emitCall(callee{sym: glue}, sig, nil, []value{scalarValue(ptr, p.Type())}, token.NoPos)
+	s.noteImplicitGoexit()
 }
 
 // dropFields is the body of T's drop glue: Drop, then the parts.
@@ -104,7 +107,8 @@ func (s *fnState) dropFields(ptr *ssa.Value, T types2.Type) {
 		} else {
 			recv = s.loadFrom(ptr, T)
 		}
-		s.emitCall(callee{sym: target}, full, &recv, nil, token.NoPos)
+		s.emitCall(callee{sym: target, deferred: true}, full, &recv, nil, token.NoPos)
+		s.noteImplicitGoexit()
 	}
 	switch u := unwrap(T).Underlying().(type) {
 	case *types2.Wrapper:

@@ -446,7 +446,14 @@ func (a *allocator) nodeMoves(n Reg) []*MInst {
 	return out
 }
 
-func (a *allocator) moveRelated(n Reg) bool { return len(a.nodeMoves(n)) > 0 }
+func (a *allocator) moveRelated(n Reg) bool {
+	for _, m := range a.moveList[n] {
+		if a.activeMoves[m] || a.worklistMoves[m] {
+			return true
+		}
+	}
+	return false
+}
 
 // pick returns some element of a set, choosing the smallest register for
 // determinism.
@@ -489,7 +496,7 @@ func (a *allocator) decrementDegree(m Reg) {
 
 func (a *allocator) enableMoves(nodes []Reg) {
 	for _, n := range nodes {
-		for _, m := range a.nodeMoves(n) {
+		for _, m := range a.moveList[n] {
 			if a.activeMoves[m] {
 				delete(a.activeMoves, m)
 				a.addWorklistMove(m)
@@ -666,7 +673,7 @@ func (a *allocator) freezeMoves(u Reg) {
 		}
 		delete(a.activeMoves, m)
 		a.frozenMoves[m] = true
-		if !a.precolored[v] && len(a.nodeMoves(v)) == 0 && a.degree[v] < a.k {
+		if !a.precolored[v] && !a.moveRelated(v) && a.degree[v] < a.k {
 			delete(a.freezeWL, v)
 			a.simplifyWL[v] = true
 		}

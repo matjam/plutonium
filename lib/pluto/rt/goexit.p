@@ -3,7 +3,7 @@ package rt
 import "unsafe"
 
 // ----------------------------------------------------------------------------
-// Goexit (language spec section 17.2). Goexit ends the calling task: every
+// Goexit (language spec section 17.3). Goexit ends the calling task: every
 // frame on it runs its deferred calls and releases what it holds, innermost
 // first, as if each returned, and then the task ends. It is not an
 // unwinder: Goexit sets the task's goexit flag and returns, and the

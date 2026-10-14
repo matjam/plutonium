@@ -36,15 +36,25 @@ func (s *fnState) startHold(tmp *ownedTemp, from int) {
 	s.holdOf[tmp] = rec
 }
 
-// noteRelease records the calls emitted since callLog[from], which release
-// the statement temporary tmp.
-func (s *fnState) noteRelease(tmp *ownedTemp, from int) {
-	calls := s.callLog[from:]
-	for _, c := range calls {
-		s.tempRelease[c] = true
+func (s *fnState) markReferenceRelease(call *ssa.Value) {
+	if s.referenceReleases == nil {
+		s.referenceReleases = make(map[*ssa.Value]bool)
 	}
-	if rec := s.holdOf[tmp]; rec != nil {
-		rec.releases = append(rec.releases, calls...)
+	s.referenceReleases[call] = true
+}
+
+// noteRelease records the reference releases emitted since callLog[from].
+// Cleanup can also collect an exit or run other effects; those calls must
+// remain when the optimizer removes the temporary's reference updates.
+func (s *fnState) noteRelease(tmp *ownedTemp, from int) {
+	for _, c := range s.callLog[from:] {
+		if !s.referenceReleases[c] {
+			continue
+		}
+		s.tempRelease[c] = true
+		if rec := s.holdOf[tmp]; rec != nil {
+			rec.releases = append(rec.releases, c)
+		}
 	}
 }
 

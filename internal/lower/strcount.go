@@ -245,7 +245,8 @@ func (s *fnState) releaseRef(r countedRef) {
 		s.boxRelease(s.load(ssa.TPtr, r.addr), r.box)
 		return
 	}
-	s.callRuntime("strRelease", nil, []*ssa.Value{s.load(ssa.TI64, r.addr)})
+	s.callRuntimeRelease("strRelease", []*ssa.Value{s.load(ssa.TI64, r.addr)})
+	s.noteImplicitGoexit()
 }
 
 // retainAt takes a reference for every counted reference in the T at ptr.
@@ -335,9 +336,11 @@ func (s *fnState) storeCounted(lv lvalue, v value, init bool) {
 	switch {
 	case oldCtl != nil:
 		s.callRuntime("strRelease", nil, []*ssa.Value{oldCtl})
+		s.noteImplicitGoexit()
 	case oldCopy != nil:
 		s.releaseAt(oldCopy, T)
 	}
+	s.checkImplicitGoexit(s.pos)
 }
 
 // assign stores v into lv, counting if lv's type is counted.
@@ -350,6 +353,7 @@ func (s *fnState) assign(lv lvalue, v value, init bool) {
 		return
 	}
 	s.storeLV(lv, v)
+	s.consumeProducedOwner(v)
 }
 
 // ----------------------------------------------------------------------------

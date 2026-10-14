@@ -25,6 +25,13 @@ func (s *fnState) ensureBlock() {
 }
 
 func (s *fnState) stmt(st ast.Stmt) {
+	implicitBefore := s.implicitGoexits
+	defer func() {
+		// Statement temporaries have finished.
+		if s.b != nil && s.cleanupGoexit == nil && s.implicitGoexits != implicitBefore {
+			s.checkImplicitGoexit(st.Pos())
+		}
+	}()
 	defer s.at(st.Pos())()
 	if _, isLabel := st.(*ast.LabeledStmt); !isLabel {
 		saved := s.curStmt
@@ -317,6 +324,14 @@ func (s *fnState) assignStmt(st *ast.AssignStmt) {
 		}
 		return nil
 	}
+	// An evaluated owner remains owned by this statement until its store.
+	// A later RHS call or old-value Drop may exit before the transfer occurs.
+	holdResult := func(i int, v value) value {
+		if !targets[i].blank {
+			return s.holdProducedOwner(v)
+		}
+		return v
+	}
 
 	var vals []value
 	if len(st.Rhs) == len(st.Lhs) {
@@ -332,10 +347,13 @@ func (s *fnState) assignStmt(st *ast.AssignStmt) {
 				// (a, b = b, a), so each holds its own references.
 				v = s.holdOwned(s.materialize(v))
 			}
-			vals[i] = v
+			vals[i] = holdResult(i, v)
 		}
 	} else {
 		vals = s.multiValue(st.Rhs[0], len(st.Lhs))
+		for i, v := range vals {
+			vals[i] = holdResult(i, v)
+		}
 	}
 
 	// Assigning to a place that holds an owner destroys the old value
@@ -345,7 +363,7 @@ func (s *fnState) assignStmt(st *ast.AssignStmt) {
 		switch {
 		case t.blank:
 			// A discarded owner from a call with several results.
-			if len(st.Rhs) != len(st.Lhs) && i < len(vals) && vals[i].T != nil && s.l.needsDrop(vals[i].T) {
+			if len(st.Rhs) != len(st.Lhs) && i < len(vals) && vals[i].T != nil && s.l.needsDrop(vals[i].T) && vals[i].tmp == nil {
 				slot := s.temp(vals[i].T, "drop")
 				s.storeTo(slot, vals[i], vals[i].T)
 				s.registerTemp(slot, vals[i].T)
@@ -357,6 +375,8 @@ func (s *fnState) assignStmt(st *ast.AssignStmt) {
 		default:
 			if T := unwrap(t.lv.T); t.lv.elem == nil && t.lv.bits == nil && !permutes && !s.fresh(st.Lhs[i]) && s.l.needsDrop(T) {
 				s.dropAt(t.lv.ptr, T)
+				s.zero(t.lv.ptr, s.l.sizeof(T))
+				s.checkClearedGoexit(st.Pos(), st.Lhs[i])
 			}
 			s.assign(*t.lv, s.assignConvert(vals[i], targetType(i), st), false)
 		}
@@ -1448,6 +1468,7 @@ func (s *fnState) saveValue(v value) savedArg {
 			return a
 		}
 		s.storeTo(ptr, v, v.T)
+		s.consumeProducedOwner(v)
 		return a
 	}
 	if counted {
@@ -1457,6 +1478,7 @@ func (s *fnState) saveValue(v value) savedArg {
 	}
 	tmp := root.temp(v.T, "defer")
 	s.storeTo(s.outerPtr(tmp, root), v, v.T)
+	s.consumeProducedOwner(v)
 	return savedArg{addr: tmp, T: v.T}
 }
 

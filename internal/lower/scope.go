@@ -180,6 +180,23 @@ func (s *fnState) destroyAt(ptr *ssa.Value, T types2.Type) {
 	}
 }
 
+// holdProducedOwner keeps an evaluated owner alive until its actual transfer.
+// Calls evaluated ahead of a statement may be followed by a call that exits.
+func (s *fnState) holdProducedOwner(v value) value {
+	if !s.l.gx.active || !s.l.needsDrop(v.T) || v.tmp != nil && !v.tmp.consumed {
+		return v
+	}
+	slot := s.temp(v.T, "produced.owner")
+	s.storeTo(slot, v, v.T)
+	return s.ownTemp(slot, v.T)
+}
+
+func (s *fnState) consumeProducedOwner(v value) {
+	if v.tmp != nil && s.l.needsDrop(v.T) {
+		v.tmp.consumed = true
+	}
+}
+
 // isTemp reports whether e makes an owner value that nothing takes.
 func (s *fnState) isTemp(e ast.Expr) bool {
 	return s.l.moves != nil && s.l.moves.Temps[e] && e != s.inTemp

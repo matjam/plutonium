@@ -518,6 +518,9 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 		nlead = 1
 	}
 	var checkArgs []*ssa.Value // func value arguments, checked like the callee
+	for i, v := range vals {
+		vals[i] = s.holdProducedOwner(v)
+	}
 	for _, v := range vals[nlead:] {
 		s.checkSendable(v.T, call.Pos(), "task statement argument of type")
 		if _, isFunc := unwrap(v.T).Underlying().(*types2.Signature); isFunc && !v.addr {
@@ -553,11 +556,15 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 	// The new task owns a reference to every string in the block
 	// (language spec section 18.8), and its thunk drops them when the call
 	// returns.
+	var provisional []value
 	for _, a := range args {
 		dst := s.offPtr(block, a.off)
 		s.storeTo(dst, a.v, a.v.T)
 		if s.l.counted(a.v.T) {
 			s.takeRefAt(a.v, dst, a.v.T)
+			slot := s.temp(a.v.T, "goargs.reference")
+			s.storeTo(slot, s.loadFrom(dst, a.v.T), a.v.T)
+			provisional = append(provisional, s.ownTemp(slot, a.v.T))
 		}
 	}
 	if varArr != nil {
@@ -566,6 +573,9 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 		s.move(s.offPtr(block, varOff), p, s.l.sizeof(varArr))
 		if s.l.counted(varArr.Elem()) {
 			s.retainRange(s.offPtr(block, varOff), s.constInt(ssa.TI64, varArr.Len()), varArr.Elem())
+			slot := s.temp(varArr, "goargs.variadic")
+			s.move(slot, s.offPtr(block, varOff), s.l.sizeof(varArr))
+			provisional = append(provisional, s.ownTemp(slot, varArr))
 		}
 	}
 
@@ -622,9 +632,33 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 		s.callRuntime("checkGoFunc", nil, []*ssa.Value{f})
 	}
 	rec := s.symAddr(s.l.closureRecord(thunk))
-	// The last argument is the stack the call is proven to need; 0 until
+	// The bound argument is the stack the call is proven to need; 0 until
 	// the compiler computes it (roadmap item 18).
-	s.callRuntime("spawnGo", nil, []*ssa.Value{rec, block, s.constInt(ssa.TI64, off), s.constInt(ssa.TI64, max(align, 1)), s.constInt(ssa.TI64, 0)})
+	handedOff := s.temp(types2.Typ[types2.Bool], "goargs.handoff")
+	s.store(ssa.TBool, handedOff, s.constBool(false))
+	s.callRuntime("spawnGo", nil, []*ssa.Value{rec, block, s.constInt(ssa.TI64, off), s.constInt(ssa.TI64, max(align, 1)), s.constInt(ssa.TI64, 0), handedOff})
+	s.ifThen(s.load(ssa.TBool, handedOff), func() {
+		for _, argument := range args {
+			if temporary := argument.v.tmp; temporary != nil && s.l.needsDrop(argument.v.T) && !temporary.consumed {
+				s.zero(temporary.addr, s.l.sizeof(temporary.T))
+			}
+		}
+		for _, reference := range provisional {
+			s.zero(reference.tmp.addr, s.l.sizeof(reference.T))
+		}
+	})
+	spawn := s.l.rtFunc("spawnGo")
+	if s.callMayGoexit(callee{sym: s.l.funcSym(spawn, nil)}, spawn.Type().(*types2.Signature)) {
+		s.checkGoexit(call.Pos())
+	}
+	// Successful task creation copied these owners into its argument record.
+	// Until that handoff, an exit still leaves their cleanup in this frame.
+	for _, argument := range args {
+		s.consumeProducedOwner(argument.v)
+	}
+	for _, reference := range provisional {
+		reference.tmp.consumed = true
+	}
 }
 
 // ----------------------------------------------------------------------------

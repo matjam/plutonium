@@ -124,23 +124,22 @@ func threadPhiBranch(f *ssa.Func, b *ssa.Block) bool {
 // threading into t can repair, or one it does not affect: a use dominated
 // by another successor whose only predecessor is b still has b above it.
 func phiUsesThreadable(f *ssa.Func, b, t *ssa.Block, sole bool, dom *ssa.DomTree) bool {
-	ok := true
-	check := func(a *ssa.Value, at *ssa.Block, phiEdge bool) {
+	check := func(a *ssa.Value, at *ssa.Block, phiEdge bool) bool {
 		if a.Op != ssa.OpPhi || a.Block != b || at == b && !phiEdge {
-			return
+			return true
 		}
 		if phiEdge && at == b {
-			return // an argument of a phi in a successor, on the edge from b
+			return true // an argument of a phi in a successor, on the edge from b
 		}
 		if sole && dom.Dominates(t, at) {
-			return
+			return true
 		}
 		for _, e := range b.Succs {
 			if u := e.B; u != t && len(u.Preds) == 1 && dom.Dominates(u, at) {
-				return
+				return true
 			}
 		}
-		ok = false
+		return false
 	}
 	for _, blk := range f.Blocks {
 		for _, v := range blk.Values {
@@ -148,17 +147,23 @@ func phiUsesThreadable(f *ssa.Func, b, t *ssa.Block, sole bool, dom *ssa.DomTree
 				if v.Op == ssa.OpPhi {
 					// A phi uses its argument at the end of the
 					// matching predecessor.
-					check(a, blk.Preds[j].B, true)
+					if !check(a, blk.Preds[j].B, true) {
+						return false
+					}
 					continue
 				}
-				check(a, blk, false)
+				if !check(a, blk, false) {
+					return false
+				}
 			}
 		}
 		for _, a := range blk.Controls {
-			check(a, blk, false)
+			if !check(a, blk, false) {
+				return false
+			}
 		}
 	}
-	return ok
+	return true
 }
 
 // usedUnder reports whether v is used in a block dominated by t (a phi

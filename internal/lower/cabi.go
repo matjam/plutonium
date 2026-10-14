@@ -497,6 +497,9 @@ func (s *fnState) emitCCall(c callee, cs *cSig, recv *value, args []value, pos t
 		}
 	}
 
+	for _, v := range all {
+		s.consumeProducedOwner(v)
+	}
 	call := s.callValue(c, flat, cs.flatResults)
 	call.Call.ABI = ssa.ABIC
 	call.Call.OnStack = cs.onStack

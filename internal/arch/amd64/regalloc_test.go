@@ -8,6 +8,66 @@ import (
 	"testing"
 )
 
+func TestMoveStateTransitions(t *testing.T) {
+	f := newMFunc("moves")
+	u, v := f.newVReg(ClassGP), f.newVReg(ClassGP)
+	a := newAllocator(f, ClassGP, nil)
+	active, worklist, both, dead := &MInst{}, &MInst{}, &MInst{}, &MInst{}
+	a.moves = []*MInst{active, worklist, both, dead}
+	for i, m := range a.moves {
+		a.moveOrder[m] = i
+	}
+	a.moveList[u] = []*MInst{dead, both, worklist, active, active}
+	a.moveList[v] = []*MInst{active, both}
+	a.activeMoves[active], a.activeMoves[both] = true, true
+	a.addWorklistMove(worklist)
+	a.addWorklistMove(both)
+	if !a.moveRelated(u) || !a.moveRelated(v) || a.moveRelated(RSP) {
+		t.Fatal("active and worklist moves must participate, absent moves must not")
+	}
+	if n := testing.AllocsPerRun(100, func() { a.moveRelated(u) }); n != 0 {
+		t.Fatalf("move predicate allocates %g times", n)
+	}
+	a.enableMoves([]Reg{u, v, u})
+	if len(a.activeMoves) != 0 || len(a.worklistMoves) != 3 || a.worklistMoves[dead] {
+		t.Fatalf("wrong enabled move states: active=%v, worklist=%v", a.activeMoves, a.worklistMoves)
+	}
+	// Shared nodes and repeated entries must not enqueue a move a second time.
+	if len(a.pending) != 4 {
+		t.Fatalf("enabled moves inserted %d heap entries, want 4", len(a.pending))
+	}
+	for _, want := range []*MInst{active, worklist, both} {
+		if got := a.firstMove(); got != want {
+			t.Fatalf("move order: got %p, want %p", got, want)
+		}
+		delete(a.worklistMoves, want)
+	}
+	if a.firstMove() != nil || a.moveRelated(u) {
+		t.Fatal("completed moves must leave the worklist and predicate")
+	}
+	if n := testing.AllocsPerRun(100, func() { a.moveRelated(u) }); n != 0 {
+		t.Fatalf("empty move predicate allocates %g times", n)
+	}
+}
+
+func TestFreezeMoveStates(t *testing.T) {
+	f := newMFunc("freeze")
+	u, v, w := f.newVReg(ClassGP), f.newVReg(ClassGP), f.newVReg(ClassGP)
+	a := newAllocator(f, ClassGP, nil)
+	active := &MInst{Dst: RegOp(u), Src: RegOp(v)}
+	worklist := &MInst{Dst: RegOp(u), Src: RegOp(w)}
+	a.moveList[u], a.moveList[v], a.moveList[w] = []*MInst{active, worklist}, []*MInst{active}, []*MInst{worklist}
+	a.activeMoves[active], a.worklistMoves[worklist] = true, true
+	a.freezeWL[v], a.freezeWL[w] = true, true
+	a.freezeMoves(u)
+	if a.activeMoves[active] || !a.frozenMoves[active] || !a.frozenMoves[worklist] {
+		t.Fatal("freeze must retire active moves and mark both participating states")
+	}
+	if !a.simplifyWL[v] || a.freezeWL[v] || a.simplifyWL[w] || !a.freezeWL[w] || !a.worklistMoves[worklist] {
+		t.Fatal("only the neighbor with no remaining active or worklist move can simplify")
+	}
+}
+
 // Compare the filtered graph with the preceding unfiltered algorithm, including
 // insertion order and spill costs, across mixed classes, moves and call clobbers.
 func TestInterferenceClassFiltering(t *testing.T) {

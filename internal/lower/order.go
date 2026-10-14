@@ -124,6 +124,9 @@ func (s *fnState) evalFirst(e ast.Expr) {
 	default:
 		ev.vals = []value{s.expr(e)}
 	}
+	for i, v := range ev.vals {
+		ev.vals[i] = s.holdProducedOwner(v)
+	}
 	if s.evaluated == nil {
 		s.evaluated = map[ast.Expr]evaluated{}
 	}

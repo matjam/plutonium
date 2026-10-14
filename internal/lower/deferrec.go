@@ -92,6 +92,7 @@ func (s *fnState) storeVolatile(t *ssa.Type, ptr, val *ssa.Value) {
 // with rt.Goexit (goexit.go): the remaining calls run all the same, as in
 // Go, and the function leaves for Goexit once they have.
 func (s *fnState) runDeferList(defers []*deferInfo, bitsp, rec, gx *ssa.Value) {
+	defer s.collectCleanupGoexit()()
 	for i := len(defers) - 1; i >= 0; i-- {
 		d := defers[i]
 		bits := s.load(ssa.TI64, bitsp)

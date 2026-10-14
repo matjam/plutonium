@@ -51,10 +51,14 @@ type fnState struct {
 	deferRecSize int64
 	// gxBoundary says what a call that ends with rt.Goexit does here, when
 	// it does not just leave the function (goexit.go).
-	gxBoundary gxBoundary
-	loopDepth  int
-	closures   int // counter for naming closures
-	taskStmts  int // counter for naming task statement thunks
+	gxBoundary      gxBoundary
+	cleanupGoexit   *ssa.Value  // generated destruction completes before propagating Goexit
+	implicitGoexit  *ssa.Value  // exits raised by completed implicit destruction
+	implicitGoexits int         // implicit destruction calls emitted in this function
+	goexitCleared   *types2.Var // a whole variable destroyed before an implicit exit
+	loopDepth       int
+	closures        int // counter for naming closures
+	taskStmts       int // counter for naming task statement thunks
 
 	// Range over functions (rangefunc.go). rf is set in the yield function
 	// lowered from the body of a range-over-func loop; capPtrs maps the
@@ -124,10 +128,11 @@ type fnState struct {
 
 	// Count elision (strelide.go): every call emitted, in order, and the
 	// references held to keep borrowed strings alive across calls.
-	callLog     []*ssa.Value
-	strHolds    []*holdRec
-	holdOf      map[*ownedTemp]*holdRec
-	tempRelease map[*ssa.Value]bool // releases of statement temporaries
+	callLog           []*ssa.Value
+	strHolds          []*holdRec
+	holdOf            map[*ownedTemp]*holdRec
+	tempRelease       map[*ssa.Value]bool // releases of statement temporaries
+	referenceReleases map[*ssa.Value]bool // exact counted-release operations
 }
 
 type blockState struct {
@@ -707,6 +712,7 @@ func (s *fnState) emitReturn(pos token.Pos) { s.emitReturnFor(pos, false) }
 // call it made ended with rt.Goexit, which it passes on to its caller once
 // its deferred calls have run and its variables are released (goexit.go).
 func (s *fnState) emitReturnFor(pos token.Pos, goexit bool) {
+	defer s.collectCleanupGoexit()()
 	if pos.IsValid() {
 		s.f.SetPos(pos)
 	}
@@ -752,11 +758,46 @@ func (s *fnState) finishReturns() {
 // finishReturn returns r's result variables from the current block.
 func (s *fnState) finishReturn(r pendingReturn) {
 	pos, gx, results := r.pos, r.gx, r.results
+	if s.l.gx.active && s.implicitGoexits != 0 {
+		if gx == nil {
+			gx = s.temp(types2.Typ[types2.Bool], "cleanup.goexit")
+			s.store(ssa.TBool, gx, s.constBool(false))
+		}
+		s.noteGoexit(gx)
+		if s.implicitGoexit != nil {
+			s.ifThen(s.load(ssa.TBool, s.implicitGoexit), func() { s.store(ssa.TBool, gx, s.constBool(true)) })
+		}
+	}
+	if gx != nil {
+		// An exiting caller never receives these results. Finish their
+		// destruction here, including values installed by deferred calls.
+		s.ifThen(s.load(ssa.TBool, gx), func() {
+			saved := s.cleanupGoexit
+			s.cleanupGoexit = gx
+			defer func() { s.cleanupGoexit = saved }()
+			for i := len(s.abi.results) - 1; i >= 0; i-- {
+				T := s.abi.results[i].typ
+				if i < len(s.resultRegion) && s.resultRegion[i] && s.l.counted(T) {
+					continue // the caller's region still owns this reference
+				}
+				if s.l.needsDrop(T) || s.l.counted(T) {
+					s.destroyAt(results[i], T)
+					s.zero(results[i], s.l.sizeof(T))
+				}
+			}
+		})
+	}
 	for i, inRegion := range s.resultRegion {
 		// A result variable in the region keeps its references; the
 		// caller gets references of its own.
 		if T := s.abi.results[i].typ; inRegion && s.l.counted(T) {
-			s.retainAt(results[i], T)
+			if gx == nil {
+				s.retainAt(results[i], T)
+			} else {
+				s.ifThen(s.newValue(ssa.OpNot, ssa.TBool, s.load(ssa.TBool, gx)), func() {
+					s.retainAt(results[i], T)
+				})
+			}
 		}
 	}
 	if gx != nil {

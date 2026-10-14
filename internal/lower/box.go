@@ -80,14 +80,16 @@ func (s *fnState) boxRetain(p *ssa.Value, w *types2.Wrapper) {
 func (s *fnState) boxRelease(p *ssa.Value, w *types2.Wrapper) {
 	if w.Kind() == types2.WrapWeak {
 		elem := s.boxObject(w)
-		s.callRuntime("weakRelease", nil, []*ssa.Value{p, s.constBool(isSynced(w)),
+		s.callRuntimeRelease("weakRelease", []*ssa.Value{p, s.constBool(isSynced(w)),
 			s.constInt(ssa.TI64, s.l.sizeof(elem)), s.constInt(ssa.TI64, s.l.alignof(elem))})
+		s.noteImplicitGoexit()
 		return
 	}
 	glue := s.l.releaseGlue(types2.NewWrapper(w.Kind(), s.subst(w.Elem()), 0))
 	p0 := types2.NewVar(token.NoPos, nil, "p", types2.Typ[types2.UnsafePointer])
 	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(p0), nil, false)
-	s.emitCall(callee{sym: glue}, sig, nil, []value{scalarValue(p, p0.Type())}, token.NoPos)
+	s.emitCall(callee{sym: glue, referenceRelease: true}, sig, nil, []value{scalarValue(p, p0.Type())}, token.NoPos)
+	s.noteImplicitGoexit()
 }
 
 // releaseGlue returns the function that drops a strong reference of type
@@ -106,6 +108,7 @@ func (l *Lowerer) releaseGlue(w *types2.Wrapper) *ssa.Sym {
 	elem := w.Elem()
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: sig, build: func(s *fnState) {
 		in := s.incomingArgs(sig)
+		s.beginCleanupGoexit()
 		obj := in[0].v
 		last := s.callRuntime("boxReleaseStrong", []*ssa.Type{ssa.TBool}, []*ssa.Value{obj, s.constBool(sync)})[0]
 		s.ifThen(last, func() {
@@ -115,6 +118,7 @@ func (l *Lowerer) releaseGlue(w *types2.Wrapper) *ssa.Sym {
 				s.constInt(ssa.TI64, s.l.sizeof(elem)), s.constInt(ssa.TI64, s.l.alignof(elem))})
 			s.callRuntime("dropEnd", nil)
 		})
+		s.finishCleanupGoexit()
 		s.returnValues(nil)
 	}})
 	return sym
@@ -132,13 +136,15 @@ func (s *fnState) chanRetain(p *ssa.Value) {
 func (s *fnState) chanRelease(p *ssa.Value, ch *types2.Chan) {
 	elem := ch.Elem()
 	if !s.l.needsDrop(elem) && !s.l.counted(elem) {
-		s.callRuntime("chanDrop", nil, []*ssa.Value{p})
+		s.callRuntimeRelease("chanDrop", []*ssa.Value{p})
+		s.noteImplicitGoexit()
 		return
 	}
 	glue := s.l.chanReleaseGlue(elem)
 	p0 := types2.NewVar(token.NoPos, nil, "p", types2.Typ[types2.UnsafePointer])
 	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(p0), nil, false)
-	s.emitCall(callee{sym: glue}, sig, nil, []value{scalarValue(p, p0.Type())}, token.NoPos)
+	s.emitCall(callee{sym: glue, referenceRelease: true}, sig, nil, []value{scalarValue(p, p0.Type())}, token.NoPos)
+	s.noteImplicitGoexit()
 }
 
 // chanReleaseGlue returns the function that drops a reference to a channel
@@ -155,6 +161,7 @@ func (l *Lowerer) chanReleaseGlue(elem types2.Type) *ssa.Sym {
 	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(p), nil, false)
 	l.queue = append(l.queue, &funcJob{sym: sym, sig: sig, build: func(s *fnState) {
 		in := s.incomingArgs(sig)
+		s.beginCleanupGoexit()
 		c := in[0].v
 		last := s.callRuntime("chanRelease", []*ssa.Type{ssa.TBool}, []*ssa.Value{c})[0]
 		s.ifThen(last, func() {
@@ -167,6 +174,7 @@ func (l *Lowerer) chanReleaseGlue(elem types2.Type) *ssa.Sym {
 			})
 			s.callRuntime("chanFree", nil, []*ssa.Value{c})
 		})
+		s.finishCleanupGoexit()
 		s.returnValues(nil)
 	}})
 	return sym

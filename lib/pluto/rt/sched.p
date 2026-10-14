@@ -683,12 +683,12 @@ func CheckGoFunc(f func()) {
 // stack the compiler proved the call needs, or 0 if it could not. The
 // stack comes from the program-wide default allocator, whatever override
 // the starting task installed (language spec section 19.1).
-func spawnGo(fn, args unsafe.Pointer, argSize, argAlign, bound uintptr) {
+func spawnGo(fn, args unsafe.Pointer, argSize, argAlign, bound uintptr, handedOff *bool) {
 	req := StackRequest{Size: DefaultStackSize, Unsized: true, Alloc: defaultAllocator}
 	if bound != 0 {
 		req.Size, req.Proven, req.Unsized = bound, true, false
 	}
-	spawn(fn, args, argSize, argAlign, req)
+	spawnFor(nil, fn, args, argSize, argAlign, req, handedOff)
 }
 
 // checkGoFunc panics if the closure record rec lies in the running task's
@@ -710,7 +710,7 @@ func spawn(fn, args unsafe.Pointer, argSize, argAlign uintptr, req StackRequest)
 }
 
 // spawnFor starts a task counted by the Join j, or by none.
-func spawnFor(j *Join, fn, args unsafe.Pointer, argSize, argAlign uintptr, req StackRequest) {
+func spawnFor(j *Join, fn, args unsafe.Pointer, argSize, argAlign uintptr, req StackRequest, handedOff *bool = nil) {
 	// Once there are tasks, a string's count may change on another
 	// thread, or in a task that preempts this one between the load
 	// and the store of a plain increment: counts are atomic from now on
@@ -750,6 +750,11 @@ func spawnFor(j *Join, fn, args unsafe.Pointer, argSize, argAlign uintptr, req S
 	t.ctx.task = t
 	entry := taskMain
 	t.ctx.sp = newContext(argp, uintptr(unsafe.Pointer(t)), *(*uintptr)(unsafe.Pointer(&entry)), 0)
+	// The backend owns the initialized task and its copied arguments from
+	// Spawn entry, including when that callback ends its calling task.
+	if handedOff != nil {
+		*handedOff = true
+	}
 	schedSpawn(t)
 }
 

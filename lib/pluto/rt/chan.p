@@ -176,14 +176,17 @@ func chanFree(p unsafe.Pointer) {
 		panicMessage("runtime error: channel freed while tasks wait on it", "", "", "", "")
 	}
 	a := c.alloc
+	size, alignment := c.memSize, c.memAlign
+	// A timer release that ends the task still runs the backing release.
+	defer a.Free(p, size, alignment)
 	if tm := c.timer; tm != nil {
+		defer a.Free(unsafe.Pointer(tm), unsafe.Sizeof(Timer{}), unsafe.Alignof(Timer{}))
 		// Stop waits for the timer's function if it is running, so
 		// nothing touches the channel once it returns.
+		// Stop's possible preemption yield follows removal and unlock.
 		tm.Stop()
 		c.timer = nil
-		a.Free(unsafe.Pointer(tm), unsafe.Sizeof(Timer{}), unsafe.Alignof(Timer{}))
 	}
-	a.Free(p, c.memSize, c.memAlign)
 }
 
 // ChanTimer returns the timer of the channel at p, made the first time

@@ -8,7 +8,7 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
-// rt.Goexit (language spec section 17.2).
+// rt.Goexit (language spec section 17.3).
 //
 // rt.Goexit ends the calling task after running the deferred calls of every
 // frame on it and releasing what each frame holds, as Go's runtime.Goexit
@@ -547,6 +547,12 @@ func (s *fnState) checkGoexit(pos token.Pos) {
 	if s.b == nil {
 		return
 	}
+	if s.cleanupGoexit != nil {
+		// Required cleanup keeps running when a helper raises another exit.
+		// Re-entering this frame's return cleanup would release it twice.
+		s.noteImplicitGoexit()
+		return
+	}
 	taken := s.callRuntime("takeGoexit", []*ssa.Type{ssa.TBool})[0]
 	exit := s.newBlock(ssa.BlockInvalid)
 	cont := s.newBlock(ssa.BlockInvalid)
@@ -591,6 +597,14 @@ func (s *fnState) leaveForGoexit(pos token.Pos) {
 		if s.l.moves != nil && s.curStmt != nil {
 			empty = s.l.moves.AtStmt[s.curStmt]
 		}
+		if s.goexitCleared != nil {
+			known := make(moves.Known, len(empty)+1)
+			for variable, held := range empty {
+				known[variable] = held
+			}
+			known[s.goexitCleared] = moves.Held{}
+			empty = known
+		}
 		s.leavingThrough(empty, func() { s.emitReturnFor(pos, true) })
 	}
 	s.b = nil
@@ -601,6 +615,75 @@ func (s *fnState) leaveForGoexit(pos token.Pos) {
 func (s *fnState) noteGoexit(gx *ssa.Value) {
 	taken := s.callRuntime("takeGoexit", []*ssa.Type{ssa.TBool})[0]
 	s.ifThen(taken, func() { s.store(ssa.TBool, gx, s.constBool(true)) })
+}
+
+// beginCleanupGoexit delays an exit until generated destruction has completed.
+// Taking the flag between callbacks lets each remaining cleanup run normally.
+func (s *fnState) beginCleanupGoexit() {
+	if s.l.gx.active {
+		s.cleanupGoexit = s.temp(types2.Typ[types2.Bool], "drop.goexit")
+		s.store(ssa.TBool, s.cleanupGoexit, s.constBool(false))
+	}
+}
+
+func (s *fnState) noteImplicitGoexit() {
+	if !s.l.gx.active {
+		return
+	}
+	s.implicitGoexits++
+	if s.cleanupGoexit != nil {
+		s.noteGoexit(s.cleanupGoexit)
+	} else {
+		s.noteGoexit(s.implicitGoexitSlot())
+	}
+}
+
+func (s *fnState) implicitGoexitSlot() *ssa.Value {
+	if s.implicitGoexit == nil {
+		s.implicitGoexit = s.temp(types2.Typ[types2.Bool], "implicit.goexit")
+		s.zeroAtEntry(countedSlot{base: s.implicitGoexit, T: types2.Typ[types2.Bool]})
+	}
+	return s.implicitGoexit
+}
+
+// collectCleanupGoexit shares the destruction accumulator while lowering
+// mandatory frame, scope, or deferred cleanup. Ordinary call sites still
+// propagate an exit immediately; cleanup restores it after all releases.
+func (s *fnState) collectCleanupGoexit() func() {
+	saved := s.cleanupGoexit
+	if s.l.gx.active && saved == nil {
+		s.cleanupGoexit = s.implicitGoexitSlot()
+	}
+	return func() { s.cleanupGoexit = saved }
+}
+
+func (s *fnState) checkImplicitGoexit(pos token.Pos) {
+	if s.b == nil || s.cleanupGoexit != nil || s.implicitGoexit == nil {
+		return
+	}
+	// A release in an untaken branch cannot consume its caller's flag.
+	// Only an exit collected by this frame's implicit cleanup propagates here.
+	s.ifThen(s.load(ssa.TBool, s.implicitGoexit), func() {
+		s.store(ssa.TBool, s.implicitGoexit, s.constBool(false))
+		s.callRuntime("setGoexit", nil)
+		s.checkGoexit(pos)
+	})
+}
+
+func (s *fnState) checkClearedGoexit(pos token.Pos, place ast.Expr) {
+	saved := s.goexitCleared
+	if id, ok := ast.Unparen(place).(*ast.Ident); ok {
+		s.goexitCleared, _ = s.info.Uses[id].(*types2.Var)
+	}
+	s.checkImplicitGoexit(pos)
+	s.goexitCleared = saved
+}
+
+func (s *fnState) finishCleanupGoexit() {
+	if s.cleanupGoexit != nil {
+		s.noteGoexit(s.cleanupGoexit)
+		s.passGoexit(s.cleanupGoexit)
+	}
 }
 
 // passGoexit sets the Goexit flag again for the caller if gx says the

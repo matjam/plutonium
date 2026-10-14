@@ -79,6 +79,7 @@ func (s *fnState) releaseEntry(e *cleanupEntry) {
 // after, for code that may run again and fill them on some paths only;
 // a return need not.
 func (s *fnState) releaseSlots(slots []countedSlot, zero bool) {
+	defer s.collectCleanupGoexit()()
 	for _, scopes := range [2]bool{true, false} {
 		s.releaseSome(slots, zero, scopes)
 	}
@@ -143,6 +144,7 @@ func (s *fnState) releaseFrame() {
 	if s.b == nil {
 		return
 	}
+	defer s.collectCleanupGoexit()()
 	s.releaseSlots(s.frameSlots, false)
 	s.releaseSlots(s.ownedParams, false)
 	s.dropLocalRegions()

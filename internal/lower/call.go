@@ -20,6 +20,8 @@ type callee struct {
 	// deferred marks a deferred call, after which the caller does not
 	// check for rt.Goexit: it runs its remaining deferred calls first.
 	deferred bool
+	// referenceRelease marks the generated release of a counted reference.
+	referenceRelease bool
 	// alloc marks a call to an Allocator's Alloc or Free method.
 	alloc ssa.AllocMethod
 }
@@ -363,6 +365,10 @@ func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []
 		flat = append(flat, s.leafValues(v, p.leaves)...)
 	}
 
+	// Ownership passes to the callee at invocation, including its exit paths.
+	for _, v := range all {
+		s.consumeProducedOwner(v)
+	}
 	call := s.callValue(c, flat, abi.flatResults)
 	if pos.IsValid() {
 		call.Pos = pos
@@ -473,6 +479,9 @@ func (s *fnState) callValue(c callee, flat []*ssa.Value, results []*ssa.Type) *s
 	call.AddArg(s.mem())
 	s.callLog = append(s.callLog, call) // for string holds (strcount.go)
 	call.Call = &ssa.CallInfo{ABI: ssa.ABIInternal, Results: results, NoReturn: c.noReturn, Alloc: c.alloc}
+	if c.referenceRelease {
+		s.markReferenceRelease(call)
+	}
 	return call
 }
 
@@ -494,6 +503,14 @@ func (l *Lowerer) rtFunc(name string) *types2.Func {
 // callRuntime calls pluto/rt.name with already-flattened scalar arguments and
 // returns its scalar results.
 func (s *fnState) callRuntime(name string, results []*ssa.Type, argGroups ...[]*ssa.Value) []*ssa.Value {
+	return s.callRuntimeMarked(name, results, false, argGroups...)
+}
+
+func (s *fnState) callRuntimeRelease(name string, args ...[]*ssa.Value) {
+	s.callRuntimeMarked(name, nil, true, args...)
+}
+
+func (s *fnState) callRuntimeMarked(name string, results []*ssa.Type, referenceRelease bool, argGroups ...[]*ssa.Value) []*ssa.Value {
 	var flat []*ssa.Value
 	fn := s.l.rtFunc(name)
 	sym := s.l.funcSym(fn, nil)
@@ -503,7 +520,7 @@ func (s *fnState) callRuntime(name string, results []*ssa.Type, argGroups ...[]*
 	for _, g := range argGroups {
 		flat = append(flat, g...)
 	}
-	call := s.callValue(callee{sym: sym}, flat, results)
+	call := s.callValue(callee{sym: sym, referenceRelease: referenceRelease}, flat, results)
 	call.Call.Implicit = true
 	s.setMem(s.newValue(ssa.OpSelectN, ssa.TMem, call))
 	out := make([]*ssa.Value, len(results))
@@ -540,6 +557,7 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 		T := unwrap(lv.T)
 		s.dropAt(lv.ptr, T)
 		s.zero(lv.ptr, s.l.sizeof(T))
+		s.checkClearedGoexit(e.Pos(), se.X)
 		return nil
 	}
 
