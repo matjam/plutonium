@@ -41,6 +41,7 @@ func (l *Lowerer) genPragmas(f *ssa.Func, pkgPath string) {
 		l.genPanic = l.funcSym(l.rtFunc("panicStale"), nil)
 	}
 	f.GenPanic = l.genPanic
+	f.GenRangePanic = l.funcSym(l.rtFunc("panicStaleRange"), nil)
 	f.GenLive = l.funcSym(l.rtFunc("GenRegisteredLive"), nil)
 	f.GenRange = l.funcSym(l.rtFunc("GenRegisteredRangeLive"), nil)
 }
@@ -58,8 +59,11 @@ var genRuntimeMetadata = map[string]bool{
 	"genPoisonSlabLocked": true, "genRecordDead": true, "genPrune": true,
 	"GenNewSlabOwner": true, "genPoisonSlab": true, "genUnregisterLocked": true,
 	"GenAfterCustomFree": true, "GenSlabOwner": true, "GenSlabBackingLive": true,
-	"checkLive": true, "panicStale": true, "NewEpoch": true,
+	"checkLive": true, "panicStale": true, "panicStaleRange": true, "NewEpoch": true,
 	"EpochEnded": true, "epochSite": true,
+	"GenTagArena": true, "GenEndArena": true, "GenTrimArena": true, "ArenaIdentity": true,
+	"arenaEndedSite": true, "arenaRecordEnded": true,
+	"GenCheckArenaFree": true,
 }
 
 // checked returns ptr ready for a runtime function that does not check
@@ -104,7 +108,11 @@ func (s *fnState) genCheck(p, n *ssa.Value, pos token.Pos) *ssa.Value {
 	}
 	ok := s.callRuntime(name, []*ssa.Type{ssa.TBool}, args)[0]
 	s.panicUnless(ok, pos, func() {
-		s.callRuntimeNoReturn("panicStale", p)
+		if n != nil {
+			s.callRuntimeNoReturn("panicStaleRange", p, n)
+		} else {
+			s.callRuntimeNoReturn("panicStale", p)
+		}
 	})
 	s.endPlain(cont)
 	s.seal(cont)

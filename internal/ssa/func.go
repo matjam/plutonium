@@ -485,6 +485,8 @@ type Func struct {
 	// GenPanic is the function a failed generation check calls (with
 	// PragmaGenCheck).
 	GenPanic *Sym
+	// GenRangePanic diagnoses a failed range with its pointer and byte length.
+	GenRangePanic *Sym
 	// GenLive performs the shared metadata-directory lookup (ABI 1.3).
 	GenLive  *Sym
 	GenRange *Sym

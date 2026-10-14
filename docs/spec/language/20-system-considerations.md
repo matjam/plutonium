@@ -121,7 +121,8 @@ func release[T owner any](p *T, a alloc.Allocator) {
 unsafe code) lists the rest (the unchecked allocation layer, functions without a body, the directives that
 make promises, `rt.Pinned`, `pluto/arch/x86` and memory made from an integer) and states what safe code is
 guaranteed. Unsafe code needs no keyword: every use is an import of `unsafe` or `pluto/arch/x86`, a call
-into the unchecked layer of `pluto/alloc`, or a `//pu:` directive, so it is found by searching the imports
+into the unchecked layer of `pluto/alloc`, an explicit manual arena operation listed in section 18.12,
+or a `//pu:` directive, so it is found by searching the imports and calls
 and the directives, and the implementation provides a tool that lists it (section 21.5, Run-time checks
 and the unchecked mode).
 

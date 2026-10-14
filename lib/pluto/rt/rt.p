@@ -278,6 +278,27 @@ func panicSlice(lo, hi, max int) {
 	fatal(nil)
 }
 
+// panicStaleRange diagnoses the first reclaimed address in a failed range,
+// including a partial arena tail whose starting pointer remains live.
+func panicStaleRange(p unsafe.Pointer, n uintptr) {
+	bits := *(*uintptr)(unsafe.Pointer(&p))
+	a := uintptr(p)
+	end := a + n
+	if n != 0 && end >= a && end <= uintptr(1)<<48 {
+		for b := a; b < end; b = min(end, (b&^15)+16) {
+			q := unsafe.Pointer(b | bits>>48<<48)
+			if !GenRegisteredLive(q) {
+				panicStale(q)
+			}
+		}
+		q := unsafe.Pointer((end - 1) | bits>>48<<48)
+		if !GenRegisteredLive(q) {
+			panicStale(q)
+		}
+	}
+	panicStale(p)
+}
+
 // panicStale reports an access through a heap pointer whose allocation has
 // been freed (the generational-reference prototype, built with -gencheck).
 // A tag of 0x8000 or more is an arena epoch (epoch_on.p): the arena was
@@ -286,7 +307,10 @@ func panicSlice(lo, hi, max int) {
 func panicStale(p unsafe.Pointer) {
 	startPanic()
 	if tag := *(*uintptr)(unsafe.Pointer(&p)) >> 48; tag >= 0x8000 {
-		site := epochSite(tag)
+		site := arenaEndedSite(p)
+		if site == 0 {
+			site = epochSite(tag)
+		}
 		if site>>63 != 0 {
 			printString("runtime error: use of freed memory: an arena allocation freed")
 		} else {

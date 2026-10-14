@@ -82,8 +82,8 @@ dependent value and neither panics nor faults (section 11.24).
 
 *Memory.*
 
-- The use of freed heap memory, and the use of `arena.Chunked` memory after its arena was reset
-  (section 17.6). Fixed `arena.Arena` buffers are exempt (section 18.11).
+- The use of freed heap memory, and a stale use of fixed or Chunked arena memory that was not
+  rejected by the static lifetime rules (sections 17.6 and 18.11).
 - A stack overflow (section 17.5).
 
 A deadlock is not a panic. When every task waits for another and nothing can wake them, the program ends
@@ -319,9 +319,10 @@ that description is the panic's message.
 
 A **stale view** is a view of heap memory whose allocation has been freed, or moved by a growing owner,
 since the view was made; or a view, string or box into an arena that has been reset, released past the
-view, or dropped. A use of a stale view of heap or `arena.Chunked` memory is a run-time panic. It is
-neither a read of whatever the memory holds now nor a fault. Fixed `arena.Arena` buffers have no epoch
-check, so use after the arena takes back their memory has no defined effect (section 18.11).
+view, or dropped. The static lifetime rules reject uses they can prove stale. In a checked build,
+a stale use of heap or arena memory that remains possible is a run-time panic. This includes fixed
+`arena.Fixed` and `arena.Chunked` memory. It is neither a read of whatever the memory holds now nor a
+fault. The documented unchecked mode omits the run-time checks (section 18.11).
 
 ```go
 first := &ix.words.Slice()[0] // a view of the vector's array

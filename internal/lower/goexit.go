@@ -76,8 +76,9 @@ type gxEdge struct {
 
 // goexitInfo is the result of the analysis.
 type goexitInfo struct {
-	active bool         // the program calls rt.Goexit somewhere
-	catch  *types2.Func // rt.CatchGoexit
+	active    bool         // the program calls rt.Goexit somewhere
+	catch     *types2.Func // rt.CatchGoexit
+	catchFree *types2.Func // rt.CatchAllocFree, typed mandatory allocator cleanup
 	// taskMain is the bottom of every task but main's: when the function
 	// it runs leaves for Goexit, the task ends as if it had returned.
 	taskMain *types2.Func
@@ -93,6 +94,7 @@ func (l *Lowerer) analyzeGoexit() {
 	goexit := l.rtFuncOrNil("Goexit")
 	catch := l.rtFuncOrNil("CatchGoexit")
 	gx.catch = catch
+	gx.catchFree = l.rtFuncOrNil("CatchAllocFree")
 	gx.taskMain = l.rtFuncOrNil("taskMain")
 	if goexit == nil {
 		return
@@ -192,7 +194,7 @@ func (l *Lowerer) analyzeGoexit() {
 					n.method = fn.Name()
 				}
 				gx.funcs[fn] = n
-				if fn == catch || fn == gx.taskMain {
+				if fn == catch || fn == gx.catchFree || fn == gx.taskMain {
 					continue // never ends with Goexit itself
 				}
 				if fn == goexit {

@@ -1,9 +1,12 @@
 # Implementation decisions
 
-Record of decisions the implementation made under the authority granted on 2026-10-11:
+Decisions D1 to D5 record choices the implementation made under the authority granted on 2026-10-11:
 the pending items in HANDOVER.md are resolved against the project goals (AGENTS.md),
 recorded here, and reviewed by the user afterwards. Each decision names the sections of
 the specification it changes and the work that lands them.
+
+D6 and D7 record directions approved directly by the user on 2026-10-13. They are not
+part of the earlier delegated implementation choices.
 
 The goals, restated for reference: Go-familiar, not Go-compatible; no false friends
 (differences from Go are visible in the source); memory and race safety without a borrow
@@ -55,6 +58,10 @@ run a task on anyway.
 Lands with: roadmap item 100 (gap 32).
 
 ## D3. Shared metadata checks large contiguous blocks; fixed arenas stay unchecked (18.9, 18.11, abi.md 1.3)
+
+Status: the shared-directory decision remains in force. D7 supersedes the
+fixed-arena exemption below and the hosted arena-epoch wrap exception. The
+following rationale records the earlier choice, not the current safe-API rule.
 
 Decision: slab allocations over 2 KiB and `arena.Chunked` chunks over 56 KiB are
 allocated with their own 64 KiB-aligned metadata base and granule table before contiguous
@@ -112,6 +119,76 @@ be a difference from Go that the specification does not state.
 
 Lands with: roadmap item 82 (gap 6).
 
+## D6. Normal program exit releases owned resources (15.4, 18.6, 19.1)
+
+Decision, approved by the user on 2026-10-13: normal hosted program termination
+will clean up the owned resources the program still holds, including package
+owners. The current rule that package owners are left undropped at normal exit
+is to be replaced through a specification design before implementation resumes.
+This direction replaces the premise of item 96's exit-time separation of
+package-retained memory from leaks. Existing uncommitted reporting work is
+preserved for review; it is not authority for the new exit behavior.
+
+The task termination policy, joins or cancellation, destruction order across
+packages and dependencies, counted-resource releases, and handling of exits
+raised during cleanup remain to be specified. Destruction must not invalidate
+resources that a surviving task or later destructor can still use. This record
+does not choose a global destruction order or imply that arbitrary tasks can
+be stopped safely.
+
+Abrupt termination, including `os.Exit`, is distinct from normal cleanup. Its
+exact relationship to exit hooks and debug reporting must be stated explicitly.
+A kernel that never terminates does not acquire a shutdown requirement merely
+by using the language. Chapters and compiler behavior remain unchanged until
+the shutdown design is settled and recorded.
+
+Why: explicit ownership should account for resources still held when normal
+execution finishes, rather than treating those resources as permanently
+retained. The implementation must preserve the language's task and lifetime
+guarantees while releasing them.
+
+Lands with: a reviewed normal-termination specification and its implementation
+and native cleanup tests. Neither is complete at this decision checkpoint.
+
+## D7. Ordinary arena APIs enforce view lifetimes (18.9, 18.11, 18.12, 21.5; ABI 1.3)
+
+Decision, approved by the user on 2026-10-13: ordinary fixed and Chunked arena
+APIs must prevent stale accesses through compiler lifetime checks or runtime
+checks. Safe application code must not acquire an unchecked lifetime obligation
+merely by calling an arena's typed allocation or ordinary reset/release methods.
+This supersedes D3's fixed-arena exemption. Hosted epochs must not wrap so that
+a stale view can become valid again; exhaustion retires affected storage,
+widens the identity or fails loudly without making a stale view match.
+
+Manual lifetime operations remain explicitly unsafe through the existing
+unsafe allocation, pointer and unchecked-function mechanisms. This decision
+adds no directive. The subsequently approved API split below makes the manual
+constructor explicit. Disabling generation checks
+is still the documented unchecked build mode; it does not disable static checks
+or make incorrect programs correct.
+
+The existing caller-provided buffer form must not silently replace that
+buffer with an allocated one or insert metadata into caller payload. A
+distinct ordinary fixed-capacity constructor may explicitly allocate private
+backing. The user subsequently approved the concrete split: `NewFixed(capacity uintptr,
+parent alloc.Allocator = alloc.Default()) Fixed`, a movable owner with private fixed-capacity
+backing, and `NewUnsafe(buf []byte) Arena`, the explicit manual borrowed-buffer route.
+Constructor and manual-method unsafe classification uses actual API identity, not a naming prefix.
+Exact metadata storage and exhaustion handling
+must be reviewed before implementation, with their costs accounted for under
+the existing allocation rules.
+
+Why: the audit reproduced a plain typed pointer retained in a heap Holder,
+used after fixed Arena Reset, reading the next allocation's value in a checked
+application without an unsafe import. A documented unchecked exception in an
+ordinary API conflicts with the intended safe-language guarantee.
+
+Lands with: the focused specification amendment and native acceptance matrix
+in `docs/plans/2026-10-13-safe-arena-lifetimes.md`, then the implementation and
+full verification. The current code has not completed this policy. Temporary
+conservative rejection prevents unsafe acceptance but does not complete valid
+ordinary arena usage or the positive acceptance cases.
+
 ## Deferred
 
 - Linux file names that are not valid UTF-8 (open part of roadmap item 57): byte paths,
@@ -127,4 +204,5 @@ table by masking each data address to its 64 KiB base. The user replaced that as
 on 2026-10-12 with a shared metadata directory. Contiguous objects larger than one chunk
 need the later boundaries for data, so a table at every boundary cannot represent them.
 Large allocation tables remain at their own metadata bases; directory lookup replaces
-the address-mask lookup. The fixed-arena exemption and all generation/epoch values remain.
+the address-mask lookup. That 2026-10-12 revision retained the fixed-arena exemption and
+generation/epoch values. D7 later supersedes the exemption and permits no stale-matching wrap.

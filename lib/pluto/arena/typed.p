@@ -26,6 +26,24 @@ func (a *Arena) Slice[T any](n int) []T {
 
 // New allocates a zeroed T in the arena and returns a pointer to it. It
 // panics if the parent allocator is out of memory.
+func (a *Fixed) New[T any]() *T {
+	var zero T
+	return (*T)(must(a.Alloc(unsafe.Sizeof(zero), unsafe.Alignof(zero))))
+}
+
+func (a *Fixed) Slice[T any](n int) []T {
+	var zero T
+	if n < 0 || uintptr(n) > ^uintptr(0)/max(unsafe.Sizeof(zero), uintptr(1)) {
+		panic("arena: Slice with an invalid length")
+	}
+	if n == 0 {
+		return nil
+	}
+	return unsafe.Slice((*T)(must(a.Alloc(uintptr(n)*unsafe.Sizeof(zero), unsafe.Alignof(zero)))), n)
+}
+
+// New allocates a zeroed T in the arena and returns a pointer to it. It
+// panics if the parent allocator is out of memory.
 func (a *Chunked) New[T any]() *T {
 	var zero T
 	return (*T)(must(a.Alloc(unsafe.Sizeof(zero), unsafe.Alignof(zero))))
@@ -35,8 +53,11 @@ func (a *Chunked) New[T any]() *T {
 // negative or the parent allocator is out of memory.
 func (a *Chunked) Slice[T any](n int) []T {
 	var zero T
-	if n < 0 {
-		panic("arena: Slice with a negative length")
+	if n < 0 || uintptr(n) > ^uintptr(0)/max(unsafe.Sizeof(zero), uintptr(1)) {
+		panic("arena: Slice with an invalid length")
+	}
+	if n == 0 {
+		return nil
 	}
 	return unsafe.Slice((*T)(must(a.Alloc(uintptr(n)*unsafe.Sizeof(zero), unsafe.Alignof(zero)))), n)
 }

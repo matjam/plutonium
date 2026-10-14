@@ -432,7 +432,7 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 	s.setMem(entry.NewValue(ssa.OpInitMem, ssa.TMem))
 
 	if job.decl != nil {
-		if fn := l.symFuncs[job.sym]; fn != nil && (fn == l.gx.catch || fn == l.gx.taskMain || fn == l.panicFn) {
+		if fn := l.symFuncs[job.sym]; fn != nil && (fn == l.gx.catch || fn == l.gx.catchFree || fn == l.gx.taskMain || fn == l.panicFn) {
 			s.gxBoundary = gxCatch
 		}
 		f.Pos, f.End = job.decl.Pos(), job.decl.End()

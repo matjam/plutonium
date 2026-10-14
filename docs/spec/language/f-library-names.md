@@ -115,11 +115,17 @@ The functions `alloc.Owned[T]()`, `alloc.Shared[T]()` and `alloc.Synced[T]()` al
 box. They take an optional allocator argument. `alloc.Raw`, `alloc.New` and `alloc.Free` are the
 unchecked layer that owner types are written with (section 20.1).
 
-`arena.Arena` is a fixed bump allocator over a caller's buffer, and `arena.Chunked` is a growable one that
-takes chunks from a parent allocator. Freeing into an arena does nothing, and `Reset` reclaims everything.
-An arena's `New[T]()` and `Slice[T](n)` methods return views that live until the arena is reset or
-dropped (section 18.10, No allocation without an owner or an arena). `arena.Arena` is not safe for use by
-several tasks at once.
+`arena.NewFixed(capacity uintptr, parent alloc.Allocator = alloc.Default()) Fixed` explicitly allocates
+private fixed-capacity backing. `Fixed` is a movable owner; it never grows its payload and returns its
+backing on drop. `arena.Chunked` grows by taking chunks from its parent allocator. Freeing into an
+arena ordinarily does nothing, except that the latest allocation may be reclaimed; `Reset` reclaims everything.
+An arena's `New[T]()` and `Slice[T](n)` methods return views that live until the arena takes their
+memory back. Fixed and Chunked ordinary APIs enforce that lifetime statically or, in a checked build,
+at runtime (sections 18.9 and 18.11). Direct raw allocation and unsafe pointer access retain their
+manual lifetime obligations (section 18.12). `arena.NewUnsafe(buf []byte) Arena` is a borrowed-buffer
+manual allocator. Its constructor and typed allocation/reclamation methods are explicit unsafe
+operations; it preserves the caller's buffer and owns no private payload. No arena is safe for
+unsynchronized simultaneous use by several tasks.
 
 ### F.3 Iterators and containers
 

@@ -2,5 +2,5 @@ $DIR/main.p:9:9: make of a slice is not permitted in Plutonium (a slice is a vie
 $DIR/main.p:14:9: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
 $DIR/main.p:15:10: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
 $DIR/main.p:16:10: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
-$DIR/main.p:19:8: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
-$DIR/main.p:20:11: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
+$DIR/main.p:18:8: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
+$DIR/main.p:19:11: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)

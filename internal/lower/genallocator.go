@@ -29,7 +29,7 @@ func (l *Lowerer) genAllocatorSym(fn *types2.Func, targs []types2.Type) *ssa.Sym
 	}
 	if n, ok := base.(*types2.Named); ok && n.Obj().Pkg() != nil {
 		pkg, name := n.Obj().Pkg().Path(), n.Obj().Name()
-		if pkg == "pluto/rt" || pkg == "pluto/alloc" && (name == "Slab" || name == "SyncSlab") || pkg == "pluto/arena" && (name == "Arena" || name == "Chunked") {
+		if pkg == "pluto/rt" || pkg == "pluto/alloc" && (name == "Slab" || name == "SyncSlab") || pkg == "pluto/arena" && (name == "Arena" || name == "Fixed" || name == "Chunked") {
 			return nil
 		}
 	}

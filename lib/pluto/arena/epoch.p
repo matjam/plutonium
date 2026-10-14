@@ -13,7 +13,6 @@ const (
 	epochGranule = 16
 	epochTable   = 8192
 	epochData    = epochBlock - epochTable
-	epochShift   = 48
 )
 
 type epochMeta struct {
@@ -28,10 +27,6 @@ func isEpoch(c *chunk) bool { return genCheck }
 func (c *chunk) meta() *epochMeta {
 	return (*epochMeta)(unsafe.Add(unsafe.Pointer(c), chunkHeader))
 }
-func epochEntries(c *chunk) []uint16 {
-	return unsafe.Slice((*uint16)(unsafe.Add(unsafe.Pointer(c), 64)), (c.size+15)/16)
-}
-
 func (a *Chunked) newEpochChunk(size uintptr) *chunk {
 	if size > ^uintptr(0)/4 {
 		return nil
@@ -72,40 +67,10 @@ func (a *Chunked) newEpochChunk(size uintptr) *chunk {
 	return c
 }
 
-func (a *Chunked) freeEpochChunk(c *chunk) {
+func (a *Chunked) freeEpochChunk(c *chunk) bool {
 	m := c.meta()
 	raw, n, alignment, token := m.raw, m.held, m.alignment, m.token
 	rt.GenUnregister(token)
 	a.held -= n
-	a.parent.Free(raw, n, alignment)
-}
-
-func (a *Chunked) tagEpoch(c *chunk, p unsafe.Pointer, size uintptr) unsafe.Pointer {
-	if a.epoch == 0 {
-		a.epoch = rt.NewEpoch()
-	}
-	start := uintptr(p) - uintptr(c.data())
-	t := epochEntries(c)
-	for i := start / 16; i < (start+size+15)/16; i++ {
-		t[i] = a.epoch
-	}
-	rt.GenSetEpoch(c.meta().token, p, size, a.epoch)
-	return unsafe.Pointer(uintptr(p) | uintptr(a.epoch)<<epochShift)
-}
-
-func (a *Chunked) endEpoch(c *chunk, from, to, pc uintptr, freed bool) {
-	t := epochEntries(c)
-	last := uint16(0)
-	for i := (from + 15) / 16; i < (to+15)/16; i++ {
-		if e := t[i]; e != 0 {
-			if e != last {
-				rt.EpochEnded(e, pc, freed)
-				last = e
-			}
-			t[i] = 0
-		}
-	}
-	base := uintptr(c.data())
-	rt.GenInvalidate(c.meta().token, base+from, base+to)
-	a.epoch = 0
+	return rt.CatchAllocFree(a.parent, raw, n, alignment)
 }

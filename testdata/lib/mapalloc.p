@@ -79,8 +79,7 @@ func main() {
 	fmt.Println("scoped:", ca.live)
 
 	// An arena: freeing into it does nothing, and it is reset at once.
-	var buf [64 << 10]byte
-	ar := arena.New(buf[:])
+	ar := arena.NewFixed(64 << 10)
 	am := make(map[int]int, 0, &ar)
 	for i := 0; i < 500; i++ {
 		am[i] = i * i

@@ -14,8 +14,7 @@ func main() {
 	buf := make([]byte, n)       // vec.Make
 	list := make([]string, 0, n) // vec.WithCapacity
 	both := make([]int, 2, n)    // vec.Make and Reserve
-	var mem [256]byte
-	a := arena.New(mem[:])
+	a := arena.NewFixed(256)
 	in := make([]int, n, &a)    // with an allocator
 	table := make([]uint16, 64) // a constant size: an array
 	_ = make(chan int, 4)       // channels are still made

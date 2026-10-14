@@ -74,7 +74,7 @@ func main() {
 	for i := range mem {
 		mem[i] = 0xAA
 	}
-	ar := arena.New(mem[:])
+	ar := arena.NewUnsafe(mem[:])
 	z := vec.Make[int64](4, &ar)
 	w := new([3]uint8, &ar)
 	fmt.Println(z[0], z[3], w[0], w[2], ar.Used())

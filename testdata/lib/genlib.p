@@ -71,8 +71,7 @@ func main() {
 		x, y int
 	}
 
-	var buf [4096]byte
-	ar := arena.New(buf[:])
+	ar := arena.NewFixed(4096)
 	println(Distinct([]int{3, 1, 3, 2, 1}, &ar), Distinct([]string{"x", "x"}, alloc.Default()))
 
 	v := Collect([]int{1, 2, 3, 4, 5, 6}, func(x int) bool { return x%2 == 0 })

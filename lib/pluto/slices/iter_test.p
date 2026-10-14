@@ -213,8 +213,7 @@ func TestSortedStableFunc(t *testing.T) {
 
 func TestSortedIn(t *testing.T) {
 	// The Vecs allocate from the arena passed in.
-	var mem [4096]byte
-	a := arena.New(mem[:])
+	a := arena.NewFixed(4096)
 	s := SortedIn(&a, Values([]int{5, 3, 9, 1, 7}))
 	if want := [...]int{1, 3, 5, 7, 9}; !Equal(s.Slice(), want[:]) {
 		t.Errorf("SortedIn = %v, want %v", s.Slice(), want)

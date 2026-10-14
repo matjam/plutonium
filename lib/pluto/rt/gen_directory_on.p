@@ -142,7 +142,7 @@ func genLive(r *genRecord, a uintptr, tag uint16) bool {
 			pause()
 			continue
 		}
-		active, lo, hi := r.active, r.lo, r.hi
+		active, lo, hi := r.active, r.lo, uintptr(load64((*uint64)(unsafe.Pointer(&r.hi))))
 		parent, id, pt := r.parent, r.parentID, r.parentTag
 		table, origin, capacity := r.table, r.origin, r.capacity
 		if v != load64(&r.version) {
@@ -172,7 +172,7 @@ func genReadTag(r *genRecord, a uintptr) uint16 {
 			pause()
 			continue
 		}
-		active, lo, hi := r.active, r.lo, r.hi
+		active, lo, hi := r.active, r.lo, uintptr(load64((*uint64)(unsafe.Pointer(&r.hi))))
 		table, origin, capacity := r.table, r.origin, r.capacity
 		if v != load64(&r.version) {
 			continue
@@ -335,7 +335,7 @@ func GenSlabBackingLive(p unsafe.Pointer, owner uintptr) bool {
 					pause()
 					continue
 				}
-				active, lo, hi, ro := r.active, r.lo, r.hi, r.owner
+				active, lo, hi, ro := r.active, r.lo, uintptr(load64((*uint64)(unsafe.Pointer(&r.hi)))), r.owner
 				parent, id, tag := r.parent, r.parentID, r.parentTag
 				if v != load64(&r.version) {
 					continue
@@ -503,7 +503,8 @@ func GenRegister(p unsafe.Pointer, size uintptr, backing unsafe.Pointer, key uin
 	v := load64(&r.version)
 	store64(&r.version, v+1)
 	store64(&r.incarnation, load64(&r.incarnation)+1)
-	r.lo, r.hi, r.origin = uintptr(p), uintptr(p)+size, origin
+	r.lo, r.origin = uintptr(p), origin
+	store64((*uint64)(unsafe.Pointer(&r.hi)), uint64(uintptr(p)+size))
 	r.parent, r.parentID, r.parentTag, r.depth = parent, 0, 0, 0
 	if parent != nil {
 		r.parentID = load64(&parent.incarnation)

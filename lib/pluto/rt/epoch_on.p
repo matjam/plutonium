@@ -6,10 +6,9 @@ import "unsafe"
 
 // Arena epochs (memory-safety design D4, built with -gencheck). A pointer's
 // tag (bits 63..48) holds a slab generation, 1 to 0x7fff, or an arena
-// epoch, 0x8000 to 0xffff. Arenas (pluto/arena) take their epochs from one
-// program-wide counter, so that a new arena, which is often given the chunk
-// a dropped one had, never reuses a recent epoch; the counter wraps after
-// 32768 epochs. EpochEnded records, per epoch, where memory of that epoch
+// epoch, 0x8000 to 0xffff. Compatibility epochs never wrap. Arena allocations
+// now use persistent address history (gen_arena_on.p). EpochEnded records where
+// memory of a compatibility epoch
 // was last given back, for the panic a stale pointer then causes
 // (panicStale).
 
@@ -23,9 +22,17 @@ var epochSites [epochCount]uintptr
 
 const epochCount = 1 << 15
 
-// NewEpoch returns an arena epoch not handed out in the last 32767 calls.
+// NewEpoch returns a never-reissued compatibility epoch, or fails loudly.
 func NewEpoch() uint16 {
-	return uint16(epochCount | xadd32(&epochCounter, 1)&(epochCount-1))
+	for {
+		old := load32(&epochCounter)
+		if old >= epochCount {
+			panic("arena: incarnation exhausted")
+		}
+		if cas32(&epochCounter, old, old+1) {
+			return uint16(epochCount | old)
+		}
+	}
 }
 
 // EpochEnded records that memory of epoch e was given back by the call

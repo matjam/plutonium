@@ -243,9 +243,10 @@ An arena takes its memory back only in bulk, through `Reset`, `Release` or `Drop
 boxes made in an arena are dropped before the arena takes back their memory, since dropping one writes its
 count (language spec section 18.9).
 
-In a checked build, freeing heap memory gives it a new generation, and taking `arena.Chunked` memory
-back ends its epoch (language spec section 18.11, Generation checks). Fixed `arena.Arena` buffers have
-no epoch check. A use through a view of heap or `arena.Chunked` memory after the free or the reset is a
+In a checked build, freeing heap memory gives it a new generation, and taking arena memory back
+ends the incarnation of the reclaimed allocations (language spec section 18.11, Generation checks).
+Fixed and Chunked ordinary views have the same guarantee, through static proof or runtime checking.
+A use through a view of heap or arena memory after the free, reset or release is a
 run-time panic when the free is ordered before the use: by being in the same task, or through a
 synchronizing operation of section 3. A free that races with a use is a data race, which no check catches
 reliably; safe code cannot make one (section 4.1).
@@ -256,7 +257,9 @@ Readers see consistent metadata that remains valid for their lookup, including t
 of nested allocations (abi.md section 1.3). These rules protect metadata even when unrelated
 allocations are reclaimed concurrently. They do not make a check and its program-memory access atomic
 or permit a free to race with that access. Heap generation history persists across address and
-allocator reuse; changing a mapping or layout does not restart it.
+allocator reuse; changing a mapping or layout does not restart it. Arena incarnation history likewise
+survives backing reuse, and exhaustion cannot make an old view match new storage. This metadata
+contract does not authorize an unsafe caller to race reclamation with an access.
 
 ### 3.9 Ending a scoped task
 

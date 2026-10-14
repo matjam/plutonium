@@ -43,8 +43,11 @@ func SimplifyCFG(f *ssa.Func) {
 			changed = true
 		}
 		step = false
+		// This inventory belongs only to the following immutable scan.
+		// A successful threading changes the CFG and immediately ends it.
+		var uses map[*ssa.Value][]phiUse
 		for _, b := range f.Blocks {
-			if threadPhiBranch(f, b) {
+			if threadPhiBranch(f, b, &uses) {
 				step = true
 				break
 			}

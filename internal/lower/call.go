@@ -697,15 +697,18 @@ func (s *fnState) methodReceiver(x ast.Expr, fn *types2.Func, path []int) value 
 		cur = s.lvRaw(x)
 	} else {
 		v := s.materialize(s.expr(x))
+		if len(path) == 1 && !wantPtr {
+			// A whole value receiver retains its produced-owner temporary
+			// identity until the invocation or deferred record takes it.
+			// Reloading only its address loses that transfer receipt.
+			return v
+		}
 		if wantPtr && s.l.counted(xt) {
 			// The method may change the temporary through the pointer, so
 			// it must hold references of its own.
 			v = s.holdOwned(v)
 		}
 		if !v.addr {
-			if len(path) == 1 && !wantPtr {
-				return v
-			}
 			tmp := s.temp(xt, "recv")
 			s.storeTo(tmp, v, xt)
 			cur = lvalue{ptr: tmp, T: xt}

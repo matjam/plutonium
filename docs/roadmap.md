@@ -39,7 +39,7 @@ The implementation gaps of
 | 7 | Exhaustive enum switch is a terminating statement (done) | 75 | 12.1, 12.9, 7.12 |
 | 8 | `append` and the others are not predeclared (done) | 83 | 10.3, 13.1 |
 | 9 | Every nil dereference panics (done) | 84 | 17.5 |
-| 10 | Checked heap and Chunked arena memory (done) | 85 | 18.11 |
+| 10 | Checked heap and arena memory (D7 follow-up in progress) | 85 | 18.11 |
 | 11 | Sendability looks through pointers and slices (done) | 86 | 8.8, 19.2 |
 | 12 | An owner's sendability is decided by what it holds (done) | 87 | 8.8 |
 | 13 | A channel or map in an ordinary interface is lent (done) | 88 | 7.9 |
@@ -133,12 +133,23 @@ compiler (2026-10-11).
     declaration is the error that names the replacement.
 84. **Every nil dereference panics** (done, gap 9, `64e41b2`; section 17.5): an access whose offset from the
     pointer can reach past the unmapped page compares the pointer with nil first.
-85. **Generation checks for heap and Chunked arena memory** (done, gap 10, native verified 2026-10-12;
+85. **Generation checks for heap and arena memory** (previous scope native verified 2026-10-12;
+    D7 safe/manual API and nonwrapping lifetime follow-up native verified
+    2026-10-14, gap10; tracked archive and final review passed;
     section 18.11, abi.md section 1.3): the approved shared directory covers every checked pointer,
     small and arbitrary contiguous large Slab/Chunked blocks and inferred custom allocators.
     Persistent address histories, stable reader metadata and saved backing incarnations prevent
     reuse resurrection while preserving unaffected partial-release views. Fixed `arena.Arena`
-    buffers remain explicitly unchecked. Full native gates pass with unchanged caps; see the
+    buffers were explicitly unchecked in that verified scope. D7 removes the ordinary safe API
+    exemption and hosted epoch-wrap allowance. Approved `NewFixed(capacity,parent) Fixed` owns
+    private fixed-capacity backing; `NewUnsafe(buf) Arena` is the explicit manual route. The isolated
+    implementation enforces exact allocation invalidation, backing lifetime and noncolliding
+    incarnations, with live-prefix and ordinary-use acceptance controls. All-package tests,
+    aggregate coverage nondecrease and every floor, zero lint, full SSA and generation-off suites
+    pass with unchanged caps. See the
+    [current verification record](verification/2026-10-13-safe-arena-lifetimes.md) and
+    [implementation and acceptance plan](plans/2026-10-13-safe-arena-lifetimes.md).
+    Prior full native gates pass with unchanged caps; see the
     [verification and measurement record](verification/2026-10-12-generation-directory.md).
     Tuning remains ordered after the gap list: coherent whole-range/ancestor snapshots,
     same-granule scalar checks, proven extent reuse and interval lookup hints without cached
@@ -167,8 +178,16 @@ compiler (2026-10-11).
 95. **Channel reference counts** (decided, gap 26; sections 18.7 and 19.8): the specification follows the code.
     Every count except `shared` is plain until the program starts its first task and atomic after, channels
     included (`lib/pluto/rt/chan.p` counts like a `synced[T]`); nothing is left to build.
-96. **The debug allocator reports package-variable memory apart from leaks** (planned; sections 15.4 and
-    18.6, debug-allocator.md).
+96. **Package-variable memory reporting** (old implementation direction superseded by D6 on
+    2026-10-13; sections 15.4 and 18.6, debug-allocator.md).
+    D6 approves normal program termination releasing owned resources, including package owners.
+    Its shutdown policy and specification remain to be settled before implementation. The abandoned
+    package-held classification, E3601, source proofs and snapshot machinery were archived and removed
+    from the active checkout; no completion is claimed. Independent core Goexit cleanup remains landed.
+    Optional allocator and scheduler candidates are archived for separate evidence-based review.
+    The hostile dirty-page tests demonstrated defensive robustness, not a PageProvider contract failure:
+    providers promise zeroed pages. See the [cleanup ledger](verification/2026-10-13-item96-cleanup.md)
+    and [historical verification record](verification/2026-10-13-package-memory.md).
 97. **`pluto vet -unsafe`** (done; sections 18.12, 21.1 and 21.5): audits every source function and
     initializer, with typed unsafe sites and safe caller paths, including possible indirect calls and
     cleanup. Findings exit 0; source errors retain normal diagnostics. Native full verification passes;
@@ -335,8 +354,11 @@ compiler (2026-10-11).
     unchecked mode; kernel and freestanding builds stay unchecked until a kernel tag encoding exists.
     Historical prefix-only measurements reported 1.02x over `bench/`. That result does not describe
     the shared-directory implementation; item 85 records its current measured costs and tuning work.
-72. **Arena epochs** (done, `3410025`; section 18.11, abi.md section 1.3): `arena.Chunked` carries a
-    per-arena epoch; `alloc.SyncSlab` tags its allocations.
+72. **Arena epochs** (original `3410025` implementation; D7 nonwrapping follow-up under85,
+    native verified 2026-10-14; tracked archive and final review passed;
+    section 18.11, abi.md section 1.3): the isolated Fixed/Chunked implementation uses persistent
+    noncolliding incarnations and fails before exhaustion can revive an old view. Native stale-view,
+    reuse-exhaustion and live-prefix controls pass; see item85's verification record.
 75. **Language checks the integration left open** (done, gaps 7, 15 and 23 and the directive group; each
     sub-item was checked against the compiler before it was struck): a `//go:` line comment is an error
     that names the `//pu:` equivalent (sections 4.1 and 20.3, E2604, `57a292e4`); `iota` in an enum is an

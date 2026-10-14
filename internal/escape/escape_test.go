@@ -644,8 +644,7 @@ import (
 	"pluto/arena"
 )
 func install() alloc.Restore {
-	var mem [64]byte
-	a := arena.New(mem[:])
+	a := arena.NewFixed(64)
 	return alloc.Use(&a)
 }
 func main() { install().Restore() }`, []string{"cannot return alloc.Use(&a)"}},
@@ -725,8 +724,7 @@ import (
 	"pluto/arena"
 )
 func f(a, b string) string {
-	var mem [256]byte
-	ar := arena.New(mem[:])
+	ar := arena.NewFixed(256)
 	defer alloc.Use(&ar).Restore()
 	return a + b
 }
@@ -738,8 +736,7 @@ import (
 	"pluto/arena"
 )
 func f(a, b string) string {
-	var mem [256]byte
-	ar := arena.New(mem[:])
+	ar := arena.NewFixed(256)
 	{
 		defer alloc.Use(&ar).Restore() // runs when f returns
 	}
@@ -754,8 +751,7 @@ import (
 )
 var G *int
 func f() {
-	var mem [256]byte
-	ar := arena.New(mem[:])
+	ar := arena.NewFixed(256)
 	{
 		r := alloc.Use(&ar)
 		p := new(int)
@@ -772,8 +768,7 @@ import (
 	"pluto/vec"
 )
 func f() vec.Vec[int] {
-	var mem [256]byte
-	ar := arena.New(mem[:])
+	ar := arena.NewFixed(256)
 	r := alloc.Use(&ar)
 	v := vec.New[int]()
 	r.Restore()
@@ -1193,8 +1188,7 @@ import (
 	"pluto/arena"
 )
 func main() {
-	var mem [256]byte
-	a := arena.New(mem[:])
+	a := arena.NewFixed(256)
 	r := alloc.Use(&a)
 	p := new(int)
 	*p = 1
@@ -1446,8 +1440,7 @@ import (
 	"pluto/arena"
 )
 func g(a, b string) string {
-	var mem [256]byte
-	ar := arena.New(mem[:])
+	ar := arena.NewFixed(256)
 	{
 		r := alloc.Use(&ar)
 		_ = a + b
@@ -1464,8 +1457,7 @@ import (
 )
 func f() vec.Vec[int] {
 	heap := alloc.Default()
-	var mem [256]byte
-	ar := arena.New(mem[:])
+	ar := arena.NewFixed(256)
 	defer alloc.Use(&ar).Restore()
 	v := vec.New[int](heap)
 	v.Push(1)

@@ -20,10 +20,9 @@ import (
 //   - Drop returns every chunk to the parent; Trim returns only the spare
 //     ones Reset and Release kept.
 //
-// Memory a Reset, Release or Drop takes back must not be used afterwards,
-// through any pointer, slice, string or box into it. Built with -gencheck,
-// such a use panics with "use of memory from an arena that was reset"
-// (epoch.p); otherwise it reads whatever the memory holds by then.
+// Memory a Reset, Release, Drop or latest Free takes back must not be used
+// afterwards. Checked builds validate persistent allocation incarnations;
+// unchecked builds omit that validation (language spec section 18.11).
 //
 // A compiler uses one per phase:
 //
@@ -50,7 +49,7 @@ type Chunked owner struct {
 	spare     *chunk  // standard chunks kept for reuse, linked by prev
 	held      uintptr // bytes taken from the parent, headers included
 	poison    bool
-	epoch     uint16 // -gencheck: the epoch of new allocations, or 0 for a new one (epoch.p)
+	life      lifetime
 }
 
 // A chunk is a block from the parent allocator: this header, then size
@@ -83,7 +82,7 @@ func NewChunked(chunkSize uintptr = DefaultChunkSize, parent alloc.Allocator = a
 	if chunkSize > ^uintptr(0)/4 {
 		panic("arena: chunk size is too large")
 	}
-	return Chunked{parent: parent, chunkSize: (chunkSize + 15) &^ 15}
+	return Chunked{parent: parent, chunkSize: (chunkSize + 15) &^ 15, life: newLifetime(parent)}
 }
 
 func (c *chunk) data() unsafe.Pointer {
@@ -98,6 +97,12 @@ func (c *chunk) data() unsafe.Pointer {
 func (a *Chunked) Alloc(size, align uintptr) unsafe.Pointer {
 	if align == 0 {
 		align = 1
+	}
+	if align&(align-1) != 0 {
+		panic("arena: alignment is not a power of two")
+	}
+	if size == 0 {
+		size = 1
 	}
 	if p := a.bump(size, align); p != nil {
 		return p
@@ -123,13 +128,14 @@ func (a *Chunked) bump(size, align uintptr) unsafe.Pointer {
 		return nil
 	}
 	p := unsafe.Add(c.data(), a.off+pad)
+	p = a.life.allocate(p, size)
+	if p == nil {
+		return nil
+	}
 	a.off += pad + size
 	if size > 0 {
 		// The chunk may hold data from before a Reset or Release.
 		clear(unsafe.Slice((*byte)(p), size))
-		if isEpoch(c) {
-			p = a.tagEpoch(c, p, size)
-		}
 	}
 	return p
 }
@@ -178,41 +184,59 @@ func (a *Chunked) grow(need uintptr) bool {
 // most recent allocation gives its space back (which makes a growing
 // vec.Vec on an arena cheaper).
 func (a *Chunked) Free(p unsafe.Pointer, size, align uintptr) {
-	if c := a.cur; c != nil && p != nil && uintptr(p)+size == uintptr(c.data())+a.off && uintptr(p) >= uintptr(c.data()) {
+	rt.GenCheckArenaFree(p, max(size, uintptr(1)))
+	r := a.life.head
+	if c := a.cur; c != nil && r != nil && p != nil && uintptr(p) >= uintptr(r.p) && uintptr(p) < uintptr(r.p)+r.size && uintptr(p)+max(size, uintptr(1)) == uintptr(r.p)+r.size && uintptr(p)+max(size, uintptr(1)) == uintptr(c.data())+a.off {
 		a.off = uintptr(p) - uintptr(c.data())
-		if isEpoch(c) {
-			a.endEpoch(c, a.off, a.off+size, rt.CallerPC(), true)
+		if a.life.freeTail(p, max(size, uintptr(1)), rt.CallerPC()) {
+			rt.Goexit()
 		}
 	}
 }
 
 // A ChunkMark records how much of a Chunked is in use; see Chunked.Mark.
 type ChunkMark struct {
-	cur    *chunk
-	off    uintptr
-	before uintptr
+	cur      *chunk
+	off      uintptr
+	before   uintptr
+	identity uint64
+	reset    uint64
+	sequence uint64
+	end      uintptr
 }
 
 // Mark returns the current fill level. Release(m) frees everything
 // allocated after it, leaving earlier allocations intact.
-func (a *Chunked) Mark() ChunkMark { return ChunkMark{a.cur, a.off, a.before} }
+func (a *Chunked) Mark() ChunkMark {
+	return ChunkMark{a.cur, a.off, a.before, a.life.identity, a.life.reset, a.life.sequence(), a.life.end()}
+}
 
 // Release frees every allocation made since m was taken: chunks taken since
 // then go back to the spare list (or, if larger than standard, to the
 // parent), and the chunk that was current when m was taken is cut back to
 // its level then. m must not be stale (taken before a Reset, or before a
 // Release that went further back); Release panics when it can tell.
-func (a *Chunked) Release(m ChunkMark) { a.release(m, rt.CallerPC()) }
+func (a *Chunked) Release(m ChunkMark) {
+	if a.release(m, rt.CallerPC()) {
+		rt.Goexit()
+	}
+}
 
 // release is Release for the call that returns to pc.
-func (a *Chunked) release(m ChunkMark, pc uintptr) {
+func (a *Chunked) release(m ChunkMark, pc uintptr) bool {
+	if !a.life.valid(m.identity, m.reset, m.sequence, m.end) || genCheck && m.cur != nil && !rt.GenRegisteredLive(unsafe.Pointer(m.cur)) {
+		panic("arena: Release of a stale mark")
+	}
+	exiting := a.life.reclaim(m.sequence, pc, false)
 	for a.cur != m.cur {
 		c := a.cur
 		if c == nil {
 			panic("arena: Release of a stale mark")
 		}
 		a.cur = c.prev
-		a.recycle(c, 0, a.off, pc)
+		if a.recycle(c, 0, a.off, pc) {
+			exiting = true
+		}
 		// How full the older chunk was when it was left is not recorded;
 		// treat it as full, so poisoning covers everything after the mark.
 		if a.cur != nil {
@@ -225,58 +249,79 @@ func (a *Chunked) release(m ChunkMark, pc uintptr) {
 	if a.cur != nil && a.poison {
 		fill(unsafe.Add(a.cur.data(), m.off), a.off-m.off)
 	}
-	if a.cur != nil && isEpoch(a.cur) {
-		a.endEpoch(a.cur, m.off, a.off, pc, false)
-	}
 	a.off = m.off
 	a.before = m.before
+	return exiting
 }
 
 // recycle takes back a chunk that is no longer current, of which bytes
 // [from, to) were in use, for the call that returns to pc: a standard chunk
 // goes on the spare list, a larger one back to the parent.
-func (a *Chunked) recycle(c *chunk, from, to, pc uintptr) {
+func (a *Chunked) recycle(c *chunk, from, to, pc uintptr) bool {
 	if a.poison {
 		fill(unsafe.Add(c.data(), from), to-from)
-	}
-	if isEpoch(c) {
-		a.endEpoch(c, from, to, pc, false)
 	}
 	if c.size == a.chunkSize {
 		c.prev = a.spare
 		a.spare = c
-		return
+		return false
 	}
-	a.freeChunk(c)
+	return a.freeChunk(c)
 }
 
 // freeChunk returns c to the parent allocator.
-func (a *Chunked) freeChunk(c *chunk) {
+func (a *Chunked) freeChunk(c *chunk) bool {
 	if isEpoch(c) {
-		a.freeEpochChunk(c)
-		return
+		return a.freeEpochChunk(c)
 	}
 	a.held -= chunkHeader + c.size
-	a.parent.Free(unsafe.Pointer(c), chunkHeader+c.size, 16)
+	return rt.CatchAllocFree(a.parent, unsafe.Pointer(c), chunkHeader+c.size, 16)
 }
 
 // Reset frees every allocation. Standard chunks are kept for reuse.
-func (a *Chunked) Reset() { a.release(ChunkMark{}, rt.CallerPC()) }
+func (a *Chunked) Reset() {
+	if a.life.identity == 0 {
+		return
+	}
+	a.life.resetMarks()
+	if a.release(ChunkMark{identity: a.life.identity, reset: a.life.reset}, rt.CallerPC()) {
+		rt.Goexit()
+	}
+}
 
 // Trim returns the spare chunks to the parent allocator.
 func (a *Chunked) Trim() {
+	if a.trim() {
+		rt.Goexit()
+	}
+}
+
+func (a *Chunked) trim() bool {
+	exiting := false
 	for a.spare != nil {
 		c := a.spare
 		a.spare = c.prev
-		a.freeChunk(c)
+		if a.freeChunk(c) {
+			exiting = true
+		}
 	}
+	return exiting
 }
 
 // Drop frees every allocation and returns all chunks to the parent
 // allocator. The arena is empty afterwards and may be used again.
 func (a *Chunked) Drop() {
-	a.release(ChunkMark{}, rt.CallerPC())
-	a.Trim()
+	if a.life.identity == 0 {
+		return
+	}
+	a.life.resetMarks()
+	exiting := a.release(ChunkMark{identity: a.life.identity, reset: a.life.reset}, rt.CallerPC())
+	if a.trim() {
+		exiting = true
+	}
+	if exiting {
+		rt.Goexit()
+	}
 }
 
 // Used returns the number of bytes allocated, including alignment padding

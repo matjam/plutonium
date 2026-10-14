@@ -209,7 +209,7 @@ func run() {
 
 func main() {
 	done = make(chan uintptr) // before the arena is installed
-	a := arena.New(buf[:])
+	a := arena.NewUnsafe(buf[:])
 	r := alloc.Use(&a)
 	rt.Go(run, 64<<10)
 	used := a.Used()

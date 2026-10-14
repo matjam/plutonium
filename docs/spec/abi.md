@@ -184,9 +184,9 @@ arena has taken back, panics instead of reading or writing whatever the memory h
 
 | Tag | Meaning |
 |---|---|
-| `0` | not checked: the stack, static data, devices, fixed `arena.Arena` allocations, pointers made from a `uintptr` |
+| `0` | not runtime checked: ordinary stack/static data, devices, pointers made from a `uintptr`, manual unsafe arena views, and arena views whose complete lifetime is statically proved |
 | `0x0001` to `0x7fff` | an allocation's generation (`alloc.Slab`, `alloc.SyncSlab`, and every other heap allocation, whatever its size) |
-| `0x8000` to `0xffff` | an arena epoch (`arena.Chunked`) |
+| `0x8000` to `0xffff` | an arena allocation incarnation (fixed or Chunked) |
 
 **Shared metadata directory.** The runtime maintains one directory for the program, indexed by the
 untagged address's 64 KiB interval. Each entry reaches the registered allocation or arena tables that
@@ -258,7 +258,7 @@ parent first invalidates its dependent child registrations, then frees it throug
 pointer. Invalidating a parent registration or its backing granules makes every affected dependent
 child view stale, even if the child's table still holds the old tag. A heap child and its overlapping
 heap ancestor have different generations;
-arena children use the program-wide epoch rule below. Registering or removing a child must never
+arena children use the noncolliding epoch rule below. Registering or removing a child must never
 overwrite the metadata needed to validate a still-live parent or sibling.
 
 **When a check stays valid.** A check is a statement about state the current task can see: the
@@ -318,17 +318,23 @@ path), is not such a point for its caller. `opt.GenFrees` computes which functio
   use the contiguous layout above. Both layouts are registered in the directory and retain their
   backing allocation's identity. Allocations start on a granule, so each granule in the arena's table
   belongs to one allocation. The arena's current epoch, taken from a
-  program-wide counter (`rt.NewEpoch`, `0x8000` plus the count modulo `0x8000`), goes into the granules
+  noncolliding incarnation source in the range `0x8000` to `0xffff`, goes into the granules
   of each allocation and the tag of its pointer. `Reset`, `Release`, `Drop` and a `Free` of the latest
   allocation zero the granules they take back (no pointer has tag 0) and end the epoch: the next
   allocation takes a new one, so a stale pointer does not match the memory once it is handed out again.
-  Epochs are program-wide because a new arena is often given the chunk a dropped one had. The counter
-  wraps after 32768 epochs, after which a pointer that old can match again. This is accepted for the
-  hosted 16-bit encoding only (language spec section 1.2, principle 4: bounded checks fail loudly;
-  sections 18.11 and 21.5).
-  **Requirement on the future kernel tag encoding:** reaching the end of the epoch range must retire the
-  chunk (never hand it out again) or widen the tag, as a slab retires a slot at `0x8000`, so that a stale
-  pointer cannot match after a wrap.
+  Incarnation history survives arena destruction and reuse of its backing, since a new arena may
+  receive a dropped arena's addresses. No modulo wrap may make a stale pointer match a later
+  incarnation. Before exhaustion, the implementation retires affected storage or widens the
+  identity; if neither is available, it fails loudly before publishing another allocation. This
+  requirement applies to hosted and future kernel encodings (language spec sections 18.11 and 21.5).
+
+  Fixed arenas obey the same lifetime rule. When static lifetime proof does not prevent every
+  stale use, their returned views carry a registered incarnation and their reclaimed extents are
+  invalidated before reuse. Frame or static backing is not an exemption from allocation lifetime.
+  Registration must preserve caller payload, requested alignment, backing identity and the validity
+  of still-live prefix allocations after a partial release. The fixed arena's metadata layout need
+  not be the Chunked layout; its storage and ownership must follow the explicit allocation contract
+  rather than silently using caller payload or a different payload allocator.
 - **Disjoint ranges.** A stale arena pointer into memory a slab now uses, or a stale slab pointer into
   an arena chunk, never matches.
 - **Counted strings and boxes.** A string's control word (section 1.1) keeps the tag of its buffer, and
@@ -339,15 +345,18 @@ path), is not such a point for its caller. `opt.GenFrees` computes which functio
   "use of memory from an arena that was reset at F (file:line)" for an arena tag, naming the call that
   last took back memory of that epoch (`rt.EpochEnded` records it); "use of freed memory: an arena
   allocation freed at F (file:line)" when that was a `Free`.
+  The recorded site identifies the reclaimed address and incarnation together. The same numeric
+  tag at an unrelated address must not replace the origin of a stale pointer's diagnostic.
 
-**Heap and chunked arena coverage.** A use of freed heap memory, or of `arena.Chunked` memory after the
+**Heap and arena coverage.** A use of freed heap memory, or of ordinary arena memory after the
 arena took it back, panics in a checked build, whatever the allocation's size (language spec section
 18.11). Every ordinary heap allocation therefore carries a registered generation and all
-`arena.Chunked` memory a registered epoch, including slab allocations over 2 KiB and arena chunks
+arena memory not completely covered by static lifetime proof a registered incarnation, including
+fixed-buffer allocations, slab allocations over 2 KiB and arena chunks
 over 56 KiB. The contract applies to custom allocators as well as to `Slab` and `SyncSlab` (language
-spec section 18.9). A fixed `arena.Arena` buffer is exempt: its allocations carry tag `0`, and use
-after the arena takes the memory back has no defined behavior, even in a checked build. Stack,
-static and device pointers and pointers made from a `uintptr` also have tag `0`; unsafe code that
+spec section 18.9). A fixed buffer cannot supply an unproved ordinary view with tag `0` merely
+because its backing is frame or static storage. Ordinary stack/static and device pointers and
+pointers made from a `uintptr` have tag `0`; unsafe code that
 creates an untagged pointer has the responsibility stated in language spec section 18.12.
 
 Converting a pointer to `uintptr`, and passing it to a function implemented outside Plutonium, removes

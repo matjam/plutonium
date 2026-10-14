@@ -120,8 +120,9 @@ implementation checks, at run time, everything that chapter 17 (Run-time panics)
 slicing, division, type assertions, channel misuse, string slicing at a position that is not a rune
 boundary, stack overflow, and the use of memory that has been freed. A use of freed heap memory is a
 run-time panic by the definition of the language: the views of heap memory are checked by **generation
-checks**, and views into `arena.Chunked` by **arena epochs**. Fixed `arena.Arena` buffers are exempt
-even in a checked build (section 18.11, Generation checks).
+checks**, and views into fixed and Chunked arenas by static lifetime proof or **arena epochs**.
+An ordinary arena API must not silently leave its returned views unchecked when static proof is
+incomplete (section 18.11, Generation checks).
 
 An implementation provides a documented **unchecked mode**, in which the generation checks and the arena
 epoch checks are not performed. The unchecked mode is not a dialect: a correct program behaves
@@ -134,10 +135,11 @@ without them. An implementation provides the choice per build, and `//pu:nocheck
   pointers that fits the kernel (the hosted encoding uses pointer bits that kernels use, abi.md section
   1.3).
 
-Except for the hosted arena-epoch limit, a check with a finite range fails loudly, never silently:
+Every check with a finite range fails loudly, never silently:
 when the range ends, the implementation retires the memory or widens the field. Heap generations never
-wrap. The hosted 16-bit arena encoding accepts that a stale pointer can match again after 32,768 epochs;
-a kernel encoding must retire the memory or widen the field before its range wraps (section 18.11;
+wrap. Arena epochs must not collide with stale views, including after reset, destruction or reuse by
+another arena. This applies to hosted and kernel encodings; safe exhaustion handling occurs before
+issuing an incarnation that could match a stale view (section 18.11;
 abi.md section 1.3).
 
 The implementation provides a tool that lists unsafe code (section 20.1, Package `unsafe`): for each

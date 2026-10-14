@@ -15,19 +15,46 @@ import (
 // counting passes allocations to another allocator and counts the blocks
 // and bytes outstanding.
 type counting struct {
-	under         alloc.Allocator
-	blocks, bytes int
+	under                          alloc.Allocator
+	blocks, bytes, chunks, records int
+}
+
+// Bookkeeping is explicit parent storage. This private implementation
+// layout distinguishes its requests from payload chunks in this cost oracle.
+type allocationRecord struct {
+	prev     *allocationRecord
+	p        unsafe.Pointer
+	size     uintptr
+	token    uintptr
+	sequence uint64
+}
+
+func recordRequest(size, align uintptr) bool {
+	return size == unsafe.Sizeof(allocationRecord{}) && align == unsafe.Alignof(allocationRecord{})
 }
 
 func (c *counting) Alloc(size, align uintptr) unsafe.Pointer {
-	c.blocks++
-	c.bytes += int(size)
-	return c.under.Alloc(size, align)
+	p := c.under.Alloc(size, align)
+	if p != nil {
+		c.blocks++
+		c.bytes += int(size)
+		if recordRequest(size, align) {
+			c.records++
+		} else {
+			c.chunks++
+		}
+	}
+	return p
 }
 
 func (c *counting) Free(p unsafe.Pointer, size, align uintptr) {
 	c.blocks--
 	c.bytes -= int(size)
+	if recordRequest(size, align) {
+		c.records--
+	} else {
+		c.chunks--
+	}
 	c.under.Free(p, size, align)
 }
 
@@ -54,7 +81,7 @@ func main() {
 	for n := head; n != nil; n = n.next {
 		sum += n.val
 	}
-	println("nodes", sum, "chunks", parent.blocks, "used", a.Used() >= 6400)
+	println("nodes", sum, "chunks", parent.chunks, "records", parent.records, "used", a.Used() >= 6400)
 
 	// Alignment is honoured across chunks.
 	for _, al := range []uintptr{1, 8, 16, 64, 256} {
@@ -67,7 +94,7 @@ func main() {
 	// Scratch work between a mark and its release.
 	m := a.Mark()
 	usedAtMark := a.Used()
-	chunksAtMark := parent.blocks
+	chunksAtMark := parent.chunks
 	scratch := vec.WithCapacity[int](2000, &a) // 16000 bytes: a chunk of its own
 	for i := 0; i < 2000; i++ {
 		scratch.Push(i)
@@ -75,13 +102,15 @@ func main() {
 	for i := 0; i < 50; i++ {
 		_ = a.New[node]()
 	}
-	println("scratch", scratch.At(1999), "more chunks", parent.blocks > chunksAtMark)
+	println("scratch", scratch.At(1999), "more chunks", parent.chunks > chunksAtMark)
+	scratch.Drop()
 	bytesBefore := parent.bytes
-	blocksBefore := parent.blocks
+	chunksBefore := parent.chunks
+	recordsBefore := parent.records
 	a.Release(m)
 	// The 16000-byte chunk goes back to the parent; the standard ones stay
 	// as spares.
-	println("released", a.Used() == usedAtMark, "large chunk returned", bytesBefore-parent.bytes >= 16000, blocksBefore-parent.blocks)
+	println("released", a.Used() == usedAtMark, "large chunk returned", bytesBefore-parent.bytes >= 16000, chunksBefore-parent.chunks, "records returned", recordsBefore-parent.records)
 	// The nodes allocated before the mark are intact.
 	sum = 0
 	for n := head; n != nil; n = n.next {
@@ -91,11 +120,12 @@ func main() {
 
 	// Spare chunks are reused: allocating the same scratch again takes no
 	// standard chunks from the parent.
-	before := parent.blocks
+	before := parent.chunks
+	recordsBefore = parent.records
 	for i := 0; i < 50; i++ {
 		_ = a.New[node]()
 	}
-	println("reused spares", parent.blocks == before)
+	println("reused spares", parent.chunks == before, "records", parent.records-recordsBefore)
 
 	// Freeing the most recent allocation gives its space back.
 	u := a.Used()
@@ -123,6 +153,9 @@ func main() {
 	restore.Restore()
 	println("use", q.val, s.Len(), a.Used() > u)
 	q.Drop() // q's node is in the arena: drop it before the arena is reset
+	s.Drop()
+	mp.Drop()
+	v.Drop()
 
 	// Reset keeps the standard chunks; Trim returns them; the arena is
 	// usable again afterwards.
@@ -133,7 +166,7 @@ func main() {
 	println("trim", a.Held(), parent.blocks, parent.bytes)
 	r := a.New[node]()
 	r.val = 42
-	println("again", r.val, r.next == nil, parent.blocks)
+	println("again", r.val, r.next == nil, parent.chunks, "records", parent.records)
 
 	// Poisoning overwrites released memory.
 	a.SetPoison(true)
@@ -141,7 +174,7 @@ func main() {
 	b := (*[16]byte)(a.Alloc(16, 1))
 	b[0] = 1
 	// Released memory is read through its address: with -gencheck, a
-	// read through b itself panics (the arena's epoch has moved on).
+	// read through b itself panics (the allocation was reclaimed).
 	addr := uintptr(unsafe.Pointer(b))
 	a.Release(m2)
 	b = (*[16]byte)(unsafe.Pointer(addr))
@@ -161,9 +194,8 @@ func main() {
 	a.Drop()
 	println("drop", parent.blocks, parent.bytes)
 
-	// The same on a fixed Arena.
-	var mem [256]byte
-	fa := arena.New(mem[:])
+	// The same on an owned Fixed.
+	fa := arena.NewFixed(256)
 	fn := fa.New[node]()
 	fn.val = 9
 	fs := fa.Slice[uint16](8)

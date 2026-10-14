@@ -60,6 +60,15 @@ func CatchGoexit(f func()) bool {
 	return takeGoexit()
 }
 
+// CatchAllocFree completes one mandatory allocator release and reports its
+// Goexit request. Its typed callback retains the ordinary Free effect graph.
+// The compiler gives this exact internal hook the same catch boundary as
+// CatchGoexit, without introducing a func() callback into that graph.
+func CatchAllocFree(a Allocator, p unsafe.Pointer, size, align uintptr) bool {
+	a.Free(p, size, align)
+	return takeGoexit()
+}
+
 // mainGoexited is set once main has called Goexit.
 var mainGoexited bool
 

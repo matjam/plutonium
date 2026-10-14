@@ -1046,8 +1046,13 @@ func (g *genPlacer) check(b *ssa.Block, at *ssa.Value, s *genSite) {
 	chk.AddEdgeTo(cont)
 	chk.AddEdgeTo(fail)
 
-	call := g.newValue(fail, pos, ssa.OpCall, ssa.TupleOf(compat.Clone([]*ssa.Type{ssa.TMem})...), p, mem)
-	call.Aux = f.GenPanic
+	panicArgs, panicSym := []*ssa.Value{p}, f.GenPanic
+	if s.size > 1 {
+		panicArgs, panicSym = compat.Append(panicArgs, i64(s.size)), f.GenRangePanic
+	}
+	panicArgs = compat.Append(panicArgs, mem)
+	call := g.newValue(fail, pos, ssa.OpCall, ssa.TupleOf(compat.Clone([]*ssa.Type{ssa.TMem})...), panicArgs...)
+	call.Aux = panicSym
 	call.Call = pu.New(ssa.CallInfo{ABI: ssa.ABIInternal, NoReturn: true})
 	sel := g.newValue(fail, pos, ssa.OpSelectN, ssa.TMem, call)
 	fail.SetControl(sel)

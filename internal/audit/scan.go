@@ -230,6 +230,12 @@ func (g *graph) unsafeCall(info *types2.Info, e ast.Expr) string {
 			return p + "." + n
 		case p == "pluto/rt" && n == "Pinned":
 			return "pluto/rt.Pinned"
+		case p == "pluto/arena":
+			if fn, ok := o.(*types2.Func); ok {
+				if reason := manualArenaOperation(fn); reason != "" {
+					return reason
+				}
+			}
 		}
 	}
 	if sel, ok := unwrap(e).(*ast.SelectorExpr); ok && g.allocator != nil {
@@ -240,4 +246,40 @@ func (g *graph) unsafeCall(info *types2.Info, e ast.Expr) string {
 		}
 	}
 	return ""
+}
+
+// Manual arena operations are unsafe API declarations under section 18.12.
+// Methods belong to the actual Arena origin; Fixed and same-name declarations
+// do not acquire the manual contract from their spelling or signature.
+func manualArenaOperation(fn *types2.Func) string {
+	fn = fn.Origin()
+	sig := fn.Type().(*types2.Signature)
+	if sig.Recv() == nil {
+		if fn.Name() == "NewUnsafe" && fn.Pkg().Scope().Lookup("NewUnsafe") == fn {
+			return "pluto/arena.NewUnsafe"
+		}
+		return ""
+	}
+	switch fn.Name() {
+	case "New", "Slice", "Reset", "Release":
+	default:
+		return ""
+	}
+	recv := types2.Unalias(sig.Recv().Type())
+	if p, ok := recv.(*types2.Pointer); ok {
+		recv = types2.Unalias(p.Elem())
+	}
+	named, ok := recv.(*types2.Named)
+	if !ok {
+		return ""
+	}
+	obj, ok := fn.Pkg().Scope().Lookup("Arena").(*types2.TypeName)
+	if !ok {
+		return ""
+	}
+	arena, ok := types2.Unalias(obj.Type()).(*types2.Named)
+	if !ok || named.Origin() != arena.Origin() {
+		return ""
+	}
+	return "manual Arena." + fn.Name()
 }

@@ -1,24 +1,8 @@
-// Package arena provides bump allocators: Arena, over a caller-provided
-// buffer, and Chunked, which grows by taking chunks from a parent allocator
-// and supports Mark/Release (chunked.p).
-//
-// An Arena hands out memory from the front of its buffer and never frees
-// individual allocations (except the most recent one, see Free); Reset
-// frees everything at once. It implements alloc.Allocator, so it can back
-// new, make, vec.Vec, hash.Map or any other allocating code:
-//
-//	var mem [64 << 10]byte // package-level
-//	var a arena.Arena
-//
-//	a = arena.New(mem[:])
-//	defer alloc.Use(&a).Restore()
-//
-// An arena in a function's own frame, over a buffer in that frame, can back
-// code that function calls (vec.New[int](&a)), but cannot become the default
-// allocator: the default is a package variable, and a pointer into a frame
-// must not be stored there (language spec section 18.3).
-//
-// An Arena is not safe for concurrent use.
+// Package arena provides fixed-capacity and growing bump allocators.
+// Fixed and Chunked own their private backing and check allocation lifetimes
+// in checked builds. NewUnsafe instead borrows a caller-provided buffer;
+// its Arena has manually managed lifetimes (language spec section 18.12).
+// None of the allocators are safe for concurrent use.
 package arena
 
 import (
@@ -36,9 +20,10 @@ type Arena struct {
 // The Arena satisfies alloc.Allocator through its pointer.
 var _ alloc.Allocator = (*Arena)(nil)
 
-// New returns an Arena that allocates from buf. The caller must not use buf
-// while the Arena is in use.
-func New(buf []byte) Arena {
+// NewUnsafe borrows buf without allocating private payload. The caller must
+// keep buf alive and exclusively available, avoid overlapping cursor copies,
+// and end all views and count obligations before Free, Reset or Release.
+func NewUnsafe(buf []byte) Arena {
 	if len(buf) == 0 {
 		return Arena{}
 	}

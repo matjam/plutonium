@@ -70,7 +70,7 @@ func main() {
 	// Vec of structs on an arena.
 	// Backed by uint64s so the buffer is 8-aligned and padding is predictable.
 	var mem [1 << 13]uint64
-	ar := arena.New(unsafe.Slice((*byte)(unsafe.Pointer(&mem)), len(mem)*8))
+	ar := arena.NewUnsafe(unsafe.Slice((*byte)(unsafe.Pointer(&mem)), len(mem)*8))
 	bv := vec.WithCapacity[big](2, &ar)
 	for i := 0; i < 100; i++ {
 		bv.Push(big{a: int64(i), b: int64(2 * i), c: int64(3 * i), s: "x"})

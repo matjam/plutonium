@@ -110,11 +110,10 @@ guarantees without writing annotations.
    application should not have to know that these decisions exist.
 
 4. **Bounded checks fail loudly, never silently.** Reaching the end of a finite generation or epoch range
-   retires the memory or widens the field, except for the documented hosted arena-epoch limit. Heap
-   generations never wrap. Arena epochs use one program-wide counter; the hosted 16-bit encoding accepts
-   that a stale pointer can match again after 32,768 epochs (sections 18.11 and 21.5). A kernel encoding
-   must retire the chunk or widen the field before a wrap. A check that can start passing stale pointers
-   by accident gives a false assurance, which is worse for a kernel than no check.
+   retires the memory or widens the field. Heap generations and arena epochs never wrap so that a stale
+   pointer can match reused memory (sections 18.11 and 21.5). If the implementation cannot provide a
+   further safe incarnation, it fails loudly before handing out that memory. This applies to hosted
+   and kernel encodings alike.
 
 ### 1.3 Relation to Go, and how to read this specification
 
@@ -210,8 +209,9 @@ These terms are used throughout. Each is defined in full in the section cited.
 - **Safe and unsafe code.** Code that the compiler checks against data races and the misuse of memory is
   safe. Code that uses package `unsafe`, the unchecked layer of the allocator interface, or functions
   written outside Plutonium is unsafe (section 18.12, Safe and unsafe code).
-- **Checked and unchecked mode.** A checked build makes a use of freed heap or `arena.Chunked` memory a
-  run-time panic. Fixed `arena.Arena` buffers are exempt. A build without those checks is the unchecked
+- **Checked and unchecked mode.** A checked build prevents stale uses of heap and arena memory through
+  static lifetime checks or run-time checks. Fixed and Chunked arenas have the same lifetime guarantee.
+  A build without the run-time generation and epoch checks is the unchecked
   mode, in which such a use has no defined effect.
   Correct programs behave the same in both (section 18.11, Generation checks).
 

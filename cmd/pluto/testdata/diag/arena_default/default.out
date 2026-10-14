@@ -1,6 +1,6 @@
-$DIR/main.p:21:9: cannot return fmt.Sprintf("item %d", n), which points into memory allocated from a, a local arena of name
+$DIR/main.p:20:9: cannot return fmt.Sprintf("item %d", n), which points into memory allocated from a, a local arena of name
     fmt.Sprintf("item %d", n) points into memory allocated from a, a local arena
-    of name. alloc.Use(&a) (at main.p:20) makes a (a local arena of name) the
+    of name. alloc.Use(&a) (at main.p:19) makes a (a local arena of name) the
     default allocator, so what is allocated through the default allocator from
     there on (by new, a string operation, or a call that allocates and leaves
     out its allocator) lives in the arena, and is gone when the arena is. When
@@ -21,9 +21,9 @@ $DIR/main.p:21:9: cannot return fmt.Sprintf("item %d", n), which points into mem
     (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3001" for a longer explanation)
 
-$DIR/main.p:31:9: cannot return v, which points into memory allocated from a, a local arena of items
+$DIR/main.p:29:9: cannot return v, which points into memory allocated from a, a local arena of items
     v points into memory allocated from a, a local arena of items. alloc.Use(&a)
-    (at main.p:28) makes a (a local arena of items) the default allocator, so
+    (at main.p:26) makes a (a local arena of items) the default allocator, so
     what is allocated through the default allocator from there on (by new, a
     string operation, or a call that allocates and leaves out its allocator)
     lives in the arena, and is gone when the arena is. When items returns, the
@@ -43,9 +43,9 @@ $DIR/main.p:31:9: cannot return v, which points into memory allocated from a, a 
     (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3001" for a longer explanation)
 
-$DIR/main.p:39:2: cannot store s + "!" in package variable saved, which outlives a
+$DIR/main.p:36:2: cannot store s + "!" in package variable saved, which outlives a
     s + "!" points into memory allocated from a, a local arena of keep.
-    alloc.Use(&a) (at main.p:38) makes a (a local arena of keep) the default
+    alloc.Use(&a) (at main.p:35) makes a (a local arena of keep) the default
     allocator, so what is allocated through the default allocator from there on
     (by new, a string operation, or a call that allocates and leaves out its
     allocator) lives in the arena, and is gone when the arena is. When keep

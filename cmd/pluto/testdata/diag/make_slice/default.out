@@ -82,7 +82,7 @@ $DIR/main.p:16:10: make of a slice is not permitted in Plutonium (a slice is a v
     (see "Making channels and maps" in the Plutonium spec, section 13.7)
     (run "pluto explain E2014" for a longer explanation)
 
-$DIR/main.p:19:8: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
+$DIR/main.p:18:8: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
     Plutonium has no make for slices. In Go, make([]T, n) allocates an array
     that the garbage collector frees when no slice refers to it. A Plutonium
     slice is a view of an array that something else owns, so a new array needs
@@ -103,7 +103,7 @@ $DIR/main.p:19:8: make of a slice is not permitted in Plutonium (a slice is a vi
     (see "Making channels and maps" in the Plutonium spec, section 13.7)
     (run "pluto explain E2014" for a longer explanation)
 
-$DIR/main.p:20:11: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
+$DIR/main.p:19:11: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)
     Plutonium has no make for slices. In Go, make([]T, n) allocates an array
     that the garbage collector frees when no slice refers to it. A Plutonium
     slice is a view of an array that something else owns, so a new array needs

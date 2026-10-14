@@ -22,7 +22,7 @@ import "github.com/matjam/plutonium/internal/ssa"
 // join of t and u, say) stops the threading.
 
 // threadPhiBranch threads one predecessor of b past it, if it can.
-func threadPhiBranch(f *ssa.Func, b *ssa.Block) bool {
+func threadPhiBranch(f *ssa.Func, b *ssa.Block, uses *map[*ssa.Value][]phiUse) bool {
 	if b.Kind != ssa.BlockIf || b == f.Entry {
 		return false
 	}
@@ -57,7 +57,10 @@ func threadPhiBranch(f *ssa.Func, b *ssa.Block) bool {
 	}
 	dom := f.Dom()
 	sole := len(t.Preds) == 1
-	if !phiUsesThreadable(f, b, t, sole, dom) {
+	if *uses == nil {
+		*uses = phiUseInventory(f)
+	}
+	if !phiUsesThreadable(b, t, sole, dom, *uses) {
 		return false
 	}
 
@@ -115,10 +118,41 @@ func threadPhiBranch(f *ssa.Func, b *ssa.Block) bool {
 	return true
 }
 
+type phiUse struct {
+	at      *ssa.Block
+	phiEdge bool
+}
+
+// phiUseInventory records every argument and control occurrence for the
+// current threading scan. Its caller discards it after any CFG mutation.
+func phiUseInventory(f *ssa.Func) map[*ssa.Value][]phiUse {
+	uses := make(map[*ssa.Value][]phiUse)
+	for _, blk := range f.Blocks {
+		for _, v := range blk.Values {
+			for j, a := range v.Args {
+				if a.Op != ssa.OpPhi || a.Block.Kind != ssa.BlockIf {
+					continue
+				}
+				at := blk
+				if v.Op == ssa.OpPhi {
+					at = blk.Preds[j].B
+				}
+				uses[a] = append(uses[a], phiUse{at, v.Op == ssa.OpPhi})
+			}
+		}
+		for _, a := range blk.Controls {
+			if a.Op == ssa.OpPhi && a.Block.Kind == ssa.BlockIf {
+				uses[a] = append(uses[a], phiUse{blk, false})
+			}
+		}
+	}
+	return uses
+}
+
 // phiUsesThreadable reports whether every use of b's phis outside b is one
 // threading into t can repair, or one it does not affect: a use dominated
 // by another successor whose only predecessor is b still has b above it.
-func phiUsesThreadable(f *ssa.Func, b, t *ssa.Block, sole bool, dom *ssa.DomTree) bool {
+func phiUsesThreadable(b, t *ssa.Block, sole bool, dom *ssa.DomTree, uses map[*ssa.Value][]phiUse) bool {
 	check := func(a *ssa.Value, at *ssa.Block, phiEdge bool) bool {
 		if a.Op != ssa.OpPhi || a.Block != b || at == b && !phiEdge {
 			return true
@@ -136,24 +170,9 @@ func phiUsesThreadable(f *ssa.Func, b, t *ssa.Block, sole bool, dom *ssa.DomTree
 		}
 		return false
 	}
-	for _, blk := range f.Blocks {
-		for _, v := range blk.Values {
-			for j, a := range v.Args {
-				if v.Op == ssa.OpPhi {
-					// A phi uses its argument at the end of the
-					// matching predecessor.
-					if !check(a, blk.Preds[j].B, true) {
-						return false
-					}
-					continue
-				}
-				if !check(a, blk, false) {
-					return false
-				}
-			}
-		}
-		for _, a := range blk.Controls {
-			if !check(a, blk, false) {
+	for _, v := range b.Values {
+		for _, use := range uses[v] {
+			if !check(v, use.at, use.phiEdge) {
 				return false
 			}
 		}

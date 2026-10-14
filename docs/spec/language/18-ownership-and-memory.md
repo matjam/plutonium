@@ -553,8 +553,9 @@ This applies to custom allocators, to direct constructors and to allocations mad
 allocator, including its scoped overrides. The compiler and runtime provide the registration
 mechanism; its use by an allocator does not require a directive on ordinary program code. An
 implementation must not accept such an allocation and silently leave its views unchecked merely
-because the allocator is custom. `arena.Chunked` supplies epochs for its allocations; fixed
-`arena.Arena` buffers are the explicit exception. Unsafe code that makes or exposes an untagged
+because the allocator is custom. Both `arena.Fixed` and `arena.Chunked` ordinary allocations
+must meet the arena lifetime guarantee below; static proof may replace a run-time check when it
+prevents every stale use. Unsafe code that makes or exposes an untagged
 pointer remains responsible for its lifetime (section 18.12).
 
 **Choosing an allocator.** Every operation that allocates takes its memory from an allocator given
@@ -608,8 +609,7 @@ whose results keep their allocator out of sight (a string, a box, an interface s
 
 ```go
 func name(n int) string {
-	var mem [256]byte
-	a := arena.New(mem[:])
+	a := arena.NewFixed(256)
 	defer alloc.Use(&a).Restore()
 	return fmt.Sprintf("item %d", n) // error E3001: the string is in a, which is gone when name returns
 }
@@ -617,19 +617,51 @@ func name(n int) string {
 
 To keep something past the arena, allocate it from an allocator that outlives it, passed explicitly
 (`heap := alloc.Default()` before `Use`, then `vec.New[T](heap)`), or install an arena the caller
-provides. Memory from the arena that the function or a callee stores into other heap memory is not
-followed at compile time; the arena epochs of section 18.11 catch a use of `arena.Chunked` memory after
-the arena is reset, released past it or dropped. A fixed `arena.Arena` buffer has no epoch check.
+provides. A view stored in heap memory does not lose its arena lifetime. Where the compiler cannot
+follow such retention, a checked build uses the runtime lifetime checks of section 18.11. The same
+rule applies to fixed and Chunked arenas after reset, release past the view, drop or backing reuse.
+An implementation must reject an unproved use if it cannot provide the required runtime check;
+it must not silently accept an unchecked ordinary arena view. Such a precision or implementation
+limit remains a gap for valid safe arena programs, not a restriction on the specified API.
 
 **Arenas.** An arena owns everything allocated in it and reclaims it all at once when it is reset or
 dropped. Freeing into an arena does nothing, so the same owner code works in an arena and on the general
 heap: an owner allocated in an arena is dropped as usual, and its free costs nothing. The library provides
-`arena.Arena`, which allocates within a buffer its creator provides, and `arena.Chunked`, an owner that
-takes chunks from a parent allocator and returns them when dropped. An arena also hands out memory as
+`arena.Fixed`, a fixed-capacity owner of private backing from its parent allocator, and `arena.Chunked`,
+an owner that takes more chunks from a parent allocator as needed. The ordinary fixed constructor is
+`arena.NewFixed(capacity uintptr, parent alloc.Allocator = alloc.Default()) Fixed`. It explicitly
+allocates its private backing, never grows or relocates its payload, and returns backing to the parent
+on drop. Its parent remains a lifetime dependency. `Fixed` moves rather than copies; borrowed pointer
+aliases share one allocator identity and cursor. The constructor panics on unavailable backing or
+invalid capacity rather than returning unchecked storage. Zero capacity gives an empty fixed arena.
+Payload capacity excludes allocation bookkeeping. Each successful allocation additionally obtains
+one bookkeeping record from the same parent, in checked and unchecked modes; reclaiming that allocation
+returns its record, and dropping the arena also returns its payload. An allocation that cannot obtain
+bookkeeping fails without advancing the cursor. Ordinary reads and writes allocate nothing. Stable
+check-reader and address-history metadata uses the runtime directory storage described in abi.md
+section 1.3; it is not payload or a hidden change of the arena's chosen parent.
+An arena also hands out memory as
 plain views (`a.New[T]()` returns a `*T`, `a.Slice[T](n)` a `[]T`) that are valid until the arena is
 reset or dropped; the compiler does not drop the values in them. A string or counted box made in an arena
 between `m := a.Mark()` and `a.Release(m)` must be dropped before the `Release`, since dropping it writes
 its count.
+
+Ordinary typed allocation, `Reset`, `Release` and drop must preserve this lifetime guarantee.
+Marks identify their arena and the recorded allocation position. A foreign mark or one invalidated
+by reclamation cannot reclaim unrelated current storage; it panics. Releasing a later mark does not
+invalidate an earlier still-live mark.
+`Release` invalidates only allocations it reclaims; earlier allocations remain valid. A fixed
+manual `Arena` constructed over a caller-provided buffer continues to use that buffer; it must not
+silently replace it with an allocated buffer or overwrite payload with metadata. The
+raw allocation
+layer and unsafe pointer operations remain available to code that deliberately manages lifetimes
+itself (section 18.12); their obligations do not become an unstated precondition of an ordinary API.
+
+`arena.NewUnsafe(buf []byte) Arena` is the explicit borrowed-buffer constructor. It allocates no
+private payload and does not free the caller's buffer. Its copyable `Arena` representation is a manual
+allocator: the caller must keep the backing alive and exclusively available, avoid overlapping cursor
+copies, and end all views and count obligations before taking their memory back. It has no ordinary
+safe-lifetime guarantee. There is no `arena.New(buf)` constructor that hides this obligation.
 
 **The debug allocator.** `pluto/alloc/debug` catches overruns, uses after free and double frees
 deterministically and reports leaks; it can be the default allocator of a hosted program without code
@@ -684,23 +716,25 @@ println(*first)               // panic: use of freed memory
 
 **The rule.** A use of heap memory through a view after the memory has been freed (a load, a store, or
 the release of a count it holds) is a run-time panic, "use of freed memory" (section 17.1, Panics). The
-same holds for the memory of an `arena.Chunked` after the arena has taken it back with `Reset`,
+same holds for fixed or Chunked arena memory after the arena has taken it back with `Reset`,
 `Release` or `Drop`, or freed it: the panic names the call that
 took it back. Freeing memory a second time through the
 unchecked layer is a use too.
 
 **How it is checked.** In a checked build, a heap pointer carries a tag that names the generation of its
 allocation, and the allocator gives the memory a new generation when it frees it; each access through a
-pointer that may point to the heap compares the two. Arenas tag their memory with an epoch, which ends
-when the arena takes the memory back. The rule covers all heap and `arena.Chunked` memory, whatever its
+pointer that may point to the heap compares the two. Arenas use an allocation incarnation, represented
+by an epoch when runtime checking is required, which ends for the memory the arena takes back.
+Static lifetime proof may replace that check when it prevents every stale use. The rule covers all
+ordinary heap and arena memory, whatever its
 size: large allocations and large arena chunks carry tags or epochs too, with contiguous payload.
 A shared runtime metadata directory reaches the right tag table for every interior address, so
 checks do not depend on a table being stored at each boundary within the payload. Metadata remains
 valid while a check reads it, even after payload memory is returned to its allocator. A child
-allocator's views also depend on its backing allocation remaining live. The buffer of a fixed
-`arena.Arena` is exempt: its allocations carry no epoch, even in a checked build. A use of memory from
-that buffer after the arena has taken it back has no defined behavior. The escape rules of section 18.3
-still apply. The encoding is in abi.md section 1.3. Pointers to frames, static
+allocator's views also depend on its backing allocation remaining live. This includes a fixed arena
+over frame, static or heap backing: the backing storage's lifetime alone does not keep a reclaimed
+arena allocation valid. The escape rules of section 18.3 still apply. The encoding is in abi.md
+section 1.3. Ordinary pointers to frames, static
 storage and devices carry no tag and are not checked, since the rules of section 18.3 already cover them.
 A pointer converted to `uintptr` or passed to a function implemented outside Plutonium loses its tag.
 One check covers later accesses through the same pointer until the task does something that could free
@@ -717,14 +751,16 @@ lets each build choose the mode (section 21.5, Run-time checks and the unchecked
 `//pu:nochecks` removes the checks from one function (section 18.12). The checks change only what a bug does: a program that never uses freed memory
 behaves the same in both modes.
 
-**Bounded checks fail loudly.** Except for the hosted arena-epoch limit below, reaching the end of a
+**Bounded checks fail loudly.** Reaching the end of a
 finite generation or epoch range must retire the memory (never hand it out again) or widen the field,
 so that a stale pointer never matches memory that was reused. Heap allocations retire an address range
 before its generation wraps. Generation history survives address reuse by another allocator, a different
 allocation layout or a new mapping; reuse cannot restart the generation or make a stale view match
-payload bytes. Arena epochs come from one program-wide counter, so that before the counter wraps a stale
-pointer into a chunk a new arena reuses does not match. The hosted encoding accepts a wrap after 32,768
-epochs (abi.md section 1.3), and a kernel encoding must retire the chunk or widen the field before a wrap.
+payload bytes. Arena incarnation history likewise survives reset, release, arena destruction and
+reuse of the backing buffer by another arena or allocator. A finite epoch must not wrap and make an
+old view valid again. Hosted and kernel encodings must retire affected storage or widen the identity
+before a collision; if no safe further incarnation is available, allocation fails loudly rather
+than issuing a matching stale tag (abi.md section 1.3).
 
 In the unchecked mode, the debug allocator (section 18.9) narrows the gap by catching uses of memory
 returned to it.
@@ -745,6 +781,8 @@ atomic operations (section 19.3).
 - package `pluto/arch/x86`, and memory made from an integer, such as device registers (section 20.8);
 - the unchecked allocation layer: `alloc.Raw`, `alloc.New`, `alloc.Free`, and an `Allocator`'s methods
   called directly (section 18.10);
+- `arena.NewUnsafe` and the manual `Arena` methods `New[T]`, `Slice[T]`, `Reset` and `Release`, which
+  require caller-managed backing and allocation lifetimes (section 18.9);
 - functions without a body (assembly and `//pu:extern`), and the directives that state promises the
   compiler takes on trust: `//pu:noescape`, `//pu:resultholds` (standard library only) and
   `//pu:nochecks` (section 20.3);
@@ -754,6 +792,12 @@ Unsafe code is marked by what it imports and by its directives, with no keyword.
 unsafe code behind a safe interface, as `vec.Vec` and `hash.Map` do, is responsible for keeping the
 invariants that make its interface safe. Most unsafe code lives in the standard library (allocators,
 containers, the runtime); applications should need none.
+
+Manual arena lifetime access belongs to these existing unsafe mechanisms: direct `Allocator`
+methods, unsafe pointer construction or conversion, or an explicitly unchecked function. Ordinary
+ordinary `Fixed` and `Chunked` typed `New[T]`, `Slice[T]`, `Reset` and `Release` are not made unsafe merely because their implementation
+uses such mechanisms. Their safe wrapper must keep the static or runtime lifetime guarantee;
+raw or unchecked access makes the programmer responsible for avoiding stale use.
 
 **`//pu:nochecks`** on a function removes its bounds checks and generation checks. It is an explicit
 request to trade checks for speed in one function after measuring, and it makes the function unsafe
@@ -970,8 +1014,7 @@ tree would never be freed.
 
 ```go
 func handle(req *Request) error {
-	var mem [16 << 10]byte
-	a := arena.New(mem[:])       // a views mem; both live in handle's frame
+	a := arena.NewFixed(16 << 10) // explicit private fixed-capacity backing
 	fields := vec.New[Field](&a) // allocates in the arena; holds a view of a
 	parseFields(req.body, &fields)
 	var reply strings.Builder

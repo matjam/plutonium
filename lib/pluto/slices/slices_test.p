@@ -637,16 +637,17 @@ func TestRepeat(t *testing.T) {
 
 func TestInAllocator(t *testing.T) {
 	// CloneIn, ConcatIn and RepeatIn allocate from the allocator passed in.
-	var mem [1024]byte
-	a := arena.New(mem[:])
-	v := CloneIn(&a, []int{1, 2, 3})
-	w := ConcatIn(&a, []int{4}, []int{5, 6})
-	x := RepeatIn(&a, []int{7, 8}, 2)
-	if !Equal(v.Slice(), []int{1, 2, 3}) || !Equal(w.Slice(), []int{4, 5, 6}) || !Equal(x.Slice(), []int{7, 8, 7, 8}) {
-		t.Errorf("got %v %v %v", v.Slice(), w.Slice(), x.Slice())
-	}
-	if v.Allocator() != alloc.Allocator(&a) {
-		t.Errorf("CloneIn did not record the allocator")
+	a := arena.NewFixed(1024)
+	{
+		v := CloneIn(&a, []int{1, 2, 3})
+		w := ConcatIn(&a, []int{4}, []int{5, 6})
+		x := RepeatIn(&a, []int{7, 8}, 2)
+		if !Equal(v.Slice(), []int{1, 2, 3}) || !Equal(w.Slice(), []int{4, 5, 6}) || !Equal(x.Slice(), []int{7, 8, 7, 8}) {
+			t.Errorf("got %v %v %v", v.Slice(), w.Slice(), x.Slice())
+		}
+		if v.Allocator() != alloc.Allocator(&a) {
+			t.Errorf("CloneIn did not record the allocator")
+		}
 	}
 	// 3 + 3 + 4 words, with alignment: well inside the arena, and nothing
 	// came from anywhere else, so resetting the arena reclaims it all.

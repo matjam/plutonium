@@ -926,14 +926,11 @@ func testFtoaPowersOfTwo() {
 }
 
 // A NumError keeps its allocator in heap memory, so the arena must outlive
-// any frame (language spec section 6.3): it is a package variable.
-var (
-	numErrMem   [1024]byte
-	numErrArena arena.Arena
-)
+// any frame (language spec section 18.3): it is a package variable.
+var numErrArena arena.Fixed
 
 func testNumError() {
-	numErrArena = arena.New(numErrMem[:])
+	numErrArena = arena.NewFixed(1024)
 	a := &numErrArena
 	e := strconv.NewNumError("ParseFloat", "1x\n\"", ErrSyntax, a)
 	want := "strconv.ParseFloat: parsing \"1x\\n\\\"\": invalid syntax"
@@ -958,6 +955,8 @@ func testNumError() {
 	}
 	e, e2 = nil, nil
 	a.Reset()
+	finished := take(&numErrArena)
+	finished.Drop()
 	// With the default allocator, Free returns the memory.
 	e3 := strconv.NewNumError("ParseUint", "", ErrSyntax, alloc.Default())
 	if want := "strconv.ParseUint: parsing \"\": invalid syntax"; e3.Error() != want {

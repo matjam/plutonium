@@ -6,6 +6,50 @@ import (
 	"github.com/matjam/plutonium/internal/ssa"
 )
 
+func TestGenerationDirectoryPanicExtent(t *testing.T) {
+	for _, typ := range []*ssa.Type{ssa.TI8, ssa.TI64} {
+		t.Run(typ.String(), func(t *testing.T) {
+			p := ssa.NewProgram()
+			f := ssa.NewFunc("extent_panic")
+			f.Params, f.Results = []*ssa.Type{ssa.TPtr}, []*ssa.Type{typ}
+			f.Pragmas = ssa.PragmaGenCheck
+			f.GenLive = p.Sym("pluto/rt.GenRegisteredLive", ssa.SymFunc)
+			f.GenRange = p.Sym("pluto/rt.GenRegisteredRangeLive", ssa.SymFunc)
+			f.GenPanic = p.Sym("pluto/rt.panicStale", ssa.SymFunc)
+			f.GenRangePanic = p.Sym("pluto/rt.panicStaleRange", ssa.SymFunc)
+			b := f.Entry
+			m := b.NewValue(ssa.OpInitMem, ssa.TMem)
+			ptr := b.NewValueI(ssa.OpArg, ssa.TPtr, 0)
+			v := b.NewValue(ssa.OpLoad, typ, ptr, m)
+			b.Kind = ssa.BlockRet
+			b.SetControl(m, v)
+			GenCheck(f)
+			if err := f.Verify(); err != nil {
+				t.Fatal(err)
+			}
+			panics := 0
+			for _, block := range f.Blocks {
+				for _, call := range block.Values {
+					if call.Op != ssa.OpCall || call.Aux != f.GenPanic && call.Aux != f.GenRangePanic {
+						continue
+					}
+					panics++
+					if typ == ssa.TI8 {
+						if call.Aux != f.GenPanic || len(call.Args) != 2 {
+							t.Fatalf("scalar panic changed its operands:\n%s", f)
+						}
+					} else if call.Aux != f.GenRangePanic || len(call.Args) != 3 || call.Args[1].Op != ssa.OpConst || call.Args[1].AuxInt != 8 {
+						t.Fatalf("range panic lost its failed byte extent:\n%s", f)
+					}
+				}
+			}
+			if panics != 1 {
+				t.Fatalf("want one failure path, got %d:\n%s", panics, f)
+			}
+		})
+	}
+}
+
 // A zero-width memory operation touches no address, including when the
 // pointer would otherwise need a generation check.
 func TestGenerationDirectoryZeroWidth(t *testing.T) {
@@ -16,6 +60,7 @@ func TestGenerationDirectoryZeroWidth(t *testing.T) {
 	f.GenLive = p.Sym("pluto/rt.GenRegisteredLive", ssa.SymFunc)
 	f.GenRange = p.Sym("pluto/rt.GenRegisteredRangeLive", ssa.SymFunc)
 	f.GenPanic = p.Sym("pluto/rt.panicStale", ssa.SymFunc)
+	f.GenRangePanic = p.Sym("pluto/rt.panicStaleRange", ssa.SymFunc)
 	b := f.Entry
 	m := b.NewValue(ssa.OpInitMem, ssa.TMem)
 	ptr := b.NewValueI(ssa.OpArg, ssa.TPtr, 0)
@@ -62,6 +107,7 @@ func TestGenerationDirectoryExtentReuse(t *testing.T) {
 			f.GenLive = p.Sym("pluto/rt.GenRegisteredLive", ssa.SymFunc)
 			f.GenRange = p.Sym("pluto/rt.GenRegisteredRangeLive", ssa.SymFunc)
 			f.GenPanic = p.Sym("pluto/rt.panicStale", ssa.SymFunc)
+			f.GenRangePanic = p.Sym("pluto/rt.panicStaleRange", ssa.SymFunc)
 			b := f.Entry
 			m := b.NewValue(ssa.OpInitMem, ssa.TMem)
 			ptr := b.NewValueI(ssa.OpArg, ssa.TPtr, 0)
@@ -114,6 +160,7 @@ func TestGenerationDirectoryFreeBarrier(t *testing.T) {
 	f.GenLive = p.Sym("pluto/rt.GenRegisteredLive", ssa.SymFunc)
 	f.GenRange = p.Sym("pluto/rt.GenRegisteredRangeLive", ssa.SymFunc)
 	f.GenPanic = p.Sym("pluto/rt.panicStale", ssa.SymFunc)
+	f.GenRangePanic = p.Sym("pluto/rt.panicStaleRange", ssa.SymFunc)
 	b := f.Entry
 	m := b.NewValue(ssa.OpInitMem, ssa.TMem)
 	ptr := b.NewValueI(ssa.OpArg, ssa.TPtr, 0)
