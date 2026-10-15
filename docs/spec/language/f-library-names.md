@@ -56,9 +56,9 @@ The runtime's other names that a scheduler uses are `rt.Task`, `rt.Context`, `rt
 explicit size, as kernels and scheduler binders need; its third argument is optional, and names the
 allocator that supplies the stack (the program-wide default if omitted), for a scheduler that takes stack
 memory from the allocator a program asks for (section 19.1, Tasks). `rt.StackLeft`, `rt.StackBounds` and
-`rt.SetStackBounds` report and record the limits of a stack. `rt.Goexit` ends the calling task after
-running the deferred calls and drops of every frame; `rt.CatchGoexit` lets a runner stop that exit
-(section 17.3, Ending a task with rt.Goexit). `rt.Pinned` hides a pointer from the escape analysis, and is
+`rt.SetStackBounds` report and record the limits of a stack. `rt.ExitTask` ends the calling task after
+running the deferred calls and drops of every frame; `rt.CatchExitTask` lets a runner stop that exit
+(section 17.3, Ending a task with rt.ExitTask). `rt.Pinned` hides a pointer from the escape analysis, and is
 unsafe code (section 20.1, Package `unsafe`). The compiler gives `rt.Sleep`, which is declared without a
 body, its body by name: a direct wait if the program never starts the scheduler, a parked one otherwise.
 

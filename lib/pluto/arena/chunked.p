@@ -189,7 +189,7 @@ func (a *Chunked) Free(p unsafe.Pointer, size, align uintptr) {
 	if c := a.cur; c != nil && r != nil && p != nil && uintptr(p) >= uintptr(r.p) && uintptr(p) < uintptr(r.p)+r.size && uintptr(p)+max(size, uintptr(1)) == uintptr(r.p)+r.size && uintptr(p)+max(size, uintptr(1)) == uintptr(c.data())+a.off {
 		a.off = uintptr(p) - uintptr(c.data())
 		if a.life.freeTail(p, max(size, uintptr(1)), rt.CallerPC()) {
-			rt.Goexit()
+			rt.ExitTask()
 		}
 	}
 }
@@ -218,7 +218,7 @@ func (a *Chunked) Mark() ChunkMark {
 // Release that went further back); Release panics when it can tell.
 func (a *Chunked) Release(m ChunkMark) {
 	if a.release(m, rt.CallerPC()) {
-		rt.Goexit()
+		rt.ExitTask()
 	}
 }
 
@@ -285,14 +285,14 @@ func (a *Chunked) Reset() {
 	}
 	a.life.resetMarks()
 	if a.release(ChunkMark{identity: a.life.identity, reset: a.life.reset}, rt.CallerPC()) {
-		rt.Goexit()
+		rt.ExitTask()
 	}
 }
 
 // Trim returns the spare chunks to the parent allocator.
 func (a *Chunked) Trim() {
 	if a.trim() {
-		rt.Goexit()
+		rt.ExitTask()
 	}
 }
 
@@ -320,7 +320,7 @@ func (a *Chunked) Drop() {
 		exiting = true
 	}
 	if exiting {
-		rt.Goexit()
+		rt.ExitTask()
 	}
 }
 

@@ -146,7 +146,7 @@ func holder() {
 // leaving waits for leave's task.
 var leaving sync.WaitGroup
 
-// leave ends its task with rt.Goexit: the deferred calls of every frame
+// leave ends its task with rt.ExitTask: the deferred calls of every frame
 // run and what each frame holds is dropped, innermost frame first.
 func leave() {
 	defer leaving.Done()
@@ -158,7 +158,7 @@ func stop() {
 	var b Any = new(Big{name: "goexit-big"})
 	_, _ = a, b
 	println("leaving")
-	rt.Goexit()
+	rt.ExitTask()
 }
 
 func main() {

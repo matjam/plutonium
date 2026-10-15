@@ -62,45 +62,51 @@ type Lowerer struct {
 	pkgOf map[*types2.Package]*load.Package
 	decls map[*types2.Func]*funcDecl // every function and method declared in source
 
-	funcs          map[string]*ssa.Sym // instantiated functions by symbol name
-	queue          []*funcJob
-	dropNeeds      map[string]bool // whether destroying a value of a type runs code, by type (drop.go)
-	moves          *moves.Info     // moves and temporaries (scope.go)
-	scoped         *scoped.Info    // the scoped tasks of sync.Scope (scope_task.go)
-	globals        map[*types2.Var]*ssa.Sym
-	strs           map[string]*ssa.Sym
-	closureRecords map[*ssa.Sym]*ssa.Sym      // static closure record per function used as a value
-	exports        map[*ssa.Sym][]string      // extra symbol names from //pu:export
-	cnames         map[string]*ssa.Sym        // the function exporting each C symbol name
-	interruptSyms  map[*ssa.Sym]bool          // //pu:interrupt functions
-	cfuncs         map[*ssa.Sym]bool          // //pu:extern symbols, called with the C convention
-	statics        int                        // anonymous static objects created
-	errorSites     map[*ast.CallExpr]*ssa.Sym // static error of each errors.New call site
-	perCPUSelfSym  *ssa.Sym                   // pluto.percpu.self, once a per-CPU variable exists
-	genPanic       *ssa.Sym                   // pluto/rt.panicStale, under GenCheck
-	types          *typeTable
-	flowSums       map[string]*flowSummary        // closureflow.go, by instance symbol name
-	flowStack      []string                       // summaries being computed
-	flowTent       []string                       // tentative summaries
-	flowMin        int                            // the outermost summary being computed that was read
-	flowReported   map[token.Pos]bool             // returned closure records already reported
-	noRet          map[*types2.Func]int           // which functions never return (noreturn.go)
-	regionLayouts  map[*ssa.Sym]*regionLayout     // closure regions (regions.go)
-	regionMembers  map[string][]*ssa.Sym          // functions that take a region, by sigKey
-	regionSlots    []regionSlot                   // regions reserved by callers
-	regionCycles   map[token.Pos]bool             // regions reported as holding themselves
-	regionPending  [][]regionCand                 // errors that depend on the size of a region
-	regionZeros    []regionLocal                  // callers' regions, zeroed on entry
-	regionDrops    []regionDrop                   // drops of regions
-	regionStatics  []regionStatic                 // regions of calls made during initialisation
-	regionNodes    map[any]*regionNode            // sizeRegions' graph
-	sigKeys        map[string][]*types2.Signature // sigKey's signatures, by shape
-	sched          *schedBinding                  // the //pu:scheduler variable, or nil
-	schedMissing   bool                           // the missing-scheduler error has been reported
-	schedNoTimers  bool                           // the scheduler-without-timers error has been reported
-	late           []*lateHook                    // late hooks waiting for their bodies (sched.go)
-	lateDone       bool                           // the late hooks have been resolved
-	lateDirect     bool                           // ... to the functions that avoid the scheduler
+	funcs             map[string]*ssa.Sym // instantiated functions by symbol name
+	queue             []*funcJob
+	dropNeeds         map[string]bool // whether destroying a value of a type runs code, by type (drop.go)
+	moves             *moves.Info     // moves and temporaries (scope.go)
+	scoped            *scoped.Info    // the scoped tasks of sync.Scope (scope_task.go)
+	globals           map[*types2.Var]*ssa.Sym
+	strs              map[string]*ssa.Sym
+	closureRecords    map[*ssa.Sym]*ssa.Sym      // static closure record per function used as a value
+	exports           map[*ssa.Sym][]string      // extra symbol names from //pu:export
+	cnames            map[string]*ssa.Sym        // the function exporting each C symbol name
+	interruptSyms     map[*ssa.Sym]bool          // //pu:interrupt functions
+	cfuncs            map[*ssa.Sym]bool          // //pu:extern symbols, called with the C convention
+	statics           int                        // anonymous static objects created
+	cleanupStatics    []staticCleanupObject      // independently owned static initializer objects
+	cleanupAnchor     *types2.Var                // initializer whose static objects are being built
+	shutdownQueued    bool                       // final cleanup schedule has been generated
+	shutdownProtected bool                       // completed static places need write protection
+	shutdownJobs      []*funcJob                 // hooks deferred until static inventory is complete
+	errorSites        map[*ast.CallExpr]*ssa.Sym // static error of each errors.New call site
+	perCPUSelfSym     *ssa.Sym                   // pluto.percpu.self, once a per-CPU variable exists
+	genPanic          *ssa.Sym                   // pluto/rt.panicStale, under GenCheck
+	types             *typeTable
+	flowSums          map[string]*flowSummary        // closureflow.go, by instance symbol name
+	flowStack         []string                       // summaries being computed
+	flowTent          []string                       // tentative summaries
+	flowMin           int                            // the outermost summary being computed that was read
+	flowReported      map[token.Pos]bool             // returned closure records already reported
+	noRet             map[*types2.Func]int           // which functions never return (noreturn.go)
+	regionLayouts     map[*ssa.Sym]*regionLayout     // closure regions (regions.go)
+	regionMembers     map[string][]*ssa.Sym          // functions that take a region, by sigKey
+	regionSlots       []regionSlot                   // regions reserved by callers
+	regionCycles      map[token.Pos]bool             // regions reported as holding themselves
+	regionPending     [][]regionCand                 // errors that depend on the size of a region
+	regionZeros       []regionLocal                  // callers' regions, zeroed on entry
+	regionCompletions []regionCompletion             // nested shutdown extents, sized with regions
+	regionDrops       []regionDrop                   // drops of regions
+	regionStatics     []regionStatic                 // regions of calls made during initialisation
+	regionNodes       map[any]*regionNode            // sizeRegions' graph
+	sigKeys           map[string][]*types2.Signature // sigKey's signatures, by shape
+	sched             *schedBinding                  // the //pu:scheduler variable, or nil
+	schedMissing      bool                           // the missing-scheduler error has been reported
+	schedNoTimers     bool                           // the scheduler-without-timers error has been reported
+	late              []*lateHook                    // late hooks waiting for their bodies (sched.go)
+	lateDone          bool                           // the late hooks have been resolved
+	lateDirect        bool                           // ... to the functions that avoid the scheduler
 
 	// panicFn is the program's panic handler (panic.go).
 	panicFn *types2.Func
@@ -115,7 +121,7 @@ type Lowerer struct {
 	sites       map[*ssa.Value]*callSite
 	callOrigins map[*ssa.Value]token.Pos // source provenance for implicit calls
 
-	// rt.Goexit (goexit.go): which functions may end with it, and the
+	// rt.ExitTask (goexit.go): which functions may end with it, and the
 	// declared function a generated method expression thunk calls.
 	gx        *goexitInfo
 	gxWrapped map[*ssa.Sym]*types2.Func
@@ -255,7 +261,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		if len(l.errs) > 0 {
 			break
 		}
-		if l.types.finish() || l.resolveLateHooks() || l.finishRegions() {
+		if l.types.finish() || l.resolveLateHooks() || l.finishRegions() || l.queueShutdown() {
 			continue
 		}
 		break
@@ -409,6 +415,9 @@ func directives(doc *ast.CommentGroup) []string {
 // receiver's type arguments for methods of generic types), queueing its body
 // for lowering the first time it is seen.
 func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
+	if sym := l.staticWriteSym(fn, targs); sym != nil {
+		return sym
+	}
 	if sym := l.genAllocatorSym(fn, targs); sym != nil {
 		return sym
 	}
@@ -466,7 +475,12 @@ func (l *Lowerer) rawFuncSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 			sig = tm.subst(sig).(*types2.Signature)
 		}
 	}
-	l.queue = append(l.queue, &funcJob{sym: sym, pkg: d.pkg, decl: d.decl, sig: sig, tmap: tm})
+	job := &funcJob{sym: sym, pkg: d.pkg, decl: d.decl, sig: sig, tmap: tm}
+	if !l.shutdownQueued && staticCleanupHook(fn) {
+		l.shutdownJobs = append(l.shutdownJobs, job)
+	} else {
+		l.queue = append(l.queue, job)
+	}
 	return sym
 }
 

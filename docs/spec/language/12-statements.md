@@ -796,7 +796,7 @@ The function value and arguments are evaluated as usual in the starting task (se
 
 **A method of a box.** `task p.Serve()`, where `Serve` has a pointer receiver and `p` is an `owned[T]` or a `synced[T]`, hands the box itself to the new task, so the object lives as long as the task needs it and no view of the starting frame is involved.
 
-- An `owned[T]` moves into the task, as an owner argument does. `p` holds nothing afterward, and using it is a use after a move (section 18.5, Moves). The task drops the box when `Serve` returns, or when `Serve` ends it with `rt.Goexit` (section 17.3, Ending a task with `rt.Goexit`). The receiver must be a whole variable or a temporary, since an owner moves only out of a whole variable. `task newServer().Serve()` is allowed. `task s.box.Serve()` is not.
+- An `owned[T]` moves into the task, as an owner argument does. `p` holds nothing afterward, and using it is a use after a move (section 18.5, Moves). The task drops the box when `Serve` returns, or when `Serve` ends it with `rt.ExitTask` (section 17.3, Ending a task with `rt.ExitTask`). The receiver must be a whole variable or a temporary, since an owner moves only out of a whole variable. `task newServer().Serve()` is allowed. `task s.box.Serve()` is not.
 - A `synced[T]` is copied as an argument is. The new task holds a reference of its own, taken before it starts and released when the method returns, so the object is dropped by whichever task releases the last one. A field or element may be the receiver.
 - A `shared[T]` is not sendable, so `task z.Serve()` is an error (E2010), as is a box whose `T` contains one.
 - The method must be one of `T`, not one promoted from a field, and the box type must not be a named type. Any other pointer receiver is a view into an object, and crosses under the rules of section 19.3 (Data race freedom).
@@ -1084,7 +1084,7 @@ It is an error in a type switch, in a union switch and in a `select` statement. 
 
 ### 12.19 Defer statements
 
-A `defer` statement invokes a function whose execution is deferred to the moment the surrounding function returns, either because the surrounding function executed a return statement, reached the end of its function body, or because the corresponding task is panicking (hosted builds, 17.2) or ends with `rt.Goexit` (section 17.3, Ending a task with `rt.Goexit`).
+A `defer` statement invokes a function whose execution is deferred to the moment the surrounding function returns, either because the surrounding function executed a return statement, reached the end of its function body, or because the corresponding task is panicking (hosted builds, 17.2) or ends with `rt.ExitTask` (section 17.3, Ending a task with `rt.ExitTask`).
 
 ```
 DeferStmt = "defer" Expression .
@@ -1124,7 +1124,7 @@ func process(name string) {
 }
 ```
 
-**Panics and `Goexit`.** In hosted builds, a panic runs the pending deferred calls of the panicking task before the panic handler is called, and `rt.Goexit` runs the deferred calls of every frame of the task (section 17.2, Deferred calls on a panic; section 17.3, Ending a task with `rt.Goexit`). There is no `recover`: a deferred call cannot stop a panic. Freestanding and kernel builds run no deferred calls on a panic (section 17.4, Panics in freestanding programs).
+**Panics and `ExitTask`.** In hosted builds, a panic runs the pending deferred calls of the panicking task before the panic handler is called, and `rt.ExitTask` runs the deferred calls of every frame of the task (section 17.2, Deferred calls on a panic; section 17.3, Ending a task with `rt.ExitTask`). There is no `recover`: a deferred call cannot stop a panic. Freestanding and kernel builds run no deferred calls on a panic (section 17.4, Panics in freestanding programs).
 
 **Owners.** Deferred calls run before the function's own variables are dropped, so a deferred call may use them. A deferred call may not use an owner declared in an inner block, which is dropped when that block ends (E3311). `defer x.Drop()` on an owner variable drops `x` when the function returns, and `x` is not dropped again. A function literal that is deferred is a closure of the frame (section 11.5, Closures and their regions), and it may use the captured owners as any literal may (section 11.4, Function literals).
 

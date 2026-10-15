@@ -25,7 +25,7 @@ import "pluto/rt"
 type backend struct{}
 //pu:scheduler
 var scheduler backend
-func(*backend)NewTask(rt.StackRequest)*rt.Task{println("backend exit");rt.Goexit();return nil}
+func(*backend)NewTask(rt.StackRequest)*rt.Task{println("backend exit");rt.ExitTask();return nil}
 func(*backend)FreeTask(*rt.Task){}
 func(*backend)Spawn(*rt.Task){}
 func(*backend)Park(*rt.Task){}
@@ -34,7 +34,7 @@ func(*backend)Yield(*rt.Task){}
 func work(){}
 func create(){defer println("direct cleanup");rt.Go(work,4096);panic("creation continued")}
 func deferred(){defer println("remaining cleanup");defer rt.Go(work,4096)}
-func main(){if !rt.CatchGoexit(create){panic("direct exit lost")};if !rt.CatchGoexit(deferred){panic("deferred exit lost")};println("caught both")}
+func main(){if !rt.CatchExitTask(create){panic("direct exit lost")};if !rt.CatchExitTask(deferred){panic("deferred exit lost")};println("caught both")}
 `
 	for _, level := range []int{0, 2} {
 		dir := t.TempDir()
@@ -64,11 +64,11 @@ import "pluto/rt"
 import "unsafe"
 type counter struct{next alloc.Allocator}
 var mine counter
-func(c *counter)Alloc(n,a uintptr)unsafe.Pointer{println("allocator exit");rt.Goexit();return nil}
+func(c *counter)Alloc(n,a uintptr)unsafe.Pointer{println("allocator exit");rt.ExitTask();return nil}
 func(c *counter)Free(p unsafe.Pointer,n,a uintptr){c.next.Free(p,n,a)}
 func work(){}
 func create(){defer println("creation cleanup");rt.Go(work,4096,&mine);panic("creation continued")}
-func main(){mine.next=alloc.Default();if !rt.CatchGoexit(create){panic("allocator exit lost")};println("caught allocator")}
+func main(){mine.next=alloc.Default();if !rt.CatchExitTask(create){panic("allocator exit lost")};println("caught allocator")}
 `
 	runGoexitHook(t, source, "allocator exit\ncreation cleanup\ncaught allocator\n", plutonium.Stdlib())
 }
@@ -84,14 +84,14 @@ func TestSourceLateHookGoexit(t *testing.T) {
 	if strings.Count(string(data), "func Sleep(ns int64)") != 1 {
 		t.Fatal("expected exactly one Sleep declaration")
 	}
-	source := strings.Replace(string(data), "func Sleep(ns int64)", `func Sleep(ns int64){println("source hook exit");Goexit()}`, 1)
+	source := strings.Replace(string(data), "func Sleep(ns int64)", `func Sleep(ns int64){println("source hook exit");ExitTask()}`, 1)
 	if source == string(data) {
 		t.Fatal("Sleep declaration missing")
 	}
 	const program = `package main
 import "pluto/rt"
 func call(){defer println("source cleanup");rt.Sleep(0);panic("source continued")}
-func main(){if !rt.CatchGoexit(call){panic("source exit lost")};println("caught source")}
+func main(){if !rt.CatchExitTask(call){panic("source exit lost")};println("caught source")}
 `
 	runGoexitHook(t, program, "source hook exit\nsource cleanup\ncaught source\n", goexitHookOverlay{lib, fstest.MapFS{path: &fstest.MapFile{Data: []byte(source)}}})
 }
@@ -125,7 +125,7 @@ func TestBoundLateHookGoexit(t *testing.T) {
 		if depth != 0 {
 			t.Fatalf("%s body is not balanced", hook.name)
 		}
-		body := "{println(\"" + hook.receipt + "\");Goexit()}"
+		body := "{println(\"" + hook.receipt + "\");ExitTask()}"
 		overrides[hook.path] = &fstest.MapFile{Data: []byte(string(data[:brace]) + body + string(data[end:]))}
 	}
 	const program = `package main
@@ -133,7 +133,7 @@ import "pluto/rt"
 func direct(){defer println("direct cleanup");rt.Sleep(0);panic("direct continued")}
 func saved(){defer println("saved cleanup");f:=rt.Sleep;f(0);panic("saved continued")}
 func deferred(){defer println("deferred cleanup");f:=rt.Sleep;defer f(0)}
-func main(){if !rt.CatchGoexit(direct){panic("direct exit lost")};if !rt.CatchGoexit(saved){panic("saved exit lost")};if !rt.CatchGoexit(deferred){panic("deferred exit lost")};println("caught hooks")}
+func main(){if !rt.CatchExitTask(direct){panic("direct exit lost")};if !rt.CatchExitTask(saved){panic("saved exit lost")};if !rt.CatchExitTask(deferred){panic("deferred exit lost")};println("caught hooks")}
 `
 	const want = "parked hook exit\ndirect cleanup\nparked hook exit\nsaved cleanup\nparked hook exit\ndeferred cleanup\ncaught hooks\n"
 	runGoexitHook(t, program, want, goexitHookOverlay{lib, overrides})

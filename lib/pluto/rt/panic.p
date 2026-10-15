@@ -239,7 +239,7 @@ func runDeferred(t *Task, p *Panic) {
 
 // walkDeferred walks the frames p's stack trace starts in and calls the
 // runner of each one whose defer record has calls armed (trace.p). A
-// deferred call that ends with Goexit stops the walk: the task ends with
+// deferred call that ends with ExitTask stops the walk: the task ends with
 // the panic.
 //
 //pu:noinline

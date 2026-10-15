@@ -16,8 +16,8 @@ iterator deferred
 range
 inDefer returns
 stop deferred: deferred
-runs after the deferred Goexit
-deferred Goexit
+runs after the deferred ExitTask
+deferred ExitTask
 stop deferred: in a result
 expression
 main returns

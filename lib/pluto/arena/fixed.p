@@ -76,7 +76,7 @@ func (a *Fixed) Free(p unsafe.Pointer, size, align uintptr) {
 	position := uintptr(p) - uintptr(a.base)
 	a.off = position
 	if a.life.freeTail(p, max(size, uintptr(1)), rt.CallerPC()) {
-		rt.Goexit()
+		rt.ExitTask()
 	}
 }
 
@@ -84,7 +84,7 @@ func (a *Fixed) Reset() {
 	a.life.resetMarks()
 	a.off = 0
 	if a.life.reclaim(0, rt.CallerPC(), false) {
-		rt.Goexit()
+		rt.ExitTask()
 	}
 }
 
@@ -107,7 +107,7 @@ func (a *Fixed) Release(m FixedMark) {
 	}
 	a.off = m.off
 	if a.life.reclaim(m.sequence, rt.CallerPC(), false) {
-		rt.Goexit()
+		rt.ExitTask()
 	}
 }
 
@@ -122,7 +122,7 @@ func (a *Fixed) Drop() {
 		}
 	}
 	if exiting {
-		rt.Goexit()
+		rt.ExitTask()
 	}
 }
 

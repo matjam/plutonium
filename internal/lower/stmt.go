@@ -373,6 +373,9 @@ func (s *fnState) assignStmt(st *ast.AssignStmt) {
 			addr := s.declareVar(t.def)
 			s.assign(lvalue{ptr: addr, T: T}, s.assignConvert(vals[i], T, st), true)
 		default:
+			if t.lv.elem == nil {
+				s.staticWriteType(t.lv.ptr, t.lv.T)
+			}
 			if T := unwrap(t.lv.T); t.lv.elem == nil && t.lv.bits == nil && !permutes && !s.fresh(st.Lhs[i]) && s.l.needsDrop(T) {
 				s.dropAt(t.lv.ptr, T)
 				s.zero(t.lv.ptr, s.l.sizeof(T))

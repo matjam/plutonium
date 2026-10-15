@@ -1,6 +1,6 @@
 package main
 
-// rt.Goexit in the task that runs main ends it after its deferred
+// rt.ExitTask in the task that runs main ends it after its deferred
 // calls, without main returning: the other tasks go on, and once none
 // is left the program stops with status 2, as Go's does.
 //
@@ -12,12 +12,12 @@ import "pluto/rt"
 
 func worker(done chan bool) {
 	<-done
-	println("worker runs after main's Goexit")
+	println("worker runs after main's ExitTask")
 }
 
 func finish() {
 	defer println("finish deferred")
-	rt.Goexit()
+	rt.ExitTask()
 }
 
 func main() {

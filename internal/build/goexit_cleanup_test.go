@@ -42,8 +42,8 @@ var exitFree,exitNoop bool
 type CallbackAllocator struct{next alloc.Allocator}
 var callbackAlloc CallbackAllocator
 func(a *CallbackAllocator)Alloc(n,b uintptr)unsafe.Pointer{return a.next.Alloc(n,b)}
-func(a *CallbackAllocator)Free(p unsafe.Pointer,n,b uintptr){a.next.Free(p,n,b);if exitFree{record(10);rt.Goexit()}}
-func idle(){if exitNoop{rt.Goexit()}}
+func(a *CallbackAllocator)Free(p unsafe.Pointer,n,b uintptr){a.next.Free(p,n,b);if exitFree{record(10);rt.ExitTask()}}
+func idle(){if exitNoop{rt.ExitTask()}}
 type After owner struct{live bool}
 func(a *After)Drop(){if a.live{a.live=false;idle();record(100)}}
 type WeakCleanup owner struct{w weak[shared[int]];a After}
@@ -58,21 +58,21 @@ func freshTimedChannel()chan int{c:=freshChannel();_ = rt.ChanTimer(*(*unsafe.Po
 func freshText()string{callbackAlloc.next=alloc.Default();alloc.SetDefault(&callbackAlloc);s:=strings.Repeat("x",17);alloc.SetDefault(callbackAlloc.next);return s}
 type Holder owner struct{active bool;id int}
 func record(id int){order[orderLen]=id;orderLen++;events+=id}
-func(h *Holder)Drop(){if h.id!=0{record(h.id);h.id=0;if h.active{h.active=false;rt.Goexit()}}}
+func(h *Holder)Drop(){if h.id!=0{record(h.id);h.id=0;if h.active{h.active=false;rt.ExitTask()}}}
 func(*Holder)Error()string{return "holder"}
 type Outer owner struct{x,y Holder}
 func(o *Outer)Drop(){if o.x.id!=0||o.y.id!=0{record(10)}}
 type Resource owner interface{}
 type InterfaceOuter owner struct{x Resource;y Holder}
 func(o *InterfaceOuter)Drop(){if o.x!=nil||o.y.id!=0{record(10)}}
-func rhs()Holder{rt.Goexit();return Holder{}}
+func rhs()Holder{rt.ExitTask();return Holder{}}
 func stamp()Holder{evaluated++;return Holder{}}
-func exitInt()int{rt.Goexit();return 0}
+func exitInt()int{rt.ExitTask();return 0}
 func fresh()Holder{return Holder{id:100}}
 func freshPair()(Holder,Holder){return fresh(),Holder{id:200}}
 type Bucket owner struct{x Holder}
 func(*Bucket)Drop(){}
-func(b *Bucket)Accept(v Holder){b.x=v;rt.Goexit()}
+func(b *Bucket)Accept(v Holder){b.x=v;rt.ExitTask()}
 func sink(h Holder,n int){_ = h.id;_ = n}
 func produce()(Holder,int){return fresh(),exitInt()}
 func makeError()error{p:=alloc.Shared[Holder]();p.active=true;p.id=1;return p}
@@ -84,7 +84,7 @@ func sinkSynced(p synced[Holder],n int){_ = p;_ = n}
 func sinkError(e error,n int){_ = e;_ = n}
 func readBorrowed(v interface{}){_ = v}
 func mark(){deferred++}
-func check(name string,fn func(),want int,exits bool){events=0;deferred=0;evaluated=0;later=0;orderLen=0;tail=false;exitFree=false;dropBefore:=rt.TestCoreDropDepth();if rt.CatchGoexit(fn)!=exits{panic("wrong exit")};dropAfter:=rt.TestCoreDropDepth();println(name,dropAfter==dropBefore,events==want,deferred==1&&tail!=exits&&evaluated==0&&later==0);for i:=0;i<orderLen;i++{println(order[i])}}
+func check(name string,fn func(),want int,exits bool){events=0;deferred=0;evaluated=0;later=0;orderLen=0;tail=false;exitFree=false;dropBefore:=rt.TestCoreDropDepth();if rt.CatchExitTask(fn)!=exits{panic("wrong exit")};dropAfter:=rt.TestCoreDropDepth();println(name,dropAfter==dropBefore,events==want,deferred==1&&tail!=exits&&evaluated==0&&later==0);for i:=0;i<orderLen;i++{println(order[i])}}
 `
 	cases := []struct {
 		name, body string

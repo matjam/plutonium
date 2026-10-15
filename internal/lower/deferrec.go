@@ -89,7 +89,7 @@ func (s *fnState) storeVolatile(t *ssa.Type, ptr, val *ssa.Value) {
 // address of the armed bits and rec that of the defer record (nil in a
 // freestanding build). With a record, each bit is cleared before its call.
 // gx, if set, is a bool slot that records whether a deferred call ended
-// with rt.Goexit (goexit.go): the remaining calls run all the same, as in
+// with rt.ExitTask (goexit.go): the remaining calls run all the same, as in
 // Go, and the function leaves for Goexit once they have.
 func (s *fnState) runDeferList(defers []*deferInfo, bitsp, rec, gx *ssa.Value) {
 	defer s.collectCleanupGoexit()()
@@ -120,7 +120,7 @@ func (s *fnState) runDeferList(defers []*deferInfo, bitsp, rec, gx *ssa.Value) {
 }
 
 // deferGoexits reports whether a deferred call of the function may end
-// with rt.Goexit.
+// with rt.ExitTask.
 func (s *fnState) deferGoexits() bool {
 	for _, d := range s.defers {
 		if d.mayGoexit {

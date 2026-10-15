@@ -181,7 +181,10 @@ compiler (2026-10-11).
 96. **Package-variable memory reporting** (old implementation direction superseded by D6 on
     2026-10-13; sections 15.4 and 18.6, debug-allocator.md).
     D6 approves normal program termination releasing owned resources, including package owners.
-    Its shutdown policy and specification remain to be settled before implementation. The abandoned
+    The shutdown policy and normative amendment are reviewed; the replacement implementation
+    passes all-package tests, exhaustive sharded coverage, lint, full SSA and unchecked-mode
+    gates and the tracked-source archive. See its
+    [verification record](verification/2026-10-14-normal-shutdown.md). The abandoned
     package-held classification, E3601, source proofs and snapshot machinery were archived and removed
     from the active checkout; no completion is claimed. Independent core Goexit cleanup remains landed.
     Optional allocator and scheduler candidates are archived for separate evidence-based review.
@@ -302,8 +305,8 @@ compiler (2026-10-11).
     body allows one only when every path after it leaves the loop. Nothing is left to build.
 29. **`min` and `max` of strings, comparison of large arrays** (done, `82642d4`, `65addf9`; sections 13.8
     and 11.20).
-58. **Deferred calls on a panic, and `rt.Goexit`** (done, `71d0441`; sections 17.2 and 17.3): a hosted panic
-    runs the task's deferred calls before the handler; `rt.Goexit` ends a task through its frames' return
+58. **Deferred calls on a panic, and `rt.ExitTask`** (done, `71d0441`; sections 17.2 and 17.3): a hosted panic
+    runs the task's deferred calls before the handler; `rt.ExitTask` ends a task through its frames' return
     paths; `testing`'s `FailNow` uses it. Freestanding and kernel builds are unchanged.
     Native-verified follow-up: callers propagate exits through bound scheduler methods and late
     runtime hooks, including custom stack allocators and saved/deferred calls. Real source bodies

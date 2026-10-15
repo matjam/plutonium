@@ -1755,7 +1755,7 @@ for _, line := range lines {
 
 **Other uses.**
 
-- **Panics and `rt.Goexit`.** `or panic(err)` panics as every call of `panic` does (section 17.1, Panics). A clause that calls `rt.Goexit` ends the task as it does anywhere else (section 17.3, Ending a task with `rt.Goexit`). An or statement adds no other way to end a task.
+- **Panics and `rt.ExitTask`.** `or panic(err)` panics as every call of `panic` does (section 17.1, Panics). A clause that calls `rt.ExitTask` ends the task as it does anywhere else (section 17.3, Ending a task with `rt.ExitTask`). An or statement adds no other way to end a task.
 - **Generic functions.** The type of the last result is the type after instantiation. An or statement may be in a generic function, and may call one.
 - **Kernel mode.** An or statement makes no call and no allocation of its own. It is a comparison with `nil`, the assignments of the values, and the code of the clause. It is valid in freestanding and kernel builds. In code that an interrupt handler or the panic handler can reach, the code of the clause must be valid there, since the rules about code that waits or starts tasks apply to it (section 20.10, Interrupts).
 - **Counted errors.** `err` holds a reference to the error object when the error is counted (section 16.7), and it is released when the clause is left, unless the clause hands it over.

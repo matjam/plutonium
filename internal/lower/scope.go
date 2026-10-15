@@ -30,7 +30,7 @@ import (
 // Where the move checker knows a variable holds nothing (moved away on
 // every path, or never given a value), it is not destroyed at all: an exit
 // skips the variables in moves.Info.Empty (or AtStmt, for a call that ends
-// with rt.Goexit), and an assignment whose target is in moves.Info.Fresh
+// with rt.ExitTask), and an assignment whose target is in moves.Info.Fresh
 // does not destroy the old value. Only a variable that may have been moved
 // on some paths, or a place emptied by take, is destroyed holding the zero
 // value.
@@ -176,8 +176,9 @@ func (s *fnState) destroyAt(ptr *ssa.Value, T types2.Type) {
 	case s.l.needsDrop(T):
 		s.dropAt(ptr, T)
 	case s.l.counted(T):
-		s.releaseAt(ptr, T)
+		s.destroyCountedAt(ptr, T)
 	}
+	s.completeStaticCleanup(ptr, T)
 }
 
 // holdProducedOwner keeps an evaluated owner alive until its actual transfer.

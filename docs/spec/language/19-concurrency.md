@@ -40,8 +40,8 @@ Starting a task is a synchronizing operation: everything the starting task did b
 happens before the new task's first operation (section 19.7).
 
 **How a task ends.** A task ends when its function returns, after the function's deferred calls have run
-and its variables and parameters have been dropped. `rt.Goexit` ends a task early in the same way, from
-any depth (section 17.3, Ending a task with `rt.Goexit`). A panic in any task ends the program: in hosted
+and its variables and parameters have been dropped. `rt.ExitTask` ends a task early in the same way, from
+any depth (section 17.3, Ending a task with `rt.ExitTask`). A panic in any task ends the program: in hosted
 builds the panicking task first runs its pending deferred calls, while the other tasks keep running
 (section 17.2, Deferred calls on a panic). The end of a task synchronizes with nothing, except the join of
 a task started by a `sync.Scope` (section 19.4); a program that waits for a task uses a channel, a
@@ -91,12 +91,16 @@ state of every task: what it waits for (a channel operation, a `select`, a lock,
 stack trace. The wording of the report is not part of the language (section 21.1); debugging.md section 5
 describes what the hosted implementation prints.
 
-**Program exit.** When `main` returns, the program exits without waiting for other tasks. Section 15.4
-(Program execution) defines what runs and what does not: `main`'s own deferred calls and drops, a drop
-that another task has begun, and nothing else of the other tasks. `os.Exit` ends the program at once, from
-any task, running nothing. If the task that runs `main` calls `rt.Goexit`, `main` does not return: the
+**Program exit.** Normal return from `main` completes its local cleanup, then waits for all remaining
+tasks, including descendants, to finish naturally. Completion includes stack and task-record retirement;
+a Scope becoming empty alone is not that boundary. Scheduled application callbacks finish or are
+canceled, and in-flight callbacks complete, before package cleanup starts. Tasks are not canceled;
+a task that runs forever keeps the program alive. The deadlock rule above still applies.
+Section 15.4 (Program execution) defines subsequent package cleanup, its prohibition on new tasks and
+application callbacks, and runtime retirement. `os.Exit` ends the program at once, from any task,
+running no task or package cleanup. If the task that runs `main` calls `rt.ExitTask`, `main` does not return: the
 other tasks go on, and once none is left, or all wait for good, the program stops with a fatal error and
-status 2 (section 17.3, Ending a task with `rt.Goexit`).
+status 2 (section 17.3, Ending a task with `rt.ExitTask`).
 
 ### 19.2 The sendable rule
 
@@ -448,7 +452,7 @@ started them through a pointer, stops the program. Calling `s.Drop()` by hand is
 Reading a variable nobody writes, and calling `s.Task` again, are allowed.
 
 **Non-local exits.** Every path out of the Scope's block drops it, so `return`, `break`, `continue` and
-`goto` join. `rt.Goexit` leaves every frame through its ordinary return path, so the Scope's drop joins
+`goto` join. `rt.ExitTask` leaves every frame through its ordinary return path, so the Scope's drop joins
 there too (section 17.3). A panic reclaims no frame: the panicking task never returns, its stack is not
 reused while the program runs, and tasks still running read valid memory until the program ends. A
 kernel that ends a task without returning from its frames must not free or reuse that task's stack until

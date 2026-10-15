@@ -602,7 +602,7 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 			// The box moves from the argument block to a slot of this
 			// frame, so that it is dropped (or released) when the thunk
 			// returns, including when the method ends the task with
-			// rt.Goexit.
+			// rt.ExitTask.
 			slot := ts.frameSlot(args[0].v.T, "box")
 			ts.store(ssa.TPtr, slot, loaded[0].v)
 		}

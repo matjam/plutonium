@@ -368,6 +368,14 @@ func (s *fnState) indexRaw(e *ast.IndexExpr) lvalue {
 		}
 		elem := s.subst(u.Elem())
 		lv := lvalue{ptr: s.elemAddr(arr.ptr, i, u.Elem()), T: elem, stable: arr.stable}
+		if s.staticLocalAddress(arr.ptr) && (isConst && c >= 0 && c < u.Len() || s.f.Pragmas&ssa.PragmaNoBounds == 0) {
+			if s.shutdownLocal == nil {
+				s.shutdownLocal = map[*ssa.Value]bool{}
+			}
+			// This array index is constant in range or was checked above.
+			// Unlike arbitrary pointer arithmetic, it stays in this slot.
+			s.shutdownLocal[lv.ptr] = true
+		}
 		if arr.nilBase != nil {
 			lv.nilBase, lv.nilOff, lv.nilPos = arr.nilBase, arr.nilOff+c*s.l.sizeof(elem), arr.nilPos
 		}

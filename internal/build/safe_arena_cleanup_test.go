@@ -24,13 +24,13 @@ func(c *counter)Alloc(size,align uintptr)unsafe.Pointer{
 }
 func(c *counter)Free(p unsafe.Pointer,size,align uintptr){
  c.base.Free(p,size,align);if p!=nil{c.live--;c.frees++}
- if c.fail{rt.Goexit()};c.after++
+ if c.fail{rt.ExitTask()};c.after++
 }
 func exercise(c *counter){a:=` + constructor + `
  _=a.New[int]();_=a.New[int]();c.fail=` + fmt.Sprint(exiting) + `
 }
 func main(){c:=counter{base:alloc.Default()}
- exited:=rt.CatchGoexit(func(){exercise(&c)})
+ exited:=rt.CatchExitTask(func(){exercise(&c)})
  println(exited,c.live,c.allocations,c.frees,c.after)
 }
 `

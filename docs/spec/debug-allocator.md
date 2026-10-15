@@ -182,19 +182,26 @@ frees (section 18.10): an owner frees its memory when it is dropped (section 18.
 A leak therefore means that the owner or the last reference was never dropped. The usual causes are:
 
 - a cycle of strong references, which is never freed (section 18.7; `weak` breaks cycles);
-- an owner in a frame that did not return: a task that was still running or waiting when `main` returned
-  (section 15.4), a frame left by `os.Exit`, which drops nothing (section 18.6), or a task blocked for good;
+- an owner in a frame abandoned by abrupt termination, such as `os.Exit`, which drops nothing
+  (section 18.6);
 - memory from the unchecked layer (`alloc.Raw`, `alloc.New`) that its code never gave back with
   `alloc.Free` or gave to an owner (section 18.10);
-- a package-level owner, which is never dropped (sections 15.4 and 18.6). The debug allocator reports memory
-  that package variables still hold apart from leaks: the program cannot drop it, so it is not a mistake.
+- a custom owner whose Drop does not release the resources it is responsible for.
 
-At normal exit (main returns, or `os.Exit`), hosted builds first wait, for at most about a second, until
-every other task has returned or waits (on a channel, a lock, a timer, I/O or a system call), so that
-one that has sent its last value but not yet returned releases its arguments and variables
-(`rt.SettleTasks`); a task blocked for good keeps what it holds, which is listed. Then they check the
-canaries and poison of every block and list the allocations still live. An owner that `main` drops as it
-returns (section 15.4) has already freed its memory by then, so it does not appear:
+At normal exit, hosted builds first complete the task/callback drain and package cleanup specified by
+section 15.4, then release reclaimable runtime resources before final allocation accounting. This is
+not a bounded observational settle: live application work keeps normal shutdown waiting, and deadlock
+remains fatal. Owners and counted values released by main, other tasks or package cleanup no longer
+appear. The report checks the canaries and poison of every retained block and lists allocations still
+live. Package-held allocations are not a separate exempt category.
+
+Explicit `os.Exit` is abrupt: it performs no task drain or package cleanup. Its debug exit hook may
+perform the existing bounded observational settle (`rt.SettleTasks`) and report, which cannot promise
+that application resources have been released. Panics and faults skip the report. Neither path is
+normal termination. Private permanent runtime metadata has its own runtime lifetime; it is accounted
+separately from application allocations rather than exempting arbitrary allocator allocations.
+
+For example, two unreleased raw allocations at normal exit produce:
 
 ```
 debug allocator: 2 allocations still live, 34 bytes:

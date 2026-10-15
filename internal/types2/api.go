@@ -337,6 +337,14 @@ type Info struct {
 	// appear in this list.
 	InitOrder []*Initializer
 
+	// VarInitOrder is the complete package variable initialization sequence
+	// (section 15.2), including variables without initialization expressions.
+	// Variables initialized together appear in left-to-right declaration order.
+	// Blank variables appear too; their initializer cleanup is immediate rather
+	// than part of normal program termination (section 15.4).
+	// InitOrder retains its initializer-only contract.
+	VarInitOrder []*Var
+
 	// FileVersions maps a file to its Go version string.
 	// If the file doesn't specify a version, the reported
 	// string is Config.GoVersion.

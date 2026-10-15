@@ -7,7 +7,7 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
-// TestGoexitSigMatch checks how the rt.Goexit analysis matches the type of
+// TestGoexitSigMatch checks how the rt.ExitTask analysis matches the type of
 // an indirect call against the functions that may end with Goexit: types
 // must be identical except where either side has a type parameter, which
 // matches anything.

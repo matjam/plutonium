@@ -103,7 +103,7 @@ The rows in this table are behaviors that differ from Go's. Each says how the di
 | iterators over a container yield its elements | iterators over owners yield views (`*T`) | the loop variable is a pointer | 12.11 |
 | `defer` runs when the function returns | the same; each `defer` statement has one slot, a function has at most 64, and a deferred call runs before the function's own variables are dropped | none for programs that compile | 12.19 |
 | `panic` unwinds the stack running deferred calls, and `recover` stops it | `panic` never returns to the frame that panicked; in a hosted build the panicking task first runs its pending deferred calls, then the panic handler runs; owners are not dropped | there is no `recover` | 17.1, 17.2 |
-| `runtime.Goexit` runs deferred calls | `rt.Goexit` runs the deferred calls and drops the owners of every frame of the task | owners are dropped as well | 17.3 |
+| `runtime.Goexit` runs deferred calls | `rt.ExitTask` runs the deferred calls and drops the owners of every frame of the task | owners are dropped as well | 17.3 |
 
 **Tasks and concurrency.**
 

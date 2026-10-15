@@ -3,6 +3,7 @@ package time
 import (
 	"pluto/alloc"
 	"pluto/rt"
+	"pluto/sync"
 	"unsafe"
 )
 
@@ -89,7 +90,8 @@ func newTimerChan(d, period Duration, a alloc.Allocator) <-chan Time {
 // As in Go 1.23, C has no stale values: once Stop or Reset has returned, a
 // receive from C gets only a time sent by a later expiry.
 type Timer owner struct {
-	C <-chan Time
+	C  <-chan Time
+	mu sync.Mutex // serializes ordinary Stop and Reset, including runner startup
 
 	// AfterFunc: the timer, the function, the expiries whose task
 	// has not started yet, and the link in the queue of the task
@@ -98,6 +100,7 @@ type Timer owner struct {
 	f     func()
 	fires int
 	link  *Timer
+	armed bool // guarded by funcs.lock
 }
 
 // NewTimer creates a new Timer that will send the current time on its
@@ -133,10 +136,15 @@ func (t *Timer) timer() *rt.Timer {
 // a false result means the function has been or will be started on its own
 // task. Stop does not wait for that function.
 func (t *Timer) Stop() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if t.C == nil && t.f == nil {
 		panic("time: Stop called on uninitialized Timer")
 	}
 	active := t.timer().Stop()
+	if t.C == nil && active {
+		disarmFunc(t)
+	}
 	if t.C != nil && drain(t.C) {
 		active = true
 	}
@@ -147,11 +155,19 @@ func (t *Timer) Stop() bool {
 // the timer had been active, as Stop does; a time not yet received from C
 // is discarded. A timer made by AfterFunc runs its function again.
 func (t *Timer) Reset(d Duration) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if t.C == nil && t.f == nil {
 		panic("time: Reset called on uninitialized Timer")
 	}
 	tm := t.timer()
 	active := tm.Stop()
+	if t.C == nil {
+		if active {
+			disarmFunc(t)
+		}
+		startFuncRunner(t)
+	}
 	if t.C != nil && drain(t.C) {
 		active = true
 	}
@@ -171,7 +187,13 @@ func (t *Timer) Drop() {
 	if t.f == nil {
 		return
 	}
-	t.r.Stop()
+	// Stop releases the operation mutex before the mandatory wait. A
+	// callback can reset a timer, and a Wake can end the stopping task.
+	defer waitFuncFires(t)
+	t.Stop()
+}
+
+func waitFuncFires(t *Timer) {
 	for {
 		funcs.lock.Lock()
 		n := t.fires
@@ -192,18 +214,17 @@ func (t *Timer) Drop() {
 // value made in the caller's frame, since it runs after the frame may be
 // gone: AfterFunc panics if f's closure record lies in the calling
 // task's stack (language spec section 19.1). The tasks are started
-// by one task of the time package's, which AfterFunc starts the first
-// time it is called and which then waits for expiries for good.
+// by one task of the time package's. It waits while callbacks are armed
+// or queued, then returns. A later AfterFunc or Reset starts it again.
 func AfterFunc(d Duration, f func(), a alloc.Allocator = alloc.Default()) owned[Timer] {
 	rt.CheckGoFunc(f)
-	startFuncRunner()
 	t := alloc.Owned[Timer](a)
 	t.f = f
 	// The runtime's timer heap and the queue of expired timers refer to
 	// the Timer until Drop has stopped it and waited for its expiries.
 	r, arg := rt.Pinned(&t.r), unsafe.Pointer(&*t)
 	r.Init(goFunc, *rt.Pinned(&arg))
-	r.Reset(deadline(d), 0)
+	t.Reset(d)
 	return t
 }
 
@@ -216,15 +237,67 @@ var funcs struct {
 	head, tail *Timer
 	runner     *rt.Task
 	started    bool
+	starting   bool
+	pending    int
 }
 
-func startFuncRunner() {
+func finishFuncStart(t *Timer, done *bool) {
+	if !*done {
+		funcs.lock.Lock()
+		defer funcs.lock.Unlock()
+		t.armed = false
+		funcs.pending--
+		funcs.starting = false
+		// Spawn may have published a runner before ending its caller.
+		// It can already be parked for this now-canceled reservation.
+		if r := funcs.runner; r != nil {
+			rt.Ready(r)
+		}
+	}
+}
+
+func startFuncRunner(t *Timer) {
+	for {
+		funcs.lock.Lock()
+		if funcs.starting {
+			funcs.lock.Unlock()
+			rt.Yield()
+			continue
+		}
+		t.armed = true
+		funcs.pending++
+		if funcs.started {
+			funcs.lock.Unlock()
+			return
+		}
+		funcs.starting = true
+		funcs.lock.Unlock()
+		launchFuncRunner(t)
+		return
+	}
+}
+
+func launchFuncRunner(t *Timer) {
+	done := false
+	defer finishFuncStart(t, &done)
+	task runFuncs()
 	funcs.lock.Lock()
-	start := !funcs.started
 	funcs.started = true
+	funcs.starting = false
+	done = true
 	funcs.lock.Unlock()
-	if start {
-		task runFuncs()
+}
+
+func disarmFunc(t *Timer) {
+	funcs.lock.Lock()
+	defer funcs.lock.Unlock()
+	if t.armed {
+		t.armed = false
+		funcs.pending--
+	}
+	r := funcs.runner
+	if r != nil {
+		rt.Ready(r)
 	}
 }
 
@@ -243,12 +316,16 @@ func enqueueFunc(t *Timer) {
 func goFunc(arg unsafe.Pointer, now int64) {
 	t := (*Timer)(arg)
 	funcs.lock.Lock()
+	defer funcs.lock.Unlock()
+	if t.armed {
+		t.armed = false
+		funcs.pending--
+	}
 	t.fires++
 	if t.fires == 1 {
 		enqueueFunc(t)
 	}
 	r := funcs.runner
-	funcs.lock.Unlock()
 	if r != nil {
 		rt.Ready(r)
 	}
@@ -258,12 +335,24 @@ func goFunc(arg unsafe.Pointer, now int64) {
 // task of its own.
 func runFuncs() {
 	funcs.lock.Lock()
+	// A backend may hand the task off and then end its caller. A retry
+	// can then have started another runner; only one adopts the queue.
+	if funcs.runner != nil {
+		funcs.lock.Unlock()
+		return
+	}
 	funcs.runner = rt.CurrentTask()
 	funcs.lock.Unlock()
 	for {
 		funcs.lock.Lock()
 		t := funcs.head
 		if t == nil {
+			if funcs.pending == 0 {
+				funcs.runner = nil
+				funcs.started = false
+				funcs.lock.Unlock()
+				return
+			}
 			funcs.lock.Unlock()
 			rt.ParkReason(rt.WaitSystem)
 			continue
@@ -276,8 +365,15 @@ func runFuncs() {
 		n := t.fires
 		f := t.f
 		funcs.lock.Unlock()
-		for i := 0; i < n; i++ {
-			task f()
+		for i := 0; i < n; {
+			handedOff := false
+			// Creation may end before copying the task, or Spawn may end
+			// after accepting it. Catch that exit without losing this
+			// queue runner, and retry only a still-promised callback.
+			rt.DispatchTimerFunc(f, &handedOff)
+			if handedOff {
+				i++
+			}
 		}
 		funcs.lock.Lock()
 		t.fires -= n

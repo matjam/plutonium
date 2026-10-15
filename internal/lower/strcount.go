@@ -322,6 +322,7 @@ func (s *fnState) takeRefAt(v value, dst *ssa.Value, T types2.Type) {
 // dropped, so x = x and x = x[1:] are safe.
 func (s *fnState) storeCounted(lv lvalue, v value, init bool) {
 	T := unwrap(lv.T)
+	s.staticWriteType(lv.ptr, T)
 	var oldCtl, oldCopy *ssa.Value
 	if !init {
 		if isString(T) {

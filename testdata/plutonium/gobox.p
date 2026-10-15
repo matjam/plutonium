@@ -45,12 +45,12 @@ func (s *Server) Add(n int) {
 	served.Done()
 }
 
-// Leave ends its task with rt.Goexit: the box is dropped (or released)
+// Leave ends its task with rt.ExitTask: the box is dropped (or released)
 // all the same.
 func (s *Server) Leave() {
 	println("leave", s.name)
 	served.Done()
-	rt.Goexit()
+	rt.ExitTask()
 }
 
 // served and dropped count the calls and drops main waits for. A drop may
@@ -88,7 +88,7 @@ func main() {
 	served.Wait()
 	dropped.Wait()
 
-	// The task drops the box even when the method ends it with Goexit.
+	// The task drops the box even when the method ends it with ExitTask.
 	q := newServer("owned-leave")
 	expect()
 	task q.Leave()

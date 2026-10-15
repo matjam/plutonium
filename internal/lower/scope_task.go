@@ -28,7 +28,7 @@ import (
 //     there (the code pointer, then the address of each captured
 //     variable: the shared ones in this frame, the taken ones in the
 //     thunk's), and calls the literal. When the literal has returned, or
-//     ended with rt.Goexit, the thunk returns, which releases its slots and
+//     ended with rt.ExitTask, the thunk returns, which releases its slots and
 //     drops the taken owners.
 //   - rt.spawnScoped counts the task in s's rt.Join before it starts;
 //     rt.taskMain uncounts it once the thunk has returned.
@@ -135,7 +135,7 @@ func (s *fnState) scopedTask(e *ast.CallExpr, t *scoped.Task) {
 			addrs[i] = dst
 		}
 		rec := ts.closureRecord(litSym, addrs)
-		// When the literal ends with rt.Goexit the thunk leaves through its
+		// When the literal ends with rt.ExitTask the thunk leaves through its
 		// return path too, which drops the taken owners.
 		ts.emitCall(callee{code: ts.funcAddr(litSym), ctx: rec}, litSig, nil, nil, pos)
 		ts.returnValues(nil)

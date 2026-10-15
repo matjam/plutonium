@@ -123,24 +123,37 @@ Lands with: roadmap item 82 (gap 6).
 
 Decision, approved by the user on 2026-10-13: normal hosted program termination
 will clean up the owned resources the program still holds, including package
-owners. The current rule that package owners are left undropped at normal exit
-is to be replaced through a specification design before implementation resumes.
+owners. This supersedes the former rule leaving package owners undropped at
+normal exit.
 This direction replaces the premise of item 96's exit-time separation of
 package-retained memory from leaks. Existing uncommitted reporting work is
-preserved for review; it is not authority for the new exit behavior.
+archived under the cleanup ledger; it is not authority for the new exit behavior.
 
-The task termination policy, joins or cancellation, destruction order across
-packages and dependencies, counted-resource releases, and handling of exits
-raised during cleanup remain to be specified. Destruction must not invalidate
-resources that a surviving task or later destructor can still use. This record
-does not choose a global destruction order or imply that arbitrary tasks can
-be stopped safely.
+Follow-up decision, approved by the user on 2026-10-14: after `main` returns
+normally, normal termination waits for all remaining tasks to finish naturally,
+including tasks they start. It does not cancel them. A task that runs forever
+keeps the program alive; blocked tasks remain pending while progress is possible,
+and global deadlock remains fatal. Completion includes its required
+cleanup and runtime retirement; package resource destruction must not race a
+task's final stack release. This implicit wait is a deliberate language rule.
+
+The [shutdown design](plans/2026-10-14-normal-shutdown.md) records the technical
+elaboration of that direction: deterministic reverse initialization cleanup,
+in-place address-preserving drops, protection of completed static places from
+typed writes, task/callback admission closing at the drain boundary, and
+mandatory cleanup completing across `ExitTask`. These are engineering choices
+for the approved resource-cleanup policy, not additional statements attributed
+to the user. The normative amendment has passed consistency review, and its
+implementation passes the required native gates and tracked-source archive. The
+[verification record](verification/2026-10-14-normal-shutdown.md) records the exact
+coverage partition and shipping evidence. Resource dependencies must outlive
+their clients, as for local ownership; shutdown does not infer an arbitrary
+destructor dependency graph.
 
 Abrupt termination, including `os.Exit`, is distinct from normal cleanup. Its
-exact relationship to exit hooks and debug reporting must be stated explicitly.
+relationship to exit hooks and debug reporting is stated in the amended specification.
 A kernel that never terminates does not acquire a shutdown requirement merely
-by using the language. Chapters and compiler behavior remain unchanged until
-the shutdown design is settled and recorded.
+by using the language.
 
 Why: explicit ownership should account for resources still held when normal
 execution finishes, rather than treating those resources as permanently
@@ -148,7 +161,8 @@ retained. The implementation must preserve the language's task and lifetime
 guarantees while releasing them.
 
 Lands with: a reviewed normal-termination specification and its implementation
-and native cleanup tests. Neither is complete at this decision checkpoint.
+and native cleanup tests. These pass native verification, including the
+tracked-source archive.
 
 ## D7. Ordinary arena APIs enforce view lifetimes (18.9, 18.11, 18.12, 21.5; ABI 1.3)
 

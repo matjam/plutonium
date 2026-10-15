@@ -145,6 +145,12 @@ type regionStatic struct {
 	key  regionKey
 }
 
+// regionCompletion keeps shutdown extents in step with final region sizing.
+type regionCompletion struct {
+	key        regionKey
+	size, zero *ssa.Value
+}
+
 // A regionDrop is the drop of a region before a call refills it or when the
 // function that reserved it returns. finishRegions sets cond, a constant,
 // to false when the region holds nothing to release, and then points call,
@@ -371,6 +377,7 @@ func (s *fnState) callRegion(c callee, sig *types2.Signature, pos token.Pos) *ss
 		// Package initialisation: what it builds outlives it.
 		sym := s.l.staticBytes(8, 8)
 		s.l.regionStatics = append(s.l.regionStatics, regionStatic{data: s.l.out.Data[len(s.l.out.Data)-1], key: key})
+		s.l.recordStaticRegion(sym, key)
 		p = s.symAddr(sym)
 	} else {
 		slot := s.f.NewSlot("region", 0, 8)
@@ -433,6 +440,11 @@ func (l *Lowerer) finishRegions() bool {
 		size, align := l.keySize(rs.key)
 		rs.data.Size, rs.data.Align = max(size, 1), align
 	}
+	for _, c := range l.regionCompletions {
+		size, _ := l.keySize(c.key)
+		c.size.AuxInt = size
+		c.zero.AuxInt = size
+	}
 	for _, z := range l.regionZeros {
 		if size, _ := l.keySize(z.key); size > 0 {
 			z.zero.AuxInt = size
@@ -489,8 +501,9 @@ func (l *Lowerer) queueDrop(rl *regionLayout) {
 			s.returnValues(nil)
 			return
 		}
+		s.beginCleanupGoexit()
 		for _, c := range rl.counted {
-			s.releaseAt(s.offPtr(p, c.off), c.T)
+			s.destroyAt(s.offPtr(p, c.off), c.T)
 			s.zero(s.offPtr(p, c.off), s.l.sizeof(c.T))
 		}
 		for _, n := range rl.nested {
@@ -501,11 +514,24 @@ func (l *Lowerer) queueDrop(rl *regionLayout) {
 			if k := n.key; k.sym != nil {
 				call := s.callValue(callee{sym: l.dropSymFor(k.sym)}, []*ssa.Value{q}, nil)
 				s.setMem(s.newValue(ssa.OpSelectN, ssa.TMem, call))
-				continue
+			} else {
+				s.dropWith(s.load(ssa.TPtr, s.offPtr(p, n.off)), q)
 			}
-			s.dropWith(s.load(ssa.TPtr, s.offPtr(p, n.off)), q)
+			s.noteImplicitGoexit()
+			if l.rtFuncOrNil("staticCleanupDone") != nil {
+				size, _ := l.keySize(n.key)
+				extent := s.constInt(ssa.TI64, size)
+				done := s.callRuntime("staticCleanupDone", []*ssa.Type{ssa.TBool}, []*ssa.Value{q, extent})[0]
+				s.ifThen(done, func() {
+					z := s.newValue(ssa.OpZero, ssa.TMem, q, s.mem())
+					z.AuxInt = size
+					s.setMem(z)
+					l.regionCompletions = append(l.regionCompletions, regionCompletion{key: n.key, size: extent, zero: z})
+				})
+			}
 		}
 		s.store(ssa.TPtr, p, s.constInt(ssa.TPtr, 0))
+		s.finishCleanupGoexit()
 		s.returnValues(nil)
 	}})
 }

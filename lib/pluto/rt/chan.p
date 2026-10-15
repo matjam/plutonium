@@ -200,6 +200,7 @@ func ChanTimer(p unsafe.Pointer, f func(arg unsafe.Pointer, now int64)) *Timer {
 	if c.timer == nil {
 		tm := (*Timer)(allocAt(c.alloc, unsafe.Sizeof(Timer{}), unsafe.Alignof(Timer{}), CallerPC()))
 		tm.Init(f, p)
+		tm.system = true
 		c.timer = tm
 	}
 	return c.timer

@@ -78,7 +78,7 @@ dependent value and neither panics nor faults (section 11.24).
   can see are E2590 and E2594).
 - An operation that would park the task, in interrupt context, when the scheduler can tell (section
   20.10, Interrupts).
-- `rt.Goexit` called in a function that C code called (section 17.3).
+- `rt.ExitTask` called in a function that C code called (section 17.3).
 
 *Memory.*
 
@@ -148,7 +148,7 @@ process(items)          // panics on bad input
       main.main (./main.p:26)
   ```
 
-  A deferred call that calls `rt.Goexit` while deferred calls run for a panic stops them too, and the
+  A deferred call that calls `rt.ExitTask` while deferred calls run for a panic stops them too, and the
   program ends with the panic.
 - **What the handler sees.** The panic as it happened: `Message`, `Value` and `Fault`, and a trace that
   starts where the panic happened, not in the deferred calls. A program's own `//pu:panic` handler is
@@ -157,27 +157,27 @@ process(items)          // panics on bad input
 Freestanding and kernel builds run no deferred calls on a panic. The handler must work from any state,
 with interrupts disabled or a lock held.
 
-### 17.3 Ending a task with `rt.Goexit`
+### 17.3 Ending a task with `rt.ExitTask`
 
-`rt.Goexit()` ends the calling task. Every function on the task's stack, innermost first, runs its
+`rt.ExitTask()` ends the calling task. Every function on the task's stack, innermost first, runs its
 deferred calls and drops what it holds, as if it returned at the call it is in. Then the task ends. It is
 not a panic: no handler is called, and other tasks are not affected.
 
-- **In a deferred call.** A deferred call that calls `Goexit` ends its own frames. The deferred calls
+- **In a deferred call.** A deferred call that calls `ExitTask` ends its own frames. The deferred calls
   after it in the frame that deferred it still run, and the task ends afterwards.
 - **In the task that runs `main`.** `main` does not return. Its deferred calls run, the other tasks go on,
   and once none of them is left, or all of them wait for good, the program ends with a fatal error ("main
-  called rt.Goexit") and status 2 (section 15.4, Program execution).
+  called rt.ExitTask") and status 2 (section 15.4, Program execution).
 - **Scopes.** A frame that holds a `sync.Scope` joins its tasks as it leaves, as on any return
-  (section 19.4, Scoped tasks), so `Goexit` needs no extra step for them.
+  (section 19.4, Scoped tasks), so `ExitTask` needs no extra step for them.
 - **Tests.** The testing package ends a test that fails with `FailNow`, `Fatal` and `Fatalf`, and one that
-  is skipped with `SkipNow`, `Skip` and `Skipf`, by calling `Goexit`, so a test's deferred calls run and
-  its owners are dropped when it stops early. `rt.CatchGoexit(f func()) bool` calls `f` and reports whether
-  it ended with `Goexit`, which is how the runner of tests goes on to the next test on the same task.
-- **C.** `Goexit` cannot leave a function that C code called (`//pu:export`): the call panics at the
+  is skipped with `SkipNow`, `Skip` and `Skipf`, by calling `ExitTask`, so a test's deferred calls run and
+  its owners are dropped when it stops early. `rt.CatchExitTask(f func()) bool` calls `f` and reports whether
+  it ended with `ExitTask`, which is how the runner of tests goes on to the next test on the same task.
+- **C.** `ExitTask` cannot leave a function that C code called (`//pu:export`): the call panics at the
   boundary (section 20.4, Assembly and C).
 
-`Goexit` does not unwind the stack by any mechanism of its own. Each frame leaves through its ordinary
+`ExitTask` does not unwind the stack by any mechanism of its own. Each frame leaves through its ordinary
 return path, which runs its deferred calls and drops its variables exactly as a `return` there would.
 
 ### 17.4 Panics in freestanding programs

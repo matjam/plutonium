@@ -26,6 +26,40 @@
 
 package main
 
+// The checked coefficients are finite even though the series are lazy and
+// unbounded. Stop their demand network explicitly before normal shutdown joins
+// its tasks. Cancellation never changes a coefficient that main checks.
+var stopping = make(chan bool)
+
+func sendValue[E any](ch chan<- E, v E) bool {
+	select {
+	case <-stopping:
+		return false
+	default:
+	}
+	select {
+	case ch <- v:
+		return true
+	case <-stopping:
+		return false
+	}
+}
+
+func receiveValue[E any](ch <-chan E) (E, bool) {
+	var zero E
+	select {
+	case <-stopping:
+		return zero, false
+	default:
+	}
+	select {
+	case v := <-ch:
+		return v, true
+	case <-stopping:
+		return zero, false
+	}
+}
+
 type rat struct {
 	num, den int64 // numerator, denominator
 }
@@ -76,11 +110,15 @@ func dosplit(in dch, out dch2, wait chan int) {
 	both := false // do not service both channels
 
 	select {
+	case <-stopping:
+		return
 	case <-out[0].req:
 
 	case <-wait:
 		both = true
 		select {
+		case <-stopping:
+			return
 		case <-out[0].req:
 
 		case <-out[1].req:
@@ -88,33 +126,58 @@ func dosplit(in dch, out dch2, wait chan int) {
 		}
 	}
 
-	in.req <- 0
+	if !sendValue(in.req, 0) {
+		return
+	}
 	release := make(chan int)
 	task dosplit(in, out, release)
-	dat := <-in.dat
-	out[0].dat <- dat
-	if !both {
-		<-wait
+	dat, ok := receiveValue(in.dat)
+	if !ok {
+		return
 	}
-	<-out[1].req
-	out[1].dat <- dat
-	release <- 0
+	if !sendValue(out[0].dat, dat) {
+		return
+	}
+	if !both {
+		if _, ok := receiveValue(wait); !ok {
+			return
+		}
+	}
+	if _, ok := receiveValue(out[1].req); !ok {
+		return
+	}
+	if !sendValue(out[1].dat, dat) {
+		return
+	}
+	if !sendValue(release, 0) {
+		return
+	}
 }
 
 func split(in dch, out dch2) {
 	release := make(chan int)
 	task dosplit(in, out, release)
-	release <- 0
+	if !sendValue(release, 0) {
+		return
+	}
 }
 
-func put(dat rat, out dch) {
-	<-out.req
-	out.dat <- dat
+func put(dat rat, out dch) bool {
+	if _, ok := receiveValue(out.req); !ok {
+		return false
+	}
+	return sendValue(out.dat, dat)
 }
 
 func get(in dch) rat {
-	in.req <- 0
-	return <-in.dat
+	if !sendValue(in.req, 0) {
+		return finis
+	}
+	v, ok := receiveValue(in.dat)
+	if !ok {
+		return finis
+	}
+	return v
 }
 
 // Get one rat from each of n demand channels
@@ -136,6 +199,8 @@ func getn(in []dch) [2]rat {
 	for n = 2 * n; n > 0; n-- {
 
 		select {
+		case <-stopping:
+			return out
 		case req[0] <- 0:
 			dat[0] = in[0].dat
 			req[0] = nil
@@ -161,14 +226,20 @@ func get2(in0 dch, in1 dch) [2]rat {
 
 func copy(in dch, out dch) {
 	for {
-		<-out.req
-		out.dat <- get(in)
+		if _, ok := receiveValue(out.req); !ok {
+			return
+		}
+		if !sendValue(out.dat, get(in)) {
+			return
+		}
 	}
 }
 
 func repeat(dat rat, out dch) {
 	for {
-		put(dat, out)
+		if !put(dat, out) {
+			return
+		}
 	}
 }
 
@@ -304,19 +375,29 @@ func Add(U, V PS) PS {
 func add2(U, V, Z PS) {
 	var uv [2]rat
 	for {
-		<-Z.req
+		if _, ok := receiveValue(Z.req); !ok {
+			return
+		}
 		uv = get2(U, V)
 		switch end(uv[0]) + 2*end(uv[1]) {
 		case 0:
-			Z.dat <- add(uv[0], uv[1])
+			if !sendValue(Z.dat, add(uv[0], uv[1])) {
+				return
+			}
 		case 1:
-			Z.dat <- uv[1]
+			if !sendValue(Z.dat, uv[1]) {
+				return
+			}
 			copy(V, Z)
 		case 2:
-			Z.dat <- uv[0]
+			if !sendValue(Z.dat, uv[0]) {
+				return
+			}
 			copy(U, Z)
 		case 3:
-			Z.dat <- finis
+			if !sendValue(Z.dat, finis) {
+				return
+			}
 		}
 	}
 }
@@ -331,15 +412,21 @@ func Cmul(c rat, U PS) PS {
 func cmul(c rat, U, Z PS) {
 	done := false
 	for !done {
-		<-Z.req
+		if _, ok := receiveValue(Z.req); !ok {
+			return
+		}
 		u := get(U)
 		if end(u) != 0 {
 			done = true
 		} else {
-			Z.dat <- mul(c, u)
+			if !sendValue(Z.dat, mul(c, u)) {
+				return
+			}
 		}
 	}
-	Z.dat <- finis
+	if !sendValue(Z.dat, finis) {
+		return
+	}
 }
 
 // Subtract
@@ -358,7 +445,9 @@ func Monmul(U PS, n int) PS {
 
 func monmul(U PS, n int, Z PS) {
 	for ; n > 0; n-- {
-		put(zero, Z)
+		if !put(zero, Z) {
+			return
+		}
 	}
 	copy(U, Z)
 }
@@ -386,11 +475,17 @@ func Mon(c rat, n int) PS {
 func mon(c rat, n int, Z PS) {
 	if c.num != 0 {
 		for ; n > 0; n = n - 1 {
-			put(zero, Z)
+			if !put(zero, Z) {
+				return
+			}
 		}
-		put(c, Z)
+		if !put(c, Z) {
+			return
+		}
 	}
-	put(finis, Z)
+	if !put(finis, Z) {
+		return
+	}
 }
 
 func Shift(c rat, U PS) PS {
@@ -400,7 +495,9 @@ func Shift(c rat, U PS) PS {
 }
 
 func shift(c rat, U, Z PS) {
-	put(c, Z)
+	if !put(c, Z) {
+		return
+	}
 	copy(U, Z)
 }
 
@@ -416,17 +513,27 @@ func Mul(U, V PS) PS {
 }
 
 func mul2(U, V, Z PS) {
-	<-Z.req
+	if _, ok := receiveValue(Z.req); !ok {
+		return
+	}
 	uv := get2(U, V)
 	if end(uv[0]) != 0 || end(uv[1]) != 0 {
-		Z.dat <- finis
+		if !sendValue(Z.dat, finis) {
+			return
+		}
 	} else {
-		Z.dat <- mul(uv[0], uv[1])
+		if !sendValue(Z.dat, mul(uv[0], uv[1])) {
+			return
+		}
 		UU := Split(U)
 		VV := Split(V)
 		W := Add(Cmul(uv[0], VV[0]), Cmul(uv[1], UU[0]))
-		<-Z.req
-		Z.dat <- get(W)
+		if _, ok := receiveValue(Z.req); !ok {
+			return
+		}
+		if !sendValue(Z.dat, get(W)) {
+			return
+		}
 		copy(Add(W, Mul(UU[1], VV[1])), Z)
 	}
 }
@@ -440,7 +547,9 @@ func Diff(U PS) PS {
 }
 
 func diff(U, Z PS) {
-	<-Z.req
+	if _, ok := receiveValue(Z.req); !ok {
+		return
+	}
 	u := get(U)
 	if end(u) == 0 {
 		done := false
@@ -449,12 +558,18 @@ func diff(U, Z PS) {
 			if end(u) != 0 {
 				done = true
 			} else {
-				Z.dat <- mul(itor(int64(i)), u)
-				<-Z.req
+				if !sendValue(Z.dat, mul(itor(int64(i)), u)) {
+					return
+				}
+				if _, ok := receiveValue(Z.req); !ok {
+					return
+				}
 			}
 		}
 	}
-	Z.dat <- finis
+	if !sendValue(Z.dat, finis) {
+		return
+	}
 }
 
 // Integrate, with const of integration
@@ -465,17 +580,25 @@ func Integ(c rat, U PS) PS {
 }
 
 func integ(c rat, U, Z PS) {
-	put(c, Z)
+	if !put(c, Z) {
+		return
+	}
 	done := false
 	for i := 1; !done; i++ {
-		<-Z.req
+		if _, ok := receiveValue(Z.req); !ok {
+			return
+		}
 		u := get(U)
 		if end(u) != 0 {
 			done = true
 		}
-		Z.dat <- mul(i2tor(1, int64(i)), u)
+		if !sendValue(Z.dat, mul(i2tor(1, int64(i)), u)) {
+			return
+		}
 	}
-	Z.dat <- finis
+	if !sendValue(Z.dat, finis) {
+		return
+	}
 }
 
 // Binomial theorem (1+x)^c
@@ -490,12 +613,16 @@ func binom(c rat, Z PS) {
 	n := 1
 	t := itor(1)
 	for c.num != 0 {
-		put(t, Z)
+		if !put(t, Z) {
+			return
+		}
 		t = mul(mul(t, c), i2tor(1, int64(n)))
 		c = sub(c, one)
 		n++
 	}
-	put(finis, Z)
+	if !put(finis, Z) {
+		return
+	}
 }
 
 // Reciprocal of a power series
@@ -514,9 +641,13 @@ func Recip(U PS) PS {
 
 func recip(U, Z PS) {
 	ZZ := mkPS2()
-	<-Z.req
+	if _, ok := receiveValue(Z.req); !ok {
+		return
+	}
 	z := inv(get(U))
-	Z.dat <- z
+	if !sendValue(Z.dat, z) {
+		return
+	}
 	split(Mul(Cmul(neg(z), U), Shift(z, ZZ[0])), ZZ)
 	copy(ZZ[1], Z)
 }
@@ -548,12 +679,18 @@ func Subst(U, V PS) PS {
 
 func subst(U, V, Z PS) {
 	VV := Split(V)
-	<-Z.req
+	if _, ok := receiveValue(Z.req); !ok {
+		return
+	}
 	u := get(U)
-	Z.dat <- u
+	if !sendValue(Z.dat, u) {
+		return
+	}
 	if end(u) == 0 {
 		if end(get(VV[0])) != 0 {
-			put(finis, Z)
+			if !put(finis, Z) {
+				return
+			}
 		} else {
 			copy(Mul(VV[0], Subst(U, VV[1])), Z)
 		}
@@ -572,17 +709,27 @@ func MonSubst(U PS, c0 rat, n int) PS {
 func monSubst(U PS, c0 rat, n int, Z PS) {
 	c := one
 	for {
-		<-Z.req
+		if _, ok := receiveValue(Z.req); !ok {
+			return
+		}
 		u := get(U)
-		Z.dat <- mul(u, c)
+		if !sendValue(Z.dat, mul(u, c)) {
+			return
+		}
 		c = mul(c, c0)
 		if end(u) != 0 {
-			Z.dat <- finis
+			if !sendValue(Z.dat, finis) {
+				return
+			}
 			break
 		}
 		for i := 1; i < n; i++ {
-			<-Z.req
-			Z.dat <- zero
+			if _, ok := receiveValue(Z.req); !ok {
+				return
+			}
+			if !sendValue(Z.dat, zero) {
+				return
+			}
 		}
 	}
 }
@@ -673,4 +820,5 @@ func main() {
 	printn(Ones, 10)
 	print("printn Exp: ")
 	printn(Exp(Ones), 8)
+	close(stopping)
 }

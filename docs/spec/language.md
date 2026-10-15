@@ -54,7 +54,7 @@ Section numbers are unique across the whole specification, and each chapter is a
 - [16. Errors](language/16-errors.md)
   16.1 The error interface; 16.2 Where an error lives; 16.3 Sentinels and `errors.New`; 16.4 Error codes; 16.5 Errors with context; 16.6 Wrapping, `Is` and `As`; 16.7 Allocated errors and ownership.
 - [17. Run-time panics](language/17-run-time-panics.md)
-  17.1 Panics; 17.2 Deferred calls on a panic; 17.3 Ending a task with `rt.Goexit`; 17.4 Panics in freestanding programs; 17.5 Faults; 17.6 Use of freed memory.
+  17.1 Panics; 17.2 Deferred calls on a panic; 17.3 Ending a task with `rt.ExitTask`; 17.4 Panics in freestanding programs; 17.5 Faults; 17.6 Use of freed memory.
 - [18. Ownership and memory](language/18-ownership-and-memory.md)
   18.1 Values, views and owners; 18.2 Where variables live; 18.3 Views; 18.4 Loop iterations reuse their storage; 18.5 Moves; 18.6 Drops; 18.7 Shared ownership; 18.8 Strings; 18.9 Allocators; 18.10 No allocation without an owner or an arena; 18.11 Generation checks; 18.12 Safe and unsafe code; 18.13 Examples.
 - [19. Concurrency](language/19-concurrency.md)

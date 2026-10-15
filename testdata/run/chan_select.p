@@ -91,14 +91,20 @@ func selectReady() {
 
 var ch = make(chan int)
 
-func forever(ch chan int) {
+func sendUntilStopped(ch chan int, stop <-chan bool) {
 	for {
-		ch <- 5
+		select {
+		case ch <- 5:
+		case <-stop:
+			return
+		}
 	}
 }
 
 func selectBreak() {
-	task forever(ch)
+	stop := make(chan bool)
+	defer close(stop)
+	task sendUntilStopped(ch, stop)
 
 	select {
 	case <-ch:

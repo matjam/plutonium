@@ -78,6 +78,7 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		// (language spec section 18.5).
 		p := s.expr(e.Args[0])
 		ptr := s.checked(p.v)
+		s.staticWriteType(ptr, T)
 		v := s.materialize(s.loadLV(lvalue{ptr: ptr, T: T}))
 		s.zero(ptr, s.l.sizeof(T))
 		return one(v)
@@ -326,11 +327,12 @@ func (s *fnState) minMaxString(isMin bool, args []ast.Expr, T types2.Type) value
 // and each element overwritten drops its own (all retains come first, so
 // overlapping copies are safe).
 func (s *fnState) copyElems(dst, src, n *ssa.Value, et types2.Type) {
+	bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(et)))
+	s.staticWriteCheck(dst, bytes)
 	if s.l.counted(et) {
 		s.retainRange(src, n, et)
 		s.releaseRange(dst, n, et)
 	}
-	bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(et)))
 	s.callRuntime("memmove", nil, []*ssa.Value{s.checkedLen(dst, bytes), s.checkedLen(src, bytes), bytes})
 }
 
@@ -341,6 +343,7 @@ func (s *fnState) copyElems(dst, src, n *ssa.Value, et types2.Type) {
 // defer record when the function returns (section 12.19).
 func (s *fnState) clearSlice(x value, et types2.Type) {
 	p, n, _ := s.sliceParts(x)
+	s.staticWriteCheck(p, s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(et))))
 	if s.l.needsDrop(et) {
 		// Each owner is dropped in index order, and its Drop method runs
 		// before its place becomes the zero value (section 13.3).
@@ -723,6 +726,9 @@ func (l *Lowerer) ringIterFunc(name string, w *types2.Wrapper, sig *types2.Signa
 // arguments already evaluated.
 func (s *fnState) ringOp(name string, p *ssa.Value, w *types2.Wrapper, args []value, pos token.Pos) []value {
 	et := s.subst(w.Elem())
+	if name == "Reset" || name == "Push" || name == "Pop" {
+		s.staticWriteType(p, w)
+	}
 	// A ring of counted values keeps every slot outside [tail, head) zero,
 	// so dropping or copying the whole ring counts only the live ones.
 	counted := s.l.counted(et)

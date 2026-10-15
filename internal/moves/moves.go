@@ -53,7 +53,7 @@ type Info struct {
 	// control leaves scopes (a block, a case or select clause, a statement
 	// with an implicit block, a return or a branch statement) to what is
 	// known there. AtStmt does the same for a call inside the statement
-	// that leaves the function because it ended with rt.Goexit.
+	// that leaves the function because it ended with rt.ExitTask.
 	// EmptyResults are the named results that hold nothing before a return
 	// statement replaces them, and Fresh the targets of assignments whose
 	// old value is known to be nothing.

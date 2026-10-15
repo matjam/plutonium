@@ -111,7 +111,7 @@ func bump(c synced[Counter], k int) {
 // leaving waits for leave's task.
 var leaving sync.WaitGroup
 
-// leave ends its task with rt.Goexit: the deferred calls of every frame
+// leave ends its task with rt.ExitTask: the deferred calls of every frame
 // run and what each frame holds is dropped, innermost frame first, so
 // stop's r is dropped before leave's deferred Done lets main go on.
 func leave() {
@@ -122,7 +122,7 @@ func leave() {
 func stop() {
 	r := mk("goexit")
 	println("leaving", r.Name())
-	rt.Goexit()
+	rt.ExitTask()
 }
 
 func main() {

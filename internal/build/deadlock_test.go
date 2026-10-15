@@ -41,7 +41,7 @@ func blocked(c chan int, ready chan *rt.Task) {
 
 func asleep(ready chan *rt.Task) {
 	ready <- rt.CurrentTask()
-	time.Sleep(time.Hour)
+	rt.ParkUntil(rt.Now()+int64(time.Hour))
 }
 
 func main() {
@@ -59,6 +59,7 @@ func main() {
 	rt.TraceTask(parked, rt.Console{})
 	println("reason:", sleeper.WaitReason().String())
 	c <- 1
+	rt.Ready(sleeper)
 }
 `},
 	}, build.Config{})

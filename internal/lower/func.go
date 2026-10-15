@@ -49,7 +49,7 @@ type fnState struct {
 	// how much of it is in use.
 	deferRec     *ssa.Value
 	deferRecSize int64
-	// gxBoundary says what a call that ends with rt.Goexit does here, when
+	// gxBoundary says what a call that ends with rt.ExitTask does here, when
 	// it does not just leave the function (goexit.go).
 	gxBoundary      gxBoundary
 	cleanupGoexit   *ssa.Value  // generated destruction completes before propagating Goexit
@@ -57,8 +57,9 @@ type fnState struct {
 	implicitGoexits int         // implicit destruction calls emitted in this function
 	goexitCleared   *types2.Var // a whole variable destroyed before an implicit exit
 	loopDepth       int
-	closures        int // counter for naming closures
-	taskStmts       int // counter for naming task statement thunks
+	shutdownLocal   map[*ssa.Value]bool // bounds-checked inline local array addresses
+	closures        int                 // counter for naming closures
+	taskStmts       int                 // counter for naming task statement thunks
 
 	// Range over functions (rangefunc.go). rf is set in the yield function
 	// lowered from the body of a range-over-func loop; capPtrs maps the
@@ -91,7 +92,7 @@ type fnState struct {
 	// nothing, which are not destroyed, and those that hold values only in
 	// some parts, of which only those are (scope.go). curStmt is the
 	// innermost statement being lowered, whose moves.Info.AtStmt a call
-	// ending with rt.Goexit uses.
+	// ending with rt.ExitTask uses.
 	leaving moves.Known
 	curStmt ast.Stmt
 
@@ -163,7 +164,7 @@ type deferInfo struct {
 	// run emits the deferred call; rec is the address of the defer record
 	// in the function emitting it (nil in freestanding builds).
 	run       func(s *fnState, rec *ssa.Value)
-	mayGoexit bool // the call may end with rt.Goexit
+	mayGoexit bool // the call may end with rt.ExitTask
 }
 
 // ----------------------------------------------------------------------------
@@ -432,7 +433,7 @@ func (l *Lowerer) lowerFunc(job *funcJob) {
 	s.setMem(entry.NewValue(ssa.OpInitMem, ssa.TMem))
 
 	if job.decl != nil {
-		if fn := l.symFuncs[job.sym]; fn != nil && (fn == l.gx.catch || fn == l.gx.catchFree || fn == l.gx.taskMain || fn == l.panicFn) {
+		if fn := l.symFuncs[job.sym]; fn != nil && (fn == l.gx.catch || fn == l.gx.catchFree || fn == l.gx.catchTimer || fn == l.gx.taskMain || fn == l.panicFn) {
 			s.gxBoundary = gxCatch
 		}
 		f.Pos, f.End = job.decl.Pos(), job.decl.End()
@@ -709,7 +710,7 @@ type pendingReturn struct {
 func (s *fnState) emitReturn(pos token.Pos) { s.emitReturnFor(pos, false) }
 
 // emitReturnFor is emitReturn; goexit says the function leaves because a
-// call it made ended with rt.Goexit, which it passes on to its caller once
+// call it made ended with rt.ExitTask, which it passes on to its caller once
 // its deferred calls have run and its variables are released (goexit.go).
 func (s *fnState) emitReturnFor(pos token.Pos, goexit bool) {
 	defer s.collectCleanupGoexit()()

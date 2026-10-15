@@ -1,9 +1,9 @@
 package main
 
-// rt.Goexit ends the calling task after the deferred calls of every
+// rt.ExitTask ends the calling task after the deferred calls of every
 // function on it have run, innermost first, however the functions were
 // called: directly, through a func value, an interface, a type parameter
-// or a range-over-func loop. A deferred call that calls Goexit lets the
+// or a range-over-func loop. A deferred call that calls ExitTask lets the
 // deferred calls after it run. (In Go, with "runtime" for "pluto/rt", the
 // program prints the same.)
 
@@ -16,8 +16,8 @@ var done = make(chan string)
 
 func stop(where string) {
 	defer fmt.Println("stop deferred:", where)
-	rt.Goexit()
-	fmt.Println("not reached: after Goexit")
+	rt.ExitTask()
+	fmt.Println("not reached: after ExitTask")
 }
 
 func direct() {
@@ -81,8 +81,8 @@ func viaRange() {
 }
 
 func inDefer() {
-	defer func() { done <- "deferred Goexit" }()
-	defer fmt.Println("runs after the deferred Goexit")
+	defer func() { done <- "deferred ExitTask" }()
+	defer fmt.Println("runs after the deferred ExitTask")
 	defer stop("deferred")
 	fmt.Println("inDefer returns")
 }

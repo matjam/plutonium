@@ -2,8 +2,8 @@ package main
 
 // sync.Scope waits for its tasks on every path out of its block (language
 // spec section 4.11): a return from inside a loop, a break, a function that
-// leaves with rt.Goexit (as testing.FailNow does), and a task that ends
-// itself with rt.Goexit. Each task counts its end in finished only after
+// leaves with rt.ExitTask (as testing.FailNow does), and a task that ends
+// itself with rt.ExitTask. Each task counts its end in finished only after
 // it has used the frame of the function that started it, so finished shows
 // that the Scope waited before that frame was reclaimed. The program also
 // runs under the debug allocator with one, two and many processors
@@ -27,7 +27,7 @@ func spin(n int) int {
 	return x
 }
 
-// leave ends its task with rt.Goexit while its tasks wait to be released:
+// leave ends its task with rt.ExitTask while its tasks wait to be released:
 // its deferred call releases them, and s's drop then waits for them.
 func leave(release chan bool) {
 	defer close(release)
@@ -40,7 +40,7 @@ func leave(release chan bool) {
 			finished.Add(1)
 		})
 	}
-	rt.Goexit()
+	rt.ExitTask()
 	println("not reached")
 }
 
@@ -79,7 +79,7 @@ func breaks() int {
 	return n
 }
 
-// quitters end themselves with rt.Goexit: their deferred calls run, and
+// quitters end themselves with rt.ExitTask: their deferred calls run, and
 // the Scope counts them as returned.
 func quitters() {
 	var s sync.Scope
@@ -87,7 +87,7 @@ func quitters() {
 		s.Task(func() {
 			defer finished.Add(1)
 			if i >= 0 {
-				rt.Goexit()
+				rt.ExitTask()
 			}
 			println("not reached")
 		})
@@ -96,7 +96,7 @@ func quitters() {
 
 func main() {
 	release := make(chan bool)
-	exited := rt.CatchGoexit(func() { leave(release) })
+	exited := rt.CatchExitTask(func() { leave(release) })
 	println("leave", exited, finished.Load())
 
 	finished.Store(0)

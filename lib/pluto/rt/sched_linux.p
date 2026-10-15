@@ -1452,18 +1452,60 @@ func noteStackDepth(t *Task) {
 // that reports leaks sees them returned.
 func flushStackCache() {
 	c := &stackCache
-	if c.total == 0 {
+	for {
+		c.lock.Lock()
+		if c.n == 0 {
+			c.lock.Unlock()
+			return
+		}
+		c.n--
+		p, a, total := c.mem[c.n], c.a, c.total
+		c.mem[c.n] = nil
+		c.lock.Unlock()
+		protectGuard(p, true)
+		_ = CatchAllocFree(a, p, total, pageSize)
+	}
+}
+
+// After admission closes and every task retires, no backend can add or
+// take cached stacks. Release them before their allocator's package slot.
+func flushShutdownCaches() {
+	flushStackCache()
+	if !hs.started {
 		return
 	}
-	c.lock.Lock()
-	for c.n > 0 {
-		c.n--
-		protectGuard(c.mem[c.n], true)
-		c.a.Free(c.mem[c.n], c.total, pageSize)
+	for i := uint32(0); i < hs.nprocs; i++ {
+		pp := hs.allp[i]
+		for pp.nstacks > 0 {
+			pp.nstacks--
+			p := pp.stacks[pp.nstacks]
+			pp.stacks[pp.nstacks] = nil
+			protectGuard(p, true)
+			_ = CatchAllocFree(stackCache.a, p, stackCache.total, pageSize)
+		}
+		for pp.nlazy > 0 {
+			pp.nlazy--
+			rs := pp.lazy[pp.nlazy]
+			pp.lazy[pp.nlazy] = reservedStack{}
+			syscall3(sysMunmap, uintptr(rs.mem), rs.total, 0)
+			reserved.lock.Lock()
+			reserved.mapped -= rs.total
+			reserved.lock.Unlock()
+		}
 	}
-	// The Ps' own caches are left alone: their workers may be using them
-	// while the program exits.
-	c.lock.Unlock()
+	for {
+		reserved.lock.Lock()
+		if reserved.n == 0 {
+			reserved.lock.Unlock()
+			return
+		}
+		reserved.n--
+		rs := reserved.cache[reserved.n]
+		reserved.cache[reserved.n] = reservedStack{}
+		reserved.mapped -= rs.total
+		reserved.lock.Unlock()
+		syscall3(sysMunmap, uintptr(rs.mem), rs.total, 0)
+	}
 }
 
 // ----------------------------------------------------------------------------

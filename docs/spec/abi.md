@@ -542,7 +542,9 @@ drop word, if there is one. The drop before a call comes after its arguments are
 call built in the region on its previous run can reach those arguments (language spec section 11.5,
 E3101), so dropping and refilling the region cannot change them. A region that turns out to hold nothing
 to release has these drops left out.
-Calls made while initializing packages get regions in static storage, which are never dropped.
+Calls made while initializing packages get regions in static storage. Their stored references are
+released once during normal package cleanup, after their dependent static clients (language spec
+section 15.4); the storage itself retains its program lifetime.
 
 The caller reserves the region in its frame, one per call site, reused on every execution of the call,
 or passes a part of its own region when it may return the call's closures in turn. A call of a known
@@ -1487,21 +1489,60 @@ for a `Join` on `t`'s chain has returned, and empties the chain.
 **The rule for backends.** A backend must not free or reuse the stack of a task that has not returned
 normally until `rt.WaitScopes` has returned for it, since scoped tasks may still use variables in that
 stack. A task that returns normally has joined its `Scope`s through their drops and needs nothing. Hosted
-builds never need the call: `rt.Goexit` and `testing`'s `FailNow` leave frames through their ordinary
+builds never need the call: `rt.ExitTask` and `testing`'s `FailNow` leave frames through their ordinary
 return paths, so each drop joins (language spec section 17.3), and a hosted panic runs deferred calls (not
 drops) and then ends the process, so no frame is reclaimed while tasks run.
 
-**Drops in progress at exit.** The compiler calls `rt.dropBegin` at the start of every drop glue function and
+**Normal termination.** After `pluto.main` returns normally, the runtime waits for all application tasks
+and scheduled application callbacks to finish or be explicitly canceled by the program's existing APIs.
+Draining does not cancel them. Cancellation retires saved arguments/captures and backend registrations
+before completion is observed. Tasks may start descendants during that
+wait. An application task is not retired until its frame cleanup, stack release, task-record release and
+their allocator callbacks complete. A backend must report that completion after those obligations,
+not at `joinExit`. In-flight application callbacks must also finish; pending application timer callbacks
+count as work, while internal service timers and timers that only deliver channel values do not.
+The transition to package cleanup atomically closes task and application-callback admission. A failed
+start retains the caller's provisional argument ownership. Deadlock detection remains active.
+
+The compiler supplies cleanup for named package variables in reverse actual initialization order,
+including zero-initialized variables and hidden static owning/counting objects (language spec section
+15.4). Cleanup uses existing drop and reference-release glue in place, preserving static receiver
+addresses, and zeroes each completed place. A static object's storage remains live. Compiler-emitted
+static-object bounds and cleanup progress must reject typed writes overlapping a completed
+resource-bearing place, including aliases, scalar fields and zero writes, with a run-time panic. Compiler
+mandatory zeroing remains part of cleanup. The check precedes old-value
+release or ownership transfer. Completed fields/elements are protected while their enclosing object
+is still being finalized. Metadata is bounded by the compiler-known static objects and types; no
+application heap allocation or general ownership tracing is introduced by this bookkeeping.
+
+Runtime scheduler, timer, poller, allocator and reporting facilities remain usable until their clients
+finish. Backend-specific queued application work must be retired before package cleanup; essential
+internal services are quiesced and reclaimed afterward in dependency order. Final debug accounting
+runs after application cleanup and reclaimable runtime storage release, while its allocator and output
+dependencies remain alive. Private permanent metadata has an explicit runtime lifetime and is not an
+application allocation. Custom backends obey the same completion/admission contract.
+
+The named `rt.faultPanic` record of type `rt.Panic` belongs to the runtime's
+fault-reporting facilities. It is empty on normal execution and filled only
+while entering the abrupt signal-fault reporting path. It remains available
+through cleanup and is not an application package destruction obligation.
+
+An exit raised by a required cleanup is collected while remaining mandatory releases run. Package
+cleanup accumulates `rt.ExitTask`, completes the remaining cleanup schedule and preserves the normal
+return status; it does not resume subsequent ordinary statements in the exiting destructor. Panic and
+explicit `os.Exit`/`rt.Exit` retain their abrupt behavior. The main-task `ExitTask` path is not normal
+return and does not enter this schedule (language spec section 17.3).
+
+**Drop bookkeeping.** The compiler calls `rt.dropBegin` at the start of every drop glue function and
 of every last release of a `shared` or `synced` object (before its drop, until its memory is returned), and
 `rt.dropEnd` at the end; the runtime does the same around the free of a string's buffer. `rt.Task.drops`
 counts the drops a task is inside, and a global count the tasks that are inside one once tasks have
-started (`rt.taskMain` uncounts a task that leaves one with `rt.Goexit`). When `main` returns, `rt.start`
-calls `rt.mainReturned`, which calls the function the hosted scheduler stored when it started, so a
-program without tasks, and a kernel, carry none of this. That function parks the main task, with the
-reason `exit` (`rt.WaitExit`), until the count is zero; the scheduler's monitor readies it, so that drop
-glue never calls into the scheduler (language spec section 15.4). `os.Exit` and `rt.Exit` do not wait.
+started (`rt.taskMain` uncounts a task that leaves one with `rt.ExitTask`). This bookkeeping does not
+substitute for full task retirement at normal termination. The main task may park with the reason
+`exit` (`rt.WaitExit`) while draining tasks; a program without tasks carries no scheduler solely for
+shutdown. `os.Exit` and `rt.Exit` do not perform that drain or package cleanup.
 A `sync.Scope` that moves while tasks it started may run stops the program (`rt.joinMoved`, which the
 compiler calls before any move of a value that holds a `Scope`).
 
 Wait reasons in a deadlock trace: `sync.Scope.Wait` for a task parked in `Wait` or a drop, and `exit` for
-`main` waiting for drops in progress.
+`main` waiting for normal termination.

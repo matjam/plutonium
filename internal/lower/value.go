@@ -127,6 +127,7 @@ func (s *fnState) storeLV(lv lvalue, val value) {
 		s.containerStore(lv.elem, val)
 		return
 	}
+	s.staticWriteType(lv.ptr, lv.T)
 	if lv.bits != nil {
 		s.storeBits(lv, val.v)
 		return

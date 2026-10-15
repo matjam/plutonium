@@ -240,6 +240,17 @@ Every change must pass ALL of these before committing:
 
 ## Status and next steps
 
+Current checkpoint, 2026-10-14: the approved safe-arena split is landed at
+`408dd2ab`. D6 orderly normal shutdown passes native source gates (all-package
+tests, exhaustive sharded coverage, lint, full SSA, unchecked mode and the
+tracked-source archive). Its reviewed specification replaces the old
+package-held reporting direction. See
+[the verification record](docs/verification/2026-10-14-normal-shutdown.md).
+The public task-termination API is `rt.ExitTask`, with `rt.CatchExitTask`.
+The dated 2026-10-12 status below is historical, including its fixed-arena
+exemption, item 96 plan and whole-spec completion claims. Consult the current
+roadmap, decisions and verification records for remaining work.
+
 Updated 2026-10-12. `docs/roadmap.md` tracks every item; `docs/decisions.md` holds the user's
 implementation decisions D1 to D5. This section says where the work stands and what comes next, in
 order.
@@ -258,7 +269,7 @@ order.
   checklist. Gap 32, the two known escape bugs and complete `strconv` quoting also pass native
   verification. Allocation-free streaming FNV, explicit-key SipHash and `pluto vet -unsafe` are native
   verified; `pluto doc` is now native verified, and package-variable reporting is next.
-  A follow-up to item 58 preserves `rt.Goexit` cleanup through bound scheduler and late runtime
+  A follow-up to item 58 preserves `rt.ExitTask` cleanup through bound scheduler and late runtime
   hooks, including custom stack allocation. Full native gates pass; see the
   [verification record](docs/verification/2026-10-12-goexit-hooks.md). Item 96 remains unfinished.
 - `~/go/bin/pluto` is the installed compiler; reinstall it after each landing with

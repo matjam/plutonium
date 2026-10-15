@@ -262,49 +262,90 @@ the value `main` returns when it returns an `int64`. The operating system keeps 
 status, as it does for any process. A program that ends with a panic or with a fatal error (a deadlock, for
 example) exits with status 2 (section 17.1).
 
-**When `main` returns.** When the function invocation returns, the program exits. First `main` returns as
-every function does: its deferred calls run, and the owners its variables hold are dropped (sections
-12.19, Defer statements, and 18.6, Drops). Then:
+**When `main` returns.** Normal termination first completes `main`'s ordinary return: its deferred
+calls run and its local owners and counted references are released (sections 12.19 and 18.6). It then
+waits for all remaining tasks to finish naturally, including tasks they start. There is no cancellation.
+Completion includes deferred calls, owned and counted cleanup, and retirement of task records and
+stacks, including their allocator callbacks. A running task that never finishes keeps the program alive.
+Deadlock remains a fatal error under section 19.1; waiting for termination does not suppress it.
 
-- The program does not wait for other tasks to complete, and does not join them. A task that is running,
-  blocked or not yet started when `main` returns is abandoned: its pending deferred calls do not run and
-  the owners in its frames are not dropped. A program that needs a task to finish waits for it, with a
-  channel, a `sync.WaitGroup`, or a `sync.Scope` that joins at the end of its block (section 19.4,
-  Scoped tasks).
-- A drop that another task has begun when `main` returns completes before the program exits: a `Drop`
-  method that is running, or the release of the last reference to a counted object. Such a drop is not cut
-  in half. No other work of that task is finished. The task runtime recognizes a drop in progress
-  (section 19.1, Tasks).
-- Package-level variables are not dropped. A package-level owner is never dropped, in any order, when the
-  program ends; the process exit reclaims its memory and descriptors. A program that must flush or close
-  what a package variable holds does it in `main`, with a deferred call. The debug
-  allocator reports memory that package variables still hold apart from leaks (`debug-allocator.md`).
+Scheduled application callbacks, such as `time.AfterFunc` calls, also finish or are explicitly canceled
+by the program through their existing APIs before package cleanup begins. The drain does not cancel
+them. Cancellation completion includes release of saved arguments/captures and retirement of their
+timer or backend registration. A pending callback can keep termination waiting until its timer fires. Internal
+scheduler timers and timers that only deliver channel values do not by themselves keep the program
+alive. Application callbacks already in flight finish before the boundary. Closing task and callback
+admission and observing completion form one transition; no application work can appear between them.
+
+**Package cleanup.** After that boundary, package variables release the values they currently hold in
+reverse order of initialization (sections 15.2 and 15.3), including zero-initialized variables. Variables
+initialized together are cleaned in reverse left-to-right order. A later assignment does not change a
+variable's cleanup position. Initialization functions have no inverse; resources they store are cleaned
+with their destination variables. A dependency must outlive its clients, as for local variables: an
+allocator initialized before a vector using it is cleaned after that vector. The program must arrange
+late assignments consistently or explicitly destroy clients before returning. Cleanup does not infer a
+different dependency order or waive checked lifetime errors.
+
+Compiler-created static objects in initializers that themselves hold owners or counted references have
+one cleanup obligation each, before the variables initialized from them in the initialization sequence.
+Reverse cleanup therefore releases their borrowers first. Aliasing an object does not duplicate its
+obligation; moving ownership into another place transfers it. Each counted reference releases its own
+reference. Objects containing no owned or counted resources need no cleanup.
+
+Cleanup runs in place using section 18.6's Drop and reference-release rules, then leaves the cleaned
+place zero. Static storage retains its program lifetime. A cleaned variable remains readable and its
+address remains valid. Once cleanup of a resource-bearing place has finished, any typed write there,
+directly or through an alias, is a run-time panic, including a zero assignment, `take` or `clear`.
+This also applies to a field or element whose
+cleanup has finished while the rest of its enclosing object is being cleaned. A still-pending place can
+be changed and its eventual cleanup releases its then-current contents. No cleaned place is reopened
+and no repeated cleanup pass runs. A scalar field of a cleaned owner is protected too; an unrelated
+static object containing no owned or counted resources is unaffected. Unsafe raw memory operations
+retain their existing obligations. Compiler mandatory zeroing is part of cleanup, not a prohibited
+program write.
+
+Starting a task or scheduling an application callback during package cleanup is a run-time panic,
+including through a helper or destructor. Operand evaluation retains its ordinary order; a failed start
+does not transfer ownership of its arguments. Runtime services needed for synchronous cleanup remain
+available. A destructor can block, so normal termination is not guaranteed to finish.
+
+An `rt.ExitTask` raised during package cleanup ends that destructor's ordinary execution, while its
+mandatory cleanup and the remaining package obligations still complete. It does not start another
+shutdown pass or replace `main`'s saved exit status. Panic and explicit `os.Exit` remain abrupt.
+Runtime infrastructure is retired after its clients, and final debug allocation accounting runs after
+application cleanup and release of reclaimable runtime resources. Infrastructure required for those
+releases and accounting remains alive until they finish.
 
 ```go
 package main
 
 type Log owner struct {
-	fd int32
+	open bool
 }
 
 func (l *Log) Drop() {
-	println("closing a log")
+	if l.open {
+		println("closing a log")
+		l.open = false
+	}
 }
 
-var global Log // a package-level owner: its Drop never runs
+var global = Log{open: true}
 
 func main() {
-	var local Log
+	local := Log{open: true}
 	_ = local
-} // local is dropped here: "closing a log" is printed once
+} // local is dropped here; global is dropped after all tasks finish
 ```
 
-**`os.Exit`.** The function `os.Exit(code)` ends the program at once with the given status. It runs no
-deferred calls, drops no owner and does not wait for any task. The compiler works out that a function never
+**`os.Exit`.** The function `os.Exit(code)` ends the program abruptly with the given status. It runs no
+deferred calls, drops no owner and performs no task-completion join. Documented debug exit hooks may
+perform bounded observational settling and reporting (`debug-allocator.md`); that is no guarantee of
+task or package cleanup. The compiler works out that a function never
 returns from its body, so `os.Exit` needs no annotation.
 
-**`rt.Goexit` in `main`.** If the task that runs `main` calls `rt.Goexit` (section 17.3, Ending a task with
-`rt.Goexit`), `main` does not return: its deferred calls run, the other tasks go on, and once none of them
+**`rt.ExitTask` in `main`.** If the task that runs `main` calls `rt.ExitTask` (section 17.3, Ending a task with
+`rt.ExitTask`), `main` does not return: its deferred calls run, the other tasks go on, and once none of them
 is left the program ends with a fatal error and status 2.
 
 **Stacks.** The task that runs `main` runs on the stack the operating system gave the process, or on a

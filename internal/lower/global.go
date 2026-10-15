@@ -63,11 +63,13 @@ func (l *Lowerer) lowerGlobals() {
 						}
 					} else if _, ok := ast.Unparen(init.Rhs).(*ast.CompositeLit); ok {
 						d.Bytes = make([]byte, d.Size)
+						l.cleanupAnchor = v
 						if l.staticValue(p, d, init.Rhs, T, 0) {
 							static[v] = true
 						} else {
 							d.Bytes, d.Relocs = nil, nil
 						}
+						l.cleanupAnchor = nil
 					}
 				}
 			}
@@ -124,7 +126,9 @@ func (l *Lowerer) dropUnusedGlobals() {
 
 // staticObject allocates an anonymous static object of type T.
 func (l *Lowerer) staticObject(T types2.Type) *ssa.Sym {
-	return l.staticBytes(l.sizeof(T), l.alignof(T))
+	sym := l.staticBytes(l.sizeof(T), l.alignof(T))
+	l.recordStaticCleanup(sym, T)
+	return sym
 }
 
 // staticBytes allocates an anonymous static object of the given size.
@@ -375,6 +379,7 @@ func (l *Lowerer) queueInit(p *load.Package, static map[*types2.Var]bool) {
 				continue
 			}
 			// Each initializer is a statement for temporary lifetimes.
+			l.cleanupAnchor = init.Lhs[0]
 			// Discarded counted results and temporary owners finish before
 			// the next variable or explicit init function runs.
 			entry := s.pushCleanup(init.Rhs, false)
@@ -403,8 +408,10 @@ func (l *Lowerer) queueInit(p *load.Package, static map[*types2.Var]bool) {
 			s.popCleanup(entry)
 		}
 		for _, isym := range inits {
+			l.cleanupAnchor = nil
 			s.emitCall(callee{sym: isym}, sig, nil, nil, token.NoPos)
 		}
+		l.cleanupAnchor = nil
 		s.emitReturn(token.NoPos)
 	}})
 }
@@ -468,6 +475,9 @@ func (l *Lowerer) lowerEntry() {
 		} else {
 			status = scalarValue(s.constInt(ssa.TI64, 0), i64)
 		}
+		s.callRuntime("normalShutdown", nil)
+		s.emitCall(callee{sym: l.out.Sym("pluto.dropGlobals", ssa.SymFunc)}, noArgs, nil, nil, token.NoPos)
+		s.callRuntime("normalShutdownFinish", nil)
 		s.returnValues([]value{status})
 	}})
 }

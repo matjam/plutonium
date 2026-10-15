@@ -1,4 +1,4 @@
 finish deferred
 main deferred
-worker runs after main's Goexit
-fatal error: no tasks (main called rt.Goexit) - deadlock!
+worker runs after main's ExitTask
+fatal error: no tasks (main called rt.ExitTask) - deadlock!

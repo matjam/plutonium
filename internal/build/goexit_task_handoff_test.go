@@ -24,7 +24,7 @@ import "unsafe"
 type backend struct{}
 //pu:scheduler
 var scheduler backend
-func(*backend)NewTask(rt.StackRequest)*rt.Task{println("creation exit");rt.Goexit();return nil}
+func(*backend)NewTask(rt.StackRequest)*rt.Task{println("creation exit");rt.ExitTask();return nil}
 func(*backend)FreeTask(*rt.Task){}
 func(*backend)Spawn(*rt.Task){}
 func(*backend)Park(*rt.Task){}
@@ -50,7 +50,7 @@ func(c *counter)Free(p unsafe.Pointer,n,a uintptr){c.next.Free(p,n,a);println("s
 func text()string{p,ctl:=rt.NewStringBuffer(3,&heap);copy(unsafe.Slice(p,3),[]byte{'a','b','c'});s:=rt.MakeString(p,3,ctl,true);rt.ReleaseString(ctl);return s}
 func useString(s string){println("unexpected string",s)}
 func createString(){task useString(text());panic("continued string")}
-func main(){heap.next=alloc.Default();println("owner exit",rt.CatchGoexit(createOwner));println("counted exit",rt.CatchGoexit(createCounted));println("local exit",rt.CatchGoexit(createLocal));println("literal exit",rt.CatchGoexit(createLiteral));println("receiver exit",rt.CatchGoexit(createReceiver));println("string exit",rt.CatchGoexit(createString))}
+func main(){heap.next=alloc.Default();println("owner exit",rt.CatchExitTask(createOwner));println("counted exit",rt.CatchExitTask(createCounted));println("local exit",rt.CatchExitTask(createLocal));println("literal exit",rt.CatchExitTask(createLiteral));println("receiver exit",rt.CatchExitTask(createReceiver));println("string exit",rt.CatchExitTask(createString))}
 `
 	const expected = "creation exit\ndrop 1\nowner exit true\ncreation exit\ndrop 2\ncounted exit true\ncreation exit\ndrop 3\nlocal exit true\ncreation exit\ndrop 4\nliteral exit true\ncreation exit\ndrop 1\nreceiver exit true\ncreation exit\nstring free\nstring exit true\n"
 	for _, level := range []int{0, 2} {
@@ -81,7 +81,7 @@ func TestGoexitTaskPublishedHandoff(t *testing.T) {
 		t.Fatal(err)
 	}
 	original := "func (*hostedSched) Spawn(t *Task) { hostedReady(t) }"
-	modified := "func (*hostedSched) Spawn(t *Task) { hostedReady(t); if item96SpawnExit { item96SpawnExit=false; Goexit() } }"
+	modified := "func (*hostedSched) Spawn(t *Task) { hostedReady(t); if item96SpawnExit { item96SpawnExit=false; ExitTask() } }"
 	if !strings.Contains(string(data), original) {
 		t.Fatal("missing original Spawn binding")
 	}
@@ -113,7 +113,7 @@ func(c *counter)Free(p unsafe.Pointer,n,a uintptr){c.next.Free(p,n,a);atomic.Add
 func text()string{p,ctl:=rt.NewStringBuffer(3,&stringsHeap);copy(unsafe.Slice(p,3),[]byte{'a','b','c'});s:=rt.MakeString(p,3,ctl,true);rt.ReleaseString(ctl);return s}
 func useString(s string){if s!="abc"{panic("wrong string")}}
 func createString(){task useString(text())}
-func check(name string,f func(),want int32){released.Add(1);rt.Item96ArmSpawnExit(MODE);caught:=rt.CatchGoexit(f);released.Wait();println(name,caught==MODE,atomic.LoadInt32(&drops)==want,atomic.LoadInt32(&stringFrees))}
+func check(name string,f func(),want int32){released.Add(1);rt.Item96ArmSpawnExit(MODE);caught:=rt.CatchExitTask(f);released.Wait();println(name,caught==MODE,atomic.LoadInt32(&drops)==want,atomic.LoadInt32(&stringFrees))}
 func main(){stringsHeap.next=alloc.Default();check("receiver",createReceiver,1);check("owner",createOwner,3);check("counted",createCounted,6);check("string",createString,6)}
 `
 	const expected = "receiver true true 0\nowner true true 0\ncounted true true 0\nstring true true 1\n"

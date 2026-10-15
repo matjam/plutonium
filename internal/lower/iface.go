@@ -657,7 +657,7 @@ func (s *fnState) toInterface(v value, from, I types2.Type) value {
 	} else {
 		tab = s.symAddr(s.l.types.itab(from, I))
 	}
-	data := s.dataWord(v, from)
+	data := s.dataWord(v, from, types2.IsOwner(I) && s.l.needsIfaceDrop(from))
 	handsOver := v.cnt == cntOwned && v.tmp != nil && !v.tmp.consumed
 	counts := types2.IsCountedError(I) && isStrongBox(from)
 	if (types2.IsOwner(I) || counts) && s.l.isDirect(from) && s.l.counted(from) && !handsOver && v.cnt != cntStatic {
@@ -682,7 +682,7 @@ func isStrongBox(T types2.Type) bool {
 }
 
 // dataWord returns an interface data word for a value of concrete type T.
-func (s *fnState) dataWord(v value, T types2.Type) *ssa.Value {
+func (s *fnState) dataWord(v value, T types2.Type, transferred bool) *ssa.Value {
 	if s.l.isDirect(T) {
 		x := v.v
 		if v.addr {
@@ -704,7 +704,9 @@ func (s *fnState) dataWord(v value, T types2.Type) *ssa.Value {
 	if s.staticLits {
 		// During package initialisation the interface value outlives the
 		// init function, so the box gets static storage, like &T{...}.
-		box := s.symAddr(s.l.staticObject(T))
+		sym := s.l.staticBytes(s.l.sizeof(T), s.l.alignof(T))
+		s.l.recordStaticCleanupAt(sym, 0, T, transferred)
+		box := s.symAddr(sym)
 		s.assign(lvalue{ptr: box, T: T}, v, true)
 		return box
 	}

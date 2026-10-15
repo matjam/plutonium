@@ -12,11 +12,12 @@
 
 package main
 
-// Send the sequence 2, 3, 4, ... to channel 'ch'.
+// Send the finite input whose primes this test checks, then close it.
 func Generate(ch chan<- int) {
-	for i := 2; ; i++ {
+	for i := 2; i <= 100; i++ {
 		ch <- i // Send 'i' to channel 'ch'.
 	}
+	close(ch)
 }
 
 // Copy the values from channel 'in' to channel 'out',
@@ -27,6 +28,7 @@ func Filter(in <-chan int, out chan<- int, prime int) {
 			out <- i // Send 'i' to channel 'out'.
 		}
 	}
+	close(out)
 }
 
 // The prime sieve: Daisy-chain Filter processes together.
@@ -35,7 +37,11 @@ func Sieve(primes chan<- int) {
 	task Generate(ch)    // Start Generate() as a subprocess.
 	for {
 		// Note that ch is different on each iteration.
-		prime := <-ch
+		prime, ok := <-ch
+		if !ok {
+			close(primes)
+			return
+		}
 		primes <- prime
 		ch1 := make(chan int)
 		task Filter(ch, ch1, prime)

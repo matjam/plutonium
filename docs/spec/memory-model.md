@@ -266,7 +266,7 @@ contract does not authorize an unsafe caller to race reclamation with an access.
 A task started by `s.Task(f)` on a `sync.Scope` is joined by `s.Wait()` and by the drop of `s` (language
 spec section 19.4, Scoped tasks). The return of `f` is synchronized before the return of every `s.Wait()`
 that waits for it, and before the end of the drop of `s`, wherever the drop runs: at the end of its block,
-on a `return`, `break`, `continue` or `goto` out of it, or as `rt.Goexit` leaves the frame. So the
+on a `return`, `break`, `continue` or `goto` out of it, or as `rt.ExitTask` leaves the frame. So the
 starting function observes every write of its scoped tasks after the join.
 
 A panic reclaims no frame: the panicking task's stack is not reused while the program runs, so scoped

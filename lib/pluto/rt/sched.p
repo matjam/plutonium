@@ -97,7 +97,7 @@ type Task struct {
 
 	waitReason WaitReason // what the task last parked for (Task.WaitReason)
 
-	// goexit is set while the task leaves its frames for Goexit (goexit.p),
+	// goexit is set while the task leaves its frames for ExitTask (goexit.p),
 	// and panicking while it runs its deferred calls for a panic.
 	goexit    bool
 	panicking *Panic
@@ -282,6 +282,7 @@ func startTasks() {
 	t.ctx.task = t
 	t.ctx.onCPU = 1
 	preemptParkFn = preemptPark
+	shutdownWaitFn = waitShutdown
 	setCurrent(t)
 	tasking = true
 }
@@ -385,6 +386,7 @@ func afterSwitch(t *Task) {
 	case tYielding:
 		schedWake(t)
 	case tExiting:
+		defer shutdownLeave()
 		schedFreeTask(t)
 	}
 }
@@ -677,6 +679,17 @@ func CheckGoFunc(f func()) {
 	checkGoFunc(*(*unsafe.Pointer)(unsafe.Pointer(&f)))
 }
 
+// DispatchTimerFunc is the time package's internal dispatch boundary. The
+// existing handoff slot distinguishes failed creation from a backend that
+// accepted the task before ending its caller. The callback still runs on its
+// own task; only an exit of the dispatching frame is caught here.
+func DispatchTimerFunc(f func(), handedOff *bool) bool {
+	rec := *(*unsafe.Pointer)(unsafe.Pointer(&f))
+	checkGoFunc(rec)
+	spawnFor(nil, rec, nil, 0, 1, StackRequest{Size: DefaultStackSize, Unsized: true, Alloc: defaultAllocator}, handedOff)
+	return takeGoexit()
+}
+
 // spawnGo implements the task statement: fn is the closure record of a
 // compiler-generated function that takes the address of the argument
 // block, args, which is copied onto the new task's stack. bound is the
@@ -724,6 +737,9 @@ func spawnFor(j *Join, fn, args unsafe.Pointer, argSize, argAlign uintptr, req S
 	if req.Size < MinStackSize && !req.Proven {
 		req.Size = MinStackSize
 	}
+	shutdownEnter()
+	submitted := false
+	defer shutdownFailedStart(&submitted)
 	// The arguments sit at the top of the stack, above the first frame.
 	if argAlign < 16 {
 		argAlign = 16
@@ -755,6 +771,7 @@ func spawnFor(j *Join, fn, args unsafe.Pointer, argSize, argAlign uintptr, req S
 	if handedOff != nil {
 		*handedOff = true
 	}
+	submitted = true
 	schedSpawn(t)
 }
 
@@ -772,7 +789,7 @@ func taskMain(t *Task, _ uintptr) {
 		joinExit(j)
 	}
 	if t.dropCounted {
-		// A drop the task left with rt.Goexit.
+		// A drop the task left with rt.ExitTask.
 		t.drops = 0
 		dropDone(t)
 	}

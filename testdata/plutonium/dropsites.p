@@ -110,7 +110,7 @@ func leaves(id int) {
 	a := mk(id)
 	b := mk(id + 1)
 	consume(a)
-	rt.Goexit()
+	rt.ExitTask()
 	println("not reached", b.id)
 }
 
@@ -246,7 +246,7 @@ func main() {
 	deferredClosure(36)
 
 	println("goexit")
-	println("  exited", rt.CatchGoexit(func() { leaves(38) }))
+	println("  exited", rt.CatchExitTask(func() { leaves(38) }))
 
 	println("loop")
 	for i := 0; i < 3; i++ {

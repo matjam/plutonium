@@ -8,9 +8,9 @@ import (
 	"github.com/matjam/plutonium/internal/types2"
 )
 
-// rt.Goexit (language spec section 17.3).
+// rt.ExitTask (language spec section 17.3).
 //
-// rt.Goexit ends the calling task after running the deferred calls of every
+// rt.ExitTask ends the calling task after running the deferred calls of every
 // frame on it and releasing what each frame holds, as Go's runtime.Goexit
 // does. It is not an unwinder. Goexit sets a flag in the task record and
 // returns; after every call that may end that way, the caller takes the
@@ -19,7 +19,7 @@ import (
 // exactly as a return there would, and then sets the flag again for its own
 // caller (rt.setGoexit). The flag reaches the bottom of the task, where
 // rt.taskMain ends the task, or pluto.main, where the main task ends
-// (rt.mainGoexit), or rt.CatchGoexit, which stops it (the test runner).
+// (rt.mainGoexit), or rt.CatchExitTask, which stops it (the test runner).
 //
 // While a frame runs its deferred calls on the way out, the flag is clear,
 // so those calls run normally; a deferred call that itself ends with
@@ -29,14 +29,14 @@ import (
 // The check costs a call and a branch, so it is made only after calls that
 // may end with Goexit. Which those are is worked out from the source of the
 // whole program before lowering: a function may end with Goexit if it
-// calls rt.Goexit, a function that may, or makes a call through a func
+// calls rt.ExitTask, a function that may, or makes a call through a func
 // value or an interface that may reach one. An indirect call may reach
 // every function, method, function literal and range-over-func loop body
 // that may end with Goexit and whose type it could hold: a func value of an
 // identical signature, or for an interface (or type parameter) method a
 // method of the same name and signature. Type parameters match any type, so
 // generic code is covered whatever it is instantiated with. Code that cannot
-// reach rt.Goexit pays nothing; a program that never calls it has no checks
+// reach rt.ExitTask pays nothing; a program that never calls it has no checks
 // at all.
 
 // gxBoundary says what a function does when a call it makes ends with
@@ -46,7 +46,7 @@ type gxBoundary uint8
 const (
 	gxLeave gxBoundary = iota // leave through the return path (the usual case)
 	gxMain                    // pluto.main: the main task ends (rt.mainGoexit)
-	gxCatch                   // rt.CatchGoexit, rt.taskMain, the panic handler: the exit stops here
+	gxCatch                   // rt.CatchExitTask, rt.taskMain, the panic handler: the exit stops here
 	gxC                       // a //pu:export wrapper: C cannot be left this way
 )
 
@@ -76,9 +76,10 @@ type gxEdge struct {
 
 // goexitInfo is the result of the analysis.
 type goexitInfo struct {
-	active    bool         // the program calls rt.Goexit somewhere
-	catch     *types2.Func // rt.CatchGoexit
-	catchFree *types2.Func // rt.CatchAllocFree, typed mandatory allocator cleanup
+	active     bool         // the program calls rt.ExitTask somewhere
+	catch      *types2.Func // rt.CatchExitTask
+	catchFree  *types2.Func // rt.CatchAllocFree, typed mandatory allocator cleanup
+	catchTimer *types2.Func // rt.DispatchTimerFunc, task publication boundary
 	// taskMain is the bottom of every task but main's: when the function
 	// it runs leaves for Goexit, the task ends as if it had returned.
 	taskMain *types2.Func
@@ -87,14 +88,15 @@ type goexitInfo struct {
 }
 
 // analyzeGoexit works out which functions of the program may end with
-// rt.Goexit.
+// rt.ExitTask.
 func (l *Lowerer) analyzeGoexit() {
 	gx := &goexitInfo{funcs: map[*types2.Func]*gxNode{}}
 	l.gx = gx
-	goexit := l.rtFuncOrNil("Goexit")
-	catch := l.rtFuncOrNil("CatchGoexit")
+	goexit := l.rtFuncOrNil("ExitTask")
+	catch := l.rtFuncOrNil("CatchExitTask")
 	gx.catch = catch
 	gx.catchFree = l.rtFuncOrNil("CatchAllocFree")
+	gx.catchTimer = l.rtFuncOrNil("DispatchTimerFunc")
 	gx.taskMain = l.rtFuncOrNil("taskMain")
 	if goexit == nil {
 		return
@@ -194,7 +196,7 @@ func (l *Lowerer) analyzeGoexit() {
 					n.method = fn.Name()
 				}
 				gx.funcs[fn] = n
-				if fn == catch || fn == gx.catchFree || fn == gx.taskMain {
+				if fn == catch || fn == gx.catchFree || fn == gx.catchTimer || fn == gx.taskMain {
 					continue // never ends with Goexit itself
 				}
 				if fn == goexit {

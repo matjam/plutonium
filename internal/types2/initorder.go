@@ -13,11 +13,12 @@ import (
 	"sort"
 )
 
-// initOrder computes the Info.InitOrder for package variables.
+// initOrder computes the complete variable sequence and Info.InitOrder.
 func (check *Checker) initOrder() {
 	// An InitOrder may already have been computed if a package is
 	// built from several calls to (*Checker).Files. Clear it.
 	check.InitOrder = check.InitOrder[:0]
+	check.VarInitOrder = check.VarInitOrder[:0]
 
 	// Compute the object dependency graph and initialize
 	// a priority queue with the list of graph nodes.
@@ -97,12 +98,13 @@ func (check *Checker) initOrder() {
 			heap.Fix(&pq, p.index)
 		}
 
-		// record the init order for variables with initializers only
+		// Record every variable's lifetime position, including zero-initialized
+		// slots. Constants participate in dependency analysis but have no slot.
 		v, _ := n.obj.(*Var)
-		info := check.objMap[v]
-		if v == nil || !info.hasInitializer() {
+		if v == nil {
 			continue
 		}
+		info := check.objMap[v]
 
 		// n:1 variable declarations such as: a, b = f()
 		// introduce a node for each lhs variable (here: a, b);
@@ -116,6 +118,11 @@ func (check *Checker) initOrder() {
 		infoLhs := info.lhs // possibly nil (see declInfo.lhs field comment)
 		if infoLhs == nil {
 			infoLhs = []*Var{v}
+		}
+		check.VarInitOrder = append(check.VarInitOrder, infoLhs...)
+		// Keep InitOrder's public initializer-only contract unchanged.
+		if !info.hasInitializer() {
+			continue
 		}
 		init := &Initializer{infoLhs, info.init}
 		check.InitOrder = append(check.InitOrder, init)

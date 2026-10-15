@@ -77,7 +77,7 @@ func main() {
 // unions (language spec sections 7.19 and 18.7) with the debug allocator and
 // its leak report on, at -O0 and -O2: every object must be dropped and its
 // memory freed exactly once, on every path out of a scope, through counts
-// and weak references, across tasks and through rt.Goexit. dropsites and
+// and weak references, across tasks and through rt.ExitTask. dropsites and
 // dropflow check every place an owner moves or is dropped (sections 18.5
 // and 18.6): each constructed owner is dropped once, and a variable or
 // place known to hold nothing is not dropped.

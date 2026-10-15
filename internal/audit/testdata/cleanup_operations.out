@@ -22,16 +22,16 @@ package main
       ./main.p:8:35: call pluto/alloc.Synced
     calls pluto/rt.inc32
       ./main.p:12:41: may call pluto/rt.preemptPark
-      pluto/rt/sched.p:647:2: call pluto/rt.inc32
+      pluto/rt/sched.p:649:2: call pluto/rt.inc32
     calls pluto/rt.schedYield
       ./main.p:12:41: may call pluto/rt.preemptPark
-      pluto/rt/sched.p:649:2: call pluto/rt.schedYield
+      pluto/rt/sched.p:651:2: call pluto/rt.schedYield
     calls pluto/rt.dec32
       ./main.p:12:41: may call pluto/rt.preemptPark
-      pluto/rt/sched.p:651:2: call pluto/rt.dec32
+      pluto/rt/sched.p:653:2: call pluto/rt.dec32
     calls pluto/rt.getg
       ./main.p:12:41: may call pluto/rt.preemptPark
-      pluto/rt/sched.p:645:7: call pluto/rt.current
+      pluto/rt/sched.p:647:7: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
   safe main.genericCall ./main.p:13:1
     calls main.*E.Drop
@@ -44,19 +44,19 @@ package main
     calls pluto/rt.inc32
       ./main.p:13:22: call main.generic
       ./main.p:12:41: may call pluto/rt.preemptPark
-      pluto/rt/sched.p:647:2: call pluto/rt.inc32
+      pluto/rt/sched.p:649:2: call pluto/rt.inc32
     calls pluto/rt.schedYield
       ./main.p:13:22: call main.generic
       ./main.p:12:41: may call pluto/rt.preemptPark
-      pluto/rt/sched.p:649:2: call pluto/rt.schedYield
+      pluto/rt/sched.p:651:2: call pluto/rt.schedYield
     calls pluto/rt.dec32
       ./main.p:13:22: call main.generic
       ./main.p:12:41: may call pluto/rt.preemptPark
-      pluto/rt/sched.p:651:2: call pluto/rt.dec32
+      pluto/rt/sched.p:653:2: call pluto/rt.dec32
     calls pluto/rt.getg
       ./main.p:13:22: call main.generic
       ./main.p:12:41: may call pluto/rt.preemptPark
-      pluto/rt/sched.p:645:7: call pluto/rt.current
+      pluto/rt/sched.p:647:7: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
   safe main.clearOwners ./main.p:14:1
     calls main.*E.Drop

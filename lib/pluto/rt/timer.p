@@ -46,7 +46,8 @@ type Timer struct {
 	// the previous sibling or, for a first child, the parent.
 	child, next, prev *Timer
 
-	mu Lock // orders Reset and Stop of this timer
+	mu     Lock // orders Reset and Stop of this timer
+	system bool // channel delivery and the runtime's own park deadline
 }
 
 // Init sets the function t calls when it fires. f runs in whatever context
@@ -57,6 +58,7 @@ type Timer struct {
 func (t *Timer) Init(f func(arg unsafe.Pointer, now int64), arg unsafe.Pointer) {
 	t.f = f
 	t.arg = arg
+	t.system = false
 }
 
 // Reset arms t to fire at when on the Now clock, and every period
@@ -78,6 +80,9 @@ func (t *Timer) Reset(when, period int64) bool {
 		period = 0
 	}
 	timerStart()
+	if !t.system {
+		shutdownEnter()
+	}
 	t.mu.Lock()
 	active := t.stopLocked()
 	h := timerHeapLocal()
@@ -121,6 +126,9 @@ func (t *Timer) stopLocked() bool {
 			h.remove(t)
 			storep(unsafe.Pointer(&t.heap), nil)
 			xadd32(&activeTimers, -1)
+			if !t.system {
+				shutdownLeave()
+			}
 			h.lock.Unlock()
 			return true
 		}
@@ -250,9 +258,15 @@ func (h *timerHeap) run(now int64) {
 			t.f(t.arg, now)
 			continue
 		}
+		system := t.system
 		t.f(t.arg, now)
+		// Stop can return once heap is nil, allowing the timer's owner
+		// to free it. Publishing nil must be the final access to t.
 		storep(unsafe.Pointer(&t.heap), nil)
 		xadd32(&activeTimers, -1)
+		if !system {
+			shutdownLeave()
+		}
 	}
 }
 
@@ -368,6 +382,7 @@ func ParkUntil(deadline int64) bool {
 	// The timer heap holds pt.tm only until Stop below (Pinned).
 	pp := Pinned(&pt)
 	pp.tm.Init(parkTimeout, unsafe.Pointer(pp))
+	pp.tm.system = true
 	pp.tm.Reset(deadline, 0)
 	ParkReason(WaitSleep)
 	if cas32(&pt.state, 0, 2) {

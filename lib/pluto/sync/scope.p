@@ -5,7 +5,7 @@ import "pluto/rt"
 // A Scope starts tasks that may use the variables of the function that
 // starts them, and waits for all of them before its own block ends: when
 // the block that declares it ends, on every path out of it (falling off
-// the end, return, break, continue, goto, rt.Goexit), it waits as Wait
+// the end, return, break, continue, goto, rt.ExitTask), it waits as Wait
 // does, before the block's other variables are dropped (language spec
 // section 4.11).
 //

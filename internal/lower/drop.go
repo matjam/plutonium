@@ -99,6 +99,12 @@ func (s *fnState) dropAt(ptr *ssa.Value, T types2.Type) {
 // dropFields is the body of T's drop glue: Drop, then the parts.
 func (s *fnState) dropFields(ptr *ssa.Value, T types2.Type) {
 	if m := dropMethod(T); m != nil {
+		// A user callback may replace still-pending fields. Its ordinary
+		// old-value destruction is not progress in mandatory traversal.
+		var finalizing *ssa.Value
+		if s.l.rtFuncOrNil("staticCleanupPause") != nil {
+			finalizing = s.callRuntime("staticCleanupPause", []*ssa.Type{ssa.TI64})[0]
+		}
 		targs := s.recvTypeArgs(T)
 		target, full := s.l.methodFunc(m, targs, nil, token.NoPos, "")
 		var recv value
@@ -109,6 +115,9 @@ func (s *fnState) dropFields(ptr *ssa.Value, T types2.Type) {
 		}
 		s.emitCall(callee{sym: target, deferred: true}, full, &recv, nil, token.NoPos)
 		s.noteImplicitGoexit()
+		if finalizing != nil {
+			s.callRuntime("staticCleanupResume", nil, []*ssa.Value{finalizing})
+		}
 	}
 	switch u := unwrap(T).Underlying().(type) {
 	case *types2.Wrapper:
@@ -141,16 +150,13 @@ func (s *fnState) dropFields(ptr *ssa.Value, T types2.Type) {
 			s.destroyAt(s.offPtr(ptr, offs[i]), f.Type())
 		}
 	case *types2.Array:
-		if !s.l.needsDrop(u.Elem()) {
-			if s.l.counted(u.Elem()) {
-				s.releaseAt(ptr, types2.NewArray(u.Elem(), u.Len())) // its strings
-			}
+		if !s.l.needsDrop(u.Elem()) && !s.l.counted(u.Elem()) {
 			return
 		}
 		size := s.l.sizeof(u.Elem())
 		s.countedLoop(s.constInt(ssa.TI64, u.Len()), nil, func(i *ssa.Value) {
 			off := s.newValue(ssa.OpMul, ssa.TI64, i, s.constInt(ssa.TI64, size))
-			s.dropAt(s.newValue(ssa.OpAddPtr, ssa.TPtr, ptr, off), u.Elem())
+			s.destroyAt(s.newValue(ssa.OpAddPtr, ssa.TPtr, ptr, off), u.Elem())
 		})
 	}
 }

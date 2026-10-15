@@ -318,14 +318,18 @@ the end of each iteration for a variable declared in a loop body. In detail:
   A deferred call may not use an owner declared in an inner block, which is dropped when that block ends
   (E3311).
 - `defer x.Drop()` drops `x` when the function returns, and `x` is not dropped again.
-- `rt.Goexit` leaves every frame of the task through its return path, so each frame runs its deferred
-  calls and drops what it holds (section 17.3, Ending a task with `rt.Goexit`).
+- `rt.ExitTask` leaves every frame of the task through its return path, so each frame runs its deferred
+  calls and drops what it holds (section 17.3, Ending a task with `rt.ExitTask`).
 - A panic drops nothing. In hosted builds the panicking task's deferred calls run first (section 17.2,
   Deferred calls on a panic), but no owner is dropped and no frame is reclaimed. `os.Exit` drops nothing.
-- Package-level owners are never dropped, not even when `main` returns: the program's exit releases
-  their memory and descriptors. A program that must flush a package-level writer does it in `main`, with
-  `defer` (section 15.4, Program execution). The debug allocator reports memory still held by package
-  variables apart from leaks.
+- At normal program termination, after all tasks and application callbacks finish, package owners and
+  counted references are released in reverse initialization order (section 15.4, Program execution).
+  Cleanup runs in place and leaves the place zero. Static storage remains live, but a place whose
+  cleanup has finished cannot be written through typed operations during shutdown, including through
+  an alias, a zero assignment, `take` or `clear`. This protects scalar fields of a cleaned owner too.
+  Each field or element becomes subject to that rule when its own cleanup finishes.
+  Runtime services remain available until their clients' releases complete. Panic and `os.Exit` do not
+  acquire this normal-termination cleanup.
 
 **Assigning to a place that holds an owner** evaluates the new value, drops the old one, then moves the
 new one in: `c.buf = b` frees the buffer `c.buf` held before. The same holds through a view: `*p = v` and

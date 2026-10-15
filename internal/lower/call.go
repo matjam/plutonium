@@ -18,7 +18,7 @@ type callee struct {
 	noReturn bool
 	site     *callSite // the call as written, for the interrupt-context check
 	// deferred marks a deferred call, after which the caller does not
-	// check for rt.Goexit: it runs its remaining deferred calls first.
+	// check for rt.ExitTask: it runs its remaining deferred calls first.
 	deferred bool
 	// referenceRelease marks the generated release of a counted reference.
 	referenceRelease bool
@@ -513,6 +513,13 @@ func (s *fnState) callRuntimeRelease(name string, args ...[]*ssa.Value) {
 func (s *fnState) callRuntimeMarked(name string, results []*ssa.Type, referenceRelease bool, argGroups ...[]*ssa.Value) []*ssa.Value {
 	var flat []*ssa.Value
 	fn := s.l.rtFunc(name)
+	if s.l.shutdownQueued && !s.l.shutdownProtected && staticCleanupHook(fn) {
+		out := make([]*ssa.Value, len(results))
+		for i, t := range results {
+			out[i] = s.constInt(t, 0)
+		}
+		return out
+	}
 	sym := s.l.funcSym(fn, nil)
 	if sig := fn.Type().(*types2.Signature); regionSig(sig) {
 		flat = append(flat, s.callRegion(callee{sym: sym}, sig, token.NoPos))
@@ -977,8 +984,10 @@ func (s *fnState) methodValue(se *ast.SelectorExpr, sel *types2.Selection) *ssa.
 			return rec
 		}
 		// The record keeps a copy of the receiver until the function
-		// returns (or for ever, in a package initialiser).
-		if !s.staticLits {
+		// returns, or its static initializer obligation at normal shutdown.
+		if s.staticLits {
+			s.l.recordStaticCleanupAt(rec.Aux.(*ssa.Sym), 8, recv.T, false)
+		} else {
 			s.addFrameSlot(rec, 8, recv.T)
 		}
 		s.storeCounted(lvalue{ptr: s.offPtr(rec, 8), T: recv.T}, recv, s.staticLits)

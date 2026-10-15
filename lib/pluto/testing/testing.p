@@ -19,10 +19,10 @@
 // of subtests are built in a fixed buffer in each T.
 //
 // FailNow, Fatal, Fatalf, SkipNow, Skip and Skipf end the test function
-// with rt.Goexit, as Go's do with runtime.Goexit: the deferred calls of the
+// with rt.ExitTask: the deferred calls of the
 // test function and of every function it was in run, and their variables
 // are released, before the next test starts. The runner stops the exit
-// with rt.CatchGoexit, so tests run one after another on the task that
+// with rt.CatchExitTask, so tests run one after another on the task that
 // runs main. A test that panics ends the whole test binary, after running
 // its deferred calls; pluto test reports it as a failure of that test.
 package testing
@@ -241,19 +241,19 @@ func (c *common) Fail() { c.failed = true }
 // Failed reports whether the test has failed.
 func (c *common) Failed() bool { return c.failed }
 
-// FailNow marks the test as failed and stops it with rt.Goexit: the
+// FailNow marks the test as failed and stops it with rt.ExitTask: the
 // deferred calls of the test function, and of the functions it is in, run.
 // Later tests still run. FailNow must be called from the task running the
 // test, not from a task the test started, which it would end instead.
 func (c *common) FailNow() {
 	c.failed = true
-	rt.Goexit()
+	rt.ExitTask()
 }
 
 // SkipNow marks the test as skipped and stops it as FailNow does.
 func (c *common) SkipNow() {
 	c.skipped = true
-	rt.Goexit()
+	rt.ExitTask()
 }
 
 // Skipped reports whether the test was skipped.
@@ -383,7 +383,7 @@ type T struct {
 func (t *T) run(f func(*T)) {
 	fmt.Printf("=== RUN   %s\n", t.Name())
 	t.start = nanotime()
-	rt.CatchGoexit(func() { f(t) })
+	rt.CatchExitTask(func() { f(t) })
 	t.report()
 }
 
@@ -423,7 +423,7 @@ func (b *B) runN(f func(*B), n int) bool {
 	b.elapsed = 0
 	b.timerOn = false
 	b.StartTimer()
-	rt.CatchGoexit(func() { f(b) })
+	rt.CatchExitTask(func() { f(b) })
 	b.StopTimer()
 	return !b.failed && !b.skipped
 }
