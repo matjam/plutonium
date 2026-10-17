@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -433,6 +434,12 @@ func printFunc(name string, buffered bool) string {
 
 // printValue prints one value for print or println.
 func (s *fnState) printValue(v value, T types2.Type, a ast.Node, buffered bool) {
+	if _, named := T.(*types2.Named); named && types2.IsOwner(T) {
+		// An owner prints nothing, even over an integer, so that printing
+		// never raises the question of a move (language spec section 13.12).
+		s.unprintable(a, T)
+		return
+	}
 	switch u := T.Underlying().(type) {
 	case *types2.Basic:
 		info := u.Info()
@@ -468,14 +475,40 @@ func (s *fnState) printValue(v value, T types2.Type, a ast.Node, buffered bool) 
 		s.callRuntime(printFunc("printPointer", buffered), nil, []*ssa.Value{v.v})
 	case *types2.Wrapper:
 		if !u.IsBox() {
-			s.l.unsupportedf(a.Pos(), "cannot print a value of type %s", T)
+			s.unprintable(a, T)
 			break
 		}
 		// owned, shared, synced and weak print their address, as pointers do.
 		s.callRuntime(printFunc("printPointer", buffered), nil, []*ssa.Value{s.wordOf(v)})
 	default:
-		s.l.unsupportedf(a.Pos(), "cannot print a value of type %s", T)
+		s.unprintable(a, T)
 	}
+}
+
+// exprText returns the source form of an expression node.
+func exprText(n ast.Node) string {
+	if e, ok := n.(ast.Expr); ok {
+		return types2.ExprString(e)
+	}
+	return "x"
+}
+
+// unprintable reports an argument of print or println of a type they cannot
+// write: a type that is not boolean, integer, floating-point, string or an
+// address, and any owner type, even over an integer (language spec section
+// 13.12).
+func (s *fnState) unprintable(a ast.Node, T types2.Type) {
+	d := &diag.Diagnostic{Code: diag.NotYetSupported, Msg: fmt.Sprintf("cannot print a value of type %s", T)}
+	d.Text = "print and println write a boolean, an integer (an enum too), a floating-point number, a string, or the address of a pointer or function. They have no form for other types, so a program that prints them gets the same text from every compiler, and they work in a program that has no standard library."
+	d.Fix = &diag.Fix{Intro: "To print a value of another type, use pluto/fmt", Code: "import \"pluto/fmt\"\n\nfmt.Println(x)"}
+	if types2.IsOwner(T) {
+		d.Text = "An owner cannot be printed, even when its underlying type is an integer: printing it would raise the question of whether the value moves. print and println write a boolean, an integer, a floating-point number, a string, or an address."
+		if b, ok := T.Underlying().(*types2.Basic); ok && b.Info()&types2.IsInteger != 0 {
+			d.Fix = &diag.Fix{Intro: "To print the number inside an owner, convert it; the conversion reads the value without moving it", Code: fmt.Sprintf("println(%s(%s))", b.Name(), exprText(a))}
+			d.More = []*diag.Fix{{Intro: "To print other values, use pluto/fmt", Code: "import \"pluto/fmt\"\n\nfmt.Println(x)"}}
+		}
+	}
+	s.l.report(a.Pos(), d)
 }
 
 // ----------------------------------------------------------------------------

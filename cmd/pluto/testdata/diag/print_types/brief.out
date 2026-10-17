@@ -1,0 +1,4 @@
+$DIR/main.p:18:10: cannot print a value of type main.Fd
+$DIR/main.p:19:10: cannot print a value of type main.Pair
+$DIR/main.p:21:10: cannot print a value of type []int
+$DIR/main.p:23:10: cannot print a value of type error

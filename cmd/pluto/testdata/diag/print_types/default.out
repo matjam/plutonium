@@ -1,0 +1,33 @@
+$DIR/main.p:18:10: cannot print a value of type main.Fd
+    An owner cannot be printed, even when its underlying type is an integer:
+    printing it would raise the question of whether the value moves. print and
+    println write a boolean, an integer, a floating-point number, a string, or
+    an address.
+    To print the number inside an owner, convert it; the conversion reads the
+    value without moving it:
+        println(int32(fd))
+    To print other values, use pluto/fmt:
+        import "pluto/fmt"
+
+        fmt.Println(x)
+    (see "No silent failures" in the Plutonium spec, section 21.2)
+    (run "pluto explain E2500" for a longer explanation)
+
+$DIR/main.p:19:10: cannot print a value of type main.Pair
+    print and println write a boolean, an integer (an enum too), a
+    floating-point number, a string, or the address of a pointer or function.
+    They have no form for other types, so a program that prints them gets the
+    same text from every compiler, and they work in a program that has no
+    standard library.
+    To print a value of another type, use pluto/fmt:
+        import "pluto/fmt"
+
+        fmt.Println(x)
+    (see "No silent failures" in the Plutonium spec, section 21.2)
+    (run "pluto explain E2500" for a longer explanation)
+
+$DIR/main.p:21:10: cannot print a value of type []int
+    (explained above; run "pluto explain E2500" for more)
+
+$DIR/main.p:23:10: cannot print a value of type error
+    (explained above; run "pluto explain E2500" for more)
