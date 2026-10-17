@@ -101,6 +101,7 @@ func init() {
 		typerr.BytesToStringNotPermitted: explainBytesToString,
 		typerr.StringToSliceNotPermitted: explainStringToSlice,
 		typerr.IntToStringNotPermitted:   explainIntToString,
+		typerr.StringSliceNotPermitted:   explainStringSlice,
 	}
 }
 

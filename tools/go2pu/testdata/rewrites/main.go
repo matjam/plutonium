@@ -131,11 +131,19 @@ outer:
 	fmt.Println("table", t.byName["b"].name, len(t.order))
 }
 
+// bs0 returns the bytes of s as a slice, which Go slices like a string but
+// go2pu leaves alone.
+func bs0(s string) []byte { return []byte(s) }
+
 func stringsAndBytes() {
 	s := "go"
 	s += "2"
 	t := s + "pu" + "!" + s
 	fmt.Println(t, len(t))
+	// A slice expression on a string becomes strings.Slice and
+	// strings.SliceFrom, whose bounds must be rune boundaries.
+	n := 2
+	fmt.Println(t[1:n], t[n:], t[:n], t[:], string(bs0(t)[1:3]))
 	bs := []byte(t)
 	bs[0] = 'G'
 	fmt.Println(string(bs), string(rune(0x263A)))

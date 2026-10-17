@@ -2,6 +2,8 @@
 // values, defer in generic code, iterator functions, and generic methods.
 package main
 
+import "pluto/strings"
+
 type Number interface{ ~int | ~int64 | ~float64 }
 
 // Closures capturing values and variables of type parameter types.
@@ -239,7 +241,7 @@ func main() {
 	var st Stack[int]
 	st.Push(1)
 	st.Push(20)
-	lens := st.Map(func(x int) string { return "abcdefghijklmnopqrstuvwxyz"[:x] })
+	lens := st.Map(func(x int) string { return strings.Slice("abcdefghijklmnopqrstuvwxyz", 0, x) })
 	println(lens.n, lens.items[1], st.Reduce(100, func(a int, x int) int { return a - x }))
 	println(lens.Reduce(0, func(a int, s string) int { return a + len(s) }), st.Map[bool](func(x int) bool { return x > 5 }).items[1])
 }

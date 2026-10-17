@@ -104,7 +104,7 @@ func TestErrors(t *testing.T) {
 		err := fs.Parse(tt.args)
 		if err == nil || err.Error() != tt.want {
 			t.Errorf("Parse(%q): %v, want %q", tt.args[0], err, tt.want)
-		} else if o := out.String(); !strings.HasPrefix(o, tt.want) || !strings.HasPrefix(o[len(tt.want):], "\nUsage of e:\n") {
+		} else if o := out.String(); !strings.HasPrefix(o, tt.want) || !strings.HasPrefix(strings.SliceFrom(o, len(tt.want)), "\nUsage of e:\n") {
 			t.Errorf("output %q", out.String())
 		}
 		err = nil

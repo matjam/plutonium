@@ -68,7 +68,7 @@ func TestRun(t *testing.T) {
 // goPackages are the pluto/... packages that programs in testdata/run may
 // import and that Go runs as its package of the same path without the
 // pluto/ prefix.
-var goPackages = []string{"cmp", "container/heap", "errors", "fmt", "slices", "unicode"}
+var goPackages = []string{"cmp", "container/heap", "errors", "fmt", "slices", "strings", "unicode"}
 
 // runWithGo runs a test program with the Go toolchain and returns what it
 // writes to standard error (println's destination).
@@ -101,44 +101,96 @@ func runWithGo(file string) (string, error) {
 	return string(out), err
 }
 
-// translateTaskToGo rewrites every task statement keyword in src to go, so
-// that the program can be run by the Go toolchain when its .out file is
-// regenerated. The keywords are found by parsing with the Plutonium parser,
-// so the word task in an identifier or a comment is left alone. If the source
-// does not parse, it is returned unchanged and the Go toolchain reports the
-// error.
+// translateTaskToGo rewrites every task statement keyword in src to go, and
+// every call of strings.Slice and strings.SliceFrom of pluto/strings to
+// the slice expression it stands for (Plutonium has no slice expression on
+// a string, but the programs only cut at rune boundaries, where Go's cut
+// gives the same string), so that the program can be run by the Go
+// toolchain when its .out file is regenerated. The nodes are found by
+// parsing with the Plutonium parser, so the word task in an identifier or a
+// comment is left alone. If the source does not parse, it is returned
+// unchanged and the Go toolchain reports the error.
 func translateTaskToGo(src []byte) []byte {
+	for {
+		out, changed := translateTaskToGoOnce(src)
+		if !changed {
+			return out
+		}
+		src = out
+	}
+}
+
+// translateTaskToGoOnce makes the edits of translateTaskToGo that do not
+// contain each other; a call of Slice inside the argument of another is
+// left to the next round.
+func translateTaskToGoOnce(src []byte) ([]byte, bool) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "main.go", src, 0)
 	if err != nil {
-		return src
+		return src, false
 	}
-	// The offset of every task keyword, so that the walk below can replace
-	// each one in place.
-	starts := make(map[int]bool, 8)
+	// The import name of pluto/strings, if the program imports it.
+	stringsName := ""
+	for _, imp := range f.Imports {
+		if imp.Path.Value == `"pluto/strings"` {
+			stringsName = "strings"
+			if imp.Name != nil {
+				stringsName = imp.Name.Name
+			}
+		}
+	}
+	type edit struct {
+		start, end int
+		text       string
+	}
+	var edits []edit
+	last := 0
+	off := func(p token.Pos) int { return fset.Position(p).Offset }
+	text := func(e ast.Expr) string { return string(src[off(e.Pos()):off(e.End())]) }
 	ast.Inspect(f, func(n ast.Node) bool {
-		if ts, ok := n.(*ast.TaskStmt); ok && !ts.Go {
-			starts[fset.Position(ts.Task).Offset] = true
+		switch n := n.(type) {
+		case *ast.TaskStmt:
+			if !n.Go {
+				edits = append(edits, edit{off(n.Task), off(n.Task) + len("task"), "go"})
+			}
+		case *ast.CallExpr:
+			sel, ok := n.Fun.(*ast.SelectorExpr)
+			if !ok || stringsName == "" || off(n.Pos()) < last {
+				return true
+			}
+			if x, ok := sel.X.(*ast.Ident); !ok || x.Name != stringsName {
+				return true
+			}
+			var rewritten string
+			switch {
+			case sel.Sel.Name == "Slice" && len(n.Args) == 3:
+				rewritten = "(" + text(n.Args[0]) + ")[" + text(n.Args[1]) + ":" + text(n.Args[2]) + "]"
+			case sel.Sel.Name == "SliceFrom" && len(n.Args) == 2:
+				rewritten = "(" + text(n.Args[0]) + ")[" + text(n.Args[1]) + ":]"
+			default:
+				return true
+			}
+			edits = append(edits, edit{off(n.Pos()), off(n.End()), rewritten})
+			last = off(n.End())
+			return false
 		}
 		return true
 	})
-	if len(starts) == 0 {
-		return src
+	if len(edits) == 0 {
+		return src, false
 	}
 	out := make([]byte, 0, len(src))
-	i := 0
-	for i < len(src) {
-		if starts[i] {
-			out = append(out, "go"...)
-			i += len("task")
-			continue
-		}
-		j := i
-		for j < len(src) && !starts[j] {
-			j++
-		}
-		out = append(out, src[i:j]...)
-		i = j
+	at := 0
+	for _, e := range edits {
+		out = append(out, src[at:e.start]...)
+		out = append(out, e.text...)
+		at = e.end
 	}
-	return out
+	out = append(out, src[at:]...)
+	if use := "\nvar _ = " + stringsName + ".Compare\n"; stringsName != "" && !bytes.Contains(out, []byte(use)) {
+		// The program may use pluto/strings for nothing but the calls just
+		// replaced; Go rejects an import that is not used.
+		out = append(out, use...)
+	}
+	return out, true
 }

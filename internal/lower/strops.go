@@ -125,6 +125,28 @@ func isZeroConst(info *types2.Info, e ast.Expr) bool {
 	return ok && c == 0
 }
 
+// stringsSlice expands a call of strings.Slice or strings.SliceFrom as the
+// slice of a string it stands for: bounds checked against the length, rune
+// boundaries checked unless the string is known to be ASCII, and a result
+// that shares the buffer and its count (language spec sections 7.3, 11.12
+// and 18.8). The type checker rejects the slice expression itself (E2019),
+// so this is the only way a program cuts a string.
+func (s *fnState) stringsSlice(fn *types2.Func, e *ast.CallExpr) ([]value, bool) {
+	if fn.Pkg() == nil || fn.Pkg().Path() != "pluto/strings" || fn.Type().(*types2.Signature).Recv() != nil {
+		return nil, false
+	}
+	var se *ast.SliceExpr
+	switch {
+	case fn.Name() == "Slice" && len(e.Args) == 3:
+		se = &ast.SliceExpr{X: e.Args[0], Low: e.Args[1], High: e.Args[2]}
+	case fn.Name() == "SliceFrom" && len(e.Args) == 2:
+		se = &ast.SliceExpr{X: e.Args[0], Low: e.Args[1]}
+	default:
+		return nil, false
+	}
+	return []value{s.sliceExpr(se, s.typeOf(e))}, true
+}
+
 // countIntrinsics are the generic functions of pluto/rt that give library
 // containers the compiler's string drop glue (pluto/rt/str.p).
 var countIntrinsics = map[string]bool{

@@ -177,6 +177,24 @@ func init() {
 			Example: "n := 65\ns := string(n)",
 			Fixed:   "n := 65\ns := strconv.Itoa(n)",
 		},
+		&Entry{
+			Code: CheckerCode(typerr.StringSliceNotPermitted), Name: "StringSliceNotPermitted",
+			Text: "A string cannot be cut with a slice expression such as s[i:j]. Every string holds valid UTF-8 text, " +
+				"and a character can take up to four bytes, so a cut at an arbitrary byte offset could split one in " +
+				"two. In Go the cut works and leaves a string that is not valid text. Here the cut would have to " +
+				"panic for some offsets, so s[:40] would work for English text and panic on the first accented letter.\n" +
+				"Say that the offsets are positions between characters. strings.Slice(s, i, j) and strings.SliceFrom(s, i) " +
+				"take the substring and panic unless each bound is on a character boundary (0, len(s), or the offset of a " +
+				"byte that is not a continuation byte). The substring shares the memory of s. An offset from " +
+				"strings.Index and the other search functions is always on a boundary. To keep at most n bytes, use " +
+				"strings.Truncate(s, n), which rounds down to a boundary, and utf8.RuneStartBefore(s, i) to find the " +
+				"boundary yourself. Arrays and slices are still cut with a[i:j], and s[i] reads one byte.",
+			Why:     "Go lets a program cut a string anywhere and does not check that the pieces are text. A Plutonium string is always valid UTF-8, and code that is valid Go must not compile and then fail on the first non-ASCII input. The cut has a name, so the check is visible in the source, and the compiler turns the call into the same code as a slice expression.",
+			Fix:     &Fix{Intro: "To take the substring from i to j", Code: "import \"pluto/strings\"\n\nsub := strings.Slice(s, i, j)"},
+			Spec:    pspec("11.12", "Slice expressions"),
+			Example: "head := title[:40]",
+			Fixed:   "head := strings.Truncate(title, 40)",
+		},
 
 		// Packed types and wrappers.
 		&Entry{

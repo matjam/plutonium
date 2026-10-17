@@ -91,10 +91,10 @@ func UnquoteChar(s string, quote byte) (value rune, multibyte bool, tail string,
 	}
 	if c >= utf8.RuneSelf {
 		r, size := utf8.DecodeRuneInString(s)
-		return r, true, s[size:], nil
+		return r, true, rt.SliceBytewise(s, size, len(s)), nil
 	}
 	if c != '\\' {
-		return rune(s[0]), false, s[1:], nil
+		return rune(s[0]), false, rt.SliceBytewise(s, 1, len(s)), nil
 	}
 
 	if len(s) <= 1 {
@@ -102,7 +102,7 @@ func UnquoteChar(s string, quote byte) (value rune, multibyte bool, tail string,
 		return
 	}
 	c = s[1]
-	s = s[2:]
+	s = rt.SliceBytewise(s, 2, len(s))
 
 	switch c {
 	case 'a':
@@ -141,7 +141,7 @@ func UnquoteChar(s string, quote byte) (value rune, multibyte bool, tail string,
 			}
 			v = v<<4 | x
 		}
-		s = s[n:]
+		s = rt.SliceBytewise(s, n, len(s))
 		if c == 'x' {
 			value = v
 		} else {
@@ -166,7 +166,7 @@ func UnquoteChar(s string, quote byte) (value rune, multibyte bool, tail string,
 			}
 			v = (v << 3) | x
 		}
-		s = s[2:]
+		s = rt.SliceBytewise(s, 2, len(s))
 		if v > 255 {
 			err = ErrSyntax
 			return
@@ -200,7 +200,7 @@ func unquote(in string, unescape bool) (out string, rem string, err error) {
 		return "", in, ErrSyntax
 	}
 	quote := in[0]
-	end := index(in[1:], quote)
+	end := index(rt.SliceBytewise(in, 1, len(in)), quote)
 	if end < 0 {
 		return "", in, ErrSyntax
 	}
@@ -209,9 +209,9 @@ func unquote(in string, unescape bool) (out string, rem string, err error) {
 	switch quote {
 	case '`':
 		if !unescape {
-			out = in[:end]
-		} else if !contains(in[:end], '\r') {
-			out = in[1 : end-1]
+			out = rt.SliceBytewise(in, 0, end)
+		} else if !contains(rt.SliceBytewise(in, 0, end), '\r') {
+			out = rt.SliceBytewise(in, 1, end-1)
 		} else {
 			buf = vec.New[byte](alloc.Default())
 			defer buf.Free()
@@ -225,13 +225,13 @@ func unquote(in string, unescape bool) (out string, rem string, err error) {
 		if !utf8.ValidString(out) {
 			return "", in, ErrSyntax
 		}
-		return out, in[end:], nil
+		return out, rt.SliceBytewise(in, end, len(in)), nil
 
 	case '"', '\'':
 		in0 := in
 		buf = vec.WithCapacity[byte](len(in0))
 		defer buf.Free()
-		in = in[1:]
+		in = rt.SliceBytewise(in, 1, len(in))
 		for len(in) > 0 && in[0] != quote {
 			if in[0] == '\n' {
 				return "", in0, ErrSyntax
@@ -245,7 +245,7 @@ func unquote(in string, unescape bool) (out string, rem string, err error) {
 				for j := 0; j < size; j++ {
 					buf.Push(in[j])
 				}
-				in = in[size:]
+				in = rt.SliceBytewise(in, size, len(in))
 				if quote == '\'' {
 					break
 				}
@@ -265,7 +265,7 @@ func unquote(in string, unescape bool) (out string, rem string, err error) {
 				}
 			} else {
 				buf.Push(c)
-				in = in[1:]
+				in = rt.SliceBytewise(in, 1, len(in))
 				if quote == '\'' {
 					break
 				}
@@ -274,14 +274,14 @@ func unquote(in string, unescape bool) (out string, rem string, err error) {
 		if !(len(in) > 0 && in[0] == quote) {
 			return "", in0, ErrSyntax
 		}
-		in = in[1:]
+		in = rt.SliceBytewise(in, 1, len(in))
 		if quote == '"' && !utf8.Valid(buf.Slice()) {
 			return "", in0, ErrSyntax
 		}
 		if unescape {
 			return rt.StringFromSlice(buf.Slice(), alloc.Default()), in, nil
 		}
-		return in0[:len(in0)-len(in)], in, nil
+		return rt.SliceBytewise(in0, 0, len(in0)-len(in)), in, nil
 	}
 	return "", in, ErrSyntax
 }

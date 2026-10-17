@@ -370,7 +370,7 @@ func stringFromRune(r rune) (*byte, int, uintptr) {
 	return q, n, ctl | strNonASCII
 }
 
-// checkRuneBounds panics unless lo and hi, bounds of a slice of the n
+// checkRuneBounds panics unless lo and hi, bounds of a substring of the n
 // bytes at p already checked against n, are each at the start of a rune or
 // at n. The compiler calls it for strings whose flags do not say ASCII. It
 // is not inlined, so that a panic's trace starts at the slice expression.
@@ -385,13 +385,13 @@ func checkRuneBounds(p *byte, n, lo, hi int) {
 	}
 }
 
-// panicSliceRune reports a string slice expression whose bound i falls
+// panicSliceRune reports a strings.Slice or strings.SliceFrom whose bound i falls
 // inside a rune's encoding.
 func panicSliceRune(i int) {
 	startPanic()
 	printString("runtime error: slice bound ")
 	printInt(int64(i))
-	printString(" is not at the start of a rune: a string holds valid UTF-8, so it can only be sliced between runes")
+	printString(" is not at the start of a rune: a string holds valid UTF-8, so strings.Slice cuts only between runes; strings.Truncate and utf8.RuneStartBefore find the boundary")
 	fatal(nil)
 }
 

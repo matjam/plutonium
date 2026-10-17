@@ -1,6 +1,9 @@
 package main
 
-import "pluto/fmt"
+import (
+	"pluto/fmt"
+	"pluto/strings"
+)
 
 // Strings are immutable, valid UTF-8, and reference counted.
 //
@@ -33,14 +36,14 @@ func main() {
 		}
 	}
 
-	greeting := t[:7] // shares t's buffer and keeps it alive
-	t = ""            // drops one copy; the buffer is still held
+	greeting := strings.Slice(t, 0, 7) // shares t's buffer and keeps it alive
+	t = ""                             // drops one copy; the buffer is still held
 	fmt.Printf("%q\n", greeting)
 
 	// The o-umlaut occupies bytes 8 and 9, so s[:9] would cut it in half
 	// and panic. Slice at rune boundaries instead: byte 7 starts "w", byte
 	// 8 starts the o-umlaut and byte 10 starts "r".
-	word := s[7:10]
+	word := strings.Slice(s, 7, 10)
 	runes := 0
 	for range word {
 		runes++

@@ -1,5 +1,7 @@
 package main
 
+import "pluto/strings"
+
 // A struct or array that is a single pointer fits in an interface's data
 // word, as in Go (language spec section 4.4), so such a value can be
 // returned in an interface: nothing is boxed in the returning frame.
@@ -18,12 +20,12 @@ func (e wrapErr) Code() int     { return e.d.code }
 // nested wraps a struct that wraps a pointer.
 type nested struct{ inner wrapErr }
 
-func (n nested) Error() string { return n.inner.d.op[:2] }
+func (n nested) Error() string { return strings.Slice(n.inner.d.op, 0, 2) }
 
 // handle is a one-element array of pointers.
 type handle [1]*detail
 
-func (h handle) Error() string { return h[0].op[1:] }
+func (h handle) Error() string { return strings.SliceFrom(h[0].op, 1) }
 
 // fnBox holds a single function value.
 type fnBox struct{ f func(int) int }

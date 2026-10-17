@@ -65,9 +65,10 @@ const (
 	// holds a pointer, view, counted value, interface, function value or
 	// owner, which cannot be sent to another address space.
 	NotPortable
-	// 2019 is reserved for the string slice expression (docs/roadmap.md
-	// item 104).
-	_
+	// StringSliceNotPermitted: a slice expression on a string, typed or
+	// untyped, constant or not, which could cut a rune in two;
+	// strings.Slice and strings.SliceFrom check the bounds (E2019).
+	StringSliceNotPermitted
 	// UnsendableToError: a value of a type that is not sendable (in
 	// practice one that holds a shared[T]) converted to error or to an
 	// interface that embeds it; every error is sendable.

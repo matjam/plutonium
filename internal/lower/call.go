@@ -100,6 +100,9 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 			if res, ok := s.countIntrinsic(fn, e, id); ok {
 				return res
 			}
+			if res, ok := s.stringsSlice(fn, e); ok {
+				return res
+			}
 			if s.l.isPanicHook(fn) {
 				return s.callPanicHandler(e)
 			}

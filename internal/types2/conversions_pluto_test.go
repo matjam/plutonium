@@ -37,6 +37,23 @@ func use(...any) {}
 		{"type parameter union", "func f[S ~[]byte | ~string](b S) string { return string(b) }", "string(b) of a byte slice is not permitted"},
 		{"message names the fix", "func f(b []byte) string { return string(b) }", "use strings.FromUTF8 or strings.FromUTF8Lossy"},
 
+		// A slice expression on a string (decision D9).
+		{"string slice", "func f(s string) string { return s[1:2] }", "a slice expression on a string is not permitted"},
+		{"string slice from", "func f(s string) string { return s[1:] }", "a slice expression on a string is not permitted"},
+		{"string slice to", "func f(s string) string { return s[:1] }", "a slice expression on a string is not permitted"},
+		{"string slice all", "func f(s string) string { return s[:] }", "a slice expression on a string is not permitted"},
+		{"named string slice", "func f(s Name) Name { return s[1:] }", "a slice expression on a string is not permitted"},
+		{"untyped string slice", `func f() string { return "abc"[1:] }`, "a slice expression on a string is not permitted"},
+		{"constant string slice", "const c = \"abc\"\nfunc f() string { return c[:2] }", "a slice expression on a string is not permitted"},
+		{"string slice of a type parameter", "func f[S ~string](s S) S { return s[1:] }", "a slice expression on a string is not permitted"},
+		{"string and bytes type set", "func f[S ~string | ~[]byte](s S) S { return s[1:] }", "a slice expression on a string is not permitted"},
+		{"string slice names the fix", "func f(s string) string { return s[1:] }", "use strings.Slice(s, i, j) or strings.SliceFrom(s, i)"},
+		{"string slice with three indexes", "func f(s string) string { return s[0:1:2] }", "a slice expression on a string is not permitted"},
+		{"slice of bytes", "func f(b []byte) []byte { return b[1:] }", ""},
+		{"slice of an array", "func f(a *[4]int) []int { return a[1:] }", ""},
+		{"slice of a type parameter of slices", "func f[S ~[]int](s S) S { return s[1:] }", ""},
+		{"index of a string", "func f(s string) byte { return s[1] }", ""},
+
 		// []byte(s) and []rune(s).
 		{"to bytes", "func f(s string) []byte { return []byte(s) }", "[]byte(s) is not permitted"},
 		{"to bytes from a constant", `func f() []byte { return []byte("x") }`, "[]byte(s) is not permitted"},

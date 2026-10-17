@@ -71,7 +71,7 @@ func main() {
 	err := fmt.Errorf("wrap %d: %w", 1, errors.New("inner"))
 	fmt.Println(err, errors.Unwrap(err))
 	msg := err.Error()
-	fmt.Println(msg[:6], len(msg))
+	fmt.Println(strings.Slice(msg, 0, 6), len(msg))
 	err = nil // msg keeps the message
 	fmt.Println(msg)
 }

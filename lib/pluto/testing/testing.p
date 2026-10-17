@@ -85,26 +85,26 @@ func (m *M) matches(depth int, elem string) bool {
 	p := m.filters[depth-1]
 	start := len(p) > 0 && p[0] == '^'
 	if start {
-		p = p[1:]
+		p = rt.SliceBytewise(p, 1, len(p))
 	}
 	end := len(p) > 0 && p[len(p)-1] == '$'
 	if end {
-		p = p[:len(p)-1]
+		p = rt.SliceBytewise(p, 0, len(p)-1)
 	}
 	switch {
 	case start && end:
 		return elem == p
 	case start:
-		return len(elem) >= len(p) && elem[:len(p)] == p
+		return len(elem) >= len(p) && rt.SliceBytewise(elem, 0, len(p)) == p
 	case end:
-		return len(elem) >= len(p) && elem[len(elem)-len(p):] == p
+		return len(elem) >= len(p) && rt.SliceBytewise(elem, len(elem)-len(p), len(elem)) == p
 	}
 	return contains(elem, p)
 }
 
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
+		if rt.SliceBytewise(s, i, i+len(sub)) == sub {
 			return true
 		}
 	}
@@ -398,7 +398,8 @@ func (t *T) Run(name string, f func(t *T)) bool {
 	sub.setName(&t.common, name)
 	elem := ""
 	if t.nameLen < maxName {
-		elem = sub.Name()[t.nameLen+1:]
+		name := sub.Name()
+		elem = rt.SliceBytewise(name, t.nameLen+1, len(name))
 	}
 	if !t.m.matches(sub.depth, elem) {
 		return true

@@ -281,7 +281,7 @@ func leadingInt(s string) (x uint64, rem string, err error) {
 			return 0, rem, errLeadingInt
 		}
 	}
-	return x, s[i:], nil
+	return x, rt.SliceBytewise(s, i, len(s)), nil
 }
 
 // leadingFraction consumes the leading [0-9]* from s, as a fraction:
@@ -310,7 +310,7 @@ func leadingFraction(s string) (x uint64, scale float64, rem string) {
 		x = y
 		scale *= 10
 	}
-	return x, scale, s[i:]
+	return x, scale, rt.SliceBytewise(s, i, len(s))
 }
 
 // unitOf returns the length in nanoseconds of a unit name, or 0.
@@ -343,7 +343,7 @@ func ParseDuration(s string) (Duration, error) {
 		c := s[0]
 		if c == '-' || c == '+' {
 			neg = c == '-'
-			s = s[1:]
+			s = rt.SliceBytewise(s, 1, len(s))
 		}
 	}
 	if s == "0" {
@@ -367,7 +367,7 @@ func ParseDuration(s string) (Duration, error) {
 		pre := pl != len(s)
 		post := false
 		if s != "" && s[0] == '.' {
-			s = s[1:]
+			s = rt.SliceBytewise(s, 1, len(s))
 			pl := len(s)
 			f, scale, s = leadingFraction(s)
 			post = pl != len(s)
@@ -385,11 +385,11 @@ func ParseDuration(s string) (Duration, error) {
 		if i == 0 {
 			return 0, ErrMissingUnit
 		}
-		unit := unitOf(s[:i])
+		unit := unitOf(rt.SliceBytewise(s, 0, i))
 		if unit == 0 {
 			return 0, ErrUnknownUnit
 		}
-		s = s[i:]
+		s = rt.SliceBytewise(s, i, len(s))
 		if v > 1<<63/unit {
 			return 0, ErrInvalidDuration
 		}

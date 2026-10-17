@@ -1,4 +1,4 @@
 h é llo
-panic: runtime error: slice bound 2 is not at the start of a rune: a string holds valid UTF-8, so it can only be sliced between runes
-    main.cut (./main.p:5)
-    main.main (./main.p:10)
+panic: runtime error: slice bound 2 is not at the start of a rune: a string holds valid UTF-8, so strings.Slice cuts only between runes; strings.Truncate and utf8.RuneStartBefore find the boundary
+    main.cut (./main.p:7)
+    main.main (./main.p:12)

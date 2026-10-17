@@ -44,6 +44,7 @@ import (
 	"pluto/errors"
 	"pluto/strconv"
 	"pluto/rt"
+	"pluto/strings"
 	"pluto/vec"
 	"unsafe"
 )
@@ -176,9 +177,9 @@ func main() {
 			for i < len(line) && line[i] != ' ' { i++ }
 			j = i+1
 			for j < len(line) && line[j] != ' ' { j++ }
-			api, _ := strconv.Atoi(line[:i])
-			capacity, _ := strconv.Atoi(line[i+1:j])
-			payload := line[j+1:]
+			api, _ := strconv.Atoi(strings.Slice(line, 0, i))
+			capacity, _ := strconv.Atoi(strings.Slice(line, i+1, j))
+			payload := strings.SliceFrom(line, j+1)
 			var r rune
 			if api < 3 { payload = hexDecode(payload) } else {
 				n, _ := strconv.ParseInt(payload, 10, 32)
@@ -266,7 +267,7 @@ func main() {
 		for i := 0; i <= len(line); i++ {
 			if i == len(line) || line[i] == ' ' {
 				if start >= 0 && nf < 4 {
-					fields[nf] = line[start:i]
+					fields[nf] = strings.Slice(line, start, i)
 					nf++
 				}
 				start = -1

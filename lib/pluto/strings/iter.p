@@ -16,7 +16,7 @@ func Lines(s string) iter.Seq[string] {
 		for len(rest) > 0 {
 			var line string
 			if i := IndexByte(rest, '\n'); i >= 0 {
-				line, rest = rest[:i+1], rest[i+1:]
+				line, rest = Slice(rest, 0, i+1), SliceFrom(rest, i+1)
 			} else {
 				line, rest = rest, ""
 			}

@@ -4,6 +4,10 @@
 
 package strconv
 
+import (
+	"pluto/rt"
+)
+
 // underscoreOK reports whether the underscores in s are allowed.
 // Checking them in this one function lets all the parsers skip over them simply.
 // Underscore must appear only between digits or between a base prefix and a digit.
@@ -18,7 +22,7 @@ func underscoreOK(s string) bool {
 
 	// Optional sign.
 	if len(s) >= 1 && (s[0] == '-' || s[0] == '+') {
-		s = s[1:]
+		s = rt.SliceBytewise(s, 1, len(s))
 	}
 
 	// Optional base prefix.

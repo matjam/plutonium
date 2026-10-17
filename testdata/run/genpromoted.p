@@ -5,6 +5,8 @@
 // parameters.
 package main
 
+import "pluto/strings"
+
 type Stack[T any] struct {
 	items [4]T
 	n     int
@@ -55,7 +57,7 @@ func main() {
 	println(m.n, m.items[0], m.items[1])
 	println(n.Count(func(x int) int { return x % 2 }, 1), n.Count[bool](func(x int) bool { return x > 0 }, true))
 	mv := n.Map[string]
-	ms := mv(func(x int) string { return "abcdef"[:x] })
+	ms := mv(func(x int) string { return strings.Slice("abcdef", 0, x) })
 	println(ms.items[1])
 	p := PNamed{&Stack[string]{}}
 	p.Push("q")

@@ -3,6 +3,8 @@
 // parameters, chained calls and comparable constraints with methods.
 package main
 
+import "pluto/strings"
+
 type Stringer interface{ String() string }
 
 type S struct{ name string }
@@ -81,7 +83,7 @@ type Cmp interface {
 
 func eqStr[T Cmp](a, b T) string {
 	if a == b {
-		return a.String()[:1]
+		return strings.Slice(a.String(), 0, 1)
 	}
 	return b.String()
 }

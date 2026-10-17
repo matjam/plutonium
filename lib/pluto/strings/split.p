@@ -33,8 +33,8 @@ func genSplit(s, sep string, sepSave int, out []string) int {
 		if m < 0 {
 			break
 		}
-		out[i] = s[:m+sepSave]
-		s = s[m+len(sep):]
+		out[i] = Slice(s, 0, m+sepSave)
+		s = SliceFrom(s, m+len(sep))
 		i++
 	}
 	out[i] = s
@@ -50,8 +50,8 @@ func explode(s string, out []string) int {
 	}
 	for i := 0; i < n-1; i++ {
 		_, size := utf8.DecodeRuneInString(s)
-		out[i] = s[:size]
-		s = s[size:]
+		out[i] = Slice(s, 0, size)
+		s = SliceFrom(s, size)
 	}
 	if n > 0 {
 		out[n-1] = s
@@ -121,8 +121,8 @@ func (it *SplitIterator) Next() (string, bool) {
 			return "", false
 		}
 		_, size := utf8.DecodeRuneInString(it.s)
-		r := it.s[:size]
-		it.s = it.s[size:]
+		r := Slice(it.s, 0, size)
+		it.s = SliceFrom(it.s, size)
 		return r, true
 	}
 	m := Index(it.s, it.sep)
@@ -130,8 +130,8 @@ func (it *SplitIterator) Next() (string, bool) {
 		it.done = true
 		return it.s, true
 	}
-	r := it.s[:m+it.sepSave]
-	it.s = it.s[m+len(it.sep):]
+	r := Slice(it.s, 0, m+it.sepSave)
+	it.s = SliceFrom(it.s, m+len(it.sep))
 	return r, true
 }
 
@@ -170,7 +170,7 @@ func (it *FieldsIterator) Next() (string, bool) {
 	for i < len(s) {
 		r, size := rune(s[i]), 1
 		if r >= utf8.RuneSelf {
-			r, size = utf8.DecodeRuneInString(s[i:])
+			r, size = utf8.DecodeRuneInString(SliceFrom(s, i))
 		}
 		if !it.f(r) {
 			start = i
@@ -187,14 +187,14 @@ func (it *FieldsIterator) Next() (string, bool) {
 	for i < len(s) {
 		r, size := rune(s[i]), 1
 		if r >= utf8.RuneSelf {
-			r, size = utf8.DecodeRuneInString(s[i:])
+			r, size = utf8.DecodeRuneInString(SliceFrom(s, i))
 		}
 		if it.f(r) {
-			it.s = s[i+size:]
-			return s[start:i], true
+			it.s = SliceFrom(s, i+size)
+			return Slice(s, start, i), true
 		}
 		i += size
 	}
 	it.s = ""
-	return s[start:], true
+	return SliceFrom(s, start), true
 }

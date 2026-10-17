@@ -212,7 +212,7 @@ func trimRightUnicode(s, cutset string) string {
 // doesn't start with prefix, s is returned unchanged.
 func TrimPrefix(s, prefix string) string {
 	if HasPrefix(s, prefix) {
-		return s[len(prefix):]
+		return SliceFrom(s, len(prefix))
 	}
 	return s
 }
@@ -221,7 +221,7 @@ func TrimPrefix(s, prefix string) string {
 // doesn't end with suffix, s is returned unchanged.
 func TrimSuffix(s, suffix string) string {
 	if HasSuffix(s, suffix) {
-		return s[:len(s)-len(suffix)]
+		return Slice(s, 0, len(s)-len(suffix))
 	}
 	return s
 }

@@ -236,11 +236,11 @@ func Map(mapping func(rune) rune, s string) string {
 		// The first change: build the rest.
 		var b Builder
 		b.Grow(len(s))
-		b.WriteString(s[:i])
+		b.WriteString(Slice(s, 0, i))
 		if r >= 0 {
 			b.WriteRune(r)
 		}
-		for _, c := range s[i+utf8.RuneLen(c):] {
+		for _, c := range SliceFrom(s, i+utf8.RuneLen(c)) {
 			if r := mapping(c); r >= 0 {
 				b.WriteRune(r)
 			}

@@ -184,7 +184,7 @@ func (r *runner) runPu(dir, src string, level int) outcome {
 	if err := os.MkdirAll(pdir, 0o755); err != nil {
 		return outcome{class: "compile-error", output: err.Error()}
 	}
-	if err := os.WriteFile(filepath.Join(pdir, "main.p"), []byte(src), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(pdir, "main.p"), []byte(puSource(src)), 0o644); err != nil {
 		return outcome{class: "compile-error", output: err.Error()}
 	}
 	bin := filepath.Join(dir, fmt.Sprintf("bin%d", level))

@@ -115,7 +115,7 @@ func (q *quoter) quote(s string) {
 		} else {
 			q.escapedRune(r)
 		}
-		s = s[width:]
+		s = rt.SliceBytewise(s, width, len(s))
 	}
 	q.put('"')
 }

@@ -2,6 +2,8 @@
 // types, generic type aliases, zero values and inference corner cases.
 package main
 
+import "pluto/strings"
+
 type Kind int
 
 func Describe[T any](x T) string {
@@ -270,7 +272,7 @@ func main() {
 
 	var sbuf [3]string
 	var bbuf [3][]byte
-	strs := Map([]int{1, 2, 3}, func(i int) string { return "abc"[i-1 : i] }, sbuf[:])
+	strs := Map([]int{1, 2, 3}, func(i int) string { return strings.Slice("abc", i-1, i) }, sbuf[:])
 	println(strs[0], strs[2], len(Map(strs, func(s string) []byte { return nil }, bbuf[:])))
 	println(Apply(3, Double[int], Double[int]), int(Apply(1.5, Double)), Apply(Celsius(2), Double[Celsius]) == 4)
 	println(First([]string{"x"}), First(Vec[int]{9}), Ptr(&n), Pick(1, 2.5, false) == 2.5, Pick[int8](1, 2, true))

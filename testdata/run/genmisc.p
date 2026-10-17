@@ -4,6 +4,8 @@
 // predeclared types, and generic functions as func values.
 package main
 
+import "pluto/strings"
+
 type Stack[T any] struct {
 	items [4]T
 	n     int
@@ -52,7 +54,7 @@ func main() {
 	s.Push(3)
 	s.Push(4)
 	m := s.Map[string]
-	out := m(func(i int) string { return "abcdef"[:i] })
+	out := m(func(i int) string { return strings.Slice("abcdef", 0, i) })
 	println(out.n, out.items[1])
 	mx := (*Stack[int]).Map[bool]
 	bs := mx(&s, func(i int) bool { return i > 3 })
@@ -60,7 +62,7 @@ func main() {
 	fold := s.Fold[int]
 	println(fold(10, func(a, x int) int { return a * x }))
 	fx := Stack[int].Fold[string]
-	println(fx(s, "", func(a string, x int) string { return a[:0] }) == "")
+	println(fx(s, "", func(a string, x int) string { return strings.Slice(a, 0, 0) }) == "")
 
 	var f any = Id[int]
 	if g, ok := f.(func(int) int); ok {

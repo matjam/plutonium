@@ -13,6 +13,7 @@ package filepath
 import (
 	"pluto/errors"
 	"pluto/os"
+	"pluto/strings"
 	"pluto/unicode/utf8"
 	"pluto/vec"
 	"unsafe"
@@ -49,14 +50,14 @@ func Base(path string) string {
 		return "."
 	}
 	for len(path) > 0 && path[len(path)-1] == '/' {
-		path = path[:len(path)-1]
+		path = strings.Slice(path, 0, len(path)-1)
 	}
 	i := len(path) - 1
 	for i >= 0 && path[i] != '/' {
 		i--
 	}
 	if i >= 0 {
-		path = path[i+1:]
+		path = strings.SliceFrom(path, i+1)
 	}
 	if path == "" {
 		return "/"
@@ -69,7 +70,7 @@ func Base(path string) string {
 func Ext(path string) string {
 	for i := len(path) - 1; i >= 0 && path[i] != '/'; i-- {
 		if path[i] == '.' {
-			return path[i:]
+			return strings.SliceFrom(path, i)
 		}
 	}
 	return ""
@@ -82,7 +83,7 @@ func Split(path string) (dir, file string) {
 	for i >= 0 && path[i] != '/' {
 		i--
 	}
-	return path[:i+1], path[i+1:]
+	return strings.Slice(path, 0, i+1), strings.SliceFrom(path, i+1)
 }
 
 // Dir returns all but the last element of path, cleaned, as Go's Dir does:
@@ -274,7 +275,7 @@ func AppendRel[D vec.Appender[byte]](dst D, basepath, targpath string) error {
 		for ti < tl && targ[ti] != '/' {
 			ti++
 		}
-		if targ[t0:ti] != base[b0:bi] {
+		if strings.Slice(targ, t0, ti) != strings.Slice(base, b0, bi) {
 			break
 		}
 		if bi < bl {
@@ -286,7 +287,7 @@ func AppendRel[D vec.Appender[byte]](dst D, basepath, targpath string) error {
 		b0 = bi
 		t0 = ti
 	}
-	if base[b0:bi] == ".." {
+	if strings.Slice(base, b0, bi) == ".." {
 		return errRel
 	}
 	if b0 != bl {
@@ -302,11 +303,11 @@ func AppendRel[D vec.Appender[byte]](dst D, basepath, targpath string) error {
 		}
 		if t0 != tl {
 			dst.Push('/')
-			vec.AppendString(dst, targ[t0:])
+			vec.AppendString(dst, strings.SliceFrom(targ, t0))
 		}
 		return nil
 	}
-	vec.AppendString(dst, targ[t0:])
+	vec.AppendString(dst, strings.SliceFrom(targ, t0))
 	return nil
 }
 
@@ -340,7 +341,7 @@ Pattern:
 		if star {
 			// Look for a match skipping i+1 bytes; no slashes.
 			for i := 0; i < len(name) && name[i] != '/'; i++ {
-				t, ok, err := matchChunk(chunk, name[i+1:])
+				t, ok, err := matchChunk(chunk, strings.SliceFrom(name, i+1))
 				if ok {
 					if len(pattern) == 0 && len(t) > 0 {
 						continue
@@ -370,7 +371,7 @@ Pattern:
 // preceded by a star.
 func scanChunk(pattern string) (star bool, chunk, rest string) {
 	for len(pattern) > 0 && pattern[0] == '*' {
-		pattern = pattern[1:]
+		pattern = strings.SliceFrom(pattern, 1)
 		star = true
 	}
 	inrange := false
@@ -392,7 +393,7 @@ Scan:
 			}
 		}
 	}
-	return star, pattern[0:i], pattern[i:]
+	return star, strings.Slice(pattern, 0, i), strings.SliceFrom(pattern, i)
 }
 
 // matchChunk checks whether chunk matches the beginning of s and returns
@@ -409,19 +410,19 @@ func matchChunk(chunk, s string) (rest string, ok bool, err error) {
 			if !failed {
 				var n int
 				r, n = decodeRune(s)
-				s = s[n:]
+				s = strings.SliceFrom(s, n)
 			}
-			chunk = chunk[1:]
+			chunk = strings.SliceFrom(chunk, 1)
 			negated := false
 			if len(chunk) > 0 && chunk[0] == '^' {
 				negated = true
-				chunk = chunk[1:]
+				chunk = strings.SliceFrom(chunk, 1)
 			}
 			match := false
 			nrange := 0
 			for {
 				if len(chunk) > 0 && chunk[0] == ']' && nrange > 0 {
-					chunk = chunk[1:]
+					chunk = strings.SliceFrom(chunk, 1)
 					break
 				}
 				var lo, hi rune
@@ -430,7 +431,7 @@ func matchChunk(chunk, s string) (rest string, ok bool, err error) {
 				}
 				hi = lo
 				if chunk[0] == '-' {
-					if hi, chunk, err = getEsc(chunk[1:]); err != nil {
+					if hi, chunk, err = getEsc(strings.SliceFrom(chunk, 1)); err != nil {
 						return "", false, err
 					}
 				}
@@ -448,11 +449,11 @@ func matchChunk(chunk, s string) (rest string, ok bool, err error) {
 					failed = true
 				}
 				_, n := decodeRune(s)
-				s = s[n:]
+				s = strings.SliceFrom(s, n)
 			}
-			chunk = chunk[1:]
+			chunk = strings.SliceFrom(chunk, 1)
 		case '\\':
-			chunk = chunk[1:]
+			chunk = strings.SliceFrom(chunk, 1)
 			if len(chunk) == 0 {
 				return "", false, ErrBadPattern
 			}
@@ -460,17 +461,17 @@ func matchChunk(chunk, s string) (rest string, ok bool, err error) {
 				if chunk[0] != s[0] {
 					failed = true
 				}
-				s = s[1:]
+				s = strings.SliceFrom(s, 1)
 			}
-			chunk = chunk[1:]
+			chunk = strings.SliceFrom(chunk, 1)
 		default:
 			if !failed {
 				if chunk[0] != s[0] {
 					failed = true
 				}
-				s = s[1:]
+				s = strings.SliceFrom(s, 1)
 			}
-			chunk = chunk[1:]
+			chunk = strings.SliceFrom(chunk, 1)
 		}
 	}
 	if failed {
@@ -487,7 +488,7 @@ func getEsc(chunk string) (r rune, nchunk string, err error) {
 		return
 	}
 	if chunk[0] == '\\' {
-		chunk = chunk[1:]
+		chunk = strings.SliceFrom(chunk, 1)
 		if len(chunk) == 0 {
 			err = ErrBadPattern
 			return
@@ -497,7 +498,7 @@ func getEsc(chunk string) (r rune, nchunk string, err error) {
 	if r == 0xFFFD && n == 1 {
 		err = ErrBadPattern
 	}
-	nchunk = chunk[n:]
+	nchunk = strings.SliceFrom(chunk, n)
 	if len(nchunk) == 0 {
 		err = ErrBadPattern
 	}

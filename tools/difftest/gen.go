@@ -2258,7 +2258,7 @@ func (g *gen) stringStmt() {
 		b := sliceBounds(s.val)
 		lo := g.r.Intn(len(b))
 		hi := lo + g.r.Intn(len(b)-lo)
-		sub = fmt.Sprintf("%s[%d:%d]", s.name, b[lo], b[hi])
+		sub = fmt.Sprintf("sub(%s, %d, %d)", s.name, b[lo], b[hi])
 		g.line("println(len(%s), %s[%d], len(%s))", s.name, s.name, g.r.Intn(n), sub)
 	}
 	lit := g.randString()
@@ -2277,10 +2277,10 @@ func (g *gen) stringStmt() {
 		// The index of a range over a string is a rune start, so the
 		// slices are valid without a check the optimiser cannot remove.
 		g.line("for i := range %s {", s.name)
-		g.line("\tif %s[i:] < %s {", s.name, t.name)
+		g.line("\tif subFrom(%s, i) < %s {", s.name, t.name)
 		g.line("\t\t%s++", acc)
 		g.line("\t}")
-		g.line("\t%s = %s*7 + len(%s[:i])", acc, acc, s.name)
+		g.line("\t%s = %s*7 + len(sub(%s, 0, i))", acc, acc, s.name)
 		g.line("}")
 	default:
 		g.line("for _, r := range %s {", t.name)

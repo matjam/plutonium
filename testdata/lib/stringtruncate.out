@@ -1,0 +1,26 @@
+n=-1 start=0 truncate="" len=0
+n=0 start=0 truncate="" len=0
+n=1 start=1 truncate="a" len=1
+n=2 start=1 truncate="a" len=1
+n=3 start=3 truncate="añ" len=3
+n=4 start=3 truncate="añ" len=3
+n=5 start=3 truncate="añ" len=3
+n=6 start=6 truncate="añ€" len=6
+n=7 start=6 truncate="añ€" len=6
+n=8 start=6 truncate="añ€" len=6
+n=9 start=6 truncate="añ€" len=6
+n=10 start=10 truncate="añ€😀" len=10
+n=11 start=11 truncate="añ€😀z" len=11
+n=12 start=11 truncate="añ€😀z" len=11
+n=13 start=11 truncate="añ€😀z" len=11
+true abc true
+0 0 2
+|añ€😀z a|ñ€😀z a|ñ€😀z añ|€😀z añ|€😀z añ|€😀z añ€|😀z añ€|😀z añ€|😀z añ€|😀z añ€😀|z añ€😀z| 
+0 ""
+1 ""
+2 "П"
+3 "П"
+7 "При"
+12 "Привет"
+40 "Привет, мир! Ünïcödé ✓"
+ñ €

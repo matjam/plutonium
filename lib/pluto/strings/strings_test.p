@@ -2,6 +2,7 @@ package strings
 
 import (
 	"pluto/testing"
+	"pluto/unicode/utf8"
 	"pluto/vec"
 	"unsafe"
 )
@@ -231,6 +232,67 @@ func TestFromUTF8(t *testing.T) {
 	// conversion has a name that says so.
 	if FromUTF8Lossy([]byte{0xfe}) != FromUTF8Lossy([]byte{0xff}) {
 		t.Errorf("FromUTF8Lossy(0xfe) != FromUTF8Lossy(0xff)")
+	}
+}
+
+type sliceName string
+
+func TestSliceAndSliceFrom(t *testing.T) {
+	const s = "añ€😀z" // runes of 1, 2, 3, 4 and 1 bytes, at offsets 0, 1, 3, 6, 10
+	tests := [...]struct {
+		i, j int
+		want string
+	}{
+		{0, 0, ""},
+		{0, 1, "a"},
+		{1, 3, "ñ"},
+		{3, 6, "€"},
+		{6, 10, "😀"},
+		{0, 11, s},
+		{10, 11, "z"},
+		{11, 11, ""},
+	}
+	for _, tt := range tests {
+		if got := Slice(s, tt.i, tt.j); got != tt.want {
+			t.Errorf("Slice(%q, %d, %d) = %q, want %q", s, tt.i, tt.j, got, tt.want)
+		}
+		if got := SliceFrom(s, tt.i); got != Slice(s, tt.i, len(s)) {
+			t.Errorf("SliceFrom(%q, %d) = %q", s, tt.i, got)
+		}
+	}
+	// The result has the type of the argument.
+	var n sliceName = Slice(sliceName("héllo"), 1, 3)
+	if n != "é" {
+		t.Errorf("Slice of a named string = %q", string(n))
+	}
+	if i := Index(s, "😀"); SliceFrom(s, i+len("😀")) != "z" {
+		t.Errorf("the offset after a match is not a boundary")
+	}
+}
+
+func TestTruncate(t *testing.T) {
+	const s = "añ€😀z"
+	want := [...]string{"", "", "a", "a", "añ", "añ", "añ", "añ€", "añ€", "añ€", "añ€", "añ€😀", s, s}
+	for n := -1; n < len(want)-1; n++ {
+		if got := Truncate(s, n); got != want[n+1] {
+			t.Errorf("Truncate(%q, %d) = %q, want %q", s, n, got, want[n+1])
+		}
+	}
+	if got := Truncate("abc", 3); got != "abc" || Truncate("abc", 0) != "" || Truncate("", 5) != "" {
+		t.Errorf("Truncate of ASCII: %q", got)
+	}
+}
+
+func TestRuneStartBeforeSlice(t *testing.T) {
+	const s = "añ€😀z"
+	for n := -2; n <= len(s)+2; n++ {
+		i := utf8.RuneStartBefore(s, n)
+		if i < 0 || i > len(s) || (i < len(s) && !utf8.RuneStart(s[i])) || i > max(n, 0) || (i < n && n <= len(s) && i < n-3) {
+			t.Errorf("RuneStartBefore(%q, %d) = %d", s, n, i)
+		}
+		if Slice(s, 0, i)+SliceFrom(s, i) != s {
+			t.Errorf("the pieces at %d do not make %q", i, s)
+		}
 	}
 }
 

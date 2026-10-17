@@ -146,7 +146,7 @@ func setup() string {
 }
 
 func handler(s string) int {
-	return len(s[1:])
+	return len(strings.SliceFrom(s, 1))
 }
 
 func main() {

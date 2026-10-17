@@ -25,7 +25,8 @@ type subsetRules struct {
 	// UTF-8. Plutonium's strings always hold valid UTF-8 (E2012).
 	InvalidUTF8 bool
 	// ByteSlicing lets strings be sliced at any byte offset. Plutonium
-	// panics on a bound that is not at the start of a rune.
+	// panics on a bound that is not at the start of a rune
+	// (strings.Slice).
 	ByteSlicing bool
 	// ReturnedClosures lets functions return closures, which Plutonium
 	// builds in regions their callers provide.
@@ -55,6 +56,7 @@ var outsideSubset = []string{
 	"[]byte(s) is not permitted",                                 // E2016
 	"[]rune(s) is not permitted",                                 // E2016
 	"string(i) of an integer other than a rune is not permitted", // E2017
+	"a slice expression on a string is not permitted",            // E2019
 }
 
 // leftSubset returns the line of out that shows the program is outside the

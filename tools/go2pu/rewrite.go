@@ -77,6 +77,10 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 			}
 			return fmt.Sprintf("%s.Concat(%s)", t.compat(), strings.Join(parts, ", ")), true
 		}
+	case *ast.SliceExpr:
+		if isString(t.typeOf(n.X)) && !n.Slice3 {
+			return t.stringSlice(n), true
+		}
 	case *ast.CompositeLit:
 		return t.heapLiteral(n)
 	case *ast.UnaryExpr:
@@ -110,6 +114,27 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// stringSlice translates a slice expression on a string, which Plutonium
+// rejects (E2019): s[i:j] becomes strings.Slice(s, i, j), s[i:] becomes
+// strings.SliceFrom(s, i), s[:j] becomes strings.Slice(s, 0, j) and s[:]
+// the string itself. Go cuts a string at any byte offset; the calls panic
+// when a bound is not a rune boundary, which is the one difference
+// (language spec sections 7.3 and 11.12).
+func (t *fileTr) stringSlice(n *ast.SliceExpr) string {
+	x := t.render(n.X)
+	switch {
+	case n.Low == nil && n.High == nil:
+		return x
+	case n.High == nil:
+		return fmt.Sprintf("%s.SliceFrom(%s, %s)", t.use("pluto/strings", "strings"), x, t.render(n.Low))
+	}
+	lo := "0"
+	if n.Low != nil {
+		lo = t.render(n.Low)
+	}
+	return fmt.Sprintf("%s.Slice(%s, %s, %s)", t.use("pluto/strings", "strings"), x, lo, t.render(n.High))
 }
 
 // checkBinaryString notes a string literal that holds bytes that are not

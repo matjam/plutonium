@@ -323,6 +323,23 @@ func RuneCountInString(s string) int {
 // bits set to 10.
 func RuneStart(b byte) bool { return b&0xC0 != 0x80 }
 
+// RuneStartBefore rounds the byte offset i down to the start of a rune of
+// s: the largest rune boundary that is at most i. An offset below 0 gives
+// 0, and one past the end gives len(s). The result is a valid bound for
+// strings.Slice.
+func RuneStartBefore(s string, i int) int {
+	if i <= 0 {
+		return 0
+	}
+	if i >= len(s) {
+		return len(s)
+	}
+	for !RuneStart(s[i]) {
+		i--
+	}
+	return i
+}
+
 // Valid reports whether p consists entirely of valid UTF-8-encoded runes.
 func Valid(p []byte) bool { return ValidString(str(p)) }
 

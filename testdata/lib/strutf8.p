@@ -40,16 +40,16 @@ func main() {
 	ascii, accent := "plain", "café"
 	both := ascii + accent
 	fmt.Println(rt.KnownASCII(ascii), rt.KnownASCII(accent), rt.KnownASCII(ascii+ascii), rt.KnownASCII(both))
-	head := strings.Bytes(both[:5])
-	fmt.Println(rt.KnownASCII(both[:5]), rt.KnownASCII(strings.FromUTF8Lossy(head.Slice())), rt.KnownASCII(strings.Repeat("ab", 3)))
+	head := strings.Bytes(strings.Slice(both, 0, 5))
+	fmt.Println(rt.KnownASCII(strings.Slice(both, 0, 5)), rt.KnownASCII(strings.FromUTF8Lossy(head.Slice())), rt.KnownASCII(strings.Repeat("ab", 3)))
 	head.Free()
 	fmt.Println(utf8.RuneCountInString(ascii+ascii), utf8.RuneCountInString(both), len(both))
 
 	// Slicing between runes works on any string; byte offsets that
 	// strings.Index returns are rune boundaries.
 	i := strings.Index(both, "é")
-	fmt.Printf("%q %q %q %d\n", both[:i], both[i:], both[i+len("é"):], i)
-	for k, r := range both[3:] {
+	fmt.Printf("%q %q %q %d\n", strings.Slice(both, 0, i), strings.SliceFrom(both, i), strings.SliceFrom(both, i+len("é")), i)
+	for k, r := range strings.SliceFrom(both, 3) {
 		fmt.Print(k, ":", string(r), " ")
 	}
 	fmt.Println()

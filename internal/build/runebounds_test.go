@@ -29,7 +29,7 @@ import (
 func decode(s string) int {
 	n := 0
 	for i := 0; i < len(s); {
-		r, size := utf8.DecodeRuneInString(s[i:])
+		r, size := utf8.DecodeRuneInString(strings.SliceFrom(s, i))
 		n += int(r)
 		i += size
 	}
@@ -39,14 +39,14 @@ func decode(s string) int {
 //pu:noinline
 func decodeFirst(s string) string {
 	_, size := utf8.DecodeRuneInString(s)
-	return s[size:]
+	return strings.SliceFrom(s, size)
 }
 
 //pu:noinline
 func ranged(s string) int {
 	n := 0
 	for i := range s {
-		n += len(s[i:])
+		n += len(strings.SliceFrom(s, i))
 	}
 	return n
 }
@@ -55,7 +55,7 @@ func ranged(s string) int {
 func backwards(s string) int {
 	n := 0
 	for i := len(s); i > 0; {
-		_, size := utf8.DecodeLastRuneInString(s[:i])
+		_, size := utf8.DecodeLastRuneInString(strings.Slice(s, 0, i))
 		i -= size
 		n++
 	}
@@ -65,7 +65,7 @@ func backwards(s string) int {
 //pu:noinline
 func before(s, sep string) string {
 	if i := strings.Index(s, sep); i >= 0 {
-		return s[:i]
+		return strings.Slice(s, 0, i)
 	}
 	return s
 }
@@ -76,37 +76,37 @@ func after(s, sep string) string {
 	if i == -1 {
 		return ""
 	}
-	return s[i+len(sep):]
+	return strings.SliceFrom(s, i+len(sep))
 }
 
 //pu:noinline
 func afterComma(s string) string {
 	if i := strings.IndexByte(s, ','); i >= 0 {
-		return s[i+1:]
+		return strings.SliceFrom(s, i+1)
 	}
 	return s
 }
 
 //pu:noinline
 func twice(s string, i, j int) int {
-	a := s[i:j]
-	b := s[i:]
+	a := strings.Slice(s, i, j)
+	b := strings.SliceFrom(s, i)
 	return len(a) + len(b)
 }
 
 //pu:noinline
-func unknown(s string, i int) string { return s[i:] }
+func unknown(s string, i int) string { return strings.SliceFrom(s, i) }
 
 //pu:noinline
 func unguarded(s, sep string) string {
 	i := strings.Index(s, sep)
-	return s[i+len(sep):]
+	return strings.SliceFrom(s, i+len(sep))
 }
 
 //pu:noinline
 func afterByte(s string, c byte) string {
 	if i := strings.IndexByte(s, c); i >= 0 {
-		return s[i+1:]
+		return strings.SliceFrom(s, i+1)
 	}
 	return s
 }

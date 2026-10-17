@@ -45,6 +45,31 @@ func Compare(a, b string) int {
 	return +1
 }
 
+// Slice returns the substring of s from byte offset i up to j. Each bound
+// must be a rune boundary: 0, len(s), or the offset of a byte that is not a
+// UTF-8 continuation byte; otherwise Slice panics, and so it does when
+// 0 <= i <= j <= len(s) does not hold. The substring shares the buffer of
+// s. An offset that Index or another search function returns is a rune
+// boundary, and so is the offset just after a match. Truncate and
+// utf8.RuneStartBefore find the boundary at or before a byte count. The
+// compiler expands Slice inline, the call in its body too (language spec
+// sections 7.3 and 11.12).
+func Slice[S ~string](s S, i, j int) S { return Slice(s, i, j) }
+
+// SliceFrom returns Slice(s, i, len(s)), the substring of s from byte
+// offset i to its end.
+func SliceFrom[S ~string](s S, i int) S { return SliceFrom(s, i) }
+
+// Truncate returns the longest prefix of s that is at most n bytes long and
+// ends on a rune boundary. It returns s itself if n >= len(s) and "" if
+// n <= 0.
+func Truncate(s string, n int) string {
+	if n >= len(s) {
+		return s
+	}
+	return rt.SliceBytewise(s, 0, utf8.RuneStartBefore(s, n))
+}
+
 // The searching functions below compare bytes, so they slice their
 // arguments at byte offsets that need not be rune boundaries
 // (rt.SliceBytewise); a match of a valid UTF-8 needle starts and ends at
@@ -406,7 +431,7 @@ func Count(s, substr string) int {
 // does not appear in s, Cut returns s, "", false.
 func Cut(s, sep string) (before, after string, found bool) {
 	if i := Index(s, sep); i >= 0 {
-		return s[:i], s[i+len(sep):], true
+		return Slice(s, 0, i), SliceFrom(s, i+len(sep)), true
 	}
 	return s, "", false
 }
@@ -418,7 +443,7 @@ func CutPrefix(s, prefix string) (after string, found bool) {
 	if !HasPrefix(s, prefix) {
 		return s, false
 	}
-	return s[len(prefix):], true
+	return SliceFrom(s, len(prefix)), true
 }
 
 // CutSuffix returns s without the provided ending suffix string and reports
@@ -428,7 +453,7 @@ func CutSuffix(s, suffix string) (before string, found bool) {
 	if !HasSuffix(s, suffix) {
 		return s, false
 	}
-	return s[:len(s)-len(suffix)], true
+	return Slice(s, 0, len(s)-len(suffix)), true
 }
 
 // EqualFold reports whether s and t, interpreted as UTF-8 strings, are equal

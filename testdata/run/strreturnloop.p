@@ -5,6 +5,8 @@
 // (internal/build/strcount_test.go). Found by tools/difftest.
 package main
 
+import "pluto/strings"
+
 var base = "abc"
 
 //pu:noinline
@@ -13,7 +15,7 @@ func boxInLoop(p string, n int) int {
 		if j == n {
 			return j
 		}
-		var a any = p[1:]
+		var a any = strings.SliceFrom(p, 1)
 		println(a.(string))
 	}
 }
@@ -41,7 +43,7 @@ again:
 	if j == n {
 		return j
 	}
-	var a any = p[:j]
+	var a any = strings.Slice(p, 0, j)
 	println(a.(string))
 	j++
 	goto again

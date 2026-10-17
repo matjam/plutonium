@@ -1,6 +1,9 @@
 package strconv
 
-import "pluto/errors"
+import (
+	"pluto/errors"
+	"pluto/rt"
+)
 
 // ErrSyntax indicates that a value does not have the right syntax.
 //
@@ -35,13 +38,13 @@ func parseUint(s string, base int, bitSize int) (uint64, error) {
 		if s[0] == '0' {
 			switch {
 			case len(s) >= 3 && (s[1] == 'x' || s[1] == 'X'):
-				base, s = 16, s[2:]
+				base, s = 16, rt.SliceBytewise(s, 2, len(s))
 			case len(s) >= 3 && (s[1] == 'o' || s[1] == 'O'):
-				base, s = 8, s[2:]
+				base, s = 8, rt.SliceBytewise(s, 2, len(s))
 			case len(s) >= 3 && (s[1] == 'b' || s[1] == 'B'):
-				base, s = 2, s[2:]
+				base, s = 2, rt.SliceBytewise(s, 2, len(s))
 			default:
-				base, s = 8, s[1:]
+				base, s = 8, rt.SliceBytewise(s, 1, len(s))
 			}
 		}
 		underscores = true
@@ -102,10 +105,10 @@ func parseInt(s string, base int, bitSize int) (int64, error) {
 	neg := false
 	switch s[0] {
 	case '+':
-		s = s[1:]
+		s = rt.SliceBytewise(s, 1, len(s))
 	case '-':
 		neg = true
-		s = s[1:]
+		s = rt.SliceBytewise(s, 1, len(s))
 	}
 	u, err := parseUint(s, base, bitSize)
 	if err != nil && err != ErrRange {

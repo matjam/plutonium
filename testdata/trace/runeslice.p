@@ -2,7 +2,9 @@
 // 6.10): s[0:2] of "héllo" cuts the é in half.
 package main
 
-func cut(s string, i, j int) string { return s[i:j] }
+import "pluto/strings"
+
+func cut(s string, i, j int) string { return strings.Slice(s, i, j) }
 
 func main() {
 	s := "héllo"

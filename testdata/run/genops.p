@@ -4,6 +4,8 @@
 // and to and from interfaces.
 package main
 
+import "pluto/strings"
+
 type Signed interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64
 }
@@ -104,7 +106,7 @@ func Runes[S ~string](s S) int {
 	return n
 }
 
-func Tail[S ~string](s S, i int) S { return s[i:] }
+func Tail[S ~string](s S, i int) S { return strings.SliceFrom(s, i) }
 
 // Slices and arrays through core types.
 func SumSlice[S ~[]E, E Integer](s S) E {

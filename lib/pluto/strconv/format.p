@@ -25,9 +25,9 @@ const smallsString = "00010203040506070809" +
 // small returns the static string of 0 <= i < 100.
 func small(i int) string {
 	if i < 10 {
-		return digits[i : i+1]
+		return rt.SliceBytewise(digits, i, i+1)
 	}
-	return smallsString[i*2 : i*2+2]
+	return rt.SliceBytewise(smallsString, i*2, i*2+2)
 }
 
 // Itoa returns the decimal text of i, FormatInt(int64(i), 10).

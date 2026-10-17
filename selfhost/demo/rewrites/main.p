@@ -11,6 +11,7 @@ import (
 	"pluto/io"
 	"pluto/sort"
 	"pluto/strconv"
+	"pluto/strings"
 	"selfhost/compat"
 	"selfhost/pu"
 )
@@ -132,11 +133,19 @@ outer:
 	fmt.Println("table", t.byName["b"].name, len(t.order))
 }
 
+// bs0 returns the bytes of s as a slice, which Go slices like a string but
+// go2pu leaves alone.
+func bs0(s string) []byte { return compat.Bytes(s) }
+
 func stringsAndBytes() {
 	s := "go"
 	s = compat.Concat(s, "2")
 	t := compat.Concat(s, "pu", "!", s)
 	fmt.Println(t, len(t))
+	// A slice expression on a string becomes strings.Slice and
+	// strings.SliceFrom, whose bounds must be rune boundaries.
+	n := 2
+	fmt.Println(strings.Slice(t, 1, n), strings.SliceFrom(t, n), strings.Slice(t, 0, n), t, compat.String(bs0(t)[1:3]))
 	bs := compat.Bytes(t)
 	bs[0] = 'G'
 	fmt.Println(compat.String(bs), string(rune(0x263A)))

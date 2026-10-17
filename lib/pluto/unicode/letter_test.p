@@ -9,6 +9,7 @@
 package unicode
 
 import (
+	"pluto/strings"
 	"pluto/testing"
 	"pluto/unicode/utf8"
 )
@@ -21,7 +22,7 @@ func decodeRunes(s string, buf []rune) []rune {
 		r, size := utf8.DecodeRuneInString(s)
 		buf[n] = r
 		n++
-		s = s[size:]
+		s = strings.SliceFrom(s, size)
 	}
 	return buf[:n]
 }

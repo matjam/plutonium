@@ -22,6 +22,7 @@ import (
 	"pluto/rt"
 	"pluto/sort"
 	"pluto/strconv"
+	"pluto/strings"
 	"pluto/time"
 	"pluto/vec"
 )
@@ -462,7 +463,7 @@ func UnquoteUsage(fl *Flag) (name string, usage string) {
 		if usage[i] == '`' {
 			for j := i + 1; j < len(usage); j++ {
 				if usage[j] == '`' {
-					return usage[i+1 : j], usage // the caller drops the quotes
+					return strings.Slice(usage, i+1, j), usage // the caller drops the quotes
 				}
 			}
 			break
@@ -503,7 +504,7 @@ func (f *FlagSet) PrintDefaults() {
 			case c == '\n':
 				io.WriteString(w, "\n    \t")
 			default:
-				io.WriteString(w, usage[i:i+1])
+				io.WriteString(w, strings.Slice(usage, i, i+1))
 			}
 		}
 		if fl.DefValue != fl.zero {
@@ -561,7 +562,7 @@ func (f *FlagSet) parseOne() (bool, error) {
 			return false, nil
 		}
 	}
-	name := s[numMinuses:]
+	name := strings.SliceFrom(s, numMinuses)
 	if len(name) == 0 || name[0] == '-' || name[0] == '=' {
 		return false, f.failf("bad flag syntax: %s", s)
 	}
@@ -570,9 +571,9 @@ func (f *FlagSet) parseOne() (bool, error) {
 	value := ""
 	for i := 1; i < len(name); i++ {
 		if name[i] == '=' {
-			value = name[i+1:]
+			value = strings.SliceFrom(name, i+1)
 			hasValue = true
-			name = name[0:i]
+			name = strings.Slice(name, 0, i)
 			break
 		}
 	}

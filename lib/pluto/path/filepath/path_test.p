@@ -69,7 +69,7 @@ func TestClean(t *testing.T) {
 		f := vec.NewFixed(buf[:])
 		vec.AppendString(&f, "x:")
 		AppendClean(&f, tt.in)
-		if got := str(f.Slice()); got[2:] != tt.want || got[:2] != "x:" {
+		if got := str(f.Slice()); strings.SliceFrom(got, 2) != tt.want || strings.Slice(got, 0, 2) != "x:" {
 			t.Errorf("AppendClean(\"x:\", %q) = %q", tt.in, got)
 		}
 	}
@@ -97,8 +97,8 @@ func TestJoin(t *testing.T) {
 	// A path longer than the stack buffer.
 	var zeros [300]byte
 	long := Join(Clean(strings.FromUTF8Lossy(zeros[:])), "x/../y")
-	if len(long) != 302 || long[300:] != "/y" {
-		t.Errorf("long Join: %d bytes, ends %q", len(long), long[len(long)-2:])
+	if len(long) != 302 || strings.SliceFrom(long, 300) != "/y" {
+		t.Errorf("long Join: %d bytes, ends %q", len(long), strings.SliceFrom(long, len(long)-2))
 	}
 	// A clean path is returned as it is.
 	p := "/usr/lib"

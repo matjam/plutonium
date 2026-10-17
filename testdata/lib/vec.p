@@ -117,5 +117,5 @@ func main() {
 	for i := 0; i < 50; i++ {
 		fmt.Fprintf(&b, "%d,", i)
 	}
-	fmt.Printf("%s len=%d used=%d\n", b.String()[:20], b.Len(), ar.Used())
+	fmt.Printf("%s len=%d used=%d\n", strings.Slice(b.String(), 0, 20), b.Len(), ar.Used())
 }

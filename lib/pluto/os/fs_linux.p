@@ -213,12 +213,12 @@ func fileInfoOf(st *syscall.Stat_t) FileInfo {
 func basename(name string) string {
 	i := len(name) - 1
 	for i > 0 && name[i] == '/' {
-		name = name[:i]
+		name = rt.SliceBytewise(name, 0, i)
 		i--
 	}
 	for i--; i >= 0; i-- {
 		if name[i] == '/' {
-			name = name[i+1:]
+			name = rt.SliceBytewise(name, i+1, len(name))
 			break
 		}
 	}
@@ -824,7 +824,7 @@ func AppendMkdirTemp[D vec.Appender[byte]](dst D, dir, pattern string, a alloc.A
 			return NewPathError("mkdirtemp", pattern, ErrPatternHasSeparator, a)
 		}
 		if pattern[i] == '*' {
-			prefix, suffix = pattern[:i], pattern[i+1:]
+			prefix, suffix = rt.SliceBytewise(pattern, 0, i), rt.SliceBytewise(pattern, i+1, len(pattern))
 			break
 		}
 	}

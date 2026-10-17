@@ -4,7 +4,10 @@
 
 package strconv
 
-import "unsafe"
+import (
+	"pluto/rt"
+	"unsafe"
+)
 
 // Decimal to binary floating point conversion, from Go 1.27's
 // internal/strconv/atof.go.
@@ -79,7 +82,7 @@ func special(s string) (f float64, n int, ok bool) {
 			sign = -1
 		}
 		nsign = 1
-		s = s[1:]
+		s = rt.SliceBytewise(s, 1, len(s))
 		fallthrough
 	case 'i', 'I':
 		n := commonPrefixLenIgnoreCase(s, "infinity")
@@ -330,7 +333,7 @@ loop:
 		exp = dp - ndMant
 	}
 
-	if underscores && !underscoreOK(s[:i]) {
+	if underscores && !underscoreOK(rt.SliceBytewise(s, 0, i)) {
 		return
 	}
 
@@ -602,7 +605,7 @@ func atof32(s string) (f float32, n int, err error) {
 	}
 
 	if hex {
-		f, err := atofHex(s[:n], &float32info, d, p, neg, trunc)
+		f, err := atofHex(rt.SliceBytewise(s, 0, n), &float32info, d, p, neg, trunc)
 		return float32(f), n, err
 	}
 
@@ -640,7 +643,7 @@ func atof32(s string) (f float32, n int, err error) {
 
 	// Slow fallback.
 	var dec decimal
-	if !dec.set(s[:n]) {
+	if !dec.set(rt.SliceBytewise(s, 0, n)) {
 		return 0, n, ErrSyntax
 	}
 	b, ovf := dec.floatBits(&float32info)
@@ -661,7 +664,7 @@ func atof64(s string) (f float64, n int, err error) {
 		return 0, n, ErrSyntax
 	}
 	if hex {
-		f, err := atofHex(s[:n], &float64info, d, p, neg, trunc)
+		f, err := atofHex(rt.SliceBytewise(s, 0, n), &float64info, d, p, neg, trunc)
 		return f, n, err
 	}
 	if optimize {
@@ -698,7 +701,7 @@ func atof64(s string) (f float64, n int, err error) {
 
 	// Slow fallback.
 	var dec decimal
-	if !dec.set(s[:n]) {
+	if !dec.set(rt.SliceBytewise(s, 0, n)) {
 		return 0, n, ErrSyntax
 	}
 	b, ovf := dec.floatBits(&float64info)

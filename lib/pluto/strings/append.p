@@ -16,9 +16,9 @@ func AppendUpper[D vec.Appender[byte]](dst D, s string) {
 	var buf [256]byte
 	for len(s) > 0 {
 		n := min(len(s), len(buf))
-		upperInto(buf[:n], s[:n])
+		upperInto(buf[:n], Slice(s, 0, n))
 		dst.Append(buf[:n]...)
-		s = s[n:]
+		s = SliceFrom(s, n)
 	}
 }
 
@@ -28,9 +28,9 @@ func AppendLower[D vec.Appender[byte]](dst D, s string) {
 	var buf [256]byte
 	for len(s) > 0 {
 		n := min(len(s), len(buf))
-		lowerInto(buf[:n], s[:n])
+		lowerInto(buf[:n], Slice(s, 0, n))
 		dst.Append(buf[:n]...)
-		s = s[n:]
+		s = SliceFrom(s, n)
 	}
 }
 
@@ -107,19 +107,19 @@ func AppendReplace[D vec.Appender[byte]](dst D, s, old, new string, n int) {
 				if start >= len(s) {
 					break
 				}
-				_, wid := utf8.DecodeRuneInString(s[start:])
+				_, wid := utf8.DecodeRuneInString(SliceFrom(s, start))
 				j += wid
 			}
 		} else {
-			k := Index(s[start:], old)
+			k := Index(SliceFrom(s, start), old)
 			if k < 0 {
 				break
 			}
 			j += k
 		}
-		vec.AppendString(dst, s[start:j])
+		vec.AppendString(dst, Slice(s, start, j))
 		vec.AppendString(dst, new)
 		start = j + len(old)
 	}
-	vec.AppendString(dst, s[start:])
+	vec.AppendString(dst, SliceFrom(s, start))
 }

@@ -275,14 +275,16 @@ func (check *Checker) sliceExpr(x *operand, e *ast.SliceExpr) {
 		return true
 	})
 	if hasString {
-		// If we saw a string, proceed with string type,
-		// but don't go from untyped string to string.
-		cu = Typ[String]
-		if !isTypeParam(x.typ()) {
-			cu = x.typ().Underlying() // untyped string remains untyped
+		// A string is cut by strings.Slice and strings.SliceFrom, which
+		// keep it valid UTF-8 (language spec section 11.12).
+		if cu != nil { // otherwise an error is reported above
+			check.forbidden(e, StringSliceNotPermitted, "a slice expression on a string is",
+				"a cut must fall between runes; use strings.Slice(s, i, j) or strings.SliceFrom(s, i)")
 		}
+		check.use(e.Low, e.High, e.Max)
+		x.invalidate()
+		return
 	}
-
 	// Note that we don't permit slice expressions where x is a type expression, so we don't check for that here.
 	// However, if x.typ is a pointer to an array type, slicing implicitly dereferences the value, meaning
 	// its base type must also be complete.
@@ -298,28 +300,6 @@ func (check *Checker) sliceExpr(x *operand, e *ast.SliceExpr) {
 		// error reported above
 		x.invalidate()
 		return
-
-	case *Basic:
-		if isString(u) {
-			if e.Slice3 {
-				at := e.Max
-				if at == nil {
-					at = e // e.Index[2] should be present but be careful
-				}
-				check.error(at, InvalidSliceExpr, invalidOp+"3-index slice of string")
-				x.invalidate()
-				return
-			}
-			valid = true
-			if x.mode() == constant_ {
-				length = constant.StringLen(x.val)
-			}
-			// spec: "For untyped string operands the result
-			// is a non-constant value of type string."
-			if isUntyped(x.typ()) {
-				x.typ_ = Typ[String]
-			}
-		}
 
 	case *Array:
 		valid = true

@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Strings are values: variables, fields, elements, parameters, results
 // and closure state, built by concatenation, slicing and conversion from
@@ -9,8 +12,36 @@ import "fmt"
 // only at rune starts (see subset.go): constant bounds come from the
 // literal's contents, and other bounds go through rs. Concatenations go
 // through cut, which keeps strings short however often a loop repeats.
+// Plutonium has no slice expression on a string (E2019), so the program
+// cuts strings with sub and subFrom, which Go writes as slice expressions
+// and the Plutonium program as calls of pluto/strings (puSource).
 
-const strFuncs = `// rs moves i into [0, len(s)] and down to the start of a rune, so that
+const goSliceFuncs = `// sub and subFrom cut a string at rune starts.
+func sub(s string, i, j int) string { return s[i:j] }
+
+func subFrom(s string, i int) string { return s[i:] }
+
+`
+
+// puSliceFuncs replaces goSliceFuncs in the Plutonium program.
+const puSliceFuncs = `// sub and subFrom cut a string at rune starts.
+func sub(s string, i, j int) string { return strings.Slice(s, i, j) }
+
+func subFrom(s string, i int) string { return strings.SliceFrom(s, i) }
+
+`
+
+// puSource returns the Plutonium program for the Go program src: the
+// string cuts become calls of pluto/strings.
+func puSource(src string) string {
+	if !strings.Contains(src, goSliceFuncs) {
+		return src
+	}
+	src = strings.Replace(src, goSliceFuncs, puSliceFuncs, 1)
+	return strings.Replace(src, "package main\n", "package main\n\nimport \"pluto/strings\"\n", 1)
+}
+
+const strFuncs = goSliceFuncs + `// rs moves i into [0, len(s)] and down to the start of a rune, so that
 // it is a valid bound for slicing s.
 func rs(s string, i int) int {
 	if i <= 0 {
@@ -27,7 +58,7 @@ func rs(s string, i int) int {
 
 // cut keeps a string short: at most 40 bytes, cut at the start of a rune.
 func cut(s string) string {
-	return s[:rs(s, 40)]
+	return sub(s, 0, rs(s, 40))
 }
 
 `
@@ -46,9 +77,9 @@ func (g *gen) strExpr(d int) string {
 		x := g.strPlace()
 		k := g.intExpr(tInt, 1, true).s
 		if g.chance(2) {
-			return fmt.Sprintf("%s[rs(%s, %s):]", x, x, k)
+			return fmt.Sprintf("subFrom(%s, rs(%s, %s))", x, x, k)
 		}
-		return fmt.Sprintf("%s[:rs(%s, %s)]", x, x, k)
+		return fmt.Sprintf("sub(%s, 0, rs(%s, %s))", x, x, k)
 	case 4:
 		// Code points that are negative, surrogates or too large become
 		// U+FFFD.
@@ -62,7 +93,7 @@ func (g *gen) strExpr(d int) string {
 		b := sliceBounds(lit.val)
 		lo := g.r.Intn(len(b))
 		hi := lo + g.r.Intn(len(b)-lo)
-		return fmt.Sprintf("%s[%d:%d]", lit.src, b[lo], b[hi])
+		return fmt.Sprintf("sub(%s, %d, %d)", lit.src, b[lo], b[hi])
 	}
 	return g.strLeaf()
 }
@@ -115,7 +146,7 @@ func (g *gen) strStmt() {
 		g.line("}")
 	case 1:
 		g.line("for i, r := range %s {", s)
-		g.line("\t%s = %s*31 + i + int(r) + len(%s[i:])", acc, acc, s)
+		g.line("\t%s = %s*31 + i + int(r) + len(subFrom(%s, i))", acc, acc, s)
 		g.line("}")
 	case 2:
 		n := 1 + g.r.Intn(int(min(g.tripLimit(), 8)))
@@ -125,7 +156,7 @@ func (g *gen) strStmt() {
 		g.line("}")
 		g.addCost(int64(4 * n))
 	default:
-		g.line("%s = %s[rs(%s, %s):]", s, s, s, g.intExpr(tInt, 1, true).s)
+		g.line("%s = subFrom(%s, rs(%s, %s))", s, s, s, g.intExpr(tInt, 1, true).s)
 		g.line("%s += len(%s)", acc, s)
 	}
 	g.line("switch %s {", s)

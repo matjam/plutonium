@@ -1,6 +1,9 @@
 package main
 
-import "unsafe"
+import (
+	"pluto/strings"
+	"unsafe"
+)
 
 // Language features the standard library leans on: goto out of a loop,
 // generic types with pointer-receiver methods, explicit instantiation,
@@ -28,7 +31,7 @@ func equalFoldASCII(s, t string) bool {
 	}
 	return len(s) == len(t)
 slow:
-	return s[i:] == t[i:]
+	return strings.SliceFrom(s, i) == strings.SliceFrom(t, i)
 }
 
 type stack[T any] struct {
@@ -97,8 +100,8 @@ func (it *iter) next() (string, bool) {
 	for j < len(it.s) && !it.f(it.s[j]) {
 		j++
 	}
-	w := it.s[i:j]
-	it.s = it.s[j:]
+	w := strings.Slice(it.s, i, j)
+	it.s = strings.SliceFrom(it.s, j)
 	return w, true
 }
 
@@ -180,8 +183,8 @@ func main() {
 		if i == len(rest) {
 			break
 		}
-		words[n] = rest[:i]
-		rest = rest[i+1:]
+		words[n] = strings.Slice(rest, 0, i)
+		rest = strings.SliceFrom(rest, i+1)
 		n++
 	}
 	words[n] = rest

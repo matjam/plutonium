@@ -1,5 +1,7 @@
 package main
 
+import "pluto/strings"
+
 const greeting = "hello, " + "world"
 
 func count(s string, b byte) int {
@@ -12,7 +14,7 @@ func count(s string, b byte) int {
 	return n
 }
 
-func hasPrefix(s, p string) bool { return len(s) >= len(p) && s[:len(p)] == p }
+func hasPrefix(s, p string) bool { return len(s) >= len(p) && strings.Slice(s, 0, len(p)) == p }
 
 func main() {
 	println(greeting, len(greeting))
@@ -26,7 +28,7 @@ func main() {
 	}
 	println("runes", n, sum, len(s))
 	println("compare", "abc" < "abd", "abc" == "abc", "b" > "abc", "" < "a")
-	sub := greeting[7:]
+	sub := strings.SliceFrom(greeting, 7)
 	println("sub", sub, len(sub), sub[0])
 	var empty string
 	println("empty", len(empty), empty == "")

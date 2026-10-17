@@ -15,6 +15,7 @@ import (
 	"pluto/os"
 	"pluto/os/exec"
 	"pluto/path/filepath"
+	"pluto/strings"
 	"pluto/unicode/utf8"
 	"pluto/vec"
 	"unsafe"
@@ -37,7 +38,7 @@ func viewOf(s string) []byte { return unsafe.Slice(unsafe.StringData(s), len(s))
 func hex(b []byte) {
 	const digits = "0123456789abcdef"
 	for _, c := range b {
-		print(digits[c>>4:c>>4+1], digits[c&15:c&15+1])
+		print(strings.Slice(digits, int(c>>4), int(c>>4)+1), strings.Slice(digits, int(c&15), int(c&15)+1))
 	}
 }
 
@@ -78,7 +79,7 @@ func main() {
 		f, err := os.CreateBytes(join(pb[:], dir, n))
 		check("CreateBytes", err)
 		f.WriteString("file ")
-		f.WriteString("0123"[i : i+1])
+		f.WriteString(strings.Slice("0123", i, i+1))
 		f.Close()
 	}
 	check("MkdirBytes", os.MkdirBytes(join(pb[:], dir, nSub[:]), 0o755))

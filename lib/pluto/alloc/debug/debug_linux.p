@@ -85,8 +85,8 @@ func EnvOptions() Options {
 		rest := ""
 		for i := 0; i < len(env); i++ {
 			if env[i] == ',' {
-				item = env[:i]
-				rest = env[i+1:]
+				item = rt.SliceBytewise(env, 0, i)
+				rest = rt.SliceBytewise(env, i+1, len(env))
 				break
 			}
 		}
@@ -94,7 +94,7 @@ func EnvOptions() Options {
 		key, val := item, ""
 		for i := 0; i < len(item); i++ {
 			if item[i] == '=' {
-				key, val = item[:i], item[i+1:]
+				key, val = rt.SliceBytewise(item, 0, i), rt.SliceBytewise(item, i+1, len(item))
 				break
 			}
 		}
@@ -156,7 +156,7 @@ func parseSize(s string) (uintptr, bool) {
 		shift = 30
 	}
 	if shift != 0 {
-		s = s[:len(s)-1]
+		s = rt.SliceBytewise(s, 0, len(s)-1)
 		if len(s) == 0 {
 			return 0, false
 		}

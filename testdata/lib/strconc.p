@@ -76,7 +76,7 @@ func copier(shared string, rounds int, done chan<- int) {
 	n := 0
 	for i := 0; i < rounds; i++ {
 		s := shared
-		t := s[1:]
+		t := strings.SliceFrom(s, 1)
 		if len(t) == len(shared)-1 {
 			n++
 		}
