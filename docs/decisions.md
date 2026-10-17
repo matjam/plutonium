@@ -7,8 +7,9 @@ the specification it changes and the work that lands them.
 
 D6 and D7 record directions approved directly by the user beginning on 2026-10-13.
 D8 records the coordinated specification resolutions approved on 2026-10-15. These
-are not part of the earlier delegated implementation choices. Historical rationale
-below is not authority to change the language to match code.
+are not part of the earlier delegated implementation choices. D9 to D11 record the
+owner's decisions of 2026-10-17 that remove the three exceptions to the no-false-friends
+rule. Historical rationale below is not authority to change the language to match code.
 
 The current goals, stated precisely in section 1.1 and D8: Go-familiar, not
 Go-compatible, with differences visible or expressly documented; the same ordinary
@@ -16,6 +17,7 @@ memory/race-safety contract for applications and kernels, without programmer-wri
 borrow annotations or compiler knowledge; no GC or silent heap promotion, with
 specified allocating-operation contracts and explicit lifetime responsibility; kernel
 suitability; and performance near Rust, assessed separately from semantic conformance.
+Since D9 to D11 the no-false-friends rule has no exceptions.
 
 ## D1. `errors.As` matches a counted error against a `*T` target (16.6, 16.7)
 
@@ -146,6 +148,12 @@ and global deadlock remains fatal. Completion includes its required
 cleanup and runtime retirement; package resource destruction must not race a
 task's final stack release. This implicit wait is a deliberate language rule.
 
+**Superseded by D10 (2026-10-17):** the wait for other tasks is gone. When `main`
+returns, the program ends as in Go; package cleanup and the exact leak report run only
+when no other task is running. The first paragraph (package owners are cleaned up at
+normal exit), the reverse-initialization order, the in-place drops and the protection of
+completed places stay in force, as does the distinction from `os.Exit`.
+
 The [shutdown design](plans/2026-10-14-normal-shutdown.md) records the technical
 elaboration of that direction: deterministic reverse initialization cleanup,
 in-place address-preserving drops, protection of completed static places from
@@ -238,7 +246,7 @@ pre-correction findings C1–C20. This decision preserves D6 and D7.
   transfer is allowed. Indexing and Len overloads on owners require nonconsuming
   pointer receivers; no syntax-dependent invocation of a consuming method.
 - **Shutdown** (sections 12.12, 14.5, 15.4, 19.1/19.7; memory-model 3.9;
-  ABI 12.10): preserve natural draining and reverse package cleanup. Task/callback
+  ABI 12.10; the draining part is superseded by D10): preserve natural draining and reverse package cleanup. Task/callback
   operations, mandatory cleanup and retirement happen before package cleanup,
   with cross-processor visibility. No automatic cancellation or runtime cycle
   collection is added. Abrupt exit and nonreturning kernels stay distinct.
@@ -273,8 +281,8 @@ pre-correction findings C1–C20. This decision preserves D6 and D7.
 - **Equivalence and examples** (section 21.3, appendix A, sections 7.4,
   11.26 and 12.11): optimization preserves permitted observable behavior,
   ordering, safety and logical source panic frames. Permitted nondeterminism and
-  resource-use variation remain. Static errors.New identity and D6 waiting are
-  disclosed observable differences. Correct local-array, iterator-continue,
+  resource-use variation remain. Static errors.New identity and D6 waiting were
+  disclosed observable differences; D10 and D11 remove both. Correct local-array, iterator-continue,
   evaluation-dependency and type-kind summaries without changing their mechanisms.
 - **Evidence and conformance:** use a small fixed application/kernel witness set
   and a separate repeated-run performance methodology. Source acceptance and
@@ -285,6 +293,79 @@ Status: this records approved language decisions and the coordinated specificati
 amendment. It does not claim compiler/library conformance to every corrected rule;
 the roadmap and witness register track that separate work. Existing D6/D7 native
 receipts remain evidence for their tested snapshots, not proof of the new findings.
+
+## D9. A string is cut with a library call, not with `s[i:j]` (1.2, 7.3, 11.12, 17.1, 18.8, A.2, F.6)
+
+Recorded in the owner's brief of 2026-10-17 as "D8"; numbered D9 here because D8 above is
+taken. Reasoning: [the plan](plans/2026-10-17-no-false-friends-exceptions.md), part 1.
+
+Question: every Plutonium string holds valid UTF-8, so `s[i:j]` cannot cut at any byte offset
+as Go does. The specification made a cut inside a rune panic, which made
+`title[:40]` a false friend: valid Go that compiles, works on ASCII and panics on the first
+accented letter. Can the exception go?
+
+Decision (final): a slice expression on a string of any kind, constant or not, is a compile
+error (E2019, `StringSliceNotPermitted`) that names `strings.Slice(s, i, j)` and
+`strings.SliceFrom(s, i)`. Both are generic over the string type, share the buffer, panic
+unless each bound is a rune boundary, and the compiler lowers them inline. Arrays and slices
+keep `a[i:j]`; `s[i]`, `len(s)`, `range s` and comparison are unchanged. `strings.Truncate`
+and `utf8.RuneStartBefore` round to a boundary by name. A string stays valid UTF-8.
+
+Why: Go-familiar, no false friends (the check moves behind a name Go does not have, and the
+compile error names the fix); strings stay valid UTF-8 as the owner wants; the same code as
+before, so no cost to performance; no annotations. The cost is one mechanical edit at each
+string slice, which the error message and `go2pu` provide. Rounding silently, rune-counting
+slices, an offset type and strings of arbitrary bytes were rejected in the plan.
+
+Lands with: the specification amendment of 2026-10-17 (sections 1.2, 7.3, 11.12, 17.1, 18.8,
+20.3, A.1 to A.3, A.5, F.6) and roadmap items 104 and 74.
+
+## D10. Normal termination follows Go; cleanup runs when no task is left (12.12, 14.5, 15.4, 19.1, 19.7)
+
+Recorded in the owner's brief as "D9"; numbered D10 here. Reasoning: the plan, part 2.
+
+Question: D6 made `main` wait for every task, so `task heartbeat(); fmt.Println("done")`
+printed and never exited, which differs from Go with nothing in the source to show it.
+
+Decision (final): when `main` returns, its own cleanup completes (which joins its scopes).
+One scheduler transition then closes task and callback admission and checks whether any
+other application task is running or any callback is in flight. If none is, pending timer
+callbacks are canceled, ended tasks finish retiring, package cleanup runs in reverse
+initialization order, the debug allocator accounts, and the program exits with `main`'s
+status. Otherwise the program ends at once with `main`'s status, as `os.Exit` ends it:
+tasks stop where they are, no owner is dropped, no package cleanup runs, and the debug
+allocator prints the number of running tasks and skips the leak report. `os.Exit` and
+`rt.ExitTask` in `main` are unchanged. Supersedes the wait-for-tasks rule of D6 and the
+"Approved task policy" of the shutdown plan; D6's package cleanup, ordering and in-place
+drops stay.
+
+Why: Go-familiar and no false friends (a Go program that returns from `main` with workers
+running exits); the memory model still holds (package cleanup runs only when no task can
+touch a package variable); kernel `main` does not return, and freestanding backends need
+only the count-and-close transition. A program that wants cleanup joins its tasks, which is
+visible in its source.
+
+Lands with: the specification amendment of 2026-10-17 and roadmap item 105.
+
+## D11. Each `errors.New` evaluation is a new error, without allocating (7.9, 15.2, 16.2, 16.3, 17.1, F.4)
+
+Recorded in the owner's brief as "D10"; numbered D11 here. Reasoning: the plan, part 3.
+
+Question: Go returns a new pointer from every `errors.New`. Plutonium returned one static
+error per call site, so two results of one site compared equal (`e1 == e2` was true).
+
+Decision (final): each call site has its own compiler-made error type and a 64-bit counter
+in static storage. Each evaluation adds one atomically and returns an error of the site's
+type whose data word holds the new count. Two results of one site are unequal; a copy is
+equal; different sites differ by type. The text must still be a constant (E2008) and the
+call direct (E2542). A package-level sentinel is evaluated once. Exhausting a counter
+panics and never wraps. `errors.New` allocates nothing and needs no allocator. Supersedes
+decision F19 of the false-friends plan.
+
+Why: Go-familiar and no false friends (equality, `errors.Is` and map keys match Go); no
+hidden allocation and works before an allocator exists (kernel boot, interrupt context).
+
+Lands with: the specification amendment of 2026-10-17 and roadmap item 106.
 
 ## Deferred
 

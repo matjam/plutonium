@@ -11,7 +11,7 @@ kernel supplies itself (section 19.5).
 
 The language is Go-familiar, not Go-compatible: it uses Go's syntax and idioms wherever they fit, and where
 it behaves differently from Go in a way a Go programmer would not expect, the difference is visible in the
-source, apart from the documented exceptions in appendix A. It gives ordinary application and kernel code
+source (appendix A lists every difference). It gives ordinary application and kernel code
 memory and race safety without programmer-written borrow annotations. When safety cannot be proved or
 protected in the chosen environment, the operation is rejected. Deliberately unchecked execution is an
 explicit opt-out (section 21.5). Allocation follows specified operation contracts and explicit lifetime
@@ -68,7 +68,7 @@ Section numbers are unique across the whole specification, and each chapter is a
 - [21. Implementation requirements](language/21-implementation-requirements.md)
   21.1 Diagnostics; 21.2 No silent failures; 21.3 Acceptance does not depend on optimization; 21.4 Implementation limits; 21.5 Run-time checks and the unchecked mode; 21.6 Layouts and calling conventions; 21.7 Reproducible builds; 21.8 Language version.
 - [Appendix A. Differences from Go](language/a-differences-from-go.md)
-  A.1 The no-false-friends rule; A.2 Removed; A.3 Changed; A.4 Added; A.5 The one documented exception.
+  A.1 The no-false-friends rule; A.2 Removed; A.3 Changed; A.4 Added; A.5 No remaining exceptions.
 - [Appendix B. Keywords and contextual keywords](language/b-keywords.md)
 - [Appendix C. Operator precedence](language/c-operator-precedence.md)
 - [Appendix D. Predeclared identifiers](language/d-predeclared-identifiers.md)

@@ -46,9 +46,8 @@ any depth (section 17.3, Ending a task with `rt.ExitTask`). A panic in any task 
 builds the panicking task first runs its pending deferred calls, while the other tasks keep running
 (section 17.2, Deferred calls on a panic). Task end alone supplies no ordinary join to another running
 task: a program uses a channel,
-`sync.WaitGroup` or `sync.Scope` (section 19.4). Normal termination is an additional synchronization
-boundary: every application task/callback, its mandatory cleanup and retirement callbacks happen
-before package cleanup begins (section 15.4), including visibility across processors.
+`sync.WaitGroup` or `sync.Scope` (section 19.4). When package cleanup runs, every application task has
+finished before it begins (section 15.4).
 
 **Stacks.** Each task has a stack of fixed size, which never grows or moves: nothing in the program
 knows where the pointers into it are, so it cannot be moved. The size is chosen when the task starts:
@@ -94,14 +93,11 @@ state of every task: what it waits for (a channel operation, a `select`, a lock,
 stack trace. The wording of the report is not part of the language (section 21.1); debugging.md section 5
 describes what the hosted implementation prints.
 
-**Program exit.** Normal return from `main` completes its local cleanup, then waits for all remaining
-tasks, including descendants, to finish naturally. Completion includes stack and task-record retirement;
-a Scope becoming empty alone is not that boundary. Scheduled application callbacks finish or are
-canceled, and in-flight callbacks complete, before package cleanup starts. Tasks are not canceled;
-a task that runs forever keeps the program alive. The deadlock rule above still applies.
-Section 15.4 (Program execution) defines subsequent package cleanup, its prohibition on new tasks and
-application callbacks, and runtime retirement. `os.Exit` ends the program at once, from any task,
-running no task or package cleanup. If the task that runs `main` calls `rt.ExitTask`, `main` does not return: the
+**Program exit.** When `main` returns, the program ends; tasks still running are not waited for and their
+owners are not dropped. Package cleanup runs only when no other application task is running (section
+15.4, Program execution, which also defines its prohibition on new tasks and application callbacks, and
+runtime retirement). The deadlock rule above still applies. `os.Exit` ends the program at once, from any
+task, running no task or package cleanup. If the task that runs `main` calls `rt.ExitTask`, `main` does not return: the
 other tasks go on, and once none is left, or all wait for good, the program stops with a fatal error and
 status 2 (section 17.3, Ending a task with `rt.ExitTask`).
 
@@ -637,9 +633,9 @@ in another. In brief:
   `Once`. A `sync.Cond`'s `Wait` unlocks its lock and locks it again before it returns, so it synchronizes
   through that lock as `Lock` and `Unlock` do, and a `Signal` or `Broadcast` that wakes a `Wait` happens
   before that `Wait` returns. The return of a scoped task happens before the return of the `Wait` or drop that joins it.
-  At normal termination all application task/callback operations, required cleanup and retirement
-  callbacks happen before package cleanup begins. This supplies visibility across processors, without
-  programmer fences or annotations, and is not an ordinary running-program join.
+  When package cleanup runs (section 15.4), every operation of every finished application task and
+  callback happens before it begins. This supplies visibility across processors, without programmer
+  fences or annotations, and is not an ordinary running-program join.
   `pluto/sync/atomic` operations are sequentially consistent.
 - **Safe code has no data races** (section 19.3). The race rules use locks, atomics, moves and scoped
   joins to prove it, not the order that channels and `WaitGroup` give to plain data.

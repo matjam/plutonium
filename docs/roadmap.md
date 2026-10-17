@@ -48,6 +48,34 @@ against the corrected specification. The immediate implementation order is:
      validation where needed, preserving owner pointer receivers and ordinary nonowner
      value receivers. Source inspection establishes a missing local guard, not a
      demonstrated native wrong-code result.
+104. **`strings.Slice`, `strings.SliceFrom` and E2019** (planned; decision D9; sections 7.3, 11.12,
+     17.1, F.6). A slice expression on a string is the compile error E2019
+     (`StringSliceNotPermitted`, `pspec("11.12", "Slice expressions")`) with a fix that spells the
+     `strings.Slice` or `strings.SliceFrom` call. `lib/pluto/strings` declares `Slice[S ~string]` and
+     `SliceFrom`; `internal/lower` lowers both inline from the string-slice code of `strops.go`
+     (bounds check, boundary check behind the `nonASCII` flag, shared buffer and count);
+     `internal/opt/runebounds.go` applies to the intrinsic. Rewrite every `s[i:j]` on a string in `lib/`,
+     the examples and the Plutonium test programs; update the panic message to name
+     `strings.Truncate` and `utf8.RuneStartBefore`; add the `tools/go2pu` rewrite table. Tests: E2019 for
+     typed, untyped, constant and named string operands, panics for both bounds, no panic for
+     `Index`-derived cuts, no call in the SSA of a simple use. Includes item 74.
+105. **Normal termination follows Go** (planned; decision D10; sections 12.12, 14.5, 15.4, 19.1, 19.7;
+     abi.md 12.10; memory-model.md 3.9; debug-allocator.md Leaks). After `main` returns, one scheduler
+     transition closes admission and counts running application tasks and in-flight callbacks (`lib/pluto/rt`
+     `sched.p`, `join.p`, `rt_linux.p` `mainOnStack`). With none: cancel pending application timer
+     callbacks, retire ended tasks, run package cleanup and leak accounting. Otherwise exit with `main`'s
+     status, with no package cleanup; `lib/pluto/alloc/debug` prints the running-task count and skips the
+     report. Remove the drain loop. Freestanding entry returns to the program's entry point on the abandon
+     path; custom scheduler backends implement the count-and-close transition. Tests: the "forever task
+     keeps the program alive" case becomes "program exits with `main`'s status, no package cleanup"; the
+     joined-task cases keep their cleanup and leak assertions; Go-oracle programs that start a task and
+     return from `main`.
+106. **`errors.New` has a fresh identity** (planned; decision D11; sections 15.2, 16.2, 16.3, 17.1, F.4).
+     `internal/lower/errorsnew.go` emits a type descriptor with a constant `Error` method and a static
+     `uint64` counter for each call site, and lowers each call to an atomic fetch-add, an exhaustion
+     panic and an interface value (site type, count). `fmt` `%T` prints `*errors.errorString`. Update the
+     catalog `Why` texts of E2008 and E2542; find library code and tests that assert `*errors.Text` on an
+     `errors.New` result. Tests: two results of one site compare unequal, copies equal, a Go-oracle program.
 
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a
 literal zero bound. Existing virtual-reservation fallback and overflow handling are
@@ -93,6 +121,9 @@ The implementation gaps of
 | 35 | Outstanding aliases across owner transfer (audit pending) | 102 | 8.8, 19.3 |
 | 36 | Nonconsuming owner indexing/length receivers (planned) | 103 | 11.11, 13.6 |
 | 37 | Bounded task-stack inference (planned) | 18 | 19.1 |
+| 38 | A string is cut with `strings.Slice`, E2019 (planned, D9) | 104, 74 | 7.3, 11.12, F.6 |
+| 39 | Normal termination follows Go (planned, D10) | 105 | 15.4, 19.1 |
+| 40 | `errors.New` has a fresh identity (planned, D11) | 106 | 16.3 |
 
 The pass that aligned the documents with the chapters found six more, items 93 to 98; they are rows 25 to
 30 of complete-spec section 6.5. Row 31, item 99, is the `or` clause, decided later the same day. Row 32,
@@ -504,6 +535,7 @@ compiler (2026-10-11).
     parsers return counted `strconv.NumError` objects. Successful operations do not allocate an error.
     `io.EOF` and `os.ErrClosed` keep their sentinel identity. `flag` uses `errors.Is` to classify wrapped
     numeric range failures; file and parse context, counted lifetimes and allocation counts are tested.
-74. **`strings.Truncate` and `utf8.RuneStartBefore`** (planned; section 18.8): `Truncate(s, n)` returns the
-    longest prefix of at most `n` bytes that ends on a rune boundary, and `RuneStartBefore(s, i)` rounds a
-    byte offset down to the start of a rune. The panic for `s[i:j]` off a rune boundary names them.
+74. **`strings.Truncate` and `utf8.RuneStartBefore`** (planned, neither is in `lib/pluto` yet; sections
+    7.3 and F.6): `Truncate(s, n)` returns the longest prefix of at most `n` bytes that ends on a rune
+    boundary, and `RuneStartBefore(s, i)` rounds a byte offset down to the start of a rune. The panic of
+    `strings.Slice` off a rune boundary names them (item 104).

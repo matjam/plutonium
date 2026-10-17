@@ -262,7 +262,7 @@ fmt.Println(m2["foo"]) // prints 42
 
 **Drops.** A place that holds an owner drops its old value before the new value is moved in, then holds the new value. This holds for variables, fields, elements and targets of pointers: `c.buf = b` frees the buffer that `c.buf` held, and `*p = v` and `s[i] = v` drop the old contents. For a container, `x[k] = v` moves `v` into the container, and `SetIndex` drops the value it replaces (section 11.11, Indexing library containers). A variable that was moved and is assigned again holds nothing, so there is no old value to drop.
 
-For a string or another counted value, the new value takes its reference first, and then the old value is released, so that `s = s[1:]` and `a, b = b, a` are safe.
+For a string or another counted value, the new value takes its reference first, and then the old value is released, so that `s = strings.SliceFrom(s, 1)` and `a, b = b, a` are safe.
 
 `x = f(x)` moves `x` into the call and assigns the result back. The assignment to `x` is not a use of the old value (section 11.14, Calls).
 
@@ -784,8 +784,7 @@ task func(ch chan<- bool) {
 
 The expression must be a function or method call. It cannot be parenthesized. Calls of built-in functions are restricted as for expression statements, and a `task` statement cannot start a built-in function such as `println` or `close` directly (E2591). Wrap it in a function and start that.
 
-The function value and arguments are evaluated as usual in the starting task (section 11.26, Order of evaluation), but unlike with a regular call, program execution does not wait for the invoked function to complete. Instead, the function begins executing independently in a new task. When the function terminates, its task also terminates. If the function has any return values, they are discarded when the function completes, which drops those that hold owners or counted values. Normal termination after `main` returns waits for all remaining application tasks and callbacks,
-including their cleanup and retirement (section 15.4, Program execution).
+The function value and arguments are evaluated as usual in the starting task (section 11.26, Order of evaluation), but unlike with a regular call, program execution does not wait for the invoked function to complete. Instead, the function begins executing independently in a new task. When the function terminates, its task also terminates. If the function has any return values, they are discarded when the function completes, which drops those that hold owners or counted values. When `main` returns, tasks that are still running are not waited for (section 15.4, Program execution).
 
 **Arguments.** Each argument is copied into the new task when the statement runs, as an argument is assigned to a parameter (section 11.14, Calls).
 
@@ -808,8 +807,8 @@ including their cleanup and retirement (section 15.4, Program execution).
 
 **The new task.** Section 19.1 (Tasks) defines the state a new task starts in: its own fixed-size stack, the program-wide default allocator rather than the override that the starting task installed with `alloc.Use`, preemption enabled, and parallel execution with the other tasks. A panic in it follows the rules of section 17.1 (Panics).
 
-**Scoped tasks.** A `task` statement provides no lexical join in its starting function. Normal
-termination still drains it under section 15.4. The tasks that share the starting function's variables are started with the `Task` method of a `sync.Scope`, `s.Task(f)`, which joins them before the scope ends (section 19.4, Scoped tasks). In an interrupt handler or a panic handler a `task` statement is an error (E2585) (section 20.10, Interrupts).
+**Scoped tasks.** A `task` statement provides no lexical join in its starting function. If `main` returns while the task is
+running, the program ends without waiting for it (section 15.4). The tasks that share the starting function's variables are started with the `Task` method of a `sync.Scope`, `s.Task(f)`, which joins them before the scope ends (section 19.4, Scoped tasks). In an interrupt handler or a panic handler a `task` statement is an error (E2585) (section 20.10, Interrupts).
 
 ### 12.13 Select statements
 

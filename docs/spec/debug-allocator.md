@@ -198,14 +198,16 @@ reported as leaks. The usual causes are:
   `alloc.Free` or gave to an owner (section 18.10);
 - a custom owner whose Drop does not release the resources it is responsible for.
 
-At normal exit, hosted builds first complete the task/callback drain and package cleanup specified by
-section 15.4, then release reclaimable runtime resources before final allocation accounting. This is
-not a bounded observational settle: live application work keeps normal shutdown waiting, and deadlock
-remains fatal. Owners and counted values released by main, other tasks or package cleanup no longer
+When `main` returns and no other task is running, hosted builds first complete the retirement of ended
+tasks and the package cleanup specified by section 15.4, then release reclaimable runtime resources
+before final allocation accounting. This is not a bounded observational settle. When tasks are still
+running, the allocator prints one line that names how many and skips the report, because the allocations
+those tasks hold are live, not leaked; the exit status does not change. Owners and counted values
+released by main, other tasks or package cleanup no longer
 appear. The report checks the canaries and poison of every retained block and lists allocations still
 live. Package-held allocations are not a separate exempt category.
 
-Explicit `os.Exit` is abrupt: it performs no task drain or package cleanup. Its debug exit hook may
+Explicit `os.Exit` is abrupt: it performs no task retirement or package cleanup. Its debug exit hook may
 perform the existing bounded observational settle (`rt.SettleTasks`) and report, which cannot promise
 that application resources have been released. Panics and faults skip the report. Neither path is
 normal termination. Private permanent runtime metadata has its own runtime lifetime; it is accounted

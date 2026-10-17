@@ -40,8 +40,8 @@ outlives the function.** That storage is one of the following.
 
 | Storage | Used for | Example |
 |---|---|---|
-| the interface's data word | error codes, and structs wrapping one pointer (section 7.9) | `syscall.Errno`, a kernel's own code type, `struct{ d *detail }` |
-| static storage | sentinel errors and fixed messages | `var ErrNotFound = errors.New("not found")`, `return errors.New("bad header")` |
+| the interface's data word | error codes, structs wrapping one pointer (section 7.9), and `errors.New` results (a per-site type that holds a counter) | `syscall.Errno`, a kernel's own code type, `struct{ d *detail }`, `return errors.New("bad header")` |
+| static storage | sentinel errors and fixed messages | `var ErrClosed = &errors.Text{Msg: "file already closed"}` |
 | a field of a longer-lived object | errors with context that belong to an owner | a parser that returns `&p.err`, `fmt.ErrorBuf` |
 | a counted object | errors with context that travel up the stack | `fmt.Errorf`, `errors.Join`, `*os.PathError`, `*strconv.NumError` |
 
@@ -91,16 +91,29 @@ func main() {
 ```
 
 The argument `text` must be a constant. Any other argument is a compile error (E2008) that points to
-`fmt.Errorf`. Each call evaluates to the address of a static, read-only `errors.Text{Msg: text}` that
-belongs to the call site. So `errors.New` never allocates and never runs out of memory, and it works
-before an allocator exists.
+`fmt.Errorf`. Each call site has its own error type, made when compiling, and its own counter in static
+storage. Each evaluation of the call adds one to the counter and returns an error whose dynamic type is
+the site's type and whose data word holds the new counter value. The type's `Error` method returns
+`text`. So `errors.New` never allocates and never runs out of memory, and it works before an allocator
+exists, in interrupt context and in every build mode.
 
-- The same call site always returns the same error, however often it runs and in every instance of a
-  generic function.
-- Different call sites return different errors, even with equal messages, so two packages' sentinels
-  never compare equal.
-- Since its result belongs to a call site, `errors.New` must be called directly. Taking its value
+- Each evaluation returns a new error, as in Go. Two results of one call site have the same type and
+  different counter values, so they are not equal. A copy of a result is equal to it.
+- Different call sites have different types, even with equal messages, so two packages' sentinels never
+  compare equal.
+- A package-level `var ErrX = errors.New("x")` is evaluated once, so it is one error for the whole
+  program, as in Go.
+- A counter that has reached its maximum (2^64 - 1 evaluations of one site) panics at the next
+  evaluation (section 17.1, Panics). It never wraps to a value that would make two errors equal.
+- Since each call site has its own type, `errors.New` must be called directly. Taking its value
   (`f := errors.New`) or deferring it is a compile error (E2542).
+
+```go
+e1, e2 := parseHeader(nil), parseHeader(nil)
+println(e1 == e2) // false, as in Go
+e3 := e1
+println(e1 == e3) // true, as in Go
+```
 
 A sentinel may also be written as a static literal, `var ErrClosed = &errors.Text{Msg: "file already
 closed"}`.

@@ -2,7 +2,7 @@
 
 Plutonium has no garbage collector. Memory has a defined lifetime-management responsibility: frame
 or static storage, an owner, counted references or an arena. This does not promise eventual reclamation:
-strong cycles, nontermination and abrupt exit can retain resources. This chapter defines how memory is
+strong cycles, nontermination, abrupt exit and a `main` that returns while tasks run can retain resources. This chapter defines how memory is
 classified, where variables live, how long a view of memory may be used, how owners move and are
 dropped, how shared ownership is counted, where allocations come from, which uses of memory are checked
 at run time, and which code the compiler does not check.
@@ -323,14 +323,15 @@ the end of each iteration for a variable declared in a loop body. In detail:
   calls and drops what it holds (section 17.3, Ending a task with `rt.ExitTask`).
 - A panic drops nothing. In hosted builds the panicking task's deferred calls run first (section 17.2,
   Deferred calls on a panic), but no owner is dropped and no frame is reclaimed. `os.Exit` drops nothing.
-- At normal program termination, after all tasks and application callbacks finish, package owners and
+- When `main` returns and no other task is running, package owners and
   counted references are released in reverse initialization order (section 15.4, Program execution).
   Cleanup runs in place and leaves the place zero. Static storage remains live, but a place whose
   cleanup has finished cannot be written through typed operations during shutdown, including through
   an alias, a zero assignment, `take` or `clear`. This protects scalar fields of a cleaned owner too.
   Each field or element becomes subject to that rule when its own cleanup finishes.
   Runtime services remain available until their clients' releases complete. Panic and `os.Exit` do not
-  acquire this normal-termination cleanup.
+  acquire this normal-termination cleanup, and neither does a program whose `main` returns while another
+  task is running.
 
 **Assigning to a place that holds an owner** evaluates the new value, drops the old one, then moves the
 new one in: `c.buf = b` frees the buffer `c.buf` held before. The same holds through a view: `*p = v` and
@@ -476,7 +477,7 @@ string's bytes while a copy can still reach them.
 - Copying a string adds one to the count. Dropping a copy subtracts one, and the last drop frees the
   buffer to the allocator recorded in its header. The count is plain or atomic by the rule of section 18.7
   (Shared ownership, When counts are atomic).
-- A substring `s[i:j]` shares `s`'s buffer and keeps it alive.
+- A substring made by `strings.Slice` or `strings.SliceFrom` shares `s`'s buffer and keeps it alive.
 - String literals, constants and every other string the compiler places in static storage are never
   counted: copying or dropping one costs nothing. The zero string is static.
 - A string made with `unsafe.String(p, n)` is not counted. It is a view of the memory at `p`, which must
@@ -492,7 +493,7 @@ Drops):
 - at the end of a variable's scope, on every path out of it, and at the end of each iteration for a
   variable declared in a loop body;
 - when a place is overwritten: the new value takes its references first, then the old one is released,
-  so `s = s[1:]` and `a, b = b, a` are safe;
+  so `s = strings.SliceFrom(s, 1)` and `a, b = b, a` are safe;
 - for a temporary, at the end of the statement that made it; in the condition or post statement of a
   three-clause `for`, after each evaluation;
 - for storage that belongs to the frame but outlives a statement (an interface copy, the object of

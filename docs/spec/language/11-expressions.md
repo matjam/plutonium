@@ -664,17 +664,17 @@ Count(&counts, words)
 
 ### 11.12 Slice expressions
 
-Slice expressions construct a substring or slice from a string, array, pointer to array or slice operand. There are two variants: a simple form that specifies a low and high bound, and a full form that also specifies a bound on the capacity.
+Slice expressions construct a slice from an array, pointer to array or slice operand. A string is not sliced with this syntax (see below). There are two variants: a simple form that specifies a low and high bound, and a full form that also specifies a bound on the capacity.
 
 If the operand type is a type parameter, unless its type set contains string types, all types in the type set must have the same underlying type, and the slice expression must be valid for an operand of that type. If the type set contains string types it may also contain byte slices with underlying type `[]byte`. In this case, the slice expression must be valid for an operand of string type.
 
-**Simple slice expressions.** For a string, array, pointer to array or slice `a`, the primary expression
+**Simple slice expressions.** For an array, pointer to array or slice `a`, the primary expression
 
 ```go
 a[low : high]
 ```
 
-constructs a substring or slice. The indices `low` and `high` select which elements of operand `a` appear in the result. The result has indices starting at 0 and length equal to `high - low`. After slicing the array `a`
+constructs a slice. The indices `low` and `high` select which elements of operand `a` appear in the result. The result has indices starting at 0 and length equal to `high - low`. After slicing the array `a`
 
 ```go
 a := [5]int{1, 2, 3, 4, 5}
@@ -699,9 +699,11 @@ a[:]  // same as a[0 : len(a)]
 
 If `a` is a pointer to an array, `a[low : high]` is shorthand for `(*a)[low : high]`.
 
-For arrays or strings, the indices are in range if `0 <= low <= high <= len(a)`, otherwise they are out of range. For slices, the upper index bound is the slice capacity `cap(a)` rather than the length. A constant index must be non-negative and representable by a value of type `int`. For arrays or constant strings, constant indices must also be in range. If both indices are constant, they must satisfy `low <= high`. If the indices are out of range at run time, a run-time panic occurs.
+If the operand is of string type (typed or untyped, constant or not), the expression is a compile error (E2019) that names `strings.Slice` and `strings.SliceFrom` (section 7.3, String types). A string holds valid UTF-8, so a cut must fall between runes, and those functions check it.
 
-Except for untyped strings, if the sliced operand is a string or slice, the result of the slice operation is a non-constant value of the same type as the operand. For untyped string operands the result is a non-constant value of type `string`. If the sliced operand is an array, it must be addressable, and the result of the slice operation is a slice with the same element type as the array.
+For arrays, the indices are in range if `0 <= low <= high <= len(a)`, otherwise they are out of range. For slices, the upper index bound is the slice capacity `cap(a)` rather than the length. A constant index must be non-negative and representable by a value of type `int`. For arrays, constant indices must also be in range. If both indices are constant, they must satisfy `low <= high`. If the indices are out of range at run time, a run-time panic occurs.
+
+If the sliced operand is a slice, the result of the slice operation is a non-constant value of the same type as the operand. If the sliced operand is an array, it must be addressable, and the result of the slice operation is a slice with the same element type as the array.
 
 If the sliced operand of a valid slice expression is a nil slice, the result is a nil slice. Otherwise, if the result is a slice, it shares its underlying array with the operand.
 
@@ -715,9 +717,9 @@ var s []int
 s3 := s[:0] // s3 == nil
 ```
 
-**Slices are views.** A slice that a slice expression makes is a view (section 18.3, Views) of the array it shares. If the array is a local variable, the slice is a view of the frame. A slice of a string shares the string's buffer and keeps it alive, as a copy of the string does (section 18.8, Strings). A slice of an array of owners is a view of the owners and does not own them.
+**Slices are views.** A slice that a slice expression makes is a view (section 18.3, Views) of the array it shares. If the array is a local variable, the slice is a view of the frame. A slice of an array of owners is a view of the owners and does not own them.
 
-**Full slice expressions.** For an array, pointer to array or slice `a` (but not a string), the primary expression
+**Full slice expressions.** For an array, pointer to array or slice `a`, the primary expression
 
 ```go
 a[low : high : max]
@@ -740,24 +742,6 @@ t[1] == 3
 As for simple slice expressions, if `a` is a pointer to an array, `a[low : high : max]` is shorthand for `(*a)[low : high : max]`. If the sliced operand is an array, it must be addressable.
 
 The indices are in range if `0 <= low <= high <= max <= cap(a)`, otherwise they are out of range. A constant index must be non-negative and representable by a value of type `int`. For arrays, constant indices must also be in range. If multiple indices are constant, the constants that are present must be in range relative to each other. If the indices are out of range at run time, a run-time panic occurs.
-
-**Strings slice on rune boundaries.** Every string holds valid UTF-8 (section 7.3, String types). A string is therefore sliced only between runes. A byte offset `k` of a string `s` is a **rune boundary** if `k` is 0, if `k` is `len(s)`, or if the byte `s[k]` is not a UTF-8 continuation byte (a byte of the form `10xxxxxx`). In `s[low : high]`, both `low` and `high` must be rune boundaries of `s`. If either is not, a run-time panic occurs (section 17.1, Panics). The message names the offset and the helper function to use, for example:
-
-```
-panic: slice bound 2 is not at the start of a rune: a string holds valid UTF-8, so it can only be sliced between runes (use strings.Truncate to cut at a byte count)
-```
-
-If `s` and both indices are constant, the check is made when compiling and a failure is an error. An ASCII string has a rune boundary at every offset, so slicing it never panics for this reason. The check is part of the meaning of the expression. An implementation may leave it out only where the bound is known to be a rune boundary.
-
-This is the one documented exception to the no-false-friends rule (section 1.2, Design rules; appendix A, section A.5). The standard library provides the fix. `strings.Truncate(s string, n int) string` returns the longest prefix of `s` of at most `n` bytes that ends on a rune boundary, and `utf8.RuneStartBefore(s string, i int) int` returns the greatest rune boundary of `s` that is at most `i`:
-
-```go
-if len(title) > 40 {
-	title = strings.Truncate(title, 40) + "..." // never splits a rune
-}
-```
-
-A string made with `unsafe.String` (section 20.1, Package `unsafe`) may hold bytes that are not valid UTF-8. Slicing such a string uses the same boundary rule on its bytes.
 
 ### 11.13 Type assertions
 
@@ -829,7 +813,7 @@ In a function call, the function value and the arguments are evaluated in the or
 
 ```go
 func Split(s string, pos int) (string, string) {
-	return s[0:pos], s[pos:]
+	return strings.Slice(s, 0, pos), strings.SliceFrom(s, pos)
 }
 
 func Join(s, t string) string {

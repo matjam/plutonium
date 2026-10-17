@@ -196,7 +196,7 @@ A comment that is only a note starts with `// ` (a slash pair and a space), and 
 body it cannot see, hardware state, a binding to the runtime, a promise it must take on trust, or an
 explicit request from the programmer. Anything the compiler can work out from the program is inferred,
 and has no directive. The compiler infers which functions never return, which may wait, which start
-tasks with their func arguments, which string slices fall on rune boundaries, which pointers a function
+tasks with their func arguments, which pointers a function
 keeps, which lock guards which data, what a closure may reference and what each owner moves. A language
 that needed a directive for such a fact would require every programmer to know how the compiler works. The
 set of directives below is complete: an implementation defines no others.

@@ -139,17 +139,17 @@ constant. A string's bytes can be accessed by integer indices 0 through `len(s)-
 `byte`. It is illegal to take the address of such an element: if `s[i]` is the i'th byte of a string, `&s[i]`
 is invalid. A `range` clause over a string yields runes (section 12.10, For statements).
 
-**Slicing on rune boundaries.** A slice expression `s[i:j]` on a string must start and end on a rune boundary:
-`i` and `j` must each be the index of the first byte of an encoded rune, or equal to `len(s)`. Otherwise the
-expression panics (section 11.12, Slice expressions). This keeps every substring valid UTF-8, which is the
-invariant above. It is the one documented exception to the no-false-friends rule (section 1.2, Design
-rules; appendix A, section A.5). To cut a string at a byte count without splitting a rune, use
-`strings.Truncate(s, n)`, or `utf8.RuneStartBefore(s, i)` to find the boundary at or before byte `i`. The
-panic message names these functions.
+**Taking a substring.** A slice expression on a string is a compile error (E2019, section 11.12, Slice
+expressions). `strings.Slice(s, i, j)` and `strings.SliceFrom(s, i)` take a substring. Each bound must be a
+**rune boundary**: `0`, `len(s)`, or the offset of a byte that is not a UTF-8 continuation byte (a byte of the
+form `10xxxxxx`). A bound that is not one panics (section 17.1, Panics). This keeps every substring valid
+UTF-8, which is the invariant above. `strings.Truncate(s, n)` and `utf8.RuneStartBefore(s, i)` find the
+boundary at or before a byte count. An offset returned by `strings.Index` and the other search functions
+is always a rune boundary, and so is the offset just after a match.
 
 **Counted values.** A string made at run time refers to a **buffer** with a count of the string values that
 use it. Copying a string adds one to the count, and dropping a copy subtracts one; the last one frees the
-buffer. A substring `s[i:j]` shares the buffer of `s`. Strings made from
+buffer. A substring made by `strings.Slice` shares the buffer of `s`. Strings made from
 literals and constants are static: they have no buffer and are never counted. The counting is automatic and a
 string copies as freely as an integer; its kind is counted (section 8.7). Section 18.8 (Strings) gives the
 rules for when counts change and what the compiler may leave out.

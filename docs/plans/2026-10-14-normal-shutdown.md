@@ -2,6 +2,17 @@
 
 Status: normative amendment reviewed and implementation native verified, 2026-10-14. D6 approves
 normal-exit resource cleanup and waiting for all tasks to finish naturally.
+
+**Superseded in part, 2026-10-17 (decision D10).** The wait for tasks is removed: when `main` returns
+the program ends as in Go, and package cleanup and the leak report run only when no other application
+task is running (sections 12.12, 14.5, 15.4, 19.1 and 19.7; abi.md 12.10; memory-model.md 3.9;
+debug-allocator.md, Leaks). The "Approved task policy" below and every step of the finite sequence that
+drains running tasks no longer apply; the plan of
+[2026-10-17-no-false-friends-exceptions.md](2026-10-17-no-false-friends-exceptions.md) part 2 replaces
+them. Still in force: package cleanup in reverse initialization order, in-place drops, protection of
+completed static places, mandatory cleanup across `ExitTask`, the retirement of ended tasks, and the
+distinction from `os.Exit`.
+
 Sections 15.4, 18.6 and 19.1, ABI section 12.10 and the debug allocator exit rules
 are amended together. Native source gates and the tracked-source archive pass.
 See the [verification record](../verification/2026-10-14-normal-shutdown.md).

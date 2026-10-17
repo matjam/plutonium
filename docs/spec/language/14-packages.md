@@ -219,7 +219,6 @@ func main() {
 ```
 
 Returning from `sieve` closes `done`. Each worker can then stop even if its next send would block,
-and closes its own output. After `main` returns, normal termination waits for all these tasks and
-their retirement to finish before package cleanup (section 15.4). It does not cancel tasks itself.
+and closes its own output. When `main` returns, the program ends; workers still blocked are not waited for (section 15.4).
 
 Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

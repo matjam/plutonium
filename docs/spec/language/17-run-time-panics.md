@@ -28,10 +28,8 @@ A panic in a task other than the one that runs `main` names the task: the built-
 
 - An index expression out of range on an array, a slice or a string (section 11.10, Index expressions).
 - A slice expression whose bounds are out of range (section 11.12, Slice expressions).
-- A slice expression on a string with a bound that is not at the start of a rune. A string holds valid
-  UTF-8 and can be sliced only between runes. This is the one documented exception to the no-false-friends
-  rule (section 1.2, Design rules; appendix A, section A.5). The standard library provides
-  `strings.Truncate` and `utf8.RuneStartBefore` for cutting at a rune boundary, and the message names them.
+- `strings.Slice` or `strings.SliceFrom` with a bound that is not a rune boundary (section 7.3, String
+  types). The message names `strings.Truncate` and `utf8.RuneStartBefore`.
 - A conversion of a slice to an array type with a different length (section 11.24, Conversions).
 
 *Arithmetic.*
@@ -51,6 +49,7 @@ dependent value and neither panics nor faults (section 11.24).
   is not a member, when the switch has no `default` case (section 12.9, Switch statements). Only unsafe
   code, raw bits converted to a packed type, or generic code working on the underlying integer can make
   such a value.
+- Exhausting the counter of an `errors.New` call site (section 16.3).
 - A comparison of two interface values that have identical dynamic types that are not comparable, and
   the use of such a value as a map key (section 8.10, Comparable types).
 - An assignment to an entry of a nil map.

@@ -105,8 +105,8 @@ This holds for the task statement (language spec section 12.12), for `rt.Go`, fo
 `sync.Scope` and `wg.Task` on a `sync.WaitGroup`, and for the start of a `time.AfterFunc` function.
 
 Task end alone creates no ordinary join for another running task. Programs use a channel, lock,
-`sync.WaitGroup` or `sync.Scope`. Section 3.9 also defines the normal-termination boundary: all
-application task/callback operations and required cleanup/retirement happen before package cleanup.
+`sync.WaitGroup` or `sync.Scope`. Section 3.9 also defines the normal-termination boundary: when package cleanup
+runs, the operations of every finished application task and callback happen before it.
 
 ### 3.3 Channels
 
@@ -276,10 +276,11 @@ starting function observes every write of its scoped tasks after the join.
 A panic reclaims no frame: the panicking task's stack is not reused while the program runs, so scoped
 tasks still running use valid memory until the program ends (language spec section 19.4).
 
-**Normal termination.** After main's ordinary return cleanup, the runtime drains application tasks and
-scheduled application callbacks, including descendants and retirement callbacks. All their operations,
-mandatory cleanup and stack/task-record releases are synchronized before package cleanup begins
-(language spec sections 15.4 and 19.1). Backend completion publication and observation supply the
+**Normal termination.** After main's ordinary return cleanup, the runtime closes admission and checks
+whether any application task is running or any application callback is in flight. If none is, package
+cleanup runs, and all the operations of every finished task and callback, their mandatory cleanup and their
+stack/task-record releases are synchronized before it begins (language spec sections 15.4 and 19.1). If
+one is, the program ends at once and nothing is synchronized with it, as with `os.Exit`. Backend completion publication and observation supply the
 required cross-processor visibility, through release/acquire or equivalent synchronization. No
 programmer annotation or fence is required. Explicit cancellation counts as completion only after
 saved arguments/captures and registrations are retired. This boundary is not an implicit join during

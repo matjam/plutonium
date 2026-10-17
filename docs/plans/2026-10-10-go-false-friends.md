@@ -4,6 +4,11 @@
 **Status:** audit and proposals. Nothing here is implemented. Section 5 lists the decisions that need
 sign-off. (This line is out of date; see the Status block below.)
 
+> **Update (2026-10-17):** decisions F12 (keep the string-slicing panic) and F19 (keep static `errors.New`
+> identity) are reversed by decisions D9 and D11 of docs/decisions.md; the specification now has no
+> exceptions to the no-false-friends rule (sections 1.2 and A.5). See
+> [2026-10-17-no-false-friends-exceptions.md](2026-10-17-no-false-friends-exceptions.md).
+>
 > **Status (2026-10-10): partly implemented.** Every decision of section 5 was taken, and each except the
 > per-map seed (F17) is now a rule of the specification; the no-false-friends rule itself is section 1.2, and appendix A lists every
 > difference from Go that the audit found. Most are implemented. What the compiler still lacks is in

@@ -141,7 +141,7 @@ allocator that was current when the string was made:
 | 8 | `a Allocator` | the allocator the buffer came from (an interface, two words) |
 | 24 | `size uintptr` | the allocation's size, the header included |
 
-Substrings share the header: `s[i:j]` keeps `ctl` and moves `ptr`. Copying a counted string adds one to
+Substrings share the header: `strings.Slice(s, i, j)` keeps `ctl` and moves `ptr`. Copying a counted string adds one to
 `count` and dropping it subtracts one (`pluto/rt.strRetain` and `strRelease`, expanded inline); the
 release that reaches zero frees the allocation to `a`. The count is updated with plain arithmetic until
 `rt.SetThreaded` runs (when the program starts its first task or thread), and with `lock xadd`
@@ -1502,20 +1502,29 @@ builds never need the call: `rt.ExitTask` and `testing`'s `FailNow` leave frames
 return paths, so each drop joins (language spec section 17.3), and a hosted panic runs deferred calls (not
 drops) and then ends the process, so no frame is reclaimed while tasks run.
 
-**Normal termination.** After `pluto.main` returns normally, the runtime waits for all application tasks
-and scheduled application callbacks to finish or be explicitly canceled by the program's existing APIs.
-Draining does not cancel them. Cancellation retires saved arguments/captures and backend registrations
-before completion is observed. Tasks may start descendants during that
-wait. An application task is not retired until its frame cleanup, stack release, task-record release and
-their allocator callbacks complete. A backend must report that completion after those obligations,
-not at `joinExit`. Completion publication must establish release/acquire ordering, or an equivalent
-synchronization, so all task/callback operations, mandatory cleanup, stack/task-record releases and
-their allocator callbacks happen before package cleanup begins, across every processor. A backend
-cannot satisfy this by observing a count without the required visibility (memory-model.md section 3.9).
-In-flight application callbacks must also finish; pending application timer callbacks
-count as work, while internal service timers and timers that only deliver channel values do not.
-The transition to package cleanup atomically closes task and application-callback admission. A failed
-start retains the caller's provisional argument ownership. Deadlock detection remains active.
+**Normal termination.** After `pluto.main` returns normally and its own cleanup is complete, the runtime
+makes one transition (language spec section 15.4, When `main` returns): it closes admission of tasks and
+application callbacks and observes whether any other application task is still running (started and not
+yet finished with its function's deferred calls and drops) or any application callback is in flight. A
+failed start retains the caller's provisional argument ownership. The runtime does not wait for a task
+that is running.
+
+- If none is running, pending application timer callbacks are canceled as `Stop` cancels them, which
+  retires their saved arguments/captures and backend registrations. Internal service timers and timers
+  that only deliver channel values are not application callbacks. The rest of this section applies:
+  package cleanup, then final accounting.
+- Otherwise the runtime ends the program at once with `main`'s status, as `os.Exit` does, after `main`'s
+  own cleanup. No package cleanup runs, and no owner held by the remaining tasks is dropped. The debug
+  allocator is told how many tasks are running (`debug-allocator.md`).
+
+An application task that has ended is not retired until its frame cleanup, stack release, task-record
+release and their allocator callbacks complete. The runtime waits for that retirement of ended tasks, which
+is bounded runtime work, before package cleanup. A backend must report this completion after those
+obligations, not at `joinExit`. Completion publication must establish release/acquire ordering, or an
+equivalent synchronization, so all operations of every finished task and callback, mandatory cleanup,
+stack/task-record releases and their allocator callbacks happen before package cleanup begins, across
+every processor. A backend cannot satisfy this by observing a count without the required visibility
+(memory-model.md section 3.9). Deadlock detection remains active until the program ends.
 
 The compiler supplies cleanup for named package variables in reverse actual initialization order,
 including zero-initialized variables and hidden static owning/counting objects (language spec section
@@ -1552,10 +1561,10 @@ of every last release of a `shared` or `synced` object (before its drop, until i
 counts the drops a task is inside, and a global count the tasks that are inside one once tasks have
 started (`rt.taskMain` uncounts a task that leaves one with `rt.ExitTask`). This bookkeeping does not
 substitute for full task retirement at normal termination. The main task may park with the reason
-`exit` (`rt.WaitExit`) while draining tasks; a program without tasks carries no scheduler solely for
-shutdown. `os.Exit` and `rt.Exit` do not perform that drain or package cleanup.
+`exit` (`rt.WaitExit`) while ended tasks complete their retirement; a program without tasks carries no
+scheduler solely for shutdown. `os.Exit` and `rt.Exit` do not perform that retirement or package cleanup.
 A `sync.Scope` that moves while tasks it started may run stops the program (`rt.joinMoved`, which the
 compiler calls before any move of a value that holds a `Scope`).
 
 Wait reasons in a deadlock trace: `sync.Scope.Wait` for a task parked in `Wait` or a drop, and `exit` for
-`main` waiting for normal termination.
+`main` waiting for ended tasks to retire at normal termination.

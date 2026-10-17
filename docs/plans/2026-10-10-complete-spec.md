@@ -1539,6 +1539,9 @@ unverified proof boundaries are distinguished; none is closed by old suite passe
 | 35 | Outstanding aliases across owner-field transfer to a task: concrete proof boundary awaiting accepted/rejected witnesses, not a demonstrated exploit. | 8.8, 19.3 | 102 |
 | 36 | Nonconsuming owner Index/IndexOk/SetIndex/Len receivers: visible validators lack the restriction; whole-pipeline negative still to verify. | 11.11, 13.6 | 103 |
 | 37 | Bounded task-stack inference remains absent: task lowering passes zero for the proven bound. Runtime fallback support does not compute it. | 19.1 | 18 |
+| 38 | A slice expression on a string is the compile error E2019; `strings.Slice` and `strings.SliceFrom` take a substring (decision D9). Planned. | 7.3, 11.12, F.6 | 104, 74 |
+| 39 | After `main` returns the program ends as in Go; package cleanup runs only when no other task is running (decision D10). Planned. | 15.4, 19.1 | 105 |
+| 40 | Each evaluation of `errors.New` returns a new error, without allocating (decision D11). Planned. | 16.3 | 106 |
 
 Counted channels with their timers (`bdb7683`), 64 MiB lazily mapped hosted task stacks (`173c2f6`) and
 `sync.Scope` (`a7948f6`) and generation checks by default in hosted builds (`766837b`) landed before the

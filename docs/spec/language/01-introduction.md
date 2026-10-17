@@ -30,8 +30,8 @@ path of section 19.6 (Timers).
 
 The goals are:
 
-- **Read like Go, and never mislead a Go reader.** Differences are visible or explicitly disclosed
-  as the documented exceptions of section 1.2 (Design rules) and appendix A.
+- **Read like Go, and never mislead a Go reader.** Differences are visible in the source (section 1.2,
+  Design rules; appendix A).
 - **Compile like C.** There is no garbage collector, no hidden allocation and no runtime the program did
   not ask for through its operations and library dependencies.
 - **Make costs visible.** Allocating operations and APIs specify their allocation behavior and lifetime
@@ -73,12 +73,10 @@ manual that conflicts with one of them is a defect in the manual.
    Where Go's meaning depends on a garbage collector, a growing stack or hidden allocation, Plutonium
    changes the language, and Go code may need edits before it compiles.
 
-2. **No false friends.** Except for the documented differences below, where Plutonium behaves differently
-   from Go in a way a Go programmer would not expect, the difference is visible in the source: a different name, a different syntax, a different
+2. **No false friends.** Where Plutonium behaves differently from Go in a way a Go programmer would not
+   expect, the difference is visible in the source: a different name, a different syntax, a different
    type, or a compile error that explains it. Code that looks like Go and compiles does what Go would do.
-   Documented exceptions include string slicing at a non-character boundary, normal-termination task
-   waiting and static `errors.New` call-site identity. Appendix A states these observable differences;
-   section A.5 (The one documented exception) explains the string-slicing exception and points to the others.
+   Appendix A lists every difference.
 
 3. **No annotations for ordinary code.** Ordinary code needs no annotations and no knowledge of how the
    compiler works. What the compiler can work out for itself (what escapes, what moves, which functions

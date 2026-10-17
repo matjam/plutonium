@@ -209,8 +209,8 @@ func kernelMain(info *BootInfo) {
 }
 ```
 
-`errors.New` and the other forms of section 16.3 (Sentinels and `errors.New`) are static and allocate
-nothing, so sentinel errors are declared at package level in every build.
+`errors.New` and the other forms of section 16.3 (Sentinels and `errors.New`) allocate nothing and need no
+allocator, so sentinel errors are declared at package level in every build.
 
 **Panics and tasks.** A panic during initialization is a panic like any other (chapter 17, Run-time
 panics). Initialization starts no task. A `task` statement, a call of `s.Task` on a `sync.Scope` or of
@@ -262,24 +262,32 @@ the value `main` returns when it returns an `int64`. The operating system keeps 
 status, as it does for any process. A program that ends with a panic or with a fatal error (a deadlock, for
 example) exits with status 2 (section 17.1).
 
-**When `main` returns.** Normal termination first completes `main`'s ordinary return: its deferred
-calls run and its local owners and counted references are released (sections 12.19 and 18.6). It then
-waits for all remaining tasks to finish naturally, including tasks they start. There is no cancellation.
-Completion includes deferred calls, owned and counted cleanup, and retirement of task records and
-stacks, including their allocator callbacks. A running task that never finishes keeps the program alive.
-Every task/callback operation and its mandatory cleanup and retirement callbacks happen before package cleanup begins, including visibility
-across processors (section 19.7, Memory model).
-Deadlock remains a fatal error under section 19.1; waiting for termination does not suppress it.
+**When `main` returns.** The program ends as in Go: tasks that are still running are not waited for. In
+order:
 
-Scheduled application callbacks, such as `time.AfterFunc` calls, also finish or are explicitly canceled
-by the program through their existing APIs before package cleanup begins. The drain does not cancel
-them. Cancellation completion includes release of saved arguments/captures and retirement of their
-timer or backend registration. A pending callback can keep termination waiting until its timer fires. Internal
-scheduler timers and timers that only deliver channel values do not by themselves keep the program
-alive. Application callbacks already in flight finish before the boundary. Closing task and callback
-admission and observing completion form one transition; no application work can appear between them.
+1. `main`'s ordinary return completes: its deferred calls run and its local owners and counted references
+   are released (sections 12.19 and 18.6). This joins any `sync.Scope` that `main` declared.
+2. In one scheduler transition, the runtime closes admission of new tasks and application callbacks and
+   observes whether any other application task is still running (started and not yet finished with its
+   function's deferred calls and drops) or any application callback is in flight. No application work can
+   appear between closing admission and observing.
+3. If none is, pending application timer callbacks, such as `time.AfterFunc` calls, are canceled as `Stop`
+   cancels them, which releases their saved arguments and captures. Tasks that have ended complete their
+   retirement (runtime work, bounded). Package cleanup runs, then the debug allocator accounts, and the
+   program exits with `main`'s status.
+4. Otherwise the program ends at once with `main`'s status. The remaining tasks stop where they are, and
+   their owners are not dropped. Package cleanup does not run. This is the way `os.Exit` ends a program,
+   after `main`'s own cleanup. The debug allocator prints one line that names the number of tasks still
+   running and skips the leak report, because the allocations those tasks hold are live, not leaked
+   (`debug-allocator.md`). The exit status does not change.
 
-**Package cleanup.** After that boundary, package variables release the values they currently hold in
+A program that wants its package cleanup and an exact leak report joins its tasks before `main` returns,
+with `sync.Scope`, `sync.WaitGroup` or a closed channel. A program that leaves workers running ends as a Go
+program does. When package cleanup runs, every operation of every finished application task and callback
+happens before it begins, including visibility across processors (section 19.7, Memory model).
+Deadlock remains a fatal error under section 19.1.
+
+**Package cleanup.** When package cleanup runs (step 3), package variables release the values they currently hold in
 reverse order of initialization (sections 15.2 and 15.3), including zero-initialized variables. Variables
 initialized together are cleaned in reverse left-to-right order. A later assignment does not change a
 variable's cleanup position. Initialization functions have no inverse; resources they store are cleaned
@@ -309,7 +317,7 @@ program write.
 Starting a task or scheduling an application callback during package cleanup is a run-time panic,
 including through a helper or destructor. Operand evaluation retains its ordinary order; a failed start
 does not transfer ownership of its arguments. Runtime services needed for synchronous cleanup remain
-available. A destructor can block, so normal termination is not guaranteed to finish.
+available. A destructor can block, so package cleanup is not guaranteed to finish.
 
 An `rt.ExitTask` raised during package cleanup ends that destructor's ordinary execution, while its
 mandatory cleanup and the remaining package obligations still complete. It does not start another
@@ -337,14 +345,15 @@ var global = Log{open: true}
 func main() {
 	local := Log{open: true}
 	_ = local
-} // local is dropped here; global is dropped after all tasks finish
+} // local is dropped here; global is dropped at package cleanup, which runs because no other task is running
 ```
 
 **`os.Exit`.** The function `os.Exit(code)` ends the program abruptly with the given status. It runs no
 deferred calls, drops no owner and performs no task-completion join. Documented debug exit hooks may
 perform bounded observational settling and reporting (`debug-allocator.md`); that is no guarantee of
-task or package cleanup. The compiler works out that a function never
-returns from its body, so `os.Exit` needs no annotation.
+task or package cleanup. Step 4 of "When `main` returns" ends the program the same way after `main`'s
+own cleanup. The compiler works out that a function never returns from its body, so `os.Exit` needs no
+annotation.
 
 **`rt.ExitTask` in `main`.** If the task that runs `main` calls `rt.ExitTask` (section 17.3, Ending a task with
 `rt.ExitTask`), `main` does not return: its deferred calls run, the other tasks go on, and once none of them

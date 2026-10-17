@@ -164,11 +164,12 @@ built-in map cannot do (section 7.10, Map types).
 ### F.4 Errors
 
 `errors.New(text)` is checked by the compiler: `text` must be a constant, and the call must be written as
-a call, not taken as a value or deferred. The compiler evaluates each call site to the address of a
-static, read-only `errors.Text{Msg: text}` that belongs to that call site, so the same call site always
-yields the same error, in every instance of a generic function, and different call sites yield different
-errors (section 16.3, Sentinels and errors.New). `errors.Text` is a struct with the field `Msg string`,
-and `*errors.Text` implements `error`. A sentinel may be written as the literal
+a call, not taken as a value or deferred. Each call site has its own error type and a counter in static
+storage, and each evaluation yields a new error, without allocating: its dynamic type is the site's type
+and its data word holds the new counter value (section 16.3, Sentinels and errors.New). `%T` of such an
+error prints `*errors.errorString`, the name Go prints. `errors.Text` is a struct with the field
+`Msg string`, and `*errors.Text` implements `error`; it is the type of static sentinel literals, not of
+`errors.New` results. A sentinel may be written as the literal
 `&errors.Text{Msg: "..."}` in a package-level variable. `errors.Is`, `errors.As`, `errors.AsType`,
 `errors.Unwrap` and `errors.Join` have the meaning of section 16.6 (Wrapping, Is and As).
 
@@ -203,6 +204,8 @@ func FromUTF8(b []byte) (string, error) // a string of b, or an error if b is no
 func FromUTF8Lossy(b []byte) string     // a string of b, each invalid byte replaced by U+FFFD
 func Bytes(s string) vec.Vec[byte]      // a copy of the bytes of s, an owner
 func Runes(s string) vec.Vec[rune]      // the runes of s, an owner
+func Slice[S ~string](s S, i, j int) S  // the bytes from i to j; panics unless both are rune boundaries
+func SliceFrom[S ~string](s S, i int) S // Slice(s, i, len(s))
 func Truncate(s string, n int) string   // the longest prefix of at most n bytes that ends on a rune boundary
 
 package utf8
@@ -210,8 +213,9 @@ package utf8
 func RuneStartBefore(s string, i int) int // rounds the byte offset i down to the start of a rune
 ```
 
-They are the replacements for the conversions Plutonium removes (appendix A, section A.2) and the helpers
-for slicing a string on a rune boundary (appendix A, section A.5). `strconv.Itoa` is the replacement for
+They are the replacements for the conversions and the string slice expression that Plutonium removes
+(appendix A, section A.2). The compiler lowers `Slice` and `SliceFrom` inline, to the checks of section 7.3
+(String types) and no call. `strconv.Itoa` is the replacement for
 converting an integer to a string with `string(i)`.
 
 ### F.7 Time
