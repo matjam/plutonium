@@ -173,7 +173,7 @@ Printing variables does not work yet (there is no type or location information).
 
 ## 4. Frames and call frame information
 
-Frames have one of two fixed shapes ([abi.md](abi.md#stack-frame-layout)):
+Frames have one of two fixed shapes ([abi.md](abi.md#6-stack-frames)):
 
 - **Without a frame pointer** (the usual case): `push` each callee-saved register the function uses, in the
   order RBX, RBP, R12, R13, R14, R15; `sub rsp, N`. The body never moves RSP. A leaf with nothing on the

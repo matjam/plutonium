@@ -37,7 +37,7 @@ DefinedType = [ "owner" ] ( Type | EnumType | UnionType | PackedType | PackedUni
 Section 10.8 (Type declarations) gives the rest of the declaration. Which combinations are valid is stated
 with each type: `owner` cannot qualify an enum, for example.
 
-Predeclared types (excluding `any`), defined types and type parameters are called **named types**. An alias
+Predeclared types (excluding `any` and the generic type constructors named below), defined types and type parameters are called **named types**. An alias
 denotes a named type if the type given in the alias declaration is a named type. All named types are distinct.
 The predeclared types are:
 
@@ -48,8 +48,7 @@ owned shared synced weak volatile aligned ring
 ```
 
 `owned`, `shared`, `synced`, `weak`, `volatile`, `aligned` and `ring` are generic type constructors: each is
-written with type arguments and has no meaning without them. They are not named types: `owned[Node]` is a type
-literal, and two uses of it denote the same type (section 8.3, Type identity). The predeclared identifiers are
+written with type arguments and has no meaning without them. They are not named types: an instantiation such as `owned[Node]` is written `TypeName TypeArgs` (section E.7) and counts as a type literal for sections 8.2 to 8.4, and two uses of it denote the same type (section 8.3, Type identity). The productions printed in sections 7.15 to 7.19 are notation for that form, not separate productions of the grammar. The predeclared identifiers are
 listed in appendix D.
 
 Plutonium has no complex number types. The identifiers `complex64`, `complex128`, `complex`, `real` and `imag`
@@ -98,7 +97,7 @@ uintptr  an unsigned 64-bit integer, large enough to store the uninterpreted bit
 These three types are 64 bits wide on every target. A program never has to ask how wide an `int` is. A target
 with a different pointer width would be a deliberate change to the language.
 
-All numeric types are named types and thus distinct, except `byte`, which is an alias for `uint8`, and `rune`,
+Plutonium has no complex types. All numeric types are named types and thus distinct, except `byte`, which is an alias for `uint8`, and `rune`,
 which is an alias for `int32`. Explicit conversions are required when different numeric types are mixed in an
 expression or assignment. For instance, `int32` and `int` are different types.
 
@@ -783,7 +782,7 @@ holds comes from its type.
 
 - An **ordinary interface** is any interface type not declared `owner`: `any`, `error`, `io.Reader`. It never
   owns what it holds. Converting an owner, or a counted reference held in one word (a `shared[T]` or
-  `synced[T]` reference, a channel or a map), to an ordinary interface **lends** it: the interface is a view of the variable that was converted, valid while that variable holds
+  `synced[T]` reference, a `weak[P]`, a channel or a map), to an ordinary interface **lends** it: the interface is a view of the variable that was converted, valid while that variable holds
   the value, and the variable is not moved. That is what makes `fmt.Println(buf)` work on an owner without
   giving it away. Such an interface follows the view rules of section 18.3 (Views): it cannot be returned or
   stored beyond the life of the variable. The interface `error`, and every interface that embeds it, is the
@@ -792,7 +791,7 @@ holds comes from its type.
 - An **owning interface** is declared with the `owner` qualifier (section 7.18):
   `type Resource owner interface { Read(p []byte) (int, error) }`. It is an owner type. It moves, and dropping
   it drops the value inside it. Converting an owner to an owning interface moves the owner in. Converting a
-  `shared[T]` or `synced[T]` reference, a channel or a map copies it (count plus one, plain or atomic as
+  `shared[T]` or `synced[T]` reference, a `weak[P]`, a channel or a map copies it (count plus one, plain or atomic as
   section 18.7 says). Converting a value or a view copies it, as
   for any interface. Dropping it releases any counted components of that copy; a pure value or pure view
   needs no cleanup. It does not release the memory merely borrowed by a view component (section 8.7).
@@ -962,7 +961,7 @@ stays in one task), whose copies count instead of duplicating the owner. Counted
 
 **Concurrency.** A map is sendable if its key and element types are (section 8.8). Its contents fall under the
 race rules of section 19.3 (Data race freedom), as the contents of a `synced[T]` do: writes from two tasks
-must be guarded by a lock that the compiler infers, partitioned in a scope, or confined to one task.
+must be guarded by a lock that the compiler infers, or confined to one task.
 
 The library's `hash.Map[K, V]` is an owner, for code that must hold owners in place or avoid counting.
 
@@ -1090,7 +1089,7 @@ Switch statements).
 
 **Operations.** Enum values compare with `==`, `!=`, `<`, `<=`, `>`, `>=`. Arithmetic, bitwise operators,
 `++`, `--` and shifting an enum value are errors (E2316); an enum value may be a shift count or an index. An
-untyped constant is not assignable to an enum: `var c Color = 1` and `c == 1` are errors (section 8.4,
+untyped constant is not assignable to an enum: `var c Color = 1` and `c == 1` are errors (E2315; section 8.4,
 Assignability).
 
 **Conversions.** Section 11.24 (Conversions) gives the rules. In summary:
@@ -1357,12 +1356,14 @@ func demo(raw uint32) uint32 {
   padding between fields except where a field's type is `aligned[T, N]`, which moves it to an `N`-byte
   boundary.
 - **Fields** are one of:
-  - `name bits[T, N]`: an `N`-bit field read as `T`. `T` is an integer type at least `N` bits wide, or `bool`
+  - `name bits[T, N]`: an `N`-bit field read as `T`. `T` is an integer type at least `N` bits wide, an enum type whose members fit in `N` bits, or `bool`
     with `N` equal to 1 (E2103). Unsigned fields read zero-extended, signed fields sign-extended. A write
     keeps the low `N` bits of the value.
   - `name bits { A B C }`: a group of one-bit `bool` flags, accessed as `x.name.A`.
   - `name T`, where `T` is an integer, boolean, floating-point or packed type or an array of those: a
     byte-level field of `T`'s full size, at the next bit position (it need not be byte-aligned).
+  - `name E`, where `E` is an enum type: a bit field as wide as the members of `E` need (unsigned, or two's complement if a member is negative), as section 7.12 (Other types) says.
+  - `name aligned[T, N]`, where `T` is one of the types of the byte-level bullet: a byte-level field of `T` that starts on an `N`-byte boundary (see Layout).
   - `_` names reserve bits.
 - **Byte order.** `le` and `be` say how the backing is stored in memory. Field bit positions always count from
   the least significant bit of the value after byte-swapping. With neither, the target's native order applies,
@@ -1400,7 +1401,7 @@ VolatileType = "volatile" "[" Type "]" .
 A variable of type `volatile[T]` is accessed with exactly one load or store per read or write, in program
 order. The compiler never removes, merges or reorders volatile accesses, and never moves other memory accesses
 across them. `T` must be an integer type, boolean type, pointer type (including `unsafe.Pointer`) or
-integer-backed packed type, or a defined type with one of these as its underlying type, enums included
+integer-backed packed type, or a defined type with one of these as its underlying type, enums included, but not an owner type
 (E2108).
 
 ```go
@@ -1471,13 +1472,13 @@ be a positive constant power of two (E2107, E2109). The zero value is an empty r
 |---|---|
 | `Push(v T) bool` | appends `v`; `false` if full |
 | `Pop() (T, bool)` | removes the oldest element; `false` if empty |
-| `Peek() (T, bool)` | the oldest element without removing it |
+| `Peek() (T, bool)` | the oldest element without removing it; `(*T, bool)`, a view, when `T` is an owner |
 | `Len() int` | number of elements |
 | `Cap() int` | `N` |
 | `Full() bool`, `Empty() bool` | |
 | `Reset()` | empties the ring |
-| `All() iter.Seq2[int, T]` | an iterator over the index and value of each element, oldest first |
-| `Values() iter.Seq[T]` | an iterator over the values, oldest first |
+| `All() iter.Seq2[int, T]` | an iterator over the index and value of each element, oldest first; `iter.Seq2[int, *T]` when `T` is an owner |
+| `Values() iter.Seq[T]` | an iterator over the values, oldest first; `iter.Seq[*T]` when `T` is an owner |
 
 All methods have pointer receivers. A ring is not safe for concurrent use; a single-producer, single-consumer
 queue between an interrupt handler and a task can be built from `volatile` indexes. A ring literal must be
@@ -1521,8 +1522,7 @@ the loop: the position then counts the pushes since the reset, so the loop ends,
 among the elements pushed after the reset.
 
 A ring of owners is an owner: popping moves an element out, and dropping the ring drops the elements it holds.
-`Pop` and `Peek` on a ring whose element is an owner follow the rules for moving out of a place (section 18.5,
-Moves).
+`Pop` moves the oldest element out of the ring (section 18.5, Moves); `Peek`, `All` and `Values` yield views (`*T`) of an owner element, as section 12.10 (Owners in iterators) says.
 
 **Kind.** `ring[T, N]` has the kind of `T` (section 8.7).
 
@@ -1561,7 +1561,7 @@ A type is an owner only if it is declared so, or if its construction makes it on
 
 - **Declared.** `type T owner ...` makes `T` an owner. The qualifier may mark a struct type, an array type, an
   integer type (including `uintptr`), a pointer type or `unsafe.Pointer`, an interface type (an owning
-  interface, section 7.9), a union type (an owner union, section 7.13), or a named type of one of these. It
+  interface, section 7.9), a union type (an owner union, section 7.13), a `ring[T, N]` or `aligned[T, N]` type, or a named type of one of these. It
   may not mark a string, slice, map, channel or function type, a boolean, float, enum, packed or `volatile`
   type, or `owned`, `shared`, `synced` or `weak`, which have kinds of their own (E3204). A resource behind one
   of those types is wrapped in a struct declared `owner`.
@@ -1570,7 +1570,7 @@ A type is an owner only if it is declared so, or if its construction makes it on
   cannot be marked.
 - **Never inferred for a declared type.** A struct with a field of owner type, including an embedded field or
   an array of owners, must itself be declared `owner` (E3202), and so must an interface that embeds an owning
-  interface. A type definition `type B A` where `A` is an owner must be written `type B owner A`. A union with
+  interface. A type definition `type B A` where `A` is an owner type other than `owned[T]` must be written `type B owner A`. Where `A` is `owned[T]`, which has a kind of its own, `type B A` defines an owner and `owner` may not be written (E3204). A union with
   an owner payload must be declared `owner` (E2406). An unnamed struct type may not have owner fields (E3203).
 - **Implied for a constructed type.** An unnamed array type `[N]T` whose element is an owner, a `ring[T, N]`
   whose element is an owner, and an `aligned[T, N]` of an owner are owners without a declaration, because
@@ -1580,8 +1580,8 @@ A type is an owner only if it is declared so, or if its construction makes it on
   still move, and dropping one drops its fields. `Drop` is called by the compiler when an owner is dropped.
   Programs do not call it except as `x.Drop()` on an owner variable, which ends the variable's life early
   (section 18.6).
-- **Generics.** A type parameter admits owner types only if its constraint is marked `owner`: `[T owner any]`,
-  `[T owner io.Reader]` (E3207). Inside such code, values of `T` move: assignment, passing and returning move
+- **Generics.** A type parameter admits owner types only if its declaration carries `owner`: `[T owner any]`,
+  `[T owner io.Reader]` (E3207). An owning interface as the constraint does not by itself make the parameter an owner parameter. Inside such code, values of `T` move: assignment, passing and returning move
   them, using one after a move is an error, and a variable of type `T` still holding a value at the end of its
   scope is dropped (which does nothing for an instantiation with a value type). A type parameter without
   `owner` cannot be instantiated with an owner type, so ordinary generic code such as `Max[T cmp.Ordered]`

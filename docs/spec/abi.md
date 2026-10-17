@@ -61,7 +61,7 @@ and alignment guarantees) guarantees; this section adds the order of the words a
 | `volatile[T]` | size(T) | align(T) | as `T` |
 | `aligned[T, N]` | size(T) rounded up to N | max(N, align(T)) | as `T` |
 | `ring[T, N]` | 16 + N × size(T), rounded up to the alignment | max(8, align(T)) | `{head, tail uint64; buf [N]T}` |
-| packed type | its backing, or its field width rounded up to bytes | backing's | bit-exact, language spec section 7.14 |
+| packed type | its backing, or its field width rounded up to bytes | backing's; 1 when the backing is `[]byte`, a byte array or omitted | bit-exact, language spec section 7.14 |
 | enum type | its underlying integer's | its underlying integer's | the member's value, language spec section 7.12 |
 | union | tag, then the largest payload at its alignment, rounded up to the alignment | max(tag size, largest payload alignment) | `{tag uint8 (uint16 above 256 variants); payload}`, below |
 | packed union | its backing | backing's | a packed type whose tag field selects the variant, language spec section 7.13 |
@@ -817,7 +817,8 @@ aligned stack with the direction flag clear.
 |---|---|---|---|
 | scalar arguments, up to 6 integer and 8 float | registers as in section 3.2 | same | yes |
 | further scalar arguments | 8-byte stack slots in order | same | yes |
-| one or two scalar results | RAX, RDX / XMM0, XMM1 | same | yes |
+| one scalar result | RAX / XMM0 | same | yes |
+| two scalar results | RAX, RDX / XMM0, XMM1 | a struct returned by value, classed by eightbyte (section 9.1) | **internal only** (the registers agree only for two 8-byte results of one class) |
 | three or four scalar results | RCX, RSI / XMM2, XMM3 | memory | **internal only** |
 | strings, slices, interfaces, small structs as arguments | flattened to leaves | classified by eightbyte | **internal only** |
 | aggregates with more than 4 leaves | pointer to caller copy | copied onto the stack | **internal only** |
@@ -833,7 +834,7 @@ the internal ABI already passes a signature exactly as System V does (every para
 bytes, a float or a pointer, and at most one such result), the call is an ordinary internal-ABI call and
 an export is a second symbol on the same code, as before. Otherwise lowering classifies the signature:
 
-- **Type mapping.** Integers, `uintptr`, pointers, `unsafe.Pointer` and `owned`/`shared`/`synced` map to
+- **Type mapping.** Integers, enum types, `uintptr`, pointers, `unsafe.Pointer` and `owned`/`shared`/`synced`/`weak` map to
   the C integer or pointer type of the same size; `bool` is C `_Bool` (1 byte); `float32` and `float64` are
   `float` and `double`; structs and arrays inside structs are laid out as in section 1, which matches C
   for these members. `volatile[T]` and `aligned[T, N]` (N at most 8) are `T`. A packed type crosses as its
@@ -860,7 +861,7 @@ an export is a second symbol on the same code, as before. Otherwise lowering cla
 - **Rejected,** at the declaration, even if nothing calls it (language spec section 20.4; E2511 unless
   noted): `string` and slices (no C type; pass
   `unsafe.StringData(s)` or `unsafe.SliceData(b)` and the length), interfaces, func values (a func value
-  points at a closure record, not at code), maps, channels and unions (their layout is not part of the
+  points at a closure record, not at code), maps, channels, rings and unions (their layout is not part of the
   ABI; pass a struct of a tag and the payload), anywhere in a by-value parameter or result,
   including inside structs; arrays as a whole parameter or result (C cannot pass them by value; wrap them
   in a struct or pass a pointer); zero-size types; types aligned to more than 8 bytes; variadic functions
@@ -995,10 +996,10 @@ type InterruptFrame struct {
 
 ```go
 //pu:interrupt
-func timer(f *x86.InterruptFrame)
+func timer(f *x86.InterruptFrame) { x86.Outb(0x20, 0x20) }
 
 //pu:interrupt
-func pageFault(f *x86.InterruptFrame, code uint64) // vectors that push an error code
+func pageFault(f *x86.InterruptFrame, code uint64) { rt.PanicFault(rt.MemoryFault, uintptr(x86.ReadCR2()), uintptr(f.RIP), uintptr(f.RSP), 0) } // vectors that push an error code
 ```
 
 A handler is a plain function (not a method, not generic) with a body, no results, and either one
@@ -1061,12 +1062,12 @@ faulting instruction and ends at the handler's frame.
 ### 10.5 `pluto/arch/x86` intrinsics
 
 Each function in `pluto/arch/x86` (language spec section 20.8) is expanded inline to the instructions
-shown. Except for `HandlerAddr`, lowering turns a call into one `ssa.OpIntrinsic` (named, for example,
+shown. Except for `HandlerAddr` and `NewDescriptorTablePointer` (an ordinary function with no side effect), lowering turns a call into one `ssa.OpIntrinsic` (named, for example,
 `x86.Cli`), which takes the current memory state and produces the next one: no load or store moves,
 merges or disappears across it. These instruction intrinsics are compiler barriers (memory model
 section 5.2) with side effects, so unused results do not remove or merge their operations. `HandlerAddr`
 is only an address computation, orders no memory and may be eliminated when unused. The backend expands it with the fixed
-registers the instructions need. Each function except `HandlerAddr` also has an assembly body
+registers the instructions need. Each instruction function (all but `HandlerAddr` and `NewDescriptorTablePointer`) also has an assembly body
 (`x86_amd64.s`) for when it is called through a func value. Privileged instructions fault outside ring 0.
 Encodings are tested against GNU as.
 

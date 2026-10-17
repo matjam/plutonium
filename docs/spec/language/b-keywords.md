@@ -42,7 +42,7 @@ functions and packages like any other identifier.
 | `owner` | before a type in a type definition, and before the constraint of a type parameter | 7.18 Owner types |
 | `union` | as the type of a type definition when `{` follows it; after `packed` when something other than `{` follows it | 7.13 Unions |
 | `task` | at the start of a statement when the next token is an identifier or `func` | 12.12 Task statements |
-| `or` | directly after the expression that ends a simple statement | 11.27 Or clauses |
+| `or` | directly after a call, where the call is a statement on its own or is on the right of `=` or `:=` | 11.27 Or clauses |
 | `bits` | as the type of a field of a packed type, when `[` or `{` follows it | 7.14 `packed` types |
 | `le`, `be` | directly after `packed` or after `packed union` | 7.14; 7.13 |
 

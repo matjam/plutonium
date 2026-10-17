@@ -33,7 +33,7 @@ The zero value of an owner type holds nothing, and dropping it does nothing (sec
 is what lets an owner be moved out of a variable: the move leaves the zero value behind, which serves as
 the drop flag (section 18.5, Moves). Memory from every allocator is zeroed, so the memory of a new
 `owned[T]` holds the zero value of `T` (section 13.9, Allocation). A `Drop` method must treat the zero
-value as empty (section 10.14, Method declarations).
+value as empty (section 7.18, Owner types; section 18.6, Drops).
 
 The zero value of a map is the nil map. It has length 0, reading from it yields the zero value of the
 element type, and writing to it is a run-time panic (section 17.1, Panics). The nil channel blocks every
@@ -231,8 +231,7 @@ packages import a package, the imported package is initialized only once. The im
 construction, guarantees that there can be no cyclic initialization dependencies (E4009).
 
 More precisely, the runtime packages come first: `pluto/rt` and `pluto/alloc`, with the packages they
-import, are initialized before every other package, so that the default allocator and the panic path
-exist when any other initialization runs. Then, given the list of all remaining packages, sorted by
+import, are initialized before every other package, so that, in a hosted build, the default allocator exists when any other initialization runs, and in every build the panic path does (section 17.4, Panics in freestanding programs). A freestanding program has no allocator at that point (section 15.2, Allocation during initialization). Then, given the list of all remaining packages, sorted by
 import path, in each step the first uninitialized package in the list for which all imported packages (if
 any) are already initialized is initialized. This step is repeated until all packages are initialized.
 

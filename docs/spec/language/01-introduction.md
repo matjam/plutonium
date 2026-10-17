@@ -36,8 +36,7 @@ The goals are:
   not ask for through its operations and library dependencies.
 - **Make costs visible.** Allocating operations and APIs specify their allocation behavior and lifetime
   responsibility: an owner, counted references or an arena (section 18.10, No allocation without an owner
-  or an arena). The compiler never silently promotes a local to the heap. Every memory-mapped register access is marked in its
-  type (section 7.15, `volatile[T]`).
+  or an arena). The compiler never silently promotes a local to the heap. Memory-mapped registers are accessed through `volatile[T]`, whose accesses the compiler never removes, merges or reorders (section 7.15, `volatile[T]`).
 - **Make ownership visible.** Frame and static storage, owners, counted sharing and arenas have defined
   lifetime-management responsibilities. Owners release what they hold when dropped; counted objects are
   destroyed at their last strong release, with storage reclamation respecting weak references. Strong
@@ -81,8 +80,7 @@ manual that conflicts with one of them is a defect in the manual.
 3. **No annotations for ordinary code.** Ordinary code needs no annotations and no knowledge of how the
    compiler works. What the compiler can work out for itself (what escapes, what moves, which functions
    never return or may wait, which lock guards which data) it works out, and there is no `//pu:`
-   directive for such a fact. Directives state only what the compiler cannot see: linkage to assembly and
-   C, hardware state, bindings to the runtime, and explicit requests such as `//pu:inline` (section 20.3,
+   directive for such a fact. Directives state only what the compiler cannot supply for itself: linkage, a body it cannot see, hardware state, a binding to the runtime, a promise taken on trust, and explicit requests such as `//pu:inline` (section 20.3,
    Directives).
 
 4. **Go as a test oracle.** Programs in the common subset of Go and Plutonium are kept as tests. Their
@@ -150,13 +148,12 @@ boundary (section 18.12, Safe and unsafe code) or the explicit unchecked executi
 **Notation.** Syntax is given in the extended Backus-Naur form of chapter 2 (Notation). Each chapter
 gives the productions for the syntax it defines, and appendix E collects them.
 
-**Examples.** Examples are fenced `go` blocks. An example compiles unless a comment on the offending line
-begins with `error:`. A comment that begins `panics` marks a line that panics when it runs. Names such as
+**Examples.** Examples are fenced `go` blocks. An example compiles unless a comment on the offending line begins with `error`, `illegal` or `invalid`. A comment that begins `panics` or `causes a run-time panic` marks a line that panics when it runs. The lines of a block that shows alternatives (several `:=` of one name, or a sequence of lines marked as errors) are independent of each other, and a block that ends in `...` is a fragment. Names such as
 `fmt`, `vec` and `alloc` in examples are packages of the standard library.
 
 **References.** A reference such as "section 11.12" or "chapter 18" names a section or chapter of this
 manual by number. A reference to a compile error gives its code, such as E2013, which `pluto explain`
-describes. This manual states each rule and its code. The text of the message is in the catalog.
+describes. This manual states each rule and, where the rule has a code of its own, that code. A rule that names no code is reported with a code of the group of section 21.1 (Diagnostics) it belongs to. The text of the message is in the catalog.
 
 **Words with a fixed meaning.** *Task* is the unit of concurrent execution (section 19.1, Tasks), and
 `task` is the statement that starts one (section 12.12, Task statements). *Reserved* and *contextual*
@@ -218,7 +215,7 @@ These terms are used throughout. Each is defined in full in the section cited.
   and kernel programs run without one and supply their own entry point (section 20.5, Build modes and
   targets).
 - **Directive.** A line comment that begins `//pu:` and states a fact the compiler cannot work out for
-  itself (section 20.3, Directives).
+  itself, or makes a request it cannot supply for itself (section 20.3, Directives).
 - **Safe and unsafe code.** Code that the compiler checks against data races and the misuse of memory is
   safe. Code that uses package `unsafe`, the unchecked layer of the allocator interface, or functions
   written outside Plutonium is unsafe (section 18.12, Safe and unsafe code).

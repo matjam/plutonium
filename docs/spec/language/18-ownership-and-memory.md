@@ -26,17 +26,18 @@ of each type; in short:
 - A **view** looks at memory that something else owns: a slice `[]T`, a pointer `*T`, `unsafe.Pointer`,
   a closure or method value (section 11.5, Closures and their regions), an interface that holds a copy in
   a frame or lends an owner (section 7.9, Interface types), a string made with `unsafe.String`, and any
-  struct or array that contains a view and no owner. A pure view does not release borrowed memory.
+  struct, array or union that contains a view and no owner. A pure view does not release borrowed memory.
   Composite views still retain/release counted components, so copying them need not cost only the
   words copied. A view may not outlive the memory it looks at (section 18.3).
 - An **owner** holds memory or another resource and releases it when it is dropped. A type is an owner
   only if its declaration says so with `owner` (section 7.18, Owner types), or if it is built from owner
-  types in a way that section 7.18 lists (an array of owners, `owned[T]`, an owning interface, an owner
-  union). Assigning, passing or returning an owner **moves** it (section 18.5); a copy is made only by an
+  types in a way that section 7.18 lists (`owned[T]`, and an array, a `ring` or an `aligned` of owners); an owning interface and
+  an owner union are owners because they are declared `owner`. Assigning, passing or returning an owner **moves** it (section 18.5); a copy is made only by an
   explicit call such as `Clone`. An owner is **dropped** at the end of its variable's scope unless it was
   moved away (section 18.6).
 - A **counted value** shares memory among its copies and counts them: `string`, `map[K]V`, `chan T`,
-  `shared[T]`, `synced[T]` and `weak[P]`, and any struct or array that contains one and no owner or view.
+  `shared[T]`, `synced[T]` and `weak[P]`, and any struct, array or union that contains one and no
+  owner or view.
   Assignment copies it and adds one to the count; dropping a copy releases a reference. Destruction at
   the last strong release and reclamation after weak references follow sections 18.7 and 18.8.
 
@@ -66,7 +67,8 @@ Where a variable lives is fixed by its declaration, never by how the program use
   the records of closures and method values it makes, the objects of `&T{...}` composite literals and
   the arrays of slice literals it evaluates (section 11.3, Composite literals), and the array that holds
   the arguments of a variadic call (section 11.15, Passing arguments to `...` parameters). A function
-  that returns a closure builds it in a **region** of its caller's frame (section 11.5). The frame is
+  that returns a closure builds it, and the variables it captures, in a **region** of its caller's
+frame (section 11.5). The frame is
   reclaimed when the function returns.
 - A package-level variable lives in **static storage** for the whole program. So do the composite
   literals, interface copies and closure records of package-level initializers, which run once and whose
@@ -114,7 +116,10 @@ defined there.
 **A local owner's memory.** A view obtained from an owner held in a local variable (`v.Slice()`,
 `b.Bytes()`, `&m`, `p.field` through an `owned[T]`, `&*p`) is bounded by that variable. It follows the
 frame rules above, and in addition it may not be used after the variable has been moved, dropped or given
-a new value in the same function (E3313). A view of a temporary owner (`makeVec().Slice()`) may not outlive the
+a new value in the same function (E3313). A variable whose drop releases or writes through a
+view of another local variable (a string, vector or other value that holds a view of a local arena
+or owner) must be declared after that variable, so that it is dropped first (section 18.6, Drops);
+otherwise the declaration of the holder is E3313, and the error names both variables. A view of a temporary owner (`makeVec().Slice()`) may not outlive the
 statement that made the temporary (section 18.6). A view obtained through a counted reference held in a
 local variable is bounded by that reference in the same way.
 
@@ -212,7 +217,8 @@ variables instead (section 19.4, Scoped tasks).
 - sent on a channel (section 12.5, Send statements), or passed to a task statement (section 12.12, Task
   statements);
 - stored in a composite literal (`Conn{buf: b}`);
-- converted to an owning interface (section 7.9);
+- converted to an owning interface (section 7.9), converted to another owner type with the same
+  underlying type (section 11.24), or asserted out of an owning interface (section 11.13);
 - given to `new(v)` (section 13.9, Allocation);
 - dropped explicitly with `x.Drop()` (section 18.6).
 
@@ -305,9 +311,10 @@ the end of each iteration for a variable declared in a loop body. In detail:
 
 - Within one block, variables are dropped in reverse order of declaration, so an owner that holds a view
   of an earlier variable (a vector that allocates from a local arena) is dropped before it. A
-  `sync.Scope` is the exception: the Scopes of a block are dropped before its other variables (section
-  19.4).
-- Parameters are dropped when the function returns, after its local variables. Results are moved to the
+  `sync.Scope` is the exception: the Scopes of a block, and the `sync.Scope` parameters of a
+  function, are dropped before its other variables (section 19.4).
+- Parameters are dropped when the function returns, after its local variables, except
+  `sync.Scope` parameters, which are dropped before them. Results are moved to the
   caller and not dropped.
 - A variable or place the compiler knows holds nothing (moved away on every path, never given a value,
   a part a composite literal or `new(T)` left zero, a place emptied by `take`) is not dropped, and an
@@ -335,7 +342,7 @@ the end of each iteration for a variable declared in a loop body. In detail:
 
 **Assigning to a place that holds an owner** evaluates the new value, drops the old one, then moves the
 new one in: `c.buf = b` frees the buffer `c.buf` held before. The same holds through a view: `*p = v` and
-`s[i] = v` drop the old contents. `clear(s)` on a slice or array of owners assigns the zero value to each
+`s[i] = v` drop the old contents. `clear(s)` on a slice of owners assigns the zero value to each
 element and so drops each in index order (section 13.3, Clear).
 
 **Temporaries.** An owner that an expression produces and nothing stores is a **temporary**. It is
@@ -410,8 +417,9 @@ by converting a strong reference, `weak[shared[Node]](p)`. The rules:
    gone.
 4. The compiler removes a count update and the matching release when nothing in between can observe the
    count. `return p` as the last use of `p`, or passing `p` as its last use, moves the reference and
-   costs nothing. Passing a reference down to a call borrows it: the callee counts only the copies it
-   keeps.
+   costs nothing. Passing a reference down to a call counts it like any copy, and the compiler removes the
+   update when the caller keeps the value alive for the whole call, so that the callee counts only
+   the copies it keeps.
 5. A view obtained through a counted reference (`p.field`, `&*p`, `(*T)(p)`) is bounded by that
    reference as a view of a local owner is (section 18.3).
 6. Cycles of strong references are never freed. A structure with back pointers makes them `weak`.
@@ -449,8 +457,8 @@ owners (section 7.10, Map types: the error shows a `synced[T]` element instead);
 are counted as they are copied in and out, and released when entries are deleted, by `clear(m)`, or with the table. A
 channel's last reference drops the values still in its buffer and frees the channel (section 19.8).
 Counted values are released by the same rules as `shared` references: a store takes a reference for the
-new value and releases the old one, a parameter is borrowed, and a result hands its reference to the
-caller.
+new value and releases the old one, a parameter is counted like any copy, and the update is removed when the caller keeps the value
+alive for the call (rule 4), and a result hands its reference to the caller.
 
 **Why not count everything.** Every copy and drop of a counted reference writes the object's header, and
 every drop tests for zero. A `synced` count is an atomic operation that costs tens of cycles, and when
@@ -465,7 +473,8 @@ copied far more often than changed.
 
 A `string` is an immutable sequence of bytes that holds valid UTF-8 (section 7.3, String types). Strings
 copy as freely as integers: assignment, passing, returning and storing copy them, and nothing frees a
-string's bytes while a copy can still reach them.
+string's bytes while a copy can still reach them, except that a string whose buffer is in a local
+arena is a view of the arena (below).
 
 **Buffers and counts.**
 
@@ -521,7 +530,8 @@ reference until the function returns or the same conversion runs again (section 
 **Arenas.** A string built while an arena is the current allocator has its buffer in the arena. Dropping
 the string writes its header, so the string must not be used, or dropped, after the arena is reset or
 dropped. For an arena in a local variable the compiler checks this: such a string is a view of the arena
-(section 18.9). Declare the arena before the strings that use it, as for any owner that views it.
+(section 18.9). A string must be declared after the arena it views, and is dropped before it (section 18.3, A
+local owner's memory).
 
 **Races.** A string's bytes never change, so reading a shared string needs no lock. Writing a string
 variable that another task may read at the same time is a data race on a value of three words; safe code
@@ -611,7 +621,10 @@ to a task statement is a frame-view error that names the arena. The window runs 
 `alloc.Use` to the end of its block, or to the end of the function for `defer alloc.Use(&a).Restore()`.
 It covers `new` and `make` without an allocator argument, the operations that make strings, calls that
 leave out a defaulted `alloc.Allocator` parameter (such as `vec.New[T]()` or `fmt.Sprintf`), and calls
-whose results keep their allocator out of sight (a string, a box, an interface such as an error):
+whose results keep their allocator out of sight (a string, a box, an interface such as
+an error). A call is in the last group when the summary of its callee says that the result holds
+memory the callee allocated from the current allocator, directly or through a field; where the
+summary cannot show otherwise, the compiler assumes it does (section 18.3, Views):
 
 ```go
 func name(n int) string {

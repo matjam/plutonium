@@ -57,7 +57,7 @@ The implementation also provides:
 
 The one-line message and the explanation are written in short sentences, with no term used before it is
 defined, and in the spelling of this specification. The wording of the messages is not part of this
-specification. Each rule is stated by the chapter that defines it, together with its code; the exact text
+specification. Each rule is stated by the chapter that defines it, together with its code where it has one (section 1.3); the exact text
 lives with the implementation, in one place, and its tests pin it. That keeps a single copy of each text
 and lets the wording improve without changing the language.
 
@@ -70,7 +70,7 @@ A construct either has the meaning this specification gives it, or it is a compi
 implementation never generates code that does something else.
 
 - A construct that the implementation does not support yet is a compile error that says so (E2500). It
-  is never ignored and never compiled to approximate code.
+  is never ignored and never compiled to approximate code. An implementation that reports E2500 for a construct this manual defines is not yet conforming (introduction of this chapter).
 - A directive that the implementation would not act on is a compile error (section 20.3, Directives), as
   is a `//go:` comment. A misspelled or misplaced directive never silently does nothing.
 - A feature that a target cannot provide is a compile error that names the target and the feature, for
@@ -136,7 +136,7 @@ An implementation provides a documented **unchecked mode**, in which the generat
 epoch checks are not performed. The unchecked mode is not a dialect: a correct program behaves
 identically with and without the checks, and a program that uses freed memory has no defined behavior
 without them. An implementation provides the choice per build, and `//pu:nochecks` per function (section
-20.3). Unchecked execution must be explicitly selected, including for freestanding and kernel builds;
+20.3), which also removes that function's bounds checks. Unchecked execution must be explicitly selected, including for freestanding and kernel builds;
 it opts out of the full lifetime guarantee while preserving all static rules. Kernel mode is not an
 implicit opt-out. Every normal build requires static proof or suitable automatic protection. If the
 target cannot provide protection and proof is incomplete, compilation rejects the operation with its

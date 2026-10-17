@@ -92,7 +92,7 @@ program through the same panic handler (section 17.4).
 **Omitting checks.** The directive `//pu:nochecks` removes the bounds checks and the generation checks
 from one function (section 20.3, Directives), for code that has been proved correct and must be as fast
 as possible. It makes the function unsafe code (section 18.12, Safe and unsafe code). An index out of
-range in such a function does not panic, and what it does is not defined. This is the only place where a panic
+range in such a function does not panic, and what it does is not defined. Besides the unchecked mode of section 21.5, this is the only place where a panic
 of this list depends on the program's own marking, and it is the program's promise, not a feature of the
 language, that the bounds hold.
 
@@ -163,7 +163,7 @@ deferred calls and drops what it holds, as if it returned at the call it is in. 
 not a panic: no handler is called, and other tasks are not affected.
 
 - **In a deferred call.** A deferred call that calls `ExitTask` ends its own frames. The deferred calls
-  after it in the frame that deferred it still run, and the task ends afterwards.
+  after it in the frame that deferred it still run, and the task ends afterwards; while deferred calls run for a panic, `ExitTask` stops them too (section 17.2, Deferred calls on a panic).
 - **In the task that runs `main`.** `main` does not return. Its deferred calls run, the other tasks go on,
   and once none of them is left, or all of them wait for good, the program ends with a fatal error ("main
   called rt.ExitTask") and status 2 (section 15.4, Program execution).
@@ -194,9 +194,8 @@ func onPanic(p *rt.Panic) {
 }
 ```
 
-- **One handler.** A freestanding or kernel build must have exactly one. None is E2580 and more than one
-  is E2581, since such a program has no operating system to report a crash to. A hosted program may
-  define one to replace the built-in handler.
+- **One handler.** A freestanding or kernel build must have exactly one, since such a program has no operating system to report a crash to: none is E2580. A hosted program may
+  define one to replace the built-in handler. More than one is E2581 in every build.
 - **Its declaration.** A plain function with a body, not a method, not generic, not also `//pu:interrupt`,
   declared `func name(p *rt.Panic)`. Anything else is E2582.
 - **It never returns.** A panic has nothing to return to. Every path through the handler must end in an
@@ -237,8 +236,7 @@ func (p *Panic) PrintTrace[W rt.Writer](w W) // the stack trace alone
 (section 13.12, Bootstrapping). The methods are generic so that a writer of a known type is called
 directly: a call through the `rt.Writer` interface counts, for the check of section 20.10, as calling
 every writer the program has. For the same reason a hosted handler writes to `rt.Console{}` rather than to
-`os.Stderr`. The message lives in a buffer of the runtime and is cut when it is longer than that buffer
-(section 21.4). Printing the trace reads the trace table and the stack, so nothing allocates. Since a panic
+`os.Stderr`. The message lives in a buffer of the runtime and is cut when it is longer than that buffer; the size of the buffer is not specified. Printing the trace reads the trace table and the stack, so nothing allocates. Since a panic
 does not unwind, the stack the trace describes is still there while the handler runs, with the deferred
 calls having run below it (section 17.2).
 

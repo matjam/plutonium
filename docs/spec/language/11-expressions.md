@@ -4,7 +4,7 @@ An expression specifies the computation of a value by applying operators and fun
 
 Every expression is either a **place** or a **temporary**. A place is a variable, a field of a place, an element of an array place or of a slice, or the variable a pointer points to. A temporary is a value that an expression makes and that is not stored anywhere yet: the result of a call, a conversion, a concatenation, a composite literal or a receive. A temporary lives until the end of the statement that makes it (section 18.6, Drops).
 
-An expression whose type is an owner type (section 7.18, Owner types) never copies its value. When the expression is a whole variable and its value is passed on, the variable is **moved** (section 18.5, Moves). The contexts that pass a value on are assignment, passing as an argument, returning, sending, storing in a field, element or composite literal, and converting to an owning interface. In every other context the owner is read in place: as the operand of a comparison, a selector, an index expression or a method call with a pointer receiver. Values of counted types (strings, `shared`, `synced`, channels, maps) are copied freely and count each copy (section 18.7, Shared ownership; section 18.8, Strings).
+An expression whose type is an owner type (section 7.18, Owner types) never copies its value. When the expression is a whole variable and its value is passed on, the variable is **moved** (section 18.5, Moves). The contexts that pass a value on are those of section 18.5 (Moves): assignment, passing as an argument, returning, sending, storing in a field, element or composite literal, converting to an owning interface or to another owner type, a type assertion out of an owning interface, `new(v)`, a task statement and `x.Drop()`. In every other context the owner is read in place: as the operand of a comparison, a selector, an index expression or a method call with a pointer receiver. Values of counted types (strings, `shared`, `synced`, channels, maps) are copied freely and count each copy (section 18.7, Shared ownership; section 18.8, Strings).
 
 ### 11.1 Operands
 
@@ -25,7 +25,7 @@ There are no imaginary literals (section 4.9, Floating-point literals), so `Basi
 
 An operand that names a variable of owner type is a read or a move, depending on the context in which it appears (the introduction of this chapter). Using a variable after it was moved is an error (section 18.5, Moves).
 
-An implementation need not report an error if an operand's type is a type parameter with an empty type set. Functions with such type parameters cannot be instantiated, and any attempt is an error at the instantiation site.
+A function or type whose type parameter has an empty type set is valid to declare. It cannot be instantiated, and every attempt is an error at the instantiation site.
 
 ### 11.2 Qualified identifiers
 
@@ -48,7 +48,8 @@ Composite literals construct new values for structs, arrays, slices and maps eac
 ```
 CompositeLit = LiteralType LiteralValue .
 LiteralType  = StructType | ArrayType | "[" "..." "]" ElementType |
-               SliceType | MapType | TypeName [ TypeArgs ] .
+               SliceType | MapType | TypeName [ TypeArgs ] | VariantName .
+VariantName  = TypeName [ TypeArgs ] "." identifier .
 LiteralValue = "{" [ ElementList [ "," ] ] "}" .
 ElementList  = KeyedElement { "," KeyedElement } .
 KeyedElement = [ Key ":" ] Element .
@@ -56,6 +57,8 @@ Key          = FieldName | Expression | LiteralValue .
 FieldName    = identifier .
 Element      = Expression | LiteralValue .
 ```
+
+`VariantName` is read as a union variant when the type before the last dot is a union type.
 
 Unless the `LiteralType` is a type parameter, its underlying type must be a struct, array, slice, map, packed or ring type (the syntax enforces this constraint except when the type is given as a `TypeName`). If the `LiteralType` is a type parameter, all types in its type set must have the same underlying type, which must be a valid composite literal type. A value of an enum type is not written as a composite literal (section 7.12, Enums). A value of a union type is written with one of its variants, `U.V(x)` or `U.V{...}` (section 11.7, Selectors; section 7.13, Unions); `U{...}` is an error.
 
@@ -147,7 +150,7 @@ var pointer *Point3D = &Point3D{y: 1000}   // a view of a variable in this frame
 box := new(Point3D{y: 1000})               // an owned[Point3D] on the heap
 ```
 
-**Map literals.** For map literals, each element must have a key. A map literal makes a new map each time it is evaluated, allocating its table from the current allocator (section 18.9, Allocators). The map is a counted reference (section 7.10, Map types). The keys and the values of a map may not be owners (section 7.10, Map types); counted values are allowed and are counted as the literal copies them. For non-constant map keys, see section 11.26.
+**Map literals.** For map literals, each element must have a key. A map literal makes a new map each time it is evaluated, allocating its table from the current allocator (section 18.9, Allocators). The map is a counted reference (section 7.10, Map types). The keys and the values of a map may not be owners (section 7.10, Map types); counted values are allowed and are counted as the literal copies them. If two elements have equal keys at run time (non-constant keys), the later element's value is stored. Keys and values are evaluated in the order of section 11.26.
 
 **Packed and ring literals.** A literal of a packed type names the fields it sets, `ControlReg{mode: 5, enable: true}` (E2105 otherwise), and a literal of a ring type is empty (E2110) (section 7.14, `packed` types; section 7.17, `ring[T, N]`).
 
@@ -204,7 +207,7 @@ f := func(x, y int) int { return x + y }
 func(ch chan int) { ch <- ACK }(replyChan)
 ```
 
-Function literals are closures: they may refer to variables declared in a surrounding function. Those variables are shared between the surrounding function and the function literal, which means the literal refers to them where they live, by reference. A captured variable stays in the frame of the function that declares it. Nothing is moved to the heap because a literal captures it (section 18.2, Where variables live).
+Function literals are closures: they may refer to variables declared in a surrounding function. Those variables are shared between the surrounding function and the function literal, which means the literal refers to them where they live, by reference. A captured variable stays in the frame of the function that declares it, except that a variable captured by a closure that the function returns lives in the region its caller provides (section 11.5). Nothing is moved to the heap because a literal captures it (section 18.2, Where variables live).
 
 A function literal that captures no variable is an ordinary function value and may be used anywhere. A function literal that captures variables is a **closure record**: the code to run together with where each captured variable is. The record is built in the frame of the function that evaluates the literal, and it is a view of that frame (section 18.3, Views). Section 11.5 states where such a record may go.
 
@@ -302,7 +305,7 @@ Selector      = "." identifier .
 Index         = "[" Expression [ "," ] "]" .
 Slice         = "[" [ Expression ] ":" [ Expression ] "]" |
                 "[" [ Expression ] ":" Expression ":" Expression "]" .
-TypeAssertion = "." "(" Type ")" .
+TypeAssertion = "." "(" ( Type | VariantName ) ")" .
 Arguments     = "(" [ ( ExpressionList | Type [ "," ExpressionList ] ) [ "..." ] [ "," ] ] ")" .
 ```
 
@@ -631,7 +634,7 @@ v[0] *= 10 // bounds checked by Vec's methods: v[5] panics "index out of range [
 for i := 0; i < len(v); i++ { ... }
 ```
 
-**The methods.** The methods are found in the method set of `x`'s type as for a call `x.Index(k)`. Methods with pointer receivers need an addressable `x` or a pointer (E2457), and indexing through a pointer works: `p := &counts; p["b"] = 2`. Their forms are fixed: `Index(k K) V`, `SetIndex(k K, v V)`, `IndexOk(k K) (V, bool)` and `Len() int`, with no type parameters of their own and no variadic parameter (E2452). A type may have any subset. Each use needs its own method (E2451), and the methods a type has must agree on `K` and `V` (E2453). The key is assigned to `K` as an argument is. A field named `Index` does not count.
+**The methods.** The methods are found in the method set of `x`'s type as for a call `x.Index(k)`. Methods with pointer receivers need an addressable `x`, a temporary of owner type (section 11.14, Calls) or a pointer (E2457), and indexing through a pointer works: `p := &counts; p["b"] = 2`. Their forms are fixed: `Index(k K) V`, `SetIndex(k K, v V)`, `IndexOk(k K) (V, bool)` and `Len() int`, with no type parameters of their own and no variadic parameter (E2452). A type may have any subset. Each use needs its own method (E2451), and the methods a type has must agree on `K` and `V` (E2453). The key is assigned to `K` as an argument is. A field named `Index` does not count.
 
 **Built-in types are unaffected.** A string, array, pointer to array, slice or map is always indexed by the language, even when its named type declares an `Index` method. So is `len` of those types and of rings. In generic code the choice is made from the type parameter's constraint. A type parameter whose type set is made of indexable built-in types is indexed by the language. One constrained only by methods calls them, whatever its type argument.
 
@@ -857,7 +860,7 @@ There is no distinct method type and there are no method literals.
 
 - A value is copied.
 - An owner that is a whole variable is **moved** into the parameter (section 18.5, Moves). The callee drops it when it returns, unless it moves it on. An owner that is not a whole variable (a field, an element, `*p`) cannot be moved out (E3303). Use `take` (section 13.10, Moving out of a place).
-- A string is **borrowed**: the caller keeps it alive for the call, and the callee counts only the copies it keeps (section 18.8, Strings). A `shared`, `synced` or `weak` reference, a channel or a map is copied, and the copy is counted.
+- A string is **borrowed**: the caller keeps it alive for the call, and the callee counts only the copies it keeps (section 18.8, Strings). A `shared`, `synced` or `weak` reference, a channel or a map is copied, and the copy is counted; the compiler removes the update when the caller keeps the value alive for the whole call, so that the callee counts only the copies it keeps (section 18.7, rule 4).
 - A view is passed unchanged. Passing a view down to a call is always allowed (section 18.3, Views). If the callee keeps it, the callee's summary decides whether the view may outlive what it looks at.
 - A receiver with a value receiver on an owner type is moved into the call like an argument (section 8.6, Method sets).
 
@@ -1378,7 +1381,7 @@ func()(x)       // function signature func() x
 func() int(x)   // x is converted to func() int (unambiguous)
 ```
 
-**Constant conversions.** A constant value `x` can be converted to type `T` if `x` is representable by a value of `T` (section 8.5, Representability). Converting a constant to a type that is not a type parameter yields a typed constant.
+**Constant conversions.** A constant value `x` can be converted to type `T` if `x` is representable by a value of `T` (section 8.5, Representability), or if `x` is an integer or rune constant and `T` is a string type (below). Converting a constant to a type that is not a type parameter yields a typed constant.
 
 ```go
 uint(iota)              // iota value of type uint
@@ -1406,7 +1409,7 @@ the conversion `P(1.1)` results in a non-constant value of type `P`, and the val
 **Non-constant conversions.** A non-constant value `x` can be converted to type `T` in any of these cases:
 
 - `x` is assignable to `T` (section 8.4, Assignability).
-- Ignoring struct tags (below), `x`'s type and `T` are not type parameters but have identical underlying types (section 8.2, Underlying types).
+- Ignoring struct tags (below), `x`'s type and `T` are not type parameters, are not enum types, and have identical underlying types (section 8.2, Underlying types).
 - Ignoring struct tags, `x`'s type and `T` are pointer types that are not named types, and their pointer base types are not type parameters but have identical underlying types.
 - `x`'s type and `T` are both integer or floating-point types.
 - `x` is a value of type `rune`, or a slice of runes, and `T` is a string type (below).
@@ -1415,6 +1418,8 @@ the conversion `P(1.1)` results in a non-constant value of type `P`, and the val
 - `x` is an enum value, and `T` is an integer or floating-point type.
 - `x` and `T` are related by the rules for packed types (section 7.14, `packed` types) or union types (section 7.13, Unions).
 - `x` is a value, and `T` is an owner type, or `x` is an owner and `T` is not (below).
+- `x` is a box (`owned[U]`, `shared[U]` or `synced[U]`) and `T` is `*U` or, in unsafe code, `unsafe.Pointer` (section 7.19): `T` is a view of the object, and nothing is moved or counted.
+- `x` is a `shared[U]` or `synced[U]` reference and `T` is `weak[` that type `]` (section 7.19): the result holds a weak count.
 
 Additionally, if `T` or `x`'s type `V` are type parameters, `x` can also be converted to type `T` if one of the following conditions applies:
 
@@ -1457,7 +1462,7 @@ There is no linguistic mechanism to convert between pointers and integers. The p
 
 **Conversions to and from a string type.** A conversion to a string type allocates a counted string (section 18.8, Strings) from the current allocator (section 18.9, Allocators), except where it is constant or yields a one-byte ASCII string, which is static. The string is valid UTF-8.
 
-- A value of type `rune`, or an untyped constant, converts to a string that holds the UTF-8 encoding of the code point. Values outside the range of valid Unicode code points, and surrogate halves, are converted to `"�"`. A value of any other integer type is an error. Write `string(rune(i))` to convert the code point `i`, or `strconv.Itoa(i)` to write the number.
+- A value of type `rune`, or an untyped integer or rune constant, converts to a string that holds the UTF-8 encoding of the code point. Values outside the range of valid Unicode code points, and surrogate halves, are converted to `"�"`. A value of any other integer type is an error. Write `string(rune(i))` to convert the code point `i`, or `strconv.Itoa(i)` to write the number.
 
 ```go
 string('a')        // "a"
@@ -1511,11 +1516,11 @@ t1 := (*[0]string)(t) // t1 == nil
 t2 := (*[1]string)(t) // panics: len([1]string) > len(t)
 ```
 
-**Enums.** `E(c)` for an integer constant `c` is valid if `c` is the value of a member of `E`, and gives that member. For a non-constant integer `n`, `E(n)` is valid only in the comma-ok form `v, ok := E(n)` (or with `=`, or `var v, ok = E(n)`). The value `ok` reports whether `n` equals a member's value, and `v` is that member, or the zero value if `ok` is false (E2314 for the form without `ok`). Floats and other non-integer types do not convert to an enum (E2313). An enum converts to any integer or floating-point type as its underlying integer does. Conversions to and from an enum with the same underlying type go through the integer type. See 7.12.
+**Enums.** `E(c)` for an integer constant `c` is valid if `c` is the value of a member of `E`, and gives that member. For a non-constant integer `n`, `E(n)` is valid only in the comma-ok form `v, ok := E(n)` (or with `=`, or `var v, ok = E(n)`). The value `ok` reports whether `n` equals a member's value, and `v` is that member, or the zero value if `ok` is false (E2314 for the form without `ok`). Floats and other non-integer types do not convert to an enum (E2313). An enum converts to any integer or floating-point type as its underlying integer does. A conversion from one enum type to another goes through the integer type and follows the rules above: `v, ok := Shade(uint8(color))`. See 7.12.
 
 **Owners.** Three rules decide the conversions that involve an owner type (section 7.18, Owner types).
 
-1. Converting a value to an owner type makes a new owner. It is allowed only in the package that declares the owner type, where the invariants of the type are kept. In any other package it is an error (E3212).
+1. Converting a value to an owner type makes a new owner. It is allowed only in the package that declares the owner type, where the invariants of the type are kept. In any other package it is an error (E3212). Converting a constant to an owner type is such a conversion: the result is a non-constant owner value, so `Frame(0)` is not a constant expression and cannot initialize a constant.
 2. Converting an owner to a type that is not an owner reads the value and moves nothing. The result is a plain value with no `Drop`.
 3. Converting an owner to another owner type with the same underlying type moves it.
 
@@ -1532,7 +1537,7 @@ Converting an owner to an interface type lends it when the interface is ordinary
 
 ### 11.25 Constant expressions
 
-Constant expressions may contain only constant operands and are evaluated at compile time. The constant operands are literals, constant identifiers, `iota`, enum members, the results of constant conversions, and calls of the built-in functions that have constant results: `len` and `cap` of an array or of a constant string that contain no channel receives and no function calls, `len(E)` of an enum type `E` (section 7.12, Enums), `min` and `max` of constants, and the functions of package `unsafe` that report sizes and offsets (section 20.1, Package `unsafe`).
+Constant expressions may contain only constant operands and are evaluated at compile time. The constant operands are literals, constant identifiers, `iota`, enum members, the results of constant conversions, and calls of the built-in functions that have constant results: `len` of a constant string, `len` and `cap` of an array or a pointer to an array as section 13.6 (Length and capacity, Constants) says, `len(E)` of an enum type `E` (section 7.12, Enums), `min` and `max` of constants, and the functions of package `unsafe` that report sizes and offsets (section 20.1, Package `unsafe`).
 
 Untyped boolean, numeric and string constants may be used as operands wherever it is legal to use an operand of boolean, numeric or string type, respectively.
 
@@ -1594,7 +1599,7 @@ An implementation may use rounding while computing untyped floating-point consta
 
 ### 11.26 Order of evaluation
 
-At package level, initialization dependencies determine the evaluation order of individual initialization expressions in variable declarations (section 15.2, Package initialization). Otherwise, the operands of an expression, assignment or return statement are evaluated in two steps.
+At package level, initialization dependencies determine the evaluation order of individual initialization expressions in variable declarations (section 15.2, Package initialization). Otherwise, the operands of an expression, assignment or return statement are evaluated in two steps, which apply to the whole statement and again to the function value and arguments of each call in it: a call is made only after its own function value and arguments have been evaluated by these two steps.
 
 1. All function calls, method calls, receive operations and binary logical operations are evaluated first, in lexical left-to-right order. A call happens after the calls in its own operands: the function value and the arguments are evaluated, then the call is made. A binary logical operation (`&&`, `||`) is a sequence point. Its left operand is evaluated completely before the right operand is evaluated, and the right operand is evaluated only if the operator requires it.
 2. Then the remaining operands are evaluated in lexical left-to-right order, using the values the calls left behind. These are the reads of variables, field selectors, index expressions, slice expressions, pointer indirections, conversions, and the arithmetic, comparison and other operators.

@@ -48,8 +48,10 @@ program finishes, not what an operation means.
 | a variable, field or function named `enum` or `packed` | compile error: both are reserved keywords | another name | 4.5 |
 | `complex64`, `complex128`, `complex`, `real`, `imag`, imaginary literals | removed | a struct of two floats | 7.2, 13.1, 4.9 |
 | `import "reflect"` | compile error: there is no run-time type metadata for programs | type switches, generics | 14.3 |
-| `go f(x)` | compile error that names `task` | `task f(x)` | 12.12, 4.6 |
+| `go f(x)` | compile error that names `task` | `task f(x)` | 12.12, 4.5 |
 | `//go:build`, `//go:noinline` and every other `//go:` comment | compile error that names the `//pu:` equivalent where there is one | `//pu:build`, `//pu:noinline` | 20.3 |
+| a package clause `package x_test` in a `_test.p` file | compile error (E4011): a test file does not form a package of its own | put the test in the package under test | 14.1 |
+| a goroutine started by an `init` function or a package-level initializer | compile error: initialization starts no task | start the task from `main` | 15.2 |
 | `defer` in a loop | compile error (E2530): each `defer` statement has one slot in the frame | call a function that defers, once per iteration | 12.19 |
 | `defer` in the body of a range-over-func loop, unless every path leaves the loop after it; a deferred literal there that captures the body's own variables | compile error (E2533, E2534) | defer in the enclosing function, or pass the variables as arguments | 12.11, 12.19 |
 | string literals that are not valid UTF-8 (`"\xff"`) | compile error | `[]byte{0xff}` for binary data | 4.11 |
@@ -72,7 +74,7 @@ The rows in this table are behaviors that differ from Go's. Each says how the di
 | each iteration of a `for` loop has its own copy of the loop variables | every iteration reuses the same storage | keeping a closure, pointer or interface copy of a loop variable where the next iteration can see it is a compile error (E3006) | 12.10, 18.4 |
 | a function literal can be stored anywhere | a closure that captures variables is valid while its frame is; a returned closure is built in a region its caller provides | storing one in a package variable, or returning it in a way no region can hold, is a compile error (E3100 to E3102) | 11.4, 11.5 |
 | an interface holding a large value boxes it on the heap | the copy is in the frame of the function that converts | returning or storing such an interface where it outlives the frame is a compile error | 7.9 |
-| converting a value to an interface copies it | converting an owner, a box, a channel or a map to an ordinary interface lends it: the interface is a view of the converted variable | asserting an owner back out of an ordinary interface is a compile error (E3308); returning `any(make(chan int))` is a compile error (E3001) | 7.9, 11.13 |
+| converting a value to an interface copies it | converting an owner, a box, a channel or a map to an ordinary interface lends it: the interface is a view of the converted variable (except that `error`, and every interface that embeds it, counts a `shared[T]` or `synced[T]` reference it holds, sections 7.9 and 16.7) | asserting an owner back out of an ordinary interface is a compile error (E3308); returning `any(make(chan int))` is a compile error (E3001) | 7.9, 11.13 |
 | a struct is always copyable | a struct with an owner field must be declared `owner`, and copying it is a move | a use after the move is a compile error (E3301, E3302) | 7.6, 7.18, 18.5 |
 | `os.File` is used through `*os.File` | `os.File` is an owner that closes when its variable goes out of scope | a different type: `os.Open` returns an `os.File`, not a pointer | 18.6 |
 | the garbage collector frees memory | allocation has an owner, arena or counted lifetime; last strong release destroys a counted object, weak references can delay reclamation, and strong cycles must be broken | allocation functions take an optional allocator argument, and the names say what owns | 18.1, 18.9, 18.10 |
@@ -90,7 +92,7 @@ The rows in this table are behaviors that differ from Go's. Each says how the di
 | In Go | In Plutonium | How the difference shows | Section |
 |---|---|---|---|
 | `map[K]V` is a reference to a table the collector frees | `map[K]V` is a counted reference; the table is released at its last strong reference; iteration follows Go's guarantees | `make(map[K]V, n, a)` takes an optional allocator; keys and values cannot be owners | 7.10, 13.7 |
-| a map can be passed to any goroutine | a map is sendable, and its contents fall under the race rules | writes from two tasks need a lock the compiler infers, a partition in a scope, or one task | 7.10, 19.3 |
+| a map can be passed to any goroutine | a map is sendable, and its contents fall under the race rules | writes from two tasks need a lock the compiler infers, or one task | 7.10, 19.3 |
 | `make(chan T, n)` and the channel is collected | `make(chan T, n, a)` takes an optional allocator; the channel is a counted reference, freed with its last reference; the channel of `time.After` and `time.Tick` owns its timer | sending an owner moves it | 7.11, 12.5, 19.6 |
 | `time.NewTimer`, `time.NewTicker` and `time.AfterFunc` return `*Timer` and `*Ticker` | they return `owned[Timer]` and `owned[Ticker]`, which stop and free the timer when dropped | a different type; a timer whose variable goes out of scope is stopped | 19.6 |
 | an error value with context lives on the heap | an error returned from a function is a value that fits in a word, or a pointer to storage that outlives the function; allocated errors are counted | the rule of section 16.2; returning a frame-backed struct copy or pointer to a local as `error` is a compile error; a word-inline pointer wrapper is permitted if its referent outlives it | 16.2, 16.7 |

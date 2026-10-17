@@ -34,9 +34,9 @@ A terminating statement interrupts the regular flow of control in a block. The f
 
 All other statements are not terminating. A statement list ends in a terminating statement if the list is not empty and its final non-empty statement is terminating.
 
-The clause of an or statement must end in a terminating statement, or in a `break` or a `continue` statement (section 11.27, Or clauses). The or statement itself is not a terminating statement: control continues after it when the call returns no error.
+The clause of an or statement must leave (section 11.27, The clause must leave). The or statement itself is not a terminating statement: control continues after it when the call returns no error.
 
-A call of a function that never returns is not a terminating statement, whatever can be inferred about that function. Whether a function compiles must not depend on the body of another function, possibly in another package, so `os.Exit(1)` at the end of a function that has results needs a `return` or a `panic` after it.
+A call of a function that never returns is not a terminating statement, whatever can be inferred about that function. The terminating-statement rule is syntactic: it looks at the statement and never at the body of a function that is called, so `os.Exit(1)` at the end of a function that has results needs a `return` or a `panic` after it. (Other rules do use the bodies of callees: sections 11.14, 12.12 and 17.4.)
 
 ```go
 func name(c Color) string {
@@ -76,6 +76,8 @@ Label       = identifier .
 ```
 
 ```go
+goto Error
+...
 Error: log.Panic("error encountered")
 ```
 
@@ -90,7 +92,7 @@ ExpressionStmt = Expression .
 The following built-in functions are not permitted in statement context:
 
 ```
-cap len make max min new
+cap len make max min new take
 unsafe.Add unsafe.Alignof unsafe.Offsetof unsafe.Sizeof unsafe.Slice unsafe.SliceData unsafe.String unsafe.StringData
 ```
 
@@ -318,7 +320,7 @@ ExprSwitchCase = "case" ExpressionList | "default" .
 
 If the switch expression evaluates to an untyped constant, it is first implicitly converted to its default type. The predeclared untyped value `nil` cannot be used as a switch expression. The switch expression type must be comparable (section 8.10, Comparable types).
 
-If a case expression is untyped, it is first implicitly converted to the type of the switch expression. For each (possibly converted) case expression `x` and the value `t` of the switch expression, `x == t` must be a valid comparison. An untyped constant does not convert to an enum type (section 8.4, Assignability), so `case 1:` in a switch on an enum value is an error.
+If a case expression is untyped, it is first implicitly converted to the type of the switch expression. For each (possibly converted) case expression `x` and the value `t` of the switch expression, `x == t` must be a valid comparison. An untyped constant does not convert to an enum type (section 8.4, Assignability), so `case 1:` in a switch on an enum value is an error (E2315).
 
 In other words, the switch expression is treated as if it were used to declare and initialize a temporary variable `t` without explicit type. It is that value of `t` against which each case expression `x` is tested for equality. If the switch expression has an owner type, it is compared in place and is not moved.
 
@@ -389,10 +391,11 @@ TypeSwitchStmt  = "switch" [ SimpleStmt ";" ] TypeSwitchGuard "{" { TypeCaseClau
 TypeSwitchGuard = [ identifier ":=" ] PrimaryExpr "." "(" "type" ")" .
 TypeCaseClause  = TypeSwitchCase ":" StatementList .
 TypeSwitchCase  = "case" TypeList | "default" .
-TypeList        = Type { "," Type } .
+TypeList        = CaseItem { "," CaseItem } .
+CaseItem        = Type | VariantName .
 ```
 
-The `TypeSwitchGuard` may include a short variable declaration. When that form is used, the variable is declared at the end of the `TypeSwitchCase` in the implicit block of each clause. In clauses with a case listing exactly one type, the variable has that type. Otherwise, the variable has the type of the expression in the `TypeSwitchGuard`.
+The `TypeSwitchGuard` may include a short variable declaration. When that form is used, the variable is declared at the end of the `TypeSwitchCase` in the implicit block of each clause. In clauses with a case listing exactly one type, the variable has that type. Otherwise, the variable has the type of the expression in the `TypeSwitchGuard`. The variable counts as used if any clause uses it; it is an error (E0101) if no clause does.
 
 Instead of a type, a case may use the predeclared identifier `nil`. That case is selected when the expression in the `TypeSwitchGuard` is a nil interface value. There may be at most one `nil` case.
 
@@ -421,6 +424,7 @@ could be rewritten:
 v := x // x is evaluated exactly once
 if v == nil {
 	i := v // type of i is type of x (interface{})
+	_ = i
 	printString("x is nil")
 } else if i, isInt := v.(int); isInt {
 	printInt(i) // type of i is int
@@ -433,9 +437,11 @@ if v == nil {
 	_, isString := v.(string)
 	if isBool || isString {
 		i := v // type of i is type of x (interface{})
+		_ = i
 		printString("type is bool or string")
 	} else {
 		i := v // type of i is type of x (interface{})
+		_ = i
 		printString("don't know the type")
 	}
 }
@@ -467,7 +473,7 @@ The type switch guard may be preceded by a simple statement, which executes befo
 
 **Owners in type switches.** A case that names an owner type is an error when the switch expression has an ordinary interface type (E3308), because an ordinary interface only lends the value it holds (section 11.13, Type assertions). When the switch expression is a whole variable of an owning interface type and the guard declares a variable, `switch v := x.(type)` moves the value out of `x` into `v` in every clause, the default clause included. The variable `v` is dropped at the end of its clause unless the clause moves it on, and `x` holds nothing afterward. Without a declared variable nothing moves.
 
-**Union switches.** A type switch on a union value `u` of type `U` selects the variant that `u` holds. Each case names variants: `U.V` (or `pkg.U.V`, `U[T].V`), or the bare name `V`, which in a case of such a switch denotes the variant whatever else the name denotes in scope. Bare names are accepted nowhere else. In a clause naming one variant, the declared variable has that variant's payload type (`struct{}` for a variant without a payload). In a clause naming several variants, and in the default clause, it has type `U`. A union value is never nil, so there is no `nil` case. Naming a variant twice is an error, and `fallthrough` is not allowed. A union switch with no `default` case must name every variant. Otherwise it is an error (E2414) that lists the missing ones. A union value whose tag names no variant can be made only by unsafe code; an exhaustive switch with no `default` case panics on it. A packed union's tag may hold any value its bits allow, so a switch on a packed union with no `default` case must cover every value the tag field can hold (E2415) (section 7.13, Unions).
+**Union switches.** A type switch on a union value `u` of type `U` selects the variant that `u` holds. Each case names variants: `U.V` (or `pkg.U.V`, `U[T].V`), or the bare name `V`, which in a case of such a switch denotes the variant whatever else the name denotes in scope. Bare names are accepted nowhere else. In a clause naming one variant, the declared variable has that variant's payload type (`struct{}` for a variant without a payload). In a clause naming several variants, and in the default clause, it has type `U`. A union value is never nil, so there is no `nil` case. Naming a variant twice is an error, and `fallthrough` is not allowed. A union switch with no `default` case must name every variant. Otherwise it is an error (E2414) that lists the missing ones. A union value whose tag names no variant can be made only by unsafe code; an exhaustive switch with no `default` case panics on it. A packed union's tag may hold any value its bits allow, so a switch on a packed union with no `default` case needs variants whose tag values together cover every value the tag field can hold; otherwise the switch is error E2415, reported at the switch (section 7.13, Unions).
 
 ```go
 switch s := st.(type) {
@@ -604,9 +610,9 @@ for c := range Color { // Red, Green, Blue
 }
 ```
 
-**Library containers.** If the type of the range expression `x` is none of the types above, `x` must have an `All` method, and the loop ranges over the iterator that `x.All()` returns (section 12.11, Range over functions). Then `x` is evaluated once and `All` is called once, before the loop. `All` is found in the method set of `x`'s type as `Index` is (section 11.11, Indexing library containers), so a pointer receiver needs an addressable `x` or a pointer (E2459). Its form is `All() F`, with no parameters, type parameters or variadic parameter, where `F` is a function type that `range` accepts, such as `iter.Seq[V]` or `iter.Seq2[K, V]` (E2458). The iteration variables follow `F`. A struct, or a type with an `Index` method, that has no `All` is an error (E2456).
+**Library containers.** If the type of the range expression `x` is none of the types above, `x` must have an `All` method, and the loop ranges over the iterator that `x.All()` returns (section 12.11, Range over functions). Then `x` is evaluated once and `All` is called once, before the loop. `All` is found in the method set of `x`'s type as `Index` is (section 11.11, Indexing library containers), so a pointer receiver needs an addressable `x` or a pointer (E2459). Its form is `All() F`, with no parameters, type parameters or variadic parameter, where `F` is a function type that `range` accepts, such as `iter.Seq[V]` or `iter.Seq2[K, V]` (E2458). On an owner container `All` must have a pointer receiver, since a value receiver would consume the container (E2458). The iteration variables follow `F`. A struct, or a type with an `Index` method, that has no `All` is an error (E2456).
 
-`vec.Vec[T]`, whose `All` returns `iter.Seq2[int, T]`, ranges like a slice. `hash.Map[K, V]` ranges like a map, in the order of its table, and `hash.Set[K]` ranges over its elements. A `ring[T, N]` ranges over its built-in `All` (section 7.17, `ring[T, N]`).
+`vec.Vec[T]`, whose `All` returns `iter.Seq2[int, T]` (`iter.Seq2[int, *T]` when `T` is an owner, so the loop yields views), ranges like a slice. `hash.Map[K, V]` ranges like a map, in the order of its table, and `hash.Set[K]` ranges over its elements. A `ring[T, N]` ranges over its built-in `All` (section 7.17, `ring[T, N]`).
 
 ```go
 for i, x := range v { ... }   // v.All(): index and element
@@ -710,7 +716,7 @@ func (t *Tree[K, V]) Walk(yield func(key K, val V) bool) {
 // walk tree t in-order
 var t Tree[string, int]
 for k, v := range t.Walk {
-	// process k, v
+	process(k, v)
 }
 
 // xor returns the xor-ed bytes of S
@@ -782,7 +788,7 @@ task func(ch chan<- bool) {
 }(c)
 ```
 
-The expression must be a function or method call. It cannot be parenthesized. Calls of built-in functions are restricted as for expression statements, and a `task` statement cannot start a built-in function such as `println` or `close` directly (E2591). Wrap it in a function and start that.
+The expression must be a function or method call. It cannot be parenthesized. A `task` statement cannot start a call of a built-in function (E2591). Wrap it in a function and start that.
 
 The function value and arguments are evaluated as usual in the starting task (section 11.26, Order of evaluation), but unlike with a regular call, program execution does not wait for the invoked function to complete. Instead, the function begins executing independently in a new task. When the function terminates, its task also terminates. If the function has any return values, they are discarded when the function completes, which drops those that hold owners or counted values. When `main` returns, tasks that are still running are not waited for (section 15.4, Program execution).
 
@@ -793,7 +799,7 @@ The function value and arguments are evaluated as usual in the starting task (se
 - A `synced` reference is copied, and the count goes up by one. A string gets a reference of its own.
 - Packed variadic arguments are copied into the new task, so each one crosses as a value.
 - Every argument, and the receiver, must be sendable (section 19.2, The sendable rule), or the statement is an error. A `shared[T]` is not sendable.
-- A view of the starting frame cannot be passed at all (E3004, or E2011 where the type checker sees it directly), because the task may outlive the frame (section 18.3, Views). Passing the address of a local `sync.WaitGroup` is this error. Use a package-level variable, or a `sync.Scope` (below).
+- A view of the starting frame cannot be passed at all (E3004, or E2011 where the type checker sees it directly; a capturing function literal or method value passed as a func-typed argument is E2590 or E2594, as under Closures below), because the task may outlive the frame (section 18.3, Views). Passing the address of a local `sync.WaitGroup` is this error. Use a package-level variable, or a `sync.Scope` (below).
 - A view of other memory crosses only when what it points to cannot change while both tasks may use it (section 19.2, The sendable rule; section 19.3, Data race freedom).
 
 **A method of a box.** `task p.Serve()`, where `Serve` has a pointer receiver and `p` is an `owned[T]` or a `synced[T]`, hands the box itself to the new task, so the object lives as long as the task needs it and no view of the starting frame is involved.
@@ -826,7 +832,7 @@ A case with a `RecvStmt` may assign the result of a `RecvExpr` to one or two var
 
 Execution of a `select` statement proceeds in several steps:
 
-1. For all the cases in the statement, the channel operands of receive operations and the channel and right-hand-side expressions of send statements are evaluated exactly once, in source order, upon entering the `select` statement. The result is a set of channels to receive from or send to, and the corresponding values to send. Any side effects in that evaluation occur irrespective of which (if any) communication operation is selected to proceed. Expressions on the left-hand side of a `RecvStmt` with a short variable declaration or assignment are not yet evaluated.
+1. For all the cases in the statement, the channel operands of receive operations and the channel and right-hand-side expressions of send statements are evaluated exactly once, in source order from case to case and each by the rules of section 11.26 (Order of evaluation), upon entering the `select` statement. The result is a set of channels to receive from or send to, and the corresponding values to send. Any side effects in that evaluation occur irrespective of which (if any) communication operation is selected to proceed. Expressions on the left-hand side of a `RecvStmt` with a short variable declaration or assignment are not yet evaluated.
 2. If one or more of the communications can proceed, a single one that can proceed is chosen via a uniform pseudo-random selection. Otherwise, if there is a default case, that case is chosen. If there is no default case, the `select` statement blocks until at least one of the communications can proceed.
 3. Unless the selected case is the default case, the respective communication operation is executed.
 4. If the selected case is a `RecvStmt` with a short variable declaration or an assignment, the left-hand side expressions are evaluated and the received value (or values) are assigned.
@@ -890,7 +896,7 @@ case <-t.C:
 }
 ```
 
-`select {}` with no cases blocks forever. A task blocked in a `select` is reported in a deadlock as `select`, or `select (no cases)` (section 19.1, Tasks).
+`select {}` with no cases blocks forever. A task blocked in a `select` is shown as waiting in a `select` in a deadlock report (section 19.1, Tasks); the wording of the report is not part of the language.
 
 ### 12.14 Return statements
 
@@ -947,7 +953,7 @@ func (devnull) Write(p []byte) (n int, _ error) {
 
 Regardless of how they are declared, all the result values are initialized to the zero values for their type upon entry to the function. A `return` statement that specifies results sets the result parameters before any deferred functions are executed.
 
-An implementation may disallow an empty expression list in a `return` statement if a different entity (constant, type or variable) with the same name as a result parameter is in scope at the place of the return.
+An empty expression list in a `return` statement is an error (E0160) if a different entity (constant, type or variable) with the same name as a result parameter is in scope at the place of the return.
 
 ```go
 func f(n int) (res int, err error) {

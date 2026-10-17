@@ -305,7 +305,8 @@ From section 11.3 (Composite literals):
 ```
 CompositeLit = LiteralType LiteralValue .
 LiteralType  = StructType | ArrayType | "[" "..." "]" ElementType |
-               SliceType | MapType | TypeName [ TypeArgs ] .
+               SliceType | MapType | TypeName [ TypeArgs ] | VariantName .
+VariantName  = TypeName [ TypeArgs ] "." identifier .
 LiteralValue = "{" [ ElementList [ "," ] ] "}" .
 ElementList  = KeyedElement { "," KeyedElement } .
 KeyedElement = [ Key ":" ] Element .
@@ -336,7 +337,7 @@ Selector      = "." identifier .
 Index         = "[" Expression [ "," ] "]" .
 Slice         = "[" [ Expression ] ":" [ Expression ] "]" |
                 "[" [ Expression ] ":" Expression ":" Expression "]" .
-TypeAssertion = "." "(" Type ")" .
+TypeAssertion = "." "(" ( Type | VariantName ) ")" .
 Arguments     = "(" [ ( ExpressionList | Type [ "," ExpressionList ] ) [ "..." ] [ "," ] ] ")" .
 ```
 
@@ -441,7 +442,8 @@ TypeSwitchStmt  = "switch" [ SimpleStmt ";" ] TypeSwitchGuard "{" { TypeCaseClau
 TypeSwitchGuard = [ identifier ":=" ] PrimaryExpr "." "(" "type" ")" .
 TypeCaseClause  = TypeSwitchCase ":" StatementList .
 TypeSwitchCase  = "case" TypeList | "default" .
-TypeList        = Type { "," Type } .
+TypeList        = CaseItem { "," CaseItem } .
+CaseItem        = Type | VariantName .
 ```
 
 From section 12.10 (For statements):

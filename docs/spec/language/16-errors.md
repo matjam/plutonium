@@ -208,8 +208,7 @@ with `Unwrap() error` or `Unwrap() []error`, in a preorder walk.
   inferred from the type of `target`.
   A counted `shared[T]` or `synced[T]` error also matches a `*T` target; the pointer stored in
   the target borrows the object and remains valid while the counted error is held (section 16.7).
-- `errors.AsType[E error](err error) (E, bool)` returns the first error of type `E` and whether there was
-  one.
+- `errors.AsType[E error](err error) (E, bool)` returns the first error in the tree that `errors.As` would store in a target of type `E`, and whether there was one. A counted `shared[T]` or `synced[T]` error therefore matches `E = *T`, and the result borrows the object as for `As` (section 16.7).
 
 ```go
 package main

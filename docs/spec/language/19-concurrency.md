@@ -54,8 +54,9 @@ knows where the pointers into it are, so it cannot be moved. The size is chosen 
 
 1. When the call graph of the function started is bounded (no recursion, and no call through a func
    value or interface whose possible callees are not themselves bounded), the compiler computes the
-   stack the task needs, locals included, and the task gets exactly that.
-2. `rt.Go(f, size)` starts `f` with a stack of `size` bytes, at least `rt.MinStackSize` (8 KiB). This is
+   stack the task needs, locals included, and the task gets that, but not less than `rt.MinStackSize`.
+2. `rt.Go(f, size)` starts `f` with a stack of `size` bytes, at least `rt.MinStackSize` (8 KiB). An explicit size takes precedence over the computed size of item 1,
+   which applies to a `task` statement and to library task starts that give no size. This is
    how a program, a kernel or a scheduler binder asks for a size (appendix F).
 3. Otherwise, in hosted builds, the task gets at least 64 MiB of address space where the address space
    allows, with a guard region below it, whose memory is committed only as it is touched. When it does
@@ -73,7 +74,7 @@ it owns. `rt.Go(f, size, a)` has an optional third argument, the allocator that 
 (the program-wide default when it is omitted); it must outlive the task, and a bound scheduler receives it
 in the stack request and may take the memory from it or from its own pages.
 
-Running past the end of a stack with a guard region is a fault, reported as a stack overflow panic with
+A guard region is at least one page. Running past the end of a stack with a guard region is a fault, reported as a stack overflow panic with
 the task's trace and the size it had, and how to ask for more (section 17.5, Faults). In kernel builds
 the scheduler backend provides the guard (section 19.5). `rt.StackLeft()` returns the bytes left between
 the caller's frame and the limit of its stack, for code that recurses deeply.
@@ -109,7 +110,7 @@ A value **crosses** to another task when it is
   that starts a task with it;
 - sent on a channel, or received from one;
 - held inside an interface, struct or array that crosses;
-- a variable that a scoped task takes (section 19.4).
+- a variable that a scoped task uses, whether it takes it or captures it (section 19.4).
 
 Every value that crosses must be **sendable** (section 8.8, Sendable types), and may not hold a view that
 the other task could use while it changes:
@@ -126,7 +127,9 @@ and an owner that manages memory (`vec.Vec`, `hash.Map`, `strings.Builder`) take
 (section 8.8). A `synced[T]` and a
 map let several tasks reach the same memory, so what changes in it is subject to section 19.3. Strings
 are sendable because their bytes never change and their counts are atomic once a program has started a task
-(section 18.7, Shared ownership).
+(section 18.7, Shared ownership). A string made with `unsafe.String` is not counted (section
+18.8); sending one is the responsibility of the unsafe code that made it, which must keep its bytes
+alive and unchanged (section 18.12).
 
 The type part of the rule (`shared[T]`) is checked by the type checker on the arguments and receiver of
 every task statement and on the element type of every channel type, looking through struct fields, array
@@ -210,9 +213,7 @@ func main() {
 	for i := 0; i < 4; i++ {
 		<-done
 	}
-	mu.Lock()
-	println(hits) // without mu.Lock(): error E3503, hits is read without holding mu
-	mu.Unlock()
+	println(hits) // error: E3503, hits is read without holding mu
 }
 ```
 
@@ -268,7 +269,9 @@ The contents of a built-in map are shared by every copy of the map, and a map ma
 (section 19.2). When copies of one map may be used by several tasks, its contents follow the same rule:
 the writes (assignments to elements, `delete`, `clear`) must hold one guard, and every read holds it too
 (E3502, E3503). The guard is a package-level lock or a lock of the struct the map is a field of. A map used
-by one task at a time, or by the tasks of a `sync.Scope` under its partition rules, needs no lock. Since
+by one task at a time needs no lock. The tasks of a `sync.Scope` that write a map during an
+interval need a guard (rule 1 or 2 of Sharing, section 19.4), because a map has no partition form:
+writes to different keys race on the table. Since
 any copy of a map reaches its table, the compiler treats the contents of all maps of one type as one piece
 of data once a map of that type crosses to another task (or a task reaches one through a package variable
 or memory it did not allocate): maps of that type that tasks fill for themselves after handing them to a
@@ -326,7 +329,7 @@ literal written in the call, on a local Scope `s`, in the function that declares
 of another scoped task there. Every other `Task` call starts a task that is not scoped: on a Scope
 reached through a pointer, stored in a field or element, or in heap memory; with a func value that is not
 a literal written in the call; inside an ordinary function literal, on a Scope declared outside it; and
-`go s.Task(f)` or `defer s.Task(f)`. Such a Scope still counts the task and waits for it when it is
+`task s.Task(f)` or `defer s.Task(f)`. Such a Scope still counts the task and waits for it when it is
 dropped, but `f` may not use the frame, as for a task statement (section 19.1): a capturing literal is an
 error where the compiler can tell, and a run-time panic otherwise. A task statement never starts a scoped task. `sync.WaitGroup`
 (`Add`, `Done`, `Wait` and `Task`) never waits on its own, and the tasks it counts are not scoped.
@@ -353,7 +356,7 @@ drop that joins it (section 19.7).
 anything a view in it points to, as long as the storage lasts until the join: views of the frame (`&x`,
 `buf[:n]` of a local array, `&T{...}`), capturing function literals, method values of local variables,
 and views derived from parameters. None of these is an escape (section 18.3): a view given to a scoped
-task is bounded by the join, which comes before the function returns.
+task is bounded by the join, which comes before the function returns. A variable whose type is not sendable (a `shared[T]`, for example) may not be used by a scoped task at all, whether it is taken or captured (E2010), and the starting function may not use it while a task that uses it may run.
 
 - **Variables that end before the join are taken.** A captured variable whose block may end before the
   task is joined is **taken** by the task when `s.Task` runs: a value is copied, an owner is moved, and
@@ -361,8 +364,7 @@ task is bounded by the join, which comes before the function returns.
   Scope's block (a loop body, or the variables of a loop, such as `i` in `for i := ...`), unless an
   `s.Wait()` later in that same block joins the task before the block can end, with no `return`, `break`,
   `continue`, `goto` or label between the statement holding the call and the `Wait`. Each task therefore
-  sees the value its own iteration had. A taken variable must be sendable (section 19.2), and a
-  variable of a type that is not sendable may not be used by a scoped task at all. A taken owner is no
+  sees the value its own iteration had. A taken variable must be sendable (section 19.2). A taken owner is no
   longer the starting function's (using it afterwards is a use after move, section 18.5), and the task
   drops what is left of it when its literal returns.
 - **A taken variable that the task changes** (assigns, increments, or takes the address of), and that the
@@ -379,7 +381,7 @@ task is bounded by the join, which comes before the function returns.
   it is, and the starting function drops it at the end of its block: the literal may use it, call its
   methods, take its address and assign it a new value, but moving it inside the literal is E3305, as in
   any literal. While a task that uses such an owner may run, the starting function may not move or drop
-  it either (E3404, below). Sections 11.5 and 18.5 cite this rule.
+  it either (E3404, below). Sections 11.4 and 18.5 cite this rule.
 - **Func values.** A literal written as the argument of `s.Task` gets a closure record of its own in each
   task, built on the task's stack, holding the addresses of the shared variables and its own copies of the
   taken ones.
@@ -532,7 +534,8 @@ switch (`rt.Switch`), parking with a permit, so that a wakeup that arrives befor
 backend's clock, and channels, `select` and `pluto/sync` built only on those.
 
 **A backend** provides the policy and the memory. It is a type that implements `rt.Scheduler`, whose
-methods allocate and free task records and stacks (`NewTask`, `FreeTask`), make tasks runnable (`Spawn`,
+methods allocate and free task records and stacks, with a guard region of at least one page below each
+stack (`NewTask`, `FreeTask`), make tasks runnable (`Spawn`,
 `Wake`), and switch away from the running task (`Park`, `Yield`). Optional methods give the runtime an
 initialization hook (`Init`), a way to refuse waits in interrupt context (`InInterrupt`), and a clock and
 a timer (`Now`, `ArmTimer`, section 19.6).
@@ -540,7 +543,7 @@ a timer (`Now`, `ArmTimer`, section 19.6).
 **Binding.** The backend is bound when the program is linked: a package-level variable marked
 `//pu:scheduler`, whose type (not an interface) implements `rt.Scheduler`, and the runtime calls its
 methods directly. Hosted builds use the runtime's own backend unless the program binds one. A freestanding
-program that starts tasks, uses channels or waits in `pluto/sync` without binding a backend fails to build
+program that starts tasks, performs a channel operation or `select` that may wait (section 19.8, Waiting), or waits in `pluto/sync` without binding a backend fails to build
 (E2593), as does one that binds two or binds one of the wrong type (E2592), and one that uses timers with a
 backend that lacks `Now` or `ArmTimer` (E2595).
 
@@ -565,10 +568,9 @@ reads an empty pipe parks and its processor runs other tasks.
 
 **Interrupt context.** In kernel builds, an interrupt handler runs on top of whatever code its processor
 was running, so if it waited, the code it interrupted could never resume to end the wait. Nothing an
-interrupt handler, the panic handler or the backend's `Wake` can reach may wait: a channel operation
-other than a `select` with a `default` case, a lock that parks, `time.Sleep`, `s.Wait` or a `sync.Scope`'s
+interrupt handler, the panic handler or the backend's `Wake` can reach may wait: a send, a receive, a `range` over a channel or a `select` without a `default` case, a lock that parks, `time.Sleep`, `s.Wait` or a `sync.Scope`'s
 drop, or an allocator whose `Alloc` may wait (E2584); nor may it start a task (E2585). Operations that do
-not wait are allowed: a `select` with `default`, `TryLock`, `rt.Ready`, atomics, and the runtime's
+not wait are allowed: a `select` with `default`, `close`, `len` and `cap` of a channel, `TryLock`, `rt.Ready`, atomics, and the runtime's
 timers. The compiler checks this over the whole program; section 20.10 (Interrupts) defines it.
 
 ### 19.6 Timers
@@ -609,8 +611,8 @@ of `pluto/time`, which starts each function.
 
 **The mechanism.** The runtime's clock is `rt.Now()`, monotonic nanoseconds, the same on every processor.
 An `rt.Timer` calls a function once its deadline has passed, and again every period if it has one;
-arming, stopping and firing one never allocate or block, and its function must not block or allocate
-either. `rt.ParkUntil(deadline)` is `rt.Park` with a deadline. A kernel's backend provides the clock and
+arming, stopping and firing one never allocate or block, and its function must not block, allocate, or arm, stop or reset a timer (the lock of the timer heap
+is held while it runs, and `Stop` waits for a running function). `rt.ParkUntil(deadline)` is `rt.Park` with a deadline. A kernel's backend provides the clock and
 the hardware through two optional methods: `Now`, and `ArmTimer`, which arranges for `rt.RunTimers()` to
 be called (typically from the timer interrupt) once a deadline has passed. `rt.RunTimers`, and arming and
 stopping a timer, may be used in interrupt handlers; `time.Sleep` and `rt.ParkUntil` park, so interrupt

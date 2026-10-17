@@ -48,7 +48,7 @@ organization). A package is made of the source files in one directory (chapter 1
 A file name can select the files of a build. A suffix that names a target or an operating system, such as
 `_amd64.p` or `_linux.p`, includes the file only in builds for that target. A file whose name ends in
 `_test.p` belongs to the tests of its package and is left out of every other build. A `//pu:build` line
-near the top of a file includes it only when a boolean expression of build tags holds. Section 14.4
+at the start of a file, before the package clause, includes it only when a boolean expression of build tags holds. Section 14.4
 (Build constraints) defines these rules and the tags each mode sets.
 
 A source file may contain the directives of section 20.3 (Directives) in line comments that begin

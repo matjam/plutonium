@@ -79,8 +79,8 @@ guess which of them hold a value. Deferred calls run during a hosted panic (sect
 on a panic), but they cannot stop it. A failure that a program must survive is an `error` result
 (chapter 16, Errors).
 
-**`complex`, `real` and `imag` (E2006).** The language has no complex types (section 7.2, Numeric
-types). A value that needs a real part and an imaginary part is a struct of two floating-point fields.
+**`complex`, `real` and `imag` (E2006), and the types `complex64` and `complex128`.** The language has
+no complex types (section 7.2, Numeric types); a use of the name of either type is E2006 as well. A value that needs a real part and an imaginary part is a struct of two floating-point fields.
 
 ### 13.2 Copying slices
 
@@ -213,6 +213,7 @@ The built-in functions `len` and `cap` take arguments of various types and retur
 | | `map[K]V` | map length (number of defined keys) |
 | | `chan T` | number of elements queued in the channel buffer |
 | | `owned[A]`, `shared[A]`, `synced[A]` with `A` an array type | array length of `A` |
+| | `ring[T, N]` | number of elements in the ring (the language handles it, not a `Len` call) |
 | | a type that has the method `Len() int` (below) | the result of `Len` |
 | | type parameter | see below |
 | `len(E)` | an enum type `E` | the number of members of `E` (an untyped integer constant) |
@@ -227,7 +228,7 @@ For an owner operand the overload must be nonconsuming, using a pointer receiver
 an owner value-receiver `Len` cannot supply it. So `len(v)` of a `vec.Vec[T]` calls `v.Len()`. The form of the method and the rest of the indexing
 interface are defined in section 11.11 (Indexing library containers). The built-in types are always
 handled by the language, even when a named type of one of them declares a `Len` method. `cap` has no such
-form: a container reports its capacity with a method of its own.
+form: a container reports its capacity with a method of its own (for a ring, `r.Cap()`).
 
 **Type parameters.** If the argument type is a type parameter `P`, the call `len(e)` (or `cap(e)`) must
 be valid for each type in `P`'s type set. The result is the length (or capacity) of the argument whose type
@@ -337,8 +338,10 @@ The built-in functions `min` and `max` compute the smallest, or largest, value o
 arguments of ordered types (section 8.10, Comparable types). There must be at least one argument.
 A call with an argument that is not ordered, or with a slice argument (`min(s...)`), is an error (E0150).
 
-The same type rules as for operators apply: for ordered arguments `x` and `y`, `min(x, y)` is valid if
-`x + y` is valid, and the type of `min(x, y)` is the type of `x + y` (and similarly for `max`). If all
+The same type rules as for binary operators apply to the types of the arguments (section 11.18, Operators):
+after untyped constants are converted, all arguments must have one type, and the result has that type (and
+similarly for `max`). Enum arguments are accepted, and `min(Debug, Warn)` has the enum type. An owner
+argument is E0150, since the result would be a second owner. If all
 arguments are constant, the result is constant.
 
 ```go

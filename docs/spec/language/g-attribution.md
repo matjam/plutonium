@@ -12,10 +12,8 @@ licenses state. The Go Authors do not endorse Plutonium.
 also has, so that a reader finds each rule where they expect it. Text that adapts the Go specification
 appears in the chapters on notation, source code representation, lexical elements, constants, variables,
 types, properties of types and values, blocks, declarations and scope, expressions, statements, built-in
-functions, packages, program initialization and execution, errors, run-time panics and system
-considerations. Each such chapter ends with a line that refers to this appendix.
-Chapters and sections for which Go has no counterpart (ownership and memory, concurrency beyond the
-`task` statement, kernel mode, and the other additions listed in appendix A, section A.4) are not
+functions, packages, program initialization and execution, errors, run-time panics, concurrency and system considerations, in the introduction, and in appendices B to E. Each such chapter or appendix ends with a line that refers to this appendix.
+Chapters and sections for which Go has no counterpart (ownership and memory, most of concurrency, kernel mode, and the other additions listed in appendix A, section A.4) are not
 adapted from it.
 
 **What the licenses require.**

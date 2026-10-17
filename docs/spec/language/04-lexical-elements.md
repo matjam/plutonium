@@ -13,10 +13,10 @@ no newlines acts like a space. Any other comment acts like a newline.
 
 **Directives.** A line comment whose first characters are `//pu:`, with no space after the slashes, is a
 *directive*. A directive states a fact about the program that the compiler cannot work out for itself:
-linkage to assembly and C, hardware state, a binding to the runtime, or an explicit request. The directives
+linkage, a body it cannot see, hardware state, a binding to the runtime, a promise taken on trust, or an explicit request. The directives
 that exist, where each may appear and what each means are defined in section 20.3 (Directives). A
 `//pu:` line comment that is not a valid directive in the place where it appears is a compile error, so
-that a misspelled directive never silently changes nothing (E2600 to E2603).
+that a misspelled directive never silently changes nothing (E2600 to E2604).
 
 ```
 directive_comment = "//pu:" directive_name [ directive_args ] .
@@ -29,8 +29,7 @@ comment. `// pu:inline` is a note and `//pu:inline` is a directive.
 
 **`//go:` comments.** A line comment whose first characters are `//go:` is a compile error. The error
 names the `//pu:` directive that does the same job, such as `//pu:build` for `//go:build` and
-`//pu:noinline` for `//go:noinline`, or says that there is none. It belongs to the family of E2600
-(unknown directive), and section 20.3 (Directives) gives the full rule.
+`//pu:noinline` for `//go:noinline`, or says that there is none. It is E2604, and section 20.3 (Directives) gives the full rule.
 
 ```
 go_comment = "//go:" { unicode_char } .   /* always an error */
@@ -186,7 +185,7 @@ task[i] = v            // an assignment to an element
 
 **`or`.** Directly after a call that is a statement on its own, or a call on the right of `=` or `:=`,
 the identifier `or` begins an or clause (section 11.27, Or clauses). In every other position `or` is an
-identifier. No valid expression continues a call with a bare identifier, so the rule never changes the
+identifier. A parenthesized call followed by `or` is therefore the syntax error of section 11.27 (The operand, E1013). No valid expression continues a call with a bare identifier, so the rule never changes the
 meaning of code that uses `or` as a name. A statement that starts with `or`, an argument named `or`, and a
 variable on the right of `:=` are all identifiers. The `or` of a clause must be on the line where the call
 ends, since a newline would end the statement (section 4.3).

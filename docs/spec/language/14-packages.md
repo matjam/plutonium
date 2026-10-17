@@ -143,8 +143,7 @@ no such line is always part of the package.
 package arch
 ```
 
-A `//pu:build` line after the package clause is an error (E2602), and so is an expression that does not
-parse (E4013). A line comment that begins with `//go:` is an error in the family of E2600 (section 20.3,
+A `//pu:build` line after the package clause is an error (E2602). A `//pu:build` line without an expression is E2603, and an expression that does not parse is E4013. A line comment that begins with `//go:` is E2604 (section 20.3,
 Directives), and for `//go:build` the error names `//pu:build`.
 
 **File names.** A file name selects too. Take the name without its extension and without a final `_test`.

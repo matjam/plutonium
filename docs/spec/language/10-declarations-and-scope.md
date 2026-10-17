@@ -51,7 +51,7 @@ Two enums in one package can therefore each have a member `None`.
 
 Labels are declared by labeled statements (section 12.3, Labeled statements) and are used in the `break`,
 `continue` and `goto` statements (sections 12.15, 12.16 and 12.17). It is illegal to define a label that is
-never used (E0122). In contrast to other identifiers, labels are not block scoped and do not conflict with
+never used (E0122). A label is declared once in the body of its function: two labeled statements in one function body, in the same block or in different blocks, may not have the same label (the redeclaration error). In contrast to other identifiers, labels are not block scoped and do not conflict with
 identifiers that are not labels. The scope of a label is the body of the function in which it is declared
 and excludes the body of any nested function.
 
@@ -130,7 +130,7 @@ package block or an inner block, and the declaration hides the predeclared one t
 **Names that are not declared.** The functions `append`, `recover`, `complex`, `real` and `imag` and the
 types `complex64` and `complex128` do not exist and are not declared in the universe block. A program may use these names for its own declarations. A use of one of them without a declaration
 is a compile error that says what to write instead (section 13.1, Built-ins Plutonium does not have). The
-words `owner`, `union`, `task`, `bits`, `le` and `be` are contextual keywords, not predeclared identifiers
+words `owner`, `union`, `task`, `or`, `bits`, `le` and `be` are contextual keywords, not predeclared identifiers
 (section 4.6, Contextual keywords).
 
 Appendix D lists the predeclared identifiers with the section that defines each.
@@ -169,7 +169,7 @@ ExpressionList = Expression { "," Expression } .
 ```
 
 If the type is present, all constants take the type specified, and the expressions must be assignable to
-that type (section 8.4, Assignability), which must not be a type parameter. If the type is omitted, the
+that type (section 8.4, Assignability), which must not be a type parameter or an owner type (a constant never needs an owner, chapter 5). If the type is omitted, the
 constants take the individual types of the corresponding expressions. If the expression values are untyped
 constants, the declared constants remain untyped and the constant identifiers denote the constant values.
 For instance, if the expression is a floating-point literal, the constant identifier denotes a
@@ -419,18 +419,19 @@ declarations).
 func (l *List[T]) Len() int { return 0 }
 ```
 
-**What only a definition can say.** Three forms of type may appear only as the type of a type definition,
+**What only a definition can say.** Four forms of type may appear only as the type of a type definition,
 because the names of their members, or their kind, are reached through the type's name:
 
 - An *enum type* `type E enum { ... }` (section 7.12, Enums). An enum cannot have type parameters
   (E2302).
 - A *union type* `type U union { ... }` (section 7.13, Unions). A union may have type parameters, and a
   packed union may not (E2402).
+- A *packed type* `type P packed ... { ... }` or `packed union` (sections 7.14 and 7.13). One written anywhere else is a compile error (E2104).
 - An *owner type* `type T owner ...`, where the keyword `owner` precedes the type (section 7.18, Owner
   types). It declares that the values of `T` own what they hold: they move instead of copying and are
   dropped when their variable's scope ends. Which types `owner` may qualify, which types must carry it, and
-  what follows from it are the subject of section 7.18. A type definition from an owner type must carry
-  `owner` too: `type B owner A` (E3202).
+  what follows from it are the subject of section 7.18. A type definition from an owner type other than `owned[T]` must carry
+  `owner` too: `type B owner A` (E3202); one from `owned[T]` defines an owner by itself and may not carry it (section 7.18).
 
 ```go
 type File owner struct {
@@ -453,7 +454,7 @@ type Slot owner union {
 }
 ```
 
-An enum or union type written anywhere else, as in `var x enum { A }`, is a compile error (E2301, E2401).
+An enum, union or packed type written anywhere else, as in `var x enum { A }`, is a compile error (E2301, E2401, E2104).
 The word `owner` has a place only in a type definition and in a type parameter declaration (section 4.6,
 Contextual keywords).
 
@@ -787,7 +788,7 @@ The rules in full:
   parameter that appears only in omitted parameters must be given explicitly.
 - **Multiple values.** In `f(g())`, where `g` returns *k* values and `f` has more parameters, the *k*
   values fill the first *k* parameters and the rest take their defaults, provided they all have one.
-- **Variadic functions** cannot have defaults (E2202). The variadic parameter is last, so a defaulted
+- **Variadic functions** cannot have defaults (E2202): a function with a variadic parameter and any defaulted parameter is E2202, and E2203 is not reported for it. The variadic parameter is last, so a defaulted
   parameter before it would have to be given whenever any variadic argument is, and an argument after the
   variadic ones could not be told apart from them. The variadic constructors of the standard library
   therefore allocate from the current default allocator, which `alloc.Use` replaces for a region of code
@@ -825,7 +826,7 @@ A non-blank receiver identifier must be unique in the method signature. If the r
 referenced inside the body of the method, its identifier may be omitted in the declaration. The same
 applies in general to parameters of functions and methods.
 
-For a base type, the non-blank names of methods bound to it must be unique. If the base type is a struct
+A method without type parameters may omit its body, as a function may (section 10.12), and is then implemented outside Plutonium (section 20.4, Assembly and C); a method with type parameters must have a body. For a base type, the non-blank names of methods bound to it must be unique. If the base type is a struct
 type, the non-blank method and field names must be distinct.
 
 Given a defined type `Point` the declarations

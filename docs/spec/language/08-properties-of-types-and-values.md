@@ -192,8 +192,8 @@ A value `x` of type `V` is assignable to a variable of type `T` ("`x` is assigna
 following conditions applies:
 
 - `V` and `T` are identical.
-- `V` and `T` have identical underlying types but are not type parameters and at least one of `V` or `T` is
-  not a named type.
+- `V` and `T` have identical underlying types but are not type parameters, at least one of `V` or `T` is
+  not a named type, and neither `V` nor `T` is an owner type.
 - `V` and `T` are channel types with identical element types, `V` is a bidirectional channel, and at least one
   of `V` or `T` is not a named type.
 - `T` is an interface type, but not a type parameter, and `x` implements `T` (section 7.9; method sets are in
@@ -221,7 +221,7 @@ the type (section 8.7) and is defined in section 12.7 (Assignment statements) an
 Four rules deserve particular attention:
 
 - **An untyped constant is not assignable to an enum type.** `var c Color = 1` and `c == 1` are errors
-  (E2316), because a constant that is not a member's value would make a value that is not a member, and a
+  (E2315), because a constant that is not a member's value would make a value that is not a member, and a
   constant that is one hides the member's name. The conversion `Color(1)` is valid if `1` is a member's value
   (section 11.24, Conversions).
 - **There is no implicit conversion into a union.** A value is assignable to a union type only if its type is
@@ -229,7 +229,7 @@ Four rules deserve particular attention:
 - **A box is not a pointer.** An `owned[T]`, `shared[T]` or `synced[T]` value is assignable only to a variable
   of an identical type, never to `*T`, and a `*T` is never assignable to a box type. The conversions out of a
   box are in section 11.24.
-- **Interfaces and owners.** A value of an owner type is assignable to an ordinary interface (the interface
+- **Interfaces and owners.** An owner type is assignable only to an identical type or to an interface; every other change of type involving an owner is a conversion (section 11.24, Owners). A value of an owner type is assignable to an ordinary interface (the interface
   lends it) and to an owning interface that it implements (it moves in). It implements an interface only
   through the methods that section 8.6 lets count: the value-receiver methods of an owner type never do.
 
@@ -306,7 +306,7 @@ a (possibly empty) method set associated with it:
 - The method set of a type parameter is the method set of its constraint.
 
 Further rules apply to structs (and pointer to structs) containing embedded fields, as described in the
-section on struct types (section 7.6). Any other type has an empty method set. In a method set, each method
+section on struct types (section 7.6). The method set of `*ring[T, N]` is the methods of section 7.17 (all have pointer receivers). Any other type, including `volatile[T]` and `aligned[T, N]` (read the value as a `T` first), has an empty method set. In a method set, each method
 must have a unique non-blank method name.
 
 **Methods of owners.** A method with a value receiver of an owner type consumes its receiver: calling it moves
@@ -319,8 +319,8 @@ believes it holds it. Therefore:
   type are left out of its method set. This holds for the owner type itself, for a pointer to it, for an
   `owned`, `shared` or `synced` box of it, and for a method promoted from an embedded owner field.
 - A conversion that needs such a method is a compile error that shows the fix: a pointer receiver, or `&b`.
-- The method stays in the method set for direct calls, a method expression and a promoted selector on a
-  variable: `b.Finish()` moves `b`, and `Buf.Finish(b)` does too.
+- The method stays in the method set for direct calls on a whole owner variable and for a method expression: `b.Finish()` moves `b`, and `Buf.Finish(b)` does too.
+- Calling it through a pointer, a box, an element, or as a method promoted from an embedded owner field (`p.Finish()`; `w.Finish()` where `w` embeds `Buf`) would move the owner out of a place that still holds it, and is error E3303 (section 18.5, Places).
 
 The rule is the same for ordinary and owning interfaces, and for types and boxes. Code that needs to consume
 an owner calls the method directly, or after a type assertion that moves the owner out of an owning interface.
@@ -383,7 +383,7 @@ kinds.
 | `bool`, integer and floating-point types, `uintptr` | value |
 | enum types | value |
 | packed types | value |
-| `string` | counted value |
+| `string` | counted value (a string made with `unsafe.String`, or in a local arena, is a view; sections 18.8 and 18.9) |
 | `chan T` | counted value |
 | `map[K]V` | counted value |
 | `shared[T]`, `synced[T]`, `weak[P]` | counted value |
@@ -399,7 +399,7 @@ kinds.
 | a type declared `owner` | owner |
 | a defined type `type T U` | the kind of `U` |
 | an alias | the kind of the type it denotes |
-| a type parameter | owner if its constraint is marked `owner`; otherwise a value, copied by generic code |
+| a type parameter | an owner if the parameter is declared `owner` (section 10.9); otherwise the kind of the type argument, which is never an owner |
 
 The kinds are ordered from the strongest to the weakest: owner, view, counted value, value. The kind of a
 composite type is the strongest kind of its components. A struct with a counted field and a view field is a
@@ -413,14 +413,14 @@ Three rules keep the table honest:
 - **An owner is declared, never accidental.** A struct or union whose components include an owner is an owner
   and must be declared `owner` (E3202, E2406); the compiler does not make a type an owner silently, because a
   type that looks like a plain struct and moves would be a false friend. The types that are owners by
-  construction are `owned[T]`, an array, a `ring` or an `aligned` of an owner, and an owning interface.
+  construction are `owned[T]` and an array, a `ring` or an `aligned` of an owner; an owning interface and an owner union are owners because they are declared `owner`.
   Section 7.18 (Owner types) gives the full rules.
 - **Function and interface types are views.** A value of such a type may be a closure or a frame copy that
   refers to a frame, so the type has the kind that the strictest value could have. The escape analysis
   (section 18.3) checks each value by what it refers to: a function value that captures nothing may be
   returned or stored anywhere, as the type's kind alone would not allow.
 - **A string is not an owner.** It is a counted value: it never moves, a moved-from string does not exist, and
-  copying is always allowed.
+  copying is always allowed, except for a string whose buffer is in a local arena, which is a view of the arena (section 18.9, Allocators).
 
 ```go
 type Point struct{ x, y int }                  // value
@@ -432,8 +432,7 @@ type Cache struct{ m map[string]int }          // counted value (a map field)
 
 ### 8.8 Sendable types
 
-A value **crosses** between tasks when it is an argument or receiver of a task statement (section 12.12, Task
-statements) or an element sent on a channel (section 12.5, Send statements). A value that crosses must be safe
+A value **crosses** between tasks in the cases that section 19.2 (The sendable rule) lists: an argument or receiver of a task statement (section 12.12, Task statements), an element sent on or received from a channel (section 12.5, Send statements), and the other cases of that list. A value that crosses must be safe
 to use from several processors at once. A type is **sendable** if values of the type may cross, subject to the
 conditions on views below.
 
@@ -624,7 +623,7 @@ depend on the kind of a type are these:
   underlying type moves.
 - A box never converts to or from a pointer, except through `(*T)(p)`, `&*p` and `unsafe`. A `weak[P]` is made
   by converting a reference (section 7.19).
-- Strings convert to and from runes, and are never converted to or from byte slices (section 7.3).
+- A rune, or a slice of runes, converts to a string; a string converts to no rune and to no slice (section 11.24, Conversions to and from a string type).
 
 ---
 

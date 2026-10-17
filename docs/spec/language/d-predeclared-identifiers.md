@@ -29,7 +29,7 @@ identifiers). A program may redeclare any of them in the package block or an inn
 | `ring[T, N]` | a fixed-capacity ring buffer stored inline | 7.17 `ring[T, N]` |
 | `owned[T]` | the single owner of a heap `T` | 7.19 `owned`, `shared`, `synced` and `weak` |
 | `shared[T]` | a counted reference used by one task | 7.19 |
-| `synced[T]` | a counted reference whose count is atomic | 7.19 |
+| `synced[T]` | a counted reference that may cross between tasks; its count is atomic once the program is multi-threaded (section 18.7) | 7.19 |
 | `weak[P]` | a reference to the object of `P` that does not keep it alive | 7.19 |
 
 **Constants.**
@@ -54,7 +54,7 @@ identifiers). A program may redeclare any of them in the package block or an inn
 | `close` | closes a channel | 13.4 Close |
 | `copy` | copies elements between slices | 13.2 Copying slices |
 | `delete` | removes an element from a map | 13.5 Deletion of map elements |
-| `len` | length of a string, array, slice, map or channel, or the number of members of an enum | 13.6 |
+| `len` | length of a string, array, slice, map or channel, the number of members of an enum, or the result of a `Len() int` method | 13.6 |
 | `make` | makes a channel or a map | 13.7 Making channels and maps |
 | `max`, `min` | the largest and smallest of their arguments | 13.8 Min and max |
 | `new` | allocates a variable and returns an `owned[T]` | 13.9 Allocation |
@@ -69,7 +69,7 @@ not have).
 
 **Not in the universe block.** The functions of package `unsafe` (`Pointer`, `Sizeof`, `Alignof`,
 `Offsetof`, `Add`, `Slice`, `SliceData`, `String`, `StringData` and `Drop`) are declared by importing
-`unsafe` (section 20.1, Package `unsafe`). The contextual keywords `owner`, `union`, `task`, `bits`, `le`
+`unsafe` (section 20.1, Package `unsafe`). The contextual keywords `owner`, `union`, `task`, `or`, `bits`, `le`
 and `be` are not declared at all (section 4.6, Contextual keywords).
 
 Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

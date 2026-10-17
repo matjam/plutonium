@@ -58,7 +58,9 @@ Generation checks), and a pointer made from an integer carries none, so accesses
 checked.
 
 **Sizes and offsets.** `Alignof` and `Sizeof` take an expression `x` of any type and return the
-alignment or size of a hypothetical variable `v` declared as `var v = x`. `Offsetof` takes a selector
+alignment or size of a hypothetical variable `v` declared as `var v = x`. The argument is not evaluated: it contributes its type only, so it moves
+nothing, calls nothing and cannot cause a drop (the `Alignof(*p)` of the `unsafe.Drop` example is valid
+for an owner `T`). `Offsetof` takes a selector
 `s.f` that denotes a field `f` of the struct denoted by `s` or `*s`, and returns the field's offset in
 bytes relative to the struct's address. If `f` is an embedded field, it must be reachable without
 pointer indirections through fields of the struct. For a struct `s` with field `f`:
@@ -122,17 +124,17 @@ unsafe code) lists the rest (the unchecked allocation layer, functions without a
 make promises, `rt.Pinned`, `pluto/arch/x86` and memory made from an integer) and states what safe code is
 guaranteed. Unsafe code needs no keyword: every use is an import of `unsafe` or `pluto/arch/x86`, a call
 into the unchecked layer of `pluto/alloc`, an explicit manual arena operation listed in section 18.12,
-or a `//pu:` directive, so it is found by searching the imports and calls
-and the directives, and the implementation provides a tool that lists it (section 21.5, Run-time checks
-and the unchecked mode).
+a function declaration without a body, a use of `rt.Pinned`, or a `//pu:` directive, so it is found by
+searching the imports, the calls, the bodiless declarations and the directives, and the implementation
+provides a tool that lists it (section 21.5, Run-time checks and the unchecked mode).
 
 ### 20.2 Size and alignment guarantees
 
-The sizes of the numeric types are guaranteed:
+The sizes of the basic types are guaranteed:
 
 | Type | Size in bytes |
 |---|---|
-| `byte`, `uint8`, `int8` | 1 |
+| `bool`, `byte`, `uint8`, `int8` | 1 |
 | `uint16`, `int16` | 2 |
 | `uint32`, `int32`, `float32`, `rune` | 4 |
 | `uint64`, `int64`, `float64` | 8 |
@@ -171,7 +173,7 @@ The other types have these sizes and alignments:
 | `volatile[T]` | that of `T` | that of `T` |
 | `aligned[T, N]` | that of `T`, rounded up to a multiple of `N` | the larger of `N` and that of `T` |
 | `ring[T, N]` | 16 bytes plus `N` times the size of `T`, rounded up to its alignment | the larger of 8 and that of `T` |
-| packed type | its bit width rounded up to whole bytes | that of its backing type |
+| packed type | its bit width rounded up to whole bytes | that of its backing type; 1 when the backing is `[]byte`, a byte array or omitted |
 | enum type | that of its underlying integer type | that of its underlying integer type |
 | union | the tag, then the largest payload at its alignment, rounded up to the alignment | the larger of the tag's and the largest payload's |
 | an owner type | that of its underlying type | that of its underlying type |
@@ -250,7 +252,8 @@ becoming unreasonably large: an implementation documents it.
 64G. The hosted runtime reserves that much address space, maps it as the program touches it and places a
 guard region of 1 MiB below it, so that an overflow is a fault reported as a panic (section 17.5, Faults).
 Without the directive `main` runs on the stack the system gave the process. The directive is an error
-when it is malformed, on any function other than `main` of package `main`, and in a freestanding build,
+when its size is missing or malformed (E2603), on any function other than `main`
+of package `main` (E2602), when the size is outside 64K to 64G, and in a freestanding build,
 where the program sets up its own stack (E2560). A program that
 recurses deeply asks how much stack remains with `rt.StackLeft()`, which returns the bytes between the
 caller's frame and the limit of its stack, or `^uintptr(0)` where the limit is unknown.
@@ -338,11 +341,14 @@ func add(a, b int32) int32 { return a + b }
 
 These rules apply to the signature of every `//pu:extern` and `//pu:export` function:
 
-- The types that may appear in parameters and results are integers, `uintptr`, `bool`, `float32` and
-  `float64`, pointers and `unsafe.Pointer`, `owned`, `shared` and `synced` references (which cross as the
-  address of the object), and structs of these. `volatile[T]` and `aligned[T, N]` with `N` at most 8 cross
+- A call of `rt.ExitTask` that would leave a `//pu:export` function panics at the boundary (section 17.3),
+  and a panic ends the program as everywhere else (section 17.4).
+- The types that may appear in parameters and results are integers, enum types (as their underlying
+  integer), `uintptr`, `bool`, `float32` and `float64`, pointers and `unsafe.Pointer`, `owned`, `shared`,
+  `synced` and `weak` references (which cross as the address of the object), and structs of these, with
+  arrays as fields. `volatile[T]` and `aligned[T, N]` with `N` at most 8 cross
   as `T`. A packed type crosses as its storage.
-- Strings, slices, interfaces, func values, maps, channels and unions have no C type and are errors in a
+- Strings, slices, interfaces, func values, maps, channels, rings and unions have no C type and are errors in a
   by-value parameter or result, including inside structs. Pass `unsafe.StringData(s)` and `len(s)`
   instead of a string, and `unsafe.SliceData(b)` and `len(b)` instead of a slice. Behind a pointer, a
   struct that contains slices may be shared with C, with the layout of section 20.2; one that contains
@@ -388,8 +394,8 @@ default (section 21.5).
 provides its entry point, which must call the program's initialization and `main` on a 16-byte aligned
 stack with the direction flag clear (abi.md section 8). The program must define its panic handler
 (section 17.4). There is no default allocator until the program calls `alloc.SetDefault`; allocating
-before then panics (section 20.11). A program that uses tasks, channels or waits in `pluto/sync` must
-bind a scheduler with `//pu:scheduler` (section 19.5), and fails to build otherwise. Scheduler-dependent
+before then panics (section 20.11). A program that starts tasks, performs a channel operation or `select` that may wait, or waits in
+`pluto/sync` must bind a scheduler with `//pu:scheduler` (section 19.5), and fails to build otherwise. Scheduler-dependent
 timers, callbacks and poller operations also require the backend through their API contracts. A program
 requiring none of these capabilities contains no scheduler. Required safety protection remains enabled
 by default: unavailable runtime protection requires static proof or rejection (section 21.5).
@@ -453,7 +459,8 @@ kernel and hide a large cost behind ordinary arithmetic, for code that hardly ev
 ### 20.8 `pluto/arch/x86`
 
 The package `pluto/arch/x86` gives access to the instructions a kernel needs. Except for the
-compile-time address query `HandlerAddr`, each function is expanded inline to the instruction or short
+compile-time address query `HandlerAddr` and the constructor `NewDescriptorTablePointer`, which is an
+ordinary function with no side effect, each function is expanded inline to the instruction or short
 sequence it names, is never removed even if its result is unused, and is a compiler barrier: no memory access is moved across it (section 19.7, Memory model). The
 expansion of each function is in the ABI document (abi.md section 10.5). Privileged instructions fault
 outside ring 0. The package is available on amd64 in every build mode, though only `Pause`, `Cpuid`,
@@ -569,13 +576,13 @@ instruction, take effect when it returns (abi.md section 10.4).
 
 ```go
 //pu:interrupt
-func timer(f *x86.InterruptFrame)
+func timer(f *x86.InterruptFrame) { x86.Outb(0x20, 0x20) }
 
 //pu:interrupt
-func pageFault(f *x86.InterruptFrame, code uint64) // a vector that pushes an error code
+func pageFault(f *x86.InterruptFrame, code uint64) { rt.PanicFault(rt.MemoryFault, uintptr(x86.ReadCR2()), uintptr(f.RIP), uintptr(f.RSP), 0) } // a vector that pushes an error code
 ```
 
-A handler is never inlined, cannot be called, deferred or used as a func value (E2573), and its address
+A handler is never inlined (`//pu:interrupt` on a function that is also `//pu:inline` is E2570), cannot be called, deferred or used as a func value (E2573), and its address
 is taken with `x86.HandlerAddr`.
 
 **Interrupt context cannot block.** A handler runs on top of whatever code the processor was executing.
