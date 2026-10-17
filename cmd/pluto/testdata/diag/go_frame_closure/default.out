@@ -5,10 +5,12 @@ $DIR/main.p:17:7: cannot start square with a task statement: it holds a function
     them. A func value points to that record. A task statement copies its
     function and arguments, but copying a func value copies only the pointer, so
     the task may call through it after the frame is gone.
-    The compiler reports this wherever it can tell: a capturing literal or a
-    method value passed to a task statement, or a local variable assigned only
-    once, from one of them. Elsewhere the task statement checks when it runs,
-    and panics.
+    The compiler reports this where it sees the literal or the method value
+    itself: passed to a task statement, or held by a local variable assigned
+    only once. A func value that reaches the task start any other way (through a
+    parameter, a field, an element, or a variable assigned twice) is reported by
+    the check of views of the frame (E3003, E3004), since it may be such a
+    closure.
     Library functions that start a task with a func argument, such as
     sync.WaitGroup.Task and time.AfterFunc, follow the same rule and the
     compiler reports them the same way.

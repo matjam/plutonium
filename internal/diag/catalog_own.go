@@ -38,13 +38,13 @@ func init() {
 		},
 		&Entry{
 			Code: PassFrameView, Name: "PassFrameView",
-			Text: "A view of the frame is passed to a function that keeps it after returning: the function stores it in a package variable, in memory that outlives the call, or passes it on to something that does. The compiler knows this from the function's body, so no annotation is needed. Passing a view to a function that only uses it during the call is always allowed.\nGive the function something that owns its memory, such as a buffer or a value allocated for it.",
+			Text: "A view of the frame is passed to a function that keeps it after returning: the function stores it in a package variable, in memory that outlives the call, or passes it on to something that does. The compiler knows this from the function's body, so no annotation is needed. Passing a view to a function that only uses it during the call is always allowed. A func value that may be a closure of the frame (a function literal that captures variables, or a method value) is a view of the frame too: passing it to a function that starts a task with it, such as sync.WaitGroup.Task, rt.Go or time.AfterFunc, is this error.\nGive the function something that owns its memory, such as a buffer or a value allocated for it.",
 			Why:  whyFrame,
 			Spec: pspec("18.3", "Views"),
 		},
 		&Entry{
 			Code: GoFrameView, Name: "GoFrameView",
-			Text:    "A task statement starts a task that runs on its own, and may still be running after the function that started it returns. A view of that function's frame passed to it could then point at reclaimed memory.\nPass the value itself, which copies it, or moves it if it is an owner. To run a method of an owned or synced box on the new task, start it directly (task p.Serve()): the task then takes the box itself, so there is no view of the frame. To let the new task use the frame, start it with a sync.Scope declared in the function (s.Task(func() {...})), which waits for it before its block ends.",
+			Text:    "A task statement starts a task that runs on its own, and may still be running after the function that started it returns. A view of that function's frame passed to it could then point at reclaimed memory. A func value that may be a closure of the frame (a function literal that captures variables, or a method value), reaching the statement through a variable, a field, an element or a parameter, is such a view.\nPass the value itself, which copies it, or moves it if it is an owner. To run a method of an owned or synced box on the new task, start it directly (task p.Serve()): the task then takes the box itself, so there is no view of the frame. To let the new task use the frame, start it with a sync.Scope declared in the function (s.Task(func() {...})), which waits for it before its block ends.",
 			Why:     whyFrame,
 			Spec:    pspec("18.3", "Views"),
 			Example: "task handle(&req)",

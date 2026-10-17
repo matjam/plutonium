@@ -75,31 +75,8 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 		return nil
 	}
 	if fn := w.calledFunc(e); fn != nil && fn.Pkg() != nil {
-		switch {
-		case fn.Pkg().Path() == "pluto/sync/atomic" && fn.Type().(*types2.Signature).Recv() == nil:
+		if fn.Pkg().Path() == "pluto/sync/atomic" && fn.Type().(*types2.Signature).Recv() == nil {
 			return w.atomicCall(e, fn)
-		case fn.Pkg().Path() == "pluto/rt" && fn.Name() == "checkGoFunc":
-			// The runtime's check that a func value may start a task: the
-			// caller starts one with it (rt.Go, time.AfterFunc).
-			// The argument is the func value's closure record, read
-			// through unsafe.Pointer: the func-typed variables it names
-			// are what the task runs.
-			var root origins
-			for _, a := range e.Args {
-				w.value(a)
-				ast.Inspect(a, func(n ast.Node) bool {
-					if id, ok := n.(*ast.Ident); ok {
-						if v, ok := w.a.uses[id].(*types2.Var); ok {
-							if _, isFunc := v.Type().Underlying().(*types2.Signature); isFunc && !isGlobal(v) {
-								root.addAll(funcOrigins(w.u.vars[v]))
-							}
-						}
-					}
-					return true
-				})
-			}
-			w.spawn(&spawn{pos: e.Pos(), root: root, multi: true, desc: "a task started by " + w.fn.name})
-			return nil
 		}
 	}
 	t := w.target(e)
@@ -107,6 +84,17 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 		return w.ringCall(e, t)
 	}
 	args := w.args(e, t.sig)
+	if fn := w.calledFunc(e); scoped.StartsTaskWithFunc(fn) {
+		// A runtime or library function that starts a task with its func
+		// arguments (language spec section 12.12): the task runs them.
+		var root origins
+		for i, a := range e.Args {
+			if _, ok := w.typeOf(a).Underlying().(*types2.Signature); ok && i < len(args) {
+				root.addAll(funcOrigins(args[i]))
+			}
+		}
+		w.spawn(&spawn{pos: e.Pos(), root: root, multi: true, desc: "a task started by " + fn.Pkg().Name() + "." + fn.Name()})
+	}
 	if t.hasRecv {
 		args = append([]origins{t.recv}, args...)
 	}

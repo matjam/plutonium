@@ -202,12 +202,11 @@ func (t *Timer) Drop() {
 //
 // As with a task statement, f must not capture variables or be a method
 // value made in the caller's frame, since it runs after the frame may be
-// gone: AfterFunc panics if f's closure record lies in the calling
-// task's stack (language spec section 19.1). The tasks are started
+// gone: a func value that may be a closure of the calling frame is a
+// compile error (language spec sections 12.12 and 18.3). The tasks are started
 // by one task of the time package's. It waits while callbacks are armed
 // or queued, then returns. A later AfterFunc or Reset starts it again.
 func AfterFunc(d Duration, f func(), a alloc.Allocator = alloc.Default()) synced[Timer] {
-	rt.CheckGoFunc(f)
 	t := alloc.Synced[Timer](a)
 	t.f = f
 	// The runtime's timer heap and the queue of expired timers refer to

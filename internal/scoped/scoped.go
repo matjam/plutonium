@@ -707,3 +707,20 @@ func isInt64(T types2.Type) bool {
 
 // IsInt64 is isInt64, for the race check's windows.
 func IsInt64(T types2.Type) bool { return isInt64(T) }
+
+// StartsTaskWithFunc reports whether fn is a function the compiler knows
+// starts a task with its func arguments without a task statement the
+// analyses can see (the runtime's contract with the compiler, by name; spec
+// section 12.12): rt.Go, rt.TaskJoined, rt.DispatchTimerFunc and
+// time.AfterFunc. A func value that may be a closure of a frame must not
+// reach one (section 18.3).
+func StartsTaskWithFunc(fn *types2.Func) bool {
+	if fn == nil || fn.Pkg() == nil {
+		return false
+	}
+	switch fn.Pkg().Path() + "." + fn.Name() {
+	case "pluto/rt.Go", "pluto/rt.TaskJoined", "pluto/rt.DispatchTimerFunc", "pluto/time.AfterFunc":
+		return fn.Type().(*types2.Signature).Recv() == nil
+	}
+	return false
+}

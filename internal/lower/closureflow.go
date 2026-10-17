@@ -47,6 +47,7 @@ import (
 	"strings"
 
 	"github.com/matjam/plutonium/internal/diag"
+	"github.com/matjam/plutonium/internal/scoped"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
@@ -835,9 +836,6 @@ func (f *closureFlow) call(c *ast.CallExpr) bitset {
 	builds := true      // whether the callee may build closures in a region
 	keepsOwn := false   // and keep them anywhere
 	if g, targs := f.callee(c); g != nil {
-		if isGoFuncCheck(g) {
-			f.start(all)
-		}
 		sum := f.l.closureSummary(g, targs)
 		builds = sum.all || sum.builds
 		keepsOwn = sum.keepsOwn
@@ -1000,15 +998,6 @@ func (f *closureFlow) start(m bitset) {
 	if f.started.union(m) {
 		f.changed = true
 	}
-}
-
-// isGoFuncCheck reports whether g is the runtime's check that a func value
-// may start a task (pluto/rt's checkGoFunc, which rt.Go and
-// rt.CheckGoFunc call): a function that passes a parameter to it starts
-// tasks with that parameter, as one that passes it to a task statement
-// does.
-func isGoFuncCheck(g *types2.Func) bool {
-	return g.Name() == "checkGoFunc" && g.Pkg() != nil && g.Pkg().Path() == "pluto/rt"
 }
 
 // addLitIn records that lit's parameters may receive values with origins m.
@@ -1232,6 +1221,16 @@ func (l *Lowerer) closureSummary(g *types2.Func, targs []types2.Type) *flowSumma
 	depth := len(l.flowStack)
 	s := &flowSummary{depth: depth, store: map[int]bitset{}, callArgs: map[int]bitset{}}
 	l.flowSums[key] = s
+	if scoped.StartsTaskWithFunc(g) {
+		// The runtime's and the library's task starts (spec section 12.12):
+		// every func parameter starts a task.
+		sig := g.Type().(*types2.Signature)
+		for i := 0; i < sig.Params().Len(); i++ {
+			if _, ok := sig.Params().At(i).Type().Underlying().(*types2.Signature); ok {
+				s.starts.add(i)
+			}
+		}
+	}
 	l.flowStack = append(l.flowStack, key)
 	outer := l.flowMin
 	mark := len(l.flowTent)

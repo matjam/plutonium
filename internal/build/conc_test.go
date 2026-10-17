@@ -415,47 +415,6 @@ func main() {
 	println("pingpong", v)
 }
 `},
-		{name: "nilclosure", status: 2, want: "panic: a task started with a function value that captures variables or binds a method value: its closure record lives in the starting frame; pass the values as arguments\n", src: `package main
-
-import "pluto/rt"
-
-func run(f *func()) {
-	g := *f
-	task g()
-}
-
-// The escape analysis rejects passing the literal to a function that
-// starts it (spec section 18.3); rt.Pinned hides it, so the check at run
-// time is what stops it.
-func main() {
-	n := 1
-	f := func() { n++ }
-	run(rt.Pinned(&f))
-}
-`},
-		{name: "waitgroupgoclosure", status: 2, want: "panic: a task started with a function value that captures variables or binds a method value: its closure record lives in the starting frame; pass the values as arguments\n", src: `package main
-
-import (
-	"pluto/rt"
-	"pluto/sync"
-)
-
-// The compiler rejects a capturing literal passed to wg.Task, or to a
-// function that passes it on to wg.Task, where it can see the call
-// (TestGoFuncCall), and the escape analysis rejects it anywhere else;
-// rt.Pinned hides it from both, so the check when Go runs catches it.
-func start(wg *sync.WaitGroup, f func()) {
-	wg.Task(f)
-}
-
-func main() {
-	var wg sync.WaitGroup
-	n := 1
-	f := func() { n++ }
-	start(&wg, *rt.Pinned(&f))
-	wg.Wait()
-}
-`},
 		{name: "allocuse", want: "while used 1\nafter 1 restored true\n", src: `package main
 
 import (

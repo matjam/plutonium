@@ -149,10 +149,8 @@ func spawnScoped(j *Join, fn, args unsafe.Pointer, argSize, argAlign, bound uint
 
 // TaskJoined starts f on a new task counted by j, for a sync.Scope the
 // compiler cannot see in the starting frame (one reached through a
-// pointer): f must not capture variables, as for a task statement, and it
-// panics if f's closure record lies in the calling task's stack.
+// pointer): f must not capture variables, as for a task statement.
 func TaskJoined(j *Join, f func()) {
-	checkGoFunc(*(*unsafe.Pointer)(unsafe.Pointer(&f)))
 	joinEnter(j)
 	rec := *(*unsafe.Pointer)(unsafe.Pointer(&f))
 	spawnFor(j, rec, nil, 0, 1, StackRequest{Size: DefaultStackSize, Unsized: true, Alloc: defaultAllocator})

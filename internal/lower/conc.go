@@ -54,7 +54,7 @@ func (s *fnState) checkSendable(T types2.Type, pos token.Pos, what string) {
 // to be closure records in this frame: the function started (fun, unless
 // it is a function literal, which taskStmt checks, or a method call) and the
 // func-typed arguments. It reports whether there were any. Those it cannot
-// tell about are checked when the task statement runs.
+// tell about are rejected by the escape analysis (E3003, E3004).
 func (s *fnState) goFrameClosures(fun ast.Expr, args []ast.Expr) bool {
 	found := false
 	if id, ok := fun.(*ast.Ident); ok {
@@ -98,7 +98,7 @@ func (s *fnState) frameClosureArgs(args []ast.Expr, dest string) bool {
 // and any function that passes a func parameter on to one of them or to a
 // task statement; the closure flow summaries find them): the arguments that
 // are known to be closure records in this frame are compile errors, as in
-// a task statement. The functions still check the rest when they run.
+// a task statement. The escape analysis rejects the rest (E3003, E3004).
 func (s *fnState) goFuncCall(e *ast.CallExpr, fun ast.Expr) {
 	var cands []int
 	for i, a := range e.Args {
@@ -415,9 +415,8 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 	var vals []value                                      // receiver or func value first, then the arguments
 	var emit func(ts *fnState, in []value, pos token.Pos) // makes the call in the thunk
 	var sig *types2.Signature
-	var checkFunc *ssa.Value // a func value to check at run time
-	nlead := 0               // values before the arguments
-	boxRecv := false         // the receiver is the owned or synced box itself (task p.Serve())
+	nlead := 0       // values before the arguments
+	boxRecv := false // the receiver is the owned or synced box itself (task p.Serve())
 
 	if se, ok := fun.(*ast.SelectorExpr); ok {
 		if sel := s.info.Selections[se]; sel != nil && sel.Kind() == types2.MethodVal {
@@ -501,14 +500,11 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 		}
 	}
 	if emit == nil {
-		// A func value: copy it, and check at run time that its closure
-		// record is not in this frame.
+		// A func value: copy it. The escape analysis has shown that its
+		// closure record is not in this frame (spec section 18.3).
 		sig = s.typeOf(call.Fun).Underlying().(*types2.Signature)
 		fT := s.typeOf(call.Fun)
 		fv := s.scalar(call.Fun)
-		if _, lit := fun.(*ast.FuncLit); !lit {
-			checkFunc = fv
-		}
 		vals = append(vals, scalarValue(fv, fT))
 		emit = func(ts *fnState, in []value, pos token.Pos) {
 			f := in[0].v
@@ -517,15 +513,11 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 		vals = append(vals, s.callArgs(call, sig, nil)...)
 		nlead = 1
 	}
-	var checkArgs []*ssa.Value // func value arguments, checked like the callee
 	for i, v := range vals {
 		vals[i] = s.holdProducedOwner(v)
 	}
 	for _, v := range vals[nlead:] {
 		s.checkSendable(v.T, call.Pos(), "task statement argument of type")
-		if _, isFunc := unwrap(v.T).Underlying().(*types2.Signature); isFunc && !v.addr {
-			checkArgs = append(checkArgs, v.v)
-		}
 	}
 
 	// Lay out the argument block.
@@ -621,16 +613,6 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 		ts.returnValues(nil)
 	}})
 
-	// A func value whose closure record is in this task's stack (a
-	// literal that captures variables, a method value) would dangle in the
-	// new task: checkGoFunc panics on one, for the function started
-	// and for every func-typed argument.
-	if checkFunc != nil {
-		s.callRuntime("checkGoFunc", nil, []*ssa.Value{checkFunc})
-	}
-	for _, f := range checkArgs {
-		s.callRuntime("checkGoFunc", nil, []*ssa.Value{f})
-	}
 	rec := s.symAddr(s.l.closureRecord(thunk))
 	// The bound argument is the stack the call is proven to need; 0 until
 	// the compiler computes it (roadmap item 18).

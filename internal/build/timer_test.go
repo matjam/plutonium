@@ -306,22 +306,6 @@ func main() {
 	println("again", count.Load() == int64(51-stopped))
 }
 `},
-		{name: "afterfuncclosure", status: 2, want: "panic: a task started with a function value that captures variables or binds a method value: its closure record lives in the starting frame; pass the values as arguments\n", src: `package main
-
-import (
-	"pluto/rt"
-	"pluto/time"
-)
-
-// The escape analysis rejects passing the literal to AfterFunc (spec
-// section 6.3); rt.Pinned hides it, so the check at run time is what
-// stops it.
-func main() {
-	n := 1
-	f := func() { n++ }
-	time.AfterFunc(time.Millisecond, *rt.Pinned(&f))
-}
-`},
 		{name: "idle", want: "idle while sleeping true\n", src: `package main
 
 import (

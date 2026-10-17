@@ -1,0 +1,96 @@
+$DIR/main.p:32:2: cannot pass f to a task statement: the new task may outlive n
+    f is a function literal that uses n. A function literal that uses variables
+    of the function around it refers to those variables where they live, in
+    twice's frame (n is declared at main.p:29). The task started here runs on
+    its own, and may still be running after twice returns and n's memory is
+    reclaimed.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Pass a value, which is copied, or an owner, which moves, instead of a view
+    of the frame.
+    Or start it with a sync.Scope, which waits for its tasks before its block
+    ends, so that they may use twice's variables:
+        var s sync.Scope
+        s.Task(func() { f() })
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3004" for a longer explanation)
+
+$DIR/main.p:38:2: cannot pass j.run to a task statement: the new task may outlive n
+    j.run is a function literal that uses n. A function literal that uses
+    variables of the function around it refers to those variables where they
+    live, in field's frame (n is declared at main.p:36). The task started here
+    runs on its own, and may still be running after field returns and n's memory
+    is reclaimed.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Pass a value, which is copied, or an owner, which moves, instead of a view
+    of the frame.
+    Or start it with a sync.Scope, which waits for its tasks before its block
+    ends, so that they may use field's variables:
+        var s sync.Scope
+        s.Task(func() { j.run() })
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3004" for a longer explanation)
+
+$DIR/main.p:45:2: cannot pass f to viaHelper, which keeps it after returning
+    f is a function literal that uses n. A function literal that uses variables
+    of the function around it refers to those variables where they live, in
+    helper's frame (n is declared at main.p:42). viaHelper passes f to start
+    (main.p:25), which passes f to a task statement (main.p:21), so f would
+    outlive n.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Change viaHelper to take a value or an owner, which it can keep: an owned[T]
+    from new, a shared[T], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:53:2: cannot pass f to sync.(*WaitGroup).Task, which keeps it after returning
+    f is a function literal that uses n. A function literal that uses variables
+    of the function around it refers to those variables where they live, in
+    waitGroup's frame (n is declared at main.p:49). sync.(*WaitGroup).Task
+    passes f to a task statement (waitgroup.p:52), so f would outlive n.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Change sync.(*WaitGroup).Task to take a value or an owner, which it can
+    keep: an owned[T] from new, a shared[T], or a library owner such as a
+    vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:61:2: cannot pass f to rt.Go, which keeps it after returning
+    f is a function literal that uses n. A function literal that uses variables
+    of the function around it refers to those variables where they live, in
+    runtimeGo's frame (n is declared at main.p:58). rt.Go passes f to spawn
+    (sched.p:670), which passes fn to spawnFor (sched.p:698), which stores fn in
+    t.fn (sched.p:734), so f would outlive n.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Change rt.Go to take a value or an owner, which it can keep: an owned[T]
+    from new, a shared[T], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:68:2: cannot pass f to time.AfterFunc, which keeps it after returning
+    f is a function literal that uses n. A function literal that uses variables
+    of the function around it refers to those variables where they live, in
+    afterFunc's frame (n is declared at main.p:65). time.AfterFunc stores f in
+    t.f (sleep.p:211), so f would outlive n.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Change time.AfterFunc to take a value or an owner, which it can keep: an
+    owned[T] from new, a shared[T], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

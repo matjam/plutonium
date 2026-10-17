@@ -78,8 +78,9 @@ func TestGoFrameClosure(t *testing.T) {
 // their func arguments, the library's and the program's own, which the
 // compiler finds by following the func parameters into task statements and
 // into such calls: the arguments the compiler can tell are closure records
-// in the frame are compile errors, as in a task statement, and the rest are
-// left to the run-time check.
+// in the frame are compile errors here, as in a task statement; the escape
+// analysis rejects the rest (E3003, E3004; TestTaskStartFuncValues in
+// internal/build).
 func TestGoFuncCall(t *testing.T) {
 	const code = `(run "pluto explain E2594"`
 	cases := []struct {

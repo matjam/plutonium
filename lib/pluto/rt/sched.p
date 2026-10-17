@@ -663,20 +663,11 @@ func preemptPark() uintptr {
 // allocator: never the override the caller installed with UseAllocator,
 // which may be a local arena reset while the new task still runs (language
 // spec section 19.1). It is the task statement with an explicit stack. f
-// must not capture variables: Go panics if f's closure record lies in the
-// calling task's stack.
+// must not capture variables: a func value that may be a closure of the
+// calling frame is a compile error (language spec section 12.12).
 func Go(f func(), size uintptr, a Allocator = defaultAllocator) {
 	rec := *(*unsafe.Pointer)(unsafe.Pointer(&f))
-	checkGoFunc(rec)
 	spawn(rec, nil, 0, 1, StackRequest{Size: size, Alloc: a})
-}
-
-// CheckGoFunc panics as a task statement does if f's closure record lies in
-// the calling task's stack, for a library that starts f on a task
-// later from another one (time.AfterFunc): a function literal that
-// captures variables, or a method value, made in the caller's frame.
-func CheckGoFunc(f func()) {
-	checkGoFunc(*(*unsafe.Pointer)(unsafe.Pointer(&f)))
 }
 
 // DispatchTimerFunc is the time package's internal dispatch boundary. The
@@ -685,7 +676,6 @@ func CheckGoFunc(f func()) {
 // own task; only an exit of the dispatching frame is caught here.
 func DispatchTimerFunc(f func(), handedOff *bool) bool {
 	rec := *(*unsafe.Pointer)(unsafe.Pointer(&f))
-	checkGoFunc(rec)
 	spawnFor(nil, rec, nil, 0, 1, StackRequest{Size: DefaultStackSize, Unsized: true, Alloc: defaultAllocator}, handedOff)
 	return takeGoexit()
 }
@@ -702,20 +692,6 @@ func spawnGo(fn, args unsafe.Pointer, argSize, argAlign, bound uintptr, handedOf
 		req.Size, req.Proven, req.Unsized = bound, true, false
 	}
 	spawnFor(nil, fn, args, argSize, argAlign, req, handedOff)
-}
-
-// checkGoFunc panics if the closure record rec lies in the running task's
-// stack: a function literal that captures variables, or a method value,
-// whose record dies with the frame that made it.
-func checkGoFunc(rec unsafe.Pointer) {
-	t := current()
-	if t == nil || t.stackHi == 0 {
-		return
-	}
-	p := uintptr(rec)
-	if p >= getsp() && p < t.stackHi {
-		panicMessage("a task started with a function value that captures variables or binds a method value: its closure record lives in the starting frame; pass the values as arguments", "", "", "", "")
-	}
 }
 
 func spawn(fn, args unsafe.Pointer, argSize, argAlign uintptr, req StackRequest) {

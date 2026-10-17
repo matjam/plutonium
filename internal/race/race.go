@@ -530,7 +530,7 @@ func (a *analyzer) unitSpawns(u *unit) bool {
 			case *ast.TaskStmt:
 				found = true
 			case *ast.Ident:
-				if fn, ok := a.uses[n].(*types2.Func); ok && fn.Name() == "checkGoFunc" && fn.Pkg() != nil && fn.Pkg().Path() == "pluto/rt" {
+				if fn, ok := a.uses[n].(*types2.Func); ok && scoped.StartsTaskWithFunc(fn) {
 					found = true
 				}
 			}
