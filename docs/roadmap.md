@@ -90,13 +90,13 @@ against the corrected specification. The immediate implementation order is:
      E2590 and E2594 for the forms the checker sees directly. Delete `rt.checkGoFunc` and its call, the run-
      time panic and its message, and the abi.md 12.6 sentence. Tests: func values from a parameter, field,
      element, channel and a twice-assigned variable; a func loaded from heap never rejected.
-109. **`time.AfterFunc` returns `synced[Timer]`** (planned; decision D16; sections 19.6, F.7, A.3;
+109. **`time.AfterFunc` returns `synced[Timer]`** (done, `e6063931`; decision D16; sections 19.6, F.7, A.3;
      abi.md 12.9). Change `lib/pluto/time` `AfterFunc` to return a counted `synced[Timer]`; the runtime holds
      a reference while the timer is armed, released when `f` starts or `Stop` succeeds; dropping handles
      never stops the timer; `NewTimer` and `NewTicker` keep `owned[...]`. Update `Stop` and `Reset` and the
      leak accounting of the debug allocator. Tests: the statement `time.AfterFunc(d, f)` fires `f`; `Stop`
      through a copy cancels it; no leak after firing.
-110. **Elementwise loop over two slices** (planned; decision D17; sections 19.4, 17.1). In
+110. **Elementwise loop over two slices** (done, `59242b98`; decision D17; sections 19.4, 17.1). In
      `internal/scoped` and `internal/race`, accept two possibly overlapping views used only in the same
      partition form with the same loop variable and parameters; lower a check before each `s.Task` call that
      the views start at the same element or do not overlap, panicking otherwise, in every build mode (not
@@ -133,13 +133,13 @@ against the corrected specification. The immediate implementation order is:
      (defined slice types included); report an error for `type myRune rune`, `type Fd int32` and `[]myRune`,
      with a fix naming `string(rune(x))`. Rewrite uses in `lib/`, examples and tests. Tests: each accepted
      and rejected form.
-116. **Packed types keep reserved bits** (planned; decision D29; sections 7.14, 8.10). Conversions
+116. **Packed types keep reserved bits** (done, `177e61c5`; decision D29; sections 7.14, 8.10). Conversions
      between an integer or byte array and a packed type keep every bit both ways; field writes change only
      their bits; reserved bits (bits of `_` fields and uncovered backing bits) are zero in literals and zero
      values. Equality and map hashing of packed values ignore reserved bits and compare the rest bit by bit
      (floating-point fields by their bits). Tests: round-trip of a register value with reserved bits,
      equality, map key.
-117. **Packed bit layout with an array backing; E2021** (planned; decision D30; section 7.14). Lay out
+117. **Packed bit layout with an array backing; E2021** (done, `74ccb87b`; decision D30; section 7.14). Lay out
      `[N]byte`, `[]byte` and unbacked packed types by byte: position `p` is bit `p mod 8` of byte `p / 8`, a
      bit field in consecutive positions, a byte-level field in the stated byte order whatever the target. Add
      E2021 and its catalog entry: in a big-endian packed type with a byte-array, slice or no backing, a bit
