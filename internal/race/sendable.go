@@ -296,6 +296,7 @@ type problem struct {
 	// part is, holds: its count is not atomic. The type checker cannot see
 	// what an interface holds.
 	shared types2.Type
+	site   *convSite // a conversion of typ to an interface
 }
 
 // sendable checks a value of type T with origins vals that crosses to
@@ -376,7 +377,11 @@ func (a *analyzer) sendableIn(T types2.Type, vals origins, part string, written 
 			}
 			if bad := types2.Unsendable(C); bad != nil {
 				// The type checker cannot see what an interface holds.
-				return &problem{part: part, typ: C, shared: bad}
+				site := a.convSites[types2.TypeString(C, nil)]
+				if site == nil {
+					continue // only lent from the frame: it never crosses
+				}
+				return &problem{part: part, typ: C, shared: bad, site: site}
 			}
 			seen[C] = true
 			p := a.sendableIn(C, nil, part+" (holding a "+types2.TypeString(C, a.qualifier)+")", written, seen, true)
@@ -523,7 +528,47 @@ func (w *walker) conv(e ast.Expr, to types2.Type) {
 	if w.a.converted == nil {
 		w.a.converted = map[string]types2.Type{}
 	}
-	w.a.converted[types2.TypeString(from, nil)] = from
+	if w.a.convSites == nil {
+		w.a.convSites = map[string]*convSite{}
+	}
+	key := types2.TypeString(from, nil)
+	w.a.converted[key] = from
+	if w.lendsFrame(e, from) || w.a.convSites[key] != nil {
+		return
+	}
+	w.a.convSites[key] = &convSite{pos: e.Pos(), pkg: w.fn.pkg.Types.Name()}
+}
+
+// lendsFrame reports whether converting e, of type from, to an interface
+// lends a box that only the frame of the function holds: a box in a local
+// variable (or a field of one), or the result of a call, which is a
+// temporary. The interface then points at the object without a reference
+// of its own, and it can never outlive the statement or the variable's
+// scope, so it can never cross to another task (language spec sections 18.3
+// and 8.8): fmt.Println(sh) of a shared[T] in a local variable is such a
+// conversion.
+func (w *walker) lendsFrame(e ast.Expr, from types2.Type) bool {
+	if !isBox(from) {
+		return false
+	}
+	if call, ok := ast.Unparen(e).(*ast.CallExpr); ok {
+		return !w.a.types[call.Fun].IsType() && !w.a.types[call.Fun].IsBuiltin()
+	}
+	return w.localPlace(e)
+}
+
+// localPlace reports whether the place e is a local variable or a field of
+// one that is held by value.
+func (w *walker) localPlace(e ast.Expr) bool {
+	switch e := ast.Unparen(e).(type) {
+	case *ast.Ident:
+		v, ok := w.a.uses[e].(*types2.Var)
+		return ok && !v.IsField() && v.Parent() != nil && v.Pkg() != nil && v.Parent() != v.Pkg().Scope()
+	case *ast.SelectorExpr:
+		sel := w.a.selections[e]
+		return sel != nil && sel.Kind() == types2.FieldVal && !sel.Indirect() && w.localPlace(e.X)
+	}
+	return false
 }
 
 // qualifier writes a type's package as the program would: none for the

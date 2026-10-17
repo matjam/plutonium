@@ -1,0 +1,3 @@
+$DIR/main.p:20:37: cannot convert f (variable of struct type Failure) to error: it contains shared[Detail], whose count is not atomic, and every error may cross tasks; use alloc.Synced (spec section 8.8)
+$DIR/main.p:22:46: cannot convert f (value of struct type Failure) to error: it contains shared[Detail], whose count is not atomic, and every error may cross tasks; use alloc.Synced (spec section 8.8)
+$DIR/main.p:24:42: cannot convert f (variable of struct type Failure) to Reporter: it contains shared[Detail], whose count is not atomic, and every error may cross tasks; use alloc.Synced (spec section 8.8)

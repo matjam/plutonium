@@ -1,0 +1,24 @@
+$DIR/main.p:20:37: cannot convert f (variable of struct type Failure) to error: it contains shared[Detail], whose count is not atomic, and every error may cross tasks; use alloc.Synced (spec section 8.8)
+    Every error value may be sent to another task, so a value can become an
+    error (or an interface that embeds error) only if its type is sendable. This
+    type holds a shared[T], whose reference count is changed with ordinary
+    arithmetic, so two tasks copying or dropping references to it at once would
+    corrupt it.
+    The message names the shared[T]. alloc.Synced allocates an object whose
+    references are counted atomically.
+    Go's garbage collector makes every error safe to share. Plutonium counts a
+    shared reference without atomic instructions, which is only correct on one
+    task, and it counts the references to an error object in the object,
+    atomically.
+    Hold the data in a synced[T], which counts atomically:
+        type Failure struct {
+            detail synced[Detail]
+        }
+    (see "Sendable types" in the Plutonium spec, section 8.8)
+    (run "pluto explain E2020" for a longer explanation)
+
+$DIR/main.p:22:46: cannot convert f (value of struct type Failure) to error: it contains shared[Detail], whose count is not atomic, and every error may cross tasks; use alloc.Synced (spec section 8.8)
+    (explained above; run "pluto explain E2020" for more)
+
+$DIR/main.p:24:42: cannot convert f (variable of struct type Failure) to Reporter: it contains shared[Detail], whose count is not atomic, and every error may cross tasks; use alloc.Synced (spec section 8.8)
+    (explained above; run "pluto explain E2020" for more)

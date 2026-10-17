@@ -65,11 +65,13 @@ const (
 	// holds a pointer, view, counted value, interface, function value or
 	// owner, which cannot be sent to another address space.
 	NotPortable
-	// 2019 and 2020 are reserved for the string slice expression and the
-	// non-sendable type converted to error (docs/roadmap.md items 104 and
-	// 107).
+	// 2019 is reserved for the string slice expression (docs/roadmap.md
+	// item 104).
 	_
-	_
+	// UnsendableToError: a value of a type that is not sendable (in
+	// practice one that holds a shared[T]) converted to error or to an
+	// interface that embeds it; every error is sendable.
+	UnsendableToError
 	// BadPackedBytePlacement: in a big-endian packed type with a byte-array,
 	// slice or no backing, a bit field that crosses a byte boundary or a
 	// byte-level field that does not start on one (E2021).

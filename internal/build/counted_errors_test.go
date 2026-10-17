@@ -125,8 +125,8 @@ func wrapping() {
  println(errors.As(joined, &p), p.n, drops)
  println(joined.Error())
 }
-func shared() {
- p := alloc.Shared[E]()
+func syncedBox() {
+ p := alloc.Synced[E]()
  var e error = p
  p = nil
  var q *E
@@ -138,7 +138,7 @@ func main() {
  containers()
  wrapping()
  println(drops)
- shared()
+ syncedBox()
 }
 `
 	for _, level := range []int{0, 2} {
@@ -172,7 +172,7 @@ func (root) Error() string { return "root" }
 func (root) Unwrap() error { p := alloc.Synced[E](); p.n = 42; return p }
 func extract() synced[E] { var p synced[E]; println(errors.As(root(0), &p)); return p }
 func asserted() synced[E] { var e error = alloc.Synced[E](); return e.(synced[E]) }
-func sharedTarget() shared[E] { var e error = alloc.Shared[E](); return e.(shared[E]) }
+func syncedTarget() synced[E] { var e error = alloc.Synced[E](); return e.(synced[E]) }
 func run() {
  p := extract()
  println(p.n, drops)
@@ -182,7 +182,7 @@ func run() {
  println(q.n, drops)
  q = nil
  println(drops)
- s := sharedTarget()
+ s := syncedTarget()
  println(s.n, drops)
  s = nil
  println(drops)

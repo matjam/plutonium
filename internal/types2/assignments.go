@@ -112,7 +112,9 @@ func (check *Checker) assignment(x *operand, T Type, context string) {
 			check.errorf(x, code, "cannot use %s as %s value in %s", x, T, context)
 		}
 		x.invalidate()
+		return
 	}
+	check.errorConversion(x, T)
 }
 
 func (check *Checker) initConst(lhs *Const, x *operand) {

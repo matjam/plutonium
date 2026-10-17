@@ -224,3 +224,32 @@ func isPointerTyped(T Type) bool {
 	}
 	return false
 }
+
+// errorConversion reports the conversion of x to T when T is error or an
+// interface that embeds it and the type of x is not sendable (language spec
+// section 8.8): every error is sendable, so a value that holds a shared[T]
+// cannot become one. The message names the shared[T] and shows
+// alloc.Synced. A conversion between interfaces, of nil, or of a type
+// parameter's value is not checked here.
+func (check *Checker) errorConversion(x *operand, T Type) {
+	if T == nil || !isNonTypeParamInterface(T) || !x.isValid() || x.isNil() {
+		return
+	}
+	V := x.typ()
+	if !isValid(V) || isUntyped(V) || isTypeParam(V) || IsInterface(V) {
+		return
+	}
+	i, _ := T.Underlying().(*Interface)
+	if i == nil || !Implements(i, Universe.Lookup("error").Type().Underlying().(*Interface)) {
+		return
+	}
+	bad := Unsendable(V)
+	if bad == nil {
+		return
+	}
+	if Identical(bad, V) {
+		check.errorf(x, UnsendableToError, "cannot convert %s to %s: a shared reference's count is not atomic and every error may cross tasks; use alloc.Synced (spec section 8.8)", x, T)
+	} else {
+		check.errorf(x, UnsendableToError, "cannot convert %s to %s: it contains %s, whose count is not atomic, and every error may cross tasks; use alloc.Synced (spec section 8.8)", x, T, bad)
+	}
+}

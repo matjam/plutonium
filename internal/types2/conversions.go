@@ -99,6 +99,7 @@ func (check *Checker) conversion(x *operand, T Type) {
 	}
 
 	check.ownerConversion(x, T)
+	check.errorConversion(x, T)
 
 	// The conversion argument types are final. For untyped values the
 	// conversion provides the type, per the spec: "A constant may be

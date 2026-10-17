@@ -31,12 +31,13 @@ func(c *counting)Alloc(n,a uintptr)unsafe.Pointer{return c.next.Alloc(n,a)}
 func(c *counting)Free(p unsafe.Pointer,n,a uintptr){c.next.Free(p,n,a);frees++;if exitFree{rt.ExitTask()}}
 func fresh()shared[Holder]{p:=alloc.Shared[Holder]();p.id=100;return p}
 func freshId(id int)shared[Holder]{p:=alloc.Shared[Holder]();p.id=id;return p}
+func freshSync(id int)synced[Holder]{p:=alloc.Synced[Holder]();p.id=id;return p}
 func namedOwner()(r Holder){r=Holder{id:100};rt.ExitTask();return}
 func deferredOwner()(r Holder){defer func(){r=Holder{id:100}}();rt.ExitTask();return}
 func namedShared()(r shared[Holder]){r=fresh();rt.ExitTask();return}
 func deferredShared()(r shared[Holder]){defer func(){r=fresh()}();rt.ExitTask();return}
-func namedError()(r error){r=fresh();rt.ExitTask();return}
-func deferredError()(r error){defer func(){r=fresh()}();rt.ExitTask();return}
+func namedError()(r error){r=freshSync(100);rt.ExitTask();return}
+func deferredError()(r error){defer func(){r=freshSync(100)}();rt.ExitTask();return}
 func namedString()(r string){r=strings.Repeat("x",17);rt.ExitTask();return}
 func deferredString()(r string){defer func(){r=strings.Repeat("x",17)}();rt.ExitTask();return}
 func normalOwner()(r Holder){r=Holder{id:100};return}
@@ -44,12 +45,12 @@ func normalShared()(r shared[Holder]){r=fresh();return}
 func overwriteOwner()(r Holder){r=Holder{id:1};defer func(){r=Holder{id:100}}();rt.ExitTask();return}
 func normalOverwriteOwner()(r Holder){r=Holder{id:1};defer func(){r=Holder{id:100}}();return}
 func overwriteShared()(r shared[Holder]){r=fresh();defer func(){r=fresh()}();rt.ExitTask();return}
-func mixed()(r Holder,p shared[Holder],e error){r,p,e=Holder{id:100},fresh(),fresh();rt.ExitTask();return}
+func mixed()(r Holder,p shared[Holder],e error){r,p,e=Holder{id:100},fresh(),freshSync(100);rt.ExitTask();return}
 func region(exits bool)(r shared[Holder],f func()int){r=fresh();f=func()int{return r.id};if exits{rt.ExitTask()};return}
 func deferredRegion()(r shared[Holder],f func()int){f=func()int{return r.id};defer func(){r=fresh()}();rt.ExitTask();return}
 func cleanupExit()(a,b Holder){a,b=Holder{id:100},Holder{id:1};rt.ExitTask();return}
-func cleanupCountedExit()(a Holder,p shared[Holder],e error){a,p,e=Holder{id:100},freshId(200),freshId(1);rt.ExitTask();return}
-func cleanupFreeExit()(a Holder,p shared[Holder],e error){a,p,e=Holder{id:100},freshId(200),freshId(1);rt.ExitTask();return}
+func cleanupCountedExit()(a Holder,p shared[Holder],e error){a,p,e=Holder{id:100},freshId(200),freshSync(1);rt.ExitTask();return}
+func cleanupFreeExit()(a Holder,p shared[Holder],e error){a,p,e=Holder{id:100},freshId(200),freshSync(1);rt.ExitTask();return}
 func ownerCall(){v:=namedOwner();_ = v.id;panic("continued")}
 func ownerDeferCall(){v:=deferredOwner();_ = v.id;panic("continued")}
 func sharedCall(){v:=namedShared();_ = v;panic("continued")}

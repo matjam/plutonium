@@ -34,7 +34,7 @@ func main() { _ = f() }`, "E3001"},
 func main() { _ = f(); _ = errors.Is(nil, nil) }`, ""},
 		{"synced assertion return", `func f() synced[E] { e := makeError(); return e.(synced[E]) }
 func main() { _ = f(); _ = errors.Is(nil, nil) }`, ""},
-		{"shared assertion return", `func f() shared[E] { var e error = alloc.Shared[E](); return e.(shared[E]) }
+		{"synced assertion return of a conversion", `func f() synced[E] { var e error = alloc.Synced[E](); return e.(synced[E]) }
 func main() { _ = f(); _ = errors.Is(nil, nil) }`, ""},
 		{"borrowed caller error", `func f(e error) *E { var p *E; errors.As(e, &p); return p }
 func main() { e := makeError(); _ = f(e) }`, ""},

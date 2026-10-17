@@ -25,6 +25,15 @@ func init() {
 			Example: "type Job struct {\n\tdata shared[Buffer]\n}\n\njobs := make(chan Job, 16)",
 		},
 		&Entry{
+			Code: CheckerCode(typerr.UnsendableToError), Name: "UnsendableToError",
+			Text:    "Every error value may be sent to another task, so a value can become an error (or an interface that embeds error) only if its type is sendable. This type holds a shared[T], whose reference count is changed with ordinary arithmetic, so two tasks copying or dropping references to it at once would corrupt it.\nThe message names the shared[T]. alloc.Synced allocates an object whose references are counted atomically.",
+			Why:     "Go's garbage collector makes every error safe to share. Plutonium counts a shared reference without atomic instructions, which is only correct on one task, and it counts the references to an error object in the object, atomically.",
+			Fix:     &Fix{Intro: "Hold the data in a synced[T], which counts atomically", Code: "type Failure struct {\n\tdetail synced[Detail]\n}"},
+			Spec:    pspec("8.8", "Sendable types"),
+			Example: "type Failure struct {\n\tdetail shared[Detail]\n}\n\nfunc (f Failure) Error() string { return \"failed\" }\n\nfunc fail(f Failure) error {\n\treturn f\n}",
+			Fixed:   "type Failure struct {\n\tdetail synced[Detail]\n}\n\nfunc (f Failure) Error() string { return \"failed\" }\n\nfunc fail(f Failure) error {\n\treturn f\n}",
+		},
+		&Entry{
 			Code: CheckerCode(typerr.NotPortable), Name: "NotPortable",
 			Text:    "A type parameter declared [T portable] stands for a value that can be sent between address spaces, such as two operating system processes that share no memory. Its value must mean the same to the receiver as to the sender, so it may refer to nothing in the sender's memory. A portable type is made only of numbers, booleans, enums and packed types, and of arrays, structs, unions, ring, volatile and aligned types of those. A pointer, slice, string, function value, channel, map, interface value, box (owned, shared, synced, weak) or owner anywhere inside the type makes it not portable. An owner is not portable even when it is built from numbers, because sending it would also transfer the duty to drop it.\nThe message names the first field that stops the type and says why. Replace it with data that holds its own contents, such as a fixed-size array of bytes and a length in place of a string.",
 			Why:     "Go has one address space, so any value can be passed anywhere and a string or pointer always means the same thing. A Plutonium kernel and its processes have separate address spaces, and the compiler checks what may cross instead of leaving the receiver to read a stale address.",

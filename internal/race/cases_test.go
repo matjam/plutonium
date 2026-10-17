@@ -417,6 +417,28 @@ func main() {
 	<-done
 }`, []string{"s (holding a *T) is a view of T"}},
 
+	{"interface made not sendable by a conversion elsewhere", `
+import "pluto/alloc"
+
+type Node struct{ count shared[int] }
+
+func keep(a any) {}
+
+func lend(n *Node) {
+	keep(n)
+}
+
+func take(c chan any) { <-c }
+
+func main() {
+	n := &Node{}
+	n.count = alloc.Shared[int]()
+	lend(n)
+	c := make(chan any, 1)
+	task take(c)
+	c <- n
+}`, []string{"is an interface that may hold a *Node (converted at main.p:", ", package main)"}},
+
 	{"synced field written without a lock", `
 import "pluto/sync"
 
@@ -498,6 +520,26 @@ var accepted = []struct {
 	name string
 	src  string
 }{
+	{"shared box lent to an interface from the frame", `
+import "pluto/alloc"
+
+func show(a any) {}
+
+func take(c chan any, done chan bool) {
+	<-c
+	done <- true
+}
+
+func main() {
+	sh := alloc.Shared[int]()
+	show(sh)
+	c := make(chan any, 1)
+	done := make(chan bool)
+	task take(c, done)
+	c <- 1
+	<-done
+}`},
+
 	{"library owners cross with the memory they own", `
 import (
 	"pluto/bytes"

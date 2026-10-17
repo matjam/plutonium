@@ -1000,7 +1000,11 @@ func (a *analyzer) sharedError(c *crossing, p *problem) *diag.Diagnostic {
 	if p.part != what {
 		part = p.part
 	}
-	d := diag.New(a.pos(c.pos), diag.CheckerCode(typerr.NotSendable), "%s is not sendable: %s is an interface that may hold a %s, which contains %s, whose count is not atomic; use synced[T] (spec section 19.2)", what, part, held, sh)
+	where := ""
+	if p.site != nil {
+		where = fmt.Sprintf(" (converted at %s, package %s)", a.short(p.site.pos), p.site.pkg)
+	}
+	d := diag.New(a.pos(c.pos), diag.CheckerCode(typerr.NotSendable), "%s is not sendable: %s is an interface that may hold a %s%s, which contains %s, whose count is not atomic; use synced[T] (spec section 19.2)", what, part, held, where, sh)
 	d.Text = fmt.Sprintf("%s gives another task %s. The program converts a %s to that interface type, and a %s contains a %s, directly or through a field, element or pointer. Both tasks could then copy or drop that %s, changing its count without atomic operations.", capitalize(c.what), what, held, held, sh, sh)
 	d.Fix = &diag.Fix{Intro: "Use a synced[T] instead of the shared[T]: its count is atomic, so it may cross between tasks."}
 	return d

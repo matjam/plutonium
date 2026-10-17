@@ -75,10 +75,10 @@ func(*Bucket)Drop(){}
 func(b *Bucket)Accept(v Holder){b.x=v;rt.ExitTask()}
 func sink(h Holder,n int){_ = h.id;_ = n}
 func produce()(Holder,int){return fresh(),exitInt()}
-func makeError()error{p:=alloc.Shared[Holder]();p.active=true;p.id=1;return p}
+func makeError()error{p:=alloc.Synced[Holder]();p.active=true;p.id=1;return p}
 func freshShared()shared[Holder]{p:=alloc.Shared[Holder]();p.id=100;return p}
 func freshSynced()synced[Holder]{p:=alloc.Synced[Holder]();p.id=100;return p}
-func freshError()error{return freshShared()}
+func freshError()error{p:=alloc.Synced[Holder]();p.id=100;return p}
 func sinkShared(p shared[Holder],n int){_ = p;_ = n}
 func sinkSynced(p synced[Holder],n int){_ = p;_ = n}
 func sinkError(e error,n int){_ = e;_ = n}

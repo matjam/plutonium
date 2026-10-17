@@ -134,6 +134,13 @@ type function struct {
 	bodyless bool
 }
 
+// A convSite is a conversion of a value to an interface, named in the error
+// where an interface that it made not sendable crosses tasks.
+type convSite struct {
+	pos token.Pos
+	pkg string
+}
+
 // A unit is a declared function together with the literals inside it,
 // which share its variables. Units are analysed in the order of the call
 // graph, callees first.
@@ -194,6 +201,7 @@ type analyzer struct {
 	globalWrites map[*types2.Var]map[string]*writeSite
 	addrGlobals  map[*types2.Var]bool
 	converted    map[string]types2.Type              // types converted to interfaces
+	convSites    map[string]*convSite                // one conversion of each type that can reach another task
 	typeIDs      []types2.Type                       // referent types of synced[T], and map types, numbered for paths
 	crossMaps    map[int]bool                        // map type numbers a crossing value reaches (checkMaps)
 	tpArgs       map[*types2.TypeParam][]types2.Type // the type arguments each type parameter is instantiated with
