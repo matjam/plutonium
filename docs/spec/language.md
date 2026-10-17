@@ -1,17 +1,21 @@
 # The Plutonium Language
 
 **Version:** 0.3 (draft)
-**Date:** 2026-10-10
+**Date:** 2026-10-15
 
 Plutonium is a systems programming language for operating system kernels, drivers, boot code, allocators
 and other code that runs without a managed runtime, and for the ordinary programs that run on top of them.
 It is the language PlutoniumOS is written in. It has no garbage collector, and tasks and channels run on a
-scheduler that only programs using them carry, and that a kernel supplies itself.
+scheduler included only when a program or its dependencies request scheduler capabilities, and that a
+kernel supplies itself (section 19.5).
 
 The language is Go-familiar, not Go-compatible: it uses Go's syntax and idioms wherever they fit, and where
 it behaves differently from Go in a way a Go programmer would not expect, the difference is visible in the
-source. It gives Rust-level memory and race safety without a borrow checker or annotations, and makes every
-allocation and every owner visible. Chapter 1 states these goals, the four design rules and the four
+source, apart from the documented exceptions in appendix A. It gives ordinary application and kernel code
+memory and race safety without programmer-written borrow annotations. When safety cannot be proved or
+protected in the chosen environment, the operation is rejected. Deliberately unchecked execution is an
+explicit opt-out (section 21.5). Allocation follows specified operation contracts and explicit lifetime
+responsibility; locals never move to the heap implicitly. Chapter 1 states these goals, the four design rules and the four
 standing principles that decide the cases the chapters leave open.
 
 This specification is self-contained: it defines the whole language, and it never falls back on the Go

@@ -75,8 +75,9 @@ implementation never generates code that does something else.
   is a `//go:` comment. A misspelled or misplaced directive never silently does nothing.
 - A feature that a target cannot provide is a compile error that names the target and the feature, for
   example floating point in kernel mode (section 20.7).
-- A check that the language defines is performed, or the program is built in the unchecked mode of
-  section 21.5. An implementation never performs a check wrongly, or half of it.
+- A required safety condition is proved or checked, or the operation is rejected. Omitting runtime
+  lifetime protection requires the explicit unchecked choice of section 21.5; kernel mode alone does
+  not select it. An implementation never performs a check wrongly, or half of it.
 - A constant that does not fit its type, a constant shift out of range, and every other error that the
   chapters on constants, types, expressions and statements define as a compile error, is reported at
   compile time and never deferred to run time.
@@ -90,9 +91,16 @@ construct before it decides. The reason is that a program that compiles under on
 another cannot be moved between them, and an error that appears only when the optimizer fails to
 simplify something is an error that the programmer cannot explain.
 
-A program that is accepted behaves the same at every optimization level: it produces the same output, the
-same exit status, and, if it panics, the same message and the same stack trace. Debugging information
-does not change the code that is generated.
+Every optimization level preserves the language's permitted observable behavior, ordering, safety
+and logical panic information. For a deterministic program with fixed inputs and sufficient resources,
+output, exit status and the logical message/frames of the same panic path are exact; inlining must
+preserve those source frames, not machine addresses. Unspecified map order, permitted schedules and
+address-dependent output need not coincide across runs. Nondeterministic programs are checked against
+permitted outcomes and invariants, not a single arbitrary run's output.
+
+Specified resource-use differences, including stack consumption and resulting exhaustion, may vary;
+this does not permit removing observable cleanup or side effects. Source acceptance is independent of
+optimization. Debugging information does not change the generated code.
 
 ### 21.4 Implementation limits
 
@@ -118,8 +126,8 @@ The language itself fixes these limits, which every implementation provides:
 Run-time checks change what a bug does. They never change what a correct program means. A conforming
 implementation checks, at run time, everything that chapter 17 (Run-time panics) says is a panic: bounds,
 slicing, division, type assertions, channel misuse, string slicing at a position that is not a rune
-boundary, stack overflow, and the use of memory that has been freed. A use of freed heap memory is a
-run-time panic by the definition of the language: the views of heap memory are checked by **generation
+boundary, stack overflow, and the use of memory that has been freed. Unless statically prevented, a
+use of freed heap memory is a run-time panic by the definition of the language: the views of heap memory are checked by **generation
 checks**, and views into fixed and Chunked arenas by static lifetime proof or **arena epochs**.
 An ordinary arena API must not silently leave its returned views unchecked when static proof is
 incomplete (section 18.11, Generation checks).
@@ -128,12 +136,17 @@ An implementation provides a documented **unchecked mode**, in which the generat
 epoch checks are not performed. The unchecked mode is not a dialect: a correct program behaves
 identically with and without the checks, and a program that uses freed memory has no defined behavior
 without them. An implementation provides the choice per build, and `//pu:nochecks` per function (section
-20.3). Which mode a build uses by default follows the build mode:
+20.3). Unchecked execution must be explicitly selected, including for freestanding and kernel builds;
+it opts out of the full lifetime guarantee while preserving all static rules. Kernel mode is not an
+implicit opt-out. Every normal build requires static proof or suitable automatic protection. If the
+target cannot provide protection and proof is incomplete, compilation rejects the operation with its
+reason and a code-level remedy. A routine remedy must not be a safety-disabling annotation.
 
-- A hosted build runs with the checks.
-- A freestanding or kernel build runs without them, until the implementation provides a tag encoding for
-  pointers that fits the kernel (the hosted encoding uses pointer bits that kernels use, abi.md section
-  1.3).
+Checks and metadata used during early boot or interrupts obey those contexts' allocation, waiting and
+failure constraints and their specified allocation contracts. An implementation cannot silently
+insert a forbidden operation or accept an unprotected access because its hosted pointer encoding
+cannot represent kernel addresses (abi.md section 1.3). The representation and optimization of such
+protection are implementation choices; this rule defines no new directive or hardware API.
 
 Every check with a finite range fails loudly, never silently:
 when the range ends, the implementation retires the memory or widens the field. Heap generations never

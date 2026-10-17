@@ -1,6 +1,6 @@
 # Plutonium roadmap
 
-**Updated:** 2026-10-12
+**Updated:** 2026-10-15
 
 Every known gap between the specification and the compiler and standard library, in priority order. The
 specification ([language.md](spec/language.md), version 0.3, with the binary interface in
@@ -22,6 +22,38 @@ integrated specification defines (complete-spec section 6.5, the implementation 
 needs, then concurrency, the rest of the language, tooling, platforms and libraries. Item numbers are stable
 because other documents cite them; an item added later takes the next free number and is listed in the
 section where it belongs.
+
+## Current conformance follow-up, 2026-10-15
+
+The approved consistency corrections were applied and reviewed in the
+[resolution record](verification/2026-10-15-spec-consistency.md). Earlier completed
+rows remain evidence for their stated scope; they do not certify the whole compiler
+against the corrected specification. The immediate implementation order is:
+
+101. **Ordinary kernel lifetime protection** (planned; sections 1.2, 18.11, 21.5).
+     `internal/build/build.go` currently forces generation checks off for kernel and
+     freestanding builds and rejects enabling them. Replace that blanket policy with
+     static proof, available automatic protection, or rejection of unsupported unproved
+     operations. Keep deliberate unchecked execution distinct. A kernel checking
+     representation has not been selected; hosted pointer tags cannot simply be assumed
+     suitable. This is a confirmed source-policy gap.
+102. **Outstanding aliases during owner transfer** (audit pending; sections 8.8, 19.3).
+     Verify a borrow through an owner field/helper followed by `take`, transfer to a
+     task and conflicting access. Pair it with last-use-before-transfer acceptance.
+     Existing local-owner and backing-provenance analyses are present; composition at
+     this boundary remains unverified. No accepted exploit has been demonstrated.
+103. **Nonconsuming owner indexing and length receivers** (planned; sections 11.11,
+     13.6). Visible Index/IndexOk/SetIndex and Len validators lack the owner
+     value-receiver prohibition. Confirm whole-pipeline rejection and add the missing
+     validation where needed, preserving owner pointer receivers and ordinary nonowner
+     value receivers. Source inspection establishes a missing local guard, not a
+     demonstrated native wrong-code result.
+
+Next, finish **item 18**, bounded task-stack inference: lowering still supplies a
+literal zero bound. Existing virtual-reservation fallback and overflow handling are
+implemented, but do not satisfy inference. Then fill the small unverified witness
+pairs in the resolution record; reuse completed shutdown, counting and arena tests.
+Performance work follows the separate [evidence plan](plans/2026-10-15-language-goal-evidence.md).
 
 ## Gaps of the integrated specification
 
@@ -57,6 +89,10 @@ The implementation gaps of
 | 31 | The `or` clause (done) | 99 | 11.27, 4.6 |
 | 32 | Package initialization starts no task (done, D2) | 100 | 15.2, 15.3, 19.1, 19.3 |
 | 33 | `clear` of a slice of owners drops each element (done) | 75 | 13.3 |
+| 34 | Ordinary kernel lifetime protection (planned) | 101 | 1.2, 18.11, 21.5 |
+| 35 | Outstanding aliases across owner transfer (audit pending) | 102 | 8.8, 19.3 |
+| 36 | Nonconsuming owner indexing/length receivers (planned) | 103 | 11.11, 13.6 |
+| 37 | Bounded task-stack inference (planned) | 18 | 19.1 |
 
 The pass that aligned the documents with the chapters found six more, items 93 to 98; they are rows 25 to
 30 of complete-spec section 6.5. Row 31, item 99, is the `or` clause, decided later the same day. Row 32,
@@ -175,9 +211,10 @@ compiler (2026-10-11).
     promotes `T`'s methods, as `owned[T]` does; verified by `embedshared.p`.
 94. **Any two functions exported under one symbol are E2512** (done, `5d25c7c6`; section 20.4):
     `internal/lower` reports it for any two exports of one symbol, not only for wrapped exports.
-95. **Channel reference counts** (decided, gap 26; sections 18.7 and 19.8): the specification follows the code.
-    Every count except `shared` is plain until the program starts its first task and atomic after, channels
-    included (`lib/pluto/rt/chan.p` counts like a `synced[T]`); nothing is left to build.
+95. **Channel reference counts** (decided, gap 26; sections 18.7 and 19.8): hosted counts
+    are plain before threading and switch to atomic before another thread can run, except
+    `shared` remains plain. Freestanding counts are atomic from the start. Channels follow
+    this approved rule; inspected runtime counting agrees with it.
 96. **Package-variable memory reporting** (old implementation direction superseded by D6 on
     2026-10-13; sections 15.4 and 18.6, debug-allocator.md).
     D6 approves normal program termination releasing owned resources, including package owners.
@@ -186,7 +223,8 @@ compiler (2026-10-11).
     gates and the tracked-source archive. See its
     [verification record](verification/2026-10-14-normal-shutdown.md). The abandoned
     package-held classification, E3601, source proofs and snapshot machinery were archived and removed
-    from the active checkout; no completion is claimed. Independent core Goexit cleanup remains landed.
+    from the active checkout; that abandoned design is not claimed complete. Its D6 replacement
+    is landed at `e63a1497`. Independent core task-exit cleanup remains landed.
     Optional allocator and scheduler candidates are archived for separate evidence-based review.
     The hostile dirty-page tests demonstrated defensive robustness, not a PageProvider contract failure:
     providers promise zeroed pages. See the [cleanup ledger](verification/2026-10-13-item96-cleanup.md)

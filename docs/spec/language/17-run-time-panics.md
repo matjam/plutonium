@@ -339,7 +339,7 @@ The panic for arena memory names the call that ended the arena's epoch, such as 
 The compiler rejects most stale views before the program runs. A view of a frame is checked at compile
 time (section 18.3, Views), and so is a view of a local owner after the owner moved, was dropped or was
 assigned. The run-time check covers the views that the compiler cannot follow: heap memory reached
-through pointers, and `arena.Chunked` memory.
+through pointers, and ordinary `arena.Fixed` and `arena.Chunked` memory not covered by static proof.
 
 **Checked and unchecked builds.** The checks are made in a checked build. Section 18.11 (Generation checks)
 defines how they work, which builds are checked by default, and the unchecked mode, in which a use of a

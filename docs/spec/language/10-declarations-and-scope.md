@@ -319,7 +319,9 @@ func f[P any]() {
 ```
 
 An alias denotes the same type, so it has that type's kind and every other property of it. `owner` cannot
-qualify an alias (E3205). An enum type and a union type cannot be the given type of an alias (E2301, E2401).
+qualify an alias (E3205). An existing named enum or union type may be the given type of an alias; the alias
+preserves its identity, members and variants. The `enum { ... }` and `union { ... }` declaration forms
+themselves appear only in type definitions (E2301, E2401), not directly as alias right-hand sides.
 
 **Type definitions.** A type definition creates a new, distinct type with the same underlying type and
 operations as the given type and binds an identifier, the type name, to it. The new type is called a

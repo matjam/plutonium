@@ -77,7 +77,9 @@ atomic read observes according to the total order of section 3.5.
 
 **Data races.** Two memory operations **conflict** when they access the same location, at least one of
 them writes, and at least one of them is not atomic. A **data race** is a pair of conflicting operations
-in different tasks, neither of which happens before the other. An execution with no data race is
+in different tasks, or involving an asynchronous interrupt handler and other execution (including
+code on another processor or another handler), neither of which happens before the other. Section 6.1 defines the permitted same-processor interrupt
+protocols and their restricted ordering; physical interruption alone orders no unprotected plain access. An execution with no data race is
 **data-race-free**.
 
 **Sequential consistency.** An execution that is data-race-free behaves as if the operations of all its
@@ -102,8 +104,9 @@ further synchronization, and so is every write the starting task made before the
 This holds for the task statement (language spec section 12.12), for `rt.Go`, for `s.Task` on a
 `sync.Scope` and `wg.Task` on a `sync.WaitGroup`, and for the start of a `time.AfterFunc` function.
 
-The end of a task is synchronized with nothing, except the joins of section 3.9. A program that waits for
-a task does so through a channel, a lock, a `sync.WaitGroup` or a `sync.Scope`.
+Task end alone creates no ordinary join for another running task. Programs use a channel, lock,
+`sync.WaitGroup` or `sync.Scope`. Section 3.9 also defines the normal-termination boundary: all
+application task/callback operations and required cleanup/retirement happen before package cleanup.
 
 ### 3.3 Channels
 
@@ -120,7 +123,8 @@ A `select` statement that proceeds with a communication case synchronizes exactl
 would on its own. A `select` that takes its `default` case performs no synchronizing operation. A
 `for v := range ch` loop is a sequence of receives.
 
-A channel is a counted reference with an atomic count (language spec section 19.8, Channels). The release
+A channel is a counted reference whose plain/atomic count follows the single rule in language spec
+section 18.7 (Shared ownership, When counts are atomic); section 3.7 gives its memory ordering. The release
 of the last reference is synchronized before the channel's memory is freed, so freeing never races with a
 task that still held a reference. Values still buffered at that point are dropped after that release and
 before the memory is freed, by the task that released the last reference. The channel's timer, if it has
@@ -272,6 +276,16 @@ starting function observes every write of its scoped tasks after the join.
 A panic reclaims no frame: the panicking task's stack is not reused while the program runs, so scoped
 tasks still running use valid memory until the program ends (language spec section 19.4).
 
+**Normal termination.** After main's ordinary return cleanup, the runtime drains application tasks and
+scheduled application callbacks, including descendants and retirement callbacks. All their operations,
+mandatory cleanup and stack/task-record releases are synchronized before package cleanup begins
+(language spec sections 15.4 and 19.1). Backend completion publication and observation supply the
+required cross-processor visibility, through release/acquire or equivalent synchronization. No
+programmer annotation or fence is required. Explicit cancellation counts as completion only after
+saved arguments/captures and registrations are retired. This boundary is not an implicit join during
+ordinary execution and does not replace section 19.3's race rules. Reclaimable runtime resources are
+released before final allocation accounting, respecting dependencies on application allocators.
+
 ### 3.10 Timers
 
 A `time.Timer` or `time.Ticker` delivers its time with a send on its channel, and `time.AfterFunc` starts
@@ -412,30 +426,34 @@ not synchronize.
 
 ### 6.1 Interrupt handlers on the same processor
 
-An interrupt handler (`//pu:interrupt`, language spec section 20.10, Interrupts) runs on the processor it
-interrupts, between two instructions of the interrupted code. A processor observes its own memory accesses
-in program order, so only the compiler could make the handler see the interrupted code's accesses out of
-order, or not at all (a value still in a register). The rules:
+An interrupt handler (`//pu:interrupt`, language spec section 20.10) is asynchronous with the code it
+interrupts. Same-processor instruction sequencing alone does not publish ordinary variables kept in
+registers or permit unprotected plain sharing. The following protocols define visibility:
 
-- Data shared between a handler and the code it interrupts on the same processor is accessed through
-  `volatile[T]` or `pluto/sync/atomic` on both sides. Volatile is enough on one processor: the compiler
-  keeps volatile accesses in program order and moves no other access across them (section 5.2), and the
-  processor does the rest.
-- Plain accesses to such data race with the handler, with the consequences of section 4.
-- Disabling interrupts (`x86.Cli`, `x86.SaveFlagsCli`) acts like acquiring a lock that every handler on
-  that processor holds while it runs, and enabling them again (`x86.Sti`, `x86.RestoreFlags`) acts like
-  releasing it. Both are compiler barriers (language spec section 20.8, `pluto/arch/x86`). Plain accesses
-  between them are not observed by handlers on that processor until interrupts are enabled again.
-- A handler's entry is synchronized after every operation of the interrupted code that came before the
-  interrupted instruction, and its return (`iretq`) is synchronized before every operation that comes
-  after it. This is exact on one processor because the hardware keeps program order there; it is what
-  lets a handler and the interrupted code build a single-producer, single-consumer queue from volatile
-  indexes. A `ring[T, N]` by itself is not safe for concurrent use (language spec section 7.17).
-- A new task starts with interrupts enabled, whatever the state of the task that started it (language
-  spec section 19.1, Tasks), so a section with interrupts disabled never extends into a task it starts.
+- Shared data is accessed through `volatile[T]` or atomic operations on both sides, or every plain
+  access is inside a correctly protected interrupt-disabled region. Volatile operations keep their
+  specified compiler ordering. For same-processor sharing, eligible accesses completed before handler
+  entry are visible to the handler, and handler accesses are visible to eligible accesses after its
+  return. These ordering edges apply only to the protected or volatile/atomic protocol, not every
+  plain operation around an interrupt. Unprotected conflicting plain accesses race.
+- Disabling relevant local interrupts (`x86.Cli`, `x86.SaveFlagsCli`) and restoring the prior state
+  (`x86.Sti`, `x86.RestoreFlags`) are compiler barriers and exclude those handlers on that processor
+  during the protected region. Plain accesses there must follow the same exclusion protocol at every
+  access. Restoring a previously disabled state must not enable interrupts prematurely.
+- Volatile provides neither compound-operation atomicity nor mutual exclusion. An invariant requiring
+  several accesses must use appropriate exclusion; a `ring[T, N]` alone is not a concurrent queue.
+- An interrupt-safe spin lock disables relevant local interrupts before acquisition, excludes
+  preemption that could strand the holder, releases the lock, then restores prior state. All users
+  follow the protocol. Contention may rely on another processor's progress, never on interrupted
+  execution resuming to release the lock. Nested exceptions/nonmaskable interrupts need a separate
+  exclusion and progress protocol. Permitted spinning does not park and differs from forbidden
+  interrupt-context waiting (language spec section 20.10).
+- A new task starts with interrupts enabled, whatever the state of its starter (language spec section
+  19.1); an interrupt-disabled region does not extend into a new task.
 
-Nothing about interrupts orders memory between processors. A handler that shares data with code running
-on other processors needs atomics, or a spin lock taken with interrupts disabled.
+These same-processor rules create no synchronization between processors. Cross-processor sharing needs
+atomic operations or a suitable lock. The compiler checks supported source protocols without routine
+annotations; opaque assembly implementations remain responsible for their explicit contracts.
 
 ### 6.2 Device memory
 

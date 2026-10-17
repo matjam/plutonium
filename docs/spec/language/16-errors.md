@@ -48,10 +48,11 @@ outlives the function.** That storage is one of the following.
 A counted object is a heap object that the `error` values referring to it count, and that is freed when
 the last of them goes (section 16.7).
 
-Returning a struct as an `error`, or a pointer to a local variable or to a composite literal, breaks the
-rule. The first would copy the struct into the returning function's frame, and the second would point
-into that frame. Both are compile errors (E3001, sections 7.9 and 18.3). `return PathError{...}` and
-`return &PathError{...}` are caught this way.
+Returning a struct whose interface representation needs a copy in the returning function's frame,
+or a pointer to a local variable or local composite literal, breaks the rule. These are compile errors
+(E3001, sections 7.9 and 18.3). A single-pointer struct stored directly in the data word is permitted
+when its referenced storage outlives the result. Larger frame-backed values such as
+`return PathError{...}` and `return &PathError{...}` are caught by the frame rule.
 
 ```go
 type pathError struct{ op, path string }
@@ -171,10 +172,12 @@ if errors.As(err, &perr) {
 
 ### 16.6 Wrapping, `Is` and `As`
 
-An error wraps another error by holding it. The formatting functions `fmt.Errorf` and
-`ErrorBuf.Errorf` accept the verb `%w`, which formats an error operand like `%v` and wraps it. With one
-`%w` the result has a method `Unwrap() error`. With several, it has `Unwrap() []error`. The verb `%w` in
-any other formatting function prints as a bad verb.
+An error wraps another error by holding it. `fmt.Errorf` accepts `%w`, which formats an error operand
+like `%v` and wraps it. With one `%w` its result has `Unwrap() error`; with several it has
+`Unwrap() []error` and wraps all those operands. `ErrorBuf.Errorf` instead keeps only the first `%w`
+operand as its cause and has `Unwrap() error`; additional `%w` operands format like `%v` but add no
+causes. `errors.Is` and `errors.As` follow only that first cause. This preserves ErrorBuf's bounded
+buffer contract (section 16.5). The verb `%w` in any other formatting function prints as a bad verb.
 
 `errors.Unwrap(err)` returns the result of calling `Unwrap() error` on `err`, or `nil` if `err` has no such
 method. `errors.Join(errs ...error)` returns an error that wraps the non-nil errors it is given, with
@@ -232,7 +235,8 @@ func main() int64 {
 
 ### 16.7 Allocated errors and ownership
 
-Every allocation has an owner or an arena (section 18.10). An error that `fmt.Errorf` returns is an
+Every ordinary allocation has an owner, arena or counted-reference lifetime responsibility
+(section 18.10). An error that `fmt.Errorf` returns is an
 allocation, but the `error` that holds it is an ordinary interface, which only looks at what it holds.
 So allocated errors are **counted**: the object is released exactly once, when the last `error` value
 that refers to it goes, and no code releases it by hand.

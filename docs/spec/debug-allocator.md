@@ -8,16 +8,22 @@ wins.
 
 Safe code cannot write past the end of an allocation, free memory twice or free something it never
 allocated (section 18.12). A use of freed memory through a view is a run-time panic by the definition of
-the language (section 17.6), and the generation checks make it one: hosted builds have them by default,
-and `pluto build --gencheck=false` is the unchecked mode (sections 18.11 and 21.5). Unsafe code, such as the
+the language (section 17.6), prevented by static proof or diagnosed by required runtime protection
+in ordinary hosted, freestanding and kernel builds.
+`pluto build --gencheck=false` explicitly selects the unchecked mode (sections 18.11 and 21.5). Unsafe code, such as the
 unchecked allocation layer (`alloc.Raw`, `alloc.New`, `alloc.Free` and an allocator's methods called
 directly, section 18.10), can do all of these things, and so can any build without the checks.
 
-The debug allocator, `pluto/alloc/debug`, is the backstop for that code: an `alloc.Allocator` that turns
-each of these mistakes into an immediate, deterministic stop with a message saying what went wrong and
-where, and that lists the allocations still live at exit. It is opt-in (`--alloc=debug`), and it does not
-replace the generation checks. In the unchecked mode, and in freestanding and kernel builds, which are
-unchecked, it catches uses of the memory that was returned to it (section 18.11).
+The debug allocator, `pluto/alloc/debug`, supplements that protection and helps diagnose unsafe or
+explicitly unchecked code. It reports invalid frees/corruption that its protection, retained records,
+canaries and poison can detect, and lists tracked surviving allocations after normal cleanup. It is
+opt-in (`--alloc=debug`) and does not replace ordinary static/runtime safety (section 18.11).
+
+Protected-page accesses fault while protection remains. Canary and poison corruption is found when
+inspected, not necessarily at the invalid write; a stale read can merely return poison, and a write
+that leaves the expected bytes unchanged is not detectable that way. Finite quarantine extends the
+window before reuse. After reuse, a raw address does not permanently identify its old allocation.
+Selecting this allocator therefore never guarantees diagnosis of every stale access.
 
 It is meant for testing and debugging. It is much slower than the slab allocator and uses far more memory
 (see [Cost](#cost)).
@@ -61,8 +67,8 @@ provider with `debug.New(debug.Options{Pages: pages, ...})`; see [Freestanding b
 
 | Mistake | How it is caught | When |
 |---|---|---|
-| Writing or reading past the end | the allocation ends right before a guard page that is inaccessible | at the access (a fault) |
-| Writing before the start | with `underflow`, the allocation starts right after the guard page | at the access (a fault) |
+| Writing or reading past the end | access reaches an inaccessible guard page | at that access while protection remains (a fault) |
+| Writing before the start | with `underflow`, access reaches the guard page before the allocation | at that access while protection remains (a fault) |
 | Writing just outside, without a fault | the rest of the allocation's pages, or its redzones, hold canary bytes | when it is freed, or at exit |
 | Writing to freed memory | freed memory is made inaccessible, or poisoned and checked | at the access, or when it leaves quarantine, or at exit |
 | Reading freed memory | freed memory is made inaccessible, or reads poison | at the access, or the value is `0xDD` bytes |
@@ -71,7 +77,7 @@ provider with `debug.New(debug.Options{Pages: pages, ...})`; see [Freestanding b
 | Free of an interior or unknown pointer | the side table has no allocation there | at the free |
 | Leaks | the side table lists every live allocation | at exit, or `alloc.ReportLeaks()` |
 
-Every error is a panic (section 17.1): the message starts with `panic: `, a stack trace follows
+Every error diagnosed by the allocator is a panic (section 17.1): the message starts with `panic: `, a stack trace follows
 ([debugging.md](debugging.md#5-stack-traces)), deferred calls do not run (section 17.2: a heap error that the
 debug allocator reports runs none), and the exit status is 2. For an error found by a fault, the
 allocator's description comes first, then the signal line and the trace from the faulting instruction, as for any other fault
@@ -117,12 +123,13 @@ quarantine.
 
 ### Use after free
 
-The language makes every use of freed memory a panic (section 17.6), and the generation checks of section
-18.11 are how a checked build does it. The debug allocator finds the same mistake without a tag in the
-pointer, and also describes where the block was allocated and freed.
+The ordinary language contract prevents stale use statically or diagnoses it at runtime (sections
+17.6 and 18.11). Independently, the debug allocator can diagnose an untagged invalid access when it
+reaches a retained protected page, or changed bytes are found during poison/canary inspection. Its
+retained records can also describe where the block was allocated and freed.
 
 Freeing fills the allocation with `PoisonByte` (`0xDD`) and, for a page-guarded block, makes its pages
-inaccessible, so any later access faults:
+inaccessible. An access to those pages faults while that protection remains, before reuse:
 
 ```
 panic: debug allocator: use after free: write at 0x7fd24f8e7ff8, offset 16 of the 24-byte allocation at 0x7fd24f8e7fe8 (allocation #2, freed)
@@ -135,9 +142,10 @@ panic: debug allocator: use after free: write at 0x7fd24f8e7ff8, offset 16 of th
 
 A canary-guarded block is not made inaccessible. The allocator fills it with poison, so that stale data is
 recognizable (an `int64` reads `0xdddddddddddddddd`, a pointer is non-canonical and faults if followed),
-and finds a stale write when the block leaves quarantine or by the heap check at exit. The language rule is
-that the access itself is a panic (sections 17.6 and 18.11); this message is the allocator's report of a
-stale write that it finds later:
+and detects a stale write that changes expected bytes when the block leaves quarantine or a heap check
+inspects it. A write that leaves the poison unchanged is not detectable by inspection. The ordinary
+language protection is separate; the following is an allocator report of qualifying corruption found
+later in unsafe or explicitly unchecked code:
 
 ```
 panic: debug allocator: write after free: the 24-byte allocation at 0x7c1b8e1f0010 (allocation #2) was written at offset 16 after it was freed
@@ -146,7 +154,8 @@ panic: debug allocator: write after free: the 24-byte allocation at 0x7c1b8e1f00
 ```
 
 Freed blocks are held in a first-in, first-out quarantine, 64 MiB by default (`quarantine=N`), before their
-memory is reused, so a stale pointer keeps faulting or reading poison for as long as possible. Page-guarded
+memory is reused. While retained and protected, accesses fault; retained canary blocks can return
+poison instead. Once reused, this mechanism supplies no permanent old-allocation identity. Page-guarded
 blocks count their whole pages towards the limit.
 
 ### Double, wrong-size and invalid frees
@@ -176,10 +185,11 @@ unknown. Size 0 is treated as 1, as `new` and `alloc.New` do, and alignment 0 as
 
 ### Leaks
 
-A leak is an allocation that is still live when the program exits. The language has no memory that nothing
-frees (section 18.10): an owner frees its memory when it is dropped (section 18.6), and a counted value
-(a string, a box, a channel, a map) when its last reference is released (sections 18.8 and 18.10).
-A leak therefore means that the owner or the last reference was never dropped. The usual causes are:
+A leak is a tracked application allocation surviving final normal-cleanup accounting. The language
+assigns cleanup responsibility (section 18.10): owners release their resources when dropped, and counted
+objects are destroyed at the last strong release, with weak references delaying storage reclamation.
+It does not guarantee eventual reclamation or collect strong cycles. Surviving cycle allocations are
+reported as leaks. The usual causes are:
 
 - a cycle of strong references, which is never freed (section 18.7; `weak` breaks cycles);
 - an owner in a frame abandoned by abrupt termination, such as `os.Exit`, which drops nothing
@@ -306,8 +316,10 @@ already hold it.
 
 Allocation sites belong to the task that allocates, so sites stay right while tasks allocate in
 parallel. A task's stack that the runtime takes from an allocator (section 19.1) is allocated with the site
-`rt.StackSite`, printed as "the runtime, as a task's stack"; leak reports leave stacks out, since a task that
-is still finishing at exit holds its own.
+`rt.StackSite`, printed as "the runtime, as a task's stack". On-demand and abrupt-exit observational
+reports leave stacks out because tasks may still be running or retiring. Normal termination instead
+finishes application retirement and releases reclaimable stack caches before final accounting,
+respecting allocator dependencies (section 15.4). Permanent runtime metadata is accounted separately.
 
 ## Cost
 

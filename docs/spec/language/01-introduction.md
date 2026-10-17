@@ -22,21 +22,27 @@ and every rule in this manual has to work for both:
 - **Application programmers**, who need strong guarantees about memory and data races without writing
   annotations or learning how the compiler works.
 
-The language has no garbage collector. Tasks and channels run on a scheduler that only programs using
-them carry, and that a kernel supplies itself (section 19.5, The scheduler contract).
+The language has no garbage collector. A scheduler is included only when the program or its library
+dependencies require its capabilities: task starts, scheduler-dependent timers and callbacks, or
+waiting and poller operations. A kernel supplies its scheduler (section 19.5, The scheduler contract).
+Sequential allocation and cleanup alone require none; sole-thread hosted sleep can use the direct
+path of section 19.6 (Timers).
 
 The goals are:
 
-- **Read like Go, and never mislead a Go reader.** Code that differs from Go looks different (section
-  1.2, Design rules).
+- **Read like Go, and never mislead a Go reader.** Differences are visible or explicitly disclosed
+  as the documented exceptions of section 1.2 (Design rules) and appendix A.
 - **Compile like C.** There is no garbage collector, no hidden allocation and no runtime the program did
-  not ask for. A program that never starts a task or makes a channel contains no scheduler.
-- **Make costs visible.** Every allocation has an owner or an arena, and the source says which (section
-  18.10, No allocation without an owner or an arena). Every memory-mapped register access is marked in its
+  not ask for through its operations and library dependencies.
+- **Make costs visible.** Allocating operations and APIs specify their allocation behavior and lifetime
+  responsibility: an owner, counted references or an arena (section 18.10, No allocation without an owner
+  or an arena). The compiler never silently promotes a local to the heap. Every memory-mapped register access is marked in its
   type (section 7.15, `volatile[T]`).
-- **Make ownership visible.** Every piece of memory has one owner, named by its type, and is freed when
-  that owner is dropped. Looking, moving and sharing are written differently (chapter 18, Ownership and
-  memory).
+- **Make ownership visible.** Frame and static storage, owners, counted sharing and arenas have defined
+  lifetime-management responsibilities. Owners release what they hold when dropped; counted objects are
+  destroyed at their last strong release, with storage reclamation respecting weak references. Strong
+  cycles must be avoided or explicitly broken; normal shutdown does not collect them. Looking, moving
+  and sharing are written differently (chapter 18, Ownership and memory).
 - **Give kernel code the tools it needs in the language:** bit-exact layouts (section 7.14, `packed`
   types), volatile access, alignment control (section 7.16, `aligned[T, N]`), ring buffers (section 7.17,
   `ring[T, N]`), and a fatal-error path that works before any allocator exists (section 17.4, Panics in
@@ -67,11 +73,12 @@ manual that conflicts with one of them is a defect in the manual.
    Where Go's meaning depends on a garbage collector, a growing stack or hidden allocation, Plutonium
    changes the language, and Go code may need edits before it compiles.
 
-2. **No false friends.** Where Plutonium behaves differently from Go in a way a Go programmer would not
-   expect, the difference is visible in the source: a different name, a different syntax, a different
+2. **No false friends.** Except for the documented differences below, where Plutonium behaves differently
+   from Go in a way a Go programmer would not expect, the difference is visible in the source: a different name, a different syntax, a different
    type, or a compile error that explains it. Code that looks like Go and compiles does what Go would do.
-   The one documented exception is slicing a string at a position that is not on a character boundary
-   (appendix A, section A.5, The one documented exception).
+   Documented exceptions include string slicing at a non-character boundary, normal-termination task
+   waiting and static `errors.New` call-site identity. Appendix A states these observable differences;
+   section A.5 (The one documented exception) explains the string-slicing exception and points to the others.
 
 3. **No annotations for ordinary code.** Ordinary code needs no annotations and no knowledge of how the
    compiler works. What the compiler can work out for itself (what escapes, what moves, which functions
@@ -91,18 +98,23 @@ guarantees without writing annotations.
 
 1. **Doubt resolves to a compile error.** Every static analysis (escape, moves, sendable types, lock
    guarding, closure regions) rejects what it cannot prove safe and never accepts on doubt. A false
-   positive is fixed by improving the analysis, not by weakening the rule. Applications get Rust-level
-   guarantees without annotations, and kernels get them at compile time.
+   positive is fixed by improving the analysis, not by weakening the rule. Ordinary application and
+   kernel code have the same memory and data-race safety contract: use static proof where possible,
+   automatic runtime protection where needed, or reject the operation if neither is available. Ordinary
+   code needs no safety annotations or compiler knowledge. Protection must respect early-boot and
+   interrupt restrictions on allocation, waiting and failure. Safety does not promise freedom from
+   deadlock, resource exhaustion or hardware faults.
 
 2. **Run-time checks change what a bug does, never what correct code means.** Generation and arena-epoch
-   checks (a use of freed memory is a panic, section 18.11, Generation checks) are on by default for
-   hosted builds, and off for kernel and freestanding builds until a kernel tag encoding exists. A build
-   without them is a documented unchecked mode, not a dialect: correct programs behave identically under
-   both. A program that is correct must not depend on whether the checks are present, so each audience can
-   choose its build without rewriting code.
+   checks (a use of freed memory is a panic, section 18.11, Generation checks) are required by default
+   wherever static proof is incomplete, including kernel and freestanding builds. If the environment
+   cannot supply them, unproved operations are compile errors. Explicitly selecting the documented
+   unchecked mode opts out of the full lifetime guarantee; it does not disable static rules or make
+   invalid accesses correct. A program satisfying its lifetime obligations behaves the same in both.
 
 3. **Mechanism in the language, policy in the kernel.** The runtime provides mechanisms with hooks, and the
-   kernel supplies policy. The runtime owns the heap, and the kernel supplies the clock and the timer for
+   kernel supplies policy. The runtime supplies memory-management mechanisms; the program selects its
+   allocators, including kernel-defined ones. The kernel supplies the clock and the timer for
    timers. The scheduler contract and the panic handler are hooks. New tasks start with interrupts
    enabled, so the kernel installs its table first. Allocators are chosen per call. Application code never
    sees the hooks and needs no directives. Kernel directives exist only for facts about hardware the
@@ -133,8 +145,9 @@ produce an executable for it (section 21.2, No silent failures). Where this manu
 an error" or "is a compile error", an implementation reports it before running anything. Where it says
 that something "panics", the program stops at run time as section 17.1 (Panics) describes. Where it says
 that a value is "implementation-dependent", any value of the type may result, and the operation neither
-faults nor has any other effect. Where it says that behavior is "unchecked", only code that this manual
-calls unsafe (section 18.12, Safe and unsafe code) can reach it.
+faults nor has any other effect. Unchecked behavior is reachable only across an explicit unsafe source
+boundary (section 18.12, Safe and unsafe code) or the explicit unchecked execution choice of section
+21.5. Kernel mode alone is not such a choice.
 
 **Notation.** Syntax is given in the extended Backus-Naur form of chapter 2 (Notation). Each chapter
 gives the productions for the syntax it defines, and appendix E collects them.
@@ -160,16 +173,18 @@ These terms are used throughout. Each is defined in full in the section cited.
 - **Value.** Data that copies on assignment, such as an integer, a float, a boolean, an enum, a packed
   value, and an array, struct or union made of values. Copying a value never gives a second owner of
   anything (section 8.7, Values, views, owners and counted values).
-- **View.** A value that looks at memory something else owns, without owning or freeing it. Pointers
+- **View.** A value that looks at memory something else owns, without owning that memory. Pointers
   (`*T`), slices (`[]T`) and `unsafe.Pointer` are views, and so are closures and method values that
-  refer to a frame. Creating, copying and passing a view is free, and a view may not outlive what it
-  looks at (section 18.3, Views).
+  refer to a frame. A pure view needs no retain or release. A composite view still retains/releases its
+  counted components and a saved method receiver follows its cleanup rules. A view may not outlive what
+  it looks at (section 18.3, Views).
 - **Owner.** A value that holds memory or another resource and releases it when it is dropped. A type is
-  an owner only if its declaration says so with `owner`. `owned[T]` is the built-in owner of a single heap
-  object. An owner is moved, not copied (section 7.18, Owner types).
+  an owner if declared `owner` or constructed from owners as section 7.18 specifies. `owned[T]` is the
+  built-in owner of a single heap object. An owner is moved, not copied (section 7.18, Owner types).
 - **Counted value.** A value that refers to memory shared with its copies and counts the references.
-  Copying it adds a reference, dropping a copy releases one, and the memory is freed when the last
-  reference goes. Strings, channels, maps, and `shared[T]`, `synced[T]` and `weak[P]` references are
+  Copying it adds a reference and dropping a copy releases one. The last strong release destroys the
+  object; storage is reclaimed after remaining weak references are gone (section 18.7). Strong cycles
+  are not collected. Strings, channels, maps, and `shared[T]`, `synced[T]` and `weak[P]` references are
   counted values (section 8.7, Values, views, owners and counted values; section 18.7, Shared ownership).
 - **Box.** One of `owned[T]`, `shared[T]` and `synced[T]`: one word, the address of a heap object that the
   box owns (`owned[T]`) or counts (`shared[T]`, `synced[T]`). A `weak[P]` is a weak reference to the
@@ -211,8 +226,9 @@ These terms are used throughout. Each is defined in full in the section cited.
   written outside Plutonium is unsafe (section 18.12, Safe and unsafe code).
 - **Checked and unchecked mode.** A checked build prevents stale uses of heap and arena memory through
   static lifetime checks or run-time checks. Fixed and Chunked arenas have the same lifetime guarantee.
-  A build without the run-time generation and epoch checks is the unchecked
-  mode, in which such a use has no defined effect.
+  A build that explicitly disables otherwise required run-time generation and epoch checks selects
+  unchecked mode, in which a stale use has no defined effect. Static elimination of unnecessary checks
+  is not this opt-out.
   Correct programs behave the same in both (section 18.11, Generation checks).
 
 Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

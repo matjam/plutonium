@@ -1,8 +1,8 @@
 ## 18. Ownership and memory
 
-Plutonium has no garbage collector. Every piece of memory a program uses is released by something the
-program names: the frame of the function that declares it, an owner that is dropped, the last of the
-counted references that share it, or an arena that is reset. This chapter defines how memory is
+Plutonium has no garbage collector. Memory has a defined lifetime-management responsibility: frame
+or static storage, an owner, counted references or an arena. This does not promise eventual reclamation:
+strong cycles, nontermination and abrupt exit can retain resources. This chapter defines how memory is
 classified, where variables live, how long a view of memory may be used, how owners move and are
 dropped, how shared ownership is counted, where allocations come from, which uses of memory are checked
 at run time, and which code the compiler does not check.
@@ -20,14 +20,15 @@ Every type has one of four **kinds**, which decide what assignment, passing, ret
 variable's scope do to its values. Section 8.7 (Values, views, owners and counted values) gives the kind
 of each type; in short:
 
-- A **value** is only bits: booleans, numeric types, enums, packed types, function values that capture
-  nothing, and arrays, structs and unions made only of values. Assignment copies it, and nothing happens
+- A **value** is only bits: booleans, numeric types, enums, packed types,
+  and arrays, structs and unions made only of values. Assignment copies it, and nothing happens
   when it goes out of scope.
 - A **view** looks at memory that something else owns: a slice `[]T`, a pointer `*T`, `unsafe.Pointer`,
   a closure or method value (section 11.5, Closures and their regions), an interface that holds a copy in
   a frame or lends an owner (section 7.9, Interface types), a string made with `unsafe.String`, and any
-  struct or array that contains a view and no owner. A view never owns or frees anything. Copying and
-  passing one costs only the words copied. A view may not outlive the memory it looks at (section 18.3).
+  struct or array that contains a view and no owner. A pure view does not release borrowed memory.
+  Composite views still retain/release counted components, so copying them need not cost only the
+  words copied. A view may not outlive the memory it looks at (section 18.3).
 - An **owner** holds memory or another resource and releases it when it is dropped. A type is an owner
   only if its declaration says so with `owner` (section 7.18, Owner types), or if it is built from owner
   types in a way that section 7.18 lists (an array of owners, `owned[T]`, an owning interface, an owner
@@ -35,18 +36,18 @@ of each type; in short:
   explicit call such as `Clone`. An owner is **dropped** at the end of its variable's scope unless it was
   moved away (section 18.6).
 - A **counted value** shares memory among its copies and counts them: `string`, `map[K]V`, `chan T`,
-  `shared[T]`, `synced[T]` and `weak[P]`, and any struct or array that contains one and no owner.
-  Assignment copies it and adds one to the count; dropping a copy subtracts one; the last copy releases
-  the memory (sections 18.7 and 18.8).
+  `shared[T]`, `synced[T]` and `weak[P]`, and any struct or array that contains one and no owner or view.
+  Assignment copies it and adds one to the count; dropping a copy releases a reference. Destruction at
+  the last strong release and reclamation after weak references follow sections 18.7 and 18.8.
 
 | To do this with memory | Use | Cost |
 |---|---|---|
-| let a function use it for a while | a view | none |
+| let a function use it for a while | a pure view | no retain/release; composite counted components still follow their rules |
 | give it to exactly one new owner | a move | none |
 | let several places keep it | `shared[T]`, `synced[T]`, a map or a channel | a count update per copy |
 | keep text | `string` | a count update per stored copy of a string made at run time; none for literals |
 
-**Why three kinds and not one.** With no garbage collector, nothing frees memory that the program has
+**Why distinct kinds.** With no garbage collector, nothing frees memory that the program has
 stopped using unless the program says who is responsible for it. So the program says what each value
 does with memory: a view only looks, an owner only owns, and sharing is chosen by type. Counting everything, as some languages do, costs an update on
 every copy and makes the place where memory is freed depend on which copy happens to go last, which a
@@ -343,8 +344,8 @@ or `for ... range` statement lives until the whole statement ends; one in the co
 statement of a three-clause `for` is dropped after each evaluation.
 
 **What dropping does.** Dropping an owner runs its `Drop` method if it has one, then drops its fields in
-declaration order and its elements in index order. Fields that are values or views need nothing; counted
-fields release their references. The compiler-generated part of this, which releases fields and
+declaration order and its elements in index order. Pure values and pure views need no cleanup;
+counted components are released even inside a composite whose kind is view. The compiler-generated part of this, which releases fields and
 elements, is the type's **drop glue**; values that are not owners but contain counted values have drop
 glue too (section 18.8). In particular:
 
@@ -667,14 +668,19 @@ allocator: the caller must keep the backing alive and exclusively available, avo
 copies, and end all views and count obligations before taking their memory back. It has no ordinary
 safe-lifetime guarantee. There is no `arena.New(buf)` constructor that hides this obligation.
 
-**The debug allocator.** `pluto/alloc/debug` catches overruns, uses after free and double frees
-deterministically and reports leaks; it can be the default allocator of a hosted program without code
-changes. It is described in [debug-allocator.md](../debug-allocator.md).
+**The debug allocator.** `pluto/alloc/debug` diagnoses corruption detectable by its page protection,
+canaries, poison and retained allocation records, and reports tracked surviving allocations. Protected
+accesses fault while protection remains; poison/canary corruption is diagnosed when inspected, and
+finite quarantine limits detection after reuse. These mechanisms supplement the ordinary safety
+contract, not replace it. It can be the default allocator of a hosted program without code changes;
+see [debug-allocator.md](../debug-allocator.md).
 
 ### 18.10 No allocation without an owner or an arena
 
-Every allocation belongs to an owner, to an arena, or to the counted references that share it. There is
-no memory that nothing frees:
+Every ordinary allocation has a specified owner, arena or counted-reference lifetime. Allocating
+operations and APIs document their behavior; the rule does not require an annotation at every call
+site and never silently promotes a local to the heap. Defined cleanup responsibility does not guarantee
+eventual reclamation: the program must avoid or break strong-reference cycles (section 18.7).
 
 - `new(T)` and `new(v)` return an `owned[T]` (section 13.9). There is no `make` of a slice: growing
   sequences are `vec.Vec[T]`, an owner, made with `vec.Make` or `vec.WithCapacity` (section 13.7). A slice
@@ -747,13 +753,17 @@ with another task. A free that races with an access, with no synchronization bet
 (section 19.3), which no check could catch reliably. The implementation places the checks as sparingly as
 that allows, outside loops where it can (abi.md section 1.3).
 
-**Checked and unchecked builds.** Hosted builds are checked by default. Freestanding and kernel builds
-are unchecked until a tag encoding that fits kernels exists, since a kernel uses the pointer bits the
-hosted encoding takes. A build without the checks is the documented **unchecked mode**: a use of freed
-memory is then not detected, and what it does is not defined by this specification. The implementation
-lets each build choose the mode (section 21.5, Run-time checks and the unchecked mode), and
-`//pu:nochecks` removes the checks from one function (section 18.12). The checks change only what a bug does: a program that never uses freed memory
-behaves the same in both modes.
+**Checked and unchecked builds.** Ordinary hosted, freestanding and kernel builds require the same
+lifetime guarantee. Where static proof is incomplete, suitable runtime protection is supplied
+automatically. If the environment cannot provide it, the unproved operation is a compile error with a
+code-level remedy. Kernel mode alone never disables protection. Early-boot and interrupt checks obey
+their allocation, waiting and failure constraints, including specified metadata allocation contracts.
+
+A build explicitly selecting the documented **unchecked mode** opts out of runtime generation and
+epoch protection. A stale access then has no behavior defined by this specification. Static rules
+remain in force, and invalid access does not become correct. `//pu:nochecks` is a deliberate unsafe
+request for one function, not an ordinary remedy for a failed proof (sections 18.12 and 21.5). A
+program that fulfills its lifetime obligations behaves the same in both modes.
 
 **Bounded checks fail loudly.** Reaching the end of a
 finite generation or epoch range must retire the memory (never hand it out again) or widen the field,
@@ -766,16 +776,23 @@ old view valid again. Hosted and kernel encodings must retire affected storage o
 before a collision; if no safe further incarnation is available, allocation fails loudly rather
 than issuing a matching stale tag (abi.md section 1.3).
 
-In the unchecked mode, the debug allocator (section 18.9) narrows the gap by catching uses of memory
-returned to it.
+In unchecked mode the debug allocator can diagnose some invalid uses while its protection or retained
+records permit it; it cannot restore the ordinary lifetime guarantee (section 18.9).
 
 ### 18.12 Safe and unsafe code
 
-**Safe code** is code for which the compiler guarantees that nothing it does can corrupt memory or
-race, whatever its inputs: no view outlives its memory (sections 18.3, 18.4 and 18.11), every owner is
-dropped exactly once (sections 18.5 and 18.6), every index is within bounds (section 11.10, Index
-expressions), and no two tasks access the same memory at once with one of them writing, unless both use
-atomic operations (section 19.3).
+**Safe code** prevents invalid memory access and data races, whatever its inputs. An attempted
+access through an expired view, or an out-of-bounds index, is rejected or checked before invalid memory
+is accessed (sections 18.3, 18.4, 18.11 and 11.10). Holding a stale view does not itself access it.
+Every required owner cleanup runs exactly once on its specified lifetime-ending or cleanup path
+(sections 18.5 and 18.6); nontermination and abrupt-exit exceptions remain. Conflicting accesses are
+excluded or use the synchronization required by section 19.3.
+
+This is the default contract for applications and kernels alike. When proof is incomplete the
+implementation supplies suitable protection or rejects the operation; ordinary code needs no safety
+annotations. A deliberately unchecked build is an explicit opt-out from the full lifetime guarantee,
+independent of whether an individual source operation is unsafe (section 21.5). Memory/race safety does
+not imply freedom from deadlock or resource exhaustion.
 
 **Unsafe code** is code that uses any of the following:
 
@@ -799,13 +816,13 @@ containers, the runtime); applications should need none.
 
 Manual arena lifetime access belongs to these existing unsafe mechanisms: direct `Allocator`
 methods, unsafe pointer construction or conversion, or an explicitly unchecked function. Ordinary
-ordinary `Fixed` and `Chunked` typed `New[T]`, `Slice[T]`, `Reset` and `Release` are not made unsafe merely because their implementation
+`Fixed` and `Chunked` typed `New[T]`, `Slice[T]`, `Reset` and `Release` are not made unsafe merely because their implementation
 uses such mechanisms. Their safe wrapper must keep the static or runtime lifetime guarantee;
 raw or unchecked access makes the programmer responsible for avoiding stale use.
 
 **`//pu:nochecks`** on a function removes its bounds checks and generation checks. It is an explicit
-request to trade checks for speed in one function after measuring, and it makes the function unsafe
-code. There is no switch for the compile-time checks of this chapter, which cost nothing at run time.
+request for reviewed low-level use or to trade checks for speed in one function after measuring, and
+it makes the function unsafe code. It is not a routine ownership, borrowing or allocation requirement. There is no switch for the compile-time checks of this chapter, which cost nothing at run time.
 
 **Auditing.** `pluto vet -unsafe` lists, for each package, the functions that use unsafe code and the safe
 functions that call them, so that a reviewer can find the whole unsafe surface of a program.

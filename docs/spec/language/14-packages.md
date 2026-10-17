@@ -165,32 +165,50 @@ package main
 
 import "pluto/fmt"
 
-// Send the sequence 2, 3, 4, ... to channel 'ch'.
-func generate(ch chan<- int) {
+// Send the sequence until the caller requests stopping.
+func generate(ch chan<- int, done <-chan struct{}) {
+	defer close(ch)
 	for i := 2; ; i++ {
-		ch <- i // Send 'i' to channel 'ch'.
-	}
-}
-
-// Copy the values from channel 'src' to channel 'dst',
-// removing those divisible by 'prime'.
-func filter(src <-chan int, dst chan<- int, prime int) {
-	for i := range src { // Loop over values received from 'src'.
-		if i%prime != 0 {
-			dst <- i // Send 'i' to channel 'dst'.
+		select {
+		case ch <- i:
+		case <-done:
+			return
 		}
 	}
 }
 
-// The prime sieve: daisy-chain filter tasks together.
+// Each task closes only its own output channel.
+func filter(src <-chan int, dst chan<- int, prime int, done <-chan struct{}) {
+	defer close(dst)
+	for {
+		select {
+		case <-done:
+			return
+		case i, ok := <-src:
+			if !ok {
+				return
+			}
+			if i%prime != 0 {
+				select {
+				case dst <- i:
+				case <-done:
+					return
+				}
+			}
+		}
+	}
+}
+
 func sieve() {
-	ch := make(chan int) // Create a new channel.
-	task generate(ch)    // Start generate() as a task.
+	done := make(chan struct{})
+	defer close(done) // explicitly request that all workers stop
+	ch := make(chan int)
+	task generate(ch, done)
 	for n := 0; n < 10; n++ {
 		prime := <-ch
 		fmt.Println(prime)
 		ch1 := make(chan int)
-		task filter(ch, ch1, prime)
+		task filter(ch, ch1, prime, done)
 		ch = ch1
 	}
 }
@@ -200,7 +218,8 @@ func main() {
 }
 ```
 
-When `main` returns, the program ends. The tasks that are still blocked in `generate` and `filter` are
-abandoned (section 15.4).
+Returning from `sieve` closes `done`. Each worker can then stop even if its next send would block,
+and closes its own output. After `main` returns, normal termination waits for all these tasks and
+their retirement to finish before package cleanup (section 15.4). It does not cancel tasks itself.
 
 Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

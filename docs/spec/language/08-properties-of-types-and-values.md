@@ -357,10 +357,12 @@ kinds.
   goes out of scope.
 - A **counted value** is a value that refers to shared memory and counts the values that refer to it. It is
   copied like a value, and each copy adds one to the count. When a copy is dropped it subtracts one, and the
-  last one frees the memory. Strings, channels, maps and the `shared`, `synced` and `weak` types are counted
+  last strong release destroys the object; storage reclamation also respects weak references (section
+  18.7). Strong cycles are not collected. Strings, channels, maps and the `shared`, `synced` and `weak` types are counted
   values. Counting is not chosen by the program: it follows from the type.
-- A **view** looks at memory that something else owns. It is copied like a value. It never frees anything, and
-  dropping one does nothing. It may not outlive what it looks at (section 18.3, Views).
+- A **view** looks at memory that something else owns and is copied like a value. A pure view does not
+  release the memory it borrows. A composite view still retains and releases its counted components;
+  its kind does not suppress their cleanup. It may not outlive what it looks at (section 18.3, Views).
 - An **owner** holds memory or another resource and releases it when it is dropped. Assigning it **moves** it:
   the bytes go to the new place and the old place holds nothing. A moved-from variable may not be used until
   it is given a new value. Copies are made only by calling `Clone`. At the end of its life an owner is
@@ -370,8 +372,8 @@ kinds.
 | Kind | Assignment, passing, returning | When it ends | Zero value |
 |---|---|---|---|
 | value | copies | nothing | all bits zero |
-| counted value | copies and adds a count | subtracts a count; the last frees | holds no reference |
-| view | copies | nothing | `nil` or empty |
+| counted value | copies and adds a count | releases a count; last strong release destroys, remaining weak references delay reclamation | holds no reference |
+| view | copies; retains counted components, if any | releases counted components; does not free borrowed memory | `nil` or empty |
 | owner | moves | dropped | holds nothing; dropping it does nothing |
 
 **The kind of every type.**
@@ -462,9 +464,13 @@ Following the structure of the types:
   packages its package imports. A view field that holds only memory the owner's own code allocated (inferred
    as a heap-only field is, section 18.3, Views) points into memory the owner owns, and that memory moves
    with the owner, so only what it holds is checked; this is how `vec.Vec`, `hash.Map` and
-   `strings.Builder` cross. The rule assumes the code that fills the owner does not alias its allocation:
-   no pointer to the owner's memory outlives the filling except through the owner itself. A view field that
-   may hold other memory is checked where the owner crosses, as any view is.
+   `strings.Builder` cross. Construction must not retain an independent conflicting alias. A later
+   transfer also accounts for outstanding borrows, including borrows through fields, helpers and
+   aliases: no surviving alias may permit a conflicting access while the receiving task uses the
+   allocation. A borrow whose last use precedes transfer remains allowed. If the compiler cannot prove
+   the absence of conflicting access, it rejects the transfer under section 19.3 and identifies the
+   borrow, transfer and conflicting use. Generation checks establish lifetime, not race freedom.
+   A view field that may hold other memory is checked where the owner crosses, as any view is.
 - An interface type is sendable if every type that the program converts to it, directly or through another
   interface, is. An owning interface moves when it crosses.
 - A type parameter is checked for each type it is instantiated with.

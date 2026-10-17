@@ -292,6 +292,7 @@ PrimaryExpr   = Operand |
                 Conversion |
                 MethodExpr |
                 PrimaryExpr Selector |
+                PrimaryExpr TypeArgs |
                 PrimaryExpr Index |
                 PrimaryExpr Slice |
                 PrimaryExpr TypeAssertion |
@@ -304,6 +305,11 @@ Slice         = "[" [ Expression ] ":" [ Expression ] "]" |
 TypeAssertion = "." "(" Type ")" .
 Arguments     = "(" [ ( ExpressionList | Type [ "," ExpressionList ] ) [ "..." ] [ "," ] ] ")" .
 ```
+
+`PrimaryExpr TypeArgs` instantiates a generic function or method, including a method selected from a
+general receiver expression, such as `factory().Pair[int, string](1, "x")` (section 11.16). It is not an
+index operation; its operand must denote a generic function or method and its arguments satisfy that
+declaration's type parameters.
 
 ```go
 x
@@ -512,7 +518,10 @@ var i interface{ M(int) } = myVal
 f := i.M; f(7) // like i.M(7)
 ```
 
-**Where the record lives.** A method value is a closure record (section 11.4, Function literals). It holds a copy of the receiver, or the address of the receiver variable for a pointer method of an addressable value. The record is built in the frame of the function that evaluates the method value, and it is a view of that frame (section 18.3, Views). The rules of section 11.5 apply to it. A copy of the receiver that holds strings counts them, and releases them when the record's storage is released. A method value cannot be started with a `task` statement (section 12.12, Task statements). Default parameter values are not applied to a call of a method value (section 10.13, Default parameter values). A method value of a method with its own type parameters must be instantiated (section 10.15, Methods with type parameters).
+**Where the record lives.** A method value is a closure record (section 11.4, Function literals). It holds a copy of the receiver, or the address of the receiver variable for a pointer method of an addressable value. The record is built in the frame of the function that evaluates the method value, and it is a view of that frame (section 18.3, Views). The rules of section 11.5 apply to it. A copy of the receiver retains every counted component it holds, including strings, maps, channels,
+counted boxes, weak references and counted errors. The record releases those components when its storage
+is cleaned up, recursively through aggregates. This uses the existing frame or caller-region storage,
+with no hidden heap allocation; a saved pointer receiver remains a borrow. A method value cannot be started with a `task` statement (section 12.12, Task statements). Default parameter values are not applied to a call of a method value (section 10.13, Default parameter values). A method value of a method with its own type parameters must be instantiated (section 10.15, Methods with type parameters).
 
 **Consuming methods.** A method with a value receiver on an owner type consumes its receiver (section 8.6, Method sets). Such a method has no method value. `c.Close`, where `Close` consumes `c`, is an error. A record that held `c` would own it, and every call of the record would consume it again. Call the method directly, `c.Close()`, or use the method expression, `Conn.Close(c)` (section 11.8, Method expressions).
 
@@ -631,7 +640,11 @@ for i := 0; i < len(v); i++ { ... }
 - `&x[k]` is an error (E2454). A pointer into a container's storage would be invalidated by any call that grows or rehashes it, which nothing in the syntax would show. Containers return such pointers from methods named for what they do, such as `vec.Vec.Ptr(i)`, `hash.Map.Ptr(k)` and `Upsert(k)`, whose documentation says how long the pointer stays valid.
 - Assigning to a field or element of `x[k]` (`v[i].count = 1`) is an error (E2455). Calling a method with a pointer receiver on it is an error too. Read, change and store back, or go through `Ptr`.
 
-**Ownership.** The receiver is borrowed for the call (a view, 18.3), so indexing never moves the container. `x[k] = v` moves `v` into the container when `V` is an owner, and `SetIndex` drops the value it replaces. `Index` returns a copy, which for an owner `V` would be a second owner. Reading `x[k]` from a container of owners is therefore an error (E3309). Such code uses `Ptr` to look at an element, or a method that takes it out (`Remove`, `Pop`).
+**Ownership.** The receiver is borrowed for the call (a view, 18.3), so indexing never moves the container.
+For an owner container, each indexing overload and `Len` must have a nonconsuming receiver, using the
+existing pointer-receiver form. An owner value-receiver method consumes under section 10.14 and cannot
+supply these overloads. This restriction also applies through a type parameter; no alternate invocation
+semantics or annotation turns a consuming method into a borrowing one. `x[k] = v` moves `v` into the container when `V` is an owner, and `SetIndex` drops the value it replaces. `Index` returns a copy, which for an owner `V` would be a second owner. Reading `x[k]` from a container of owners is therefore an error (E3309). Such code uses `Ptr` to look at an element, or a method that takes it out (`Remove`, `Pop`).
 
 **Deleting** from a container is a method, `m.Delete(k)`. The predeclared `delete` is for the built-in map (section 13.5, Deletion of map elements).
 
@@ -1608,7 +1621,10 @@ For example, in the (function-local) assignment
 y[f()], ok = g(z || h(), i()+x[j()], <-c), k()
 ```
 
-the function calls and communication happen in the order `f()`, `h()` (if `z` evaluates to false), `i()`, `j()`, `<-c`, `g()` and `k()`. The evaluation and indexing of `x`, the evaluation of `y` and the evaluation of `z` happen after them, except that `z` is evaluated before `h()` because `||` is a sequence point. A function cannot be called before its arguments are evaluated.
+the function calls and communication happen in the order `f()`, `h()` (if `z` evaluates to false), `i()`, `j()`, `<-c`, `g()` and `k()`. The evaluation and indexing of `x` must complete after `j()` and before `g()`, because it supplies an
+argument to `g`. The read of `z` precedes `h()` because `||` is a sequence point. Evaluation of the
+remaining assignment destination `y` occurs after the calls. Calls never precede evaluation of their
+own function value and arguments; the two-step rule applies within those dependency boundaries.
 
 A variable that an expression reads and a call in the same expression changes is therefore read after the change:
 
@@ -1626,7 +1642,9 @@ The same rule applies to the operands of the left-hand side of an assignment. In
 
 - The explicit arguments of a call are evaluated first. The default expressions of omitted parameters are evaluated after them, left to right, and before the call is made (section 11.14, Calls).
 - In a `task` or `defer` statement, the function value and the arguments are evaluated when the statement runs, by the same rule (section 12.12, Task statements; section 12.19, Defer statements).
-- An operand that panics when it is evaluated (an index out of range, a nil dereference, a division by zero) panics at its place in this order, that is, after the calls of the expression.
+- An operand that panics (an index out of range, a nil dereference or division by zero) panics at its
+  place in this order, respecting argument dependencies. In `f(a[i])`, an invalid index panics before
+  `f` is called; it does not postpone the failure until after a call that needs the operand.
 - An owner variable that an expression moves is moved when the call or assignment that takes it is performed. A moved variable cannot be used elsewhere in the same expression (section 11.14, Calls), so the time of the move cannot be observed. The temporaries of an expression are dropped at the end of the statement (section 18.6, Drops).
 - Floating-point operations within a single expression are evaluated according to the associativity of the operators. Explicit parentheses affect the evaluation by overriding the default associativity. In the expression `x + (y + z)` the addition `y + z` is performed before adding `x`.
 

@@ -1,7 +1,7 @@
 # A complete Plutonium specification: outline and gap list
 
 **Date:** 2026-10-10
-**Status:** decided and implemented as the complete language specification at version 0.3. Phases 1 to 3
+**Status:** historical specification-writing plan for version 0.3, not a compiler-completeness certificate. The 2026-10-15 approved corrections supersede conflicting rationale here; see the [resolution record](../verification/2026-10-15-spec-consistency.md). Phases 1 to 3
 are done: the specification is in `docs/spec/language/` (contents page `docs/spec/language.md`). Section 6.5
 lists the implementation gaps it defines and is kept current, and `docs/roadmap.md` tracks them. (See the
 Status block below.)
@@ -1521,13 +1521,24 @@ reading the code.
 | 24 | Embedding `shared[T]` and `synced[T]` in a struct, promoting `T`'s methods (embedding `owned[T]` works). To verify. (done: `2a0c6a21`, verified by `embedshared.p`). | 7.6, 7.19 | 92 |
 | 25 | Any two functions exported under one symbol are E2512. `internal/lower` reports it only for wrapped exports. | 20.4 | 94 |
 | 26 | ~~Channel reference counts are always atomic.~~ Closed by the specification: every count except `shared` is plain until the program starts its first task, then atomic (18.7), which is what `rt/chan.p` does. | 18.7, 19.8 | 95 |
-| 27 | Old package-held reporting direction superseded by user decision D6 on 2026-10-13: normal program termination is to release owned resources, including package owners. Shutdown semantics/specification and implementation remain pending. Abandoned classification/E3601/source-proof/snapshot work was archived and removed; independent landed Goexit cleanup remains. Optional allocator/scheduler candidates are archive-only. See the [cleanup ledger](../verification/2026-10-13-item96-cleanup.md) and historical scoped reporting evidence. | 15.4, 18.6, 18.9 | 96 |
+| 27 | Old package-held reporting direction superseded by user decision D6 on 2026-10-13: normal program termination is to release owned resources, including package owners. The D6 replacement is landed at `e63a1497` with native full gates; see the [normal-shutdown record](../verification/2026-10-14-normal-shutdown.md). The later consistency pass clarifies its completion ordering without reopening shutdown policy. Abandoned classification/E3601/source-proof/snapshot work was archived and removed; independent landed Goexit cleanup remains. Optional allocator/scheduler candidates are archive-only. See the [cleanup ledger](../verification/2026-10-13-item96-cleanup.md) and historical scoped reporting evidence. | 15.4, 18.6, 18.9 | 96 |
 | 28 | `pluto vet -unsafe` lists typed unsafe sites and safe caller paths for all source functions and initializers. Done, native verified 2026-10-12; [record](../verification/2026-10-12-vet-unsafe.md). | 18.12, 21.1, 21.5 | 97 |
 | 29 | ~~Hosted task stacks are at least 64 MiB; the runtime shrinks them under a small `RLIMIT_AS`.~~ Closed by the specification: at least 64 MiB where the address space allows, otherwise smaller reservations, never below 64 KiB (19.1, 21.4), which is what `173c2f6` does. | 19.1, 21.4 | 98 |
 | 30 | `pluto doc` shows source documentation and exact type kinds (done). Package, symbol and method queries preserve source defaults, follow aliases/promotions/generic instantiations, and use the same section 8.7 classifier as editor hovers. Native full gates and tracked-only archive pass; [record](../verification/2026-10-12-pluto-doc.md). | 1.1, 18.1, F | 93 |
 | 31 | The `or` clause, decided by the user on 2026-10-10: `v := f() or return`, `or continue`, `or panic(err)` and `or { ... }` after a call whose last result is exactly `error`. Parser: `or` as a contextual keyword after the expression that ends a simple statement, `OrStmt` among the simple statements, syntax error E1013 for an operand that is not a call. Type checker: E2461 to E2465 (an `or` in a post statement is E2465), the implicit block that declares `err` (never reported unused), the leaving-statement rule (terminating statements plus `break` and `continue`), and the two short forms of an unbraced `return`. Move checker, escape analysis and lowering: the test after the call, the drop of the call's temporaries before the clause, nothing assigned or declared on the error path, and the clause as an ordinary return or branch (drops, scope joins, deferred calls). Also `pluto fmt`, the completion list of `internal/lsp`, and catalog entries for the new codes (`go generate` in `internal/types2/errors`). *Verified* with the compiler at the time of writing: every shape of section 11.27 fails at the `or` ("expected ';', found or") and nothing else in the examples fails to parse; the `if err != nil` forms of the complete program compile and run. | 11.27, 4.6, 12.1, 12.10, 12.14 | 99 |
 | 32 | Package initialization starts no task (done, decision D2): E2587 follows whole-program calls before optimization through function values, interfaces, adapters, deferred calls and implicit cleanup for every package and build mode. It names the start and initializer and suggests starting from `main`. Blank owner and counted initializer results are destroyed in initialization order. Native verification passes; [record](../verification/2026-10-12-initialization-tasks.md). | 15.2, 15.3, 19.1, 19.3 | 100 |
 | 33 | `clear` of a slice of owners drops each element before the place becomes the zero value (decision G28). *Verified* 2026-10-11: the compiler zeroes the elements without dropping them, and the drops run at the scope's end, on the zero values. | 13.3 | 75 |
+
+
+The 2026-10-15 bounded inventory adds the following follow-up. Source findings and
+unverified proof boundaries are distinguished; none is closed by old suite passes.
+
+| # | Gap | Section | Roadmap item |
+|---|---|---|---|
+| 34 | Ordinary kernel lifetime protection: current driver forces checks off and rejects enabling them. Implement static-proof/protection/rejection behavior, keeping explicit unchecked opt-out distinct. Confirmed source-policy gap. | 1.2, 18.11, 21.5 | 101 |
+| 35 | Outstanding aliases across owner-field transfer to a task: concrete proof boundary awaiting accepted/rejected witnesses, not a demonstrated exploit. | 8.8, 19.3 | 102 |
+| 36 | Nonconsuming owner Index/IndexOk/SetIndex/Len receivers: visible validators lack the restriction; whole-pipeline negative still to verify. | 11.11, 13.6 | 103 |
+| 37 | Bounded task-stack inference remains absent: task lowering passes zero for the proven bound. Runtime fallback support does not compute it. | 19.1 | 18 |
 
 Counted channels with their timers (`bdb7683`), 64 MiB lazily mapped hosted task stacks (`173c2f6`) and
 `sync.Scope` (`a7948f6`) and generation checks by default in hosted builds (`766837b`) landed before the

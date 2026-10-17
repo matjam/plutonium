@@ -281,7 +281,7 @@ kernels.
 | `//pu:scheduler` | package variable | the program's scheduler backend, of a type that implements `rt.Scheduler`; at most one in a program, replacing the hosted one (section 19.5, The scheduler contract) |
 | `//pu:percpu` | package variable | one copy per processor, addressed through `GS`; kernel mode only (section 20.9) |
 | `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (section 20.7) |
-| `//pu:blocking` | function, with or without a body | calling it may wait in a way the compiler cannot see (a kernel's spinning lock, a routine that halts until an interrupt); interrupt handlers and the panic handler must not reach it (section 20.10) |
+| `//pu:blocking` | function, with or without a body | calling it may park or wait in a way the compiler cannot see (for example, halting until an interrupt); interrupt handlers and the panic handler must not reach it (section 20.10) |
 | `//pu:nosimd` | function | the compiler adds no vector instructions to it |
 
 `//pu:nosimd` is implied by `//pu:interrupt` and, in kernel mode, by every function that is not
@@ -303,7 +303,8 @@ author's promise. Outside the standard library the directive is an error (E3008)
 |---|---|---|
 | `//pu:nochecks` | function | remove the bounds checks and the generation checks from its body |
 
-`//pu:nochecks` is a request to trade run-time checks for speed in one function, after measuring. It
+`//pu:nochecks` is an exceptional request for reviewed low-level use or measured optimization in one
+function. It is not a routine remedy for an ownership, borrowing or allocation error. It
 states no fact the compiler could derive, which is why it is a directive. It makes the function unsafe
 code (section 20.1), so that the audit lists it. Function literals inside the function are part of its
 body. The compile-time checks (moves, escapes, races) cannot be turned off: they cost nothing at run
@@ -378,7 +379,7 @@ files and the contents of files (section 14.4).
 The output is an ELF executable, or a flat binary on request.
 
 **Hosted.** The entry code sets up the arguments and the environment, starts the scheduler if the
-program uses tasks or channels, runs package initialization and calls `main` (section 15.4, Program
+program or its dependencies request scheduler capabilities (section 19.5), runs package initialization and calls `main` (section 15.4, Program
 execution). A return value of `main` becomes the exit status. The default panic handler prints the panic
 and exits with status 2. Run-time checks that cost memory or time, such as generation checks, are on by
 default (section 21.5).
@@ -388,8 +389,10 @@ provides its entry point, which must call the program's initialization and `main
 stack with the direction flag clear (abi.md section 8). The program must define its panic handler
 (section 17.4). There is no default allocator until the program calls `alloc.SetDefault`; allocating
 before then panics (section 20.11). A program that uses tasks, channels or waits in `pluto/sync` must
-bind a scheduler with `//pu:scheduler` (section 19.5), and fails to build otherwise. A program that never
-uses them contains no scheduler. Run-time checks that need a tag encoding are off (section 21.5).
+bind a scheduler with `//pu:scheduler` (section 19.5), and fails to build otherwise. Scheduler-dependent
+timers, callbacks and poller operations also require the backend through their API contracts. A program
+requiring none of these capabilities contains no scheduler. Required safety protection remains enabled
+by default: unavailable runtime protection requires static proof or rejection (section 21.5).
 
 **Kernel.** A kernel build is a freestanding build with the additions of section 20.6.
 
@@ -411,7 +414,8 @@ entry. It differs from `freestanding` in these ways:
 `pluto/arch/x86` (section 20.8) and `//pu:interrupt` handlers (section 20.10) are available in every
 mode; in kernel mode a handler without `//pu:fpu` saves no vector registers. `pluto/os` and
 `pluto/syscall` are unavailable, as in every freestanding build. Like every freestanding program, a
-kernel must define its panic handler (section 17.4).
+kernel must define its panic handler (section 17.4). Kernel mode preserves the ordinary safety
+contract; it does not implicitly select unchecked execution (section 21.5).
 
 Three rules apply to the whole of kernel code and are stated where they belong: floating point appears
 only in `//pu:fpu` functions (section 20.7); nothing an interrupt handler or the panic handler can reach
@@ -448,9 +452,9 @@ kernel and hide a large cost behind ordinary arithmetic, for code that hardly ev
 
 ### 20.8 `pluto/arch/x86`
 
-The package `pluto/arch/x86` gives access to the instructions a kernel needs. Every function in it is
-expanded inline to the instruction or short sequence it names, is never removed even if its result is
-unused, and is a compiler barrier: no memory access is moved across it (section 19.7, Memory model). The
+The package `pluto/arch/x86` gives access to the instructions a kernel needs. Except for the
+compile-time address query `HandlerAddr`, each function is expanded inline to the instruction or short
+sequence it names, is never removed even if its result is unused, and is a compiler barrier: no memory access is moved across it (section 19.7, Memory model). The
 expansion of each function is in the ABI document (abi.md section 10.5). Privileged instructions fault
 outside ring 0. The package is available on amd64 in every build mode, though only `Pause`, `Cpuid`,
 `Rdtsc` and `Rdtscp` are useful outside ring 0.
@@ -519,7 +523,9 @@ type InterruptFrame struct{ RIP, CS, RFLAGS, RSP, SS uint64 }
 `FPUBegin` leaves the FPU in the interrupted context's state; it does not enable SSE, which the kernel
 does once. A `//pu:fpu` function called from a function without the directive must run between `FPUBegin`
 and `FPUEnd` on the same area. `HandlerAddr` takes the name of a `//pu:interrupt` function and yields its
-address for an interrupt descriptor table; with anything else it is a compile error (E2572).
+address for an interrupt descriptor table. It orders no memory accesses and is not a compiler barrier.
+Its argument must be a compile-time-known valid handler; a function-value/indirect use or any other
+invalid argument is a compile error (E2572), not a runtime panic.
 
 ### 20.9 Per-CPU variables
 
@@ -585,8 +591,20 @@ handler (section 17.4) can reach, may:
 - allocate from an allocator that may wait.
 
 Operations that do not wait are allowed: `select` with `default`, `TryLock`, readying a parked task,
-arming, stopping and running the runtime's timers, atomic operations, and spin locks that disable
-interrupts while held. To hand work to normal code, a handler sends without waiting:
+arming, stopping and running the runtime's timers, atomic operations, and correctly protected
+interrupt-safe spinning. Such a spin-lock protocol disables the relevant local interrupts **before
+acquisition**, excludes preemption that could prevent the holder from running, releases the lock, then
+restores the prior interrupt/preemption state. Every user follows that protocol. Contention may depend
+on another processor's progress, never on the interrupted context resuming to release the lock.
+Nested exceptions and nonmaskable interrupts require a separate exclusion/progress protocol; ordinary
+interrupt disabling does not exclude them. These permitted spins do not park and are not the forbidden
+waiting operations above. Inference checks supported protocols without routine annotations; opaque
+assembly implementations retain their explicit trusted contracts.
+
+Sharing with a same-processor handler uses volatile/atomic accesses or a correctly protected
+interrupt-disabled region on every path (memory-model.md section 6.1). Cross-processor sharing needs
+atomics or an appropriate lock. Volatile supplies neither mutual exclusion nor compound-operation
+atomicity. To hand work to normal code, a handler sends without waiting:
 
 ```go
 select {
@@ -605,9 +623,11 @@ way (E2585).
   code. A path ends at the runtime's `park`, in which every wait in the library ends, at the runtime's
   `spawn`, in which every task start ends, and at a function marked `//pu:blocking`. A path from an
   interrupt handler stops at the panic handler, which is checked on its own.
-- **`//pu:blocking`** is for what the compiler cannot see: a kernel's own primitive that waits for
-  another processor (a lock that spins until it is released, a routine that halts until an interrupt),
-  and assembly or C that waits. The standard library marks only `park`.
+- **`//pu:blocking`** is for an opaque primitive that may park, halt pending an event or wait for
+  progress that is unsafe in interrupt context, including a lock requiring interrupted execution to
+  resume. It is not required merely for the permitted interrupt-safe spin protocol above. Source-visible
+  operations are inferred; opaque assembly/C contracts must describe their waiting and exclusion
+  obligations. The standard library marks only `park`.
 - **Calls through interfaces and func values** cannot be resolved exactly, so the check is conservative.
   A call of method `m` through an interface type `I` may reach `m` of every type the program converts to
   `I`, whether directly, from another interface, or by a type assertion. A call through a func value of

@@ -5,13 +5,17 @@ the pending items in HANDOVER.md are resolved against the project goals (AGENTS.
 recorded here, and reviewed by the user afterwards. Each decision names the sections of
 the specification it changes and the work that lands them.
 
-D6 and D7 record directions approved directly by the user on 2026-10-13. They are not
-part of the earlier delegated implementation choices.
+D6 and D7 record directions approved directly by the user beginning on 2026-10-13.
+D8 records the coordinated specification resolutions approved on 2026-10-15. These
+are not part of the earlier delegated implementation choices. Historical rationale
+below is not authority to change the language to match code.
 
-The goals, restated for reference: Go-familiar, not Go-compatible; no false friends
-(differences from Go are visible in the source); memory and race safety without a borrow
-checker; ordinary code needs no annotations or implementation knowledge; no GC and no
-hidden allocation; suitable for a kernel; performance near Rust.
+The current goals, stated precisely in section 1.1 and D8: Go-familiar, not
+Go-compatible, with differences visible or expressly documented; the same ordinary
+memory/race-safety contract for applications and kernels, without programmer-written
+borrow annotations or compiler knowledge; no GC or silent heap promotion, with
+specified allocating-operation contracts and explicit lifetime responsibility; kernel
+suitability; and performance near Rust, assessed separately from semantic conformance.
 
 ## D1. `errors.As` matches a counted error against a `*T` target (16.6, 16.7)
 
@@ -89,6 +93,11 @@ and permanently segregated address reservations was considered and not chosen.
 Lands with: roadmap item 85 (gap 10).
 
 ## D4. Two implementation readings confirmed (17.5, 8.8)
+
+Status: historical delegated readings. D8 strengthens (b) to cover borrows obtained
+after construction and every later transfer; construction non-aliasing alone is not
+a complete race-safety proof. The historical code-based rationale below is not the
+authority for the current normative rule.
 
 (a) Slicing through a nil array pointer is always checked. `p[lo:hi]` computes an
 address, and 17.5 requires every nil dereference to panic; the implementation checks even
@@ -199,9 +208,83 @@ ordinary API conflicts with the intended safe-language guarantee.
 
 Lands with: the focused specification amendment and native acceptance matrix
 in `docs/plans/2026-10-13-safe-arena-lifetimes.md`, then the implementation and
-full verification. The current code has not completed this policy. Temporary
-conservative rejection prevents unsafe acceptance but does not complete valid
-ordinary arena usage or the positive acceptance cases.
+full verification. The arena implementation subsequently completed the scoped native
+verification recorded in `docs/verification/2026-10-13-safe-arena-lifetimes.md`.
+This is historical implementation evidence for that snapshot, not certification of
+D8's stronger all-mode safety contract. Conservative rejection alone does not
+complete supported valid arena usage or its positive acceptance cases.
+
+## D8. Coordinated specification consistency resolutions (2026-10-15)
+
+Decision: the user approved items 1–9 of the
+[resolution checklist](plans/2026-10-15-spec-resolution-checklist.md), after
+reviewing the examples and tradeoffs individually. The corrected normative
+sections, not this record or the current implementation, define the language.
+The [audit](plans/2026-10-14-spec-consistency-audit.md) retains the reviewed
+pre-correction findings C1–C20. This decision preserves D6 and D7.
+
+- **Safety in every ordinary build** (sections 1.2–1.4, 18.3, 18.11–18.12,
+  20.3, 20.5–20.6 and 21.5; ABI 1.3): applications and kernels have the same
+  memory/race-safety contract. Prove safety, supply suitable automatic protection,
+  or reject an unproved operation if that environment cannot protect it. This
+  explicitly supersedes the former unchecked kernel/freestanding default. An
+  unchecked build is an explicit opt-out; static rules remain. Ordinary code
+  needs no annotations. Early-boot/interrupt protection respects its allocation,
+  waiting and failure constraints. No new directive or pointer encoding is chosen.
+- **Ownership and borrowing** (sections 7.9, 8.7–8.8, 10.14, 11.9, 11.11,
+  13.6 and 18.1/18.6/19.3; ABI 4.1): composite views retain/release counted
+  components. Owner transfer must account for outstanding aliases through fields
+  and helpers, not merely a non-aliasing constructor. A borrow ending before
+  transfer is allowed. Indexing and Len overloads on owners require nonconsuming
+  pointer receivers; no syntax-dependent invocation of a consuming method.
+- **Shutdown** (sections 12.12, 14.5, 15.4, 19.1/19.7; memory-model 3.9;
+  ABI 12.10): preserve natural draining and reverse package cleanup. Task/callback
+  operations, mandatory cleanup and retirement happen before package cleanup,
+  with cross-processor visibility. No automatic cancellation or runtime cycle
+  collection is added. Abrupt exit and nonreturning kernels stay distinct.
+- **Kernel synchronization** (section 20.10; memory-model 6.1): asynchronous
+  interrupt sharing needs volatile/atomic access or correct interrupt exclusion;
+  no universal plain-access synchronization is implied. An interrupt-safe spin
+  protocol disables relevant interrupts before acquisition, excludes inappropriate
+  preemption, releases, then restores prior state. It cannot depend on interrupted
+  execution resuming; nested/nonmaskable exceptions need separate handling.
+  HandlerAddr is an address query ordering no memory, with invalid indirect uses
+  rejected at compile time (section 20.8; ABI 10.5).
+- **Construct conflicts** (sections 7.6/11.3, 7.12–7.13/10.8, 7.9/16.2,
+  16.5–16.6): preserve promoted literal keys and their existing restrictions;
+  allow aliases of existing named enums/unions, reserving declaration syntax for
+  definitions; allow inline pointer error structs with valid referenced storage;
+  ErrorBuf wraps only its first percent-w cause, while fmt.Errorf can wrap several.
+- **Grammar and ABI** (sections 10.15/11.6/11.16 and appendix E; ABI 4.1,
+  12.6–12.7): explicit generic methods work after general receiver expressions;
+  regions clean up every counted component. Channel counts follow section 18.7's
+  single hosted plain-before-threading/atomic-after rule and are atomic from
+  freestanding startup. Unsized hosted stacks normally reserve at least 64 MiB
+  virtually, with constrained-address-space fallback never below 64 KiB and
+  overflow protection preserved.
+- **Accurate promises** (sections 1.1–1.4, 18.7/18.10, 21.3; appendix A;
+  debug-allocator): allocation visibility means specified allocating operations
+  and explicit lifetime responsibility, with no silent heap promotion, rather
+  than per-call annotations. Last strong release destroys; weak references can
+  delay reclamation; programs avoid/break strong cycles. Debug protection,
+  poison/canary inspection and finite quarantine have stated detection windows,
+  not universal stale-access detection. Scheduler inclusion follows required
+  capabilities, including library dependencies, not task syntax alone.
+- **Equivalence and examples** (section 21.3, appendix A, sections 7.4,
+  11.26 and 12.11): optimization preserves permitted observable behavior,
+  ordering, safety and logical source panic frames. Permitted nondeterminism and
+  resource-use variation remain. Static errors.New identity and D6 waiting are
+  disclosed observable differences. Correct local-array, iterator-continue,
+  evaluation-dependency and type-kind summaries without changing their mechanisms.
+- **Evidence and conformance:** use a small fixed application/kernel witness set
+  and a separate repeated-run performance methodology. Source acceptance and
+  safety remain mandatory; no numeric benchmark target or exemption is selected.
+  Implementation is audited against the corrected specification after review.
+
+Status: this records approved language decisions and the coordinated specification
+amendment. It does not claim compiler/library conformance to every corrected rule;
+the roadmap and witness register track that separate work. Existing D6/D7 native
+receipts remain evidence for their tested snapshots, not proof of the new findings.
 
 ## Deferred
 

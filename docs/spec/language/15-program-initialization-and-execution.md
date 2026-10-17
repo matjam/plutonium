@@ -267,6 +267,8 @@ calls run and its local owners and counted references are released (sections 12.
 waits for all remaining tasks to finish naturally, including tasks they start. There is no cancellation.
 Completion includes deferred calls, owned and counted cleanup, and retirement of task records and
 stacks, including their allocator callbacks. A running task that never finishes keeps the program alive.
+Every task/callback operation and its mandatory cleanup and retirement callbacks happen before package cleanup begins, including visibility
+across processors (section 19.7, Memory model).
 Deadlock remains a fatal error under section 19.1; waiting for termination does not suppress it.
 
 Scheduled application callbacks, such as `time.AfterFunc` calls, also finish or are explicitly canceled

@@ -177,8 +177,8 @@ are. A `weak[P]` is the same address as its `P`. Dropping an
 
 ### 1.3 Generation tags and arena epochs
 
-A hosted build is checked by default (language spec sections 18.11 and 21.5; memory-safety design
-sections 5, D3 and D4): it tags heap pointers so that a use of memory that has been freed, or that an
+Ordinary builds require static lifetime proof or automatic protection in every mode (language spec
+sections 18.11 and 21.5). The following hosted encoding tags heap pointers so that a use of memory that has been freed, or that an
 arena has taken back, panics instead of reading or writing whatever the memory holds by then. Bits
 63..48 of a pointer hold a 16-bit tag (user-space addresses use 47 bits):
 
@@ -362,11 +362,17 @@ creates an untagged pointer has the responsibility stated in language spec secti
 Converting a pointer to `uintptr`, and passing it to a function implemented outside Plutonium, removes
 its tag; `unsafe.Pointer` keeps it (language spec sections 18.11 and 20.1). A function marked
 `//pu:nochecks` makes no checks (language spec section 18.12). With `--gencheck=false`
-(`PLUTO_GENCHECK=0` makes it the default of a test run), and in every freestanding and kernel build,
-pointers carry no tag and nothing is checked: a use of freed or reset memory is then the documented
-unchecked mode (language spec sections 18.11 and 21.5). `Chunked.SetPoison` then makes stale reads
-visible, and the debug allocator (language spec section 18.9), as an arena's parent, catches a use of
-chunks the arena gave back (`Trim`, `Drop`), though not of those `Reset` and `Release` keep.
+(`PLUTO_GENCHECK=0` explicitly selects it for a test run), runtime generation/epoch checks are
+omitted: this is the documented unchecked opt-out, and stale access has no defined behavior (language
+spec sections 18.11 and 21.5). Freestanding and kernel builds do not select it automatically. If this
+hosted pointer encoding cannot represent a target's addresses, the implementation must supply another
+suitable protection or statically prove safety; otherwise the operation is a compile error. Required
+early-boot/interrupt protection cannot allocate, wait or fail contrary to those contexts' contracts.
+This ABI does not prescribe a new kernel encoding or directive.
+
+`Chunked.SetPoison` changes bytes and may make a stale read conspicuous; it does not guarantee detection.
+The debug allocator as parent can diagnose accesses to returned chunks only while its protection or
+retained evidence permits it; it does not detect every access to suballocations kept by Reset/Release.
 
 ### 1.4 Maps
 
@@ -531,11 +537,14 @@ ignores the pointer, which the caller still passes. The callee reads and writes 
 the pointer; it may hold the address of a variable in the region and of a record in it, and returns func
 values that point into it.
 
-The region owns the strings it holds (language spec section 18.8): those of its variables, and of the
-receivers its method values copied. The drop word is 0, or the closure record of the function's **drop
-function** (`<function symbol>·rdrop`), which the function stores on entry when its region holds strings
-or nested regions. The drop function takes the region's address, releases its strings, drops its nested
-regions and clears the word. The caller zeroes the regions it reserves when it is entered, drops a region
+The region retains every counted component it stores, including those in captured variables and
+copied method receivers: strings, maps, channels, counted boxes, weak references and counted errors,
+recursively through aggregates (language spec sections 18.7 and 18.8). Pointer-receiver records retain
+their existing borrowing semantics. The drop word is 0, or the closure record of the function's **drop
+function** (`<function symbol>·rdrop`), installed when there is typed counted cleanup or a nested region.
+That function takes the region address, releases each stored counted component exactly once, drops
+nested regions and clears the word. This introduces no hidden heap allocation.
+The caller zeroes the regions it reserves when it is entered, drops a region
 before each call that refills it, and drops its regions when it returns: a call of a known function calls
 that function's drop function, and a call through a func value or an interface calls the record in the
 drop word, if there is one. The drop before a call comes after its arguments are evaluated; nothing the
@@ -1052,11 +1061,11 @@ faulting instruction and ends at the handler's frame.
 ### 10.5 `pluto/arch/x86` intrinsics
 
 Each function in `pluto/arch/x86` (language spec section 20.8) is expanded inline to the instructions
-shown. Lowering turns a call
-into one `ssa.OpIntrinsic` (named, for example, `x86.Cli`), which takes the current memory state and
-produces the next one, as a call does: no load or store is moved, merged or removed across it, so every
-intrinsic is a compiler barrier (memory model section 5.2). It has side effects, so it is never removed,
-even when its result is unused, and never merged with another. The backend expands it with the fixed
+shown. Except for `HandlerAddr`, lowering turns a call into one `ssa.OpIntrinsic` (named, for example,
+`x86.Cli`), which takes the current memory state and produces the next one: no load or store moves,
+merges or disappears across it. These instruction intrinsics are compiler barriers (memory model
+section 5.2) with side effects, so unused results do not remove or merge their operations. `HandlerAddr`
+is only an address computation, orders no memory and may be eliminated when unused. The backend expands it with the fixed
 registers the instructions need. Each function except `HandlerAddr` also has an assembly body
 (`x86_amd64.s`) for when it is called through a func value. Privileged instructions fault outside ring 0.
 Encodings are tested against GNU as.
@@ -1083,7 +1092,7 @@ Encodings are tested against GNU as.
 | `GSLoad64(off uintptr) uint64`, `GSLoad32`, `GSStore64(off uintptr, v uint64)`, `GSStore32` | `mov %gs:(r), ...`, or `%gs:off` for a constant offset |
 | `FPUBegin(area *FPUState)` | `clts; fxsave64 (area)` |
 | `FPUEnd(area *FPUState)` | `fxrstor64 (area)` |
-| `HandlerAddr(h any) uintptr` | `lea handler(%rip), r`; `h` must name a `//pu:interrupt` function, checked at compile time. A plain address, so it orders nothing; through a func value it panics |
+| `HandlerAddr(h any) uintptr` | `lea handler(%rip), r`; `h` must name a `//pu:interrupt` function, checked at compile time. a plain address ordering no memory; invalid or indirect/function-value uses are compile errors (E2572) |
 
 ```go
 type DescriptorTablePointer packed [10]byte {
@@ -1346,9 +1355,9 @@ starting task's stack (language spec section 12.12).
 
 **Channels.** A channel is the address of an `rt.hchan`: a runtime lock, the buffer's count, capacity,
 indices and element size, the buffer, queues of waiting senders and receivers, the allocator it came
-from, then the reference count (at offset 136) and the channel's timer or nil. The count is always changed
-with `lock xadd`, in every build and before the first task starts too (language spec sections 18.7 and
-19.8), and a task waiting on a channel holds a reference to it while it waits: `chanRetain(c)` takes a
+from, then the reference count (at offset 136) and the channel's timer or nil. The count follows the single rule of language spec section 18.7 (When counts are atomic): plain
+arithmetic before hosted threading, atomic operations before another thread can run, and atomic from
+freestanding startup. A task waiting on a channel holds a reference to it while it waits: `chanRetain(c)` takes a
 reference, and a release calls the
 release glue the compiler makes for the element type, `chan T·release(c)`, which calls
 `chanRelease(c) bool` and, for the last reference, drops the values still buffered (`chanBuffered(c)`
@@ -1381,7 +1390,7 @@ A blocked operation's waiting record (`sudog`) lives in the waiting task's frame
 | monitor | a thread that preempts a task after 10 ms (`SIGURG`) and hands the P of a worker that has been in a system call (`rt.EnterSyscall` to `rt.ExitSyscall`) for 20 µs, when other work waits, to another worker |
 | poller | a thread blocked in `epoll_wait` on descriptors registered once, edge-triggered, for reading and writing. `rt.PollOpen(fd)` makes a `rt.PollDesc` (kept on a free list, never unmapped) holding a queue of read waiters, a queue of write waiters and a flag for each direction for an event that arrived with nobody waiting; `Wait(write)` parks until an event (registering the descriptor on the first wait), `Evict` wakes the waiters with `rt.PollClosed` and `Release` deregisters it. While timers are armed it waits at most until the earliest deadline of every P (`epoll_pwait2`, or `epoll_wait` in milliseconds rounded up before Linux 5.11), then runs the expired timers itself; an eventfd in the epoll set wakes it when an earlier timer is armed |
 | timers | a heap per P (section 12.9), which its worker runs each time it looks for a task; a spinning worker runs the expired timers of the other Ps too, and their tasks come to its own P. `rt.Now` reads `CLOCK_MONOTONIC` through the vDSO's `__vdso_clock_gettime` (found from `AT_SYSINFO_EHDR`), or with the system call if there is none |
-| stacks | an unsized request gets a reserved stack: `rt.HostedStackSize` (64 MiB) mapped `MAP_NORESERVE \| MAP_STACK` with a 1 MiB guard region (`PROT_NONE`) below and one more page above, whose end holds the backend's task record, so every such task has at least 64 MiB of address space (language spec section 19.1). Reserved stacks are cached (8 per P, 64 shared); one going into a cache gets `madvise(MADV_DONTNEED)` below its top 16 KiB if its task was seen below that when it parked, yielded or was preempted, or on every 16th use. Any other request gets a guard page, the stack, then the task record, from the requested allocator; stacks of one size from the program-wide default allocator are cached rather than freed |
+| stacks | an unsized request gets a reserved stack: `rt.HostedStackSize` (64 MiB) mapped `MAP_NORESERVE \| MAP_STACK` with a 1 MiB guard region (`PROT_NONE`) below and one more page above, whose end holds the backend's task record, normally reserving at least 64 MiB of address space. If address-space limits prevent that reservation, the runtime tries a smaller reservation, never below 64 KiB, with the same overflow protection (language spec section 19.1). This virtual reservation is not physical-memory commitment; explicit stack requests retain their stated sizes. Reserved stacks are cached (8 per P, 64 shared); one going into a cache gets `madvise(MADV_DONTNEED)` below its top 16 KiB if its task was seen below that when it parked, yielded or was preempted, or on every 16th use. Any other request gets a guard page, the stack, then the task record, from the requested allocator; stacks of one size from the program-wide default allocator are cached rather than freed |
 | deadlock | when every worker is idle, nothing waits in the poller or a system call and no timer is armed: "fatal error: all tasks are asleep - deadlock!", then each task's number, wait reason and trace (`rt.TraceTask`; the backend keeps a list of its tasks in creation order for this, and `BootTask` comes first), status 2. The poller checks again after it runs timers, since a timer that fires may leave nothing to wake |
 | `SIGPIPE` | caught at startup (every hosted program, not only those that start tasks) by a handler that returns, so a write to a pipe with no reader fails with `EPIPE`; `pluto/os` calls `rt.DieFromSigpipe` (default action, then `tgkill` of the calling thread) for `EPIPE` on descriptors 1 and 2 |
 
@@ -1499,7 +1508,11 @@ Draining does not cancel them. Cancellation retires saved arguments/captures and
 before completion is observed. Tasks may start descendants during that
 wait. An application task is not retired until its frame cleanup, stack release, task-record release and
 their allocator callbacks complete. A backend must report that completion after those obligations,
-not at `joinExit`. In-flight application callbacks must also finish; pending application timer callbacks
+not at `joinExit`. Completion publication must establish release/acquire ordering, or an equivalent
+synchronization, so all task/callback operations, mandatory cleanup, stack/task-record releases and
+their allocator callbacks happen before package cleanup begins, across every processor. A backend
+cannot satisfy this by observing a count without the required visibility (memory-model.md section 3.9).
+In-flight application callbacks must also finish; pending application timer callbacks
 count as work, while internal service timers and timers that only deliver channel values do not.
 The transition to package cleanup atomically closes task and application-callback admission. A failed
 start retains the caller's provisional argument ownership. Deadlock detection remains active.

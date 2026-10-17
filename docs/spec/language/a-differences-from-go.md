@@ -11,11 +11,12 @@ meaning depends on a garbage collector, a growing stack or hidden allocation, th
 code may need edits before it compiles.
 
 A **false friend** is code that looks like Go, compiles, and does something other than what a Go
-programmer expects. The language is designed to have none:
+programmer expects. The language makes such differences explicit except for the documented exceptions below:
 
 > Where Plutonium behaves differently from Go in a way a Go programmer would not expect, the difference
 > is visible in the source: a different name, a different syntax, a different type, or a compile error
-> that explains it. Code that looks like Go and compiles does what Go would do.
+> that explains it. The approved exceptions, including string boundaries, normal-shutdown waiting and
+> static errors.New identity, are disclosed rather than claimed to be unobservable.
 
 So a difference falls in one of these classes, which the tables below use:
 
@@ -26,8 +27,9 @@ So a difference falls in one of these classes, which the tables below use:
   that Go does not have, or a type with a different name, is not a false friend, because its
   documentation is the first thing a reader looks up.
 - **Added.** The construct has no counterpart in Go.
-- **The exception.** One difference in the language itself is neither a compile error nor visible in the
-  source (section A.5).
+- **Documented exceptions.** String-boundary slicing (section A.5), normal-shutdown waiting and
+  static errors.New identity can be observable without a distinct syntax at the observing call site.
+  The changed-behavior rows disclose them; they are excluded from the unchanged-behavior oracle subset.
 
 Programs in the common subset of Go and Plutonium are kept as tests: the expected output of the programs
 in that subset comes from running them with Go. The subset is how an implementation is checked against
@@ -71,7 +73,7 @@ The rows in this table are behaviors that differ from Go's. Each says how the di
 | converting a value to an interface copies it | converting an owner, a box, a channel or a map to an ordinary interface lends it: the interface is a view of the converted variable | asserting an owner back out of an ordinary interface is a compile error (E3308); returning `any(make(chan int))` is a compile error (E3001) | 7.9, 11.13 |
 | a struct is always copyable | a struct with an owner field must be declared `owner`, and copying it is a move | a use after the move is a compile error (E3301, E3302) | 7.6, 7.18, 18.5 |
 | `os.File` is used through `*os.File` | `os.File` is an owner that closes when its variable goes out of scope | a different type: `os.Open` returns an `os.File`, not a pointer | 18.6 |
-| the garbage collector frees memory | an allocation has an owner, an arena, or a count; the last copy of a counted string or reference frees it | allocation functions take an optional allocator argument, and the names say what owns | 18.1, 18.9, 18.10 |
+| the garbage collector frees memory | allocation has an owner, arena or counted lifetime; last strong release destroys a counted object, weak references can delay reclamation, and strong cycles must be broken | allocation functions take an optional allocator argument, and the names say what owns | 18.1, 18.9, 18.10 |
 | `slices.Clone`, `slices.Concat` and the like return slices | they return a `vec.Vec`, an owner | a different type | 13.1 |
 
 **Strings.**
@@ -86,12 +88,12 @@ The rows in this table are behaviors that differ from Go's. Each says how the di
 
 | In Go | In Plutonium | How the difference shows | Section |
 |---|---|---|---|
-| `map[K]V` is a reference to a table the collector frees | `map[K]V` is a counted reference; the table is freed with its last reference; iteration follows Go's guarantees | `make(map[K]V, n, a)` takes an optional allocator; keys and values cannot be owners | 7.10, 13.7 |
+| `map[K]V` is a reference to a table the collector frees | `map[K]V` is a counted reference; the table is released at its last strong reference; iteration follows Go's guarantees | `make(map[K]V, n, a)` takes an optional allocator; keys and values cannot be owners | 7.10, 13.7 |
 | a map can be passed to any goroutine | a map is sendable, and its contents fall under the race rules | writes from two tasks need a lock the compiler infers, a partition in a scope, or one task | 7.10, 19.3 |
 | `make(chan T, n)` and the channel is collected | `make(chan T, n, a)` takes an optional allocator; the channel is a counted reference, freed with its last reference; the channel of `time.After` and `time.Tick` owns its timer | sending an owner moves it | 7.11, 12.5, 19.6 |
 | `time.NewTimer`, `time.NewTicker` and `time.AfterFunc` return `*Timer` and `*Ticker` | they return `owned[Timer]` and `owned[Ticker]`, which stop and free the timer when dropped | a different type; a timer whose variable goes out of scope is stopped | 19.6 |
 | `errors.New` returns a new error at every call | the same error at every run of one call site, a different error for each call site | observable only by comparing two results of one call site; `errors.New` must be called directly with a constant text | 16.3 |
-| an error value with context lives on the heap | an error returned from a function is a value that fits in a word, or a pointer to storage that outlives the function; allocated errors are counted | the rule of section 16.2; returning a struct or a pointer to a local as `error` is a compile error | 16.2, 16.7 |
+| an error value with context lives on the heap | an error returned from a function is a value that fits in a word, or a pointer to storage that outlives the function; allocated errors are counted | the rule of section 16.2; returning a frame-backed struct copy or pointer to a local as `error` is a compile error; a word-inline pointer wrapper is permitted if its referent outlives it | 16.2, 16.7 |
 | an exhaustive `switch` does not end a function | an exhaustive `switch` on an enum or a union does | a function can omit the final `return` | 12.1 |
 
 **Expressions and statements.**
@@ -116,7 +118,7 @@ The rows in this table are behaviors that differ from Go's. Each says how the di
 | sending a value shares it | a value sent on a channel or passed to a `task` statement must be sendable; sending an owner moves it | a view of changing memory is a compile error (E3501) | 19.2 |
 | a data race is a bug with limited consequences | safe code is free of data races, because the compiler rejects them; in unsafe code a race is still a bug with limited consequences | compile error in safe code | 19.3, 19.7 |
 | stack traces and the deadlock report say `goroutine` | they say `task` | the word | 17.1, 19.1 |
-| the program exits when `main` returns | the same; `main` may return nothing or an `int64`, which becomes the exit status in hosted builds | the signature | 15.4, 10.12 |
+| the program exits when `main` returns | normal return completes main cleanup, waits for application tasks/callbacks and retirement, then performs reverse package cleanup; main may return an int64 exit status | a documented observable termination difference; there is no forced cancellation and a nonterminating worker can keep the program alive | 15.4, 19.1 |
 
 **Programs and packages.**
 
@@ -181,8 +183,9 @@ to the start of a rune.
 title = strings.Truncate(title, 40) + "..." // never splits a rune
 ```
 
-This is the one difference in the language that the rule of section A.1 does not make visible in the
-source. The alternatives were worse:
+String slicing is the expression-level exception discussed in this section. Normal termination and
+the library exceptions listed below also have observable differences; section A.1 does not claim
+otherwise. For string slicing the alternatives were worse:
 
 - a compile error wherever the compiler cannot prove that a bound is a boundary would reject most code
   that parses ASCII text (`line[:4]`, `s[i+2:]`), and the proof would depend on the optimizer, so whether
@@ -193,8 +196,10 @@ source. The alternatives were worse:
   the rest of the language relies on.
 
 The panic is of the same kind as Go's own panic for a bound out of range: an index that does not fit the
-data, reported at the line that has it, loudly. Two library behaviors are also invisible in the source,
-and are kept because no correct program can tell them apart from Go's, or because they fail loudly and
-come with the exact bytes: `errors.New` returns one error for each call site (section 16.3), and names
-that the operating system returns are checked and made valid UTF-8 (section A.3, Strings). They belong
-to the documentation of their packages.
+data, reported at that line. Other deliberate differences are observable too. `errors.New` returns one
+static error per call site (section 16.3): repeated calls at that site compare equal, while different
+sites remain distinct. Correct programs can observe this identity difference. Operating-system names
+are made valid UTF-8, with exact bytes available through the documented byte APIs (section A.3).
+Normal termination waits for tasks and application callbacks and cleans up package resources
+(section 15.4); it can therefore wait where Go would exit. These are chosen contracts, not claims of
+indistinguishability.

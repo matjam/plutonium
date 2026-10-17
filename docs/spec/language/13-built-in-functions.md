@@ -223,7 +223,8 @@ The built-in functions `len` and `cap` take arguments of various types and retur
 
 **Containers.** A type that is not a string, array, pointer to an array, slice, map or channel, and that
 has a method `Len() int` with a receiver that the operand can supply, has the length that `Len` returns.
-So `len(v)` of a `vec.Vec[T]` calls `v.Len()`. The form of the method and the rest of the indexing
+For an owner operand the overload must be nonconsuming, using a pointer receiver (section 11.11);
+an owner value-receiver `Len` cannot supply it. So `len(v)` of a `vec.Vec[T]` calls `v.Len()`. The form of the method and the rest of the indexing
 interface are defined in section 11.11 (Indexing library containers). The built-in types are always
 handled by the language, even when a named type of one of them declares a `Len` method. `cap` has no such
 form: a container reports its capacity with a method of its own.

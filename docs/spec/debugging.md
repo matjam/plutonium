@@ -261,7 +261,8 @@ A use of freed memory is a panic (language spec section 17.6) and is reported li
 for fixed or Chunked arena memory names the call that ended the allocation's incarnation, such as
 `Reset` or `Release`. Static lifetime errors prevent the use before execution; a remaining stale
 access is reported by this panic path in a checked build. Whether a build makes these
-checks is the checked or unchecked mode of language spec sections 18.11 and 21.5.
+checks follows language spec sections 18.11 and 21.5: ordinary builds in every mode require proof or
+suitable protection, while unchecked execution is an explicit opt-out, not a kernel default.
 
 ### Parked tasks
 

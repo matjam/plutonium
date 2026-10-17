@@ -327,6 +327,7 @@ PrimaryExpr   = Operand |
                 Conversion |
                 MethodExpr |
                 PrimaryExpr Selector |
+                PrimaryExpr TypeArgs |
                 PrimaryExpr Index |
                 PrimaryExpr Slice |
                 PrimaryExpr TypeAssertion |

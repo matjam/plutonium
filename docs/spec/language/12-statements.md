@@ -740,7 +740,9 @@ The iteration proceeds by calling `f` with a new, synthesized `yield` function a
 The loop body becomes the body of the `yield` function, a closure built in the frame of the enclosing function (section 11.5, Closures and their regions). These rules follow:
 
 - **`yield` may not be kept.** `f` may call `yield` as often as it likes while it runs, but it may not keep it. `yield` is a closure of the enclosing frame, so storing it where it outlives the call of `f` is an escape (section 18.3, Views).
-- **Control flow.** `break`, `continue`, `return`, `goto` and labeled `break` and `continue` out of the body work as in an ordinary loop. The body returns `false`, and once `f` returns the loop goes on at the target. A `return` in the body returns from the enclosing function. Owners and counted values that the scopes left by these statements hold are dropped (section 18.6, Drops).
+- **Control flow.** `break`, `continue`, `return`, `goto` and labeled `break` and `continue` out of the body work as in an ordinary loop. An ordinary `continue`, including a labeled continue targeting this range loop, completes the
+current iteration and returns `true` to request the next. A transfer leaving this range returns
+`false`; once `f` returns, execution continues at that transfer's target. A `return` in the body returns from the enclosing function. Owners and counted values that the scopes left by these statements hold are dropped (section 18.6, Drops).
 - **Misuse of `yield`.** An iterator that calls `yield` when it may not causes a run-time panic with one of these messages: "range function continued iteration after function for loop body returned false" after `yield` returned false, "range function continued iteration after whole loop exit" after the loop ended, and "range function continued iteration after loop body panic" while a panic in the body is in progress.
 - **Panics.** A panic in the body ends the program (section 17.1, Panics), after the deferred calls of the iterator and of the function the loop is in have run (hosted builds, 17.2). No iterator can recover it.
 - **`defer` in the body.** A `defer` in the body defers a call of the enclosing function. It runs when that function returns. Each `defer` statement has one slot in the function's frame (section 12.19, Defer statements), and the body of a range-over-func loop runs once per iteration, so the `defer` must be followed on every path by leaving the loop: a `return`, a `panic`, or a `break`, `continue` or `goto` to a statement outside the loop (E2533). A function literal deferred there may not capture the body's own variables, the loop variables included, since the body's frame is gone when it runs (E2534). Pass them as arguments.
@@ -782,7 +784,8 @@ task func(ch chan<- bool) {
 
 The expression must be a function or method call. It cannot be parenthesized. Calls of built-in functions are restricted as for expression statements, and a `task` statement cannot start a built-in function such as `println` or `close` directly (E2591). Wrap it in a function and start that.
 
-The function value and arguments are evaluated as usual in the starting task (section 11.26, Order of evaluation), but unlike with a regular call, program execution does not wait for the invoked function to complete. Instead, the function begins executing independently in a new task. When the function terminates, its task also terminates. If the function has any return values, they are discarded when the function completes, which drops those that hold owners or counted values. The program does not wait for other tasks when `main` returns (section 15.4, Program execution).
+The function value and arguments are evaluated as usual in the starting task (section 11.26, Order of evaluation), but unlike with a regular call, program execution does not wait for the invoked function to complete. Instead, the function begins executing independently in a new task. When the function terminates, its task also terminates. If the function has any return values, they are discarded when the function completes, which drops those that hold owners or counted values. Normal termination after `main` returns waits for all remaining application tasks and callbacks,
+including their cleanup and retirement (section 15.4, Program execution).
 
 **Arguments.** Each argument is copied into the new task when the statement runs, as an argument is assigned to a parameter (section 11.14, Calls).
 
@@ -805,7 +808,8 @@ The function value and arguments are evaluated as usual in the starting task (se
 
 **The new task.** Section 19.1 (Tasks) defines the state a new task starts in: its own fixed-size stack, the program-wide default allocator rather than the override that the starting task installed with `alloc.Use`, preemption enabled, and parallel execution with the other tasks. A panic in it follows the rules of section 17.1 (Panics).
 
-**Scoped tasks.** A `task` statement starts a task that nothing joins. The tasks that share the starting function's variables are started with the `Task` method of a `sync.Scope`, `s.Task(f)`, which joins them before the scope ends (section 19.4, Scoped tasks). In an interrupt handler or a panic handler a `task` statement is an error (E2585) (section 20.10, Interrupts).
+**Scoped tasks.** A `task` statement provides no lexical join in its starting function. Normal
+termination still drains it under section 15.4. The tasks that share the starting function's variables are started with the `Task` method of a `sync.Scope`, `s.Task(f)`, which joins them before the scope ends (section 19.4, Scoped tasks). In an interrupt handler or a panic handler a `task` statement is an error (E2585) (section 20.10, Interrupts).
 
 ### 12.13 Select statements
 

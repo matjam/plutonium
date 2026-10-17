@@ -25,9 +25,10 @@ struct, pointer, function, interface, slice, map and channel types, and the type
 `synced[T]`, `weak[P]`, `volatile[T]`, `aligned[T, N]` and `ring[T, N]`) may be constructed using type
 literals.
 
-Four kinds of type can be written only as the type in a type definition, never as a literal elsewhere: enum
-types (section 7.12), union types (section 7.13), packed types (section 7.14) and the types marked with the
-`owner` qualifier (section 7.18). A type definition therefore has this right-hand side:
+Four declaration forms can be written only as the right-hand side of a type definition, not as
+anonymous types elsewhere: enum declarations (section 7.12), union declarations (section 7.13), packed
+declarations (section 7.14) and the `owner` qualifier (section 7.18). Existing named types can be
+referenced or aliased under section 10.8. A type definition therefore has this right-hand side:
 
 ```
 DefinedType = [ "owner" ] ( Type | EnumType | UnionType | PackedType | PackedUnionType ) .
@@ -205,11 +206,11 @@ An array variable provides the storage for all its elements. Assigning an array 
 arrays are equal if their elements are equal (section 8.10).
 
 ```go
-func demo() (int, []int) {
+func demo() (int, [3]int) {
 	a := [3]int{1, 2, 3}
 	b := a                // b is a copy
 	b[0] = 9              // a[0] is still 1
-	return a[0], a[:]     // a[:] is a slice: a view of a's elements (section 7.5)
+	return a[0], a        // the array is copied; returning a[:] would escape this frame (E3001)
 }
 ```
 
@@ -351,8 +352,9 @@ struct {
 ```
 
 A field or method `f` of an embedded field in a struct `x` is called **promoted** if `x.f` is a legal selector
-that denotes that field or method `f`. Promoted fields act like ordinary fields of a struct, except that they
-cannot be used as field names in composite literals of the struct.
+that denotes that field or method `f`. Promoted fields act like ordinary fields of a struct. A promoted
+field may be a composite-literal key under section 11.3's selector, ambiguity, embedded-pointer and
+overlapping-initialization restrictions.
 
 Given a struct type `S` and a type name `T`, promoted methods are included in the method set of the struct as
 follows (section 8.6, Method sets):
@@ -792,7 +794,8 @@ holds comes from its type.
   it drops the value inside it. Converting an owner to an owning interface moves the owner in. Converting a
   `shared[T]` or `synced[T]` reference, a channel or a map copies it (count plus one, plain or atomic as
   section 18.7 says). Converting a value or a view copies it, as
-  for any interface, and dropping the interface then does nothing for it.
+  for any interface. Dropping it releases any counted components of that copy; a pure value or pure view
+  needs no cleanup. It does not release the memory merely borrowed by a view component (section 8.7).
 
 Every owner type satisfies the implicit `Drop` of an owning interface, whether or not it declares a `Drop`
 method. An interface that embeds an owning interface must itself be declared `owner` (E3202).
@@ -849,8 +852,12 @@ temporary channel (section 18.3, Views).
 A larger value (a string, a slice, a larger array, struct or union) is copied into a temporary in the frame of
 the function that performs the conversion, and the data word points at that copy. The interface value is valid
 until that function returns, exactly like a pointer to a local variable. A copy that holds counted values
-holds references of its own, released when the function returns or when the same conversion runs again and
-refills it.
+holds references of its own. For an ordinary interface, the frame copy releases these references when
+the function returns or before the same conversion refills that storage. For an owning interface, the
+payload's cleanup obligation belongs to the interface: its drop releases the copied counted components
+at that point, even before frame return. The frame is only storage, not a second owner of the same
+references. Later frame cleanup or refill must not release components already consumed or cleared.
+Neither case extends the lifetime of borrowed fields or introduces a hidden heap allocation.
 
 An interface that holds such a frame copy is a view of the frame (section 18.3). Returning it, storing it in a
 package-level variable or on the heap, or passing it to a function that keeps it, is a compile error. To keep
@@ -1055,8 +1062,9 @@ type Errno enum uint16 {
 }
 ```
 
-An enum type may only be the type in a type definition: not an alias, not generic, and not written anywhere
-else (E2301, E2302).
+The `enum { ... }` declaration form may only appear in a type definition: not directly on the right of
+an alias declaration, not generic, and not written elsewhere (E2301, E2302). An alias of an existing
+named enum type is permitted and preserves its identity and members (section 10.8).
 
 **Type and values.** An enum is a defined type whose underlying type is an integer type: the type after `enum`
 (which must be an integer type, E2303), or else the smallest of `uint8` to `uint64` that holds every member,
@@ -1178,8 +1186,8 @@ case Failed:
 }                                        // a missing case is a compile error
 ```
 
-**Declaration.** A union type may only be the type in a type definition, as an enum, since its variants are
-reached through the type's name (E2401). It may have type parameters; a packed union may not (E2402). `union`
+**Declaration.** The `union { ... }` declaration syntax appears only in a type definition (E2401).
+An alias of an existing named union is permitted and preserves identity and variants (section 10.8). It may have type parameters; a packed union may not (E2402). `union`
 is not a keyword: it begins a union type only as the type in a type declaration followed by `{`, or after
 `packed`, so code that uses `union` as an identifier still compiles. Variants are written like struct fields:
 a name and a payload type, or a name alone for a variant without a payload; `A, B T` declares two variants
@@ -1548,8 +1556,8 @@ type Vec[T owner any] owner struct { data []T }
 type Resource owner interface { Read(p []byte) (int, error) }
 ```
 
-An owner type is always a defined type. A type is an owner only if it is declared so, or if its construction
-makes it one:
+A declared owner type is a defined type. Constructed types can also be owners without a new definition.
+A type is an owner only if it is declared so, or if its construction makes it one:
 
 - **Declared.** `type T owner ...` makes `T` an owner. The qualifier may mark a struct type, an array type, an
   integer type (including `uintptr`), a pointer type or `unsafe.Pointer`, an interface type (an owning

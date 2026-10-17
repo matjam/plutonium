@@ -9,8 +9,9 @@ The language provides the mechanism: the `task` statement (section 12.12, Task s
 (sections 7.11, Channel types, and 19.8), `select` (section 12.13, Select statements), and the runtime
 operations that start, park and wake tasks. Which task runs where and when is the policy of a
 **scheduler backend**: the hosted runtime provides one, and a kernel provides its own (section 19.5). A
-program that never starts a task, never waits on a channel or a lock, and uses no timer contains no
-scheduler at all.
+program and its dependencies that request no task starts, scheduler-dependent timers/callbacks,
+waiting or poller operations contain no scheduler. Sequential allocation/cleanup alone requests none;
+sole-thread hosted sleep has a direct alternative (section 19.6).
 
 Safe code has no data races. Section 19.2 says what may cross from one task to another, section 19.3
 how memory that several tasks reach is checked, and section 19.4 how tasks that are joined before a
@@ -43,9 +44,11 @@ happens before the new task's first operation (section 19.7).
 and its variables and parameters have been dropped. `rt.ExitTask` ends a task early in the same way, from
 any depth (section 17.3, Ending a task with `rt.ExitTask`). A panic in any task ends the program: in hosted
 builds the panicking task first runs its pending deferred calls, while the other tasks keep running
-(section 17.2, Deferred calls on a panic). The end of a task synchronizes with nothing, except the join of
-a task started by a `sync.Scope` (section 19.4); a program that waits for a task uses a channel, a
-`sync.WaitGroup` or a `sync.Scope`.
+(section 17.2, Deferred calls on a panic). Task end alone supplies no ordinary join to another running
+task: a program uses a channel,
+`sync.WaitGroup` or `sync.Scope` (section 19.4). Normal termination is an additional synchronization
+boundary: every application task/callback, its mandatory cleanup and retirement callbacks happen
+before package cleanup begins (section 15.4), including visibility across processors.
 
 **Stacks.** Each task has a stack of fixed size, which never grows or moves: nothing in the program
 knows where the pointers into it are, so it cannot be moved. The size is chosen when the task starts:
@@ -276,8 +279,12 @@ or memory it did not allocate): maps of that type that tasks fill for themselves
 function must then hold the guard too, or the shared map takes a type of its own. Maps a task fills before
 it shares them, and maps of types that never cross, need no lock.
 
-**An owner needs none of this.** An owner moves to the task that receives it, so only that task has it.
-`task c.bump()` on an `owned[Counter]` hands over the box, and no other task can reach the counter.
+**Owner transfer requires exclusivity.** An owner moves to the receiving task, but transfer is valid
+only if no outstanding alias permits a conflicting access. This includes borrows made through fields,
+helpers and aliases before `take` or a later move, not only aliases retained by its constructor. A
+borrow whose last use precedes transfer is allowed. The compiler rejects an unproved conflict and
+identifies the borrow, transfer and conflicting use; generation checks alone do not prevent races.
+Thus `task c.bump()` hands over an `owned[Counter]` only under that exclusivity proof (section 8.8).
 
 **What is not checked.** Unsafe code (section 18.12, Safe and unsafe code) is the programmer's
 responsibility: memory reached through `unsafe.Pointer` or `rt.Pinned`, functions without a body, and the
@@ -630,6 +637,9 @@ in another. In brief:
   `Once`. A `sync.Cond`'s `Wait` unlocks its lock and locks it again before it returns, so it synchronizes
   through that lock as `Lock` and `Unlock` do, and a `Signal` or `Broadcast` that wakes a `Wait` happens
   before that `Wait` returns. The return of a scoped task happens before the return of the `Wait` or drop that joins it.
+  At normal termination all application task/callback operations, required cleanup and retirement
+  callbacks happen before package cleanup begins. This supplies visibility across processors, without
+  programmer fences or annotations, and is not an ordinary running-program join.
   `pluto/sync/atomic` operations are sequentially consistent.
 - **Safe code has no data races** (section 19.3). The race rules use locks, atomics, moves and scoped
   joins to prove it, not the order that channels and `WaitGroup` give to plain data.
