@@ -59,7 +59,7 @@ against the corrected specification. The immediate implementation order is:
      `strings.Truncate` and `utf8.RuneStartBefore`; add the `tools/go2pu` rewrite table. Tests: E2019 for
      typed, untyped, constant and named string operands, panics for both bounds, no panic for
      `Index`-derived cuts, no call in the SSA of a simple use. Includes item 74.
-105. **Normal termination follows Go** (planned; decision D10; sections 12.12, 14.5, 15.4, 19.1, 19.7;
+105. **Normal termination follows Go** (done, `3bb04e01`; decision D10; sections 12.12, 14.5, 15.4, 19.1, 19.7;
      abi.md 12.10; memory-model.md 3.9; debug-allocator.md Leaks). After `main` returns, one scheduler
      transition closes admission and counts running application tasks and in-flight callbacks (`lib/pluto/rt`
      `sched.p`, `join.p`, `rt_linux.p` `mainOnStack`). With none: cancel pending application timer
@@ -70,7 +70,7 @@ against the corrected specification. The immediate implementation order is:
      keeps the program alive" case becomes "program exits with `main`'s status, no package cleanup"; the
      joined-task cases keep their cleanup and leak assertions; Go-oracle programs that start a task and
      return from `main`.
-106. **`errors.New` has a fresh identity** (planned; decision D11; sections 15.2, 16.2, 16.3, 17.1, F.4).
+106. **`errors.New` has a fresh identity** (done, `ff1eb3b2`; decision D11; sections 15.2, 16.2, 16.3, 17.1, F.4).
      `internal/lower/errorsnew.go` emits a type descriptor with a constant `Error` method and a static
      `uint64` counter for each call site, and lowers each call to an atomic fetch-add, an exhaustion
      panic and an interface value (site type, count). `fmt` `%T` prints `*errors.errorString`. Update the
@@ -218,8 +218,8 @@ The implementation gaps of
 | 36 | Nonconsuming owner indexing/length receivers (planned) | 103 | 11.11, 13.6 |
 | 37 | Bounded task-stack inference (planned) | 18 | 19.1 |
 | 38 | A string is cut with `strings.Slice`, E2019 (planned, D9) | 104, 74 | 7.3, 11.12, F.6 |
-| 39 | Normal termination follows Go (planned, D10) | 105 | 15.4, 19.1 |
-| 40 | `errors.New` has a fresh identity (planned, D11) | 106 | 16.3 |
+| 39 | Normal termination follows Go (done, D10) | 105 | 15.4, 19.1 |
+| 40 | `errors.New` has a fresh identity (done, D11) | 106 | 16.3 |
 
 The pass that aligned the documents with the chapters found six more, items 93 to 98; they are rows 25 to
 30 of complete-spec section 6.5. Row 31, item 99, is the `or` clause, decided later the same day. Row 32,
