@@ -76,7 +76,7 @@ against the corrected specification. The immediate implementation order is:
      panic and an interface value (site type, count). `fmt` `%T` prints `*errors.errorString`. Update the
      catalog `Why` texts of E2008 and E2542; find library code and tests that assert `*errors.Text` on an
      `errors.New` result. Tests: two results of one site compare unequal, copies equal, a Go-oracle program.
-107. **Non-sendable type converted to `error` (E2020)** (planned; decision D14; sections 7.9, 8.8, 16.7,
+107. **Non-sendable type converted to `error` (E2020)** (done, `1af396e4`; decision D14; sections 7.9, 8.8, 16.7,
      19.2). Add E2020 in `internal/types2/errors/plutonium.go` and the catalog (`Spec` 8.8, with a fix
      showing `alloc.Synced`): a conversion of a value whose type is not sendable to `error` or an interface
      embedding it. Make the whole-program interface sendability analysis skip conversions that section 18.3
@@ -102,13 +102,13 @@ against the corrected specification. The immediate implementation order is:
      the views start at the same element or do not overlap, panicking otherwise, in every build mode (not
      removed by `--gencheck=false` or kernel builds). Keep E3402 for `in[i+1]` with `out[i]`. Tests: the
      accepted loop, the overlap panic, the rejected shifted access, unchecked mode.
-111. **`defer` in a loop: one path rule; E2533 retired** (planned; decision D18; sections 12.11, 12.19,
+111. **`defer` in a loop: one path rule; E2533 retired** (done, `ba0535ec`; decision D18; sections 12.11, 12.19,
      A.2). Replace the loop `defer` checks by the rule of 12.19: every path from the `defer` leaves every
      containing loop (`return`, `panic` or never-returning call, `goto` out, `break` of the outermost loop,
      labeled `continue` outward) before reaching it again, over `for`, range-over-func bodies and backward
      `goto` loops; otherwise E2530. Retire E2533 from the catalog and codes (keep E2534). Tests: lock-and-
      return loop, unlabeled `continue`, labeled `break` and `continue`, backward `goto`.
-112. **`defer` evaluates at the statement; `Drop` has a pointer receiver** (planned; decisions D15, D21;
+112. **`defer` evaluates at the statement; `Drop` has a pointer receiver** (done, `58c4369a`; decisions D15, D21;
      sections 7.18, 10.14, 12.19, 18.5, 18.6). In `internal/moves`, move an owner passed by value or as a
      value receiver of a deferred call at the `defer` statement; save `&x` for a pointer-receiver call; make
      `defer x.Drop()` leave `x` usable, drop what it holds when the call runs and not again at scope end.
@@ -162,7 +162,7 @@ against the corrected specification. The immediate implementation order is:
      and accept `volatile[T]` and interrupt-disabled regions only for per-CPU data. Remove the allocator
      exemption ("or no lock"). Remove `Cli`, `Sti`, `SaveFlagsCli` and `RestoreFlags` from the unsafe listing
      of `pluto vet -unsafe`. Audit the kernel allocators in `lib` for state shared with handlers.
-120. **Interrupt-context wait check: inserted drops, `//pu:blocking`, bodyless functions** (planned;
+120. **Interrupt-context wait check: inserted drops, `//pu:blocking`, bodyless functions** (done, `dd72a5f3`;
      decisions D26, D27, D28; sections 1.2, 18.12, 20.3, 20.10, 20.11, 21). Make the E2584 analysis follow
      inserted drops (scope end, overwrite, temporaries, counted release at zero) into `Drop`, drop glue and
      the `Free` of every installed allocator; take a bodyless declaration as not waiting unless marked
