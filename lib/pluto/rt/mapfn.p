@@ -133,6 +133,9 @@ func hashAt(t *typeDesc, p unsafe.Pointer, seed uint64) uint64 {
 		}
 		seed = Uint64Hash(uint64(dt.hash), seed)
 		if dt.flags&flagDirect != 0 {
+			if dt.flags&flagSwapped != 0 {
+				w = swapWord(w, dt.size)
+			}
 			return hashAt(dt, unsafe.Pointer(&w), seed)
 		}
 		return hashAt(dt, w, seed)
@@ -149,6 +152,10 @@ func hashAt(t *typeDesc, p unsafe.Pointer, seed uint64) uint64 {
 			}
 		}
 		return seed
+	case KindPacked:
+		if t.fields != nil {
+			return maskedHash(p, (*byte)(unsafe.Pointer(t.fields)), int(t.size), seed)
+		}
 	case KindUnion:
 		// Equal unions hold the same variant; hashing only the tag keeps
 		// equal values' hashes equal.
@@ -169,6 +176,21 @@ func hashAt(t *typeDesc, p unsafe.Pointer, seed uint64) uint64 {
 		return Uint64Hash(*(*uint64)(p), seed)
 	}
 	return MemHash(p, int(t.size), seed)
+}
+
+// maskedHash hashes the n bytes at p ANDed with the n bytes at mask, so that
+// packed values that differ only in their reserved bits (spec section 7.14)
+// hash alike.
+func maskedHash(p unsafe.Pointer, mask *byte, n int, seed uint64) uint64 {
+	for i := 0; i < n; i += 8 {
+		var w uint64
+		for j := 0; j < 8 && i+j < n; j++ {
+			b := *(*byte)(unsafe.Add(p, i+j)) & *(*byte)(unsafe.Add(unsafe.Pointer(mask), i+j))
+			w |= uint64(b) << (8 * j)
+		}
+		seed = Uint64Hash(w, seed)
+	}
+	return seed
 }
 
 // plainMemory reports whether values of type t compare equal exactly when

@@ -929,6 +929,9 @@ func (s *fnState) stringLeaves(v value) []*ssa.Value {
 
 // equal compares two values of type T for equality.
 func (s *fnState) equal(x, y value, T types2.Type, pos token.Pos) *ssa.Value {
+	if mask := comparedBits(T); mask != nil {
+		return s.packedEqual(x, y, T, mask)
+	}
 	if !x.addr && !y.addr {
 		if x.v.Type.IsFloat() {
 			return s.newValue(ssa.OpFEq, ssa.TBool, x.v, y.v)

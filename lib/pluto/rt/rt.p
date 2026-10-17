@@ -23,7 +23,7 @@ type typeDesc struct {
 	equal  func(a, b unsafe.Pointer) bool
 	elem   *typeDesc  // array, slice, pointer, ring, owned and counted references
 	len    uintptr    // array length, ring capacity, number of struct fields
-	fields *fieldDesc // struct fields
+	fields *fieldDesc // struct fields; for a packed type with reserved bits, the bytes of its other bits
 	ptrTo  *typeDesc  // *T, if *T has methods that T lacks
 	drop   uintptr    // code address of the drop adapter of a type held by an owning interface, or 0
 }
@@ -38,8 +38,9 @@ type fieldDesc struct {
 
 const (
 	flagDirect       = 1
-	flagIfaceMethods = 2 // an interface type with methods: its values hold an itab
-	flagMethods      = 4 // a type with methods
+	flagIfaceMethods = 2  // an interface type with methods: its values hold an itab
+	flagMethods      = 4  // a type with methods
+	flagSwapped      = 32 // a big-endian integer packed type: in memory byte-swapped, in an interface word not
 
 	fieldExported = 1
 	fieldEmbedded = 2
@@ -112,12 +113,31 @@ func ifaceEqual(xt unsafe.Pointer, xd unsafe.Pointer, yt unsafe.Pointer, yd unsa
 	}
 	t := (*typeDesc)(xt)
 	if t.flags&flagDirect != 0 {
+		if t.equal != nil {
+			// A packed type with reserved bits, which comparison ignores.
+			if t.flags&flagSwapped != 0 {
+				xd, yd = swapWord(xd, t.size), swapWord(yd, t.size)
+			}
+			return t.equal(unsafe.Pointer(&xd), unsafe.Pointer(&yd))
+		}
 		return xd == yd
 	}
 	if t.equal == nil {
 		panicMessage("runtime error: comparing uncomparable type ", t.name, "", "", "")
 	}
 	return t.equal(xd, yd)
+}
+
+// swapWord reverses the low size bytes of the interface data word w (size
+// 1, 2, 4 or 8) and returns it as a data word.
+func swapWord(w unsafe.Pointer, size uintptr) unsafe.Pointer {
+	x := uint64(uintptr(w))
+	var r uint64
+	for i := uintptr(0); i < size; i++ {
+		r = r<<8 | x&0xFF
+		x >>= 8
+	}
+	return unsafe.Pointer(uintptr(r))
 }
 
 // Comparable reports whether v's dynamic type is comparable, so that == on

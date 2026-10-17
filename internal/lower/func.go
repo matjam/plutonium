@@ -592,7 +592,7 @@ func (s *fnState) bindParams() {
 			// the parameter, and references of its own (regions.go).
 			addr := s.regionVar(p.typ)
 			for _, lf := range p.leaves {
-				s.store(lf.t, s.offPtr(addr, lf.off), nextArg(lf.t))
+				s.store(lf.t, s.offPtr(addr, lf.off), s.abiToMemory(p.typ, nextArg(lf.t)))
 			}
 			if s.l.counted(p.typ) {
 				s.retainAt(addr, p.typ)
@@ -609,7 +609,7 @@ func (s *fnState) bindParams() {
 			}
 		}
 		for _, lf := range p.leaves {
-			s.store(lf.t, s.offPtr(addr, lf.off), nextArg(lf.t))
+			s.store(lf.t, s.offPtr(addr, lf.off), s.abiToMemory(p.typ, nextArg(lf.t)))
 		}
 		if v != nil {
 			s.vars[v] = addr
@@ -815,7 +815,7 @@ func (s *fnState) finishReturn(r pendingReturn) {
 		var leaves []*ssa.Value
 		for i, p := range s.abi.results {
 			for _, lf := range p.leaves {
-				leaves = append(leaves, s.load(lf.t, s.offPtr(results[i], lf.off)))
+				leaves = append(leaves, s.abiToMemory(p.typ, s.load(lf.t, s.offPtr(results[i], lf.off))))
 			}
 		}
 		controls = append(controls, s.mem())
@@ -827,6 +827,17 @@ func (s *fnState) finishReturn(r pendingReturn) {
 	ret.Pos = pos
 	ret.SetControl(controls...)
 	s.b = nil
+}
+
+// abiToMemory converts between the form in which a function passes a lone
+// packed value of a big-endian integer type (the value, as in a register)
+// and its form in memory (byte-swapped); the conversion is its own inverse.
+// Other types are passed as they are stored.
+func (s *fnState) abiToMemory(T types2.Type, v *ssa.Value) *ssa.Value {
+	if p, ok := unwrap(T).Underlying().(*types2.Packed); ok && needsSwap(p) && v.Type.Size > 1 {
+		return s.newValue(ssa.OpBswap, v.Type, v)
+	}
+	return v
 }
 
 // resultOffset returns the offset of result i in an sret buffer, which is

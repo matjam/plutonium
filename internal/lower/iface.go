@@ -89,6 +89,7 @@ const (
 	flagMethods      = 4
 	flagShared       = 8
 	flagSynced       = 16
+	flagSwapped      = 32 // an integer packed type stored byte-swapped: its interface word holds the logical value
 
 	fieldExported = 1
 	fieldEmbedded = 2
@@ -134,6 +135,7 @@ type descInfo struct {
 	sym    *ssa.Sym
 	equal  *ssa.Sym // closure record of the equality function, or nil
 	eqDone bool     // equal has been decided
+	mask   []byte   // a packed type's compared bits in memory order, or nil
 
 	elem   *ssa.Sym // element or pointee descriptor, or nil
 	n      int64    // array length, ring capacity or number of fields
@@ -209,7 +211,7 @@ func (tt *typeTable) descOf(T types2.Type, eq bool) *ssa.Sym {
 	}
 	if eq && !d.eqDone {
 		d.eqDone = true
-		if !tt.l.isDirect(T) && types2.Comparable(T) && !isInterface(T) {
+		if (!tt.l.isDirect(T) || comparedBits(T) != nil) && types2.Comparable(T) && !isInterface(T) {
 			d.equal = tt.l.closureRecord(tt.l.equalFunc(T))
 		}
 	}
@@ -245,6 +247,8 @@ func (tt *typeTable) describe(d *descInfo) {
 		if u.Kind() == types2.WrapRing {
 			d.n = u.N()
 		}
+	case *types2.Packed:
+		d.mask = comparedBitsInMemory(T)
 	case *types2.Map:
 		// The value's descriptor, the key and value as the two fields of
 		// a table slot (pluto/rt, map.p), and the slot's size as the
@@ -410,6 +414,9 @@ func (tt *typeTable) emit() {
 		if l.isDirect(d.T) {
 			buf[13] |= flagDirect
 		}
+		if p, ok := d.T.Underlying().(*types2.Packed); ok && needsSwap(p) {
+			buf[13] |= flagSwapped
+		}
 		if isInterface(d.T) {
 			if !d.T.Underlying().(*types2.Interface).Empty() {
 				buf[13] |= flagIfaceMethods
@@ -527,6 +534,13 @@ func itabSlots(hashes [][2]uint32) []int {
 // whose descriptor key is key, and returns their symbol; nil for a type
 // without fields.
 func (tt *typeTable) fieldsData(key string, d *descInfo) *ssa.Sym {
+	if d.mask != nil {
+		// A packed type with reserved bits: the bytes of its compared bits,
+		// which hashing masks a value with (pluto/rt, hashAt).
+		sym := tt.l.out.Sym("typemask:"+key, ssa.SymData)
+		tt.l.out.Data = append(tt.l.out.Data, &ssa.Data{Sym: sym, Size: int64(len(d.mask)), Align: 1, ReadOnly: true, Bytes: d.mask})
+		return sym
+	}
 	if len(d.fields) == 0 {
 		return nil
 	}

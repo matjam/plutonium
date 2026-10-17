@@ -1,6 +1,9 @@
 package lower
 
 import (
+	"encoding/binary"
+	"slices"
+
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/types2"
@@ -20,6 +23,75 @@ import (
 // opposite byte order to the target (little-endian x86-64).
 func needsSwap(p *types2.Packed) bool {
 	return p.Order() == ast.BigEndian && p.Backing() != nil && isIntegerType(p.Backing())
+}
+
+// comparedBits returns the bits of packed type T that comparison and map
+// hashing look at (spec section 7.14), numbered as in a register holding a
+// value of T, or nil when T is not packed or has no reserved bits.
+func comparedBits(T types2.Type) []byte {
+	p, ok := unwrap(T).Underlying().(*types2.Packed)
+	if !ok {
+		return nil
+	}
+	return p.ComparedBits()
+}
+
+// comparedBitsInMemory is comparedBits laid out as the bytes of a value of T
+// in memory, for the type descriptor.
+func comparedBitsInMemory(T types2.Type) []byte {
+	m := comparedBits(T)
+	if m != nil && needsSwap(unwrap(T).Underlying().(*types2.Packed)) {
+		slices.Reverse(m)
+	}
+	return m
+}
+
+// leWord reads up to eight bytes as a little-endian word.
+func leWord(b []byte) uint64 {
+	var buf [8]byte
+	copy(buf[:], b)
+	return binary.LittleEndian.Uint64(buf[:])
+}
+
+// packedEqual compares two packed values of type T whose reserved bits are
+// given by mask (comparedBits): equal when the bits outside the reserved
+// bits are equal.
+func (s *fnState) packedEqual(x, y value, T types2.Type, mask []byte) *ssa.Value {
+	if st := s.l.scalarType(unwrap(T)); st != nil {
+		xv, yv := x.v, y.v
+		if x.addr {
+			xv = s.loadFrom(xv, T).v
+		}
+		if y.addr {
+			yv = s.loadFrom(yv, T).v
+		}
+		m := leWord(mask)
+		xm := s.newValue(ssa.OpAnd, st, xv, s.constInt(st, int64(m)))
+		ym := s.newValue(ssa.OpAnd, st, yv, s.constInt(st, int64(m)))
+		return s.newValue(ssa.OpEq, ssa.TBool, xm, ym)
+	}
+	// Stored as bytes: compare them in chunks of 8, 4, 2 and 1 bytes,
+	// leaving out the chunks with no compared bit.
+	result := s.constBool(true)
+	for off := int64(0); off < int64(len(mask)); {
+		n := int64(8)
+		for n > int64(len(mask))-off {
+			n /= 2
+		}
+		m := leWord(mask[off : off+n])
+		if m != 0 {
+			t := ssa.IntType(n)
+			xv := s.load(t, s.offPtr(x.v, off))
+			yv := s.load(t, s.offPtr(y.v, off))
+			if m != ^uint64(0)>>(64-8*n) {
+				xv = s.newValue(ssa.OpAnd, t, xv, s.constInt(t, int64(m)))
+				yv = s.newValue(ssa.OpAnd, t, yv, s.constInt(t, int64(m)))
+			}
+			result = s.newValue(ssa.OpAnd, ssa.TBool, result, s.newValue(ssa.OpEq, ssa.TBool, xv, yv))
+		}
+		off += n
+	}
+	return result
 }
 
 func isIntegerType(T types2.Type) bool {
