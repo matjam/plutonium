@@ -48,6 +48,9 @@ type Config struct {
 	// move out of variables, which owner values are temporaries), which
 	// destroying owners needs. Nil runs the move checker.
 	Moves *moves.Info
+	// Overlaps are the checks the race check needs before scoped tasks
+	// start (race.AnalyzeWith, spec section 19.4).
+	Overlaps scoped.Overlaps
 }
 
 // A Lowerer lowers one program.

@@ -158,7 +158,7 @@ func (fc *frameCheck) aliasText(d *diag.Diagnostic, c conflictRec) {
 	if !c.alias {
 		return
 	}
-	d.Text += fmt.Sprintf("\n%s and %s are reached through different views, which may point to the same memory: the compiler cannot tell where the memory they look at comes from, and both may hold values of type %s.",
+	d.Text += fmt.Sprintf("\n%s and %s are reached through different views, which may point to the same memory: the compiler cannot tell where the memory they look at comes from, and both may hold values of type %s. Two slices of one type are accepted when the task uses each only as x[i], with the same loop variable i: the program then checks, before each task starts, that the slices start at the same element or do not overlap.",
 		fc.placeName(c.x.place), fc.placeName(c.y.place), types2.TypeString(c.x.typ, fc.a.qualifier))
 }
 

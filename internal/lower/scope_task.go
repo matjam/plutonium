@@ -65,6 +65,14 @@ func (s *fnState) scopedTask(e *ast.CallExpr, t *scoped.Task) {
 		s.panicUnless(ok, L.Step.Pos(), func() { s.callRuntimeNoReturn("panicTaskStep", step) })
 	}
 
+	// Slices that the task uses in the same partition form, which may
+	// overlap, must start at the same element or not overlap (the race
+	// check relies on it). This is a race check: it is made in unchecked
+	// and kernel builds too.
+	for _, o := range s.l.cfg.Overlaps[t.Call] {
+		s.checkViewsApart(o, e)
+	}
+
 	// Lay out the argument block: an address per shared variable, a value
 	// per taken one.
 	type slot struct {
@@ -142,6 +150,36 @@ func (s *fnState) scopedTask(e *ast.CallExpr, t *scoped.Task) {
 	}})
 	rec := s.symAddr(s.l.closureRecord(thunk))
 	s.callRuntime("spawnScoped", nil, []*ssa.Value{join, rec, block, s.constInt(ssa.TI64, off), s.constInt(ssa.TI64, align), s.constInt(ssa.TI64, 0)})
+}
+
+// checkViewsApart panics unless the slices o.A and o.B, which tasks of the
+// call e use in the same partition form, start at the same element or do not
+// overlap (internal/scoped.Overlap). A slice with no elements overlaps
+// nothing.
+func (s *fnState) checkViewsApart(o scoped.Overlap, e *ast.CallExpr) {
+	zero := s.constInt(ssa.TI64, 0)
+	parts := func(v *types2.Var) (start, end, n *ssa.Value) {
+		lv := s.varLV(v, e)
+		start = s.newValue(ssa.OpBitcast, ssa.TI64, s.load(ssa.TPtr, lv.ptr))
+		n = s.load(ssa.TI64, s.offPtr(lv.ptr, 8))
+		size := s.l.sizeof(s.subst(v.Type()).Underlying().(*types2.Slice).Elem())
+		end = s.newValue(ssa.OpAdd, ssa.TI64, start, s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, size)))
+		return
+	}
+	as, ae, an := parts(o.A)
+	bs, be, bn := parts(o.B)
+	or := func(x, y *ssa.Value) *ssa.Value { return s.newValue(ssa.OpOr, ssa.TBool, x, y) }
+	same := s.newValue(ssa.OpEq, ssa.TBool, as, bs)
+	apart := or(s.newValue(ssa.OpLequ, ssa.TBool, ae, bs), s.newValue(ssa.OpLequ, ssa.TBool, be, as))
+	empty := or(s.newValue(ssa.OpEq, ssa.TBool, an, zero), s.newValue(ssa.OpEq, ssa.TBool, bn, zero))
+	ok := or(or(same, apart), empty)
+	s.panicUnless(ok, e.Pos(), func() {
+		var args []*ssa.Value
+		for _, v := range []*types2.Var{o.A, o.B} {
+			args = append(args, s.stringLeaves(s.stringConst(v.Name(), types2.Typ[types2.String]))...)
+		}
+		s.callRuntimeNoReturn("panicTaskOverlap", args...)
+	})
 }
 
 // checkedArith is arith for an addition, subtraction or multiplication of

@@ -45,6 +45,19 @@ type Info struct {
 	Checked map[ast.Node]bool
 }
 
+// An Overlap is a check that lowering makes before each scoped Task call
+// (language spec section 19.4, Memory reached through views): the race check
+// accepted the task because it reaches the slices A and B, which may overlap,
+// only in the same partition form (out[i] and in[i]), so the slices must
+// start at the same element or not overlap. Both are slice variables of
+// the same element type that the task's literal uses, named in it.
+type Overlap struct {
+	A, B *types2.Var
+}
+
+// Overlaps are the checks the race check found necessary, by Task call.
+type Overlaps map[*ast.CallExpr][]Overlap
+
 // A Scope is a local sync.Scope variable whose Task calls are scoped.
 type Scope struct {
 	Var   *types2.Var

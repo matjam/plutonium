@@ -280,6 +280,20 @@ func panicTaskStep(n int) {
 	fatal(nil)
 }
 
+// panicTaskOverlap stops a program that starts the tasks of a sync.Scope
+// with two slices, which the tasks use only in the same partition form
+// (out[i] and in[i]), that overlap without starting at the same element:
+// the tasks would use some elements twice (language spec section 19.4).
+func panicTaskOverlap(a, b string) {
+	startPanic()
+	printString("runtime error: the slices ")
+	printString(a)
+	printString(" and ")
+	printString(b)
+	printString(", used by the tasks of a sync.Scope, overlap without starting at the same element")
+	fatal(nil)
+}
+
 // panicTaskOverflow stops a program whose index arithmetic in a task of a
 // sync.Scope, or whose loop step around one, overflows: the parts of a
 // slice that the compiler proved apart would wrap onto each other

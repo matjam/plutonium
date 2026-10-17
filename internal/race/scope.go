@@ -1196,6 +1196,9 @@ func (fc *frameCheck) pair(p, q *party, self bool) {
 			if !meets || fc.common(x, y, p, q, self) {
 				continue
 			}
+			if alias && self && fc.sameForm(x, y, p) {
+				continue
+			}
 			c := conflictRec{x: x, y: y, p: p, q: q, self: self, alias: alias}
 			if alias {
 				aliases = append(aliases, c)
@@ -1208,6 +1211,85 @@ func (fc *frameCheck) pair(p, q *party, self bool) {
 	if !found && len(aliases) > 0 {
 		fc.report(aliases[0])
 	}
+}
+
+// noteView records that index expression e indexes a slice variable, for
+// sameForm.
+func (w *walker) noteView(e *ast.IndexExpr) {
+	id, ok := ast.Unparen(e.X).(*ast.Ident)
+	if !ok {
+		return
+	}
+	if v, ok := w.a.uses[id].(*types2.Var); ok {
+		w.a.views[e.Pos()] = v
+	}
+}
+
+// sameForm reports whether the uses x and y of two instances of task p, which
+// reach the same type of memory through views that may alias, are accepted
+// without a conflict: each indexes a slice variable the task's literal uses
+// (and does not declare) in the same partition form of the loops that start
+// the task, and nothing more of the memory behind it. Lowering then checks,
+// before each task starts, that the two slices start at the same element or
+// do not overlap (language spec section 19.4, Memory reached through
+// views), and sameForm records that check.
+func (fc *frameCheck) sameForm(x, y *frameAcc, p *party) bool {
+	a, b := fc.a.views[x.pos], fc.a.views[y.pos]
+	if a == nil || b == nil || a == b || p.task == nil {
+		return false
+	}
+	ea, oka := underlying(a.Type()).(*types2.Slice)
+	eb, okb := underlying(b.Type()).(*types2.Slice)
+	if !oka || !okb || !types2.Identical(ea.Elem(), eb.Elem()) {
+		return false
+	}
+	for _, v := range []*types2.Var{a, b} {
+		if p.own(root{kind: rLocal, v: v}) {
+			return false
+		}
+	}
+	fa, fb := viewForm(x.place.path), viewForm(y.place.path)
+	if fa == "" || fa != fb || !fc.selfDisjoint(p, x.place.path, y.place.path) {
+		return false
+	}
+	// Check the pair in a fixed order, once.
+	if a.Pos() > b.Pos() {
+		a, b = b, a
+	}
+	call := p.task.Call
+	for _, o := range fc.a.overlaps[call] {
+		if o.A == a && o.B == b {
+			return true
+		}
+	}
+	fc.a.overlaps[call] = append(fc.a.overlaps[call], scoped.Overlap{A: a, B: b})
+	return true
+}
+
+// viewForm returns the part that path selects of the elements of a slice, if
+// path is no more than that: the elements of the slice (%), one of the
+// partition forms of the loops that start tasks, and fields and array
+// elements within an element. It returns "" for a path that leaves the
+// elements' own storage.
+func viewForm(path string) string {
+	if !strings.HasPrefix(path, "%@") {
+		return ""
+	}
+	form := ""
+	for i, st := range steps(path) {
+		switch {
+		case i == 0:
+		case i == 1:
+			if st[1] != 't' && st[1] != 'k' && st[1] != 'w' {
+				return ""
+			}
+			form = st
+		case st[0] == '.' || st[0] == '[' || st[0] == '@':
+		default:
+			return ""
+		}
+	}
+	return form
 }
 
 // fnSpan returns the syntax of a function, signature included.

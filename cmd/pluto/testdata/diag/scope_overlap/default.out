@@ -1,0 +1,25 @@
+$DIR/main.p:20:19: out[i] is written by the tasks started at main.p:20 at the same time as each other
+    Each call of s.Task at main.p:20 starts a task, and they run at the same
+    time. Each writes out[i] (main.p:20), and another reads it (main.p:20). Two
+    tasks using one place at once, one of them writing, is a data race: an
+    update can be lost, and a value larger than a word can be read half written.
+    in[i] and out[i] are reached through different views, which may point to the
+    same memory: the compiler cannot tell where the memory they look at comes
+    from, and both may hold values of type int. Two slices of one type are
+    accepted when the task uses each only as x[i], with the same loop variable
+    i: the program then checks, before each task starts, that the slices start
+    at the same element or do not overlap.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Lock a mutex around every use of out[i]:
+        mu.Lock()
+        ...
+        mu.Unlock()
+    Or, for a number, use an atomic type such as atomic.Int64.
+    Or give each task its own element: results[i] = ..., where i is the loop
+    variable.
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3402" for a longer explanation)

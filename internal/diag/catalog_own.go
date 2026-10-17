@@ -84,7 +84,7 @@ func init() {
 		},
 		&Entry{
 			Code: ScopeRace, Name: "ScopeRace",
-			Text:    "A task started by s.Task uses a variable, or memory a variable points to, at the same time as another task or the function that started it, and one of them writes it. Two tasks writing one place at once can lose an update, and a value larger than a word can be read half written: a data race.\nShare such a place only under one lock that every use holds (the compiler infers which), use a type from pluto/sync/atomic, give each task its own part of a slice or array (x[i] with i the loop variable), or read the result after s.Wait(), which waits for the tasks.",
+			Text:    "A task started by s.Task uses a variable, or memory a variable points to, at the same time as another task or the function that started it, and one of them writes it. Two tasks writing one place at once can lose an update, and a value larger than a word can be read half written: a data race.\nShare such a place only under one lock that every use holds (the compiler infers which), use a type from pluto/sync/atomic, give each task its own part of a slice or array (x[i] with i the loop variable), or read the result after s.Wait(), which waits for the tasks.\nTwo slices of one type may overlap. Tasks may use both at once only as out[i] and in[i], with the same loop variable, and the program then checks, as each task starts, that the slices start at the same element or do not overlap.",
 			Why:     whyRace,
 			Spec:    pspec("19.4", "Scoped tasks"),
 			Example: "var total int\nfor _, n := range counts {\n\ts.Task(func() { total += n })\n}",

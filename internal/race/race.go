@@ -76,6 +76,15 @@ func Check(prog *load.Program) error {
 // tells where the code that starts scoped tasks moves or drops a variable
 // they may use (scope.go).
 func CheckWith(prog *load.Program, mv *moves.Info) error {
+	_, err := AnalyzeWith(prog, mv)
+	return err
+}
+
+// AnalyzeWith is CheckWith, which also returns the checks that lowering must
+// make before the scoped tasks it accepted start: slices that may overlap
+// and that tasks use only in the same partition form (spec section 19.4,
+// Memory reached through views).
+func AnalyzeWith(prog *load.Program, mv *moves.Info) (scoped.Overlaps, error) {
 	a := newAnalyzer(prog)
 	a.moves = mv
 	if debug {
@@ -84,7 +93,7 @@ func CheckWith(prog *load.Program, mv *moves.Info) error {
 	a.callGraph()
 	if !a.mayStartTasks() {
 		// One task alone cannot race.
-		return nil
+		return nil, nil
 	}
 	a.run()
 	a.check()
@@ -102,7 +111,7 @@ func CheckWith(prog *load.Program, mv *moves.Info) error {
 	if len(a.errs) > maxErrors {
 		a.errs = a.errs[:maxErrors]
 	}
-	return a.errs.Err()
+	return a.overlaps, a.errs.Err()
 }
 
 // A function is a declared function or method, a function literal, or a
@@ -147,6 +156,11 @@ type analyzer struct {
 
 	scoped *scoped.Info // the scoped tasks of sync.Scope (scope.go)
 	moves  *moves.Info  // what moves, for the uses of scoped tasks
+	// views are the slice variables that index expressions index, by the
+	// position of the expression, and overlaps the checks that scoped
+	// tasks need among them (scope.go).
+	views    map[token.Pos]*types2.Var
+	overlaps scoped.Overlaps
 	// concCalls are the func values that callees call from several
 	// scoped tasks at once, with where they are passed (scope.go).
 	concCalls []concCall
@@ -217,6 +231,8 @@ func newAnalyzer(prog *load.Program) *analyzer {
 		crossMaps:    map[int]bool{},
 		typeSeen:     map[string]bool{},
 		resultNodes:  map[resultKey]ast.Node{},
+		views:        map[token.Pos]*types2.Var{},
+		overlaps:     scoped.Overlaps{},
 	}
 	for _, p := range prog.Packages {
 		for k, v := range p.Info.Types {

@@ -25,6 +25,7 @@ import (
 	"github.com/matjam/plutonium/internal/objfile"
 	"github.com/matjam/plutonium/internal/opt"
 	"github.com/matjam/plutonium/internal/race"
+	"github.com/matjam/plutonium/internal/scoped"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/types2"
 )
@@ -187,7 +188,18 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 	// views of local owners (spec section 18.3).
 	calls, escErr := escape.Analyze(prog)
 	info, moveErr := moves.AnalyzeWith(prog, calls)
+	// The race check runs before lowering, which makes the checks it
+	// leaves to run time (spec section 19.4), but its errors are reported
+	// after the lifetime errors, as the check assumes every view stays
+	// within its lifetime.
+	var overlaps scoped.Overlaps
+	var raceErr error
+	lifetimeErr := joinLifetimeErrors(moveErr, escErr)
+	if lifetimeErr == nil {
+		overlaps, raceErr = race.AnalyzeWith(prog, info)
+	}
 	sp, err := lower.Lower(&lower.Config{
+		Overlaps:     overlaps,
 		Freestanding: cfg.Freestanding || cfg.Kernel,
 		Kernel:       cfg.Kernel,
 		Sizes:        sizes,
@@ -198,12 +210,12 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 	if err != nil {
 		return err
 	}
-	if err := joinLifetimeErrors(moveErr, escErr); err != nil {
-		return err
+	if lifetimeErr != nil {
+		return lifetimeErr
 	}
 	// Data races, once every view is known to stay within its lifetime.
-	if err := race.CheckWith(prog, info); err != nil {
-		return err
+	if raceErr != nil {
+		return raceErr
 	}
 	if err := optimize(cfg, sp, prog); err != nil {
 		return internal(err)

@@ -1455,6 +1455,7 @@ func (w *walker) place(e ast.Expr) (places, bool) {
 			ps := w.value(e.X).derefOr("%", w.unknownFor(e.X))
 			if part != "" {
 				ps = extendAll(ps, part)
+				w.noteView(e)
 			}
 			return places{ps: ps}, true
 		}

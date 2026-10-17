@@ -157,18 +157,61 @@ func main() {
 	b.Drop()
 }`, []string{"main.p:12:2: cannot drop b here: the task started at main.p:11 may still be using it"}},
 
-	{"views of the same type may alias", `
+	{"views of the same type, shifted", `
 import "pluto/sync"
 
 func double(in, out []int) {
 	var s sync.Scope
 	for i := range in {
-		s.Task(func() { out[i] = in[i] * 2 })
+		s.Task(func() { out[i] = in[i+1] * 2 })
 	}
 }
 
 func main() { double(nil, nil) }`, []string{"out[i] is written by the tasks started at main.p:7 at the same time as each other",
-		"in[i] and out[i] are reached through different views, which may point to the same memory"}},
+		"are reached through different views, which may point to the same memory", "E3402"}},
+
+	{"views of the same type, other loop variable", `
+import "pluto/sync"
+
+func double(in, out []int, n int) {
+	var s sync.Scope
+	for i := range n {
+		for j := range n {
+			s.Task(func() { out[i] = in[j] * 2 })
+		}
+	}
+}
+
+func main() { double(nil, nil, 0) }`, []string{"E3403"}},
+
+	{"views of the same type, one in a window", `
+import "pluto/sync"
+
+func double(in, out []int, k int) {
+	var s sync.Scope
+	for i := range len(in) / k {
+		s.Task(func() {
+			w := in[i*k : i*k+k]
+			out[i] = w[0] * 2
+		})
+	}
+}
+
+func main() { double(nil, nil, 1) }`, []string{"E3402"}},
+
+	{"views of the same type, read by the starter", `
+import "pluto/sync"
+
+func double(in, out []int) int {
+	var s sync.Scope
+	for i := range in {
+		s.Task(func() { out[i] = in[i] * 2 })
+		_ = out[0]
+	}
+	return 0
+}
+
+func main() { double(nil, nil) }`, []string{"E3402"}},
 
 	{"windows that overlap", `
 import "pluto/sync"
@@ -472,6 +515,47 @@ func main() {
 	s.Wait()
 	println(out[3])
 }`},
+
+	{"elementwise loop over two slices", `
+import "pluto/sync"
+
+func double(in, out []int) {
+	var s sync.Scope
+	for i := range in {
+		s.Task(func() { out[i] = in[i] * 2 })
+	}
+}
+
+func main() { double(nil, nil) }`},
+
+	{"elementwise loop over two slices of structs", `
+import "pluto/sync"
+
+type P struct{ x, y int }
+
+func swap(in, out []P) {
+	var s sync.Scope
+	for i := 0; i < len(in); i++ {
+		s.Task(func() {
+			out[i].x = in[i].y
+			out[i].y = in[i].x
+		})
+	}
+}
+
+func main() { swap(nil, nil) }`},
+
+	{"elementwise loop over three slices", `
+import "pluto/sync"
+
+func add(a, b, out []int) {
+	var s sync.Scope
+	for i := range a {
+		s.Task(func() { out[i] = a[i] + b[i] })
+	}
+}
+
+func main() { add(nil, nil, nil) }`},
 
 	{"literal with an atomic counter", `
 import (

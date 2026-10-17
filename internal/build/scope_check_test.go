@@ -94,3 +94,59 @@ func main() {
 		t.Errorf("got %v, want the task's use of a shared[T] rejected", err)
 	}
 }
+
+// TestScopeOverlapCheck covers the check before each task of an elementwise
+// loop over two slices (language spec section 19.4, Memory reached through
+// views): the slices must start at the same element or not overlap. The
+// check is made in every build, unchecked ones included.
+func TestScopeOverlapCheck(t *testing.T) {
+	testguard.Parallel(t)
+	const src = `package main
+
+import "pluto/sync"
+
+func double(in, out []int) {
+	var s sync.Scope
+	for i := range in {
+		s.Task(func() { out[i] = in[i] * 2 })
+	}
+}
+
+func main() {
+	buf := [8]int{1, 2, 3, 4, 5, 6, 7, 8}
+	var out [8]int
+
+	// Different arrays, the same slice, the same start with other lengths.
+	double(buf[:4], out[:4])
+	println(out[0], out[1], out[2], out[3])
+	double(buf[:], buf[:])
+	println(buf[0], buf[1], buf[7])
+	double(buf[:2], buf[:])
+	println(buf[0], buf[1], buf[2])
+
+	// Halves of one array do not overlap; empty slices overlap nothing.
+	double(out[4:], out[:4])
+	println(out[0], out[1])
+	double(nil, buf[:])
+	double(buf[3:3], buf[:])
+	println("before")
+
+	// The same elements at different offsets.
+	double(buf[1:5], buf[:4])
+	println("not reached")
+}
+`
+	const want = "2 4 6 8\n2 4 16\n4 8 6\n0 0\n"
+	for _, level := range []int{0, 2} {
+		for name, run := range map[string]func(*testing.T, string, int) (string, int){
+			"checked":   compileAndRun,
+			"unchecked": runUnchecked,
+		} {
+			got, status := run(t, src, level)
+			const tail = "before\npanic: runtime error: the slices in and out, used by the tasks of a sync.Scope, overlap without starting at the same element\n"
+			if status != 2 || !strings.HasPrefix(got, want) || !strings.Contains(got, tail) {
+				t.Errorf("O%d %s: exit status %d, output:\n%s\nwant status 2, starting with:\n%s\nand containing:\n%s", level, name, status, got, want, tail)
+			}
+		}
+	}
+}
