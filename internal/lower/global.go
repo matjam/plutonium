@@ -475,9 +475,14 @@ func (l *Lowerer) lowerEntry() {
 		} else {
 			status = scalarValue(s.constInt(ssa.TI64, 0), i64)
 		}
-		s.callRuntime("normalShutdown", nil)
-		s.emitCall(callee{sym: l.out.Sym("pluto.dropGlobals", ssa.SymFunc)}, noArgs, nil, nil, token.NoPos)
-		s.callRuntime("normalShutdownFinish", nil)
+		// Package cleanup runs only when no other task was running as main
+		// returned; otherwise the program ends with main's status, as
+		// os.Exit ends it (language spec section 15.4).
+		clean := s.callRuntime("normalShutdown", []*ssa.Type{ssa.TBool})[0]
+		s.ifThen(clean, func() {
+			s.emitCall(callee{sym: l.out.Sym("pluto.dropGlobals", ssa.SymFunc)}, noArgs, nil, nil, token.NoPos)
+			s.callRuntime("normalShutdownFinish", nil)
+		})
 		s.returnValues([]value{status})
 	}})
 }

@@ -30,14 +30,31 @@ func register(d *Allocator) {
 // atExit checks every debug allocator's heap and reports its leaks as its
 // options say.
 func atExit(code int) int {
-	// Let the tasks that are finishing release what they hold.
-	rt.SettleTasks()
-	failed := false
+	// When main returned with tasks still running, they were abandoned
+	// holding their allocations, which are live, not leaked: say how many
+	// tasks and skip the report (language spec section 15.4).
+	running := rt.TasksAtExit()
+	if running == 0 {
+		// Let the tasks that are finishing release what they hold.
+		rt.SettleTasks()
+	}
+	failed, reporting := false, false
 	for d := all; d != nil; d = d.next {
 		d.CheckHeap()
-		if d.opts.Leaks != LeaksOff && d.ReportLeaks() > 0 && d.opts.Leaks == LeaksFail {
+		reporting = reporting || d.opts.Leaks != LeaksOff
+		if running == 0 && d.opts.Leaks != LeaksOff && d.ReportLeaks() > 0 && d.opts.Leaks == LeaksFail {
 			failed = true
 		}
+	}
+	if running > 0 && reporting {
+		print("debug allocator: ")
+		printDec(uintptr(running))
+		if running == 1 {
+			print(" task")
+		} else {
+			print(" tasks")
+		}
+		print(" still running at exit; the leak report is skipped\n")
 	}
 	if failed && code == 0 {
 		print("debug allocator: exiting with status 2 because of leaks\n")

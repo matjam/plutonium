@@ -98,13 +98,15 @@ type Timer owner struct {
 
 	// AfterFunc: the timer, the function, the expiries whose task
 	// has not started yet, and the link in the queue of the task
-	// that starts them (funcs). fires, link, armed and held are guarded
-	// by funcs.lock.
+	// that starts them (funcs). fires, link, armed, anext, aprev and held
+	// are guarded by funcs.lock; anext and aprev link the armed timers.
 	r     rt.Timer
 	f     func()
 	fires int
 	link  *Timer
 	armed bool
+	anext *Timer
+	aprev *Timer
 	// held says the runtime holds a reference to the Timer (RetainSynced):
 	// it is armed, or has expired and its function is not started yet.
 	held bool
@@ -252,16 +254,80 @@ func dropHeld(t *Timer) {
 var funcs struct {
 	lock       rt.Lock
 	head, tail *Timer
+	armedList  *Timer // the armed timers, linked through anext and aprev
 	runner     *rt.Task
 	started    bool
 	starting   bool
 	pending    int
+	hooked     bool // cancelFuncs is registered with the runtime
+}
+
+// setArmed sets t.armed, keeping the list of armed timers that package
+// cleanup cancels (cancelFuncs); funcs.lock is held.
+func setArmed(t *Timer, on bool) {
+	if t.armed == on {
+		return
+	}
+	t.armed = on
+	if on {
+		// The reference the runtime holds (holdFunc) keeps t alive while
+		// it is in the list.
+		u := unsafe.Pointer(t)
+		p := (*Timer)(*rt.Pinned(&u))
+		t.aprev = nil
+		t.anext = funcs.armedList
+		if t.anext != nil {
+			t.anext.aprev = p
+		}
+		funcs.armedList = p
+		return
+	}
+	if t.aprev != nil {
+		t.aprev.anext = t.anext
+	} else {
+		funcs.armedList = t.anext
+	}
+	if t.anext != nil {
+		t.anext.aprev = t.aprev
+	}
+	t.anext, t.aprev = nil, nil
+}
+
+// cancelFuncs cancels the AfterFunc timers that are still armed, as their
+// Stop does, when the program's package cleanup begins (language spec section
+// 15.4): it releases the reference the runtime holds to each, so nothing the
+// timers hold outlives the program. Admission is closed by then, so no
+// timer expires into the queue, and no function is queued or running.
+func cancelFuncs() {
+	for {
+		funcs.lock.Lock()
+		t := funcs.armedList
+		if t == nil {
+			funcs.lock.Unlock()
+			return
+		}
+		// This reference keeps t alive through the cancellation, whose
+		// release of the runtime's own reference may be the last but one.
+		rt.RetainSynced(unsafe.Pointer(t))
+		funcs.lock.Unlock()
+		cancelFunc(t)
+	}
+}
+
+// cancelFunc cancels the armed timer t, whose reference cancelFuncs took.
+func cancelFunc(t *Timer) {
+	h := synced[Timer](unsafe.Pointer(t))
+	t.mu.Lock()
+	rt.Pinned(&t.r).Stop()
+	disarmFunc(t)
+	t.mu.Unlock()
+	_ = h
 }
 
 func finishFuncStart(t *Timer, done *bool) {
 	if !*done {
 		funcs.lock.Lock()
-		t.armed = false
+		setArmed(t, false)
 		funcs.pending--
 		funcs.starting = false
 		// Spawn may have published a runner before ending its caller.
@@ -285,7 +351,11 @@ func startFuncRunner(t *Timer) {
 			rt.Yield()
 			continue
 		}
-		t.armed = true
+		setArmed(t, true)
+		if !funcs.hooked {
+			funcs.hooked = true
+			rt.SetShutdownCancel(cancelFuncs)
+		}
 		holdFunc(t)
 		funcs.pending++
 		if funcs.started {
@@ -302,7 +372,7 @@ func startFuncRunner(t *Timer) {
 func launchFuncRunner(t *Timer) {
 	done := false
 	defer finishFuncStart(t, &done)
-	task runFuncs()
+	rt.GoService(runFuncs) // not application work: package cleanup cancels what it waits for
 	funcs.lock.Lock()
 	funcs.started = true
 	funcs.starting = false
@@ -313,7 +383,7 @@ func launchFuncRunner(t *Timer) {
 func disarmFunc(t *Timer) {
 	funcs.lock.Lock()
 	if t.armed {
-		t.armed = false
+		setArmed(t, false)
 		funcs.pending--
 	}
 	r := funcs.runner
@@ -343,8 +413,12 @@ func goFunc(arg unsafe.Pointer, now int64) {
 	t := (*Timer)(arg)
 	funcs.lock.Lock()
 	defer funcs.lock.Unlock()
+	if t.fires == 0 && !rt.CallbackBegin() {
+		// Package cleanup has begun: it cancels this timer (cancelFuncs).
+		return
+	}
 	if t.armed {
-		t.armed = false
+		setArmed(t, false)
 		funcs.pending--
 	}
 	t.fires++
@@ -403,11 +477,15 @@ func runFuncs() {
 		}
 		funcs.lock.Lock()
 		t.fires -= n
-		if t.fires > 0 {
+		ended := t.fires == 0
+		if !ended {
 			enqueueFunc(t) // it expired again meanwhile
 		}
 		release := releaseFunc(t)
 		funcs.lock.Unlock()
+		if ended {
+			rt.CallbackEnd() // its function has a task of its own now
+		}
 		if release {
 			dropHeld(t)
 		}

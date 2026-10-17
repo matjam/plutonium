@@ -71,7 +71,6 @@ func start(sp unsafe.Pointer) {
 	stackHi = uintptr(sp)
 	stackLo = systemStackLimit(stackHi)
 	code := int(programMain())
-	mainReturned()
 	Exit(code)
 }
 
@@ -86,7 +85,6 @@ func runOnStack(top uintptr)
 //pu:export
 func mainOnStack() {
 	code := int(programMain())
-	mainReturned()
 	Exit(code)
 }
 

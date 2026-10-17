@@ -105,11 +105,12 @@ type Task struct {
 	// join counts the task for the sync.Scope that started it (join.p);
 	// joins is the chain of Joins whose tasks this task started; drops
 	// counts the drops it is inside, and dropCounted says it is counted in
-	// the tasks that main's return waits for (join.p).
+	// the count of tasks inside a drop (join.p).
 	join        *Join
 	joins       *Join
 	drops       int32
 	dropCounted bool
+	service     bool // a library's service task, not application work (GoService)
 
 	// Link and Data are the backend's: a run-queue link and a word for its
 	// own use. The runtime never touches them.
@@ -255,19 +256,6 @@ var (
 // variable so that the stub does not pull the scheduler into programs that
 // never start one; startTasks sets it.
 var preemptParkFn func() uintptr
-
-// exitWaitFn is waitDrops, which the program's start calls once main has
-// returned. It is a variable for the same reason; the hosted scheduler,
-// whose monitor wakes main (join.p), sets it when it starts.
-var exitWaitFn func()
-
-// mainReturned is called when main has returned, before the program exits:
-// drops that other tasks have begun complete first (join.p).
-func mainReturned() {
-	if f := exitWaitFn; f != nil {
-		f()
-	}
-}
 
 // startTasks starts the backend and adopts the running code as BootTask,
 // the running task on this processor, the first time a task operation
@@ -463,7 +451,7 @@ const (
 	WaitIO                               // "IO wait"
 	WaitSystem                           // "system": a runtime helper, left out of deadlock reports
 	WaitScope                            // "sync.Scope.Wait"
-	WaitExit                             // "exit": main returned, waiting for drops other tasks began
+	WaitExit                             // "exit": main returned, waiting for ended tasks to retire
 )
 
 // String returns the reason as a trace prints it.
@@ -670,6 +658,17 @@ func Go(f func(), size uintptr, a Allocator = defaultAllocator) {
 	spawn(rec, nil, 0, 1, StackRequest{Size: size, Alloc: a})
 }
 
+// GoService starts f as a task that belongs to a library, not to the
+// application: the program's end does not count it as a running task (language
+// spec section 15.4), though package cleanup still waits for it to be
+// retired once it has returned. pluto/time uses it for the task that starts
+// the functions of armed time.AfterFunc timers, which package cleanup
+// cancels. Otherwise it is rt.Go with the default stack.
+func GoService(f func()) {
+	rec := *(*unsafe.Pointer)(unsafe.Pointer(&f))
+	spawnFor(nil, rec, nil, 0, 1, StackRequest{Size: DefaultStackSize, Unsized: true, Alloc: defaultAllocator}, nil, true)
+}
+
 // DispatchTimerFunc is the time package's internal dispatch boundary. The
 // existing handoff slot distinguishes failed creation from a backend that
 // accepted the task before ending its caller. The callback still runs on its
@@ -699,7 +698,7 @@ func spawn(fn, args unsafe.Pointer, argSize, argAlign uintptr, req StackRequest)
 }
 
 // spawnFor starts a task counted by the Join j, or by none.
-func spawnFor(j *Join, fn, args unsafe.Pointer, argSize, argAlign uintptr, req StackRequest, handedOff *bool = nil) {
+func spawnFor(j *Join, fn, args unsafe.Pointer, argSize, argAlign uintptr, req StackRequest, handedOff *bool = nil, service bool = false) {
 	// Once there are tasks, a string's count may change on another
 	// thread, or in a task that preempts this one between the load
 	// and the store of a plain increment: counts are atomic from now on
@@ -713,9 +712,9 @@ func spawnFor(j *Join, fn, args unsafe.Pointer, argSize, argAlign uintptr, req S
 	if req.Size < MinStackSize && !req.Proven {
 		req.Size = MinStackSize
 	}
-	shutdownEnter()
+	shutdownEnter(service)
 	submitted := false
-	defer shutdownFailedStart(&submitted)
+	defer shutdownFailedStart(&submitted, service)
 	// The arguments sit at the top of the stack, above the first frame.
 	if argAlign < 16 {
 		argAlign = 16
@@ -738,6 +737,7 @@ func spawnFor(j *Join, fn, args unsafe.Pointer, argSize, argAlign uintptr, req S
 	t.joins = nil
 	t.drops = 0
 	t.dropCounted = false
+	t.service = service
 	t.alloc = nil // every task starts with the program-wide default allocator
 	t.ctx.task = t
 	entry := taskMain
@@ -760,6 +760,11 @@ func taskMain(t *Task, _ uintptr) {
 	*(*unsafe.Pointer)(unsafe.Pointer(&f)) = t.fn
 	f(t.arg)
 	t.goexit = false
+	// The function has returned with its deferred calls and drops: the task
+	// is no longer running for the program's end (shutdown.p). This comes
+	// before joinExit, so that a main that a sync.Scope woke finds no task
+	// running.
+	shutdownEnded(t.service)
 	if j := t.join; j != nil {
 		t.join = nil
 		joinExit(j)

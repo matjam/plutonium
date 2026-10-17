@@ -67,9 +67,9 @@ func D6TimerHook(mode uint32){store32(&d6TimerMode,mode)}
 		main string
 		want string
 	}{
-		{"normal", 0, `kept=time.AfterFunc(time.Millisecond,fire)`, "fired 1\n"},
-		{"beforeHandoff", 1, `kept=time.AfterFunc(time.Millisecond,fire)`, "fired 1\n"},
-		{"afterHandoff", 2, `kept=time.AfterFunc(time.Millisecond,fire)`, "fired 1\n"},
+		{"normal", 0, `kept=time.AfterFunc(time.Millisecond,fire);time.Sleep(50*time.Millisecond)`, "fired 1\n"},
+		{"beforeHandoff", 1, `kept=time.AfterFunc(time.Millisecond,fire);time.Sleep(50*time.Millisecond)`, "fired 1\n"},
+		{"afterHandoff", 2, `kept=time.AfterFunc(time.Millisecond,fire);time.Sleep(50*time.Millisecond)`, "fired 1\n"},
 		{"runnerRollback", 3, `println("caught",rt.CatchExitTask(create))`, "caught true\nfired 0\n"},
 	} {
 		for _, opt := range []int{0, 2} {

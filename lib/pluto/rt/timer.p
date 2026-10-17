@@ -81,7 +81,7 @@ func (t *Timer) Reset(when, period int64) bool {
 	}
 	timerStart()
 	if !t.system {
-		shutdownEnter()
+		shutdownAdmit()
 	}
 	t.mu.Lock()
 	active := t.stopLocked()
@@ -126,9 +126,6 @@ func (t *Timer) stopLocked() bool {
 			h.remove(t)
 			storep(unsafe.Pointer(&t.heap), nil)
 			xadd32(&activeTimers, -1)
-			if !t.system {
-				shutdownLeave()
-			}
 			h.lock.Unlock()
 			return true
 		}
@@ -255,19 +252,66 @@ func (h *timerHeap) run(now int64) {
 				t.when = NoDeadline - 1
 			}
 			h.insert(t)
-			t.f(t.arg, now)
+			t.call(now)
 			continue
 		}
-		system := t.system
-		t.f(t.arg, now)
+		t.call(now)
 		// Stop can return once heap is nil, allowing the timer's owner
 		// to free it. Publishing nil must be the final access to t.
 		storep(unsafe.Pointer(&t.heap), nil)
 		xadd32(&activeTimers, -1)
-		if !system {
-			shutdownLeave()
+	}
+}
+
+// call runs t's function. An application timer's function is a callback in
+// flight while it runs (language spec section 15.4): the program does not
+// end its package cleanup under it. Once package cleanup has begun, the
+// callback is not counted; cleanup cancels the timers that are pending
+// (cancelAppTimers).
+func (t *Timer) call(now int64) {
+	counted := !t.system && CallbackBegin()
+	t.f(t.arg, now)
+	if counted {
+		CallbackEnd()
+	}
+}
+
+// cancelAppTimers stops every application timer that is still pending, as
+// Stop does, when package cleanup begins (language spec section 15.4).
+// Timers that only deliver channel values or serve the runtime are left;
+// their owners stop them. A timer that a library keeps (pluto/time) is
+// already canceled by the library's own function (SetShutdownCancel), which
+// also releases what the timer's function holds.
+func cancelAppTimers() {
+	for i := 0; ; i++ {
+		h := timerHeapAt(i)
+		if h == nil {
+			return
+		}
+		for {
+			h.lock.Lock()
+			t := appTimer(h.root)
+			h.lock.Unlock()
+			if t == nil {
+				break
+			}
+			t.Stop()
 		}
 	}
+}
+
+// appTimer returns an application timer in the pairing heap rooted at t,
+// or nil.
+func appTimer(t *Timer) *Timer {
+	for ; t != nil; t = t.next {
+		if !t.system {
+			return t
+		}
+		if c := appTimer(t.child); c != nil {
+			return c
+		}
+	}
+	return nil
 }
 
 // armGlobal gives the backend the deadline of the shared heap's earliest

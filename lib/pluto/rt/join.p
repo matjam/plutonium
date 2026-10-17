@@ -180,22 +180,15 @@ func WaitScopes(t *Task) {
 }
 
 // ----------------------------------------------------------------------------
-// Drops in progress at exit (language spec section 15.4).
+// Drops in progress (abi.md section 12.10).
 //
-// When main returns the program exits without waiting for other tasks, as
-// in Go, except that a drop another task has begun completes first: a Drop
-// method that is running, or the release of the last reference to a
-// counted object (its drop and the return of its memory). The compiler
-// brackets each drop glue function and each last release with dropBegin
-// and dropEnd; the task's count of drops in progress nests, and dropping
-// counts the tasks inside one.
+// The compiler brackets each drop glue function and each last release with
+// dropBegin and dropEnd; the task's count of drops in progress nests, and
+// dropping counts the tasks inside one. When main returns, the program does
+// not wait for them: tasks that are running are abandoned wherever they are
+// (language spec section 15.4, shutdown.p).
 
-var (
-	dropping    uint32 // tasks inside a drop
-	exitWaiting uint32 // main has returned and waits for them
-	exitLock    Lock
-	exitWaiter  *Task
-)
+var dropping uint32 // tasks inside a drop
 
 // dropBegin marks the running task as inside a drop.
 func dropBegin() {
@@ -210,8 +203,7 @@ func dropBegin() {
 	}
 }
 
-// dropEnd ends a drop dropBegin began, and wakes main if it waits for the
-// last one.
+// dropEnd ends a drop dropBegin began.
 func dropEnd() {
 	t := current()
 	if t == nil || t.drops == 0 {
@@ -225,45 +217,10 @@ func dropEnd() {
 
 // dropDone uncounts t, which is no longer inside a drop. It touches only
 // the count, so that drop glue, which interrupt handlers and the panic
-// handler may run, calls nothing that could wait or that needs a scheduler:
-// the hosted monitor wakes main once the count is zero (exitReady).
+// handler may run, calls nothing that could wait or that needs a scheduler.
 func dropDone(t *Task) {
 	t.dropCounted = false
 	xadd32(&dropping, -1)
-}
-
-// exitReady readies main if it waits for drops in progress and none is
-// left. It reports whether main waits at all.
-func exitReady() bool {
-	if load32(&exitWaiting) == 0 {
-		return false
-	}
-	if load32(&dropping) != 0 {
-		return true
-	}
-	exitLock.Lock()
-	w := exitWaiter
-	exitWaiter = nil
-	exitLock.Unlock()
-	if w != nil {
-		Ready(w)
-	}
-	return true
-}
-
-// waitDrops parks the main task, whose main function has returned, until
-// no other task is inside a drop. The hosted scheduler's monitor readies it
-// (exitReady).
-func waitDrops() {
-	store32(&exitWaiting, 1)
-	exitLock.Lock()
-	if load32(&dropping) == 0 {
-		exitLock.Unlock()
-		return
-	}
-	exitWaiter = current()
-	exitLock.Unlock()
-	park(WaitExit)
 }
 
 // panicTaskStep stops a program whose loop starts the tasks of a

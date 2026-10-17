@@ -347,7 +347,7 @@ func main() int64 {
 	}
 }
 
-// Shutdown waits for descendants and the explicit stack allocator's release,
+// Package cleanup waits for the retirement of ended tasks and the explicit stack allocator's release,
 // rather than treating a task's returned frame as complete retirement.
 func TestNormalShutdownTaskRetirement(t *testing.T) {
 	testguard.Parallel(t)
@@ -363,7 +363,7 @@ func(c *check)Drop(){if c.live{println("retired",done.Load()==2,stackFrees.Load(
 var final = check{live:true}
 func child(){done.Add(1)}
 func worker(){task child();done.Add(1)}
-func main(){stack.base=alloc.Default();rt.Go(worker,64<<10,&stack)}
+func main(){stack.base=alloc.Default();rt.Go(worker,64<<10,&stack);for done.Load()!=2{rt.Yield()}}
 `
 	for _, opt := range []int{0, 2} {
 		t.Run("O"+strconv.Itoa(opt), func(t *testing.T) {
@@ -376,22 +376,26 @@ func main(){stack.base=alloc.Default();rt.Go(worker,64<<10,&stack)}
 	}
 }
 
-// The pending callback is package-held, so main's return must neither cancel it
-// nor abandon it. Explicit cancellation, however, must not wait for its deadline.
+// Section 15.4: a pending callback does not keep the program alive. When main
+// returns with no task running, the callback is canceled as Stop cancels it,
+// which releases the timer (the heap counts none live); a callback that has
+// run has finished before package cleanup.
 func TestNormalShutdownAfterFunc(t *testing.T) {
 	testguard.Parallel(t)
-	for _, mode := range []string{"pending", "canceled", "exitCallback"} {
-		body := `timer=time.AfterFunc(time.Millisecond,fire,&heap)`
+	for _, mode := range []string{"pending", "fired", "canceled", "exitCallback"} {
+		body := `timer=time.AfterFunc(time.Hour,fire,&heap)`
 		fire, extraImport := `fired.Add(1)`, ""
-		name := "cancelfalse"
-		want := "callback true\ntimer disposed true\n"
+		name := mode
+		want := "callback false\ntimer disposed true\n"
 		switch mode {
+		case "fired":
+			body = `timer=time.AfterFunc(time.Millisecond,fire,&heap);for fired.Load()==0{time.Sleep(time.Millisecond)};time.Sleep(10*time.Millisecond)`
+			want = "callback true\ntimer disposed true\n"
 		case "canceled":
-			name = "canceltrue"
 			body = `timer=time.AfterFunc(time.Hour,fire,&heap);println("stopped",timer.Stop())`
 			want = "stopped true\ncallback false\ntimer disposed true\n"
 		case "exitCallback":
-			name = mode
+			body = `timer=time.AfterFunc(time.Millisecond,fire,&heap);for fired.Load()==0{time.Sleep(time.Millisecond)};time.Sleep(10*time.Millisecond)`
 			extraImport = `;"pluto/rt"`
 			fire = `defer println("callback defer");fired.Add(1);rt.ExitTask();println("unexpected callback tail")`
 			want = "callback defer\ncallback true\ntimer disposed true\n"

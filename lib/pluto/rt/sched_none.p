@@ -22,3 +22,11 @@ func timerEarlier(h *timerHeap, when int64) { armGlobal(when) }
 // sleepDirect is never chosen here: the program's own backend is bound, so
 // Sleep always parks (it exists so that Sleep type-checks in every build).
 func sleepDirect(ns int64) { sleepParked(ns) }
+
+// timerHeapAt returns the i'th timer heap, the shared one, or nil.
+func timerHeapAt(i int) *timerHeap {
+	if i == 0 {
+		return &globalTimers
+	}
+	return nil
+}

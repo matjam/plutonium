@@ -361,3 +361,18 @@ func cstrIs(p uintptr, s string) bool {
 	}
 	return peek8(p+uintptr(len(s))) == 0
 }
+
+// timerHeapAt returns the i'th timer heap: each P's, then the shared one; or
+// nil when there are no more.
+func timerHeapAt(i int) *timerHeap {
+	if hs.started {
+		if i < int(hs.nprocs) {
+			return &hs.allp[i].timers
+		}
+		i -= int(hs.nprocs)
+	}
+	if i == 0 {
+		return &globalTimers
+	}
+	return nil
+}

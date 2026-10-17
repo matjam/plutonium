@@ -191,7 +191,6 @@ func startHosted() {
 	}
 	hs.nprocs = uint32(n)
 	hs.pid = int(syscall3(sysGetpid, 0, 0, 0))
-	exitWaitFn = waitDrops
 	for i := 0; i < n; i++ {
 		pp := (*p)(mustMmap(unsafe.Sizeof(p{})))
 		pp.id = uint32(i)
@@ -650,14 +649,6 @@ func checkDead() {
 	if hs.mcount-hs.nmidle > 0 || load32(&hs.pollWaiting) != 0 || load32(&activeTimers) != 0 || workAvailable() {
 		return
 	}
-	if load32(&exitWaiting) != 0 && load32(&dropping) == 0 {
-		// main waits only for drops that have all ended: the monitor
-		// readies it (exitReady).
-		if load32(&hs.sysmonWait) != 0 && cas32(&hs.sysmonWait, 1, 0) {
-			notewakeup(&hs.sysmonNote)
-		}
-		return
-	}
 	if mainGoexited && !anyReported() {
 		noTasksLeft()
 	}
@@ -952,11 +943,6 @@ func sysmonMain(mp *m) {
 			delay = 10000000
 		}
 		nanosleep(delay)
-		if exitReady() {
-			// main has returned and waits for drops other tasks began
-			// (join.p): watch closely.
-			idle = 0
-		}
 		if load32(&hs.npidle) == hs.nprocs && load32(&hs.nmsys) == 0 {
 			// Nothing runs: sleep until a worker takes a P.
 			store32(&hs.sysmonNote, 0)

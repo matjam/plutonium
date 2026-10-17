@@ -66,11 +66,11 @@ package main
       pluto/rt/goexit.p:29:3: call pluto/rt.panicMessage
       pluto/rt/rt.p:475:2: call pluto/rt.startPanic
       pluto/rt/panic.p:125:8: call pluto/rt.selfID
-      pluto/rt/rt_linux.p:316:38: call pluto/rt.syscall3
+      pluto/rt/rt_linux.p:314:38: call pluto/rt.syscall3
     calls pluto/rt.inc32
       ./main.p:9:33: call pluto/arena.*Fixed.Reset
       pluto/arena/fixed.p:87:3: call pluto/rt.ExitTask
       pluto/rt/goexit.p:29:3: call pluto/rt.panicMessage
       pluto/rt/rt.p:475:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
-      pluto/rt/sched.p:316:3: call pluto/rt.inc32
+      pluto/rt/sched.p:304:3: call pluto/rt.inc32
