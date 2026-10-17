@@ -99,7 +99,8 @@ func isIntegerType(T types2.Type) bool {
 	return ok && b.Info()&types2.IsInteger != 0
 }
 
-// packedField extends a container lvalue (or bit reference) with a field.
+// packedField extends a container lvalue (or bit reference) with a field of
+// the packed type p.
 func (s *fnState) packedField(base lvalue, p *types2.Packed, idx int) lvalue {
 	f := p.Field(idx)
 	ref := &bitRef{packed: p, offset: f.Offset(), width: f.Width(), T: f.Var().Type()}
@@ -108,20 +109,37 @@ func (s *fnState) packedField(base lvalue, p *types2.Packed, idx int) lvalue {
 		// the outer storage.
 		ref.packed = base.bits.packed
 		ref.offset += base.bits.offset
-		ref.swap = base.bits.swap
-	} else {
-		ref.packed = p
 	}
-	if ref.packed.Order() == ast.BigEndian && s.l.scalarType(ref.packed) == nil &&
-		ref.offset%8 == 0 && ref.width%8 == 0 && ref.width > 8 {
-		ref.swap = true
+	ft := f.Var().Type()
+	inner, nested := ft.Underlying().(*types2.Packed)
+	if nested && needsSwap(inner) && !isIntegerBacked(ref.packed) {
+		// A packed type with a big-endian integer backing inside a type
+		// laid out by byte (section 7.14, Byte order): the field is the
+		// integer stored in the bytes at its offset, and its own fields
+		// are defined by the integer rule.
+		if ref.offset%8 != 0 {
+			s.l.unsupportedf(0, "packed field %s is a big-endian integer that does not start on a byte boundary", f.Var().Name())
+		}
+		return lvalue{ptr: s.offPtr(base.ptr, ref.offset/8), T: ft, stable: base.stable}
 	}
-	if inner, ok := f.Var().Type().Underlying().(*types2.Packed); ok && s.l.scalarType(inner) == nil {
-		// A nested packed type too large for a register is accessed only
-		// through its fields.
-		ref.T = f.Var().Type()
+	if b, ok := ft.Underlying().(*types2.Basic); ok && b.Info()&(types2.IsInteger|types2.IsBoolean) != 0 &&
+		p.Order() == ast.BigEndian && !isIntegerBacked(p) && !f.IsBits() && f.Width() > 8 && f.Offset()%8 == 0 {
+		// A field of several bytes in a big-endian type laid out by byte
+		// is stored most significant byte first.
+		switch f.Width() {
+		case 16, 32, 64:
+			ref.swap = true
+		default:
+			s.l.unsupportedf(0, "packed field %s of %d bits in a big-endian packed type cannot be accessed", f.Var().Name(), f.Width())
+		}
 	}
 	return lvalue{ptr: base.ptr, T: base.T, bits: ref}
+}
+
+// isIntegerBacked reports whether p is stored in an integer, whose bit
+// positions count from the least significant bit of the value.
+func isIntegerBacked(p *types2.Packed) bool {
+	return p.Backing() != nil && isIntegerType(p.Backing())
 }
 
 // storageWord loads the whole storage of an integer-held packed container,
@@ -266,5 +284,5 @@ func (s *fnState) bitsOfValue(v *ssa.Value, p *types2.Packed, idx int) *ssa.Valu
 		v = s.newValue(ssa.OpBswap, t, v)
 	}
 	s.store(t, tmp, v)
-	return s.loadBits(s.packedField(lvalue{ptr: tmp, T: p}, p, idx))
+	return s.loadLV(s.packedField(lvalue{ptr: tmp, T: p}, p, idx)).v
 }

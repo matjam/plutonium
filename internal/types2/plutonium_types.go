@@ -359,6 +359,7 @@ func (check *Checker) packedSize(p *Packed, at positioner, offset, limit int64) 
 // returns the offset after them. Field names are declared in fset.
 func (check *Checker) packedFields(p *Packed, fset *objset, list []*ast.Field, offset int64) int64 {
 	add := func(ident *ast.Ident, typ Type, width int64, isBits bool) {
+		check.packedBytePlacement(p, ident, offset, width, isBits)
 		fld := NewField(ident.Pos(), check.pkg, ident.Name, typ, false)
 		if ident.Name == "_" || check.declareInSet(fset, ident.Pos(), fld) {
 			check.recordDef(ident, fld)
@@ -404,6 +405,29 @@ func (check *Checker) packedFields(p *Packed, fset *objset, list []*ast.Field, o
 		}
 	}
 	return offset
+}
+
+// packedBytePlacement reports E2021 for a field of p at bit offset that a
+// big-endian packed type with a byte-array, slice or no backing cannot lay
+// out by byte (spec section 7.14, Byte order): a bit field that crosses a
+// byte boundary, or a byte-level field that does not start on one. Reserved
+// fields (named _) hold no value, so they may be placed anywhere. The flags
+// of a bits group are single bits and never cross.
+func (check *Checker) packedBytePlacement(p *Packed, ident *ast.Ident, offset, width int64, isBits bool) {
+	if p.order != ast.BigEndian || ident.Name == "_" {
+		return
+	}
+	if p.backing != nil {
+		if _, ok := p.backing.Underlying().(*Array); !ok {
+			return // an integer backing keeps the integer rule
+		}
+	}
+	switch {
+	case isBits && width > 1 && offset/8 != (offset+width-1)/8:
+		check.errorf(ident, BadPackedBytePlacement, "bit field %s (bits %d to %d) crosses a byte boundary in a big-endian packed type", ident.Name, offset, offset+width-1)
+	case !isBits && offset%8 != 0:
+		check.errorf(ident, BadPackedBytePlacement, "field %s starts at bit %d, which is not a byte boundary, in a big-endian packed type", ident.Name, offset)
+	}
 }
 
 // packedFieldType resolves the type of one packed field and returns the type

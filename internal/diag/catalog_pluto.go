@@ -204,6 +204,13 @@ func init() {
 			Fixed:   "r := ControlReg{mode: 5, enable: true}",
 		},
 		&Entry{
+			Code: CheckerCode(typerr.BadPackedBytePlacement), Name: "BadPackedBytePlacement",
+			Text:    "A big-endian packed type with a byte array, a []byte or no backing numbers its bits byte by byte, and stores a field of several bytes with its most significant byte first. A bit field may not cross a byte boundary, since there is no single order for its bits. A field of whole bytes (a uint16, say) must start on a byte boundary.\nPut the field in a packed type of its own with an integer backing, and use that type as a field. The nested type is then laid out as an integer, whatever the bytes around it.",
+			Spec:    pspec("7.14", "packed types"),
+			Example: "type Header packed be [4]byte {\n\tversion bits[uint8, 4]\n\toffset  bits[uint16, 13]\n\tflags   bits[uint8, 3]\n}",
+			Fixed:   "type Frag packed be uint16 {\n\toffset bits[uint16, 13]\n\tflags  bits[uint8, 3]\n}\n\ntype Header packed be [4]byte {\n\tversion bits[uint8, 4]\n\t_       bits[uint8, 4]\n\tfrag    Frag\n\t_       uint8\n}",
+		},
+		&Entry{
 			Code: CheckerCode(typerr.WrongWrapperArgs), Name: "WrongWrapperArgs",
 			Text: "volatile takes one type argument: volatile[T]. aligned and ring take a type and a constant: aligned[T, N] and ring[T, N].",
 			Spec: pspec("7.15", "volatile[T]"),

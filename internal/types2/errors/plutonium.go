@@ -65,6 +65,15 @@ const (
 	// holds a pointer, view, counted value, interface, function value or
 	// owner, which cannot be sent to another address space.
 	NotPortable
+	// 2019 and 2020 are reserved for the string slice expression and the
+	// non-sendable type converted to error (docs/roadmap.md items 104 and
+	// 107).
+	_
+	_
+	// BadPackedBytePlacement: in a big-endian packed type with a byte-array,
+	// slice or no backing, a bit field that crosses a byte boundary or a
+	// byte-level field that does not start on one (E2021).
+	BadPackedBytePlacement
 )
 
 // Packed types, bit fields, volatile, aligned and ring.

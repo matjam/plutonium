@@ -1,0 +1,17 @@
+$DIR/main.p:8:2: bit field offset (bits 4 to 16) crosses a byte boundary in a big-endian packed type
+    A big-endian packed type with a byte array, a []byte or no backing numbers
+    its bits byte by byte, and stores a field of several bytes with its most
+    significant byte first. A bit field may not cross a byte boundary, since
+    there is no single order for its bits. A field of whole bytes (a uint16,
+    say) must start on a byte boundary.
+    Put the field in a packed type of its own with an integer backing, and use
+    that type as a field. The nested type is then laid out as an integer,
+    whatever the bytes around it.
+    (see "packed types" in the Plutonium spec, section 7.14)
+    (run "pluto explain E2021" for a longer explanation)
+
+$DIR/main.p:10:2: field length starts at bit 20, which is not a byte boundary, in a big-endian packed type
+    (explained above; run "pluto explain E2021" for more)
+
+$DIR/main.p:15:2: field len starts at bit 4, which is not a byte boundary, in a big-endian packed type
+    (explained above; run "pluto explain E2021" for more)
