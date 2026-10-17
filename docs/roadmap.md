@@ -76,14 +76,14 @@ against the corrected specification. The immediate implementation order is:
      panic and an interface value (site type, count). `fmt` `%T` prints `*errors.errorString`. Update the
      catalog `Why` texts of E2008 and E2542; find library code and tests that assert `*errors.Text` on an
      `errors.New` result. Tests: two results of one site compare unequal, copies equal, a Go-oracle program.
-107. **Non-sendable type converted to `error` (E2020)** (done, `1af396e4`; decision D14; sections 7.9, 8.8, 16.7,
+107. **Non-sendable type converted to `error` (E2020)** (done, `1af396e4`, comparisons `074077c9`; decision D14; sections 7.9, 8.8, 16.7,
      19.2). Add E2020 in `internal/types2/errors/plutonium.go` and the catalog (`Spec` 8.8, with a fix
      showing `alloc.Synced`): a conversion of a value whose type is not sendable to `error` or an interface
      embedding it. Make the whole-program interface sendability analysis skip conversions that section 18.3
      proves are views of the frame, and name one offending conversion (package and line) in the crossing
      error. Tests: a `shared[T]` returned as `error`, `fmt.Println(sh)` not counting, a `chan any` crossing
      error naming the conversion.
-108. **Func values that may be closures of a frame at a task start** (planned; decision D13; sections
+108. **Func values that may be closures of a frame at a task start** (done, `3d0a8a7c`; decision D13; sections
      11.5, 12.12, 17.1, 18.3, 19.4; abi.md 12.6). Report E3004 where a func value that section 18.3 may place
      in a frame reaches a `task` start, `wg.Task`, `rt.Go` or `time.AfterFunc` argument, and E3003 at a call
      that passes such a closure to a function whose summary starts a task with it (path in the message). Keep
@@ -115,7 +115,7 @@ against the corrected specification. The immediate implementation order is:
      Report E3201 for `Drop` with a value receiver, widen its catalog text, and show `func (f *File) Drop()`.
      Update library and test code that declares a value-receiver `Drop`. Tests: the 12.19 example, `defer
      x.Drop()` after a move, E3201.
-113. **Drop of `type B owner A` and `x.Drop()` on every owner** (planned; decision D20; sections 7.18,
+113. **Drop of `type B owner A` and `x.Drop()` on every owner** (done, `fdb055f7`; decision D20; sections 7.18,
      8.7, 10.8, 18.6). Generate drop glue for a type defined from an owner: its own `Drop`, then the drop of
      `A` (its `Drop`, then its fields); `B` gets none of `A`'s methods. Accept `x.Drop()` on a whole variable
      of any owner type, declared `Drop` or not, as the early-drop operation (not a method value, not in the
