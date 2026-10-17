@@ -1,7 +1,10 @@
 package types2
 
 import (
+	"strings"
+
 	"github.com/matjam/plutonium/internal/syntax/ast"
+	"github.com/matjam/plutonium/internal/syntax/printer"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	. "github.com/matjam/plutonium/internal/types2/errors"
 )
@@ -168,16 +171,36 @@ func article(s string) string {
 	return "a " + s
 }
 
+// ownerFixDecl returns the declaration tdecl with owner inserted after the
+// type's name, as the source would read once fixed, or fallback if the
+// declaration cannot be printed.
+func (check *Checker) ownerFixDecl(tdecl *ast.TypeSpec, fallback string) string {
+	if tdecl == nil || tdecl.Owner.IsValid() || tdecl.Name == nil {
+		return fallback
+	}
+	spec := *tdecl
+	spec.Doc, spec.Comment = nil, nil
+	spec.Owner = spec.Name.End()
+	var buf strings.Builder
+	decl := &ast.GenDecl{TokPos: tdecl.Pos(), Tok: token.TYPE, Specs: []ast.Spec{&spec}}
+	cfg := printer.Config{Mode: printer.UseSpaces | printer.TabIndent, Tabwidth: 8}
+	if err := cfg.Fprint(&buf, check.fset, decl); err != nil {
+		return fallback
+	}
+	return buf.String()
+}
+
 // mustBeOwner reports a type definition that holds owners without being
 // declared owner. what says what holds one ("its field buf is a Buf, which
 // is an owner"), part how the type's values own it, decl the declaration to
 // write.
-func (check *Checker) mustBeOwner(at positioner, name, what, part, decl string, view *ExplainFix) {
+func (check *Checker) mustBeOwner(at positioner, tdecl *ast.TypeSpec, name, what, part, decl string, view *ExplainFix) {
 	ex := &Explanation{
 		Text: whatOwners + " " + part,
 		Fixes: []ExplainFix{{
-			Intro: "Plutonium does not make " + name + " an owner silently; say so in its declaration",
-			Code:  decl,
+			Intro: "Plutonium does not make " + name + " an owner silently; the keyword is written in its declaration, " +
+				"so that a change to the type of a field elsewhere is reported here, at the declaration, and not at every place that copies a value. Write owner after the name",
+			Code: check.ownerFixDecl(tdecl, decl),
 		}},
 	}
 	if view != nil {
@@ -199,7 +222,7 @@ func (check *Checker) checkNotOwner(obj *TypeName, tdecl *ast.TypeSpec) {
 	case *Named:
 		if r.Origin().obj.ownerMark {
 			from := check.sprintf("%s", r)
-			check.mustBeOwner(tdecl.Type, obj.name,
+			check.mustBeOwner(tdecl.Type, tdecl, obj.name,
 				obj.name+" is defined from "+from+", which is an owner",
 				"A type defined from an owner owns the same things.",
 				"type "+obj.name+" owner "+from, nil)
@@ -212,7 +235,7 @@ func (check *Checker) checkNotOwner(obj *TypeName, tdecl *ast.TypeSpec) {
 			// [N]T of owners is an owner by its element, but a named
 			// type must still say so.
 			arr := check.sprintf("%s", r)
-			check.mustBeOwner(tdecl.Type, obj.name,
+			check.mustBeOwner(tdecl.Type, tdecl, obj.name,
 				"it is "+arr+", an array of owners",
 				"An array of owners owns what its elements own.",
 				"type "+obj.name+" owner "+arr, nil)
@@ -220,7 +243,7 @@ func (check *Checker) checkNotOwner(obj *TypeName, tdecl *ast.TypeSpec) {
 	case *Interface:
 		for _, e := range r.embeddeds {
 			if n, ok := Unalias(e).(*Named); ok && n.Origin().obj.ownerMark {
-				check.mustBeOwner(tdecl.Type, obj.name,
+				check.mustBeOwner(tdecl.Type, tdecl, obj.name,
 					"it embeds "+check.sprintf("%s", n)+", an owning interface",
 					"An owning interface owns the value it holds and drops it, and an interface that embeds one holds its values the same way.",
 					"type "+obj.name+" owner interface {\n\t...\n}", nil)
@@ -264,7 +287,7 @@ func (check *Checker) ownerFields(name string, s *Struct, tdecl *ast.TypeSpec) {
 			}, "a struct type without a name cannot have owner fields: %s is %s, %s", what, article(ft), kind)
 			return
 		}
-		check.mustBeOwner(at, name,
+		check.mustBeOwner(at, tdecl, name,
 			what+" is "+article(ft)+", "+kind,
 			"A struct that contains one owns that memory too, and copying the struct would copy the owner, leaving two values that both free it.",
 			"type "+name+" owner struct {\n\t...\n}",

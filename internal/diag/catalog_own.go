@@ -164,7 +164,7 @@ func init() {
 		},
 		&Entry{
 			Code: CheckerCode(typerr.MustBeOwner), Name: "MustBeOwner",
-			Text:    "An owner owns memory or another resource and releases it when it is dropped, so it moves instead of being copied. A struct with an owner field, an array of owners, an interface that embeds an owning interface, or a type defined from an owner owns the same things, and copying it would leave two values that both release them. Plutonium never makes a type an owner silently: its declaration must say owner.\nIf the type should only look at a value that something else owns, store a pointer to it instead.",
+			Text:    "An owner owns memory or another resource and releases it when it is dropped, so it moves instead of being copied. A struct with an owner field, an array of owners, an interface that embeds an owning interface, or a type defined from an owner owns the same things, and copying it would leave two values that both release them. Plutonium never makes a type an owner silently: its declaration must say owner, written after the name, as in type Conn owner struct { ... }. The keyword is on the declaration so that a change to the type of a field in another package is reported at this one declaration, and not as a move error at every place that copies a value.\nIf the type should only look at a value that something else owns, store a pointer to it instead.",
 			Why:     whyOwners,
 			Spec:    pspec("7.18", "Owner types"),
 			Example: "type Conn struct {\n\tbuf strings.Buf\n}",

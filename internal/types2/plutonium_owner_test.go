@@ -131,9 +131,12 @@ type Conn struct {
     to when nothing refers to it any more. Plutonium has no garbage collector:
     an owner frees what it owns when it is dropped, so there must be exactly
     one.
-    Plutonium does not make Conn an owner silently; say so in its declaration:
+    Plutonium does not make Conn an owner silently; the keyword is written in
+    its declaration, so that a change to the type of a field elsewhere is
+    reported here, at the declaration, and not at every place that copies a
+    value. Write owner after the name:
         type Conn owner struct {
-            ...
+            buf Buf
         }
     Conn values then move, and buf is dropped when a Conn is. If Conn should
     only look at a value that something else owns, store a pointer:
