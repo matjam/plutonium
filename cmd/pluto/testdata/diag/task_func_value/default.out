@@ -70,8 +70,8 @@ $DIR/main.p:61:2: cannot pass f to rt.Go, which keeps it after returning
     f is a function literal that uses n. A function literal that uses variables
     of the function around it refers to those variables where they live, in
     runtimeGo's frame (n is declared at main.p:58). rt.Go passes f to spawn
-    (sched.p:670), which passes fn to spawnFor (sched.p:698), which stores fn in
-    t.fn (sched.p:734), so f would outlive n.
+    (sched.p:658), which passes fn to spawnFor (sched.p:697), which stores fn in
+    t.fn (sched.p:733), so f would outlive n.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
@@ -85,7 +85,7 @@ $DIR/main.p:68:2: cannot pass f to time.AfterFunc, which keeps it after returnin
     f is a function literal that uses n. A function literal that uses variables
     of the function around it refers to those variables where they live, in
     afterFunc's frame (n is declared at main.p:65). time.AfterFunc stores f in
-    t.f (sleep.p:211), so f would outlive n.
+    t.f (sleep.p:213), so f would outlive n.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
