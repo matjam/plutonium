@@ -284,7 +284,7 @@ func f() {
 }
 
 func main() {
-	var ts [50]owned[time.Timer]
+	var ts [50]synced[time.Timer]
 	for i := range ts {
 		ts[i] = time.AfterFunc(time.Duration(i%10)*time.Millisecond, f)
 	}
@@ -410,9 +410,12 @@ func main() {
 }
 
 // TestTimersDebugAlloc checks under the debug allocator, which fails the
-// program on a leak, that the owned[Timer] and owned[Ticker] that NewTimer,
-// NewTicker and AfterFunc return stop and free their timers when they are
-// dropped (language spec section 19.6), with nothing freed by hand.
+// program on a leak, that the owned[Timer] and owned[Ticker] that NewTimer
+// and NewTicker return stop and free their timers when they are dropped, and
+// that the synced[Timer] that AfterFunc returns keeps its timer armed when
+// every handle is dropped, stops it for all handles when one stops it, and
+// frees it after the function has been started (language spec section 19.6),
+// with nothing freed by hand.
 func TestTimersDebugAlloc(t *testing.T) {
 	prog := buildConc(t, `package main
 
@@ -424,10 +427,12 @@ import (
 
 var (
 	fired sync.WaitGroup
+	ran   atomic.Int64
 	late  atomic.Int64
 )
 
 func f()     { fired.Done() }
+func run()   { ran.Add(1) }
 func never() { late.Add(1) }
 
 func use(d time.Duration) {
@@ -452,11 +457,17 @@ func main() {
 	af := time.AfterFunc(time.Millisecond, f)
 	fired.Wait()
 	println("stop after it ran", af.Stop())
+	fired.Add(1)
+	println("reset after it ran", af.Reset(time.Millisecond))
+	fired.Wait()
 	{
-		_ = time.AfterFunc(time.Millisecond, never) // dropped at once: never runs
-		dropped := time.AfterFunc(time.Millisecond, never)
+		time.AfterFunc(time.Millisecond, run) // the statement leaves the timer armed
+		dropped := time.AfterFunc(time.Millisecond, run)
 		_ = dropped
-	} // dropped is dropped here
+	} // dropped is dropped here, and its timer still runs
+	stopped := time.AfterFunc(time.Hour, never)
+	copied := stopped
+	println("stop through a copy", copied.Stop(), stopped.Stop())
 	time.NewTimer(time.Millisecond) // dropped at the end of the statement
 	time.Sleep(20 * time.Millisecond)
 	select {
@@ -465,13 +476,13 @@ func main() {
 	default:
 		println("the copied channel got nothing")
 	}
-	println("dropped AfterFunc ran", late.Load())
+	println("dropped AfterFunc ran", ran.Load(), "stopped AfterFunc ran", late.Load())
 	pending := time.NewTimer(time.Hour) // dropped when main returns
 	println("pending", pending.Stop())
 }
 `, build.Config{OptLevel: 2, Alloc: "debug"})
 	out, status := runConc(t, prog, "PLUTO_DEBUGALLOC=leaks=fail")
-	want := "stop after it ran false\nthe copied channel got nothing\ndropped AfterFunc ran 0\npending true\n"
+	want := "stop after it ran false\nreset after it ran false\nstop through a copy true false\nthe copied channel got nothing\ndropped AfterFunc ran 2 stopped AfterFunc ran 0\npending true\n"
 	if status != 0 || out != want {
 		t.Errorf("status %d, output:\n%s", status, out)
 	}

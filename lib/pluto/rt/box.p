@@ -215,6 +215,13 @@ func boxUpgrade(obj unsafe.Pointer, sync bool) bool {
 	return true
 }
 
+// RetainSynced takes one more strong reference to the synced object obj, for
+// a library that holds a reference of its own without a variable to keep it
+// in (pluto/time keeps one for each armed AfterFunc timer). The reference
+// is released by making a synced value of obj with a conversion from
+// unsafe.Pointer and letting it go out of scope.
+func RetainSynced(obj unsafe.Pointer) { boxRetain(obj, false, true) }
+
 // BoxCounts returns the strong and weak counts of a shared or synced
 // object, for tests and debugging.
 func BoxCounts(obj unsafe.Pointer) (strong, weak int) {

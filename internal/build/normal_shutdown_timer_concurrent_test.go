@@ -16,7 +16,7 @@ import (
  "pluto/alloc"
  "pluto/time"
 )
-type holder owner struct{ timer owned[time.Timer] }
+type holder owner struct{ timer synced[time.Timer] }
 var kept synced[holder]
 func fire(){}
 func worker(h synced[holder], done chan bool){

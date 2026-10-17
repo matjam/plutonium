@@ -406,7 +406,7 @@ func(c *counter)Free(p unsafe.Pointer,n,k uintptr){c.base.Free(p,n,k);if p!=nil{
 type check owner struct { live bool }
 func(c *check)Drop(){if c.live{println("callback",fired.Load()==1);println("timer disposed",live.Load()==0);c.live=false}}
 var final=check{live:true}
-var timer owned[time.Timer]
+var timer synced[time.Timer]
 func fire(){` + fire + `}
 func main(){heap.base=alloc.Default();` + body + `}
 `

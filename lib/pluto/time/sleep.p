@@ -79,13 +79,16 @@ func newTimerChan(d, period Duration, a alloc.Allocator) <-chan Time {
 // The Timer type represents a single event. When the Timer expires, the
 // current time is sent on C, unless the Timer was made by AfterFunc.
 //
-// NewTimer and AfterFunc return an owned[Timer], allocated, with NewTimer's
-// channel, from the allocator they are given (the default allocator if
-// none). Dropping it stops the timer and frees it (language spec section
-// 19.6): at the end of its variable's scope, unless it was moved. C is a
-// counted reference, so a receiver that copied C keeps the channel, not
-// the timer. A timer that several tasks use is put in a synced object
-// that holds the owned[Timer].
+// NewTimer returns an owned[Timer], allocated, with its channel, from the
+// allocator it is given (the default allocator if none). Dropping it stops
+// the timer and frees it (language spec section 19.6): at the end of its
+// variable's scope, unless it was moved. C is a counted reference, so a
+// receiver that copied C keeps the channel, not the timer. A timer that
+// several tasks use is put in a synced object that holds the owned[Timer].
+//
+// AfterFunc returns a synced[Timer]. While its timer is armed the runtime
+// holds a reference of its own, released when the function is started or
+// when Stop succeeds, so dropping every handle does not stop the timer.
 //
 // As in Go 1.23, C has no stale values: once Stop or Reset has returned, a
 // receive from C gets only a time sent by a later expiry.
@@ -95,12 +98,16 @@ type Timer owner struct {
 
 	// AfterFunc: the timer, the function, the expiries whose task
 	// has not started yet, and the link in the queue of the task
-	// that starts them (funcs). fires and link are guarded by funcs.lock.
+	// that starts them (funcs). fires, link, armed and held are guarded
+	// by funcs.lock.
 	r     rt.Timer
 	f     func()
 	fires int
 	link  *Timer
-	armed bool // guarded by funcs.lock
+	armed bool
+	// held says the runtime holds a reference to the Timer (RetainSynced):
+	// it is armed, or has expired and its function is not started yet.
+	held bool
 }
 
 // NewTimer creates a new Timer that will send the current time on its
@@ -175,40 +182,23 @@ func (t *Timer) Reset(d Duration) bool {
 	return active
 }
 
-// Drop stops the timer when its owner drops it. A timer made by AfterFunc
-// first waits until the tasks of expiries already past have started. Then
-// the Timer's reference to C is released: a receiver that copied C keeps
-// the channel, which gets no more values.
+// Drop stops the timer when its owner drops it; then the Timer's reference
+// to C is released: a receiver that copied C keeps the channel, which gets
+// no more values. A timer made by AfterFunc is dropped with its last
+// reference, which the runtime holds while the timer is armed or its
+// function not started, so it has nothing left to stop.
 func (t *Timer) Drop() {
 	if t.C != nil {
 		timerOf(t.C).Stop()
-		return
-	}
-	if t.f == nil {
-		return
-	}
-	// Stop releases the operation mutex before the mandatory wait. A
-	// callback can reset a timer, and a Wake can end the stopping task.
-	defer waitFuncFires(t)
-	t.Stop()
-}
-
-func waitFuncFires(t *Timer) {
-	for {
-		funcs.lock.Lock()
-		n := t.fires
-		funcs.lock.Unlock()
-		if n == 0 {
-			break
-		}
-		rt.Yield()
 	}
 }
 
 // AfterFunc waits for the duration to elapse and then calls f in its own
 // task. It returns a Timer that can be used to cancel the call using its
-// Stop method; the Timer's C is nil. Dropping the Timer before it fires
-// stops it, so f never runs.
+// Stop method; the Timer's C is nil. The runtime holds a reference to the
+// Timer while it is armed, so dropping every handle does not stop it: the
+// statement AfterFunc(d, f) runs f, and the Timer is freed after f has
+// been started and the last handle is dropped.
 //
 // As with a task statement, f must not capture variables or be a method
 // value made in the caller's frame, since it runs after the frame may be
@@ -216,16 +206,44 @@ func waitFuncFires(t *Timer) {
 // task's stack (language spec section 19.1). The tasks are started
 // by one task of the time package's. It waits while callbacks are armed
 // or queued, then returns. A later AfterFunc or Reset starts it again.
-func AfterFunc(d Duration, f func(), a alloc.Allocator = alloc.Default()) owned[Timer] {
+func AfterFunc(d Duration, f func(), a alloc.Allocator = alloc.Default()) synced[Timer] {
 	rt.CheckGoFunc(f)
-	t := alloc.Owned[Timer](a)
+	t := alloc.Synced[Timer](a)
 	t.f = f
 	// The runtime's timer heap and the queue of expired timers refer to
-	// the Timer until Drop has stopped it and waited for its expiries.
+	// the Timer until its function has been started or Stop has disarmed
+	// it: the reference the runtime holds (holdFunc) keeps it alive.
 	r, arg := rt.Pinned(&t.r), unsafe.Pointer(&*t)
 	r.Init(goFunc, *rt.Pinned(&arg))
 	t.Reset(d)
 	return t
+}
+
+// holdFunc takes the reference the runtime holds to t while t is armed or
+// expired and its function not started; funcs.lock is held.
+func holdFunc(t *Timer) {
+	if !t.held {
+		t.held = true
+		rt.RetainSynced(unsafe.Pointer(t))
+	}
+}
+
+// releaseFunc says whether the runtime's reference to t is no longer needed
+// and takes it away (the caller then calls dropHeld once funcs.lock is
+// released, as a release may free t and drops its contents).
+func releaseFunc(t *Timer) bool {
+	if t.held && !t.armed && t.fires == 0 {
+		t.held = false
+		return true
+	}
+	return false
+}
+
+// dropHeld releases the reference the runtime held to t. Nothing may use t
+// after it unless the caller has a reference of its own.
+func dropHeld(t *Timer) {
+	h := synced[Timer](unsafe.Pointer(t))
+	_ = h
 }
 
 // funcs is the queue of AfterFunc timers that have expired, and the
@@ -244,7 +262,6 @@ var funcs struct {
 func finishFuncStart(t *Timer, done *bool) {
 	if !*done {
 		funcs.lock.Lock()
-		defer funcs.lock.Unlock()
 		t.armed = false
 		funcs.pending--
 		funcs.starting = false
@@ -252,6 +269,11 @@ func finishFuncStart(t *Timer, done *bool) {
 		// It can already be parked for this now-canceled reservation.
 		if r := funcs.runner; r != nil {
 			rt.Ready(r)
+		}
+		release := releaseFunc(t)
+		funcs.lock.Unlock()
+		if release {
+			dropHeld(t)
 		}
 	}
 }
@@ -265,6 +287,7 @@ func startFuncRunner(t *Timer) {
 			continue
 		}
 		t.armed = true
+		holdFunc(t)
 		funcs.pending++
 		if funcs.started {
 			funcs.lock.Unlock()
@@ -290,7 +313,6 @@ func launchFuncRunner(t *Timer) {
 
 func disarmFunc(t *Timer) {
 	funcs.lock.Lock()
-	defer funcs.lock.Unlock()
 	if t.armed {
 		t.armed = false
 		funcs.pending--
@@ -298,6 +320,11 @@ func disarmFunc(t *Timer) {
 	r := funcs.runner
 	if r != nil {
 		rt.Ready(r)
+	}
+	release := releaseFunc(t)
+	funcs.lock.Unlock()
+	if release {
+		dropHeld(t)
 	}
 }
 
@@ -380,7 +407,11 @@ func runFuncs() {
 		if t.fires > 0 {
 			enqueueFunc(t) // it expired again meanwhile
 		}
+		release := releaseFunc(t)
 		funcs.lock.Unlock()
+		if release {
+			dropHeld(t)
+		}
 	}
 }
 

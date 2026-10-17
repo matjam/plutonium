@@ -84,7 +84,7 @@ func fire(){atomic.AddInt32(&fired,1)}
 type observer owner struct{live bool}
 func(o *observer)Drop(){if o.live{println("fired",atomic.LoadInt32(&fired));o.live=false}}
 var last=observer{live:true}
-var kept owned[time.Timer]
+var kept synced[time.Timer]
 func create(){t:=time.AfterFunc(time.Hour,fire);_ = t}
 func main(){rt.D6TimerHook(MODE);MAIN}
 `
