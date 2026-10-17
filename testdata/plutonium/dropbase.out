@@ -1,0 +1,38 @@
+scopeEnd
+  close 3
+  named drop 2
+  close 2
+  close 1
+early
+  close 4
+  after l.Drop
+  named drop 5
+  close 5
+  after n.Drop
+  close 6
+  after c.Drop
+  close 7
+  after p.Drop
+  after b.Drop
+  close 9
+  close 10
+  after arr.Drop
+dropTwice
+  close 11
+  reassigned
+  close 12
+deferred
+  body
+  close 14
+  close 13
+overwrite
+  close 15
+  close 16
+moved
+  take 17
+  close 17
+  after take
+generic
+  close 18
+  close 19
+done

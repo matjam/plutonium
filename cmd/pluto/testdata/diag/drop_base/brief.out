@@ -1,0 +1,4 @@
+$DIR/main.p:24:2: cannot call q.Drop(): q is a *Plain, which only points at a Plain that something else owns
+$DIR/main.p:25:7: cannot use p.Drop as a value: Drop can only be called on the owner itself
+$DIR/main.p:29:2: cannot call h.log.Drop(): h.log is part of another value, which drops it when it is dropped
+$DIR/main.p:33:12: cannot move *pl out of the value pl points to

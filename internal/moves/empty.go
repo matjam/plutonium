@@ -249,7 +249,12 @@ func hasDrop(T types2.Type) bool {
 		return false
 	}
 	sel := types2.NewMethodSet(types2.NewPointer(T)).Lookup(nil, "Drop")
-	return sel != nil && len(sel.Index()) == 1
+	if sel != nil && len(sel.Index()) == 1 {
+		return true
+	}
+	// type B owner A: A's Drop runs on the whole value as well.
+	A := types2.OwnerBase(T)
+	return A != nil && hasDrop(A)
 }
 
 // ----------------------------------------------------------------------------

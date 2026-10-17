@@ -494,3 +494,39 @@ func (check *Checker) selectAddressable(x *operand, e *ast.SelectorExpr) bool {
 func (check *Checker) suspendedOwnerTemp(x *operand, e *ast.SelectorExpr) bool {
 	return check.suspended != nil && ast.Unparen(check.suspended.Fun) == e && x.mode() == value && IsOwner(x.typ())
 }
+
+// implicitDrop returns the Drop function that x.Drop() selects on an owner
+// whose type declares no Drop method: the early-drop operation of every owner
+// (spec sections 7.18 and 18.6). It exists only for the selector. It is not a
+// method of the type, so it is not in the type's method set, satisfies no
+// interface and has no method expression; the move checker rejects every use
+// of it other than a call on a whole owner variable (E3307). It returns nil
+// when x is not an owner, or a temporary that is not being called.
+func (check *Checker) implicitDrop(x *operand, e *ast.SelectorExpr) (Object, []int) {
+	T := x.typ()
+	if p, ok := Unalias(T).(*Pointer); ok {
+		T = p.base
+	} else if !check.selectAddressable(x, e) {
+		return nil, nil
+	}
+	if !IsOwner(T) {
+		return nil, nil
+	}
+	recv := NewVar(nopos, nil, "x", NewPointer(T))
+	return NewFunc(nopos, nil, "Drop", NewSignatureType(recv, nil, nil, nil, nil, false)), []int{0}
+}
+
+// OwnerBase returns A for a type B declared "type B owner A" where A is a
+// named owner type, and nil for every other type. A value of B is dropped as
+// an A after B's own Drop (spec section 7.18, Owner types).
+func OwnerBase(T Type) Type {
+	n, _ := Unalias(T).(*Named)
+	if n == nil || !n.Origin().obj.ownerMark {
+		return nil
+	}
+	n.Underlying() // resolve, so that the declared right-hand side is known
+	if a := asNamed(n.rhs()); a != nil && IsOwner(a) {
+		return a
+	}
+	return nil
+}

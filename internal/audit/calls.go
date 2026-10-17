@@ -326,6 +326,9 @@ func (g *graph) addDrops(f *function, t types2.Type, pos token.Pos, seen map[typ
 			}
 		}
 	}
+	if A := types2.OwnerBase(t); A != nil {
+		g.addDrops(f, A, pos, seen) // type B owner A drops as an A
+	}
 	switch t := t.Underlying().(type) {
 	case *types2.Struct:
 		for i := 0; i < t.NumFields(); i++ {

@@ -28,6 +28,12 @@ func (l *Lowerer) needsDrop(T types2.Type) bool {
 	l.dropNeeds[key] = false // a recursive type needs a pointer, which needs nothing
 	need := false
 	if types2.IsOwner(T) {
+		if A := types2.OwnerBase(T); A != nil {
+			// type B owner A: B's Drop, then the drop of A.
+			need = dropMethod(T) != nil || l.needsDrop(A)
+			l.dropNeeds[key] = need
+			return need
+		}
 		switch u := unwrap(T).Underlying().(type) {
 		case *types2.Struct:
 			need = dropMethod(T) != nil
@@ -58,6 +64,16 @@ func dropMethod(T types2.Type) *types2.Func {
 	}
 	fn, _ := sel.Obj().(*types2.Func)
 	return fn
+}
+
+// dropsWhole reports whether destroying a T runs a Drop method on the whole
+// value: its own, or that of the owner it is defined from (type B owner A).
+func dropsWhole(T types2.Type) bool {
+	if dropMethod(T) != nil {
+		return true
+	}
+	A := types2.OwnerBase(T)
+	return A != nil && dropsWhole(A)
 }
 
 // dropGlue returns the function that destroys the T its argument points to.
@@ -118,6 +134,12 @@ func (s *fnState) dropFields(ptr *ssa.Value, T types2.Type) {
 		if finalizing != nil {
 			s.callRuntime("staticCleanupResume", nil, []*ssa.Value{finalizing})
 		}
+	}
+	if A := types2.OwnerBase(T); A != nil {
+		// type B owner A holds an A: after B's own Drop it is dropped as one
+		// (language spec section 7.18, Owner types).
+		s.dropFields(ptr, A)
+		return
 	}
 	switch u := unwrap(T).Underlying().(type) {
 	case *types2.Wrapper:

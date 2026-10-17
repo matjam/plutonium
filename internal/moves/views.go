@@ -586,7 +586,7 @@ func (f *fn) argViews(call *ast.CallExpr) []argView {
 		return nil
 	}
 	tv := f.c.types[call.Fun]
-	if tv.IsType() || tv.IsBuiltin() || f.c.scoped.Tasks[call] != nil {
+	if tv.IsType() || tv.IsBuiltin() || f.c.scoped.Tasks[call] != nil || f.isImplicitDrop(call) {
 		return nil
 	}
 	var out []argView
@@ -749,4 +749,20 @@ func (f *fn) litPins(lit *ast.FuncLit) {
 		}
 		return true
 	})
+}
+
+// isImplicitDrop reports whether call is x.Drop() on an owner whose type
+// declares no Drop: the early drop of language spec section 18.6, which has
+// no body and keeps nothing.
+func (f *fn) isImplicitDrop(call *ast.CallExpr) bool {
+	se := funSelector(call.Fun)
+	if se == nil || se.Sel.Name != "Drop" || len(call.Args) != 0 {
+		return false
+	}
+	sel := f.c.selections[se]
+	if sel == nil || sel.Kind() != types2.MethodVal {
+		return false
+	}
+	fun, _ := sel.Obj().(*types2.Func)
+	return fun != nil && fun.Pkg() == nil && types2.BoxMethodOf(fun) == nil
 }

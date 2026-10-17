@@ -26,6 +26,7 @@ type callTarget struct {
 	dynFunc  bool
 	ring     *types2.Selection // a built-in ring method
 	ringX    ast.Expr
+	dropOp   bool // x.Drop() on an owner whose type declares no Drop
 }
 
 // call evaluates a call expression and returns what each result may point
@@ -45,6 +46,9 @@ func (w *walker) call(e *ast.CallExpr) []tset {
 	t := w.target(e)
 	if t.ring != nil {
 		return w.ringCall(e, t)
+	}
+	if t.dropOp {
+		return nil // the early drop keeps nothing
 	}
 	args := w.args(e, t.sig)
 	if len(w.arenas) > 0 && len(args) > 0 && w.isUse(e) {
@@ -120,6 +124,11 @@ func (w *walker) target(e *ast.CallExpr) callTarget {
 			case sel.Kind() == types2.MethodVal:
 				if fn.Pkg() == nil && isRing(w.typeOf(se.X)) {
 					return callTarget{sig: sig, ring: sel, ringX: se.X}
+				}
+				if fn.Pkg() == nil && fn.Name() == "Drop" && types2.BoxMethodOf(fn) == nil {
+					// The early drop of an owner that declares no Drop
+					// (language spec section 18.6): it has no body.
+					return callTarget{sig: sig, dropOp: true, recv: w.receiver(se.X, sel), hasRecv: true}
 				}
 				recvVar := fn.Type().(*types2.Signature).Recv()
 				if recvVar != nil && isInterface(recvVar.Type()) {

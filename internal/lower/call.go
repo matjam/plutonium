@@ -559,7 +559,7 @@ func (s *fnState) methodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.
 	// x.Drop() on an owner variable ends its life: its whole drop glue
 	// runs (Drop, then its fields), and x is left clear, so that the end
 	// of its scope destroys nothing (language spec section 18.6).
-	if fn.Name() == "Drop" && len(e.Args) == 0 && s.isMove(se.X) {
+	if fn.Name() == "Drop" && len(e.Args) == 0 && (s.isMove(se.X) || isImplicitDrop(fn) && isIdent(se.X)) {
 		lv := s.lv(se.X)
 		T := unwrap(lv.T)
 		s.dropAt(lv.ptr, T)
@@ -658,6 +658,11 @@ func (l *Lowerer) methodSig(fn *types2.Func, targs []types2.Type) *types2.Signat
 // which may be promoted from an embedded field or have a pointer receiver.
 func (s *fnState) selectedMethod(se *ast.SelectorExpr, sel *types2.Selection) (*types2.Func, []int, bool) {
 	fn := sel.Obj().(*types2.Func)
+	if isImplicitDrop(fn) {
+		// The early drop of an owner that declares no Drop has no code
+		// to call; the move checker reports every use but x.Drop().
+		return fn, nil, false
+	}
 	if _, ok := types2.Unalias(s.info.Types[se.X].Type).(*types2.TypeParam); !ok {
 		return fn, sel.Index(), true
 	}
@@ -669,6 +674,18 @@ func (s *fnState) selectedMethod(se *ast.SelectorExpr, sel *types2.Selection) (*
 		return nil, nil, false
 	}
 	return m, index, true
+}
+
+// isImplicitDrop reports whether fn is the Drop that x.Drop() selects on an
+// owner whose type declares none (language spec section 18.6): it is not
+// declared anywhere and has no code.
+func isImplicitDrop(fn *types2.Func) bool {
+	return fn.Name() == "Drop" && fn.Pkg() == nil && types2.BoxMethodOf(fn) == nil
+}
+
+func isIdent(e ast.Expr) bool {
+	_, ok := ast.Unparen(e).(*ast.Ident)
+	return ok
 }
 
 // isIfaceMethod reports whether fn is declared by an interface.

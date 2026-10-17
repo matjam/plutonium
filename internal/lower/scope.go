@@ -103,7 +103,7 @@ func (s *fnState) destroyParts(ptr *ssa.Value, T types2.Type, parts []moves.Path
 			return
 		}
 	}
-	if dropMethod(T) != nil {
+	if dropsWhole(T) {
 		s.destroyAt(ptr, T)
 		return
 	}

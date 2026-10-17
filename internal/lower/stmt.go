@@ -1315,7 +1315,7 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 			s.l.errorf(st.Pos(), diag.DeferBuiltin, "defer of builtin %s is not supported", name)
 			return
 		}
-	case s.l.moves != nil && s.l.moves.DeferredDrops[call]:
+	case s.l.moves != nil && s.l.moves.DeferredDrops[call] || s.implicitDropCall(call):
 		// defer x.Drop() on an owner variable: when the function returns,
 		// x's whole drop glue runs and x is left clear, so that the end of
 		// its scope destroys nothing (language spec section 18.6).
@@ -1478,4 +1478,19 @@ func (s *fnState) loadValues(saved []savedArg, rec *ssa.Value) []value {
 		out[i] = s.loadSaved(a, rec)
 	}
 	return out
+}
+
+// implicitDropCall reports whether call is x.Drop() on a variable x whose
+// owner type declares no Drop.
+func (s *fnState) implicitDropCall(call *ast.CallExpr) bool {
+	se, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr)
+	if !ok || len(call.Args) != 0 || !isIdent(se.X) {
+		return false
+	}
+	sel := s.info.Selections[se]
+	if sel == nil || sel.Kind() != types2.MethodVal {
+		return false
+	}
+	fn, _ := sel.Obj().(*types2.Func)
+	return fn != nil && isImplicitDrop(fn)
 }

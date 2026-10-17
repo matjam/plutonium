@@ -865,6 +865,9 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 	// temporary of owner type, such as the result of a call; it is the
 	// receiver for the duration of the statement (spec section 11.14).
 	obj, index, indirect = lookupFieldOrMethod(x.typ(), check.selectAddressable(x, e), check.pkg, sel, false)
+	if obj == nil && sel == "Drop" && x.mode() != typexpr {
+		obj, index = check.implicitDrop(x, e)
+	}
 	if obj == nil {
 		// Don't report another error if the underlying type was invalid (go.dev/issue/49541).
 		if !isValid(x.typ().Underlying()) {

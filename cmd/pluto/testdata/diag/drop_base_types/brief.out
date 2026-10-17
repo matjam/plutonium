@@ -1,0 +1,2 @@
+$DIR/main.p:12:18: cannot use &p (value of type *Plain) as Dropper value in variable declaration: *Plain does not implement Dropper (missing method Drop)
+$DIR/main.p:14:13: Plain.Drop undefined (type Plain has no field or method Drop)

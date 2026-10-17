@@ -322,7 +322,7 @@ func init() {
 		},
 		&Entry{
 			Code: DropThroughView, Name: "DropThroughView",
-			Text:    "Drop releases what an owner holds, and runs by itself when the owner is dropped. Calling it explicitly ends an owner's life early, and is allowed only on a variable that holds the owner, which cannot be used afterwards. Through a pointer, a field, a method value or an ordinary interface, the value belongs to something else, which would drop it a second time.\nCall Drop on the owner itself, or leave the zero value behind with take.",
+			Text:    "Drop releases what an owner holds, and runs by itself when the owner is dropped. Calling it explicitly ends an owner's life early, and is allowed only on a variable that holds the owner, whether or not its type declares a Drop method, which cannot be used afterwards. Through a pointer, a field, a method value or an ordinary interface, the value belongs to something else, which would drop it a second time.\nCall Drop on the owner itself, or leave the zero value behind with take.",
 			Why:     whyOwners,
 			Spec:    pspec("18.6", "Drops"),
 			Example: "func closeIt(f *File) { f.Drop() }",

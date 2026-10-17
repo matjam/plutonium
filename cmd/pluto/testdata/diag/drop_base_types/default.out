@@ -1,0 +1,14 @@
+$DIR/main.p:12:18: cannot use &p (value of type *Plain) as Dropper value in variable declaration: *Plain does not implement Dropper (missing method Drop)
+    d is declared as Dropper, so it can only hold values whose type has every
+    method of Dropper.
+    Dropper needs a method Drop() (declared on line 8), and *Plain has no method
+    of that name. A type satisfies an interface by having all its methods;
+    nothing else needs to be declared.
+    (see "Interface types" in the Plutonium spec, section 7.9)
+    (run "pluto explain E0021" for a longer explanation)
+
+$DIR/main.p:14:13: Plain.Drop undefined (type Plain has no field or method Drop)
+    Plain has type Plain, declared on line 6, which has no field or method Drop.
+    Its fields and methods are n.
+    (see "Selectors" in the Plutonium spec, section 11.7)
+    (run "pluto explain E0076" for a longer explanation)
