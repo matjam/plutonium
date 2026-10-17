@@ -72,20 +72,21 @@ type Lowerer struct {
 	scoped            *scoped.Info    // the scoped tasks of sync.Scope (scope_task.go)
 	globals           map[*types2.Var]*ssa.Sym
 	strs              map[string]*ssa.Sym
-	closureRecords    map[*ssa.Sym]*ssa.Sym      // static closure record per function used as a value
-	exports           map[*ssa.Sym][]string      // extra symbol names from //pu:export
-	cnames            map[string]*ssa.Sym        // the function exporting each C symbol name
-	interruptSyms     map[*ssa.Sym]bool          // //pu:interrupt functions
-	cfuncs            map[*ssa.Sym]bool          // //pu:extern symbols, called with the C convention
-	statics           int                        // anonymous static objects created
-	cleanupStatics    []staticCleanupObject      // independently owned static initializer objects
-	cleanupAnchor     *types2.Var                // initializer whose static objects are being built
-	shutdownQueued    bool                       // final cleanup schedule has been generated
-	shutdownProtected bool                       // completed static places need write protection
-	shutdownJobs      []*funcJob                 // hooks deferred until static inventory is complete
-	errorSites        map[*ast.CallExpr]*ssa.Sym // static error of each errors.New call site
-	perCPUSelfSym     *ssa.Sym                   // pluto.percpu.self, once a per-CPU variable exists
-	genPanic          *ssa.Sym                   // pluto/rt.panicStale, under GenCheck
+	closureRecords    map[*ssa.Sym]*ssa.Sym        // static closure record per function used as a value
+	exports           map[*ssa.Sym][]string        // extra symbol names from //pu:export
+	cnames            map[string]*ssa.Sym          // the function exporting each C symbol name
+	interruptSyms     map[*ssa.Sym]bool            // //pu:interrupt functions
+	cfuncs            map[*ssa.Sym]bool            // //pu:extern symbols, called with the C convention
+	statics           int                          // anonymous static objects created
+	cleanupStatics    []staticCleanupObject        // independently owned static initializer objects
+	cleanupAnchor     *types2.Var                  // initializer whose static objects are being built
+	shutdownQueued    bool                         // final cleanup schedule has been generated
+	shutdownProtected bool                         // completed static places need write protection
+	shutdownJobs      []*funcJob                   // hooks deferred until static inventory is complete
+	errorSites        map[*ast.CallExpr]*errorSite // type and counter of each errors.New call site
+	errorMethods      map[*types2.Func]*errorSite  // the Error method of each of those types
+	perCPUSelfSym     *ssa.Sym                     // pluto.percpu.self, once a per-CPU variable exists
+	genPanic          *ssa.Sym                     // pluto/rt.panicStale, under GenCheck
 	types             *typeTable
 	flowSums          map[string]*flowSummary        // closureflow.go, by instance symbol name
 	flowStack         []string                       // summaries being computed
@@ -211,7 +212,8 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		localTypes:     map[localKey]*types2.Named{},
 		countedTypes:   map[string]bool{},
 		mapTypes:       map[string]types2.Type{},
-		errorSites:     map[*ast.CallExpr]*ssa.Sym{},
+		errorSites:     map[*ast.CallExpr]*errorSite{},
+		errorMethods:   map[*types2.Func]*errorSite{},
 		exports:        map[*ssa.Sym][]string{},
 		cnames:         map[string]*ssa.Sym{},
 		interruptSyms:  map[*ssa.Sym]bool{},
@@ -435,6 +437,9 @@ func (l *Lowerer) rawFuncSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 	if d == nil {
 		if en := enumOfMethod(fn); en != nil {
 			return l.enumString(fn, en)
+		}
+		if site := l.errorMethods[fn]; site != nil {
+			return l.errorMethod(fn, site)
 		}
 	}
 	if d != nil && d.decl.Body == nil {

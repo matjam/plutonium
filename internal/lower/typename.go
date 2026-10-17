@@ -22,6 +22,9 @@ func writeReflectName(b *strings.Builder, T types2.Type) {
 	switch t := types2.Unalias(T).(type) {
 	case *types2.Named:
 		obj := t.Obj()
+		if isErrorString(obj) {
+			b.WriteByte('*') // Go's errors.New returns a *errors.errorString
+		}
 		if obj.Pkg() != nil {
 			b.WriteString(obj.Pkg().Name())
 			b.WriteByte('.')

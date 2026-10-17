@@ -15,15 +15,16 @@ $DIR/main.p:12:2: missing cases in switch on c (Color): Green, Blue (add them or
     (see "Switch statements" in the Plutonium spec, section 12.9)
     (run "pluto explain E2312" for a longer explanation)
 
-$DIR/main.p:21:50: errors.New needs a constant message, since each call site makes one static error; use fmt.Errorf to build a message at run time
+$DIR/main.p:21:50: errors.New needs a constant message, since each call site has its own error type, made when compiling; use fmt.Errorf to build a message at run time
     errors.New takes only a constant message, such as a string literal. The
-    compiler makes one error value for each place errors.New is called, and
-    stores it in the program image, so the message must be known when compiling.
+    compiler makes an error type for each place errors.New is called, with a
+    counter in the program image, so the message must be known when compiling.
     To build a message from values at run time, use fmt.Errorf, which allocates
     the error.
     In Go, errors.New allocates a new error on every call. Plutonium never
-    allocates behind the program's back, so errors.New makes a static error
-    instead, which costs nothing and can never fail.
+    allocates behind the program's back, so each evaluation of errors.New is a
+    new error made from the call site's type and a counter, which costs one
+    atomic addition and needs no allocator.
     To include values in the message:
         return fmt.Errorf("open %s: not found", name)
     (see "Sentinels and errors.New" in the Plutonium spec, section 16.3)

@@ -1,6 +1,8 @@
 a a false true
-bad header true false true
-even odd true false
-true tagged
+bad header false false true true
+even odd false false
+false tagged
 true true inner
-true bad header
+false
+true literal
+*errors.errorString

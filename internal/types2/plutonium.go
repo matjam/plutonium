@@ -286,20 +286,20 @@ func (check *Checker) reportComplex() {
 }
 
 // IsErrorsNew reports whether fn is pluto/errors.New, which the compiler
-// evaluates at each call site to a static error (language spec section
-// 13.1).
+// evaluates at each call site to an error of a type of its own (language spec section
+// 16.3).
 func IsErrorsNew(fn *Func) bool {
 	return fn != nil && fn.name == "New" && fn.pkg != nil && fn.pkg.path == "pluto/errors"
 }
 
 // errorsNewCall checks a call of errors.New: its message must be a
-// constant, since the error it makes is static.
+// constant, since the call site makes its error type when compiling.
 func (check *Checker) errorsNewCall(call *ast.CallExpr, args []*operand) {
 	if !IsErrorsNew(check.calleeFunc(call)) || len(args) != 1 || !args[0].isValid() {
 		return
 	}
 	if args[0].mode() != constant_ {
-		check.errorf(args[0], ErrorsNewNotConstant, "errors.New needs a constant message, since each call site makes one static error; use fmt.Errorf to build a message at run time")
+		check.errorf(args[0], ErrorsNewNotConstant, "errors.New needs a constant message, since each call site has its own error type, made when compiling; use fmt.Errorf to build a message at run time")
 	}
 }
 

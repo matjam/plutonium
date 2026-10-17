@@ -1,0 +1,9 @@
+a a false true
+bad header false true true false
+false
+1000
+even odd false false
+false tagged
+true false true wrapped: bad header
+2 one one two
+*errors.errorString *errors.errorString bad header a

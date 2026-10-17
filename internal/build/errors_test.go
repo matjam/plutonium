@@ -11,10 +11,10 @@ import (
 // run time, and asking errors.AsType for something that is not an error,
 // are compile errors. (Building strings at run time is allowed since
 // strings are counted; errors.New still takes only a constant message,
-// since each call site makes one static error.)
+// since each call site has its own error type, made when compiling.)
 func TestErrorConventionErrors(t *testing.T) {
 	testguard.Parallel(t)
-	const notConstant = "errors.New needs a constant message, since each call site makes one static error; use fmt.Errorf to build a message at run time"
+	const notConstant = "errors.New needs a constant message, since each call site has its own error type, made when compiling; use fmt.Errorf to build a message at run time"
 	cases := []struct{ name, src, want string }{
 		{"concatenated message", `package main
 

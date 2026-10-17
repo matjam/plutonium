@@ -7,8 +7,10 @@
 // either a word-sized value (such as syscall.Errno) or a pointer to storage
 // that outlives the call:
 //
-//   - static storage: errors made by New with a constant message, anywhere,
-//     or written as &errors.Text{...} in a package-level variable;
+//   - the interface's data word: errors made by New with a constant
+//     message, anywhere, which hold a count;
+//   - static storage: errors written as &errors.Text{...} in a
+//     package-level variable;
 //   - storage owned by a longer-lived object, such as a parser that keeps
 //     its last error in a field and returns a pointer to it;
 //   - counted objects: fmt.Errorf, errors.Join and library error types
@@ -38,12 +40,15 @@ func (t *Text) Error() string { return t.Msg }
 //
 // or inside a function, return errors.New("bad header").
 //
-// New does not allocate. The compiler turns each call into the address of
-// a static, read-only Text that belongs to the call site: the same call
-// site always returns the same error, and different call sites return
-// different errors even when their messages are equal. A message that is
-// not a constant is a compile error; build one at run time with fmt.Errorf
-// or a fmt.ErrorBuf. New cannot be used as a func value or deferred.
+// Each evaluation returns a new error, as in Go, and New does not allocate.
+// The compiler makes an error type for each call site and a counter for it
+// in static storage; a call adds one to the counter and returns an error of
+// the site's type that holds the new count. Two results of one call site
+// differ, a copy of a result is equal to it, and different call sites return
+// different errors even when their messages are equal. A package-level
+// variable is evaluated once. A message that is not a constant is a compile
+// error; build one at run time with fmt.Errorf or a fmt.ErrorBuf. New cannot
+// be used as a func value or deferred.
 func New(text string) error {
 	// Never reached: the compiler replaces every call.
 	panic("errors.New: called without compiler support")

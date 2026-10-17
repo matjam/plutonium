@@ -1,4 +1,4 @@
 $DIR/main.p:19:34: parameter limit has no default value but follows parameter factor, which has one
 $DIR/main.p:12:2: missing cases in switch on c (Color): Green, Blue (add them or a default case)
-$DIR/main.p:21:50: errors.New needs a constant message, since each call site makes one static error; use fmt.Errorf to build a message at run time
+$DIR/main.p:21:50: errors.New needs a constant message, since each call site has its own error type, made when compiling; use fmt.Errorf to build a message at run time
 $DIR/main.p:26:22: map element type file is an owner, which a map cannot hold: reading the map copies its elements

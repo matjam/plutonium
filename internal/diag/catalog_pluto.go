@@ -81,8 +81,8 @@ func init() {
 		},
 		&Entry{
 			Code: CheckerCode(typerr.ErrorsNewNotConstant), Name: "ErrorsNewNotConstant",
-			Text:    "errors.New takes only a constant message, such as a string literal. The compiler makes one error value for each place errors.New is called, and stores it in the program image, so the message must be known when compiling.\nTo build a message from values at run time, use fmt.Errorf, which allocates the error.",
-			Why:     "In Go, errors.New allocates a new error on every call. Plutonium never allocates behind the program's back, so errors.New makes a static error instead, which costs nothing and can never fail.",
+			Text:    "errors.New takes only a constant message, such as a string literal. The compiler makes an error type for each place errors.New is called, with a counter in the program image, so the message must be known when compiling.\nTo build a message from values at run time, use fmt.Errorf, which allocates the error.",
+			Why:     "In Go, errors.New allocates a new error on every call. Plutonium never allocates behind the program's back, so each evaluation of errors.New is a new error made from the call site's type and a counter, which costs one atomic addition and needs no allocator.",
 			Fix:     &Fix{Intro: "To include values in the message", Code: "return fmt.Errorf(\"open %s: not found\", name)"},
 			Spec:    pspec("16.3", "Sentinels and errors.New"),
 			Example: "return errors.New(\"open \" + name)",
@@ -672,8 +672,8 @@ func init() {
 		},
 		&Entry{
 			Code: ErrorsNewValue, Name: "ErrorsNewValue",
-			Text:    "errors.New must be called directly. Each place that calls it gets its own static error, made when compiling, so taking errors.New as a value, or deferring it, has no call site to make that error for.",
-			Why:     "In Go, errors.New allocates. Plutonium makes a static error per call site so that it never allocates.",
+			Text:    "errors.New must be called directly. Each place that calls it gets its own error type, made when compiling, so taking errors.New as a value, or deferring it, has no call site to make that type for.",
+			Why:     "In Go, errors.New allocates. Plutonium makes an error type per call site, with a counter, so that it never allocates.",
 			Spec:    pspec("16.3", "Sentinels and errors.New"),
 			Example: "newErr := errors.New",
 		},

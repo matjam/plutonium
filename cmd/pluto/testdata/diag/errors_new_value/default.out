@@ -1,0 +1,14 @@
+$DIR/main.p:8:7: errors.New cannot be used as a func value: each call site has its own error type, so call it directly with a constant message
+    errors.New must be called directly. Each place that calls it gets its own
+    error type, made when compiling, so taking errors.New as a value, or
+    deferring it, has no call site to make that type for.
+    In Go, errors.New allocates. Plutonium makes an error type per call site,
+    with a counter, so that it never allocates.
+    (see "Sentinels and errors.New" in the Plutonium spec, section 16.3)
+    (run "pluto explain E2542" for a longer explanation)
+
+$DIR/main.p:10:12: errors.New cannot be used as a func value: each call site has its own error type, so call it directly with a constant message
+    (explained above; run "pluto explain E2542" for more)
+
+$DIR/main.p:11:8: errors.New cannot be deferred: each call site has its own error type, so call it directly with a constant message
+    (explained above; run "pluto explain E2542" for more)
