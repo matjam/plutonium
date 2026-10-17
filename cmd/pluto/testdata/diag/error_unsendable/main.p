@@ -36,6 +36,19 @@ func ok(f Fine) error { return f }
 // lent conversion in the frame never counts.
 func show(a any) {}
 
+// Comparing an error with a value converts the value to error too.
+func compare(err error, f Failure, r Reporter, fine Fine) bool {
+	a := err == f
+	b := f != err
+	c := r == f
+	switch err {
+	case f:
+		return true
+	}
+	d := err == fine
+	return a || b || c || d
+}
+
 func main() {
 	var f Failure
 	show(f.detail)

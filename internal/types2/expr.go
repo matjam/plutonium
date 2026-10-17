@@ -542,6 +542,15 @@ func (check *Checker) comparison(x, y *operand, op token.Token, switchCase bool)
 		goto Error
 	}
 
+	// Comparing an interface with a value of a concrete type converts the
+	// value to the interface (spec section 11.20, Comparison operators): a
+	// value that is not sendable cannot become an error that way.
+	if IsInterface(y.typ()) && !IsInterface(x.typ()) {
+		check.errorConversion(x, y.typ())
+	} else if IsInterface(x.typ()) && !IsInterface(y.typ()) {
+		check.errorConversion(y, x.typ())
+	}
+
 	// check if comparison is defined for operands
 	code = UndefinedOp
 	switch op {

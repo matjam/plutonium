@@ -22,3 +22,15 @@ $DIR/main.p:22:46: cannot convert f (value of struct type Failure) to error: it 
 
 $DIR/main.p:24:42: cannot convert f (variable of struct type Failure) to Reporter: it contains shared[Detail], whose count is not atomic, and every error may cross tasks; use alloc.Synced (spec section 8.8)
     (explained above; run "pluto explain E2020" for more)
+
+$DIR/main.p:41:14: cannot convert f (variable of struct type Failure) to error: it contains shared[Detail], whose count is not atomic, and every error may cross tasks; use alloc.Synced (spec section 8.8)
+    (explained above; run "pluto explain E2020" for more)
+
+$DIR/main.p:42:7: cannot convert f (variable of struct type Failure) to error: it contains shared[Detail], whose count is not atomic, and every error may cross tasks; use alloc.Synced (spec section 8.8)
+    (explained above; run "pluto explain E2020" for more)
+
+$DIR/main.p:43:12: cannot convert f (variable of struct type Failure) to Reporter: it contains shared[Detail], whose count is not atomic, and every error may cross tasks; use alloc.Synced (spec section 8.8)
+    (explained above; run "pluto explain E2020" for more)
+
+$DIR/main.p:45:7: cannot convert f (variable of struct type Failure) to error: it contains shared[Detail], whose count is not atomic, and every error may cross tasks; use alloc.Synced (spec section 8.8)
+    (explained above; run "pluto explain E2020" for more)
