@@ -1,2 +1,2 @@
-$DIR/main.p:17:3: defer in the body of a range-over-func loop must be followed by a return, or a break or goto out of the loop (otherwise it may run once per iteration, which would need unbounded stack)
+$DIR/main.p:17:3: defer in a loop: a path from it can reach it again without leaving the loop (a defer statement runs at most once in each call of the function); move the loop body into a function
 $DIR/main.p:24:10: a function literal deferred in a range-over-func loop body cannot capture x, a variable of the loop body: the deferred call runs after the body has returned

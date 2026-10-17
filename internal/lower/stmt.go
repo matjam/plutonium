@@ -540,9 +540,7 @@ func (s *fnState) forStmt(st *ast.ForStmt, label *types2.Label) {
 	s.seal(body)
 	s.startBlock(body)
 	s.targets = append(s.targets, &target{label: label, breakTo: done, contTo: post, depth: len(s.cleanups)})
-	s.loopDepth++
 	s.block(st.Body, st.Body.List)
-	s.loopDepth--
 	s.targets = s.targets[:len(s.targets)-1]
 	s.endPlain(post)
 	s.seal(post)
@@ -572,9 +570,7 @@ func (s *fnState) countedLoop(n *ssa.Value, label *types2.Label, body func(i *ss
 	s.seal(bodyB)
 	s.startBlock(bodyB)
 	s.targets = append(s.targets, &target{label: label, breakTo: done, contTo: post, depth: len(s.cleanups)})
-	s.loopDepth++
 	body(s.load(ssa.TI64, idx))
-	s.loopDepth--
 	s.targets = s.targets[:len(s.targets)-1]
 	s.endPlain(post)
 	s.seal(post)
@@ -758,9 +754,7 @@ func (s *fnState) rangeString(st *ast.RangeStmt, label *types2.Label) {
 		s.storeLV(*valLV, scalarValue(res[0], runeT))
 	}
 	s.targets = append(s.targets, &target{label: label, breakTo: done, contTo: post, depth: len(s.cleanups)})
-	s.loopDepth++
 	s.block(st.Body, st.Body.List)
-	s.loopDepth--
 	s.targets = s.targets[:len(s.targets)-1]
 	s.endPlain(post)
 	s.seal(post)
@@ -1231,41 +1225,14 @@ func hasDefer(body *ast.BlockStmt) bool {
 	return found
 }
 
-// inGotoLoop reports whether p is in a loop that a goto makes, by jumping
-// back to a label before p from after it (loopSpans).
-func (s *fnState) inGotoLoop(p token.Pos) bool {
-	root := s.rootFn()
-	var body *ast.BlockStmt
-	switch {
-	case root.job.decl != nil:
-		body = root.job.decl.Body
-	case root.job.lit != nil:
-		body = root.job.lit.Body
-	}
-	if body == nil {
-		return false
-	}
-	loops, _ := loopSpans(body)
-	for _, sp := range loops {
-		if sp.label != "" && p >= sp.lo && p < sp.hi {
-			return true
-		}
-	}
-	return false
-}
-
 // deferStmt evaluates the deferred call's function and arguments now and
 // records the call to run at every return.
 func (s *fnState) deferStmt(st *ast.DeferStmt) {
-	if s.loopDepth > 0 || s.inGotoLoop(st.Pos()) {
-		s.l.errorf(st.Pos(), diag.DeferInLoop, "defer inside a loop is not supported in Plutonium (it would need unbounded stack); move the loop body into a function")
-		return
-	}
-	if s.rf != nil && !s.deferLeavesLoop(st) {
-		s.l.errorf(st.Pos(), diag.DeferInRangeFunc, "defer in the body of a range-over-func loop must be followed by a return, or a break or goto out of the loop (otherwise it may run once per iteration, which would need unbounded stack)")
-		return
-	}
 	root := s.rootFn()
+	if !s.deferInLoopOK(root.bodyOf(), st) {
+		s.l.errorf(st.Pos(), diag.DeferInLoop, "defer in a loop: a path from it can reach it again without leaving the loop (a defer statement runs at most once in each call of the function); move the loop body into a function")
+		return
+	}
 	if len(root.defers) >= 64 {
 		s.l.errorf(st.Pos(), diag.TooManyDefers, "too many defer statements in one function (at most 64)")
 		return

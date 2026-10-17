@@ -1,2 +1,4 @@
-$DIR/main.p:5:3: defer inside a loop is not supported in Plutonium (it would need unbounded stack); move the loop body into a function
-$DIR/main.p:12:2: defer inside a loop is not supported in Plutonium (it would need unbounded stack); move the loop body into a function
+$DIR/main.p:5:3: defer in a loop: a path from it can reach it again without leaving the loop (a defer statement runs at most once in each call of the function); move the loop body into a function
+$DIR/main.p:12:2: defer in a loop: a path from it can reach it again without leaving the loop (a defer statement runs at most once in each call of the function); move the loop body into a function
+$DIR/main.p:23:4: defer in a loop: a path from it can reach it again without leaving the loop (a defer statement runs at most once in each call of the function); move the loop body into a function
+$DIR/main.p:33:4: defer in a loop: a path from it can reach it again without leaving the loop (a defer statement runs at most once in each call of the function); move the loop body into a function

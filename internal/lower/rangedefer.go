@@ -15,8 +15,8 @@ import (
 // set in that function's defer mask, through the body's closure record.
 // Like any defer, each defer statement has one slot, so a defer in a loop
 // body must run at most once per call of the enclosing function: the
-// statements after it must leave the loop on every path. deferLeavesLoop
-// checks that.
+// statements after it must leave the loop on every path. deferInLoopOK
+// checks that, for every kind of loop (language spec section 12.19).
 
 // outermostLoop returns the range-over-func loop, among those whose bodies
 // s is nested in, that is directly in the enclosing function.
@@ -56,23 +56,37 @@ func (s *fnState) deferredLit(lit *ast.FuncLit) *ssa.Value {
 	return recp
 }
 
-// deferLeavesLoop reports whether, after the defer statement d in the loop
-// body s, every path leaves the outermost enclosing range-over-func loop
-// (by return, panic, or break, continue or goto to a statement outside it)
-// before the body can run again.
-func (s *fnState) deferLeavesLoop(d *ast.DeferStmt) bool {
-	rf := s.outermostLoop()
+// bodyOf returns the body of the declared function or function literal that
+// s lowers, or nil.
+func (s *fnState) bodyOf() *ast.BlockStmt {
+	switch {
+	case s.job.decl != nil:
+		return s.job.decl.Body
+	case s.job.lit != nil:
+		return s.job.lit.Body
+	}
+	return nil
+}
+
+// deferInLoopOK reports whether the defer statement d, in the function
+// whose body is body, may stand in the loops that contain it: every path
+// from d must leave each of them before it can reach d again (language spec
+// section 12.19). The loops are the for statements, the range statements,
+// the range-over-func bodies among them, and the loops that a backward goto
+// makes. A function literal is another function: its body is checked alone.
+func (s *fnState) deferInLoopOK(body *ast.BlockStmt, d *ast.DeferStmt) bool {
+	if body == nil {
+		return true
+	}
 	c := &leaveCheck{
+		l:      s.l,
 		info:   s.info,
-		loop:   rf.st,
-		label:  rf.label,
-		parent: map[ast.Node]ast.Node{rf.st.Body: rf.st},
+		parent: map[ast.Node]ast.Node{},
 		labels: map[*types2.Label]*ast.LabeledStmt{},
-		memo:   map[leaveKey]int8{},
 	}
 	var stack []ast.Node
-	stack = append(stack, rf.st)
-	ast.Inspect(rf.st.Body, func(n ast.Node) bool {
+	var lists []ast.Node // the nodes with a statement list
+	ast.Inspect(body, func(n ast.Node) bool {
 		if n == nil {
 			stack = stack[:len(stack)-1]
 			return false
@@ -80,27 +94,124 @@ func (s *fnState) deferLeavesLoop(d *ast.DeferStmt) bool {
 		if _, ok := n.(*ast.FuncLit); ok {
 			return false
 		}
-		if n != ast.Node(rf.st.Body) {
+		if len(stack) > 0 {
 			c.parent[n] = stack[len(stack)-1]
 		}
-		if ls, ok := n.(*ast.LabeledStmt); ok {
-			if l, ok := c.info.Defs[ls.Label].(*types2.Label); ok {
-				c.labels[l] = ls
+		switch n := n.(type) {
+		case *ast.LabeledStmt:
+			if l, ok := c.info.Defs[n.Label].(*types2.Label); ok {
+				c.labels[l] = n
 			}
+		case *ast.BlockStmt:
+			lists = append(lists, n)
 		}
 		stack = append(stack, n)
 		return true
 	})
-	return c.after(d)
+	if _, ok := c.parent[d]; !ok {
+		return true
+	}
+	// The for and range statements around d.
+	for n := c.parent[d]; n != nil; n = c.parent[n] {
+		var loopBody *ast.BlockStmt
+		switch n := n.(type) {
+		case *ast.ForStmt:
+			loopBody = n.Body
+		case *ast.RangeStmt:
+			loopBody = n.Body
+		default:
+			continue
+		}
+		lc := c.forLoop(n, loopBody)
+		if !lc.after(d) {
+			return false
+		}
+	}
+	// The loops that a goto makes: in the list that holds a label before d,
+	// a goto to the label in a later statement that d precedes or is in.
+	for _, owner := range lists {
+		list := stmtList(owner)
+		for i, st := range list {
+			ls, ok := st.(*ast.LabeledStmt)
+			if !ok || d.Pos() < st.Pos() {
+				continue
+			}
+			l, _ := c.info.Defs[ls.Label].(*types2.Label)
+			for j := i; j < len(list); j++ {
+				if d.Pos() >= list[j].End() || !c.hasGotoTo(list[j], l) {
+					continue
+				}
+				lc := c.fresh()
+				lc.lo, lc.hi = st.Pos(), list[j].End()
+				lc.gotoOwner, lc.gotoLast = owner, j
+				if !lc.after(d) {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }
 
+// fresh returns a copy of c to check one loop with.
+func (c *leaveCheck) fresh() *leaveCheck {
+	lc := *c
+	lc.memo = map[leaveKey]int8{}
+	return &lc
+}
+
+// forLoop returns the check of the for or range statement loop.
+func (c *leaveCheck) forLoop(loop ast.Node, body *ast.BlockStmt) *leaveCheck {
+	lc := c.fresh()
+	lc.loop = loop
+	lc.body = body
+	lc.lo, lc.hi = body.Pos(), body.End()
+	if ls, ok := c.parent[loop].(*ast.LabeledStmt); ok {
+		lc.label, _ = c.info.Defs[ls.Label].(*types2.Label)
+	}
+	return lc
+}
+
+// hasGotoTo reports whether st contains a goto statement that names the
+// label l.
+func (c *leaveCheck) hasGotoTo(st ast.Stmt, l *types2.Label) bool {
+	found := false
+	ast.Inspect(st, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.BranchStmt:
+			if n.Tok == token.GOTO && c.labelOf(n) == l {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+// A leaveCheck decides, for one loop, whether every path from a statement
+// of it leaves the loop (deferInLoopOK). The loop is a for or range
+// statement (loop, with its body), or a loop made by a backward goto: the
+// statements of the list gotoOwner from the label up to the one with index
+// gotoLast, which holds the goto.
 type leaveCheck struct {
-	info   *types2.Info
-	loop   *ast.RangeStmt
-	label  *types2.Label // the loop's label, or nil
-	parent map[ast.Node]ast.Node
-	labels map[*types2.Label]*ast.LabeledStmt
-	memo   map[leaveKey]int8
+	l         *Lowerer
+	info      *types2.Info
+	loop      ast.Node // the for or range statement, or nil
+	body      *ast.BlockStmt
+	label     *types2.Label // the loop's label, or nil
+	lo, hi    token.Pos     // the extent of the loop's body
+	gotoOwner ast.Node
+	gotoLast  int
+	parent    map[ast.Node]ast.Node
+	labels    map[*types2.Label]*ast.LabeledStmt
+	memo      map[leaveKey]int8
+}
+
+// inside reports whether n is in the loop's body.
+func (c *leaveCheck) inside(n ast.Node) bool {
+	return n.Pos() >= c.lo && n.End() <= c.hi
 }
 
 // A leaveKey is a position in a statement list: its owner (a block or a
@@ -135,9 +246,12 @@ func (c *leaveCheck) from(owner ast.Node, i int) bool {
 	c.memo[key] = 3
 	list := stmtList(owner)
 	var ok bool
-	if i >= len(list) {
+	switch {
+	case c.loop == nil && owner == c.gotoOwner && i > c.gotoLast:
+		ok = true // past the goto
+	case i >= len(list):
 		ok = c.afterList(owner)
-	} else {
+	default:
 		ok = c.stmt(list[i], func() bool { return c.from(owner, i+1) })
 	}
 	c.memo[key] = 2
@@ -150,7 +264,7 @@ func (c *leaveCheck) from(owner ast.Node, i int) bool {
 // afterList reports whether every path leaves the loop once owner's list
 // has run to its end.
 func (c *leaveCheck) afterList(owner ast.Node) bool {
-	if owner == ast.Node(c.loop.Body) {
+	if c.body != nil && owner == ast.Node(c.body) {
 		return false // the next iteration
 	}
 	switch owner.(type) {
@@ -163,7 +277,7 @@ func (c *leaveCheck) afterList(owner ast.Node) bool {
 	case *ast.BlockStmt, *ast.CaseClause, *ast.CommClause:
 		return c.after(owner)
 	}
-	return false // a loop body
+	return false // the body of another loop, or of the function
 }
 
 // after reports whether every path leaves the loop once n has completed.
@@ -188,7 +302,7 @@ func (c *leaveCheck) stmt(n ast.Stmt, cont func() bool) bool {
 	case *ast.ReturnStmt:
 		return true
 	case *ast.ExprStmt:
-		if c.isPanic(n.X) {
+		if call, ok := ast.Unparen(n.X).(*ast.CallExpr); ok && c.l.callNeverReturns(c.info, call) {
 			return true
 		}
 	case *ast.BranchStmt:
@@ -246,8 +360,8 @@ func (c *leaveCheck) escapes(n ast.Stmt) bool {
 					t = ls
 				}
 			}
-			inside := t != nil && t != ast.Node(c.loop) && t.Pos() >= n.Pos() && t.End() <= n.End()
-			if !inside && !c.branch(m) {
+			within := t != nil && t != c.loop && t.Pos() >= n.Pos() && t.End() <= n.End()
+			if !within && !c.branch(m) {
 				ok = false
 			}
 		}
@@ -269,22 +383,23 @@ func (c *leaveCheck) labelOf(b *ast.BranchStmt) *types2.Label {
 func (c *leaveCheck) branch(b *ast.BranchStmt) bool {
 	switch b.Tok {
 	case token.GOTO:
-		return c.labels[c.labelOf(b)] == nil // a label outside the loop
+		ls := c.labels[c.labelOf(b)]
+		return ls == nil || !c.inside(ls)
 	case token.BREAK:
-		switch t := c.breakTarget(b); t {
-		case nil, ast.Node(c.loop):
+		t := c.breakTarget(b)
+		if t == nil || t == c.loop || !c.inside(t) {
 			return true
-		default:
-			return c.after(t)
 		}
+		return c.after(t)
 	case token.CONTINUE:
-		return c.continueTarget(b) == nil
+		t := c.continueTarget(b)
+		return t == nil || t != c.loop && !c.inside(t)
 	}
 	return false // fallthrough
 }
 
-// breakTarget returns the statement b breaks out of: the loop itself, a
-// statement in its body, or nil for a statement outside it.
+// breakTarget returns the statement b breaks out of, or nil if there is
+// none.
 func (c *leaveCheck) breakTarget(b *ast.BranchStmt) ast.Node {
 	return c.target(b, func(n ast.Node) bool {
 		switch n.(type) {
@@ -322,17 +437,4 @@ func (c *leaveCheck) target(b *ast.BranchStmt, is func(ast.Node) bool) ast.Node 
 		}
 	}
 	return nil
-}
-
-func (c *leaveCheck) isPanic(e ast.Expr) bool {
-	call, ok := ast.Unparen(e).(*ast.CallExpr)
-	if !ok {
-		return false
-	}
-	id, ok := ast.Unparen(call.Fun).(*ast.Ident)
-	if !ok {
-		return false
-	}
-	b, ok := c.info.Uses[id].(*types2.Builtin)
-	return ok && b.Name() == "panic"
 }

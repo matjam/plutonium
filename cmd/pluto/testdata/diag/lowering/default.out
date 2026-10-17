@@ -1,12 +1,20 @@
-$DIR/main.p:5:3: defer inside a loop is not supported in Plutonium (it would need unbounded stack); move the loop body into a function
-    A defer statement inside a loop would add a deferred call on every
-    iteration, and each needs room in the function's stack frame until it
-    returns. Plutonium gives every deferred call a fixed slot in the frame, so
-    the number must be known when compiling.
-    Move the loop body into a function of its own; its defer then runs at the
-    end of each iteration.
-    Go stores such deferred calls on the heap. Plutonium never allocates behind
-    the program's back, and kernel stacks are small and fixed.
+$DIR/main.p:5:3: defer in a loop: a path from it can reach it again without leaving the loop (a defer statement runs at most once in each call of the function); move the loop body into a function
+    A defer statement in a loop would add a deferred call on every iteration,
+    and each needs room in the function's stack frame until it returns.
+    Plutonium gives every deferred call a fixed slot in the frame, so a defer
+    statement may run at most once in each call of the function.
+    This defer is allowed in a loop only if every path from it leaves every loop
+    that contains it before it can reach the defer again. A path leaves by
+    return, by a call of panic or of a function that never returns, by goto to a
+    label outside the loop, by a break that ends the loop, or by a labeled
+    continue of a loop outside it. An unlabeled continue does not leave. The
+    rule is the same for a for statement, a range statement, the body of a loop
+    over a function (for x := range seq) and a loop made by a backward goto.
+    If the deferred call should run at the end of each iteration, move the loop
+    body into a function of its own; its defer then runs at the end of each
+    iteration.
+    Go keeps the deferred calls of a loop in a list on the heap. Plutonium never
+    allocates behind the program's back, and kernel stacks are small and fixed.
     Move the body into a function:
         for _, name := range names {
             process(name)
@@ -20,5 +28,11 @@ $DIR/main.p:5:3: defer inside a loop is not supported in Plutonium (it would nee
     (see "Defer statements" in the Plutonium spec, section 12.19)
     (run "pluto explain E2530" for a longer explanation)
 
-$DIR/main.p:12:2: defer inside a loop is not supported in Plutonium (it would need unbounded stack); move the loop body into a function
+$DIR/main.p:12:2: defer in a loop: a path from it can reach it again without leaving the loop (a defer statement runs at most once in each call of the function); move the loop body into a function
+    (explained above; run "pluto explain E2530" for more)
+
+$DIR/main.p:23:4: defer in a loop: a path from it can reach it again without leaving the loop (a defer statement runs at most once in each call of the function); move the loop body into a function
+    (explained above; run "pluto explain E2530" for more)
+
+$DIR/main.p:33:4: defer in a loop: a path from it can reach it again without leaving the loop (a defer statement runs at most once in each call of the function); move the loop body into a function
     (explained above; run "pluto explain E2530" for more)

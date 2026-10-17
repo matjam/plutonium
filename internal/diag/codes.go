@@ -28,7 +28,9 @@ const (
 // returned closures were built in regions their callers provide (E3100),
 // and E2544 and E2545 restricted string operations to functions marked
 // //pu:alloc in kernel mode, before allocation in interrupt context was
-// checked over the whole program (E2584); they are retired.
+// checked over the whole program (E2584), and E2533 (a defer in the body of a
+// range-over-func loop) is folded into E2530, the one rule for a defer in any
+// loop (language spec section 12.19); they are retired.
 const (
 	NotYetSupported   Code = "E2500" // a construct the compiler cannot compile yet
 	ExternWithBody    Code = "E2510" // a //pu:extern function with a body
@@ -39,7 +41,6 @@ const (
 	DeferInLoop       Code = "E2530" // defer inside a loop
 	TooManyDefers     Code = "E2531" // more than 64 defers in one function
 	DeferBuiltin      Code = "E2532" // defer of a builtin such as copy
-	DeferInRangeFunc  Code = "E2533" // a defer in a range-over-func loop body that may run once per iteration
 	DeferLitCapture   Code = "E2534" // a literal deferred in a range-over-func loop body captures the body's variables
 	ErrorsNewValue    Code = "E2542" // errors.New used other than by calling it
 	PerCPUInit        Code = "E2550" // a per-CPU variable with a non-constant initialiser

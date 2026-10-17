@@ -774,9 +774,7 @@ func (s *fnState) rangeChan(st *ast.RangeStmt, label *types2.Label) {
 		s.releaseAt(tmp, et)
 	}
 	s.targets = append(s.targets, &target{label: label, breakTo: done, contTo: head, depth: len(s.cleanups)})
-	s.loopDepth++
 	s.block(st.Body, st.Body.List)
-	s.loopDepth--
 	s.targets = s.targets[:len(s.targets)-1]
 	s.endPlain(head)
 	s.seal(head)

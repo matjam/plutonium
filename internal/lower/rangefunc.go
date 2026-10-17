@@ -270,7 +270,6 @@ func (bs *fnState) rangeSetup(rf *rangeFunc) []value {
 	bs.capPtrs = map[*ssa.Value]*ssa.Value{}
 	bs.info = rf.parent.info
 	bs.pkg = rf.parent.pkg
-	bs.loopDepth = rf.parent.loopDepth
 	bs.ctx = bs.newValue(ssa.OpClosurePtr, ssa.TPtr)
 	bs.initMem = bs.mem()
 	return bs.incomingArgs(bs.job.sig)

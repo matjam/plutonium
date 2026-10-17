@@ -52,11 +52,10 @@ type fnState struct {
 	// gxBoundary says what a call that ends with rt.ExitTask does here, when
 	// it does not just leave the function (goexit.go).
 	gxBoundary      gxBoundary
-	cleanupGoexit   *ssa.Value  // generated destruction completes before propagating Goexit
-	implicitGoexit  *ssa.Value  // exits raised by completed implicit destruction
-	implicitGoexits int         // implicit destruction calls emitted in this function
-	goexitCleared   *types2.Var // a whole variable destroyed before an implicit exit
-	loopDepth       int
+	cleanupGoexit   *ssa.Value          // generated destruction completes before propagating Goexit
+	implicitGoexit  *ssa.Value          // exits raised by completed implicit destruction
+	implicitGoexits int                 // implicit destruction calls emitted in this function
+	goexitCleared   *types2.Var         // a whole variable destroyed before an implicit exit
 	shutdownLocal   map[*ssa.Value]bool // bounds-checked inline local array addresses
 	closures        int                 // counter for naming closures
 	taskStmts       int                 // counter for naming task statement thunks

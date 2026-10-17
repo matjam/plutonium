@@ -276,9 +276,7 @@ func (s *fnState) rangeMap(st *ast.RangeStmt, label *types2.Label) {
 	s.seal(body)
 	s.startBlock(body)
 	s.targets = append(s.targets, &target{label: label, breakTo: done, contTo: post, depth: len(s.cleanups)})
-	s.loopDepth++
 	s.block(st.Body, st.Body.List)
-	s.loopDepth--
 	s.targets = s.targets[:len(s.targets)-1]
 	s.endPlain(post)
 	s.seal(post)

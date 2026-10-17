@@ -1,0 +1,21 @@
+lock and return
+  run unlock b
+  b
+break out
+  run break out
+  2
+labeled break
+  after loops
+  run labeled break
+nested
+  run nested
+goto out
+  done
+  run goto out
+backward goto
+  i 3
+  run backward goto
+panic leaves
+  run panic leaves
+range
+  run range x

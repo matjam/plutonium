@@ -1,26 +1,32 @@
-$DIR/main.p:17:3: defer in the body of a range-over-func loop must be followed by a return, or a break or goto out of the loop (otherwise it may run once per iteration, which would need unbounded stack)
-    The body of a loop over a function (for x := range seq) runs once for each
-    value the iterator yields, so a defer statement in it is a defer inside a
-    loop. Its deferred call belongs to the function the loop is in and runs when
-    that function returns, as in Go. Plutonium gives each defer statement one
-    slot in that function's frame, so the defer may run at most once per call:
-    after it, every path must leave the loop, by return, by panic, or by break,
-    continue or goto to a statement outside the loop.
-    If the deferred call should run at the end of each iteration, move the body
-    into a function of its own.
-    Go keeps the deferred calls of such a loop in a list on the heap. Plutonium
-    never allocates behind the program's back, and kernel stacks are small and
-    fixed.
-    Leave the loop after the defer, or give the body a function of its own:
-        for item := range items.All() {
-            if item.ID == id {
-                item.mu.Lock()
-                defer item.mu.Unlock()
-                return item.Value
-            }
+$DIR/main.p:17:3: defer in a loop: a path from it can reach it again without leaving the loop (a defer statement runs at most once in each call of the function); move the loop body into a function
+    A defer statement in a loop would add a deferred call on every iteration,
+    and each needs room in the function's stack frame until it returns.
+    Plutonium gives every deferred call a fixed slot in the frame, so a defer
+    statement may run at most once in each call of the function.
+    This defer is allowed in a loop only if every path from it leaves every loop
+    that contains it before it can reach the defer again. A path leaves by
+    return, by a call of panic or of a function that never returns, by goto to a
+    label outside the loop, by a break that ends the loop, or by a labeled
+    continue of a loop outside it. An unlabeled continue does not leave. The
+    rule is the same for a for statement, a range statement, the body of a loop
+    over a function (for x := range seq) and a loop made by a backward goto.
+    If the deferred call should run at the end of each iteration, move the loop
+    body into a function of its own; its defer then runs at the end of each
+    iteration.
+    Go keeps the deferred calls of a loop in a list on the heap. Plutonium never
+    allocates behind the program's back, and kernel stacks are small and fixed.
+    Move the body into a function:
+        for _, name := range names {
+            process(name)
         }
-    (see "Range over functions" in the Plutonium spec, section 12.11)
-    (run "pluto explain E2533" for a longer explanation)
+
+        func process(name string) {
+            f := open(name)
+            defer f.Close()
+            ...
+        }
+    (see "Defer statements" in the Plutonium spec, section 12.19)
+    (run "pluto explain E2530" for a longer explanation)
 
 $DIR/main.p:24:10: a function literal deferred in a range-over-func loop body cannot capture x, a variable of the loop body: the deferred call runs after the body has returned
     A function literal deferred in the body of a loop over a function runs when

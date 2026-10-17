@@ -120,7 +120,7 @@ func main() {
 		defer use(x)
 	}
 }
-`, "defer in the body of a range-over-func loop must be followed by"},
+`, "defer in a loop: a path from it can reach it again"},
 		{"defer then continue", `
 func main() {
 	for x := range seq {
@@ -130,7 +130,7 @@ func main() {
 		}
 	}
 }
-`, "defer in the body of a range-over-func loop must be followed by"},
+`, "defer in a loop: a path from it can reach it again"},
 		{"defer leaves inner loop only", `
 func main() {
 	for x := range seq {
@@ -140,7 +140,7 @@ func main() {
 		}
 	}
 }
-`, "defer in the body of a range-over-func loop must be followed by"},
+`, "defer in a loop: a path from it can reach it again"},
 		{"defer one branch stays", `
 func main() {
 	for x := range seq {
@@ -150,7 +150,7 @@ func main() {
 		}
 	}
 }
-`, "defer in the body of a range-over-func loop must be followed by"},
+`, "defer in a loop: a path from it can reach it again"},
 		{"defer then continue from a loop", `
 func main() {
 outer:
@@ -164,7 +164,7 @@ outer:
 		return
 	}
 }
-`, "defer in the body of a range-over-func loop must be followed by"},
+`, "defer in a loop: a path from it can reach it again"},
 		{"defer then goto in the body", `
 func main() {
 	for x := range seq {
@@ -176,7 +176,7 @@ func main() {
 		return
 	}
 }
-`, "defer inside a loop is not supported"}, // the goto makes a loop in the body
+`, "defer in a loop: a path from it can reach it again"}, // the goto makes a loop in the body
 		{"defer in a loop in the body", `
 func main() {
 	for x := range seq {
@@ -186,7 +186,7 @@ func main() {
 		return
 	}
 }
-`, "defer inside a loop is not supported"},
+`, "defer in a loop: a path from it can reach it again"},
 		{"deferred literal captures body variable", `
 func main() {
 	for x := range seq {
