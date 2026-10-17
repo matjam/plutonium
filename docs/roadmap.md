@@ -48,7 +48,7 @@ against the corrected specification. The immediate implementation order is:
      validation where needed, preserving owner pointer receivers and ordinary nonowner
      value receivers. Source inspection establishes a missing local guard, not a
      demonstrated native wrong-code result.
-104. **`strings.Slice`, `strings.SliceFrom` and E2019** (planned; decision D9; sections 7.3, 11.12,
+104. **`strings.Slice`, `strings.SliceFrom` and E2019** (done, `13c2a00f`; decision D9; sections 7.3, 11.12,
      17.1, F.6). A slice expression on a string is the compile error E2019
      (`StringSliceNotPermitted`, `pspec("11.12", "Slice expressions")`) with a fix that spells the
      `strings.Slice` or `strings.SliceFrom` call. `lib/pluto/strings` declares `Slice[S ~string]` and
@@ -121,13 +121,13 @@ against the corrected specification. The immediate implementation order is:
      of any owner type, declared `Drop` or not, as the early-drop operation (not a method value, not in the
      method set). Tests: `type Log owner File` closes the file on drop, `x.Drop()` on a type with no `Drop`,
      E3307 and E3303 unchanged.
-114. **`print` and `println` argument types and float format** (planned; decision D19; sections 13.12,
+114. **`print` and `println` argument types and float format** (done, `28c8e545`; decision D19; sections 13.12,
      A.2, A.4). Accept a value whose underlying type is boolean, integer (enums included), floating-point or
      string; report the existing unprintable-argument error for an owner type, even over an integer, and for
      other types (catalog fix names `fmt` and `int32(fd)`). The float format is the shortest form
      of Go 1.27.2 (D19 withdrew the older fixed form), which the compiler already prints. Kernel-mode floats keep the bit-pattern form. Tests: defined integer
      types and enums, an owner over `int32` rejected.
-115. **`string(x)` accepts only `rune`** (planned; decision D23; sections 8.11, 11.24, A.2). In
+115. **`string(x)` accepts only `rune`** (done, `a8a5a048`; decision D23; sections 8.11, 11.24, A.2). In
      `internal/types2`, accept the single-value conversion only for type `rune` (identical to `int32`) or an
      untyped integer or rune constant, and the slice conversion only for a slice whose element type is `rune`
      (defined slice types included); report an error for `type myRune rune`, `type Fd int32` and `[]myRune`,
@@ -168,7 +168,7 @@ against the corrected specification. The immediate implementation order is:
      the `Free` of every installed allocator; take a bodyless declaration as not waiting unless marked
      `//pu:blocking`; keep `//pu:blocking` on functions with a body as a restriction only. Tests: a drop that
      frees through a waiting allocator in a handler, a bodyless function with and without the directive.
-121. **E3202 explanation shows `owner` on the declaration** (planned; decision D12; sections 7.18, 18).
+121. **E3202 explanation shows `owner` on the declaration** (done, `48c2c9ce`; decision D12; sections 7.18, 18).
      Update the catalog text of E3202 and `cmd/pluto/testdata/diag` so the explanation shows the declaration
      with `owner` inserted and says why the keyword is written (a change to a field's type elsewhere is
      reported at the declaration). Update `pluto explain` and the hover text if they repeat the old wording.
@@ -217,7 +217,7 @@ The implementation gaps of
 | 35 | Outstanding aliases across owner transfer (audit pending) | 102 | 8.8, 19.3 |
 | 36 | Nonconsuming owner indexing/length receivers (planned) | 103 | 11.11, 13.6 |
 | 37 | Bounded task-stack inference (planned) | 18 | 19.1 |
-| 38 | A string is cut with `strings.Slice`, E2019 (planned, D9) | 104, 74 | 7.3, 11.12, F.6 |
+| 38 | A string is cut with `strings.Slice`, E2019 (done, D9) | 104, 74 | 7.3, 11.12, F.6 |
 | 39 | Normal termination follows Go (done, D10) | 105 | 15.4, 19.1 |
 | 40 | `errors.New` has a fresh identity (done, D11) | 106 | 16.3 |
 
@@ -631,7 +631,7 @@ compiler (2026-10-11).
     parsers return counted `strconv.NumError` objects. Successful operations do not allocate an error.
     `io.EOF` and `os.ErrClosed` keep their sentinel identity. `flag` uses `errors.Is` to classify wrapped
     numeric range failures; file and parse context, counted lifetimes and allocation counts are tested.
-74. **`strings.Truncate` and `utf8.RuneStartBefore`** (planned, neither is in `lib/pluto` yet; sections
+74. **`strings.Truncate` and `utf8.RuneStartBefore`** (done, `13c2a00f`; sections
     7.3 and F.6): `Truncate(s, n)` returns the longest prefix of at most `n` bytes that ends on a rune
     boundary, and `RuneStartBefore(s, i)` rounds a byte offset down to the start of a rune. The panic of
     `strings.Slice` off a rune boundary names them (item 104).
