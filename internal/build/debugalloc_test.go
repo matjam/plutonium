@@ -532,9 +532,10 @@ func TestCallerPC(t *testing.T) {
 import (
 	"pluto/arch/x86"
 	"pluto/rt"
+	"pluto/sync/atomic"
 )
 
-var last uintptr
+var last atomic.Uintptr
 
 //pu:noinline
 func where() uintptr { return rt.CallerPC() }
@@ -542,7 +543,7 @@ func where() uintptr { return rt.CallerPC() }
 func here() uintptr { return rt.CallerPC() }
 
 //pu:interrupt
-func handler(f *x86.InterruptFrame) { last = rt.CallerPC() }
+func handler(f *x86.InterruptFrame) { last.Store(rt.CallerPC()) }
 
 func main() {
 	a, b := where(), where()

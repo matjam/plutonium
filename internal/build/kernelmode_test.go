@@ -448,27 +448,28 @@ func TestKernelInterruptXMM(t *testing.T) {
 	testguard.Parallel(t)
 	const src = `package main
 
-import "pluto/arch/x86"
+import (
+	"pluto/arch/x86"
+	"pluto/sync/atomic"
+)
 
-type V struct{ X, Y float64 }
-
-var count int
-var v V
+// A handler is a party in the data race rules, so what it shares is atomic.
+var count atomic.Int64
 var idt [2]uintptr
 
 //pu:noinline
-func work() { count += 2 }
+func work() { count.Add(2) }
 
 //pu:interrupt
 func tick(f *x86.InterruptFrame) {
-	count++
+	count.Add(1)
 	work()
 }
 
 //pu:fpu
 //pu:interrupt
 func ftick(f *x86.InterruptFrame) {
-	v.X = v.X * v.Y
+	f.RIP = uint64(float64(f.RIP) * 1.5)
 }
 
 func main() {

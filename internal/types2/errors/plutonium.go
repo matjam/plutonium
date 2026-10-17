@@ -76,6 +76,13 @@ const (
 	// slice or no backing, a bit field that crosses a byte boundary or a
 	// byte-level field that does not start on one (E2021).
 	BadPackedBytePlacement
+	// PerCPUAccess: an access to a //pu:percpu variable outside the region
+	// it needs (E2022), found by the race analysis.
+	PerCPUAccess
+	// PerCPUPointer: a pointer to a //pu:percpu variable used outside the
+	// region it was taken in, kept anywhere but a local variable, sent or
+	// passed to a task (E2023), found by the race analysis.
+	PerCPUPointer
 )
 
 // Packed types, bit fields, volatile, aligned and ring.

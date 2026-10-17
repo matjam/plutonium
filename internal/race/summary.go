@@ -113,7 +113,8 @@ func (r released) has(p vpath) bool {
 		return true
 	}
 	for _, q := range r.keys {
-		if q == p {
+		// A region released with no site names every region of its kind.
+		if q == p || q.root.kind == rRegion && q.root.pos == 0 && p.root.kind == rRegion && q.root.idx == p.root.idx {
 			return true
 		}
 	}
@@ -197,6 +198,7 @@ type access struct {
 	pre    bool        // the program only: before any task was started
 	tkey   string      // "field:T.f": the field of the object a pointer led to, for the type rule
 	typ    types2.Type // the type of what is used, when known (scope.go)
+	cpu    *cpuUse     // a use of a per-CPU variable (region.go), which the rules of sharing do not see
 }
 
 // An accKey identifies what matters of an access for the rules; accesses
@@ -206,10 +208,14 @@ type accKey struct {
 	flags uint8
 	tkey  string
 	locks string // the locks and released locks, when there are any
+	cpu   string // a use of a per-CPU variable
 }
 
 func (x *access) key() accKey {
 	k := accKey{place: x.place, tkey: x.tkey}
+	if x.cpu != nil {
+		k.cpu = x.cpu.key()
+	}
 	if x.write {
 		k.flags |= 1
 	}
@@ -238,12 +244,13 @@ type paramCall struct {
 // A spawn is a task start: a task statement, or a function value handed to
 // the runtime's task start (rt.Go, time.AfterFunc).
 type spawn struct {
-	pos   token.Pos // the task statement or the call that starts the task
-	root  origins   // the function the task runs: rFunc, rLit, or a parameter
-	args  []origins // its arguments, receiver first
-	multi bool      // may run more than once, so several instances at a time
-	via   []frame
-	desc  string // "task worker(...)"
+	pos     token.Pos // the task statement or the call that starts the task
+	root    origins   // the function the task runs: rFunc, rLit, or a parameter
+	args    []origins // its arguments, receiver first
+	multi   bool      // may run more than once, so several instances at a time
+	handler bool      // an interrupt handler the program installs (x86.HandlerAddr), not a task
+	via     []frame
+	desc    string // "task worker(...)"
 }
 
 func (s *spawn) key() string {
@@ -259,7 +266,7 @@ func (s *spawn) key() string {
 		}
 		b.WriteString("/")
 	}
-	fmt.Fprintf(&b, "|%v", s.multi)
+	fmt.Fprintf(&b, "|%v|%v", s.multi, s.handler)
 	return b.String()
 }
 
@@ -326,6 +333,7 @@ type summary struct {
 	exitLocks lockset // taken and still held when it returns
 	exitRel   released
 	maySpawn  bool
+	mayAlloc  bool   // it may allocate, so it may call an allocator's Alloc (section 20.10)
 	pubParams bits   // parameters whose memory it publishes
 	fresh     []bool // results that are memory it allocated and did not publish
 	notFresh  []bool
@@ -453,7 +461,7 @@ func (s *summary) equal(t *summary) bool {
 		!sameSet(s.spKeys, t.spKeys) || !sameSet(s.crKeys, t.crKeys) {
 		return false
 	}
-	if s.maySpawn != t.maySpawn || s.pubParams != t.pubParams || !s.exitLocks.equal(t.exitLocks) || !s.exitRel.equal(t.exitRel) {
+	if s.maySpawn != t.maySpawn || s.mayAlloc != t.mayAlloc || s.pubParams != t.pubParams || !s.exitLocks.equal(t.exitLocks) || !s.exitRel.equal(t.exitRel) {
 		return false
 	}
 	if fmt.Sprint(s.fresh, s.notFresh) != fmt.Sprint(t.fresh, t.notFresh) || len(s.results) != len(t.results) {

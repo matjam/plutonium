@@ -5,7 +5,9 @@ package main
 
 import (
 	"pluto/arch/x86"
+	"pluto/math"
 	"pluto/rt"
+	"pluto/sync/atomic"
 	"unsafe"
 )
 
@@ -50,31 +52,33 @@ func setGate(vec int, h uintptr) {
 	idt[vec][1] = addr >> 32
 }
 
+// What the handlers record is atomic: a handler is a party in the data race
+// rules (language spec section 19.3), and may run on several processors.
 var (
-	softCount   int
-	softAlign   uint64
-	softCS      uint64
-	faultCode   uint64
-	faultCount  int
-	faultAlign  uint64
-	fpuInHandle float64
+	softCount   atomic.Int64
+	softAlign   atomic.Uint64
+	softCS      atomic.Uint64
+	faultCode   atomic.Uint64
+	faultCount  atomic.Int64
+	faultAlign  atomic.Uint64
+	fpuInHandle atomic.Uint64 // the bits of a float64
 )
 
 //pu:interrupt
 func soft(f *x86.InterruptFrame) {
-	softCount++
-	softAlign = stackMod16()
-	softCS = f.CS
+	n := softCount.Add(1)
+	softAlign.Store(stackMod16())
+	softCS.Store(f.CS)
 	// Calls and floats clobber caller-saved registers, XMM ones included.
-	fpuInHandle = float64(softCount) * 1.5
+	fpuInHandle.Store(math.Float64bits(float64(n) * 1.5))
 	println("in handler: vector 0x80, cs", f.CS)
 }
 
 //pu:interrupt
 func generalProtection(f *x86.InterruptFrame, code uint64) {
-	faultCount++
-	faultCode = code
-	faultAlign = stackMod16()
+	faultCount.Add(1)
+	faultCode.Store(code)
+	faultAlign.Store(stackMod16())
 	f.RIP += 2 // skip the faulting mov to DS
 }
 
@@ -87,9 +91,9 @@ func main() int64 {
 	lidt(unsafe.Pointer(&idtr))
 
 	changed := softInt()
-	println("int 0x80: count", softCount, "registers changed", changed, "stack mod 16", softAlign, "cs", softCS)
-	println("float in handler x2:", int(fpuInHandle*2))
+	println("int 0x80: count", softCount.Load(), "registers changed", changed, "stack mod 16", softAlign.Load(), "cs", softCS.Load())
+	println("float in handler x2:", int(math.Float64frombits(fpuInHandle.Load())*2))
 	badSegment()
-	println("#GP: count", faultCount, "error code", faultCode, "stack mod 16", faultAlign)
+	println("#GP: count", faultCount.Load(), "error code", faultCode.Load(), "stack mod 16", faultAlign.Load())
 	return 0
 }

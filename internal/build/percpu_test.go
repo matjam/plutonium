@@ -82,7 +82,10 @@ func TestPerCPUErrors(t *testing.T) {
 
 const perCPUSource = `package main
 
-import "pluto/arch/x86"
+import (
+	"pluto/arch/x86"
+	"pluto/rt"
+)
 
 //pu:percpu
 var counter int64 = 5
@@ -99,9 +102,11 @@ var current *int
 var regular int
 
 func main() {
+	rt.DisablePreemption()
 	counter++
 	hist[1] = uint16(len(name))
 	current = &regular
+	rt.EnablePreemption()
 	x86.Hlt()
 }
 `

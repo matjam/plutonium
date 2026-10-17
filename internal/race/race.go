@@ -30,6 +30,13 @@
 //     piece of data under the guard rule, with the lock found in the struct
 //     the map is a field of or at package level (checkMaps).
 //
+// Interrupt handlers the program installs (x86.HandlerAddr) are parties of
+// the first three rules like tasks that may run several at once; the
+// allocators a handler may reach are followed too (region.go). The regions
+// of section 19.3 (preemption or interrupts disabled, an rt.Lock held) are
+// found as pseudo locks, and the uses of //pu:percpu variables are checked
+// against them (E2022, E2023; section 20.9) instead of by rule 1.
+//
 // The analysis is whole-program and works on the typed syntax tree after
 // the escape analysis, and only when code reachable from the program's
 // start can start a task. Each function gets a summary: what it does
@@ -191,6 +198,16 @@ type analyzer struct {
 	program             *function
 	inits               []*function
 
+	// Per-CPU variables and regions (region.go).
+	cpuOn      bool                  // the program has a per-CPU variable outside the runtime
+	cpuVars    map[*types2.Var]bool  // the per-CPU variables outside the runtime
+	cpuUses    map[token.Pos]*cpuUse // every use of one, by the position of the identifier
+	regionSets []lockset             // the sets of regions held where pointers to them were taken
+	regionIDs  map[string]int        // their numbers, by content
+	handlers   []*function           // the interrupt handlers the program installs
+	allocFns   []*function           // the Alloc and Free methods of installed allocators (when there are handlers)
+	allocDone  bool
+
 	owned   ownedViews // view fields that own what they point to (ownedview.go)
 	declPkg map[*types2.Package]*load.Package
 
@@ -320,6 +337,7 @@ func newAnalyzer(prog *load.Program) *analyzer {
 		}
 	}
 	a.scanValues()
+	a.scanPerCPU()
 	return a
 }
 
@@ -486,58 +504,89 @@ func (a *analyzer) mayStartTasks() bool {
 		}
 	}
 	spawns := false
-	for len(work) > 0 {
-		u := work[len(work)-1]
-		work = work[:len(work)-1]
-		if !spawns && a.unitSpawns(u) {
-			if debug {
-				fmt.Fprintf(os.Stderr, "race: %s may start a task\n", u.fns[len(u.fns)-1].name)
+	seenHandler := map[*function]bool{}
+	drain := func() {
+		for len(work) > 0 {
+			u := work[len(work)-1]
+			work = work[:len(work)-1]
+			unitSpawns, installs := a.scanUnit(u)
+			if !spawns && unitSpawns {
+				if debug {
+					fmt.Fprintf(os.Stderr, "race: %s may start a task\n", u.fns[len(u.fns)-1].name)
+				}
+				spawns = true
 			}
-			spawns = true
-		}
-		for c := range u.callee {
-			add(c)
-		}
-		for _, f := range a.values {
-			if reach[f.unit] {
-				continue
+			// An interrupt handler the program installs runs beside every
+			// task, so its code is part of the program (spec section 19.3).
+			for _, h := range installs {
+				if !seenHandler[h] {
+					seenHandler[h] = true
+					a.handlers = append(a.handlers, h)
+					add(h.unit)
+				}
 			}
-			if u.dynAll {
-				add(f.unit)
-				continue
+			for c := range u.callee {
+				add(c)
 			}
-			for _, sig := range u.dynSigs {
-				if sameShape(f.sig, sig) {
+			for _, f := range a.values {
+				if reach[f.unit] {
+					continue
+				}
+				if u.dynAll {
 					add(f.unit)
-					break
+					continue
+				}
+				for _, sig := range u.dynSigs {
+					if sameShape(f.sig, sig) {
+						add(f.unit)
+						break
+					}
 				}
 			}
 		}
 	}
+	drain()
+	if len(a.handlers) > 0 {
+		// A handler that allocates calls the Alloc and Free of the
+		// allocators the program installs (section 20.10): they are part
+		// of the program.
+		for _, f := range a.allocatorMethods() {
+			add(f.unit)
+		}
+		drain()
+	}
 	a.reach = reach
-	return spawns
+	// One task alone cannot race, but a handler is a party beside it, and
+	// the uses of per-CPU variables are checked in every program.
+	return spawns || len(a.handlers) > 0 || a.cpuOn
 }
 
-// unitSpawns reports whether a unit's code starts a task itself.
-func (a *analyzer) unitSpawns(u *unit) bool {
-	found := false
+// scanUnit reports whether a unit's code starts a task itself, and which
+// interrupt handlers it installs (x86.HandlerAddr).
+func (a *analyzer) scanUnit(u *unit) (spawns bool, handlers []*function) {
 	for _, f := range u.fns {
-		if f.body == nil || found {
+		if f.body == nil {
 			continue
 		}
 		ast.Inspect(f.body, func(n ast.Node) bool {
 			switch n := n.(type) {
 			case *ast.TaskStmt:
-				found = true
+				spawns = true
+			case *ast.CallExpr:
+				if len(n.Args) == 1 {
+					if h := a.handlerOf(n); h != nil {
+						handlers = append(handlers, h)
+					}
+				}
 			case *ast.Ident:
 				if fn, ok := a.uses[n].(*types2.Func); ok && scoped.StartsTaskWithFunc(fn) {
-					found = true
+					spawns = true
 				}
 			}
-			return !found
+			return true
 		})
 	}
-	return found
+	return spawns, handlers
 }
 
 // run computes every summary: units in the order of the call graph, each

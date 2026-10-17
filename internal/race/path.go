@@ -47,6 +47,7 @@ const (
 	rFunc                    // a declared function used as a value
 	rLit                     // a function literal used as a value
 	rUnknown                 // memory a pointer the analysis cannot follow points to
+	rRegion                  // a region of code (region.go): preemption or interrupts disabled, a runtime lock held
 )
 
 // A root is where a path starts.
@@ -56,7 +57,7 @@ type root struct {
 	idx  int          // rParam
 	node ast.Node     // rFresh: the allocation; rLit: the *ast.FuncLit
 	fn   *types2.Func // rFunc
-	pos  token.Pos    // rUnknown: where the pointer was used, when v is nil
+	pos  token.Pos    // rUnknown: where the pointer was used, when v is nil; rRegion: the call that opened it
 }
 
 // A vpath is a value or a place: a root and a path from it.
@@ -165,6 +166,8 @@ func (r root) key() string {
 		return "func " + r.fn.FullName()
 	case rLit:
 		return fmt.Sprintf("lit@%d", r.node.Pos())
+	case rRegion:
+		return fmt.Sprintf("region%d@%d", r.idx, r.pos)
 	case rUnknown:
 		if r.v != nil {
 			return fmt.Sprintf("unknown(%s@%d)", r.v.Name(), r.v.Pos())

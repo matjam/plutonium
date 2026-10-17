@@ -1,0 +1,2 @@
+$DIR/main.p:38:2: ticks++ uses the per-CPU variable ticks outside a region where the task cannot move to another processor
+$DIR/main.p:44:2: irqs++ uses the per-CPU variable irqs outside a region with interrupts disabled, which it needs because the interrupt handler timer also uses it

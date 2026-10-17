@@ -83,8 +83,9 @@ type walker struct {
 	sum *summary
 	st  *state
 
-	quiet      int // inside a loop's trial iterations: record nothing
-	loops      int // loop nesting, for spawns that may run more than once
+	quiet      int         // inside a loop's trial iterations: record nothing
+	loopPos    []token.Pos // the loops being walked, innermost last
+	loops      int         // loop nesting, for spawns that may run more than once
 	targets    []*target
 	exit       *state
 	defers     []*ast.CallExpr
@@ -200,6 +201,9 @@ func (w *walker) deferred(c *ast.CallExpr) {
 	if op, recv := w.lockOp(c); op != "" {
 		if op == "unlock" {
 			w.unlock(recv)
+			if w.isRTLock(recv) {
+				w.region(regLock, false, c.Pos())
+			}
 		}
 		return
 	}
@@ -281,6 +285,8 @@ func (w *walker) stmt(st ast.Stmt, label string) {
 		w.st = join(after, w.st)
 	case *ast.ForStmt:
 		w.stmt(st.Init, "")
+		w.loopPos = append(w.loopPos, st.Pos())
+		defer func() { w.loopPos = w.loopPos[:len(w.loopPos)-1] }()
 		w.loop(label, func() *state {
 			if st.Cond == nil {
 				return &state{dead: true}
@@ -349,7 +355,7 @@ func (w *walker) stmt(st ast.Stmt, label string) {
 		}
 		w.conv(st.Value, elem)
 		w.cross(&crossing{pos: st.Arrow, what: "the value sent on " + exprText(st.Chan), typ: elem, vals: v, expr: st.Value})
-		w.publish(v)
+		w.publishAt(v, st.Arrow, "sent on a channel")
 	default:
 		panic(fmt.Sprintf("race: unsupported statement %T", st))
 	}
@@ -421,6 +427,8 @@ func (w *walker) loop(label string, cond func() *state, body, post func()) {
 }
 
 func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
+	w.loopPos = append(w.loopPos, st.Pos())
+	defer func() { w.loopPos = w.loopPos[:len(w.loopPos)-1] }()
 	xt := w.typeOf(st.X)
 	var key, val origins
 	if xt != nil && types2.RangesByMethod(xt) {
@@ -563,6 +571,7 @@ func (w *walker) returnStmt(st *ast.ReturnStmt) {
 			}
 		}
 		for i, v := range vals {
+			w.cpuSink(v, st.Pos(), "returned")
 			w.sum.addResult(i, v)
 			if len(st.Results) == len(vals) && isNil(w.a, st.Results[i]) {
 				continue // nil is no memory at all: it does not decide
@@ -659,6 +668,9 @@ func (w *walker) assignStmt(st *ast.AssignStmt) {
 	case token.ASSIGN, token.DEFINE:
 	default:
 		// x op= y reads and writes x.
+		if st.Tok == token.ADD_ASSIGN && isString(w.typeOf(st.Lhs[0])) {
+			w.sum.mayAlloc = true // a new string
+		}
 		w.value(st.Rhs[0])
 		w.readWrite(st.Lhs[0], st.Pos())
 		return
@@ -694,6 +706,7 @@ func (w *walker) assignTo(lhs ast.Expr, val origins, pos token.Pos) {
 				w.access(vpath{root: root{kind: rLocal, v: v}}, true, false, id.Pos(), v.Type(), false, "")
 				w.newScope(v)
 			}
+			w.cpuCarry(v, val, id.Pos())
 			w.setVar(v, val)
 			return
 		}
@@ -706,7 +719,7 @@ func (w *walker) assignTo(lhs ast.Expr, val origins, pos token.Pos) {
 	isMap := w.isMapIndex(lhs)
 	if isMap {
 		// m[k] = v stores the key too.
-		w.publish(w.value(lhs.(*ast.IndexExpr).Index))
+		w.publishAt(w.value(lhs.(*ast.IndexExpr).Index), lhs.Pos(), "stored in a map")
 	}
 	ps, ok := w.place(lhs)
 	if !ok {
@@ -769,10 +782,11 @@ func (w *walker) readWrite(e ast.Expr, pos token.Pos) {
 func (w *walker) store(ps []vpath, val origins, pos token.Pos) {
 	for _, p := range ps {
 		if p.root.kind == rLocal && localPath(p.path) {
+			w.cpuCarry(p.root.v, val, pos)
 			w.setVar(p.root.v, val.tagged2(fieldTag(p.path)))
 			continue
 		}
-		w.publish(val)
+		w.publishAt(val, pos, "stored where it outlives the region")
 	}
 }
 
@@ -873,6 +887,10 @@ func (w *walker) cond(e ast.Expr) (t, f *state) {
 				held.locks = held.locks.with(ps.ps[0], op == "trylock")
 				w.noteLocked(ps.ps[0])
 			}
+			if w.isRTLock(recv) {
+				held.locks = held.locks.with(regionAt(regLock, c.Pos()), true)
+				w.noteLocked(regionAny(regLock))
+			}
 			if neg {
 				return w.st.clone(), held
 			}
@@ -939,7 +957,7 @@ func (w *walker) taskStmt(st *ast.TaskStmt) {
 	}
 	all = append(all, args...)
 	for _, a := range all {
-		w.publish(a)
+		w.publishAt(a, st.Pos(), "passed to a new task")
 	}
 	var roots origins
 	switch {
@@ -1027,6 +1045,12 @@ func (w *walker) access(p vpath, write, atomic bool, pos token.Pos, T types2.Typ
 	if w.frame != nil {
 		w.frame.note(w, &frameAcc{place: p, write: write, atomic: atomic, pos: pos, typ: T, locks: w.st.locks})
 		return
+	}
+	if p.root.kind == rGlobal && w.a.cpuVars[p.root.v] {
+		var ok bool
+		if p, ok = w.cpuPlace(p, pos, w.st.locks, w.st.rel, !w.st.spawned, false, w.sum.addAccess); !ok {
+			return
+		}
 	}
 	init := w.initializing(p, w.st)
 	if key != "" {
@@ -1198,6 +1222,7 @@ func (w *walker) value1(e ast.Expr) origins {
 		case *types2.Var:
 			if isGlobal(obj) {
 				p := vpath{root: root{kind: rGlobal, v: obj}}
+				w.cpuSite(e, obj)
 				w.access(p, false, false, e.Pos(), obj.Type(), false, "")
 				return origins{{vp: p}}
 			}
@@ -1295,7 +1320,7 @@ func (w *walker) value1(e ast.Expr) origins {
 		switch u := underlying(w.typeOf(e.X)).(type) {
 		case *types2.Array:
 			if ps, ok := w.place(e.X); ok {
-				return addrsOf(extendAll(ps.ps, "[]"+part))
+				return w.addrsOfPlaces(extendAll(ps.ps, "[]"+part))
 			}
 			return w.value(e.X)
 		case *types2.Pointer:
@@ -1328,6 +1353,9 @@ func (w *walker) value1(e ast.Expr) origins {
 	case *ast.BinaryExpr:
 		w.value(e.X)
 		w.value(e.Y)
+		if e.Op == token.ADD && isString(w.typeOf(e)) && w.a.types[e].Value == nil {
+			w.sum.mayAlloc = true // a new string
+		}
 		return nil
 	case *ast.CallExpr:
 		res := w.call(e)
@@ -1416,6 +1444,7 @@ func (w *walker) place(e ast.Expr) (places, bool) {
 			return places{}, false
 		}
 		if isGlobal(v) {
+			w.cpuSite(e, v)
 			return places{ps: []vpath{{root: root{kind: rGlobal, v: v}}}}, true
 		}
 		return places{ps: []vpath{{root: root{kind: rLocal, v: v}}}}, true
@@ -1539,7 +1568,7 @@ func (w *walker) addrOf(e ast.Expr) origins {
 			w.a.addrTaken(p.root.v)
 		}
 	}
-	return addrsOf(ps.ps)
+	return w.addrsOfPlaces(ps.ps)
 }
 
 func (a *analyzer) addrTaken(v *types2.Var) {
@@ -1614,8 +1643,8 @@ func (w *walker) compLit(e *ast.CompositeLit) origins {
 		site := w.alloc(e)
 		for _, el := range e.Elts {
 			if kv, ok := el.(*ast.KeyValueExpr); ok {
-				w.publish(w.value(kv.Key))
-				w.publish(w.value(kv.Value))
+				w.publishAt(w.value(kv.Key), kv.Key.Pos(), "stored in a map")
+				w.publishAt(w.value(kv.Value), kv.Value.Pos(), "stored in a map")
 			}
 		}
 		return origins{{vp: site}}
@@ -1633,6 +1662,7 @@ func (w *walker) alloc(n ast.Node) vpath {
 		w.created = map[ast.Node]bool{}
 	}
 	w.created[n] = true
+	w.sum.mayAlloc = true
 	delete(w.st.pub, n)
 	return vpath{root: root{kind: rFresh, node: n}}
 }

@@ -14,25 +14,28 @@ func TestInterruptListing(t *testing.T) {
 	testguard.Parallel(t)
 	const src = `package main
 
-import "pluto/arch/x86"
+import (
+	"pluto/arch/x86"
+	"pluto/sync/atomic"
+)
 
-var ticks, lastCode uint64
-var scale float64
+// A handler is a party in the data race rules, so what it shares is atomic.
+var lastCode atomic.Uint64
 
 //pu:noinline
 func work(n uint64) uint64 { return n*3 + 1 }
 
 //pu:interrupt
-func leaf(f *x86.InterruptFrame) { ticks++ }
+func leaf(f *x86.InterruptFrame) { f.RIP++ }
 
 //pu:interrupt
 func caller(f *x86.InterruptFrame, code uint64) {
-	lastCode = work(code)
+	lastCode.Store(work(code))
 	f.RIP += 2
 }
 
 //pu:interrupt
-func floats(f *x86.InterruptFrame) { scale = scale*1.5 + float64(f.RIP) }
+func floats(f *x86.InterruptFrame) { f.RIP = uint64(float64(f.RIP)*1.5 + 2) }
 
 func main() {
 	println(x86.HandlerAddr(leaf) != 0, x86.HandlerAddr(caller) != 0, x86.HandlerAddr(floats) != 0)

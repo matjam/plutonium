@@ -1,0 +1,2 @@
+$DIR/main.p:49:2: ticks is written here with no lock that guards it, while another task or an interrupt handler may use it
+$DIR/main.p:51:10: state is read here without holding mu, which guards it

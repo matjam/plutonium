@@ -110,6 +110,10 @@ func main() int64 {
 	serialWrite(unsafe.Pointer(&buf[0]), out.Len())
 
 	b0, b1 := initBlock(0), initBlock(1)
+	// The program changes the GS base itself, to stand in for two
+	// processors; its uses of the array need a region where the task cannot
+	// move (language spec section 20.9).
+	rt.DisablePreemption()
 	x86.WriteGSBase(b0)
 	println("cpu0 initial", cpuID, ticks[0], ticks[3])
 	cpuID = 0
@@ -122,6 +126,7 @@ func main() int64 {
 	p := &ticks[1]
 	x86.Swapgs()
 	println("cpu0 again", cpuID, ticks[1], *p, x86.ReadGSBase() == b0)
+	rt.EnablePreemption()
 
 	flags := x86.SaveFlagsCli()
 	x86.RestoreFlags(flags)

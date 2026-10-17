@@ -22,14 +22,19 @@ const maxGroups = 2000
 type group struct {
 	main     bool
 	multi    bool // several tasks may run this at once
+	handler  bool // an interrupt handler the program installs
 	pos      token.Pos
 	desc     string
 	accesses []*access
+	cpu      []*cpuEntry // its uses of per-CPU variables, which section 20.9 checks
 }
 
 func (g *group) name(a *analyzer) string {
 	if g.main {
 		return "the main task"
+	}
+	if g.handler {
+		return fmt.Sprintf("the interrupt handler %s installed at %s", strings.TrimPrefix(g.desc, "handler "), a.short(g.pos))
 	}
 	return fmt.Sprintf("the task started by %s at %s", g.desc, a.short(g.pos))
 }
@@ -39,8 +44,15 @@ func (a *analyzer) check() {
 	a.finishWrites()
 	prog := a.program.sum
 	mainG := &group{main: true}
+	var cpuUses []*cpuEntry
+	a.addAllocators(prog, &state{pub: map[ast.Node]bool{}, spawned: true})
 	for _, x := range a.expandAll(prog) {
-		if !x.pre {
+		switch {
+		case x.cpu != nil:
+			e := &cpuEntry{x, mainG}
+			mainG.cpu = append(mainG.cpu, e)
+			cpuUses = append(cpuUses, e)
+		case !x.pre:
 			mainG.accesses = append(mainG.accesses, x)
 		}
 	}
@@ -65,9 +77,23 @@ func (a *analyzer) check() {
 			}
 			seen[k] = true
 			tw.sum = &summary{}
-			tw.apply(f, sp.args, sp.pos, f.name, &state{pub: map[ast.Node]bool{}, spawned: true}, nil)
+			base := &state{pub: map[ast.Node]bool{}, spawned: true}
+			if sp.handler && a.cpuOn {
+				base.locks = handlerRegions(f.decl.Pos())
+			}
+			tw.apply(f, sp.args, sp.pos, f.name, base, nil)
+			a.addAllocators(tw.sum, base)
 			pos, desc := a.userStart(sp)
-			g := &group{multi: sp.multi, pos: pos, desc: desc, accesses: a.expandAll(tw.sum)}
+			g := &group{multi: sp.multi, handler: sp.handler, pos: pos, desc: desc}
+			for _, x := range a.expandAll(tw.sum) {
+				if x.cpu != nil {
+					e := &cpuEntry{x, g}
+					g.cpu = append(g.cpu, e)
+					cpuUses = append(cpuUses, e)
+					continue
+				}
+				g.accesses = append(g.accesses, x)
+			}
 			groups = append(groups, g)
 			cross = append(cross, tw.sum.cross...)
 			queue = append(queue, tw.sum.spawns...)
@@ -78,6 +104,8 @@ func (a *analyzer) check() {
 	a.checkGlobals(groups)
 	a.checkSynced(groups)
 	a.checkMaps(groups, cross)
+	sortedCPU(cpuUses)
+	a.checkPerCPU(cpuUses, groups)
 }
 
 // expandAll returns the accesses of a task whose summary is s: its own,
@@ -188,6 +216,7 @@ func (x *expander) expand(f *function, env []origins, locks lockset, pre bool) {
 			locks:  compose(locks, substRel(acc.rel, env), substLocks(acc.locks, env)),
 			pos:    acc.pos,
 			pre:    pre && acc.pre,
+			cpu:    acc.cpu,
 		})
 	}
 	for _, ce := range s.edges {
@@ -270,7 +299,7 @@ func lockRoots(o origins) origins {
 func sharedLocks(ls lockset) lockset {
 	var out lockset
 	for _, l := range ls {
-		if l.place.root.kind == rGlobal || strings.Contains(l.place.path, "$") {
+		if l.place.root.kind == rGlobal || l.place.root.kind == rRegion || strings.Contains(l.place.path, "$") {
 			out = append(out, l)
 		}
 	}
@@ -843,7 +872,11 @@ func (a *analyzer) where(x *access) string {
 func (a *analyzer) noLockError(p, other entry, es []entry, rel func(lock) (string, bool), text func(*access) string) *diag.Diagnostic {
 	place := text(p.x)
 	verb := "written"
-	d := diag.New(a.pos(p.x.pos), diag.RaceNoLock, "%s is %s here with no lock that guards it, while another task may use it", place, verb)
+	party := "another task"
+	if p.g.handler || other.g.handler {
+		party = "another task or an interrupt handler"
+	}
+	d := diag.New(a.pos(p.x.pos), diag.RaceNoLock, "%s is %s here with no lock that guards it, while %s may use it", place, verb, party)
 	held := guards(p.x, true, rel)
 	shared := guards(p.x, false, rel)
 	var b strings.Builder
@@ -869,7 +902,9 @@ func (a *analyzer) noLockError(p, other entry, es []entry, rel func(lock) (strin
 	if other.x.write {
 		ov = "writes"
 	}
-	if other.g == p.g {
+	if other.g == p.g && p.g.handler {
+		fmt.Fprintf(&b, ", and the same handler running on another processor %s it at %s", ov, a.where(other.x))
+	} else if other.g == p.g {
 		fmt.Fprintf(&b, ", and another task started there %s it at %s", ov, a.where(other.x))
 	} else {
 		fmt.Fprintf(&b, ", and %s %s it at %s", other.g.name(a), ov, a.where(other.x))
@@ -883,10 +918,17 @@ func (a *analyzer) noLockError(p, other entry, es []entry, rel func(lock) (strin
 		sort.Strings(names)
 		fmt.Fprintf(&b, " holding %s", strings.Join(names, " and "))
 	}
-	b.WriteString(". Two tasks may run these at the same time, one of them writing, which is a data race: the other may see a value half written, or lose an update.")
+	if p.g.handler || other.g.handler {
+		b.WriteString(". An interrupt handler may run at any point where interrupts are enabled, on any processor and on several at once, so these may run at the same time, one of them writing, which is a data race: the other may see a value half written, or lose an update. Volatile accesses and disabled interrupts exclude only the same processor.")
+	} else {
+		b.WriteString(". Two tasks may run these at the same time, one of them writing, which is a data race: the other may see a value half written, or lose an update.")
+	}
 	b.WriteString("\nThe compiler infers which lock guards shared data from the locks held where it is written: a lock that every write holds. Here no one lock is held at every write.")
 	d.Text = b.String()
 	d.Fix = &diag.Fix{Intro: "Hold one sync.Mutex at every access, writes and reads (a sync.RWMutex's RLock is enough for reads)", Code: "mu.Lock()\n" + strings.TrimPrefix(exprLine(place), "") + "\nmu.Unlock()"}
+	if p.g.handler || other.g.handler {
+		d.Fix.Intro = "Hold one rt.Lock at every access, writes and reads (a handler cannot take a sync.Mutex)"
+	}
 	if !strings.HasPrefix(place, "an element of a map") {
 		d.More = []*diag.Fix{{Intro: "Or, for a number, use an atomic type from pluto/sync/atomic, such as atomic.Int64, and its methods at every access."}}
 	}

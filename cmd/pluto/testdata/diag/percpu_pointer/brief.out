@@ -1,0 +1,3 @@
+$DIR/main.p:26:2: a pointer to the per-CPU variable ticks is used outside the region it was taken in
+$DIR/main.p:31:2: a pointer to the per-CPU variable ticks is stored where it outlives the region, outside the region it was taken in
+$DIR/main.p:39:2: a pointer to the per-CPU variable ticks is passed to remember, which may keep it, outside the region it was taken in

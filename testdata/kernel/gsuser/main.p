@@ -72,6 +72,12 @@ func sum(a [16]int64) int64 {
 func main() int64 {
 	rt.SetConsole(write)
 
+	// The program stands in for several processors by changing the GS base
+	// itself, and uses per-CPU variables in ways that need a region where
+	// the task cannot move (language spec section 20.9): all of main is one.
+	rt.DisablePreemption()
+	defer rt.EnablePreemption()
+
 	useBlock(0)
 	counter = 10
 	hist[2] = 7

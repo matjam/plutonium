@@ -1133,8 +1133,8 @@ func (fc *frameCheck) meet(x, y *frameAcc, p, q *party, self bool) (meets, alias
 func (fc *frameCheck) common(x, y *frameAcc, p, q *party, self bool) bool {
 	for _, l := range x.locks {
 		i := y.locks.find(l.place)
-		if i < 0 {
-			continue
+		if i < 0 || isRegion(l.place) {
+			continue // a region (section 19.3) excludes only the same processor
 		}
 		m := y.locks[i]
 		if x.write && !l.excl || y.write && !m.excl {

@@ -140,7 +140,7 @@ func init() {
 		},
 		&Entry{
 			Code: RaceNoLock, Name: "RaceNoLock",
-			Text:    "Data that several tasks use is written without a lock that guards it: a package variable written by code more than one task runs, or a field of a synced[T] object. Two tasks could write it, or one write it while another reads it, at the same time.\nThe compiler infers which lock guards the data from the locks held where it is written: a sync.Mutex (or the write lock of a sync.RWMutex) that every write holds. Hold the same lock at every write and every read, or use an atomic type from pluto/sync/atomic.",
+			Text:    "Data that several tasks use is written without a lock that guards it: a package variable written by code more than one task runs, or a field of a synced[T] object. Two tasks could write it, or one write it while another reads it, at the same time. An interrupt handler is one of these parties: it may run at any point where interrupts are enabled, on any processor, and on several processors at once, so data it writes needs a guard even when no task uses it. The message names the handler.\nThe compiler infers which lock guards the data from the locks held where it is written: a sync.Mutex (or the write lock of a sync.RWMutex) that every write holds, or an rt.Lock for data a handler uses. Hold the same lock at every write and every read, or use an atomic type from pluto/sync/atomic. A volatile[T] or a region with interrupts disabled excludes only code on the same processor, so it does not guard data a handler shares with other processors; it is enough only for a per-CPU variable (section 20.9).",
 			Why:     whyRace,
 			Spec:    pspec("19.3", "Data race freedom"),
 			Example: "var hits int\n\nfunc handle() {\n\thits++\n}\n\n// started with task handle() from several places",
@@ -148,7 +148,7 @@ func init() {
 		},
 		&Entry{
 			Code: RaceUnguarded, Name: "RaceUnguarded",
-			Text:    "Data that several tasks use is read without the lock that guards it. Every write to it holds the same lock, so the compiler infers that the lock guards it, and every read must hold it too: a read without it may run while a write is half done.\nHold the lock (a sync.RWMutex's RLock is enough) around the read. If the writes use atomic operations, read it with an atomic operation too.",
+			Text:    "Data that several tasks use is read without the lock that guards it. Every write to it holds the same lock, so the compiler infers that the lock guards it, and every read must hold it too: a read without it may run while a write is half done. An interrupt handler counts as one of the tasks, and the message names it.\nHold the lock (a sync.RWMutex's RLock is enough, or an rt.Lock for data a handler uses) around the read. If the writes use atomic operations, read it with an atomic operation too.",
 			Why:     whyRace,
 			Spec:    pspec("19.3", "Data race freedom"),
 			Example: "wg.Wait()\nprintln(counter)",

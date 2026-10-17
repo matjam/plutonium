@@ -120,6 +120,21 @@ func WriteSelected(w io.Writer, prog *load.Program, selected []*load.Package) er
 	return err
 }
 
+// regionCall reports whether a bodyless declaration is one of the calls that
+// open and close regions: they cannot make an access invalid, and the race
+// analysis follows them, so they are not unsafe code (language spec section
+// 18.12).
+func regionCall(pkg, name string) bool {
+	if pkg != "pluto/arch/x86" {
+		return false
+	}
+	switch name {
+	case "Cli", "Sti", "SaveFlagsCli", "RestoreFlags":
+		return true
+	}
+	return false
+}
+
 func (g *graph) position(pos token.Pos) string {
 	p := g.prog.Fset.Position(pos)
 	return fmt.Sprintf("%s:%d:%d", g.prog.TrimmedName(p.Filename), p.Line, p.Column)
@@ -141,7 +156,7 @@ func newGraph(prog *load.Program) *graph {
 					f := &function{pkg: pkg, name: functionName(o), pos: d.Pos(), body: d, obj: o, sig: o.Type().(*types2.Signature)}
 					g.decls[o] = f
 					g.functions = append(g.functions, f)
-					if d.Body == nil {
+					if d.Body == nil && !regionCall(pkg.Path, d.Name.Name) {
 						f.unsafe = append(f.unsafe, site{d.Pos(), "function without a body"})
 					}
 					if d.Doc != nil {

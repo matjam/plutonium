@@ -57,9 +57,24 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 	if b := w.builtin(e); b != nil {
 		return b
 	}
+	if k, acquire, ok := w.regionOp(e); ok {
+		for _, a := range e.Args {
+			w.value(a)
+		}
+		w.region(k, acquire, e.Pos())
+		return pad(nil, w.typeOfCallResults(e))
+	}
 	if op, recv := w.lockOp(e); op != "" {
 		ps := w.lockPlaces(recv)
 		w.syncUse(ps.ps, e.Pos())
+		if w.isRTLock(recv) {
+			switch op {
+			case "lock":
+				w.region(regLock, true, e.Pos())
+			case "unlock":
+				w.region(regLock, false, e.Pos())
+			}
+		}
 		if ps.sync {
 			return nil // a lock inside a synchronised type: its own business
 		}
@@ -77,6 +92,15 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 	if fn := w.calledFunc(e); fn != nil && fn.Pkg() != nil {
 		if fn.Pkg().Path() == "pluto/sync/atomic" && fn.Type().(*types2.Signature).Recv() == nil {
 			return w.atomicCall(e, fn)
+		}
+		if fn.Pkg().Path() == "pluto/arch/x86" && fn.Name() == "HandlerAddr" && w.a.handlerOf(e) != nil {
+			// Installing an interrupt handler starts a party that runs at
+			// any point where interrupts are enabled, on any processor and
+			// on several at once (spec section 19.3, Interrupt handlers).
+			w.value(e.Args[0])
+			h := w.a.handlerOf(e)
+			w.spawn(&spawn{pos: e.Pos(), root: origins{h.asValue()}, multi: true, handler: true, desc: "handler " + h.name})
+			return pad(nil, 1)
 		}
 	}
 	t := w.target(e)
@@ -149,6 +173,14 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 		return pad(res, nres)
 	}
 	return pad(w.callValue(t.fv, args, e.Pos(), t.sig, exprText(e.Fun)), nres)
+}
+
+// typeOfCallResults returns the number of results of a call.
+func (w *walker) typeOfCallResults(e *ast.CallExpr) int {
+	if sig, ok := w.typeOf(e.Fun).Underlying().(*types2.Signature); ok {
+		return sig.Results().Len()
+	}
+	return 0
 }
 
 func pad(res []origins, n int) []origins {
@@ -373,8 +405,8 @@ func (w *walker) builtin(e *ast.CallExpr) []origins {
 		for _, p := range vs[0].derefOr("%", w.unknownFor(e.Args[0])) {
 			w.access(p, true, false, e.Pos(), T, false, "")
 		}
-		for _, v := range vs[1:] {
-			w.publish(v)
+		for i, v := range vs[1:] {
+			w.publishAt(v, e.Args[i+1].Pos(), "appended to a slice")
 		}
 		return one(unionOrigins(vs[0], origins{{vp: w.alloc(e).addr()}}))
 	case "copy":
@@ -654,7 +686,7 @@ func (w *walker) receiver(se *ast.SelectorExpr, sel *types2.Selection, fn *types
 			return w.placeValue(ps.ps), se.X
 		}
 		if ptrRecv {
-			return addrsOf(ps.ps), se.X
+			return w.addrsOfPlaces(ps.ps), se.X
 		}
 		return w.placeValue(ps.ps), se.X
 	}
@@ -734,8 +766,8 @@ func (w *walker) ringCall(e *ast.CallExpr, t callTarget) []origins {
 			w.access(p, true, false, e.Pos(), nil, false, "")
 		}
 	}
-	for _, a := range args {
-		w.publish(a)
+	for i, a := range args {
+		w.publishAt(a, e.Args[i].Pos(), "stored in a ring")
 	}
 	return pad([]origins{w.placeValue(extendAll(ps, "[]"))}, t.sig.Results().Len())
 }
@@ -769,7 +801,7 @@ func (w *walker) args(e *ast.CallExpr, sig *types2.Signature) []origins {
 			w.conv(a, params.At(i).Type())
 		}
 		if variadic && i >= n-1 {
-			w.publish(v)
+			w.publishAt(v, a.Pos(), "packed into a variadic argument")
 			continue
 		}
 		if i < n {
@@ -798,7 +830,7 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 		}
 		// The callee stores, passes on or keeps what this argument points
 		// to: it is published.
-		w.publish(a)
+		w.publishAt(a, pos, "passed to "+name+", which may keep it")
 		for _, o := range a {
 			if o.vp.root.kind == rFresh {
 				after.pub[o.vp.root.node] = true
@@ -845,6 +877,12 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 					w.frame.noteSub(w, p, x, locks, pos)
 					continue
 				}
+				if p.root.kind == rGlobal && w.a.cpuVars[p.root.v] {
+					var ok bool
+					if p, ok = w.cpuPlace(p, x.pos, locks, rel, !base.spawned && x.pre, true, w.sum.addAccess); !ok {
+						continue
+					}
+				}
 				if x.tkey != "" && p.root.kind != rParam {
 					init := w.initializing(p, base) && !s.pubParams.has(x.place.root.idx)
 					w.a.recordType(x.tkey, p, x.write, x.atomic, locks, x.pos, name, init)
@@ -878,7 +916,7 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 			w.sum.addCrossing(&cc)
 		}
 		for _, sp := range s.spawns {
-			ns := &spawn{pos: sp.pos, multi: sp.multi, desc: sp.desc, via: append([]frame{fr}, sp.via...)}
+			ns := &spawn{pos: sp.pos, multi: sp.multi, handler: sp.handler, desc: sp.desc, via: append([]frame{fr}, sp.via...)}
 			for _, o := range sp.root {
 				for _, v := range substitute(o.vp, args) {
 					ns.root.add(origin{vp: v})
@@ -928,6 +966,9 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 	if s.maySpawn {
 		after.spawned = true
 		w.sum.maySpawn = true
+	}
+	if s.mayAlloc {
+		w.sum.mayAlloc = true
 	}
 	if opts == nil || !opts.noLockEffect {
 		acq := substLocks(s.exitLocks, args)

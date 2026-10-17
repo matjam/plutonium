@@ -79,15 +79,26 @@ type task struct {
 	allocr alloc.Allocator
 }
 
-// cpuState is one processor's scheduling state, a per-CPU variable.
-type cpuState struct {
+// A processor's scheduling state is per-CPU variables (language spec section
+// 20.9). The run queue is more than a word, so it is used only with
+// interrupts disabled, which the timer handler's use of inIRQ does not need;
+// a lone load or store of a word-sized variable is allowed anywhere.
+type runQueue struct {
 	head, tail *rt.Task
-	idle       rt.Context
-	inIRQ      int
 }
 
 //pu:percpu
-var cpu cpuState
+var queue runQueue
+
+//pu:percpu
+var inIRQ int
+
+// idleCtx points to the context of this processor's idle loop.
+//
+//pu:percpu
+var idleCtx *rt.Context
+
+var idleContext rt.Context
 
 type kernelSched struct{}
 
@@ -99,7 +110,8 @@ var idleStack aligned[[16 << 10]byte, 16]
 // Init runs on the boot processor before the first task operation; GS
 // already points at its per-CPU block.
 func (kernelSched) Init() {
-	rt.MakeContext(&cpu.idle, unsafe.Pointer(&idleStack), uintptr(len(idleStack)), idle)
+	rt.MakeContext(&idleContext, unsafe.Pointer(&idleStack), uintptr(len(idleStack)), idle)
+	idleCtx = &idleContext
 }
 
 func (kernelSched) NewTask(req rt.StackRequest) *rt.Task {
@@ -125,15 +137,15 @@ func (kernelSched) Wake(t *rt.Task) { push(t) }
 func (kernelSched) Park(t *rt.Task)  { switchFrom(t) }
 func (kernelSched) Yield(t *rt.Task) { switchFrom(t) }
 
-func (kernelSched) InInterrupt() bool { return cpu.inIRQ > 0 }
+func (kernelSched) InInterrupt() bool { return inIRQ > 0 }
 
 // Now is the scheduler's clock: the PIT ticks once a millisecond.
-func (kernelSched) Now() int64 { return int64(ticks) * 1000000 }
+func (kernelSched) Now() int64 { return int64(ticks.Load()) * 1000000 }
 
 // ArmTimer records when the runtime's earliest timer is due; the timer
 // handler runs the timers once it has passed. It runs with interrupts
 // disabled.
-func (kernelSched) ArmTimer(deadline int64) { timerDue = deadline }
+func (kernelSched) ArmTimer(deadline int64) { timerDue.Store(deadline) }
 
 // switchFrom runs the next task, or the idle loop, in place of t.
 func switchFrom(t *rt.Task) {
@@ -141,28 +153,28 @@ func switchFrom(t *rt.Task) {
 		rt.Switch(t.Context(), next.Context())
 		return
 	}
-	rt.Switch(t.Context(), &cpu.idle)
+	rt.Switch(t.Context(), idleCtx)
 }
 
 func push(t *rt.Task) {
 	f := x86.SaveFlagsCli()
 	t.Link = nil
-	if cpu.tail != nil {
-		cpu.tail.Link = t
+	if queue.tail != nil {
+		queue.tail.Link = t
 	} else {
-		cpu.head = t
+		queue.head = t
 	}
-	cpu.tail = t
+	queue.tail = t
 	x86.RestoreFlags(f)
 }
 
 func pop() *rt.Task {
 	f := x86.SaveFlagsCli()
-	t := cpu.head
+	t := queue.head
 	if t != nil {
-		cpu.head = t.Link
-		if cpu.head == nil {
-			cpu.tail = nil
+		queue.head = t.Link
+		if queue.head == nil {
+			queue.tail = nil
 		}
 	}
 	x86.RestoreFlags(f)
@@ -179,7 +191,7 @@ func idle() {
 			x86.StiHlt()
 			continue
 		}
-		rt.Switch(&cpu.idle, t.Context())
+		rt.Switch(idleCtx, t.Context())
 	}
 }
 
@@ -194,30 +206,34 @@ func setGate(vec int, h uintptr) {
 	idt[vec][1] = addr >> 32
 }
 
+// The timer handler shares these with the tasks, so they are atomic: a
+// handler is a party in the data race rules (language spec section 19.3),
+// and volatile excludes only code on the same processor. tickCh is written
+// before the first task starts and only read afterwards.
 var (
-	ticks     volatile[uint64]
+	ticks     atomic.Uint64
 	tickCh    chan uint64
-	tickSends volatile[uint64]
-	timerDue  volatile[int64] = rt.NoDeadline
+	tickSends atomic.Uint64
+	timerDue  atomic.Int64
 )
 
 //pu:interrupt
 func timer(f *x86.InterruptFrame) {
-	cpu.inIRQ++
-	ticks = ticks + 1
+	inIRQ++
+	n := ticks.Add(1)
 	x86.Outb(0x20, 0x20) // end of interrupt
-	if ticks%16 == 0 {
+	if n%16 == 0 {
 		select { // a non-blocking send is allowed in interrupt context
-		case tickCh <- ticks:
-			tickSends = tickSends + 1
+		case tickCh <- n:
+			tickSends.Add(1)
 		default:
 		}
 	}
-	if int64(ticks)*1000000 >= timerDue {
-		timerDue = rt.NoDeadline
+	if int64(n)*1000000 >= timerDue.Load() {
+		timerDue.Store(rt.NoDeadline)
 		rt.RunTimers() // gives the next deadline to ArmTimer
 	}
-	cpu.inIRQ--
+	inIRQ--
 	rt.Preempt() // runs another task; returns when this one is resumed
 }
 
@@ -337,6 +353,7 @@ func main() int64 {
 	names["b"] = 2
 	println("map", len(counts), counts[0], counts[6], names["b"], len(names))
 
+	timerDue.Store(rt.NoDeadline)
 	startTimer()
 	done := make(chan bool)
 	task spin(done)
@@ -347,7 +364,7 @@ func main() int64 {
 	// Ticks sent from the interrupt handler wake a parked task.
 	first := <-tickCh
 	second := <-tickCh
-	println("ticks from the interrupt handler", first > 0, second > first, tickSends >= 2)
+	println("ticks from the interrupt handler", first > 0, second > first, tickSends.Load() >= 2)
 
 	// A select that waits on two channels, one fed by a task.
 	a := make(chan int)

@@ -150,6 +150,23 @@ func unrelated() { var f Fake; f.Alloc() }
 	}
 }
 
+// The calls that open and close regions are not unsafe code (language spec
+// section 18.12): they cannot make an access invalid.
+func TestRegionCallsAreSafe(t *testing.T) {
+	t.Parallel()
+	out := report(t, `package sample
+import "pluto/arch/x86"
+func regions() { f := x86.SaveFlagsCli(); x86.Cli(); x86.Sti(); x86.RestoreFlags(f) }
+func halted() { x86.Hlt() }
+`)
+	if strings.Contains(out, "main.regions") {
+		t.Errorf("a function that only opens and closes regions is reported:\n%s", out)
+	}
+	if !strings.Contains(out, "unsafe main.halted") || !strings.Contains(out, "pluto/arch/x86.Hlt") {
+		t.Errorf("x86.Hlt is no longer unsafe:\n%s", out)
+	}
+}
+
 func TestCountedCleanup(t *testing.T) {
 	t.Parallel()
 	out := report(t, `package sample
