@@ -146,7 +146,7 @@ against the corrected specification. The immediate implementation order is:
      field crosses a byte boundary or a byte-level field is not byte-aligned; the fix shows a nested `packed
      be uint16` field. Check the `IPv4Header` example and add the `Frag` field. Tests: IPv4 header bytes on
      both endiannesses, E2021.
-118. **Per-CPU access regions; E2022 and E2023** (planned; decision D24; sections 19.3, 20.9; memory-
+118. **Per-CPU access regions; E2022 and E2023** (done, `046f09c3`; decision D24; sections 19.3, 20.9; memory-
      model.md 6.4). Infer non-migrating regions (preemption disabled, maskable interrupts disabled, `rt.Lock`
      held; on every path, across calls, deferred release counting) and interrupt-disabled regions (also the
      body of a `//pu:interrupt` handler up to a call that may switch tasks), in `internal/race`. Exempt
@@ -155,7 +155,7 @@ against the corrected specification. The immediate implementation order is:
      necessary); report E2023 for a pointer from `&v` used outside its region, sent, or passed to a task.
      Treat `x86.Cli`, `Sti`, `SaveFlagsCli` and `RestoreFlags` as safe calls the analysis follows. Tests:
      `current`, `v++` under `rt.DisablePreemption`, pointer escape, handler sharing.
-119. **Interrupt handlers as parties in the race rules** (planned; decision D25; sections 18.12, 19.3,
+119. **Interrupt handlers as parties in the race rules** (done, `046f09c3`; decision D25; sections 18.12, 19.3,
      20.10, 20.11, F.5; memory-model.md 4.1, 6.1). Treat each installed `//pu:interrupt` handler as a party
      that may run concurrently with itself and all tasks; apply rules 1 to 3 with handlers as parties, accept
      atomics and `rt.Lock` guards (recognized like `sync.Mutex`), report E3502 and E3503 naming the handler,
