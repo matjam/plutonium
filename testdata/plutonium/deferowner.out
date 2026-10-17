@@ -1,0 +1,31 @@
+by value
+  body
+  consume 1
+  drop 1
+value receiver
+  body
+  close 2
+  drop 2
+early drop
+  use 3
+  body
+  drop 3
+moved after
+  consume 4
+  drop 4
+  body
+  drop empty
+reassigned
+  drop 5
+  body 6
+  drop 6
+saved address
+  drop 9
+  body 10
+  show 10
+  drop 10
+order
+  body
+  drop 8
+  close 7
+  drop 7

@@ -156,7 +156,7 @@ func init() {
 		},
 		&Entry{
 			Code: CheckerCode(typerr.DropNotOwner), Name: "DropNotOwner",
-			Text:    "A method named Drop runs automatically when a value is destroyed. That only makes sense for a type whose values have exactly one owner: if the values were copied as ordinary values are, every copy would run Drop and release the same resource. A type with a Drop method must be declared owner, so that its values move instead of being copied.",
+			Text:    "A method named Drop runs automatically when a value is destroyed. That only makes sense for a type whose values have exactly one owner: if the values were copied as ordinary values are, every copy would run Drop and release the same resource. A type with a Drop method must be declared owner, so that its values move instead of being copied.\nDrop also takes a pointer receiver, never a value receiver: a value receiver would move the owner into the method, which would drop it again when it returns. Write func (f *File) Drop().",
 			Why:     whyOwners,
 			Spec:    pspec("7.18", "Owner types"),
 			Example: "type File struct{ fd int32 }\n\nfunc (f *File) Drop() { syscall.Close(f.fd) }",

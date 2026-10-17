@@ -24,6 +24,10 @@ type Closer owner struct{ fd int32 }
 
 func (c *Closer) Drop() error { return nil }
 
+type Handle owner struct{ fd int32 }
+
+func (h Handle) Drop() {}
+
 func Fill[T any](s []T, v T) {
 	for i := range s {
 		s[i] = v

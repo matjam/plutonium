@@ -350,6 +350,18 @@ func (check *Checker) ownerMethods() {
 						Code:  "type " + tn.name + " owner " + kw,
 					}},
 				}, "%s has a Drop method but is not declared owner", tn.name)
+				continue
+			}
+			if sig != nil && sig.recv != nil {
+				if _, ptr := sig.recv.typ.(*Pointer); !ptr {
+					check.explainf(m, DropNotOwner, &Explanation{
+						Text: "Drop runs automatically when an owner is destroyed. A method with a value receiver takes its receiver by value, which moves the owner into the method, and the method would drop it again when it returns. Drop takes a pointer to the value it releases.",
+						Fixes: []ExplainFix{{
+							Intro: "Declare it with a pointer receiver",
+							Code:  "func (x *" + tn.name + ") Drop()",
+						}},
+					}, "Drop of %s has a value receiver; it must have the pointer receiver *%s", tn.name, tn.name)
+				}
 			}
 		}
 	}

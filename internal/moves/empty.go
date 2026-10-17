@@ -183,8 +183,54 @@ func (f *fn) findNoFacts(body *ast.BlockStmt) {
 				}
 			}
 		case *ast.DeferStmt:
+			// The function value, the arguments and the receiver are
+			// evaluated at the defer statement (section 12.19): an owner
+			// that is passed by value or is a value receiver moves there,
+			// as the walk follows. What is kept for the call is an
+			// address, which lasts until the function returns even where
+			// a call would only borrow it, and the variables a literal
+			// uses.
 			if v, _ := f.deferredDrop(n.Call); v == nil {
-				all(n.Call)
+				f.deferKept(n.Call, mark)
+			}
+		}
+		return true
+	})
+}
+
+// deferKept marks the places whose address the deferred call keeps: &x, a
+// slice of an array, and the receiver of a method that takes the address
+// of it. A function literal in the call is marked by findNoFacts as a
+// whole.
+func (f *fn) deferKept(call *ast.CallExpr, mark func(ast.Expr)) {
+	ast.Inspect(call, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.UnaryExpr:
+			if n.Op == token.AND {
+				mark(n.X)
+			}
+		case *ast.SliceExpr:
+			if _, ok := f.c.typeOf(n.X).Underlying().(*types2.Array); ok {
+				mark(n.X)
+			}
+		case *ast.CallExpr:
+			se := funSelector(n.Fun)
+			if se == nil {
+				break
+			}
+			sel := f.c.selections[se]
+			if sel == nil || sel.Kind() != types2.MethodVal {
+				break
+			}
+			fun, _ := sel.Obj().(*types2.Func)
+			if fun == nil || types2.BoxMethodOf(fun) != nil {
+				break
+			}
+			recv := methodRecv(fun)
+			if implicitAddr(f.c, se, recv) || isOwnedBox(f.c.typeOf(se.X)) && pointerElem(recv) != nil {
+				mark(se.X)
 			}
 		}
 		return true

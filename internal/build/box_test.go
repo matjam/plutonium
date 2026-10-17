@@ -84,7 +84,7 @@ func main() {
 func TestBoxesLeakFree(t *testing.T) {
 	testguard.Parallel(t)
 	for _, prog := range []string{"plutonium/boxes", "plutonium/newexpr", "plutonium/ownany", "plutonium/owniface", "plutonium/ownunion",
-		"plutonium/dropsites", "plutonium/dropflow"} {
+		"plutonium/dropsites", "plutonium/dropflow", "plutonium/deferowner"} {
 		file := filepath.Join("..", "..", "testdata", prog)
 		src, err := os.ReadFile(file + ".p")
 		if err != nil {

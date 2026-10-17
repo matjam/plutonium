@@ -51,3 +51,16 @@ func main() {
 		defer closeIt(&f)
 	}
 }
+
+func eat(f File) {}
+
+// A deferred call evaluates its arguments at the defer statement (section
+// 12.19): the owner moves there, and defer f.Drop() keeps it usable.
+func deferMoves() {
+	f := File{}
+	defer eat(f)
+	println(f.fd)
+	g := File{}
+	defer g.Drop()
+	println(g.fd)
+}

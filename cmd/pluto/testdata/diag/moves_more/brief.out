@@ -6,3 +6,4 @@ $DIR/main.p:39:11: cannot read v[0]: the elements of v are owners, and v[0] woul
 $DIR/main.p:43:6: cannot pass one to all as a variadic argument: Buf is an owner type
 $DIR/main.p:46:10: a slice literal cannot hold owners: Buf is an owner type, and nothing would drop the elements
 $DIR/main.p:51:3: the deferred call uses f, which is dropped at the end of its block (line 52)
+$DIR/main.p:62:10: f was moved into eat (its parameter takes a File by value) at line 61, so it can no longer be used here

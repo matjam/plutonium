@@ -41,7 +41,7 @@ $DIR/main.p:18:11: owner cannot qualify an enum type
     (see "Owner types" in the Plutonium spec, section 7.18)
     (run "pluto explain E3204" for a longer explanation)
 
-$DIR/main.p:35:2: cannot use Buf as T in Fill: Buf is an owner and T does not allow owners
+$DIR/main.p:39:2: cannot use Buf as T in Fill: Buf is an owner and T does not allow owners
     Inside the generic code, values of T are copied freely. Copying an owner
     would leave several values that all free the same memory.
     Go copies such values freely and its garbage collector frees what they refer
@@ -79,5 +79,19 @@ $DIR/main.p:7:16: File has a Drop method but is not declared owner
         type File owner struct {
             ...
         }
+    (see "Owner types" in the Plutonium spec, section 7.18)
+    (run "pluto explain E3201" for a longer explanation)
+
+$DIR/main.p:29:17: Drop of Handle has a value receiver; it must have the pointer receiver *Handle
+    Drop runs automatically when an owner is destroyed. A method with a value
+    receiver takes its receiver by value, which moves the owner into the method,
+    and the method would drop it again when it returns. Drop takes a pointer to
+    the value it releases.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Declare it with a pointer receiver:
+        func (x *Handle) Drop()
     (see "Owner types" in the Plutonium spec, section 7.18)
     (run "pluto explain E3201" for a longer explanation)
