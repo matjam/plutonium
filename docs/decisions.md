@@ -18,6 +18,8 @@ borrow annotations or compiler knowledge; no GC or silent heap promotion, with
 specified allocating-operation contracts and explicit lifetime responsibility; kernel
 suitability; and performance near Rust, assessed separately from semantic conformance.
 Since D9 to D11 the no-false-friends rule has no exceptions.
+D12 to D30 record the owner's design decisions DD1 to DD19 of 2026-10-17 (the plan
+`plans/2026-10-17-review-design-decisions.md`), in that order.
 
 ## D1. `errors.As` matches a counted error against a `*T` target (16.6, 16.7)
 
@@ -366,6 +368,196 @@ Why: Go-familiar and no false friends (equality, `errors.Is` and map keys match 
 hidden allocation and works before an allocator exists (kernel boot, interrupt context).
 
 Lands with: the specification amendment of 2026-10-17 and roadmap item 106.
+
+## D12. `owner` stays on struct and generic container declarations; the "no annotations" claims are made exact (1.1, 1.2, 7.18, 18)
+
+Question: Does a struct with an owner field, or a generic type that stores an `owner` type parameter, have to be declared `owner` (E3202), or should the compiler infer it?
+
+Decision: Keep the keyword. The claims now read: no lifetime, borrow or region annotations, and no `//pu:` directive for a fact the compiler can infer. The kind of a type is part of its declaration.
+
+Why: A type whose assignment moves instead of copies is the largest behavioral difference from Go, and the keyword shows it where the type is declared. With inference, changing a field's type in another package would turn copies into moves in every user, reported as E3301 far from the cause; with the keyword the error is E3202 at the one declaration. Code that uses an owner type writes nothing extra.
+
+Lands with: roadmap item 121.
+
+## D13. A func value that may be a closure of a frame is a compile error at a task start (11.5, 12.12, 18.3, 19.4, 17.1)
+
+Question: What happens when a func value from a parameter, field or variable that may be a closure of a frame is given to `task`, `wg.Task`, `rt.Go` or `time.AfterFunc`?
+
+Decision: A compile error, through the existing frame-view analysis, and no run-time check. E3004 where the value reaches the task start; E3003 at a call that passes such a closure to a function that starts a task with it. E2590 and E2594 stay for the forms the type checker sees directly. The run-time panic and `rt.checkGoFunc` are deleted.
+
+Why: Principle 1: doubt resolves to a compile error. A kernel may have no use for a panic here, and the run-time check looked only at the starting task's own stack, so it was incomplete. A func value loaded from heap or package memory is never a frame closure, since storing one there is E3002.
+
+Lands with: roadmap item 108.
+
+## D14. `error` is always sendable; other interfaces keep the whole-program rule with a precision fix (7.9, 8.8, 16.7, 19.2)
+
+Question: How does an interface value that holds a `shared[T]` cross tasks?
+
+Decision: `error` and every interface that embeds it are always sendable. Converting a value of a non-sendable type to such an interface is a compile error at the conversion (E2020), which names the `shared[T]` and shows `alloc.Synced`. Other interfaces keep the whole-program rule, except that a conversion whose result section 18.3 proves is a view of the frame (such as `fmt.Println(sh)`) does not count, and the crossing error names a conversion that made the interface non-sendable, with package and line.
+
+Why: Errors cross tasks in ordinary code, and a `chan error` must not break because an unrelated package converted a `shared` value. Race safety is unchanged, since `synced` counts are atomic.
+
+Lands with: roadmap item 107.
+
+## D15. Deferred calls evaluate at the `defer`; `defer x.Drop()` saves `&x` (12.19, 18.5, 18.6)
+
+Question: What does `defer` do with an owner?
+
+Decision: One rule with no special case. The function value, arguments and receiver are evaluated at the `defer` statement. An owner passed by value, or as the receiver of a value-receiver method, moves there. A pointer-receiver method saves `&x` and `x` stays usable. `defer x.Drop()` is the pointer-receiver case: the deferred call drops whatever `x` holds when it runs (nothing, if `x` was moved), and `x` is not dropped again at scope end.
+
+Why: `defer f.Drop()` right after the open is the idiom Go programmers write, and it works. Moves happen where Go evaluates arguments, so nothing is hidden.
+
+Lands with: roadmap item 112.
+
+## D16. `time.AfterFunc` returns a counted `synced[Timer]` handle; dropping it never stops the timer (19.6, F.7, A.3, abi.md 12.9)
+
+Question: What does the statement `time.AfterFunc(d, f)`, which discards the result, do?
+
+Decision: `AfterFunc` returns `synced[Timer]` instead of `owned[Timer]`. While the timer is armed the runtime holds a reference of its own, released when `f` is started or the timer is stopped. Dropping every handle never stops the timer; `Stop` through any handle does. `NewTimer` and `NewTicker` keep `owned[...]`, stopped when dropped. No new error and no new function.
+
+Why: The statement then does what it does in Go, and `t.Stop()` and `t.Reset(d)` read as in Go. The allocation is at the visible call and its lifetime is counted. Releasing a count never waits.
+
+Lands with: roadmap item 109.
+
+## D17. The elementwise loop over two slices is accepted with one overlap check per task start (19.4, 17.1)
+
+Question: Is `s.Task(func() { out[i] = f(in[i]) })` with `in, out []int` an error (E3402) because the caller could pass overlapping slices?
+
+Decision: Accepted. When every task of an `s.Task` loop accesses two views that may overlap only in the same partition form with the same loop variable and parameters, the program checks before each `s.Task` call that the views start at the same element or do not overlap, and panics otherwise. Every other access stays E3402 (`in[i+1]` with `out[i]`). The check is always performed, in unchecked and kernel builds too, since it is a race check and section 21.5's unchecked mode removes only generation and epoch checks.
+
+Why: The commonest parallel pattern compiles as written for one comparison per task start. Section 19.4 already panics on a non-positive step.
+
+Lands with: roadmap item 110.
+
+## D18. One rule for `defer` in every kind of loop; E2533 folds into E2530 (12.11, 12.19, A.2)
+
+Question: When is a `defer` inside a loop allowed?
+
+Decision: If every path from it leaves every loop that contains it before it can reach the `defer` again. Leaving means `return`; a call of `panic` or of a function that never returns; a `goto` to a label outside the outermost loop; a `break` that ends the outermost loop; a labeled `continue` naming a loop outside it. An unlabeled `continue` does not leave. Otherwise E2530. E2533 is retired. E2534 stays, because a range-over-func body is a separate frame.
+
+Why: The lock-and-return loop Go programmers write compiles, and changing a slice to a `vec.Vec` no longer changes whether a loop compiles. The one-slot reason is kept exactly.
+
+Lands with: roadmap item 111.
+
+## D19. `print` and `println` format floats as Go does; printable types follow underlying types (13.12, A.2, A.4)
+
+Question: How do `print` and `println` write a floating-point value, and which types can they print?
+
+Decision: `print` and `println` write a floating-point value exactly as Go's runtime does, which in Go 1.27 is the shortest decimal form that reads back as the same value, in the `g` format of `strconv` (`println(1.5)` prints `1.5`, `println(1e21)` prints `1e+21`). A value whose underlying type is boolean, integer (enums included), floating-point or string can be printed; an owner type cannot, even over an integer. Kernel mode keeps the bit-pattern form because the console code cannot use the floating-point unit. The specification already states this (13.12). The earlier recommendation that quoted the fixed form `+1.500000e+000` was based on the older runtime and is withdrawn: the goal it served, agreement with Go, is met by the shortest form.
+
+Why: `println(x)` is common in small programs kept as Go-oracle tests, and code that looks like Go and compiles must print what Go prints. Readable output belongs to `fmt`.
+
+Lands with: roadmap item 114.
+
+## D20. A type defined from an owner drops as that owner; `x.Drop()` works on every owner (7.18, 8.7, 10.8, 18.6)
+
+Question: What does dropping a value of `type B owner A` do when `A` has a `Drop`?
+
+Decision: The value of `B` holds an `A`. Dropping it runs `B`'s own `Drop` if declared, then `A`'s full drop (its `Drop`, then its fields). This is drop glue, not method inheritance: `B` gets none of `A`'s methods. `x.Drop()` on a whole owner variable is the early-drop operation for every owner type, whether or not it declares `Drop`; it is not a method value and does not put `Drop` in the method set.
+
+Why: The compiler works out freeing and the program is correct with nothing written. A compile error would leave no clean way to write `B`'s `Drop`, since calling `A`'s `Drop` through a pointer is E3307 and a conversion out of a place is E3303. It matches the embedded-owner rule and `type B owned[T]`.
+
+Lands with: roadmap item 113.
+
+## D21. `Drop` takes a pointer receiver only (7.18, 10.14, 18.6)
+
+Question: May `Drop` have a value receiver?
+
+Decision: No. `func (f File) Drop()` is E3201, as is `Drop` on a type not declared `owner`.
+
+Why: A value receiver on an owner consumes the receiver, which would then be dropped a second time. Every example already uses `*T`. It also makes D15 uniform.
+
+Lands with: roadmap item 112.
+
+## D22. `defer` accepts exactly the built-ins allowed as statements (12.19, 13)
+
+Question: Which built-in calls may be deferred?
+
+Decision: Exactly those that may stand as an expression statement: `clear`, `close`, `copy`, `delete`, `panic`, `print`, `println`. The rest, and the functions of package `unsafe`, are E2532. This confirms D5; section 13 now states the list instead of referring to 12.19.
+
+Why: As in Go, and the circular reference between chapter 13 and 12.19 disappears.
+
+Lands with: roadmap item 82 (done); no new work.
+
+## D23. Only `rune` itself converts to a string (8.11, 11.24, A.2)
+
+Question: Does `string(x)` accept a defined type over `int32`?
+
+Decision: No. The single-value conversion accepts a value of type `rune` (identical to `int32`) or an untyped integer or rune constant; the slice conversion accepts a slice whose element type is `rune`, including `type runes []rune`. `type myRune rune` and `type Fd int32` are errors in both forms.
+
+Why: `string(Fd(3))` is the false friend appendix A guards against, and a defined type over `int32` cannot be told from one meant as a rune.
+
+Lands with: roadmap item 115.
+
+## D24. Per-CPU variables leave the package-variable rule; compound access needs a non-migrating region (19.3, 20.9, memory-model.md 6.4)
+
+Question: How are `//pu:percpu` variables checked?
+
+Decision: Rule 1 of 19.3 does not apply to them. A lone load or store of a whole per-CPU variable of at most a machine word is allowed anywhere. Every other access (compound assignment, `++`, read and write in one expression, a variable larger than a word or part of one, a pointer-receiver call, `&v`) must be inside a non-migrating region (preemption disabled, maskable interrupts disabled, or an `rt.Lock` held, inferred like held locks); if a handler may also access the variable, inside an interrupt-disabled region. A pointer from `&v` may not be used after its region. Two new errors: E2022, an access outside the region it needs; E2023, a pointer to a per-CPU variable used outside its region.
+
+Why: The kernel's most common idiom (`current`) stays safe code and is checked. A lone load and a later lone store may act on two processors' copies after a migration; that is defined behavior, not a race.
+
+Lands with: roadmap item 118.
+
+## D25. Interrupt handlers are parties in the race rules; allocators get no exemption (18.12, 19.3, 20.10, 20.11, F.5)
+
+Question: How do data shared with an interrupt handler meet the race rules?
+
+Decision: Each installed handler is a party that may run anywhere interrupts are enabled, on any processor, and on several at once. Rules 1 to 3 apply with handlers as parties. Data a handler accesses (other than per-CPU variables) must be atomic or guarded by an `rt.Lock`. `volatile[T]` and interrupt-disabled regions exclude only the same processor, so they suffice only for per-CPU data. Errors are E3502 and E3503 naming the handler. An allocator's state is data like any other: "or no lock" is deleted from 20.10. `x86.Cli`, `x86.Sti`, `x86.SaveFlagsCli` and `x86.RestoreFlags` stop being unsafe code.
+
+Why: Safe code has no races (18.12), and kernels are written in safe code. An allocator in safe code is checked by the same rule; one with unsafe code is already outside the check.
+
+Lands with: roadmap item 119.
+
+## D26. The interrupt-context wait check follows inserted drops (20.10, 20.11)
+
+Question: Does the check that interrupt context never waits follow drops the compiler inserts?
+
+Decision: Yes, like any call: at scope end, on assignment over an owner, for temporaries, and the release of a counted value at count zero, into `Drop`, drop glue and the `Free` of every installed allocator. An error (E2584) only where one of these may wait.
+
+Why: The result no longer depends on whether cleanup is written or inserted.
+
+Lands with: roadmap item 120.
+
+## D27. `//pu:blocking` stays on functions with a body (1.2, 20.3, 20.10)
+
+Question: Is `//pu:blocking` on a function with a body a trusted promise?
+
+Decision: Kept. It states a wait the compiler cannot see, such as a spin until another context sets a flag. It only adds the restriction of 20.10, never makes a program accepted, so it is not unsafe code.
+
+Why: Directives state what the compiler cannot see; who will set a flag is such a fact.
+
+Lands with: roadmap item 120.
+
+## D28. Bodyless functions are trusted not to wait; the wait check guards against deadlock (1.2, 18.12, 20.10, 21)
+
+Question: Is the interrupt-context wait check a safety analysis that must cover assembly and C?
+
+Decision: No. It is a check against deadlock, which principle 1 does not promise to prevent. It follows all Plutonium source and takes the declaration of a bodyless function as its contract: not waiting unless marked `//pu:blocking`. Such functions are already unsafe code, listed by `pluto vet -unsafe`.
+
+Why: No new directive for ordinary kernel assembly, and the contradiction between 1.2 and chapter 21 goes away.
+
+Lands with: roadmap item 120.
+
+## D29. Conversions between packed types keep reserved bits; comparison ignores them (7.14, 8.10)
+
+Question: Are the bits of `_` fields and uncovered backing bits kept?
+
+Decision: Yes. Converting an integer or byte array to a packed type keeps every bit, and converting back returns the same value; writing a field changes only its bits. Reserved bits are zero in a literal and the zero value. Two packed values are equal when their bits outside the reserved bits are equal, compared bit by bit (a floating-point field by its bits); map hashing ignores reserved bits too.
+
+Why: Register read-modify-write must round-trip bits the hardware defines, and ignoring reserved bits matches Go's rule for blank fields.
+
+Lands with: roadmap item 116.
+
+## D30. Array-backed packed types number bits by byte; a big-endian bit field may not cross a byte (7.14)
+
+Question: How are bits laid out when the backing is `[N]byte`, `[]byte` or absent?
+
+Decision: Bit position `p` is bit `p mod 8` (0 the least significant) of byte `p / 8`, and a bit field occupies consecutive positions, least significant bit lowest. A byte-level field of `k` bytes is stored in the stated order (`be` or `le`), not the target's. With `be` (or no order on a big-endian target) a bit field may not cross a byte boundary and a byte-level field must start on one (E2021); the fix is a nested packed field with an integer backing. Integer backings keep the existing rule.
+
+Why: Protocol headers and on-disk formats are a stated purpose of packed types. The crossing rule keeps big-endian layouts unambiguous.
+
+Lands with: roadmap item 117.
 
 ## Deferred
 

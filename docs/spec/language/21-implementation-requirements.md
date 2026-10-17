@@ -8,7 +8,8 @@ other chapters define. A conforming implementation:
 - reports a compile error for every program that breaks a rule of those chapters, as section 21.1
   requires, and does not run it;
 - never accepts a program because it could not decide whether the program is safe. Every analysis the
-  language defines (escapes, moves, closure regions, races, waits in interrupt context) rejects what it
+  language defines (escapes, moves, closure regions, races, waits in interrupt context, which takes the declarations of functions without a body on trust,
+  section 20.10) rejects what it
   cannot prove, and a false rejection is fixed by improving the analysis, never by weakening the rule
   (section 1.2, Design rules).
 

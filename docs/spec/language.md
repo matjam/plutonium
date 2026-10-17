@@ -12,7 +12,7 @@ kernel supplies itself (section 19.5).
 The language is Go-familiar, not Go-compatible: it uses Go's syntax and idioms wherever they fit, and where
 it behaves differently from Go in a way a Go programmer would not expect, the difference is visible in the
 source (appendix A lists every difference). It gives ordinary application and kernel code
-memory and race safety without programmer-written borrow annotations. When safety cannot be proved or
+memory and race safety without lifetime or borrow annotations (owner types are declared with `owner`, section 7.18). When safety cannot be proved or
 protected in the chosen environment, the operation is rejected. Deliberately unchecked execution is an
 explicit opt-out (section 21.5). Allocation follows specified operation contracts and explicit lifetime
 responsibility; locals never move to the heap implicitly. Chapter 1 states these goals, the four design rules and the four

@@ -72,7 +72,7 @@ meanings are fixed by this appendix; their signatures are the runtime's business
 | `chansend1`, `chanrecv1`, `chanrecv2` | send and receive; these may park |
 | `closechan`, `chanlen`, `chancap` | `close`, `len` and `cap` of a channel; these never park |
 | `selectgo`, `selectnb` | `select` without and with a `default` case |
-| `spawnGo`, `checkGoFunc` | the `task` statement, and the check of its function and func arguments |
+| `spawnGo` | the `task` statement (the check of its function and func arguments is static, section 12.12) |
 | `strRetain`, `strRelease` | copying and dropping a counted string |
 | `boxNew`, `boxNewWith`, `boxRetain`, `boxReleaseStrong`, `weakRelease`, `boxFree` | creating, copying and dropping `owned`, `shared`, `synced` and `weak` values |
 | `panicStale` | a failed generation or arena epoch check |
@@ -184,6 +184,8 @@ The compiler recognizes these types in `pluto/sync`:
 - `sync.Mutex` and `sync.RWMutex`, the locks whose `Lock`, `Unlock`, `RLock`, `RUnlock` and `TryLock`
   the race analysis follows to infer which lock guards which data (section 19.3, Data race freedom). `Lock`
   and `RLock` may park the caller, so they may not be reached from interrupt context (section 20.10).
+- `rt.Lock`, the runtime's own lock, which the race analysis follows like `sync.Mutex`. It may be taken in
+  interrupt context (section 19.3, Data race freedom; section 20.10), which `sync.Mutex` may not.
 - `sync.WaitGroup`, `sync.Once` and `sync.Cond`, which synchronize as in section 19.7 (Memory model). A
   local `sync.WaitGroup` shared with a task by address is an error, because the view of the frame may
   outlive the frame: `sync.Scope` is the type for that.
@@ -222,12 +224,13 @@ converting an integer to a string with `string(i)`.
 
 `time.Sleep` parks the calling task until a deadline, so it may not be reached from interrupt context.
 `time.Timer`, `time.Ticker`, `time.After` and `time.Tick` deliver the time on a channel, so a `select`
-waits for a timer like any other case. `time.NewTimer`, `time.NewTicker` and `time.AfterFunc` return an
-`owned[Timer]` or `owned[Ticker]`, which stops and frees the timer when it is dropped; `time.After` and
+waits for a timer like any other case. `time.NewTimer` and `time.NewTicker` return an
+`owned[Timer]` or `owned[Ticker]`, which stops and frees the timer when it is dropped; `time.AfterFunc`
+returns a `synced[Timer]` handle, and dropping it never stops the timer (`Stop` does); `time.After` and
 `time.Tick` return a counted channel that owns its timer, stopped and freed with the channel's last
 reference (section 19.6, Timers). `time.AfterFunc(d, f)` starts `f` as a task when the timer expires, so
-`f` is subject to the rules of the `task` statement for func arguments: the compiler rejects a function
-that captures variables from a frame. No library type needs a `Free` call. Underneath is the
+`f` is subject to the rules of the `task` statement for func arguments: a function that may capture
+variables from a frame is a compile error (section 12.12). No library type needs a `Free` call. Underneath is the
 runtime's mechanism (section F.1): a monotonic clock, `rt.Now()`, timers that never allocate, and
 `rt.ParkUntil`. A kernel's scheduler provides the clock and the hardware with `Now` and `ArmTimer`.
 

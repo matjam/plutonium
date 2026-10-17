@@ -367,7 +367,8 @@ kinds.
   the bytes go to the new place and the old place holds nothing. A moved-from variable may not be used until
   it is given a new value. Copies are made only by calling `Clone`. At the end of its life an owner is
   **dropped**: its `Drop` method runs, if it has one, and then its fields are dropped in declaration order and its array
-  elements in index order.
+  elements in index order. A value of a type defined from an owner, `type B owner A`, is dropped as an `A`
+  after `B`'s own `Drop` (section 7.18).
 
 | Kind | Assignment, passing, returning | When it ends | Zero value |
 |---|---|---|---|
@@ -460,7 +461,7 @@ Following the structure of the types:
   of `T` that change are guarded by a lock of the same object or used atomically (section 19.3).
 - An owner type is sendable if what it holds is sendable: its fields, and through a view field, the type
   the view points to. Sendability depends only on the types and the memory an owner holds, never on which
-  packages its package imports. A view field that holds only memory the owner's own code allocated (inferred
+  packages its package imports. Interface types other than `error` are the one whole-program case (below). A view field that holds only memory the owner's own code allocated (inferred
    as a heap-only field is, section 18.3, Views) points into memory the owner owns, and that memory moves
    with the owner, so only what it holds is checked; this is how `vec.Vec`, `hash.Map` and
    `strings.Builder` cross. Construction must not retain an independent conflicting alias. A later
@@ -470,8 +471,14 @@ Following the structure of the types:
    the absence of conflicting access, it rejects the transfer under section 19.3 and identifies the
    borrow, transfer and conflicting use. Generation checks establish lifetime, not race freedom.
    A view field that may hold other memory is checked where the owner crosses, as any view is.
-- An interface type is sendable if every type that the program converts to it, directly or through another
-  interface, is. An owning interface moves when it crosses.
+- `error`, and every interface that embeds it, is sendable. A value of a type that is not sendable (in
+  practice, one that holds a `shared[T]`) cannot be converted to such an interface: the conversion is a compile
+  error (E2020) that names the `shared[T]` and shows `alloc.Synced`.
+- Any other interface type is sendable if every type that the program converts to it, directly or through
+  another interface, is. A conversion whose result is a view of the frame that made it (a lending conversion of
+  a local variable, section 18.3) does not count, since such a value can never cross. The error at a crossing
+  names one conversion that made the interface not sendable, with its package and line. An owning interface
+  moves when it crosses.
 - A type parameter is checked for each type it is instantiated with.
 
 **Views that cross.** A value of a sendable type crosses only if it contains no view of the frame of the
@@ -547,8 +554,9 @@ defined as follows; the operators themselves are in section 11.20 (Comparison op
 - String types are comparable and ordered. Two string values are compared lexically byte-wise.
 - Enum types are comparable and ordered, as their underlying integer types are. Two enum values are compared
   as integers.
-- Packed types are comparable. Two packed values are equal if their storage is equal; reserved bits are always
-  zero. They are not ordered.
+- Packed types are comparable. Two packed values are equal if their bits outside the reserved bits are equal
+  (section 7.14), compared bit by bit, so a floating-point field compares by its bits. A map hashes a packed key
+  without its reserved bits. They are not ordered.
 - Pointer types are comparable. Two pointer values are equal if they point to the same variable or if both
   have value `nil`. Pointers to distinct zero-size variables may or may not be equal.
 - Channel types are comparable. Two channel values are equal if they were created by the same call to `make`
@@ -623,7 +631,7 @@ depend on the kind of a type are these:
   underlying type moves.
 - A box never converts to or from a pointer, except through `(*T)(p)`, `&*p` and `unsafe`. A `weak[P]` is made
   by converting a reference (section 7.19).
-- A rune, or a slice of runes, converts to a string; a string converts to no rune and to no slice (section 11.24, Conversions to and from a string type).
+- A value of type `rune`, or a slice whose element type is `rune`, converts to a string; a string converts to no rune and to no slice (section 11.24, Conversions to and from a string type).
 
 ---
 

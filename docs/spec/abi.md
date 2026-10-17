@@ -1170,8 +1170,9 @@ touches a per-CPU variable:
 `testdata/kernel/smoke` does this for two blocks under QEMU, and `testdata/kernel/gsuser` does the same as
 a Linux process, setting the GS base with `arch_prctl(ARCH_SET_GS)`.
 
-Code that reads and then writes a per-CPU variable, or uses its address, must not migrate in between:
-it runs with preemption or interrupts disabled (language spec section 20.9; memory model section 6.4).
+A lone load or store of a whole per-CPU variable of at most a word needs no region. Any other access, and
+every use of the address, is checked to lie in a non-migrating region (language spec sections 19.3 and 20.9;
+memory model section 6.4).
 
 ## 11. Linux system calls
 
@@ -1350,9 +1351,7 @@ of the function started, or 0 when that graph is not bounded (language spec sect
 18). `spawnGo` asks the backend for a task with a stack of `bound` bytes (`Proven`), or, when `bound` is
 0, an unsized one (`Unsized`, `rt.DefaultStackSize`); either comes from the program-wide default
 allocator, never from an override that the starting task installed with `alloc.Use`. It copies the
-block to the top of the stack and calls `Spawn`. Before it, a func value that is the function started or a
-func-typed argument is passed to `rt.checkGoFunc`, which panics if its closure record lies in the
-starting task's stack (language spec section 12.12).
+block to the top of the stack and calls `Spawn`.
 
 **Channels.** A channel is the address of an `rt.hchan`: a runtime lock, the buffer's count, capacity,
 indices and element size, the buffer, queues of waiting senders and receivers, the allocator it came
@@ -1438,7 +1437,9 @@ an interrupt handler calls `rt.RunTimers`, the interrupt-context check (language
 follows the call into every function of type `func(unsafe.Pointer, int64)` the program takes. The
 library's functions ready a parked task (`ParkUntil`), send on a channel without waiting or counting
 (`rt.ChanTrySend`, for the channels of `time.After`, `time.Tick`, `time.Timer` and `time.Ticker`) or queue
-an `AfterFunc` for a task that starts it. A channel's timer (`rt.ChanTimer(c, f)`) belongs to the
+an `AfterFunc` for a task that starts it. While an `AfterFunc` timer is armed, the runtime holds one
+reference to its `synced[Timer]` object; it is released when the function is started or when `Stop` succeeds,
+and the object is freed after the last reference is released (language spec section 19.6). A channel's timer (`rt.ChanTimer(c, f)`) belongs to the
 channel, which stops and frees it when it is freed; the timer's pointer to the channel is not counted.
 
 `ParkUntil(deadline)` arms a timer in its frame whose function readies the task, and parks. A ready and

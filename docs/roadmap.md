@@ -76,6 +76,102 @@ against the corrected specification. The immediate implementation order is:
      panic and an interface value (site type, count). `fmt` `%T` prints `*errors.errorString`. Update the
      catalog `Why` texts of E2008 and E2542; find library code and tests that assert `*errors.Text` on an
      `errors.New` result. Tests: two results of one site compare unequal, copies equal, a Go-oracle program.
+107. **Non-sendable type converted to `error` (E2020)** (planned; decision D14; sections 7.9, 8.8, 16.7,
+     19.2). Add E2020 in `internal/types2/errors/plutonium.go` and the catalog (`Spec` 8.8, with a fix
+     showing `alloc.Synced`): a conversion of a value whose type is not sendable to `error` or an interface
+     embedding it. Make the whole-program interface sendability analysis skip conversions that section 18.3
+     proves are views of the frame, and name one offending conversion (package and line) in the crossing
+     error. Tests: a `shared[T]` returned as `error`, `fmt.Println(sh)` not counting, a `chan any` crossing
+     error naming the conversion.
+108. **Func values that may be closures of a frame at a task start** (planned; decision D13; sections
+     11.5, 12.12, 17.1, 18.3, 19.4; abi.md 12.6). Report E3004 where a func value that section 18.3 may place
+     in a frame reaches a `task` start, `wg.Task`, `rt.Go` or `time.AfterFunc` argument, and E3003 at a call
+     that passes such a closure to a function whose summary starts a task with it (path in the message). Keep
+     E2590 and E2594 for the forms the checker sees directly. Delete `rt.checkGoFunc` and its call, the run-
+     time panic and its message, and the abi.md 12.6 sentence. Tests: func values from a parameter, field,
+     element, channel and a twice-assigned variable; a func loaded from heap never rejected.
+109. **`time.AfterFunc` returns `synced[Timer]`** (planned; decision D16; sections 19.6, F.7, A.3;
+     abi.md 12.9). Change `lib/pluto/time` `AfterFunc` to return a counted `synced[Timer]`; the runtime holds
+     a reference while the timer is armed, released when `f` starts or `Stop` succeeds; dropping handles
+     never stops the timer; `NewTimer` and `NewTicker` keep `owned[...]`. Update `Stop` and `Reset` and the
+     leak accounting of the debug allocator. Tests: the statement `time.AfterFunc(d, f)` fires `f`; `Stop`
+     through a copy cancels it; no leak after firing.
+110. **Elementwise loop over two slices** (planned; decision D17; sections 19.4, 17.1). In
+     `internal/scoped` and `internal/race`, accept two possibly overlapping views used only in the same
+     partition form with the same loop variable and parameters; lower a check before each `s.Task` call that
+     the views start at the same element or do not overlap, panicking otherwise, in every build mode (not
+     removed by `--gencheck=false` or kernel builds). Keep E3402 for `in[i+1]` with `out[i]`. Tests: the
+     accepted loop, the overlap panic, the rejected shifted access, unchecked mode.
+111. **`defer` in a loop: one path rule; E2533 retired** (planned; decision D18; sections 12.11, 12.19,
+     A.2). Replace the loop `defer` checks by the rule of 12.19: every path from the `defer` leaves every
+     containing loop (`return`, `panic` or never-returning call, `goto` out, `break` of the outermost loop,
+     labeled `continue` outward) before reaching it again, over `for`, range-over-func bodies and backward
+     `goto` loops; otherwise E2530. Retire E2533 from the catalog and codes (keep E2534). Tests: lock-and-
+     return loop, unlabeled `continue`, labeled `break` and `continue`, backward `goto`.
+112. **`defer` evaluates at the statement; `Drop` has a pointer receiver** (planned; decisions D15, D21;
+     sections 7.18, 10.14, 12.19, 18.5, 18.6). In `internal/moves`, move an owner passed by value or as a
+     value receiver of a deferred call at the `defer` statement; save `&x` for a pointer-receiver call; make
+     `defer x.Drop()` leave `x` usable, drop what it holds when the call runs and not again at scope end.
+     Report E3201 for `Drop` with a value receiver, widen its catalog text, and show `func (f *File) Drop()`.
+     Update library and test code that declares a value-receiver `Drop`. Tests: the 12.19 example, `defer
+     x.Drop()` after a move, E3201.
+113. **Drop of `type B owner A` and `x.Drop()` on every owner** (planned; decision D20; sections 7.18,
+     8.7, 10.8, 18.6). Generate drop glue for a type defined from an owner: its own `Drop`, then the drop of
+     `A` (its `Drop`, then its fields); `B` gets none of `A`'s methods. Accept `x.Drop()` on a whole variable
+     of any owner type, declared `Drop` or not, as the early-drop operation (not a method value, not in the
+     method set). Tests: `type Log owner File` closes the file on drop, `x.Drop()` on a type with no `Drop`,
+     E3307 and E3303 unchanged.
+114. **`print` and `println` argument types and float format** (planned; decision D19; sections 13.12,
+     A.2, A.4). Accept a value whose underlying type is boolean, integer (enums included), floating-point or
+     string; report the existing unprintable-argument error for an owner type, even over an integer, and for
+     other types (catalog fix names `fmt` and `int32(fd)`). The float format is the shortest form
+     of Go 1.27.2 (D19 withdrew the older fixed form), which the compiler already prints. Kernel-mode floats keep the bit-pattern form. Tests: defined integer
+     types and enums, an owner over `int32` rejected.
+115. **`string(x)` accepts only `rune`** (planned; decision D23; sections 8.11, 11.24, A.2). In
+     `internal/types2`, accept the single-value conversion only for type `rune` (identical to `int32`) or an
+     untyped integer or rune constant, and the slice conversion only for a slice whose element type is `rune`
+     (defined slice types included); report an error for `type myRune rune`, `type Fd int32` and `[]myRune`,
+     with a fix naming `string(rune(x))`. Rewrite uses in `lib/`, examples and tests. Tests: each accepted
+     and rejected form.
+116. **Packed types keep reserved bits** (planned; decision D29; sections 7.14, 8.10). Conversions
+     between an integer or byte array and a packed type keep every bit both ways; field writes change only
+     their bits; reserved bits (bits of `_` fields and uncovered backing bits) are zero in literals and zero
+     values. Equality and map hashing of packed values ignore reserved bits and compare the rest bit by bit
+     (floating-point fields by their bits). Tests: round-trip of a register value with reserved bits,
+     equality, map key.
+117. **Packed bit layout with an array backing; E2021** (planned; decision D30; section 7.14). Lay out
+     `[N]byte`, `[]byte` and unbacked packed types by byte: position `p` is bit `p mod 8` of byte `p / 8`, a
+     bit field in consecutive positions, a byte-level field in the stated byte order whatever the target. Add
+     E2021 and its catalog entry: in a big-endian packed type with a byte-array, slice or no backing, a bit
+     field crosses a byte boundary or a byte-level field is not byte-aligned; the fix shows a nested `packed
+     be uint16` field. Check the `IPv4Header` example and add the `Frag` field. Tests: IPv4 header bytes on
+     both endiannesses, E2021.
+118. **Per-CPU access regions; E2022 and E2023** (planned; decision D24; sections 19.3, 20.9; memory-
+     model.md 6.4). Infer non-migrating regions (preemption disabled, maskable interrupts disabled, `rt.Lock`
+     held; on every path, across calls, deferred release counting) and interrupt-disabled regions (also the
+     body of a `//pu:interrupt` handler up to a call that may switch tasks), in `internal/race`. Exempt
+     `//pu:percpu` variables from rule 1; allow lone word-sized loads and stores anywhere; report E2022 for
+     any other access outside the region it needs (naming the access and whether a handler makes interrupts
+     necessary); report E2023 for a pointer from `&v` used outside its region, sent, or passed to a task.
+     Treat `x86.Cli`, `Sti`, `SaveFlagsCli` and `RestoreFlags` as safe calls the analysis follows. Tests:
+     `current`, `v++` under `rt.DisablePreemption`, pointer escape, handler sharing.
+119. **Interrupt handlers as parties in the race rules** (planned; decision D25; sections 18.12, 19.3,
+     20.10, 20.11, F.5; memory-model.md 4.1, 6.1). Treat each installed `//pu:interrupt` handler as a party
+     that may run concurrently with itself and all tasks; apply rules 1 to 3 with handlers as parties, accept
+     atomics and `rt.Lock` guards (recognized like `sync.Mutex`), report E3502 and E3503 naming the handler,
+     and accept `volatile[T]` and interrupt-disabled regions only for per-CPU data. Remove the allocator
+     exemption ("or no lock"). Remove `Cli`, `Sti`, `SaveFlagsCli` and `RestoreFlags` from the unsafe listing
+     of `pluto vet -unsafe`. Audit the kernel allocators in `lib` for state shared with handlers.
+120. **Interrupt-context wait check: inserted drops, `//pu:blocking`, bodyless functions** (planned;
+     decisions D26, D27, D28; sections 1.2, 18.12, 20.3, 20.10, 20.11, 21). Make the E2584 analysis follow
+     inserted drops (scope end, overwrite, temporaries, counted release at zero) into `Drop`, drop glue and
+     the `Free` of every installed allocator; take a bodyless declaration as not waiting unless marked
+     `//pu:blocking`; keep `//pu:blocking` on functions with a body as a restriction only. Tests: a drop that
+     frees through a waiting allocator in a handler, a bodyless function with and without the directive.
+121. **E3202 explanation shows `owner` on the declaration** (planned; decision D12; sections 7.18, 18).
+     Update the catalog text of E3202 and `cmd/pluto/testdata/diag` so the explanation shows the declaration
+     with `owner` inserted and says why the keyword is written (a change to a field's type elsewhere is
+     reported at the declaration). Update `pluto explain` and the hover text if they repeat the old wording.
 
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a
 literal zero bound. Existing virtual-reservation fallback and overflow handling are

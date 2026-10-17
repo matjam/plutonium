@@ -20,7 +20,7 @@ and every rule in this manual has to work for both:
 - **Kernel programmers**, who need bit-exact layouts, control of every allocation, and rules that can be
   checked at compile time because a run-time check may be unavailable or unaffordable.
 - **Application programmers**, who need strong guarantees about memory and data races without writing
-  annotations or learning how the compiler works.
+  lifetime, borrow or region annotations or learning how the compiler works.
 
 The language has no garbage collector. A scheduler is included only when the program or its library
 dependencies require its capabilities: task starts, scheduler-dependent timers and callbacks, or
@@ -77,11 +77,15 @@ manual that conflicts with one of them is a defect in the manual.
    type, or a compile error that explains it. Code that looks like Go and compiles does what Go would do.
    Appendix A lists every difference.
 
-3. **No annotations for ordinary code.** Ordinary code needs no annotations and no knowledge of how the
-   compiler works. What the compiler can work out for itself (what escapes, what moves, which functions
-   never return or may wait, which lock guards which data) it works out, and there is no `//pu:`
-   directive for such a fact. Directives state only what the compiler cannot supply for itself: linkage, a body it cannot see, hardware state, a binding to the runtime, a promise taken on trust, and explicit requests such as `//pu:inline` (section 20.3,
-   Directives).
+3. **No annotations for ordinary code.** Ordinary code needs no lifetime, borrow or region annotations and
+   no knowledge of how the compiler works. What the compiler can work out for itself (what escapes, which
+   uses of a value move it, which functions never return or may wait, which lock guards which data) it works
+   out, and there is no `//pu:` directive for such a fact. The kind of a type is part of its declaration, not
+   an annotation: a type whose values own a resource is declared with `owner` (section 7.18, Owner types) as a
+   struct is declared with `struct`, and code that uses such a type writes nothing extra. Directives state
+   only what the compiler cannot supply for itself: linkage, a body it cannot see, hardware state, waits on
+   progress that only another execution context makes, a binding to the runtime, a promise taken on trust, and
+   explicit requests such as `//pu:inline` (section 20.3, Directives).
 
 4. **Go as a test oracle.** Programs in the common subset of Go and Plutonium are kept as tests. Their
    expected output comes from running them with Go, and generated programs are run under both compilers
@@ -90,7 +94,7 @@ manual that conflicts with one of them is a defect in the manual.
 
 Four standing principles decide the cases the rules leave open. They serve the two audiences: kernel code,
 where a run-time check may be unavailable or unaffordable, and application code, which should get strong
-guarantees without writing annotations.
+guarantees without writing lifetime or borrow annotations.
 
 1. **Doubt resolves to a compile error.** Every static analysis (escape, moves, sendable types, lock
    guarding, closure regions) rejects what it cannot prove safe and never accepts on doubt. A false
@@ -99,7 +103,9 @@ guarantees without writing annotations.
    automatic runtime protection where needed, or reject the operation if neither is available. Ordinary
    code needs no safety annotations or compiler knowledge. Protection must respect early-boot and
    interrupt restrictions on allocation, waiting and failure. Safety does not promise freedom from
-   deadlock, resource exhaustion or hardware faults.
+   deadlock, resource exhaustion or hardware faults. The check that interrupt context never waits
+   (section 20.10, Interrupts) guards against deadlock: it follows all Plutonium source and takes the
+   declaration of a function without a body as that function's contract.
 
 2. **Run-time checks change what a bug does, never what correct code means.** Generation and arena-epoch
    checks (a use of freed memory is a panic, section 18.11, Generation checks) are required by default

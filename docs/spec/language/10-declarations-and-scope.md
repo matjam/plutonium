@@ -67,8 +67,8 @@ Assigning to the blank identifier evaluates the right-hand side and discards the
 anything. If the right-hand side is an owner variable, `_ = x` only reads it: `x` still holds its value
 and is dropped when its scope ends. If the right-hand side produces an owner temporary, as in
 `_ = open()`, the temporary is dropped at the end of the statement, as any temporary that nothing stores
-(section 12.7, Assignment statements; section 18.6, Drops). To drop an owner variable early, call its
-`Drop` method.
+(section 12.7, Assignment statements; section 18.6, Drops). To drop an owner variable early, call
+`x.Drop()` (section 18.6).
 
 ```go
 type Res owner struct{ id int }
@@ -432,6 +432,7 @@ because the names of their members, or their kind, are reached through the type'
   dropped when their variable's scope ends. Which types `owner` may qualify, which types must carry it, and
   what follows from it are the subject of section 7.18. A type definition from an owner type other than `owned[T]` must carry
   `owner` too: `type B owner A` (E3202); one from `owned[T]` defines an owner by itself and may not carry it (section 7.18).
+  A value of such a `B` drops as an `A` after `B`'s own `Drop` (section 7.18); `B` has none of `A`'s methods.
 
 ```go
 type File owner struct {
@@ -886,7 +887,7 @@ declare their methods on pointer receivers unless the method's purpose is to con
 
 **The method `Drop`.** A method named `Drop` is the destructor of an owner type (section 18.6, Drops). It
 has no parameters and no results (E3206), and it may be declared only on a type declared `owner`, with
-receiver `T` or `*T` (E3201). The embedded fields of a struct promote the methods of the embedded type as
+a pointer receiver (E3201). The embedded fields of a struct promote the methods of the embedded type as
 usual, except `Drop`, which is never promoted. Section 7.18 (Owner types) defines the full rules.
 
 ```go

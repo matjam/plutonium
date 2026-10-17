@@ -72,9 +72,8 @@ dependent value and neither panics nor faults (section 11.24).
 
 - An iterator that calls the `yield` function of a range-over-func loop when it may not (section 12.11,
   Range over functions).
-- A `task` statement whose function value, or one of whose func-typed arguments, has its closure record in
-  the starting task's stack, when the compiler cannot see it (section 12.12, Task statements; the cases it
-  can see are E2590 and E2594).
+- Two slices that the tasks of a `sync.Scope` use in the same partition form overlap without starting at
+  the same element (section 19.4, Scoped tasks).
 - An operation that would park the task, in interrupt context, when the scheduler can tell (section
   20.10, Interrupts).
 - `rt.ExitTask` called in a function that C code called (section 17.3).

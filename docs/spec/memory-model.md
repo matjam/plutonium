@@ -301,9 +301,9 @@ started before the call happened before the call returned.
 
 Every execution of a program made only of safe code is data-race-free, and so sequentially consistent
 (section 2). A data race in safe code is not a run-time condition at all: the compiler rejects, over the
-whole program and with no annotations, every program in which two tasks could make conflicting accesses
-that are not ordered (language spec sections 19.2 to 19.4). Every piece of memory that tasks share is
-then one of these:
+whole program and with no lifetime, borrow or region annotations, every program in which two tasks, or a
+task and an interrupt handler, could make conflicting accesses that are not ordered (language spec sections
+19.2 to 19.4). Every piece of memory that tasks and interrupt handlers share is then one of these:
 
 - an owner moved from one task to another, which only the receiving task can then reach;
 - memory that does not change while shared, such as a package variable written only during package
@@ -312,7 +312,9 @@ then one of these:
 - data guarded by a lock that every access holds, the lock being inferred by the compiler: a package
   variable (rule 1 of language spec section 19.3), an object reached through a pointer that crosses to
   another task, whose changing fields are guarded by a lock of the same object or a package-level lock
-  (rule 2), and the object of a `synced[T]` or the contents of a map that several tasks use (rule 3);
+  (rule 2), and the object of a `synced[T]` or the contents of a map that several tasks use (rule 3).
+  For data that an interrupt handler accesses, the lock is an `rt.Lock` (language spec section 19.3,
+  Interrupt handlers);
 - a variable of a function whose `sync.Scope` joins the tasks that use it, synchronized by its type,
   guarded by a lock, or partitioned among the tasks (language spec section 19.4).
 
@@ -431,8 +433,10 @@ An interrupt handler (`//pu:interrupt`, language spec section 20.10) is asynchro
 interrupts. Same-processor instruction sequencing alone does not publish ordinary variables kept in
 registers or permit unprotected plain sharing. The following protocols define visibility:
 
-- Shared data is accessed through `volatile[T]` or atomic operations on both sides, or every plain
-  access is inside a correctly protected interrupt-disabled region. Volatile operations keep their
+- Data that a handler shares with other code is accessed with atomic operations or under an `rt.Lock`
+  (language spec section 19.3, Interrupt handlers), because a handler may run on any processor and on
+  several at once. Volatile accesses and interrupt-disabled regions exclude only code on the same
+  processor, so they are the checked protocol only for per-CPU data (section 6.4). Volatile operations keep their
   specified compiler ordering. For same-processor sharing, eligible accesses completed before handler
   entry are visible to the handler, and handler accesses are visible to eligible accesses after its
   return. These ordering edges apply only to the protected or volatile/atomic protocol, not every
@@ -453,8 +457,9 @@ registers or permit unprotected plain sharing. The following protocols define vi
   19.1); an interrupt-disabled region does not extend into a new task.
 
 These same-processor rules create no synchronization between processors. Cross-processor sharing needs
-atomic operations or a suitable lock. The compiler checks supported source protocols without routine
-annotations; opaque assembly implementations remain responsible for their explicit contracts.
+atomic operations or a suitable lock. The compiler checks the forms above: atomics or an `rt.Lock` for shared
+data, and volatile accesses or interrupt-disabled regions only for per-CPU data. Opaque assembly
+implementations remain responsible for their explicit contracts.
 
 ### 6.2 Device memory
 
@@ -502,10 +507,15 @@ are met by switching only with `rt.Switch` and preempting only through `rt.Preem
 ### 6.4 Per-CPU data
 
 Per-CPU variables (`//pu:percpu`, language spec section 20.9) are ordinary locations, one copy per
-processor. A task that can be preempted and moved to another processor may read one processor's copy and
-write another's, so such sequences run with preemption (or interrupts) disabled. A single word-sized
-per-CPU load or store compiles to one `GS`-relative instruction and is therefore atomic with respect to
-interrupts on the same processor. Changing the GS base (`x86.WriteGSBase`, `x86.Swapgs`) is a compiler
+processor, and are not subject to rule 1 of language spec section 19.3. A task that can be preempted and
+moved to another processor may read one processor's copy and write another's. The compiler therefore checks
+the accesses. A lone load or store of a whole per-CPU variable of at most a machine word is allowed
+anywhere: it compiles to one `GS`-relative instruction and is atomic with respect to interrupts on the same
+processor. Two such accesses in separate statements may reach the copies of two processors; that is defined
+behavior, not a race. Every other access (a compound assignment, `++`, a read and a write in one expression,
+an access to a variable larger than a word or to part of one, a pointer-receiver method call, and `&v`)
+must be inside a non-migrating region, and inside an interrupt-disabled region when an interrupt handler may
+also access the variable (language spec sections 19.3 and 20.9). Changing the GS base (`x86.WriteGSBase`, `x86.Swapgs`) is a compiler
 barrier like every `pluto/arch/x86` intrinsic, so no per-CPU access moves across it; a pointer taken with
 `&v` before the change still refers to the copy it was taken from.
 

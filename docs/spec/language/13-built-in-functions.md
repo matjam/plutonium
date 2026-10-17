@@ -4,9 +4,11 @@ Built-in functions are predeclared (section 10.3, Predeclared identifiers). They
 functions, but some of them accept a type instead of an expression as the first argument.
 
 The built-in functions have no Plutonium types, so they can appear only in call expressions. They cannot
-be used as function values, and a call of one cannot be the function of a `task` statement (E2591). Which
-of them a `defer` statement accepts is defined in section 12.19 (Defer statements); a call that it does
-not accept is E2532, and the fix is to defer a function literal that makes the call.
+be used as function values, and a call of one cannot be the function of a `task` statement (E2591). A `defer`
+statement accepts a call of a built-in function exactly when the call may stand as an expression
+statement: `clear`, `close`, `copy`, `delete`, `panic`, `print` and `println` (section 12.19, Defer
+statements). Deferring any other built-in function, or a function of package `unsafe`, is E2532, and the
+fix is to defer a function literal that makes the call.
 
 A call of `len`, `cap`, `make`, `min`, `max`, `new` or `take` yields a value, so it cannot stand alone as
 an expression statement unless section 12.4 (Expression statements) says so. The calls `clear`, `close`,
@@ -523,16 +525,16 @@ the first lines of a kernel.
 
 | Argument type | Form |
 |---|---|
-| a boolean | `true` or `false` |
-| an integer | decimal |
-| a floating-point number | the shortest decimal form that reads back as the same value, in the `g` format of `strconv` (`1.5`, `1e+21`, `-0`), at the precision of its type |
-| a string | its bytes |
+| a value whose underlying type is boolean | `true` or `false` |
+| a value whose underlying type is an integer, including a defined integer type and an enum | decimal |
+| a value whose underlying type is floating-point | the shortest decimal form that reads back as the same value, in the `g` format of `strconv` (`1.5`, `1e+21`, `-0`), at the precision of its type |
+| a value whose underlying type is a string | its bytes |
 | a pointer, `unsafe.Pointer`, function, or the address of an `owned`, `shared`, `synced` or `weak` value | the address, in hexadecimal with `0x` |
 
 A floating-point argument in kernel mode counts as a use of floating point and is allowed only in a
 `//pu:fpu` function (section 20.7, Floating point in kernel mode). It is printed as its bit pattern
 (`float64=0x4020000000000000`), because the console code of a kernel cannot use the floating-point unit.
-Other types cannot be printed.
+An owner type cannot be printed, even when its underlying type is an integer: write `int32(fd)`, so that printing never raises the question of a move. Other types cannot be printed either.
 
 **Where.** In a hosted build `print` and `println` write to standard error, with a system call that
 never waits. In a freestanding build they write with the function registered by `rt.SetConsole`.

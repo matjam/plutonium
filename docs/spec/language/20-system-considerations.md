@@ -284,12 +284,15 @@ kernels.
 | `//pu:scheduler` | package variable | the program's scheduler backend, of a type that implements `rt.Scheduler`; at most one in a program, replacing the hosted one (section 19.5, The scheduler contract) |
 | `//pu:percpu` | package variable | one copy per processor, addressed through `GS`; kernel mode only (section 20.9) |
 | `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (section 20.7) |
-| `//pu:blocking` | function, with or without a body | calling it may park or wait in a way the compiler cannot see (for example, halting until an interrupt); interrupt handlers and the panic handler must not reach it (section 20.10) |
+| `//pu:blocking` | function, with or without a body | calling it may park or wait in a way the compiler cannot see (for example, halting until an interrupt, or on a function with a body, spinning until an interrupt handler or another processor sets a flag); interrupt handlers and the panic handler must not reach it (section 20.10). It only adds this restriction and never makes a program accepted |
 | `//pu:nosimd` | function | the compiler adds no vector instructions to it |
 
 `//pu:nosimd` is implied by `//pu:interrupt` and, in kernel mode, by every function that is not
 `//pu:fpu`. `//pu:blocking` is for what the compiler cannot see; waits it can see, which all end in the
-runtime's `park`, need no directive.
+runtime's `park`, need no directive. On a function with a body it states a wait on progress that only
+another execution context makes, such as a spin until an interrupt handler or another processor sets a
+flag. It only adds the restriction of section 20.10. It never makes a program accepted, so it is neither
+unsafe code nor a promise taken on trust.
 
 **Standard library only.**
 
@@ -549,13 +552,40 @@ points at the current processor's block. A word-sized access is a single instruc
 the same processor cannot split it. `&v` is a pointer into the current processor's copy at the time it is
 taken, and keeps pointing there if `GS` changes later.
 
+The declaration above compiles: `current = t` and `t := current` are lone accesses of a word. A compound
+access needs a region:
+
+```go
+//pu:percpu
+var ticks uint64
+
+func count() {
+	rt.DisablePreemption()
+	defer rt.EnablePreemption()
+	ticks++ // inside a non-migrating region
+}
+```
+
 These rules apply:
 
 - Only constant initializers are allowed (constants, and arrays and structs of them), because package
   initialization runs once, before any processor has its own block (E2550).
 - `//pu:percpu` is a compile error outside kernel mode (E2551), and together with `//pu:section` (E2552).
-- Code that reads and then writes a per-CPU variable, or uses its address, must not migrate to another
-  processor in between, so it runs with preemption or interrupts disabled (section 19.7).
+- Rule 1 of section 19.3 (Data race freedom) does not apply to a per-CPU variable: each processor has its
+  own copy, so the copies are not shared. A per-CPU variable follows the rules of this section instead.
+- A lone load or a lone store of a whole per-CPU variable of at most a machine word is allowed anywhere.
+  It is one instruction, atomic with respect to the same processor (memory-model.md section 6.4).
+- Every other access must be inside a non-migrating region (section 19.3): a compound assignment or `++`,
+  a read and a write in one expression, any access to a variable larger than a machine word or to part of
+  one, a call of a method with a pointer receiver, and `&v`. If an interrupt handler may also access the
+  variable, the access must be inside an interrupt-disabled region (section 19.3). An access outside the
+  region it needs is a compile error (E2022). The error names the access and says whether a handler makes
+  disabled interrupts necessary.
+- A pointer from `&v` is bounded by the region it was taken in. It may be kept only in local variables,
+  and may not be used after the region ends, sent on a channel or passed to a task. A use outside the
+  region is a compile error (E2023).
+- Two lone accesses in separate statements may reach the copies of two different processors, because the
+  task can migrate between them. That is defined behavior, not a data race.
 - The kernel gives each processor its block and points `GS` at it before that processor touches a per-CPU
   variable. How it does this is in the ABI document (abi.md section 10.6). The runtime has two per-CPU
   variables of its own, the processor's number recorded by `rt.SetCPU` and the current-task slot, so every
@@ -605,13 +635,16 @@ restores the prior interrupt/preemption state. Every user follows that protocol.
 on another processor's progress, never on the interrupted context resuming to release the lock.
 Nested exceptions and nonmaskable interrupts require a separate exclusion/progress protocol; ordinary
 interrupt disabling does not exclude them. These permitted spins do not park and are not the forbidden
-waiting operations above. Inference checks supported protocols without routine annotations; opaque
-assembly implementations retain their explicit trusted contracts.
+waiting operations above.
 
-Sharing with a same-processor handler uses volatile/atomic accesses or a correctly protected
-interrupt-disabled region on every path (memory-model.md section 6.1). Cross-processor sharing needs
-atomics or an appropriate lock. Volatile supplies neither mutual exclusion nor compound-operation
-atomicity. To hand work to normal code, a handler sends without waiting:
+An interrupt handler is a party to the data race rules (section 19.3). Data that a handler accesses, other
+than a per-CPU variable, must be atomic or guarded by an `rt.Lock`, whether the other party is a task, a
+handler on another processor or the same handler running on several processors at once. A `sync.Mutex`
+cannot be taken in a handler (E2584). `volatile[T]` alone, and an interrupt-disabled region alone, exclude
+only the same processor, so they satisfy the rules only for a per-CPU variable, accessed as section 20.9
+describes (memory-model.md section 6.1). Volatile supplies neither mutual exclusion nor compound-operation
+atomicity. The race errors (E3502, E3503) name the handler as the party. To hand work to normal code, a
+handler sends without waiting:
 
 ```go
 select {
@@ -627,12 +660,19 @@ way (E2585).
 
 - **What is followed.** Direct calls, method calls, deferred calls, and the calls the compiler adds for
   `new`, `make`, interface conversions and panics, into the standard library as into the program's own
-  code. A path ends at the runtime's `park`, in which every wait in the library ends, at the runtime's
+  code. The check also follows the drops the compiler inserts (section 18.6), like any call: at the end of
+  a scope, on assignment over an owner, for temporaries, and the release of a counted value whose count
+  reaches zero, into the type's `Drop` and drop glue and into the `Free` of every allocator the program
+  installs. It is an error (E2584) only where one of these may wait, so the result does not depend on
+  whether the cleanup is written or inserted. A path ends at the runtime's `park`, in which every wait in the library ends, at the runtime's
   `spawn`, in which every task start ends, and at a function marked `//pu:blocking`. A path from an
   interrupt handler stops at the panic handler, which is checked on its own.
 - **`//pu:blocking`** is for an opaque primitive that may park, halt pending an event or wait for
   progress that is unsafe in interrupt context, including a lock requiring interrupted execution to
-  resume. It is not required merely for the permitted interrupt-safe spin protocol above. Source-visible
+  resume. On a function with a body it states a wait that the compiler cannot see, such as a spin until an
+  interrupt handler or another processor sets a flag; it only adds this restriction and never makes a
+  program accepted, so it is not unsafe code and not a trusted promise. It is not required merely for the
+  permitted interrupt-safe spin protocol above. Source-visible
   operations are inferred; opaque assembly/C contracts must describe their waiting and exclusion
   obligations. The standard library marks only `park`.
 - **Calls through interfaces and func values** cannot be resolved exactly, so the check is conservative.
@@ -645,12 +685,19 @@ way (E2585).
   string call the allocator's `Alloc` through the `alloc.Allocator` interface, and the check follows
   that call into every allocator the program installs. An allocator whose `Alloc` or `Free` may wait,
   because it takes a lock that parks, is reported like any other function that may wait; one that uses a
-  spin lock with interrupts disabled, or no lock, is allowed. No allocator needs a marking of its own.
+  spin lock with interrupts disabled is allowed. No allocator needs a marking of its own. An allocator
+  has no exemption from the data race rules: its state is data like any other. If an interrupt handler
+  can reach its `Alloc` or `Free`, the state they share with other code must meet section 19.3, for
+  example per-CPU caches touched only in interrupt-disabled regions (section 20.9). Parts of an allocator
+  written in unsafe code are its own responsibility (section 18.12).
   Forbidding all allocation in interrupt context unless an allocator is marked safe was rejected: it
   would forbid the common, safe case of a lock-free per-CPU cache, and a marking could be wrong without
   the compiler noticing.
 - **Assembly and C** are not looked into: a function without a body counts as not waiting unless its
-  declaration is marked `//pu:blocking`.
+  declaration is marked `//pu:blocking`. This is a contract taken on trust, because a function without a
+  body is unsafe code (section 18.12). The check of this section guards against deadlock, not against
+  memory or data race errors, and it follows all Plutonium source and takes the declaration of a function
+  without a body as that function's contract.
 - **Non-blocking channel operations** never reach `park`, so a `select` with `default`, `close`, `len` and
   `cap` stay allowed; the waiting forms reach it.
 - **The scheduler's `Wake`.** `rt.Ready` calls the bound scheduler's `Wake`, and interrupt handlers may
@@ -672,7 +719,8 @@ the allocator does, not by which operation calls it:
 - **In interrupt context.** Whatever an interrupt handler, the panic handler or the scheduler's `Wake`
   can reach must not wait (section 20.10). The compiler follows every allocation, a string concatenation
   as much as a `new`, into the `Alloc` method of every allocator the program installs. An allocator that
-  may wait is reported on the path that allocates; one that does not may be used there.
+  may wait is reported on the path that allocates; one that does not may be used there. The shared state
+  of an allocator that an interrupt handler can reach follows section 19.3.
 - **Before an allocator is set.** A kernel starts without a default allocator. Allocating before
   `alloc.SetDefault` panics when it runs, for strings as for `new` and `make`.
 - **At package initialization.** A package-level initializer that allocates is a compile error in a
@@ -685,8 +733,9 @@ the allocator does, not by which operation calls it:
 Everything about strings that does not make a new one never allocates: literals and constants, copying,
 comparison, slicing, indexing, `len`, `range`, passing and returning, `unsafe.String`, and the `Append`
 functions with a `vec.Fixed[byte]` destination over a caller's array. Copying and dropping a counted
-string made elsewhere is allowed, and a drop may free a buffer: a kernel that cannot free in some context
-keeps the strings it uses there static, or made in an arena.
+string never waits. Dropping one may free its buffer, and the drop is followed like a call (section
+20.10): it is an error only if the `Free` of an installed allocator may wait. A kernel whose allocator
+may wait keeps the strings it drops there static or in an arena.
 
 A generic function is judged for each set of type arguments it is compiled with, since each instance is a
 function of its own. `strconv.AppendInt` into a `*vec.Fixed[byte]` never allocates, so an interrupt

@@ -751,7 +751,7 @@ current iteration and returns `true` to request the next. A transfer leaving thi
 `false`; once `f` returns, execution continues at that transfer's target. A `return` in the body returns from the enclosing function. Owners and counted values that the scopes left by these statements hold are dropped (section 18.6, Drops).
 - **Misuse of `yield`.** An iterator that calls `yield` when it may not causes a run-time panic with one of these messages: "range function continued iteration after function for loop body returned false" after `yield` returned false, "range function continued iteration after whole loop exit" after the loop ended, and "range function continued iteration after loop body panic" while a panic in the body is in progress.
 - **Panics.** A panic in the body ends the program (section 17.1, Panics), after the deferred calls of the iterator and of the function the loop is in have run (hosted builds, 17.2). No iterator can recover it.
-- **`defer` in the body.** A `defer` in the body defers a call of the enclosing function. It runs when that function returns. Each `defer` statement has one slot in the function's frame (section 12.19, Defer statements), and the body of a range-over-func loop runs once per iteration, so the `defer` must be followed on every path by leaving the loop: a `return`, a `panic`, or a `break`, `continue` or `goto` to a statement outside the loop (E2533). A function literal deferred there may not capture the body's own variables, the loop variables included, since the body's frame is gone when it runs (E2534). Pass them as arguments.
+- **`defer` in the body.** A `defer` in the body defers a call of the enclosing function. It runs when that function returns. Each `defer` statement has one slot in the function's frame (section 12.19, Defer statements), and the body of a range-over-func loop runs once per iteration, so the rule of section 12.19 (Defer statements) for a `defer` in a loop applies to it. A function literal deferred there may not capture the body's own variables, the loop variables included, since the body's frame is gone when it runs (E2534). Pass them as arguments.
 - **Iterators that return closures.** An iterator method such as `items.All()` builds its closure in a region of the caller's frame (section 11.5, Closures and their regions), so a loop over one does not allocate. The loop over `v.All()` has the meaning of the loop that `All` runs.
 - **Owners.** An iterator yields values. An iterator over owners yields views of them (section 12.10, For statements).
 
@@ -809,7 +809,7 @@ The function value and arguments are evaluated as usual in the starting task (se
 - A `shared[T]` is not sendable, so `task z.Serve()` is an error (E2010), as is a box whose `T` contains one.
 - The method must be one of `T`, not one promoted from a field, and the box type must not be a named type. Any other pointer receiver is a view into an object, and crosses under the rules of section 19.3 (Data race freedom).
 
-**Closures.** A function literal that captures variables cannot be started with a `task` statement (E2590). Its captures live in the starting frame, which may be gone before the task runs (section 11.5, Closures and their regions). Pass the values as arguments: `task func(n int) { work(n) }(n)`. The same holds for a method value `x.M`, whose record holds a copy of the receiver in the frame that made it (E2594). The compiler rejects a `task` statement whose function, or whose func-typed argument, it can tell is such a closure: a capturing literal or a method value written in the statement, or a local variable whose only assignment is its declaration from one of them, directly or through other such variables. For any other func value whose closure record lies in the starting task's stack (one that reached the statement through a parameter, a field or a variable assigned more than once), the statement panics when it runs. The same rules apply to a call of a function that starts a task with one of its func arguments (`wg.Task`, `time.AfterFunc`, `rt.Go`, or a function of the program that passes a func parameter on to a `task` statement or to one of these). The compiler finds these functions by following each func parameter through the function's body.
+**Closures.** A function literal that captures variables cannot be started with a `task` statement (E2590). Its captures live in the starting frame, which may be gone before the task runs (section 11.5, Closures and their regions). Pass the values as arguments: `task func(n int) { work(n) }(n)`. The same holds for a method value `x.M`, whose record holds a copy of the receiver in the frame that made it (E2594). A func value whose closure record may lie in a frame is a view of that frame (section 18.3, Views). E2590 and E2594 report a capturing literal or method value written in the statement, or a local variable whose only assignment is its declaration from one of them, directly or through other such variables. Any other func value (one that reached the statement through a parameter, a field, an element, a channel, or a variable assigned more than once) is checked by section 18.3: it is an error (E3004) where it reaches the task start, and an error at a call that passes a closure of a frame to a function that starts a task with it (E3003). A func value loaded from heap or package memory is never a closure of a frame, since storing one there is an error (E3002). The same rules apply to a call of a function that starts a task with one of its func arguments (`wg.Task`, `time.AfterFunc`, `rt.Go`, or a function of the program that passes a func parameter on to a `task` statement or to one of these). The compiler finds these functions by following each func parameter through the function's body.
 
 **The new task.** Section 19.1 (Tasks) defines the state a new task starts in: its own fixed-size stack, the program-wide default allocator rather than the override that the starting task installed with `alloc.Use`, preemption enabled, and parallel execution with the other tasks. A panic in it follows the rules of section 17.1 (Panics).
 
@@ -1069,12 +1069,12 @@ is erroneous because the label `L1` is inside the `for` statement's block but th
 
 **Drops.** Leaving a scope by `goto` drops the owners and counted values that the scope holds (section 18.6, Drops). A `goto` back to a label before a variable's declaration drops the variable first, since the declaration runs again.
 
-**A backward `goto` is a loop.** A `goto` to a label that comes before it in the function makes a loop. Every rule that depends on loops applies to it: the variables and temporaries between the label and the `goto` reuse their storage in every pass, so a view of them may not be kept where the next pass can see it (E3006; section 18.4, Loop iterations reuse their storage); a closure that a call in the loop returns may not be kept past the pass (E3101; section 11.5, Closures and their regions); and a `defer` statement in the loop is an error (E2530; section 12.19, Defer statements).
+**A backward `goto` is a loop.** A `goto` to a label that comes before it in the function makes a loop. Every rule that depends on loops applies to it: the variables and temporaries between the label and the `goto` reuse their storage in every pass, so a view of them may not be kept where the next pass can see it (E3006; section 18.4, Loop iterations reuse their storage); a closure that a call in the loop returns may not be kept past the pass (E3101; section 11.5, Closures and their regions); and a `defer` statement in the loop follows the rule for loops (E2530; section 12.19, Defer statements).
 
 ```go
 i := 0
 again:
-	defer cleanup() // error: this defer is in a loop made by the goto below
+	defer cleanup() // error: a path reaches this defer again through the goto
 	i++
 	if i < 3 {
 		goto again
@@ -1099,7 +1099,7 @@ A `defer` statement invokes a function whose execution is deferred to the moment
 DeferStmt = "defer" Expression .
 ```
 
-The expression must be a function or method call. It cannot be parenthesized. Calls of built-in functions are restricted as for expression statements, and some built-in functions cannot be deferred directly. Wrap the call in a function literal and defer that (E2532).
+The expression must be a function or method call. It cannot be parenthesized. A call of a built-in function may be deferred exactly when it may stand as an expression statement (section 12.4): `clear`, `close`, `copy`, `delete`, `panic`, `print` and `println`. Deferring `cap`, `len`, `make`, `max`, `min`, `new`, `take` or a function of package `unsafe` is an error (E2532). Wrap the call in a function literal and defer that.
 
 Each time a `defer` statement executes, the function value and parameters to the call are evaluated as usual (section 11.26, Order of evaluation) and saved anew, but the actual function is not invoked. A parameter that the call omits because it has a default value is evaluated then too (section 11.14, Calls). Instead, deferred functions are invoked immediately before the surrounding function returns, in the reverse order they were deferred. That is, if the surrounding function returns through an explicit return statement, deferred functions are executed after any result parameters are set by that return statement but before the function returns to its caller. If a deferred function value evaluates to nil, execution panics when the function is invoked, not when the `defer` statement is executed.
 
@@ -1119,7 +1119,27 @@ func f() (result int) {
 }
 ```
 
-**One slot per statement.** Each `defer` statement has one slot in the frame of its function, which holds the values it saved. A `defer` statement can therefore run at most once per call of the function. A `defer` statement inside a loop, including a loop made by a backward `goto` (section 12.17, Goto statements), is an error (E2530). The body of a range-over-func loop is a loop, and section 12.11 gives the one case that is allowed. A function may contain only a bounded number of `defer` statements (E2531; section 21.4, Implementation limits). The fix for a loop is to move the body into a function of its own, whose `defer` then runs at the end of each iteration:
+**One slot per statement.** Each `defer` statement has one slot in the frame of its function, which holds the values it saved. A `defer` statement can therefore run at most once per call of the function. The rule for a loop is the same for every kind of loop: a `for` statement, the body of a range-over-func loop (section 12.11), and a loop made by a backward `goto` (section 12.17). A `defer` statement inside a loop is allowed if every path from it leaves every loop that contains it before the path can reach the `defer` statement again. Otherwise it is an error (E2530). A path leaves the loops by:
+
+- a `return`;
+- a call of `panic`, or of a function that never returns (section 20.3, Directives);
+- a `goto` to a label outside the outermost loop that contains the `defer`;
+- a `break` that ends that outermost loop: an unlabeled `break` when there is one loop, or a labeled `break` naming it or a statement around it;
+- a labeled `continue` naming a loop outside it.
+
+An unlabeled `continue`, or a `continue` naming a loop that contains the `defer`, does not leave. The range-over-func body is a frame of its own, which gives one more error: a function literal deferred there may not capture the body's variables (E2534; section 12.11). A function may contain only a bounded number of `defer` statements (E2531; section 21.4, Implementation limits). The following loop is valid, because the path leaves the loop at the `return` before it can reach the `defer` again:
+
+```go
+for _, it := range items {
+	if it.id == id {
+		it.mu.Lock()
+		defer it.mu.Unlock()
+		return it.value
+	}
+}
+```
+
+The fix for a `defer` that must run at the end of every iteration is to move the body into a function of its own:
 
 ```go
 for _, name := range names {
@@ -1135,6 +1155,22 @@ func process(name string) {
 
 **Panics and `ExitTask`.** In hosted builds, a panic runs the pending deferred calls of the panicking task before the panic handler is called, and `rt.ExitTask` runs the deferred calls of every frame of the task (section 17.2, Deferred calls on a panic; section 17.3, Ending a task with `rt.ExitTask`). There is no `recover`: a deferred call cannot stop a panic. Freestanding and kernel builds run no deferred calls on a panic (section 17.4, Panics in freestanding programs).
 
-**Owners.** Deferred calls run before the function's own variables are dropped, so a deferred call may use them. A deferred call may not use an owner declared in an inner block, which is dropped when that block ends (E3311). `defer x.Drop()` on an owner variable drops `x` when the function returns, and `x` is not dropped again. A function literal that is deferred is a closure of the frame (section 11.5, Closures and their regions), and it may use the captured owners as any literal may (section 11.4, Function literals).
+**Owners.** Deferred calls run before the function's own variables are dropped, so a deferred call may use them. A deferred call may not use an owner declared in an inner block, which is dropped when that block ends (E3311). The function value, the arguments and the receiver are evaluated at the `defer` statement, so three cases follow from the ordinary rules:
+
+- An owner passed by value moves at the `defer` statement.
+- An owner that is the receiver of a method with a value receiver moves there too, since the method consumes it.
+- A method with a pointer receiver saves `&x`, and `x` stays usable.
+
+`defer x.Drop()` is the pointer-receiver case (section 7.18, Owner types): `x` stays usable after it, the deferred call drops whatever `x` holds when it runs (nothing, if `x` was moved meanwhile), and `x` is not dropped again at the end of its scope.
+
+```go
+f := open(name)
+defer f.Drop()   // saves &f; f stays usable
+f.Read(buf)      // valid
+defer consume(g) // g moves here
+g.Len()          // error: E3301, g was moved by the defer statement
+```
+
+A function literal that is deferred is a closure of the frame (section 11.5, Closures and their regions), and it may use the captured owners as any literal may (section 11.4, Function literals).
 
 Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

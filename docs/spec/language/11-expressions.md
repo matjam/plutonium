@@ -248,7 +248,7 @@ This section defines where closure records may live. The captured variables of a
 - deferring it;
 - returning it, as described below.
 
-Storing it in a package-level variable, or through a pointer into memory that may outlive the frame, is an error (E3002). Starting it with a `task` statement is an error (section 12.12, Task statements).
+Storing it in a package-level variable, or through a pointer into memory that may outlive the frame, is an error (E3002). Starting it with a `task` statement is an error (E2590, E2594, or E3004 where it reaches the statement through other code; section 12.12, Task statements).
 
 **Returned closures.** Any function may return a closure. A function whose results can hold a closure (a func result, an interface, or a struct or array that holds one) builds the closures it may return in a **region** of memory that its caller provides. The region holds the closure records, the variables they capture, and the regions of the calls whose closures the function returns in turn.
 
@@ -1412,7 +1412,7 @@ the conversion `P(1.1)` results in a non-constant value of type `P`, and the val
 - Ignoring struct tags (below), `x`'s type and `T` are not type parameters, are not enum types, and have identical underlying types (section 8.2, Underlying types).
 - Ignoring struct tags, `x`'s type and `T` are pointer types that are not named types, and their pointer base types are not type parameters but have identical underlying types.
 - `x`'s type and `T` are both integer or floating-point types.
-- `x` is a value of type `rune`, or a slice of runes, and `T` is a string type (below).
+- `x` is a value of type `rune`, or a slice whose element type is `rune`, and `T` is a string type (below).
 - `x` is a slice, `T` is an array or a pointer to an array, and the slice and array types have identical element types (below).
 - `x` is an integer or an enum value, and `T` is an enum type (below).
 - `x` is an enum value, and `T` is an integer or floating-point type.
@@ -1462,7 +1462,7 @@ There is no linguistic mechanism to convert between pointers and integers. The p
 
 **Conversions to and from a string type.** A conversion to a string type allocates a counted string (section 18.8, Strings) from the current allocator (section 18.9, Allocators), except where it is constant or yields a one-byte ASCII string, which is static. The string is valid UTF-8.
 
-- A value of type `rune`, or an untyped integer or rune constant, converts to a string that holds the UTF-8 encoding of the code point. Values outside the range of valid Unicode code points, and surrogate halves, are converted to `"�"`. A value of any other integer type is an error. Write `string(rune(i))` to convert the code point `i`, or `strconv.Itoa(i)` to write the number.
+- A value of type `rune`, or an untyped integer or rune constant, converts to a string that holds the UTF-8 encoding of the code point. Values outside the range of valid Unicode code points, and surrogate halves, are converted to `"�"`. A value of any other integer type is an error, including a defined type whose underlying type is `int32`, such as `type myRune rune`. Write `string(rune(i))` to convert the code point `i`, or `strconv.Itoa(i)` to write the number.
 
 ```go
 string('a')        // "a"
@@ -1476,7 +1476,7 @@ type myString string
 myString('日') // "日" == "日" == "\xe6\x97\xa5"
 ```
 
-- A slice of runes converts to a string that is the concatenation of the individual rune values converted to strings.
+- A slice whose element type is `rune` converts to a string that is the concatenation of the individual rune values converted to strings. A slice of any other element type, such as `[]myRune`, is an error.
 
 ```go
 string([]rune{0x767d, 0x9d6c, 0x7fd4}) // "白鵬翔" == "白鵬翔"
@@ -1486,9 +1486,10 @@ string([]rune(nil))                    // ""
 type runes []rune
 string(runes{0x767d, 0x9d6c, 0x7fd4}) // "白鵬翔" == "白鵬翔"
 
+myString([]rune{0x1f30e})  // "\U0001f30e" == "🌎"
+
 type myRune rune
-string([]myRune{0x266b, 0x266c}) // "♫♬" == "♫♬"
-myString([]myRune{0x1f30e})      // "\U0001f30e" == "🌎"
+string([]myRune{0x266b})   // error: the element type is myRune, not rune
 ```
 
 - A conversion from a slice of bytes to a string, `string(b)`, is an error. A string holds valid UTF-8 (section 7.3, String types), and a slice of bytes may hold any bytes, so the conversion would have to change them. Use `strings.FromUTF8(b)`, which returns a string and an error, when the bytes should be text. Use `strings.FromUTF8Lossy(b)`, which replaces each byte that does not begin a valid UTF-8 sequence with U+FFFD, where replacement is acceptable. For binary data keep the bytes in a `[]byte`, a `vec.Vec[byte]` or an array: a `[32]byte` is a valid map key.

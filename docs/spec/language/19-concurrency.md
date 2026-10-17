@@ -23,7 +23,7 @@ function returns may use that function's variables. Section 19.7 summarizes the 
 **Starting a task.** The statement `task f(x, y)` starts a new task that runs the call `f(x, y)`. Section
 12.12 (Task statements) defines what the statement does: how its arguments are evaluated and copied, moved
 or counted into the new task, which arguments are sendable, which function values may be started (E2590,
-E2594), and how a method of a box hands the box to the task. The same rules apply to the library functions
+E2594, E3003, E3004), and how a method of a box hands the box to the task. The same rules apply to the library functions
 that start a task with a func argument (`rt.Go`, `(*sync.WaitGroup).Task`, `time.AfterFunc`) and to every
 function of the program that passes a func parameter on to one of them; the compiler finds these functions
 itself. A task that uses its starting function's variables is started by a `sync.Scope` instead (section
@@ -117,7 +117,8 @@ the other task could use while it changes:
 
 - a type that holds a `shared[T]` or a `weak[shared[T]]`, directly or through a field, element, payload,
   box or pointer, is not sendable (section 8.8): error E2010 at the task statement, at the channel type
-  whose element is not sendable, or at the send;
+  whose element is not sendable, or at the send. Converting a value of such a type to `error`, or to an
+  interface that embeds it, is error E2020 at the conversion, since every `error` is sendable;
 - a view of the starting or sending function's frame: E3004 for a task statement and E3005 for a send
   (E2011 where the type checker sees it directly);
 - a view of heap or static memory that may change while both tasks can use it: E3501 (section 19.3).
@@ -136,20 +137,24 @@ every task statement and on the element type of every channel type, looking thro
 elements, union payloads, the referents of boxes, pointers and slices, and the transparent wrappers
 `ring`, `volatile` and `aligned`. The view part is checked by the frame rules (section 18.3, Views) and the race
 rules (section 19.3) where values cross, and, through interface values, for every type the program
-converts to that interface. In a generic function the rule is checked for each instantiation.
+converts to that interface, except `error` and the interfaces that embed it, which are sendable by
+definition (section 8.8). A conversion whose result is a view of the frame that made it (section 18.3) is not
+counted, since such a value cannot cross. In a generic function the rule is checked for each instantiation.
 
 ### 19.3 Data race freedom
 
-A **data race** is two accesses to the same memory by different tasks, at least one a write and at least
-one not atomic, that are not ordered by the memory model (memory-model.md section 2). Safe code has none:
-the compiler rejects every program in which two tasks could make such accesses. It checks the whole
-program when it compiles, with no annotations, by three rules, all inferred from the program. Every
-piece of memory that tasks share is then owned by one task (moved there), never changed while shared,
-used only atomically, or guarded by a lock that every access holds.
+A **data race** is two accesses to the same memory by different tasks or interrupt handlers, at least one a
+write and at least one not atomic, that are not ordered by the memory model (memory-model.md section 2).
+Safe code has none: the compiler rejects every program in which two tasks, or a task and an interrupt
+handler, could make such accesses. It checks the whole program when it compiles, with no lifetime, borrow
+or region annotations, by three rules, all inferred from the program. Every piece of memory that tasks
+share is then owned by one task (moved there), never changed while shared, used only atomically, or
+guarded by a lock that every access holds.
 
 **The tasks.** The compiler finds every task the program may start: each task statement, each func value
 passed to a function that starts a task with it (section 19.1), and each `s.Task` call (section 19.4).
-The **main task** runs package initialization and `main`. A task statement that may run more than once
+It also finds every interrupt handler the program installs (section 20.10), which is a party in the
+rules below like a task (see Interrupt handlers). The **main task** runs package initialization and `main`. A task statement that may run more than once
 (in a loop, or in a function that may be called more than once) may start several tasks that run the
 same code at once. Package initialization, which may not start a task (section 15.2, Panics and tasks), and
 the part of `main` before the first statement that may start a task, run while no other task exists.
@@ -158,7 +163,8 @@ the part of `main` before the first statement that may start a task, run while n
 in every function it calls (a call through an interface or func value reaches every function that could
 be called there), and which locks are held at each access:
 
-- A lock is a `sync.Mutex` or `sync.RWMutex`. It is held from `Lock` (or `RLock`, or a `TryLock` that
+- A lock is a `sync.Mutex`, a `sync.RWMutex` or an `rt.Lock` (a `sync.Mutex` cannot be taken in an interrupt
+  handler, E2584, so a handler uses `rt.Lock`). It is held from `Lock` (or `RLock`, or a `TryLock` that
   succeeded, in the branch where it did) to `Unlock`, or to the end of the function after
   `defer mu.Unlock()`.
 - A lock counts as held at a statement only if it is held on every path to that statement.
@@ -173,6 +179,22 @@ be called there), and which locks are held at each access:
   reading shared data after `wg.Wait()` still holds the data's lock. The join of a `sync.Scope` is used,
   for the frame data it covers (section 19.4).
 
+**Regions.** Two kinds of region are found the way held locks are: on every path, across calls, with a
+deferred release counting as a release at the end of the function.
+
+- A **non-migrating region** is a stretch of code where, on every path, preemption is disabled
+  (`rt.DisablePreemption` to `rt.EnablePreemption`), maskable interrupts are disabled (`x86.Cli` to `x86.Sti`,
+  `x86.SaveFlagsCli` to `x86.RestoreFlags`), or an `rt.Lock` is held. The task cannot move to another
+  processor inside it.
+- An **interrupt-disabled region** is a stretch of code where maskable interrupts are disabled by those
+  calls, or an `rt.Lock` is held in kernel mode (abi.md section 12.5: runtime locks disable interrupts
+  there), or the code is the body of a `//pu:interrupt` handler up to a call that may switch tasks
+  (`rt.Preempt`, `rt.Yield`).
+
+Section 20.9 (Per-CPU variables) uses both. The calls named above are not unsafe code: they cannot make an
+access invalid, and the analysis follows them (section 18.12). A wrong pairing can stop a processor, which
+is a liveness failure, not a safety one.
+
 **Guards.** For data that several tasks may use, the compiler infers its **guard**: a lock that every
 write of the data holds for writing (`Lock`, not `RLock`). The data is safe when every access, read or
 write, holds its guard; a read may hold it with `RLock`. Data that every access reads or changes with
@@ -186,7 +208,7 @@ assigning a whole new value to one is an ordinary write.
 
 **Rule 1: package variables.** A package variable, or a field or element of one, that two tasks may use,
 or that the tasks of one task statement may use while several run, with at least one of them writing it
-after tasks have started, must be atomic or guarded:
+after tasks have started, must be atomic or guarded. Per-CPU variables follow section 20.9 instead.
 
 - E3502: it is written with no lock that every write holds. The error names the write, the task that
   makes it (by the statement that starts it), and an access of another task it may meet.
@@ -278,6 +300,17 @@ or memory it did not allocate): maps of that type that tasks fill for themselves
 function must then hold the guard too, or the shared map takes a type of its own. Maps a task fills before
 it shares them, and maps of types that never cross, need no lock.
 
+**Interrupt handlers.** Each interrupt handler the program installs (section 20.10) is a party that may run
+at any point where interrupts are enabled, on any processor, and on several processors at once. Rules 1 to 3
+apply with handlers as parties, and the errors name the handler as the party (E3502, E3503). Data that a
+handler accesses, other than per-CPU variables (section 20.9), must be atomic or guarded by an `rt.Lock`,
+which the guard inference recognizes as it recognizes a `sync.Mutex`. A `volatile[T]` access, and an
+interrupt-disabled region, exclude only code on the same processor, so alone they satisfy the rules only for
+per-CPU variables. An allocator has no exemption: its state is data like any other, and when a handler can
+reach its `Alloc` or `Free`, the state they share with other code meets these rules (for example per-CPU
+caches that are touched only in interrupt-disabled regions). The parts of an allocator written in unsafe
+code are the responsibility of that code (section 18.12).
+
 **Owner transfer requires exclusivity.** An owner moves to the receiving task, but transfer is valid
 only if no outstanding alias permits a conflicting access. This includes borrows made through fields,
 helpers and aliases before `take` or a later move, not only aliases retained by its constructor. A
@@ -330,8 +363,8 @@ of another scoped task there. Every other `Task` call starts a task that is not 
 reached through a pointer, stored in a field or element, or in heap memory; with a func value that is not
 a literal written in the call; inside an ordinary function literal, on a Scope declared outside it; and
 `task s.Task(f)` or `defer s.Task(f)`. Such a Scope still counts the task and waits for it when it is
-dropped, but `f` may not use the frame, as for a task statement (section 19.1): a capturing literal is an
-error where the compiler can tell, and a run-time panic otherwise. A task statement never starts a scoped task. `sync.WaitGroup`
+dropped, but `f` may not use the frame, as for a task statement (section 19.1): a func value that may be a closure of
+a frame is a compile error (section 12.12). A task statement never starts a scoped task. `sync.WaitGroup`
 (`Add`, `Done`, `Wait` and `Task`) never waits on its own, and the tasks it counts are not scoped.
 
 **Joins.** A scoped task is **joined** at the points where the starting function knows it has returned:
@@ -435,8 +468,21 @@ so is what it points to. Two views of memory that the starting function's caller
 the heap provides (through parameters, package variables, or pointers the compiler cannot follow) may
 point to the same memory, so a write through one such view of type `T` conflicts with an access by
 another party through another that can reach a `T`. In safe code memory of one type is never seen as
-another type, so `results []Result` and `items []Item` never conflict, while `out[i] = f(in[i])` with
-`in, out []int` is E3402: the caller could pass overlapping slices.
+another type, so `results []Result` and `items []Item` never conflict. Two slices of one type may overlap, and then an
+access through one conflicts with an access through the other (E3402), with one exception. When, in every
+task of the loop, two views that may overlap are each accessed only in the same partition form, with the same
+loop variable and parameters (`out[i]` and `in[i]`), the program checks before each `s.Task` call that the
+two views either start at the same element or do not overlap, and panics otherwise.
+
+```go
+for i := range in {
+	s.Task(func() { out[i] = f(in[i]) }) // checked when each task starts: in and out
+}                                       // start at the same element or do not overlap
+```
+
+Any other access to two views that may overlap stays E3402: `out[i] = f(in[i+1])` is an error. The check is
+always performed, in kernel and unchecked builds too, as the check that a variable step is positive is: it
+is a race check, and the unchecked mode (section 21.5) removes only generation and epoch checks.
 
 **Memory outside the frame.** Package variables, and heap memory that the frame does not reach, follow
 section 19.3, which applies to scoped and unscoped tasks alike. Since rule 2 of that section never lets a
@@ -569,7 +615,7 @@ reads an empty pipe parks and its processor runs other tasks.
 **Interrupt context.** In kernel builds, an interrupt handler runs on top of whatever code its processor
 was running, so if it waited, the code it interrupted could never resume to end the wait. Nothing an
 interrupt handler, the panic handler or the backend's `Wake` can reach may wait: a send, a receive, a `range` over a channel or a `select` without a `default` case, a lock that parks, `time.Sleep`, `s.Wait` or a `sync.Scope`'s
-drop, or an allocator whose `Alloc` may wait (E2584); nor may it start a task (E2585). Operations that do
+drop, or an allocator whose `Alloc` or `Free` may wait, including through a drop that the compiler inserts (E2584); nor may it start a task (E2585). Operations that do
 not wait are allowed: a `select` with `default`, `close`, `len` and `cap` of a channel, `TryLock`, `rt.Ready`, atomics, and the runtime's
 timers. The compiler checks this over the whole program; section 20.10 (Interrupts) defines it.
 
@@ -593,9 +639,11 @@ case <-t.C:
 }
 ```
 
-**Who owns a timer.** `time.NewTimer`, `time.NewTicker` and `time.AfterFunc` return an `owned[Timer]` or
-`owned[Ticker]`, an owner like any other: when it is dropped, at the end of its variable's scope unless it
-was moved, the timer is stopped and freed. The channel in its field `C` is a counted reference, so a
+**Who owns a timer.** `time.NewTimer` and `time.NewTicker` return an `owned[Timer]` or `owned[Ticker]`, an
+owner like any other: when it is dropped, at the end of its variable's scope unless it was moved, the timer
+is stopped and freed. `time.AfterFunc` returns a `synced[Timer]` handle instead. While the timer is armed
+the runtime holds a reference of its own, released when `f` is started or when `Stop` succeeds, so dropping
+handles does not stop the timer, and the timer is freed after the last reference is released. The channel in its field `C` is a counted reference, so a
 receiver that copied it keeps the channel, not the timer. `time.After` and `time.Tick` return only a
 channel, and that channel owns its timer: when the last reference to the channel goes, the timer is
 stopped and freed with it, so `time.After` in a `select` frees its timer when the `select` drops the
@@ -604,8 +652,8 @@ or `Reset` has returned, a timer's channel holds no value from before the call. 
 nothing in the library has a `Free` that a program must call.
 
 `time.AfterFunc(d, f)` starts `f` on a task of its own once the timer expires. Like a function given to a
-task statement, `f` must not capture variables (section 12.12, Task statements). Dropping the
-`owned[Timer]` it returns before the timer fires stops it, so `f` never runs. The function does not run
+task statement, `f` must not be a closure of a frame (section 12.12, Task statements). Discarding the result, as in the
+statement `time.AfterFunc(d, f)`, leaves the timer armed; `Stop` through any handle cancels it. The function does not run
 where the timer fires, which may be an interrupt handler in a kernel: an expired timer is queued for a task
 of `pluto/time`, which starts each function.
 

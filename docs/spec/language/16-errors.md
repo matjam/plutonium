@@ -257,7 +257,7 @@ that refers to it goes, and no code releases it by hand.
    `*strconv.NumError`) allocate their error as a `synced[T]` object (section 7.19, `owned`, `shared`,
    `synced` and `weak`), and return it in an `error`. The object's header records the allocator and the
    count.
-2. An interface value of type `error`, or of an interface type that embeds `error`, counts a `shared` or
+2. An interface value of type `error`, or of an interface type that embeds `error`, counts a
    `synced` reference that it holds. Copying the interface increments the count. Dropping it, or
    overwriting it, decrements the count. At zero the error's `Drop` runs, which drops the errors it wraps,
    and the memory is freed to the allocator recorded in the object (section 18.7, Shared ownership). In an
@@ -272,10 +272,12 @@ that refers to it goes, and no code releases it by hand.
    into the arena, and `a.Reset()` reclaims them.
 6. A program's own error type that needs heap storage is allocated with `alloc.Synced[MyErr]()` and
    returned as an `error`. An owner converted to `error` directly is only lent (section 7.9), so returning
-   it is the compile error of section 18.3 (E3001).
+   it is the compile error of section 18.3 (E3001). A value whose type is not sendable (section 8.8,
+   Sendable types), in practice one that holds a `shared[T]`, cannot be converted to `error` at all
+   (E2020); the message names the `shared[T]` and shows `alloc.Synced`.
 7. The count is that of a `synced` object (section 18.7, Shared ownership, When counts are atomic): atomic
-   once the program has started a task, so counted errors may be sent between tasks (section 19.2, The
-   sendable rule).
+   once the program has started a task, so every `error` value may be sent between tasks (section 19.2,
+   The sendable rule).
 8. The text in an error is a string (section 7.3). An error object is then a small struct of strings and
    wrapped errors, such as `struct{ msg string; err error }`, and its `Drop` needs no code of its own for
    the text: the drop of the object releases the strings, and a message that is a substring of another is

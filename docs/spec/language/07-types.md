@@ -786,8 +786,9 @@ holds comes from its type.
   the value, and the variable is not moved. That is what makes `fmt.Println(buf)` work on an owner without
   giving it away. Such an interface follows the view rules of section 18.3 (Views): it cannot be returned or
   stored beyond the life of the variable. The interface `error`, and every interface that embeds it, is the
-  one exception for counted references: it counts a `shared[T]` or `synced[T]` reference it holds, as
-  section 16.7 (Allocated errors and ownership) defines.
+  one exception for counted references: it counts a `synced[T]` reference it holds, as
+  section 16.7 (Allocated errors and ownership) defines; a `shared[T]` cannot be converted to it (section 8.8,
+  Sendable types).
 - An **owning interface** is declared with the `owner` qualifier (section 7.18):
   `type Resource owner interface { Read(p []byte) (int, error) }`. It is an owner type. It moves, and dropping
   it drops the value inside it. Converting an owner to an owning interface moves the owner in. Converting a
@@ -1339,13 +1340,20 @@ type IPv4Header packed be [20]byte {
 	version  bits[uint8, 4]
 	tos      uint8
 	length   uint16
-	_        [16]byte
+	id       uint16
+	frag     Frag
+	_        [12]byte
+}
+
+type Frag packed be uint16 {
+	offset bits[uint16, 13]
+	flags  bits[uint8, 3]
 }
 
 func demo(raw uint32) uint32 {
 	reg := ControlReg(raw)   // a raw register value becomes a typed view
 	reg.enable = true
-	return uint32(reg)
+	return uint32(reg)       // the reserved bits of raw are returned unchanged
 }
 ```
 
@@ -1361,18 +1369,33 @@ func demo(raw uint32) uint32 {
     keeps the low `N` bits of the value.
   - `name bits { A B C }`: a group of one-bit `bool` flags, accessed as `x.name.A`.
   - `name T`, where `T` is an integer, boolean, floating-point or packed type or an array of those: a
-    byte-level field of `T`'s full size, at the next bit position (it need not be byte-aligned).
+    byte-level field of `T`'s full size, at the next bit position (it need not be byte-aligned, except in a
+    big-endian array-backed type; see Byte order).
   - `name E`, where `E` is an enum type: a bit field as wide as the members of `E` need (unsigned, or two's complement if a member is negative), as section 7.12 (Other types) says.
   - `name aligned[T, N]`, where `T` is one of the types of the byte-level bullet: a byte-level field of `T` that starts on an `N`-byte boundary (see Layout).
-  - `_` names reserve bits.
-- **Byte order.** `le` and `be` say how the backing is stored in memory. Field bit positions always count from
-  the least significant bit of the value after byte-swapping. With neither, the target's native order applies,
-  and accesses are plain loads, masks and shifts.
+  - `_` names reserve bits. The **reserved bits** of a packed type are the bits of its `_` fields and the bits
+    of the backing that no field covers.
+- **Byte order.** `le` and `be` say how the backing is stored in memory. With neither, the target's native
+  order applies, and accesses are plain loads, masks and shifts. The rule for field positions depends on the
+  backing.
+  - *Integer backing.* Field bit positions count from the least significant bit of the value after
+    byte-swapping.
+  - *Array backing* (`[N]byte`, `[]byte`, or no backing). Bit position `p` is bit `p mod 8` of byte `p / 8`,
+    where bit 0 is the least significant. A bit field occupies consecutive positions, its least significant
+    bit at the lowest. A byte-level field of `k` bytes is stored in its bytes in the stated order: with `be`,
+    most significant byte first; with `le`, least significant byte first; with neither, in the target's order.
+    In a big-endian packed type with an array backing (`be`, or no order on a big-endian target), a bit field
+    may not cross a byte boundary and a byte-level field must start on one (E2021). The fix is a nested
+    packed field with an integer backing, as `frag Frag` does in the example: the field is then defined by the
+    integer rule.
 - **Conversions.** A packed type converts to and from an integer type of the same size, or a byte array of the
-  same length (section 11.24, Conversions). That is how a raw register value becomes a typed view.
-- **Literals** name their fields: `ControlReg{mode: 5, enable: true}`.
-- **Comparison.** Packed values are comparable; comparison compares the storage, and reserved bits are always
-  zero (section 8.10).
+  same length (section 11.24, Conversions). Every bit is kept in both directions, the reserved bits included,
+  so converting back returns the same value. That is how a raw register value becomes a typed view. Writing a
+  field changes only that field's bits.
+- **Literals** name their fields: `ControlReg{mode: 5, enable: true}`. The reserved bits are zero in a literal
+  and in the zero value.
+- **Comparison.** Packed values are comparable. Two packed values are equal when their bits outside the
+  reserved bits are equal, compared bit by bit, so a floating-point field compares by its bits (section 8.10).
 
 A packed value is a single memory location: writing one field rewrites its neighbors, so two tasks that write
 different fields of one packed value race (section 19.7, Memory model).
@@ -1429,8 +1452,9 @@ func eoi() {
 ```
 
 Volatile is not atomic and implies no barrier between processors. Use `pluto/sync/atomic` for that. Volatile
-accesses are enough for an interrupt handler and the code it interrupts on the same processor to share data
-(section 19.7, Memory model).
+accesses exclude only the same processor, so they let an interrupt handler and the code it interrupts share
+per-CPU data (section 20.9, Per-CPU variables). Data that a handler may share with code on any processor must
+be atomic or guarded by an `rt.Lock` (section 19.3, Data race freedom).
 
 `volatile[T]` and `T` have the same size and alignment. A `volatile[T]` is comparable if `T` is (section
 8.10).
@@ -1554,6 +1578,7 @@ type Frame owner uintptr            // a physical page frame, returned to the pa
 type Pages owner [4]Frame
 type Vec[T owner any] owner struct { data []T }
 type Resource owner interface { Read(p []byte) (int, error) }
+type Log owner File                 // dropping a Log closes the file
 ```
 
 A declared owner type is a defined type. Constructed types can also be owners without a new definition.
@@ -1568,18 +1593,25 @@ A type is an owner only if it is declared so, or if its construction makes it on
 - **Only in a type definition.** `owner` appears only in `type T owner ...`, including a generic type. An
   alias `type A = T` has the kind of `T` and takes no `owner` of its own (E3205). A type literal elsewhere
   cannot be marked.
-- **Never inferred for a declared type.** A struct with a field of owner type, including an embedded field or
+- **Never inferred for a declared type.** The keyword makes a type whose values move visible where it is
+  declared, so a change to a field's type elsewhere is reported at this declaration (E3202) and not as move
+  errors at the uses of the type. A struct with a field of owner type, including an embedded field or
   an array of owners, must itself be declared `owner` (E3202), and so must an interface that embeds an owning
   interface. A type definition `type B A` where `A` is an owner type other than `owned[T]` must be written `type B owner A`. Where `A` is `owned[T]`, which has a kind of its own, `type B A` defines an owner and `owner` may not be written (E3204). A union with
   an owner payload must be declared `owner` (E2406). An unnamed struct type may not have owner fields (E3203).
 - **Implied for a constructed type.** An unnamed array type `[N]T` whose element is an owner, a `ring[T, N]`
   whose element is an owner, and an `aligned[T, N]` of an owner are owners without a declaration, because
   their element type already says so. So is `owned[T]` for every `T` (section 7.19).
+- **Defined from an owner.** In `type B owner A`, where `A` is an owner type, a value of `B` holds an `A`.
+  Dropping it runs `B`'s `Drop` if `B` declares one, and then drops the value as an `A`: `A`'s `Drop`, then
+  `A`'s fields. `B` has none of `A`'s methods (section 10.8, Type declarations); the drop of `A` is part of
+  `B`'s drop glue.
 - **`Drop`.** A method named `Drop` must have no parameters and no results (E3206), and may be declared only
-  on a type declared `owner` (on `T` or `*T`, E3201). An owner without a `Drop` method is valid: its values
-  still move, and dropping one drops its fields. `Drop` is called by the compiler when an owner is dropped.
-  Programs do not call it except as `x.Drop()` on an owner variable, which ends the variable's life early
-  (section 18.6).
+  on a type declared `owner`, with a pointer receiver `*T` (E3201). An owner without a `Drop` method is
+  valid: its values still move, and dropping one drops its fields. `Drop` is called by the compiler when an
+  owner is dropped. `x.Drop()` on a whole owner variable drops it now (section 18.6), for every owner type,
+  whether or not the type declares a `Drop` method; it is not a method value and does not put `Drop` in the
+  method set.
 - **Generics.** A type parameter admits owner types only if its declaration carries `owner`: `[T owner any]`,
   `[T owner io.Reader]` (E3207). An owning interface as the constraint does not by itself make the parameter an owner parameter. Inside such code, values of `T` move: assignment, passing and returning move
   them, using one after a move is an error, and a variable of type `T` still holding a value at the end of its

@@ -7,8 +7,9 @@ classified, where variables live, how long a view of memory may be used, how own
 dropped, how shared ownership is counted, where allocations come from, which uses of memory are checked
 at run time, and which code the compiler does not check.
 
-The rules are inferred from the program. Ordinary code needs no annotations and no knowledge of how the
-compiler checks them; each rule that rejects a program does so with an error code (chapter 21,
+The rules are inferred from the program. Ordinary code needs no lifetime, borrow or region annotations and
+no knowledge of how the compiler checks them. Owner types are declared (section 7.18, Owner types), and the
+compiler infers everything else in this chapter; each rule that rejects a program does so with an error code (chapter 21,
 Implementation requirements) whose explanation names the variables and lines involved and shows a fix.
 Following section 1.2 (Design rules), every analysis in this chapter rejects what it cannot prove
 safe, and whether a program is accepted never depends on optimization (section 21.3, Acceptance does not
@@ -102,8 +103,8 @@ passed to calls. The compiler rejects every use that could outlive the frame:
 |---|---|
 | Returning a view of the frame, directly or inside a struct, array, interface or closure | E3001 |
 | Storing it in a package-level variable, in memory that may be on the heap, or through a pointer the function received from its caller | E3002 |
-| Passing it to a function that does either of these with that parameter, or with something reached from it | E3003 |
-| Passing it to a task statement, as an argument or receiver (section 12.12, Task statements) | E3004 |
+| Passing it to a function that does either of these with that parameter, or with something reached from it, or that starts a task with it | E3003 |
+| Passing it to a task statement as an argument, receiver or the function started, or as a func argument of a function that starts a task with it (section 12.12, Task statements) | E3004 |
 | Sending it on a channel | E3005 |
 | Keeping a view of a loop iteration's storage where the next iteration can see it (section 18.4) | E3006 |
 
@@ -111,7 +112,8 @@ Where the type checker sees a view of the frame passed to a task statement or se
 directly, it reports E2011 instead of E3004 or E3005. A closure that a call returns is a view of the
 caller's frame, built in the region the caller provides (section 11.5): returning it again is allowed,
 since the caller's caller then provides the region, and the closure-specific errors E3100 to E3102 are
-defined there.
+defined there. Since a closure of a frame can never be stored in heap or package memory (E3002), a func
+value loaded from such memory is never a view of a frame.
 
 **A local owner's memory.** A view obtained from an owner held in a local variable (`v.Slice()`,
 `b.Bytes()`, `&m`, `p.field` through an `owned[T]`, `&*p`) is bounded by that variable. It follows the
@@ -144,7 +146,7 @@ the result does hold `p` (E3007), and the directive is an error outside the stan
 
 **How precise the frame check is.** So that a programmer can tell what is accepted:
 
-- The check covers the whole program and needs no annotations. Each function has a summary of which
+- The check covers the whole program and needs no lifetime, borrow or region annotations. Each function has a summary of which
   parameters it keeps, which it stores into memory another parameter points to, and which it returns,
   field by field. A call is checked against its callee's summary. A call through an interface is checked
   against every method of that name on a type the program converts to an interface, narrowed by type
@@ -212,7 +214,9 @@ variables instead (section 19.4, Scoped tasks).
 **What moves.** A value of an owner type is moved, not copied, when it is
 
 - assigned to a variable or other place (`n := m`, `n = m`, `c.buf = b`, `s[i] = b`, `*p = b`);
-- passed by value as an argument, including as the receiver of a method with a value receiver;
+- passed by value as an argument, including as the receiver of a method with a value receiver and
+  including an argument of a deferred call, which moves at the `defer` statement (section 12.19, Defer
+  statements);
 - returned, including as a named result by a bare `return`;
 - sent on a channel (section 12.5, Send statements), or passed to a task statement (section 12.12, Task
   statements);
@@ -220,7 +224,7 @@ variables instead (section 19.4, Scoped tasks).
 - converted to an owning interface (section 7.9), converted to another owner type with the same
   underlying type (section 11.24), or asserted out of an owning interface (section 11.13);
 - given to `new(v)` (section 13.9, Allocation);
-- dropped explicitly with `x.Drop()` (section 18.6).
+- dropped explicitly with `x.Drop()` (section 18.6; for `defer x.Drop()`, when the deferred call runs).
 
 A move copies the owner's bytes to the destination and clears the source variable to the zero value of
 its type. The zero value of an owner holds nothing, and dropping it does nothing, so the cleared source
@@ -325,7 +329,10 @@ the end of each iteration for a variable declared in a loop body. In detail:
 - Deferred calls run before the function's own variables are dropped, so a deferred call may use them.
   A deferred call may not use an owner declared in an inner block, which is dropped when that block ends
   (E3311).
-- `defer x.Drop()` drops `x` when the function returns, and `x` is not dropped again.
+- `defer x.Drop()` saves `&x` at the `defer` statement (the `Drop` method has a pointer receiver), so `x`
+  stays usable until the deferred call runs. The deferred call then drops whatever `x` holds at that point
+  (nothing, if `x` was moved), and `x` is not dropped again at the end of its scope. Any other owner
+  passed to a deferred call by value moves at the `defer` statement (section 12.19).
 - `rt.ExitTask` leaves every frame of the task through its return path, so each frame runs its deferred
   calls and drops what it holds (section 17.3, Ending a task with `rt.ExitTask`).
 - A panic drops nothing. In hosted builds the panicking task's deferred calls run first (section 17.2,
@@ -362,12 +369,17 @@ glue too (section 18.8). In particular:
 - an owning interface drops the value it holds through its dynamic type's drop code, whatever that type
   is (section 7.9);
 - an owner union drops the payload of the variant it holds (section 7.13, Unions);
-- an array of owners drops each element.
+- an array of owners drops each element;
+- a value of a type defined from an owner type (`type Log owner File`): its own `Drop` method if it
+  declares one, then the drop of the owner type it was defined from (its `Drop`, then its fields; section
+  7.18, Owner types).
 
 **The `Drop` method.** A method named `Drop` must have no parameters and no results (E3206) and may be
-declared only on an owner type (E3201). It is called by the compiler; the program calls it only as
-`x.Drop()` on a whole owner variable, which drops `x` completely (its `Drop` method, then its fields),
-counts as a move, and leaves `x` not dropped again. Calling `Drop` any other way (through a pointer, a
+declared only on an owner type (E3201), with a pointer receiver (section 7.18). It is called by the
+compiler; the program calls it only as `x.Drop()` on a whole owner variable. That call is valid on every
+owner variable, whether or not its type declares a `Drop` method (a type defined from an owner has none of
+its own, section 7.18). It drops `x` completely (its `Drop` method, then its fields), counts as a move at
+the point the call runs, and leaves `x` not dropped again. Calling `Drop` any other way (through a pointer, a
 method value or an ordinary interface) is error E3307, since the real owner would drop the value a second
 time. `Drop` must treat the zero value as empty, since a moved-from variable, the result of `take`, a
 variable that was never filled and memory from every allocator all hold the zero value. Since a
@@ -799,8 +811,8 @@ records permit it; it cannot restore the ordinary lifetime guarantee (section 18
 access through an expired view, or an out-of-bounds index, is rejected or checked before invalid memory
 is accessed (sections 18.3, 18.4, 18.11 and 11.10). Holding a stale view does not itself access it.
 Every required owner cleanup runs exactly once on its specified lifetime-ending or cleanup path
-(sections 18.5 and 18.6); nontermination and abrupt-exit exceptions remain. Conflicting accesses are
-excluded or use the synchronization required by section 19.3.
+(sections 18.5 and 18.6); nontermination and abrupt-exit exceptions remain. Conflicting accesses, including
+those of interrupt handlers (section 19.3), are excluded or use the synchronization required by section 19.3.
 
 This is the default contract for applications and kernels alike. When proof is incomplete the
 implementation supplies suitable protection or rejects the operation; ordinary code needs no safety
@@ -813,12 +825,13 @@ not imply freedom from deadlock or resource exhaustion.
 - package `unsafe`: `unsafe.Pointer` and its conversions to and from `uintptr`, `unsafe.Add`,
   `unsafe.Slice`, `unsafe.String`, `unsafe.SliceData`, `unsafe.StringData`, `unsafe.Drop`,
   `unsafe.Sizeof`, `unsafe.Alignof` and `unsafe.Offsetof` (section 20.1);
-- package `pluto/arch/x86`, and memory made from an integer, such as device registers (section 20.8);
+- package `pluto/arch/x86`, except `Cli`, `Sti`, `SaveFlagsCli` and `RestoreFlags`, and memory made from an integer, such as device registers (section 20.8);
 - the unchecked allocation layer: `alloc.Raw`, `alloc.New`, `alloc.Free`, and an `Allocator`'s methods
   called directly (section 18.10);
 - `arena.NewUnsafe` and the manual `Arena` methods `New[T]`, `Slice[T]`, `Reset` and `Release`, which
   require caller-managed backing and allocation lifetimes (section 18.9);
-- functions without a body (assembly and `//pu:extern`), and the directives that state promises the
+- functions without a body (assembly and `//pu:extern`), which are trusted for what they keep (section
+  18.3) and for whether they wait (section 20.10), and the directives that state promises the
   compiler takes on trust: `//pu:noescape`, `//pu:resultholds` (standard library only) and
   `//pu:nochecks` (section 20.3);
 - `rt.Pinned`, which hides a pointer from the frame rules.

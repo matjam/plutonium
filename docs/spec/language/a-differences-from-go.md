@@ -43,7 +43,7 @@ program finishes, not what an operation means.
 | `make([]T, n)`, `make([]T, n, c)` | compile error (E2014): the array would belong to no one | `vec.Make[T](n)`, `vec.WithCapacity[T](c)`; an array for a constant size; `a.Slice[T](n)` from an arena | 13.7, 7.5 |
 | `string(b)` for a `[]byte` | compile error: Go keeps the bytes, a Plutonium string holds only valid UTF-8 | `strings.FromUTF8(b)` for bytes that should be text; `strings.FromUTF8Lossy(b)` where replacing invalid bytes is acceptable; an array key for binary data | 11.24, 7.3 |
 | `[]byte(s)`, `[]rune(s)` | compile error: the slice would belong to no one | `strings.Bytes(s)`; `copy(buf[:], s)` into the caller's buffer; `for i, r := range s` or `strings.Runes(s)` | 11.24 |
-| `string(i)` for an integer `i` | compile error unless `i` is a `rune` or an untyped constant | `string(rune(i))`, `strconv.Itoa(i)` | 11.24 |
+| `string(i)` for an integer `i` | compile error unless `i` has type `rune` (`int32`) or is an untyped constant; a defined type over `int32` is an error too | `string(rune(i))`, `strconv.Itoa(i)` | 11.24 |
 | `recover` | not a built-in function: a panic never returns to the code that panicked; a program may declare its own `recover` | return errors | 13.1, 17.1 |
 | a variable, field or function named `enum` or `packed` | compile error: both are reserved keywords | another name | 4.5 |
 | `complex64`, `complex128`, `complex`, `real`, `imag`, imaginary literals | removed | a struct of two floats | 7.2, 13.1, 4.9 |
@@ -52,8 +52,9 @@ program finishes, not what an operation means.
 | `//go:build`, `//go:noinline` and every other `//go:` comment | compile error that names the `//pu:` equivalent where there is one | `//pu:build`, `//pu:noinline` | 20.3 |
 | a package clause `package x_test` in a `_test.p` file | compile error (E4011): a test file does not form a package of its own | put the test in the package under test | 14.1 |
 | a goroutine started by an `init` function or a package-level initializer | compile error: initialization starts no task | start the task from `main` | 15.2 |
-| `defer` in a loop | compile error (E2530): each `defer` statement has one slot in the frame | call a function that defers, once per iteration | 12.19 |
-| `defer` in the body of a range-over-func loop, unless every path leaves the loop after it; a deferred literal there that captures the body's own variables | compile error (E2533, E2534) | defer in the enclosing function, or pass the variables as arguments | 12.11, 12.19 |
+| `defer` in a loop where a path can reach the `defer` statement again | compile error (E2530): each `defer` statement has one slot in the frame | call a function that defers, once per iteration | 12.19 |
+| a deferred literal in the body of a range-over-func loop that captures the body's own variables | compile error (E2534) | defer in the enclosing function, or pass the variables as arguments | 12.11 |
+| `print` and `println` of a slice, map, interface, struct or other type Go prints in its own form | compile error | `fmt` | 13.12 |
 | string literals that are not valid UTF-8 (`"\xff"`) | compile error | `[]byte{0xff}` for binary data | 4.11 |
 | `s[i:j]`, `s[i:]`, `s[:j]`, `s[:]` on a string | compile error (E2019): a string holds valid UTF-8 and a byte cut could split a rune | `strings.Slice(s, i, j)` and `strings.SliceFrom(s, i)` (panic off a rune boundary); `strings.Cut`, `strings.TrimPrefix`, `strings.HasPrefix`; `strings.Truncate(s, n)` | 11.12, 7.3 |
 | `errors.New(s)` with a non-constant `s`; `errors.New` taken as a value or deferred | compile error (E2008, E2542) | `fmt.Errorf("%s", s)`; call `errors.New` directly with a constant | 16.3 |
@@ -94,7 +95,7 @@ The rows in this table are behaviors that differ from Go's. Each says how the di
 | `map[K]V` is a reference to a table the collector frees | `map[K]V` is a counted reference; the table is released at its last strong reference; iteration follows Go's guarantees | `make(map[K]V, n, a)` takes an optional allocator; keys and values cannot be owners | 7.10, 13.7 |
 | a map can be passed to any goroutine | a map is sendable, and its contents fall under the race rules | writes from two tasks need a lock the compiler infers, or one task | 7.10, 19.3 |
 | `make(chan T, n)` and the channel is collected | `make(chan T, n, a)` takes an optional allocator; the channel is a counted reference, freed with its last reference; the channel of `time.After` and `time.Tick` owns its timer | sending an owner moves it | 7.11, 12.5, 19.6 |
-| `time.NewTimer`, `time.NewTicker` and `time.AfterFunc` return `*Timer` and `*Ticker` | they return `owned[Timer]` and `owned[Ticker]`, which stop and free the timer when dropped | a different type; a timer whose variable goes out of scope is stopped | 19.6 |
+| `time.NewTimer`, `time.NewTicker` and `time.AfterFunc` return `*Timer` and `*Ticker` | `NewTimer` and `NewTicker` return `owned[Timer]` and `owned[Ticker]`, which stop and free the timer when dropped; `AfterFunc` returns `synced[Timer]`, which keeps running when dropped, as in Go | a different type, with `Stop` and `Reset` called the same way; a `NewTimer` timer whose variable goes out of scope is stopped | 19.6 |
 | an error value with context lives on the heap | an error returned from a function is a value that fits in a word, or a pointer to storage that outlives the function; allocated errors are counted | the rule of section 16.2; returning a frame-backed struct copy or pointer to a local as `error` is a compile error; a word-inline pointer wrapper is permitted if its referent outlives it | 16.2, 16.7 |
 | an exhaustive `switch` does not end a function | an exhaustive `switch` on an enum or a union does | a function can omit the final `return` | 12.1 |
 
@@ -157,7 +158,7 @@ These have no counterpart in Go.
 | `main` returning `int64` | the exit status | 10.12, 15.4 |
 | package cleanup at exit | when `main` returns and no other task is running, package variables are dropped in reverse order of initialization | 15.4 |
 | directives | `//pu:` comments for facts the compiler cannot derive | 20.3 |
-| kernel facilities | `pluto/arch/x86`, `//pu:interrupt`, `//pu:percpu`, `//pu:fpu`, the panic handler, the scheduler contract | 20.5 to 20.11, 19.5 |
+| kernel facilities | `pluto/arch/x86`, `//pu:interrupt`, `//pu:percpu`, `//pu:fpu`, the panic handler, the scheduler contract; kernel-mode `print` of a float writes its bit pattern (13.12) | 20.5 to 20.11, 19.5 |
 | assembly and C | `.s` and `.c` files in a package, and `//pu:extern` and `//pu:export` | 20.4 |
 | `unsafe.Drop` | destroys what a pointer points to | 20.1 |
 | the standard library of `pluto/` | `vec`, `hash`, `arena`, `alloc`, `container`, `rt` and the rest | Appendix F |
