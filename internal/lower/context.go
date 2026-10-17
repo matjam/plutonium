@@ -35,6 +35,15 @@ import (
 // only as far as the call that enters the standard library, which is where
 // the program's own code waits.
 //
+// The walk runs over the lowered functions, so it follows the calls the
+// compiler adds for the drops it inserts (section 18.6) like the calls the
+// program writes: at the end of a scope, over an assigned owner, for
+// temporaries, and when a counted value's count reaches zero, into Drop,
+// drop glue and the Free of the allocators the program installs. A
+// function without a body (assembly, C) is taken at its declaration: it
+// does not wait unless it is marked //pu:blocking, and a function with a
+// body that is marked is a restriction only (language spec section 20.10).
+//
 // Allocation is not special: new and make call the allocator through the
 // rt.Allocator interface, and the walk follows that call into every
 // allocator the program installs, so an allocator that may wait (one that
@@ -579,6 +588,9 @@ func (l *Lowerer) hopPhrase(h *hop, final bool, kind opKind) string {
 		return fmt.Sprintf("waits on %s (%s)", h.site.recv, at)
 	case h.site == nil && allocCalls[h.to.Name]:
 		s = fmt.Sprintf("allocates (%s)", at)
+	case h.site == nil && strings.HasSuffix(h.to.Name, ").Drop"):
+		// The compiler adds the call where a value is dropped.
+		s = fmt.Sprintf("drops a value with %s (%s)", displayName(h.to), at)
 	case h.site == nil || h.site.desc == "":
 		s = fmt.Sprintf("calls %s (%s)", displayName(h.to), at)
 	case h.indirect():
