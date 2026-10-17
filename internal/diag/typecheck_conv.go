@@ -149,6 +149,13 @@ func explainIntToString(s *spec) {
 	}
 	s.keepText()
 	x := types2.ExprString(call.Args[0])
+	if T := s.typeOf(call.Args[0]); T != nil {
+		if _, ok := T.Underlying().(*types2.Slice); ok {
+			s.d.Fix = &Fix{Intro: "To write the characters whose codes are the elements, convert each one to a rune",
+				Code: fmt.Sprintf("import \"pluto/strings\"\n\nvar b strings.Builder\nfor _, c := range %s {\n\tb.WriteRune(rune(c))\n}\ntext := b.String()", x)}
+			return
+		}
+	}
 	s.d.Fix = &Fix{Intro: fmt.Sprintf("To make the character whose code is %s, convert to a rune first", x),
 		Code: fmt.Sprintf("string(rune(%s))", x)}
 	T := s.typeOf(call.Args[0])

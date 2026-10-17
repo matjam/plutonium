@@ -30,7 +30,8 @@ func (check *Checker) forbidden(at positioner, code Code, what, reason string) {
 //   - []byte(s) and []rune(s) make a copy that nothing would own (E2016).
 //   - string(i) of an integer type other than rune makes the character with
 //     code i, which go vet reports because programmers expect the digits
-//     (E2017). An untyped constant, string(65), stays.
+//     (E2017). An untyped constant, string(65), stays. So does a slice of
+//     rune, but a slice of a defined type over int32 does not (E2017).
 func (check *Checker) removedConversion(call *ast.CallExpr, V, T Type) {
 	if V == nil || T == nil {
 		return
@@ -42,6 +43,10 @@ func (check *Checker) removedConversion(call *ast.CallExpr, V, T Type) {
 	if allString(T) && someUnder(V, isNonRuneInteger) {
 		check.forbidden(call.Fun, IntToStringNotPermitted, "string(i) of an integer other than a rune is",
 			"it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i)")
+	}
+	if allString(T) && someUnder(V, isNonRuneSlice) {
+		check.forbidden(call.Fun, IntToStringNotPermitted, "string(s) of a slice whose elements are not runes is",
+			"only the element type rune says that the integers are characters; use []rune, or write each rune(x) with a strings.Builder")
 	}
 	if someUnder(V, func(_, u Type) bool { return isString(u) }) && someUnder(T, func(_, u Type) bool { return isBytesOrRunes(u) }) {
 		if someUnder(T, func(_, u Type) bool { return isRuneSlice(u) }) {
@@ -70,14 +75,30 @@ func someUnder(typ Type, f func(t, u Type) bool) bool {
 
 // isNonRuneInteger reports whether t, with underlying type u, is a typed
 // integer type other than rune (int32), the types for which string(i) is
-// removed. An untyped constant is not one, and neither is a named type
-// whose underlying type is int32: only rune says that the integer is a
-// character.
+// removed. An untyped constant is not one. A defined type whose underlying
+// type is int32 is one: only rune itself says that the integer is a
+// character (language spec section 11.24).
 func isNonRuneInteger(t, u Type) bool {
 	if !isInteger(u) || isUntyped(t) {
 		return false
 	}
 	b, ok := Unalias(t).(*Basic)
+	return !ok || b.kind != Int32
+}
+
+// isNonRuneSlice reports whether u is a slice whose element type has the
+// underlying type int32 but is not rune itself, such as []myRune: string of
+// it is removed for the reason string(i) is. A slice of rune is accepted
+// whatever the name of the slice type.
+func isNonRuneSlice(_, u Type) bool {
+	s, _ := u.Underlying().(*Slice)
+	if s == nil {
+		return false
+	}
+	if b, _ := s.elem.Underlying().(*Basic); b == nil || b.kind != Int32 {
+		return false
+	}
+	b, ok := Unalias(s.elem).(*Basic)
 	return !ok || b.kind != Int32
 }
 

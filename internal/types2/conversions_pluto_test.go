@@ -17,6 +17,10 @@ func TestRemovedConversions(t *testing.T) {
 type Bytes []byte
 type MyByte byte
 type Name string
+type MyRune rune
+type Fd int32
+type Runes []rune
+type MyRunes []MyRune
 
 func use(...any) {}
 
@@ -78,7 +82,20 @@ func use(...any) {}
 		{"in a type parameter", "func f[T ~int32 | ~int](x T) string { return string(x) }", "string(i) of an integer other than a rune is not permitted"},
 		{"message names the fix", "func f(i int) string { return string(i) }", "use string(rune(i)) or strconv.Itoa(i)"},
 
+		// Defined types over int32, one value and slices (decision D23).
+		{"defined over rune", "func f(r MyRune) string { return string(r) }", "string(i) of an integer other than a rune is not permitted"},
+		{"defined over int32", "func f(fd Fd) string { return string(fd) }", "string(i) of an integer other than a rune is not permitted"},
+		{"typed defined constant", "const c Fd = 65\nfunc f() string { return string(c) }", "string(i) of an integer other than a rune is not permitted"},
+		{"slice of a defined rune", "func f(s []MyRune) string { return string(s) }", "string(s) of a slice whose elements are not runes is not permitted"},
+		{"slice of int32 descriptors", "func f(s []Fd) string { return string(s) }", "string(s) of a slice whose elements are not runes is not permitted"},
+		{"defined slice of a defined rune", "func f(s MyRunes) string { return string(s) }", "string(s) of a slice whose elements are not runes is not permitted"},
+		{"descriptors to a named string", "func f(s []Fd) Name { return Name(s) }", "string(s) of a slice whose elements are not runes is not permitted"},
+		{"in a slice type parameter", "func f[S ~[]MyRune](s S) string { return string(s) }", "string(s) of a slice whose elements are not runes is not permitted"},
+
 		// What stays.
+		{"defined slice of runes", "func f(s Runes) string { return string(s) }", ""},
+		{"slice of int32", "func f(s []int32) string { return string(s) }", ""},
+		{"slice of rune to a named string", "func f(s []rune) Name { return Name(s) }", ""},
 		{"rune type", "func f(r rune) string { return string(r) }", ""},
 		{"int32 is rune", "func f(r int32) string { return string(r) }", ""},
 		{"untyped constant", "func f() string { return string(65) }", ""},
