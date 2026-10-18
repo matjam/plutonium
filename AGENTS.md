@@ -250,6 +250,40 @@ Every change must pass ALL of these before committing:
 
 ## Status and next steps
 
+**Checkpoint 2026-10-17.** The specification went through a full consistency review (seven independent
+reviews, 145 findings, 93 verified defects corrected, 19 design questions decided) and the compiler and
+library were brought to it. The decisions are D9 to D40 in `docs/decisions.md`: string slicing is a library
+call and `s[i:j]` on a string is E2019 (D9); normal termination follows Go and package cleanup is guaranteed
+only after a `sync.Scope` join (D10, D31); `errors.New` has a fresh identity without allocating (D11);
+D12 to D30 settle the 19 review questions (owner keyword, frame closures at task starts, `error`
+sendability E2020, `defer` evaluation, `AfterFunc`, per-CPU regions E2022 and E2023, interrupt handlers as
+race parties, packed types E2021, `print` E2521); D32 to D35 extend the use-after-move rule to deferred
+literals, views and stored literals; D36 to D40 answer the last open questions (OS names, dependent per-CPU
+stores, interrupt gates, no wait-for-all function, `AfterFunc` handle). Roadmap items 104 to 121 and 128 to
+136 are implemented and pushed. An adversarial review of the soundness-sensitive work found five defects,
+all fixed. `skill/plutonium/` is an installable skill for LLM agents; `tools/skillcheck` compiles every
+example in it on each `go test ./...`.
+
+Work that remains, in order:
+1. Items 122 to 127 (decisions D36 to D38), all specified and not built: the `os` name API with
+   `*os.NameError`, the dependent-store check in `internal/race`, typed `x86.Gate` and `InterruptGate`,
+   the `//pu:interrupt trap` directive form, `x86.Sti` ending the region, and the hover text and directive
+   audit. Update `skill/plutonium` and `tools/go2pu` with the `os` change.
+2. The self-hosted port (`docs/plans/2026-10-09-self-hosting-plan.md` section 8): the back end is
+   translated and differentially tested in `selfhost/`; next are the SSA reader (phase 3), the syntax
+   packages through `tools/go2pu` (phase 4: parse and print the whole repository with both versions and
+   diff), the constant package translation, then `lower` and `types2`. Re-run the translations after any
+   library change (`TestTranslationsUpToDate`).
+3. Loose ends from item 132: `hash.Set` takes no owner keys (spec 7.10) and `vec.Fixed` owns nothing; a
+   copy-method error on a container of owners (E3306) points at the library line, not the call; E3309 is
+   masked by E3306; generic ranges over owner containers see `*T` in the generic form.
+4. Known: `internal/objfile` (94.0%) and `internal/syntax/format` (90.1%) sit below their coverage floors,
+   unchanged since before 2026-10-17; the debug-allocator tests that join with a `WaitGroup` or channel retry
+   a run that took the abandon path (D31); `go test` with coverage needs `-timeout 60m`.
+
+Environment: run `unset GOROOT` first (a stale exported `GOROOT` from an older mise Go breaks builds); put
+`ulimit -v 6000000` on `go build` and `go test` commands only, never on an agent process.
+
 Current checkpoint, 2026-10-14: the approved safe-arena split is landed at
 `408dd2ab`. D6 orderly normal shutdown passes native source gates (all-package
 tests, exhaustive sharded coverage, lint, full SSA, unchecked mode and the
