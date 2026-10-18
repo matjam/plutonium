@@ -259,16 +259,16 @@ D12 to D30 settle the 19 review questions (owner keyword, frame closures at task
 sendability E2020, `defer` evaluation, `AfterFunc`, per-CPU regions E2022 and E2023, interrupt handlers as
 race parties, packed types E2021, `print` E2521); D32 to D35 extend the use-after-move rule to deferred
 literals, views and stored literals; D36 to D40 answer the last open questions (OS names, dependent per-CPU
-stores, interrupt gates, no wait-for-all function, `AfterFunc` handle). Roadmap items 104 to 121 and 128 to
+stores, interrupt gates, no wait-for-all function, `AfterFunc` handle). Roadmap items 104 to 121, 123 to 127 and 128 to
 136 are implemented and pushed. An adversarial review of the soundness-sensitive work found five defects,
 all fixed. `skill/plutonium/` is an installable skill for LLM agents; `tools/skillcheck` compiles every
 example in it on each `go test ./...`.
 
 Work that remains, in order:
-1. Items 122 to 127 (decisions D36 to D38), all specified and not built: the `os` name API with
-   `*os.NameError`, the dependent-store check in `internal/race`, typed `x86.Gate` and `InterruptGate`,
-   the `//pu:interrupt trap` directive form, `x86.Sti` ending the region, and the hover text and directive
-   audit. Update `skill/plutonium` and `tools/go2pu` with the `os` change.
+1. Item 122 (decision D36), specified and not built: the `os` name API with `*os.NameError`. Update
+   `skill/plutonium` and `tools/go2pu` with the `os` change. Items 123 to 127 (D37, D38: the dependent-store check
+   in `internal/race`, typed `x86.Gate`, `InterruptGate` and `TrapGate`, the `//pu:interrupt trap` form, `x86.Sti`
+   ending a handler's region, the hover text and the directive audit) are built.
 2. The self-hosted port (`docs/plans/2026-10-09-self-hosting-plan.md` section 8): the back end is
    translated and differentially tested in `selfhost/`; next are the SSA reader (phase 3), the syntax
    packages through `tools/go2pu` (phase 4: parse and print the whole repository with both versions and

@@ -187,25 +187,32 @@ against the corrected specification. The immediate implementation order is:
      (`compat.Getenv`, `x.NameLossy()`), since an expression cannot take the two-value form. Still lossy strings
      with a documented Bytes form, outside `pluto/os`: `flag.Arg`/`flag.Args`, the `path` argument of
      `filepath.WalkDir`, `exec.LookPath`; the owner decides whether they follow D36 too.
-123. **Dependent per-CPU store is E2022** (planned; decision D37; sections 20.9, 19.3, memory-model.md 6.4).
+123. **Dependent per-CPU store is E2022** (done, `e56a5d81`; decision D37; sections 20.9, 19.3, memory-model.md 6.4).
      In `internal/race`, treat a store to a `//pu:percpu` variable whose value or controlling condition
      depends, by data or control flow, on an earlier load of the same variable as a read-modify-write that
      needs a non-migrating region. Tests: `x := ticks; ticks = x + 1` and
      `if current == idle { current = next }` are E2022 outside a region and accepted inside
      `rt.DisablePreemption`/`EnablePreemption`; independent lone loads and stores stay accepted. Update the
-     E2022 catalog text.
-124. **Typed interrupt gates** (planned; decision D38; sections 20.8, 20.10, abi.md 10.4 and 10.5). Add
+     E2022 catalog text. Built in `internal/race/dep.go`: a taint analysis over each body (locals, struct and
+     array copies, arithmetic, conditions, exits from branches, loops, calls with the callees' loads and the
+     parameters that reach a store) and, in the walker, the regions held at each load the dependent store
+     depends on, so the load and the store must be in one region and two regions in a row do not satisfy it.
+     Calls it cannot see (func values, functions without a body) are assumed to depend on all their
+     arguments, and the message says so; a call through a func value is taken to store a variable from all its
+     arguments when a function of its type that the program uses as a value stores it.
+124. **Typed interrupt gates** (done, `56a8c928`; decision D38; sections 20.8, 20.10, abi.md 10.4 and 10.5). Add
      `x86.Gate`, `x86.InterruptGate` and `x86.TrapGate` to `pluto/arch/x86`; remove `x86.HandlerAddr` and
      move its callers (kernel tests in `testdata/kernel`, the examples) to the gates; E2572 now covers a
      handler of the wrong form for the constructor. Raw IDT words are unsafe code: check `pluto vet -unsafe`.
-125. **`//pu:interrupt trap`** (planned; decision D38; sections 20.3, 20.10). Accept `trap` as the only
+125. **`//pu:interrupt trap`** (done, `56a8c928`; decision D38; sections 20.3, 20.10). Accept `trap` as the only
      argument of the directive (any other is E2603); a trap handler's body is not an interrupt-disabled
      region. Update the directive tables, the catalog and `pluto explain`.
-126. **`x86.Sti` ends a handler's interrupt-disabled region** (planned; decision D38; sections 19.3, 20.10,
+126. **`x86.Sti` ends a handler's interrupt-disabled region** (done, `bb1fa4c0`; decision D38; sections 19.3, 20.10,
      memory-model.md 6.1). In `internal/race`, the region of a non-trap handler body ends at a call of
      `x86.Sti` as well as at a call that may switch tasks. Tests: a per-CPU access after `Sti` in a handler
-     is E2022 without a region of its own.
-127. **Hover text and directive audit** (planned; decision D38). The hover text in `internal/lsp/hover.go` for
+     is E2022 without a region of its own. The region analysis already ended the body at `Sti`; the commit
+     adds the tests.
+127. **Hover text and directive audit** (done, `fe941a3e`; decision D38). The hover text in `internal/lsp/hover.go` for
      `//pu:interrupt` must change (interrupt gate, the `trap` form). Audit every list of directives against
      section 20.3: the compiler's directive table, `internal/diag/catalog_own.go`, the skill's
      `references/kernel-mode.md` and `references/diagnostics.md`, `pluto explain` and the hover text.
