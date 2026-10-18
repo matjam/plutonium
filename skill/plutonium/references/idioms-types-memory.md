@@ -1,7 +1,8 @@
-# Idioms: ownership, types and memory
+# Idioms: ownership and types
 
 Complete short programs, compiled and run by the skill's test with their output checked. Rules behind them:
-`ownership-and-memory.md`. Tools, text and data idioms: `idioms.md`; concurrency: `idioms-concurrency.md`.
+`ownership-and-memory.md`. Tools, text and data idioms: `idioms.md`; memory layout, arenas and counted boxes:
+`idioms-memory.md`; concurrency: `idioms-concurrency.md`.
 
 | # | Task | Features |
 |---|---|---|
@@ -11,10 +12,8 @@ Complete short programs, compiled and run by the skill's test with their output 
 | 4 | union (Option) | `union`, generic union, type switch, assertion |
 | 5 | resource guard | `owner` with `Drop`, `defer`, drop order |
 | 6 | generic containers | `owner` generic type, constraints, generic method |
-| 7 | scratch arena | `arena.NewFixed`, `Mark`/`Release`, `vec.New[T](&a)` |
-| 8 | packed network header | `packed be [N]byte`, conversions |
-| 9 | counted values in a `hash.Map` | `synced[T]` elements, `Index`, `Delete` |
-| 10 | tree with weak parents | `shared[T]`, `weak`, `Upgrade` |
+| 7 | constructors | return a value or an `owned[T]`, never `&T{}` |
+| 8 | grouping values by key (a multimap) | `map[K]shared[Group]` with an owner inside the box |
 
 ## 1. A linked list of owned nodes
 
@@ -403,99 +402,67 @@ a
 {k 16}
 ```
 
-## 7. Scratch memory in an arena
+## 7. Constructors
 
-Allocate with the arena as the allocator; everything dies together when the arena is reset or dropped. A mark/release pair reclaims one phase and keeps earlier results. Do not print arena-backed strings through `fmt.Println` in the function that owns the arena (chapter notes in `ownership-and-memory.md`).
-
-```pluto-run
-package main
-
-import (
-	"pluto/arena"
-	"pluto/fmt"
-	"pluto/strings"
-	"pluto/vec"
-)
-
-type Stat struct {
-	word  string
-	count int
-}
-
-func tally(text string, a *arena.Fixed) int {
-	words := vec.New[Stat](a) // lives in the arena
-	for w := range strings.FieldsSeq(text) {
-		found := false
-		for i := range words {
-			if p := words.Ptr(i); p.word == w {
-				p.count++
-				found = true
-				break
-			}
-		}
-		if !found {
-			words.Push(Stat{w, 1})
-		}
-	}
-	best := 0
-	for i := range words {
-		best = max(best, words.Ptr(i).count)
-	}
-	return best
-}
-
-func main() {
-	a := arena.NewFixed(64 << 10)
-	m := a.Mark()
-	fmt.Println(tally("a b a c a b", &a))
-	a.Release(m) // reclaim this phase; earlier allocations would stay
-	fmt.Println(a.Used(), tally("x y x", &a))
-}
-```
-
-```output
-3
-0 2
-```
-
-## 8. A packed network header
-
-A `packed be [N]byte` type lays out fields at exact bit positions and converts to and from a byte array. Reading and writing a field is a shift and mask. Use it for protocol headers and hardware registers.
+`&T{...}` and a slice literal are memory in the constructor's frame, so returning them is E3001. Return the value
+(structs copy), an `owned[T]` for a heap object that must keep its address, or a `shared`/`synced` box for sharing.
+A function that must return a list of constants returns a package-level slice (static memory outlives every call).
 
 ```pluto-run
 package main
 
 import "pluto/fmt"
 
-type Header packed be [7]byte {
-	kind    bits[uint8, 4]
-	version bits[uint8, 4]
-	length  uint16
-	id      uint32
+type Server struct {
+	name string
+	port int
 }
 
+func NewServer(name string) Server { return Server{name: name, port: 80} }
+
+func NewBoxed(name string) owned[Server] { return new(Server{name: name, port: 443}) }
+
+func (s *Server) Addr() string { return fmt.Sprintf("%s:%d", s.name, s.port) }
+
+var defaults = []string{"a", "b"} // static: may be returned and kept anywhere
+
+func names() []string { return defaults }
+
 func main() {
-	raw := [7]byte{0x21, 0x00, 0x28, 0, 0, 0, 7}
-	h := Header(raw) // every bit is kept
-	fmt.Println(h.version, h.kind, h.length, h.id)
-	h.length = 300
-	h.id++
-	out := [7]byte(h)
-	fmt.Println(out)
-	built := Header{version: 4, kind: 1, length: 20, id: 9}
-	fmt.Println([7]byte(built), built == Header(out))
+	a := NewServer("a")
+	b := NewBoxed("b")
+	fmt.Println(a.Addr(), b.Addr(), names())
 }
 ```
 
 ```output
-2 1 40 7
-[33 1 44 0 0 0 8]
-[65 0 20 0 0 0 9] false
+a:80 b:443 [a b]
 ```
 
-## 9. Counted values in a hash.Map
+```pluto-error E3001
+package main
 
-Neither `map` nor `vec.Vec` nor `hash.Map` accepts an owner as element today (E3207); store a counted box. Reading `reg[name]` copies the reference, so `acct` below is the same account as the one in the map. Bind the copy to a variable before calling methods on it.
+type Server struct{ name string }
+
+func bad(name string) *Server {
+	return &Server{name: name} // a pointer into bad's frame
+}
+
+func names() []string {
+	return []string{"a", "b"} // the elements live in names's frame
+}
+
+func main() {
+	_ = bad("x")
+	_ = names()
+}
+```
+
+## 8. Grouping values by key
+
+A map of growing lists is `map[string][]string` plus `append` in Go. Here a slice cannot grow and a map cannot
+hold a `vec.Vec`, so the map holds a counted box (`shared[Group]` in one task, `synced[Group]` across tasks) whose
+object owns the vector. `Group` is declared `owner` because it contains one.
 
 ```pluto-run
 package main
@@ -503,98 +470,35 @@ package main
 import (
 	"pluto/alloc"
 	"pluto/fmt"
-	"pluto/hash"
-	"pluto/sync"
-)
-
-type Account struct {
-	mu      sync.Mutex
-	balance int
-}
-
-func (a *Account) Deposit(n int) {
-	a.mu.Lock()
-	a.balance += n
-	a.mu.Unlock()
-}
-
-func (a *Account) Balance() int {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.balance
-}
-
-func main() {
-	reg := hash.NewMap[string, synced[Account]](8)
-	for _, name := range [...]string{"ann", "bo"} {
-		reg[name] = alloc.Synced[Account]() // the map holds a counted reference
-	}
-	acct := reg["ann"]
-	acct.Deposit(50)
-	other := reg["bo"]
-	other.Deposit(7)
-	total := 0
-	for _, a := range reg {
-		total += a.Balance()
-	}
-	fmt.Println(acct.Balance(), total, reg.Len(), reg.Has("zed"))
-	reg.Delete("bo") // drops the map's reference; other still holds the account
-	fmt.Println(other.Balance(), reg.Len())
-}
-```
-
-```output
-50 57 2 false
-7 1
-```
-
-## 10. Trees with weak parent links
-
-`shared[T]` counts references; a `weak` back pointer does not keep its parent alive, so the tree is freed when the last strong reference goes. `Upgrade` returns the strong reference while it exists.
-
-```pluto-run
-package main
-
-import (
-	"pluto/alloc"
-	"pluto/fmt"
+	"pluto/slices"
 	"pluto/vec"
 )
 
-type Dir owner struct {
-	name     string
-	parent   weak[shared[Dir]]
-	children vec.Vec[shared[Dir]]
-}
-
-func newDir(name string, parent shared[Dir]) shared[Dir] {
-	d := alloc.Shared[Dir]()
-	d.name = name
-	if parent != nil {
-		d.parent = weak[shared[Dir]](parent)
-		parent.children.Push(d)
-	}
-	return d
-}
-
-func path(d shared[Dir]) string {
-	p, ok := d.parent.Upgrade()
-	if !ok {
-		return "/" + d.name
-	}
-	return path(p) + "/" + d.name
-}
+type Group owner struct{ items vec.Vec[string] }
 
 func main() {
-	var none shared[Dir]
-	root := newDir("root", none)
-	usr := newDir("usr", root)
-	bin := newDir("bin", usr)
-	fmt.Println(path(bin), root.children.Len())
+	groups := map[string]shared[Group]{}
+	for _, kv := range [...][2]string{{"a", "x"}, {"b", "y"}, {"a", "z"}} {
+		g := groups[kv[0]] // a copy of the reference, or nil
+		if g == nil {
+			g = alloc.Shared[Group]()
+			groups[kv[0]] = g
+		}
+		g.items.Push(kv[1]) // bind g first: methods on groups[k].items directly are unreliable (known-gaps.md)
+	}
+	keys := vec.New[string]()
+	for k := range groups {
+		keys.Push(k)
+	}
+	slices.Sort(keys.Slice())
+	for _, k := range keys.Slice() {
+		g := groups[k]
+		fmt.Println(k, g.items)
+	}
 }
 ```
 
 ```output
-/root/usr/bin 1
+a [x z]
+b [y]
 ```
-

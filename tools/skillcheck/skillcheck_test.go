@@ -16,6 +16,7 @@ import (
 	"github.com/matjam/plutonium/internal/build"
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/load"
+	"github.com/matjam/plutonium/internal/syntax/format"
 	"github.com/matjam/plutonium/internal/testguard"
 	"github.com/matjam/plutonium/internal/types2"
 )
@@ -86,6 +87,7 @@ func checkBlock(t *testing.T, b *Block) {
 	dir := t.TempDir()
 	for _, f := range b.Files {
 		write(t, dir, f.Name, f.Text)
+		checkFormatted(t, b, f)
 	}
 	switch b.Kind {
 	case Test:
@@ -130,6 +132,23 @@ func checkBlock(t *testing.T, b *Block) {
 			t.Fatalf("build: %v", err)
 		}
 		runProgram(t, out, b)
+	}
+}
+
+// checkFormatted fails when a source file of a block is not what pluto fmt
+// would write, so that the skill teaches formatted code. Error examples
+// are exempt, since they may show deliberately odd code.
+func checkFormatted(t *testing.T, b *Block, f SourceFile) {
+	t.Helper()
+	if b.Kind == Names || b.Kind == Absent || !strings.HasSuffix(f.Name, ".p") {
+		return
+	}
+	got, err := format.Source([]byte(f.Text))
+	if err != nil {
+		return // the build reports syntax errors
+	}
+	if string(got) != f.Text {
+		t.Errorf("%s is not formatted; pluto fmt would write:\n%s", f.Name, got)
 	}
 }
 

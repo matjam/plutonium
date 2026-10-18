@@ -57,12 +57,12 @@ package main
 
 import "pluto/fmt"
 
-type Point struct{ X, Y int }         // value
-type Named struct {                   // counted: a string field is counted
+type Point struct{ X, Y int } // value
+type Named struct {           // counted: a string field is counted
 	P    Point
 	Name string
 }
-type File owner struct{ fd int }      // owner: declared, moves
+type File owner struct{ fd int } // owner: declared, moves
 
 func (f *File) Drop() { fmt.Println("closing", f.fd) }
 
@@ -98,6 +98,9 @@ values (section 10.13), `owner` on a type declaration (section 7.18), and generi
   functions cannot have defaults (E2202). Library functions use `a alloc.Allocator = alloc.Default()`.
 - Methods on owner types use pointer receivers unless the method consumes the owner (a value receiver on an
   owner type moves the owner into the method, section 8.6).
+- `go`, `enum` and `packed` are reserved words and cannot name anything. `owner`, `union`, `task`, `or`, `bits`, `le`
+  and `be` are keywords only in the positions of their construct and stay ordinary identifiers elsewhere
+  (section 4.6), so `task` can still be a variable name.
 - Exported names start with an upper-case letter. Unused imports and unused local variables are errors,
   as in Go.
 
@@ -219,6 +222,8 @@ A x
 - `slices.Clone`, `slices.Concat`, `slices.Collect` return a `vec.Vec`. `slices.Delete`, `slices.Sort`,
   `slices.Reverse` work in place on a slice. `copy` and `clear` work as in Go (`clear` on a slice of owners
   drops each).
+- A slice literal (`[]string{"a"}`) is an array in the frame of the function that evaluates it, so a function cannot
+  return one (E3001); a package-level `var names = []string{...}` is static and may be returned and kept.
 - A map is a **counted reference**: copies share the table, and the table is freed with the last copy.
   Keys and values may not be owners (E3213: use `synced[T]` elements). Iteration order is
   unspecified. A nil map reads as empty; storing into it panics.

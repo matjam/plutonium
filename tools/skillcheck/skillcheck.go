@@ -220,6 +220,9 @@ func finish(b *Block, lines []string, indent string) error {
 		if strings.TrimSpace(strings.Join(cur, "")) == "" {
 			return nil // nothing before the first //file: line
 		}
+		for len(cur) > 0 && strings.TrimSpace(cur[len(cur)-1]) == "" {
+			cur = cur[:len(cur)-1] // a blank line before the next //file: marker
+		}
 		b.Files = append(b.Files, SourceFile{Name: name, Text: strings.Join(cur, "\n") + "\n"})
 		return nil
 	}

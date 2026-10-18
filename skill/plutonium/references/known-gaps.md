@@ -108,7 +108,7 @@ func main() int64 {
 	g.v.Push(1)
 	get().v.Push(2) // dropped: the length stays 1 today
 	b := get()
-	b.v.Push(3) // works on the shared object
+	b.v.Push(3)             // works on the shared object
 	return int64(g.v.Len()) // 2 today (the pushes of 1 and 3); 3 once get().v.Push works
 }
 ```

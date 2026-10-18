@@ -25,6 +25,20 @@ of the language, because nothing is allocated behind your back (section 16.2):
 - Returning a struct that is copied into the returning function's frame, or a pointer to a local, as `error`
   is E3001: `return pathError{op, path}` where `pathError` has two strings fails. Use a counted error
   (`fmt.Errorf`), a code type, or a single-pointer struct.
+```pluto-error E3001
+package main
+
+type pathError struct{ op, path string }
+
+func (e pathError) Error() string { return e.op + " " + e.path }
+
+func open() error {
+	return pathError{"open", "x"} // the interface would hold a copy in open's frame
+}
+
+func main() { _ = open() }
+```
+
 - A type that holds a `shared[T]` cannot become an `error` (E2020: every error may cross tasks). Hold a
   `synced[T]`. Your own error type that needs heap storage is `alloc.Synced[MyErr]()` returned as `error`.
 - No code frees errors; there is no `errors.Free`.

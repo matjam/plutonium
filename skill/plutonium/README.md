@@ -20,7 +20,8 @@ skill/plutonium/
     concurrency.md            tasks, channels, select, sync.Scope, locks, sendability, race errors
     errors-and-panics.md      error values, the or clause, panics
     idioms.md                 programs: CLI, files, config parser, formatting, sorting, iterators, tests
-    idioms-types-memory.md    programs: lists, trees, enums, unions, Drop, generics, arenas, packed headers
+    idioms-types-memory.md    programs: lists, trees, enums, unions, Drop, generics, constructors, multimaps
+    idioms-memory.md          programs: arenas, packed headers, counted boxes, weak parents
     idioms-concurrency.md     programs: pools, pipelines, timers, locks, partitioned work
     go-to-plutonium.md        translating Go; what tools/go2pu does and does not do
     kernel-mode.md            freestanding builds, directives, volatile, packed, ring, per-CPU, interrupts

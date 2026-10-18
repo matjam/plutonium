@@ -7,7 +7,7 @@ compiling and reading the errors (`pluto build --brief` for one line each, `plut
 
 ## 1. The procedure
 
-1. Rename `*.go` to `*.p`, `go.mod` to `pluto.mod` (`module path`; no `go` or `require` lines), delete
+1. Rename `*.go` to `*.p`, `go.mod` to `pluto.mod` (its first line is `module path`; a module path may not start with `pluto/`), delete
    `_test` package clauses: tests are `*_test.p` files **in the package under test** (E4011 for `package x_test`).
 2. Rewrite imports: `"fmt"` becomes `"pluto/fmt"`, and so on (table 2). `reflect` has no replacement.
 3. Replace `go` with `task`; `//go:` comments with `//pu:` (or delete).
@@ -77,6 +77,7 @@ sync.Pool
 sync.OnceFunc
 strconv.ParseBool
 time.Parse
+time.Time.Format
 iter.Pull
 bytes.NewReader
 path/filepath.Walk

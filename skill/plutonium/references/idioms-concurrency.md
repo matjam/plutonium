@@ -1,7 +1,7 @@
 # Idioms: concurrency
 
 Complete short programs, compiled and run by the skill's test with their output checked. Rules behind them:
-`concurrency.md`. Other idioms: `idioms.md`, `idioms-types-memory.md`.
+`concurrency.md`. Other idioms: `idioms.md`, `idioms-types-memory.md`, `idioms-memory.md`.
 
 | # | Task | Features |
 |---|---|---|

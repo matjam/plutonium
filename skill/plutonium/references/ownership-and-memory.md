@@ -34,6 +34,8 @@ iteration). Reading does not move: `&x`, pointer-receiver method calls, field re
 - Move only out of a **whole variable**. Out of a field, element, pointer target or package variable is E3303:
   use `take(&place)`, which returns the value and leaves the zero value (which drops to nothing).
 - One expression may not move a variable and also use it: `send(buf, buf.Len())` is an error; compute `n` first.
+  Assigning the result back is not a use: `v = grow(v)` is fine. A pointer-receiver method may be called on a
+  temporary owner (`readAll(f).Slice()`); the temporary and any view of it end with the statement.
 - `for _, x := range xs` over owners copies each element: E3304. Use `for i := range xs` and `&xs[i]`.
 - Owner elements in `copy` (E3306), variadic arguments (E3310) and slice literals (E3312) are errors for the same
   reason; a captured owner cannot be moved inside a closure (E3305): pass it as an argument.
@@ -442,8 +444,10 @@ alive 5
 
 Every allocating operation takes memory from the **current allocator**: the one `alloc.Use` installed for this
 task, else the program-wide default (hosted builds start with a thread-safe one; freestanding builds have none
-until `alloc.SetDefault`). `new`, `make(chan/map)`, `vec.New`, strings, `fmt.Sprintf` all accept an explicit
-allocator as the last argument (`new(T, &a)`, `vec.New[int](&a)`, `make(map[K]V, n, &a)`). Owners remember the
+until `alloc.SetDefault`). `new`, `make(chan/map)` and the library constructors take an explicit allocator as
+the last argument (`new(T, &a)`, `vec.New[int](&a)`, `make(map[K]V, n, &a)`; library functions declare it as the
+defaulted parameter `a alloc.Allocator = alloc.Default()`); variadic functions such as `fmt.Sprintf`, and the
+operations that make strings (`+`), use the current allocator, which `alloc.Use` replaces. Owners remember the
 allocator they came from and free to it, so an owner built in an arena drops normally and its free costs nothing.
 
 - `arena.NewFixed(capacity)` is an owner with fixed private backing. `arena.NewChunked()` grows from its parent.

@@ -2,8 +2,8 @@
 
 Complete short programs for common tasks. Each one is compiled and run by the skill's test, and its output is
 checked. Copy one, then edit. More idioms: `idioms-types-memory.md` (owned lists and trees, enums, unions, Drop
-guards, arenas, packed headers, counted boxes) and `idioms-concurrency.md` (worker pools, pipelines, channels of
-owners, timers, locks, partitioned work).
+guards, generics, constructors, multimaps), `idioms-memory.md` (arenas, packed headers, counted boxes, weak
+parents) and `idioms-concurrency.md` (worker pools, pipelines, channels of owners, timers, locks, partitioned work).
 
 | # | Task | Features |
 |---|---|---|
@@ -16,6 +16,7 @@ owners, timers, locks, partitioned work).
 | 7 | sorting and searching | `slices.SortFunc`, `sort.SortFunc`, `BinarySearch` |
 | 8 | iterators | `iter.Seq`, range over function |
 | 9 | table-driven test | `pluto test`, `t.Run` |
+| 10 | a module with two packages | `pluto.mod`, import path, exported names |
 
 ## 1. A command-line tool with flags
 
@@ -517,9 +518,9 @@ import "pluto/testing"
 
 func TestClamp(t *testing.T) {
 	tests := []struct {
-		name         string
-		x, lo, hi    int
-		want         int
+		name      string
+		x, lo, hi int
+		want      int
 	}{
 		{"below", -5, 0, 10, 0},
 		{"inside", 5, 0, 10, 5},
@@ -541,3 +542,41 @@ func TestAbs(t *testing.T) {
 }
 ```
 
+
+## 10. A module with two packages
+
+A directory with a `pluto.mod` whose first line is `module example.com/shapes` is a module. Its packages are imported by
+module path plus directory, exported names start with a capital letter, and there are no downloads (E4008 for any
+path outside the module and `pluto/`). Build the module with `pluto build .` (or `pluto run .`) in its root; test one
+package with `pluto test ./geom`.
+
+```pluto-run
+//file: pluto.mod
+module example.com/shapes
+
+//file: geom/geom.p
+package geom
+
+type Rect struct{ W, H float64 }
+
+func New(w, h float64) Rect { return Rect{w, h} }
+
+func (r Rect) Area() float64 { return r.W * r.H }
+
+//file: main.p
+package main
+
+import (
+	"example.com/shapes/geom"
+	"pluto/fmt"
+)
+
+func main() {
+	r := geom.New(2, 3)
+	fmt.Println(r.Area(), r)
+}
+```
+
+```output
+6 {2 3}
+```

@@ -21,7 +21,7 @@ programs marked as runnable are compiled and run, error examples must fail with 
 |---|---|
 | write any Plutonium for the first time | `language-tour.md` |
 | call a library function or import a package | `stdlib.md`, `stdlib-os-time-math.md`, `stdlib-memory-concurrency.md` (never guess names; `pluto doc pluto/<pkg>` is authoritative) |
-| copy a working pattern (CLI, files, lists, trees, enums, unions, arenas, pools, pipelines, tests) | `idioms.md`, `idioms-types-memory.md`, `idioms-concurrency.md` |
+| copy a working pattern (CLI, files, lists, trees, enums, unions, arenas, pools, pipelines, tests) | `idioms.md`, `idioms-types-memory.md`, `idioms-memory.md`, `idioms-concurrency.md` |
 | fix a move, borrow, lifetime or `owner` error (E30xx to E33xx), or use arenas, `owned`, `shared`, `synced`, `weak` | `ownership-and-memory.md` |
 | use `task`, channels, `select`, `sync.Scope`, locks, or fix a race error (E34xx, E35xx) | `concurrency.md` |
 | handle failures, write `or` clauses, understand panics | `errors-and-panics.md` |
@@ -29,6 +29,49 @@ programs marked as runnable are compiled and run, error examples must fail with 
 | port Go code | `go-to-plutonium.md` |
 | write a kernel, driver, freestanding program, interrupt handler | `kernel-mode.md`, `stdlib-system.md` |
 | run into something the compiler or library does not do as the spec says | `known-gaps.md` |
+
+## A first program
+
+```pluto-run
+package main
+
+import (
+	"pluto/fmt"
+	"pluto/strconv"
+	"pluto/sync"
+	"pluto/vec"
+)
+
+// A function that can fail returns error last; the or clause passes it up.
+func parseAll(fields []string) (vec.Vec[int], error) {
+	out := vec.New[int]() // a growing sequence is an owner, returned by move
+	for _, f := range fields {
+		n := strconv.Atoi(f) or return out, fmt.Errorf("bad number %q: %w", f, err)
+		out.Push(n)
+	}
+	return out, nil
+}
+
+func main() int64 {
+	nums, err := parseAll([]string{"3", "4", "5"})
+	if err != nil {
+		fmt.Println("error:", err)
+		return 1
+	}
+	var partial [3]int
+	var s sync.Scope // tasks that may use main's variables, joined before s ends
+	for i := range partial {
+		s.Task(func() { partial[i] = nums[i] * nums[i] }) // disjoint writes: no lock
+	}
+	s.Wait()
+	fmt.Println(nums, partial)
+	return 0
+}
+```
+
+```output
+[3 4 5] [9 16 25]
+```
 
 ## The five rules that prevent most errors
 
@@ -40,8 +83,9 @@ programs marked as runnable are compiled and run, error examples must fail with 
 2. **A slice, pointer, closure or interface that points at a local is a view, and a view cannot outlive what
    it looks at.** Slices never grow: there is no `append` (use `vec.Vec[T]`: `v.Push(x)`), no `make([]T, n)`
    (use `vec.Make[T](n)` or an array), and `new(T)` returns `owned[T]`, not `*T`. Do not return `&local`,
-   `local[:]`, a capturing closure or a large value converted to an interface (E3001); return the value or an
-   owner (`vec.Vec`, `owned[T]`), or fill a buffer the caller passes.
+   `&T{...}`, `local[:]`, a slice literal (`return []string{"a"}`), a capturing closure or a large value converted
+   to an interface (E3001); return the value or an owner (`vec.Vec`, `owned[T]`), a package-level slice, or fill
+   a buffer the caller passes. Constructors return `T` or `owned[T]`, not `*T`.
 3. **Types have kinds, and owners move.** A type is a *value* (copies), *counted* (strings, maps, channels,
    `shared`/`synced`/`weak`: copies and counts), a *view*, or an *owner* (`vec.Vec`, `hash.Map`,
    `strings.Builder`, `sync.Scope`, `owned[T]`, any type you declare `owner`: assignment, passing and
@@ -67,8 +111,7 @@ programs marked as runnable are compiled and run, error examples must fail with 
 | `new(T)` is a `*T` | `owned[T]`, an owner that dereferences like `*T`; free when dropped |
 | a captured variable lives on the heap | it lives where it was declared; a closure is a view of its frame |
 | each `for` iteration has its own variable | the same storage is reused; a closure or pointer that keeps it past the iteration is E3006 |
-| `main` returns and the process ends after `init` | same; also `func main() int64` returns the exit status |
-| `fmt.Println` of a struct with a `vec.Vec` copies | printing lends it; passing it by value moves it |
+| `fmt.Println(v)` of any value | works on owners too: it lends `v`, nothing moves; passing `v` to your own function by value moves it |
 | `x[k]` on a container is an element | on `vec.Vec`/`hash.Map` it is a **copy** from `Index`; `&v[i]` is E2454, `v[i].f = 1` is E2455 (use `v.Ptr(i)`) |
 | a struct is always copyable | a struct holding an owner is declared `owner` and moves |
 | a map holds anything | keys and values may not be owners (E3213); a map is a counted reference, copies share it |
@@ -76,13 +119,13 @@ programs marked as runnable are compiled and run, error examples must fail with 
 | a deferred call in a loop is fine | E2530 if a path can reach the `defer` again; move the body to a function |
 | `panic` unwinds, `recover` stops it | a panic never returns; hosted code runs deferred calls, owners are not dropped |
 | a stack grows | a task has a fixed stack; deep recursion in a task can overflow (panic with a trace) |
-| `print`/`println` are rarely used | they write to **stderr**; `fmt.Println` writes to stdout |
+| `print`/`println` are rarely used | they write to **stderr**; `fmt.Println` writes to stdout; `func main() int64` returns the exit status |
 
 **Removed (compile error that names the fix)**
 
 `append` (E2013), `make([]T, n)` (E2014), `s[i:j]` on a string (E2019), `string(bytes)`, `[]byte(s)`, `[]rune(s)`,
 `string(intVar)` (use `string(rune(i))` or `strconv.Itoa`), `recover` (E2004), `complex`/`real`/`imag` (E2006),
-`import "reflect"`, `go` statements, `//go:` comments, `package x_test`, goroutines started during package
+`import "reflect"`, `go` statements, identifiers named `go`, `enum` or `packed` (reserved words), `//go:` comments, `package x_test`, goroutines started during package
 initialization (E2587), `errors.New(nonConstant)` (E2008), `copy` of owner elements (E3306), string literals
 that are not valid UTF-8 (E2012), `iter.Pull`, a local `sync.WaitGroup` passed to a task (use `sync.Scope`).
 
