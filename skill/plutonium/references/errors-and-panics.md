@@ -275,7 +275,7 @@ deferred runs before the panic message
 
 | Call | Effect |
 |---|---|
-| `return n` from `func main() int64` | exit status `n`; package-level owners are dropped if no other task runs |
+| `return n` from `func main() int64` | exit status `n`; package-level owners are dropped if every task has retired (guaranteed after a `sync.Scope` join, likely after a `WaitGroup`) |
 | `os.Exit(n)` | ends at once from any task; drops nothing, runs no deferred call |
 | `panic(...)`, a run-time panic | status 2 after deferred calls (hosted) |
 | `rt.ExitTask()` | ends the calling task after running its deferred calls and drops; in `main` the program waits for the other tasks and then fails with status 2 |

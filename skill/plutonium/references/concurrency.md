@@ -22,8 +22,9 @@ under rules the compiler checks: **safe code has no data races**. Spec chapter 1
 - A task has a fixed stack (computed when the call graph is bounded, else 64 MiB of address space in hosted
   builds); overflow is a panic with a trace. `rt.Go(f, size)` starts one with an explicit size.
 - A task ends when its function returns; `rt.ExitTask()` ends it early after running deferred calls and drops.
-  A **panic in any task ends the program**. When `main` returns the program exits at once, even with tasks running:
-  join them (channel, `sync.WaitGroup` or `sync.Scope`) if their work matters.
+  A **panic in any task ends the program**. When `main` returns the program exits (after a grace of about a
+  millisecond for tasks that are finishing), even with tasks running: join them (channel, `sync.WaitGroup` or
+  `sync.Scope`) if their work matters. Only a `sync.Scope` join guarantees that package cleanup and the leak report run.
 - Every task starts with the program-wide default allocator, not its starter's `alloc.Use` override.
 
 ```pluto-run

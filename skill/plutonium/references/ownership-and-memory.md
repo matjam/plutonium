@@ -213,8 +213,11 @@ owner variable works for every owner type, with or without a `Drop` method; `def
 whatever `x` holds when it runs. Calling `Drop` through a pointer or an interface is E3307.
 
 A panic drops nothing (the hosted runtime first runs deferred calls); `os.Exit` drops nothing; `rt.ExitTask()`
-unwinds the task's frames like `return`. When `main` returns and no task is running, package-level owners are
-dropped in reverse initialization order; if tasks still run the program just ends.
+unwinds the task's frames like `return`. When `main` returns after every task has retired (a `sync.Scope`
+join guarantees it; a `WaitGroup` or channel join makes it likely, not certain, D31), package-level owners are
+dropped in reverse initialization order and the debug allocator reports leaks; if tasks still run the program just
+ends, as in Go, after a wall-clock grace of about a millisecond. Release what must be released on every exit
+with `defer` in `main`.
 
 ```pluto-run
 package main
