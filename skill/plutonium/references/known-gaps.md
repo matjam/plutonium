@@ -81,42 +81,6 @@ func main() {
 }
 ```
 
-## 4. A string made in a local arena and passed through `any` panics at return
-
-Section 18.8 says a string built while a local arena is the current allocator is a view of the arena and the
-compiler checks it. Passing such a string to `fmt.Println` (or any `...any` call) in the function that owns the
-arena converts it to an interface, which holds a counted reference in the function's frame until the function
-returns, after the arena was dropped. The program builds and **panics at return** with
-`use of memory from an arena that was reset`. Print arena-backed text with `os.Stdout.Write(b.Bytes())`, or print
-a length, or copy it to a heap string first.
-
-```pluto-run exit=2
-package main
-
-import (
-	"pluto/arena"
-	"pluto/fmt"
-	"pluto/strings"
-)
-
-func handle() int {
-	a := arena.NewFixed(16 << 10)
-	var out strings.Builder
-	out.Init(&a)
-	out.WriteString("hello")
-	fmt.Println(out.String()) // the string's reference is released after a is dropped
-	return 1
-}
-
-func main() {
-	fmt.Println(handle())
-}
-```
-
-```output
-hello
-```
-
 ## 5. `os.File` is a pointer, not an owner
 
 Appendix A.3 and section 18.13 describe `os.Open` returning an `os.File` that closes when its variable goes out of

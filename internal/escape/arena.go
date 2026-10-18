@@ -184,6 +184,109 @@ func (w *walker) arenaResult(e *ast.CallExpr, res []tset) []tset {
 	return res
 }
 
+// Local arenas given to a call as its allocator (language spec section
+// 18.9). A call that is passed a local arena as an allocator, or whose
+// receiver holds one (a strings.Builder or a vec.Vec started with
+// Init(&a) or New[T](&a)), and that returns a string, returns text that the
+// callee may have allocated from the arena: the string is a view of the
+// arena, as one made in an alloc.Use window is. Only strings are followed:
+// they are what a program passes on to other code without seeing where they
+// live. The arena's epochs catch the other uses at run time.
+
+// explicitArenaResult adds to the string results of call e the local arena
+// that e was given as its allocator, or whose receiver holds one.
+func (w *walker) explicitArenaResult(e *ast.CallExpr, t callTarget, args []tset, res []tset) []tset {
+	if t.static == nil || len(args) == 0 {
+		return res
+	}
+	types := resultTypes(w.typeOf(e))
+	text := false
+	for i := range res {
+		if i < len(types) && isString(types[i]) {
+			text = true
+		}
+	}
+	if !text {
+		return res
+	}
+	params := t.static.params
+	var ar tset
+	for i, a := range args {
+		if i >= len(params) {
+			break
+		}
+		switch pt := params[i].Type(); {
+		case isAllocatorType(pt):
+			ar = union(ar, w.localArenas(a))
+		case holdsAllocator(pt):
+			ar = union(ar, w.localArenas(w.load(a)))
+		}
+	}
+	if len(ar) == 0 {
+		return res
+	}
+	for i := range res {
+		if i < len(types) && isString(types[i]) {
+			res[i] = union(res[i], ar)
+		}
+	}
+	return res
+}
+
+// localArenas returns the tokens of the arenas among the variables of this
+// frame that ts points to: the memory allocated from them.
+func (w *walker) localArenas(ts tset) tset {
+	var out tset
+	for _, t := range ts {
+		if t.kind != tFrame || !t.loc.isVarLoc() || t.loc.level != w.sc.level || !isArenaType(t.loc.v.Type()) {
+			continue
+		}
+		v := t.loc.v
+		l := w.arenaV[v]
+		if l == nil {
+			l = &loc{kind: lkArena, explicit: true, v: v, fn: t.loc.fn, pos: t.loc.pos, level: t.loc.level, typ: v.Type()}
+			w.arenaV[v] = l
+		}
+		out.add(frameTok(l))
+	}
+	return out
+}
+
+// isArenaType reports whether T is one of the checked arenas of
+// pluto/arena, Fixed and Chunked. The manual arena over a caller's buffer
+// (arena.NewUnsafe) is left to the program: its memory is not reclaimed
+// when the arena goes (language spec section 18.9).
+func isArenaType(T types2.Type) bool {
+	n, ok := types2.Unalias(T).(*types2.Named)
+	if !ok || n.Obj().Pkg() == nil || n.Obj().Pkg().Path() != "pluto/arena" {
+		return false
+	}
+	switch n.Obj().Name() {
+	case "Fixed", "Chunked":
+		return true
+	}
+	return false
+}
+
+// holdsAllocator reports whether T, a receiver or parameter, is a pointer
+// to a struct with a field of type alloc.Allocator, such as a Builder, a
+// Vec or a map: a value that allocates from the allocator it holds.
+func holdsAllocator(T types2.Type) bool {
+	if el := pointerElem(T); el != nil {
+		T = el
+	}
+	s, ok := underlying(T).(*types2.Struct)
+	if !ok {
+		return false
+	}
+	for i := 0; i < s.NumFields(); i++ {
+		if isAllocatorType(s.Field(i).Type()) {
+			return true
+		}
+	}
+	return false
+}
+
 // builtinName returns the name of the predeclared function e calls.
 func builtinName(e *ast.CallExpr) string {
 	switch f := ast.Unparen(e.Fun).(type) {

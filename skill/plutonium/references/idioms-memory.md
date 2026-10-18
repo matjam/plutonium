@@ -14,7 +14,7 @@ Complete short programs, compiled and run by the skill's test with their output 
 
 ## 1. Scratch memory in an arena
 
-Allocate with the arena as the allocator; everything dies together when the arena is reset or dropped. A mark/release pair reclaims one phase and keeps earlier results. Do not print arena-backed strings through `fmt.Println` in the function that owns the arena (chapter notes in `ownership-and-memory.md`).
+Allocate with the arena as the allocator; everything dies together when the arena is reset or dropped. A mark/release pair reclaims one phase and keeps earlier results. Converting arena-backed text to an interface (`fmt.Println(b.String())`) in the function that owns the arena is E3313; write its bytes instead (chapter notes in `ownership-and-memory.md`).
 
 ```pluto-run
 package main

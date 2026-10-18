@@ -730,6 +730,65 @@ func f(a, b string) string {
 }
 func main() { _ = f("x", "y") }`, []string{"memory allocated from ar, a local arena of f"}},
 
+	{"arena string converted to an interface in a window", `
+import (
+	"pluto/alloc"
+	"pluto/arena"
+	"pluto/fmt"
+)
+func f(a, b string) {
+	ar := arena.NewFixed(256)
+	defer alloc.Use(&ar).Restore()
+	s := a + b
+	fmt.Println(s)
+}
+func main() { f("x", "y") }`, []string{"cannot convert s to an interface", "memory allocated from ar, a local arena of f", "after the arena ar is dropped"}},
+
+	{"builder over a local arena returned", `
+import (
+	"pluto/arena"
+	"pluto/strings"
+)
+func f() string {
+	ar := arena.NewFixed(256)
+	var b strings.Builder
+	b.Init(&ar)
+	b.WriteString("x")
+	return b.String()
+}
+func main() { _ = f() }`, []string{"cannot return b.String()", "memory allocated from ar, a local arena of f"}},
+
+	{"builder over a local arena printed", `
+import (
+	"pluto/arena"
+	"pluto/fmt"
+	"pluto/strings"
+)
+func f() {
+	ar := arena.NewFixed(256)
+	var b strings.Builder
+	b.Init(&ar)
+	b.WriteString("x")
+	fmt.Println(b.String())
+}
+func main() { f() }`, []string{"cannot convert b.String() to an interface", "was given as an allocator"}},
+
+	{"struct of arena strings converted to an interface", `
+import (
+	"pluto/arena"
+	"pluto/fmt"
+	"pluto/strings"
+)
+type pair struct{ a, b string }
+func f() {
+	ar := arena.NewFixed(256)
+	var b strings.Builder
+	b.Init(&ar)
+	b.WriteString("x")
+	fmt.Println(pair{b.String(), "y"})
+}
+func main() { f() }`, []string{"cannot convert pair{...} to an interface"}},
+
 	{"deferred restore in an inner block", `
 import (
 	"pluto/alloc"
@@ -1449,6 +1508,84 @@ func g(a, b string) string {
 	return a + b // after the window's block
 }
 func main() { _ = g("x", "y") }`},
+	{"arena text written as bytes or measured", `
+import (
+	"pluto/arena"
+	"pluto/fmt"
+	"pluto/os"
+	"pluto/strings"
+)
+func f(a, b string) int {
+	ar := arena.NewFixed(256)
+	var out strings.Builder
+	out.Init(&ar)
+	out.WriteString("x")
+	os.Stdout.Write(out.Bytes())
+	n := len(out.String())
+	println(out.String())
+	var heap strings.Builder
+	defer heap.Free()
+	heap.WriteString("y")
+	fmt.Println(heap.String(), n)
+	return n
+}
+func main() { _ = f("x", "y") }`},
+	{"arena text converted after the window", `
+import (
+	"pluto/alloc"
+	"pluto/arena"
+	"pluto/fmt"
+)
+func f(a, b string) {
+	ar := arena.NewFixed(256)
+	{
+		r := alloc.Use(&ar)
+		_ = a + b
+		r.Restore()
+	}
+	fmt.Println(a + b) // made after the window: not in the arena
+}
+func main() { f("x", "y") }`},
+	{"text in a manual arena or a custom allocator converted", `
+import (
+	"pluto/alloc"
+	"pluto/arena"
+	"pluto/fmt"
+	"pluto/strings"
+	"unsafe"
+)
+type counting struct{ next alloc.Allocator }
+func (c *counting) Alloc(n, a uintptr) unsafe.Pointer       { return c.next.Alloc(n, a) }
+func (c *counting) Free(p unsafe.Pointer, n, a uintptr)     { c.next.Free(p, n, a) }
+func f(buf []byte) {
+	ar := arena.NewUnsafe(buf) // manual: the program owns its lifetime
+	var b strings.Builder
+	b.Init(&ar)
+	b.WriteString("x")
+	fmt.Println(b.String())
+	c := counting{next: alloc.Default()}
+	r := alloc.Use(&c)
+	s := "a" + b.String()
+	fmt.Println(s)
+	r.Restore()
+}
+var mem [4096]byte
+func main() { f(mem[:]) }`},
+	{"builder over a heap allocator printed", `
+import (
+	"pluto/alloc"
+	"pluto/fmt"
+	"pluto/strings"
+)
+func f() string {
+	var b strings.Builder
+	b.Init(alloc.Default())
+	defer b.Free()
+	b.WriteString("x")
+	fmt.Println(b.String())
+	return b.String()
+}
+func main() { _ = f() }`},
 	{"explicit allocator in an arena window", `
 import (
 	"pluto/alloc"

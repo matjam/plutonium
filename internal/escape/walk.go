@@ -19,11 +19,13 @@ type walker struct {
 	sc     *scope // the scope being walked
 	locs   map[*types2.Var]*loc
 	objs   map[*types2.Var]*loc // lkObject: the objects of boxes held in variables
+	arenaV map[*types2.Var]*loc // lkArena: memory allocated from a local arena variable passed as an allocator
 	arenas []*arenaWindow       // where a local arena is the default allocator (arena.go)
 	tmps   map[tmpKey]*loc
 	scopes map[*ast.FuncLit]*scope
 	grew   bool // a location's contents grew during this walk
 	static bool // package initialisation: &T{} and slice literals are static
+	noBox  bool // converting for a built-in that keeps no interface (conv)
 
 	recLit map[*loc]*ast.FuncLit // closure records made here, and their literals
 
@@ -50,6 +52,7 @@ func newWalker(a *analyzer, f *function) *walker {
 		f:      f,
 		locs:   map[*types2.Var]*loc{},
 		objs:   map[*types2.Var]*loc{},
+		arenaV: map[*types2.Var]*loc{},
 		tmps:   map[tmpKey]*loc{},
 		scopes: map[*ast.FuncLit]*scope{},
 		recLit: map[*loc]*ast.FuncLit{},

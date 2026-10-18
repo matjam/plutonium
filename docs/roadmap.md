@@ -213,6 +213,17 @@ against the corrected specification. The immediate implementation order is:
      directly by a map or returned by a call stays an E0125 error. Tests: `testdata/plutonium/boxtemprecv.p`,
      `cmd/pluto/testdata/diag/temp_receiver_field`.
 
+123. **Arena text converted to an interface** (done; sections 18.3, 18.8, 18.9, decision D7). A string
+     made in a local arena is a view of the arena, but only strings made in an `alloc.Use` window were
+     followed, and converting one to an interface (`fmt.Println(s)`) built and then panicked as the function
+     returned: the interface's copy in the frame is released after the arena was dropped. The analysis now
+     also follows a string returned by a call that was given a local arena as its allocator, or whose receiver
+     holds one (`strings.Builder.Init(&a)` then `b.String()`; `internal/escape/arena.go`), and converting such a
+     string, or a value holding one, to an interface in the arena's function is E3313 with the rule and the
+     fixes in its text (the holder is the interface's copy, the spec's "declaration of the holder"). Returning
+     it is E3001. Other uses of memory from an explicit arena stay with the run-time checks of section 18.11.
+     Tests: `cmd/pluto/testdata/diag/arena_boxed`, `testdata/plutonium/arenatext.p`, `internal/escape` tables.
+
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a
 literal zero bound. Existing virtual-reservation fallback and overflow handling are
 implemented, but do not satisfy inference. Then fill the small unverified witness

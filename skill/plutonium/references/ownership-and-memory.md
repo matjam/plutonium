@@ -482,10 +482,12 @@ allocator they came from and free to it, so an owner built in an arena drops nor
 - Every task starts with the program-wide default allocator, not its starter's override. An arena is not safe for
   several tasks: give each task its own.
 - `arena.NewUnsafe(buf)` is the manual, unchecked borrowed-buffer arena (unsafe code).
-- Hazard: a string made in a local arena and passed through `fmt.Println` or any `any` parameter in the same
-  function is held in the function's interface copy until the function returns, which is after the arena is
-  dropped, and the program panics with `use of memory from an arena that was reset`. Print such text with
-  `os.Stdout.Write(b.Bytes())`, or copy it to a heap string first.
+- Text made in a local arena (by a `strings.Builder` started with `Init(&a)`, or any string made in the `alloc.Use`
+  window) is a view of the arena. Converting it to an interface (`fmt.Println(b.String())`, any `any` parameter) in
+  the function that owns the arena is E3313: the interface's copy holds the string until the function returns,
+  after the arena is dropped. Print such text with `os.Stdout.Write(b.Bytes())`, or copy it to a string from
+  the default allocator before the arena is installed or after it is gone (`strings.FromUTF8Lossy(b.Bytes())`
+  outside a `Use` window).
 - Debug: `pluto build --alloc=debug` (and `pluto run --alloc=debug`) runs with the checking allocator: guard pages,
   canaries, and at exit a report of the allocations still live (exit status 2 when there are leaks).
 

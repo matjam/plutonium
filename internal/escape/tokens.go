@@ -263,6 +263,10 @@ type loc struct {
 	// dynamic is the projected payload's interface type when a different
 	// containing value bounds its lifetime.
 	dynamic types2.Type
+	// explicit marks an lkArena whose arena v is a local variable that a
+	// call was given as an allocator (arena.go), as opposed to one that
+	// alloc.Use installed.
+	explicit bool
 }
 
 func (l *loc) dynamicType() types2.Type {

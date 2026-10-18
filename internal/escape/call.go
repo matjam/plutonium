@@ -68,15 +68,18 @@ func (w *walker) call(e *ast.CallExpr) []tset {
 		cs.keys = append([]ast.Expr{t.recvKey}, cs.keys...)
 	}
 	nres := t.sig.Results().Len()
+	var res []tset
 	switch {
 	case t.static != nil:
-		return w.regionResults(e, t, args, w.apply(t.static, args, cs, t.name, recvExact, nres))
+		res = w.regionResults(e, t, args, w.apply(t.static, args, cs, t.name, recvExact, nres))
 	case t.method != "":
-		return w.regionResults(e, t, args, w.dynIface(t, args, cs, nres))
+		res = w.regionResults(e, t, args, w.dynIface(t, args, cs, nres))
 	case t.dynFunc:
-		return w.regionResults(e, t, args, w.dynFuncCall(t, args, cs, e.Fun, nres))
+		res = w.regionResults(e, t, args, w.dynFuncCall(t, args, cs, e.Fun, nres))
+	default:
+		res = make([]tset, nres)
 	}
-	return make([]tset, nres)
+	return w.explicitArenaResult(e, t, args, res)
 }
 
 // A callSite is a call being applied, for messages: its position and the
@@ -719,8 +722,14 @@ func (w *walker) builtin(e *ast.CallExpr) []tset {
 	}
 	// len, cap, min, max, print, println, panic, close, clear, delete:
 	// nothing is kept.
+	// Only panic keeps its argument in an interface; the others are
+	// modelled with the conversion for what the argument reaches.
 	for _, a := range e.Args {
-		w.conv(w.value(a), w.typeOf(a), types2.Universe.Lookup("any").Type(), a)
+		v := w.value(a)
+		saved := w.noBox
+		w.noBox = name != "panic"
+		w.conv(v, w.typeOf(a), types2.Universe.Lookup("any").Type(), a)
+		w.noBox = saved
 	}
 	n := 0
 	if tup, ok := w.typeOf(e).(*types2.Tuple); ok {

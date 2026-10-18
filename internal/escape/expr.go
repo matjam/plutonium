@@ -933,6 +933,16 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 		}
 		return union(v, tset{heapTok})
 	}
+	if x, ok := node.(ast.Expr); ok && !w.noBox && releasesCounted(from) {
+		// The box holds a reference to each counted value in the copy
+		// until the function returns, and releasing it writes into the
+		// arena (language spec section 18.8, Arenas).
+		for _, t := range v {
+			if t.kind == tFrame && t.loc.kind == lkArena && t.loc.level == w.sc.level && t.loc.v != nil && isArenaType(t.loc.v.Type()) {
+				w.report(&viewErr{sink: sinkBox, pos: node.Pos(), expr: x, l: t.loc, fn: w.scopeName(w.sc)}, fmt.Sprintf("box|%p", t.loc))
+			}
+		}
+	}
 	box := w.tmp(node, lkBox)
 	box.typ, box.box = from, true
 	w.addContents(box, v)
@@ -956,6 +966,35 @@ func (w *walker) borrowError(x ast.Expr, v tset) tset {
 		return v
 	}
 	return union(v, w.boxView(x))
+}
+
+// releasesCounted reports whether dropping a value of type T releases a
+// reference: T is, or holds, a string, a box, a map or a channel (or may,
+// for a type parameter).
+func releasesCounted(T types2.Type) bool { return releasesSeen(T, map[types2.Type]bool{}) }
+
+func releasesSeen(T types2.Type, seen map[types2.Type]bool) bool {
+	if T == nil || seen[T] {
+		return false
+	}
+	seen[T] = true
+	if _, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+		return true
+	}
+	if isString(T) || isCounted(T) || isChan(T) {
+		return true
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Array:
+		return u.Len() > 0 && releasesSeen(u.Elem(), seen)
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if releasesSeen(u.Field(i).Type(), seen) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func isCountedBox(T types2.Type) bool {

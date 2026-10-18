@@ -1,0 +1,61 @@
+$DIR/main.p:23:14: cannot convert out.String() to an interface: it points into memory allocated from a, a local arena of builder, which is gone before the interface's copy is released
+    out.String() points into memory allocated from a, a local arena of builder.
+    a (a local arena of builder, declared at main.p:19) was given as an
+    allocator to a call that returns a string, or to a value that returns one,
+    and such text may have been allocated from the arena. What lives in the
+    arena is gone when the arena is. Converting out.String() to an interface
+    puts a copy of it in builder's frame, and the copy holds a reference to the
+    text until builder returns. That is after the arena a is dropped, and
+    releasing the reference would write into the arena's memory.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use the text without converting it to an interface, for example by writing
+    its bytes:
+        os.Stdout.Write(b.Bytes())
+    Or convert a string made from an allocator that outlives the arena, passed
+    explicitly, or from the default allocator before the arena is installed
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:32:14: cannot convert s to an interface: it points into memory allocated from a, a local arena of window, which is gone before the interface's copy is released
+    s points into memory allocated from a, a local arena of window.
+    alloc.Use(&a) (at main.p:30) makes a (a local arena of window) the default
+    allocator, so what is allocated through the default allocator from there on
+    (by new, a string operation, or a call that allocates and leaves out its
+    allocator) lives in the arena, and is gone when the arena is. Converting s
+    to an interface puts a copy of it in window's frame, and the copy holds a
+    reference to the text until window returns. That is after the arena a is
+    dropped, and releasing the reference would write into the arena's memory.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use the text without converting it to an interface, for example by writing
+    its bytes:
+        os.Stdout.Write(b.Bytes())
+    Or convert a string made from an allocator that outlives the arena, passed
+    explicitly, or from the default allocator before the arena is installed
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:42:9: cannot return out.String(), which points into memory allocated from a, a local arena of leak
+    out.String() points into memory allocated from a, a local arena of leak. a
+    (a local arena of leak, declared at main.p:38) was given as an allocator to
+    a call that returns a string, or to a value that returns one, and such text
+    may have been allocated from the arena. What lives in the arena is gone when
+    the arena is. When leak returns, the arena a is gone, so out.String() would
+    point at memory that is no longer allocated.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Allocate what must outlive the arena from an allocator that does, passed
+    explicitly:
+        heap := alloc.Default() // before alloc.Use
+        ...
+        v := vec.New[T](heap)
+    Or install an arena that outlives the result, such as one the caller passes
+    in, or make the copy that must outlive the arena after the Restore is
+    dropped.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)
