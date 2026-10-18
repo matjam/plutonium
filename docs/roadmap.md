@@ -1,6 +1,6 @@
 # Plutonium roadmap
 
-**Updated:** 2026-10-15
+**Updated:** 2026-10-17
 
 Every known gap between the specification and the compiler and standard library, in priority order. The
 specification ([language.md](spec/language.md), version 0.3, with the binary interface in
@@ -240,7 +240,7 @@ against the corrected specification. The immediate implementation order is:
      `TestNormalTerminationJoinedTasks` (WaitGroup and channel cases), `TestNormalShutdownTaskRetirement`
      and `TestConcDebugAlloc` do the same, and the scope case still requires the cleanup of every run.
      `TestNormalTerminationDebugAllocator`, which expects the abandon line, uses `runDebugAllocRaw`.
-132. **Containers hold owners** (done, `HASH132`; sections 7.18, 10.9, 11.11, 12.10, 13.3, 18.6, F.3; found
+132. **Containers hold owners** (done, `a2991a32`; sections 7.18, 10.9, 11.11, 12.10, 13.3, 18.6, F.3; found
      while writing the agent skill, `skill/plutonium/references/known-gaps.md`). `vec.Vec[T owner any]` and
      `hash.Map[K, V owner any]` (over `rt.MapTable`) accept owner elements and own them: `Push`, `Set`,
      `SetIndex` and `m[k] = v` move one in and drop the one they replace, `Pop`, `Remove`, `SwapRemove`,
@@ -256,7 +256,7 @@ against the corrected specification. The immediate implementation order is:
      stay values: a key is looked up by value, which would consume an owner, and a `Fixed` is a copyable view
      that owns nothing. Tests: `testdata/plutonium/containerowners.p` and `takecounted.p` (O0, O2, debug
      allocator leak report), `internal/build/container_owners_test.go`.
-133. **A `vec.Vec` crosses in a program that imports `pluto/fmt`** (done, `HASH133`; sections 8.8, 12.5, 19.3, 19.8,
+133. **A `vec.Vec` crosses in a program that imports `pluto/fmt`** (done, `10f54d3e`; sections 8.8, 12.5, 19.3, 19.8,
      F.2; found with item 132). The race analysis recorded the accesses to the default allocator
      (`alloc.SyncSlab`) through package variables only once a program reached the library's string and
      formatting code, and its per-processor caches (touched in pinned regions, not under a lock) then failed
@@ -267,7 +267,7 @@ against the corrected specification. The immediate implementation order is:
      so its view may cross. An allocator without a lock (an arena, a bump allocator) is still E3501. Tests:
      `internal/race/cases_test.go` (a vec and a map cross in a program that formats text; a vec on a lockless
      allocator does not).
-134. **`os.File` is an owner** (done, `HASH134`; sections 7.18, 18.6, A.3; found with item 132). `os.Open`,
+134. **`os.File` is an owner** (done, `45998860`; sections 7.18, 18.6, A.3; found with item 132). `os.Open`,
      `os.Create`, `os.OpenFile`, their `Bytes` forms and `os.NewFile` return an `os.File` by value, and
      `os.Pipe` returns two; `File` is `owner struct` with a `Drop` that closes the descriptor if it is open.
      The zero File is not open (its open bit is clear, so every operation reports `ErrClosed` and `Fd`
@@ -276,7 +276,7 @@ against the corrected specification. The immediate implementation order is:
      the tests share a File among tasks through a `sync.Scope` (a view of an owner cannot outlive it) or move it
      into a task. Tests: `testdata/plutonium/osfile.p` (drop at scope end, early return, close then drop,
      zero File, a File in an owner struct, `clear` of an array of files, pipes, files on disk; debug allocator).
-135. **Two error codes of the text** (done, `HASH135`; sections 7.12, 8.4, 12.9, 14.3; found with item 132).
+135. **Two error codes of the text** (done, `5a7e6732`; sections 7.12, 8.4, 12.9, 14.3; found with item 132).
      An untyped constant used as an enum value (`var c Color = 1`, `c == 1`, `d = 2`, an argument, `case 1:`)
      is E2315 (`UntypedEnumConstant`), where the assignment forms reported E0023 and the comparison and case
      forms E0097; other assignment mismatches stay E0023. The code E2315 belonged to `NotEnumType` (`len(E)`
@@ -284,7 +284,7 @@ against the corrected specification. The immediate implementation order is:
      of the group (E2318). `import "reflect"` is E2005 whether or not a `pluto.mod` exists: the loader, which
      resolves paths first, asks `types2.ForbiddenImport` and reports the checker's code instead of E4007 or
      E4008. Tests: `cmd/pluto/testdata/diag/enum_untyped` and `import_reflect` with their full output.
-136. **`pluto/arena` needs no scheduler** (done, `HASH136`; sections 19.5, 18.9; found with item 132).
+136. **`pluto/arena` needs no scheduler** (done, `8a8246d5`; sections 19.5, 18.9; found with item 132).
      A freestanding or kernel program that imported `pluto/arena` failed with E2593, because the arenas'
      drop paths call `rt.ExitTask`, so `pluto.main` had to be ready for a main that ended with it, and
      `rt.mainGoexit` parked the main task (`schedPark`, a required scheduler hook). `mainGoexit` now ends in
