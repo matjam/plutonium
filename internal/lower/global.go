@@ -74,7 +74,7 @@ func (l *Lowerer) lowerGlobals() {
 				}
 			}
 			if sym.PerCPU && hasInit && !static[v] {
-				l.errorf(percpu[v], diag.PerCPUInit, "per-CPU variable %s must have a constant initialiser: package initialisation runs before any processor has a per-CPU block", v.Name())
+				l.errorf(percpu[v], diag.PerCPUInit, "per-CPU variable %s must have a constant initializer: package initialization runs before any processor has a per-CPU block", v.Name())
 			}
 		}
 		l.queueInit(p, static)

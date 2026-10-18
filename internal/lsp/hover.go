@@ -181,7 +181,7 @@ var directives = map[string]string{
 	"noreturn":    "the assembly or C function never returns, so code after calls to it is dropped (a function with a body needs no directive: the compiler works it out)",
 	"noescape":    "the body-less function keeps no pointer argument after it returns, except by storing it where another argument points (a function with a body needs no directive: the compiler works it out)",
 	"resultholds": "standard library only: the function keeps the named parameter only while its result, an owner, lives, and gives it back when the result is dropped",
-	"nosimd":      "the optimiser adds no vector instructions to the function",
+	"nosimd":      "the optimizer adds no vector instructions to the function",
 	"fpu":         "the function may use floating point in kernel mode; the caller has saved the FPU state",
 	"percpu":      "one copy of the package variable per processor, addressed through GS (kernel mode only)",
 	"blocking":    "calling the function may wait in a way the compiler cannot see (a kernel's spinning lock, assembly that halts), so interrupt handlers and the panic handler must not reach it",

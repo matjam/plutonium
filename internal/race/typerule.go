@@ -80,7 +80,7 @@ func (a *analyzer) funcAt(pos token.Pos) string {
 		}
 	}
 	if best == "" {
-		return "package initialisation"
+		return "package initialization"
 	}
 	return best
 }

@@ -170,7 +170,7 @@ func newAnalyzer(prog *load.Program, userResultHolds bool) *analyzer {
 		for k, v := range p.Info.Instances {
 			a.instances[k] = v
 		}
-		a.order = append(a.order, &function{name: p.Path + " package initialisation", pkg: pi, inits: true})
+		a.order = append(a.order, &function{name: p.Path + " package initialization", pkg: pi, inits: true})
 		for _, f := range p.Files {
 			for _, d := range f.Decls {
 				fd, ok := d.(*ast.FuncDecl)

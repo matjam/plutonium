@@ -298,7 +298,7 @@ func newAnalyzer(prog *load.Program) *analyzer {
 	}
 	a.program = &function{name: "the program", program: true, sum: &summary{}}
 	for _, p := range prog.Packages {
-		init := &function{name: p.Path + " initialisation", pkg: p, inits: true, sum: &summary{}}
+		init := &function{name: p.Path + " initialization", pkg: p, inits: true, sum: &summary{}}
 		a.inits = append(a.inits, init)
 		u := &unit{fns: []*function{init}, vars: map[*types2.Var]origins{}}
 		init.unit = u

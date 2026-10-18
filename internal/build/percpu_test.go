@@ -56,9 +56,9 @@ func TestPerCPUErrors(t *testing.T) {
 		want        string
 	}{
 		{"hosted", "//pu:percpu\nvar n int", false, "//pu:percpu variable n needs --mode kernel"},
-		{"dynamic", "//pu:percpu\nvar n = f()\n\nfunc f() int { return 1 }", true, "per-CPU variable n must have a constant initialiser"},
-		{"pointer", "var x int\n\n//pu:percpu\nvar p = &x", true, "per-CPU variable p must have a constant initialiser"},
-		{"multi", "//pu:percpu\nvar a, b = g()\n\nfunc g() (int, int) { return 1, 2 }", true, "per-CPU variable a must have a constant initialiser"},
+		{"dynamic", "//pu:percpu\nvar n = f()\n\nfunc f() int { return 1 }", true, "per-CPU variable n must have a constant initializer"},
+		{"pointer", "var x int\n\n//pu:percpu\nvar p = &x", true, "per-CPU variable p must have a constant initializer"},
+		{"multi", "//pu:percpu\nvar a, b = g()\n\nfunc g() (int, int) { return 1, 2 }", true, "per-CPU variable a must have a constant initializer"},
 		{"section", "//pu:percpu\n//pu:section .data.x\nvar n int", true, "cannot also have //pu:section"},
 	}
 	for _, tc := range tests {

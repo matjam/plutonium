@@ -75,7 +75,7 @@ func runTests(args []string, stdout, stderr io.Writer) int {
 	flags.StringVar(&opts.Bench, "bench", "", "run the benchmarks matching `regexp`")
 	flags.BoolVar(&opts.Verbose, "v", false, "verbose output")
 	flags.IntVar(&opts.Count, "count", 1, "run each test and benchmark `n` times")
-	optLevel := flags.Int("O", 2, "optimisation `level`")
+	optLevel := flags.Int("O", 2, "optimization `level`")
 	flags.BoolVar(&briefErrors, "brief", briefErrors, briefUsage)
 	trimpath := flags.Bool("trimpath", true, "record source paths relative to the module root and the standard library")
 	genCheck := flags.Bool("gencheck", true, "check heap pointers' generations on every access (false: the unchecked mode)")

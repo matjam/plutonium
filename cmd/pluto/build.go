@@ -104,7 +104,7 @@ func addBuildFlags(c *cobra.Command) {
 	c.Flags().String("ldscript", "", "linker script (kernel mode has a default, see abi.md section 10.3)")
 	c.Flags().String("format", "elf", "output format: elf or binary")
 	c.Flags().BoolP("verbose", "v", false, "print the assembler and linker commands")
-	c.Flags().IntP("opt", "O", 2, "optimisation level: 0, 1 or 2")
+	c.Flags().IntP("opt", "O", 2, "optimization level: 0, 1 or 2")
 	c.Flags().StringP("asm", "S", "", "write a machine code listing to this file (- for stdout)")
 	c.Flags().String("ssa", "", "dump the SSA of this function (or all) after each pass")
 	c.Flags().Bool("inlinenotes", false, "print a note for each call to a //pu:inline function that was not inlined, and why")
