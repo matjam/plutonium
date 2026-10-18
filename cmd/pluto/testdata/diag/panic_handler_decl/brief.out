@@ -1,0 +1,6 @@
+$DIR/main.p:31:10: onPanic3 cannot be the panic handler: it is a method
+$DIR/main.p:39:6: onPanic4 cannot be the panic handler: its signature is func(p int)
+$DIR/main.p:47:6: onPanic5 cannot be the panic handler: its signature is func(p *rt.Panic) int
+$DIR/main.p:55:6: onPanic6 cannot be the panic handler: it is generic
+$DIR/main.p:64:6: onPanic7 cannot be the panic handler: it is also an interrupt handler
+$DIR/main.p:21:6: onPanic2 is a second panic handler

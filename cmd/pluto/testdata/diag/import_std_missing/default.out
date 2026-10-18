@@ -1,0 +1,7 @@
+main: standard library package "pluto/nosuchpkg" not found
+    Import paths that start with pluto/ name packages of the standard library,
+    and this one does not exist. Check the spelling. Go's packages have
+    Plutonium versions under pluto/, such as pluto/fmt for fmt, but not every Go
+    package has one.
+    (see "Import declarations" in the Plutonium spec, section 14.3)
+    (run "pluto explain E4005" for a longer explanation)

@@ -1,0 +1,84 @@
+$DIR/main.p:31:10: onPanic3 cannot be the panic handler: it is a method
+    The runtime calls the panic handler, the function marked //pu:panic, with a
+    description of the panic, and never expects it to return. It is a plain
+    function with a body, not a method, not generic and not also an interrupt
+    handler, that takes a *rt.Panic and returns nothing.
+    A kernel has no operating system to fall back on when it panics, so
+    Plutonium makes the program choose what happens at compile time, and checks
+    the choice: the runtime calls the handler directly, with nothing to
+    register, so it works from the first instruction.
+    Declare it:
+        //pu:panic
+        func onPanic3(p *rt.Panic) { ... }
+    (see "Panics in freestanding programs" in the Plutonium spec, section 17.4)
+    (run "pluto explain E2582" for a longer explanation)
+
+$DIR/main.p:39:6: onPanic4 cannot be the panic handler: its signature is func(p int)
+    The runtime calls the panic handler, the function marked //pu:panic, with a
+    description of the panic, and never expects it to return. It is a plain
+    function with a body, not a method, not generic and not also an interrupt
+    handler, that takes a *rt.Panic and returns nothing.
+    A kernel has no operating system to fall back on when it panics, so
+    Plutonium makes the program choose what happens at compile time, and checks
+    the choice: the runtime calls the handler directly, with nothing to
+    register, so it works from the first instruction.
+    Declare it:
+        //pu:panic
+        func onPanic4(p *rt.Panic) { ... }
+    (see "Panics in freestanding programs" in the Plutonium spec, section 17.4)
+    (run "pluto explain E2582" for a longer explanation)
+
+$DIR/main.p:47:6: onPanic5 cannot be the panic handler: its signature is func(p *rt.Panic) int
+    The runtime calls the panic handler, the function marked //pu:panic, with a
+    description of the panic, and never expects it to return. It is a plain
+    function with a body, not a method, not generic and not also an interrupt
+    handler, that takes a *rt.Panic and returns nothing.
+    A kernel has no operating system to fall back on when it panics, so
+    Plutonium makes the program choose what happens at compile time, and checks
+    the choice: the runtime calls the handler directly, with nothing to
+    register, so it works from the first instruction.
+    Declare it:
+        //pu:panic
+        func onPanic5(p *rt.Panic) { ... }
+    (see "Panics in freestanding programs" in the Plutonium spec, section 17.4)
+    (run "pluto explain E2582" for a longer explanation)
+
+$DIR/main.p:55:6: onPanic6 cannot be the panic handler: it is generic
+    The runtime calls the panic handler, the function marked //pu:panic, with a
+    description of the panic, and never expects it to return. It is a plain
+    function with a body, not a method, not generic and not also an interrupt
+    handler, that takes a *rt.Panic and returns nothing.
+    A kernel has no operating system to fall back on when it panics, so
+    Plutonium makes the program choose what happens at compile time, and checks
+    the choice: the runtime calls the handler directly, with nothing to
+    register, so it works from the first instruction.
+    Declare it:
+        //pu:panic
+        func onPanic6(p *rt.Panic) { ... }
+    (see "Panics in freestanding programs" in the Plutonium spec, section 17.4)
+    (run "pluto explain E2582" for a longer explanation)
+
+$DIR/main.p:64:6: onPanic7 cannot be the panic handler: it is also an interrupt handler
+    The runtime calls the panic handler, the function marked //pu:panic, with a
+    description of the panic, and never expects it to return. It is a plain
+    function with a body, not a method, not generic and not also an interrupt
+    handler, that takes a *rt.Panic and returns nothing.
+    A kernel has no operating system to fall back on when it panics, so
+    Plutonium makes the program choose what happens at compile time, and checks
+    the choice: the runtime calls the handler directly, with nothing to
+    register, so it works from the first instruction.
+    Declare it:
+        //pu:panic
+        func onPanic7(p *rt.Panic) { ... }
+    (see "Panics in freestanding programs" in the Plutonium spec, section 17.4)
+    (run "pluto explain E2582" for a longer explanation)
+
+$DIR/main.p:21:6: onPanic2 is a second panic handler
+    A program has exactly one panic handler, and onPanic (main.p:10) is already
+    marked //pu:panic. Remove //pu:panic from all but one of them.
+    A kernel has no operating system to fall back on when it panics, so
+    Plutonium makes the program choose what happens at compile time, and checks
+    the choice: the runtime calls the handler directly, with nothing to
+    register, so it works from the first instruction.
+    (see "Panics in freestanding programs" in the Plutonium spec, section 17.4)
+    (run "pluto explain E2581" for a longer explanation)

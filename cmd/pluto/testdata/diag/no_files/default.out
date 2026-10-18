@@ -1,0 +1,6 @@
+package "main": no Plutonium source files for this build
+    The package's directory has no .p files for this build. Either it has none
+    at all, or every file is left out by a //pu:build line or a file name suffix
+    such as _linux.p for the target and mode being built.
+    (see "Source file organization" in the Plutonium spec, section 14.1)
+    (run "pluto explain E4010" for a longer explanation)

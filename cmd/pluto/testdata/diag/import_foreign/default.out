@@ -1,0 +1,5 @@
+example.com/proj: cannot import "example.org/other": it is outside module example.com/proj
+    A program can import the standard library (paths under pluto/) and packages
+    of its own module (paths under the module path in pluto.mod). This import
+    path is neither, and Plutonium has no package downloads.
+    (run "pluto explain E4008" for a longer explanation)

@@ -1,0 +1,5 @@
+//pu:build windows
+
+package main
+
+func main() {}

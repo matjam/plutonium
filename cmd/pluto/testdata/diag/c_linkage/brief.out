@@ -1,0 +1,4 @@
+$DIR/main.p:4:1: //pu:extern function strlen must not have a body
+$DIR/main.p:7:1: //pu:extern function puts: parameter 1: string has no C equivalent; pass unsafe.StringData(s) and len(s)
+$DIR/main.p:13:1: //pu:export plu_add: main.add and main.add2 are both exported under one symbol
+$DIR/main.p:16:1: cannot export generic function sum

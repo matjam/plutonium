@@ -1,0 +1,5 @@
+$DIR/main.p:68:2: too many defer statements in one function (at most 64)
+    A function may contain at most 64 defer statements. Each has a fixed slot in
+    the stack frame. Split the function into smaller ones.
+    (see "Defer statements" in the Plutonium spec, section 12.19)
+    (run "pluto explain E2531" for a longer explanation)

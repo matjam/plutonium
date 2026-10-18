@@ -1,0 +1,13 @@
+$DIR/main.p:27:5: per-CPU variable computed must have a constant initialiser: package initialisation runs before any processor has a per-CPU block
+    A per-CPU variable can only be initialized with a constant. Package
+    initialization runs before any processor has its per-CPU block, so there is
+    nowhere to store a value computed at run time. Set the variable at run time
+    on each processor instead.
+    (see "Per-CPU variables" in the Plutonium spec, section 20.9)
+    (run "pluto explain E2550" for a longer explanation)
+
+$DIR/main.p:31:5: //pu:percpu variable placed cannot also have //pu:section
+    A per-CPU variable always lives in the .percpu section, so it cannot also be
+    placed in another section with //pu:section.
+    (see "Per-CPU variables" in the Plutonium spec, section 20.9)
+    (run "pluto explain E2552" for a longer explanation)

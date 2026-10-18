@@ -1,0 +1,6 @@
+$DIR/pluto.mod: first line must be "module <path>"
+    The first line of a pluto.mod file must be the word module followed by the
+    module path.
+    Write the first line as:
+        module example.com/project
+    (run "pluto explain E4014" for a longer explanation)

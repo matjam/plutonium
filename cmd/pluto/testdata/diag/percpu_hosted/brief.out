@@ -1,0 +1,1 @@
+$DIR/main.p:6:5: //pu:percpu variable ticks needs --mode kernel

@@ -1,0 +1,6 @@
+.: package util is not a main package
+    pluto build and pluto run build a program, and a program starts in package
+    main, at func main. The directory given holds a different package, which can
+    only be imported by a program or tested with pluto test.
+    (see "Package clause" in the Plutonium spec, section 14.2)
+    (run "pluto explain E4001" for a longer explanation)

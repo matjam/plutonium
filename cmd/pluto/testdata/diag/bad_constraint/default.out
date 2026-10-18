@@ -1,0 +1,6 @@
+$DIR/main.p: bad build constraint "amd64 &&": unexpected end of expression
+    A //pu:build line is a boolean expression over build tags, using && (and),
+    || (or), ! (not) and parentheses, such as //pu:build amd64 && !kernel. This
+    one does not parse.
+    (see "Build constraints" in the Plutonium spec, section 14.4)
+    (run "pluto explain E4013" for a longer explanation)

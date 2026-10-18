@@ -1,0 +1,4 @@
+# .
+$DIR/main_test.p: package main_test: external test packages are not supported; declare the test in package main
+FAIL	. [build failed]
+FAIL

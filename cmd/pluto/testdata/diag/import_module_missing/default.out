@@ -1,0 +1,6 @@
+example.com/proj: package "example.com/proj/missing" not found (looked in $DIR/missing)
+    The import path is inside this program's module, as declared by its
+    pluto.mod file, but no directory exists at the matching place. An import
+    path is the module path followed by the package's directory, relative to the
+    directory holding pluto.mod.
+    (run "pluto explain E4006" for a longer explanation)

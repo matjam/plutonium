@@ -1,0 +1,2 @@
+$DIR/main.p:27:5: per-CPU variable computed must have a constant initialiser: package initialisation runs before any processor has a per-CPU block
+$DIR/main.p:31:5: //pu:percpu variable placed cannot also have //pu:section

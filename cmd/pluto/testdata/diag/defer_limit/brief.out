@@ -1,0 +1,1 @@
+$DIR/main.p:68:2: too many defer statements in one function (at most 64)

@@ -1,0 +1,38 @@
+$DIR/main.p:4:1: //pu:extern function strlen must not have a body
+    //pu:extern says that the function is written in C or assembly and linked in
+    under the given symbol. A function with that directive must be declared
+    without a body.
+    (see "Assembly and C" in the Plutonium spec, section 20.4)
+    (run "pluto explain E2510" for a longer explanation)
+
+$DIR/main.p:7:1: //pu:extern function puts: parameter 1: string has no C equivalent; pass unsafe.StringData(s) and len(s)
+    Functions marked //pu:extern or //pu:export are called with the C calling
+    convention. Their parameters and results must be types C has: integers,
+    floats, bools, pointers, and structs and arrays of those. Strings, slices,
+    interfaces and func values have no C equivalent, and variadic functions are
+    not supported.
+    Pass a pointer and a length instead of a string or slice.
+    Pass a pointer and a length:
+        //pu:extern write
+        func write(fd int32, buf *byte, n uint64) int64
+
+        write(1, unsafe.SliceData(b), uint64(len(b)))
+    (see "Assembly and C" in the Plutonium spec, section 20.4)
+    (run "pluto explain E2511" for a longer explanation)
+
+$DIR/main.p:13:1: //pu:export plu_add: main.add and main.add2 are both exported under one symbol
+    Two functions are exported under the same symbol name with //pu:export, or
+    the name is already used by another symbol. The linker needs each symbol
+    name to be unique.
+    (see "Assembly and C" in the Plutonium spec, section 20.4)
+    (run "pluto explain E2512" for a longer explanation)
+
+$DIR/main.p:16:1: cannot export generic function sum
+    A generic function is compiled once for each set of type arguments it is
+    used with, so there is no single function to export under one C symbol.
+    Export a non-generic wrapper that calls it with the types you need.
+    Export a wrapper:
+        //pu:export sum_ints
+        func sumInts(p *int, n int) int { return Sum[int](unsafe.Slice(p, n)) }
+    (see "Assembly and C" in the Plutonium spec, section 20.4)
+    (run "pluto explain E2513" for a longer explanation)

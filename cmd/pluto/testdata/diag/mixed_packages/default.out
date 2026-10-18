@@ -1,0 +1,5 @@
+package "main": files declare both package main and other
+    All the .p files in one directory must belong to the same package, so they
+    must all start with the same package clause.
+    (see "Package clause" in the Plutonium spec, section 14.2)
+    (run "pluto explain E4012" for a longer explanation)

@@ -1,0 +1,9 @@
+$DIR/main.p:12:6: second is a second panic handler
+    A program has exactly one panic handler, and first (main.p:6) is already
+    marked //pu:panic. Remove //pu:panic from all but one of them.
+    A kernel has no operating system to fall back on when it panics, so
+    Plutonium makes the program choose what happens at compile time, and checks
+    the choice: the runtime calls the handler directly, with nothing to
+    register, so it works from the first instruction.
+    (see "Panics in freestanding programs" in the Plutonium spec, section 17.4)
+    (run "pluto explain E2581" for a longer explanation)

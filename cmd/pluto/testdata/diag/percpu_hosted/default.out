@@ -1,0 +1,5 @@
+$DIR/main.p:6:5: //pu:percpu variable ticks needs --mode kernel
+    //pu:percpu variables are reached through the GS segment register, which
+    only a kernel sets up. Build with --mode kernel, or remove the directive.
+    (see "Per-CPU variables" in the Plutonium spec, section 20.9)
+    (run "pluto explain E2551" for a longer explanation)

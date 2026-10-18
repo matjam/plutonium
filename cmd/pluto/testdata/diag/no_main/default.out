@@ -1,0 +1,8 @@
+package main has no main function
+    A program starts by calling func main in package main, and this package does
+    not declare one.
+    Add a main function:
+        func main() {
+        }
+    (see "Program execution" in the Plutonium spec, section 15.4)
+    (run "pluto explain E4016" for a longer explanation)

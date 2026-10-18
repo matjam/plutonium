@@ -1,0 +1,6 @@
+import cycle through "example.com/proj/a"
+    Packages import each other in a circle. A package must be compiled after
+    every package it imports, so a circle has no order that works. Move the code
+    both packages need into a third package that both import.
+    (see "Import declarations" in the Plutonium spec, section 14.3)
+    (run "pluto explain E4009" for a longer explanation)

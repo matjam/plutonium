@@ -1,0 +1,5 @@
+$DIR/pluto.mod: module path "pluto/proj" is reserved for the standard library
+    Import paths under pluto/ belong to the standard library, so a module cannot
+    use one as its path. Choose another, such as a domain you control followed
+    by the project name.
+    (run "pluto explain E4015" for a longer explanation)

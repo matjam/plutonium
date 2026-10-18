@@ -17,7 +17,9 @@ var update = flag.Bool("update", false, "rewrite the expected output of TestDiag
 // TestDiagnostics builds each program in testdata/diag and checks the
 // whole error output, in the default form (each error with its
 // explanation) against default.out and with --brief against brief.out. A
-// file named flags adds build flags, one per line. Run with -update to
+// file named flags adds build flags, one per line; a file named command
+// replaces the subcommand and its leading arguments ("test"), and
+// subdirectories are copied, for programs of several packages. Run with -update to
 // rewrite the expected output after changing an explanation, and read the
 // diff.
 func TestDiagnostics(t *testing.T) {
@@ -32,6 +34,10 @@ func TestDiagnostics(t *testing.T) {
 		t.Run(filepath.Base(src), func(t *testing.T) {
 			dir := copyProgram(t, src)
 			args := []string{"build", "-o", filepath.Join(t.TempDir(), "a.out")}
+			if cmd, err := os.ReadFile(filepath.Join(src, "command")); err == nil {
+				// "command" names another subcommand, such as test.
+				args = strings.Fields(string(cmd))
+			}
 			if flags, err := os.ReadFile(filepath.Join(src, "flags")); err == nil {
 				args = append(args, strings.Fields(string(flags))...)
 			}
@@ -115,23 +121,37 @@ func firstLine(s string) string {
 func copyProgram(t *testing.T, src string) string {
 	t.Helper()
 	dir := t.TempDir()
+	copyTree(t, src, dir)
+	return dir
+}
+
+// copyTree copies the files of src, and of its subdirectories (the packages
+// of a module), to dst.
+func copyTree(t *testing.T, src, dst string) {
+	t.Helper()
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".out") || e.Name() == "flags" {
+		if e.IsDir() {
+			if err := os.Mkdir(filepath.Join(dst, e.Name()), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			copyTree(t, filepath.Join(src, e.Name()), filepath.Join(dst, e.Name()))
+			continue
+		}
+		if strings.HasSuffix(e.Name(), ".out") || e.Name() == "flags" || e.Name() == "command" {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(src, e.Name()))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, e.Name()), data, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dst, e.Name()), data, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	return dir
 }
 
 var (

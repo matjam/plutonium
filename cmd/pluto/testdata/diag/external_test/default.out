@@ -1,0 +1,8 @@
+# .
+$DIR/main_test.p: package main_test: external test packages are not supported; declare the test in package main
+    Test files in Plutonium belong to the package they test. A _test.p file in a
+    package named x_test, which Go allows, is not supported. Declare the test in
+    the package itself.
+    (run "pluto explain E4011" for a longer explanation)
+FAIL	. [build failed]
+FAIL

@@ -1,0 +1,1 @@
+example.com/proj: cannot import "example.org/other": it is outside module example.com/proj

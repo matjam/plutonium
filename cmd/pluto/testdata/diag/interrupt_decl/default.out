@@ -1,0 +1,68 @@
+$DIR/main.p:30:1: method method cannot be an interrupt handler
+    A //pu:interrupt function is entered by the processor, not called by
+    Plutonium code. So it must be a plain function with a body: not a method,
+    not generic, and not marked //pu:inline, since the processor needs one fixed
+    address to jump to.
+    (see "Interrupts" in the Plutonium spec, section 20.10)
+    (run "pluto explain E2570" for a longer explanation)
+
+$DIR/main.p:35:1: generic function generic cannot be an interrupt handler
+    (explained above; run "pluto explain E2570" for more)
+
+$DIR/main.p:41:1: interrupt handler inlined cannot be //pu:inline
+    (explained above; run "pluto explain E2570" for more)
+
+$DIR/main.p:46:1: //pu:interrupt function nobody must have a body
+    (explained above; run "pluto explain E2570" for more)
+
+$DIR/main.p:51:1: interrupt handler noparams must take (frame *x86.InterruptFrame) or (frame *x86.InterruptFrame, code uint64)
+    An interrupt handler receives what the processor pushes on the stack: a
+    pointer to the interrupt frame, and for some exceptions an error code. It
+    returns nothing, since it returns with iretq to the interrupted code.
+    Use one of these signatures:
+        //pu:interrupt
+        func timer(frame *x86.InterruptFrame)
+
+        //pu:interrupt
+        func pageFault(frame *x86.InterruptFrame, code uint64)
+    (see "Interrupts" in the Plutonium spec, section 20.10)
+    (run "pluto explain E2571" for a longer explanation)
+
+$DIR/main.p:54:1: interrupt handler threeparams must take (frame *x86.InterruptFrame) or (frame *x86.InterruptFrame, code uint64)
+    (explained above; run "pluto explain E2571" for more)
+
+$DIR/main.p:57:1: interrupt handler result cannot have results
+    (explained above; run "pluto explain E2571" for more)
+
+$DIR/main.p:60:1: interrupt handler badframe: first parameter must be a pointer to the interrupt frame, not int
+    (explained above; run "pluto explain E2571" for more)
+
+$DIR/main.p:63:1: interrupt handler badcode: error code must be uint64, not string
+    (explained above; run "pluto explain E2571" for more)
+
+$DIR/main.p:68:2: interrupt handler main.timer cannot be called; use x86.HandlerAddr for its address
+    An interrupt handler saves every register and returns with iretq, so
+    ordinary code cannot call it, and it is not an ordinary func value. Use
+    x86.HandlerAddr to get its address for the interrupt table.
+    Take its address for the table:
+        addr := x86.HandlerAddr(timer)
+    (see "Interrupts" in the Plutonium spec, section 20.10)
+    (run "pluto explain E2573" for a longer explanation)
+
+$DIR/main.p:70:7: interrupt handler main.timer cannot be used as a func value; use x86.HandlerAddr for its address
+    (explained above; run "pluto explain E2573" for more)
+
+$DIR/main.p:73:6: x86.HandlerAddr: argument must name a //pu:interrupt function
+    x86.HandlerAddr gives the address of an interrupt handler for the interrupt
+    table. Its argument must name a function marked //pu:interrupt.
+    (see "pluto/arch/x86" in the Plutonium spec, section 20.8)
+    (run "pluto explain E2572" for a longer explanation)
+
+$DIR/main.p:74:7: interrupt handler main.timer cannot be used as a func value; use x86.HandlerAddr for its address
+    (explained above; run "pluto explain E2573" for more)
+
+$DIR/main.p:75:6: x86.HandlerAddr: argument must name a //pu:interrupt function
+    (explained above; run "pluto explain E2572" for more)
+
+$DIR/main.p:69:8: interrupt handler main.fault cannot be called; use x86.HandlerAddr for its address
+    (explained above; run "pluto explain E2573" for more)
