@@ -80,6 +80,19 @@ func mainGoexit() {
 	if !tasking {
 		noTasksLeft()
 	}
+	mainWait()
+}
+
+// mainWait waits for the other tasks after main ended with ExitTask. The
+// compiler gives it its body once the whole program is lowered: a program
+// that starts no tasks has no one to wait for and stops (mainWaitDirect),
+// so that it needs no scheduler (language spec section 19.5), and any other
+// parks the main task for good (mainWaitParked).
+func mainWait()
+
+func mainWaitDirect() { noTasksLeft() }
+
+func mainWaitParked() {
 	for {
 		park(WaitSystem)
 	}

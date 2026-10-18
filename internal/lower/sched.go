@@ -173,14 +173,22 @@ type lateHook struct {
 	sym            *ssa.Sym
 	sig            *types2.Signature
 	direct, parked *types2.Func
+	idle           bool // direct whenever the program starts no scheduler (lateIdleHooks)
 }
 
 // lateHooks are pluto/rt's body-less functions whose body is chosen once
 // the whole program is lowered, by name: the function that needs no
 // scheduler, then the one that parks.
 var lateHooks = map[string][2]string{
-	"Sleep": {"sleepDirect", "sleepParked"},
+	"Sleep":    {"sleepDirect", "sleepParked"},
+	"mainWait": {"mainWaitDirect", "mainWaitParked"},
 }
+
+// lateIdleHooks are the late hooks whose first function is chosen by any
+// program that does not start the scheduler, whatever backend it binds or
+// leaves unbound (rt.mainWait: a program with no scheduler has no other task
+// to wait for, language spec section 19.5).
+var lateIdleHooks = map[string]bool{"mainWait": true}
 
 // lateHookNames returns the names of the functions the late hook fn
 // chooses between, if fn is one.
@@ -202,7 +210,7 @@ func (l *Lowerer) lateHookSym(fn *types2.Func, direct, parked string) *ssa.Sym {
 	sym := l.out.Sym(name, ssa.SymFunc)
 	l.funcs[name] = sym
 	l.gxWrapped[sym] = fn
-	h := &lateHook{sym: sym, sig: fn.Type().(*types2.Signature), direct: l.rtFunc(direct), parked: l.rtFunc(parked)}
+	h := &lateHook{sym: sym, sig: fn.Type().(*types2.Signature), direct: l.rtFunc(direct), parked: l.rtFunc(parked), idle: lateIdleHooks[fn.Name()]}
 	if l.lateDone {
 		l.queueLateHook(h)
 	} else {
@@ -227,7 +235,8 @@ func (l *Lowerer) resolveLateHooks() bool {
 	if len(l.late) == 0 {
 		return false
 	}
-	l.lateDirect = l.sched != nil && l.sched.v.Pkg().Path() == "pluto/rt" && !l.startsScheduler()
+	l.lateIdle = !l.startsScheduler()
+	l.lateDirect = l.sched != nil && l.sched.v.Pkg().Path() == "pluto/rt" && l.lateIdle
 	l.lateDone = true
 	late := l.late
 	l.late = nil
@@ -239,8 +248,9 @@ func (l *Lowerer) resolveLateHooks() bool {
 
 func (l *Lowerer) queueLateHook(h *lateHook) {
 	target := h.parked
-	if l.lateDirect {
+	if l.lateDirect || h.idle && l.lateIdle {
 		target = h.direct
+		l.lateChoseDirect = true
 	}
 	l.queue = append(l.queue, &funcJob{sym: h.sym, sig: h.sig, build: func(s *fnState) {
 		in := s.incomingArgs(h.sig)
@@ -252,7 +262,7 @@ func (l *Lowerer) queueLateHook(h *lateHook) {
 // checkLateHooks reports a compiler failure: a hook bound to a function
 // that needs no scheduler in a program that, as it turned out, starts one.
 func (l *Lowerer) checkLateHooks() {
-	if l.lateDirect && l.startsScheduler() {
+	if l.lateChoseDirect && l.startsScheduler() {
 		l.internalf(l.prog.Main.Files[0].Package, "a call chosen to avoid the scheduler reaches it")
 	}
 }

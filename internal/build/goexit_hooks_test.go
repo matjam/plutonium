@@ -133,10 +133,16 @@ import "pluto/rt"
 func direct(){defer println("direct cleanup");rt.Sleep(0);panic("direct continued")}
 func saved(){defer println("saved cleanup");f:=rt.Sleep;f(0);panic("saved continued")}
 func deferred(){defer println("deferred cleanup");f:=rt.Sleep;defer f(0)}
-func main(){if !rt.CatchExitTask(direct){panic("direct exit lost")};if !rt.CatchExitTask(saved){panic("saved exit lost")};if !rt.CatchExitTask(deferred){panic("deferred exit lost")};println("caught hooks")}
+func work(){}
+func main(){TASK;if !rt.CatchExitTask(direct){panic("direct exit lost")};if !rt.CatchExitTask(saved){panic("saved exit lost")};if !rt.CatchExitTask(deferred){panic("deferred exit lost")};println("caught hooks")}
 `
-	const want = "parked hook exit\ndirect cleanup\nparked hook exit\nsaved cleanup\nparked hook exit\ndeferred cleanup\ncaught hooks\n"
-	runGoexitHook(t, program, want, goexitHookOverlay{lib, overrides})
+	// A program that starts a task has a scheduler, so Sleep parks; one that
+	// starts none sleeps directly, and ending main with ExitTask needs no
+	// scheduler either (language spec section 19.5).
+	const parked = "parked hook exit\ndirect cleanup\nparked hook exit\nsaved cleanup\nparked hook exit\ndeferred cleanup\ncaught hooks\n"
+	const direct = "bound hook exit\ndirect cleanup\nbound hook exit\nsaved cleanup\nbound hook exit\ndeferred cleanup\ncaught hooks\n"
+	runGoexitHook(t, strings.Replace(program, "TASK;", "task work();", 1), parked, goexitHookOverlay{lib, overrides})
+	runGoexitHook(t, strings.Replace(program, "TASK;", "", 1), direct, goexitHookOverlay{lib, overrides})
 }
 
 type goexitHookOverlay struct {

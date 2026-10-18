@@ -284,6 +284,16 @@ against the corrected specification. The immediate implementation order is:
      of the group (E2318). `import "reflect"` is E2005 whether or not a `pluto.mod` exists: the loader, which
      resolves paths first, asks `types2.ForbiddenImport` and reports the checker's code instead of E4007 or
      E4008. Tests: `cmd/pluto/testdata/diag/enum_untyped` and `import_reflect` with their full output.
+136. **`pluto/arena` needs no scheduler** (done, `HASH136`; sections 19.5, 18.9; found with item 132).
+     A freestanding or kernel program that imported `pluto/arena` failed with E2593, because the arenas'
+     drop paths call `rt.ExitTask`, so `pluto.main` had to be ready for a main that ended with it, and
+     `rt.mainGoexit` parked the main task (`schedPark`, a required scheduler hook). `mainGoexit` now ends in
+     the late hook `rt.mainWait`, whose body the compiler chooses once the program is lowered, as it does for
+     `rt.Sleep`: a program that starts no scheduler stops (`mainWaitDirect`, the existing "no tasks left"
+     message), any other parks (`mainWaitParked`). A program that sleeps and ends main with `ExitTask` thus
+     no longer starts a scheduler thread either. Tests: `TestKernelArenaNeedsNoScheduler` (arenas build in
+     kernel mode at -O0 and -O2; a task still needs a scheduler), and `TestBoundLateHookGoexit` runs its
+     program with and without a task.
 
 
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a

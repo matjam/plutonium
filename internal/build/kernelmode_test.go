@@ -129,6 +129,52 @@ func mainFor(decls string) string {
 	return "func main() { f(nil) }"
 }
 
+// TestKernelArenaNeedsNoScheduler checks that a kernel that allocates from
+// the arenas of pluto/arena binds no scheduler (language spec section
+// 19.5): the arenas use no waiting, and the end of main after rt.ExitTask
+// (which their drop paths may request) waits for no other task in a program
+// that has none. A program that does start tasks still needs one (E2593).
+func TestKernelArenaNeedsNoScheduler(t *testing.T) {
+	testguard.Parallel(t)
+	const arenas = `package main
+
+import (
+	"pluto/arch/x86"
+	"pluto/arena"
+	"pluto/vec"
+)
+
+var heap [1 << 16]byte
+var fixed [1 << 12]byte
+
+func main() {
+	a := arena.NewUnsafe(heap[:])
+	v := vec.New[int](&a)
+	v.Push(1)
+	f := arena.NewFixed(1 << 12)
+	w := vec.New[int](&f)
+	w.Push(2)
+	if v.Len() == w.Len() {
+		x86.Hlt()
+	}
+}
+`
+	for _, level := range []int{0, 2} {
+		if _, err := kernelCompile(t, arenas, level); err != nil {
+			t.Errorf("-O%d: %v", level, err)
+		}
+	}
+	const tasks = `package main
+
+func work() {}
+
+func main() { task work() }
+`
+	if _, err := kernelCompile(t, tasks, 0); err == nil || !strings.Contains(err.Error(), "needs a scheduler") {
+		t.Errorf("a kernel that starts a task builds without a scheduler: %v", err)
+	}
+}
+
 // TestKernelFloatsAllowed checks what kernel mode still allows: float
 // types, copying float values as bits, zero values, and floating point in
 // //pu:fpu functions and the closures inside them.

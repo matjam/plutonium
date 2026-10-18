@@ -111,6 +111,8 @@ type Lowerer struct {
 	late              []*lateHook                    // late hooks waiting for their bodies (sched.go)
 	lateDone          bool                           // the late hooks have been resolved
 	lateDirect        bool                           // ... to the functions that avoid the scheduler
+	lateIdle          bool                           // the program starts no scheduler (lateIdleHooks)
+	lateChoseDirect   bool                           // a late hook got its scheduler-free body
 
 	// panicFn is the program's panic handler (panic.go).
 	panicFn *types2.Func

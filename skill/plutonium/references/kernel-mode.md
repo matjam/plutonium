@@ -26,9 +26,9 @@ copy from: `testdata/kernel/` (smoke, irq, panic, sched, gsuser).
 - A freestanding program that starts a task, performs a channel operation or `select` that may wait, or waits in
   `pluto/sync` must bind a scheduler with `//pu:scheduler` on a package variable whose type implements
   `rt.Scheduler` (`NewTask`, `FreeTask`, `Spawn`, `Park`, `Wake`, `Yield`; optional `Init`, `InInterrupt`,
-  `Now`, `ArmTimer`). Without one the build fails with E2593. The dependency can be indirect: today importing
-  `pluto/arena` (even `arena.NewUnsafe`) pulls in a waiting lock, so a kernel that uses arenas binds a scheduler
-  (see `testdata/kernel/sched`).
+  `Now`, `ArmTimer`). Without one the build fails with E2593. The dependency can be indirect, through a library
+  function that waits; the arenas of `pluto/arena` do not wait, so a kernel that allocates from an arena binds a
+  scheduler only if it starts tasks (see `testdata/kernel/sched`).
 - Kernel `main` normally never returns. Package cleanup at exit is a hosted notion.
 
 ```pluto-compile mode=kernel
