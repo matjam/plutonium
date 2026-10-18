@@ -485,7 +485,7 @@ func main() {
 			g = alloc.Shared[Group]()
 			groups[kv[0]] = g
 		}
-		g.items.Push(kv[1]) // bind g first: methods on groups[k].items directly are unreliable (known-gaps.md)
+		g.items.Push(kv[1]) // groups[k].items.Push(...) works too once the key exists
 	}
 	keys := vec.New[string]()
 	for k := range groups {

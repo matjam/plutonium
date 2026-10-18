@@ -205,6 +205,14 @@ against the corrected specification. The immediate implementation order is:
      section 20.3: the compiler's directive table, `internal/diag/catalog_own.go`, the skill's
      `references/kernel-mode.md` and `references/diagnostics.md`, `pluto explain` and the hover text.
 
+122. **Pointer-receiver calls on a field reached through a box** (done; sections 11.14 and 7.10). A box
+     (`owned`, `shared`, `synced`) is a pointer, so `get().v.Push(2)`, `m["a"].v.Push(2)` and `s[0].v.Push(2)`
+     act on the shared object. The lowering treated a field of a box-valued expression that is not a
+     variable as a value and called the method on a copy, silently losing the effect; `isAddressable`
+     (`internal/lower/expr.go`) now follows a box like a pointer, as the checker already did. A struct held
+     directly by a map or returned by a call stays an E0125 error. Tests: `testdata/plutonium/boxtemprecv.p`,
+     `cmd/pluto/testdata/diag/temp_receiver_field`.
+
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a
 literal zero bound. Existing virtual-reservation fallback and overflow handling are
 implemented, but do not satisfy inference. Then fill the small unverified witness

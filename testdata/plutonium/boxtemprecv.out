@@ -1,0 +1,8 @@
+bound 1
+call result 2
+map element 3
+field of call result 4
+slice element 5
+call with argument 6
+struct field 2
+map struct field 3

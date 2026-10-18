@@ -1,0 +1,8 @@
+$DIR/main.p:19:11: cannot call pointer method Inc on C
+    This error occurs when a pointer method is called but the argument is not
+    addressable.
+    (see "Method expressions" in the Plutonium spec, section 11.8)
+    (run "pluto explain E0125" for a longer explanation)
+
+$DIR/main.p:20:9: cannot call pointer method Inc on C
+    (explained above; run "pluto explain E0125" for more)

@@ -81,38 +81,6 @@ func main() {
 }
 ```
 
-## 3. A pointer-receiver call on a field of a temporary box does nothing
-
-`get().v.Push(2)` and `m["a"].v.Push(2)`, where `get()` returns a `synced[Box]` (or `m` holds `synced[Box]`
-values) and `v` is a `vec.Vec` field of the box's object, compile without error and **are silently dropped**: the
-call acts on a copy. Bind the box to a variable first (`b := get(); b.v.Push(2)`), which acts on the shared object.
-Assigning a scalar field through the same expression (`m["a"].n = 7`) works. This is a miscompile: the call must either
-work on the shared object or be a compile error (never wrong code silently, `AGENTS.md`), and it does neither.
-
-```pluto-run exit=2
-package main
-
-import (
-	"pluto/alloc"
-	"pluto/vec"
-)
-
-type Box owner struct{ v vec.Vec[int] }
-
-var g synced[Box]
-
-func get() synced[Box] { return g }
-
-func main() int64 {
-	g = alloc.Synced[Box]()
-	g.v.Push(1)
-	get().v.Push(2) // dropped: the length stays 1 today
-	b := get()
-	b.v.Push(3)             // works on the shared object
-	return int64(g.v.Len()) // 2 today (the pushes of 1 and 3); 3 once get().v.Push works
-}
-```
-
 ## 4. A string made in a local arena and passed through `any` panics at return
 
 Section 18.8 says a string built while a local arena is the current allocator is a view of the arena and the

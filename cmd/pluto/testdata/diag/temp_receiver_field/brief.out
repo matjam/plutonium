@@ -1,0 +1,2 @@
+$DIR/main.p:19:11: cannot call pointer method Inc on C
+$DIR/main.p:20:9: cannot call pointer method Inc on C

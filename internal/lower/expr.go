@@ -610,7 +610,10 @@ func isAddressable(e ast.Expr, info *types2.Info) bool {
 		return true
 	case *ast.SelectorExpr:
 		if sel := info.Selections[e]; sel != nil && sel.Kind() == types2.FieldVal {
-			if _, isPtr := info.Types[e.X].Type.Underlying().(*types2.Pointer); isPtr {
+			// A field reached through a pointer or a box is part of the
+			// object the pointer designates, whatever the pointer's own
+			// expression is (language spec sections 11.14 and 7.10).
+			if isPointerLike(info.Types[e.X].Type) {
 				return true
 			}
 			return isAddressable(e.X, info)
@@ -632,7 +635,9 @@ func isAddressable(e ast.Expr, info *types2.Info) bool {
 		case *types2.Array:
 			return isAddressable(e.X, info)
 		case *types2.Wrapper:
-			_ = u
+			if u.IsPointer() {
+				return true // owned, shared and synced index like a pointer
+			}
 			return isAddressable(e.X, info)
 		}
 	}
