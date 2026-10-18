@@ -6,16 +6,16 @@ package diag
 
 // Syntax errors, found by the parser and scanner.
 const (
-	SyntaxError        Code = "E1000" // any syntax error without a code of its own
-	UnexpectedToken    Code = "E1001" // "expected X, found Y"
-	UnclosedBlock      Code = "E1002" // the file ends inside a { ... } block
-	StmtOutsideFunc    Code = "E1003" // a statement where a declaration must be
-	MissingSemicolon   Code = "E1004" // two statements run together on one line
-	MissingOperand     Code = "E1005" // an operator or keyword where a value must be
-	BraceOnNextLine    Code = "E1006" // the { of a block on the line after if, for, func or switch
-	BadImportDecl      Code = "E1007" // a malformed or misplaced import
-	BadLiteral         Code = "E1008" // a malformed string, rune or number
-	MissingPackage     Code = "E1009" // a file that does not start with a package clause
+	SyntaxError      Code = "E1000" // any syntax error without a code of its own
+	UnexpectedToken  Code = "E1001" // "expected X, found Y"
+	UnclosedBlock    Code = "E1002" // the file ends inside a { ... } block
+	StmtOutsideFunc  Code = "E1003" // a statement where a declaration must be
+	MissingSemicolon Code = "E1004" // two statements run together on one line
+	MissingOperand   Code = "E1005" // an operator or keyword where a value must be
+	BraceOnNextLine  Code = "E1006" // the { of a block on the line after if, for, func or switch
+	BadImportDecl    Code = "E1007" // a malformed or misplaced import
+	BadLiteral       Code = "E1008" // a malformed string, rune or number
+	MissingPackage   Code = "E1009" // a file that does not start with a package clause
 	// E1010 (a default after several names) is E2204: section 10.13 gives it that code.
 	IfaceMethodTParams Code = "E1011" // an interface method with type parameters
 	GoStatement        Code = "E1012" // a statement that starts with go
