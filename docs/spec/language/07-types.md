@@ -565,7 +565,7 @@ or a single underlying type.
 type set defined by such an interface is the set of types which implement all of those methods, and the
 corresponding method set consists exactly of the methods specified by the interface. Interfaces whose type
 sets can be defined entirely by a list of methods are called basic interfaces. Interface methods cannot
-declare type parameters, but they may use type parameters from the interface declaration. Interface methods
+declare type parameters (E1011), but they may use type parameters from the interface declaration. Interface methods
 cannot declare default parameter values.
 
 ```

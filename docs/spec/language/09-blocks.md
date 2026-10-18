@@ -1,6 +1,6 @@
 ## 9. Blocks
 
-A *block* is a possibly empty sequence of declarations and statements within matching brace brackets.
+A *block* is a possibly empty sequence of declarations and statements within matching brace brackets (a brace left open at the end of the file is E1002).
 
 ```
 Block         = "{" StatementList "}" .

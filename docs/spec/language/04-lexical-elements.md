@@ -52,6 +52,8 @@ otherwise combine into a single token. Also, a newline or end of file may trigge
 semicolon. While breaking the input into tokens, the next token is the longest sequence of characters that
 form a valid token.
 
+A malformed literal, an unterminated string or comment, and a character that no token contains are syntax errors (E1008).
+
 A contextual keyword (section 4.6) is an identifier token. The parser gives it the meaning of a keyword in
 the positions that section lists.
 
@@ -68,6 +70,8 @@ these semicolons using the following two rules:
    - one of the operators and punctuation `++`, `--`, `)`, `]` or `}`.
 2. To allow complex statements to occupy a single line, a semicolon may be omitted before a closing `)`
    or `}`.
+
+A token that follows a complete statement on the same line, with no semicolon between, is a syntax error (E1004). A line break before the `{` of a block ends the statement before it, so the `{` is a syntax error (E1006).
 
 To reflect idiomatic use, code examples in this manual elide semicolons using these rules. The members of
 an enum, the variants of a union and the fields of a packed type are separated by inserted semicolons in the

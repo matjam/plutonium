@@ -1,0 +1,5 @@
+$DIR/main.p:3:17: a default value must follow a single parameter name and its type
+    A parameter with a default value needs a name and type of its own. In a, b
+    int = 1 it is unclear whether the default belongs to a, to b, or to both.
+    (see "Default parameter values" in the Plutonium spec, section 10.13)
+    (run "pluto explain E2204" for a longer explanation)

@@ -122,7 +122,7 @@ a new value in the same function (E3313). A variable whose drop releases or writ
 view of another local variable (a string, vector or other value that holds a view of a local arena
 or owner) must be declared after that variable, so that it is dropped first (section 18.6, Drops);
 otherwise the declaration of the holder is E3313, and the error names both variables. A view of a temporary owner (`makeVec().Slice()`) may not outlive the
-statement that made the temporary (section 18.6). A view obtained through a counted reference held in a
+statement that made the temporary (E3009; section 18.6). A view obtained through a counted reference held in a
 local variable is bounded by that reference in the same way.
 
 **Heap memory reached any other way** (through a pointer that a field holds, through a `*T` parameter,

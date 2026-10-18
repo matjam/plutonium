@@ -664,7 +664,7 @@ field2, offset := nextField(str, offset) // redeclares offset
 x, y, x := 1, 2, 3                       // error: x repeated on left side of :=
 ```
 
-Short variable declarations may appear only inside functions. In some contexts such as the initializers for
+Short variable declarations may appear only inside functions, as may every statement (outside a function, a statement is E1003). In some contexts such as the initializers for
 `if`, `for` or `switch` statements, they can be used to declare local temporary variables.
 
 ### 10.12 Function declarations

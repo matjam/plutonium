@@ -6,6 +6,7 @@ import (
 
 	"github.com/matjam/plutonium/internal/syntax/scanner"
 	"github.com/matjam/plutonium/internal/syntax/token"
+	typerr "github.com/matjam/plutonium/internal/types2/errors"
 )
 
 // Syntax errors come from the parser and scanner, forked from Go's, as
@@ -84,13 +85,6 @@ func init() {
 			Fixed: "package main\n\nfunc main() {}",
 		},
 		&Entry{
-			Code: BadDefaultSyntax, Name: "BadDefaultSyntax",
-			Text:    "A parameter with a default value needs a name and type of its own. In a, b int = 1 it is unclear whether the default belongs to a, to b, or to both.",
-			Spec:    pspec("10.13", "Default parameter values"),
-			Example: "func f(a, b int = 1)",
-			Fixed:   "func f(a int = 1, b int = 1)",
-		},
-		&Entry{
 			Code: IfaceMethodTParams, Name: "IfaceMethodTParams",
 			Text: "Methods may have type parameters of their own, but an interface cannot declare such a method. A call through an interface does not know which type's method it reaches, so it could not pick an instance of a generic method.",
 			Spec: pspec("10.15", "Methods with type parameters"),
@@ -161,7 +155,7 @@ func syntaxCode(msg string) Code {
 	case has("import path") || has("imports must appear"):
 		return BadImportDecl
 	case has("a default value must follow"):
-		return BadDefaultSyntax
+		return CheckerCode(typerr.SharedDefault)
 	case has("interface method must have no type parameters"):
 		return IfaceMethodTParams
 	case strings.HasPrefix(msg, "go starts no task"):

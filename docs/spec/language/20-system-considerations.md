@@ -324,7 +324,7 @@ A function declared without a body is implemented outside Plutonium.
 a Plutonium function is its import path and name, such as `"pluto/syscall.Syscall"`, quoted in assembly
 because of the slash. The symbol of a method is `"path.Type.Method"` for a value receiver and
 `"path.(*Type).Method"` for a pointer receiver. A function without a body that has no `//pu:extern` is
-implemented this way. Which registers carry the arguments and results is the internal calling convention
+implemented this way. If no `.s`, `.c` or `.o` file of the program defines the symbol of a function without a body, the link fails (E5001). A `.s` file that the assembler rejects is E5004. Which registers carry the arguments and results is the internal calling convention
 (abi.md sections 3 and 8).
 
 **C.** With `//pu:extern name`, the function is the C symbol `name`, called with the System V AMD64
@@ -364,7 +364,7 @@ These rules apply to the signature of every `//pu:extern` and `//pu:export` func
   and a generic function with `//pu:export` (E2513).
 - A method with `//pu:extern` or `//pu:export` takes its receiver as the first C parameter.
 
-**C sources.** `.c` files in a package are compiled with the system C compiler and linked in, and `.o`
+**C sources.** `.c` files in a package are compiled with the system C compiler (a file it rejects is E5005) and linked in, and `.o`
 files are linked as they are (abi.md section 9.2). Both follow the file-name rules for build tags that
 `.p` files follow (section 14.4). There is no C library: C code must not call one, and must provide
 `memcpy` and `memset` itself if the C compiler emits calls to them. The full calling convention and data

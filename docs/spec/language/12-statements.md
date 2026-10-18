@@ -13,7 +13,7 @@ SimpleStmt = EmptyStmt | ExpressionStmt | SendStmt | IncDecStmt | Assignment | S
 
 The or statement is a call followed by a clause that runs when the call returns an error. It is defined with the calls in section 11.27 (Or clauses).
 
-The statement that starts a task is the `task` statement (section 12.12, Task statements). The reserved word `go` starts no statement: a statement that begins with it is an error that names `task` (section 4.5, Keywords).
+The statement that starts a task is the `task` statement (section 12.12, Task statements). The reserved word `go` starts no statement: a statement that begins with it is an error (E1012) that names `task` (section 4.5, Keywords).
 
 Two rules of the language run through all statements. Each statement that makes a temporary of an owner or counted type drops it at the end of the statement, unless the statement says otherwise (section 18.6, Drops). And each block drops the owners and counted values of its variables when control leaves the block, on every path out of it, in reverse order of declaration (section 18.6, Drops).
 

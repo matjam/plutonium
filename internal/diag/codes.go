@@ -16,7 +16,7 @@ const (
 	BadImportDecl      Code = "E1007" // a malformed or misplaced import
 	BadLiteral         Code = "E1008" // a malformed string, rune or number
 	MissingPackage     Code = "E1009" // a file that does not start with a package clause
-	BadDefaultSyntax   Code = "E1010" // "a, b T = x": a default after several names
+	// E1010 (a default after several names) is E2204: section 10.13 gives it that code.
 	IfaceMethodTParams Code = "E1011" // an interface method with type parameters
 	GoStatement        Code = "E1012" // a statement that starts with go
 	OrOperand          Code = "E1013" // an operand of or that is not a call

@@ -39,7 +39,7 @@ the language is switched on or off by one.
 
 ### 14.2 Package clause
 
-A package clause begins each source file and defines the package to which the file belongs.
+A package clause begins each source file (a file without one is E1009) and defines the package to which the file belongs.
 
 ```
 PackageClause = "package" PackageName .
@@ -71,6 +71,8 @@ ImportDecl = "import" ( ImportSpec | "(" { ImportSpec ";" } ")" ) .
 ImportSpec = [ "." | PackageName ] ImportPath .
 ImportPath = string_lit .
 ```
+
+An import path is a string literal, and imports come right after the package clause, before any other declaration; otherwise the import declaration is a syntax error (E1007).
 
 The PackageName is used in qualified identifiers to access exported identifiers of the package within the
 importing source file (section 11.2, Qualified identifiers). It is declared in the file block. If the

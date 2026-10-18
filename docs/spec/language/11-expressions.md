@@ -19,7 +19,7 @@ OperandName = identifier | QualifiedIdent .
 
 An operand name denoting a generic function may be followed by a list of type arguments (section 11.16, Instantiations). The resulting operand is an instantiated function.
 
-The blank identifier may appear as an operand only on the left-hand side of an assignment (section 12.7, Assignment statements).
+The blank identifier may appear as an operand only on the left-hand side of an assignment (section 12.7, Assignment statements). An operator or keyword where an operand must stand is a syntax error (E1005).
 
 There are no imaginary literals (section 4.9, Floating-point literals), so `BasicLit` has no `imaginary_lit`.
 
@@ -852,7 +852,7 @@ var p Point
 p.Scale(3.5)
 ```
 
-The receiver of a pointer-receiver method may also be a temporary of owner type, such as the result of a call. The temporary is the receiver for the duration of the statement. A view of it, such as the slice that `readAll(f).Slice()` returns, may be passed to calls in the same statement and may not be kept (section 18.3, Views; section 18.6, Drops). For a temporary of any other type, a pointer-receiver method needs an addressable operand, and the result of a call is not addressable.
+The receiver of a pointer-receiver method may also be a temporary of owner type, such as the result of a call. The temporary is the receiver for the duration of the statement. A view of it, such as the slice that `readAll(f).Slice()` returns, may be passed to calls in the same statement and may not be kept (E3009; section 18.3, Views; section 18.6, Drops). For a temporary of any other type, a pointer-receiver method needs an addressable operand, and the result of a call is not addressable.
 
 There is no distinct method type and there are no method literals.
 

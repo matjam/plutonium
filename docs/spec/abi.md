@@ -753,7 +753,7 @@ Plutonium generates non-position-independent code. Every program is linked stati
 
 The `R_X86_64_32S` form folds a global array's address into the instruction's addressing mode and is
 correct only when every symbol's absolute address fits in a sign-extended 32-bit value: the low 2 GiB or
-the top 2 GiB of the address space. That gives two supported code models:
+the top 2 GiB of the address space. A symbol outside that range is a link error (E5002). That gives two supported code models:
 
 - **Small** (hosted builds, and freestanding builds linked low): the image is in the low 2 GiB. The
   default `ld` layout for a static executable (0x400000) satisfies it.
@@ -1133,7 +1133,7 @@ var runQueue RunQueue
 - The first word of every block holds the block's own address. The compiler reserves it as
   `pluto.percpu.self`, emitted first in `.percpu` of the Plutonium object; `pluto build` links that
   object first, so a script with `*(.percpu)` puts it at offset 0. After linking an ELF kernel, the build
-  checks that `pluto.percpu.self` is at address 0 and fails otherwise.
+  checks that `pluto.percpu.self` is at address 0 and fails otherwise (E5007).
 - A load or store of a per-CPU variable, a field or an element of one, compiles to one `GS`-relative
   instruction with the symbol's offset as an absolute `disp32` (`mov %gs:sym+off, r`, or
   `%gs:sym(,%idx,scale)` for a variable index, relocated with `R_X86_64_32S`), and so cannot be split by

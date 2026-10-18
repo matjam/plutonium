@@ -104,7 +104,7 @@ func TestSyntaxCodes(t *testing.T) {
 		{"unexpected newline, expecting { after if clause", BraceOnNextLine},
 		{"missing import path", BadImportDecl},
 		{"imports must appear before other declarations", BadImportDecl},
-		{"a default value must follow a single parameter name and its type", BadDefaultSyntax},
+		{"a default value must follow a single parameter name and its type", CheckerCode(typerr.SharedDefault)},
 		{"interface method must have no type parameters: x", IfaceMethodTParams},
 		{"string literal not terminated", BadLiteral},
 		{"illegal character U+0040 '@'", BadLiteral},

@@ -215,7 +215,7 @@ allocator, so sentinel errors are declared at package level in every build.
 **Panics and tasks.** A panic during initialization is a panic like any other (chapter 17, Run-time
 panics). Initialization starts no task. A `task` statement, a call of `s.Task` on a `sync.Scope` or of
 `wg.Task` on a `sync.WaitGroup`, and a call of any other library function that starts a task with a func
-argument (`rt.Go`, `time.AfterFunc`; section 19.1, Tasks) is a compile error when a package-level
+argument (`rt.Go`, `time.AfterFunc`; section 19.1, Tasks) is a compile error (E2587) when a package-level
 initializer or an `init` function can reach it, directly or through the functions it calls. The compiler
 works this out from the whole program, as it does for allocation, and the error names the start and the
 initializer or `init` function that reaches it. The fix is to start the task from `main`, or from a
