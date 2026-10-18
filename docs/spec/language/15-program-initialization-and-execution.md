@@ -289,7 +289,7 @@ the task is still returning, and `main` may then observe the task as running (st
 runtime waits a short wall-clock time (about a millisecond, not a count of yields; a scheduler that has
 no clock bounds the wait by a count) for such tasks to finish
 before it takes the path of step 4, so the exit of a program with tasks that run on does not wait for them
-or depend on the load. Code that needs a resource released on every exit uses `defer` in `main`. A program
+or depend on the load. Code that needs a resource released on every exit uses `defer` in `main`. There is no function that waits for every task of the program: it would also wait for tasks that the library starts and that never end, and it would be a second, unscoped way to do what `sync.Scope` does. A program that wants to wait for its tasks uses a `sync.Scope`, which guarantees the join and package cleanup, or a `sync.WaitGroup` or a channel as in Go. A program
 that leaves workers running ends as a Go program does. When package cleanup runs, every operation of every
 finished application task and callback happens before it begins, including visibility across processors
 (section 19.7, Memory model).

@@ -983,8 +983,12 @@ the per-CPU image), `__percpu_load` (its physical address) and `__percpu_size`; 
 
 ### 10.4 Interrupt handlers
 
-`//pu:interrupt` makes a function an x86-64 interrupt or exception handler. It is available in every
-build mode (a hosted program can compile one but has no way to install it).
+`//pu:interrupt` makes a function an x86-64 interrupt or exception handler, entered through an interrupt
+gate (the processor clears the interrupt flag on entry). `//pu:interrupt trap` makes it a handler entered
+through a trap gate, which leaves the flag as it was. It is available in every build mode (a hosted program
+can compile one but has no way to install it). Language spec section 20.10 states the contract: the body of
+an `//pu:interrupt` handler is an interrupt-disabled region until `x86.Sti`, and the body of a `trap`
+handler is not.
 
 ```go
 package x86
@@ -1043,9 +1047,10 @@ The compiler generates the entry and exit:
    makes to `*f` (for example advancing `RIP` past a faulting instruction) take effect then.
 
 Handlers are never inlined, cannot be called directly (including with `defer`) and cannot be used as
-func values, all compile errors (E2573); their address is taken with `x86.HandlerAddr(timer)`, which
-yields a `uintptr` for the IDT gate. `x86.HandlerAddr` with anything other than the name of a
-`//pu:interrupt` function is a compile error (E2572). `//pu:export name` on a handler gives its code a second global symbol, for
+func values, all compile errors (E2573); their address is installed with `x86.InterruptGate(timer, sel, 0)`
+(or `x86.TrapGate` for a `trap` handler), which yields a `Gate`, the 16-byte IDT entry. `x86.InterruptGate`
+with anything other than the name of a `//pu:interrupt` function, and `x86.TrapGate` with anything other than
+the name of a `//pu:interrupt trap` function, is a compile error (E2572). `//pu:export name` on a handler gives its code a second global symbol, for
 assembly stubs that refer to it.
 
 The handler may call ordinary functions: they run on a 16-byte aligned stack with the direction flag
@@ -1062,12 +1067,12 @@ faulting instruction and ends at the handler's frame.
 ### 10.5 `pluto/arch/x86` intrinsics
 
 Each function in `pluto/arch/x86` (language spec section 20.8) is expanded inline to the instructions
-shown. Except for `HandlerAddr` and `NewDescriptorTablePointer` (an ordinary function with no side effect), lowering turns a call into one `ssa.OpIntrinsic` (named, for example,
+shown. Except for `InterruptGate`, `TrapGate` and `NewDescriptorTablePointer` (ordinary functions with no side effect), lowering turns a call into one `ssa.OpIntrinsic` (named, for example,
 `x86.Cli`), which takes the current memory state and produces the next one: no load or store moves,
 merges or disappears across it. These instruction intrinsics are compiler barriers (memory model
-section 5.2) with side effects, so unused results do not remove or merge their operations. `HandlerAddr`
-is only an address computation, orders no memory and may be eliminated when unused. The backend expands it with the fixed
-registers the instructions need. Each instruction function (all but `HandlerAddr` and `NewDescriptorTablePointer`) also has an assembly body
+section 5.2) with side effects, so unused results do not remove or merge their operations. `InterruptGate`
+and `TrapGate` only build an entry from an address, order no memory and may be eliminated when unused. The backend expands it with the fixed
+registers the instructions need. Each instruction function (all but `InterruptGate`, `TrapGate` and `NewDescriptorTablePointer`) also has an assembly body
 (`x86_amd64.s`) for when it is called through a func value. Privileged instructions fault outside ring 0.
 Encodings are tested against GNU as.
 
@@ -1093,7 +1098,7 @@ Encodings are tested against GNU as.
 | `GSLoad64(off uintptr) uint64`, `GSLoad32`, `GSStore64(off uintptr, v uint64)`, `GSStore32` | `mov %gs:(r), ...`, or `%gs:off` for a constant offset |
 | `FPUBegin(area *FPUState)` | `clts; fxsave64 (area)` |
 | `FPUEnd(area *FPUState)` | `fxrstor64 (area)` |
-| `HandlerAddr(h any) uintptr` | `lea handler(%rip), r`; `h` must name a `//pu:interrupt` function, checked at compile time. a plain address ordering no memory; invalid or indirect/function-value uses are compile errors (E2572) |
+| `InterruptGate(h any, selector uint16, ist uint8) Gate`, `TrapGate(h any, selector uint16, ist uint8) Gate` | `lea handler(%rip), r`, then the 16-byte entry with type `0xE` (interrupt gate) or `0xF` (trap gate), present, DPL 0; `h` must name a `//pu:interrupt` function (`TrapGate`: a `//pu:interrupt trap` function), checked at compile time. Orders no memory; invalid or indirect/function-value uses are compile errors (E2572) |
 
 ```go
 type DescriptorTablePointer packed [10]byte {
@@ -1170,7 +1175,8 @@ touches a per-CPU variable:
 `testdata/kernel/smoke` does this for two blocks under QEMU, and `testdata/kernel/gsuser` does the same as
 a Linux process, setting the GS base with `arch_prctl(ARCH_SET_GS)`.
 
-A lone load or store of a whole per-CPU variable of at most a word needs no region. Any other access, and
+A lone load or store of a whole per-CPU variable of at most a word needs no region, unless the store depends
+by data or control flow on an earlier load of the same variable (a read-modify-write, E2022). Any other access, and
 every use of the address, is checked to lie in a non-migrating region (language spec sections 19.3 and 20.9;
 memory model section 6.4).
 

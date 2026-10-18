@@ -238,3 +238,33 @@ runtime's mechanism (section F.1): a monotonic clock, `rt.Now()`, timers that ne
 ### F.8 Machine access
 
 `pluto/arch/x86` is specified in section 20.8. `unsafe` is specified in section 20.1.
+
+### F.9 Operating-system names, `pluto/os`
+
+A name or value that the operating system gives the program is bytes (section 7.3). The names that carry the
+rule are these:
+
+```go
+package os
+
+func (e *DirEntry) Name() (string, error) // the name, or a *NameError if it is not valid UTF-8
+func (e *DirEntry) NameLossy() string     // each invalid byte replaced by U+FFFD; for display only
+func (e *DirEntry) RawName() []byte       // the exact bytes
+func Getenv(key string) (string, error)   // the value, or a *NameError if it is not valid UTF-8
+func GetenvBytes(key []byte) []byte       // the exact bytes
+func OpenBytes(name []byte, a alloc.Allocator = alloc.Default()) (*File, error) // opens a name of any bytes
+
+type NameError struct {
+	Op    string // the function that found the name, for example "DirEntry.Name"
+	Bytes []byte // the name or value, exactly as the system gave it
+}
+func (e *NameError) Error() string
+```
+
+The other functions of `os` that return a name or value from the system as a string follow the same split:
+the function with the Go name returns an error as well, a form with `Lossy` in its name returns the display
+string, and the exact bytes are available as `RawName`, `GetenvBytes`, `ArgBytes` and the `Bytes` forms of the
+file functions. A `*NameError` is a counted error like the other library error types (section 16.7).
+The single-value use of a function that returns the error as well is a compile error whose explanation names
+`RawName` and `NameLossy`. PlutoniumOS refuses to create a name that is not valid UTF-8, so there the error
+cannot occur.

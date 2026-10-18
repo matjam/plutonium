@@ -172,6 +172,38 @@ against the corrected specification. The immediate implementation order is:
      Update the catalog text of E3202 and `cmd/pluto/testdata/diag` so the explanation shows the declaration
      with `owner` inserted and says why the keyword is written (a change to a field's type elsewhere is
      reported at the declaration). Update `pluto explain` and the hover text if they repeat the old wording.
+122. **Operating-system names: `Name()` returns an error, `NameLossy`, `*os.NameError`** (planned; decision D36;
+     sections 7.3, A.3, F.9, 16.7). In `lib/pluto/os`: `DirEntry.Name() (string, error)`, `NameLossy()`,
+     `Getenv(key) (string, error)` and the other string forms that return a system name (`Getwd`, `Readlink`,
+     `LookupEnv`, `Arg`, `FileInfo.Name`, `File.Name`, `TempDir`) get the same split; add the counted
+     `*os.NameError{Op, Bytes}`; the `GetenvBytes`, `RawName` and `Bytes` forms stay. Make the single-value use a
+     compile error whose explanation names `RawName`. Update every caller in `lib/` (`os/exec`, `flag`,
+     the tools), `tools/go2pu` (it maps Go's `Name()` and `Getenv` to the two-value forms) and the skill's
+     references in `skill/plutonium/`. Decide the `PathError.Path` field with it. PlutoniumOS refuses
+     non-UTF-8 names at creation. Tests: a directory with a non-UTF-8 entry, a non-UTF-8 variable, the
+     compile error, `NameLossy`. Closes the open part of item 57.
+123. **Dependent per-CPU store is E2022** (planned; decision D37; sections 20.9, 19.3, memory-model.md 6.4).
+     In `internal/race`, treat a store to a `//pu:percpu` variable whose value or controlling condition
+     depends, by data or control flow, on an earlier load of the same variable as a read-modify-write that
+     needs a non-migrating region. Tests: `x := ticks; ticks = x + 1` and
+     `if current == idle { current = next }` are E2022 outside a region and accepted inside
+     `rt.DisablePreemption`/`EnablePreemption`; independent lone loads and stores stay accepted. Update the
+     E2022 catalog text.
+124. **Typed interrupt gates** (planned; decision D38; sections 20.8, 20.10, abi.md 10.4 and 10.5). Add
+     `x86.Gate`, `x86.InterruptGate` and `x86.TrapGate` to `pluto/arch/x86`; remove `x86.HandlerAddr` and
+     move its callers (kernel tests in `testdata/kernel`, the examples) to the gates; E2572 now covers a
+     handler of the wrong form for the constructor. Raw IDT words are unsafe code: check `pluto vet -unsafe`.
+125. **`//pu:interrupt trap`** (planned; decision D38; sections 20.3, 20.10). Accept `trap` as the only
+     argument of the directive (any other is E2603); a trap handler's body is not an interrupt-disabled
+     region. Update the directive tables, the catalog and `pluto explain`.
+126. **`x86.Sti` ends a handler's interrupt-disabled region** (planned; decision D38; sections 19.3, 20.10,
+     memory-model.md 6.1). In `internal/race`, the region of a non-trap handler body ends at a call of
+     `x86.Sti` as well as at a call that may switch tasks. Tests: a per-CPU access after `Sti` in a handler
+     is E2022 without a region of its own.
+127. **Hover text and directive audit** (planned; decision D38). The hover text in `internal/lsp/hover.go` for
+     `//pu:interrupt` must change (interrupt gate, the `trap` form). Audit every list of directives against
+     section 20.3: the compiler's directive table, `internal/diag/catalog_own.go`, the skill's
+     `references/kernel-mode.md` and `references/diagnostics.md`, `pluto explain` and the hover text.
 
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a
 literal zero bound. Existing virtual-reservation fallback and overflow handling are
@@ -489,8 +521,7 @@ compiler (2026-10-11).
 57. **Counted strings** (done, `a0e0987`, `70a2ebf`, `a433e5e`; sections 7.3 and 18.8, abi.md section 1.1,
     memory-model.md section 3.7): an immutable, valid-UTF-8, reference-counted value with elided counts
     (`opt.ElideStringHolds`). Open: interface boxes hold their string until the function returns;
-    `(string, error)` returns through memory; Linux file names that are not UTF-8 need a decision (bytes, a
-    path type, or refusal); `tools/go2pu` and `selfhost/compat` can drop helpers for what is native.
+    `(string, error)` returns through memory; Linux file names that are not UTF-8 are decided (D36, item 122); `tools/go2pu` and `selfhost/compat` can drop helpers for what is native.
 60. **Counted `map[K]V`** (done, gap 21, `7867af2`, `8fd4ab7`, `0f8bc1b`, `c491a67`, `3c094e3`; sections 7.10,
     12.10, 13.3, 13.5, 13.7 and 19.3, abi.md section 1.4): one word, a counted reference to a
     `pluto/rt.MapTable`; `make(map[K]V, n, a)` takes an allocator and a literal allocates from the current

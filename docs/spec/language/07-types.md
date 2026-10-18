@@ -132,6 +132,19 @@ or a growable owner of bytes from the library. The one way to make a string over
 `unsafe.String` (section 20.1, Package unsafe): the result is a view of those bytes. It is unsafe code, and
 the program must ensure that the bytes are valid UTF-8; section 20.1 says what follows if they are not.
 
+**Names from the operating system.** A name or a value that the operating system gives the program (a file
+name, a directory entry, a working directory, an argument, an environment variable) is bytes, and the
+system does not promise that they are valid UTF-8. No function of the library turns such bytes into a string
+by changing them. The function that has the Go name returns the string and an error: `name, err := e.Name()`
+for a directory entry, `v, err := os.Getenv(k)` for an environment variable. The error is a `*os.NameError`
+when the bytes are not valid UTF-8, and it holds the bytes. Using the call as a single value
+(`name := e.Name()`) is a compile error, and its explanation names `RawName`. Two other forms are always
+available and are named so that they show what they do: `e.NameLossy()` returns a string with each invalid
+byte replaced by U+FFFD, for display only, and `e.RawName()`, `os.GetenvBytes` and the `Bytes` forms of the
+file functions (`os.OpenBytes`) take and return the exact bytes. The split is the one of `strings.FromUTF8`
+and `strings.FromUTF8Lossy` (section F.6). Section F.9 lists the names. PlutoniumOS refuses a name that is not
+valid UTF-8 when the file is created, so no name there needs this.
+
 **Length and indexing.** The length of a string `s` can be discovered using the built-in function `len`
 (section 13.6, Length and capacity). It counts bytes. The length is a compile-time constant if the string is a
 constant. A string's bytes can be accessed by integer indices 0 through `len(s)-1`, and the result is a

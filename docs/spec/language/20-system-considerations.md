@@ -279,7 +279,8 @@ kernels.
 
 | Directive | Applies to | Meaning |
 |---|---|---|
-| `//pu:interrupt` | function | an x86-64 interrupt or exception handler: saves every register it may change and returns with `iretq` (section 20.10) |
+| `//pu:interrupt` | function | an x86-64 interrupt or exception handler, entered through an interrupt gate that disables interrupts: saves every register it may change and returns with `iretq` (section 20.10) |
+| `//pu:interrupt trap` | function | the same handler, entered through a trap gate that leaves interrupts as they were, so it can be re-entered; its body is not an interrupt-disabled region (section 20.10) |
 | `//pu:panic` | function | the program's panic handler, `func(p *rt.Panic)`; exactly one in a freestanding or kernel build (section 17.4) |
 | `//pu:scheduler` | package variable | the program's scheduler backend, of a type that implements `rt.Scheduler`; at most one in a program, replacing the hosted one (section 19.5, The scheduler contract) |
 | `//pu:percpu` | package variable | one copy per processor, addressed through `GS`; kernel mode only (section 20.9) |
@@ -287,7 +288,7 @@ kernels.
 | `//pu:blocking` | function, with or without a body | calling it may park or wait in a way the compiler cannot see (for example, halting until an interrupt, or on a function with a body, spinning until an interrupt handler or another processor sets a flag); interrupt handlers and the panic handler must not reach it (section 20.10). It only adds this restriction and never makes a program accepted |
 | `//pu:nosimd` | function | the compiler adds no vector instructions to it |
 
-`//pu:nosimd` is implied by `//pu:interrupt` and, in kernel mode, by every function that is not
+`trap` is the only argument `//pu:interrupt` takes; any other argument is E2603. `//pu:nosimd` is implied by `//pu:interrupt` (either form) and, in kernel mode, by every function that is not
 `//pu:fpu`. `//pu:blocking` is for what the compiler cannot see; waits it can see, which all end in the
 runtime's `park`, need no directive. On a function with a body it states a wait on progress that only
 another execution context makes, such as a spin until an interrupt handler or another processor sets a
@@ -462,8 +463,8 @@ kernel and hide a large cost behind ordinary arithmetic, for code that hardly ev
 ### 20.8 `pluto/arch/x86`
 
 The package `pluto/arch/x86` gives access to the instructions a kernel needs. Except for the
-compile-time address query `HandlerAddr` and the constructor `NewDescriptorTablePointer`, which is an
-ordinary function with no side effect, each function is expanded inline to the instruction or short
+gate constructors `InterruptGate` and `TrapGate` and the constructor `NewDescriptorTablePointer`, which are
+ordinary functions with no side effect, each function is expanded inline to the instruction or short
 sequence it names, is never removed even if its result is unused, and is a compiler barrier: no memory access is moved across it (section 19.7, Memory model). The
 expansion of each function is in the ABI document (abi.md section 10.5). Privileged instructions fault
 outside ring 0. The package is available on amd64 in every build mode, though only `Pause`, `Cpuid`,
@@ -518,7 +519,8 @@ func GSStore32(off uintptr, v uint32)
 func FPUBegin(area *FPUState)
 func FPUEnd(area *FPUState)
 
-func HandlerAddr(h any) uintptr // h must name a //pu:interrupt function; for building the IDT
+func InterruptGate(h any, selector uint16, ist uint8) Gate // h must name a //pu:interrupt function; for building the IDT
+func TrapGate(h any, selector uint16, ist uint8) Gate      // h must name a //pu:interrupt trap function
 
 func NewDescriptorTablePointer(base uintptr, size int) DescriptorTablePointer
 
@@ -526,16 +528,24 @@ const GSBaseMSR = 0xC0000101       // IA32_GS_BASE
 const KernelGSBaseMSR = 0xC0000102 // IA32_KERNEL_GS_BASE, exchanged by Swapgs
 
 type DescriptorTablePointer packed [10]byte { limit uint16; base uint64 }
+type Gate struct{ /* one 16-byte IDT entry; the fields are not exported */ }
 type FPUState aligned[[512]byte, 16] // the FXSAVE area
 type InterruptFrame struct{ RIP, CS, RFLAGS, RSP, SS uint64 }
 ```
 
 `FPUBegin` leaves the FPU in the interrupted context's state; it does not enable SSE, which the kernel
 does once. A `//pu:fpu` function called from a function without the directive must run between `FPUBegin`
-and `FPUEnd` on the same area. `HandlerAddr` takes the name of a `//pu:interrupt` function and yields its
-address for an interrupt descriptor table. It orders no memory accesses and is not a compiler barrier.
-Its argument must be a compile-time-known valid handler; a function-value/indirect use or any other
-invalid argument is a compile error (E2572), not a runtime panic.
+and `FPUEnd` on the same area. A handler is installed through a typed gate. `InterruptGate` takes the name
+of a `//pu:interrupt` function and returns the `Gate`, the 16-byte entry of an interrupt descriptor table,
+that enters it through an interrupt gate (the processor clears the interrupt flag on entry). `TrapGate` takes
+the name of a `//pu:interrupt trap` function and returns a trap gate (the flag is left as it was). A table is
+an array of `Gate`, and `Lidt` loads its address. Neither constructor orders memory accesses or is a compiler
+barrier. The argument must be a compile-time-known handler of the matching form; a function value, an
+indirect use, a handler of the other form or any other argument is a compile error (E2572), not a run-time
+panic. A `Gate` has no exported fields. Putting a handler's address into the table as a raw word, for
+example by storing a `uintptr` through `unsafe.Pointer` into the table's memory, is unsafe code (section
+20.1): the typed gate is the safe way to install a handler, and it is what lets the compiler know that
+every installed handler is entered with interrupts disabled (section 20.10).
 
 ### 20.9 Per-CPU variables
 
@@ -553,7 +563,7 @@ the same processor cannot split it. `&v` is a pointer into the current processor
 taken, and keeps pointing there if `GS` changes later.
 
 The declaration above compiles: `current = t` and `t := current` are lone accesses of a word. A compound
-access needs a region:
+access, or a store that depends on a load of the same variable, needs a region:
 
 ```go
 //pu:percpu
@@ -574,10 +584,30 @@ These rules apply:
 - Rule 1 of section 19.3 (Data race freedom) does not apply to a per-CPU variable: each processor has its
   own copy, so the copies are not shared. A per-CPU variable follows the rules of this section instead.
 - A lone load or a lone store of a whole per-CPU variable of at most a machine word, named directly
-  (`current = t`, `t := current`), is allowed anywhere. It is one instruction, atomic with respect to the
-  same processor (memory-model.md section 6.4).
+  (`current = t`, `t := current`), is allowed anywhere, provided the store does not depend on an earlier
+  load of the same variable (the next bullet). It is one instruction, atomic with respect to the same
+  processor (memory-model.md section 6.4).
+- A store to a per-CPU variable whose value, or whose controlling condition, depends on an earlier load of
+  the same variable is a read-modify-write, whether the dependence is by data or by control flow, and it
+  needs the same non-migrating region as `ticks++`. The task may move to another processor between the load
+  and the store, and the store would write that processor's copy with a value read from this one's. Outside
+  a region these are compile errors (E2022):
+
+  ```go
+  x := ticks
+  ticks = x + 1 // E2022: the value depends on a load of ticks
+
+  if current == idle {
+  	current = next // E2022: the store is controlled by a load of current
+  }
+  ```
+
+  Inside `rt.DisablePreemption()` and `rt.EnablePreemption()` (or another non-migrating region) both are
+  allowed. Loads and stores that do not depend on each other stay allowed anywhere: `t := current` in one
+  statement and `current = u` in another, where `u` was not computed from `current`, are two independent
+  lone accesses.
 - Every other access must be inside a non-migrating region (section 19.3): a compound assignment or `++`,
-  a read and a write in one expression, any access to a variable larger than a machine word or to part of
+  a store that depends on an earlier load of the same variable, a read and a write in one expression, any access to a variable larger than a machine word or to part of
   one, a call of a method with a pointer receiver, and `&v`. If an interrupt handler may also access the
   variable, the access must be inside an interrupt-disabled region (section 19.3). An access outside the
   region it needs is a compile error (E2022). The error names the access and says whether a handler makes
@@ -599,7 +629,8 @@ These rules apply:
   kind (the first `rt.EnablePreemption`, for example) ends it even if its opening was nested: this errs
   toward rejecting. A use outside the region is a compile error (E2023).
 - Two lone accesses in separate statements may reach the copies of two different processors, because the
-  task can migrate between them. That is defined behavior, not a data race.
+  task can migrate between them. That is defined behavior, not a data race. Where the second depends on the
+  first, it is the dependent store above and not a lone access.
 - The kernel gives each processor its block and points `GS` at it before that processor touches a per-CPU
   variable. How it does this is in the ABI document (abi.md section 10.6). The runtime has two per-CPU
   variables of its own, the processor's number recorded by `rt.SetCPU` and the current-task slot, so every
@@ -608,7 +639,22 @@ These rules apply:
 ### 20.10 Interrupts
 
 A function marked `//pu:interrupt` is an interrupt or exception handler, entered by the processor rather
-than called. It is a plain function with a body (not a method, not generic) and no results, with one
+than called. The contract is that a handler is entered through an interrupt gate, which disables maskable
+interrupts on entry, so the handler is not interrupted by another maskable interrupt on its processor until
+it returns or enables them with `x86.Sti`. The compiler checks this through types: a handler's address is
+installed only through `x86.InterruptGate` (section 20.8), which returns a `Gate`, and a raw word written
+into the table is unsafe code. The body of such a handler is an interrupt-disabled region (section 19.3)
+up to a call of `x86.Sti`, which ends it, or a call that may switch tasks.
+
+A handler that can be re-entered says so with the directive form `//pu:interrupt trap`. It is installed
+only through `x86.TrapGate`, which makes a trap gate that leaves interrupts as they were, and its body is
+not an interrupt-disabled region. Per-CPU data that such a handler shares with the code it interrupts, or
+with itself, is protected by a region that the handler opens itself. Any other argument to the directive is
+E2603.
+
+Exceptions and nonmaskable interrupts are not held off by an interrupt gate, and no region excludes them.
+That remains a contract of the kernel: a handler for one of them must not use data that the code it
+interrupts may be changing. It is a plain function with a body (not a method, not generic) and no results, with one
 parameter, the address of the interrupt frame, or two, the frame and the error code. The frame parameter
 may be any pointer type, `unsafe.Pointer` or `uintptr`, and the error code is `uint64` or `uintptr`.
 Handlers for the exceptions that push an error code take two parameters, and all others take one; the
@@ -627,7 +673,7 @@ func pageFault(f *x86.InterruptFrame, code uint64) { rt.PanicFault(rt.MemoryFaul
 ```
 
 A handler is never inlined (`//pu:interrupt` on a function that is also `//pu:inline` is E2570), cannot be called, deferred or used as a func value (E2573), and its address
-is taken with `x86.HandlerAddr`.
+is installed with `x86.InterruptGate` or `x86.TrapGate`, according to its form.
 
 **Interrupt context cannot block.** A handler runs on top of whatever code the processor was executing.
 If the handler waits, for a lock or for room in a channel, the interrupted code can never resume to

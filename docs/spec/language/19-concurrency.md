@@ -189,9 +189,15 @@ deferred release counting as a release at the end of the function.
 - An **interrupt-disabled region** is a stretch of code where maskable interrupts are disabled by those
   calls, or an `rt.Lock` is held in kernel mode (abi.md section 12.5: runtime locks disable interrupts
   there), or the code is the body of a `//pu:interrupt` handler up to a call that may switch tasks
-  (`rt.Preempt`, `rt.Yield`).
+  (`rt.Preempt`, `rt.Yield`) or to a call of `x86.Sti`, which ends it. A handler is entered through an
+  interrupt gate that disables interrupts (section 20.10), so its body is such a region. The body of a
+  handler marked `//pu:interrupt trap` is not: a trap gate leaves interrupts as they were, so the handler
+  can be re-entered, and it opens a region of its own with `x86.Cli` or `x86.SaveFlagsCli` where it needs one.
+  Exceptions and nonmaskable interrupts are not excluded by a region; that remains a contract of the kernel
+  (section 20.10).
 
-Section 20.9 (Per-CPU variables) uses both. The calls named above are not unsafe code: they cannot make an
+Section 20.9 (Per-CPU variables) uses both. It also uses them for a store that depends on an earlier load
+of the same per-CPU variable: that is a read-modify-write and needs a non-migrating region, as `ticks++` does. The calls named above are not unsafe code: they cannot make an
 access invalid, and the analysis follows them (section 18.12). A wrong pairing can stop a processor, which
 is a liveness failure, not a safety one.
 
@@ -354,6 +360,12 @@ func process(items []Item, results []Result) {
 	s.Wait() // optional: s waits when process returns in any case
 }
 ```
+
+**Waiting for every task.** There is no function that waits for all the tasks of the program, and none is
+planned: it would wait for tasks that the library starts and that never end, and it would be a second,
+unscoped way to do what `sync.Scope` does. A program that wants to wait for its tasks uses a `sync.Scope`,
+which guarantees the join and package cleanup (section 15.4), or a `sync.WaitGroup` or a channel as in Go,
+which make cleanup likely but not guaranteed.
 
 **Which tasks are scoped.** A Scope is **local** when it is a local variable or parameter of the function
 of type `sync.Scope`, named directly, so that the compiler knows where it lives and that it lives until
@@ -641,7 +653,7 @@ case <-t.C:
 
 **Who owns a timer.** `time.NewTimer` and `time.NewTicker` return an `owned[Timer]` or `owned[Ticker]`, an
 owner like any other: when it is dropped, at the end of its variable's scope unless it was moved, the timer
-is stopped and freed. `time.AfterFunc` returns a `synced[Timer]` handle instead. While the timer is armed
+is stopped and freed. `time.AfterFunc` returns a `synced[Timer]` handle instead: a counted reference whose drop releases a count and does not stop the timer, in contrast with the `owned[Timer]` of `NewTimer`, which is stopped on drop. While the timer is armed
 the runtime holds a reference of its own, released when `f` is started or when `Stop` succeeds, so dropping
 handles does not stop the timer, and the timer is freed after the last reference is released. The channel in its field `C` is a counted reference, so a
 receiver that copied it keeps the channel, not the timer. `time.After` and `time.Tick` return only a

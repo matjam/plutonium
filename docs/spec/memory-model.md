@@ -441,6 +441,11 @@ registers or permit unprotected plain sharing. The following protocols define vi
   entry are visible to the handler, and handler accesses are visible to eligible accesses after its
   return. These ordering edges apply only to the protected or volatile/atomic protocol, not every
   plain operation around an interrupt. Unprotected conflicting plain accesses race.
+- A handler is entered through an interrupt gate, which disables maskable interrupts on its processor
+  (language spec section 20.10), so its body is an interrupt-disabled region until `x86.Sti` or a call that
+  may switch tasks. A handler marked `//pu:interrupt trap` is entered through a trap gate and its body is
+  not such a region. Exceptions and nonmaskable interrupts are not excluded and stay a contract of the
+  kernel.
 - Disabling relevant local interrupts (`x86.Cli`, `x86.SaveFlagsCli`) and restoring the prior state
   (`x86.Sti`, `x86.RestoreFlags`) are compiler barriers and exclude those handlers on that processor
   during the protected region. Plain accesses there must follow the same exclusion protocol at every
@@ -512,7 +517,10 @@ moved to another processor may read one processor's copy and write another's. Th
 the accesses. A lone load or store of a whole per-CPU variable of at most a machine word is allowed
 anywhere: it compiles to one `GS`-relative instruction and is atomic with respect to interrupts on the same
 processor. Two such accesses in separate statements may reach the copies of two processors; that is defined
-behavior, not a race. Every other access (a compound assignment, `++`, a read and a write in one expression,
+behavior, not a race. A store whose value or controlling condition depends, by data or control flow, on an
+earlier load of the same variable (`x := ticks; ticks = x + 1`, `if current == idle { current = next }`) is
+a read-modify-write: the task may move between the load and the store. It needs the same non-migrating
+region as `ticks++` (E2022), and independent lone loads and stores stay allowed. Every other access (a compound assignment, `++`, a read and a write in one expression,
 an access to a variable larger than a word or to part of one, a pointer-receiver method call, and `&v`)
 must be inside a non-migrating region, and inside an interrupt-disabled region when an interrupt handler may
 also access the variable (language spec sections 19.3 and 20.9). In that case every load or store through

@@ -75,7 +75,7 @@ Section numbers are unique across the whole specification, and each chapter is a
 - [Appendix E. Grammar](language/e-grammar.md)
   E.1 Characters and tokens; E.2 Types; E.3 Blocks and declarations; E.4 Expressions; E.5 Statements; E.6 Packages; E.7 The predeclared type forms.
 - [Appendix F. Library names the language relies on](language/f-library-names.md)
-  F.1 The runtime, `pluto/rt`; F.2 Allocation, `pluto/alloc` and `pluto/arena`; F.3 Iterators and containers; F.4 Errors; F.5 Synchronization; F.6 Strings; F.7 Time; F.8 Machine access.
+  F.1 The runtime, `pluto/rt`; F.2 Allocation, `pluto/alloc` and `pluto/arena`; F.3 Iterators and containers; F.4 Errors; F.5 Synchronization; F.6 Strings; F.7 Time; F.8 Machine access; F.9 Operating-system names, `pluto/os`.
 - [Appendix G. Attribution](language/g-attribution.md)
 
 ## Attribution

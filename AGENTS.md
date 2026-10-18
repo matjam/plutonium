@@ -141,7 +141,7 @@ works. Ordinary hosted code needs no `//pu:` directives except explicit
 requests: build constraints (`//pu:build`), inlining (`//pu:inline`,
 `//pu:noinline`), a stack size (`//pu:stack`), and C linkage
 (`//pu:extern`, `//pu:export`). Hardware and binding directives
-(`//pu:interrupt`, `//pu:panic`, `//pu:scheduler`, `//pu:percpu`,
+(`//pu:interrupt` and its form `//pu:interrupt trap`, `//pu:panic`, `//pu:scheduler`, `//pu:percpu`,
 `//pu:fpu`, `//pu:blocking`) are for kernels, where code must be precise
 about machine state. Section 20.3 of the specification is the complete set;
 it also defines `//pu:section`, `//pu:nosimd`, `//pu:nochecks`,

@@ -43,7 +43,7 @@ outlives the function.** That storage is one of the following.
 | the interface's data word | error codes, structs wrapping one pointer (section 7.9), and `errors.New` results (a per-site type that holds a counter) | `syscall.Errno`, a kernel's own code type, `struct{ d *detail }`, `return errors.New("bad header")` |
 | static storage | sentinel errors and fixed messages | `var ErrClosed = &errors.Text{Msg: "file already closed"}` |
 | a field of a longer-lived object | errors with context that belong to an owner | a parser that returns `&p.err`, `fmt.ErrorBuf` |
-| a counted object | errors with context that travel up the stack | `fmt.Errorf`, `errors.Join`, `*os.PathError`, `*strconv.NumError` |
+| a counted object | errors with context that travel up the stack | `fmt.Errorf`, `errors.Join`, `*os.PathError`, `*os.NameError`, `*strconv.NumError` |
 
 A counted object is a heap object that the `error` values referring to it count, and that is freed when
 the last of them goes (section 16.7).
@@ -255,7 +255,7 @@ So allocated errors are **counted**: the object is released exactly once, when t
 that refers to it goes, and no code releases it by hand.
 
 1. `fmt.Errorf`, `errors.Join` and the error types of the standard library (`*os.PathError`,
-   `*strconv.NumError`) allocate their error as a `synced[T]` object (section 7.19, `owned`, `shared`,
+   `*os.NameError`, `*strconv.NumError`) allocate their error as a `synced[T]` object (section 7.19, `owned`, `shared`,
    `synced` and `weak`), and return it in an `error`. The object's header records the allocator and the
    count.
 2. An interface value of type `error`, or of an interface type that embeds `error`, counts a

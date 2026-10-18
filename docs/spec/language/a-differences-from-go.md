@@ -86,7 +86,7 @@ The rows in this table are behaviors that differ from Go's. Each says how the di
 | In Go | In Plutonium | How the difference shows | Section |
 |---|---|---|---|
 | a string is any sequence of bytes | a string is valid UTF-8, always: three words, immutable, counted | no conversion from bytes keeps arbitrary bytes (see A.2) | 7.3, 18.8 |
-| `os.Args`, `os.Getenv`, directory entries return the bytes the system gave | they return a string with each invalid byte replaced by U+FFFD; the exact bytes are next to every such string (`RawName`, `ArgBytes`, `GetenvBytes`, the `Bytes` forms of the file functions) | the library documents it, and a lossy name does not open the file it came from | 7.3 |
+| `os.Getenv` and `e.Name()` return a string, with the bytes the system gave | `name, err := e.Name()` and `v, err := os.Getenv(k)` return an error, a `*os.NameError`, when the bytes are not valid UTF-8; `e.NameLossy()` is the display form with each invalid byte replaced by U+FFFD; `RawName`, `GetenvBytes` and the `Bytes` forms of the file functions take and return the exact bytes | a call used as a single value is a compile error that names `RawName`; the lossy form says so in its name | 7.3, F.9 |
 
 **Types, maps and channels.**
 
@@ -158,7 +158,7 @@ These have no counterpart in Go.
 | `main` returning `int64` | the exit status | 10.12, 15.4 |
 | package cleanup at exit | when `main` returns and no other task is running, package variables are dropped in reverse order of initialization | 15.4 |
 | directives | `//pu:` comments for facts the compiler cannot derive | 20.3 |
-| kernel facilities | `pluto/arch/x86`, `//pu:interrupt`, `//pu:percpu`, `//pu:fpu`, the panic handler, the scheduler contract; kernel-mode `print` of a float writes its bit pattern (13.12) | 20.5 to 20.11, 19.5 |
+| kernel facilities | `pluto/arch/x86`, `//pu:interrupt` and `//pu:interrupt trap`, `//pu:percpu`, `//pu:fpu`, the panic handler, the scheduler contract; kernel-mode `print` of a float writes its bit pattern (13.12) | 20.5 to 20.11, 19.5 |
 | assembly and C | `.s` and `.c` files in a package, and `//pu:extern` and `//pu:export` | 20.4 |
 | `unsafe.Drop` | destroys what a pointer points to | 20.1 |
 | the standard library of `pluto/` | `vec`, `hash`, `arena`, `alloc`, `container`, `rt` and the rest | Appendix F |
@@ -174,6 +174,9 @@ error identity for each call site of `errors.New`. Each is now removed:
 - When `main` returns the program ends as in Go; package cleanup runs only when no other task is running
   (section 15.4).
 - Each evaluation of `errors.New` returns a new error, without allocating (section 16.3).
+- A name or environment value from the operating system that is not valid UTF-8 is an error, not a string
+  with its invalid bytes replaced (sections 7.3 and F.9). The earlier lists did not name this fourth case,
+  which was in the library.
 
 What remains are differences the source shows, listed in sections A.2 to A.4, and resource limits, which
 section A.1 does not count as false friends.

@@ -19,7 +19,10 @@ specified allocating-operation contracts and explicit lifetime responsibility; k
 suitability; and performance near Rust, assessed separately from semantic conformance.
 Since D9 to D11 the no-false-friends rule has no exceptions.
 D12 to D30 record the owner's design decisions DD1 to DD19 of 2026-10-17 (the plan
-`plans/2026-10-17-review-design-decisions.md`), in that order.
+`plans/2026-10-17-review-design-decisions.md`), in that order. D31 to D35 record later
+review decisions of the same day, and D36 to D40 the owner's final decisions on the open
+questions about operating-system names, per-CPU access, interrupt gates, waiting for tasks and
+`time.AfterFunc`.
 
 ## D1. `errors.As` matches a counted error against a `*T` target (16.6, 16.7)
 
@@ -650,11 +653,91 @@ direction and the program can restructure.
 
 Lands with: nothing to build; section 20.9 already states it.
 
+## D36. Operating-system names that are not valid UTF-8 are an error, with a lossy form named as such (7.3, A.3, F.9)
+
+Question: A file name, an environment variable or an argument from the operating system may not be valid
+UTF-8, and a string must be. The library returned a string with each invalid byte replaced by U+FFFD. That is
+a hidden fourth difference from Go: `os.Getenv` and `e.Name()` look like Go and return something else. What
+should they do?
+
+Decision (final): the Go-named string forms return an error instead of a lossy string: `name, err := e.Name()`
+and `v, err := os.Getenv(k)`. The error is `*os.NameError` (the name is not UTF-8; it holds the raw bytes). A
+single-value use (`name := e.Name()`) is a compile error whose explanation names `RawName`. A display-only form
+is named so that the loss shows in the source: `e.NameLossy()`. The byte forms stay (`RawName`, `OpenBytes`,
+`GetenvBytes`). This is the split of `strings.FromUTF8` and `strings.FromUTF8Lossy` (A.2). PlutoniumOS refuses
+non-UTF-8 names at creation. The Deferred entry on Linux file names is closed by this decision.
+
+Why: no false friends. Code that looks like Go and compiles must do what Go does or make the difference
+visible; a silent replacement of bytes did neither, and a lossy name could not open the file it came from. An
+error is visible at the call, and the display form says what it does in its name.
+
+Lands with: appendix A.3 and A.5, section 7.3, appendix F.9, section 16.2 and 16.7 (the error type), and the
+library `lib/pluto/os` with its callers, `tools/go2pu` and the skill's references (roadmap item 122).
+
+## D37. A per-CPU store that depends on an earlier load of the same variable needs a non-migrating region (20.9, 19.3, memory-model.md 6.4)
+
+Question: Section 20.9 allowed a lone load and a lone store of a per-CPU word anywhere. But
+`x := ticks; ticks = x + 1` is two lone accesses that together are `ticks++`, and the task may move to
+another processor between them. Is that allowed?
+
+Decision (final): No. A store whose value or controlling condition depends, by data or control flow, on an
+earlier load of the same per-CPU variable is a read-modify-write and needs the same non-migrating region as
+`ticks++` (E2022). Independent lone loads and stores stay allowed. `x := ticks; ticks = x + 1` and
+`if current == idle { current = next }` are E2022 outside a region; inside `rt.DisablePreemption()` and
+`rt.EnablePreemption()` they are fine.
+
+Why: rust-level race safety without annotations. The rule for `ticks++` was a syntactic accident; the hazard
+is the dependence, and writing it as two statements must not escape the check.
+
+Lands with: sections 20.9 and 19.3, memory-model.md section 6.4, abi.md section 10.6 (roadmap item 123).
+
+## D38. A handler is entered through an interrupt gate; the check is made through types (20.3, 20.8, 20.10, 20.11, 19.3, abi.md 10.4, memory-model.md 6.1)
+
+Question: The compiler treated the body of an interrupt handler as an interrupt-disabled region, but nothing
+made the processor disable interrupts on entry; the kernel could install the handler through a trap gate.
+How is the assumption made true?
+
+Decision (final): the contract is that a handler is entered through an interrupt gate, which disables
+interrupts. The check is made through types: handler addresses are installed through a typed
+`x86.InterruptGate` (type `x86.Gate`), and raw IDT words become unsafe code. A handler that can be re-entered
+says so with the directive form `//pu:interrupt trap`, installed through `x86.TrapGate`, and its body is not an
+interrupt-disabled region. A call of `x86.Sti` inside a handler ends its interrupt-disabled region.
+Exceptions and NMIs remain a kernel contract. `x86.HandlerAddr` is replaced by the two gate constructors.
+The directive list in 20.3, and every other list of directives, names the `trap` form.
+
+Why: the safety claim (per-CPU data shared with a handler is safe in the handler's body) held only if the
+gate was right, and an unchecked claim is a promise taken on trust. Types make the common case checked
+without annotations for ordinary kernel code, and the rare re-entrant handler says so at its declaration.
+
+Lands with: the sections named above (roadmap items 124 to 127).
+
+## D39. There is no explicit wait-for-all function (15.4, 19.4)
+
+Question: Should `rt.WaitTasks` or `sync.WaitAll` wait for every task of the program?
+
+Decision (final): No. A program that wants to wait for its tasks uses `sync.Scope` (guaranteed join and
+package cleanup) or a `sync.WaitGroup` or a channel as in Go.
+
+Why: such a function would wait for library tasks that never end, which brings back the hang of D6, and it
+would be an unscoped second way to do what `sync.Scope` does. The text next to D31 says so.
+
+Lands with: one paragraph each in sections 15.4 and 19.4. Nothing to build.
+
+## D40. `time.AfterFunc` keeps returning `synced[Timer]` (19.6)
+
+Question: `NewTimer` returns `owned[Timer]`, stopped on drop. Should `AfterFunc` do the same?
+
+Decision (final): No. `AfterFunc` keeps returning `synced[Timer]`, a counted reference whose drop releases a
+count and does not stop the timer, in contrast with the `owned[Timer]` of `NewTimer`, which is stopped on drop.
+
+Why: the call `time.AfterFunc(d, f)` with the result discarded is common in Go and must keep working as it
+does there; the handle is for `Stop` and `Reset`.
+
+Lands with: one sentence in section 19.6. Nothing to build.
+
 ## Deferred
 
-- Linux file names that are not valid UTF-8 (open part of roadmap item 57): byte paths,
-  a dedicated path type, or refusing non-UTF-8 names. This needs a design of its own, not
-  a one-line decision. The `os` package keeps treating paths as strings until it is made.
+None. The entry on Linux file names that are not valid UTF-8 is closed by D36.
 
 ## Superseded decisions
 
