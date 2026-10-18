@@ -234,7 +234,9 @@ func main() {
 `//pu:percpu var v T` gives each processor its own copy, addressed through `GS` (the kernel points `GS` at the CPU's
 block, `rt.SetCPU(n)` tells the runtime which CPU it is). Constant initializers only (E2550), not with
 `//pu:section` (E2552), kernel mode only (E2551). A **lone load or store** of a whole variable of at most a word is
-allowed anywhere. Every other access (`v++`, `v += x`, read and write in one expression, larger values,
+allowed anywhere (through a pointer from `&v` the rule is stricter: when a handler also uses the variable, every
+load or store through the pointer needs interrupts disabled, except a store that is a whole statement and writes
+the whole word-sized variable, D34). Every other access (`v++`, `v += x`, read and write in one expression, larger values,
 pointer-receiver calls, `&v`) must sit in a **non-migrating region**: after `rt.DisablePreemption()` (usually
 `defer rt.EnablePreemption()`), with interrupts masked (`x86.Cli`/`Sti`, `SaveFlagsCli`/`RestoreFlags`), or with an
 `rt.Lock` held; and in an interrupt-disabled region if a handler also touches it. Otherwise E2022. A pointer from

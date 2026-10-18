@@ -142,6 +142,20 @@ func main() {
 }
 ```
 
+```pluto-error E3301
+package main
+
+import "pluto/vec"
+
+func eat(v vec.Vec[int]) {}
+
+func main() {
+	v := vec.New[int]()
+	defer func() { println(v.Len()) }() // runs when main returns and uses v
+	eat(v)                              // moves v first: use after move
+}
+```
+
 ```pluto-error E3305
 package main
 
@@ -206,7 +220,8 @@ type Log owner File                          // dropping a Log runs File's drop 
 ## 4. Drops
 
 An owner is dropped when its variable's scope ends on every path (fall off, `return`, `break`, `continue`,
-`goto`), in **reverse order of declaration**; parameters after locals. A deferred call runs first. Results move out,
+`goto`), in **reverse order of declaration**; parameters after locals. A deferred call runs first; a deferred function literal that uses an owner counts as a use at every
+exit, so moving or dropping that owner later in the function is E3301 or E3302. Results move out,
 they are not dropped. Assigning to a place that holds an owner drops the old value first. A temporary
 (`_ = open()`, `makeVec().Slice()`) is dropped at the end of its statement. Early drop: `x.Drop()` on a whole
 owner variable works for every owner type, with or without a `Drop` method; `defer x.Drop()` saves `&x` and drops
@@ -264,6 +279,10 @@ it looks at is. Rules (section 18.3):
 - A view of a **local owner's** memory (`v.Slice()`, `&*p`, `s.top.val`) cannot be used after the owner is
   moved, dropped or reassigned (E3313), and an owner that holds a view of another local must be declared after it
   so it drops first. A view of a temporary owner (`makeVec().Slice()`) dies at the end of the statement (E3009).
+- The compiler follows a view through local variables, their fields and the calls that store it into other
+  arguments. A view stored anywhere it cannot follow (through a pointer, in a variable that a closure uses or
+  whose address is kept, by a call it cannot see into) forbids moving, dropping or reassigning the owner while the
+  view could still be used: E3314. Keep such views in local variables and end their use before the owner changes.
 - A **loop** reuses its variables: keeping a view of an iteration's variable or a closure that captures it where
   the next iteration can see it is E3006.
 - Views into heap memory reached through other heap memory are checked at run time: a use after the memory was
@@ -544,7 +563,7 @@ lists every unsafe function and the safe code that calls it. `unsafe.Drop(p)` dr
 | E3305 | moving a captured owner in a closure | pass it as an argument |
 | E3307 | `Drop` through a pointer or interface | drop the owner variable itself |
 | E3308, E3309 | owner taken from an interface or a container's `Index` | assert to an interface; use `Ptr`, `Pop`, `Remove` |
-| E3313 | view of an owner used after the owner moved or changed | order the statements, or copy |
+| E3313, E3314 | a view of an owner used after the owner moved or changed (E3314: the view was stored where the compiler cannot follow it) | order the statements, copy, or keep the view in a local variable |
 | E3401-E3407 | scoped task rules | see `concurrency.md` |
 | E3501-E3503 | data races | see `concurrency.md` |
 
