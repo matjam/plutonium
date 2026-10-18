@@ -134,10 +134,13 @@ func pointers() {
 	consume(c) // the last use of p was before the move (section 18.3)
 }
 
-func deferredReset() {
+// A deferred c.Reset(27) would run after the move and take the address of
+// the empty c, which is use after move (spec 18.5, decision D32), as the
+// call c.Reset(27) here is: the owner gets its new value by assignment.
+func resetAfterMove() {
 	c := mk(26)
-	defer c.Reset(27)
 	consume(c)
+	c = mk(27)
 }
 
 func selects(ch chan int) {
@@ -171,7 +174,7 @@ func main() {
 	println("pointer")
 	pointers()
 	println("deferred method")
-	deferredReset()
+	resetAfterMove()
 	println("select")
 	ch := make(chan int, 1)
 	ch <- 7

@@ -200,7 +200,7 @@ func main() {
 	f()
 	c := C{id: 4}
 	defer c.Set(5)
-	use(c)
+	_ = c.id
 	d := C{id: 6}
 	defer d.Drop()
 	if cond() && cond() {

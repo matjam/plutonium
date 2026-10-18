@@ -58,7 +58,6 @@ pointer
 deferred method
   consume 26
   drop 26
-  drop empty
   drop 27
 select
   received 7

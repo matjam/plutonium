@@ -262,6 +262,14 @@ statement to an exit is the same error (E3301, or E3302 where only some paths mo
 in the literal. Giving the owner a new value before the exit makes the use valid, and a move on a path that
 returns before the `defer` statement does not conflict.
 
+The same holds for the other ways a deferred call comes to use an owner. A view of the owner (`&o`, a slice
+or field of it, a pointer receiver `o.M`, or a variable that holds such a view) among the receiver and
+arguments of the `defer` statement is kept until the call runs, so it counts as a use of the owner at the
+exit. A function literal that uses the owner counts as well when it is passed as an argument or is held in a
+local variable that is deferred; the compiler follows the variable and its copies in other local variables,
+ignores the order of statements, and rejects when a literal that uses the owner may be the one deferred.
+Arguments that are copies (`o.n` of an integer field) are not uses of the owner.
+
 **One expression may not move a variable and also use it.** An expression or statement that moves a
 variable and uses the same variable anywhere else is a compile error, whatever the order of evaluation:
 `send(buf, buf.Len())` and `send(buf.Len(), buf)` are both rejected, and the fix is a separate statement

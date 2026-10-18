@@ -8,10 +8,10 @@ $DIR/main.p:17:25: o was moved into consume (its parameter takes a Buf by value)
     to when nothing refers to it any more. Plutonium has no garbage collector:
     an owner frees what it owns when it is dropped, so there must be exactly
     one.
-    Give o a new value after line 18, so that the deferred function finds one:
+    Give o a new value after line 18, so that the deferred call finds one:
         o = Buf{}
-    Or do the work of the deferred function at the end of the function, before
-    line 18, instead of deferring it
+    Or do the work of the deferred call at the end of the function, before line
+    18, instead of deferring it
     (see "Moves" in the Plutonium spec, section 18.5)
     (run "pluto explain E3301" for a longer explanation)
 
@@ -27,9 +27,9 @@ $DIR/main.p:23:25: o may have been moved into consume (its parameter takes a Buf
     to when nothing refers to it any more. Plutonium has no garbage collector:
     an owner frees what it owns when it is dropped, so there must be exactly
     one.
-    Give o a new value after line 25, so that the deferred function finds one:
+    Give o a new value after line 25, so that the deferred call finds one:
         o = Buf{}
-    Or do the work of the deferred function at the end of the function, before
-    line 25, instead of deferring it
+    Or do the work of the deferred call at the end of the function, before line
+    25, instead of deferring it
     (see "Moves" in the Plutonium spec, section 18.5)
     (run "pluto explain E3302" for a longer explanation)

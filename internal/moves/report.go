@@ -96,8 +96,10 @@ func (c *checker) howMoved(mv *move) string {
 	return "moved"
 }
 
-// deferUseDiag explains an owner that a deferred function literal uses when
-// the function returns, after the owner was moved or dropped.
+// deferUseDiag explains an owner that a deferred call uses when the function
+// returns (a function literal it calls or is given, a function variable
+// holding one, or a view of the owner in its arguments), after the owner was
+// moved or dropped.
 func (c *checker) deferUseDiag(v *types2.Var, s vstate) *diag.Diagnostic {
 	d := c.useDiag(s.dl.use, v, s)
 	name, at := v.Name(), c.line(s.dl.stmt)
@@ -106,14 +108,24 @@ func (c *checker) deferUseDiag(v *types2.Var, s vstate) *diag.Diagnostic {
 	}
 	mvLine := c.line(s.mv.pos)
 	how := c.howMoved(s.mv)
-	if s.st == maybe {
-		d.Msg = fmt.Sprintf("%s may have been %s at line %d, but the deferred function (line %d) uses it when the function returns", name, how, mvLine, at)
-	} else {
-		d.Msg = fmt.Sprintf("%s was %s at line %d, but the deferred function (line %d) uses it when the function returns", name, how, mvLine, at)
+	what, runs := "the deferred function", ""
+	switch s.dl.kind {
+	case deferView:
+		what = "the deferred call"
+		runs = fmt.Sprintf(" The call deferred at line %d keeps a view of %s in its receiver or arguments and runs when the function returns, after line %d, so it would look at what %s no longer holds.", at, name, mvLine, name)
+	case deferStored:
+		runs = fmt.Sprintf(" The function %s, which holds a function literal that uses %s, is deferred at line %d and runs when the function returns, after line %d, so it would use what %s no longer holds.", s.dl.via, name, at, mvLine, name)
+	default:
+		runs = fmt.Sprintf(" The function literal deferred at line %d runs when the function returns, after line %d, so it would use what %s no longer holds.", at, mvLine, name)
 	}
-	d.Text += fmt.Sprintf(" The function literal deferred at line %d runs when the function returns, after line %d, so it would use what %s no longer holds.", at, mvLine, name)
-	d.Fix = &diag.Fix{Intro: fmt.Sprintf("Give %s a new value after line %d, so that the deferred function finds one", name, mvLine), Code: fmt.Sprintf("%s = %s", name, c.newValue(v.Type()))}
-	d.More = []*diag.Fix{{Intro: fmt.Sprintf("Or do the work of the deferred function at the end of the function, before line %d, instead of deferring it", mvLine)}}
+	if s.st == maybe {
+		d.Msg = fmt.Sprintf("%s may have been %s at line %d, but %s (line %d) uses it when the function returns", name, how, mvLine, what, at)
+	} else {
+		d.Msg = fmt.Sprintf("%s was %s at line %d, but %s (line %d) uses it when the function returns", name, how, mvLine, what, at)
+	}
+	d.Text += runs
+	d.Fix = &diag.Fix{Intro: fmt.Sprintf("Give %s a new value after line %d, so that the deferred call finds one", name, mvLine), Code: fmt.Sprintf("%s = %s", name, c.newValue(v.Type()))}
+	d.More = []*diag.Fix{{Intro: fmt.Sprintf("Or do the work of the deferred call at the end of the function, before line %d, instead of deferring it", mvLine)}}
 	return d
 }
 

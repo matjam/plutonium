@@ -309,9 +309,20 @@ type vstate struct {
 
 // A deferMark records the use of an owner by a deferred function literal.
 type deferMark struct {
-	use  *ast.Ident // the use in the literal
+	use  *ast.Ident // the use in the literal, or the view in the arguments
 	stmt token.Pos  // the defer statement
+	kind deferKind
+	via  string // deferStored: the variable holding the literal
 }
+
+// deferKind says how a deferred call uses an owner.
+type deferKind int
+
+const (
+	deferLiteral deferKind = iota // a function literal called by the defer statement
+	deferView                     // a view of the owner in the receiver or arguments
+	deferStored                   // a function literal held in a variable
+)
 
 // plain reports whether s says nothing beyond live.
 func (s vstate) plain() bool {
@@ -445,6 +456,10 @@ type fn struct {
 	// walk may use: an address kept, a function literal or a deferred call
 	// that uses them (empty.go).
 	kept map[*types2.Var]bool
+	// holders: the owners used by the function literals that local
+	// variables may hold (litHolders), computed when a deferred call needs
+	// them.
+	holders map[*types2.Var][]ownerUse
 
 	// For views (views.go): argKey maps call arguments without their
 	// parentheses to the expressions the escape analysis keys them by;

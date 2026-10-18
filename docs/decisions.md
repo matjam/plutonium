@@ -602,7 +602,10 @@ Why: No hidden failure and Rust-level memory safety without annotations: the pro
 input, so the compiler says so instead of leaving a panic that depends on the path taken. Rejecting is the
 safe direction.
 
-Lands with: the move checker (`internal/moves`) and the sentence in section 18.5.
+Lands with: the move checker (`internal/moves`) and the sentence in section 18.5 (commit 9561c0d0 for the
+function literal in call position); the extension to views of an owner in the receiver or arguments of a
+`defer` statement and to function literals held in local variables, in the same analysis and the paragraph
+that follows that sentence in 18.5.
 
 ## D33. Exhausting an `errors.New` counter panics and is not reachable in practice (16.3)
 

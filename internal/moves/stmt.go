@@ -1,6 +1,7 @@
 package moves
 
 import (
+	"slices"
 	"sort"
 
 	"github.com/matjam/plutonium/internal/syntax/ast"
@@ -619,7 +620,7 @@ func (f *fn) deferStmt(st *ast.DeferStmt) {
 		}
 	} else {
 		f.call(st.Call, mvArg)
-		f.deferLit(st)
+		f.deferUses(st)
 	}
 	if !f.report || len(f.blocks) == 0 {
 		return
@@ -640,28 +641,188 @@ func (f *fn) deferStmt(st *ast.DeferStmt) {
 	})
 }
 
-// deferLit registers the owners that the function literal of "defer
-// func() {...}()" uses: the literal runs when the function returns, so they
-// must still hold a value then (deferExit).
-func (f *fn) deferLit(st *ast.DeferStmt) {
-	lit, ok := ast.Unparen(st.Call.Fun).(*ast.FuncLit)
-	if !ok || f.env == nil || f.c.scoped.Lits[lit] != nil {
+// A deferred call runs when the function returns, so what it uses of an
+// owner must still hold a value then (deferExit). deferUses registers the
+// owners the deferred call uses, in three shapes (decision D32, section
+// 18.5): a function literal in call position, "defer func() {...}()"; a view
+// of an owner among the receiver and arguments, "defer show(&o)", which the
+// call keeps until it runs (section 18.3); and a func variable that may hold
+// a function literal capturing an owner, "f := func() {...}; defer f()"
+// (litHolders), or such a literal passed as an argument.
+func (f *fn) deferUses(st *ast.DeferStmt) {
+	if f.env == nil {
 		return
 	}
+	call := st.Call
+	if lit, ok := ast.Unparen(call.Fun).(*ast.FuncLit); ok {
+		f.deferLitUses(st, lit, deferLiteral, "")
+	} else if id, ok := ast.Unparen(call.Fun).(*ast.Ident); ok {
+		f.deferHolder(st, id)
+	}
+	for _, a := range call.Args {
+		switch x := ast.Unparen(a).(type) {
+		case *ast.FuncLit:
+			f.deferLitUses(st, x, deferLiteral, "")
+		case *ast.Ident:
+			f.deferHolder(st, x)
+		}
+	}
+	f.eachArg(call, func(key, val ast.Expr, T types2.Type) {
+		for _, w := range f.viewsTo(val, T) {
+			if o := f.ownerVar(w.of); o != nil {
+				f.deferMark(st, o, f.firstIdent(val, o), deferView, "")
+			}
+		}
+	})
+}
+
+// firstIdent returns the first identifier of e that names v, or else the
+// first identifier of e (the variable that holds a view of v), or else a
+// stand-in at e.
+func (f *fn) firstIdent(e ast.Expr, v *types2.Var) *ast.Ident {
+	var first, named *ast.Ident
+	ast.Inspect(e, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok {
+			if first == nil {
+				first = id
+			}
+			if named == nil && f.varOf(id) == v {
+				named = id
+			}
+		}
+		return true
+	})
+	switch {
+	case named != nil:
+		return named
+	case first != nil:
+		return first
+	}
+	return &ast.Ident{NamePos: e.Pos(), Name: v.Name()}
+}
+
+// deferMark records on owner v that the deferred call of st uses it.
+func (f *fn) deferMark(st *ast.DeferStmt, v *types2.Var, use *ast.Ident, kind deferKind, via string) {
+	s := f.env[v]
+	if s.dl == nil {
+		s.dl = &deferMark{use: use, stmt: st.Pos(), kind: kind, via: via}
+		f.setState(v, s)
+	}
+}
+
+// deferLitUses registers the owners of this function that the function
+// literal lit uses.
+func (f *fn) deferLitUses(st *ast.DeferStmt, lit *ast.FuncLit, kind deferKind, via string) {
+	for _, u := range f.litOwners(lit) {
+		f.deferMark(st, u.v, u.id, kind, via)
+	}
+}
+
+// deferHolder registers the owners used by the function literals that the
+// variable id may hold.
+func (f *fn) deferHolder(st *ast.DeferStmt, id *ast.Ident) {
+	v := f.varOf(id)
+	if v == nil {
+		return
+	}
+	for _, u := range f.litHolders()[v] {
+		f.deferMark(st, u.v, u.id, deferStored, v.Name())
+	}
+}
+
+// An ownerUse is a use of an owner of the function by a function literal.
+type ownerUse struct {
+	v  *types2.Var
+	id *ast.Ident
+}
+
+// litOwners returns the owners of this function that lit uses (the first
+// use of each), in source order. A scoped task's literal has its own check.
+func (f *fn) litOwners(lit *ast.FuncLit) []ownerUse {
+	if f.c.scoped.Lits[lit] != nil {
+		return nil
+	}
+	var out []ownerUse
+	seen := map[*types2.Var]bool{}
 	ast.Inspect(lit.Body, func(n ast.Node) bool {
 		id, ok := n.(*ast.Ident)
 		if !ok {
 			return true
 		}
-		if v := f.varOf(id); v != nil && f.vars[v] && f.c.uses[id] != nil && isOwner(v.Type()) {
-			s := f.env[v]
-			if s.dl == nil {
-				s.dl = &deferMark{use: id, stmt: st.Pos()}
-				f.setState(v, s)
+		if v := f.varOf(id); v != nil && f.vars[v] && f.c.uses[id] != nil && isOwner(v.Type()) && !seen[v] {
+			seen[v] = true
+			out = append(out, ownerUse{v, id})
+		}
+		return true
+	})
+	return out
+}
+
+// litHolders returns, for each variable of the function that is assigned a
+// function literal somewhere in the body (or another such variable), the
+// owners that the literals use. It ignores the order of statements: a
+// variable that may hold such a literal at a deferred call is taken to hold
+// it, so the use counts on doubt (the principle of section 1.2). Literals
+// that reach a deferred call through anything other than a local variable
+// and one chain of copies (a field, a slice, a call result) are not
+// followed.
+func (f *fn) litHolders() map[*types2.Var][]ownerUse {
+	if f.holders != nil {
+		return f.holders
+	}
+	h := map[*types2.Var][]ownerUse{}
+	f.holders = h
+	type pair struct{ to, from ast.Expr }
+	var pairs []pair
+	ast.Inspect(f.topBody, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.AssignStmt:
+			if len(n.Lhs) == len(n.Rhs) {
+				for i := range n.Lhs {
+					pairs = append(pairs, pair{n.Lhs[i], n.Rhs[i]})
+				}
+			}
+		case *ast.ValueSpec:
+			if len(n.Names) == len(n.Values) {
+				for i := range n.Names {
+					pairs = append(pairs, pair{n.Names[i], n.Values[i]})
+				}
 			}
 		}
 		return true
 	})
+	add := func(v *types2.Var, us []ownerUse) bool {
+		changed := false
+		for _, u := range us {
+			if !slices.ContainsFunc(h[v], func(w ownerUse) bool { return w.v == u.v }) {
+				h[v] = append(h[v], u)
+				changed = true
+			}
+		}
+		return changed
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, p := range pairs {
+			id, ok := ast.Unparen(p.to).(*ast.Ident)
+			if !ok {
+				continue
+			}
+			to := f.varOf(id)
+			if to == nil || !f.vars[to] {
+				continue
+			}
+			switch r := ast.Unparen(p.from).(type) {
+			case *ast.FuncLit:
+				changed = add(to, f.litOwners(r)) || changed
+			case *ast.Ident:
+				if from := f.varOf(r); from != nil {
+					changed = add(to, h[from]) || changed
+				}
+			}
+		}
+	}
+	return h
 }
 
 // deferExit checks, where the function returns, that every owner used by a

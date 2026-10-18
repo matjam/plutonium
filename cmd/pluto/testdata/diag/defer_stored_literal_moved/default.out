@@ -1,0 +1,36 @@
+$DIR/main.p:16:24: o was moved into consume (its parameter takes a Buf by value) at line 18, but the deferred function (line 17) uses it when the function returns
+    Buf is an owner type: its values own what they hold and release it when they
+    are dropped. Passing an owner by value moves it instead of copying it, so
+    that what it owns has exactly one owner. Since line 18, o holds nothing. The
+    function f, which holds a function literal that uses o, is deferred at line
+    17 and runs when the function returns, after line 18, so it would use what o
+    no longer holds.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Give o a new value after line 18, so that the deferred call finds one:
+        o = Buf{}
+    Or do the work of the deferred call at the end of the function, before line
+    18, instead of deferring it
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3301" for a longer explanation)
+
+$DIR/main.p:23:24: o may have been moved into consume (its parameter takes a Buf by value) at line 27, but the deferred function (line 25) uses it when the function returns
+    Buf is an owner type: its values own what they hold and release it when they
+    are dropped. o is moved into consume (its parameter takes a Buf by value) at
+    line 27 on some paths to this point and not on others. On those paths o
+    holds nothing afterwards, and the compiler cannot let a value be used where
+    it may already belong to someone else. The function g, which holds a
+    function literal that uses o, is deferred at line 25 and runs when the
+    function returns, after line 27, so it would use what o no longer holds.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Give o a new value after line 27, so that the deferred call finds one:
+        o = Buf{}
+    Or do the work of the deferred call at the end of the function, before line
+    27, instead of deferring it
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3302" for a longer explanation)

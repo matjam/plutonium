@@ -230,6 +230,86 @@ func main() {
 	f.Drop()
 }`, []string{"f was dropped by f.Drop() at line", "but the deferred function (line", "E3301"}},
 
+	{"deferred call keeps the address of an owner moved later", `
+func main() {
+	b := Buf{}
+	defer look(&b)
+	_ = take2(b)
+}`, []string{"b was moved into take2 (its parameter takes a Buf by value) at line 27, but the deferred call (line 26) uses it when the function returns", "keeps a view of b", "E3301"}},
+	{"deferred call keeps the address of an owner moved on some path", `
+func main() {
+	b := Buf{}
+	defer look(&b)
+	if cond() {
+		_ = take2(b)
+	}
+}`, []string{"b may have been moved into take2 (its parameter takes a Buf by value) at line 28, but the deferred call (line 26) uses it when the function returns", "E3302"}},
+	{"deferred call keeps a slice view of an owner dropped later", `
+func main() {
+	b := Buf{}
+	defer sink(b.b[1:])
+	_ = take2(b)
+}
+func sink(p []byte) {}`, []string{"b was moved into take2 (its parameter takes a Buf by value) at line 27, but the deferred call (line 26)", "E3301"}},
+	{"deferred call keeps a field view of an owner moved later", `
+func main() {
+	b := Buf{}
+	defer sink(b.b)
+	_ = take2(b)
+}
+func sink(p []byte) {}`, []string{"but the deferred call (line 26) uses it when the function returns", "E3301"}},
+	{"deferred call keeps a view held in another variable", `
+func main() {
+	b := Buf{}
+	p := &b
+	defer look(p)
+	_ = take2(b)
+}`, []string{"but the deferred call (line 27) uses it when the function returns", "E3301"}},
+	{"deferred method call takes the address of the receiver", `
+func main() {
+	b := Buf{}
+	defer b.Len()
+	_ = take2(b)
+}`, []string{"but the deferred call (line 26) uses it when the function returns", "E3301"}},
+	{"deferred call in a branch that moves after it", `
+func main() {
+	b := Buf{}
+	if cond() {
+		defer look(&b)
+	}
+	_ = take2(b)
+}`, []string{"b was moved into take2", "but the deferred call (line 27)", "E3301"}},
+	{"stored literal deferred, owner moved later", `
+func main() {
+	b := Buf{}
+	f := func() { _ = look(&b) }
+	defer f()
+	_ = take2(b)
+}`, []string{"b was moved into take2 (its parameter takes a Buf by value) at line 28, but the deferred function (line 27) uses it when the function returns", "The function f, which holds a function literal that uses b", "E3301"}},
+	{"stored literal assigned later and deferred", `
+func main() {
+	b := Buf{}
+	var f func()
+	f = func() { _ = look(&b) }
+	defer f()
+	_ = take2(b)
+}`, []string{"but the deferred function (line 28) uses it when the function returns", "E3301"}},
+	{"stored literal deferred through an alias", `
+func main() {
+	b := Buf{}
+	f := func() { _ = look(&b) }
+	g := f
+	defer g()
+	_ = take2(b)
+}`, []string{"The function g, which holds a function literal that uses b", "E3301"}},
+	{"literal passed to a deferred call", `
+func main() {
+	b := Buf{}
+	defer run(func() { _ = look(&b) })
+	_ = take2(b)
+}
+func run(f func()) { f() }`, []string{"but the deferred function (line 26) uses it when the function returns", "E3301"}},
+
 	{"slice literal of owners", `
 func main() {
 	b := Buf{}
@@ -396,6 +476,81 @@ func main() {
 	defer func() { _ = look(&b) }()
 	_ = take2(c)
 }`},
+	{"deferred call, argument is a copy of a non-owner field", `
+func main() {
+	b := Buf{}
+	defer num(b.n)
+	_ = take2(b)
+}
+func num(n int) {}`},
+	{"deferred call keeps the address, owner never moved", `
+func main() {
+	b := Buf{}
+	defer look(&b)
+	_ = b.Len()
+}`},
+	{"deferred call keeps the address, owner moved and given a value again", `
+func main() {
+	b := Buf{}
+	defer look(&b)
+	_ = take2(b)
+	b = Buf{}
+}`},
+	{"deferred call, owner moved before the defer and given a value", `
+func main() {
+	b := Buf{}
+	_ = take2(b)
+	b = Buf{}
+	defer look(&b)
+}`},
+	{"deferred call, owner moved in a branch that returns before the defer", `
+func f() int {
+	b := Buf{}
+	if cond() {
+		return take2(b)
+	}
+	defer look(&b)
+	return 0
+}
+func main() { _ = f() }`},
+	{"deferred call keeps the address of another owner", `
+func main() {
+	b, c := Buf{}, Buf{}
+	defer look(&b)
+	_ = take2(c)
+}`},
+	{"stored literal deferred, owner never moved", `
+func main() {
+	b := Buf{}
+	f := func() { _ = look(&b) }
+	defer f()
+	_ = b.Len()
+}`},
+	{"stored literal deferred, owner moved before the literal is made", `
+func main() {
+	b := Buf{}
+	_ = take2(b)
+	b = Buf{}
+	f := func() { _ = look(&b) }
+	defer f()
+}`},
+	{"stored literal deferred, it uses no owner", `
+func main() {
+	b := Buf{}
+	n := 3
+	f := func() { _ = n }
+	defer f()
+	_ = take2(b)
+}`},
+	{"stored literal called, not deferred", `
+func main() {
+	b := Buf{}
+	f := func() { _ = look(&b) }
+	f()
+	_ = take2(b)
+	b = Buf{}
+}`},
+
 	{"drop on the variable", `
 func main() {
 	f := File{}
