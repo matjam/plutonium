@@ -515,7 +515,9 @@ processor. Two such accesses in separate statements may reach the copies of two 
 behavior, not a race. Every other access (a compound assignment, `++`, a read and a write in one expression,
 an access to a variable larger than a word or to part of one, a pointer-receiver method call, and `&v`)
 must be inside a non-migrating region, and inside an interrupt-disabled region when an interrupt handler may
-also access the variable (language spec sections 19.3 and 20.9). Changing the GS base (`x86.WriteGSBase`, `x86.Swapgs`) is a compiler
+also access the variable (language spec sections 19.3 and 20.9). In that case every load or store through
+a pointer from `&v` needs an interrupt-disabled region too, except a lone store of a whole variable of at
+most a machine word that is the whole statement. Changing the GS base (`x86.WriteGSBase`, `x86.Swapgs`) is a compiler
 barrier like every `pluto/arch/x86` intrinsic, so no per-CPU access moves across it; a pointer taken with
 `&v` before the change still refers to the copy it was taken from.
 

@@ -573,14 +573,20 @@ These rules apply:
 - `//pu:percpu` is a compile error outside kernel mode (E2551), and together with `//pu:section` (E2552).
 - Rule 1 of section 19.3 (Data race freedom) does not apply to a per-CPU variable: each processor has its
   own copy, so the copies are not shared. A per-CPU variable follows the rules of this section instead.
-- A lone load or a lone store of a whole per-CPU variable of at most a machine word is allowed anywhere.
-  It is one instruction, atomic with respect to the same processor (memory-model.md section 6.4).
+- A lone load or a lone store of a whole per-CPU variable of at most a machine word, named directly
+  (`current = t`, `t := current`), is allowed anywhere. It is one instruction, atomic with respect to the
+  same processor (memory-model.md section 6.4).
 - Every other access must be inside a non-migrating region (section 19.3): a compound assignment or `++`,
   a read and a write in one expression, any access to a variable larger than a machine word or to part of
   one, a call of a method with a pointer receiver, and `&v`. If an interrupt handler may also access the
   variable, the access must be inside an interrupt-disabled region (section 19.3). An access outside the
   region it needs is a compile error (E2022). The error names the access and says whether a handler makes
   disabled interrupts necessary.
+- When an interrupt handler also uses the variable, every load or store through a pointer from `&v` must
+  be inside an interrupt-disabled region as well, whatever its size and even though the pointer is bounded
+  by a region (the next bullet): preemption disabled is not enough. The one exception is a store through
+  the pointer that is the whole statement and writes the whole variable, when the variable is at most a
+  machine word. A load through the pointer has no exception.
 - A pointer from `&v` is bounded by the region it was taken in, which is one run of that region: the same
   code run again opens another region, whether by the next iteration of a loop, a jump back with `goto`, a
   recursive call or a second call of a function literal. It may be kept only in local variables, and not
