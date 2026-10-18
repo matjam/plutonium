@@ -1,0 +1,124 @@
+vec
+ok push
+20 true
+pop 20 true 19
+ok pop
+remove 3 18
+swapremove 1 17 19
+ok remove
+  drop 2 res2
+ok set
+  drop 4 res4
+ok setindex
+sum 2440
+last 18
+  drop 17 res7
+  drop 18 res8
+truncated 15
+ok truncate
+  drop 19 res9
+  drop 100 res0
+  drop 101 res1
+  drop 300 res5
+  drop 6 res6
+  drop 7 res7
+  drop 8 res8
+  drop 9 res9
+  drop 10 res0
+  drop 11 res1
+  drop 12 res2
+  drop 13 res3
+  drop 14 res4
+  drop 15 res5
+  drop 16 res6
+cleared 0
+ok clear
+  drop 1 res1
+  drop 2 res2
+  drop 3 res3
+ok free
+freed 0
+  drop 1 res1
+  drop 3 res3
+  drop 20 res0
+  drop 4 res4
+  drop 5 res5
+after vecs
+vecDropped
+end of scope
+  drop 1 res1
+  drop 2 res2
+  drop 3 res3
+after vecDropped
+moved 2
+  drop 7 res7
+  drop 8 res8
+map
+ok set
+30
+  drop 5 res5
+ok replace
+  drop 6 res6
+ok setindex
+walk 1029
+7 true false
+  drop 8 res8
+true false
+ok delete
+remove 9 true
+remove again false
+ok remove
+pop true true 27
+ok pop
+  drop 50 res0
+  drop 7 res7
+  drop 1 res1
+  drop 4 res4
+  drop 3 res3
+  drop 10 res0
+  drop 19 res9
+  drop 20 res0
+  drop 28 res8
+  drop 21 res1
+  drop 16 res6
+  drop 27 res7
+  drop 60 res0
+  drop 13 res3
+  drop 14 res4
+  drop 30 res0
+  drop 22 res2
+  drop 25 res5
+  drop 23 res3
+  drop 15 res5
+  drop 17 res7
+  drop 18 res8
+  drop 12 res2
+  drop 11 res1
+  drop 2 res2
+  drop 24 res4
+  drop 29 res9
+cleared 0
+ok clear
+  drop 1 res1
+  drop 2 res2
+ok free
+  drop 26 res6
+  drop 9 res9
+mapDropped
+end of scope
+  drop 2 res2
+  drop 1 res1
+after mapDropped
+mapLoop
+  drop 3 res3
+  drop 5 res5
+  drop 2 res2
+  drop 1 res1
+  drop 6 res6
+  drop 4 res4
+popped 21 0
+ok popall
+b 1 a
+v 1
+generic 3 1.5 5
+done

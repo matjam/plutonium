@@ -45,7 +45,7 @@ func (s *fnState) expr(e ast.Expr) value {
 		switch obj := s.info.Uses[e].(type) {
 		case *types2.Var:
 			if s.isMove(e) {
-				return s.movedOut(s.varLV(obj, e))
+				return s.movedOut(s.varLV(obj, e), obj)
 			}
 			return s.loadLV(s.varLV(obj, e))
 		case *types2.Func:

@@ -6,47 +6,6 @@ compiles and runs against the current compiler. **If a block here starts to fail
 the item and let the specification's text stand. Until then, write code that works today and do not "fix" the
 compiler's behavior in application code.
 
-## 1. `vec.Vec`, `hash.Map` and `map` cannot hold owners
-
-Spec sections 7.18, 10.9 and 18.5 say the containers are generic over owner types, so a `vec.Vec[Conn]` of owners moves
-its elements, `Pop` and `Remove` take one out, and `hash.Map` holds owners in place. Today `vec.Vec[T any]` and
-`hash.Map[K comparable, V any]` have type parameters that do not carry `owner`, so an owner element is E3207.
-Workarounds: an array of owners (`[8]Conn`, ranged by index), `owned[Node]` boxes linked into a list or tree, or
-`synced[T]`/`shared[T]` boxes as the element type (the container then copies counted references).
-
-```pluto-error E3207
-package main
-
-import "pluto/vec"
-
-type Conn owner struct{ id int }
-
-func main() {
-	v := vec.New[Conn]() // the spec allows this; today T does not admit owners
-	_ = v
-}
-```
-
-```pluto-error E3207
-package main
-
-import "pluto/hash"
-
-type Conn owner struct{ id int }
-
-func main() {
-	m := hash.NewMap[string, Conn](4)
-	_ = m
-}
-```
-
-The library has no `hash.Map.Remove` or `Pop` (section F.3 names them); use `Delete(k)` for counted values.
-
-```pluto-absent
-hash.Map.Remove
-hash.Map.Pop
-```
-
 ## 2. Sending a `vec.Vec` on a channel is rejected when `pluto/fmt` is linked
 
 Section 8.8 lists `vec.Vec`, `hash.Map` and `strings.Builder` as sendable owners, and sections 12.5 and 19.8 send

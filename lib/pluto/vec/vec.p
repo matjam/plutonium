@@ -36,20 +36,28 @@ import (
 // A Vec owns its storage, so it is an owner (language spec section 7.18):
 // it moves instead of being copied, and Drop releases it. Clone makes an
 // independent copy.
-type Vec[T any] owner struct {
+//
+// T may be an owner (language spec section 10.9): the Vec then owns its
+// elements. Push, Set and SetIndex move an element in, dropping the one a
+// Set replaces; Pop, Remove and SwapRemove move one out; Truncate, Clear,
+// Free and Drop drop the elements in index order. Ptr lends an element, and
+// the iterators yield pointers to the elements (rt.View). The methods that
+// copy an element, At, Index, Last, Clone and Map, do not compile for an
+// owner, since the copy would be a second owner.
+type Vec[T owner any] owner struct {
 	data []T
 	a    alloc.Allocator
 }
 
 // New returns an empty Vec that allocates from a, by default the default
 // allocator. It does not allocate until the first element is added.
-func New[T any](a alloc.Allocator = alloc.Default()) Vec[T] {
+func New[T owner any](a alloc.Allocator = alloc.Default()) Vec[T] {
 	return Vec[T]{a: a}
 }
 
 // WithCapacity returns an empty Vec that allocates from a (by default the
 // default allocator), with room for n elements already allocated.
-func WithCapacity[T any](n int, a alloc.Allocator = alloc.Default()) Vec[T] {
+func WithCapacity[T owner any](n int, a alloc.Allocator = alloc.Default()) Vec[T] {
 	v := Vec[T]{a: a}
 	v.Reserve(n)
 	return v
@@ -58,7 +66,7 @@ func WithCapacity[T any](n int, a alloc.Allocator = alloc.Default()) Vec[T] {
 // Make returns a Vec of n zero elements that allocates from a (by default
 // the default allocator): the form of Go's make([]T, n). For Go's
 // make([]T, 0, c), use WithCapacity.
-func Make[T any](n int, a alloc.Allocator = alloc.Default()) Vec[T] {
+func Make[T owner any](n int, a alloc.Allocator = alloc.Default()) Vec[T] {
 	if n < 0 {
 		panic("vec: negative Make length")
 	}
@@ -94,17 +102,18 @@ func (v *Vec[T]) Cap() int { return cap(v.data) }
 func (v *Vec[T]) Slice() []T { return v.data[:len(v.data):len(v.data)] }
 
 // At returns element i. It panics if i is out of range.
-func (v *Vec[T]) At(i int) T { return v.data[i] }
+func (v *Vec[T]) At(i int) T { return rt.CopyValue(&v.data[i]) }
 
-// Set sets element i to x. It panics if i is out of range.
+// Set sets element i to x, dropping the element it replaces. It panics if
+// i is out of range.
 func (v *Vec[T]) Set(i int, x T) { v.data[i] = x }
 
 // Index returns element i; it is what v[i] calls (language spec section
 // 11.11). It panics if i is out of range.
-func (v *Vec[T]) Index(i int) T { return v.data[i] }
+func (v *Vec[T]) Index(i int) T { return rt.CopyValue(&v.data[i]) }
 
-// SetIndex sets element i to x; it is what v[i] = x calls. It panics if i
-// is out of range.
+// SetIndex sets element i to x, dropping the element it replaces; it is what
+// v[i] = x calls. It panics if i is out of range.
 func (v *Vec[T]) SetIndex(i int, x T) { v.data[i] = x }
 
 // FmtList returns a pointer to the first element and the number of
@@ -128,7 +137,7 @@ func (v *Vec[T]) Last() (T, bool) {
 		var zero T
 		return zero, false
 	}
-	return v.data[len(v.data)-1], true
+	return rt.CopyValue(&v.data[len(v.data)-1]), true
 }
 
 // Push appends x.
@@ -140,7 +149,7 @@ func (v *Vec[T]) Push(x T) {
 		v.grow(1)
 	}
 	v.data = v.data[:n+1]
-	v.data[n] = x
+	rt.InitValue(&v.data[n], x) // the place holds nothing
 }
 
 // Append appends the elements of xs. xs must not be a view of v itself.
@@ -152,19 +161,18 @@ func (v *Vec[T]) Append(xs ...T) {
 		v.grow(len(xs))
 	}
 	v.data = v.data[:n+len(xs)]
-	copy(v.data[n:], xs)
+	copyIn(v.data[n:], xs)
 }
 
-// Pop removes and returns the last element. It returns the zero T and false
-// if v is empty.
+// Pop removes and returns the last element, moving it out of v. It returns
+// the zero T and false if v is empty.
 func (v *Vec[T]) Pop() (T, bool) {
-	var zero T
 	n := len(v.data)
 	if n == 0 {
+		var zero T
 		return zero, false
 	}
-	x := v.data[n-1]
-	v.data[n-1] = zero
+	x := take(&v.data[n-1])
 	v.data = v.data[:n-1]
 	return x, true
 }
@@ -185,8 +193,11 @@ func (v *Vec[T]) Insert(i int, xs ...T) {
 		v.grow(m)
 	}
 	v.data = v.data[:n+m]
-	copy(v.data[i+m:], v.data[i:n])
-	copy(v.data[i:], xs)
+	if n > i {
+		rt.MoveValues(&v.data[i+m], &v.data[i], n-i) // the elements move up
+	}
+	rt.MoveValues(&v.data[i], &xs[0], m)
+	rt.RetainValues(&v.data[i], m)
 }
 
 // Replace replaces the elements v[i:j] with the values xs, shifting later
@@ -198,28 +209,35 @@ func (v *Vec[T]) Replace(i, j int, xs ...T) {
 		panic("vec: Replace range out of range")
 	}
 	m := n - (j - i) + len(xs)
+	clear(v.data[i:j]) // drops the elements replaced
 	if m > n {
 		if cap(v.data) < m {
 			v.grow(m - n)
 		}
 		v.data = v.data[:m]
 	}
-	copy(v.data[i+len(xs):], v.data[j:n])
-	copy(v.data[i:], xs)
+	if n > j {
+		rt.MoveValues(&v.data[i+len(xs)], &v.data[j], n-j) // the tail moves
+	}
+	if len(xs) > 0 {
+		rt.MoveValues(&v.data[i], &xs[0], len(xs))
+		rt.RetainValues(&v.data[i], len(xs))
+	}
 	if m < n {
-		clear(v.data[m:n])
+		rt.ZeroValues(&v.data[m], n-m) // the places the tail left
 		v.data = v.data[:m]
 	}
 }
 
-// Remove removes and returns element i, shifting later elements down. It
-// panics if i is out of range.
+// Remove removes and returns element i, moving it out of v and shifting
+// later elements down. It panics if i is out of range.
 func (v *Vec[T]) Remove(i int) T {
-	x := v.data[i]
+	x := take(&v.data[i])
 	n := len(v.data)
-	copy(v.data[i:], v.data[i+1:])
-	var zero T
-	v.data[n-1] = zero
+	if i < n-1 {
+		rt.MoveValues(&v.data[i], &v.data[i+1], n-1-i)
+		rt.ZeroValues(&v.data[n-1], 1)
+	}
 	v.data = v.data[:n-1]
 	return x
 }
@@ -228,11 +246,11 @@ func (v *Vec[T]) Remove(i int) T {
 // element. It does not preserve order but takes constant time. It panics if
 // i is out of range.
 func (v *Vec[T]) SwapRemove(i int) T {
-	x := v.data[i]
+	x := take(&v.data[i])
 	n := len(v.data)
-	v.data[i] = v.data[n-1]
-	var zero T
-	v.data[n-1] = zero
+	if i < n-1 {
+		v.data[i] = take(&v.data[n-1])
+	}
 	v.data = v.data[:n-1]
 	return x
 }
@@ -261,12 +279,13 @@ func (v *Vec[T]) Truncate(n int) {
 // Clear removes all elements, keeping the storage.
 func (v *Vec[T]) Clear() { v.Truncate(0) }
 
-// Free drops v's elements (releasing the strings in them, language spec
-// section 6.10), returns its storage to its allocator and leaves v empty.
-// The allocator is kept, so v can be reused.
+// Free drops v's elements in index order (releasing the strings in them and
+// running the Drop methods of owners, language spec sections 6.10 and 18.6),
+// returns its storage to its allocator and leaves v empty. The allocator is
+// kept, so v can be reused.
 func (v *Vec[T]) Free() {
-	if len(v.data) > 0 && rt.HoldsStrings[T]() {
-		rt.ReleaseValues(&v.data[0], len(v.data))
+	if len(v.data) > 0 && rt.NeedsDrop[T]() {
+		clear(v.data)
 	}
 	v.release()
 	v.data = nil
@@ -278,20 +297,23 @@ func (v *Vec[T]) Drop() { v.Free() }
 
 // Clone returns an independent copy of v, allocating from a (by default
 // the default allocator), with capacity for exactly its elements. Elements
-// are copied as values.
+// are copied as values, so a Vec of owners cannot be cloned.
 func (v *Vec[T]) Clone(a alloc.Allocator = alloc.Default()) Vec[T] {
 	out := WithCapacity[T](len(v.data), a)
-	out.Append(v.data...)
+	if n := len(v.data); n > 0 {
+		out.data = out.data[:n]
+		rt.CopyValues(&out.data[0], &v.data[0], n)
+	}
 	return out
 }
 
 // Map returns a new Vec, allocating from a (by default the default
 // allocator), that holds f applied to each element of v in order. v is
 // unchanged.
-func (v *Vec[T]) Map[U any](f func(T) U, a alloc.Allocator = alloc.Default()) Vec[U] {
+func (v *Vec[T]) Map[U owner any](f func(T) U, a alloc.Allocator = alloc.Default()) Vec[U] {
 	out := WithCapacity[U](len(v.data), a)
-	for _, x := range v.data {
-		out.Push(f(x))
+	for i := 0; i < len(v.data); i++ {
+		out.Push(f(rt.CopyValue(&v.data[i])))
 	}
 	return out
 }
@@ -306,11 +328,15 @@ func (v *Vec[T]) Map[U any](f func(T) U, a alloc.Allocator = alloc.Default()) Ve
 // follows v's storage when v grows, and it stops early if v has shrunk
 // below the next index. A loop that should visit elements it pushes (a
 // worklist) is an index loop: for i := 0; i < v.Len(); i++.
-func (v *Vec[T]) All() iter.Seq2[int, T] {
-	return func(yield func(int, T) bool) {
+//
+// For a Vec of owners the loop yields pointers to the elements (rt.View,
+// language spec section 12.10, Owners in iterators), which are valid until v
+// is next changed; for other elements it yields copies.
+func (v *Vec[T]) All() iter.Seq2[int, rt.View[T]] {
+	return func(yield func(int, rt.View[T]) bool) {
 		n := len(v.data)
 		for i := 0; i < n && i < len(v.data); i++ {
-			if !yield(i, v.data[i]) {
+			if !yield(i, rt.ViewOf(&v.data[i])) {
 				return
 			}
 		}
@@ -319,11 +345,11 @@ func (v *Vec[T]) All() iter.Seq2[int, T] {
 
 // Values returns an iterator over the elements of v, in order. Like All, it
 // reads v's length once, when the loop starts.
-func (v *Vec[T]) Values() iter.Seq[T] {
-	return func(yield func(T) bool) {
+func (v *Vec[T]) Values() iter.Seq[rt.View[T]] {
+	return func(yield func(rt.View[T]) bool) {
 		n := len(v.data)
 		for i := 0; i < n && i < len(v.data); i++ {
-			if !yield(v.data[i]) {
+			if !yield(rt.ViewOf(&v.data[i])) {
 				return
 			}
 		}
@@ -333,18 +359,21 @@ func (v *Vec[T]) Values() iter.Seq[T] {
 // Backward returns an iterator over the indexes and elements of v, last
 // first, starting from v's length when the loop starts. It stops early if
 // v has shrunk below the next index.
-func (v *Vec[T]) Backward() iter.Seq2[int, T] {
-	return func(yield func(int, T) bool) {
+func (v *Vec[T]) Backward() iter.Seq2[int, rt.View[T]] {
+	return func(yield func(int, rt.View[T]) bool) {
 		for i := len(v.data) - 1; i >= 0 && i < len(v.data); i-- {
-			if !yield(i, v.data[i]) {
+			if !yield(i, rt.ViewOf(&v.data[i])) {
 				return
 			}
 		}
 	}
 }
 
-// AppendSeq appends the values of seq, growing as needed.
-func (v *Vec[T]) AppendSeq(seq iter.Seq[T]) {
+// AppendSeq appends the values of seq, growing as needed. The parameter has
+// the underlying type of an iter.Seq[T], which an iterator of owners cannot
+// be (an iter.Seq does not carry owners); an iterator of owners passes each
+// one to yield, which moves it into v.
+func (v *Vec[T]) AppendSeq(seq func(yield func(T) bool)) {
 	for x := range seq {
 		v.Push(x)
 	}
@@ -352,10 +381,21 @@ func (v *Vec[T]) AppendSeq(seq iter.Seq[T]) {
 
 // Collect returns a new Vec, allocating from a (by default the default
 // allocator), holding the values of seq in order.
-func Collect[T any](seq iter.Seq[T], a alloc.Allocator = alloc.Default()) Vec[T] {
+func Collect[T owner any](seq func(yield func(T) bool), a alloc.Allocator = alloc.Default()) Vec[T] {
 	v := New[T](a)
 	v.AppendSeq(seq)
 	return v
+}
+
+// copyIn copies src into dst, whose places hold nothing: the elements are
+// copied as values, so each string gets a reference of its own. The callers
+// are the methods whose variadic parameter cannot carry owners.
+func copyIn[T owner any](dst, src []T) {
+	n := min(len(dst), len(src))
+	if n > 0 {
+		rt.MoveValues(&dst[0], &src[0], n)
+		rt.RetainValues(&dst[0], n)
+	}
 }
 
 // grow makes room for at least n more elements, at least doubling the
@@ -379,8 +419,8 @@ func (v *Vec[T]) realloc(c int) {
 			panic("vec: no allocator (call alloc.SetDefault, or give the Vec one with Init)")
 		}
 	}
-	var zero T
-	p := v.a.Alloc(storageSize[T](c), unsafe.Alignof(zero))
+	var tp *T // for the size and alignment: a T variable would be dropped
+	p := v.a.Alloc(storageSize[T](c), unsafe.Alignof(*tp))
 	if p == nil {
 		panic("vec: out of memory")
 	}
@@ -397,15 +437,15 @@ func (v *Vec[T]) realloc(c int) {
 // release frees v's storage, if any, without changing v.data.
 func (v *Vec[T]) release() {
 	if cap(v.data) > 0 {
-		var zero T
-		v.a.Free(unsafe.Pointer(unsafe.SliceData(v.data)), storageSize[T](cap(v.data)), unsafe.Alignof(zero))
+		var tp *T
+		v.a.Free(unsafe.Pointer(unsafe.SliceData(v.data)), storageSize[T](cap(v.data)), unsafe.Alignof(*tp))
 	}
 }
 
 // storageSize returns the bytes allocated for c elements of T (at least 1).
-func storageSize[T any](c int) uintptr {
-	var zero T
-	size := uintptr(c) * unsafe.Sizeof(zero)
+func storageSize[T owner any](c int) uintptr {
+	var tp *T
+	size := uintptr(c) * unsafe.Sizeof(*tp)
 	if size == 0 {
 		size = 1
 	}

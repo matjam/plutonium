@@ -37,6 +37,11 @@ func (l *Lowerer) isNoReturn(fn *types2.Func) bool {
 	if st, ok := l.noRet[fn]; ok {
 		return st == nrNever
 	}
+	if fn.Pkg() != nil && fn.Pkg().Path() == "pluto/rt" && countIntrinsics[fn.Name()] {
+		// The compiler expands these inline; the body that stands for them
+		// (a call of notCalled) says nothing about them.
+		return l.setNoReturn(fn, false)
+	}
 	d := l.decls[fn]
 	if d == nil {
 		return false

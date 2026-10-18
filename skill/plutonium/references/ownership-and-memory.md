@@ -212,9 +212,11 @@ type Log owner File                          // dropping a Log runs File's drop 
   A variable known to hold nothing is not dropped at all. `Drop` cannot report failure: give the type a
   `Close() error` for callers that care.
 - A type parameter admits an owner only if declared `[T owner any]` (E3207).
-- A map cannot hold owners as key or value (E3213), and today neither can `vec.Vec` nor `hash.Map` (E3207): their
-  element parameter does not admit owners (`known-gaps.md`). Hold `synced[T]` or `shared[T]` boxes, an array of
-  owners, or `owned[Node]` links instead.
+- A built-in map cannot hold owners as key or value (E3213): hold `synced[T]` or `shared[T]` boxes, or use a
+  `hash.Map[K, V]`, whose values may be owners. `vec.Vec[T]` and `hash.Map[K, V]` own their elements: `Push`, `Set`
+  and `m[k] = v` move one in (dropping the one replaced), `Pop`, `Remove` (`m.Remove(k)`) and `m.Pop()` move one
+  out, `Ptr` lends one, a `range` yields pointers to the elements, and dropping the container drops the elements in
+  order. The methods that copy an element (`At`, `v[i]`, `Last`, `Get`, `Clone`) do not compile for owners.
 - Converting a plain value into an owner type is allowed only in the package that declares it (E3212).
 
 ## 4. Drops

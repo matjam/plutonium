@@ -1,5 +1,5 @@
 0 10
 panic: runtime error: index out of range [2] with length 2
     main.main-range1 (./main.p:16)
-    pluto/vec.(*Vec).All[int].func1 (pluto/vec/vec.p:313)
+    pluto/vec.(*Vec).All[int].func1 (pluto/vec/vec.p:339)
     main.main (./main.p:14)

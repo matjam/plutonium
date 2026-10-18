@@ -294,6 +294,10 @@ func (check *Checker) collectRecv(rparam *ast.Field, scopePos token.Pos) (*Var, 
 				for i, recvTPar := range recvTParams {
 					baseTPar := baseTParams[i]
 					check.mono.recordCanon(recvTPar, baseTPar)
+					// Plutonium: a receiver type parameter admits owners
+					// as the type's parameter does (spec section 10.9), so
+					// the method body is checked as owner code.
+					recvTPar.obj.ownerMark = baseTPar.obj.ownerMark
 					// baseTPar.bound is possibly parameterized by other type parameters
 					// defined by the generic base type. Substitute those parameters with
 					// the receiver type parameters declared by the current method.

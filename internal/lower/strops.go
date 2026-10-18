@@ -1,8 +1,10 @@
 package lower
 
 import (
+	"fmt"
 	"go/constant"
 
+	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -151,6 +153,7 @@ func (s *fnState) stringsSlice(fn *types2.Func, e *ast.CallExpr) ([]value, bool)
 // containers the compiler's string drop glue (pluto/rt/str.p).
 var countIntrinsics = map[string]bool{
 	"ReleaseValues": true, "RetainValues": true, "MoveValues": true, "HoldsStrings": true,
+	"ZeroValues": true, "NeedsDrop": true, "CopyValue": true, "MustCopy": true, "InitValue": true, "CopyValues": true, "ViewOf": true,
 }
 
 // countIntrinsic expands a call of one of the countIntrinsics.
@@ -190,6 +193,39 @@ func (s *fnState) countIntrinsic(fn *types2.Func, e *ast.CallExpr, id *ast.Ident
 	switch fn.Name() {
 	case "HoldsStrings":
 		return []value{scalarValue(s.constBool(s.l.counted(T)), types2.Typ[types2.Bool])}, true
+	case "NeedsDrop":
+		return []value{scalarValue(s.constBool(s.l.counted(T) || s.l.needsDrop(T)), types2.Typ[types2.Bool])}, true
+	case "CopyValue", "ViewOf":
+		return s.elementCopy(fn, e, T), true
+	case "MustCopy":
+		if types2.IsOwner(T) {
+			s.reportOwnerCopy(e, T)
+		}
+		return nil, true
+	case "InitValue":
+		ptr := s.checked(s.expr(e.Args[0]).v)
+		s.assign(lvalue{ptr: ptr, T: T}, s.exprAs(e.Args[1], T), true)
+		return nil, true
+	case "CopyValues":
+		if types2.IsOwner(T) {
+			s.reportOwnerCopy(e, T)
+			return nil, true
+		}
+		dst := s.scalar(e.Args[0])
+		src := s.scalar(e.Args[1])
+		n := s.exprAs(e.Args[2], intT).v
+		bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(T)))
+		s.callRuntime("memmove", nil, []*ssa.Value{s.checkedLen(dst, bytes), s.checkedLen(src, bytes), bytes})
+		if s.l.counted(T) {
+			s.retainRange(dst, n, T)
+		}
+		return nil, true
+	case "ZeroValues":
+		p := s.scalar(e.Args[0])
+		n := s.exprAs(e.Args[1], intT).v
+		bytes := s.newValue(ssa.OpMul, ssa.TI64, n, s.constInt(ssa.TI64, s.l.sizeof(T)))
+		s.callRuntime("memclr", nil, []*ssa.Value{s.checkedLen(p, bytes), bytes})
+		return nil, true
 	case "MoveValues":
 		dst := s.scalar(e.Args[0])
 		src := s.scalar(e.Args[1])
@@ -208,4 +244,31 @@ func (s *fnState) countIntrinsic(fn *types2.Func, e *ast.CallExpr, id *ast.Ident
 		}
 	}
 	return nil, true
+}
+
+// elementCopy lowers rt.CopyValue and rt.ViewOf, which give a container's
+// element out of the container's storage at p: a copy of the T there,
+// counted as a copy is. rt.ViewOf yields p itself, a view, when T is an
+// owner. An owner has no copy, so rt.CopyValue of one is an error: the
+// method of the container that called it cannot be used for owners.
+func (s *fnState) elementCopy(fn *types2.Func, e *ast.CallExpr, T types2.Type) []value {
+	p := s.expr(e.Args[0])
+	if types2.IsOwner(T) {
+		if fn.Name() == "ViewOf" {
+			return []value{p}
+		}
+		s.reportOwnerCopy(e, T)
+		return []value{s.zeroValue(T)}
+	}
+	return []value{s.loadFrom(s.checked(p.v), T)}
+}
+
+// reportOwnerCopy reports a container method that copies elements, called
+// for a container of owners.
+func (s *fnState) reportOwnerCopy(e *ast.CallExpr, T types2.Type) {
+	d := &diag.Diagnostic{Code: diag.CopyOwners, Msg: fmt.Sprintf("cannot copy an element of type %s: it is an owner", T)}
+	d.Text = "The container method that was called gives an element out by value. For an owner that would be a second owner of what the element owns, and both would release it."
+	d.Fix = &diag.Fix{Intro: "To look at an element, use a method that returns a pointer to it", Code: "p := v.Ptr(i)"}
+	d.More = []*diag.Fix{{Intro: "To move an element out, use a method that removes it", Code: "x := v.Pop()"}}
+	s.l.report(e.Pos(), d)
 }

@@ -240,6 +240,23 @@ against the corrected specification. The immediate implementation order is:
      `TestNormalTerminationJoinedTasks` (WaitGroup and channel cases), `TestNormalShutdownTaskRetirement`
      and `TestConcDebugAlloc` do the same, and the scope case still requires the cleanup of every run.
      `TestNormalTerminationDebugAllocator`, which expects the abandon line, uses `runDebugAllocRaw`.
+132. **Containers hold owners** (done, `HASH132`; sections 7.18, 10.9, 11.11, 12.10, 13.3, 18.6, F.3; found
+     while writing the agent skill, `skill/plutonium/references/known-gaps.md`). `vec.Vec[T owner any]` and
+     `hash.Map[K, V owner any]` (over `rt.MapTable`) accept owner elements and own them: `Push`, `Set`,
+     `SetIndex` and `m[k] = v` move one in and drop the one they replace, `Pop`, `Remove`, `SwapRemove`,
+     `hash.Map.Remove(k)` and `hash.Map.Pop()` move one out, `Delete`, `Truncate`, `Clear`, `Free` and `Drop`
+     drop the elements in order (index order for a vector, table order for a map, and the same during a walk),
+     `Ptr` lends one, and the iterators yield pointers (`rt.View[T]`, an alias the checker resolves to `*T` for
+     an owner `T` and `T` otherwise, section 12.10). The methods that copy an element (`At`, `Index`, `Last`,
+     `Clone`, `Map`, `Get`, `IndexOk`) do not compile for owners (E3306, from the intrinsics `rt.CopyValue`,
+     `rt.CopyValues` and `rt.MustCopy`). Receiver type parameters of a method inherit `owner` from the type's
+     declaration, so the move checker now checks the bodies of generic owner methods. Moving a counted value
+     (a string) out of a place with `take`, or out of a variable of a generic function over an `owner` type
+     parameter, transfers its references instead of leaking them. `hash.Set` keys and `vec.Fixed` elements
+     stay values: a key is looked up by value, which would consume an owner, and a `Fixed` is a copyable view
+     that owns nothing. Tests: `testdata/plutonium/containerowners.p` and `takecounted.p` (O0, O2, debug
+     allocator leak report), `internal/build/container_owners_test.go`.
+
 
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a
 literal zero bound. Existing virtual-reservation fallback and overflow handling are
@@ -563,9 +580,8 @@ compiler (2026-10-11).
     `pluto/rt.MapTable`; `make(map[K]V, n, a)` takes an allocator and a literal allocates from the current
     allocator; owner keys and elements are E3213; a map is sendable, and the contents of the maps of a type
     that crosses to another task fall under the guard rule of item 59; go2pu translates Go's maps as they
-    are. Left: the owner error suggests counted references, since `hash.Map` does not take owner values yet
-    (`Remove` and `Pop` for owners); the race rule groups maps by type, so two maps of one type are guarded
-    together when either crosses.
+    are. `hash.Map` takes owner values and has `Remove` and `Pop` (item 132). Left: the race rule groups maps
+    by type, so two maps of one type are guarded together when either crosses.
 61. **Removed conversions** (done, `080e49b`, `d611757`, `271e57f`; sections 11.24 and 18.8): `string(b)`
     is E2015, `[]byte(s)` and `[]rune(s)` are E2016, `string(i)` of a non-rune integer is E2017; the
     messages show the replacement (`strings.FromUTF8`, `strings.Bytes`, `strconv.Itoa`).

@@ -134,11 +134,44 @@ func (check *Checker) newAliasInstance(pos token.Pos, orig *Alias, targs []Type,
 	assert(len(targs) > 0)
 	obj := NewTypeName(pos, orig.obj.pkg, orig.obj.name, nil)
 	rhs := check.subst(pos, orig.fromRHS, makeSubstMap(orig.TypeParams().list(), targs), expanding, ctxt)
+	if isViewAlias(orig) {
+		rhs = viewOf(targs[0], rhs)
+	}
 	res := check.newAlias(obj, rhs)
 	res.orig = orig
 	res.tparams = orig.tparams
 	res.targs = newTypeList(targs)
 	return res
+}
+
+// isViewAlias reports whether a is pluto/rt.View, the alias that names what
+// an iterator over a container yields for an element type: the element
+// itself for a value type, a pointer to it (a view) for an owner (spec
+// sections 7.17, 12.10). The library declares it as an alias of *T; a
+// conditional alias cannot be written in the language, so the instance
+// decides here.
+func isViewAlias(a *Alias) bool {
+	obj := a.obj
+	return obj != nil && obj.name == "View" && obj.pkg != nil && obj.pkg.path == "pluto/rt" && a.tparams.Len() == 1
+}
+
+// viewOf returns the type that rt.View[elem] stands for. rhs is the aliased
+// type with elem substituted (*elem), which is kept while elem is a type
+// parameter: the instance of the code that is made later decides.
+func viewOf(elem, rhs Type) Type {
+	if tp, ok := Unalias(elem).(*TypeParam); ok {
+		if tp.obj.ownerMark {
+			return rhs // the instance decides
+		}
+		return elem // a type parameter that admits no owner stands for a value
+	}
+	if !isValid(elem) {
+		return rhs
+	}
+	if IsOwner(elem) {
+		return rhs
+	}
+	return elem
 }
 
 func (a *Alias) cleanup() {

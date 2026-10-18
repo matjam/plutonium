@@ -50,13 +50,14 @@ type Lock struct { _ unexported }  [value]
   func (l *Lock) Lock()
   func (l *Lock) TryLock() bool
   func (l *Lock) Unlock()
-type MapIter[K comparable, V any] owner struct { _ unexported }  [owner (moves)]
+type MapIter[K comparable, V owner any] owner struct { _ unexported }  [owner (moves)]
   // A MapIter walks the entries of a table in table order with Go's guarantees for changes made during the walk (see the top of the...
   func (it *MapIter[K, V]) Drop()
   func (it *MapIter[K, V]) Next() (K, V, bool)
   func (it *MapIter[K, V]) NextKey() (K, bool)
+  func (it *MapIter[K, V]) NextView() (K, View[V], bool)
   func (it *MapIter[K, V]) Start(t *MapTable[K, V])
-type MapTable[K comparable, V any] owner struct { _ unexported }  [owner (moves)]
+type MapTable[K comparable, V owner any] owner struct { _ unexported }  [owner (moves)]
   // A MapTable is a hash table from K to V whose memory comes from an allocator.
   func (t *MapTable[K, V]) Clear()
   func (t *MapTable[K, V]) Clone(a Allocator) MapTable[K, V]
@@ -71,7 +72,9 @@ type MapTable[K comparable, V any] owner struct { _ unexported }  [owner (moves)
   func (t *MapTable[K, V]) InitSeeded(capacity int, fn func(K, uint64) uint64, seed uint64, a Allocator)
   func (t *MapTable[K, V]) Initialized() bool
   func (t *MapTable[K, V]) Len() int
+  func (t *MapTable[K, V]) Pop() (K, V, bool)
   func (t *MapTable[K, V]) Ptr(k K) *V
+  func (t *MapTable[K, V]) Remove(k K) (V, bool)
   func (t *MapTable[K, V]) Reserve(capacity int)
   func (t *MapTable[K, V]) Seed() uint64
   func (t *MapTable[K, V]) Set(k K, v V)
@@ -122,6 +125,8 @@ type Type = typeDesc  [view]
   func (t *Type) PtrTo() *Type
   func (t *Type) Size() uintptr
   func (t *Type) Word(p unsafe.Pointer) unsafe.Pointer
+type View[T owner any] = *T  [view]
+  // View names what an iterator over the elements of a container yields for an element of type T: T itself, or *T, a view of the el...
 type WaitReason uint8  [value]
   // A WaitReason says what a parked task waits for.
   func (r WaitReason) String() string
@@ -142,6 +147,8 @@ func CatchExitTask(f func()) bool
 func ChanTimer(p unsafe.Pointer, f func(arg unsafe.Pointer, now int64)) *Timer
 func ChanTrySend(p, ep unsafe.Pointer) bool
 func Comparable(v any) bool
+func CopyValue[T owner any](p *T) T
+func CopyValues[T owner any](dst, src *T, n int)
 func CurrentTask() *Task
 func DefaultAllocator() Allocator
 func DieFromSigpipe()
@@ -176,7 +183,8 @@ func GenTrimArena(token uintptr, from, pc uintptr)
 func GenUnregister(token uintptr)
 func Go(f func(), size uintptr, a Allocator = defaultAllocator)
 func GoService(f func())
-func HoldsStrings[T any]() bool
+func HoldsStrings[T owner any]() bool
+func InitValue[T owner any](p *T, x T)
 func JoinRunning(j *Join) int
 func JoinWait(j *Join)
 func KeepString(s string, a Allocator) string
@@ -188,9 +196,11 @@ func MapSlot(t *Type, m unsafe.Pointer, i int) (k, v unsafe.Pointer, ok bool)
 func MapSlots(m unsafe.Pointer) int
 func MemHash(p unsafe.Pointer, n int, seed uint64) uint64
 func Mmap(n uintptr) unsafe.Pointer
-func MoveValues[T any](dst, src *T, n int)
+func MoveValues[T owner any](dst, src *T, n int)
 func Mprotect(p unsafe.Pointer, n uintptr, prot int) bool
 func Munmap(p unsafe.Pointer, n uintptr)
+func MustCopy[T owner any]()
+func NeedsDrop[T owner any]() bool
 func NewBox(a Allocator, counted bool, size, align uintptr) unsafe.Pointer
 func NewEpoch() uint16
 func NewStringBuffer(n int, a Allocator) (*byte, uintptr)
@@ -211,7 +221,7 @@ func ReleaseString(ctl uintptr)
 func ReleaseValues[T owner any](p *T, n int)
 func RetainString(ctl uintptr)
 func RetainSynced(obj unsafe.Pointer)
-func RetainValues[T any](p *T, n int)
+func RetainValues[T owner any](p *T, n int)
 func RunTimers()
 func SetAllocSite(pc uintptr)
 func SetDefaultAllocator(a Allocator)
@@ -243,8 +253,10 @@ func Uint64Hash(x, seed uint64) uint64
 func UnionInfo(v any) (variant string, payload any, hasPayload bool)
 func UseAllocator(a Allocator) Allocator
 func ValidUTF8(p *byte, n int) (valid, ascii bool)
+func ViewOf[T owner any](p *T) View[T]
 func WaitScopes(t *Task)
 func Yield()
+func ZeroValues[T owner any](p *T, n int)
 ```
 
 ## pluto/syscall

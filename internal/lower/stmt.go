@@ -1191,7 +1191,9 @@ func (s *fnState) moveOnReturn(e ast.Expr, v value, T types2.Type, i int, moved 
 		return false
 	}
 	id, ok := ast.Unparen(e).(*ast.Ident)
-	if !ok {
+	if !ok || s.isMove(id) {
+		// A variable the move checker moves out was cleared when v was
+		// evaluated, and v holds its references.
 		return false
 	}
 	obj, ok := s.info.Uses[id].(*types2.Var)

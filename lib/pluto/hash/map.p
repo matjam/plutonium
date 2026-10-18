@@ -40,13 +40,21 @@ const DefaultSeed = rt.DefaultMapSeed
 // moves instead of being copied, and Drop releases the table. Unlike
 // map[K]V, it uses a fixed seed (DefaultSeed) unless given one with
 // InitSeed, so its iteration order is the same in every run.
-type Map[K comparable, V any] owner struct {
+//
+// V may be an owner (language spec section 10.9): the Map then owns its
+// values. Set and SetIndex move a value in and drop the one they replace;
+// Delete, Clear, Free and Drop drop values, in the order of the table;
+// Remove and Pop move a value out. Ptr lends a value, and the iterators
+// yield pointers to the values (rt.View). The methods that copy a value,
+// Get, At, Index, IndexOk and Clone, do not compile for an owner, since the
+// copy would be a second owner.
+type Map[K comparable, V owner any] owner struct {
 	t rt.MapTable[K, V]
 }
 
 // NewMap returns an empty Map that allocates from a (by default the default
 // allocator), with room for capacity entries before it grows.
-func NewMap[K comparable, V any](capacity int, a alloc.Allocator = alloc.Default()) Map[K, V] {
+func NewMap[K comparable, V owner any](capacity int, a alloc.Allocator = alloc.Default()) Map[K, V] {
 	var m Map[K, V]
 	m.Init(capacity, a)
 	return m
@@ -128,7 +136,7 @@ func (m *Map[K, V]) FmtSlot(i int) (k, v any, ok bool) {
 // valid until the map is next modified.
 func (m *Map[K, V]) Ptr(k K) *V { return m.t.Ptr(k) }
 
-// Set stores v for k, replacing any value already stored.
+// Set stores v for k, replacing (and dropping) any value already stored.
 func (m *Map[K, V]) Set(k K, v V) { m.t.Set(k, v) }
 
 // Upsert returns a pointer to the value for k, adding k with the zero V if
@@ -136,10 +144,23 @@ func (m *Map[K, V]) Set(k K, v V) { m.t.Set(k, v) }
 // valid until the map is next modified.
 func (m *Map[K, V]) Upsert(k K) (p *V, inserted bool) { return m.t.Upsert(k) }
 
-// Delete removes k from the map and reports whether it was present. No
-// other entry moves, so deleting during a range over the map is safe (see
-// All).
+// Delete removes k from the map, dropping its value, and reports whether it
+// was present. No other entry moves, so deleting during a range over the map
+// is safe (see All).
 func (m *Map[K, V]) Delete(k K) bool { return m.t.Delete(k) }
+
+// Remove removes k and returns its value, moved out of the map, and true. It
+// returns the zero V and false if k is not in the map. It is how an owner is
+// taken out of a Map. No other entry moves.
+func (m *Map[K, V]) Remove(k K) (V, bool) { return m.t.Remove(k) }
+
+// Pop removes the first entry in the order of All and returns its key and
+// its value, moved out of the map, and true. It returns zeros and false if
+// the map is empty. A loop of Pop empties a Map of owners without copying
+// them:
+//
+//	for k, v, ok := m.Pop(); ok; k, v, ok = m.Pop() { ... }
+func (m *Map[K, V]) Pop() (K, V, bool) { return m.t.Pop() }
 
 // Clear removes all entries, keeping the table.
 func (m *Map[K, V]) Clear() { m.t.Clear() }
@@ -164,7 +185,7 @@ func (m *Map[K, V]) Clone(a alloc.Allocator = alloc.Default()) Map[K, V] {
 // An Iter walks the entries of a Map in the order All describes. The map
 // must not be modified during the walk, except through Value on the current
 // entry. Unlike All, an Iter can be advanced a step at a time from anywhere.
-type Iter[K comparable, V any] struct {
+type Iter[K comparable, V owner any] struct {
 	m *Map[K, V]
 	i int
 	v *V
@@ -178,19 +199,20 @@ type Iter[K comparable, V any] struct {
 //	}
 func (m *Map[K, V]) Iter() Iter[K, V] { return Iter[K, V]{m: m} }
 
-// Next returns the next entry, or false when there are no more.
-func (it *Iter[K, V]) Next() (K, V, bool) {
+// Next returns the next entry, or false when there are no more. For a Map
+// of owners the value is a pointer to the entry's value (rt.View).
+func (it *Iter[K, V]) Next() (K, rt.View[V], bool) {
 	t := &it.m.t
 	for it.i < t.Slots() {
 		i := it.i
 		it.i++
 		if k, v, ok := t.Slot(i); ok {
 			it.v = v
-			return *k, *v, true
+			return *k, rt.ViewOf(v), true
 		}
 	}
 	var k K
-	var v V
+	var v rt.View[V]
 	return k, v, false
 }
 
@@ -212,12 +234,12 @@ func (it *Iter[K, V]) Value() *V { return it.v }
 // there when the loop starts and is not deleted before the loop reaches it
 // is visited exactly once, a deleted one is not visited, and one added
 // during the loop may or may not be.
-func (m *Map[K, V]) All() iter.Seq2[K, V] {
-	return func(yield func(K, V) bool) {
+func (m *Map[K, V]) All() iter.Seq2[K, rt.View[V]] {
+	return func(yield func(K, rt.View[V]) bool) {
 		var it rt.MapIter[K, V]
 		it.Start(&m.t)
 		for {
-			k, v, ok := it.Next()
+			k, v, ok := it.NextView()
 			if !ok || !yield(k, v) {
 				return
 			}
@@ -240,12 +262,12 @@ func (m *Map[K, V]) Keys() iter.Seq[K] {
 }
 
 // Values returns an iterator over m's values, in the order All uses.
-func (m *Map[K, V]) Values() iter.Seq[V] {
-	return func(yield func(V) bool) {
+func (m *Map[K, V]) Values() iter.Seq[rt.View[V]] {
+	return func(yield func(rt.View[V]) bool) {
 		var it rt.MapIter[K, V]
 		it.Start(&m.t)
 		for {
-			_, v, ok := it.Next()
+			_, v, ok := it.NextView()
 			if !ok || !yield(v) {
 				return
 			}
@@ -255,7 +277,7 @@ func (m *Map[K, V]) Values() iter.Seq[V] {
 
 // Insert adds the pairs of seq to m, replacing the values of keys already
 // present, as Go's maps.Insert.
-func (m *Map[K, V]) Insert(seq iter.Seq2[K, V]) {
+func (m *Map[K, V]) Insert(seq func(yield func(K, V) bool)) {
 	for k, v := range seq {
 		m.Set(k, v)
 	}

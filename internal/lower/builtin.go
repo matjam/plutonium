@@ -82,7 +82,10 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		s.staticWriteType(ptr, T)
 		v := s.materialize(s.loadLV(lvalue{ptr: ptr, T: T}))
 		s.zero(ptr, s.l.sizeof(T))
-		return one(v)
+		// The references in the place move out with the bytes: the result
+		// holds them, and releases them at the end of the statement unless
+		// something takes them over.
+		return one(s.heldAfterMove(v))
 
 	case "delete":
 		s.mapDelete(e)
@@ -122,7 +125,7 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		isValue := !s.info.Types[e.Args[0]].IsType()
 		if isValue {
 			if s.isMove(e.Args[0]) {
-				v = s.movedOut(s.lv(e.Args[0])) // new(x) moves an owner x in
+				v = s.movedOut(s.lv(e.Args[0]), s.varOfIdent(e.Args[0])) // new(x) moves an owner x in
 			} else {
 				v = s.materialize(s.exprAs(e.Args[0], elem))
 			}
@@ -851,4 +854,13 @@ func (s *fnState) ifThen(cond *ssa.Value, body func()) {
 	s.endPlain(done)
 	s.seal(done)
 	s.startBlock(done)
+}
+
+// varOfIdent returns the variable the expression names, or nil.
+func (s *fnState) varOfIdent(e ast.Expr) *types2.Var {
+	if id, ok := ast.Unparen(e).(*ast.Ident); ok {
+		v, _ := s.info.Uses[id].(*types2.Var)
+		return v
+	}
+	return nil
 }

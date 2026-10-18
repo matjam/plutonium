@@ -54,7 +54,7 @@ const (
 	mapFull    = 0x80 // | the top 7 bits of the hash
 )
 
-type mapSlot[K comparable, V any] struct {
+type mapSlot[K comparable, V owner any] owner struct {
 	key K
 	val V
 }
@@ -65,7 +65,14 @@ type mapSlot[K comparable, V any] struct {
 // or InitSeeded) before anything is stored. It is not safe for concurrent
 // use: a map that several tasks share is guarded by a lock (spec section
 // 19.3).
-type MapTable[K comparable, V any] owner struct {
+//
+// V may be an owner (pluto/hash.Map holds them): the table then owns its
+// values. Storing over a value, deleting it and clearing or freeing the
+// table drop the values; Remove and Pop move one out. The methods that
+// give a value out by value (Index, Get, Clone) do not compile for an
+// owner V, since a copy would be a second owner; Ptr and Slot lend the
+// value, and MapIter.NextView yields a pointer to it.
+type MapTable[K comparable, V owner any] owner struct {
 	slots   []mapSlot[K, V] // a power of two of them, or none
 	meta    []uint8         // one per slot, in the same allocation after the slots
 	size    int             // len(slots)
@@ -326,7 +333,7 @@ func (t *MapTable[K, V]) findHash(k K, h uint64) int {
 // Index returns the value stored for k, or the zero V.
 func (t *MapTable[K, V]) Index(k K) V {
 	if i := t.find(k); i >= 0 {
-		return t.slots[i].val
+		return CopyValue(&t.slots[i].val)
 	}
 	var zero V
 	return zero
@@ -335,7 +342,7 @@ func (t *MapTable[K, V]) Index(k K) V {
 // Get returns the value stored for k and true, or the zero V and false.
 func (t *MapTable[K, V]) Get(k K) (V, bool) {
 	if i := t.find(k); i >= 0 {
-		return t.slots[i].val, true
+		return CopyValue(&t.slots[i].val), true
 	}
 	var zero V
 	return zero, false
@@ -393,14 +400,49 @@ func (t *MapTable[K, V]) upsertHash(k K, h uint64) (*V, bool) {
 	}
 }
 
-// Set stores v for k.
+// Set stores v for k, dropping the value it replaces.
 func (t *MapTable[K, V]) Set(k K, v V) {
-	p, _ := t.Upsert(k)
+	p, inserted := t.Upsert(k)
+	if inserted {
+		InitValue(p, v) // the place holds nothing
+		return
+	}
 	*p = v
 }
 
-// Delete removes k and reports whether it was there. No other entry moves.
+// Delete removes k, dropping its key and value, and reports whether it was
+// there. No other entry moves.
 func (t *MapTable[K, V]) Delete(k K) bool { return t.deleteAt(t.find(k)) }
+
+// Remove removes k and returns its value, moved out of the table, and true;
+// it returns the zero V and false if k is not there. No other entry moves.
+func (t *MapTable[K, V]) Remove(k K) (V, bool) {
+	i := t.find(k)
+	if i < 0 {
+		var zero V
+		return zero, false
+	}
+	v := take(&t.slots[i].val)
+	t.removeAt(i)
+	return v, true
+}
+
+// Pop removes the first entry in table order and returns its key and value,
+// moved out of the table, and true; it returns zeros and false if the table
+// is empty. No other entry moves.
+func (t *MapTable[K, V]) Pop() (K, V, bool) {
+	for i := 0; i < t.size; i++ {
+		if t.meta[i]&mapFull != 0 {
+			k := t.slots[i].key
+			v := take(&t.slots[i].val)
+			t.removeAt(i)
+			return k, v, true
+		}
+	}
+	var k K
+	var v V
+	return k, v, false
+}
 
 // deleteAt removes the entry in slot i, if i is not -1.
 func (t *MapTable[K, V]) deleteAt(i int) bool {
@@ -408,7 +450,22 @@ func (t *MapTable[K, V]) deleteAt(i int) bool {
 		return false
 	}
 	var zero mapSlot[K, V]
-	t.slots[i] = zero // releases the key and value
+	t.slots[i] = zero // drops the key and value
+	t.unmark(i)
+	return true
+}
+
+// removeAt removes the entry in slot i whose value was moved out: it drops
+// the key and leaves the slot empty.
+func (t *MapTable[K, V]) removeAt(i int) {
+	ReleaseValues(&t.slots[i].key, 1)
+	ZeroValues(&t.slots[i], 1)
+	t.unmark(i)
+}
+
+// unmark updates the metadata for the entry in slot i, which has been
+// emptied.
+func (t *MapTable[K, V]) unmark(i int) {
 	if t.meta[(i+1)&(t.size-1)] == mapEmpty {
 		// No probe passes through slot i to reach a full slot.
 		t.meta[i] = mapEmpty
@@ -417,7 +474,6 @@ func (t *MapTable[K, V]) deleteAt(i int) bool {
 		t.meta[i] = mapDeleted
 	}
 	t.n--
-	return true
 }
 
 // Clear removes every entry, keeping the table.
@@ -425,10 +481,7 @@ func (t *MapTable[K, V]) Clear() {
 	if t.size == 0 {
 		return
 	}
-	if HoldsStrings[mapSlot[K, V]]() {
-		// Empty and deleted slots are zero.
-		ReleaseValues(&t.slots[0], t.size)
-	}
+	dropEntries(t.slots, t.meta)
 	var p *mapSlot[K, V]
 	memclr(unsafe.Pointer(unsafe.SliceData(t.slots)), t.size*int(unsafe.Sizeof(*p)))
 	memclr(unsafe.Pointer(unsafe.SliceData(t.meta)), t.size)
@@ -442,9 +495,13 @@ func (t *MapTable[K, V]) Clear() {
 func (t *MapTable[K, V]) Free() {
 	if t.slots != nil {
 		if t.iters != 0 {
+			// The walks go on looking up their keys, so the table keeps
+			// the references of the keys. The values are never read from
+			// it: it drops the owners now.
+			dropOwnedValues(t.slots, t.meta)
 			t.retire()
 		} else {
-			freeMapTable[K, V](t.a, t.slots, true)
+			freeMapTable[K, V](t.a, t.slots, freeDrop)
 		}
 	}
 	t.slots = nil
@@ -472,7 +529,13 @@ func (t *MapTable[K, V]) Clone(a Allocator) MapTable[K, V] {
 		var p *mapSlot[K, V]
 		memmove(unsafe.Pointer(unsafe.SliceData(out.slots)), unsafe.Pointer(unsafe.SliceData(t.slots)), t.size*int(unsafe.Sizeof(*p)))
 		memmove(unsafe.Pointer(unsafe.SliceData(out.meta)), unsafe.Pointer(unsafe.SliceData(t.meta)), t.size)
-		RetainValues(&out.slots[0], t.size)
+		for i := 0; i < t.size; i++ {
+			if t.meta[i]&mapFull != 0 {
+				RetainValues(&out.slots[i].key, 1)
+				MustCopy[V]()
+				RetainValues(&out.slots[i].val, 1)
+			}
+		}
 		out.n, out.used = t.n, t.used
 	}
 	return out
@@ -480,7 +543,7 @@ func (t *MapTable[K, V]) Clone(a Allocator) MapTable[K, V] {
 
 // tableBytes returns the size and alignment of the memory of a table of
 // size slots: the slots followed by one metadata byte each.
-func tableBytes[K comparable, V any](size int) (uintptr, uintptr) {
+func tableBytes[K comparable, V owner any](size int) (uintptr, uintptr) {
 	var p *mapSlot[K, V]
 	return uintptr(size) * (unsafe.Sizeof(*p) + 1), unsafe.Alignof(*p)
 }
@@ -496,14 +559,73 @@ func (t *MapTable[K, V]) alloc(size int) {
 	t.limit = size / 4 * 3
 }
 
-// freeMapTable returns the memory of the table slots to a, releasing its
-// keys and values first if release is set.
-func freeMapTable[K comparable, V any](a Allocator, slots []mapSlot[K, V], release bool) {
-	if release && HoldsStrings[mapSlot[K, V]]() {
-		ReleaseValues(&slots[0], len(slots))
+// How freeMapTable treats the entries of the table it frees.
+const (
+	freeKeep    = iota // the entries moved to another table: free the memory only
+	freeDrop           // drop the keys and values (a table that is freed)
+	freeRelease        // release the counted references in them: a table retired for walks, whose owner values were moved or dropped
+)
+
+// freeMapTable returns the memory of the table slots to a, first doing with
+// the entries what mode says.
+func freeMapTable[K comparable, V owner any](a Allocator, slots []mapSlot[K, V], mode int) {
+	if len(slots) > 0 {
+		switch mode {
+		case freeDrop:
+			dropEntries(slots, tableMeta(slots))
+		case freeRelease:
+			releaseCounted(slots, tableMeta(slots))
+		}
 	}
 	n, align := tableBytes[K, V](len(slots))
 	a.Free(unsafe.Pointer(unsafe.SliceData(slots)), n, align)
+}
+
+// tableMeta returns the metadata bytes of a table, which follow its slots
+// in the same allocation.
+func tableMeta[K comparable, V owner any](slots []mapSlot[K, V]) []uint8 {
+	var p *mapSlot[K, V]
+	return unsafe.Slice((*uint8)(unsafe.Add(unsafe.Pointer(unsafe.SliceData(slots)), uintptr(len(slots))*unsafe.Sizeof(*p))), len(slots))
+}
+
+// dropEntries drops the key and value of every full slot, in slot order.
+// The slots are left as they are.
+func dropEntries[K comparable, V owner any](slots []mapSlot[K, V], meta []uint8) {
+	if !NeedsDrop[mapSlot[K, V]]() {
+		return
+	}
+	for i := range slots {
+		if meta[i]&mapFull != 0 {
+			unsafe.Drop(&slots[i])
+		}
+	}
+}
+
+// dropOwnedValues drops the values of the full slots and leaves their
+// places zero. The keys stay.
+func dropOwnedValues[K comparable, V owner any](slots []mapSlot[K, V], meta []uint8) {
+	if !NeedsDrop[V]() {
+		return
+	}
+	for i := range slots {
+		if meta[i]&mapFull != 0 {
+			_ = take(&slots[i].val)
+		}
+	}
+}
+
+// releaseCounted releases the counted references in the key and value of
+// every full slot. Owner values are not touched.
+func releaseCounted[K comparable, V owner any](slots []mapSlot[K, V], meta []uint8) {
+	if !HoldsStrings[K]() && !HoldsStrings[V]() {
+		return
+	}
+	for i := range slots {
+		if meta[i]&mapFull != 0 {
+			ReleaseValues(&slots[i].key, 1)
+			ReleaseValues(&slots[i].val, 1)
+		}
+	}
 }
 
 // grow makes room for an entry: a zero table that was never initialised
@@ -543,7 +665,8 @@ func (t *MapTable[K, V]) rebuild(size int) {
 		dst := &t.slots[j]
 		MoveValues(dst, src, 1)
 		if keep {
-			RetainValues(dst, 1)
+			RetainValues(&dst.key, 1)
+			RetainValues(&dst.val, 1)
 		}
 		t.meta[j] = m
 	}
@@ -554,7 +677,7 @@ func (t *MapTable[K, V]) rebuild(size int) {
 	if keep {
 		t.retireTable(oldSlots)
 	} else {
-		freeMapTable[K, V](t.a, oldSlots, false)
+		freeMapTable[K, V](t.a, oldSlots, freeKeep)
 	}
 }
 
@@ -577,7 +700,7 @@ func (t *MapTable[K, V]) freeRetired() {
 	for p := t.retired; p != 0; {
 		r := (*mapRetired)(unsafe.Pointer(p))
 		next := r.next
-		freeMapTable[K, V](t.a, unsafe.Slice((*mapSlot[K, V])(r.slots), r.size), true)
+		freeMapTable[K, V](t.a, unsafe.Slice((*mapSlot[K, V])(r.slots), r.size), freeRelease)
 		t.a.Free(unsafe.Pointer(r), unsafe.Sizeof(mapRetired{}), unsafe.Alignof(mapRetired{}))
 		p = next
 	}
@@ -604,7 +727,7 @@ func (t *MapTable[K, V]) Slot(i int) (*K, *V, bool) {
 // guarantees for changes made during the walk (see the top of the file).
 // It is an owner: dropping it ends the walk, which the compiler does at
 // the end of a range loop on every way out of it.
-type MapIter[K comparable, V any] owner struct {
+type MapIter[K comparable, V owner any] owner struct {
 	t     *MapTable[K, V]
 	slots []mapSlot[K, V] // the table the walk started on
 	meta  []uint8
@@ -664,10 +787,21 @@ func (it *MapIter[K, V]) next() *mapSlot[K, V] {
 // no more.
 func (it *MapIter[K, V]) Next() (K, V, bool) {
 	if s := it.next(); s != nil {
-		return s.key, s.val, true
+		return s.key, CopyValue(&s.val), true
 	}
 	var k K
 	var v V
+	return k, v, false
+}
+
+// NextView is Next for any V: it returns a copy of the key and View[V], the
+// value itself or a pointer to it when V is an owner.
+func (it *MapIter[K, V]) NextView() (K, View[V], bool) {
+	if s := it.next(); s != nil {
+		return s.key, ViewOf(&s.val), true
+	}
+	var k K
+	var v View[V]
 	return k, v, false
 }
 

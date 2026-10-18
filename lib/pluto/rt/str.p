@@ -481,16 +481,68 @@ func ReleaseValues[T owner any](p *T, n int) { notCalled() }
 
 // RetainValues takes a reference for every string in the n values of type
 // T at p, as copying them into a place that keeps them would.
-func RetainValues[T any](p *T, n int) { notCalled() }
+func RetainValues[T owner any](p *T, n int) { notCalled() }
 
 // MoveValues copies the n values of type T at src to dst (which may
-// overlap) without counting: the references move with the bytes, so the
-// source must not be released afterwards.
-func MoveValues[T any](dst, src *T, n int) { notCalled() }
+// overlap) without counting and without dropping what dst held: the
+// references and the ownership move with the bytes, so the source must be
+// overwritten or forgotten afterwards, never dropped.
+func MoveValues[T owner any](dst, src *T, n int) { notCalled() }
+
+// ZeroValues sets the n values of type T at p to the zero value without
+// dropping them: the places of values that were moved away.
+func ZeroValues[T owner any](p *T, n int) { notCalled() }
+
+// NeedsDrop reports whether dropping a value of type T does anything: T is
+// an owner, or holds strings or other counted references. Containers skip
+// the loops that drop their elements for the types where it is false.
+func NeedsDrop[T owner any]() bool {
+	notCalled()
+	return false
+}
+
+// CopyValue returns a copy of *p, counted as a copy of a T is (a string
+// gets a reference of its own). It is for the container methods that give
+// an element out by value; a T that is an owner has no copy, so a program
+// that calls one for an owner element does not compile.
+func CopyValue[T owner any](p *T) T {
+	notCalled()
+	var zero T
+	return zero
+}
+
+// MustCopy states that the code around it copies values of type T, as the
+// methods that give a container's values out by value do. It does nothing,
+// except that a program that reaches it with an owner T does not compile.
+func MustCopy[T owner any]() { notCalled() }
+
+// InitValue moves x into *p, which holds nothing, so that the place has no
+// old value to drop (an assignment would drop it, which for an owner is a
+// call of its Drop on the zero value).
+func InitValue[T owner any](p *T, x T) { notCalled() }
+
+// CopyValues copies the n values of type T at src to dst, which hold
+// nothing, counted as copies are. Like CopyValue, it does not compile for
+// an owner T.
+func CopyValues[T owner any](dst, src *T, n int) { notCalled() }
+
+// View names what an iterator over the elements of a container yields for
+// an element of type T: T itself, or *T, a view of the element, when T is
+// an owner (language spec sections 7.17 and 12.10, Owners in iterators).
+// The compiler decides the alias for each T, so that one generic container
+// method serves both.
+type View[T owner any] = *T
+
+// ViewOf returns what a container's iterator yields for the element at p:
+// a copy of *p, or p itself for an owner. The compiler expands it inline.
+func ViewOf[T owner any](p *T) View[T] {
+	notCalled()
+	return p
+}
 
 // HoldsStrings reports whether values of type T hold string references,
 // so that containers can skip loops of ReleaseValues for other types.
-func HoldsStrings[T any]() bool {
+func HoldsStrings[T owner any]() bool {
 	notCalled()
 	return false
 }

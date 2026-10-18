@@ -226,11 +226,31 @@ func (s *fnState) tempSlot(e ast.Expr, T types2.Type) *ssa.Value {
 }
 
 // movedOut reads a variable whose value moves out at id, and clears it.
-func (s *fnState) movedOut(lv lvalue) value {
+func (s *fnState) movedOut(lv lvalue, obj *types2.Var) value {
 	s.checkScopeMove(lv.ptr, lv.T)
 	v := s.materialize(s.loadLV(lv))
 	s.zero(lv.ptr, s.l.sizeof(unwrap(lv.T)))
+	if obj != nil && s.ownedVars[obj] {
+		return s.heldAfterMove(v)
+	}
 	return v
+}
+
+// heldAfterMove makes the result of moving a value out of its place the
+// holder of the references the place held. It matters when generic code
+// that moves its values of an owner type parameter is instantiated with a
+// counted type (a string): the place is cleared without releasing, so the
+// value must keep the references and release them unless a store takes them
+// over. Owners hold none of their own, and neither does a borrowed
+// parameter, whose value a store counts for itself.
+func (s *fnState) heldAfterMove(v value) value {
+	if !s.l.counted(v.T) {
+		return v
+	}
+	if v.addr {
+		return s.ownTemp(v.v, v.T)
+	}
+	return s.wordTemp(v.v, v.T, "moved")
 }
 
 // checkScopeMove checks, before a value of type T at ptr moves, that no

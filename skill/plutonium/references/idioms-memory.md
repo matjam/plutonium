@@ -104,7 +104,7 @@ func main() {
 
 ## 3. Counted values in a hash.Map
 
-Neither `map` nor `vec.Vec` nor `hash.Map` accepts an owner as element today (E3207); store a counted box. Reading `reg[name]` copies the reference, so `acct` below is the same account as the one in the map. Bind the copy to a variable before calling methods on it.
+A built-in `map` cannot hold an owner (E3213); a `hash.Map` or `vec.Vec` can (they own and drop their elements), and a counted box in either is the choice when many readers need the same object. Reading `reg[name]` copies the reference, so `acct` below is the same account as the one in the map. Bind the copy to a variable before calling methods on it.
 
 ```pluto-run
 package main

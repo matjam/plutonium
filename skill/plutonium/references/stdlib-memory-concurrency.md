@@ -151,14 +151,14 @@ type Fixed[T any] struct { _ unexported }  [view]
   func (f *Fixed[T]) Truncate(n int)
   func (f *Fixed[T]) Truncated() bool
   func (f *Fixed[T]) TryPush(x T) bool
-type Vec[T any] owner struct { _ unexported }  [owner (moves)]
+type Vec[T owner any] owner struct { _ unexported }  [owner (moves)]
   // A Vec is a growable sequence of T whose storage comes from an allocator.
-  func (v *Vec[T]) All() iter.Seq2[int, T]
+  func (v *Vec[T]) All() iter.Seq2[int, rt.View[T]]
   func (v *Vec[T]) Allocator() alloc.Allocator
   func (v *Vec[T]) Append(xs ...T)
-  func (v *Vec[T]) AppendSeq(seq iter.Seq[T])
+  func (v *Vec[T]) AppendSeq(seq func(yield func(T) bool))
   func (v *Vec[T]) At(i int) T
-  func (v *Vec[T]) Backward() iter.Seq2[int, T]
+  func (v *Vec[T]) Backward() iter.Seq2[int, rt.View[T]]
   func (v *Vec[T]) Cap() int
   func (v *Vec[T]) Clear()
   func (v *Vec[T]) Clone(a alloc.Allocator = alloc.Default()) Vec[T]
@@ -170,7 +170,7 @@ type Vec[T any] owner struct { _ unexported }  [owner (moves)]
   func (v *Vec[T]) Insert(i int, xs ...T)
   func (v *Vec[T]) Last() (T, bool)
   func (v *Vec[T]) Len() int
-  func (v *Vec[T]) Map[U any](f func(T) U, a alloc.Allocator = alloc.Default()) Vec[U]
+  func (v *Vec[T]) Map[U owner any](f func(T) U, a alloc.Allocator = alloc.Default()) Vec[U]
   func (v *Vec[T]) Pop() (T, bool)
   func (v *Vec[T]) Ptr(i int) *T
   func (v *Vec[T]) Push(x T)
@@ -182,13 +182,13 @@ type Vec[T any] owner struct { _ unexported }  [owner (moves)]
   func (v *Vec[T]) Slice() []T
   func (v *Vec[T]) SwapRemove(i int) T
   func (v *Vec[T]) Truncate(n int)
-  func (v *Vec[T]) Values() iter.Seq[T]
+  func (v *Vec[T]) Values() iter.Seq[rt.View[T]]
 func AppendString[D Appender[byte]](dst D, s string)
-func Collect[T any](seq iter.Seq[T], a alloc.Allocator = alloc.Default()) Vec[T]
-func Make[T any](n int, a alloc.Allocator = alloc.Default()) Vec[T]
-func New[T any](a alloc.Allocator = alloc.Default()) Vec[T]
+func Collect[T owner any](seq func(yield func(T) bool), a alloc.Allocator = alloc.Default()) Vec[T]
+func Make[T owner any](n int, a alloc.Allocator = alloc.Default()) Vec[T]
+func New[T owner any](a alloc.Allocator = alloc.Default()) Vec[T]
 func NewFixed[T any](storage []T) Fixed[T]
-func WithCapacity[T any](n int, a alloc.Allocator = alloc.Default()) Vec[T]
+func WithCapacity[T owner any](n int, a alloc.Allocator = alloc.Default()) Vec[T]
 ```
 
 ## pluto/hash
@@ -213,13 +213,13 @@ type FNV64a struct { _ unexported }  [value]
   func (h *FNV64a) WriteString(s string) (int, error)
 type Hasher interface { Hash(seed uint64) uint64 }  [view]
   // A Hasher is a key type that hashes itself.
-type Iter[K comparable, V any] struct { _ unexported }  [view]
+type Iter[K comparable, V owner any] struct { _ unexported }  [view]
   // An Iter walks the entries of a Map in the order All describes.
-  func (it *Iter[K, V]) Next() (K, V, bool)
+  func (it *Iter[K, V]) Next() (K, rt.View[V], bool)
   func (it *Iter[K, V]) Value() *V
-type Map[K comparable, V any] owner struct { _ unexported }  [owner (moves)]
+type Map[K comparable, V owner any] owner struct { _ unexported }  [owner (moves)]
   // A Map is a hash map from K to V whose table comes from an allocator.
-  func (m *Map[K, V]) All() iter.Seq2[K, V]
+  func (m *Map[K, V]) All() iter.Seq2[K, rt.View[V]]
   func (m *Map[K, V]) At(k K) V
   func (m *Map[K, V]) Clear()
   func (m *Map[K, V]) Clone(a alloc.Allocator = alloc.Default()) Map[K, V]
@@ -235,15 +235,17 @@ type Map[K comparable, V any] owner struct { _ unexported }  [owner (moves)]
   func (m *Map[K, V]) Init(capacity int, a alloc.Allocator = alloc.Default())
   func (m *Map[K, V]) InitFunc(capacity int, hash func(K) uint64, a alloc.Allocator = alloc.Default())
   func (m *Map[K, V]) InitSeed(capacity int, seed uint64, a alloc.Allocator = alloc.Default())
-  func (m *Map[K, V]) Insert(seq iter.Seq2[K, V])
+  func (m *Map[K, V]) Insert(seq func(yield func(K, V) bool))
   func (m *Map[K, V]) Iter() Iter[K, V]
   func (m *Map[K, V]) Keys() iter.Seq[K]
   func (m *Map[K, V]) Len() int
+  func (m *Map[K, V]) Pop() (K, V, bool)
   func (m *Map[K, V]) Ptr(k K) *V
+  func (m *Map[K, V]) Remove(k K) (V, bool)
   func (m *Map[K, V]) Set(k K, v V)
   func (m *Map[K, V]) SetIndex(k K, v V)
   func (m *Map[K, V]) Upsert(k K) (p *V, inserted bool)
-  func (m *Map[K, V]) Values() iter.Seq[V]
+  func (m *Map[K, V]) Values() iter.Seq[rt.View[V]]
 type Set[K comparable] owner struct { _ unexported }  [owner (moves)]
   // A Set is a set of K, a Map with no values.
   func (s *Set[K]) Add(k K) bool
@@ -275,7 +277,7 @@ func Bytes(b []byte, seed uint64) uint64
 func FNV1a(b []byte) uint64
 func FNV1aString(s string) uint64
 func Float64(f float64, seed uint64) uint64
-func NewMap[K comparable, V any](capacity int, a alloc.Allocator = alloc.Default()) Map[K, V]
+func NewMap[K comparable, V owner any](capacity int, a alloc.Allocator = alloc.Default()) Map[K, V]
 func NewSet[K comparable](capacity int, a alloc.Allocator = alloc.Default()) Set[K]
 func NewSipHash24(key [16]byte) SipHash24
 func String(s string, seed uint64) uint64

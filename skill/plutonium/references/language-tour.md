@@ -298,8 +298,8 @@ Type parameters work as in Go: constraints (`cmp.Ordered`, `comparable`, `any`, 
 generic types and **generic methods** (a method may have its own type parameters).
 
 - A type parameter admits an owner type only if declared `[T owner any]` (E3207 otherwise). In such code
-  values of `T` move. Today `vec.Vec[T]`, `hash.Map[K, V]` and the built-in `map` do **not** accept owner element
-  types (E3207, E3213; `known-gaps.md`): put `synced[T]`/`shared[T]` boxes in them, or link `owned[Node]` boxes yourself.
+  values of `T` move. `vec.Vec[T]` and `hash.Map[K, V]` accept owner elements and own them; the built-in `map` does
+  not (E3213): put `synced[T]`/`shared[T]` boxes in it, or use a `hash.Map`.
 - A generic type that stores an owner (a `vec.Vec[T]`, an `owned[T]`) is itself an owner and must be declared
   `owner` (E3202).
 - Constraint `portable` (section 8.9) means "can cross address spaces"; it is for kernels.

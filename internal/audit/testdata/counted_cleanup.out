@@ -27,14 +27,14 @@ package main
       ./main.p:18:18: may drop main.*E.Drop
     calls pluto/rt.addMapCount
       ./main.p:18:18: may drop pluto/rt.*MapIter[K, V].Drop
-      pluto/rt/map.p:632:5: call pluto/rt.addMapCount
+      pluto/rt/map.p:755:5: call pluto/rt.addMapCount
     calls pluto/rt.*MapTable[K, V].freeRetired
       ./main.p:18:18: may drop pluto/rt.*MapIter[K, V].Drop
-      pluto/rt/map.p:633:3: call pluto/rt.*MapTable[K, V].freeRetired
+      pluto/rt/map.p:756:3: call pluto/rt.*MapTable[K, V].freeRetired
     calls pluto/rt.freeMapTable
       ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
-      pluto/rt/map.p:462:35: call pluto/rt.*MapTable[K, V].Free
-      pluto/rt/map.p:447:4: call pluto/rt.freeMapTable
+      pluto/rt/map.p:519:35: call pluto/rt.*MapTable[K, V].Free
+      pluto/rt/map.p:504:4: call pluto/rt.freeMapTable
     calls pluto/rt.getg
       ./main.p:18:18: may drop pluto/alloc.*Restore.Drop
       pluto/alloc/alloc.p:55:3: call pluto/rt.UseAllocator
@@ -42,6 +42,79 @@ package main
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.*MapTable[K, V].retireTable
       ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
-      pluto/rt/map.p:462:35: call pluto/rt.*MapTable[K, V].Free
-      pluto/rt/map.p:445:4: call pluto/rt.*MapTable[K, V].retire
-      pluto/rt/map.p:563:37: call pluto/rt.*MapTable[K, V].retireTable
+      pluto/rt/map.p:519:35: call pluto/rt.*MapTable[K, V].Free
+      pluto/rt/map.p:502:4: call pluto/rt.*MapTable[K, V].retire
+      pluto/rt/map.p:686:37: call pluto/rt.*MapTable[K, V].retireTable
+    calls pluto/rt.printString
+      ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
+      pluto/rt/map.p:519:35: call pluto/rt.*MapTable[K, V].Free
+      pluto/rt/map.p:501:4: call pluto/rt.dropOwnedValues
+      pluto/rt/map.p:607:6: call pluto/rt.NeedsDrop
+      pluto/rt/str.p:500:2: call pluto/rt.notCalled
+      pluto/rt/str.p:551:2: call pluto/rt.panicMessage
+      pluto/rt/rt.p:476:2: call pluto/rt.printString
+    calls pluto/rt.casUint64
+      ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
+      pluto/rt/map.p:519:35: call pluto/rt.*MapTable[K, V].Free
+      pluto/rt/map.p:501:4: call pluto/rt.dropOwnedValues
+      pluto/rt/map.p:607:6: call pluto/rt.NeedsDrop
+      pluto/rt/str.p:500:2: call pluto/rt.notCalled
+      pluto/rt/str.p:551:2: call pluto/rt.panicMessage
+      pluto/rt/rt.p:475:2: call pluto/rt.startPanic
+      pluto/rt/panic.p:126:5: call pluto/rt.casUint64
+    calls pluto/rt.loadUint64
+      ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
+      pluto/rt/map.p:519:35: call pluto/rt.*MapTable[K, V].Free
+      pluto/rt/map.p:501:4: call pluto/rt.dropOwnedValues
+      pluto/rt/map.p:607:6: call pluto/rt.NeedsDrop
+      pluto/rt/str.p:500:2: call pluto/rt.notCalled
+      pluto/rt/str.p:551:2: call pluto/rt.panicMessage
+      pluto/rt/rt.p:475:2: call pluto/rt.startPanic
+      pluto/rt/panic.p:132:5: call pluto/rt.loadUint64
+    calls pluto/rt.lastResort
+      ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
+      pluto/rt/map.p:519:35: call pluto/rt.*MapTable[K, V].Free
+      pluto/rt/map.p:501:4: call pluto/rt.dropOwnedValues
+      pluto/rt/map.p:607:6: call pluto/rt.NeedsDrop
+      pluto/rt/str.p:500:2: call pluto/rt.notCalled
+      pluto/rt/str.p:551:2: call pluto/rt.panicMessage
+      pluto/rt/rt.p:475:2: call pluto/rt.startPanic
+      pluto/rt/panic.p:135:2: call pluto/rt.lastResort
+    calls pluto/rt.callerFrame
+      ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
+      pluto/rt/map.p:519:35: call pluto/rt.*MapTable[K, V].Free
+      pluto/rt/map.p:501:4: call pluto/rt.dropOwnedValues
+      pluto/rt/map.p:607:6: call pluto/rt.NeedsDrop
+      pluto/rt/str.p:500:2: call pluto/rt.notCalled
+      pluto/rt/str.p:551:2: call pluto/rt.panicMessage
+      pluto/rt/rt.p:481:2: call pluto/rt.fatal
+      pluto/rt/panic.p:166:2: call pluto/rt.callerFrame
+    calls pluto/rt.raise
+      ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
+      pluto/rt/map.p:519:35: call pluto/rt.*MapTable[K, V].Free
+      pluto/rt/map.p:501:4: call pluto/rt.dropOwnedValues
+      pluto/rt/map.p:607:6: call pluto/rt.NeedsDrop
+      pluto/rt/str.p:500:2: call pluto/rt.notCalled
+      pluto/rt/str.p:551:2: call pluto/rt.panicMessage
+      pluto/rt/rt.p:481:2: call pluto/rt.fatal
+      pluto/rt/panic.p:169:2: call pluto/rt.raise
+    calls pluto/rt.syscall3
+      ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
+      pluto/rt/map.p:519:35: call pluto/rt.*MapTable[K, V].Free
+      pluto/rt/map.p:501:4: call pluto/rt.dropOwnedValues
+      pluto/rt/map.p:607:6: call pluto/rt.NeedsDrop
+      pluto/rt/str.p:500:2: call pluto/rt.notCalled
+      pluto/rt/str.p:551:2: call pluto/rt.panicMessage
+      pluto/rt/rt.p:475:2: call pluto/rt.startPanic
+      pluto/rt/panic.p:125:8: call pluto/rt.selfID
+      pluto/rt/rt_linux.p:314:38: call pluto/rt.syscall3
+    calls pluto/rt.inc32
+      ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
+      pluto/rt/map.p:519:35: call pluto/rt.*MapTable[K, V].Free
+      pluto/rt/map.p:501:4: call pluto/rt.dropOwnedValues
+      pluto/rt/map.p:607:6: call pluto/rt.NeedsDrop
+      pluto/rt/str.p:500:2: call pluto/rt.notCalled
+      pluto/rt/str.p:551:2: call pluto/rt.panicMessage
+      pluto/rt/rt.p:475:2: call pluto/rt.startPanic
+      pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
+      pluto/rt/sched.p:304:3: call pluto/rt.inc32
