@@ -832,6 +832,9 @@ func (w *walker) publish(val origins) {
 	for _, o := range val {
 		switch o.vp.root.kind {
 		case rFresh:
+			if w.st.pub == nil {
+				w.st.pub = map[ast.Node]bool{} // a dead state, after a return, has none
+			}
 			w.st.pub[o.vp.root.node] = true
 		case rParam:
 			if w.quiet == 0 {
