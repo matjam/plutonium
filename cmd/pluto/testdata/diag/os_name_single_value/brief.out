@@ -1,0 +1,4 @@
+$DIR/main.p:15:10: assignment mismatch: 1 variable but e.Name returns 2 values
+$DIR/main.p:18:10: assignment mismatch: 1 variable but os.Getenv returns 2 values
+$DIR/main.p:21:19: multiple-value e.Name() (value of type (string, error)) in single-value context
+$DIR/main.p:23:11: assignment mismatch: 2 variables but os.LookupEnv returns 3 values

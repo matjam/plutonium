@@ -54,7 +54,7 @@ var goPlain = map[string]Entry{
 		Fixed:   "var p *Node = nil",
 	},
 	"WrongAssignCount": {
-		Text:    "The number of values on the right does not match the number of variables on the left. A call that returns several results must be assigned to that many variables; use _ for results you do not need.",
+		Text:    "The number of values on the right does not match the number of variables on the left. A call that returns several results must be assigned to that many variables; use _ for results you do not need.\nThe functions of pluto/os that return a name or value from the operating system (DirEntry.Name, Getenv, LookupEnv, Arg, and so on) return an error as well, because the bytes may not be valid UTF-8, which a string must be. Assign both results, or use the form with Lossy in its name to display the value, or RawName and the Bytes forms to get the exact bytes.",
 		Spec:    pspec("12.7", "Assignment statements"),
 		Example: "n := strconv.Atoi(s)",
 		Fixed:   "n, err := strconv.Atoi(s)",
@@ -107,7 +107,7 @@ var goPlain = map[string]Entry{
 		Spec: pspec("15.4", "Program execution"),
 	},
 	"TooManyValues": {
-		Text:    "A function that returns several results is used where one value is expected. Assign the results to variables first, and use the one you need.",
+		Text:    "A function that returns several results is used where one value is expected. Assign the results to variables first, and use the one you need.\nThis includes the functions of pluto/os that return a name or value from the operating system (DirEntry.Name, Getenv, and so on): they return an error as well, because the bytes may not be valid UTF-8. Use the form with Lossy in its name to display the value, or RawName and the Bytes forms to get the exact bytes.",
 		Spec:    pspec("11.14", "Calls"),
 		Example: "x := strconv.Atoi(s) + 1",
 		Fixed:   "n, err := strconv.Atoi(s)\nx := n + 1",

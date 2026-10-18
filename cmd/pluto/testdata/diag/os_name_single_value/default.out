@@ -1,0 +1,96 @@
+$DIR/main.p:15:10: assignment mismatch: 1 variable but e.Name returns 2 values
+    DirEntry.Name returns the name and an error. A name or value that the
+    operating system gives the program is bytes, and the system does not promise
+    that they are valid UTF-8, which a string must be. Plutonium never changes
+    the bytes into a string without saying so: when they are not valid UTF-8 the
+    call returns a *os.NameError that holds them, and a use that takes fewer
+    values would leave that error out. (Go's version returns a string holding
+    the bytes as they are, which a Plutonium string cannot hold.)
+    Assign every result and check the error. If you only display the value,
+    NameLossy returns a string with each invalid byte replaced by U+FFFD, and
+    its name says so. If you need the exact bytes, for example to open the file,
+    RawName returns them.
+    To use the value and handle a name that is not valid UTF-8:
+        name, err := e.Name()
+        if err != nil {
+            // err is a *os.NameError: err.Bytes holds the exact bytes
+        }
+    To display it, with U+FFFD for each invalid byte:
+        s := e.NameLossy()
+    To get the exact bytes:
+        b := e.RawName()
+    (see "Assignment statements" in the Plutonium spec, section 12.7)
+    (run "pluto explain E0017" for a longer explanation)
+
+$DIR/main.p:18:10: assignment mismatch: 1 variable but os.Getenv returns 2 values
+    os.Getenv returns the value and an error. A name or value that the operating
+    system gives the program is bytes, and the system does not promise that they
+    are valid UTF-8, which a string must be. Plutonium never changes the bytes
+    into a string without saying so: when they are not valid UTF-8 the call
+    returns a *os.NameError that holds them, and a use that takes fewer values
+    would leave that error out. (Go's version returns a string holding the bytes
+    as they are, which a Plutonium string cannot hold.)
+    Assign every result and check the error. If you only display the value,
+    GetenvLossy returns a string with each invalid byte replaced by U+FFFD, and
+    its name says so. If you need the exact bytes, for example to open the file,
+    GetenvBytes returns them.
+    To use the value and handle a name that is not valid UTF-8:
+        v, err := os.Getenv("HOME")
+        if err != nil {
+            // err is a *os.NameError: err.Bytes holds the exact bytes
+        }
+    To display it, with U+FFFD for each invalid byte:
+        s := os.GetenvLossy("HOME")
+    To get the exact bytes:
+        b := os.GetenvBytes("HOME") // the name is a []byte
+    (see "Assignment statements" in the Plutonium spec, section 12.7)
+    (run "pluto explain E0017" for a longer explanation)
+
+$DIR/main.p:21:19: multiple-value e.Name() (value of type (string, error)) in single-value context
+    DirEntry.Name returns the name and an error. A name or value that the
+    operating system gives the program is bytes, and the system does not promise
+    that they are valid UTF-8, which a string must be. Plutonium never changes
+    the bytes into a string without saying so: when they are not valid UTF-8 the
+    call returns a *os.NameError that holds them, and a use that takes fewer
+    values would leave that error out. (Go's version returns a string holding
+    the bytes as they are, which a Plutonium string cannot hold.)
+    Assign every result and check the error. If you only display the value,
+    NameLossy returns a string with each invalid byte replaced by U+FFFD, and
+    its name says so. If you need the exact bytes, for example to open the file,
+    RawName returns them.
+    To use the value and handle a name that is not valid UTF-8:
+        name, err := e.Name()
+        if err != nil {
+            // err is a *os.NameError: err.Bytes holds the exact bytes
+        }
+    To display it, with U+FFFD for each invalid byte:
+        s := e.NameLossy()
+    To get the exact bytes:
+        b := e.RawName()
+    (see "Calls" in the Plutonium spec, section 11.14)
+    (run "pluto explain E0041" for a longer explanation)
+
+$DIR/main.p:23:11: assignment mismatch: 2 variables but os.LookupEnv returns 3 values
+    os.LookupEnv returns the value, whether the variable is set, and an error. A
+    name or value that the operating system gives the program is bytes, and the
+    system does not promise that they are valid UTF-8, which a string must be.
+    Plutonium never changes the bytes into a string without saying so: when they
+    are not valid UTF-8 the call returns a *os.NameError that holds them, and a
+    use that takes fewer values would leave that error out. (Go's version
+    returns a string holding the bytes as they are, which a Plutonium string
+    cannot hold.)
+    Assign every result and check the error. If you only display the value,
+    LookupEnvLossy returns a string with each invalid byte replaced by U+FFFD,
+    and its name says so. If you need the exact bytes, for example to open the
+    file, LookupEnvBytes returns them.
+    To use the value and handle a name that is not valid UTF-8:
+        v, ok, err := os.LookupEnv("HOME")
+        if err != nil {
+            // err is a *os.NameError: err.Bytes holds the exact bytes
+        }
+    To display it, with U+FFFD for each invalid byte:
+        s := os.LookupEnvLossy("HOME")
+    To get the exact bytes:
+        b := os.LookupEnvBytes("HOME") // the name is a []byte
+    (see "Assignment statements" in the Plutonium spec, section 12.7)
+    (run "pluto explain E0017" for a longer explanation)
