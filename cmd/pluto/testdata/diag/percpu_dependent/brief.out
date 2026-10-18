@@ -1,0 +1,3 @@
+$DIR/main.p:33:2: ticks = ... uses the per-CPU variable ticks outside a region where the task cannot move to another processor
+$DIR/main.p:38:3: current = ... uses the per-CPU variable current outside a region where the task cannot move to another processor
+$DIR/main.p:44:2: the call of set uses the per-CPU variable current outside a region where the task cannot move to another processor

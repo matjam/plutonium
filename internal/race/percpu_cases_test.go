@@ -22,9 +22,11 @@ func get() *Thread { return current }
 
 func main() {
 	t := get()
-	set(t)
+	println(t == nil)
+	set(&Thread{id: 1})
 	d := depth
-	depth = d + 1
+	println(d)
+	depth = 7
 	println(current == nil)
 }`},
 	{"increment with preemption disabled", `

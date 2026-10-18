@@ -18,6 +18,66 @@ type state struct {
 	pubAll  bool     // every allocation may have been published (after a goto)
 	pub     map[ast.Node]bool
 	running runSet // the check of scoped tasks: the tasks that may be running (scope.go)
+	// snaps are the regions this function opened that were held where each
+	// load that a dependent per-CPU store depends on was made (dep.go). The
+	// map is never changed once it is shared: setSnap copies it.
+	snaps map[int]lockset
+}
+
+// setSnap records the regions held at load n.
+func (s *state) setSnap(n int, regions lockset) {
+	m := make(map[int]lockset, len(s.snaps)+1)
+	for k, v := range s.snaps {
+		m[k] = v
+	}
+	m[n] = regions
+	s.snaps = m
+}
+
+// ownRegions returns the regions this function opened that are held now.
+func (s *state) ownRegions() lockset {
+	var out lockset
+	for _, l := range s.locks {
+		if isRegion(l.place) {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// joinSnaps returns the snapshots after either of two paths. A region
+// released on the way no longer covers a load made before it, so the
+// snapshots keep only the regions still held (locks).
+func joinSnaps(a, b map[int]lockset, locks lockset) map[int]lockset {
+	if len(a) == 0 && len(b) == 0 {
+		return nil
+	}
+	out := make(map[int]lockset, len(a)+len(b))
+	for k, v := range a {
+		if w, ok := b[k]; ok {
+			v = v.meet(w)
+		}
+		out[k] = v.meet(locks)
+	}
+	for k, v := range b {
+		if _, ok := a[k]; !ok {
+			out[k] = v.meet(locks)
+		}
+	}
+	return out
+}
+
+func sameSnaps(a, b map[int]lockset) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		w, ok := b[k]
+		if !ok || !v.equal(w) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *state) clone() *state {
@@ -46,6 +106,7 @@ func join(a, b *state) *state {
 	out.spawned = a.spawned || b.spawned
 	out.pubAll = a.pubAll || b.pubAll
 	out.running = a.running.union(b.running)
+	out.snaps = joinSnaps(a.snaps, b.snaps, out.locks)
 	for k := range b.pub {
 		out.pub[k] = true
 	}
@@ -56,7 +117,7 @@ func (s *state) equal(t *state) bool {
 	if s.dead || t.dead {
 		return s.dead == t.dead
 	}
-	if !s.locks.equal(t.locks) || !s.rel.equal(t.rel) || s.spawned != t.spawned || s.pubAll != t.pubAll || len(s.pub) != len(t.pub) || !s.running.equal(t.running) {
+	if !s.locks.equal(t.locks) || !s.rel.equal(t.rel) || s.spawned != t.spawned || s.pubAll != t.pubAll || len(s.pub) != len(t.pub) || !s.running.equal(t.running) || !sameSnaps(s.snaps, t.snaps) {
 		return false
 	}
 	for k := range s.pub {

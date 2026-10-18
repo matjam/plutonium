@@ -35,6 +35,7 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 	if tv.IsType() {
 		return []origins{w.conversion(e, tv.Type)}
 	}
+	w.cpuCall(e)
 	if t := w.a.scoped.Tasks[e]; t != nil {
 		w.scopedTaskCall(e, t)
 		return nil
@@ -108,6 +109,7 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 		return w.ringCall(e, t)
 	}
 	args := w.args(e, t.sig)
+	w.cpuCallStore(e)
 	if fn := w.calledFunc(e); scoped.StartsTaskWithFunc(fn) {
 		// A runtime or library function that starts a task with its func
 		// arguments (language spec section 12.12): the task runs them.

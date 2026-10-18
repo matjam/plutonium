@@ -211,6 +211,16 @@ type analyzer struct {
 	allocFns    []*function            // the Alloc and Free methods of installed allocators (when there are handlers)
 	allocDone   bool
 
+	// Stores that depend on a load of the same per-CPU variable (dep.go).
+	cpuLoads     []*cpuLoad
+	cpuLoadAt    map[token.Pos]int
+	cpuLoadCall  map[loadKey]int
+	cpuCallLoads map[*ast.CallExpr][]int
+	cpuDeps      map[token.Pos]*cpuDepSite
+	cpuDepCalls  map[*ast.CallExpr]*cpuDepSite
+	cpuFn        map[*function]*cpuFnInfo
+	litLoads     map[*function]map[*types2.Var]bool
+
 	owned   ownedViews // view fields that own what they point to (ownedview.go)
 	declPkg map[*types2.Package]*load.Package
 
