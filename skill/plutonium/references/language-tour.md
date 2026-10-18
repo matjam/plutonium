@@ -6,7 +6,7 @@ new. Every program is compiled and run by the skill's test (`go test ./tools/ski
 
 Contents: 1 program layout, 2 types and kinds, 3 declarations, 4 strings, 5 arrays, slices, vectors and
 maps, 6 control flow, 7 generics, 8 enums, unions and packed types, 9 interfaces, 10 defer, 11 closures,
-12 built-in functions, 13 numbers and where to go next.
+12 built-in functions, 13 errors and the or clause, 14 tasks and `sync.Scope`, 15 numbers and where to go next.
 
 ## 1. Program layout (chapters 14, 15)
 
@@ -51,38 +51,6 @@ Every type has a **kind** that decides what assignment, passing and the end of a
 A struct takes the strongest kind among its fields, except that a struct with an owner field **must be
 declared `owner`** (E3202). Sizes: `int`, `uint`, `uintptr` are 64 bits everywhere; `byte` is `uint8`; `rune` is
 `int32`; a string and a slice are 3 words, an interface 2.
-
-```pluto-run
-package main
-
-import "pluto/fmt"
-
-type Point struct{ X, Y int } // value
-type Named struct {           // counted: a string field is counted
-	P    Point
-	Name string
-}
-type File owner struct{ fd int } // owner: declared, moves
-
-func (f *File) Drop() { fmt.Println("closing", f.fd) }
-
-func main() {
-	a := Named{Point{1, 2}, "a"}
-	b := a // a copy; the string is counted, not duplicated
-	b.P.X = 9
-	fmt.Println(a.P.X, b.P.X, a.Name == b.Name)
-
-	f := File{fd: 3}
-	g := f // moves: f holds nothing now, so using f again is E3301
-	fmt.Println(g.fd)
-} // g is dropped here: "closing 3"
-```
-
-```output
-1 9 true
-3
-closing 3
-```
 
 Pointers `*T` are views: they never free anything and may not outlive what they point at (section 18.3).
 Pointer arithmetic does not exist. Slices, arrays, structs, maps, channels, pointers, funcs and interfaces
@@ -162,52 +130,32 @@ package main
 import (
 	"pluto/fmt"
 	"pluto/strings"
-	"pluto/unicode/utf8"
 )
 
 func main() {
 	s := "héllo, wörld"
-	fmt.Println(len(s), utf8.RuneCountInString(s))
-	for i, r := range "añb" {
-		fmt.Println(i, string(r))
-	}
-	head := strings.Slice(s, 0, 3) // "hé": byte 3 ends the é
-	fmt.Println(head, strings.SliceFrom(s, 7))
+	fmt.Println(len(s), strings.Slice(s, 0, 3), strings.SliceFrom(s, 7))
 	fmt.Println(strings.Truncate(s, 2)) // "h": byte 2 is inside the é
+	for i, r := range "añb" {
+		fmt.Print(i, ":", string(r), " ")
+	}
+	fmt.Println()
 	before, after, ok := strings.Cut("key=value", "=")
 	fmt.Println(before, after, ok)
-
-	var b strings.Builder
-	for i := 0; i < 3; i++ {
-		b.WriteString("ab")
-		b.WriteByte('-')
-	}
-	fmt.Println(b.String())
-
 	text, err := strings.FromUTF8([]byte{0x68, 0x69})
-	fmt.Println(text, err)
 	bs := strings.Bytes("hey") // an owner: a vec.Vec[byte]
-	fmt.Println(len(bs), bs.Slice())
 	var buf [8]byte
 	n := copy(buf[:], "hello")
-	fmt.Println(n, buf)
-	fmt.Println(string(rune(65)), string('x'))
+	fmt.Println(text, err, bs.Slice(), n, string(rune(65)))
 }
 ```
 
 ```output
-14 12
-0 a
-1 ñ
-3 b
-hé  wörld
+14 hé  wörld
 h
+0:a 1:ñ 3:b
 key value true
-ab-ab-ab-
-hi <nil>
-3 [104 101 121]
-5 [104 101 108 108 111 0 0 0]
-A x
+hi <nil> [104 101 121] 5 A
 ```
 
 ## 5. Arrays, slices, vectors and maps (sections 7.4, 7.5, 7.10, 13)
@@ -263,9 +211,6 @@ func main() {
 	v[0] = 100
 	fmt.Println(last, v[0], v)
 
-	w := slices.Clone(arr[:3]) // a new owner
-	w.Push(99)
-	fmt.Println(w)
 	slices.Sort(arr[:])
 	fmt.Println(arr)
 	k := slices.Delete(arr[:], 1, 3) // in place; returns the shorter view
@@ -277,9 +222,6 @@ func main() {
 	m2["b"] = 2
 	delete(m, "a")
 	fmt.Println(m, len(m2))
-
-	z := vec.Make[byte](4) // 4 zero bytes
-	fmt.Println(z.Slice())
 }
 ```
 
@@ -288,11 +230,9 @@ func main() {
 [20 3 4 5]
 [0 1 4 9 16] 5 30
 16 100 [100 1 4 9]
-[1 20 3 99]
 [1 3 4 5 20]
 [1 5 20]
 map[b:2] 1
-[0 0 0 0]
 ```
 
 ## 6. Control flow (chapter 12)
@@ -339,32 +279,16 @@ func main() {
 	for i := range 3 {
 		fmt.Print(i, " ")
 	}
-	fmt.Println()
 	for l := range Level {
 		fmt.Print(l, " ")
 	}
 	fmt.Println(len(Level))
-outer:
-	for i := 0; i < 3; i++ {
-		for j := 0; j < 3; j++ {
-			if j == 2 {
-				continue outer
-			}
-			if i == 2 {
-				break outer
-			}
-			fmt.Print(i, j, ";")
-		}
-	}
-	fmt.Println()
 	fmt.Println(classify(nil), classify(3), classify("s"), classify(fmt.Errorf("e")), classify(2.5))
 }
 ```
 
 ```output
-0 1 2
-Debug Info Warn 3
-0 0;0 1;1 0;1 1;
+0 1 2 Debug Info Warn 3
 nil integer 3 string s error e other
 ```
 
@@ -386,7 +310,6 @@ package main
 import (
 	"pluto/cmp"
 	"pluto/fmt"
-	"pluto/hash"
 	"pluto/vec"
 )
 
@@ -416,29 +339,23 @@ func main() {
 	x, _ := st.Pop()
 	fmt.Println(x, Max(3, 9), Max("a", "b"))
 	fmt.Println(Pair[int]{1, 2}.Apply(func(n int) float64 { return float64(n) / 2 }))
-
-	counts := hash.NewMap[string, int](8) // an owner; indexing works through Index/SetIndex
-	counts["a"] += 2
-	counts["b"]++
-	n, ok := counts["zz"]
-	fmt.Println(counts["a"], n, ok, len(counts))
 }
 ```
 
 ```output
 b 9 b
 {0.5 1}
-2 0 false 2
 ```
 
 ## 8. Enums, unions and packed types (sections 7.12, 7.13, 7.14)
 
 - `enum`: a closed set of named integer constants. The first member is 0. Members are selected as
   `Color.Red` and bare in a `case`. No arithmetic, and untyped constants are not assignable (`var c Color = 1`
-  is E2315). Convert an integer with the comma-ok form `c, ok := Color(n)`. `len(Color)` and
+  is an error: E2315 in the specification, E0023 in today's compiler). Convert an integer with the comma-ok form `c, ok := Color(n)`. `len(Color)` and
   `for c := range Color` use the members. `String()` is generated.
 - `union`: a tagged union, payloads inline, no allocation. Build with `Shape.Rect{w: 2, h: 3}`,
-  `Shape.Dot`, `Result[int].Ok(5)`. Take apart with a type switch (`case Circle:` names the variant; `v` is its
+  `Shape.Dot`, and for a generic union `type Result[T any] union{ Ok T; Err string }` the instance's variant,
+  `Result[int].Ok(5)`. Take apart with a type switch (`case Circle:` names the variant; `v` is its
   payload). The zero value is the **first** variant. A union with an owner payload must be `owner union`.
 - `packed`: bit-exact layout for registers and headers; see `kernel-mode.md` for `volatile`, `ring` and more.
 
@@ -481,12 +398,6 @@ func area(s Shape) float64 {
 	}
 }
 
-type Flags packed uint8 {
-	ready bits[bool, 1]
-	mode  bits[uint8, 3]
-	_     bits[uint8, 4]
-}
-
 func main() {
 	for c := range Color {
 		fmt.Print(c, ":", name(c), " ")
@@ -496,20 +407,12 @@ func main() {
 		fmt.Println("7 is not a color:", c)
 	}
 	fmt.Println(area(Shape.Rect{w: 2, h: 3}), area(Shape.Dot), Shape.Circle{r: 1})
-	if r, ok := Shape(Shape.Rect{w: 1, h: 2}).(Shape.Rect); ok {
-		fmt.Println("rect", r.h)
-	}
-	f := Flags{ready: true, mode: 5}
-	f.mode++
-	fmt.Println(f.ready, f.mode, uint8(f))
 }
 ```
 
 ```output
 Red:r Green:g Blue:b 7 is not a color: Red
 6 0 Circle({1})
-rect 2
-true 6 13
 ```
 
 ## 9. Interfaces (section 7.9)
@@ -527,34 +430,22 @@ Interfaces and type switches work as in Go, with ownership rules:
   interface from the function is an error (E3001). Return a pointer to something that lives long enough, or a
   small error value (sections 7.9, 16.2).
 
-```pluto-run
+```pluto-compile
 package main
-
-import "pluto/fmt"
 
 type Buf owner struct{ data []byte }
 
-func (b *Buf) Len() int   { return len(b.data) }
-func (b Buf) Finish() int { return len(b.data) } // consumes b
+func (b *Buf) Len() int   { return len(b.data) } // in the method set of *Buf
+func (b Buf) Finish() int { return len(b.data) } // consumes b: in no interface's method set
 
 type Lener interface{ Len() int }
 
 func show(b Buf) int {
-	var l Lener = &b // a view of b: *Buf has Len
-	n := l.Len()
-	fmt.Println("lent:", n)
-	return n + b.Finish() // b is consumed here
+	var l Lener = &b // a view of b; "var l Lener = b" is an error
+	return l.Len() + b.Finish()
 }
 
-func main() {
-	var arr [3]byte
-	fmt.Println(show(Buf{data: arr[:]}))
-}
-```
-
-```output
-lent: 3
-6
+func main() { _ = show(Buf{}) }
 ```
 
 ## 10. Defer (section 12.19)
@@ -564,39 +455,9 @@ there; `defer x.Drop()` or `defer x.Close()` (pointer receiver) saves `&x`. A de
 function's variables are dropped. Each `defer` statement has one slot, so a `defer` inside a loop that a path can
 reach again is **E2530**: move the loop body into a function (a loop that leaves right after the `defer`, such as
 `mu.Lock(); defer mu.Unlock(); return v`, is fine). Only calls that may stand as a statement can be deferred as
-built-ins (`clear`, `close`, `copy`, `delete`, `panic`, `print`, `println`; E2532 for the rest). A function has at most 64 defers. There is no
-`recover`; on a panic the hosted runtime runs the pending deferred calls, then exits with status 2.
-
-```pluto-run
-package main
-
-import "pluto/fmt"
-
-type Res owner struct{ name string }
-
-func (r *Res) Drop() { fmt.Println("drop", r.name) }
-
-func process(name string) {
-	r := Res{name: name}
-	defer fmt.Println("deferred", name)
-	fmt.Println("using", r.name)
-}
-
-func main() {
-	process("a") // the defer runs, then r is dropped
-	a := Res{name: "outer"}
-	defer a.Drop() // saves &a; a is dropped by the defer, not again at scope end
-	fmt.Println("end of main")
-}
-```
-
-```output
-using a
-deferred a
-drop a
-end of main
-drop outer
-```
+built-ins (`clear`, `close`, `copy`, `delete`, `panic`, `print`, `println`; E2532 for the rest). A function has at
+most 64 defers. There is no `recover`; on a panic the hosted runtime runs the pending deferred calls, then exits with
+status 2. A worked example with `Drop` is in `ownership-and-memory.md`.
 
 ## 11. Closures and function values (sections 7.8, 11.4, 11.5)
 
@@ -621,7 +482,104 @@ captures a loop variable past its iteration is E3006. Pass values as arguments t
 | `print`, `println` | write to standard error, any integer, float, bool, string, pointer |
 | absent | `append` (E2013), `recover` (E2004), `complex`, `real`, `imag` (E2006) |
 
-## 13. Numbers and where to go next
+## 13. Errors and the or clause (chapters 11.27, 16)
+
+A failure is an `error` result. `x := f() or return` calls `f`; if its last result (which must be exactly `error`) is
+not `nil`, the clause runs with `err` declared and must leave (`return`, `break`, `continue`, `goto`, `panic`, or a
+block that ends in one). `return` alone passes `err` up unchanged; `return 0, err` and `return fmt.Errorf("...%w", err)`
+are the forms with other results. Details and the error table: `errors-and-panics.md`.
+
+```pluto-run
+package main
+
+import (
+	"pluto/errors"
+	"pluto/fmt"
+	"pluto/strconv"
+)
+
+var ErrNegative = errors.New("negative")
+
+func parse(s string) (int, error) {
+	n := strconv.Atoi(s) or return 0, fmt.Errorf("parse %q: %w", s, err) // err is declared by the clause
+	if n < 0 {
+		return 0, ErrNegative
+	}
+	return n, nil
+}
+
+func sum(xs []string) (int, error) {
+	total := 0
+	for _, x := range xs {
+		n := parse(x) or return 0, err
+		total += n
+	}
+	return total, nil
+}
+
+func main() {
+	fmt.Println(sum([]string{"1", "2"}))
+	_, err := sum([]string{"1", "-5"})
+	fmt.Println(err, errors.Is(err, ErrNegative))
+	_, err = sum([]string{"x"})
+	fmt.Println(err)
+}
+```
+
+```output
+3 <nil>
+negative true
+parse "x": strconv.Atoi: parsing "x": invalid syntax
+```
+
+## 14. Tasks and sync.Scope (sections 12.12, 19.1, 19.4)
+
+`task f(x)` starts a task; its arguments are copied (owners move) and must be sendable. Tasks talk over channels.
+A `sync.Scope` starts tasks that may use the caller's variables and joins them at `Wait` or at the end of the
+scope; shared writes need one lock, an atomic, or disjoint indexes. More: `concurrency.md`.
+
+```pluto-run
+package main
+
+import (
+	"pluto/fmt"
+	"pluto/sync"
+)
+
+func square(n int, out chan<- int) { out <- n * n }
+
+func main() {
+	out := make(chan int)
+	for i := 1; i <= 3; i++ {
+		task square(i, out) // the arguments are copied into the task
+	}
+	sum := 0
+	for i := 0; i < 3; i++ {
+		sum += <-out
+	}
+	fmt.Println(sum)
+
+	var mu sync.Mutex
+	total := 0
+	var s sync.Scope // tasks that may use main's variables, joined before s ends
+	for i := 1; i <= 100; i++ {
+		s.Task(func() {
+			mu.Lock()
+			total += i
+			mu.Unlock()
+		})
+	}
+	s.Wait()
+	fmt.Println(total)
+}
+```
+
+```output
+14
+5050
+```
+
+## 15. Numbers and where to go next
 
 Integer arithmetic wraps on overflow, division by zero panics, floats never panic, there are no complex numbers,
 and numeric conversions are explicit (section 11.24).

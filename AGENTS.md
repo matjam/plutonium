@@ -124,6 +124,16 @@ End-to-end tests live in `internal/build`:
   memory than before: fix that rather than raising the cap. Linux only
   (`/proc`); elsewhere both do nothing.
 
+## The agent skill
+
+`skill/plutonium/` is an installable skill that teaches an LLM coding agent to write Plutonium (see its
+`README.md` for installation). Its examples are compiled and run by `go test ./tools/skillcheck`, so a compiler or
+library change that breaks an example fails that test: fix the text, or the compiler if it now disagrees with the
+specification. `references/stdlib*.md` and `references/diagnostics.md` are generated; after the library or the
+diagnostics catalog changes run `skill/plutonium/tools/regenerate.sh` (`SKILLCHECK_FRESH=1 go test ./tools/skillcheck
+-run TestGeneratedFresh` tells whether they are stale). `references/known-gaps.md` lists where the code differs from
+the specification today; each item is guarded by a block that fails when the gap closes, so delete the item then.
+
 ## Directives
 
 Using the language should not need an understanding of how the compiler
