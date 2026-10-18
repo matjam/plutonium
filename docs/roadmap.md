@@ -205,7 +205,7 @@ against the corrected specification. The immediate implementation order is:
      section 20.3: the compiler's directive table, `internal/diag/catalog_own.go`, the skill's
      `references/kernel-mode.md` and `references/diagnostics.md`, `pluto explain` and the hover text.
 
-122. **Pointer-receiver calls on a field reached through a box** (done; sections 11.14 and 7.10). A box
+128. **Pointer-receiver calls on a field reached through a box** (done, `725937b1`; sections 11.14 and 7.10). A box
      (`owned`, `shared`, `synced`) is a pointer, so `get().v.Push(2)`, `m["a"].v.Push(2)` and `s[0].v.Push(2)`
      act on the shared object. The lowering treated a field of a box-valued expression that is not a
      variable as a value and called the method on a copy, silently losing the effect; `isAddressable`
@@ -213,7 +213,7 @@ against the corrected specification. The immediate implementation order is:
      directly by a map or returned by a call stays an E0125 error. Tests: `testdata/plutonium/boxtemprecv.p`,
      `cmd/pluto/testdata/diag/temp_receiver_field`.
 
-123. **Arena text converted to an interface** (done; sections 18.3, 18.8, 18.9, decision D7). A string
+129. **Arena text converted to an interface** (done, `8188dfb8`; sections 18.3, 18.8, 18.9, decision D7). A string
      made in a local arena is a view of the arena, but only strings made in an `alloc.Use` window were
      followed, and converting one to an interface (`fmt.Println(s)`) built and then panicked as the function
      returned: the interface's copy in the frame is released after the arena was dropped. The analysis now
@@ -224,13 +224,13 @@ against the corrected specification. The immediate implementation order is:
      it is E3001. Other uses of memory from an explicit arena stay with the run-time checks of section 18.11.
      Tests: `cmd/pluto/testdata/diag/arena_boxed`, `testdata/plutonium/arenatext.p`, `internal/escape` tables.
 
-124. **E0021 fix text in a return statement** (done; sections 8.6, 13.9, 18.3). A value whose method has a
+130. **E0021 fix text in a return statement** (done, `c8672374`; sections 8.6, 13.9, 18.3). A value whose method has a
      pointer receiver, returned as an interface, got the fix `&T{...}`, which is E3001 in a constructor.
      Where the value is returned the fix is now `new(T{...})`, with the note that the interface must be
      declared `owner` to take the box (`explainImplements`, `internal/diag/typecheck.go`); other contexts
      keep `&T{...}`. Tests: `cmd/pluto/testdata/diag/ptr_recv_return`, `testdata/plutonium/newiface.p`.
 
-125. **Tests that join tasks without a `sync.Scope` no longer depend on the exit grace** (done; decision D31,
+131. **Tests that join tasks without a `sync.Scope` no longer depend on the exit grace** (done, `40fc2eda`; decision D31,
      section 15.4). `TestBoxTasks`, `TestMapTasks` and every test that runs a program under the debug
      allocator with a `WaitGroup`, channel or counter join failed now and then with "1 task still running
      at exit" when the machine was loaded: only a scope join guarantees that the tasks have retired when

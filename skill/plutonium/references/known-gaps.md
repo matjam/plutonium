@@ -81,7 +81,7 @@ func main() {
 }
 ```
 
-## 5. `os.File` is a pointer, not an owner
+## 3. `os.File` is a pointer, not an owner
 
 Appendix A.3 and section 18.13 describe `os.Open` returning an `os.File` that closes when its variable goes out of
 scope. Today `os.Open`, `os.Create` and `os.OpenFile` return `*os.File`: close it yourself (`defer f.Close()`),
@@ -102,7 +102,7 @@ func main() {
 }
 ```
 
-## 6. Error codes that differ from the text
+## 4. Error codes that differ from the text
 
 - `var c Color = 1` (an untyped constant assigned to an enum) reports E0023 (IncompatibleAssign), not E2315 as
   section 7.12 says.
@@ -123,7 +123,7 @@ func main() {
 }
 ```
 
-## 7. Arenas and waiting locks in freestanding builds
+## 5. Arenas and waiting locks in freestanding builds
 
 Section 19.5 says a program whose dependencies request no waiting contains no scheduler. Today importing
 `pluto/arena` in a freestanding or kernel build (even for `arena.NewUnsafe` alone) makes the program need a bound
@@ -154,7 +154,7 @@ func main() {
 }
 ```
 
-## 8. Smaller notes
+## 6. Smaller notes
 
 - `pluto vet` has one check, `-unsafe`; there is no general lint. `pluto fmt` is the only style tool.
 - Library names that Go has and Plutonium lacks are listed in `go-to-plutonium.md`.
