@@ -446,6 +446,7 @@ type depWalk struct {
 	pc      taint // the conditions that control the statement being read
 	exitPC  taint // the conditions of branches that may leave the function or loop: they control all that follows
 	weak    int   // in a function literal: an assignment adds, it does not replace
+	acc     taint // what the function literal being walked loads
 	addr    map[*types2.Var]bool
 	brk     []denv // the states at break and continue of the enclosing loops and switches
 	gotoEnv denv
@@ -921,8 +922,7 @@ func (d *depWalk) ex(e ast.Expr) taint {
 	case *ast.BasicLit:
 		return nil
 	case *ast.FuncLit:
-		d.lit(e)
-		return nil
+		return d.lit(e)
 	case *ast.CompositeLit:
 		var t taint
 		for _, el := range e.Elts {
@@ -986,7 +986,11 @@ func (d *depWalk) ident(id *ast.Ident) taint {
 	}
 	switch {
 	case d.a.cpuVars[v]:
-		return taint{{src: d.a.loadAt(id, v)}}
+		t := taint{{src: d.a.loadAt(id, v)}}
+		if d.weak > 0 {
+			d.acc = d.acc.union(t)
+		}
+		return t
 	case isGlobal(v):
 		return d.heap
 	case d.addr[v]:
@@ -998,17 +1002,22 @@ func (d *depWalk) ident(id *ast.Ident) taint {
 // lit walks a function literal where it appears. It may run later, any
 // number of times, so what it assigns is added to the variables, and what it
 // returns or exits from ends only itself.
-func (d *depWalk) lit(l *ast.FuncLit) {
+func (d *depWalk) lit(l *ast.FuncLit) taint {
 	saved, savedPC, savedExit := d.cur, d.pc, d.exitPC
-	savedBrk := d.brk
+	savedBrk, savedAcc := d.brk, d.acc
 	d.cur = saved.clone()
 	d.brk = nil
+	d.acc = nil
 	d.weak++
 	d.block(l.Body)
 	d.weak--
 	inner := d.cur.env
-	d.cur, d.pc, d.exitPC, d.brk = saved, savedPC, savedExit, savedBrk
+	loaded := d.acc
+	d.cur, d.pc, d.exitPC, d.brk, d.acc = saved, savedPC, savedExit, savedBrk, savedAcc.union(loaded)
 	d.cur.env.merge(inner)
+	// The value of the literal depends on what it loads: whoever calls it
+	// gets a result that depends on that.
+	return loaded
 }
 
 // callTaint walks a call and returns what its results depend on.
@@ -1030,8 +1039,10 @@ func (d *depWalk) callTaint(e *ast.CallExpr) taint {
 		} else if sel != nil {
 			recv = d.ex(se.X) // a func-valued field
 		}
-	} else if _, isIdent := fun.(*ast.Ident); !isIdent {
+	} else if id, isIdent := fun.(*ast.Ident); !isIdent {
 		recv = d.ex(fun) // a literal, or another expression
+	} else if _, isVar := d.a.objOf(id).(*types2.Var); isVar {
+		recv = d.ex(fun) // a func-valued variable
 	}
 	var args []taint
 	if hasRecv {
@@ -1082,10 +1093,16 @@ func (d *depWalk) callTaint(e *ast.CallExpr) taint {
 	res := base.union(d.heap)
 	if len(cands) == 0 {
 		// A call of a func value: it may reach any function of its type that
-		// the program uses as a value.
+		// the program uses as a value. What the function does with its
+		// arguments, or under the caller's condition, is not seen: if one of
+		// them stores a per-CPU variable, the call is taken to store it from
+		// all the arguments.
 		if sig, ok := underlying(d.a.typeOf(e.Fun)).(*types2.Signature); ok {
 			for _, v := range d.a.valueLoads(sig) {
 				res = res.union(taint{{src: d.a.callLoad(e, v, name)}})
+			}
+			for _, v := range d.a.valueStores(sig) {
+				d.storeSite(v, base.union(pc), e.Pos(), e, name)
 			}
 		}
 	}
@@ -1097,7 +1114,11 @@ func (d *depWalk) callTaint(e *ast.CallExpr) taint {
 			}
 			sort.Slice(vs, func(i, j int) bool { return vs[i].Pos() < vs[j].Pos() })
 			for _, v := range vs {
-				res = res.union(taint{{src: d.a.callLoad(e, v, g.name)}})
+				t := taint{{src: d.a.callLoad(e, v, g.name)}}
+				res = res.union(t)
+				if d.weak > 0 {
+					d.acc = d.acc.union(t)
+				}
 			}
 		}
 	}
@@ -1234,32 +1255,66 @@ func (a *analyzer) fnLoads(f *function) map[*types2.Var]bool {
 	if fi := a.cpuFn[f]; fi != nil {
 		return fi.loads
 	}
-	if f.lit == nil {
+	if fi := a.litInfo(f); fi != nil {
+		return fi.loads
+	}
+	return nil
+}
+
+// fnStores returns the per-CPU variables a function or literal may store.
+func (a *analyzer) fnStores(f *function) map[*types2.Var]bool {
+	if fi := a.cpuFn[f]; fi != nil {
+		return fi.stores
+	}
+	if fi := a.litInfo(f); fi != nil {
+		return fi.stores
+	}
+	return nil
+}
+
+// litInfo reads a function literal like a declared function, with what the
+// functions it calls load and store.
+func (a *analyzer) litInfo(f *function) *cpuFnInfo {
+	if f.lit == nil || f.body == nil {
 		return nil
 	}
-	if a.litLoads == nil {
-		a.litLoads = map[*function]map[*types2.Var]bool{}
+	if fi, ok := a.litFx[f]; ok {
+		return fi
 	}
-	if m, ok := a.litLoads[f]; ok {
-		return m
+	if a.litFx == nil {
+		a.litFx = map[*function]*cpuFnInfo{}
 	}
-	m := map[*types2.Var]bool{}
-	a.litLoads[f] = m
-	ast.Inspect(f.body, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.Ident:
-			if v, ok := a.uses[n].(*types2.Var); ok && a.cpuVars[v] {
-				m[v] = true
+	fi := a.scanFn(f)
+	a.litFx[f] = fi
+	for _, g := range fi.calls {
+		if gi := a.cpuFn[g]; gi != nil {
+			for v := range gi.loads {
+				fi.loads[v] = true
 			}
-		case *ast.CallExpr:
-			cands, _, _ := a.callees(n)
-			for _, g := range cands {
-				for v := range a.fnLoads(g) {
-					m[v] = true
-				}
+			for v := range gi.stores {
+				fi.stores[v] = true
 			}
 		}
-		return true
-	})
-	return m
+	}
+	return fi
+}
+
+// valueStores returns the per-CPU variables that a function used as a value,
+// of type sig, may store.
+func (a *analyzer) valueStores(sig *types2.Signature) []*types2.Var {
+	set := map[*types2.Var]bool{}
+	for _, f := range a.values {
+		if f.sig == nil || f.sig.Recv() != nil || !types2.Identical(f.sig, sig) {
+			continue
+		}
+		for v := range a.fnStores(f) {
+			set[v] = true
+		}
+	}
+	out := make([]*types2.Var, 0, len(set))
+	for v := range set {
+		out = append(out, v)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Pos() < out[j].Pos() })
+	return out
 }

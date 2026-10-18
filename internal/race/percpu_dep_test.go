@@ -434,7 +434,25 @@ func main() {
 	get := func() uint64 { return ticks }
 	x := get()
 	ticks = x + 1
-}`, []string{"main.p:8:2: ticks = ... uses the per-CPU variable ticks outside a region", "which loads ticks"}, 1},
+}`, []string{"main.p:8:2: ticks = ... uses the per-CPU variable ticks outside a region", "depends on the load of ticks at main.p:6"}, 1},
+	{"a value from a function that runs a literal that loads", `
+//pu:percpu
+var ticks uint64
+
+func apply(f func() uint64) uint64 { return f() }
+
+func main() {
+	x := apply(func() uint64 { return ticks })
+	ticks = x + 1
+}`, []string{"main.p:9:2: ticks = ... uses the per-CPU variable ticks outside a region"}, 1},
+	{"a func value that stores from its argument", `
+//pu:percpu
+var ticks uint64
+
+func main() {
+	set := func(v uint64) { ticks = v }
+	set(ticks + 1)
+}`, []string{"main.p:7:2: the call of set uses the per-CPU variable ticks outside a region"}, 1},
 	{"an early return controlled by the load", `
 type Thread struct{ id int }
 

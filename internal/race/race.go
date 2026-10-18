@@ -219,7 +219,7 @@ type analyzer struct {
 	cpuDeps      map[token.Pos]*cpuDepSite
 	cpuDepCalls  map[*ast.CallExpr]*cpuDepSite
 	cpuFn        map[*function]*cpuFnInfo
-	litLoads     map[*function]map[*types2.Var]bool
+	litFx        map[*function]*cpuFnInfo
 
 	owned   ownedViews // view fields that own what they point to (ownedview.go)
 	declPkg map[*types2.Package]*load.Package
