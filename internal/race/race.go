@@ -199,14 +199,16 @@ type analyzer struct {
 	inits               []*function
 
 	// Per-CPU variables and regions (region.go).
-	cpuOn      bool                  // the program has a per-CPU variable outside the runtime
-	cpuVars    map[*types2.Var]bool  // the per-CPU variables outside the runtime
-	cpuUses    map[token.Pos]*cpuUse // every use of one, by the position of the identifier
-	regionSets []lockset             // the sets of regions held where pointers to them were taken
-	regionIDs  map[string]int        // their numbers, by content
-	handlers   []*function           // the interrupt handlers the program installs
-	allocFns   []*function           // the Alloc and Free methods of installed allocators (when there are handlers)
-	allocDone  bool
+	cpuOn       bool                   // the program has a per-CPU variable outside the runtime
+	cpuVars     map[*types2.Var]bool   // the per-CPU variables outside the runtime
+	cpuUses     map[token.Pos]*cpuUse  // every use of one, by the position of the identifier
+	regionSets  []lockset              // the sets of regions held where pointers to them were taken
+	regionIDs   map[string]int         // their numbers, by content
+	handlers    []*function            // the interrupt handlers the program installs
+	allocState  map[string]*types2.Var // the shared object of each allocator type (region.go)
+	unsafeTypes map[*types2.Named]bool // allocator types written in unsafe code (region.go)
+	allocFns    []*function            // the Alloc and Free methods of installed allocators (when there are handlers)
+	allocDone   bool
 
 	owned   ownedViews // view fields that own what they point to (ownedview.go)
 	declPkg map[*types2.Package]*load.Package

@@ -96,10 +96,23 @@ type cpuUse struct {
 	ptr    bool   // the use takes the variable's address
 	tag    int    // cpuDeref: the regions the pointer was taken in (regionSet)
 	pos    token.Pos
+
+	// cpuDeref through a parameter of a callee: the pointer came from the
+	// caller, so only a region the caller held when it called, and the callee
+	// has not released, is the region it was taken in. A region the callee
+	// opened itself is another instance of it, even at the same site
+	// (recursion).
+	inhOnly bool
+	inh     lockset
+	lone    bool // cpuDeref: a store of a whole variable of at most a machine word
 }
 
 func (u *cpuUse) key() string {
-	return fmt.Sprintf("%d|%d|%d|%s", u.pos, u.class, u.tag, u.reason)
+	k := fmt.Sprintf("%d|%d|%d|%s|%v", u.pos, u.class, u.tag, u.reason, u.lone)
+	if u.inhOnly {
+		k += "|" + u.inh.String()
+	}
+	return k
 }
 
 // regionSet interns the set of regions held where a pointer to a per-CPU
@@ -437,7 +450,11 @@ func hasDeref(p string) bool { return strings.ContainsAny(p, "*%$#") }
 // variable's own memory, which is a use checked here instead: by name (the
 // walker recorded it at the identifier), or through a pointer from &v
 // (recorded as a dereference).
-func (w *walker) cpuPlace(p vpath, pos token.Pos, locks lockset, rel released, pre, strict bool, add func(*access)) (vpath, bool) {
+//
+// write says whether the access stores. inh, when not nil, is the set of
+// regions the pointer may have been taken in, for an access made by a callee
+// through a pointer its caller passed.
+func (w *walker) cpuPlace(p vpath, pos token.Pos, locks lockset, rel released, pre, strict, write bool, inh *lockset, add func(*access)) (vpath, bool) {
 	if p.root.kind != rGlobal || !w.a.cpuVars[p.root.v] {
 		return p, true
 	}
@@ -448,8 +465,14 @@ func (w *walker) cpuPlace(p vpath, pos token.Pos, locks lockset, rel released, p
 		return p, true
 	}
 	if p.root.idx != 0 || strict {
-		add(&access{place: vpath{root: root{kind: rGlobal, v: p.root.v}}, locks: locks, rel: rel, pos: pos, pre: pre,
-			cpu: &cpuUse{v: p.root.v, class: cpuDeref, tag: p.root.idx, text: p.root.v.Name(), pos: pos}})
+		u := &cpuUse{v: p.root.v, class: cpuDeref, tag: p.root.idx, pos: pos,
+			text:   "the access through a pointer to " + p.root.v.Name(),
+			reason: "an access through a pointer, which is not a lone store of a whole variable of at most a machine word",
+			lone:   write && p.path == "" && types2.SizesFor("gc", "amd64").Sizeof(p.root.v.Type()) <= 8}
+		if inh != nil {
+			u.inhOnly, u.inh = true, *inh
+		}
+		add(&access{place: vpath{root: root{kind: rGlobal, v: p.root.v}}, locks: locks, rel: rel, pos: pos, pre: pre, write: write, cpu: u})
 	}
 	return p, false
 }
@@ -537,10 +560,15 @@ func (a *analyzer) checkPerCPU(uses []*cpuEntry, groups []*group) {
 			}
 			a.add(fmt.Sprintf("cpuacc|%d", x.pos), a.cpuAccessError(x, hs))
 		case cpuDeref:
-			if a.pointerRegionHeld(x) {
+			if !a.pointerRegionHeld(x) {
+				a.add(fmt.Sprintf("cpuptr|%d", x.pos), a.cpuDerefError(x, handlers[u.v]))
 				continue
 			}
-			a.add(fmt.Sprintf("cpuptr|%d", x.pos), a.cpuDerefError(x, handlers[u.v]))
+			// The region bounds the pointer; a handler that uses the
+			// variable also needs interrupts disabled, as for a use by name.
+			if hs := handlers[u.v]; len(hs) > 0 && !u.lone && !x.locks.regionHeld(true) {
+				a.add(fmt.Sprintf("cpuacc|%d", x.pos), a.cpuAccessError(x, hs))
+			}
 		}
 	}
 }
@@ -556,7 +584,7 @@ func (a *analyzer) pointerRegionHeld(x *access) bool {
 		return true // taken outside any region: reported there (E2022)
 	}
 	for _, r := range set {
-		if x.locks.find(r.place) >= 0 {
+		if x.locks.find(r.place) >= 0 && (!x.cpu.inhOnly || x.cpu.inh.find(r.place) >= 0) {
 			return true
 		}
 	}
@@ -723,8 +751,117 @@ func (a *analyzer) addAllocators(s *summary, base *state) {
 	tw := newWalker(a, a.program)
 	tw.sum = s
 	for _, f := range a.allocatorMethods() {
-		tw.apply(f, []origins{nil}, f.decl.Pos(), f.name, base.clone(), nil)
+		if a.unsafeAllocator(f) {
+			continue
+		}
+		tw.apply(f, []origins{a.allocatorState(f)}, f.decl.Pos(), f.name, base.clone(), nil)
 	}
+}
+
+// unsafeAllocator reports whether f is a method of an allocator type written
+// in unsafe code (section 18.12): some method of the type reinterprets memory
+// through unsafe.Pointer, uses the functions of package unsafe, the unchecked
+// allocation layer or the processor instructions of pluto/arch/x86. Its state
+// is the programmer's responsibility, as the state of any unsafe code is
+// (section 19.3, what is not checked).
+func (a *analyzer) unsafeAllocator(f *function) bool {
+	r := f.sig.Recv()
+	if r == nil {
+		return false
+	}
+	T := r.Type()
+	if p := pointerElem(T); p != nil {
+		T = p
+	}
+	n, ok := T.(*types2.Named)
+	if !ok {
+		return false
+	}
+	if v, ok := a.unsafeTypes[n.Origin()]; ok {
+		return v
+	}
+	if a.unsafeTypes == nil {
+		a.unsafeTypes = map[*types2.Named]bool{}
+	}
+	res := false
+	for i := 0; i < n.NumMethods() && !res; i++ {
+		if m := a.funcs[n.Method(i).Origin()]; m != nil && m.body != nil {
+			res = a.usesUnsafe(m.body)
+		}
+	}
+	a.unsafeTypes[n.Origin()] = res
+	return res
+}
+
+// usesUnsafe reports whether a body is unsafe code by the list of section
+// 18.12 that a body can show: a conversion to or from unsafe.Pointer, a name
+// of package unsafe, a call into the unchecked allocation layer, or one of the
+// processor instructions of pluto/arch/x86 other than the interrupt flag.
+func (a *analyzer) usesUnsafe(body *ast.BlockStmt) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		switch n := n.(type) {
+		case *ast.Ident:
+			switch o := a.uses[n].(type) {
+			case *types2.PkgName:
+				found = o.Imported().Path() == "unsafe"
+			case *types2.Func:
+				if o.Pkg() == nil || o.Type().(*types2.Signature).Recv() != nil {
+					break
+				}
+				switch o.Pkg().Path() {
+				case "pluto/arch/x86":
+					switch o.Name() {
+					case "Cli", "Sti", "SaveFlagsCli", "RestoreFlags":
+					default:
+						found = true
+					}
+				case "pluto/alloc":
+					found = o.Name() == "Raw" || o.Name() == "New" || o.Name() == "Free"
+				}
+			}
+		case *ast.CallExpr:
+			if tv, ok := a.types[n.Fun]; ok && tv.IsType() && len(n.Args) == 1 {
+				found = isUnsafePointer(tv.Type)
+				if tv, ok := a.types[n.Args[0]]; ok && isUnsafePointer(tv.Type) {
+					found = true
+				}
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+// allocatorState returns the origin of the receiver of an allocator method.
+// The analysis does not follow which object the program installs as its
+// allocator, so every pointer receiver of one type is one object, shared by
+// every party that allocates: the fields Alloc and Free reach through it are
+// shared data like a package variable, and meet the rules of section 19.3
+// (section 20.10). A value receiver is a copy.
+func (a *analyzer) allocatorState(f *function) origins {
+	r := f.sig.Recv()
+	if r == nil || pointerElem(r.Type()) == nil {
+		return nil
+	}
+	T := pointerElem(r.Type())
+	if a.allocState == nil {
+		a.allocState = map[string]*types2.Var{}
+	}
+	key := types2.TypeString(T, nil)
+	v := a.allocState[key]
+	if v == nil {
+		name := r.Name()
+		if name == "" || name == "_" {
+			name = "the allocator"
+		}
+		v = types2.NewVar(token.NoPos, nil, name, T)
+		a.allocState[key] = v
+	}
+	return origins{{vp: vpath{root: root{kind: rGlobal, v: v}}.addr()}}
 }
 
 // cpuCarry reports a pointer to a per-CPU variable kept in a variable that
@@ -732,8 +869,54 @@ func (a *analyzer) addAllocators(s *summary, base *state) {
 // use it in a region that is not the one it was taken in, which the sites of
 // regions cannot tell apart (E2023).
 func (w *walker) cpuCarry(v *types2.Var, val origins, pos token.Pos) {
-	if len(w.loopPos) == 0 || v.Pos() >= w.loopPos[len(w.loopPos)-1] {
+	if !w.a.cpuOn || w.quiet > 0 || w.frame != nil || !pos.IsValid() || !holdsCPUPointer(val) {
 		return
 	}
-	w.cpuSink(val, pos, "kept in a variable that outlives the loop iteration")
+	switch {
+	case len(w.loopPos) > 0 && v.Pos() < w.loopPos[len(w.loopPos)-1]:
+		w.cpuSink(val, pos, "kept in a variable that outlives the loop iteration")
+	case w.gotoCarries(v, pos):
+		w.cpuSink(val, pos, "kept in a variable that outlives the pass of a loop made with goto")
+	case w.captured(v):
+		w.cpuSink(val, pos, "kept in a variable of the enclosing function, which outlives the call")
+	}
+}
+
+// holdsCPUPointer reports whether val has a pointer to a per-CPU variable.
+func holdsCPUPointer(val origins) bool {
+	for _, o := range val {
+		if r := o.vp.root; r.kind == rGlobal && r.idx != 0 && !hasDeref(o.vp.path) && o.vp.isAddr() {
+			return true
+		}
+	}
+	return false
+}
+
+// gotoCarries reports whether the code at pos may run again after a goto to
+// a label that follows the declaration of v: v then lives across the passes
+// of that loop, which the sites of regions cannot tell apart.
+func (w *walker) gotoCarries(v *types2.Var, pos token.Pos) bool {
+	if len(w.gotos) == 0 || w.fn == nil || w.fn.body == nil {
+		return false
+	}
+	found := false
+	ast.Inspect(w.fn.body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.LabeledStmt:
+			if w.gotos[n.Label.Name] && v.Pos() < n.Pos() && n.Pos() <= pos {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+// captured reports whether v is declared outside the function literal being
+// walked: it outlives a call of the literal.
+func (w *walker) captured(v *types2.Var) bool {
+	lit := w.fn.lit
+	return lit != nil && (v.Pos() < lit.Pos() || v.Pos() >= lit.End())
 }

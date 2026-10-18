@@ -1051,7 +1051,7 @@ func (w *walker) access(p vpath, write, atomic bool, pos token.Pos, T types2.Typ
 	}
 	if p.root.kind == rGlobal && w.a.cpuVars[p.root.v] {
 		var ok bool
-		if p, ok = w.cpuPlace(p, pos, w.st.locks, w.st.rel, !w.st.spawned, false, w.sum.addAccess); !ok {
+		if p, ok = w.cpuPlace(p, pos, w.st.locks, w.st.rel, !w.st.spawned, false, write, nil, w.sum.addAccess); !ok {
 			return
 		}
 	}

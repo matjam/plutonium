@@ -1,0 +1,4 @@
+$DIR/main.p:32:3: a pointer to the per-CPU variable ticks is kept in a variable that outlives the pass of a loop made with goto, outside the region it was taken in
+$DIR/main.p:48:2: a pointer to the per-CPU variable ticks is used outside the region it was taken in
+$DIR/main.p:61:4: a pointer to the per-CPU variable ticks is kept in a variable of the enclosing function, which outlives the call, outside the region it was taken in
+$DIR/main.p:75:2: the access through a pointer to ticks uses the per-CPU variable ticks outside a region with interrupts disabled, which it needs because the interrupt handler timer also uses it

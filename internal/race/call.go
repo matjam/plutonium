@@ -879,7 +879,8 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 				}
 				if p.root.kind == rGlobal && w.a.cpuVars[p.root.v] {
 					var ok bool
-					if p, ok = w.cpuPlace(p, x.pos, locks, rel, !base.spawned && x.pre, true, w.sum.addAccess); !ok {
+					inh := compose(base.locks, substRel(x.rel, args), nil)
+					if p, ok = w.cpuPlace(p, x.pos, locks, rel, !base.spawned && x.pre, true, x.write, &inh, w.sum.addAccess); !ok {
 						continue
 					}
 				}

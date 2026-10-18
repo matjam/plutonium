@@ -1,0 +1,73 @@
+$DIR/main.p:32:3: a pointer to the per-CPU variable ticks is kept in a variable that outlives the pass of a loop made with goto, outside the region it was taken in
+    ticks has one copy for each processor, and &ticks points to the copy of the
+    processor that runs this code now. The pointer is good only while the task
+    cannot move to another processor, so it may be kept only in local variables
+    and used only inside the region it was taken in (preemption or interrupts
+    disabled, or an rt.Lock held). Here it is kept in a variable that outlives
+    the pass of a loop made with goto, where it can be used after the region
+    ends or by another task.
+    Go has no per-processor variables. A pointer to this processor's copy, used
+    after the task has moved, reaches the copy of another processor, which that
+    processor's code may be using at the same time.
+    Use the variable by name inside the region, or copy the value out and keep
+    the copy:
+        rt.DisablePreemption()
+        total := ticks
+        rt.EnablePreemption()
+    (see "Per-CPU variables" in the Plutonium spec, section 20.9)
+    (run "pluto explain E2023" for a longer explanation)
+
+$DIR/main.p:48:2: a pointer to the per-CPU variable ticks is used outside the region it was taken in
+    ticks has one copy for each processor, and &ticks points to the copy of the
+    processor that ran the code that took it. Here the pointer is used where the
+    region it was taken in (preemption or interrupts disabled, or an rt.Lock
+    held) is no longer held, so the task may have moved to another processor and
+    the pointer reaches that processor's copy while another task or an interrupt
+    handler uses it.
+    Go has no per-processor variables. A pointer to this processor's copy, used
+    after the task has moved, reaches the copy of another processor, which that
+    processor's code may be using at the same time.
+    Use the pointer only inside the region it was taken in, or take the address
+    again where it is needed
+    (see "Per-CPU variables" in the Plutonium spec, section 20.9)
+    (run "pluto explain E2023" for a longer explanation)
+
+$DIR/main.p:61:4: a pointer to the per-CPU variable ticks is kept in a variable of the enclosing function, which outlives the call, outside the region it was taken in
+    ticks has one copy for each processor, and &ticks points to the copy of the
+    processor that runs this code now. The pointer is good only while the task
+    cannot move to another processor, so it may be kept only in local variables
+    and used only inside the region it was taken in (preemption or interrupts
+    disabled, or an rt.Lock held). Here it is kept in a variable of the
+    enclosing function, which outlives the call, where it can be used after the
+    region ends or by another task.
+    Go has no per-processor variables. A pointer to this processor's copy, used
+    after the task has moved, reaches the copy of another processor, which that
+    processor's code may be using at the same time.
+    Use the variable by name inside the region, or copy the value out and keep
+    the copy:
+        rt.DisablePreemption()
+        total := ticks
+        rt.EnablePreemption()
+    (see "Per-CPU variables" in the Plutonium spec, section 20.9)
+    (run "pluto explain E2023" for a longer explanation)
+
+$DIR/main.p:75:2: the access through a pointer to ticks uses the per-CPU variable ticks outside a region with interrupts disabled, which it needs because the interrupt handler timer also uses it
+    ticks has one copy for each processor. This is an access through a pointer,
+    which is not a lone store of a whole variable of at most a machine word, so
+    the task could move to another processor in the middle of it and read one
+    processor's copy and write another's. The interrupt handler timer also uses
+    ticks, so an interrupt on this processor could run in the middle of it as
+    well: it must be inside a region with maskable interrupts disabled (x86.Cli
+    to x86.Sti, x86.SaveFlagsCli to x86.RestoreFlags, or an rt.Lock held), not
+    just with preemption disabled. A lone load or store of a whole variable of
+    at most a machine word is allowed anywhere.
+    Go has no per-processor variables. A Plutonium kernel keeps its processor's
+    state in them, and an ordinary variable would be shared by every processor
+    and need a lock. The compiler checks the uses instead, so that the most
+    common use (a pointer to the running thread) stays safe code.
+    Put the access inside a region with interrupts disabled:
+        f := x86.SaveFlagsCli()
+        // the access to ticks
+        x86.RestoreFlags(f)
+    (see "Per-CPU variables" in the Plutonium spec, section 20.9)
+    (run "pluto explain E2022" for a longer explanation)
