@@ -125,6 +125,11 @@ otherwise the declaration of the holder is E3313, and the error names both varia
 statement that made the temporary (E3009; section 18.6). A view obtained through a counted reference held in a
 local variable is bounded by that reference in the same way.
 
+The compiler follows views through local variables, their fields, and the calls that store them into
+other arguments. A view stored anywhere else (through a pointer, in a variable that a function literal
+uses or whose address is kept, or by a call the compiler cannot see into) cannot be followed, so the owner
+may not be moved, dropped or given a new value while that view could still be used (E3314).
+
 **Heap memory reached any other way** (through a pointer that a field holds, through a `*T` parameter,
 through a box reached from another object) is checked at run time by generation checks (section 18.11):
 a use of such a view after its memory has been freed is a run-time panic, or, in the documented
