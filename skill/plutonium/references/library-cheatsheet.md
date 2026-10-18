@@ -45,9 +45,10 @@ by the skill's test. The complete lists are `stdlib.md`, `stdlib-os-time-math.md
 | Call | Notes |
 |---|---|
 | `errors.New("constant")`, `errors.Is(err, target)`, `errors.As(err, &target)`, `errors.AsType[E](err)`, `errors.Join(a, b)`, `errors.Unwrap(err)` | `fmt.Errorf("ctx: %w", err)` wraps |
-| `os.Args() vec.Vec[string]`, `os.Arg(i)`, `os.NArgs()`, `os.Getenv(k)`, `os.LookupEnv(k)`, `os.Exit(n)` | `os.Exit` drops nothing and runs no deferred call |
+| `os.Args() (vec.Vec[string], error)`, `os.Arg(i) (string, error)`, `os.NArgs()`, `os.Getenv(k) (string, error)`, `os.LookupEnv(k) (string, bool, error)`, `os.Exit(n)` | `os.Exit` drops nothing and runs no deferred call. A value from the system that is not valid UTF-8 is a `*os.NameError` holding the bytes (the single-value use is a compile error). `os.ArgLossy`, `os.GetenvLossy` return a string with U+FFFD for each invalid byte, for display; `os.ArgBytes`, `os.GetenvBytes` return the exact bytes |
 | `os.ReadFile(path) (vec.Vec[byte], error)`, `os.WriteFile(path, []byte, 0o644)`, `os.Open`, `os.Create`, `os.OpenFile(path, flags, perm)` | files are `os.File` owners that close when dropped (`f.Close()` to close early and see the error); `f.Read(buf[:])`, `f.Write`, `f.WriteString`, `f.Seek`, `f.Stat()`; `&f` is an `io.Reader` and `io.Writer` |
-| `os.Stat`, `os.ReadDir`, `os.Mkdir`, `os.MkdirAll`, `os.MkdirTemp`, `os.Remove`, `os.RemoveAll`, `os.Rename`, `os.TempDir()` | errors are `*os.PathError`; `errors.Is(err, os.ErrNotExist)` |
+| `os.Stat`, `os.ReadDir`, `os.Mkdir`, `os.MkdirAll`, `os.MkdirTemp`, `os.Remove`, `os.RemoveAll`, `os.Rename`, `os.TempDir() (string, error)` | errors are `*os.PathError` (its `Path` is a string for the message: U+FFFD for each invalid byte); `errors.Is(err, os.ErrNotExist)` |
+| `e.Name() (string, error)` of an `os.DirEntry`, `os.FileInfo` or `os.File` | a file name is any bytes but NUL and `/`: one that is not valid UTF-8 is a `*os.NameError` (`errors.As`; `Op`, `Bytes`). `e.NameLossy()` is for display, `e.RawName()` returns the bytes, `os.OpenBytes(raw)`, `os.StatBytes`, ... take them |
 | `os.Stdin`, `os.Stdout`, `os.Stderr` | `*os.File` pointers to files that are never dropped; `io.ReadAll(os.Stdin)` returns a `vec.Vec[byte]` |
 | `io.ReadAll(r)`, `io.ReadFull`, `io.WriteString(w, s)`, `io.EOF` | the `io.Reader` and `io.Writer` interfaces are Go's |
 | `filepath.Join`, `Base`, `Dir`, `Ext`, `Clean`, `Abs`, `Rel`, `WalkDir` | `pluto/path/filepath` |

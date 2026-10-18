@@ -138,7 +138,8 @@ that are not valid UTF-8 (E2012), `iter.Pull`, a local `sync.WaitGroup` passed t
 | `.go`, `go.mod` | `.p`, `pluto.mod` (`module path` as the first line) |
 | `import "strings"` | `import "pluto/strings"` |
 | `runtime.Goexit` | `rt.ExitTask()` |
-| `os.Args` | `os.Args()` (a `vec.Vec[string]`), `os.Arg(i)`, `os.NArgs()` |
+| `os.Args` | `argv, err := os.Args()` (a `vec.Vec[string]` and an error), `arg, err := os.Arg(i)`, `os.NArgs()`; a name from the system that is not valid UTF-8 is an error, see `os.Getenv` below |
+| `os.Getenv(k)`, `e.Name()` of a directory entry | `v, err := os.Getenv(k)`, `name, err := e.Name()`: the error is a `*os.NameError` when the bytes are not valid UTF-8 (a string cannot hold them). A single-value use is a compile error. Display only: `os.GetenvLossy(k)`, `e.NameLossy()` (U+FFFD for each invalid byte). Exact bytes: `os.GetenvBytes`, `e.RawName()`, `os.OpenBytes` |
 | `strings.Split`, `Fields` | `strings.SplitSeq`, `FieldsSeq` (range over them), `SplitInto`, `FieldsInto` |
 | `sort.Slice` | `slices.SortFunc(x, func(a, b T) int)`, `sort.SortFunc(x, func(a, b T) bool)` |
 | new keywords/types | `owner`, `enum`, `union`, `packed`, `owned[T]`, `shared[T]`, `synced[T]`, `weak[P]`, `volatile[T]`, `aligned[T, N]`, `ring[T, N]`, `portable` |

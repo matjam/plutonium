@@ -54,7 +54,10 @@ func main() int64 {
 		fmt.Println("error:", err)
 		return 2
 	}
-	argv := os.Args() // a vec.Vec[string]; argv[0] is the program
+	argv := os.Args() or { // a vec.Vec[string]; argv[0] is the program
+		fmt.Println("error:", err) // a *os.NameError: an argument is not valid UTF-8
+		return 2
+	}
 	run(argv.Slice()[1:]) or {
 		fmt.Println("error:", err)
 		return 2

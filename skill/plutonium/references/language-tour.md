@@ -15,7 +15,8 @@ maps, 6 control flow, 7 generics, 8 enums, unions and packed types, 9 interfaces
   A lone package with no `pluto.mod` can import only the standard library. There are no downloads.
 - The standard library is imported as `pluto/<name>`: `"pluto/fmt"`, `"pluto/strings"`, `"pluto/sync"`.
 - `func main()` has no parameters and either no result or one `int64` result, the process exit status
-  (E2009 for any other signature). Command-line arguments come from `os.Arg(i)`, `os.NArgs()`, `os.Args()`.
+  (E2009 for any other signature). Command-line arguments come from `os.Arg(i)`, `os.NArgs()`, `os.Args()` (each returns an error as well:
+  an argument that is not valid UTF-8 is a `*os.NameError`; `os.ArgLossy(i)` and `os.ArgBytes(i)` are the other forms).
 - `fmt.Println` writes to standard output. The built-in `println` writes to standard error and is for
   bootstrapping. A panic prints a trace to standard error and exits with status 2.
 - When `main` returns the program exits, even if tasks still run (section 15.4).

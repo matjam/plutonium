@@ -35,7 +35,8 @@ Library names that differ or do not exist (checked against the library by the sk
 |---|---|
 | `strings.Split(s, sep)`, `strings.Fields(s)` | `for p := range strings.SplitSeq(s, sep)`, `strings.FieldsSeq(s)`; into a caller's slice: `strings.SplitInto`, `FieldsInto`; `strings.Lines(s)` |
 | `strings.NewReader`, `NewReplacer`, `Title` | none; use `strings.Builder`, `ReplaceAll`, loops |
-| `os.Args` (a variable) | `os.Args()` returns `vec.Vec[string]`; or `os.Arg(i)`, `os.NArgs()` |
+| `os.Args` (a variable) | `argv, err := os.Args()` returns `vec.Vec[string]` and an error; or `arg, err := os.Arg(i)`, `os.NArgs()` |
+| `os.Getenv(k)`, `e.Name()` (directory entry, file info, file), `os.Getwd()`, `os.Readlink` | the string forms return an error too, a `*os.NameError` when the bytes from the system are not valid UTF-8: `v, err := os.Getenv(k)`, `name, err := e.Name()`; `v := os.Getenv(k)` is a compile error. Display: `os.GetenvLossy(k)`, `e.NameLossy()`; exact bytes: `os.GetenvBytes`, `e.RawName()` |
 | `os.IsNotExist(err)` | `errors.Is(err, os.ErrNotExist)` |
 | `os.Open` returns `*os.File` | `os.Open` returns an `os.File`, an owner that closes when its variable goes out of scope (`f.Close()` reports the error and leaves the drop nothing to do); pass `&f` where an `io.Reader` is wanted; `os.ReadFile` returns `vec.Vec[byte]`, so `text, err := strings.FromUTF8(data.Slice())` |
 | `bufio.Scanner`, `bufio.Reader` | `io.ReadAll(os.Stdin)` then `strings.Lines`, or `os.Stdin.Read(buf[:])` |

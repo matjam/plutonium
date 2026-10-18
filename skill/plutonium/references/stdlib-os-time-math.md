@@ -34,7 +34,8 @@ type DirEntry struct { _ unexported }  [view]
   // A DirEntry is an entry of a directory read by ReadDir.
   func (e *DirEntry) Info(a alloc.Allocator = alloc.Default()) (FileInfo, error)
   func (e *DirEntry) IsDir() bool
-  func (e *DirEntry) Name() string
+  func (e *DirEntry) Name() (string, error)
+  func (e *DirEntry) NameLossy() string
   func (e *DirEntry) RawName() []byte
   func (e *DirEntry) Type() FileMode
 type File owner struct { _ unexported }  [owner (moves)]
@@ -42,7 +43,9 @@ type File owner struct { _ unexported }  [owner (moves)]
   func (f *File) Close() error
   func (f *File) Drop()
   func (f *File) Fd() int
-  func (f *File) Name() string
+  func (f *File) Name() (string, error)
+  func (f *File) NameLossy() string
+  func (f *File) RawName() []byte
   func (f *File) Read(p []byte) (int, error)
   func (f *File) Seek(offset int64, whence int) (int64, error)
   func (f *File) Stat() (FileInfo, error)
@@ -56,8 +59,10 @@ type FileInfo struct { _ unexported }  [view]
   func (fi *FileInfo) IsDir() bool
   func (fi *FileInfo) ModTime() time.Time
   func (fi *FileInfo) Mode() FileMode
-  func (fi *FileInfo) Name() string
+  func (fi *FileInfo) Name() (string, error)
+  func (fi *FileInfo) NameLossy() string
   func (fi *FileInfo) Nlink() uint64
+  func (fi *FileInfo) RawName() []byte
   func (fi *FileInfo) Size() int64
 type FileMode uint32  [value]
   // A FileMode is a file's type and permission bits, as in Go.
@@ -67,6 +72,9 @@ type FileMode uint32  [value]
   func (m FileMode) Perm() FileMode
   func (m FileMode) String() string
   func (m FileMode) Type() FileMode
+type NameError owner struct { Op    string; Bytes []byte; _     unexported }  [owner (moves)]
+  // A NameError reports that a name or a value the operating system gave the program is not valid UTF-8, so it cannot be a string (...
+  func (e *NameError) Error() string
 type PathError struct { Op   string; Path string; Err  error }  [view]
   // PathError records an error and the operation and file path that caused it.
   func (e *PathError) Error() string
@@ -89,29 +97,35 @@ type Signal int  [value]
 func AppendMkdirTemp[D vec.Appender[byte]](dst D, dir, pattern string, a alloc.Allocator = alloc.Default()) error
 func AppendReadlink[D vec.Appender[byte]](dst D, name string, a alloc.Allocator = alloc.Default()) error
 func AppendWd[D vec.Appender[byte]](dst D) error
-func Arg(i int) string
+func Arg(i int) (string, error)
 func ArgBytes(i int) []byte
-func Args(a alloc.Allocator = alloc.Default()) vec.Vec[string]
+func ArgLossy(i int) string
+func Args(a alloc.Allocator = alloc.Default()) (vec.Vec[string], error)
 func ArgsBytes(a alloc.Allocator = alloc.Default()) vec.Vec[[]byte]
+func ArgsLossy(a alloc.Allocator = alloc.Default()) vec.Vec[string]
 func Chdir(dir string, a alloc.Allocator = alloc.Default()) error
 func ChdirBytes(dir []byte, a alloc.Allocator = alloc.Default()) error
 func Chmod(name string, mode FileMode, a alloc.Allocator = alloc.Default()) error
 func ChmodBytes(name []byte, mode FileMode, a alloc.Allocator = alloc.Default()) error
 func Create(name string, a alloc.Allocator = alloc.Default()) (File, error)
 func CreateBytes(name []byte, a alloc.Allocator = alloc.Default()) (File, error)
-func Environ(a alloc.Allocator = alloc.Default()) vec.Vec[string]
+func Environ(a alloc.Allocator = alloc.Default()) (vec.Vec[string], error)
 func EnvironBytes(a alloc.Allocator = alloc.Default()) vec.Vec[[]byte]
+func EnvironLossy(a alloc.Allocator = alloc.Default()) vec.Vec[string]
 func Exit(code int)
 func FileInfoToDirEntry(dir string, info FileInfo) DirEntry
 func FileInfoToDirEntryBytes(dir []byte, info FileInfo) DirEntry
-func Getenv(key string) string
+func Getenv(key string) (string, error)
 func GetenvBytes(key []byte) []byte
+func GetenvLossy(key string) string
 func Getpid() int
 func Getuid() int
 func Getwd() (string, error)
+func GetwdLossy() (string, error)
 func IsEOF(err error) bool
-func LookupEnv(key string) (string, bool)
+func LookupEnv(key string) (string, bool, error)
 func LookupEnvBytes(key []byte) ([]byte, bool)
+func LookupEnvLossy(key string) (string, bool)
 func Lstat(name string, a alloc.Allocator = alloc.Default()) (FileInfo, error)
 func LstatBytes(name []byte, a alloc.Allocator = alloc.Default()) (FileInfo, error)
 func Mkdir(name string, perm FileMode, a alloc.Allocator = alloc.Default()) error
@@ -121,6 +135,7 @@ func MkdirBytes(name []byte, perm FileMode, a alloc.Allocator = alloc.Default())
 func MkdirTemp(dir, pattern string, a alloc.Allocator = alloc.Default()) (string, error)
 func NArgs() int
 func NewFile(fd int, name string) File
+func NewNameError(op string, b []byte, a alloc.Allocator = alloc.Default()) synced[NameError]
 func NewPathError(op, path string, err error, a alloc.Allocator = alloc.Default()) synced[PathError]
 func NewPathErrorBytes(op string, path []byte, err error, a alloc.Allocator = alloc.Default()) synced[PathError]
 func Open(name string, a alloc.Allocator = alloc.Default()) (File, error)
@@ -134,6 +149,7 @@ func ReadFile(name string, a alloc.Allocator = alloc.Default()) (vec.Vec[byte], 
 func ReadFileBytes(name []byte, a alloc.Allocator = alloc.Default()) (vec.Vec[byte], error)
 func Readlink(name string, a alloc.Allocator = alloc.Default()) (string, error)
 func ReadlinkBytes[D vec.Appender[byte]](dst D, name []byte, a alloc.Allocator = alloc.Default()) error
+func ReadlinkLossy(name string, a alloc.Allocator = alloc.Default()) (string, error)
 func Remove(name string, a alloc.Allocator = alloc.Default()) error
 func RemoveAll(path string, a alloc.Allocator = alloc.Default()) error
 func RemoveAllBytes(path []byte, a alloc.Allocator = alloc.Default()) error
@@ -142,8 +158,9 @@ func Rename(oldpath, newpath string, a alloc.Allocator = alloc.Default()) error
 func RenameBytes(oldpath, newpath []byte, a alloc.Allocator = alloc.Default()) error
 func Stat(name string, a alloc.Allocator = alloc.Default()) (FileInfo, error)
 func StatBytes(name []byte, a alloc.Allocator = alloc.Default()) (FileInfo, error)
-func TempDir() string
+func TempDir() (string, error)
 func TempDirBytes() []byte
+func TempDirLossy() string
 func WriteFile(name string, data []byte, perm FileMode, a alloc.Allocator = alloc.Default()) error
 func WriteFileBytes(name []byte, data []byte, perm FileMode, a alloc.Allocator = alloc.Default()) error
 ```
