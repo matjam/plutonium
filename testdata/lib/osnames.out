@@ -1,49 +1,79 @@
 entries 6
-entry a��.txt raw 61e2822e747874 valid true dir false
-entry plain.txt raw 706c61696e2e747874 valid true dir false
-entry sub� raw 73756280 valid true dir true
-entry � raw c3 valid true dir false
-entry é.txt raw c3a92e747874 valid true dir false
-entry �.txt raw ff2e747874 valid true dir false
-info true false true
-info true false true
-info true true true
-info true false true
-info true false true
-info true false true
+entry a��.txt raw 61e2822e747874 error DirEntry.Name bytes 61e2822e747874 empty name true
+entry plain.txt raw 706c61696e2e747874 name plain.txt valid true dir false
+entry sub� raw 73756280 error DirEntry.Name bytes 73756280 empty name true
+entry � raw c3 error DirEntry.Name bytes c3 empty name true
+entry é.txt raw c3a92e747874 name é.txt valid true dir false
+entry �.txt raw ff2e747874 error DirEntry.Name bytes ff2e747874 empty name true
+info true true false true
+info raw equal true
+info true true false true
+info raw equal true
+info true true true true
+info raw equal true
+info true true false true
+info raw equal true
+info true true false true
+info raw equal true
+info true true false true
+info raw equal true
 sub entries 1
-entry �.txt raw ff2e747874 valid true dir false
+entry �.txt raw ff2e747874 error DirEntry.Name bytes ff2e747874 empty name true
 sub info 0
 read file 0 name valid true
+File.Name error true true true
+File.Name bytes ff2e747874 RawName ff2e747874
 file stat 6 false
+valid File.Name true true true
 open missing true true
 error path valid true open
 error text: true
 lossy name finds nothing true
-StatBytes 6 true 11
+StatBytes 6 true 11 Name error true
 LstatBytes 6 true true
 ReadFileBytes rewritten
 mode -rw-r-----
 old name gone true
 new name there true
-Getwd valid true lossy is longer true
+Getwd error true true
+GetwdLossy valid true lossy is longer true
+NameError holds the exact directory true
 raw ends with y true raw has 0xfd true lossy has 0xfd false
 AppendAbs ends with /x/y/w true exact true
-Abs valid true ends with /x/y/w true
-Readlink valid true 4
+Abs error true
+Readlink error true true
+Readlink error bytes 74ff
+ReadlinkLossy valid true 4
 AppendReadlink 74ff
 ReadlinkBytes 74ff
 Readlink of a file fails true
 target too long for the buffer true 0
 WalkDir visited 13
 WalkDirBytes visited 13 opened 7
-ArgBytes(0) matches Arg(0) true true
+ArgBytes(0) matches Arg(0) true true true
+Args true
 ArgBytes out of range true true
 ArgsBytes true
-GetenvBytes matches Getenv true
+GetenvBytes matches Getenv true true
 LookupEnvBytes unset false
+LookupEnv unset false true
 EnvironBytes true
-TempDirBytes true
+TempDirBytes true true
+child Getenv error true true
+child Getenv bytes 61ff62
+child Error text valid true
+child GetenvLossy a�b true
+child GetenvBytes 61ff62
+child Getenv good ok true
+child LookupEnv true true true true
+child LookupEnvLossy true true
+child Environ error true true
+child EnvironLossy valid true
+child TempDir error true true
+child TempDirLossy true true
+child TempDirBytes 73756280
+child MkdirTemp error true true
+child MkdirTemp path made true
 removed true
 RemoveAllBytes removed the tree true
 all gone true

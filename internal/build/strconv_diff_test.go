@@ -144,8 +144,8 @@ func main() {
 	if os.NArgs() < 3 {
 		os.Exit(2)
 	}
-	mode := os.Arg(1)
-	data, err := os.ReadFile(os.Arg(2))
+	mode := os.ArgLossy(1)
+	data, err := os.ReadFile(os.ArgLossy(2))
 	if err != nil {
 		os.Exit(3)
 	}

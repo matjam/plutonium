@@ -161,7 +161,8 @@ func files() {
 			return
 		}
 		f.WriteString("owned")
-		println("name matches:", f.Name() == name)
+		fname, _ := f.Name()
+		println("name matches:", fname == name)
 	} // f is dropped here: closed, and the data is on disk
 	data, err := os.ReadFile(name)
 	println(string1(data.Slice()), err == nil)

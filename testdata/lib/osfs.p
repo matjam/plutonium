@@ -36,7 +36,9 @@ func str(b []byte) string { return unsafe.String(unsafe.SliceData(b), len(b)) }
 func main() {
 	dir, err := os.MkdirTemp("", "osfs-*-test")
 	check("MkdirTemp", err)
-	println("temp has prefix", strings.HasPrefix(dir, os.TempDir()), strings.HasSuffix(dir, "-test"))
+	tmp, err := os.TempDir()
+	check("TempDir", err)
+	println("temp has prefix", strings.HasPrefix(dir, tmp), strings.HasSuffix(dir, "-test"))
 	fi, err := os.Stat(dir)
 	check("Stat dir", err)
 	var mb [16]byte
@@ -55,7 +57,9 @@ func main() {
 	data.Free()
 	fi, err = os.Stat(a)
 	check("Stat", err)
-	println("stat", fi.Name(), fi.Size(), fi.IsDir(), fi.Mode().IsRegular(), uint32(fi.Mode().Perm()) == 0o640, fi.ModTime().Year() >= 2024)
+	fname, err := fi.Name()
+	check("FileInfo.Name", err)
+	println("stat", fname, fi.Size(), fi.IsDir(), fi.Mode().IsRegular(), uint32(fi.Mode().Perm()) == 0o640, fi.ModTime().Year() >= 2024)
 
 	// A bigger file, read through io.ReadAll.
 	f, err := os.Create(join(qb[:], dir, "big.bin"))
@@ -79,7 +83,9 @@ func main() {
 	all.Free()
 	ffi, err := f.Stat()
 	check("File.Stat", err)
-	println("file stat", ffi.Name(), ffi.Size())
+	ffname, err := ffi.Name()
+	check("FileInfo.Name", err)
+	println("file stat", ffname, ffi.Size())
 	f.Close()
 
 	// MkdirAll, ReadDir and DirEntry.
@@ -92,11 +98,15 @@ func main() {
 	ents, err := os.ReadDir(dir)
 	check("ReadDir", err)
 	for _, e := range ents.Entries() {
-		println("entry", e.Name(), e.IsDir())
+		ename, err := e.Name()
+		check("DirEntry.Name", err)
+		println("entry", ename, e.IsDir())
 	}
 	info, err := ents.At(0).Info()
 	check("Info", err)
-	println("info", info.Name(), info.Size())
+	iname, err := info.Name()
+	check("FileInfo.Name", err)
+	println("info", iname, info.Size())
 	ents.Drop()
 
 	// Rename and Chmod.
@@ -150,12 +160,17 @@ func main() {
 	check("RemoveAll missing", os.RemoveAll(dir))
 
 	// Environment and process.
-	v, ok := os.LookupEnv("PLUTO_SURELY_UNSET_VARIABLE")
+	v, ok, err := os.LookupEnv("PLUTO_SURELY_UNSET_VARIABLE")
+	check("LookupEnv", err)
 	println("lookup unset", v == "", ok)
-	env := os.Environ()
+	env, err := os.Environ()
+	check("Environ", err)
 	println("environ", env.Len() > 0, os.Getpid() > 0)
 	env.Free()
-	args := os.Args()
-	println("args", args.Len(), args.At(0) == os.Arg(0))
+	args, err := os.Args()
+	check("Args", err)
+	arg0, err := os.Arg(0)
+	check("Arg", err)
+	println("args", args.Len(), args.At(0) == arg0)
 	args.Free()
 }

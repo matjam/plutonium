@@ -1,13 +1,15 @@
 package main
 
 // File names that are not valid UTF-8. A name on Linux is any bytes but NUL
-// and '/', a string holds only valid UTF-8 (language spec section 6.10), so
-// pluto/os hands names back as strings with U+FFFD for each invalid byte
-// (DirEntry.Name, Readlink, Getwd, PathError, filepath.WalkDir) and keeps
-// the exact bytes next to them (DirEntry.RawName, AppendReadlink,
-// AppendWd, ArgBytes, filepath.WalkDirBytes); the Bytes functions
-// (OpenBytes, StatBytes, ...) take a name as bytes, so that such a file can
-// still be opened, renamed and removed.
+// and '/', a string holds only valid UTF-8 (language spec section 7.3), so
+// pluto/os returns a *os.NameError, holding the exact bytes, from the
+// functions that have the Go name (DirEntry.Name, File.Name, FileInfo.Name,
+// Readlink, Getwd, Getenv, Arg, ...), a string with U+FFFD for each invalid
+// byte from the Lossy forms (NameLossy, GetwdLossy, ...), and the exact
+// bytes from RawName, AppendReadlink, AppendWd, ArgBytes, GetenvBytes and
+// filepath.WalkDirBytes; the Bytes functions (OpenBytes, StatBytes, ...)
+// take a name as bytes, so that such a file can still be opened, renamed
+// and removed. PathError.Path stays a string, lossy.
 
 import (
 	"pluto/errors"
@@ -64,12 +66,24 @@ var (
 )
 
 func show(e *os.DirEntry) {
-	print("entry ", e.Name(), " raw ")
+	print("entry ", e.NameLossy(), " raw ")
 	hex(e.RawName())
-	println(" valid", utf8.ValidString(e.Name()), "dir", e.IsDir())
+	name, err := e.Name()
+	var ne *os.NameError
+	if errors.As(err, &ne) {
+		print(" error ", ne.Op, " bytes ")
+		hex(ne.Bytes)
+		println(" empty name", name == "")
+	} else {
+		println(" name", name, "valid", utf8.ValidString(name), "dir", e.IsDir())
+	}
 }
 
 func main() {
+	if os.NArgs() > 1 {
+		child()
+		return
+	}
 	dir, err := os.MkdirTemp("", "osnames-*-test")
 	check("MkdirTemp", err)
 	var pb, qb [512]byte
@@ -85,7 +99,8 @@ func main() {
 	check("MkdirBytes", os.MkdirBytes(join(pb[:], dir, nSub[:]), 0o755))
 	check("WriteFile", os.WriteFile(dir+"/plain.txt", viewOf("plain"), 0o644))
 
-	// ReadDir: sorted by the exact bytes; Name is valid UTF-8, RawName exact.
+	// ReadDir: sorted by the exact bytes; Name is an error for a name that is
+	// not valid UTF-8, NameLossy valid UTF-8, RawName exact.
 	ents, err := os.ReadDir(dir)
 	check("ReadDir", err)
 	println("entries", ents.Len())
@@ -97,7 +112,10 @@ func main() {
 		e := ents.At(i)
 		fi, err := e.Info()
 		check("Info", err)
-		println("info", fi.Name() == e.Name(), fi.IsDir(), fi.IsDir() || fi.Size() > 0)
+		_, ferr := fi.Name()
+		_, eerr := e.Name()
+		println("info", fi.NameLossy() == e.NameLossy(), (ferr == nil) == (eerr == nil), fi.IsDir(), fi.IsDir() || fi.Size() > 0)
+		println("info raw equal", str(fi.RawName()) == str(e.RawName()))
 	}
 	ents.Drop()
 
@@ -118,16 +136,32 @@ func main() {
 	}
 	ents.Drop()
 
-	// Open by the exact bytes; the File's name and the error are lossy.
+	// Open by the exact bytes; the File's Name is an error, its NameLossy
+	// and the PathError's Path are lossy, its RawName exact.
 	f, err := os.OpenBytes(join(pb[:], dir, nFF[:]))
 	check("OpenBytes", err)
 	var buf [16]byte
 	n, _ := f.Read(buf[:])
-	println("read", str(buf[:n]), "name valid", utf8.ValidString(f.Name()))
+	println("read", str(buf[:n]), "name valid", utf8.ValidString(f.NameLossy()))
+	fname, ferr := f.Name()
+	var fne *os.NameError
+	println("File.Name error", errors.As(ferr, &fne), fname == "", fne != nil && fne.Op == "File.Name")
+	print("File.Name bytes ")
+	hexBase(fne.Bytes)
+	print(" RawName ")
+	hexBase(f.RawName())
+	println()
+	ferr = nil
 	fi, err := f.Stat()
 	check("File.Stat", err)
-	println("file stat", fi.Size(), fi.Name() == f.Name())
+	println("file stat", fi.Size(), fi.NameLossy() == f.NameLossy())
 	f.Close()
+	// A file opened with a valid name has a Name and a RawName that match.
+	vf, err := os.OpenBytes(join(pb[:], dir, nE[:]))
+	check("OpenBytes valid", err)
+	vname, verr := vf.Name()
+	println("valid File.Name", verr == nil, vname == vf.NameLossy(), str(vf.RawName()) == vname)
+	vf.Close()
 
 	_, err = os.OpenBytes(join(pb[:], dir, nMiss[:]))
 	println("open missing", err != nil, errors.Is(err, os.ErrNotExist))
@@ -146,10 +180,11 @@ func main() {
 	// StatBytes and LstatBytes.
 	fi, err = os.StatBytes(join(pb[:], dir, nHalf[:]))
 	check("StatBytes", err)
-	println("StatBytes", fi.Size(), utf8.ValidString(fi.Name()), len(fi.Name()))
+	_, serr := fi.Name()
+	println("StatBytes", fi.Size(), utf8.ValidString(fi.NameLossy()), len(fi.NameLossy()), "Name error", serr != nil)
 	fi, err = os.LstatBytes(join(pb[:], dir, nCut[:]))
 	check("LstatBytes", err)
-	println("LstatBytes", fi.Size(), utf8.ValidString(fi.Name()), fi.Mode().IsRegular())
+	println("LstatBytes", fi.Size(), utf8.ValidString(fi.NameLossy()), fi.Mode().IsRegular())
 
 	// ReadFileBytes and WriteFileBytes.
 	check("WriteFileBytes", os.WriteFileBytes(join(pb[:], dir, nE[:]), viewOf("rewritten"), 0o600))
@@ -181,20 +216,28 @@ func main() {
 	check("AppendWd", os.AppendWd(&hf))
 	h := hf.Slice()
 	check("ChdirBytes", os.ChdirBytes(deep))
-	wd, err := os.Getwd()
-	check("Getwd", err)
+	_, werr := os.Getwd()
+	var wne *os.NameError
+	println("Getwd error", errors.As(werr, &wne), wne != nil && wne.Op == "Getwd")
+	wd, err := os.GetwdLossy()
+	check("GetwdLossy", err)
 	rf := vec.NewFixed(wb[:])
 	check("AppendWd 2", os.AppendWd(&rf))
 	raw := rf.Slice()
-	println("Getwd valid", utf8.ValidString(wd), "lossy is longer", len(wd) > len(raw))
+	println("GetwdLossy valid", utf8.ValidString(wd), "lossy is longer", len(wd) > len(raw))
+	println("NameError holds the exact directory", wne != nil && str(wne.Bytes) == str(raw))
+	wne = nil
+	werr = nil
 	println("raw ends with y", raw[len(raw)-1] == 'y', "raw has 0xfd", rawHas(raw, 0xfd), "lossy has 0xfd", rawHas(viewOf(wd), 0xfd))
 	af := vec.NewFixed(wb[:])
 	check("AppendAbs", filepath.AppendAbs(&af, "z/../w"))
 	abs := af.Slice()
 	println("AppendAbs ends with /x/y/w", suffix(abs, "/x/y/w"), "exact", rawHas(abs, 0xfd))
-	s, err := filepath.Abs("w")
-	check("Abs", err)
-	println("Abs valid", utf8.ValidString(s), "ends with /x/y/w", suffix(viewOf(s), "/x/y/w"))
+	// Abs of a relative path needs the working directory as a string.
+	_, err = filepath.Abs("w")
+	var ane *os.NameError
+	println("Abs error", errors.As(err, &ane))
+	err = nil
 	// Open a file relative to the directory whose name is not a string.
 	check("WriteFile relative", os.WriteFile("rel.txt", viewOf("relative"), 0o644))
 	check("Chdir back", os.ChdirBytes(h))
@@ -205,9 +248,16 @@ func main() {
 	c.Dir = dir
 	check("ln", c.Run())
 	c.Drop()
-	target, err := os.Readlink(dir + "/link")
-	check("Readlink", err)
-	println("Readlink valid", utf8.ValidString(target), len(target))
+	_, err = os.Readlink(dir + "/link")
+	var rne *os.NameError
+	println("Readlink error", errors.As(err, &rne), rne != nil && rne.Op == "Readlink")
+	print("Readlink error bytes ")
+	hex(rne.Bytes)
+	println()
+	err = nil
+	target, err := os.ReadlinkLossy(dir + "/link")
+	check("ReadlinkLossy", err)
+	println("ReadlinkLossy valid", utf8.ValidString(target), len(target))
 	var lb [64]byte
 	rawt := vec.NewFixed(lb[:])
 	check("AppendReadlink", os.AppendReadlink(&rawt, dir+"/link"))
@@ -268,21 +318,44 @@ func main() {
 
 	// Command-line arguments and the environment.
 	a0 := os.ArgBytes(0)
-	println("ArgBytes(0) matches Arg(0)", str(a0) == os.Arg(0), len(a0) > 0)
+	arg0, err := os.Arg(0)
+	check("Arg", err)
+	println("ArgBytes(0) matches Arg(0)", str(a0) == arg0, str(a0) == os.ArgLossy(0), len(a0) > 0)
+	argv, err := os.Args()
+	check("Args", err)
+	println("Args", argv.Len() == os.NArgs())
+	argv.Free()
 	println("ArgBytes out of range", os.ArgBytes(99) == nil, os.ArgBytes(-1) == nil)
 	args := os.ArgsBytes()
 	println("ArgsBytes", args.Len() == os.NArgs())
 	args.Free()
 	pathv := os.GetenvBytes(viewOf("PATH"))
-	println("GetenvBytes matches Getenv", str(pathv) == os.Getenv("PATH"))
+	path, err := os.Getenv("PATH")
+	check("Getenv", err)
+	println("GetenvBytes matches Getenv", str(pathv) == path, path == os.GetenvLossy("PATH"))
 	_, ok := os.LookupEnvBytes(viewOf("PLUTO_NO_SUCH_VARIABLE"))
 	println("LookupEnvBytes unset", ok)
+	_, ok, err = os.LookupEnv("PLUTO_NO_SUCH_VARIABLE")
+	println("LookupEnv unset", ok, err == nil)
 	env := os.EnvironBytes()
-	envs := os.Environ()
+	envs, err := os.Environ()
+	check("Environ", err)
 	println("EnvironBytes", env.Len() == envs.Len())
 	env.Free()
 	envs.Free()
-	println("TempDirBytes", str(os.TempDirBytes()) == os.TempDir())
+	tmp, err := os.TempDir()
+	check("TempDir", err)
+	println("TempDirBytes", str(os.TempDirBytes()) == tmp, tmp == os.TempDirLossy())
+
+	// Environment values that are not valid UTF-8, in a child process: the
+	// program runs itself under a shell that sets them.
+	self, err := os.Arg(0)
+	check("Arg self", err)
+	cc := exec.Command("sh", "-c", "PLUTO_BAD=\"$(printf 'a\\377b')\" PLUTO_GOOD=ok TMPDIR=\"$1/$(printf 'sub\\200')\" exec \"$0\" child", self, dir)
+	cc.Stdout = os.Stdout
+	cc.Stderr = os.Stderr
+	check("child", cc.Run())
+	cc.Drop()
 
 	// Remove, RemoveAll.
 	check("RemoveBytes", os.RemoveBytes(join(pb[:], dir, nFE[:])))
@@ -311,4 +384,65 @@ func rawHas(b []byte, c byte) bool {
 
 func suffix(b []byte, s string) bool {
 	return len(b) >= len(s) && str(b[len(b)-len(s):]) == s
+}
+
+// child runs in a process whose environment has a variable that is not
+// valid UTF-8.
+func child() {
+	_, err := os.Getenv("PLUTO_BAD")
+	var ne *os.NameError
+	println("child Getenv error", errors.As(err, &ne), ne != nil && ne.Op == "Getenv")
+	print("child Getenv bytes ")
+	hex(ne.Bytes)
+	println()
+	println("child Error text valid", utf8.ValidString(err.Error()))
+	println("child GetenvLossy", os.GetenvLossy("PLUTO_BAD"), utf8.ValidString(os.GetenvLossy("PLUTO_BAD")))
+	print("child GetenvBytes ")
+	hex(os.GetenvBytes(viewOf("PLUTO_BAD")))
+	println()
+	good, err := os.Getenv("PLUTO_GOOD")
+	println("child Getenv good", good, err == nil)
+	v, ok, err := os.LookupEnv("PLUTO_BAD")
+	var ne2 *os.NameError
+	println("child LookupEnv", v == "", ok, errors.As(err, &ne2), ne2 != nil && ne2.Op == "LookupEnv")
+	lv, ok := os.LookupEnvLossy("PLUTO_BAD")
+	println("child LookupEnvLossy", ok, utf8.ValidString(lv))
+	_, err = os.Environ()
+	var ne3 *os.NameError
+	println("child Environ error", errors.As(err, &ne3), ne3 != nil && ne3.Op == "Environ")
+	el := os.EnvironLossy()
+	valid := true
+	for _, e := range el.Slice() {
+		valid = valid && utf8.ValidString(e)
+	}
+	println("child EnvironLossy valid", valid)
+	el.Free()
+	_, err = os.TempDir()
+	var ne4 *os.NameError
+	println("child TempDir error", errors.As(err, &ne4), ne4 != nil && ne4.Op == "TempDir")
+	print("child TempDirLossy ")
+	println(os.TempDirLossy() != "", utf8.ValidString(os.TempDirLossy()))
+	print("child TempDirBytes ")
+	hexBase(os.TempDirBytes())
+	println()
+	// MkdirTemp in a temporary directory that is not a string: the
+	// directory is made and the error holds its path.
+	_, err = os.MkdirTemp("", "x-*")
+	var ne5 *os.NameError
+	println("child MkdirTemp error", errors.As(err, &ne5), ne5 != nil && ne5.Op == "MkdirTemp")
+	if ne5 != nil {
+		println("child MkdirTemp path made", os.RemoveBytes(ne5.Bytes) == nil)
+	}
+}
+
+// hexBase prints the part of b after its last slash as hexadecimal (the
+// directories above vary from run to run).
+func hexBase(b []byte) {
+	for i := len(b) - 1; i >= 0; i-- {
+		if b[i] == '/' {
+			b = b[i+1:]
+			break
+		}
+	}
+	hex(b)
 }

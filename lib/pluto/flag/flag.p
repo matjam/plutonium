@@ -641,7 +641,7 @@ func (f *FlagSet) Parse(arguments []string) error {
 
 // CommandLine is the set of flags of the command line, named after the
 // program. The package-level functions use it.
-var CommandLine = NewFlagSet(os.Arg(0), ExitOnError)
+var CommandLine = NewFlagSet(os.ArgLossy(0), ExitOnError)
 
 // Bool defines a bool flag on the command line.
 func Bool(name string, value bool, usage string) *bool { return CommandLine.Bool(name, value, usage) }
@@ -686,7 +686,7 @@ func Var(value Value, name string, usage string) { CommandLine.Var(value, name, 
 // Parse parses the command line's flags from the process's arguments.
 func Parse() {
 	CommandLine.osArgs.Free()
-	CommandLine.osArgs = os.Args()
+	CommandLine.osArgs = os.ArgsLossy()
 	CommandLine.Parse(CommandLine.osArgs.Slice()[1:])
 }
 

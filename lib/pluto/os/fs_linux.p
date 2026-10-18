@@ -22,12 +22,15 @@ import (
 // (vec.Vec or DirEntries) that records its allocator.
 //
 // Names and paths. A file name on Linux is any bytes but NUL and '/'. A
-// string holds only valid UTF-8 (language spec section 18.8), so every name
-// or path this package hands back as a string (DirEntry.Name, Readlink,
-// Getwd, FileInfo.Name, PathError.Path, File.Name, Arg, Getenv) has each
-// invalid byte replaced by U+FFFD, as strings.FromUTF8Lossy does, and the exact bytes
-// are available next to it: DirEntry.RawName, AppendReadlink, AppendWd,
-// ArgBytes, GetenvBytes. A lossy name cannot be opened, because it may name
+// string holds only valid UTF-8 (language spec section 7.3), so a name or
+// path that is not valid UTF-8 cannot be returned as one. The function with
+// the Go name (DirEntry.Name, Readlink, Getwd, FileInfo.Name, File.Name,
+// Arg, Getenv, ...) returns a *NameError for it; the function with Lossy in
+// its name returns the string with each invalid byte replaced by U+FFFD, as
+// strings.FromUTF8Lossy does, for display; and the exact bytes are
+// available next to it: DirEntry.RawName, AppendReadlink, AppendWd,
+// ArgBytes, GetenvBytes. PathError.Path is a string for the message and is
+// lossy in that way. A lossy name cannot be opened, because it may name
 // another file or none, so every core operation on a path has a Bytes form
 // that takes the path as a []byte (OpenBytes, StatBytes, RemoveBytes and so
 // on). Use them with RawName and the Append forms for files whose names
@@ -168,9 +171,23 @@ type FileInfo struct {
 
 // Name returns the file's base name: a view of the path given to Stat, or
 // of the File's name. If the name is not valid UTF-8 (StatBytes, ReadDir)
-// it is a copy with U+FFFD for each invalid byte; the caller has the exact
-// bytes (the path given to StatBytes, DirEntry.RawName).
-func (fi *FileInfo) Name() string { return fi.name }
+// it is a *NameError holding the exact bytes. NameLossy returns it with
+// U+FFFD for each invalid byte, and RawName returns the exact bytes.
+func (fi *FileInfo) Name() (string, error) {
+	if !validBytes(fi.raw) {
+		return "", NewNameError("FileInfo.Name", fi.raw)
+	}
+	return fi.name, nil
+}
+
+// NameLossy returns the file's base name with U+FFFD for each invalid byte.
+// It is for display; do not open the file with it.
+func (fi *FileInfo) NameLossy() string { return fi.name }
+
+// RawName returns the exact bytes of the file's base name, a view valid as
+// long as the memory it was made from (the path given to StatBytes, the
+// DirEntries). Do not modify it.
+func (fi *FileInfo) RawName() []byte { return fi.raw }
 
 // Size returns the length in bytes of a regular file.
 func (fi *FileInfo) Size() int64 { return fi.size }
@@ -652,11 +669,26 @@ func isDots(name []byte) bool {
 	return len(name) == 1 && name[0] == '.' || len(name) == 2 && name[0] == '.' && name[1] == '.'
 }
 
-// Readlink returns the target of the symbolic link name, a string with
-// each invalid UTF-8 byte of the target replaced by U+FFFD (a link may
-// point anywhere, and a string holds only valid UTF-8; see AppendReadlink
-// for the exact bytes). A failure is a *PathError from a.
+// Readlink returns the target of the symbolic link name, a new string from
+// a. A link may point anywhere, and a string holds only valid UTF-8: a
+// target that is not is a *NameError holding the bytes (ReadlinkLossy
+// returns it with U+FFFD, and AppendReadlink the exact bytes). A failure is
+// a *PathError from a.
 func Readlink(name string, a alloc.Allocator = alloc.Default()) (string, error) {
+	var buf [maxPath]byte
+	n, err := readlink(&buf, strBytes(name), name, a)
+	if err != nil {
+		return "", err
+	}
+	if !validBytes(buf[:n]) {
+		return "", NewNameError("Readlink", buf[:n], a)
+	}
+	return lossyCopy(buf[:n], a), nil
+}
+
+// ReadlinkLossy is Readlink with each invalid byte of the target replaced
+// by U+FFFD, as strings.FromUTF8Lossy does. It is for display.
+func ReadlinkLossy(name string, a alloc.Allocator = alloc.Default()) (string, error) {
 	var buf [maxPath]byte
 	n, err := readlink(&buf, strBytes(name), name, a)
 	if err != nil {
@@ -723,11 +755,25 @@ func appendAll[D vec.Appender[byte]](dst D, b []byte) bool {
 	return true
 }
 
-// Getwd returns the working directory, a new string from the current
-// allocator. The directory's name is any bytes but NUL, so each byte that
-// is not valid UTF-8 is replaced by U+FFFD, as strings.FromUTF8Lossy does; AppendWd
-// returns the exact bytes.
+// Getwd returns the working directory, a new string from the default
+// allocator. The directory's name is any bytes but NUL: one that is not
+// valid UTF-8 is a *NameError holding the bytes. GetwdLossy returns it with
+// U+FFFD for each invalid byte, and AppendWd returns the exact bytes.
 func Getwd() (string, error) {
+	var buf [maxPath]byte
+	n, err := getwd(&buf)
+	if err != nil {
+		return "", err
+	}
+	if !validBytes(buf[:n]) {
+		return "", NewNameError("Getwd", buf[:n])
+	}
+	return rt.StringFromSlice(buf[:n], alloc.Default()), nil
+}
+
+// GetwdLossy is Getwd with each invalid byte of the name replaced by
+// U+FFFD, as strings.FromUTF8Lossy does. It is for display.
+func GetwdLossy() (string, error) {
 	var buf [maxPath]byte
 	n, err := getwd(&buf)
 	if err != nil {
@@ -784,10 +830,21 @@ func chdir(dir []byte, sdir string, a alloc.Allocator) error {
 }
 
 // TempDir returns the directory for temporary files: $TMPDIR, or "/tmp".
-// A $TMPDIR that is not valid UTF-8 comes back with U+FFFD for each invalid
-// byte; TempDirBytes returns it exactly.
-func TempDir() string {
-	if d := Getenv("TMPDIR"); d != "" {
+// A $TMPDIR that is not valid UTF-8 is a *NameError holding the bytes;
+// TempDirLossy returns it with U+FFFD for each invalid byte, and
+// TempDirBytes returns it exactly.
+func TempDir() (string, error) {
+	d, _ := lookupEnv(strBytes("TMPDIR"))
+	if len(d) == 0 {
+		return "/tmp", nil
+	}
+	return strictView("TempDir", d)
+}
+
+// TempDirLossy is TempDir with each invalid byte of $TMPDIR replaced by
+// U+FFFD, as strings.FromUTF8Lossy does. It is for display.
+func TempDirLossy() string {
+	if d := GetenvLossy("TMPDIR"); d != "" {
 		return d
 	}
 	return "/tmp"
@@ -808,14 +865,17 @@ func TempDirBytes() []byte {
 // random string appended if pattern has no "*"), and returns its path, a
 // new string. The directory has permissions 0o700; removing it is the
 // caller's job. Errors, and the path, come from a, by default the default
-// allocator. If dir is "" and $TMPDIR is not valid UTF-8, the path
-// returned has U+FFFD for each invalid byte (AppendMkdirTemp returns the
-// exact bytes).
+// allocator. If dir is "" and $TMPDIR is not valid UTF-8, the directory is
+// made and the error is a *NameError holding its exact path, so that the
+// caller can remove it (AppendMkdirTemp returns the path in that case too).
 func MkdirTemp(dir, pattern string, a alloc.Allocator = alloc.Default()) (string, error) {
 	var buf [maxPath]byte
 	b := vec.NewFixed(buf[:])
 	if err := AppendMkdirTemp(&b, dir, pattern, a); err != nil {
 		return "", err
+	}
+	if !validBytes(b.Slice()) {
+		return "", NewNameError("MkdirTemp", b.Slice(), a)
 	}
 	return rt.StringFromBytes(&buf[0], b.Len(), a), nil
 }
@@ -915,18 +975,48 @@ func Getpid() int { return syscall.Getpid() }
 func Getuid() int { return syscall.Getuid() }
 
 // LookupEnv returns the value of the environment variable key and whether
-// it is set. The value is made a valid string as Getenv makes it;
-// LookupEnvBytes returns the exact bytes.
-func LookupEnv(key string) (string, bool) {
+// it is set. A value that is not valid UTF-8 is a *NameError holding the
+// bytes, as for Getenv (the variable is set, so the bool is true);
+// LookupEnvLossy returns it with U+FFFD, and LookupEnvBytes the exact
+// bytes.
+func LookupEnv(key string) (string, bool, error) {
+	v, ok := lookupEnv(strBytes(key))
+	s, err := strictView("LookupEnv", v)
+	return s, ok, err
+}
+
+// LookupEnvLossy is LookupEnv with each invalid byte of the value replaced
+// by U+FFFD, as strings.FromUTF8Lossy does. It is for display.
+func LookupEnvLossy(key string) (string, bool) {
 	v, ok := lookupEnv(strBytes(key))
 	return lossyView(v), ok
 }
 
 // Environ returns the environment as "key=value" strings, views of the
-// process's environment, in a vec.Vec allocated from a. An entry that is
-// not valid UTF-8 is a copy with U+FFFD for each invalid byte;
+// process's environment, in a vec.Vec allocated from a. If an entry is not
+// valid UTF-8 the result is empty and the error is a *NameError holding
+// that entry; EnvironLossy replaces each invalid byte with U+FFFD, and
 // EnvironBytes returns the exact bytes.
-func Environ(a alloc.Allocator = alloc.Default()) vec.Vec[string] {
+func Environ(a alloc.Allocator = alloc.Default()) (vec.Vec[string], error) {
+	env := rt.Environ()
+	out := vec.New[string](a)
+	for i := 0; ; i++ {
+		p := *(**byte)(unsafe.Add(env, i*8))
+		if p == nil {
+			return out, nil
+		}
+		s, err := strictView("Environ", cbytes(p))
+		if err != nil {
+			out.Free()
+			return vec.Vec[string]{}, err
+		}
+		out.Push(s)
+	}
+}
+
+// EnvironLossy is Environ with each invalid byte replaced by U+FFFD, as
+// strings.FromUTF8Lossy does. It is for display.
+func EnvironLossy(a alloc.Allocator = alloc.Default()) vec.Vec[string] {
 	env := rt.Environ()
 	out := vec.New[string](a)
 	for i := 0; ; i++ {
@@ -954,14 +1044,31 @@ func EnvironBytes(a alloc.Allocator = alloc.Default()) vec.Vec[[]byte] {
 }
 
 // Args returns the command-line arguments, starting with the program name,
-// as views of the process's arguments in a vec.Vec allocated from a. An
-// argument that is not valid UTF-8 is a copy with U+FFFD for each invalid
-// byte; ArgsBytes returns the exact bytes.
-func Args(a alloc.Allocator = alloc.Default()) vec.Vec[string] {
+// as views of the process's arguments in a vec.Vec allocated from a. If an
+// argument is not valid UTF-8 the result is empty and the error is a
+// *NameError holding that argument; ArgsLossy replaces each invalid byte
+// with U+FFFD, and ArgsBytes returns the exact bytes.
+func Args(a alloc.Allocator = alloc.Default()) (vec.Vec[string], error) {
 	n := NArgs()
 	out := vec.WithCapacity[string](n, a)
 	for i := 0; i < n; i++ {
-		out.Push(Arg(i))
+		s, err := Arg(i)
+		if err != nil {
+			out.Free()
+			return vec.Vec[string]{}, err
+		}
+		out.Push(s)
+	}
+	return out, nil
+}
+
+// ArgsLossy is Args with each invalid byte replaced by U+FFFD, as
+// strings.FromUTF8Lossy does. It is for display.
+func ArgsLossy(a alloc.Allocator = alloc.Default()) vec.Vec[string] {
+	n := NArgs()
+	out := vec.WithCapacity[string](n, a)
+	for i := 0; i < n; i++ {
+		out.Push(ArgLossy(i))
 	}
 	return out
 }

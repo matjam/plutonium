@@ -588,7 +588,7 @@ func useVec(v vec.Vec[int])           { println(v.Len()) }
 func useMap(m hash.Map[string, int])  { println(m.Len()) }
 func useBuilder(b strings.Builder)    { println(b.Len()) }
 func useBuffer(b bytes.Buffer)        { println(b.Len()) }
-func useFile(f *os.File, done chan bool) { println(f.Name()); done <- true }
+func useFile(f *os.File, done chan bool) { println(f.NameLossy()); done <- true }
 
 func main() {
 	v := vec.New[int]()

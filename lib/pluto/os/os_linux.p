@@ -14,29 +14,37 @@
 // A string holds only valid UTF-8 (language spec section 7.3), but Linux
 // does not promise it: a file name is any bytes except NUL and '/', and so
 // are a symbolic link's target, the working directory, a command-line
-// argument and an environment variable. Bytes that the system hands back
-// become a string only through validation, which replaces each byte that
-// does not begin a valid UTF-8 sequence with U+FFFD, as
-// strings.FromUTF8Lossy does. A name that is valid UTF-8 comes back as it
-// is. The conversion is lossy: two different files can give the same
-// string, and a lossy name must not be used to open, rename or remove the
-// file it came from.
+// argument and an environment variable. No function turns such bytes into
+// a string by changing them. The function that has the Go name returns the
+// string and an error: name, err := e.Name(), v, err := os.Getenv(k). The
+// error is a *NameError, which holds the exact bytes, when they are not
+// valid UTF-8. Using such a call as a single value is a compile error. Two
+// other forms are always available:
 //
-// The exact bytes are available next to every string that can be lossy:
+//   - a form with Lossy in its name (NameLossy, GetenvLossy, ArgLossy, ...)
+//     returns a string with each byte that does not begin a valid UTF-8
+//     sequence replaced by U+FFFD, as strings.FromUTF8Lossy does. It is
+//     for display: two different files can give the same string, and a
+//     lossy name must not be used to open, rename or remove the file it
+//     came from.
 //
-//	DirEntry.Name, FileInfo.Name      DirEntry.RawName
-//	Readlink                          AppendReadlink, ReadlinkBytes
-//	Getwd (and filepath.Abs)          AppendWd (and filepath.AppendAbs)
-//	Arg, Args (and flag.Arg)          ArgBytes, ArgsBytes (and flag.ArgBytes)
-//	Getenv, LookupEnv, Environ,       GetenvBytes, LookupEnvBytes,
-//	TempDir                           EnvironBytes, TempDirBytes
-//	MkdirTemp (and exec.LookPath)     AppendMkdirTemp (and exec.AppendLookPath)
+//   - the Bytes form returns the exact bytes:
+//
+//     DirEntry.Name, FileInfo.Name,     DirEntry.RawName, FileInfo.RawName,
+//     File.Name                         File.RawName
+//     Readlink                          AppendReadlink, ReadlinkBytes
+//     Getwd (and filepath.Abs)          AppendWd (and filepath.AppendAbs)
+//     Arg, Args (and flag.Arg)          ArgBytes, ArgsBytes (and flag.ArgBytes)
+//     Getenv, LookupEnv, Environ,       GetenvBytes, LookupEnvBytes,
+//     TempDir                           EnvironBytes, TempDirBytes
+//     MkdirTemp (and exec.LookPath)     AppendMkdirTemp (and exec.AppendLookPath)
 //
 // filepath.WalkDirBytes passes each path as its exact bytes. PathError.Path
-// and File.Name have no byte form: the caller has the bytes it passed. The
-// views RawName, ArgBytes and GetenvBytes are valid as long as what they
-// view: the DirEntries that holds the entry, or the life of the program for
-// the arguments and the environment.
+// stays a string: it is for the message, so it holds the path with each
+// invalid byte replaced by U+FFFD, and the caller has the exact bytes it
+// passed. The views RawName, ArgBytes and GetenvBytes are valid as long as
+// what they view: the DirEntries that holds the entry, or the life of the
+// program for the arguments and the environment.
 //
 // The core operations on a path have a form that takes the path as a
 // []byte, named with the suffix Bytes: OpenBytes, OpenFileBytes,
@@ -44,12 +52,14 @@
 // ReadFileBytes, WriteFileBytes, MkdirBytes, MkdirAllBytes, RemoveBytes,
 // RemoveAllBytes, RenameBytes, ChmodBytes and ChdirBytes. A program that
 // must handle any file writes os.OpenBytes(e.RawName()), joined to the
-// directory, where it would write os.Open(e.Name()). ReadDir sorts by the
-// exact bytes of the names, and os/exec passes the environment to a child
-// unchanged. The functions that must not store a partial path (AppendWd,
-// AppendReadlink, ReadlinkBytes, AppendMkdirTemp, exec.AppendLookPath)
-// leave the destination as it was and return ENAMETOOLONG (ERANGE for
-// AppendWd) when the path does not fit in a vec.Fixed.
+// directory, where it would write os.Open(name) with the name that
+// e.Name() returned. ReadDir sorts by the exact bytes of the names, and
+// os/exec passes the environment to a child unchanged. The functions that
+// must not store a partial path (AppendWd, AppendReadlink, ReadlinkBytes,
+// AppendMkdirTemp, exec.AppendLookPath) leave the destination as it was and
+// return ENAMETOOLONG (ERANGE for AppendWd) when the path does not fit in a
+// vec.Fixed. PlutoniumOS refuses a name that is not valid UTF-8 when the
+// file is created, so there the error cannot occur.
 package os
 
 import (
@@ -59,6 +69,7 @@ import (
 	"pluto/rt"
 	"pluto/sync/atomic"
 	"pluto/syscall"
+	"pluto/vec"
 	"unsafe"
 )
 
@@ -95,6 +106,9 @@ var (
 type File owner struct {
 	fd   int
 	name string
+	// raw holds the exact name when it is not valid UTF-8 (OpenFileBytes
+	// of such a name), where name has U+FFFD for each invalid byte.
+	raw vec.Vec[byte]
 	// fdmu holds the open bit (fdOpen) and the number of operations in
 	// progress, so that the descriptor is closed (and may be reused by
 	// the system) only when the last of them has finished. The zero File
@@ -173,6 +187,7 @@ func (f *File) Drop() {
 	if f.opened() {
 		f.Close()
 	}
+	f.raw.Free()
 }
 
 // destroy closes the descriptor, after the last operation on it.
@@ -234,8 +249,29 @@ func (f *File) init(fd int, name string) {
 	}
 }
 
-// Name returns the name the file was opened with.
-func (f *File) Name() string { return f.name }
+// Name returns the name the file was opened with, or a *NameError holding
+// the exact bytes if it was opened with OpenBytes and a name that is not
+// valid UTF-8. NameLossy returns it with U+FFFD for each invalid byte, for
+// display, and RawName returns the exact bytes.
+func (f *File) Name() (string, error) {
+	if f.raw.Len() > 0 {
+		return "", NewNameError("File.Name", f.raw.Slice())
+	}
+	return f.name, nil
+}
+
+// NameLossy returns the name the file was opened with, with U+FFFD for each
+// invalid byte. It is for display; do not open the file again with it.
+func (f *File) NameLossy() string { return f.name }
+
+// RawName returns the exact bytes of the name the file was opened with, a
+// view valid until the File is dropped. Do not modify it.
+func (f *File) RawName() []byte {
+	if f.raw.Len() > 0 {
+		return f.raw.Slice()
+	}
+	return strBytes(f.name)
+}
 
 // Write writes p, retrying until all of it is written or an error occurs.
 func (f *File) Write(p []byte) (int, error) {
@@ -369,11 +405,17 @@ func NArgs() int {
 	return n
 }
 
-// Arg returns command-line argument i (Arg(0) is the program name). An
-// argument is any bytes but NUL, so it need not be valid UTF-8; a string
-// must be (language spec section 18.8), so Arg replaces each invalid byte
-// with U+FFFD, as strings.FromUTF8Lossy does. ArgBytes returns the exact bytes.
-func Arg(i int) string { return lossyView(ArgBytes(i)) }
+// Arg returns command-line argument i (Arg(0) is the program name), or ""
+// if there is no such argument. An argument is any bytes but NUL, so it
+// need not be valid UTF-8, which a string must be (language spec section
+// 7.3): Arg then returns a *NameError holding the bytes. ArgLossy returns
+// the argument with U+FFFD for each invalid byte, for display, and ArgBytes
+// returns the exact bytes.
+func Arg(i int) (string, error) { return strictView("Arg", ArgBytes(i)) }
+
+// ArgLossy is Arg with each invalid byte replaced by U+FFFD, as
+// strings.FromUTF8Lossy does. It is for display.
+func ArgLossy(i int) string { return lossyView(ArgBytes(i)) }
 
 // ArgBytes returns the exact bytes of command-line argument i (ArgBytes(0)
 // is the program name), or nil if there is no such argument. The result is
@@ -387,10 +429,18 @@ func ArgBytes(i int) []byte {
 	return cbytes(*(**byte)(unsafe.Add(argv, i*8)))
 }
 
-// Getenv returns the value of the environment variable key, or "". The
-// value is made a valid string as Arg makes arguments (invalid bytes become
-// U+FFFD); GetenvBytes returns the exact bytes.
-func Getenv(key string) string {
+// Getenv returns the value of the environment variable key, or "" if it is
+// not set. A value that is not valid UTF-8 is a *NameError holding the
+// bytes; GetenvLossy returns it with U+FFFD for each invalid byte, for
+// display, and GetenvBytes returns the exact bytes.
+func Getenv(key string) (string, error) {
+	v, _ := lookupEnv(strBytes(key))
+	return strictView("Getenv", v)
+}
+
+// GetenvLossy is Getenv with each invalid byte of the value replaced by
+// U+FFFD, as strings.FromUTF8Lossy does. It is for display.
+func GetenvLossy(key string) string {
 	v, _ := lookupEnv(strBytes(key))
 	return lossyView(v)
 }
@@ -496,9 +546,10 @@ func Open(name string, a alloc.Allocator = alloc.Default()) (File, error) {
 // path have a Bytes form like this one (OpenFileBytes, CreateBytes,
 // StatBytes, LstatBytes, ReadDirBytes, ReadlinkBytes, ReadFileBytes,
 // WriteFileBytes, MkdirBytes, MkdirAllBytes, RemoveBytes, RemoveAllBytes,
-// RenameBytes, ChmodBytes, ChdirBytes). The error it reports and the File's
-// Name hold the path with each invalid byte replaced by U+FFFD; the caller
-// still has the exact bytes.
+// RenameBytes, ChmodBytes, ChdirBytes). The error it reports holds the path
+// with each invalid byte replaced by U+FFFD (PathError.Path is for the
+// message), and File.Name reports a *NameError for such a name; the File's
+// RawName and the caller's own bytes are exact.
 func OpenBytes(name []byte, a alloc.Allocator = alloc.Default()) (File, error) {
 	return OpenFileBytes(name, syscall.O_RDONLY, 0, a)
 }
@@ -534,6 +585,10 @@ func OpenFileBytes(name []byte, flags int, perm uint32, a alloc.Allocator = allo
 	f, err := openFile(name, "", flags, perm, a)
 	if err == nil {
 		f.name = lossyCopy(name, a)
+		if !validBytes(name) {
+			f.raw = vec.WithCapacity[byte](len(name), a)
+			f.raw.Append(name...)
+		}
 	}
 	return f, err
 }

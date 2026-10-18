@@ -88,7 +88,7 @@ func main() {
 	mu.Unlock()
 	c := exec.Command("true")
 	_ = c.Run()
-	n := len(os.Getenv("N"))
+	n := len(os.GetenvLossy("N"))
 	if n > 5 {
 		f.fail()
 	}

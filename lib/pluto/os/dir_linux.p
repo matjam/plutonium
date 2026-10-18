@@ -12,11 +12,12 @@ import (
 // of the DirEntries that holds it.
 //
 // A file name is any bytes but NUL and '/', so it need not be valid UTF-8,
-// which a string must be (language spec section 18.8). RawName returns the
-// exact bytes. Name returns a string: the name itself if it is valid UTF-8,
-// and otherwise a copy of it with U+FFFD in place of each invalid byte.
-// Two different files can have the same Name that way; open them by RawName
-// with the Bytes functions (OpenBytes, StatBytes, ...).
+// which a string must be (language spec section 7.3). RawName returns the
+// exact bytes. Name returns the name as a string, or a *NameError holding
+// the bytes if it is not valid UTF-8. NameLossy returns a copy of it with
+// U+FFFD in place of each invalid byte, for display: two different files
+// can have the same NameLossy, so open them by RawName with the Bytes
+// functions (OpenBytes, StatBytes, ...).
 type DirEntry struct {
 	name string // the name as a valid string
 	raw  []byte // the exact name
@@ -28,10 +29,20 @@ type DirEntry struct {
 	ln   int
 }
 
-// Name returns the entry's name, a base name, as a valid UTF-8 string: with
-// U+FFFD for each invalid byte if the name has any. RawName returns the
-// exact bytes.
-func (e *DirEntry) Name() string { return e.name }
+// Name returns the entry's name, a base name, as a string, or a *NameError
+// holding the exact bytes if the name is not valid UTF-8. NameLossy returns
+// it with U+FFFD for each invalid byte, and RawName returns the exact
+// bytes.
+func (e *DirEntry) Name() (string, error) {
+	if !validBytes(e.raw) {
+		return "", NewNameError("DirEntry.Name", e.raw)
+	}
+	return e.name, nil
+}
+
+// NameLossy returns the entry's name with U+FFFD in place of each byte that
+// is not valid UTF-8. It is for display; do not open the file with it.
+func (e *DirEntry) NameLossy() string { return e.name }
 
 // RawName returns the exact bytes of the entry's name, a view valid until
 // the DirEntries that holds it is dropped. Do not modify it.
@@ -105,8 +116,8 @@ func (d *DirEntries) Drop() {
 // ReadDir reads the named directory and returns its entries, without "."
 // and "..", sorted by name (by the exact bytes of the names), in memory
 // from a (by default the default allocator). A failure is a *PathError
-// from a. Names that are not valid UTF-8 are made valid for Name and kept
-// exact for RawName (see DirEntry).
+// from a. A name that is not valid UTF-8 is an error from Name, a lossy
+// string from NameLossy, and exact from RawName (see DirEntry).
 func ReadDir(name string, a alloc.Allocator = alloc.Default()) (DirEntries, error) {
 	return readDir(strBytes(name), name, a)
 }
