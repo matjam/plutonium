@@ -6,27 +6,6 @@ compiles and runs against the current compiler. **If a block here starts to fail
 the item and let the specification's text stand. Until then, write code that works today and do not "fix" the
 compiler's behavior in application code.
 
-## 4. Error codes that differ from the text
-
-- `var c Color = 1` (an untyped constant assigned to an enum) reports E0023 (IncompatibleAssign), not E2315 as
-  section 7.12 says.
-- `import "reflect"` in a program without a `pluto.mod` reports E4007 (only the standard library can be imported),
-  not E2005 (section 14.3).
-
-```pluto-error E0023
-package main
-
-type Color enum {
-	Red
-	Green
-}
-
-func main() {
-	var c Color = 1
-	_ = c
-}
-```
-
 ## 5. Arenas and waiting locks in freestanding builds
 
 Section 19.5 says a program whose dependencies request no waiting contains no scheduler. Today importing

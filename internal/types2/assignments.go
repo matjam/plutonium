@@ -75,6 +75,11 @@ func (check *Checker) assignment(x *operand, T Type, context string) {
 				msg += " (overflows)"
 			default:
 				code = IncompatibleAssign
+				if x.mode() == constant_ && isEnum(target) {
+					// Plutonium: an untyped constant is not a member
+					// (spec section 8.4).
+					code = UntypedEnumConstant
+				}
 			}
 			check.error(x, code, msg)
 			x.invalidate()

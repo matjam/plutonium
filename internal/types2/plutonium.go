@@ -329,6 +329,18 @@ var forbiddenImports = map[string]string{
 	"reflect": "requires runtime type metadata",
 }
 
+// ForbiddenImport reports whether the import path is one Plutonium rejects
+// (spec section 14.3, the import of reflect, E2005), and the message that
+// says so. The loader, which resolves paths before any checking, reports it
+// with the code of the checker's error.
+func ForbiddenImport(path string) (code Code, msg string, ok bool) {
+	reason, ok := forbiddenImports[path]
+	if !ok {
+		return 0, "", false
+	}
+	return ReflectNotPermitted, "import of " + path + " is not permitted in Plutonium (" + reason + ")", true
+}
+
 // checkImportPath reports a forbidden import and returns false.
 func (check *Checker) checkImportPath(spec *ast.ImportSpec, path string) bool {
 	if reason, bad := forbiddenImports[path]; bad {

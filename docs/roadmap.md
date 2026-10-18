@@ -276,6 +276,14 @@ against the corrected specification. The immediate implementation order is:
      the tests share a File among tasks through a `sync.Scope` (a view of an owner cannot outlive it) or move it
      into a task. Tests: `testdata/plutonium/osfile.p` (drop at scope end, early return, close then drop,
      zero File, a File in an owner struct, `clear` of an array of files, pipes, files on disk; debug allocator).
+135. **Two error codes of the text** (done, `HASH135`; sections 7.12, 8.4, 12.9, 14.3; found with item 132).
+     An untyped constant used as an enum value (`var c Color = 1`, `c == 1`, `d = 2`, an argument, `case 1:`)
+     is E2315 (`UntypedEnumConstant`), where the assignment forms reported E0023 and the comparison and case
+     forms E0097; other assignment mismatches stay E0023. The code E2315 belonged to `NotEnumType` (`len(E)`
+     or `range E` of a type that is not an enum), which the specification does not number; it moves to the end
+     of the group (E2318). `import "reflect"` is E2005 whether or not a `pluto.mod` exists: the loader, which
+     resolves paths first, asks `types2.ForbiddenImport` and reports the checker's code instead of E4007 or
+     E4008. Tests: `cmd/pluto/testdata/diag/enum_untyped` and `import_reflect` with their full output.
 
 
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a

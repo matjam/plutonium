@@ -174,12 +174,15 @@ const (
 	// UncheckedEnumConversion: a conversion of a non-constant integer to an
 	// enum without the comma-ok form.
 	UncheckedEnumConversion
-	// NotEnumType: an enum operation on a type that is not an enum.
-	NotEnumType
+	// UntypedEnumConstant: an untyped constant used as a value of an enum
+	// type (var c Color = 1, c == 1, case 1:), which is not a member.
+	UntypedEnumConstant
 	// EnumArithmetic: arithmetic or a shift on an enum value.
 	EnumArithmetic
 	// RangeOverEnumValue: range over an enum value instead of its type.
 	RangeOverEnumValue
+	// NotEnumType: an enum operation on a type that is not an enum.
+	NotEnumType
 )
 
 // Ownership (language spec section 7.18). Ownership and lifetime errors are

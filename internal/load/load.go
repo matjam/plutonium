@@ -367,6 +367,10 @@ func (e memEntry) Info() (fs.FileInfo, error) { return nil, fs.ErrInvalid }
 
 // resolve maps an import path to its source.
 func (l *loader) resolve(importPath string) (source, string, error) {
+	if code, msg, bad := types2.ForbiddenImport(importPath); bad {
+		// Whatever the module says, reflect is E2005 (spec section 14.3).
+		return nil, "", fail(diag.CheckerCode(code), "%s", msg)
+	}
 	if importPath == "pluto" || strings.HasPrefix(importPath, "pluto/") {
 		if l.cfg.Stdlib == nil {
 			return nil, "", fail(diag.StdPackageMissing, "no standard library configured for %q", importPath)

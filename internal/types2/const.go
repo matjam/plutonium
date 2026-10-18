@@ -298,6 +298,9 @@ func (check *Checker) invalidConversion(code Code, x *operand, target Type) {
 func (check *Checker) convertUntyped(x *operand, target Type) {
 	newType, val, code := check.implicitTypeAndValue(x, target)
 	if en := EnumOf(target); code != 0 && en != nil && len(en.members) > 0 {
+		if x.mode() == constant_ {
+			code = UntypedEnumConstant
+		}
 		check.errorf(x, code, "cannot use %s as %s value: name a member (%s.%s) or convert explicitly", x, target, en.obj.name, en.members[0].name)
 		x.invalidate()
 		return

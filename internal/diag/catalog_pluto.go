@@ -414,6 +414,14 @@ func init() {
 			Spec: pspec("7.12", "Enums"),
 		},
 		&Entry{
+			Code: CheckerCode(typerr.UntypedEnumConstant), Name: "UntypedEnumConstant",
+			Text:    "A number written in the source is not a member of an enum, so it cannot be used where an enum value is expected. A number that is not a member's value would make an enum value that is not a member, and one that is hides the member's name.\nName the member, or convert the number: Color(1) is valid when 1 is a member's value.",
+			Why:     "Go lets an untyped constant become any named integer type. Plutonium enums are closed sets of named members, so a value is always one of them and the source says which.",
+			Fix:     &Fix{Intro: "Name the member", Code: "var c Color = Color.Green"},
+			Spec:    pspec("8.4", "Assignability"),
+			Example: "var c Color = 1",
+		},
+		&Entry{
 			Code: CheckerCode(typerr.NotEnumType), Name: "NotEnumType",
 			Text: "This operation needs an enum type, such as len(E) or for v := range E, and the type given is not an enum.",
 			Spec: pspec("7.12", "Enums"),

@@ -1,0 +1,6 @@
+$DIR/main.p:12:16: cannot use 1 (untyped int constant) as Color value in variable declaration
+$DIR/main.p:14:6: cannot use 2 (untyped int constant) as Color value in assignment
+$DIR/main.p:15:11: cannot use 1 (untyped int constant) as Color value: name a member (Color.Red) or convert explicitly
+$DIR/main.p:16:8: cannot use 0 (untyped int constant) as Color value in argument to paint
+$DIR/main.p:18:7: cannot use 1 (untyped int constant) as Color value: name a member (Color.Red) or convert explicitly
+$DIR/main.p:22:14: cannot use "not a number" (untyped string constant) as int value in variable declaration

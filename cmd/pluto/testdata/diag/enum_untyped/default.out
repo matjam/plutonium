@@ -1,0 +1,33 @@
+$DIR/main.p:12:16: cannot use 1 (untyped int constant) as Color value in variable declaration
+    A number written in the source is not a member of an enum, so it cannot be
+    used where an enum value is expected. A number that is not a member's value
+    would make an enum value that is not a member, and one that is hides the
+    member's name.
+    Name the member, or convert the number: Color(1) is valid when 1 is a
+    member's value.
+    Go lets an untyped constant become any named integer type. Plutonium enums
+    are closed sets of named members, so a value is always one of them and the
+    source says which.
+    Name the member:
+        var c Color = Color.Green
+    (see "Assignability" in the Plutonium spec, section 8.4)
+    (run "pluto explain E2315" for a longer explanation)
+
+$DIR/main.p:14:6: cannot use 2 (untyped int constant) as Color value in assignment
+    (explained above; run "pluto explain E2315" for more)
+
+$DIR/main.p:15:11: cannot use 1 (untyped int constant) as Color value: name a member (Color.Red) or convert explicitly
+    (explained above; run "pluto explain E2315" for more)
+
+$DIR/main.p:16:8: cannot use 0 (untyped int constant) as Color value in argument to paint
+    (explained above; run "pluto explain E2315" for more)
+
+$DIR/main.p:18:7: cannot use 1 (untyped int constant) as Color value: name a member (Color.Red) or convert explicitly
+    (explained above; run "pluto explain E2315" for more)
+
+$DIR/main.p:22:14: cannot use "not a number" (untyped string constant) as int value in variable declaration
+    n is declared as int, so it can only hold whole numbers; "not a number"
+    holds text. Plutonium, like Go, never converts between text and numbers
+    automatically.
+    (see "Assignability" in the Plutonium spec, section 8.4)
+    (run "pluto explain E0023" for a longer explanation)

@@ -1,0 +1,8 @@
+main: import of reflect is not permitted in Plutonium (requires runtime type metadata)
+    Plutonium has no reflect package. Reflection needs a description of every
+    type in the running program.
+    Use a type switch, or generics, to handle values of several types.
+    Plutonium keeps type descriptors only for the types a program converts to an
+    interface, so binaries stay small enough for a kernel.
+    (see "Import declarations" in the Plutonium spec, section 14.3)
+    (run "pluto explain E2005" for a longer explanation)
