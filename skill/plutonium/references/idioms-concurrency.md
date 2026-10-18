@@ -12,6 +12,7 @@ Complete short programs, compiled and run by the skill's test with their output 
 | 5 | lock-guarded cache | `sync.RWMutex`, inferred guard |
 | 6 | parallel work on disjoint rows | `[H][W]T` partition in a `Scope` |
 | 7 | counters, once, first error | `atomic.Int64`, `sync.Once`, `sync.Mutex` |
+| 8 | fan-out and fan-in with a closer task and a timeout | `sync.Scope`, local `WaitGroup`, `select` with `time.After` |
 
 ## 1. A worker pool with sync.Scope
 
@@ -342,3 +343,64 @@ setup once
 5 item 3 failed
 ```
 
+## 8. Fan-out and fan-in with a closer task and a timeout
+
+Workers are scoped tasks. A `sync.WaitGroup` declared in the function may be used by Scope tasks (only passing `&wg` to a `task` statement is an error). One more task closes `results` when every worker is done; the collector selects on the results and a deadline. Leaving the function waits for the scope's tasks.
+
+```pluto-run
+package main
+
+import (
+	"pluto/fmt"
+	"pluto/sort"
+	"pluto/sync"
+	"pluto/time"
+	"pluto/vec"
+)
+
+func squares(workers, n int, timeout time.Duration) vec.Vec[int] {
+	jobs := make(chan int, n)
+	results := make(chan int, n)
+	var wg sync.WaitGroup
+	var s sync.Scope
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		s.Task(func() {
+			defer wg.Done()
+			for j := range jobs {
+				results <- j * j
+			}
+		})
+	}
+	s.Task(func() { // the closer
+		wg.Wait()
+		close(results)
+	})
+	for i := 1; i <= n; i++ {
+		jobs <- i
+	}
+	close(jobs)
+	out := vec.New[int]()
+	deadline := time.After(timeout)
+	for {
+		select {
+		case r, ok := <-results:
+			if !ok {
+				sort.Ints(out.Slice())
+				return out
+			}
+			out.Push(r)
+		case <-deadline:
+			return out
+		}
+	}
+}
+
+func main() {
+	fmt.Println(squares(3, 8, time.Second))
+}
+```
+
+```output
+[1 4 9 16 25 36 49 64]
+```

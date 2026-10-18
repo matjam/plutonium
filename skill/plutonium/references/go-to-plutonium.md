@@ -164,7 +164,11 @@ rt.ExitTask
 | `recover()` | return an `error` | E2004; a panic ends the program |
 | `defer` in a loop | move the body into a function | E2530 |
 | `for i := 0; ...` closures keeping `i` | pass `i` as an argument | E3006 |
-| `map[K]V` of structs/pointers | the same; owners are not allowed as values (E3213) | maps are counted references |
+| `map[K]V` of structs/pointers | the same for values; `map[string]*T` becomes `map[string]synced[T]` (or `shared[T]` in one task); owners are not allowed as values (E3213) | maps are counted references |
+| `m[k] = append(m[k], x)` | no direct port: `map[K]shared[Group]` with `Group owner struct{ items vec.Vec[T] }` (`idioms-types-memory.md` #8) | a map cannot hold a growing slice |
+| a struct with a `[]string` history field it appends to | a `vec.Vec[string]` field, so the struct is declared `owner` | |
+| an interface holding tree nodes built by a parser | `type Node owner interface`, node structs `owner`, built with `new(T{...})` (`idioms-types-memory.md` #9) | `&T{...}` would be E3001 |
+| a mutex in the container guarding the records | each shared record needs a mutex of its own (E3502) | rule 3, `concurrency.md` |
 | `type T struct{ f *os.File }` | the field is a pointer (view) | fine; closing is explicit |
 | a struct holding a `vec.Vec`, `owned[T]`, `strings.Builder` | declare it `owner` | E3202 |
 | copying such a struct | moves it; `Clone()` to copy | E3301 |

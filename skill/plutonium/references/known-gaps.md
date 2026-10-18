@@ -224,6 +224,10 @@ func main() {
 
 ## 8. Smaller notes
 
+- When a struct literal is assigned to an interface whose method has a pointer receiver (E0021), the compiler's fix
+  suggests `&T{...}`. That is right inside a function that only uses the value, and E3001 in a constructor that
+  returns it: build the node with `new(T{...})` and, for a tree of interface values, declare the interface `owner`
+  (`idioms-types-memory.md` #9).
 - `docs/decisions.md` records D1 to D30; later decisions (such as a D31) are not in this checkout.
 - `pluto vet` has one check, `-unsafe`; there is no general lint. `pluto fmt` is the only style tool.
 - Library names that Go has and Plutonium lacks are listed in `go-to-plutonium.md`.

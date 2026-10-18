@@ -14,6 +14,7 @@ Complete short programs, compiled and run by the skill's test with their output 
 | 6 | generic containers | `owner` generic type, constraints, generic method |
 | 7 | constructors | return a value or an `owned[T]`, never `&T{}` |
 | 8 | grouping values by key (a multimap) | `map[K]shared[Group]` with an owner inside the box |
+| 9 | expression tree behind an owning interface | `type Node owner interface`, `owner` nodes built with `new`, value-receiver leaf |
 
 ## 1. A linked list of owned nodes
 
@@ -501,4 +502,95 @@ func main() {
 ```output
 a [x z]
 b [y]
+```
+
+## 9. An expression tree behind an owning interface
+
+A plain interface is a view, so it cannot hold tree nodes that outlive the function that built them. Declare the interface `owner`: it owns the value inside, nodes are declared `owner` too and built with `new(...)`, and the leaf is a plain value. (The compiler's hint for a pointer-receiver mismatch suggests `&T{...}`, which would be E3001 in a constructor: use `new(T{...})`.) Reassigning `left = new(Bin{..., left, ...})` moves `left` into the new node.
+
+```pluto-run
+package main
+
+import "pluto/fmt"
+
+type Node owner interface {
+	Eval() int
+	String() string
+}
+
+type Num int
+
+type Bin owner struct {
+	op          byte
+	left, right Node
+}
+
+func (n Num) Eval() int      { return int(n) }
+func (n Num) String() string { return fmt.Sprint(int(n)) }
+
+func (b *Bin) Eval() int {
+	l, r := b.left.Eval(), b.right.Eval()
+	if b.op == '+' {
+		return l + r
+	}
+	return l * r
+}
+
+func (b *Bin) String() string {
+	return "(" + b.left.String() + " " + string(rune(b.op)) + " " + b.right.String() + ")"
+}
+
+type Parser struct {
+	src string
+	pos int
+}
+
+func (p *Parser) peek() byte {
+	if p.pos < len(p.src) {
+		return p.src[p.pos]
+	}
+	return 0
+}
+
+func (p *Parser) expr() Node {
+	left := p.term()
+	for p.peek() == '+' {
+		p.pos++
+		left = new(Bin{'+', left, p.term()})
+	}
+	return left
+}
+
+func (p *Parser) term() Node {
+	left := p.factor()
+	for p.peek() == '*' {
+		p.pos++
+		left = new(Bin{'*', left, p.factor()})
+	}
+	return left
+}
+
+func (p *Parser) factor() Node {
+	c := p.peek()
+	p.pos++
+	if c == '(' {
+		e := p.expr()
+		p.pos++ // the closing parenthesis
+		return e
+	}
+	return Num(c - '0')
+}
+
+func main() {
+	for _, src := range []string{"1+2*3", "(1+2)*3"} {
+		p := Parser{src: src}
+		t := p.expr()
+		fmt.Println(t, "=", t.Eval())
+	}
+}
+```
+
+```output
+(1 + (2 * 3)) = 7
+((1 + 2) * 3) = 9
 ```

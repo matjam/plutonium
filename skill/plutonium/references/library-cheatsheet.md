@@ -60,7 +60,7 @@ by the skill's test. The complete lists are `stdlib.md`, `stdlib-os-time-math.md
 | Call | Notes |
 |---|---|
 | `var s sync.Scope`; `s.Task(func(){...})`, `s.Wait()` | tasks that may use the caller's variables |
-| `sync.Mutex` (`Lock`, `Unlock`, `TryLock`), `sync.RWMutex` (`RLock`, `RUnlock`), `sync.Once.Do(f)`, `sync.WaitGroup` (`Add`, `Done`, `Wait`) | `WaitGroup` must be a package variable or a field, not a local passed by address |
+| `sync.Mutex` (`Lock`, `Unlock`, `TryLock`), `sync.RWMutex` (`RLock`, `RUnlock`), `sync.Once.Do(f)`, `sync.WaitGroup` (`Add`, `Done`, `Wait`) | a local `WaitGroup` may be used by `Scope` tasks, but `task f(&wg)` with a local is E3004 |
 | `atomic.Int64`, `atomic.Int32`, `atomic.Uint64`, `atomic.Bool` with `Load`, `Store`, `Add`, `CompareAndSwap` | `atomic.AddInt64(&x, 1)` functions exist too |
 | `make(chan T, n)`, `ch <- v`, `<-ch`, `close(ch)`, `for v := range ch`, `select` | owners sent are moved |
 | `alloc.Owned[T]()`, `alloc.Shared[T]()`, `alloc.Synced[T]()`, `new(T{...})` | boxes; `alloc.Use(&a).Restore()` installs an allocator |

@@ -284,8 +284,9 @@ func main() {
 
 - `sync.Mutex`, `sync.RWMutex` (`RLock` for readers), `sync.Once`, `sync.Cond` (`sync.NewCond(&mu)`),
   `sync.WaitGroup` (`Add`, `Done`, `Wait`, `Task`), `pluto/sync/atomic` (`atomic.Int64`, `atomic.Bool`, and the
-  `atomic.AddInt64(&x, 1)` functions). A local `sync.WaitGroup` cannot be passed to a task (E3004): make it a package
-  variable or a field of a `synced` object, or use `sync.Scope`.
+  `atomic.AddInt64(&x, 1)` functions). A local `sync.WaitGroup` cannot be passed to a `task` statement by address
+  (E3004): make it a package variable or a field of a `synced` object, or use `sync.Scope`. A `WaitGroup` or
+  `Mutex` declared in a function **may** be used by that function's `Scope` tasks, which share its frame.
 - The compiler **infers which lock guards which data**: the lock held at every write. It follows `Lock`/`Unlock`,
   `defer mu.Unlock()`, locks held around calls, and `s.mu` named through the pointer it came from. A lock counts
   as held only if held on every path. `wg.Wait()` and channel operations do **not** order plain data for the
@@ -298,7 +299,9 @@ func main() {
   a `synced` object, or a struct whose fields are never overwritten once shared, atomic, or guarded by one lock
   of the same object. Otherwise E3501 names a write that could race.
 - **Rule 3, `synced[T]` objects and maps.** Every field some code changes must be atomic or guarded by a lock of
-  the same object. The contents of a built-in map shared by tasks need one guard, package-level or a field of
+  **the same object** (a field of `T`): a lock in the container that holds the `synced` references, such as the
+  `Bank` that owns a map of accounts, does not guard the accounts (E3502). Give the record its own mutex, take
+  the container's lock only to find the record, and lock the record to change it. The contents of a built-in map shared by tasks need one guard, package-level or a field of
   the owning struct, for writes and reads. A map used by one task at a time needs none.
 - `shared[T]` is for one task and never crosses; `synced[T]` counts atomically. A `string`, map or channel count
   becomes atomic as soon as the first task starts.
@@ -369,6 +372,39 @@ func main() {
 5
 10
 setup once
+```
+
+```pluto-error E3502
+package main
+
+import (
+	"pluto/alloc"
+	"pluto/sync"
+)
+
+type Account struct{ balance int }
+
+type Bank struct {
+	mu   sync.Mutex
+	accs map[string]synced[Account]
+}
+
+func (b *Bank) Deposit(id string, n int) {
+	b.mu.Lock()
+	a := b.accs[id]
+	a.balance += n // the bank's lock is not a lock of the account: give Account its own mutex
+	b.mu.Unlock()
+}
+
+func main() {
+	b := Bank{accs: map[string]synced[Account]{}}
+	b.accs["x"] = alloc.Synced[Account]()
+	var s sync.Scope
+	for i := 0; i < 4; i++ {
+		s.Task(func() { b.Deposit("x", 1) })
+	}
+	s.Wait()
+}
 ```
 
 ```pluto-error E2011
