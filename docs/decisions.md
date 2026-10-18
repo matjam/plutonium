@@ -586,6 +586,67 @@ function) would add cost to every task to keep a promise Go does not make.
 
 Lands with: the specification edit of section 15.4 and the review fixes of roadmap item 105.
 
+## D32. A deferred function literal that captures an owner counts as a use at function exit (18.5, 18.6, 12.19)
+
+Question: A function literal in `defer func() { use(o) }()` captures the owner `o` by reference. If the
+function later moves or drops `o` (`consume(o)`), the deferred call runs when the function returns and finds
+`o` empty, which would be a nil-owner panic at run time. What is it?
+
+Decision: A compile error, the existing use-after-move error (E3301, or E3302 where the move happens on some
+paths only). The capture by a deferred literal counts as a use at the point the deferred call runs, that is
+at every exit of the function after the `defer` statement. A move or drop of the owner on a path from the
+`defer` statement to an exit is a conflict; an owner that is given a new value before the exit is fine, and
+so is a move on a path that returns before the `defer` statement.
+
+Why: No hidden failure and Rust-level memory safety without annotations: the program is wrong whatever the
+input, so the compiler says so instead of leaving a panic that depends on the path taken. Rejecting is the
+safe direction.
+
+Lands with: the move checker (`internal/moves`) and the sentence in section 18.5.
+
+## D33. Exhausting an `errors.New` counter panics and is not reachable in practice (16.3)
+
+Question: The per-site counter of `errors.New` has 2^64 - 1 values. Does the specification need more than
+the panic it already states?
+
+Decision: No. Section 16.3 states the panic and adds that it is not reachable in practice (about 584 years
+at one evaluation per nanosecond).
+
+Why: The rule stays simple (no wrap, so two errors never compare equal wrongly), and no mechanism is added
+for a case that cannot occur.
+
+Lands with: one sentence in section 16.3.
+
+## D34. With a handler also using a per-CPU variable, any load or store through a `&v` pointer needs interrupts disabled, except a lone word-sized store (20.9, memory-model.md 6.4)
+
+Question: Section 20.9 allowed a lone load or store of a word anywhere and said `&v` needs a region, but the
+compiler is stricter for a pointer: what does it check when a handler also uses the variable?
+
+Decision: The implemented rule stands. A load or store through a pointer from `&v` must be in an
+interrupt-disabled region when a handler also uses the variable. The only exception is a store that is the
+whole statement and writes the whole variable of at most a machine word. A load through the pointer has no
+exception. The text says this and no looser wording for loads remains.
+
+Why: A load through a pointer is not the single `GS`-relative instruction of a direct access: the pointer
+was formed earlier, and the value read may be one that a handler on the same processor is changing in the
+middle of a larger use. Matching the text to the stricter code keeps the checked rule and the written rule
+the same.
+
+Lands with: the edit of section 20.9 and memory-model.md section 6.4.
+
+## D35. The first release ends a nested per-CPU region (20.9)
+
+Question: The region analysis counts a region once. Does the first `rt.EnablePreemption` end a region that
+was opened twice?
+
+Decision: Yes. The first release of a kind ends the region even if its opening was nested; this errs toward
+rejecting. No code change.
+
+Why: A precise count would need path-sensitive nesting depth for a rare pattern; rejecting is the safe
+direction and the program can restructure.
+
+Lands with: nothing to build; section 20.9 already states it.
+
 ## Deferred
 
 - Linux file names that are not valid UTF-8 (open part of roadmap item 57): byte paths,
