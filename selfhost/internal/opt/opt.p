@@ -128,7 +128,7 @@ func (p *Pipeline) Run(prog *ssa.Program, after func(pass string, f *ssa.Func)) 
 	if checkSSA {
 		for _, f := range prog.Funcs {
 			if err := verify(f); err != nil {
-				return fmt.Errorf("before optimisation: %w", err)
+				return fmt.Errorf("before optimization: %w", err)
 			}
 		}
 	}

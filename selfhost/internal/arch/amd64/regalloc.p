@@ -809,7 +809,7 @@ func applyColors(f *MFunc, color map[Reg]Reg) {
 				if r.IsVirtual() {
 					c, ok := color[r]
 					if !ok {
-						panic(compat.Sprintf("amd64: %s: no colour for %s", f.Name, r))
+						panic(compat.Sprintf("amd64: %s: no color for %s", f.Name, r))
 					}
 					r = c
 				}
