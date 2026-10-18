@@ -144,6 +144,7 @@ var schedHooks = map[string]schedHookInfo{
 	"schedInit":        {"Init", hookOptional},
 	"schedInInterrupt": {"InInterrupt", hookOptional},
 	"schedNow":         {"Now", hookTimers},
+	"schedNowOpt":      {"Now", hookOptional},
 	"schedArmTimer":    {"ArmTimer", hookTimers},
 }
 

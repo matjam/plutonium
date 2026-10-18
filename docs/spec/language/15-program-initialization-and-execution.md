@@ -286,7 +286,8 @@ returns, which a `sync.Scope` join provides: the scope's join follows the end of
 and its drops. A `sync.WaitGroup` or a closed channel makes cleanup likely but not guaranteed, because a
 task that calls `defer wg.Done()` or closes a channel in a deferred call releases the waiting `main` while
 the task is still returning, and `main` may then observe the task as running (step 2). To tolerate that, the
-runtime waits a short wall-clock time (about a millisecond, not a count of yields) for such tasks to finish
+runtime waits a short wall-clock time (about a millisecond, not a count of yields; a scheduler that has
+no clock bounds the wait by a count) for such tasks to finish
 before it takes the path of step 4, so the exit of a program with tasks that run on does not wait for them
 or depend on the load. Code that needs a resource released on every exit uses `defer` in `main`. A program
 that leaves workers running ends as a Go program does. When package cleanup runs, every operation of every

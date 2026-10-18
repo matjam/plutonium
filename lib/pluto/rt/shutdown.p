@@ -24,18 +24,22 @@ var shutdown struct {
 	closed bool
 
 	waiter *Task
-
-	// runWaiter is main, parked in waitShutdown until running reaches zero
-	// or its grace has passed.
-	runWaiter *Task
 }
 
-// shutdownGraceNs is how long main waits, in nanoseconds of the Now clock,
-// for tasks that have not yet finished before it decides that they are
-// running (waitShutdown). It is a wall-clock bound, so that the time a
+// shutdownGraceNs is how long main waits, in nanoseconds of the scheduler's
+// Now clock, for tasks that have not yet finished before it decides that they
+// are running (waitShutdown). It is a wall-clock bound, so that the time a
 // program takes to end does not depend on how many tasks compete for the
 // processors.
 const shutdownGraceNs = 1000000
+
+// shutdownGraceYields is the bound for a scheduler without a clock (Now is
+// optional for a scheduler that runs no timers): how many times main yields.
+const shutdownGraceYields = 200
+
+// schedNowOpt is the Now method of the bound scheduler, or 0 if it has none.
+// Unlike Now it does not make the program a user of timers.
+func schedNowOpt() int64
 
 // abandoned is the number of tasks and callbacks that were still running
 // when main returned and the program ended without waiting for them, or 0
@@ -104,15 +108,7 @@ func shutdownEnded(service bool) {
 		panicMessage("rt: running task count below zero", "", "", "", "")
 	}
 	shutdown.running--
-	var w *Task
-	if shutdown.running == 0 {
-		w = shutdown.runWaiter
-		shutdown.runWaiter = nil
-	}
 	shutdown.mu.Unlock()
-	if w != nil {
-		Ready(w)
-	}
 }
 
 // shutdownLeave uncounts a task that has been retired, or a callback that
@@ -198,38 +194,29 @@ func normalShutdown() bool {
 func waitShutdown() bool {
 	// A task that woke main (by a channel, a WaitGroup) can still be in the
 	// last instructions of its function, which have not finished it yet.
-	// Give such tasks a short time to finish: main parks until the last of
-	// them ends or the grace has passed. A task that is not finished by then
-	// is running, and the program ends without waiting for it.
-	deadline := Now() + shutdownGraceNs
-	me := current()
-	for {
-		shutdown.mu.Lock()
-		if shutdown.running == 0 {
-			shutdown.closed = true
-			shutdown.mu.Unlock()
+	// Give such tasks a short time to finish: main yields until the last of
+	// them ends or the grace has passed, measured on the clock. A task that
+	// is not finished by then is running, and the program ends without
+	// waiting for it.
+	start := schedNowOpt()
+	for i := 0; load64(&shutdown.running) != 0; i++ {
+		if start != 0 {
+			if schedNowOpt()-start >= shutdownGraceNs {
+				break
+			}
+		} else if i >= shutdownGraceYields {
 			break
 		}
-		if Now() >= deadline {
-			abandoned = shutdown.running
-			shutdown.mu.Unlock()
-			return false
-		}
-		shutdown.runWaiter = me
-		shutdown.mu.Unlock()
-		woken := ParkUntil(deadline)
-		shutdown.mu.Lock()
-		taken := shutdown.runWaiter != me
-		if !taken {
-			shutdown.runWaiter = nil
-		}
-		shutdown.mu.Unlock()
-		if taken && !woken {
-			// The last task ended just as the grace did, and has readied
-			// main: take the wakeup.
-			Park()
-		}
+		Yield()
 	}
+	shutdown.mu.Lock()
+	if shutdown.running != 0 {
+		abandoned = shutdown.running
+		shutdown.mu.Unlock()
+		return false
+	}
+	shutdown.closed = true
+	shutdown.mu.Unlock()
 	if f := shutdownCancelFn; f != nil {
 		f()
 	}

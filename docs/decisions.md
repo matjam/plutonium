@@ -575,7 +575,8 @@ makes cleanup likely but not guaranteed, because `defer wg.Done()` releases `wg.
 while the task is still returning. Code that needs a resource released on every exit uses
 `defer` in `main`. Before the abandon path the runtime waits a short wall-clock time
 (about a millisecond) for tasks that are finishing, not a count of yields, so the latency
-of the exit does not depend on the load. The specification says this in section 15.4.
+of the exit does not depend on the load (a scheduler without a Now method, which runs no
+timers, bounds it by a count). The specification says this in section 15.4.
 
 Why: no false friends and Go-familiar (a Go program that returns from `main` with workers
 running exits at once, and a `WaitGroup` there promises nothing about cleanup); the
