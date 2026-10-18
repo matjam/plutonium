@@ -146,6 +146,9 @@ func (a *analyzer) typeProblemIn(E types2.Type, seen map[types2.Type]bool) (*wri
 		return nil, ""
 	}
 	seen[E] = true
+	if a.selfSynchronized(E) {
+		return nil, ""
+	}
 	if s := a.viewWrites["whole:"+typeKey(E)]; s != nil {
 		return s, ""
 	}

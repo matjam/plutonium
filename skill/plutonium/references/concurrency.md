@@ -526,10 +526,9 @@ func main() {}
 
 - `sync.Scope` through a pointer, helpers that start scoped tasks, `vec.Vec` element partitions and same-type slice
   partitions are not provable yet; use a lock or restructure.
-- A program that imports `pluto/fmt` is rejected with E3501 when a task sends a `vec.Vec` (or another owner whose
-  allocator field the analysis sees as changing) on a channel, although section 8.8 says such owners cross.
-  Send plain values, strings, structs of values or `owned[T]` of a plain struct instead, or hand the vector over
-  by sharing it in a `synced` object with a lock.
+- A `vec.Vec`, `hash.Map` or `strings.Builder` crosses with the memory it owns, also in a program that imports
+  `pluto/fmt`. If it allocates from an allocator that has no lock of its own (an arena), the allocator is shared
+  with the sender and E3501 names it.
 - The race rule groups built-in maps by type: if one map of a type crosses tasks, every map of that type needs the guard.
 
 ## 6. Interrupt context (kernel code)

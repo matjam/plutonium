@@ -742,6 +742,40 @@ func (a *analyzer) allocatorMethods() []*function {
 	return a.allocFns
 }
 
+// selfSynchronized reports whether E is an allocator type that synchronizes
+// itself: it implements the Allocator interface, is written in unsafe code
+// (section 18.12) and holds a lock of its own (an rt.Lock or a sync.Mutex),
+// as the program-wide default allocator, pluto/alloc.SyncSlab, does. Its
+// state is the responsibility of that code (section 19.3, what is not
+// checked), so a view of one may cross between tasks, as a view of a
+// pluto/sync type may. An allocator without a lock of its own, as an arena
+// is, is no exception: no arena is safe for simultaneous use by several
+// tasks (appendix F.2).
+func (a *analyzer) selfSynchronized(E types2.Type) bool {
+	n, ok := types2.Unalias(E).(*types2.Named)
+	if !ok {
+		return false
+	}
+	st, ok := n.Underlying().(*types2.Struct)
+	if !ok {
+		return false
+	}
+	if v, ok := a.syncAllocs[n.Origin()]; ok {
+		return v
+	}
+	if a.syncAllocs == nil {
+		a.syncAllocs = map[*types2.Named]bool{}
+	}
+	res := false
+	if implementsAllocator(a, n) && a.unsafeNamed(n) {
+		for i := 0; i < st.NumFields() && !res; i++ {
+			res = isSyncType(st.Field(i).Type())
+		}
+	}
+	a.syncAllocs[n.Origin()] = res
+	return res
+}
+
 // addAllocators adds to the summary of a task, handler or the main task, if
 // it may allocate, a call of every installed allocator's Alloc and Free.
 func (a *analyzer) addAllocators(s *summary, base *state) {
@@ -777,6 +811,11 @@ func (a *analyzer) unsafeAllocator(f *function) bool {
 	if !ok {
 		return false
 	}
+	return a.unsafeNamed(n)
+}
+
+// unsafeNamed reports whether some method of n is unsafe code.
+func (a *analyzer) unsafeNamed(n *types2.Named) bool {
 	if v, ok := a.unsafeTypes[n.Origin()]; ok {
 		return v
 	}

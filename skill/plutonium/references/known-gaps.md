@@ -6,40 +6,6 @@ compiles and runs against the current compiler. **If a block here starts to fail
 the item and let the specification's text stand. Until then, write code that works today and do not "fix" the
 compiler's behavior in application code.
 
-## 2. Sending a `vec.Vec` on a channel is rejected when `pluto/fmt` is linked
-
-Section 8.8 lists `vec.Vec`, `hash.Map` and `strings.Builder` as sendable owners, and sections 12.5 and 19.8 send
-a `vec.Vec[int]` on a channel. Today the race analysis sees the owner's allocator field (the default allocator,
-`*alloc.SyncSlab`) as memory that may change, and E3501 rejects the send **whenever `pluto/fmt` is in the program**
-(without `fmt` the same program builds). Send plain values, strings, structs of values, or `owned[T]` of a plain
-struct; or keep the vector in a `synced` object with a lock.
-
-```pluto-error E3501
-package main
-
-import (
-	"pluto/fmt"
-	"pluto/vec"
-)
-
-func produce(out chan<- vec.Vec[int]) {
-	v := vec.New[int]()
-	v.Push(1)
-	out <- v
-	close(out)
-}
-
-func main() {
-	ch := make(chan vec.Vec[int], 2)
-	task produce(ch)
-	t := 0
-	for v := range ch {
-		t += v[0]
-	}
-	fmt.Println(t)
-}
-```
-
 ## 3. `os.File` is a pointer, not an owner
 
 Appendix A.3 and section 18.13 describe `os.Open` returning an `os.File` that closes when its variable goes out of

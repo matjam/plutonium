@@ -207,6 +207,7 @@ type analyzer struct {
 	handlers    []*function            // the interrupt handlers the program installs
 	allocState  map[string]*types2.Var // the shared object of each allocator type (region.go)
 	unsafeTypes map[*types2.Named]bool // allocator types written in unsafe code (region.go)
+	syncAllocs  map[*types2.Named]bool // allocator types that synchronize themselves (region.go)
 	allocFns    []*function            // the Alloc and Free methods of installed allocators (when there are handlers)
 	allocDone   bool
 

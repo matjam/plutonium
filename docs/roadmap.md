@@ -256,6 +256,17 @@ against the corrected specification. The immediate implementation order is:
      stay values: a key is looked up by value, which would consume an owner, and a `Fixed` is a copyable view
      that owns nothing. Tests: `testdata/plutonium/containerowners.p` and `takecounted.p` (O0, O2, debug
      allocator leak report), `internal/build/container_owners_test.go`.
+133. **A `vec.Vec` crosses in a program that imports `pluto/fmt`** (done, `HASH133`; sections 8.8, 12.5, 19.3, 19.8,
+     F.2; found with item 132). The race analysis recorded the accesses to the default allocator
+     (`alloc.SyncSlab`) through package variables only once a program reached the library's string and
+     formatting code, and its per-processor caches (touched in pinned regions, not under a lock) then failed
+     the type rule, so E3501 named the Vec's allocator field. Section 19.3 makes the parts of an allocator
+     written in unsafe code the responsibility of that code, and appendix F.2 says an arena is not safe for
+     simultaneous use: `race.selfSynchronized` treats an allocator that implements `Allocator`, is written in
+     unsafe code and holds a lock of its own (`rt.Lock` or `sync.Mutex`) as synchronized by its own methods,
+     so its view may cross. An allocator without a lock (an arena, a bump allocator) is still E3501. Tests:
+     `internal/race/cases_test.go` (a vec and a map cross in a program that formats text; a vec on a lockless
+     allocator does not).
 
 
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a

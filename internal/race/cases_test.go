@@ -11,6 +11,41 @@ var rejected = []struct {
 	src  string
 	want []string
 }{
+	{"a vec whose allocator has no lock of its own does not cross", `
+import (
+	"pluto/vec"
+	"unsafe"
+)
+
+type Bump struct {
+	mem [4096]byte
+	off uintptr
+}
+
+func (b *Bump) Alloc(size, align uintptr) unsafe.Pointer {
+	p := unsafe.Pointer(&b.mem[b.off])
+	b.off += size
+	return p
+}
+
+func (b *Bump) Free(p unsafe.Pointer, size, align uintptr) {}
+
+var bump Bump
+
+func produce(out chan<- vec.Vec[int]) {
+	v := vec.New[int](&bump)
+	v.Push(1)
+	out <- v
+}
+
+func main() {
+	ch := make(chan vec.Vec[int], 1)
+	task produce(ch)
+	v := <-ch
+	println(v.Len())
+}`, []string{"main.p:25:6: the field a of v (holding a *Bump) is a view of Bump that may change while another task uses it, so v cannot be sent on a channel",
+		"A Bump is changed through a pointer at main.p:14 (its field off, in (*Bump).Alloc) without a lock of the same Bump held", "E3501"}},
+
 	{"package variable written by several tasks", `
 var hits int
 
@@ -571,6 +606,36 @@ func main() {
 	done := make(chan bool)
 	task useFile(os.Stdout, done)
 	<-done
+}`},
+
+	{"a vec crosses in a program that formats text (spec 8.8, 12.5)", `
+import (
+	"pluto/fmt"
+	"pluto/hash"
+	"pluto/vec"
+)
+
+func produce(out chan<- vec.Vec[int]) {
+	v := vec.New[int]()
+	v.Push(1)
+	out <- v
+	close(out)
+}
+
+func count(m hash.Map[string, int], done chan<- int) { done <- m.Len() }
+
+func main() {
+	ch := make(chan vec.Vec[int], 2)
+	task produce(ch)
+	t := 0
+	for v := range ch {
+		t += v[0]
+	}
+	m := hash.NewMap[string, int](4)
+	m.Set("a", 1)
+	done := make(chan int, 1)
+	task count(m, done)
+	fmt.Println(t, <-done, fmt.Sprint(t))
 }`},
 
 	{"an owner's view field filled by an allocating helper", `
