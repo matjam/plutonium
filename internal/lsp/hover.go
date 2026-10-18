@@ -82,9 +82,9 @@ func (s *server) describe(b *strings.Builder, cur *types2.Package, obj types2.Ob
 	if doc != nil {
 		var dirs []string
 		for _, c := range doc.List {
-			if name, ok := directiveName(c.Text); ok {
+			if _, ok := directiveName(c.Text); ok {
 				d := "`" + strings.TrimSpace(c.Text) + "`"
-				if meaning := directives[name]; meaning != "" {
+				if meaning := directiveMeaning(c.Text); meaning != "" {
 					d += ": " + meaning
 				}
 				dirs = append(dirs, d)
@@ -177,7 +177,7 @@ var directives = map[string]string{
 	"extern":      "the body-less function is the external symbol with this name, called with the C ABI",
 	"export":      "also export the function under this symbol name, callable from C",
 	"section":     "place the function or package variable in the named section",
-	"interrupt":   "an x86-64 interrupt handler: saves every register it may change and returns with iretq",
+	"interrupt":   "an x86-64 interrupt or exception handler, entered through an interrupt gate (x86.InterruptGate), which clears the interrupt flag: the body is a region with interrupts disabled until x86.Sti or a call that may switch tasks. It saves every register it may change and returns with iretq. The form `//pu:interrupt trap` is a handler that can be entered again",
 	"noreturn":    "the assembly or C function never returns, so code after calls to it is dropped (a function with a body needs no directive: the compiler works it out)",
 	"noescape":    "the body-less function keeps no pointer argument after it returns, except by storing it where another argument points (a function with a body needs no directive: the compiler works it out)",
 	"resultholds": "standard library only: the function keeps the named parameter only while its result, an owner, lives, and gives it back when the result is dropped",
@@ -188,6 +188,26 @@ var directives = map[string]string{
 	"panic":       "the program's panic handler, func(p *rt.Panic), which must never return",
 	"scheduler":   "the package variable is the program's scheduler backend, replacing the hosted one",
 	"stack":       "run main on a stack of this size, which the hosted runtime reserves (hosted builds only)",
+}
+
+// directiveForms gives the meaning of a directive written with an argument
+// that makes it a form of its own (spec section 20.3), by the text after //pu:.
+var directiveForms = map[string]string{
+	"interrupt trap": "an x86-64 interrupt or exception handler that can be re-entered, entered through a trap gate (x86.TrapGate), which leaves the interrupt flag as it was: its body is not a region with interrupts disabled, so data it shares is protected by a region it opens itself. It saves every register it may change and returns with iretq",
+}
+
+// directiveMeaning returns what a //pu: directive comment means: the entry of
+// its name and argument if it is a form of its own, else of its name.
+func directiveMeaning(comment string) string {
+	rest, ok := strings.CutPrefix(comment, "//pu:")
+	if !ok {
+		return ""
+	}
+	if m := directiveForms[strings.Join(strings.Fields(rest), " ")]; m != "" {
+		return m
+	}
+	name, _ := directiveName(comment)
+	return directives[name]
 }
 
 // directiveName returns the name of a //pu: directive comment.
@@ -215,7 +235,7 @@ func directiveHover(f *srcFile, off int) *Hover {
 			if !ok {
 				return nil
 			}
-			meaning := directives[name]
+			meaning := directiveMeaning(c.Text)
 			if meaning == "" {
 				meaning = "not a directive the compiler knows (see section 20.3 of the language specification)"
 			}
