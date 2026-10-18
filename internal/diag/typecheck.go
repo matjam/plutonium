@@ -336,7 +336,7 @@ func explainAssign(s *spec) {
 			return
 		}
 		if mm := doesNotImpl.FindStringSubmatch(cause); mm != nil {
-			s.explainImplements(src, V, T, mm[4], mm[5] != ")")
+			s.explainImplements(src, V, T, mm[4], mm[5] != ")", context == "return statement")
 			if target != "" && s.d.Text != "" {
 				s.d.Text = fmt.Sprintf("%s, so it can only hold values whose type has every method of %s.\n%s", target, s.str(T), s.d.Text)
 			}
@@ -522,7 +522,7 @@ func (s *spec) enclosingFunc() (string, *types2.Signature, token.Pos) {
 
 // explainImplements explains why a value of type V does not satisfy the
 // interface T: its method is missing or has a pointer receiver.
-func (s *spec) explainImplements(src string, V, T types2.Type, method string, pointer bool) {
+func (s *spec) explainImplements(src string, V, T types2.Type, method string, pointer, returned bool) {
 	iface, _ := T.Underlying().(*types2.Interface)
 	if iface == nil {
 		return
@@ -544,6 +544,16 @@ func (s *spec) explainImplements(src string, V, T types2.Type, method string, po
 	recv := s.str(V)
 	if pointer {
 		s.d.Text = fmt.Sprintf("%s needs a method %s%s%s. %s has it, but the method is declared on *%s, so only a pointer to a %s has it, not a %s value. A type satisfies an interface only if its own method set has every method.", s.str(T), method, s.signature(sig), where, recv, recv, recv, recv)
+		if returned {
+			// &src would point into this function's frame, which is gone
+			// when the function returns (E3001): the value goes on the heap.
+			s.d.Text += " A pointer to a value made here would point into the frame of the function, which is reclaimed when it returns (language spec section 18.3)."
+			s.d.Fix = &Fix{Intro: "Build the value on the heap with new, which the caller owns", Code: "new(" + strings.ReplaceAll(src, "…", "...") + ")"}
+			if !types2.IsOwner(T) {
+				s.d.More = []*Fix{{Intro: "The interface takes ownership of what it holds only if it is declared owner (language spec section 7.9)", Code: fmt.Sprintf("type %s owner interface {\n\t...\n}", s.str(T))}}
+			}
+			return
+		}
 		s.d.Fix = &Fix{Intro: "Use a pointer", Code: "&" + src}
 		return
 	}

@@ -224,6 +224,12 @@ against the corrected specification. The immediate implementation order is:
      it is E3001. Other uses of memory from an explicit arena stay with the run-time checks of section 18.11.
      Tests: `cmd/pluto/testdata/diag/arena_boxed`, `testdata/plutonium/arenatext.p`, `internal/escape` tables.
 
+124. **E0021 fix text in a return statement** (done; sections 8.6, 13.9, 18.3). A value whose method has a
+     pointer receiver, returned as an interface, got the fix `&T{...}`, which is E3001 in a constructor.
+     Where the value is returned the fix is now `new(T{...})`, with the note that the interface must be
+     declared `owner` to take the box (`explainImplements`, `internal/diag/typecheck.go`); other contexts
+     keep `&T{...}`. Tests: `cmd/pluto/testdata/diag/ptr_recv_return`, `testdata/plutonium/newiface.p`.
+
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a
 literal zero bound. Existing virtual-reservation fallback and overflow handling are
 implemented, but do not satisfy inference. Then fill the small unverified witness

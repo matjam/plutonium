@@ -1,0 +1,4 @@
+$DIR/main.p:17:16: cannot use Square{…} (value of struct type Square) as Shape value in variable declaration: Square does not implement Shape (method Area has pointer receiver)
+$DIR/main.p:23:9: cannot use Square{…} (value of struct type Square) as Shape value in return statement: Square does not implement Shape (method Area has pointer receiver)
+$DIR/main.p:29:9: cannot use q (variable of struct type Square) as Shape value in return statement: Square does not implement Shape (method Area has pointer receiver)
+$DIR/main.p:36:9: cannot use Square{…} (value of struct type Square) as Owned value in return statement: Square does not implement Owned (method Area has pointer receiver)

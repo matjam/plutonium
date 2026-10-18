@@ -506,7 +506,7 @@ b [y]
 
 ## 9. An expression tree behind an owning interface
 
-A plain interface is a view, so it cannot hold tree nodes that outlive the function that built them. Declare the interface `owner`: it owns the value inside, nodes are declared `owner` too and built with `new(...)`, and the leaf is a plain value. (The compiler's hint for a pointer-receiver mismatch suggests `&T{...}`, which would be E3001 in a constructor: use `new(T{...})`.) Reassigning `left = new(Bin{..., left, ...})` moves `left` into the new node.
+A plain interface is a view, so it cannot hold tree nodes that outlive the function that built them. Declare the interface `owner`: it owns the value inside, nodes are declared `owner` too and built with `new(...)`, and the leaf is a plain value. (In a `return`, the compiler's hint for a pointer-receiver mismatch (E0021) suggests `new(T{...})`; elsewhere it suggests `&T{...}`, which would be E3001 in a constructor.) Reassigning `left = new(Bin{..., left, ...})` moves `left` into the new node.
 
 ```pluto-run
 package main

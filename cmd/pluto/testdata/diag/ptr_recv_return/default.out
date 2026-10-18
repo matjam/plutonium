@@ -1,0 +1,63 @@
+$DIR/main.p:17:16: cannot use Square{…} (value of struct type Square) as Shape value in variable declaration: Square does not implement Shape (method Area has pointer receiver)
+    s is declared as Shape, so it can only hold values whose type has every
+    method of Shape.
+    Shape needs a method Area() int (declared on line 9). Square has it, but the
+    method is declared on *Square, so only a pointer to a Square has it, not a
+    Square value. A type satisfies an interface only if its own method set has
+    every method.
+    Use a pointer:
+        &Square{…}
+    (see "Interface types" in the Plutonium spec, section 7.9)
+    (run "pluto explain E0021" for a longer explanation)
+
+$DIR/main.p:23:9: cannot use Square{…} (value of struct type Square) as Shape value in return statement: Square does not implement Shape (method Area has pointer receiver)
+    build is declared on line 22 to return Shape, so it can only hold values
+    whose type has every method of Shape.
+    Shape needs a method Area() int (declared on line 9). Square has it, but the
+    method is declared on *Square, so only a pointer to a Square has it, not a
+    Square value. A type satisfies an interface only if its own method set has
+    every method. A pointer to a value made here would point into the frame of
+    the function, which is reclaimed when it returns (language spec section
+    18.3).
+    Build the value on the heap with new, which the caller owns:
+        new(Square{...})
+    The interface takes ownership of what it holds only if it is declared owner
+    (language spec section 7.9):
+        type Shape owner interface {
+            ...
+        }
+    (see "Interface types" in the Plutonium spec, section 7.9)
+    (run "pluto explain E0021" for a longer explanation)
+
+$DIR/main.p:29:9: cannot use q (variable of struct type Square) as Shape value in return statement: Square does not implement Shape (method Area has pointer receiver)
+    buildVar is declared on line 27 to return Shape, so it can only hold values
+    whose type has every method of Shape.
+    Shape needs a method Area() int (declared on line 9). Square has it, but the
+    method is declared on *Square, so only a pointer to a Square has it, not a
+    Square value. A type satisfies an interface only if its own method set has
+    every method. A pointer to a value made here would point into the frame of
+    the function, which is reclaimed when it returns (language spec section
+    18.3).
+    Build the value on the heap with new, which the caller owns:
+        new(q)
+    The interface takes ownership of what it holds only if it is declared owner
+    (language spec section 7.9):
+        type Shape owner interface {
+            ...
+        }
+    (see "Interface types" in the Plutonium spec, section 7.9)
+    (run "pluto explain E0021" for a longer explanation)
+
+$DIR/main.p:36:9: cannot use Square{…} (value of struct type Square) as Owned value in return statement: Square does not implement Owned (method Area has pointer receiver)
+    buildOwned is declared on line 35 to return Owned, so it can only hold
+    values whose type has every method of Owned.
+    Owned needs a method Area() int (declared on line 33). Square has it, but
+    the method is declared on *Square, so only a pointer to a Square has it, not
+    a Square value. A type satisfies an interface only if its own method set has
+    every method. A pointer to a value made here would point into the frame of
+    the function, which is reclaimed when it returns (language spec section
+    18.3).
+    Build the value on the heap with new, which the caller owns:
+        new(Square{...})
+    (see "Interface types" in the Plutonium spec, section 7.9)
+    (run "pluto explain E0021" for a longer explanation)
