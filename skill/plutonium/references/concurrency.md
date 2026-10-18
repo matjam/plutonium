@@ -26,6 +26,22 @@ under rules the compiler checks: **safe code has no data races**. Spec chapter 1
   join them (channel, `sync.WaitGroup` or `sync.Scope`) if their work matters.
 - Every task starts with the program-wide default allocator, not its starter's `alloc.Use` override.
 
+```pluto-run
+package main
+
+import "pluto/time"
+
+func spin() {
+	time.Sleep(time.Hour)
+	println("never printed")
+}
+
+func main() {
+	task spin()
+	println("main returns, and the program ends without waiting for spin")
+}
+```
+
 ## 2. Channels and select (sections 7.11, 12.5, 12.13, 19.8)
 
 `make(chan T)` is unbuffered, `make(chan T, n)` buffered; `make(chan T, n, a)` takes an allocator. Directions

@@ -3,7 +3,8 @@
 Plutonium is Go-familiar, not Go-compatible. A program in the common subset (spec appendix A.1) compiles
 unchanged except for imports. Anything else breaks loudly: **the rule of the language is that Go code which
 compiles does what Go would do**, and everything else is a compile error that names the fix. So translate by
-compiling and reading the errors (`pluto build --brief` for one line each, `pluto explain E....` for the fix).
+compiling and reading the errors (`pluto build` prints the cause, a fix and the code; `--brief` prints one line each
+without the code; `pluto explain E....` gives the long explanation).
 
 ## 1. The procedure
 

@@ -2,6 +2,7 @@ package skillcheck
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
@@ -291,10 +293,15 @@ func codesOf(err error) []diag.Code {
 
 func runProgram(t *testing.T, bin string, b *Block) {
 	t.Helper()
-	cmd := exec.Command(bin)
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
+	if ctx.Err() != nil {
+		t.Fatalf("the program did not finish in 40 seconds\nstdout:\n%s", stdout.String())
+	}
 	status := 0
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
@@ -522,6 +529,49 @@ func TestSingleFile(t *testing.T) {
 		}
 		if !strings.Contains(guide, "<!-- references/"+filepath.Base(f)+" -->") {
 			t.Errorf("the guide lacks %s", f)
+		}
+	}
+}
+
+// TestGeneratedFresh checks that the generated references match their
+// sources. It is opt-in (SKILLCHECK_FRESH=1) because it fails whenever the
+// library or the diagnostics catalog changes without a regeneration, which
+// other work should not have to wait for: run skill/plutonium/tools/regenerate.sh.
+func TestGeneratedFresh(t *testing.T) {
+	if os.Getenv("SKILLCHECK_FRESH") == "" {
+		t.Skip("set SKILLCHECK_FRESH=1 to compare the generated references with their sources")
+	}
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skip("no go command")
+	}
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := t.TempDir()
+	for _, args := range [][]string{
+		{"run", "./skill/plutonium/tools/genstdlib", "-lib", filepath.Join(root, "lib"), "-out", out},
+		{"run", "./skill/plutonium/tools/gendiag", "-out", filepath.Join(out, "diagnostics.md")},
+	} {
+		cmd := exec.Command(goBin, args...)
+		cmd.Dir = root
+		if msg, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("go %v: %v\n%s", args, err, msg)
+		}
+	}
+	entries, err := os.ReadDir(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		want, err := os.ReadFile(filepath.Join(out, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := os.ReadFile(filepath.Join(skillDir, "references", e.Name()))
+		if err != nil || !bytes.Equal(got, want) {
+			t.Errorf("references/%s is stale: run skill/plutonium/tools/regenerate.sh", e.Name())
 		}
 	}
 }

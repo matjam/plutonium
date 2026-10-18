@@ -12,8 +12,8 @@ compiles does what Go would do; everything else is a compile error that names th
 the standard library is Plutonium source under `pluto/...`, and the specification is `docs/spec/language.md`
 plus `docs/spec/language/*.md` (the specification wins over the compiler and over this skill).
 
-Every claim in this skill and its references is checked against the real compiler by `go test ./tools/skillcheck`:
-programs marked as runnable are compiled and run, error examples must fail with the stated code.
+Every program in this skill and its references is compiled and run by `go test ./tools/skillcheck`, every error
+example must fail with the stated code, and every library name and error code it cites must exist.
 
 ## Which reference to read
 
@@ -77,7 +77,7 @@ func main() int64 {
 
 1. **Never guess a library name.** The library is small and its names differ from Go's: there is no
    `strings.Split`, `strings.Fields`, `sort.Slice`, `bufio`, `fmt.Sscanf`, `os.IsNotExist`, `io.Copy`, `sync.Map`,
-   `time.Format`. `os.Args` is a function. Look the name up in `references/stdlib*.md`, or run
+   `Time.Format`. `os.Args` is a function. Look the name up in `references/stdlib*.md`, or run
    `pluto doc pluto/strings` and `pluto doc pluto/strings Cut`. A wrong name is E0073 and names the nearest
    match.
 2. **A slice, pointer, closure or interface that points at a local is a view, and a view cannot outlive what
@@ -198,18 +198,30 @@ instead (needed when you edit `lib/pluto`). Run with `unset GOROOT` if the Go to
 
 ## Reading a diagnostic
 
+The program is `a := vec.New[int](); b := a; a.Push(1)`. `pluto build` prints (paths shortened):
+
 ```
-main.p:7:2: cannot store &x in package variable keep, which outlives x
-    <explanation in plain words, with a fix to copy>
-    (see "Views" in the Plutonium spec, section 18.3)
-    (run "pluto explain E3002" for a longer explanation)
+main.p:8:2: a was moved to b at line 7, so it can no longer be used here
+    pluto/vec.Vec[int] is an owner type: its values own what they hold and
+    release it when they are dropped. Assigning an owner moves it instead of
+    copying it, so that what it owns has exactly one owner. Since line 7, b owns
+    it and a holds nothing.
+    If you need two independent values, copy it explicitly at line 7:
+        b := a.Clone()
+    If b only needs to look at the value, give it a pointer instead:
+        b := &a
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3301" for a longer explanation)
 ```
 
-The first line is `file:line:col: message`; the code is in the last line. Codes: E0xxx Go type rules,
+The first line is `file:line:col: message` (all that `--brief` prints, with no code); the code is in the last
+line, and the indented text names the cause and shows the fix. Codes: E0xxx Go type rules,
 E1xxx syntax, E2000 to E2499 Plutonium type rules (removed constructs, enums, unions, defaults, `or`), E2500 to
 E2999 compile-time rules (directives, kernel, defer, task), **E3xxx ownership** (E30xx views and frames, E31xx
 closures, E32xx owner types, E33xx moves and drops, E34xx scoped tasks, E35xx races), E4xxx packages, E5xxx link.
-Fix the **first** error; later ones are often consequences. `pluto build --brief` prints one line per error.
+Fix the **first** error; later ones are often consequences. `--brief` (or `PLUTO_BRIEF=1`) prints one line per error
+and **leaves out the code and the fix**: use it only to scan a long list, and run `pluto build` without it to read a
+fix or get the code for `pluto explain`.
 Typical fixes:
 
 | Code | Cause | Fix |
@@ -232,11 +244,11 @@ Typical fixes:
 
 1. **Read** the relevant reference (above), and `pluto doc` for any library name you are not certain of.
 2. **Write** small, then `pluto fmt -w .`.
-3. **Build** `pluto build --brief ./dir` (or `pluto run`); fix the first error by its code, reading the
+3. **Build** `pluto build ./dir` (or `pluto run`); fix the first error by its code, reading the
    explanation; `pluto explain E....` for the rule and a worked fix. Do not silence an error with `unsafe` or
    `//pu:nochecks`; those are for reviewed low-level code.
 4. **Test** `pluto test ./...` (write `*_test.p` next to the code, in the same package). Run once with
-   `pluto run --alloc=debug` for leaks and stale uses.
+   `pluto run --alloc=debug` for leaks and stale uses (it lists live allocations and exits with status 2).
 5. **Vet** `pluto vet -unsafe ./...` if you touched `unsafe`, `pluto/arch/x86` or `//pu:` directives.
 6. Hosted code needs no `//pu:` directives; the compiler infers lifetimes, locks and what never returns.
 7. In kernel or freestanding work, also `pluto build --mode kernel -c` and read `kernel-mode.md`.

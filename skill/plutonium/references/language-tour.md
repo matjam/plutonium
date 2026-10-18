@@ -562,7 +562,9 @@ lent: 3
 `defer` is as in Go with these rules: arguments are evaluated at the statement; an owner passed by value moves
 there; `defer x.Drop()` or `defer x.Close()` (pointer receiver) saves `&x`. A deferred call runs before the
 function's variables are dropped. Each `defer` statement has one slot, so a `defer` inside a loop that a path can
-reach again is **E2530**: move the loop body into a function. A function has at most 64 defers. There is no
+reach again is **E2530**: move the loop body into a function (a loop that leaves right after the `defer`, such as
+`mu.Lock(); defer mu.Unlock(); return v`, is fine). Only calls that may stand as a statement can be deferred as
+built-ins (`clear`, `close`, `copy`, `delete`, `panic`, `print`, `println`; E2532 for the rest). A function has at most 64 defers. There is no
 `recover`; on a panic the hosted runtime runs the pending deferred calls, then exits with status 2.
 
 ```pluto-run

@@ -465,7 +465,7 @@ allocator they came from and free to it, so an owner built in an arena drops nor
   dropped, and the program panics with `use of memory from an arena that was reset`. Print such text with
   `os.Stdout.Write(b.Bytes())`, or copy it to a heap string first.
 - Debug: `pluto build --alloc=debug` (and `pluto run --alloc=debug`) runs with the checking allocator: guard pages,
-  canaries, leak report at exit.
+  canaries, and at exit a report of the allocations still live (exit status 2 when there are leaks).
 
 ```pluto-run
 package main
@@ -529,7 +529,7 @@ lists every unsafe function and the safe code that calls it. `unsafe.Drop(p)` dr
 | E3001-E3005 | a view of the frame is returned, stored, passed to a keeper, started as a task, sent | return an owner; copy; use `sync.Scope`; allocate with `new` |
 | E3006 | a view or closure of a loop variable outlives its iteration | use the value inside the iteration; pass it as an argument |
 | E3009 | a view of a temporary owner is stored | name the owner in a variable first |
-| E3100-E3102 | a returned closure cannot be placed in a region | return a named function or struct of values |
+| E3100-E3102 | a returned closure cannot be placed in the caller's region: it is built in a nested literal (E3100), kept past a loop iteration or chained in a loop, `it = Filter(it, f)` (E3101), or built by a recursive function (E3102) | make the closure in the function that returns it and return it by value; compose a fixed number of closures; keep state in a value the caller owns |
 | E3201, E3206 | `Drop` on a non-owner, or wrong signature | `func (t *T) Drop()` on a type declared `owner` |
 | E3202, E3203 | owner field in a struct not declared `owner` | add `owner` to the declaration |
 | E3207 | owner passed for a type parameter that copies | declare `[T owner any]` |

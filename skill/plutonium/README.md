@@ -79,6 +79,7 @@ checked fences to plain `go` fences.
 ```sh
 go test ./tools/skillcheck                # compiles and runs every marked example (about a minute)
 skill/plutonium/tools/regenerate.sh       # after the library or the diagnostics catalog changes
+SKILLCHECK_FRESH=1 go test ./tools/skillcheck -run TestGeneratedFresh   # are the generated files up to date?
 ```
 
 The test reads every `*.md` file under `skill/plutonium/` and checks:

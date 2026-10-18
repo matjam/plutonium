@@ -53,7 +53,7 @@ func main() {
 Every compile error ends with a code. `+"`pluto explain E3301`"+` prints the long explanation with an example; `+"`pluto explain`"+`
 alone lists every code. Each row below gives the code, its name, what is wrong in one sentence and the usual fix.
 Messages name the variables and lines involved; read them before this table. `+"`--brief`"+` (or `+"`PLUTO_BRIEF=1`"+`)
-prints only the one-line message. Pick the first error in the output: later ones are often consequences.
+prints only the one-line message, without the code. Pick the first error in the output: later ones are often consequences.
 
 How to read a diagnostic: `+"`file:line:col: message`"+`, then an indented explanation, a suggested fix, the specification
 section (`+"`section 18.3`"+`: read `+"`docs/spec/language/18-ownership-and-memory.md`"+`) and the `+"`pluto explain`"+` line.
