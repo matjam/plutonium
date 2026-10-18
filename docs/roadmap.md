@@ -172,7 +172,7 @@ against the corrected specification. The immediate implementation order is:
      Update the catalog text of E3202 and `cmd/pluto/testdata/diag` so the explanation shows the declaration
      with `owner` inserted and says why the keyword is written (a change to a field's type elsewhere is
      reported at the declaration). Update `pluto explain` and the hover text if they repeat the old wording.
-122. **Operating-system names: `Name()` returns an error, `NameLossy`, `*os.NameError`** (planned; decision D36;
+122. **Operating-system names: `Name()` returns an error, `NameLossy`, `*os.NameError`** (done, `04d4a1c8` library, `fdf508f1` compile error, `8821701e` go2pu, `0ea27d1e` skill; decision D36;
      sections 7.3, A.3, F.9, 16.7). In `lib/pluto/os`: `DirEntry.Name() (string, error)`, `NameLossy()`,
      `Getenv(key) (string, error)` and the other string forms that return a system name (`Getwd`, `Readlink`,
      `LookupEnv`, `Arg`, `FileInfo.Name`, `File.Name`, `TempDir`) get the same split; add the counted
@@ -181,7 +181,12 @@ against the corrected specification. The immediate implementation order is:
      the tools), `tools/go2pu` (it maps Go's `Name()` and `Getenv` to the two-value forms) and the skill's
      references in `skill/plutonium/`. Decide the `PathError.Path` field with it. PlutoniumOS refuses
      non-UTF-8 names at creation. Tests: a directory with a non-UTF-8 entry, a non-UTF-8 variable, the
-     compile error, `NameLossy`. Closes the open part of item 57.
+     compile error, `NameLossy`. Closes the open part of item 57. Built as specified, `LookupEnv` returning
+     `(string, bool, error)`, plus `FileInfo.RawName` and `File.RawName`; `PathError.Path` stays a string (lossy,
+     for the message). `go2pu` maps Go's `Getenv`, `LookupEnv`, `TempDir` and `Name()` to the Lossy forms
+     (`compat.Getenv`, `x.NameLossy()`), since an expression cannot take the two-value form. Still lossy strings
+     with a documented Bytes form, outside `pluto/os`: `flag.Arg`/`flag.Args`, the `path` argument of
+     `filepath.WalkDir`, `exec.LookPath`; the owner decides whether they follow D36 too.
 123. **Dependent per-CPU store is E2022** (planned; decision D37; sections 20.9, 19.3, memory-model.md 6.4).
      In `internal/race`, treat a store to a `//pu:percpu` variable whose value or controlling condition
      depends, by data or control flow, on an earlier load of the same variable as a read-modify-write that
