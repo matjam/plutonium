@@ -53,8 +53,10 @@ var global = resource{live: true}
 	}
 }
 
-// The tasks of a joined program have finished, so package cleanup runs, whether
-// the join is a sync.Scope, a sync.WaitGroup or a channel.
+// The tasks of a joined program have finished, so package cleanup runs. A
+// sync.Scope join guarantees it; a sync.WaitGroup or channel join makes it
+// likely (decision D31), and the tasks here do nothing after the wake-up that
+// could delay their end beyond the runtime's short wait.
 func TestNormalTerminationJoinedTasks(t *testing.T) {
 	testguard.Parallel(t)
 	const resource = `

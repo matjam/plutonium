@@ -559,6 +559,32 @@ Why: Protocol headers and on-disk formats are a stated purpose of packed types. 
 
 Lands with: roadmap item 117.
 
+## D31. Only a `sync.Scope` join guarantees package cleanup; a bounded wall-clock grace before the abandon path (15.4, 19.1)
+
+Question: D10 says cleanup and the exact leak report run when no task is left. A task
+that wakes `main` through `defer wg.Done()` or a closed channel can still be returning
+(running its deferred calls and drops) when `main` observes the count, so a program that
+joins with a `sync.WaitGroup` or a channel took the abandon path now and then, and the
+runtime papered over it by yielding up to 200 times, which on an oversubscribed machine
+delayed the exit of a program with spinning workers by seconds. What does 15.4 promise?
+
+Decision (final): package cleanup and the exact leak report are guaranteed only when every
+task has retired when `main` returns, which a `sync.Scope` join provides (its join follows
+the end of the scoped task's function and drops). A `sync.WaitGroup` or a channel join
+makes cleanup likely but not guaranteed, because `defer wg.Done()` releases `wg.Wait()`
+while the task is still returning. Code that needs a resource released on every exit uses
+`defer` in `main`. Before the abandon path the runtime waits a short wall-clock time
+(about a millisecond) for tasks that are finishing, not a count of yields, so the latency
+of the exit does not depend on the load. The specification says this in section 15.4.
+
+Why: no false friends and Go-familiar (a Go program that returns from `main` with workers
+running exits at once, and a `WaitGroup` there promises nothing about cleanup); the
+guarantee that remains is the one the compiler can state exactly, a scope join, and the
+alternative (a per-task epilogue mark that makes `Wait` wait for the return of the
+function) would add cost to every task to keep a promise Go does not make.
+
+Lands with: the specification edit of section 15.4 and the review fixes of roadmap item 105.
+
 ## Deferred
 
 - Linux file names that are not valid UTF-8 (open part of roadmap item 57): byte paths,

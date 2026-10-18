@@ -266,10 +266,11 @@ order:
 
 1. `main`'s ordinary return completes: its deferred calls run and its local owners and counted references
    are released (sections 12.19 and 18.6). This joins any `sync.Scope` that `main` declared.
-2. In one scheduler transition, the runtime closes admission of new tasks and application callbacks and
-   observes whether any other application task is still running (started and not yet finished with its
-   function's deferred calls and drops) or any application callback is in flight. No application work can
-   appear between closing admission and observing.
+2. In one scheduler transition (after the short wait described below for tasks that are finishing), the
+   runtime closes admission of new tasks and application callbacks and observes whether any other
+   application task is still running (started and not yet finished with its function's deferred calls and
+   drops) or any application callback is in flight. No application work can appear between closing
+   admission and observing.
 3. If none is, pending application timer callbacks, such as `time.AfterFunc` calls, are canceled as `Stop`
    cancels them, which releases their saved arguments and captures. Tasks that have ended complete their
    retirement (runtime work, bounded). Package cleanup runs, then the debug allocator accounts, and the
@@ -280,10 +281,17 @@ order:
    running and skips the leak report, because the allocations those tasks hold are live, not leaked
    (`debug-allocator.md`). The exit status does not change.
 
-A program that wants its package cleanup and an exact leak report joins its tasks before `main` returns,
-with `sync.Scope`, `sync.WaitGroup` or a closed channel. A program that leaves workers running ends as a Go
-program does. When package cleanup runs, every operation of every finished application task and callback
-happens before it begins, including visibility across processors (section 19.7, Memory model).
+Package cleanup and the exact leak report are guaranteed only when every task has retired when `main`
+returns, which a `sync.Scope` join provides: the scope's join follows the end of each scoped task's function
+and its drops. A `sync.WaitGroup` or a closed channel makes cleanup likely but not guaranteed, because a
+task that calls `defer wg.Done()` or closes a channel in a deferred call releases the waiting `main` while
+the task is still returning, and `main` may then observe the task as running (step 2). To tolerate that, the
+runtime waits a short wall-clock time (about a millisecond, not a count of yields) for such tasks to finish
+before it takes the path of step 4, so the exit of a program with tasks that run on does not wait for them
+or depend on the load. Code that needs a resource released on every exit uses `defer` in `main`. A program
+that leaves workers running ends as a Go program does. When package cleanup runs, every operation of every
+finished application task and callback happens before it begins, including visibility across processors
+(section 19.7, Memory model).
 Deadlock remains a fatal error under section 19.1.
 
 **Package cleanup.** When package cleanup runs (step 3), package variables release the values they currently hold in
