@@ -27,6 +27,7 @@ skill/plutonium/
     kernel-mode.md            freestanding builds, directives, volatile, packed, ring, per-CPU, interrupts
     known-gaps.md             where the compiler or library differs from the specification today
     diagnostics.md            every error code (generated from internal/diag)
+    library-cheatsheet.md     the calls programs use most, with the shapes that differ from Go
     stdlib*.md                every exported library name, one line each (generated from lib/pluto)
   tools/
     genstdlib/                generator for references/stdlib*.md

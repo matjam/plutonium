@@ -97,6 +97,9 @@ func main() int64 {
 	fmt.Fprintf(out, "total %d\n", 4)
 	out.Close() or return 1
 
+	extra := filepath.Join(dir, "extra.txt")
+	os.WriteFile(extra, strings.Bytes("more\n").Slice(), 0o644) or return 1 // WriteFile takes []byte
+
 	data := os.ReadFile(path) or return 1
 	text := strings.FromUTF8(data.Slice()) or return 1
 	n := 0
@@ -140,7 +143,7 @@ true
 
 ## 3. Word frequencies with a map and sorted output
 
-A map is a counted reference. Collect keys into a `vec.Vec`, sort the view, print. Map iteration order is unspecified.
+Tokenize with `strings.FieldsFuncSeq` and `unicode.IsLetter`, count in a map (a counted reference), collect the keys into a `vec.Vec`, sort the view, print. Map iteration order is unspecified.
 
 ```pluto-run
 package main
@@ -149,13 +152,15 @@ import (
 	"pluto/fmt"
 	"pluto/slices"
 	"pluto/strings"
+	"pluto/unicode"
 	"pluto/vec"
 )
 
 func main() {
-	text := "the quick brown fox jumps over the lazy dog the end"
+	text := "The quick brown fox -- the lazy dog; THE end!"
 	counts := map[string]int{}
-	for w := range strings.FieldsSeq(text) {
+	notLetter := func(r rune) bool { return !unicode.IsLetter(r) }
+	for w := range strings.FieldsFuncSeq(strings.ToLower(text), notLetter) {
 		counts[w]++
 	}
 	keys := vec.WithCapacity[string](len(counts))

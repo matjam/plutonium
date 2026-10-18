@@ -20,8 +20,8 @@ example must fail with the stated code, and every library name and error code it
 | You are about to | Read (in `references/`) |
 |---|---|
 | write any Plutonium for the first time | `language-tour.md` |
-| call a library function or import a package | `stdlib.md`, `stdlib-os-time-math.md`, `stdlib-memory-concurrency.md` (never guess names; `pluto doc pluto/<pkg>` is authoritative) |
-| copy a working pattern (CLI, files, lists, trees, enums, unions, arenas, pools, pipelines, tests) | `idioms.md`, `idioms-types-memory.md`, `idioms-memory.md`, `idioms-concurrency.md` |
+| call a library function or import a package | `library-cheatsheet.md` (the calls used most, with the shapes that differ from Go), then `stdlib.md`, `stdlib-os-time-math.md`, `stdlib-memory-concurrency.md` (every name; `pluto doc pluto/<pkg>` is authoritative) |
+| copy a working pattern (CLI, files, lists, trees, enums, unions, arenas, pools, pipelines, tests) | `idioms.md`, `idioms-types-memory.md`, `idioms-memory.md`, `idioms-concurrency.md` (an LRU cache, a worker pool, a CLI, file I/O and more) |
 | fix a move, borrow, lifetime or `owner` error (E30xx to E33xx), or use arenas, `owned`, `shared`, `synced`, `weak` | `ownership-and-memory.md` |
 | use `task`, channels, `select`, `sync.Scope`, locks, or fix a race error (E34xx, E35xx) | `concurrency.md` |
 | handle failures, write `or` clauses, understand panics | `errors-and-panics.md` |
@@ -77,7 +77,7 @@ func main() int64 {
 
 1. **Never guess a library name.** The library is small and its names differ from Go's: there is no
    `strings.Split`, `strings.Fields`, `sort.Slice`, `bufio`, `fmt.Sscanf`, `os.IsNotExist`, `io.Copy`, `sync.Map`,
-   `Time.Format`. `os.Args` is a function. Look the name up in `references/stdlib*.md`, or run
+   `Time.Format`. `os.Args` is a function. Look the name up in `references/library-cheatsheet.md` or `references/stdlib*.md`, or run
    `pluto doc pluto/strings` and `pluto doc pluto/strings Cut`. A wrong name is E0073 and names the nearest
    match.
 2. **A slice, pointer, closure or interface that points at a local is a view, and a view cannot outlive what
@@ -134,6 +134,7 @@ that are not valid UTF-8 (E2012), `iter.Pull`, a local `sync.WaitGroup` passed t
 | Go | Plutonium |
 |---|---|
 | `go f(x)` | `task f(x)` |
+| `var wg sync.WaitGroup; wg.Add(1); go func(){ defer wg.Done(); ... }()` | `var s sync.Scope; s.Task(func(){ ... }); s.Wait()` (a local `WaitGroup` passed to a task is E3004); partial results go in an indexed array, one element per task |
 | `.go`, `go.mod` | `.p`, `pluto.mod` (`module path` as the first line) |
 | `import "strings"` | `import "pluto/strings"` |
 | `runtime.Goexit` | `rt.ExitTask()` |

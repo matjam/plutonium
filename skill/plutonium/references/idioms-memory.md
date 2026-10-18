@@ -10,6 +10,7 @@ Complete short programs, compiled and run by the skill's test with their output 
 | 2 | packed network header | `packed be [N]byte`, conversions |
 | 3 | counted values in a `hash.Map` | `synced[T]` elements, `Index`, `Delete` |
 | 4 | tree with weak parents | `shared[T]`, `weak`, `Upgrade` |
+| 5 | LRU cache | `map[K]shared[Node]`, `weak` back links, O(1) unlink |
 
 ## 1. Scratch memory in an arena
 
@@ -204,4 +205,114 @@ func main() {
 
 ```output
 /root/usr/bin 1
+```
+
+## 5. An LRU cache: a doubly linked list with weak back links
+
+The Go instinct is `prev, next *Node`. Here `next` is a `shared[Node]` (it keeps the next node alive), `prev` is a `weak` reference (it does not, so there is no cycle), and a map from key to node gives O(1) lookup. The cache struct is declared `owner` so it moves instead of being copied by accident.
+
+```pluto-run
+package main
+
+import (
+	"pluto/alloc"
+	"pluto/fmt"
+)
+
+type Node owner struct {
+	key  string
+	val  int
+	prev weak[shared[Node]]
+	next shared[Node]
+}
+
+type LRU owner struct {
+	cap  int
+	m    map[string]shared[Node]
+	head shared[Node] // most recent
+	tail shared[Node] // least recent
+}
+
+func NewLRU(n int) LRU { return LRU{cap: n, m: map[string]shared[Node]{}} }
+
+func (c *LRU) unlink(n shared[Node]) {
+	p, hasPrev := n.prev.Upgrade()
+	if hasPrev {
+		p.next = n.next
+	} else {
+		c.head = n.next
+	}
+	if n.next != nil {
+		n.next.prev = n.prev
+	} else if hasPrev {
+		c.tail = p
+	} else {
+		c.tail = nil
+	}
+	n.next = nil
+	n.prev = weak[shared[Node]](nil)
+}
+
+func (c *LRU) pushFront(n shared[Node]) {
+	n.next = c.head
+	if c.head != nil {
+		c.head.prev = weak[shared[Node]](n)
+	} else {
+		c.tail = n
+	}
+	c.head = n
+}
+
+func (c *LRU) Get(key string) (int, bool) {
+	n := c.m[key]
+	if n == nil {
+		return 0, false
+	}
+	c.unlink(n)
+	c.pushFront(n)
+	return n.val, true
+}
+
+func (c *LRU) Put(key string, value int) {
+	if n := c.m[key]; n != nil {
+		n.val = value
+		c.unlink(n)
+		c.pushFront(n)
+		return
+	}
+	if len(c.m) >= c.cap && c.tail != nil {
+		old := c.tail
+		c.unlink(old)
+		delete(c.m, old.key)
+	}
+	n := alloc.Shared[Node]()
+	n.key = key
+	n.val = value
+	c.m[key] = n
+	c.pushFront(n)
+}
+
+func main() {
+	c := NewLRU(2)
+	c.Put("a", 1)
+	c.Put("b", 2)
+	v, ok := c.Get("a")
+	fmt.Println(v, ok)
+	c.Put("c", 3) // evicts b
+	_, ok = c.Get("b")
+	fmt.Println("b present:", ok)
+	c.Put("a", 10)
+	c.Put("d", 4) // evicts c
+	_, ok = c.Get("c")
+	fmt.Println("c present:", ok)
+	v, ok = c.Get("a")
+	fmt.Println(v, ok)
+}
+```
+
+```output
+1 true
+b present: false
+c present: false
+10 true
 ```

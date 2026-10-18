@@ -26,7 +26,7 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 out=${1:-$here/plutonium-guide.md}
 
 # The order of the references; any file not listed follows, sorted.
-order="language-tour ownership-and-memory concurrency errors-and-panics idioms idioms-types-memory idioms-memory idioms-concurrency go-to-plutonium kernel-mode known-gaps diagnostics stdlib stdlib-os-time-math stdlib-memory-concurrency stdlib-system"
+order="language-tour library-cheatsheet ownership-and-memory concurrency errors-and-panics idioms idioms-types-memory idioms-memory idioms-concurrency go-to-plutonium kernel-mode known-gaps diagnostics stdlib stdlib-os-time-math stdlib-memory-concurrency stdlib-system"
 
 names=""
 for n in $order; do
