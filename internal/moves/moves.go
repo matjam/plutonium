@@ -301,11 +301,21 @@ type vstate struct {
 	// (views.go).
 	views []view
 	pin   *pinMark
+	// dl says that a deferred function literal using the variable is
+	// registered on some path here: the literal runs when the function
+	// returns, so the variable must hold a value then (section 18.5).
+	dl *deferMark
+}
+
+// A deferMark records the use of an owner by a deferred function literal.
+type deferMark struct {
+	use  *ast.Ident // the use in the literal
+	stmt token.Pos  // the defer statement
 }
 
 // plain reports whether s says nothing beyond live.
 func (s vstate) plain() bool {
-	return s.st == live && s.z == nil && s.bz == nil && !s.dd && len(s.views) == 0 && s.pin == nil
+	return s.st == live && s.z == nil && s.bz == nil && !s.dd && len(s.views) == 0 && s.pin == nil && s.dl == nil
 }
 
 // An env maps the variables that do not hold a value, or of which more is
@@ -377,6 +387,10 @@ func joinState(sa, sb vstate) vstate {
 	if out.pin == nil {
 		out.pin = sb.pin
 	}
+	out.dl = sa.dl
+	if out.dl == nil {
+		out.dl = sb.dl
+	}
 	return out
 }
 
@@ -387,7 +401,7 @@ func envEqual(a, b env) bool {
 	for k, v := range a {
 		u, ok := b[k]
 		if !ok || u.st != v.st || u.dd != v.dd || !u.z.equal(v.z) || !u.bz.equal(v.bz) ||
-			!viewsEqual(u.views, v.views) || (u.pin == nil) != (v.pin == nil) {
+			!viewsEqual(u.views, v.views) || (u.pin == nil) != (v.pin == nil) || (u.dl == nil) != (v.dl == nil) {
 			return false
 		}
 	}
@@ -515,6 +529,7 @@ func (f *fn) walk(body *ast.BlockStmt) {
 		f.declaredEmpty(v) // results start with nothing
 	}
 	f.block(body)
+	f.deferExit() // falling off the end of the body
 }
 
 // note merges a state reaching a loop head or label from later in the body.
@@ -602,7 +617,7 @@ func (f *fn) moveVar(id *ast.Ident, v *types2.Var, mv move) {
 		mv.pos = id.Pos()
 		// The value left: the variable holds nothing (empty.go), and the
 		// views of it are stale (views.go).
-		f.env[v] = vstate{st: moved, mv: &mv, z: emptyZ, dd: f.env[v].dd, pin: f.env[v].pin}
+		f.env[v] = vstate{st: moved, mv: &mv, z: emptyZ, dd: f.env[v].dd, pin: f.env[v].pin, dl: f.env[v].dl}
 		f.invalidate(v, mv)
 	}
 	if f.report {
@@ -623,7 +638,7 @@ func (f *fn) moveOut(id *ast.Ident, v *types2.Var, mv move) {
 		mv.pos = id.Pos()
 		// Where the assertion fails the variable still holds its value, so
 		// nothing is known to be empty.
-		f.env[v] = vstate{st: moved, mv: &mv, dd: f.env[v].dd, pin: f.env[v].pin}
+		f.env[v] = vstate{st: moved, mv: &mv, dd: f.env[v].dd, pin: f.env[v].pin, dl: f.env[v].dl}
 		f.invalidate(v, mv)
 	}
 }
@@ -632,6 +647,6 @@ func (f *fn) moveOut(id *ast.Ident, v *types2.Var, mv move) {
 // which (views.go).
 func (f *fn) assignVar(v *types2.Var) {
 	if f.env != nil {
-		f.setState(v, vstate{dd: f.env[v].dd, pin: f.env[v].pin})
+		f.setState(v, vstate{dd: f.env[v].dd, pin: f.env[v].pin, dl: f.env[v].dl})
 	}
 }

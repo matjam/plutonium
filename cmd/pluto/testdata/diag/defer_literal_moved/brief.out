@@ -1,0 +1,2 @@
+$DIR/main.p:17:25: o was moved into consume (its parameter takes a Buf by value) at line 18, but the deferred function (line 17) uses it when the function returns
+$DIR/main.p:23:25: o may have been moved into consume (its parameter takes a Buf by value) at line 25, but the deferred function (line 23) uses it when the function returns

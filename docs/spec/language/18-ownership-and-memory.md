@@ -251,6 +251,12 @@ variable makes it usable again. The error names the move and its line and sugges
 use: `Clone` when both copies are needed, a pointer when the later use only looks, or reordering when the
 later use could come first.
 
+A deferred function literal that uses an owner runs when the function returns. The use counts at every
+exit that the `defer` statement reaches, so moving or dropping the owner on a path from the `defer`
+statement to an exit is the same error (E3301, or E3302 where only some paths move it), reported at the use
+in the literal. Giving the owner a new value before the exit makes the use valid, and a move on a path that
+returns before the `defer` statement does not conflict.
+
 **One expression may not move a variable and also use it.** An expression or statement that moves a
 variable and uses the same variable anywhere else is a compile error, whatever the order of evaluation:
 `send(buf, buf.Len())` and `send(buf.Len(), buf)` are both rejected, and the fix is a separate statement

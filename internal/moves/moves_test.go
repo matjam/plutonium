@@ -199,6 +199,37 @@ func main() {
 }
 func look2(f *File) {}`, []string{"the deferred call uses f, which is dropped at the end of its block", "E3311"}},
 
+	{"deferred literal uses an owner moved later", `
+func main() {
+	b := Buf{}
+	defer func() { _ = look(&b) }()
+	_ = take2(b)
+}`, []string{"b was moved into take2 (its parameter takes a Buf by value) at line 27, but the deferred function (line 26) uses it when the function returns", "E3301"}},
+	{"deferred literal uses an owner moved on some path", `
+func main() {
+	b := Buf{}
+	defer func() { _ = look(&b) }()
+	if cond() {
+		_ = take2(b)
+	}
+}`, []string{"b may have been moved into take2 (its parameter takes a Buf by value) at line 28, but the deferred function (line 26) uses it when the function returns", "E3302"}},
+	{"deferred literal uses an owner moved in a branch that returns", `
+func f() int {
+	b := Buf{}
+	defer func() { _ = look(&b) }()
+	if cond() {
+		return take2(b)
+	}
+	return 0
+}
+func main() { _ = f() }`, []string{"b was moved into take2 (its parameter takes a Buf by value) at line 28, but the deferred function (line 26) uses it when the function returns", "E3301"}},
+	{"deferred literal uses a dropped owner", `
+func main() {
+	f := File{}
+	defer func() { _ = f }()
+	f.Drop()
+}`, []string{"f was dropped by f.Drop() at line", "but the deferred function (line", "E3301"}},
+
 	{"slice literal of owners", `
 func main() {
 	b := Buf{}
@@ -328,6 +359,42 @@ func main() {
 	f := func() int { return b.Len() }
 	_ = f()
 	_ = take2(b)
+}`},
+	{"deferred literal, owner never moved", `
+func main() {
+	b := Buf{}
+	defer func() { _ = look(&b) }()
+	_ = b.Len()
+}`},
+	{"deferred literal, owner moved before the defer statement and given a value", `
+func main() {
+	b := Buf{}
+	_ = take2(b)
+	b = Buf{}
+	defer func() { _ = look(&b) }()
+}`},
+	{"deferred literal, owner moved in a branch that returns before the defer", `
+func f() int {
+	b := Buf{}
+	if cond() {
+		return take2(b)
+	}
+	defer func() { _ = look(&b) }()
+	return 0
+}
+func main() { _ = f() }`},
+	{"deferred literal, owner moved and given a value again", `
+func main() {
+	b := Buf{}
+	defer func() { _ = look(&b) }()
+	_ = take2(b)
+	b = Buf{}
+}`},
+	{"deferred literal, another owner moved", `
+func main() {
+	b, c := Buf{}, Buf{}
+	defer func() { _ = look(&b) }()
+	_ = take2(c)
 }`},
 	{"drop on the variable", `
 func main() {

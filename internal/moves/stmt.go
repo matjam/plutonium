@@ -1,6 +1,8 @@
 package moves
 
 import (
+	"sort"
+
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
@@ -555,6 +557,7 @@ func (f *fn) labeled(l *types2.Label) *ast.LabeledStmt {
 
 func (f *fn) returnStmt(st *ast.ReturnStmt) {
 	defer func() {
+		f.deferExit()
 		f.recordResults(st)
 		f.recordExit(st)
 	}()
@@ -616,6 +619,7 @@ func (f *fn) deferStmt(st *ast.DeferStmt) {
 		}
 	} else {
 		f.call(st.Call, mvArg)
+		f.deferLit(st)
 	}
 	if !f.report || len(f.blocks) == 0 {
 		return
@@ -634,6 +638,49 @@ func (f *fn) deferStmt(st *ast.DeferStmt) {
 		}
 		return true
 	})
+}
+
+// deferLit registers the owners that the function literal of "defer
+// func() {...}()" uses: the literal runs when the function returns, so they
+// must still hold a value then (deferExit).
+func (f *fn) deferLit(st *ast.DeferStmt) {
+	lit, ok := ast.Unparen(st.Call.Fun).(*ast.FuncLit)
+	if !ok || f.env == nil || f.c.scoped.Lits[lit] != nil {
+		return
+	}
+	ast.Inspect(lit.Body, func(n ast.Node) bool {
+		id, ok := n.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		if v := f.varOf(id); v != nil && f.vars[v] && f.c.uses[id] != nil && isOwner(v.Type()) {
+			s := f.env[v]
+			if s.dl == nil {
+				s.dl = &deferMark{use: id, stmt: st.Pos()}
+				f.setState(v, s)
+			}
+		}
+		return true
+	})
+}
+
+// deferExit checks, where the function returns, that every owner used by a
+// deferred function literal registered on the way here holds a value: the
+// literal is about to run (section 18.5, Use after a move).
+func (f *fn) deferExit() {
+	if !f.report || f.env == nil {
+		return
+	}
+	var vs []*types2.Var
+	for v, s := range f.env {
+		if s.dl != nil && s.st != live {
+			vs = append(vs, v)
+		}
+	}
+	sort.Slice(vs, func(i, j int) bool { return vs[i].Pos() < vs[j].Pos() })
+	for _, v := range vs {
+		f.c.report(f.c.deferUseDiag(v, f.env[v]))
+	}
 }
 
 // assertFailed returns the owning interface variable that the init of an

@@ -96,6 +96,27 @@ func (c *checker) howMoved(mv *move) string {
 	return "moved"
 }
 
+// deferUseDiag explains an owner that a deferred function literal uses when
+// the function returns, after the owner was moved or dropped.
+func (c *checker) deferUseDiag(v *types2.Var, s vstate) *diag.Diagnostic {
+	d := c.useDiag(s.dl.use, v, s)
+	name, at := v.Name(), c.line(s.dl.stmt)
+	if s.st == maybe && s.mv != nil && s.mv.loop {
+		return d
+	}
+	mvLine := c.line(s.mv.pos)
+	how := c.howMoved(s.mv)
+	if s.st == maybe {
+		d.Msg = fmt.Sprintf("%s may have been %s at line %d, but the deferred function (line %d) uses it when the function returns", name, how, mvLine, at)
+	} else {
+		d.Msg = fmt.Sprintf("%s was %s at line %d, but the deferred function (line %d) uses it when the function returns", name, how, mvLine, at)
+	}
+	d.Text += fmt.Sprintf(" The function literal deferred at line %d runs when the function returns, after line %d, so it would use what %s no longer holds.", at, mvLine, name)
+	d.Fix = &diag.Fix{Intro: fmt.Sprintf("Give %s a new value after line %d, so that the deferred function finds one", name, mvLine), Code: fmt.Sprintf("%s = %s", name, c.newValue(v.Type()))}
+	d.More = []*diag.Fix{{Intro: fmt.Sprintf("Or do the work of the deferred function at the end of the function, before line %d, instead of deferring it", mvLine)}}
+	return d
+}
+
 // staleDiag explains a read of e, part of variable v, that may hold a view
 // w whose owner has lost the value it looked at (language spec section
 // 18.3).
