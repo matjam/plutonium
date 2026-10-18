@@ -133,6 +133,8 @@ var _ = time.Second
 		{"method", "n := 1\nf := func() {}\nf = func() { n++ }\nRunner{}.Run(f)", "E3003"},
 		{"interface method", "n := 1\nf := func() {}\nf = func() { n++ }\nvar r Starter = Runner{}\nr.Run(f)", "E3003"},
 		{"returned by a helper", "n := 1\nf := func() {}\nf = func() { n++ }\ng := id(f)\ntask g()", "E3004"},
+		{"pointer to a func variable", "n := 1\nf := func() {}\nf = func() { n++ }\np := &f\ng := *p\ntask g()", "E3004"},
+		{"pointer to a func variable to helper", "n := 1\nf := func() {}\nf = func() { n++ }\np := &f\nstart(*p)", "E3003"},
 		{"map value", "n := 1\nm := map[int]func(){1: func() { n++ }}\ntask m[1]()", "E3002"},
 		{"generic", "n := 1\nf := func() {}\nf = func() { n++ }\nstartGeneric(f)", "E3003"},
 		{"wait group", "n := 1\nvar wg sync.WaitGroup\nf := func() {}\nf = func() { n++ }\nwg.Task(f)\nwg.Wait()", "E3003"},
@@ -147,6 +149,7 @@ var _ = time.Second
 	}
 	accept := []struct{ name, body string }{
 		{"named function", "task work()"},
+		{"pointer to a func variable of a named function", "f := work\np := &f\ng := *p\ntask g()\nstart(*p)"},
 		{"literal without captures", "task func() {}()"},
 		{"variable assigned twice", "f := func() {}\nf = work\ntask f()"},
 		{"field", "s := S{f: work}\ntask s.f()"},
