@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -290,6 +291,18 @@ func propagate() {
 	fmt.Println(err != nil)
 }
 
+// osNames: Go's os name functions return a string; pluto/os's return an
+// error as well for a name that is not valid UTF-8 (language spec F.9), so
+// the translation takes the display forms.
+func osNames() {
+	fmt.Println(os.Getenv("PLUTO_REWRITES_UNSET") == "")
+	v, ok := os.LookupEnv("PLUTO_REWRITES_UNSET")
+	fmt.Println(v == "", ok)
+	fmt.Println(os.TempDir() != "")
+	fi, err := os.Stat("/")
+	fmt.Println(err == nil, fi.Name())
+}
+
 func main() {
 	h := keep(41)
 	fmt.Println(*h.p, h.q.x, h.q.y, *h.r)
@@ -301,4 +314,5 @@ func main() {
 	n := newNode("solo")
 	fmt.Println(p[0]+p[1], n.Name())
 	propagate()
+	osNames()
 }

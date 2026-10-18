@@ -264,6 +264,13 @@ func (t *fileTr) call(n *ast.CallExpr) (string, bool) {
 	if !ok {
 		return "", false
 	}
+	// e.Name() of an os.DirEntry, os.FileInfo or os.File: Go returns the bytes
+	// the system gave as a string; the library's Name returns an error as
+	// well for bytes that are not valid UTF-8 (language spec F.9), so the
+	// translation takes the display form.
+	if sel.Sel.Name == "Name" && len(n.Args) == 0 && isOSNamed(t.typeOf(sel.X)) {
+		return t.render(sel.X) + ".NameLossy()", true
+	}
 	if id, ok := sel.X.(*ast.Ident); ok {
 		if pn, ok := t.info.Uses[id].(*types.PkgName); ok {
 			switch pn.Imported().Path() + "." + sel.Sel.Name {
@@ -295,6 +302,27 @@ func (t *fileTr) call(n *ast.CallExpr) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// isOSNamed reports whether T is Go's os.DirEntry, os.FileInfo or os.File
+// (or a pointer to one): the types whose Name method has the name split of
+// language spec F.9 in pluto/os.
+func isOSNamed(T types.Type) bool {
+	if T == nil {
+		return false
+	}
+	if p, ok := T.(*types.Pointer); ok {
+		T = p.Elem()
+	}
+	named, ok := types.Unalias(T).(*types.Named)
+	if !ok || named.Obj().Pkg() == nil {
+		return false
+	}
+	switch named.Obj().Pkg().Path() + "." + named.Obj().Name() {
+	case "os.File", "io/fs.DirEntry", "io/fs.FileInfo":
+		return true
+	}
+	return false
 }
 
 // puOwners are the names of internal/pu whose Plutonium counterparts are

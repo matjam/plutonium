@@ -127,6 +127,12 @@ var special = map[string]string{
 	"strconv.AppendFloat":     "compat.AppendFloat",
 	"unicode/utf8.AppendRune": "compat.AppendRune",
 	"fmt.Appendf":             "compat.Appendf",
+	// Go's os name functions return the bytes the system gave as a string;
+	// the library's return an error as well for bytes that are not valid
+	// UTF-8, so the translation takes the display forms (language spec F.9).
+	"os.Getenv":    "compat.Getenv",
+	"os.LookupEnv": "compat.LookupEnv",
+	"os.TempDir":   "compat.TempDir",
 }
 
 // appendPkgs are the Go packages whose Append functions take a vec.Appender

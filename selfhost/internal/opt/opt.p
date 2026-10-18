@@ -6,7 +6,6 @@ package opt
 
 import (
 	"pluto/fmt"
-	"pluto/os"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 	"selfhost/pu"
@@ -47,7 +46,7 @@ type step struct {
 // ForLevel returns the passes for an optimisation level.
 func ForLevel(level int) *Pipeline {
 	p := pu.New(Pipeline{})
-	if level >= 1 && os.Getenv("PLUTO_NOSTRELIDE") == "" {
+	if level >= 1 && compat.Getenv("PLUTO_NOSTRELIDE") == "" {
 		// Before anything inlines the runtime's count calls.
 		// PLUTO_NOSTRELIDE turns it off, to measure what it saves.
 		p.steps = compat.Append(p.steps, step{prog: pu.New(ProgramPass{"strelide", ElideStringHolds})})
@@ -114,7 +113,7 @@ func (p *Pipeline) add(gopass Pass) {
 
 // checkSSA, when set by the PLUTO_SSACHECK environment variable, verifies
 // every function after every pass.
-var checkSSA = os.Getenv("PLUTO_SSACHECK") != ""
+var checkSSA = compat.Getenv("PLUTO_SSACHECK") != ""
 
 // verify checks f's invariants and its source positions.
 func verify(f *ssa.Func) error {

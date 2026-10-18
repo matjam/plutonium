@@ -3,7 +3,6 @@
 package opt
 
 import (
-	"pluto/os"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 	"selfhost/pu"
@@ -58,7 +57,7 @@ func GenCheck(f *ssa.Func) {
 	if f.Pragmas&(ssa.PragmaGenCheck|ssa.PragmaGenMaskOnly) == 0 {
 		return
 	}
-	if f.Pragmas&ssa.PragmaGenMaskOnly != 0 || os.Getenv("PLUTO_GENCHECK_MASKONLY") != "" {
+	if f.Pragmas&ssa.PragmaGenMaskOnly != 0 || compat.Getenv("PLUTO_GENCHECK_MASKONLY") != "" {
 		genMaskOnly(f)
 		return
 	}
