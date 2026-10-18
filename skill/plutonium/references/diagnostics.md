@@ -178,7 +178,6 @@ The parser. The message names the token it did not expect.
 | E1007 | BadImportDecl | An import names a package with a string in double quotes, and all imports come right after the package clause, before any other declaration. | `pluto explain E1007` |
 | E1008 | BadLiteral | A string, rune or number is not written correctly, or the file contains a character that is not allowed outside strings and comments. | `pluto explain E1008` |
 | E1009 | MissingPackage | Every source file starts with a package clause, such as package main, before anything else except comments. | `pluto explain E1009` |
-| E1010 | BadDefaultSyntax | A parameter with a default value needs a name and type of its own. In a, b int = 1 it is unclear whether the default belongs to a, to b, or to both. | `pluto explain E1010` |
 | E1011 | IfaceMethodTParams | Methods may have type parameters of their own, but an interface cannot declare such a method. A call through an interface does not know which type's method it reaches, so it could not pick an instance of a generic method. | `pluto explain E1011` |
 | E1012 | GoStatement | A task is started with the task statement, written like a call: task worker(jobs). The word go is reserved so that a statement that starts with it gets this message, but it starts nothing in Plutonium. | To start a task, write task in place of go: `task worker(jobs)` |
 | E1013 | OrOperand | An or clause tests the error that a call returns, so or must come right after a call: a function, method or function value with its arguments. | Make the call alone the operand of or, and use its values in a statement after it: `n := strconv.Atoi(s) or return` |
@@ -283,6 +282,7 @@ Directives, C and assembly linkage, per-CPU variables, kernel rules, `defer`, `t
 | E2512 | DuplicateExport | Two functions are exported under the same symbol name with //pu:export, or the name is already used by another symbol. | `pluto explain E2512` |
 | E2513 | GenericExport | A generic function is compiled once for each set of type arguments it is used with, so there is no single function to export under one C symbol. | Export a wrapper |
 | E2520 | KernelFloat | In kernel mode, functions may not use floating point. | Mark the function, and save the state around calls: `func scale(x float64) float64 { return x * 1.5 }` |
+| E2521 | UnprintableArgument | print and println can write a boolean, an integer (an enum too), a floating-point number, a string, or a type whose underlying type is one of these. | Convert an integer field, or use fmt: `println(int32(fd))` |
 | E2530 | DeferInLoop | A defer statement in a loop would add a deferred call on every iteration, and each needs room in the function's stack frame until it returns. | Move the body into a function: `for _, name := range names {` |
 | E2531 | TooManyDefers | A function may contain at most 64 defer statements. Each has a fixed slot in the stack frame. Split the function into smaller ones. | `pluto explain E2531` |
 | E2532 | DeferBuiltin | This builtin cannot be deferred directly. Wrap the call in a function literal and defer that. | Defer a function literal: `defer func() { n = len(s) }()` |
