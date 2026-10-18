@@ -73,7 +73,7 @@ func main() {
 	check("Close", f.Close())
 	f, err = os.Open(join(qb[:], dir, "big.bin"))
 	check("Open", err)
-	all, err := io.ReadAll(f)
+	all, err := io.ReadAll(&f)
 	check("ReadAll", err)
 	println("big", off, all.Len(), all.At(999), all.At(99999))
 	all.Free()

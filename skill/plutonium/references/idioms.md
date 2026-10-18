@@ -73,7 +73,7 @@ rest: []
 
 ## 2. Files: create, write, read, list lines
 
-Files are `*os.File`; close them with `defer f.Close()`. `os.ReadFile` returns an owner (`vec.Vec[byte]`), checked into a string with `strings.FromUTF8`. A string literal is written with `WriteString` since `[]byte("...")` does not exist.
+A file is an `os.File`, an owner returned by `os.Open` and `os.Create`: it closes when its variable goes out of scope, and `f.Close()` closes it earlier and reports the error. A function that only uses a file takes a `*os.File`. `os.ReadFile` returns an owner (`vec.Vec[byte]`), checked into a string with `strings.FromUTF8`. A string literal is written with `WriteString` since `[]byte("...")` does not exist.
 
 ```pluto-run
 package main
@@ -94,7 +94,7 @@ func main() int64 {
 
 	out := os.Create(path) or return 1
 	out.WriteString("alpha\nbeta\n\ngamma\n") or return 1
-	fmt.Fprintf(out, "total %d\n", 4)
+	fmt.Fprintf(&out, "total %d\n", 4) // &out is an io.Writer
 	out.Close() or return 1
 
 	extra := filepath.Join(dir, "extra.txt")

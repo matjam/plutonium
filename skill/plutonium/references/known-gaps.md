@@ -6,27 +6,6 @@ compiles and runs against the current compiler. **If a block here starts to fail
 the item and let the specification's text stand. Until then, write code that works today and do not "fix" the
 compiler's behavior in application code.
 
-## 3. `os.File` is a pointer, not an owner
-
-Appendix A.3 and section 18.13 describe `os.Open` returning an `os.File` that closes when its variable goes out of
-scope. Today `os.Open`, `os.Create` and `os.OpenFile` return `*os.File`: close it yourself (`defer f.Close()`),
-since the pointer's end of scope closes nothing.
-
-```pluto-compile
-package main
-
-import "pluto/os"
-
-func main() {
-	f, err := os.Open("/dev/null")
-	if err != nil {
-		return
-	}
-	var p *os.File = f // a pointer, so storing it in a *os.File variable compiles
-	defer p.Close()
-}
-```
-
 ## 4. Error codes that differ from the text
 
 - `var c Color = 1` (an untyped constant assigned to an enum) reports E0023 (IncompatibleAssign), not E2315 as

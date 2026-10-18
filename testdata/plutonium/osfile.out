@@ -1,0 +1,34 @@
+scopeEnd
+same descriptor again: true true
+early
+true true
+descriptor reused: true
+closeThenDrop
+close: true
+again: true
+write after close: true
+stat after close: true -1
+reused after Close: true
+zero
+read: true -1
+close: true
+seek: true
+true true
+conns
+true /dev/null
+second open differs: true
+closed with its struct: true
+error: true
+array
+fd after clear: -1
+lowest descriptor reused: true
+pipes
+true
+5 hello
+close w: true
+eof: true
+files
+name matches: true
+owned true
+size: 5
+done

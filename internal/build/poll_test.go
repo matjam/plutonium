@@ -17,6 +17,7 @@ func TestPoller(t *testing.T) {
 
 import (
 	"pluto/os"
+	"pluto/sync"
 	"pluto/syscall"
 )
 
@@ -65,9 +66,10 @@ func main() {
 	wdone := make(chan int)
 	rdone := make(chan int)
 	ddone := make(chan int)
-	task reader(a, rdone)
-	task writer(a, wdone)
-	task drain(b, 4000000, ddone)
+	var s sync.Scope // the tasks use the files, which main owns
+	s.Task(func() { reader(&a, rdone) })
+	s.Task(func() { writer(&a, wdone) })
+	s.Task(func() { drain(&b, 4000000, ddone) })
 	<-wdone
 	println("drained", <-ddone)
 	println("reply", <-rdone)
@@ -83,6 +85,7 @@ func main() {
 import (
 	"pluto/os"
 	"pluto/rt"
+	"pluto/sync"
 	"pluto/time"
 )
 
@@ -117,8 +120,9 @@ func main() {
 		return
 	}
 	res := make(chan bool)
+	var s sync.Scope // the tasks use r and w, which main owns
 	for i := 0; i < 3; i++ {
-		task read(r, res)
+		s.Task(func() { read(&r, res) })
 	}
 	settle()
 	r.Close()
@@ -130,13 +134,14 @@ func main() {
 	}
 	println("readers", n, "closed")
 	w.Close()
+	s.Wait()
 
 	r, w, err = os.Pipe()
 	if err != nil {
 		println("pipe:", err.Error())
 		return
 	}
-	task write(w, res)
+	s.Task(func() { write(&w, res) })
 	settle()
 	w.Close()
 	if <-res {
@@ -158,6 +163,7 @@ func main() {
 import (
 	"pluto/os"
 	"pluto/rt"
+	"pluto/sync"
 )
 
 func read(r *os.File, res chan bool) {
@@ -175,7 +181,8 @@ func main() {
 			println("pipe:", err.Error())
 			return
 		}
-		task read(r, res)
+		var s sync.Scope // the task uses r, which this iteration owns
+		s.Task(func() { read(&r, res) })
 		if i%2 == 0 {
 			rt.Yield()
 		}

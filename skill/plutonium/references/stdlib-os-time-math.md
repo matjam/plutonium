@@ -37,9 +37,10 @@ type DirEntry struct { _ unexported }  [view]
   func (e *DirEntry) Name() string
   func (e *DirEntry) RawName() []byte
   func (e *DirEntry) Type() FileMode
-type File struct { _ unexported }  [view]
+type File owner struct { _ unexported }  [owner (moves)]
   // A File is an open file descriptor.
   func (f *File) Close() error
+  func (f *File) Drop()
   func (f *File) Fd() int
   func (f *File) Name() string
   func (f *File) Read(p []byte) (int, error)
@@ -96,8 +97,8 @@ func Chdir(dir string, a alloc.Allocator = alloc.Default()) error
 func ChdirBytes(dir []byte, a alloc.Allocator = alloc.Default()) error
 func Chmod(name string, mode FileMode, a alloc.Allocator = alloc.Default()) error
 func ChmodBytes(name []byte, mode FileMode, a alloc.Allocator = alloc.Default()) error
-func Create(name string, a alloc.Allocator = alloc.Default()) (*File, error)
-func CreateBytes(name []byte, a alloc.Allocator = alloc.Default()) (*File, error)
+func Create(name string, a alloc.Allocator = alloc.Default()) (File, error)
+func CreateBytes(name []byte, a alloc.Allocator = alloc.Default()) (File, error)
 func Environ(a alloc.Allocator = alloc.Default()) vec.Vec[string]
 func EnvironBytes(a alloc.Allocator = alloc.Default()) vec.Vec[[]byte]
 func Exit(code int)
@@ -119,14 +120,14 @@ func MkdirAllBytes(path []byte, perm FileMode, a alloc.Allocator = alloc.Default
 func MkdirBytes(name []byte, perm FileMode, a alloc.Allocator = alloc.Default()) error
 func MkdirTemp(dir, pattern string, a alloc.Allocator = alloc.Default()) (string, error)
 func NArgs() int
-func NewFile(fd int, name string, a alloc.Allocator = alloc.Default()) *File
+func NewFile(fd int, name string) File
 func NewPathError(op, path string, err error, a alloc.Allocator = alloc.Default()) synced[PathError]
 func NewPathErrorBytes(op string, path []byte, err error, a alloc.Allocator = alloc.Default()) synced[PathError]
-func Open(name string, a alloc.Allocator = alloc.Default()) (*File, error)
-func OpenBytes(name []byte, a alloc.Allocator = alloc.Default()) (*File, error)
-func OpenFile(name string, flags int, perm uint32, a alloc.Allocator = alloc.Default()) (*File, error)
-func OpenFileBytes(name []byte, flags int, perm uint32, a alloc.Allocator = alloc.Default()) (*File, error)
-func Pipe(a alloc.Allocator = alloc.Default()) (r *File, w *File, err error)
+func Open(name string, a alloc.Allocator = alloc.Default()) (File, error)
+func OpenBytes(name []byte, a alloc.Allocator = alloc.Default()) (File, error)
+func OpenFile(name string, flags int, perm uint32, a alloc.Allocator = alloc.Default()) (File, error)
+func OpenFileBytes(name []byte, flags int, perm uint32, a alloc.Allocator = alloc.Default()) (File, error)
+func Pipe(a alloc.Allocator = alloc.Default()) (r File, w File, err error)
 func ReadDir(name string, a alloc.Allocator = alloc.Default()) (DirEntries, error)
 func ReadDirBytes(name []byte, a alloc.Allocator = alloc.Default()) (DirEntries, error)
 func ReadFile(name string, a alloc.Allocator = alloc.Default()) (vec.Vec[byte], error)

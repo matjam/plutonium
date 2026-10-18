@@ -44,6 +44,7 @@ func main() {
 import (
 	"pluto/errors"
 	"pluto/os"
+	"pluto/sync"
 	"pluto/syscall"
 )
 
@@ -65,8 +66,9 @@ func main() {
 	}
 	r.Close()
 	done := make(chan bool)
+	var s sync.Scope // the tasks use w, which the function owns
 	for i := 0; i < 8; i++ {
-		task write(w, done)
+		s.Task(func() { write(&w, done) })
 	}
 	n := 0
 	for i := 0; i < 8; i++ {

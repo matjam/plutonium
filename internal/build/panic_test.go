@@ -191,7 +191,7 @@ func emit(w rt.Writer, b []byte) {
 	w.Write(b)
 }
 
-func writer(w *os.File, done chan int) {
+func writer(w os.File, done chan int) {
 	w.WriteString("hi\n")
 	w.Close()
 	done <- 1

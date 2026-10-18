@@ -92,7 +92,6 @@ func loadConfig(name string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 	f.Close()
-	alloc.Free(f)
 	return nil
 }
 

@@ -10,7 +10,6 @@ func TestCountedPathErrors(t *testing.T) {
 	testguard.Parallel(t)
 	const src = `package main
 import (
- "pluto/alloc"
  "pluto/errors"
  "pluto/os"
  "pluto/syscall"
@@ -22,7 +21,6 @@ func main() {
  var p *os.PathError
  println(errors.As(err, &p), p.Op, p.Path, errors.Is(err, syscall.EISDIR))
  f.Close()
- alloc.Free(f)
  f = os.Open("/dev/null") or panic(err)
  _, err = f.Write(b[:])
  p = nil
@@ -30,7 +28,6 @@ func main() {
  f.Close()
  _, err = f.Read(b[:])
  println(err == os.ErrClosed)
- alloc.Free(f)
 }
 `
 	for _, level := range []int{0, 2} {

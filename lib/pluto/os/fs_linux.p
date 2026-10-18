@@ -292,6 +292,9 @@ func fstatat(name []byte, sname string, st *syscall.Stat_t, flags int, op string
 // Stat describes the open file. It reports a bare syscall.Errno, as the
 // File's I/O methods do.
 func (f *File) Stat() (FileInfo, error) {
+	if !f.opened() {
+		return FileInfo{}, ErrClosed
+	}
 	var st syscall.Stat_t
 	if err := syscall.Fstat(f.fd, &st); err != nil {
 		return FileInfo{}, err
@@ -302,14 +305,27 @@ func (f *File) Stat() (FileInfo, error) {
 // Seek sets the offset for the next Read or Write (whence: io.SeekStart,
 // io.SeekCurrent or io.SeekEnd) and returns the new offset.
 func (f *File) Seek(offset int64, whence int) (int64, error) {
+	if !f.opened() {
+		return 0, ErrClosed
+	}
 	return syscall.Seek(f.fd, offset, whence)
 }
 
 // Sync flushes the file's contents to its device.
-func (f *File) Sync() error { return syscall.Fsync(f.fd) }
+func (f *File) Sync() error {
+	if !f.opened() {
+		return ErrClosed
+	}
+	return syscall.Fsync(f.fd)
+}
 
 // Truncate changes the size of the file.
-func (f *File) Truncate(size int64) error { return syscall.Ftruncate(f.fd, size) }
+func (f *File) Truncate(size int64) error {
+	if !f.opened() {
+		return ErrClosed
+	}
+	return syscall.Ftruncate(f.fd, size)
+}
 
 // ReadFile reads the named file and returns its contents in a vec.Vec that
 // allocates from a (by default the default allocator); the caller owns it
@@ -326,12 +342,10 @@ func ReadFileBytes(name []byte, a alloc.Allocator = alloc.Default()) (vec.Vec[by
 func readFile(name []byte, sname string, a alloc.Allocator) (vec.Vec[byte], error) {
 	data := vec.New[byte](a)
 	f := openFile(name, sname, syscall.O_RDONLY, 0, a) or return data, err
-	defer alloc.Free(f, a)
-	defer f.Close()
 	if fi, err := f.Stat(); err == nil && fi.size > 0 && fi.size < 1<<40 {
 		data.Reserve(int(fi.size) + 1)
 	}
-	readAll(f, &data) or {
+	readAll(&f, &data) or {
 		data.Free()
 		return data, newPathError("read", name, sname, err, a)
 	}
@@ -368,7 +382,6 @@ func writeFile(name []byte, sname string, data []byte, perm FileMode, a alloc.Al
 	f := openFile(name, sname, syscall.O_WRONLY|syscall.O_CREAT|syscall.O_TRUNC, uint32(perm.Perm()), a) or return
 	_, err := f.Write(data)
 	cerr := f.Close()
-	alloc.Free(f, a)
 	if err == nil {
 		err = cerr
 	}
@@ -876,20 +889,21 @@ func AppendMkdirTemp[D vec.Appender[byte]](dst D, dir, pattern string, a alloc.A
 var ErrPatternHasSeparator = errors.New("pattern contains path separator")
 
 // Pipe returns a connected pair of Files: reads from r return bytes
-// written to w. The Files are allocated from a, as Open's are. Their
-// descriptors are non-blocking: a task that reads an empty pipe, or
-// writes a full one, parks in the scheduler's poller and leaves its worker
-// free for others (Fd makes them blocking again).
-func Pipe(a alloc.Allocator = alloc.Default()) (r *File, w *File, err error) {
+// written to w. The Files are owners, as Open's are, and close when they
+// are dropped. Their descriptors are non-blocking: a task that reads an
+// empty pipe, or writes a full one, parks in the scheduler's poller and
+// leaves its worker free for others (Fd makes them blocking again). a
+// allocates the error of a failed call.
+func Pipe(a alloc.Allocator = alloc.Default()) (r File, w File, err error) {
 	var p [2]int32
 	if err := syscall.Pipe2(&p, syscall.O_NONBLOCK|syscall.O_CLOEXEC); err != nil {
-		return nil, nil, NewPathError("pipe", "", err, a)
+		return File{}, File{}, NewPathError("pipe", "", err, a)
 	}
-	r = alloc.New[File](a)
 	r.fd, r.name, r.poll = int(p[0]), "|0", rt.PollOpen(int(p[0]))
+	r.fdmu = fdOpen
 	r.nonblock.Store(true)
-	w = alloc.New[File](a)
 	w.fd, w.name, w.poll = int(p[1]), "|1", rt.PollOpen(int(p[1]))
+	w.fdmu = fdOpen
 	w.nonblock.Store(true)
 	return r, w, nil
 }

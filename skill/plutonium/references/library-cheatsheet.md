@@ -46,9 +46,9 @@ by the skill's test. The complete lists are `stdlib.md`, `stdlib-os-time-math.md
 |---|---|
 | `errors.New("constant")`, `errors.Is(err, target)`, `errors.As(err, &target)`, `errors.AsType[E](err)`, `errors.Join(a, b)`, `errors.Unwrap(err)` | `fmt.Errorf("ctx: %w", err)` wraps |
 | `os.Args() vec.Vec[string]`, `os.Arg(i)`, `os.NArgs()`, `os.Getenv(k)`, `os.LookupEnv(k)`, `os.Exit(n)` | `os.Exit` drops nothing and runs no deferred call |
-| `os.ReadFile(path) (vec.Vec[byte], error)`, `os.WriteFile(path, []byte, 0o644)`, `os.Open`, `os.Create`, `os.OpenFile(path, flags, perm)` | files are `*os.File`: `defer f.Close()`; `f.Read(buf[:])`, `f.Write`, `f.WriteString`, `f.Seek`, `f.Stat()` |
+| `os.ReadFile(path) (vec.Vec[byte], error)`, `os.WriteFile(path, []byte, 0o644)`, `os.Open`, `os.Create`, `os.OpenFile(path, flags, perm)` | files are `os.File` owners that close when dropped (`f.Close()` to close early and see the error); `f.Read(buf[:])`, `f.Write`, `f.WriteString`, `f.Seek`, `f.Stat()`; `&f` is an `io.Reader` and `io.Writer` |
 | `os.Stat`, `os.ReadDir`, `os.Mkdir`, `os.MkdirAll`, `os.MkdirTemp`, `os.Remove`, `os.RemoveAll`, `os.Rename`, `os.TempDir()` | errors are `*os.PathError`; `errors.Is(err, os.ErrNotExist)` |
-| `os.Stdin`, `os.Stdout`, `os.Stderr` | `*os.File` values; `io.ReadAll(os.Stdin)` returns a `vec.Vec[byte]` |
+| `os.Stdin`, `os.Stdout`, `os.Stderr` | `*os.File` pointers to files that are never dropped; `io.ReadAll(os.Stdin)` returns a `vec.Vec[byte]` |
 | `io.ReadAll(r)`, `io.ReadFull`, `io.WriteString(w, s)`, `io.EOF` | the `io.Reader` and `io.Writer` interfaces are Go's |
 | `filepath.Join`, `Base`, `Dir`, `Ext`, `Clean`, `Abs`, `Rel`, `WalkDir` | `pluto/path/filepath` |
 | `flag.NewFlagSet(name, flag.ContinueOnError)`; `fs.String`, `Int`, `Bool`, `Duration`; `fs.Parse(args)`, `fs.Args()` | pass `os.Args().Slice()[1:]` |

@@ -2,8 +2,9 @@
 // programs.
 //
 // Errors follow pluto/errors. Failed file operations report a counted
-// PathError recording the operation and path. Open uses the File's allocator;
-// Read, Write and Close use the default allocator. Successful I/O does not
+// PathError recording the operation and path, allocated from the allocator
+// given to Open (by default the default allocator). A File is an owner that
+// closes when it is dropped. Successful I/O does not
 // allocate. Read reports io.EOF at the end of input, and an
 // operation on a closed File reports ErrClosed. An Errno that the table
 // does not know reports "unknown error".
@@ -71,7 +72,10 @@ var (
 	ErrClosed     = oserror.ErrClosed     // file already closed
 )
 
-// A File is an open file descriptor.
+// A File is an open file descriptor. It is an owner (language spec section
+// 7.18): Open, Create, OpenFile and Pipe return it by value, it closes when
+// it is dropped, and it moves when it is assigned. The zero File is not
+// open: operations on it report ErrClosed, and dropping it does nothing.
 //
 // A read or write that has to wait does not hold up other tasks: on a
 // descriptor in non-blocking mode (a pipe from Pipe) the task parks
@@ -84,16 +88,17 @@ var (
 // poller: their Read or Write reports ErrClosed. A read or write that is
 // running on a descriptor in blocking mode cannot be woken; the descriptor
 // is closed when it returns. Once closed, every operation reports ErrClosed
-// (Close itself too, the second time).
+// (Close itself too, the second time), and dropping it does nothing more.
 //
 // As in Go, a write to a pipe with no reader reports syscall.EPIPE, except
 // on descriptors 1 and 2, where it ends the program with SIGPIPE.
-type File struct {
+type File owner struct {
 	fd   int
 	name string
-	// fdmu holds the closed bit (fdClosed) and the number of operations
-	// in progress, so that the descriptor is closed (and may be reused by
-	// the system) only when the last of them has finished.
+	// fdmu holds the open bit (fdOpen) and the number of operations in
+	// progress, so that the descriptor is closed (and may be reused by
+	// the system) only when the last of them has finished. The zero File
+	// is not open.
 	fdmu uint32
 	// poll is the poller's record of the descriptor if it has one (a pipe
 	// from Pipe, or a non-blocking descriptor given to NewFile), or nil.
@@ -108,7 +113,7 @@ type File struct {
 	nonblock atomic.Bool
 }
 
-const fdClosed = 1 << 31
+const fdOpen = 1 << 31
 
 // An ioWaiter is the poller's record of a non-blocking descriptor
 // (*rt.PollDesc).
@@ -136,11 +141,11 @@ func (f *File) waitIO(write bool) bool {
 }
 
 // incref registers an operation in progress, and reports false if the file
-// is closed.
+// is not open.
 func (f *File) incref() bool {
 	for {
 		v := atomic.LoadUint32(&f.fdmu)
-		if v&fdClosed != 0 {
+		if v&fdOpen == 0 {
 			return false
 		}
 		if atomic.CompareAndSwapUint32(&f.fdmu, v, v+1) {
@@ -152,10 +157,22 @@ func (f *File) incref() bool {
 // decref ends an operation; the one that finds the file closed and nothing
 // else in progress closes the descriptor.
 func (f *File) decref() error {
-	if atomic.AddUint32(&f.fdmu, ^uint32(0)) == fdClosed {
+	if atomic.AddUint32(&f.fdmu, ^uint32(0)) == 0 {
 		return f.destroy()
 	}
 	return nil
+}
+
+// opened reports whether the file is open.
+func (f *File) opened() bool { return atomic.LoadUint32(&f.fdmu)&fdOpen != 0 }
+
+// Drop closes the file if it is open, as Close does, without reporting an
+// error: the owner's release (language spec section 18.6). A program that
+// cares about the error calls Close, after which Drop has nothing to do.
+func (f *File) Drop() {
+	if f.opened() {
+		f.Close()
+	}
 }
 
 // destroy closes the descriptor, after the last operation on it.
@@ -166,19 +183,25 @@ func (f *File) destroy() error {
 	return syscall.Close(f.fd)
 }
 
-// Standard streams.
+// Standard streams. They are pointers to Files that live as long as the
+// program and are never dropped, so a program that closes one does so
+// explicitly.
 var (
-	Stdin  = &File{fd: 0, name: "/dev/stdin"}
-	Stdout = &File{fd: 1, name: "/dev/stdout"}
-	Stderr = &File{fd: 2, name: "/dev/stderr"}
+	Stdin  = &File{fd: 0, name: "/dev/stdin", fdmu: fdOpen}
+	Stdout = &File{fd: 1, name: "/dev/stdout", fdmu: fdOpen}
+	Stderr = &File{fd: 2, name: "/dev/stderr", fdmu: fdOpen}
 )
 
-// Fd returns the file descriptor. As in Go, it puts a descriptor in
+// Fd returns the file descriptor, or -1 if the file is not open. As in Go,
+// it puts a descriptor in
 // non-blocking mode (a pipe from Pipe) into blocking mode first, so that
 // it can be handed to another process (os/exec passes it to the child as
 // it is); the File's reads and writes then block their worker, announced
 // with rt.EnterSyscall, instead of parking in the poller.
 func (f *File) Fd() int {
+	if !f.opened() {
+		return -1
+	}
 	if f.nonblock.Load() {
 		if fl, err := syscall.Fcntl(f.fd, syscall.F_GETFL, 0); err == nil {
 			syscall.Fcntl(f.fd, syscall.F_SETFL, fl&^syscall.O_NONBLOCK)
@@ -188,13 +211,13 @@ func (f *File) Fd() int {
 	return f.fd
 }
 
-// NewFile returns a File for the descriptor fd, named name and allocated
-// from a, which the File owns from now on: Close closes it. A descriptor
+// NewFile returns a File for the descriptor fd, named name, which the File
+// owns from now on: Close, or dropping the File, closes it. A descriptor
 // in non-blocking mode (an end of a pipe or socket made with
 // O_NONBLOCK, SOCK_NONBLOCK or Pipe2) is waited for in the poller, as for
 // Pipe; any other descriptor is used with blocking system calls.
-func NewFile(fd int, name string, a alloc.Allocator = alloc.Default()) *File {
-	f := alloc.New[File](a)
+func NewFile(fd int, name string) File {
+	var f File
 	f.init(fd, name)
 	return f
 }
@@ -204,6 +227,7 @@ func NewFile(fd int, name string, a alloc.Allocator = alloc.Default()) *File {
 func (f *File) init(fd int, name string) {
 	f.fd = fd
 	f.name = name
+	f.fdmu = fdOpen
 	if fl, err := syscall.Fcntl(fd, syscall.F_GETFL, 0); err == nil && fl&syscall.O_NONBLOCK != 0 {
 		f.poll = rt.PollOpen(fd)
 		f.nonblock.Store(true)
@@ -302,17 +326,18 @@ func (f *File) read(p []byte) (int, error) {
 // Close closes the file. Tasks waiting to read or write it in the
 // poller are woken and report ErrClosed. If a read or write is running in a
 // system call, the descriptor is closed when it returns. Closing a closed
-// file reports ErrClosed.
+// file reports ErrClosed. Dropping a File that was closed does nothing, so
+// the error of Close is the only report of a failed close.
 func (f *File) Close() error {
 	for {
 		v := atomic.LoadUint32(&f.fdmu)
-		if v&fdClosed != 0 {
+		if v&fdOpen == 0 {
 			return ErrClosed
 		}
 		// Mark the file closed and hold a reference while waking the
 		// waiters, so that an operation finishing now does not release
 		// the poller's record under us.
-		if atomic.CompareAndSwapUint32(&f.fdmu, v, (v|fdClosed)+1) {
+		if atomic.CompareAndSwapUint32(&f.fdmu, v, (v&^fdOpen)+1) {
 			break
 		}
 	}
@@ -458,8 +483,9 @@ func lossyCopy(b []byte, a alloc.Allocator) string {
 	return rt.StringFromBytes(&b[0], len(b), a)
 }
 
-// Open opens a file for reading, allocating as OpenFile does.
-func Open(name string, a alloc.Allocator = alloc.Default()) (*File, error) {
+// Open opens a file for reading, allocating as OpenFile does. The File is an
+// owner that closes when it is dropped; on failure it is the zero File.
+func Open(name string, a alloc.Allocator = alloc.Default()) (File, error) {
 	return OpenFile(name, syscall.O_RDONLY, 0, a)
 }
 
@@ -473,28 +499,29 @@ func Open(name string, a alloc.Allocator = alloc.Default()) (*File, error) {
 // RenameBytes, ChmodBytes, ChdirBytes). The error it reports and the File's
 // Name hold the path with each invalid byte replaced by U+FFFD; the caller
 // still has the exact bytes.
-func OpenBytes(name []byte, a alloc.Allocator = alloc.Default()) (*File, error) {
+func OpenBytes(name []byte, a alloc.Allocator = alloc.Default()) (File, error) {
 	return OpenFileBytes(name, syscall.O_RDONLY, 0, a)
 }
 
 // Create creates or truncates a file for writing, allocating as OpenFile
 // does.
-func Create(name string, a alloc.Allocator = alloc.Default()) (*File, error) {
+func Create(name string, a alloc.Allocator = alloc.Default()) (File, error) {
 	return OpenFile(name, syscall.O_WRONLY|syscall.O_CREAT|syscall.O_TRUNC, 0o644, a)
 }
 
 // CreateBytes is Create for a name that is bytes (see OpenBytes).
-func CreateBytes(name []byte, a alloc.Allocator = alloc.Default()) (*File, error) {
+func CreateBytes(name []byte, a alloc.Allocator = alloc.Default()) (File, error) {
 	return OpenFileBytes(name, syscall.O_WRONLY|syscall.O_CREAT|syscall.O_TRUNC, 0o644, a)
 }
 
-// OpenFile opens a file with the given flags and permissions. The File, or
-// on failure the *PathError, is allocated from a, by default the default
-// allocator. Free the File with alloc.Free after Close. The counted error
-// releases its storage with its last reference.
-func OpenFile(name string, flags int, perm uint32, a alloc.Allocator = alloc.Default()) (*File, error) {
+// OpenFile opens a file with the given flags and permissions. The File is
+// an owner that closes when it is dropped (language spec section 18.6); on
+// failure it is the zero File and the error is a *PathError allocated from
+// a, by default the default allocator. The counted error releases its
+// storage with its last reference.
+func OpenFile(name string, flags int, perm uint32, a alloc.Allocator = alloc.Default()) (File, error) {
 	f, err := openFile(strBytes(name), name, flags, perm, a)
-	if f != nil {
+	if err == nil {
 		// A name made with unsafe.String may view memory that does not
 		// live as long as the File: keep a counted copy of it.
 		f.name = rt.KeepString(name, a)
@@ -503,9 +530,9 @@ func OpenFile(name string, flags int, perm uint32, a alloc.Allocator = alloc.Def
 }
 
 // OpenFileBytes is OpenFile for a name that is bytes (see OpenBytes).
-func OpenFileBytes(name []byte, flags int, perm uint32, a alloc.Allocator = alloc.Default()) (*File, error) {
+func OpenFileBytes(name []byte, flags int, perm uint32, a alloc.Allocator = alloc.Default()) (File, error) {
 	f, err := openFile(name, "", flags, perm, a)
-	if f != nil {
+	if err == nil {
 		f.name = lossyCopy(name, a)
 	}
 	return f, err
@@ -513,12 +540,13 @@ func OpenFileBytes(name []byte, flags int, perm uint32, a alloc.Allocator = allo
 
 // openFile opens name, which sname is the string form of (or "" if the
 // caller has only bytes), and returns a File without its name.
-func openFile(name []byte, sname string, flags int, perm uint32, a alloc.Allocator) (*File, error) {
+func openFile(name []byte, sname string, flags int, perm uint32, a alloc.Allocator) (File, error) {
 	var buf [maxPath]byte
 	path := cpathBytes(name, &buf) or return newPathError("open", name, sname, err, a)
 	fd := syscall.Open(path, flags|syscall.O_CLOEXEC, perm) or return newPathError("open", name, sname, err, a)
-	f := alloc.New[File](a)
+	var f File
 	f.fd = fd
+	f.fdmu = fdOpen
 	return f, nil
 }
 

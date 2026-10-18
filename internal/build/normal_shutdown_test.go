@@ -293,7 +293,7 @@ type payload owner struct{live bool;buf [4]byte}
 func(p *payload)Drop(){if p.live{println("payload");p.live=false}}
 type observer owner struct{live bool}
 func(o *observer)Drop(){if o.live{
- f,e:=os.Open("/dev/zero");if e!=nil{panic("open zero failed")};defer f.Close()
+ f,e:=os.Open("/dev/zero");if e!=nil{panic("open zero failed")}
  n,e:=f.Read(target);println("read",n==4,e==nil,target[0]==0);o.live=false
 }}
 var final=observer{live:true}

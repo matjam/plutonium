@@ -37,7 +37,7 @@ Library names that differ or do not exist (checked against the library by the sk
 | `strings.NewReader`, `NewReplacer`, `Title` | none; use `strings.Builder`, `ReplaceAll`, loops |
 | `os.Args` (a variable) | `os.Args()` returns `vec.Vec[string]`; or `os.Arg(i)`, `os.NArgs()` |
 | `os.IsNotExist(err)` | `errors.Is(err, os.ErrNotExist)` |
-| `os.Open` returns `*os.File` | the same, `defer f.Close()`; `os.ReadFile` returns `vec.Vec[byte]`, so `text, err := strings.FromUTF8(data.Slice())` |
+| `os.Open` returns `*os.File` | `os.Open` returns an `os.File`, an owner that closes when its variable goes out of scope (`f.Close()` reports the error and leaves the drop nothing to do); pass `&f` where an `io.Reader` is wanted; `os.ReadFile` returns `vec.Vec[byte]`, so `text, err := strings.FromUTF8(data.Slice())` |
 | `bufio.Scanner`, `bufio.Reader` | `io.ReadAll(os.Stdin)` then `strings.Lines`, or `os.Stdin.Read(buf[:])` |
 | `fmt.Sscanf`, `fmt.Scan*` | `strconv.Atoi`, `ParseInt`, `ParseFloat` on pieces from `strings.Cut` / `SplitSeq` |
 | `sort.Slice(x, func(i, j int) bool)` | `sort.SortFunc(x, func(a, b T) bool)` (less) or `slices.SortFunc(x, func(a, b T) int)` (three-way) |
@@ -169,7 +169,7 @@ rt.ExitTask
 | a struct with a `[]string` history field it appends to | a `vec.Vec[string]` field, so the struct is declared `owner` | |
 | an interface holding tree nodes built by a parser | `type Node owner interface`, node structs `owner`, built with `new(T{...})` (`idioms-types-memory.md` #9) | `&T{...}` would be E3001 |
 | a mutex in the container guarding the records | each shared record needs a mutex of its own (E3502) | rule 3, `concurrency.md` |
-| `type T struct{ f *os.File }` | the field is a pointer (view) | fine; closing is explicit |
+| `type T struct{ f *os.File }` | `type T owner struct{ f os.File }` | the struct owns the file and closes it when dropped; a borrowed file is a `*os.File` |
 | a struct holding a `vec.Vec`, `owned[T]`, `strings.Builder` | declare it `owner` | E3202 |
 | copying such a struct | moves it; `Clone()` to copy | E3301 |
 | `x := m[k]` where `m` is `hash.Map` | works via `Index`; `&m[k]` is E2454 | use `m.Ptr(k)` |

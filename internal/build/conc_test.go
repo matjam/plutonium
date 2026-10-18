@@ -273,15 +273,15 @@ func main() {
 		{name: "poller", want: "got 40000 bytes\n", src: `package main
 
 import (
-	"pluto/alloc"
 	"pluto/os"
 	"pluto/rt"
 )
 
 // os.Pipe's descriptors are non-blocking: the reader of an empty pipe parks
 // in the poller, so the writer runs even with one processor, and the
-// writer parks there too when the pipe is full.
-func writer(w *os.File) {
+// writer parks there too when the pipe is full. The writer task owns its
+// end of the pipe: the File moves into it.
+func writer(w os.File) {
 	var chunk [1000]byte
 	for i := range chunk {
 		chunk[i] = 'x'
@@ -310,15 +310,12 @@ func main() {
 		total += n
 	}
 	r.Close()
-	alloc.Free(r)
-	alloc.Free(w)
 	println("got", total, "bytes")
 }
 `},
 		{name: "execpipe", want: "run true\nread 200000\n", src: `package main
 
 import (
-	"pluto/alloc"
 	"pluto/os"
 	"pluto/os/exec"
 )
@@ -328,7 +325,7 @@ import (
 // waits when the pipe is full instead of failing with EAGAIN. Meanwhile a
 // task drains the read end through the poller while main waits for
 // the child.
-func drain(r *os.File, done chan int) {
+func drain(r os.File, done chan int) {
 	var buf [4096]byte
 	total := 0
 	for {
@@ -350,15 +347,12 @@ func main() {
 	done := make(chan int)
 	task drain(r, done)
 	c := exec.Command("sh", "-c", "head -c 200000 /dev/zero")
-	c.Stdout = w
+	c.Stdout = &w
 	err = c.Run()
 	println("run", err == nil)
 	c.Drop()
 	w.Close()
 	println("read", <-done)
-	r.Close()
-	alloc.Free(r)
-	alloc.Free(w)
 }
 `},
 		{name: "fairness", want: "fair true\n", src: `package main

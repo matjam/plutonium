@@ -267,6 +267,15 @@ against the corrected specification. The immediate implementation order is:
      so its view may cross. An allocator without a lock (an arena, a bump allocator) is still E3501. Tests:
      `internal/race/cases_test.go` (a vec and a map cross in a program that formats text; a vec on a lockless
      allocator does not).
+134. **`os.File` is an owner** (done, `HASH134`; sections 7.18, 18.6, A.3; found with item 132). `os.Open`,
+     `os.Create`, `os.OpenFile`, their `Bytes` forms and `os.NewFile` return an `os.File` by value, and
+     `os.Pipe` returns two; `File` is `owner struct` with a `Drop` that closes the descriptor if it is open.
+     The zero File is not open (its open bit is clear, so every operation reports `ErrClosed` and `Fd`
+     returns -1), `Close` is idempotent and leaves `Drop` nothing to do, and `os.Stdin`, `Stdout` and `Stderr`
+     stay `*os.File` pointers to files that are never dropped. `alloc.Free` of a File is gone from `lib`, and
+     the tests share a File among tasks through a `sync.Scope` (a view of an owner cannot outlive it) or move it
+     into a task. Tests: `testdata/plutonium/osfile.p` (drop at scope end, early return, close then drop,
+     zero File, a File in an owner struct, `clear` of an array of files, pipes, files on disk; debug allocator).
 
 
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a
@@ -696,9 +705,7 @@ compiler (2026-10-11).
     buffer of `pluto/fmt`'s own; `Appendf` formats into a `vec.Vec` or `vec.Fixed`.
 51. **Owner types in the library** (in progress; sections 7.18 and 18.10): `vec.Vec`, `hash.Map`,
     `hash.Set`, `strings.Builder`, `bytes.Buffer`, `heap.Heap`, `flag.FlagSet`, `os.DirEntries`,
-    `exec.Cmd`, `arena.Chunked` and `sync.Scope` are owners with `Drop`. Open: `os.File` is a `*File` from
-    an allocator, freed with `alloc.Free`; it becomes an owner returned by value from `Open`, `Create`,
-    `OpenFile` and `Pipe`, closing on drop.
+    `exec.Cmd`, `arena.Chunked`, `sync.Scope` and `os.File` (item 134) are owners with `Drop`.
 52. **The `pu` mirror package for self-hosting** (done, `de6aa50`; migrating the compiler to it is not
     started; [plan](plans/2026-10-09-self-hosting-plan.md)): a Go package `pu` with the library owners,
     which go2pu maps one to one. A Go `map` translates to the built-in map unchanged (item 60).
