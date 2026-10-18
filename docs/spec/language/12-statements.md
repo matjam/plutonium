@@ -953,7 +953,7 @@ func (devnull) Write(p []byte) (n int, _ error) {
 
 Regardless of how they are declared, all the result values are initialized to the zero values for their type upon entry to the function. A `return` statement that specifies results sets the result parameters before any deferred functions are executed.
 
-An empty expression list in a `return` statement is an error (E0160) if a different entity (constant, type or variable) with the same name as a result parameter is in scope at the place of the return.
+An empty expression list in a `return` statement is an error (E0104) if a different entity (constant, type or variable) with the same name as a result parameter is in scope at the place of the return.
 
 ```go
 func f(n int) (res int, err error) {
