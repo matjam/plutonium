@@ -46,7 +46,22 @@ func buildDebugAllocWith(t *testing.T, src string, cfg build.Config) string {
 // its output (stdout, then stderr) and exit status, with the extra
 // environment variables env. A death by signal fails the test: the debug
 // allocator must turn faults into messages.
+//
+// A run in which main returned with tasks still running (the abandon path of
+// section 15.4: the debug allocator prints a line instead of its leak report)
+// is run again, because a program that joins its tasks with a WaitGroup or a
+// channel can take that path when the machine is loaded (decision D31; see
+// joined_test.go). The run returned is one that accounted exactly. A test
+// that wants the abandon path calls runDebugAllocRaw.
 func runDebugAlloc(t *testing.T, prog, settings string, env ...string) (string, int) {
+	t.Helper()
+	return untilRetired(t, func() (string, int) { return runDebugAllocRaw(t, prog, settings, env...) },
+		func(out string, _ int) bool { return tookAbandonPath(out) })
+}
+
+// runDebugAllocRaw is runDebugAlloc without the repetition of a run that
+// took the abandon path.
+func runDebugAllocRaw(t *testing.T, prog, settings string, env ...string) (string, int) {
 	t.Helper()
 	cmd := exec.Command(prog)
 	cmd.Env = append(append(os.Environ(), "PLUTO_DEBUGALLOC="+settings), env...)

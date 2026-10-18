@@ -368,7 +368,11 @@ func main(){stack.base=alloc.Default();rt.Go(worker,64<<10,&stack);for done.Load
 	for _, opt := range []int{0, 2} {
 		t.Run("O"+strconv.Itoa(opt), func(t *testing.T) {
 			testguard.Parallel(t)
-			out, status := runNormalShutdown(t, source, opt)
+			// main waits on an atomic counter, which the tasks raise before
+			// they return: a run can end before they retire (decision D31).
+			// That run prints nothing (no cleanup) and is run again.
+			out, status := untilRetired(t, func() (string, int) { return runNormalShutdown(t, source, opt) },
+				func(out string, status int) bool { return status == 0 && out == "" })
 			if status != 0 || out != "retired true true\n" {
 				t.Fatalf("status %d, output %q; want retired true true", status, out)
 			}

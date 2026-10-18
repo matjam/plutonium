@@ -230,6 +230,17 @@ against the corrected specification. The immediate implementation order is:
      declared `owner` to take the box (`explainImplements`, `internal/diag/typecheck.go`); other contexts
      keep `&T{...}`. Tests: `cmd/pluto/testdata/diag/ptr_recv_return`, `testdata/plutonium/newiface.p`.
 
+125. **Tests that join tasks without a `sync.Scope` no longer depend on the exit grace** (done; decision D31,
+     section 15.4). `TestBoxTasks`, `TestMapTasks` and every test that runs a program under the debug
+     allocator with a `WaitGroup`, channel or counter join failed now and then with "1 task still running
+     at exit" when the machine was loaded: only a scope join guarantees that the tasks have retired when
+     `main` returns. `runDebugAlloc` runs again a program whose run took the abandon path, and the
+     run that accounts is the one checked, for the output, the status and the leak report
+     (`internal/build/joined_test.go`, `untilRetired`; 30 abandoned runs in a row fail the test);
+     `TestNormalTerminationJoinedTasks` (WaitGroup and channel cases), `TestNormalShutdownTaskRetirement`
+     and `TestConcDebugAlloc` do the same, and the scope case still requires the cleanup of every run.
+     `TestNormalTerminationDebugAllocator`, which expects the abandon line, uses `runDebugAllocRaw`.
+
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a
 literal zero bound. Existing virtual-reservation fallback and overflow handling are
 implemented, but do not satisfy inference. Then fill the small unverified witness

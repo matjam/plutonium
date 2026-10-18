@@ -670,7 +670,11 @@ func main() {
 	println("sum", sum)
 }
 `, build.Config{OptLevel: 2, Alloc: "debug"})
-	out, status := runConc(t, prog, "PLUTO_DEBUGALLOC=leaks=fail")
+	// The workers release main with Done while they are still returning: a
+	// run can end before they retire and skip the leak report (decision
+	// D31); it is run again, and the run that accounts must find no leak.
+	out, status := untilRetired(t, func() (string, int) { return runConc(t, prog, "PLUTO_DEBUGALLOC=leaks=fail") },
+		func(out string, _ int) bool { return tookAbandonPath(out) })
 	if status != 0 || out != "sum 328350\n" {
 		t.Errorf("status %d, output:\n%s", status, out)
 	}

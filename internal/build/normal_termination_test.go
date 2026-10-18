@@ -54,9 +54,12 @@ var global = resource{live: true}
 }
 
 // The tasks of a joined program have finished, so package cleanup runs. A
-// sync.Scope join guarantees it; a sync.WaitGroup or channel join makes it
-// likely (decision D31), and the tasks here do nothing after the wake-up that
-// could delay their end beyond the runtime's short wait.
+// sync.Scope join guarantees it, and the scope case requires it of every run.
+// A sync.WaitGroup or channel join makes it likely but does not guarantee it
+// (decision D31): a run of those cases that ends without package cleanup is
+// the abandon path of section 15.4, which ends with main's status and its
+// output and nothing more, and is run again; the test requires the cleanup of
+// a run that does not take it (joined_test.go).
 func TestNormalTerminationJoinedTasks(t *testing.T) {
 	testguard.Parallel(t)
 	const resource = `
@@ -100,8 +103,13 @@ func main() int64 {
 		for _, opt := range []int{0, 2} {
 			t.Run(tc.name+"/O"+strconv.Itoa(opt), func(t *testing.T) {
 				testguard.Parallel(t)
+				abandoned := func(out string, status int) bool {
+					// Only a join other than a Scope may end without cleanup,
+					// and then with main's output alone.
+					return tc.name != "scope" && status == 3 && strings.HasPrefix(out, "main ") && strings.Count(out, "\n") == 1
+				}
 				for i := 0; i < 5; i++ {
-					out, status := runNormalShutdown(t, tc.body+resource, opt)
+					out, status := untilRetired(t, func() (string, int) { return runNormalShutdown(t, tc.body+resource, opt) }, abandoned)
 					if status != 3 || !strings.HasSuffix(out, "\npackage cleanup\n") {
 						t.Fatalf("run %d: status %d, output %q; want status 3 and package cleanup", i, status, out)
 					}
@@ -138,13 +146,13 @@ func main() {
 		t.Run("O"+strconv.Itoa(opt), func(t *testing.T) {
 			testguard.Parallel(t)
 			prog := buildDebugAlloc(t, abandoned, opt)
-			out, status := runDebugAlloc(t, prog, "")
+			out, status := runDebugAllocRaw(t, prog, "")
 			want := "debug allocator: 2 tasks still running at exit; the leak report is skipped\n"
 			if status != 5 || out != want {
 				t.Fatalf("status %d, output %q; want status 5, %q", status, out, want)
 			}
 			prog = buildDebugAlloc(t, joined, opt)
-			out, status = runDebugAlloc(t, prog, "")
+			out, status = runDebugAllocRaw(t, prog, "")
 			if status != 2 || !strings.Contains(out, "1 allocation still live") || strings.Contains(out, "running") {
 				t.Fatalf("status %d, output %q; want status 2 and a leak report", status, out)
 			}
